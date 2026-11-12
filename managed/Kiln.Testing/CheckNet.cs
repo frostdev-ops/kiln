@@ -49,15 +49,18 @@ internal sealed record NetAttest
     public string? Kiln { get; init; }
     public DateTime Taken { get; init; }
     public string? Problem { get; init; }
+    public bool Throwaway { get; init; }
 
     public Attestation ToAttestation() => new()
     {
         Latched = Latched, Status = Status?.ToStatus(), Proof = Proof, Sha256 = Sha256, Kiln = Kiln, Taken = Taken.ToUniversalTime(), Problem = Problem,
+        Throwaway = Throwaway,
     };
 
     public static NetAttest Of(Attestation a) => new()
     {
         Latched = a.Latched, Status = NetGuard.Of(a.Status), Proof = a.Proof, Sha256 = a.Sha256, Kiln = a.Kiln, Taken = a.Taken, Problem = a.Problem,
+        Throwaway = a.Throwaway,
     };
 }
 
@@ -113,6 +116,7 @@ internal sealed class CheckNet
     private bool _runningAll;
     private NetPeer? _server;
     private string? _changed;
+    private ViewItem? _asking;  // a cheats check waiting for the runner's throwaway question, asked here on the client
 
     private CheckNet(CheckRunner runner, IRunnerEnv env, NetChannel channel)
     {
@@ -218,16 +222,25 @@ internal sealed class CheckNet
         if (Joined) _channel.SendToServer(new NetCatalogRequest());
     }
 
-    /// <summary>Starts a server check from the joined client's screen. For a cheats check this client's guard latches here
-    /// and its answer goes with the request.</summary>
+    /// <summary>Starts a server check from the joined client's screen. A cheats check first asks the runner's
+    /// throwaway-character question here, each time; on yes this client's guard latches and its answer, with the yes,
+    /// goes with the request.</summary>
     public void Start(ViewItem item)
     {
-        NetAttest? attest = null;
         if (item.Cheats)
         {
-            var a = CheatsRule.Attest(item.Mod + "/" + item.Id, _env.Guard, _runner.Ledger.ReadFile, _env.Game, _env.Now);
-            attest = NetAttest.Of(a);
+            lock (_lock)
+            {
+                _asking = item;
+                _message = null;
+            }
+            return;
         }
+        Send(item, null);
+    }
+
+    private void Send(ViewItem item, NetAttest? attest)
+    {
         lock (_lock) _message = $"starting {item.Mod}/{item.Id}";
         _channel.SendToServer(new NetStart { Mod = item.Mod, Id = item.Id, Attest = attest });
     }
@@ -255,6 +268,34 @@ internal sealed class CheckNet
 
     public void Answer(AnswerKind kind, string? note = null)
     {
+        ViewItem? asked;
+        lock (_lock)
+        {
+            asked = _asking;
+            if (asked is not null && kind is AnswerKind.Yes or AnswerKind.No or AnswerKind.Stop) _asking = null;
+        }
+        if (asked is not null)
+        {
+            if (kind == AnswerKind.Yes)
+            {
+                var a = CheatsRule.Attest(asked.Mod + "/" + asked.Id, _env.Guard, _runner.Ledger.ReadFile, _env.Game, _env.Now) with { Throwaway = true };
+                Send(asked, NetAttest.Of(a));
+            }
+            else if (kind is AnswerKind.No or AnswerKind.Stop)
+            {
+                lock (_lock)
+                {
+                    _message = $"{asked.Mod}/{asked.Id} not started: the player answered no";
+                    if (kind == AnswerKind.Stop)
+                    {
+                        _all.Clear();
+                        _runningAll = false;
+                    }
+                }
+                if (kind == AnswerKind.No) Next();
+            }
+            return;
+        }
         GuardStatus? guard = null;
         bool cheats;
         lock (_lock)
@@ -332,9 +373,12 @@ internal sealed class CheckNet
             var newest = _runner.Ledger.Newest();
             var items = (_catalog?.Checks ?? []).Select(i =>
                 newest.TryGetValue(i.Mod + "/" + i.Id, out var e) ? i with { Verdict = e.Verdict, Note = e.Note } : i).ToList();
+            var current = _asking is { } q
+                ? new ViewCurrent(q.Mod, q.Id, q.Title, q.Area, "confirming", CheatsRule.ThrowawayQuestion, CheatsRule.ThrowawayQuestion, [], "joined", true)
+                : _current;
             return local with
             {
-                Session = "joined", Items = items, Current = _current, Message = _message ?? (_catalog is null ? "asking the server for its checks" : null),
+                Session = "joined", Items = items, Current = current, Message = _message ?? (_catalog is null ? "asking the server for its checks" : null),
                 Queued = _all.Count, Changed = _changed ?? local.Changed,
             };
         }
@@ -358,6 +402,7 @@ internal sealed class CheckNet
             _server = server;
             _catalog = null;
             _current = null;
+            _asking = null;
             _all.Clear();
             _runningAll = false;
             _message = null;

@@ -109,7 +109,7 @@ internal static class CheckScreen
         ui.TextDisabled($"{c.Mod}/{c.Id} · {c.Area}{(c.Cheats ? " · cheats" : "")}");
         if (c.Phase == "confirming" && c.Confirm is { } confirm)
         {
-            var key = c.Mod + "/" + c.Id;
+            var key = c.Mod + "/" + c.Id + "\n" + confirm;  // a second question for the same check waits again
             if (s.ConfirmKey != key)
             {
                 s.ConfirmKey = key;

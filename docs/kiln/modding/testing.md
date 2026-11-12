@@ -130,10 +130,18 @@ reports, and refuses it in every other state. Every line must hold, each read at
    game build (sha256) and Kiln version, is a pass. The first `cheats` check on a new build is the one that shows the
    guard working; until its newest run passed (a later fail or skip closes the gate again), every other `cheats` check
    is refused.
-5. The character of the player the check changes is a throwaway one: its name starts with `KilnCheck` (exact case),
-   read on the server side when the check starts. A name that cannot be read refuses. **Today Kiln has no reader for
-   a character's name** (the server sees the player's platform name and the character's id, not its name), so this
-   line refuses every `cheats` check until one exists.
+5. The character of the player the check changes is a throwaway one. Where Kiln can read the character's name (on the
+   server side, when the check starts), it must start with `KilnCheck` (exact case), and no answer replaces that. Where
+   it cannot, the runner asks before every `cheats` check, each time, with its own question and its own "Yes, run it"
+   (never the pass key, never remembered): "This check changes the character for good. Run it only on a throwaway
+   character named KilnCheck… that you will delete afterwards. Is the character you are playing now such a
+   character?" No yes: the check does not start and has no entry. In a joined session the question is asked on the
+   joining client and the yes travels with the start request. A `guard-proof` check then asks twice: the runner's
+   question first, then its own `Confirm`. The entry records which form held, as an assertion row ("throwaway
+   character: name starts with KilnCheck" or "throwaway character: confirmed by the player").
+   **Today Kiln cannot read a character's name anywhere**: the server sees the player's platform name and the
+   character's id, not its name, which lives in the character's save on the player's own PC. So today the question is
+   always asked.
 
 A missing guard, a status that does not arrive or arrives late, a read that throws, a latch that says no and a ledger
 that cannot be read all refuse. The refusal names the line that failed, in the list, in kiln.log

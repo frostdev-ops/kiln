@@ -477,8 +477,30 @@ public sealed class RefusalMatrixTests
         Refused(h, "line 5", "throwaway character");
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void An_unreadable_name_asks_and_no_yes_does_not_start(bool throws)
+    {
+        using var h = new Harness(x =>
+        {
+            x.Seed(Harness.ProofEntry("pass"));
+            x.Env.Character = null;
+            x.Env.CharacterThrows = throws;
+        });
+        h.Start("t.cheats");
+        Assert.Equal(CheatsRule.ThrowawayQuestion, h.Runner.View.Current!.Confirm);
+        Assert.Equal(0, h.Guard!.Latches);  // nothing latched before the yes
+        Assert.NotNull(h.Runner.Answer(AnswerKind.Pass));  // the pass key is not a yes
+        Assert.Null(h.Runner.Answer(AnswerKind.No));
+        h.Pump();
+        Assert.NotNull(h.Last(RunEventKind.Declined));
+        Assert.Equal(0, CheckMod.CheatsRan);
+        Assert.Equal(h.Seeded, h.OnDisk().Count);
+    }
+
     [Fact]
-    public void A_character_name_that_cannot_be_read()
+    public void An_unreadable_name_and_a_yes_runs_and_says_so_in_the_entry()
     {
         using var h = new Harness(x =>
         {
@@ -486,31 +508,71 @@ public sealed class RefusalMatrixTests
             x.Env.Character = null;
         });
         h.Start("t.cheats");
-        Refused(h, "line 5", "cannot be read here");
+        Assert.Null(h.Runner.Answer(AnswerKind.Yes));
+        h.Pump();
+        Assert.Equal(1, CheckMod.CheatsRan);
+        var e = h.Answer(AnswerKind.Pass);
+        Assert.Contains(e.Assertions, a => a.Ok && a.What == "throwaway character: confirmed by the player");
+        // asked again for the next cheats check: a yes is never remembered
+        h.Events.Clear();
+        h.Start("t.cheats");
+        Assert.Equal(CheatsRule.ThrowawayQuestion, h.Runner.View.Current!.Confirm);
+        Assert.Equal(1, CheckMod.CheatsRan);
     }
 
     [Fact]
-    public void A_character_name_read_that_throws()
+    public void Guard_proof_with_an_unreadable_name_asks_twice_the_runner_first()
+    {
+        using var h = new Harness(x => x.Env.Character = null);
+        DropOneReport(h);
+        h.Start("t.proof");
+        Assert.Equal(CheatsRule.ThrowawayQuestion, h.Runner.View.Current!.Confirm);
+        Assert.Null(h.Runner.Answer(AnswerKind.Yes));
+        h.Pump();
+        Assert.StartsWith("This writes an achievement.", h.Runner.View.Current!.Confirm);
+        Assert.Equal(0, CheckMod.ProofRan);
+        Assert.Null(h.Runner.Answer(AnswerKind.Yes));
+        h.Pump();
+        Assert.Equal(1, CheckMod.ProofRan);
+        Assert.Equal("pass", h.Answer(AnswerKind.Pass).Verdict);
+    }
+
+    [Fact]
+    public void A_readable_name_without_the_prefix_is_refused_without_a_question()
     {
         using var h = new Harness(x =>
         {
             x.Seed(Harness.ProofEntry("pass"));
-            x.Env.CharacterThrows = true;
+            x.Env.Character = "Ada";
         });
         h.Start("t.cheats");
-        Refused(h, "line 5", "threw");
+        Assert.Null(h.Last(RunEventKind.Confirming));  // no question: a yes could not replace the name
+        Refused(h, "line 5", "'Ada'");
     }
 
     [Fact]
     public void Joined_reads_the_name_on_the_server_too()
     {
         using var h = new Harness(x => x.Env.Character = "Bob");
-        h.Start("t.cheats", CheckOrigin.Remote, Good(h.Env.Now), "peer");
+        h.Start("t.cheats", CheckOrigin.Remote, Good(h.Env.Now) with { Throwaway = true }, "peer");
         Refused(h, "line 5", "'Bob'");
     }
 
     [Fact]
-    public void The_prefix_lets_it_run()
+    public void Joined_with_an_unreadable_name_needs_the_clients_yes()
+    {
+        using var h = new Harness(x => x.Env.Character = null);
+        h.Start("t.cheats", CheckOrigin.Remote, Good(h.Env.Now), "peer");
+        Refused(h, "line 5", "did not confirm");
+        h.Events.Clear();
+        h.Start("t.cheats", CheckOrigin.Remote, Good(h.Env.Now) with { Throwaway = true }, "peer");
+        Assert.Equal(1, CheckMod.CheatsRan);
+        var e = h.Answer(AnswerKind.Pass, null, "peer");
+        Assert.Contains(e.Assertions, a => a.What == "throwaway character: confirmed by the player");
+    }
+
+    [Fact]
+    public void The_prefix_lets_it_run_without_the_question()
     {
         using var h = new Harness(x =>
         {
@@ -518,7 +580,9 @@ public sealed class RefusalMatrixTests
             x.Env.Character = "KilnCheck 1";
         });
         h.Start("t.cheats");
+        Assert.Null(h.Last(RunEventKind.Confirming));
         Assert.Equal(1, CheckMod.CheatsRan);
+        Assert.Contains(h.Answer(AnswerKind.Pass).Assertions, a => a.Ok && a.What == "throwaway character: name starts with KilnCheck");
     }
 
     // ---- guard-proof and the dropped counter ----

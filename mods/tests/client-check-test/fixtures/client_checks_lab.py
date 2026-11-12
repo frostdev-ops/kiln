@@ -109,11 +109,15 @@ class Lab:
         return raw, json.loads(raw)
 
     def kiln_log(self):
-        try:
-            with open(self.log, encoding="utf-8", errors="replace") as f:
-                return f.read()
-        except OSError:
-            return ""
+        """kiln.log of this start and of the one before it (a start moves the old log to kiln.prev.log)."""
+        text = ""
+        for p in [os.path.join(os.path.dirname(self.log), "kiln.prev.log"), self.log]:
+            try:
+                with open(p, encoding="utf-8", errors="replace") as f:
+                    text += f.read()
+            except OSError:
+                pass
+        return text
 
 
 def wait_runner(lab, timeout=240):
@@ -250,7 +254,7 @@ def main():
         print(f"FAIL the lab {a.lab} is running; stop it first")
         return 1
     # a fresh ledger, no marker, the check folder, the lab transport
-    for p in [lab.ledger, os.path.join(lab.kiln, "data", MOD, "cheats-body-ran")]:
+    for p in [lab.ledger, os.path.join(lab.kiln, "data", MOD, "cheats-body-ran"), os.path.join(lab.kiln, "logs", "kiln.prev.log"), lab.log]:
         if os.path.exists(p):
             os.remove(p)
     for f in os.listdir(os.path.join(lab.kiln, "state")) if os.path.isdir(os.path.join(lab.kiln, "state")) else []:

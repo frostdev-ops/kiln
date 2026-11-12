@@ -64,6 +64,9 @@ internal sealed record Attestation
     /// <summary>When the client read it (UTC).</summary>
     public DateTime Taken { get; init; }
 
+    /// <summary>The player answered the runner's throwaway-character question with yes on the client for this start.</summary>
+    public bool Throwaway { get; init; }
+
     /// <summary>A line on why the client could not answer, when it could not.</summary>
     public string? Problem { get; init; }
 }
@@ -245,25 +248,46 @@ internal static class CheatsRule
 
     internal const string Line5 = "line 5";
 
-    /// <summary>Line 5: the character of the player the check changes is a throwaway one, its name read on the server
-    /// side now. A name that cannot be read refuses.</summary>
-    public static Refusal? Character(IRunnerEnv env, EntityId player)
+    /// <summary>The runner's own question before a cheats check, each time, where the character's name cannot be read.</summary>
+    internal const string ThrowawayQuestion =
+        "This check changes the character for good. Run it only on a throwaway character named KilnCheck… that you will delete afterwards. " +
+        "Is the character you are playing now such a character?";
+
+    internal const string FormRead = "throwaway character: name starts with KilnCheck", FormAsked = "throwaway character: confirmed by the player";
+
+    /// <summary>The character's name, or null when it cannot be read (a read that throws counts as that).</summary>
+    public static string? ReadName(IRunnerEnv env, EntityId player, out string why)
     {
-        string? name;
-        string why;
         try
         {
-            name = env.CharacterName(player, out why);
+            return env.CharacterName(player, out why);
         }
         catch (Exception e)
         {
-            name = null;
             why = $"reading it threw {e.GetType().Name}";
+            return null;
         }
-        if (name is null)
-            return new Refusal(Line5, $"cheats checks run only on a throwaway character whose name starts with {ThrowawayPrefix}, and this character's name cannot be read here ({why})");
-        if (!name.StartsWith(ThrowawayPrefix, StringComparison.Ordinal))
-            return new Refusal(Line5, $"cheats checks run only on a throwaway character whose name starts with {ThrowawayPrefix} (this one is '{name}')");
+    }
+
+    /// <summary>Line 5: the character of the player the check changes is a throwaway one. Its name is read on the
+    /// server side now: a readable name must start with <see cref="ThrowawayPrefix"/> (a yes does not replace that);
+    /// where it cannot be read, the player must have answered <see cref="ThrowawayQuestion"/> with yes for this start
+    /// (<paramref name="confirmed"/>). <paramref name="form"/> says which held, for the entry.</summary>
+    public static Refusal? Character(IRunnerEnv env, EntityId player, bool confirmed, out string? form)
+    {
+        form = null;
+        var name = ReadName(env, player, out var why);
+        if (name is not null)
+        {
+            if (!name.StartsWith(ThrowawayPrefix, StringComparison.Ordinal))
+                return new Refusal(Line5, $"cheats checks run only on a throwaway character whose name starts with {ThrowawayPrefix} (this one is '{name}')");
+            form = FormRead;
+            return null;
+        }
+        if (!confirmed)
+            return new Refusal(Line5, $"this character's name cannot be read here ({why}), and the player did not confirm that it is a throwaway " +
+                                      $"character named {ThrowawayPrefix}…");
+        form = FormAsked;
         return null;
     }
 

@@ -238,7 +238,9 @@ internal sealed class CheckRunner
                 Decline(run, "the player answered no");
                 return null;
             case AnswerKind.Yes:
-                Begin(run, afterConfirm: true);
+                if (run.Questions.TryDequeue(out var answered) && ReferenceEquals(answered, CheatsRule.ThrowawayQuestion)) run.ThrowawayConfirmed = true;
+                if (run.Questions.Count > 0) Ask(run);
+                else Begin(run, afterConfirm: true);
                 return null;
         }
         if (run.Phase == RunPhase.Confirming) return "answer the check's question first (yes or no)";
@@ -324,11 +326,13 @@ internal sealed class CheckRunner
             HoldGuard();
             var run = new Run(this, f.Mod, c, r, session);
             _run = run;
-            if (c.Confirm is { } confirm)
+            // the runner's own question first (a cheats check where the character's name cannot be read), then the check's
+            if (c.Cheats && session == ClientCheckSession.Hosted && CheatsRule.ReadName(_env, PlayerOf(run), out _) is null)
+                run.Questions.Enqueue(CheatsRule.ThrowawayQuestion);
+            if (c.Confirm is { } confirm) run.Questions.Enqueue(confirm);
+            if (run.Questions.Count > 0)
             {
-                run.Phase = RunPhase.Confirming;
-                run.Instruction = confirm;
-                Emit(Event(RunEventKind.Confirming, run, "waiting for yes or no: " + confirm));
+                Ask(run);
                 return;
             }
             Begin(run, afterConfirm: false);
@@ -387,18 +391,32 @@ internal sealed class CheckRunner
         Emit(Event(RunEventKind.Declined, run, why));
     }
 
+    private void Ask(Run run)
+    {
+        run.Phase = RunPhase.Confirming;
+        run.Instruction = run.Questions.Peek();
+        _dirty = true;
+        Emit(Event(RunEventKind.Confirming, run, "waiting for yes or no: " + run.Instruction));
+    }
+
+    private EntityId PlayerOf(Run run) =>
+        run.Request.Origin == CheckOrigin.Remote ? run.Request.Player : run.Session == ClientCheckSession.Hosted ? _env.LocalPlayer : EntityId.None;
+
     /// <summary>Reads the rule (for cheats) and starts the body.</summary>
     private void Begin(Run run, bool afterConfirm)
     {
         var c = run.Case;
         Refusal? refusal;
         GuardStatus? before = null;
-        var player = run.Request.Origin == CheckOrigin.Remote ? run.Request.Player : run.Session == ClientCheckSession.Hosted ? _env.LocalPlayer : EntityId.None;
+        var player = PlayerOf(run);
+        string? throwaway = null;
         refusal = run.Session == ClientCheckSession.Joined
             ? CheatsRule.Joined(c, run.Request.Attestation, _env.Now)
             : CheatsRule.Hosted(c, run.Request.Origin, _env.Guard, Ledger.ReadFile, _env.Game, out before);
         // line 5 last: the lines before it say first what is wrong with the session and the guard
-        if (refusal is null && c.Cheats) refusal = CheatsRule.Character(_env, player);
+        if (refusal is null && c.Cheats)
+            refusal = CheatsRule.Character(_env, player,
+                run.Session == ClientCheckSession.Joined ? run.Request.Attestation?.Throwaway == true : run.ThrowawayConfirmed, out throwaway);
         if (run.Session == ClientCheckSession.Joined && c.Cheats && run.Request.Attestation?.Status is { } s) before = s;
         if (refusal is not null)
         {
@@ -411,6 +429,7 @@ internal sealed class CheckRunner
         run.Phase = RunPhase.Running;
         run.Instruction = "";
         run.LogMark = SafeMark();
+        if (throwaway is not null) run.Add(true, throwaway, null);
         run.Started = _env.Now;
         var context = new CheckContext(run, run.Mod.Context, c.Id, c.Title, run.Session, player, run.Cancellation);
         _env.Write(LogLevel.Info, $"checks: start {c.Key} ({LedgerEntry.SessionName(run.Session)}{(c.Cheats ? ", cheats: guard latched and protecting" : "")})");
@@ -733,7 +752,7 @@ internal sealed class CheckRunner
     };
 
     private static ViewCurrent CurrentOf(Run r) => new(r.Case.Mod, r.Case.Id, r.Case.Title, r.Case.Area, PhaseName(r.Phase), r.Instruction,
-        r.Phase == RunPhase.Confirming ? r.Case.Confirm : null, r.Assertions.ToArray(), LedgerEntry.SessionName(r.Session), r.Case.Cheats);
+        r.Phase == RunPhase.Confirming ? r.Instruction : null, r.Assertions.ToArray(), LedgerEntry.SessionName(r.Session), r.Case.Cheats);
 
     /// <summary>The refusal the list shows for a check that is not running: what is known now, without touching the guard.</summary>
     private string? Preview(CheckCase c, ClientCheckSession session, string? sessionProblem, Func<string> proof)
@@ -825,6 +844,8 @@ internal sealed class CheckRunner
         public bool Stopped { get; set; }
         public bool Canceled { get; private set; }
         public bool LeftBehind { get; set; }
+        public Queue<string> Questions { get; } = new();
+        public bool ThrowawayConfirmed { get; set; }
         public bool Finished { get; set; }
         public ClientCheckVerdict? Verdict { get; set; }
         public string Note { get; set; } = "";
