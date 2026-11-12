@@ -75,32 +75,32 @@ def declared(side, symbols_dir=SYMBOLS):
 
 
 def declared_split(side, symbols_dir=SYMBOLS):
-    """(owner, captured): owner as declared(); captured = {section: names declared only by a pattern hole}."""
+    """(declarer, captured): declarer as declared(); captured = {section: names declared only by a pattern hole}."""
     files = definition_files(side, symbols_dir)
-    owner = {s: {} for s in SECTIONS}
+    declarer = {s: {} for s in SECTIONS}
     for svc, doc in files:
         for section in SECTIONS:
             for name in doc.get(section, {}):
-                owner[section].setdefault(name, svc)
+                declarer[section].setdefault(name, svc)
     captured = {s: set() for s in SECTIONS}
     for svc, doc in files:
         for defn in doc.get("symbols", {}).values():
             for f in defn.get("find", []):
                 for m in HOLE.finditer(f.get("pattern", "")):
                     section = "symbols" if m.group(2) == "rel32" else "constants"
-                    if m.group(1) not in owner[section]:
-                        owner[section][m.group(1)] = svc
+                    if m.group(1) not in declarer[section]:
+                        declarer[section][m.group(1)] = svc
                         captured[section].add(m.group(1))
-    return owner, captured
+    return declarer, captured
 
 
-def declared_counts(owner):
-    return {s: len(owner[s]) for s in SECTIONS}
+def declared_counts(declarer):
+    return {s: len(declarer[s]) for s in SECTIONS}
 
 
-def count_text(owner, captured, section, listed=None):
+def count_text(declarer, captured, section, listed=None):
     """'447 symbols (355 defined, 92 captured)', or with listed: '447 of 447 symbols listed (...)'."""
-    n, c = len(owner[section]), len(captured[section])
+    n, c = len(declarer[section]), len(captured[section])
     head = f"{n} {section}" if listed is None else f"{listed} of {n} {section} listed"
     return head + (f" ({n - c} defined, {c} captured)" if c else "")
 
@@ -121,22 +121,22 @@ def flat_maps(syms, consts, feats):
             {k: hex(v["value"]) for k, v in sorted(consts.items()) if v.get("ok")})
 
 
-def offline_state(owner, syms, consts, feats, doc):
+def offline_state(declarer, syms, consts, feats, doc):
     """{(section, name): (resolved, why)} for every declared name."""
     out = {}
-    for name in owner["symbols"]:
+    for name in declarer["symbols"]:
         r = syms.get(name)
         if r is None:
             out[("symbols", name)] = (False, "not captured: no pattern that captures it matched")
         else:
             out[("symbols", name)] = (bool(r.get("ok")), r.get("error") or "no match")
-    for name in owner["constants"]:
+    for name in declarer["constants"]:
         r = consts.get(name)
         if r is None:
             out[("constants", name)] = (False, "not captured: no pattern that captures it matched")
         else:
             out[("constants", name)] = (bool(r.get("ok")), r.get("error") or "no match")
-    for name in owner["features"]:
+    for name in declarer["features"]:
         f = doc.get("features", {}).get(name, {})
         need = [s for s in f.get("symbols", []) if not syms.get(s, {}).get("ok")]
         need += [c for c in f.get("constants", []) if not consts.get(c, {}).get("ok")]
@@ -144,11 +144,11 @@ def offline_state(owner, syms, consts, feats, doc):
     return out
 
 
-def services_static(owner, state, date, evidence):
+def services_static(declarer, state, date, evidence):
     """The services map of a fresh record: every resolved name at "static", the rest "unresolved" with the reason."""
     svcs = {}
     for section in SECTIONS:
-        for name, svc in owner[section].items():
+        for name, svc in declarer[section].items():
             e = svcs.setdefault(svc, {})
             ok, why = state[(section, name)]
             e.setdefault(section, {})[name] = "static" if ok else "unresolved"
@@ -185,7 +185,7 @@ def fresh(side, exe, steam_build=None, svn=None, verified=False, note="", symbol
     raw = Path(exe).read_bytes()
     sha = hashlib.sha256(raw).hexdigest()
     cv, pdb = codeview(raw)
-    owner = declared(side, symbols_dir)
+    declarer = declared(side, symbols_dir)
     syms, consts, feats, doc = resolve(side, exe, symbols_dir)
     f, s, c = flat_maps(syms, consts, feats)
     rec = {"sha256": sha, "side": side, "record": RECORD, "codeview": cv, "pdb": pdb}
@@ -196,9 +196,9 @@ def fresh(side, exe, steam_build=None, svn=None, verified=False, note="", symbol
     rec["verified"] = bool(verified)
     rec["note"] = note or ("offline resolve only (tools/sigport/build_record.py); not verified at runtime"
                            if not verified else "")
-    rec["declared"] = declared_counts(owner)
+    rec["declared"] = declared_counts(declarer)
     rec["features"], rec["symbols"], rec["constants"] = f, s, c
-    rec["services"] = services_static(owner, offline_state(owner, syms, consts, feats, doc), date or today(),
+    rec["services"] = services_static(declarer, offline_state(declarer, syms, consts, feats, doc), date or today(),
                                       "resolved offline (tools/sigport/build_record.py)")
     return rec
 
@@ -312,7 +312,9 @@ LOADED = {
     "emf": [r"\] plugin kiln-emf\.dll loaded"],
     "quests": [r"\] service kiln\.knowledge v\d+ published", r"\] service kiln\.quests v\d+ published"],
 }
-SUMMARY = [re.compile(r"(\d+) PASS, (\d+) FAIL"), re.compile(r"(\d+) passed, (\d+) failed")]
+SUMMARY = [re.compile(r"(\d+) PASS, (\d+) FAIL"), re.compile(r"(\d+) passed, (\d+) failed"),
+           re.compile(r"\bPASS (\d+),? FAIL (\d+)")]
+DONE = re.compile(r"(^|: )done\.?$")   # a mod that ends with a bare "done" line and counts nothing itself
 
 
 def loaded_line(log, svc):
@@ -325,9 +327,9 @@ def loaded_line(log, svc):
 
 def test_result(kiln_dir, log, mod):
     """{passed, failed, skipped, finished, fails} of one test mod. A Kiln.Testing mod: logs/tests/<mod>.json. Else
-    kiln.log: passed and failed count the mod's PASS and FAIL lines (and its error lines, as failures), so the logs of
-    several boots of one run add up; finished means the mod wrote a summary line ("N PASS, M FAIL" or "N passed, M
-    failed"), the last of which is kept, and a failure it reports counts even when no FAIL line shows it."""
+    kiln.log: passed and failed count the mod's PASS and FAIL lines, so the logs of several boots of one run add up
+    (error lines are not failures: tests provoke them on purpose); finished means the mod wrote a summary line ("N PASS, M FAIL" or "N passed, M
+    failed" or "PASS N FAIL M", or a bare "done"), the last of which is kept, and a failure it reports counts even when no FAIL line shows it."""
     j = Path(kiln_dir) / "logs" / "tests" / f"{mod}.json"
     if j.is_file():
         d = json.loads(j.read_text(encoding="utf-8-sig"))
@@ -344,7 +346,9 @@ def test_result(kiln_dir, log, mod):
         m = next((m for m in (rx.search(text) for rx in SUMMARY) if m), None)
         if m:
             last = (int(m.group(1)), int(m.group(2)), text)
-        elif re.search(r"\bFAIL\b", text) or ln.startswith("[E"):
+        elif DONE.search(text):
+            last = (None, 0, text)
+        elif re.search(r"\bFAIL\b", text):
             fails.append(text)
         elif re.search(r"\bPASS\b", text):
             passed += 1
@@ -445,7 +449,7 @@ def _raise(e, level, date, evidence, only=None):
     return n
 
 
-def lab_evidence(results, svc):
+def lab_evidence(results, svc, passed=True):
     parts = []
     for r in results:
         s = r["services"][svc]
@@ -457,8 +461,8 @@ def lab_evidence(results, svc):
     pol = sorted({r["policy"] for r in results if r.get("policy")})
     n = sum(r.get("boots", 1) for r in results)
     return (f"lab {', '.join(labs) or '?'}, policy {', '.join(pol) or '?'}, {n} boot{'s' if n > 1 else ''}, "
-            f"Kiln {results[-1].get('kiln', '?')}: " + "; ".join(parts) +
-            " (passed/failed); the core resolved the same values as the offline resolve")
+            f"Kiln {results[-1].get('kiln', '?')}, {max(r['date'] for r in results)}: " + "; ".join(parts) +
+            " (passed/failed)" + ("; the core resolved the same values as the offline resolve" if passed else ""))
 
 
 def apply(rec, results):
@@ -512,7 +516,11 @@ def apply(rec, results):
             for b in _core_agrees(rec, r, svc):
                 why.append(f"boot {r['boot']}: {b}")
         if why:
-            failed.append(f"{svc}: stays {rec['services'][svc]['level']}: " + " | ".join(why))
+            e = rec["services"][svc]
+            failed.append(f"{svc}: stays {e['level']}: " + " | ".join(why))
+            if e["level"] == "static":  # say what ran; the level and its date stay those of the offline resolve
+                e["evidence"] = ("resolved offline; not lab: " + lab_evidence(rs, svc, passed=False) + "; failed: " +
+                                 " | ".join(why))[:2000]
             continue
         e = rec["services"][svc]
         n = _raise(e, "lab", max(r["date"] for r in rs), lab_evidence(rs, svc))
@@ -546,7 +554,7 @@ def check(sides=("server", "client"), symbols_dir=SYMBOLS, builds_dir=BUILDS):
         bad = []
         if top.get("record") != RECORD:
             bad.append(f"record format {top.get('record', 1)}, not {RECORD}: run build_record.py {side} <exe> --refresh")
-        owner, captured = declared_split(side, symbols_dir)
+        declarer, captured = declared_split(side, symbols_dir)
         listed = {s: {} for s in SECTIONS}
         levels = {}
         for svc, e in top.get("services", {}).items():
@@ -569,15 +577,15 @@ def check(sides=("server", "client"), symbols_dir=SYMBOLS, builds_dir=BUILDS):
                         bad.append(f"{svc}: {section[:-1]} {name}: " + ("unresolved without a reason"
                                    if level == "unresolved" else "has an unresolved reason but level " + level))
         for section in SECTIONS:
-            for name, svc in owner[section].items():
+            for name, svc in declarer[section].items():
                 if name not in listed[section]:
                     bad.append(f"missing: {section[:-1]} {name} (declared by {svc})")
                 elif listed[section][name] != svc:
                     bad.append(f"{section[:-1]} {name} is listed under {listed[section][name]}, declared by {svc}")
             for name, svc in listed[section].items():
-                if name not in owner[section]:
+                if name not in declarer[section]:
                     bad.append(f"{section[:-1]} {name} is listed under {svc} but sigdb no longer declares it")
-        counts = "; ".join(count_text(owner, captured, s, sum(1 for n in owner[s] if n in listed[s])) for s in SECTIONS)
+        counts = "; ".join(count_text(declarer, captured, s, sum(1 for n in declarer[s] if n in listed[s])) for s in SECTIONS)
         lv = ", ".join(f"{k} {levels[k]}" for k in NAME_LEVELS if k in levels)
         if bad:
             ok = False
@@ -597,11 +605,11 @@ def summary(rec, symbols_dir=SYMBOLS):
         for section in SECTIONS:
             for v in e.get(section, {}).values():
                 lv[v] = lv.get(v, 0) + 1
-    owner, captured = declared_split(rec["side"], symbols_dir)
+    declarer, captured = declared_split(rec["side"], symbols_dir)
     off = [k for k, v in rec["features"].items() if not v]
     return (f"{len(rec['symbols'])} named symbols, {len(rec['constants'])} constants, "
             f"{len(rec['features']) - len(off)}/{len(rec['features'])} features on (off: {', '.join(off) or '-'}); "
-            "declared " + ", ".join(count_text(owner, captured, s) for s in SECTIONS) +
+            "declared " + ", ".join(count_text(declarer, captured, s) for s in SECTIONS) +
             "; levels " + ", ".join(f"{k} {lv[k]}" for k in NAME_LEVELS if k in lv) + f"; verified={rec['verified']}")
 
 

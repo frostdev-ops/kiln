@@ -114,11 +114,44 @@ python3 tools/sigport/build_record.py collect <server dir> --boot <name> --lab <
     --service players=players-test --service progression=progression-test -o result.json   # after the server stopped
 python3 tools/sigport/build_record.py apply result.json [more results...]
 ```
-`collect` reads the stopped server's `kiln/logs/kiln.log` (did each service load, the summary line of each test mod),
-`kiln/logs/tests/<mod>.json` where a mod uses Kiln.Testing, and `kiln/logs/sigdb-report.json` (what the running core
-resolved, name by name). `apply` raises a service and its resolved names to `lab` only when every result that names
-the service shows it loaded, each listed test mod printed its summary with no failure, and the core resolved every one
-of the service's names to the same value as the offline resolve. Otherwise it changes nothing for that service and
-prints why. A service tested over several boots (saves, build, placeholders) is applied with all its results at once.
+`collect` reads the stopped server's `kiln/logs/kiln.log` (did each service load; each test mod's PASS and FAIL lines
+and its summary line), `kiln/logs/tests/<mod>.json` where a mod uses Kiln.Testing, and `kiln/logs/sigdb-report.json`
+(what the running core resolved, name by name; the core reports each name's value, so the comparison is per name, not
+by counts). A test that runs over several boots is one run: `--earlier-log` gives the kiln.log of its earlier boots.
+`apply` raises a service and its resolved names to `lab` only when every result that names the service shows it
+loaded, each listed test mod printed its summary with no failure, and the core resolved every one of the service's
+names to the same value as the offline resolve. Otherwise the level stays and `apply` prints why; a service still at
+`static` gets an `evidence` line that says what ran and which checks failed. All results of a service (several groups,
+several boots) are applied in one call.
 `carry` makes a result file from an earlier record of the same exe (its format-1 maps, for example from git history),
 for levels a boot proved before this format existed: only names that still resolve to the recorded value are raised.
+
+## Server services and their test mods
+The lab sequence boots a lab server once per group (or once per run of boots, for a test that spans restarts), with
+policy `any`, the standard lab save copied fresh for each group, and only that group's test mods. What the current
+server record rests on is in each service's `evidence`; this table says which test mods a service's level needs.
+
+| Service (sigdb file) | Test mods | Boots, and what the run needs |
+|---|---|---|
+| `core` | `hooks-test`, `api-test` | one boot each |
+| `world`, `players`, `chat`, `time` | `world-test`, `players-test`, `chat-test` (`chat-test` covers `time` too) | one boot together |
+| `content` | `content-test`, `newcontent-test` (with `content-observer`); `placeholder-test` | one boot; placeholders 4 boots: `placeholder-items` switched off, a `kill -9`, back on |
+| `settings`, `gameplay`, `creatures`, `assets`, `rules`, `pacing`, `progression` | `<file>-test` | one boot each (`progression-test` without a player: its live part needs a client) |
+| `items` | `items-test` | one boot with `kiln/data/kiln.items/selftest` (the service's native self-test) |
+| `combat` | `combat-test` | one boot with the lab switch `kiln/data/kiln.combat/watch-all` |
+| `spawn` | `spawn-test` | 3 boots, SIGINT between them |
+| `abilities` | `abilities-test` | one boot with `kiln/data/kiln.abilities/selftest` |
+| `npcai` | `npcai-test` | one boot |
+| `types` | `types-test`, `types-peer-test` | one boot |
+| `net` | `net-test` | one boot with `kiln/config/network.json` `labPort`, driven by `tools/nettest/nettest.py` |
+| `quests` | `quests-test` | 3 boots (grant, restart, revoke, restart) |
+| `skills` | `skills-test` | 2 boots |
+| `characters` | `character-test` | 3 boots |
+| `gamedata` | `gamedata-test` (with `gamedata-clones`, `gamedata-observer`, `newcontent-test`) | a boot with `reload gamedata-test` through the control folder, then a restart |
+| `saves` | `saves-test` | the boots its READY lines ask for: SIGINT, `kill -9` three times, the restore of a backup, the game's own backup file put in place |
+| `build` | `build-test` | the boots its READY lines ask for (SIGINT, `kill -9`, cleanup) |
+| `emf` | none run | its probe (`mods/tests/emf-test`) needs third-party EMF mods for part of its checks; `emf` stays `static` |
+
+Client records: the client-only files (`audio`, `render`, `ui`, `vfx`, `emf-net` and the client overlays) cannot run on
+a lab server. Their names are `static` until a real-client run; `lab` on the client record comes from a real-client
+boot, as its `evidence` says.

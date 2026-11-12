@@ -208,7 +208,12 @@ class Synthetic(unittest.TestCase):
         self.assertEqual(rc, 1)
         self.assertIn("extra: stays static", out)
         self.assertIn("extra-test 5/1: FAIL a: b", out)
-        self.assertEqual(json.loads(self.path.read_text())["services"]["extra"]["level"], "static")
+        e = json.loads(self.path.read_text())["services"]["extra"]
+        self.assertEqual(e["level"], "static")
+        self.assertTrue(all(v == "static" for v in e["symbols"].values()))
+        self.assertEqual(e["date"], rec["services"]["extra"]["date"])
+        self.assertTrue(e["evidence"].startswith("resolved offline; not lab: lab mylab"), e["evidence"])
+        self.assertIn("FAIL a: b", e["evidence"])
 
     def test_a_value_the_core_resolved_differently_leaves_the_service_static(self):
         rec = self.new_record()
