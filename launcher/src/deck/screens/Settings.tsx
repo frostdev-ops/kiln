@@ -99,7 +99,7 @@ export default function Settings() {
         <Row id="set-start" title="Start in" a="Change" end={<Word tone="ember">{MODES.find((m) => m.id === mode)?.word}</Word>}
           sub={mode === "auto" ? (d?.detected ? "Deck mode on this device" : "Desktop on this device") : undefined}
           onClick={() => void saveUiMode(qc, (cur) => next(MODES, cur))} />
-        <Row id="set-fire" title="Animated fire" a="Change" sub={info.data?.noWebgl ? "Off for this start: KILN_LAUNCHER_NO_WEBGL" : undefined}
+        <Row id="set-fire" title="Animated fire" a="Change" sub={info.data?.noWebgl ? (info.data.render?.mode === "software" ? "Off: the launcher draws without the GPU" : "Off for this start: KILN_LAUNCHER_NO_WEBGL") : undefined}
           disabled={!!info.data?.noWebgl || !settings.data}
           end={<Word tone="ember">{!info.data?.noWebgl && settings.data?.animatedFire !== false ? "On" : "Off"}</Word>}
           onClick={() => void saveSettings(qc, (cur) => ({ animatedFire: cur.animatedFire === false }))} />

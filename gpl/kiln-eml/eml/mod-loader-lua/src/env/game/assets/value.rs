@@ -259,3 +259,6 @@ fn name_of(
         r#type.qualified_name.clone()
     }
 }
+
+#[cfg(test)]
+mod tests;

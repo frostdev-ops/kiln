@@ -1106,7 +1106,11 @@ pub fn render(dirs: &DataDirs, profile: &Profile, install: &GameInstall, mode: P
             // the Lua read the same settings (engine_mods::game_folder_of)
             let game_path = crate::engine_mods::game_path_of(dirs, k, m, &install.path);
             let placed = game_path.clone().or_else(|| crate::engine_mods::placed_folder(k, &install.path, &m.id));
+            // XHL-Core named dinput8.dll runs from Kiln's copy under its own name, in kiln/chain/ (Copy mode too)
+            let xhl_core = k == ModKind::Native && m.enabled && crate::engine_mods::xhl_core_chain_dlls(&folder).is_some();
             let path = match placed {
+                _ if xhl_core => game_or_copy(&crate::engine_mods::xhl_core_copy(&install.path, &m.id), install, mode,
+                    || crate::engine_mods::xhl_core_copy_rel(&m.id))?,
                 Some(placed) if mode != PathMode::Copy => game_or_copy(&placed, install, mode, String::new)?,
                 Some(placed) if game_path.is_some() && outside_kiln_ok(k, &placed) => format!("../{}", placed.strip_prefix(&install.path)
                     .map_err(|_| Error::invalid("EML game folder is outside the install"))?.to_string_lossy().replace('\\', "/")),
@@ -1679,6 +1683,8 @@ pub fn write_once(dirs: &DataDirs, profile_id: &str, install: &GameInstall) -> R
                 copies there; activate this profile to change them before playing (play-once keeps the active selection)"));
         }
     }
+    // XHL-Core named dinput8.dll runs from Kiln's copy under its own name; the active profile's copy stays as it is
+    crate::engine_mods::place_xhl_core_for_once(dirs, &profile, &install.path)?;
     let (mut file, _, _, _) = prepare(dirs, &profile, install)?;
     file.written = Some(now_rfc3339());
     // The single start follows this profile's plan: its compat rules (a [chain] proxy switched off, entries loaded late)

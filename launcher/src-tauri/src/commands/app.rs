@@ -26,8 +26,8 @@ pub struct AppInfo {
     pub commit: Option<String>,
     /// Always false here; the browser mock says true.
     pub mock: bool,
-    /// `KILN_LAUNCHER_NO_WEBGL=1` was set for this start: the page draws the plain Play button, never the WebGL fire
-    /// (the fallback a machine without WebGL gets; for tests and weak GPUs).
+    /// `KILN_LAUNCHER_NO_WEBGL=1` was set for this start, or the launcher draws without the GPU (crate::render): the
+    /// page draws the plain Play button, never the WebGL fire (the fallback a machine without WebGL gets).
     #[serde(default)]
     pub no_webgl: bool,
     /// Steam Deck / SteamOS / gamescope detection and the `--deck` / `--desktop` flag: which UI to start in
@@ -38,6 +38,10 @@ pub struct AppInfo {
     /// page instead): the build's `self-update` feature (crate::distribution).
     #[serde(default)]
     pub distribution: crate::distribution::Distribution,
+    /// Linux only: how this start draws the window (the GPU or software mode, and why) and whether the marker asks the
+    /// next start for software mode (crate::render). Absent elsewhere.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub render: Option<crate::render::RenderInfo>,
 }
 
 /// `<data>/settings.json`
@@ -306,10 +310,26 @@ pub async fn app_info(app: AppHandle) -> Result<AppInfo, Error> {
         data_dir,
         commit: option_env!("KILN_GIT_COMMIT").filter(|c| !c.is_empty()).map(String::from),
         mock: false,
-        no_webgl: no_webgl(),
+        no_webgl: no_webgl() || crate::render::choice().is_some_and(|c| c.mode == crate::render::Mode::Software),
         deck: crate::deck::detect::current(),
         distribution: crate::distribution::CURRENT,
+        render: crate::render::info(),
     })
+}
+
+/// The page's first screen is up (launcher/src/shell/started.ts calls it once per start, in every UI): the render
+/// watchdog stops waiting (crate::render). Only Linux has the watchdog; elsewhere it does nothing.
+#[tauri::command]
+pub async fn app_started() -> Result<(), Error> {
+    crate::render::page_started();
+    Ok(())
+}
+
+/// Settings, "Draw the launcher without the GPU": sets (`software`) or clears the marker; applies at the next start.
+/// Linux only (else `unsupported`).
+#[tauri::command]
+pub async fn app_render_set(software: bool) -> Result<crate::render::RenderInfo, Error> {
+    crate::state::blocking(move || crate::render::set_next(software)).await
 }
 
 #[tauri::command]

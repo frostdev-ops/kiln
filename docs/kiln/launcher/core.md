@@ -97,7 +97,14 @@ clashes), `get`, `list` (`ProfileSummary.active` = installs whose profile.json n
   back first; XHL companions and EML mods a native DLL reads are placed in `<game>/mods/<original folder>/`, and
   their profile.json entries name that copy (in copy mode `../mods/<original folder>`, and `../greeneye/<id>` for a
   placed Greeneye mod, only for a runtime that declares `profileReader` 2 and under the folder name rule, else the
-  `kiln/profiles` copy; contracts.md 5.1 and 6); writes
+  `kiln/profiles` copy; contracts.md 5.1 and 6); XHL-Core whose Library file is called `dinput8.dll` (as downloaded)
+  runs from Kiln's copy `<game>/kiln/chain/<library id>/xhl-core.dll` (with a native.json naming it; profile.json,
+  `[profile]` and `[late]` name the copy, in copy mode as `chain/<library id>`). Why: when XHL-Core 2.x loads it asks
+  for the module called `dinput8.dll`; if that is itself (under Wine it is, when its own file has that name) it waits
+  for the game to call its own DirectInput8Create, which behind Kiln's proxy never happens, and starts no plugin. Under
+  its own name it hooks the game's DirectInput8Create call and starts its plugins there
+  (`engine_mods::xhl_core_chain_dlls`). Kiln writes and removes only its own files there (exact bytes, receipt in
+  `library-placements.json`); XHL-Core's log next to it stays. Then activation writes
   `<configDir>/native.json` (the profile's native switches), `chain.ini [profile]` (dllmain DLLs; `[chain]`
   byte-identical), `kiln/profile.json` (generation = previous + 1), clears `chain/once.ini` and
   `profile.once.json`, records `<data>/installs/<id>.active.json`.

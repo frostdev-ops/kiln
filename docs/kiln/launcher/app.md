@@ -208,7 +208,8 @@ tools/launcher/fetch-editor-assets.sh   # dev: local editor game assets for the 
 Test runs against game copies: `KILN_DATA_DIR=<scratch>` and `KILN_STEAM_ROOTS=<fake Steam root>` keep the app away
 from the real launcher data and Steam libraries, and `KILN_LAUNCH_DRY_RUN=1` makes `launch_play` do everything but open
 `steam://` (which would start the real game). `KILN_LAUNCHER_NO_WEBGL=1` forces the fire's no-WebGL fallback (the plain
-Play button) for one start, without touching the saved "Animated fire" setting. GUI and Wine tests run on a private Xvfb display, never the desktop's. Debug builds only: `KILN_DEV_EVAL_DIR=<dir>` runs each `*.js`
+Play button) for one start, without touching the saved "Animated fire" setting. Linux: `KILN_LAUNCHER_RENDER=software`
+or `--software-render` draws without the GPU ("Drawing without the GPU" below). GUI and Wine tests run on a private Xvfb display, never the desktop's. Debug builds only: `KILN_DEV_EVAL_DIR=<dir>` runs each `*.js`
 dropped there in the webview (headless checks on Xvfb drive the real app with it).
 
 ## Build prerequisites
@@ -311,6 +312,42 @@ an unfinished move whose partial copy could not be removed names what is left, a
 Then (lib.rs `after_folder`, at once, or after the unfinished copy's task) the file-hash cache, the watcher, the shipped
 runtime, the modpack watcher, Nexus, the self-update. While an earlier move is not finished, the Settings row says why
 (`DataFolder.pending`) instead of offering Change.
+
+## Drawing without the GPU (Linux)
+`src-tauri/src/render.rs`, `src/shell/started.ts`. The window's background is `#080504`: a window that stays that colour
+is a webview that never painted the page (a player on NVIDIA / X11 with 0.2.0-dev.23; the cause there is not known).
+- **The page says it started**: `app_started`, once per start, after React's first commit and two frames, in the
+  desktop and the Deck UI alike (`<Started />` in `main.tsx`). A page that is hidden at the start, or hidden before its
+  frames came (the window minimized or on another workspace), says so at once: it gets no frames until it is shown,
+  and nobody is looking at a black window then.
+- **Software mode**: before GTK starts the launcher sets `WEBKIT_DISABLE_COMPOSITING_MODE=1`,
+  `WEBKIT_SKIA_ENABLE_CPU_RENDERING=1` and `LIBGL_ALWAYS_SOFTWARE=1` (a value the user set stays), and gives the webview
+  WebKit's hardware acceleration policy Never and no WebGL (WebKitGTK 2.54 still offers WebGL without compositing,
+  through the GPU's EGL driver). The page then draws the CSS mouth instead of the fire (`app_info.noWebgl`); the admin
+  map says WebGL2 is missing. Programs the launcher starts (Steam when it was closed, the browser) do not get the
+  variables the launcher set itself (`KILN_LAUNCHER_RENDER_SET` names them; `kiln_manage::hostenv` takes them back);
+  a value the user set goes along as before.
+- **The fallback**: when the page has not said it started 15 s after the window was made (30 s after the start when no
+  window came), a start that drew with the GPU by default writes `<data>/state/software-render.json`
+  (`{format, why, at, version}`), logs why and starts again in software mode, in the same process (exec): `$APPIMAGE`
+  when it is set (the AppImage file, with the environment a fresh start has), else the executable, with the same
+  arguments. A start in software mode, or with a mode the user forced, never restarts: it writes
+  `PROBLEM: the page did not start ...` to `launcher.log` and stderr. One restart at most, never a loop.
+- **Choosing the mode**: `--software-render` / `--gpu-render` (the last one given wins), then
+  `KILN_LAUNCHER_RENDER=software|gpu`, then the marker, then the GPU. Settings > Appearance, "Draw the launcher without
+  the GPU", sets or clears the marker (`app_render_set`) for the next start. A start with an nxm link takes no other
+  argument (main.rs).
+- **What it says**: at the start, one line on stderr with the log's path and the mode. `launcher.log`, `render:` lines:
+  the mode and why, the WebKitGTK version, `XDG_SESSION_TYPE` and whether `DISPLAY` / `WAYLAND_DISPLAY` are set, the
+  first line of `/proc/driver/nvidia/version` (or that there is none), when the page started, a web process that
+  ended. The support report's summary.txt has a `Launcher:` line with the mode.
+- **Tests**: `cargo test -p kiln-launcher render::`, `bun test unit/started.test.ts`. Debug and QA (`dev-eval`) builds
+  only: `KILN_LAUNCHER_TEST_WITHHOLD_READY=gpu|software|all` ignores `app_started` in that mode, so the fallback can be
+  watched on a machine that renders (on a private Xvfb display).
+- **Troubleshooting a black window**: start the launcher from a terminal; its first line names `launcher.log`. Within
+  15 s it should start again without the GPU by itself. If the window stays black, start it with `--software-render`
+  (`./Kiln*.AppImage --software-render`, or `kiln-launcher --software-render` for the .deb) and send `launcher.log`
+  (the `render:` lines) and, once the window works, a support report.
 
 ## `--selftest`
 `kiln-launcher --selftest [--out report.json] [--keep]` runs before `tauri::Builder` (no window), in a temp folder:

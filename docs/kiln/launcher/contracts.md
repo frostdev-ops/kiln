@@ -87,6 +87,7 @@ Root: `$KILN_DATA_DIR`, else the folder the pointer `data-folder.json` in the de
 | `schema-cache/<modid>/<version>+<hash8>/<file>.json` | config schema snapshots cached per mod version |
 | `backups/` | `saves/<gameId>/` (save backups without a profile), `install/<installId>/` (mirror of install backups), `profiles/` (deleted profiles) |
 | `logs/launcher.log` | the launcher's own log |
+| `state/software-render.json` | Linux: there, a start without an override draws without the GPU (`{format, why, at, version}`; written by the launcher when its page did not start, or by Settings; [app.md](app.md), "Drawing without the GPU") |
 | `update.json` | the self-update's state: `{format, skipped, checked, updated: {from, to, at, source, notes}}` (releasing.md) |
 | `servers/<id>.json` | launcher records of servers that are not kilnctl instances (steam, windows, remote) and renames (`ServerInstance`) |
 | `modpacks/downloads/<sha256>.zip`, `modpacks/built/<serverId>/`, `modpacks/staging/`, `modpacks/dismissed.json` | modpack downloads (reused when the sha256 matches), built server modpacks, unpack staging, offers and refusals the user dismissed (`{gameId: {serverId: modpack sha256 | "refused <written>"}}`) |
@@ -431,6 +432,9 @@ Placement ownership requires `.kiln-library.json` plus a matching launcher recei
 file hashes, directory entries, the exact SF extension text last written by Kiln, and `game_folder: true` for a copy in
 `<game>/mods/<folder>` that a DLL reads there: an EML mod with a native part, a native mod's settings folder, an XHL
 companion; cleanup needs that flag to accept such a copy, a copy without it is cleaned like an own-loader copy).
+XHL-Core's copy in `kiln/chain/<library id>/` (XHL-Core under its own name, core.md "Profiles and activation") has an
+entry too, without a marker file: `files` lists exactly the files Kiln wrote there, and Kiln replaces or removes one
+only while it still holds those bytes; what XHL-Core writes next to it (its log) stays.
 The marker alone is advisory: marker-only older copies and player-modified folders are left untouched. The
 upgrade inventory excludes only ShroudForge's mutable enabled switch and setting values. Deactivate/uninstall cleanup
 additionally requires the exact extension text to match; old receipts without it conservatively retain SF copies.
@@ -969,7 +973,9 @@ Shared types (TypeScript names, defined in `commands.ts`; Rust in kiln-manage un
 
 | File | Command | Arguments | Returns |
 |---|---|---|---|
-| app | `app_info` | - | `AppInfo` {version, kiln, platform, arch, dataDir, commit, mock, noWebgl, deck: `DeckInfo`, distribution: "direct" \| "nexus"} |
+| app | `app_info` | - | `AppInfo` {version, kiln, platform, arch, dataDir, commit, mock, noWebgl, deck: `DeckInfo`, distribution: "direct" \| "nexus", render?: `RenderInfo` (Linux)} |
+| app | `app_started` | - | null (the page's first screen is up; once per start; ends the Linux render watchdog) |
+| app | `app_render_set` | software: boolean | `RenderInfo` (sets or clears `state/software-render.json` for the next start; `unsupported` off Linux) |
 | app | `app_settings_get` | - | `LauncherSettings` |
 | app | `app_settings_set` | settings: LauncherSettings | `LauncherSettings` |
 | app | `app_open_path` | path: string | null |
@@ -1139,7 +1145,9 @@ before Kiln was reinstalled is active again), libraryOnly: string | null (why th
 `ProfileChange {kind, before: ProfileMod | null, after: ProfileMod}` (`kiln_manage::quick`).
 
 Launcher-only types (Rust in `launcher/src-tauri/src/commands/app.rs` and `launch.rs`): `AppInfo` (`noWebgl`:
-KILN_LAUNCHER_NO_WEBGL=1 for this start; `distribution`: "direct" for the frostdev.io/GitHub build that updates itself,
+KILN_LAUNCHER_NO_WEBGL=1 for this start, or the launcher draws without the GPU; `render` (Linux only): `RenderInfo {mode:
+"gpu"|"software", why: "default"|"marker"|"restart"|"environment"|"argument", marker: boolean, markerWhy?: string}`
+(`src-tauri/src/render.rs`); `distribution`: "direct" for the frostdev.io/GitHub build that updates itself,
 "nexus" for the Nexus Mods build, which has no self-update and whose UI shows only a link to the Kiln page there
 (`src-tauri/src/distribution.rs`; absent from an older backend: direct)), `LauncherSettings {steamRoots: string[], defaultGameId: string|null,
 allowHttpModpacks: boolean, savesKeep: number, updateCheck: boolean (default true), updateChannel?: "stable"|"dev"
@@ -1171,6 +1179,8 @@ and `deck_quit` answer, every other command rejects with `data_folder`; while an
 or removes an unfinished copy, only `app_info`, `task_*`, `data_folder_get`, `_restart`, `deck_quit`,
 `deck_fullscreen`, `deck_gamepad`, `app_open_path` and `app_open_url` (the others: `busy`). New tasks fail at once
 with `busy` then, except the move, the removal of an old copy and the removal of an unfinished copy.
+`app_started` (the page's ready call for the render watchdog, which writes nothing) answers in all three states, so a
+window that shows only the data folder's dialog is not taken for a black one.
 
 `--selftest`: the binary runs headless, exercises the Rust side (data dir, crate calls with temp
 folders) and exits 0/1; used under Wine for the NSIS build. Its report has `distribution` ("direct" or "nexus"; also

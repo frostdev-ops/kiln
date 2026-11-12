@@ -181,6 +181,8 @@ pub const NAMES: &[&str] = &[
     "data_folder_reset",
     "data_folder_notice_ack",
     "data_folder_restart",
+    "app_started",
+    "app_render_set",
 ];
 
 #[cfg(test)]

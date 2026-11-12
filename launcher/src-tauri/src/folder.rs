@@ -41,13 +41,13 @@ pub const UNDOING: &str = "Kiln is removing an unfinished copy of the data folde
 pub const LEAVING: &str = "Kiln is closing.";
 
 /// Commands that answer while the pointer is broken.
-pub const OPEN_WHEN_BROKEN: &[&str] = &["app_info", "data_folder_get", "data_folder_use", "data_folder_reset", "data_folder_restart", "deck_quit"];
+pub const OPEN_WHEN_BROKEN: &[&str] = &["app_info", "app_started", "data_folder_get", "data_folder_use", "data_folder_reset", "data_folder_restart", "deck_quit"];
 /// Commands that answer while another launcher moves the folder.
-pub const OPEN_WHEN_ELSEWHERE: &[&str] = &["app_info", "data_folder_get", "data_folder_restart", "deck_quit"];
+pub const OPEN_WHEN_ELSEWHERE: &[&str] = &["app_info", "app_started", "data_folder_get", "data_folder_restart", "deck_quit"];
 /// Commands that answer while this process moves the folder, has moved it, or removes an unfinished copy: the task's
 /// own progress and Cancel, the restart, and what does not touch the data folder.
 pub const OPEN_WHEN_MOVING: &[&str] = &[
-    "app_info", "task_list", "task_get", "task_cancel", "data_folder_get", "data_folder_restart",
+    "app_info", "app_started", "task_list", "task_get", "task_cancel", "data_folder_get", "data_folder_restart",
     "deck_quit", "deck_fullscreen", "deck_gamepad", "app_open_path", "app_open_url",
 ];
 

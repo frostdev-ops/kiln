@@ -956,7 +956,7 @@ pub(crate) mod tests {
         let _ = std::fs::remove_dir_all(&t);
     }
 
-    const OPEN_COUNT_BROKEN: usize = 6;
+    const OPEN_COUNT_BROKEN: usize = 7;  // with app_started, the render watchdog's ready call (dev.25 hotfix)
 
     #[test]
     fn the_folder_is_refused_during_a_move_and_free_again_after_it() {

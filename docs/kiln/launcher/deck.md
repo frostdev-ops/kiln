@@ -181,9 +181,10 @@ steps instead:
   filter and sort). In an enabled build, Nexus account sign-in uses OAuth in desktop Settings; dev.20, dev.21 and dev.22 have neither Catalog nor account controls.
 - Rumble, gyro and the trackpads are not used. Steam's virtual controller sends the Deck's buttons; with Steam
   Input off, the Deck's own `hid-steam` device works the same.
-- WebKitGTK inside gamescope drew fine here (below). If a Deck shows a blank window, `WEBKIT_DISABLE_COMPOSITING_MODE=1`
-  in the launch options is the usual workaround, but it also turns WebGL off: the fire falls back to the CSS arch.
-  (The launcher already sets `WEBKIT_DISABLE_DMABUF_RENDERER=1`.)
+- WebKitGTK inside gamescope drew fine here (below). If a Deck shows a blank window, the launcher starts again
+  without the GPU by itself after 15 s; `--software-render` in the launch options does it from the start (the fire
+  falls back to the CSS arch; [app.md](app.md), "Drawing without the GPU"). (The launcher already sets
+  `WEBKIT_DISABLE_DMABUF_RENDERER=1`.)
 - `cargo xwin check` for Windows was not run for the Deck code; the reader is Linux-only by `cfg`, Windows uses the
   browser Gamepad API.
 

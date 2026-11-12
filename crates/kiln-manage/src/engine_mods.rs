@@ -352,13 +352,14 @@ pub fn import_engine_mod(ctx: &mut ImportCtx) -> Result<()> {
             },
             ModKind::Shroudlink => dll_of(&work, kind)?.is_some(),
             ModKind::Ember => crate::engines::ember_library(&work).is_some(),
-            ModKind::Xhl => has_xhl_plugin_ini(&work) && !work.join("mod.json").exists(),
+            // XHL's own mod.json (since 2026-11) only names the mod; an EML part (src/mod.lua) makes it an EML mod
+            ModKind::Xhl => has_xhl_plugin_ini(&work) && !work.join("src").join("mod.lua").exists(),
             _ => true,
         };
         if !found {
             let why = match kind {
                 ModKind::Ember => "an Ember mod folder holds exactly one library (.dll), and no other engine's mod DLL",
-                ModKind::Xhl => "the XHL companion must retain native-plugin.ini and must not be an EML package",
+                ModKind::Xhl => "the XHL companion must retain native-plugin.ini and must not be an EML package (src/mod.lua)",
                 ModKind::Enshwick => "invalid, unsupported or changed pack.toml, or no Enshwick mod DLL",
                 _ => "no DLL exporting shroudlink_mod_v2 or shroudlink_mod_v1",
             };
@@ -1284,6 +1285,14 @@ pub fn unplace(dirs: &DataDirs, game_dir: &Path) -> Result<PlacementCleanup> {
     for receipt in receipts.clone() {
         let dst = &receipt.path;
         let kind = receipt.marker.kind;
+        if is_xhl_core_copy(game_dir, &receipt) {
+            match remove_xhl_core_copy(game_dir, &mut receipts, &receipt) {
+                Ok(changed) if changed.is_empty() => report.removed.push(dst.clone()),
+                Ok(changed) => report.retained.push(xhl_core_kept(dst, &changed)),
+                Err(e) => report.retained.push(RetainedPlacement { path: dst.clone(), reason: reason_at(dst, e.message), may_run: false }),
+            }
+            continue;
+        }
         let check = (|| -> Result<Vec<String>> {
             check_placement_path(game_dir, &receipt)?;
             refuse_symlink_path(game_dir, dst)?;
@@ -1827,7 +1836,8 @@ fn place_with(dirs: &DataDirs, profile: &crate::profile::Profile, game_dir: &Pat
             rep.placed.push(tag(&m.id));
         }
         // Kiln's copies the profile does not want there (switched off, gone from the profile, no loader, another folder).
-        let stale: Vec<_> = receipts.iter().filter(|r| !placing && r.marker.kind == kind
+        // XHL-Core's copies in kiln/chain are place_xhl_core_copies' below.
+        let stale: Vec<_> = receipts.iter().filter(|r| !placing && r.marker.kind == kind && !is_xhl_core_copy(game_dir, r)
             && !targets.iter().any(|(m, _, dst, _)| r.path == *dst && m.id == r.marker.id)).cloned().collect();
         for receipt in stale {
             let dst = &receipt.path;
@@ -1887,6 +1897,8 @@ fn place_with(dirs: &DataDirs, profile: &crate::profile::Profile, game_dir: &Pat
             }
         }
     }
+    // XHL-Core named dinput8.dll runs from its copy under its own name (xhl_core_chain_dlls)
+    place_xhl_core_copies(dirs, profile, game_dir, &mut receipts, &mut rep, true)?;
     Ok(rep)
 }
 
@@ -2593,6 +2605,265 @@ pub fn set_setting(kind: ModKind, id: &str, key: &str, value: &serde_json::Value
     settings(kind, id, game_dir, config_dir, folder)
 }
 
+// ---- XHL-Core under its own name ----
+
+/// Where Kiln chain-loads XHL-Core from when its Library file is called `dinput8.dll`:
+/// `<game>/kiln/chain/<library id>/` ([`xhl_core_chain_dlls`]).
+pub const XHL_CORE_COPIES: &str = crate::paths::game::CHAIN_DIR;
+/// XHL-Core's DLL in that copy.
+pub const XHL_CORE_DLL: &str = "xhl-core.dll";
+/// The log XHL-Core writes next to its DLL.
+const XHL_CORE_LOG: &str = "XHL-Native-Plugin-Host.log";
+
+/// The DLLs of the dllmain native mod in the Library folder `folder` as Kiln chain-loads them, `(Library file, file in
+/// the copy)`, when one of them is XHL-Core named `dinput8.dll` (known by its bytes, so an entry imported before Kiln
+/// knew XHL-Core 2.x counts too). None for every other mod, which runs from its Library entry (Auto Loot Plus's
+/// `dinput8.dll` too).
+///
+/// XHL-Core 2.x picks its role in DllMain: when `GetModuleHandleW(L"dinput8.dll")` is its own module it takes the
+/// role "primary" and starts its plugins when the game calls its own DirectInput8Create. Behind Kiln's proxy the game's
+/// import is bound to the proxy, which forwards to the system's dinput8.dll, so that call never comes. Under Wine the
+/// lookup answers with the DLL Kiln just loaded when that is called `dinput8.dll` (a player's log: "role=primary." and
+/// no plugin started). Under another name XHL-Core finds the game's import bound to another module, wraps it and
+/// starts its plugins at the game's first DirectInput8Create call ("role=chained"). So Kiln chain-loads a copy named
+/// [`XHL_CORE_DLL`] from [`xhl_core_copy`]: profile::render names that folder, compat::dllmain_entries the DLL in it,
+/// and [`place`] makes it.
+pub fn xhl_core_chain_dlls(folder: &Path) -> Option<Vec<(String, String)>> {
+    let n = crate::manifest::read_native(folder).ok()?;
+    if n.phase != crate::manifest::NativePhase::Dllmain { return None; }
+    let named = |dir: &Path, name: &str| std::fs::read_dir(dir).into_iter().flatten().flatten()
+        .any(|e| e.file_name().to_string_lossy().eq_ignore_ascii_case(name));
+    let mut renamed = false;
+    let mut dlls = Vec::new();
+    for d in &n.dlls {
+        let (dir, file) = d.rsplit_once('/').unwrap_or(("", d));
+        let path = folder.join(d);
+        let xhl = file.eq_ignore_ascii_case("dinput8.dll")
+            && std::fs::metadata(&path).is_ok_and(|m| m.is_file() && m.len() <= 128 * 1024 * 1024)
+            && std::fs::read(&path).is_ok_and(|b| crate::library::is_xhl_core(&b));
+        if !xhl {
+            dlls.push((d.clone(), d.clone()));
+            continue;
+        }
+        // a package that has a file of that name next to it already stays as it is
+        if named(&folder.join(dir), XHL_CORE_DLL) { return None; }
+        renamed = true;
+        dlls.push((d.clone(), if dir.is_empty() { XHL_CORE_DLL.to_string() } else { format!("{dir}/{XHL_CORE_DLL}") }));
+    }
+    renamed.then_some(dlls)
+}
+
+/// Kiln's copy of a native mod [`xhl_core_chain_dlls`] renames: `<game>/kiln/chain/<library id>` (joined per component,
+/// so a Windows path has one kind of separator).
+pub fn xhl_core_copy(game: &Path, id: &str) -> PathBuf {
+    XHL_CORE_COPIES.split('/').fold(game.to_path_buf(), |p, c| p.join(c)).join(id)
+}
+
+/// [`xhl_core_copy`] relative to `<game>/kiln/`, as Copy mode names it in profile.json (and chain.ini after it).
+pub fn xhl_core_copy_rel(id: &str) -> String {
+    format!("{}/{id}", XHL_CORE_COPIES.trim_start_matches("kiln/"))
+}
+
+fn is_xhl_core_copy(game: &Path, r: &Placement) -> bool {
+    r.marker.kind == ModKind::Native && !r.game_folder && r.path.parent() == xhl_core_copy(game, "id").parent()
+}
+
+/// The files of XHL-Core's copy, `(file in the copy, bytes)`: the Library entry's files, the renamed DLLs under their
+/// new names, and native.json naming them so (the rest of it as it was). Left out is what XHL-Core writes or reads next
+/// to itself: its log, and a `mods` folder (it would load its plugins from there instead of the game's mods folder,
+/// where Kiln places the XHL mods and the package's settings folders). Refused when the entry is not as imported
+/// (`hash`), apart from that log: XHL-Core wrote it into the entry when it ran from there.
+fn xhl_core_copy_files(folder: &Path, hash: &str, dlls: &[(String, String)]) -> Result<Vec<(String, Vec<u8>)>> {
+    let lower = |s: &str| s.to_ascii_lowercase();
+    let renamed: Vec<(String, &str)> = dlls.iter().filter(|(l, r)| l != r).map(|(l, r)| (lower(l), r.as_str())).collect();
+    let next_to: Vec<String> = renamed.iter().map(|(l, _)| l.rsplit_once('/').map_or(String::new(), |(d, _)| format!("{d}/"))).collect();
+    let is_log = |p: &str| next_to.iter().any(|d| lower(p) == format!("{d}{}", lower(XHL_CORE_LOG)));
+    let in_mods = |p: &str| next_to.iter().any(|d| lower(p).starts_with(&format!("{d}mods/")));
+    let records = crate::hash::dir_records(folder)?;
+    if crate::hash::dirhash_records(records.clone())? != hash
+        && crate::hash::dirhash_records(records.iter().filter(|r| !is_log(&r.path)).cloned())? != hash
+    {
+        return Err(Error::new(ErrorCode::HashMismatch, format!("{}: the Library entry changed since it was imported", folder.display())));
+    }
+    let mut out = Vec::new();
+    for r in records.iter().filter(|r| !is_log(&r.path) && !in_mods(&r.path) && r.path != crate::manifest::NATIVE_MANIFEST) {
+        let from = folder.join(&r.path);
+        let bytes = std::fs::read(&from).map_err(io_at(&from, "reading"))?;
+        if crate::hash::sha256_hex(&bytes) != r.sha256 {
+            return Err(Error::new(ErrorCode::HashMismatch, format!("{}: changed while copying", from.display())));
+        }
+        let rel = renamed.iter().find(|(l, _)| *l == lower(&r.path)).map_or_else(|| r.path.clone(), |(_, run)| run.to_string());
+        out.push((rel, bytes));
+    }
+    let manifest = folder.join(crate::manifest::NATIVE_MANIFEST);
+    let mut doc = crate::jsonc::parse(&std::fs::read_to_string(&manifest).map_err(io_at(&manifest, "reading"))?)?;
+    doc["dlls"] = serde_json::Value::from(dlls.iter().map(|(_, run)| run.clone()).collect::<Vec<_>>());
+    let mut text = serde_json::to_string_pretty(&doc)?;
+    text.push('\n');
+    out.push((crate::manifest::NATIVE_MANIFEST.to_string(), text.into_bytes()));
+    Ok(out)
+}
+
+/// sha256 of a regular file; None when there is none.
+fn file_sha(path: &Path) -> Result<Option<String>> {
+    match std::fs::symlink_metadata(path) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(io_at(path, "inspecting")(e)),
+        Ok(m) if m.is_file() => Ok(Some(crate::hash::sha256_file(path)?.0)),
+        Ok(_) => Err(Error::new(ErrorCode::Refused, format!("{}: not a regular file", path.display()))),
+    }
+}
+
+/// Places one copy for [`place_xhl_core_copies`]: true when it wrote, false when it was current. Ownership goes file by
+/// file: Kiln writes a file of the copy only where there is none or where the file still holds the bytes its receipt
+/// lists, and leaves every other file there as it is (XHL-Core's log). A file of the copy that holds other bytes
+/// (changed since Kiln wrote it, or put there by hand) is refused, and the copy is left as it is.
+fn place_xhl_core_copy(dirs: &DataDirs, game: &Path, src: &Path, dlls: &[(String, String)], dst: &Path, want: Marker,
+                       receipts: &mut Vec<Placement>) -> Result<bool> {
+    refuse_symlink_path(&dirs.root, src)?;
+    refuse_symlink_path(game, dst)?;
+    let files = xhl_core_copy_files(src, &want.hash, dlls)?;
+    let listed: std::collections::BTreeMap<String, String> = files.iter().map(|(rel, b)| (rel.clone(), crate::hash::sha256_hex(b))).collect();
+    let earlier = receipts.iter().find(|r| r.path == dst && is_xhl_core_copy(game, r)).cloned();
+    let ours = |rel: &str, have: &str| earlier.as_ref().and_then(|r| r.files.get(rel)).is_some_and(|h| h == have);
+    let mut write = Vec::new();
+    for (rel, bytes) in &files {
+        let path = dst.join(rel);
+        refuse_symlink_path(game, &path)?;
+        match file_sha(&path)? {
+            None => write.push((path, bytes)),
+            Some(have) if have == listed[rel] => {}
+            Some(have) if ours(rel, &have) => write.push((path, bytes)),
+            Some(_) => return Err(Error::new(ErrorCode::Refused, format!(
+                "{}: not the file Kiln placed (changed since, or put there by hand); Kiln leaves the copy as it is", path.display()))),
+        }
+    }
+    // files of an earlier version's copy this one does not have: Kiln's own (unchanged) go
+    let mut gone = Vec::new();
+    for (rel, sha) in earlier.iter().flat_map(|r| r.files.iter()).filter(|(rel, _)| !listed.contains_key(*rel)) {
+        crate::bundle::safe_rel_path(rel)?;
+        let path = dst.join(rel);
+        refuse_symlink_path(game, &path)?;
+        if file_sha(&path)?.as_ref() == Some(sha) { gone.push(path); }
+    }
+    if write.is_empty() && gone.is_empty() && earlier.as_ref().is_some_and(|r| r.marker == want && r.files == listed) {
+        return Ok(false);
+    }
+    for (path, bytes) in &write {
+        crate::util::write_atomic(path, bytes)?;
+    }
+    for path in &gone {
+        std::fs::remove_file(path).map_err(io_at(path, "removing"))?;
+    }
+    put_placement(game, receipts, &Placement { path: dst.to_path_buf(), marker: want, files: listed, extension: None, game_folder: false })?;
+    Ok(true)
+}
+
+/// Removes an XHL-Core copy Kiln placed: its files that still hold the bytes of Kiln's receipt, then the receipt.
+/// Returns the files that changed since: then nothing is removed and the receipt stays. Folders left empty go; anything
+/// else in the copy (XHL-Core's log) stays where it is.
+fn remove_xhl_core_copy(game: &Path, receipts: &mut Vec<Placement>, r: &Placement) -> Result<Vec<String>> {
+    let mut remove = Vec::new();
+    let mut changed = Vec::new();
+    for (rel, sha) in &r.files {
+        crate::bundle::safe_rel_path(rel)?;
+        let path = r.path.join(rel);
+        refuse_symlink_path(game, &path)?;
+        match file_sha(&path) {
+            Ok(None) => {}
+            Ok(Some(have)) if have == *sha => remove.push(path),
+            _ => changed.push(rel.clone()),
+        }
+    }
+    if !changed.is_empty() { return Ok(changed); }
+    for path in &remove {
+        std::fs::remove_file(path).map_err(io_at(path, "removing"))?;
+    }
+    let next: Vec<Placement> = receipts.iter().filter(|x| x.path != r.path).cloned().collect();
+    save_placements(game, &next)?;
+    *receipts = next;
+    let mut folders: Vec<&Path> = remove.iter().flat_map(|p| p.ancestors().skip(1)).filter(|d| d.starts_with(&r.path)).collect();
+    folders.sort_by(|a, b| b.components().count().cmp(&a.components().count()).then_with(|| a.cmp(b)));
+    folders.dedup();
+    for d in folders {
+        let _ = std::fs::remove_dir(d);
+    }
+    Ok(Vec::new())
+}
+
+/// Why an XHL-Core copy stays (its files `changed` since Kiln placed them). Nothing loads it while chain.ini does not
+/// name it.
+fn xhl_core_kept(path: &Path, changed: &[String]) -> RetainedPlacement {
+    RetainedPlacement { path: path.to_path_buf(), may_run: false, reason: format!(
+        "files of Kiln's XHL-Core copy were changed since Kiln placed them ({}); Kiln neither updates nor removes it", some_names(changed)) }
+}
+
+/// The copies [`xhl_core_chain_dlls`] asks for, for every enabled native mod of `profile`. `prune` (activation):
+/// Kiln's copies the profile does not want go, and one that cannot be placed or removed is reported, never an error.
+/// Without it (play-once) nothing is removed, an error stops the start, and the copy of another version of the mod that
+/// the active profile runs is not replaced.
+fn place_xhl_core_copies(dirs: &DataDirs, profile: &crate::profile::Profile, game: &Path, receipts: &mut Vec<Placement>,
+                         rep: &mut PlaceReport, prune: bool) -> Result<()> {
+    let active = if prune { None } else { crate::profile::read_game_profile(game)? };
+    let runs_active = |have: &Marker| active.iter().flat_map(|f| &f.mods.native).any(|f| f.enabled && f.id == have.id
+        && f.version.as_deref() == Some(have.version.as_str()) && f.hash.as_deref() == Some(have.hash.as_str()));
+    let mut wanted = Vec::new();
+    for (m, src, dlls) in xhl_core_mods(dirs, profile) {
+        let tag = format!("native:{}", m.id);
+        let dst = xhl_core_copy(game, &m.id);
+        wanted.push(dst.clone());
+        let want = Marker { format: 1, kind: ModKind::Native, id: m.id.clone(), version: m.version.clone(), hash: m.hash.clone() };
+        if !prune && marker_at(receipts, &dst).is_some_and(|have| *have != want && runs_active(have)) {
+            return Err(Error::new(ErrorCode::Unsupported, format!("{tag}: XHL-Core runs from Kiln's copy in {}, which holds the active \
+                profile's version; activate this profile to change it before playing (play-once keeps the active selection)", dst.display())));
+        }
+        match place_xhl_core_copy(dirs, game, &src, &dlls, &dst, want, receipts) {
+            Ok(true) => rep.placed.push(tag),
+            Ok(false) => rep.kept.push(tag),
+            Err(e) if !prune => return Err(e),
+            Err(e) => rep.warnings.push(format!("{tag}: Kiln's copy of XHL-Core in {} was not written ({}); the game loads what \
+                is there now, if anything", dst.display(), reason_at(&dst, e.message))),
+        }
+    }
+    if !prune { return Ok(()); }
+    let stale: Vec<Placement> = receipts.iter().filter(|r| is_xhl_core_copy(game, r) && !wanted.contains(&r.path)).cloned().collect();
+    for r in stale {
+        let tag = format!("native:{}", r.marker.id);
+        match remove_xhl_core_copy(game, receipts, &r) {
+            Ok(changed) if changed.is_empty() => rep.removed.push(tag),
+            Ok(changed) => { rep.changed.push(tag); rep.retained.push(xhl_core_kept(&r.path, &changed)); }
+            Err(e) => {
+                rep.changed.push(tag);
+                rep.retained.push(RetainedPlacement { path: r.path.clone(), reason: reason_at(&r.path, e.message), may_run: false });
+            }
+        }
+    }
+    Ok(())
+}
+
+/// An enabled native mod that runs from an XHL-Core copy: (entry, Library folder, its DLLs as [`xhl_core_chain_dlls`]
+/// names them).
+type XhlCoreMod<'a> = (&'a crate::profile::ProfileMod, PathBuf, Vec<(String, String)>);
+
+/// The enabled native mods of `profile` that run from an XHL-Core copy.
+fn xhl_core_mods<'a>(dirs: &DataDirs, profile: &'a crate::profile::Profile) -> Vec<XhlCoreMod<'a>> {
+    profile.mods.native.iter().filter(|m| m.enabled).filter_map(|m| {
+        let r = crate::library::LibraryRef { kind: ModKind::Native, id: m.id.clone(), version: m.version.clone(), hash: m.hash.clone() };
+        let src = crate::library::path_of(dirs, &r).ok()?;
+        let dlls = xhl_core_chain_dlls(&src)?;
+        Some((m, src, dlls))
+    }).collect()
+}
+
+/// Play-once: the XHL-Core copies the profile of one start runs from ([`place_xhl_core_copies`] without removing any).
+/// Nothing is written when the profile has none.
+pub fn place_xhl_core_for_once(dirs: &DataDirs, profile: &crate::profile::Profile, game: &Path) -> Result<()> {
+    if xhl_core_mods(dirs, profile).is_empty() { return Ok(()); }
+    let _lock = engine_lock(game, &game.join("kiln/state"))?;
+    let mut receipts = placements(game)?;
+    place_xhl_core_copies(dirs, profile, game, &mut receipts, &mut PlaceReport::default(), false)
+}
+
 // ---- status ----
 
 /// A filesystem prerequisite, not evidence that the host or a mod ran successfully.
@@ -2628,8 +2899,7 @@ pub fn xhl_host(game_dir: &Path) -> HostPrerequisite {
         if !m.is_file() || m.len() > 128 * 1024 * 1024 { return false; }
         let Ok(b) = std::fs::read(&p) else { return false };
         crate::pe::is_pe64_dll(&b) && crate::pe::parse(&b).is_ok_and(|p| p.exports.iter().any(|s| s == "DirectInput8Create"))
-            && [b"XHL-Native-Plugin-Host.log".as_slice(), b"native-plugin.ini".as_slice()].iter()
-                .all(|s| b.windows(s.len()).any(|w| w.eq_ignore_ascii_case(s)))
+            && ["XHL-Native-Plugin-Host.log", "native-plugin.ini"].iter().all(|s| crate::pe::contains_text(&b, s))
     });
     HostPrerequisite { available, text: if available {
         "XHL-Core is recognized on an active proxy/chain path. Only that external host loads XHL companions; placement does not verify gameplay. On Wine/Proton, proxy loading also needs its DLL override."

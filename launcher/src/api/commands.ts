@@ -91,6 +91,20 @@ export interface AppInfo {
   /** "direct" (frostdev.io, GitHub: updates itself) or "nexus" (Nexus Mods: no self-update; the UI shows no update
    *  checks, notices or buttons, only a link to the Kiln page there). Absent (an older backend): direct. */
   distribution?: Distribution;
+  /** Linux only: how this start draws the window and whether the next start draws without the GPU (render.rs). */
+  render?: RenderInfo;
+}
+/** How the Linux launcher draws its window (src-tauri/src/render.rs). */
+export interface RenderInfo {
+  /** This start: with the GPU, or without it (software mode). */
+  mode: "gpu" | "software";
+  /** Why: nothing asked; the marker (Settings, or the launcher after its page did not start); the restart after that;
+   *  KILN_LAUNCHER_RENDER; --software-render / --gpu-render. */
+  why: "default" | "marker" | "restart" | "environment" | "argument";
+  /** The marker is there: a start without KILN_LAUNCHER_RENDER or an argument draws without the GPU. */
+  marker: boolean;
+  /** Who set the marker, why and when. */
+  markerWhy?: string;
 }
 /** Where this launcher build comes from (src-tauri/src/distribution.rs, api/distribution.ts). */
 export type Distribution = "direct" | "nexus";
@@ -961,6 +975,10 @@ export const appOpenUrl = (url: string) => call<null>("app_open_url", { url });
 export const taskList = () => call<Task[]>("task_list");
 export const taskGet = (taskId: TaskId) => call<Task>("task_get", { taskId });
 export const taskCancel = (taskId: TaskId) => call<null>("task_cancel", { taskId });
+/** The first screen is up (once per start: shell/started.ts). */
+export const appStarted = () => call<null>("app_started");
+/** Settings, "Draw the launcher without the GPU": sets or clears the marker for the next start (Linux). */
+export const appRenderSet = (software: boolean) => call<RenderInfo>("app_render_set", { software });
 /** Local game assets for the save editor and the admin map (`kiln-asset` protocol roots). */
 export interface AssetsStatus {
   root: string;
@@ -1632,6 +1650,7 @@ export const COMMANDS = [
   "report_save", "report_summary",
   "data_folder_get", "data_folder_size", "data_folder_check", "data_folder_move", "data_folder_use", "data_folder_reset",
   "data_folder_notice_ack", "data_folder_restart",
+  "app_started", "app_render_set",
 ] as const;
 export type CommandName = (typeof COMMANDS)[number];
 

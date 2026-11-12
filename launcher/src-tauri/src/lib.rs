@@ -15,6 +15,8 @@ pub mod folder;
 /// The backend timing harness (ignored tests; tools/launcher/perf.sh).
 #[cfg(test)]
 mod perf;
+/// How the window is drawn on Linux (the GPU, or software mode and the fallback to it).
+pub mod render;
 pub mod selftest;
 /// The self-update: only in direct builds (feature `self-update`); the Nexus Mods build compiles none of it.
 #[cfg(feature = "self-update")]
@@ -41,6 +43,8 @@ pub fn run() {
     builder
         .register_uri_scheme_protocol("kiln-asset", |_ctx, req| assets::serve(req.uri().path()))
         .setup(|app| {
+            // the window exists: the render watchdog's clock starts, software mode reaches the webview (render.rs)
+            render::window_created(app.handle());
             // the data folder first (commands/data_folder.rs): found once, its lock, an unfinished move. The start-up
             // steps that use the folder (`after_folder`) run now; or, while an unfinished move's partial copy is removed,
             // when that task ends; or not at all (a broken pointer, another launcher's move: the window shows only the
@@ -206,7 +210,9 @@ pub fn run() {
             commands::data_folder::data_folder_use,
             commands::data_folder::data_folder_reset,
             commands::data_folder::data_folder_notice_ack,
-            commands::data_folder::data_folder_restart
+            commands::data_folder::data_folder_restart,
+            commands::app::app_started,
+            commands::app::app_render_set
         ]))
         .build(tauri::generate_context!())
         .expect("error while building the Kiln Launcher")

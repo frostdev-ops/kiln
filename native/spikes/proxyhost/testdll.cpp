@@ -12,6 +12,9 @@
 //                     does once it loaded: the proxy measures that log before the chain (KilnBootInfo.addon_log_size)
 //   TEST_EMF05        shaped like EMF 0.5's loader: exports emf_loader_identity (EMF's marker text) and
 //                     ShroudforgeSetDinput8Provider; the proxy must load it as EMF, not refuse it as ShroudForge
+//   TEST_DINPUT8_PROBE  logs what GetModuleHandleW(L"dinput8.dll") returns in its DllMain ("self", "other <path>" or
+//                     "none"): the question XHL-Core 2.x picks its role by. "self" makes it wait for a call of its own
+//                     DirectInput8Create export, which behind Kiln's proxy never comes
 #include <cstring>
 
 #include "harness.h"
@@ -77,6 +80,17 @@ void append_addon_log() {
 }
 #endif
 
+#ifdef TEST_DINPUT8_PROBE
+void probe_dinput8(HINSTANCE self) {
+    const HMODULE h = GetModuleHandleW(L"dinput8.dll");
+    char path[1024] = "";
+    wchar_t wide[1024];
+    if (h && h != self && GetModuleFileNameW(h, wide, 1024))
+        WideCharToMultiByte(CP_UTF8, 0, wide, -1, path, sizeof path, nullptr, nullptr);
+    ph_log("probe %s dinput8.dll=%s %s", g_name, !h ? "none" : h == self ? "self" : "other", path);
+}
+#endif
+
 #ifdef TEST_ENTRY_PATCH
 unsigned char* g_entry = nullptr;
 unsigned char g_saved[14];
@@ -121,6 +135,9 @@ BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, void*) {
            GetModuleHandleW(L"native-test-boot.dll") != nullptr ? 1 : 0);
 #ifdef TEST_ENTRY_PATCH
     patch();
+#endif
+#ifdef TEST_DINPUT8_PROBE
+    probe_dinput8(inst);
 #endif
 #ifdef TEST_LOADS_EMF_X
     load_listed();

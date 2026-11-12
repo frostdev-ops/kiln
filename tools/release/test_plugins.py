@@ -218,7 +218,8 @@ class EnshwickPinTests(unittest.TestCase):
 
     def test_pin_is_a_full_commit(self):
         s = self.SCRIPT.read_text()
-        self.assertRegex(s, r'\nTAG="v1\.0\.0-alpha\.13"\n')
+        # any release tag (the pin moves with Enshwick's releases; alpha.14 since dev.23), always with its full commit
+        self.assertRegex(s, r'\nTAG="v\d+\.\d+\.\d+(-[0-9A-Za-z.]+)?"\n')
         self.assertRegex(s, r'\nCOMMIT="[0-9a-f]{40}"\n')
 
     def run_script(self, kiln_out, *args):
