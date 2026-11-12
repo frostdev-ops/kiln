@@ -6,6 +6,7 @@ import { HashRouter } from "react-router-dom";
 import App from "./App";
 import { isTauri, loadMock } from "./api/commands";
 import { UiModeGate } from "./deck/mode";
+import { Started } from "./shell/started";
 import "./theme/base.css";
 
 const queryClient = new QueryClient();
@@ -16,6 +17,8 @@ if (!isTauri()) await loadMock();
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
+    {/* tells the backend the first screen is up (shell/started.ts): the Linux launcher's render watchdog */}
+    <Started />
     <QueryClientProvider client={queryClient}>
       <HashRouter>
         <UiModeGate>

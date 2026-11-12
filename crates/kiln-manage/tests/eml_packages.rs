@@ -73,6 +73,12 @@ fn eml_dbghelp() -> Vec<u8> { build_test_dll(&["MiniDumpWriteDump"], b"EML_LOG_F
 fn eml_dinput8() -> Vec<u8> { build_test_dll(&["DirectInput8Create"], b"EML_LOG_FILE_PATH") }
 fn alp_dinput8() -> Vec<u8> { build_test_dll(&["DirectInput8Create"], b"auto-loot-plus.log\0dinput8-chain.ini\0[Chain]\0mods\\auto-loot-plus\\config.txt") }
 fn xhl_core() -> Vec<u8> { build_test_dll(&["DirectInput8Create"], b"XHL-Native-Plugin-Host.log\0dinput8-chain.ini\0native-plugin.ini") }
+/// XHL-Core 2.0.6 (2026-11-02): its log file's name is only in the DLL as UTF-16 text (Windows' wide strings).
+fn xhl_core_2x() -> Vec<u8> {
+    let mut text = b"dinput8-chain.ini\0native-plugin.ini\0".to_vec();
+    for c in "XHL-Native-Plugin-Host.log".encode_utf16() { text.extend_from_slice(&c.to_le_bytes()); }
+    build_test_dll(&["DirectInput8Create"], &text)
+}
 fn xhl_plugin() -> Vec<u8> { build_test_dll(&["XhlPluginEntry"], b"XHL plugin") }
 
 fn eml_mod(root: &Path, dir: &str, id: &str) {
@@ -117,11 +123,31 @@ fn layout(root: &Path, which: &str) {
         }
         // XHL-Core alone
         "xhl-core" => put(root, "dinput8.dll", &xhl_core()),
+        // XHL-Core 2.0.6: its dinput8.dll alone at the archive's root
+        "xhl-core-2x" => put(root, "dinput8.dll", &xhl_core_2x()),
         // an XHL plugin without an EML part (XHL-Vein-Mining 2.x drops dbghelp.dll)
         "xhl-plugin" => {
             put(root, "mods/XHL-Vein-Mining/XHL-Vein-Mining.dll", &xhl_plugin());
             put(root, "mods/XHL-Vein-Mining/native-plugin.ini", b"[Plugin]\nDll=XHL-Vein-Mining.dll\n");
             put(root, "mods/XHL-Vein-Mining/config.txt", b"x");
+        }
+        // XHL-Free-Climbing 2.0.1 and the other XHL mods of 2026-11 ("1.0 Ready"): the plugin, XHL-Core's ini with the
+        // mod's settings, and a mod.json that only names the mod (no EML part: no src/mod.lua)
+        "xhl-2x" => {
+            put(root, "mods/XHL-Free-Climb/XHL-Free-Climb.dll", &xhl_plugin());
+            put(root, "mods/XHL-Free-Climb/mod.json", br#"{
+  "id": "xhl-free-climb",
+  "name": "XHL Free Climbing",
+  "version": "2.0.1",
+  "capabilities": [],
+  "authors": [
+    "XHL"
+  ],
+  "license": "MIT",
+  "description": "Climb walls and uneven rock using the configured keyboard or gamepad button."
+}
+"#);
+            put(root, "mods/XHL-Free-Climb/native-plugin.ini", b"[Plugin]\r\nEnabled=1\r\nDll=XHL-Free-Climb.dll\r\n\r\n[Climbing]\r\nHoldKeyVk=71\r\nHoldGamepadButton=R3\r\n");
         }
         // XHL-Max-Stack-65535 and the other pure XHL data mods: dbghelp.dll + mods/<Name>/ with config.txt
         "loader-dbghelp" => {
@@ -191,6 +217,17 @@ fn tree(dir: &Path) -> Vec<String> {
     out
 }
 
+/// The lines of one section of kiln/chain.ini or kiln/chain/once.ini (`section` without brackets), comments left out.
+fn ini_lines(file: &Path, section: &str) -> Vec<String> {
+    let text = std::fs::read_to_string(file).unwrap_or_default();
+    let mut on = false;
+    text.lines().filter_map(|l| {
+        let l = l.trim();
+        if l.starts_with('[') { on = l.eq_ignore_ascii_case(&format!("[{section}]")); return None; }
+        (on && !l.is_empty() && !l.starts_with(';')).then(|| l.to_string())
+    }).collect()
+}
+
 struct Dropped {
     _t: Tmp,
     dirs: DataDirs,
@@ -230,13 +267,7 @@ impl Dropped {
     }
     /// The `[profile]` lines of kiln/chain.ini (the dllmain natives Kiln's proxy chain-loads).
     fn chained(&self) -> Vec<String> {
-        let text = std::fs::read_to_string(self.g.path.join("kiln/chain.ini")).unwrap_or_default();
-        let mut on = false;
-        text.lines().filter_map(|l| {
-            let l = l.trim();
-            if l.starts_with('[') { on = l.eq_ignore_ascii_case("[profile]"); return None; }
-            (on && !l.is_empty() && !l.starts_with(';')).then(|| l.to_string())
-        }).collect()
+        ini_lines(&self.g.path.join("kiln/chain.ini"), "profile")
     }
     fn reasons(&self) -> String {
         self.report.skipped.iter().map(|s| s.reason.as_str()).chain(self.report.notes.iter().map(|n| n.text.as_str())).collect::<Vec<_>>().join("\n")
@@ -353,6 +384,168 @@ fn xhl_mods_are_placed_where_xhl_core_finds_their_plugin() {
         assert!(d.reasons().contains("XHL-Core plugin (native-plugin.ini)"), "{}", d.reasons());
         assert_eq!(d.natives(), natives, "{which}: XHL-Core in the package is a native mod");
     }
+}
+
+/// XHL's mods since 2026-11 carry a mod.json that names the mod but has no EML part. A player reported "Nothing to add"
+/// for them: the folder was taken for a broken EML package. It is an XHL-Core plugin, placed where XHL-Core loads it,
+/// with every file it came with (its settings are in native-plugin.ini).
+#[test]
+fn xhl_2x_mods_with_a_naming_mod_json_are_xhl_core_plugins() {
+    let d = drop_on_launcher("xhl-2x", "XHL-Free-Climbing (1.0 Ready) 175 2.0.1 2026-11-02T15-32Z KgLa3UeWT");
+    assert_eq!(d.found(), ["xhl/xhl-free-climb"], "{}", d.reasons());
+    assert!(d.report.skipped.is_empty(), "{:?}", d.report.skipped);
+    assert!(d.natives().is_empty() && d.eml_paths().is_empty() && d.chained().is_empty());
+    for f in ["XHL-Free-Climb.dll", "mod.json", "native-plugin.ini"] {
+        assert!(d.g.path.join("mods/XHL-Free-Climb").join(f).is_file(), "{f}: {:?}", tree(&d.g.path));
+    }
+    assert_eq!(std::fs::read(d.g.path.join("mods/XHL-Free-Climb/XHL-Free-Climb.dll")).unwrap(), xhl_plugin());
+    assert!(d.reasons().contains("requires XHL-Core") && d.reasons().contains("never loads this plugin DLL itself"), "{}", d.reasons());
+}
+
+/// XHL-Core 2.x is XHL-Core: one native mod ("xhl-core") whose next build replaces it, and the host the XHL plugins
+/// need. Kiln looked for its markers as 8-bit text only and told players with XHL-Core installed that it was missing.
+#[test]
+fn xhl_core_2x_is_recognised_with_its_wide_text_markers() {
+    let d = drop_on_launcher("xhl-core-2x", "XHL-Core 236 2.0.6 2026-11-02T20-51Z MdXNSV1Ib");
+    assert_eq!(d.found(), ["native/xhl-core"], "{}", d.reasons());
+    assert_eq!(d.natives(), ["xhl-core"]);
+    assert!(kiln_manage::engine_mods::xhl_host(&d.g.path).available, "{}", kiln_manage::engine_mods::xhl_host(&d.g.path).text);
+}
+
+/// A chain.ini or profile.json path of a test game on this machine: `Z:\...`, or relative to its kiln folder.
+fn host_of(g: &GameInstall, p: &str) -> PathBuf {
+    match p.strip_prefix("Z:") {
+        Some(rest) => PathBuf::from(rest.replace('\\', "/")),
+        None => g.path.join("kiln").join(p.replace('\\', "/")),
+    }
+}
+
+/// XHL-Core 2.x picks its role in DllMain with `GetModuleHandleW(L"dinput8.dll")`. Chain-loaded under that base name (a
+/// Library entry keeps the name the DLL was downloaded with), Wine's loader answered with XHL-Core's own module, so it
+/// took the role "primary" and waited for the game to call its own DirectInput8Create, which behind Kiln's proxy never
+/// happens: no XHL plugin started (a player's XHL-Native-Plugin-Host.log: "role=primary." and nothing after it). Kiln
+/// chain-loads it from a copy under its own name, kiln/chain/<id>/xhl-core.dll: an entry from before Kiln knew XHL-Core
+/// 2.x (its old id, and the log XHL-Core wrote next to itself in the Library) as well as a fresh import. Off again, the
+/// copy goes and what XHL-Core wrote next to it stays.
+#[test]
+fn xhl_core_is_chain_loaded_under_its_own_name() {
+    let (t, dirs, g) = fresh("xhl-core-name");
+    let id = "xhl-core-236-2.0.6-2026-11-02t20-51z-mdxnsv1ib";
+    let old = t.0.join("dev23").join(id);
+    put(&old, "dinput8.dll", &xhl_core_2x());
+    put(&old, "native.json", format!(r#"{{"format":1,"id":"{id}","name":"XHL-Core 236 2.0.6","version":"0.0.0","side":"client",
+        "dlls":["dinput8.dll"],"phase":"dllmain"}}"#).as_bytes());
+    let r = add(&dirs, &g, &old);
+    let entry = r.import.imported[0].clone();
+    assert_eq!((entry.kind, entry.id.as_str()), (ModKind::Native, id));
+    let lib = library::path_of(&dirs, &entry).unwrap();
+    put(&lib, "XHL-Native-Plugin-Host.log", b"[XHL-Native-Host] core: XHL Native Core (role-aware) 2.0.6: role=primary.\r\n");
+    profile::activate(&dirs, "my-mods", &g).unwrap();
+    let copy = g.path.join("kiln/chain").join(id);
+    let log = copy.join("XHL-Native-Plugin-Host.log");
+    let chain = || ini_lines(&g.path.join("kiln/chain.ini"), "profile");
+    let runs_from_copy = |what: &str| {
+        let lines = chain();
+        assert_eq!(lines.len(), 1, "{what}: {lines:?}");
+        let base = lines[0].rsplit('\\').next().unwrap();
+        assert!(!base.eq_ignore_ascii_case("dinput8.dll"), "{what}: chain-loaded as {}", lines[0]);
+        assert_eq!(host_of(&g, &lines[0]), copy.join("xhl-core.dll"), "{what}");
+        assert_eq!(std::fs::read(copy.join("xhl-core.dll")).unwrap(), xhl_core_2x(), "{what}");
+        // kiln-core matches the DLL the proxy loaded with the folder profile.json names and that folder's native.json
+        let f = profile::read_game_profile(&g.path).unwrap().unwrap();
+        let m = f.mods.native.iter().find(|m| m.id == id).unwrap();
+        assert_eq!(host_of(&g, &m.path), copy, "{what}");
+        let man: serde_json::Value = serde_json::from_slice(&std::fs::read(copy.join("native.json")).unwrap()).unwrap();
+        assert_eq!((man["id"].as_str(), &man["dlls"]), (Some(id), &serde_json::json!(["xhl-core.dll"])), "{what}");
+        assert!(kiln_manage::engine_mods::xhl_host(&g.path).available, "{what}");
+        assert_eq!(std::fs::read(lib.join("dinput8.dll")).unwrap(), xhl_core_2x(), "{what}: the Library entry is as it was");
+    };
+    runs_from_copy("an entry from dev.23");
+    assert!(!log.exists(), "the log in the Library is not part of the copy");
+    // loading late and play-once name the same copy
+    let mut p = my_mods_of(&dirs);
+    p.late = vec![id.to_string()];
+    let mut p = profile::save(&dirs, &p).unwrap();
+    profile::activate(&dirs, &p.id, &g).unwrap();
+    assert_eq!(ini_lines(&g.path.join("kiln/chain.ini"), "late"), chain());
+    p.late.clear();
+    let mut p = profile::save(&dirs, &p).unwrap();
+    profile::activate(&dirs, &p.id, &g).unwrap();
+    profile::write_once(&dirs, &p.id, &g).unwrap();
+    assert_eq!(ini_lines(&g.path.join("kiln/chain/once.ini"), "profile"), chain());
+    // XHL-Core writes its log next to the copy; switched off, Kiln's files go and the log stays
+    put(&copy, "XHL-Native-Plugin-Host.log", b"role=chained; plugins start at the game's first DirectInput8Create call.\r\n");
+    p.mods.native[0].enabled = false;
+    let mut p = profile::save(&dirs, &p).unwrap();
+    profile::activate(&dirs, &p.id, &g).unwrap();
+    assert!(chain().is_empty(), "{:?}", chain());
+    assert_eq!(tree(&copy), ["XHL-Native-Plugin-Host.log"]);
+    p.mods.native[0].enabled = true;
+    let p = profile::save(&dirs, &p).unwrap();
+    profile::activate(&dirs, &p.id, &g).unwrap();
+    runs_from_copy("switched on again");
+    assert!(log.is_file());
+    profile::deactivate(&dirs, &g).unwrap();
+    assert!(chain().is_empty(), "{:?}", chain());
+    assert_eq!(tree(&copy), ["XHL-Native-Plugin-Host.log"]);
+
+    // a fresh import of XHL-Core 2.0.6 (the id xhl-core); its Library file is still dinput8.dll
+    let d = drop_on_launcher("xhl-core-2x", "XHL-Core 236 2.0.6 2026-11-02T20-51Z MdXNSV1Ib");
+    let dll = d.g.path.join("kiln/chain/xhl-core/xhl-core.dll");
+    assert_eq!(d.chained().iter().map(|l| host_of(&d.g, l)).collect::<Vec<_>>(), vec![dll.clone()]);
+    assert_eq!(std::fs::read(&dll).unwrap(), xhl_core_2x());
+    let lib = library::list(&d.dirs, Some(ModKind::Native)).unwrap();
+    assert!(lib[0].versions[0].folder.join("dinput8.dll").is_file());
+}
+
+/// Copy mode (no Z: drive): the copy's paths are relative to kiln/ in chain.ini and profile.json alike.
+#[test]
+fn xhl_core_runs_from_its_copy_in_copy_mode() {
+    let (t, dirs, g) = fresh("xhl-core-copy-mode");
+    std::fs::remove_file(t.0.join("pfx/dosdevices/z:")).unwrap();
+    put(&t.0, "XHL-Core/dinput8.dll", &xhl_core_2x());
+    add(&dirs, &g, &t.0.join("XHL-Core/dinput8.dll"));
+    assert_eq!(ini_lines(&g.path.join("kiln/chain.ini"), "profile"), ["chain\\xhl-core\\xhl-core.dll"]);
+    let f = profile::read_game_profile(&g.path).unwrap().unwrap();
+    assert_eq!(f.mods.native.iter().map(|m| m.path.as_str()).collect::<Vec<_>>(), ["chain/xhl-core"]);
+    assert_eq!(std::fs::read(g.path.join("kiln/chain/xhl-core/xhl-core.dll")).unwrap(), xhl_core_2x());
+}
+
+/// Play-once runs XHL-Core from its copy too, but never replaces the copy the active profile runs for one start: the
+/// next start from Steam would load that build instead of the active profile's.
+#[test]
+fn play_once_never_replaces_the_active_profiles_xhl_core_copy() {
+    let (t, dirs, g) = fresh("xhl-core-once");
+    let (a, b) = (xhl_core_build("a", Some((2, 0, 6))), xhl_core_build("b", Some((2, 0, 7))));
+    put(&t.0, "a/dinput8.dll", &a);
+    put(&t.0, "b/dinput8.dll", &b);
+    add(&dirs, &g, &t.0.join("a/dinput8.dll"));
+    let copy = g.path.join("kiln/chain/xhl-core/xhl-core.dll");
+    assert_eq!(std::fs::read(&copy).unwrap(), a);
+    let r = library::import(&dirs, &[t.0.join("b/dinput8.dll")], &mut NoProgress).unwrap();
+    let built = &r.imported[0];
+    let mut other = profile::create(&dirs, "Other", None).unwrap();
+    other.mods.native.push(profile::ProfileMod { id: built.id.clone(), version: built.version.clone(), hash: built.hash.clone(), enabled: true });
+    let other = profile::save(&dirs, &other).unwrap();
+    let e = profile::write_once(&dirs, &other.id, &g).unwrap_err();
+    assert!(e.message.contains("activate this profile"), "{}", e.message);
+    assert_eq!(std::fs::read(&copy).unwrap(), a, "the active profile's copy stays");
+    // the active profile without XHL-Core: the start runs the other build from the copy, the next activation removes it
+    let mut p = my_mods_of(&dirs);
+    p.mods.native[0].enabled = false;
+    let p = profile::save(&dirs, &p).unwrap();
+    profile::activate(&dirs, &p.id, &g).unwrap();
+    assert!(!copy.exists());
+    profile::write_once(&dirs, &other.id, &g).unwrap();
+    assert_eq!(std::fs::read(&copy).unwrap(), b);
+    assert_eq!(ini_lines(&g.path.join("kiln/chain/once.ini"), "profile").iter().map(|l| host_of(&g, l)).collect::<Vec<_>>(), vec![copy.clone()]);
+    assert!(ini_lines(&g.path.join("kiln/chain.ini"), "profile").is_empty());
+    profile::activate(&dirs, &p.id, &g).unwrap();
+    assert!(!copy.exists());
+}
+
+fn my_mods_of(dirs: &DataDirs) -> profile::Profile {
+    profile::get(dirs, "my-mods").unwrap()
 }
 
 #[test]

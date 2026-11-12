@@ -45,6 +45,8 @@ zip = { version = "9", default-features = false }
 # Deck UI (src/deck/gamepad.rs): the native gamepad reader (pure Rust evdev; no libudev)
 [target.'cfg(target_os = "linux")'.dependencies]
 evdev = "0.13"
+# src/render.rs: the webview's hardware acceleration policy and WebKitGTK's version (the crate and version wry uses)
+webkit2gtk = { version = "2.0.2", features = ["v2_20"] }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

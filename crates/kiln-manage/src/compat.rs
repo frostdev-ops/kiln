@@ -851,7 +851,11 @@ pub fn dllmain_entries(dirs: &DataDirs, profile: &Profile, file: &crate::profile
         if n.phase != NativePhase::Dllmain {
             continue;
         }
+        // XHL-Core named dinput8.dll: the profile names Kiln's copy, which holds it under its own name
+        // (profile::render, engine_mods::xhl_core_chain_dlls)
+        let renamed = crate::engine_mods::xhl_core_chain_dlls(&folder);
         for d in &n.dlls {
+            let d = renamed.iter().flatten().find(|(lib, _)| lib == d).map_or(d, |(_, run)| run);
             // chain.ini paths use '\'; relative ones resolve against <game>/kiln/
             out.push((m.id.clone(), format!("{}\\{d}", fm.path.trim_end_matches(['\\', '/'])).replace('/', "\\")));
         }

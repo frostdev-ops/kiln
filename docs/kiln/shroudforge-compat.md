@@ -17,11 +17,12 @@ and a missing or broken copy falls back to the bundled one. Kiln's own `kiln-shr
 
 The original source inventory used upstream `823823a` (1.7.9, recorded 2026-11-05). Historical lab evidence below
 used SF 1.7.8 and the current server profile. The bundled fork is pinned at
-`112d93986392acc9f69ee3e90d1036b4bed2a950` (dev.24, branch `kiln-dev24-compat`): the host key feed for mod shortcuts
-(section 5.6) and outdated working backups set aside without SF's Updater (section 5.0), on top of dev.21's engine-hook
-host interface (`724a884`) and dev.20's archive-reader/publication and recovery-path fixes (`1ef3896`). Its component
-records that commit and all three submodule revisions in `SOURCE.txt`, identifies itself as `1.7.9 kiln.112d939`
-(`version.json` build `kiln.112d939`), and includes the component's notices and licenses. The dev.20 mixed-server
+`63b88625c5539969f11fe9b21e6c31ca4e1ef260` (dev.24 hotfix, branch `kiln-sf-eml`): writes into values a mod created
+are checked against the field's type (section 5.0), on top of `112d939` (dev.24, branch `kiln-dev24-compat`: the host
+key feed for mod shortcuts, section 5.6, and outdated working backups set aside without SF's Updater, section 5.0),
+dev.21's engine-hook host interface (`724a884`) and dev.20's archive-reader/publication and recovery-path fixes
+(`1ef3896`). Its component records that commit and all three submodule revisions in `SOURCE.txt`, identifies itself as
+`1.7.9 kiln.63b8862` (`version.json` build `kiln.63b8862`), and includes the component's notices and licenses. The dev.20 mixed-server
 evidence is separate from the older observations below; neither is a client rendering or player-interaction test.
 
 ## 1. How ShroudForge loads (source facts)
@@ -126,12 +127,29 @@ folder, flushed and then renamed, so a start that ends during the copy (the reso
 `.partial` file that nothing restores from, and one can stay behind after a killed start. With an SF installation in
 the game folder nothing changes: its Updater and recycle bin are used.
 
+**Writes into values a mod created** (fork `63b8862`, branch `kiln-sf-eml`, on top of `112d939`). In the pregame pass a
+value a mod builds (a plain table put into game data, such as a recipe inserted into the recipe registry, or a whole
+`resource.data` replaced with a copy) becomes an owned value (`modules/mod-runtime/lua/resource_values/owned_values.rs`).
+Upstream (1.7.9 and 1.8.0, and EML's `mod-loader-lua` `simple.rs`, where the code comes from) checked every write into
+such a struct or array against the struct's or array's own type instead of the written field's or element's type; the
+game's mapped values check the field type. So `recipe.knowledgeRequirement.knowledgeOrQueryId.value = id` worked on the
+game's recipes and failed on one another mod had added (`at .: expected keen::HashKey32, got 1715248921`). With More
+Gliders (EML, adds two recipes) and SF Unlock Blueprints on together, the whole pass failed, SF restored the baseline
+and no data mod applied (dev.24 player report). The fork checks the field and element type, as the mapped values do;
+an unknown field and a wrong type are still refused. Tests: `lua/resource_values/tests.rs` (4, under Wine; all failed
+before). Lab `sfeml` (server 26430253, dev.24 server pack with this component): More Gliders + Unlock Blueprints
+`Unlock Blueprints updated 2544 recipes` (2542 alone), and the player's full set (nine packages; on a server the pass
+applies aldrich-bare-body, auto-loot-plus, more-gliders, sf-crafting-essentials and sf-unlock-blueprints) one applied
+pass, `Committed 3965 changed resources`. With auto-loot-plus (capability `export`) in the set and SF's
+`exports.enabled` on, SF runs the pass again at every start by design (`export_pass_needed`); without it the second
+start finds the pass current. kiln-eml's own copy of EML (`gpl/kiln-eml/eml/mod-loader-lua`) still has the old check.
+
 ### 5.1 `native/plugins/shroudforge` → `kiln/plugins/kiln-shroudforge.dll` (MIT)
 
 The runtime choice comes first. **Bundled**: `kiln/plugins/shroudforge/`, the default. **Installed**: `<game>/shroudforge/`,
 used when `kiln.json` has `"shroudforge": {"useInstalled": true}` (the launcher Settings toggle "Use my installed
 ShroudForge"; env `KILN_SHROUDFORGE_RUNTIME=installed|bundled` overrides). It logs which one runs
-(`ShroudForge runtime: bundled 1.7.9 kiln.112d939 from ...` for the current pin). When both are present it says how to switch. A chosen
+(`ShroudForge runtime: bundled 1.7.9 kiln.63b8862 from ...` for the current pin). When both are present it says how to switch. A chosen
 runtime that is missing, unsafe, fails to load, has an unsupported version or lacks compatible exports falls back to
 the other one with a warning. Supported unversioned bootstrap contracts are SF 1.7.8 and 1.7.9; the native DLL must
 provide all five required exports and ABI 12. Missing `version.json` is incompatible. The runtime directory and its

@@ -172,7 +172,8 @@ std::string fault_text(DWORD code) {
 
 // ---- finding mod DLLs ----
 // The DLL of an EML-style mod folder (mods/<name>/mod.json): <id>.dll, else the first DLL that exports
-// CreateModInstance. Folders of other loaders (flame.json, src/mod.lua) are not Shroudtopia's.
+// CreateModInstance. A Flame folder (flame.json) is not Shroudtopia's; one with an EML part (src/mod.lua) may also
+// hold a Shroudtopia module.
 struct Candidate {
     fs::path dll;
     fs::path root;
@@ -279,7 +280,10 @@ std::vector<Candidate> scan() {
                 H.logf(KILN_LOG_INFO, "%s: Kiln's copy of profile mod %s; the profile entry is used", path_utf8(d).c_str(), id.c_str());
             continue;
         }
-        if (kcompat::exists(d / L"flame.json") || kcompat::exists(d / L"src" / L"mod.lua")) continue;  // other loaders
+        // a Flame mod is Flame's. An EML part (src/mod.lua) does not make the folder another loader's: Skill Search ships
+        // its Lua and the Shroudtopia module that draws its search box side by side. folder_dll takes only a DLL that
+        // exports CreateModInstance, so an EML package's other DLLs are never loaded here.
+        if (kcompat::exists(d / L"flame.json")) continue;
         Candidate c;
         if (folder_dll(d, {}, &c, nullptr)) {
             if (profile_ids.count(kcompat::lower(c.id))) continue;
