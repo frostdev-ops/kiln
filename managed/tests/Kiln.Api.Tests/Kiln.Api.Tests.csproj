@@ -29,5 +29,13 @@
     <ProjectReference Include="../../../mods/tests/api-test/ApiTest.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="../../../mods/tests/worldstatus-test/worldstatus-test.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="../../../mods/tests/items-test/ItemsTest.csproj" ReferenceOutputAssembly="false" />
+    <!-- Built first so the type-forward test can load an assembly compiled against the old Kiln.Items (ItemId there). -->
+    <ProjectReference Include="fixtures/ItemIdConsumer/ItemIdConsumer.csproj" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- The fixtures are projects of their own. -->
+    <Compile Remove="fixtures/**" />
+    <None Remove="fixtures/**" />
+    <EmbeddedResource Remove="fixtures/**" />
   </ItemGroup>
 </Project>

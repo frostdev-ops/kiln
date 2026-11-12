@@ -1,0 +1,361 @@
+#nullable enable
+Kiln.Offset
+Kiln.Offset.Deconstruct(out System.Numerics.Vector3 Local, out System.Numerics.Vector3 World, out System.Numerics.Quaternion? Rotation) -> void
+Kiln.Offset.Equals(Kiln.Offset other) -> bool
+Kiln.Offset.Local.get -> System.Numerics.Vector3
+Kiln.Offset.Local.init -> void
+Kiln.Offset.Offset() -> void
+Kiln.Offset.Offset(System.Numerics.Vector3 Local = default(System.Numerics.Vector3), System.Numerics.Vector3 World = default(System.Numerics.Vector3), System.Numerics.Quaternion? Rotation = null) -> void
+Kiln.Offset.Rotation.get -> System.Numerics.Quaternion?
+Kiln.Offset.Rotation.init -> void
+Kiln.Offset.World.get -> System.Numerics.Vector3
+Kiln.Offset.World.init -> void
+Kiln.ScreenColor
+Kiln.ScreenColor.<Clone>$() -> Kiln.ScreenColor!
+Kiln.ScreenColor.Amount.get -> float
+Kiln.ScreenColor.Amount.init -> void
+Kiln.ScreenColor.Color.get -> string!
+Kiln.ScreenColor.Color.init -> void
+Kiln.ScreenColor.Deconstruct(out string! Color, out float Amount) -> void
+Kiln.ScreenColor.Equals(Kiln.ScreenColor? other) -> bool
+Kiln.ScreenColor.ScreenColor(string! Color, float Amount = 1) -> void
+Kiln.ScreenEffect
+Kiln.ScreenEffect.Contrast.get -> float?
+Kiln.ScreenEffect.Contrast.init -> void
+Kiln.ScreenEffect.Exposure.get -> float?
+Kiln.ScreenEffect.Exposure.init -> void
+Kiln.ScreenEffect.FadeIn.get -> float?
+Kiln.ScreenEffect.FadeIn.init -> void
+Kiln.ScreenEffect.FadeOut.get -> float?
+Kiln.ScreenEffect.FadeOut.init -> void
+Kiln.ScreenEffect.Fill.get -> Kiln.ScreenColor?
+Kiln.ScreenEffect.Fill.init -> void
+Kiln.ScreenEffect.Gamma.get -> float?
+Kiln.ScreenEffect.Gamma.init -> void
+Kiln.ScreenEffect.Length.get -> double?
+Kiln.ScreenEffect.Order.get -> int?
+Kiln.ScreenEffect.Order.init -> void
+Kiln.ScreenEffect.Problems() -> System.Collections.Generic.IReadOnlyList<(string! Field, string! Problem)>!
+Kiln.ScreenEffect.Saturation.get -> float?
+Kiln.ScreenEffect.Saturation.init -> void
+Kiln.ScreenEffect.ScreenEffect() -> void
+Kiln.ScreenEffect.ScreenEffect(Kiln.ScreenEffect! original) -> void
+Kiln.ScreenEffect.Seconds.get -> float?
+Kiln.ScreenEffect.Seconds.init -> void
+Kiln.ScreenEffect.Strength.get -> float?
+Kiln.ScreenEffect.Strength.init -> void
+Kiln.ScreenEffect.Temperature.get -> float?
+Kiln.ScreenEffect.Temperature.init -> void
+Kiln.ScreenEffect.Tint.get -> Kiln.ScreenColor?
+Kiln.ScreenEffect.Tint.init -> void
+Kiln.ScreenEffect.Vignette.get -> Kiln.ScreenVignette?
+Kiln.ScreenEffect.Vignette.init -> void
+Kiln.ScreenEffects
+Kiln.ScreenHandle
+Kiln.ScreenHandle.Deconstruct(out uint Value) -> void
+Kiln.ScreenHandle.Equals(Kiln.ScreenHandle other) -> bool
+Kiln.ScreenHandle.IsNone.get -> bool
+Kiln.ScreenHandle.ScreenHandle() -> void
+Kiln.ScreenHandle.ScreenHandle(uint Value) -> void
+Kiln.ScreenHandle.Value.get -> uint
+Kiln.ScreenHandle.Value.init -> void
+Kiln.ScreenStatus
+Kiln.ScreenStatus.<Clone>$() -> Kiln.ScreenStatus!
+Kiln.ScreenStatus.Available.get -> bool
+Kiln.ScreenStatus.Available.init -> void
+Kiln.ScreenStatus.Deconstruct(out bool Available, out bool Native, out bool Enabled, out bool Ready, out int Playing, out string! Transfer, out int Width, out int Height, out uint Format, out long Plays, out long Refused, out long Frames, out long Skipped, out double PipelineMs, out string! Reason, out bool Relay, out long Sent, out long Received) -> void
+Kiln.ScreenStatus.Enabled.get -> bool
+Kiln.ScreenStatus.Enabled.init -> void
+Kiln.ScreenStatus.Equals(Kiln.ScreenStatus? other) -> bool
+Kiln.ScreenStatus.Format.get -> uint
+Kiln.ScreenStatus.Format.init -> void
+Kiln.ScreenStatus.Frames.get -> long
+Kiln.ScreenStatus.Frames.init -> void
+Kiln.ScreenStatus.Height.get -> int
+Kiln.ScreenStatus.Height.init -> void
+Kiln.ScreenStatus.Native.get -> bool
+Kiln.ScreenStatus.Native.init -> void
+Kiln.ScreenStatus.PipelineMs.get -> double
+Kiln.ScreenStatus.PipelineMs.init -> void
+Kiln.ScreenStatus.Playing.get -> int
+Kiln.ScreenStatus.Playing.init -> void
+Kiln.ScreenStatus.Plays.get -> long
+Kiln.ScreenStatus.Plays.init -> void
+Kiln.ScreenStatus.Ready.get -> bool
+Kiln.ScreenStatus.Ready.init -> void
+Kiln.ScreenStatus.Reason.get -> string!
+Kiln.ScreenStatus.Reason.init -> void
+Kiln.ScreenStatus.Received.get -> long
+Kiln.ScreenStatus.Received.init -> void
+Kiln.ScreenStatus.Refused.get -> long
+Kiln.ScreenStatus.Refused.init -> void
+Kiln.ScreenStatus.Relay.get -> bool
+Kiln.ScreenStatus.Relay.init -> void
+Kiln.ScreenStatus.ScreenStatus(bool Available, bool Native, bool Enabled, bool Ready, int Playing, string! Transfer, int Width, int Height, uint Format, long Plays, long Refused, long Frames, long Skipped, double PipelineMs, string! Reason, bool Relay, long Sent, long Received) -> void
+Kiln.ScreenStatus.Sent.get -> long
+Kiln.ScreenStatus.Sent.init -> void
+Kiln.ScreenStatus.Skipped.get -> long
+Kiln.ScreenStatus.Skipped.init -> void
+Kiln.ScreenStatus.Transfer.get -> string!
+Kiln.ScreenStatus.Transfer.init -> void
+Kiln.ScreenStatus.Width.get -> int
+Kiln.ScreenStatus.Width.init -> void
+Kiln.ScreenTestSeams
+Kiln.ScreenVignette
+Kiln.ScreenVignette.<Clone>$() -> Kiln.ScreenVignette!
+Kiln.ScreenVignette.Amount.get -> float?
+Kiln.ScreenVignette.Amount.init -> void
+Kiln.ScreenVignette.Color.get -> string?
+Kiln.ScreenVignette.Color.init -> void
+Kiln.ScreenVignette.Equals(Kiln.ScreenVignette? other) -> bool
+Kiln.ScreenVignette.Radius.get -> float?
+Kiln.ScreenVignette.Radius.init -> void
+Kiln.ScreenVignette.ScreenVignette() -> void
+Kiln.ScreenVignette.Softness.get -> float?
+Kiln.ScreenVignette.Softness.init -> void
+Kiln.Slot
+Kiln.Slot.ArmL = 12 -> Kiln.Slot
+Kiln.Slot.Block = 13 -> Kiln.Slot
+Kiln.Slot.Chest = 2 -> Kiln.Slot
+Kiln.Slot.FootL = 4 -> Kiln.Slot
+Kiln.Slot.FootR = 5 -> Kiln.Slot
+Kiln.Slot.FootRL = 6 -> Kiln.Slot
+Kiln.Slot.FootRR = 7 -> Kiln.Slot
+Kiln.Slot.Generic00 = 16 -> Kiln.Slot
+Kiln.Slot.Generic01 = 17 -> Kiln.Slot
+Kiln.Slot.Generic02 = 18 -> Kiln.Slot
+Kiln.Slot.Generic03 = 19 -> Kiln.Slot
+Kiln.Slot.Generic04 = 20 -> Kiln.Slot
+Kiln.Slot.Generic05 = 21 -> Kiln.Slot
+Kiln.Slot.Generic06 = 22 -> Kiln.Slot
+Kiln.Slot.Generic07 = 23 -> Kiln.Slot
+Kiln.Slot.Generic08 = 24 -> Kiln.Slot
+Kiln.Slot.Generic09 = 25 -> Kiln.Slot
+Kiln.Slot.Generic10 = 26 -> Kiln.Slot
+Kiln.Slot.Generic11 = 27 -> Kiln.Slot
+Kiln.Slot.Generic12 = 28 -> Kiln.Slot
+Kiln.Slot.Generic13 = 29 -> Kiln.Slot
+Kiln.Slot.Generic14 = 30 -> Kiln.Slot
+Kiln.Slot.Generic15 = 31 -> Kiln.Slot
+Kiln.Slot.Generic16 = 32 -> Kiln.Slot
+Kiln.Slot.Generic17 = 33 -> Kiln.Slot
+Kiln.Slot.Generic18 = 34 -> Kiln.Slot
+Kiln.Slot.Generic19 = 35 -> Kiln.Slot
+Kiln.Slot.HandL = 9 -> Kiln.Slot
+Kiln.Slot.HandPalmL = 15 -> Kiln.Slot
+Kiln.Slot.HandPalmR = 14 -> Kiln.Slot
+Kiln.Slot.HandR = 8 -> Kiln.Slot
+Kiln.Slot.Head = 1 -> Kiln.Slot
+Kiln.Slot.KneeL = 11 -> Kiln.Slot
+Kiln.Slot.KneeR = 10 -> Kiln.Slot
+Kiln.Slot.Pelvis = 3 -> Kiln.Slot
+Kiln.Slot.Root = 0 -> Kiln.Slot
+Kiln.Vfx
+Kiln.VfxEndReason
+Kiln.VfxEndReason.EntityGone = 3 -> Kiln.VfxEndReason
+Kiln.VfxEndReason.Fault = 8 -> Kiln.VfxEndReason
+Kiln.VfxEndReason.Finished = 1 -> Kiln.VfxEndReason
+Kiln.VfxEndReason.NoInstance = 10 -> Kiln.VfxEndReason
+Kiln.VfxEndReason.None = 0 -> Kiln.VfxEndReason
+Kiln.VfxEndReason.Refused = 9 -> Kiln.VfxEndReason
+Kiln.VfxEndReason.StartFailed = 5 -> Kiln.VfxEndReason
+Kiln.VfxEndReason.Stopped = 2 -> Kiln.VfxEndReason
+Kiln.VfxEndReason.TimedOut = 6 -> Kiln.VfxEndReason
+Kiln.VfxEndReason.UnknownVfx = 4 -> Kiln.VfxEndReason
+Kiln.VfxEndReason.WorldEnded = 7 -> Kiln.VfxEndReason
+Kiln.VfxHandle
+Kiln.VfxHandle.Deconstruct(out uint Value) -> void
+Kiln.VfxHandle.Equals(Kiln.VfxHandle other) -> bool
+Kiln.VfxHandle.IsNone.get -> bool
+Kiln.VfxHandle.IsRemote.get -> bool
+Kiln.VfxHandle.Value.get -> uint
+Kiln.VfxHandle.Value.init -> void
+Kiln.VfxHandle.VfxHandle() -> void
+Kiln.VfxHandle.VfxHandle(uint Value) -> void
+Kiln.VfxId
+Kiln.VfxId.Equals(Kiln.VfxId other) -> bool
+Kiln.VfxId.GameName.get -> string?
+Kiln.VfxId.Guid.get -> System.Guid
+Kiln.VfxId.IsNone.get -> bool
+Kiln.VfxId.VfxId() -> void
+Kiln.VfxId.VfxId(System.Guid guid) -> void
+Kiln.VfxInfo
+Kiln.VfxInfo.<Clone>$() -> Kiln.VfxInfo!
+Kiln.VfxInfo.Attached.get -> bool
+Kiln.VfxInfo.Attached.init -> void
+Kiln.VfxInfo.Deconstruct(out Kiln.VfxHandle Handle, out Kiln.VfxState State, out Kiln.VfxEndReason Reason, out uint FxHandle, out uint Instance, out int Thread, out Kiln.EntityId Entity, out bool Attached, out bool Unmatched, out System.TimeSpan? StartDelay, out System.TimeSpan? Lifetime, out Kiln.WorldPosition Position) -> void
+Kiln.VfxInfo.Entity.get -> Kiln.EntityId
+Kiln.VfxInfo.Entity.init -> void
+Kiln.VfxInfo.Equals(Kiln.VfxInfo? other) -> bool
+Kiln.VfxInfo.FxHandle.get -> uint
+Kiln.VfxInfo.FxHandle.init -> void
+Kiln.VfxInfo.Handle.get -> Kiln.VfxHandle
+Kiln.VfxInfo.Handle.init -> void
+Kiln.VfxInfo.Instance.get -> uint
+Kiln.VfxInfo.Instance.init -> void
+Kiln.VfxInfo.Lifetime.get -> System.TimeSpan?
+Kiln.VfxInfo.Lifetime.init -> void
+Kiln.VfxInfo.Position.get -> Kiln.WorldPosition
+Kiln.VfxInfo.Position.init -> void
+Kiln.VfxInfo.Reason.get -> Kiln.VfxEndReason
+Kiln.VfxInfo.Reason.init -> void
+Kiln.VfxInfo.StartDelay.get -> System.TimeSpan?
+Kiln.VfxInfo.StartDelay.init -> void
+Kiln.VfxInfo.State.get -> Kiln.VfxState
+Kiln.VfxInfo.State.init -> void
+Kiln.VfxInfo.Thread.get -> int
+Kiln.VfxInfo.Thread.init -> void
+Kiln.VfxInfo.Unmatched.get -> bool
+Kiln.VfxInfo.Unmatched.init -> void
+Kiln.VfxInfo.VfxInfo(Kiln.VfxHandle Handle, Kiln.VfxState State, Kiln.VfxEndReason Reason, uint FxHandle, uint Instance, int Thread, Kiln.EntityId Entity, bool Attached, bool Unmatched, System.TimeSpan? StartDelay, System.TimeSpan? Lifetime, Kiln.WorldPosition Position) -> void
+Kiln.VfxParams
+Kiln.VfxParams.Set(string! name, Kiln.Color value) -> Kiln.VfxParams!
+Kiln.VfxParams.Set(string! name, System.Numerics.Vector3 value) -> Kiln.VfxParams!
+Kiln.VfxParams.Set(string! name, float value) -> Kiln.VfxParams!
+Kiln.VfxParams.Set(string! name, int value) -> Kiln.VfxParams!
+Kiln.VfxParams.VfxParams() -> void
+Kiln.VfxState
+Kiln.VfxState.Failed = 4 -> Kiln.VfxState
+Kiln.VfxState.None = 0 -> Kiln.VfxState
+Kiln.VfxState.Pending = 1 -> Kiln.VfxState
+Kiln.VfxState.Playing = 2 -> Kiln.VfxState
+Kiln.VfxState.Stopped = 3 -> Kiln.VfxState
+Kiln.VfxStatus
+Kiln.VfxStatus.<Clone>$() -> Kiln.VfxStatus!
+Kiln.VfxStatus.Available.get -> bool
+Kiln.VfxStatus.Available.init -> void
+Kiln.VfxStatus.Controller.get -> bool
+Kiln.VfxStatus.Controller.init -> void
+Kiln.VfxStatus.Deconstruct(out bool Available, out bool Native, out bool Guard, out bool Controller, out bool SystemReady, out bool Simulated, out uint Registered, out uint MapCapacity, out int Thread, out uint Live, out ulong Played, out ulong Failed, out ulong Refused, out ulong Updates, out bool Relay, out long RelaySent, out long RelayReceived) -> void
+Kiln.VfxStatus.Equals(Kiln.VfxStatus? other) -> bool
+Kiln.VfxStatus.Failed.get -> ulong
+Kiln.VfxStatus.Failed.init -> void
+Kiln.VfxStatus.Guard.get -> bool
+Kiln.VfxStatus.Guard.init -> void
+Kiln.VfxStatus.Live.get -> uint
+Kiln.VfxStatus.Live.init -> void
+Kiln.VfxStatus.MapCapacity.get -> uint
+Kiln.VfxStatus.MapCapacity.init -> void
+Kiln.VfxStatus.Native.get -> bool
+Kiln.VfxStatus.Native.init -> void
+Kiln.VfxStatus.Played.get -> ulong
+Kiln.VfxStatus.Played.init -> void
+Kiln.VfxStatus.Refused.get -> ulong
+Kiln.VfxStatus.Refused.init -> void
+Kiln.VfxStatus.Registered.get -> uint
+Kiln.VfxStatus.Registered.init -> void
+Kiln.VfxStatus.Relay.get -> bool
+Kiln.VfxStatus.Relay.init -> void
+Kiln.VfxStatus.RelayReceived.get -> long
+Kiln.VfxStatus.RelayReceived.init -> void
+Kiln.VfxStatus.RelaySent.get -> long
+Kiln.VfxStatus.RelaySent.init -> void
+Kiln.VfxStatus.Simulated.get -> bool
+Kiln.VfxStatus.Simulated.init -> void
+Kiln.VfxStatus.SystemReady.get -> bool
+Kiln.VfxStatus.SystemReady.init -> void
+Kiln.VfxStatus.Thread.get -> int
+Kiln.VfxStatus.Thread.init -> void
+Kiln.VfxStatus.Updates.get -> ulong
+Kiln.VfxStatus.Updates.init -> void
+Kiln.VfxStatus.VfxStatus(bool Available, bool Native, bool Guard, bool Controller, bool SystemReady, bool Simulated, uint Registered, uint MapCapacity, int Thread, uint Live, ulong Played, ulong Failed, ulong Refused, ulong Updates, bool Relay, long RelaySent, long RelayReceived) -> void
+Kiln.VfxTestSeams
+override Kiln.Offset.GetHashCode() -> int
+override Kiln.ScreenColor.Equals(object? obj) -> bool
+override Kiln.ScreenColor.GetHashCode() -> int
+override Kiln.ScreenColor.ToString() -> string!
+override Kiln.ScreenEffect.Equals(object? obj) -> bool
+override Kiln.ScreenEffect.GetHashCode() -> int
+override Kiln.ScreenEffect.ToString() -> string!
+override Kiln.ScreenHandle.GetHashCode() -> int
+override Kiln.ScreenHandle.ToString() -> string!
+override Kiln.ScreenStatus.Equals(object? obj) -> bool
+override Kiln.ScreenStatus.GetHashCode() -> int
+override Kiln.ScreenStatus.ToString() -> string!
+override Kiln.ScreenVignette.Equals(object? obj) -> bool
+override Kiln.ScreenVignette.GetHashCode() -> int
+override Kiln.ScreenVignette.ToString() -> string!
+override Kiln.VfxHandle.GetHashCode() -> int
+override Kiln.VfxHandle.ToString() -> string!
+override Kiln.VfxId.GetHashCode() -> int
+override Kiln.VfxId.ToString() -> string!
+override Kiln.VfxInfo.Equals(object? obj) -> bool
+override Kiln.VfxInfo.GetHashCode() -> int
+override Kiln.VfxInfo.ToString() -> string!
+override Kiln.VfxStatus.Equals(object? obj) -> bool
+override Kiln.VfxStatus.GetHashCode() -> int
+override Kiln.VfxStatus.ToString() -> string!
+static Kiln.Offset.operator !=(Kiln.Offset left, Kiln.Offset right) -> bool
+static Kiln.Offset.operator ==(Kiln.Offset left, Kiln.Offset right) -> bool
+static Kiln.ScreenColor.TryParse(string! text, out (float R, float G, float B) rgb) -> bool
+static Kiln.ScreenColor.implicit operator Kiln.ScreenColor!(string! color) -> Kiln.ScreenColor!
+static Kiln.ScreenColor.operator !=(Kiln.ScreenColor? left, Kiln.ScreenColor? right) -> bool
+static Kiln.ScreenColor.operator ==(Kiln.ScreenColor? left, Kiln.ScreenColor? right) -> bool
+static Kiln.ScreenEffect.operator !=(Kiln.ScreenEffect? left, Kiln.ScreenEffect? right) -> bool
+static Kiln.ScreenEffect.operator ==(Kiln.ScreenEffect? left, Kiln.ScreenEffect? right) -> bool
+static Kiln.ScreenEffects.Available.get -> bool
+static Kiln.ScreenEffects.IsPlaying(Kiln.ScreenHandle h) -> bool
+static Kiln.ScreenEffects.Play(Kiln.ScreenEffect! effect) -> Kiln.ScreenHandle
+static Kiln.ScreenEffects.PlayFor(Kiln.EntityId player, Kiln.ScreenEffect! effect) -> Kiln.ScreenHandle
+static Kiln.ScreenEffects.PlayNear(Kiln.WorldPosition at, float radius, Kiln.ScreenEffect! effect) -> Kiln.ScreenHandle
+static Kiln.ScreenEffects.SetStrength(Kiln.ScreenHandle h, float strength) -> void
+static Kiln.ScreenEffects.Status() -> Kiln.ScreenStatus!
+static Kiln.ScreenEffects.Stop(Kiln.ScreenHandle h, bool immediate = false) -> void
+static Kiln.ScreenHandle.operator !=(Kiln.ScreenHandle left, Kiln.ScreenHandle right) -> bool
+static Kiln.ScreenHandle.operator ==(Kiln.ScreenHandle left, Kiln.ScreenHandle right) -> bool
+static Kiln.ScreenStatus.operator !=(Kiln.ScreenStatus? left, Kiln.ScreenStatus? right) -> bool
+static Kiln.ScreenStatus.operator ==(Kiln.ScreenStatus? left, Kiln.ScreenStatus? right) -> bool
+static Kiln.ScreenTestSeams.Native(Kiln.ScreenEffect! effect) -> float[]!
+static Kiln.ScreenTestSeams.NativeSizes.get -> (int Effect, int Status, int Table)
+static Kiln.ScreenTestSeams.RoundTrip(Kiln.ScreenEffect! effect) -> float[]!
+static Kiln.ScreenVignette.implicit operator Kiln.ScreenVignette!(float amount) -> Kiln.ScreenVignette!
+static Kiln.ScreenVignette.operator !=(Kiln.ScreenVignette? left, Kiln.ScreenVignette? right) -> bool
+static Kiln.ScreenVignette.operator ==(Kiln.ScreenVignette? left, Kiln.ScreenVignette? right) -> bool
+static Kiln.Vfx.Available.get -> bool
+static Kiln.Vfx.Info(Kiln.VfxHandle h) -> Kiln.VfxInfo?
+static Kiln.Vfx.IsKnown(Kiln.VfxId vfx) -> bool
+static Kiln.Vfx.IsPlaying(Kiln.VfxHandle h) -> bool
+static Kiln.Vfx.PlayAt(Kiln.VfxId vfx, Kiln.WorldPosition at, System.Numerics.Quaternion? rotation = null, float scale = 1, Kiln.VfxParams? parameters = null, System.TimeSpan? lifetime = null, float radius = 0) -> Kiln.VfxHandle
+static Kiln.Vfx.PlayFor(Kiln.EntityId player, Kiln.VfxId vfx, Kiln.WorldPosition at, Kiln.VfxParams? parameters = null, System.TimeSpan? lifetime = null) -> Kiln.VfxHandle
+static Kiln.Vfx.PlayOn(Kiln.VfxId vfx, Kiln.EntityId entity, Kiln.Slot slot = Kiln.Slot.Root, Kiln.Offset offset = default(Kiln.Offset), Kiln.VfxParams? parameters = null, System.TimeSpan? lifetime = null, float radius = 0) -> Kiln.VfxHandle
+static Kiln.Vfx.Preload(Kiln.VfxId vfx) -> void
+static Kiln.Vfx.Set(Kiln.VfxHandle h, string! parameter, Kiln.Color value) -> void
+static Kiln.Vfx.Set(Kiln.VfxHandle h, string! parameter, System.Numerics.Vector3 value) -> void
+static Kiln.Vfx.Set(Kiln.VfxHandle h, string! parameter, float value) -> void
+static Kiln.Vfx.Set(Kiln.VfxHandle h, string! parameter, int value) -> void
+static Kiln.Vfx.State(Kiln.VfxHandle h) -> Kiln.VfxState
+static Kiln.Vfx.Status() -> Kiln.VfxStatus!
+static Kiln.Vfx.StatusJson() -> string!
+static Kiln.Vfx.Stop(Kiln.VfxHandle h, bool immediate = false) -> void
+static Kiln.Vfx.StopAll(bool immediate = false) -> int
+static Kiln.VfxHandle.operator !=(Kiln.VfxHandle left, Kiln.VfxHandle right) -> bool
+static Kiln.VfxHandle.operator ==(Kiln.VfxHandle left, Kiln.VfxHandle right) -> bool
+static Kiln.VfxId.Game(string! name) -> Kiln.VfxId
+static Kiln.VfxId.Named(Kiln.ModContext! mod, string! name) -> Kiln.VfxId
+static Kiln.VfxId.Named(string! modId, string! name) -> Kiln.VfxId
+static Kiln.VfxId.Of(System.Guid guid) -> Kiln.VfxId
+static Kiln.VfxId.Of(string! guid) -> Kiln.VfxId
+static Kiln.VfxId.operator !=(Kiln.VfxId left, Kiln.VfxId right) -> bool
+static Kiln.VfxId.operator ==(Kiln.VfxId left, Kiln.VfxId right) -> bool
+static Kiln.VfxInfo.operator !=(Kiln.VfxInfo? left, Kiln.VfxInfo? right) -> bool
+static Kiln.VfxInfo.operator ==(Kiln.VfxInfo? left, Kiln.VfxInfo? right) -> bool
+static Kiln.VfxStatus.operator !=(Kiln.VfxStatus? left, Kiln.VfxStatus? right) -> bool
+static Kiln.VfxStatus.operator ==(Kiln.VfxStatus? left, Kiln.VfxStatus? right) -> bool
+static Kiln.VfxTestSeams.GuardThroughCreateInstance(System.Guid unknown) -> Kiln.VfxHandle
+static Kiln.VfxTestSeams.GuardThroughFxController(System.Guid unknown, Kiln.WorldPosition at) -> Kiln.VfxHandle
+static Kiln.VfxTestSeams.LoopbackPlay(System.Guid vfx, Kiln.WorldPosition at, float scale, Kiln.EntityId entity, Kiln.Slot slot, Kiln.Offset offset, long lifetimeNs, Kiln.VfxParams? parameters) -> Kiln.VfxHandle
+static Kiln.VfxTestSeams.LoopbackStop(Kiln.VfxHandle local) -> void
+static Kiln.VfxTestSeams.NativeSizes.get -> (int Play, int Info, int Status, int Table)
+static readonly Kiln.ScreenHandle.None -> Kiln.ScreenHandle
+static readonly Kiln.Vfx.UntilStopped -> System.TimeSpan
+static readonly Kiln.VfxHandle.None -> Kiln.VfxHandle
+static readonly Kiln.VfxId.None -> Kiln.VfxId
+virtual Kiln.ScreenEffect.<Clone>$() -> Kiln.ScreenEffect!
+virtual Kiln.ScreenEffect.EqualityContract.get -> System.Type!
+virtual Kiln.ScreenEffect.Equals(Kiln.ScreenEffect? other) -> bool
+virtual Kiln.ScreenEffect.PrintMembers(System.Text.StringBuilder! builder) -> bool
+~override Kiln.Offset.Equals(object obj) -> bool
+~override Kiln.Offset.ToString() -> string
+~override Kiln.ScreenHandle.Equals(object obj) -> bool
+~override Kiln.VfxHandle.Equals(object obj) -> bool
+~override Kiln.VfxId.Equals(object obj) -> bool
