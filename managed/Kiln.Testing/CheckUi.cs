@@ -31,6 +31,9 @@ internal sealed class ScreenState
 /// state.</summary>
 internal static class CheckScreen
 {
+    /// <summary>Shown beside every group with checks tagged cheats: the guard covers the session, not the character.</summary>
+    internal const string CheatsNote = "Checks tagged cheats change the character for good: use a throwaway character and delete it afterwards.";
+
     private static readonly Color Green = new(110, 200, 120), Red = new(235, 95, 85), Amber = new(235, 190, 90), Dim = new(150, 150, 150);
 
     public static void Draw(UiDraw ui, RunnerView v, ScreenState s, Action<UiAction> act, DateTime now, string keys = "")
@@ -69,6 +72,7 @@ internal static class CheckScreen
                 var items = area.ToList();
                 var done = items.Count(i => i.Verdict == "pass");
                 if (!ui.CollapsingHeader($"{area.Key}  ({done}/{items.Count} passed)###area.{area.Key}", defaultOpen: true)) continue;
+                if (items.Any(i => i.Cheats)) ui.Text(Amber, CheatsNote);
                 foreach (var i in items)
                 {
                     using var _ = ui.Id(i.Mod + "/" + i.Id);

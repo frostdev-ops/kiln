@@ -143,7 +143,8 @@ answers it with the screen's own "Yes, run it" button (never the pass key, never
 start and has no entry. Any other check may carry a `Confirm` text too.
 
 What the guard does not cover is in `Kiln.SteamGuard`'s documentation. In particular, a character changed by a `cheats`
-check and loaded later in a game without the guard can still reach its achievements then.
+check and loaded later in a game without the guard can still reach its achievements then. The list says so beside every
+group with `cheats` checks: use a throwaway character and delete it afterwards.
 
 ### Running the pass
 - **In the game (hosted).** Host a world (single player or co-op host). The list opens with Ctrl+Shift+F5; pass, fail
