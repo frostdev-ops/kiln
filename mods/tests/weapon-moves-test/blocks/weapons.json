@@ -1,0 +1,50 @@
+{
+  // The lab's weapons with moves (docs/kiln/modding/item-blocks.md, "Moves"). chain-sword-cs in WeaponMovesTestMod.cs is
+  // chain-sword in C#: both lower to the same. Until player-anim lands, a move's animation is a game state, by GUID or by
+  // 0x id: here the states of other weapon families, so that a player can see that the move plays it.
+  "$schema": "../../../../schema/kiln-blocks.schema.json",
+  "format": 1,
+  "weapons": {
+    // A sword with its own two-link chain, a heavy and a block.
+    //   primary 1: the sword's light chain 1, its blow at 0.40 s, playing the greataxe's first
+    //              diagonal swing (SM_Attack_Hammer_FullBody/Attack_Axe_01, 0x0a46d489);
+    //   primary 2: the light chain 2, its blow at 0.45 s, the greataxe's second (Attack_Axe_02, 0xf31bb0aa);
+    //   heavy:     the sword's diagonal heavy, its blow at 0.60 s, 1.8 s long,
+    //              playing the greatsword's heavy (SM_Attack_Greatsword_FullBody/Attack_Greatsword_Heavy, 0xfbf9eee2);
+    //   block:     the game's block, guarding with the parry's pose (Parry_FullBody, by its 0x id).
+    "chain-sword": {
+      "name": "Chain Sword", "class": "sword",
+      "stats": { "level": 5, "power": 30, "rarity": "rare" },
+      "moves": {
+        "primary": [
+          { "animation": "ad276dac-1bb6-4406-bdfc-c584edfd0f5d", "like": "Attack_Player_1H_Single_LightChain1", "hitAt": 0.40 },
+          { "animation": "6bc6f8fb-5ecb-4351-836f-4d5b50f72007", "like": "Attack_Player_1H_Single_LightChain2", "hitAt": 0.45 }
+        ],
+        "heavy": { "animation": "30c8d4c5-5927-47ec-84b1-c00d32c7f35d", "like": "Attack_Player_Melee_Heavy_Sword_Diagonal", "hitAt": 0.60, "length": 1.80 },
+        "block": { "animation": "0xfeec6023" }
+      }
+    },
+    // A two-handed weapon with one heavy move and nothing else: no like, so it is cloned when content is ready from the
+    // greataxe's own grounded heavy, its blow at 1.40 s.
+    "heavy-greataxe": {
+      "name": "Heavy Greataxe", "class": "greataxe",
+      "stats": { "level": 5, "power": 30, "rarity": "rare" },
+      "moves": { "heavy": { "hitAt": 1.40 } }
+    },
+    // The control: a sword with no moves.
+    "plain-sword": { "name": "Plain Sword", "class": "sword", "stats": { "level": 5, "power": 30, "rarity": "rare" } }
+  },
+  "wands": {
+    // A wand with a move on its primary attack only: the bolt, released at 0.60 s, raised with the
+    // heavy attack's overlay (Attack_Player_Wand_AllElements_Heavy's).
+    "moves-wand": {
+      "name": "Moves Wand",
+      "stats": { "level": 5, "rarity": "uncommon" },
+      "primary": {
+        "cast": { "manaCost": 6 },
+        "delivery": { "type": "projectile", "speed": 40, "look": "fireball", "onImpact": [ { "area": { "radius": 2, "effects": [ { "damage": { "fire": 25 } } ] } } ] },
+        "moves": { "like": "bolt", "animation": "718fce5f-df4b-4dca-8ea6-ad69599134ce", "hitAt": 0.60 }
+      }
+    }
+  }
+}
