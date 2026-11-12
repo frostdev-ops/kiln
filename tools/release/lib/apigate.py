@@ -5,6 +5,9 @@ Microsoft.CodeAnalysis.PublicApiAnalyzers, see managed/Directory.Build.props) an
 (Kiln.Mods.ApiVersion in managed/Kiln.Api/Mods.cs). Called by tools/release/api-gate.sh; release.sh calls that.
 
   apigate.py [--repo DIR] removed OLD [NEW|--worktree]      exit 1 when a shipped line is gone (each one named)
+  apigate.py [--repo DIR] record [REV|--worktree]           exit 1 when an Unshipped.txt holds a *REMOVED* line that
+                                                            the removal rule does not allow, or a PublicAPI file a
+                                                            merge conflict marker (no old tag needed)
   apigate.py [--repo DIR] pending [REV|--worktree]          the Unshipped.txt files that hold lines, with counts
   apigate.py [--repo DIR] version-rule OLD [NEW|--worktree] exit 1 when new API is pending and the API version is
                                                             still the one at OLD
@@ -20,19 +23,30 @@ What counts as shipped at a revision: the lines of its Shipped.txt, plus the add
 `*REMOVED*<line>` entries. A release is tagged at the commit it was built from and promote's moved lines are committed
 after it, so at a tag the lines that release added are still in Unshipped.txt: they shipped all the same.
 
+The removal rule (one function, removal_case, used by removed, record and promote): a removed line is allowed only
+  - beside `[KILNX...]<line>` (an existing member made experimental), or
+  - beside `<line> (forwarded, contained in <Assembly>)` (a type moved with a type forward), and then the project of
+    <Assembly>, when it has a PublicAPI record, must record <line> in its Shipped.txt or Unshipped.txt, or
+  - when the line is itself experimental (`[KILNX...]`: lab API is not part of the promise).
+"Beside" is the same Unshipped.txt for a `*REMOVED*` entry, the project's record for a line gone since a tag (after a
+promote the pair sits in Shipped.txt). Everything else, a bare `*REMOVED*` included, is a refusal.
+
 `removed`: every line shipped at OLD that is not shipped at NEW, for every project that has a Shipped.txt at OLD. Not a
-removal: `#nullable enable`, a line with an experimental prefix (`[KILNX001]...`: not part of the promise), and a
-project with no Shipped.txt at OLD (not gated yet, whatever is there now: the first release with the gate). A line
-that is gone because its member became experimental (the same text now shipped with a `[KILNX...]` prefix) is listed as
-allowed. A Shipped.txt that existed at OLD and is deleted at NEW is a removal of all its lines.
+removal: `#nullable enable`, a line with an experimental prefix, and a project with no Shipped.txt at OLD (not gated
+yet, whatever is there now: the first release with the gate). A removal the rule allows is listed with its case. A
+Shipped.txt that existed at OLD and is deleted at NEW is a removal of all its lines.
+
+`record`: every `*REMOVED*` line of every Unshipped.txt, judged by the rule, and merge conflict markers (`<<<<<<<`,
+`|||||||`, `=======`, `>>>>>>>`) in any PublicAPI file; without an old tag (tools/check.sh's first stage).
 
 `version-rule`: new API means additions in an Unshipped.txt at NEW that are not experimental. Then the API version at
 NEW must be higher than at OLD (`bump-api` raises it). An OLD whose Mods.cs cannot be read: a warning, no refusal.
 
 `promote`: per project, additions go into Shipped.txt in ordinal order (UTF-16 code units, as the analyzer's code fix
-sorts; `#nullable enable` stays first), `*REMOVED*<line>` deletes <line> from Shipped.txt when `removed` would allow it
-(the line is experimental, or it is shipped again with an experimental prefix) and refuses otherwise, and Unshipped.txt
-keeps `#nullable enable` only. Nothing is written unless every project passes; a second run changes nothing.
+sorts; `#nullable enable` stays first), `*REMOVED*<line>` deletes <line> from Shipped.txt when the rule allows it
+(its pair in the same Unshipped.txt) and refuses otherwise, and Unshipped.txt keeps `#nullable enable` only. A
+forwarded pair leaves the forwarded line in Shipped.txt in place of the old one: that is the record the analyzer
+wants for a forwarded type. Nothing is written unless every project passes; a second run changes nothing.
 --if-same-as REV: only when every PublicAPI.*.txt of the working tree is the one at REV (else exit 3, nothing written).
 
 `bump-api`: VERSION (X.Y.Z) default the next minor; it must be higher than the current one and keep the major unless
@@ -54,6 +68,9 @@ UNSHIPPED = "PublicAPI.Unshipped.txt"
 NULLABLE = "#nullable enable"
 REMOVED = "*REMOVED*"
 EXPERIMENTAL = re.compile(r"^\[KILNX[0-9A-Za-z_]*\]")
+MERGE_MARKER = re.compile(r"^(<{7}|\|{7}|={7}|>{7})( |\r?$)")
+# the analyzer's record of a type moved to another assembly with a type forward
+FORWARDED = re.compile(r"^(?P<line>.+) \(forwarded, contained in (?P<asm>[A-Za-z0-9_.]+)\)$")
 MODS_CS = "managed/Kiln.Api/Mods.cs"
 VERSION_PROPS = "managed/Kiln.Sdk/Sdk/Kiln.Version.props"
 PROFILE_RS = "crates/kiln-manage/src/profile.rs"
@@ -107,9 +124,15 @@ class WorkTree:
 
     def files(self):
         if self._files is None:
-            out = git(self.repo, "ls-files", "-z", "-co", "--exclude-standard", binary=True)
-            self._files = sorted({p.decode("utf-8") for p in out.split(b"\0")
-                                  if p and os.path.isfile(os.path.join(self.repo, p.decode("utf-8")))})
+            try:
+                out = git(self.repo, "ls-files", "-z", "-co", "--exclude-standard", binary=True)
+                names = [p.decode("utf-8") for p in out.split(b"\0") if p]
+            except Fail:  # not a git checkout (an exported tree): every file but build output
+                names = []
+                for d, dirs, files in os.walk(self.repo):
+                    dirs[:] = [x for x in dirs if x not in (".git", "bin", "obj", "node_modules")]
+                    names += [os.path.relpath(os.path.join(d, n), self.repo).replace(os.sep, "/") for n in files]
+            self._files = sorted({p for p in names if os.path.isfile(os.path.join(self.repo, p))})
         return self._files
 
     def read(self, path):
@@ -160,6 +183,59 @@ def unprefixed(line):
     return EXPERIMENTAL.sub("", line, count=1)
 
 
+class Records:
+    """The PublicAPI records of a tree by assembly name (a project's <AssemblyName>, else its .csproj's name)."""
+
+    def __init__(self, t):
+        self.t = t
+        self._by_asm = None
+
+    def lines(self, asm):
+        """Every line the assembly's project records (Shipped.txt and Unshipped.txt additions), or None without one."""
+        if self._by_asm is None:
+            self._by_asm = {}
+            files = set(self.t.files())
+            for s in api_files(self.t, SHIPPED):
+                proj = project(s)
+                for c in (f for f in files if f.startswith(proj + "/") and f.count("/") == proj.count("/") + 1
+                          and f.endswith(".csproj")):
+                    m = re.search(r"<AssemblyName>\s*([^<\s]+)\s*</AssemblyName>", self.t.read(c) or "")
+                    self._by_asm[m.group(1) if m else c.rsplit("/", 1)[-1][: -len(".csproj")]] = proj
+        proj = self._by_asm.get(asm)
+        if proj is None:
+            return None
+        return set(lines(self.t.read(f"{proj}/{SHIPPED}"))) | {
+            l for l in lines(self.t.read(f"{proj}/{UNSHIPPED}")) if not l.startswith(REMOVED)}
+
+
+def removal_case(line, beside, records):
+    """The one rule for a removed line (an Unshipped.txt `*REMOVED*<line>`, or a line gone since a tag): (case, None)
+    when it is allowed, (None, why) when not. `beside`: the lines next to it (the same Unshipped.txt for an entry, the
+    project's whole record for a line gone since a tag). Allowed only:
+      experimental   `[KILNX...]<line>` beside it: an existing member made experimental
+      forwarded      `<line> (forwarded, contained in <Assembly>)` beside it: a type moved with a type forward; the
+                     project of <Assembly>, when it has a record, must record <line> (a forward to nowhere is a break)
+      lab            <line> is itself experimental (`[KILNX...]`): not part of the promise, it may go
+    """
+    if EXPERIMENTAL.match(line):
+        return "lab member removed: experimental, not part of the promise", None
+    for b in beside:
+        if EXPERIMENTAL.match(b) and unprefixed(b) == line:
+            return f"made experimental ({b[: b.index(']') + 1]})", None
+    for b in beside:
+        m = FORWARDED.match(b)
+        if m and m.group("line") == line:
+            asm = m.group("asm")
+            there = records.lines(asm)
+            if there is None:
+                return f"forwarded to {asm} (no PublicAPI record of {asm} to check)", None
+            if line in there:
+                return f"forwarded to {asm}", None
+            return None, f"forwarded to {asm}, whose PublicAPI record does not have it (a forward to nowhere)"
+    return None, "a shipped line may not be removed (the mod API is additive): allowed only next to its [KILNX...] or " \
+                 "its (forwarded, contained in ...) line"
+
+
 def removals(old, new):
     """(problems, allowed, notes): problems and allowed are (file, text)."""
     problems, allowed, notes = [], [], []
@@ -179,16 +255,35 @@ def removals(old, new):
             problems.append((p, f"deleted at {new.label}: a removal of all its {len(kept)} shipped lines"))
             problems.extend((p, f"removed: {l}") for l in kept)
             continue
-        now_experimental = {unprefixed(l) for l in after if EXPERIMENTAL.match(l)}
+        records = Records(new)
         for l in kept:
             if l in after:
                 continue
-            if l in now_experimental:
-                allowed.append((p, f"now experimental: {l}"))
+            case, why = removal_case(l, after, records)
+            if case:
+                allowed.append((p, f"({case}): {l}"))
             else:
                 where = f"{proj}/{UNSHIPPED}" if f"{REMOVED}{l}" in lines(new.read(f"{proj}/{UNSHIPPED}")) else p
-                problems.append((where, f"removed: {l}"))
+                problems.append((where, f"removed: {l}" + (f" ({why})" if why.startswith("forwarded") else "")))
     return problems, allowed, notes
+
+
+def record_problems(t):
+    """(problems, allowed): every `*REMOVED*` entry of every Unshipped.txt of t, judged by removal_case."""
+    problems, allowed = [], []
+    for f in api_files(t, SHIPPED) + api_files(t, UNSHIPPED):
+        for i, l in enumerate((t.read(f) or "").split("\n"), 1):
+            if MERGE_MARKER.match(l):
+                problems.append((f, f"line {i}: {l.rstrip()}", "a merge conflict marker"))
+    records = Records(t)
+    for u in api_files(t, UNSHIPPED):
+        entries = lines(t.read(u))
+        beside = [l for l in entries if not l.startswith(REMOVED)]
+        for l in entries:
+            if l.startswith(REMOVED):
+                case, why = removal_case(l[len(REMOVED):], beside, records)
+                (allowed if case else problems).append((u, l, case or why))
+    return problems, allowed
 
 
 def pending(t):
@@ -230,7 +325,7 @@ def cmd_removed(a):
     for n in notes:
         print(f"api-gate: {n}")
     for f, what in allowed:
-        print(f"api-gate: {f}: allowed, {what}")
+        print(f"api-gate: {f}: allowed {what}")
     if problems:
         print(f"api-gate: {len([x for x in problems if x[1].startswith('removed: ')])} shipped API line(s) removed since "
               f"{old.label} (the mod API is additive: keep the member, mark it [Obsolete]):", file=sys.stderr)
@@ -240,6 +335,21 @@ def cmd_removed(a):
             print(f"  ... {len(problems) - SHOW_MAX * 5} more", file=sys.stderr)
         return 1
     print(f"api-gate: no shipped API removed since {old.label} ({len(api_files(old, SHIPPED))} projects compared)")
+    return 0
+
+
+def cmd_record(a):
+    t = tree(a.repo, a.rev or "HEAD", a.worktree)
+    problems, allowed = record_problems(t)
+    for u, l, case in allowed:
+        print(f"api-gate: {u}: allowed ({case}): {l}")
+    if problems:
+        print(f"api-gate: the API record of {t.label} is not sound ({len(problems)} line(s)):", file=sys.stderr)
+        for u, l, why in problems:
+            print(f"  {u}: {l}: {why}", file=sys.stderr)
+        return 1
+    print(f"api-gate: the API record of {t.label} is sound ({len(api_files(t, UNSHIPPED))} {UNSHIPPED} files, "
+          f"{len(allowed)} *REMOVED* lines, each beside its experimental or forwarded line)")
     return 0
 
 
@@ -316,6 +426,7 @@ def cmd_promote(a):
             print("  When the working tree holds the released API files, run: tools/release/api-gate.sh promote")
             return 3
     plans, problems = [], []
+    records = Records(wt)
     for u in api_files(wt, UNSHIPPED):
         proj = project(u)
         s_path = f"{proj}/{SHIPPED}"
@@ -330,19 +441,18 @@ def cmd_promote(a):
         shipped = lines(s_text)
         has = set(shipped)
         adds = [l for l in entries if not l.startswith(REMOVED)]
-        after = has | set(adds)
-        now_experimental = {unprefixed(l) for l in after if EXPERIMENTAL.match(l)}
         drop = set()
         for l in entries:
             if not l.startswith(REMOVED):
                 continue
             x = l[len(REMOVED):]
+            case, why = removal_case(x, adds, records)
             if x not in has:
                 problems.append(f"{u}: {l}: not in {SHIPPED}")
-            elif EXPERIMENTAL.match(x) or x in now_experimental:
+            elif case:
                 drop.add(x)
             else:
-                problems.append(f"{u}: {l}: a shipped line may not be removed (the mod API is additive)")
+                problems.append(f"{u}: {l}: {why}")
         s_nullable = NULLABLE in s_text.replace("\r", "").split("\n")
         u_nullable = NULLABLE in (u_text or "").replace("\r", "").split("\n")
         if u_nullable and not s_nullable and shipped:
@@ -459,6 +569,9 @@ def main(argv=None):
     s.add_argument("old")
     side(s, "new", "default HEAD")
     s.set_defaults(fn=cmd_removed)
+    s = sub.add_parser("record", help="every *REMOVED* line of every Unshipped.txt beside its experimental/forwarded line")
+    side(s, "rev", "default HEAD")
+    s.set_defaults(fn=cmd_record)
     s = sub.add_parser("pending", help="Unshipped.txt files that hold lines")
     side(s, "rev", "default HEAD")
     s.set_defaults(fn=cmd_pending)
