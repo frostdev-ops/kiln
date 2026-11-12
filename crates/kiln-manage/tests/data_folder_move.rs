@@ -829,6 +829,23 @@ fn with_proof_what_changed_or_was_added_and_unknown_entries_stay() {
     assert!(!fx.dirs.root.join("servers/isles.json").exists(), "the rewritten server record goes by its two hashes");
 }
 
+#[cfg(unix)]
+#[test]
+fn an_unreadable_partial_target_keeps_the_move_records() {
+    let fx = Fixture::build("partial-unreadable");
+    let to = fx.base.join("disk/moved");
+    mv(&fx, &to, &linking(), &inject(Inject::StopAfter(Step::Copy))).unwrap_err();
+    let before = tree(&to);
+    let parent = to.parent().unwrap();
+    std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o000)).unwrap();
+    let result = dfm::remove_partial_copy(&fx.env);
+    std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let c = result.unwrap();
+    assert!(!c.done && c.reason.is_some(), "an unreadable target is not a target never made: {c:?}");
+    assert!(fx.dirs.root.join(df::JOURNAL).is_file(), "keep the recovery proof");
+    assert_eq!(tree(&to), before);
+}
+
 #[test]
 fn a_partial_copy_is_removed_only_with_its_marker() {
     let fx = Fixture::build("partial-proof");

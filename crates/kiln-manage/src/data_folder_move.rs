@@ -1887,12 +1887,19 @@ fn remove_partial(default: &Path, journal: &Journal) -> Cleanup {
         let _ = remove_if_there(&record_path(default));
         let _ = remove_if_there(&journal_path(default));
     };
-    if std::fs::symlink_metadata(to).is_err() {
-        // never made: nothing to remove
-        drop_records();
-        c.done = true;
-        c.folder_removed = true;
-        return c;
+    match std::fs::symlink_metadata(to) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            // never made: nothing to remove
+            drop_records();
+            c.done = true;
+            c.folder_removed = true;
+            return c;
+        }
+        Err(e) => {
+            c.reason = Some(format!("{} cannot be inspected ({e}): nothing was removed, and the move's records stay.", to.display()));
+            return c;
+        }
+        Ok(_) => {}
     }
     if move_mark_id(to).as_deref() != Some(journal.id.as_str()) {
         c.reason = Some(format!("{} does not carry this move's marker, so nothing was removed from it.", to.display()));
