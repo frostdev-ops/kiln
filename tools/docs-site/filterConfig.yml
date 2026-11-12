@@ -1,0 +1,9 @@
+# docfx metadata filter for the API reference (tools/docs-site/build.sh copies it beside docfx.json).
+# Kiln.Game's legacy namespace Kiln.GameTypes (the nine [Obsolete] structs, Components, ComponentTypes) has the uid of
+# Kiln.Api's class Kiln.GameTypes; DocFX 2.78.3 gives both the uid "Kiln.GameTypes" and dies with a
+# NullReferenceException in ResolveReference.TryAddReference. The class stays; the legacy namespace is left out (its
+# replacement, Kiln.Ecs, is in the reference).
+apiRules:
+- exclude:
+    uidRegex: ^Kiln\.GameTypes\.
+    type: Type

@@ -1,0 +1,5 @@
+# Made on your machine by make_clips.py from the installed game's player skeleton, and cooked from it: never committed or shipped.
+assets/local/
+assets/cooked/
+bin/
+obj/

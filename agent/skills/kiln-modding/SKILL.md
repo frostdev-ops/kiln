@@ -15,11 +15,15 @@ Enshrouded is a trademark of Keen Games GmbH. Kiln is unofficial.
 
 1. Read the page for what you're using: https://frostdev.io/kiln/wiki. [references/docs-map.md](references/docs-map.md) says
    which one.
-2. The current build is **0.2.0-dev.22**, with mod API 0.2 and the matching dev.22 MDK pack. References marked **dev.20+**,
+2. The current build is **0.2.0-dev.24**, with mod API 0.2 and the matching dev.24 MDK pack. References marked **dev.20+**,
    **dev.21+** or **dev.22+** require that runtime and MDK or newer; dev.19 lacks the dev.20 additions. Check the installed build.
-   Server/offline verification does not establish the pending client rendering, input or multiplayer checks. Many dev.21 and dev.22
-   paths were verified only under Wine (tests, dedicated-server labs), not on Windows or in a real client. The official dev.22
-   launcher has Nexus integration disabled: import downloaded archives manually; no Catalog, account sign-in or `nxm://` handler.
+   Items marked **dev.25+** are in development, not released: they need a dev.25 build, and none has been seen by a player
+   (contract and capabilities, typed ECS reads, `Kiln.TestKit`, `[ClientCheck]`, `SteamGuard`).
+   Server/offline verification does not establish the pending client rendering, input or multiplayer checks. Many dev.21 to dev.24
+   paths were verified only under Wine (tests, dedicated-server labs), not on Windows, a Steam Deck or in a real client; of dev.24
+   only Kiln's main-menu entries with ShroudForge mods on, W and S steering with ShroudForge's Unlimited Flight and SET's
+   tools were seen in a real game (Linux, Proton, one client). The official dev.22 launcher has Nexus integration disabled:
+   import downloaded archives manually; no Catalog, account sign-in or `nxm://` handler.
 3. Decide the side and what players need, before writing code:
    - `side`: `server` (default), `client`, or `both`;
    - `clients`: `none` (vanilla players can join), `kiln` (players need Kiln; the server sends definitions), or `mod`
@@ -38,7 +42,8 @@ Enshrouded is a trademark of Keen Games GmbH. Kiln is unofficial.
 4. **Build and deploy** to a local test server: `kiln build && kiln deploy`, then `kiln run`.
 5. **Check the log**: `kiln logs --mod <id>` for `mod <id> <version> loaded in … ms`, or the reason it didn't load.
 6. **Hot reload** after each change: `kiln deploy --reload`.
-7. **Test** in the server with `[KilnTest]` methods: `kiln test`. [references/testing.md](references/testing.md).
+7. **Test** in the server with `[KilnTest]` methods: `kiln test`. dev.25+: the same methods offline under `dotnet test`
+   (`Kiln.TestKit`), and `[ClientCheck]` for what a player must see. [references/testing.md](references/testing.md).
 8. **Package**: `kiln pack`.
 
 `--json` on any `kiln` command gives one JSON document; exit 0 ok, 1 failure, 2 usage.
@@ -64,7 +69,8 @@ Never deploy to a server players are using. Use a separate local test server.
 - **Changes are layers.** They come off when the mod unloads. Do content changes in `Content.OnReady(...)`.
 - **Fixed ids.** GUIDs of items, recipes, clones, perks, buffs, tree nodes and NPCs, and ids of quests, steps and talents, never
   change after release. Saves keep them. For native quests and dialogue, names and option order feed the ids too.
-- **Fail soft.** Check `X.Available` and degrade: services can be missing on a build Kiln doesn't know.
+- **Fail soft.** Check `X.Available` and degrade: services can be missing on a build Kiln doesn't know. dev.25+:
+  `Capabilities.Is(name)` / `Why(name)`; an off capability throws `KilnUnavailableException`.
 - **Never ship Kiln assemblies.** Kiln.Sdk references them with `ExcludeAssets=runtime`.
 - **Never ship game data.** Models, sounds, Impact programs and catalogs are made on the user's machine. Ship your sources and a
   `cook.json`. `assets/cooked/` stays out.
@@ -72,7 +78,8 @@ Never deploy to a server players are using. Use a separate local test server.
 - **Say what you haven't seen.** A dedicated server draws nothing and has no sound. Report what only a player can see or hear as
   "needs a client check" until you've seen it. What Kiln itself has confirmed: https://frostdev.io/kiln/wiki/status.
 
-Mistakes seen in practice: [references/pitfalls.md](references/pitfalls.md).
+Mistakes seen in practice: [references/pitfalls.md](references/pitfalls.md). What has no API yet, hard caps and the
+planned release: `docs/kiln/modding/limits.md`.
 
 ## Checks before you call it done
 

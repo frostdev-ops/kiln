@@ -245,35 +245,36 @@ The generated code is compiled into the mod: the constants are plain strings and
 beyond the ids the mod uses itself.
 
 ## Kiln.Game from your game
-`managed/Kiln.Game/Generated.cs` (the typed ECS component structs: NetworkHealth, Health, Mana, Stamina,
-CurrentTransform, LastTransform, Velocity, TeleportCount, NpcCommon) is game-derived. It was made from a reflection
-dump the lab probe (`tools/typegen/probe`) walked at run time, `sigdb/types/server/<sha>.json`, through
-`tools/typegen/typegen.py`. The committed file stays. The local path makes the same file offline from the installed
-exe, with no lab and no running game:
-```sh
-kiln catalog build --types            # also writes <dir>/types/<side>-<sha>.json and <dir>/Kiln.Game/Generated.cs
-python3 tools/typegen/typegen.py <dir>/types/server-<sha>.json <out>/Generated.cs   # the same, with the Python tool
-dotnet build managed/Kiln.Game -p:KilnLocalGameTypes=<dir>/Kiln.Game/Generated.cs   # needs the Kiln.Game.csproj switch (pending)
-```
-- The dump has the probe's shape: the record's own fields, without base-struct fields, like the probe.
-- `catalog::types::generate_cs` is a port of typegen.py.
+`Kiln.Game` (the game's ECS types as C# structs: `Kiln.Ecs.*`, and the nine dev.24 types of `Kiln.GameTypes.*`, now
+obsolete) is generated when it is built: `tools/typegen/typegen.py` runs on a layout dump of the game's reflection
+table, `sigdb/types/<side>/<sha256>.json`, and nothing it writes is committed. The dumps are committed: structure only
+(names, sizes, offsets, type hashes, enum values), under the owner's ruling. The default is the newest server dump,
+`sigdb/types/server/f0d824be….json` (game svn 1287369); a client dump (`5d9ef2f1…`) and the old nine-type server dump
+(`c5c9fe50…`) are there too. Details: [typegen.md](../typegen.md).
 
-Checks:
-- the server exe of build 26404334 (`c5c9fe50…`, the build the committed files came from), read offline, gives a dump
-  **equal** to the committed `sigdb/types/server/c5c9fe50….json`;
-- both typegen.py and the Rust port turn it into the committed `Generated.cs` byte for byte (apart from the `// Source:`
-  line); a unit test keeps the port equal;
-- the current server 26430253 (`f0d824be…`) gives the same bindings (the nine layouts did not change);
-- Kiln.Game builds against the local file.
+Reading components from a mod: `Ecs.TryGet<T>`, `Get<T>`, `Has<T>`, `All<T>`, with `Ecs.Supports<T>()` and `WhyNot<T>()`
+saying whether a type matches the running game ([typegen.md §4.3](../typegen.md#43-example) has a worked example).
+
+The local path makes a dump of your own installed game offline, with no lab and no running game. The exe is only ever a
+quoted argument of the tool:
+```sh
+KILN_OUT=<build dir> tools/typegen/typedump/build.sh                 # prints $KILN_OUT/typedump/typedump
+$KILN_OUT/typedump/typedump --side server --out <dir> "<path to enshrouded_server.exe>"   # <dir>/server/<sha256>.json
+dotnet build managed/Kiln.Game -c Release --artifacts-path $KILN_OUT/dotnet -p:KilnGameDump=<dir>/server/<sha256>.json -p:KilnGameVariant=local
+```
+- `kiln catalog build --types` still writes the older dump (schema 1) and the nine-type file
+  `<dir>/Kiln.Game/Generated.cs` (`catalog::types::generate_cs`, a port of typegen.py's first version). Kiln.Game takes
+  that file with `-p:KilnLocalGameTypes=<file>`, but it covers only the nine legacy types.
+- `managed/Kiln.Game/Generated.cs` stays in the tree as the golden copy of those nine types. It is not compiled; a unit
+  test keeps the Rust port's output equal to it (apart from the `// Source:` line).
 
 ## Legal review notes
 - **Stays local, never committed or shipped**: `client.json` (with its `vfx` section), `server.json`, `types/*.json` and the local
   `Kiln.Game/Generated.cs`. They are made on the user's machine from the user's own install. Like gameart, the default
   location is the launcher's data folder, outside the repository and the game folder.
-- **Committed and game-derived** (flag for the review): `managed/Kiln.Game/Generated.cs` and
-  `sigdb/types/server/c5c9fe50….json`. They hold the layout of nine ECS component types (field names, offsets, sizes,
-  type hashes), read from the game's reflection. With the local path in place, the committed copies could be dropped
-  in favour of generating them on each machine; the decision is open.
+- **Committed and game-derived**, structure only, under the owner's ruling: the layout dumps `sigdb/types/<side>/*.json`
+  (type and field names, offsets, sizes, type hashes and enum values of the game's ECS closure, read from its
+  reflection) and `managed/Kiln.Game/Generated.cs` (the nine dev.24 types). No other game data goes into the tree.
 - **Committed and invented**: `crates/kiln-manage/src/catalog/testdata/client.json` and `testdata/icons/*.webp`
   (`Test_Frost_Blade`, `Enemy_Test_Frostling`, …, two 8x8 pictures drawn for the test). The field names and section
   shapes mirror the game's reflection names (`maxStackSize`, `damageSetup.dmgMod`, enum names like `Common`/`Rare`),

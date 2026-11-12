@@ -1,0 +1,19 @@
+{
+  "format": 1,
+  "checks": [
+    { "mod": "demo", "id": "demo.first", "title": "First check", "area": "Items", "since": null, "tags": [], "needs": "any", "order": 1 },
+    { "mod": "demo", "id": "demo.second", "title": "Second check", "area": "Items", "since": null, "tags": ["visual"], "needs": "hosted", "order": 2 },
+    { "mod": "demo", "id": "demo.never", "title": "Never played", "area": "World", "since": "0.2.0-dev.25", "tags": [], "needs": "any", "order": 1 }
+  ],
+  "entries": [
+    { "mod": "demo", "modVersion": "1.0.0", "id": "demo.first", "title": "First check", "area": "Items", "since": null, "tags": [],
+      "kiln": "0.2.0-dev.24", "game": { "side": "client", "sha256": "2222222222222222222222222222222222222222222222222222222222222222", "verified": true },
+      "session": "hosted", "verdict": "fail", "note": "the flame was blue", "time": "2026-11-10T10:00:00Z", "assertions": [], "log": [] },
+    { "mod": "demo", "modVersion": "1.0.0", "id": "demo.second", "title": "Second check", "area": "Items", "since": null, "tags": ["visual"],
+      "kiln": "0.2.0-dev.25", "game": { "side": "client", "sha256": null, "verified": false },
+      "session": "joined", "verdict": "skip", "note": "", "time": "2026-11-11T09:00:00Z", "assertions": [], "log": [] },
+    { "mod": "demo", "modVersion": "1.0.1", "id": "demo.first", "title": "First check", "area": "Items", "since": null, "tags": [],
+      "kiln": "0.2.0-dev.25", "game": { "side": "client", "sha256": "2222222222222222222222222222222222222222222222222222222222222222", "verified": true },
+      "session": "hosted", "verdict": "pass", "note": "", "time": "2026-11-11T12:00:00Z", "assertions": [], "log": [] }
+  ]
+}

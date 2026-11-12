@@ -222,7 +222,7 @@ that needs its own permanent numbers and its own name is a **clone**.
   no runtime map to add to. With the first buff clone Kiln serves the collection from its own copy: the game's records
   at the same indices, then the clones, and a rebuilt map; each world's BuffRegistry is pointed at it. The game's
   records stay where every layer writes (buff tweaks, config adds, tooltips work as before); Kiln's copy follows them
-  after each change. Room: 256 buff clones per process. kiln.log "the server world's BuffRegistry (… +0x20) reads
+  after each change. Room: 1,024 buff clones per process. kiln.log "the server world's BuffRegistry (… +0x20) reads
   Kiln's buff collection: 276 buffs (2 clones)", and the game's own lookup as a self-check: "the game's
   getBuffType(0x26317bd2) in the server world = … (the clone's record); a game buff 0xcdbe9c80 = … (Kiln's copy)".
 - **Referencing them**:

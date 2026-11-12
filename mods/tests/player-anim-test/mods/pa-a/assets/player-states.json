@@ -1,0 +1,10 @@
+{
+  "format": 1,
+  "states": {
+    "slash": { "clip": "a_slash", "like": "Attack_Sword_Shield_02" },
+    "guard": { "clip": "a_guard", "like": "Block_FullBody" },
+    "guard-game-clip": { "clip": "263941ec-3361-42b0-96e2-35a29f22224b", "like": "Block_FullBody" },
+    "leap": { "clip": "a_leap", "like": "Jump_Attack_Start_FullBody" },
+    "bolt": { "clip": "a_bolt", "like": "SM_Attack_Staff_FullBody/Attack_Fireball_FullBody" }
+  }
+}

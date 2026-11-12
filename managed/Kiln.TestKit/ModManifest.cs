@@ -17,6 +17,7 @@ public sealed class ModManifest
     private readonly List<string> _exports = [];
     private readonly Dictionary<string, JsonNode?> _extra = new(StringComparer.Ordinal);
 
+    /// <summary>A manifest built in code for a mod loaded by the harness.</summary>
     /// <param name="id">The mod id (<c>[a-z0-9][a-z0-9._-]*</c>); also the mod's folder name under <c>kiln/mods</c>.</param>
     public ModManifest(string id)
     {

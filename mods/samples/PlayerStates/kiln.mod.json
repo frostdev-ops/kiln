@@ -1,0 +1,10 @@
+{
+  "id": "player-states-sample",
+  "name": "Player States Sample",
+  "version": "0.1.0",
+  "apiVersion": "0.2",
+  "entryAssembly": "PlayerStates.dll",
+  "side": "both",
+  "clients": "mod",
+  "description": "Sample for player states (docs/kiln/modding/animations.md, \"Player states\"): a sword, Kiln Sample Riposte Sword (crafted by hand from one twig), whose first light attack, heavy attack and block play animations of the mod's own, three states added to the player's animation graph, plus a staff cast of its own that the guided checks play. Every player needs it: the server and every client merge the same states. Cook its clips first (README.md)."
+}

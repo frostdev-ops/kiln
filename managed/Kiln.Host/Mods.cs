@@ -39,6 +39,10 @@ internal sealed class ModManagerOptions
     /// build without git), nothing is compared.</summary>
     public KilnBuild? KilnBuild { get; init; }
     public Func<string, bool> HasFeature { get; init; } = static _ => true;
+
+    /// <summary>The capability registry the resolver checks a manifest's <c>features</c> against (ResolveEnvironment.Capability);
+    /// null: <see cref="HasFeature"/> only.</summary>
+    public Func<string, Capability>? Capability { get; init; }
     public FaultPolicy Faults { get; init; } = new();
     public CrashReports? CrashReports { get; init; }
 
@@ -196,7 +200,7 @@ internal sealed class ModManager : IModsBackend, IDisposable
         _dataDirectory = dataDirectory;
         _options = options ?? new ModManagerOptions();
         _kilnVersion = SemVersion.TryParse(_options.KilnVersion, out var kv) ? kv : new SemVersion(0, 0, 0);
-        _apiVersion = SemVersion.Parse(Kiln.Mods.ApiVersion);
+        _apiVersion = SemVersion.Parse(Kiln.Mods.RuntimeApiVersion);
         Events.HandlerFaulted += OnHandlerFaulted;
     }
 
@@ -334,6 +338,7 @@ internal sealed class ModManager : IModsBackend, IDisposable
             _mods.ToDictionary(m => m.Id, m => m.Manifest, StringComparer.Ordinal))
         {
             Hosting = Hosting && _options.HostedServerMods,
+            Capability = _options.Capability,
         };
         var result = Resolver.Resolve(candidates, env);
         foreach (var c in candidates)
@@ -1253,7 +1258,7 @@ internal sealed class ModManager : IModsBackend, IDisposable
                 ["written"] = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ", System.Globalization.CultureInfo.InvariantCulture),
                 ["generation"] = Interlocked.Increment(ref _modsJsonGeneration),
                 ["side"] = _options.Side == ManifestSide.Client ? "client" : "server",
-                ["api"] = Kiln.Mods.ApiVersion,
+                ["api"] = Kiln.Mods.RuntimeApiVersion,
                 ["profile"] = new System.Text.Json.Nodes.JsonObject
                 {
                     ["id"] = profile.Id.Length > 0 ? profile.Id : null,

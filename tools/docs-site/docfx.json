@@ -8,12 +8,14 @@
             "Kiln.*.dll"
           ],
           "exclude": [
-            "Kiln.Sdk*.dll"
+            "Kiln.Sdk*.dll",
+            "Kiln.Host.dll"
           ]
         }
       ],
       "dest": "api",
       "outputFormat": "mref",
+      "filter": "filterConfig.yml",
       "disableGitFeatures": true
     }
   ],
