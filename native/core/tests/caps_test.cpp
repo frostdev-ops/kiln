@@ -26,7 +26,7 @@ std::mutex t_mutex;  // the stubs' state below
 std::map<KilnOwner, std::string> t_owners;
 KilnOwner t_next_owner = 1;
 std::atomic<uint64_t> t_version{1};
-bool t_tick = true, t_lifecycle = true;
+std::atomic<bool> t_tick{true}, t_lifecycle{true};
 std::vector<std::string> t_errors;  // KLOG_E lines
 std::vector<std::string> t_writes;  // texts write_file_atomic wrote (successful writes only)
 std::vector<double> t_attempts;     // the fake clock at every call of write_file_atomic, failed ones too
@@ -816,6 +816,57 @@ void writer_retry() {
           "flush: a write in flight that fails is done again by flush, which then answers true");
 }
 
+// No registry entry point after the fault: a subscriber (the managed snapshot's source), the stored rows and the
+// file must follow on their own, even though no later tick or capability query runs.
+void idle_tick_fault(const std::filesystem::path& dir) {
+    Loaded image;
+    sigdb::init_code();  // a second test image in this process; code()'s once_flag has already run
+    reset();
+    resolve_with(dir, "48 B8 ?? ?? ?? ?? ?? ?? ?? ?? E8 {helper:rel32}");
+    t_tick = t_lifecycle = true;
+    caps::core_rows(true, true, "");
+    CHECK(is("tick", A, 0) && is("tick.wait_jobs", A, 0) && is("world.lifecycle", A, 0),
+          "idle fault: all watched rows start available (%s; %s; %s)", get("tick").text.c_str(),
+          get("tick.wait_jobs").text.c_str(), get("world.lifecycle").text.c_str());
+    set_clock(100000);
+    caps::boot_complete();
+    Seen seen;
+    KilnHandle h = 0;
+    T->subscribe(owner("host"), &record_change, &seen, &h);
+    // Let the writer park with a clean file. Moving this fake clock does not wake it after the fault.
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    const size_t before = writes();
+    const auto start = std::chrono::steady_clock::now();
+    {
+        std::lock_guard l(t_clock_mutex);
+        t_now = 101000;
+    }
+    t_tick = t_lifecycle = false;
+    const auto deadline = start + std::chrono::milliseconds(1250);
+    while ((seen.size() < 3 || writes() == before) && std::chrono::steady_clock::now() < deadline)
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    bool rows = true;
+    {
+        std::lock_guard l(caps::g_mutex);
+        for (const char* name : {"tick", "tick.wait_jobs", "world.lifecycle"}) {
+            const auto& row = caps::g_names.at(name).last;
+            rows = rows && row.state == U && row.reason == KILN_CAP_REASON_FAULTED;
+        }
+    }
+    CHECK(rows && seen.size() == 3 && writes() > before,
+          "idle fault: rows, subscriber snapshot and file follow within 1250 ms without a registry call (rows %d, events %zu, writes %zu -> %zu)",
+          rows, seen.size(), before, writes());
+    const auto doc = nlohmann::json::parse(last_write());
+    unsigned faulted = 0;
+    for (const auto& row : doc["capabilities"])
+        if ((row["name"] == "tick" || row["name"] == "tick.wait_jobs" || row["name"] == "world.lifecycle") &&
+            row["state"] == "unavailable" && row["reason"] == "faulted") ++faulted;
+    CHECK(faulted == 3, "idle fault: capabilities.json holds all three faulted rows");
+    T->unsubscribe(h);
+    reset();
+    sigdb::g_core = sigdb::Resolver();
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -827,5 +878,6 @@ int main(int argc, char** argv) {
     json_file();
     writer();
     writer_retry();
+    idle_tick_fault(dir);
     return g_fail ? 1 : 0;
 }

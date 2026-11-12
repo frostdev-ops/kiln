@@ -19,8 +19,8 @@
 // something is still dirty (the exit path), bounded in time.
 //
 // Rows of the tick hook: the hook can fault at run time (tick::installed() / tick::lifecycle() turn false) and tick.cpp
-// does not say so. Every call into the registry and every KilnApi.feature() that answers false compares the two with
-// what the rows were built from and rebuilds the tick rows when they moved; nothing else watches them.
+// does not say so. Registry calls, KilnApi.feature() answering false, and the writer (at least once a second while
+// hooks are on) compare the bits with what the rows were built from and rebuild the tick rows when they moved.
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -686,7 +686,21 @@ bool write_taken(std::unique_lock<std::mutex>& lk, std::chrono::milliseconds fil
 void writer_loop() {
     std::unique_lock lk(g_wmutex);
     for (;;) {
-        g_wcv.wait(lk, [] { return g_dirty && !g_in_flight; });  // parked: no timer while nothing changed
+        // refresh_tick delivers changes and marks the file dirty: neither may run under the writer's lock.
+        lk.unlock();
+        try {
+            refresh_tick();
+        } catch (...) {
+        }
+        lk.lock();
+        const auto ready = [] { return g_dirty && !g_in_flight; };
+        if (!ready()) {
+            if (g_hooks)
+                g_wcv.wait_for(lk, std::chrono::seconds(1), ready);
+            else
+                g_wcv.wait(lk, [&] { return g_hooks || ready(); });
+            continue;
+        }
         const double wait = g_last_write + kMinGapMs - g_clock();
         if (wait > 0) {  // also after a failed write: the next try waits out the gap
             g_wcv.wait_for(lk, std::chrono::duration<double, std::milli>(wait));
