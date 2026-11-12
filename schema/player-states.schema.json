@@ -34,7 +34,7 @@
         "like": {
           "type": "string",
           "pattern": "^[^/]+(/[^/]+)?$",
-          "description": "The neighbour: a state of the player's graph by its debug name, or Machine/State when several machines have the name. Group 1 (dev.25): any state of SM_Attack_Unarmed_FullBody, SM_Attack_Sword_Shield_FullBody, SM_Attack_Hammer_FullBody, SM_Attack_Greatsword_FullBody, SM_Attack_Dual_Daggers_FullBody, SM_Jump_Attack_FullBody; in SM_Main Block_FullBody, Parry_FullBody, DodgeRoll_FullBody, Dodge_Attack_FullBody, Sneak_Attack_FullBody, Attack_Skill_Kick_FullBody. A block pose of your own is like Block_FullBody.",
+          "description": "The neighbour: a state of the player's graph by its debug name, or Machine/State when several machines have the name. Entered by state id: any state of SM_Attack_Unarmed_FullBody, SM_Attack_Sword_Shield_FullBody, SM_Attack_Hammer_FullBody, SM_Attack_Greatsword_FullBody, SM_Attack_Dual_Daggers_FullBody, SM_Jump_Attack_FullBody, SM_Attack_Staff_FullBody, SM_Attack_Wand_FullBody; in SM_Main Block_FullBody, Parry_FullBody, DodgeRoll_FullBody, Dodge_Attack_FullBody, Sneak_Attack_FullBody, Attack_Skill_Kick_FullBody (a sequence enters such a state with SetAnimationEvent). Entered by overlay: a state of SM_Staff_Overlay, SM_Wand_Overlay, SM_Ground_Bow_Overlay, SM_Air_Bow_Overlay, SM_Ranged_Attack_Additive that an overlay of its own enters, not their DoNothing (a sequence enters such a state with SetAnimationOverlayEvent, overlayName = the state's GUID). A block pose of your own is like Block_FullBody.",
           "x-kiln-message": "State or Machine/State"
         },
         "blendIn": {

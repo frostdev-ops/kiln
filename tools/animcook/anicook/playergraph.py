@@ -29,12 +29,18 @@ What the merge does for a new state N whose neighbour (`like`) is L in machine M
 10. node ids: FNV-1a-32 of "kiln.player.<mod>.<state>.<role>", nested machines "kiln.player.nest.<machine>.<group>.<role>".
 11. machines in the order of their nodes in the graph, in a machine the states by mod id, then name, as UTF-8 bytes.
 12. no state accepted: "untouched", no graph.
+A neighbour has a kind (SUPPORTED): "state" (entered when the state input holds its id) or "overlay" (entered when an overlay is
+active, IsOverlayActive). For an overlay neighbour the conditions of rules 4 to 6 are IsOverlayActive and IsOverlayActiveList on N's id
+(the same FNV-1a of its GUID), rule 7 does not apply, nothing goes into usedInputIds, and rule 8 does not nest: states past the machine's
+free global transitions are refused. Overlay states that cannot be neighbours (OverlayEntry.refusal): the rest state, a state holding a
+nested machine, a state with no overlay condition of its own, a state entered on a list of overlays.
 Every new node is a copy of a node of the game's graph with named fields changed, so a field the game adds is carried: the clip, layer
 blend, PoseResult and state node are copies of the neighbour's, a condition is a copy of the graph's first node of its type, a nested
 machine a copy of M, its wrapper a copy of the group's first neighbour's state node.
 Then the result is checked (validate()) and any failure turns the whole merge off: no graph, every state reported unavailable.
 """
 import copy
+import hashlib
 import struct
 
 from kfc.animgraph import MAX_GLOBAL, NODE, STATE_INPUT, ZERO, fnv_guid
@@ -62,6 +68,14 @@ SUPPORTED = {
     "SM_Jump_Attack_FullBody": ("state", None),
     "SM_Main": ("state", ("Block_FullBody", "Parry_FullBody", "DodgeRoll_FullBody", "Dodge_Attack_FullBody", "Sneak_Attack_FullBody",
                           "Attack_Skill_Kick_FullBody")),
+    "SM_Attack_Staff_FullBody": ("state", None),
+    "SM_Attack_Wand_FullBody": ("state", None),
+    # overlay machines: every state with a global transition on an IsOverlayActive of its own (OverlayEntry.refusal says which are not)
+    "SM_Staff_Overlay": ("overlay", None),
+    "SM_Wand_Overlay": ("overlay", None),
+    "SM_Ground_Bow_Overlay": ("overlay", None),
+    "SM_Air_Bow_Overlay": ("overlay", None),
+    "SM_Ranged_Attack_Additive": ("overlay", None),
 }
 HINTS = {
     "Idle_Block": "the legs while blocking, chosen by movement (a float input), never by a state id; a block pose of your own is "
@@ -141,6 +155,8 @@ USES = {
     NODE + "IdParameterEqualsConstantListNodeDefinition": ("id", "type", "parameterHash", "parameterId", "values",
                                                            "ignoreForAnimationSequences"),
     NODE + "SelectPoseByParameterIdNodeDefinition": ("id", "type", "parameterHash", "inputPoses", "values"),
+    NODE + "IsOverlayActiveNodeDefinition": ("id", "type", "overlay"),
+    NODE + "IsOverlayActiveListNodeDefinition": ("id", "type", "overlays"),
 }
 
 
@@ -167,7 +183,13 @@ class StateEntry:
     (an overlay machine: IsOverlayActive and IsOverlayActiveList) is a second class with the same members."""
     kind = "state"
     single, multi, values = "IdParameterEqualsConstant", "IdParameterEqualsConstantList", "values"
-    selects = True
+    selects = True  # rule 7
+    used_ids = True  # the id goes into usedInputIds
+    nests = True  # rule 8: past 34, nested machines
+
+    def refusal(self, g, state, machine, gts):
+        """Why a state of a supported machine cannot be a neighbour of this kind, before rules 1 to 7 look at it; None: it can."""
+        return None
 
     def ids(self, node):
         """The ids a condition node compares on this kind's input, or None when it is no such compare."""
@@ -200,7 +222,55 @@ class StateEntry:
         return w
 
 
-ENTRIES = {"state": StateEntry()}
+class OverlayEntry:
+    """Kind "overlay": a state of an overlay machine is entered when an overlay is active (a sequence's SetAnimationOverlayEvent.overlayName,
+    a GUID, whose FNV-1a-32 is the overlay id). Conditions: IsOverlayActive and IsOverlayActiveList. No select picks a pose by an
+    overlay, overlay ids are not in usedInputIds (0 of 35 in the game's graph), and an overlay machine does not nest: a nested state could
+    not go back to the machine's rest state, local transitions do not cross machines."""
+    kind = "overlay"
+    single, multi, values = "IsOverlayActive", "IsOverlayActiveList", "overlays"
+    selects = False
+    used_ids = False
+    nests = False
+
+    def ids(self, node):
+        if node is None:
+            return None
+        if node["type"] == self.single:
+            return [node["overlay"]["value"]]
+        if node["type"] == self.multi:
+            return [x["value"] for x in node["overlays"]]
+        return None
+
+    def is_list(self, node):
+        return node["type"] == self.multi
+
+    def refusal(self, g, state, machine, gts):
+        pose = g.by_id.get(state["poseResult"]["value"])
+        top = g.by_id.get(pose["input"]["value"]) if pose and pose["type"] == "PoseResult" else None
+        if top is not None and top["type"] == "StateMachine":
+            return f"it holds the nested machine {top['debugName']}: a state can be like one of that machine's states"
+        if not gts:
+            if machine["entryState"]["value"] == state["id"]["value"]:
+                return f"it is the rest state of {machine['debugName']}: no overlay enters it, the overlay states go back to it when they end"
+            return "it has no overlay condition of its own: it is entered only from other states, by local transitions"
+        if not any((g.by_id.get(e["conditionNode"]["value"]) or {}).get("type") == self.single for e in gts):
+            return "it is entered on a list of overlays (IsOverlayActiveList), not on an overlay of its own"
+        return None
+
+    def new(self, template, nid, value):
+        """An IsOverlayActive on overlay `value`: a copy of the graph's first IsOverlayActive with id and overlay set."""
+        w = copy.deepcopy(template)
+        w["value"]["id"], w["value"]["overlay"] = {"value": nid}, {"value": value}
+        return w
+
+    def new_list(self, template, nid, values):
+        w = copy.deepcopy(template)
+        w["value"]["id"], w["value"]["overlays"] = {"value": nid}, [{"value": v} for v in values]
+        return w
+
+
+ENTRIES = {"state": StateEntry(), "overlay": OverlayEntry()}
 
 
 # ---- the graph, indexed ----
@@ -299,6 +369,10 @@ class Neighbour:
         self.error = None
         cond = ENTRIES[kind]
         sid = state["id"]["value"]
+        gts = [e for e in machine["globalTransitions"][:machine["numGlobalTransitions"]] if e["toState"]["value"] == sid]
+        self.error = cond.refusal(g, state, machine, gts)
+        if self.error:
+            return
         # rules 1, 2
         pose = g.by_id.get(state["poseResult"]["value"])
         if pose is None or pose["type"] != "PoseResult":
@@ -319,7 +393,6 @@ class Neighbour:
                 return
             self.layer = top
         # rule 4
-        gts = [e for e in machine["globalTransitions"][:machine["numGlobalTransitions"]] if e["toState"]["value"] == sid]
         trans = g.machine_transitions(machine)
         if gts:
             self.entry = gts[0]
@@ -497,8 +570,8 @@ def validate(types, pristine, merged, touched_machines, touched_lists, touched_s
     by_pos = [n for n in merged["nodeDefinitions"] if n["value"]["id"]["value"] not in new_ids]
     if len(by_pos) != len(before):
         raise MergeOff(f"{len(before)} nodes in the game's graph, {len(by_pos)} of them after the merge")
-    grow = {"StateMachine": ("states", "transitions"), "IdParameterEqualsConstantList": ("values",),
-            "SelectPoseByParameterId": ("values", "inputPoses")}
+    lists = {e.multi: (e.values,) for e in ENTRIES.values()}  # the list kinds that may take ids, and their field
+    grow = dict({"StateMachine": ("states", "transitions"), "SelectPoseByParameterId": ("values", "inputPoses")}, **lists)
     for a, b in zip(before, by_pos):
         va, vb = a["value"], b["value"]
         nid = va["id"]["value"]
@@ -506,7 +579,7 @@ def validate(types, pristine, merged, touched_machines, touched_lists, touched_s
             raise MergeOff(f"node {_h(nid)} moved or changed its type")
         if va == vb:
             continue
-        allowed = ((nid in touched_machines and va["type"] == "StateMachine") or (nid in touched_lists and va["type"] == "IdParameterEqualsConstantList")
+        allowed = ((nid in touched_machines and va["type"] == "StateMachine") or (nid in touched_lists and va["type"] in lists)
                    or (nid in touched_selects and va["type"] == "SelectPoseByParameterId"))
         if not allowed:
             raise MergeOff(f"the game's {va['type']} {_h(nid)} changed")
@@ -537,8 +610,13 @@ def validate(types, pristine, merged, touched_machines, touched_lists, touched_s
 
 # ---- the merge ----
 
+def graph_hash(data):
+    """The report's graphHash (the runtime sends it at join): the first 8 bytes of SHA-256 over the merged graph, 16 hex digits."""
+    return hashlib.sha256(data).digest()[:8].hex() if data is not None else "0" * 16
+
+
 def _new_report():
-    return {"format": 1, "graph": "untouched", "reason": None, "states": [], "errors": [], "machines": [], "nodesAdded": 0,
+    return {"format": 1, "graph": "untouched", "reason": None, "graphHash": "0" * 16, "states": [], "errors": [], "machines": [], "nodesAdded": 0,
             "lists": 0, "listEntries": 0, "selects": 0, "usedInputIds": 0, "bytes": {"before": None, "after": None}}
 
 
@@ -549,6 +627,7 @@ def _finish(report, states, graph, reason=None, raw=None, out=None):
         if st.status is None:
             st.status, st.reason = ("live", None) if graph == "merged" else ("refused", f"mod {st.mod}, state {st.name}: the merge is off: {reason}")
     report["graph"], report["reason"] = graph, reason
+    report["graphHash"] = graph_hash(out if graph == "merged" else None)
     report["states"] = [st.entry() for st in sorted(states, key=PS.State.key)]
     report["bytes"] = {"before": len(raw) if isinstance(raw, (bytes, bytearray)) else None, "after": len(out) if graph == "merged" else None}
     return (out if graph == "merged" else None), report
@@ -688,6 +767,13 @@ def _accept(g, states, clip_facts, report):
             out[mid] = (M, items, None)
             continue
         free = MAX_GLOBAL - num
+        if not ENTRIES[items[0][1].kind].nests:
+            for st, _ in items[free:]:
+                st.refuse(f"machine {M['debugName']} has room for {free} new states across all mods ({MAX_GLOBAL} global transitions, {num} its "
+                          f"own) and an overlay machine does not nest: the states before this one in mod and name order take them")
+            if free > 0:
+                out[mid] = (M, items[:free], None)
+            continue
         groups = [items[i:i + MAX_GLOBAL] for i in range(0, len(items), MAX_GLOBAL)]
         kept = []
         for gi, group in enumerate(groups):
@@ -799,7 +885,8 @@ def _build(g, types, plan, report):
             sel["values"].append({"value": st.id})
             sel["inputPoses"].append({"value": pose})
             touched_selects[sel["id"]["value"]] = touched_selects.get(sel["id"]["value"], 0) + 1
-        used.append({"value": st.id})
+        if entry.used_ids:
+            used.append({"value": st.id})
 
     for M in g.machines:  # rule 11: machines in graph order
         mid = M["id"]["value"]

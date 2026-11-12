@@ -39,9 +39,7 @@ public readonly record struct EntityRef(EntityId Id, ulong Serial)
     {
         Game.AssertTickThread();
         if (entity.IsNone) return None;
-        var source = IdentitySources.Entities
-            ?? throw new KilnUnavailableException(Capability, "no service supplies entity serials in this process");
-        return source.TryGetSerial(entity, out var serial) ? new EntityRef(entity, serial) : None;
+        return IdentitySources.TryGetSerial(entity, out var serial) ? new EntityRef(entity, serial) : None;
     }
 
     /// <summary>True while the id still belongs to the spawn this ref captured. False for <see cref="None"/>, for an id
@@ -58,9 +56,7 @@ public readonly record struct EntityRef(EntityId Id, ulong Serial)
         {
             if (IsNone) return false;
             Game.AssertTickThread();
-            var source = IdentitySources.Entities
-                ?? throw new KilnUnavailableException(Capability, "no service supplies entity serials in this process");
-            if (!source.TryGetSerial(Id, out var current)) return false;
+            if (!IdentitySources.TryGetSerial(Id, out var current)) return false;
             return Serial == 0 || current == Serial;
         }
     }
@@ -210,9 +206,143 @@ internal interface IPlayerRefSource
     PlayerRef Current(ulong steamId, Guid characterId);
 }
 
+/// <summary>What one source says about an entity.</summary>
+internal enum EntitySerialAnswer
+{
+    /// <summary>Not an entity of this source's kind; the next source is asked.</summary>
+    NotMine = 0,
+
+    /// <summary>It is this source's kind and no such entity exists now.</summary>
+    Absent = 1,
+
+    /// <summary>It exists; the stamp says which one.</summary>
+    Alive = 2,
+}
+
+/// <summary>The fixed order in which the entity sources are asked. One source per place.</summary>
+internal enum EntitySourceOrder
+{
+    /// <summary>Player slots (Kiln.Players).</summary>
+    Players = 0,
+
+    /// <summary>Item entities (Kiln.Items).</summary>
+    Items = 1,
+
+    /// <summary>Every entity kiln.spawn can inspect (Kiln.Spawn); the last one, it never says <c>NotMine</c>.</summary>
+    Spawn = 2,
+}
+
+/// <summary>One service's entity stamps. Called on the tick thread only.</summary>
+internal interface IEntityStampSource
+{
+    /// <summary><see cref="EntitySerialAnswer.NotMine"/>: not an entity of this source's kind; the next source is
+    /// asked. <see cref="EntitySerialAnswer.Absent"/>: it is this source's kind and no such entity exists now.
+    /// <see cref="EntitySerialAnswer.Alive"/>: it exists; <paramref name="stamp"/> is its spawn stamp (from
+    /// <see cref="IdentitySources.Stamp"/>), 0 when the source has none for it. A source that cannot tell (its native
+    /// service is off, the world is not running) throws <see cref="KilnUnavailableException"/>
+    /// (<c>identity.entities</c>, reason); it never answers Absent or NotMine for that.</summary>
+    EntitySerialAnswer Query(EntityId entity, out ulong stamp);
+}
+
 /// <summary>The identity seams, set by services (and tests), the way <c>Backend.Current</c> is.</summary>
+/// <remarks>Entity serials come from <see cref="Entities"/> when it is set (it answers alone: tests), otherwise from the
+/// sources of <see cref="SetEntitySource"/>, asked in the order of <see cref="EntitySourceOrder"/>. The first answer
+/// that is not <see cref="EntitySerialAnswer.NotMine"/> is final. No source registered, or every source says NotMine:
+/// <see cref="KilnUnavailableException"/> (<c>identity.entities</c>). A source that throws ends the call; the next
+/// source is not asked.</remarks>
 internal static class IdentitySources
 {
+    /// <summary>Bits 60-63 of a stamp hold its place + 1, so stamps of different places never compare equal.</summary>
+    private const int PlaceShift = 60;
+
+    /// <summary>The largest value <see cref="Stamp"/> takes (bits 0-59).</summary>
+    internal const ulong MaxStampValue = (1UL << PlaceShift) - 1;
+
+    private const int PlaceCount = 3;
+    private static readonly object Gate = new();
+    private static IEntityStampSource?[] _sources = new IEntityStampSource?[PlaceCount];
+
     public static IEntitySerialSource? Entities { get; set; }
     public static IPlayerRefSource? Players { get; set; }
+
+    /// <summary>Puts a source at its place in the order (null removes it). Any thread; a service's startup type calls
+    /// it.</summary>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="place"/> is not an <see cref="EntitySourceOrder"/>.</exception>
+    public static void SetEntitySource(EntitySourceOrder place, IEntityStampSource? source)
+    {
+        var index = IndexOf(place);
+        lock (Gate)
+        {
+            var next = (IEntityStampSource?[])_sources.Clone();
+            next[index] = source;
+            Volatile.Write(ref _sources, next);
+        }
+    }
+
+    /// <summary>The source at <paramref name="place"/>, or null (tests save and restore them).</summary>
+    internal static IEntityStampSource? EntitySource(EntitySourceOrder place) => Volatile.Read(ref _sources)[IndexOf(place)];
+
+    /// <summary>A stamp in a source's own range: bits 60-63 = place + 1, bits 0-59 = <paramref name="value"/>.</summary>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="value"/> is 0 or above <see cref="MaxStampValue"/>,
+    /// or <paramref name="place"/> is not an <see cref="EntitySourceOrder"/>.</exception>
+    public static ulong Stamp(EntitySourceOrder place, ulong value)
+    {
+        var index = IndexOf(place);
+        if (value == 0 || value > MaxStampValue)
+            throw new ArgumentOutOfRangeException(nameof(value), value, "a stamp value is 1 to 2^60 - 1");
+        return ((ulong)(index + 1) << PlaceShift) | value;
+    }
+
+    /// <summary>The place a stamp belongs to; null for 0 and for a value no place makes.</summary>
+    internal static EntitySourceOrder? PlaceOf(ulong stamp)
+    {
+        var p = (int)(stamp >> PlaceShift) - 1;
+        return p >= 0 && p < PlaceCount && (stamp & MaxStampValue) != 0 ? (EntitySourceOrder)p : null;
+    }
+
+    /// <summary>The entity's serial now: false when it does not exist, serial 0 when it has no stamp. Tick thread (the
+    /// callers assert it).</summary>
+    /// <exception cref="KilnUnavailableException">No source answers for the entity (<c>identity.entities</c>), or a
+    /// source threw it.</exception>
+    internal static bool TryGetSerial(EntityId entity, out ulong serial)
+    {
+        if (Entities is { } single) return single.TryGetSerial(entity, out serial);
+        var sources = Volatile.Read(ref _sources);
+        var registered = false;
+        for (var i = 0; i < sources.Length; i++)
+        {
+            var source = sources[i];
+            if (source is null) continue;
+            registered = true;
+            var answer = source.Query(entity, out var stamp);
+            switch (answer)
+            {
+                case EntitySerialAnswer.NotMine:
+                    continue;
+                case EntitySerialAnswer.Absent:
+                    serial = 0;
+                    return false;
+                case EntitySerialAnswer.Alive when stamp == 0 || PlaceOf(stamp) == (EntitySourceOrder)i:
+                    serial = stamp;
+                    return true;
+                case EntitySerialAnswer.Alive:
+                    throw new KilnUnavailableException(EntityRef.Capability,
+                        $"the {(EntitySourceOrder)i} entity source gave entity {entity} a stamp outside its range");
+                default:
+                    throw new KilnUnavailableException(EntityRef.Capability,
+                        $"the {(EntitySourceOrder)i} entity source gave an unknown answer ({(int)answer}) for entity {entity}");
+            }
+        }
+        throw new KilnUnavailableException(EntityRef.Capability, registered
+            ? $"no entity source knows entity {entity}"
+            : "no service supplies entity serials in this process");
+    }
+
+    private static int IndexOf(EntitySourceOrder place)
+    {
+        var index = (int)place;
+        if (index < 0 || index >= PlaceCount)
+            throw new ArgumentOutOfRangeException(nameof(place), place, "not an entity source place");
+        return index;
+    }
 }

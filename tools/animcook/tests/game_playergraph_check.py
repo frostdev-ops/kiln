@@ -9,10 +9,12 @@ The graph: --graph, else the installed game's (--game, default Steam's Enshroude
 and exits 0. The clips' facts come from the installed game; without one, from the graph's own clip nodes (said in the output). The
 reflection: the game's exe when there is a game (cached under $KILN_OUT/types), else the bundled one.
 
-Checks: no state gives "untouched" and the graph encodes back to its bytes; one state beside every supported neighbour, each with the
-neighbour's own clip, merges and its clip node equals the neighbour's; two mods in both orders give the same bytes; 30 states beside one
-hammer state nest and leave every game state, its id and its entry as they were; an unknown, an ambiguous and an unsupported `like` and a
-clip of another skeleton are refused while the other states of the file load. Exit 1 when a check fails.
+Checks: no state gives "untouched" and the graph encodes back to its bytes; one state beside every supported neighbour of group 1 and of
+group 2, each with the neighbour's own clip, merges and its clip node equals the neighbour's; the overlay states that cannot be neighbours
+are refused with their reason; an overlay machine filled to its room takes no more; groups 1 and 2 from two mods in both orders give the
+same bytes; 30 states beside one hammer state nest and leave every game state, its id and its entry as they were; an unknown, an
+ambiguous and an unsupported `like` and a clip of another skeleton are refused while the other states of the file load. --json writes the
+counts and each merged graph's SHA-256. Exit 1 when a check fails.
 """
 import argparse
 import hashlib
@@ -33,6 +35,8 @@ from kfc.blobwrite import Encoder  # noqa: E402
 from kfc.refl import TypeDb  # noqa: E402
 
 GAME = Path.home() / ".local/share/Steam/steamapps/common/Enshrouded"
+OVERLAY_MACHINES = [m for m, row in PG.SUPPORTED.items() if row[0] == "overlay"]
+GROUP2 = set(OVERLAY_MACHINES) | {"SM_Attack_Staff_FullBody", "SM_Attack_Wand_FullBody"}
 BUNDLED = HERE.parent / "types" / "anim-types.json"
 FAILS = []
 
@@ -132,45 +136,44 @@ def main():
     out, rep = PG.merge(raw, types, [write_mod(work.name, "pa-empty", {})], facts)
     check(out is None and rep["graph"] == "untouched", "a mod with no states: untouched, no graph")
 
-    # 2. one state beside every supported neighbour, with the neighbour's own clip
+    # 2. one state beside every supported neighbour of group 1, with the neighbour's own clip
     g = PG.Graph(dec.decode(PG.GRAPH_TYPE, raw))
     nbs = neighbours(g)
-    misfits = [(name, nb.error) for name, _, _, nb in nbs if nb.error]
-    check(not misfits, f"{len(nbs)} supported neighbours, every one fits the rules" + (f": {misfits}" if misfits else ""))
+    g1 = [x for x in nbs if x[2]["debugName"] not in GROUP2]
+    g2 = [x for x in nbs if x[2]["debugName"] in GROUP2]
+    misfits = [(name, nb.error) for name, _, _, nb in g1 if nb.error]
+    check(not misfits, f"group 1: {len(g1)} supported neighbours, every one fits the rules" + (f": {misfits}" if misfits else ""))
     per = []
     for name, st, m, nb in nbs:
         if nb.error:
             continue
-        per.append({"like": name, "entry": "global, list" if nb.entry and len(nb.entry_ids) > 1 else "global" if nb.entry else "local only",
-                    "entryIds": len(nb.entry_ids), "layerBlend": nb.layer is not None, "outs": len(nb.outs), "ins": len(nb.ins),
-                    "lists": len(nb.lists), "listSizes": sorted(len(x["values"]) for x in nb.lists), "selects": len(nb.selects),
-                    "nodes": 4 + (nb.layer is not None) + len(nb.outs) + 2 * len(nb.ins)})
+        per.append({"like": name, "kind": nb.kind, "entry": "global, list" if nb.entry and len(nb.entry_ids) > 1 else "global" if nb.entry else "local only",
+                    "entryIds": len(nb.entry_ids), "layerBlend": nb.layer is not None, "outs": len(nb.outs), "autoOuts": sum(1 for t in nb.outs if t["autoTransition"]),
+                    "ins": len(nb.ins), "lists": len(nb.lists), "listSizes": sorted(len(x[PG.ENTRIES[nb.kind].values]) for x in nb.lists),
+                    "selects": len(nb.selects), "nodes": 4 + (nb.layer is not None) + len(nb.outs) + 2 * len(nb.ins)})
     counts["neighbours"] = per
-    states = {f"n{i:02d}": {"clip": nb.clip["animation"], "like": name} for i, (name, _, _, nb) in enumerate(nbs) if not nb.error}
-    m_all = write_mod(work.name, "pa-all", states)
-    t3 = time.perf_counter()
-    out, rep = PG.merge(raw, types, [m_all], facts)
-    t4 = time.perf_counter()
-    keep("all", out)
-    live = [e for e in rep["states"] if e["status"] == "live"]
-    check(rep["graph"] == "merged" and len(live) == len(states),
-          f"{len(states)} states, one beside each neighbour: {rep['graph']}, {len(live)} live ({t4 - t3:.2f} s)" + (f": {rep['reason']}" if rep["reason"] else "")
-          + "".join(f"\n       {e['name']} ({e['like']}): {e['reason']}" for e in rep["states"] if e["status"] != "live"))
-    counts["all"] = {k2: rep[k2] for k2 in ("machines", "nodesAdded", "lists", "listEntries", "selects", "usedInputIds", "bytes")}
-    counts["mergeSeconds"] = round(t4 - t3, 3)
-    if out is not None:
+
+    def merge_beside(mod, items, label):
+        """One state beside each (Machine/State, neighbour) with the neighbour's own clip; prints and checks the result."""
+        sts = {f"n{i:02d}": {"clip": nb.clip["animation"], "like": name} for i, (name, nb) in enumerate(items)}
+        t3 = time.perf_counter()
+        out, rep = PG.merge(raw, types, [write_mod(work.name, mod, sts)], facts)
+        t4 = time.perf_counter()
+        live = [e for e in rep["states"] if e["status"] == "live"]
+        check(rep["graph"] == "merged" and len(live) == len(sts),
+              f"{label}: {len(sts)} states, one beside each neighbour: {rep['graph']}, {len(live)} live ({t4 - t3:.2f} s)" + (f": {rep['reason']}" if rep["reason"] else "")
+              + "".join(f"\n       {e['name']} ({e['like']}): {e['reason']}" for e in rep["states"] if e["status"] != "live"))
+        if out is None:
+            return out, rep, t4 - t3
         print(f"     touched: {rep['nodesAdded']} nodes in {len(rep['machines'])} machines, {rep['listEntries']} ids into {rep['lists']} lists, "
-              f"{rep['selects']} selects, {rep['usedInputIds']} usedInputIds; {rep['bytes']['before']} -> {rep['bytes']['after']} B")
+              f"{rep['selects']} selects, {rep['usedInputIds']} usedInputIds; {rep['bytes']['before']} -> {rep['bytes']['after']} B; graphHash {rep['graphHash']}")
         for x in rep["machines"]:
             print(f"       {x['machine']}: {x['states']} states, global transitions {x['globalTransitions'][0]} -> {x['globalTransitions'][1]}, "
                   f"{x['nodesAdded']} nodes" + (f", {x['nested']} nested" if x["nested"] else ""))
-        mv = dec.decode(PG.GRAPH_TYPE, out)
-        by = {n["value"]["id"]["value"]: n["value"] for n in mv["nodeDefinitions"]}
+        by = {n["value"]["id"]["value"]: n["value"] for n in dec.decode(PG.GRAPH_TYPE, out)["nodeDefinitions"]}
         same = differ = 0
-        for i, (name, st, m, nb) in enumerate(nbs):
-            if nb.error:
-                continue
-            c = dict(by[PG.node_id("pa-all", f"n{i:02d}", "clip")])
+        for i, (name, nb) in enumerate(items):
+            c = dict(by[PG.node_id(mod, f"n{i:02d}", "clip")])
             want = dict(nb.clip)
             for f in PG.GENDER_GUIDS:
                 want[f] = PG.ZERO
@@ -182,19 +185,63 @@ def main():
             else:
                 differ += 1
                 print(f"       clip node of {name} differs: {sorted(f for f in c if c[f] != want[f])}")
-        check(differ == 0, f"each new clip node is its neighbour's (gender alternatives cleared): {same} of {same + differ}; duration, loop, root motion and "
-                           f"sequences from the clip's resources agree with the game's node")
+        check(differ == 0, f"{label}: each new clip node is its neighbour's (gender alternatives cleared): {same} of {same + differ}; duration, loop, root "
+                           f"motion and sequences from the clip's resources agree with the game's node")
+        return out, rep, t4 - t3
 
-    # 3. the same definitions from two mods, in both orders
-    names = list(states)
-    half = {n: states[n] for n in names[::2]}, {n: states[n] for n in names[1::2]}
+    out, rep, secs = merge_beside("pa-all", [(name, nb) for name, _, _, nb in g1 if not nb.error], "group 1")
+    keep("all", out)
+    counts["all"] = {k2: rep[k2] for k2 in ("machines", "nodesAdded", "lists", "listEntries", "selects", "usedInputIds", "bytes", "graphHash")}
+    counts["mergeSeconds"] = round(secs, 3)
+    states = {f"n{i:02d}": {"clip": nb.clip["animation"], "like": name} for i, (name, _, _, nb) in enumerate(g1) if not nb.error}
+
+    # 3. group 2: one state beside each supported neighbour; the states that cannot be neighbours refused with their reason
+    expected = {f"{m}/DoNothing": "rest state" for m in OVERLAY_MACHINES if m != "SM_Wand_Overlay"}
+    expected.update({f"SM_Ranged_Attack_Additive/{x}": "holds the nested machine" for x in ("Ground_Bow_Overlay", "Staff_Overlay", "Air_Bow_Overlay")})
+    expected["SM_Wand_Overlay/Attack_Magic_Wand_01_bis"] = "no overlay condition of its own"
+    refused = {name: nb.error for name, _, _, nb in g2 if nb.error}
+    for name, word in sorted(expected.items()):
+        check(word in (refused.get(name) or ""), f"group 2 refuses {name}: {refused.get(name)}")
+    for name in sorted(set(refused) - set(expected)):
+        print(f"     also refused (not on the brief's list): {name}: {refused[name]}")
+        counts.setdefault("alsoRefused", {})[name] = refused[name]
+    good2 = [(name, nb) for name, _, _, nb in g2 if not nb.error]
+    out, rep, _ = merge_beside("pa-group2", good2, "group 2")
+    keep("group 2", out)
+    counts["group2"] = {k2: rep[k2] for k2 in ("machines", "nodesAdded", "lists", "listEntries", "selects", "usedInputIds", "bytes", "graphHash")}
+    if out is not None:
+        check(rep["usedInputIds"] == sum(1 for _, nb in good2 if nb.kind == "state"), f"usedInputIds take the {rep['usedInputIds']} state ids, no overlay id")
+    first = next(name for name, _, _, nb in g2 if not nb.error)
+    sts = {f"r{i:02d}": {"clip": next(nb for n, nb in good2 if n == first).clip["animation"], "like": name} for i, name in enumerate(sorted(refused))}
+    sts["ok"] = {"clip": next(nb for n, nb in good2 if n == first).clip["animation"], "like": first}
+    out, rep = PG.merge(raw, types, [write_mod(work.name, "pa-g2bad", sts)], facts)
+    by_like = {e["like"]: e for e in rep["states"]}
+    check(all(by_like[n]["status"] == "refused" and "mod pa-g2bad" in by_like[n]["reason"] for n in refused) and by_like[first]["status"] == "live",
+          f"the {len(refused)} refused in one file, each with its reason, and the file's other state loads")
+    # an overlay machine filled to its room, and one more
+    bow = next(x for x in g2 if x[2]["debugName"] == "SM_Ground_Bow_Overlay" and not x[3].error)
+    room = PG.MAX_GLOBAL - bow[2]["numGlobalTransitions"]
+    out, rep = PG.merge(raw, types, [write_mod(work.name, "pa-room", {f"b{i:02d}": {"clip": bow[3].clip["animation"], "like": bow[0]} for i in range(room + 1)})], facts)
+    keep("overlay room", out)
+    live = [e for e in rep["states"] if e["status"] == "live"]
+    last = max(rep["states"], key=lambda e: e["name"].encode())
+    mrow = next((x for x in rep["machines"] if x["machine"] == "SM_Ground_Bow_Overlay"), {})
+    check(rep["graph"] == "merged" and len(live) == room and last["status"] == "refused" and f"has room for {room} new states" in last["reason"]
+          and mrow.get("nested") == 0 and mrow.get("globalTransitions") == [PG.MAX_GLOBAL - room, PG.MAX_GLOBAL],
+          f"{room + 1} states beside {bow[0]}: {len(live)} live, the last refused: {last['reason']}")
+
+    # 4. group 1 and group 2 from two mods, in both orders
+    both = dict(states, **{f"g{i:02d}": {"clip": nb.clip["animation"], "like": name} for i, (name, nb) in enumerate(good2)})
+    names = list(both)
+    half = {n: both[n] for n in names[::2]}, {n: both[n] for n in names[1::2]}
     ma, mb = write_mod(work.name, "pa-left", half[0]), write_mod(work.name, "pa-right", half[1])
     o1, r1 = PG.merge(raw, types, [ma, mb], facts)
     o2, r2 = PG.merge(raw, types, [mb, ma], facts)
     keep("two mods", o1)
-    check(o1 is not None and o1 == o2 and r1 == r2, f"two mods ({len(half[0])} and {len(half[1])} states) in both orders: the same {len(o1 or b'')} bytes and report")
+    check(o1 is not None and o1 == o2 and r1 == r2 and all(e["status"] == "live" for e in r1["states"]),
+          f"groups 1 and 2 from two mods ({len(half[0])} and {len(half[1])} states) in both orders: the same {len(o1 or b'')} bytes and report, graphHash {r1['graphHash']}")
 
-    # 4. 30 states beside one hammer state: nested; every game state, its id and its entry as before
+    # 5. 30 states beside one hammer state: nested; every game state, its id and its entry as before
     hammer = next(name for name, _, m, nb in nbs if m["debugName"] == "SM_Attack_Hammer_FullBody" and not nb.error)
     hn = next(nb for name, _, _, nb in nbs if name == hammer)
     m30 = write_mod(work.name, "pa-thirty", {f"h{i:02d}": {"clip": hn.clip["animation"], "like": hammer} for i in range(30)})
@@ -226,7 +273,7 @@ def main():
         check(top <= PG.MAX_GLOBAL, f"no machine above {PG.MAX_GLOBAL} global transitions (the most: {top})")
         counts["thirty"] = {k2: rep[k2] for k2 in ("machines", "nodesAdded", "lists", "listEntries", "selects", "bytes")}
 
-    # 5. refusals, the rest of the file loads
+    # 6. refusals, the rest of the file loads
     player = facts(hn.clip["animation"])
     other = other_skeleton_clip(k, types, facts, player["hierarchyHash"]) if k else None
     if other is None and not k:

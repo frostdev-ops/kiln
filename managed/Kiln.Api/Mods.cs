@@ -109,8 +109,18 @@ public sealed record ModOperationResult(bool Ok, string Message, IReadOnlyList<s
 public static class Mods
 {
     /// <summary>The Kiln mod API version this Kiln implements; a manifest's <c>apiVersion</c> is checked against it.
-    /// Kiln keeps the API additive within a major version (including 0.x): an older minor keeps working.</summary>
+    /// Kiln keeps the API additive within a major version (including 0.x): an older minor keeps working.
+    /// A const is copied into the mod when it is built, so a mod reading it sees the API it was built against, not the
+    /// running one: read <see cref="RuntimeApiVersion"/>.</summary>
+    [Obsolete("Use Mods.RuntimeApiVersion: a const is copied into the mod at build time.")]
     public const string ApiVersion = "0.2.0";
+
+    /// <summary>The Kiln mod API version of the Kiln that is running (for example <c>0.2.0</c>); a manifest's
+    /// <c>apiVersion</c> is checked against it. Read at run time, so a mod built against an older SDK still sees the
+    /// running Kiln's API. Kiln keeps the API additive within a major version (including 0.x).</summary>
+#pragma warning disable CS0618 // the one place that reads the const: the property returns the running assembly's value
+    public static string RuntimeApiVersion => ApiVersion;
+#pragma warning restore CS0618
 
     /// <summary>Every mod Kiln found, in load order (loaded first), then the ones that did not load.</summary>
     public static IReadOnlyList<ModEntry> All => ModsBackend.Current?.All ?? [];
