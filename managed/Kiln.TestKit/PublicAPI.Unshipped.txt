@@ -198,6 +198,15 @@ Kiln.TestKit.ModManifest.Side.set -> void
 Kiln.TestKit.ModManifest.ToJson(string! entryAssembly, string? entryType) -> string!
 Kiln.TestKit.ModManifest.Version.get -> string!
 Kiln.TestKit.ModManifest.Version.set -> void
+Kiln.TestKit.Xunit.KilnSuiteLifetime
+Kiln.TestKit.Xunit.KilnSuiteLifetime.Dispose() -> void
+Kiln.TestKit.Xunit.KilnSuiteLifetime.KilnSuiteLifetime() -> void
+Kiln.TestKit.Xunit.KilnTestOrderer
+Kiln.TestKit.Xunit.KilnTestOrderer.KilnTestOrderer() -> void
+Kiln.TestKit.Xunit.KilnTestOrderer.OrderTestCases<TTestCase>(System.Collections.Generic.IReadOnlyCollection<TTestCase>! testCases) -> System.Collections.Generic.IReadOnlyCollection<TTestCase>!
+Kiln.TestKit.Xunit.KilnTestSuite<TMod>
+Kiln.TestKit.Xunit.KilnTestSuite<TMod>.KilnTest(string! name) -> void
+Kiln.TestKit.Xunit.KilnTestSuite<TMod>.KilnTestSuite() -> void
 override Kiln.TestKit.CapabilityRow.GetHashCode() -> int
 override Kiln.TestKit.CoverageRow.Equals(object? obj) -> bool
 override Kiln.TestKit.CoverageRow.GetHashCode() -> int
@@ -220,5 +229,11 @@ static Kiln.TestKit.KilnTestResult.operator !=(Kiln.TestKit.KilnTestResult? left
 static Kiln.TestKit.KilnTestResult.operator ==(Kiln.TestKit.KilnTestResult? left, Kiln.TestKit.KilnTestResult? right) -> bool
 static Kiln.TestKit.LogLine.operator !=(Kiln.TestKit.LogLine? left, Kiln.TestKit.LogLine? right) -> bool
 static Kiln.TestKit.LogLine.operator ==(Kiln.TestKit.LogLine? left, Kiln.TestKit.LogLine? right) -> bool
+static Kiln.TestKit.Xunit.KilnTestSuite<TMod>.KilnTests.get -> System.Collections.Generic.IEnumerable<Xunit.TheoryDataRow<string!>!>!
+virtual Kiln.TestKit.Xunit.KilnTestSuite<TMod>.AllowUnavailable.get -> System.Collections.Generic.IReadOnlyCollection<string!>!
+virtual Kiln.TestKit.Xunit.KilnTestSuite<TMod>.HarnessOptions() -> Kiln.TestKit.KilnHarnessOptions!
+virtual Kiln.TestKit.Xunit.KilnTestSuite<TMod>.LoadMod(Kiln.TestKit.KilnHarness! kiln) -> Kiln.TestKit.ModHandle!
+virtual Kiln.TestKit.Xunit.KilnTestSuite<TMod>.Setup(Kiln.TestKit.KilnHarness! kiln) -> void
+virtual Kiln.TestKit.Xunit.KilnTestSuite<TMod>.WatchdogGrace.get -> System.TimeSpan
 ~override Kiln.TestKit.CapabilityRow.Equals(object obj) -> bool
 ~override Kiln.TestKit.CapabilityRow.ToString() -> string

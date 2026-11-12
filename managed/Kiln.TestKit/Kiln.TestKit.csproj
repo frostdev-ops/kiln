@@ -23,6 +23,10 @@
     <ProjectReference Include="../services/Kiln.Client/Kiln.Client.csproj" />
   </ItemGroup>
   <ItemGroup>
+    <!-- Kiln.TestKit.Xunit: [KilnTest] methods as xunit tests (the extensibility package, not a runner). -->
+    <PackageReference Include="xunit.v3.extensibility.core" Version="3.1.0" />
+  </ItemGroup>
+  <ItemGroup>
     <InternalsVisibleTo Include="Kiln.TestKit.Tests" />
     <!-- Kiln's own unit tests build their KilnTest fixture on the shared fakes (Shared/UnitTestFakes.cs). -->
     <InternalsVisibleTo Include="Kiln.Api.Tests" />
