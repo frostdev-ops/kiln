@@ -255,13 +255,16 @@ command in a Nexus build (or if `app_info` cannot be read); `useUpdateFeed` itse
 `src-tauri/src/render.rs`, `src/shell/started.ts`. The window's background is `#080504`: a window that stays that colour
 is a webview that never painted the page (a player on NVIDIA / X11 with 0.2.0-dev.23; the cause there is not known).
 - **The page says it started**: `app_started`, once per start, after React's first commit and two frames, in the
-  desktop and the Deck UI alike (`<Started />` in `main.tsx`).
+  desktop and the Deck UI alike (`<Started />` in `main.tsx`). A page that is hidden at the start, or hidden before its
+  frames came (the window minimized or on another workspace), says so at once: it gets no frames until it is shown,
+  and nobody is looking at a black window then.
 - **Software mode**: before GTK starts the launcher sets `WEBKIT_DISABLE_COMPOSITING_MODE=1`,
   `WEBKIT_SKIA_ENABLE_CPU_RENDERING=1` and `LIBGL_ALWAYS_SOFTWARE=1` (a value the user set stays), and gives the webview
   WebKit's hardware acceleration policy Never and no WebGL (WebKitGTK 2.54 still offers WebGL without compositing,
   through the GPU's EGL driver). The page then draws the CSS mouth instead of the fire (`app_info.noWebgl`); the admin
-  map says WebGL2 is missing. Programs the launcher starts (Steam when it was closed, the browser) inherit the three
-  variables.
+  map says WebGL2 is missing. Programs the launcher starts (Steam when it was closed, the browser) do not get the
+  variables the launcher set itself (`KILN_LAUNCHER_RENDER_SET` names them; `kiln_manage::hostenv` takes them back);
+  a value the user set goes along as before.
 - **The fallback**: when the page has not said it started 15 s after the window was made (30 s after the start when no
   window came), a start that drew with the GPU by default writes `<data>/state/software-render.json`
   (`{format, why, at, version}`), logs why and starts again in software mode, in the same process (exec): `$APPIMAGE`

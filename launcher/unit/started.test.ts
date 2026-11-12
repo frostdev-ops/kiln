@@ -38,6 +38,34 @@ test("the ready call waits for two frames after the commit (the first screen was
   expect(h.sent).toEqual([1]);
 });
 
+test("a page hidden at the start says it started at once, without waiting for frames", async () => {
+  const sent: number[] = [];
+  const frames: (() => void)[] = [];
+  const tell = startedReporter(async () => { sent.push(1); }, (cb) => { frames.push(cb); }, () => true);
+  tell(); tell();
+  await Promise.resolve();
+  expect(sent).toEqual([1]);
+  expect(frames.length).toBe(0);
+});
+
+test("a page hidden before its frames came says it started then, and only once", async () => {
+  const sent: number[] = [];
+  const frames: (() => void)[] = [];
+  let hide: (() => void) | undefined;
+  const tell = startedReporter(async () => { sent.push(1); }, (cb) => { frames.push(cb); }, () => false, (cb) => { hide = cb; });
+  tell();
+  await Promise.resolve();
+  expect(sent).toEqual([]);
+  hide?.();
+  await Promise.resolve();
+  expect(sent).toEqual([1]);
+  // the frames come when it is shown again: no second call
+  frames.shift()?.(); frames.shift()?.();
+  hide?.();
+  await Promise.resolve();
+  expect(sent).toEqual([1]);
+});
+
 test("a failed ready call is not retried and does not throw", async () => {
   let calls = 0;
   const tell = startedReporter(() => { calls += 1; return Promise.reject(new Error("no backend")); }, (cb) => cb());

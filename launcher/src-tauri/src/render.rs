@@ -35,8 +35,9 @@ pub const ARG_GPU: &str = "--gpu-render";
 const RESTARTED: &str = "KILN_LAUNCHER_RENDER_RESTARTED";
 /// The [`SOFTWARE_ENV`] names this process set itself (comma-separated), so a launcher started from it (the fallback, an
 /// update's restart) tells them from the user's own.
+/// Programs of the host never get these (kiln_manage::hostenv: a Steam the launcher starts draws with its GPU).
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
-const SET_BY_US: &str = "KILN_LAUNCHER_RENDER_SET";
+const SET_BY_US: &str = kiln_manage::hostenv::RENDER_SET;
 /// Debug and QA builds (`dev-eval`) only: `gpu`, `software` or `all`: `app_started` is ignored in that mode, so the
 /// fallback can be tested on a machine where the page renders.
 #[cfg(any(debug_assertions, feature = "dev-eval"))]
@@ -618,6 +619,12 @@ mod tests {
         // what an earlier Kiln set is taken back, nothing else ever is
         assert_eq!(set_by_us(Some("WEBKIT_DISABLE_COMPOSITING_MODE,PATH, LIBGL_ALWAYS_SOFTWARE")), vec!["WEBKIT_DISABLE_COMPOSITING_MODE", "LIBGL_ALWAYS_SOFTWARE"]);
         assert!(set_by_us(None).is_empty());
+    }
+
+    #[test]
+    fn host_programs_know_every_variable_software_mode_sets() {
+        let names: Vec<&str> = SOFTWARE_ENV.iter().map(|(k, _)| *k).collect();
+        assert_eq!(names, kiln_manage::hostenv::RENDER_VARS, "kiln_manage::hostenv takes back exactly these");
     }
 
     #[test]
