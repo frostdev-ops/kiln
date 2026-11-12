@@ -426,6 +426,9 @@ fn check_with(f: &Folder, picked: &Path, running: &[String]) -> Result<PlanOut, 
         let rf = df::Refusal::new(df::RefusalCode::Busy, still_working(running));
         return plan_out(f, &l, Err(rf), picked);
     }
+    if crate::commands::nexus::other_instance(&l.dirs) {
+        return plan_out(f, &l, Err(df::Refusal::new(df::RefusalCode::Locked, OTHER_LAUNCHER)), picked);
+    }
     let r = df::check_here(&l, &f.env, picked, locked_by_another(f))?;
     plan_out(f, &l, r, picked)
 }
@@ -440,6 +443,11 @@ fn still_working(running: &[String]) -> String {
 /// no command, task or background thread gets the folder (crate::folder), and the work that got it just before has
 /// ended (`state::blocking`'s closures; at most `DRAIN` is waited).
 pub fn hold_for_move(f: &Folder) -> Result<(), Error> {
+    if let Ok(l) = f.located()
+        && crate::commands::nexus::other_instance(&l.dirs)
+    {
+        return Err(df::Refusal::new(df::RefusalCode::Locked, OTHER_LAUNCHER).into_error());
+    }
     begin_alone(|running| {
         if let Some(e) = f.held_error() {
             return Err(e);
@@ -462,6 +470,9 @@ pub fn hold_for_move(f: &Folder) -> Result<(), Error> {
 }
 
 const DRAIN: Duration = Duration::from_secs(15);
+
+/// An older launcher (no data-folder lock) that holds `nexus/instance.lock` in a build with Nexus on.
+const OTHER_LAUNCHER: &str = "Another Kiln Launcher is using the data folder: close it first.";
 
 /// A move or a switch did not happen: everything runs again.
 pub fn release_after_failure(f: &Folder) {

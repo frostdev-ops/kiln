@@ -43,6 +43,16 @@ static CATALOG: Mutex<Option<Arc<Catalog>>> = Mutex::new(None);
 static ACCOUNT: Mutex<Option<CachedAccount>> = Mutex::new(None);
 static LINKS: LazyLock<Mutex<Vec<Pending>>> = LazyLock::new(|| Mutex::new(Vec::new()));
 static INSTANCE: Mutex<Option<handler::Instance>> = Mutex::new(None);
+
+/// In a build with Nexus on, another launcher holds `nexus/instance.lock` of this data folder (one that takes no
+/// data-folder lock: dev.24 and earlier). A move or a switch is refused then (commands/data_folder.rs).
+pub fn other_instance(dirs: &kiln_manage::paths::DataDirs) -> bool {
+    if !kiln_manage::nexus::enabled() || INSTANCE.lock().unwrap_or_else(|e| e.into_inner()).is_some() {
+        return false;
+    }
+    // taken now (and let go at once): nobody else has it
+    matches!(handler::acquire_instance(&catalog::root_of(dirs)), Ok(None))
+}
 static NEXT_LINK: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 struct Pending {
