@@ -13,6 +13,7 @@
 #include <map>
 #include <set>
 #include <memory>
+#include <tuple>
 #include <string>
 
 #include "../../types/scan.h"
@@ -452,6 +453,44 @@ void lookups(const TypeDb& db, const Bytes& raw, const json& names, const std::s
     }
 }
 
+// kiln/state/mods.json between two looks: which lines the service logs for the mods with player states.
+void mods_watch() {
+    auto doc = [](uint64_t gen, std::initializer_list<std::tuple<const char*, const char*, int>> mods, uint64_t pid = 42) {
+        json d = {{"format", 1}, {"pid", pid}, {"written", "2026-11-12T00:00:00Z"}, {"generation", gen}, {"mods", json::array()}};
+        for (const auto& [id, state, index] : mods) d["mods"].push_back({{"id", id}, {"state", state}, {"loadIndex", index >= 0 ? json(index) : json(nullptr)}});
+        return d.dump();
+    };
+    const std::set<std::string> watched = {"x"};
+    struct Case {
+        const char* name;
+        std::string before, after;
+        std::vector<std::string> want;  // the lines' starts
+    };
+    const std::vector<Case> cases = {
+        {"unloaded", doc(3, {{"x", "loaded", 0}, {"y", "loaded", 1}}), doc(4, {{"x", "unloaded", -1}, {"y", "loaded", 0}}), {"mod x is unloaded now"}},
+        {"loaded again", doc(4, {{"x", "unloaded", -1}, {"y", "loaded", 0}}), doc(5, {{"x", "loaded", 1}, {"y", "loaded", 0}}), {"mod x is loaded again"}},
+        {"reloaded fast", doc(3, {{"x", "loaded", 0}, {"y", "loaded", 1}}), doc(5, {{"x", "loaded", 1}, {"y", "loaded", 0}}), {"mod x was reloaded"}},
+        {"reloaded fast, the last mod", doc(3, {{"y", "loaded", 0}, {"x", "loaded", 1}}), doc(5, {{"y", "loaded", 0}, {"x", "loaded", 1}}), {}},
+        {"reloaded fast, the only mod", doc(3, {{"x", "loaded", 0}}), doc(5, {{"x", "loaded", 0}}), {}},
+        {"a mod before it goes (its loadIndex drops)", doc(3, {{"y", "loaded", 0}, {"x", "loaded", 1}}), doc(4, {{"y", "unloaded", -1}, {"x", "loaded", 0}}), {}},
+        {"a mod before it is reloaded", doc(3, {{"y", "loaded", 0}, {"x", "loaded", 1}}), doc(5, {{"x", "loaded", 0}, {"y", "loaded", 1}}), {}},
+        {"a mod without states changes", doc(3, {{"x", "loaded", 0}, {"y", "loaded", 1}}), doc(4, {{"x", "loaded", 0}, {"y", "unloaded", -1}}), {}},
+        {"the boot's own load", doc(1, {{"x", "pending", -1}}), doc(2, {{"x", "loaded", 0}}), {}},
+        {"nothing changed", doc(3, {{"x", "loaded", 0}}), doc(3, {{"x", "loaded", 0}}), {}},
+        {"a broken file", doc(3, {{"x", "loaded", 0}}), "{\"mods\": [", {}},
+        {"another process's file", doc(3, {{"x", "loaded", 0}}), doc(1, {{"x", "unloaded", -1}}, 7), {}},
+        {"gone from the list", doc(3, {{"x", "loaded", 0}}), doc(4, {}), {"mod x is gone now"}},
+    };
+    int bad = 0;
+    for (const Case& c : cases) {
+        const std::vector<std::string> got = mods_changes(read_mods_state(c.before, 42), read_mods_state(c.after, 42), watched);
+        bool same = got.size() == c.want.size();
+        for (size_t i = 0; same && i < got.size(); ++i) same = got[i].rfind(c.want[i], 0) == 0;
+        if (!same && ++bad) std::printf("  mods.json %s: %zu line(s)%s%s\n", c.name, got.size(), got.empty() ? "" : ": ", got.empty() ? "" : got[0].c_str());
+    }
+    check("mods.json watch: " + std::to_string(cases.size()) + " cases (unloaded, loaded again, reloaded fast, the last mod, a broken file, ...)", bad == 0);
+}
+
 void fuzz(Ctx& c, const json& cases) {
     const auto facts = facts_of(cases["fuzz_facts"]);
     const std::vector<ModStates> mods = {parse(R"({"format": 1, "states": {"a": {"clip": "x", "like": "Parry_FullBody"}}})", "m", "both", "mod")};
@@ -672,6 +711,7 @@ int main(int argc, char** argv) {
         validations(c, cases);
         joint_animations(c, cases);
         clip_facts(c, cases);
+        mods_watch();
         lookups(c.bundled, slurp_bytes(c.dir + "/" + cases["lookup"]["graph"].get<std::string>()), cases["lookup"]["names"], "the synthetic graph");
         fuzz(c, cases);
     }

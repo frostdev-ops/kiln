@@ -478,7 +478,10 @@ mods with player states) is refused at join too, also with `modSync` set to `war
 
 - **No hot reload.** A change (to the file, to the set of enabled mods) applies from the next start of the game
   or server: a player graph served while a player's graph runs ends the server, so the graph, and every clip a served state
-  plays, stays as it was at boot.
+  plays, stays as it was at boot. A mod with player states that is unloaded or reloaded while the game runs keeps its states
+  and their clips in the game, and kiln.log says so (`playeranim: mod <id> was reloaded: its player states stay as they were
+  at this start; a change to them applies from the next start`). Don't register a resource from code under the GUID of a
+  clip one of your states plays: nothing stops it, and the clip would change under the running graph.
 - **34 ways in per machine.** A machine holds 34 global transitions (one per state that can be entered from any state); a
   full-body machine that would go past 34 takes all of its mod states into nested machines of 34 each (a machine inside one
   state of the machine), but an overlay machine
