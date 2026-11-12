@@ -24,7 +24,6 @@
 #include <mutex>
 #include <set>
 #include <string>
-#include <thread>
 #include <vector>
 
 #include "../types/scan.h"
@@ -492,48 +491,53 @@ void KILN_CALL on_resources_ready(void*) {
     publish();
 }
 
-// ---- mods that go or change after the merge -----------------------------------------------------------------------------
+// ---- mods that go or change after the merge ---------------------------------------------------------------------------
 
-// kiln/state/mods.json (Kiln.Host rewrites it after every load, unload and reload; schema/state-mods.schema.json): a mod with
-// player states that is no longer loaded, or loaded again, gets one line. Its states stay in the graph until the next start.
-void watch_mods() {
-    const fs::path file = to_path(api_path(KILN_PATH_STATE)) / L"mods.json";
-    std::map<std::string, std::string> last;  // mod id -> state, of the mods with player states
-    std::map<std::string, bool> gone;
-    fs::file_time_type seen{};
-    for (;;) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(250));
-        std::error_code ec;
-        const fs::file_time_type t = fs::last_write_time(file, ec);
-        if (ec || t == seen) continue;
-        seen = t;
-        std::string text;
-        if (!read_file(file, &text)) continue;
-        const nlohmann::json doc = nlohmann::json::parse(text, nullptr, false);
-        if (doc.is_discarded() || !doc.contains("mods") || !doc["mods"].is_array()) continue;
-        std::lock_guard lock(g_mu);
-        for (const auto& m : doc["mods"]) {
-            if (!m.is_object() || !m.contains("id") || !m["id"].is_string() || !m.contains("state") || !m["state"].is_string()) continue;
-            const std::string id = m["id"].get<std::string>(), state = m["state"].get<std::string>();
-            if (!g_dir_of.count(id)) continue;
-            const auto prev = last.find(id);
-            if (prev != last.end() && prev->second != state) {
-                std::string line;
-                if (prev->second == "loaded") {
-                    gone[id] = true;
-                    line = "mod " + id + " is " + state + " now: its player states stay in the player's graph as they are until the next start";
-                } else if (state == "loaded" && gone[id]) {
-                    line = "mod " + id + " is loaded again: its player states stay as they were at this start; a change to them applies from the next start";
-                }
-                if (!line.empty()) {
-                    PA_I("playeranim: %s", line.c_str());
-                    g_changes.push_back(line);
-                    write_status();
-                }
-            }
-            last[id] = state;
-        }
+// kiln/state/mods.json (Kiln.Host rewrites it after every load, unload and reload): a mod with player states that goes,
+// comes back or is reloaded gets one line (states.h: mods_changes). Its states stay in the graph until the next start. Looked
+// at from a tick at most once a second; never touches the graph.
+std::mutex g_watch_mu;                 // the look below; one tick thread at a time
+std::atomic<int64_t> g_next_look{0};   // steady clock, ms
+std::set<std::string> g_watched;       // mods with player states (set in on_ready, then read only)
+fs::path g_mods_file;
+fs::file_time_type g_mods_time{};
+ModsLook g_mods_last;
+
+void look_at_mods() {
+    const int64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now().time_since_epoch()).count();
+    int64_t due = g_next_look.load();
+    if (now < due || !g_next_look.compare_exchange_strong(due, now + 1000)) return;
+    std::unique_lock look(g_watch_mu, std::try_to_lock);
+    if (!look) return;
+    std::error_code ec;
+    const fs::file_time_type t = fs::last_write_time(g_mods_file, ec);
+    if (ec || t == g_mods_time) return;
+    g_mods_time = t;
+    std::string text;
+    if (!read_file(g_mods_file, &text)) return;
+    ModsLook seen = read_mods_state(text, GetCurrentProcessId());
+    if (!seen.ok) return;  // broken, or another process's: wait for the next write
+    const std::vector<std::string> lines = mods_changes(g_mods_last, seen, g_watched);
+    g_mods_last = std::move(seen);
+    if (lines.empty()) return;
+    std::lock_guard lock(g_mu);
+    for (const std::string& line : lines) {
+        PA_I("playeranim: %s", line.c_str());
+        g_changes.push_back(line);
     }
+    write_status();
+}
+void KILN_CALL on_tick(const KilnTickInfo*, void*) { look_at_mods(); }
+
+// The server world's ticks, and on a client its own world's (a joined client has no server world).
+void watch_mods() {
+    g_mods_file = to_path(api_path(KILN_PATH_STATE)) / L"mods.json";
+    for (const auto& [id, dir] : g_dir_of) g_watched.insert(id);
+    KilnHandle h = 0;
+    if (g_api->subscribe_tick(g_self, KILN_TICK_PRE, &on_tick, nullptr, &h) != KILN_OK) PA_W("playeranim: no server tick: mods that go or change are not reported");
+    if (g_api->side() == KILN_SIDE_CLIENT && g_api->size >= offsetof(KilnApi, subscribe_world_tick) + sizeof(void*) &&
+        g_api->subscribe_world_tick(g_self, KILN_WORLD_CLIENT, KILN_TICK_PRE, &on_tick, nullptr, &h) != KILN_OK)
+        PA_W("playeranim: no client world tick: mods that go or change are not reported on this client");
 }
 
 // ---- the table -------------------------------------------------------------------------------------------------------------
@@ -777,7 +781,7 @@ void KILN_CALL on_ready(void*) {
     }
     g_state.store(KILN_PA_WAITING);
     PA_I("playeranim: %zu player state(s) of %zu mod(s) to merge when the game's resources come up", states, g_mods.size());
-    std::thread(watch_mods).detach();
+    watch_mods();
     if (g_assets->when_resources_ready(&on_resources_ready, nullptr) != KILN_OK) {
         go_off("kiln.assets has no resource service on this build");
         publish();

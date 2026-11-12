@@ -729,4 +729,57 @@ ManifestFields read_manifest_text(std::string_view text, const std::string& wher
     return out;
 }
 
+// ---- kiln/state/mods.json ----
+
+ModsLook read_mods_state(std::string_view text, uint64_t pid) {
+    ModsLook out;
+    const nlohmann::json doc = nlohmann::json::parse(text, nullptr, false);
+    if (doc.is_discarded() || !doc.is_object() || !doc.contains("mods") || !doc["mods"].is_array()) return out;
+    if (pid && (!doc.contains("pid") || !doc["pid"].is_number_unsigned() || doc["pid"].get<uint64_t>() != pid)) return out;
+    if (doc.contains("generation") && doc["generation"].is_number_unsigned()) out.generation = doc["generation"].get<uint64_t>();
+    std::vector<std::pair<int64_t, std::string>> placed;
+    for (const nlohmann::json& m : doc["mods"]) {
+        if (!m.is_object() || !m.contains("id") || !m["id"].is_string() || !m.contains("state") || !m["state"].is_string()) continue;
+        const std::string id = m["id"].get<std::string>();
+        out.state[id] = m["state"].get<std::string>();
+        if (m.contains("loadIndex") && m["loadIndex"].is_number_integer()) placed.emplace_back(m["loadIndex"].get<int64_t>(), id);
+    }
+    std::sort(placed.begin(), placed.end());
+    for (auto& [i, id] : placed) out.order.push_back(std::move(id));
+    out.ok = true;
+    return out;
+}
+
+std::vector<std::string> mods_changes(const ModsLook& before, const ModsLook& after, const std::set<std::string>& watched) {
+    std::vector<std::string> lines;
+    if (!before.ok || !after.ok) return lines;
+    auto state_of = [](const ModsLook& l, const std::string& id) {
+        const auto it = l.state.find(id);
+        return it == l.state.end() ? std::string() : it->second;
+    };
+    auto place = [](const ModsLook& l, const std::string& id) {
+        const auto it = std::find(l.order.begin(), l.order.end(), id);
+        return it == l.order.end() ? -1 : static_cast<int>(it - l.order.begin());
+    };
+    for (const std::string& id : watched) {
+        const std::string b = state_of(before, id), a = state_of(after, id);
+        if (b == "loaded" && a != "loaded") {
+            lines.push_back("mod " + id + " is " + (a.empty() ? std::string("gone") : a) + " now: its player states stay in the player's graph as they are until the next start");
+        } else if (a == "loaded" && b != "loaded" && !b.empty() && b != "pending") {
+            lines.push_back("mod " + id + " is loaded again: its player states stay as they were at this start; a change to them applies from the next start");
+        } else if (a == "loaded" && b == "loaded" && after.generation != before.generation) {
+            // moved behind a mod that was behind it: unloaded and appended again in between
+            const int xb = place(before, id), xa = place(after, id);
+            bool moved = false;
+            for (const std::string& y : before.order) {
+                if (y == id || state_of(after, y).empty()) continue;
+                const int yb = place(before, y), ya = place(after, y);
+                if (ya >= 0 && xb >= 0 && xa >= 0 && yb > xb && ya < xa) moved = true;
+            }
+            if (moved) lines.push_back("mod " + id + " was reloaded: its player states stay as they were at this start; a change to them applies from the next start");
+        }
+    }
+    return lines;
+}
+
 }  // namespace kpa
