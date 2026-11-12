@@ -13,6 +13,8 @@ pub mod events;
 /// The backend timing harness (ignored tests; tools/launcher/perf.sh).
 #[cfg(test)]
 mod perf;
+/// How the window is drawn on Linux (the GPU, or software mode and the fallback to it).
+pub mod render;
 pub mod selftest;
 /// The self-update: only in direct builds (feature `self-update`); the Nexus Mods build compiles none of it.
 #[cfg(feature = "self-update")]
@@ -39,6 +41,8 @@ pub fn run() {
     builder
         .register_uri_scheme_protocol("kiln-asset", |_ctx, req| assets::serve(req.uri().path()))
         .setup(|app| {
+            // the window exists: the render watchdog's clock starts, software mode reaches the webview (render.rs)
+            render::window_created(app.handle());
             // the installed runtime's and the bundles' sha256s from the last run (a start does not hash 1.5 GB again)
             if let Ok(d) = state::dirs() {
                 kiln_manage::filecache::persist_at(&state::file_hashes(&d));
@@ -210,7 +214,9 @@ pub fn run() {
             commands::found::found_scan,
             commands::found::found_add,
             commands::logs::report_save,
-            commands::logs::report_summary
+            commands::logs::report_summary,
+            commands::app::app_started,
+            commands::app::app_render_set
         ])
         .build(tauri::generate_context!())
         .expect("error while building the Kiln Launcher")
