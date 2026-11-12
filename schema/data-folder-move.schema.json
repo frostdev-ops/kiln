@@ -14,6 +14,8 @@
     "started": { "$ref": "common.schema.json#/$defs/time" },
     "createdTarget": { "type": "boolean", "description": "The move made 'to': a partial copy's removal removes it when it is empty." },
     "createdParents": { "type": "array", "items": { "type": "string" }, "default": [], "description": "Folders above 'to' the move made, top first." },
+    "createdLock": { "type": "boolean", "default": false, "description": "The move made 'to'/data-folder.lock: it goes with a partial copy." },
+    "skipped": { "type": "array", "items": { "type": "string" }, "default": [], "description": "Entries of 'from' the move did not copy because the target keeps an entry of its own by that name (Windows: the default root's state\\ folder); they stay in 'from'." },
     "entries": {
       "type": "array",
       "items": {
@@ -32,7 +34,7 @@
     "rewrittenAfter": {
       "type": "array",
       "default": [],
-      "description": "Files the move itself wrote again in the new place after the commit (install records, activation records, the active profiles' configs) and the sha256 it wrote.",
+      "description": "Files the move itself wrote again in the new place after the commit, recorded where it wrote them: the install records and activation records of the known games and the files under profiles/<pid>/config/ of the profiles it activated, with the sha256 it wrote.",
       "items": {
         "type": "object",
         "required": ["path", "sha256"],

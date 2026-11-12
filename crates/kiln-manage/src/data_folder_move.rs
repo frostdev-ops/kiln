@@ -59,7 +59,15 @@ pub struct Journal {
     /// Folders above `to` the move made, top first: removed with a partial copy when empty.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub created_parents: Vec<PathBuf>,
+    /// The move made `to`'s lock file (`data-folder.lock`): it goes with a partial copy.
+    #[serde(default)]
+    pub created_lock: bool,
+    /// The entries the move copies (never one the target keeps for itself).
     pub entries: Vec<JournalEntry>,
+    /// Entries of `from` the move did not copy because the target keeps an entry of its own by that name (Windows: the
+    /// default root's `state\`): they stay in the old folder.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub skipped: Vec<String>,
     /// `copying`, `verifying`, `committed`, `moved`, `cleaning`, `cleaned`, `failed`.
     pub state: String,
     /// What the pointer named before the move (None: there was no pointer, the default root was in use).
@@ -192,6 +200,9 @@ pub struct MoveResult {
     pub stayed: Vec<Stayed>,
     /// Games (install ids) whose profile was activated again from the new place.
     pub activated: Vec<String>,
+    /// The removal of the old copy, the move's last phase ([`remove_old_copy`]'s rule): what went, what stayed and why.
+    /// Interrupted by a cancel after the switch, it goes on at the next start. None only if the move stopped before.
+    pub cleanup: Option<Cleanup>,
 }
 
 /// Where a move stands at a start ([`pending`]).
@@ -455,9 +466,9 @@ struct Item {
 }
 
 /// Every folder and file of `entries` below `root`, folders before what is in them. A link or a special file stops it
-/// (named); `nexus/*.lock` files are left out.
-fn walk_source(root: &Path, entries: &[String], out: &mut Vec<Item>) -> Result<()> {
-    fn go(root: &Path, names: &mut Vec<String>, out: &mut Vec<Item>) -> Result<()> {
+/// (named); `nexus/*.lock` files and the hash cache (`state/file-hashes.json`) are left out.
+fn walk_source(root: &Path, entries: &[String], style: PathStyle, out: &mut Vec<Item>) -> Result<()> {
+    fn go(root: &Path, names: &mut Vec<String>, style: PathStyle, out: &mut Vec<Item>) -> Result<()> {
         let path = names.iter().fold(root.to_path_buf(), |p, n| p.join(n));
         let m = std::fs::symlink_metadata(&path).map_err(io_at(&path, "reading"))?;
         let link = m.file_type().is_symlink() || {
@@ -478,7 +489,9 @@ fn walk_source(root: &Path, entries: &[String], out: &mut Vec<Item>) -> Result<(
             ));
         }
         if m.is_file() {
-            if !(names.len() == 2 && names[0] == "nexus" && names[1].to_lowercase().ends_with(".lock")) {
+            let lock = names.len() == 2 && style.same_name(&names[0], "nexus") && names[1].to_lowercase().ends_with(".lock");
+            let cache = names.len() == 2 && style.same_name(&names[0], df::HASH_CACHE[0]) && style.same_name(&names[1], df::HASH_CACHE[1]);
+            if !(lock || cache) {
                 out.push(Item { names: names.clone(), dir: false });
             }
             return Ok(());
@@ -491,13 +504,13 @@ fn walk_source(root: &Path, entries: &[String], out: &mut Vec<Item>) -> Result<(
         kids.sort();
         for k in kids {
             names.push(k);
-            go(root, names, out)?;
+            go(root, names, style, out)?;
             names.pop();
         }
         Ok(())
     }
     for e in entries {
-        go(root, &mut vec![e.clone()], out)?;
+        go(root, &mut vec![e.clone()], style, out)?;
     }
     Ok(())
 }
@@ -513,12 +526,16 @@ struct Copier<'a> {
     to: &'a Path,
     olds: Vec<PathBuf>,
     link: bool,
+    style: PathStyle,
     inject: Option<Inject>,
     total: u64,
     done_bytes: u64,
     done_files: u64,
     real_files: u64,
+    /// The files this move made in the target (and only those may be replaced or removed).
     files: BTreeMap<String, Copied>,
+    /// The folders this move made in the target.
+    made_dirs: BTreeSet<String>,
     rewritten: Vec<String>,
 }
 
@@ -569,6 +586,11 @@ impl Copier<'_> {
         let src = names.iter().fold(self.from.to_path_buf(), |p, n| p.join(n));
         let dst = names.iter().fold(self.to.to_path_buf(), |p, n| p.join(n));
         if std::fs::symlink_metadata(&dst).is_ok() {
+            // only a file this move made is replaced; anything else there is not the move's
+            if !self.files.contains_key(&rel) {
+                return Err(Error::new(ErrorCode::Conflict, format!("{} is already there and the move did not make it: the move stops rather than replace it.", dst.display()))
+                    .with_detail(dst.display().to_string()));
+            }
             std::fs::remove_file(&dst).map_err(io_at(&dst, "replacing"))?;
         }
         // servers/<id>.json: backupDir names the old root (a Steam server's tarball backups): rewritten in the copy
@@ -579,7 +601,7 @@ impl Copier<'_> {
             None
         };
         let key_before = FileKey::of(&src);
-        let real = rewrite.is_some() || !self.link || df::written_in_place(names, style());
+        let real = rewrite.is_some() || !self.link || df::written_in_place(names, self.style);
         if real && matches!(self.inject, Some(Inject::FullAfter(n)) if self.real_files >= n) {
             return Err(full_disk(&dst));
         }
@@ -621,11 +643,18 @@ impl Copier<'_> {
     fn items(&mut self, items: &[Item], progress: &mut dyn Progress) -> Result<()> {
         for it in items {
             if it.dir {
+                let rel = rel_of(&it.names);
                 let dst = it.names.iter().fold(self.to.to_path_buf(), |p, n| p.join(n));
                 match std::fs::symlink_metadata(&dst) {
-                    Ok(m) if m.is_dir() => {}
-                    Ok(_) => return Err(Error::new(ErrorCode::Conflict, format!("{}: a file is in the way of a folder", dst.display()))),
-                    Err(_) => std::fs::create_dir(&dst).map_err(io_at(&dst, "creating"))?,
+                    Ok(m) if m.is_dir() && self.made_dirs.contains(&rel) => {}
+                    Ok(_) => {
+                        return Err(Error::new(ErrorCode::Conflict, format!("{} is already there and the move did not make it: the move stops rather than write into it.", dst.display()))
+                            .with_detail(dst.display().to_string()));
+                    }
+                    Err(_) => {
+                        std::fs::create_dir(&dst).map_err(io_at(&dst, "creating"))?;
+                        self.made_dirs.insert(rel);
+                    }
                 }
             } else {
                 self.file(&it.names, progress)?;
@@ -682,7 +711,7 @@ impl Copier<'_> {
     /// inode). Gone files are taken out of the copy and the record.
     fn changes(&mut self, entries: &[String]) -> Result<(Vec<Item>, BTreeSet<String>)> {
         let mut now = Vec::new();
-        walk_source(self.from, entries, &mut now)?;
+        walk_source(self.from, entries, self.style, &mut now)?;
         let seen: BTreeSet<String> = now.iter().filter(|i| !i.dir).map(|i| rel_of(&i.names)).collect();
         let gone: Vec<String> = self.files.keys().filter(|k| !seen.contains(*k)).cloned().collect();
         for g in gone {
@@ -765,23 +794,31 @@ fn stopped(step: Step) -> Error {
 /// Moves the data folder in use to the folder the player picked. It checks again everything
 /// [`crate::data_folder::check`] refuses (never a plan made earlier), takes the exclusive [`DataLock`] (`own`: this
 /// process's shared lock, made exclusive for the move and shared again after) and `quick.lock`, and refuses while a
-/// journal exists. Then: journal, target and its [`MOVE_MARKER`], copy (hard links where [`Plan::hard_links`] says
-/// they work and `opts.force_copy` is off, except what is written in place), verify (sha256 of every file read back,
-/// kdh1 of every library entry), the source's changes copied again (at most [`MAX_ROUNDS`] rounds), the file record,
-/// the [`MARKER`], **the pointer** (the commit; removed when the new place is the default root), the new place checked
-/// (`locate` gives it; profiles, library entries and settings read as in the old place; if not, the previous pointer
-/// is put back and the move fails), then install records and active profiles written again for the new root, and
-/// built modpacks' `file` rewritten (failures there are warnings).
+/// journal exists. Then: journal, target, the target's exclusive [`DataLock`] (held until the move returns, so a
+/// launcher that starts meanwhile cannot take the new place) and its [`MOVE_MARKER`], copy (hard links where
+/// [`Plan::hard_links`] says they work and `opts.force_copy` is off, except what is written in place), verify (sha256
+/// of every file read back, kdh1 of every library entry), the source's changes copied again (at most [`MAX_ROUNDS`]
+/// rounds), the file record, the [`MARKER`], the folders the move made flushed (Unix), **the pointer** (the commit;
+/// removed when the new place is the default root), the new place checked (`locate` gives it; profiles, library
+/// entries and settings read as in the old place; if not, the previous pointer is put back and the move fails), then
+/// install records written again for the new root, the games whose profile was this folder's before the move
+/// activated again, built modpacks' `file` rewritten (failures there are warnings), and last the old copy removed by
+/// [`remove_old_copy`]'s rule ([`MoveResult::cleanup`]; a cancel there interrupts only the removal).
 ///
-/// A cancel, an error, a full disk or a file that cannot be read before the commit: the partial copy is removed
-/// ([`remove_partial_copy`]'s rule), the journal too, and the old place is as it was and in use. After the commit the
-/// old copy stays until [`remove_old_copy`].
+/// A move never copies into, replaces or removes anything in the target that it did not make: an entry the target
+/// keeps for itself (its state or settings folder, [`crate::data_folder::own_entries`]) is not copied and stays in the
+/// old folder; a file or folder already there fails the move (`conflict`). `state/file-hashes.json` (a cache keyed by
+/// absolute paths) is never copied.
+///
+/// A cancel, an error, a full disk or a file that cannot be read before the commit: what the move made in the target
+/// is removed, the journal too, and the old place is as it was and in use.
 pub fn move_to(
     located: &Located, env: &DataEnv, picked: &Path, facts: &dyn SystemFacts, own: Option<&mut DataLock>, opts: &MoveOptions,
     progress: &mut dyn Progress,
 ) -> Result<MoveResult> {
     let from = located.dirs.root.clone();
     let default = default_root(env)?;
+    let style = PathStyle::of(env);
     let (_held, _quick) = take_locks(&from, own)?;
     progress.report(Some(0.0), "checking the new place");
     let (plan, inv) = plan_for(located, env, picked, facts)?;
@@ -791,10 +828,29 @@ pub fn move_to(
     }
     let to = plan.target.clone();
     let link = plan.hard_links && !opts.force_copy;
-    let entries: Vec<String> = inv.known.iter().chain(&inv.unknown).map(|e| e.name.clone()).collect();
+    // what the target keeps for itself (Windows: `state\` in the default root) is not copied, never touched there
+    let target_own = df::own_entries(&to, env);
+    let kept_by_target = |name: &str| target_own.iter().any(|o| style.same_name(o, name));
+    let moving: Vec<(&df::EntrySize, bool)> = inv.known.iter().map(|e| (e, true)).chain(inv.unknown.iter().map(|e| (e, false)))
+        .filter(|(e, _)| !kept_by_target(&e.name)).collect();
+    let skipped: Vec<&df::EntrySize> = inv.known.iter().chain(&inv.unknown).filter(|e| kept_by_target(&e.name)).collect();
+    if let Some((e, _)) = moving.iter().find(|(e, _)| std::fs::symlink_metadata(to.join(&e.name)).is_ok()) {
+        return Err(refuse(RefusalCode::TargetHasEntry, format!("{} already holds {}: a move never writes into what is already there.", to.display(), e.name)));
+    }
+    let entries: Vec<String> = moving.iter().map(|(e, _)| e.name.clone()).collect();
     let before = counts(&located.dirs)?;
+    // the games whose profile is this folder's now, decided here with the old root (an older launcher's activation
+    // has no record, and its paths name the old root)
+    let reactivate: Vec<(crate::game::GameInstall, String)> = crate::game::known(&located.dirs)
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|g| {
+            let f = crate::profile::read_game_profile(&g.path).ok().flatten()?;
+            crate::profile::file_is_here(&located.dirs, &g, &f).then_some((g, f.id))
+        })
+        .collect();
 
-    // the journal, then the target and its marker
+    // the journal, then the target, its lock and its marker
     let mut missing = Vec::new();
     for a in to.ancestors() {
         if std::fs::symlink_metadata(a).is_ok() {
@@ -804,7 +860,7 @@ pub fn move_to(
     }
     missing.reverse();
     let created_target = missing.last().is_some_and(|m| *m == to);
-    let created_parents: Vec<PathBuf> = missing.iter().filter(|m| **m != to).cloned().collect();
+    let created_lock = std::fs::symlink_metadata(to.join(df::LOCK)).is_err();
     let mut journal = Journal {
         format: 1,
         id: new_id()?,
@@ -812,9 +868,10 @@ pub fn move_to(
         to: to.clone(),
         started: crate::util::now_rfc3339(),
         created_target,
-        created_parents,
-        entries: inv.known.iter().map(|e| (e, true)).chain(inv.unknown.iter().map(|e| (e, false)))
-            .map(|(e, known)| JournalEntry { name: e.name.clone(), known, bytes: e.bytes }).collect(),
+        created_parents: missing.iter().filter(|m| **m != to).cloned().collect(),
+        created_lock,
+        entries: moving.iter().map(|(e, known)| JournalEntry { name: e.name.clone(), known: *known, bytes: e.bytes }).collect(),
+        skipped: skipped.iter().map(|e| e.name.clone()).collect(),
         state: "copying".into(),
         previous_pointer: match located.source {
             crate::paths::RootSource::Pointer => Some(from.clone()),
@@ -830,23 +887,35 @@ pub fn move_to(
     if stop(Step::Journal) {
         return Err(stopped(Step::Journal));
     }
-    let fail = |e: Error, journal: &Journal| -> Error { abort(&default, journal, e) };
-    // before the marker is there nothing of the move is in the target: the folders it made go if empty, then the journal
-    let fail_early = |e: Error| -> Error {
-        for m in missing.iter().rev() {
-            let _ = std::fs::remove_dir(m);
-        }
-        let _ = remove_if_there(&journal_path(&default));
-        e
-    };
+    let mut tlock: Option<DataLock> = None;
+    // before the marker is there nothing of the move is in the target: the folders and the lock file it made go, then
+    // the journal
+    macro_rules! fail_early {
+        ($e:expr) => {{
+            drop(tlock.take());
+            if created_lock {
+                let _ = remove_if_there(&to.join(df::LOCK));
+            }
+            for m in missing.iter().rev() {
+                let _ = std::fs::remove_dir(m);
+            }
+            let _ = remove_if_there(&journal_path(&default));
+            return Err($e);
+        }};
+    }
     for m in &missing {
         if let Err(e) = std::fs::create_dir(m) {
-            return Err(fail_early(io_at(m, "creating")(e)));
+            fail_early!(io_at(m, "creating")(e));
         }
+    }
+    match DataLock::exclusive(&to) {
+        Ok(Some(l)) => tlock = Some(l),
+        Ok(None) => fail_early!(refuse(RefusalCode::Locked, format!("A Kiln Launcher is using {}: close it first.", to.display()))),
+        Err(e) => fail_early!(e),
     }
     if let Err(e) = crate::util::write_json_atomic(&to.join(MOVE_MARKER), &MoveMark { format: 1, id: journal.id.clone() }) {
         let _ = remove_if_there(&to.join(format!("{MOVE_MARKER}.tmp")));
-        return Err(fail_early(e));
+        fail_early!(e);
     }
     if stop(Step::Marker) {
         return Err(stopped(Step::Marker));
@@ -860,30 +929,40 @@ pub fn move_to(
         to: &to,
         olds,
         link,
+        style,
         inject: opts.inject,
-        total: inv.bytes,
+        total: moving.iter().map(|(e, _)| e.bytes).sum(),
         done_bytes: 0,
         done_files: 0,
         real_files: 0,
         files: BTreeMap::new(),
+        made_dirs: BTreeSet::new(),
         rewritten: vec![],
     };
+    // a failure before the commit: what the move made goes, then the markers, the lock, the journal
+    macro_rules! fail {
+        ($e:expr) => {{
+            let e = $e;
+            drop(tlock.take());
+            return Err(abort(&default, &journal, e, Some(&c)));
+        }};
+    }
     let mut warnings = Vec::new();
     let copied = (|| -> Result<()> {
         let mut items = Vec::new();
-        walk_source(&from, &entries, &mut items)?;
+        walk_source(&from, &entries, style, &mut items)?;
         c.items(&items, progress)?;
         c.folders(&items);
         Ok(())
     })();
     if let Err(e) = copied {
-        return Err(fail(e, &journal));
+        fail!(e);
     }
     if stop(Step::Copy) {
         return Err(stopped(Step::Copy));
     }
     if opts.inject == Some(Inject::FailAfterCopy) {
-        return Err(fail(Error::new(ErrorCode::Io, "a failure injected after the copy"), &journal));
+        fail!(Error::new(ErrorCode::Io, "a failure injected after the copy"));
     }
     journal.state = "verifying".into();
     let _ = write_journal(&default, &journal);
@@ -922,37 +1001,46 @@ pub fn move_to(
         check_library(&DataDirs::at(&to), &located.dirs, &mut warnings)
     })();
     if let Err(e) = verified {
-        return Err(fail(e, &journal));
+        fail!(e);
     }
     if stop(Step::Verify) {
         return Err(stopped(Step::Verify));
     }
     if opts.inject == Some(Inject::FailAfterVerify) {
-        return Err(fail(Error::new(ErrorCode::Io, "a failure injected after the verify"), &journal));
+        fail!(Error::new(ErrorCode::Io, "a failure injected after the verify"));
     }
 
-    // the file record, the marker, the pointer
+    // the file record, the marker, the folders on disk, the pointer
     journal.rewritten = c.rewritten.clone();
     let record = FileRecord { format: 1, id: journal.id.clone(), files: c.files.values().map(|f| f.line.clone()).collect() };
     if let Err(e) = crate::util::write_json_atomic(&record_path(&default), &record) {
-        return Err(fail(e, &journal));
+        fail!(e);
     }
     let _ = write_journal(&default, &journal);
     if stop(Step::FileRecord) {
         return Err(stopped(Step::FileRecord));
     }
     if let Err(e) = crate::util::write_json_atomic(&to.join(MARKER), &FolderMark { format: 1, created: crate::util::now_rfc3339() }) {
-        return Err(fail(e, &journal));
+        fail!(e);
     }
     if stop(Step::FolderMarker) {
         return Err(stopped(Step::FolderMarker));
+    }
+    let mut flush: Vec<PathBuf> = c.made_dirs.iter().rev().filter_map(|d| below(&to, d)).collect();
+    flush.push(to.clone());
+    flush.extend(to.parent().map(Path::to_path_buf));
+    for d in &flush {
+        if let Err(e) = sync_dir(d) {
+            fail!(e);
+        }
     }
     progress.report(Some(0.9), "switching to the new place");
     let to_default = same_folder(&to, &default);
     let commit = if to_default { df::remove_pointer(&default) } else { df::write_pointer(&default, &to).map(|_| ()) };
     if let Err(e) = commit {
-        return Err(fail(e, &journal));
+        fail!(e);
     }
+    let _ = sync_dir(&default);
     if stop(Step::Commit) {
         return Err(stopped(Step::Commit));
     }
@@ -987,25 +1075,48 @@ pub fn move_to(
             // the new place is complete (verified): it stays in use rather than none
             return Err(Error::new(e.code, format!("{} The previous place could not be set back ({}), so {} stays in use.", e.message, b.message, to.display())));
         }
-        return Err(fail(e, &journal));
+        let _ = sync_dir(&default);
+        fail!(e);
     }
 
-    // what names the root, written again for the new one
+    // what names the root, written again for the new one; what the move writes is recorded where it writes it
     progress.report(Some(0.95), "writing the games' profiles for the new place");
-    let mut activated = Vec::new();
+    let mut after: BTreeMap<String, String> = BTreeMap::new();
+    let mut note = |rel: String| {
+        if c.files.contains_key(&rel)
+            && let Some(p) = below(&to, &rel)
+            && let Some(sha) = sha256_of(&p)
+        {
+            after.insert(rel, sha);
+        }
+    };
     for g in crate::game::known(&new_dirs).unwrap_or_default() {
         let mut g2 = g.clone();
         g2.path_mode = crate::game::path_mode_for(g.platform, g.steam_flavor, g.prefix.as_deref(), &to);
         let receipt = crate::game::record(&new_dirs, &g.id).ok().flatten().and_then(|r| r.receipt);
-        if let Err(e) = crate::game::write_record(&new_dirs, &g2, receipt) {
-            warnings.push(format!("The record of the game at {} could not be written for the new place: {}", g.path.display(), e.message));
+        match crate::game::write_record(&new_dirs, &g2, receipt) {
+            Ok(_) => note(format!("installs/{}.json", g.id)),
+            Err(e) => warnings.push(format!("The record of the game at {} could not be written for the new place: {}", g.path.display(), e.message)),
         }
-        let Ok(Some(file)) = crate::profile::read_game_profile(&g.path) else { continue };
-        if !crate::profile::file_is_here(&new_dirs, &g2, &file) {
-            continue;
-        }
-        match crate::profile::activate(&new_dirs, &file.id, &g2) {
-            Ok(_) => activated.push(g.id.clone()),
+    }
+    let mut activated = Vec::new();
+    let known_now = crate::game::known(&new_dirs).unwrap_or_default();
+    for (g, pid) in &reactivate {
+        let g2 = known_now.iter().find(|k| k.id == g.id).cloned().unwrap_or_else(|| {
+            let mut g2 = g.clone();
+            g2.path_mode = crate::game::path_mode_for(g.platform, g.steam_flavor, g.prefix.as_deref(), &to);
+            g2
+        });
+        match crate::profile::activate(&new_dirs, pid, &g2) {
+            Ok(_) => {
+                activated.push(g.id.clone());
+                note(format!("installs/{}.active.json", g.id));
+                let mut cfg = Vec::new();
+                walk_files(&new_dirs.profile(pid).join("config"), &format!("profiles/{pid}/config"), &mut cfg);
+                for rel in cfg {
+                    note(rel);
+                }
+            }
             Err(e) => warnings.push(format!(
                 "The profile of the game at {} could not be written for the new place ({}): activate it again before you play.",
                 g.path.display(),
@@ -1013,6 +1124,8 @@ pub fn move_to(
             )),
         }
     }
+    journal.rewritten_after = after.into_iter().filter(|(rel, sha)| c.files.get(rel).is_some_and(|f| f.line.sha256 != *sha))
+        .map(|(path, sha256)| Rewrite { path, sha256 }).collect();
     for s in df::known_servers(&new_dirs) {
         let Some(dir) = s.dir else { continue };
         let f = dir.join(crate::modpack::BUILD_RECORD);
@@ -1023,22 +1136,23 @@ pub fn move_to(
             warnings.push(format!("{} still names the old place: {}", f.display(), e.message));
         }
     }
-    // what the move itself wrote again after the commit, with what it wrote (the old copies' removal needs it)
-    for f in c.files.values() {
-        if let Some(p) = below(&to, &f.line.path)
-            && let Some(now) = sha256_of(&p)
-            && now != f.line.sha256
-        {
-            journal.rewritten_after.push(Rewrite { path: f.line.path.clone(), sha256: now });
-        }
-    }
+    journal.state = "moved".into();
+    let _ = write_journal(&default, &journal);
     if stop(Step::Activate) {
         return Err(stopped(Step::Activate));
     }
-    journal.state = "moved".into();
-    let _ = write_journal(&default, &journal);
+
+    // last, while nothing else has written yet: the old copy (the same rule and code as at a next start)
+    let cleanup = match remove_old_copy(env, progress) {
+        Ok(c) => c,
+        Err(e) => Cleanup::refused(&from, format!("The old copy was not removed ({}): it is at {}.", e.message, from.display())),
+    };
     progress.report(Some(1.0), &format!("moved to {}", to.display()));
     let linked = c.files.values().filter(|f| f.line.linked).count() as u64;
+    let mut stayed: Vec<Stayed> = inv.unknown.iter().filter(|e| !kept_by_target(&e.name))
+        .map(|e| Stayed { name: e.name.clone(), bytes: e.bytes, path: from.join(&e.name) }).collect();
+    stayed.extend(skipped.iter().filter(|e| from.join(&e.name).exists()).map(|e| Stayed { name: e.name.clone(), bytes: e.bytes, path: from.join(&e.name) }));
+    drop(tlock);
     Ok(MoveResult {
         id: journal.id.clone(),
         from: from.clone(),
@@ -1048,21 +1162,101 @@ pub fn move_to(
         linked,
         copied: c.files.len() as u64 - linked,
         warnings,
-        stayed: inv.unknown.iter().map(|e| Stayed { name: e.name.clone(), bytes: e.bytes, path: from.join(&e.name) }).collect(),
+        stayed,
         activated,
+        cleanup: Some(cleanup),
     })
 }
 
-/// Ends a move that failed before (or at) its commit: the partial copy removed by the proof of its marker, then the
-/// journal and the file record. The error says where anything that could not be removed is.
-fn abort(default: &Path, journal: &Journal, e: Error) -> Error {
-    let c = remove_partial(default, journal);
+/// Every regular file below `dir`, as `<rel>/<name>` paths (for the files the move rewrote).
+fn walk_files(dir: &Path, rel: &str, out: &mut Vec<String>) {
+    for e in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+        let name = e.file_name().to_string_lossy().into_owned();
+        let r = format!("{rel}/{name}");
+        match std::fs::symlink_metadata(e.path()) {
+            Ok(m) if m.is_dir() => walk_files(&e.path(), &r, out),
+            Ok(m) if m.is_file() => out.push(r),
+            _ => {}
+        }
+    }
+}
+
+/// Unix: a folder's entries flushed to the disk. Windows cannot flush a folder: Ok without doing anything (its files
+/// are flushed one by one as they are written). A file system that cannot flush folders (`EINVAL`) is not an error.
+fn sync_dir(dir: &Path) -> Result<()> {
+    #[cfg(unix)]
+    {
+        match std::fs::File::open(dir).and_then(|f| f.sync_all()) {
+            Ok(()) => Ok(()),
+            Err(e) if e.raw_os_error() == Some(libc::EINVAL) || e.kind() == std::io::ErrorKind::Unsupported => Ok(()),
+            Err(e) => Err(io_at(dir, "flushing")(e)),
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = dir;
+        Ok(())
+    }
+}
+
+/// Ends a move that failed before (or at) its commit. In the same process (`made`) exactly what the move made goes:
+/// its files, then its folders when empty, the markers, the target's lock file and the target when the move made them.
+/// Without it (a new process after a crash) by [`remove_partial`]'s rule. Then the journal and the file record. The
+/// error says where anything that could not be removed is.
+fn abort(default: &Path, journal: &Journal, e: Error, made: Option<&Copier>) -> Error {
+    let c = match made {
+        Some(m) => remove_made(default, journal, m),
+        None => remove_partial(default, journal),
+    };
     if c.reason.is_none() && c.kept.is_empty() {
         e
     } else {
         let left = c.reason.clone().unwrap_or_else(|| format!("{} files were left in {}", c.kept.len(), journal.to.display()));
         Error::new(e.code, format!("{} The partial copy could not be removed: {left}.", e.message)).with_detail(serde_json::to_value(&c).unwrap_or_default())
     }
+}
+
+/// What this process's move made in the target, removed: its files, its folders (deepest first, only when empty), the
+/// markers, the lock file and the target itself when the move made them, the folders above it it made. Anything else in
+/// the target stays. Then the journal and the file record.
+fn remove_made(default: &Path, journal: &Journal, made: &Copier) -> Cleanup {
+    let to = &journal.to;
+    let mut c = Cleanup { folder: to.clone(), done: false, interrupted: false, removed_files: 0, removed_bytes: 0, folder_removed: false, kept: vec![], reason: None };
+    for (rel, f) in &made.files {
+        let Some(p) = below(to, rel) else { continue };
+        match std::fs::remove_file(&p) {
+            Ok(()) => {
+                c.removed_files += 1;
+                c.removed_bytes += f.line.size;
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => c.kept.push(Kept { path: p, bytes: f.line.size, reason: format!("it could not be removed: {e}") }),
+        }
+    }
+    for d in made.made_dirs.iter().rev() {
+        if let Some(p) = below(to, d) {
+            let _ = std::fs::remove_dir(p);
+        }
+    }
+    let _ = remove_if_there(&to.join(MARKER));
+    let _ = remove_if_there(&to.join(MOVE_MARKER));
+    if journal.created_lock {
+        let _ = remove_if_there(&to.join(df::LOCK));
+    }
+    if journal.created_target {
+        c.folder_removed = std::fs::remove_dir(to).is_ok();
+    }
+    for p in journal.created_parents.iter().rev() {
+        let _ = std::fs::remove_dir(p);
+    }
+    if c.kept.is_empty() {
+        let _ = remove_if_there(&record_path(default));
+        let _ = remove_if_there(&journal_path(default));
+        c.done = true;
+    } else {
+        c.reason = Some(format!("Parts of the partial copy in {} could not be removed.", to.display()));
+    }
+    c
 }
 
 // ------------------------------------------------------------------------------------------------ use, reset
@@ -1113,6 +1307,73 @@ pub fn reset(env: &DataEnv) -> Result<Located> {
     }
 }
 
+/// Points the launcher at a Kiln data folder the player picks after a broken pointer (there is no folder in use, so
+/// [`use_folder`] cannot run). Refused unless the pointer is broken ([`DataEnv::locate_checked`] fails with a pointer
+/// problem: never with `KILN_DATA_DIR` set, never when the default root cannot be told). `picked` must be a Kiln data
+/// folder ([`crate::data_folder::recognize`]: not a move in progress, not empty; no `Kiln` subfolder: the player points
+/// at their data) whose path is a full path without `..` and not a network path (`\\?\` taken off), not a link, not a
+/// file, not inside a game folder (a folder above it holds the game's exe) and not inside Kiln's state or settings
+/// folder; the default root must be writable (`facts`). The pointer is written atomically (removed when `picked` is the
+/// default root) and the data root located again; if that does not give `picked`, the previous pointer file is put back
+/// byte for byte. Nothing else is made in the default root (no lock file, no journal); nothing is copied or removed.
+pub fn repoint(env: &DataEnv, picked: &Path, facts: &dyn SystemFacts) -> Result<Located> {
+    use crate::data_folder::{FolderState as S, RefusalCode as C};
+    match env.locate_checked() {
+        Ok(_) => return Err(Error::new(ErrorCode::Refused, "The data folder's pointer works: pick another folder through a move or \"use this one\".")),
+        Err(p) if p.kind == crate::paths::ProblemKind::NoDefault || p.pointer.is_none() => return Err(p.into_error()),
+        Err(_) => {}
+    }
+    let default = default_root(env)?;
+    let style = PathStyle::of(env);
+    df::check_form(&picked.to_string_lossy(), style).map_err(df::Refusal::into_error)?;
+    let picked = crate::util::clean(&crate::steam::strip_verbatim(picked.to_path_buf()));
+    let shown = picked.display().to_string();
+    match df::recognize(&picked, env) {
+        Ok(S::Kiln { .. }) => {}
+        Ok(S::Link) => return Err(refuse(C::Link, format!("{shown} is a link to another folder: pick the folder itself."))),
+        Ok(S::NotAFolder) => return Err(refuse(C::NotAFolder, format!("{shown} is a file, not a folder."))),
+        Ok(S::Moving { .. }) => return Err(refuse(C::MoveInProgress, format!("{shown} holds a move of a data folder that has not been finished."))),
+        Ok(_) => return Err(refuse(C::NotAKilnFolder, format!("{shown} is not a Kiln data folder: pick the folder that holds your library and profiles."))),
+        Err(e) => return Err(refuse(C::Unreadable, format!("Kiln cannot read {shown}: {}.", e.message))),
+    }
+    let canon = df::canonical(&picked);
+    for a in canon.ancestors().filter(|a| !a.as_os_str().is_empty()) {
+        if a.join(crate::game::CLIENT_EXE).is_file() || a.join(crate::game::SERVER_EXE).is_file() {
+            return Err(refuse(C::InsideGame, format!("{shown} is inside the game folder {}: pick a folder outside it.", a.display())));
+        }
+    }
+    let p = PathParts::of(&canon, style);
+    for d in [env.state_dir(), env.config_dir()] {
+        let dc = df::canonical(&d);
+        if p.within(&PathParts::of(&dc, style)) {
+            return Err(refuse(C::InsideKilnState, format!("{shown} is inside {}, where Kiln keeps its own state and settings.", dc.display())));
+        }
+    }
+    if !facts.writable(&default) {
+        return Err(refuse(C::NotWritable, format!("Kiln cannot write to {}.", default.display())));
+    }
+    let pointer = default.join(df::POINTER);
+    let before = std::fs::read(&pointer).ok();
+    if same_folder(&picked, &default) {
+        df::remove_pointer(&default)?;
+    } else {
+        df::write_pointer(&default, &picked)?;
+    }
+    match env.locate() {
+        Ok(l) if same_folder(&l.dirs.root, &picked) => Ok(l),
+        other => {
+            let _ = match &before {
+                Some(b) => crate::util::write_atomic(&pointer, b),
+                None => df::remove_pointer(&default),
+            };
+            Err(match other {
+                Err(e) => e,
+                Ok(l) => Error::new(ErrorCode::DataFolder, format!("After the switch the launcher finds {}, not {}.", l.dirs.root.display(), picked.display())),
+            })
+        }
+    }
+}
+
 // ------------------------------------------------------------------------------------------------ recovery
 
 /// Where a move stands, from what is on disk: the journal against the folder in use.
@@ -1145,12 +1406,17 @@ fn save_result(default: &Path, journal: &mut Journal, c: &Cleanup, state: &str) 
 }
 
 /// Removes the old copy of a committed move, file by file, by the file record: an old file goes only when its sha256
-/// is the record's (for a rewritten file, the old one's) and the file in the new place has the record's sha256 too.
-/// Then the folders that are empty, the known lock files and the old marker, and the old root itself when it is
-/// empty and is not the default root. Entries the launcher does not know are never removed. A cancel (between two
-/// files) stops it; the next call goes on. Without proof (no committed move, the folder in use is not `to`, the
-/// marker's id or the record's differs, no record) nothing is removed and the result says where the old folder is.
-/// The result is kept in the journal until [`acknowledge`].
+/// is the record's (for a rewritten file, the old one's) and the file in the new place has the record's sha256, or the
+/// one the move itself wrote there after the commit ([`Journal::rewritten_after`]). Then the hash cache
+/// (`state/file-hashes.json`, by its exact name, not in a `state` the old root keeps for itself), the lock files
+/// (`quick.lock`, `data-folder.lock`, `nexus/*.lock`), the old markers, the folders that are empty, and the old root
+/// itself when it is empty and is not the default root. Entries the launcher does not know, and entries the target
+/// kept for itself ([`Journal::skipped`]), are never removed. A cancel (between two files) stops it; the next call goes
+/// on, and a call when nothing is left removes what a running move could not (its own lock files, the empty old
+/// root). Without proof (no committed move, the folder in use is not `to`, the marker's id or the record's differs, no
+/// record, a known game still running a profile from the old folder) nothing is removed and the result says where the
+/// old folder is. The move itself runs this as its last phase ([`MoveResult::cleanup`]). The result is kept in the
+/// journal until [`acknowledge`].
 pub fn remove_old_copy(env: &DataEnv, progress: &mut dyn Progress) -> Result<Cleanup> {
     let default = default_root(env)?;
     let mut journal = match pending(env)? {
@@ -1197,7 +1463,9 @@ pub fn remove_old_copy(env: &DataEnv, progress: &mut dyn Progress) -> Result<Cle
         reason: None,
     });
     c.interrupted = false;
-    c.kept.retain(|k| unknown.iter().any(|u| k.path == from.join(u)) && k.path.exists());
+    // a call again (the next start) works the record out anew; only what never goes is carried over
+    let stays: Vec<PathBuf> = unknown.iter().map(|u| from.join(u)).chain(journal.skipped.iter().map(|s| from.join(s))).collect();
+    c.kept.retain(|k| stays.contains(&k.path) && k.path.exists());
     let n = record.files.len().max(1);
     for (i, f) in record.files.iter().enumerate() {
         if progress.canceled() {
@@ -1229,32 +1497,59 @@ pub fn remove_old_copy(env: &DataEnv, progress: &mut dyn Progress) -> Result<Cle
         } else if !new_ok {
             keep("its copy in the new place changed or is gone, so this one stays", &mut c);
         } else {
-            remove_if_there(&old)?;
-            c.removed_files += 1;
-            c.removed_bytes += om.len();
+            match remove_if_there(&old) {
+                Ok(()) => {
+                    c.removed_files += 1;
+                    c.removed_bytes += om.len();
+                }
+                Err(e) => keep(&format!("it could not be removed: {}", e.message), &mut c),
+            }
         }
         if i % 64 == 0 {
             progress.report(Some(i as f32 / n as f32), &format!("removing the old copy: {}", f.path));
         }
     }
-    // what is left of the launcher's own entries: empty folders, lock files, the old markers
+    // what is left of the launcher's own entries: the hash cache (by its exact name, never in a `state` the old root
+    // keeps for itself), lock files (`quick.lock`, `data-folder.lock`, `nexus/*.lock`), the old markers, then empty folders
+    let st = PathStyle::of(env);
+    let is = |a: &str, b: &str| st.same_name(a, b);
+    let file = |p: &Path| std::fs::symlink_metadata(p).is_ok_and(|m| m.is_file());
+    let old_own = df::own_entries(&from, env);
+    if !old_own.iter().any(|o| is(o, df::HASH_CACHE[0])) {
+        let cache = from.join(df::HASH_CACHE[0]).join(df::HASH_CACHE[1]);
+        if file(&cache) {
+            let _ = std::fs::remove_file(&cache);
+        }
+    }
     for e in journal.entries.iter().filter(|e| e.known) {
         let p = from.join(&e.name);
-        remove_empty_dirs(&p);
-        if e.name == "nexus" {
+        if is(&e.name, "nexus") {
             for l in std::fs::read_dir(&p).into_iter().flatten().flatten() {
-                if l.file_name().to_string_lossy().to_lowercase().ends_with(".lock") && l.path().is_file() {
+                if l.file_name().to_string_lossy().to_lowercase().ends_with(".lock") && file(&l.path()) {
                     let _ = std::fs::remove_file(l.path());
                 }
             }
-            remove_empty_dirs(&p);
+        }
+        remove_empty_dirs(&p);
+    }
+    for name in ["quick.lock", df::LOCK, MARKER, MOVE_MARKER] {
+        let p = from.join(name);
+        if file(&p) {
+            let _ = std::fs::remove_file(&p);
         }
     }
-    for f in std::fs::read_dir(&from).into_iter().flatten().flatten() {
-        let name = f.file_name().to_string_lossy().into_owned();
-        let ours = name.to_lowercase().ends_with(".lock") || name == MARKER || name == MOVE_MARKER;
-        if ours && std::fs::symlink_metadata(f.path()).is_ok_and(|m| m.is_file()) {
-            let _ = std::fs::remove_file(f.path());
+    // entries the target kept for itself were not copied: what is left of them stays (an empty folder goes)
+    for name in &journal.skipped {
+        let p = from.join(name);
+        if old_own.iter().any(|o| is(o, name)) {
+            continue;
+        }
+        remove_empty_dirs(&p);
+        if let Ok(m) = std::fs::symlink_metadata(&p)
+            && !c.kept.iter().any(|k| k.path == p)
+        {
+            let bytes = if m.is_dir() { dir_bytes(&p) } else { m.len() };
+            c.kept.push(Kept { path: p, bytes, reason: "the new place keeps a folder of its own by this name, so it was not copied".into() });
         }
     }
     for u in &unknown {
@@ -1339,6 +1634,9 @@ fn remove_partial(default: &Path, journal: &Journal) -> Cleanup {
     }
     let _ = remove_if_there(&to.join(MARKER));
     let _ = remove_if_there(&to.join(MOVE_MARKER));
+    if journal.created_lock {
+        let _ = remove_if_there(&to.join(df::LOCK));
+    }
     if journal.created_target {
         c.folder_removed = std::fs::remove_dir(to).is_ok();
     }

@@ -561,9 +561,6 @@ pub enum Evidence {
     Installs,
     /// `runtime/kiln-runtime-<version>.zip`.
     Runtime,
-    /// The default root holding launcher entries only ([`KNOWN_ENTRIES`] and what a default root keeps after a move): a
-    /// launcher before dev.25 ran there once (`settings.json`, `logs/`). Only the default root is recognised this way.
-    LauncherEntries,
 }
 
 /// What a folder is ([`recognize`]).
@@ -644,8 +641,9 @@ fn evidence(dir: &Path, style: PathStyle) -> Option<Evidence> {
 }
 
 /// The top-level entries of `dir` that are or hold Kiln's state folder or settings folder of `env` (Windows:
-/// `%LOCALAPPDATA%\Kiln\state` is `state` in the default root). They are not launcher data and never move.
-fn own_entries(dir: &Path, env: &DataEnv) -> Vec<String> {
+/// `%LOCALAPPDATA%\Kiln\state` is `state` in the default root). They are not launcher data and never move; a move
+/// never copies into them, replaces or removes them.
+pub fn own_entries(dir: &Path, env: &DataEnv) -> Vec<String> {
     let style = PathStyle::of(env);
     let d = PathParts::of(&canonical(dir), style);
     [env.state_dir(), env.config_dir()]
@@ -661,24 +659,35 @@ fn is_lock_name(name: &str) -> bool {
     name.to_lowercase().ends_with(".lock")
 }
 
-/// What a default root keeps after a move ([`FolderState::Empty`]).
+/// The lock files at the top of a data folder: `quick.lock` and [`LOCK`], by their exact names. Any other `*.lock`
+/// there is an entry the launcher does not know (copied, kept). Inside `nexus/` every `*.lock` is a lock file.
+pub fn is_top_lock(name: &str, style: PathStyle) -> bool {
+    style.same_name(name, "quick.lock") || style.same_name(name, LOCK)
+}
+
+/// The launcher's file-hash cache (`state/file-hashes.json`, keyed by absolute paths): never copied by a move.
+pub const HASH_CACHE: [&str; 2] = ["state", "file-hashes.json"];
+
+fn is_hash_cache(names: &[String], style: PathStyle) -> bool {
+    names.len() == 2 && style.same_name(&names[0], HASH_CACHE[0]) && style.same_name(&names[1], HASH_CACHE[1])
+}
+
+/// What a default root keeps after a move ([`FolderState::Empty`]): the data-folder files, the two lock files, the
+/// entry holding Kiln's state or settings folder. Nothing a move would write into.
 fn is_leftover(dir: &Path, name: &str, own: &[String], style: PathStyle) -> bool {
     let is = |b: &str| style.same_name(name, b);
     if is_own_file(name, style) || own.iter().any(|o| is(o)) {
         return true;
     }
-    let Ok(m) = std::fs::symlink_metadata(dir.join(name)) else { return false };
-    if is_link(&m) {
-        return false;
-    }
-    if m.is_file() {
-        return is_lock_name(name);
-    }
-    m.is_dir() && is("nexus") && {
-        let c = children(&dir.join(name));
-        std::fs::read_dir(dir.join(name)).is_ok_and(|rd| rd.count() == c.len())
-            && c.iter().all(|(n, m)| m.is_file() && is_lock_name(n))
-    }
+    is_top_lock(name, style) && std::fs::symlink_metadata(dir.join(name)).is_ok_and(|m| m.is_file() && !is_link(&m))
+}
+
+/// The entries of `dir` that make it not empty ([`FolderState::Empty`]'s leftovers left out), by name.
+pub fn foreign_entries(dir: &Path, env: &DataEnv) -> Vec<String> {
+    let style = PathStyle::of(env);
+    let is_default = env.default_root().is_ok_and(|d| PathParts::of(&canonical(&d), style).same(&PathParts::of(&canonical(dir), style)));
+    let own = if is_default { own_entries(dir, env) } else { Vec::new() };
+    names_in(dir).unwrap_or_default().into_iter().filter(|n| !is_leftover(dir, n, &own, style)).collect()
 }
 
 fn is_known(name: &str, style: PathStyle) -> bool {
@@ -730,9 +739,6 @@ pub fn recognize(dir: &Path, env: &DataEnv) -> Result<FolderState> {
     if let Some(by) = evidence(dir, style) {
         return Ok(FolderState::Kiln { by });
     }
-    if is_default && rest.iter().all(|n| is_known(n, style)) {
-        return Ok(FolderState::Kiln { by: Evidence::LauncherEntries });
-    }
     let entry = rest.iter().find(|n| !is_known(n, style)).or(rest.first()).map(|n| n.to_string()).unwrap_or_default();
     Ok(FolderState::Other { entry })
 }
@@ -770,8 +776,11 @@ pub struct Inventory {
     /// (and their `.tmp`), the markers [`MARKER`] and [`MOVE_MARKER`], and the entry that holds Kiln's state or settings
     /// folder (Windows: `state\` in the default root). Not in the totals.
     pub stays: Vec<EntrySize>,
-    /// Lock files (`*.lock` at the top, `nexus/*.lock`): not data, not in the totals.
+    /// Lock files (`quick.lock` and [`LOCK`] at the top, `nexus/*.lock`): not data, not in the totals.
     pub locks: Vec<String>,
+    /// Caches a move does not copy (`state/file-hashes.json`): not in the totals.
+    #[serde(default)]
+    pub caches: Vec<String>,
     /// Links and junctions found inside (relative paths): reported, never followed, not in the totals.
     pub links: Vec<String>,
     /// Entries that are neither a file, a folder nor a link (sockets, pipes, devices): reported, not in the totals.
@@ -805,6 +814,7 @@ struct Walk {
     longest: Option<LongestPath>,
     longest_game: Option<LongestPath>,
     in_place: (u64, u64),
+    caches: Vec<String>,
 }
 
 fn longer(slot: &mut Option<LongestPath>, rel: &str) {
@@ -839,6 +849,10 @@ fn walk(path: &Path, names: &mut Vec<String>, style: PathStyle, w: &mut Walk) ->
         // nexus/*.lock: the catalog's state locks and instance.lock
         if names.len() == 2 && style.same_name(&names[0], "nexus") && is_lock_name(&names[1]) {
             w.locks.push(rel);
+            return Ok((0, 0));
+        }
+        if is_hash_cache(names, style) {
+            w.caches.push(rel);
             return Ok((0, 0));
         }
         note(w);
@@ -882,7 +896,7 @@ pub fn inventory(root: &Path, env: &DataEnv) -> Result<Inventory> {
         let em = std::fs::symlink_metadata(&path).map_err(io_at(&path, "inspecting"))?;
         let is = |b: &str| style.same_name(&name, b);
         let stay = is_own_file(&name, style) || own.iter().any(|o| is(o));
-        if !stay && em.is_file() && !is_link(&em) && is_lock_name(&name) {
+        if !stay && em.is_file() && !is_link(&em) && is_top_lock(&name, style) {
             w.locks.push(name);
             continue;
         }
@@ -905,6 +919,7 @@ pub fn inventory(root: &Path, env: &DataEnv) -> Result<Inventory> {
         unknown,
         stays,
         locks: w.locks,
+        caches: w.caches,
         links: w.links,
         special: w.special,
         bytes,
@@ -1292,6 +1307,8 @@ pub enum RefusalCode {
     Busy,
     /// "Use this one" on a folder that is not a Kiln data folder.
     NotAKilnFolder,
+    /// The target already holds an entry of the name a move would make there.
+    TargetHasEntry,
 }
 
 impl RefusalCode {
@@ -1323,6 +1340,7 @@ impl RefusalCode {
             RefusalCode::LinkInside => "link_inside",
             RefusalCode::Busy => "busy",
             RefusalCode::NotAKilnFolder => "not_a_kiln_folder",
+            RefusalCode::TargetHasEntry => "target_has_entry",
         }
     }
 }
@@ -1413,8 +1431,8 @@ pub enum Target {
 /// Kiln data folder is offered as it is ("use this one", no merge); any other folder, and a volume root (`D:\`, `/`, a
 /// mount point) unless it is a Kiln data folder, gets the subfolder `Kiln` (Windows) or `kiln`, which must itself be
 /// missing, empty or a Kiln data folder. So a drive root never becomes a data folder. The default root
-/// (`default_root`) never gets the subfolder: empty, it is the target; a Kiln data folder (also one with launcher
-/// entries only, [`Evidence::LauncherEntries`]), it is used; anything else is refused. A folder with a move in progress
+/// (`default_root`) never gets the subfolder: empty, it is the target; a Kiln data folder by its marker or layout, it is
+/// used; anything else (also launcher entries only, as a launcher before dev.25 leaves) is refused. A folder with a move in progress
 /// is refused. `sub` recognizes the subfolder.
 pub fn target_rule(
     picked: &Path, state: &FolderState, volume_root: bool, default_root: bool, style: PathStyle,
@@ -1568,19 +1586,40 @@ pub fn check(input: &CheckInput, facts: &dyn SystemFacts) -> std::result::Result
         Err(e) => return Err(say(C::Unreadable, format!("Kiln cannot read {}: {}.", picked.join(style.subfolder()).display(), e.message))),
         Ok(Target::Move(t)) => (canonical(&t), Action::Move),
         Ok(Target::Use(t)) => (canonical(&t), Action::Use),
-        Ok(Target::Refused(code, at)) => {
-            let at = at.display();
+        Ok(Target::Refused(code, at_path)) => {
+            let at = at_path.display();
             return Err(say(code, match code {
                 C::Link => format!("{at} is a link to another folder: pick the folder itself."),
                 C::NotAFolder => format!("{at} is a file, not a folder."),
                 C::MoveInProgress => format!("{at} holds a move of a data folder that has not been finished: finish that one first."),
-                C::DefaultRootTaken => format!("{at}, the launcher's own place, holds files that are not the launcher's: move them out of it first."),
+                C::DefaultRootTaken => format!(
+                    "{at}, the launcher's own place, still holds {}: remove them first, then move the data folder there.",
+                    foreign_entries(&at_path, input.env).join(", ")
+                ),
                 _ => format!("{at} already exists and holds files that are not a Kiln data folder: pick another folder, or empty that one."),
             }));
         }
     };
     if let Some(r) = place_refusal(&target, &current, true, input, style) {
         return Err(r);
+    }
+    // what the target keeps for itself (Windows: the default root's `state\`) is not copied: it stays in the old folder
+    let target_own = if action == Action::Move { own_entries(&target, input.env) } else { Vec::new() };
+    let skipped: Vec<&EntrySize> = input.inventory.known.iter().chain(&input.inventory.unknown)
+        .filter(|e| target_own.iter().any(|o| style.same_name(o, &e.name))).collect();
+    if action == Action::Move {
+        // a move never writes into what it did not make: an entry of the same name already there refuses it (the
+        // target's own state or settings folder is left out: the move does not copy into it)
+        let own = &target_own;
+        for e in input.inventory.known.iter().chain(&input.inventory.unknown) {
+            if !own.iter().any(|o| style.same_name(o, &e.name)) && std::fs::symlink_metadata(target.join(&e.name)).is_ok() {
+                return Err(say(C::TargetHasEntry, format!(
+                    "{} already holds {}: a move never writes into what is already there, so remove it or pick another folder.",
+                    target.display(),
+                    e.name
+                )));
+            }
+        }
     }
     if action == Action::Move
         && let Some(first) = input.inventory.links.first().or(input.inventory.special.first())
@@ -1609,8 +1648,8 @@ pub fn check(input: &CheckInput, facts: &dyn SystemFacts) -> std::result::Result
     let space = facts.space(&dir);
     let (mut bytes, mut files, mut needed, mut same_volume, mut hard_links) = (0, 0, 0, None, false);
     if action == Action::Move {
-        bytes = input.inventory.bytes;
-        files = input.inventory.files;
+        bytes = input.inventory.bytes - skipped.iter().map(|e| e.bytes).sum::<u64>();
+        files = input.inventory.files - skipped.iter().map(|e| e.files).sum::<u64>();
         same_volume = facts.same_volume(&current, &dir);
         hard_links = same_volume == Some(true) && facts.hard_links(&current, &dir);
         let unit = space.map_or(4096, |s| s.unit);
@@ -1656,7 +1695,7 @@ pub fn check(input: &CheckInput, facts: &dyn SystemFacts) -> std::result::Result
         same_volume,
         hard_links,
         unknown: if action == Action::Move { input.inventory.unknown.clone() } else { Vec::new() },
-        stays: input.inventory.stays.iter().map(|e| e.name.clone()).collect(),
+        stays: input.inventory.stays.iter().chain(skipped.iter().copied()).map(|e| e.name.clone()).collect(),
         links: input.inventory.links.clone(),
         special: input.inventory.special.clone(),
         private_files,

@@ -98,13 +98,17 @@ fn recognizes_missing_files_links_and_empty_folders() {
     symlink(&d, s.0.join("link")).unwrap();
     assert_eq!(r(&s.0.join("link")), FolderState::Link);
     // what a default root keeps after a move counts as empty
-    for f in [df::POINTER, df::JOURNAL, &format!("{}.tmp", df::POINTER), &format!("{}.tmp", df::JOURNAL), "quick.lock", df::LOCK, "nexus/instance.lock", "nexus/handler.lock"] {
+    for f in [df::POINTER, df::JOURNAL, &format!("{}.tmp", df::POINTER), &format!("{}.tmp", df::JOURNAL), "quick.lock", df::LOCK] {
         put(&d, f, b"");
     }
     assert_eq!(r(&d), FolderState::Empty);
-    put(&d, "nexus/inbox/link.json", b"{}");
-    assert_eq!(r(&d), FolderState::Other { entry: "nexus".into() }, "a nexus folder with more than locks");
-    std::fs::remove_dir_all(d.join("nexus/inbox")).unwrap();
+    // only the two lock files by their names: another `*.lock` is the player's, a `nexus/` is an entry a move would write
+    put(&d, "notes.lock", b"");
+    assert_eq!(r(&d), FolderState::Other { entry: "notes.lock".into() });
+    std::fs::remove_file(d.join("notes.lock")).unwrap();
+    put(&d, "nexus/instance.lock", b"");
+    assert_eq!(r(&d), FolderState::Other { entry: "nexus".into() });
+    std::fs::remove_dir_all(d.join("nexus")).unwrap();
     // the state folder is a leftover only in the default root (Windows: the_windows_default_root_keeps_its_state)
     put(&d, "state/a.run.log", b"");
     assert_eq!(r(&d), FolderState::Other { entry: "state".into() });
@@ -165,6 +169,7 @@ fn the_windows_default_root_keeps_its_state() {
     put(&root, "state/nexus-oauth.lock", b"");
     put(&root, df::POINTER, b"{}");
     assert_eq!(df::recognize(&root, &env).unwrap(), FolderState::Empty, "pointer and state folder: the default root after a move");
+    assert_eq!(df::own_entries(&root, &env), ["state"], "a move never copies into it, replaces or removes it");
     let other = s.0.join("elsewhere");
     put(&other, "state/server.run.log", b"console");
     assert_eq!(df::recognize(&other, &env).unwrap(), FolderState::Other { entry: "state".into() });
@@ -419,6 +424,7 @@ fn windows_forms_through_the_whole_check() {
         unknown: vec![],
         stays: vec![],
         locks: vec![],
+        caches: vec![],
         links: vec![],
         special: vec![],
         bytes: 10,
@@ -497,7 +503,7 @@ fn moving_back_to_the_default_root() {
     let env = env_at(&s.0);
     let default = env.default_root().unwrap();
     // what the default root keeps after a finished (acknowledged) move: the pointer, lock files
-    for f in [df::POINTER, "quick.lock", "nexus/instance.lock"] {
+    for f in [df::POINTER, "quick.lock", df::LOCK] {
         put(&default, f, b"");
     }
     let current = s.0.join("elsewhere/kiln");
@@ -511,6 +517,13 @@ fn moving_back_to_the_default_root() {
     // a move that is not finished yet: its journal is there
     put(&default, df::JOURNAL, b"{}");
     assert_eq!(code(df::check(&i, &Facts::all_clear())), RefusalCode::MovePending);
+    std::fs::remove_file(default.join(df::JOURNAL)).unwrap();
+    // the default root with launcher entries only (a launcher before dev.25 ran there) is refused, naming them
+    put(&default, "settings.json", b"{}\n");
+    put(&default, "logs/launcher.log", b"a line\n");
+    let r = df::check(&i, &Facts::all_clear()).unwrap_err();
+    assert_eq!(r.code, RefusalCode::DefaultRootTaken);
+    assert!(r.reason.contains("logs") && r.reason.contains("settings.json") && r.reason.contains("remove them first"), "{}", r.reason);
     assert_eq!(names(&plan.unknown), ["Unknown Thing"]);
     assert_eq!((plan.bytes, plan.files), (3, 2), "the unknown entry counts in the space, the lock does not");
 }
