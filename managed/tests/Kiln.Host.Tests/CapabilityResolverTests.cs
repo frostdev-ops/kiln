@@ -57,8 +57,25 @@ public sealed class CapabilityResolverTests
     [Fact]
     public void A_name_nobody_registered_is_refused_as_unknown()
     {
-        Assert.Equal("needs feature no.such, unavailable: no capability of this name is registered [unknown]",
-            Why(Resolver.Resolve([Mod("odd", "no.such")], Env(Lookup)), "odd"));
+        Assert.Equal("needs feature unknown, unavailable: no capability of this name is registered [unknown]",
+            Why(Resolver.Resolve([Mod("odd", "unknown")], Env(Lookup)), "odd"));
+        Assert.Equal("needs feature kiln.missing, unavailable: no capability of this name is registered [unknown]",
+            Why(Resolver.Resolve([Mod("odd", "kiln.missing")], Env(Lookup)), "odd"));
+    }
+
+    [Theory]
+    [InlineData("items.result_peek")]
+    [InlineData("anim.player_moves")]
+    [InlineData("no.such")]
+    public void An_unknown_service_row_explains_registration_order_and_the_runtime_check(string name)
+    {
+        var r = Resolver.Resolve([Mod("late", name)], Env(Lookup));
+        Assert.Empty(r.Order);
+        var reason = Why(r, "late");
+        Assert.Contains("[unknown]", reason);
+        Assert.Contains("service registers", reason);
+        Assert.Contains("only after manifests are checked", reason);
+        Assert.Contains($"Check Capabilities.Is(\"{name}\") at run time instead", reason);
     }
 
     [Fact]

@@ -174,7 +174,12 @@ internal static class Resolver
         {
             var row = capability(f);
             string? problem = null;
-            if (row.State == CapabilityState.Unavailable)
+            if (row.Reason == CapabilityReason.Unknown && !f.StartsWith("kiln.", StringComparison.Ordinal) &&
+                f.IndexOf('.') is var dot && dot > 0 && dot < f.Length - 1)
+                problem = $"needs feature {f}, unavailable: no capability of this name is registered [unknown]; " +
+                          "for a managed <service>.<thing> row, the service registers it only after manifests are checked. " +
+                          $"Check Capabilities.Is(\"{f}\") at run time instead";
+            else if (row.State == CapabilityState.Unavailable)
                 problem = row.ReasonText is { Length: > 0 } text
                     ? $"needs feature {f}, unavailable: {text} [{Kiln.Capabilities.CodeName(row.Reason)}]"
                     : $"needs feature {f}, unavailable [{Kiln.Capabilities.CodeName(row.Reason)}]";
