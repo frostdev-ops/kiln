@@ -2344,6 +2344,47 @@ fn a_cut_off_server_record_stays() {
     assert!(c.cut_off.is_empty(), "{c:?}");
 }
 
+/// A failed checkpoint must not spend an unrecorded cut-off-file allowance.
+#[test]
+fn recovery_keeps_a_cut_off_file_when_its_checkpoint_cannot_be_written() {
+    let (fx, _, to) = crashed_inside_a_file("cut-off-checkpoint-fails");
+    let cut = to.join("backups/big.bin");
+    let before = std::fs::read(&cut).unwrap();
+    let blocked = fx.env.default_root().unwrap().join(format!("{}.tmp", df::JOURNAL));
+    std::fs::create_dir(&blocked).unwrap();
+    let c = dfm::remove_partial_copy(&fx.env).unwrap();
+    std::fs::remove_dir(&blocked).unwrap();
+    assert!(cut.is_file(), "recovery removed a cut-off file without recording its allowance: {c:?}");
+    assert_eq!(std::fs::read(&cut).unwrap(), before);
+    assert!(c.kept.iter().any(|k| k.path == cut && k.reason.contains("record")), "{c:?}");
+    assert!(dfm::read_journal(&fx.env).unwrap().unwrap().result.is_none(), "the failed write left the earlier journal intact");
+    let c = dfm::remove_partial_copy(&fx.env).unwrap();
+    assert!(c.done && c.cut_off == [cut], "{c:?}");
+}
+
+/// A refusal before listing the files must not erase a previous recovery's spent allowance.
+#[test]
+#[cfg(unix)]
+fn recovery_keeps_the_cut_off_checkpoint_when_the_target_cannot_be_listed() {
+    let (fx, _, to) = crashed_inside_a_file("cut-off-checkpoint-unreadable");
+    put(&to, "backups/zz-foreign.bin", b"not copied");
+    let c = dfm::remove_partial_copy(&fx.env).unwrap();
+    assert_eq!(c.cut_off, [to.join("backups/big.bin")]);
+    assert!(!c.done);
+    std::fs::set_permissions(&to, std::fs::Permissions::from_mode(0o111)).unwrap();
+    let refused = dfm::remove_partial_copy(&fx.env);
+    std::fs::set_permissions(&to, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let refused = refused.unwrap();
+    assert_eq!(refused.cut_off, c.cut_off, "a refusal forgot the cut-off file already removed");
+    let journal = dfm::read_journal(&fx.env).unwrap().unwrap();
+    assert_eq!(journal.result.unwrap().cut_off, c.cut_off);
+    let original = std::fs::read(fx.dirs.root.join("backups/big.bin")).unwrap();
+    put(&fx.dirs.root, "backups/second.bin", &original);
+    put(&to, "backups/second.bin", &original[..1000]);
+    let c = dfm::remove_partial_copy(&fx.env).unwrap();
+    assert!(to.join("backups/second.bin").is_file(), "a second cut-off file was removed: {c:?}");
+}
+
 /// Recovery visits the journal's entries smallest first: a cancel after the files of every smaller entry leaves the
 /// largest entry whole and nothing of the smaller ones (the small files a launcher running on the old folder rewrites
 /// are gone before a player cancels in the large ones).

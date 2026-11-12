@@ -2217,7 +2217,13 @@ impl Recovery<'_> {
                     // remembered in the journal before it goes: after a crash right here the next call gets no second one
                     self.cut_off_used = true;
                     self.c.cut_off.push(t.clone());
-                    save_result(self.default, &mut self.journal, &self.c, "failed");
+                    self.journal.result = Some(self.c.clone());
+                    self.journal.state = "failed".into();
+                    if let Err(e) = write_journal(self.default, &self.journal).and_then(|_| sync_dir(self.default)) {
+                        self.c.cut_off.pop();
+                        self.keep(t, m.len(), format!("Kiln could not record the cut-off file before removing it: {}", e.message));
+                        return Ok(());
+                    }
                     if let Err(e) = self.remove(&t, m.len()) {
                         self.c.cut_off.pop();
                         self.keep(t, m.len(), format!("it could not be removed: {e}"));
@@ -2337,7 +2343,12 @@ fn own_marker_tmp(p: &Path, name: &str, journal: &Journal, style: PathStyle) -> 
 /// cleanly: the folder goes when the move made it and is empty, the records go.
 fn remove_partial(env: &DataEnv, default: &Path, journal: &Journal, progress: &mut dyn Progress) -> Cleanup {
     let to = &journal.to;
-    let mut c = Cleanup { folder: to.clone(), done: false, interrupted: false, removed_files: 0, removed_bytes: 0, folder_removed: false, kept: vec![], reason: None, cut_off: vec![] };
+    let mut c = Cleanup {
+        folder: to.clone(), done: false, interrupted: false, removed_files: 0, removed_bytes: 0,
+        folder_removed: false, kept: vec![], reason: None,
+        // Even an early refusal is saved by the caller: never forget a spent allowance.
+        cut_off: journal.result.as_ref().map(|r| r.cut_off.clone()).unwrap_or_default(),
+    };
     if may_have_committed(journal) {
         c.reason = Some(format!("{} may hold a committed data folder: nothing was removed, and the move's journal stays.", to.display()));
         return c;
@@ -2415,7 +2426,6 @@ fn remove_partial(env: &DataEnv, default: &Path, journal: &Journal, progress: &m
     let mut olds = vec![journal.from.clone(), df::canonical(&journal.from)];
     olds.dedup();
     // the one cut-off file removed by an earlier call of this recovery stays used, and named
-    c.cut_off = journal.result.as_ref().map(|r| r.cut_off.clone()).unwrap_or_default();
     let cut_off_used = !c.cut_off.is_empty();
     let total = journal.entries.iter().map(|e| e.bytes).sum();
     let mut r = Recovery { from: &journal.from, to, default, journal: journal.clone(), cut_off_used, olds, style, total, seen: 0, files: 0, c };
