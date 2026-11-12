@@ -1071,6 +1071,8 @@ export interface RetainedPlacement {
 export interface PlacementCleanup {
   removed: string[];
   retained: RetainedPlacement[];
+  /** Files the mods wrote into removed copies, now in the game's kiln/kept-mod-files: one sentence per mod. Absent: none. */
+  keptFiles?: string[];
 }
 export interface UninstallResult {
   removed: number;

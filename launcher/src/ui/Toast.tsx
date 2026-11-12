@@ -138,6 +138,8 @@ export const toast = {
 /** Retained mod folders are a safety decision, not a clean removal. Keep the paths and recovery steps visible
  * until dismissed (also available in the uninstall task's structured result). */
 export function notifyPlacementCleanup(report: PlacementCleanup | null | undefined) {
+  // what the mods wrote into the copies that went is kept, and the player is told where (the backend's sentences)
+  if (report?.keptFiles?.length) toast.info("Files your mods wrote were kept", report.keptFiles.join(" "), { ms: 0 });
   if (!report?.retained.length) return;
   const detail = report.retained.map((r) => `${r.path}: ${r.reason}`).join("; ");
   toast.info("Some mod folders were kept", `${detail}. These mods may still run through Kiln or another loader. With the game closed, review or move the listed folders to stop them; your settings have not been deleted.`, { ms: 0 });
