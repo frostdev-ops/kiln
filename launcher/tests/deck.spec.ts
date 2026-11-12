@@ -476,9 +476,7 @@ test.describe("notices", () => {
       const { notifyActivation } = await import("/src/shell/notices.ts");
       const a = { gameId: "client-steam", profileId: "ember-run", generation: 9, pathMode: "z", profileJson: "/x", copied: 0, fingerprint: "kms1:00", activated: "2026-11-11T10:00:00Z", retained };
       await notifyActivation(a as never);
-      // the next activation, once the first notice is on screen (and so remembered), says the same: not raised again
-      while (!document.querySelector('[data-deck-dialog="notice"]')) await new Promise((ok) => setTimeout(ok, 20));
-      await new Promise((ok) => setTimeout(ok, 50));
+      // the next activation says the same while that notice is open: no second copy
       await notifyActivation(a as never);
       await notifyActivation({ ...a, retained: [], warnings: ["a second notice"] } as never);
     }, many);
@@ -515,8 +513,9 @@ test.describe("notices", () => {
     await expect(notice).not.toContainText("an old error");
   });
 
-  test("a notice the Deck never showed comes at the next activation", async ({ page }) => {
-    // two notices; the Deck shows one dialog at a time; the launcher closes after the first: the second is not lost
+  test("a notice counts as seen when the player closes its dialog, not when it is displayed", async ({ page }) => {
+    // two notices; the Deck shows one dialog at a time; the player closes the first, the second is displayed, the
+    // launcher closes: the second comes again, the first does not
     await openDeck(page);
     const act = { gameId: "client-steam", profileId: "ember-run", generation: 9, pathMode: "z", profileJson: "/x", copied: 0, fingerprint: "kms1:00",
       activated: "2026-11-11T10:00:00Z", ...KEPT, warnings: ["shroudforge:a: the second notice"] };
@@ -525,14 +524,22 @@ test.describe("notices", () => {
     const notice = page.locator('[data-deck-dialog="notice"]');
     await expect(notice).toContainText("Some mod folders were kept");
     await expect(notice).not.toContainText("the second notice");
-    // the launcher closes with the second one still waiting behind the first
+    await pad(page, "a");
+    await expect(notice).toContainText("the second notice");
+    // the launcher closes with the second one displayed, not closed
     await page.evaluate(async () => { (await import("/src/ui/Toast.tsx")).useToasts.setState({ items: [] }); });
     await expect(notice).toHaveCount(0);
-    // the next activation says both again: the folder was shown, so only the second comes
+    // the next activation says both again: the closed folder notice does not come, the displayed one does
     await notify();
     await expect(notice).toContainText("Notes on your mods");
     await expect(notice).toContainText("the second notice");
     await expect(notice).not.toContainText("mods/XHL-Vein-Mining");
+    // closed with B now: not again
+    await pad(page, "b");
+    await expect(notice).toHaveCount(0);
+    await notify();
+    await page.waitForTimeout(300);
+    await expect(notice).toHaveCount(0);
   });
 
   test("an error's whole text is in the bar, not cut", async ({ page }) => {

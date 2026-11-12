@@ -4,8 +4,11 @@
 // Notices that stay (errors, `ms: 0`): the same one again shows once, as the newest; past eight, the oldest fold into
 // one "N earlier notices" item that keeps all of their text. The newest is scrolled into view. A notice never takes
 // the screen: a long detail shows its first lines and "Show all" (the stack itself is capped too, and scrolls).
+// `close` is the player closing a notice (its close button or one of its buttons; the Deck's notice dialog): its
+// `onClosed` runs then, with those of the notices it took in (the same text pushed again, the ones folded into it).
+// Rendering a notice, or the window going away, never runs it.
 import { X } from "lucide-react";
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { create } from "zustand";
 import { toKilnError, type PlacementCleanup } from "../api/commands";
 
@@ -27,21 +30,27 @@ export interface ToastItem {
   /** The oldest persistent notices beyond MAX_PERSISTENT, folded into this one item, oldest first: its detail holds
    *  every one's title and detail, so nothing a notice said is lost. */
   folded?: ToastItem[];
-  /** Called once when the notice is on screen (the desktop's stack, the Deck's bar or notice dialog): `reportShown`. */
-  onShown?: () => void;
+  /** Runs when the player closes the notice (`close`): shell/notices.ts remembers its sentences as seen then. A notice
+   *  that took in others (the same text again, a fold) runs theirs too. */
+  onClosed?: () => void;
+  /** What the notice says, as keys (shell/notices.ts: game and sentence): `openLines` tells what is open now. */
+  lines?: string[];
 }
 export interface ToastOptions {
   actions?: ToastAction[];
   /** How long it stays (ms; 0: until closed). */
   ms?: number;
-  /** Called once when the notice is really on screen (shell/notices.ts remembers it as seen then, not before). */
-  onShown?: () => void;
+  /** Runs when the player closes it (see ToastItem.onClosed). */
+  onClosed?: () => void;
+  /** Its keys (see ToastItem.lines). */
+  lines?: string[];
 }
 
 interface ToastStore {
   items: ToastItem[];
   push: (t: Omit<ToastItem, "id" | "persistent" | "count" | "folded">, ms?: number) => number;
   dismiss: (id: number) => void;
+  close: (id: number) => void;
 }
 
 /** Persistent notices shown one by one; the older ones fold into one "N earlier notices" item. */
@@ -68,7 +77,7 @@ function Earlier({ items }: { items: ToastItem[] }) {
           {!!i.actions?.length && (
             <span className="k-toast-actions">
               {i.actions.map((a) => (
-                <button key={a.label} type="button" className="k-btn k-btn-s" onClick={() => { useToasts.getState().dismiss(i.id); a.onClick(); }}>{a.label}</button>
+                <button key={a.label} type="button" className="k-btn k-btn-s" onClick={() => { useToasts.getState().close(i.id); a.onClick(); }}>{a.label}</button>
               ))}
             </span>
           )}
@@ -112,7 +121,11 @@ export const useToasts = create<ToastStore>((set, get) => ({
     const repeats: ToastItem[] = [];
     let items = persistent ? without(get().items, (i) => !!i.persistent && !i.folded && same(i, t), repeats) : get().items;
     const count = repeats.reduce((n, i) => n + (i.count ?? 1), 1);
-    items = [...items, { ...t, id, persistent, ...(count > 1 ? { count } : {}) }];
+    // the new copy takes in what the ones it replaces would have done when closed, and what they said
+    const closers = [...repeats.map((r) => r.onClosed), t.onClosed].filter((f): f is () => void => !!f);
+    const lines = [...new Set([...repeats.flatMap((r) => r.lines ?? []), ...(t.lines ?? [])])];
+    const merged = { onClosed: closers.length ? () => closers.forEach((f) => f()) : undefined, lines: lines.length ? lines : undefined };
+    items = [...items, { ...t, ...merged, id, persistent, ...(count > 1 ? { count } : {}) }];
     // at most MAX_PERSISTENT persistent entries: the oldest fold into one, whose text keeps all of theirs
     const old = items.find((i) => i.folded);
     const loose = items.filter((i) => i.persistent && !i.folded);
@@ -127,28 +140,22 @@ export const useToasts = create<ToastStore>((set, get) => ({
     return id;
   },
   dismiss: (id) => set({ items: without(get().items, (i) => i.id === id) }),
+  close: (id) => {
+    const found: ToastItem[] = [];
+    set({ items: without(get().items, (i) => i.id === id, found) });
+    for (const f of found) for (const t of [f, ...(f.folded ?? [])]) t.onClosed?.();
+  },
 }));
 
-/** Notices already reported on screen (by id). */
-const reported = new Set<number>();
-
-/** The toasts' renderers call this with what they have on screen: each one's `onShown` runs once (a fold's notices
- *  with it). A notice the window never showed (the Deck shows one dialog at a time) is never reported. */
-export function reportShown(items: (ToastItem | undefined)[]) {
-  for (const i of items) {
-    if (!i) continue;
-    for (const t of [i, ...(i.folded ?? [])]) {
-      if (reported.has(t.id)) continue;
-      reported.add(t.id);
-      t.onShown?.();
-    }
-  }
+/** The keys (ToastItem.lines) of every notice open now, folded ones too. */
+export function openLines(): Set<string> {
+  return new Set(useToasts.getState().items.flatMap((i) => [i, ...(i.folded ?? [])]).flatMap((t) => t.lines ?? []));
 }
 
 /** Imperative toasts. `error` takes anything a command rejects with (KilnError) and shows its message. */
 export const toast = {
-  ok: (title: ReactNode, detail?: ReactNode, o: ToastOptions = {}) => useToasts.getState().push({ kind: "ok", title, detail, actions: o.actions, onShown: o.onShown }, o.ms),
-  info: (title: ReactNode, detail?: ReactNode, o: ToastOptions = {}) => useToasts.getState().push({ kind: "info", title, detail, actions: o.actions, onShown: o.onShown }, o.ms),
+  ok: (title: ReactNode, detail?: ReactNode, o: ToastOptions = {}) => useToasts.getState().push({ kind: "ok", title, detail, actions: o.actions, onClosed: o.onClosed, lines: o.lines }, o.ms),
+  info: (title: ReactNode, detail?: ReactNode, o: ToastOptions = {}) => useToasts.getState().push({ kind: "info", title, detail, actions: o.actions, onClosed: o.onClosed, lines: o.lines }, o.ms),
   error: (e: unknown, title?: ReactNode) => {
     const k = toKilnError(e);
     return useToasts.getState().push({ kind: "err", title: title ?? k.message, detail: title ? k.message : k.code !== "internal" ? k.code : undefined });
@@ -187,15 +194,13 @@ function Detail({ children }: { children: ReactNode }) {
 }
 
 export function Toaster() {
-  const { items, dismiss } = useToasts();
+  const { items, close } = useToasts();
   // the newest is at the bottom: keep it in view when the stack is taller than the window
   const box = useRef<HTMLDivElement>(null);
   const newest = items.reduce((n, i) => Math.max(n, i.id), 0);
   useLayoutEffect(() => {
     if (box.current) box.current.scrollTop = box.current.scrollHeight;
   }, [newest]);
-  // every notice in the stack is on screen (the stack scrolls; a long one shows its first lines)
-  useEffect(() => reportShown(items), [items]);
   return (
     <div ref={box} className="k-toasts" aria-live="polite">
       {items.map((t) => (
@@ -207,11 +212,11 @@ export function Toaster() {
           {!!t.actions?.length && (
             <div className="k-toast-actions">
               {t.actions.map((a) => (
-                <button key={a.label} type="button" className="k-btn k-btn-s" onClick={() => { dismiss(t.id); a.onClick(); }}>{a.label}</button>
+                <button key={a.label} type="button" className="k-btn k-btn-s" onClick={() => { close(t.id); a.onClick(); }}>{a.label}</button>
               ))}
             </div>
           )}
-          <button type="button" className="k-toast-close" aria-label="Dismiss" title="Dismiss" onClick={() => dismiss(t.id)}><X size={14} /></button>
+          <button type="button" className="k-toast-close" aria-label="Dismiss" title="Dismiss" onClick={() => close(t.id)}><X size={14} /></button>
         </div>
       ))}
     </div>

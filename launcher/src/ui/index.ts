@@ -15,7 +15,7 @@ export { Field, TextInput, TextArea, Select, NumberInput, Slider, Toggle, WellIn
 export type { FieldProps, ToggleProps, SliderProps, SelectProps, NumberInputProps, WellInputProps } from "./Form";
 export { Modal, ConfirmDanger, ArchText, typeToConfirm, setTypeToConfirm } from "./Modal";
 export type { ModalProps, ConfirmDangerProps } from "./Modal";
-export { toast, Toaster, useToasts, notifyPlacementCleanup, reportShown } from "./Toast";
+export { toast, Toaster, useToasts, notifyPlacementCleanup, openLines } from "./Toast";
 export type { ToastAction, ToastOptions } from "./Toast";
 export { TaskProgress, TaskTray, ProgressBar, Cone, Cones, useTaskStep, runTask, waitTask, useTasks, useTaskFeed } from "./TaskProgress";
 export type { RunTaskOptions } from "./TaskProgress";

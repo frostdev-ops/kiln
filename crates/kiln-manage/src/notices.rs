@@ -1,8 +1,8 @@
-//! Which activation notices the launcher has already shown for a game (docs/kiln/launcher/app.md "Notices about mod
+//! Which activation notices the player has already closed in the launcher for a game (docs/kiln/launcher/app.md "Notices about mod
 //! folders"). An activation says, every time, which folders Kiln left as they are, which mod files it kept and its
 //! notes on the mods (a player's own folder that serves a mod, a setting a new version refuses). The launcher raises
 //! each such sentence once per game: [`unseen`] answers which of an activation's sentences are new, and [`mark_seen`]
-//! remembers the ones the window has really shown. The memory is `<data>/installs/<game id>.notices-seen.json`, with
+//! remembers the ones whose notice the player closed. The memory is `<data>/installs/<game id>.notices-seen.json`, with
 //! the launcher's other records of that game, so it moves with the data folder. It holds sha256 hashes, not the sentences, and at most [`MAX_SEEN`] of them per
 //! game: the oldest go first.
 
@@ -20,7 +20,7 @@ pub const MAX_SEEN: usize = 512;
 #[serde(rename_all = "camelCase")]
 struct Seen {
     format: u32,
-    /// sha256 (hex) of each sentence shown, oldest first.
+    /// sha256 (hex) of each sentence whose notice the player closed, oldest first.
     #[serde(default)]
     seen: Vec<String>,
 }
@@ -45,10 +45,10 @@ fn read(path: &std::path::Path) -> Seen {
     crate::util::read_json::<Seen>(path).ok().flatten().unwrap_or_default()
 }
 
-/// The sentences of `sentences` not shown before for `game_id`, in their order and without repeats. Asking remembers
-/// nothing: a sentence counts as shown only when the window reports it on screen ([`mark_seen`]), so a launcher closed
-/// (or a window that stopped) before a notice came shows it at the next activation. A memory that cannot be read
-/// counts as empty: a notice is shown once more rather than never.
+/// The sentences of `sentences` not seen before for `game_id`, in their order and without repeats. Asking remembers
+/// nothing: a sentence counts as seen only when the window reports that the player closed its notice ([`mark_seen`]),
+/// so a notice still open when the launcher closes (or never closed) comes again at a later activation. A memory that
+/// cannot be read counts as empty: a notice is shown once more rather than never.
 pub fn unseen(dirs: &DataDirs, game_id: &str, sentences: &[String]) -> Result<Vec<String>> {
     let path = file(dirs, game_id)?;
     let seen = read(&path);
