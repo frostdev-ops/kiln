@@ -34,6 +34,7 @@ void owner_gone(KilnOwner owner);
 void feature_off(std::string_view name);
 void service_published(KilnOwner owner, std::string_view name, uint32_t version);
 void service_dll(const std::filesystem::path& file, std::string_view status, const std::string& error);
+bool flush();  // a last write of capabilities.json when something is dirty; waits about 2 s at most
 }  // namespace kiln::caps
 
 namespace kiln {
@@ -624,7 +625,9 @@ void unload_run(uint32_t exit_code, const char* via) {
         }
         calls += part;
     }
-    // The registry task's caps::flush() (the last write of capabilities.json) goes here, after every handler.
+    // The handlers may have reported rows (kiln.caps): capabilities.json is written a last time when something is
+    // dirty. Bounded on its own (about 2 s when the writer thread or the registry is stuck), outside the handlers' limits.
+    if (!caps::flush()) KLOG_W("unload: capabilities.json could not be written a last time");
     std::snprintf(line, sizeof line,
                   "unload: done in %.0f ms (%u faulted, %u given up, %u not called); the process exits", now_ms() - t0,
                   faulted, given_up, skipped);
