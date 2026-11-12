@@ -30,6 +30,7 @@
 #include "kiln_api.h"
 #include "merge.h"
 #include "services/kiln_assets.h"
+#include "services/kiln_caps.h"
 #include "services/kiln_playeranim.h"
 #include "services/kiln_profile.h"
 #include "services/kiln_types.h"
@@ -57,6 +58,9 @@ struct Config {
 };
 Config g_cfg;
 std::string g_off_reason;
+uint32_t g_off_code = KILN_CAP_REASON_FAULTED;  // the row's reason when off: policy, service-missing or faulted
+std::string g_row_text;                        // the row's text when merged or untouched
+const KilnCapsApi* g_caps = nullptr;           // kiln.caps (in-core, there from kiln_plugin_main on); null on an older core
 
 // What the mods say.
 std::vector<std::string> g_folders;            // every enabled mod folder, in the load order
@@ -219,10 +223,12 @@ bool live_image(std::string* why) {
 
 // The type layouts: the table kiln.types found at boot (no second scan), each record read as the host tests read the exe.
 // kiln.types missing turns the merge off: there is no other, untested way to the types.
-bool build_types(std::string* why) {
+bool build_types(std::string* why, uint32_t* code = nullptr) {
     if (g_db) return true;
+    if (code) *code = KILN_CAP_REASON_FAULTED;
     if (!g_types || g_types->header.size < offsetof(KilnTypesApi, type_at) + sizeof(void*)) {
         *why = "kiln.types isn't there, so the game's type layouts are unknown";
+        if (code) *code = KILN_CAP_REASON_SERVICE_MISSING;
         return false;
     }
     const uint32_t n = g_types->type_count();
@@ -285,28 +291,51 @@ const char* state_name(int32_t s) {
     }
 }
 
-// The row of capability anim.player_states, from the service's state. The registry (kiln.caps) is not in this tree yet, so
-// nothing reports it: its one caller is status_text(), which puts the row into status_json and status.json. When kiln.caps
-// lands, its report() goes beside that call.
+// The row of capability anim.player_states, from the service's state: the one place that turns the state into the row.
+// It is a static row (a manifest may require it), so it is never pending: while the service waits, nothing is decided and
+// nothing is reported; the merge decides it before the mods load.
 struct CapabilityRow {
-    bool available = false;
-    std::string code, text;
+    bool decided = false;
+    uint32_t state = KILN_CAP_UNAVAILABLE, reason = KILN_CAP_REASON_FAULTED;
+    std::string text;
 };
 CapabilityRow capability_row() {
     switch (g_state.load()) {
-        case KILN_PA_MERGED: return {true, "", "mods' player states are in the served player graph"};
-        case KILN_PA_UNTOUCHED: return {true, "", "no mod's player state to merge: the game's player graph is served"};
-        case KILN_PA_WAITING: return {false, "waiting", "the game's resource service isn't up yet"};
-        default: return {false, "off", g_off_reason.empty() ? std::string("off") : g_off_reason};
+        case KILN_PA_MERGED:
+        case KILN_PA_UNTOUCHED: return {true, KILN_CAP_AVAILABLE, KILN_CAP_REASON_NONE, g_row_text};
+        case KILN_PA_WAITING: return {false, KILN_CAP_UNAVAILABLE, KILN_CAP_REASON_SESSION, "not decided yet: the game's resource service isn't up"};
+        default: return {true, KILN_CAP_UNAVAILABLE, g_off_code, g_off_reason.empty() ? std::string("off") : g_off_reason};
     }
 }
+const char* reason_name(uint32_t r) {
+    switch (r) {
+        case KILN_CAP_REASON_NONE: return "none";
+        case KILN_CAP_REASON_SERVICE_MISSING: return "service-missing";
+        case KILN_CAP_REASON_POLICY: return "policy";
+        case KILN_CAP_REASON_SESSION: return "session";
+        default: return "faulted";
+    }
+}
+// Beside each place the state is decided (kiln_plugin_main, on_ready, publish): the row to kiln.caps, once decided.
+void report_row() {
+    const CapabilityRow row = capability_row();
+    if (!row.decided || !g_caps) return;
+    const char* name = "anim.player_states";
+    const KilnResult rc = g_caps->report(g_self, KilnStr{name, std::strlen(name)}, row.state, row.reason, KilnStr{row.text.c_str(), row.text.size()});
+    if (rc != KILN_OK) PA_W("playeranim: kiln.caps refused the row %s (%d)", name, rc);
+}
+
 std::string status_text() {
     ojson o = ojson::object();
     o["state"] = state_name(g_state.load());
     if (!g_off_reason.empty()) o["reason"] = g_off_reason;
     o["hash"] = g_hash;
     const CapabilityRow cap = capability_row();
-    o["capability"] = {{"name", "anim.player_states"}, {"available", cap.available}, {"code", cap.code}, {"text", cap.text}};
+    o["capability"] = {{"name", "anim.player_states"},
+                       {"state", !cap.decided ? "pending" : cap.state == KILN_CAP_AVAILABLE ? "available" : "unavailable"},
+                       {"reason", reason_name(cap.reason)},
+                       {"text", cap.text},
+                       {"reported", cap.decided && g_caps != nullptr}};
     // the merge's lines, with the status the lookup gives (unavailable: taken by the merge being off)
     ojson states = g_report.contains("states") ? g_report["states"] : ojson::array();
     for (size_t i = 0; i < states.size() && i < g_kept.size(); ++i)
@@ -351,6 +380,7 @@ void keep_states() {
 // Turns the result off after the merge (kiln.assets refused the graph): every state the merge took is unavailable.
 void take_back(const std::string& why) {
     g_off_reason = why;
+    g_off_code = KILN_CAP_REASON_FAULTED;
     for (State& st : g_states)
         if (st.status && *st.status == "live") st.status = "refused", st.reason = "mod " + st.mod + ", state " + st.name + ": the merge is off: " + why;
     g_report["graph"] = "off";
@@ -383,6 +413,11 @@ void publish() {
             PA_W("playeranim: %s", st.reason ? st.reason->c_str() : "refused");
         }
     }
+    if (graph == "merged")
+        g_row_text = std::to_string(live) + " player state(s) of " + std::to_string(mods_live.size()) + " mod(s) are in the player's graph";
+    else if (graph == "untouched")
+        g_row_text = "every player state was refused (" + std::to_string(refused) + "): the game's player graph is served; the refusals are in kiln.log";
+    report_row();
     if (graph == "merged") {
         const ojson& b = g_report["bytes"];
         PA_I("playeranim: %zu state(s) of %zu mod(s) merged into the player's graph: %zu machine(s), %llu -> %llu bytes, %.0f ms (types %.1f, clip facts %.1f, merge %.1f, put "
@@ -397,8 +432,9 @@ void publish() {
     write_status();
 }
 
-void go_off(const std::string& why) {
+void go_off(const std::string& why, uint32_t code = KILN_CAP_REASON_FAULTED) {
     g_off_reason = why;
+    g_off_code = code;
     g_report = ojson::object();
     g_report["graph"] = "off";
     g_report["reason"] = why;
@@ -420,7 +456,8 @@ void go_off(const std::string& why) {
 void merge_locked() {
     const Clock::time_point t0 = Clock::now();
     std::string why;
-    if (!build_types(&why)) return go_off(why);
+    uint32_t code = KILN_CAP_REASON_FAULTED;
+    if (!build_types(&why, &code)) return go_off(why, code);
     const Clock::time_point t1 = Clock::now();
     g_times.types = ms_between(t0, t1);
     std::vector<ClipFactsProvider::Mod> fm;
@@ -501,6 +538,7 @@ std::atomic<int64_t> g_next_look{0};   // steady clock, ms
 std::set<std::string> g_watched;       // mods with player states (set in on_ready, then read only)
 fs::path g_mods_file;
 fs::file_time_type g_mods_time{};
+fs::file_time_type g_watch_since{};  // a mods.json written before this is the last session's (Wine reuses pids)
 ModsLook g_mods_last;
 
 void look_at_mods() {
@@ -513,6 +551,7 @@ void look_at_mods() {
     const fs::file_time_type t = fs::last_write_time(g_mods_file, ec);
     if (ec || t == g_mods_time) return;
     g_mods_time = t;
+    if (t < g_watch_since) return;  // the last session's file: not a look (its pid may be this one's under Wine)
     std::string text;
     if (!read_file(g_mods_file, &text)) return;
     ModsLook seen = read_mods_state(text, GetCurrentProcessId());
@@ -532,6 +571,7 @@ void KILN_CALL on_tick(const KilnTickInfo*, void*) { look_at_mods(); }
 // The server world's ticks, and on a client its own world's (a joined client has no server world).
 void watch_mods() {
     g_mods_file = to_path(api_path(KILN_PATH_STATE)) / L"mods.json";
+    g_watch_since = fs::file_time_type::clock::now();
     for (const auto& [id, dir] : g_dir_of) g_watched.insert(id);
     KilnHandle h = 0;
     if (g_api->subscribe_tick(g_self, KILN_TICK_PRE, &on_tick, nullptr, &h) != KILN_OK) PA_W("playeranim: no server tick: mods that go or change are not reported");
@@ -739,7 +779,7 @@ void KILN_CALL on_ready(void*) {
     g_types = static_cast<const KilnTypesApi*>(g_api->service(KilnStr{KILN_TYPES_SERVICE, sizeof(KILN_TYPES_SERVICE) - 1}, KILN_TYPES_VERSION));
     if (!g_assets || g_assets->header.size < offsetof(KilnAssetsApi, when_resources_ready) + sizeof(void*)) {
         g_assets = nullptr;
-        go_off("kiln.assets isn't there, or has no when_resources_ready");
+        go_off("kiln.assets isn't there, or has no when_resources_ready", KILN_CAP_REASON_SERVICE_MISSING);
         publish();
         return;
     }
@@ -773,7 +813,10 @@ void KILN_CALL on_ready(void*) {
     if (states == 0) {
         // nothing to merge: nothing is read from the game, nothing is put
         g_state.store(KILN_PA_UNTOUCHED);
-            for (const std::string& e : g_errors) PA_W("playeranim: %s", e.c_str());
+        for (const std::string& e : g_errors) PA_W("playeranim: %s", e.c_str());
+        g_row_text = files == 0 ? std::string("no mod defines a player state: the merge was not run; the game's player graph is served")
+                                : std::to_string(files) + " player-states.json file(s) with no state in them: the merge was not run; the game's player graph is served";
+        report_row();
         if (files == 0) PA_I("playeranim: no mod defines a player state: the game's graph is untouched");
         else PA_I("playeranim: %zu player-states.json file(s), no state in them: the game's graph is untouched", files);
         write_status();
@@ -783,7 +826,7 @@ void KILN_CALL on_ready(void*) {
     PA_I("playeranim: %zu player state(s) of %zu mod(s) to merge when the game's resources come up", states, g_mods.size());
     watch_mods();
     if (g_assets->when_resources_ready(&on_resources_ready, nullptr) != KILN_OK) {
-        go_off("kiln.assets has no resource service on this build");
+        go_off("kiln.assets has no resource service on this build", KILN_CAP_REASON_SERVICE_MISSING);
         publish();
     }
 }
@@ -800,6 +843,9 @@ extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api,
     info->version = KilnStr{"1", 1};
     const KilnResult rc = api->register_service(owner, KilnStr{KILN_PLAYERANIM_SERVICE, sizeof(KILN_PLAYERANIM_SERVICE) - 1}, &kTable);
     if (rc != KILN_OK) return rc;
+    // kiln.caps is in the core and set up before any service DLL loads: here already, so the policy cases report at once
+    g_caps = static_cast<const KilnCapsApi*>(api->service(KilnStr{KILN_CAPS_SERVICE, sizeof(KILN_CAPS_SERVICE) - 1}, KILN_CAPS_VERSION));
+    if (g_caps && g_caps->header.size < offsetof(KilnCapsApi, report) + sizeof(void*)) g_caps = nullptr;
     g_cfg = read_config();
     KilnBuildInfo bi{};
     bi.size = sizeof bi;
@@ -807,8 +853,10 @@ extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api,
     if (!g_cfg.enabled || !bi.hooks_enabled) {
         std::lock_guard lock(g_mu);
         g_off_reason = !g_cfg.enabled ? "off by kiln/config/playeranim.json" : "hooks disabled (safe idle)";
+        g_off_code = KILN_CAP_REASON_POLICY;
         g_state.store(KILN_PA_OFF);
-            PA_I("playeranim: %s: the game's graph is untouched", g_off_reason.c_str());
+        report_row();
+        PA_I("playeranim: %s: the game's graph is untouched", g_off_reason.c_str());
         write_status();
         return KILN_OK;
     }
