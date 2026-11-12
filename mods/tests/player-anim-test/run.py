@@ -129,6 +129,11 @@ class Lab:
         env = dict(os.environ, KILN_OUT=str(self.build))
         subprocess.run([str(REPO / "tools/deploy-server.sh"), str(self.dir), "--policy", "any", "--no-build"], check=True, env=env,
                        stdout=subprocess.DEVNULL, cwd=REPO)
+        # the lab is this test's: no other mod may add player states or change what the scenarios count
+        for d in (self.kiln / "mods").iterdir():
+            if d.is_dir() and d.name != "player-anim-test" and not d.name.startswith("pa-"):
+                print(f"INFO lab: {d.name} taken out of kiln/mods for this run", flush=True)
+                shutil.rmtree(d)
         self.deployed = True
 
     def cook(self, mod):
@@ -410,9 +415,9 @@ class Game:
         return self._names[name]
 
 
-def follows(p, expected, lo_ms=250, hi_ms=1900, shifts=(-0.2, 0.35)):
+def follows(p, expected, lo_ms=450, hi_ms=1900, shifts=(-0.2, 0.35)):
     """Mean distance of HandR and HandL from where the clip puts them, at the best start time of the clip within `shifts`
-    seconds of the sequence's start; samples between lo_ms and hi_ms. -> (mean, start)."""
+    seconds of the sequence's start; samples between lo_ms and hi_ms (after the blend-in: a neighbour blends for up to 0.3 s). -> (mean, start)."""
     best = None
     n = len(expected)
     for k in range(int(shifts[0] * 100), int(shifts[1] * 100) + 1, 2):
@@ -780,7 +785,9 @@ def scenarios(lab, c, a):
         print(f"INFO reload: control answers {said}", flush=True)
         after = text.split("pat: go reload", 1)[-1]
         lines = [l for l in service_lines(text.split("pat: paused", 1)[-1])]
-        c("reload.service-line", bool(lines), str(lines[:4]))
+        # pa-a is not the last mod in the load order (player-anim-test loads after it), so each step moves kiln/state/mods.json
+        for step, words in (("unload", "is unloaded now"), ("load", "is loaded again"), ("reload", "was reloaded")):
+            c(f"reload.line-after-{step}", any(f"mod pa-a {words}" in l for l in lines), str([l for l in lines if "pa-a" in l][:4]))
         p = plays(after).get("pa-a/slash")
         d = follows(p, game.expect(lab.cook("pa-a"), "a_slash"))[0] if p else float("inf")
         c("reload.still-plays", d <= FOLLOWS, f"{d:.3f} m from its clip after the unload, load and reload")
