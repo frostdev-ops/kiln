@@ -64,6 +64,7 @@ struct GraphSource {
 struct MergeHooks {
     IdHooks ids;
     void (*after_encode)(int call, Bytes* out) = nullptr;
+    std::vector<std::string> drop_first;  // node kinds the graph is taken to have no template of
 };
 
 struct MergeResult {
@@ -74,6 +75,9 @@ struct MergeResult {
 
 MergeResult merge(const GraphSource& raw, const TypeDb& types, const std::vector<ModStates>& mods, const ClipFactsFn& clip_facts,
                   const MergeHooks* hooks = nullptr);
+
+// The report's graphHash: the first 8 bytes of SHA-256 over the merged graph, 16 lower-case hex digits.
+std::string graph_hash(const Bytes& merged);
 
 // Rule 10: FNV-1a-32 of "kiln.player.<parts joined by dots>".
 uint32_t node_id(const std::vector<std::string>& parts);
@@ -86,7 +90,7 @@ void validate(const TypeDb& types, const Value& pristine, const Value& merged, c
 // names states, those states. The only names of the game in this code.
 struct SupportRow {
     const char* machine;
-    const char* kind;                 // the entry kind (merge.cpp's ENTRIES): "state"
+    const char* kind;                 // the entry kind (merge.cpp's ENTRIES): "state" or "overlay"
     bool every_state;                 // the Python's None: every state of the machine
     std::vector<const char*> states;  // else these
 };

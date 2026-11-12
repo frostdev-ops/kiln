@@ -284,6 +284,14 @@ void merges(Ctx& c, const json& cases) {
         MergeHooks hooks;
         if (k["hook"] == "node_id_pq77") hooks.ids.node_id = node_id_pq77;
         if (k["hook"] == "lossy2") hooks.after_encode = lossy2;
+        if (k["hook"].is_string() && k["hook"].get<std::string>().rfind("drop:", 0) == 0) {
+            const std::string list = k["hook"].get<std::string>().substr(5);
+            for (size_t from = 0; from <= list.size();) {
+                const size_t comma = std::min(list.find(',', from), list.size());
+                hooks.drop_first.push_back(list.substr(from, comma - from));
+                from = comma + 1;
+            }
+        }
         const auto facts = facts_of(k["facts"]);
         try {
             merge_case(c, name, raw, c.types(k["types"]), mods_of(k["mods"]), facts_fn(facts), k["report"], k["bin"], &hooks, k["lazy"].get<bool>(), &k["called"]);

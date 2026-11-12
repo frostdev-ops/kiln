@@ -33,6 +33,8 @@ struct PyError : std::exception {
 // ---- small shared rules ----
 
 uint32_t fnv1a(const void* data, size_t n);
+// SHA-256 of `n` bytes.
+std::array<uint8_t, 32> sha256(const void* data, size_t n);
 inline uint32_t fnv1a(std::string_view s) { return fnv1a(s.data(), s.size()); }
 
 // keen::Guid: 16 bytes in memory order ({u32, u16, u16, u8[8]}, little-endian groups), text lower-case 8-4-4-4-12.
