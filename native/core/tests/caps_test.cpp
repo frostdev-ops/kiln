@@ -440,6 +440,37 @@ void subscribers() {
     T->unsubscribe(hr);
 }
 
+void KILN_CALL nested_read(const KilnCapRow*, uint32_t, void* user) {
+    auto* calls = static_cast<int*>(user);
+    ++*calls;
+    get("bb.nested");
+    KilnCapRow row{};
+    row.size = sizeof row;
+    T->at(1, &row);
+}
+
+void reentrant_read_strings() {
+    for (bool by_index : {false, true}) {
+        reset();
+        const KilnOwner host = owner("host"), dead = owner("dead");
+        rep(host, "aa.outer", U, KILN_CAP_REASON_POLICY, "outer reason");
+        rep(host, "bb.nested", A, 0, "nested");
+        rep(dead, "zz.dead", A, 0);
+        int calls = 0;
+        KilnHandle h = 0;
+        T->subscribe(host, &nested_read, &calls, &h);
+        kill(dead);  // the outer read itself must prune and deliver, before returning its row
+        KilnCapRow row{};
+        row.size = sizeof row;
+        const auto rc = by_index ? T->at(0, &row) : T->find(ks("aa.outer"), &row);
+        CHECK(rc == KILN_OK && calls == 1 && std::string(row.name.ptr, row.name.len) == "aa.outer" &&
+                  std::string(row.text.ptr, row.text.len) == "outer reason" &&
+                  std::string(row.source.ptr, row.source.len) == "host" && row.state == U,
+              "strings: outer %s survives subscriber at/find during its own change delivery", by_index ? "at" : "find");
+        T->unsubscribe(h);
+    }
+}
+
 void write(const std::filesystem::path& file, const char* text) {
     std::ofstream o(file);
     o << text;
@@ -874,6 +905,7 @@ int main(int argc, char** argv) {
     const std::filesystem::path dir = argv[1];
     rules();
     subscribers();
+    reentrant_read_strings();
     core_rows(dir);
     json_file();
     writer();

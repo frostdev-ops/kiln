@@ -444,7 +444,9 @@ KilnResult KILN_CALL c_at(uint32_t index, KilnCapRow* out) {
     if (!out || out->size < sizeof(KilnCapRow)) return KILN_ERR_INVALID_ARGUMENT;
     try {
         refresh_tick();
-        return op([&](std::vector<Event>&) -> KilnResult {
+        std::string name;
+        Shown row;
+        const auto rc = op([&](std::vector<Event>&) -> KilnResult {
             const uint64_t gen = g_generation.load(std::memory_order_acquire);
             if (g_order_gen != gen || g_order.size() != g_names.size()) {
                 g_order.clear();
@@ -453,9 +455,13 @@ KilnResult KILN_CALL c_at(uint32_t index, KilnCapRow* out) {
             }
             if (index >= g_order.size()) return KILN_ERR_NOT_FOUND;
             const auto it = g_names.find(*g_order[index]);
-            fill(it->first, it->second.last, out);
+            name = it->first;
+            row = it->second.last;
             return KILN_OK;
         });
+        // Delivery inside op() may reenter at/find on this thread and reuse t_row. Publish our copy only afterwards.
+        if (rc == KILN_OK) fill(name, row, out);
+        return rc;
     } catch (...) {
         return KILN_ERR_INTERNAL;
     }
@@ -466,12 +472,17 @@ KilnResult KILN_CALL c_find(KilnStr name, KilnCapRow* out) {
     if (name.len && !name.ptr) return KILN_ERR_INVALID_ARGUMENT;
     try {
         refresh_tick();
-        return op([&](std::vector<Event>&) -> KilnResult {
+        std::string found;
+        Shown row;
+        const auto rc = op([&](std::vector<Event>&) -> KilnResult {
             const auto it = g_names.find(sv(name));
             if (it == g_names.end()) return KILN_ERR_NOT_FOUND;
-            fill(it->first, it->second.last, out);
+            found = it->first;
+            row = it->second.last;
             return KILN_OK;
         });
+        if (rc == KILN_OK) fill(found, row, out);
+        return rc;
     } catch (...) {
         return KILN_ERR_INTERNAL;
     }
