@@ -112,12 +112,17 @@ int main(int argc, char** argv) {
     std::filesystem::create_directories(root / "System32");
     std::filesystem::create_directories(root / "relocated");
     std::ofstream(root / "System32/powrprof.dll") << "Windows power API";
-    std::ofstream(root / "relocated/powrprof.dll") << "an unbranded proxy still fails closed";
+    // SET's powrprof.dll, known by its folder name (SET reads shrouded_engine_tweaks\plugins\ and \mods\).
+    std::ofstream(root / "relocated/powrprof.dll") << "SET's proxy: shrouded_engine_tweaks\\plugins";
+    // Issue 23: a proxy loader's powrprof.dll that only forwards is no SET; it is loaded through every check below.
+    std::filesystem::create_directories(root / "forward");
+    std::ofstream(root / "forward/powrprof.dll") << "Forwarding exports to %s\\powrprof.dll";
     std::ofstream(root / "relocated/renamed.dll") << "Shrouded Engine Tweaks";
     std::ofstream(root / "relocated/framework.dll") << "Shrouded Engine Tweaks";
     loader_test::system = (root / "System32").wstring();
     const std::vector<std::wstring> clean = {(root / "System32/powrprof.dll").wstring(),
-                                             (root / "relocated/framework.dll").wstring()};
+                                             (root / "relocated/framework.dll").wstring(),
+                                             (root / "forward/powrprof.dll").wstring()};
     loader_test::modules = clean;
     KilnApi api{};
     api.log = [](KilnOwner, int32_t, KilnStr text) { fileLines.emplace_back(text.ptr, text.len); };
@@ -621,14 +626,14 @@ int main(int argc, char** argv) {
         loader_test::dll_loaded();
         frames_and_steps(200);                       // a failed look, its retry (failed), the next (clean)
         check(g_running && g_gate.failures() == 0 && lines("kiln-set: a check of the loaded modules failed once: ") == 1 &&
-                  lines("kiln-set: the loaded modules were read again after 2 failed check(s): 3 modules, no SET runtime") == 1,
+                  lines("kiln-set: the loaded modules were read again after 2 failed check(s): 4 modules, no SET runtime") == 1,
               "a recovery after failed looks is logged, with the module count");
         g_modules.disarm();
         // The startup line says how many modules the loader list had.
         g_running = false; g_initialized = false;
         fileLines.clear();
         on_ready(nullptr);
-        check(g_running && lines("; 3 loaded modules read from the loader list, no SET runtime") == 1, "the startup line has the module count");
+        check(g_running && lines("; 4 loaded modules read from the loader list, no SET runtime") == 1, "the startup line has the module count");
         on_unload(nullptr);
         g_running = false; g_initialized = false;
     }

@@ -12,7 +12,7 @@ set_target_properties(enshwick-fake-loader PROPERTIES OUTPUT_NAME enshwick
 add_library(enshwick-fake-mod SHARED tests/fake_mod.cpp)
 set_target_properties(enshwick-fake-mod PROPERTIES OUTPUT_NAME fakemod
                       RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin/enshwick-tests")
-foreach(v STUB OTHER CLAIM)
+foreach(v STUB OTHER FORWARD CLAIM)
     string(TOLOWER ${v} lv)
     set(name powrprof_${lv})
     if(v STREQUAL CLAIM)

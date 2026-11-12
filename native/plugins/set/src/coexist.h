@@ -19,37 +19,24 @@
 #include <string_view>
 #include <vector>
 
-namespace kset {
-// Scan incrementally, including markers split over a read boundary. Never load a whole DLL into RAM.
-inline bool set_marker(std::istream& in) {
-    const std::string ascii = "Shrouded Engine Tweaks";
-    std::string wide;
-    for (char c : ascii) { wide += c; wide += '\0'; }
-    std::array<char, 65536> block{};
-    std::string tail;
-    constexpr size_t limit = 256 * 1024 * 1024;
-    for (size_t read = 0; in && read < limit;) {
-        in.read(block.data(), std::min(block.size(), limit - read));
-        const size_t n = static_cast<size_t>(in.gcount());
-        if (!n) break;
-        read += n;
-        tail.append(block.data(), n);
-        if (tail.find(ascii) != std::string::npos || tail.find(wide) != std::string::npos) return true;
-        if (tail.size() >= wide.size()) tail.erase(0, tail.size() - wide.size() + 1);
-    }
-    return false;
-}
+#include "../../compat/set_marker.h"
 
+namespace kset {
+// SET's name in a stream (kcompat::set_marks, compat/set_marker.h: incremental, markers split over a read boundary
+// included, never the whole DLL in RAM).
+inline bool set_marker(std::istream& in) { return kcompat::set_marks(in, false).name; }
+
+// A powrprof.dll outside the system folder. Only a candidate: whether it is SET's is decided by SET's markers
+// (kcompat::power_proxy_owner), not by this name (issue 23: a proxy loader installed as POWRPROF.dll is not SET).
 inline bool power_proxy(const std::filesystem::path& file, const std::filesystem::path& system) {
-    auto name = file.filename().wstring();
-    std::transform(name.begin(), name.end(), name.begin(), [](wchar_t c) { return c >= L'A' && c <= L'Z' ? c + 32 : c; });
-    if (name != L"powrprof.dll") return false;
+    if (!kcompat::named_powrprof(file)) return false;
     std::error_code ec;
-    // Fail closed for an unidentifiable proxy. Checking the game directory alone misses relocated proxies.
+    // A folder that cannot be compared counts as non-system (its markers then decide). Checking the game directory
+    // alone misses relocated proxies.
     return !std::filesystem::equivalent(file.parent_path(), system, ec) || bool(ec);
 }
 #if defined(_WIN32) || defined(KSET_LOADER_HOST_TEST)
-// What one look at the loaded modules found. foreign: SET's runtime (or a non-system power proxy) is in the process.
+// What one look at the loaded modules found. foreign: SET's runtime is in the process (a module with SET's markers).
 // failed: the inventory itself could not be read, which says nothing about SET either way.
 enum class Inventory { clean, foreign, failed };
 struct Inspection {
@@ -176,7 +163,17 @@ inline Inspection inspect_runtime() {
         // Wine's builtin powrprof.dll reports a game-folder powrprof.dll's path without running that file: only a
         // module whose mapped image is the file at its path counts (module_image.h).
         if (!kcompat::module_is_file(held, file)) continue;
-        if (kset::power_proxy(file, system)) return foreign("a non-system powrprof.dll is loaded (" + utf8(file) + ")");
+        // A powrprof.dll outside System32 is SET's only when it carries SET's markers. A proxy loader that only
+        // forwards the system DLL's exports (issue 23: a server's POWRPROF.dll loading other mods), Shared XP or
+        // Ember is another tool, and kiln-set runs next to it. Read on every look (not cached): at most one such file.
+        if (kset::power_proxy(file, system)) {
+            switch (kcompat::power_proxy_owner(file)) {
+                case kcompat::PowerProxy::set: return foreign("SET's powrprof.dll is loaded (" + utf8(file) + ")");
+                case kcompat::PowerProxy::unreadable:
+                    return failed("a non-system powrprof.dll could not be read to tell whether it is SET's (" + utf8(file) + ")");
+                case kcompat::PowerProxy::other: continue;
+            }
+        }
         // Kiln's own files name SET too (kiln\host\Kiln.Ui.dll's mod catalogue, plugins, the proxy): never SET's runtime.
         if (kcompat::kiln_own_module(held, file)) continue;
         std::error_code ec;

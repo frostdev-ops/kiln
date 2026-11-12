@@ -12,10 +12,14 @@ Unlike SET, mods also run on a **dedicated server**.
 3. Start the server or the game. `kiln/logs/kiln.log` shows each mod as SET does, under `[set]`:
    `[set] Mod Loaded: myheal`, `[set] Mods: 2 loaded, 0 failed` (SET 0.2.0's wording; 0.1.1 wrote `Mod loaded:`). Everything a mod prints goes there too.
 
-kiln-set steps aside when it finds a non-system `powrprof.dll` anywhere in the loaded-module inventory (the game
-process's own loader list, as ntdll's `LdrEnumerateLoadedModules` walks it), or a renamed module containing SET's branding (its name in ASCII or UTF-16; found in SET 0.1.1's release DLL, assumed for 0.2.0's,
-which has not been checked). This is deliberately conservative: an unrelated non-system power proxy also
-suppresses kiln-set. Windows' own System32 power DLL does not. The check runs before initialization and before Lua
+kiln-set steps aside when SET's own DLL is in the loaded-module inventory (the game process's own loader list, as
+ntdll's `LdrEnumerateLoadedModules` walks it), decided by SET's markers and never by the file name: a non-system
+`powrprof.dll` that carries SET's name or its folder name (`Shrouded Engine Tweaks`, `shrouded_engine_tweaks`, ASCII or
+UTF-16, any case), or a renamed module carrying SET's name (found in SET 0.1.1's release DLL, assumed for 0.2.0's,
+which has not been checked; `native/plugins/compat/set_marker.h`). Another tool's `powrprof.dll` (a proxy loader that
+only forwards the system DLL's exports, Shared XP, Ember) is not SET, and kiln-set runs next to it (until dev.25 any
+non-system `powrprof.dll` switched kiln-set off: GitHub issue 23). A non-system `powrprof.dll` that cannot be read
+counts as a failed look (below). Windows' own System32 power DLL is never inspected. The check runs before initialization and before Lua
 tick/menu work; a module loaded later stops the runtime and releases its Lua owners. Kiln uses `dinput8.dll`, so
 installation does not replace SET's file.
 
@@ -35,7 +39,7 @@ line per failed read at those times, `ptrace attach of "...enshrouded.exe" was a
 kernel's ptrace restriction (Yama, `ptrace_scope` 1) refused wineserver, which reads another process with
 `process_vm_readv` or ptrace, both under that check. What ended wineserver's permission after startup is not known. A module inventory that cannot be read is not SET. A look that fails names the
 call and its error code, in `kiln.log` and in `state/set.json`'s reason. kiln-set and kiln.types then keep running and
-look again one second later. They step aside only when a SET or power proxy is actually seen, or when **five** looks
+look again one second later. They step aside only when SET is actually seen, or when **five** looks
 in a row fail (about four seconds): two SET runtimes in one process corrupt the game's state, so "cannot tell" for that
 long counts as a possible SET. One clean look resets the count. At startup the five looks happen at once, 20 ms apart.
 Stepping aside while the game runs undoes the mods' resource changes: at once on a world's thread, otherwise (stepping
@@ -45,7 +49,7 @@ Each check also logs, when it changes, whether the process can be read through a
 The types service uses the same detector for its runner hook, avoiding competing system controls. If SET loads
 after Kiln installed that hook, the adapter restores all switches and remains passive until process exit. If it went
 passive only because five looks failed, it keeps looking every 5 s and turns the runner back on at the first clean look
-(switch and hook requests made before that must be made again); a SET or power proxy seen meanwhile keeps it passive
+(switch and hook requests made before that must be made again); SET seen meanwhile keeps it passive
 until exit.
 
 ## When mods run
