@@ -101,7 +101,15 @@ internal sealed class TickThread
                 // the watchdog's interrupt arrived after the work it was meant for had ended: not for this wait
                 continue;
             }
-            RunOne(item, item.Dog);
+            try
+            {
+                RunOne(item, item.Dog);
+            }
+            catch (ThreadInterruptedException)
+            {
+                // the watchdog's interrupt landed after the work item ended (the item keeps its own exceptions, and its
+                // call is already marked done): not for this thread, which must not die of it
+            }
             item = null;  // the last item must not outlive its call: it may reach into a mod's load context
         }
     }
