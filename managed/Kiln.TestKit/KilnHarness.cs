@@ -383,6 +383,7 @@ public sealed partial class KilnHarness : IDisposable
                 }
                 _tick.Close(TimeSpan.FromSeconds(10));
             }
+            else RetireAbandoned();  // the watchdog stopped the tick thread: retire the mods without it (KilnHarness.Tests.cs)
             TaskScheduler.UnobservedTaskException -= _unobserved;
             _mods.Dispose();
             RemoveTestSubscriptions();

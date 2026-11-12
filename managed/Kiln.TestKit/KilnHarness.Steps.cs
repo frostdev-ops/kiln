@@ -229,7 +229,7 @@ public sealed partial class KilnHarness
         if (source == "timeout") _host.Log(LogLevel.Warn, $"lifecycle: '{WorldRunningLine}' not seen in the game log; ServerStarted fires anyway");
         _mods.PostEvent(new ServerStartedEvent(step, source));
         _host.Log(LogLevel.Info, $"lifecycle: server started (step {step}, {source})");
-        _mods.QueueAutoTests();
+        if (!_mods.SuppressAutoTests) _mods.QueueAutoTests();  // a KilnTestSession runs every test itself
     }
 
     private void BeginStop(string reason, ulong step)

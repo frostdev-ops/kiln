@@ -33,6 +33,10 @@ internal sealed class TickThread
     /// <summary>Why the thread was given up on; null while it serves.</summary>
     public string? AbandonReason => _abandonReason;
 
+    /// <summary>Set while a test runs under the watchdog: calls wait for at most its budget, and their work runs where
+    /// the watchdog can stop it (<see cref="TestKit.Watchdog"/>).</summary>
+    public Watchdog? Watchdog { get; set; }
+
     /// <summary>Runs <paramref name="work"/> on the tick thread and returns its result; its exception comes back with its
     /// original stack.</summary>
     public T Invoke<T>(Func<T> work)
@@ -46,8 +50,9 @@ internal sealed class TickThread
             _queue.Enqueue(item);
             Monitor.Pulse(_lock);
         }
-        WaitHandle.WaitAny([item.Done.WaitHandle, _abandoned.WaitHandle]);
-        if (!item.Done.IsSet) throw new HarnessStoppedException(_abandonReason ?? "the tick thread was given up on");
+        if (Watchdog is { } dog) dog.Await(this, item.Done.WaitHandle, _abandoned.WaitHandle);
+        else WaitHandle.WaitAny([item.Done.WaitHandle, _abandoned.WaitHandle]);
+        if (!item.Done.IsSet || _abandonReason is not null) throw new HarnessStoppedException(_abandonReason ?? "the tick thread was given up on");
         return item.Result();
     }
 
@@ -79,23 +84,32 @@ internal sealed class TickThread
         while (true)
         {
             WorkItem? item;
-            lock (_lock)
+            try
             {
-                while (_queue.Count == 0 && !_closing) Monitor.Wait(_lock);
-                if (_queue.Count == 0 || _abandonReason is not null) return;
-                item = _queue.Dequeue();
+                lock (_lock)
+                {
+                    while (_queue.Count == 0 && !_closing) Monitor.Wait(_lock);
+                    if (_queue.Count == 0 || _abandonReason is not null) return;
+                    item = _queue.Dequeue();
+                }
             }
-            RunOne(item);
+            catch (ThreadInterruptedException)
+            {
+                // the watchdog's interrupt arrived after the work it was meant for had ended: not for this wait
+                continue;
+            }
+            RunOne(item, Watchdog);
             item = null;  // the last item must not outlive its call: it may reach into a mod's load context
         }
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]
-    private static void RunOne(WorkItem item)
+    private static void RunOne(WorkItem item, Watchdog? dog)
     {
         try
         {
-            item.Execute();
+            if (dog is null) item.Execute();
+            else dog.Execute(item.Execute);
         }
         finally
         {

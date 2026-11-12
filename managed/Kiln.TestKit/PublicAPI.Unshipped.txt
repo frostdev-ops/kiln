@@ -74,6 +74,8 @@ Kiln.TestKit.KilnHarness.Run(System.Action! action) -> void
 Kiln.TestKit.KilnHarness.Run<T>(System.Func<T>! func) -> T
 Kiln.TestKit.KilnHarness.RunCommand(Kiln.CommandSource! source, string! line) -> Kiln.CommandResult!
 Kiln.TestKit.KilnHarness.RunCommand(string! line) -> Kiln.CommandResult!
+Kiln.TestKit.KilnHarness.RunTest(Kiln.TestKit.ModHandle! mod, string! name, Kiln.TestKit.KilnTestOptions? options = null) -> Kiln.TestKit.KilnTestResult!
+Kiln.TestKit.KilnHarness.RunTests(Kiln.TestKit.ModHandle! mod, Kiln.TestKit.KilnTestOptions? options = null) -> System.Collections.Generic.IReadOnlyList<Kiln.TestKit.KilnTestResult!>!
 Kiln.TestKit.KilnHarness.ServerDirectory.get -> string!
 Kiln.TestKit.KilnHarness.State.get -> Kiln.TestKit.HarnessState
 Kiln.TestKit.KilnHarness.StateDirectory.get -> string!
@@ -105,6 +107,44 @@ Kiln.TestKit.KilnHarnessOptions.WaitForWorldRunning.get -> bool
 Kiln.TestKit.KilnHarnessOptions.WaitForWorldRunning.init -> void
 Kiln.TestKit.KilnHarnessOptions.WallDeltaMs.get -> double
 Kiln.TestKit.KilnHarnessOptions.WallDeltaMs.init -> void
+Kiln.TestKit.KilnTestOptions
+Kiln.TestKit.KilnTestOptions.AllowUnavailable.get -> System.Collections.Generic.IReadOnlyCollection<string!>!
+Kiln.TestKit.KilnTestOptions.AllowUnavailable.init -> void
+Kiln.TestKit.KilnTestOptions.KilnTestOptions() -> void
+Kiln.TestKit.KilnTestOptions.SetupTimeout.get -> System.TimeSpan
+Kiln.TestKit.KilnTestOptions.SetupTimeout.init -> void
+Kiln.TestKit.KilnTestOptions.WatchdogGrace.get -> System.TimeSpan
+Kiln.TestKit.KilnTestOptions.WatchdogGrace.init -> void
+Kiln.TestKit.KilnTestResult
+Kiln.TestKit.KilnTestResult.<Clone>$() -> Kiln.TestKit.KilnTestResult!
+Kiln.TestKit.KilnTestResult.Deconstruct(out string! Name, out Kiln.Testing.TestOutcome Outcome, out System.TimeSpan Duration, out string? Message, out string? Stack, out System.Collections.Generic.IReadOnlyList<string!>! Unavailable) -> void
+Kiln.TestKit.KilnTestResult.Duration.get -> System.TimeSpan
+Kiln.TestKit.KilnTestResult.Duration.init -> void
+Kiln.TestKit.KilnTestResult.Equals(Kiln.TestKit.KilnTestResult? other) -> bool
+Kiln.TestKit.KilnTestResult.KilnTestResult(string! Name, Kiln.Testing.TestOutcome Outcome, System.TimeSpan Duration, string? Message, string? Stack, System.Collections.Generic.IReadOnlyList<string!>! Unavailable) -> void
+Kiln.TestKit.KilnTestResult.Log.get -> System.Collections.Generic.IReadOnlyList<Kiln.TestKit.LogLine!>!
+Kiln.TestKit.KilnTestResult.Log.init -> void
+Kiln.TestKit.KilnTestResult.Message.get -> string?
+Kiln.TestKit.KilnTestResult.Message.init -> void
+Kiln.TestKit.KilnTestResult.Name.get -> string!
+Kiln.TestKit.KilnTestResult.Name.init -> void
+Kiln.TestKit.KilnTestResult.Notes.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Kiln.TestKit.KilnTestResult.Notes.init -> void
+Kiln.TestKit.KilnTestResult.Outcome.get -> Kiln.Testing.TestOutcome
+Kiln.TestKit.KilnTestResult.Outcome.init -> void
+Kiln.TestKit.KilnTestResult.Runner.get -> Kiln.Testing.TestResult?
+Kiln.TestKit.KilnTestResult.Runner.init -> void
+Kiln.TestKit.KilnTestResult.Stack.get -> string?
+Kiln.TestKit.KilnTestResult.Stack.init -> void
+Kiln.TestKit.KilnTestResult.Unavailable.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Kiln.TestKit.KilnTestResult.Unavailable.init -> void
+Kiln.TestKit.KilnTestSession
+Kiln.TestKit.KilnTestSession.Dispose() -> void
+Kiln.TestKit.KilnTestSession.DisposeError.get -> string?
+Kiln.TestKit.KilnTestSession.Harness.get -> Kiln.TestKit.KilnHarness?
+Kiln.TestKit.KilnTestSession.HarnessCount.get -> int
+Kiln.TestKit.KilnTestSession.KilnTestSession(System.Func<Kiln.TestKit.KilnHarness!, Kiln.TestKit.ModHandle!>! setup, System.Func<Kiln.TestKit.KilnHarnessOptions!>? harnessOptions = null, Kiln.TestKit.KilnTestOptions? options = null) -> void
+Kiln.TestKit.KilnTestSession.Run(string! name) -> Kiln.TestKit.KilnTestResult!
 Kiln.TestKit.LogLine
 Kiln.TestKit.LogLine.<Clone>$() -> Kiln.TestKit.LogLine!
 Kiln.TestKit.LogLine.Deconstruct(out long Sequence, out ulong Step, out Kiln.LogLevel Level, out string! Source, out string! Text) -> void
@@ -162,6 +202,9 @@ override Kiln.TestKit.CapabilityRow.GetHashCode() -> int
 override Kiln.TestKit.CoverageRow.Equals(object? obj) -> bool
 override Kiln.TestKit.CoverageRow.GetHashCode() -> int
 override Kiln.TestKit.CoverageRow.ToString() -> string!
+override Kiln.TestKit.KilnTestResult.Equals(object? obj) -> bool
+override Kiln.TestKit.KilnTestResult.GetHashCode() -> int
+override Kiln.TestKit.KilnTestResult.ToString() -> string!
 override Kiln.TestKit.LogLine.Equals(object? obj) -> bool
 override Kiln.TestKit.LogLine.GetHashCode() -> int
 override Kiln.TestKit.LogLine.ToString() -> string!
@@ -171,6 +214,10 @@ static Kiln.TestKit.CapabilityRow.operator ==(Kiln.TestKit.CapabilityRow left, K
 static Kiln.TestKit.Coverage.All.get -> System.Collections.Generic.IReadOnlyList<Kiln.TestKit.CoverageRow!>!
 static Kiln.TestKit.CoverageRow.operator !=(Kiln.TestKit.CoverageRow? left, Kiln.TestKit.CoverageRow? right) -> bool
 static Kiln.TestKit.CoverageRow.operator ==(Kiln.TestKit.CoverageRow? left, Kiln.TestKit.CoverageRow? right) -> bool
+static Kiln.TestKit.KilnHarness.ListTests(System.Reflection.Assembly! assembly) -> System.Collections.Generic.IReadOnlyList<string!>!
+static Kiln.TestKit.KilnTestOptions.Default.get -> Kiln.TestKit.KilnTestOptions!
+static Kiln.TestKit.KilnTestResult.operator !=(Kiln.TestKit.KilnTestResult? left, Kiln.TestKit.KilnTestResult? right) -> bool
+static Kiln.TestKit.KilnTestResult.operator ==(Kiln.TestKit.KilnTestResult? left, Kiln.TestKit.KilnTestResult? right) -> bool
 static Kiln.TestKit.LogLine.operator !=(Kiln.TestKit.LogLine? left, Kiln.TestKit.LogLine? right) -> bool
 static Kiln.TestKit.LogLine.operator ==(Kiln.TestKit.LogLine? left, Kiln.TestKit.LogLine? right) -> bool
 ~override Kiln.TestKit.CapabilityRow.Equals(object obj) -> bool
