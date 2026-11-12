@@ -754,6 +754,20 @@ fn the_old_copy_stays_while_a_game_runs_a_profile_from_it() {
 }
 
 #[test]
+fn an_unrecorded_file_alone_keeps_the_old_folder_in_the_notice() {
+    let (fx, _) = committed_copy("proof-addition-only");
+    std::fs::remove_dir_all(fx.dirs.root.join("My Notes")).unwrap();
+    let added = fx.dirs.root.join("library/kiln/added-by-player.txt");
+    std::fs::write(&added, b"mine").unwrap();
+    let c = dfm::remove_old_copy(&fx.env, &mut NoProgress).unwrap();
+    assert!(c.done && !c.folder_removed, "{c:?}");
+    assert_eq!(c.kept.len(), 1, "{c:?}");
+    assert_eq!((&c.kept[0].path, c.kept[0].bytes), (&added, 4));
+    assert!(c.kept[0].reason.contains("not recorded"));
+    assert_eq!(std::fs::read(added).unwrap(), b"mine");
+}
+
+#[test]
 fn with_proof_what_changed_or_was_added_and_unknown_entries_stay() {
     let (fx, to) = committed_copy("proof-changed");
     let old_m = lib_dir(&fx.dirs, &fx.mods.kiln).join("M.dll");
@@ -768,6 +782,7 @@ fn with_proof_what_changed_or_was_added_and_unknown_entries_stay() {
     assert!(kept.get(&old_m).is_some_and(|r| r.contains("old folder")), "{kept:?}");
     assert!(kept.get(&old_fps).is_some_and(|r| r.contains("new place")), "{kept:?}");
     assert!(kept.contains_key(&fx.dirs.root.join("My Notes")));
+    assert!(kept.get(&fx.dirs.root.join("library/kiln/added-by-player.txt")).is_some_and(|r| r.contains("not recorded")), "{kept:?}");
     assert!(old_m.is_file() && old_fps.is_file() && fx.dirs.root.join("library/kiln/added-by-player.txt").is_file());
     assert!(fx.dirs.root.join("My Notes/readme.txt").is_file());
     assert!(!lib_dir(&fx.dirs, &fx.mods.emf).exists(), "an identical file in the new place: removed");

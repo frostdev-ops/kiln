@@ -112,6 +112,15 @@ test("the notice names what Kiln left on purpose and what it could not remove, e
   expect(v.open).toBe(true);
 });
 
+test("an unrecorded file alone still shows the old folder and Open", () => {
+  const v = noticeView({ kind: "moved", from: "/old", to: "/new", left: [], stayed: [],
+    kept: [{ path: "/old/library/added.txt", bytes: 4, reason: "it was not recorded by the move" }],
+    removing: false, unfinished: false, folderRemoved: false, reason: null });
+  expect(v.open).toBe(true);
+  expect(v.facts).toContainEqual({ label: "Old folder", value: "/old" });
+  expect(v.lists[0].items[0].text).toContain("library/added.txt (4 B)");
+});
+
 test("the notice while the old copy is removed, and when its removal goes on next time", () => {
   const n = { kind: "moved" as const, from: "/a", to: "/b", left: [], stayed: [], kept: [], folderRemoved: false, reason: null };
   expect(noticeView({ ...n, removing: true, unfinished: false }).lines).toEqual(["Kiln is removing the old copy."]);

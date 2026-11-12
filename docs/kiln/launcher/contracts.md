@@ -188,7 +188,9 @@ The whole data folder moves as one (`kiln_manage::data_folder`, `kiln_manage::da
   default root. Entries the launcher does not know and entries the target kept for itself are never removed. Calling it
   again when nothing is left removes what a running move could not (its own lock files, the empty old root). Nothing is
   removed without the journal, with a journal whose id is not the new place's marker's or the record's, without the
-  record, or when the folder in use is not `to`; the result then says where the old folder is. Nor while any known
+  record, or when the folder in use is not `to`; the result then says where the old folder is. Files added to the
+  old folder after copying (including inside known entries) stay and are named in `kept` with their size and reason,
+  so the notice still names the old folder and offers Open. Nor while any known
   game's `kiln/profile.json`, `kiln/profile.once.json`, `kiln/chain.ini` or `kiln/chain/once.ini` names a path under
   the old root (`configDir`, `dataDir`, a mod folder, a plugin DLL; Z and native mode), whoever wrote it, or cannot be
   read: the result names the game and says that activating its profile again lets the old copy go at the next start.

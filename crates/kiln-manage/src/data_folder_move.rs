@@ -1704,6 +1704,7 @@ pub fn remove_old_copy(env: &DataEnv, progress: &mut dyn Progress) -> Result<Cle
             remove(&cache, &mut c);
         }
     }
+    let recorded: BTreeSet<PathBuf> = record.files.iter().filter_map(|f| below(&from, &f.path)).collect();
     for e in journal.entries.iter().filter(|e| e.known) {
         let p = from.join(&e.name);
         if is(&e.name, "nexus") {
@@ -1714,6 +1715,7 @@ pub fn remove_old_copy(env: &DataEnv, progress: &mut dyn Progress) -> Result<Cle
             }
         }
         remove_empty_dirs(&p, &mut c.kept);
+        report_unrecorded(&p, &recorded, &mut c.kept);
     }
     for name in ["quick.lock", df::LOCK, MARKER, MOVE_MARKER] {
         let p = from.join(name);
@@ -1742,6 +1744,14 @@ pub fn remove_old_copy(env: &DataEnv, progress: &mut dyn Progress) -> Result<Cle
             if !c.kept.iter().any(|k| k.path == p) {
                 c.kept.push(Kept { path: p, bytes, reason: "the launcher does not know it, so it does not remove it (it was copied to the new place)".into() });
             }
+        }
+    }
+    for e in std::fs::read_dir(&from).into_iter().flatten().flatten() {
+        let name = e.file_name().to_string_lossy().into_owned();
+        if !journal.entries.iter().any(|j| is(&j.name, &name)) && !journal.skipped.iter().any(|s| is(s, &name))
+            && !old_own.iter().any(|o| is(o, &name)) && !df::is_own_file(&name, st) && !df::is_top_lock(&name, st)
+        {
+            report_unrecorded(&e.path(), &recorded, &mut c.kept);
         }
     }
     if !same_folder(&from, &default) && std::fs::read_dir(&from).is_ok_and(|mut d| d.next().is_none()) {
@@ -1825,6 +1835,23 @@ fn dir_bytes(p: &Path) -> u64 {
         }
     }
     n
+}
+
+/// Name additions under a recorded entry too: leaving a file must not hide the old folder from the notice.
+fn report_unrecorded(p: &Path, recorded: &BTreeSet<PathBuf>, kept: &mut Vec<Kept>) {
+    let Ok(m) = std::fs::symlink_metadata(p) else { return };
+    #[cfg(windows)]
+    let link = { use std::os::windows::fs::MetadataExt; m.file_attributes() & 0x400 != 0 };
+    #[cfg(not(windows))]
+    let link = m.file_type().is_symlink();
+    if m.is_dir() && !link {
+        match std::fs::read_dir(p) {
+            Ok(entries) => for e in entries.flatten() { report_unrecorded(&e.path(), recorded, kept); },
+            Err(e) => kept.push(Kept { path: p.to_path_buf(), bytes: 0, reason: format!("its remaining files could not be listed: {e}") }),
+        }
+    } else if !recorded.contains(p) && !kept.iter().any(|k| k.path == p) {
+        kept.push(Kept { path: p.to_path_buf(), bytes: m.len(), reason: "it was not recorded by the move, so it stays in the old folder".into() });
+    }
 }
 
 /// Removes the folders below and at `p` that hold nothing (bottom up). Never a file. A folder that holds nothing and
