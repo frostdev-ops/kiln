@@ -1,0 +1,10 @@
+{
+  "id": "player-anim-test",
+  "name": "kiln.playeranim lab test",
+  "version": "0.1.0",
+  "apiVersion": "0.2",
+  "entryAssembly": "PlayerAnimTest.dll",
+  "side": "server",
+  "advanced": true,
+  "description": "The measuring half of mods/tests/player-anim-test/run.py: reads plan.json, plays sequences on a spawned 1_Player and logs what the server's animation engine made of them (pat: lines). Defines no player state itself. Lab only."
+}

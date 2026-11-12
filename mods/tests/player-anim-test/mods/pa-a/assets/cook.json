@@ -1,0 +1,14 @@
+{
+  "format": 1,
+  "tool": "animcook",
+  "out": "cooked",
+  "comment": "src/pa-a.gltf is written by ../../make_clips.py where the mod is cooked (it holds the player's skeleton from the installed game).",
+  "inputs": { "player_skeleton": { "guid": "87b29df6-6518-43ef-9298-e3f85a6204b9", "type": "keen::ModelHierarchyResource" } },
+  "steps": [
+    { "op": "clips", "skeleton": "@player_skeleton", "gltf": "src/pa-a.gltf", "clips": {
+        "a_slash": { "animation": "a_slash" },
+        "a_guard": { "animation": "a_guard", "loop": true },
+        "a_leap": { "animation": "a_leap" },
+        "a_bolt": { "animation": "a_bolt" } } }
+  ]
+}
