@@ -1,0 +1,10 @@
+{
+  "id": "client-check-test",
+  "name": "Guided check runner test",
+  "version": "0.1.0",
+  "apiVersion": "0.2",
+  "entryAssembly": "ClientCheckTest.dll",
+  "side": "both",
+  "clients": "kiln",
+  "description": "Guided checks for the check runner itself (docs/kiln/modding/testing.md, Guided checks): a pass on assertions, a fail with a note, a skip, two instructions with ticks between, a log line with private data, a cheats check that must never run without the guard, and the check that shows it did not. fixtures/client_checks_lab.py drives them on a lab server through kiln/control/checks/."
+}

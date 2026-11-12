@@ -93,7 +93,7 @@ public class OriginalCodeTests
     }
 
     [Fact]
-    public void KeepGivesTheSameZeroedBlockPerKey()
+    public void KeepGivesTheSameZeroedBlockPerKey() => TestMods.As(Coremod, () =>
     {
         var a = Keep.Block("tests.keep", 16);
         var b = Keep.Block("tests.keep", 64);
@@ -104,7 +104,7 @@ public class OriginalCodeTests
         span[0] = 42;
         Assert.Equal(42, Keep.Span<int>("tests.keep", 4)[0]);
         Assert.NotEqual(a, Keep.Block("tests.other", 4));
-    }
+    });
 
     public static IEnumerable<object[]> MalformedImages()
     {
@@ -173,32 +173,39 @@ public class OriginalCodeTests
     }
 
     [Fact]
-    public void TryFindReportsInvalidOrUnavailableImagesWithoutThrowing()
+    public void TryFindReportsInvalidOrUnavailableImagesWithoutThrowing() => TestMods.As(Coremod, () =>
     {
         Assert.False(OriginalCode.TryFindUnique("invalid", out var address, out var why));
         Assert.Equal((nuint)0, address);
         Assert.NotEmpty(why);
         Assert.Throws<ArgumentOutOfRangeException>(() => OriginalCode.Read(0, -1));
-    }
+    });
+
+    // The raw entry points are gated (advanced mods only); these tests run as one.
+    static readonly ModContext Coremod = TestMods.Make("original-code-tests", advanced: true);
 
     [Fact]
-    public void KeepValidatesElementCountsBeforeMultiplication()
+    public void KeepValidatesElementCountsBeforeMultiplication() => TestMods.As(Coremod, () =>
     {
         Assert.Throws<ArgumentOutOfRangeException>(() => { Keep.Span<long>("tests.negative", -1); });
         Assert.Throws<OverflowException>(() => { Keep.Span<long>("tests.overflow", 0x20000000); });
         Assert.Throws<OverflowException>(() => { Keep.Span<long>("tests.wrap-positive", 0x20000001); });
-    }
+    });
 
     [Fact]
     public void KeepPublishesOneInitializedAllocationUnderContention()
     {
         string key = "tests.contended." + Guid.NewGuid();
         var pointers = new nint[128];
-        Parallel.For(0, pointers.Length, i => pointers[i] = Keep.Block(key, 32));
+        // every worker thread runs as the mod, as a hook handler on a game thread does (the gate reads CurrentMod)
+        Parallel.For(0, pointers.Length, i => pointers[i] = TestMods.As(Coremod, () => Keep.Block(key, 32)));
         Assert.All(pointers, p => Assert.Equal(pointers[0], p));
-        Assert.Equal(new int[8], Keep.Span<int>(key, 8).ToArray());
-        Keep.Span<int>(key, 8)[7] = 123;
-        Parallel.For(0, pointers.Length, _ => Assert.Equal(123, Keep.Span<int>(key, 64)[7]));
+        TestMods.As(Coremod, () =>
+        {
+            Assert.Equal(new int[8], Keep.Span<int>(key, 8).ToArray());
+            Keep.Span<int>(key, 8)[7] = 123;
+        });
+        Parallel.For(0, pointers.Length, _ => TestMods.As(Coremod, () => Assert.Equal(123, Keep.Span<int>(key, 64)[7])));
     }
 
 
@@ -240,11 +247,11 @@ public class OriginalCodeTests
     }
 
     [Fact]
-    public void KeepZeroSizeHasAnEmptyView()
+    public void KeepZeroSizeHasAnEmptyView() => TestMods.As(Coremod, () =>
     {
         string key = "tests.zero." + Guid.NewGuid();
         Assert.NotEqual(0, Keep.Block(key, 0));
         Assert.Empty(Keep.Span<byte>(key, 10).ToArray());
-    }
+    });
 
 }

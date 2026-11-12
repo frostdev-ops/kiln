@@ -111,6 +111,28 @@ public readonly record struct TalentHolder(ulong SteamId, EntityId Entity)
 
     public override string ToString() =>
         (Entity.IsNone ? $"steam {SteamId}" : $"entity {Entity} (steam {SteamId})") + (Character.IsNone ? "" : $" character {Character}");
+
+    /// <summary>This holder as a <see cref="PlayerRef"/>. With an entity: <see cref="PlayerRef.Of"/> of it (the session
+    /// stamped as Kiln.Players stamps it), unless that entity is no player in game now or is a different person (the
+    /// slot was reused), which gives the offline ref of the holder's Steam and character id. If neither Steam ids nor
+    /// character ids can be compared, also gives the offline ref rather than trusting the slot. Without an entity: that
+    /// offline ref, read on any thread. <see cref="PlayerRef.Resolve"/> finds the current session.</summary>
+    /// <exception cref="InvalidOperationException">The holder has an entity and this is not the tick thread.</exception>
+    /// <exception cref="KilnUnavailableException">The holder has an entity and kiln.players cannot answer
+    /// (<c>identity.players</c>).</exception>
+    [TickThreadOnly]
+    public static explicit operator PlayerRef(TalentHolder holder)
+    {
+        var offline = new PlayerRef(holder.SteamId, holder.Character.Id, EntityRef.None);
+        if (holder.Entity.IsNone) return offline;
+        var live = PlayerRef.Of(holder.Entity);
+        if (live.IsNone) return offline;
+        var canCompareSteam = holder.SteamId != 0 && live.SteamId != 0;
+        var canCompareCharacter = holder.Character.Id != Guid.Empty && live.HasCharacter;
+        var otherSteam = canCompareSteam && holder.SteamId != live.SteamId;
+        var otherCharacter = canCompareCharacter && holder.Character.Id != live.CharacterId;
+        return otherSteam || otherCharacter || !(canCompareSteam || canCompareCharacter) ? offline : live;
+    }
 }
 
 /// <summary>What a node does while it is unlocked. Effects start at unlock and at every join, end at lock and respec,
@@ -124,7 +146,9 @@ public abstract class TalentEffect
 
     /// <summary>A buff (a game buff's or a kiln.gamedata buff clone's GUID) kept on the player: applied for
     /// <paramref name="refreshSeconds"/> + 5 s and renewed every <paramref name="refreshSeconds"/>, so it ends within
-    /// that time after a lock (Kiln cannot take a game buff off early).</summary>
+    /// that time after a lock: this effect does not take the buff off early. (The game's Impact native
+    /// <c>removeBuff</c> exists and Kiln.Blocks' generated programs call it, but this code path only applies and renews
+    /// the buff, and there is no public <c>Abilities.RemoveBuff</c> yet.)</summary>
     public static TalentEffect Buff(Guid buff, double refreshSeconds = 30) => new BuffEffect(buff, null, refreshSeconds);
     /// <summary>A buff by name: a buff clone's name ("MyMod_Frost") or "0x&lt;buff id&gt;", resolved through
     /// kiln.gamedata when it is applied.</summary>
