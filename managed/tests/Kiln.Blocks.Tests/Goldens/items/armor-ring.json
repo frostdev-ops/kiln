@@ -1,0 +1,36 @@
+{
+  "items": [
+    {
+      "guid": "1e9ac342-eee2-50ce-8433-d72731bb6c6a",
+      "name": "golden-items.armor-ring",
+      "base": "Ring_T1_Ring_of_Health",
+      "displayName": "Ring",
+      "description": "",
+      "fields": {
+        "rarity": "Common",
+        "generateRarity": "False",
+        "itemLevelRange.minLevel": 1,
+        "itemLevelRange.maxLevel": 1
+      },
+      "refs": {}
+    }
+  ],
+  "itemRules": {
+    "uiValues": [
+      {
+        "locaId": "0x88fbd16d",
+        "valueFormat": "Normal",
+        "value": 1
+      },
+      {
+        "locaId": "0xda23cb46",
+        "valueFormat": "Normal",
+        "value": 25
+      }
+    ],
+    "impactValues.0x17147b63": 1,
+    "impactValues.0x9d74c0c0": 0,
+    "impactValues.0xc24ecbbb": 0,
+    "impactValues.0xcdfaf8a5": 25
+  }
+}

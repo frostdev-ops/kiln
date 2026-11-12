@@ -1,0 +1,19 @@
+{
+  "items": [
+    {
+      "guid": "60531ceb-6931-53c0-9309-124c9c5f3eb3",
+      "name": "golden-items.weapon-greatsword",
+      "base": "Weapon_T1_2H_GreatSword_01",
+      "displayName": "Greatsword",
+      "description": "",
+      "fields": {
+        "rarity": "Common",
+        "generateRarity": "False",
+        "itemLevelRange.minLevel": 1,
+        "itemLevelRange.maxLevel": 1
+      },
+      "refs": {}
+    }
+  ],
+  "itemRules": {}
+}

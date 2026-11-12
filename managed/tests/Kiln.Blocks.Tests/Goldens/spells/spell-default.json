@@ -1,0 +1,87 @@
+{
+  "programs": [
+    {
+      "key": "spell-default.impact",
+      "guid": "d864da8a-19cb-5e99-9093-389fddfb6857",
+      "size": 388
+    },
+    {
+      "key": "spell-default.projectile",
+      "guid": "85a2c274-2333-521c-9459-5a3ab0cde1d1",
+      "size": 2648
+    }
+  ],
+  "templates": [
+    {
+      "guid": "71fecef7-7e5b-5e37-af8b-2efdbd5545aa",
+      "name": "golden-items.spell-default.impact",
+      "base": "Explosion_Player_Spell_IceBolt_1",
+      "fields": {
+        "Impact.program": "d864da8a-19cb-5e99-9093-389fddfb6857"
+      }
+    },
+    {
+      "guid": "bb62cedf-fec4-5825-8b64-071961bdc655",
+      "name": "golden-items.spell-default.projectile",
+      "base": "Projectile_Player_Staff_IceBolt_1",
+      "fields": {
+        "StaticGravityModifier.modifier": 0.1,
+        "LifeTime.lifeTime": 5,
+        "Impact.program": "85a2c274-2333-521c-9459-5a3ab0cde1d1"
+      }
+    }
+  ],
+  "templateRules": {
+    "ImpactConfiguration.configValues.0xf6a785cd": "71fecef7-7e5b-5e37-af8b-2efdbd5545aa"
+  },
+  "items": [
+    {
+      "guid": "fdce8d86-b33e-52b2-8cc1-67c1ecbd2753",
+      "name": "golden-items.spell-default",
+      "base": "Ammo_T1_Spell_Ice_Bolt_lvl5",
+      "displayName": "Bolt",
+      "description": "",
+      "fields": {
+        "maxStackSize": 500,
+        "itemLevelRange.minLevel": 1,
+        "itemLevelRange.maxLevel": 1,
+        "equipment.placedEntityLocalSpawnVelocity.z": 30,
+        "damageSetup.speedMod": 1,
+        "damageSetup.dmgMod": 1.8636363636363635,
+        "damageSetup.distribution.physicalCutDamage": 0,
+        "damageSetup.distribution.physicalPierceDamage": 0,
+        "damageSetup.distribution.physicalBluntDamage": 0,
+        "damageSetup.distribution.magicalFireDamage": 0,
+        "damageSetup.distribution.magicalIceDamage": 1,
+        "damageSetup.distribution.magicalFogDamage": 0,
+        "damageSetup.distribution.magicalLightningDamage": 0,
+        "damageSetup.distribution.poisonDamage": 0,
+        "damageSetup.distribution.woodDamage": 0,
+        "damageSetup.distribution.stoneDamage": 0,
+        "damageSetup.distribution.metalDamage": 0,
+        "damageSetup.distribution.explosionDamage": 0
+      },
+      "refs": {
+        "equipment.placedEntity": "bb62cedf-fec4-5825-8b64-071961bdc655",
+        "equipment.visualEntity": "item:Ammo_T1_Spell_Ice_Bolt_lvl5"
+      }
+    }
+  ],
+  "itemRules": {
+    "impactValues.ManaCost": 10,
+    "impactValues.0x579b2657": 1,
+    "sequences[0].sequence": "Attack_Player_Staff_FixedAnim_IceBolt_fast",
+    "uiValues": [
+      {
+        "locaId": "0xbe5b2600",
+        "valueFormat": "Normal",
+        "value": 10
+      },
+      {
+        "locaId": "0x5c76837c",
+        "valueFormat": "Duration",
+        "value": 1000
+      }
+    ]
+  }
+}

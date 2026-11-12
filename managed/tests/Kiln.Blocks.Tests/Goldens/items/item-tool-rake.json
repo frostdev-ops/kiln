@@ -1,0 +1,29 @@
+{
+  "items": [
+    {
+      "guid": "82b582f8-5cfb-58e5-a788-452fd1f933e2",
+      "name": "golden-items.item-tool-rake",
+      "base": "Tool_T0_Rake_Wooden",
+      "displayName": "Big Rake",
+      "description": "",
+      "fields": {
+        "rarity": "Common",
+        "generateRarity": "False",
+        "itemLevelRange.minLevel": 1,
+        "itemLevelRange.maxLevel": 1
+      },
+      "refs": {}
+    }
+  ],
+  "itemRules": {
+    "impactValues.0x17147b63": 1,
+    "impactValues.0xadb211a3": 900,
+    "impactValues.RangeTerraforming": 5,
+    "impactValues.RangeTerraformingFlatten": 5
+  },
+  "itemDataRules": {
+    "equipment.placementColliders[0].dataArray[0].shape.halfSize.x": 5,
+    "equipment.placementColliders[0].dataArray[0].shape.halfSize.z": 5,
+    "equipment.placementColliders[0].joltObjects[0].hash": 3530408107
+  }
+}

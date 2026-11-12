@@ -1,0 +1,111 @@
+{
+  "templates": [
+    {
+      "guid": "c2b00399-5a14-54bf-9ff3-4a75585c61d0",
+      "name": "golden-items.weapon-full.held",
+      "base": "Visuals_Axe_02_Light",
+      "fields": {
+        "VfxComponent.slot": "HandR",
+        "VfxComponentResource.vfx": "85e60392-52e2-4488-8653-2d539c18c80c"
+      }
+    },
+    {
+      "guid": "b23dbb2a-44e4-5707-8a36-85b38dc693f1",
+      "name": "golden-items.vfx.85e60392-52e2-4488-8653-2d539c18c80c.0.0.0.5",
+      "base": "VFX_NPC_Place",
+      "fields": {
+        "LifeTime.lifeTime": 5,
+        "VfxComponentResource.vfx": "85e60392-52e2-4488-8653-2d539c18c80c"
+      }
+    }
+  ],
+  "templateRules": {
+    "ModelResource.model": "item:Weapon_T1_1H_Sword_01.iconModel"
+  },
+  "held": {
+    "template": "golden-items.weapon-full.held",
+    "vfx": "85e60392-52e2-4488-8653-2d539c18c80c"
+  },
+  "items": [
+    {
+      "guid": "0b508a02-72a1-56bd-b35d-3d4d2d90156e",
+      "name": "golden-items.weapon-full",
+      "base": "Weapon_T1_1H_Sword_Craft",
+      "displayName": "Cinderbrand",
+      "description": "Hot.",
+      "fields": {
+        "rarity": "Rare",
+        "generateRarity": "False",
+        "itemLevelRange.minLevel": 12,
+        "itemLevelRange.maxLevel": 12,
+        "damageSetup.speedMod": 1,
+        "damageSetup.dmgMod": 1.7321428571428572,
+        "itemColorCombinationSetup.color0": 4294936576,
+        "itemColorCombinationSetup.isSet": "True"
+      },
+      "refs": {
+        "equipment.visualEntity": "c2b00399-5a14-54bf-9ff3-4a75585c61d0"
+      }
+    }
+  ],
+  "itemParts": {
+    "model": "item:Weapon_T1_1H_Sword_01",
+    "icon": "item:Weapon_T1_1H_Sword_01",
+    "perks": [
+      null,
+      "item:Weapon_T1_1H_Sword_01",
+      "item:Weapon_T1_1H_Sword_01",
+      null,
+      null
+    ],
+    "drops": [
+      {
+        "table": "like:Weapon_T1_1H_Sword_01",
+        "countMin": 1,
+        "countMax": 1,
+        "chance": 0.25,
+        "weight": 1
+      }
+    ]
+  },
+  "itemRules": {
+    "impactValues.StaminaCost": 9
+  },
+  "itemDataRules": {
+    "perkReferences[0]": "Perk_Damage_Ice"
+  },
+  "programs": [
+    {
+      "key": "weapon-full.onhit",
+      "guid": "ef82c481-068b-560f-9173-256d90a78dea",
+      "size": 2608
+    }
+  ],
+  "onHitProgram": "ef82c481-068b-560f-9173-256d90a78dea",
+  "recipes": [
+    {
+      "guid": "caf64f72-a69c-5481-8945-384d106a21bd",
+      "name": "golden-items.weapon-full.recipe",
+      "station": "hand",
+      "menu": null,
+      "seconds": null,
+      "fields": null,
+      "inputs": [
+        {
+          "item": "Material_T1_Metal_Scraps",
+          "count": 4
+        },
+        {
+          "item": "Material_T1_Wood_Logs",
+          "count": 2
+        }
+      ],
+      "outputs": [
+        {
+          "item": "golden-items.weapon-full",
+          "count": 1
+        }
+      ]
+    }
+  ]
+}

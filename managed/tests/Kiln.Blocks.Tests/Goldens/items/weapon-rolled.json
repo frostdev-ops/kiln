@@ -1,0 +1,27 @@
+{
+  "items": [
+    {
+      "guid": "6508ee61-ca28-5849-8837-73cc07304391",
+      "name": "golden-items.weapon-rolled",
+      "base": "Weapon_T1_2H_Hammer_01",
+      "displayName": "Rolled",
+      "description": "",
+      "fields": {
+        "rarity": "Common",
+        "generateRarity": "True",
+        "itemLevelRange.minLevel": 1,
+        "itemLevelRange.maxLevel": 55
+      },
+      "refs": {}
+    }
+  ],
+  "itemParts": {
+    "loot": {
+      "like": "Weapon_T1_2H_Hammer_01",
+      "stackMin": null,
+      "stackMax": null
+    },
+    "rolled": true
+  },
+  "itemRules": {}
+}

@@ -107,6 +107,8 @@ public sealed record WeaponBlock : IBlock, ITweakable
     public LootBlock? Loot { get; init; }
     /// <summary>The name this block had before a rename. Ids come from the oldest name, so saves keep it.</summary>
     public string? Was { get; init; }
+    /// <summary>What its attack slots play: its own motions, timing and chains, slot by slot. Null: its class's (docs/kiln/modding/item-blocks.md, "Moves").</summary>
+    public WeaponMoves? Moves { get; init; }
 
     /// <summary>Game fields this block does not cover, set on the item it makes: <c>Tweak = { { GameFields.Items.MaxStackSize, 5 } }</c>. It wins over what the block sets.</summary>
     [JsonConverter(typeof(ItemTweakConverter))]
@@ -203,10 +205,19 @@ public sealed record WandAttack
     public WandMoves? Moves { get; init; }
 }
 
-/// <summary>A wand's attack motion, with its timing. Premade instances of a block you will also be able to write yourself.</summary>
-[JsonConverter(typeof(PremadeConverter<WandMoves>))]
+/// <summary>A wand's attack motion, with its timing. Premade instances; <c>WandMoves.Heavy with { Animation = …, HitAt = 1.1 }</c> plays another state or moves the release
+/// (in JSON <c>{ "like": "heavy", "animation": …, "hitAt": 1.1 }</c>; without <c>like</c>, the attack's own motion).</summary>
+[JsonConverter(typeof(MotionConverter<WandMoves>))]
 public sealed record WandMoves(string Key, string Sequence, double ReleaseSeconds, int[] Fires, int[] Silenced) : IPremade
 {
+    /// <summary>The state the motion plays, as <see cref="MoveBlock.Animation"/> takes it. Null: the motion's own.</summary>
+    public MoveAnimation? Animation { get; init; }
+    /// <summary>Seconds into the motion the attack leaves the wand: the release, as <see cref="CastBlock.ReleaseAt"/> (give one of them, or the same number). The rest of the
+    /// motion is scaled to fit before it and shifted after it. Null: the motion's own.</summary>
+    public double? HitAt { get; init; }
+    /// <summary>JSON's object with no <c>like</c>: the attack's own motion, with what the object changes.</summary>
+    internal static readonly WandMoves Unset = new("", "", 0, [], []);
+
     /// <summary>The quick bolt.</summary>
     public static readonly WandMoves Bolt = new("bolt", "Attack_Player_Wand_IceChain_normal", 0.35, [0, 1], []);
     /// <summary>The long wind-up.</summary>

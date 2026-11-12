@@ -1,0 +1,34 @@
+{
+  "programs": [
+    {
+      "key": "item-potion-heals-onuse.use",
+      "guid": "0dfca12b-a466-5a21-811c-f774fffc4dbb",
+      "size": 600
+    }
+  ],
+  "sequences": [
+    {
+      "guid": "452523bf-7998-58e0-ae3e-5ef5aa6cc295",
+      "name": "golden-items.item-potion-heals-onuse.use",
+      "base": "UseItem_Potion_Health",
+      "fields": {
+        "events[SpawnImpact#0].impact": "0dfca12b-a466-5a21-811c-f774fffc4dbb"
+      }
+    }
+  ],
+  "items": [
+    {
+      "guid": "8e3987b7-eaa5-5f0e-91eb-7636aedce715",
+      "name": "golden-items.item-potion-heals-onuse",
+      "base": "Consumable_Potion_Health_T1",
+      "displayName": "Red Plus",
+      "description": "",
+      "fields": {},
+      "refs": {}
+    }
+  ],
+  "itemRules": {
+    "impactValues.0xbbe4bf53": 40,
+    "sequences[0].sequence": "golden-items.item-potion-heals-onuse.use"
+  }
+}
