@@ -58,6 +58,7 @@
       "checks": ["weapon-moves-test/blocks.moves-chain", "weapon-moves-test/blocks.moves-hit-timing", "weapon-moves-test/blocks.moves-heavy-block", "weapon-moves-test/blocks.moves-vanilla-unchanged"] },
     { "section": "New in 0.2.0-dev.26", "key": "A held model with moving parts", "checks": ["weapon-moves-test/blocks.held-animated", "weapon-moves-test/blocks.held-animated-two-players"] },
 
-    { "section": "New in 0.2.0-dev.27", "key": "A mod takes a buff off a player: the icon goes", "checks": ["abilities.remove-buff"] }
+    { "section": "New in 0.2.0-dev.27", "key": "A mod takes a buff off a player: the icon goes", "checks": ["abilities.remove-buff"] },
+    { "section": "New in 0.2.0-dev.27", "key": "Player.Aim follows the player's camera", "checks": ["players.aim"] }
   ]
 }

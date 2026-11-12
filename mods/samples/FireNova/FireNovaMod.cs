@@ -12,7 +12,9 @@ namespace FireNova;
 ///  2. A per-cast tweak of the game's Fireball: at night, every Fireball explosion a player causes starts with its
 ///     AttackMod doubled (ImpactStartingEvent, before the explosion's first run). Vanilla clients see the bigger
 ///     numbers; their tooltips stay vanilla.
-///  3. Fire Nova also burns the caster's debuffs away (Abilities.BuffsOf lists them, Abilities.RemoveBuff takes each off
+///  3. Flare (key H, or /flare): one Fireball explosion 12 m out along the player's view, where the camera looks
+///     (Player.Aim: the camera the player's client sends; the ray starts at the camera, behind the character).
+///  4. Fire Nova also burns the caster's debuffs away (Abilities.BuffsOf lists them, Abilities.RemoveBuff takes each off
 ///     through the game's own removeBuff: the icons go on every client).
 /// </summary>
 public sealed class FireNovaMod : Mod
@@ -35,8 +37,20 @@ public sealed class FireNovaMod : Mod
             Targeting = AbilityTargeting.Self,
             OnCast = CastNova,
         });
+        Abilities.Register(new AbilityDefinition
+        {
+            Id = "firenova:flare",
+            DisplayName = "Flare",
+            Description = "A burst of fire where you look",
+            DefaultKey = "H",
+            ChatCommand = "flare",
+            Cost = AbilityCost.OfMana(20),
+            Cooldown = TimeSpan.FromSeconds(3),
+            Targeting = AbilityTargeting.Self,
+            OnCast = CastFlare,
+        });
         if (Abilities.Available) Abilities.HoldPrograms(FireballExplosionProgram);  // only this program waits for OnStarting
-        Log.Info("firenova: Fire Nova registered (G or /nova); Fireball damage x2 at night");
+        Log.Info("firenova: Fire Nova (G or /nova) and Flare (H or /flare) registered; Fireball damage x2 at night");
     }
 
     // The explosion's own damage: a Kiln-spawned impact has no used item (a staff cast takes its damage from the
@@ -62,6 +76,16 @@ public sealed class FireNovaMod : Mod
             var a = ring * Math.PI / 3;
             await cast.Impact(Explosion, c with { X = c.X + 3.5 * Math.Cos(a), Z = c.Z + 3.5 * Math.Sin(a) }, NovaConfigs);
         }
+    }
+
+    // Where the caster's camera looks, 12 m out; without a camera (an NPC, a player whose client sent none yet, a build
+    // without players.aim) the flare goes off at the caster.
+    private static async Task CastFlare(AbilityCast cast)
+    {
+        PlayerAim? aim = null;
+        try { aim = PlayerStates.AimOf(cast.Caster); }
+        catch (KilnUnavailableException) { }
+        await cast.Impact(Explosion, aim?.At(12) ?? cast.CasterPosition, NovaConfigs);
     }
 
     [Subscribe]

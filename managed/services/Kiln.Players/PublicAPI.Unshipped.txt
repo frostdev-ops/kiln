@@ -1,1 +1,28 @@
 #nullable enable
+Kiln.Player.Aim.get -> Kiln.PlayerAim?
+Kiln.PlayerAim
+Kiln.PlayerAim.<Clone>$() -> Kiln.PlayerAim!
+Kiln.PlayerAim.At(double metres) -> Kiln.WorldPosition
+Kiln.PlayerAim.Deconstruct(out Kiln.WorldPosition Origin, out System.Numerics.Vector3 Direction, out System.Numerics.Quaternion Rotation, out float Distance, out float FieldOfView, out Kiln.PlayerStateOrigin Source) -> void
+Kiln.PlayerAim.Direction.get -> System.Numerics.Vector3
+Kiln.PlayerAim.Direction.init -> void
+Kiln.PlayerAim.Distance.get -> float
+Kiln.PlayerAim.Distance.init -> void
+Kiln.PlayerAim.Equals(Kiln.PlayerAim? other) -> bool
+Kiln.PlayerAim.FieldOfView.get -> float
+Kiln.PlayerAim.FieldOfView.init -> void
+Kiln.PlayerAim.Origin.get -> Kiln.WorldPosition
+Kiln.PlayerAim.Origin.init -> void
+Kiln.PlayerAim.PitchDegrees.get -> float
+Kiln.PlayerAim.PlayerAim(Kiln.WorldPosition Origin, System.Numerics.Vector3 Direction, System.Numerics.Quaternion Rotation, float Distance, float FieldOfView, Kiln.PlayerStateOrigin Source) -> void
+Kiln.PlayerAim.Rotation.get -> System.Numerics.Quaternion
+Kiln.PlayerAim.Rotation.init -> void
+Kiln.PlayerAim.Source.get -> Kiln.PlayerStateOrigin
+Kiln.PlayerAim.Source.init -> void
+Kiln.PlayerAim.YawDegrees.get -> float
+override Kiln.PlayerAim.Equals(object? obj) -> bool
+override Kiln.PlayerAim.GetHashCode() -> int
+override Kiln.PlayerAim.ToString() -> string!
+static Kiln.PlayerAim.operator !=(Kiln.PlayerAim? left, Kiln.PlayerAim? right) -> bool
+static Kiln.PlayerAim.operator ==(Kiln.PlayerAim? left, Kiln.PlayerAim? right) -> bool
+static Kiln.PlayerStates.AimOf(Kiln.EntityId player) -> Kiln.PlayerAim?

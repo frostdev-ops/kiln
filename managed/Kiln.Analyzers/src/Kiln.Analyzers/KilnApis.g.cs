@@ -431,6 +431,7 @@ internal static partial class KilnApis
         "M:Kiln.Permissions.SetGroup(System.String,System.Nullable{System.Boolean},System.Collections.Generic.IEnumerable{System.String})", // Permissions.SetGroup(string, bool?, IEnumerable<string>?): via PermissionStore.Edit(Action<PermissionModel>, string)
         "M:Kiln.Permissions.SetGroupNode(System.String,System.String,System.Nullable{System.Boolean})", // Permissions.SetGroupNode(string, string, bool?): via PermissionStore.Edit(Action<PermissionModel>, string)
         "M:Kiln.Permissions.SetPlayerNode(System.UInt64,System.String,System.Nullable{System.Boolean},System.String)", // Permissions.SetPlayerNode(ulong, string, bool?, string?): via PermissionStore.Edit(Action<PermissionModel>, string)
+        "M:Kiln.Player.get_Aim", // Player.Aim.get: via PlayerStates.AimOf(EntityId)
         "M:Kiln.PlayerData.Contains(System.UInt64,System.String)", // PlayerData.Contains(ulong, string): via PlayerData.Bundle(ulong, string)
         "M:Kiln.PlayerData.Get``1(System.UInt64,System.String)", // PlayerData.Get<T>(ulong, string): via PlayerData.Bundle(ulong, string)
         "M:Kiln.PlayerData.Keys(System.UInt64)", // PlayerData.Keys(ulong): via PlayerData.Bundle(ulong, string)
@@ -442,6 +443,7 @@ internal static partial class KilnApis
         "M:Kiln.PlayerRef.Of(Kiln.EntityId)", // PlayerRef.Of(EntityId): Game.AssertTickThread
         "M:Kiln.PlayerRef.Resolve", // PlayerRef.Resolve(): Game.AssertTickThread
         "M:Kiln.PlayerRef.get_IsOnline", // PlayerRef.IsOnline.get: via EntityRef.IsAlive.get
+        "M:Kiln.PlayerStates.AimOf(Kiln.EntityId)", // PlayerStates.AimOf(EntityId): Game.AssertTickThread
         "M:Kiln.Players.Diagnostics.ProbePosition(Kiln.EntityId)", // Players.Diagnostics.ProbePosition(EntityId): Services.RequireTickThread
         "M:Kiln.Players.Diagnostics.RawSlot(System.Int32)", // Players.Diagnostics.RawSlot(int): Services.RequireTickThread
         "M:Kiln.ProgressFact.Holds(Kiln.EntityId)", // ProgressFact.Holds(EntityId): Services.RequireTickThread
