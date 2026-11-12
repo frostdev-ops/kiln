@@ -1,0 +1,115 @@
+#nullable enable
+Kiln.GamePlayerState
+Kiln.GamePlayerState.<Clone>$() -> Kiln.GamePlayerState!
+Kiln.GamePlayerState.Deconstruct(out string! Machine, out string! Name, out Kiln.PlayerStateKind Kind, out System.Collections.Generic.IReadOnlyList<uint>! Ids) -> void
+Kiln.GamePlayerState.Equals(Kiln.GamePlayerState? other) -> bool
+Kiln.GamePlayerState.GamePlayerState(string! Machine, string! Name, Kiln.PlayerStateKind Kind, System.Collections.Generic.IReadOnlyList<uint>! Ids) -> void
+Kiln.GamePlayerState.Ids.get -> System.Collections.Generic.IReadOnlyList<uint>!
+Kiln.GamePlayerState.Ids.init -> void
+Kiln.GamePlayerState.Kind.get -> Kiln.PlayerStateKind
+Kiln.GamePlayerState.Kind.init -> void
+Kiln.GamePlayerState.Machine.get -> string!
+Kiln.GamePlayerState.Machine.init -> void
+Kiln.GamePlayerState.Name.get -> string!
+Kiln.GamePlayerState.Name.init -> void
+Kiln.PlayerAnimState
+Kiln.PlayerAnimState.<Clone>$() -> Kiln.PlayerAnimState!
+Kiln.PlayerAnimState.BlendIn.get -> float?
+Kiln.PlayerAnimState.BlendIn.init -> void
+Kiln.PlayerAnimState.Clip.get -> string!
+Kiln.PlayerAnimState.Clip.init -> void
+Kiln.PlayerAnimState.Deconstruct(out string! Name, out string! Clip, out string! Like) -> void
+Kiln.PlayerAnimState.Equals(Kiln.PlayerAnimState? other) -> bool
+Kiln.PlayerAnimState.Like.get -> string!
+Kiln.PlayerAnimState.Like.init -> void
+Kiln.PlayerAnimState.Loop.get -> bool?
+Kiln.PlayerAnimState.Loop.init -> void
+Kiln.PlayerAnimState.Name.get -> string!
+Kiln.PlayerAnimState.Name.init -> void
+Kiln.PlayerAnimState.PlayerAnimState(string! Name, string! Clip, string! Like) -> void
+Kiln.PlayerAnimState.Speed.get -> float?
+Kiln.PlayerAnimState.Speed.init -> void
+Kiln.PlayerAnimStateInfo
+Kiln.PlayerAnimStateInfo.<Clone>$() -> Kiln.PlayerAnimStateInfo!
+Kiln.PlayerAnimStateInfo.Deconstruct(out string! Mod, out string! Name, out System.Guid Guid, out uint Id, out Kiln.PlayerStateKind Kind, out Kiln.PlayerStateStatus Status, out string! Like, out string! Machine, out string! Reason) -> void
+Kiln.PlayerAnimStateInfo.Equals(Kiln.PlayerAnimStateInfo? other) -> bool
+Kiln.PlayerAnimStateInfo.Guid.get -> System.Guid
+Kiln.PlayerAnimStateInfo.Guid.init -> void
+Kiln.PlayerAnimStateInfo.Id.get -> uint
+Kiln.PlayerAnimStateInfo.Id.init -> void
+Kiln.PlayerAnimStateInfo.Kind.get -> Kiln.PlayerStateKind
+Kiln.PlayerAnimStateInfo.Kind.init -> void
+Kiln.PlayerAnimStateInfo.Like.get -> string!
+Kiln.PlayerAnimStateInfo.Like.init -> void
+Kiln.PlayerAnimStateInfo.Machine.get -> string!
+Kiln.PlayerAnimStateInfo.Machine.init -> void
+Kiln.PlayerAnimStateInfo.Mod.get -> string!
+Kiln.PlayerAnimStateInfo.Mod.init -> void
+Kiln.PlayerAnimStateInfo.Name.get -> string!
+Kiln.PlayerAnimStateInfo.Name.init -> void
+Kiln.PlayerAnimStateInfo.PlayerAnimStateInfo(string! Mod, string! Name, System.Guid Guid, uint Id, Kiln.PlayerStateKind Kind, Kiln.PlayerStateStatus Status, string! Like, string! Machine, string! Reason) -> void
+Kiln.PlayerAnimStateInfo.Reason.get -> string!
+Kiln.PlayerAnimStateInfo.Reason.init -> void
+Kiln.PlayerAnimStateInfo.Status.get -> Kiln.PlayerStateStatus
+Kiln.PlayerAnimStateInfo.Status.init -> void
+Kiln.PlayerAnimStates
+Kiln.PlayerGraphState
+Kiln.PlayerGraphState.Merged = 3 -> Kiln.PlayerGraphState
+Kiln.PlayerGraphState.Off = 0 -> Kiln.PlayerGraphState
+Kiln.PlayerGraphState.Untouched = 2 -> Kiln.PlayerGraphState
+Kiln.PlayerGraphState.Waiting = 1 -> Kiln.PlayerGraphState
+Kiln.PlayerStateDefineResult
+Kiln.PlayerStateDefineResult.<Clone>$() -> Kiln.PlayerStateDefineResult!
+Kiln.PlayerStateDefineResult.Deconstruct(out string! Mod, out string! Name, out System.Guid Guid, out uint Id, out Kiln.PlayerStateStatus Status, out string? Reason) -> void
+Kiln.PlayerStateDefineResult.Equals(Kiln.PlayerStateDefineResult? other) -> bool
+Kiln.PlayerStateDefineResult.Guid.get -> System.Guid
+Kiln.PlayerStateDefineResult.Guid.init -> void
+Kiln.PlayerStateDefineResult.Id.get -> uint
+Kiln.PlayerStateDefineResult.Id.init -> void
+Kiln.PlayerStateDefineResult.Mod.get -> string!
+Kiln.PlayerStateDefineResult.Mod.init -> void
+Kiln.PlayerStateDefineResult.Name.get -> string!
+Kiln.PlayerStateDefineResult.Name.init -> void
+Kiln.PlayerStateDefineResult.Ok.get -> bool
+Kiln.PlayerStateDefineResult.PlayerStateDefineResult(string! Mod, string! Name, System.Guid Guid, uint Id, Kiln.PlayerStateStatus Status, string? Reason) -> void
+Kiln.PlayerStateDefineResult.Reason.get -> string?
+Kiln.PlayerStateDefineResult.Reason.init -> void
+Kiln.PlayerStateDefineResult.Status.get -> Kiln.PlayerStateStatus
+Kiln.PlayerStateDefineResult.Status.init -> void
+Kiln.PlayerStateKind
+Kiln.PlayerStateKind.Overlay = 1 -> Kiln.PlayerStateKind
+Kiln.PlayerStateKind.State = 0 -> Kiln.PlayerStateKind
+Kiln.PlayerStateStatus
+Kiln.PlayerStateStatus.Live = 0 -> Kiln.PlayerStateStatus
+Kiln.PlayerStateStatus.Pending = 2 -> Kiln.PlayerStateStatus
+Kiln.PlayerStateStatus.Refused = 1 -> Kiln.PlayerStateStatus
+Kiln.PlayerStateStatus.Unavailable = 3 -> Kiln.PlayerStateStatus
+override Kiln.GamePlayerState.Equals(object? obj) -> bool
+override Kiln.GamePlayerState.GetHashCode() -> int
+override Kiln.GamePlayerState.ToString() -> string!
+override Kiln.PlayerAnimState.Equals(object? obj) -> bool
+override Kiln.PlayerAnimState.GetHashCode() -> int
+override Kiln.PlayerAnimState.ToString() -> string!
+override Kiln.PlayerAnimStateInfo.Equals(object? obj) -> bool
+override Kiln.PlayerAnimStateInfo.GetHashCode() -> int
+override Kiln.PlayerAnimStateInfo.ToString() -> string!
+override Kiln.PlayerStateDefineResult.Equals(object? obj) -> bool
+override Kiln.PlayerStateDefineResult.GetHashCode() -> int
+override Kiln.PlayerStateDefineResult.ToString() -> string!
+static Kiln.GamePlayerState.operator !=(Kiln.GamePlayerState? left, Kiln.GamePlayerState? right) -> bool
+static Kiln.GamePlayerState.operator ==(Kiln.GamePlayerState? left, Kiln.GamePlayerState? right) -> bool
+static Kiln.PlayerAnimState.operator !=(Kiln.PlayerAnimState? left, Kiln.PlayerAnimState? right) -> bool
+static Kiln.PlayerAnimState.operator ==(Kiln.PlayerAnimState? left, Kiln.PlayerAnimState? right) -> bool
+static Kiln.PlayerAnimStateInfo.operator !=(Kiln.PlayerAnimStateInfo? left, Kiln.PlayerAnimStateInfo? right) -> bool
+static Kiln.PlayerAnimStateInfo.operator ==(Kiln.PlayerAnimStateInfo? left, Kiln.PlayerAnimStateInfo? right) -> bool
+static Kiln.PlayerAnimStates.All.get -> System.Collections.Generic.IReadOnlyList<Kiln.PlayerAnimStateInfo!>!
+static Kiln.PlayerAnimStates.Available.get -> bool
+static Kiln.PlayerAnimStates.Define(Kiln.PlayerAnimState! state) -> Kiln.PlayerStateDefineResult!
+static Kiln.PlayerAnimStates.Find(string! mod, string! name) -> Kiln.PlayerAnimStateInfo?
+static Kiln.PlayerAnimStates.FindGameStates(string! name) -> System.Collections.Generic.IReadOnlyList<Kiln.GamePlayerState!>!
+static Kiln.PlayerAnimStates.Graph.get -> Kiln.PlayerGraphState
+static Kiln.PlayerAnimStates.GraphHash.get -> string!
+static Kiln.PlayerAnimStates.GuidOf(string! mod, string! name) -> System.Guid
+static Kiln.PlayerAnimStates.IdOf(System.Guid state) -> uint
+static Kiln.PlayerStateDefineResult.operator !=(Kiln.PlayerStateDefineResult? left, Kiln.PlayerStateDefineResult? right) -> bool
+static Kiln.PlayerStateDefineResult.operator ==(Kiln.PlayerStateDefineResult? left, Kiln.PlayerStateDefineResult? right) -> bool
