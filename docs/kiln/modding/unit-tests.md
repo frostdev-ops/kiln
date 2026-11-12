@@ -230,6 +230,7 @@ time with them sees almost none pass between steps, and an `await Task.Delay(...
 | kiln.knowledge | unavailable | `kiln.knowledge` | no fake: the service finds no native table, so its own Available is false and its row says offline |
 | kiln.npcai | unavailable | `kiln.npcai` | no fake: the service finds no native table, so its own Available is false and its row says offline |
 | kiln.pacing | unavailable | `kiln.pacing` | no fake: the service finds no native table, so its own Available is false and its row says offline |
+| kiln.playeranim | unavailable | `kiln.playeranim` | no fake: the service finds no native table, so its own Available is false and its row says offline |
 | kiln.playerstate | unavailable | `kiln.playerstate` | no fake: the service finds no native table, so its own Available is false and its row says offline |
 | kiln.profile | unavailable | `kiln.profile` | no fake: the service finds no native table, so its own Available is false and its row says offline |
 | kiln.progress | unavailable | `kiln.progress` | no fake: the service finds no native table, so its own Available is false and its row says offline |
