@@ -271,6 +271,7 @@ struct, enum and bitmask, sorted by C# name (ordinal):
 ```
 kiln.game.layouts  1  side=server  exe_sha256=<64 hex>  root=Ecs  types=<n>  set=<16 hex>
 S  Kiln.Ecs+NetworkHealth  <layout>  keen::ecs::NetworkHealth  8  component  health@0:uint  healthMax@4:uint
+S  Kiln.Ecs+EntityId  <layout>  keen::ecs::EntityId  4  struct  id@0:uint  op_Implicit@method:uint
 E  Kiln.Ecs+Enemy01_State  <layout>  keen::enemy01::State      1  byte       <name>=0  <name>=1  …
 F  Kiln.Ecs+FactionTypeMask  <layout>  keen::Bitmask16<keen::FactionType>  2  ushort  <name>=1  <name>=2  …
 ```
@@ -283,6 +284,15 @@ source: a keyword for a primitive, `Ecs.<Name>` for a generated or hand-written 
 `<T>` written the same way, `fixed byte[<size>]` for a raw buffer. Names are the game's (no `@`). `set` is the
 FNV-1a-64 of every line after the header, each with its `\n`. `GameLayoutStamps.Table` returns the table as embedded.
 
+After its fields, a struct's line lists the generated **methods** a mod can bind to, as `<name>@method:<C# type>`
+(`method` where a field has its offset, so no reader takes it for one): `op_Implicit@method:<T>` for a single-field
+wrapper (its implicit conversions to and from `T`, the wrapped field's type), `get_Values@method:Span<T>` for an
+attribute component (its `Values` view over `dataStorage`). A game update can take either away while the type stays
+(a wrapper that gains a field, a `dataStorage` of another element type), so the stamps record them like fields
+(§3.7). They are not part of the layout hash (that comes from the dump alone); they are part of `set`. The generator
+refuses a game field named `op_Implicit` or `get_Values`. On the committed server dump: 198 `op_Implicit` and 59
+`get_Values` members.
+
 ### 3.7 Layout stamps (`kiln.gametypes.json`) and `GameLayoutStamps.Check`
 A mod binds to a generated type's fields by name when its code is compiled at run time, and enum constants are copied
 into it when it is built. The SDK build task (the next typegen task) writes, next to the mod, a stamp of what it uses:
@@ -294,19 +304,24 @@ into it when it is built. The SDK build task (the next typegen task) writes, nex
 ```
 
 `fields` lists the fields of the type that the mod uses, each with its C# type in the table's form (the stamp task
-can copy it from the table of the Kiln.Game the mod is built against); `values` lists every value of every enum or
-bitmask the mod names, used or not. `GameLayoutStamps.Check(stampJson, out reason)` (any thread) compares it
+copies it from the table of the Kiln.Game the mod is built against), and the generated methods of §3.6 it calls, under
+their table names (`"op_Implicit": "uint"`, `"get_Values": "Span<float>"`); `values` lists every value of every enum
+or bitmask the mod names, used or not. `GameLayoutStamps.Check(stampJson, out reason)` (any thread) compares it
 with this assembly's table:
 - `schema` other than 1, unreadable JSON, not an object: refused, with that reason.
 - `layoutSet` equal to the table's `set`: fine.
 - a stamped type this assembly lacks: refused, naming the type.
-- equal layout hash: fine. Different: every stamped field must exist with the same C# type, every stamped enum
+- equal layout hash: fine. Different: every stamped field or method must exist with the same C# type, every stamped enum
   value must exist with the same number; otherwise refused, naming the type, the field or value, and what it changed
   from and to. A type whose layout changed while what the mod uses did not is fine (new fields, new enum values,
   moved fields).
 
 Reasons look like `MyMod.dll: Kiln.Ecs+Fuel.dataStorage changed from Ecs.StaticArray8<int> to Ecs.StaticArray4<int>
-in this Kiln.Game (server f0d824be)`.
+in this Kiln.Game (server f0d824be)`. For the two methods, with the type's name first as for fields:
+`MyMod.dll: Kiln.Ecs+WickId: the conversion to and from uint is gone in this Kiln.Game (server 00000000): it is no
+longer a single-field wrapper`, `… the conversion to and from ushort is now to and from uint …`,
+`MyMod.dll: Kiln.Ecs+Glow: the attribute view Values changed from Span<float> to Span<int> in this Kiln.Game (…)` and
+`… the attribute view Values (Span<float>) is gone …`.
 
 ### 3.8 The legacy namespace `Kiln.GameTypes`
 The nine dev.24 types (`NetworkHealth`, `Health`, `Mana`, `Stamina`, `CurrentTransform`, `LastTransform`, `Velocity`,
@@ -559,30 +574,35 @@ mod's folder. `-p:KilnGameTypes=false` turns the stamp off.
 
 The task reads the built mod and the `Kiln.Game.dll` it compiled against with `System.Reflection.Metadata` (neither is
 loaded). From the mod it takes every `TypeReference` whose resolution scope is the assembly `Kiln.Game` (a nested type
-through its enclosing reference, so `Kiln.Ecs+Lamp`) and every field `MemberReference` on such a type; from the
-reference, the embedded table (§3.6). For each referenced type that is in the table it writes the type's layout hash,
-the fields the mod names with their C# type copied from the table, and for an enum or bitmask every value. The fixture
-mod of the tests reads `Lamp.glow`, `wick`, `mode`, `flags` and `core.heat`, `core.ticks`, and its stamp is:
+through its enclosing reference, so `Kiln.Ecs+Lamp`) and every field `MemberReference` on such a type, and every
+method `MemberReference` to one of the generated methods the table lists (`op_Implicit`, `get_Values`, §3.6); from
+the reference, the embedded table (§3.6). For each referenced type that is in the table it writes the type's layout
+hash, the fields and listed methods the mod names with their C# type copied from the table, and for an enum or bitmask
+every value. The fixture mod of the tests reads `Lamp.glow`, `wick`, `mode`, `flags` and `core.heat`, `core.ticks`,
+converts `Lamp.wick` (an `Ecs.WickId` wrapper) to `uint` and reads `Glow.Values`, and its stamp is:
 
 ```json
 {
   "schema": 1,
   "assembly": "StampMod.dll",
   "mvid": "<the mod assembly's MVID>",
-  "layoutSet": "45b03485e3fd0a21",
+  "layoutSet": "bddd6be9a158f2e5",
   "types": {
     "Kiln.Ecs+Glimmer_Mode": { "layout": "3a947bfe0c52a885", "values": { "Off": 0, "Dim": 1, "Bright": 2 } },
     "Kiln.Ecs+Glimmer_ModeMask": { "layout": "3b7d12d47050fbc8", "values": { "Off": 1, "Dim": 2, "Bright": 4 } },
-    "Kiln.Ecs+Lamp": { "layout": "2df304c77f995381",
-                       "fields": { "core": "Ecs.LampCore", "flags": "Ecs.Glimmer_ModeMask", "glow": "float", "mode": "Ecs.Glimmer_Mode", "wick": "uint" } },
-    "Kiln.Ecs+LampCore": { "layout": "ed4894308b12acb3", "fields": { "heat": "float", "ticks": "uint" } }
+    "Kiln.Ecs+Glow": { "layout": "3b820f10b22aab59", "fields": { "get_Values": "Span<float>" } },
+    "Kiln.Ecs+Lamp": { "layout": "78c59da4f8db77c4",
+                       "fields": { "core": "Ecs.LampCore", "flags": "Ecs.Glimmer_ModeMask", "glow": "float", "mode": "Ecs.Glimmer_Mode", "wick": "Ecs.WickId" } },
+    "Kiln.Ecs+LampCore": { "layout": "ed4894308b12acb3", "fields": { "heat": "float", "ticks": "uint" } },
+    "Kiln.Ecs+WickId": { "layout": "4576842960f4952e", "fields": { "op_Implicit": "uint" } }
   }
 }
 ```
 
 (written indented, one member per line, types and fields in ordinal order, values in table order). The enum and the
-bitmask are there because the fields' signatures name them; `Lamp.spare`, the unused `Torch` and `Glimmer_Hue` and the
-base `Component` are not. Not stamped: the nine legacy types of `Kiln.GameTypes` (their members are held by the public
+bitmask are there because the fields' signatures name them; `Lamp.spare`, the unused `Torch` and `Glimmer_Hue`, the
+bases `Component` and `AttributeComponent`, and the fields behind the methods (`WickId.id`, `Glow.dataStorage`) are
+not. Not stamped: the nine legacy types of `Kiln.GameTypes` (their members are held by the public
 API record), `Ecs.StaticArray<N><T>`, `Ecs.ObjectReference` and `Ecs.GameGuid` (not in the table), and the generated
 statics (`Hash`, `Name`, `Layout`, …). A mod that references no generated type gets no file, and a stale file in the
 output folder is deleted (also when the project no longer references Kiln.Game); `KilnDeploy` deletes the deployed one
@@ -619,13 +639,16 @@ No stamp, a stale one, no Kiln.Game in `kiln/host`, or a Kiln.Game older than th
 
 ### 6.6 What the stamp cannot see
 It records what the mod's metadata names. Field access through generics, `ref` returns and `Unsafe.As<T>` on a
-generated type still ends in `MemberReference` rows and is covered. Not covered, and not checked before load:
+generated type still ends in `MemberReference` rows and is covered, and so are calls of the two generated methods a
+game update can take away while the type stays: a wrapper's implicit conversions (`uint id = x.wick;`, `op_Implicit`)
+and an attribute component's `Values` (`get_Values`); a wrapper that gains a field, or a `dataStorage` of another
+element type, is refused before load (§3.7). Not covered, and not checked before load:
 - reflection by string (`typeof(Ecs.Lamp).GetField("glow")`) and `dynamic`;
 - raw offsets and sizes (`World.TryWrite(e, "Lamp", 8, …)`, `Unsafe.Add` from a field's address, `sizeof` folded into
   the mod's own arithmetic) and reinterpreting casts (`MemoryMarshal.Cast`, `MemoryMarshal.Read<MyOwnStruct>`) over a
   generated type's bytes;
-- methods of generated types (the implicit conversions of single-field wrappers): a wrapper that stops being one loses
-  its conversions, which fails at JIT time like a missing field;
+- any other generated member a later generator version adds without listing it in the table (§3.6); the hand-written
+  members of `Ecs` (`TryGet`, `Get`, `Has`, …) are covered by the public API record instead;
 - enum constants are copied into the mod at build time: the stamp holds every value of an enum the mod names, so a
   renumbered value is refused, but a mod that casts a raw number to an enum is not checked;
 - code in other assemblies the mod loads that it did not build with the SDK (no stamp of their own).
@@ -641,7 +664,13 @@ generated type still ends in `MemberReference` rows and is covered. Not covered,
   reads every value right out of a buffer laid out as B says (and wrong ones out of A's layout: it follows B's
   offsets); against `stamp-c` (`glow` a float64) `Check` refuses with
   `StampMod.dll: Kiln.Ecs+Lamp.glow changed from float to double in this Kiln.Game (server 00000000)`; and against
-  `stamp-c` without the check, running the mod's code throws `MissingFieldException` naming `glow`.
+  `stamp-c` without the check, running the mod's code throws `MissingFieldException` naming `glow`. Against `stamp-d`
+  (the wrapper `WickId` gained a field) `Check` refuses with `StampMod.dll: Kiln.Ecs+WickId: the conversion to and from
+  uint is gone in this Kiln.Game (server 00000000): it is no longer a single-field wrapper`, and without the check the
+  code throws `MissingMethodException` naming `op_Implicit`; against `stamp-e` (`Glow` holds ints) it refuses with
+  `StampMod.dll: Kiln.Ecs+Glow: the attribute view Values changed from Span<float> to Span<int> in this Kiln.Game
+  (server 00000000)`, and without the check reading `Values` throws `MissingMethodException` naming `get_Values`
+  while the Lamp code still runs.
 - `Kiln.Host.Tests/GameTypesTests` (in the host patch): the variant name, the file choice, the log line, a refused mod
   (state failed, the reason in the record and the log), a passing stamp, a stale MVID, no Kiln.Game, an older one.
 

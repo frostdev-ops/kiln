@@ -17,7 +17,9 @@ namespace Kiln.Sdk;
 /// Both assemblies are read with System.Reflection.Metadata and never loaded. The layouts come from the table embedded
 /// in <see cref="GameReference"/> (resource <c>Kiln.Game.layouts</c>); a type that is not in it (the nine legacy types
 /// of <c>Kiln.GameTypes</c>, <c>Ecs.StaticArray&lt;N&gt;</c>, <c>Ecs.ObjectReference</c>, <c>Ecs.GameGuid</c>) is not
-/// stamped. No generated type referenced: no file, and a stale one is deleted.
+/// stamped. Two kinds of generated methods are stamped like fields, when the mod calls them: a single-field wrapper's
+/// implicit conversions (<c>op_Implicit</c>, with the wrapped type) and an attribute component's <c>Values</c>
+/// (<c>get_Values</c>, with its <c>Span&lt;T&gt;</c> type). No generated type referenced: no file, and a stale one is deleted.
 /// Warning KILN020: the reference has no layout table (an older Kiln.Game). Error KILN021: an assembly is unreadable.
 /// </summary>
 public sealed class KilnGameTypes : Microsoft.Build.Utilities.Task
@@ -180,10 +182,14 @@ public sealed class KilnGameTypes : Microsoft.Build.Utilities.Task
             if (m.Parent.Kind != HandleKind.TypeReference) continue;
             if (FullName((TypeReferenceHandle)m.Parent, 0) is not { } full || !used.TryGetValue(full, out var fields)) continue;
             var sig = md.GetBlobReader(m.Signature);
-            if (sig.ReadSignatureHeader().Kind != SignatureKind.Field) continue;
+            var kind = sig.ReadSignatureHeader().Kind;
             var name = md.GetString(m.Name);
-            // instance fields of the layout only; the generated statics (Hash, Name, Layout, ...) are not in the table
-            if (table.Types[full].Fields is { } layout && layout.ContainsKey(name)) fields.Add(name);
+            if (table.Types[full].Fields is not { } layout || !layout.ContainsKey(name)) continue;
+            // instance fields of the layout (the generated statics Hash, Name, Layout, ... are not in the table), and
+            // the generated methods the table lists as <name>@method:<type> (a wrapper's op_Implicit, an attribute
+            // component's get_Values): a game update can take them away while the type stays
+            var isMethod = table.Methods.Contains((full, name));
+            if (kind == SignatureKind.Field ? !isMethod : kind == SignatureKind.Method && isMethod) fields.Add(name);
         }
         return used;
     }
@@ -233,6 +239,8 @@ public sealed class KilnGameTypes : Microsoft.Build.Utilities.Task
     {
         public string Set = "";
         public readonly Dictionary<string, Entry> Types = new(StringComparer.Ordinal);
+        /// <summary>The members of <see cref="Types"/> that are generated methods (<c>name@method:type</c>), not fields.</summary>
+        public readonly HashSet<(string Type, string Member)> Methods = [];
 
         internal sealed class Entry
         {
@@ -286,6 +294,7 @@ public sealed class KilnGameTypes : Microsoft.Build.Utilities.Task
                             return null;
                         }
                         e.Fields[m[..at]] = m[(colon + 1)..];
+                        if (m.AsSpan(at + 1, colon - at - 1).SequenceEqual("method")) t.Methods.Add((p[1], m[..at]));
                     }
                 }
                 else

@@ -3,10 +3,13 @@
 // mod (Fixtures/stamp/StampMod) is compiled against variant stamp-a (dump a.json) and loaded, in a load context of its
 // own, next to:
 //   stamp-b (b.json): an unrelated field moved, so every field the mod uses moved too, with name and type kept;
-//   stamp-c (c.json): a field the mod uses (Lamp.glow) changed from float32 to float64.
+//   stamp-c (c.json): a field the mod uses (Lamp.glow) changed from float32 to float64;
+//   stamp-d (d.json): the wrapper WickId gained a field, so its implicit conversion, which the mod calls, is gone;
+//   stamp-e (e.json): the attribute component Glow holds ints, so its Values view, which the mod calls, is a Span<int>.
 // Against B the check passes and the mod reads the right values out of a buffer laid out as B says: its field
 // accesses were bound by name when its code was compiled at run time. Against C the check refuses, naming the type
-// and the field; and without the check the mod's code fails to bind, which is what the check is there to prevent.
+// and the field; and without the check the mod's code fails to bind, which is what the check is there to prevent. The
+// same for the two generated methods against D and E.
 using System.Buffers.Binary;
 using System.Globalization;
 using System.Reflection;
@@ -49,10 +52,10 @@ public class StampCrossLayoutTests
         return ((bool)check.Invoke(null, args)!, (string?)args[1]);
     }
 
-    /// <summary>The mod's <c>Probe.Read</c>; throws what binding or running it threw.</summary>
-    static string Read(Assembly mod, byte[] buffer)
+    /// <summary>The mod's <c>Probe.Read</c> (or another of its methods); throws what binding or running it threw.</summary>
+    static string Read(Assembly mod, byte[] buffer, string method = "Read")
     {
-        var read = mod.GetType("StampMod.Probe", throwOnError: true)!.GetMethod("Read")!;
+        var read = mod.GetType("StampMod.Probe", throwOnError: true)!.GetMethod(method)!;
         try { return (string)read.Invoke(null, [buffer])!; }
         catch (TargetInvocationException e) when (e.InnerException != null) { throw e.InnerException; }
     }
@@ -84,6 +87,19 @@ public class StampCrossLayoutTests
 
     const string Expected = "glow=1.5 wick=7 mode=Bright flags=5 heat=2.25 ticks=9 bright=True";
 
+    /// <summary>A Glow as the variant's table lays it out: dataStorage {1.5, 2.5}.</summary>
+    static byte[] GlowBuffer(string variant)
+    {
+        var glow = Stamps.Line(Stamps.Table(Stamps.Variant(variant)), "Kiln.Ecs+Glow");
+        var b = new byte[32];
+        var at = Offset(glow, "dataStorage");
+        BinaryPrimitives.WriteSingleLittleEndian(b.AsSpan(at), 1.5f);
+        BinaryPrimitives.WriteSingleLittleEndian(b.AsSpan(at + 4), 2.5f);
+        return b;
+    }
+
+    const string ExpectedGlow = "values=1.5,2.5";
+
     [Fact]
     public void The_fixtures_differ_as_the_test_needs()
     {
@@ -102,6 +118,13 @@ public class StampCrossLayoutTests
         // C: glow retyped
         Assert.Contains("glow@0:float", la);
         Assert.Contains("glow@0:double", lc);
+        // D: WickId is no longer a wrapper (no conversion member), Lamp.wick keeps its type name
+        Assert.Contains("op_Implicit@method:uint", Stamps.Line(a, "Kiln.Ecs+WickId"));
+        Assert.DoesNotContain(Stamps.Line(Stamps.Table(Stamps.Variant("d")), "Kiln.Ecs+WickId"), m => m.StartsWith("op_Implicit@", StringComparison.Ordinal));
+        Assert.Contains("wick@4:Ecs.WickId", Stamps.Line(Stamps.Table(Stamps.Variant("d")), "Kiln.Ecs+Lamp"));
+        // E: Glow's view is over ints
+        Assert.Contains("get_Values@method:Span<float>", Stamps.Line(a, "Kiln.Ecs+Glow"));
+        Assert.Contains("get_Values@method:Span<int>", Stamps.Line(Stamps.Table(Stamps.Variant("e")), "Kiln.Ecs+Glow"));
     }
 
     [Fact]
@@ -112,9 +135,9 @@ public class StampCrossLayoutTests
         {
             var (ok, reason) = Check(game, stamp);
             Assert.True(ok, reason);
-            return Read(mod, LampBuffer("a"));
+            return Read(mod, LampBuffer("a")) + " " + Read(mod, GlowBuffer("a"), "ReadGlow");
         });
-        Assert.Equal(Expected, log);
+        Assert.Equal(Expected + " " + ExpectedGlow, log);
     }
 
     [Fact]
@@ -124,11 +147,11 @@ public class StampCrossLayoutTests
         var (ok, reason, log, asIfA) = With("b", (game, mod) =>
         {
             var (ok, reason) = Check(game, stamp);
-            return (ok, reason, Read(mod, LampBuffer("b")), Read(mod, LampBuffer("a")));
+            return (ok, reason, Read(mod, LampBuffer("b")) + " " + Read(mod, GlowBuffer("b"), "ReadGlow"), Read(mod, LampBuffer("a")));
         });
         Assert.True(ok, reason);
         Assert.Null(reason);
-        Assert.Equal(Expected, log);
+        Assert.Equal(Expected + " " + ExpectedGlow, log);
         // the same code over a buffer laid out as A reads other bytes: it follows B's offsets, not A's
         Assert.NotEqual(Expected, asIfA);
     }
@@ -149,5 +172,45 @@ public class StampCrossLayoutTests
         var e = Assert.ThrowsAny<Exception>(() => With("c", (_, mod) => Read(mod, LampBuffer("c"))));
         Assert.IsType<MissingFieldException>(e);
         Assert.Contains("glow", e.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Against_a_layout_where_a_used_wrapper_gained_a_field_the_check_refuses_naming_the_conversion()
+    {
+        var stamp = Stamps.ModStamp();
+        var (ok, reason) = With("d", (game, _) => Check(game, stamp));
+        Assert.False(ok);
+        Assert.Equal("StampMod.dll: Kiln.Ecs+WickId: the conversion to and from uint is gone in this Kiln.Game (server 00000000): " +
+                     "it is no longer a single-field wrapper", reason);
+    }
+
+    [Fact]
+    public void Against_that_layout_without_the_check_the_mod_fails_to_bind_the_conversion()
+    {
+        var e = Assert.ThrowsAny<Exception>(() => With("d", (_, mod) => Read(mod, LampBuffer("d"))));
+        Assert.IsType<MissingMethodException>(e);
+        Assert.Contains("op_Implicit", e.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Against_a_layout_where_a_used_attribute_view_changed_type_the_check_refuses_naming_it()
+    {
+        var stamp = Stamps.ModStamp();
+        var (ok, reason) = With("e", (game, _) => Check(game, stamp));
+        Assert.False(ok);
+        Assert.Equal("StampMod.dll: Kiln.Ecs+Glow: the attribute view Values changed from Span<float> to Span<int> in this Kiln.Game (server 00000000)", reason);
+    }
+
+    [Fact]
+    public void Against_that_layout_without_the_check_the_mod_fails_to_bind_the_view_and_the_rest_still_runs()
+    {
+        var (lamp, e) = With("e", (_, mod) =>
+        {
+            var lamp = Read(mod, LampBuffer("e"));
+            return (lamp, Assert.ThrowsAny<Exception>(() => Read(mod, GlowBuffer("e"), "ReadGlow")));
+        });
+        Assert.Equal(Expected, lamp);
+        Assert.IsType<MissingMethodException>(e);
+        Assert.Contains("get_Values", e.Message, StringComparison.Ordinal);
     }
 }

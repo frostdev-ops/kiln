@@ -115,6 +115,12 @@ public class StampTaskTests
                     "Bright": 4
                   }
                 },
+                "Kiln.Ecs+Glow": {
+                  "layout": "{{L("Kiln.Ecs+Glow")}}",
+                  "fields": {
+                    "get_Values": "Span<float>"
+                  }
+                },
                 "Kiln.Ecs+Lamp": {
                   "layout": "{{L("Kiln.Ecs+Lamp")}}",
                   "fields": {
@@ -122,7 +128,7 @@ public class StampTaskTests
                     "flags": "Ecs.Glimmer_ModeMask",
                     "glow": "float",
                     "mode": "Ecs.Glimmer_Mode",
-                    "wick": "uint"
+                    "wick": "Ecs.WickId"
                   }
                 },
                 "Kiln.Ecs+LampCore": {
@@ -131,14 +137,23 @@ public class StampTaskTests
                     "heat": "float",
                     "ticks": "uint"
                   }
+                },
+                "Kiln.Ecs+WickId": {
+                  "layout": "{{L("Kiln.Ecs+WickId")}}",
+                  "fields": {
+                    "op_Implicit": "uint"
+                  }
                 }
               }
             }
 
             """;
         Assert.Equal(expected.ReplaceLineEndings("\n"), text);
-        // what the fixture never names is not in it: Lamp.spare, Torch, Glimmer_Hue, the base Component, Ecs itself
+        // what the fixture never names is not in it: Lamp.spare, Torch, Glimmer_Hue, the bases Component and
+        // AttributeComponent, Ecs itself; the fields behind the methods it calls (WickId.id, Glow.dataStorage)
         Assert.DoesNotContain("spare", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("\"id\"", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("dataStorage", text, StringComparison.Ordinal);
         Assert.DoesNotContain("Torch", text, StringComparison.Ordinal);
         Assert.DoesNotContain("Hue", text, StringComparison.Ordinal);
         Assert.DoesNotContain("Component", text, StringComparison.Ordinal);
