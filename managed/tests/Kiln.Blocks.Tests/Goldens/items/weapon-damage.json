@@ -1,0 +1,40 @@
+{
+  "items": [
+    {
+      "guid": "bca13579-cf8e-5c2a-923f-ac8ee93ff02a",
+      "name": "golden-items.weapon-damage",
+      "base": "Weapon_T1_2H_GreatAxe_01",
+      "displayName": "Frost Axe",
+      "description": "",
+      "fields": {
+        "rarity": "Common",
+        "generateRarity": "False",
+        "itemLevelRange.minLevel": 20,
+        "itemLevelRange.maxLevel": 20,
+        "damageSetup.speedMod": 1,
+        "damageSetup.dmgMod": 1.0125,
+        "damageSetup.distribution.physicalCutDamage": 0.75,
+        "damageSetup.distribution.physicalPierceDamage": 0,
+        "damageSetup.distribution.physicalBluntDamage": 0,
+        "damageSetup.distribution.magicalFireDamage": 0,
+        "damageSetup.distribution.magicalIceDamage": 0.25,
+        "damageSetup.distribution.magicalFogDamage": 0,
+        "damageSetup.distribution.magicalLightningDamage": 0,
+        "damageSetup.distribution.poisonDamage": 0,
+        "damageSetup.distribution.woodDamage": 0,
+        "damageSetup.distribution.stoneDamage": 0,
+        "damageSetup.distribution.metalDamage": 0,
+        "damageSetup.distribution.explosionDamage": 0
+      },
+      "refs": {}
+    }
+  ],
+  "itemParts": {
+    "loot": {
+      "like": "Weapon_T1_2H_GreatAxe_01",
+      "stackMin": null,
+      "stackMax": null
+    }
+  },
+  "itemRules": {}
+}

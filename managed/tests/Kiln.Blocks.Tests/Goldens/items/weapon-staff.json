@@ -1,0 +1,19 @@
+{
+  "items": [
+    {
+      "guid": "cbfc6eb8-7bf0-5502-85b7-8377d038d2e6",
+      "name": "golden-items.weapon-staff",
+      "base": "Weapon_T1_2H_Staff_Craft",
+      "displayName": "Staff",
+      "description": "",
+      "fields": {
+        "rarity": "Common",
+        "generateRarity": "False",
+        "itemLevelRange.minLevel": 1,
+        "itemLevelRange.maxLevel": 1
+      },
+      "refs": {}
+    }
+  ],
+  "itemRules": {}
+}

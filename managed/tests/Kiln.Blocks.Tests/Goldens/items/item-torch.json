@@ -1,0 +1,20 @@
+{
+  "breaksInto": "Tool_Torch01",
+  "items": [
+    {
+      "guid": "38e3b002-cb48-54ea-a97e-860cc7b88f9d",
+      "name": "golden-items.item-torch",
+      "base": "Tool_Torch01",
+      "displayName": "Long Torch",
+      "description": "",
+      "fields": {},
+      "refs": {}
+    }
+  ],
+  "itemRules": {
+    "impactValues.0x45ab43e7": 1200
+  },
+  "itemDataRules": {
+    "uiValues[1].value": 1200
+  }
+}

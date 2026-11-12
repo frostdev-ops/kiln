@@ -1,0 +1,25 @@
+{
+  "items": [
+    {
+      "guid": "14f5bf23-9552-5c39-b071-5730c84411a5",
+      "name": "golden-items.weapon-own-class",
+      "base": "Weapon_T1_2H_Daggers_01_DPS",
+      "displayName": "Own",
+      "description": "",
+      "fields": {
+        "rarity": "Common",
+        "generateRarity": "False",
+        "itemLevelRange.minLevel": 5,
+        "itemLevelRange.maxLevel": 5,
+        "damageSetup.speedMod": 1,
+        "damageSetup.dmgMod": 1.2058823529411764
+      },
+      "refs": {}
+    }
+  ],
+  "itemParts": {
+    "model": "item:Weapon_T1_2H_Daggers_01_DPS",
+    "icon": "item:Weapon_T1_2H_Daggers_01_DPS"
+  },
+  "itemRules": {}
+}

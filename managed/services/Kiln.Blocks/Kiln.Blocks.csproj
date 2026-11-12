@@ -34,5 +34,6 @@
     <ProjectReference Include="../Kiln.Quests/Kiln.Quests.csproj" Private="false" />
     <ProjectReference Include="../Kiln.Ui/Kiln.Ui.csproj" Private="false" />
     <ProjectReference Include="../Kiln.Chat/Kiln.Chat.csproj" Private="false" />
+    <ProjectReference Include="../Kiln.PlayerAnim/Kiln.PlayerAnim.csproj" Private="false" />
   </ItemGroup>
 </Project>

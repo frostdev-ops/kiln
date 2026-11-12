@@ -1,0 +1,37 @@
+{
+  // Held models with moving parts (docs/kiln/modding/item-blocks.md, "Parts"): one weapon per kind of hand. The models and graphs are the steps of
+  // assets/cook.json (the sample's moving blade, cooked by build-assets.py); the rigid model is its model step moves_blade,
+  // derive("weapon-moves-test", "model", "moves_blade").
+  "$schema": "../../../../schema/kiln-blocks.schema.json",
+  "format": 1,
+  "weapons": {
+    // the right hand, no VFX
+    "held-sword": {
+      "name": "Held Sword", "class": "sword", "stats": { "level": 5, "power": 30, "rarity": "rare" },
+      "visual": { "model": "7a17bc47-d463-5aa8-9659-50a3c51b946d", "animated": { "model": "moves_blade_anim", "graph": "moves_blade" } }
+    },
+    // the left hand, with the game's lit axe's VFX up the blade
+    "held-greataxe": {
+      "name": "Held Greataxe", "class": "greataxe", "stats": { "level": 5, "power": 30, "rarity": "rare" },
+      "visual": { "model": "7a17bc47-d463-5aa8-9659-50a3c51b946d", "animated": { "model": "moves_blade_anim", "graph": "moves_blade" },
+                  "vfx": { "name": "game:Visuals_Axe_02_Light", "offset": [0, 0.6, 0] } }
+    },
+    // the arm, with a VFX the staff does not have: one of the game's by GUID (a swing's notifier VFX)
+    "held-shield": {
+      "name": "Held Shield", "class": "shield", "stats": { "level": 5, "block": 0.3, "rarity": "uncommon" },
+      "visual": { "model": "7a17bc47-d463-5aa8-9659-50a3c51b946d", "animated": { "model": "moves_blade_anim", "graph": "moves_blade" },
+                  "vfx": { "name": "game:c17b1434-3e08-4c03-b9f9-746cd0a59338", "offset": [0, 0.2, 0] } }
+    },
+    // a pair, one model for both hands
+    "held-daggers": {
+      "name": "Held Daggers", "class": "daggers", "stats": { "level": 5, "power": 30, "rarity": "rare" },
+      "visual": { "model": "7a17bc47-d463-5aa8-9659-50a3c51b946d", "animated": { "model": "moves_blade_anim", "graph": "moves_blade" } }
+    },
+    // a pair whose left hand has a model and a graph of its own
+    "held-daggers-left": {
+      "name": "Held Daggers (left)", "class": "daggers", "stats": { "level": 5, "power": 30, "rarity": "rare" },
+      "visual": { "model": "7a17bc47-d463-5aa8-9659-50a3c51b946d",
+                  "animated": { "model": "moves_blade_anim", "graph": "moves_blade", "leftModel": "moves_blade_l_anim", "leftGraph": "moves_blade_l" } }
+    }
+  }
+}

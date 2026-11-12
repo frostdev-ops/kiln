@@ -29,17 +29,24 @@ How a mod's game-derived files are made on the player's machine from the install
 
 ## animClip
 
-One clip of a glTF file. Its name is the key; other steps name it by that.
+One clip: an animation of the step's glTF file, or (with "from") a clip reworked from another one at cook time. Its name is the key; other steps name it by that.
 
 | Key | Type | Required | Notes |
 |---|---|---|---|
-| `animation` | string |  | The glTF animation's name. Default: the clip's key. |
+| `animation` | string |  | The glTF animation's name. Default: the clip's key. Not with "from". |
+| `blend` | object |  | Mixes in another clip, stretched to this one's length: by "weight" every joint, by "bones" only the named joints (not their children unless "children": true). |
 | `events` | array of object |  | Timed events inside the clip: {at, sound \| vfx \| foot: left/right \| noise: range, slot, offset, attach, volumeHint}. |
+| `from` | string |  | Rework a clip instead of sampling glTF: @input (one of the game's clips, an input of type keen::JointAnimation) or the key of a clip an earlier entry or step made. The operations run in this order, whatever the order of the keys: trim, reverse, speed, mirror, blend, offset. min length 1 |
 | `guid` | [guidOrInput](#guidorinput) |  | Default: follows from the mod and the clip's name. @input with a game clip overrides it. |
 | `loop` | boolean |  | Default `false`. |
+| `mirror` | boolean or object |  | Swaps left and right: true, or { pairs, axis, tolerance }. Pairs are found from the rest pose. |
 | `mode` | `"new"` \| `"override"` |  |  |
+| `offset` | object |  | Joint -> { rotate: [x, y, z] degrees, translate: [x, y, z] metres }, added on top of every frame in the joint's parent space (glTF's axes). |
+| `reverse` | boolean |  | Plays it backwards. |
 | `rootMotion` | boolean or object |  | Moves the joint's motion to the entity: true, or {joint (default the root), axes (default xz), rotation}. |
+| `speed` | number |  | The length divided by this (2 plays twice as fast), sampled again at 60 frames a second. |
 | `tolerance` | [animTolerance](#animtolerance) |  |  |
+| `trim` | array of number |  | [start, end]: keeps that span, in seconds of the source. min items 2 max items 2 |
 
 ## animRetarget
 

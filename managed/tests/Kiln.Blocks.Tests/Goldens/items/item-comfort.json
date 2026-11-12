@@ -1,0 +1,17 @@
+{
+  "items": [
+    {
+      "guid": "bf0121cd-f7b0-5f08-aa43-49d1a6300fea",
+      "name": "golden-items.item-comfort",
+      "base": "Material_T1_Bones",
+      "displayName": "Rug",
+      "description": "",
+      "fields": {
+        "comfortSetup.comfortAmount": 2,
+        "comfortSetup.isSet": "True"
+      },
+      "refs": {}
+    }
+  ],
+  "itemRules": {}
+}

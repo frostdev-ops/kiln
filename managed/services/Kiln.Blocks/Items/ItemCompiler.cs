@@ -22,7 +22,13 @@ internal static partial class Compiler
     internal static double ArmorShare(int armor, int level) => armor / (ArmorGradient * level + ArmorOffset);
 
     /// <summary>The blocks of this file. Null: not one of them.</summary>
-    private static BlockHandle? DefineItemBlock<T>(BlockContext ctx, Lowered low, string name, T block) where T : class, IBlock => block switch
+    private static BlockHandle? DefineItemBlock<T>(BlockContext ctx, Lowered low, string name, T block) where T : class, IBlock
+    {
+        BlockCapabilities.Ensure();
+        return DefineItemBlockNow(ctx, low, name, block);
+    }
+
+    private static BlockHandle? DefineItemBlockNow<T>(BlockContext ctx, Lowered low, string name, T block) where T : class, IBlock => block switch
     {
         WeaponBlock w => DefineWeapon(ctx, low, name, w),
         WandBlock w => DefineWand(ctx, low, name, w),
@@ -76,6 +82,8 @@ internal static partial class Compiler
         public List<ItemDrop>? Drops;
         public bool Rolled;
         public IReadOnlyDictionary<string, ItemTexts>? Texts;
+        /// <summary>What it is held in: none (a material, armor), one hand, or both (daggers). A look's animated model is for what is held.</summary>
+        public HeldIn Held;
 
         public void Commit(string displayName, string? description, string? source = null)
         {
@@ -209,6 +217,7 @@ internal static partial class Compiler
     private static void CheckVisual(BlockContext ctx, VisualBlock v)
     {
         if (v.Vfx is { } vfx) VfxData.Lower(ctx, vfx, "vfx", Slot.HandR);
+        if (v.Animated is { } a) AnimatedParts(ctx, a, "animated", twoHands: true);
         if (v.Tint is { } t && !IsColour(t)) throw new BlockError(ctx.Block, "tint", $"\"{t}\" is not a colour: #rrggbb");
     }
 
@@ -266,7 +275,8 @@ internal static partial class Compiler
             d.Fields["itemColorCombinationSetup.color0"] = (double)rgba;
             d.Fields["itemColorCombinationSetup.isSet"] = true;
         }
-        if (v.Vfx is { } held) HeldVfx(d, v, held, $"{path}.vfx");
+        if (v.Animated is { } animated) AnimatedHeld(d, v, animated, $"{path}.animated");
+        else if (v.Vfx is { } held) HeldVfx(d, v, held, $"{path}.vfx");
     }
 
     private static void ApplyLoot(Draft d, LootBlock? l)
@@ -338,6 +348,7 @@ internal static partial class Compiler
             if (stamina < 0) throw new BlockError(ctx.Block, "stats.staminaCost", $"{stamina} is less than 0");
             d.Rules[$"impactValues.{ConfigStamina}"] = stamina;
         }
+        d.Held = cls.Key == WeaponClass.Daggers.Key ? HeldIn.BothHands : HeldIn.OneHand;
         // a roll can give it any rarity, so every slot has to be filled
         PerkSlots(d, perks ?? cls.Perks, loot is { Rolled: true } ? Rarity.Legendary : stats.Rarity, cls.PerksFrom != null ? 1 : 5, cls.PerksFrom, "perks", "stats.rarity");
         ApplyVisual(d, visual ?? cls.Visual, visual != null ? "visual" : "class.visual");
@@ -355,6 +366,7 @@ internal static partial class Compiler
         var power = stats.Power ?? (stats.Damage != null ? (int)Math.Round(stats.Damage.Total) : null);
         WeaponFields(d, cls, stats, w.Perks, w.Visual, w.Loot, w.Recipe, stats.Damage, power);
         d.Commit(w.Name, w.Description, w.Source);
+        if (w.Moves != null) LowerMoves(d, w.Name, cls, w.Moves);
         Hosted(ctx, low, key, d.Guid, d.Game, ctx.Hits(w.OnHit, "onHit"), ctx.Hits(w.OnKill, "onKill"), []);
         if (w.Recipe != null) DefineRecipe(ctx, low, key, d.Game, w.Recipe);
         return new BlockHandle<WeaponBlock>(ctx.Mod.Id, name, d.Guid, d.Game, w);
@@ -409,6 +421,11 @@ internal static partial class Compiler
     {
         var mod = ctx.Mod.Id;
         var moves = a.Moves ?? motion;
+        // JSON's object with no like: the attack's own motion, with what it changes
+        if (moves.Key.Length == 0) moves = motion with { Animation = moves.Animation, HitAt = moves.HitAt };
+        if (moves.HitAt is { } hit && a.Cast.ReleaseAt is { } release && Math.Abs(hit - release) > 1e-9)
+            throw new BlockError(ctx.Block, $"{slot}.moves.hitAt", $"{hit} s, while cast.releaseAt says {release} s: both are the moment the attack leaves the wand. Give one of them, or the same number");
+        var moved = moves.Animation != null || moves.HitAt != null ? CheckMove(ctx, moves.Animation, null, moves.HitAt, null, $"{slot}.moves") : null;
         if (a.Cast.ManaCost < 0) throw new BlockError(ctx.Block, $"{slot}.cast.manaCost", $"{a.Cast.ManaCost} is less than 0");
         if (a.Cast.ReleaseAt is <= 0) throw new BlockError(ctx.Block, $"{slot}.cast.releaseAt", $"{a.Cast.ReleaseAt} must be more than 0");
         if (a.Cast.Charges != null) throw new BlockError(ctx.Block, $"{slot}.cast.charges", "a wand has no charges: its attacks are its own");
@@ -434,13 +451,15 @@ internal static partial class Compiler
         if (a.Cast.StaminaCost > 0) rules["events[PayUsageCost#0].impactValues.0x727d7f78"] = a.Cast.StaminaCost;
         // Last, and all of the motion's shots, the silenced too, so that they keep their order: a time change re-sorts the events, and [Type#k] counts in the current order,
         // also where a client applies them. Moved later, the last goes first and each move leaves the earlier ones where they are; moved earlier, the other way round.
-        if (a.Cast.ReleaseAt is { } at)
+        // With moves.hitAt the whole motion is retimed when content is ready (MoveTiming), its shots landing on it; releaseAt alone moves the shots only.
+        if (a.Cast.ReleaseAt is { } at && moves.HitAt == null)
         {
             var shots = moves.Fires.Concat(moves.Silenced).Order();
             foreach (var i in at >= moves.ReleaseSeconds ? shots.Reverse() : shots) rules[$"events[SpawnEntityEvent#{i}].time"] = at;
         }
         low.AfterCommit(() => BlockRuntime.AddRules(ctx.Mod, "sequences", seqName, rules));
         (low.Json["sequenceRules"] ??= new JsonObject()).AsObject()[slot] = rules.DeepClone();
+        if (moved != null || moves.HitAt != null) CastMoves(ctx, low, $"{slot}.moves", seqName, moves.Key, moves.Sequence, moved, moves.HitAt, e => e.Type == "SpawnEntityEvent" && moves.Fires.Contains(e.K));
         return (seqName, lowered.Emitter);
     }
 
@@ -690,7 +709,7 @@ internal static partial class Compiler
         var mod = ctx.Mod.Id;
         var healPotion = kind == ItemKind.Consumable && b.Heals != null;
         var starter = kind == ItemKind.Tool ? b.Tool!.Harvests.Starter : healPotion ? "Consumable_Potion_Health_T1" : kind.Starter;
-        var d = new Draft(ctx, low, key, name, starter) { Texts = b.Texts };
+        var d = new Draft(ctx, low, key, name, starter) { Texts = b.Texts, Held = kind == ItemKind.Tool ? HeldIn.OneHand : HeldIn.None };
         if (b.Stack is { } stack) d.Fields["maxStackSize"] = stack;
         ApplyVisual(d, b.Visual, "visual");
         ApplyLoot(d, b.Loot);

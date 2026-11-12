@@ -1,0 +1,101 @@
+{
+  "programs": [
+    {
+      "key": "spell-release.impact",
+      "guid": "f61b4459-e10f-5e67-a34f-c889fb45066a",
+      "size": 388
+    },
+    {
+      "key": "spell-release.projectile",
+      "guid": "8355810d-4902-5245-89bc-6855ce9619ce",
+      "size": 2648
+    }
+  ],
+  "templates": [
+    {
+      "guid": "aa0a3c8f-75aa-59a4-96c7-4a63b84b9c83",
+      "name": "golden-items.spell-release.impact",
+      "base": "Explosion_Player_Spell_IceBolt_1",
+      "fields": {
+        "Impact.program": "f61b4459-e10f-5e67-a34f-c889fb45066a"
+      }
+    },
+    {
+      "guid": "904f5e2a-2c2c-5d20-b4ca-c506fc501090",
+      "name": "golden-items.spell-release.projectile",
+      "base": "Projectile_Player_Staff_IceBolt_1",
+      "fields": {
+        "StaticGravityModifier.modifier": 0.1,
+        "LifeTime.lifeTime": 5,
+        "Impact.program": "8355810d-4902-5245-89bc-6855ce9619ce"
+      }
+    }
+  ],
+  "templateRules": {
+    "ImpactConfiguration.configValues.0xf6a785cd": "aa0a3c8f-75aa-59a4-96c7-4a63b84b9c83"
+  },
+  "items": [
+    {
+      "guid": "ecdcabdd-e100-5a70-a5f0-8941975231f9",
+      "name": "golden-items.spell-release",
+      "base": "Ammo_T1_Spell_Ice_Bolt_lvl5",
+      "displayName": "Quick",
+      "description": "",
+      "fields": {
+        "maxStackSize": 500,
+        "itemLevelRange.minLevel": 1,
+        "itemLevelRange.maxLevel": 1,
+        "equipment.placedEntityLocalSpawnVelocity.z": 30,
+        "damageSetup.speedMod": 1,
+        "damageSetup.dmgMod": 1.1363636363636365,
+        "damageSetup.distribution.physicalCutDamage": 0,
+        "damageSetup.distribution.physicalPierceDamage": 0,
+        "damageSetup.distribution.physicalBluntDamage": 0,
+        "damageSetup.distribution.magicalFireDamage": 0,
+        "damageSetup.distribution.magicalIceDamage": 0,
+        "damageSetup.distribution.magicalFogDamage": 0,
+        "damageSetup.distribution.magicalLightningDamage": 1,
+        "damageSetup.distribution.poisonDamage": 0,
+        "damageSetup.distribution.woodDamage": 0,
+        "damageSetup.distribution.stoneDamage": 0,
+        "damageSetup.distribution.metalDamage": 0,
+        "damageSetup.distribution.explosionDamage": 0
+      },
+      "refs": {
+        "equipment.placedEntity": "904f5e2a-2c2c-5d20-b4ca-c506fc501090",
+        "equipment.visualEntity": "item:Ammo_T1_Spell_Ice_Bolt_lvl5"
+      }
+    }
+  ],
+  "sequences": [
+    {
+      "guid": "dde17b2e-8941-5495-a6b4-2c9da44b7784",
+      "name": "golden-items.spell-release.cast",
+      "base": "Attack_Player_Staff_FixedAnim_IceBolt_fast",
+      "fields": {
+        "events[VfxNotifierEvent#0].time": 0.3,
+        "events[SfxNotifierEvent#0].time": 0.3,
+        "events[SpawnEntityEvent#0].time": 0.3,
+        "events[PayUsageCost#0].time": 0.3,
+        "events[PayUsageCost#1].time": 0.3
+      }
+    }
+  ],
+  "itemRules": {
+    "impactValues.ManaCost": 8,
+    "impactValues.0x579b2657": 1,
+    "sequences[0].sequence": "golden-items.spell-release.cast",
+    "uiValues": [
+      {
+        "locaId": "0xbe5b2600",
+        "valueFormat": "Normal",
+        "value": 8
+      },
+      {
+        "locaId": "0x5c76837c",
+        "valueFormat": "Duration",
+        "value": 1000
+      }
+    ]
+  }
+}

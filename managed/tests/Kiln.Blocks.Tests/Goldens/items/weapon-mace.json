@@ -1,0 +1,19 @@
+{
+  "items": [
+    {
+      "guid": "927a942e-478a-59d0-b6bc-2cd74f55d569",
+      "name": "golden-items.weapon-mace",
+      "base": "Weapon_T1_1H_Mace_Craft",
+      "displayName": "Mace",
+      "description": "",
+      "fields": {
+        "rarity": "Common",
+        "generateRarity": "False",
+        "itemLevelRange.minLevel": 1,
+        "itemLevelRange.maxLevel": 1
+      },
+      "refs": {}
+    }
+  ],
+  "itemRules": {}
+}

@@ -93,7 +93,7 @@ def extract_root_motion(skel, frames, joint, axes="xz", rotation=False):
 
 
 def root_motion_value(positions, orientations):
-    end = positions[-1]
+    end = tuple(e - s for e, s in zip(positions[-1], positions[0]))  # the game's paths do not all start at zero
     return {"orientations": [dict(zip("xyzw", q)) for q in orientations], "positions": [dict(zip("xyz", p)) for p in positions],
             "startToEnd": {"x": -end[0], "y": -end[1], "z": -end[2]}, "fps": FPS, "frameCount": len(positions) - 1}
 
@@ -108,7 +108,7 @@ def lve_value(positions, orientations):
         d = (min(i + 1, n - 1) - max(i - 1, 0)) or 1
         pk.append({"time": i, "values": dict(zip("xyz", p)), "controls": {c: (b[k] - a[k]) / d for k, c in enumerate("xyz")}})
     ok = [{"time": i, "values": dict(zip("xyzw", orientations[i])), "controls": {"x": 0.0, "y": 0.0, "z": 0.0, "w": 0.0}} for i in (0, n - 1)]
-    end = positions[-1]
+    end = tuple(e - s for e, s in zip(positions[-1], positions[0]))
     return {"trackName": LVE_TRACK, "orientationKeys": ok, "positionKeys": pk, "startToEnd": {"x": -end[0], "y": -end[1], "z": -end[2]},
             "fps": FPS, "frameCount": n - 1, "flags": 0}
 
@@ -176,7 +176,7 @@ def finish_clip(frames, n, skel, anim_name, loop=None, tolerance=None, root_moti
         if root_motion is None and (worst > 2.0 or worst_p > 0.02):
             warnings.append(f"loops, but its last frame differs from its first by {worst:.1f} deg / {worst_p:.3f} m: it will pop at the seam")
     rm = lv = None
-    if root_motion is not None:
+    if root_motion is not None and root_motion is not False:
         joint = root_motion.get("joint") or next((nm for nm, i in skel.index.items() if skel.parents[i] == 0xFFFF and nm != "kiln_root"), None)
         if joint is None or joint not in skel.index:
             raise ClipError(f"rootMotion joint {joint!r} is not in the skeleton")
