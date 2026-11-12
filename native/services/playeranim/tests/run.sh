@@ -3,7 +3,7 @@
 # the Python reference (tools/animcook/anicook/playergraph.py, playerstates.py, tools/kfc) on the same inputs. No game process, no Wine.
 #   native/services/playeranim/tests/run.sh
 # gen_cases.py runs the Python side and writes its inputs and outputs to $KILN_OUT/playeranim-host-test/cases (nothing generated is in
-# the repository). With the game's player graph (KILN_PLAYER_GRAPH; default the research copy) the real-graph cases run too; with the
+# the repository). With the game's player graph (set KILN_PLAYER_GRAPH to its file) the real-graph cases run too; with the
 # installed game (KILN_GAME) the clips' facts come from it and the exe's type table is checked against the bundled layouts (the exe is
 # only read as a file). Without them those parts print SKIP.
 set -euo pipefail
@@ -11,7 +11,10 @@ here=$(cd "$(dirname "$0")" && pwd)
 : "${KILN_OUT:=$here/../../../build}"
 out=$KILN_OUT/playeranim-host-test
 mkdir -p "$out"
-graph=${KILN_PLAYER_GRAPH-/mnt/Dongus/kiln-wave/dev25/out/research/player-anim/graphtest/game_graph.bin}
+graph=${KILN_PLAYER_GRAPH-}
+if [[ -z $graph ]]; then
+  printf '%s\n' 'SKIP real-graph cases: KILN_PLAYER_GRAPH is unset'
+fi
 game=${KILN_GAME-$HOME/.local/share/Steam/steamapps/common/Enshrouded}
 exe="$game/enshrouded.exe"
 [[ -f $exe ]] || exe=""
