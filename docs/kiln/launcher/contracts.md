@@ -145,7 +145,11 @@ The whole data folder moves as one (`kiln_manage::data_folder`, `kiln_manage::da
   on disk (does the folder in use match `to`). A destination carrying the folder marker, or a journal past verifying,
   is never an unfinished copy, even after resetting the pointer or while its drive is missing: nothing is removed and
   the journal and file record stay until that folder is in use again. Choose folder accepts that committed destination
-  when its move marker matches this journal; reset refuses a default root carrying any move marker.
+  when its move marker matches this journal; reset refuses a default root carrying any move marker. The journal and
+  the file record, which the removals depend on, are replaced like the pointer (`data_folder::write_durable`): on
+  Windows from a temporary file of their own (`<name>.<32 hex>.tmp`, which counts as one of Kiln's own files where a
+  stop leaves it) by a write-through rename (`MoveFileExW` with `MOVEFILE_WRITE_THROUGH`); on Unix by
+  `util::write_atomic` and a flush of the folder. That Windows durability is asked for, not verified.
 - **File record** `<default root>/data-folder.move.files.json`: `{format, id, files:[{path, size, sha256, linked,
   sourceSha256?}]}`, every file the move copied, written once before the pointer.
 - **A move** (`data_folder_move::move_to`): the target check again, the locks, the journal, the target, its lock and its
@@ -220,6 +224,30 @@ The whole data folder moves as one (`kiln_manage::data_folder`, `kiln_manage::da
   reached by two paths (a link or a mount), so removing it would remove that one", "it is the very folder the other
   folder holds, reached by two paths (a mount), so nothing in it is removed", "Kiln could not tell whether it is a
   file of its own or the very file the other folder holds, so it stays" (`data_folder_move::guard_reason`).
+- **Removing a proved file** (both removals, every file they remove by proof: hard links, the rewritten server record,
+  files in `rewrittenAfter`, the cut-off file): what is removed is the file that was proved, never whatever has its path
+  by then. The proof reads the file through one handle and takes its identity (device and inode), size and modification
+  time from that handle before and after; a file that changed while it was read is not proved. Unix: the file is then
+  set aside under `.<name>.kiln-removing` in its own folder by a rename that never replaces a file (`renameat2` with
+  `RENAME_NOREPLACE`; where a file system does not offer it, a look first), checked again there (a plain file with the
+  same identity, size and modification time; at or below 16 MiB its content is read again and compared with the proof,
+  for the cut-off file the prefix check again to its end; a hard link proved by its identity is never read) and only
+  then removed. A file that differs is put back under its name when that is free, else it stays under the set-aside
+  name; either way it is named in `kept` ("it changed while Kiln was removing it (another program wrote it), so it
+  stays", or "... and a new file took its name meanwhile, so it stays under the name Kiln had set it aside under"). When
+  the set-aside name is another file's, nothing of that file is touched and the file stays at its name ("Kiln sets a
+  file aside under a name of its own before it removes it, and another file has that name here, so it stays"). A program
+  that writes the path anew after the file was set aside makes a new file, which stays, named (the partial copy's
+  removal looks at it like any file; the old copy's: "another program wrote a new file under this name while Kiln
+  removed the one it had proved, so it stays"). A file a later run finds under a set-aside name (a stop between setting
+  it aside and removing it) is proved under its original name and removed where it is; one its original name does not
+  prove stays as it is, named ("a removal that stopped set it aside under this name, and ..."). Windows: the file is
+  opened for its proof so that others may read it but not write or delete it, and it is deleted through that same handle
+  (`FileDispositionInfoEx` with POSIX semantics, the read-only attribute ignored; else the read-only attribute cleared
+  through the handle and `FileDispositionInfo`); no set-aside name is needed there. A file another program has open for
+  writing, or without letting it be deleted, does not open and stays ("it could not be removed: another program has it
+  open, so it stays"). On Linux one case stays open: a program outside Kiln that already has a file of the folder open
+  and writes it in the moment between Kiln's last check and the removal loses that write.
 - **A partial copy** found by a later start (`remove_partial_copy`, or `remove_partial_copy_with` with progress and
   cancel) is removed only when the target's `.kiln-data-move.json` has the journal's id, and then only what the old
   folder (still the folder in use, and complete) proves the move made. A plain file below one of the journal's entries

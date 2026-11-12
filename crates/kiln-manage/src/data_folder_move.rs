@@ -305,7 +305,15 @@ pub fn read_journal(env: &DataEnv) -> Result<Option<Journal>> {
 }
 
 fn write_journal(default: &Path, j: &Journal) -> Result<()> {
-    crate::util::write_json_atomic(&journal_path(default), j)
+    write_json_durable(&journal_path(default), j)
+}
+
+/// The journal and the file record, which the removals depend on: pretty JSON with a trailing newline, replaced by
+/// [`crate::data_folder::write_durable`] (on Windows a write-through rename, as the pointer).
+fn write_json_durable<T: Serialize>(path: &Path, value: &T) -> Result<()> {
+    let mut text = serde_json::to_string_pretty(value)?;
+    text.push('\n');
+    df::write_durable(path, text.as_bytes())
 }
 
 fn read_record(default: &Path) -> Result<Option<FileRecord>> {
@@ -380,6 +388,19 @@ pub mod guard_reason {
     pub const UNKNOWN: &str = "Kiln could not tell whether it is a file of its own or the very file the other folder holds, so it stays";
     /// A folder on the way, in either folder, is a link (or a junction).
     pub const LINK_ON_THE_WAY: &str = "a folder on its way, here or in the other folder, is a link, which Kiln never follows, so it stays";
+    /// The file was written (or replaced) after it was proved and before it was removed: it was put back under its
+    /// name.
+    pub const CHANGED: &str = "it changed while Kiln was removing it (another program wrote it), so it stays";
+    /// As `CHANGED`, and a new file took its name meanwhile: it stays under its set-aside name.
+    pub const CHANGED_SET_ASIDE: &str = "it changed while Kiln was removing it (another program wrote it) and a new file took its name meanwhile, so it stays under the name Kiln had set it aside under";
+    /// The set-aside name is taken by another file: nothing of that file is touched.
+    pub const SET_ASIDE_TAKEN: &str = "Kiln sets a file aside under a name of its own before it removes it, and another file has that name here, so it stays";
+    /// A new file written under the name while the proved one was removed.
+    pub const WRITTEN_AGAIN: &str = "another program wrote a new file under this name while Kiln removed the one it had proved, so it stays";
+    /// Windows: another program has the file open for writing, or without letting it be deleted.
+    pub const HELD: &str = "it could not be removed: another program has it open, so it stays";
+    /// The start of the reason for a file found under its set-aside name that is not proved.
+    pub const LEFT_SET_ASIDE: &str = "a removal that stopped set it aside under this name, and ";
 }
 
 /// Who a file or folder is: its device (Windows: volume serial number) and inode (file index), and how many names
@@ -410,10 +431,8 @@ fn file_id(p: &Path) -> Option<FileId> {
 #[cfg(windows)]
 fn file_id(p: &Path) -> Option<FileId> {
     use std::os::windows::fs::OpenOptionsExt;
-    use std::os::windows::io::AsRawHandle;
     use windows_sys::Win32::Storage::FileSystem::{
-        BY_HANDLE_FILE_INFORMATION, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT, FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE,
-        FILE_SHARE_READ, FILE_SHARE_WRITE, GetFileInformationByHandle,
+        FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT, FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE,
     };
     let f = std::fs::OpenOptions::new()
         .access_mode(FILE_READ_ATTRIBUTES)
@@ -421,6 +440,14 @@ fn file_id(p: &Path) -> Option<FileId> {
         .custom_flags(FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT)
         .open(p)
         .ok()?;
+    handle_id(&f)
+}
+
+/// The identity of the file behind an open handle (`GetFileInformationByHandle`).
+#[cfg(windows)]
+fn handle_id(f: &std::fs::File) -> Option<FileId> {
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::Storage::FileSystem::{BY_HANDLE_FILE_INFORMATION, GetFileInformationByHandle};
     // SAFETY: a valid open handle and a zeroed out-struct of the right type.
     unsafe {
         let mut i: BY_HANDLE_FILE_INFORMATION = std::mem::zeroed();
@@ -429,6 +456,14 @@ fn file_id(p: &Path) -> Option<FileId> {
         }
         Some(FileId { dev: u64::from(i.dwVolumeSerialNumber), ino: u64::from(i.nFileIndexHigh) << 32 | u64::from(i.nFileIndexLow), links: u64::from(i.nNumberOfLinks) })
     }
+}
+
+/// The identity of the file behind an open handle (`fstat`).
+#[cfg(unix)]
+fn handle_id(f: &std::fs::File) -> Option<FileId> {
+    use std::os::unix::fs::MetadataExt;
+    let m = f.metadata().ok()?;
+    Some(FileId { dev: m.dev(), ino: m.ino(), links: m.nlink() })
 }
 
 #[cfg(not(any(unix, windows)))]
@@ -508,6 +543,458 @@ fn separate_folders(a: &Path, b: &Path, style: PathStyle) -> Option<String> {
 /// Rule 2 of both removals: every folder from `root` down to `path` is a real folder (no link, no reparse point).
 fn no_link_on_the_way(root: &Path, path: &Path) -> bool {
     crate::engine_mods::refuse_symlink_path(root, path).is_ok()
+}
+
+// ------------------------------------------------------------------------------------------------ removing a proved file
+
+/// A file at or below this size that was set aside for its removal is read again and compared with its proof before
+/// it goes; a larger one is checked by its identity, size and modification time only. A write after the proof changes
+/// the size or the time unless it keeps the size and lands within one tick of the file system's clock (or sets the time
+/// back on purpose). The files programs rewrite in place (records, settings, saves, logs) are small, so reading them
+/// again costs little; reading the large ones again (runtime archives, mod files, backups) would double a removal's
+/// reading on a slow disk. A hard link proved by its identity is never read.
+#[cfg_attr(windows, allow(dead_code))] // Windows deletes through the handle that proved the file: nothing to check again
+const RECHECK_BYTES: u64 = 16 << 20;
+
+/// The end of the name a file is set aside under in its own folder while it is removed: `.<name>.kiln-removing`
+/// (Unix). A later run that finds one (a crash between setting aside and removing) proves it under its original name.
+pub const SET_ASIDE_SUFFIX: &str = ".kiln-removing";
+
+fn set_aside_name(name: &str) -> String {
+    format!(".{name}{SET_ASIDE_SUFFIX}")
+}
+
+/// The original name of a set-aside name.
+fn set_aside_original(name: &str) -> Option<&str> {
+    name.strip_prefix('.')?.strip_suffix(SET_ASIDE_SUFFIX).filter(|o| !o.is_empty())
+}
+
+/// Where `p` is set aside: its folder, its set-aside name.
+fn set_aside_path(p: &Path) -> Option<PathBuf> {
+    Some(p.parent()?.join(set_aside_name(&p.file_name()?.to_string_lossy())))
+}
+
+/// Test hook: the stages of the removal of a proved file. Not for the launcher.
+#[doc(hidden)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RemovalStage {
+    /// The file is proved and nothing is done to it yet (`path`: where it is).
+    Proved,
+    /// Unix: the file is under its set-aside name and not checked again yet (`path`: the set-aside path).
+    SetAside,
+}
+
+type RemovalHook = Box<dyn FnMut(RemovalStage, &Path)>;
+
+thread_local! {
+    static REMOVAL_HOOK: std::cell::RefCell<Option<RemovalHook>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Test hook: runs `f` with `hook` called at each [`RemovalStage`] of the removals this thread makes. Not for the
+/// launcher.
+#[doc(hidden)]
+pub fn with_removal_hook<R>(hook: impl FnMut(RemovalStage, &Path) + 'static, f: impl FnOnce() -> R) -> R {
+    struct Reset;
+    impl Drop for Reset {
+        fn drop(&mut self) {
+            REMOVAL_HOOK.with(|h| *h.borrow_mut() = None);
+        }
+    }
+    REMOVAL_HOOK.with(|h| *h.borrow_mut() = Some(Box::new(hook)));
+    let _reset = Reset;
+    f()
+}
+
+fn removal_hook(stage: RemovalStage, path: &Path) {
+    let hook = REMOVAL_HOOK.with(|h| h.borrow_mut().take());
+    if let Some(mut f) = hook {
+        f(stage, path);
+        REMOVAL_HOOK.with(|h| {
+            let mut slot = h.borrow_mut();
+            if slot.is_none() {
+                *slot = Some(f);
+            }
+        });
+    }
+}
+
+/// What proves that a file may go, read through the handle its removal holds.
+enum Expect {
+    /// One file under two names, the other one in another folder (a hard link the move made): never read.
+    SameFileAs(PathBuf),
+    /// This sha256.
+    Sha256(String),
+    /// The content of this file (the same size and sha256).
+    SameContentAs(PathBuf),
+    /// Exactly these bytes (the server record the move rewrote).
+    Bytes(Vec<u8>),
+    /// The beginning of this file: shorter, every byte equal to its byte at that offset (the cut-off file).
+    PrefixOf(PathBuf),
+}
+
+/// What the file set aside for removal is checked against again (Unix).
+#[cfg_attr(windows, allow(dead_code))]
+enum Again {
+    Identity(PathBuf),
+    Sha256(String),
+    Bytes(Vec<u8>),
+    PrefixOf(PathBuf),
+}
+
+/// Why a file is not proved.
+enum Unproved {
+    /// Its content (or identity) is not what proves it.
+    Differs,
+    /// It changed while it was read.
+    Changed,
+    /// It cannot be read (the OS error).
+    Unreadable(String),
+    /// Windows: another program has it open for writing, or without letting it be deleted.
+    #[cfg_attr(not(windows), allow(dead_code))]
+    Held,
+    /// It is not there any more.
+    Gone,
+}
+
+impl Unproved {
+    /// The reason a player reads: `differs` for a file whose content does not prove it, `unreadable` before the OS
+    /// error.
+    fn reason(&self, differs: &str, unreadable: &str) -> String {
+        match self {
+            Unproved::Differs | Unproved::Gone => differs.to_string(),
+            Unproved::Changed => guard_reason::CHANGED.to_string(),
+            Unproved::Unreadable(e) => format!("{unreadable}: {e}"),
+            Unproved::Held => guard_reason::HELD.to_string(),
+        }
+    }
+}
+
+/// Identity, size and modification time, from an open handle.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Stamp {
+    id: Option<FileId>,
+    len: u64,
+    modified: Option<std::time::SystemTime>,
+}
+
+fn stamp(f: &std::fs::File) -> std::io::Result<Stamp> {
+    let m = f.metadata()?;
+    Ok(Stamp { id: handle_id(f), len: m.len(), modified: m.modified().ok() })
+}
+
+/// A file proved through the handle that read it: what is removed is this file, not whatever has its path later.
+#[cfg_attr(windows, allow(dead_code))] // `again`, `set_aside`: the Unix removal's
+struct Proved {
+    path: PathBuf,
+    file: std::fs::File,
+    stamp: Stamp,
+    again: Again,
+    /// It is under its set-aside name already (found after a crash): it is checked again and removed where it is.
+    set_aside: bool,
+}
+
+/// What became of a proved file.
+enum Outcome {
+    Removed(u64),
+    /// Someone else removed it meanwhile (Unix).
+    #[cfg_attr(windows, allow(dead_code))]
+    Vanished,
+    /// It stays, at `at`, for `reason`.
+    Stays { at: PathBuf, reason: String },
+}
+
+/// Opens a file to prove it. Unix: never through a link at its own name (`O_NOFOLLOW`; the folders on the way are
+/// checked by rule 2). Windows: others may go on reading it, never write or delete it, for as long as the handle is
+/// open; it carries the right to delete it, which its removal uses.
+#[cfg(unix)]
+fn open_for_proof(p: &Path) -> std::io::Result<std::fs::File> {
+    use std::os::unix::fs::OpenOptionsExt;
+    std::fs::OpenOptions::new().read(true).custom_flags(libc::O_NOFOLLOW).open(p)
+}
+
+#[cfg(windows)]
+fn open_for_proof(p: &Path) -> std::io::Result<std::fs::File> {
+    use std::os::windows::fs::OpenOptionsExt;
+    use windows_sys::Win32::Storage::FileSystem::{DELETE, FILE_FLAG_OPEN_REPARSE_POINT, FILE_GENERIC_READ, FILE_SHARE_READ, FILE_WRITE_ATTRIBUTES};
+    std::fs::OpenOptions::new()
+        .access_mode(FILE_GENERIC_READ | DELETE | FILE_WRITE_ATTRIBUTES)
+        .share_mode(FILE_SHARE_READ)
+        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
+        .open(p)
+}
+
+#[cfg(not(any(unix, windows)))]
+fn open_for_proof(p: &Path) -> std::io::Result<std::fs::File> {
+    std::fs::File::open(p)
+}
+
+/// Opens a file to prove it by its identity alone (a hard link): Linux without reading rights (`O_PATH`: the file is
+/// never read, a file nobody may read is proved too), elsewhere as [`open_for_proof`].
+fn open_for_identity(p: &Path) -> std::io::Result<std::fs::File> {
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        std::fs::OpenOptions::new().read(true).custom_flags(libc::O_PATH | libc::O_NOFOLLOW).open(p)
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        open_for_proof(p)
+    }
+}
+
+fn unproved_open(e: std::io::Error) -> Unproved {
+    if e.kind() == std::io::ErrorKind::NotFound {
+        return Unproved::Gone;
+    }
+    #[cfg(unix)]
+    if e.raw_os_error() == Some(libc::ELOOP) {
+        return Unproved::Differs; // it became a link
+    }
+    #[cfg(windows)]
+    if matches!(e.raw_os_error(), Some(32 | 33)) {
+        return Unproved::Held; // ERROR_SHARING_VIOLATION, ERROR_LOCK_VIOLATION
+    }
+    Unproved::Unreadable(e.to_string())
+}
+
+/// Reads until `buf` is full or the end: how many bytes.
+fn read_full(r: &mut impl std::io::Read, buf: &mut [u8]) -> std::io::Result<usize> {
+    let mut n = 0;
+    while n < buf.len() {
+        match r.read(&mut buf[n..])? {
+            0 => break,
+            k => n += k,
+        }
+    }
+    Ok(n)
+}
+
+fn sha256_reader(r: &mut impl std::io::Read) -> std::io::Result<(String, u64)> {
+    let mut h = sha2::Sha256::new();
+    let mut buf = vec![0u8; 1 << 16];
+    let mut n = 0u64;
+    loop {
+        let k = r.read(&mut buf)?;
+        if k == 0 {
+            break;
+        }
+        h.update(&buf[..k]);
+        n += k as u64;
+    }
+    Ok((crate::hash::hex(h.finalize().as_slice()), n))
+}
+
+/// Every byte of `ours` (to its end) equals the byte of `other` at that offset, and `other` goes on after it.
+fn prefix_of(ours: &mut impl std::io::Read, other: &Path) -> std::io::Result<bool> {
+    let mut theirs = std::fs::File::open(other)?;
+    let (mut a, mut b) = (vec![0u8; 1 << 16], vec![0u8; 1 << 16]);
+    loop {
+        let n = read_full(ours, &mut a)?;
+        if n == 0 {
+            break;
+        }
+        if read_full(&mut theirs, &mut b[..n])? < n || a[..n] != b[..n] {
+            return Ok(false);
+        }
+    }
+    Ok(read_full(&mut theirs, &mut b[..1])? == 1)
+}
+
+/// Proves the file at `path` through one handle: what it reads is the file that is removed ([`Proved::remove`]). The
+/// handle's identity, size and modification time are taken before and after the proof; a file that changed meanwhile
+/// is not proved.
+fn prove(path: &Path, expect: Expect, set_aside: bool) -> std::result::Result<Proved, Unproved> {
+    let open = if matches!(expect, Expect::SameFileAs(_)) { open_for_identity } else { open_for_proof };
+    let mut file = open(path).map_err(unproved_open)?;
+    let unreadable = |e: std::io::Error| Unproved::Unreadable(e.to_string());
+    if !file.metadata().map_err(unreadable)?.is_file() {
+        return Err(Unproved::Differs);
+    }
+    let start = stamp(&file).map_err(unreadable)?;
+    let again = match expect {
+        Expect::SameFileAs(other) => {
+            let same = judge(start.id, file_id(&other), path.parent().and_then(file_id), other.parent().and_then(file_id));
+            if same != Identity::HardLink {
+                return Err(Unproved::Differs);
+            }
+            Again::Identity(other)
+        }
+        Expect::Sha256(want) => {
+            let (got, _) = sha256_reader(&mut file).map_err(unreadable)?;
+            if got != want {
+                return Err(Unproved::Differs);
+            }
+            Again::Sha256(got)
+        }
+        Expect::SameContentAs(other) => {
+            let (got, n) = sha256_reader(&mut file).map_err(unreadable)?;
+            let theirs = crate::hash::sha256_file(&other).map_err(|e| Unproved::Unreadable(e.message))?;
+            if (got.as_str(), n) != (theirs.0.as_str(), theirs.1) {
+                return Err(Unproved::Differs);
+            }
+            Again::Sha256(got)
+        }
+        Expect::Bytes(want) => {
+            let mut got = Vec::new();
+            std::io::Read::read_to_end(&mut file, &mut got).map_err(unreadable)?;
+            if got != want {
+                return Err(Unproved::Differs);
+            }
+            Again::Bytes(want)
+        }
+        Expect::PrefixOf(other) => {
+            if !prefix_of(&mut file, &other).map_err(unreadable)? {
+                return Err(Unproved::Differs);
+            }
+            Again::PrefixOf(other)
+        }
+    };
+    let now = stamp(&file).map_err(unreadable)?;
+    if now != start {
+        return Err(Unproved::Changed);
+    }
+    Ok(Proved { path: path.to_path_buf(), file, stamp: now, again, set_aside })
+}
+
+impl Proved {
+    /// Removes the file that was proved. Windows: through the handle that proved it (no other program could write or
+    /// delete it meanwhile). Unix: set aside under its set-aside name in its folder (never over a file there), checked
+    /// again (the same identity, size and modification time; at or below [`RECHECK_BYTES`] its content read again),
+    /// then removed; one that changed is put back under its name when that is free, else it stays set aside, named.
+    fn remove(self) -> Outcome {
+        removal_hook(RemovalStage::Proved, &self.path);
+        remove_proved(self)
+    }
+}
+
+#[cfg(windows)]
+fn remove_proved(p: Proved) -> Outcome {
+    match delete_by_handle(&p.file) {
+        Ok(()) => Outcome::Removed(p.stamp.len),
+        Err(e) => Outcome::Stays { at: p.path, reason: format!("it could not be removed: {e}") },
+    }
+}
+
+/// Windows: deletes the file behind `f` (opened with `DELETE` and `FILE_WRITE_ATTRIBUTES`): POSIX semantics and the
+/// read-only attribute ignored where Windows has them (`FileDispositionInfoEx`), else the read-only attribute cleared
+/// through the handle and the classic disposition.
+#[cfg(windows)]
+fn delete_by_handle(f: &std::fs::File) -> std::io::Result<()> {
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::Storage::FileSystem::{
+        FILE_ATTRIBUTE_NORMAL, FILE_ATTRIBUTE_READONLY, FILE_BASIC_INFO, FILE_DISPOSITION_FLAG_DELETE, FILE_DISPOSITION_FLAG_IGNORE_READONLY_ATTRIBUTE,
+        FILE_DISPOSITION_FLAG_POSIX_SEMANTICS, FILE_DISPOSITION_INFO, FILE_DISPOSITION_INFO_EX, FileBasicInfo, FileDispositionInfo, FileDispositionInfoEx,
+        GetFileInformationByHandleEx, SetFileInformationByHandle,
+    };
+    let h = f.as_raw_handle() as _;
+    // SAFETY: a valid handle opened with DELETE and FILE_WRITE_ATTRIBUTES; in- and out-structs of the right type and size.
+    unsafe {
+        let ex = FILE_DISPOSITION_INFO_EX {
+            Flags: FILE_DISPOSITION_FLAG_DELETE | FILE_DISPOSITION_FLAG_POSIX_SEMANTICS | FILE_DISPOSITION_FLAG_IGNORE_READONLY_ATTRIBUTE,
+        };
+        if SetFileInformationByHandle(h, FileDispositionInfoEx, &ex as *const _ as *const _, std::mem::size_of::<FILE_DISPOSITION_INFO_EX>() as u32) != 0 {
+            return Ok(());
+        }
+        let mut basic: FILE_BASIC_INFO = std::mem::zeroed();
+        if GetFileInformationByHandleEx(h, FileBasicInfo, &mut basic as *mut _ as *mut _, std::mem::size_of::<FILE_BASIC_INFO>() as u32) != 0
+            && basic.FileAttributes & FILE_ATTRIBUTE_READONLY != 0
+        {
+            let rest = basic.FileAttributes & !FILE_ATTRIBUTE_READONLY;
+            // zero times leave them as they are
+            let clear = FILE_BASIC_INFO { CreationTime: 0, LastAccessTime: 0, LastWriteTime: 0, ChangeTime: 0, FileAttributes: if rest == 0 { FILE_ATTRIBUTE_NORMAL } else { rest } };
+            SetFileInformationByHandle(h, FileBasicInfo, &clear as *const _ as *const _, std::mem::size_of::<FILE_BASIC_INFO>() as u32);
+        }
+        let d = FILE_DISPOSITION_INFO { DeleteFile: true };
+        if SetFileInformationByHandle(h, FileDispositionInfo, &d as *const _ as *const _, std::mem::size_of::<FILE_DISPOSITION_INFO>() as u32) != 0 {
+            return Ok(());
+        }
+        Err(std::io::Error::last_os_error())
+    }
+}
+
+#[cfg(not(windows))]
+fn remove_proved(p: Proved) -> Outcome {
+    let Proved { path, file, stamp, again, set_aside } = p;
+    let aside = if set_aside {
+        path.clone()
+    } else {
+        let Some(q) = set_aside_path(&path) else { return Outcome::Stays { at: path, reason: guard_reason::SET_ASIDE_TAKEN.into() } };
+        match rename_noreplace(&path, &q) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => return Outcome::Stays { at: path, reason: guard_reason::SET_ASIDE_TAKEN.into() },
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Outcome::Vanished,
+            Err(e) => return Outcome::Stays { at: path, reason: format!("it could not be removed: {e}") },
+        }
+        removal_hook(RemovalStage::SetAside, &q);
+        q
+    };
+    let unchanged = still_proved(&aside, &stamp, &again);
+    drop(file);
+    if unchanged {
+        match std::fs::remove_file(&aside) {
+            Ok(()) => return Outcome::Removed(stamp.len),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Outcome::Vanished,
+            Err(e) => {
+                let at = put_back(&aside, &path, set_aside);
+                return Outcome::Stays { at, reason: format!("it could not be removed: {e}") };
+            }
+        }
+    }
+    let at = put_back(&aside, &path, set_aside);
+    let reason = if at == path { guard_reason::CHANGED } else { guard_reason::CHANGED_SET_ASIDE };
+    Outcome::Stays { at, reason: reason.into() }
+}
+
+/// The set-aside file is still the one proved: a plain file with the same identity, size and modification time, and
+/// at or below [`RECHECK_BYTES`] the same content.
+#[cfg(not(windows))]
+fn still_proved(aside: &Path, stamp_then: &Stamp, again: &Again) -> bool {
+    let open = if matches!(again, Again::Identity(_)) { open_for_identity } else { open_for_proof };
+    let Ok(mut f) = open(aside) else { return false };
+    if !f.metadata().is_ok_and(|m| m.is_file()) || stamp(&f).ok().as_ref() != Some(stamp_then) {
+        return false;
+    }
+    match again {
+        Again::Identity(other) => {
+            judge(stamp_then.id, file_id(other), aside.parent().and_then(file_id), other.parent().and_then(file_id)) == Identity::HardLink
+        }
+        _ if stamp_then.len > RECHECK_BYTES => true,
+        Again::Sha256(want) => sha256_reader(&mut f).is_ok_and(|(got, _)| got == *want),
+        Again::Bytes(want) => {
+            let mut got = Vec::new();
+            std::io::Read::read_to_end(&mut f, &mut got).is_ok() && got == *want
+        }
+        Again::PrefixOf(other) => prefix_of(&mut f, other).unwrap_or(false),
+    }
+}
+
+/// Puts a set-aside file back under its name when that is free (never over a file that appeared there); where it is.
+#[cfg(not(windows))]
+fn put_back(aside: &Path, path: &Path, was_set_aside: bool) -> PathBuf {
+    if !was_set_aside && rename_noreplace(aside, path).is_ok() { path.to_path_buf() } else { aside.to_path_buf() }
+}
+
+/// Renames `from` to `to` only when nothing is at `to` (`AlreadyExists` otherwise). Linux: `renameat2` with
+/// `RENAME_NOREPLACE`; where the file system does not offer it, and on other systems, a look first (a small window).
+#[cfg(not(windows))]
+fn rename_noreplace(from: &Path, to: &Path) -> std::io::Result<()> {
+    #[cfg(all(target_os = "linux", target_env = "gnu"))]
+    {
+        use std::os::unix::ffi::OsStrExt;
+        let (a, b) = (std::ffi::CString::new(from.as_os_str().as_bytes())?, std::ffi::CString::new(to.as_os_str().as_bytes())?);
+        // SAFETY: two live NUL-terminated paths.
+        if unsafe { libc::renameat2(libc::AT_FDCWD, a.as_ptr(), libc::AT_FDCWD, b.as_ptr(), libc::RENAME_NOREPLACE) } == 0 {
+            return Ok(());
+        }
+        let e = std::io::Error::last_os_error();
+        if !matches!(e.raw_os_error(), Some(libc::EINVAL | libc::ENOSYS)) {
+            return Err(e);
+        }
+    }
+    if std::fs::symlink_metadata(to).is_ok() {
+        return Err(std::io::Error::from(std::io::ErrorKind::AlreadyExists));
+    }
+    std::fs::rename(from, to)
 }
 
 /// `value` (a path text) when it starts with `old`, as the same path below `new`, by the rules of `style` (Windows:
@@ -1278,7 +1765,7 @@ pub fn move_to(
     // the file record, the marker, the folders on disk, the pointer
     journal.rewritten = c.rewritten.clone();
     let record = FileRecord { format: 1, id: journal.id.clone(), files: c.files.values().map(|f| f.line.clone()).collect() };
-    if let Err(e) = crate::util::write_json_atomic(&record_path(&default), &record) {
+    if let Err(e) = write_json_durable(&record_path(&default), &record) {
         fail!(e);
     }
     let _ = write_journal(&default, &journal);
@@ -1740,7 +2227,8 @@ fn save_result(default: &Path, journal: &mut Journal, c: &Cleanup, state: &str) 
 
 /// Removes the old copy of a committed move, file by file, by the file record: an old file goes only when its sha256
 /// is the record's (for a rewritten file, the old one's) and the file in the new place has the record's sha256, or the
-/// one the move itself wrote there after the commit ([`Journal::rewritten_after`]). Then the hash cache
+/// one the move itself wrote there after the commit ([`Journal::rewritten_after`]); it is removed as the file that was
+/// proved (`remove_old_file`). Then the hash cache
 /// (`state/file-hashes.json`, by its exact name, not in a `state` the old root keeps for itself), the lock files
 /// (`quick.lock`, `data-folder.lock`, `nexus/*.lock`), the old markers, the folders that are empty, and the old root
 /// itself when it is empty and is not the default root. Entries the launcher does not know, and entries the target
@@ -1819,49 +2307,14 @@ pub fn remove_old_copy(env: &DataEnv, progress: &mut dyn Progress) -> Result<Cle
             c.kept.push(Kept { path: from.join(&f.path), bytes: f.size, reason: "its name in the record is not a path in the folder".into() });
             continue;
         };
-        let Ok(om) = std::fs::symlink_metadata(&old) else { continue }; // already removed
-        let keep = |reason: &str, c: &mut Cleanup| c.kept.push(Kept { path: old.clone(), bytes: om.len(), reason: reason.into() });
-        // nothing is reached through a link, in either folder
-        if !no_link_on_the_way(&from, &old) || !no_link_on_the_way(&to_root, &new) {
-            keep(guard_reason::LINK_ON_THE_WAY, &mut c);
-            continue;
+        // a file of this line set aside by a removal that stopped (a crash) is proved like the old file and removed where
+        // it is, or left as it is
+        if let Some(q) = set_aside_path(&old)
+            && std::fs::symlink_metadata(&q).is_ok()
+        {
+            remove_old_file(&q, true, f, &new, &from, &to_root, after.get(f.path.as_str()).copied(), &mut c);
         }
-        if !om.is_file() {
-            keep("it is no longer a plain file", &mut c);
-            continue;
-        }
-        // the same single file reached twice is never removed; a hard link (two names) needs no reading
-        let new_file = std::fs::symlink_metadata(&new).is_ok_and(|m| m.is_file());
-        let same = if new_file { identity(&old, &new) } else { Identity::Different };
-        match same {
-            Identity::OneFile => {
-                keep(guard_reason::ONE_FILE, &mut c);
-                continue;
-            }
-            Identity::Unknown => {
-                keep(guard_reason::UNKNOWN, &mut c);
-                continue;
-            }
-            Identity::Different | Identity::HardLink => {}
-        }
-        let new_sha = if new_file { sha256_of(&new) } else { None };
-        let old_sha = if same == Identity::HardLink { new_sha.clone() } else { sha256_of(&old) };
-        let old_ok = old_sha.as_deref() == Some(f.source_sha256.as_deref().unwrap_or(&f.sha256));
-        // the new file is the one copied, or the one the move itself wrote after the commit
-        let new_ok = new_sha.as_deref() == Some(f.sha256.as_str()) || (new_sha.is_some() && new_sha.as_deref() == after.get(f.path.as_str()).copied());
-        if !old_ok {
-            keep("it changed in the old folder after the move", &mut c);
-        } else if !new_ok {
-            keep("its copy in the new place changed or is gone, so this one stays", &mut c);
-        } else {
-            match remove_if_there(&old) {
-                Ok(()) => {
-                    c.removed_files += 1;
-                    c.removed_bytes += om.len();
-                }
-                Err(e) => keep(&format!("it could not be removed: {}", e.message), &mut c),
-            }
-        }
+        remove_old_file(&old, false, f, &new, &from, &to_root, after.get(f.path.as_str()).copied(), &mut c);
         if i % 64 == 0 {
             progress.report(Some(i as f32 / n as f32), &format!("removing the old copy: {}", f.path));
         }
@@ -1951,6 +2404,74 @@ pub fn remove_old_copy(env: &DataEnv, progress: &mut dyn Progress) -> Result<Cle
     save_result(&default, &mut journal, &c, "cleaned");
     progress.report(Some(1.0), "the old copy is removed");
     Ok(c)
+}
+
+/// One file of the old copy (`p`: the old file of record line `f`, or that file under its set-aside name), removed only
+/// as the file that was proved ([`prove`], [`Proved::remove`]): its sha256 is the record's (for a rewritten file, the
+/// old one's), or it is one file with the new place's under two names; and the new place's file has the record's
+/// sha256 or the one the move wrote after the commit (`after`). Else it stays, named.
+#[allow(clippy::too_many_arguments)]
+fn remove_old_file(p: &Path, set_aside: bool, f: &RecordedFile, new: &Path, from: &Path, to: &Path, after: Option<&str>, c: &mut Cleanup) {
+    let Ok(om) = std::fs::symlink_metadata(p) else { return }; // already removed
+    let left = |why: &str| if set_aside { format!("{}{why}", guard_reason::LEFT_SET_ASIDE) } else { why.to_string() };
+    let keep = |why: String, c: &mut Cleanup| c.kept.push(Kept { path: p.to_path_buf(), bytes: om.len(), reason: why });
+    // nothing is reached through a link, in either folder
+    if !no_link_on_the_way(from, p) || !no_link_on_the_way(to, new) {
+        keep(left(guard_reason::LINK_ON_THE_WAY), c);
+        return;
+    }
+    if !om.is_file() {
+        keep(left("it is no longer a plain file"), c);
+        return;
+    }
+    // the same single file reached twice is never removed; a hard link (two names) needs no reading
+    let new_file = std::fs::symlink_metadata(new).is_ok_and(|m| m.is_file());
+    let same = if new_file { identity(p, new) } else { Identity::Different };
+    match same {
+        Identity::OneFile => return keep(left(guard_reason::ONE_FILE), c),
+        Identity::Unknown => return keep(left(guard_reason::UNKNOWN), c),
+        Identity::Different | Identity::HardLink => {}
+    }
+    let new_sha = if new_file { sha256_of(new) } else { None };
+    let expected = f.source_sha256.as_deref().unwrap_or(&f.sha256);
+    // the new file is the one copied, or the one the move itself wrote after the commit
+    let new_ok = new_sha.as_deref() == Some(f.sha256.as_str()) || (new_sha.is_some() && new_sha.as_deref() == after);
+    let changed = "it changed in the old folder after the move";
+    let expect = if same == Identity::HardLink {
+        // one file under two names: its content is the new file's
+        if new_sha.as_deref() != Some(expected) {
+            return keep(left(changed), c);
+        }
+        Expect::SameFileAs(new.to_path_buf())
+    } else {
+        Expect::Sha256(expected.to_string())
+    };
+    let proved = match prove(p, expect, set_aside) {
+        Ok(proved) => proved,
+        Err(Unproved::Gone) => return,
+        Err(u) => return keep(left(&u.reason(changed, "Kiln could not read it")), c),
+    };
+    if !new_ok {
+        return keep(left("its copy in the new place changed or is gone, so this one stays"), c);
+    }
+    match proved.remove() {
+        Outcome::Removed(n) => {
+            c.removed_files += 1;
+            c.removed_bytes += n;
+        }
+        Outcome::Vanished => {}
+        Outcome::Stays { at, reason } => {
+            c.kept.push(Kept { path: at, bytes: om.len(), reason });
+            return;
+        }
+    }
+    // a program that wrote a new file under the old name meanwhile: it stays, named
+    if !set_aside
+        && let Ok(m) = std::fs::symlink_metadata(p)
+        && !c.kept.iter().any(|k| k.path == p)
+    {
+        c.kept.push(Kept { path: p.to_path_buf(), bytes: m.len(), reason: guard_reason::WRITTEN_AGAIN.into() });
+    }
 }
 
 /// Why the old copy must stay because a known game still reads from it: its `kiln/profile.json`, `kiln/profile.once.json`,
@@ -2122,34 +2643,12 @@ struct Recovery<'a> {
 /// A cancel between two files.
 struct Canceled;
 
-/// What the old folder proves about a file of the partial copy.
-enum Proof {
-    /// The move made it: the same content, the same file (a hard link), or the server record it rewrote.
-    Copied,
-    /// The beginning of the old folder's file (every byte equals the old file's at that offset; an empty file too):
-    /// the file an interrupted copy cut off, if no other one was.
-    CutOff,
+/// What would prove a file of the partial copy, decided without reading it.
+enum ProofPlan {
+    /// This proof, read through the handle its removal holds ([`prove`]); `true`: the file an interrupted copy cut off.
+    Expect(Expect, bool),
     /// It stays, for this reason.
     Stays(String),
-}
-
-/// The first `n` bytes of `t` (all of them) equal the first `n` bytes of `s`.
-fn is_prefix(t: &Path, s: &Path, n: u64) -> std::io::Result<bool> {
-    use std::io::Read;
-    let (mut a, mut b) = (std::fs::File::open(t)?, std::fs::File::open(s)?);
-    let (mut x, mut y) = (vec![0u8; 1 << 16], vec![0u8; 1 << 16]);
-    let mut left = n;
-    while left > 0 {
-        let k = (left as usize).min(x.len());
-        a.read_exact(&mut x[..k])?;
-        b.read_exact(&mut y[..k])?;
-        if x[..k] != y[..k] {
-            return Ok(false);
-        }
-        left -= k as u64;
-    }
-    // `n` came from earlier metadata. Bytes appended since then are not part of the proof.
-    Ok(a.read(&mut x[..1])? == 0)
 }
 
 impl Recovery<'_> {
@@ -2214,30 +2713,15 @@ impl Recovery<'_> {
             if self.files % 64 == 1 || m.len() >= 4 << 20 {
                 progress.report(Some((self.seen as f32 / self.total.max(1) as f32).min(1.0)), &format!("checking {rel}"));
             }
-            match self.proof(names, &t, &m, src_dir) {
-                Proof::Copied => {
-                    if let Err(e) = self.remove(&t, m.len()) {
-                        self.keep(t, m.len(), format!("it could not be removed: {e}"));
-                    }
+            // a program that wrote a new file under the name while the proved one went: it is looked at like any file
+            if self.file(names, &t, &m, src_dir)
+                && let Ok(m2) = std::fs::symlink_metadata(&t)
+            {
+                if m2.is_file() && !is_link_meta(&m2) {
+                    self.file(names, &t, &m2, src_dir);
+                } else {
+                    self.keep(t, m2.len(), guard_reason::WRITTEN_AGAIN);
                 }
-                Proof::CutOff if !self.cut_off_used => {
-                    // remembered in the journal before it goes: after a crash right here the next call gets no second one
-                    self.cut_off_used = true;
-                    self.c.cut_off.push(t.clone());
-                    self.journal.result = Some(self.c.clone());
-                    self.journal.state = "failed".into();
-                    if let Err(e) = write_journal(self.default, &self.journal).and_then(|_| sync_dir(self.default)) {
-                        self.c.cut_off.pop();
-                        self.keep(t, m.len(), format!("Kiln could not record the cut-off file before removing it: {}", e.message));
-                        return Ok(());
-                    }
-                    if let Err(e) = self.remove(&t, m.len()) {
-                        self.c.cut_off.pop();
-                        self.keep(t, m.len(), format!("it could not be removed: {e}"));
-                    }
-                }
-                Proof::CutOff => self.keep(t, m.len(), partial_reason::CUT_OFF_AGAIN),
-                Proof::Stays(why) => self.keep(t, m.len(), why),
             }
         } else {
             self.keep(t, m.len(), partial_reason::SPECIAL);
@@ -2245,25 +2729,88 @@ impl Recovery<'_> {
         Ok(())
     }
 
-    /// Removes a file of the copy the old folder proved, and counts it.
-    fn remove(&mut self, t: &Path, len: u64) -> std::io::Result<()> {
-        match std::fs::remove_file(t) {
-            Ok(()) => {
-                self.c.removed_files += 1;
-                self.c.removed_bytes += len;
-                Ok(())
+    /// One file of the partial copy (`names` from the target root, at `t`): proved through the handle its removal
+    /// holds and removed as that file ([`prove`], [`Proved::remove`]), else kept, named. A file under a set-aside name
+    /// (`.<name>.kiln-removing`, left by a removal that stopped) that its own name proves nothing for is proved under its
+    /// original name and removed where it is. The one cut-off file is remembered in the journal between its proof and
+    /// its removal. True: the file went from its path (not one found set aside), so a new file there is looked at.
+    fn file(&mut self, names: &[String], t: &Path, m: &std::fs::Metadata, src_dir: bool) -> bool {
+        let mut plan = self.plan(names, t, m, src_dir);
+        let mut original = None;
+        if let ProofPlan::Stays(_) = &plan
+            && let Some(orig) = names.last().and_then(|n| set_aside_original(n))
+        {
+            let mut as_original = names.to_vec();
+            if let Some(last) = as_original.last_mut() {
+                *last = orig.to_string();
             }
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
-            Err(e) => Err(e),
+            original = Some(t.with_file_name(orig));
+            plan = match self.plan(&as_original, t, m, src_dir) {
+                ProofPlan::Stays(why) => ProofPlan::Stays(format!("{}{why}", guard_reason::LEFT_SET_ASIDE)),
+                p => p,
+            };
         }
+        let (expect, cut) = match plan {
+            ProofPlan::Stays(why) => {
+                self.keep(t.to_path_buf(), m.len(), why);
+                return false;
+            }
+            ProofPlan::Expect(expect, cut) => (expect, cut),
+        };
+        let set_aside = original.is_some();
+        let proved = match prove(t, expect, set_aside) {
+            Ok(p) => p,
+            Err(Unproved::Gone) => return false,
+            Err(u) => {
+                let why = u.reason(partial_reason::DIFFERS, "Kiln could not compare it with the old folder's file");
+                let why = if set_aside { format!("{}{why}", guard_reason::LEFT_SET_ASIDE) } else { why };
+                self.keep(t.to_path_buf(), m.len(), why);
+                return false;
+            }
+        };
+        let original = original.unwrap_or_else(|| t.to_path_buf());
+        let mut checkpointed = false;
+        // the one file an interrupted copy cut off: the journal names it before it goes (one it names already is the
+        // one whose removal stopped)
+        if cut && !self.c.cut_off.contains(&original) {
+            if self.cut_off_used {
+                self.keep(t.to_path_buf(), m.len(), partial_reason::CUT_OFF_AGAIN);
+                return false;
+            }
+            self.cut_off_used = true;
+            self.c.cut_off.push(original.clone());
+            self.journal.result = Some(self.c.clone());
+            self.journal.state = "failed".into();
+            if let Err(e) = write_journal(self.default, &self.journal).and_then(|_| sync_dir(self.default)) {
+                self.c.cut_off.pop();
+                self.keep(t.to_path_buf(), m.len(), format!("Kiln could not record the cut-off file before removing it: {}", e.message));
+                return false;
+            }
+            checkpointed = true;
+        }
+        match proved.remove() {
+            Outcome::Removed(n) => {
+                self.c.removed_files += 1;
+                self.c.removed_bytes += n;
+            }
+            Outcome::Vanished => {}
+            Outcome::Stays { at, reason } => {
+                if checkpointed {
+                    self.c.cut_off.pop();
+                }
+                self.keep(at, m.len(), reason);
+                return false;
+            }
+        }
+        !set_aside
     }
 
-    /// What the old folder proves about the file at `t`: a plain file at the same path (no link on the way) with the
-    /// same size and sha256, the same file under two names (a hard link; one file reached twice stays), for
-    /// `servers/<id>.json` what the move writes from the old folder's file; or the beginning of the old folder's file
-    /// (a file the interrupted copy cut off; never a server record, which is written whole).
-    fn proof(&self, names: &[String], t: &Path, tm: &std::fs::Metadata, src_dir: bool) -> Proof {
-        let stays = |why: &str| Proof::Stays(why.into());
+    /// What would prove the file at `t` (decided without reading it): a plain file at the same path in the old folder
+    /// (no link on the way) with the same size and sha256, the same file under two names (a hard link; one file reached
+    /// twice stays), for `servers/<id>.json` what the move writes from the old folder's file; or the beginning of the
+    /// old folder's file (a file the interrupted copy cut off; never a server record, which is written whole).
+    fn plan(&self, names: &[String], t: &Path, tm: &std::fs::Metadata, src_dir: bool) -> ProofPlan {
+        let stays = |why: &str| ProofPlan::Stays(why.into());
         let never = (names.len() == 2 && self.style.same_name(&names[0], "nexus") && names[1].to_lowercase().ends_with(".lock"))
             || (names.len() == 2 && self.style.same_name(&names[0], df::HASH_CACHE[0]) && self.style.same_name(&names[1], df::HASH_CACHE[1]));
         if never {
@@ -2280,12 +2827,11 @@ impl Recovery<'_> {
         // the same file under two names (a hard link the move made) is proof without reading it; one file reached
         // twice is the old folder's own file
         match identity(t, &s) {
-            Identity::HardLink => return Proof::Copied,
+            Identity::HardLink => return ProofPlan::Expect(Expect::SameFileAs(s), false),
             Identity::OneFile => return stays(guard_reason::ONE_FILE),
             Identity::Unknown => return stays(guard_reason::UNKNOWN),
             Identity::Different => {}
         }
-        let compare = |e: &dyn std::fmt::Display| Proof::Stays(format!("Kiln could not compare it with the old folder's file: {e}"));
         // servers/<id>.json: the move wrote it with backupDir rewritten from the old root to the new one
         let server_record = names.len() == 2 && names[0] == "servers" && names[1].ends_with(".json");
         if server_record
@@ -2295,27 +2841,15 @@ impl Recovery<'_> {
             if tm.len() != written.len() as u64 {
                 return stays(partial_reason::DIFFERS);
             }
-            return match std::fs::read(t) {
-                Ok(here) if here == written.as_bytes() => Proof::Copied,
-                Ok(_) => stays(partial_reason::DIFFERS),
-                Err(e) => compare(&e),
-            };
+            return ProofPlan::Expect(Expect::Bytes(written.into_bytes()), false);
         }
         if tm.len() < sm.len() && !server_record {
-            return match is_prefix(t, &s, tm.len()) {
-                Ok(true) => Proof::CutOff,
-                Ok(false) => stays(partial_reason::DIFFERS),
-                Err(e) => compare(&e),
-            };
+            return ProofPlan::Expect(Expect::PrefixOf(s), true);
         }
         if tm.len() != sm.len() {
             return stays(partial_reason::DIFFERS);
         }
-        match (crate::hash::sha256_file(t), crate::hash::sha256_file(&s)) {
-            (Ok((a, _)), Ok((b, _))) if a == b => Proof::Copied,
-            (Ok(_), Ok(_)) => stays(partial_reason::DIFFERS),
-            (Err(e), _) | (_, Err(e)) => compare(&e.message),
-        }
+        ProofPlan::Expect(Expect::SameContentAs(s), false)
     }
 }
 

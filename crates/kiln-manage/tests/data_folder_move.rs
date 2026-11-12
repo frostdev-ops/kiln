@@ -2376,10 +2376,27 @@ fn recovery_keeps_a_cut_off_file_when_its_checkpoint_cannot_be_written() {
     let (fx, _, to) = crashed_inside_a_file("cut-off-checkpoint-fails");
     let cut = to.join("backups/big.bin");
     let before = std::fs::read(&cut).unwrap();
+    // Unix: a folder where the journal's temporary file goes; Windows (a temporary name of its own, then a write-through
+    // rename): a read-only journal, which the rename cannot replace
+    #[cfg(unix)]
     let blocked = fx.env.default_root().unwrap().join(format!("{}.tmp", df::JOURNAL));
+    #[cfg(unix)]
     std::fs::create_dir(&blocked).unwrap();
+    #[cfg(windows)]
+    let journal_file = fx.env.default_root().unwrap().join(df::JOURNAL);
+    #[cfg(windows)]
+    let set_read_only = |on: bool| {
+        let mut p = std::fs::metadata(&journal_file).unwrap().permissions();
+        p.set_readonly(on);
+        std::fs::set_permissions(&journal_file, p).unwrap();
+    };
+    #[cfg(windows)]
+    set_read_only(true);
     let c = dfm::remove_partial_copy(&fx.env).unwrap();
+    #[cfg(unix)]
     std::fs::remove_dir(&blocked).unwrap();
+    #[cfg(windows)]
+    set_read_only(false);
     assert!(cut.is_file(), "recovery removed a cut-off file without recording its allowance: {c:?}");
     assert_eq!(std::fs::read(&cut).unwrap(), before);
     assert!(c.kept.iter().any(|k| k.path == cut && k.reason.contains("record")), "{c:?}");
@@ -2442,4 +2459,181 @@ fn recovery_removes_the_small_entries_first() {
     let left: Vec<(String, usize)> = smaller.iter().map(|n| (n.clone(), files(&to.join(n)))).filter(|(_, n)| *n > 0).collect();
     assert!(left.is_empty(), "nothing of the smaller entries is left: {left:?}");
     assert_eq!(files(&to.join(&largest)), in_largest, "the largest entry is whole");
+}
+
+// ------------------------------------------------------------------------------------------------ core-8
+
+/// A file proved for removal and the place it is in, for each removal: the partial copy's (a crashed move by copies:
+/// the target's copy of a backup note) and the old copy's (a committed move by copies with its removal pending: the old
+/// folder's copy of a library file). `run` runs that removal.
+#[cfg(unix)] // the set-aside name, an open handle written after the rename
+struct Race {
+    fx: Fixture,
+    file: PathBuf,
+    old_copy: bool,
+}
+
+#[cfg(unix)]
+impl Race {
+    fn new(tag: &str, old_copy: bool) -> Race {
+        if old_copy {
+            let (fx, a, _) = removal_pending(tag, &Facts::all_clear());
+            let file = lib_dir(&DataDirs::at(&a), &fx.mods.native).join("fps.dll");
+            Race { fx, file, old_copy }
+        } else {
+            let (fx, _, to) = crashed_after_copy(tag, &Facts::all_clear());
+            Race { fx, file: to.join("backups/install-20261101T000000Z/note.txt"), old_copy }
+        }
+    }
+
+    fn run(&self) -> dfm::Cleanup {
+        if self.old_copy { dfm::remove_old_copy(&self.fx.env, &mut NoProgress).unwrap() } else { dfm::remove_partial_copy(&self.fx.env).unwrap() }
+    }
+
+    fn set_aside(&self) -> PathBuf {
+        self.file.with_file_name(format!(".{}{}", self.file.file_name().unwrap().to_string_lossy(), dfm::SET_ASIDE_SUFFIX))
+    }
+
+    /// The file stays at its name with `bytes`, named with `reason`; the removal of the partial copy is not done.
+    fn kept(&self, c: &dfm::Cleanup, bytes: &[u8], reason: &str) {
+        assert_eq!(std::fs::read(&self.file).unwrap(), bytes, "the written bytes are there: {c:?}");
+        assert_eq!(kept_of(c).get(&self.file).map(String::as_str), Some(reason), "{c:?}");
+        assert!(!self.set_aside().exists(), "nothing is left under the set-aside name");
+        if !self.old_copy {
+            assert!(!c.done, "{c:?}");
+        }
+    }
+}
+
+/// A write between the proof and the removal, deterministic through the removal hook: to the path before the file is
+/// set aside, and through a handle opened before the removal began after it is set aside. Either way the file stays
+/// with the written bytes (put back under its name), named, in both removals.
+#[test]
+#[cfg(unix)] // Windows: the write fails to open, tests/data_folder_windows.rs
+fn a_file_written_after_its_proof_stays() {
+    use std::io::Write;
+    for old_copy in [false, true] {
+        for stage in [dfm::RemovalStage::Proved, dfm::RemovalStage::SetAside] {
+            let race = Race::new(&format!("race-{old_copy}-{stage:?}"), old_copy);
+            let mut bytes = std::fs::read(&race.file).unwrap();
+            bytes.extend_from_slice(b" and the player's new bytes");
+            let open = std::cell::RefCell::new(Some(std::fs::OpenOptions::new().append(true).open(&race.file).unwrap()));
+            let (file, aside) = (race.file.clone(), race.set_aside());
+            let hit = std::rc::Rc::new(std::cell::Cell::new(false));
+            let h = hit.clone();
+            let c = dfm::with_removal_hook(
+                move |s, p| {
+                    if s != stage {
+                        return;
+                    }
+                    if stage == dfm::RemovalStage::Proved && p == file {
+                        // by its path, before it is set aside
+                        std::fs::OpenOptions::new().append(true).open(p).unwrap().write_all(b" and the player's new bytes").unwrap();
+                        h.set(true);
+                    } else if stage == dfm::RemovalStage::SetAside && p == aside {
+                        // through a handle that was open before, after it is set aside
+                        open.borrow_mut().take().unwrap().write_all(b" and the player's new bytes").unwrap();
+                        h.set(true);
+                    }
+                },
+                || race.run(),
+            );
+            assert!(hit.get(), "{old_copy} {stage:?}: the hook wrote the file");
+            race.kept(&c, &bytes, dfm::guard_reason::CHANGED);
+        }
+    }
+}
+
+/// A program that writes the path anew once the proved file is set aside makes a new file: the proved file goes, the
+/// new file stays and is named (the partial copy's removal names it as any file the old folder does not prove; the old
+/// copy's names it as written again).
+#[test]
+#[cfg(unix)] // the set-aside name
+fn a_new_file_written_under_the_name_during_the_removal_stays() {
+    for old_copy in [false, true] {
+        let race = Race::new(&format!("rewrite-{old_copy}"), old_copy);
+        let (file, aside) = (race.file.clone(), race.set_aside());
+        let c = dfm::with_removal_hook(
+            move |s, p| {
+                if s == dfm::RemovalStage::SetAside && p == aside {
+                    std::fs::write(&file, b"a new file by another program").unwrap();
+                }
+            },
+            || race.run(),
+        );
+        assert_eq!(std::fs::read(&race.file).unwrap(), b"a new file by another program", "{c:?}");
+        assert!(!race.set_aside().exists(), "the proved file went");
+        let want = if old_copy { dfm::guard_reason::WRITTEN_AGAIN } else { dfm::partial_reason::DIFFERS };
+        assert_eq!(kept_of(&c).get(&race.file).map(String::as_str), Some(want), "{c:?}");
+        assert!(c.removed_files > 0);
+    }
+}
+
+/// The same size and the same modification time with other content (a write that keeps both): below the threshold
+/// the set-aside file is read again, and the second hash keeps it.
+#[test]
+#[cfg(unix)] // the set-aside name
+fn a_file_changed_without_its_size_or_time_changing_stays() {
+    use std::io::{Seek, Write};
+    for old_copy in [false, true] {
+        let race = Race::new(&format!("same-stamp-{old_copy}"), old_copy);
+        let mut bytes = std::fs::read(&race.file).unwrap();
+        bytes[0] ^= 0xff;
+        let (aside, written) = (race.set_aside(), bytes.clone());
+        let c = dfm::with_removal_hook(
+            move |s, p| {
+                if s == dfm::RemovalStage::SetAside && p == aside {
+                    let when = std::fs::metadata(p).unwrap().modified().unwrap();
+                    let mut f = std::fs::OpenOptions::new().write(true).open(p).unwrap();
+                    f.seek(std::io::SeekFrom::Start(0)).unwrap();
+                    f.write_all(&written).unwrap();
+                    f.set_modified(when).unwrap();
+                }
+            },
+            || race.run(),
+        );
+        race.kept(&c, &bytes, dfm::guard_reason::CHANGED);
+    }
+}
+
+/// A file left under its set-aside name by a crash between setting it aside and removing it: the next run proves it
+/// under its original name and removes it where it is; one that its original name does not prove stays as it is,
+/// named.
+#[test]
+#[cfg(unix)] // the set-aside name
+fn a_file_left_set_aside_by_a_crash_is_proved_under_its_name() {
+    for old_copy in [false, true] {
+        let race = Race::new(&format!("left-aside-{old_copy}"), old_copy);
+        let aside = race.set_aside();
+        std::fs::rename(&race.file, &aside).unwrap();
+        let c = race.run();
+        assert!(!aside.exists() && !race.file.exists(), "{old_copy}: proved under its name and removed: {c:?}");
+        assert!(!c.kept.iter().any(|k| k.path == aside), "{c:?}");
+    }
+    for old_copy in [false, true] {
+        let race = Race::new(&format!("left-aside-other-{old_copy}"), old_copy);
+        let aside = race.set_aside();
+        std::fs::rename(&race.file, &aside).unwrap();
+        std::fs::write(&aside, b"not what was proved").unwrap();
+        let c = race.run();
+        assert_eq!(std::fs::read(&aside).unwrap(), b"not what was proved", "{old_copy}: left as it is");
+        let why = kept_of(&c).get(&aside).cloned().unwrap_or_default();
+        assert!(why.starts_with(dfm::guard_reason::LEFT_SET_ASIDE), "{old_copy}: {c:?}");
+    }
+}
+
+/// The set-aside name is someone's file already: nothing of it is touched, and the file that would be set aside under
+/// it stays where it is, named.
+#[test]
+#[cfg(unix)] // the set-aside name
+fn a_set_aside_name_that_is_taken_is_never_touched() {
+    for old_copy in [false, true] {
+        let race = Race::new(&format!("aside-taken-{old_copy}"), old_copy);
+        let (aside, before) = (race.set_aside(), std::fs::read(&race.file).unwrap());
+        std::fs::write(&aside, b"someone's file").unwrap();
+        let c = race.run();
+        assert_eq!(std::fs::read(&aside).unwrap(), b"someone's file", "{old_copy}: {c:?}");
+        assert_eq!(std::fs::read(&race.file).unwrap(), before);
+        assert_eq!(kept_of(&c).get(&race.file).map(String::as_str), Some(dfm::guard_reason::SET_ASIDE_TAKEN), "{c:?}");
+    }
 }

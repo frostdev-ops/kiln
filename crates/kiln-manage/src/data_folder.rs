@@ -138,21 +138,37 @@ pub fn write_pointer(default_root: &Path, path: &Path) -> Result<Pointer> {
 
 /// Pointer-only atomic replacement. On Windows the rename is write-through before old data may be removed.
 pub(crate) fn write_pointer_bytes(default_root: &Path, bytes: &[u8]) -> Result<()> {
+    #[cfg(windows)]
+    std::fs::create_dir_all(default_root).map_err(io_at(default_root, "creating"))?;
+    write_durable(&default_root.join(POINTER), bytes)
+}
+
+/// Replaces `path` with `bytes` atomically, for the files a removal depends on (the pointer, the move's journal and
+/// file record). Windows: a flushed temporary file with a name of its own in the same folder (`<name>.<32 hex>.tmp`),
+/// then a write-through rename over `path` (`MoveFileExW` with `MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH`),
+/// so the replacement is asked to reach the disk before anything that depends on it. Unix: `util::write_atomic` (the
+/// callers flush the folder).
+pub(crate) fn write_durable(path: &Path, bytes: &[u8]) -> Result<()> {
     #[cfg(not(windows))]
-    { crate::util::write_atomic(&default_root.join(POINTER), bytes) }
+    {
+        crate::util::write_atomic(path, bytes)
+    }
     #[cfg(windows)]
     {
         use std::io::Write;
-        std::fs::create_dir_all(default_root).map_err(io_at(default_root, "creating"))?;
-        let tmp = default_root.join(format!("{POINTER}.{}.tmp", crate::hash::hex(&crate::util::random_bytes::<16>()?)));
+        let dir = path.parent().ok_or_else(|| Error::invalid(format!("{}: no parent folder", path.display())))?;
+        let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        let tmp = dir.join(format!("{name}.{}.tmp", crate::hash::hex(&crate::util::random_bytes::<16>()?)));
         let mut file = std::fs::OpenOptions::new().write(true).create_new(true).open(&tmp).map_err(io_at(&tmp, "writing"))?;
         let result = (|| {
             file.write_all(bytes).map_err(io_at(&tmp, "writing"))?;
             file.sync_all().map_err(io_at(&tmp, "flushing"))?;
             drop(file);
-            pointer_rename(&tmp, &default_root.join(POINTER), true)
+            pointer_rename(&tmp, path, true)
         })();
-        if result.is_err() { let _ = std::fs::remove_file(&tmp); }
+        if result.is_err() {
+            let _ = std::fs::remove_file(&tmp);
+        }
         result
     }
 }
@@ -984,9 +1000,17 @@ pub fn inventory(root: &Path, env: &DataEnv) -> Result<Inventory> {
 /// The data-folder machinery's own top-level files (pointer, journal, file record, their `.tmp`, the old pointer, the
 /// markers): never data, never copied by a move.
 pub fn is_own_file(name: &str, style: PathStyle) -> bool {
+    // `<name>.<32 hex>.tmp`: what a durable write (`write_durable`) left when it stopped before its rename
+    let unique_tmp = |b: &str| {
+        name.len() == b.len() + 37
+            && name.get(..b.len()).is_some_and(|head| style.same_name(head, b))
+            && name.get(b.len()..b.len() + 1) == Some(".")
+            && name.get(b.len() + 1..b.len() + 33).is_some_and(|hex| hex.bytes().all(|c| c.is_ascii_hexdigit()))
+            && name.get(b.len() + 33..) == Some(".tmp")
+    };
     [POINTER, POINTER_OLD, JOURNAL, FILE_RECORD, MARKER, MOVE_MARKER]
         .iter()
-        .any(|b| style.same_name(name, b) || style.same_name(name, &format!("{b}.tmp")))
+        .any(|b| style.same_name(name, b) || style.same_name(name, &format!("{b}.tmp")) || unique_tmp(b))
 }
 
 // ------------------------------------------------------------------------------------------------ system facts

@@ -1137,4 +1137,79 @@ mod win {
             assert!(dfm::read_journal(&fx.env).unwrap().is_some(), "{case}: the journal stays");
         }
     }
+
+    /// Both removals prove a file through a handle that lets others read it but not write or delete it, and delete it
+    /// through that same handle: a write attempt during the proof fails to open and the file goes; a file another
+    /// program already has open for writing is kept and named; a read-only file goes.
+    #[test]
+    fn a_file_is_removed_through_the_handle_that_proved_it() {
+        seen();
+        let cases = [("write-during", false), ("write-during", true), ("open-for-writing", false), ("open-for-writing", true), ("read-only", false), ("read-only", true)];
+        for (case, old_copy) in cases {
+            let fx = Fixture::build(&format!("handle-{case}-{old_copy}"));
+            let to = fx.base.join("moved");
+            // a committed move by copies with its removal pending, or a move by copies that stopped after the copy
+            let step = if old_copy { dfm::Step::Activate } else { dfm::Step::Copy };
+            let stop = MoveOptions { force_copy: true, inject: Some(Inject::StopAfter(step)) };
+            assert_eq!(mv(&fx.env, &to, &stop, &mut NoProgress).unwrap_err().code, ErrorCode::Internal);
+            let file = if old_copy { lib_dir(&fx.dirs, &fx.mods.kiln) } else { lib_dir(&DataDirs::at(&to), &fx.mods.kiln) }.join("M.dll");
+            let content = std::fs::read(&file).unwrap();
+            let removal = || if old_copy { dfm::remove_old_copy(&fx.env, &mut NoProgress).unwrap() } else { dfm::remove_partial_copy(&fx.env).unwrap() };
+            match case {
+                "write-during" => {
+                    let (watched, tried) = (file.clone(), std::rc::Rc::new(std::cell::Cell::new(false)));
+                    let seen_it = tried.clone();
+                    let c = dfm::with_removal_hook(
+                        move |s, p| {
+                            if s == dfm::RemovalStage::Proved && p == watched {
+                                let w = std::fs::OpenOptions::new().write(true).open(p);
+                                assert!(w.is_err(), "a writer cannot open the file being proved and removed: {w:?}");
+                                seen_it.set(true);
+                            }
+                        },
+                        removal,
+                    );
+                    assert!(tried.get(), "{case} {old_copy}: the hook ran");
+                    assert!(!file.exists(), "{case} {old_copy}: the proved file goes: {c:?}");
+                }
+                "open-for-writing" => {
+                    let held = std::fs::OpenOptions::new().write(true).open(&file).unwrap();
+                    let c = removal();
+                    drop(held);
+                    eprintln!("open for writing, old copy {old_copy}: kept {:?}", c.kept.iter().map(|k| (k.path.display().to_string(), k.reason.clone())).collect::<Vec<_>>());
+                    let k = c.kept.iter().find(|k| k.path == file).unwrap_or_else(|| panic!("{case} {old_copy}: the open file is kept: {c:?}"));
+                    assert_eq!(k.reason, dfm::guard_reason::HELD);
+                    assert_eq!(std::fs::read(&file).unwrap(), content, "and complete");
+                }
+                _ => {
+                    let mut p = std::fs::metadata(&file).unwrap().permissions();
+                    p.set_readonly(true);
+                    std::fs::set_permissions(&file, p).unwrap();
+                    let c = removal();
+                    assert!(!file.exists(), "{case} {old_copy}: the read-only file goes: {c:?}");
+                }
+            }
+        }
+    }
+
+    /// The journal and the file record are written with a temporary name of their own and a write-through rename, as
+    /// the pointer: a folder where `util::write_atomic` would put its temporary file does not stop a move, and nothing
+    /// of the temporary files stays.
+    #[test]
+    fn the_journal_is_written_through_the_durable_rename() {
+        seen();
+        let fx = Fixture::build("durable-journal");
+        let default = fx.env.default_root().unwrap();
+        let in_the_way = default.join(format!("{}.tmp", df::JOURNAL));
+        std::fs::create_dir(&in_the_way).unwrap();
+        let to = fx.base.join("moved");
+        let r = mv(&fx.env, &to, &MoveOptions::default(), &mut NoProgress);
+        std::fs::remove_dir(&in_the_way).unwrap();
+        let r = r.unwrap();
+        assert!(r.cleanup.unwrap().done);
+        assert!(dfm::read_journal(&fx.env).unwrap().is_some_and(|j| j.result.is_some()), "the journal holds the result");
+        let left: Vec<String> = names(&default).into_iter().filter(|n| n.ends_with(".tmp")).collect();
+        assert!(left.is_empty(), "no temporary file stays: {left:?}");
+        dfm::acknowledge(&fx.env).unwrap();
+    }
 }
