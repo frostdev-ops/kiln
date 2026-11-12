@@ -8,7 +8,7 @@ internal static class ServiceNames
 {
     public static readonly IReadOnlyList<string> All =
     [
-        "kiln.abilities", "kiln.assets", "kiln.audio", "kiln.build", "kiln.characters", "kiln.chat", "kiln.client", "kiln.combat",
+        "kiln.abilities", "kiln.assets", "kiln.audio", "kiln.build", "kiln.caps", "kiln.characters", "kiln.chat", "kiln.client", "kiln.combat",
         "kiln.content", "kiln.craftmenu", "kiln.creatures", "kiln.eml", "kiln.example", "kiln.flame", "kiln.gamedata", "kiln.gameplay",
         "kiln.hooks", "kiln.items", "kiln.knowledge", "kiln.net", "kiln.npcai", "kiln.pacing", "kiln.players", "kiln.playerstate", "kiln.profile",
         "kiln.progress", "kiln.progression", "kiln.questmark", "kiln.render", "kiln.rules", "kiln.saves", "kiln.screen", "kiln.settings", "kiln.skills", "kiln.spawn", "kiln.steamguard",
