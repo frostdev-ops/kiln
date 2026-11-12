@@ -38,6 +38,11 @@ def cg(name):
     return G.derive("game", "clip", name)
 
 
+def ov(name):
+    """The overlay id of an overlay of the synthetic game."""
+    return A.fnv_guid(G.derive("game", "overlay", name))
+
+
 def mclip(name, mod="m"):
     return G.derive(mod, "clip", name)
 
@@ -51,9 +56,12 @@ class Synth:
     a select on the state input inside a state's own pose, a layer blend over a clip), a melee wrapper machine holding the unarmed (local
     transitions only), sword, hammer (single ids) and dagger machines, each listed in a wrapper list, in a list under SM_Main and in a
     "reset" list of SM_UpperBodyOverride, a jump attack machine entered by lists, a select on the state input outside any neighbour, and the
-    block legs SM_Block_Locomotion. `hammer`: how many plain states the hammer machine has (it has two more)."""
+    block legs SM_Block_Locomotion; and an overlay machine SM_Staff_Overlay (a rest state, three overlay states with auto transitions back,
+    one also entered through local transitions on an overlay and on a list, a state with no overlay of its own, one entered on a list) behind
+    the wrapper Staff_Overlay of SM_Ranged_Attack_Additive, entered on an IsOverlayActiveList. `hammer`: how many plain states the hammer
+    machine has (it has two more); `overlay_fill`: how many more overlay states SM_Staff_Overlay has (it has four global transitions)."""
 
-    def __init__(self, hammer=4):
+    def __init__(self, hammer=4, overlay_fill=0):
         n = self.n = A.Nodes("game")
         self.facts = {}
         self.hammer = [f"Attack_Hammer_{i:02d}" for i in range(hammer)]
@@ -161,14 +169,37 @@ class Synth:
         attack_ids = [sid(x) for x in melee_ids] + self.jump_ids + [sid(x) for x in ("Block", "Parry", "Dodge", "DA.a", "DA.b", "SA.a", "SA.b", "Kick")]
         s_dn = n.state("s.dn", "DoNothing", n.pose("p.dn", n.empty_additive("empty.dn")), "sm.ub")
         self.ov_pose = n.pose("p.ov.h", self.clip("ov.h"))
-        ov = self.sel_id("sel.ov", SI, [self.ov_pose, n.pose("p.ov.s", self.clip("ov.s"))], [sid(self.hammer[0]), sid("Attack_Sword_Shield_01.sw")])
-        s_ov = n.state("s.ov", "Overlay_Pose", n.pose("p.ov", ov), "sm.ub")
+        ov_sel = self.sel_id("sel.ov", SI, [self.ov_pose, n.pose("p.ov.s", self.clip("ov.s"))], [sid(self.hammer[0]), sid("Attack_Sword_Shield_01.sw")])
+        s_ov = n.state("s.ov", "Overlay_Pose", n.pose("p.ov", ov_sel), "sm.ub")
         s_part = n.state("s.part", "Partial", n.pose("p.part", self.clip("part")), "sm.ub")
         self.reset = n.id_equals_any("l.reset", SI, attack_ids)
         self.partial = n.id_equals_any("l.part", SI, [self.jump_ids[0]])
         m_ub = n.machine("sm.ub", "SM_UpperBodyOverride", [s_dn, s_dn, s_ov, s_part], s_dn,
                          global_transitions=[(s_dn, 0.2, self.reset), (s_ov, 0.2, n.id_equals("c.ov", SI, sid("Overlay"))), (s_part, 0.2, self.partial)])
-        root = n.pose("root", n.layer("lb.root", p_main, n.pose("p.ub", m_ub), additive=False))
+        # SM_Staff_Overlay in SM_Ranged_Attack_Additive's wrapper Staff_Overlay
+        s_rest = n.state("s.so.rest", "DoNothing", n.pose("p.so.rest", n.empty_additive("empty.so.rest")), "sm.so", retrigger=0.3)
+        names = ["A", "B", "C"] + [f"Fill{i:02d}" for i in range(overlay_fill)]
+        so = {x: n.state(f"s.so.{x}", f"Staff_{x}", n.pose(f"p.so.{x}", self.clip(f"so.{x}")), "sm.so", retrigger=0.3) for x in names}
+        so["Bis"] = n.state("s.so.Bis", "Staff_Bis", n.pose("p.so.Bis", self.clip("so.Bis")), "sm.so")
+        so["List"] = n.state("s.so.List", "Staff_List", n.pose("p.so.List", self.clip("so.List")), "sm.so")
+        gts = [(so[x], 0.1, n.overlay_active(f"c.so.{x}", ov(x))) for x in names]
+        gts.append((so["List"], 0.1, self.ov_list("l.so.List", [ov("L1"), ov("L2")])))
+        self.so_auto = [n.transition(f"t.so.{x}.rest", so[x], s_rest, 0.3, 0, auto=True) for x in ("A", "B", "C")]
+        self.t_bc = n.transition("t.so.bc", so["B"], so["C"], 0.05, n.overlay_active("c.so.bc", ov("C")))
+        self.t_ab = n.transition("t.so.ab", so["A"], so["Bis"], 0.1, n.overlay_active("c.so.ab", ov("A")))
+        self.so_into_c = self.ov_list("l.so.ac", [ov("C")])
+        self.t_ac = n.transition("t.so.ac", so["A"], so["C"], 0.1, self.so_into_c)
+        m_so = n.machine("sm.so", "SM_Staff_Overlay", [s_rest, s_rest] + list(so.values()), s_rest, parent_state=n.nid("w.so"), global_transitions=gts,
+                         transitions=self.so_auto + [self.t_bc, self.t_ab, self.t_ac])
+        for e in self.value_of(m_so)["globalTransitions"][:len(gts)]:
+            e["rootMotionMode"] = "UseRootMotionFromHighestWeight"
+        w_so = n.state("w.so", "Staff_Overlay", n.pose("p.w.so", m_so), "sm.raa", retrigger=0.1)
+        self.w_so_list = self.ov_list("l.w.so", [ov(x) for x in names] + [ov("L1"), ov("L2")])
+        s_raa = n.state("s.raa.rest", "DoNothing", n.pose("p.raa.rest", n.empty_additive("empty.raa.rest")), "sm.raa")
+        self.raa_out = self.ov_list("l.raa.out", [ov("A"), ov("E")])
+        t_out = [n.transition("t.raa.list", w_so, s_raa, 0.3, self.raa_out), n.transition("t.raa.auto", w_so, s_raa, 0.3, 0, auto=True)]
+        m_raa = n.machine("sm.raa", "SM_Ranged_Attack_Additive", [s_raa, s_raa, w_so], s_raa, global_transitions=[(w_so, 0.1, self.w_so_list)], transitions=t_out)
+        root = n.pose("root", n.layer("lb.root2", n.layer("lb.root", p_main, n.pose("p.ub", m_ub), additive=False), n.pose("p.raa", m_raa)))
         compared = set()
         for x in n.nodes:
             v = x["value"]
@@ -214,6 +245,9 @@ class Synth:
         w = n.state(f"w.{key}", debug, n.pose(f"p.w.{key}", machine), "sm.melee", restart=False)
         lst = n.id_equals_any(f"l.w.{key}", SI, [sid(x) for x in ids])
         return w, lst
+
+    def ov_list(self, name, overlays):
+        return self.n._add("IsOverlayActiveList", name, overlays=[{"value": x} for x in overlays])
 
     def raw(self):
         return Encoder(TYPES).encode(TYPES.get(GRAPH), self.value)
@@ -747,7 +781,7 @@ class Rules(Base):
 class NewFields(Base):
     """A field the game adds to a node type is carried into the new nodes: every new node is a copy of a node of the game's graph."""
     KINDS = ("PoseResult", "StateMachineState", "StateMachine", "IdParameterEqualsConstant", "IdParameterEqualsConstantList", "SampleAnimationClip",
-             "LayerBlend", "StateMachineTransition")
+             "LayerBlend", "StateMachineTransition", "IsOverlayActive")
 
     def types_with_extra(self):
         dump = json.loads(json.dumps(TYPES.dump))
@@ -767,7 +801,8 @@ class NewFields(Base):
                 n["value"]["kilnExtra"] = 7
         raw = Encoder(types).encode(types.get(GRAPH), s.value)
         states = {f"h{i:02d}": {"clip": "x", "like": "Attack_Hammer_00"} for i in range(30)}
-        states.update(a={"clip": "x", "like": "Dodge_Attack_FullBody"}, b={"clip": "guard", "like": "Block_FullBody"}, d={"clip": "x", "like": "DodgeRoll_FullBody"})
+        states.update(a={"clip": "x", "like": "Dodge_Attack_FullBody"}, b={"clip": "guard", "like": "Block_FullBody"}, d={"clip": "x", "like": "DodgeRoll_FullBody"},
+                      o={"clip": "x", "like": "Staff_C"})
         out, rep = self.merge(mod(states), raw=raw, types=types)
         self.assertEqual(rep["graph"], "merged", rep["reason"])
         v = Decoder(types, max_array=1 << 26).decode(types.get(GRAPH), out)
@@ -780,8 +815,157 @@ class NewFields(Base):
         self.assertIn(PG.node_id("nest", "SM_Attack_Hammer_FullBody", 0, "wrapper"), {n["id"]["value"] for n in new})
 
 
+    def test_a_new_condition_never_ignores_sequences(self):
+        val = decode(self.raw)
+        for kind in ("IdParameterEqualsConstant", "IdParameterEqualsConstantList"):
+            next(n["value"] for n in val["nodeDefinitions"] if n["value"]["type"] == kind)["ignoreForAnimationSequences"] = True
+        raw = Encoder(TYPES).encode(TYPES.get(GRAPH), val)
+        states = dict({f"h{i:02d}": {"clip": "x", "like": "Attack_Hammer_00"} for i in range(30)}, p={"clip": "x", "like": "Parry_FullBody"})
+        out, rep = self.merge(mod(states), raw=raw)
+        by = self.by_id(decode(out))
+        self.assertIs(by[PG.node_id("m", "p", "cond")]["ignoreForAnimationSequences"], False)
+        self.assertIs(by[PG.node_id("nest", "SM_Attack_Hammer_FullBody", 0, "list")]["ignoreForAnimationSequences"], False)
+
+    def test_no_node_to_copy(self):
+        real = PG.Graph.__init__
+
+        def without(drop):
+            def init(g, value):
+                real(g, value)
+                for k in drop:
+                    g.first.pop(k, None)
+            return init
+        with mock.patch.object(PG.Graph, "__init__", without(["IsOverlayActive"])):
+            _, rep = self.merge(mod({"o": {"clip": "x", "like": "Staff_A"}, "p": {"clip": "x", "like": "Parry_FullBody"}}))
+        self.refused(rep, "o", "no IsOverlayActive node to copy")
+        self.assertEqual(self.status(rep, "p")["status"], "live")
+        with mock.patch.object(PG.Graph, "__init__", without(["IdParameterEqualsConstantList"])):
+            _, rep = self.merge(mod(dict({f"h{i:02d}": {"clip": "x", "like": "Attack_Hammer_00"} for i in range(30)}, p={"clip": "x", "like": "Parry_FullBody"})))
+        self.refused(rep, "h00", "no IdParameterEqualsConstantList node to copy for a nested machine")
+        self.assertEqual(self.status(rep, "p")["status"], "live")
+
+
 def decode_with(types, raw):
     return Decoder(types, max_array=1 << 26).decode(types.get(GRAPH), raw)
+
+
+class Overlay(Base):
+    """Kind "overlay": SM_Staff_Overlay's states are entered on IsOverlayActive. Rules 4 to 6 and 8 of an overlay neighbour."""
+
+    def test_rule4_entry(self):
+        v, rep = self.merged({"a": {"clip": "x", "like": "Staff_A", "blendIn": 0.05}, "b": {"clip": "x", "like": "Staff_B"}})
+        so, game = self.machine(v, "SM_Staff_Overlay"), self.game("sm.so")
+        n = game["numGlobalTransitions"]
+        self.assertEqual(so["numGlobalTransitions"], n + 2)
+        self.assertEqual(so["globalTransitions"][:n], game["globalTransitions"][:n])
+        by = self.by_id(v)
+        for name, dur in (("a", PS.f32(0.05)), ("b", PS.f32(0.1))):
+            (gt,) = [e for e in so["globalTransitions"][:so["numGlobalTransitions"]] if e["toState"]["value"] == PG.node_id("m", name, "state")]
+            self.assertEqual((gt["duration"], gt["rootMotionMode"]), (dur, "UseRootMotionFromHighestWeight"))
+            c = by[gt["conditionNode"]["value"]]
+            self.assertEqual(c, {"id": {"value": PG.node_id("m", name, "cond")}, "type": "IsOverlayActive",
+                                 "overlay": {"value": A.fnv_guid(G.derive("m", "state", name))}})
+        e = self.status(rep, "a")
+        self.assertEqual((e["kind"], e["machine"]), ("overlay", "SM_Staff_Overlay"))
+        self.assertEqual(v["usedInputIds"], self.pristine["usedInputIds"], "an overlay id is not a state input id")
+        self.assertEqual(rep["usedInputIds"], 0)
+
+    def test_rule5_local_transitions(self):
+        v, _ = self.merged({"a": {"clip": "x", "like": "Staff_A"}, "c": {"clip": "x", "like": "Staff_C"}})
+        by = self.by_id(v)
+        outs = [by[PG.node_id("m", "a", f"out.{i}")] for i in range(3)]
+        game = [self.game(x) for x in ("t.so.A.rest", "t.so.ab", "t.so.ac")]
+        for o, gm in zip(outs, game):
+            self.assertEqual(o["fromState"]["value"], PG.node_id("m", "a", "state"))
+            self.assertEqual((o["toState"], o["conditionNode"], o["autoTransition"], o["duration"]),
+                             (gm["toState"], gm["conditionNode"], gm["autoTransition"], gm["duration"]))
+        self.assertTrue(outs[0]["autoTransition"], "back to the rest state when the clip ends")
+        self.assertNotIn(PG.node_id("m", "a", "out.3"), by)
+        cid = A.fnv_guid(G.derive("m", "state", "c"))
+        for i, gm in enumerate((self.game("t.so.bc"), self.game("t.so.ac"))):
+            t = by[PG.node_id("m", "c", f"in.{i}")]
+            self.assertEqual((t["fromState"], t["toState"]["value"], t["duration"]), (gm["fromState"], PG.node_id("m", "c", "state"), gm["duration"]))
+            self.assertEqual(by[t["conditionNode"]["value"]], {"id": {"value": PG.node_id("m", "c", f"in.{i}.cond")}, "type": "IsOverlayActive",
+                                                              "overlay": {"value": cid}})
+        self.assertNotIn(PG.node_id("m", "c", "in.2"), by)
+        so = self.machine(v, "SM_Staff_Overlay")
+        self.assertEqual(by[PG.node_id("m", "c", "out.0")]["toState"], self.game("t.so.C.rest")["toState"])
+        self.assertEqual(len(so["transitions"]), len(self.game("sm.so")["transitions"]) + 6, "a: 3 out; c: 1 out, 2 in")
+
+    def overlays(self, v, nid):
+        return [x["value"] for x in self.by_id(v)[nid]["overlays"]]
+
+    def test_rule6_lists(self):
+        v, rep = self.merged({"a": {"clip": "x", "like": "Staff_A"}, "c": {"clip": "x", "like": "Staff_C"}})
+        a, c = (A.fnv_guid(G.derive("m", "state", x)) for x in "ac")
+        s = self.synth
+        self.assertEqual(self.overlays(v, s.w_so_list), self.overlays(self.pristine, s.w_so_list) + [a, c], "the wrapper's list")
+        self.assertEqual(self.overlays(v, s.raa_out), self.overlays(self.pristine, s.raa_out) + [a], "a list elsewhere that holds A's overlay")
+        self.assertEqual(self.overlays(v, s.so_into_c), self.overlays(self.pristine, s.so_into_c), "C's own entry condition, a local way in")
+        self.assertEqual(self.overlays(v, s.n.nid("l.so.List")), self.overlays(self.pristine, s.n.nid("l.so.List")))
+        self.assertEqual((rep["lists"], rep["listEntries"]), (2, 3))
+
+    def test_rule8_no_nesting(self):
+        s, raw = Synth(overlay_fill=28), None
+        raw = s.raw()
+        self.facts.update(s.facts)
+        self.assertEqual(s.value_of(s.n.nid("sm.so"))["numGlobalTransitions"], 32)
+        out, rep = self.merge(mod({"z1": {"clip": "x", "like": "Staff_A"}, "a1": {"clip": "x", "like": "Staff_B"}}),
+                              mod({"q": {"clip": "x", "like": "Staff_C"}}, name="other"), raw=raw)
+        self.assertEqual(rep["graph"], "merged", rep["reason"])
+        self.assertEqual([self.status(rep, n)["status"] for n in ("a1", "z1")], ["live", "live"])
+        self.refused(rep, "q", "has room for 2 new states across all mods (34 global transitions, 32 its own) and an overlay machine does not nest",
+                     mod_="other")
+        v = decode(out)
+        self.assertEqual(self.machine(v, "SM_Staff_Overlay")["numGlobalTransitions"], 34)
+        self.assertFalse(any(n["value"]["type"] == "StateMachine" and n["value"]["debugName"].startswith("kiln.nest") for n in v["nodeDefinitions"]))
+        out, rep = self.merge(mod({"z1": {"clip": "x", "like": "Staff_A"}}), raw=Synth(overlay_fill=30).raw())
+        self.refused(rep, "z1", "has room for 0 new states")
+        self.assertEqual(rep["graph"], "untouched")
+
+    def test_refusals(self):
+        st = {"rest": {"clip": "x", "like": "SM_Staff_Overlay/DoNothing"}, "outer-rest": {"clip": "x", "like": "SM_Ranged_Attack_Additive/DoNothing"},
+              "wrapper": {"clip": "x", "like": "Staff_Overlay"}, "bis": {"clip": "x", "like": "Staff_Bis"}, "list": {"clip": "x", "like": "Staff_List"},
+              "ambiguous": {"clip": "x", "like": "DoNothing"}, "ok": {"clip": "x", "like": "Staff_B"}}
+        _, rep = self.merge(mod(st))
+        self.refused(rep, "rest", "the rest state of SM_Staff_Overlay")
+        self.refused(rep, "outer-rest", "the rest state of SM_Ranged_Attack_Additive")
+        self.refused(rep, "wrapper", "holds the nested machine SM_Staff_Overlay")
+        self.refused(rep, "bis", "no overlay condition of its own")
+        self.refused(rep, "list", "a list of overlays")
+        self.refused(rep, "ambiguous", "several states have that name")
+        self.assertEqual(self.status(rep, "ok")["status"], "live")
+
+    def test_an_id_the_graph_compares_as_an_overlay(self):
+        val = decode(self.raw)
+        self.by_id(val)[self.synth.raa_out]["overlays"].append({"value": A.fnv_guid(G.derive("m", "state", "taken"))})
+        raw = Encoder(TYPES).encode(TYPES.get(GRAPH), val)
+        _, rep = self.merge(mod({"taken": {"clip": "x", "like": "Parry_FullBody"}, "ok": {"clip": "x", "like": "Staff_A"}}), raw=raw)
+        self.refused(rep, "taken", "already compares")
+        self.assertEqual(self.status(rep, "ok")["status"], "live")
+
+    def test_with_group1_in_any_order(self):
+        a = {"o1": {"clip": "x", "like": "Staff_A"}, "o2": {"clip": "y", "like": "Staff_C"}, "h": {"clip": "x", "like": "Attack_Hammer_01"}}
+        b = {"p": {"clip": "x", "like": "Parry_FullBody"}, "o3": {"clip": "x", "like": "Staff_B"}}
+        ref, rep = self.merge(mod(a, "alpha"), mod(b, "beta"))
+        self.assertEqual(rep["graph"], "merged", rep["reason"])
+        for mods in ([mod(dict(reversed(list(b.items()))), "beta"), mod(dict(reversed(list(a.items()))), "alpha")],):
+            out, rep2 = self.merge(*mods)
+            self.assertEqual((out, rep2), (ref, rep))
+
+
+class GraphHash(Base):
+    def test_graph_hash(self):
+        import hashlib
+        out, rep = self.merge(mod({"a": {"clip": "x", "like": "Parry_FullBody"}}))
+        self.assertEqual(rep["graphHash"], hashlib.sha256(out).hexdigest()[:16])
+        self.assertEqual(len(rep["graphHash"]), 16)
+        _, rep = self.merge(mod({"a": {"clip": "x", "like": "Nope"}}))
+        self.assertEqual((rep["graph"], rep["graphHash"]), ("untouched", "0" * 16))
+        _, rep = self.merge(mod({"a": {"clip": "x", "like": "Parry_FullBody"}}), raw=self.raw + b"\0")
+        self.assertEqual((rep["graph"], rep["graphHash"]), ("off", "0" * 16))
+        _, rep = self.merge()
+        self.assertEqual(rep["graphHash"], "0" * 16)
 
 
 class Refusals(Base):
@@ -789,7 +973,7 @@ class Refusals(Base):
         st = {"unknown": {"clip": "x", "like": "No_Such_State"}, "ambiguous": {"clip": "x", "like": "Attack_Heavy"},
               "qualified": {"clip": "x", "like": "SM_Attack_Dual_Daggers_FullBody/Attack_Heavy"}, "idle-block": {"clip": "x", "like": "Idle_Block"},
               "move-block": {"clip": "x", "like": "SM_Block_Locomotion/Move_Block"}, "grounded": {"clip": "x", "like": "GroundedLocomotion_FullBody"},
-              "upper": {"clip": "x", "like": "DoNothing"}, "wrong-machine": {"clip": "x", "like": "SM_Main/Attack_Heavy"}, "ok": {"clip": "x", "like": "Parry_FullBody"}}
+              "upper": {"clip": "x", "like": "SM_UpperBodyOverride/DoNothing"}, "wrong-machine": {"clip": "x", "like": "SM_Main/Attack_Heavy"}, "ok": {"clip": "x", "like": "Parry_FullBody"}}
         _, rep = self.merge(mod(st))
         self.refused(rep, "unknown", "no state of the player's graph has that name")
         self.refused(rep, "ambiguous", "SM_Attack_Dual_Daggers_FullBody/Attack_Heavy, SM_Attack_Sword_Shield_FullBody/Attack_Heavy")
