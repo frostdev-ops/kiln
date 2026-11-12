@@ -482,6 +482,30 @@ public:
     }
     double ms() const { return ms_; }
 
+    // The first piece of `feature` that did not resolve (see sigdb.h). A feature defined twice is judged by its last
+    // definition, as resolve() does (feature_ok_ keeps the last one).
+    bool feature_problem(std::string_view feature, std::string* name, std::string* text, bool* is_constant) const {
+        const FeatureDef* def = nullptr;
+        for (const FeatureDef& f : features_)
+            if (f.name == feature) def = &f;
+        if (!def) return false;
+        const auto ok = feature_ok_.find(def->name);
+        if (ok != feature_ok_.end() && ok->second) return false;
+        auto take = [&](const std::string& n, const std::map<std::string, Resolved>& from, bool constant) {
+            const auto it = from.find(n);
+            if (it != from.end() && it->second.ok) return false;
+            if (name) *name = n;
+            if (text) *text = it == from.end() ? "not defined" : it->second.error.empty() ? "unresolved" : it->second.error;
+            if (is_constant) *is_constant = constant;
+            return true;
+        };
+        for (const std::string& s : def->symbols)
+            if (take(s, symbols_, false)) return true;
+        for (const std::string& c : def->constants)
+            if (take(c, constants_, true)) return true;
+        return false;
+    }
+
     void summarize(FragmentSummary& s) const {
         s.ms = ms_;
         for (auto& [n, r] : symbols_) {
@@ -836,6 +860,9 @@ bool constant(std::string_view name, int64_t* out) { return g_core.constant(name
 bool feature(std::string_view name) { return g_core.feature(name); }
 std::vector<std::string> features() { return g_core.feature_names(); }
 std::vector<std::string> failed_features() { return g_core.failed_features(); }
+bool feature_problem(std::string_view feature, std::string* name, std::string* text, bool* is_constant) {
+    return g_core.feature_problem(feature, name, text, is_constant);
+}
 double resolve_ms() { return g_ms; }
 void write_report(const std::filesystem::path& file) { g_core.write_report(file); }
 

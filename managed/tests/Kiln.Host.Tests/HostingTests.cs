@@ -185,7 +185,7 @@ public sealed class HostingTests : ModsFixture
     public void Resolver_accepts_server_mods_on_a_hosting_client(string side, bool hosting, bool accepted)
     {
         var dir = WriteManifest("m", $$"""{"id":"m","version":"1.0.0","apiVersion":"0.2","entryAssembly":"M.dll","side":"{{side}}"}""");
-        var env = new ResolveEnvironment(SemVersion.Parse("0.1.0-dev"), SemVersion.Parse(Kiln.Mods.ApiVersion), ManifestSide.Client,
+        var env = new ResolveEnvironment(SemVersion.Parse("0.1.0-dev"), SemVersion.Parse(Kiln.Mods.RuntimeApiVersion), ManifestSide.Client,
             _ => true, ResolveEnvironment.NoneLoaded) { Hosting = hosting };
         var r = Resolver.Resolve([ModCandidate.Read(dir)], env);
         Assert.Equal(accepted, r.Order.Count == 1);

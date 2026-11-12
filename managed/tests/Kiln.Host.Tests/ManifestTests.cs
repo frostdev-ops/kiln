@@ -12,7 +12,7 @@ public sealed class ManifestTests
         var m = Manifest.Parse("""{"id":"hello","name":"Hello Kiln","version":"0.1.0","apiVersion":"0.1","entryAssembly":"Hello.dll","side":"server"}""");
         Assert.Equal(("hello", "Hello Kiln", "0.1.0", "Hello.dll"), (m.Id, m.Name, m.Version, m.EntryAssembly));
         Assert.Equal(ManifestSide.Server, m.Side);
-        Assert.True(m.ApiRange.Satisfies(SemVersion.Parse(Kiln.Mods.ApiVersion)), "a 0.1 mod loads on API 0.2");
+        Assert.True(m.ApiRange.Satisfies(SemVersion.Parse(Kiln.Mods.RuntimeApiVersion)), "a 0.1 mod loads on API 0.2");
         Assert.Empty(m.Dependencies);
         Assert.Empty(m.Warnings);
     }
