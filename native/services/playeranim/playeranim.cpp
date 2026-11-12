@@ -538,6 +538,7 @@ std::atomic<int64_t> g_next_look{0};   // steady clock, ms
 std::set<std::string> g_watched;       // mods with player states (set in on_ready, then read only)
 fs::path g_mods_file;
 fs::file_time_type g_mods_time{};
+fs::file_time_type g_watch_since{};  // a mods.json written before this is the last session's (Wine reuses pids)
 ModsLook g_mods_last;
 
 void look_at_mods() {
@@ -550,6 +551,7 @@ void look_at_mods() {
     const fs::file_time_type t = fs::last_write_time(g_mods_file, ec);
     if (ec || t == g_mods_time) return;
     g_mods_time = t;
+    if (t < g_watch_since) return;  // the last session's file: not a look (its pid may be this one's under Wine)
     std::string text;
     if (!read_file(g_mods_file, &text)) return;
     ModsLook seen = read_mods_state(text, GetCurrentProcessId());
@@ -569,6 +571,7 @@ void KILN_CALL on_tick(const KilnTickInfo*, void*) { look_at_mods(); }
 // The server world's ticks, and on a client its own world's (a joined client has no server world).
 void watch_mods() {
     g_mods_file = to_path(api_path(KILN_PATH_STATE)) / L"mods.json";
+    g_watch_since = fs::file_time_type::clock::now();
     for (const auto& [id, dir] : g_dir_of) g_watched.insert(id);
     KilnHandle h = 0;
     if (g_api->subscribe_tick(g_self, KILN_TICK_PRE, &on_tick, nullptr, &h) != KILN_OK) PA_W("playeranim: no server tick: mods that go or change are not reported");
