@@ -18,6 +18,28 @@
   <!-- dump: the allow-list over sigdb/types -->
 
   <!-- gen: the dev.24 golden, the generator, the generated Kiln.Game -->
+  <ItemGroup>
+    <ProjectReference Include="../../Kiln.Game/Kiln.Game.csproj" />
+    <ProjectReference Include="../../Kiln.Api/Kiln.Api.csproj" />
+    <ProjectReference Include="../../services/Kiln.World/Kiln.World.csproj" />
+  </ItemGroup>
+  <!-- The legacy fixtures (Fixtures/legacy): the dev.24 shape of Kiln.Game, a variant of it with one field renamed, and
+       a consumer compiled against the first. Two of them are named Kiln.Game, so none is referenced as an assembly: they
+       are built (and restored) as project references and copied next to the tests, each into its own folder. -->
+  <ItemGroup>
+    <ProjectReference Include="Fixtures/legacy/Dev24Shape/Dev24Shape.csproj" ReferenceOutputAssembly="false" PrivateAssets="all" KilnLegacyFixture="true" />
+    <ProjectReference Include="Fixtures/legacy/Dev24Renamed/Dev24Renamed.csproj" ReferenceOutputAssembly="false" PrivateAssets="all" KilnLegacyFixture="true" />
+    <ProjectReference Include="Fixtures/legacy/Consumer/Consumer.csproj" ReferenceOutputAssembly="false" PrivateAssets="all" KilnLegacyFixture="true" />
+  </ItemGroup>
+  <Target Name="_KilnGenLegacyFixtures" AfterTargets="Build">
+    <MSBuild Projects="@(ProjectReference)" Targets="GetTargetPath" Condition="'%(ProjectReference.KilnLegacyFixture)' != ''">
+      <Output TaskParameter="TargetOutputs" ItemName="_KilnLegacyOut" />
+    </MSBuild>
+    <ItemGroup>
+      <_KilnLegacyCopy Include="@(_KilnLegacyOut)" Dir="$([System.IO.Path]::GetFileName($([System.IO.Path]::GetDirectoryName('%(_KilnLegacyOut.MSBuildSourceProjectFile)'))))" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_KilnLegacyCopy)" DestinationFolder="$(OutDir)legacy/%(_KilnLegacyCopy.Dir)" SkipUnchangedFiles="true" />
+  </Target>
 
   <!-- sdk: layout stamps -->
 
