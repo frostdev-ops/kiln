@@ -15,6 +15,15 @@ namespace Kiln.Blocks.Tests;
 public sealed unsafe class AbilitiesGateTests
 {
     [Fact]
+    public void NewlyGatedMembersDeclareTheAdvancedContract()
+    {
+        var registers = typeof(Abilities.Programs).GetMethods().Where(m => m.Name == "Register").ToArray();
+        Assert.Equal(2, registers.Length);
+        foreach (var method in registers.Append(typeof(NativeCall).GetMethod("Bytes")!))
+            Assert.True(method.IsDefined(typeof(AdvancedApiAttribute), inherit: false), $"{method} lacks AdvancedApi");
+    }
+
+    [Fact]
     public void ProgramsRegisterIsForAdvancedModsOnly()
     {
         var blob = new byte[16];

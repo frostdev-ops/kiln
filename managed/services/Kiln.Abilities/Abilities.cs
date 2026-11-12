@@ -387,6 +387,7 @@ public static unsafe partial class Abilities
         /// yet waits and is inserted once they are (returns its id, <paramref name="waiting"/> true). Tick thread.
         /// Advanced mods only (<c>"advanced": true</c> in kiln.mod.json): an ordinary mod gets
         /// <see cref="InvalidOperationException"/>. Programs shipped as assets (<see cref="Refresh"/>) need no flag.</summary>
+        [AdvancedApi]
         public static uint Register(byte[] blob, out bool waiting)
         {
             AbilitiesGate.RequireAdvanced("Abilities.Programs.Register");
@@ -394,6 +395,7 @@ public static unsafe partial class Abilities
         }
 
         /// <summary>Like <see cref="Register(byte[], out bool)"/>, without the waiting flag. Advanced mods only.</summary>
+        [AdvancedApi]
         public static uint Register(byte[] blob)
         {
             AbilitiesGate.RequireAdvanced("Abilities.Programs.Register");

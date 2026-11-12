@@ -72,6 +72,7 @@ public static class OriginalCode
     /// <summary>The single address whose original bytes match <paramref name="pattern"/> ("48 8B ?? 05": hex bytes,
     /// <c>?</c> or <c>??</c> for any byte). Throws when there is not exactly one match in .text. Advanced mods only
     /// (<c>"advanced": true</c> in kiln.mod.json): an ordinary mod gets <see cref="InvalidOperationException"/>.</summary>
+    [AdvancedApi]
     public static nuint FindUnique(string pattern)
     {
         HooksGate.RequireAdvanced("OriginalCode.FindUnique", Why);
@@ -80,6 +81,7 @@ public static class OriginalCode
 
     /// <summary>Like <see cref="FindUnique"/>, without throwing; <paramref name="why"/> says "no match",
     /// "N+ matches", or why the pattern or executable could not be read. Advanced mods only (the gate throws).</summary>
+    [AdvancedApi]
     public static bool TryFindUnique(string pattern, out nuint address, out string why)
     {
         HooksGate.RequireAdvanced("OriginalCode.TryFindUnique", Why);
@@ -103,6 +105,7 @@ public static class OriginalCode
 
     /// <summary>The bytes at <paramref name="address"/> as they are in the exe file. Throws outside .text. Advanced mods
     /// only (<c>"advanced": true</c> in kiln.mod.json): an ordinary mod gets <see cref="InvalidOperationException"/>.</summary>
+    [AdvancedApi]
     public static byte[] Read(nuint address, int count)
     {
         HooksGate.RequireAdvanced("OriginalCode.Read", Why);
@@ -350,6 +353,7 @@ public static unsafe class Keep
 
     /// <summary>The block for <paramref name="key"/>; <paramref name="size"/> bytes, zeroed, on first use. Advanced mods
     /// only (<c>"advanced": true</c> in kiln.mod.json): an ordinary mod gets <see cref="InvalidOperationException"/>.</summary>
+    [AdvancedApi]
     public static nint Block(string key, int size)
     {
         HooksGate.RequireAdvanced("Keep.Block", OriginalCode.Why);
@@ -357,6 +361,7 @@ public static unsafe class Keep
     }
 
     /// <summary>The block as a span of <typeparamref name="T"/> (its first-use size, in whole T). Advanced mods only.</summary>
+    [AdvancedApi]
     public static Span<T> Span<T>(string key, int count) where T : unmanaged
     {
         HooksGate.RequireAdvanced("Keep.Span", OriginalCode.Why);

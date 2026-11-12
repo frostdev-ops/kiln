@@ -31,6 +31,18 @@ public sealed class GateTests
         Assert.Equal("Memory.Read must be called from a mod (on the tick thread or in OnLoad)", e.Message);
     }
 
+    [Theory]
+    [InlineData(typeof(OriginalCode), "Read")]
+    [InlineData(typeof(OriginalCode), "FindUnique")]
+    [InlineData(typeof(OriginalCode), "TryFindUnique")]
+    [InlineData(typeof(Keep), "Block")]
+    [InlineData(typeof(Keep), "Span")]
+    public void NewlyGatedMembersDeclareTheAdvancedContract(Type type, string member)
+    {
+        var method = type.GetMethod(member)!;
+        Assert.True(method.IsDefined(typeof(AdvancedApiAttribute), inherit: false), $"{type.Name}.{member} lacks AdvancedApi");
+    }
+
     [Fact]
     public void OriginalCodeIsForAdvancedModsOnly()
     {

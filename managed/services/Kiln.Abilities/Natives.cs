@@ -111,6 +111,7 @@ public unsafe ref struct NativeCall
     /// <summary>The bytes of argument i's variable, or empty (not connected, out of range). Writes go to the program.
     /// A raw view of the program's memory: advanced mods only (<c>"advanced": true</c> in kiln.mod.json); an ordinary
     /// mod's handler gets <see cref="InvalidOperationException"/> and uses the typed accessors instead.</summary>
+    [AdvancedApi]
     public Span<byte> Bytes(int i) => _raw ? BytesCore(i) : throw Refused();
 
     [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
