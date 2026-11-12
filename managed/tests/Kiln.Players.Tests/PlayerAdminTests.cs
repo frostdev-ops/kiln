@@ -85,6 +85,64 @@ public sealed class PlayerAdminTests : IDisposable
     }
 
     [Fact]
+    public void AWriteThatFailsLeavesTheBansAsTheyWere()
+    {
+        var file = Path.Combine(_dir, "bans.json");
+        var store = new BanStore(file);
+        var now = DateTimeOffset.UtcNow;
+        var a = new BanEntry(Steam, 0, "A", "griefing", "console", now, null);
+        store.Put(a, now);
+        // the list cannot be replaced any more: a folder stands where the file was
+        File.Delete(file);
+        Directory.CreateDirectory(Path.Combine(file, "in the way"));
+        var b = new BanEntry(Steam + 1, 0, "B", "more", "console", now, null);
+        Assert.ThrowsAny<Exception>(() => store.Put(b, now));
+        Assert.Null(store.Find(Steam + 1, 0, now));            // the ban that could not be written is not in force
+        Assert.NotNull(store.Find(Steam, 0, now));
+        Assert.ThrowsAny<Exception>(() => store.Remove(Steam, now));
+        Assert.NotNull(store.Find(Steam, 0, now));              // and the one that could not be lifted still is
+        Assert.Single(store.Active(now));
+        // once the disk works again, the next change writes the list as it stood
+        Directory.Delete(file, true);
+        store.Put(b, now);
+        var reread = new BanStore(file);
+        Assert.Equal(2, reread.Active(now).Count);
+    }
+
+    [Fact]
+    public void EveryThreadGetsTheSameBanList()
+    {
+        var made = 0;
+        var path = PlayerAdmin.StorePath;
+        try
+        {
+            PlayerAdmin.StorePath = () =>
+            {
+                Interlocked.Increment(ref made);
+                Thread.Sleep(20);  // room for a second first user
+                return Path.Combine(_dir, "shared.json");
+            };
+            PlayerAdmin.UseStore(null);
+            using var go = new Barrier(8);
+            var seen = new BanStore[8];
+            var threads = Enumerable.Range(0, 8).Select(i => new Thread(() =>
+            {
+                go.SignalAndWait();
+                seen[i] = PlayerAdmin.Store;
+            })).ToList();
+            threads.ForEach(t => t.Start());
+            threads.ForEach(t => t.Join());
+            Assert.Equal(1, made);
+            Assert.All(seen, s => Assert.Same(seen[0], s));
+        }
+        finally
+        {
+            PlayerAdmin.StorePath = path;
+            PlayerAdmin.UseStore(new BanStore(Path.Combine(_dir, "bans.json")));
+        }
+    }
+
+    [Fact]
     public void TheBanListIsKeptOnDiskAndMatchesSteamOrAccount()
     {
         Network();

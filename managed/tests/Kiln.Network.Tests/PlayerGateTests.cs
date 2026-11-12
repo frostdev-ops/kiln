@@ -55,11 +55,41 @@ public sealed class PlayerGateTests : IDisposable
     {
         Capability Row(CapabilityState s, CapabilityReason r, string t) => new("x", s, r, t, "sigdb");
         var ok = Row(CapabilityState.Available, CapabilityReason.None, "");
-        Assert.Equal(CapabilityState.Available, PlayerGate.Decide(true, ok, ok, NetNative.RoleServer).Item1);
-        Assert.Equal(CapabilityReason.WrongSide, PlayerGate.Decide(true, ok, ok, 0).Item2);
+        Assert.Equal(CapabilityState.Available, PlayerGate.Decide(true, ok, ok, ok, NetNative.RoleServer).Item1);
+        Assert.Equal(CapabilityReason.WrongSide, PlayerGate.Decide(true, ok, ok, ok, 0).Item2);
         var off = Row(CapabilityState.Unavailable, CapabilityReason.Policy, "safe idle");
-        Assert.Equal((CapabilityState.Unavailable, CapabilityReason.Policy, "needs net.kick: safe idle"), PlayerGate.Decide(true, ok, off, 1));
-        Assert.Equal(CapabilityReason.ServiceMissing, PlayerGate.Decide(false, Row(CapabilityState.Unavailable, CapabilityReason.Unknown, ""), ok, 1).Item2);
+        Assert.Equal((CapabilityState.Unavailable, CapabilityReason.Policy, "needs net.kick: safe idle"), PlayerGate.Decide(true, ok, off, ok, 1));
+        Assert.Equal(CapabilityReason.ServiceMissing, PlayerGate.Decide(false, Row(CapabilityState.Unavailable, CapabilityReason.Unknown, ""), ok, ok, 1).Item2);
+    }
+
+    [Fact]
+    public void WithoutTheConnectionRecordsNeitherKickNorBansSayAvailable()
+    {
+        // the kick call resolved, the records that say whose connection it is did not: no ban could ever be enforced
+        Capability Row(string name, CapabilityState s, CapabilityReason r, string t) => new(name, s, r, t, "sigdb");
+        var ok = Row("x", CapabilityState.Available, CapabilityReason.None, "");
+        var none = Row("net.players", CapabilityState.Unavailable, CapabilityReason.SymbolMissing, "constant net/gs.records: 0 matches");
+        Assert.Equal((CapabilityState.Unavailable, CapabilityReason.SymbolMissing, "needs net.players: constant net/gs.records: 0 matches"),
+            PlayerGate.Decide(true, ok, ok, none, NetNative.RoleServer));
+        var unknown = Row("net.players", CapabilityState.Unavailable, CapabilityReason.Unknown, "");
+        var (s, r, t) = PlayerGate.Decide(true, ok, ok, unknown, NetNative.RoleServer);
+        Assert.Equal((CapabilityState.Unavailable, CapabilityReason.SymbolMissing), (s, r));
+        Assert.Contains("net.players", t);
+    }
+
+    [Fact]
+    public async Task AKickThatWentOutIsReportedOnceThoughItsConnectionLeavesAfterwards()
+    {
+        var kicked = new List<PlayerKickedEvent>();
+        using var sub = Events.On<PlayerKickedEvent>(e => kicked.Add(e));
+        var p = Up(Vanilla, 91);
+        var t = PlayerGate.Refuse(p, default, "lab", "bye", "admin", false);
+        NetEngine.RunDueKicks(DateTime.UtcNow);
+        Assert.True((await t).Ok);
+        Assert.Single(kicked);
+        NetEngine.OnPeer(Vanilla, false);       // the game drops the connection a moment later
+        Assert.Single(kicked);                  // not a second kick
+        Assert.Single(_net.Kicks);
     }
 
     [Fact]
@@ -137,8 +167,11 @@ public sealed class PlayerGateTests : IDisposable
         var p = Up(Kiln, 78);
         p.State = NetPeerState.Ready;
         var t = PlayerGate.Refuse(p, default, "lab", "bye", null, false);
+        var kicked = new List<PlayerKickedEvent>();
+        using var sub = Events.On<PlayerKickedEvent>(e => kicked.Add(e));
         NetEngine.OnPeer(Kiln, false);
         Assert.True((await t).Ok);
         Assert.Empty(_net.Kicks);
+        Assert.Single(kicked);
     }
 }

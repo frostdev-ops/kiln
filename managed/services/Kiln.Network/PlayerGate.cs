@@ -30,6 +30,7 @@ internal static class PlayerGate
         if (NetEngine.TestServerRole is { } test) return test ? null : "this process serves no clients";  // unit tests
         if (!NetNative.Available) return "kiln.net is not loaded";
         if (!Capabilities.Is("net.kick")) return Capabilities.Why("net.kick");
+        if (!Capabilities.Is("net.players")) return Capabilities.Why("net.players");
         if (((NetNative.ReadStatus()?.Roles ?? 0) & NetNative.RoleServer) == 0) return "this process serves no clients";
         return null;
     }
@@ -39,7 +40,7 @@ internal static class PlayerGate
         try
         {
             var (state, reason, text) = Decide(NetNative.Available, Capabilities.Get("kiln.net"), Capabilities.Get("net.kick"),
-                (NetNative.ReadStatus()?.Roles ?? 0) & NetNative.RoleServer);
+                Capabilities.Get("net.players"), (NetNative.ReadStatus()?.Roles ?? 0) & NetNative.RoleServer);
             Capabilities.Report(PlayerAdmin.KickCapability, state, reason, text);
             Capabilities.Report(PlayerAdmin.BansCapability, state, reason, text);
         }
@@ -49,8 +50,11 @@ internal static class PlayerGate
         }
     }
 
-    /// <summary>The <c>players.kick</c> (and <c>players.bans</c>) row from what kiln.net has. Pure.</summary>
-    internal static (CapabilityState, CapabilityReason, string) Decide(bool net, Capability netRow, Capability kick, uint serverRole)
+    /// <summary>The <c>players.kick</c> (and <c>players.bans</c>) row from what kiln.net has: the game's kick call, and
+    /// the connection records that say which player and account a connection is. Without the records no connection is
+    /// ever matched to a player or to a ban, so neither row may say available. Pure.</summary>
+    internal static (CapabilityState, CapabilityReason, string) Decide(bool net, Capability netRow, Capability kick,
+        Capability players, uint serverRole)
     {
         if (!net)
             return netRow is { State: CapabilityState.Unavailable, Reason: not CapabilityReason.Unknown }
@@ -59,6 +63,9 @@ internal static class PlayerGate
         if (kick.State != CapabilityState.Available)
             return (CapabilityState.Unavailable, kick.Reason is CapabilityReason.Unknown or CapabilityReason.None ? CapabilityReason.SymbolMissing : kick.Reason,
                 $"needs net.kick: {(kick.ReasonText.Length > 0 ? kick.ReasonText : "the game's kick call did not resolve")}");
+        if (players.State != CapabilityState.Available)
+            return (CapabilityState.Unavailable, players.Reason is CapabilityReason.Unknown or CapabilityReason.None ? CapabilityReason.SymbolMissing : players.Reason,
+                $"needs net.players: {(players.ReasonText.Length > 0 ? players.ReasonText : "the game's connection records did not resolve")}");
         if (serverRole == 0) return (CapabilityState.Unavailable, CapabilityReason.WrongSide, "this process serves no clients");
         return (CapabilityState.Available, CapabilityReason.None, "");
     }
@@ -93,10 +100,13 @@ internal static class PlayerGate
         return k.Done.Task;
     }
 
-    /// <summary>The kick of <paramref name="p"/> went out (rc from kiln.net): completes its task and posts the event.</summary>
+    /// <summary>The kick of <paramref name="p"/> went out (rc from kiln.net), or its connection left first: completes its
+    /// task and posts the event, once. The connection of a kick that went out leaves a moment later and comes here
+    /// again; the refusal itself stays on the peer (<see cref="NetPeer.Kick"/>), so it is not refused a second time.</summary>
     internal static void Kicked(NetPeer p, int rc)
     {
-        if (p.Kick is not { } k) return;
+        if (p.Kick is not { } k || k.Finished) return;
+        k.Finished = true;
         var ok = rc == NetNative.Ok;
         var result = new KickResult(k.Player, k.Name, ok, ok ? null : $"the game's kick call failed (rc {rc})");
         if (ok && Events.HasSubscribers<PlayerKickedEvent>())
@@ -159,4 +169,8 @@ internal static class PlayerGate
 
 /// <summary>A refusal on its way: what the kick says and who waits for it.</summary>
 internal sealed record PendingKick(PlayerRef Player, string Name, string Reason, string? By, bool Banned,
-    TaskCompletionSource<KickResult> Done);
+    TaskCompletionSource<KickResult> Done)
+{
+    /// <summary>Its task is completed and its event posted (tick thread).</summary>
+    public bool Finished { get; set; }
+}

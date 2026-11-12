@@ -262,11 +262,29 @@ internal static class PlayerAdmin
     /// <summary>Why kicks are off right now (Kiln.Network's answer); null when they work.</summary>
     internal static Func<string?>? KickOff;
 
+    private static readonly object StoreLock = new();
     private static BanStore? _store;
-    internal static BanStore Store => _store ??= new BanStore(Path.Combine(KilnPaths.Root, "data", "kiln-players", "bans.json"));
 
-    /// <summary>Tests: another file.</summary>
-    internal static void UseStore(BanStore store) => _store = store;
+    /// <summary>The one ban list of this process. Any thread may be the first to ask (<see cref="Bans.All"/> is not
+    /// tick-bound): two stores would each hold their own copy of the file, and the later writer would erase the
+    /// other's bans.</summary>
+    internal static BanStore Store
+    {
+        get
+        {
+            if (Volatile.Read(ref _store) is { } s) return s;
+            lock (StoreLock) return _store ??= new BanStore(StorePath());
+        }
+    }
+
+    /// <summary>Where the list is kept; tests name another place.</summary>
+    internal static Func<string> StorePath = () => Path.Combine(KilnPaths.Root, "data", "kiln-players", "bans.json");
+
+    /// <summary>Tests: another file (null: the next use makes the store anew).</summary>
+    internal static void UseStore(BanStore? store)
+    {
+        lock (StoreLock) _store = store;
+    }
 
     internal static void CheckReason(string reason)
     {
@@ -375,13 +393,15 @@ internal sealed class BanStore(string path)
 
     private bool _broken;
 
-    private void Save()
+    // Writes `entries` as the list. The caller makes them the list in force only when this returned: a write that
+    // fails (a full disk, a folder that cannot be written) must leave the bans as they were, in memory and on disk.
+    private void Save(List<BanEntry> entries)
     {
         if (_broken) throw new InvalidOperationException($"the ban list {Path} could not be read when Kiln started; fix or remove it first");
         var dir = System.IO.Path.GetDirectoryName(Path)!;
         Directory.CreateDirectory(dir);
         var tmp = Path + ".tmp";
-        System.IO.File.WriteAllText(tmp, JsonSerializer.Serialize(new File(1, _entries!), Json));
+        System.IO.File.WriteAllText(tmp, JsonSerializer.Serialize(new File(1, entries), Json));
         System.IO.File.Move(tmp, Path, overwrite: true);
     }
 
@@ -403,10 +423,10 @@ internal sealed class BanStore(string path)
     {
         lock (_lock)
         {
-            var list = Load();
-            list.RemoveAll(b => !b.IsActive(now) || b.Matches(entry.SteamId, entry.AccountId));
-            list.Add(entry);
-            Save();
+            var next = Load().Where(b => b.IsActive(now) && !b.Matches(entry.SteamId, entry.AccountId)).ToList();
+            next.Add(entry);
+            Save(next);
+            _entries = next;
         }
     }
 
@@ -417,10 +437,10 @@ internal sealed class BanStore(string path)
         {
             var list = Load();
             var gone = list.Where(b => b.Matches(id, id)).ToList();
-            var ended = list.Where(b => !b.IsActive(now)).ToList();
-            if (gone.Count == 0 && ended.Count == 0) return [];
-            list.RemoveAll(b => gone.Contains(b) || ended.Contains(b));
-            Save();
+            var next = list.Where(b => b.IsActive(now) && !gone.Contains(b)).ToList();
+            if (next.Count == list.Count) return [];
+            Save(next);
+            _entries = next;
             return gone.Where(b => b.IsActive(now)).ToArray();
         }
     }
