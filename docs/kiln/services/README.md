@@ -32,6 +32,7 @@ available is generated from a boot's `capabilities.json`: [../status.generated.m
 | [npcs.md](npcs.md) | Friendly NPCs and quests in the game's own UI |
 | [pacing.md](pacing.md) | kiln.pacing: where the game waits, and its task pools |
 | [player-state.md](player-state.md) | Player state and actions |
+| [playeranim.md](playeranim.md) | kiln.playeranim / PlayerAnimStates: mods' states in the player's animation graph, merged at boot, the same on the server and every client |
 | [players.md](players.md) | kiln.players: who is on the server |
 | [progression.md](progression.md) | kiln.progression: levels, experience, skill tree, skill points |
 | [quests.md](quests.md) | Kiln.Quests: the quest engine behind the game's own quest UI |

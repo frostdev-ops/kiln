@@ -260,6 +260,14 @@ another machine or over the internet.
 ## Limits and open points
 - This sync covers what the server can send. A mod that states `clients: "mod"` needs its own files on the client: a Kiln client without
   them is refused unless `modSync` is set to `warn` or `off` (docs/kiln/network.md, "Join handshake and mod sync").
+- **Player animation graph.** This is compared, not synced: a server and every player's game merge the same mods'
+  player states into the same player animation graph ([services/playeranim.md](services/playeranim.md)), and the join
+  compares the two (`kiln.playeranim` in HELLO and WELCOME: 16 hex digits, zeros for the game's own graph or a side
+  without the service; `PlayerAnimStates.GraphHash`). A client whose graph differs from the server's is refused with
+  the difference in words (how many mod states each side has, and which), under `modSync: warn` too: it would play
+  other states than the server evaluates, and the server's poses decide hits. `modSync: off` lets it in and logs one
+  warning. Code: `managed/services/Kiln.Network/PlayerGraphGate.cs`. Works on a test server with a fake client; not
+  run with a real client.
 - A client without Kiln gets none of this. Refused or let in, see docs/kiln/network.md "Clients without Kiln".
   Real-client runs of that are still open (launches on hold).
 - New items and recipes of mods with `"clients": "kiln"` (and placeholders) travel as `@definitions`; the client
