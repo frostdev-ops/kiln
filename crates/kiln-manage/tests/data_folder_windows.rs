@@ -1226,9 +1226,9 @@ mod win {
             let file = match open(FILE_GENERIC_READ | DELETE | FILE_WRITE_ATTRIBUTES) {
                 Ok(file) => file,
                 Err(e) => {
-                    eprintln!("open a {} file as the proof does (FILE_GENERIC_READ | DELETE | FILE_WRITE_ATTRIBUTES, FILE_SHARE_READ): {e}; nothing to delete through", if read_only { "read-only" } else { "plain" });
+                    eprintln!("open a {} file as the proof's first step does (FILE_GENERIC_READ | DELETE | FILE_WRITE_ATTRIBUTES, FILE_SHARE_READ): {e}", if read_only { "read-only" } else { "plain" });
                     assert!(read_only, "a plain file opens as the proof opens it: {e}");
-                    // the same delete through a handle without FILE_WRITE_ATTRIBUTES
+                    // the proof's second step: the same delete through a handle without FILE_WRITE_ATTRIBUTES
                     if let Ok(g) = open(FILE_GENERIC_READ | DELETE) {
                         let ex = FILE_DISPOSITION_INFO_EX {
                             Flags: FILE_DISPOSITION_FLAG_DELETE | FILE_DISPOSITION_FLAG_POSIX_SEMANTICS | FILE_DISPOSITION_FLAG_IGNORE_READONLY_ATTRIBUTE,
@@ -1237,7 +1237,7 @@ mod win {
                         let r = unsafe { SetFileInformationByHandle(g.as_raw_handle() as _, FileDispositionInfoEx, &ex as *const _ as *const _, std::mem::size_of::<FILE_DISPOSITION_INFO_EX>() as u32) };
                         let r = if r != 0 { "ok".to_string() } else { std::io::Error::last_os_error().to_string() };
                         drop(g);
-                        eprintln!("a read-only file opened with FILE_GENERIC_READ | DELETE, FileDispositionInfoEx (read-only ignored): {r}; after close the file is {}", if f.exists() { "still there" } else { "gone" });
+                        eprintln!("a read-only file opened as the proof's second step does (FILE_GENERIC_READ | DELETE), FileDispositionInfoEx (read-only ignored): {r}; after close the file is {}", if f.exists() { "still there" } else { "gone" });
                     }
                     if !f.exists() {
                         continue;
