@@ -286,8 +286,9 @@ const char* state_name(int32_t s) {
     }
 }
 
-// The row of capability anim.player_states. The registry (kiln.caps) is not in this tree yet, so nothing reports it: the
-// service calls this once, where its state is decided (publish), and keeps the row in its status.
+// The row of capability anim.player_states, from the service's state. The registry (kiln.caps) is not in this tree yet, so
+// nothing reports it: its one caller is status_text(), which puts the row into status_json and status.json. When kiln.caps
+// lands, its report() goes beside that call.
 struct CapabilityRow {
     bool available = false;
     std::string code, text;
@@ -300,15 +301,18 @@ CapabilityRow capability_row() {
         default: return {false, "off", g_off_reason.empty() ? std::string("off") : g_off_reason};
     }
 }
-CapabilityRow g_cap;
-
 std::string status_text() {
     ojson o = ojson::object();
     o["state"] = state_name(g_state.load());
     if (!g_off_reason.empty()) o["reason"] = g_off_reason;
     o["hash"] = g_hash;
-    o["capability"] = {{"name", "anim.player_states"}, {"available", g_cap.available}, {"code", g_cap.code}, {"text", g_cap.text}};
-    o["states"] = g_report.contains("states") ? g_report["states"] : ojson::array();
+    const CapabilityRow cap = capability_row();
+    o["capability"] = {{"name", "anim.player_states"}, {"available", cap.available}, {"code", cap.code}, {"text", cap.text}};
+    // the merge's lines, with the status the lookup gives (unavailable: taken by the merge being off)
+    ojson states = g_report.contains("states") ? g_report["states"] : ojson::array();
+    for (size_t i = 0; i < states.size() && i < g_kept.size(); ++i)
+        states[i]["status"] = g_kept[i].status == KILN_PA_LIVE ? "live" : g_kept[i].status == KILN_PA_UNAVAILABLE ? "unavailable" : "refused";
+    o["states"] = std::move(states);
     o["errors"] = g_errors;
     o["machines"] = g_report.contains("machines") ? g_report["machines"] : ojson::array();
     o["bytes"] = g_report.contains("bytes") ? g_report["bytes"] : ojson({{"before", nullptr}, {"after", nullptr}});
@@ -368,7 +372,6 @@ void publish() {
     g_hash = g_report.value("graphHash", std::string(kZeroHash));
     g_hash_kept = keep(g_hash);
     keep_states();
-    g_cap = capability_row();
     for (const std::string& e : g_errors) PA_W("playeranim: %s", e.c_str());
     size_t live = 0, refused = 0;
     std::set<std::string> mods_live;
@@ -766,15 +769,13 @@ void KILN_CALL on_ready(void*) {
     if (states == 0) {
         // nothing to merge: nothing is read from the game, nothing is put
         g_state.store(KILN_PA_UNTOUCHED);
-        g_cap = capability_row();
-        for (const std::string& e : g_errors) PA_W("playeranim: %s", e.c_str());
+            for (const std::string& e : g_errors) PA_W("playeranim: %s", e.c_str());
         if (files == 0) PA_I("playeranim: no mod defines a player state: the game's graph is untouched");
         else PA_I("playeranim: %zu player-states.json file(s), no state in them: the game's graph is untouched", files);
         write_status();
         return;
     }
     g_state.store(KILN_PA_WAITING);
-    g_cap = capability_row();
     PA_I("playeranim: %zu player state(s) of %zu mod(s) to merge when the game's resources come up", states, g_mods.size());
     std::thread(watch_mods).detach();
     if (g_assets->when_resources_ready(&on_resources_ready, nullptr) != KILN_OK) {
@@ -803,8 +804,7 @@ extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api,
         std::lock_guard lock(g_mu);
         g_off_reason = !g_cfg.enabled ? "off by kiln/config/playeranim.json" : "hooks disabled (safe idle)";
         g_state.store(KILN_PA_OFF);
-        g_cap = capability_row();
-        PA_I("playeranim: %s: the game's graph is untouched", g_off_reason.c_str());
+            PA_I("playeranim: %s: the game's graph is untouched", g_off_reason.c_str());
         write_status();
         return KILN_OK;
     }
