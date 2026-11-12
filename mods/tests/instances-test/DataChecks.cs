@@ -358,7 +358,13 @@ public sealed partial class InstancesTestMod
             var h = Resolve(s.Holder);
             var at = AtFlat(h, s.Flat);
             var r = _refs.GetValueOrDefault(s.Name);
-            var loc = r.IsNone ? null : r.Location();
+            if (r.IsNone)
+            {
+                bad++;
+                Check(false, $"t4 {label}: {s}: the test has no ref for it this session");
+                continue;
+            }
+            var loc = r.Location();
             var problems = new List<string>();
             if (at == null || at.ItemEntity != r.Entity.Id) problems.Add($"the slot holds {at?.ItemEntity}, not {r}");
             else if (at.Ref != r) problems.Add($"the read's ref {at.Ref} is not {r}");
@@ -546,6 +552,9 @@ public sealed partial class InstancesTestMod
             case "d9r": await D9r(); break;
             case "e1": await E1(); break;
             case "e2": await E2(); break;
+            case "u1": await U1(); break;
+            case "u2": await U2(); break;
+            case "u4": await U4(); break;
             case "n1": await N1(); break;
             case "d10": await D10(); break;
             case "d11": await D11(); break;
@@ -1283,9 +1292,26 @@ public sealed partial class InstancesTestMod
     private async Task E1()
     {
         var sword = Sword()!;
+        // a retried boot: the twins of an earlier try go first (taken: their data is dropped as destroyed)
+        foreach (var old in _ds.Swords.Where(x => x.Name is "W1" or "W2").ToList())
+        {
+            var h = Resolve(old.Holder);
+            if (AtFlat(h, old.Flat) is { IsEmpty: false } at && at.Item == sword.Id)
+                Info($"t4 e1: an earlier W twin taken: {await Items.TakeSlot(h, at)}");
+            _ds.Swords.Remove(old);
+        }
+        File.Delete(Path.Combine(T4Dir, "early-swap.done"));
+        _ds.Notes.Remove("early");
+        _ds.Notes.Remove("earlySwapped");
         await Give("W1", "A", true, TwinGear(sword), sword);
         await Give("W2", "A", true, TwinGear(sword), sword);
-        VerifyLive("e1 twins W1 W2 in A");
+        VerifyLive("e1 twins W1 W2 in A", _ds.Swords.Where(x => x.Name is "W1" or "W2").ToList());
+        // for e2's older-generation check: V3, an item of which chest E holds no other piece
+        var e = Chest("E");
+        var held = Items.Read(e)!.Slots.Where(x => !x.IsEmpty).Select(x => x.Item).ToHashSet();
+        var v3 = Items.All.First(i => i.IsGear && i.LevelMin > 0 && !held.Contains(i.Id) && i.Category == ItemCategory.Equipment && i.Name.Contains("Boots"));
+        _ds.Swords.RemoveAll(x => x.Name == "V3");
+        await Give("V3", "E", true, new Gear(Math.Max(1, v3.LevelMin), ItemRarity.Rare), v3);
         await SaveNow("e1");
         Next("e2", "stop");
     }
@@ -1298,6 +1324,62 @@ public sealed partial class InstancesTestMod
         var swapped = _ds.Notes.GetValueOrDefault("earlySwapped") == "1";
         await VerifyLoaded($"e2 W1 W2 after {(swapped ? "the early swap" : "no swap")}", swapped ? states.Select(Swapped).ToList() : states,
             s => s.Name is "W1" or "W2");
+        await VerifyLoaded("e2 V3", states, s => s.Name == "V3");
+        // V3, the one item of its kind in E: a save, a move within E, a save, that generation dropped: rule 2 decides
+        var r1 = await SaveNow("V3 before the move");
+        var freeE = FreeGeneric(Chest("E")).Select(x => FlatOf(Items.Read(Chest("E"))!, x.Slot)).Last();
+        var from = Rec("V3").Flat;
+        await MoveTo("V3", "G");
+        await MoveTo("V3", "E", freeE);
+        VerifyLive("e2 V3 moved within E", _ds.Swords.Where(x => x.Name == "V3").ToList());
+        var r2 = await SaveNow("V3 after the move");
+        _ds.Notes["unequalV3"] = $"V3 flat {from} -> {freeE}; {r1.Revision} then {r2.Revision} (dropped)";
+        _ds.Phase = "u4";
+        SaveState();
+        Ready($"drop-gen {r2.Revision}");
+    }
+
+    private async Task U4()
+    {
+        Info($"t4 u4: loaded {_worldLoaded} ({_ds.Notes.GetValueOrDefault("unequalV3")})");
+        await VerifyLoaded("u4 V3 on an older generation", LoadedStates(), s => s.Name == "V3");
+        Info($"t4 unequal: V3: {(_refs.TryGetValue("V3", out var r) && _restored.TryGetValue(r, out var m) ? $"restored {m}" : "not restored")}");
+        Ready("end");
+    }
+
+    // ---- unequal twins without a look-alike: V1 and V2 of an item no other slot of chest E holds ----
+
+    private async Task U1()
+    {
+        // an item E holds nothing of (E has swords only): the order setup's fur arms, else any other gear
+        var e = Chest("E");
+        var held = Items.Read(e)!.Slots.Where(x => !x.IsEmpty).Select(x => x.Item).ToHashSet();
+        var item = Items.Lookup("Armor_T0_Fur_Arms") is { } fa && !held.Contains(fa.Id)
+            ? fa
+            : Items.All.First(i => i.IsGear && i.LevelMin > 0 && !held.Contains(i.Id) && i.Category == ItemCategory.Weapons);
+        var lv = Math.Max(1, item.LevelMin);
+        var v1 = await Give("V1", "E", true, new Gear(lv, ItemRarity.Rare), item);
+        var v2 = await Give("V2", "E", true, new Gear(lv + 1, ItemRarity.Rare), item);
+        var slots = Items.Read(e)!.Slots.Where(x => x.Item == item.Id).ToList();
+        Info($"t4 unequal: V1 and V2 ({item.Name}) in E: {string.Join(", ", slots.Select(x => $"flat {FlatOf(Items.Read(e)!, x.Slot)} level {x.Level} {x.Rarity}"))}");
+        var r1 = await SaveNow("unequal V: before the move");
+        var freeE = FreeGeneric(e).Select(x => FlatOf(Items.Read(e)!, x.Slot)).Last();
+        await MoveTo("V1", "G");
+        await MoveTo("V1", "E", freeE);
+        VerifyLive("u1 V1 moved within E", _ds.Swords.Where(x => x.Name is "V1" or "V2").ToList());
+        var r2 = await SaveNow("unequal V: after the move");
+        _ds.Notes["unequalV"] = $"{r1.Revision} then {r2.Revision} (dropped)";
+        _ds.Phase = "u2";
+        SaveState();
+        Ready($"drop-gen {r2.Revision}");
+    }
+
+    private async Task U2()
+    {
+        Info($"t4 u2: loaded {_worldLoaded} (expected an older generation: {_ds.Notes.GetValueOrDefault("unequalV")})");
+        await VerifyLoaded("u2 unequal twins V1 V2 on an older generation", LoadedStates(), s => s.Name is "V1" or "V2");
+        foreach (var n in new[] { "V1", "V2" })
+            Info($"t4 unequal: {n}: {(_refs.TryGetValue(n, out var r) && _restored.TryGetValue(r, out var m) ? $"restored {m}" : "not restored")}");
         Ready("end");
     }
 }
