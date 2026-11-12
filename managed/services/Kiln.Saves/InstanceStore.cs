@@ -201,6 +201,7 @@ internal sealed class InstanceStore
     private readonly HashSet<string> _noted = new(StringComparer.Ordinal);
     private uint _loadedGeneration;
     private DataMatch _loadedMatch;
+    private bool _playerGenerationTrusted = true;
     private int _session;
     private bool _matching, _windowCounted;
     private ulong _windowEnd;
@@ -263,6 +264,7 @@ internal sealed class InstanceStore
         _noted.Clear();
         _loadedGeneration = 0;
         _loadedMatch = DataMatch.None;
+        _playerGenerationTrusted = true;
         _matching = _windowCounted = false;
         _windowEnd = 0;
     }
@@ -885,7 +887,10 @@ internal sealed class InstanceStore
         }
         var asMade = LoadOrder.AsMade(h.Bound, h.Key.Kind == HolderKind.World, items.Select(i => (i.Place.FlatSlot, i.Ref.Entity.Id.Value)).ToList(),
             made, loadSlots, out var order);
-        var outcomes = InstanceMatcher.Match(input, h.Witness, now, trusted, asMade, world: h.Key.Kind == HolderKind.World);
+        // A client's character file can be newer than a restored world, including an invisible swap of twins.
+        // Only the newest loaded data can vouch for all the states the client may bring.
+        var slotMatch = asMade && (h.Key.Kind == HolderKind.World || _playerGenerationTrusted);
+        var outcomes = InstanceMatcher.Match(input, h.Witness, now, trusted, slotMatch, world: h.Key.Kind == HolderKind.World);
         int attached = 0, aside = 0, parked = 0;
         foreach (var o in outcomes)
         {
@@ -1112,6 +1117,8 @@ internal sealed class InstanceStore
     {
         _loadedGeneration = generation;
         _loadedMatch = match;
+        _playerGenerationTrusted = match is DataMatch.Exact or DataMatch.Staged &&
+            _owner.Root is { } root && !WorldStore.ListManifests(Path.Combine(root, "manifests")).Any(m => m.Revision > generation);
         foreach (var h in _holders) ApplyCap(h, null);
     }
 

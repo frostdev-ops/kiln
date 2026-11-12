@@ -206,8 +206,9 @@ without it nobody knows whether a look-alike stood beside it.
    - *between the save and the load:* the holder's list now equals the record's witness, every slot and every field;
      and for a world holder also the record was read at the save of the generation the world file vouches for (`Exact`
      or `Staged`). Both, because a world file edited offline with its header revision and time kept loads as `Exact`;
-     its changed list shows. For a player the witness alone (a character has no generation of its own), and see
-     "Players" below: every state the character may come back as is compared;
+     its changed list shows. For a player the loaded data must also be `Exact`/`Staged` and the newest generation in the
+     store (no newer committed or pending manifest). Otherwise the client's character file may be newer than Kiln's
+     witnesses, so only rule 2 can attach. See "Players" below: every known state the character may come back as is compared;
    - *at the save:* that witness is **settled**: read at the snapshot staging, where no simulation step comes before the
      game's snapshot, or at a shutdown save. The first staging of a save is one step early, and a swap in that step is
      saved by the game but not by Kiln;
