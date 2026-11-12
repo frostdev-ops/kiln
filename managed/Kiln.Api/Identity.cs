@@ -41,10 +41,12 @@ public readonly record struct EntityRef(EntityId Id, ulong Serial)
     }
 
     /// <summary>True while the id still belongs to the spawn this ref captured. False for <see cref="None"/>, for an id
-    /// that no longer exists, when no entity source is registered, and when the id now carries another serial. Without
-    /// a serial (<see cref="HasSerial"/> false, <see cref="Serial"/> 0) true means no more than "an entity with this id
-    /// exists"; <see cref="HasSerial"/> is the way to tell.</summary>
+    /// that no longer exists, and when the id now carries another serial. Without a serial (<see cref="HasSerial"/>
+    /// false, <see cref="Serial"/> 0) true means no more than "an entity with this id exists";
+    /// <see cref="HasSerial"/> is the way to tell.</summary>
     /// <exception cref="InvalidOperationException">Not on the tick thread (not thrown for <see cref="None"/>).</exception>
+    /// <exception cref="KilnUnavailableException">No entity source is registered (<c>identity.entities</c>);
+    /// not thrown when <see cref="IsNone"/> is true.</exception>
     [TickThreadOnly]
     public bool IsAlive
     {
@@ -52,7 +54,8 @@ public readonly record struct EntityRef(EntityId Id, ulong Serial)
         {
             if (IsNone) return false;
             Game.AssertTickThread();
-            if (IdentitySources.Entities is not { } source) return false;
+            var source = IdentitySources.Entities
+                ?? throw new KilnUnavailableException(Capability, "no service supplies entity serials in this process");
             if (!source.TryGetSerial(Id, out var current)) return false;
             return Serial == 0 || current == Serial;
         }
@@ -77,6 +80,8 @@ public readonly record struct ItemInstanceRef(EntityRef Entity, ItemId Item)
     public bool IsNone => Entity.IsNone;
 
     /// <summary>Exactly the entity's <see cref="EntityRef.IsAlive"/>, nothing more.</summary>
+    /// <exception cref="KilnUnavailableException">No entity source is registered (<c>identity.entities</c>);
+    /// not thrown when <see cref="IsNone"/> is true.</exception>
     [TickThreadOnly]
     public bool IsAlive => Entity.IsAlive;
 
@@ -128,6 +133,8 @@ public readonly record struct PlayerRef(ulong SteamId, Guid CharacterId, EntityR
 
     /// <summary>True only when the held session entity has a serial and is still alive (<see cref="EntityRef.IsAlive"/>).
     /// False without a serial or for an earlier session; <see cref="Resolve"/> gives the current one.</summary>
+    /// <exception cref="KilnUnavailableException">The session entity has a serial but no entity source is registered
+    /// (<c>identity.entities</c>).</exception>
     [TickThreadOnly]
     public bool IsOnline => Entity.HasSerial && Entity.IsAlive;
 

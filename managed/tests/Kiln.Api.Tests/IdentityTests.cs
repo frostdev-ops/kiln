@@ -192,15 +192,26 @@ public sealed class IdentityTests : KilnTest
     }
 
     [Fact]
-    public void No_entity_source_Of_throws_unavailable_and_IsAlive_is_false()
+    public void No_entity_source_Of_and_liveness_throw_unavailable_except_for_none()
     {
         _serials.Live[12] = 345;
         var r = EntityRef.Of(new EntityId(12));
         IdentitySources.Entities = null;
         var e = Assert.Throws<KilnUnavailableException>(() => EntityRef.Of(new EntityId(12)));
         Assert.Equal("identity.entities", e.Capability);
-        Assert.False(r.IsAlive);
+        var alive = Assert.Throws<KilnUnavailableException>(() => r.IsAlive);
+        Assert.Equal(e.Capability, alive.Capability);
+        Assert.Equal(e.Reason, alive.Reason);
+        var item = Assert.Throws<KilnUnavailableException>(() => new ItemInstanceRef(r, new ItemId(1)).IsAlive);
+        Assert.Equal(e.Capability, item.Capability);
+        var player = Assert.Throws<KilnUnavailableException>(() => new PlayerRef(7, Guid.Empty, r).IsOnline);
+        Assert.Equal(e.Capability, player.Capability);
         Assert.Equal(EntityRef.None, EntityRef.Of(EntityId.None));
+        Backend.TickThread = false;
+        Assert.False(EntityRef.None.IsAlive);
+        Assert.False(new EntityRef(EntityId.None, 9).IsAlive);
+        Assert.False(ItemInstanceRef.None.IsAlive);
+        Assert.False(PlayerRef.None.IsOnline);
     }
 
     [Fact]

@@ -59,8 +59,11 @@ ref types carry enough to notice that.
   `EntityRef.Of(id)` captures it (tick thread). `default` / `EntityRef.None` is no entity. A ref converts
   implicitly to `EntityId`, so you pass it to every API that takes an id; there is no conversion the other way, as
   that would hide the capture.
-- **`IsAlive`** (tick thread) is false for `None`, false when the id no longer exists, false when no service supplies
-  serials, and false when the id now has another serial: the id was reused. When the ref has no serial
+- **`IsAlive`** (tick thread) is false for `None`, false when the id no longer exists, and false when the id now has
+  another serial: the id was reused. With no entity source, a non-none ref throws
+  `KilnUnavailableException("identity.entities")`, just as `EntityRef.Of` does; `None.IsAlive` still returns false.
+  `ItemInstanceRef.IsAlive` and `PlayerRef.IsOnline` (when its entity has a serial) follow that rule too.
+  When the ref has no serial
   (`HasSerial` false, `Serial` 0), `IsAlive` true means no more than "an entity with this id exists": a reused id
   still counts as alive. `HasSerial` is the way to tell which answer you have.
 - Where serials come from is up to the service that fills the seam. kiln.spawn has a tracker serial only for entities
