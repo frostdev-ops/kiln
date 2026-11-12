@@ -1,0 +1,188 @@
+#nullable enable
+Kiln.CleanupResult
+Kiln.CleanupResult.CleanupResult() -> void
+Kiln.CleanupResult.CleanupResult(int Destroyed, int Missing, int Kept) -> void
+Kiln.CleanupResult.Deconstruct(out int Destroyed, out int Missing, out int Kept) -> void
+Kiln.CleanupResult.Destroyed.get -> int
+Kiln.CleanupResult.Destroyed.init -> void
+Kiln.CleanupResult.Equals(Kiln.CleanupResult other) -> bool
+Kiln.CleanupResult.Kept.get -> int
+Kiln.CleanupResult.Kept.init -> void
+Kiln.CleanupResult.Missing.get -> int
+Kiln.CleanupResult.Missing.init -> void
+Kiln.EntityDestroyedEvent
+Kiln.EntityDestroyedEvent.Entity.get -> Kiln.EntityId
+Kiln.EntityDestroyedEvent.Origin.get -> string!
+Kiln.EntityDestroyedEvent.Position.get -> Kiln.WorldPosition?
+Kiln.EntityDestroyedEvent.Reason.get -> string!
+Kiln.EntityDestroyedEvent.Template.get -> System.Guid?
+Kiln.EntityDestroyedEvent.TemplateName.get -> string?
+Kiln.EntityInfo
+Kiln.EntityInfo.<Clone>$() -> Kiln.EntityInfo!
+Kiln.EntityInfo.Deconstruct(out Kiln.EntityId Entity, out System.Guid? Template, out string? TemplateName, out Kiln.WorldPosition Position, out float YawDegrees, out bool IsTracked, out ulong Serial, out long? SpawnTime, out Kiln.EntityId Parent) -> void
+Kiln.EntityInfo.Entity.get -> Kiln.EntityId
+Kiln.EntityInfo.Entity.init -> void
+Kiln.EntityInfo.EntityInfo(Kiln.EntityId Entity, System.Guid? Template, string? TemplateName, Kiln.WorldPosition Position, float YawDegrees, bool IsTracked, ulong Serial, long? SpawnTime, Kiln.EntityId Parent) -> void
+Kiln.EntityInfo.Equals(Kiln.EntityInfo? other) -> bool
+Kiln.EntityInfo.IsTracked.get -> bool
+Kiln.EntityInfo.IsTracked.init -> void
+Kiln.EntityInfo.Parent.get -> Kiln.EntityId
+Kiln.EntityInfo.Parent.init -> void
+Kiln.EntityInfo.Position.get -> Kiln.WorldPosition
+Kiln.EntityInfo.Position.init -> void
+Kiln.EntityInfo.Serial.get -> ulong
+Kiln.EntityInfo.Serial.init -> void
+Kiln.EntityInfo.SpawnTime.get -> long?
+Kiln.EntityInfo.SpawnTime.init -> void
+Kiln.EntityInfo.Template.get -> System.Guid?
+Kiln.EntityInfo.Template.init -> void
+Kiln.EntityInfo.TemplateName.get -> string?
+Kiln.EntityInfo.TemplateName.init -> void
+Kiln.EntityInfo.YawDegrees.get -> float
+Kiln.EntityInfo.YawDegrees.init -> void
+Kiln.EntitySpawnedEvent
+Kiln.EntitySpawnedEvent.Amount.get -> int
+Kiln.EntitySpawnedEvent.Entity.get -> Kiln.EntityId
+Kiln.EntitySpawnedEvent.ItemId.get -> uint
+Kiln.EntitySpawnedEvent.Kind.get -> Kiln.SpawnedKind
+Kiln.EntitySpawnedEvent.Origin.get -> string!
+Kiln.EntitySpawnedEvent.Position.get -> Kiln.WorldPosition
+Kiln.EntitySpawnedEvent.Tag.get -> string?
+Kiln.EntitySpawnedEvent.Template.get -> System.Guid?
+Kiln.EntitySpawnedEvent.TemplateName.get -> string?
+Kiln.Spawn
+Kiln.SpawnComponent
+Kiln.SpawnComponent.<Clone>$() -> Kiln.SpawnComponent!
+Kiln.SpawnComponent.Data.get -> byte[]!
+Kiln.SpawnComponent.Data.init -> void
+Kiln.SpawnComponent.Deconstruct(out uint Hash, out byte[]! Data) -> void
+Kiln.SpawnComponent.Equals(Kiln.SpawnComponent? other) -> bool
+Kiln.SpawnComponent.Hash.get -> uint
+Kiln.SpawnComponent.Hash.init -> void
+Kiln.SpawnComponent.SpawnComponent(uint Hash, byte[]! Data) -> void
+Kiln.SpawnException
+Kiln.SpawnException.Code.get -> int
+Kiln.SpawnException.SpawnException(string! message, int code) -> void
+Kiln.SpawnFlags
+Kiln.SpawnFlags.AllowUnknown = 4 -> Kiln.SpawnFlags
+Kiln.SpawnFlags.NoTrack = 1 -> Kiln.SpawnFlags
+Kiln.SpawnFlags.None = 0 -> Kiln.SpawnFlags
+Kiln.SpawnFlags.Transient = 2 -> Kiln.SpawnFlags
+Kiln.SpawnOptions
+Kiln.SpawnOptions.Components.get -> System.Collections.Generic.IReadOnlyList<Kiln.SpawnComponent!>?
+Kiln.SpawnOptions.Components.init -> void
+Kiln.SpawnOptions.Flags.get -> Kiln.SpawnFlags
+Kiln.SpawnOptions.Flags.init -> void
+Kiln.SpawnOptions.Level.get -> int
+Kiln.SpawnOptions.Level.init -> void
+Kiln.SpawnOptions.SpawnOptions() -> void
+Kiln.SpawnOptions.Tag.get -> string?
+Kiln.SpawnOptions.Tag.init -> void
+Kiln.SpawnedKind
+Kiln.SpawnedKind.Entity = 0 -> Kiln.SpawnedKind
+Kiln.SpawnedKind.Item = 1 -> Kiln.SpawnedKind
+Kiln.TemplateInfo
+Kiln.TemplateInfo.<Clone>$() -> Kiln.TemplateInfo!
+Kiln.TemplateInfo.Deconstruct(out System.Guid Id, out string! Name, out string! DisplayName, out Kiln.TemplateKind Kind, out bool Shipped, out bool LoadedByGame, out bool? NeverSaved, out bool Expires) -> void
+Kiln.TemplateInfo.DisplayName.get -> string!
+Kiln.TemplateInfo.DisplayName.init -> void
+Kiln.TemplateInfo.Equals(Kiln.TemplateInfo? other) -> bool
+Kiln.TemplateInfo.Expires.get -> bool
+Kiln.TemplateInfo.Expires.init -> void
+Kiln.TemplateInfo.Id.get -> System.Guid
+Kiln.TemplateInfo.Id.init -> void
+Kiln.TemplateInfo.Kind.get -> Kiln.TemplateKind
+Kiln.TemplateInfo.Kind.init -> void
+Kiln.TemplateInfo.LoadedByGame.get -> bool
+Kiln.TemplateInfo.LoadedByGame.init -> void
+Kiln.TemplateInfo.Name.get -> string!
+Kiln.TemplateInfo.Name.init -> void
+Kiln.TemplateInfo.NeverSaved.get -> bool?
+Kiln.TemplateInfo.NeverSaved.init -> void
+Kiln.TemplateInfo.Shipped.get -> bool
+Kiln.TemplateInfo.Shipped.init -> void
+Kiln.TemplateInfo.TemplateInfo(System.Guid Id, string! Name, string! DisplayName, Kiln.TemplateKind Kind, bool Shipped, bool LoadedByGame, bool? NeverSaved = null, bool Expires = false) -> void
+Kiln.TemplateKind
+Kiln.TemplateKind.Creature = 1 -> Kiln.TemplateKind
+Kiln.TemplateKind.Npc = 4 -> Kiln.TemplateKind
+Kiln.TemplateKind.Other = 5 -> Kiln.TemplateKind
+Kiln.TemplateKind.Pickup = 2 -> Kiln.TemplateKind
+Kiln.TemplateKind.Prop = 3 -> Kiln.TemplateKind
+Kiln.TemplateKind.Unknown = 0 -> Kiln.TemplateKind
+Kiln.TrackedEntity
+Kiln.TrackedEntity.<Clone>$() -> Kiln.TrackedEntity!
+Kiln.TrackedEntity.Deconstruct(out ulong Serial, out Kiln.EntityId Entity, out System.Guid Template, out string! TemplateName, out Kiln.WorldPosition Position, out Kiln.WorldPosition SpawnPosition, out System.DateTimeOffset SpawnedAt, out bool IsLive, out Kiln.SpawnFlags Flags, out string! Tag, out string! Origin) -> void
+Kiln.TrackedEntity.Entity.get -> Kiln.EntityId
+Kiln.TrackedEntity.Entity.init -> void
+Kiln.TrackedEntity.Equals(Kiln.TrackedEntity? other) -> bool
+Kiln.TrackedEntity.Flags.get -> Kiln.SpawnFlags
+Kiln.TrackedEntity.Flags.init -> void
+Kiln.TrackedEntity.IsLive.get -> bool
+Kiln.TrackedEntity.IsLive.init -> void
+Kiln.TrackedEntity.Origin.get -> string!
+Kiln.TrackedEntity.Origin.init -> void
+Kiln.TrackedEntity.Position.get -> Kiln.WorldPosition
+Kiln.TrackedEntity.Position.init -> void
+Kiln.TrackedEntity.Serial.get -> ulong
+Kiln.TrackedEntity.Serial.init -> void
+Kiln.TrackedEntity.SpawnPosition.get -> Kiln.WorldPosition
+Kiln.TrackedEntity.SpawnPosition.init -> void
+Kiln.TrackedEntity.SpawnedAt.get -> System.DateTimeOffset
+Kiln.TrackedEntity.SpawnedAt.init -> void
+Kiln.TrackedEntity.Tag.get -> string!
+Kiln.TrackedEntity.Tag.init -> void
+Kiln.TrackedEntity.Template.get -> System.Guid
+Kiln.TrackedEntity.Template.init -> void
+Kiln.TrackedEntity.TemplateName.get -> string!
+Kiln.TrackedEntity.TemplateName.init -> void
+Kiln.TrackedEntity.TrackedEntity(ulong Serial, Kiln.EntityId Entity, System.Guid Template, string! TemplateName, Kiln.WorldPosition Position, Kiln.WorldPosition SpawnPosition, System.DateTimeOffset SpawnedAt, bool IsLive, Kiln.SpawnFlags Flags, string! Tag, string! Origin) -> void
+override Kiln.CleanupResult.GetHashCode() -> int
+override Kiln.EntityDestroyedEvent.ToString() -> string!
+override Kiln.EntityInfo.Equals(object? obj) -> bool
+override Kiln.EntityInfo.GetHashCode() -> int
+override Kiln.EntityInfo.ToString() -> string!
+override Kiln.EntitySpawnedEvent.ToString() -> string!
+override Kiln.SpawnComponent.Equals(object? obj) -> bool
+override Kiln.SpawnComponent.GetHashCode() -> int
+override Kiln.SpawnComponent.ToString() -> string!
+override Kiln.TemplateInfo.Equals(object? obj) -> bool
+override Kiln.TemplateInfo.GetHashCode() -> int
+override Kiln.TemplateInfo.ToString() -> string!
+override Kiln.TrackedEntity.Equals(object? obj) -> bool
+override Kiln.TrackedEntity.GetHashCode() -> int
+override Kiln.TrackedEntity.ToString() -> string!
+static Kiln.CleanupResult.operator !=(Kiln.CleanupResult left, Kiln.CleanupResult right) -> bool
+static Kiln.CleanupResult.operator ==(Kiln.CleanupResult left, Kiln.CleanupResult right) -> bool
+static Kiln.EntityInfo.operator !=(Kiln.EntityInfo? left, Kiln.EntityInfo? right) -> bool
+static Kiln.EntityInfo.operator ==(Kiln.EntityInfo? left, Kiln.EntityInfo? right) -> bool
+static Kiln.Spawn.Available.get -> bool
+static Kiln.Spawn.CleanupTracked(string? tag = null, string? origin = null) -> Kiln.CleanupResult
+static Kiln.Spawn.Destroy(Kiln.EntityId entity) -> bool
+static Kiln.Spawn.Entity(System.Guid template, Kiln.WorldPosition position, float yawDegrees = 0, Kiln.SpawnOptions? options = null) -> System.Threading.Tasks.Task<Kiln.EntityId>!
+static Kiln.Spawn.Entity(string! template, Kiln.WorldPosition position, float yawDegrees = 0, Kiln.SpawnOptions? options = null) -> System.Threading.Tasks.Task<Kiln.EntityId>!
+static Kiln.Spawn.EntityCount.get -> int
+static Kiln.Spawn.Exists(Kiln.EntityId entity) -> bool
+static Kiln.Spawn.Find(System.Guid template, Kiln.WorldPosition? near = null, double radius = 0, int max = 256) -> System.Collections.Generic.IReadOnlyList<Kiln.EntityId>!
+static Kiln.Spawn.FindByName(string! nameContains, Kiln.WorldPosition? near = null, double radius = 0, int max = 256) -> System.Collections.Generic.IReadOnlyList<Kiln.EntityId>!
+static Kiln.Spawn.Group(string! template, Kiln.WorldPosition center, int count, double spread = 4, Kiln.SpawnOptions? options = null) -> System.Threading.Tasks.Task<System.Collections.Generic.IReadOnlyList<Kiln.EntityId>!>!
+static Kiln.Spawn.Inspect(Kiln.EntityId entity) -> Kiln.EntityInfo?
+static Kiln.Spawn.Item(uint itemId, int amount, Kiln.WorldPosition position, int level = 0, Kiln.SpawnOptions? options = null) -> System.Threading.Tasks.Task<Kiln.EntityId>!
+static Kiln.Spawn.Lookup(string! name) -> Kiln.TemplateInfo?
+static Kiln.Spawn.Refresh() -> int
+static Kiln.Spawn.SupportsComponents.get -> bool
+static Kiln.Spawn.Template(System.Guid id) -> Kiln.TemplateInfo?
+static Kiln.Spawn.Templates.get -> System.Collections.Generic.IReadOnlyList<Kiln.TemplateInfo!>!
+static Kiln.Spawn.Tracked.get -> System.Collections.Generic.IReadOnlyList<Kiln.TrackedEntity!>!
+static Kiln.Spawn.WorldKey.get -> string?
+static Kiln.Spawn.WorldRunning.get -> bool
+static Kiln.SpawnComponent.HashOf(string! name) -> uint
+static Kiln.SpawnComponent.Of(string! name, byte[]! data) -> Kiln.SpawnComponent!
+static Kiln.SpawnComponent.Of<T>(string! name, T value) -> Kiln.SpawnComponent!
+static Kiln.SpawnComponent.operator !=(Kiln.SpawnComponent? left, Kiln.SpawnComponent? right) -> bool
+static Kiln.SpawnComponent.operator ==(Kiln.SpawnComponent? left, Kiln.SpawnComponent? right) -> bool
+static Kiln.TemplateInfo.operator !=(Kiln.TemplateInfo? left, Kiln.TemplateInfo? right) -> bool
+static Kiln.TemplateInfo.operator ==(Kiln.TemplateInfo? left, Kiln.TemplateInfo? right) -> bool
+static Kiln.TrackedEntity.operator !=(Kiln.TrackedEntity? left, Kiln.TrackedEntity? right) -> bool
+static Kiln.TrackedEntity.operator ==(Kiln.TrackedEntity? left, Kiln.TrackedEntity? right) -> bool
+~override Kiln.CleanupResult.Equals(object obj) -> bool
+~override Kiln.CleanupResult.ToString() -> string

@@ -1,0 +1,56 @@
+#nullable enable
+const Kiln.Testing.ClientCheckTags.Audio = "audio" -> string!
+const Kiln.Testing.ClientCheckTags.Cheats = "cheats" -> string!
+const Kiln.Testing.ClientCheckTags.GuardProof = "guard-proof" -> string!
+const Kiln.Testing.ClientCheckTags.Launcher = "launcher" -> string!
+const Kiln.Testing.ClientCheckTags.SteamDeck = "steam-deck" -> string!
+const Kiln.Testing.ClientCheckTags.TwoPlayers = "two-players" -> string!
+const Kiln.Testing.ClientCheckTags.Visual = "visual" -> string!
+const Kiln.Testing.ClientCheckTags.Windows = "windows" -> string!
+Kiln.Testing.CheckContext
+Kiln.Testing.CheckContext.Cancellation.get -> System.Threading.CancellationToken
+Kiln.Testing.CheckContext.Delay(System.TimeSpan time) -> System.Threading.Tasks.Task!
+Kiln.Testing.CheckContext.Expect(bool condition, string! what, string? detail = null) -> bool
+Kiln.Testing.CheckContext.Id.get -> string!
+Kiln.Testing.CheckContext.Instruct(string! text) -> void
+Kiln.Testing.CheckContext.Log.get -> Kiln.Logger!
+Kiln.Testing.CheckContext.Mod.get -> Kiln.ModContext!
+Kiln.Testing.CheckContext.OnEnd(System.Action! cleanup) -> void
+Kiln.Testing.CheckContext.OnEnd(System.Func<System.Threading.Tasks.Task!>! cleanup) -> void
+Kiln.Testing.CheckContext.Player.get -> Kiln.EntityId
+Kiln.Testing.CheckContext.Session.get -> Kiln.Testing.ClientCheckSession
+Kiln.Testing.CheckContext.Ticks(int count = 1) -> System.Threading.Tasks.Task!
+Kiln.Testing.CheckContext.Title.get -> string!
+Kiln.Testing.CheckContext.Until(System.Func<bool>! condition, System.TimeSpan timeout, string! what) -> System.Threading.Tasks.Task<bool>!
+Kiln.Testing.CheckContext.Verdict() -> System.Threading.Tasks.Task<Kiln.Testing.ClientCheckVerdict>!
+Kiln.Testing.ClientCheckAttribute
+Kiln.Testing.ClientCheckAttribute.Area.get -> string?
+Kiln.Testing.ClientCheckAttribute.Area.init -> void
+Kiln.Testing.ClientCheckAttribute.ClientCheckAttribute(string! id, string! title) -> void
+Kiln.Testing.ClientCheckAttribute.Confirm.get -> string?
+Kiln.Testing.ClientCheckAttribute.Confirm.init -> void
+Kiln.Testing.ClientCheckAttribute.Id.get -> string!
+Kiln.Testing.ClientCheckAttribute.Needs.get -> Kiln.Testing.ClientCheckNeeds
+Kiln.Testing.ClientCheckAttribute.Needs.init -> void
+Kiln.Testing.ClientCheckAttribute.Order.get -> int
+Kiln.Testing.ClientCheckAttribute.Order.init -> void
+Kiln.Testing.ClientCheckAttribute.Since.get -> string?
+Kiln.Testing.ClientCheckAttribute.Since.init -> void
+Kiln.Testing.ClientCheckAttribute.Tags.get -> string![]!
+Kiln.Testing.ClientCheckAttribute.Tags.init -> void
+Kiln.Testing.ClientCheckAttribute.Title.get -> string!
+Kiln.Testing.ClientCheckNeeds
+Kiln.Testing.ClientCheckNeeds.Any = 0 -> Kiln.Testing.ClientCheckNeeds
+Kiln.Testing.ClientCheckNeeds.Hosted = 1 -> Kiln.Testing.ClientCheckNeeds
+Kiln.Testing.ClientCheckNeeds.Joined = 2 -> Kiln.Testing.ClientCheckNeeds
+Kiln.Testing.ClientChecks
+Kiln.Testing.ClientCheckSession
+Kiln.Testing.ClientCheckSession.Hosted = 0 -> Kiln.Testing.ClientCheckSession
+Kiln.Testing.ClientCheckSession.Joined = 1 -> Kiln.Testing.ClientCheckSession
+Kiln.Testing.ClientCheckSession.Server = 2 -> Kiln.Testing.ClientCheckSession
+Kiln.Testing.ClientCheckTags
+Kiln.Testing.ClientCheckVerdict
+Kiln.Testing.ClientCheckVerdict.Fail = 1 -> Kiln.Testing.ClientCheckVerdict
+Kiln.Testing.ClientCheckVerdict.Pass = 0 -> Kiln.Testing.ClientCheckVerdict
+Kiln.Testing.ClientCheckVerdict.Skip = 2 -> Kiln.Testing.ClientCheckVerdict
+static Kiln.Testing.ClientChecks.Register(Kiln.Mod! mod) -> int

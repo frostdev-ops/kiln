@@ -1,0 +1,125 @@
+#nullable enable
+Kiln.BytePattern
+Kiln.Constants
+Kiln.DetourHandler
+Kiln.HookCall
+Kiln.HookCall.ArgCount.get -> int
+Kiln.HookCall.CallOriginal() -> nuint
+Kiln.HookCall.HookCall() -> void
+Kiln.HookCall.ReadArgAs<T>(int i) -> T
+Kiln.HookCall.this[int i].get -> nuint
+Kiln.HookCall.this[int i].set -> void
+Kiln.HookHandle
+Kiln.HookHandle.Dispose() -> void
+Kiln.HookHandle.Remove() -> void
+Kiln.Hooks
+Kiln.HooksStats
+Kiln.HooksStats.Deconstruct(out int DetourTargets, out int MidTargets, out int Handlers, out int Patches, out ulong DetourCalls, out ulong MidCalls) -> void
+Kiln.HooksStats.DetourCalls.get -> ulong
+Kiln.HooksStats.DetourCalls.init -> void
+Kiln.HooksStats.DetourTargets.get -> int
+Kiln.HooksStats.DetourTargets.init -> void
+Kiln.HooksStats.Equals(Kiln.HooksStats other) -> bool
+Kiln.HooksStats.Handlers.get -> int
+Kiln.HooksStats.Handlers.init -> void
+Kiln.HooksStats.HooksStats() -> void
+Kiln.HooksStats.HooksStats(int DetourTargets, int MidTargets, int Handlers, int Patches, ulong DetourCalls, ulong MidCalls) -> void
+Kiln.HooksStats.MidCalls.get -> ulong
+Kiln.HooksStats.MidCalls.init -> void
+Kiln.HooksStats.MidTargets.get -> int
+Kiln.HooksStats.MidTargets.init -> void
+Kiln.HooksStats.Patches.get -> int
+Kiln.HooksStats.Patches.init -> void
+Kiln.Keep
+Kiln.Memory
+Kiln.MidHandler
+Kiln.OriginalCode
+Kiln.PeCode
+Kiln.PeCode.FindUnique(System.ReadOnlySpan<short> pattern, out int count) -> long
+Kiln.PeCode.Text.get -> byte[]!
+Kiln.PeCode.TextRva.get -> uint
+Kiln.PeCode.TryRead(ulong rva, System.Span<byte> dst) -> bool
+Kiln.Registers
+Kiln.Registers.R10 -> nuint
+Kiln.Registers.R11 -> nuint
+Kiln.Registers.R12 -> nuint
+Kiln.Registers.R13 -> nuint
+Kiln.Registers.R14 -> nuint
+Kiln.Registers.R15 -> nuint
+Kiln.Registers.R8 -> nuint
+Kiln.Registers.R9 -> nuint
+Kiln.Registers.Rax -> nuint
+Kiln.Registers.Rbp -> nuint
+Kiln.Registers.Rbx -> nuint
+Kiln.Registers.Rcx -> nuint
+Kiln.Registers.Rdi -> nuint
+Kiln.Registers.Rdx -> nuint
+Kiln.Registers.Registers() -> void
+Kiln.Registers.Rflags -> nuint
+Kiln.Registers.Rip -> nuint
+Kiln.Registers.Rsi -> nuint
+Kiln.Registers.Rsp -> nuint
+Kiln.Registers.TrampolineRsp -> nuint
+Kiln.Registers.Xmm(int n) -> System.Span<byte>
+Kiln.Registers.XmmD(int n) -> double
+Kiln.Registers.XmmF(int n) -> float
+Kiln.SigSummary
+Kiln.SigSummary.Constants.get -> int
+Kiln.SigSummary.Constants.init -> void
+Kiln.SigSummary.ConstantsOk.get -> int
+Kiln.SigSummary.ConstantsOk.init -> void
+Kiln.SigSummary.Deconstruct(out int Symbols, out int SymbolsOk, out int Constants, out int ConstantsOk, out int Features, out int FeaturesOk) -> void
+Kiln.SigSummary.Equals(Kiln.SigSummary other) -> bool
+Kiln.SigSummary.Features.get -> int
+Kiln.SigSummary.Features.init -> void
+Kiln.SigSummary.FeaturesOk.get -> int
+Kiln.SigSummary.FeaturesOk.init -> void
+Kiln.SigSummary.SigSummary() -> void
+Kiln.SigSummary.SigSummary(int Symbols, int SymbolsOk, int Constants, int ConstantsOk, int Features, int FeaturesOk) -> void
+Kiln.SigSummary.Symbols.get -> int
+Kiln.SigSummary.Symbols.init -> void
+Kiln.SigSummary.SymbolsOk.get -> int
+Kiln.SigSummary.SymbolsOk.init -> void
+Kiln.Symbols
+override Kiln.HooksStats.GetHashCode() -> int
+override Kiln.SigSummary.GetHashCode() -> int
+static Kiln.BytePattern.Parse(string! pattern) -> short[]!
+static Kiln.Constants.Get(string! name) -> long
+static Kiln.Constants.TryGet(string! name, out long value) -> bool
+static Kiln.Hooks.Available.get -> bool
+static Kiln.Hooks.Detour(nuint address, Kiln.DetourHandler! handler, int priority = 0) -> Kiln.HookHandle!
+static Kiln.Hooks.Detour(string! symbol, Kiln.DetourHandler! handler, int priority = 0) -> Kiln.HookHandle!
+static Kiln.Hooks.Mid(nuint address, Kiln.MidHandler! handler, int priority = 0) -> Kiln.HookHandle!
+static Kiln.Hooks.Mid(string! symbol, Kiln.MidHandler! handler, int priority = 0) -> Kiln.HookHandle!
+static Kiln.Hooks.Stats() -> Kiln.HooksStats
+static Kiln.HooksStats.operator !=(Kiln.HooksStats left, Kiln.HooksStats right) -> bool
+static Kiln.HooksStats.operator ==(Kiln.HooksStats left, Kiln.HooksStats right) -> bool
+static Kiln.Keep.Block(string! key, int size) -> nint
+static Kiln.Keep.Span<T>(string! key, int count) -> System.Span<T>
+static Kiln.Memory.Patch(nuint address, params byte[]! bytes) -> Kiln.HookHandle!
+static Kiln.Memory.Read<T>(nuint address) -> T
+static Kiln.Memory.ReadBytes(nuint address, int count) -> byte[]!
+static Kiln.Memory.TryRead<T>(nuint address, out T value) -> bool
+static Kiln.Memory.Write<T>(nuint address, T value) -> void
+static Kiln.OriginalCode.Available.get -> bool
+static Kiln.OriginalCode.FindUnique(string! pattern) -> nuint
+static Kiln.OriginalCode.Read(nuint address, int count) -> byte[]!
+static Kiln.OriginalCode.TryFindUnique(string! pattern, out nuint address, out string! why) -> bool
+static Kiln.PeCode.Parse(System.ReadOnlySpan<byte> file, ulong loadedBase) -> Kiln.PeCode!
+static Kiln.PeCode.Parse(System.ReadOnlySpan<byte> file, ulong loadedBase, System.ReadOnlySpan<byte> mappedHeaders) -> Kiln.PeCode!
+static Kiln.SigSummary.operator !=(Kiln.SigSummary left, Kiln.SigSummary right) -> bool
+static Kiln.SigSummary.operator ==(Kiln.SigSummary left, Kiln.SigSummary right) -> bool
+static Kiln.Symbols.Find(string! pattern) -> nuint
+static Kiln.Symbols.FindAll(string! pattern, int max = 64) -> nuint[]!
+static Kiln.Symbols.Get(string! name) -> nuint
+static Kiln.Symbols.Hole(string! pattern, nuint match, string! hole) -> long
+static Kiln.Symbols.ImageBase.get -> nuint
+static Kiln.Symbols.ImageSize.get -> nuint
+static Kiln.Symbols.LoadShipped() -> Kiln.SigSummary
+static Kiln.Symbols.TryGet(string! name, out nuint address) -> bool
+virtual Kiln.DetourHandler.Invoke(Kiln.HookCall call) -> nuint
+virtual Kiln.MidHandler.Invoke(ref Kiln.Registers regs) -> void
+~override Kiln.HooksStats.Equals(object obj) -> bool
+~override Kiln.HooksStats.ToString() -> string
+~override Kiln.SigSummary.Equals(object obj) -> bool
+~override Kiln.SigSummary.ToString() -> string

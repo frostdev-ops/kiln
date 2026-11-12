@@ -63,6 +63,8 @@ pub mod hash;
 pub mod hostenv;
 pub mod launch;
 pub mod paths;
+pub mod data_folder;
+pub mod data_folder_move;
 pub mod engines;
 pub mod pe;
 pub mod proc;

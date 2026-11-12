@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "data-folder-move.schema.json",
+  "title": "Data folder move journal (<default root>/data-folder.move.json), format 1",
+  "description": "The record of one move of the launcher's data folder (kiln_manage::data_folder_move::Journal), written atomically into the default root before the move writes anything into the target and kept until the launcher acknowledges the result. Recovery decides by what is on disk (does the folder in use match 'to'), never by 'state' alone. Its file record data-folder.move.files.json (every file copied: path, size, sha256, linked, sourceSha256) and the target's .kiln-data-move.json ({format, id}) carry the same id. Contracts: docs/kiln/launcher/contracts.md section 3.",
+  "type": "object",
+  "required": ["format", "id", "from", "to", "started", "createdTarget", "entries", "state", "previousPointer"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "format": { "const": 1 },
+    "id": { "type": "string", "pattern": "^[0-9a-f]{32}$", "description": "Random." },
+    "from": { "type": "string", "minLength": 1, "description": "The data folder before the move." },
+    "to": { "type": "string", "minLength": 1, "description": "The data folder after the move." },
+    "started": { "$ref": "common.schema.json#/$defs/time" },
+    "createdTarget": { "type": "boolean", "description": "The move made 'to': a partial copy's removal removes it when it is empty." },
+    "createdParents": { "type": "array", "items": { "type": "string" }, "default": [], "description": "Folders above 'to' the move made, top first." },
+    "entries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "known", "bytes"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "known": { "type": "boolean", "description": "One of the launcher's own entries. Unknown entries are copied and never removed from 'from'." },
+          "bytes": { "type": "integer", "minimum": 0 }
+        }
+      }
+    },
+    "state": { "enum": ["copying", "verifying", "committed", "moved", "cleaning", "cleaned", "failed"], "description": "For people and logs only." },
+    "previousPointer": { "type": ["string", "null"], "description": "What the pointer named before the move; null: there was none (the default root was in use)." },
+    "rewritten": { "type": "array", "items": { "type": "string" }, "default": [], "description": "Files the move rewrote in the copy (servers/<id>.json backupDir, from the old root to the new one); their file record line holds both hashes." },
+    "rewrittenAfter": {
+      "type": "array",
+      "default": [],
+      "description": "Files the move itself wrote again in the new place after the commit (install records, activation records, the active profiles' configs) and the sha256 it wrote.",
+      "items": {
+        "type": "object",
+        "required": ["path", "sha256"],
+        "properties": { "path": { "type": "string" }, "sha256": { "$ref": "common.schema.json#/$defs/sha256" } }
+      }
+    },
+    "hardLinks": { "type": "boolean", "default": false },
+    "result": {
+      "type": ["object", "null"],
+      "description": "What the removal of the old copy (or of a partial copy) did, kept until acknowledged.",
+      "required": ["folder", "done", "interrupted", "removedFiles", "removedBytes", "folderRemoved", "kept"],
+      "properties": {
+        "folder": { "type": "string" },
+        "done": { "type": "boolean" },
+        "interrupted": { "type": "boolean" },
+        "removedFiles": { "type": "integer", "minimum": 0 },
+        "removedBytes": { "type": "integer", "minimum": 0 },
+        "folderRemoved": { "type": "boolean" },
+        "kept": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["path", "bytes", "reason"],
+            "properties": { "path": { "type": "string" }, "bytes": { "type": "integer", "minimum": 0 }, "reason": { "type": "string" } }
+          }
+        },
+        "reason": { "type": "string", "description": "Why nothing was removed (no proof), with where the folder is." }
+      }
+    }
+  },
+  "additionalProperties": true
+}

@@ -1,0 +1,874 @@
+#nullable enable
+Kiln.Color
+Kiln.Color.A.get -> byte
+Kiln.Color.A.init -> void
+Kiln.Color.B.get -> byte
+Kiln.Color.B.init -> void
+Kiln.Color.Color() -> void
+Kiln.Color.Color(byte R, byte G, byte B, byte A = 255) -> void
+Kiln.Color.Deconstruct(out byte R, out byte G, out byte B, out byte A) -> void
+Kiln.Color.Equals(Kiln.Color other) -> bool
+Kiln.Color.G.get -> byte
+Kiln.Color.G.init -> void
+Kiln.Color.R.get -> byte
+Kiln.Color.R.init -> void
+Kiln.Color.Rgba.get -> uint
+Kiln.Color.WithAlpha(byte a) -> Kiln.Color
+Kiln.CraftingMenuAddition
+Kiln.CraftingMenuAddition.CraftingMenuAddition() -> void
+Kiln.CraftingMenuAddition.Dispose() -> void
+Kiln.CraftingMenuAddition.IsTab.get -> bool
+Kiln.CraftingMenuAddition.Workshop.get -> uint
+Kiln.CraftingPanelAnchor
+Kiln.CraftingPanelAnchor.Bottom = 2 -> Kiln.CraftingPanelAnchor
+Kiln.CraftingPanelAnchor.Left = 1 -> Kiln.CraftingPanelAnchor
+Kiln.CraftingPanelAnchor.Right = 0 -> Kiln.CraftingPanelAnchor
+Kiln.CraftingPanelOptions
+Kiln.CraftingPanelOptions.<Clone>$() -> Kiln.CraftingPanelOptions!
+Kiln.CraftingPanelOptions.Anchor.get -> Kiln.CraftingPanelAnchor
+Kiln.CraftingPanelOptions.Anchor.init -> void
+Kiln.CraftingPanelOptions.CraftingPanelOptions() -> void
+Kiln.CraftingPanelOptions.Equals(Kiln.CraftingPanelOptions? other) -> bool
+Kiln.CraftingPanelOptions.Interactive.get -> bool
+Kiln.CraftingPanelOptions.Interactive.init -> void
+Kiln.CraftingPanelOptions.Style.get -> Kiln.UiStyle
+Kiln.CraftingPanelOptions.Style.init -> void
+Kiln.CraftingPanelOptions.When.get -> System.Func<Kiln.CraftingScreen, bool>?
+Kiln.CraftingPanelOptions.When.init -> void
+Kiln.CraftingPanelOptions.Width.get -> float
+Kiln.CraftingPanelOptions.Width.init -> void
+Kiln.CraftingScreen
+Kiln.CraftingScreen.AtStation.get -> bool
+Kiln.CraftingScreen.AtStation.init -> void
+Kiln.CraftingScreen.CraftingScreen() -> void
+Kiln.CraftingScreen.CraftingScreen(bool AtStation, uint Workshop, uint Recipe, bool Journal) -> void
+Kiln.CraftingScreen.Deconstruct(out bool AtStation, out uint Workshop, out uint Recipe, out bool Journal) -> void
+Kiln.CraftingScreen.Equals(Kiln.CraftingScreen other) -> bool
+Kiln.CraftingScreen.Journal.get -> bool
+Kiln.CraftingScreen.Journal.init -> void
+Kiln.CraftingScreen.Recipe.get -> uint
+Kiln.CraftingScreen.Recipe.init -> void
+Kiln.CraftingScreen.Workshop.get -> uint
+Kiln.CraftingScreen.Workshop.init -> void
+Kiln.GameLanguage
+Kiln.GameScreen
+Kiln.GameScreen.Crafting.get -> Kiln.CraftingScreen?
+Kiln.GameScreen.Crafting.init -> void
+Kiln.GameScreen.Deconstruct(out Kiln.GameUiState State, out Kiln.HudScreen Hud, out Kiln.ScreenKind Kind, out uint StationWorkshop, out Kiln.CraftingScreen? Crafting, out uint LanguageId, out ulong Frame) -> void
+Kiln.GameScreen.Equals(Kiln.GameScreen other) -> bool
+Kiln.GameScreen.Frame.get -> ulong
+Kiln.GameScreen.Frame.init -> void
+Kiln.GameScreen.GameScreen() -> void
+Kiln.GameScreen.GameScreen(Kiln.GameUiState State, Kiln.HudScreen Hud, Kiln.ScreenKind Kind, uint StationWorkshop, Kiln.CraftingScreen? Crafting, uint LanguageId, ulong Frame) -> void
+Kiln.GameScreen.Hud.get -> Kiln.HudScreen
+Kiln.GameScreen.Hud.init -> void
+Kiln.GameScreen.InGame.get -> bool
+Kiln.GameScreen.IsMainMenu.get -> bool
+Kiln.GameScreen.IsPaused.get -> bool
+Kiln.GameScreen.Kind.get -> Kiln.ScreenKind
+Kiln.GameScreen.Kind.init -> void
+Kiln.GameScreen.Language.get -> string!
+Kiln.GameScreen.LanguageId.get -> uint
+Kiln.GameScreen.LanguageId.init -> void
+Kiln.GameScreen.State.get -> Kiln.GameUiState
+Kiln.GameScreen.State.init -> void
+Kiln.GameScreen.StationWorkshop.get -> uint
+Kiln.GameScreen.StationWorkshop.init -> void
+Kiln.GameUiState
+Kiln.GameUiState.Credits = 6 -> Kiln.GameUiState
+Kiln.GameUiState.Load = 3 -> Kiln.GameUiState
+Kiln.GameUiState.LoreIntro = 4 -> Kiln.GameUiState
+Kiln.GameUiState.LoreOutro = 5 -> Kiln.GameUiState
+Kiln.GameUiState.None = 0 -> Kiln.GameUiState
+Kiln.GameUiState.Play = 7 -> Kiln.GameUiState
+Kiln.GameUiState.PreGame = 2 -> Kiln.GameUiState
+Kiln.GameUiState.Preload = 1 -> Kiln.GameUiState
+Kiln.Hud
+Kiln.HudAnchor
+Kiln.HudAnchor.BottomCenter = 7 -> Kiln.HudAnchor
+Kiln.HudAnchor.BottomLeft = 6 -> Kiln.HudAnchor
+Kiln.HudAnchor.BottomRight = 8 -> Kiln.HudAnchor
+Kiln.HudAnchor.Center = 4 -> Kiln.HudAnchor
+Kiln.HudAnchor.MiddleLeft = 3 -> Kiln.HudAnchor
+Kiln.HudAnchor.MiddleRight = 5 -> Kiln.HudAnchor
+Kiln.HudAnchor.TopCenter = 1 -> Kiln.HudAnchor
+Kiln.HudAnchor.TopLeft = 0 -> Kiln.HudAnchor
+Kiln.HudAnchor.TopRight = 2 -> Kiln.HudAnchor
+Kiln.HudLine
+Kiln.HudLine.Anchor.get -> Kiln.HudAnchor
+Kiln.HudLine.Anchor.set -> void
+Kiln.HudLine.Color.get -> Kiln.Color
+Kiln.HudLine.Color.set -> void
+Kiln.HudLine.Dispose() -> void
+Kiln.HudLine.Id.get -> string!
+Kiln.HudLine.Provider.get -> System.Func<string!>?
+Kiln.HudLine.Provider.set -> void
+Kiln.HudLine.Text.get -> string!
+Kiln.HudLine.Text.set -> void
+Kiln.HudScreen
+Kiln.HudScreen.AltarDeactivate = 15 -> Kiln.HudScreen
+Kiln.HudScreen.AltarItemPickup = 17 -> Kiln.HudScreen
+Kiln.HudScreen.AltarReskill = 16 -> Kiln.HudScreen
+Kiln.HudScreen.AltarUpgrade = 13 -> Kiln.HudScreen
+Kiln.HudScreen.Backpack = 9 -> Kiln.HudScreen
+Kiln.HudScreen.BlueprintMultiTool = 29 -> Kiln.HudScreen
+Kiln.HudScreen.BlueprintMultiToolMaterialCatalog = 30 -> Kiln.HudScreen
+Kiln.HudScreen.Character = 7 -> Kiln.HudScreen
+Kiln.HudScreen.CharacterCustomization = 46 -> Kiln.HudScreen
+Kiln.HudScreen.Collection = 23 -> Kiln.HudScreen
+Kiln.HudScreen.CommerceProductChest = 41 -> Kiln.HudScreen
+Kiln.HudScreen.DecayMultiTool = 32 -> Kiln.HudScreen
+Kiln.HudScreen.FactoryCrafting = 28 -> Kiln.HudScreen
+Kiln.HudScreen.FeedingStation = 24 -> Kiln.HudScreen
+Kiln.HudScreen.FlameAltar = 12 -> Kiln.HudScreen
+Kiln.HudScreen.FlameUpgrade = 14 -> Kiln.HudScreen
+Kiln.HudScreen.InGame = 1 -> Kiln.HudScreen
+Kiln.HudScreen.InGameMenu = 4 -> Kiln.HudScreen
+Kiln.HudScreen.InfoPopup = 49 -> Kiln.HudScreen
+Kiln.HudScreen.Invalid = 0 -> Kiln.HudScreen
+Kiln.HudScreen.ItemTinting = 42 -> Kiln.HudScreen
+Kiln.HudScreen.Journal = 6 -> Kiln.HudScreen
+Kiln.HudScreen.LogicEditor = 20 -> Kiln.HudScreen
+Kiln.HudScreen.LoreReading = 18 -> Kiln.HudScreen
+Kiln.HudScreen.Map = 5 -> Kiln.HudScreen
+Kiln.HudScreen.NewCommerceUnlock = 50 -> Kiln.HudScreen
+Kiln.HudScreen.NoUi = 51 -> Kiln.HudScreen
+Kiln.HudScreen.NpcCrafting = 27 -> Kiln.HudScreen
+Kiln.HudScreen.NpcDialog = 26 -> Kiln.HudScreen
+Kiln.HudScreen.NpcSummonerMenu = 37 -> Kiln.HudScreen
+Kiln.HudScreen.OvergrowthMultiTool = 31 -> Kiln.HudScreen
+Kiln.HudScreen.PlayerCrafting = 8 -> Kiln.HudScreen
+Kiln.HudScreen.ReadOnlyLootChest = 21 -> Kiln.HudScreen
+Kiln.HudScreen.RedeemCommerceProducts = 40 -> Kiln.HudScreen
+Kiln.HudScreen.Rename = 47 -> Kiln.HudScreen
+Kiln.HudScreen.ScrewdriverMultiToolBuildingMode = 33 -> Kiln.HudScreen
+Kiln.HudScreen.ScrewdriverMultiToolEntityConfig = 35 -> Kiln.HudScreen
+Kiln.HudScreen.ScrewdriverMultiToolGraphManager = 34 -> Kiln.HudScreen
+Kiln.HudScreen.SettingsMenu = 3 -> Kiln.HudScreen
+Kiln.HudScreen.ShroudForge = 45 -> Kiln.HudScreen
+Kiln.HudScreen.Signpost = 19 -> Kiln.HudScreen
+Kiln.HudScreen.SkillTree = 10 -> Kiln.HudScreen
+Kiln.HudScreen.SkillTreeRespec = 11 -> Kiln.HudScreen
+Kiln.HudScreen.Social = 44 -> Kiln.HudScreen
+Kiln.HudScreen.StationBasedCrafting = 25 -> Kiln.HudScreen
+Kiln.HudScreen.StorageChest = 22 -> Kiln.HudScreen
+Kiln.HudScreen.SystemMenu = 2 -> Kiln.HudScreen
+Kiln.HudScreen.TakeScreenshot = 48 -> Kiln.HudScreen
+Kiln.HudScreen.TechGallery = 52 -> Kiln.HudScreen
+Kiln.HudScreen.TerraformingSideMenu = 36 -> Kiln.HudScreen
+Kiln.HudScreen.TextChat = 43 -> Kiln.HudScreen
+Kiln.HudScreen.TwitchDrops = 39 -> Kiln.HudScreen
+Kiln.HudScreen.UserFeedback = 38 -> Kiln.HudScreen
+Kiln.HudScreen.YcPlayground = 53 -> Kiln.HudScreen
+Kiln.KeyBinding
+Kiln.KeyBinding.Category.get -> string!
+Kiln.KeyBinding.Consume.get -> bool
+Kiln.KeyBinding.Consume.set -> void
+Kiln.KeyBinding.Default.get -> Kiln.KeyChord
+Kiln.KeyBinding.Description.get -> string!
+Kiln.KeyBinding.Dispose() -> void
+Kiln.KeyBinding.Enabled.get -> bool
+Kiln.KeyBinding.Enabled.set -> void
+Kiln.KeyBinding.Id.get -> string!
+Kiln.KeyBinding.IsDown.get -> bool
+Kiln.KeyBinding.Key.get -> Kiln.KeyChord
+Kiln.KeyBinding.OnGameScreens.get -> bool
+Kiln.KeyBinding.OnGameScreens.set -> void
+Kiln.KeyBinding.OnPress.get -> System.Action?
+Kiln.KeyBinding.OnPress.set -> void
+Kiln.KeyBinding.OnRelease.get -> System.Action?
+Kiln.KeyBinding.OnRelease.set -> void
+Kiln.KeyBinding.TakePresses() -> int
+Kiln.KeyBinding.WhileCapturing.get -> bool
+Kiln.KeyBinding.WhileCapturing.set -> void
+Kiln.KeyBindings
+Kiln.KeyChord
+Kiln.KeyChord.Deconstruct(out uint VirtualKey, out Kiln.KeyMods Mods) -> void
+Kiln.KeyChord.Equals(Kiln.KeyChord other) -> bool
+Kiln.KeyChord.IsNone.get -> bool
+Kiln.KeyChord.KeyChord() -> void
+Kiln.KeyChord.KeyChord(uint VirtualKey, Kiln.KeyMods Mods) -> void
+Kiln.KeyChord.Mods.get -> Kiln.KeyMods
+Kiln.KeyChord.Mods.init -> void
+Kiln.KeyChord.VirtualKey.get -> uint
+Kiln.KeyChord.VirtualKey.init -> void
+Kiln.KeyMods
+Kiln.KeyMods.Alt = 4 -> Kiln.KeyMods
+Kiln.KeyMods.Ctrl = 1 -> Kiln.KeyMods
+Kiln.KeyMods.None = 0 -> Kiln.KeyMods
+Kiln.KeyMods.Shift = 2 -> Kiln.KeyMods
+Kiln.MarkerShape
+Kiln.MarkerShape.Circle = 1 -> Kiln.MarkerShape
+Kiln.MarkerShape.Cross = 4 -> Kiln.MarkerShape
+Kiln.MarkerShape.Diamond = 0 -> Kiln.MarkerShape
+Kiln.MarkerShape.Square = 2 -> Kiln.MarkerShape
+Kiln.MarkerShape.Triangle = 3 -> Kiln.MarkerShape
+Kiln.MenuEntry
+Kiln.MenuEntry.Attention.get -> bool
+Kiln.MenuEntry.Attention.set -> void
+Kiln.MenuEntry.Dispose() -> void
+Kiln.MenuEntry.Location.get -> Kiln.MenuLocation
+Kiln.MenuEntry.OnClick.get -> System.Action!
+Kiln.MenuEntry.OnClick.set -> void
+Kiln.MenuEntry.Order.get -> int
+Kiln.MenuEntry.Text.get -> Kiln.UiText!
+Kiln.MenuEntry.Text.set -> void
+Kiln.MenuEntry.Visible.get -> bool
+Kiln.MenuEntry.Visible.set -> void
+Kiln.MenuLocation
+Kiln.MenuLocation.MainMenu = 1 -> Kiln.MenuLocation
+Kiln.MenuLocation.PauseMenu = 2 -> Kiln.MenuLocation
+Kiln.ModStatus
+Kiln.ModStatus.<Clone>$() -> Kiln.ModStatus!
+Kiln.ModStatus.Deconstruct(out string! ModId, out string! Name, out string! Version, out System.Collections.Generic.IReadOnlyList<string!>! Lines) -> void
+Kiln.ModStatus.Equals(Kiln.ModStatus? other) -> bool
+Kiln.ModStatus.Lines.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Kiln.ModStatus.Lines.init -> void
+Kiln.ModStatus.ModId.get -> string!
+Kiln.ModStatus.ModId.init -> void
+Kiln.ModStatus.ModStatus(string! ModId, string! Name, string! Version, System.Collections.Generic.IReadOnlyList<string!>! Lines) -> void
+Kiln.ModStatus.Name.get -> string!
+Kiln.ModStatus.Name.init -> void
+Kiln.ModStatus.Version.get -> string!
+Kiln.ModStatus.Version.init -> void
+Kiln.Render
+Kiln.RenderCamera
+Kiln.RenderCamera.AgeMs.get -> uint
+Kiln.RenderCamera.Aspect.get -> float
+Kiln.RenderCamera.Distance.get -> float
+Kiln.RenderCamera.Far.get -> float
+Kiln.RenderCamera.Forward.get -> System.Numerics.Vector3
+Kiln.RenderCamera.FovY.get -> float
+Kiln.RenderCamera.Frame.get -> ulong
+Kiln.RenderCamera.Heading.get -> double
+Kiln.RenderCamera.Near.get -> float
+Kiln.RenderCamera.Pitch.get -> double
+Kiln.RenderCamera.Pivot.get -> Kiln.WorldPosition
+Kiln.RenderCamera.Position.get -> Kiln.WorldPosition
+Kiln.RenderCamera.Project(Kiln.WorldPosition p, float width, float height, out System.Numerics.Vector2 screen, out float depth) -> bool
+Kiln.RenderCamera.RenderCamera() -> void
+Kiln.RenderCamera.RenderCamera(Kiln.WorldPosition position, System.Numerics.Quaternion rotation, float fovY, float near = 0.1, float distance = 0) -> void
+Kiln.RenderCamera.Right.get -> System.Numerics.Vector3
+Kiln.RenderCamera.Rotation.get -> System.Numerics.Quaternion
+Kiln.RenderCamera.ToCameraSpace(Kiln.WorldPosition p) -> (double X, double Y, double Z)
+Kiln.RenderCamera.Up.get -> System.Numerics.Vector3
+Kiln.RenderCamera.Valid.get -> bool
+Kiln.RenderDraw
+Kiln.RenderDraw.Arrow(System.Numerics.Vector2 tip, float angle, float size, Kiln.Color color) -> void
+Kiln.RenderDraw.Circle(float x, float y, float radius, Kiln.Color color, float thickness = 1, int segments = 0) -> void
+Kiln.RenderDraw.FillCircle(float x, float y, float radius, Kiln.Color color, int segments = 0) -> void
+Kiln.RenderDraw.FillPolygon(System.ReadOnlySpan<System.Numerics.Vector2> points, Kiln.Color color) -> void
+Kiln.RenderDraw.FillRect(float x0, float y0, float x1, float y1, Kiln.Color color, float rounding = 0) -> void
+Kiln.RenderDraw.FillTriangle(System.Numerics.Vector2 a, System.Numerics.Vector2 b, System.Numerics.Vector2 c, Kiln.Color color) -> void
+Kiln.RenderDraw.Image(Kiln.UiImage! image, float x0, float y0, float x1, float y1, Kiln.Color? tint = null) -> void
+Kiln.RenderDraw.ImageCentered(Kiln.UiImage! image, float x, float y, float width = 0, float height = 0, Kiln.Color? tint = null) -> void
+Kiln.RenderDraw.Line(System.Numerics.Vector2 a, System.Numerics.Vector2 b, Kiln.Color color, float thickness = 1) -> void
+Kiln.RenderDraw.Line(float x0, float y0, float x1, float y1, Kiln.Color color, float thickness = 1) -> void
+Kiln.RenderDraw.MeasureText(string! text, float size = 0) -> (float Width, float Height)
+Kiln.RenderDraw.Polyline(System.ReadOnlySpan<System.Numerics.Vector2> points, Kiln.Color color, float thickness = 1, bool closed = false) -> void
+Kiln.RenderDraw.Rect(float x0, float y0, float x1, float y1, Kiln.Color color, float thickness = 1, float rounding = 0) -> void
+Kiln.RenderDraw.Text(float x, float y, string! text, Kiln.Color? color = null, float size = 0, Kiln.TextAlign align = Kiln.TextAlign.Left, Kiln.TextStyle style = Kiln.TextStyle.Shadow, bool middle = false) -> void
+Kiln.RenderDraw.Triangle(System.Numerics.Vector2 a, System.Numerics.Vector2 b, System.Numerics.Vector2 c, Kiln.Color color, float thickness = 1) -> void
+Kiln.RenderFrameEvent
+Kiln.RenderFrameEvent.Camera.get -> Kiln.RenderCamera
+Kiln.RenderFrameEvent.Capturing.get -> bool
+Kiln.RenderFrameEvent.DeltaSeconds.get -> float
+Kiln.RenderFrameEvent.Draw.get -> Kiln.RenderDraw!
+Kiln.RenderFrameEvent.Fps.get -> float
+Kiln.RenderFrameEvent.Frame.get -> ulong
+Kiln.RenderFrameEvent.Height.get -> float
+Kiln.RenderFrameEvent.MenuOpen.get -> bool
+Kiln.RenderFrameEvent.Scale.get -> float
+Kiln.RenderFrameEvent.Screen.get -> Kiln.GameScreen
+Kiln.RenderFrameEvent.Width.get -> float
+Kiln.RenderFrameEvent.World.get -> Kiln.WorldDraw!
+Kiln.RenderStats
+Kiln.RenderStats.Camera.get -> bool
+Kiln.RenderStats.Camera.init -> void
+Kiln.RenderStats.CameraFrames.get -> long
+Kiln.RenderStats.CameraFrames.init -> void
+Kiln.RenderStats.CameraValid.get -> bool
+Kiln.RenderStats.CameraValid.init -> void
+Kiln.RenderStats.Deconstruct(out int Handlers, out long Frames, out double LastFrameMs, out double MaxFrameMs, out int Disabled, out bool Camera, out bool CameraValid, out long CameraFrames) -> void
+Kiln.RenderStats.Disabled.get -> int
+Kiln.RenderStats.Disabled.init -> void
+Kiln.RenderStats.Equals(Kiln.RenderStats other) -> bool
+Kiln.RenderStats.Frames.get -> long
+Kiln.RenderStats.Frames.init -> void
+Kiln.RenderStats.Handlers.get -> int
+Kiln.RenderStats.Handlers.init -> void
+Kiln.RenderStats.LastFrameMs.get -> double
+Kiln.RenderStats.LastFrameMs.init -> void
+Kiln.RenderStats.MaxFrameMs.get -> double
+Kiln.RenderStats.MaxFrameMs.init -> void
+Kiln.RenderStats.RenderStats() -> void
+Kiln.RenderStats.RenderStats(int Handlers, long Frames, double LastFrameMs, double MaxFrameMs, int Disabled, bool Camera, bool CameraValid, long CameraFrames) -> void
+Kiln.ScreenChangedEvent
+Kiln.ScreenChangedEvent.Current.get -> Kiln.GameScreen
+Kiln.ScreenChangedEvent.KindChanged.get -> bool
+Kiln.ScreenChangedEvent.Previous.get -> Kiln.GameScreen
+Kiln.ScreenChangedEvent.ScreenChangedEvent(Kiln.GameScreen previous, Kiln.GameScreen current) -> void
+Kiln.ScreenKind
+Kiln.ScreenKind.Character = 12 -> Kiln.ScreenKind
+Kiln.ScreenKind.Chat = 17 -> Kiln.ScreenKind
+Kiln.ScreenKind.Cinematic = 4 -> Kiln.ScreenKind
+Kiln.ScreenKind.Crafting = 13 -> Kiln.ScreenKind
+Kiln.ScreenKind.Credits = 5 -> Kiln.ScreenKind
+Kiln.ScreenKind.Dialog = 16 -> Kiln.ScreenKind
+Kiln.ScreenKind.InGame = 6 -> Kiln.ScreenKind
+Kiln.ScreenKind.Inventory = 9 -> Kiln.ScreenKind
+Kiln.ScreenKind.Journal = 11 -> Kiln.ScreenKind
+Kiln.ScreenKind.Loading = 3 -> Kiln.ScreenKind
+Kiln.ScreenKind.MainMenu = 2 -> Kiln.ScreenKind
+Kiln.ScreenKind.Map = 10 -> Kiln.ScreenKind
+Kiln.ScreenKind.None = 0 -> Kiln.ScreenKind
+Kiln.ScreenKind.Other = 18 -> Kiln.ScreenKind
+Kiln.ScreenKind.PauseMenu = 7 -> Kiln.ScreenKind
+Kiln.ScreenKind.Settings = 8 -> Kiln.ScreenKind
+Kiln.ScreenKind.SkillTree = 14 -> Kiln.ScreenKind
+Kiln.ScreenKind.Storage = 15 -> Kiln.ScreenKind
+Kiln.ScreenKind.Title = 1 -> Kiln.ScreenKind
+Kiln.StatusLine
+Kiln.StatusLine.Dispose() -> void
+Kiln.StatusLine.Id.get -> string!
+Kiln.StatusLine.ModId.get -> string!
+Kiln.StatusLine.Text.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Kiln.StatusLines
+Kiln.TextAlign
+Kiln.TextAlign.Center = 1 -> Kiln.TextAlign
+Kiln.TextAlign.Left = 0 -> Kiln.TextAlign
+Kiln.TextAlign.Right = 2 -> Kiln.TextAlign
+Kiln.TextStyle
+Kiln.TextStyle.Outline = 2 -> Kiln.TextStyle
+Kiln.TextStyle.Plain = 0 -> Kiln.TextStyle
+Kiln.TextStyle.Shadow = 1 -> Kiln.TextStyle
+Kiln.ToastKind
+Kiln.ToastKind.Error = 3 -> Kiln.ToastKind
+Kiln.ToastKind.Info = 0 -> Kiln.ToastKind
+Kiln.ToastKind.Success = 1 -> Kiln.ToastKind
+Kiln.ToastKind.Warning = 2 -> Kiln.ToastKind
+Kiln.Ui
+Kiln.Ui.Crafting
+Kiln.Ui.Menus
+Kiln.Ui.Screens
+Kiln.UiChildFlags
+Kiln.UiChildFlags.AutoHeight = 32 -> Kiln.UiChildFlags
+Kiln.UiChildFlags.Border = 1 -> Kiln.UiChildFlags
+Kiln.UiChildFlags.FrameStyle = 128 -> Kiln.UiChildFlags
+Kiln.UiChildFlags.NavFlattened = 256 -> Kiln.UiChildFlags
+Kiln.UiChildFlags.None = 0 -> Kiln.UiChildFlags
+Kiln.UiChildFlags.Padding = 2 -> Kiln.UiChildFlags
+Kiln.UiColorSlot
+Kiln.UiColorSlot.Border = 4 -> Kiln.UiColorSlot
+Kiln.UiColorSlot.Button = 8 -> Kiln.UiColorSlot
+Kiln.UiColorSlot.ButtonActive = 10 -> Kiln.UiColorSlot
+Kiln.UiColorSlot.ButtonHovered = 9 -> Kiln.UiColorSlot
+Kiln.UiColorSlot.CheckMark = 18 -> Kiln.UiColorSlot
+Kiln.UiColorSlot.ChildBg = 3 -> Kiln.UiColorSlot
+Kiln.UiColorSlot.FrameBg = 5 -> Kiln.UiColorSlot
+Kiln.UiColorSlot.FrameBgActive = 7 -> Kiln.UiColorSlot
+Kiln.UiColorSlot.FrameBgHovered = 6 -> Kiln.UiColorSlot
+Kiln.UiColorSlot.Header = 11 -> Kiln.UiColorSlot
+Kiln.UiColorSlot.HeaderActive = 13 -> Kiln.UiColorSlot
+Kiln.UiColorSlot.HeaderHovered = 12 -> Kiln.UiColorSlot
+Kiln.UiColorSlot.NavCursor = 17 -> Kiln.UiColorSlot
+Kiln.UiColorSlot.ScrollbarBg = 15 -> Kiln.UiColorSlot
+Kiln.UiColorSlot.ScrollbarGrab = 16 -> Kiln.UiColorSlot
+Kiln.UiColorSlot.Separator = 14 -> Kiln.UiColorSlot
+Kiln.UiColorSlot.SliderGrab = 19 -> Kiln.UiColorSlot
+Kiln.UiColorSlot.Text = 0 -> Kiln.UiColorSlot
+Kiln.UiColorSlot.TextDisabled = 1 -> Kiln.UiColorSlot
+Kiln.UiColorSlot.WindowBg = 2 -> Kiln.UiColorSlot
+Kiln.UiCursor
+Kiln.UiCursor.AvailHeight.get -> float
+Kiln.UiCursor.AvailHeight.init -> void
+Kiln.UiCursor.AvailWidth.get -> float
+Kiln.UiCursor.AvailWidth.init -> void
+Kiln.UiCursor.Deconstruct(out float X, out float Y, out float ScreenX, out float ScreenY, out float AvailWidth, out float AvailHeight, out float WindowX, out float WindowY, out float WindowWidth, out float WindowHeight, out float FontSize, out float LineHeight, out float ScrollY, out float ScrollMaxY) -> void
+Kiln.UiCursor.Equals(Kiln.UiCursor other) -> bool
+Kiln.UiCursor.FontSize.get -> float
+Kiln.UiCursor.FontSize.init -> void
+Kiln.UiCursor.LineHeight.get -> float
+Kiln.UiCursor.LineHeight.init -> void
+Kiln.UiCursor.ScreenX.get -> float
+Kiln.UiCursor.ScreenX.init -> void
+Kiln.UiCursor.ScreenY.get -> float
+Kiln.UiCursor.ScreenY.init -> void
+Kiln.UiCursor.ScrollMaxY.get -> float
+Kiln.UiCursor.ScrollMaxY.init -> void
+Kiln.UiCursor.ScrollY.get -> float
+Kiln.UiCursor.ScrollY.init -> void
+Kiln.UiCursor.UiCursor() -> void
+Kiln.UiCursor.UiCursor(float X, float Y, float ScreenX, float ScreenY, float AvailWidth, float AvailHeight, float WindowX, float WindowY, float WindowWidth, float WindowHeight, float FontSize, float LineHeight, float ScrollY, float ScrollMaxY) -> void
+Kiln.UiCursor.WindowHeight.get -> float
+Kiln.UiCursor.WindowHeight.init -> void
+Kiln.UiCursor.WindowWidth.get -> float
+Kiln.UiCursor.WindowWidth.init -> void
+Kiln.UiCursor.WindowX.get -> float
+Kiln.UiCursor.WindowX.init -> void
+Kiln.UiCursor.WindowY.get -> float
+Kiln.UiCursor.WindowY.init -> void
+Kiln.UiCursor.X.get -> float
+Kiln.UiCursor.X.init -> void
+Kiln.UiCursor.Y.get -> float
+Kiln.UiCursor.Y.init -> void
+Kiln.UiDraw
+Kiln.UiDraw.BeginChild(string! id, float width = 0, float height = 0) -> bool
+Kiln.UiDraw.BeginChild(string! id, float width, float height, Kiln.UiChildFlags flags, Kiln.UiWindowFlags windowFlags = Kiln.UiWindowFlags.None) -> bool
+Kiln.UiDraw.BeginTab(string! label) -> bool
+Kiln.UiDraw.BeginTabBar(string! id) -> bool
+Kiln.UiDraw.BeginTable(string! id, params string![]! columns) -> bool
+Kiln.UiDraw.Button(string! label, float width = 0, float height = 0) -> bool
+Kiln.UiDraw.Capturing.get -> bool
+Kiln.UiDraw.Checkbox(string! label, ref bool value) -> bool
+Kiln.UiDraw.CloseScreen() -> void
+Kiln.UiDraw.CollapsingHeader(string! label, bool defaultOpen = false) -> bool
+Kiln.UiDraw.Combo(string! label, ref int index, System.Collections.Generic.IReadOnlyList<string!>! items) -> bool
+Kiln.UiDraw.CurrentScreen.get -> Kiln.UiScreen?
+Kiln.UiDraw.Cursor.get -> Kiln.UiCursor
+Kiln.UiDraw.DefaultFocus() -> void
+Kiln.UiDraw.DeltaSeconds.get -> float
+Kiln.UiDraw.DrawRect(Kiln.UiLayer layer, float x0, float y0, float x1, float y1, Kiln.Color color, float rounding = 0, float thickness = 0) -> void
+Kiln.UiDraw.DrawRect(float x0, float y0, float x1, float y1, Kiln.Color color, float rounding = 0, bool filled = true) -> void
+Kiln.UiDraw.DrawText(Kiln.UiLayer layer, float x, float y, string! text, Kiln.Color color, float size = 0, float wrap = 0) -> void
+Kiln.UiDraw.DrawText(float x, float y, string! text, Kiln.Color? color = null, float size = 0) -> void
+Kiln.UiDraw.EndChild() -> void
+Kiln.UiDraw.EndTab() -> void
+Kiln.UiDraw.EndTabBar() -> void
+Kiln.UiDraw.EndTable() -> void
+Kiln.UiDraw.FocusKeyboardHere(int offset = 0) -> void
+Kiln.UiDraw.Font(Kiln.UiFont font) -> Kiln.UiDraw.FontChoice
+Kiln.UiDraw.FontChoice
+Kiln.UiDraw.FontChoice.Dispose() -> void
+Kiln.UiDraw.FontChoice.FontChoice() -> void
+Kiln.UiDraw.FontChoice.FontChoice(bool pushed) -> void
+Kiln.UiDraw.FontChoice.Pushed.get -> bool
+Kiln.UiDraw.FontScope
+Kiln.UiDraw.FontScope.Dispose() -> void
+Kiln.UiDraw.FontScope.FontScope() -> void
+Kiln.UiDraw.FontScope.FontScope(bool pushed) -> void
+Kiln.UiDraw.FontSize(float size) -> Kiln.UiDraw.FontScope
+Kiln.UiDraw.FrameNumber.get -> ulong
+Kiln.UiDraw.HasLayout.get -> bool
+Kiln.UiDraw.Height.get -> float
+Kiln.UiDraw.HeldMods.get -> Kiln.KeyMods
+Kiln.UiDraw.Id(string! id) -> Kiln.UiDraw.IdScope
+Kiln.UiDraw.IdScope
+Kiln.UiDraw.IdScope.Dispose() -> void
+Kiln.UiDraw.IdScope.IdScope() -> void
+Kiln.UiDraw.Image(Kiln.UiImage! image, float width = 0, float height = 0) -> void
+Kiln.UiDraw.ImageButton(string! id, Kiln.UiImage! image, float width = 0, float height = 0) -> bool
+Kiln.UiDraw.InputMultiline(string! label, ref string! value, int maxBytes = 4096, float width = -1, float height = 0) -> bool
+Kiln.UiDraw.InputText(string! label, ref string! value, int maxBytes = 256) -> bool
+Kiln.UiDraw.ItemClicked(Kiln.UiMouseButton button = Kiln.UiMouseButton.Left) -> bool
+Kiln.UiDraw.ItemHovered.get -> bool
+Kiln.UiDraw.KeyPressed(Kiln.UiKey key, bool repeat = false, bool claim = false) -> bool
+Kiln.UiDraw.LastItem.get -> Kiln.UiItem
+Kiln.UiDraw.Look(Kiln.UiStyle style) -> Kiln.UiDraw.LookScope
+Kiln.UiDraw.LookScope
+Kiln.UiDraw.LookScope.Dispose() -> void
+Kiln.UiDraw.LookScope.LookScope() -> void
+Kiln.UiDraw.MeasureText(string! text, float size = 0) -> (float Width, float Height)
+Kiln.UiDraw.MeasureText(string! text, float size, float wrap) -> (float Width, float Height)
+Kiln.UiDraw.MenuOpen.get -> bool
+Kiln.UiDraw.NextColumn() -> bool
+Kiln.UiDraw.NextItemWidth(float width) -> void
+Kiln.UiDraw.NextRow() -> void
+Kiln.UiDraw.PopScope
+Kiln.UiDraw.PopScope.Dispose() -> void
+Kiln.UiDraw.PopScope.PopScope() -> void
+Kiln.UiDraw.PopScope.PopScope(int kind) -> void
+Kiln.UiDraw.Progress(float fraction, string? overlay = null, float width = -1, float height = 0) -> void
+Kiln.UiDraw.PushColor(Kiln.UiColorSlot slot, Kiln.Color color) -> Kiln.UiDraw.PopScope
+Kiln.UiDraw.PushVar(Kiln.UiStyleVar var, float x, float y = 0) -> Kiln.UiDraw.PopScope
+Kiln.UiDraw.Row(params string![]! cells) -> void
+Kiln.UiDraw.SameLine(float offset = 0, float spacing = -1) -> void
+Kiln.UiDraw.Scale.get -> float
+Kiln.UiDraw.ScrollHere(float ratio = 0.5) -> void
+Kiln.UiDraw.Selectable(string! label, bool selected = false) -> bool
+Kiln.UiDraw.Selectable(string! label, bool selected, float width, float height = 0, Kiln.UiSelectableFlags flags = Kiln.UiSelectableFlags.None) -> bool
+Kiln.UiDraw.Separator() -> void
+Kiln.UiDraw.Separator(string! text) -> void
+Kiln.UiDraw.SetCursor(float x, float y) -> void
+Kiln.UiDraw.Slider(string! label, ref float value, float min, float max) -> bool
+Kiln.UiDraw.Slider(string! label, ref int value, int min, int max) -> bool
+Kiln.UiDraw.SmallButton(string! label) -> bool
+Kiln.UiDraw.Space(float width, float height) -> void
+Kiln.UiDraw.Spacing() -> void
+Kiln.UiDraw.Text(Kiln.Color color, string! text) -> void
+Kiln.UiDraw.Text(string! text) -> void
+Kiln.UiDraw.TextDisabled(string! text) -> void
+Kiln.UiDraw.TextWrapped(string! text) -> void
+Kiln.UiDraw.Tooltip(string! text) -> void
+Kiln.UiDraw.TreeNode(string! label) -> bool
+Kiln.UiDraw.TreePop() -> void
+Kiln.UiDraw.Width.get -> float
+Kiln.UiDraw.WindowRect.get -> (float X, float Y, float Width, float Height)
+Kiln.UiFont
+Kiln.UiFont.Default = 0 -> Kiln.UiFont
+Kiln.UiFont.Game = 1 -> Kiln.UiFont
+Kiln.UiFont.GameBold = 2 -> Kiln.UiFont
+Kiln.UiImage
+Kiln.UiImage.Dispose() -> void
+Kiln.UiImage.Height.get -> int
+Kiln.UiImage.UiImage() -> void
+Kiln.UiImage.Width.get -> int
+Kiln.UiItem
+Kiln.UiItem.Activated.get -> bool
+Kiln.UiItem.Activated.init -> void
+Kiln.UiItem.Active.get -> bool
+Kiln.UiItem.Active.init -> void
+Kiln.UiItem.Clicked.get -> bool
+Kiln.UiItem.Clicked.init -> void
+Kiln.UiItem.Deactivated.get -> bool
+Kiln.UiItem.Deactivated.init -> void
+Kiln.UiItem.Deconstruct(out float MinX, out float MinY, out float MaxX, out float MaxY, out bool Hovered, out bool Active, out bool Focused, out bool Clicked, out bool Visible, out bool Edited, out bool Activated, out bool Deactivated) -> void
+Kiln.UiItem.Edited.get -> bool
+Kiln.UiItem.Edited.init -> void
+Kiln.UiItem.Equals(Kiln.UiItem other) -> bool
+Kiln.UiItem.Focused.get -> bool
+Kiln.UiItem.Focused.init -> void
+Kiln.UiItem.Height.get -> float
+Kiln.UiItem.Hovered.get -> bool
+Kiln.UiItem.Hovered.init -> void
+Kiln.UiItem.MaxX.get -> float
+Kiln.UiItem.MaxX.init -> void
+Kiln.UiItem.MaxY.get -> float
+Kiln.UiItem.MaxY.init -> void
+Kiln.UiItem.MinX.get -> float
+Kiln.UiItem.MinX.init -> void
+Kiln.UiItem.MinY.get -> float
+Kiln.UiItem.MinY.init -> void
+Kiln.UiItem.UiItem() -> void
+Kiln.UiItem.UiItem(float MinX, float MinY, float MaxX, float MaxY, bool Hovered, bool Active, bool Focused, bool Clicked, bool Visible, bool Edited, bool Activated, bool Deactivated) -> void
+Kiln.UiItem.Visible.get -> bool
+Kiln.UiItem.Visible.init -> void
+Kiln.UiItem.Width.get -> float
+Kiln.UiKey
+Kiln.UiKey.Backspace = 12 -> Kiln.UiKey
+Kiln.UiKey.Down = 5 -> Kiln.UiKey
+Kiln.UiKey.End = 9 -> Kiln.UiKey
+Kiln.UiKey.Enter = 10 -> Kiln.UiKey
+Kiln.UiKey.Escape = 11 -> Kiln.UiKey
+Kiln.UiKey.F = 13 -> Kiln.UiKey
+Kiln.UiKey.GamepadBack = 19 -> Kiln.UiKey
+Kiln.UiKey.GamepadLB = 14 -> Kiln.UiKey
+Kiln.UiKey.GamepadRB = 15 -> Kiln.UiKey
+Kiln.UiKey.GamepadStart = 18 -> Kiln.UiKey
+Kiln.UiKey.GamepadX = 16 -> Kiln.UiKey
+Kiln.UiKey.GamepadY = 17 -> Kiln.UiKey
+Kiln.UiKey.Home = 8 -> Kiln.UiKey
+Kiln.UiKey.Left = 2 -> Kiln.UiKey
+Kiln.UiKey.PageDown = 7 -> Kiln.UiKey
+Kiln.UiKey.PageUp = 6 -> Kiln.UiKey
+Kiln.UiKey.Right = 3 -> Kiln.UiKey
+Kiln.UiKey.Tab = 1 -> Kiln.UiKey
+Kiln.UiKey.Up = 4 -> Kiln.UiKey
+Kiln.UiLayer
+Kiln.UiLayer.Background = 1 -> Kiln.UiLayer
+Kiln.UiLayer.Foreground = 2 -> Kiln.UiLayer
+Kiln.UiLayer.Window = 0 -> Kiln.UiLayer
+Kiln.UiMouseButton
+Kiln.UiMouseButton.Left = 0 -> Kiln.UiMouseButton
+Kiln.UiMouseButton.Middle = 2 -> Kiln.UiMouseButton
+Kiln.UiMouseButton.Right = 1 -> Kiln.UiMouseButton
+Kiln.UiScreen
+Kiln.UiScreen.Close() -> void
+Kiln.UiScreen.Closed -> System.Action?
+Kiln.UiScreen.Dispose() -> void
+Kiln.UiScreen.IsOpen.get -> bool
+Kiln.UiScreen.Open() -> void
+Kiln.UiScreen.Opened -> System.Action?
+Kiln.UiScreen.Options.get -> Kiln.UiScreenOptions!
+Kiln.UiScreen.Title.get -> Kiln.UiText!
+Kiln.UiScreen.Title.set -> void
+Kiln.UiScreen.Toggle() -> void
+Kiln.UiScreenOptions
+Kiln.UiScreenOptions.<Clone>$() -> Kiln.UiScreenOptions!
+Kiln.UiScreenOptions.CloseButton.get -> bool
+Kiln.UiScreenOptions.CloseButton.init -> void
+Kiln.UiScreenOptions.CloseOnEscape.get -> bool
+Kiln.UiScreenOptions.CloseOnEscape.init -> void
+Kiln.UiScreenOptions.DimBackground.get -> bool
+Kiln.UiScreenOptions.DimBackground.init -> void
+Kiln.UiScreenOptions.Equals(Kiln.UiScreenOptions? other) -> bool
+Kiln.UiScreenOptions.FullScreen.get -> bool
+Kiln.UiScreenOptions.FullScreen.init -> void
+Kiln.UiScreenOptions.Height.get -> float
+Kiln.UiScreenOptions.Height.init -> void
+Kiln.UiScreenOptions.Resizable.get -> bool
+Kiln.UiScreenOptions.Resizable.init -> void
+Kiln.UiScreenOptions.Style.get -> Kiln.UiStyle
+Kiln.UiScreenOptions.Style.init -> void
+Kiln.UiScreenOptions.TitleBar.get -> bool
+Kiln.UiScreenOptions.TitleBar.init -> void
+Kiln.UiScreenOptions.UiScreenOptions() -> void
+Kiln.UiScreenOptions.Width.get -> float
+Kiln.UiScreenOptions.Width.init -> void
+Kiln.UiSelectableFlags
+Kiln.UiSelectableFlags.AllowDoubleClick = 4 -> Kiln.UiSelectableFlags
+Kiln.UiSelectableFlags.AllowOverlap = 16 -> Kiln.UiSelectableFlags
+Kiln.UiSelectableFlags.Disabled = 8 -> Kiln.UiSelectableFlags
+Kiln.UiSelectableFlags.Highlight = 32 -> Kiln.UiSelectableFlags
+Kiln.UiSelectableFlags.None = 0 -> Kiln.UiSelectableFlags
+Kiln.UiSelectableFlags.SpanAllColumns = 2 -> Kiln.UiSelectableFlags
+Kiln.UiStatus
+Kiln.UiStatus.Deconstruct(out bool Hooked, out bool Device, out bool Swapchain, out bool Window, out uint Width, out uint Height, out uint Format, out long Presents, out long FramesDrawn, out double FrameMs, out float Scale, out string! Error) -> void
+Kiln.UiStatus.Device.get -> bool
+Kiln.UiStatus.Device.init -> void
+Kiln.UiStatus.Equals(Kiln.UiStatus other) -> bool
+Kiln.UiStatus.Error.get -> string!
+Kiln.UiStatus.Error.init -> void
+Kiln.UiStatus.Format.get -> uint
+Kiln.UiStatus.Format.init -> void
+Kiln.UiStatus.FrameMs.get -> double
+Kiln.UiStatus.FrameMs.init -> void
+Kiln.UiStatus.FramesDrawn.get -> long
+Kiln.UiStatus.FramesDrawn.init -> void
+Kiln.UiStatus.Height.get -> uint
+Kiln.UiStatus.Height.init -> void
+Kiln.UiStatus.Hooked.get -> bool
+Kiln.UiStatus.Hooked.init -> void
+Kiln.UiStatus.Presents.get -> long
+Kiln.UiStatus.Presents.init -> void
+Kiln.UiStatus.Scale.get -> float
+Kiln.UiStatus.Scale.init -> void
+Kiln.UiStatus.Swapchain.get -> bool
+Kiln.UiStatus.Swapchain.init -> void
+Kiln.UiStatus.UiStatus() -> void
+Kiln.UiStatus.UiStatus(bool Hooked, bool Device, bool Swapchain, bool Window, uint Width, uint Height, uint Format, long Presents, long FramesDrawn, double FrameMs, float Scale, string! Error) -> void
+Kiln.UiStatus.Width.get -> uint
+Kiln.UiStatus.Width.init -> void
+Kiln.UiStatus.Window.get -> bool
+Kiln.UiStatus.Window.init -> void
+Kiln.UiStyle
+Kiln.UiStyle.Game = 1 -> Kiln.UiStyle
+Kiln.UiStyle.Kiln = 0 -> Kiln.UiStyle
+Kiln.UiStyleVar
+Kiln.UiStyleVar.ButtonTextAlign = 9 -> Kiln.UiStyleVar
+Kiln.UiStyleVar.ChildBorderSize = 7 -> Kiln.UiStyleVar
+Kiln.UiStyleVar.ChildRounding = 6 -> Kiln.UiStyleVar
+Kiln.UiStyleVar.FrameBorderSize = 5 -> Kiln.UiStyleVar
+Kiln.UiStyleVar.FramePadding = 1 -> Kiln.UiStyleVar
+Kiln.UiStyleVar.FrameRounding = 4 -> Kiln.UiStyleVar
+Kiln.UiStyleVar.ItemInnerSpacing = 3 -> Kiln.UiStyleVar
+Kiln.UiStyleVar.ItemSpacing = 2 -> Kiln.UiStyleVar
+Kiln.UiStyleVar.ScrollbarSize = 10 -> Kiln.UiStyleVar
+Kiln.UiStyleVar.SelectableTextAlign = 8 -> Kiln.UiStyleVar
+Kiln.UiStyleVar.WindowBorderSize = 11 -> Kiln.UiStyleVar
+Kiln.UiStyleVar.WindowPadding = 0 -> Kiln.UiStyleVar
+Kiln.UiText
+Kiln.UiText.For(string! languageKey) -> string!
+Kiln.UiText.Languages.get -> System.Collections.Generic.IReadOnlyCollection<string!>!
+Kiln.UiText.UiText(System.Collections.Generic.IReadOnlyDictionary<string!, string!>! texts) -> void
+Kiln.UiText.UiText(string! text) -> void
+Kiln.UiWheel
+Kiln.UiWheel.Close() -> void
+Kiln.UiWheel.Dispose() -> void
+Kiln.UiWheel.Entries.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Kiln.UiWheel.HoldKey.get -> uint
+Kiln.UiWheel.IsOpen.get -> bool
+Kiln.UiWheel.Result.get -> System.Threading.Tasks.Task<int>!
+Kiln.UiWheel.Title.get -> string?
+Kiln.UiWheelOptions
+Kiln.UiWheelOptions.<Clone>$() -> Kiln.UiWheelOptions!
+Kiln.UiWheelOptions.Equals(Kiln.UiWheelOptions? other) -> bool
+Kiln.UiWheelOptions.HoldKey.get -> uint
+Kiln.UiWheelOptions.HoldKey.init -> void
+Kiln.UiWheelOptions.Title.get -> string?
+Kiln.UiWheelOptions.Title.init -> void
+Kiln.UiWheelOptions.UiWheelOptions() -> void
+Kiln.UiWindow
+Kiln.UiWindow.Dispose() -> void
+Kiln.UiWindow.Hide() -> void
+Kiln.UiWindow.Open.get -> bool
+Kiln.UiWindow.Open.set -> void
+Kiln.UiWindow.Options.get -> Kiln.UiWindowOptions!
+Kiln.UiWindow.Show() -> void
+Kiln.UiWindow.Title.get -> string!
+Kiln.UiWindow.Toggle() -> void
+Kiln.UiWindowFlags
+Kiln.UiWindowFlags.AlwaysVerticalScrollbar = 16384 -> Kiln.UiWindowFlags
+Kiln.UiWindowFlags.NoBackground = 128 -> Kiln.UiWindowFlags
+Kiln.UiWindowFlags.NoScrollWithMouse = 16 -> Kiln.UiWindowFlags
+Kiln.UiWindowFlags.NoScrollbar = 8 -> Kiln.UiWindowFlags
+Kiln.UiWindowFlags.None = 0 -> Kiln.UiWindowFlags
+Kiln.UiWindowOptions
+Kiln.UiWindowOptions.<Clone>$() -> Kiln.UiWindowOptions!
+Kiln.UiWindowOptions.AutoResize.get -> bool
+Kiln.UiWindowOptions.AutoResize.init -> void
+Kiln.UiWindowOptions.BackgroundAlpha.get -> float?
+Kiln.UiWindowOptions.BackgroundAlpha.init -> void
+Kiln.UiWindowOptions.Equals(Kiln.UiWindowOptions? other) -> bool
+Kiln.UiWindowOptions.Height.get -> float
+Kiln.UiWindowOptions.Height.init -> void
+Kiln.UiWindowOptions.Interactive.get -> bool
+Kiln.UiWindowOptions.Interactive.init -> void
+Kiln.UiWindowOptions.Position.get -> (float X, float Y)?
+Kiln.UiWindowOptions.Position.init -> void
+Kiln.UiWindowOptions.StartOpen.get -> bool
+Kiln.UiWindowOptions.StartOpen.init -> void
+Kiln.UiWindowOptions.TitleBar.get -> bool
+Kiln.UiWindowOptions.TitleBar.init -> void
+Kiln.UiWindowOptions.UiWindowOptions() -> void
+Kiln.UiWindowOptions.Width.get -> float
+Kiln.UiWindowOptions.Width.init -> void
+Kiln.WorldDraw
+Kiln.WorldDraw.Box(Kiln.WorldPosition center, System.Numerics.Vector3 size, Kiln.Color color, float thickness = 2) -> void
+Kiln.WorldDraw.Box(Kiln.WorldPosition min, Kiln.WorldPosition max, Kiln.Color color, float thickness = 2) -> void
+Kiln.WorldDraw.Circle(Kiln.WorldPosition center, double radius, Kiln.Color color, float thickness = 2, int segments = 48) -> void
+Kiln.WorldDraw.DistanceTo(Kiln.WorldPosition p) -> double
+Kiln.WorldDraw.Icon(Kiln.WorldPosition p, Kiln.UiImage! image, float size = 32, Kiln.Color? tint = null) -> bool
+Kiln.WorldDraw.Label(Kiln.WorldPosition p, string! text, Kiln.Color? color = null, float size = 0, float offsetY = 14, Kiln.TextStyle style = Kiln.TextStyle.Outline) -> bool
+Kiln.WorldDraw.Line(Kiln.WorldPosition a, Kiln.WorldPosition b, Kiln.Color color, float thickness = 2) -> void
+Kiln.WorldDraw.Marker(Kiln.WorldPosition p, Kiln.Color color, float size = 10, Kiln.MarkerShape shape = Kiln.MarkerShape.Diamond, bool outline = true) -> bool
+Kiln.WorldDraw.Ready.get -> bool
+Kiln.WorldDraw.ToScreen(Kiln.WorldPosition p, out System.Numerics.Vector2 screen) -> bool
+Kiln.WorldDraw.ToScreenClamped(Kiln.WorldPosition p, float margin, out System.Numerics.Vector2 screen, out float angle) -> bool
+const Kiln.UiWheel.Cancelled = -1 -> int
+const Kiln.UiWheel.HoldAlt = 18 -> uint
+const Kiln.UiWheel.HoldCtrl = 17 -> uint
+const Kiln.UiWheel.HoldShift = 16 -> uint
+const Kiln.UiWheel.MaxEntries = 64 -> int
+const Kiln.UiWheel.PageEntries = 8 -> int
+override Kiln.Color.GetHashCode() -> int
+override Kiln.CraftingPanelOptions.Equals(object? obj) -> bool
+override Kiln.CraftingPanelOptions.GetHashCode() -> int
+override Kiln.CraftingPanelOptions.ToString() -> string!
+override Kiln.CraftingScreen.GetHashCode() -> int
+override Kiln.GameScreen.GetHashCode() -> int
+override Kiln.KeyBinding.ToString() -> string!
+override Kiln.KeyChord.GetHashCode() -> int
+override Kiln.KeyChord.ToString() -> string!
+override Kiln.ModStatus.Equals(object? obj) -> bool
+override Kiln.ModStatus.GetHashCode() -> int
+override Kiln.ModStatus.ToString() -> string!
+override Kiln.RenderStats.GetHashCode() -> int
+override Kiln.UiCursor.GetHashCode() -> int
+override Kiln.UiItem.GetHashCode() -> int
+override Kiln.UiScreenOptions.Equals(object? obj) -> bool
+override Kiln.UiScreenOptions.GetHashCode() -> int
+override Kiln.UiScreenOptions.ToString() -> string!
+override Kiln.UiStatus.GetHashCode() -> int
+override Kiln.UiText.ToString() -> string!
+override Kiln.UiWheelOptions.Equals(object? obj) -> bool
+override Kiln.UiWheelOptions.GetHashCode() -> int
+override Kiln.UiWheelOptions.ToString() -> string!
+override Kiln.UiWindowOptions.Equals(object? obj) -> bool
+override Kiln.UiWindowOptions.GetHashCode() -> int
+override Kiln.UiWindowOptions.ToString() -> string!
+static Kiln.Color.FromRgba(uint rgba) -> Kiln.Color
+static Kiln.Color.operator !=(Kiln.Color left, Kiln.Color right) -> bool
+static Kiln.Color.operator ==(Kiln.Color left, Kiln.Color right) -> bool
+static Kiln.CraftingPanelOptions.operator !=(Kiln.CraftingPanelOptions? left, Kiln.CraftingPanelOptions? right) -> bool
+static Kiln.CraftingPanelOptions.operator ==(Kiln.CraftingPanelOptions? left, Kiln.CraftingPanelOptions? right) -> bool
+static Kiln.CraftingScreen.operator !=(Kiln.CraftingScreen left, Kiln.CraftingScreen right) -> bool
+static Kiln.CraftingScreen.operator ==(Kiln.CraftingScreen left, Kiln.CraftingScreen right) -> bool
+static Kiln.GameLanguage.Current.get -> string!
+static Kiln.GameLanguage.KeyOf(uint languageId) -> string!
+static Kiln.GameScreen.operator !=(Kiln.GameScreen left, Kiln.GameScreen right) -> bool
+static Kiln.GameScreen.operator ==(Kiln.GameScreen left, Kiln.GameScreen right) -> bool
+static Kiln.Hud.Remove(Kiln.HudLine! line) -> void
+static Kiln.Hud.Remove(string! id) -> void
+static Kiln.Hud.Show(string! id, System.Func<string!>! text, Kiln.HudAnchor anchor = Kiln.HudAnchor.TopLeft, Kiln.Color? color = null) -> Kiln.HudLine!
+static Kiln.Hud.Show(string! id, string! text = "", Kiln.HudAnchor anchor = Kiln.HudAnchor.TopLeft, Kiln.Color? color = null) -> Kiln.HudLine!
+static Kiln.Hud.Toast(string! text, Kiln.ToastKind kind = Kiln.ToastKind.Info, double seconds = 4) -> void
+static Kiln.KeyBindings.All.get -> System.Collections.Generic.IReadOnlyList<Kiln.KeyBinding!>!
+static Kiln.KeyBindings.FilePath.get -> string?
+static Kiln.KeyBindings.Find(string! id) -> Kiln.KeyBinding?
+static Kiln.KeyBindings.Rebind(string! id, Kiln.KeyChord key) -> bool
+static Kiln.KeyBindings.Rebind(string! id, string! key) -> bool
+static Kiln.KeyBindings.Register(string! id, string! defaultKey, System.Action? onPress, string? description = null, string? category = null) -> Kiln.KeyBinding!
+static Kiln.KeyBindings.Reset(string! id) -> void
+static Kiln.KeyChord.Parse(string! text) -> Kiln.KeyChord
+static Kiln.KeyChord.TryParse(string? text, out Kiln.KeyChord chord) -> bool
+static Kiln.KeyChord.operator !=(Kiln.KeyChord left, Kiln.KeyChord right) -> bool
+static Kiln.KeyChord.operator ==(Kiln.KeyChord left, Kiln.KeyChord right) -> bool
+static Kiln.ModStatus.operator !=(Kiln.ModStatus? left, Kiln.ModStatus? right) -> bool
+static Kiln.ModStatus.operator ==(Kiln.ModStatus? left, Kiln.ModStatus? right) -> bool
+static Kiln.Render.Available.get -> bool
+static Kiln.Render.Camera.get -> Kiln.RenderCamera
+static Kiln.Render.CameraAvailable.get -> bool
+static Kiln.Render.FieldOfViewIsHorizontal.get -> bool
+static Kiln.Render.FieldOfViewIsHorizontal.set -> void
+static Kiln.Render.HandlerBudgetMs.get -> double
+static Kiln.Render.HandlerBudgetMs.set -> void
+static Kiln.Render.Stats.get -> Kiln.RenderStats
+static Kiln.RenderStats.operator !=(Kiln.RenderStats left, Kiln.RenderStats right) -> bool
+static Kiln.RenderStats.operator ==(Kiln.RenderStats left, Kiln.RenderStats right) -> bool
+static Kiln.StatusLines.Add(System.Func<string?>! source, string? id = null) -> Kiln.StatusLine!
+static Kiln.StatusLines.All() -> System.Collections.Generic.IReadOnlyList<Kiln.ModStatus!>!
+static Kiln.StatusLines.Lines(string! modId) -> System.Collections.Generic.IReadOnlyList<string!>!
+static Kiln.StatusLines.Remove(string! id) -> bool
+static Kiln.StatusLines.Set(string! id, string? text) -> Kiln.StatusLine?
+static Kiln.StatusLines.Summary() -> string!
+static Kiln.StatusLines.WriteToLog(Kiln.Logger? log = null) -> void
+static Kiln.Ui.AddConfigPage(string! modId, System.Action<Kiln.UiDraw!>! draw) -> System.IDisposable!
+static Kiln.Ui.Available.get -> bool
+static Kiln.Ui.Crafting.AddPanel(Kiln.UiText! title, System.Action<Kiln.UiDraw!, Kiln.CraftingScreen>! draw, Kiln.CraftingPanelOptions? options = null) -> System.IDisposable!
+static Kiln.Ui.Crafting.AddSubcategory(uint workshop, int tab, Kiln.UiText! label, System.Collections.Generic.IEnumerable<uint>! recipes) -> Kiln.CraftingMenuAddition?
+static Kiln.Ui.Crafting.AddTab(uint workshop, Kiln.UiText! label, System.Collections.Generic.IEnumerable<uint>! recipes, int iconFromTab = -1) -> Kiln.CraftingMenuAddition?
+static Kiln.Ui.Crafting.Current.get -> Kiln.CraftingScreen?
+static Kiln.Ui.Crafting.Describe(uint workshop = 0) -> string!
+static Kiln.Ui.Crafting.MenuAvailable.get -> bool
+static Kiln.Ui.Frame -> System.Action<Kiln.UiDraw!>?
+static Kiln.Ui.LoadImage(byte[]! png) -> Kiln.UiImage?
+static Kiln.Ui.LoadImage(string! path) -> Kiln.UiImage?
+static Kiln.Ui.MenuOpen.get -> bool
+static Kiln.Ui.MenuOpen.set -> void
+static Kiln.Ui.Menus.Add(Kiln.MenuLocation where, Kiln.UiText! text, System.Action! onClick, int order = 0) -> Kiln.MenuEntry?
+static Kiln.Ui.Menus.AddToBoth(Kiln.UiText! text, System.Action! onClick, int order = 0) -> (Kiln.MenuEntry? Main, Kiln.MenuEntry? Pause)
+static Kiln.Ui.Menus.Available.get -> bool
+static Kiln.Ui.Menus.KilnEntryVisible.set -> void
+static Kiln.Ui.OpenScreens.get -> System.Collections.Generic.IReadOnlyList<Kiln.UiScreen!>!
+static Kiln.Ui.OpenWheel(System.Collections.Generic.IReadOnlyList<string!>! entries, System.Action<int>? onResult = null, Kiln.UiWheelOptions? options = null) -> Kiln.UiWheel?
+static Kiln.Ui.Screen(Kiln.UiText! title, System.Action<Kiln.UiDraw!>! draw, Kiln.UiScreenOptions? options = null) -> Kiln.UiScreen!
+static Kiln.Ui.Screens.Available.get -> bool
+static Kiln.Ui.Screens.Changed -> System.Action<Kiln.GameScreen, Kiln.GameScreen>?
+static Kiln.Ui.Screens.Current.get -> Kiln.GameScreen
+static Kiln.Ui.Screens.UiTick -> System.Action<Kiln.GameScreen>?
+static Kiln.Ui.Status.get -> Kiln.UiStatus
+static Kiln.Ui.Window(string! title, System.Action<Kiln.UiDraw!>! draw, Kiln.UiWindowOptions? options = null) -> Kiln.UiWindow!
+static Kiln.UiCursor.operator !=(Kiln.UiCursor left, Kiln.UiCursor right) -> bool
+static Kiln.UiCursor.operator ==(Kiln.UiCursor left, Kiln.UiCursor right) -> bool
+static Kiln.UiItem.operator !=(Kiln.UiItem left, Kiln.UiItem right) -> bool
+static Kiln.UiItem.operator ==(Kiln.UiItem left, Kiln.UiItem right) -> bool
+static Kiln.UiScreenOptions.operator !=(Kiln.UiScreenOptions? left, Kiln.UiScreenOptions? right) -> bool
+static Kiln.UiScreenOptions.operator ==(Kiln.UiScreenOptions? left, Kiln.UiScreenOptions? right) -> bool
+static Kiln.UiStatus.operator !=(Kiln.UiStatus left, Kiln.UiStatus right) -> bool
+static Kiln.UiStatus.operator ==(Kiln.UiStatus left, Kiln.UiStatus right) -> bool
+static Kiln.UiText.Of(params (string! Language, string! Text)[]! texts) -> Kiln.UiText!
+static Kiln.UiText.implicit operator Kiln.UiText!(string! text) -> Kiln.UiText!
+static Kiln.UiWheel.Available.get -> bool
+static Kiln.UiWheel.IsAnyOpen.get -> bool
+static Kiln.UiWheel.IsValidHoldKey(uint vk) -> bool
+static Kiln.UiWheel.PageCount(int entries) -> int
+static Kiln.UiWheelOptions.operator !=(Kiln.UiWheelOptions? left, Kiln.UiWheelOptions? right) -> bool
+static Kiln.UiWheelOptions.operator ==(Kiln.UiWheelOptions? left, Kiln.UiWheelOptions? right) -> bool
+static Kiln.UiWindowOptions.operator !=(Kiln.UiWindowOptions? left, Kiln.UiWindowOptions? right) -> bool
+static Kiln.UiWindowOptions.operator ==(Kiln.UiWindowOptions? left, Kiln.UiWindowOptions? right) -> bool
+static readonly Kiln.Color.Black -> Kiln.Color
+static readonly Kiln.Color.Cyan -> Kiln.Color
+static readonly Kiln.Color.Gray -> Kiln.Color
+static readonly Kiln.Color.Green -> Kiln.Color
+static readonly Kiln.Color.Orange -> Kiln.Color
+static readonly Kiln.Color.Red -> Kiln.Color
+static readonly Kiln.Color.White -> Kiln.Color
+static readonly Kiln.Color.Yellow -> Kiln.Color
+static readonly Kiln.GameScreen.None -> Kiln.GameScreen
+static readonly Kiln.KeyChord.None -> Kiln.KeyChord
+~override Kiln.Color.Equals(object obj) -> bool
+~override Kiln.Color.ToString() -> string
+~override Kiln.CraftingScreen.Equals(object obj) -> bool
+~override Kiln.CraftingScreen.ToString() -> string
+~override Kiln.GameScreen.Equals(object obj) -> bool
+~override Kiln.GameScreen.ToString() -> string
+~override Kiln.KeyChord.Equals(object obj) -> bool
+~override Kiln.RenderStats.Equals(object obj) -> bool
+~override Kiln.RenderStats.ToString() -> string
+~override Kiln.UiCursor.Equals(object obj) -> bool
+~override Kiln.UiCursor.ToString() -> string
+~override Kiln.UiItem.Equals(object obj) -> bool
+~override Kiln.UiItem.ToString() -> string
+~override Kiln.UiStatus.Equals(object obj) -> bool
+~override Kiln.UiStatus.ToString() -> string

@@ -1,0 +1,400 @@
+#nullable enable
+Kiln.CharacterFlightMode
+Kiln.CharacterFlightMode.BuildingArea = 2 -> Kiln.CharacterFlightMode
+Kiln.CharacterFlightMode.Off = 0 -> Kiln.CharacterFlightMode
+Kiln.CharacterFlightMode.Unlimited = 1 -> Kiln.CharacterFlightMode
+Kiln.Creative
+Kiln.CreativeResult
+Kiln.CreativeResult.<Clone>$() -> Kiln.CreativeResult!
+Kiln.CreativeResult.CreativeResult(bool Ok, bool On, string! Message) -> void
+Kiln.CreativeResult.Deconstruct(out bool Ok, out bool On, out string! Message) -> void
+Kiln.CreativeResult.Equals(Kiln.CreativeResult? other) -> bool
+Kiln.CreativeResult.Message.get -> string!
+Kiln.CreativeResult.Message.init -> void
+Kiln.CreativeResult.Ok.get -> bool
+Kiln.CreativeResult.Ok.init -> void
+Kiln.CreativeResult.On.get -> bool
+Kiln.CreativeResult.On.init -> void
+Kiln.CreativeTools
+Kiln.EffectiveRules
+Kiln.EffectiveRules.<Clone>$() -> Kiln.EffectiveRules!
+Kiln.EffectiveRules.BuildCost.get -> double
+Kiln.EffectiveRules.BuildCost.init -> void
+Kiln.EffectiveRules.BuildInShroud.get -> bool
+Kiln.EffectiveRules.BuildInShroud.init -> void
+Kiln.EffectiveRules.BuildOutsideBases.get -> bool
+Kiln.EffectiveRules.BuildOutsideBases.init -> void
+Kiln.EffectiveRules.BuildRefund.get -> double
+Kiln.EffectiveRules.BuildRefund.init -> void
+Kiln.EffectiveRules.CharacterFlight.get -> Kiln.CharacterFlightMode
+Kiln.EffectiveRules.CharacterFlight.init -> void
+Kiln.EffectiveRules.Denied.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Kiln.EffectiveRules.Denied.init -> void
+Kiln.EffectiveRules.DigDamage.get -> double
+Kiln.EffectiveRules.DigDamage.init -> void
+Kiln.EffectiveRules.EffectiveRules() -> void
+Kiln.EffectiveRules.Equals(Kiln.EffectiveRules? other) -> bool
+Kiln.EffectiveRules.FlightCarriesBody.get -> bool
+Kiln.EffectiveRules.FlightCarriesBody.init -> void
+Kiln.EffectiveRules.FlyAnywhere.get -> bool
+Kiln.EffectiveRules.FlyAnywhere.init -> void
+Kiln.EffectiveRules.FreeCrafting.get -> bool
+Kiln.EffectiveRules.FreeCrafting.init -> void
+Kiln.EffectiveRules.FreezeShroudTimer.get -> bool
+Kiln.EffectiveRules.FreezeShroudTimer.init -> void
+Kiln.EffectiveRules.From.get -> System.Collections.Generic.IReadOnlyList<Kiln.RuleSet!>!
+Kiln.EffectiveRules.From.init -> void
+Kiln.EffectiveRules.GlideBoost.get -> Kiln.GlideBoostRule?
+Kiln.EffectiveRules.GlideBoost.init -> void
+Kiln.EffectiveRules.GlideSink.get -> double
+Kiln.EffectiveRules.GlideSink.init -> void
+Kiln.EffectiveRules.GlideSteer.get -> Kiln.GlideSteerRule?
+Kiln.EffectiveRules.GlideSteer.init -> void
+Kiln.EffectiveRules.IgnoreBasePermissions.get -> bool
+Kiln.EffectiveRules.IgnoreBasePermissions.init -> void
+Kiln.EffectiveRules.IgnoreEnemiesNearby.get -> bool
+Kiln.EffectiveRules.IgnoreEnemiesNearby.init -> void
+Kiln.EffectiveRules.IgnoreNoBuildZones.get -> bool
+Kiln.EffectiveRules.IgnoreNoBuildZones.init -> void
+Kiln.EffectiveRules.Invulnerable.get -> bool
+Kiln.EffectiveRules.Invulnerable.init -> void
+Kiln.EffectiveRules.IsDefault.get -> bool
+Kiln.EffectiveRules.KeepBuildsOutsideBases.get -> bool
+Kiln.EffectiveRules.KeepBuildsOutsideBases.init -> void
+Kiln.EffectiveRules.KeepConsumables.get -> bool
+Kiln.EffectiveRules.KeepConsumables.init -> void
+Kiln.EffectiveRules.MinHealth.get -> double
+Kiln.EffectiveRules.MinHealth.init -> void
+Kiln.EffectiveRules.MinMana.get -> double
+Kiln.EffectiveRules.MinMana.init -> void
+Kiln.EffectiveRules.MinShroudTime.get -> double
+Kiln.EffectiveRules.MinShroudTime.init -> void
+Kiln.EffectiveRules.MinStamina.get -> double
+Kiln.EffectiveRules.MinStamina.init -> void
+Kiln.EffectiveRules.NoFallDamage.get -> bool
+Kiln.EffectiveRules.NoFallDamage.init -> void
+Kiln.EffectiveRules.Player.get -> Kiln.EntityId
+Kiln.EffectiveRules.Player.init -> void
+Kiln.EffectiveRules.SameAs(Kiln.EffectiveRules! o) -> bool
+Kiln.EffectiveRules.UnlimitedGliding.get -> bool
+Kiln.EffectiveRules.UnlimitedGliding.init -> void
+Kiln.EffectiveRules.Water.get -> Kiln.WaterRule?
+Kiln.EffectiveRules.Water.init -> void
+Kiln.GlideBoostRule
+Kiln.GlideBoostRule.<Clone>$() -> Kiln.GlideBoostRule!
+Kiln.GlideBoostRule.Climb.get -> double
+Kiln.GlideBoostRule.Climb.init -> void
+Kiln.GlideBoostRule.Coast.get -> double
+Kiln.GlideBoostRule.Coast.init -> void
+Kiln.GlideBoostRule.Equals(Kiln.GlideBoostRule? other) -> bool
+Kiln.GlideBoostRule.GlideBoostRule() -> void
+Kiln.GlideBoostRule.Lift.get -> double
+Kiln.GlideBoostRule.Lift.init -> void
+Kiln.GlideBoostRule.MaxSpeed.get -> double
+Kiln.GlideBoostRule.MaxSpeed.init -> void
+Kiln.GlideBoostRule.Thrust.get -> double
+Kiln.GlideBoostRule.Thrust.init -> void
+Kiln.GlideSteerRule
+Kiln.GlideSteerRule.<Clone>$() -> Kiln.GlideSteerRule!
+Kiln.GlideSteerRule.Equals(Kiln.GlideSteerRule? other) -> bool
+Kiln.GlideSteerRule.GlideSteerRule() -> void
+Kiln.GlideSteerRule.MaxClimbAngle.get -> double
+Kiln.GlideSteerRule.MaxClimbAngle.init -> void
+Kiln.PlayerRules
+Kiln.PlayerRules.<Clone>$() -> Kiln.PlayerRules!
+Kiln.PlayerRules.BuildCost.get -> double?
+Kiln.PlayerRules.BuildCost.init -> void
+Kiln.PlayerRules.BuildInShroud.get -> bool?
+Kiln.PlayerRules.BuildInShroud.init -> void
+Kiln.PlayerRules.BuildOutsideBases.get -> bool?
+Kiln.PlayerRules.BuildOutsideBases.init -> void
+Kiln.PlayerRules.BuildRefund.get -> double?
+Kiln.PlayerRules.BuildRefund.init -> void
+Kiln.PlayerRules.CharacterFlight.get -> Kiln.CharacterFlightMode?
+Kiln.PlayerRules.CharacterFlight.init -> void
+Kiln.PlayerRules.DigDamage.get -> double?
+Kiln.PlayerRules.DigDamage.init -> void
+Kiln.PlayerRules.Equals(Kiln.PlayerRules? other) -> bool
+Kiln.PlayerRules.FlightCarriesBody.get -> bool?
+Kiln.PlayerRules.FlightCarriesBody.init -> void
+Kiln.PlayerRules.FlyAnywhere.get -> bool?
+Kiln.PlayerRules.FlyAnywhere.init -> void
+Kiln.PlayerRules.FreeCrafting.get -> bool?
+Kiln.PlayerRules.FreeCrafting.init -> void
+Kiln.PlayerRules.FreezeShroudTimer.get -> bool?
+Kiln.PlayerRules.FreezeShroudTimer.init -> void
+Kiln.PlayerRules.GlideBoost.get -> Kiln.GlideBoostRule?
+Kiln.PlayerRules.GlideBoost.init -> void
+Kiln.PlayerRules.GlideSink.get -> double?
+Kiln.PlayerRules.GlideSink.init -> void
+Kiln.PlayerRules.GlideSteer.get -> Kiln.GlideSteerRule?
+Kiln.PlayerRules.GlideSteer.init -> void
+Kiln.PlayerRules.IgnoreBasePermissions.get -> bool?
+Kiln.PlayerRules.IgnoreBasePermissions.init -> void
+Kiln.PlayerRules.IgnoreEnemiesNearby.get -> bool?
+Kiln.PlayerRules.IgnoreEnemiesNearby.init -> void
+Kiln.PlayerRules.IgnoreNoBuildZones.get -> bool?
+Kiln.PlayerRules.IgnoreNoBuildZones.init -> void
+Kiln.PlayerRules.Invulnerable.get -> bool?
+Kiln.PlayerRules.Invulnerable.init -> void
+Kiln.PlayerRules.KeepBuildsOutsideBases.get -> bool?
+Kiln.PlayerRules.KeepBuildsOutsideBases.init -> void
+Kiln.PlayerRules.KeepConsumables.get -> bool?
+Kiln.PlayerRules.KeepConsumables.init -> void
+Kiln.PlayerRules.MinHealth.get -> double?
+Kiln.PlayerRules.MinHealth.init -> void
+Kiln.PlayerRules.MinMana.get -> double?
+Kiln.PlayerRules.MinMana.init -> void
+Kiln.PlayerRules.MinShroudTime.get -> double?
+Kiln.PlayerRules.MinShroudTime.init -> void
+Kiln.PlayerRules.MinStamina.get -> double?
+Kiln.PlayerRules.MinStamina.init -> void
+Kiln.PlayerRules.NoFallDamage.get -> bool?
+Kiln.PlayerRules.NoFallDamage.init -> void
+Kiln.PlayerRules.PlayerRules() -> void
+Kiln.PlayerRules.Problems() -> System.Collections.Generic.IReadOnlyList<string!>!
+Kiln.PlayerRules.ToJson() -> string!
+Kiln.PlayerRules.UnlimitedGliding.get -> bool?
+Kiln.PlayerRules.UnlimitedGliding.init -> void
+Kiln.PlayerRules.Water.get -> Kiln.WaterRule?
+Kiln.PlayerRules.Water.init -> void
+Kiln.PlayerRules.With(Kiln.PlayerRules! other) -> Kiln.PlayerRules!
+Kiln.PlayerRulesChangedEvent
+Kiln.PlayerRulesChangedEvent.After.get -> Kiln.EffectiveRules!
+Kiln.PlayerRulesChangedEvent.Before.get -> Kiln.EffectiveRules!
+Kiln.PlayerRulesChangedEvent.Player.get -> Kiln.EntityId
+Kiln.RuleScope
+Kiln.RuleScope.<Clone>$() -> Kiln.RuleScope!
+Kiln.RuleScope.Covers(Kiln.EntityId player, Kiln.WorldPosition? at) -> bool
+Kiln.RuleScope.Equals(Kiln.RuleScope? other) -> bool
+Kiln.RuleScope.IsArea.get -> bool
+Kiln.RuleScope.Only(Kiln.EntityId player) -> Kiln.RuleScope!
+Kiln.RuleScope.Player.get -> Kiln.EntityId?
+Kiln.RuleSet
+Kiln.RuleSet.Active.get -> bool
+Kiln.RuleSet.Dispose() -> void
+Kiln.RuleSet.Expires.get -> System.DateTime?
+Kiln.RuleSet.Id.get -> long
+Kiln.RuleSet.Label.get -> string!
+Kiln.RuleSet.Owner.get -> string!
+Kiln.RuleSet.Rules.get -> Kiln.PlayerRules!
+Kiln.RuleSet.Scope.get -> Kiln.RuleScope!
+Kiln.RuleSet.Update(Kiln.PlayerRules! rules) -> void
+Kiln.Rules
+Kiln.RulesClient
+Kiln.RulesClient.Host = 1 -> Kiln.RulesClient
+Kiln.RulesClient.Kiln = 2 -> Kiln.RulesClient
+Kiln.RulesClient.KilnWithoutRules = 3 -> Kiln.RulesClient
+Kiln.RulesClient.Pending = 5 -> Kiln.RulesClient
+Kiln.RulesClient.Simulated = 6 -> Kiln.RulesClient
+Kiln.RulesClient.Unknown = 0 -> Kiln.RulesClient
+Kiln.RulesClient.Vanilla = 4 -> Kiln.RulesClient
+Kiln.RulesPolicy
+Kiln.RulesPolicy.AllowBuildInShroud.get -> bool
+Kiln.RulesPolicy.AllowBuildInShroud.set -> void
+Kiln.RulesPolicy.AllowBuildOutsideBases.get -> bool
+Kiln.RulesPolicy.AllowBuildOutsideBases.set -> void
+Kiln.RulesPolicy.AllowCharacterFlight.get -> bool
+Kiln.RulesPolicy.AllowCharacterFlight.set -> void
+Kiln.RulesPolicy.AllowFlyAnywhere.get -> bool
+Kiln.RulesPolicy.AllowFlyAnywhere.set -> void
+Kiln.RulesPolicy.AllowFreeCrafting.get -> bool
+Kiln.RulesPolicy.AllowFreeCrafting.set -> void
+Kiln.RulesPolicy.AllowFreezeShroudTimer.get -> bool
+Kiln.RulesPolicy.AllowFreezeShroudTimer.set -> void
+Kiln.RulesPolicy.AllowGlideBoost.get -> bool
+Kiln.RulesPolicy.AllowGlideBoost.set -> void
+Kiln.RulesPolicy.AllowGlideSteer.get -> bool
+Kiln.RulesPolicy.AllowGlideSteer.set -> void
+Kiln.RulesPolicy.AllowIgnoreBasePermissions.get -> bool
+Kiln.RulesPolicy.AllowIgnoreBasePermissions.set -> void
+Kiln.RulesPolicy.AllowIgnoreEnemiesNearby.get -> bool
+Kiln.RulesPolicy.AllowIgnoreEnemiesNearby.set -> void
+Kiln.RulesPolicy.AllowIgnoreNoBuildZones.get -> bool
+Kiln.RulesPolicy.AllowIgnoreNoBuildZones.set -> void
+Kiln.RulesPolicy.AllowInvulnerable.get -> bool
+Kiln.RulesPolicy.AllowInvulnerable.set -> void
+Kiln.RulesPolicy.AllowKeepConsumables.get -> bool
+Kiln.RulesPolicy.AllowKeepConsumables.set -> void
+Kiln.RulesPolicy.AllowNoFallDamage.get -> bool
+Kiln.RulesPolicy.AllowNoFallDamage.set -> void
+Kiln.RulesPolicy.AllowUnlimitedGliding.get -> bool
+Kiln.RulesPolicy.AllowUnlimitedGliding.set -> void
+Kiln.RulesPolicy.AllowWater.get -> bool
+Kiln.RulesPolicy.AllowWater.set -> void
+Kiln.RulesPolicy.MaxDigDamage.get -> double
+Kiln.RulesPolicy.MaxDigDamage.set -> void
+Kiln.RulesPolicy.MaxGlideSpeed.get -> double
+Kiln.RulesPolicy.MaxGlideSpeed.set -> void
+Kiln.RulesPolicy.MaxGlideSteerAngle.get -> double
+Kiln.RulesPolicy.MaxGlideSteerAngle.set -> void
+Kiln.RulesPolicy.MaxHealthFloor.get -> double
+Kiln.RulesPolicy.MaxHealthFloor.set -> void
+Kiln.RulesPolicy.MaxManaFloor.get -> double
+Kiln.RulesPolicy.MaxManaFloor.set -> void
+Kiln.RulesPolicy.MaxShroudFloor.get -> double
+Kiln.RulesPolicy.MaxShroudFloor.set -> void
+Kiln.RulesPolicy.MaxStaminaFloor.get -> double
+Kiln.RulesPolicy.MaxStaminaFloor.set -> void
+Kiln.RulesPolicy.MinBuildCost.get -> double
+Kiln.RulesPolicy.MinBuildCost.set -> void
+Kiln.RulesPolicy.RulesPolicy() -> void
+Kiln.RulesStatus
+Kiln.RulesStatus.<Clone>$() -> Kiln.RulesStatus!
+Kiln.RulesStatus.BuildingZone.get -> bool
+Kiln.RulesStatus.BuildingZone.init -> void
+Kiln.RulesStatus.CharacterFlight.get -> bool
+Kiln.RulesStatus.CharacterFlight.init -> void
+Kiln.RulesStatus.ConsumablesKept.get -> ulong
+Kiln.RulesStatus.ConsumablesKept.init -> void
+Kiln.RulesStatus.Costs.get -> bool
+Kiln.RulesStatus.Costs.init -> void
+Kiln.RulesStatus.CostsScaled.get -> ulong
+Kiln.RulesStatus.CostsScaled.init -> void
+Kiln.RulesStatus.CraftButtons.get -> bool
+Kiln.RulesStatus.CraftButtons.init -> void
+Kiln.RulesStatus.CraftsFree.get -> ulong
+Kiln.RulesStatus.CraftsFree.init -> void
+Kiln.RulesStatus.CursorCleared.get -> ulong
+Kiln.RulesStatus.CursorCleared.init -> void
+Kiln.RulesStatus.Deconstruct(out bool Flight, out bool Placement, out bool Costs, out bool Mining, out int Players, out ulong FlyAllowed, out ulong CursorCleared, out ulong CostsScaled, out ulong RefundsScaled, out ulong DigsScaled, out ulong Faults, out string! Detail) -> void
+Kiln.RulesStatus.Detail.get -> string!
+Kiln.RulesStatus.Detail.init -> void
+Kiln.RulesStatus.DigsScaled.get -> ulong
+Kiln.RulesStatus.DigsScaled.init -> void
+Kiln.RulesStatus.Equals(Kiln.RulesStatus? other) -> bool
+Kiln.RulesStatus.Faults.get -> ulong
+Kiln.RulesStatus.Faults.init -> void
+Kiln.RulesStatus.Flight.get -> bool
+Kiln.RulesStatus.Flight.init -> void
+Kiln.RulesStatus.FlyAllowed.get -> ulong
+Kiln.RulesStatus.FlyAllowed.init -> void
+Kiln.RulesStatus.FreeCrafting.get -> bool
+Kiln.RulesStatus.FreeCrafting.init -> void
+Kiln.RulesStatus.GlideChanged.get -> ulong
+Kiln.RulesStatus.GlideChanged.init -> void
+Kiln.RulesStatus.GlideSteer.get -> bool
+Kiln.RulesStatus.GlideSteer.init -> void
+Kiln.RulesStatus.GlideSteered.get -> ulong
+Kiln.RulesStatus.GlideSteered.init -> void
+Kiln.RulesStatus.Gliding.get -> bool
+Kiln.RulesStatus.Gliding.init -> void
+Kiln.RulesStatus.KeptConsumables.get -> bool
+Kiln.RulesStatus.KeptConsumables.init -> void
+Kiln.RulesStatus.KeptFoodAndPotions.get -> bool
+Kiln.RulesStatus.KeptFoodAndPotions.init -> void
+Kiln.RulesStatus.MapReveal.get -> bool
+Kiln.RulesStatus.MapReveal.init -> void
+Kiln.RulesStatus.Mining.get -> bool
+Kiln.RulesStatus.Mining.init -> void
+Kiln.RulesStatus.Placement.get -> bool
+Kiln.RulesStatus.Placement.init -> void
+Kiln.RulesStatus.Players.get -> int
+Kiln.RulesStatus.Players.init -> void
+Kiln.RulesStatus.RefundsScaled.get -> ulong
+Kiln.RulesStatus.RefundsScaled.init -> void
+Kiln.RulesStatus.RulesStatus(bool Flight, bool Placement, bool Costs, bool Mining, int Players, ulong FlyAllowed, ulong CursorCleared, ulong CostsScaled, ulong RefundsScaled, ulong DigsScaled, ulong Faults, string! Detail) -> void
+Kiln.RulesStatus.ShroudHeld.get -> ulong
+Kiln.RulesStatus.ShroudHeld.init -> void
+Kiln.RulesStatus.ShroudTimer.get -> bool
+Kiln.RulesStatus.ShroudTimer.init -> void
+Kiln.RulesStatus.ZoneForced.get -> ulong
+Kiln.RulesStatus.ZoneForced.init -> void
+Kiln.WaterRule
+Kiln.WaterRule.<Clone>$() -> Kiln.WaterRule!
+Kiln.WaterRule.ChargesPerSecond.get -> double
+Kiln.WaterRule.ChargesPerSecond.init -> void
+Kiln.WaterRule.Equals(Kiln.WaterRule? other) -> bool
+Kiln.WaterRule.Items.get -> System.Collections.Generic.IReadOnlyList<string!>?
+Kiln.WaterRule.Items.init -> void
+Kiln.WaterRule.KeepsFull.get -> bool
+Kiln.WaterRule.WaterRule() -> void
+const Kiln.Creative.PermissionNode = "kiln.command.creative" -> string!
+const Kiln.Creative.PresetName = "creative" -> string!
+const Kiln.CreativeTools.MaxGive = 9999 -> int
+const Kiln.GlideBoostRule.SpeedLimit = 120 -> double
+const Kiln.GlideSteerRule.AngleLimit = 85 -> double
+const Kiln.Rules.ChannelName = "kiln:rules" -> string!
+override Kiln.CreativeResult.Equals(object? obj) -> bool
+override Kiln.CreativeResult.GetHashCode() -> int
+override Kiln.CreativeResult.ToString() -> string!
+override Kiln.EffectiveRules.Equals(object? obj) -> bool
+override Kiln.EffectiveRules.GetHashCode() -> int
+override Kiln.EffectiveRules.ToString() -> string!
+override Kiln.GlideBoostRule.Equals(object? obj) -> bool
+override Kiln.GlideBoostRule.GetHashCode() -> int
+override Kiln.GlideBoostRule.ToString() -> string!
+override Kiln.GlideSteerRule.Equals(object? obj) -> bool
+override Kiln.GlideSteerRule.GetHashCode() -> int
+override Kiln.GlideSteerRule.ToString() -> string!
+override Kiln.PlayerRules.Equals(object? obj) -> bool
+override Kiln.PlayerRules.GetHashCode() -> int
+override Kiln.PlayerRules.ToString() -> string!
+override Kiln.PlayerRulesChangedEvent.ToString() -> string!
+override Kiln.RuleScope.Equals(object? obj) -> bool
+override Kiln.RuleScope.GetHashCode() -> int
+override Kiln.RuleScope.ToString() -> string!
+override Kiln.RuleSet.ToString() -> string!
+override Kiln.RulesStatus.Equals(object? obj) -> bool
+override Kiln.RulesStatus.GetHashCode() -> int
+override Kiln.RulesStatus.ToString() -> string!
+override Kiln.WaterRule.Equals(object? obj) -> bool
+override Kiln.WaterRule.GetHashCode() -> int
+override Kiln.WaterRule.ToString() -> string!
+static Kiln.Creative.IsOn(Kiln.EntityId player) -> bool
+static Kiln.Creative.Players.get -> System.Collections.Generic.IReadOnlyList<Kiln.EntityId>!
+static Kiln.Creative.Set(Kiln.EntityId player, bool on) -> Kiln.CreativeResult!
+static Kiln.Creative.SetFlight(Kiln.EntityId player, Kiln.CharacterFlightMode mode) -> Kiln.CreativeResult!
+static Kiln.Creative.Status() -> string!
+static Kiln.CreativeResult.operator !=(Kiln.CreativeResult? left, Kiln.CreativeResult? right) -> bool
+static Kiln.CreativeResult.operator ==(Kiln.CreativeResult? left, Kiln.CreativeResult? right) -> bool
+static Kiln.CreativeTools.CanGive(Kiln.EntityId player) -> bool
+static Kiln.CreativeTools.Catalog() -> System.Collections.Generic.IReadOnlyList<Kiln.ItemInfo!>!
+static Kiln.CreativeTools.Found(Kiln.EntityId player) -> System.Collections.Generic.IReadOnlyList<Kiln.ItemId>?
+static Kiln.CreativeTools.Give(Kiln.EntityId player, Kiln.ItemId item, int count = 1, int? level = null, Kiln.ItemRarity? rarity = null) -> System.Threading.Tasks.Task<Kiln.CreativeResult!>!
+static Kiln.CreativeTools.Give(Kiln.EntityId player, Kiln.ItemId item, int count, int? level, Kiln.ItemRarity? rarity, int upgrades, bool gemSlot) -> System.Threading.Tasks.Task<Kiln.CreativeResult!>!
+static Kiln.CreativeTools.Give(Kiln.EntityId player, Kiln.ItemId item, int count, int? level, Kiln.ItemRarity? rarity, int upgrades, bool gemSlot, Kiln.SlotId? slot) -> System.Threading.Tasks.Task<Kiln.CreativeResult!>!
+static Kiln.CreativeTools.MayChangeTime(Kiln.EntityId player) -> bool
+static Kiln.CreativeTools.SetCycle(Kiln.EntityId player, Kiln.TimeCycle cycle) -> Kiln.CreativeResult!
+static Kiln.CreativeTools.SetCycle(Kiln.TimeCycle cycle, string! who) -> Kiln.CreativeResult!
+static Kiln.CreativeTools.SetTime(Kiln.EntityId player, double hours) -> Kiln.CreativeResult!
+static Kiln.CreativeTools.SetTime(double hours, string! who) -> Kiln.CreativeResult!
+static Kiln.EffectiveRules.None(Kiln.EntityId player) -> Kiln.EffectiveRules!
+static Kiln.EffectiveRules.operator !=(Kiln.EffectiveRules? left, Kiln.EffectiveRules? right) -> bool
+static Kiln.EffectiveRules.operator ==(Kiln.EffectiveRules? left, Kiln.EffectiveRules? right) -> bool
+static Kiln.GlideBoostRule.Default.get -> Kiln.GlideBoostRule!
+static Kiln.GlideBoostRule.operator !=(Kiln.GlideBoostRule? left, Kiln.GlideBoostRule? right) -> bool
+static Kiln.GlideBoostRule.operator ==(Kiln.GlideBoostRule? left, Kiln.GlideBoostRule? right) -> bool
+static Kiln.GlideSteerRule.Default.get -> Kiln.GlideSteerRule!
+static Kiln.GlideSteerRule.operator !=(Kiln.GlideSteerRule? left, Kiln.GlideSteerRule? right) -> bool
+static Kiln.GlideSteerRule.operator ==(Kiln.GlideSteerRule? left, Kiln.GlideSteerRule? right) -> bool
+static Kiln.PlayerRules.Creative.get -> Kiln.PlayerRules!
+static Kiln.PlayerRules.CreativeExtras.get -> Kiln.PlayerRules!
+static Kiln.PlayerRules.FromJson(string! json) -> Kiln.PlayerRules!
+static Kiln.PlayerRules.operator !=(Kiln.PlayerRules? left, Kiln.PlayerRules? right) -> bool
+static Kiln.PlayerRules.operator ==(Kiln.PlayerRules? left, Kiln.PlayerRules? right) -> bool
+static Kiln.RuleScope.Box(Kiln.WorldPosition min, Kiln.WorldPosition max) -> Kiln.RuleScope!
+static Kiln.RuleScope.Cylinder(Kiln.WorldPosition center, double radius, double minY, double maxY) -> Kiln.RuleScope!
+static Kiln.RuleScope.Everyone.get -> Kiln.RuleScope!
+static Kiln.RuleScope.ForPlayer(Kiln.EntityId player) -> Kiln.RuleScope!
+static Kiln.RuleScope.Sphere(Kiln.WorldPosition center, double radius) -> Kiln.RuleScope!
+static Kiln.RuleScope.operator !=(Kiln.RuleScope? left, Kiln.RuleScope? right) -> bool
+static Kiln.RuleScope.operator ==(Kiln.RuleScope? left, Kiln.RuleScope? right) -> bool
+static Kiln.Rules.Active.get -> System.Collections.Generic.IReadOnlyList<Kiln.RuleSet!>!
+static Kiln.Rules.Apply(Kiln.EntityId player, Kiln.PlayerRules! rules, System.TimeSpan? duration = null, string? label = null) -> Kiln.RuleSet!
+static Kiln.Rules.Apply(Kiln.RuleScope! scope, Kiln.PlayerRules! rules, System.TimeSpan? duration = null, string? label = null) -> Kiln.RuleSet!
+static Kiln.Rules.Available.get -> bool
+static Kiln.Rules.ClientOf(Kiln.EntityId player) -> Kiln.RulesClient
+static Kiln.Rules.DefinePreset(string! name, Kiln.PlayerRules! rules) -> System.IDisposable!
+static Kiln.Rules.Of(Kiln.EntityId player) -> Kiln.EffectiveRules!
+static Kiln.Rules.Policy.get -> Kiln.RulesPolicy!
+static Kiln.Rules.Preset(string! name) -> Kiln.PlayerRules?
+static Kiln.Rules.Presets.get -> System.Collections.Generic.IReadOnlyList<string!>!
+static Kiln.Rules.Simulate(Kiln.EntityId character, bool on = true) -> void
+static Kiln.Rules.Status() -> Kiln.RulesStatus?
+static Kiln.RulesStatus.operator !=(Kiln.RulesStatus? left, Kiln.RulesStatus? right) -> bool
+static Kiln.RulesStatus.operator ==(Kiln.RulesStatus? left, Kiln.RulesStatus? right) -> bool
+static Kiln.WaterRule.KeepFull(params string![]! items) -> Kiln.WaterRule!
+static Kiln.WaterRule.Rate(double chargesPerSecond, params string![]! items) -> Kiln.WaterRule!
+static Kiln.WaterRule.operator !=(Kiln.WaterRule? left, Kiln.WaterRule? right) -> bool
+static Kiln.WaterRule.operator ==(Kiln.WaterRule? left, Kiln.WaterRule? right) -> bool
