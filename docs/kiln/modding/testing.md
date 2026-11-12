@@ -32,7 +32,8 @@ public sealed class MyTests
 - `Assert`: `True`, `False`, `Equal`, `NotEqual`, `Null`, `NotNull`, `Same`, `Contains`, `InRange`, `Throws`,
   `ThrowsAsync`, `Fail`, `Skip`.
 - Timeout: per test (`TimeoutSeconds`, else the manifest's `tests.timeoutSeconds`, else `kiln.json`
-  `mods.test_timeout_s`, default 30 s). Only awaits are timed: a test that blocks the tick thread cannot be stopped.
+  `mods.test_timeout_s`, default 30 s). Only awaits are timed: in a server a test that blocks the tick thread cannot be stopped.
+  Under `dotnet test` the test kit's watchdog stops it and reports where it blocked ([unit-tests.md](unit-tests.md)).
 
 ## Running
 - Automatically: manifest `"tests": {"autoRun": true}` (Kiln.Sdk `<KilnTestsAutoRun>true</KilnTestsAutoRun>`) runs

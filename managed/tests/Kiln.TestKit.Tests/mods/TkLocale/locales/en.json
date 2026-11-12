@@ -1,0 +1,4 @@
+{
+  "greet": "Hello {name}",
+  "only.english": "English only"
+}

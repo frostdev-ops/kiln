@@ -1,0 +1,8 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- A test mod of Kiln.TestKit.Tests: passing [KilnTest] methods that check they run in the runner's order. -->
+  <ItemGroup>
+    <ProjectReference Include="$(KilnManaged)Kiln.Testing/Kiln.Testing.csproj" Private="false" ExcludeAssets="runtime" />
+    <!-- its manifest, beside the assembly as Load<TMod> looks for it (see TkCommands) -->
+    <None Include="TkOrdered.kiln.mod.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

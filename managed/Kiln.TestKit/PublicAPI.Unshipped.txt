@@ -1,0 +1,276 @@
+#nullable enable
+Kiln.TestKit.CapabilityRow
+Kiln.TestKit.CapabilityRow.Available.get -> bool
+Kiln.TestKit.CapabilityRow.Available.init -> void
+Kiln.TestKit.CapabilityRow.CapabilityRow() -> void
+Kiln.TestKit.CapabilityRow.CapabilityRow(string! Name, bool Available, string! ReasonText) -> void
+Kiln.TestKit.CapabilityRow.Deconstruct(out string! Name, out bool Available, out string! ReasonText) -> void
+Kiln.TestKit.CapabilityRow.Equals(Kiln.TestKit.CapabilityRow other) -> bool
+Kiln.TestKit.CapabilityRow.Name.get -> string!
+Kiln.TestKit.CapabilityRow.Name.init -> void
+Kiln.TestKit.CapabilityRow.ReasonText.get -> string!
+Kiln.TestKit.CapabilityRow.ReasonText.init -> void
+Kiln.TestKit.Coverage
+Kiln.TestKit.CoverageKind
+Kiln.TestKit.CoverageKind.Real = 0 -> Kiln.TestKit.CoverageKind
+Kiln.TestKit.CoverageKind.RecordingFake = 1 -> Kiln.TestKit.CoverageKind
+Kiln.TestKit.CoverageKind.Unavailable = 2 -> Kiln.TestKit.CoverageKind
+Kiln.TestKit.CoverageRow
+Kiln.TestKit.CoverageRow.<Clone>$() -> Kiln.TestKit.CoverageRow!
+Kiln.TestKit.CoverageRow.Area.get -> string!
+Kiln.TestKit.CoverageRow.Area.init -> void
+Kiln.TestKit.CoverageRow.Capabilities.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Kiln.TestKit.CoverageRow.Capabilities.init -> void
+Kiln.TestKit.CoverageRow.CoverageRow(string! Area, Kiln.TestKit.CoverageKind Kind, System.Collections.Generic.IReadOnlyList<string!>! Capabilities, string! Note) -> void
+Kiln.TestKit.CoverageRow.Deconstruct(out string! Area, out Kiln.TestKit.CoverageKind Kind, out System.Collections.Generic.IReadOnlyList<string!>! Capabilities, out string! Note) -> void
+Kiln.TestKit.CoverageRow.Equals(Kiln.TestKit.CoverageRow? other) -> bool
+Kiln.TestKit.CoverageRow.Kind.get -> Kiln.TestKit.CoverageKind
+Kiln.TestKit.CoverageRow.Kind.init -> void
+Kiln.TestKit.CoverageRow.Note.get -> string!
+Kiln.TestKit.CoverageRow.Note.init -> void
+Kiln.TestKit.FakePlayer
+Kiln.TestKit.FakePlayer.Entity.get -> Kiln.EntityId
+Kiln.TestKit.FakePlayer.InGame.get -> bool
+Kiln.TestKit.FakePlayer.IsAdmin.get -> bool
+Kiln.TestKit.FakePlayer.Leave() -> bool
+Kiln.TestKit.FakePlayer.Name.get -> string!
+Kiln.TestKit.FakePlayer.Position.get -> Kiln.WorldPosition?
+Kiln.TestKit.FakePlayer.Position.set -> void
+Kiln.TestKit.FakePlayer.Rights.get -> Kiln.PlayerPermissions
+Kiln.TestKit.FakePlayer.Slot.get -> int
+Kiln.TestKit.FakePlayer.SteamId.get -> ulong
+Kiln.TestKit.FakePlayer.UserGroupId.get -> uint
+Kiln.TestKit.HarnessCapabilities
+Kiln.TestKit.HarnessCapabilities.All.get -> System.Collections.Generic.IReadOnlyList<Kiln.TestKit.CapabilityRow>!
+Kiln.TestKit.HarnessCapabilities.ClearOverride(string! name) -> void
+Kiln.TestKit.HarnessCapabilities.Is(string! name) -> bool
+Kiln.TestKit.HarnessCapabilities.Override(string! name, bool available, string? reasonText = null) -> void
+Kiln.TestKit.HarnessCapabilities.Why(string! name) -> string!
+Kiln.TestKit.HarnessPlayers
+Kiln.TestKit.HarnessPlayers.All.get -> System.Collections.Generic.IReadOnlyList<Kiln.TestKit.FakePlayer!>!
+Kiln.TestKit.HarnessPlayers.Join(string! name, ulong steamId = 0, Kiln.PlayerPermissions rights = Kiln.PlayerPermissions.None, bool isAdmin = false, Kiln.WorldPosition? position = null, uint userGroupId = 0) -> Kiln.TestKit.FakePlayer!
+Kiln.TestKit.HarnessPlayers.Slots.get -> int
+Kiln.TestKit.HarnessState
+Kiln.TestKit.HarnessState.Abandoned = 5 -> Kiln.TestKit.HarnessState
+Kiln.TestKit.HarnessState.Created = 0 -> Kiln.TestKit.HarnessState
+Kiln.TestKit.HarnessState.Disposed = 4 -> Kiln.TestKit.HarnessState
+Kiln.TestKit.HarnessState.Running = 2 -> Kiln.TestKit.HarnessState
+Kiln.TestKit.HarnessState.Starting = 1 -> Kiln.TestKit.HarnessState
+Kiln.TestKit.HarnessState.Stopped = 3 -> Kiln.TestKit.HarnessState
+Kiln.TestKit.HarnessStoppedException
+Kiln.TestKit.HarnessWorld
+Kiln.TestKit.HarnessWorld.Directory.get -> string!
+Kiln.TestKit.HarnessWorld.Id.get -> System.Guid
+Kiln.TestKit.HarnessWorld.Loaded.get -> bool
+Kiln.TestKit.HarnessWorld.Revision.get -> uint
+Kiln.TestKit.HarnessWorld.Save(int maxSteps = 100) -> uint
+Kiln.TestKit.KilnHarness
+Kiln.TestKit.KilnHarness.As(Kiln.TestKit.ModHandle! mod, System.Action! action) -> void
+Kiln.TestKit.KilnHarness.As<T>(Kiln.TestKit.ModHandle! mod, System.Func<T>! func) -> T
+Kiln.TestKit.KilnHarness.Boot() -> void
+Kiln.TestKit.KilnHarness.Capabilities.get -> Kiln.TestKit.HarnessCapabilities!
+Kiln.TestKit.KilnHarness.ConfigDirectory.get -> string!
+Kiln.TestKit.KilnHarness.ControlDirectory.get -> string!
+Kiln.TestKit.KilnHarness.CurrentStep.get -> ulong
+Kiln.TestKit.KilnHarness.DataDirectory.get -> string!
+Kiln.TestKit.KilnHarness.Dispose() -> void
+Kiln.TestKit.KilnHarness.DumpLogs() -> string!
+Kiln.TestKit.KilnHarness.FindLogs(string! text, string? modId = null) -> System.Collections.Generic.IReadOnlyList<Kiln.TestKit.LogLine!>!
+Kiln.TestKit.KilnHarness.GameLog(string! text, Kiln.LogLevel level = Kiln.LogLevel.Info) -> void
+Kiln.TestKit.KilnHarness.HasLog(string! text, string? modId = null) -> bool
+Kiln.TestKit.KilnHarness.Kill() -> void
+Kiln.TestKit.KilnHarness.KilnDirectory.get -> string!
+Kiln.TestKit.KilnHarness.KilnHarness(Kiln.TestKit.KilnHarnessOptions? options = null) -> void
+Kiln.TestKit.KilnHarness.Language.get -> string!
+Kiln.TestKit.KilnHarness.Language.set -> void
+Kiln.TestKit.KilnHarness.Load<TMod>(Kiln.TestKit.ModManifest? manifest = null) -> Kiln.TestKit.ModHandle!
+Kiln.TestKit.KilnHarness.LoadFolder(string! path) -> Kiln.TestKit.ModHandle!
+Kiln.TestKit.KilnHarness.Logs.get -> System.Collections.Generic.IReadOnlyList<Kiln.TestKit.LogLine!>!
+Kiln.TestKit.KilnHarness.LogsDirectory.get -> string!
+Kiln.TestKit.KilnHarness.LogsOf(Kiln.TestKit.ModHandle! mod) -> System.Collections.Generic.IReadOnlyList<Kiln.TestKit.LogLine!>!
+Kiln.TestKit.KilnHarness.LogsOf(string! modId) -> System.Collections.Generic.IReadOnlyList<Kiln.TestKit.LogLine!>!
+Kiln.TestKit.KilnHarness.Mod(string! id) -> Kiln.TestKit.ModHandle!
+Kiln.TestKit.KilnHarness.ModsDirectory.get -> string!
+Kiln.TestKit.KilnHarness.Players.get -> Kiln.TestKit.HarnessPlayers!
+Kiln.TestKit.KilnHarness.Reload(Kiln.TestKit.ModHandle! mod, bool checkCollected = true) -> Kiln.TestKit.ModHandle!
+Kiln.TestKit.KilnHarness.ReportWorldRunning() -> void
+Kiln.TestKit.KilnHarness.Run(System.Action! action) -> void
+Kiln.TestKit.KilnHarness.Run<T>(System.Func<T>! func) -> T
+Kiln.TestKit.KilnHarness.RunCommand(Kiln.CommandSource! source, string! line) -> Kiln.CommandResult!
+Kiln.TestKit.KilnHarness.RunCommand(Kiln.TestKit.FakePlayer! player, string! line) -> Kiln.CommandResult!
+Kiln.TestKit.KilnHarness.RunCommand(string! line) -> Kiln.CommandResult!
+Kiln.TestKit.KilnHarness.RunTest(Kiln.TestKit.ModHandle! mod, string! name, Kiln.TestKit.KilnTestOptions? options = null) -> Kiln.TestKit.KilnTestResult!
+Kiln.TestKit.KilnHarness.RunTests(Kiln.TestKit.ModHandle! mod, Kiln.TestKit.KilnTestOptions? options = null) -> System.Collections.Generic.IReadOnlyList<Kiln.TestKit.KilnTestResult!>!
+Kiln.TestKit.KilnHarness.ServerDirectory.get -> string!
+Kiln.TestKit.KilnHarness.State.get -> Kiln.TestKit.HarnessState
+Kiln.TestKit.KilnHarness.StateDirectory.get -> string!
+Kiln.TestKit.KilnHarness.Step(int steps = 1) -> void
+Kiln.TestKit.KilnHarness.StepUntil(System.Func<bool>! condition, int maxSteps = 1000, System.TimeSpan pace = default(System.TimeSpan)) -> int
+Kiln.TestKit.KilnHarness.Stop(string! reason = "SIGINT") -> void
+Kiln.TestKit.KilnHarness.Unload(Kiln.TestKit.ModHandle! mod, bool checkCollected = true) -> void
+Kiln.TestKit.KilnHarness.World.get -> Kiln.TestKit.HarnessWorld!
+Kiln.TestKit.KilnHarness.WritePermissions(string! json) -> void
+Kiln.TestKit.KilnHarness.WriteServerConfig(string! json) -> void
+Kiln.TestKit.KilnHarnessOptions
+Kiln.TestKit.KilnHarnessOptions.CallTimeout.get -> System.TimeSpan
+Kiln.TestKit.KilnHarnessOptions.CallTimeout.init -> void
+Kiln.TestKit.KilnHarnessOptions.StopTimeout.get -> System.TimeSpan
+Kiln.TestKit.KilnHarnessOptions.StopTimeout.init -> void
+Kiln.TestKit.KilnHarnessOptions.CrashReports.get -> bool
+Kiln.TestKit.KilnHarnessOptions.CrashReports.init -> void
+Kiln.TestKit.KilnHarnessOptions.FaultLimit.get -> int
+Kiln.TestKit.KilnHarnessOptions.FaultLimit.init -> void
+Kiln.TestKit.KilnHarnessOptions.FaultWindowSeconds.get -> double
+Kiln.TestKit.KilnHarnessOptions.FaultWindowSeconds.init -> void
+Kiln.TestKit.KilnHarnessOptions.KeepFolder.get -> bool
+Kiln.TestKit.KilnHarnessOptions.KeepFolder.init -> void
+Kiln.TestKit.KilnHarnessOptions.KilnHarnessOptions() -> void
+Kiln.TestKit.KilnHarnessOptions.LogSink.get -> System.Action<Kiln.TestKit.LogLine!>?
+Kiln.TestKit.KilnHarnessOptions.LogSink.init -> void
+Kiln.TestKit.KilnHarnessOptions.ServerDirectory.get -> string?
+Kiln.TestKit.KilnHarnessOptions.ServerDirectory.init -> void
+Kiln.TestKit.KilnHarnessOptions.TempDirectory.get -> string?
+Kiln.TestKit.KilnHarnessOptions.TempDirectory.init -> void
+Kiln.TestKit.KilnHarnessOptions.TestTimeout.get -> System.TimeSpan
+Kiln.TestKit.KilnHarnessOptions.TestTimeout.init -> void
+Kiln.TestKit.KilnHarnessOptions.ThrowOnModFault.get -> bool
+Kiln.TestKit.KilnHarnessOptions.ThrowOnModFault.init -> void
+Kiln.TestKit.KilnHarnessOptions.WaitForOtherHarness.get -> System.TimeSpan
+Kiln.TestKit.KilnHarnessOptions.WaitForOtherHarness.init -> void
+Kiln.TestKit.KilnHarnessOptions.WaitForWorldRunning.get -> bool
+Kiln.TestKit.KilnHarnessOptions.WaitForWorldRunning.init -> void
+Kiln.TestKit.KilnHarnessOptions.WallDeltaMs.get -> double
+Kiln.TestKit.KilnHarnessOptions.WallDeltaMs.init -> void
+Kiln.TestKit.KilnHarnessOptions.WorldId.get -> System.Guid?
+Kiln.TestKit.KilnHarnessOptions.WorldId.init -> void
+Kiln.TestKit.KilnTestOptions
+Kiln.TestKit.KilnTestOptions.AllowUnavailable.get -> System.Collections.Generic.IReadOnlyCollection<string!>!
+Kiln.TestKit.KilnTestOptions.AllowUnavailable.init -> void
+Kiln.TestKit.KilnTestOptions.KilnTestOptions() -> void
+Kiln.TestKit.KilnTestOptions.SetupTimeout.get -> System.TimeSpan
+Kiln.TestKit.KilnTestOptions.SetupTimeout.init -> void
+Kiln.TestKit.KilnTestOptions.WatchdogGrace.get -> System.TimeSpan
+Kiln.TestKit.KilnTestOptions.WatchdogGrace.init -> void
+Kiln.TestKit.KilnTestResult
+Kiln.TestKit.KilnTestResult.<Clone>$() -> Kiln.TestKit.KilnTestResult!
+Kiln.TestKit.KilnTestResult.Deconstruct(out string! Name, out Kiln.Testing.TestOutcome Outcome, out System.TimeSpan Duration, out string? Message, out string? Stack, out System.Collections.Generic.IReadOnlyList<string!>! Unavailable) -> void
+Kiln.TestKit.KilnTestResult.Duration.get -> System.TimeSpan
+Kiln.TestKit.KilnTestResult.Duration.init -> void
+Kiln.TestKit.KilnTestResult.Equals(Kiln.TestKit.KilnTestResult? other) -> bool
+Kiln.TestKit.KilnTestResult.KilnTestResult(string! Name, Kiln.Testing.TestOutcome Outcome, System.TimeSpan Duration, string? Message, string? Stack, System.Collections.Generic.IReadOnlyList<string!>! Unavailable) -> void
+Kiln.TestKit.KilnTestResult.Log.get -> System.Collections.Generic.IReadOnlyList<Kiln.TestKit.LogLine!>!
+Kiln.TestKit.KilnTestResult.Log.init -> void
+Kiln.TestKit.KilnTestResult.Message.get -> string?
+Kiln.TestKit.KilnTestResult.Message.init -> void
+Kiln.TestKit.KilnTestResult.Name.get -> string!
+Kiln.TestKit.KilnTestResult.Name.init -> void
+Kiln.TestKit.KilnTestResult.Notes.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Kiln.TestKit.KilnTestResult.Notes.init -> void
+Kiln.TestKit.KilnTestResult.Outcome.get -> Kiln.Testing.TestOutcome
+Kiln.TestKit.KilnTestResult.Outcome.init -> void
+Kiln.TestKit.KilnTestResult.Runner.get -> Kiln.Testing.TestResult?
+Kiln.TestKit.KilnTestResult.Runner.init -> void
+Kiln.TestKit.KilnTestResult.Stack.get -> string?
+Kiln.TestKit.KilnTestResult.Stack.init -> void
+Kiln.TestKit.KilnTestResult.Unavailable.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Kiln.TestKit.KilnTestResult.Unavailable.init -> void
+Kiln.TestKit.KilnTestSession
+Kiln.TestKit.KilnTestSession.Dispose() -> void
+Kiln.TestKit.KilnTestSession.DisposeError.get -> string?
+Kiln.TestKit.KilnTestSession.Harness.get -> Kiln.TestKit.KilnHarness?
+Kiln.TestKit.KilnTestSession.HarnessCount.get -> int
+Kiln.TestKit.KilnTestSession.KilnTestSession(System.Func<Kiln.TestKit.KilnHarness!, Kiln.TestKit.ModHandle!>! setup, System.Func<Kiln.TestKit.KilnHarnessOptions!>? harnessOptions = null, Kiln.TestKit.KilnTestOptions? options = null) -> void
+Kiln.TestKit.KilnTestSession.Run(string! name) -> Kiln.TestKit.KilnTestResult!
+Kiln.TestKit.LogLine
+Kiln.TestKit.LogLine.<Clone>$() -> Kiln.TestKit.LogLine!
+Kiln.TestKit.LogLine.Deconstruct(out long Sequence, out ulong Step, out Kiln.LogLevel Level, out string! Source, out string! Text) -> void
+Kiln.TestKit.LogLine.Equals(Kiln.TestKit.LogLine? other) -> bool
+Kiln.TestKit.LogLine.Level.get -> Kiln.LogLevel
+Kiln.TestKit.LogLine.Level.init -> void
+Kiln.TestKit.LogLine.LogLine(long Sequence, ulong Step, Kiln.LogLevel Level, string! Source, string! Text) -> void
+Kiln.TestKit.LogLine.ModId.get -> string?
+Kiln.TestKit.LogLine.Sequence.get -> long
+Kiln.TestKit.LogLine.Sequence.init -> void
+Kiln.TestKit.LogLine.Source.get -> string!
+Kiln.TestKit.LogLine.Source.init -> void
+Kiln.TestKit.LogLine.Step.get -> ulong
+Kiln.TestKit.LogLine.Step.init -> void
+Kiln.TestKit.LogLine.Text.get -> string!
+Kiln.TestKit.LogLine.Text.init -> void
+Kiln.TestKit.ModFaultException
+Kiln.TestKit.ModFaultException.Faults.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Kiln.TestKit.ModHandle
+Kiln.TestKit.ModHandle.Context.get -> Kiln.ModContext!
+Kiln.TestKit.ModHandle.Error.get -> string?
+Kiln.TestKit.ModHandle.Folder.get -> string!
+Kiln.TestKit.ModHandle.Id.get -> string!
+Kiln.TestKit.ModHandle.Info.get -> Kiln.ModInfo!
+Kiln.TestKit.ModHandle.Instance.get -> Kiln.Mod!
+Kiln.TestKit.ModHandle.IsLoaded.get -> bool
+Kiln.TestKit.ModHandle.State.get -> Kiln.ModState
+Kiln.TestKit.ModLeakException
+Kiln.TestKit.ModLeakException.ModIds.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Kiln.TestKit.ModLoadException
+Kiln.TestKit.ModLoadException.ModId.get -> string!
+Kiln.TestKit.ModLoadException.Reason.get -> string!
+Kiln.TestKit.ModLoadException.State.get -> Kiln.ModState
+Kiln.TestKit.ModManifest
+Kiln.TestKit.ModManifest.Advanced.get -> bool
+Kiln.TestKit.ModManifest.Advanced.set -> void
+Kiln.TestKit.ModManifest.ApiVersion.get -> string!
+Kiln.TestKit.ModManifest.ApiVersion.set -> void
+Kiln.TestKit.ModManifest.DependsOn(string! id, string! versionRange = "*", bool optional = false) -> Kiln.TestKit.ModManifest!
+Kiln.TestKit.ModManifest.Exports(params string![]! files) -> Kiln.TestKit.ModManifest!
+Kiln.TestKit.ModManifest.Id.get -> string!
+Kiln.TestKit.ModManifest.LocalesDirectory.get -> string?
+Kiln.TestKit.ModManifest.LocalesDirectory.set -> void
+Kiln.TestKit.ModManifest.ModManifest(string! id) -> void
+Kiln.TestKit.ModManifest.Name.get -> string?
+Kiln.TestKit.ModManifest.Name.set -> void
+Kiln.TestKit.ModManifest.Requires(params string![]! features) -> Kiln.TestKit.ModManifest!
+Kiln.TestKit.ModManifest.Set(string! key, System.Text.Json.Nodes.JsonNode? value) -> Kiln.TestKit.ModManifest!
+Kiln.TestKit.ModManifest.Side.get -> Kiln.ModSide
+Kiln.TestKit.ModManifest.Side.set -> void
+Kiln.TestKit.ModManifest.ToJson(string! entryAssembly, string? entryType) -> string!
+Kiln.TestKit.ModManifest.Version.get -> string!
+Kiln.TestKit.ModManifest.Version.set -> void
+Kiln.TestKit.Xunit.KilnSuiteLifetime
+Kiln.TestKit.Xunit.KilnSuiteLifetime.Dispose() -> void
+Kiln.TestKit.Xunit.KilnSuiteLifetime.KilnSuiteLifetime() -> void
+Kiln.TestKit.Xunit.KilnTestOrderer
+Kiln.TestKit.Xunit.KilnTestOrderer.KilnTestOrderer() -> void
+Kiln.TestKit.Xunit.KilnTestOrderer.OrderTestCases<TTestCase>(System.Collections.Generic.IReadOnlyCollection<TTestCase>! testCases) -> System.Collections.Generic.IReadOnlyCollection<TTestCase>!
+Kiln.TestKit.Xunit.KilnTestSuite<TMod>
+Kiln.TestKit.Xunit.KilnTestSuite<TMod>.KilnTest(string! name) -> void
+Kiln.TestKit.Xunit.KilnTestSuite<TMod>.KilnTestSuite() -> void
+override Kiln.TestKit.CapabilityRow.GetHashCode() -> int
+override Kiln.TestKit.CoverageRow.Equals(object? obj) -> bool
+override Kiln.TestKit.CoverageRow.GetHashCode() -> int
+override Kiln.TestKit.CoverageRow.ToString() -> string!
+override Kiln.TestKit.FakePlayer.ToString() -> string!
+override Kiln.TestKit.KilnTestResult.Equals(object? obj) -> bool
+override Kiln.TestKit.KilnTestResult.GetHashCode() -> int
+override Kiln.TestKit.KilnTestResult.ToString() -> string!
+override Kiln.TestKit.LogLine.Equals(object? obj) -> bool
+override Kiln.TestKit.LogLine.GetHashCode() -> int
+override Kiln.TestKit.LogLine.ToString() -> string!
+override Kiln.TestKit.ModHandle.ToString() -> string!
+static Kiln.TestKit.CapabilityRow.operator !=(Kiln.TestKit.CapabilityRow left, Kiln.TestKit.CapabilityRow right) -> bool
+static Kiln.TestKit.CapabilityRow.operator ==(Kiln.TestKit.CapabilityRow left, Kiln.TestKit.CapabilityRow right) -> bool
+static Kiln.TestKit.Coverage.All.get -> System.Collections.Generic.IReadOnlyList<Kiln.TestKit.CoverageRow!>!
+static Kiln.TestKit.CoverageRow.operator !=(Kiln.TestKit.CoverageRow? left, Kiln.TestKit.CoverageRow? right) -> bool
+static Kiln.TestKit.CoverageRow.operator ==(Kiln.TestKit.CoverageRow? left, Kiln.TestKit.CoverageRow? right) -> bool
+static Kiln.TestKit.KilnHarness.ListTests(System.Reflection.Assembly! assembly) -> System.Collections.Generic.IReadOnlyList<string!>!
+static Kiln.TestKit.KilnTestOptions.Default.get -> Kiln.TestKit.KilnTestOptions!
+static Kiln.TestKit.KilnTestResult.operator !=(Kiln.TestKit.KilnTestResult? left, Kiln.TestKit.KilnTestResult? right) -> bool
+static Kiln.TestKit.KilnTestResult.operator ==(Kiln.TestKit.KilnTestResult? left, Kiln.TestKit.KilnTestResult? right) -> bool
+static Kiln.TestKit.LogLine.operator !=(Kiln.TestKit.LogLine? left, Kiln.TestKit.LogLine? right) -> bool
+static Kiln.TestKit.LogLine.operator ==(Kiln.TestKit.LogLine? left, Kiln.TestKit.LogLine? right) -> bool
+static Kiln.TestKit.Xunit.KilnTestSuite<TMod>.KilnTests.get -> System.Collections.Generic.IEnumerable<Xunit.TheoryDataRow<string!>!>!
+virtual Kiln.TestKit.Xunit.KilnTestSuite<TMod>.AllowUnavailable.get -> System.Collections.Generic.IReadOnlyCollection<string!>!
+virtual Kiln.TestKit.Xunit.KilnTestSuite<TMod>.HarnessOptions() -> Kiln.TestKit.KilnHarnessOptions!
+virtual Kiln.TestKit.Xunit.KilnTestSuite<TMod>.LoadMod(Kiln.TestKit.KilnHarness! kiln) -> Kiln.TestKit.ModHandle!
+virtual Kiln.TestKit.Xunit.KilnTestSuite<TMod>.Setup(Kiln.TestKit.KilnHarness! kiln) -> void
+virtual Kiln.TestKit.Xunit.KilnTestSuite<TMod>.WatchdogGrace.get -> System.TimeSpan
+~override Kiln.TestKit.CapabilityRow.Equals(object obj) -> bool
+~override Kiln.TestKit.CapabilityRow.ToString() -> string
