@@ -1,0 +1,52 @@
+{
+  // Moves on player states by name (docs/kiln/modding/animations.md, "Player states"). own-sword's moves play this mod's own states
+  // (assets/player-states.json, their clips cooked by build-assets.py), game-name-sword's the game's states by name, refused-sword's
+  // names cannot be a move's state (each is reported by block and slot, and the move keeps its like's), own-wand's bolt plays an overlay state.
+  "$schema": "../../../../schema/kiln-blocks.schema.json",
+  "format": 1,
+  "weapons": {
+    "own-sword": {
+      "name": "Own Sword", "class": "sword", "stats": { "level": 5, "power": 30, "rarity": "rare" },
+      "moves": {
+        "primary": [
+          { "animation": "wm-slash-1", "like": "Attack_Player_1H_Single_LightChain1" },
+          { "animation": "wm-slash-2", "like": "Attack_Player_1H_Single_LightChain2" }
+        ],
+        "heavy": { "animation": "wm-cleave", "like": "Attack_Player_Melee_Heavy_Sword_Diagonal" },
+        "block": { "animation": "wm-guard" }
+      }
+    },
+    "game-name-sword": {
+      "name": "Game Name Sword", "class": "sword", "stats": { "level": 5, "power": 30, "rarity": "rare" },
+      "moves": {
+        "primary": [
+          { "animation": "SM_Attack_Hammer_FullBody/Attack_Axe_01", "like": "Attack_Player_1H_Single_LightChain1" },
+          { "animation": "Attack_Axe_02", "like": "Attack_Player_1H_Single_LightChain2" }
+        ],
+        "heavy": { "animation": "Attack_Greatsword_Heavy", "like": "Attack_Player_Melee_Heavy_Sword_Diagonal" }
+      }
+    },
+    "refused-sword": {
+      "name": "Refused Sword", "class": "sword", "stats": { "level": 5, "power": 30, "rarity": "rare" },
+      "moves": {
+        "primary": [
+          { "animation": "No_State_Has_This_Name", "like": "Attack_Player_1H_Single_LightChain1" },
+          { "animation": "Attack_Jump_Uppercut", "like": "Attack_Player_1H_Single_LightChain2" }
+        ],
+        "heavy": { "animation": "SM_Block_Locomotion/Idle_Block", "like": "Attack_Player_Melee_Heavy_Sword_Diagonal" },
+        "block": { "animation": "SM_Jump_Attack_FullBody/Jump_Attack_Start_FullBody" },
+        "dodgeAttack": { "animation": "wm-nowhere" }
+      }
+    }
+  },
+  "wands": {
+    "own-wand": {
+      "name": "Own Wand", "stats": { "level": 5, "rarity": "uncommon" },
+      "primary": {
+        "cast": { "manaCost": 6 },
+        "delivery": { "type": "projectile", "speed": 40, "look": "fireball", "onImpact": [ { "area": { "radius": 2, "effects": [ { "damage": { "fire": 25 } } ] } } ] },
+        "moves": { "like": "bolt", "animation": "wm-zap" }
+      }
+    }
+  }
+}

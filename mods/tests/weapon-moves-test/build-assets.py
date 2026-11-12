@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
-"""Builds the lab test's held models with moving parts: the sample's moving blade (mods/samples/WeaponMoves/make_assets.py, no game data) into
+"""Builds the lab test's assets: the sample's motions for its player states (assets/player-states.json) and the sample's moving blade (mods/samples/WeaponMoves/make_assets.py, no game data) into
 assets/src/, then this mod's own recipe (assets/cook.json), cooked from the installed game into assets/cooked/ (gitignored, never committed).
 
     python3 mods/tests/weapon-moves-test/build-assets.py [--game DIR]
@@ -19,8 +19,19 @@ src.mkdir(parents=True, exist_ok=True)
 spec = importlib.util.spec_from_file_location("weapon_moves_make_assets", SAMPLE)
 make = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(make)
+make.fighter(src / "fighter.gltf")   # the rig and motions the test's player states play (retargeted by assets/cook.json)
 make.blade(src / "blade.gltf", skinned=True)
 make.blade(src / "blade_rigid.gltf", skinned=False)
 print("wrote", ", ".join(p.name for p in sorted(src.glob("*.gltf"))))
 cmd = [sys.executable, str(ROOT / "tools/modelcook/modelcook.py")] + sys.argv[1:] + ["recipe", str(HERE / "assets/cook.json"), "--update-manifest"]
-sys.exit(subprocess.call(cmd))
+rc = subprocess.call(cmd)
+# assets/player-states.json has one state that must be refused (wm-nowhere: its like is no state of the game's), so the cook's check of
+# the file exits 1 on purpose. Every other state has to be live, and the cooked clips and the manifest have to be there.
+report = HERE / "assets/cooked/player-states.json"
+if rc != 0 and report.exists():
+    import json
+    states = json.loads(report.read_text()).get("states", {})
+    bad = {k: v.get("status") for k, v in states.items() if (v.get("status") == "live") == (k == "wm-nowhere")}
+    print("player states:", ", ".join(f"{k} {v.get('status')}" for k, v in states.items()))
+    rc = 0 if not bad and (HERE / "assets/assets.json").exists() else rc
+sys.exit(rc)

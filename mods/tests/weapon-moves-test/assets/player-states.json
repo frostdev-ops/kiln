@@ -1,0 +1,11 @@
+{
+  "format": 1,
+  "states": {
+    "wm-slash-1": { "clip": "slash_1", "like": "Attack_Sword_Shield_01" },
+    "wm-slash-2": { "clip": "slash_2", "like": "Attack_Sword_Shield_02" },
+    "wm-cleave": { "clip": "cleave", "like": "SM_Attack_Sword_Shield_FullBody/Attack_Heavy" },
+    "wm-guard": { "clip": "guard", "like": "Block_FullBody", "loop": true },
+    "wm-zap": { "clip": "fd997a60-b8f3-409d-b3aa-f8e18d03b120", "like": "SM_Wand_Overlay/Attack_Magic_Wand_01" },
+    "wm-nowhere": { "clip": "slash_1", "like": "Attack_Sword_Shield_99" }
+  }
+}

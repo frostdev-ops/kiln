@@ -25,6 +25,7 @@ public sealed partial class WeaponMovesTestMod
         await HeldInHand(p);
         await HeldItemsInTheWorld(p);
         await HeldItemsInAChest(p);
+        await GraphEnters(p);
         if (!await ToHand(p, "chain-sword")) return;
         await Dummies(p);
         await ChainPlayed(p);
@@ -105,9 +106,25 @@ public sealed partial class WeaponMovesTestMod
     }
 
     // Training dolls (a prop that stands still) all round the character, at its height, so that a swing meets one whichever way it faces.
+    private WorldPosition _ring;
+
+    /// <summary>The swings' root motion walks the character off the dolls' ring: past half a metre, the dolls are put round it again.</summary>
+    private async Task Recenter(EntityId p)
+    {
+        if (World.Position(p) is not { } at || _dummies.Count == 0) return;
+        var off = Math.Sqrt(Math.Pow(at.X - _ring.X, 2) + Math.Pow(at.Z - _ring.Z, 2));
+        if (off < 0.5 || !_dummies.All(d => Spawn.Inspect(d)?.TemplateName?.Contains("TrainingDoll", StringComparison.Ordinal) == true)) return;
+        foreach (var d in _dummies.ToList())
+            if (World.Exists(d)) Spawn.Destroy(d);
+        _dummies.Clear();
+        Info($"the character walked {off:0.##} m off the dolls' ring: they are put round it again");
+        await Dummies(p);
+    }
+
     private async Task Dummies(EntityId p)
     {
         var c = World.Position(p)!.Value;
+        _ring = c;
         for (var i = 0; i < 8; i++)
         {
             var a = i * Math.PI / 4;
@@ -352,6 +369,7 @@ public sealed partial class WeaponMovesTestMod
         async Task One(string label, string weapon, Guid sequence, Start m, double at, bool hurt = true)
         {
             if (!await ToHand(p, weapon)) return;
+            await Recenter(p);
             var want = _wrong && label.StartsWith("link 1", StringComparison.Ordinal) ? at + 0.3 : at;
             var b = await Blow(want, p, sequence, 90, m, label.Contains("heavy", StringComparison.Ordinal) ? PlayerStateId.ActionHeavy : PlayerStateId.ActionPrimary);
             var step = StepSeconds();
@@ -362,7 +380,7 @@ public sealed partial class WeaponMovesTestMod
             Check(b.Opened is { } o && (Math.Abs(o - want) <= Math.Max(step, b.OpenStep) + 1 / 60.0 + 1e-6 || b.StepsOff is >= -1 and <= 1),
                 $"{label}: its damage window (the SpawnImpact's impact) opens {b.Opened?.ToString("0.###") ?? "never"} s after the sequence started, {want:0.###} s asked, within one step ({step:0.###} s, read on the 1/60 s clock): {b.StepsOff?.ToString("+0;-0;0") ?? "no"} step(s) from the step the sequence's clock reaches it in (that step {b.OpenStep:0.###} s)");
             var inside = b.Seconds is { } s && s >= want - step - 1 / 60.0 - 1e-6 && s <= want + span + step + 1 / 60.0 + 1e-6;   // the same step as the window, either way
-            if (!hurt && !inside) Info($"{label}: no hurt event inside the blow's window ({b.Seconds?.ToString("0.###") ?? "none"} s): the motion is its like's, whose blade has passed the dummies by then");
+            if (!hurt && !inside) Info($"{label}: no hurt event inside the blow's window ({b.Seconds?.ToString("0.###") ?? "none"} s): the backhand comes from the other side and meets a doll or not depending on where the dolls stand round the character");
             else Check(inside,
                 $"{label}: the hurt event on the dummy comes {b.Seconds?.ToString("0.###") ?? "never"} s after the start ({(b.Hit is { } h2 ? (long)(h2 - b.Start) : -1)} steps), inside the blow's window {want:0.###}..{want + span:0.###} s give or take one step");
         }
@@ -376,8 +394,9 @@ public sealed partial class WeaponMovesTestMod
         await One($"the control, the game's {AxeHeavy} on the game's greataxe, unchanged", AxeStarter, Seq(AxeHeavy).Guid, heavy, Seq(AxeHeavy).Get("events[SpawnImpact#0].time").Number);
         if (!Mods.IsLoaded(Sample)) return;
         var blade = $"{Sample}.turning-blade";
-        // the sample's light links play their like's own motion until player-anim lands: their blow is timed for the sample's clips, so whether it meets a dummy is told, not checked
-        await One("the sample's link 1, its hitAt 0.42 s", blade, SampleClone("turning-blade", "primary.1"), light, 0.42, hurt: false);
+        // the sample's light links play its own clips (its player states): their blows are timed for them. The second, a mirrored backhand, meets a doll or not
+        // depending on where the doll stands: its window is checked, and its hurt event told
+        await One("the sample's link 1, its hitAt 0.42 s", blade, SampleClone("turning-blade", "primary.1"), light, 0.42);
         await One("the sample's link 2, its hitAt 0.37 s", blade, SampleClone("turning-blade", "primary.2"), light == Start.Input ? Start.InputSecond : light, 0.37, hurt: false);
         await One("the sample's heavy, its hitAt 0.9 s", blade, SampleClone("turning-blade", "heavy"), heavy, 0.9);
     }

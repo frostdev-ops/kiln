@@ -117,6 +117,9 @@ public sealed partial class WeaponMovesTestMod
         }
         for (var i = 0; i < 60 && Items.Read(chest) is not { Initialized: true }; i++) await Steps(1);
         // out of the character's bag and into the chest (Items.Move refuses a slot on the action bar, where given items land)
+        // what an earlier run left in it out first, so the chest holds one of each after this
+        foreach (var i in ids)
+            if (Items.Read(chest)?.Count(new ItemId(i)) is > 0 and var n) await Items.Take(chest, new ItemId(i), n);
         var moved = new List<string>();
         foreach (var i in ids)
         {
