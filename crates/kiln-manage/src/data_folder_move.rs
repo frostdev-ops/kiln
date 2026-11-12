@@ -1872,11 +1872,197 @@ fn remove_empty_dirs(p: &Path, left: &mut Vec<Kept>) {
     }
 }
 
-/// The partial copy of a move that did not commit: only with the proof of the target's [`MOVE_MARKER`] (this
-/// journal's id) are the journal's entries removed from the target, then the two markers, then the target and the
-/// folders above it the move made, when they are empty. Anything else in the target stays. Then the journal and the
-/// file record go. Without the proof nothing is removed (the journal stays: [`acknowledge`]).
-fn remove_partial(default: &Path, journal: &Journal) -> Cleanup {
+// ------------------------------------------------------------------------------------------------ a partial copy
+
+/// Why a file or folder of a partial copy stays: the reasons a player reads in [`Cleanup::kept`].
+pub mod partial_reason {
+    /// The old folder has nothing (or only a link, or something that is not a plain file) at that path.
+    pub const NO_SUCH_FILE: &str = "the old folder has no such file, so Kiln cannot tell that the move made it";
+    /// Size or content differ from the old folder's file.
+    pub const DIFFERS: &str = "it differs from the file in the old folder (added, changed or replaced after the move stopped, or the old folder's file changed since)";
+    /// A symlink, a junction or another reparse point: never followed, never removed.
+    pub const LINK: &str = "it is a link, which Kiln never follows or removes";
+    /// Not a plain file or folder (a device, a pipe, a socket).
+    pub const SPECIAL: &str = "it is not a plain file or folder";
+    /// A top-level entry the journal does not list.
+    pub const NOT_COPIED: &str = "the move copied nothing by this name";
+    /// A file the move never copies (`nexus/*.lock`, `state/file-hashes.json`).
+    pub const NEVER_COPIED: &str = "the move never copies this file";
+    /// An empty folder the old folder does not have.
+    pub const NO_SUCH_FOLDER: &str = "the old folder has no such folder, so Kiln cannot tell that the move made it";
+    /// A leftover of the move's own marker writes whose content does not prove it is this move's.
+    pub const NOT_THIS_MOVE: &str = "its content does not show that this move wrote it";
+}
+
+/// A symlink, or on Windows any reparse point (a junction too): never followed.
+fn is_link_meta(m: &std::fs::Metadata) -> bool {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        if m.file_attributes() & 0x400 != 0 {
+            return true; // FILE_ATTRIBUTE_REPARSE_POINT
+        }
+    }
+    m.file_type().is_symlink()
+}
+
+/// The removal of a partial copy by proof from the old folder (`from`, still the folder in use and complete).
+struct Recovery<'a> {
+    from: &'a Path,
+    to: &'a Path,
+    /// The old root as the move wrote it into a rewritten server record (as given, and canonical).
+    olds: Vec<PathBuf>,
+    style: PathStyle,
+    total: u64,
+    seen: u64,
+    files: u64,
+    c: Cleanup,
+}
+
+/// A cancel between two files.
+struct Canceled;
+
+impl Recovery<'_> {
+    fn keep(&mut self, path: PathBuf, bytes: u64, reason: impl Into<String>) {
+        self.c.kept.push(Kept { path, bytes, reason: reason.into() });
+    }
+
+    /// One entry below a journal entry of the target (`names` from the target root). `src_dir`: every folder above it
+    /// in the old folder is a real folder (no link), so the old folder's path can prove what is here.
+    fn visit(&mut self, names: &mut Vec<String>, src_dir: bool, progress: &mut dyn Progress) -> std::result::Result<(), Canceled> {
+        let t = names.iter().fold(self.to.to_path_buf(), |p, n| p.join(n));
+        let m = match std::fs::symlink_metadata(&t) {
+            Ok(m) => m,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(e) => {
+                self.keep(t, 0, format!("it could not be inspected: {e}"));
+                return Ok(());
+            }
+        };
+        if is_link_meta(&m) {
+            self.keep(t, m.len(), partial_reason::LINK);
+        } else if m.is_dir() {
+            let s = names.iter().fold(self.from.to_path_buf(), |p, n| p.join(n));
+            let s_dir = src_dir && std::fs::symlink_metadata(&s).is_ok_and(|sm| sm.is_dir() && !is_link_meta(&sm));
+            let mut kids: Vec<String> = match std::fs::read_dir(&t) {
+                Ok(rd) => rd.flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect(),
+                Err(e) => {
+                    self.keep(t, 0, format!("its contents could not be listed: {e}"));
+                    return Ok(());
+                }
+            };
+            kids.sort();
+            for k in kids {
+                names.push(k);
+                let r = self.visit(names, s_dir, progress);
+                names.pop();
+                r?;
+            }
+            // a folder goes when nothing is left in it and the old folder has it; one that holds anything stays
+            // without a word (what it holds is named)
+            if std::fs::read_dir(&t).is_ok_and(|mut d| d.next().is_none()) {
+                if !s_dir {
+                    self.keep(t, 0, partial_reason::NO_SUCH_FOLDER);
+                } else if let Err(e) = std::fs::remove_dir(&t) {
+                    self.keep(t, 0, format!("it could not be removed: {e}"));
+                }
+            }
+        } else if m.is_file() {
+            if progress.canceled() {
+                return Err(Canceled);
+            }
+            let rel = rel_of(names);
+            self.files += 1;
+            self.seen += m.len();
+            // every 64th file, and each large one (its content may be read): a report with a new text is an event
+            if self.files % 64 == 1 || m.len() >= 4 << 20 {
+                progress.report(Some((self.seen as f32 / self.total.max(1) as f32).min(1.0)), &format!("checking {rel}"));
+            }
+            match self.proof(names, &t, &m, src_dir) {
+                Ok(()) => match std::fs::remove_file(&t) {
+                    Ok(()) => {
+                        self.c.removed_files += 1;
+                        self.c.removed_bytes += m.len();
+                    }
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(e) => self.keep(t, m.len(), format!("it could not be removed: {e}")),
+                },
+                Err(why) => self.keep(t, m.len(), why),
+            }
+        } else {
+            self.keep(t, m.len(), partial_reason::SPECIAL);
+        }
+        Ok(())
+    }
+
+    /// Ok when the old folder proves the move made the file at `t`: a plain file at the same path (no link on the way)
+    /// with the same size and sha256, the same file (a hard link), or for `servers/<id>.json` what the move writes
+    /// from the old folder's file. Err: why it stays.
+    fn proof(&self, names: &[String], t: &Path, tm: &std::fs::Metadata, src_dir: bool) -> std::result::Result<(), String> {
+        let never = (names.len() == 2 && self.style.same_name(&names[0], "nexus") && names[1].to_lowercase().ends_with(".lock"))
+            || (names.len() == 2 && self.style.same_name(&names[0], df::HASH_CACHE[0]) && self.style.same_name(&names[1], df::HASH_CACHE[1]));
+        if never {
+            return Err(partial_reason::NEVER_COPIED.into());
+        }
+        if !src_dir {
+            return Err(partial_reason::NO_SUCH_FILE.into());
+        }
+        let s = names.iter().fold(self.from.to_path_buf(), |p, n| p.join(n));
+        let sm = match std::fs::symlink_metadata(&s) {
+            Ok(sm) if sm.is_file() && !is_link_meta(&sm) => sm,
+            _ => return Err(partial_reason::NO_SUCH_FILE.into()),
+        };
+        // the same file under two names (a hard link the move made): proof without reading it
+        if same_inode(tm, &sm) {
+            return Ok(());
+        }
+        let compare = |e: std::io::Error| format!("Kiln could not compare it with the old folder's file: {e}");
+        // servers/<id>.json: the move wrote it with backupDir rewritten from the old root to the new one
+        if names.len() == 2 && names[0] == "servers" && names[1].ends_with(".json")
+            && let Ok(text) = std::fs::read_to_string(&s)
+            && let Some(written) = rewrite_root_field(&text, "backupDir", &self.olds, self.to)
+        {
+            if tm.len() != written.len() as u64 {
+                return Err(partial_reason::DIFFERS.into());
+            }
+            let here = std::fs::read(t).map_err(compare)?;
+            return if here == written.as_bytes() { Ok(()) } else { Err(partial_reason::DIFFERS.into()) };
+        }
+        if tm.len() != sm.len() {
+            return Err(partial_reason::DIFFERS.into());
+        }
+        let hash = |p: &Path| crate::hash::sha256_file(p).map(|(h, _)| h).map_err(|e| format!("Kiln could not compare it with the old folder's file: {}", e.message));
+        if hash(t)? == hash(&s)? { Ok(()) } else { Err(partial_reason::DIFFERS.into()) }
+    }
+}
+
+/// A leftover of the move's own atomic marker writes at the target's top (`<marker>.tmp`): the move's only when its
+/// content shows it. A move marker's carries this journal's id; a folder marker's (it has no id) was created at or
+/// after the move started.
+fn own_marker_tmp(p: &Path, name: &str, journal: &Journal, style: PathStyle) -> Option<bool> {
+    if style.same_name(name, &format!("{MOVE_MARKER}.tmp")) {
+        return Some(crate::util::read_json::<MoveMark>(p).ok().flatten().is_some_and(|m| m.format == 1 && m.id == journal.id));
+    }
+    if style.same_name(name, &format!("{MARKER}.tmp")) {
+        return Some(crate::util::read_json::<FolderMark>(p).ok().flatten().is_some_and(|m| m.format == 1 && m.created >= journal.started));
+    }
+    None
+}
+
+/// The partial copy of a move that did not commit, by proof: only with the target's [`MOVE_MARKER`] (this journal's
+/// id), and only what the old folder (`from`, still in use and complete) proves the move made: a plain file below one
+/// of the journal's entries goes when the old folder has a plain file at the same path with the same size and sha256,
+/// or the same file (a hard link), or for `servers/<id>.json` exactly what the move writes from the old folder's
+/// file. A folder goes when it is empty after that and the old folder has it. Nothing is read through a link, here or
+/// in the old folder. Everything else stays and is named in `kept` ([`partial_reason`]): a file the old folder does
+/// not have or that differs, a link, a special file, an empty folder the old folder does not have, a top-level entry
+/// the journal does not list. The launcher's own files at the top (lock files, the pointer and the journal at a
+/// default root, the entry holding Kiln's state) are not the copy's and stay without a word. Then, only when nothing
+/// was kept, the proof ([`remove_proof`]). A cancel (between two files) stops it with the marker and the journal kept:
+/// the next call goes on. A target that is gone, or that the player emptied by hand (no marker, nothing in it but the
+/// launcher's own files: the lock file the move made, at a default root the pointer and the journal), ends the move
+/// cleanly: the folder goes when the move made it and is empty, the records go.
+fn remove_partial(env: &DataEnv, default: &Path, journal: &Journal, progress: &mut dyn Progress) -> Cleanup {
     let to = &journal.to;
     let mut c = Cleanup { folder: to.clone(), done: false, interrupted: false, removed_files: 0, removed_bytes: 0, folder_removed: false, kept: vec![], reason: None };
     if may_have_committed(journal) {
@@ -1901,34 +2087,108 @@ fn remove_partial(default: &Path, journal: &Journal) -> Cleanup {
         }
         Ok(_) => {}
     }
+    let style = PathStyle::of(env);
+    let own = df::own_entries(to, env);
+    // the launcher's own files and entries at the top (lock files; at a default root the pointer, the journal and the
+    // file record, the entry holding Kiln's state): never the copy's
+    let launchers = |name: &str, m: Option<&std::fs::Metadata>| {
+        let plain = m.is_some_and(|m| m.is_file() && !is_link_meta(m));
+        (plain && (df::is_own_file(name, style) || df::is_top_lock(name, style))) || own.iter().any(|o| style.same_name(o, name))
+    };
     if move_mark_id(to).as_deref() != Some(journal.id.as_str()) {
+        // a target the player emptied by hand, its marker too: nothing of the copy is in it, nothing the launcher could
+        // remove wrongly. The lock file the move made and the folder it made go, then the records: the move is finished
+        let names: Option<Vec<String>> = std::fs::read_dir(to).ok().map(|rd| rd.flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect());
+        if let Some(names) = names.filter(|v| v.iter().all(|n| launchers(n, std::fs::symlink_metadata(to.join(n)).ok().as_ref()))) {
+            if journal.created_lock
+                && let Some(n) = names.iter().find(|n| style.same_name(n, df::LOCK))
+                && let Err(e) = remove_if_there(&to.join(n))
+            {
+                c.reason = Some(format!("{} holds nothing of the move, but the lock file it made could not be removed ({}): the move's records stay.", to.display(), e.message));
+                return c;
+            }
+            if journal.created_target {
+                c.folder_removed = std::fs::remove_dir(to).is_ok();
+            }
+            for p in journal.created_parents.iter().rev() {
+                let _ = std::fs::remove_dir(p);
+            }
+            drop_records();
+            c.done = true;
+            return c;
+        }
         c.reason = Some(format!("{} does not carry this move's marker, so nothing was removed from it.", to.display()));
         return c;
     }
-    for e in &journal.entries {
-        let p = to.join(&e.name);
-        let r = match std::fs::symlink_metadata(&p) {
-            Err(_) => continue,
-            Ok(m) if m.is_dir() => std::fs::remove_dir_all(&p),
-            Ok(_) => std::fs::remove_file(&p),
-        };
-        match r {
-            Ok(()) => c.removed_bytes += e.bytes,
-            Err(err) => c.kept.push(Kept { path: p, bytes: e.bytes, reason: format!("it could not be removed: {err}") }),
+    let names: Vec<String> = match std::fs::read_dir(to) {
+        Ok(rd) => {
+            let mut v: Vec<String> = rd.flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect();
+            v.sort();
+            v
         }
+        Err(e) => {
+            c.reason = Some(format!("{} cannot be listed ({e}): nothing was removed, and the move's records stay.", to.display()));
+            return c;
+        }
+    };
+    let mut olds = vec![journal.from.clone(), df::canonical(&journal.from)];
+    olds.dedup();
+    let mut r = Recovery { from: &journal.from, to, olds, style, total: journal.entries.iter().map(|e| e.bytes).sum(), seen: 0, files: 0, c };
+    progress.report(Some(0.0), &format!("removing the partial copy at {}", to.display()));
+    for name in names {
+        let p = to.join(&name);
+        if journal.entries.iter().any(|e| style.same_name(&e.name, &name)) {
+            if r.visit(&mut vec![name], true, progress).is_err() {
+                r.c.interrupted = true;
+                return r.c;
+            }
+            continue;
+        }
+        let m = std::fs::symlink_metadata(&p).ok();
+        let plain = m.as_ref().is_some_and(|m| m.is_file() && !is_link_meta(m));
+        if style.same_name(&name, MOVE_MARKER) || style.same_name(&name, MARKER) {
+            continue; // the proof: last, by remove_proof
+        }
+        match own_marker_tmp(&p, &name, journal, style) {
+            Some(true) if plain => {
+                if let Err(e) = remove_if_there(&p) {
+                    r.keep(p, m.map_or(0, |m| m.len()), format!("it could not be removed: {}", e.message));
+                }
+                continue;
+            }
+            Some(_) => {
+                r.keep(p, m.map_or(0, |m| m.len()), partial_reason::NOT_THIS_MOVE);
+                continue;
+            }
+            None => {}
+        }
+        if launchers(&name, m.as_ref()) {
+            continue;
+        }
+        let bytes = match &m {
+            Some(m) if m.is_dir() && !is_link_meta(m) => dir_bytes(&p),
+            Some(m) => m.len(),
+            None => 0,
+        };
+        let why = if m.as_ref().is_some_and(is_link_meta) { partial_reason::LINK } else { partial_reason::NOT_COPIED };
+        r.keep(p, bytes, why);
     }
+    let mut c = r.c;
     remove_proof(default, journal, &mut c);
+    progress.report(Some(1.0), if c.done { "the partial copy is removed" } else { "the partial copy is not removed in full" });
     c
 }
 
-/// Removes the partial copy of a move that did not commit ([`pending`] says `Uncommitted`): see `remove_partial`'s
-/// rule (the target's marker must carry the journal's id).
-pub fn remove_partial_copy(env: &DataEnv) -> Result<Cleanup> {
+/// Removes the partial copy of a move that did not commit ([`pending`] says `Uncommitted`) by `remove_partial`'s rule:
+/// only what the old folder proves the move made; everything else stays and is named, and the marker and the journal
+/// stay for the next call. Reports a fraction and the file it checks; a cancel between two files returns `interrupted`
+/// (the next call goes on). The result is kept in the journal when not done.
+pub fn remove_partial_copy_with(env: &DataEnv, progress: &mut dyn Progress) -> Result<Cleanup> {
     let default = default_root(env)?;
     match pending(env)? {
         Pending::Uncommitted { journal } => {
             let mut journal = journal;
-            let c = remove_partial(&default, &journal);
+            let c = remove_partial(env, &default, &journal, progress);
             if !c.done {
                 save_result(&default, &mut journal, &c, "failed");
             }
@@ -1941,6 +2201,11 @@ pub fn remove_partial_copy(env: &DataEnv) -> Result<Cleanup> {
             Ok(Cleanup::refused(&at, format!("{reason} The partial copy, if any, is at {}.", at.display())))
         }
     }
+}
+
+/// [`remove_partial_copy_with`] without progress or cancel.
+pub fn remove_partial_copy(env: &DataEnv) -> Result<Cleanup> {
+    remove_partial_copy_with(env, &mut crate::task::NoProgress)
 }
 
 /// The launcher has shown the result: the journal and the file record go, and the new place's [`MOVE_MARKER`] (only

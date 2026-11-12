@@ -199,13 +199,35 @@ The whole data folder moves as one (`kiln_manage::data_folder`, `kiln_manage::da
   the old root (`configDir`, `dataDir`, a mod folder, a plugin DLL; Z and native mode), whoever wrote it, or cannot be
   read: the result names the game and says that activating its profile again lets the old copy go at the next start.
   A file of the launcher's own it could not remove (lock files, the markers, the hash cache) and an empty folder it
-  could not remove (also the empty old root) are in `kept`, with the OS error; a later call tries again. A partial
-  copy found by a later start goes only when the target's `.kiln-data-move.json` has the journal's id: the journal's
-  entries, then, only when nothing of them was kept, the folder marker, the lock file the move made and the move marker
-  last (one that cannot be removed is kept, and the move marker stays), and the target when the move made it; anything
-  else stays. The result (what stayed, why, sizes, paths) is kept in the journal until acknowledged. `acknowledge` is
-  refused (`refused`) while the partial copy of a move that did not commit still carries the journal's marker: the next
-  start removes it first.
+  could not remove (also the empty old root) are in `kept`, with the OS error; a later call tries again.
+- **A partial copy** found by a later start (`remove_partial_copy`, or `remove_partial_copy_with` with progress and
+  cancel) is removed only when the target's `.kiln-data-move.json` has the journal's id, and then only what the old
+  folder (still the folder in use, and complete) proves the move made. A plain file below one of the journal's entries
+  goes when the old folder has a plain file at the same path with the same size and sha256, or when it is the same
+  file (a hard link: same device and inode, not read), or, for `servers/<id>.json`, when it is byte for byte what the
+  move writes from the old folder's file (`backupDir` rewritten). A folder goes when it is empty after that and the
+  old folder has it. Nothing is read through a link, in the target or in the old folder (a link on the way in the old
+  folder proves nothing). Everything else stays and is named in `kept` with its size and a reason
+  (`data_folder_move::partial_reason`): "the old folder has no such file, so Kiln cannot tell that the move made it",
+  "it differs from the file in the old folder (added, changed or replaced after the move stopped, or the old folder's
+  file changed since)", "it is a link, which Kiln never follows or removes", "it is not a plain file or folder", "the
+  move copied nothing by this name" (a top-level entry the journal does not list), "the old folder has no such
+  folder, so Kiln cannot tell that the move made it" (an empty folder), "the move never copies this file"
+  (`nexus/*.lock`, the hash cache). The launcher's own files at the target's top (lock files; at a default root the
+  pointer, the journal and the file record, and the entry holding Kiln's state) are not the copy's and stay without a
+  word. Leftovers of the move's marker writes (`.kiln-data-move.json.tmp`, `.kiln-data-folder.json.tmp`) go only when
+  their content shows they are this move's (the journal's id; a folder marker created at or after the move started);
+  any other stays, named ("its content does not show that this move wrote it"). Only when nothing was kept do the
+  folder marker, the lock file the move made and the move marker (last), the target and the folders above it that
+  the move made, and the journal and file record go. With anything kept they stay, `pending` stays `Uncommitted`, and
+  the next call tries again: once the player has taken the named files out, the rest goes. A target that is gone, or
+  that the player emptied by hand (no marker, nothing in it but the launcher's own files above: the lock file the move
+  made, at a default root the pointer and the journal), ends the move cleanly: the folder goes when the move made it,
+  and the journal and file record go. It reports a fraction and
+  the file it checks; a cancel between two files returns `interrupted` with the marker and the journal kept, and the
+  next call goes on. The result (what stayed, why, sizes, paths) is kept in the journal until acknowledged.
+  `acknowledge` is refused (`refused`) while the partial copy of a move that did not commit still carries the
+  journal's marker: the next start removes it first.
 - **What stays at the default root after a move away**: the pointer (about 150 bytes), the journal and the file record
   until acknowledged, the entries the launcher does not know, and on Windows `state\` (`util::state_dir()`: server console
   captures, the keyring store's lock). The move removes the rest itself before anything else writes there.
@@ -1173,7 +1195,7 @@ default; the launcher uses `full`. Builds for Linux and `x86_64-pc-windows-msvc`
 | `task` | `trait Progress { report(Option<f32>, &str); canceled() }`, `NoProgress` |
 | `paths` | `DataDirs::{at, locate, library, profiles, installs, runtime, schema_cache, backups, logs, settings, library_entry, profile}`, `DataEnv::{from_process, default_root, locate, locate_checked, home_dir, state_dir, config_dir}`, `Located {dirs, source, default_root}`, `RootSource {Env, Pointer, Default}`, `LocateProblem::into_error`, `ProblemKind`, `paths::game::*` constants |
 | `data_folder` | `recognize(&Path, &DataEnv) -> Result<FolderState>`, `inventory(&Path, &DataEnv) -> Result<Inventory>`, `own_entries`, `foreign_entries`, `is_top_lock`, `check(&CheckInput, &dyn SystemFacts) -> Result<Plan, Refusal>`, `check_here`, `target_rule`, `check_form`, `relation_to_current`, `game_path_too_long`, `needed_bytes`, `written_in_place`, `is_own_file`, `canonical`, `known_servers`, `read_pointer`, `write_pointer`, `remove_pointer`, `check_pointed`, `DataLock::{shared, exclusive, upgrade, downgrade, is_exclusive, path}`; `FolderState`, `Evidence`, `Inventory`, `EntrySize`, `LongestPath`, `Plan`, `Action`, `Refusal`, `RefusalCode`, `Target`, `CheckInput`, `SystemFacts`, `Facts`, `RealFacts`, `Space`, `Pointer`, `PathParts`, `PathRoot`, `PathStyle`; constants `POINTER`, `POINTER_OLD`, `JOURNAL`, `FILE_RECORD`, `MARKER`, `MOVE_MARKER`, `LOCK`, `KNOWN_ENTRIES`, `HASH_CACHE`, `WINDOWS_MAX_PATH`, `MARGIN_BYTES` |
-| `data_folder_move` | `move_to(&Located, &DataEnv, &Path, &dyn SystemFacts, Option<&mut DataLock>, &MoveOptions, &mut dyn Progress) -> Result<MoveResult>`, `use_folder(&Located, &DataEnv, &Path, &dyn SystemFacts, Option<&mut DataLock>) -> Result<Located>`, `reset(&DataEnv) -> Result<Located>`, `repoint(&DataEnv, &Path, &dyn SystemFacts) -> Result<Located>`, `pending(&DataEnv) -> Result<Pending>`, `remove_old_copy(&DataEnv, &mut dyn Progress) -> Result<Cleanup>`, `remove_partial_copy(&DataEnv) -> Result<Cleanup>`, `acknowledge(&DataEnv)`, `read_journal`, `MAX_ROUNDS`; `Journal`, `JournalEntry`, `FileRecord`, `RecordedFile`, `Rewrite`, `MoveOptions`, `MoveResult`, `Stayed`, `Pending`, `Cleanup`, `Kept` |
+| `data_folder_move` | `move_to(&Located, &DataEnv, &Path, &dyn SystemFacts, Option<&mut DataLock>, &MoveOptions, &mut dyn Progress) -> Result<MoveResult>`, `use_folder(&Located, &DataEnv, &Path, &dyn SystemFacts, Option<&mut DataLock>) -> Result<Located>`, `reset(&DataEnv) -> Result<Located>`, `repoint(&DataEnv, &Path, &dyn SystemFacts) -> Result<Located>`, `pending(&DataEnv) -> Result<Pending>`, `remove_old_copy(&DataEnv, &mut dyn Progress) -> Result<Cleanup>`, `remove_partial_copy(&DataEnv) -> Result<Cleanup>`, `remove_partial_copy_with(&DataEnv, &mut dyn Progress) -> Result<Cleanup>`, `partial_reason`, `acknowledge(&DataEnv)`, `read_journal`, `MAX_ROUNDS`; `Journal`, `JournalEntry`, `FileRecord`, `RecordedFile`, `Rewrite`, `MoveOptions`, `MoveResult`, `Stayed`, `Pending`, `Cleanup`, `Kept` |
 | `hash` | `dirhash(&Path) -> Result<String>`, `dirhash_records(impl IntoIterator<Item = Record>)`, `sha256_file`, `sha256_hex`, `hex`, `hash8`, `fingerprint(entries) -> String`, `Record`, `FingerprintEntry` |
 | `vdf` | `parse(&str) -> Result<Vdf>`, `Vdf::{get, path, as_str, entries}` |
 | `steam` | `roots()`, `libraries(&SteamRoot)`, `app_manifest(&Path, u32)`, `compat_tool`, `launch_options`, `compatdata`; `SteamRoot`, `SteamFlavor`, `Library`, `AppManifest`, `LaunchOptions` |
