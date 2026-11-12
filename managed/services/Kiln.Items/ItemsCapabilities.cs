@@ -87,7 +87,8 @@ public static unsafe partial class Items
                 Lower(Caps.Instances, CapabilityReason.ServiceOlder, text);
                 break;
             case (InstancesVerdict.Off, var text):
-                Off(Caps.Instances, text);
+                // kiln.items turns item instances off when its inventory reads are off: then that row's reason is the cause
+                Off(Caps.Instances, text, Caps.Read);
                 break;
         }
         var s3 = Status3();
