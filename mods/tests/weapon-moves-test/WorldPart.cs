@@ -23,6 +23,8 @@ public sealed partial class WeaponMovesTestMod
         var p = await Character(_at);
         if (p.IsNone) return;
         await HeldInHand(p);
+        await HeldItemsInTheWorld(p);
+        await HeldItemsInAChest(p);
         if (!await ToHand(p, "chain-sword")) return;
         await Dummies(p);
         await ChainPlayed(p);
@@ -78,6 +80,15 @@ public sealed partial class WeaponMovesTestMod
 
     private static uint Held(EntityId p) => World.ReadBytes(p, "Equipment") is { Length: >= 20 } eq ? BitConverter.ToUInt32(eq, 8 + 8) : 0;
 
+    /// <summary>Whether the item is in any of the character's equipment slots (a shield goes to its own, not the main hand's).</summary>
+    private static bool Equipped(EntityId p, uint item)
+    {
+        if (World.ReadBytes(p, "Equipment") is not { } eq) return false;
+        for (var o = 8; o + 0x48 <= eq.Length; o += 0x48)
+            if (BitConverter.ToUInt32(eq, o + 8) == item) return true;
+        return false;
+    }
+
     private async Task<bool> ToHand(EntityId p, string block)
     {
         var item = Content.Items.Get(G(block)) ?? Content.Items.Get(block)!;   // a block of this mod, or a game item
@@ -90,7 +101,7 @@ public sealed partial class WeaponMovesTestMod
         }
         GameTree.GameRequest(p, 5, (uint)slot!.Slot.Index);
         await Steps(24);
-        return Check(Held(p) == item.Id, $"{block} is in hand: Equipment slot 0 holds 0x{Held(p):x8} (the item 0x{item.Id:x8})");
+        return Check(Held(p) == item.Id || Equipped(p, item.Id), $"{block} is in hand: Equipment slot 0 holds 0x{Held(p):x8}{(Held(p) != item.Id && Equipped(p, item.Id) ? ", and another slot the item" : "")} (the item 0x{item.Id:x8})");
     }
 
     // Training dolls (a prop that stands still) all round the character, at its height, so that a swing meets one whichever way it faces.
