@@ -5,7 +5,7 @@
     python3 tools/typegen/tests/mkfixture.py managed/tests/Kiln.Game.Tests/Fixtures/gen/lanterns.json
 
 It has every kind and every rule of the generator: primitives of each kind, a base class chain with fields
-(attribute style), an empty base, a typedef chain, a typedef to a bitmask, bitmasks of 8, 16 and 64 bits, enums over
+(an attribute component over keen::ecs::AttributeComponent), an empty base, a typedef chain, a typedef to a bitmask, bitmasks of 8, 16 and 64 bits, enums over
 signed and unsigned integers (negative values too, one through a typedef), static arrays of primitives and of structs, single-field
 wrappers, a field named after a C# keyword, a type of another namespace, an object reference, a guid, blob leaves,
 another leaf kind, a static array of blob leaves, a tag component, components and events.
@@ -44,10 +44,10 @@ for qn, k, s in [("keen::bool", 1, 1), ("keen::uint8", 2, 1), ("keen::sint8", 3,
 # bases
 t("keen::ecs::Component", 18, 1, 1, fields=[])
 t("keen::ecs::Event", 18, 1, 1, fields=[])
-t("keen::ecs::MeterBase", 18, 8, 4, "keen::ecs::Component",
+t("keen::ecs::AttributeComponent", 18, 8, 4, "keen::ecs::Component",
   [("key", 0, "keen::HashKey32"), ("start", 4, "keen::uint16"), ("count", 6, "keen::uint8")])
-t("keen::ecs::FloatMeter", 18, 8, 4, "keen::ecs::MeterBase", [])
-t("keen::ecs::Warmth", 18, 24, 4, "keen::ecs::FloatMeter", [("store", 8, "keen::StaticArray<keen::float32,4>")])
+t("keen::ecs::FloatMeter", 18, 8, 4, "keen::ecs::AttributeComponent", [])
+t("keen::ecs::Warmth", 18, 24, 4, "keen::ecs::FloatMeter", [("dataStorage", 8, "keen::StaticArray<keen::float32,4>")])
 # wrappers
 t("keen::HashKey32", 18, 4, 4, fields=[("value", 0, "keen::uint32")])
 t("keen::ecs::LampId", 18, 4, 4, fields=[("id", 0, "keen::uint32")])

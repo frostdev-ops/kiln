@@ -35,3 +35,18 @@ public interface IGameComponent<TSelf> : IGameStruct<TSelf> where TSelf : unmana
 /// <summary>A generated struct that is an ECS event of the game (the dump's event list).</summary>
 /// <typeparam name="TSelf">The generated struct itself.</typeparam>
 public interface IGameEvent<TSelf> : IGameStruct<TSelf> where TSelf : unmanaged, IGameEvent<TSelf>;
+
+/// <summary>
+/// A generated ECS component that is a game attribute (its base chain runs through <c>keen::ecs::AttributeComponent</c>:
+/// <c>Health</c>, <c>Stamina</c>, <c>Fuel</c>, ...). Its value slots are its <c>dataStorage</c> array; which slot holds
+/// the current, the base or the maximum value is the game's data and differs per attribute, so the slots have no names.
+/// </summary>
+/// <typeparam name="TSelf">The generated struct itself.</typeparam>
+/// <typeparam name="TValue">The type of one slot (<c>int</c>, <c>float</c>, <c>uint</c>).</typeparam>
+public interface IGameAttribute<TSelf, TValue> : IGameComponent<TSelf>
+    where TSelf : unmanaged, IGameAttribute<TSelf, TValue>
+    where TValue : unmanaged
+{
+    /// <summary>The value slots of <paramref name="self"/>, over its own memory.</summary>
+    static abstract Span<TValue> ValuesOf(ref TSelf self);
+}

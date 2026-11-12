@@ -74,6 +74,22 @@ public class RoundTripTests
     }
 
     [Fact]
+    public void The_fixture_variant_compiles_the_program_descriptors_of_the_made_up_catalog()
+    {
+        var asm = Lanterns;
+        var glow = asm.GetType("Kiln.Ecs+Programs+LanternGlow")!;
+        object? F(string n) => glow.GetField(n, BindingFlags.Public | BindingFlags.Static)!.GetValue(null);
+        Assert.Equal("lantern_glow", F("Name"));
+        Assert.Equal(["Kiln.Ecs+Lantern"], ((Type[])F("Tpl")!).Select(t => t.FullName));
+        Assert.Equal(["Kiln.Ecs+Gauges", "Kiln.Ecs+Comet"], ((Type[])F("Read")!).Select(t => t.FullName));
+        Assert.Equal(["Kiln.Ecs+Warmth"], ((Type[])F("Write")!).Select(t => t.FullName));
+        Assert.Equal(["light_cache"], (string[])F("SysRead")!);
+        Assert.Equal(["Kiln.Ecs+LanternLit"], ((Type[])F("EventsOut")!).Select(t => t.FullName));
+        Assert.NotNull(asm.GetType("Kiln.Ecs+Programs+Program7"));
+        Assert.Null(GenRepo.GameAssembly.GetType("Kiln.Ecs+Programs"));  // the shipped build has no catalog
+    }
+
+    [Fact]
     public void A_doctored_dump_fails_the_round_trip()
     {
         // One offset moved: Lantern.mode from 8 to 9.
@@ -169,7 +185,7 @@ public class RoundTripTests
     }
 
     [Fact]
-    public void The_nine_legacy_types_of_the_built_Kiln_Game_are_obsolete_and_name_their_new_type()
+    public void The_legacy_types_of_the_built_Kiln_Game_are_obsolete_and_name_their_new_type()
     {
         if (GameDump.Committed().Count == 0) Assert.Skip(NoDump);
         foreach (var name in new[] { "NetworkHealth", "Health", "Mana", "Stamina", "CurrentTransform", "LastTransform", "Velocity", "TeleportCount", "NpcCommon" })
@@ -178,6 +194,8 @@ public class RoundTripTests
             Assert.Equal($"Use Kiln.Ecs.{name}.", t.GetCustomAttribute<ObsoleteAttribute>()?.Message);
             Assert.NotNull(GenRepo.GameAssembly.GetType("Kiln.Ecs+" + name));
         }
-        Assert.Null(GenRepo.GameAssembly.GetType("Kiln.GameTypes.Components")!.GetCustomAttribute<ObsoleteAttribute>());
+        // The two classes point at the root class as a whole.
+        Assert.Equal("Use Kiln.Ecs.", GenRepo.GameAssembly.GetType("Kiln.GameTypes.Components")!.GetCustomAttribute<ObsoleteAttribute>()?.Message);
+        Assert.Equal("Use Kiln.Ecs.", GenRepo.GameAssembly.GetType("Kiln.GameTypes.ComponentTypes")!.GetCustomAttribute<ObsoleteAttribute>()?.Message);
     }
 }

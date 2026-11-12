@@ -11,6 +11,33 @@ namespace Kiln;
 
 public static partial class Ecs
 {
+    /// <summary><c>keen::ecs::AttributeComponent</c>: a game struct, 8 bytes, align 4. Base <c>keen::ecs::Component</c>.</summary>
+    [StructLayout(LayoutKind.Explicit, Size = 8)]
+    public partial struct AttributeComponent : IGameStruct<AttributeComponent>
+    {
+        /// <summary>The engine's type hash: FNV-1a-32 of <see cref="QualifiedName"/>.</summary>
+        public static readonly uint Hash = 0x81509358u;
+        /// <summary>The game's short name, the one kiln.world uses.</summary>
+        public static readonly string Name = "AttributeComponent";
+        /// <summary>The game's qualified name.</summary>
+        public static readonly string QualifiedName = "keen::ecs::AttributeComponent";
+        /// <summary>The size in bytes.</summary>
+        public static readonly int Size = 8;
+        /// <summary>The layout hash (docs/kiln/typegen.md §3).</summary>
+        public static readonly ulong Layout = 0xAA284951E411C126ul;
+        static uint IGameStruct<AttributeComponent>.Hash => Hash;
+        static string IGameStruct<AttributeComponent>.Name => Name;
+        static string IGameStruct<AttributeComponent>.QualifiedName => QualifiedName;
+        static int IGameStruct<AttributeComponent>.Size => Size;
+        static ulong IGameStruct<AttributeComponent>.Layout => Layout;
+        /// <summary><c>key</c>: <c>keen::HashKey32</c>.</summary>
+        [FieldOffset(0)] public Ecs.HashKey32 key;
+        /// <summary><c>start</c>: <c>keen::uint16</c>.</summary>
+        [FieldOffset(4)] public ushort start;
+        /// <summary><c>count</c>: <c>keen::uint8</c>.</summary>
+        [FieldOffset(6)] public byte count;
+    }
+
     /// <summary><c>keen::ecs::Comet</c>: an ECS component, 24 bytes, align 8. Base <c>keen::ecs::Component</c>.</summary>
     [StructLayout(LayoutKind.Explicit, Size = 24)]
     public partial struct Comet : IGameComponent<Comet>
@@ -78,7 +105,7 @@ public static partial class Ecs
         static ulong IGameStruct<Event>.Layout => Layout;
     }
 
-    /// <summary><c>keen::ecs::FloatMeter</c>: a game struct, 8 bytes, align 4. Base <c>keen::ecs::MeterBase</c>.</summary>
+    /// <summary><c>keen::ecs::FloatMeter</c>: a game struct, 8 bytes, align 4. Base <c>keen::ecs::AttributeComponent</c>.</summary>
     [StructLayout(LayoutKind.Explicit, Size = 8)]
     public partial struct FloatMeter : IGameStruct<FloatMeter>
     {
@@ -91,17 +118,17 @@ public static partial class Ecs
         /// <summary>The size in bytes.</summary>
         public static readonly int Size = 8;
         /// <summary>The layout hash (docs/kiln/typegen.md §3).</summary>
-        public static readonly ulong Layout = 0xCE3EFB8D590C4555ul;
+        public static readonly ulong Layout = 0x3023ED4EB75E51B3ul;
         static uint IGameStruct<FloatMeter>.Hash => Hash;
         static string IGameStruct<FloatMeter>.Name => Name;
         static string IGameStruct<FloatMeter>.QualifiedName => QualifiedName;
         static int IGameStruct<FloatMeter>.Size => Size;
         static ulong IGameStruct<FloatMeter>.Layout => Layout;
-        /// <summary><c>key</c>: <c>keen::HashKey32, from keen::ecs::MeterBase</c>.</summary>
+        /// <summary><c>key</c>: <c>keen::HashKey32, from keen::ecs::AttributeComponent</c>.</summary>
         [FieldOffset(0)] public Ecs.HashKey32 key;
-        /// <summary><c>start</c>: <c>keen::uint16, from keen::ecs::MeterBase</c>.</summary>
+        /// <summary><c>start</c>: <c>keen::uint16, from keen::ecs::AttributeComponent</c>.</summary>
         [FieldOffset(4)] public ushort start;
-        /// <summary><c>count</c>: <c>keen::uint8, from keen::ecs::MeterBase</c>.</summary>
+        /// <summary><c>count</c>: <c>keen::uint8, from keen::ecs::AttributeComponent</c>.</summary>
         [FieldOffset(6)] public byte count;
     }
 
@@ -360,33 +387,6 @@ public static partial class Ecs
         Hooded = 1 << 15,
     }
 
-    /// <summary><c>keen::ecs::MeterBase</c>: a game struct, 8 bytes, align 4. Base <c>keen::ecs::Component</c>.</summary>
-    [StructLayout(LayoutKind.Explicit, Size = 8)]
-    public partial struct MeterBase : IGameStruct<MeterBase>
-    {
-        /// <summary>The engine's type hash: FNV-1a-32 of <see cref="QualifiedName"/>.</summary>
-        public static readonly uint Hash = 0xC1231971u;
-        /// <summary>The game's short name, the one kiln.world uses.</summary>
-        public static readonly string Name = "MeterBase";
-        /// <summary>The game's qualified name.</summary>
-        public static readonly string QualifiedName = "keen::ecs::MeterBase";
-        /// <summary>The size in bytes.</summary>
-        public static readonly int Size = 8;
-        /// <summary>The layout hash (docs/kiln/typegen.md §3).</summary>
-        public static readonly ulong Layout = 0x5EC154F4A78E5DC3ul;
-        static uint IGameStruct<MeterBase>.Hash => Hash;
-        static string IGameStruct<MeterBase>.Name => Name;
-        static string IGameStruct<MeterBase>.QualifiedName => QualifiedName;
-        static int IGameStruct<MeterBase>.Size => Size;
-        static ulong IGameStruct<MeterBase>.Layout => Layout;
-        /// <summary><c>key</c>: <c>keen::HashKey32</c>.</summary>
-        [FieldOffset(0)] public Ecs.HashKey32 key;
-        /// <summary><c>start</c>: <c>keen::uint16</c>.</summary>
-        [FieldOffset(4)] public ushort start;
-        /// <summary><c>count</c>: <c>keen::uint8</c>.</summary>
-        [FieldOffset(6)] public byte count;
-    }
-
     /// <summary><c>keen::Moment</c>: a game struct, 8 bytes, align 8.</summary>
     [StructLayout(LayoutKind.Explicit, Size = 8)]
     public partial struct Moment : IGameStruct<Moment>
@@ -472,7 +472,7 @@ public static partial class Ecs
 
     /// <summary><c>keen::ecs::Warmth</c>: an ECS component, 24 bytes, align 4. Base <c>keen::ecs::FloatMeter</c>.</summary>
     [StructLayout(LayoutKind.Explicit, Size = 24)]
-    public partial struct Warmth : IGameComponent<Warmth>
+    public partial struct Warmth : IGameAttribute<Warmth, float>
     {
         /// <summary>The engine's type hash: FNV-1a-32 of <see cref="QualifiedName"/>.</summary>
         public static readonly uint Hash = 0x2769ACB6u;
@@ -483,19 +483,23 @@ public static partial class Ecs
         /// <summary>The size in bytes.</summary>
         public static readonly int Size = 24;
         /// <summary>The layout hash (docs/kiln/typegen.md §3).</summary>
-        public static readonly ulong Layout = 0xD90854BD49A51097ul;
+        public static readonly ulong Layout = 0x0B3D41B13369232Ful;
         static uint IGameStruct<Warmth>.Hash => Hash;
         static string IGameStruct<Warmth>.Name => Name;
         static string IGameStruct<Warmth>.QualifiedName => QualifiedName;
         static int IGameStruct<Warmth>.Size => Size;
         static ulong IGameStruct<Warmth>.Layout => Layout;
-        /// <summary><c>key</c>: <c>keen::HashKey32, from keen::ecs::MeterBase</c>.</summary>
+        /// <summary><c>key</c>: <c>keen::HashKey32, from keen::ecs::AttributeComponent</c>.</summary>
         [FieldOffset(0)] public Ecs.HashKey32 key;
-        /// <summary><c>start</c>: <c>keen::uint16, from keen::ecs::MeterBase</c>.</summary>
+        /// <summary><c>start</c>: <c>keen::uint16, from keen::ecs::AttributeComponent</c>.</summary>
         [FieldOffset(4)] public ushort start;
-        /// <summary><c>count</c>: <c>keen::uint8, from keen::ecs::MeterBase</c>.</summary>
+        /// <summary><c>count</c>: <c>keen::uint8, from keen::ecs::AttributeComponent</c>.</summary>
         [FieldOffset(6)] public byte count;
-        /// <summary><c>store</c>: <c>keen::StaticArray&lt;keen::float32,4&gt;</c>.</summary>
-        [FieldOffset(8)] public Ecs.StaticArray4<float> store;
+        /// <summary><c>dataStorage</c>: <c>keen::StaticArray&lt;keen::float32,4&gt;</c>.</summary>
+        [FieldOffset(8)] public Ecs.StaticArray4<float> dataStorage;
+        /// <summary>The attribute's value slots (<c>dataStorage</c>). Which slot is the current, the base or the maximum value is the game's data, not named here.</summary>
+        [global::System.Diagnostics.CodeAnalysis.UnscopedRef]
+        public Span<float> Values => dataStorage;
+        static Span<float> IGameAttribute<Warmth, float>.ValuesOf(ref Warmth self) => self.dataStorage;
     }
 }

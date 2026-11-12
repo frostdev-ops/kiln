@@ -33,3 +33,12 @@ static Kiln.Ecs.ObjectReference.operator !=(Kiln.Ecs.ObjectReference left, Kiln.
 static Kiln.Ecs.ObjectReference.operator ==(Kiln.Ecs.ObjectReference left, Kiln.Ecs.ObjectReference right) -> bool
 static Kiln.GameLayoutStamps.Check(string! stampJson, out string? reason) -> bool
 static Kiln.GameLayoutStamps.Table.get -> string!
+Kiln.IGameAttribute<TSelf, TValue>
+Kiln.IGameAttribute<TSelf, TValue>.ValuesOf(ref TSelf self) -> System.Span<TValue>
+static Kiln.Ecs.All<T>() -> System.Collections.Generic.IReadOnlyList<Kiln.EntityId>!
+static Kiln.Ecs.Available.get -> bool
+static Kiln.Ecs.Get<T>(Kiln.EntityId entity) -> T?
+static Kiln.Ecs.Has<T>(Kiln.EntityId entity) -> bool
+static Kiln.Ecs.Supports<T>() -> bool
+static Kiln.Ecs.TryGet<T>(Kiln.EntityId entity, out T value) -> bool
+static Kiln.Ecs.WhyNot<T>() -> string?

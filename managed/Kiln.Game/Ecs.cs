@@ -17,6 +17,74 @@ namespace Kiln;
 /// </summary>
 public static partial class Ecs
 {
+    // Every type named in this class is written with global::, because a generated nested type (Ecs.EntityId,
+    // Ecs.Time, Ecs.Debug, ...) hides a namespace-level type of the same name inside it.
+
+    /// <summary>True when kiln.world is available on this build, so the typed reads below can work. When it is not,
+    /// they throw <see cref="global::Kiln.KilnUnavailableException"/> for the capability <c>kiln.world</c>. Any thread.</summary>
+    [global::Kiln.AnyThread]
+    public static bool Available => global::Kiln.World.Available;
+
+    // kiln.world not loaded is a capability that is off (docs/kiln/modding/contract.md §1); a type the first-use check
+    // refuses is not: the reads answer "nothing" for it.
+    private static void RequireWorld(string api)
+    {
+        if (!global::Kiln.World.Available)
+            throw new global::Kiln.KilnUnavailableException("kiln.world", $"{api}: kiln.world is not available on this game build");
+    }
+
+    /// <summary>Reads component <typeparamref name="T"/> of <paramref name="entity"/>. False when the entity has no
+    /// such component, or when <typeparamref name="T"/>'s generated layout does not match the running game
+    /// (<see cref="Supports{T}"/>; the mod's log then has one warning naming the type and the difference).</summary>
+    /// <exception cref="global::Kiln.KilnUnavailableException">kiln.world is not available (<see cref="Available"/>).</exception>
+    [global::Kiln.TickThreadOnly]
+    public static bool TryGet<T>(global::Kiln.EntityId entity, out T value) where T : unmanaged, global::Kiln.IGameComponent<T>
+    {
+        value = default;
+        RequireWorld("Ecs.TryGet");
+        return global::Kiln.EcsSupport.Usable(typeof(T), T.QualifiedName) && global::Kiln.World.TryRead(entity, T.Name, out value);
+    }
+
+    /// <summary>The component, or null when the entity does not have it or <typeparamref name="T"/> is not supported
+    /// on the running game.</summary>
+    /// <exception cref="global::Kiln.KilnUnavailableException">kiln.world is not available.</exception>
+    [global::Kiln.TickThreadOnly]
+    public static T? Get<T>(global::Kiln.EntityId entity) where T : unmanaged, global::Kiln.IGameComponent<T> =>
+        TryGet<T>(entity, out var value) ? value : null;
+
+    /// <summary>True if the entity has component <typeparamref name="T"/>; false too when <typeparamref name="T"/> is not
+    /// supported on the running game.</summary>
+    /// <exception cref="global::Kiln.KilnUnavailableException">kiln.world is not available.</exception>
+    [global::Kiln.TickThreadOnly]
+    public static bool Has<T>(global::Kiln.EntityId entity) where T : unmanaged, global::Kiln.IGameComponent<T>
+    {
+        RequireWorld("Ecs.Has");
+        return global::Kiln.EcsSupport.Usable(typeof(T), T.QualifiedName) && global::Kiln.World.Has(entity, T.Name);
+    }
+
+    /// <summary>Every entity carrying component <typeparamref name="T"/>; empty when <typeparamref name="T"/> is not
+    /// supported on the running game.</summary>
+    /// <exception cref="global::Kiln.KilnUnavailableException">kiln.world is not available.</exception>
+    [global::Kiln.TickThreadOnly]
+    public static global::System.Collections.Generic.IReadOnlyList<global::Kiln.EntityId> All<T>()
+        where T : unmanaged, global::Kiln.IGameComponent<T>
+    {
+        RequireWorld("Ecs.All");
+        return global::Kiln.EcsSupport.Usable(typeof(T), T.QualifiedName) ? global::Kiln.World.Find(T.Name) : [];
+    }
+
+    /// <summary>The first-use check's answer for <typeparamref name="T"/>: true when its generated layout equals the
+    /// running game's (the game's type table, recursively through every type inside it), or, with no type table,
+    /// when this Kiln.Game was generated for exactly the running exe. Checked once per type; any thread.</summary>
+    [global::Kiln.AnyThread]
+    public static bool Supports<T>() where T : unmanaged, global::Kiln.IGameStruct<T> => WhyNot<T>() is null;
+
+    /// <summary>Null when <typeparamref name="T"/> is supported (<see cref="Supports{T}"/>), else the difference: the
+    /// type, the field or value, the generated and the live value. Any thread.</summary>
+    [global::Kiln.AnyThread]
+    public static string? WhyNot<T>() where T : unmanaged, global::Kiln.IGameStruct<T> =>
+        global::Kiln.EcsSupport.WhyNot(typeof(T), T.QualifiedName);
+
     /// <summary>A game object reference (reflection kind 28): the 16-byte guid of the object it names. The field's
     /// comment names the referenced type.</summary>
     [StructLayout(LayoutKind.Sequential, Size = 16)]

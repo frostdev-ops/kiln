@@ -154,6 +154,7 @@ static class RoundTrip
         var iStruct = asm.GetType("Kiln.IGameStruct`1")!;
         var iComp = asm.GetType("Kiln.IGameComponent`1")!;
         var iEvent = asm.GetType("Kiln.IGameEvent`1")!;
+        var iAttr = asm.GetType("Kiln.IGameAttribute`2")!;
         int expectedTypes = 2;  // the hand-written ObjectReference and GameGuid
         var lengths = new HashSet<int>();
 
@@ -234,6 +235,18 @@ static class RoundTrip
                     if (!Implements(iStruct)) bad.Add($"{at}: does not implement IGameStruct<{cs}>");
                     if (Implements(iComp) != isComp) bad.Add($"{at}: IGameComponent<{cs}> does not match the component list");
                     if (Implements(iEvent) != isEvent) bad.Add($"{at}: IGameEvent<{cs}> does not match the event list");
+                    // An attribute component (base chain through keen::ecs::AttributeComponent, a dataStorage array):
+                    // IGameAttribute<T, element> and a Span<element> Values.
+                    Type? element = null;
+                    bool attrBase = false;
+                    for (var x = t; x.Inner is not null; x = d.By[x.Inner]) attrBase |= x.Inner == "keen::ecs::AttributeComponent";
+                    if (isComp && attrBase && flat.FirstOrDefault(f => f.Name == "dataStorage") is { } ds && Resolve(d, d.By[ds.Type]) is { Kind: 19 } dsArr)
+                        Expect(d.By[dsArr.Inner!], out element);
+                    var attr = ty.GetInterfaces().SingleOrDefault(i => i.IsGenericType && i.GetGenericTypeDefinition() == iAttr);
+                    if ((attr?.GetGenericArguments()[1]) != element)
+                        bad.Add($"{at}: IGameAttribute<{cs}, …> is {attr?.GetGenericArguments()[1].Name ?? "missing"}, the dump makes it {element?.Name ?? "none"}");
+                    if (element is not null && ty.GetProperty("Values")?.PropertyType != typeof(Span<>).MakeGenericType(element))
+                        bad.Add($"{at}: no Span<{element.Name}> Values");
                     break;
                 }
                 case 12:
@@ -272,7 +285,8 @@ static class RoundTrip
             if (def?.GetCustomAttribute<InlineArrayAttribute>()?.Length != n) bad.Add($"StaticArray{n}: not an [InlineArray({n})]");
         }
         expectedTypes += lengths.Count;
-        int nested = root.GetNestedTypes(BindingFlags.Public).Length;
+        // Ecs.Programs (program descriptors, only in a build given a catalog) is not one of the dump's types.
+        int nested = root.GetNestedTypes(BindingFlags.Public).Count(t => t.Name != "Programs");
         if (nested != expectedTypes) bad.Add($"{Root} has {nested} public nested types; the dump makes {expectedTypes} (structs, enums, masks, array lengths, 2 hand-written)");
         return bad;
     }
