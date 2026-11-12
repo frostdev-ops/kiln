@@ -2637,3 +2637,87 @@ fn a_set_aside_name_that_is_taken_is_never_touched() {
         assert_eq!(kept_of(&c).get(&race.file).map(String::as_str), Some(dfm::guard_reason::SET_ASIDE_TAKEN), "{c:?}");
     }
 }
+
+// ------------------------------------------------------------------------------------------------ core-10
+
+/// A top-level file whose removal stopped right after it was set aside (`.settings.json.kiln-removing`) is proved
+/// under its own name at the next start and goes, and the recovery finishes; a set-aside-looking name whose original
+/// is no journal entry stays as before ("the move copied nothing by this name").
+#[test]
+fn a_top_level_file_left_set_aside_is_proved_and_the_recovery_finishes() {
+    let (fx, before, to) = crashed_after_copy("top-left-aside", &Facts::all_clear());
+    let j = dfm::read_journal(&fx.env).unwrap().unwrap();
+    assert!(j.entries.iter().any(|e| e.name == "settings.json"), "{:?}", j.entries);
+    let aside = to.join(dfm::set_aside_name("settings.json"));
+    std::fs::rename(to.join("settings.json"), &aside).unwrap();
+    let stranger = to.join(".notes.kiln-removing");
+    std::fs::write(&stranger, b"someone's").unwrap();
+    let c = dfm::remove_partial_copy(&fx.env).unwrap();
+    assert!(!aside.exists(), "the set-aside settings.json is proved and goes: {c:?}");
+    assert_eq!(kept_of(&c), BTreeMap::from([(stranger.clone(), dfm::partial_reason::NOT_COPIED.to_string())]), "{c:?}");
+    assert_eq!(std::fs::read(&stranger).unwrap(), b"someone's");
+    std::fs::remove_file(&stranger).unwrap();
+    finished(&fx, &to);
+    old_place_intact(&fx, &before, &to);
+}
+
+/// A name of 250 bytes (83 three-byte characters and one more; the set-aside name in the long form would be 265 bytes,
+/// past ext4's 255) under `library/`.
+fn long_name() -> String {
+    let n = format!("{}x", "語".repeat(83));
+    assert_eq!(n.len(), 250);
+    n
+}
+
+/// A file with a 250-byte name goes in both removals (its set-aside name is the short form), and a crash leftover
+/// under the short form is proved under its own name at the next run.
+#[test]
+fn a_file_with_a_long_name_goes_in_both_removals() {
+    let name = long_name();
+    let short = dfm::set_aside_name(&name);
+    assert!(short.len() == 47 && short.starts_with('.') && short.ends_with(dfm::SET_ASIDE_SUFFIX), "{short}");
+    for crashed_aside in [false, true] {
+        for old_copy in [false, true] {
+            let tag = format!("long-name-{old_copy}-{crashed_aside}");
+            let fx = Fixture::build(&tag);
+            let rel = lib_dir(&fx.dirs, &fx.mods.kiln).join(&name).strip_prefix(&fx.dirs.root).unwrap().to_path_buf();
+            put(&fx.dirs.root, rel.to_str().unwrap(), b"a mod file with a long name");
+            let (to, file) = if old_copy {
+                let to = fx.base.join("moved");
+                mv(&fx, &to, &Facts::all_clear(), &inject(Inject::StopAfter(Step::Activate))).unwrap_err();
+                (to, fx.dirs.root.join(&rel))
+            } else {
+                let to = fx.base.join("target");
+                mv(&fx, &to, &Facts::all_clear(), &inject(Inject::StopAfter(Step::Copy))).unwrap_err();
+                (to.clone(), to.join(&rel))
+            };
+            assert!(file.is_file());
+            let aside = file.with_file_name(&short);
+            if crashed_aside {
+                std::fs::rename(&file, &aside).unwrap();
+            }
+            let c = if old_copy { dfm::remove_old_copy(&fx.env, &mut NoProgress).unwrap() } else { dfm::remove_partial_copy(&fx.env).unwrap() };
+            assert!(!file.exists() && !aside.exists(), "{tag}: the long-named file goes: {c:?}");
+            assert!(!c.kept.iter().any(|k| k.path == file || k.path == aside), "{tag}: {c:?}");
+            if !old_copy {
+                assert!(c.done, "{tag}: {c:?}");
+                assert!(!to.exists());
+            }
+        }
+    }
+}
+
+/// A file that merely looks like a short-form set-aside name (one that stands for no name in the old folder) is never
+/// touched: it stays as it is, named.
+#[test]
+fn a_short_form_look_alike_is_never_touched() {
+    let (fx, _, to) = crashed_after_copy("short-look-alike", &Facts::all_clear());
+    let lib = lib_dir(&DataDirs::at(&to), &fx.mods.kiln);
+    let stranger = lib.join(format!(".{}{}", "0123456789abcdef0123456789abcdef", dfm::SET_ASIDE_SUFFIX));
+    std::fs::write(&stranger, b"someone's").unwrap();
+    let c = dfm::remove_partial_copy(&fx.env).unwrap();
+    assert_eq!(std::fs::read(&stranger).unwrap(), b"someone's", "{c:?}");
+    let why = kept_of(&c).get(&stranger).cloned().unwrap_or_default();
+    assert!(why.starts_with(dfm::guard_reason::LEFT_SET_ASIDE), "{c:?}");
+    assert!(!c.done);
+}

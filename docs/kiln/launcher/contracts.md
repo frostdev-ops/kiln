@@ -231,30 +231,42 @@ The whole data folder moves as one (`kiln_manage::data_folder`, `kiln_manage::da
   files in `rewrittenAfter`, the cut-off file): what is removed is the file that was proved, never whatever has its path
   by then. The proof reads the file through one handle and takes its identity (device and inode), size and modification
   time from that handle before and after; a file that changed while it was read is not proved. Unix: the file is then
-  set aside under `.<name>.kiln-removing` in its own folder by a rename that never replaces a file (`renameat2` with
-  `RENAME_NOREPLACE`; where a file system does not offer it, a look first), checked again there (a plain file with the
-  same identity, size and modification time; at or below 16 MiB its content is read again and compared with the proof,
-  for the cut-off file the prefix check again to its end; a hard link proved by its identity is never read) and only
-  then removed. A file that differs is put back under its name when that is free, else it stays under the set-aside
-  name; either way it is named in `kept` ("it changed while Kiln was removing it (another program wrote it), so it
-  stays", or "... and a new file took its name meanwhile, so it stays under the name Kiln had set it aside under"). When
-  the set-aside name is another file's, nothing of that file is touched and the file stays at its name ("Kiln sets a
-  file aside under a name of its own before it removes it, and another file has that name here, so it stays"). A program
-  that writes the path anew after the file was set aside makes a new file, which stays, named (the partial copy's
-  removal looks at it like any file; the old copy's: "another program wrote a new file under this name while Kiln
-  removed the one it had proved, so it stays"). A file a later run finds under a set-aside name (a stop between setting
-  it aside and removing it) is proved under its original name and removed where it is; one its original name does not
-  prove stays as it is, named ("a removal that stopped set it aside under this name, and ..."). Windows: the file is
-  opened for its proof so that others may read it but not write or delete it, and it is deleted through that same handle
-  (`FileDispositionInfoEx` with POSIX semantics, the read-only attribute ignored, which needs only the right to delete;
-  else the read-only attribute cleared through the handle and `FileDispositionInfo`); no set-aside name is needed there.
-  The handle asks for the right to write the file's attributes too, which that fallback needs, and is opened without it
-  where it is refused (Wine refuses it on a read-only file); then a read-only file only the fallback could delete stays
-  ("it could not be removed: it is read-only and Windows did not let Kiln clear that, so it stays"). A file proved by
-  its identity (a hard link) is opened to read its attributes, not its content. A file another program has open for
-  writing, or without letting it be deleted, does not open and stays ("it could not be removed: another program has it
-  open, so it stays"). On Linux one case stays open: a program outside Kiln that already has a file of the folder open
-  and writes it in the moment between Kiln's last check and the removal loses that write.
+  set aside under `.<name>.kiln-removing` in its own folder (when that name would pass 255 bytes, the limit of ext4 and
+  btrfs, counted in the bytes of the UTF-8 name: `.<the first 32 hex of the sha256 of the name>.kiln-removing`, 47
+  bytes) by a rename that never replaces a file (`renameat2` with `RENAME_NOREPLACE`; where a file system does not offer
+  it, a look first), checked again there (a plain file with the same identity, size and modification time; at or below
+  16 MiB its content is read again and compared with the proof, for the cut-off file the prefix check again to its end;
+  a hard link proved by its identity is never read) and only then removed. A file that differs is put back under its
+  name when that is free, else it stays under the set-aside name; either way it is named in `kept` ("it changed while
+  Kiln was removing it (another program wrote it), so it stays", or "... and a new file took its name meanwhile, so it
+  stays under the name Kiln had set it aside under"). When the set-aside name is another file's, nothing of that file is
+  touched and the file stays at its name ("Kiln sets a file aside under a name of its own before it removes it, and
+  another file has that name here, so it stays"). A program that writes the path anew after the file was set aside makes
+  a new file, which stays, named (the partial copy's removal looks at it like any file; the old copy's: "another program
+  wrote a new file under this name while Kiln removed the one it had proved, so it stays"). A file a later run finds
+  under a set-aside name (a stop between setting it aside and removing it) is proved under its original name and removed
+  where it is; one its original name does not prove stays as it is, named ("a removal that stopped set it aside under
+  this name, and ..."). The original name is found by computing the set-aside name, in either form, of the names it may
+  stand for: the record line's name (the old copy), the names in the old folder's matching folder (a partial copy; at
+  the target's top level the journal's entries); a short form that stands for none of them is never touched. Windows:
+  the file is opened for its proof so that others may read it but not write or delete it, and it is deleted through that
+  same handle (`FileDispositionInfoEx` with POSIX semantics, the read-only attribute ignored, which needs only the right
+  to delete; else the read-only attribute cleared through the handle and `FileDispositionInfo`); no set-aside name is
+  needed there. The handle asks for the right to write the file's attributes too, which that fallback needs, and is
+  opened without it where it is refused (Wine refuses it on a read-only file); then a read-only file only the fallback
+  could delete stays ("it could not be removed: it is read-only and Windows did not let Kiln clear that, so it stays").
+  A file proved by its identity (a hard link) is opened to read its attributes, not its content. A file another program
+  has open for writing, or without letting it be deleted, does not open and stays ("it could not be removed: another
+  program has it open, so it stays"). Without POSIX deletes (FAT, exFAT; Wine) a file deleted through that handle keeps
+  its name while another program has it open with delete sharing: a name that still leads to the removed file, or that
+  cannot be opened because its delete is pending, is that file on its way out, not a new file. It is counted removed and
+  named ("it is deleted, and its name (and a folder it keeps from being removed) goes when the other program that has it
+  open lets go; the next run finishes there"); a partial copy is then not finished, and the next run finishes it. On
+  Linux one case stays open: a program outside Kiln that already has a file of the folder open and writes it in the
+  moment between Kiln's last check and the removal loses that write. And a second: above 16 MiB the second check
+  compares identity, size and modification time only, so a write that keeps the size and leaves the time as it was (a
+  writer that sets the time back, a write through a shared mapping to pages that are dirty already), anywhere from the
+  end of the proof to the removal, is not caught.
 - **A partial copy** found by a later start (`remove_partial_copy`, or `remove_partial_copy_with` with progress and
   cancel) is removed only when the target's `.kiln-data-move.json` has the journal's id, and then only what the old
   folder (still the folder in use, and complete) proves the move made. A plain file below one of the journal's entries

@@ -402,6 +402,8 @@ pub mod guard_reason {
     /// Windows: a read-only file this Windows deletes only after its read-only attribute is cleared, and Kiln was not
     /// given the right to clear it.
     pub const READ_ONLY: &str = "it could not be removed: it is read-only and Windows did not let Kiln clear that, so it stays";
+    /// Windows without POSIX deletes: the file is deleted, and its name stays while another program has it open.
+    pub const PENDING: &str = "it is deleted, and its name (and a folder it keeps from being removed) goes when the other program that has it open lets go; the next run finishes there";
     /// The start of the reason for a file found under its set-aside name that is not proved.
     pub const LEFT_SET_ASIDE: &str = "a removal that stopped set it aside under this name, and ";
 }
@@ -433,17 +435,7 @@ fn file_id(p: &Path) -> Option<FileId> {
 /// that asks only to read attributes and shares everything (a file held open by another program still answers).
 #[cfg(windows)]
 fn file_id(p: &Path) -> Option<FileId> {
-    use std::os::windows::fs::OpenOptionsExt;
-    use windows_sys::Win32::Storage::FileSystem::{
-        FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT, FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE,
-    };
-    let f = std::fs::OpenOptions::new()
-        .access_mode(FILE_READ_ATTRIBUTES)
-        .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE)
-        .custom_flags(FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT)
-        .open(p)
-        .ok()?;
-    handle_id(&f)
+    handle_id(&open_attributes(p).ok()?)
 }
 
 /// The identity of the file behind an open handle (`GetFileInformationByHandle`).
@@ -552,24 +544,85 @@ fn no_link_on_the_way(root: &Path, path: &Path) -> bool {
 
 /// A file at or below this size that was set aside for its removal is read again and compared with its proof before
 /// it goes; a larger one is checked by its identity, size and modification time only. A write after the proof changes
-/// the size or the time unless it keeps the size and lands within one tick of the file system's clock (or sets the time
-/// back on purpose). The files programs rewrite in place (records, settings, saves, logs) are small, so reading them
-/// again costs little; reading the large ones again (runtime archives, mod files, backups) would double a removal's
-/// reading on a slow disk. A hard link proved by its identity is never read.
+/// the size or the time unless it keeps the size and leaves the time as it was: one that lands within one tick of the
+/// file system's clock, a writer that sets the time back (`touch -r`, rsync, tar), or a write through a shared mapping
+/// to pages that are dirty already (no new fault, no new time). Above this size such a write, anywhere from the end of
+/// the proof to the removal, is not caught. The files programs rewrite in place (records, settings, saves, logs) are
+/// small, so reading them again costs little; reading the large ones again (runtime archives, mod files, backups) would
+/// double a removal's reading on a slow disk. A hard link proved by its identity is never read.
 #[cfg_attr(windows, allow(dead_code))] // Windows deletes through the handle that proved the file: nothing to check again
 const RECHECK_BYTES: u64 = 16 << 20;
 
-/// The end of the name a file is set aside under in its own folder while it is removed: `.<name>.kiln-removing`
-/// (Unix). A later run that finds one (a crash between setting aside and removing) proves it under its original name.
+/// The end of the name a file is set aside under in its own folder while it is removed (Unix): [`set_aside_name`]. A
+/// later run that finds one (a crash between setting aside and removing) proves it under its original name.
 pub const SET_ASIDE_SUFFIX: &str = ".kiln-removing";
 
-fn set_aside_name(name: &str) -> String {
-    format!(".{name}{SET_ASIDE_SUFFIX}")
+/// The longest file name, in bytes, that ext4 and btrfs (and most other file systems) take.
+const MAX_NAME_BYTES: usize = 255;
+
+/// The name `name` is set aside under: `.<name>.kiln-removing`; when that is longer than [`MAX_NAME_BYTES`] (the bytes
+/// of the UTF-8 name decide, not its characters), `.<the first 32 hex of the sha256 of the name>.kiln-removing`
+/// (47 bytes). Either form is mapped back by computing it for the names it may stand for: a record line's name (the old
+/// copy), the names in the old folder's matching folder (a partial copy). Test hook too.
+#[doc(hidden)]
+pub fn set_aside_name(name: &str) -> String {
+    let long = format!(".{name}{SET_ASIDE_SUFFIX}");
+    if long.len() <= MAX_NAME_BYTES { long } else { format!(".{}{SET_ASIDE_SUFFIX}", &crate::hash::sha256_hex(name.as_bytes())[..32]) }
 }
 
-/// The original name of a set-aside name.
-fn set_aside_original(name: &str) -> Option<&str> {
-    name.strip_prefix('.')?.strip_suffix(SET_ASIDE_SUFFIX).filter(|o| !o.is_empty())
+/// It looks like a set-aside name (either form).
+fn looks_set_aside(name: &str) -> bool {
+    name.len() > 1 + SET_ASIDE_SUFFIX.len() && name.starts_with('.') && name.ends_with(SET_ASIDE_SUFFIX)
+}
+
+/// Windows: opens a file only to read its attributes, sharing everything, never through a reparse point.
+#[cfg(windows)]
+fn open_attributes(p: &Path) -> std::io::Result<std::fs::File> {
+    use std::os::windows::fs::OpenOptionsExt;
+    use windows_sys::Win32::Storage::FileSystem::{
+        FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT, FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE,
+    };
+    std::fs::OpenOptions::new()
+        .access_mode(FILE_READ_ATTRIBUTES)
+        .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE)
+        .custom_flags(FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT)
+        .open(p)
+}
+
+/// What the name a proved file was removed from holds right after.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum After {
+    /// Nothing.
+    Gone,
+    /// The removed file itself, on its way out: Windows without POSIX deletes (FAT, exFAT; Wine) keeps a deleted file's
+    /// name while another program has it open with delete sharing. The name goes when that program lets go.
+    #[cfg_attr(not(windows), allow(dead_code))]
+    OnItsWayOut,
+    /// A new file another program wrote under the name meanwhile.
+    NewFile,
+}
+
+/// What is at `p` right after the file of identity `removed` was removed from it. Windows: a name that still leads to
+/// that identity, or that cannot be opened because its delete is pending, is that file on its way out. Unix: the
+/// removed file's name was its set-aside one, so whatever is at `p` is new.
+fn after_removal(p: &Path, removed: Option<FileId>) -> After {
+    #[cfg(windows)]
+    {
+        match open_attributes(p) {
+            Ok(f) => match (handle_id(&f), removed) {
+                (Some(now), Some(then)) if now.same(&then) => After::OnItsWayOut,
+                _ => After::NewFile,
+            },
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => After::Gone,
+            Err(e) if matches!(e.raw_os_error(), Some(5 | 303)) => After::OnItsWayOut, // ACCESS_DENIED, DELETE_PENDING
+            Err(_) => After::NewFile,
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = removed;
+        if std::fs::symlink_metadata(p).is_ok() { After::NewFile } else { After::Gone }
+    }
 }
 
 /// Where `p` is set aside: its folder, its set-aside name.
@@ -701,7 +754,8 @@ struct Proved {
 
 /// What became of a proved file.
 enum Outcome {
-    Removed(u64),
+    /// Its size and identity.
+    Removed(u64, Option<FileId>),
     /// Someone else removed it meanwhile (Unix).
     #[cfg_attr(windows, allow(dead_code))]
     Vanished,
@@ -893,7 +947,7 @@ impl Proved {
 #[cfg(windows)]
 fn remove_proved(p: Proved) -> Outcome {
     match delete_by_handle(&p.file, p.write_attributes) {
-        Ok(()) => Outcome::Removed(p.stamp.len),
+        Ok(()) => Outcome::Removed(p.stamp.len, p.stamp.id),
         Err(reason) => Outcome::Stays { at: p.path, reason },
     }
 }
@@ -919,30 +973,73 @@ fn delete_by_handle(f: &std::fs::File, write_attributes: bool) -> std::result::R
         let ex = FILE_DISPOSITION_INFO_EX {
             Flags: FILE_DISPOSITION_FLAG_DELETE | FILE_DISPOSITION_FLAG_POSIX_SEMANTICS | FILE_DISPOSITION_FLAG_IGNORE_READONLY_ATTRIBUTE,
         };
-        if SetFileInformationByHandle(h, FileDispositionInfoEx, &ex as *const _ as *const _, std::mem::size_of::<FILE_DISPOSITION_INFO_EX>() as u32) != 0 {
+        let switch = CLASSIC_DELETE.with(|c| c.get());
+        if switch.is_none()
+            && SetFileInformationByHandle(h, FileDispositionInfoEx, &ex as *const _ as *const _, std::mem::size_of::<FILE_DISPOSITION_INFO_EX>() as u32) != 0
+        {
             return Ok(());
         }
         let mut basic: FILE_BASIC_INFO = std::mem::zeroed();
         if GetFileInformationByHandleEx(h, FileBasicInfo, &mut basic as *mut _ as *mut _, std::mem::size_of::<FILE_BASIC_INFO>() as u32) == 0 {
             return Err(failed(std::io::Error::last_os_error()));
         }
-        if basic.FileAttributes & FILE_ATTRIBUTE_READONLY != 0 {
+        // zero times leave them as they are
+        let attributes = |a: u32| FILE_BASIC_INFO { CreationTime: 0, LastAccessTime: 0, LastWriteTime: 0, ChangeTime: 0, FileAttributes: a };
+        let cleared = basic.FileAttributes & FILE_ATTRIBUTE_READONLY != 0;
+        if cleared {
             if !write_attributes {
                 return Err(guard_reason::READ_ONLY.into());
             }
             let rest = basic.FileAttributes & !FILE_ATTRIBUTE_READONLY;
-            // zero times leave them as they are
-            let clear = FILE_BASIC_INFO { CreationTime: 0, LastAccessTime: 0, LastWriteTime: 0, ChangeTime: 0, FileAttributes: if rest == 0 { FILE_ATTRIBUTE_NORMAL } else { rest } };
+            let clear = attributes(if rest == 0 { FILE_ATTRIBUTE_NORMAL } else { rest });
             if SetFileInformationByHandle(h, FileBasicInfo, &clear as *const _ as *const _, std::mem::size_of::<FILE_BASIC_INFO>() as u32) == 0 {
                 return Err(failed(std::io::Error::last_os_error()));
             }
         }
         let d = FILE_DISPOSITION_INFO { DeleteFile: true };
-        if SetFileInformationByHandle(h, FileDispositionInfo, &d as *const _ as *const _, std::mem::size_of::<FILE_DISPOSITION_INFO>() as u32) != 0 {
-            return Ok(());
+        let deleted = if switch == Some(true) {
+            Err(std::io::Error::from_raw_os_error(5)) // the test switch: the classic delete is refused
+        } else if SetFileInformationByHandle(h, FileDispositionInfo, &d as *const _ as *const _, std::mem::size_of::<FILE_DISPOSITION_INFO>() as u32) != 0 {
+            Ok(())
+        } else {
+            Err(std::io::Error::last_os_error())
+        };
+        match deleted {
+            Ok(()) => Ok(()),
+            Err(e) => {
+                // the file stays: as it was, read-only again
+                if cleared {
+                    let back = attributes(basic.FileAttributes);
+                    SetFileInformationByHandle(h, FileBasicInfo, &back as *const _ as *const _, std::mem::size_of::<FILE_BASIC_INFO>() as u32);
+                }
+                Err(failed(e))
+            }
         }
-        Err(failed(std::io::Error::last_os_error()))
     }
+}
+
+#[cfg(windows)]
+thread_local! {
+    /// [`with_classic_delete`]: None, the delete as it is; Some(false), the classic disposition only; Some(true), and
+    /// that refused.
+    static CLASSIC_DELETE: std::cell::Cell<Option<bool>> = const { std::cell::Cell::new(None) };
+}
+
+/// Test hook (Windows): runs `f` with the removals of this thread going straight to the fallback delete (the classic
+/// disposition, after the read-only attribute is cleared through the handle), as on a Windows or a disk without
+/// `FileDispositionInfoEx`; `refused`: and that delete refused. Not for the launcher.
+#[cfg(windows)]
+#[doc(hidden)]
+pub fn with_classic_delete<R>(refused: bool, f: impl FnOnce() -> R) -> R {
+    struct Reset;
+    impl Drop for Reset {
+        fn drop(&mut self) {
+            CLASSIC_DELETE.with(|c| c.set(None));
+        }
+    }
+    CLASSIC_DELETE.with(|c| c.set(Some(refused)));
+    let _reset = Reset;
+    f()
 }
 
 #[cfg(not(windows))]
@@ -965,7 +1062,7 @@ fn remove_proved(p: Proved) -> Outcome {
     drop(file);
     if unchanged {
         match std::fs::remove_file(&aside) {
-            Ok(()) => return Outcome::Removed(stamp.len),
+            Ok(()) => return Outcome::Removed(stamp.len, stamp.id),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Outcome::Vanished,
             Err(e) => {
                 let at = put_back(&aside, &path, set_aside);
@@ -2487,23 +2584,30 @@ fn remove_old_file(p: &Path, set_aside: bool, f: &RecordedFile, new: &Path, from
     if !new_ok {
         return keep(left("its copy in the new place changed or is gone, so this one stays"), c);
     }
-    match proved.remove() {
-        Outcome::Removed(n) => {
+    let removed = match proved.remove() {
+        Outcome::Removed(n, id) => {
             c.removed_files += 1;
             c.removed_bytes += n;
+            id
         }
-        Outcome::Vanished => {}
+        Outcome::Vanished => return,
         Outcome::Stays { at, reason } => {
             c.kept.push(Kept { path: at, bytes: om.len(), reason });
             return;
         }
+    };
+    if set_aside || c.kept.iter().any(|k| k.path == p) {
+        return;
     }
-    // a program that wrote a new file under the old name meanwhile: it stays, named
-    if !set_aside
-        && let Ok(m) = std::fs::symlink_metadata(p)
-        && !c.kept.iter().any(|k| k.path == p)
-    {
-        c.kept.push(Kept { path: p.to_path_buf(), bytes: m.len(), reason: guard_reason::WRITTEN_AGAIN.into() });
+    match after_removal(p, removed) {
+        After::Gone => {}
+        // the removed file itself, its name still there while another program has it open
+        After::OnItsWayOut => c.kept.push(Kept { path: p.to_path_buf(), bytes: om.len(), reason: guard_reason::PENDING.into() }),
+        // a program that wrote a new file under the old name meanwhile: it stays, named
+        After::NewFile => {
+            let bytes = std::fs::symlink_metadata(p).map(|m| m.len()).unwrap_or(0);
+            c.kept.push(Kept { path: p.to_path_buf(), bytes, reason: guard_reason::WRITTEN_AGAIN.into() });
+        }
     }
 }
 
@@ -2676,6 +2780,14 @@ struct Recovery<'a> {
 /// A cancel between two files.
 struct Canceled;
 
+/// What [`Recovery::file`] did with a file.
+enum Went {
+    /// It stays, or it went from a set-aside name.
+    Not,
+    /// It went from its own name (its identity): what is at the name now is looked at.
+    Removed(Option<FileId>),
+}
+
 /// What would prove a file of the partial copy, decided without reading it.
 enum ProofPlan {
     /// This proof, read through the handle its removal holds ([`prove`]); `true`: the file an interrupted copy cut off.
@@ -2746,14 +2858,20 @@ impl Recovery<'_> {
             if self.files % 64 == 1 || m.len() >= 4 << 20 {
                 progress.report(Some((self.seen as f32 / self.total.max(1) as f32).min(1.0)), &format!("checking {rel}"));
             }
-            // a program that wrote a new file under the name while the proved one went: it is looked at like any file
-            if self.file(names, &t, &m, src_dir)
-                && let Ok(m2) = std::fs::symlink_metadata(&t)
-            {
-                if m2.is_file() && !is_link_meta(&m2) {
-                    self.file(names, &t, &m2, src_dir);
-                } else {
-                    self.keep(t, m2.len(), guard_reason::WRITTEN_AGAIN);
+            if let Went::Removed(id) = self.file(names, &t, &m, src_dir) {
+                match after_removal(&t, id) {
+                    After::Gone => {}
+                    // the removed file itself, its name still there while another program has it open: named, so the
+                    // next run finishes here
+                    After::OnItsWayOut => self.keep(t, m.len(), guard_reason::PENDING),
+                    // a program that wrote a new file under the name while the proved one went: looked at like any file
+                    After::NewFile => match std::fs::symlink_metadata(&t) {
+                        Ok(m2) if m2.is_file() && !is_link_meta(&m2) => {
+                            self.file(names, &t, &m2, src_dir);
+                        }
+                        Ok(m2) => self.keep(t, m2.len(), guard_reason::WRITTEN_AGAIN),
+                        Err(_) => {}
+                    },
                 }
             }
         } else {
@@ -2762,22 +2880,40 @@ impl Recovery<'_> {
         Ok(())
     }
 
+    /// The name a set-aside name `last` (in the folder `names` leads to) stands for: the name in the old folder's
+    /// matching folder whose set-aside name it is (either form: [`set_aside_name`]), else the long form's own name (a
+    /// file the old folder does not have, which then proves nothing). None: no set-aside name, or a short form that
+    /// stands for no name there.
+    fn original_of(&self, names: &[String], last: &str, src_dir: bool) -> Option<String> {
+        if !looks_set_aside(last) {
+            return None;
+        }
+        if src_dir {
+            let dir = names[..names.len().saturating_sub(1)].iter().fold(self.from.to_path_buf(), |p, n| p.join(n));
+            let found = std::fs::read_dir(&dir).into_iter().flatten().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).find(|n| set_aside_name(n) == last);
+            if found.is_some() {
+                return found;
+            }
+        }
+        let own = last.strip_prefix('.')?.strip_suffix(SET_ASIDE_SUFFIX)?;
+        (set_aside_name(own) == last).then(|| own.to_string())
+    }
+
     /// One file of the partial copy (`names` from the target root, at `t`): proved through the handle its removal
     /// holds and removed as that file ([`prove`], [`Proved::remove`]), else kept, named. A file under a set-aside name
-    /// (`.<name>.kiln-removing`, left by a removal that stopped) that its own name proves nothing for is proved under its
-    /// original name and removed where it is. The one cut-off file is remembered in the journal between its proof and
-    /// its removal. True: the file went from its path (not one found set aside), so a new file there is looked at.
-    fn file(&mut self, names: &[String], t: &Path, m: &std::fs::Metadata, src_dir: bool) -> bool {
+    /// (left by a removal that stopped) that its own name proves nothing for is proved under its original name and
+    /// removed where it is. The one cut-off file is remembered in the journal between its proof and its removal.
+    fn file(&mut self, names: &[String], t: &Path, m: &std::fs::Metadata, src_dir: bool) -> Went {
         let mut plan = self.plan(names, t, m, src_dir);
         let mut original = None;
         if let ProofPlan::Stays(_) = &plan
-            && let Some(orig) = names.last().and_then(|n| set_aside_original(n))
+            && let Some(orig) = names.last().and_then(|n| self.original_of(names, n, src_dir))
         {
             let mut as_original = names.to_vec();
             if let Some(last) = as_original.last_mut() {
-                *last = orig.to_string();
+                *last = orig.clone();
             }
-            original = Some(t.with_file_name(orig));
+            original = Some(t.with_file_name(&orig));
             plan = match self.plan(&as_original, t, m, src_dir) {
                 ProofPlan::Stays(why) => ProofPlan::Stays(format!("{}{why}", guard_reason::LEFT_SET_ASIDE)),
                 p => p,
@@ -2786,19 +2922,19 @@ impl Recovery<'_> {
         let (expect, cut) = match plan {
             ProofPlan::Stays(why) => {
                 self.keep(t.to_path_buf(), m.len(), why);
-                return false;
+                return Went::Not;
             }
             ProofPlan::Expect(expect, cut) => (expect, cut),
         };
         let set_aside = original.is_some();
         let proved = match prove(t, expect, set_aside) {
             Ok(p) => p,
-            Err(Unproved::Gone) => return false,
+            Err(Unproved::Gone) => return Went::Not,
             Err(u) => {
                 let why = u.reason(partial_reason::DIFFERS, "Kiln could not compare it with the old folder's file");
                 let why = if set_aside { format!("{}{why}", guard_reason::LEFT_SET_ASIDE) } else { why };
                 self.keep(t.to_path_buf(), m.len(), why);
-                return false;
+                return Went::Not;
             }
         };
         let original = original.unwrap_or_else(|| t.to_path_buf());
@@ -2808,7 +2944,7 @@ impl Recovery<'_> {
         if cut && !self.c.cut_off.contains(&original) {
             if self.cut_off_used {
                 self.keep(t.to_path_buf(), m.len(), partial_reason::CUT_OFF_AGAIN);
-                return false;
+                return Went::Not;
             }
             self.cut_off_used = true;
             self.c.cut_off.push(original.clone());
@@ -2817,25 +2953,26 @@ impl Recovery<'_> {
             if let Err(e) = write_journal(self.default, &self.journal).and_then(|_| sync_dir(self.default)) {
                 self.c.cut_off.pop();
                 self.keep(t.to_path_buf(), m.len(), format!("Kiln could not record the cut-off file before removing it: {}", e.message));
-                return false;
+                return Went::Not;
             }
             checkpointed = true;
         }
         match proved.remove() {
-            Outcome::Removed(n) => {
+            // a file found set aside went from its set-aside name: nothing to look at under its original one
+            Outcome::Removed(n, id) => {
                 self.c.removed_files += 1;
                 self.c.removed_bytes += n;
+                if set_aside { Went::Not } else { Went::Removed(id) }
             }
-            Outcome::Vanished => {}
+            Outcome::Vanished => Went::Not,
             Outcome::Stays { at, reason } => {
                 if checkpointed {
                     self.c.cut_off.pop();
                 }
                 self.keep(at, m.len(), reason);
-                return false;
+                Went::Not
             }
         }
-        !set_aside
     }
 
     /// What would prove the file at `t` (decided without reading it): a plain file at the same path in the old folder
@@ -3006,7 +3143,8 @@ fn remove_partial(env: &DataEnv, default: &Path, journal: &Journal, progress: &m
     progress.report(Some(0.0), &format!("removing the partial copy at {}", to.display()));
     for name in names {
         let p = to.join(&name);
-        if journal.entries.iter().any(|e| style.same_name(&e.name, &name)) {
+        // a journal entry, or the set-aside name of one (a top-level file whose removal stopped after setting it aside)
+        if journal.entries.iter().any(|e| style.same_name(&e.name, &name) || set_aside_name(&e.name) == name) {
             if r.visit(&mut vec![name], true, progress).is_err() {
                 r.c.interrupted = true;
                 return r.c;

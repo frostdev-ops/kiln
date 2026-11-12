@@ -1324,4 +1324,107 @@ mod win {
         assert!(left.is_empty(), "no temporary file stays: {left:?}");
         dfm::acknowledge(&fx.env).unwrap();
     }
+
+    /// The fallback delete, for a Windows or a disk without `FileDispositionInfoEx` (FAT, exFAT), reached here through
+    /// the hidden switch `with_classic_delete` (Wine always takes the first path). The file is made read-only only once
+    /// its proof began, so the proving handle holds the right to write attributes. It goes after the read-only attribute
+    /// is cleared through the handle; when that delete is refused it stays, named, and read-only again.
+    #[test]
+    fn the_fallback_delete_clears_read_only_and_puts_it_back_when_refused() {
+        seen();
+        for refused in [false, true] {
+            let fx = Fixture::build(&format!("fallback-delete-{refused}"));
+            let to = fx.base.join("moved");
+            let stop = MoveOptions { force_copy: true, inject: Some(Inject::StopAfter(dfm::Step::Activate)) };
+            assert_eq!(mv(&fx.env, &to, &stop, &mut NoProgress).unwrap_err().code, ErrorCode::Internal);
+            let file = lib_dir(&fx.dirs, &fx.mods.kiln).join("M.dll");
+            let watched = file.clone();
+            let c = dfm::with_classic_delete(refused, || {
+                dfm::with_removal_hook(
+                    move |s, p| {
+                        if s == dfm::RemovalStage::Proved && p == watched {
+                            let mut perm = std::fs::metadata(p).unwrap().permissions();
+                            perm.set_readonly(true);
+                            std::fs::set_permissions(p, perm).unwrap();
+                        }
+                    },
+                    || dfm::remove_old_copy(&fx.env, &mut NoProgress).unwrap(),
+                )
+            });
+            eprintln!("fallback, refused {refused}: kept {:?}", c.kept.iter().filter(|k| k.path == file).map(|k| k.reason.clone()).collect::<Vec<_>>());
+            if refused {
+                let k = c.kept.iter().find(|k| k.path == file).unwrap_or_else(|| panic!("the file stays: {c:?}"));
+                assert!(k.reason.starts_with("it could not be removed"), "{k:?}");
+                let mut perm = std::fs::metadata(&file).unwrap().permissions();
+                assert!(perm.readonly(), "the read-only attribute the fallback cleared is put back");
+                perm.set_readonly(false);
+                std::fs::set_permissions(&file, perm).unwrap();
+            } else {
+                assert!(!file.exists(), "the fallback clears read-only through the handle and deletes: {c:?}");
+            }
+        }
+    }
+
+    /// Without POSIX deletes (FAT and exFAT; Wine keeps the name too) a file deleted through Kiln's handle keeps its
+    /// name while another program holds it open with delete sharing. Both removals count it removed and name it as on
+    /// its way out, never as a new file written under its name and never as a file that could not be compared; once the
+    /// other program lets go its name is gone, and a partial copy's recovery finishes at the next call. On `C:` and,
+    /// with `KILN_TEST_VOLUME_B`, on `E:`.
+    #[test]
+    fn a_deleted_file_another_program_holds_is_on_its_way_out() {
+        seen();
+        const SHARE_READ_DELETE: u32 = 1 | 4; // FILE_SHARE_READ | FILE_SHARE_DELETE
+        let mut places: Vec<(&str, Option<PathBuf>)> = vec![("C", None)];
+        if let Some(b) = volume_b("a_deleted_file_another_program_holds_is_on_its_way_out (E:)") {
+            places.push(("E", Some(b)));
+        }
+        for (letter, far) in places {
+            for old_copy in [false, true] {
+                let case = format!("{letter} old copy {old_copy}");
+                let fx = Fixture::build(&format!("held-delete-{letter}-{old_copy}"));
+                let far_root = far.as_ref().map(|b| b.join(format!("Kiln held delete {} {old_copy}", std::process::id())));
+                if let Some(r) = &far_root {
+                    clean(r);
+                }
+                // the folder the removal works in: the old copy (on E: moved there first) or a target that stopped
+                let (file, made) = if old_copy {
+                    let from = match &far_root {
+                        Some(r) => {
+                            assert!(mv(&fx.env, r, &MoveOptions::default(), &mut NoProgress).unwrap().cleanup.unwrap().done);
+                            dfm::acknowledge(&fx.env).unwrap();
+                            DataDirs::at(r)
+                        }
+                        None => fx.dirs.clone(),
+                    };
+                    let stop = MoveOptions { force_copy: true, inject: Some(Inject::StopAfter(dfm::Step::Activate)) };
+                    assert_eq!(mv(&fx.env, &fx.base.join("moved"), &stop, &mut NoProgress).unwrap_err().code, ErrorCode::Internal);
+                    (lib_dir(&from, &fx.mods.kiln).join("M.dll"), far_root.clone())
+                } else {
+                    let to = far_root.clone().unwrap_or_else(|| fx.base.join("target"));
+                    let stop = MoveOptions { force_copy: true, inject: Some(Inject::StopAfter(dfm::Step::Copy)) };
+                    assert_eq!(mv(&fx.env, &to, &stop, &mut NoProgress).unwrap_err().code, ErrorCode::Internal);
+                    (lib_dir(&DataDirs::at(&to), &fx.mods.kiln).join("M.dll"), far_root.clone())
+                };
+                let held = std::fs::OpenOptions::new().read(true).share_mode(SHARE_READ_DELETE).open(&file).unwrap();
+                let c = if old_copy { dfm::remove_old_copy(&fx.env, &mut NoProgress).unwrap() } else { dfm::remove_partial_copy(&fx.env).unwrap() };
+                let name_stayed = std::fs::read_dir(file.parent().unwrap()).unwrap().flatten().any(|e| e.file_name() == "M.dll");
+                let named: Vec<String> = c.kept.iter().filter(|k| k.path == file).map(|k| k.reason.clone()).collect();
+                eprintln!("{case}: the name stayed while held: {name_stayed}; named {named:?}; removed {}", c.removed_files);
+                drop(held);
+                assert!(
+                    named.iter().all(|r| r == dfm::guard_reason::PENDING),
+                    "{case}: never as written again, never as not compared: {named:?}"
+                );
+                assert_eq!(name_stayed, !named.is_empty(), "{case}: named exactly when its name stayed");
+                assert!(!file.exists(), "{case}: gone once the other program let go");
+                if !old_copy {
+                    let c = dfm::remove_partial_copy(&fx.env).unwrap();
+                    assert!(c.done, "{case}: the next call finishes: {c:?}");
+                }
+                if let Some(r) = made {
+                    clean(&r);
+                }
+            }
+        }
+    }
 }
