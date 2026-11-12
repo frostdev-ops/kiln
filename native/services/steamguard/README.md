@@ -133,3 +133,7 @@ that run.
 - A player whose game has no Kiln. A dedicated server can only ask a player's own client to latch (Kiln.Network's
   `SteamGuardRelay`); a client without Kiln cannot be protected. The admin command still runs and its reply says
   "this player's game has no Kiln achievement guard: Steam achievements may unlock".
+- Kiln.Quests' own `/questadmin` commands are **not covered**: complete, advance and step can pay quest rewards
+  (experience or knowledge); start/fail actions and signals can do so too. Do not use these on an account that needs
+  protection. The routed Kiln.Admin bridge patch latches before its `modquest_set` and `modquest_signal`, but does not
+  change the service library's commands. Deferred rewards paid to a player who joins later are not covered.

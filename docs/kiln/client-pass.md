@@ -132,6 +132,10 @@ saved state, so this applies to test saves and local copies too.
   check today: none of the lines it covers needs a level, experience, skill-point or knowledge command.
 - **What the guard does not cover:** a player whose game has no Kiln, another mod's or loader's own calls into Steam,
   and an achievement reported before the guard went on.
+- **Kiln.Quests' `/questadmin` commands are not covered.** Complete, advance and step can grant experience or knowledge
+  through quest rewards; start/fail actions and signals can too. Do not use them for a protected test. Kiln.Admin's
+  routed bridge patch guards `modquest_set` and `modquest_signal`, not these service-library commands. Rewards paid to
+  a player who joins later are also not covered.
 
 ## What one player on one Linux PC cannot do
 
