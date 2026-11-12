@@ -78,6 +78,7 @@ public sealed class ItemMovedEvent : KilnEvent
     /// <summary>The step it was reported in.</summary>
     public ulong Step { get; }
 
+    /// <summary>The move in one line, for a log: the item, from, to, cause and step.</summary>
     public override string ToString() => $"{Item} moved {From} -> {To} ({Cause}, step {Step})";
 }
 
@@ -85,9 +86,46 @@ public sealed class ItemMovedEvent : KilnEvent
 /// (the same values as Kiln.Players' <c>PlayerEquipSlot</c>).</summary>
 public enum EquipmentSlot
 {
-    VanityHead, VanityUpperBody, VanityArms, VanityLowerBody, VanityFeet,
-    ArmourHead, ArmourUpperBody, ArmourArms, ArmourLowerBody, ArmourFeet,
-    Ring0, Ring1, RangedWeapon, Shield, Arrow, Spell, FishingBait, HookShot, Glider, Backpack,
+    /// <summary>Vanity head slot.</summary>
+    VanityHead,
+    /// <summary>Vanity upper-body slot.</summary>
+    VanityUpperBody,
+    /// <summary>Vanity arms slot.</summary>
+    VanityArms,
+    /// <summary>Vanity lower-body slot.</summary>
+    VanityLowerBody,
+    /// <summary>Vanity feet slot.</summary>
+    VanityFeet,
+    /// <summary>Armour head slot.</summary>
+    ArmourHead,
+    /// <summary>Armour upper-body slot.</summary>
+    ArmourUpperBody,
+    /// <summary>Armour arms slot.</summary>
+    ArmourArms,
+    /// <summary>Armour lower-body slot.</summary>
+    ArmourLowerBody,
+    /// <summary>Armour feet slot.</summary>
+    ArmourFeet,
+    /// <summary>First ring slot.</summary>
+    Ring0,
+    /// <summary>Second ring slot.</summary>
+    Ring1,
+    /// <summary>Ranged weapon slot.</summary>
+    RangedWeapon,
+    /// <summary>Shield slot.</summary>
+    Shield,
+    /// <summary>Arrow slot.</summary>
+    Arrow,
+    /// <summary>Spell slot.</summary>
+    Spell,
+    /// <summary>Fishing bait slot.</summary>
+    FishingBait,
+    /// <summary>Hook shot slot.</summary>
+    HookShot,
+    /// <summary>Glider slot.</summary>
+    Glider,
+    /// <summary>Backpack slot.</summary>
+    Backpack,
 }
 
 /// <summary>Where an <see cref="ItemInstanceRef"/> is (capability <c>items.instances</c>). The data calls on an item
