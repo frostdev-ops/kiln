@@ -133,7 +133,7 @@ public sealed class NetworkParity
     [KilnTest]
     public void A_channel_opens_and_closes()
     {
-        Assert.True(Network.Available, "kiln.net is up");
+        if (!Network.Available) throw new KilnUnavailableException("kiln.net", "the parity test requires a network transport");
         var ch = Network.Channel("tk-parity:open", "1", required: false).Register<ParityPing>();
         Assert.True(Network.Channels.Any(c => c.Name == "tk-parity:open" && c.Version == "1"), "listed");
         ch.Dispose();
@@ -143,7 +143,7 @@ public sealed class NetworkParity
     [KilnTest]
     public void A_message_round_trips_through_the_codec()
     {
-        Assert.True(Network.Available, "kiln.net is up");
+        if (!Network.Available) throw new KilnUnavailableException("kiln.net", "the parity test requires a network transport");
         using var ch = Network.Channel("tk-parity:codec", "1", required: false).Register<ParityPing>();
         var sent = new ParityPing("héllo ✓", -300, new WorldPosition(1.5, -2, 3e6));
         var w = new NetWriter();
@@ -157,7 +157,7 @@ public sealed class NetworkParity
     [KilnTest]
     public void A_second_version_of_a_channel_is_refused()
     {
-        Assert.True(Network.Available, "kiln.net is up");
+        if (!Network.Available) throw new KilnUnavailableException("kiln.net", "the parity test requires a network transport");
         using var ch = Network.Channel("tk-parity:dup", "1", required: false);
         Assert.Throws<InvalidOperationException>(() => Network.Channel("tk-parity:dup", "2", required: false));
         Assert.Same(ch, Network.Channel("tk-parity:dup", "1", required: false));

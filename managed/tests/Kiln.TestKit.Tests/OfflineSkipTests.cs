@@ -21,8 +21,10 @@ public sealed class OfflineSkipTests
         Assert.Equal(["kiln.spawn"], passed.Unavailable);
         Assert.Equal(TestOutcome.Pass, passed.Runner!.Outcome);
         var failed = r.Named("TkOfflineMod.Reads_spawn_and_fails");
-        Assert.Equal(TestOutcome.Skip, failed.Outcome);
+        Assert.Equal(TestOutcome.Fail, failed.Outcome);
         Assert.Equal("needs kiln.spawn, which the test kit does not fake; the body failed: spawn should be there", failed.Message);
+        Assert.Equal(["kiln.spawn"], failed.Unavailable);
+        Assert.Throws<Kiln.TestKit.Xunit.KilnTestFailedException>(() => Kiln.TestKit.Xunit.KilnTestReport.Report(failed));
         var feature = r.Named("TkOfflineMod.Reads_a_feature");
         Assert.Equal(TestOutcome.Skip, feature.Outcome);
         Assert.Equal("needs the game feature tk.feature, which is off offline; the body passed", feature.Message);
@@ -31,6 +33,30 @@ public sealed class OfflineSkipTests
         Assert.StartsWith("needs tk.capability, which is unavailable offline (KilnUnavailableException: tk.capability is not available: not on this build)", thrown.Message);
         Assert.Equal(TestOutcome.Pass, r.Named("TkOfflineMod.Asks_for_nothing").Outcome);
         Assert.Empty(r.Named("TkOfflineMod.Asks_for_nothing").Unavailable);
+    }
+
+    [Theory]
+    [InlineData("TkOfflineMod.Reads_a_feature_and_times_out")]
+    [InlineData("TkOfflineMod.Reads_a_feature_and_blocks")]
+    public void AnUnavailableAskDoesNotHideATimeout(string name)
+    {
+        using var session = new KilnTestSession(k => k.Load<TkOfflineMod>(new ModManifest("tk-offline")),
+            options: new KilnTestOptions { WatchdogGrace = TimeSpan.FromMilliseconds(250) });
+        var result = session.Run(name);
+        Assert.Equal(TestOutcome.Timeout, result.Outcome);
+        Assert.Equal(["tk.timeout"], result.Unavailable);
+        Assert.Contains("tk.timeout", result.Message);
+        Assert.Throws<Kiln.TestKit.Xunit.KilnTestTimeoutException>(() => Kiln.TestKit.Xunit.KilnTestReport.Report(result));
+    }
+
+    [Fact]
+    public void CatchingUnavailableDoesNotHideAnUnrelatedFailure()
+    {
+        using var session = Session();
+        var result = session.Run("TkOfflineMod.Catches_unavailable_then_fails");
+        Assert.Equal(TestOutcome.Fail, result.Outcome);
+        Assert.Contains("pure logic regression", result.Message);
+        Assert.Contains("tk.optional", result.Message);
     }
 
     [Fact]

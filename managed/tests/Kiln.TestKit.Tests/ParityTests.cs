@@ -41,7 +41,7 @@ public sealed class ParityTests
         foreach (var net in r.Where(x => x.Name.StartsWith("NetworkParity.", StringComparison.Ordinal)))
         {
             Assert.Equal(["kiln.net"], net.Unavailable);
-            Assert.StartsWith("needs kiln.net, which the test kit does not fake; the body failed: kiln.net is up", net.Message);
+            Assert.StartsWith("needs kiln.net, which is unavailable offline (KilnUnavailableException:", net.Message);
         }
         Assert.All(r.Where(x => x.Outcome == TestOutcome.Pass), x => Assert.Empty(x.Unavailable.Except(Allowed)));
     }
@@ -69,7 +69,7 @@ public sealed class ParityTests
             report = KilnTests.RunAllInTheRunner(kiln, "tk-parity");  // what tests.autoRun starts in a server, without the skip rule
         }
         Assert.Equal(Offline.Select(o => o.Name), report.Results.Select(x => x.Name));
-        // without the kit's rule the network bodies fail on their first line offline; with it they are skipped
+        // Without the kit's rule the explicit unavailable exception fails; offline it opts into a named skip.
         Assert.All(report.Results.Where(x => x.Name.StartsWith("NetworkParity.", StringComparison.Ordinal)), x => Assert.Equal(TestOutcome.Fail, x.Outcome));
     }
 }

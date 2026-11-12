@@ -24,6 +24,29 @@ public sealed class TkOfflineMod : Mod
     [KilnTest]
     public void Asks_for_nothing() => Assert.True(Game.IsTickThread);
 
+    [KilnTest(TimeoutSeconds = 1)]
+    public async Task Reads_a_feature_and_times_out(TestContext t)
+    {
+        _ = Game.HasFeature("tk.timeout");
+        await t.Delay(TimeSpan.FromSeconds(20));
+    }
+
+    [KilnTest(TimeoutSeconds = 1)]
+    public void Reads_a_feature_and_blocks()
+    {
+        _ = Game.HasFeature("tk.timeout");
+        Thread.Sleep(Timeout.Infinite);
+    }
+
+    [KilnTest]
+    public void Catches_unavailable_then_fails()
+    {
+        _ = Game.HasFeature("tk.optional");
+        try { throw new KilnUnavailableException("tk.optional", "optional"); }
+        catch (KilnUnavailableException) { }
+        Assert.Equal(3, 1 + 1, "pure logic regression");
+    }
+
     // kiln.hooks keeps its miss (HooksNative._looked): only the first look asks the backend
     [KilnTest]
     public void Hooks_first() => Assert.False(Hooks.Available);

@@ -143,9 +143,12 @@ mod's log lines of the test go to the test's output.
 
 ## Offline skip rule
 While a `[KilnTest]` body runs, the kit records every service and game feature it answered "unavailable". A test
-that asked for one is reported skipped, with the names, whether its body passed or failed: `needs kiln.spawn, which
-the test kit does not fake; the body failed: ...`. A test that ends in `KilnUnavailableException` is skipped with its
-capability. So a test that needs combat is never passed offline by accident. A test that skips itself
+that asked for one and whose body passed is reported skipped, with the names: `needs kiln.spawn, which the test kit
+does not fake; the body passed`. A failed body stays failed, and a timed-out body stays a timeout (an xunit failure),
+with the unavailable names added to its message. Merely checking an optional service never hides an unrelated
+regression. To skip on an unavailable capability, let `KilnUnavailableException` reach the runner; catching it and
+then failing another assertion is still a failure. So a test that needs combat is never passed offline by accident.
+A test that skips itself
 (`Assert.Skip("kiln.combat hits are not available")`) keeps its own message.
 
 A test that registers a command asks for `kiln.chat` too (Kiln.Chat subscribes to players' chat lines for it), so it
@@ -201,7 +204,7 @@ time with them sees almost none pass between steps, and an `await Task.Delay(...
 | EntityData | recording fake | `kiln.saves` | on player entities: stored as PlayerData under the fake player's Steam id. On every other entity unavailable (EntityData.Available is false: it needs kiln.spawn, which is not faked before dev.26's fake world) |
 | Config (per world) | real |  | Mod.WorldConfig<T>() binds to the harness world's folder (kiln/data/worlds/<id>/config) through Kiln.Saves and differs between world ids |
 | kiln.net | unavailable | `kiln.net` | no fake: a true pair is a client hosting its world (a kiln.client fake, a client-side harness, a client tick) and shares one channel registry, so no handshake refusal could be tested; Kiln.Network reports itself unavailable |
-| [KilnTest] tests | real |  | Kiln.Testing's own runner, started test by test through Kiln.Host (KilnHarness.RunTest, KilnTestSession, the xunit KilnTestSuite): same order, timeouts and results as in a server. Offline a test that asked for an unfaked service or a feature that is off is skipped with the names; a test that blocks the tick thread is stopped by the watchdog and reported as a timeout with the stack where it blocked |
+| [KilnTest] tests | real |  | Kiln.Testing's own runner, started test by test through Kiln.Host (KilnHarness.RunTest, KilnTestSession, the xunit KilnTestSuite): same order, timeouts and results as in a server. Offline a passing body that asked for an unfaked service or a feature that is off is skipped with the names; failed bodies and timeouts remain failures with the names. A test that blocks the tick thread is stopped by the watchdog and reported as a timeout with the stack where it blocked |
 | kiln.abilities | unavailable | `kiln.abilities` | no fake: the service finds no native table, so its own Available is false and its row says offline |
 | kiln.assets | unavailable | `kiln.assets` | no fake: the service finds no native table, so its own Available is false and its row says offline |
 | kiln.audio | unavailable | `kiln.audio` | no fake: the service finds no native table, so its own Available is false and its row says offline |

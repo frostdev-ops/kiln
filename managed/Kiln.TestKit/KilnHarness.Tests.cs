@@ -16,7 +16,8 @@ public sealed class KilnTestOptions
     public static KilnTestOptions Default { get; } = new();
 
     /// <summary>Unavailable names (<c>kiln.spawn</c>, a game feature) a test may ask for and still count: for tests
-    /// whose subject is the unavailable path. Any other name asked during a test makes it skipped offline.</summary>
+    /// whose subject is the unavailable path. Any other name asked during a passing test makes it skipped offline;
+    /// failures and timeouts stay failures, with the names in their message.</summary>
     public IReadOnlyCollection<string> AllowUnavailable { get; init; } = [];
 
     /// <summary>How much longer than the test's timeout one harness step may take before the watchdog stops the tick
@@ -31,7 +32,8 @@ public sealed class KilnTestOptions
 /// <summary>One <c>[KilnTest]</c> as the harness ran it.</summary>
 /// <param name="Name">The test's name (<c>attr.Name ?? Class.Method</c>).</param>
 /// <param name="Outcome">The kit's verdict: Kiln.Testing's, except that a test that asked for something the kit does not
-/// fake is <see cref="TestOutcome.Skip"/>, and a test the watchdog stopped is <see cref="TestOutcome.Timeout"/>.</param>
+/// fake is <see cref="TestOutcome.Skip"/> when its body passed; failures and timeouts remain failures, and a test the
+/// watchdog stopped is <see cref="TestOutcome.Timeout"/>.</param>
 /// <param name="Duration">How long it ran.</param>
 /// <param name="Message">Why it failed, was skipped or timed out; for an offline skip also what the body did.</param>
 /// <param name="Stack">Where it failed (the assertion's frames), or for a stopped test the tick thread's stack where it
@@ -109,8 +111,9 @@ public sealed partial class KilnHarness
     /// a millisecond's sleep, so a test that waits on wall time (<c>TestContext.Delay</c>, <c>Until</c>, a timer, its own
     /// thread) costs about one step a millisecond instead of a busy core.</para>
     /// <para><b>Skipped offline.</b> When the test's mod, or a mod it depends on, asked for a Kiln service the kit does not
-    /// fake or a game feature that is off while it ran, the result is <see cref="TestOutcome.Skip"/> naming them, whatever
-    /// the body did (that goes into the message); <see cref="KilnTestOptions.AllowUnavailable"/> exempts names. A test that
+    /// fake or a game feature that is off while it ran, a passing body becomes <see cref="TestOutcome.Skip"/> naming them.
+    /// A failed or timed-out body stays a failure with the names in its message;
+    /// <see cref="KilnTestOptions.AllowUnavailable"/> exempts names. A test that
     /// ends in <see cref="KilnUnavailableException"/> is skipped with its capability. Kiln's own code (service ticks, the
     /// loader) asks for tables too; those asks are not the test's.</para>
     /// <para><b>Watchdog.</b> A step that does not return within the test's timeout (its <c>TimeoutSeconds</c>, else the
@@ -255,17 +258,17 @@ public sealed partial class KilnHarness
                           $"{timeout.TotalSeconds:0.##} s and {options.WatchdogGrace.TotalSeconds:0.##} s grace); it was {stop.How}" +
                           (stop.Stack is null ? ". No stack: nothing reached the thread." : "");
             if (!stop.ThreadEnded) allNotes.Add("the tick thread could not be stopped: it keeps running in this process, outside any harness; its mods were retired without OnUnload");
-            return new KilnTestResult(name, TestOutcome.Timeout, sw.Elapsed, message, stop.Stack, names) { Log = log, Notes = allNotes };
+            return Judge(new KilnTestResult(name, TestOutcome.Timeout, sw.Elapsed, message, stop.Stack, names) { Log = log, Notes = allNotes }, asked, null);
         }
         if (noReport is not null)
-            return new KilnTestResult(name, TestOutcome.Timeout, sw.Elapsed, noReport, null, names) { Log = log, Notes = allNotes };
+            return Judge(new KilnTestResult(name, TestOutcome.Timeout, sw.Elapsed, noReport, null, names) { Log = log, Notes = allNotes }, asked, null);
         if (report is null)
             return Judge(new KilnTestResult(name, TestOutcome.Fail, sw.Elapsed, error ?? "the runner reported nothing", null, names) { Log = log, Notes = allNotes },
                 asked, unavailable.Capability);
 
         var mine = report.Results.Where(r => r.Name.Equals(name, StringComparison.OrdinalIgnoreCase)).ToList();
         if (mine.Count == 0)
-            return new KilnTestResult(name, TestOutcome.Fail, sw.Elapsed, $"the runner ran {report.Results.Count} test(s) but none named '{name}'", null, names) { Log = log, Notes = allNotes };
+            return Judge(new KilnTestResult(name, TestOutcome.Fail, sw.Elapsed, $"the runner ran {report.Results.Count} test(s) but none named '{name}'", null, names) { Log = log, Notes = allNotes }, asked, null);
         var runner = mine.Count == 1 ? mine[0] : Merge(name, mine);
         var outcome = runner.Outcome;
         if (outcome == TestOutcome.Pass && faults.Count > 0 && _options.ThrowOnModFault)
@@ -301,7 +304,11 @@ public sealed partial class KilnHarness
             TestOutcome.Timeout => $"the body timed out: {r.Message}",
             _ => $"the body failed: {r.Message}",
         };
-        return r with { Outcome = TestOutcome.Skip, Message = $"needs {string.Join(", and ", needs)}; {body}" };
+        return r with
+        {
+            Outcome = r.Outcome == TestOutcome.Pass ? TestOutcome.Skip : r.Outcome,
+            Message = $"needs {string.Join(", and ", needs)}; {body}",
+        };
     }
 
     private static string Join(IReadOnlyList<string> names) =>
@@ -628,8 +635,8 @@ public static partial class Coverage
     {
         rows.Add(new CoverageRow("[KilnTest] tests", CoverageKind.Real, [],
             "Kiln.Testing's own runner, started test by test through Kiln.Host (KilnHarness.RunTest, KilnTestSession, the xunit " +
-            "KilnTestSuite): same order, timeouts and results as in a server. Offline a test that asked for an unfaked service or a " +
-            "feature that is off is skipped with the names; a test that blocks the tick thread is stopped by the watchdog and " +
+            "KilnTestSuite): same order, timeouts and results as in a server. Offline a passing body that asked for an unfaked service or a " +
+            "feature that is off is skipped with the names; failed bodies and timeouts remain failures with the names. A test that blocks the tick thread is stopped by the watchdog and " +
             "reported as a timeout with the stack where it blocked"));
     }
 }
