@@ -135,6 +135,7 @@ internal sealed class KitBackend : IKilnBackend
         lock (_lock) _tables.TryGetValue(name, out table);
         if (table != 0 && ((ServiceHeader*)table)->Version >= minVersion) return table;
         Asked.Record(AskKind.Service, name, HostAccess.Current?.Info.Id);
+        MissCaches.Note();  // who asked, so a service that remembers the miss can be made to ask again (KilnHarness.Tests.cs)
         return 0;
     }
 
