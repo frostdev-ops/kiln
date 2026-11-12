@@ -129,7 +129,9 @@ internal static partial class CheckRegistry
                     var tags = (a.Tags ?? []).Where(x => !string.IsNullOrWhiteSpace(x)).Select(x => x.Trim()).Distinct(StringComparer.Ordinal).ToArray();
                     var area = string.IsNullOrWhiteSpace(a.Area) ? modName : a.Area.Trim();
                     var c = new CheckCase(mod, modName, version, a.Id ?? "", string.IsNullOrWhiteSpace(a.Title) ? a.Id ?? "" : a.Title,
-                        area, a.Since, tags, a.Needs, a.Order, string.IsNullOrWhiteSpace(a.Confirm) ? null : a.Confirm, m, ShapeProblem(t, m, a));
+                        area, a.Since, tags, a.Needs, a.Order, string.IsNullOrWhiteSpace(a.Confirm) ? null : a.Confirm, m,
+                        tags.Contains(ClientCheckTags.GuardProof) && !tags.Contains(ClientCheckTags.Cheats)
+                            ? "a guard-proof check must also be tagged cheats" : ShapeProblem(t, m, a));
                     found.Add((c, t.FullName ?? t.Name, m.MetadataToken));
                 }
             }

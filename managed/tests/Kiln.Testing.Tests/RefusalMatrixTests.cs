@@ -32,6 +32,32 @@ public sealed class RefusalMatrixTests
         Assert.Contains(h.Runner.View.Items, i => i.Refusal is { } x && x.StartsWith(line));
     }
 
+    [Fact]
+    public void Guard_proof_without_cheats_is_refused_at_registration()
+    {
+        using var h = new Harness();
+        var c = CheckRegistry.All.Single(c => c.Id == "t.proof-unsafe");
+        Assert.Contains("cheats", c.Problem);
+        h.Start(c.Id);
+        Assert.Contains("cheats", h.Last(RunEventKind.Refused)!.Message);
+        Assert.Equal(0, CheckMod.ProofRan);
+        Assert.Contains(h.Runner.View.Items, i => i.Id == c.Id && i.Refusal != null);
+    }
+
+    [Theory]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    public void A_handwritten_pass_without_both_tags_and_the_counter_assertion_opens_nothing(bool cheats, bool assertion)
+    {
+        using var h = new Harness(x => x.Seed(Harness.ProofEntry("pass") with
+        {
+            Tags = cheats ? [ClientCheckTags.Cheats, ClientCheckTags.GuardProof] : [ClientCheckTags.GuardProof],
+            Assertions = assertion ? [new LedgerAssertion { What = "the guard dropped at least one report", Ok = true }] : [],
+        }));
+        h.Start("t.cheats");
+        Refused(h, "line 4");
+    }
+
     // ---- line 1 ----
 
     [Fact]

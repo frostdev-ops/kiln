@@ -93,6 +93,8 @@ internal sealed class CheckRunner
     /// <summary>How long one clean-up may take.</summary>
     internal static TimeSpan CleanupTimeout = TimeSpan.FromSeconds(10);
 
+    internal const string DroppedAssertion = "the guard dropped at least one report";
+
     internal const int MaxLogLines = 200, MaxLogBytes = 32 * 1024, MaxLine = 1000, MaxNote = 300, MaxAssertions = 64;
 
     private readonly IRunnerEnv _env;
@@ -644,7 +646,7 @@ internal sealed class CheckRunner
     {
         long? b = run.GuardBefore?.Dropped, a = after?.Dropped;
         var up = b is { } x && a is { } y && y > x;
-        run.Add(up, "the guard dropped at least one report", $"{b?.ToString() ?? "unread"} before, {a?.ToString() ?? "unread"} after");
+        run.Add(up, DroppedAssertion, $"{b?.ToString() ?? "unread"} before, {a?.ToString() ?? "unread"} after");
         if (up) return null;
         _env.Write(LogLevel.Warn, $"checks: {run.Case.Key}: the guard's dropped counter did not go up; recorded as fail (the player answered {LedgerEntry.VerdictName(answered)})");
         return $"the guard's dropped counter did not go up ({b?.ToString() ?? "unread"} before, {a?.ToString() ?? "unread"} after): " +

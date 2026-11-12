@@ -115,8 +115,9 @@ internal static class CheatsRule
     /// again first).</summary>
     public static Refusal? Static(CheckCase c, ClientCheckSession session, CheckOrigin origin)
     {
-        if (!c.Cheats)
-            return c.GuardProof && c.Confirm is null ? new Refusal(Line4, "a guard-proof check needs a Confirm text, and this one has none") : null;
+        if (c.GuardProof && !c.Cheats)
+            return new Refusal(Line4, "a guard-proof check must also be tagged cheats");
+        if (!c.Cheats) return null;
         if (origin == CheckOrigin.Control || session == ClientCheckSession.Server)
             return new Refusal(Line1, "a cheats check never starts from the control folder: nobody at the game answered for its guard");
         if (c.Has(ClientCheckTags.TwoPlayers))
@@ -191,8 +192,9 @@ internal static class CheatsRule
         if (r.State == LedgerReadState.Unreadable) return "unreadable";
         if (r.State == LedgerReadState.Missing) return "none";
         var newest = r.Document!.Entries.LastOrDefault(e =>
-            e.Has(ClientCheckTags.GuardProof) && e.Game.Side == "client" && string.Equals(e.Game.Sha256, sha256, StringComparison.OrdinalIgnoreCase) &&
+            e.Has(ClientCheckTags.GuardProof) && e.Has(ClientCheckTags.Cheats) && e.Game.Side == "client" && string.Equals(e.Game.Sha256, sha256, StringComparison.OrdinalIgnoreCase) &&
             e.Kiln == kiln);
+        if (newest is { Verdict: "pass" } && !newest.Assertions.Any(a => a.What == CheckRunner.DroppedAssertion && a.Ok)) return "fail";
         return newest?.Verdict ?? "none";
     }
 

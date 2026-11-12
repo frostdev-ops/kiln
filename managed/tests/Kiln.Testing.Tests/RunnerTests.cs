@@ -213,7 +213,7 @@ public sealed class RunnerTests
         }
         var list = Do("l", "list");
         Assert.True(list.GetProperty("ok").GetBoolean());
-        Assert.Equal(18, list.GetProperty("data").GetProperty("checks").GetArrayLength());
+        Assert.Equal(19, list.GetProperty("data").GetProperty("checks").GetArrayLength());
         var run = Do("r", "run cct t.pass");
         Assert.True(run.GetProperty("ok").GetBoolean(), run.ToString());
         Assert.Equal("asking", Do("s", "status").GetProperty("data").GetProperty("current").GetProperty("phase").GetString());

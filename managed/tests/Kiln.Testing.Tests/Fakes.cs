@@ -155,6 +155,13 @@ public sealed class CheckMod : Mod
         await c.Verdict();
     }
 
+    [ClientCheck("t.proof-unsafe", "Guard proof without cheats", Tags = [ClientCheckTags.GuardProof], Confirm = "Sure?")]
+    public async Task UnsafeProof(CheckContext c)
+    {
+        ProofRan++;
+        await c.Verdict();
+    }
+
     [ClientCheck("t.cheats", "Cheats", Area = "Cheats", Tags = [ClientCheckTags.Cheats], Order = 10)]
     public async Task Cheats(CheckContext c)
     {
@@ -288,6 +295,7 @@ internal sealed class Harness : IDisposable
         Mod = "cct", ModVersion = "1.2.3", Id = "t.proof", Title = "Guard proof", Area = "Cheats",
         Tags = [ClientCheckTags.Cheats, ClientCheckTags.GuardProof], Kiln = kiln, Game = new LedgerGame { Side = side, Sha256 = sha, Verified = true },
         Session = "hosted", Verdict = verdict, Time = "2026-11-11T00:00:00Z",
+        Assertions = [new LedgerAssertion { What = "the guard dropped at least one report", Ok = verdict == "pass" }],
     };
 
     public void Dispose()
