@@ -480,6 +480,11 @@ mods with player states) is refused at join too, also with `modSync` set to `war
 
 ### Limits
 
+- **Never override the player graph yourself.** The key is GUID `21319e83-5087-4fff-8795-22997843649e`, type
+  `keen::anim_graph::runtime_graph::AnimationGraphResource2_0`, part 0. Do not put it through `Assets.Override`,
+  `Assets.LoadManifest` or `assets.json`: only kiln.playeranim may serve the merged graph. Replacing it after boot
+  invalidates the reported graph hash, and replacing it while a player exists can end the server. This also applies
+  to mods without player-state definitions. Define states in `assets/player-states.json` instead.
 - **No hot reload.** A change (to the file, to the set of enabled mods) applies from the next start of the game
   or server: a player graph served while a player's graph runs ends the server, so the graph, and every clip a served state
   plays, stays as it was at boot. A mod with player states that is unloaded or reloaded while the game runs keeps its states
