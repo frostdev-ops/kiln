@@ -56,6 +56,21 @@ public sealed class MachineLocalSyncTests
     }
 
     [Fact]
+    public void A_clones_definition_in_add_keeps_its_model_and_graph()
+    {
+        // A definition only feeds the clone while no definition of the client's own is there: the mod's own replaces it (adopted or redefined), and a later
+        // server definition of a clone the client defines itself is set aside ("local"). Until the mod's arrives, the server's model and graph are the best
+        // stand-in (a cooked client draws them; an uncooked one refuses an unserved GUID and keeps the staff's), so the server sends them there.
+        var cooked = SyncDocumentGoldenTests.ServerExport.Replace(
+            "\"fields\":{\"ModelResource.model\":\"" + SyncDocumentGoldenTests.Rigid + "\"",
+            "\"fields\":{\"ModelResource.model\":\"" + SyncDocumentGoldenTests.Skinned + "\",\"AnimationGraphResourceComponent2.animationGraph\":\"" + SyncDocumentGoldenTests.Graph + "\"");
+        Assert.NotEqual(SyncDocumentGoldenTests.ServerExport, cooked);
+        var add = JsonNode.Parse(SyncDocumentGoldenTests.Sent(cooked, HeldMarks()))!["templates"]!["add"]![0]!["fields"]!;
+        Assert.Equal(SyncDocumentGoldenTests.Skinned, (string)add["ModelResource.model"]!);
+        Assert.Equal(SyncDocumentGoldenTests.Graph, (string)add["AnimationGraphResourceComponent2.animationGraph"]!);
+    }
+
+    [Fact]
     public void A_sub_sequence_key_and_an_emptied_entry_follow()
     {
         var m = new MachineLocalFields();
