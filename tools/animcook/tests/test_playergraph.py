@@ -152,8 +152,9 @@ class Synth:
         self.t_dr_da = n.transition("t.dr.da", main["DodgeRoll_FullBody"], main["Dodge_Attack_FullBody"], 0.05,
                                     n.id_equals_any("l.dr.da", SI, [sid("DA.a"), sid("DA.b")]))
         self.t_dr_j = n.transition("t.dr.j", main["DodgeRoll_FullBody"], main["Jump"], 0.1, n.id_equals_any("l.dr.j", SI, self.jump_ids))
+        self.t_pa_da = n.transition("t.pa.da", main["Parry_FullBody"], main["Dodge_Attack_FullBody"], 0.1, n.id_equals("c.pa.da", SI, sid("Other")))
         m_main = n.machine("sm.main", "SM_Main", [main["Grounded"]] + list(main.values()), main["Grounded"], global_transitions=mg,
-                           transitions=[self.t_dr_da, self.t_dr_j])
+                           transitions=[self.t_dr_da, self.t_dr_j, self.t_pa_da])
         p_main = n.pose("p.main", m_main)
         # SM_UpperBodyOverride: the reset list, a select on the state input outside every neighbour, a list holding part of an entry
         attack_ids = [sid(x) for x in melee_ids] + self.jump_ids + [sid(x) for x in ("Block", "Parry", "Dodge", "DA.a", "DA.b", "SA.a", "SA.b", "Kick")]
@@ -533,6 +534,7 @@ class Rules(Base):
                                                                            A.fnv_guid(G.derive("m", "state", "a"))))
         self.assertEqual(new, [PG.node_id("m", "a", "in.0"), PG.node_id("m", "d", "out.0"), PG.node_id("m", "d", "out.1")], "added in state order")
         self.assertNotIn(PG.node_id("m", "a", "out.0"), by)
+        self.assertNotIn(PG.node_id("m", "a", "in.1"), by, "a way in on another id is not copied")
         s1o, s2i = by[PG.node_id("m", "s1", "out.0")], by[PG.node_id("m", "s2", "in.0")]
         self.assertEqual(s1o["toState"], self.game("t.s12")["toState"])
         self.assertEqual(s2i["fromState"], self.game("t.s12")["fromState"])
@@ -841,6 +843,18 @@ class Off(Base):
         out, rep = self.merge(self.states(), raw=Encoder(TYPES).encode(TYPES.get(GRAPH), val))
         self.assertOff(out, rep, "twice")
 
+    def test_the_merged_graph_must_decode_to_itself(self):
+        class Lossy(Encoder):
+            calls = 0
+
+            def encode(self, t, v):
+                Lossy.calls += 1
+                out = super().encode(t, v)
+                return out + b"\0" if Lossy.calls == 2 else out
+        with mock.patch.object(PG, "Encoder", Lossy):
+            out, rep = self.merge(self.states())
+        self.assertOff(out, rep, "does not decode to itself")
+
     def test_validate_refuses_a_changed_game_node(self):
         out, rep = self.merge(mod({"a": {"clip": "x", "like": "Parry_FullBody"}, "h": {"clip": "x", "like": self.synth.hammer[0]}}))
         merged, pristine = decode(out), decode(self.raw)
@@ -867,6 +881,54 @@ class Off(Base):
                 change(bad)
                 with self.assertRaises(PG.MergeOff):
                     PG.validate(TYPES, pristine, bad, machines, lists, selects, new)
+
+
+class Facts(unittest.TestCase):
+    """ClipFacts: a clip's facts from the mods' assets.json and files, else from the game."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.dir = Path(self.tmp.name)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def ja(self, fps=30, frames=45, joints=JOINTS, hier=HIER, flags=1):
+        return Encoder(TYPES).encode(TYPES.get(PG.JOINT_ANIM), {"hierarchyHash": hier, "positionFactor": 1.0, "positionTangent": 1.0, "scaleFactor": 1.0,
+                                                                "headers": [], "data": [], "fps": fps, "frameCount": frames, "jointCount": joints, "flags": flags})
+
+    def assets(self, name, entries, files):
+        d = self.dir / name
+        d.mkdir()
+        for f, b in files.items():
+            (d / f).write_bytes(b)
+        (d / "assets.json").write_text("// cooked by animcook\n" + json.dumps({"format": 1, "entries": entries}))
+        return d
+
+    def test_from_mods_and_the_game(self):
+        g1, g2, g3, g4 = (str(G.derive("t", "clip", x)) for x in "abcd")
+        a = self.assets("a", [{"kind": "resource", "guid": g1.upper(), "type": PG.JOINT_ANIM, "file": "a.bin"},
+                              {"kind": "resource", "guid": g1, "type": PG.ROOT_MOTION, "part": 0, "file": "a.bin"},
+                              {"kind": "resource", "guid": g2, "type": PG.JOINT_ANIM, "file": "b.bin", "side": "client"},
+                              {"kind": "resource", "guid": g3, "type": f"0x{TYPES.get(PG.JOINT_ANIM)['hash']:08x}", "file": "c.bin"},
+                              {"kind": "icon", "guid": g4, "file": "x.png"}],
+                        {"a.bin": self.ja(), "b.bin": self.ja(), "c.bin": self.ja(fps=60, frames=10, flags=0)})
+        b = self.assets("b", [{"kind": "resource", "guid": g1, "type": PG.SEQUENCES, "file": "s.bin"},
+                              {"kind": "resource", "guid": g3, "type": PG.JOINT_ANIM, "file": "c.bin"}], {"s.bin": b"", "c.bin": self.ja(fps=60, frames=11)})
+
+        class Game:
+            def has(self, key):
+                return key.guid in (g2, g4) and key[1] in (TYPES.get(PG.JOINT_ANIM)["hash"], TYPES.get(PG.ROOT_MOTION)["hash"])
+
+            def read(self, key):
+                return Facts.ja(None, fps=20, frames=5, flags=0)
+        f = PG.ClipFacts(TYPES, [a, b], Game())
+        self.assertEqual(f(g1), facts(fps=30, frames=45, loop=True, rm=True, seq=True))
+        self.assertEqual(f(g2), facts(fps=20, frames=5, loop=False, rm=True, seq=False), "a client-only entry is not served on a server: the game's")
+        self.assertIsNone(f(g3), "two mods serve the clip with other facts")
+        self.assertEqual(f(g4)["fps"], 20)
+        self.assertIsNone(PG.ClipFacts(TYPES, [a, b])(g4))
+        self.assertIsNone(f(str(G.derive("t", "clip", "none"))))
 
 
 class Cli(Base):
