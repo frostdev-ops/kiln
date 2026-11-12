@@ -16,4 +16,9 @@
     <None Include="kiln.mod.json" CopyToOutputDirectory="PreserveNewest" />
     <None Include="fixtures/*.log" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- autostart/ is a mod of its own (no Kiln.Players reference), built separately. -->
+    <Compile Remove="autostart/**" />
+    <None Remove="autostart/**" />
+  </ItemGroup>
 </Project>
