@@ -256,7 +256,7 @@ NativeModInfo? m = NativeQuests.Mod("npcsample");              // Ok, Errors, Kn
 uint? met = NativeQuests.KnowledgeId("npcsample", "tobin_met");
 uint same = NativeIds.Knowledge("npcsample", "tobin_met");     // the rule itself, no build needed
 await Knowledge.World.Grant(met!.Value);                       // or Knowledge.World.Grant("npcsample:tobin_met")
-await Knowledge.GrantUnchecked(EntityId.None, 0x12345678);     // through the game's apply even if unknown: it is dropped
+await Knowledge.GrantUnchecked(EntityId.None, 0x12345678);     // for tests of the game's own rule: an unknown id goes to the game's apply, which drops it
 
 // the mirror (tick thread); needs no player, so a test can ask it
 bool shown = NativeQuests.ShownByGame(def);                    // says native, and the boot build made it

@@ -105,7 +105,10 @@ Greeneye Loader. "Tested" names the check in `native/plugins/compat/tests/run.py
 
 ## Kiln C# additions
 
-In `Kiln.Hooks` (`managed/services/Kiln.Hooks/OriginalCode.cs`), for any Kiln mod:
+In `Kiln.Hooks` (`managed/services/Kiln.Hooks/OriginalCode.cs`), for advanced Kiln mods only (`"advanced": true` in
+`kiln.mod.json`; an ordinary mod gets `InvalidOperationException`). These calls need the calling mod's context: from
+`OnLoad` or a Kiln callback. A background thread or a raw job handler is refused even in an advanced mod, so cache the
+addresses, bytes or blocks it needs during `OnLoad`, and catch every exception inside a raw unmanaged callback:
 - `OriginalCode.FindUnique(pattern)` / `TryFindUnique`: the single match of a byte pattern in the game's code as it is
   in the exe file, so a function another mod has hooked is still found by its own bytes.
 - `OriginalCode.Read(address, count)`: the bytes a hook replaced.

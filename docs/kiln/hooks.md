@@ -7,10 +7,17 @@ arbitrary game code safely. It is an in-core service (`native/core/src/services/
 
 ## The gate
 Hooking and patching game code is powerful and build-specific, so only a mod whose `kiln.mod.json` has
-`"advanced": true` may use any of it. The first hooking call from a non-advanced mod throws
-`InvalidOperationException`. (`Kiln.Hooks` reads the flag straight from `ModInfo.Directory/kiln.mod.json` until the
-loader exposes it on `ModInfo`.) Every hook, patch and symbol load a mod installs is logged to `kiln.log` with the
-mod id.
+`"advanced": true` may use any of it. The flag is `ModInfo.Advanced`, which the loader fills from the manifest. A call
+from a non-advanced mod throws `InvalidOperationException`, and so does a call from a thread with no current mod (a
+background thread, a raw native job handler), even for an advanced mod: read what such a thread needs in `OnLoad`. A
+mod that has unloaded cannot install hooks. Every hook, patch and symbol load a mod installs is logged to `kiln.log`
+with the mod id.
+
+Behind the same gate: `Hooks.Detour`/`Mid`, `Memory.*`, `Symbols.*`, `Constants.Get`, `OriginalCode.FindUnique`,
+`TryFindUnique` and `Read`, `Keep.Block` and `Keep.Span<T>` (Kiln.Hooks); `Abilities.Programs.Register` and
+`NativeCall.Bytes` (Kiln.Abilities); `Arsenals.JobHandler`, `Is.Job` and `Act.Job` (Kiln.Creatures). Kiln's own code
+calls internal paths behind them, so an ordinary mod that uses buffs or typed natives is never refused. An
+`[UnmanagedCallersOnly]` callback must catch the gate's exception itself.
 
 ```json
 { "id": "mycoremod", "name": "...", "version": "1.0.0", "apiVersion": "0.1", "entryAssembly": "MyCoremod.dll",
