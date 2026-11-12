@@ -534,13 +534,9 @@ public static unsafe class Progression
         }
 
         /// <summary>One step of <see cref="Simulate"/>.</summary>
-        [System.Diagnostics.CodeAnalysis.Experimental("KILNX001")]
-        [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
         public enum SimOp : uint { Unlock = 1, Lock = 2, Respec = 3, Check = 4 }
 
         /// <summary>What a simulated step gave (the game's own functions on a scratch node list).</summary>
-        [System.Diagnostics.CodeAnalysis.Experimental("KILNX001")]
-        [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
         public readonly record struct SimResult(SimOp Op, uint Node, bool Ok, bool Reachable, bool Connected, int Level, int Spent, int Nodes);
 
         /// <summary>Runs the game's skill functions (link check, unlock/unlearn, tree rebuild, connectivity, points spent)

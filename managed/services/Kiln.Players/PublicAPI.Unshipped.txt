@@ -1,72 +1,10 @@
 #nullable enable
 static Kiln.Player.explicit operator Kiln.PlayerRef(Kiln.Player! player) -> Kiln.PlayerRef
-*REMOVED*Kiln.Progression.Diagnostics.SimOp
-*REMOVED*Kiln.Progression.Diagnostics.SimOp.Check = 4 -> Kiln.Progression.Diagnostics.SimOp
-*REMOVED*Kiln.Progression.Diagnostics.SimOp.Lock = 2 -> Kiln.Progression.Diagnostics.SimOp
-*REMOVED*Kiln.Progression.Diagnostics.SimOp.Respec = 3 -> Kiln.Progression.Diagnostics.SimOp
-*REMOVED*Kiln.Progression.Diagnostics.SimOp.Unlock = 1 -> Kiln.Progression.Diagnostics.SimOp
-*REMOVED*Kiln.Progression.Diagnostics.SimResult
-*REMOVED*Kiln.Progression.Diagnostics.SimResult.Connected.get -> bool
-*REMOVED*Kiln.Progression.Diagnostics.SimResult.Connected.init -> void
-*REMOVED*Kiln.Progression.Diagnostics.SimResult.Deconstruct(out Kiln.Progression.Diagnostics.SimOp Op, out uint Node, out bool Ok, out bool Reachable, out bool Connected, out int Level, out int Spent, out int Nodes) -> void
-*REMOVED*Kiln.Progression.Diagnostics.SimResult.Equals(Kiln.Progression.Diagnostics.SimResult other) -> bool
-*REMOVED*Kiln.Progression.Diagnostics.SimResult.Level.get -> int
-*REMOVED*Kiln.Progression.Diagnostics.SimResult.Level.init -> void
-*REMOVED*Kiln.Progression.Diagnostics.SimResult.Node.get -> uint
-*REMOVED*Kiln.Progression.Diagnostics.SimResult.Node.init -> void
-*REMOVED*Kiln.Progression.Diagnostics.SimResult.Nodes.get -> int
-*REMOVED*Kiln.Progression.Diagnostics.SimResult.Nodes.init -> void
-*REMOVED*Kiln.Progression.Diagnostics.SimResult.Ok.get -> bool
-*REMOVED*Kiln.Progression.Diagnostics.SimResult.Ok.init -> void
-*REMOVED*Kiln.Progression.Diagnostics.SimResult.Op.get -> Kiln.Progression.Diagnostics.SimOp
-*REMOVED*Kiln.Progression.Diagnostics.SimResult.Op.init -> void
-*REMOVED*Kiln.Progression.Diagnostics.SimResult.Reachable.get -> bool
-*REMOVED*Kiln.Progression.Diagnostics.SimResult.Reachable.init -> void
-*REMOVED*Kiln.Progression.Diagnostics.SimResult.SimResult() -> void
-*REMOVED*Kiln.Progression.Diagnostics.SimResult.SimResult(Kiln.Progression.Diagnostics.SimOp Op, uint Node, bool Ok, bool Reachable, bool Connected, int Level, int Spent, int Nodes) -> void
-*REMOVED*Kiln.Progression.Diagnostics.SimResult.Spent.get -> int
-*REMOVED*Kiln.Progression.Diagnostics.SimResult.Spent.init -> void
-*REMOVED*override Kiln.Progression.Diagnostics.SimResult.GetHashCode() -> int
 *REMOVED*static Kiln.PlayerCharacters.Simulate(int slot, ulong account, System.Guid? id) -> bool
 *REMOVED*static Kiln.PlayerStates.Diagnostics.LabUseItem(Kiln.EntityId entity, uint sequence, Kiln.PlayerStateId trigger, ulong slot, uint item) -> bool
 *REMOVED*static Kiln.Progression.Diagnostics.LabPlayer(Kiln.EntityId entity) -> void
-*REMOVED*static Kiln.Progression.Diagnostics.SimResult.operator !=(Kiln.Progression.Diagnostics.SimResult left, Kiln.Progression.Diagnostics.SimResult right) -> bool
-*REMOVED*static Kiln.Progression.Diagnostics.SimResult.operator ==(Kiln.Progression.Diagnostics.SimResult left, Kiln.Progression.Diagnostics.SimResult right) -> bool
 *REMOVED*static Kiln.Progression.Diagnostics.Simulate(System.Collections.Generic.IReadOnlyList<(Kiln.Progression.Diagnostics.SimOp Op, uint Node)>! steps) -> System.Collections.Generic.IReadOnlyList<Kiln.Progression.Diagnostics.SimResult>!
-*REMOVED*~override Kiln.Progression.Diagnostics.SimResult.Equals(object obj) -> bool
-*REMOVED*~override Kiln.Progression.Diagnostics.SimResult.ToString() -> string
-[KILNX001]Kiln.Progression.Diagnostics.SimOp
-[KILNX001]Kiln.Progression.Diagnostics.SimOp.Check = 4 -> Kiln.Progression.Diagnostics.SimOp
-[KILNX001]Kiln.Progression.Diagnostics.SimOp.Lock = 2 -> Kiln.Progression.Diagnostics.SimOp
-[KILNX001]Kiln.Progression.Diagnostics.SimOp.Respec = 3 -> Kiln.Progression.Diagnostics.SimOp
-[KILNX001]Kiln.Progression.Diagnostics.SimOp.Unlock = 1 -> Kiln.Progression.Diagnostics.SimOp
-[KILNX001]Kiln.Progression.Diagnostics.SimResult
-[KILNX001]Kiln.Progression.Diagnostics.SimResult.Connected.get -> bool
-[KILNX001]Kiln.Progression.Diagnostics.SimResult.Connected.init -> void
-[KILNX001]Kiln.Progression.Diagnostics.SimResult.Deconstruct(out Kiln.Progression.Diagnostics.SimOp Op, out uint Node, out bool Ok, out bool Reachable, out bool Connected, out int Level, out int Spent, out int Nodes) -> void
-[KILNX001]Kiln.Progression.Diagnostics.SimResult.Equals(Kiln.Progression.Diagnostics.SimResult other) -> bool
-[KILNX001]Kiln.Progression.Diagnostics.SimResult.Level.get -> int
-[KILNX001]Kiln.Progression.Diagnostics.SimResult.Level.init -> void
-[KILNX001]Kiln.Progression.Diagnostics.SimResult.Node.get -> uint
-[KILNX001]Kiln.Progression.Diagnostics.SimResult.Node.init -> void
-[KILNX001]Kiln.Progression.Diagnostics.SimResult.Nodes.get -> int
-[KILNX001]Kiln.Progression.Diagnostics.SimResult.Nodes.init -> void
-[KILNX001]Kiln.Progression.Diagnostics.SimResult.Ok.get -> bool
-[KILNX001]Kiln.Progression.Diagnostics.SimResult.Ok.init -> void
-[KILNX001]Kiln.Progression.Diagnostics.SimResult.Op.get -> Kiln.Progression.Diagnostics.SimOp
-[KILNX001]Kiln.Progression.Diagnostics.SimResult.Op.init -> void
-[KILNX001]Kiln.Progression.Diagnostics.SimResult.Reachable.get -> bool
-[KILNX001]Kiln.Progression.Diagnostics.SimResult.Reachable.init -> void
-[KILNX001]Kiln.Progression.Diagnostics.SimResult.SimResult() -> void
-[KILNX001]Kiln.Progression.Diagnostics.SimResult.SimResult(Kiln.Progression.Diagnostics.SimOp Op, uint Node, bool Ok, bool Reachable, bool Connected, int Level, int Spent, int Nodes) -> void
-[KILNX001]Kiln.Progression.Diagnostics.SimResult.Spent.get -> int
-[KILNX001]Kiln.Progression.Diagnostics.SimResult.Spent.init -> void
-[KILNX001]override Kiln.Progression.Diagnostics.SimResult.GetHashCode() -> int
 [KILNX001]static Kiln.PlayerCharacters.Simulate(int slot, ulong account, System.Guid? id) -> bool
 [KILNX001]static Kiln.PlayerStates.Diagnostics.LabUseItem(Kiln.EntityId entity, uint sequence, Kiln.PlayerStateId trigger, ulong slot, uint item) -> bool
 [KILNX001]static Kiln.Progression.Diagnostics.LabPlayer(Kiln.EntityId entity) -> void
-[KILNX001]static Kiln.Progression.Diagnostics.SimResult.operator !=(Kiln.Progression.Diagnostics.SimResult left, Kiln.Progression.Diagnostics.SimResult right) -> bool
-[KILNX001]static Kiln.Progression.Diagnostics.SimResult.operator ==(Kiln.Progression.Diagnostics.SimResult left, Kiln.Progression.Diagnostics.SimResult right) -> bool
 [KILNX001]static Kiln.Progression.Diagnostics.Simulate(System.Collections.Generic.IReadOnlyList<(Kiln.Progression.Diagnostics.SimOp Op, uint Node)>! steps) -> System.Collections.Generic.IReadOnlyList<Kiln.Progression.Diagnostics.SimResult>!
-~[KILNX001]override Kiln.Progression.Diagnostics.SimResult.Equals(object obj) -> bool
-~[KILNX001]override Kiln.Progression.Diagnostics.SimResult.ToString() -> string
