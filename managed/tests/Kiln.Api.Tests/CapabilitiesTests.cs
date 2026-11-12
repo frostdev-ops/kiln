@@ -34,6 +34,21 @@ internal sealed unsafe class FakeCaps : IDisposable
     /// <summary>Runs once inside the next at() (a change on another thread whose callback has not come yet).</summary>
     public Action? DuringAt;
 
+    /// <summary>Keep change callbacks until <see cref="Deliver"/> (a core that calls back from its own thread, later).</summary>
+    public bool Defer;
+    private readonly List<(Capabilities.CapRow Row, uint Change)> _deferred = [];
+
+    public void Deliver()
+    {
+        (Capabilities.CapRow Row, uint Change)[] calls;
+        lock (_mu)
+        {
+            calls = _deferred.ToArray();
+            _deferred.Clear();
+        }
+        foreach (var (row, change) in calls) Call(row, change);
+    }
+
     public FakeCaps(FakeBackend backend)
     {
         _current = this;
@@ -118,6 +133,17 @@ internal sealed unsafe class FakeCaps : IDisposable
 
     // After the model's lock is released, on the thread that made the change (as the header says).
     private void Notify(Capabilities.CapRow row, uint change)
+    {
+        lock (_mu)
+            if (Defer)
+            {
+                _deferred.Add((row, change));
+                return;
+            }
+        Call(row, change);
+    }
+
+    private void Call(Capabilities.CapRow row, uint change)
     {
         (nint Fn, nint User)[] subscribers;
         lock (_mu) subscribers = _subscribers.ToArray();
@@ -398,6 +424,20 @@ public sealed class CapabilitiesTests : KilnTest
         Capabilities.Report("items.moves", CapabilityState.Available);
         Assert.True(Capabilities.Is("items.moves"));
         Assert.True(Capabilities.Get("items.moves").SessionDependent);  // sticky
+    }
+
+    [Fact]
+    public void Report_reads_back_its_own_row_before_the_change_callback_comes()
+    {
+        using var caps = Native();
+        Assert.True(Capabilities.Is("net.kick"));
+        caps.Defer = true;
+        Capabilities.Report("items.result_peek", CapabilityState.Available);
+        Assert.True(Capabilities.Is("items.result_peek"));
+        caps.Core("tick", CapabilityState.Available);
+        Assert.False(Capabilities.Is("tick"));  // no callback yet: the snapshot is the last one Kiln saw
+        caps.Deliver();
+        Assert.True(Capabilities.Is("tick"));
     }
 
     [Fact]
