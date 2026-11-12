@@ -83,7 +83,7 @@ Root: `$KILN_DATA_DIR`, else the folder the pointer `data-folder.json` in the de
 | `profiles/<pid>/data/` | per-mod data when the profile chooses `dataDir: profile` |
 | `profiles/<pid>/save-backups/<yyyymmddThhmmssZ>/` | automatic save backups, 10 kept (+ `backup.json`) |
 | `installs/<installId>.json` | the launcher's record of a game install: the `GameInstall` + a copy of its receipt |
-| `installs/<installId>.notices-seen.json` | (dev.26) which activation notices the launcher has shown for that game: `{format: 1, seen: [sha256 hex of each sentence]}`, oldest first, at most 512 (`kiln_manage::notices`, `notices_shown`; written through a temp file of its own random name) |
+| `installs/<installId>.notices-seen.json` | (dev.26) which activation notices the player has closed in the launcher for that game: `{format: 1, seen: [sha256 hex of each sentence]}`, oldest first, at most 512 (`kiln_manage::notices`, `notices_shown`; written through a temp file of its own random name) |
 | `runtime/kiln-runtime-<version>.zip` | runtime bundles (import, rollback) |
 | `schema-cache/<modid>/<version>+<hash8>/<file>.json` | config schema snapshots cached per mod version |
 | `backups/` | `saves/<gameId>/` (save backups without a profile), `install/<installId>/` (mirror of install backups), `profiles/` (deleted profiles) |
@@ -1013,8 +1013,8 @@ Shared types (TypeScript names, defined in `commands.ts`; Rust in kiln-manage un
 | profile | `profile_deactivate` | gameId | `PlacementCleanup {removed: Path[], retained: [{path, reason, mayRun}]}`; removes only proven unchanged Kiln copies, keeps player edits and warns that retained mods may still run |
 | profile | `profile_active` | gameId | `Activation \| null` (null also when another data folder's profile is active in the game) |
 | profile | `activation_notices` | - | `Activation[]`: the re-applies' activations the window has not shown yet, oldest first; each is returned once (`kiln://activation`) |
-| profile | `notices_unseen` | gameId, lines: `{text: string, safety?: boolean}[]` | `string[]` (dev.26): the `text`s to raise now: those not reported shown before for this game (`installs/<id>.notices-seen.json`, section 3); asking remembers nothing. With `LauncherSettings.modFolderNotes` off only `safety` lines are considered (a retained folder with `mayRun` and `off`, a sentence of `Activation.safetyNotes`). Refused while the data folder is held, like every command not listed open (`src-tauri/src/folder.rs`) |
-| profile | `notices_shown` | gameId, lines: string[] | `null` (dev.26): these `text`s are on screen now (a toast in the desktop's stack, the Deck's bar or notice dialog): from now on `notices_unseen` leaves them out. Refused while the data folder is held |
+| profile | `notices_unseen` | gameId, lines: `{text: string, safety?: boolean}[]` | `string[]` (dev.26): the `text`s to raise now: those not reported closed by the player before for this game (`installs/<id>.notices-seen.json`, section 3); asking remembers nothing. With `LauncherSettings.modFolderNotes` off only `safety` lines are considered (a retained folder with `mayRun` and `off`, a sentence of `Activation.safetyNotes`). Refused while the data folder is held, like every command not listed open (`src-tauri/src/folder.rs`) |
+| profile | `notices_shown` | gameId, lines: string[] | `null` (dev.26): the player closed the notice that said these `text`s (its close button or one of its buttons on the desktop, OK or B on the Deck's notice dialog; being on screen is not enough): from now on `notices_unseen` leaves them out. Not retried when it fails (the sentence comes again later). Refused while the data folder is held |
 | library | `library_list` | kind: ModKind \| null | `LibraryEntry[]` |
 | library | `library_detect` | path: string | `Detected` |
 | library | `library_import` | paths: string[] | `TaskId` -> `ImportReport` |

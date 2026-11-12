@@ -111,9 +111,12 @@ they are (`Activation.retained`), which mod files it kept or put back (`keptFile
 (`warnings`: a player's own folder that serves a mod, a ShroudForge value a new version refuses). It says them every
 time, so the launcher raises each sentence once per game (`shell/notices.ts`):
 - **Once.** `notices_unseen` answers which sentences are new for the game; asking remembers nothing. A sentence is
-  remembered (`notices_shown`) only when its toast is on screen: pushed into the desktop's stack, or the Deck's notice
-  dialog (or bar) showing it (`ui/Toast.tsx` `reportShown`). The Deck shows one notice at a time, so one still waiting
-  when the launcher closes comes at the next activation. The memory is in the data folder
+  remembered (`notices_shown`) only when the player closes its notice: its close button or one of its buttons on the
+  desktop, OK or B on the Deck's notice dialog (`ui/Toast.tsx` `close`, which also runs the callbacks of the notices
+  an entry took in: the same text again, notices folded into "N earlier notices"). Being on screen is not enough: a
+  notice scrolled out of view, still waiting behind another on the Deck, or open when the launcher closes, comes again
+  at a later activation. While a sentence is open, a later activation adds no second copy of it (`openLines`). A
+  failed report is not retried: the sentence comes again later. The memory is in the data folder
   (`installs/<id>.notices-seen.json`: hashes only, at most 512, the longest unsaid go first), so it survives a
   restart and moves with the data folder. A new or changed sentence still comes. What does come stays until closed
   ("Some mod folders were kept" with its paths and recovery steps, "Mod settings kept", "Notes on your mods"). A backend

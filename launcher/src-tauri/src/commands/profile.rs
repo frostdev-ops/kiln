@@ -110,21 +110,22 @@ pub struct NoticeLine {
 }
 
 /// The lines of `lines` to raise now: the setting "Show notes about mod folders" (off: only `safety` lines), then
-/// the ones not shown before for this game (kiln_manage::notices::unseen; asking remembers nothing).
+/// the ones not seen before for this game (kiln_manage::notices::unseen; asking remembers nothing).
 fn unseen_lines(d: &kiln_manage::paths::DataDirs, game_id: &str, notes_on: bool, lines: Vec<NoticeLine>) -> Result<Vec<String>, Error> {
     let lines: Vec<String> = lines.into_iter().filter(|l| notes_on || l.safety).map(|l| l.text).collect();
     kiln_manage::notices::unseen(d, game_id, &lines)
 }
 
-/// `notices_shown`: the window has these sentences of `game_id` on screen (a toast in the stack, the Deck's notice
-/// dialog): from now on they are not raised again (kept with the data folder in `installs/<id>.notices-seen.json`).
+/// `notices_shown`: the player closed the notice that said these sentences of `game_id` (its close button or a button
+/// of it, the Deck's notice dialog; being on screen is not enough): from now on they are not raised again (kept with
+/// the data folder in `installs/<id>.notices-seen.json`).
 #[tauri::command]
 pub async fn notices_shown(game_id: String, lines: Vec<String>) -> Result<(), Error> {
     blocking(move || kiln_manage::notices::mark_seen(&dirs()?, &game_id, &lines)).await
 }
 
-/// `notices_unseen`: which sentences of an activation the window raises for `game_id` (each once per game: the window
-/// reports what it showed with `notices_shown`); the rest are in the notes the main list opens.
+/// `notices_unseen`: which sentences of an activation the window raises for `game_id` (until the player closes their
+/// notice: the window reports that with `notices_shown`); the rest are in the notes the main list opens.
 #[tauri::command]
 pub async fn notices_unseen(game_id: String, lines: Vec<NoticeLine>) -> Result<Vec<String>, Error> {
     blocking(move || {
