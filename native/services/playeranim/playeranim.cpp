@@ -573,38 +573,73 @@ bool ensure_game(std::string* why) {
     return true;
 }
 
-KilnResult KILN_CALL t_game_state(KilnStr name, KilnPaGameState* out, uint32_t* out_matches) {
-    if (!name.ptr || !out || out->size < sizeof(KilnPaGameState)) return KILN_ERR_INVALID_ARGUMENT;
-    std::lock_guard lock(g_mu);
-    std::string why;
-    if (!ensure_game(&why)) return KILN_ERR_UNAVAILABLE;
-    const auto found = g_game->find(std::string_view(name.ptr, name.len));
-    if (out_matches) *out_matches = static_cast<uint32_t>(found.size());
-    if (found.empty()) return KILN_ERR_NOT_FOUND;
-    const GameState& s = *found[0];
+void fill(const GameState& s, KilnPaGameState* out) {
     out->kind = s.kind == "overlay" ? KILN_PA_KIND_OVERLAY : KILN_PA_KIND_STATE;
     out->id = s.ids.empty() ? 0 : s.ids[0];
     out->id_count = static_cast<uint32_t>(s.ids.size());
     out->machine = KilnStr{s.machine.c_str(), s.machine.size()};  // g_game lives for the process
     out->name = KilnStr{s.name.c_str(), s.name.size()};
+}
+
+// The index-th state with that name (under g_mu): KILN_OK, KILN_ERR_NOT_FOUND (none, or index past the end) or
+// KILN_ERR_UNAVAILABLE; *matches: how many states have the name.
+KilnResult find_game(KilnStr name, uint32_t index, const GameState** out, uint32_t* matches) {
+    std::string why;
+    if (!ensure_game(&why)) return KILN_ERR_UNAVAILABLE;
+    const auto found = g_game->find(std::string_view(name.ptr, name.len));
+    if (matches) *matches = static_cast<uint32_t>(found.size());
+    if (index >= found.size()) return KILN_ERR_NOT_FOUND;
+    *out = found[index];
     return KILN_OK;
+}
+
+KilnResult ids_of(const GameState& s, uint32_t* out, size_t capacity, size_t* out_count) {
+    if (out_count) *out_count = s.ids.size();
+    if (capacity < s.ids.size()) return KILN_ERR_BUFFER_TOO_SMALL;
+    std::copy(s.ids.begin(), s.ids.end(), out);
+    return KILN_OK;
+}
+
+KilnResult KILN_CALL t_game_state(KilnStr name, KilnPaGameState* out, uint32_t* out_matches) {
+    if (!name.ptr || !out || out->size < sizeof(KilnPaGameState)) return KILN_ERR_INVALID_ARGUMENT;
+    std::lock_guard lock(g_mu);
+    const GameState* s = nullptr;
+    const KilnResult rc = find_game(name, 0, &s, out_matches);
+    if (rc == KILN_OK) fill(*s, out);
+    return rc;
 }
 
 KilnResult KILN_CALL t_game_state_ids(KilnStr name, uint32_t* out, size_t capacity, size_t* out_count) {
     if (!name.ptr || (capacity && !out)) return KILN_ERR_INVALID_ARGUMENT;
     std::lock_guard lock(g_mu);
-    std::string why;
-    if (!ensure_game(&why)) return KILN_ERR_UNAVAILABLE;
-    const auto found = g_game->find(std::string_view(name.ptr, name.len));
-    if (found.empty()) {
+    const GameState* s = nullptr;
+    const KilnResult rc = find_game(name, 0, &s, nullptr);
+    if (rc != KILN_OK) {
         if (out_count) *out_count = 0;
-        return KILN_ERR_NOT_FOUND;
+        return rc;
     }
-    const std::vector<uint32_t>& ids = found[0]->ids;
-    if (out_count) *out_count = ids.size();
-    if (capacity < ids.size()) return KILN_ERR_BUFFER_TOO_SMALL;
-    std::copy(ids.begin(), ids.end(), out);
-    return KILN_OK;
+    return ids_of(*s, out, capacity, out_count);
+}
+
+KilnResult KILN_CALL t_game_state_at(KilnStr name, uint32_t index, KilnPaGameState* out) {
+    if (!name.ptr || !out || out->size < sizeof(KilnPaGameState)) return KILN_ERR_INVALID_ARGUMENT;
+    std::lock_guard lock(g_mu);
+    const GameState* s = nullptr;
+    const KilnResult rc = find_game(name, index, &s, nullptr);
+    if (rc == KILN_OK) fill(*s, out);
+    return rc;
+}
+
+KilnResult KILN_CALL t_game_state_ids_at(KilnStr name, uint32_t index, uint32_t* out, size_t capacity, size_t* out_count) {
+    if (!name.ptr || (capacity && !out)) return KILN_ERR_INVALID_ARGUMENT;
+    std::lock_guard lock(g_mu);
+    const GameState* s = nullptr;
+    const KilnResult rc = find_game(name, index, &s, nullptr);
+    if (rc != KILN_OK) {
+        if (out_count) *out_count = 0;
+        return rc;
+    }
+    return ids_of(*s, out, capacity, out_count);
 }
 
 KilnResult KILN_CALL t_mod_state(KilnStr mod, KilnStr name, KilnPaState* out) {
@@ -667,6 +702,8 @@ const KilnPlayerAnimApi kTable = {
     &t_define,
     &t_prune,
     &t_status,
+    &t_game_state_at,
+    &t_game_state_ids_at,
 };
 
 // kiln/config/playeranim.json. Missing or broken: the defaults.
