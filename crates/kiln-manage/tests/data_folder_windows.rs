@@ -755,15 +755,17 @@ mod win {
             assert!(e.message.contains(&f.display().to_string()), "the error names the file: {e:?}");
             assert_eq!(tree(&fx.dirs.root), before, "the old place is complete");
             assert_same(&fx.env.locate().unwrap().dirs.root, &fx.dirs.root, "and in use");
-            // what the move left in the target: nothing, or (a defect, see the task report) the held file's hard link
-            // that was made before its read failed and so is not in the move's list of what it made
-            let left: Vec<(String, Option<u64>)> = super::listing(&to);
-            eprintln!("left in the target after the failed move: {left:?}");
-            let held_rel = f.strip_prefix(&fx.dirs.root).unwrap().to_string_lossy().replace('\\', "/");
-            let only_link = left.iter().all(|(p, n)| n.is_none() || *p == held_rel) && left.iter().any(|(p, _)| *p == held_rel);
-            assert!(!to.exists() || only_link, "the partial copy is gone: {left:?}");
-            assert!(!to.join(df::MOVE_MARKER).exists() && !to.join(df::MARKER).exists(), "no marker is left");
+            // nothing of the move is left in the target: also not the held file's hard link, made before its read
+            // failed (on one letter)
+            assert!(!to.exists(), "the partial copy is gone: {:?}", super::listing(&to));
             assert!(!fx.dirs.root.join(df::JOURNAL).exists() && !fx.dirs.root.join(df::POINTER).exists());
+            // once nothing holds the file, the same move goes through
+            let r = mv(&fx.env, &to, &MoveOptions::default(), &mut NoProgress).unwrap();
+            assert_same(&r.to, &to, "the same move again");
+            assert!(r.cleanup.unwrap().done);
+            assert_same(&fx.env.locate().unwrap().dirs.root, &to, "locate");
+            assert_eq!(data_only(&tree(&to)), data_only(&before));
+            clean(&to);
         }
     }
 
@@ -830,18 +832,55 @@ mod win {
                 p.set_readonly(true);
                 std::fs::set_permissions(f, p).unwrap();
             }
+            let before = tree(&fx.dirs.root);
             let to = fx.base.join("moved");
             let r = mv(&fx.env, &to, &MoveOptions { force_copy: !by_links, inject: None }, &mut NoProgress).unwrap();
             eprintln!("read-only, links {by_links}: linked {}, warnings {:?}", r.linked, r.warnings);
             // the read-only config copied to the new place makes the activation there fail (its rename over a read-only
-            // file is refused): the move says so, and the game's profile still names the old place (see the report)
+            // file is refused): the move says so, the games still name the old place, so the old copy stays complete
+            // and the result names the games
             let named = profile::read_game_profile(&fx.game_z.path).unwrap().unwrap().config_dir.unwrap_or_default();
             eprintln!("read-only, links {by_links}: the game's profile names {named}; activated {:?}", r.activated);
             assert!(r.warnings.iter().any(|w| w.contains("activate it again")), "{:?}", r.warnings);
+            assert!(r.activated.is_empty(), "{:?}", r.activated);
             let c = r.cleanup.clone().unwrap();
-            assert_eq!(c.kept.iter().map(|k| k.path.clone()).collect::<Vec<_>>(), [fx.dirs.root.join("My Notes")], "links {by_links}: {c:?}");
-            assert!(!lib.exists() && !cfg.exists(), "the read-only old files are gone");
+            eprintln!("read-only, links {by_links}: cleanup {c:?}");
+            let reason = c.reason.clone().unwrap_or_default();
+            assert!(!c.done && c.removed_files == 0, "{c:?}");
+            for g in [&fx.game_z, &fx.game_copy] {
+                assert!(reason.contains(&g.path.display().to_string()), "the result names {}: {reason}", g.path.display());
+            }
+            assert_eq!(tree(&fx.dirs.root), before, "the old copy is complete");
+            assert!(lib.is_file() && cfg.is_file());
+            // the removal at a next start also leaves it while the games name it
+            let c = dfm::remove_old_copy(&fx.env, &mut NoProgress).unwrap();
+            assert_eq!(c.removed_files, 0, "{c:?}");
+            let why = c.reason.clone().unwrap_or_default();
+            assert!([&fx.game_z, &fx.game_copy].iter().any(|g| why.contains(&g.path.display().to_string())), "it names a game: {c:?}");
+            assert_eq!(tree(&fx.dirs.root), before);
+            // the player makes the config writable and activates the profile again from the new place: the old copy goes
             let new = DataDirs::at(&to);
+            let ncfg = new.profile(&fx.active).join("config").join("native.json");
+            let mut p = std::fs::metadata(&ncfg).unwrap().permissions();
+            p.set_readonly(false);
+            std::fs::set_permissions(&ncfg, p).unwrap();
+            for g in [&fx.game_z, &fx.game_copy] {
+                profile::activate(&new, &fx.active, g).unwrap();
+            }
+            let c = dfm::remove_old_copy(&fx.env, &mut NoProgress).unwrap();
+            eprintln!("read-only, links {by_links}: after activating again: {c:?}");
+            assert!(c.done && c.reason.is_none(), "{c:?}");
+            assert!(!lib.exists(), "the read-only old library file is gone");
+            // what stays: the unknown entry, and the old copies of what the player's activation rewrote in the new place
+            // (the activation records, the config if it changed): those were not written by the move
+            let rewritten = |p: &Path| {
+                let n = p.file_name().unwrap_or_default().to_string_lossy();
+                p == cfg.as_path() || (p.parent() == Some(fx.dirs.installs().as_path()) && n.ends_with(".active.json"))
+            };
+            for k in &c.kept {
+                assert!(k.path == fx.dirs.root.join("My Notes") || (rewritten(&k.path) && k.reason.contains("new place")), "{c:?}");
+            }
+            assert!(fx.dirs.root.join("library").read_dir().is_err(), "the old library is gone");
             let nlib = lib_dir(&new, &fx.mods.native).join("fps.dll");
             assert!(std::fs::metadata(&nlib).unwrap().permissions().readonly(), "the new place keeps the attribute");
             // a failure after the copy removes a partial copy with read-only files too
