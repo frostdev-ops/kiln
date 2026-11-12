@@ -20,7 +20,9 @@ GE=${KILN_GE:-$HOME/.local/share/Steam/compatibilitytools.d/GE-Proton11-11-x86_6
 cmd=${1:-}; name=${2:-}
 
 env_for() {
-  export WINEPREFIX=$LABS/$1.pfx WINEDEBUG=-all WINEDLLOVERRIDES="mshtml=;dinput8=n,b;winedbg.exe=d"
+  # KILN_LAB_DLLOVERRIDES adds overrides for one start (another loader's own proxies: "dbghelp=n,b;winmm=n,b" lets
+  # ShroudForge or EML start themselves, as on Windows); the display rules stay
+  export WINEPREFIX=$LABS/$1.pfx WINEDEBUG=-all WINEDLLOVERRIDES="mshtml=;dinput8=n,b;winedbg.exe=d${KILN_LAB_DLLOVERRIDES:+;$KILN_LAB_DLLOVERRIDES}"
   # no window may reach the desktop: an unset WAYLAND_DISPLAY means the desktop's wayland-0
   unset DISPLAY; export WAYLAND_DISPLAY=kiln-no-display
 }
@@ -34,7 +36,12 @@ pid_of() {
   return 0
 }
 
-need() { [[ -n $name && -d $LABS/$name ]] || { echo "no lab '$name' (tools/lab/lab.sh list)" >&2; exit 1; }; }
+# Every command takes only a lab name, never a path: "rm ../lab2" must not reach the base install.
+valid() { [[ $1 =~ ^[a-z0-9-]+$ ]]; }
+need() {
+  valid "$name" || { echo "no lab '$name': a lab name is [a-z0-9-]+ (tools/lab/lab.sh list)" >&2; exit 2; }
+  [[ -d $LABS/$name ]] || { echo "no lab '$name' (tools/lab/lab.sh list)" >&2; exit 1; }
+}
 
 # Wine gives its threads nice values of its own (Windows thread priorities mapped to nice -10..10 when RLIMIT_NICE
 # allows it), whatever niceness the server was started with. Capping RLIMIT_NICE at this shell's niceness keeps every
@@ -49,7 +56,7 @@ keep_priority() {
 case $cmd in
   new)
     port=${3:?usage: lab.sh new <name> <queryPort> [--save dir]}
-    [[ $name =~ ^[a-z0-9-]+$ ]] || { echo "name must be [a-z0-9-]+" >&2; exit 2; }
+    valid "$name" || { echo "name must be [a-z0-9-]+" >&2; exit 2; }
     [[ -e $LABS/$name ]] && { echo "lab $name exists" >&2; exit 1; }
     ss -uln | grep -q ":$port " && { echo "UDP port $port is in use" >&2; exit 1; }
     mkdir -p "$LABS/$name"
@@ -114,7 +121,7 @@ EOF
     ;;
   list)
     mkdir -p "$LABS"
-    for d in "$LABS"/*/; do [[ -d $d && ${d%/} != *.pfx ]] && "$0" status "$(basename "$d")"; done; true
+    for d in "$LABS"/*/; do [[ -d $d ]] && valid "$(basename "$d")" && "$0" status "$(basename "$d")"; done; true
     ;;
   *) sed -n '2,15p' "$0"; exit 2 ;;
 esac

@@ -196,6 +196,64 @@ fn profiles_save_with_generations_and_resolve() {
     assert_eq!(profile::list(&dirs).unwrap().len(), 1);
 }
 
+/// A Kiln mod with `side` set ("server" on a client: Loot Leveler, Enemy Leveler).
+fn kiln_mod_on(root: &Path, id: &str, side: &str, extra: &str) -> PathBuf {
+    let d = root.join(format!("src/{id}"));
+    put(&d, "kiln.mod.json", format!(r#"{{ "id": "{id}", "version": "1.0.0", "apiVersion": "0.2", "entryAssembly": "M.dll", "side": "{side}"{extra} }}"#).as_bytes());
+    put(&d, "M.dll", id.as_bytes());
+    d
+}
+
+/// Player report (Nexus, 2026-11-11): the launcher said Loot Leveler and Enemy Leveler (`side: "server"`) are "not
+/// loaded on a client", so the player took them for server-only. On a client they start with the player's own world
+/// (single-player or hosting; Kiln.Host ModManager.StartHosting), and the mods that need them come with them.
+#[test]
+fn server_mods_on_a_client_profile_start_with_the_players_world() {
+    let t = tmp("hosted");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let r = library::import(&dirs, &[
+        kiln_mod_on(&t.0, "loot-leveler", "server", ""),
+        kiln_mod_on(&t.0, "hud", "client", ""),
+        kiln_mod_on(&t.0, "loot-hud", "client", r#", "dependencies": { "loot-leveler": "^1" }"#),
+        kiln_mod_on(&t.0, "broken", "server", r#", "dependencies": { "nope": "^1" }"#),
+    ], &mut NoProgress).unwrap();
+    let mut p = profile::create(&dirs, "Single player", None).unwrap();
+    p.mods.kiln = ["loot-leveler", "hud", "loot-hud", "broken"].iter().map(|id| pm(&refs(&r, ModKind::Kiln, id), true)).collect();
+    let p = profile::save(&dirs, &p).unwrap();
+    let pre = profile::resolve_preview(&dirs, &p, RunSide::Client).unwrap();
+    let why = |id: &str| pre.kiln.rejected.iter().find(|x| x.id == id).map(|x| (x.state, x.reason.clone()));
+    for x in &pre.kiln.rejected {
+        assert!(!x.reason.contains("not loaded on a client"), "{}: {}", x.id, x.reason);
+    }
+    use kiln_manage::resolver::ModState::{Failed, Skipped};
+    assert_eq!(pre.kiln.order, ["hud"], "the menu loads the client mod");
+    assert_eq!(why("loot-leveler"), Some((Skipped, profile::WITH_WORLD.to_string())));
+    assert_eq!(why("loot-hud"), Some((Skipped, profile::WITH_WORLD.to_string())), "needs loot-leveler: starts with it");
+    assert_eq!(why("broken"), Some((Failed, "Will not start with your world: missing dependency nope ^1".to_string())));
+    assert_eq!(pre.with_world, ["loot-leveler", "loot-hud"], "in the order they load with the world");
+
+    // kiln.json "mods": {"hosted": false}: they stay off on this client, and say why
+    let game = t.0.join("game");
+    assert!(profile::hosted_server_mods(&game), "no kiln.json: on");
+    put(&game, "kiln/kiln.json", br#"{ "policy": "any", "mods": { /* by hand */ "hosted": false, }, }"#);
+    assert!(!profile::hosted_server_mods(&game));
+    let off = profile::resolve_preview_for(&dirs, &p, RunSide::Client, profile::hosted_server_mods(&game)).unwrap();
+    assert!(off.with_world.is_empty());
+    let off_why = |id: &str| off.kiln.rejected.iter().find(|x| x.id == id).map(|x| (x.state, x.reason.clone()));
+    assert_eq!(off_why("loot-leveler"), Some((Skipped, profile::HOSTED_OFF.to_string())));
+    assert_eq!(off_why("broken"), Some((Skipped, profile::HOSTED_OFF.to_string())));
+    for (text, on) in [(r#"{"mods":{"hosted":true}}"#, true), (r#"{"mods":{"hosted":"no"}}"#, true), (r#"{"mods":false}"#, true), ("{ not json", true)] {
+        put(&game, "kiln/kiln.json", text.as_bytes());
+        assert_eq!(profile::hosted_server_mods(&game), on, "{text}");
+    }
+
+    // a server loads them like any other mod; nothing starts "with the world" there
+    let server = profile::resolve_preview(&dirs, &p, RunSide::Server).unwrap();
+    assert_eq!(server.kiln.order, ["loot-leveler"]);
+    assert!(server.with_world.is_empty());
+    assert!(server.kiln.rejected.iter().any(|x| x.id == "hud" && x.state == Skipped && x.reason == "side 'client': not loaded on a server"));
+}
+
 #[cfg(unix)]
 #[test]
 fn activation_writes_profile_json_chain_and_native_state() {
@@ -329,6 +387,8 @@ fn activation_native_mode_windows_paths_at(base: PathBuf) {
 fn api_version_constant_matches_kiln_api() {
     let mods = std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../managed/Kiln.Api/Mods.cs")).unwrap();
     assert!(mods.contains(&format!("ApiVersion = \"{}\"", profile::KILN_API)), "profile::KILN_API is stale");
+    assert!(mods.contains(&format!("Waiting = \"{}\"", profile::GAME_HOSTED_WAITING)), "profile::GAME_HOSTED_WAITING is stale");
+    assert!(mods.contains(&format!("Off = \"{}\"", profile::GAME_HOSTED_OFF)), "profile::GAME_HOSTED_OFF is stale");
 }
 
 #[test]

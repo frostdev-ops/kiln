@@ -32,7 +32,9 @@ p { margin: 0; }
 /* --fire: the flicker (shell/Stage.tsx sets it about 11 times a second on the two elements that use it, .k-title and
    .k-sheet). Not inherited: a change restyles only those two, not the whole page under the sheet. */
 @property --fire { syntax: "<number>"; inherits: false; initial-value: .5; }
-.k-app { position: relative; height: 100%; min-height: 640px; min-width: 1024px; overflow: hidden; background: var(--k-bg-0); }
+.k-app { position: relative; height: 100%; min-height: 640px; min-width: 1024px; overflow: hidden; background: var(--k-bg-0);
+  /* the kiln's mouth on Play: 40% of the width, 62.5% of the height, at most 800 px (shell/Stage.tsx draws the same) */
+  --kiln: min(800px, calc(max(1024px, 100vw) * .4), calc(max(640px, 100vh) * .625)); }
 .k-stage { position: absolute; inset: 0; z-index: 0; }
 /* the static stage (no WebGL): the mouth's glow on the dark, and the wall glow around the pilot light */
 .k-fall { position: absolute; inset: 0; transition: opacity .6s;
@@ -80,18 +82,27 @@ p { margin: 0; }
 /* ---------------------------------------------------------------- the Play page (in front of the stage) */
 .k-hero-layer { position: absolute; inset: 0; z-index: 2; pointer-events: none; opacity: 0; visibility: hidden; transition: opacity .35s, visibility 0s linear .35s; }
 .k-hero-layer.on { opacity: 1; visibility: visible; transition: opacity .35s; }
-.k-hero { position: absolute; left: 64px; top: 92px; bottom: 98px; width: min(630px, calc(100% - 590px)); display: flex; flex-direction: column; gap: 10px; pointer-events: auto; }
+.k-hero { position: absolute; left: 64px; top: 92px; bottom: 98px; width: min(630px, calc(100% - var(--kiln) - 170px)); display: flex; flex-direction: column; gap: 10px; pointer-events: auto; }
+/* with the mod list: the column takes the room left of the kiln (48 px from the right edge), up to a width a list still
+   reads well at */
+.k-hero.with-mods { width: clamp(400px, calc(100% - var(--kiln) - 48px - 64px - 48px), 920px); gap: 8px; }
+.k-hero.with-mods .k-title { font-size: clamp(52px, min(6.4vw, 9.5vh), 104px); padding-bottom: 6px; }
+.k-hero.with-mods .k-hero-say { font-size: clamp(19px, 1.7vw, 23px); max-width: 760px; }
+.k-hero.with-mods .k-hero-state { gap: 8px; }
+.k-hero.with-mods .k-hero-facts { margin-top: 2px; }
+.k-hero-profile { color: var(--k-gold-300); white-space: nowrap; }
 .k-hero > * { animation: k-rise .8s var(--k-out) backwards; }
 .k-hero > :nth-child(2) { animation-delay: .1s; }
 .k-hero > :nth-child(3) { animation-delay: .2s; }
 .k-hero > :nth-child(4) { animation-delay: .3s; }
-.k-hero-kicker { font-family: var(--k-font-label); font-weight: 500; letter-spacing: .012em; font-size: 19px; color: var(--k-ash-1h); }
+.k-hero-kicker { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 12px; font-family: var(--k-font-label); font-weight: 500; letter-spacing: .012em; font-size: 19px; color: var(--k-ash-1h); }
+.k-hero-kicker .k-hero-profile { margin-left: auto; font-family: var(--k-font-ui); letter-spacing: 0; font-size: 16.5px; }
 .k-hero-kicker button { all: unset; cursor: pointer; }
 .k-hero-kicker button:hover { color: var(--k-text-0); }
 .k-hero-kicker button:focus-visible { outline: 2px solid var(--k-gold-400); outline-offset: 2px; }
 .k-hero-name { position: relative; margin: 0; font-weight: inherit; }
 .k-title { display: inline-block; padding: 0 0 12px; border: 0; background: none; cursor: pointer; text-align: left; text-wrap: balance;
-  font-family: var(--k-font-display); font-weight: 600; line-height: .95; font-size: clamp(64px, calc((100vw - 590px) / 5.2), 148px);
+  font-family: var(--k-font-display); font-weight: 600; line-height: .95; font-size: clamp(64px, calc((100vw - var(--kiln) - 90px) / 5.2), 148px);
   background-image: linear-gradient(90deg, #c5ae99 0%, #f8e8d4 55%, #fff5e4 100%); -webkit-background-clip: text; background-clip: text; color: transparent;
   filter: brightness(calc(.94 + var(--fire) * .1)); }
 .k-title.static { cursor: default; }
@@ -111,10 +122,50 @@ p { margin: 0; }
 .k-hero-facts { margin: auto 0 0; display: grid; grid-template-columns: repeat(4, minmax(0, auto)); justify-content: space-between; gap: 10px 18px; }
 .k-hero-facts dt { font-family: var(--k-font-label); font-weight: 500; letter-spacing: .012em; font-size: 15.5px; color: var(--k-text-2); }
 .k-hero-facts dd { margin: 0; font-size: 18px; color: var(--k-text-0); white-space: nowrap; }
+/* the last boot's line is the longest: in a narrow column it ends in an ellipsis (its whole text is its title) */
+.k-hero.with-mods .k-hero-facts { grid-template-columns: repeat(3, minmax(0, auto)) minmax(0, max-content); }
+.k-hero-facts > div { min-width: 0; }
+.k-hero-facts > div:last-child dd { overflow: hidden; text-overflow: ellipsis; }
+.k-hero-facts > div:last-child dd > .k-link { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
 .k-hero-task { max-width: 460px; }
 /* above the title: the display face's line box reaches up over the last banner and would take its clicks */
 .k-hero-banner { position: relative; z-index: 2; margin-bottom: 4px; }
-.k-foot { position: absolute; left: 64px; right: 600px; bottom: 0; height: 84px; display: flex; align-items: center; gap: 20px; pointer-events: auto; min-width: 0; }
+/* the main list (pages/mods/MainList.tsx): a dark well over the wall; it takes the column's free height and scrolls */
+.k-mods { flex: 1 1 0; min-height: 132px; display: flex; flex-direction: column; border-radius: var(--k-radius-m);
+  background: linear-gradient(rgba(14, 9, 7, .78), rgba(10, 7, 5, .7)); box-shadow: inset 0 0 0 1px var(--k-line), 0 10px 30px rgba(0, 0, 0, .35); }
+.k-mods.empty { flex: 0 0 auto; min-height: 0; }
+.k-mods-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; padding: 8px 12px 8px 10px; border-bottom: 1px solid var(--k-line); }
+.k-mods-bar .k-link { font-size: 16.5px; white-space: nowrap; }
+.k-mods-kind { width: auto; height: 32px; font-size: 15px; flex: none; }
+.k-mods-list { list-style: none; margin: 0; padding: 4px 0; flex: 1 1 0; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin;
+  scrollbar-color: var(--k-line-strong) transparent; }
+.k-mod { display: grid; grid-template-columns: 36px minmax(0, 1fr) 104px 74px 30px; align-items: center; gap: 0 8px; min-height: 42px; padding: 2px 8px 2px 6px; }
+.k-mod:hover { background: rgba(255, 150, 80, .05); }
+.k-mod.first-found { margin-top: 6px; border-top: 1px solid var(--k-line); padding-top: 8px; }
+.k-mod-text { display: flex; flex-direction: column; min-width: 0; gap: 0; }
+.k-mod-name { font-size: 17.5px; line-height: 1.25; color: var(--k-text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: color .2s; }
+.k-mod.on .k-mod-name, .k-mod.found .k-mod-name { color: var(--k-text-0); }
+.k-mod-note { display: flex; align-items: baseline; gap: 0 8px; min-width: 0; font-size: 14.5px; line-height: 1.25; color: var(--k-text-2); white-space: nowrap; overflow: hidden; }
+.k-mod-note > span { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.k-mod-note .k-tone-idle { color: var(--k-text-2); }
+.k-mod-note .k-link { font-size: 14.5px; flex: none; }
+.k-mod-where { flex: none; font-family: var(--k-font-label); font-weight: 500; letter-spacing: .012em; color: var(--k-text-1); }
+.k-mod-place { justify-self: center; width: 14px; height: 11px; border: 1.6px solid var(--k-text-3); border-radius: 2px 2px 3px 3px; position: relative; }
+.k-mod-place::before { content: ""; position: absolute; left: -1.6px; top: -4px; width: 6px; height: 3px; border: 1.6px solid var(--k-text-3); border-bottom: 0; border-radius: 2px 2px 0 0; }
+.k-mod-kind { min-width: 0; overflow: hidden; }
+.k-mod-ver { font-size: 14px; color: var(--k-text-2); text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.k-mods-none { padding: 14px 16px; color: var(--k-text-2); }
+.k-mods-empty { padding: 14px 16px; display: flex; flex-direction: column; gap: 4px; }
+.k-mods-empty p:first-child { font-size: 19px; color: var(--k-head); }
+@media (max-height: 700px) {
+  .k-hero.with-mods { top: 84px; bottom: 90px; gap: 6px; }
+  .k-hero.with-mods .k-title { font-size: 44px; padding-bottom: 0; }
+  .k-hero.with-mods .k-hero-say { font-size: 18px; }
+  .k-hero.with-mods .k-hero-facts dt { font-size: 14px; }
+  .k-hero.with-mods .k-hero-facts dd { font-size: 16px; }
+  .k-mod { min-height: 38px; }
+}
+.k-foot { position: absolute; left: 64px; right: calc(var(--kiln) + 100px); bottom: 0; height: 84px; display: flex; align-items: center; gap: 20px; pointer-events: auto; min-width: 0; }
 .k-foot .k-mono { color: var(--k-text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .k-foot .k-link { font-size: 16px; white-space: nowrap; }
 .k-foot .k-select { width: auto; height: 32px; font-size: 15px; }
@@ -145,7 +196,7 @@ p { margin: 0; }
   transition: left .66s var(--k-out), top .66s var(--k-out), width .66s var(--k-out), height .66s var(--k-out); }
 .k-door:disabled { cursor: default; }
 .k-door:focus-visible { outline: 2px solid var(--k-gold-400); outline-offset: -5px; }
-.k-door.play { --w: min(500px, 40vw); width: var(--w); height: calc(var(--w) * .88); left: calc(100% - 48px - var(--w)); top: calc(100% - 84px - var(--w) * .88); }
+.k-door.play { --w: var(--kiln); width: var(--w); height: calc(var(--w) * .88); left: calc(100% - 48px - var(--w)); top: calc(100% - 84px - var(--w) * .88); }
 .k-door.pilot { --w: 36px; width: 36px; height: 31.7px; left: calc(100% - 60px); top: 7px; transition-timing-function: cubic-bezier(.5, 0, .8, .4); transition-duration: .46s; }
 .is-sheet .k-door.pilot { transition-timing-function: var(--k-out); transition-duration: .66s; }
 .k-door-fire { position: absolute; inset: 0; transition: filter .6s;
@@ -165,7 +216,7 @@ p { margin: 0; }
 .k-door-sub { font-size: 16.5px; font-weight: 500; }
 .k-door.heat-unlit .k-door-sub { color: var(--k-text-1); }
 /* with the fire on, the shader draws the mouth: the button is only its hit area and label, moved by the stage's spring */
-.k-app[data-gl] .k-door { left: 0; top: 0; --w: min(500px, 40vw); transition: none; will-change: transform; }
+.k-app[data-gl] .k-door { left: 0; top: 0; --w: var(--kiln); transition: none; will-change: transform; }
 .k-app[data-gl] .k-door-fire { display: none; }
 .k-app[data-gl] .k-door-lab { opacity: calc(1 - var(--k, 0) * 3); transition: transform .35s var(--k-spring); }
 

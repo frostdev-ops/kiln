@@ -184,6 +184,7 @@ fn resolver_fixtures() {
                 .map(|a| a.elements().iter().map(|e| e.node.as_str().unwrap().to_string()).collect())
                 .unwrap_or_default(),
             loaded,
+            hosting: env.get("hosting").and_then(Node::as_bool).unwrap_or(false),
         };
         let candidates: Vec<Candidate> = tree.get("mods").unwrap().elements().iter().map(|e| candidate(&text, &e.node)).collect();
         let res = resolver::resolve(&candidates, &environment).unwrap();

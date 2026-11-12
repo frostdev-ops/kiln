@@ -6,6 +6,7 @@ import * as api from "../api/commands";
 import type { GameInstall, InstallState, RuntimeBundle } from "../api/commands";
 import { invalidateGame, qk, useRuntimeChanges, type RuntimeChange } from "../api/hooks";
 import { installNote, runTask, toast } from "../ui";
+import { notifyInstall } from "./notices";
 
 /** `a` is older than `b`. runtime_list sorts newest first (the version, its build date, then when the bundle was
  *  built), so the list decides; a version not in it compares by version and build date. Never by the git id: two
@@ -33,9 +34,10 @@ export async function runRuntimeChange(qc: QueryClient, game: GameInstall, bundl
   put(gid, base);
   let ok = false;
   try {
-    const r = await runTask<api.InstallResult | null>(async () => { const id = await start(); put(gid, { ...base, taskId: id }); return id; }, { done: label, detail: installNote });
+    const r = await runTask<api.InstallResult | api.UninstallResult | null>(async () => { const id = await start(); put(gid, { ...base, taskId: id }); return id; }, { done: label, detail: installNote });
+    notifyInstall(r);
     put(gid, { ...(useRuntimeChanges.getState().last[gid] ?? base), state: "done" });
-    if (r?.runtime) {
+    if (r && "runtime" in r) {
       const newer = bundles.find((b) => b.sides.includes(game.kind) && isOlder(r.runtime.version, b.version, bundles))?.version ?? null;
       // an install leaves no default part out unless the player turned it off: nothing is missing after it
       const fix = (s: InstallState | undefined) => s && { ...s, installed: true, receipt: r, modified: [], upgradeAvailable: newer, missingParts: [] };

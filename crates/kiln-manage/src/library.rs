@@ -72,6 +72,8 @@ pub enum DetectKind {
     // through a loader registered for it (engines::register_loader); without one it is skipped with its reason.
     /// An EML mod (`mod.json` + `src/mod.lua`).
     Eml,
+    /// A native-plugin.ini companion for the separately installed XHL-Core, never executed by Kiln.
+    Xhl,
     /// A ShroudForge package (SF-specific extension or schema; capabilities are shared with EML).
     #[serde(rename = "shroudforge")]
     ShroudForge,
@@ -205,6 +207,11 @@ pub struct ImportRecord {
     /// stay as the author made them: the engine plugin reads the manifest's id and reports its rows under it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub manifest_id: Option<String>,
+    /// EML mods a native DLL reads in the game's `mods` folder (a DLL of its package next to that folder, as Auto Loot
+    /// Plus's dinput8.dll, or a DLL in the mod's own folder, as the XHL-Core plugins): the folder name under
+    /// `<game>/mods/`. Activation places the mod there and kiln-eml runs that copy (engine_mods::place).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub game_folder: Option<String>,
 }
 
 const EMF_MANIFEST: &str = "mod.json";
@@ -239,8 +246,11 @@ fn detect_dll(path: &Path) -> Detected {
     };
     // A DLL under a proxy name says nothing about what mod it is (`winmm.dll`, `dinput8.dll`): two of them must not
     // become one library entry, so its id carries a few characters of its content.
+    // XHL-Core is one mod whatever copy of it this is: its builds replace each other (package_dll_identity).
     let plain = |mut x: Detected| {
-        if crate::engines::is_proxy_name(&file_name(path)) {
+        if is_xhl_core(&bytes) {
+            x.id = Some(XHL_CORE_ID.into());
+        } else if crate::engines::is_proxy_name(&file_name(path)) {
             x.id = Some(format!("{stem_id}-{}", &crate::hash::sha256_hex(&bytes)[..6]));
         }
         x
@@ -254,9 +264,20 @@ fn detect_dll(path: &Path) -> Detected {
     if has(crate::pe::EMF_MOD_EXPORT) {
         return d(DetectKind::Emf, "an EMF mod DLL (exports emf_mod_load); a mod.json is generated");
     }
-    // another engine's mod DLL or loader: never imported as a plain DLL
+    // another engine's mod DLL or loader: never imported as a plain DLL. A DLL that reads dinput8-chain.ini is not only
+    // a chain loader: Auto Loot Plus's dinput8.dll is the mod itself (its looting, its F8 menu), XHL-Core's is the host
+    // of the XHL mods. Kiln chain-loads it like any dinput8 mod; the DLLs it chains are the same files Kiln reads from
+    // dinput8-chain.ini, so nothing loads twice.
+    let mut chains = false;
     if let Some(e) = crate::engines::detect_dll(path, &bytes, &exports) {
-        return Detected { id: Some(stem_id.clone()), version: Some("0.0.0".into()), ..e };
+        if !(e.kind == DetectKind::Proxy && e.engine == Some(crate::engines::Engine::ChainLoader)) {
+            return Detected { id: Some(stem_id.clone()), version: Some("0.0.0".into()), ..e };
+        }
+        chains = true;
+    }
+    if chains {
+        return plain(d(DetectKind::BareDll, "a DLL mod that also loads the DLLs named in dinput8-chain.ini (Auto Loot Plus, XHL-Core): \
+            a native mod, phase dllmain (chain-loaded)"));
     }
     if has(crate::pe::DINPUT8_EXPORT) {
         let c = crate::pe::classify_bytes(&bytes);
@@ -290,6 +311,112 @@ pub fn id_from_name(name: &str) -> String {
     let s = s.trim_matches(|c| c == '-' || c == '.' || c == '_').to_string();
     let s: String = s.chars().take(64).collect();
     if s.is_empty() { "mod".into() } else { s }
+}
+
+/// A browser's or an unpacker's copy suffix gone: `Name (1)`, `Name(2)` -> `Name`.
+pub(crate) fn strip_copy_suffix(name: &str) -> &str {
+    let t = name.trim_end();
+    if let Some(open) = t.strip_suffix(')').and_then(|s| s.rfind('('))
+        && t[open + 1..t.len() - 1].bytes().all(|b| b.is_ascii_digit()) && t.len() - open > 2 && open > 0
+    {
+        return t[..open].trim_end();
+    }
+    t
+}
+
+/// What a package is called without its version and download decorations: the words before the trailing run of
+/// words that are numbers or versions (`AutoLootPlus 1.1.8 170 1.1.8 2026-10-23T21-27Z 2FzbANfp1` -> `AutoLootPlus`,
+/// Nexus' `Auto-Loot-Plus-170-1-1-8-1731234567-AbC123` -> `Auto-Loot-Plus`), after a copy suffix. A number followed by a word
+/// is part of the name (`Enshrouded 60 FPS`, `Enshrouded 2x Stamina 1.0` -> `Enshrouded 2x Stamina`); a name that is
+/// all numbers stays as it is.
+pub(crate) fn package_stem(name: &str) -> &str {
+    let mut name = strip_copy_suffix(name);
+    // A random download token need not begin with a digit. Recognize it only directly after a Unix upload timestamp,
+    // not after an ordinary number in a title such as "Enshrouded 60 FPS".
+    if let Some((before, token)) = name.rsplit_once([' ', '-', '_']) {
+        let stamp = before.rsplit([' ', '-', '_']).next().unwrap_or_default();
+        if stamp.len() == 10 && stamp.bytes().all(|b| b.is_ascii_digit())
+            && token.len() >= 4 && token.bytes().all(|b| b.is_ascii_alphanumeric())
+        {
+            name = before;
+        }
+    }
+    let numeric = |w: &str| {
+        let digit = |s: &str| s.bytes().next().is_some_and(|b| b.is_ascii_digit());
+        digit(w) || (w.starts_with(['v', 'V']) && digit(&w[1..]))
+    };
+    let mut cut = None;
+    let mut start = 0;
+    for (i, c) in name.char_indices().chain(std::iter::once((name.len(), ' '))) {
+        if matches!(c, ' ' | '-' | '_') {
+            if i > start {
+                if numeric(&name[start..i]) { cut.get_or_insert(start); } else { cut = None; }
+            }
+            start = i + c.len_utf8();
+        }
+    }
+    match cut.map(|i| name[..i].trim_end_matches([' ', '-', '_', '.'])) {
+        Some(stem) if !stem.is_empty() => stem,
+        _ => name,
+    }
+}
+
+/// A mod id for a name, kept apart from every other name: `id_from_name` keeps only ASCII letters and digits, so a
+/// name with other letters (`自动拾取`, `Ümlaut`) or none gets a few characters of the name's hash, and `fallback` (a
+/// DLL's file stem) when nothing of it is left.
+fn distinct_id(name: &str, fallback: &str) -> String {
+    let lossy = name.chars().any(|c| !c.is_ascii() && c.is_alphanumeric()) || !name.chars().any(|c| c.is_ascii_alphanumeric());
+    if !lossy {
+        return id_from_name(name);
+    }
+    let base = if name.chars().any(|c| c.is_ascii_alphanumeric()) { id_from_name(name) } else { id_from_name(fallback) };
+    let base: String = base.chars().take(55).collect();
+    format!("{}-{}", base.trim_end_matches(['-', '.', '_']), &crate::hash::sha256_hex(name.as_bytes())[..8])
+}
+
+/// The file version in a DLL's VS_VERSION_INFO resource (`a.b.c`; the fourth number is left out), when it has one.
+pub(crate) fn dll_file_version(bytes: &[u8]) -> Option<String> {
+    let key: Vec<u8> = "VS_VERSION_INFO\0".encode_utf16().flat_map(|u| u.to_le_bytes()).collect();
+    let at = bytes.windows(key.len()).position(|w| w == key.as_slice())? + key.len();
+    let sig = (0..4).map(|pad| at + pad).find(|&i| bytes.get(i..i + 4) == Some(&0xFEEF_04BDu32.to_le_bytes()[..]))?;
+    let word = |i: usize| bytes.get(i..i + 4).map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]));
+    let (ms, ls) = (word(sig + 8)?, word(sig + 12)?);
+    (ms != 0 || ls != 0).then(|| format!("{}.{}.{}", ms >> 16, ms & 0xFFFF, ls >> 16))
+}
+
+/// XHL-Core's DLL, by the markers engine_mods::xhl_host recognises it with on the game's load paths.
+fn is_xhl_core(bytes: &[u8]) -> bool {
+    crate::pe::is_pe64_dll(bytes) && crate::pe::parse(bytes).is_ok_and(|p| p.exports.iter().any(|s| s == crate::pe::DINPUT8_EXPORT))
+        && [b"XHL-Native-Plugin-Host.log".as_slice(), b"native-plugin.ini".as_slice()].iter()
+            .all(|s| bytes.windows(s.len()).any(|w| w.eq_ignore_ascii_case(s)))
+}
+
+pub(crate) const XHL_CORE_ID: &str = "xhl-core";
+
+/// The id and name of a package's own DLL under a proxy name (Auto Loot Plus's dinput8.dll, an XHL-Core bundled with an
+/// XHL mod): what stays the same across versions and downloads, so that a new version or a second copy replaces the
+/// one in the profile (quick::merge goes by id) instead of being chain-loaded next to it. XHL-Core is "xhl-core"; a DLL
+/// that reads its package's `mods/<folder>` (Auto Loot Plus and Auto Loot Plus Lite: `mods/auto-loot-plus`, a folder
+/// name the DLL itself names) takes that folder's name; any other the package's name without its version.
+/// `package`: the folder holding the DLL; `package_name`: what the package is called (an archive's file name).
+fn package_dll_identity(dll: &Path, package: &Path, package_name: &str) -> (String, String) {
+    if std::fs::read(dll).is_ok_and(|b| is_xhl_core(&b)) {
+        return (XHL_CORE_ID.into(), "XHL-Core".into());
+    }
+    let mut folders: Vec<PathBuf> = std::fs::read_dir(package).into_iter().flatten().flatten().map(|e| e.path())
+        .filter(|p| file_name(p).eq_ignore_ascii_case("mods") && p.is_dir() && !p.is_symlink())
+        .flat_map(|p| std::fs::read_dir(p).into_iter().flatten().flatten().map(|e| e.path()))
+        .filter(|p| p.is_dir() && !p.is_symlink() && crate::engine_mods::is_game_folder_name(&file_name(p)))
+        .collect();
+    folders.sort();
+    let dll_stem = dll.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+    if folders.is_empty() {
+        return (distinct_id(package_stem(package_name), &dll_stem), package_name.to_string());
+    }
+    let names: Vec<String> = folders.iter().map(|p| file_name(p)).collect();
+    // named after the package (without its version), so two packages that carry the same mods/<folder> show apart
+    // and quick::merge can say which one replaced which; the same for every download of one version
+    (distinct_id(&names.join("-"), &dll_stem), format!("{} ({})", package_stem(package_name), file_name(dll)))
 }
 
 fn emf_manifest(dir: &Path) -> Option<(serde_json::Value, String)> {
@@ -333,12 +460,17 @@ fn is_docs_file(name: &str) -> bool {
 }
 
 /// The manifest files that make a folder a mod of some engine.
-const MOD_MANIFESTS: [&str; 7] = ["mod.json", "kiln.mod.json", "native.json", "flame.json", "pack.toml", "init.lua", "extended.mod.json"];
+const MOD_MANIFESTS: [&str; 8] = ["mod.json", "kiln.mod.json", "native.json", "flame.json", "pack.toml", "init.lua", "extended.mod.json", "native-plugin.ini"];
 
 /// Is one of `dir`'s folders a mod on its own?
 fn has_mod_subfolder(dir: &Path) -> bool {
     std::fs::read_dir(dir).into_iter().flatten().flatten().map(|e| e.path())
-        .any(|p| p.is_dir() && !p.file_name().is_some_and(|n| n.to_string_lossy().starts_with('.')) && MOD_MANIFESTS.iter().any(|m| p.join(m).is_file()))
+        .any(|p| p.is_dir() && !p.file_name().is_some_and(|n| n.to_string_lossy().starts_with('.')) && has_mod_manifest(&p))
+}
+
+/// Does `dir` hold one of [`MOD_MANIFESTS`]? XHL-Core's native-plugin.ini in any case, as detection finds it.
+fn has_mod_manifest(dir: &Path) -> bool {
+    MOD_MANIFESTS.iter().any(|m| dir.join(m).is_file()) || crate::engine_mods::has_xhl_plugin_ini(dir)
 }
 
 /// What the DLLs directly in a folder are: the ones that are no known loader or engine mod (plain DLL mods), every
@@ -386,6 +518,85 @@ fn has_package_data(dir: &Path, dll: &Path) -> bool {
     })
 }
 
+/// A package's native input proxy, as opposed to the EML loader often shipped beside it. Other bare DLLs beside a
+/// single proxy are its dependencies, not independent mods to execute. Keep this rule narrow: two proxies are ambiguous.
+pub(crate) fn native_bundle_proxy(dir: &Path) -> Option<PathBuf> {
+    let mut proxies = crate::engines::dlls_in(dir).into_iter().filter(|p| {
+        crate::engines::is_proxy_name(&file_name(p)) && detect_dll(p).kind == DetectKind::BareDll
+            && std::fs::read(p).ok().and_then(|b| crate::pe::parse(&b).ok())
+                .is_some_and(|info| info.exports.iter().any(|e| e == crate::pe::DINPUT8_EXPORT))
+    });
+    let p = proxies.next()?;
+    proxies.next().is_none().then_some(p)
+}
+
+/// Files owned by the native part of a game-folder bundle. Engine mods and bundled loaders remain separate items.
+fn native_companion(path: &Path, proxy: &Path) -> bool {
+    if path == proxy { return true; }
+    let name = file_name(path);
+    if name.starts_with('.') { return false; }
+    if path.is_dir() {
+        return !name.eq_ignore_ascii_case("mods") && !name.eq_ignore_ascii_case(crate::engine_mods::SHROUDLINK_MODS)
+            && !crate::engines::is_container(path) && !has_mod_subfolder(path)
+            && !has_mod_manifest(path)
+            && !crate::engines::dlls_in(path).iter().any(|dll| detect_dll(dll).kind != DetectKind::BareDll);
+    }
+    if path.extension().is_some_and(|e| e.eq_ignore_ascii_case("dll")) {
+        return detect_dll(path).kind == DetectKind::BareDll && !crate::engines::is_proxy_name(&name);
+    }
+    !MOD_MANIFESTS.iter().any(|m| name.eq_ignore_ascii_case(m))
+}
+
+/// Translate this package's chain into native.json's DLL list. The INI itself is retained beside the proxy, but is
+/// never written over the player's game-wide chain. Helpers not listed here are resolved by Windows beside the DLL.
+fn package_chain(dir: &Path, primary: &str, report: &mut ImportReport, label: &str) -> Vec<String> {
+    let mut dlls = vec![primary.to_string()];
+    let ini = dir.join("dinput8-chain.ini");
+    let Ok(bytes) = std::fs::read(&ini) else { return dlls };
+    if bytes.len() > crate::chain::MAX_BYTES {
+        report.skipped.push(Skipped { path: label.into(), reason: "dinput8-chain.ini exceeds the chain size limit".into() });
+        return dlls;
+    }
+    let text = crate::chain::decode(&bytes);
+    for line in crate::chain::lines(&text) {
+        let crate::chain::IniLine::Text(section, text) = line else { continue };
+        if section.is_some_and(|s| s != "chain" && s != "emf") { continue; }
+        // the proxy's own rules (dinput8.cpp read_dll_list, chain::dll_sections): "key = value" counts by its value,
+        // and a line that names no DLL is no entry
+        let value = text.split_once('=').map_or(text, |(_, v)| v.trim_matches([' ', '\t']));
+        if !value.to_ascii_lowercase().ends_with(".dll") { continue; }
+        let rel = value.replace('\\', "/");
+        if crate::bundle::safe_rel_path(&rel).is_err() {
+            report.skipped.push(Skipped { path: label.into(), reason: format!("dinput8-chain.ini: unsafe DLL path {value:?} was not imported") });
+            continue;
+        }
+        // Windows finds the file whatever the case of its name: the path as it is spelled in the package
+        // A redundant bundled EML proxy is deliberately not present in this native folder: kiln-eml runs those mods.
+        let Some(rel) = rel_ignoring_case(dir, &rel) else {
+            report.note(label, format!("dinput8-chain.ini: {value} is not in the native package (a bundled loader or a missing file); not chained"));
+            continue;
+        };
+        if !dlls.iter().any(|p| p.eq_ignore_ascii_case(&rel)) { dlls.push(rel); }
+    }
+    dlls
+}
+
+/// `rel` ('/'-separated, already checked to be safe) below `dir` as the files are spelled there, ASCII case ignored;
+/// None when no such file exists. An exact match wins over another spelling.
+fn rel_ignoring_case(dir: &Path, rel: &str) -> Option<String> {
+    let mut at = dir.to_path_buf();
+    let mut out = Vec::new();
+    for part in rel.split('/').filter(|p| !p.is_empty()) {
+        let name = if at.join(part).symlink_metadata().is_ok() { part.to_string() } else {
+            std::fs::read_dir(&at).ok()?.flatten().map(|e| e.file_name().to_string_lossy().into_owned())
+                .find(|n| n.eq_ignore_ascii_case(part))?
+        };
+        at.push(&name);
+        out.push(name);
+    }
+    at.is_file().then(|| out.join("/"))
+}
+
 /// `top_name`: what the package is called when `dir` is an unpacked archive (its file name without the extension).
 fn detect_folder_at(dir: &Path, depth: usize, top_name: Option<&str>) -> Detected {
     let p = dir.display().to_string();
@@ -400,7 +611,7 @@ fn detect_folder_at(dir: &Path, depth: usize, top_name: Option<&str>) -> Detecte
     }
     if dir.join(MODPACK_MANIFEST).is_file() {
         let mut d = mk(DetectKind::Modpack, None, None, None, "a server modpack (kiln-modpack.json)".into());
-        d.items = children(dir, depth);
+        d.items = children(dir, depth, top_name);
         return d;
     }
     if dir.join(crate::manifest::KILN_MANIFEST).is_file() {
@@ -428,6 +639,29 @@ fn detect_folder_at(dir: &Path, depth: usize, top_name: Option<&str>) -> Detecte
     {
         return mk(DetectKind::Unknown, None, None, None, crate::shroudforge::skip_reason(dir));
     }
+    // An XHL mod without an EML part: a plugin XHL-Core loads from the game's mods folder, never a DLL to load on its own
+    if crate::engine_mods::has_xhl_plugin_ini(dir) {
+        // XHL-Core loads every folder that holds the ini: a copy suffix, or a version in an archive's name, would make
+        // a second companion beside the first
+        let name = match top_name.filter(|_| depth == 0) {
+            Some(n) if n != file_name(dir) => package_stem(n).to_string(),
+            Some(n) => strip_copy_suffix(n).to_string(),
+            None => strip_copy_suffix(&file_name(dir)).to_string(),
+        };
+        if !crate::engine_mods::is_game_folder_name(&name) {
+            return mk(DetectKind::Unknown, None, None, None, "XHL-Core's plugin folder is not a safe Windows folder name".into());
+        }
+        return mk(DetectKind::Xhl, Some(name.clone()), Some("0.0.0".into()), Some(name),
+            "requires XHL-Core: Kiln preserves and places this native-plugin.ini companion in the game's mods folder; Kiln never loads this plugin DLL itself".into());
+    }
+    // `mods/<name>/` with nothing but settings files: the settings of a DLL that reads them in the game folder
+    // (Auto Loot Plus Lite: dinput8.dll + mods/auto-loot-plus/config.txt)
+    if depth > 0 && dir.parent().and_then(Path::file_name).is_some_and(|n| n.eq_ignore_ascii_case("mods")) && only_settings(dir) {
+        let name = file_name(dir);
+        return mk(DetectKind::Unknown, None, None, None, format!("mods/{name} {SETTINGS_WORDS}: a DLL of this package reads them in the \
+            game's mods folder, and Kiln does not copy them there. To use them, copy the folder {name} into the mods folder of the \
+            Enshrouded folder yourself; without them the mod starts with its own defaults or makes the file itself"));
+    }
     if !crate::engines::is_container(dir) {
         let dlls = survey_dlls(dir);
         // a tool's package (Aldrich's mod menu, ReShade): left out whole, its helper DLLs are no mods
@@ -443,11 +677,29 @@ fn detect_folder_at(dir: &Path, depth: usize, top_name: Option<&str>) -> Detecte
                 _ => file_name(dir),
             };
             let reason = format!("{}: a DLL mod with its files, added as one native mod", file_name(&dll));
-            return mk(DetectKind::BareDll, Some(id_from_name(&shown)), Some("0.0.0".into()), Some(shown), reason);
+            // under a proxy name the DLL says nothing about the mod: the same identity as a bundle's proxy, so the next
+            // version replaces this one (Auto Loot Plus Lite: dinput8.dll + mods/auto-loot-plus/config.txt)
+            let (id, shown) = if crate::engines::is_proxy_name(&file_name(&dll)) {
+                package_dll_identity(&dll, dir, &shown)
+            } else {
+                (id_from_name(&shown), shown)
+            };
+            return mk(DetectKind::BareDll, Some(id), Some("0.0.0".into()), Some(shown), reason);
         }
     }
     // a folder of mods (an unpacked zip): what is inside
-    let items = children(dir, depth);
+    let mut items = children(dir, depth, top_name);
+    // A package shaped like the game folder whose own DLL sits under a proxy name next to its `mods` folder (Auto Loot
+    // Plus: dinput8.dll + mods/auto-loot-plus): the DLL is named after the package, not "dinput8.dll".
+    if let (0, Some(n)) = (depth, top_name) {
+        let mut top = items.iter_mut().filter(|i| i.kind == DetectKind::BareDll && Path::new(&i.path).parent() == Some(dir)
+            && crate::engines::is_proxy_name(&file_name(Path::new(&i.path))));
+        if let (Some(only), None) = (top.next(), top.next()) {
+            let (id, name) = package_dll_identity(Path::new(&only.path), dir, n);
+            only.id = Some(id);
+            only.name = Some(name);
+        }
+    }
     if items.iter().any(|i| i.kind != DetectKind::Unknown) {
         let n = items.iter().filter(|i| i.kind.importable()).count();
         let other = items.iter().filter(|i| i.kind != DetectKind::Unknown && !i.kind.importable()).count();
@@ -463,12 +715,58 @@ fn detect_folder_at(dir: &Path, depth: usize, top_name: Option<&str>) -> Detecte
         d.items = items;
         return d;
     }
+    // nothing usable: an item with its own reason says it better than the package's generic one
+    if let Some(i) = items.iter().find(|i| i.reason.contains(SETTINGS_WORDS)) {
+        return mk(DetectKind::Unknown, None, None, None, i.reason.clone());
+    }
     mk(DetectKind::Unknown, None, None, None, crate::shroudforge::skip_reason(dir))
 }
 
-fn children(dir: &Path, depth: usize) -> Vec<Detected> {
+const SETTINGS_WORDS: &str = "holds only settings";
+
+/// A folder with files and nothing but settings files (`.txt`, `.ini`, `.cfg`, `.json`, `.toml`, `.yaml`) in it.
+fn only_settings(dir: &Path) -> bool {
+    let mut any = false;
+    for e in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+        let low = e.file_name().to_string_lossy().to_ascii_lowercase();
+        if low.starts_with('.') { continue; }
+        if MOD_MANIFESTS.contains(&low.as_str()) { return false; }
+        let ext = low.rsplit_once('.').map(|(_, x)| x).unwrap_or("");
+        if !e.path().is_file() || !matches!(ext, "txt" | "ini" | "cfg" | "json" | "toml" | "yaml" | "yml") { return false; }
+        any = true;
+    }
+    any
+}
+
+/// Settings-only game folders carried by a native package (Auto Loot Plus Lite). They are not executable mods.
+/// Keep the original folder spelling, but never accept a destination outside one safe Windows component.
+pub(crate) fn native_settings_dirs(dir: &Path) -> Vec<PathBuf> {
+    let mut out: Vec<_> = std::fs::read_dir(dir).into_iter().flatten().flatten()
+        .map(|e| e.path()).filter(|p| file_name(p).eq_ignore_ascii_case("mods") && p.is_dir())
+        .flat_map(|p| std::fs::read_dir(p).into_iter().flatten().flatten().map(|e| e.path()))
+        .filter(|p| p.is_dir() && crate::engine_mods::is_game_folder_name(&file_name(p)) && only_settings(p))
+        .collect();
+    out.sort();
+    out
+}
+
+/// `top_name`: what `dir` is called when it is an unpacked archive at depth 0 (detect_folder_at).
+fn children(dir: &Path, depth: usize, top_name: Option<&str>) -> Vec<Detected> {
     let mut entries: Vec<PathBuf> = std::fs::read_dir(dir).into_iter().flatten().flatten().map(|e| e.path()).collect();
     entries.sort();
+    let native = native_bundle_proxy(dir);
+    let settings = if native.is_some() { native_settings_dirs(dir) } else { Vec::new() };
+    // `dir` is a package's `mods` folder: its settings-only folders belong to the package's native proxy (read once,
+    // not once per entry: each look reads and parses the proxy DLL)
+    let parent_settings = match dir.parent() {
+        Some(parent) if dir.file_name().is_some_and(|n| n.eq_ignore_ascii_case("mods")) && native_bundle_proxy(parent).is_some() =>
+            native_settings_dirs(parent),
+        _ => Vec::new(),
+    };
+    let package_name = match (depth, top_name) {
+        (0, Some(n)) => n.to_string(),
+        _ => file_name(dir),
+    };
     let mut out = Vec::new();
     for e in entries {
         let name = e.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
@@ -480,6 +778,14 @@ fn children(dir: &Path, depth: usize) -> Vec<Detected> {
                 reason: "links are not mod imports".into(), items: vec![], engine: None });
             continue;
         }
+        if native.as_ref().is_some_and(|p| &e != p && (native_companion(&e, p)
+            || (name.eq_ignore_ascii_case("mods") && std::fs::read_dir(&e).is_ok_and(|mut entries| entries.all(|entry|
+                entry.is_ok_and(|entry| settings.contains(&entry.path()))))))) {
+            continue; // kept with the native proxy, never imported/executed as another mod
+        }
+        if parent_settings.contains(&e) {
+            continue;
+        }
         if e.is_dir() {
             let d = detect_folder_at(&e, depth + 1, None);
             if d.kind == DetectKind::Unknown && !d.items.is_empty() {
@@ -488,7 +794,13 @@ fn children(dir: &Path, depth: usize) -> Vec<Detected> {
                 out.push(d);
             }
         } else if name.to_lowercase().ends_with(".dll") {
-            out.push(detect_dll(&e));
+            let mut d = detect_dll(&e);
+            if native.as_ref() == Some(&e) {
+                let (id, name) = package_dll_identity(&e, dir, &package_name);
+                d.id = Some(id);
+                d.name = Some(name);
+            }
+            out.push(d);
         } else if let Some(d) = crate::engines::detect_file(&e) {
             out.push(d);
         }
@@ -750,6 +1062,11 @@ pub fn commit_folder(dirs: &DataDirs, prepared: &Path, rec: ImportRecord, report
         if recorded_hash(&folder, &old)? != r.hash {
             return Err(Error::new(ErrorCode::HashMismatch, format!("{}: existing library content does not match its hash", folder.display())));
         }
+        // An entry imported before Kiln knew its package's DLL reads it in the game folder learns that now (the same
+        // archive dropped again); the content and everything else in the record stay.
+        if rec.game_folder.is_some() && old.game_folder.is_none() {
+            crate::util::write_json_atomic(&record_path(&folder), &ImportRecord { game_folder: rec.game_folder.clone(), ..old })?;
+        }
         report.existing.push(r);
         return Ok(());
     }
@@ -815,7 +1132,7 @@ fn import_item(dirs: &DataDirs, d: &Detected, src: &Path, from: &ImportSource, r
                 _ => (None, None),
             };
             let version = if semverish(&version) { version.trim().to_string() } else { fallback_version(&version) };
-            let rec = ImportRecord { format: 1, kind, id, version, hash, imported: now, source: Some(from.clone()), size, name: d.name.clone(), side, clients, file: None, manifest_id: None };
+            let rec = ImportRecord { format: 1, kind, id, version, hash, imported: now, source: Some(from.clone()), size, name: d.name.clone(), side, clients, file: None, manifest_id: None, game_folder: None };
             commit(dirs, &work, rec, report)
         }
         DetectKind::Plugin => {
@@ -827,7 +1144,8 @@ fn import_item(dirs: &DataDirs, d: &Detected, src: &Path, from: &ImportSource, r
             let (hash, _) = crate::hash::sha256_file(&work.join(&file))?;
             let id = d.id.clone().unwrap_or_else(|| id_from_name(&file));
             let rec = ImportRecord { format: 1, kind: ModKind::Plugin, id, version: d.version.clone().unwrap_or("0.0.0".into()), hash, imported: now,
-                source: Some(from.clone()), size, name: Some(file.clone()), side: None, clients: None, file: Some(file), manifest_id: None };
+                source: Some(from.clone()), size, name: Some(file.clone()), side: None, clients: None, file: Some(file), manifest_id: None,
+                game_folder: None };
             commit(dirs, &work, rec, report)
         }
         DetectKind::BareDll if src.is_dir() => {
@@ -852,18 +1170,21 @@ fn import_item(dirs: &DataDirs, d: &Detected, src: &Path, from: &ImportSource, r
                 // there is not a mystery
                 report.note(&d.path, format!("{name} is a DLL mod with files: Kiln loads {file} from its own folder, with those files beside it"));
             }
+            let dlls = package_chain(&work, &file, report, &d.path);
+            // the DLL's own file version when it carries one, so the Library and quick::merge can tell builds apart
+            let version = std::fs::read(work.join(&file)).ok().and_then(|b| dll_file_version(&b)).unwrap_or_else(|| "0.0.0".into());
             let manifest = serde_json::json!({
-                "format": 1, "id": id, "name": name, "version": "0.0.0",
+                "format": 1, "id": id, "name": name, "version": version,
                 "description": format!("Generated by Kiln from {file} and the files next to it{}", if proxy { " (a dinput8 proxy, chain-loaded in DllMain)" } else { "" }),
-                "side": "client", "dlls": [file], "phase": if proxy { "dllmain" } else { "early" },
+                "side": "client", "dlls": dlls, "phase": if proxy { "dllmain" } else { "early" },
             });
             let mut body = serde_json::to_string_pretty(&manifest)?;
             body.push('\n');
             size += body.len() as u64;
             std::fs::write(work.join(crate::manifest::NATIVE_MANIFEST), body).map_err(io(&work, "writing"))?;
             let hash = crate::hash::dirhash(&work)?;
-            let rec = ImportRecord { format: 1, kind: ModKind::Native, id, version: "0.0.0".into(), hash, imported: now, source: Some(from.clone()), size,
-                name: Some(name), side: Some(Side::Client), clients: Some(Clients::Mod), file: None, manifest_id: None };
+            let rec = ImportRecord { format: 1, kind: ModKind::Native, id, version, hash, imported: now, source: Some(from.clone()), size,
+                name: Some(name), side: Some(Side::Client), clients: Some(Clients::Mod), file: None, manifest_id: None, game_folder: None };
             commit(dirs, &work, rec, report)
         }
         DetectKind::BareDll | DetectKind::Emf => {
@@ -872,8 +1193,51 @@ fn import_item(dirs: &DataDirs, d: &Detected, src: &Path, from: &ImportSource, r
             let work = tmp.path().join("m");
             std::fs::create_dir_all(&work).map_err(io(&work, "creating"))?;
             let file = src.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "mod.dll".into());
-            let mut size = std::fs::copy(src, work.join(&file)).map_err(io(src, "copying"))?;
+            let bundled = d.kind == DetectKind::BareDll && d.name.as_deref() != Some(file.as_str())
+                && src.parent().is_some_and(|p| native_bundle_proxy(p).as_deref() == Some(src));
+            let mut size = if bundled {
+                let parent = src.parent().expect("bundle parent");
+                let mut size = 0;
+                for e in std::fs::read_dir(parent).map_err(io(parent, "reading"))? {
+                    let path = e?.path();
+                    if !native_companion(&path, src) { continue; }
+                    if std::fs::symlink_metadata(&path)?.file_type().is_symlink() {
+                        return Err(Error::new(ErrorCode::Refused, "links are not allowed in a native package"));
+                    }
+                    let to = work.join(file_name(&path));
+                    if path.is_dir() {
+                        size += copy_mod_tree(&path, &to)?;
+                        if crate::hash::dirhash(&path)? != crate::hash::dirhash(&to)? {
+                            return Err(Error::new(ErrorCode::HashMismatch, "native companion changed while importing"));
+                        }
+                    } else if path.is_file() {
+                        let before = crate::hash::sha256_file(&path)?.0;
+                        size += std::fs::copy(&path, &to).map_err(io(&path, "copying"))?;
+                        if crate::hash::sha256_file(&to)?.0 != before || crate::hash::sha256_file(&path)?.0 != before {
+                            return Err(Error::new(ErrorCode::HashMismatch, "native companion changed while importing"));
+                        }
+                    } else {
+                        return Err(Error::new(ErrorCode::Refused, "native companions must be regular files"));
+                    }
+                }
+                for folder in native_settings_dirs(parent) {
+                    let to = work.join("mods").join(file_name(&folder));
+                    size += copy_mod_tree(&folder, &to)?;
+                    if crate::hash::dirhash(&folder)? != crate::hash::dirhash(&to)? {
+                        return Err(Error::new(ErrorCode::HashMismatch, "native settings changed while importing"));
+                    }
+                    report.note(&d.path, format!("{}: settings are placed in the game's mods/{} folder while this native mod is enabled", file_name(&folder), file_name(&folder)));
+                }
+                size
+            } else {
+                std::fs::copy(src, work.join(&file)).map_err(io(src, "copying"))?
+            };
             let id = d.id.clone().unwrap_or_else(|| id_from_name(&file));
+            // the file name, or the package's name for a package's own proxy DLL (detect_folder_at)
+            let shown = d.name.clone().unwrap_or_else(|| file.clone());
+            let version = if d.kind == DetectKind::Emf { "0.0.0".to_string() } else {
+                std::fs::read(work.join(&file)).ok().and_then(|b| dll_file_version(&b)).unwrap_or_else(|| "0.0.0".into())
+            };
             let (kind, manifest_name, text) = if d.kind == DetectKind::Emf {
                 (ModKind::Emf, EMF_MANIFEST, serde_json::json!({
                     "id": id, "name": file, "version": "0.0.0", "emf": 21, "dll": file,
@@ -881,10 +1245,14 @@ fn import_item(dirs: &DataDirs, d: &Detected, src: &Path, from: &ImportSource, r
                 }))
             } else {
                 let proxy = std::fs::read(src).ok().and_then(|b| crate::pe::parse(&b).ok()).is_some_and(|i| i.exports.iter().any(|x| x == crate::pe::DINPUT8_EXPORT));
+                let dlls = package_chain(&work, &file, report, &d.path);
+                if bundled && has_package_data(&work, &work.join(&file)) {
+                    report.note(&d.path, format!("{shown}: native companion files stay beside {file}; DLLs from the package's dinput8-chain.ini are loaded by Kiln, without changing the game's chain file"));
+                }
                 (ModKind::Native, crate::manifest::NATIVE_MANIFEST, serde_json::json!({
-                    "format": 1, "id": id, "name": file, "version": "0.0.0",
+                    "format": 1, "id": id, "name": shown, "version": version,
                     "description": format!("Generated by Kiln from {file}{}", if proxy { " (a dinput8 proxy, chain-loaded in DllMain)" } else { "" }),
-                    "side": "client", "dlls": [file], "phase": if proxy { "dllmain" } else { "early" },
+                    "side": "client", "dlls": dlls, "phase": if proxy { "dllmain" } else { "early" },
                 }))
             };
             let mut body = serde_json::to_string_pretty(&text)?;
@@ -892,8 +1260,9 @@ fn import_item(dirs: &DataDirs, d: &Detected, src: &Path, from: &ImportSource, r
             size += body.len() as u64;
             std::fs::write(work.join(manifest_name), body).map_err(io(&work, "writing"))?;
             let hash = crate::hash::dirhash(&work)?;
-            let rec = ImportRecord { format: 1, kind, id, version: "0.0.0".into(), hash, imported: now, source: Some(from.clone()), size,
-                name: Some(file), side: Some(Side::Client), clients: Some(Clients::Mod), file: None, manifest_id: None };
+            let rec = ImportRecord { format: 1, kind, id, version, hash, imported: now, source: Some(from.clone()), size,
+                name: Some(if kind == ModKind::Native { shown } else { file }), side: Some(Side::Client), clients: Some(Clients::Mod), file: None,
+                manifest_id: None, game_folder: None };
             commit(dirs, &work, rec, report)
         }
         DetectKind::Runtime => {

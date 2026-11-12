@@ -127,9 +127,17 @@ fn profile_seen(d: &kiln_manage::paths::DataDirs, g: &kiln_manage::game::GameIns
 fn follow_profile(app: &AppHandle, g: &kiln_manage::game::GameInstall, followed: &mut HashMap<String, Followed>) {
     let Ok(d) = crate::state::dirs() else { return };
     let f = followed.entry(g.id.clone()).or_default();
-    let now = profile_seen(&d, g, f.seen.as_ref());
+    if let Some(a) = follow_profile_in(&d, g, f) {
+        crate::commands::profile::queue_notices(app, &a);
+        emit_game(app, &g.id, GameEventKind::Status, None);
+    }
+}
+
+/// The file/rewrite decision without window events, also exercised against isolated game folders in tests.
+fn follow_profile_in(d: &kiln_manage::paths::DataDirs, g: &kiln_manage::game::GameInstall, f: &mut Followed) -> Option<kiln_manage::profile::Activation> {
+    let now = profile_seen(d, g, f.seen.as_ref());
     if f.seen.as_ref() == Some(&now) {
-        return;
+        return None;
     }
     // profile.json is not as this watcher left it: somebody else wrote it
     let foreign = f.seen.as_ref().is_some_and(|s| s.file != now.file);
@@ -140,16 +148,19 @@ fn follow_profile(app: &AppHandle, g: &kiln_manage::game::GameInstall, followed:
                 "{}: this launcher wrote it {REWRITES} times within a minute and found it changed again each time. Another Kiln program writes it too (an older launcher that is still open?). Left as it is for now; looked at again within a minute.",
                 g.path.join(gp::PROFILE).display()));
         }
-        return;
+        return None;
     }
-    if now.id.is_some() && crate::commands::profile::reapply(&d, g) {
-        if foreign {
-            f.rewrites.wrote(Instant::now());
-        }
-        emit_game(app, &g.id, GameEventKind::Status, None);
+    let applied = if now.id.is_some() { crate::commands::profile::reapply_checked(d, g) } else { None };
+    if foreign && applied.as_ref().is_some_and(|(_, written)| *written) {
+        f.rewrites.wrote(Instant::now());
     }
+    // A completed command's profile.json is already current and its caller has its report. A notes-only save also
+    // reconciles and queues its report without changing profile.json. Only startup reports a current file here;
+    // subsequent checks must actually rewrite it to announce another activation.
+    let applied = applied.filter(|(_, written)| *written || f.seen.is_none()).map(|(a, _)| a);
     // what it looks like after the write, so the write itself is not a change
-    f.seen = Some(profile_seen(&d, g, None));
+    f.seen = Some(profile_seen(d, g, None));
+    applied
 }
 
 // ---------------------------------------------------------------- log follows
@@ -263,6 +274,98 @@ pub fn start(app: AppHandle) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A real placed SET copy whose code the player changed. Reconciliation reports it without rewriting profile.json.
+    #[cfg(unix)]
+    fn retained_game() -> (kiln_manage::library::TempDir, kiln_manage::paths::DataDirs, kiln_manage::game::GameInstall, String) {
+        use kiln_manage::{game::{GameInstall, GameKind, PathMode, Platform}, library, paths::DataDirs, profile, task::NoProgress};
+        let tmp = library::TempDir::new(&std::env::temp_dir(), "watch-retained").unwrap();
+        let root = tmp.path();
+        let d = DataDirs::at(root.join("data"));
+        let src = root.join("test-tweaks");
+        std::fs::create_dir_all(&src).unwrap();
+        std::fs::write(src.join("init.lua"), b"print('fixture')").unwrap();
+        let imported = library::import(&d, &[src], &mut NoProgress).unwrap();
+        let r = &imported.imported[0];
+        let mut p = profile::create(&d, "Watcher test", None).unwrap();
+        p.mods.set.push(profile::ProfileMod { id: r.id.clone(), version: r.version.clone(), hash: r.hash.clone(), enabled: true });
+        let p = profile::save(&d, &p).unwrap();
+        let path = root.join("game");
+        std::fs::create_dir_all(path.join("kiln")).unwrap();
+        std::fs::write(path.join("enshrouded.exe"), b"fixture").unwrap();
+        let prefix = root.join("pfx");
+        std::fs::create_dir_all(prefix.join("dosdevices")).unwrap();
+        std::os::unix::fs::symlink("/", prefix.join("dosdevices/z:")).unwrap();
+        let g = GameInstall { id: "watch-test".into(), kind: GameKind::Client, path, exe: "enshrouded.exe".into(),
+            app_id: kiln_manage::CLIENT_APP_ID, library: None, platform: Platform::Proton, prefix: Some(prefix),
+            build_id: None, exe_sha256: None, steam_flavor: None, path_mode: PathMode::Z, source: "manual".into() };
+        profile::activate(&d, &p.id, &g).unwrap();
+        std::fs::write(g.path.join("shrouded_engine_tweaks/mods").join(&r.id).join("init.lua"), b"print('player edit')").unwrap();
+        (tmp, d, g, p.id)
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn reconciliation_reports_do_not_spend_the_watchers_rewrite_budget() {
+        use kiln_manage::profile;
+        let (_tmp, d, g, id) = retained_game();
+        let mut f = Followed::default();
+        let start = follow_profile_in(&d, &g, &mut f).unwrap();
+        assert_eq!(start.retained.len(), 1, "startup still reports changed copies");
+        for _ in 0..4 {
+            // A completed launcher command writes and returns its own notice to its caller.
+            let a = profile::activate(&d, &id, &g).unwrap();
+            assert_eq!(a.retained.len(), 1);
+            // Model the previous poll's older mtime without depending on filesystem clock resolution.
+            f.seen.as_mut().unwrap().file = Some(SystemTime::UNIX_EPOCH);
+            let _ = follow_profile_in(&d, &g, &mut f);
+            assert!(f.rewrites.at.is_empty(), "a retained-copy report did not rewrite profile.json");
+            assert_eq!(profile::read_game_profile(&g.path).unwrap().unwrap().generation, a.generation);
+        }
+        // A genuinely out-of-date game profile does require a rewrite and uses one slot.
+        let file = g.path.join(gp::PROFILE);
+        let mut json: serde_json::Value = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+        json["dropins"] = serde_json::json!(true);
+        std::fs::write(&file, serde_json::to_vec(&json).unwrap()).unwrap();
+        f.seen.as_mut().unwrap().file = Some(SystemTime::UNIX_EPOCH);
+        assert!(follow_profile_in(&d, &g, &mut f).is_some());
+        assert_eq!(f.rewrites.at.len(), 1);
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn the_watcher_does_not_repeat_a_completed_commands_retained_copy_notice() {
+        let (_tmp, d, g, id) = retained_game();
+        let mut f = Followed::default();
+        assert!(follow_profile_in(&d, &g, &mut f).is_some(), "startup reports once");
+        assert!(follow_profile_in(&d, &g, &mut f).is_none(), "an unchanged poll says nothing");
+        let direct = kiln_manage::profile::activate(&d, &id, &g).unwrap();
+        assert_eq!(direct.retained.len(), 1, "the command already returns the notice");
+        f.seen.as_mut().unwrap().file = Some(SystemTime::UNIX_EPOCH);
+        assert!(follow_profile_in(&d, &g, &mut f).is_none(), "checking a current profile must not duplicate the command result");
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn metadata_only_saves_do_not_repeat_the_commands_reconciliation_report() {
+        use kiln_manage::{manifest::ModKind, profile};
+        let (_tmp, d, g, id) = retained_game();
+        let mut f = Followed::default();
+        assert!(follow_profile_in(&d, &g, &mut f).is_some());
+        let mut p = profile::get(&d, &id).unwrap();
+        p.notes = "only the notes changed".into();
+        let mut p = profile::save(&d, &p).unwrap();
+        let (report, written) = crate::commands::profile::reapply_checked(&d, &g).unwrap();
+        assert!(!written);
+        assert_eq!(report.retained.len(), 1, "profile_save queues this report already");
+        f.seen.as_mut().unwrap().meta = Some(SystemTime::UNIX_EPOCH);
+        assert!(follow_profile_in(&d, &g, &mut f).is_none(), "a notes-only save must not double its notice");
+        // A metadata edit outside the launcher that really changes the rendered file still applies and reports.
+        p.dropins.push(ModKind::Emf);
+        profile::save(&d, &p).unwrap();
+        f.seen.as_mut().unwrap().meta = Some(SystemTime::UNIX_EPOCH);
+        assert!(follow_profile_in(&d, &g, &mut f).is_some());
+    }
 
     #[test]
     fn the_watcher_writes_a_profile_three_times_a_minute_at_most() {

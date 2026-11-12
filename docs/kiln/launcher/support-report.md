@@ -22,10 +22,12 @@ Code: `crates/kiln-manage/src/report.rs` (`build`, `redact`, `write_zip`), the T
 | `summary.txt` | readable in a post: findings, then the system, the game, Kiln in the game, the profile, the last start, sections that could not be read, the file list, what was left out |
 | `report.json` | the findings and the unreadable sections as JSON (`{format, written, tool, findings: [{id, level, text}], errors}`) |
 | `game/kiln/logs/kiln.log` | the last 1 MiB |
-| `game/kiln/logs/proxy.log`, `game/kiln/logs/eml.log` | the last 192 KiB |
+| `game/kiln/logs/proxy.log`, `game/kiln/logs/eml.log`, `game/shroudlink_client.log` | the last 192 KiB of each, when present (a link in its place is not followed: the report says "a link, not followed"); the shroudlink addon's own log gets the same redaction as Kiln's logs and nothing more (see below) |
+| `game/kiln/logs/greeneye-loader.log`, `game/greeneye/loader.log`, `game/greeneye/loader.second-copy.log` | kiln-greeneye's log and Greeneye Loader's own, the last 64 KiB of each, when present |
+| `greeneye-mods/<id>/game/*.log`, `.../game/*.status`, `greeneye-mods/<id>/library/...` | each Greeneye mod's own log and status files, one zip folder per mod folder (`game`: its folder in `greeneye/`, `library`: a Library entry; one id may have both) (top level of its folder, at most 4 per mod and 12 mods, the last 64 KiB of each): a Greeneye mod writes what it found and patched only there (The Worst Map Mod: `unlock_map_markers.log`, `UnlockMapMarkers.status`). The folders are those `kiln/state/greeneye.json` names and those in `greeneye/`, read only inside `<game>/greeneye/` or the launcher's `library/greeneye/` (resolved, no links); any other folder is left out with a note (`greeneye-log-skipped`). Compared resolved, so a different spelling of the same folder is the same. Its settings (`.ini`) and data are not read |
 | `game/kiln/crash-reports/<newest>` | the last 64 KiB of the newest crash report |
 | `game/kiln/state/*.json` | every state file (boot, mods, native, last-server, hooks, each engine's), at most 1 MiB each |
-| `game/kiln/profile.json`, `kiln/chain.ini`, `kiln/kiln.json`, `kiln/.install.json`, `dinput8-chain.ini` | as they are, redacted |
+| `game/kiln/profile.json`, `kiln/chain.ini`, `kiln/kiln.json`, `kiln/.install.json`, `dinput8-chain.ini` | as they are, redacted; a link in a file's place, and a state file that is a link, is not followed ("a link, not followed") |
 | `launcher/launcher.log` | the last 192 KiB of `<data>/logs/launcher.log` |
 | `listings/game-folder.txt` | the game folder's top level: type, size, modified, name |
 | `listings/kiln-folder.txt` | `kiln/`, two levels deep |
@@ -67,6 +69,8 @@ Each is one plain sentence. `problem` explains why mods don't load, `warning` ma
 | `loader-in-folder` | another engine's own loader under a proxy name the game loads (EML's `dbghelp.dll`, SET's `powrprof.dll` ...): a warning on Windows (it always runs), a note under Wine/Proton (only with an override). Left out when that engine's plugin already said it stood aside |
 | `unlisted-mods` | mod folders in the game folder that the active profile does not load (drop-ins off for Kiln's kinds and EML; a `mods.<engine>` list for the compat-hosted engines; ShroudForge and SET always read their folders) and that the profile does not list itself |
 | `mod-failed` | `failed` in mods.json, native.json, boot.json's plugins, a chain entry `failed`/`missing`, or a mod in an engine's state file whose state says fail/error/refused; with the reasons |
+| `hosted-mods` | a note: Kiln mods `skipped` in mods.json with `side 'server': loads while this client hosts a world`: they start with the player's own world (single-player or co-op), so `skipped` in the menu is expected (docs/kiln/client.md, "Mods and sides") |
+| `hosted-off` | a warning: the same with kiln.json `"mods": {"hosted": false}`: they never start in this game |
 | `crash` | there is a crash report (the newest is in the zip) |
 | `profile-invalid` | `kiln/profile.json` does not parse, or the last start found it invalid |
 | `newer-mods` | Kiln mods of the profile built against a newer Kiln (`game::newer_mods`, the Play page's "Update Kiln") |
@@ -97,7 +101,9 @@ listings), Steam's files other than `config.vdf`'s compat tool, the launch optio
 names to replace). `summary.txt` ends with this list.
 
 What redaction cannot catch: a character or server name the player chose that appears in a log line, and 8.3 short
-names that cut the user name (`FROSTL~1`).
+names that cut the user name (`FROSTL~1`). `game/shroudlink_client.log` is written by the third-party shroudlink
+client addon, not by Kiln: its text gets only the redaction above, so whatever else the addon logs stays as it is
+(IPv6 addresses, server DNS or UNC host names, other players' names, anything like `password=...`).
 
 ## When things are broken
 

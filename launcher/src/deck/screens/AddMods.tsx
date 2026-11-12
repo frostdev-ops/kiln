@@ -1,6 +1,6 @@
 // Deck Add mods: no drag and drop with a controller, so this lists the mods the library recognises in Downloads
 // (deck_browse), and browses other folders (SD card, Desktop, Home) without a file dialog. A on a mod: library_add
-// imports it, puts it in the active profile ("My mods" for a first-time player) and writes the game's profile.json;
+// imports it, switches it on in the mods list ("My mods" for a first-time player) and writes the game's profile.json;
 // a modpack zip asks for consent first. A on a folder opens it; B goes back up.
 import { useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
@@ -10,6 +10,7 @@ import type { AddReport, DeckFoundMod } from "../../api/commands";
 import { invalidateGame, qk, useActiveProfile, useGame, useGameStatus, useProfile } from "../../api/hooks";
 import { leftOutLine, summarize } from "../../shell/importResult";
 import { runTask, toast } from "../../ui";
+import { notifyAdd } from "../../shell/notices";
 import { FolderIcon, ModpackDialog, useBrowse } from "../dialogs";
 import { DeckButton, Row, Screen, Word } from "../ui";
 import { KIND_WORD, ago, size } from "../status";
@@ -60,10 +61,11 @@ export default function AddMods() {
       qc.invalidateQueries({ queryKey: ["profile_resolve"] });
       if (r.profileId) qc.invalidateQueries({ queryKey: qk.profile(r.profileId) });
       invalidateGame(qc, game.id);
+      notifyAdd(r); // what writing the profile again kept in the game folder, and what else changed in it
       if (r.modpacks.length) setPack(r.modpacks[0]);
       else if (r.added.length) toast.ok(`Added ${r.added.length === 1 ? r.added[0].name : `${r.added.length} mods`}`, r.missing.length ? `Needs ${r.missing.map((x) => x.id).join(", ")}` : undefined);
-      else if (r.already.length) toast.info(`Already in ${r.profileName ?? "the profile"}`);
-      else if (r.libraryOnly && (r.import.imported.length || r.import.existing.length)) toast.info("Only in the Library", "No profile is active in this game");
+      else if (r.already.length) toast.info(`${r.already.length === 1 ? r.already[0].name : `${r.already.length} mods`} already on`);
+      else if (r.libraryOnly && (r.import.imported.length || r.import.existing.length)) toast.info("Added, switched off", "No profile is loaded in this game: load one in Settings");
       else toast.info("Nothing to add", leftOutLine(summarize(r.import)));
     } catch { /* toasted */ } finally { setBusy(null); }
   };
@@ -94,7 +96,7 @@ export default function AddMods() {
             return (
               <Row key={m.path} id={`file-${m.file}`} a={m.detected.kind === "modpack" ? "Install" : there ? "Add again" : "Add"} disabled={!!busy}
                 title={modName(m)} sub={`${KIND_WORD[one(m).kind]}${one(m).version && one(m).version !== "0.0.0" ? ` ${one(m).version}` : ""} · ${m.file}${m.size ? ` · ${size(m.size)}` : ""}${m.modified ? ` · ${ago(m.modified)}` : ""}`}
-                end={busy === m.path ? <Word tone="ember">Adding</Word> : there ? <Word tone="ok">In profile</Word> : undefined}
+                end={busy === m.path ? <Word tone="ember">Adding</Word> : there ? <Word tone="ok">On</Word> : undefined}
                 onClick={() => void add(m)} />
             );
           })}

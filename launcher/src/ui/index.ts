@@ -15,7 +15,7 @@ export { Field, TextInput, TextArea, Select, NumberInput, Slider, Toggle, WellIn
 export type { FieldProps, ToggleProps, SliderProps, SelectProps, NumberInputProps, WellInputProps } from "./Form";
 export { Modal, ConfirmDanger, ArchText, typeToConfirm, setTypeToConfirm } from "./Modal";
 export type { ModalProps, ConfirmDangerProps } from "./Modal";
-export { toast, Toaster, useToasts } from "./Toast";
+export { toast, Toaster, useToasts, notifyPlacementCleanup } from "./Toast";
 export type { ToastAction, ToastOptions } from "./Toast";
 export { TaskProgress, TaskTray, ProgressBar, Cone, Cones, useTaskStep, runTask, waitTask, useTasks, useTaskFeed } from "./TaskProgress";
 export type { RunTaskOptions } from "./TaskProgress";
@@ -28,6 +28,6 @@ export { SchemaForm, parseDuration, getPath, checkValue } from "./SchemaForm";
 export type { SchemaFormProps } from "./SchemaForm";
 export { Mark, Lockup, Splash, Sparkline, TickChart } from "./Brand";
 export { SortableList } from "./SortableList";
-export { Menu } from "./Menu";
+export { Menu, useRowContextMenu } from "./Menu";
 export type { MenuItem } from "./Menu";
 export { fmtBytes, fmtAgo, fmtTime, shortHash, errorText, installNote } from "./format";

@@ -16,15 +16,33 @@ namespace kui {
 // Snapshots hold this state, not a bare callback. Unsubscribe cancels queued calls and waits for an in-flight call
 // before the plugin may unload. A callback may unsubscribe itself (the gate is recursive).
 struct CallbackLifetime {
+    // A recursive gate alone cannot distinguish self-unsubscribe from a nested callback canceling an outer one.
+    // Keep the invocation stack so the latter cannot claim that the still-running outer call has drained.
+    struct Invocation {
+        CallbackLifetime* state;
+        Invocation* outer;
+        inline static thread_local Invocation* current = nullptr;
+        explicit Invocation(CallbackLifetime* s) : state(s), outer(current) { current = this; }
+        ~Invocation() { current = outer; }
+        Invocation(const Invocation&) = delete;
+        Invocation& operator=(const Invocation&) = delete;
+    };
     std::recursive_mutex gate;
     std::atomic<bool> active{true};
     std::unique_lock<std::recursive_mutex> drain(bool nonblocking = false) {
         std::unique_lock lock(gate, std::defer_lock);
+        if (nonblocking && Invocation::current) {
+            for (auto* i = Invocation::current->outer; i; i = i->outer)
+                if (i->state == this) return lock;
+        }
         if (nonblocking && !lock.try_lock()) return lock;
         if (!nonblocking) lock.lock();
         return lock;
     }
 };
+
+// The kiln.ui callback running on this thread (null outside one): unsubscribe does not wait from inside a callback.
+extern thread_local CallbackLifetime* t_callback;
 
 extern const KilnApi* g_api;
 extern KilnOwner g_owner;
@@ -68,6 +86,9 @@ uint32_t input_take_pressed(uint32_t* mods);
 void key_name(uint32_t vk, char* out, size_t cap);
 bool dispatch_key(const KilnUiKey& key);  // runs the menu key, the wheel and key subscribers; true = consumed
 bool input_key_held(uint32_t vk);         // the key is down now, as far as the window's messages have told (any thread)
+// subscribe_window_input (kiln_ui.h v5): the window's input records for native subscribers. Any thread.
+KilnResult input_feed_subscribe(KilnOwner owner, KilnUiWindowInputFn fn, void* user, KilnHandle* out);
+KilnResult input_feed_unsubscribe(KilnHandle h);  // KILN_ERR_NOT_FOUND: not a window-input subscription
 
 // ---- ui.cpp ----
 // Builds one ImGui frame (NewFrame, frame callbacks, the fallback menu, Render). Render thread. False = nothing drawn.

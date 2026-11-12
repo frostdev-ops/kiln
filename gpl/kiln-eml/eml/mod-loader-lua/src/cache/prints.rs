@@ -187,13 +187,17 @@ pub struct FingerprintStats {
     pub recorded_bytes: u64,
     /// Time spent fingerprinting, in ms.
     pub ms: f64,
+    /// kiln-eml: bytes the ownership checks hashed (SHA-256 of the receipt's files and backups; ownership.rs). Not part
+    /// of the counters above, which are the change cache's own.
+    pub ownership_bytes: u64,
 }
 
 impl FingerprintStats {
     /// `hashed 0 B, reused 57 file(s)`: for a summary line that has the time already.
     pub fn brief(&self) -> String {
         let recorded = if self.recorded_files > 0 { format!(", recorded {} file(s) unread", self.recorded_files) } else { String::new() };
-        format!("hashed {}, reused {} file(s){recorded}", human(self.hashed_bytes), self.reused_files)
+        let owner = if self.ownership_bytes > 0 { format!(", checked {} against the ownership receipt", human(self.ownership_bytes)) } else { String::new() };
+        format!("hashed {}, reused {} file(s){recorded}{owner}", human(self.hashed_bytes), self.reused_files)
     }
 
     /// Bytes of files this run did not have to read.

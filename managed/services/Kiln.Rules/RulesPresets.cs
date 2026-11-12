@@ -139,6 +139,37 @@ internal static class RulesPresets
                   }
                 }
                 """), // early dev.15: before glideBoost.climb
+            DefaultText("creative", """
+                {
+                  "flyAnywhere": true,
+                  "flightCarriesBody": true,
+                  "buildOutsideBases": true,
+                  "ignoreNoBuildZones": true,
+                  "ignoreEnemiesNearby": true,
+                  "buildInShroud": true,
+                  "keepBuildsOutsideBases": true,
+                  "buildCost": 0,
+                  "buildRefund": 0,
+                  "digDamage": 1000,
+                  "invulnerable": true,
+                  "minHealth": 1,
+                  "minStamina": 1,
+                  "minMana": 1,
+                  "freezeShroudTimer": true,
+                  "unlimitedGliding": true,
+                  "glideSink": 0,
+                  "glideBoost": {
+                    "thrust": 15,
+                    "maxSpeed": 35,
+                    "lift": 0,
+                    "coast": 8,
+                    "climb": 15
+                  },
+                  "water": {
+                    "chargesPerSecond": "Infinity"
+                  }
+                }
+                """), // dev.15 to dev.23: before glideSteer
         ],
     };
 
@@ -162,10 +193,19 @@ internal static class RulesPresets
         }
     }
 
-    private static string DefaultText(string name, string json) =>
+    // This version's header lines after the two every version wrote. No earlier snapshot has them, so an owner's edit of
+    // this version's JSON is never taken for an earlier unedited default (without its glideSteer block the creative JSON
+    // is dev.15 to dev.23's exactly). A later version's snapshot of this default keeps them.
+    private static readonly Dictionary<string, string> Notes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["creative"] = "// Steered glider off: \"glideSteer\": null, or delete its block (the glide is then the plane path); for every player: " +
+                       "\"allowGlideSteer\": false in rules.json.\n",
+    };
+
+    private static string DefaultText(string name, string json, string note = "") =>
         $"// Kiln's \"{name}\" rules (Kiln.Rules: docs/kiln/services/rules.md). Edit to change what /{name} and Rules.Preset(\"{name}\") give;\n" +
         "// delete the file to get Kiln's defaults back. The server's limits (rules.json next to this folder) still apply.\n" +
-        json + "\n";
+        note + json + "\n";
 
     // Recheck an existing file while holding the same stream used to write it, without sharing write access.
     // Return the text actually observed/applied so Get does not return new defaults after a raced-in owner edit.
@@ -184,7 +224,7 @@ internal static class RulesPresets
                 stream = new FileStream(file, FileMode.Open, FileAccess.ReadWrite, FileShare.Read);
                 upgrade = true;
             }
-            var text = DefaultText(name, rules.ToJson());
+            var text = DefaultText(name, rules.ToJson(), Notes.GetValueOrDefault(name, ""));
             using (stream)
             {
                 if (upgrade)
@@ -215,11 +255,22 @@ internal static class RulesPresets
 
     internal static bool IsEarlierDefault(string name, string file) => IsEarlierText(name, File.ReadAllBytes(file));
 
+    // Each snapshot as written on Linux (LF) and as a Windows game or server wrote it: System.Text.Json ends indented
+    // lines with Environment.NewLine (CRLF there), while the header lines and the final newline are "\n" on both.
     private static bool IsEarlierText(string name, ReadOnlySpan<byte> bytes)
     {
         if (!Earlier.TryGetValue(name, out var earlier)) return false;
         foreach (var text in earlier)
-            if (bytes.SequenceEqual(Encoding.UTF8.GetBytes(text))) return true;
+            if (bytes.SequenceEqual(Encoding.UTF8.GetBytes(text)) || bytes.SequenceEqual(Encoding.UTF8.GetBytes(WindowsText(text))))
+                return true;
         return false;
+    }
+
+    // DefaultText's header comment lines, then the JSON with CRLF line ends, then the final "\n"
+    private static string WindowsText(string text)
+    {
+        var start = 0;
+        while (text.AsSpan(start).StartsWith("//") && text.IndexOf('\n', start) is var end and >= 0) start = end + 1;
+        return text[..start] + text[start..^1].Replace("\n", "\r\n") + "\n";
     }
 }

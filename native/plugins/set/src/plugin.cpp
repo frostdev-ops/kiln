@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// kiln-set.dll: runs Shrouded Engine Tweaks (SET 0.1.1, MIT) Lua mods unchanged on Kiln, on dedicated servers and in
+// kiln-set.dll: runs Shrouded Engine Tweaks (SET 0.2.0, MIT) Lua mods unchanged on Kiln, on dedicated servers and in
 // the game. Mods load from <game>/shrouded_engine_tweaks/mods/<name>/init.lua, as with SET. The Lua runtime and API
 // are SET's (lua_api.cpp, adapted); the game side is Kiln's services (game.cpp, admin.inl, hooks.cpp, lua_imgui.cpp).
 // Kiln drives it: the server world's Pre tick runs Tick callbacks, its Post runs Observe handlers, the UI tick runs the
@@ -8,7 +8,6 @@
 // Console: each <game>/kiln/control/set/*.lua file's lines run as Lua at the next tick, then the file is deleted (the
 // overlay console's job in SET; kiln/control/*.cmd belongs to Kiln.Host).
 #include <windows.h>
-#include <tlhelp32.h>
 
 #include <algorithm>
 #include <chrono>
@@ -25,10 +24,12 @@
 
 #include "game.h"
 #include "coexist.h"
+#include "contracts.h"
 #include "hooks.h"
 #include "kiln_api.h"
 #include "level.h"
 #include "lua_api.h"
+#include "overlay.h"
 #include "services/kiln_profile.h"
 #include "services/kiln_ui.h"
 
@@ -46,7 +47,9 @@ std::atomic<bool> g_running{false};
 bool g_initialized = false;
 // Taken only when a re-check is due (a DLL has loaded), never on the steady-state frame/tick path.
 std::mutex g_coexist_mx;
+std::atomic<bool> g_coexist_pending{false};  // a due caller could not take the check lock; its notification is not lost
 kset::ModuleWatch g_modules;
+kset::ConflictGate g_gate;  // a failed module inventory is retried; only a seen SET or 5 failures in a row step aside
 // The console folder is checked at most every console_ms, by one thread at a time (the UI and the tick thread both
 // drive it in a hosted game).
 constexpr uint64_t console_ms = 500;
@@ -116,7 +119,7 @@ void write_state(const std::string& status, const std::string& reason, const std
     g_state_reason = reason;
     if (g_state.empty()) return;
     const auto unix_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
-    std::string j = "{\n  \"format\": 1,\n  \"plugin\": \"kiln-set\",\n  \"version\": \"0.1.1\",\n";
+    std::string j = "{\n  \"format\": 1,\n  \"plugin\": \"kiln-set\",\n  \"version\": \"0.2.0\",\n";
     j += "  \"pid\": " + std::to_string(GetCurrentProcessId()) + ",\n";
     j += std::string("  \"side\": \"") + (g_api->side() == KILN_SIDE_SERVER ? "server" : "client") + "\",\n";
     j += "  \"status\": " + json_str(status) + ",\n";
@@ -157,28 +160,67 @@ void on_mods_reported() {
 }
 
 // SET's sink: an optional level marker byte, then the line. Kiln's log keeps the level.
+// SET's debugLog diagnostics go to the file, not the private Lua console.
+void ui_sink(const char* line) { log(KILN_LOG_INFO, std::string("[set] ") + line); }
 void sink(const char* line) {
     const lv::Level l = lv::of(line);
-    const char* text = l == lv::none ? line : line + 1;
+    // LV_LOG lines (SET: set.log only) are plain lines in kiln.log.
+    const char* text = l == lv::none && *line != LV_LOG[0] ? line : line + 1;
+    if (*line != LV_LOG[0]) setui::line(text);
     log(l == lv::bad ? KILN_LOG_ERROR : l == lv::warn ? KILN_LOG_WARN : KILN_LOG_INFO, std::string("[set] ") + text);
 }
 
 // SET's own DLL in the process (the game imports POWRPROF.dll; SET ships as one in the game folder).
 std::string set_in_process() { return kset::runtime_conflict(); }
 
+// For the owner's report (kset::handle_read_probe): whether this process can be read through a handle to its own pid,
+// as a Toolhelp snapshot needs. The SET check does not; logged at the first check and whenever it changes.
+std::string g_probe;
+bool g_probed = false;
+void probe_handle_reads() {
+    std::string now = kset::handle_read_probe();
+    if (g_probed && now == g_probe) return;
+    g_probed = true;
+    g_probe = std::move(now);
+    if (g_probe.empty())
+        log(KILN_LOG_INFO, "kiln-set: diagnostic: this process can be read through a handle to its own pid (what a Toolhelp "
+                           "module snapshot needs; the SET check reads the loader list instead)");
+    else
+        log(KILN_LOG_WARN, "kiln-set: diagnostic: this process cannot be read through a handle to its own pid: " + g_probe +
+                               " (Toolhelp module snapshots and module scans through a process handle fail now; the SET check "
+                               "reads the loader list and is not affected)");
+}
+
 // Runs on every server step and every client UI frame. The full module check (on_ready's) runs again only after a DLL
 // load notification or a change of the loaded-module list (a 3 s PEB-list fingerprint, see kset::ModuleWatch): no
 // steady-state lock or wineserver call, and no periodic full check.
 bool may_run() {
     if (!g_running.load(std::memory_order_acquire)) return false;
-    if (!g_modules.due()) return true;
-    std::lock_guard lock(g_coexist_mx);
+    if (!g_modules.due() && !g_gate.retry_due() && !g_coexist_pending.load(std::memory_order_acquire)) return true;
+    // A reentrant call from a DLL initializer owns the loader lock that this check may be waiting for.
+    std::unique_lock lock(g_coexist_mx, std::try_to_lock);
+    if (!lock.owns_lock()) {
+        g_coexist_pending.store(true, std::memory_order_release);
+        return g_running.load(std::memory_order_acquire);
+    }
+    g_coexist_pending.store(false, std::memory_order_release);
     if (!g_running.load()) return false;
-    g_aside = set_in_process();
+    const kset::Inspection seen = kset::inspect_runtime();
+    const int failed_before = g_gate.failures();
+    g_aside = g_gate.judge(seen, GetTickCount64());
+    probe_handle_reads();
+    if (g_aside.empty() && g_gate.failures() == 1)
+        log(KILN_LOG_WARN, "kiln-set: a check of the loaded modules failed once: " + seen.text + "; checking again (stepping aside only after " +
+                               std::to_string(kset::ConflictGate::failures_to_step_aside) + " failed checks in a row)");
+    if (seen.state == kset::Inventory::clean && failed_before)
+        log(KILN_LOG_INFO, "kiln-set: the loaded modules were read again after " + std::to_string(failed_before) + " failed check(s): " +
+                               std::to_string(seen.modules) + " modules, no SET runtime");
     if (g_aside.empty()) return true;
     g_running = false;
-    log(KILN_LOG_WARN, "kiln-set steps aside: " + g_aside);
-    rt::gameClosing();
+    setui::stop();
+    log(KILN_LOG_WARN, "kiln-set steps aside: " + g_aside +
+                           (g_gate.cannot_tell() ? "; it cannot tell whether SET's own runtime is loaded, so its SET mods stop until the game restarts" : ""));
+    rt::gameClosing(true);  // the game runs on: what the mods changed in its resources goes back
     write_state("stepped-aside", g_aside, {});
     return false;
 }
@@ -220,6 +262,7 @@ void maybe_poll_console() {
 }
 
 void KILN_CALL on_pre(const KilnTickInfo*, void*) {
+    rt::settleWrites();  // first, and also once kiln-set stepped aside on the UI thread
     if (!may_run()) return;
     maybe_poll_console();
     const uintptr_t w = g_api->server_world();
@@ -246,7 +289,8 @@ void KILN_CALL on_ui_tick(uint64_t, void*) {
 
 void KILN_CALL on_frame(const KilnUiFrame* f, void*) {
     if (!g_running.load()) return;
-    rt::setOverlayOpen(f && f->menu_open);
+    setui::draw();
+    rt::setOverlayOpen((f && f->menu_open) || setui::hasInput());  // the crash notice alone leaves mods their keys
     if (!rt::hasDraw()) return;
     if (rt::tryLockDraw()) rt::drawLocked();
 }
@@ -257,10 +301,17 @@ void KILN_CALL on_ready(void*) {
     g_state = api_path(KILN_PATH_STATE);
     // Armed before the startup check, so a DLL loading in between is still re-checked.
     const bool notified = g_modules.arm();
-    g_aside = set_in_process();
+    g_gate.reset();
+    g_aside = g_gate.startup();
+    probe_handle_reads();
+    // A client start that runs no SET says so in the session marker, so a crash in it is not blamed on SET next time.
+    const auto no_set = [] { if (g_api->side() == KILN_SIDE_CLIENT) setui::sessionOff(g_control); };
     if (!g_aside.empty()) {
         g_modules.disarm();
-        log(KILN_LOG_WARN, "kiln-set steps aside: " + g_aside + "; its Lua mods are SET's to run");
+        no_set();
+        log(KILN_LOG_WARN, "kiln-set steps aside: " + g_aside +
+                               (g_gate.cannot_tell() ? "; it cannot tell whether SET's own runtime is loaded, so it runs no SET mods this start"
+                                                     : "; its Lua mods are SET's to run"));
         write_state("stepped-aside", g_aside, {});
         return;
     }
@@ -271,6 +322,7 @@ void KILN_CALL on_ready(void*) {
         const uint32_t mode = prof->mode();
         if (mode == KILN_PROFILE_NO_MODS || mode == KILN_PROFILE_INVALID) {
             g_modules.disarm();
+            no_set();
             const std::string why = mode == KILN_PROFILE_NO_MODS ? "play-once without mods" : "the profile is invalid";
             log(KILN_LOG_INFO, "kiln-set: no SET mods this start (" + why + ")");
             write_state("off", "no SET mods this start: " + why, {});
@@ -299,6 +351,18 @@ void KILN_CALL on_ready(void*) {
             copied == sizeof nt && nt.Signature == IMAGE_NT_SIGNATURE)
             rt::setGameBuild(nt.FileHeader.TimeDateStamp);
     }
+    {  // SET's rule catalog against this exe: an entry that fails is off (Features() says why), the rest keeps working
+        const auto base = reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr));
+        auto all = contracts::check(base, rt::gameBuild(), contracts::catalog());
+        size_t ok = 0;
+        for (const auto& c : all) {
+            ok += c.fn != 0;
+            if (c.fn) log(KILN_LOG_INFO, "[set] Catalog: " + c.name + " checked out");
+            else log(KILN_LOG_INFO, "[set] Catalog: " + c.name + " off (" + c.why + ")");
+        }
+        log(KILN_LOG_INFO, "[set] Catalog: " + std::to_string(ok) + " of " + std::to_string(all.size()) + " targets checked out");
+        contracts::setChecked(std::move(all));
+    }
     KilnHandle h = 0;
     const KilnResult a = g_api->subscribe_tick(g_owner, KILN_TICK_PRE, &on_pre, nullptr, &h);
     const KilnResult b = g_api->subscribe_tick(g_owner, KILN_TICK_POST, &on_post, nullptr, &h);
@@ -311,9 +375,14 @@ void KILN_CALL on_ready(void*) {
         if (U) {
             kset::bindUi(U);
             ui = U->subscribe_frame(g_owner, &on_frame, nullptr, &h) == KILN_OK;
+            if (ui) {
+                setui::configure(api_path(KILN_PATH_LOGS), g_control, &ui_sink);
+                setui::bind(U, g_owner);
+            }
         }
         if (UT) UT->subscribe(g_owner, &on_ui_tick, nullptr, &h);
     }
+    rt::setFeature("overlay", ui, !client ? "Dedicated server: No overlay" : "kiln.ui is not running");
     std::error_code ec;
     const bool has_dir = std::filesystem::is_directory(mods, ec);
     g_running = a == KILN_OK && b == KILN_OK;
@@ -321,17 +390,19 @@ void KILN_CALL on_ready(void*) {
     else if (!has_dir) write_state("idle", "no shrouded_engine_tweaks/mods folder: no SET mods", {});
     else write_state("waiting", "", pending_mods(mods));
     log(g_running ? KILN_LOG_INFO : KILN_LOG_WARN,
-        std::string("kiln-set 0.1.1 (SET Lua API) on the ") + (client ? "client" : "server") + ": mods in " + u8(mods) +
+        std::string("kiln-set 0.2.0 (SET Lua API) on the ") + (client ? "client" : "server") + ": mods in " + u8(mods) +
             (has_dir ? "" : " (folder missing: no SET mods)") + ", ticks " + (g_running ? "on" : "off") + ", overlay " +
             (ui ? "on" : "off") + ", console " + u8(g_control / "set" / "*.lua") +
             (g_modules.fingerprinting()
                  ? (notified ? ", SET re-check on DLL load or module-list change" : ", SET re-check on module-list change (3 s)")
-                 : (notified ? ", SET re-check on DLL load and every 3 s" : ", SET re-check every 3 s (no DLL-load notification)")));
+                 : (notified ? ", SET re-check on DLL load and every 3 s" : ", SET re-check every 3 s (no DLL-load notification)")) +
+            "; " + std::to_string(g_gate.modules()) + " loaded modules read from the loader list, no SET runtime");
 }
 
 void KILN_CALL on_unload(void*) {
     g_running = false;
     g_modules.disarm();
+    setui::stop();
     if (g_initialized) rt::gameClosing();
 }
 }  // namespace
@@ -341,8 +412,9 @@ extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api,
     g_api = api;
     g_owner = owner;
     info->id = KilnStr{"kiln-set", 8};
-    info->version = KilnStr{"0.1.1", 5};
+    info->version = KilnStr{"0.2.0", 5};
     info->on_ready = &on_ready;
     info->on_unload = &on_unload;
+    if (api->register_service) api->register_service(owner, KilnStr{"kiln.set.ui", 11}, setui::service());
     return KILN_OK;
 }

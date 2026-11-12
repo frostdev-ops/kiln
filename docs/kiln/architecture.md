@@ -25,7 +25,7 @@ enshrouded_server.exe / enshrouded.exe
    `kiln/play-once.ini` (vanilla: stop here), loads the chained DLLs (`kiln/chain.ini [chain]`, EMF's
    `dinput8-chain.ini`, `kiln/chain.ini [profile]` = dllmain-phase native mods; [profiles.md](profiles.md)), then
    overwrites the exe's entry point with a 14-byte jump and returns. Results go to `kiln/logs/proxy.log` and, in
-   `KilnBootInfo` v2, to the core.
+   `KilnBootInfo` (v3: also the length of shroudlink's client log before the chain), to the core.
 2. The jump lands in the proxy's gate on the main thread, before any game code. The gate restores the entry bytes,
    loads `kiln/kiln-core.dll`, calls `kiln_boot` and then runs the entry point. An entry patch a chained DLL made is
    what the gate restored, so it runs next (last in, first out); a DLL loaded during `kiln_boot` (`[late]`, a native

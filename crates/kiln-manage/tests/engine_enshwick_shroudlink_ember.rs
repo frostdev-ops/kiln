@@ -460,10 +460,21 @@ fn new_engine_sync_preserves_hand_installed_and_modified_folders_and_stages_repl
         assert!(control::sync(&dirs, &managed, &[replacement], &mut NoProgress).is_err());
         assert_eq!(hash::dirhash(&dst).unwrap(), original);
         std::fs::remove_file(payload).unwrap();
-        // Changes made by the owner revoke deletion and replacement authority.
+        // A file the mod or the owner added is theirs: kept under kiln/ when the copy goes, back with the mod.
         put(&dst, "local-settings.txt", b"keep settings");
         control::sync(&dirs, &managed, &[], &mut NoProgress).unwrap();
+        assert!(!dst.exists());
+        let kept = server.join("kiln/kept-mod-files").join(kind.as_str()).join(id).join("local-settings.txt");
+        assert_eq!(std::fs::read(&kept).unwrap(), b"keep settings");
+        control::sync(&dirs, &managed, &[x.clone()], &mut NoProgress).unwrap();
         assert_eq!(std::fs::read(dst.join("local-settings.txt")).unwrap(), b"keep settings");
+        assert!(!kept.exists());
+        // Changing a synced file revokes deletion and replacement authority.
+        let synced = std::fs::read_dir(&dst).unwrap().flatten().find(|e| e.file_type().unwrap().is_file()
+            && !e.file_name().to_string_lossy().starts_with('.') && e.file_name() != "local-settings.txt").unwrap().path();
+        std::fs::write(&synced, b"edited by the owner").unwrap();
+        control::sync(&dirs, &managed, &[], &mut NoProgress).unwrap();
+        assert_eq!(std::fs::read(&synced).unwrap(), b"edited by the owner");
         assert_eq!(control::sync(&dirs, &managed, &[x], &mut NoProgress).unwrap_err().code, ErrorCode::Conflict);
     }
 }

@@ -11,6 +11,7 @@ import * as api from "../../api/commands";
 import type { AdminTransport } from "../../api/commands";
 import { Button, ConfirmDanger, Field, Menu, Modal, Select, Skeleton, installNote, runTask, toast, type MenuItem } from "../../ui";
 import { SERVER_NAV, serverNavFor } from "../../shell/serverNav";
+import { notifyInstall } from "../../shell/notices";
 import { ConfirmHost } from "../../admin/ui";
 import { hasKiln, runnerLabel, sk, useDeployDialog, useServer, useServerEvents, useServers, useServerStatus } from "./serverApi";
 
@@ -72,9 +73,9 @@ function ServerHead({ id, live }: { id: string; live: boolean }) {
   const [pick, setPick] = useState(false);
   const state = st.data?.state;
   const s = srv.data;
-  const act = <R,>(what: string, f: () => Promise<string>, done: string, detail?: (r: R) => string | undefined) => async () => {
+  const act = <R,>(what: string, f: () => Promise<string>, done: string, detail?: (r: R) => string | undefined, after?: (r: R) => void) => async () => {
     setBusy(what);
-    try { await runTask<R>(f, { done, detail }); } catch { /* toasted */ } finally { setBusy(null); st.refetch(); }
+    try { after?.(await runTask<R>(f, { done, detail })); } catch { /* toasted */ } finally { setBusy(null); st.refetch(); }
   };
   // the dialog belongs to this server: leaving it closes the dialog
   useEffect(() => () => setDeploy(false), [id, setDeploy]);
@@ -122,7 +123,7 @@ function ServerHead({ id, live }: { id: string; live: boolean }) {
         <Menu label="More server actions" icon={<MoreHorizontal />} items={items} />
       </div>
       <DeployModal open={deploy} update={kiln} onClose={() => setDeploy(false)}
-        onDeploy={(v) => { setDeploy(false); act<api.InstallResult>("deploy", () => api.serverDeploy(id, v), `Kiln ${v} installed`, installNote)(); }} />
+        onDeploy={(v) => { setDeploy(false); act<api.InstallResult>("deploy", () => api.serverDeploy(id, v), `Kiln ${v} installed`, installNote, notifyInstall)(); }} />
       <ConfirmDanger open={removing} onClose={() => setRemoving(false)} title="Remove this server?"
         message="The launcher forgets it. Its game files, saves and backups stay on disk."
         word={id} action="Remove" onConfirm={async () => {

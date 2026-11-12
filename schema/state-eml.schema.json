@@ -13,7 +13,7 @@
     "eml": { "type": "string", "description": "The EML release the plugin carries." },
     "phase": {
       "enum": ["done", "failed", "aside", "idle", "running"],
-      "description": "done: patched, or nothing changed since the last run. failed: the game data was put back to vanilla. aside: another loader runs the EML mods this start (EML's own dbghelp.dll, ShroudForge's, or ShroudForge hosted by Kiln); `aside` says which, and `mods` lists the profile's EML mods (dev.22). idle: no EML mods. running (dev.22): the run is going on, `progress` says what it is doing; a file that stays running while the game does not run was left by a start that died."
+      "description": "done: patched, or nothing changed since the last run. failed: patching failed or was refused; restored says whether owned output was put back to vanilla, and error/reason explain retained data. aside: another loader runs the EML mods this start (EML's own dbghelp.dll, ShroudForge's, or ShroudForge hosted by Kiln); `aside` says which, and `mods` lists the profile's EML mods (dev.22). idle: no EML mods. running (dev.22): the run is going on, `progress` says what it is doing; a file that stays running while the game does not run was left by a start that died."
     },
     "file": { "type": ["string", "null"], "description": "The game's data file stem: enshrouded or enshrouded_server." },
     "patched": { "type": "integer", "minimum": 0 },
@@ -30,11 +30,15 @@
         "reusedBytes": { "type": "integer", "minimum": 0 },
         "recordedFiles": { "type": "integer", "minimum": 0, "description": "dev.22: files recorded by their stamp alone, nothing read." },
         "recordedBytes": { "type": "integer", "minimum": 0 },
-        "ms": { "type": "number" }
+        "ms": { "type": "number" },
+        "ownershipBytes": { "type": "integer", "minimum": 0, "description": "dev.24: bytes the ownership receipt's SHA-256 checks read, apart from the change cache's counters." }
       }
     },
     "error": { "type": ["string", "null"] },
     "aside": { "type": ["string", "null"] },
+    "reason": { "type": "string", "minLength": 1, "description": "dev.24, guidance for the player. Phase idle: why differing game data was left without ownership proof and what to do. Phase done: ShroudForge asset mods displaced by this start (sfDisplaced). Any finished run can also name extra containers retained for manual inspection, including with staleBackup or an already vanilla archive. Also reports unrecorded recovery stages/temps and foreign stage children, with game-relative paths and byte sizes (or an explicit size-unavailable error). These are retained for manual inspection, not deleted. A start that moves unproven destination containers reports their original names, byte sizes and game-relative recovery destinations under kiln/eml/displaced; later starts name only recovery folders that still exist, without repeating the move claim. Nothing in those folders is deleted by Kiln. The launcher must show the entire reason alongside staleBackup, in any finished phase. Absent when there is nothing to report." },
+    "staleBackup": { "const": true, "description": "dev.24, phase idle: the vanilla backup is of another game build than the game data (the game was updated since it was made); it was not compared with and nothing was restored. Absent otherwise." },
+    "sfDisplaced": { "type": "array", "items": { "type": "string", "minLength": 1 }, "minItems": 1, "description": "dev.24, phase done: the ShroudForge asset mods (`<id> <version>`) prepared by an earlier start whose output this start's publication replaced (ShroudForge did not run this start). Absent when none." },
     "mods": {
       "type": "array",
       "items": {
@@ -47,8 +51,8 @@
           "source": { "type": "string", "description": "profile, kiln-dropin, game-mods, or the engine plugin that added it." },
           "path": { "type": "string" },
           "state": {
-            "enum": ["loaded", "failed", "skipped", "disabled", "duplicate", "pending", "own-loader", "not-loaded"],
-            "description": "With phase aside (dev.22): own-loader (Kiln copied the profile mod into the running loader's folder, it runs there) or not-loaded (the mod is only in Kiln's Library, which that loader never reads)."
+            "enum": ["loaded", "failed", "skipped", "disabled", "duplicate", "pending", "own-loader", "not-loaded", "off-in-shroudforge", "other-side"],
+            "description": "With phase aside (dev.22): own-loader (the mod is in the running loader's folder and runs there; under ShroudForge only while ShroudForge's switch for it is on) or not-loaded (the mod is only in Kiln's Library, which that loader never reads). Under ShroudForge (dev.24): off-in-shroudforge (in ShroudForge's folder, but its extended.mod.json is missing or does not say enabled: true, so nothing applies it) or other-side (its extended.mod.json targets the other side only)."
           },
           "reason": { "type": ["string", "null"] },
           "capabilities": { "type": "array", "items": { "type": "string" } }

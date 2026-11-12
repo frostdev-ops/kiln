@@ -25,6 +25,39 @@ bool image_button(const char* id, KilnHandle h, float w, float hgt);
 }  // namespace kui
 
 namespace kui_draw {
+
+// These ABI flags are passed straight through to the ImGui build we ship.
+#define KUI_FLAG(abi, imgui) static_assert(static_cast<int>(abi) == static_cast<int>(imgui), #abi " must match ImGui")
+KUI_FLAG(KILN_UI_WINDOW_NO_TITLE_BAR, ImGuiWindowFlags_NoTitleBar);
+KUI_FLAG(KILN_UI_WINDOW_NO_RESIZE, ImGuiWindowFlags_NoResize);
+KUI_FLAG(KILN_UI_WINDOW_NO_MOVE, ImGuiWindowFlags_NoMove);
+KUI_FLAG(KILN_UI_WINDOW_NO_SCROLLBAR, ImGuiWindowFlags_NoScrollbar);
+KUI_FLAG(KILN_UI_WINDOW_NO_COLLAPSE, ImGuiWindowFlags_NoCollapse);
+KUI_FLAG(KILN_UI_WINDOW_ALWAYS_AUTO_RESIZE, ImGuiWindowFlags_AlwaysAutoResize);
+KUI_FLAG(KILN_UI_WINDOW_NO_BACKGROUND, ImGuiWindowFlags_NoBackground);
+KUI_FLAG(KILN_UI_WINDOW_NO_INPUTS, ImGuiWindowFlags_NoInputs);
+KUI_FLAG(KILN_UI_WINDOW_NO_SAVED_SETTINGS, ImGuiWindowFlags_NoSavedSettings);
+KUI_FLAG(KILN_UI_WINDOW_NO_BRING_TO_FRONT, ImGuiWindowFlags_NoBringToFrontOnFocus);
+KUI_FLAG(KILN_UI_WINDOW_ALWAYS_VERTICAL_SCROLLBAR, ImGuiWindowFlags_AlwaysVerticalScrollbar);
+KUI_FLAG(KILN_UI_COND_ALWAYS, ImGuiCond_Always);
+KUI_FLAG(KILN_UI_COND_ONCE, ImGuiCond_Once);
+KUI_FLAG(KILN_UI_COND_FIRST_USE, ImGuiCond_FirstUseEver);
+KUI_FLAG(KILN_UI_COND_APPEARING, ImGuiCond_Appearing);
+KUI_FLAG(KILN_UI_CHILD_BORDERS, ImGuiChildFlags_Borders);
+KUI_FLAG(KILN_UI_CHILD_ALWAYS_PADDING, ImGuiChildFlags_AlwaysUseWindowPadding);
+KUI_FLAG(KILN_UI_CHILD_AUTO_RESIZE_Y, ImGuiChildFlags_AutoResizeY);
+KUI_FLAG(KILN_UI_CHILD_FRAME_STYLE, ImGuiChildFlags_FrameStyle);
+KUI_FLAG(KILN_UI_CHILD_NAV_FLATTENED, ImGuiChildFlags_NavFlattened);
+KUI_FLAG(KILN_UI_SELECTABLE_SPAN_ALL_COLUMNS, ImGuiSelectableFlags_SpanAllColumns);
+KUI_FLAG(KILN_UI_SELECTABLE_ALLOW_DOUBLE_CLICK, ImGuiSelectableFlags_AllowDoubleClick);
+KUI_FLAG(KILN_UI_SELECTABLE_DISABLED, ImGuiSelectableFlags_Disabled);
+KUI_FLAG(KILN_UI_SELECTABLE_ALLOW_OVERLAP, ImGuiSelectableFlags_AllowOverlap);
+KUI_FLAG(KILN_UI_SELECTABLE_HIGHLIGHT, ImGuiSelectableFlags_Highlight);
+KUI_FLAG(KILN_UI_MOUSE_LEFT, ImGuiMouseButton_Left);
+KUI_FLAG(KILN_UI_MOUSE_RIGHT, ImGuiMouseButton_Right);
+KUI_FLAG(KILN_UI_MOUSE_MIDDLE, ImGuiMouseButton_Middle);
+#undef KUI_FLAG
+
 namespace {  // internal linkage: one copy per table that includes this
 
 #define IN_FRAME(ret) \

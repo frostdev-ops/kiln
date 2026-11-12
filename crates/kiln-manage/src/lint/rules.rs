@@ -892,6 +892,38 @@ fn normalize(p: &Path) -> PathBuf {
     out
 }
 
+// The runtime resolves links before opening a block's PNG. Do the same before even reading its header here;
+// a case-insensitive lookup also needs the real path on Unix, not just a boolean that the name exists on Windows.
+fn block_icon_path(dir: &Path, value: &str) -> Result<PathBuf, String> {
+    let relative = value.replace('\\', "/");
+    if relative.is_empty() || relative.starts_with('/') || relative.contains([':', '\0'])
+        || relative.split('/').any(|p| p == ".." || p != "." && p.ends_with(['.', ' ']))
+    {
+        return Err(format!("{value}: a file in the mod's folder, with a relative path (no '..', colon, or trailing dots or spaces)"));
+    }
+    let candidate = normalize(&dir.join(relative));
+    let mut actual = PathBuf::new();
+    for component in candidate.components() {
+        let name = component.as_os_str();
+        let next = actual.join(name);
+        actual = if next.exists() { next } else {
+            std::fs::read_dir(&actual).ok().and_then(|entries| entries.flatten()
+                .find(|e| e.file_name().to_string_lossy().to_lowercase() == name.to_string_lossy().to_lowercase())
+                .map(|e| e.path())).unwrap_or(next)
+        };
+    }
+    if let (Ok(root), Ok(file)) = (dir.canonicalize(), actual.canonicalize()) {
+        let inside = if cfg!(windows) {
+            file.to_string_lossy().to_lowercase().starts_with(&(root.to_string_lossy().trim_end_matches(['/', '\\']).to_lowercase() + "\\"))
+        } else { file.starts_with(&root) && file != root };
+        if !inside {
+            return Err(format!("{value}: links cannot leave the mod's folder ({})", display(&file)));
+        }
+        return Ok(file);
+    }
+    Ok(actual)
+}
+
 fn files(out: &mut Out, m: Option<&LMod>, f: &LFile) {
     let cooked = m.map(cook_outputs).unwrap_or_default();
     let has_cook = m.is_some_and(|m| m.files.iter().any(|x| x.kind == "cook"));
@@ -903,8 +935,17 @@ fn files(out: &mut Out, m: Option<&LMod>, f: &LFile) {
             ("assets", None) | ("self", _) | ("mod", None) => f.path.parent().unwrap_or(Path::new(".")).to_path_buf(),
             _ => continue,
         };
-        let p = normalize(&dir.join(value.replace('\\', "/")));
-        if !exists_ci(&p) {
+        let block_icon = f.kind == "blocks" && kind.as_deref() == Some("png") && pointer.ends_with("/icon");
+        let p = if block_icon {
+            match block_icon_path(&dir, value) {
+                Ok(p) => p,
+                Err(problem) => {
+                    out.push(Diagnostic::new(&f.display, codes::PATTERN, *span, &problem).pointer(pointer));
+                    continue;
+                }
+            }
+        } else { normalize(&dir.join(value.replace('\\', "/"))) };
+        if if block_icon { !p.is_file() } else { !exists_ci(&p) } {
             let made = cooked.contains(&p) || (has_cook && value.replace('\\', "/").split('/').any(|s| s == "cooked"));
             let d = if made {
                 Diagnostic::new(&f.display, codes::COOK_OUTPUT_MISSING, *span, &format!("{value} is made by the cook and is not there yet: run the mod's cook recipe (tools/modelcook, tools/impact, or the launcher at install)"))

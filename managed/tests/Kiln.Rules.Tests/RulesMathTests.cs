@@ -12,6 +12,10 @@ public class RulesMathTests
     private const string PresetHeader =
         "// Kiln's \"creative\" rules (Kiln.Rules: docs/kiln/services/rules.md). Edit to change what /creative and Rules.Preset(\"creative\") give;\n" +
         "// delete the file to get Kiln's defaults back. The server's limits (rules.json next to this folder) still apply.\n";
+    // Since dev.24 the creative default has a third line no earlier file has: how to switch the steered glider off.
+    private const string CreativeNote =
+        "// Steered glider off: \"glideSteer\": null, or delete its block (the glide is then the plane path); for every player: " +
+        "\"allowGlideSteer\": false in rules.json.\n";
     private const string Dev14Preset = PresetHeader + """
         {
           "flyAnywhere": true,
@@ -163,7 +167,9 @@ public class RulesMathTests
         Assert.NotNull(e.GlideBoost);
         var n = e.Native;
         Assert.Equal(RulesNative.FlyAnywhere | RulesNative.BuildOutsideBases | RulesNative.IgnoreNoBuildZones | RulesNative.IgnoreEnemies |
-                     RulesNative.IgnoreShroud | RulesNative.ShroudFreeze | RulesNative.GlideUnlimited | RulesNative.GlideBoost, n.Flags);
+                     RulesNative.IgnoreShroud | RulesNative.ShroudFreeze | RulesNative.GlideUnlimited | RulesNative.GlideBoost |
+                     RulesNative.GlideSteer, n.Flags);
+        Assert.Equal(85f, n.GlideSteerLimit);  // since dev.24 the glider's own nose is steered, up to 85 degrees
         Assert.Equal(0f, n.BuildCost);
         Assert.Equal(0f, n.GlideSink);
         Assert.Equal((float)GlideBoostRule.Default.Thrust, n.GlideThrust);
@@ -282,7 +288,8 @@ public class RulesMathTests
     public void TheFirstPresetReadAfterAnUpdateIsThisVersions()
     {
         // The first /creative after an update read the preset before Kiln.Rules started (and updated the file), so it
-        // applied the earlier Kiln's rules (no Shroud timer, no gliding: native flags 0x1f instead of 0x1df).
+        // applied the earlier Kiln's rules (no Shroud timer, no gliding: native flags 0x1f instead of 0x1df, 0x21df with dev.24's
+        // glider steering).
         var dir = Path.Combine(Path.GetTempPath(), "kiln-rules-test-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(dir);
         var outer = RulesPresets.FolderOverride;
@@ -290,11 +297,14 @@ public class RulesMathTests
         try
         {
             var file = Path.Combine(dir, "creative.json");
-            var earlier = PlayerRules.Creative with { FreezeShroudTimer = null, UnlimitedGliding = null, GlideSink = null, GlideBoost = null };
+            var earlier = PlayerRules.Creative with
+            {
+                FreezeShroudTimer = null, UnlimitedGliding = null, GlideSink = null, GlideBoost = null, GlideSteer = null,
+            };
             File.WriteAllText(file, Dev14Preset);
             var got = RulesPresets.Get("creative");
             Assert.Equal(PlayerRules.Creative, got);
-            Assert.Equal(0x1dfu, Combine(got!).Native.Flags);
+            Assert.Equal(0x21dfu, Combine(got!).Native.Flags);  // + GLIDE_STEER since dev.24
             // the file is this version's now, and stays the owner's once edited
             Assert.Equal(PlayerRules.Creative, PlayerRules.FromJson(File.ReadAllText(file)));
             File.WriteAllText(file, (earlier with { DigDamage = 10 }).ToJson());
@@ -363,7 +373,7 @@ public class RulesMathTests
             Assert.Equal(edited, File.ReadAllText(file));
             File.Delete(file);
             var created = RulesPresets.WriteDefault("creative", PlayerRules.Creative, file);
-            Assert.Equal(PresetHeader + PlayerRules.Creative.ToJson() + "\n", created);
+            Assert.Equal(PresetHeader + CreativeNote + PlayerRules.Creative.ToJson() + "\n", created);
             Assert.Equal(created, File.ReadAllText(file));
         }
         finally

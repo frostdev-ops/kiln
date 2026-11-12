@@ -377,3 +377,31 @@ fn a_symlinked_home_maps_both_ways() {
         let _ = std::fs::remove_dir_all(real.join("src"));
     }
 }
+
+/// manage-import F6: a Copy-mode server whose profile file names a mod in its game's own mods folder
+/// (`../mods/<folder>`, an EML part a native DLL reads there, or an XHL companion) does not read the Library through
+/// that entry, so it does not block removing a version.
+#[test]
+fn a_game_mods_entry_of_a_running_copy_mode_server_does_not_block_removal() {
+    let t = tmp("server-game-mods");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let r = import(&dirs, &t.0, "new-items", "1.0.0", "a");
+    let srv = t.0.join("srv");
+    game::write_record(&dirs, &install(&srv, "srv", GameKind::Server, PathMode::Copy), None).unwrap();
+    let text = serde_json::json!({ "format": 1, "id": "srv", "generation": 3, "mods": {
+        "eml": [{ "id": "auto-loot-plus", "version": "1.1.8", "hash": format!("kdh1:{}", "a".repeat(64)), "path": "../mods/auto-loot-plus" }],
+        "xhl": [{ "id": "xhl-vein-mining", "path": "..\\mods\\XHL-Vein-Mining" }],
+        "greeneye": [{ "id": "greeneye-sample", "path": "../greeneye/greeneye-sample" }],
+    } });
+    put(&srv, "kiln/profile.json", serde_json::to_string_pretty(&text).unwrap().as_bytes());
+    library::remove_with(&dirs, &r, false, &mut only(&srv, game::SERVER_EXE, running(78, "enshrouded_serv"))).unwrap();
+    assert!(!library::path_of(&dirs, &r).unwrap().exists());
+    // anything else that climbs out of kiln/ still may point anywhere: refused
+    let r = import(&dirs, &t.0, "new-items", "1.0.0", "a");
+    for path in ["../mods/../outside", "../../library", "../mods/a/b", "../mods/.hidden", "../greeneye/con", "../library/x"] {
+        let text = serde_json::json!({ "format": 1, "id": "srv", "generation": 3, "mods": { "eml": [{ "id": "x", "path": path }] } });
+        put(&srv, "kiln/profile.json", serde_json::to_string_pretty(&text).unwrap().as_bytes());
+        let e = library::remove_with(&dirs, &r, false, &mut only(&srv, game::SERVER_EXE, running(78, "enshrouded_serv"))).unwrap_err();
+        assert_eq!(e.code, ErrorCode::GameRunning, "{path}");
+    }
+}

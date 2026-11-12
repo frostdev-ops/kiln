@@ -341,7 +341,8 @@ internal sealed class ModManager : IModsBackend, IDisposable
         foreach (var r in result.Rejected)
         {
             var reason = r.Reason;
-            // A client says when a server mod would load (the resolver's text stays the launcher's prediction).
+            // A client says when a server mod would load (the resolver's text is the menu's; the launcher words it the
+            // same way: kiln_manage::profile::resolve_preview_for, ResolvePreview.with_world).
             if (_options.Side == ManifestSide.Client && r.State == ModState.Skipped && r.Candidate.Manifest?.Side == ManifestSide.Server)
                 reason = _options.HostedServerMods ? HostedReason : HostedOffReason;
             SetRecord(r.Candidate, r.State, reason);
@@ -668,8 +669,8 @@ internal sealed class ModManager : IModsBackend, IDisposable
     // ---- a client hosting a world (docs/kiln/client.md, "Mods and sides") ----
 
     /// <summary>Why a server mod is not loaded on a client right now.</summary>
-    public const string HostedReason = "side 'server': loads while this client hosts a world";
-    public const string HostedOffReason = "side 'server': not loaded on a client (kiln.json mods.hosted is false)";
+    public const string HostedReason = HostedReasons.Waiting;
+    public const string HostedOffReason = HostedReasons.Off;
 
     /// <summary>Client: a hosted world's server world runs in this process (between <see cref="StartHosting"/> and
     /// <see cref="StopHosting"/>). Loads and reloads then accept <c>side: "server"</c> mods.</summary>

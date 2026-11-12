@@ -31,6 +31,39 @@ internal static class BlockIcons
         return file;
     }
 
+    /// <summary>An item's icon as kiln.content takes it (a look's, a worn look's, a prop's, a material's block item's). A PNG is the file in the folder of the mod
+    /// <paramref name="owner"/> (the block's by default), as its full path: kiln.content makes a relative path full only while that mod's code runs, a data file's
+    /// blocks compile on a tick of Kiln's own, and kiln.assets reads a relative path against &lt;game&gt;/kiln. A full path, as a mod's code may give one, is taken
+    /// when it names a file in that folder. Anything else (<c>item:&lt;name&gt;</c>, a GUID) is as written.</summary>
+    public static string? ItemIcon(BlockContext ctx, string icon, string path, string? owner = null)
+    {
+        if (!icon.EndsWith(".png", StringComparison.OrdinalIgnoreCase)) return icon;
+        var dir = BlocksBridge.ModDirectory(owner ?? ctx.Mod.Id);
+        var file = Path.Combine(dir, icon.Replace('\\', '/'));
+        try
+        {
+            file = Path.GetFullPath(file);
+            if (dir.Length > 0 && Path.IsPathRooted(icon) && Path.GetRelativePath(dir, icon) is var inside && !Path.IsPathRooted(inside)
+                && !inside.Replace('\\', '/').Split('/').Contains(".."))
+                icon = inside;
+            return BlockFiles.InMod(ctx, icon, path, dir);
+        }
+        catch (Exception e) when (e is BlockError or IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
+        {
+            // An icon is optional. In particular, never turn items already in a player's save into placeholders for a bad picture.
+            Refused(ctx, path, file, e is BlockError b ? b.Problem : e.Message);
+            return null;
+        }
+    }
+
+    private static void Refused(BlockContext ctx, string path, string file, string problem)
+    {
+        var text = $"block {ctx.Block}, {path}: {file}: {problem}; the base icon stays";
+        lock (ctx.Mod.Errors) ctx.Mod.Errors.Add(text);
+        ctx.Mod.ReportDirty = true;
+        BlocksBridge.Log(LogLevel.Error, $"blocks: {ctx.Mod.Id}: {text}");
+    }
+
     /// <summary>A bounded, complete PNG (including the compressed scanlines), or null. The native decoder still makes the pixels.</summary>
     internal static (int W, int H)? PngSize(string file)
     {
@@ -107,7 +140,16 @@ internal static class BlockIcons
     public static Guid Own(BlockContext ctx, Lowered low, string section, string entry, GameDataRegistry registry, string starter, string icon, string key, string path)
     {
         ctx.Need(ClientsLevel.Mod, path, "a PNG icon has to be on every player's game: nothing can send it (a game " + (section == "buffs" ? "status's icon, a GameBuffs constant," : "perk's icon, a GamePerks constant,") + " asks no more than kiln)");
-        var file = CheckPng(ctx, icon, path);
+        string file;
+        try { file = CheckPng(ctx, icon, path); }
+        catch (BlockError e)
+        {
+            file = Path.Combine(BlocksBridge.ModDirectory(ctx.Mod.Id), icon.Replace('\\', '/'));
+            try { file = Path.GetFullPath(file); }
+            catch (Exception invalid) when (invalid is ArgumentException or NotSupportedException or IOException) { }
+            Refused(ctx, path, file, e.Problem);
+            return System.Guid.Empty; // no own texture or late icon rule: the clone keeps its starter's icon
+        }
         var texture = TextureGuid(ctx.Mod.Id, section, key);
         low.Json["icon"] = new JsonObject { ["file"] = icon, ["texture"] = texture.ToString() };
         var mod = ctx.Mod;

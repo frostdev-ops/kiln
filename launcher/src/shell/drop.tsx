@@ -1,7 +1,7 @@
-// Drop a mod anywhere on the window: library_add imports it, adds it to the game's active profile (enabled; "My mods"
+// Drop a mod anywhere on the window: library_add imports it, switches it on in the loaded profile ("My mods"
 // for a first-time player) and writes the game's profile.json, so the next Play uses it. The toast is the mod's name
 // and Undo (profile_revert: out of the profile again, the library copy stays); missing requirements are named in one
-// line. Modpack zips go through the consent dialog (modpack_install). Settings "Add new mods to the active profile"
+// line. Modpack zips go through the consent dialog (modpack_install). Settings "Switch new mods on"
 // off: drops are only imported into the library. Drops on a DropZone (Library's niche, Runtime's row) are its own.
 import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { ShieldAlert } from "lucide-react";
@@ -14,6 +14,7 @@ import { invalidateGame, qk, useActiveProfile, useGame, useGameStatus, useProfil
 import { Banner, Button, KeyValue, Modal, Skeleton, Toggle, errorText, runTask, toast } from "../ui";
 import { useInstallPrompt } from "./firstRun";
 import { detailsAction, leftOutLine, names as nameList, summarize, usePickProfile } from "./importResult";
+import { notifyActivation, notifyAdd } from "./notices";
 
 /** "Night Owl", "Night Owl and Dawn Lamp", "3 mods". */
 function names(m: { name: string }[]): string {
@@ -72,8 +73,8 @@ export function useAddMods(): (paths: string[], target?: GameInstall) => Promise
       const r = await runTask<ImportReport>(() => api.libraryImport(files), { quiet: true });
       refresh(null);
       const sum = summarize(r);
-      const more = detailsAction({ heading: "Imported into the Library", summary: sum });
-      if (sum.taken.length) toast.ok(`Imported ${nameList(sum.taken)}`, leftOutLine(sum), { actions: [{ label: "Library", onClick: () => nav("/library") }, ...more] });
+      const more = detailsAction({ heading: "Added, switched off", summary: sum });
+      if (sum.taken.length) toast.ok(`Added ${nameList(sum.taken)}, switched off`, leftOutLine(sum) ?? "Switch it on in the list on Play.", { actions: [{ label: "Show", onClick: () => nav("/") }, ...more] });
       else toast.info("Nothing to import", leftOutLine(sum), { actions: more });
     } catch (e) { toast.error(e, "Import failed"); }
     return null;
@@ -82,8 +83,9 @@ export function useAddMods(): (paths: string[], target?: GameInstall) => Promise
   /** After the player picked a profile for a mod that only reached the Library. */
   const pickedAdd = (r: AddReport, game: GameInstall) => {
     refresh(r.profileId, game.id);
+    notifyAdd(r); // what writing the picked profile again kept in the game folder, and what else changed in it
     if (r.added.length) {
-      toast.ok(`Added ${names(r.added)} to ${r.profileName ?? "the profile"}`, r.applied ? undefined : `${r.profileName ?? "It"} is not the active profile: turn it on on Play.`,
+      toast.ok(`Added ${names(r.added)} to ${r.profileName ?? "the profile"}`, r.applied ? undefined : `${r.profileName ?? "It"} is not the loaded profile: load it in Settings, Profiles.`,
         { actions: [{ label: "Undo", onClick: () => void undo(r, game.id) }] });
     } else toast.info(`Already in ${r.profileName ?? "the profile"}`);
   };
@@ -105,6 +107,7 @@ export function useAddMods(): (paths: string[], target?: GameInstall) => Promise
       r = await runTask<AddReport>(() => api.libraryAdd(game.id, paths), { failed: "Not added" });
     } catch { return null; }
     refresh(r.profileId, game.id);
+    notifyAdd(r); // what writing the profile again kept in the game folder, and what else changed in it
     if (r.modpacks.length) offerModpacks(game, r.modpacks);
     const found = [...r.import.imported, ...r.import.existing];
     const sum = summarize(r.import);
@@ -112,18 +115,18 @@ export function useAddMods(): (paths: string[], target?: GameInstall) => Promise
     if (r.added.length) {
       const more = [
         r.missing.length ? `Needs ${r.missing.map((m) => m.id).join(", ")}.` : "",
-        r.resumed ? `${r.profileName ?? "Your profile"} is on again.` : "",
+        r.resumed ? "Your mod list is loaded again." : "",
         r.running ? "Applies at the next start." : "",
         leftOutLine(sum) ?? "",
       ].filter(Boolean).join(" ");
-      toast.ok(`Added ${names(r.added)}`, more || undefined, { actions: [{ label: "Undo", onClick: () => void undo(r, game.id) }, ...detailsAction(detail(`Added to ${r.profileName ?? "the profile"}`))] });
+      toast.ok(`Added ${names(r.added)}`, more || "On at the next Play.", { actions: [{ label: "Undo", onClick: () => void undo(r, game.id) }, ...detailsAction(detail("Added and switched on"))] });
     } else if (r.already.length) {
-      toast.info(`Already in ${r.profileName ?? "the profile"}`, leftOutLine(sum), { actions: detailsAction(detail("Already there")) });
+      toast.info(`${names(r.already)} ${r.already.length === 1 ? "is" : "are"} on already`, leftOutLine(sum), { actions: detailsAction(detail("Already on")) });
     } else if (r.libraryOnly && found.length) {
       // no profile is active in this game and none is remembered: the mod waits in the Library, and the player can pick a profile
       const label = nameList(sum.taken);
-      toast.info(`Imported ${label}`, "Only in your Library: no profile is active in this game.", {
-        actions: [{ label: "Add to a profile", onClick: () => usePickProfile.setState({ pending: { game, entries: found, label, onAdded: pickedAdd } }) }, ...detailsAction(detail("Imported into the Library"))],
+      toast.info(`Added ${label}, switched off`, "No profile is loaded in this game, so nothing is switched on.", {
+        actions: [{ label: "Add to a profile", onClick: () => usePickProfile.setState({ pending: { game, entries: found, label, onAdded: pickedAdd } }) }, ...detailsAction(detail("Added, switched off"))],
       });
     } else if (!r.modpacks.length) {
       toast.info("Nothing to add", leftOutLine(sum), { actions: detailsAction(detail("Nothing was added")) });
@@ -203,7 +206,7 @@ export function DropAnywhere({ add }: { add: (paths: string[]) => void }) {
 
   if (!over) return null;
   const name = profiles.data?.find((p) => p.id === active.data?.profileId)?.name ?? (profiles.data?.length ? null : "My mods");
-  const into = settings.data?.addToActiveProfile === false || !name ? "Into the library" : `Into ${name}`;
+  const into = settings.data?.addToActiveProfile === false || !name ? "Added switched off" : "Added and switched on";
   return (
     <div className="k-dropveil" aria-hidden>
       <div className="k-niche hot">
@@ -244,6 +247,7 @@ function DroppedModpack({ game, path }: { game: GameInstall; path: string }) {
     try {
       const r = await runTask<ModpackInstallResult>(() => api.modpackInstall(game.id, { source: { path }, consent: true, activate: true }), { done: "Modpack installed" });
       setDone(r);
+      notifyActivation(r.activation);
       invalidateGame(qc, game.id);
       qc.invalidateQueries({ queryKey: ["library_list"] });
     } catch { /* toasted */ } finally { setBusy(false); }

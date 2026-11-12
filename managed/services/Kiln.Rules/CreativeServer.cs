@@ -456,7 +456,7 @@ internal static class CreativeServer
         string rules;
         try
         {
-            rules = Rules.Of(player).ToString();
+            rules = Creative.Describe(player, Rules.Of(player));
         }
         catch (Exception)
         {

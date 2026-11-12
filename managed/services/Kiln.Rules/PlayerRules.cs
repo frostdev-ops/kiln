@@ -16,6 +16,7 @@ namespace Kiln;
 /// <item>floors (<see cref="MinHealth"/>, <see cref="MinStamina"/>, <see cref="MinMana"/>, <see cref="MinShroudTime"/>): the
 /// highest wins;</item>
 /// <item><see cref="Water"/>: the most generous wins (the fastest rate; the items of every rule set).</item>
+/// <item><see cref="GlideBoost"/>, <see cref="GlideSteer"/>: the most generous wins (each value separately).</item>
 /// <item><see cref="CharacterFlight"/>: an explicit <see cref="CharacterFlightMode.Off"/> wins, then the widest mode.</item>
 /// </list>
 /// The same object reads from and writes to JSON (camelCase): a preset in <c>kiln/config/rules/&lt;name&gt;.json</c> is
@@ -124,6 +125,15 @@ public sealed record PlayerRules
     /// glides on and settles into the game's glide. The most generous of every rule set wins (each value separately).</summary>
     public GlideBoostRule? GlideBoost { get; init; }
 
+    /// <summary>The glider's own nose follows the movement keys: holding S raises it (up to
+    /// <see cref="GlideSteerRule.MaxClimbAngle"/> above level), letting go holds the pitch, W dives as in the game. The
+    /// game's own glide then follows the real pitch (the model points where it flies), and <see cref="GlideBoost"/> only
+    /// speeds the glider up along its nose while sprint is held (no plane path). Applied for a player only when their
+    /// game confirmed it steers too (an older Kiln, or a game build without the hook, glides as before, with
+    /// <see cref="GlideBoost"/>'s plane path); denied where this server's build has no steering hook. The largest
+    /// angle of every rule set wins.</summary>
+    public GlideSteerRule? GlideSteer { get; init; }
+
     // ---- character flight (needs Kiln in the player's game: the flight runs in the game's prediction too) ----
 
     /// <summary>The character itself flies (not the building spark): airborne, it takes off; jump climbs, sneak sinks,
@@ -142,7 +152,8 @@ public sealed record PlayerRules
     public static PlayerRules CreativeExtras { get; } = new() { FreeCrafting = true, KeepConsumables = true };
 
     /// <summary>Kiln's built-in "creative" preset: free flight and building anywhere outside other players' bases,
-    /// nothing costs or runs out, tools break blocks in one hit, no damage. No levels, XP, skill points or unlocks.</summary>
+    /// nothing costs or runs out, tools break blocks in one hit, no damage, a steered glider that never sinks or tires.
+    /// No levels, XP, skill points or unlocks.</summary>
     public static PlayerRules Creative { get; } = new()
     {
         FlyAnywhere = true, FlightCarriesBody = true,
@@ -151,7 +162,7 @@ public sealed record PlayerRules
         BuildCost = 0, BuildRefund = 0, DigDamage = 1000,
         Invulnerable = true, MinHealth = 1, MinStamina = 1, MinMana = 1,
         FreezeShroudTimer = true,
-        UnlimitedGliding = true, GlideSink = 0, GlideBoost = GlideBoostRule.Default,
+        UnlimitedGliding = true, GlideSink = 0, GlideBoost = GlideBoostRule.Default, GlideSteer = GlideSteerRule.Default,
         Water = WaterRule.KeepFull(),
     };
 
@@ -189,7 +200,7 @@ public sealed record PlayerRules
         MinStamina = other.MinStamina ?? MinStamina, MinMana = other.MinMana ?? MinMana,
         FreezeShroudTimer = other.FreezeShroudTimer ?? FreezeShroudTimer, MinShroudTime = other.MinShroudTime ?? MinShroudTime,
         UnlimitedGliding = other.UnlimitedGliding ?? UnlimitedGliding, GlideSink = other.GlideSink ?? GlideSink,
-        GlideBoost = other.GlideBoost ?? GlideBoost,
+        GlideBoost = other.GlideBoost ?? GlideBoost, GlideSteer = other.GlideSteer ?? GlideSteer,
         Water = other.Water ?? Water,
         CharacterFlight = other.CharacterFlight ?? CharacterFlight,
     };
@@ -224,6 +235,8 @@ public sealed record PlayerRules
             if (g.MaxSpeed > GlideBoostRule.SpeedLimit) p.Add($"glideBoost.maxSpeed: {g.MaxSpeed} is over {GlideBoostRule.SpeedLimit} m/s");
             if (g.Climb > GlideBoostRule.SpeedLimit) p.Add($"glideBoost.climb: {g.Climb} is over {GlideBoostRule.SpeedLimit} m/s");
         }
+        if (GlideSteer is { } st && (!double.IsFinite(st.MaxClimbAngle) || st.MaxClimbAngle < 0 || st.MaxClimbAngle > GlideSteerRule.AngleLimit))
+            p.Add($"glideSteer.maxClimbAngle: {st.MaxClimbAngle} is not 0..{GlideSteerRule.AngleLimit} degrees");
         if (Water is { } w && (double.IsNaN(w.ChargesPerSecond) || w.ChargesPerSecond <= 0))
             p.Add($"water.chargesPerSecond: {w.ChargesPerSecond} must be more than 0 (Infinity keeps the containers full)");
         return p;
@@ -295,6 +308,30 @@ public sealed record GlideBoostRule
     public override string ToString() =>
         $"boost {Thrust:0.#} m/s² up to {MaxSpeed:0.#} m/s" + (Lift > 0 ? $", lift {Lift:0.#} m/s²" : "") + $", coast {Coast:0.#} m/s²" +
         (Climb > 0 ? $", climbs up to {Climb:0.#} m/s" : ", no climbing");
+
+    // With GlideSteer: sprint along the nose, no plane path, no lift (glide_steer_math.h)
+    internal string SteeredText() =>
+        $"boost {Thrust:0.#} m/s² along the nose up to {MaxSpeed:0.#} m/s, coast {Coast:0.#} m/s²" +
+        (Climb > 0 ? $", boosted climb up to {Climb:0.#} m/s" : ", no boosted climb");
+}
+
+/// <summary>Steering the glider's own nose (<see cref="PlayerRules.GlideSteer"/>): S raises it, a centred stick holds
+/// the pitch, W dives as in the game. The game's own glide (its thrust along the nose, its drag, gravity) follows the
+/// real pitch, so climbing steeply costs speed and diving gives it; it runs the same in the server's world and the
+/// player's own prediction.</summary>
+public sealed record GlideSteerRule
+{
+    /// <summary>The highest <see cref="MaxClimbAngle"/>, degrees: never straight up, where the game's pitch measure
+    /// folds over.</summary>
+    public const double AngleLimit = 85;
+
+    /// <summary>How far above level the nose may rise, degrees (0..85; default 85; 0 = up to level flight). The game's
+    /// own glider never goes above 5 degrees nose down.</summary>
+    public double MaxClimbAngle { get; init; } = AngleLimit;
+
+    public static GlideSteerRule Default { get; } = new();
+
+    public override string ToString() => $"S raises the nose up to {MaxClimbAngle:0.#}°, centred holds, W dives";
 }
 
 /// <summary>A player's rules after every rule set that applies was combined, and the server's limits held.</summary>
@@ -324,6 +361,7 @@ public sealed record EffectiveRules
     public bool UnlimitedGliding { get; init; }
     public double GlideSink { get; init; } = 1;
     public GlideBoostRule? GlideBoost { get; init; }
+    public GlideSteerRule? GlideSteer { get; init; }
     public WaterRule? Water { get; init; }
     public CharacterFlightMode CharacterFlight { get; init; }
     // Authored by the server from real altar bounds, then sent as the same flight bit to prediction. The actor's
@@ -342,7 +380,7 @@ public sealed record EffectiveRules
     public bool IsDefault => !FlyAnywhere && !BuildOutsideBases && !IgnoreNoBuildZones && !IgnoreEnemiesNearby && !BuildInShroud &&
                              !IgnoreBasePermissions && !KeepBuildsOutsideBases && BuildCost == 1 && BuildRefund == 1 && !FreeCrafting && !KeepConsumables && DigDamage == 1 &&
                              !Invulnerable && !NoFallDamage && MinHealth == 0 && MinStamina == 0 && MinMana == 0 && !FreezeShroudTimer &&
-                             MinShroudTime == 0 && !UnlimitedGliding && GlideSink == 1 && GlideBoost is null && Water is null &&
+                             MinShroudTime == 0 && !UnlimitedGliding && GlideSink == 1 && GlideBoost is null && GlideSteer is null && Water is null &&
                              CharacterFlight == CharacterFlightMode.Off;
 
     internal RulesNativePart Native => new(
@@ -350,13 +388,13 @@ public sealed record EffectiveRules
         (IgnoreNoBuildZones ? RulesNative.IgnoreNoBuildZones : 0) | (IgnoreEnemiesNearby ? RulesNative.IgnoreEnemies : 0) |
         (BuildInShroud ? RulesNative.IgnoreShroud : 0) | (IgnoreBasePermissions ? RulesNative.IgnoreBasePermissions : 0) |
         (FreezeShroudTimer ? RulesNative.ShroudFreeze : 0) | (UnlimitedGliding ? RulesNative.GlideUnlimited : 0) |
-        (GlideBoost is not null ? RulesNative.GlideBoost : 0) |
+        (GlideBoost is not null ? RulesNative.GlideBoost : 0) | (GlideSteer is not null ? RulesNative.GlideSteer : 0) |
         (FreeCrafting ? RulesNative.FreeCrafting : 0) | (KeepConsumables ? RulesNative.KeepConsumables : 0) |
         (CharacterFlight == CharacterFlightMode.Unlimited || CharacterFlight == CharacterFlightMode.BuildingArea && FlightAreaAllowed
             ? RulesNative.CharacterFlight : 0),
         (float)BuildCost, (float)BuildRefund, (float)DigDamage, (float)MinShroudTime, (float)GlideSink,
         (float)(GlideBoost?.Thrust ?? 0), (float)(GlideBoost?.MaxSpeed ?? 0), (float)(GlideBoost?.Lift ?? 0),
-        (float)(GlideBoost?.Coast ?? 0), (float)(GlideBoost?.Climb ?? 0));
+        (float)(GlideBoost?.Coast ?? 0), (float)(GlideBoost?.Climb ?? 0), (float)(GlideSteer?.MaxClimbAngle ?? 0));
 
     /// <summary>The same values, ignoring <see cref="From"/>.</summary>
     public bool SameAs(EffectiveRules o) => this with { From = o.From, Denied = o.Denied } == o;
@@ -384,8 +422,10 @@ public sealed record EffectiveRules
         if (FreezeShroudTimer) parts.Add("Shroud timer frozen");
         if (MinShroudTime > 0) parts.Add(MinShroudTime >= 1 ? "Shroud timer full" : $"Shroud timer >= {MinShroudTime:P0}");
         if (UnlimitedGliding) parts.Add("unlimited gliding");
-        if (GlideSink != 1) parts.Add(GlideSink == 0 ? "gliding holds altitude" : $"glide sink x{GlideSink:0.##}");
-        if (GlideBoost is { } g) parts.Add("glide " + g);
+        if (GlideSink != 1)
+            parts.Add(GlideSink != 0 ? $"glide sink x{GlideSink:0.##}" : GlideSteer is null ? "gliding holds altitude" : "no gravity while gliding");
+        if (GlideSteer is { } st) parts.Add("glider steering (" + st + ")");
+        if (GlideBoost is { } g) parts.Add("glide " + (GlideSteer is null ? g.ToString() : g.SteeredText()));
         if (Water is { } w) parts.Add("water: " + w);
         if (CharacterFlight != CharacterFlightMode.Off)
             parts.Add(CharacterFlight == CharacterFlightMode.BuildingArea ? "character flight (building areas)" : "character flight");
@@ -452,6 +492,7 @@ internal static class RulesMath
             UnlimitedGliding = Switch(r => r.UnlimitedGliding),
             GlideSink = Product(r => r.GlideSink),
             GlideBoost = Boost(sets.Select(s => s.Rules.GlideBoost)),
+            GlideSteer = Steer(sets.Select(s => s.Rules.GlideSteer)),
             Water = Water(sets.Select(s => s.Rules.Water)),
             CharacterFlight = Flight(sets.Select(s => s.Rules.CharacterFlight)),
             From = sets.Where(s => s.Set is not null).Select(s => s.Set!).ToArray(),
@@ -491,6 +532,19 @@ internal static class RulesMath
         return best;
     }
 
+    // The most generous: the largest angle (a value out of range counts as its nearest bound, NaN as 0).
+    public static GlideSteerRule? Steer(IEnumerable<GlideSteerRule?> rules)
+    {
+        GlideSteerRule? best = null;
+        foreach (var r in rules)
+        {
+            if (r is null) continue;
+            var a = double.IsNaN(r.MaxClimbAngle) ? 0 : Math.Clamp(r.MaxClimbAngle, 0, GlideSteerRule.AngleLimit);
+            if (best is null || a > best.MaxClimbAngle) best = new GlideSteerRule { MaxClimbAngle = a };
+        }
+        return best;
+    }
+
     // The most generous: the fastest rate; the items of every rule set (any without a list means every container).
     public static WaterRule? Water(IEnumerable<WaterRule?> rules)
     {
@@ -514,7 +568,8 @@ internal sealed record RulesLimits(bool AllowFlyAnywhere = true, bool AllowBuild
     bool AllowInvulnerable = true, double MinBuildCost = 0, double MaxDigDamage = 1000, double MaxStaminaFloor = 1,
     double MaxHealthFloor = 1, double MaxManaFloor = 1, bool AllowWater = true, bool AllowFreezeShroudTimer = true,
     double MaxShroudFloor = 1, bool AllowUnlimitedGliding = true, bool AllowGlideBoost = true, double MaxGlideSpeed = 60,
-    bool AllowNoFallDamage = true, bool AllowFreeCrafting = true, bool AllowKeepConsumables = true, bool AllowCharacterFlight = false)
+    bool AllowNoFallDamage = true, bool AllowFreeCrafting = true, bool AllowKeepConsumables = true, bool AllowCharacterFlight = false,
+    bool AllowGlideSteer = true, double MaxGlideSteerAngle = GlideSteerRule.AngleLimit)
 {
     public static readonly RulesLimits Default = new();
 
@@ -553,6 +608,13 @@ internal sealed record RulesLimits(bool AllowFlyAnywhere = true, bool AllowBuild
                 {
                     MaxSpeed = Math.Min(g.MaxSpeed, Math.Clamp(MaxGlideSpeed, 0, GlideBoostRule.SpeedLimit)),
                     Climb = Math.Min(g.Climb, Math.Clamp(MaxGlideSpeed, 0, GlideBoostRule.SpeedLimit)),
+                }
+                : null,
+            GlideSteer = e.GlideSteer is { } st && Cap(true, AllowGlideSteer, "glideSteer")
+                ? st with
+                {
+                    MaxClimbAngle = Math.Min(st.MaxClimbAngle,
+                        double.IsFinite(MaxGlideSteerAngle) ? Math.Clamp(MaxGlideSteerAngle, 0, GlideSteerRule.AngleLimit) : 0),
                 }
                 : null,
             Water = AllowWater ? e.Water : null,

@@ -11,7 +11,7 @@
 //! Who runs the mods: `<game>/kiln/plugins/kiln-shroudforge.dll` hosts the installed ShroudForge runtime (or steps
 //! aside when ShroudForge's own dbghelp.dll already started it) and writes `kiln/state/shroudforge.json` ([`status`]).
 
-use crate::jsonc::{set_value, PathSeg};
+use crate::jsonc::{set_value, Node, PathSeg};
 use crate::{Error, Result};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -80,16 +80,20 @@ pub fn mods_dir(game_dir: &Path) -> PathBuf {
 /// failed with "Read-only file system". Such a path is found again through the game folder: the two name the same
 /// folders from the point where the Windows path enters the game's path.
 fn resolve_mods(game_dir: &Path, p: &str) -> PathBuf {
+    resolve_game_folder(game_dir, p).unwrap_or_else(|| game_dir.join("mods"))
+}
+
+fn resolve_game_folder(game_dir: &Path, p: &str) -> Option<PathBuf> {
     let host = PathBuf::from(p);
     if host.is_absolute() && host.is_dir() && (cfg!(windows) || !p.starts_with("//")) {
-        return host;
+        return Some(host);
     }
     let plain = crate::winpath::strip_verbatim(&p.replace('/', "\\")).into_owned();
     if !crate::winpath::is_absolute_game_path(&plain) {
-        return game_dir.join(p.replace('\\', "/"));
+        return Some(game_dir.join(p.replace('\\', "/")));
     }
     if let Some(z) = crate::winpath::z_to_unix(&plain).filter(|h| h.is_dir()) {
-        return z;
+        return Some(z);
     }
     // another drive of the prefix (or a Windows path read on another system): the part inside the game folder
     let win: Vec<&str> = plain.split('\\').filter(|c| !c.is_empty()).skip(1).collect(); // without the drive
@@ -99,11 +103,11 @@ fn resolve_mods(game_dir: &Path, p: &str) -> PathBuf {
     }).collect();
     for k in (1..=win.len().min(game.len())).rev() {
         if win[..k].iter().zip(&game[game.len() - k..]).all(|(a, b)| a.eq_ignore_ascii_case(b)) {
-            return win[k..].iter().fold(game_dir.to_path_buf(), |dir, c| dir.join(c));
+            return Some(win[k..].iter().fold(game_dir.to_path_buf(), |dir, c| dir.join(c)));
         }
     }
-    // a folder outside the game that this system cannot name: ShroudForge's default, never a path made of a drive letter
-    game_dir.join("mods")
+    // A Windows folder this system cannot name must not turn into a relative path containing a drive letter.
+    None
 }
 
 /// One setting of a ShroudForge mod (extended.mod.json `settings.<key>`).
@@ -119,9 +123,14 @@ pub struct SfSetting {
     /// toggle, checkbox, text, textarea, number, slider, select, radio, segmented, multiselect, keybind, color
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub control: Option<String>,
-    /// "live" (the running mod sees it at once) or "restart"
+    /// What the mod declares: "live" or "restart" (ShroudForge's default is "restart" unless `restartRequired` is false).
+    /// Whether a change really applies while the game runs is [`SfSetting::live`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub apply_at: Option<String>,
+    /// A change applies while the game runs (ShroudForge's `settings_to_apply_live`): the mod has a runtime part, and it
+    /// has no startup (`patch`) part or the setting is declared live. Filled by [`read_mod`].
+    #[serde(default)]
+    pub live: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub min: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -131,8 +140,16 @@ pub struct SfSetting {
     /// value -> label (select, radio, segmented, multiselect)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub options: Option<serde_json::Map<String, serde_json::Value>>,
+    /// The option keys in the order the mod declares them (the map above is sorted); [`option_keys`].
+    #[serde(skip)]
+    pub option_order: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub enabled_when: Option<serde_json::Value>,
+    /// text length limits (`minLength`, `maxLength`, in characters)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_length: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_length: Option<u64>,
     /// the shorthand form `settings.<key> = value` (no label, no control)
     #[serde(default)]
     pub shorthand: bool,
@@ -150,12 +167,16 @@ pub struct SfMod {
     #[serde(default)]
     pub authors: Vec<String>,
     pub folder: PathBuf,
-    /// extended.mod.json `enabled` (false when the file is missing and mod.json says nothing).
+    /// extended.mod.json `enabled` (false when the file is missing; mod.json is not ShroudForge's switch).
     pub enabled: bool,
     /// "client", "server" (extended.mod.json `targets`; ShroudForge's defaults when missing).
     pub targets: Vec<String>,
     /// mod.json `capabilities`: patch (startup asset changes), export, runtime (live game access), runtime-register-dll
     pub capabilities: Vec<String>,
+    /// Switching it on or off applies while the game runs (a runtime mod without startup asset changes); otherwise at
+    /// the next start. ShroudForge's `refresh_runtime_configuration`.
+    #[serde(default)]
+    pub switch_live: bool,
     #[serde(default)]
     pub dependencies: Vec<serde_json::Value>,
     pub settings: Vec<SfSetting>,
@@ -166,12 +187,82 @@ pub struct SfMod {
     pub launcher: Option<String>,
     /// extended.mod.json exists
     pub extended: bool,
+    /// Settings whose whole numbers an earlier Kiln wrote without their fraction: ShroudForge refuses the mod until the
+    /// next change (of the switch or any setting) puts the fraction back. Read as the fractional settings they were.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub repair: Vec<String>,
+}
+
+/// The largest package file Kiln reads or writes (the in-game page's bound too: ShroudForge.cs `MaxFileBytes`).
+pub const MAX_FILE_BYTES: usize = 2 * 1024 * 1024;
+
+/// Bounded text and its token tree. Package reads must also pass ShroudForge's strict JSON parser (including no BOM).
+/// Detection remains permissive so an invalid SF package still reaches its import refusal, not another engine's path.
+fn read_text(p: &Path, strict: bool) -> Result<(String, Node)> {
+    use std::io::Read;
+    let f = std::fs::File::open(p).map_err(crate::util::io_at(p, "reading"))?;
+    let mut bytes = Vec::new();
+    f.take(MAX_FILE_BYTES as u64 + 1).read_to_end(&mut bytes).map_err(crate::util::io_at(p, "reading"))?;
+    if bytes.len() > MAX_FILE_BYTES {
+        return Err(Error::invalid(format!("{} is larger than 2 MiB", p.display())));
+    }
+    if strict {
+        serde_json::from_slice::<serde_json::Value>(&bytes)
+            .map_err(|e| Error::invalid(format!("ShroudForge would refuse {}: strict JSON is required: {e}", p.display())))?;
+    }
+    let (text, tree) = crate::jsonc::parse_tree_bytes(&bytes)?;
+    if let Some(why) = refused_token(&text, &tree) {
+        return Err(Error::invalid(format!("{}: {why}", p.display())));
+    }
+    Ok((text, tree))
+}
+
+/// What ShroudForge's serde_json refuses that Kiln's JSONC reader takes: a lone surrogate escape in a string or key,
+/// a number beyond a double.
+fn refused_token(text: &str, n: &Node) -> Option<String> {
+    use crate::jsonc::JValue;
+    match &n.value {
+        JValue::Number(s) if s.parse::<f64>().is_ok_and(f64::is_infinite) => Some(format!("the number {s} is beyond a double")),
+        JValue::String(_) if lone_surrogate(n.raw(text)) => Some("a text holds a lone surrogate escape".into()),
+        JValue::Array(items) => items.iter().find_map(|e| refused_token(text, &e.node)),
+        JValue::Object(members) => members.iter().find_map(|m| {
+            if lone_surrogate(m.key_span.slice(text)) { Some("a key holds a lone surrogate escape".into()) } else { refused_token(text, &m.value) }
+        }),
+        _ => None,
+    }
+}
+
+/// A string token (quotes included) with a `\uD800`-`\uDFFF` escape that is not half of a pair.
+fn lone_surrogate(token: &str) -> bool {
+    let b = token.as_bytes();
+    let hex = |i: usize| b.get(i..i + 4).and_then(|h| std::str::from_utf8(h).ok()).and_then(|h| u16::from_str_radix(h, 16).ok());
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] != b'\\' {
+            i += 1;
+            continue;
+        }
+        if b.get(i + 1) != Some(&b'u') {
+            i += 2;
+            continue;
+        }
+        match hex(i + 2) {
+            Some(0xD800..=0xDBFF) => {
+                let low = (b.get(i + 6) == Some(&b'\\') && b.get(i + 7) == Some(&b'u')).then(|| hex(i + 8)).flatten();
+                if !matches!(low, Some(0xDC00..=0xDFFF)) {
+                    return true;
+                }
+                i += 12;
+            }
+            Some(0xDC00..=0xDFFF) => return true,
+            _ => i += 6,
+        }
+    }
+    false
 }
 
 fn read_json_file(p: &Path) -> Result<serde_json::Value> {
-    let bytes = std::fs::read(p).map_err(crate::util::io_at(p, "reading"))?;
-    let text = String::from_utf8_lossy(&bytes);
-    crate::jsonc::parse(text.trim_start_matches('\u{feff}'))
+    Ok(read_text(p, false)?.1.to_value())
 }
 
 /// Does `folder` look like a ShroudForge (or EML) Lua package rather than an EMF mod (which also has a mod.json)?
@@ -213,6 +304,14 @@ pub fn is_sf_own_mod(folder: &Path) -> bool {
         .is_some_and(|s| s.to_ascii_lowercase().contains("shroudforge"))
 }
 
+/// (has a runtime part, has a startup asset part): ShroudForge's `Capability::requires_runtime` and `Patch`.
+fn runtime_parts(capabilities: &[String]) -> (bool, bool) {
+    (
+        capabilities.iter().any(|c| c == "runtime" || c == "runtime-register-dll"),
+        capabilities.iter().any(|c| c == "patch"),
+    )
+}
+
 fn str_of(v: &serde_json::Value, k: &str) -> Option<String> {
     v.get(k).and_then(|s| s.as_str()).map(str::to_owned)
 }
@@ -226,12 +325,16 @@ fn parse_setting(key: &str, raw: &serde_json::Value) -> SfSetting {
             label: None,
             description: None,
             control: None,
-            apply_at: None,
+            apply_at: Some("restart".into()),
+            live: false,
             min: None,
             max: None,
             step: None,
             options: None,
+            option_order: Vec::new(),
             enabled_when: None,
+            min_length: None,
+            max_length: None,
             shorthand: true,
         };
     };
@@ -242,14 +345,19 @@ fn parse_setting(key: &str, raw: &serde_json::Value) -> SfSetting {
         label: o.get("label").and_then(|s| s.as_str()).map(str::to_owned),
         description: o.get("description").and_then(|s| s.as_str()).map(str::to_owned),
         control: o.get("control").and_then(|s| s.as_str()).map(str::to_owned),
-        apply_at: o.get("applyAt").and_then(|s| s.as_str()).map(str::to_owned).or_else(|| {
-            o.get("restartRequired").and_then(|b| b.as_bool()).map(|r| if r { "restart" } else { "live" }.to_owned())
-        }),
+        // ShroudForge (read_mod_settings.rs): applyAt, else "live" when restartRequired is false, else "restart"
+        apply_at: Some(o.get("applyAt").and_then(|s| s.as_str()).map(str::to_owned).unwrap_or_else(|| {
+            if o.get("restartRequired").and_then(|b| b.as_bool()) == Some(false) { "live" } else { "restart" }.to_owned()
+        })),
+        live: false,
         min: f("min"),
         max: f("max"),
         step: f("step"),
         options: o.get("options").and_then(|v| v.as_object()).cloned(),
+        option_order: Vec::new(),
         enabled_when: o.get("enabledWhen").cloned(),
+        min_length: o.get("minLength").and_then(|v| v.as_u64()),
+        max_length: o.get("maxLength").and_then(|v| v.as_u64()),
         shorthand: false,
     }
 }
@@ -271,13 +379,87 @@ pub fn other_holder(root: &Path, src: &Path, dst: &Path) -> Option<PathBuf> {
     dirs.into_iter().find(|p| read_json_file(&p.join("mod.json")).ok().and_then(|m| str_of(&m, "id")).as_deref() == Some(id.as_str()))
 }
 
+/// The intersection of SF's version schema and its strict SemVer deserializer, not Kiln's permissive Library version.
+fn package_version(version: &str) -> bool {
+    let split = version.find(['-', '+']);
+    let core = &version[..split.unwrap_or(version.len())];
+    let parts: Vec<_> = core.split('.').collect();
+    if parts.len() != 3 || parts.iter().any(|p| p.is_empty() || !p.bytes().all(|b| b.is_ascii_digit())
+        || (p.len() > 1 && p.starts_with('0')) || p.parse::<u64>().is_err()) {
+        return false;
+    }
+    split.is_none_or(|i| version[i + 1..].split('.').all(|p| !p.is_empty()
+        && p.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+        && !(version.as_bytes()[i] == b'-' && p.len() > 1 && p.starts_with('0') && p.bytes().all(|b| b.is_ascii_digit()))))
+}
+
+/// Validate package conditions, not the editor's defensive numeric equality. Walk the dependency graph only once.
+fn validate_conditions(settings: &[SfSetting]) -> Result<()> {
+    use std::collections::{HashMap, HashSet};
+    let by_key: HashMap<_, _> = settings.iter().map(|s| (s.key.as_str(), s)).collect();
+    for s in settings {
+        let Some(w) = &s.enabled_when else { continue };
+        let target = w["setting"].as_str().unwrap(); // metadata shape was checked first
+        let controller = by_key.get(target).ok_or_else(|| Error::invalid(format!("ShroudForge would refuse setting {}: enabledWhen names unknown setting {target}", s.key)))?;
+        let value = &w["equals"];
+        let matches = match value_type(controller) {
+            "boolean" => value.is_boolean(),
+            "string" => value.is_string(),
+            "integer" => value.as_i64().is_some(),
+            "number" => value.as_f64().is_some(),
+            _ => false,
+        };
+        if !matches || controller.options.as_ref().is_some_and(|opts| !opts.keys().any(|k| option_value(controller, k).as_ref() == Some(value))) {
+            return Err(Error::invalid(format!("ShroudForge would refuse setting {}: enabledWhen equals must match {target}'s type and options", s.key)));
+        }
+    }
+    let mut done = HashSet::new();
+    for s in settings.iter().filter(|s| s.enabled_when.is_some()) {
+        let mut chain = HashSet::new();
+        let mut current = s.key.as_str();
+        while !done.contains(current) {
+            if !chain.insert(current) {
+                return Err(Error::invalid(format!("ShroudForge would refuse setting {}: enabledWhen has a dependency cycle", s.key)));
+            }
+            let Some(w) = &by_key[current].enabled_when else { break };
+            current = w["setting"].as_str().unwrap();
+        }
+        done.extend(chain);
+    }
+    Ok(())
+}
+
 /// Reads one package (`folder` holds mod.json).
 pub fn read_mod(folder: &Path) -> Result<SfMod> {
-    let m = read_json_file(&folder.join("mod.json"))?;
+    let m = read_text(&folder.join("mod.json"), true)?.1.to_value();
     let id = str_of(&m, "id").ok_or_else(|| Error::invalid(format!("{}/mod.json has no \"id\"", folder.display())))?;
+    let version = str_of(&m, "version").filter(|v| package_version(v))
+        .ok_or_else(|| Error::invalid("ShroudForge would refuse mod.json version: expected a strict three-part version with at most a prerelease or build suffix"))?;
     let ext_path = folder.join("extended.mod.json");
     let extended = ext_path.is_file();
-    let ext = if extended { read_json_file(&ext_path)? } else { serde_json::json!({}) };
+    let tree = if extended { Some(read_text(&ext_path, true)?.1) } else { None };
+    let ext = tree.as_ref().map(Node::to_value).unwrap_or_else(|| serde_json::json!({}));
+    if !ext.is_object() {
+        return Err(Error::invalid("extended.mod.json is not a JSON object"));
+    }
+    if extended && ext.get("schemaVersion").and_then(|v| v.as_f64()) != Some(1.0) {
+        return Err(Error::invalid("ShroudForge would refuse extended.mod.json: required schemaVersion must be the number 1"));
+    }
+    if extended && ext.get("enabled").and_then(|v| v.as_bool()).is_none() {
+        return Err(Error::invalid("ShroudForge would refuse extended.mod.json: required enabled must be a boolean"));
+    }
+    if ext.get("settings").is_some_and(|s| !s.is_object()) {
+        return Err(Error::invalid("extended.mod.json settings must be an object"));
+    }
+    if ext.get("launcher").is_some_and(|v| !matches!(v.as_str(), Some("EML" | "SF"))) {
+        return Err(Error::invalid("ShroudForge would refuse extended.mod.json: launcher must be EML or SF"));
+    }
+    if let Some(targets) = ext.get("targets") {
+        let valid = targets.as_array().is_some_and(|a| !a.is_empty() && a.len() <= 2
+            && a.iter().all(|v| matches!(v.as_str(), Some("client" | "server")))
+            && (a.len() == 1 || a[0] != a[1]));
+        if !valid { return Err(Error::invalid("ShroudForge would refuse extended.mod.json: targets must name client or server without duplicates")); }
+    }
     let launcher = str_of(&ext, "launcher").or_else(|| (!extended).then(|| "EML".to_owned()));
     let targets = match ext.get("targets").and_then(|t| t.as_array()) {
         Some(a) => a.iter().filter_map(|v| v.as_str().map(str::to_owned)).collect(),
@@ -285,27 +467,110 @@ pub fn read_mod(folder: &Path) -> Result<SfMod> {
         None if launcher.as_deref() == Some("EML") => vec!["client".into(), "server".into()],
         None => vec!["client".into()],
     };
-    let settings = ext
+    let mut settings: Vec<SfSetting> = ext
         .get("settings")
         .and_then(|s| s.as_object())
         .map(|o| o.iter().map(|(k, v)| parse_setting(k, v)).collect())
         .unwrap_or_default();
+    // the order the mod declares them in (ShroudForge's own editor shows that order); a repeated key stands where it
+    // first appears and holds its last value, as in ShroudForge's serde_json (preserve_order)
+    if let Some(declared) = tree.as_ref().and_then(|t| t.get("settings")) {
+        let (mut first, mut last) = (std::collections::HashMap::new(), std::collections::HashMap::new());
+        for (i, m) in declared.members().iter().enumerate() {
+            first.entry(m.key.as_str()).or_insert(i);
+            last.insert(m.key.as_str(), &m.value);
+        }
+        settings.sort_by_cached_key(|s| first.get(s.key.as_str()).copied().unwrap_or(usize::MAX));
+        for s in &mut settings {
+            let options = last.get(s.key.as_str()).filter(|_| !s.shorthand).and_then(|n| n.get("options"));
+            let mut seen = std::collections::HashSet::new();
+            s.option_order = options.map(|o| o.members().iter().filter(|m| seen.insert(m.key.as_str())).map(|m| m.key.clone()).collect()).unwrap_or_default();
+        }
+    }
+    let capabilities: Vec<String> =
+        m.get("capabilities").and_then(|a| a.as_array()).map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_owned)).collect()).unwrap_or_default();
+    let (runtime, patch) = runtime_parts(&capabilities);
+    let mut repair = Vec::new();
+    for s in &mut settings {
+        if recover_fraction(s) {
+            repair.push(s.key.clone());
+        }
+        let raw = &ext["settings"][&s.key];
+        if s.value.is_null() || s.value.is_object() ||
+            !matches!(s.apply_at.as_deref(), Some("live" | "restart")) ||
+            raw.get("restartRequired").and_then(|v| v.as_bool()).is_some_and(|r| r != (s.apply_at.as_deref() == Some("restart"))) ||
+            (s.value.is_array() && s.options.as_ref().is_none_or(|o| o.is_empty())) ||
+            // ShroudForge's schema: options name at least one choice ("options": {} refuses the mod)
+            raw.get("options").is_some_and(|o| o.as_object().is_none_or(|o| o.is_empty())) ||
+            s.options.as_ref().is_some_and(|o| o.iter().any(|(k, label)| option_value(s, k).is_none() || !label.is_string())) ||
+            s.enabled_when.as_ref().is_some_and(|w| w.get("setting").and_then(|v| v.as_str()).is_none() || w.get("equals").is_none())
+        {
+            return Err(Error::invalid(format!("setting {} has invalid metadata", s.key)));
+        }
+        s.live = runtime && (!patch || s.apply_at.as_deref() == Some("live"));
+    }
+    validate_conditions(&settings)?;
     Ok(SfMod {
         name: str_of(&m, "name").unwrap_or_else(|| id.clone()),
         id,
-        version: str_of(&m, "version").unwrap_or_default(),
+        version,
         description: str_of(&m, "description").unwrap_or_default(),
         authors: m.get("authors").and_then(|a| a.as_array()).map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_owned)).collect()).unwrap_or_default(),
         folder: folder.to_path_buf(),
-        enabled: ext.get("enabled").and_then(|b| b.as_bool()).or_else(|| m.get("enabled").and_then(|b| b.as_bool())).unwrap_or(false),
+        enabled: ext.get("enabled").and_then(|b| b.as_bool()).unwrap_or(false),
         targets,
-        capabilities: m.get("capabilities").and_then(|a| a.as_array()).map(|a| a.iter().filter_map(|v| v.as_str().map(str::to_owned)).collect()).unwrap_or_default(),
+        switch_live: runtime && !patch,
+        capabilities,
         dependencies: m.get("dependencies").and_then(|a| a.as_array()).cloned().unwrap_or_default(),
         settings,
         groups: ext.get("groups").and_then(|a| a.as_array()).cloned().unwrap_or_default(),
         launcher,
         extended,
+        repair,
     })
+}
+
+/// Why ShroudForge does not run a package ([`switched_off`]), with the reason in plain words. What helps differs: a
+/// switch helps only [`SfOff::Switch`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SfOff {
+    /// Its switch is off: it has no `extended.mod.json`, or `enabled` is not true.
+    Switch(String),
+    /// Its `targets` name the other side only: ShroudForge runs it there, not in this process.
+    Side(String),
+    /// ShroudForge cannot read the package (it refuses its `mod.json` or `extended.mod.json`; the reader's message): no
+    /// switch helps.
+    Unreadable(String),
+}
+
+impl SfOff {
+    pub fn reason(&self) -> &str {
+        match self {
+            SfOff::Switch(r) | SfOff::Side(r) | SfOff::Unreadable(r) => r,
+        }
+    }
+}
+
+/// Why ShroudForge does not run the package in `folder` in this game's process (`server`: a dedicated server), or None
+/// when it does as far as its switch and side say. ShroudForge runs a package only while its `extended.mod.json` says
+/// `enabled: true` (a legacy EML package has no such file until ShroudForge's own Modloader writes one at the first
+/// change of its switch), and only on the sides its `targets` name: an array with "server" alone is the server only,
+/// any other array the client (with "server" too, both); without one an EML package runs on both.
+pub fn switched_off(folder: &Path, server: bool) -> Option<SfOff> {
+    let m = match read_mod(folder) {
+        Ok(m) => m,
+        Err(e) => return Some(SfOff::Unreadable(e.message)),
+    };
+    if !m.enabled {
+        return Some(SfOff::Switch(if m.extended {
+            "its extended.mod.json, the file that holds ShroudForge's switch, says enabled: false".into()
+        } else {
+            "it has no extended.mod.json, the file that holds ShroudForge's switch (ShroudForge keeps a package off until its switch is on)".into()
+        }));
+    }
+    let (client, srv) = (m.targets.iter().any(|t| t == "client"), m.targets.iter().any(|t| t == "server"));
+    let runs = if server { srv } else { client || !srv };
+    (!runs).then(|| SfOff::Side(format!("its extended.mod.json targets the {} only", if server { "client" } else { "server" })))
 }
 
 /// A folder in the mods dir that is not a readable ShroudForge package, and why.
@@ -377,8 +642,7 @@ pub fn skip_reason(folder: &Path) -> String {
 fn extension_text(m: &SfMod) -> Result<String> {
     let p = m.folder.join("extended.mod.json");
     if p.is_file() {
-        let bytes = std::fs::read(&p).map_err(crate::util::io_at(&p, "reading"))?;
-        return Ok(String::from_utf8_lossy(&bytes).trim_start_matches('\u{feff}').to_string());
+        return Ok(read_text(&p, true)?.0);
     }
     let v = serde_json::json!({
         "$schema": "https://bonsaibauer.github.io/shroudforge/schemas/extended.mod.schema.json",
@@ -392,17 +656,104 @@ fn extension_text(m: &SfMod) -> Result<String> {
 }
 
 fn write_extension(m: &SfMod, text: &str) -> Result<()> {
-    crate::jsonc::parse(text)?; // never write a broken file
+    serde_json::from_str::<serde_json::Value>(text)
+        .map_err(|e| Error::invalid(format!("ShroudForge would refuse the edit: strict JSON is required: {e}")))?;
+    if text.len() > MAX_FILE_BYTES {
+        return Err(Error::invalid("the settings file would be larger than 2 MiB"));
+    }
     crate::util::write_atomic(&m.folder.join("extended.mod.json"), text.as_bytes())
+}
+
+/// A whole number written without its fraction by an earlier Kiln (`[2, 1.5]` for a fractional list, `2` for a
+/// fractional select): ShroudForge then types the setting as an integer and refuses its fractional option keys, so the mod
+/// no longer loads. When every option key is a finite number and one of them is not whole, the setting can only have been
+/// the fractional one: it is read as that, and [`repair_fractions`] puts the fraction back on the next write. True when
+/// the setting was read so.
+fn recover_fraction(s: &mut SfSetting) -> bool {
+    let Some(opts) = s.options.as_ref().filter(|o| !o.is_empty()) else { return false };
+    if option_type(s) != "integer"
+        || !opts.keys().all(|k| k.parse::<f64>().is_ok_and(f64::is_finite))
+        || opts.keys().all(|k| k.parse::<i64>().is_ok())
+    {
+        return false;
+    }
+    let fractional = |v: &mut serde_json::Value| {
+        if let Some(n) = v.as_f64().and_then(serde_json::Number::from_f64) {
+            *v = serde_json::Value::Number(n);
+        }
+    };
+    match &mut s.value {
+        serde_json::Value::Array(items) if items.iter().all(|v| v.is_number()) => items.iter_mut().for_each(fractional),
+        v @ serde_json::Value::Number(_) => fractional(v),
+        _ => return false,
+    }
+    true
+}
+
+/// A number token ShroudForge's serde_json reads as an integer (`as_i64`): `2`, not `2.0`, `-0` or `1e2`.
+fn integer_token(n: &Node) -> bool {
+    n.as_number().is_some_and(|t| serde_json::from_str::<serde_json::Value>(t).is_ok_and(|v| v.as_i64().is_some()))
+}
+
+/// `text` with the fraction put back on the whole numbers of every setting [`recover_fraction`] read as fractional
+/// (`2` becomes `2.0`); nothing else changes.
+fn repair_fractions(text: &str, m: &SfMod) -> Result<String> {
+    let root = crate::jsonc::parse_tree(text)?;
+    // the last member of each key, as ShroudForge reads it
+    let declared: std::collections::HashMap<&str, &Node> =
+        root.get("settings").map(|n| n.members().iter().map(|m| (m.key.as_str(), &m.value)).collect()).unwrap_or_default();
+    let mut at: Vec<usize> = Vec::new();
+    for s in m.settings.iter().filter(|s| option_type(s) == "number") {
+        let Some(mut node) = declared.get(s.key.as_str()).copied() else { continue };
+        if !s.shorthand {
+            let Some(v) = node.get("value") else { continue };
+            node = v;
+        }
+        let tokens: Vec<&Node> = if node.is_array() { node.elements().iter().map(|e| &e.node).collect() } else { vec![node] };
+        if tokens.first().is_some_and(|n| integer_token(n)) {
+            at.extend(tokens.iter().filter(|n| integer_token(n)).map(|n| n.span.end));
+        }
+    }
+    let mut out = text.to_string();
+    at.sort_unstable();
+    for i in at.into_iter().rev() {
+        out.insert_str(i, ".0");
+    }
+    Ok(out)
+}
+
+/// A value as text, typed the way ShroudForge reads it back (it types a setting by its value, a list by its first
+/// member): the numbers of a fractional setting as serde_json writes a double (always with a fraction or an exponent:
+/// `2.0`, `0.75`, `1e-7`), those of an integer setting as integers, anything else as [`crate::jsonc::render`] writes it.
+fn render_setting_value(s: &SfSetting, value: &serde_json::Value) -> String {
+    let ty = option_type(s);
+    let one = |v: &serde_json::Value| -> String {
+        match v {
+            serde_json::Value::Number(n) if ty == "number" => {
+                n.as_f64().and_then(serde_json::Number::from_f64).map(|f| f.to_string()).unwrap_or_else(|| n.to_string())
+            }
+            serde_json::Value::Number(n) if ty == "integer" && n.is_f64() => {
+                n.as_f64().filter(|f| f.fract() == 0.0 && f.abs() < 9.0e15).map(|f| (f as i64).to_string()).unwrap_or_else(|| n.to_string())
+            }
+            v => crate::jsonc::render(v, ""),
+        }
+    };
+    match value {
+        serde_json::Value::Array(items) if items.iter().all(|v| !v.is_array() && !v.is_object()) => {
+            format!("[{}]", items.iter().map(one).collect::<Vec<_>>().join(", "))
+        }
+        serde_json::Value::Array(_) | serde_json::Value::Object(_) => crate::jsonc::render(value, ""),
+        v => one(v),
+    }
 }
 
 /// Switches a mod on or off (ShroudForge's own switch; a running ShroudForge picks it up live).
 pub fn set_enabled(folder: &Path, enabled: bool) -> Result<SfMod> {
     let m = read_mod(folder)?;
-    if m.extended && m.enabled == enabled {
+    if m.extended && m.enabled == enabled && m.repair.is_empty() {
         return Ok(m);
     }
-    let text = extension_text(&m)?;
+    let text = repair_fractions(&extension_text(&m)?, &m)?;
     let out = set_value(&text, &[PathSeg::Key("enabled".into())], &serde_json::Value::Bool(enabled))?;
     write_extension(&m, &out)?;
     read_mod(folder)
@@ -418,6 +769,41 @@ pub fn check_value(s: &SfSetting, value: &serde_json::Value) -> Result<()> {
     if !same_kind {
         return Err(Error::invalid(format!("setting {} holds a {}, not a {}", s.key, kind(&s.value), kind(value))));
     }
+    // Without a first member ShroudForge retypes every option as text. Keep numeric/boolean lists typed, rather than
+    // silently turning the next selection into strings (an already textual list may be cleared).
+    if value.as_array().is_some_and(|a| a.is_empty()) && option_type(s) != "string" {
+        return Err(Error::invalid(format!("setting {} must keep at least one choice so ShroudForge keeps its option type", s.key)));
+    }
+    // (a number is always finite here: serde_json holds no NaN or infinity, `Value::from(f64::NAN)` is null)
+    // ShroudForge types a list by its first member: a choice without a value (null) there would make it read the list as
+    // text and refuse the mod
+    if value.as_array().and_then(|a| a.first()).is_some_and(|v| v.is_null()) {
+        return Err(Error::invalid(format!(
+            "setting {}: a choice without a value cannot come first in the list (ShroudForge would refuse the mod)",
+            s.key
+        )));
+    }
+    // ShroudForge types a setting by its declared value: a whole number is an integer setting
+    if s.value.is_i64() {
+        let whole = value.is_i64() || value.as_f64().is_some_and(|n| n.fract() == 0.0 && n.abs() < 9.0e15);
+        if !whole {
+            return Err(Error::invalid(format!("setting {} holds a whole number, not {value}", s.key)));
+        }
+    }
+    if let Some(text) = value.as_str() {
+        if s.control.as_deref() == Some("keybind") && !valid_shortcut(text) {
+            return Err(Error::invalid(format!("setting {} requires a canonical SDL shortcut (e.g. Ctrl+SDL:66 or Mouse:4)", s.key)));
+        }
+        let n = text.chars().count() as u64;
+        if s.min_length.is_some_and(|m| n < m) || s.max_length.is_some_and(|m| n > m) {
+            return Err(Error::invalid(format!(
+                "setting {} must be {}..{} characters long",
+                s.key,
+                s.min_length.unwrap_or(0),
+                s.max_length.map(|v| v.to_string()).unwrap_or_default()
+            )));
+        }
+    }
     if let Some(n) = value.as_f64()
         && (s.min.is_some_and(|m| n < m) || s.max.is_some_and(|m| n > m))
     {
@@ -428,17 +814,45 @@ pub fn check_value(s: &SfSetting, value: &serde_json::Value) -> Result<()> {
             s.max.map(|v| v.to_string()).unwrap_or_default()
         )));
     }
-    if let Some(opts) = &s.options {
-        let ok = |v: &V| v.as_str().is_some_and(|k| opts.contains_key(k)) || v.as_f64().is_some_and(|n| opts.contains_key(&n.to_string()));
+    if let Some(opts) = s.options.as_ref().filter(|o| !o.is_empty()) {
+        let ok = |v: &V| opts.keys().filter_map(|k| option_value(s, k)).any(|o| same_value(&o, v));
         let all = match value {
             V::Array(items) => items.iter().all(ok),
             v => ok(v),
         };
         if !all {
-            return Err(Error::invalid(format!("setting {}: not one of {}", s.key, opts.keys().cloned().collect::<Vec<_>>().join(", "))));
+            return Err(Error::invalid(format!("setting {}: not one of {}", s.key, option_keys(s).iter().map(|k| k.as_str()).collect::<Vec<_>>().join(", "))));
         }
     }
     Ok(())
+}
+
+/// SF's canonical portable shortcut syntax. SF's SDL backend additionally checks keyboard scancode availability.
+pub fn valid_shortcut(text: &str) -> bool {
+    if text.is_empty() { return true; }
+    if text.len() > 100 { return false; }
+    let (mut keyboard, mut mouse) = (false, false);
+    for chord in text.split('|') {
+        let parts: Vec<_> = chord.split('+').collect();
+        let Some((device, number)) = parts[parts.len() - 1].split_once(':') else { return false };
+        let Ok(code) = number.parse::<u16>() else { return false };
+        if code.to_string() != number { return false; }
+        let primary = match device {
+            "SDL" if !keyboard && !mouse && (1..512).contains(&code) => {
+                keyboard = true;
+                match code { 224 | 228 => 1, 226 | 230 => 2, 225 | 229 => 4, 227 | 231 => 8, _ => 0 }
+            }
+            "Mouse" if !mouse && (1..=32).contains(&code) => { mouse = true; 0 }
+            _ => return false,
+        };
+        let mut previous = 0;
+        for modifier in &parts[..parts.len() - 1] {
+            let bit = match *modifier { "Ctrl" => 1, "Alt" => 2, "Shift" => 4, "Meta" => 8, _ => 0 };
+            if bit <= previous || bit & primary != 0 { return false; }
+            previous = bit;
+        }
+    }
+    true
 }
 
 fn kind(v: &serde_json::Value) -> &'static str {
@@ -458,12 +872,16 @@ pub fn set_setting(folder: &Path, key: &str, value: &serde_json::Value) -> Resul
     let m = read_mod(folder)?;
     let s = m.settings.iter().find(|s| s.key == key).ok_or_else(|| Error::not_found(format!("{} has no setting {key}", m.id)))?;
     check_value(s, value)?;
-    let text = extension_text(&m)?;
+    let text = repair_fractions(&extension_text(&m)?, &m)?;
     let mut path = vec![PathSeg::Key("settings".into()), PathSeg::Key(key.into())];
     if !s.shorthand {
         path.push(PathSeg::Key("value".into()));
     }
-    let out = set_value(&text, &path, value)?;
+    // ShroudForge types a setting by the value it finds in the file: a whole value of a fractional setting is written
+    // as 2.0 (as ShroudForge itself writes it), or it would read the setting as a whole number from then on
+    let root = crate::jsonc::parse_tree(&text)?;
+    let span = root.at(&path).ok_or_else(|| Error::not_found(format!("{} has no setting {key}", m.id)))?.span;
+    let out = format!("{}{}{}", &text[..span.start], render_setting_value(s, value), &text[span.end..]);
     write_extension(&m, &out)?;
     read_mod(folder)
 }
@@ -472,25 +890,20 @@ pub fn set_setting(folder: &Path, key: &str, value: &serde_json::Value) -> Resul
 /// hints for the control, the group and "applies after a restart").
 pub fn settings_schema(m: &SfMod) -> serde_json::Value {
     let mut props = serde_json::Map::new();
-    let group_of = |key: &str| -> Option<String> {
-        m.groups.iter().find_map(|g| {
-            let listed = g.get("settings").and_then(|s| s.as_array()).is_some_and(|a| a.iter().any(|v| v.as_str() == Some(key)));
-            listed.then(|| g.get("label").and_then(|l| l.as_str()).unwrap_or("Settings").to_owned())
-        })
-    };
+    // each key's group (the first that lists it), indexed once: a package may declare many settings
+    let mut groups: std::collections::HashMap<&str, &str> = std::collections::HashMap::new();
+    for g in &m.groups {
+        let label = g.get("label").and_then(|l| l.as_str()).unwrap_or("Settings");
+        for key in g.get("settings").and_then(|s| s.as_array()).into_iter().flatten().filter_map(|v| v.as_str()) {
+            groups.entry(key).or_insert(label);
+        }
+    }
+    let group_of = |key: &str| groups.get(key).map(|l| (*l).to_owned());
     for s in &m.settings {
         let mut p = serde_json::Map::new();
-        let ty = match &s.value {
-            serde_json::Value::Bool(_) => "boolean",
-            serde_json::Value::Number(n) if n.is_i64() || n.is_u64() => "integer",
-            serde_json::Value::Number(_) => "number",
-            serde_json::Value::Array(_) => "array",
-            _ => "string",
-        };
-        // an integer setting with a fractional step is a number
-        let ty = if ty == "integer" && s.step.is_some_and(|st| st.fract() != 0.0) { "number" } else { ty };
+        let ty = value_type(s);
         p.insert("type".into(), ty.into());
-        p.insert("title".into(), s.label.clone().unwrap_or_else(|| s.key.clone()).into());
+        p.insert("title".into(), label_of(s).into());
         if let Some(d) = &s.description {
             p.insert("description".into(), d.clone().into());
         }
@@ -504,11 +917,14 @@ pub fn settings_schema(m: &SfMod) -> serde_json::Value {
         if let Some(v) = s.step {
             p.insert("multipleOf".into(), v.into());
         }
-        if let Some(opts) = &s.options {
-            let keys: Vec<serde_json::Value> = opts.keys().map(|k| k.clone().into()).collect();
-            let labels: Vec<serde_json::Value> = opts.values().cloned().collect();
+        if let Some(n) = s.min_length { p.insert("minLength".into(), n.into()); }
+        if let Some(n) = s.max_length { p.insert("maxLength".into(), n.into()); }
+        if let Some(opts) = s.options.as_ref().filter(|o| !o.is_empty()) {
+            let order = option_keys(s);
+            let keys: Vec<serde_json::Value> = order.iter().filter_map(|k| option_value(s, k)).collect();
+            let labels: Vec<serde_json::Value> = order.iter().filter_map(|k| opts.get(k.as_str()).cloned()).collect();
             if ty == "array" {
-                p.insert("items".into(), serde_json::json!({ "type": "string", "enum": keys, "x-kiln-enum-labels": labels }));
+                p.insert("items".into(), serde_json::json!({ "type": option_type(s), "enum": keys, "x-kiln-enum-labels": labels }));
                 p.insert("uniqueItems".into(), true.into());
             } else {
                 p.insert("enum".into(), keys.into());
@@ -520,7 +936,7 @@ pub fn settings_schema(m: &SfMod) -> serde_json::Value {
         if let Some(c) = &s.control {
             p.insert("x-kiln-control".into(), c.clone().into());
         }
-        if s.apply_at.as_deref() == Some("restart") {
+        if !s.live {
             p.insert("x-kiln-restart".into(), true.into());
         }
         if let Some(g) = group_of(&s.key) {
@@ -541,49 +957,226 @@ pub fn settings_schema(m: &SfMod) -> serde_json::Value {
     })
 }
 
+/// ShroudForge's type of a setting, from its declared value: boolean, integer, number, string or array.
+pub fn value_type(s: &SfSetting) -> &'static str {
+    match &s.value {
+        serde_json::Value::Bool(_) => "boolean",
+        serde_json::Value::Number(n) if n.is_i64() => "integer",
+        serde_json::Value::Number(_) => "number",
+        serde_json::Value::Array(_) => "array",
+        _ => "string",
+    }
+}
+
+fn option_type(s: &SfSetting) -> &'static str {
+    if let Some(a) = s.value.as_array() {
+        match a.first() {
+            Some(serde_json::Value::Bool(_)) => "boolean",
+            Some(serde_json::Value::Number(n)) if n.is_i64() => "integer",
+            Some(serde_json::Value::Number(_)) => "number",
+            _ => "string",
+        }
+    } else { value_type(s) }
+}
+
+/// An option key typed as ShroudForge types it (the scalar value, or the first array member; an empty array uses text),
+/// with its rules (read_mod_settings.rs): a yes/no key is true only as "true"; numbers are read by Rust's `str::parse`, and
+/// a fractional key that is not a finite double is an option whose value is null. None: ShroudForge refuses the key.
+pub fn option_value(s: &SfSetting, key: &str) -> Option<serde_json::Value> {
+    match option_type(s) {
+        "boolean" => Some((key == "true").into()),
+        "integer" => key.parse::<i64>().ok().map(serde_json::Value::from),
+        "number" => key.parse::<f64>().ok().map(|f| serde_json::Number::from_f64(f).map_or(serde_json::Value::Null, serde_json::Value::Number)),
+        _ => Some(key.into()),
+    }
+}
+
+/// The option keys in the order the mod declares them.
+pub fn option_keys(s: &SfSetting) -> Vec<&String> {
+    let Some(opts) = &s.options else { return Vec::new() };
+    let declared: Vec<&String> = s.option_order.iter().filter(|k| opts.contains_key(k.as_str())).collect();
+    if declared.len() == opts.len() { declared } else { opts.keys().collect() }
+}
+
+fn same_value(a: &serde_json::Value, b: &serde_json::Value) -> bool {
+    match (a.as_f64(), b.as_f64()) {
+        (Some(a), Some(b)) => a == b,
+        _ => a == b,
+    }
+}
+
+/// The label ShroudForge shows: `label`, else the key with a space before each capital (`noFallDamage` -> "no Fall
+/// Damage").
+pub fn label_of(s: &SfSetting) -> String {
+    if let Some(l) = &s.label {
+        return l.clone();
+    }
+    let mut out = String::with_capacity(s.key.len() + 4);
+    for (i, c) in s.key.chars().enumerate() {
+        if i > 0 && c.is_uppercase() {
+            out.push(' ');
+        }
+        out.push(c);
+    }
+    out
+}
+
+/// The control ShroudForge draws: `control`, else a select (a multiselect for a list) when the setting has options.
+pub fn control_of(s: &SfSetting) -> Option<String> {
+    s.control.clone().or_else(|| s.options.as_ref().filter(|o| !o.is_empty()).map(|_| {
+        if s.value.is_array() { "multiselect" } else { "select" }.to_owned()
+    }))
+}
+
+/// Whether the setting is editable now: its `enabledWhen` chain holds for `values` (ShroudForge's
+/// `setting_is_enabled`: a missing controller or a cycle disables it; numbers compare by value, 5 = 5.0).
+pub fn setting_enabled(key: &str, settings: &[SfSetting], values: &serde_json::Value) -> bool {
+    let mut current = key.to_owned();
+    let mut seen = std::collections::BTreeSet::new();
+    loop {
+        let Some(s) = settings.iter().find(|s| s.key == current) else { return false };
+        let Some(cond) = &s.enabled_when else { return true };
+        if !seen.insert(current.clone()) {
+            return false;
+        }
+        let (Some(target), Some(equals)) = (cond.get("setting").and_then(|v| v.as_str()), cond.get("equals")) else {
+            return false;
+        };
+        let Some(value) = values.get(target) else { return false };
+        let same = match (value.as_f64(), equals.as_f64()) {
+            (Some(a), Some(b)) if value.is_number() && equals.is_number() => a == b,
+            _ => value == equals,
+        };
+        if !same {
+            return false;
+        }
+        current = target.to_owned();
+    }
+}
+
 /// The settings' current values as one object (key -> value), the SchemaForm's data.
 pub fn settings_values(m: &SfMod) -> serde_json::Value {
     serde_json::Value::Object(m.settings.iter().map(|s| (s.key.clone(), s.value.clone())).collect())
 }
 
-/// Profile activation: each listed mod's switch as the profile says (ids match mod.json `id`, case-insensitive). Mods
-/// the profile does not list keep their switch. Returns the ids whose switch changed.
-pub fn apply_switches(game_dir: &Path, wanted: &[(String, bool)]) -> Result<Vec<String>> {
-    let (mods, _) = list_mods(game_dir);
-    let mut changed = Vec::new();
-    for (id, on) in wanted {
-        if let Some(m) = mods.iter().find(|m| m.id.eq_ignore_ascii_case(id))
-            && m.enabled != *on
-        {
-            set_enabled(&m.folder, *on)?;
-            changed.push(m.id.clone());
-        }
-    }
-    Ok(changed)
-}
-
 /// `kiln/state/shroudforge.json`: `mode` hosted | self-hosted | not-installed | off | failed, `reason`, `version`,
-/// `side`, `nativeAbi`, `native` (ShroudForge's native runtime status text), `turns`, `updated` (unix seconds).
+/// `side`, `nativeAbi`, `native` (ShroudForge's native runtime status text), `keys` (`{source: kiln | helper | none,
+/// reason}`: where mod shortcuts get their key state), `turns`, `updated` (unix seconds).
 pub fn status(game_dir: &Path) -> Result<Option<serde_json::Value>> {
     crate::util::read_json(&game_dir.join(STATUS_FILE))
 }
 
-/// ShroudForge's own per-mod effect reports (`runtime.report_effect`) from its state file: id -> {state, detail}.
-pub fn effects(game_dir: &Path) -> serde_json::Value {
-    let state_dir = std::fs::read(game_dir.join(CONFIG_FILE))
-        .ok()
-        .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
-        .and_then(|v| v.pointer("/paths/state").and_then(|s| s.as_str()).map(str::to_owned))
-        .filter(|s| !s.trim().is_empty());
-    let file = match state_dir {
-        Some(d) => game_dir.join(d.replace('\\', "/")).join("state.json"),
-        None => game_dir.join("shroudforge/state.json"),
+/// An observation from SF, not independent verification of a gameplay effect.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SfEffect {
+    pub id: String,
+    pub state: String,
+    pub detail: String,
+}
+
+/// SF's runtime report, separate from the adapter's "hosted" state. Only a current report has mod rows.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SfEffects {
+    pub file: String,
+    /// current | stale | stopped | unavailable | invalid
+    pub state: String,
+    pub updated_at: Option<u64>,
+    pub reason: Option<String>,
+    pub mods: Vec<SfEffect>,
+}
+
+fn read_effect_json(game_dir: &Path, file: &Path) -> std::result::Result<Option<serde_json::Value>, String> {
+    use std::io::Read;
+    crate::engine_mods::refuse_symlink_path(game_dir, file).map_err(|e| e.message)?;
+    match std::fs::metadata(file) {
+        Ok(meta) if !meta.is_file() => return Err("ShroudForge report must be a regular file".into()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(format!("Cannot inspect ShroudForge report: {e}")),
+        _ => {}
+    }
+    let input = match std::fs::File::open(file) {
+        Ok(input) => input,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(format!("Cannot read ShroudForge report: {e}")),
     };
-    std::fs::read(file)
-        .ok()
-        .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
-        .and_then(|v| v.pointer("/runtime/effects").cloned())
-        .unwrap_or_else(|| serde_json::json!({}))
+    const LIMIT: u64 = 2 * 1024 * 1024;
+    let mut bytes = Vec::new();
+    input.take(LIMIT + 1).read_to_end(&mut bytes).map_err(|e| e.to_string())?;
+    if bytes.len() as u64 > LIMIT { return Err("ShroudForge report exceeds 2 MiB".into()); }
+    serde_json::from_slice(&bytes).map(Some).map_err(|_| "ShroudForge report or configuration is not valid JSON".into())
+}
+
+/// Read SF's own per-mod effects and errors. An unchanged effect remains valid while the runtime heartbeat is fresh;
+/// old successes must not be shown as current merely because the adapter started. No game process is started here.
+pub fn effects(game_dir: &Path) -> SfEffects {
+    let mut report = SfEffects {
+        file: game_dir.join("shroudforge/state.json").display().to_string(), state: "invalid".into(),
+        updated_at: None, reason: None, mods: Vec::new(),
+    };
+    let load = || -> std::result::Result<PathBuf, String> {
+        let config = read_effect_json(game_dir, &game_dir.join(CONFIG_FILE))?;
+        match config.as_ref().and_then(|v| v.pointer("/paths/state")) {
+            None | Some(serde_json::Value::Null) => Ok(game_dir.join("shroudforge/state.json")),
+            Some(serde_json::Value::String(p)) if p.trim().is_empty() => Ok(game_dir.join("shroudforge/state.json")),
+            Some(serde_json::Value::String(p)) => resolve_game_folder(game_dir, p.trim())
+                .map(|p| p.join("state.json")).ok_or_else(|| "Configured ShroudForge state path is not accessible on this system".into()),
+            _ => Err("ShroudForge paths.state must be a folder path".into()),
+        }
+    };
+    let file = match load() {
+        Ok(file) => file,
+        Err(reason) => { report.reason = Some(reason); return report; }
+    };
+    report.file = file.display().to_string();
+    let doc = match read_effect_json(game_dir, &file) {
+        Ok(Some(doc)) => doc,
+        Ok(None) => {
+            report.state = "unavailable".into();
+            report.reason = Some("No ShroudForge runtime report yet".into());
+            return report;
+        }
+        Err(reason) => { report.reason = Some(reason); return report; }
+    };
+    let parse = || -> Option<(bool, u64, Vec<SfEffect>)> {
+        let runtime = doc.get("runtime")?.as_object()?;
+        let running = runtime.get("running")?.as_bool()?;
+        let updated = runtime.get("updatedAt")?.as_u64()?;
+        let active: Option<Vec<_>> = runtime.get("active")?.as_array()?.iter().map(|id| id.as_str()).collect();
+        let active = active?;
+        let mut mods = std::collections::BTreeMap::new();
+        if let Some(effects) = runtime.get("effects") {
+            for (id, value) in effects.as_object()? {
+                if !active.contains(&id.as_str()) { continue; }
+                mods.insert(id.clone(), SfEffect { id: id.clone(), state: value.get("state")?.as_str()?.into(),
+                    detail: value.get("detail").map(|v| v.as_str()).unwrap_or(Some(""))?.into() });
+            }
+        }
+        if let Some(errors) = runtime.get("errors") {
+            for (id, detail) in errors.as_object()? {
+                mods.insert(id.clone(), SfEffect { id: id.clone(), state: "error".into(), detail: detail.as_str()?.into() });
+            }
+        }
+        Some((running, updated, mods.into_values().collect()))
+    };
+    let Some((running, updated, mods)) = parse() else {
+        report.reason = Some("ShroudForge runtime report has invalid or missing fields".into());
+        return report;
+    };
+    report.updated_at = Some(updated);
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs();
+    if !running {
+        report.state = "stopped".into();
+        report.reason = Some("ShroudForge runtime is stopped; previous mod effects are not current".into());
+    } else if updated == 0 || now.saturating_sub(updated) > 30 || updated.saturating_sub(now) > 5 {
+        report.state = "stale".into();
+        report.reason = Some("ShroudForge runtime report is stale; current mod effects are unknown".into());
+    } else {
+        report.state = "current".into();
+        report.mods = mods;
+    }
+    report
 }
 
 #[cfg(test)]
@@ -616,6 +1209,19 @@ mod tests {
 "#;
 
     #[test]
+    fn refused_launcher_and_targets_never_claim_to_run() {
+        let t = crate::library::TempDir::new(&std::env::temp_dir(), "kiln-sf-invalid-switch").unwrap();
+        for fields in [r#""launcher":null"#, r#""launcher":"eml""#, r#""targets":"server""#,
+            r#""targets":[]"#, r#""targets":["client",42]"#, r#""targets":["client","client"]"#] {
+            let ext = format!(r#"{{"schemaVersion":1,"enabled":true,{fields}}}"#);
+            // each case is well-formed JSON: it is the field's value that ShroudForge's schema refuses
+            assert!(serde_json::from_str::<serde_json::Value>(&ext).is_ok(), "{ext}");
+            let f = pkg(t.path(), "invalid", Some(&ext));
+            assert!(matches!(switched_off(&f, false), Some(SfOff::Unreadable(_))), "{ext}");
+        }
+    }
+
+    #[test]
     fn reads_and_edits_preserving_layout() {
         let t = crate::library::TempDir::new(&std::env::temp_dir(), "kiln-sf-test").unwrap();
         let f = pkg(t.path(), "sf-survival", Some(EXT));
@@ -643,6 +1249,20 @@ mod tests {
         set_setting(&f, "mode", &serde_json::json!("b")).unwrap();
     }
 
+    /// The launcher cannot be handed a number that is not finite: serde_json turns it into null, which is refused.
+    #[test]
+    fn a_number_that_is_not_finite_never_reaches_the_writer() {
+        let t = crate::library::TempDir::new(&std::env::temp_dir(), "kiln-sf-test").unwrap();
+        let f = pkg(t.path(), "nan", Some(r#"{"schemaVersion":1,"enabled":true,"settings":{"ratio":{"value":0.5}}}"#));
+        let before = std::fs::read(f.join("extended.mod.json")).unwrap();
+        for n in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            let v = serde_json::Value::from(n);
+            assert!(v.is_null());
+            assert!(set_setting(&f, "ratio", &v).is_err());
+        }
+        assert_eq!(std::fs::read(f.join("extended.mod.json")).unwrap(), before);
+    }
+
     #[test]
     fn schema_for_schemaform() {
         let t = crate::library::TempDir::new(&std::env::temp_dir(), "kiln-sf-test").unwrap();
@@ -652,8 +1272,29 @@ mod tests {
         assert_eq!(s["properties"]["infiniteStamina"]["x-kiln-group"], "Survival");
         assert_eq!(s["properties"]["speed"]["type"], "integer");
         assert_eq!(s["properties"]["speed"]["maximum"], 10.0);
+        // a runtime mod without startup asset changes: ShroudForge hands every change to the running mod
+        assert!(s["properties"]["speed"].get("x-kiln-restart").is_none());
+        let patch = pkg(t.path(), "p", Some(EXT));
+        std::fs::write(patch.join("mod.json"), r#"{"id":"p","name":"P","version":"1.0.0","capabilities":["patch","runtime"]}"#).unwrap();
+        let s = settings_schema(&read_mod(&patch).unwrap());
         assert_eq!(s["properties"]["speed"]["x-kiln-restart"], true);
+        assert_eq!(s["properties"]["infiniteStamina"]["x-kiln-restart"], true, "no applyAt: ShroudForge's default is restart");
         assert_eq!(s["properties"]["mode"]["enum"], serde_json::json!(["a", "b"]));
+    }
+
+    /// Package validation refuses these graphs, but callers of the editor rule still get safe, defensive answers.
+    #[test]
+    fn enabled_rule_is_defensive_for_non_package_models() {
+        let settings = vec![
+            parse_setting("base", &serde_json::json!(5)),
+            parse_setting("child", &serde_json::json!({"value":true,"enabledWhen":{"setting":"base","equals":5.0}})),
+            parse_setting("lost", &serde_json::json!({"value":true,"enabledWhen":{"setting":"missing","equals":true}})),
+            parse_setting("cycle", &serde_json::json!({"value":true,"enabledWhen":{"setting":"cycle","equals":true}})),
+        ];
+        let values = settings.iter().map(|s| (s.key.clone(), s.value.clone())).collect();
+        assert!(setting_enabled("child", &settings, &values));
+        assert!(!setting_enabled("lost", &settings, &values));
+        assert!(!setting_enabled("cycle", &settings, &values));
     }
 
     #[test]
@@ -688,7 +1329,7 @@ mod tests {
     }
 
     #[test]
-    fn detect_and_switches() {
+    fn detect_and_mods_dir() {
         let t = crate::library::TempDir::new(&std::env::temp_dir(), "kiln-sf-test").unwrap();
         let g = t.path();
         assert!(detect(g).is_none());
@@ -699,10 +1340,6 @@ mod tests {
         let i = detect(g).unwrap();
         assert_eq!(i.version.as_deref(), Some("1.7.9"));
         assert_eq!(i.mods_dir, g.join("mods"));
-        pkg(&g.join("mods"), "sf-survival", Some(EXT));
-        let changed = apply_switches(g, &[("SF-Survival".into(), true), ("missing".into(), true)]).unwrap();
-        assert_eq!(changed, vec!["sf-survival"]);
-        assert!(apply_switches(g, &[("sf-survival".into(), true)]).unwrap().is_empty());
         std::fs::write(g.join(CONFIG_FILE), r#"{"paths":{"mods":"MyMods"}}"#).unwrap();
         assert_eq!(mods_dir(g), g.join("MyMods"));
     }

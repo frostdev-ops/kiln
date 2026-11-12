@@ -75,6 +75,8 @@ kiln.ui subclasses the window (`SetWindowLongPtrW(GWLP_WNDPROC)`, re-applied if 
 - Every window message ImGui cares about is queued and replayed into ImGui's Win32 backend on the render thread just
   before each frame (ImGui's IO is not thread-safe; the WndProc runs on the main thread, presents on the render
   thread).
+- Native subscribers of `subscribe_window_input` (kiln.ui v5, [ui.md](../kiln/ui.md#c-native-plugins)) get the key,
+  button and focus-loss records on the main thread as they arrive, before any of the above.
 
 ## Runtime (GE-Proton, build 1285601, windowed 1920x1280 under XWayland)
 Verified, with a synthetic absolute pointer and a virtual keyboard:

@@ -88,19 +88,19 @@ pub struct Runner {
 impl Runner {
     /// `wine --version` (does not touch a prefix).
     pub fn version(&self) -> Option<String> {
-        let out = Command::new(&self.wine).arg("--version").env_remove("DISPLAY").output().ok()?;
+        let out = crate::hostenv::command(&self.wine).arg("--version").env_remove("DISPLAY").output().ok()?;
         let v = String::from_utf8_lossy(&out.stdout).trim().to_string();
         (!v.is_empty()).then_some(v)
     }
 
     pub fn command(&self, inst: &Instance) -> Command {
-        let mut c = Command::new(&self.wine);
+        let mut c = crate::hostenv::command(&self.wine);
         apply_env(&mut c, inst);
         c
     }
 
     pub fn wineserver(&self, inst: &Instance) -> Command {
-        let mut c = Command::new(&self.wineserver);
+        let mut c = crate::hostenv::command(&self.wineserver);
         apply_env(&mut c, inst);
         c
     }

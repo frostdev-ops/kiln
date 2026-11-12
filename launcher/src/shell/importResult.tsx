@@ -142,13 +142,13 @@ export function PickProfile() {
     <Modal open={!!pending} onClose={close} title="Add to which profile?" width={440} footer={<Button variant="ghost" onClick={close}>Not now</Button>}>
       {pending && (
         <div className="k-stack">
-          <span className="k-hint">{pending.label} is in your Library. It loads in the game once it is in the profile you play.</span>
+          <span className="k-hint">{pending.label} is in your list, off. It loads once it is on in the profile you play.</span>
           {profiles.isLoading ? null : list.length ? list.map((p) => (
             <button key={p.id} type="button" className="k-menu-item" onClick={() => void pick(p.id)}>
               <span>{p.name}</span>
-              {pending.game && p.active.includes(pending.game.id) && <span className="k-muted"> active</span>}
+              {pending.game && p.active.includes(pending.game.id) && <span className="k-muted"> loaded</span>}
             </button>
-          )) : <EmptyState title="No profiles yet" hint="Make one on Profiles." />}
+          )) : <EmptyState title="No profiles yet" hint="Settings, Profiles keeps them." />}
         </div>
       )}
     </Modal>

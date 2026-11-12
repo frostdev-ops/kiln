@@ -288,8 +288,22 @@ fn dropins_of_old_profiles_are_written_as_before() {
     let old = r#"{"format":1,"id":"p","name":"P","created":"","updated":"","generation":3,"mods":{"kiln":[]},"dropins":["kiln","native","plugin","emf"]}"#;
     let p: Profile = serde_json::from_str(old).unwrap();
     assert!(!p.dropins_engines);
-    assert_eq!(p.dropin_kinds(), ModKind::ALL.to_vec());
+    assert_eq!(p.dropin_kinds(), ModKind::ALL.into_iter().filter(|k| *k != K::Xhl).collect::<Vec<_>>());
     assert!(!serde_json::to_string(&p).unwrap().contains("dropinsEngines"));
+}
+
+#[test]
+fn external_xhl_companions_never_get_a_kiln_dropin_switch() {
+    for modern in [false, true] {
+        for kinds in [vec![], ModKind::CORE.to_vec(), ModKind::ALL.to_vec(), vec![ModKind::Xhl]] {
+            let p = profile(&kinds, modern);
+            assert!(!p.dropin_kinds().contains(&ModKind::Xhl));
+            assert!(!matches!(p.dropins_file(), Dropins::Kinds(ref ks) if ks.contains(&ModKind::Xhl)));
+            let switched = with_dropin(&p, ModKind::Xhl);
+            assert!(!switched.dropins.contains(&ModKind::Xhl));
+            assert_eq!(switched.dropin_kinds(), p.dropin_kinds());
+        }
+    }
 }
 
 #[test]

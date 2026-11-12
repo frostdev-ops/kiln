@@ -138,6 +138,8 @@ const seedMods: Record<ModKind, MockManifest[]> = {
   ],
   plugin: [{ id: "my-plugin", name: "my-plugin.dll", version: "1.0.0", side: "client" }],
   // other engines' mods (engine_mods::import_engine_mod): one per imported kind
+  // an XHL companion: Library id from its original folder name, which stays its own id (engine_mods::import_engine_mod)
+  xhl: [{ id: "xhl-vein-mining", name: "XHL-Vein-Mining", version: "0.0.0", side: "both", clients: "mod" }],
   eml: [{ id: "loot-tables-x", name: "Loot Tables X", version: "1.2.0", side: "both", clients: "mod" }],
   shroudforge: [{ id: "better-chests", name: "Better Chests", version: "0.4.1", side: "both", clients: "mod" }],
   set: [{ id: "fov-tweak", name: "FOV Tweak", version: "1.0.0", side: "both", clients: "none" }],
@@ -160,7 +162,7 @@ function entryFor(kind: ModKind, m: MockManifest, imported: string, from?: strin
       version: m.version, hash, folder: `library/${kind}/${m.id}/${m.version}+${hash.slice(5, 13)}`, imported,
       side: m.side, clients: m.clients ?? (m.side === "server" ? "none" : "mod"), size: 40_000 + m.id.length * 3_100,
       source: { type: kind === "plugin" ? "file" : "folder", from: from ?? `${m.id}-${m.version}.zip` },
-      manifestId: null,
+      manifestId: kind === "xhl" && m.name !== m.id ? m.name : null,
       manifest: { ...m } as unknown as Json,
     }],
   };
@@ -187,7 +189,7 @@ const profiles = new Map<string, Profile>(FRESH ? [] : [
       native: [pm("native", "fps-unlock"), pm("native", "creative-mode"), pm("native", "hud-tweaks"), pm("native", "free-cam", false)],
       plugin: [],
       emf: [pm("emf", "beastmaster")],
-      eml: [pm("eml", "loot-tables-x", false)], shroudforge: [pm("shroudforge", "better-chests")], set: [], greeneye: [pm("greeneye", "zoom-out")],
+      xhl: [], eml: [pm("eml", "loot-tables-x", false)], shroudforge: [pm("shroudforge", "better-chests")], set: [], greeneye: [pm("greeneye", "zoom-out")],
       flame: [], shroudtopia: [pm("shroudtopia", "fly-mode")], enshwick: [], shroudlink: [], ember: [],
     },
     // made by a dev.22 launcher: the list names every kind that is on (none). "Vanilla plus" is from before dev.22.
@@ -213,6 +215,13 @@ function fingerprint(p: Profile): string {
   return "kms1:" + hex(parts.join("\n"));
 }
 
+/** What the next add result says it did in the profile besides adding (AddReport.notices; tests: `__kilnMock.planAddNotices`). */
+const addNotices: string[] = [];
+
+/** What the next activation reports it kept in the game folder (tests: `__kilnMock.planActivation`), by whatever path
+ *  it runs (profile_activate, the re-apply after profile_save, a reinstall's resume). */
+let activationPlan: Pick<Activation, "retained" | "keptFiles" | "warnings"> | null = null;
+
 function activate(pid: string, gameId: string): Activation {
   const p = profiles.get(pid) ?? reject("not_found", `No profile '${pid}'.`);
   const g = gameOf(gameId);
@@ -220,8 +229,9 @@ function activate(pid: string, gameId: string): Activation {
   const prev = activations[gameId];
   const a: Activation = {
     gameId, profileId: pid, generation: (prev?.generation ?? 6) + 1, pathMode: g.pathMode, profileJson: `${g.path}/kiln/profile.json`,
-    copied: 0, fingerprint: fingerprint(p), activated: now(),
+    copied: 0, fingerprint: fingerprint(p), activated: now(), ...activationPlan,
   };
+  activationPlan = null;
   activations[gameId] = a;
   remembered[gameId] = pid;
   return a;
@@ -231,7 +241,8 @@ if (!FRESH) activate("ember-run", "client-steam");
 function summary(p: Profile): ProfileSummary {
   return {
     id: p.id, name: p.name, updated: p.updated, server: p.server,
-    counts: Object.fromEntries(MOD_KINDS.map((k) => [k, (p.mods[k] ?? []).filter((m) => m.enabled).length])) as Record<ModKind, number>,
+    // profile::counts: every entry of each kind, on or off
+    counts: Object.fromEntries(MOD_KINDS.map((k) => [k, (p.mods[k] ?? []).length])) as Record<ModKind, number>,
     active: Object.entries(activations).filter(([, a]) => a?.profileId === p.id).map(([g]) => g),
   };
 }
@@ -243,14 +254,30 @@ function slug(name: string): string {
   return id;
 }
 
-function resolve(p: Profile, side: "client" | "server"): ResolvePreview {
+/** What the launcher says about a client's side "server" Kiln mods (kiln_manage::profile WITH_WORLD, HOSTED_OFF,
+ *  WORLD_FAILS): they start with the player's own world (Kiln.Host ModManager.StartHosting). */
+const HOSTED = {
+  with: "Starts with your own world, when you play alone or friends join you. It does not run in someone else's world.",
+  off: "Off in this game: its kiln.json turns off mods that start with your world (mods.hosted is false).",
+  fails: "Will not start with your world: ",
+};
+
+/** The game's kiln.json `"mods": {"hosted": false}` keeps a client's server mods off (anything else: on). */
+function kilnHosted(gameId: string | null): boolean {
+  if (!gameId || !games.some((g) => g.id === gameId)) return true;
+  const mods = (kilnFile(gameId).values as Record<string, Json> | null)?.mods;
+  return !(mods && typeof mods === "object" && !Array.isArray(mods) && (mods as Record<string, Json>).hosted === false);
+}
+
+/** One resolver pass (resolver.rs, simplified): `hosting` is a client whose own world runs, so server mods match. */
+function resolveOnce(p: Profile, side: "client" | "server", hosting: boolean): { order: string[]; rejected: Rejection[] } {
   const enabled = p.mods.kiln.filter((m) => m.enabled);
   const rejected: Rejection[] = [];
   const ok = new Map<string, MockManifest>();
   for (const m of enabled) {
     const man = manifestOf("kiln", m.id, m.version);
     if (!man) { rejected.push({ id: m.id, dir: m.id, state: "failed", reason: "kiln.mod.json: not found in the library" }); continue; }
-    if (side === "client" && man.side === "server") { rejected.push({ id: m.id, dir: m.id, state: "skipped", reason: "side 'server': not loaded on a client" }); continue; }
+    if (side === "client" && man.side === "server" && !hosting) { rejected.push({ id: m.id, dir: m.id, state: "skipped", reason: "side 'server': not loaded on a client" }); continue; }
     if (side === "server" && man.side === "client") { rejected.push({ id: m.id, dir: m.id, state: "skipped", reason: "side 'client': not loaded on a server" }); continue; }
     ok.set(m.id, man);
   }
@@ -265,14 +292,33 @@ function resolve(p: Profile, side: "client" | "server"): ResolvePreview {
       if (other) { ok.delete(id); rejected.push({ id, dir: id, state: "failed", reason: `incompatible with ${bad} ${other.version} (declared in its incompatible list)` }); }
     }
   }
-  const order = [...ok.keys()].sort();
+  return { order: [...ok.keys()].sort(), rejected };
+}
+
+function resolve(p: Profile, side: "client" | "server", gameId: string | null): ResolvePreview {
+  const kiln = resolveOnce(p, side, false);
+  const withWorld: string[] = [];
+  if (side === "client") {
+    // kiln_manage::profile::with_world: the menu, then what the player's own world adds
+    const world = kilnHosted(gameId) ? resolveOnce(p, side, true) : null;
+    const server = new Set(p.mods.kiln.filter((m) => manifestOf("kiln", m.id, m.version)?.side === "server").map((m) => m.id));
+    for (const r of kiln.rejected) {
+      const sideSkip = r.state === "skipped" && server.has(r.id);
+      if (!world) { if (sideSkip) r.reason = HOSTED.off; continue; }
+      const x = world.rejected.find((w) => w.dir === r.dir);
+      if (x) { if (sideSkip || x.reason !== r.reason) Object.assign(r, { state: x.state, reason: HOSTED.fails + x.reason }); }
+      else if (world.order.includes(r.id)) { Object.assign(r, { state: "skipped", reason: HOSTED.with }); withWorld.push(r.id); }
+    }
+    if (world) withWorld.sort((a, b) => world.order.indexOf(a) - world.order.indexOf(b));
+  }
+  for (const m of p.mods.kiln.filter((x) => !x.enabled)) kiln.rejected.push({ id: m.id, dir: m.id, state: "disabled", reason: "disabled in the profile" });
   const native: NativePlanEntry[] = p.mods.native.map((m) => {
     const man = manifestOf("native", m.id, m.version);
     return { id: m.id, version: m.version, phase: man?.phase ?? "early", enabled: m.enabled, reason: m.enabled ? null : "disabled in the profile" };
   });
   const warnings: string[] = [];
   if (native.some((n) => n.enabled && n.phase === "dllmain")) warnings.push("dllmain mods load inside the proxy; a bad one can hang the start.");
-  return { side, kiln: { order, rejected: rejected.sort((a, b) => a.dir.localeCompare(b.dir)) }, native, warnings };
+  return { side, kiln: { order: kiln.order, rejected: kiln.rejected.sort((a, b) => a.dir.localeCompare(b.dir)) }, native, warnings, withWorld };
 }
 
 // ---------------------------------------------------------------- other engines' mods
@@ -295,6 +341,8 @@ const sfSettings: Record<string, { schema: Json; values: Record<string, Json> }>
 const shroudtopiaFiles = new Map<string, Record<string, Record<string, Json>>>();
 /** EML patched enshrouded.kfc (its `.kfc.bak` is the vanilla file). */
 let emlPatched = true;
+/** engine_mods::xhl_host's sentence when no XHL-Core is on the game's proxy/chain paths (the fake game has none). */
+const XHL_NO_HOST = "Requires XHL-Core: no recognized host was found on this game's active proxy/chain paths. Import XHL-Core separately as a Native mod and enable it, or install it using its author's instructions. Kiln never loads companion plugin DLLs itself; unknown Wine drive mappings cannot be verified here.";
 
 function schemaFromValues(v: Json): Json {
   if (v && typeof v === "object" && !Array.isArray(v)) return { type: "object", properties: Object.fromEntries(Object.entries(v).map(([k, x]) => [k, schemaFromValues(x)])) };
@@ -401,6 +449,8 @@ function launch(gameId: string, req: LaunchRequest): LaunchResult {
   if (req.mode === "once" && !req.profileId) reject("invalid_argument", "Pick a profile to play once.");
   const st = runtime[gameId];
   if (!st?.installed && req.mode !== "vanilla") reject("unsupported", "Kiln is not installed in this game.");
+  // Play writes a changed profile again first (profile::refresh_active): a planned report stands for what that kept
+  const act = req.mode === "profile" && activationPlan && activations[gameId] ? activate(activations[gameId]!.profileId, gameId) : undefined;
   const pid = ++pidSeq;
   const nonce = req.mode === "profile" ? null : hex(String(pid)).slice(0, 32);
   const profile = req.mode === "once" ? req.profileId ?? null : req.mode === "profile" ? activations[gameId]?.profileId ?? null : null;
@@ -411,7 +461,7 @@ function launch(gameId: string, req: LaunchRequest): LaunchResult {
   setTimeout(() => emitGame(gameId, "started"), 300);
   setTimeout(() => emitGame(gameId, "boot"), 2600);
   setTimeout(() => emitGame(gameId, "mods"), 3200);
-  return { gameId: g.id, mode: req.mode, nonce, backup, uri: "steam://rungameid/1203620", started: now() };
+  return { gameId: g.id, mode: req.mode, nonce, backup, uri: "steam://rungameid/1203620", started: now(), ...(act ? { activation: act } : {}) };
 }
 
 /** Dev/test helper: the fake game was started outside the launcher (Steam) `secondsAgo` seconds ago. */
@@ -703,7 +753,9 @@ const handlers: Record<string, Handler> = {
       runtime[gameId] = { installed: true, receipt, proxy: kilnProxy, modified: [], upgradeAvailable: null };
       emitGame(g.id, "status");
       const backup = changed.length ? `/home/player/.local/share/kiln/backups/install/${receipt.installId}/install-${now().replace(/[-:]/g, "").slice(0, 15)}Z` : null;
-      return { ...receipt, changedBackedUp: changed, backup } satisfies InstallResult;
+      // the active profile, written again for this runtime (quick::resume_active): a planned report stands for what it kept
+      const activation = activationPlan && activations[gameId] ? activate(activations[gameId]!.profileId, gameId) : null;
+      return { ...receipt, changedBackedUp: changed, backup, resumedProfile: null, activation } satisfies InstallResult;
     });
   },
   runtime_uninstall: (a) => {
@@ -715,7 +767,7 @@ const handlers: Record<string, Handler> = {
       activations[gameId] = null; // kiln/profile.json goes with Kiln's files; the launcher's record of the profile stays
       runtime[gameId] = { installed: false, receipt: null, proxy: emf ? { kind: "emf", version: "0.3.3", abi: null, sha256: hex("emf"), size: 70_000, detail: "export emf_loader_identity" } : null, modified: [], upgradeAvailable: null };
       emitGame(gameId, "status");
-      return null;
+      return { removed: 1, restored: [], adopted: [], kept: [], placements: { removed: [], retained: [] }, warnings: [] };
     });
   },
   runtime_rollback: (a) => handlers.runtime_install({ ...a, options: {} }),
@@ -738,6 +790,7 @@ const handlers: Record<string, Handler> = {
     if (cur.generation !== p.generation) reject("conflict", "The profile changed elsewhere. Reload it.");
     const next = { ...clone(p), generation: p.generation + 1, updated: now() };
     profiles.set(p.id, next);
+    reapplyWhereActive(p.id, rendered(next) !== rendered(cur));
     return clone(next);
   },
   profile_delete: (a) => {
@@ -747,7 +800,7 @@ const handlers: Record<string, Handler> = {
     profiles.delete(id);
     return null;
   },
-  profile_resolve: (a) => resolve(profiles.get(S(a.profileId)) ?? reject("not_found", "No such profile."), (a.side as "client" | "server") ?? "client"),
+  profile_resolve: (a) => resolve(profiles.get(S(a.profileId)) ?? reject("not_found", "No such profile."), (a.side as "client" | "server") ?? "client", a.gameId ? S(a.gameId) : null),
   // the real activation answers after it has resolved and written the profile (seconds with big mods): the UI must
   // not wait for the answer to show the new name
   profile_activate: async (a) => {
@@ -756,8 +809,9 @@ const handlers: Record<string, Handler> = {
     emitGame(S(a.gameId), "status");
     return r;
   },
-  profile_deactivate: (a) => { if (running[S(a.gameId)]) reject("game_running", "Close the game first."); activations[S(a.gameId)] = null; remembered[S(a.gameId)] = null; emitGame(S(a.gameId), "status"); return null; },
+  profile_deactivate: (a) => { if (running[S(a.gameId)]) reject("game_running", "Close the game first."); activations[S(a.gameId)] = null; remembered[S(a.gameId)] = null; emitGame(S(a.gameId), "status"); return { removed: [], retained: [] }; },
   profile_active: (a) => activations[S(a.gameId)] ?? null,
+  activation_notices: () => notices.splice(0),
   profile_revert: (a) => {
     const id = S(a.profileId);
     const p = clone(profiles.get(id) ?? reject("not_found", `No profile '${id}'.`));
@@ -824,7 +878,7 @@ const handlers: Record<string, Handler> = {
     gameOf(gameId);
     const p = clone(profiles.get(S(a.profileId)) ?? reject("not_found", `No profile '${S(a.profileId)}'.`));
     const r: AddReport = { import: { imported: [], existing: [], skipped: [], notes: [], names: {} }, profileId: p.id, profileName: p.name, created: false, added: [], already: [],
-      changes: [], applied: false, running: !!running[gameId], activation: null, missing: [], modpacks: [], resumed: false, libraryOnly: null };
+      changes: [], applied: false, running: !!running[gameId], activation: null, missing: [], modpacks: [], resumed: false, libraryOnly: null, notices: addNotices.splice(0) };
     const named = (x: LibraryRef): AddedMod => ({ ...x, name: library.find((l) => l.kind === x.kind && l.id === x.id)?.name ?? x.id });
     for (const ref of refs) {
       const after: ProfileMod = { id: ref.id, version: ref.version, hash: ref.hash, enabled: true };
@@ -888,7 +942,13 @@ const handlers: Record<string, Handler> = {
       st("eml", "eml.json", emlPatched
         ? { phase: "done", patched: 3, ms: 1263, mods: [{ id: "loot-tables-x", name: "Loot Tables X", state: "disabled", reason: "disabled in the profile" }] }
         : { phase: "idle", mods: [] }),
-      st("shroudforge", "shroudforge.json", { mode: "hosted", reason: null, version: "0.9.2", side: "client" }),
+      // XHL-Core is external: only whether it is on the game's proxy/chain paths (engine_mods::xhl_host)
+      { kind: "xhl", plugin: "", state: null, file: "", prerequisite: { available: false, text: XHL_NO_HOST } },
+      // ShroudForge's own runtime report (shroudforge::effects): current while the fake game runs, stopped after
+      { ...st("shroudforge", "shroudforge.json", { mode: "hosted", reason: null, version: "0.9.2", side: "client" }), effects: running[g.id]
+        ? { file: `${g.path}/shroudforge/state.json`, state: "current", updatedAt: Math.floor(Date.now() / 1000), reason: null,
+          mods: [{ id: "better-chests", state: "no-change", detail: "autoSort is off" }] }
+        : { file: `${g.path}/shroudforge/state.json`, state: "stopped", updatedAt: 1793793660, reason: "ShroudForge runtime is stopped; previous mod effects are not current", mods: [] } },
       st("set", "set.json", null),
       st("greeneye", "greeneye.json", { mods: [{ id: "zoom-out", status: "started", generation: 1, hooks: 2 }] }),
       { ...st("flame", "flame.json", null), ownLoader: { kind: "flame", engine: "flame", file: "kiln/chain/flame-dinput8.dll", via: "chain", folder: "mods",
@@ -906,11 +966,9 @@ const handlers: Record<string, Handler> = {
     return FRESH ? [] : [{ file: `${g.path}/enshrouded.kfc`, backup: `${g.path}/enshrouded.kfc.bak`, patched: emlPatched }];
   },
   eml_restore: (a) => {
-    const g = gameOf(S(a.gameId));
+    gameOf(S(a.gameId));
     if (running[S(a.gameId)]) reject("game_running", "Close the game first.");
-    const done = emlPatched && !FRESH ? [`${g.path}/enshrouded.kfc`] : [];
-    emlPatched = false;
-    return done;
+    return reject("refused", "Direct restoration of shared archive backups cannot verify ownership. Disable EML mods and start the game through Kiln: its archive writer restores only output it can prove it wrote (earlier Kiln versions' too); other loaders' data is kept. When it cannot prove that, it leaves the data alone and says why (Logs > Engines); then enable any EML mod for one start and disable it again, or use Steam's \"Verify integrity of game files\".");
   },
 
   // mods in the game folder Kiln did not put there (kiln_manage::found)
@@ -1128,14 +1186,29 @@ function makeDefault(): Profile {
   return p;
 }
 
-/** profile_save's follow-up: the games where the profile is active (and stopped) get profile.json again. */
-function reapplyWhereActive(pid: string) {
+/** Re-applies' activations the window has not taken (activation_notices), as the backend keeps them; tests put some
+ *  there before the page loads with `window.__kilnMockNotices` (a re-apply before the window listened). */
+const notices: Activation[] = typeof window === "undefined" ? [] :
+  [...((window as unknown as { __kilnMockNotices?: Activation[] }).__kilnMockNotices ?? [])];
+
+/** profile_save's follow-up: reconcile every active, stopped game, even if profile.json is current. Only a rendered
+ *  change advances the game's generation; a report without a write still waits for the window. */
+function reapplyWhereActive(pid: string, written = true) {
   for (const [g, act] of Object.entries(activations)) {
     if (act?.profileId !== pid || running[g]) continue;
-    activate(pid, g);
+    const a = written ? activate(pid, g) : { ...act, retained: [], keptFiles: [], warnings: [], ...activationPlan };
+    activationPlan = null;
+    if (a.retained?.length || a.keptFiles?.length || a.warnings?.length) {
+      notices.push(a);
+      mockEmit("kiln://activation", { gameId: g });
+    }
     emitGame(g, "status");
   }
 }
+
+/** What profile.json holds of a profile (profile::render): name/notes edits need no write, but refresh_active still
+ *  reconciles the mod folders and can report retained copies, kept settings or warnings. */
+const rendered = (p: Profile) => JSON.stringify([p.mods, p.dropins, p.dataDir, p.late ?? []]);
 
 /** Games' profile files listing a version without a profile listing it (tests: `__kilnMock.setGameFileUsers`):
  *  `<profile> (active in <game>)` per `<kind>/<id>/<version>`. */
@@ -1228,13 +1301,13 @@ function foundAdd(gameId: string, pid: string, m: FoundMod): AddReport {
   const added: AddedMod = { kind, id, version: v.version, hash: v.hash, name: m.name };
   return { import: { imported: [ref], existing: [], skipped: [], notes: [], names: { [`${kind}/${id}`]: m.name } }, profileId: pid, profileName: p.name, created: false, added: [added], already: [],
     changes: [{ kind, before, after }], applied: active, running: !!running[gameId], activation: active ? activations[gameId] : null, missing: [], modpacks: [],
-    resumed: false, libraryOnly: null };
+    resumed: false, libraryOnly: null, notices: addNotices.splice(0) };
 }
 
 /** library_add (kiln_manage::quick::add): import, add to the active profile ("My mods" when there is none at all), apply. */
 function quickAdd(gameId: string, paths: string[], makeIt: boolean): AddReport {
   const r: AddReport = { import: { imported: [], existing: [], skipped: [], notes: [], names: {} }, profileId: null, profileName: null, created: false, added: [], already: [],
-    changes: [], applied: false, running: !!running[gameId], activation: null, missing: [], modpacks: [], resumed: false, libraryOnly: null };
+    changes: [], applied: false, running: !!running[gameId], activation: null, missing: [], modpacks: [], resumed: false, libraryOnly: null, notices: addNotices.splice(0) };
   const files: string[] = [];
   for (const p of paths) {
     if (detect(p).kind !== "modpack") files.push(p);
@@ -1331,6 +1404,29 @@ function importPaths(paths: string[]): ImportReport {
   return report;
 }
 
+// ---------------------------------------------------------------- state across reloads (tests)
+
+/** `sessionStorage["kiln.mock.persist"] = "1"` (a test, before a reload): profiles, activations and the library survive
+ *  reloads of the page, as the backend's files do. Off by default: every page load starts from the seed. */
+const PERSIST = typeof sessionStorage !== "undefined" && sessionStorage.getItem("kiln.mock.persist") === "1";
+const STATE_KEY = `kiln.mock.state:${MODE ?? "seed"}`;
+function saveState() {
+  sessionStorage.setItem(STATE_KEY, JSON.stringify({ profiles: [...profiles.entries()], activations, remembered, library }));
+}
+if (PERSIST) {
+  const raw = sessionStorage.getItem(STATE_KEY);
+  if (raw) {
+    const st = JSON.parse(raw) as { profiles: [string, Profile][]; activations: typeof activations; remembered: typeof remembered; library: LibraryEntry[] };
+    profiles.clear();
+    for (const [id, p] of st.profiles) profiles.set(id, p);
+    for (const k of Object.keys(activations)) delete activations[k];
+    Object.assign(activations, st.activations);
+    for (const k of Object.keys(remembered)) delete remembered[k];
+    Object.assign(remembered, st.remembered);
+    library.splice(0, library.length, ...st.library);
+  } else saveState();
+}
+
 export async function mockInvoke<T>(cmd: string, args: Record<string, unknown>): Promise<T> {
   commandCalls.push(cmd);
   const plan = commandPlans[cmd]?.shift();
@@ -1341,6 +1437,7 @@ export async function mockInvoke<T>(cmd: string, args: Record<string, unknown>):
   const h = handlers[cmd];
   if (!h) reject("not_implemented", `${cmd} has no mock (and no backend in a plain browser)`);
   const r = (await h(args)) ?? null;
+  if (PERSIST) saveState();
   return (r instanceof ArrayBuffer ? r.slice(0) : clone(r)) as T;
 }
 
@@ -1363,6 +1460,8 @@ export function mockEmit(name: string, payload: unknown): void {
 if (typeof window !== "undefined") (window as unknown as { __kilnMock?: unknown }).__kilnMock = { stopGame: mockStopGame, emit: mockEmit, setLastServer: mockSetLastServer,
   calls: () => [...commandCalls],
   planCommand: (cmd: string, plan: CommandPlan) => { (commandPlans[cmd] ??= []).push(plan); },
+  planActivation: (report: Pick<Activation, "retained" | "keptFiles" | "warnings">) => { activationPlan = report; },
+  planAddNotices: (lines: string[]) => { addNotices.push(...lines); },
   setGameFileUsers: (users: Record<string, string[]>) => { gameFileUsers = users; },
   failNextInstall: (message: string) => { failNextInstall = message; },
   setModified: (files: string[], gameId = "client-steam") => { if (runtime[gameId]) runtime[gameId] = { ...runtime[gameId], modified: files }; emitGame(gameId, "status"); },
@@ -1370,4 +1469,10 @@ if (typeof window !== "undefined") (window as unknown as { __kilnMock?: unknown 
   setPreStart: (p: PreStart | null) => { preStart = p; },
   setNoProxy: (on: boolean, gameId = "client-steam") => { noProxy = on; emitGame(gameId, "status"); },
   setNewerMods: (mods: NewerKilnMod[], gameId = "client-steam") => { newerMods[gameId] = mods; emitGame(gameId, "status"); },
+  /** A hand edit of the game's kiln.json (a key the launcher's Settings do not list, such as `mods.hosted`). */
+  setKilnJson: (path: string, value: Json, gameId = "client-steam") => {
+    const f = kilnFile(gameId);
+    const values = setPath(f.values, path, value);
+    Object.assign(f, { values, text: JSON.stringify(values, null, 2) + "\n", modified: now() });
+  },
   setUpgradeAvailable: (version: string | null, gameId = "client-steam") => { if (runtime[gameId]) runtime[gameId] = { ...runtime[gameId], upgradeAvailable: version }; emitGame(gameId, "status"); } };

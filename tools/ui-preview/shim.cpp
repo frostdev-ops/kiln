@@ -619,6 +619,36 @@ __attribute__((visibility("default"))) const uint8_t* kiln_preview_frame(int men
     return g_pixels.data();
 }
 
+// Typed text for the next frame (UTF-8), as the game's window messages would feed it.
+__attribute__((visibility("default"))) void kiln_preview_chars(const char* utf8) { ImGui::GetIO().AddInputCharactersUTF8(utf8); }
+
+// The mouse cursor shape the last frame asked for (ImGuiMouseCursor: 1 = a text field is under the mouse).
+__attribute__((visibility("default"))) int kiln_preview_mouse_cursor() { return ImGui::GetMouseCursor(); }
+
+// The active text field as ImGui holds it: the size it was told the caller's buffer has (BufCapacity, given every frame),
+// the size of its own copy of the text (TextA, made when the field became active) and the text's length. 0: none active.
+__attribute__((visibility("default"))) int kiln_preview_text_state(int* capacity, int* size, int* length) {
+    ImGuiContext& g = *GImGui;
+    const ImGuiInputTextState& st = g.InputTextState;
+    if (st.ID == 0 || g.ActiveId != st.ID) return 0;
+    if (capacity) *capacity = st.BufCapacity;
+    if (size) *size = st.TextA.Size;
+    if (length) *length = st.TextLen;
+    return 1;
+}
+
+// The name of the front-most top-level window drawn last frame (z-order checks: Kiln.Ui.Preview --check-z).
+__attribute__((visibility("default"))) int kiln_preview_front_window(char* buf, int cap) {
+    ImGuiContext& g = *GImGui;
+    for (int i = g.Windows.Size - 1; i >= 0; --i) {
+        const ImGuiWindow* w = g.Windows[i];
+        if (w->ParentWindow || !w->WasActive || w->Hidden || (w->Flags & ImGuiWindowFlags_Tooltip)) continue;
+        if (buf && cap > 0) std::snprintf(buf, static_cast<size_t>(cap), "%s", w->Name);
+        return 1;
+    }
+    return 0;
+}
+
 __attribute__((visibility("default"))) void kiln_preview_close() {
     if (ImGui::GetCurrentContext()) ImGui::DestroyContext();
     g_subs.clear();

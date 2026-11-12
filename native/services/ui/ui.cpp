@@ -37,6 +37,7 @@ namespace {
 std::atomic<KilnHandle> g_handles{1};
 }
 KilnHandle next_handle() { return g_handles.fetch_add(1); }
+thread_local CallbackLifetime* t_callback = nullptr;
 
 namespace {
 std::mutex g_err_mu;
@@ -47,7 +48,6 @@ float g_style_scale = 0;
 std::string g_ini_path;
 bool g_imgui = false;
 thread_local bool t_in_frame = false;
-thread_local CallbackLifetime* t_callback = nullptr;
 
 struct FrameSub : CallbackLifetime {
     KilnHandle handle;
@@ -220,6 +220,7 @@ bool build_frame(float width, float height, float dpi) {
     for (const auto& s : subs) {
         std::lock_guard call(s->gate);
         if (!s->active.load(std::memory_order_acquire)) continue;
+        CallbackLifetime::Invocation invocation(s.get());
         auto* outer = t_callback;
         t_callback = s.get();
         const bool ok = guarded_frame(s->fn, &f, s->user);
@@ -268,6 +269,7 @@ bool dispatch_key(const KilnUiKey& key) {
         std::lock_guard call(s->gate);
         if (!s->active.load(std::memory_order_acquire)) continue;
         bool c = false;
+        CallbackLifetime::Invocation invocation(s.get());
         auto* outer = t_callback;
         t_callback = s.get();
         const bool ok = guarded_key(s->fn, &key, s->user, &c);
@@ -365,6 +367,7 @@ KilnResult KILN_CALL t_unsubscribe(KilnHandle h) {
         g_retiring_subs.erase(h);
         return KILN_OK;
     }
+    if (const KilnResult r = input_feed_unsubscribe(h); r != KILN_ERR_NOT_FOUND) return r;  // window input (v5)
     if (game_unsubscribe(h)) return KILN_OK;  // menu entries, screen and UI-tick subscriptions
     // Frame callbacks run under Vulkan's mutex. Look up local handles first to avoid recursively locking it.
     if (t_in_frame) return KILN_ERR_WRONG_THREAD;
@@ -460,6 +463,11 @@ void KILN_CALL t_menu_page_host(uint32_t on) {
     logf(KILN_LOG_INFO, "ui: a host %s the main-menu page", on ? "draws" : "no longer draws");
 }
 
+// v5: the window's input records (input.cpp)
+KilnResult KILN_CALL t_subscribe_window_input(KilnOwner o, KilnUiWindowInputFn fn, void* u, KilnHandle* out) {
+    return input_feed_subscribe(o, fn, u, out);
+}
+
 // kiln.ui.tick (for Kiln.Host)
 KilnResult KILN_CALL tt_subscribe(KilnOwner o, KilnUiFrameTickFn fn, void* u, KilnHandle* out) { return game_subscribe_frame_tick(o, fn, u, out); }
 KilnResult KILN_CALL tt_unsubscribe(KilnHandle h) { return game_unsubscribe(h) ? KILN_OK : KILN_ERR_NOT_FOUND; }
@@ -473,6 +481,12 @@ static_assert(offsetof(KilnUiApi, push_font_size) == offsetof(KilnUiApi, wheel_a
               "kiln.ui v3 slots follow wheel_active");
 static_assert(offsetof(KilnUiApi, menu_page) == offsetof(KilnUiApi, set_scroll_here_y) + sizeof(void*),
               "kiln.ui v4 slots follow set_scroll_here_y");
+static_assert(offsetof(KilnUiApi, subscribe_window_input) == offsetof(KilnUiApi, pop_font) + sizeof(void*) &&
+                  sizeof(KilnUiApi) == offsetof(KilnUiApi, subscribe_window_input) + sizeof(void*),
+              "kiln.ui v5 appends subscribe_window_input after pop_font");
+static_assert(sizeof(KilnUiWindowInput) == 48 && offsetof(KilnUiWindowInput, wparam) == 32 &&
+                  offsetof(KilnUiWindowInput, lparam) == 40,
+              "KilnUiWindowInput layout");
 static_assert(sizeof(KilnUiMenuPage) == 104 && offsetof(KilnUiMenuPage, ui_frame) == 16 &&
               offsetof(KilnUiMenuPage, canvas_width) == 40 && offsetof(KilnUiMenuPage, x0) == 84,
               "KilnUiMenuPage layout (UiNative.MenuPage)");
@@ -504,6 +518,8 @@ const KilnUiApi kTable = {
     &t_set_scroll_here_y,
     // v4
     &t_menu_page, &t_menu_page_drawn, &t_menu_page_leave, &t_menu_page_host, &t_push_font, &t_pop_font,
+    // v5
+    &t_subscribe_window_input,
 };
 
 std::string api_path(int kind) {

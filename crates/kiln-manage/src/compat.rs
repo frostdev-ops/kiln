@@ -877,6 +877,10 @@ pub struct ChainViewEntry {
     /// EMF's loader: it starts EMF itself and always loads first (no late switch).
     #[serde(default)]
     pub loader: bool,
+    /// shroudlink's client addon ([`is_gated_addon`]): Kiln's start waits for it, so it is never switched late (only
+    /// back from late, when an older version set it).
+    #[serde(default)]
+    pub gated: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -932,7 +936,22 @@ pub struct ChainView {
     pub error: Option<String>,
 }
 
-fn overlap_view(o: Overlap, entries: &[ChainViewEntry], lib: &[crate::library::LibraryEntry]) -> OverlapView {
+/// The exports by which Kiln's start knows shroudlink's client addon (core/src/foreign_scan.h kAddonExport,
+/// kAddonProxyExport).
+const GATED_ADDON_EXPORTS: [&str; 2] = ["shroudlink_shutdown", "DirectInput8Create"];
+
+/// shroudlink's client addon, by its DLL (a chain entry or a profile native), recognised as Kiln's start recognises it:
+/// by its exports alone, whatever the file is called (the installer's second chain slot is `shroudlink-dinput8-2.dll`,
+/// a profile native may have been renamed). Kiln's start waits for it to finish looking for the game's functions
+/// before Kiln hooks them; loading it late skips that wait.
+fn is_gated_addon(install: &GameInstall, e: &PlanEntry) -> bool {
+    entry_host_path(install, &e.path)
+        .and_then(|h| crate::pe::exports(&h).ok())
+        .is_some_and(|x| GATED_ADDON_EXPORTS.iter().all(|n| x.iter().any(|e| e == n)))
+}
+
+/// `gated`: the entry is a DLL Kiln's start waits for ([`is_gated_addon`]); it is never offered "late".
+fn overlap_view(o: Overlap, entries: &[ChainViewEntry], lib: &[crate::library::LibraryEntry], gated: &dyn Fn(&PlanEntry) -> bool) -> OverlapView {
     let module = o.foreign.as_ref().map(|f| f.module.clone()).unwrap_or_default();
     // hooks.json names the module by file name only: two entries with that name cannot be told apart
     let named: Vec<&ChainViewEntry> = if module.is_empty() {
@@ -967,6 +986,11 @@ fn overlap_view(o: Overlap, entries: &[ChainViewEntry], lib: &[crate::library::L
         }
         (OverlapKind::ForeignBefore | OverlapKind::Refused, Some(_)) if loader => {
             ("none", format!("{name} is EMF's loader: it starts EMF itself, so it always loads first. Switch it or the other mod off, or add a compat rule."))
+        }
+        // it hooks first on purpose: loading it late skips Kiln's wait for it, and its MODS tab switches off again
+        (OverlapKind::ForeignBefore | OverlapKind::Refused, Some(e)) if !late && gated(&e.entry) => {
+            ("none", format!("{name} is shroudlink's client addon: Kiln lets it find and hook the game's functions first on purpose. \
+                Loading it late would switch its MODS tab off (\"native UI disabled\"). Switch it or the other mod off if they clash."))
         }
         (OverlapKind::ForeignBefore | OverlapKind::Refused, Some(e)) if !late && e.off_by.is_none() => {
             ("late", format!("Load {} after Kiln and ShroudForge, so {owners} hook first and {name} chains after them.", e.entry.file))
@@ -1038,11 +1062,13 @@ pub fn view(dirs: &DataDirs, profile: &Profile, install: &GameInstall) -> Result
             };
             // the proxy loads EMF's loader at its place whatever chain.ini [late] says
             let loader = e.is_emf_loader();
-            ChainViewEntry { entry: e.clone(), late: !loader && late_by.is_some() && off_by.is_none(), late_by: if loader { None } else { late_by }, off_by, loader }
+            ChainViewEntry { entry: e.clone(), late: !loader && late_by.is_some() && off_by.is_none(), late_by: if loader { None } else { late_by }, off_by, loader,
+                gated: is_gated_addon(install, e) }
         })
         .collect();
     let lib = crate::library::list(dirs, None).unwrap_or_default();
-    let overlaps = p.hooks.as_deref().map(overlaps).unwrap_or_default().into_iter().map(|o| overlap_view(o, &entries, &lib)).collect();
+    let gated = |e: &PlanEntry| entries.iter().any(|x| x.gated && x.entry.path.eq_ignore_ascii_case(&e.path));
+    let overlaps = p.hooks.as_deref().map(overlaps).unwrap_or_default().into_iter().map(|o| overlap_view(o, &entries, &lib, &gated)).collect();
     let session = p.hooks.as_ref().map(|h| SessionInfo { generated: h.generated.clone(), phase: h.phase.clone(), kiln: h.kiln.clone(), world_checked: h.world_checked });
     Ok(ChainView { entries, rules: p.rules, rule_errors: p.rule_errors, session, overlaps, active, current, error })
 }
@@ -1064,9 +1090,13 @@ pub fn find_entry(dirs: &DataDirs, profile: &Profile, install: &GameInstall, pat
 }
 
 /// The late switch of one chain entry of the view: a [profile] entry changes the profile (`late` list; the caller
-/// saves it), a [chain] entry changes chain.ini [late] (game-wide; refused while the game runs). Returns true when the
-/// profile changed.
+/// saves it), a [chain] entry changes chain.ini [late] (game-wide; refused while the game runs). shroudlink's client
+/// addon is never switched late ([`is_gated_addon`]): refused with the reason. Returns true when the profile changed.
 pub fn set_entry_late(install: &GameInstall, profile: &mut Profile, entry: &PlanEntry, late: bool) -> Result<bool> {
+    if late && is_gated_addon(install, entry) {
+        return Err(Error::invalid(format!("{} is shroudlink's client addon: it must find the game's functions before Kiln \
+            hooks them, and Kiln waits for it at the start. Loaded late, it switches its MODS tab off (\"native UI disabled\").", entry.file)));
+    }
     match (entry.section, &entry.mod_id) {
         (Section::Profile, Some(id)) => {
             let has = profile.late.contains(id);
@@ -1353,12 +1383,12 @@ mod tests {
         let err = set_entry_late(&install, &mut p, &loader, true).unwrap_err();
         assert!(err.message.contains("EMF's loader"), "{}", err.message);
         // the overlap hint for it: no one-click fix
-        let v = |e: PlanEntry| ChainViewEntry { loader: e.is_emf_loader(), entry: e, late: false, late_by: None, off_by: None };
+        let v = |e: PlanEntry| ChainViewEntry { loader: e.is_emf_loader(), entry: e, late: false, late_by: None, off_by: None, gated: false };
         let overlap = Overlap {
             symbol: "S".into(), rva: "0x1".into(), kind: OverlapKind::ForeignBefore, owners: vec!["kiln.chat".into()], hook: None,
             foreign: Some(ForeignDest { module: "emf-dinput8.dll".into(), offset: "0x1".into(), ..Default::default() }),
         };
-        let view = overlap_view(overlap, &[v(loader), v(other)], &[]);
+        let view = overlap_view(overlap, &[v(loader), v(other)], &[], &|_| false);
         assert_eq!(view.fix, "none");
         assert!(view.hint.contains("EMF's loader"), "{}", view.hint);
     }
@@ -1366,21 +1396,21 @@ mod tests {
     #[test]
     fn two_entries_with_one_file_name_get_no_one_click_fix() {
         let v = |path: &str, section, mod_id: Option<&str>| ChainViewEntry {
-            entry: entry(path, section, None, mod_id), late: false, late_by: None, off_by: None, loader: false,
+            entry: entry(path, section, None, mod_id), late: false, late_by: None, off_by: None, loader: false, gated: false,
         };
         let overlap = Overlap {
             symbol: "S".into(), rva: "0x1".into(), kind: OverlapKind::ForeignBefore, owners: vec!["kiln.chat".into()], hook: None,
             foreign: Some(ForeignDest { module: "Hook.dll".into(), offset: "0x1".into(), ..Default::default() }),
         };
-        let one = overlap_view(overlap.clone(), &[v("chain\\hook.dll", Section::Chain, None)], &[]);
+        let one = overlap_view(overlap.clone(), &[v("chain\\hook.dll", Section::Chain, None)], &[], &|_| false);
         assert_eq!((one.fix.as_str(), one.entry.as_deref()), ("late", Some("chain\\hook.dll")));
-        let two = overlap_view(overlap, &[v("chain\\hook.dll", Section::Chain, None), v("Z:\\a\\hook.dll", Section::Profile, Some("a"))], &[]);
+        let two = overlap_view(overlap, &[v("chain\\hook.dll", Section::Chain, None), v("Z:\\a\\hook.dll", Section::Profile, Some("a"))], &[], &|_| false);
         assert_eq!((two.fix.as_str(), two.entry.as_deref()), ("none", None));
         assert!(two.hint.contains("2 chain entries"), "{}", two.hint);
     }
 
     fn view_entry(path: &str, section: Section, off_by: Option<&str>, late: bool) -> ChainViewEntry {
-        ChainViewEntry { entry: entry(path, section, None, None), late, late_by: late.then(|| "player".to_string()), off_by: off_by.map(Into::into), loader: false }
+        ChainViewEntry { entry: entry(path, section, None, None), late, late_by: late.then(|| "player".to_string()), off_by: off_by.map(Into::into), loader: false, gated: false }
     }
 
     /// An entry a compat rule switches off does not load in this profile: the hint says so, and never "loads late already".
@@ -1392,16 +1422,115 @@ mod tests {
         };
         let off = [view_entry("chain\\hook.dll", Section::Chain, Some("rule:xhl-off"), false)];
         for kind in [OverlapKind::ForeignBefore, OverlapKind::Refused, OverlapKind::ForeignOver] {
-            let v = overlap_view(overlap(kind), &off, &[]);
+            let v = overlap_view(overlap(kind), &off, &[], &|_| false);
             assert_eq!(v.fix, "none", "{kind:?}");
             assert!(v.hint.contains("switched off by rule xhl-off"), "{kind:?}: {}", v.hint);
             assert!(!v.hint.contains("loads late already"), "{kind:?}: {}", v.hint);
         }
         // not switched off: the old hints stay
         let late = [view_entry("chain\\hook.dll", Section::Chain, None, true)];
-        assert!(overlap_view(overlap(OverlapKind::ForeignBefore), &late, &[]).hint.contains("loads late already"));
+        assert!(overlap_view(overlap(OverlapKind::ForeignBefore), &late, &[], &|_| false).hint.contains("loads late already"));
         let plain = [view_entry("chain\\hook.dll", Section::Chain, None, false)];
-        assert_eq!(overlap_view(overlap(OverlapKind::ForeignBefore), &plain, &[]).fix, "late");
+        assert_eq!(overlap_view(overlap(OverlapKind::ForeignBefore), &plain, &[], &|_| false).fix, "late");
+    }
+
+    /// shroudlink's client addon hooks before Kiln on purpose (Kiln's start waits for it to finish looking): an overlap
+    /// never offers to load it late, which would switch its MODS tab off. Another DLL in that place keeps the fix.
+    #[test]
+    fn the_shroudlink_addon_is_never_offered_late() {
+        let (_t, _dirs, install) = scratch_install("addon-late");
+        let chain = install.path.join("kiln/chain");
+        std::fs::create_dir_all(&chain).unwrap();
+        // the addon as Kiln's start knows it: its two exports, whatever the file is called and whatever text it holds
+        let addon_dll = crate::pe::build_test_dll(&["DirectInput8Create", "shroudlink_shutdown"], b"");
+        for f in ["shroudlink-dinput8.dll", "shroudlink-dinput8-2.dll", "shroudlink-client.dll"] {
+            std::fs::write(chain.join(f), &addon_dll).unwrap();
+        }
+        std::fs::write(chain.join("hook-dinput8.dll"), crate::pe::build_test_dll(&["DirectInput8Create"], b"some other mod")).unwrap();
+        // a proxy that only mentions shroudlink is not the addon
+        std::fs::write(chain.join("other-dinput8.dll"), crate::pe::build_test_dll(&["DirectInput8Create"], b"shroudlink addon")).unwrap();
+        let gated = |e: &PlanEntry| is_gated_addon(&install, e);
+        let overlap = |module: &str| Overlap {
+            symbol: "S".into(), rva: "0x1".into(), kind: OverlapKind::ForeignBefore, owners: vec!["kiln-content".into()], hook: None,
+            foreign: Some(ForeignDest { module: module.into(), offset: "0x1".into(), ..Default::default() }),
+        };
+        // the installer's first and second chain slots (install.rs chain_slot)
+        for f in ["shroudlink-dinput8.dll", "shroudlink-dinput8-2.dll"] {
+            let addon = [view_entry(&format!("chain\\{f}"), Section::Chain, None, false)];
+            let v = overlap_view(overlap(f), &addon, &[], &gated);
+            assert_eq!(v.fix, "none", "{f}: {}", v.hint);
+            assert!(v.hint.contains("shroudlink's client addon") && v.hint.contains("native UI disabled"), "{}", v.hint);
+        }
+        // the same addon chained from a profile (a native mod at its game-side path), also renamed before import
+        let game_side = format!("Z:{}", chain.join("shroudlink-client.dll").display()).replace('/', "\\");
+        let native = [ChainViewEntry { entry: entry(&game_side, Section::Profile, None, Some("shroudlink-client")), late: false, late_by: None, off_by: None, loader: false, gated: true }];
+        assert_eq!(overlap_view(overlap("shroudlink-client.dll"), &native, &[], &gated).fix, "none");
+        for f in ["hook-dinput8.dll", "other-dinput8.dll"] {
+            let other = [view_entry(&format!("chain\\{f}"), Section::Chain, None, false)];
+            assert_eq!(overlap_view(overlap(f), &other, &[], &gated).fix, "late", "{f}");
+        }
+    }
+
+    /// The manual late switch refuses it too, with the reason; switching late off stays possible.
+    #[test]
+    fn the_shroudlink_addon_cannot_be_switched_late() {
+        let (_t, _dirs, install) = scratch_install("addon-switch");
+        let chain = install.path.join("kiln/chain");
+        std::fs::create_dir_all(&chain).unwrap();
+        std::fs::write(chain.join("shroudlink-dinput8-2.dll"), crate::pe::build_test_dll(&["DirectInput8Create", "shroudlink_shutdown"], b"")).unwrap();
+        std::fs::write(install.path.join("kiln/chain.ini"), "[chain]\nchain\\shroudlink-dinput8-2.dll\n").unwrap();
+        let mut p = Profile {
+            format: 1, id: "p".into(), name: "p".into(), created: String::new(), updated: String::new(), generation: 1,
+            notes: String::new(), mods: Default::default(), dropins: vec![], dropins_engines: false, data_dir: Default::default(), server: None, late: vec![],
+        };
+        let chained = entry("chain\\shroudlink-dinput8-2.dll", Section::Chain, None, None);
+        let err = set_entry_late(&install, &mut p, &chained, true).unwrap_err();
+        assert!(err.message.contains("shroudlink's client addon") && err.message.contains("MODS tab"), "{}", err.message);
+        assert!(!std::fs::read_to_string(install.path.join("kiln/chain.ini")).unwrap().contains("[late]"), "chain.ini unchanged");
+        assert!(set_entry_late(&install, &mut p, &chained, false).is_ok(), "switching late off stays possible");
+        let game_side = format!("Z:{}", chain.join("shroudlink-dinput8-2.dll").display()).replace('/', "\\");
+        let native = entry(&game_side, Section::Profile, None, Some("shroudlink-client"));
+        assert!(set_entry_late(&install, &mut p, &native, true).is_err() && p.late.is_empty(), "{:?}", p.late);
+        std::fs::write(chain.join("hook-dinput8.dll"), crate::pe::build_test_dll(&["DirectInput8Create"], b"")).unwrap();
+        let hook = entry(&format!("Z:{}", chain.join("hook-dinput8.dll").display()).replace('/', "\\"), Section::Profile, None, Some("hook"));
+        assert!(set_entry_late(&install, &mut p, &hook, true).unwrap() && p.late == ["hook"]);
+    }
+
+    /// The view marks shroudlink's client addon in both shapes, a [chain] proxy and a profile's dllmain native, so the
+    /// launcher offers no late switch for it; another proxy in the same place is not marked.
+    #[cfg(unix)]
+    #[test]
+    fn the_view_marks_the_shroudlink_addon_as_a_chain_entry_and_as_a_profile_native() {
+        let (t, dirs, mut install) = scratch_install("addon-view");
+        // Z mode, so the profile native's game-side path leads back to its Library DLL
+        let pfx = t.0.join("pfx");
+        std::fs::create_dir_all(pfx.join("dosdevices")).unwrap();
+        std::os::unix::fs::symlink("/", pfx.join("dosdevices/z:")).unwrap();
+        install.prefix = Some(pfx);
+        let addon = crate::pe::build_test_dll(&["DirectInput8Create", "shroudlink_shutdown"], b"");
+        let chain = install.path.join("kiln/chain");
+        std::fs::create_dir_all(&chain).unwrap();
+        std::fs::write(chain.join("shroudlink-dinput8-2.dll"), &addon).unwrap();
+        std::fs::write(chain.join("hook-dinput8.dll"), crate::pe::build_test_dll(&["DirectInput8Create"], b"shroudlink")).unwrap();
+        std::fs::write(install.path.join("kiln/chain.ini"), "[chain]\r\nchain\\shroudlink-dinput8-2.dll\r\nchain\\hook-dinput8.dll\r\n").unwrap();
+        // the addon as the player imports it: its dinput8.dll, a native mod (a bare proxy DLL: phase dllmain)
+        let incoming = t.0.join("incoming");
+        std::fs::create_dir_all(&incoming).unwrap();
+        std::fs::write(incoming.join("dinput8.dll"), crate::pe::build_test_dll(&["DirectInput8Create", "shroudlink_shutdown"], b"shroudlink addon")).unwrap();
+        let r = crate::library::import(&dirs, &[incoming.join("dinput8.dll")], &mut crate::task::NoProgress).unwrap();
+        let m = r.imported.first().unwrap_or_else(|| panic!("not imported: {r:?}"));
+        assert_eq!(m.kind, ModKind::Native, "{r:?}");
+        let mut p = crate::profile::create(&dirs, "Addon", None).unwrap();
+        p.mods.native.push(crate::profile::ProfileMod { id: m.id.clone(), version: m.version.clone(), hash: m.hash.clone(), enabled: true });
+        let v = view(&dirs, &p, &install).unwrap();
+        assert_eq!(v.error, None);
+        let marks: Vec<(Section, &str, bool)> = v.entries.iter().map(|e| (e.entry.section, e.entry.file.as_str(), e.gated)).collect();
+        assert_eq!(marks, [
+            (Section::Chain, "shroudlink-dinput8-2.dll", true),
+            (Section::Chain, "hook-dinput8.dll", false),
+            (Section::Profile, "dinput8.dll", true),
+        ]);
+        drop(t);
     }
 
     struct Scratch(PathBuf);

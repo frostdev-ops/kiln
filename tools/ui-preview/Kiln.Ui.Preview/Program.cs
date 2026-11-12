@@ -72,6 +72,10 @@ internal static unsafe class Program
         UiEngine.EnsureStarted();
         Samples.RegisterExtras();
 
+        if (args.Contains("--check-z")) return CheckZ(lib, Path.Combine(work, "check-z"));
+        if (args.Contains("--check-text"))
+            return Math.Max(CheckText(lib, Path.Combine(work, "check-text"), w, h, "text"), CheckText(lib, Path.Combine(work, "check-textarea"), w, h, "textarea"));
+
         var rendered = 0;
         foreach (var scene in Scenes.All)
         {
@@ -116,6 +120,132 @@ internal static unsafe class Program
             rendered++;
         }
         return rendered > 0 ? 0 : 1;
+    }
+
+    // The z-order the page leaves other windows in (managed-ui F11): a window opened over the stand-alone page (kiln-set's
+    // SET tools window is an ordinary one) must stay in front when the player clicks the page beside it. Prints the
+    // front-most window before and after the click; exit 0 when the window stayed in front.
+    private static int CheckZ(nint lib, string root)
+    {
+        var front = (delegate* unmanaged[Cdecl]<byte*, int, int>)NativeLibrary.GetExport(lib, "kiln_preview_front_window");
+        string Front()
+        {
+            var buf = stackalloc byte[256];
+            return front(buf, 256) != 0 ? System.Text.Encoding.UTF8.GetString(buf, new ReadOnlySpan<byte>(buf, 256).IndexOf((byte)0)) : "";
+        }
+        if (Directory.Exists(root)) Directory.Delete(root, true);
+        var kilnMods = Scenes.All[0].Build(root);
+        ModCatalog.Sources = () => new CatalogSources { KilnRoot = Path.Combine(root, "kiln"), KilnMods = () => kilnMods, Side = "client" };
+        ModCatalog.WaitForSnapshot();
+        _page(0);
+        for (var i = 0; i < 4; i++) _frame(1);
+        var tools = Ui.Window("Shrouded Engine Tweaks", ui => ui.Text("SET tools stand-in"), new UiWindowOptions { Width = 500, Height = 300, Position = (0.75f, 0.3f) });
+        for (var i = 0; i < 3; i++) _frame(1);
+        var before = Front();
+        _mouse(300, 900, 0);
+        _frame(1);
+        _mouse(300, 900, 1);  // a click on the page, beside the window
+        _frame(1);
+        _mouse(300, 900, 0);
+        for (var i = 0; i < 3; i++) _frame(1);
+        var after = Front();
+        tools.Dispose();
+        Console.WriteLine($"front before the click: {before}");
+        Console.WriteLine($"front after the click:  {after}");
+        var ok = after.StartsWith("Shrouded Engine Tweaks", StringComparison.Ordinal);
+
+        // a mod's full-screen screen open first (managed-ui R6): the menu opened over it must be in front of it, or it is open
+        // but cannot be seen (and Escape closes the unseen menu first)
+        for (var i = 0; i < 3; i++) _frame(0);  // the menu closed
+        var screen = Ui.Screen("A mod's screen", ui => ui.Text("a full-screen mod screen"), new UiScreenOptions { FullScreen = true });
+        screen.Open();
+        for (var i = 0; i < 3; i++) _frame(0);
+        var under = Front();
+        for (var i = 0; i < 3; i++) _frame(1);  // the menu key
+        var menu = Front();
+        screen.Dispose();
+        Console.WriteLine($"front with a full-screen screen open: {under}");
+        Console.WriteLine($"front after the menu opened over it:  {menu}");
+        ok &= menu.Contains("###kiln.menu.main", StringComparison.Ordinal);
+        return ok ? 0 : 1;
+    }
+
+    // A ShroudForge text setting typed into with the real ImGui (managed-ui R1): ImGui makes its own copy of an active
+    // field's text once, when the field becomes active, and then takes the buffer size it is given every frame as its only
+    // bound. Clicks into the field, types 3 KB in pieces and checks after every frame that the size ImGui was given still
+    // fits its copy. Exit 1 at the first frame where it does not (the next typed bytes would land outside ImGui's buffer).
+    private static int CheckText(nint lib, string root, int w, int h, string control)
+    {
+        Console.WriteLine($"check-text: a {control} setting");
+        var chars = (delegate* unmanaged[Cdecl]<byte*, void>)NativeLibrary.GetExport(lib, "kiln_preview_chars");
+        var cursor = (delegate* unmanaged[Cdecl]<int>)NativeLibrary.GetExport(lib, "kiln_preview_mouse_cursor");
+        var state = (delegate* unmanaged[Cdecl]<int*, int*, int*, int>)NativeLibrary.GetExport(lib, "kiln_preview_text_state");
+        if (Directory.Exists(root)) Directory.Delete(root, true);
+        var kiln = Path.Combine(root, "kiln");
+        var folder = Path.Combine(root, "mods", "notes");
+        Directory.CreateDirectory(Path.Combine(kiln, "state"));
+        Directory.CreateDirectory(folder);
+        File.WriteAllText(Path.Combine(folder, "mod.json"), """{"id":"notes","name":"Notes","version":"1.0.0","capabilities":["runtime"]}""");
+        File.WriteAllText(Path.Combine(folder, "extended.mod.json"), $$"""{ "schemaVersion": 1, "enabled": true, "settings": { "note": { "value": "old", "label": "Note", "control": "{{control}}" } } }""");
+        File.WriteAllText(Path.Combine(kiln, "state", "shroudforge.json"), JsonSerializer.Serialize(new { pid = Environment.ProcessId, mode = "hosted", menu = "kiln", modsDir = Path.Combine(root, "mods") }));
+        ShroudForgeUi.ResetForTests();
+        ShroudForgeUi.Load(folder);
+        ModCatalog.Sources = () => new CatalogSources { KilnRoot = kiln, Side = "client" };
+        ModCatalog.WaitForSnapshot();
+        var page = ModManagerHost.Page;
+        page.Section = ModManagerSection.Mods;
+        page.Filter = new EngineFilter("shroudforge");
+        page.Selected = "shroudforge/notes";
+        _page(0);
+        for (var i = 0; i < 4; i++) _frame(1);
+        // find the field: the details column, where the mouse turns into a text cursor
+        float fx = 0, fy = 0;
+        for (var y = 150f; y < h - 80 && fy == 0; y += 4)
+        {
+            _mouse(w * 0.8f, y, 0);
+            _frame(1);
+            if (cursor() == 1) (fx, fy) = (w * 0.8f, y);
+        }
+        if (fy == 0)
+        {
+            Console.WriteLine("check-text: the setting's text field was not found");
+            return 2;
+        }
+        _mouse(fx, fy, 1);
+        _frame(1);
+        _mouse(fx, fy, 0);
+        _frame(1);
+        _key(520 /* ImGuiKey_End */, 1);  // the end of the text (a click in a text area puts the cursor where it lands)
+        _frame(1);
+        _key(520, 0);
+        _frame(1);
+        int cap, size, len;
+        if (state(&cap, &size, &len) == 0)
+        {
+            Console.WriteLine("check-text: clicking the field did not activate it");
+            return 2;
+        }
+        Console.WriteLine($"check-text: active at y={fy}: ImGui's copy {size} bytes, size given {cap}, text {len}");
+        var piece = System.Text.Encoding.UTF8.GetBytes(new string('x', 300) + "\0");
+        for (var i = 0; i < 10; i++)
+        {
+            fixed (byte* p = piece) chars(p);
+            _frame(1);
+            state(&cap, &size, &len);
+            if (cap + 1 > size)
+            {
+                Console.WriteLine($"check-text: after {(i + 1) * 300} bytes typed ImGui was given a buffer of {cap} bytes for its copy of {size}: " +
+                                  $"{len} bytes held, {cap - 1 - len} more accepted, {size - 1 - len} fit");
+                return 1;
+            }
+        }
+        Console.WriteLine($"check-text: 3000 bytes typed, ImGui's copy {size} bytes, size given {cap}, text {len}: in bounds");
+        // leave the field (Escape: ImGui puts the text back), so the next check starts from a field that is not active
+        _key(526 /* ImGuiKey_Escape */, 1);
+        _frame(1);
+        _key(526, 0);
+        _frame(1);
+        return len >= 3003 ? 0 : 1;
     }
 
     // PNG: RGB, one IDAT (zlib from .NET), CRCs.
@@ -246,6 +376,10 @@ internal static class Scenes
         new("typical-emf", Typical) { Filter = new EngineFilter("emf"), Selected = "emf/fishing-plus" },
         new("typical-search", Typical) { Search = "map", OnlyAt = "1920x1080" },
         new("typical-config", Typical) { Selected = "kiln/frost-edge", OnlyAt = "1920x1080" },
+        // a side "server" mod in the menu: it waits for the player's own world (not "Not loaded", not "Server only")
+        new("typical-hosted", Typical) { Selected = "kiln/kiln-test-helper", OnlyAt = "1920x1080" },
+        new("shroudforge-settings", SfSettings) { Filter = new EngineFilter("shroudforge"), Selected = "shroudforge/sf-crafting-essentials", Summary = true },
+        new("game-page-shroudforge", SfSettings) { Filter = new EngineFilter("shroudforge"), Selected = "shroudforge/sf-crafting-essentials", GamePage = true },
         new("typical-keys", Typical) { Keys = [(516 /* ImGuiKey_DownArrow */, 3)], OnlyAt = "1920x1080" },
         new("problems", Problems) { Filter = EngineFilter.Attention, Summary = true },
         new("problems-ember", Problems) { Filter = new EngineFilter("ember"), OnlyAt = "1920x1080" },
@@ -265,6 +399,23 @@ internal static class Scenes
             profile = new { mode = "active", id = "ember-run", name = "Ember run", file = profileFile, missing = Array.Empty<object>() },
             chain = Array.Empty<object>(), plugins,
         });
+
+    private static string SfFixture([System.Runtime.CompilerServices.CallerFilePath] string source = "") =>
+        Path.GetFullPath(Path.Combine(Path.GetDirectoryName(source)!, "..", "..", "..", "schema", "fixtures", "shroudforge", "cases.json"));
+
+    private static IReadOnlyList<KilnModInput> SfSettings(string root)
+    {
+        var kiln = Folder(root, "kiln");
+        var folder = Folder(root, "mods", "crafting");
+        var fixtures = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(SfFixture()))!;
+        var fixture = fixtures["cases"]!.AsArray().Single(c => c!["name"]!.GetValue<string>() == "patch-mod")!;
+        File.WriteAllText(Path.Combine(folder, "mod.json"), fixture["mod"]!.ToJsonString());
+        File.WriteAllText(Path.Combine(folder, "extended.mod.json"), fixture["extended"]!.GetValue<string>());
+        ShroudForgeUi.Load(folder);
+        Write(Path.Combine(kiln, "state", "shroudforge.json"), new { pid = Pid, mode = "hosted", menu = "kiln", menuKey = "SDL:66", runtime = "running" });
+        Write(Path.Combine(root, "shroudforge", "state.json"), new { runtime = new { pid = Pid, running = true, updatedAt = Now / 1000, active = new[] { "sf-crafting-essentials" }, errors = new { } } });
+        return [];
+    }
 
     // About 25 mods over five engines: Kiln, EMF, EML, SET, ShroudForge; one failed, one switched off.
     private static IReadOnlyList<KilnModInput> Typical(string root)
@@ -339,12 +490,17 @@ internal static class Scenes
             new { id, name, version, folder = Path.Combine(root, "shrouded_engine_tweaks", "mods", id), status = "loaded", reason = "" };
         Write(Path.Combine(kiln, "state", "set.json"), new
         {
-            format = 1, plugin = "kiln-set", version = "0.1.1", pid = Pid, side = "client", status = "running", steppedAside = false, updatedUnixMs = Now,
+            format = 1, plugin = "kiln-set", version = "0.2.0", pid = Pid, side = "client", status = "running", steppedAside = false, updatedUnixMs = Now,
             mods = new[] { Set("sprint-forever", "Sprint Forever", "1.0.0"), Set("hotbar-plus", "Hotbar Plus", "0.5.0"), Set("fast-travel-anywhere", "Fast Travel Anywhere", "2.1.0"), Set("night-sky", "Night Sky", "1.1.0") },
         });
         Write(Path.Combine(kiln, "state", "shroudforge.json"), new { format = 1, side = "client", mode = "hosted", reason = "", updated = Now / 1000, modsDir = Path.Combine(root, "mods") });
         foreach (var (id, name) in new[] { ("sfpkg-core", "SF Pack Core"), ("shroud-timer", "Shroud Timer"), ("builders-grid", "Builder's Grid") })
-            Write(Path.Combine(root, "library", "shroudforge", id, id == "sfpkg-core" ? "1.0.0" : id == "shroud-timer" ? "0.8.0" : "1.3.1", "extended.mod.json"), new { id, name, enabled = true });
+        {
+            var version = id == "sfpkg-core" ? "1.0.0" : id == "shroud-timer" ? "0.8.0" : "1.3.1";
+            var folder = Path.Combine(root, "library", "shroudforge", id, version);
+            Write(Path.Combine(folder, "mod.json"), new { id, name, version });
+            Write(Path.Combine(folder, "extended.mod.json"), new { schemaVersion = 1, id, name, enabled = true });
+        }
         return kilnMods;
     }
 

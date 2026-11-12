@@ -20,9 +20,14 @@
 //     3. pick the runtime (above), LoadLibrary its shroudforge-runtime.dll, copy missing bundled game profiles,
 //        shroudforge_prepare_startup(<game>) (startup asset mods, DLL Manager), then kfc-runtime.dll:
 //        KfcRuntimeInitialize (native game access; a failure leaves metadata-only mode, as in ShroudForge);
+//   on a client, before the worker: the game window's key records from kiln.ui go to the runtime's host key feed, when
+//     it has one, in place of ShroudForge's shroudforge.exe helper (key_feed.cpp). The worker starts from the early
+//     on_ready, before kiln.ui exists: the feed begins there and attaches to kiln.ui at Kiln's plugin step, whose
+//     on_ready comes later (on_ready below, the g_runtime branch);
 //   a worker thread (ShroudForge's own mods loop, same timing): shroudforge_create(<game>), then every 16 ms
-//     KfcRuntimeTick + shroudforge_update(handle, dt); the heartbeat file ShroudForge's tools read; ShroudForge's log
-//     mirrored into kiln.log ("[sf] ..."); <state>/shroudforge.json for the launcher.
+//     KfcRuntimeTick + shroudforge_update(handle, dt); next to it a writer thread, every 2 s: the heartbeat file
+//     ShroudForge's tools read, ShroudForge's log mirrored into kiln.log ("[sf] ..."), <state>/shroudforge.json for the
+//     launcher (so slow file I/O never holds up the loop).
 // Fail soft: anything missing or failing is logged and written to shroudforge.json; Kiln and its mods run on.
 // Not done here: ShroudForge's startup update check and pending-update install (Kiln owns updates, so ShroudForge's
 // updater never replaces Kiln's dinput8.dll) and its Debug Console window (kiln.log carries ShroudForge's log).
@@ -143,11 +148,23 @@ void set_status(const char* key, nlohmann::json value) {
     g_status[key] = std::move(value);
 }
 
+// The status writer thread (HeartbeatWriter) and finish() on any thread share shroudforge.json.tmp: one write at a
+// time, and each takes its snapshot inside that turn, so the file never goes back to an older state. set_status never
+// waits for this I/O (it holds only g_status_mutex, for the dump).
+std::mutex g_status_file_mutex;
+
 void write_status() {
     if (g_state.empty()) return;
+    std::lock_guard file_lock(g_status_file_mutex);
     std::string text;
     {
         std::lock_guard lock(g_status_mutex);
+        g_status["pid"] = GetCurrentProcessId();
+        // A window record may fault immediately after attach, before the boot thread reports "kiln".
+        // Resolve that race here, off the window thread, for every snapshot (including the final one).
+        if (key_feed_faulted())
+            g_status["keys"] = {{"source", "none"}, {"reason", "ShroudForge's host key feed faulted on the window thread: "
+                                                            "Kiln stopped passing records; mod shortcuts do not fire for the rest of this session"}};
         g_status["updated"] = static_cast<int64_t>(std::time(nullptr));
         text = g_status.dump(2);
     }
@@ -218,7 +235,9 @@ bool legacy_wanted(std::string* reason) {
         } catch (...) { return true; } // let SF diagnose its own malformed package
     }
     try {
-        const auto state = nlohmann::json::parse(read_text(sf_directory(g_game, "state", "shroudforge/state") / L"state.json"));
+        // ShroudForge's state file: <paths.state>/state.json, by default <game>/shroudforge/state.json (its own default
+        // state folder is its data folder, not shroudforge/state)
+        const auto state = nlohmann::json::parse(read_text(sf_directory(g_game, "state", "shroudforge") / L"state.json"));
         if (const auto it = state.find("assets"); it != state.end()) {
             const auto status = it->value("status", std::string{});
             if (status == "applied" || status == "preparing" || status == "failed") return true;
@@ -330,6 +349,71 @@ void write_heartbeat(int64_t updated_at) {
     MoveFileExW(tmp.c_str(), (dir / L"heartbeat.json").c_str(), MOVEFILE_REPLACE_EXISTING);
 }
 
+// The mods loop's periodic filesystem I/O must not hold up native/Lua ticks: every 2 s this thread writes the
+// heartbeat, mirrors ShroudForge's new log lines into kiln.log and writes shroudforge.json (what the loop last put in
+// it with set_status). It never calls either runtime ABI; the heartbeat's timestamp is the update loop's last turn,
+// not its own wall clock, so a stalled loop cannot look alive just because I/O runs. g_tail is only polled here while
+// this thread runs (the worker polls it again only after stop() joined it).
+class HeartbeatWriter {
+    HANDLE stop_ = nullptr;
+    std::thread thread_;
+    std::atomic<int64_t> last_turn_{0};
+public:
+    void start() {
+        last_turn_.store(static_cast<int64_t>(std::time(nullptr)), std::memory_order_relaxed);
+        stop_ = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+        if (stop_) {
+            try {
+                thread_ = std::thread([this] {
+                    while (WaitForSingleObject(stop_, 0) == WAIT_TIMEOUT) {
+                        try { write_heartbeat(last_turn_.load(std::memory_order_relaxed)); }
+                        catch (...) { logf(KILN_LOG_WARN, "ShroudForge heartbeat write failed"); }
+                        try { g_tail.poll(); }
+                        catch (...) { logf(KILN_LOG_WARN, "ShroudForge log mirror failed"); }
+                        try { write_status(); }
+                        catch (...) { logf(KILN_LOG_WARN, "ShroudForge status write failed"); }
+                        if (WaitForSingleObject(stop_, 2000) != WAIT_TIMEOUT) break;
+                    }
+                });
+                return;
+            } catch (...) {
+                CloseHandle(stop_);
+                stop_ = nullptr;
+            }
+        }
+        // Do not fall back to blocking the mods loop. Missing heartbeat and status data is
+        // safer than stale steering/input while a synchronous write stalls it.
+        logf(KILN_LOG_WARN, "ShroudForge status writer could not start: tools may report it inactive, shroudforge.json "
+                            "and the [sf] lines update only when its runtime stops");
+    }
+    void turn() { last_turn_.store(static_cast<int64_t>(std::time(nullptr)), std::memory_order_relaxed); }
+    void stop() {
+        if (stop_) SetEvent(stop_);
+        if (thread_.joinable()) thread_.join();
+        if (stop_) { CloseHandle(stop_); stop_ = nullptr; }
+    }
+    ~HeartbeatWriter() { stop(); }
+};
+
+// keys in shroudforge.json and its kiln.log line (key_feed.cpp says which source and why).
+void report_keys(const KeySource& keys) {
+    set_status("keys", nlohmann::json{{"source", keys.source}, {"reason", keys.reason}});
+    const char* from = !std::strcmp(keys.source, "kiln")      ? "Kiln"
+                       : !std::strcmp(keys.source, "waiting") ? "Kiln, waiting for kiln.ui"
+                       : !std::strcmp(keys.source, "helper")  ? "ShroudForge's own input"
+                                                               : "nowhere";
+    logf(KILN_LOG_INFO, "ShroudForge mod shortcuts: key state from %s: %s", from, keys.reason.c_str());
+}
+
+// The key feed's teardown, before shroudforge_destroy. A feed still waiting for the plugin step gets its last word here.
+void stop_key_feed() {
+    KeySource last{};
+    const bool waited = key_feed_stop(&last);
+    if (waited) report_keys(last);
+    // A record can fault after run_loop's final snapshot, but not after stop drained it.
+    if (waited || key_feed_faulted()) write_status();
+}
+
 std::string kfc_status() {
     if (!g_kfc_status) return {};
     char text[2048] = {};
@@ -351,11 +435,20 @@ std::string status_field(const std::string& s, const char* key) {
 void run_loop() {
     struct Cleanup {
         void* handle = nullptr;
+        HeartbeatWriter heartbeat;
         ~Cleanup() {
+            // Only this serial worker joins, never on_unload/DllMain. Even on
+            // an update exception, finish the writer before runtime teardown.
+            heartbeat.stop();
+            stop_key_feed();  // the last host key feed call, before the runtime goes (key_feed.cpp)
             if (handle) invoke_void(g_destroy, handle);
             if (g_initialized && g_kfc_shutdown) invoke_void(g_kfc_shutdown);
             g_initialized = false;
             stop_helper_processes();
+            try {
+                std::error_code ec;
+                std::filesystem::remove(sf_directory(g_game, "runtime", "shroudforge/runtime") / L"heartbeat.json", ec);
+            } catch (...) {}
         }
     } cleanup;
     const auto root = g_game.wstring();
@@ -373,8 +466,8 @@ void run_loop() {
         return;
     }
     logf(KILN_LOG_INFO, "ShroudForge runtime ready (%.0f ms): its mods loop runs every 16 ms", create_ms);
-    set_status("runtime", "running");
-    finish("hosted", "");
+    set_status("runtime", "running");  // start_worker wrote mode "hosted"; the writer's first turn writes this
+    cleanup.heartbeat.start();
     auto previous = std::chrono::steady_clock::now();
     auto next_status = previous;
     std::string last_state;
@@ -383,6 +476,7 @@ void run_loop() {
         const auto now = std::chrono::steady_clock::now();
         const double dt = std::chrono::duration<double>(now - previous).count();
         previous = now;
+        cleanup.heartbeat.turn();
         bool updated = false;
         const bool tick_ok = !g_initialized || !g_kfc_tick || invoke_void(g_kfc_tick);
         if (!tick_ok || !invoke(g_update, &updated, handle, dt) || !updated) {
@@ -392,10 +486,8 @@ void run_loop() {
             break;
         }
         ++turns;
-        if (now >= next_status) {
+        if (now >= next_status) {  // no file I/O here: the writer thread writes this out
             next_status = now + std::chrono::seconds(2);
-            write_heartbeat(static_cast<int64_t>(std::time(nullptr)));
-            g_tail.poll();
             const std::string st = kfc_status();
             const std::string state = status_field(st, "state");
             if (state != last_state) {
@@ -403,15 +495,14 @@ void run_loop() {
                 last_state = state;
             }
             set_status("native", st);
+            set_status("menu", helper_menu());
             set_status("turns", turns);
-            write_status();
         }
     }
+    cleanup.heartbeat.stop();
     g_tail.poll();
     set_status("runtime", "stopped");
     write_status();
-    std::error_code ec;
-    std::filesystem::remove(sf_directory(g_game, "runtime", "shroudforge/runtime") / L"heartbeat.json", ec);
 }
 
 DWORD WINAPI worker(void*) {
@@ -498,7 +589,9 @@ void offer_engine_hooks() {
     set_status("engineHooks", "self");
 }
 
-void start_worker() {
+// plugin_step_later: called by the early on_ready (kiln_plugin_early), before Kiln has loaded kiln.ui; Kiln's plugin
+// step and its on_ready come later in this start, unless it is safe idle.
+void start_worker(bool plugin_step_later) {
     if (!g_prepared || g_worker) return;
     g_stop = CreateEventW(nullptr, TRUE, FALSE, nullptr);
     if (!g_stop) {
@@ -507,10 +600,14 @@ void start_worker() {
         stop_helper_processes();
         return finish("failed", "could not create the stop event");
     }
+    // Mod shortcuts: Kiln's host key feed, ShroudForge's own helper, or none. The feed begins before the worker's
+    // shroudforge_create, as input_host.h asks (mods ask for input while they load).
+    report_keys(key_feed_start(g_api, g_owner, g_runtime, g_game, g_server, plugin_step_later));
     set_status("runtime", "starting");
     finish("hosted", "");
     g_worker = CreateThread(nullptr, 0, worker, nullptr, 0, nullptr);
     if (!g_worker) {
+        stop_key_feed();
         if (g_initialized && g_kfc_shutdown) invoke_void(g_kfc_shutdown);
         g_initialized = g_prepared = false;
         stop_helper_processes();
@@ -572,7 +669,17 @@ bool reserve_writer() {
 }
 
 void KILN_CALL on_ready(void*) {
-    if (g_runtime) { start_worker(); return; }
+    if (g_runtime) {
+        // Kiln's plugin step, after the early pass prepared the runtime (and its on_ready started the worker): kiln.ui is
+        // published now, so a key feed that began early attaches to it.
+        start_worker(false);
+        KeySource keys{};
+        if (key_feed_attach(g_api, g_owner, &keys)) {
+            report_keys(keys);
+            write_status();
+        }
+        return;
+    }
     g_game = api_path(KILN_PATH_GAME);
     g_state = api_path(KILN_PATH_STATE);
     if (g_game.empty() || !safe_path(g_game, g_game)) return finish("failed", "invalid game path");
@@ -707,6 +814,8 @@ void KILN_CALL on_ready(void*) {
     }
     g_tail.start();
     start_helper_processes(g_game, g_server);
+    set_status("menu", helper_menu());
+    set_status("menuKey", helper_menu_key(g_game));
     const auto t0 = std::chrono::steady_clock::now();
     bool prepared = false;
     invoke(prepare, &prepared, g_game.wstring().c_str());
@@ -720,7 +829,14 @@ void KILN_CALL on_ready(void*) {
         stop_helper_processes();
         return finish("failed", "ShroudForge's startup preparation failed (startup asset mods or its DLL Manager)");
     }
-    logf(KILN_LOG_INFO, "ShroudForge startup preparation done (%.0f ms)", prep_ms);
+    logf(KILN_LOG_INFO, "ShroudForge startup preparation returned (%.0f ms): the [sf] lines and its record of the pass (shroudforge/state.json \"assets\") say whether its startup asset mods applied", prep_ms);
+    // For readers of ShroudForge's own record of its startup pass (state.json "assets"): shroudforge_prepare_startup
+    // returned success in this process. ShroudForge then applied its startup asset mods just now, found the pass of an
+    // earlier start still current for this start's mods (it leaves that record as it is, with that start's time), or
+    // ran a pass that failed and restored the saved baseline (it writes a fresh "failed" record first). So the flag says
+    // only that the record describes the game data of this start; whether any asset mod applied is the record's own
+    // "status" ("applied" or "failed"), which a reader checks beside it.
+    set_status("startupPrepared", true);
     // Both DLLs and ABI were validated together before startup preparation.
 
     if (g_kfc) {
@@ -749,11 +865,11 @@ void KILN_CALL on_ready(void*) {
              GetLastError());
     }
     g_prepared = true;
-    if (!g_early) start_worker();
+    if (!g_early) start_worker(false);
 }
 
 void KILN_CALL on_unload(void*) {
-    // The ABI permits this at process exit. Never wait under a possible loader lock. The pinned worker owns
+    // kiln-core never calls this (kiln_api.h); a test host may. Never wait under a possible loader lock. The pinned worker owns
     // destroy/shutdown serially; retain its event, thread handle and modules until process teardown.
     if (g_stop) SetEvent(g_stop);
 }
@@ -816,7 +932,9 @@ BOOL WINAPI DllMain(HINSTANCE, DWORD reason, LPVOID) {
 extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_early(const KilnApi* api, KilnOwner owner, KilnPluginInfo* info) {
     const auto result = kiln_plugin_main(api, owner, info);
     if (result != KILN_OK) return result;
-    info->on_ready = [](void*) { ksf::start_worker(); };
+    // The core runs this right after the early phase, before any service DLL: the worker starts here (in safe idle too,
+    // where Kiln's plugin step never comes); kiln.ui is published only at that step (on_ready, g_runtime branch).
+    info->on_ready = [](void*) { ksf::start_worker(true); };
     info->on_unload = nullptr;
     ksf::g_early = true;
     try { ksf::on_ready(nullptr); }

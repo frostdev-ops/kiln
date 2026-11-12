@@ -6,6 +6,7 @@ struct MODULEENTRY32W { DWORD dwSize; HMODULE hModule; wchar_t szExePath[MAX_PAT
 inline HANDLE CreateToolhelp32Snapshot(DWORD, DWORD) {
     loader_test::cursor = 0; ++loader_test::snapshots;
     if (loader_test::on_snapshot) loader_test::on_snapshot();
+    if (loader_test::snapshot_failures) { --loader_test::snapshot_failures; return INVALID_HANDLE_VALUE; }
     return reinterpret_cast<void*>(2);
 }
 inline bool Module32NextW(HANDLE, MODULEENTRY32W* out) {

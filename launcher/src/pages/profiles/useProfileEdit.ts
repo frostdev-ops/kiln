@@ -2,26 +2,31 @@
 // Edits queue up: each one is applied to the profile the backend last returned (so its generation is current) and
 // saved in order; the UI shows that profile plus every edit still waiting. Rapid toggles never conflict.
 import { useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import * as api from "../../api/commands";
 import type { ModKind, Profile, ProfileMod } from "../../api/commands";
 import { qk, useProfile } from "../../api/hooks";
 import { toast } from "../../ui";
 
+/** The profile the pages below edit when no route names one (the main list's views edit the loaded profile). */
+export const ProfileIdContext = createContext<string | null>(null);
+
 export function useProfileId(): string {
-  return useParams().id ?? "";
+  const loaded = useContext(ProfileIdContext);
+  const param = useParams().id;
+  return loaded ?? param ?? "";
 }
 
 type Edit = (p: Profile) => void;
 const clone = (p: Profile): Profile => JSON.parse(JSON.stringify(p));
 
 /** One save queue per profile, shared by every tab and the layout that edit it. */
-interface Q { server: Profile | null; queue: Edit[]; busy: boolean; listeners: Set<(busy: boolean) => void> }
+interface Q { server: Profile | null; queue: Edit[]; busy: boolean; listeners: Set<(busy: boolean) => void>; waiters: ((saved: boolean) => void)[] }
 const queues = new Map<string, Q>();
 const queueOf = (id: string): Q => {
   let q = queues.get(id);
-  if (!q) { q = { server: null, queue: [], busy: false, listeners: new Set() }; queues.set(id, q); }
+  if (!q) { q = { server: null, queue: [], busy: false, listeners: new Set(), waiters: [] }; queues.set(id, q); }
   return q;
 };
 
@@ -60,12 +65,14 @@ export function useProfileEdit(id: string) {
         st.queue = [];
         st.server = null;
         setBusy(false);
+        st.waiters.splice(0).forEach((w) => w(false));
         await qc.invalidateQueries({ queryKey: key });
         return;
       }
       show();
     }
     setBusy(false);
+    st.waiters.splice(0).forEach((w) => w(true));
     qc.invalidateQueries({ queryKey: qk.profiles });
     qc.invalidateQueries({ queryKey: ["profile_resolve", id] });
     // drop-ins and the profile's own mods decide what loads from the game folder
@@ -88,5 +95,11 @@ export function useProfileEdit(id: string) {
   const remove = (kind: ModKind, modId: string) => update((p) => { p.mods[kind] = (p.mods[kind] ?? []).filter((m) => m.id !== modId); });
   const add = (kind: ModKind, mod: ProfileMod) => update((p) => { p.mods[kind] = [...(p.mods[kind] ?? []).filter((m) => m.id !== mod.id), mod]; });
 
-  return { profile: q.data, query: q, saving, update, setMods, toggle, remove, add };
+  /** Resolves once every edit so far is saved (true), or the queue stopped at a failed save (false, toasted). */
+  const flush = () => new Promise<boolean>((done) => {
+    if (!st.busy && !st.queue.length) done(true);
+    else st.waiters.push(done);
+  });
+
+  return { profile: q.data, query: q, saving, update, setMods, toggle, remove, add, flush };
 }

@@ -18,6 +18,8 @@
 //    after it, holding altitude at sink 0); the gravity program's strength is scaled for a gliding actor (the sink); the
 //    glider's stamina drain is zeroed (unlimited). Server world and the client's prediction world alike: the result
 //    depends only on the game's own state, the input and the rules, so the server and the player's game agree.
+//    Glider steering (steer.cpp) changes actor_rotation's pitch step; while it steers a glider (input mode 0), the
+//    wrap's boost only sets the speed along the nose (glide_steer_math.h) and sink 0 no longer holds the altitude.
 //  - Shroud: where fog_resistance_update dispatches on the player's fog type (bl), a player with SHROUD_FREEZE (or a
 //    shroud_floor) gets the "no drain" branch while in the Shroud, or the recovery branch while below the floor. Server
 //    world only; the HUD shows the server's replicated value.
@@ -54,6 +56,7 @@
 #endif
 
 #include "glide_math.h"
+#include "glide_steer_math.h"
 
 static_assert(sizeof(KilnRulesPlayer) == 56);
 static_assert(sizeof(KilnRulesStatus) == 256 && offsetof(KilnRulesStatus, detail) == 64 &&
@@ -79,7 +82,7 @@ void logf(int level, const char* fmt, ...) {
 
 // ============================================================================================= rules ===========
 
-constexpr KilnRulesPlayer kDefault{sizeof(KilnRulesPlayer), 0, 1.0f, 1.0f, 1.0f, 0, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0};
+constexpr KilnRulesPlayer kDefault{sizeof(KilnRulesPlayer), 0, 1.0f, 1.0f, 1.0f, 0, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
 
 // Copy a whole rule set under the lock, then release it before touching game memory. A tick-thread update must not
 // publish a new boost flag alongside the previous speed/sink values to a prediction or program thread.
@@ -117,7 +120,6 @@ bool read_in(const KilnRulesPlayer* r, KilnRulesPlayer* out) {
     if (r->size < KILN_RULES_PLAYER_V1_SIZE || r->reserved != 0) return false;
     std::memcpy(out, r, std::min<size_t>(r->size, sizeof *out));
     out->size = sizeof *out;
-    out->reserved2 = 0;
     return true;
 }
 
@@ -136,6 +138,7 @@ void store(Slot& s, const KilnRulesPlayer* r) {
     d.glide_lift = std::min(clean(d.glide_lift, 0.0f), kMaxGlideAccel);
     d.glide_coast = std::min(clean(d.glide_coast, 0.0f), kMaxGlideAccel);
     d.glide_climb = std::min(clean(d.glide_climb, 0.0f), kMaxGlideSpeed);
+    d.glide_steer_limit = std::min(clean(d.glide_steer_limit, 0.0f), kiln_glide::kMaxSteerLimit);
     g_flags_seen.fetch_or(d.flags, std::memory_order_relaxed);
     std::lock_guard lock(s.mu);
     const bool was_flight = (s.value.flags & KILN_RULES_CHARACTER_FLIGHT) != 0;
@@ -400,6 +403,9 @@ struct GlidePre {
     KilnRulesPlayer rules = kDefault;
     void* ctx = nullptr;
     const uint8_t* input = nullptr;
+    // the glider's own pitch is steered (steer.cpp steers): GLIDE_BOOST takes its steering form, and sink 0 does not
+    // hold the altitude. Where it is not steered the rules fly as before.
+    bool steer = false;
     float v0[3] = {};
     uint16_t trigger = 0;
 };
@@ -410,7 +416,8 @@ bool glide_pre(uint8_t* it, GlidePre* g) {
     if (!ctx || !input) return false;  // players only
     if (!glide_rules(ctx, &g->rules)) return false;
     const uint32_t f = g->rules.flags;
-    if (!(f & KILN_RULES_GLIDE_BOOST) && g->rules.glide_sink != 0.0f) return false;
+    g->steer = kiln_rules_steer::steers(g->rules, input);
+    if (!(f & KILN_RULES_GLIDE_BOOST) && (g->rules.glide_sink != 0.0f || g->steer)) return false;
     const auto* v = *reinterpret_cast<const float* const*>(it + L.glide_velocity);
     if (!v) return false;
     std::memcpy(g->v0, v, sizeof g->v0);
@@ -460,9 +467,25 @@ void glide_post(uint8_t* it, const GlidePre& g) {
 
     const KilnRulesPlayer& s = g.rules;
     const uint32_t flags = s.flags;
-    const bool hold = s.glide_sink == 0.0f;
+    const bool steer = g.steer;
+    const bool hold = s.glide_sink == 0.0f && !steer;
     float next[3] = {v[0], v[1], v[2]};
-    if (flags & KILN_RULES_GLIDE_BOOST) {
+    if ((flags & KILN_RULES_GLIDE_BOOST) && steer) {
+        // steering (glide_steer_math.h): the game's glide follows the real pitch; sprint sets the speed along the nose
+        kiln_glide::Step st;
+        std::memcpy(st.v0, g.v0, sizeof st.v0);
+        std::memcpy(st.v, v, sizeof st.v);
+        std::memcpy(st.heading, F, sizeof st.heading);
+        st.dt = static_cast<float>(dt);
+        const uint64_t held = *reinterpret_cast<const uint64_t*>(g.input + L.input_mask + 8);
+        st.boost = (held >> kSprint) & 1;
+        kiln_glide::Params pr;
+        pr.thrust = s.glide_thrust;
+        pr.max_speed = s.glide_max_speed;
+        pr.coast = s.glide_coast;
+        pr.climb = s.glide_climb;
+        kiln_glide::steer_boost(st, pr, next);
+    } else if (flags & KILN_RULES_GLIDE_BOOST) {
         // like a plane (glide_math.h): the path's pitch from the movement stick (S up, W down; PlayerInput's replicated
         // copy of it: the same in the server world and in the player's prediction), ramped from the velocity's pitch;
         // the camera's only where the stick is not known on this build; the energy trade, the thrust while sprint is held
@@ -1277,10 +1300,11 @@ void fill_status(KilnRulesStatus* out) {
     out->costs_scaled = S.costs.load();
     out->refunds_scaled = S.refunds.load();
     out->digs_scaled = S.digs.load();
-    out->faults = S.faults.load();
+    out->faults = S.faults.load() + kiln_rules_steer::faults();
     out->zone_forced = S.zone.load();
     out->shroud_held = S.shroud.load();
     out->glide_changed = S.glide.load();
+    out->glide_steered = kiln_rules_steer::steered();
     std::lock_guard lock(g_detail_mu);
     std::snprintf(out->detail, sizeof out->detail, "%s", g_detail.c_str());
 }
@@ -1423,15 +1447,23 @@ void install() {
     } else {
         note("gliding (rules.glide)");
     }
+    // glider steering (actor_rotation's pitch step): optional, on its own; without it GLIDE_STEER does nothing and
+    // Kiln.Rules denies GlideSteer (the boost then flies as before)
+    {
+        std::string steer_off;
+        g_hooks |= kiln_rules_steer::install(g_api, g_owner, steer_off);
+        if (!steer_off.empty()) note(steer_off.c_str());
+    }
     {
         std::lock_guard lock(g_detail_mu);
         g_detail = off.empty() ? "every hook installed" : "off on this build: " + off;
     }
     if (g_api->side() == KILN_SIDE_CLIENT) install_client_guards();
     auto on = [](uint32_t bit) { return (g_hooks & bit) ? "on" : "OFF"; };
-    LOGI("hooks: flight %s, building zone %s, placement %s, costs %s, mining %s, Shroud timer %s, gliding %s (creative hooks: at the first world)",
+    LOGI("hooks: flight %s, building zone %s, placement %s, costs %s, mining %s, Shroud timer %s, gliding %s, glider steering %s "
+         "(creative hooks: at the first world)",
          on(KILN_RULES_HOOK_FLY), on(KILN_RULES_HOOK_ZONE), on(KILN_RULES_HOOK_CURSOR), on(KILN_RULES_HOOK_COSTS),
-         on(KILN_RULES_HOOK_DIG), on(KILN_RULES_HOOK_SHROUD), on(KILN_RULES_HOOK_GLIDE));
+         on(KILN_RULES_HOOK_DIG), on(KILN_RULES_HOOK_SHROUD), on(KILN_RULES_HOOK_GLIDE), on(KILN_RULES_HOOK_GLIDE_STEER));
 }
 
 // The creative hooks and the inventory payment, once, at the first world (any kind): kiln-flame fills its mod list in its

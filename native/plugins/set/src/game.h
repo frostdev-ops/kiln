@@ -51,6 +51,9 @@ bool field(Type t, std::string_view name, Field& out);
 void forFields(Type t, const std::function<void(const Field&)>& fn);
 void forEnum(Type t, const std::function<void(std::string_view name, int64_t value)>& fn);
 Type unwrap(Type t);
+// A value inside t by path ("dataStorage[0]", "transform.position.x"): its offset and its type, a wrapper unwrapped.
+// Static arrays only; false if any step doesn't exist. (From SET 0.2.0 runtime/game.cpp, MIT.)
+bool path(Type t, std::string_view path, uint32_t& off, Type& leaf);
 uint32_t fnv(std::string_view s);
 bool enumHas(Type t, int64_t v);
 std::string text(const uint8_t* p, Type u);
@@ -99,6 +102,10 @@ uint8_t* component(uintptr_t world, uint32_t entity, int idx, uint32_t* size = n
 uint32_t firstWith(uintptr_t world, int idx);
 std::vector<uint32_t> allWith(uintptr_t world, const int* idx, size_t n);
 uint32_t entityCount(uintptr_t world);
+bool exists(uint32_t entity);
+std::vector<refl::Type> componentTypes();
+std::vector<uint32_t> findBounded(uint32_t hash, uint32_t limit, uint32_t& total); // tick thread; allocation capped at 65536
+bool position(uint32_t entity, double* xyz); // metres; tick thread
 // Stream lookups are cached per (world, type): a probe runs only on a miss. Tick thread, under the Lua lock.
 int eventIndex(uintptr_t world, uint32_t typeHash);  // >= 0: has a stream; < 0: -KilnResult
 // One event_each; 0 or -KilnResult (a cached failure returns without calling kiln.types).
@@ -122,6 +129,10 @@ struct Blob {
     uint32_t rel, count, hash;
 };
 bool ready();
+// ready()'s last answer without scanning or waiting, for threads that must not scan (the renderer, the main menu, where
+// a scan could also cache an incomplete list): Unchecked until a scan on the tick thread.
+enum class Scan : uint8_t { Unchecked, Found, None };
+Scan scanned();
 bool write(void* dst, const void* src, size_t n, uint32_t& prot);
 size_t count();
 uint8_t* data(const Entry& e, uint32_t* size = nullptr);
@@ -139,9 +150,20 @@ std::string_view text(const uint8_t guid[16]);
 std::string_view nameText(const Entry& e);
 }  // namespace res
 
+// Game builds (the exe's link time stamp, GetGameBuild()) this runtime was checked on: the three client builds SET
+// 0.2.0 lists (runtime/game.h kTestedBuilds), and the dedicated server build Kiln's lab runs kiln-set on.
+inline constexpr uint32_t kTestedBuilds[] = {1792148057, 1792507660, 1793791052, 1793791038};
+inline bool testedBuild(uint32_t build) {
+    for (uint32_t b : kTestedBuilds)
+        if (b == build) return true;
+    return false;
+}
+
 namespace kset {
 // Binds the services (on_ready). Returns what is missing, in words ("" when all is there).
 std::string bind(const KilnApi* api);
 bool tickThread();
 bool systemsReady();  // kiln.types switches and profiles systems on this build
+// Which Kiln services answered at bind: "types", "world", "assets", "players", "time" (Features()).
+bool has(std::string_view service);
 }  // namespace kset

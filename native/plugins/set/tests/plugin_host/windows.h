@@ -2,6 +2,7 @@
 #pragma once
 #include <cstdint>
 #include <cstddef>
+#include <cstring>
 #include <cwchar>
 #include <string>
 #include <vector>
@@ -12,7 +13,7 @@
 #include "../hooks_host/windows.h"
 using DWORD = uint32_t; using UINT = unsigned; using SIZE_T = size_t;
 using HANDLE = void*; using HMODULE = void*; using LPCWSTR = const wchar_t*;
-using ULONG = uint32_t; using ULONG_PTR = uintptr_t;
+using ULONG = uint32_t; using ULONG_PTR = uintptr_t; using LONG = int32_t; using BOOLEAN = unsigned char;
 #define MAX_PATH 260
 #define WINAPI
 #define INVALID_HANDLE_VALUE ((HANDLE)(intptr_t)-1)
@@ -21,6 +22,10 @@ using ULONG = uint32_t; using ULONG_PTR = uintptr_t;
 #define IMAGE_DOS_SIGNATURE 0x5a4d
 #define IMAGE_NT_SIGNATURE 0x4550
 #define ERROR_NO_MORE_FILES 18
+#define ERROR_MOD_NOT_FOUND 126
+#define PROCESS_VM_READ 0x10
+#define PROCESS_QUERY_INFORMATION 0x400
+#define FALSE 0
 #define FILE_READ_ATTRIBUTES 128
 #define FILE_SHARE_READ 1
 #define FILE_SHARE_WRITE 2
@@ -42,6 +47,7 @@ inline std::vector<std::wstring> modules;
 inline size_t cursor = 0;
 // Counters and controls for the per-frame cost regression test.
 inline size_t snapshots = 0;           // CreateToolhelp32Snapshot calls (the full conflict check)
+inline size_t snapshot_failures = 0;   // this many CreateToolhelp32Snapshot calls fail first (a module inventory that cannot be read)
 inline uint64_t now_ms = 1000000;      // GetTickCount64
 inline bool notifications = true;      // whether ntdll exports LdrRegisterDllNotification
 inline void (*notify)(uint32_t, const void*, void*) = nullptr;
@@ -80,20 +86,50 @@ inline int32_t unregister_dll(void* cookie) {
 // What the loader does after mapping a DLL.
 inline void dll_loaded() { std::lock_guard lock(loader_lock); if (notify) notify(1, nullptr, notify_context); }
 inline void* const ntdll = reinterpret_cast<void*>(0x5000);
+// ntdll's LdrEnumerateLoadedModules (defined in winternl.h, with the loader list): the inspecting module (HMODULE 1, what
+// GetModuleHandleExW reports for it), then loader_test::modules, under the loader lock.
+inline bool walk_export = true;        // whether ntdll exports LdrEnumerateLoadedModules (apart from `notifications`)
+inline size_t walks = 0;               // LdrEnumerateLoadedModules calls (the full conflict check)
+inline size_t walk_failures = 0;       // this many walks fail first (status walk_status): an inventory that cannot be read
+inline std::function<void()> on_walk;  // runs as a walk starts (a DLL loading during the check)
+inline int32_t walk_status = static_cast<int32_t>(0xC0000001);  // STATUS_UNSUCCESSFUL
+// Reading this process through a handle to its own pid (kset::handle_read_probe): OpenProcess, then ReadProcessMemory.
+inline bool open_own_process = true, read_own_process = true;
+inline size_t probes = 0;
+inline void* const own_process = reinterpret_cast<void*>(0x4000);  // not a FILE* to CloseHandle's shim
+inline DWORD last_error = ERROR_NO_MORE_FILES;  // GetLastError
+// A listed module that is gone (or refused) by the time GetModuleHandleExW(FROM_ADDRESS) asks for it.
+inline void* gone = nullptr;
+inline DWORD gone_error = ERROR_MOD_NOT_FOUND;
+}
+struct LDR_DATA_TABLE_ENTRY;
+namespace loader_test {
+inline int32_t enumerate_loaded(void* reserved, void (*fn)(LDR_DATA_TABLE_ENTRY*, void*, BOOLEAN*), void* context);
 }
 inline uint64_t GetTickCount64() { return loader_test::now_ms; }
 inline void Sleep(DWORD) {}
-inline DWORD GetLastError() { return ERROR_NO_MORE_FILES; }
+inline DWORD GetLastError() { return loader_test::last_error; }
 inline UINT GetSystemDirectoryW(wchar_t* out, UINT n) {
     if (loader_test::system.size() >= n) return n;
     std::wcscpy(out, loader_test::system.c_str()); return loader_test::system.size();
 }
-inline bool GetModuleHandleExW(DWORD, LPCWSTR, HMODULE* out) { *out = reinterpret_cast<void*>(1); return true; }
+inline bool GetModuleHandleExW(DWORD flags, LPCWSTR address, HMODULE* out) {
+    if (loader_test::gone && address == loader_test::gone && (flags & GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS)) {
+        loader_test::last_error = loader_test::gone_error;
+        *out = nullptr;
+        return false;
+    }
+    *out = flags & GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT ? reinterpret_cast<void*>(1) : const_cast<wchar_t*>(address);
+    return true;
+}
+inline bool FreeLibrary(HMODULE) { return true; }
 inline HMODULE GetModuleHandleW(LPCWSTR name) {
     return name && std::wstring(name) == L"ntdll.dll" ? loader_test::ntdll : nullptr;
 }
 inline void* GetProcAddress(HMODULE h, const char* name) {
     if (h == loader_test::ntdll) {
+        if (std::string(name) == "LdrEnumerateLoadedModules")
+            return loader_test::walk_export ? reinterpret_cast<void*>(&loader_test::enumerate_loaded) : nullptr;
         if (!loader_test::notifications) return nullptr;
         if (loader_test::lock_exports && std::string(name) == "LdrLockLoaderLock") return reinterpret_cast<void*>(&loader_test::lock_loader);
         if (loader_test::lock_exports && std::string(name) == "LdrUnlockLoaderLock") return reinterpret_cast<void*>(&loader_test::unlock_loader);
@@ -134,4 +170,10 @@ inline bool CloseHandle(HANDLE h) {
     if (reinterpret_cast<uintptr_t>(h) > 0x5000 && h != INVALID_HANDLE_VALUE) std::fclose(static_cast<FILE*>(h));
     return true;
 }
-inline bool ReadProcessMemory(HANDLE, const void*, void*, SIZE_T, SIZE_T*) { return false; }
+inline HANDLE OpenProcess(DWORD, int, DWORD) { ++loader_test::probes; return loader_test::open_own_process ? loader_test::own_process : nullptr; }
+inline bool ReadProcessMemory(HANDLE h, const void* from, void* to, SIZE_T n, SIZE_T* got) {
+    if (h != loader_test::own_process || !loader_test::read_own_process) return false;
+    std::memcpy(to, from, n);
+    if (got) *got = n;
+    return true;
+}

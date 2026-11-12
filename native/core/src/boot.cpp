@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 // kiln_boot: called by the dinput8 proxy on the main thread, at the game's entry point, before any game code ran.
-//   paths, log, kiln.json, profile (kiln.profile), image + side, build record, native mods "early", sigdb, hooks,
+//   paths, log, kiln.json, profile (kiln.profile), image + side, build record, native mods "early", other loaders'
+//   byte scans (foreign_scan.h), sigdb, hooks,
 //   in-core services, service DLLs + plugins, native mods "boot", native "world" armed, .NET host, chain DLLs named in
 //   chain.ini [late], state/boot.json, state/hooks.json.
 #include <cstring>
@@ -14,6 +15,7 @@
 #include "log.h"
 #include "native_mods.h"
 #include "early_plugins.h"
+#include "foreign_scan.h"
 #include "nlohmann/json.hpp"
 #include "profile.h"
 #include "sigdb.h"
@@ -35,11 +37,16 @@ namespace {
 
 bool g_booted = false;
 KilnBootInfo g_boot_info{};
+uint32_t g_proxy_info_size = 0;  // what the proxy sent (g_boot_info.size is always this core's own size)
+
+static_assert(KILN_BOOT_INFO_V2_SIZE == 64 && KILN_BOOT_INFO_V3_SIZE == 72, "KilnBootInfo v2 layout must not move");
 
 // Copies the proxy's KilnBootInfo field by field, as far as its size goes (v1 proxies send 16 bytes).
 void take_boot_info(const KilnBootInfo* info) {
     g_boot_info = KilnBootInfo{};
     g_boot_info.size = sizeof(KilnBootInfo);
+    g_boot_info.addon_log_size = KILN_BOOT_LOG_UNKNOWN;  // an older proxy did not measure it
+    g_proxy_info_size = info ? info->size : 0;
     if (!info || info->size < KILN_BOOT_INFO_V1_SIZE) return;
     g_boot_info.proxy_module = info->proxy_module;
     if (KILN_BOOT_INFO_HAS(info, play_once)) g_boot_info.play_once = info->play_once;
@@ -49,6 +56,7 @@ void take_boot_info(const KilnBootInfo* info) {
     }
     if (KILN_BOOT_INFO_HAS(info, play_once_nonce)) g_boot_info.play_once_nonce = info->play_once_nonce;
     if (KILN_BOOT_INFO_HAS(info, play_once_profile)) g_boot_info.play_once_profile = info->play_once_profile;
+    if (KILN_BOOT_INFO_HAS(info, addon_log_size)) g_boot_info.addon_log_size = info->addon_log_size;
 }
 
 const char* play_once_name(uint32_t v) {
@@ -70,8 +78,11 @@ const char* chain_detail(uint32_t d) { return d < 8 ? kChainDetail[d] : nullptr;
 
 void log_proxy() {
     const KilnBootInfo& b = g_boot_info;
-    if (b.size < KILN_BOOT_INFO_V2_SIZE)
-        KLOG_I("proxy: an older Kiln proxy (KilnBootInfo %u bytes): no chain loading, no play-once", b.size);
+    if (g_proxy_info_size < KILN_BOOT_INFO_V2_SIZE)
+        KLOG_I("proxy: an older Kiln proxy (KilnBootInfo %u bytes): no chain loading, no play-once", g_proxy_info_size);
+    else if (g_proxy_info_size < KILN_BOOT_INFO_V3_SIZE)
+        KLOG_I("proxy: an older Kiln proxy (KilnBootInfo %u bytes): it does not measure shroudlink_client.log before its "
+               "chain, so Kiln's wait for that addon can only end on its UI hook", g_proxy_info_size);
     if (b.play_once != KILN_PLAY_ONCE_NONE)
         KLOG_I("proxy: play-once %s%s%.*s", play_once_name(b.play_once), b.play_once_nonce.len ? ", nonce " : "",
                static_cast<int>(b.play_once_nonce.len), b.play_once_nonce.ptr ? b.play_once_nonce.ptr : "");
@@ -228,6 +239,11 @@ void write_boot_json(const BootFacts& f) {
         {"clr", {{"started", f.clr_started}, {"error", f.clr_tried && !f.clr_started ? json(f.clr_error) : json(nullptr)}}},
         {"errors", f.errors},
     };
+    // other loaders Kiln waited for before it hooked (foreign_scan.h)
+    json waits = json::array();
+    for (const auto& w : foreign::waits())
+        waits.push_back({{"module", w.module}, {"end", foreign::wait_end_name(w.end)}, {"ms", w.ms}, {"line", null_if_empty(w.line)}});
+    doc["waitedFor"] = waits;
     for (uint32_t k = 0; k < KILN_PROFILE_KINDS; ++k)
         if (profile::dropins(k)) doc["profile"]["dropins"].push_back(profile::kind_name(k));
     for (uint32_t i = 0; i < profile::kEngineKindCount; ++i)  // other engines' lists, when the profile has them
@@ -269,6 +285,9 @@ void boot() {
     compat::apply_early();  // rules that switch a listed mod off: before anything reads the profile
     native_mods::discover(verified);
     native_mods::run_early();
+    // Another loader that looks for game functions by their bytes on its own thread (shroudlink's client addon) gets to
+    // finish looking before Kiln hooks anything: a Kiln hook over a prologue would hide that function from it.
+    if (verified || config().policy_any) foreign::wait_for_scanners(g_boot_info.addon_log_size);
     // kiln.hooks for early plugins that hook game code (kiln-shroudforge's native runtime does it while it initialises);
     // taken away again below when this start is safe idle.
     const bool early_hooks = (verified || config().policy_any) && hooks::serve_early();

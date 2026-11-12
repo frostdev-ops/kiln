@@ -226,6 +226,49 @@ fn healthy_install_finds_nothing() {
 }
 
 #[test]
+fn addon_log_is_optional_bounded_and_redacted() {
+    let f = Fx::healthy("addon-log");
+    let absent = build(&f.input());
+    assert!(file(&absent, "game/shroudlink_client.log").is_none());
+    assert!(absent.errors.is_empty(), "{:?}", absent.errors);
+
+    let old = "[1] old addon startup\n";
+    let last = "[2] shroudlink client 0.8.0 starting (module 0x1234 Z:\\var\\home\\frostling\\addon.dll)\n\
+                [3] native UI ready: fixture\n[4] ui: screen 0x04 page=false menu=4 open=0\n";
+    f.w("shroudlink_client.log", old.repeat(SMALL_LOG_MAX as usize / old.len() + 1) + last);
+    // Mod settings are not needed to diagnose initialization and stay private.
+    f.w("shroudlink_keys.json", br#"{"mods":"K"}"#);
+    f.w("shroudlink_mods_off.json", br#"["storage"]"#);
+    let r = build(&f.input());
+    let log = file(&r, "game/shroudlink_client.log").expect("the addon log must be collected");
+    assert!(log.starts_with("... (older lines left out"));
+    assert!(log.len() as u64 <= SMALL_LOG_MAX + 200);
+    assert!(log.contains(r"<home>\addon.dll") && !log.contains("frostling"), "{log}");
+    assert!(log.contains("native UI ready: fixture") && log.contains("menu=4"));
+    assert!(!r.files.iter().any(|(n, _)| n.ends_with("shroudlink_keys.json") || n.ends_with("shroudlink_mods_off.json")));
+    assert_eq!(std::fs::read_to_string(f.game.join("shroudlink_client.log")).unwrap(),
+        old.repeat(SMALL_LOG_MAX as usize / old.len() + 1) + last, "collection is read-only");
+}
+
+/// manage-import F9: the addon log sits in the game root, where no Kiln component writes; a link planted there (by a
+/// hand-extracted archive) must not put the file it points at into the report the player posts.
+#[cfg(unix)]
+#[test]
+fn a_link_at_the_addon_log_is_not_followed() {
+    let f = Fx::healthy("addon-log-link");
+    let secret = f.root.join("outside/id_ed25519");
+    std::fs::create_dir_all(secret.parent().unwrap()).unwrap();
+    std::fs::write(&secret, "-----BEGIN OPENSSH PRIVATE KEY-----\nSECRETKEYBYTES\n-----END OPENSSH PRIVATE KEY-----\n").unwrap();
+    std::os::unix::fs::symlink(&secret, f.game.join("shroudlink_client.log")).unwrap();
+    let r = build(&f.input());
+    for (name, bytes) in &r.files {
+        assert!(!String::from_utf8_lossy(bytes).contains("SECRETKEYBYTES"), "{name} holds the link's target");
+    }
+    assert!(file(&r, "game/shroudlink_client.log").is_none(), "{:?}", file(&r, "game/shroudlink_client.log"));
+    assert!(r.errors.iter().any(|e| e.contains("shroudlink_client.log")), "say why it was left out: {:?}", r.errors);
+}
+
+#[test]
 fn not_installed_and_foreign_dinput8() {
     let f = Fx::new("noinstall");
     f.w("enshrouded.exe", b"MZ");
@@ -320,6 +363,157 @@ fn engine_stood_aside_and_loader_in_folder() {
     assert!(r.summary.contains("dbghelp.dll"));
 }
 
+/// Nexus report (11 Nov 2026, The Worst Map Mod): a Greeneye mod says what it found and patched only in its own log and
+/// status file in its folder (unlock_map_markers.log, UnlockMapMarkers.status), not in kiln.log. The report carries
+/// them, bounded and redacted, with Greeneye Loader's own loader.log; never the mod's settings.
+#[test]
+fn greeneye_mod_logs_are_in_the_report() {
+    let f = Fx::healthy("greeneye-logs");
+    // kiln-greeneye ran the mod from Kiln's copy in greeneye\ (and an older Kiln from a Library entry)
+    let lib = f.root.join("data/library/greeneye/find/1.4.0+bbbbbbbb");
+    std::fs::create_dir_all(&lib).unwrap();
+    std::fs::write(lib.join("find.log"), "Find started from Z:\\var\\home\\frostling\\x\n").unwrap();
+    f.w("kiln/state/greeneye.json", serde_json::to_vec(&serde_json::json!({
+        "format": 1, "plugin": "kiln-greeneye", "status": "running", "steppedAside": false, "updatedUnixMs": 1,
+        "mods": [
+            {"id": "unlock-map-markers", "status": "started", "folder": format!("{}", f.game.join("greeneye/unlock-map-markers").display())},
+            {"id": "find", "status": "started", "folder": format!("{}", lib.display())}]})).unwrap());
+    f.w("greeneye/unlock-map-markers/mod.json", br#"{"id":"unlock-map-markers"}"#);
+    let old = "[2026-11-11 09:00:00.000] old line\n";
+    f.w("greeneye/unlock-map-markers/unlock_map_markers.log",
+        old.repeat(GREENEYE_LOG_MAX as usize / old.len() + 1) + "[2026-11-11 10:00:00.000] ERROR: Failed to find signature for map_marker_type_quest_rumor_downgrade (frostling)\n");
+    f.w("greeneye/unlock-map-markers/UnlockMapMarkers.status", "state=error_signature_not_found\npatched=0\n");
+    f.w("greeneye/unlock-map-markers/minimap_config.ini", "[MinimapV2]\nSecretNote=frostling\n");
+    f.w("greeneye/loader.log", "[10:00:00.000] Greeneye Loader 1.2.2 loaded as dbgcore.dll in enshrouded.exe (game)\n");
+    f.w("kiln/logs/greeneye-loader.log", "[10:00:00.000] kiln-greeneye 1.0.0 (GreeneyeHost API 2) on the client\n");
+    let r = build(&f.input());
+    let log = file(&r, "greeneye-mods/unlock-map-markers/game/unlock_map_markers.log").expect("the mod's own log");
+    assert!(log.starts_with("... (older lines left out") && log.len() as u64 <= GREENEYE_LOG_MAX + 200, "bounded");
+    assert!(log.contains("Failed to find signature") && log.contains("(<user>)") && !log.contains("frostling"), "{log}");
+    assert!(file(&r, "greeneye-mods/unlock-map-markers/game/UnlockMapMarkers.status").is_some_and(|t| t.contains("patched=0")));
+    assert!(file(&r, "greeneye-mods/find/library/find.log").is_some_and(|t| t.contains("Find started") && !t.contains("frostling")), "a Library folder too");
+    assert!(file(&r, "game/greeneye/loader.log").is_some_and(|t| t.contains("Greeneye Loader 1.2.2")));
+    assert!(file(&r, "game/kiln/logs/greeneye-loader.log").is_some());
+    assert!(!r.files.iter().any(|(n, _)| n.ends_with("minimap_config.ini")), "the mod's settings stay private");
+    assert!(r.summary.contains("kiln-greeneye      running"), "the engine's word: {}", r.summary);
+}
+
+/// The zip is posted in public: a folder that kiln/state/greeneye.json names is read only inside the game's greeneye/
+/// folder or the launcher's Library for Greeneye mods, resolved and without links. Anything else is left out, with a note.
+#[test]
+fn greeneye_logs_come_only_from_greeneyes_folders() {
+    let f = Fx::healthy("greeneye-outside");
+    let outside = f.root.join("elsewhere/private");
+    std::fs::create_dir_all(&outside).unwrap();
+    std::fs::write(outside.join("secret.log"), "not a mod's log\n").unwrap();
+    std::fs::write(outside.join("mod.json"), r#"{"id":"x"}"#).unwrap();
+    // a folder in greeneye/ that is a link to the same place
+    std::fs::create_dir_all(f.game.join("greeneye")).unwrap();
+    std::os::unix::fs::symlink(&outside, f.game.join("greeneye/linked")).unwrap();
+    // and a Library path that climbs out of the Library
+    std::fs::create_dir_all(f.root.join("data/library/greeneye")).unwrap();
+    let climb = f.root.join("data/library/greeneye/../../../elsewhere/private");
+    f.w("kiln/state/greeneye.json", serde_json::to_vec(&serde_json::json!({
+        "format": 1, "plugin": "kiln-greeneye", "status": "running", "steppedAside": false, "updatedUnixMs": 1,
+        "mods": [{"id": "outside", "status": "started", "folder": format!("{}", outside.display())},
+                 {"id": "climb", "status": "started", "folder": format!("{}", climb.display())}]})).unwrap());
+    let r = build(&f.input());
+    assert!(!r.files.iter().any(|(n, b)| n.contains("secret") || String::from_utf8_lossy(b).contains("not a mod's log")),
+        "{:?}", r.files.iter().map(|(n, _)| n).collect::<Vec<_>>());
+    let note = r.findings.iter().find(|x| x.id == "greeneye-log-skipped").unwrap_or_else(|| panic!("{:#?}", r.findings));
+    assert_eq!(note.level, Level::Info);
+    assert!(note.text.contains("outside") && note.text.contains("climb") && note.text.contains("linked"), "{}", note.text);
+}
+
+/// Player report r1111 (Steam Deck, Proton without a dbgcore override): Greeneye's dbgcore.dll was in the folder but did
+/// not start, kiln-greeneye said so and ran the mods; the report said kiln-greeneye "stands aside for it".
+#[test]
+fn a_loader_in_the_folder_that_did_not_start_is_not_said_to_have_made_kiln_stand_aside() {
+    let f = Fx::healthy("greeneye-idle-loader");
+    f.w("dbgcore.dll", crate::pe::build_test_dll(&["MiniDumpWriteDump"], b"Greeneye Loader 1.2.2"));
+    let mut i = f.input();
+    i.install = Some(f.install(Platform::Proton));
+    // no state from this start: the note says what the loader would do
+    let l = finding(&build(&i), "loader-in-folder").text.clone();
+    assert!(l.contains("stands aside"), "{l}");
+    // kiln-greeneye wrote at the last start (the process boot.json names, pid 412) that it did not step aside. It writes
+    // in on_ready, seconds before the core writes boot.json after the CLR: its time says nothing about which start it is.
+    f.w("kiln/state/greeneye.json", serde_json::to_vec(&serde_json::json!({
+        "format": 1, "plugin": "kiln-greeneye", "status": "running", "steppedAside": false, "pid": 412, "updatedUnixMs": 1, "mods": []})).unwrap());
+    let l = finding(&build(&i), "loader-in-folder").text.clone();
+    assert!(!l.contains("stands aside") && l.contains("did not start at the last start") && l.contains("ran the Greeneye Loader mods itself"), "{l}");
+    // a state file of another start (another process), however recent: what the loader would do
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as i64;
+    f.w("kiln/state/greeneye.json", serde_json::to_vec(&serde_json::json!({
+        "format": 1, "plugin": "kiln-greeneye", "status": "running", "steppedAside": false, "pid": 9, "updatedUnixMs": now, "mods": []})).unwrap());
+    assert!(finding(&build(&i), "loader-in-folder").text.contains("stands aside"));
+}
+
+/// Review R8: the head of a JSON or INI game file is read only from the file itself, never through a link (a link at
+/// `<game>/dinput8-chain.ini` put up to 1 MiB of its target into a zip players post in public).
+#[test]
+fn a_linked_game_file_is_not_followed() {
+    let f = Fx::healthy("linked-head");
+    let target = f.root.join("elsewhere/private.txt");
+    std::fs::create_dir_all(target.parent().unwrap()).unwrap();
+    std::fs::write(&target, "[Chain]\nnot the game's chain file, private text\n").unwrap();
+    std::os::unix::fs::symlink(&target, f.game.join("dinput8-chain.ini")).unwrap();
+    let r = build(&f.input());
+    assert!(!r.files.iter().any(|(_, b)| String::from_utf8_lossy(b).contains("private text")), "the target is not in the report");
+    assert!(r.errors.iter().any(|e| e.contains("dinput8-chain.ini") && e.contains("link")), "{:?}", r.errors);
+}
+
+/// Review R2: one Greeneye id with logs in two folders (the Library entry it runs from, and a copy that stays in
+/// greeneye/) gave two zip entries of one name, and "Save report" failed with "Duplicate filename".
+#[test]
+fn one_greeneye_id_in_two_folders_saves_as_a_zip() {
+    let f = Fx::healthy("greeneye-two-folders");
+    let lib = f.root.join("data/library/greeneye/unlock-map-markers/1.3.48+cccccccc");
+    std::fs::create_dir_all(&lib).unwrap();
+    std::fs::write(lib.join("unlock_map_markers.log"), "from the Library entry\n").unwrap();
+    f.w("greeneye/unlock-map-markers/mod.json", br#"{"id":"unlock-map-markers"}"#);
+    f.w("greeneye/unlock-map-markers/unlock_map_markers.log", "from the game folder copy\n");
+    f.w("kiln/state/greeneye.json", serde_json::to_vec(&serde_json::json!({
+        "format": 1, "plugin": "kiln-greeneye", "status": "running", "steppedAside": false, "pid": 412,
+        "mods": [{"id": "unlock-map-markers", "status": "started", "folder": format!("{}", lib.display())}]})).unwrap());
+    let r = build(&f.input());
+    let out = f.root.join("report.zip");
+    write_zip(&r, &out).expect("the report is saved");
+    let mut a = zip::ZipArchive::new(std::fs::File::open(&out).unwrap()).unwrap();
+    let names: Vec<String> = (0..a.len()).map(|i| a.by_index(i).unwrap().name().unwrap().to_string()).collect();
+    let logs: Vec<&String> = names.iter().filter(|n| n.ends_with("unlock_map_markers.log")).collect();
+    assert_eq!(logs.len(), 2, "{names:?}");
+    assert!(file(&r, "greeneye-mods/unlock-map-markers/library/unlock_map_markers.log").is_some_and(|t| t.contains("from the Library entry")), "{names:?}");
+    assert!(file(&r, "greeneye-mods/unlock-map-markers/game/unlock_map_markers.log").is_some_and(|t| t.contains("from the game folder copy")), "{names:?}");
+}
+
+/// Player report r1110: SET's powrprof.dll had been imported as a native mod (before the Library recognised loaders).
+/// Kiln loaded it, kiln-set stood aside for it, and the report blamed "SET's own loader". It now names the native mod.
+#[test]
+fn native_mod_that_is_an_engines_own_loader() {
+    let f = Fx::healthy("native-loader");
+    let native = f.root.join("data/library/native/powrprof-00d1b1/0.0.0+abda29bc");
+    std::fs::create_dir_all(&native).unwrap();
+    std::fs::write(native.join("powrprof.dll"), crate::pe::build_test_dll(&["PowerGetActiveScheme"], b"VK_LAYER_SHROUDED_ENGINE_TWEAKS")).unwrap();
+    f.profile(serde_json::json!(true), serde_json::json!({"native": [{"id": "powrprof-00d1b1", "version": "0.0.0", "path": native.display().to_string()}]}));
+    // before a start: a warning
+    let r = build(&f.input());
+    let n = finding(&r, "native-loader");
+    assert_eq!(n.level, Level::Warning);
+    assert!(n.text.contains("native mod powrprof-00d1b1 is Shrouded Engine Tweaks's own loader (powrprof.dll)")
+        && n.text.contains("Remove powrprof-00d1b1 from the profile"), "{}", n.text);
+    // kiln-set stood aside for it: one problem that names the mod, not the generic own-loader finding
+    f.w("kiln/state/set.json", br#"{"format":1,"plugin":"kiln-set","status":"stepped-aside","steppedAside":true,"reason":"a non-system powrprof.dll is loaded","mods":[]}"#);
+    let r = build(&f.input());
+    let n = finding(&r, "native-loader");
+    assert_eq!(n.level, Level::Problem);
+    assert!(n.text.starts_with("kiln-set stood aside at the last start: the profile's native mod powrprof-00d1b1"), "{}", n.text);
+    assert!(!ids(&r).contains(&"own-loader"), "{:?}", ids(&r));
+    // switched off in the profile: nothing to say
+    f.profile(serde_json::json!(true), serde_json::json!({"native": [{"id": "powrprof-00d1b1", "version": "0.0.0", "path": native.display().to_string(), "enabled": false}]}));
+    assert!(!ids(&build(&f.input())).contains(&"native-loader"));
+}
+
 #[test]
 fn mods_in_the_game_folder_the_profile_skips() {
     let f = Fx::healthy("unlisted");
@@ -380,6 +574,27 @@ fn failed_mods_and_crash() {
     assert!(m.text.contains("missing dependency kiln.ui") && m.text.contains("BiggerTorch") && m.text.contains("LoadLibrary 126"), "{}", m.text);
     assert!(finding(&r, "crash").text.contains("crash-20261110T110500Z.txt"));
     assert!(file(&r, "game/kiln/crash-reports/crash-20261110T110500Z.txt").is_some());
+}
+
+/// Player report (Nexus, 2026-11-11): a client's server mods (Loot Leveler) are "skipped" in the menu's mods.json and
+/// start with the player's own world. The report says so in words, and does not count them as failed.
+#[test]
+fn server_mods_waiting_for_the_players_world_are_a_note() {
+    let f = Fx::healthy("hosted");
+    f.w("kiln/state/mods.json", format!(r#"{{"format":1,"pid":412,"written":"2026-11-10T11:00:01Z","generation":3,"mods":[
+        {{"id":"loot-leveler","version":"0.1.0","state":"skipped","reason":"{}"}},
+        {{"id":"enemy-leveler","version":"0.1.0","state":"skipped","reason":"{}"}}]}}"#,
+        crate::profile::GAME_HOSTED_WAITING, crate::profile::GAME_HOSTED_OFF).as_bytes());
+    let r = build(&f.input());
+    assert!(!ids(&r).contains(&"mod-failed"));
+    let wait = finding(&r, "hosted-mods");
+    assert_eq!(wait.level, Level::Info);
+    assert_eq!(wait.text, "loot-leveler starts with the player's own world (single-player or co-op), so \"skipped\" in the main menu is \
+        expected; it does not run in someone else's world.");
+    let off = finding(&r, "hosted-off");
+    assert_eq!(off.level, Level::Warning);
+    assert!(off.text.contains("enemy-leveler") && off.text.contains("\"hosted\": false"), "{}", off.text);
+    assert!(r.summary.contains("loot-leveler") && r.summary.contains("[note] loot-leveler starts with"), "{}", r.summary);
 }
 
 // ---------------------------------------------------------------- broken installs, bounds
@@ -453,6 +668,7 @@ fn nothing_private_in_any_file() {
     f.w("kiln/logs/kiln.log", format!("[I 11:00:00.000] [kiln] Kiln 0.2.0-dev.22 starting (pid 412)\n{private}"));
     f.w("kiln/logs/proxy.log", &private);
     f.w("kiln/logs/eml.log", &private);
+    f.w("shroudlink_client.log", &private);
     f.w("kiln/state/last-server.json", br#"{"format":1,"written":"2026-11-10T11:00:00Z","outcome":"welcome","server":{"id":"srv-1","name":"Isles","address":"203.0.113.7:15636"},"modpack":{"url":"https://example.org/p.zip?key=hunter3","sha256":"00"},"required":[]}"#);
     f.w("kiln/kiln.json", br#"{"policy":"verified-only","admin":{"token":"s3cr3t-token"},"remote":{"password":"hunter2"}}"#);
     f.w("kiln/config/network.json", br#"{"password":"hunter2-network"}"#);

@@ -4,10 +4,12 @@
 // MIT (licenses/ShroudedEngineTweaks-LICENSE.txt). Table lookups, systems, entities, events and resources go through
 // kiln.types, kiln.world and kiln.assets.
 #include "game.h"
+#include "lua_budget.h"
 
 #include <windows.h>
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <cstring>
@@ -43,6 +45,11 @@ bool kset::tickThread() { return g_api && g_api->on_tick_thread(); }
 bool kset::systemsReady() {
     KilnTypesStatus st{sizeof st};
     return T && T->status(&st) == KILN_OK && st.systems;
+}
+
+bool kset::has(std::string_view service) {
+    return service == "types" ? T != nullptr : service == "world" ? W != nullptr : service == "assets" ? A != nullptr :
+           service == "players" ? P != nullptr : service == "time" ? TM != nullptr : false;
 }
 
 std::string kset::bind(const KilnApi* api) {
@@ -179,6 +186,38 @@ refl::Type refl::unwrap(Type u) {
         u = v;
     }
     return u;
+}
+// From Shrouded Engine Tweaks 0.2.0 runtime/game.cpp (refl::path), Copyright (c) 2026 Cacaida, MIT.
+bool refl::path(Type t, std::string_view p, uint32_t& off, Type& leaf) {
+    off = 0;
+    t = t.resolved();
+    while (!p.empty()) {
+        if (p[0] == '[') {
+            size_t end = p.find(']');
+            if (end == std::string_view::npos || end < 2 || t.prim() != StaticArray || !t.inner()) return false;
+            uint32_t i = 0;
+            for (char c : p.substr(1, end - 1)) {
+                if (c < '0' || c > '9' || i > 100000) return false;
+                i = i * 10 + uint32_t(c - '0');
+            }
+            Type e = t.inner();
+            if (!e.size() || i >= t.size() / e.size()) return false;
+            off += i * e.size();
+            t = e.resolved();
+            p.remove_prefix(end + 1);
+            if (!p.empty() && p[0] == '.') p.remove_prefix(1);
+            continue;
+        }
+        size_t end = p.find_first_of(".[");
+        Field f;
+        if (!field(t, p.substr(0, end), f)) return false;
+        off += f.offset;
+        t = f.type.resolved();
+        p.remove_prefix(end == std::string_view::npos ? p.size() : end);
+        if (!p.empty() && p[0] == '.') p.remove_prefix(1);
+    }
+    leaf = unwrap(t);  // a wrapper's only field sits at offset 0
+    return bool(leaf);
 }
 uint32_t refl::fnv(std::string_view s) {
     uint32_t h = 0x811c9dc5;
@@ -391,6 +430,28 @@ std::vector<uint32_t> ecs::allWith(uintptr_t w, const int* idx, size_t n) {
     return out;
 }
 uint32_t ecs::entityCount(uintptr_t) { return W ? W->entity_count() : 0; }
+bool ecs::exists(uint32_t entity) { return W && W->exists && g_api->on_tick_thread() && W->exists(entity); }
+std::vector<refl::Type> ecs::componentTypes() {
+    std::vector<refl::Type> out;
+    if (T) for (uint32_t i = 0, n = std::min(T->component_type_count(), 4096u); i < n; ++i)
+        out.push_back({reinterpret_cast<const uint8_t*>(T->component_type_at(i))});
+    return out;
+}
+std::vector<uint32_t> ecs::findBounded(uint32_t hash, uint32_t limit, uint32_t& total) {
+    total = 0;
+    if (!W || !W->find || !g_api->on_tick_thread()) return {};
+    std::vector<uint32_t> out(std::min(limit, 65536u));
+    auto r = W->find(hash, out.data(), static_cast<uint32_t>(out.size()), &total);
+    if (r != KILN_OK && r != KILN_ERR_BUFFER_TOO_SMALL) return {};
+    out.resize(std::min(total, static_cast<uint32_t>(out.size())));
+    return out;
+}
+bool ecs::position(uint32_t entity, double* xyz) {
+    KilnVec3 p{};
+    if (!W || !W->position || !g_api->on_tick_thread() || W->position(entity, &p) != KILN_OK ||
+        !std::isfinite(p.x) || !std::isfinite(p.y) || !std::isfinite(p.z)) return false;
+    xyz[0] = p.x; xyz[1] = p.y; xyz[2] = p.z; return true;
+}
 namespace {
 // Event stream lookups per (world, type), so a tick runs one event_each per observed type instead of a probe and a
 // read. Only the tick thread under the Lua lock touches it. A new world, a world leave, or kiln.types refusing the
@@ -472,6 +533,7 @@ std::mutex g_res_mx;
 std::map<uint32_t, std::vector<const res::Entry*>> g_of_type;
 std::vector<std::unique_ptr<res::Entry>> g_entries;
 bool g_res_scanned = false;
+std::atomic<res::Scan> g_res_state{res::Scan::Unchecked};  // what the last ready() saw, for any thread without the lock
 std::mutex g_write_mx;
 
 int hexVal(char c) {
@@ -515,6 +577,11 @@ void scanAll() {
     if (g_res_scanned || !T || !A) return;
     g_res_scanned = true;
     const auto t0 = std::chrono::steady_clock::now();
+    // Only the first scan is Kiln's work. Cached calls must not extend a mod's callback budget.
+    struct Excuse {
+        std::chrono::steady_clock::time_point started;
+        ~Excuse() { kset::budget::excuse(std::chrono::steady_clock::now() - started); }
+    } excuse{t0};
     for (uint32_t i = 0; i < T->type_count(); ++i) {
         KilnTypeInfo info{sizeof info};
         if (T->type_info(T->type_at(i), &info) != KILN_OK || info.kind != KILN_TYPE_STRUCT) continue;
@@ -532,8 +599,11 @@ bool res::ready() {
     if (!A) return false;
     std::lock_guard lock(g_res_mx);
     scanAll();
-    return !g_entries.empty();
+    const bool found = !g_entries.empty();
+    g_res_state = found ? Scan::Found : Scan::None;
+    return found;
 }
+res::Scan res::scanned() { return g_res_state.load(std::memory_order_acquire); }
 namespace {
 bool copyGuarded(void* dst, const void* src, size_t n) {
     __try { std::memcpy(dst, src, n); return true; }

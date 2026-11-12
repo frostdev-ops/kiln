@@ -36,6 +36,13 @@ Measured (kiln.log, tick-stats.jsonl, probe mod):
 - `KILN_DISABLE=1 %command%` starts the game without Kiln (and without chained DLLs). Removing `dinput8.dll` does the
   same permanently. The launcher's "play vanilla once" does it for one start without touching Steam: it writes
   `kiln/play-once.ini` `mode=vanilla`, which the proxy deletes as it reads it ([profiles.md](profiles.md)).
+- **Limit of "play once vanilla" and "play once without mods": EML's data patches stay.** EML mods change the game's
+  data files themselves (`<exe>.kfc`, `.kfc_resources` and added `.dat` files), and only kiln-eml puts them back. A
+  vanilla start loads no Kiln code at all, and a no-mods start loads no plugins, so kiln-eml does not run in either and
+  the archives keep the last EML patch: those starts are vanilla in code, not in game data. ShroudForge's startup asset
+  patches stay the same way. To get truly vanilla data: switch the EML mods off in the active profile and start the
+  game once normally through Kiln (kiln-eml then restores the data it wrote, [eml.md](eml.md)); or use Steam's
+  "Verify integrity of game files". The next start with the EML mods on patches again.
 
 ## Profiles, chain loading, native mods
 On a client, the Kiln Launcher activates a **profile** by writing `<client>/kiln/profile.json`: the managed, native,
@@ -180,7 +187,30 @@ Manifests say `"side": "server" | "client" | "both"`.
 - `load`/`reload` (control folder, `Mods.LoadAsync`/`ReloadAsync`) accept `server` mods while hosting; in the menu they
   answer the skip reason. `state/mods.json` and `Mods.All` show `skipped` in the menu, `loaded` while hosting.
 - kiln.json `"mods": {"hosted": false}` keeps `server` mods off on a client (`side 'server': not loaded on a client
-  (kiln.json mods.hosted is false)`).
+  (kiln.json mods.hosted is false)`). Both reasons are `HostedReasons` in managed/Kiln.Api/Mods.cs (Kiln.Host writes
+  them, Kiln.Ui reads them; kiln-manage's `profile::GAME_HOSTED_*` copies are checked against that file).
+- What players read (a player took Loot Leveler and Enemy Leveler for server-only when the launcher said "not loaded
+  on a client", 2026-11-11): the launcher and the in-game Mods page never call a Kiln `server` mod skipped or
+  server-only on a client (kiln.log and `state/mods.json` keep `skipped` and the reason above).
+  - In-game Mods page (`ModCatalog`): state **Waiting**, "Starts with your own world, when you play alone or friends
+    join you. It does not run in someone else's world."; the side chip says "Your world only" (other engines' `server`
+    mods keep "Server only"). With `hosted` false: "Not loaded", "Off in this game: its kiln.json turns off mods that
+    start with your world (mods.hosted is false)." and how to turn it back on.
+  - Launcher, profile Mods page, Client: the mods that start with the world come after the load order, lit and
+    unnumbered, "Starts with your world" (the long sentence above on hover); the aside counts them ("2 mods load on a
+    client. 1 starts with your world."). Play: "3 of 3 mods load on this client. Loot Leveler starts with your world."
+    `kiln_manage::profile::resolve_preview_for` predicts it: the menu resolution, then server mods resolved against the
+    menu mods already running, then failed dependents retried against both sets, as `ModManager.StartHosting` does.
+    These later resolutions use `Environment.hosting` (the Rust twin of `ResolveEnvironment.Hosting`; fixtures
+    `side-server-hosting.json`, `side-server-hosting-loaded.json`). What loads in those later phases starts with the
+    world (`ResolvePreview.withWorld`: server mods and the mods that need one); a server mod that fails there says
+    "Will not start with your world: <reason>". `profile_resolve` takes the game's id
+    to read its kiln.json `mods.hosted`.
+  - Support report: a note `hosted-mods` ("... starts with the player's own world ..., so "skipped" in the main menu is
+    expected"), a warning `hosted-off` for `hosted` false.
+  - Not reworded: a `client`/`both` mod that needs a server mod is `failed` in the menu (`dependency ... did not load
+    (skipped: side 'server': not loaded on a client)`, the resolver's text) and in-game shows Failed until the world
+    starts and loads it; the launcher shows it as starting with the world.
 - Without the WorldDestroy hook (`world.lifecycle` off) the stop is seen late: when the next hosted world starts (its
   first step unloads the old instances first), or when the client world steps with no live server world (joined
   elsewhere; `session()` counts a world that stopped stepping 3 s ago as gone). Then no `ServerStopping` is posted (the

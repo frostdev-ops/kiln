@@ -255,8 +255,8 @@ impl SecretTool {
     /// Returns its success, stdout and stderr.
     fn run(&self, args: &[&str], stdin: Option<&str>) -> Result<(bool, String, String)> {
         use std::io::Write;
-        use std::process::{Command, Stdio};
-        let mut child = Command::new(&self.exe)
+        use std::process::Stdio;
+        let mut child = crate::hostenv::command(&self.exe)
             .args(args)
             .args(attributes(self.legacy))
             .stdin(if stdin.is_some() { Stdio::piped() } else { Stdio::null() })

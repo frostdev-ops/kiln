@@ -81,6 +81,18 @@ pub struct Outcome {
     pub fingerprint: Option<FingerprintStats>,
     pub error: Option<String>,
     pub aside: Option<String>,
+    /// Player guidance: unproven idle output, displaced ShroudForge mods, or extra containers retained for inspection.
+    /// The launcher shows this alongside the outcome, including failed or stale-backup runs.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    /// ShroudForge asset mods (`<id> <version>`) whose prepared output this start's publication replaced (phase `done`):
+    /// this start's game data does not have their patches. `reason` says so in a sentence.
+    #[serde(rename = "sfDisplaced", skip_serializing_if = "Vec::is_empty")]
+    pub sf_displaced: Vec<String>,
+    /// An idle start found the vanilla backup of another game build than the game data (the game was updated since):
+    /// it was not compared with it and nothing was claimed or restored.
+    #[serde(rename = "staleBackup", skip_serializing_if = "std::ops::Not::not")]
+    pub stale_backup: bool,
     pub mods: Vec<Entry>,
     // kiln-eml: only in the state file of a run that is going on (`phase: running`): what it is doing (progress.rs).
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -104,6 +116,9 @@ impl Outcome {
             fingerprint: None,
             error: None,
             aside: None,
+            reason: None,
+            sf_displaced: Vec::new(),
+            stale_backup: false,
             mods,
             progress: None,
         }
@@ -312,6 +327,26 @@ pub fn run(cfg: &RunConfig, mut mods: Vec<Utf8PathBuf>, entries: Vec<Entry>) -> 
     let started = Instant::now();
     let mut out = Outcome::new(Phase::Done, entries);
     let finish = |mut o: Outcome| {
+        if cfg.patch && !o.start_blocked && let Some(file) = o.file.as_deref() {
+            match lua::retained_containers(cfg.game_dir.as_std_path(), file, o.phase == Phase::Done) {
+                Ok(files) if !files.is_empty() => {
+                    let retained = format!("Extra archive containers retained: {}. They may belong to another loader or an earlier EML run; inspect them before manual cleanup. Steam verification may leave extra files", files.join(", "));
+                    tracing::warn!("{retained}");
+                    o.reason = Some(match o.reason.take() { Some(why) => format!("{why}. {retained}"), None => retained });
+                }
+                Err(error) => tracing::warn!(%error, "Could not inventory retained archive containers"),
+                _ => {}
+            }
+        }
+        if cfg.patch && !o.start_blocked && let Some(file) = o.file.as_deref() {
+            match lua::recovery_guidance(cfg.game_dir.as_std_path(), file) {
+                Ok(messages) => for message in messages {
+                    tracing::warn!("{message}");
+                    o.reason = Some(match o.reason.take() { Some(why) => format!("{why}. {message}"), None => message });
+                },
+                Err(error) => tracing::warn!(%error, "Could not inventory EML recovery files"),
+            }
+        }
         o.ms = started.elapsed().as_secs_f64() * 1000.0;
         o
     };
@@ -333,6 +368,9 @@ pub fn run(cfg: &RunConfig, mut mods: Vec<Utf8PathBuf>, entries: Vec<Entry>) -> 
         return finish(out);
     }
 
+    // Consume write-ahead scratch records under the install lock; unrecorded game-folder copies stay.
+    if cfg.patch { lua::prune(cfg.game_dir.as_std_path(), &file); }
+
     // what the run does is reported into the live state file and the progress window (progress.rs), and to the log
     let progress = Progress::start(cfg.progress.clone().map(|d| d as Arc<dyn Sink>));
     if let Some(display) = &cfg.progress {
@@ -341,46 +379,27 @@ pub fn run(cfg: &RunConfig, mut mods: Vec<Utf8PathBuf>, entries: Vec<Entry>) -> 
 
     let backup = cfg.game_dir.join(format!("{file}.kfc.bak"));
     if mods.is_empty() {
-        // no EML mod (left): put the game data back byte for byte from EML's backup, once
-        out.phase = Phase::Idle;
-        let kfc = cfg.game_dir.join(format!("{file}.kfc"));
-        let resources_backup = cfg.game_dir.join(format!("{file}.kfc_resources.bak"));
-        // comparing the live files with the backup reads both (hundreds of MiB on a real client): say so
-        let len = |p: &Utf8Path| std::fs::metadata(p.as_std_path()).map_or(0, |m| m.len());
-        let live_resources = cfg.game_dir.join(format!("{file}.kfc_resources"));
-        let comparing = cfg.patch && backup.exists();
-        if comparing {
-            let bytes = 2 * (len(&kfc) + len(&live_resources) * u64::from(resources_backup.exists()));
-            tracing::info!("No EML mods: comparing the game data with the vanilla backup ({} read) to see whether it needs restoring", mib(bytes));
-            progress.stage(Stage::Checking);
-            progress.announce(if resources_backup.exists() { 4 } else { 2 }, bytes);
-            progress.begin_file(resources_backup.file_name().unwrap_or("the vanilla backup"));
-        }
-        let resource_difference = resources_backup.exists() && files_differ(&live_resources, &resources_backup, &progress);
-        let differ = backup.exists() && cfg.patch && (files_differ(&kfc, &backup, &progress) || resource_difference);
-        if comparing {
-            progress.end_file();
-        }
-        if differ {
-            out.restored = lua::restore(&cfg.game_dir, &file);
-            if !out.restored { out.phase = Phase::Failed; out.error = Some("vanilla restore failed".into()); }
-            let _ = std::fs::remove_file(cfg.cache_dir.join("files.json"));
-        }
+        idle(cfg, &file, &progress, &mut out);
         return finish(out);
     }
     if let Err(e) = std::fs::create_dir_all(&cfg.cache_dir) {
         tracing::warn!(path = %cfg.cache_dir, error = %e, "cannot create the cache directory");
     }
 
+    // Output an earlier kiln-eml published has no receipt: adopt it now if its change cache proves it (once), so that a
+    // publication that fails before its first change, or a later start without EML mods, can still restore it.
+    if cfg.patch && backup.exists() {
+        match lua::adopt(cfg.game_dir.as_std_path(), &file, cfg.cache_dir.as_std_path()) {
+            Ok(lua::Adoption::Unproven(why)) => tracing::debug!(why, "no earlier EML output to adopt"),
+            Ok(_) => {}
+            Err(error) => tracing::warn!(%error, "could not check for earlier EML output to adopt"),
+        }
+    }
+
     let total = mods.len();
     for _attempt in 0..=total {
         if mods.is_empty() {
-            out.phase = Phase::Idle;
-            if cfg.patch && backup.exists() {
-                out.restored = lua::restore(&cfg.game_dir, &file);
-                let _ = std::fs::remove_file(cfg.cache_dir.join("files.json"));
-                if !out.restored { out.phase = Phase::Failed; out.error = Some("vanilla restore failed".into()); }
-            }
+            idle(cfg, &file, &progress, &mut out);
             break;
         }
         let env = match ModEnvironment::load_from(&cfg.game_dir, &cfg.cache_dir, mods.clone()) {
@@ -432,6 +451,10 @@ pub fn run(cfg: &RunConfig, mut mods: Vec<Utf8PathBuf>, entries: Vec<Entry>) -> 
                 out.patched = r.patched;
                 out.cached = r.cached;
                 out.fingerprint = Some(r.fingerprint);
+                if !r.sf_displaced.is_empty() {
+                    out.reason = Some(displaced_sentence(&r.sf_displaced));
+                    out.sf_displaced = r.sf_displaced;
+                }
                 for p in &mods {
                     set_state(&mut out.mods, p, "loaded", None);
                 }
@@ -470,12 +493,90 @@ pub fn run(cfg: &RunConfig, mut mods: Vec<Utf8PathBuf>, entries: Vec<Entry>) -> 
             e.reason = Some("the EML run failed (see error)".into());
         }
         // never start on a half-applied state: back to vanilla data, and forget the cache so the next start re-runs
-        if backup.exists() && cfg.patch {
+        if backup.exists() && cfg.patch && owned(cfg, &file).is_ok() {
             out.restored = lua::restore(&cfg.game_dir, &file);
         }
         let _ = std::fs::remove_file(cfg.cache_dir.join("files.json"));
     }
     finish(out)
+}
+
+/// No EML mod (left): put the game data back byte for byte from EML's backup, once, when it is output kiln-eml can
+/// prove it wrote; otherwise leave it and say why (`reason`). A backup of another game build than the live data (the
+/// game was updated since it was made) is not compared with at all (`staleBackup`): it is of no use for this build, and
+/// the next start with an EML mod makes a new one.
+fn idle(cfg: &RunConfig, file: &str, progress: &Progress, out: &mut Outcome) {
+    out.phase = Phase::Idle;
+    let backup = cfg.game_dir.join(format!("{file}.kfc.bak"));
+    let kfc = cfg.game_dir.join(format!("{file}.kfc"));
+    if !cfg.patch || !backup.exists() { return; }
+    let build = |p: &Utf8Path| kfc::container::KFCFile::get_version_tag(p).ok();
+    if let (Some(live), Some(saved)) = (build(&kfc), build(&backup)) && live != saved {
+        tracing::info!("No EML mods; the vanilla backup is of another game build ({saved}) than the game data ({live}): \
+            the game was updated since it was made, so it is not compared and nothing is restored. The next start with an \
+            EML mod makes a new backup");
+        out.stale_backup = true;
+        return;
+    }
+    let resources_backup = cfg.game_dir.join(format!("{file}.kfc_resources.bak"));
+    // comparing the live files with the backup reads both (hundreds of MiB on a real client): say so
+    let len = |p: &Utf8Path| std::fs::metadata(p.as_std_path()).map_or(0, |m| m.len());
+    let live_resources = cfg.game_dir.join(format!("{file}.kfc_resources"));
+    let bytes = 2 * (len(&kfc) + len(&live_resources) * u64::from(resources_backup.exists()));
+    tracing::info!("No EML mods: comparing the game data with the vanilla backup ({} read) to see whether it needs restoring", mib(bytes));
+    progress.stage(Stage::Checking);
+    progress.announce(if resources_backup.exists() { 4 } else { 2 }, bytes);
+    progress.begin_file(resources_backup.file_name().unwrap_or("the vanilla backup"));
+    let resource_difference = resources_backup.exists() && files_differ(&live_resources, &resources_backup, progress);
+    let differ = files_differ(&kfc, &backup, progress) || resource_difference;
+    progress.end_file();
+    if !differ { return; }
+    if let Err(why) = owned(cfg, file) {
+        out.reason = Some(unproven_sentence(&why));
+        return;
+    }
+    out.restored = lua::restore(&cfg.game_dir, file);
+    if !out.restored { out.phase = Phase::Failed; out.error = Some("vanilla restore failed".into()); }
+    let _ = std::fs::remove_file(cfg.cache_dir.join("files.json"));
+}
+
+/// Is the live game data output Kiln's EML writer can prove it published? Its receipt decides; with none, the change
+/// cache of an earlier kiln-eml may prove it once (`lua::adopt`). Err: why not, in a few words.
+fn owned(cfg: &RunConfig, file: &str) -> Result<(), String> {
+    let root = cfg.game_dir.as_std_path();
+    let why = match lua::owns_output(root, file) {
+        Ok(true) => return Ok(()),
+        Ok(false) => match lua::adopt(root, file, cfg.cache_dir.as_std_path()) {
+            Ok(lua::Adoption::Adopted) => return Ok(()),
+            Ok(lua::Adoption::Receipt) => "it is not the output its ownership receipt lists (another loader, a game update or a \
+                file check changed it since)".to_owned(),
+            Ok(lua::Adoption::Unproven(why)) => format!("it has no ownership receipt, and {why}"),
+            Err(error) => format!("its ownership could not be checked: {error}"),
+        },
+        Err(error) => format!("its ownership receipt cannot be used: {error}"),
+    };
+    tracing::warn!("Game data is not output Kiln's EML writer can prove it published ({why}); leaving it and the shared .bak files alone");
+    Err(why)
+}
+
+/// The `reason` of a start whose publication replaced ShroudForge's prepared asset patches. kiln-eml publishes only in a
+/// start where ShroudForge does not run: hosted ShroudForge reserves the writer and kiln-eml stands aside
+/// (`eml_stand_aside`), and ShroudForge's own proxy makes it stand aside too. So the SF state it replaced is from an
+/// earlier start.
+fn displaced_sentence(mods: &[String]) -> String {
+    format!("ShroudForge's asset mods {}, prepared by an earlier start, are not in this start's game data: ShroudForge \
+        did not run this start (its mods are off in the active profile, or it could not start: see its row on Logs > \
+        Engines), so kiln-eml built the game data from the vanilla backup with the EML mods only. ShroudForge prepares \
+        them again the next time it runs", mods.join(", "))
+}
+
+/// The `reason` of an idle start whose game data differs from the backup and is not provably EML's.
+fn unproven_sentence(why: &str) -> String {
+    format!("The game data differs from its vanilla backup, and Kiln cannot prove it is its own EML output ({why}), so it \
+        was left as it is. If ShroudForge asset mods or another loader wrote it, nothing needs doing. If it still carries \
+        EML mods you switched off: enable any EML mod for one start and disable it again; Kiln preserves unproven \
+        destination containers in kiln/eml/displaced rather than deleting them. Or use Steam's \"Verify integrity of \
+        game files\" (which may leave extra containers)")
 }
 
 /// `224.4 MiB`
@@ -752,7 +853,7 @@ mod tests {
     }
 
     #[test]
-    fn restores_vanilla_when_no_mods_are_left() {
+    fn no_mods_never_restores_unowned_game_data_even_with_an_old_cache() {
         let d = Utf8PathBuf::from_path_buf(std::env::temp_dir()).unwrap().join(format!("kiln-eml-restore-{}", std::process::id()));
         std::fs::create_dir_all(d.join("cache")).unwrap();
         std::fs::write(d.join("enshrouded.kfc"), b"KFC patched").unwrap();
@@ -760,10 +861,11 @@ mod tests {
         std::fs::write(d.join("cache/files.json"), b"{}").unwrap();
         let cfg = RunConfig { game_dir: d.clone(), cache_dir: d.join("cache"), patch: true, ..Default::default() };
         let o = run(&cfg, Vec::new(), Vec::new());
-        assert_eq!(o.phase, Phase::Failed);
-        // EML's restore checks the version tag of both files; fake files have none, so it refuses: no damage done
+        assert_eq!(o.phase, Phase::Idle);
+        // A cache or a compatible backup cannot prove whose current patches these are.
         assert!(!o.restored);
         assert_eq!(std::fs::read(d.join("enshrouded.kfc")).unwrap(), b"KFC patched");
+        assert_eq!(std::fs::read(d.join("cache/files.json")).unwrap(), b"{}");
     }
 
     #[test]
@@ -852,3 +954,7 @@ mod tests {
     }
 
 }
+
+#[cfg(test)]
+#[path = "runner_ownership_tests.rs"]
+mod ownership_tests;

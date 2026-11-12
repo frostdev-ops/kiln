@@ -71,22 +71,39 @@ public sealed unsafe partial class UiDraw
 
     [ThreadStatic] private static byte[]? _textBuf;
 
+    private const uint InputReadOnly = 1u << 9;  // ImGuiInputTextFlags_ReadOnly (the ImGui kiln.ui is built with)
+
+    /// <summary>Copies <paramref name="value"/> as UTF-8 into <paramref name="buf"/> (at most <paramref name="maxBytes"/>
+    /// bytes, then a NUL). False when ImGui could not show all of it (too long, or a NUL inside): the field then shows
+    /// what fits, cut at a character, and must not write it back.</summary>
+    private static bool Fill(string value, byte[] buf, int maxBytes)
+    {
+        var whole = Encoding.UTF8.GetByteCount(value) <= maxBytes;
+        int n;
+        if (whole) n = Encoding.UTF8.GetBytes(value, buf);
+        else Encoding.UTF8.GetEncoder().Convert(value, buf.AsSpan(0, maxBytes), true, out _, out n, out _);
+        buf[n] = 0;
+        return whole && !value.Contains('\0');
+    }
+
+    /// <summary>A text field of <paramref name="maxBytes"/> can edit <paramref name="value"/> whole (its UTF-8 fits and it
+    /// holds no NUL, where ImGui would end it); otherwise it shows it cut and read-only.</summary>
+    internal static bool Editable(string value, int maxBytes) => Encoding.UTF8.GetByteCount(value) <= maxBytes && !value.Contains('\0');
+
     /// <summary>A one-line text field editing <paramref name="value"/> (at most <paramref name="maxBytes"/> UTF-8 bytes).
-    /// Returns true when the text changed.</summary>
+    /// Returns true when the text changed. A value that does not fit (or holds a NUL) is shown cut and read-only, and
+    /// <paramref name="value"/> stays as it is.</summary>
     public bool InputText(string label, ref string value, int maxBytes = 256)
     {
         maxBytes = Math.Clamp(maxBytes, 2, 1 << 16);
         if (_textBuf == null || _textBuf.Length < maxBytes + 1) _textBuf = GC.AllocateArray<byte>(maxBytes + 1, pinned: true);
-        var n = Encoding.UTF8.GetBytes(value.Length * 3 <= maxBytes ? value : value[..Math.Min(value.Length, maxBytes / 3)], _textBuf);
-        _textBuf[Math.Min(n, maxBytes)] = 0;
+        var whole = Fill(value, _textBuf, maxBytes);
         bool changed;
-        fixed (byte* p = _textBuf) changed = T->InputText(Utf8.Of(label), p, (nuint)(maxBytes + 1), 0) != 0;
-        if (changed)
-        {
-            var len = Array.IndexOf(_textBuf, (byte)0);
-            value = Encoding.UTF8.GetString(_textBuf, 0, len < 0 ? maxBytes : len);
-        }
-        return changed;
+        fixed (byte* p = _textBuf) changed = T->InputText(Utf8.Of(label), p, (nuint)(maxBytes + 1), whole ? 0 : InputReadOnly) != 0;
+        if (!changed || !whole) return false;
+        var len = Array.IndexOf(_textBuf, (byte)0, 0, maxBytes + 1);
+        value = Encoding.UTF8.GetString(_textBuf, 0, len < 0 ? maxBytes : len);
+        return true;
     }
 
     public bool CollapsingHeader(string label, bool defaultOpen = false) => T->CollapsingHeader(Utf8.Of(label), defaultOpen ? 1u << 5 : 0) != 0;
@@ -195,38 +212,45 @@ public sealed unsafe partial class UiDraw
         T->ImageButton(Utf8.Of(id), image.Handle, width > 0 ? width : image.Width * Scale, height > 0 ? height : image.Height * Scale) != 0;
 
     /// <summary>A drop-down list; true when <paramref name="index"/> changed.</summary>
-    public bool Combo(string label, ref int index, IReadOnlyList<string> items)
+    public bool Combo(string label, ref int index, IReadOnlyList<string> items) =>
+        items.Count > 0 && Combo(label, ref index, ComboItems(items), items.Count);
+
+    /// <summary>Combo items as ImGui takes them (each ends with a NUL, the list with another): made once, drawn many times.</summary>
+    internal static byte[] ComboItems(IReadOnlyList<string> items)
     {
-        if (!UiNative.HasGameUi || items.Count == 0) return false;
         var sb = new StringBuilder();
         foreach (var i in items) sb.Append(i.Replace('\0', ' ')).Append('\0');
         sb.Append('\0');
-        var bytes = Encoding.UTF8.GetBytes(sb.ToString());
-        var v = Math.Clamp(index, 0, items.Count - 1);
+        return Encoding.UTF8.GetBytes(sb.ToString());
+    }
+
+    internal bool Combo(string label, ref int index, byte[] items, int count)
+    {
+        if (!UiNative.HasGameUi || count == 0 || items.Length == 0) return false;
+        var v = Math.Clamp(index, 0, count - 1);
         bool changed;
-        fixed (byte* p = bytes) changed = T->Combo(Utf8.Of(label), &v, p) != 0;
+        fixed (byte* p = items) changed = T->Combo(Utf8.Of(label), &v, p) != 0;
         index = v;
         return changed;
     }
 
     [ThreadStatic] private static byte[]? _multiBuf;
 
-    /// <summary>A multi-line text field (at most <paramref name="maxBytes"/> UTF-8 bytes).</summary>
+    /// <summary>A multi-line text field (at most <paramref name="maxBytes"/> UTF-8 bytes). A value that does not fit (or
+    /// holds a NUL) is shown cut, edits to it are ignored and <paramref name="value"/> stays as it is (this slot has no
+    /// read-only mode).</summary>
     public bool InputMultiline(string label, ref string value, int maxBytes = 4096, float width = -1, float height = 0)
     {
         if (!UiNative.HasGameUi) return false;
         maxBytes = Math.Clamp(maxBytes, 2, 1 << 20);
         if (_multiBuf == null || _multiBuf.Length < maxBytes + 1) _multiBuf = GC.AllocateArray<byte>(maxBytes + 1, pinned: true);
-        var n = Encoding.UTF8.GetBytes(value.Length * 3 <= maxBytes ? value : value[..Math.Min(value.Length, maxBytes / 3)], _multiBuf);
-        _multiBuf[Math.Min(n, maxBytes)] = 0;
+        var whole = Fill(value, _multiBuf, maxBytes);
         bool changed;
         fixed (byte* p = _multiBuf) changed = T->InputMultiline(Utf8.Of(label), p, (nuint)(maxBytes + 1), width, height > 0 ? height : 120 * Scale) != 0;
-        if (changed)
-        {
-            var len = Array.IndexOf(_multiBuf, (byte)0);
-            value = Encoding.UTF8.GetString(_multiBuf, 0, len < 0 ? maxBytes : len);
-        }
-        return changed;
+        if (!changed || !whole) return false;
+        var len = Array.IndexOf(_multiBuf, (byte)0, 0, maxBytes + 1);
+        value = Encoding.UTF8.GetString(_multiBuf, 0, len < 0 ? maxBytes : len);
+        return true;
     }
 
     /// <summary>Empty space.</summary>

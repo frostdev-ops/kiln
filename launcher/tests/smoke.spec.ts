@@ -1,17 +1,20 @@
-// Smoke tests in browser-mock mode: every route renders without console errors, the key flows work (import, light a
-// mod, resolver preview; the mouth follows the game state; typed confirmation in the arch; the grouped server list),
+// Smoke tests in browser-mock mode: every route renders without console errors, the key flows work (import, switch a
+// mod on, the load order of every kind; the mouth follows the game state; typed confirmation in the arch; the grouped
+// server list),
 // every main page fits 1024×640, and screenshots of the main pages at 1024×640 and 1920×1080 go to
 // .out/launcher/shots/ (SHOTS=0 skips them).
 import { expect, test, type Page } from "@playwright/test";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const SHOTS = join(import.meta.dirname, "..", "..", ".out", "launcher", "shots");
 
 /** The launcher's own routes: must render without console errors. */
 const CLIENT_ROUTES = [
-  "/", "/profiles", "/profiles/ember-run/mods", "/profiles/ember-run/native", "/profiles/ember-run/emf", "/profiles/ember-run/configs",
-  "/profiles/ember-run/saves", "/library", "/runtime", "/logs", "/saves", "/editor", "/settings", "/about", "/servers",
+  "/", "/mods/order", "/mods/native", "/mods/engines", "/mods/configs", "/runtime", "/logs", "/saves", "/editor", "/settings", "/about", "/servers",
+  // the places before dev.24: they redirect to the new ones
+  "/profiles", "/profiles/ember-run/mods", "/profiles/ember-run/native", "/profiles/ember-run/emf", "/profiles/ember-run/configs",
+  "/profiles/ember-run/saves", "/library",
 ];
 /** Server and admin routes: rendered inside the shell, checked softly. */
 const SERVER_ROUTES = [
@@ -70,49 +73,86 @@ test("server and admin routes render inside the shell", async ({ page }) => {
   for (const r of SERVER_ROUTES) expect.soft(errs[r] ?? [], r).toEqual([]);
 });
 
-test("import → add to profile → light → resolver preview", async ({ page }) => {
+test("import → switch on → the load order of every kind", async ({ page }) => {
   const errors = await collectErrors(page, async () => {
-    // the power user's way: Settings "Add new mods to the active profile" off, a drop on Library is detected, then
-    // imported only (the default, a drop that lands in the active profile: tests/firstrun.spec.ts)
+    // the power user's way: Settings "Switch new mods on" off, a drop joins the list switched off (the default, a drop
+    // that is on at once: tests/firstrun.spec.ts)
     await open(page, "/settings");
-    await page.getByText("Add new mods to the active profile", { exact: true }).click();
-    await expect(page.getByRole("switch", { name: /^Add new mods to the active profile/ })).not.toBeChecked();
-    await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Library" }).click();
-    // drop a mod zip on the niche (mock mode: the file name stands in for the path)
+    await page.getByText("Switch new mods on", { exact: true }).click();
+    await expect(page.getByRole("switch", { name: /^Switch new mods on/ })).not.toBeChecked();
+    await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Play" }).click();
+    const hero = page.locator(".k-hero");
+    // drop a mod zip on the window (mock mode: the file name stands in for the path)
     const dt = await page.evaluateHandle(() => { const d = new DataTransfer(); d.items.add(new File(["x"], "night-owl-1.2.0.zip")); return d; });
-    await page.locator("[data-drop]").dispatchEvent("drop", { dataTransfer: dt });
-    const dialog = page.getByRole("dialog", { name: "Import" });
-    await expect(dialog.getByText("night-owl")).toBeVisible();
-    await dialog.getByRole("button", { name: "Import 1" }).click();
-    await expect(page.getByText("Imported 1")).toBeVisible();
-    await expect(page.getByRole("table", { name: "Library" }).getByText("Night Owl")).toBeVisible();
+    await hero.dispatchEvent("drop", { dataTransfer: dt });
+    await expect(page.locator(".k-toast", { hasText: "Added Night Owl, switched off" })).toBeVisible();
+    await expect(hero.getByRole("switch", { name: "Night Owl" })).toHaveAttribute("aria-checked", "false");
     // a pack zip with the mod in a folder inside imports too
     const dt2 = await page.evaluateHandle(() => { const d = new DataTransfer(); d.items.add(new File(["x"], "dawn-lamp-2.0.0-pack.zip")); return d; });
-    await page.locator("[data-drop]").dispatchEvent("drop", { dataTransfer: dt2 });
-    const dialog2 = page.getByRole("dialog", { name: "Import" });
-    await dialog2.getByRole("button", { name: "Import 1" }).click();
-    await expect(page.getByRole("table", { name: "Library" }).getByText("Dawn Lamp")).toBeVisible();
+    await hero.dispatchEvent("drop", { dataTransfer: dt2 });
+    await expect(hero.getByRole("switch", { name: "Dawn Lamp" })).toHaveAttribute("aria-checked", "false");
 
-    await open(page, "/profiles/ember-run/mods");
-    await page.getByRole("button", { name: "Add mod", exact: true }).click();
-    const add = page.getByRole("dialog", { name: "Add from the library" });
-    await add.getByText("Night Owl").click();
-    await add.getByRole("button", { name: "Add 1" }).click();
-    const lit = page.locator(".k-order-row.lit", { hasText: "night-owl" });
-    await expect(lit).toBeVisible();
-    // put it out: it leaves the load order; light it again: back
-    const flame = page.getByRole("button", { name: "Light Night Owl" });
-    await expect(flame).toHaveAttribute("aria-pressed", "true");
-    await flame.click();
-    await expect(flame).toHaveAttribute("aria-pressed", "false");
-    await expect(lit).toHaveCount(0);
-    await flame.click();
-    await expect(lit).toBeVisible();
+    // on: it joins the load order at the main menu; off: it leaves it; on again: back
+    await hero.getByRole("switch", { name: "Night Owl" }).click();
+    await hero.getByRole("link", { name: "Load order" }).click();
+    const menu = page.getByRole("list", { name: "At the main menu" });
+    await expect(menu).toContainText("Night Owl");
+    const sw = page.getByRole("switch", { name: "Night Owl" });
+    await expect(sw).toHaveAttribute("aria-checked", "true");
+    await sw.click();
+    await expect(menu).not.toContainText("Night Owl");
+    await expect(page.getByRole("region", { name: "Off" })).toContainText("Night Owl");
+    await page.getByRole("switch", { name: "Night Owl" }).click();
+    await expect(menu).toContainText("Night Owl");
     // rejections carry the resolver's reasons
-    await expect(page.getByText("missing dependency ui-lib ^1.0")).toBeVisible();
+    await expect(page.getByRole("region", { name: "On, but not loading" }).getByText("missing dependency ui-lib ^1.0")).toBeVisible();
     // server side: client-only mods stay out with a reason
     await page.getByRole("radio", { name: "Server" }).click();
     await expect(page.getByText("side 'client': not loaded on a server").first()).toBeVisible();
+  });
+  expect(errors).toEqual([]);
+});
+
+/** A `pub const NAME: &str = "...";` of kiln-manage's profile.rs: the backend's own words, not the mock's copy. */
+function rustConst(name: string): string {
+  const rust = readFileSync(new URL("../../crates/kiln-manage/src/profile.rs", import.meta.url), "utf8");
+  const m = rust.match(new RegExp(`pub const ${name}: &str = "((?:[^"\\\\]|\\\\.)*)";`));
+  if (!m) throw new Error(`no ${name} in profile.rs`);
+  return m[1].replace(/\\"/g, '"');
+}
+
+test("the mock's world sentences are the backend's", () => {
+  const mock = readFileSync(new URL("../src/api/mock.ts", import.meta.url), "utf8");
+  for (const name of ["WITH_WORLD", "HOSTED_OFF", "WORLD_FAILS"]) expect(mock).toContain(JSON.stringify(rustConst(name)));
+});
+
+// Player report (Nexus, 2026-11-11): Loot Leveler and Enemy Leveler (side "server") read "not loaded on a client" here,
+// so the player took them for server-only. On a client they start with the player's own world (Kiln.Host StartHosting).
+test("a server mod on a client profile starts with the player's own world", async ({ page }) => {
+  const errors = await collectErrors(page, async () => {
+    await open(page, "/");
+    const hero = page.locator(".k-hero");
+    const row = hero.getByRole("list", { name: "Mods" }).locator("li").filter({ has: page.getByText("Big Stacks", { exact: true }) });
+    await row.getByRole("switch", { name: "Big Stacks" }).click();
+    await expect(row.getByText("Starts with your world", { exact: true })).toBeVisible();
+    await expect(row.getByText("Starts with your world", { exact: true })).toHaveAttribute("title", rustConst("WITH_WORLD"));
+    await expect(page.getByText(/not loaded on a client/)).toHaveCount(0);
+    await expect(hero.locator(".k-hero-say")).toHaveText("13 mods on, 14 off. Big Stacks starts with your world. More Hotbars and Night Sky will not run in this game.");
+    // the load order puts it with the player's world on a client, and loads it like any other mod on a server
+    await hero.getByRole("link", { name: "Load order" }).click();
+    await expect(page.getByRole("list", { name: "With your world" })).toContainText("Big Stacks");
+    await page.getByRole("radio", { name: "Server" }).click();
+    await expect(page.getByRole("list", { name: "When the server world starts" })).toContainText("Big Stacks");
+    // kiln.json "mods": {"hosted": false} keeps it off in this game, and both views say so
+    await page.evaluate(() => (window as unknown as { __kilnMock: { setKilnJson: (path: string, value: unknown) => void } }).__kilnMock.setKilnJson("mods.hosted", false));
+    await open(page, "/");
+    await expect(row.getByText("Off in this game", { exact: true })).toHaveAttribute("title", rustConst("HOSTED_OFF"));
+    await expect(hero.locator(".k-hero-say")).toHaveText("13 mods on, 14 off. Big Stacks stays off in this game. More Hotbars and Night Sky will not run in this game.");
+    await open(page, "/mods/order");
+    await page.getByRole("radio", { name: "Client" }).click();
+    const out = page.getByRole("region", { name: "On, but not loading" });
+    await expect(out).toContainText("Big Stacks");
+    await expect(out.getByText(rustConst("HOSTED_OFF"))).toBeVisible();
   });
   expect(errors).toEqual([]);
 });
@@ -137,11 +177,10 @@ test("the mouth is the Play button and follows the game state", async ({ page })
   await expect(page.locator(".k-arch")).toBeVisible();
   await arch.getByRole("button", { name: "Cancel" }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
-  await page.getByRole("button", { name: "Another profile", exact: true }).click();
-  await expect(page.getByRole("dialog", { name: "Play a profile once" })).toBeVisible();
-  await page.keyboard.press("Escape");
+  // no "Another profile" in Just once: profiles are in Settings
+  await expect(page.getByRole("button", { name: "Another profile", exact: true })).toHaveCount(0);
   // on a sheet page the mouth is the pilot light: still the Play button, still labelled
-  await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Library" }).click();
+  await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Saves" }).click();
   await expect(play).toHaveClass(/pilot/);
   await expect(play).toHaveAccessibleName(/^Play /);
 });
@@ -347,18 +386,17 @@ test("a server without Kiln offers Install Kiln on Overview; one with Kiln offer
   await expect(banner.getByRole("button", { name: "Install Kiln" })).toBeDisabled();
 });
 
-test("the active profile is chosen from its name", async ({ page }) => {
-  await open(page, "/");
-  await page.getByRole("button", { name: /^Active profile: / }).click();
-  const list = page.getByRole("listbox", { name: "Profiles" });
-  await expect(list.getByRole("option").first()).toBeVisible();
-  await list.getByRole("option", { name: /Vanilla plus/ }).click();
-  // the name changes at once: the mock's activation answers after 1.5 s, like a real one with big mods
-  await expect(page.getByRole("button", { name: "Active profile: Vanilla plus. Change profile." })).toBeVisible({ timeout: 500 });
-  await expect(page.getByText("Active profile: Vanilla plus", { exact: true })).toBeVisible();
-  // the Profiles page agrees without a reload
-  await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Profiles" }).click();
-  await expect(page.getByRole("row").filter({ hasText: "Vanilla plus" }).getByText("Active", { exact: true })).toBeVisible();
+test("the loaded profile is chosen in Settings, Profiles", async ({ page }) => {
+  await open(page, "/settings");
+  const sec = page.getByRole("region", { name: "Profiles" });
+  const row = sec.getByRole("listitem").filter({ hasText: "Vanilla plus" });
+  await row.getByRole("button", { name: "Load" }).click();
+  // the pill moves at once: the mock's activation answers after 1.5 s, like a real one with big mods
+  await expect(row.getByText("Loaded", { exact: true })).toBeVisible({ timeout: 500 });
+  await expect(page.locator(".k-toast", { hasText: "Vanilla plus is loaded" })).toBeVisible();
+  // Play agrees without a reload: one small line names it (it is not the default)
+  await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Play" }).click();
+  await expect(page.locator(".k-hero").getByRole("link", { name: "Profile: Vanilla plus" })).toBeVisible();
 });
 
 test("Last boot counts the mods that failed to load and later errors, and opens the logs", async ({ page }) => {
@@ -476,13 +514,14 @@ test("a mod built for a newer Kiln than the game has says Update Kiln on Play", 
 });
 
 test("destructive actions need the typed word, in the arch", async ({ page }) => {
-  await open(page, "/profiles");
-  await page.getByRole("button", { name: "New profile" }).first().click();
-  await page.getByLabel("Name").fill("Throwaway");
-  await page.getByRole("button", { name: "Create" }).click();
-  await expect(page.getByRole("heading", { name: "Throwaway" })).toBeVisible();
-  await open(page, "/profiles");
-  const row = page.getByRole("row").filter({ hasText: "Throwaway" });
+  // a profile's Delete (Settings, Profiles) keeps its typed word whatever "Type a mod's name to remove it" says
+  await open(page, "/settings");
+  const sec = page.getByRole("region", { name: "Profiles" });
+  await sec.getByRole("button", { name: "Save current as…" }).click();
+  await page.getByRole("dialog", { name: "Save current as" }).getByLabel("Name").fill("Throwaway");
+  await page.getByRole("dialog", { name: "Save current as" }).getByRole("button", { name: "Save", exact: true }).click();
+  const row = sec.getByRole("listitem").filter({ hasText: "Throwaway" });
+  await expect(row).toBeVisible();
   await row.getByLabel("More for Throwaway").click();
   await page.getByRole("menuitem", { name: "Delete" }).click();
   const dialog = page.getByRole("dialog");
@@ -493,7 +532,7 @@ test("destructive actions need the typed word, in the arch", async ({ page }) =>
   await expect(confirm).toBeDisabled();
   await dialog.getByRole("textbox").fill("throwaway");
   await confirm.click();
-  await expect(page.getByRole("row").filter({ hasText: "Throwaway" })).toHaveCount(0);
+  await expect(sec.getByRole("listitem").filter({ hasText: "Throwaway" })).toHaveCount(0);
 });
 
 test("a state push from the Emberwatch Lua mod (empty lists as {}) does not break the server pages", async ({ page }) => {
@@ -535,7 +574,7 @@ test("one grouped list per server: Run, World, Data, Files", async ({ page }) =>
 });
 
 test("schema form edits a config value", async ({ page }) => {
-  await open(page, "/profiles/ember-run/configs");
+  await open(page, "/mods/configs");
   await expect(page.getByText("Rarity boost")).toBeVisible();
   await expect(page.getByText("restart").first()).toBeVisible();
   await expect(page.getByText("synced").first()).toBeVisible();
@@ -548,7 +587,7 @@ test("schema form edits a config value", async ({ page }) => {
 
 test("every main page fits 1024×640 without a window scrollbar", async ({ page }) => {
   await page.setViewportSize({ width: 1024, height: 640 });
-  for (const r of ["/", "/profiles", "/profiles/ember-run/mods", "/library", "/runtime", "/logs", "/saves", "/settings", "/about", "/servers", "/servers/lab/overview", "/servers/lab/admin/items"]) {
+  for (const r of ["/", "/mods/order", "/mods/native", "/mods/engines", "/runtime", "/logs", "/saves", "/settings", "/about", "/servers", "/servers/lab/overview", "/servers/lab/admin/items"]) {
     await open(page, r);
     await page.waitForTimeout(400);
     const over = await page.evaluate(() => ({ x: document.documentElement.scrollWidth > innerWidth + 1, y: document.documentElement.scrollHeight > innerHeight + 1 }));
@@ -585,8 +624,8 @@ test("screenshots of the main pages", async ({ page }) => {
   test.skip(process.env.SHOTS === "0", "SHOTS=0");
   mkdirSync(SHOTS, { recursive: true });
   const shots: [string, string][] = [
-    ["play", "/"], ["profiles", "/profiles"], ["profile-mods", "/profiles/ember-run/mods"], ["profile-native", "/profiles/ember-run/native"],
-    ["profile-configs", "/profiles/ember-run/configs"], ["library", "/library"], ["runtime", "/runtime"], ["logs", "/logs"],
+    ["play", "/"], ["load-order", "/mods/order"], ["mods-native", "/mods/native"], ["mods-engines", "/mods/engines"],
+    ["mods-configs", "/mods/configs"], ["runtime", "/runtime"], ["logs", "/logs"],
     ["saves", "/saves"], ["settings", "/settings"], ["about", "/about"], ["editor", "/editor"], ["servers", "/servers"],
     ["server-overview", "/servers/lab/overview"], ["server-items", "/servers/lab/admin/items"], ["server-map", "/servers/lab/admin/map"],
     ["server-mods", "/servers/lab/mods"], ["server-players", "/servers/lab/admin/players"],
@@ -610,4 +649,21 @@ test("screenshots of the main pages", async ({ page }) => {
   await page.getByRole("button", { name: "Uninstall" }).click();
   await page.waitForTimeout(600);
   await page.screenshot({ path: join(SHOTS, "mock-confirm-danger.png") });
+});
+
+test("the uninstall confirmation says what leaves the game folder and what stays", async ({ page }) => {
+  // install::uninstall_report: Kiln's unchanged files go and the originals come back; engine_mods::unplace removes the
+  // unchanged mod copies placed outside kiln/ and keeps changed ones; archives EML patched are not restored
+  await open(page, "/runtime");
+  await page.getByRole("button", { name: "Uninstall" }).click();
+  const dialog = page.getByRole("dialog", { name: "Uninstall Kiln?" });
+  await expect(dialog).toContainText("original dinput8.dll");
+  await expect(dialog).toContainText("Unchanged mod copies it placed outside kiln/ go too; changed ones stay and are listed.");
+  await expect(dialog).toContainText("kiln/ (configs, data, logs) stays");
+  await expect(dialog).toContainText("Game archives EML patched stay patched");
+  await expect(dialog).toContainText("switch the EML mods off and start the game once through Kiln");
+  // only what is true: another loader's file at an original's name stays (install.rs uninstall_report), and the start
+  // through Kiln restores only archives Kiln's EML plugin wrote and that are unchanged (engine_mods::eml_restore_vanilla)
+  await expect(dialog).toContainText("unless another loader's file has taken its name since");
+  await expect(dialog).toContainText("that restores only archives Kiln's EML plugin wrote and that are unchanged since");
 });

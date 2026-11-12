@@ -1,0 +1,15 @@
+{
+  "format": 1,
+  "weapons": { "cinderbrand": { "name": "Cinderbrand", "class": "sword", "visual": { "icon": "icons/cinderbrand.png" } } },
+  "items": {
+    "missing": { "name": "x", "visual": { "icon": "icons/missing.png" } },
+    "up": { "name": "x", "visual": { "icon": "../outside.png" } },
+    "rooted": { "name": "x", "visual": { "icon": "/icons/cinderbrand.png" } },
+    "drive": { "name": "x", "visual": { "icon": "C:\\icons\\cinderbrand.png" } },
+    "game-icon": { "name": "x", "visual": { "icon": "item:Weapon_Fixture_Sword" } }
+  },
+  "cosmetics": { "hood": { "name": "x", "slot": "head", "look": { "like": "Weapon_Fixture_Sword", "icon": "icons/../../outside.png" } } },
+  "buildingMaterials": { "brick": { "name": "Brick", "icon": "icons/missing.png" } },
+  "terrainMaterials": { "loam": { "name": "Loam", "placeable": true, "icon": "icons/cinderbrand.png" } },
+  "statuses": { "warm": { "name": "Warm", "seconds": 5, "kind": "buff", "icon": "../outside.png" } }
+}

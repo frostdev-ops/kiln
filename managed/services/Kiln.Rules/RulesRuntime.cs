@@ -15,6 +15,7 @@ internal static unsafe class RulesRuntime
         public RulesNativePart Native = RulesNativePart.Default;
         public RulesNativePart Client = RulesNativePart.Default;
         public bool ClientSent;
+        public bool? SteerSaid;  // what the log last said about this player's glider steering (on, or held back)
         public bool KilnInvulnerable;
         public List<FuelKeep> Water = new();
         // flight
@@ -101,7 +102,7 @@ internal static unsafe class RulesRuntime
     private static string Describe(RulesStatus? s) => s is null
         ? "no kiln.rules (the game's rules only; vitals and water still apply)"
         : $"hooks flight {On(s.Flight)}, building zone {On(s.BuildingZone)}, placement {On(s.Placement)}, costs {On(s.Costs)}, " +
-          $"mining {On(s.Mining)}, Shroud timer {On(s.ShroudTimer)}, gliding {On(s.Gliding)}" +
+          $"mining {On(s.Mining)}, Shroud timer {On(s.ShroudTimer)}, gliding {On(s.Gliding)}, glider steering {On(s.GlideSteer)}" +
           (s.Detail.Length > 0 ? $" ({s.Detail})" : "");
 
     private static string On(bool on) => on ? "on" : "OFF";
@@ -344,6 +345,15 @@ internal static unsafe class RulesRuntime
         var part = s.Effective.Native;
         if (part.HasPredicted && !PredictsRules(ClientOf(s.Entity))) part = part.WithoutPredicted;
         if (!CanPredictFlight(s.Entity)) part = part.WithoutFlight;
+        var steer = (part.Flags & RulesNative.GlideSteer) != 0;
+        if (steer && !CanPredictSteer(s.Entity)) part = part.WithoutSteer;
+        if (steer && s.SteerSaid != ((part.Flags & RulesNative.GlideSteer) != 0))
+        {
+            s.SteerSaid = (part.Flags & RulesNative.GlideSteer) != 0;
+            Log(LogLevel.Info, $"player {s.Entity}: glider steering " + (s.SteerSaid == true
+                ? "on (their game steers too)"
+                : "held back until their game confirms its steering hook (an older Kiln, or a game build without rules.glide_steer, never does): their glide, GlideBoost included, flies as before"));
+        }
         var t = RulesNative.T;
         if (part == s.Native || t == null) return;
         var p = RulesNative.Of(part);
@@ -357,6 +367,11 @@ internal static unsafe class RulesRuntime
 
     internal static bool CanPredictFlight(EntityId player) => ClientOf(player) is RulesClient.Host or RulesClient.Simulated ||
         Network.Available && RulesNet.FlightReady(Network.PeerOf(player));
+
+    // Glider steering changes the glide the player's game predicts: on a dedicated server only for a game that confirmed
+    // its steering hook (kiln:rules message 2). A hosting game is both worlds in one process with the same hooks.
+    internal static bool CanPredictSteer(EntityId player) => ClientOf(player) is RulesClient.Host or RulesClient.Simulated ||
+        Network.Available && RulesNet.SteerReady(Network.PeerOf(player));
 
     private static void Leave(PlayerState s)
     {
@@ -391,6 +406,7 @@ internal static unsafe class RulesRuntime
     {
         var part = s.Effective.Native;
         if (!CanPredictFlight(s.Entity)) part = part.WithoutFlight;
+        if ((part.Flags & RulesNative.GlideSteer) != 0 && !CanPredictSteer(s.Entity)) part = part.WithoutSteer;
         if (s.ClientSent && part == s.Client) return;
         bool host;
         try

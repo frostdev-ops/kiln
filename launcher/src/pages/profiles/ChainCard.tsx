@@ -15,6 +15,9 @@ const KIND: Record<ChainOverlap["kind"], { word: string; tone: Tone; title: stri
 };
 const ACTION: Record<CompatRuleResult["action"], string> = { warn: "Warns", late: "Loads late", disable: "Switches off" };
 const rule = (by: string | null) => (by?.startsWith("rule:") ? by.slice(5) : null);
+// shroudlink's client addon (ChainViewEntry.gated): no late switch, only one back from late
+const GATED = "Loads first: shroudlink's client addon has to find the game's functions before Kiln hooks them, or its MODS tab switches off.";
+const GATED_LATE = "Loaded late, shroudlink's client addon switches its MODS tab off. Switch late off so it loads first again.";
 
 export function ChainCard({ profile, update }: { profile: Profile; update: (edit: (p: Profile) => void) => void }) {
   const qc = useQueryClient();
@@ -27,6 +30,7 @@ export function ChainCard({ profile, update }: { profile: Profile; update: (edit
     onError: (e) => toast.error(e),
   });
   const setLate = (e: ChainViewEntry, late: boolean) => {
+    if (late && e.gated) return;
     if (e.section === "profile" && e.modId) {
       const id = e.modId;
       update((p) => { const s = new Set(p.late ?? []); if (late) s.add(id); else s.delete(id); p.late = [...s]; });
@@ -66,7 +70,8 @@ export function ChainCard({ profile, update }: { profile: Profile; update: (edit
                     {e.loader && <span className="k-hint" title="EMF's loader starts EMF itself. Kiln's own EMF support checks for it when Kiln starts, so the loader cannot load after Kiln.">Always loads first</span>}
                     {off && <Badge tone="err" title={v.rules.find((x) => x.id === off)?.message}>Off by rule {off}</Badge>}
                     <span className="k-spacer" />
-                    {!e.loader && (
+                    {e.gated && <span className={e.late ? "k-hint k-tone-warn" : "k-hint"} data-gated style={{ flexBasis: "100%", order: 1 }}>{e.late ? GATED_LATE : GATED}</span>}
+                    {!e.loader && (!e.gated || e.late) && (
                       <Toggle checked={e.late} disabled={!!r || !!off || setChain.isPending} onChange={(on) => setLate(e, on)}
                         label="Load after Kiln and ShroudForge"
                         hint={r ? `Rule ${r}` : e.section === "chain" && e.late ? "Every profile of this game" : undefined} />

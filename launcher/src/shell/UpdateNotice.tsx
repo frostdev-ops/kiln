@@ -15,6 +15,7 @@ import type { UpdateStatus } from "../api/commands";
 import { invalidateGame, useDistribution, useGame, useGameStatus } from "../api/hooks";
 import { useUpdate, useUpdateFeed, useUpdateStore } from "../api/update";
 import { Button, IconButton, ProgressBar, installNote, runTask, toast, useTasks, waitTask } from "../ui";
+import { notifyInstall } from "./notices";
 import "./update.css";
 
 /** A short error toast; the detail is in launcher.log. */
@@ -146,7 +147,7 @@ function JustUpdated({ s, onClose }: { s: UpdateStatus; onClose: () => void }) {
     try {
       // no explicit parts: the backend keeps the game's parts and adds the ones that are new or became defaults, unless
       // the player turned them off (passing the receipt's list here froze it and skipped new parts)
-      await runTask<api.InstallResult>(() => api.runtimeInstall(game.id, next, {}), { done: `Kiln ${next} installed`, detail: installNote, quiet: true });
+      notifyInstall(await runTask<api.InstallResult>(() => api.runtimeInstall(game.id, next, {}), { done: `Kiln ${next} installed`, detail: installNote, quiet: true }));
       ack();
     } catch {
       failed("Update failed");

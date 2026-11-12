@@ -28,8 +28,11 @@ test("overlapping identical drops run one add, report skipped files, and Undo re
   expect(await calls(page, "library_add")).toBe(before + 1);
   await toast.getByRole("button", { name: "Undo" }).click();
   await expect(page.locator(".k-toast", { hasText: "Removed Night Owl" })).toBeVisible();
-  await page.evaluate(() => { location.hash = "#/profiles/ember-run/mods"; });
-  await expect(page.locator(".k-order-row", { hasText: "night-owl" })).toHaveCount(0);
+  // the count follows: Night Owl stays in the list (the Library keeps it), off, and out of the profile
+  await expect(page.locator(".k-hero").getByRole("switch", { name: "Night Owl" })).toHaveAttribute("aria-checked", "false");
+  await expect(page.locator(".k-hero .k-hero-say")).toHaveText(/^12 mods on, 16 off\./);
+  const kiln = await page.evaluate(async () => (await (await import("/src/api/commands.ts")).profileGet("ember-run")).mods.kiln.map((m) => m.id));
+  expect(kiln).not.toContain("night-owl");
 });
 
 test("Undo reports when a later profile edit must be kept", async ({ page }) => {
@@ -50,14 +53,18 @@ test("Undo reports when a later profile edit must be kept", async ({ page }) => 
 });
 
 test("a DropZone owns its drop once, and a dialog prevents background drops", async ({ page }) => {
-  await desktop(page, "/library");
+  // Runtime's row DropZone takes its own drop (a runtime bundle): the window's add does not run as well
+  await desktop(page, "/runtime");
   const before = await calls(page, "library_add");
-  await drop(page, "[data-drop]", "night-owl-1.2.0.zip");
+  await drop(page, ".k-drop", "kiln-runtime-0.2.0-dev+20261104.0000aaa.zip");
+  await page.waitForTimeout(300);
+  expect(await calls(page, "library_add")).toBe(before);
+  await page.evaluate(() => { location.hash = "#/"; });
+  await drop(page, ".k-hero", "night-owl-1.2.0.zip");
   await expect(page.locator(".k-toast", { hasText: "Added Night Owl" })).toBeVisible();
   expect(await calls(page, "library_add")).toBe(before + 1);
-  await page.evaluate(() => { location.hash = "#/"; });
-  await page.getByRole("button", { name: "Another profile", exact: true }).click();
-  await expect(page.getByRole("dialog", { name: "Play a profile once" })).toBeVisible();
+  await page.getByRole("button", { name: "Vanilla", exact: true }).click();
+  await expect(page.getByRole("dialog", { name: "Play vanilla once" })).toBeVisible();
   await drop(page, ".k-hero", "dawn-lamp-2.0.0.zip");
   await page.waitForTimeout(150);
   expect(await calls(page, "library_add")).toBe(before + 1);
@@ -72,10 +79,10 @@ test("failed adds surface an error and a later drop can succeed", async ({ page 
   await expect(page.locator(".k-toast", { hasText: "Added Night Owl" })).toBeVisible();
 });
 
-test("every dropped modpack gets separate consent, also with profile adds disabled", async ({ page }) => {
+test("every dropped modpack gets separate consent, also with switching new mods on turned off", async ({ page }) => {
   await desktop(page, "/settings");
-  await page.getByText("Add new mods to the active profile", { exact: true }).click();
-  await expect(page.getByRole("switch", { name: /^Add new mods/ })).not.toBeChecked();
+  await page.getByText("Switch new mods on", { exact: true }).click();
+  await expect(page.getByRole("switch", { name: /^Switch new mods on/ })).not.toBeChecked();
   await drop(page, ".k-sheet", "first-modpack.zip", "second-modpack.zip");
   const dialog = page.getByRole("dialog", { name: "Install this modpack?" });
   await expect(dialog).toContainText("first-modpack.zip");
@@ -97,13 +104,14 @@ test("a first-install profile failure is visible and a later drop recovers", asy
   await expect(page.getByRole("alert").filter({ hasText: "Profile write failed" })).toBeVisible();
   await drop(page, ".k-hero", "night-owl-1.2.0.zip");
   await expect(page.locator(".k-toast", { hasText: "Added Night Owl" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Active profile: My mods. Change profile." })).toBeVisible();
+  await expect.poll(async () => (await page.evaluate(async () => (await import("/src/api/commands.ts")).profileActive("client-steam")))?.profileId).toBe("my-mods");
+  await expect(page.locator(".k-hero .k-hero-say")).toHaveText("1 mod on.", { timeout: 5000 });
 });
 
 test("desktop settings cards preserve each other's changes during a slow save", async ({ page }) => {
   await desktop(page, "/settings");
   await plan(page, "app_settings_set", { delay: 400 });
-  await page.getByText("Add new mods to the active profile", { exact: true }).click();
+  await page.getByText("Switch new mods on", { exact: true }).click();
   const appearance = page.locator(".k-card", { has: page.getByRole("heading", { name: "Appearance", exact: true }) });
   await appearance.getByText("Animated fire", { exact: true }).click();
   const deck = page.locator(".k-card", { has: page.getByRole("heading", { name: "Steam Deck", exact: true }) });
@@ -178,8 +186,9 @@ test.describe("Deck recovery", () => {
   });
 
   test("Tab stays in dialogs; B closes them and restores focus", async ({ page }) => {
-    await page.goto("/?deck=steamdeck#/deck");
-    const opener = page.locator('[data-deck-id="switch-profile"]');
+    // the profiles dialog opens from Deck Settings now (no profile switch on Home)
+    await page.goto("/?deck=steamdeck#/deck/settings");
+    const opener = page.locator('[data-deck-id="set-profile"]');
     await opener.click();
     await expect(page.getByRole("dialog", { name: "Profile", exact: true })).toBeVisible();
     for (let i = 0; i < 8; i++) await page.keyboard.press("Tab");

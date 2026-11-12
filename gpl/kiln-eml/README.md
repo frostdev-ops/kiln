@@ -93,6 +93,30 @@ Each is marked `kiln-eml:` in the source.
     (`phase: running` and `progress`) and the `kiln.progress` window of kiln-core; `runner.rs` creates the `Progress`,
     gives the sink the mods, and says what the no-mods restore check reads.
 
+11. `mod-loader-lua/ownership.rs`, `lib.rs`, `load.rs`, `transaction.rs`, `cache/mod.rs`, `kiln-eml/src/runner.rs`,
+    `plugin.rs`: exact SHA-256 output and working-backup receipts gate automatic restoration and patch-cache skipping;
+    the receipt keeps the previous owned generation until a publication's header is live. A change cache that merely
+    exists never establishes ownership; once, with no receipt, the change cache of dev.20 to dev.23 is accepted as proof
+    when it names the live header and resource file by content and the backups exactly (`adopt`). The change cache
+    records the receipt whose output it fingerprinted (`owner`), so an unchanged start reads nothing; the full check is
+    kept before a restore. A restore also removes the containers the receipt lists that the vanilla header does not
+    reference. Unproven colliding DATs beyond the vanilla header's range are journalled and moved without replacement
+    into `kiln/eml/displaced/<run-id>/`, after the vanilla-header barrier and before publishing any more archive data.
+    They are never deleted. State/log guidance lists names, sizes and destinations on the moving start, and existing
+    recovery folders on later starts. Pending displacement names cannot become ownership proof merely by matching a
+    future receipt's bytes. Real archive changes invalidate only a recognized ShroudForge prepared-asset cache (SF's own shapes) under
+    SF's write lock, held until the last archive write, never its startup lease, preserving settings and retaining
+    exact original/replacement bytes in a recovery journal. Unknown schemas/receipts, busy locks, an SF preparation in
+    progress, SF's unfinished publication journal and linked descendants (asked by name too, for links made on the
+    Linux side under Wine) refuse unsafe handoffs; the selected game location itself and its ancestors may be links.
+    Idle EML never restores another loader's output merely because a shared `.kfc.bak` exists, and says why it left
+    differing data (`reason` in the state). Scratch names are recorded and flushed in Kiln's ownership folder before
+    creating a stage or game-folder temp. Next-start cleanup consumes those records under the install lock, leaving
+    foreign children and unrecorded game-folder copies intact and naming their paths and byte sizes in state/log
+    guidance. State temps are reclaimed and the newest 16 historical SF handoff journals retained.
+    Linux and Windows ownership tests cover these boundaries; a headless actual SF/EML/uninstall/SF dedicated-server
+    round trip confirmed standalone SF reapplies unchanged-fingerprint asset mods without reinstalling.
+
 The plugin validates paths from each authorized root down (root included), leaving linked Steam/Wine layout
 ancestors alone; it also checks final resolved containment. Profile paths resolve against `<game>/kiln`.
 Wine exposes directory links by name but hides Unix file symlinks, which the installer must exclude.
@@ -101,6 +125,19 @@ The plugin checks ABI sizes, holds an OS install lock for its process lifetime, 
 Windows game from that install, and exposes the append-only v2 `stand_aside` reservation to SF. Interrupted stages may
 remain on disk after a hard crash but never replace the live header before their data is ready. Old EML backups without
 resource snapshots restore the header exactly and retain their resource prefix; unreferenced mod containers are retained.
+
+Standing aside (EML's own loader or ShroudForge's in the process, or `stand_aside` from hosted ShroudForge), the plugin
+patches nothing and lists the profile's EML mods in `kiln/state/eml.json` (`discover::aside_entries`): `own-loader`
+when the mod is in that loader's folder, `not-loaded` when it is only in the Library, `disabled` when the profile has
+it off. EML's own loader runs every package of its folder. ShroudForge reads only its own mods folder and runs a
+package there only while that package's `extended.mod.json` says `enabled: true`, on the sides its `targets` name
+(none: an EML package runs on both); a legacy EML package has no such file until ShroudForge (or Kiln's launcher, for
+its own copies) writes one. So under ShroudForge a mod in its folder that it has off is `off-in-shroudforge` and one
+for the other side `other-side`, each with a reason that says what to do (for a file ShroudForge refuses, such as
+another `schemaVersion`, that no switch helps), and the kiln.log line counts only the mods
+that run (`discover::shroudforge_switch`, kiln-eml's own reader of that boolean and the targets; no ShroudForge code).
+ShroudForge's own proxy with `"modloader": "eml"` in its config keeps EML's rule. In a start without ShroudForge
+kiln-eml reads only `launcher` from that file: `enabled: false` there never switches a mod off for kiln-eml.
 
 ## Updating to a new EML release
 

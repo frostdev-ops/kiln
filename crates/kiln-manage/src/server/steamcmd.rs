@@ -42,7 +42,7 @@ pub fn parse_progress(line: &str) -> Option<f32> {
 
 use crate::ErrorCode;
 use std::io::{BufRead, BufReader};
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 
 pub const APP_ID: &str = "2278520";
 
@@ -95,7 +95,7 @@ pub fn is_success(line: &str) -> bool {
 pub fn app_update(dir: &Path, line: &mut dyn FnMut(&str)) -> Result<()> {
     let args = steamcmd_args(dir);
     line(&format!("steamcmd {}", args.join(" ")));
-    let mut child = Command::new("steamcmd")
+    let mut child = crate::hostenv::command("steamcmd")
         .args(&args)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())

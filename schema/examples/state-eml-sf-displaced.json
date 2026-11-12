@@ -1,0 +1,43 @@
+{
+  "format": 1,
+  "pid": 4120,
+  "kilnEml": "0.1.0",
+  "eml": "0.2.0",
+  "phase": "done",
+  "file": "enshrouded",
+  "patched": 3,
+  "cached": false,
+  "restored": false,
+  "ms": 18342.0,
+  "fingerprint": {
+    "hashedBytes": 235929600,
+    "hashedFiles": 2,
+    "reusedFiles": 0,
+    "reusedBytes": 0,
+    "recordedFiles": 55,
+    "recordedBytes": 51539607552,
+    "ms": 1180.0,
+    "ownershipBytes": 471859200
+  },
+  "error": null,
+  "aside": null,
+  "reason": "ShroudForge's asset mods better-chests 1.2.0, unlock-blueprints 0.4.1, prepared by an earlier start, are not in this start's game data: ShroudForge did not run this start (its mods are off in the active profile, or it could not start: see its row on Logs > Engines), so kiln-eml built the game data from the vanilla backup with the EML mods only. ShroudForge prepares them again the next time it runs",
+  "sfDisplaced": [
+    "better-chests 1.2.0",
+    "unlock-blueprints 0.4.1"
+  ],
+  "mods": [
+    {
+      "id": "HoardersHelper",
+      "version": "1.2.0",
+      "name": "Hoarder's Helper",
+      "source": "profile",
+      "path": "S:\\steamapps\\common\\Enshrouded\\mods\\HoardersHelper",
+      "state": "loaded",
+      "reason": null,
+      "capabilities": [
+        "patch"
+      ]
+    }
+  ]
+}

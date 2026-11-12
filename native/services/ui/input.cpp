@@ -7,6 +7,8 @@
 //    nothing stays held) and queued for ImGui, which reads them on the render thread before each frame.
 //  - While capturing, the game's own SetCursorPos and ClipCursor calls (its import slots) are ignored so the cursor can
 //    move freely; ImGui draws the cursor.
+//  - subscribe_window_input (kiln_ui.h v5): the window's key, button and focus-loss records go to native subscribers
+//    as received, before any of the above decides what the game gets.
 #include <windows.h>
 #include <windowsx.h>
 
@@ -14,13 +16,16 @@
 #include <cstdio>
 #include <cstring>
 #include <deque>
+#include <memory>
 #include <mutex>
+#include <unordered_map>
 #include <vector>
 
 #include "backends/imgui_impl_win32.h"
 #include "imgui.h"
 #include "safetyhook.hpp"
 #include "ui.h"
+#include "raw_input_source.h"
 #include "wndproc_chain.h"
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
@@ -118,6 +123,16 @@ bool on_key(uint32_t vk, uint32_t scan, bool down) {
     return consumed;
 }
 
+// Releases can go to the newly focused window. Forget local repeat/consumption state without inventing key messages
+// for either subscribers or the game (the v5 focus record lets subscribers reset their own state).
+void forget_keys() {
+    for (uint32_t vk = 0; vk < 256; ++vk) {
+        g_down[vk].store(false, std::memory_order_relaxed);
+        g_consumed[vk] = false;
+    }
+    g_pressed_vk.store(0, std::memory_order_relaxed);
+}
+
 // A Kiln panel next to a game screen (set_hover_capture) has the mouse over it: its clicks and wheel are Kiln's.
 bool hover_capture() {
     return g_hover_panels.load(std::memory_order_relaxed) > 0 && want_draw() && g_want_mouse.load(std::memory_order_relaxed);
@@ -125,6 +140,130 @@ bool hover_capture() {
 
 bool is_button_up(UINT m) {
     return m == WM_LBUTTONUP || m == WM_RBUTTONUP || m == WM_MBUTTONUP || m == WM_XBUTTONUP;
+}
+
+// ---- the window's input records for native subscribers (kiln_ui.h v5, subscribe_window_input) ----
+// Built from the message as the window received it, before Kiln's own handling, so what Kiln keeps from the game reaches
+// the subscribers too. Window thread. While nobody subscribed the window procedure reads g_feed_count only.
+struct FeedSub : CallbackLifetime {
+    KilnHandle handle = 0;
+    KilnOwner owner = 0;
+    KilnUiWindowInputFn fn = nullptr;
+    void* user = nullptr;
+    // Coalesce the two notifications per subscriber: joining must not rearm another subscriber's loss.
+    std::atomic<bool> focus_lost{false};
+};
+std::mutex g_feed_mu;
+std::vector<std::shared_ptr<FeedSub>> g_feed_subs;
+std::unordered_map<KilnHandle, std::shared_ptr<FeedSub>> g_feed_retiring;  // unsubscribed, a call may still be in flight
+std::atomic<uint32_t> g_feed_count{0};
+
+bool guarded_feed(KilnUiWindowInputFn fn, const KilnUiWindowInput* r, void* user) {
+    __try {
+        fn(r, user);
+        return true;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+
+void feed(KilnUiWindowInput r) {
+    r.size = sizeof r;
+    std::vector<std::shared_ptr<FeedSub>> subs;
+    {
+        std::lock_guard lk(g_feed_mu);
+        subs = g_feed_subs;
+    }
+    for (const auto& s : subs) {
+        std::lock_guard call(s->gate);
+        if (!s->active.load(std::memory_order_acquire)) continue;
+        if (r.kind == KILN_UI_INPUT_FOCUS_LOST) {
+            if (s->focus_lost.exchange(true, std::memory_order_relaxed)) continue;
+        } else {
+            s->focus_lost.store(false, std::memory_order_relaxed);
+        }
+        CallbackLifetime::Invocation invocation(s.get());
+        auto* outer = t_callback;
+        t_callback = s.get();
+        const bool ok = guarded_feed(s->fn, &r, s->user);
+        t_callback = outer;
+        if (!ok) {
+            s->active.store(false, std::memory_order_release);
+            set_error("a window input callback faulted; removed");
+            std::lock_guard lk(g_feed_mu);
+            std::erase_if(g_feed_subs, [&](const auto& x) { return x == s; });
+            g_feed_count.store(static_cast<uint32_t>(g_feed_subs.size()), std::memory_order_release);
+        }
+    }
+}
+
+KilnUiWindowInput feed_record(uint32_t kind, UINT m, WPARAM w, LPARAM l) {
+    KilnUiWindowInput r{};
+    r.kind = kind;
+    r.message = m;
+    r.wparam = static_cast<uint64_t>(w);
+    r.lparam = static_cast<int64_t>(l);
+    return r;
+}
+
+void feed_button(UINT m, WPARAM w, LPARAM l, uint32_t button, bool down) {
+    KilnUiWindowInput r = feed_record(KILN_UI_INPUT_MOUSE_BUTTON, m, w, l);
+    r.button = button;
+    r.down = down ? 1 : 0;
+    feed(r);
+}
+
+// A raw keyboard record unchanged; a raw mouse record as one record per button flag, presses before releases.
+void feed_raw(const RAWINPUT& ri, UINT m, WPARAM w, LPARAM l) {
+    if (ri.header.dwType == RIM_TYPEKEYBOARD) {
+        KilnUiWindowInput r = feed_record(KILN_UI_INPUT_RAW_KEY, m, w, l);
+        r.make_code = ri.data.keyboard.MakeCode;
+        r.flags = ri.data.keyboard.Flags;
+        r.vkey = ri.data.keyboard.VKey;
+        feed(r);
+        return;
+    }
+    if (ri.header.dwType != RIM_TYPEMOUSE) return;
+    static constexpr struct {
+        uint32_t button;
+        USHORT down, up;
+    } kButtons[] = {{1, RI_MOUSE_LEFT_BUTTON_DOWN, RI_MOUSE_LEFT_BUTTON_UP},
+                    {2, RI_MOUSE_MIDDLE_BUTTON_DOWN, RI_MOUSE_MIDDLE_BUTTON_UP},
+                    {3, RI_MOUSE_RIGHT_BUTTON_DOWN, RI_MOUSE_RIGHT_BUTTON_UP},
+                    {4, RI_MOUSE_BUTTON_4_DOWN, RI_MOUSE_BUTTON_4_UP},
+                    {5, RI_MOUSE_BUTTON_5_DOWN, RI_MOUSE_BUTTON_5_UP}};
+    const USHORT flags = ri.data.mouse.usButtonFlags;
+    for (const auto& b : kButtons)
+        if (flags & b.down) feed_button(m, w, l, b.button, true);
+    for (const auto& b : kButtons)
+        if (flags & b.up) feed_button(m, w, l, b.button, false);
+}
+
+// WM_[LMR]BUTTON{DOWN,UP,DBLCLK} and WM_XBUTTON*: a double click is the second press.
+void feed_button_message(UINT m, WPARAM w, LPARAM l) {
+    switch (m) {
+        case WM_LBUTTONDOWN: case WM_LBUTTONDBLCLK: return feed_button(m, w, l, 1, true);
+        case WM_LBUTTONUP: return feed_button(m, w, l, 1, false);
+        case WM_MBUTTONDOWN: case WM_MBUTTONDBLCLK: return feed_button(m, w, l, 2, true);
+        case WM_MBUTTONUP: return feed_button(m, w, l, 2, false);
+        case WM_RBUTTONDOWN: case WM_RBUTTONDBLCLK: return feed_button(m, w, l, 3, true);
+        case WM_RBUTTONUP: return feed_button(m, w, l, 3, false);
+        case WM_XBUTTONDOWN: case WM_XBUTTONDBLCLK: case WM_XBUTTONUP: {
+            const bool down = m != WM_XBUTTONUP;
+            if (GET_XBUTTON_WPARAM(w) & XBUTTON1) feed_button(m, w, l, 4, down);
+            if (GET_XBUTTON_WPARAM(w) & XBUTTON2) feed_button(m, w, l, 5, down);
+            return;
+        }
+        default: return;
+    }
+}
+
+void feed_focus_lost(UINT m, WPARAM w, LPARAM l) {
+    feed(feed_record(KILN_UI_INPUT_FOCUS_LOST, m, w, l));
+}
+void feed_focus_gained() {
+    std::lock_guard lk(g_feed_mu);
+    for (const auto& s : g_feed_subs) s->focus_lost.store(false, std::memory_order_relaxed);
 }
 
 LRESULT CALLBACK wndproc(HWND h, UINT m, WPARAM w, LPARAM l) {
@@ -141,6 +280,7 @@ LRESULT CALLBACK wndproc(HWND h, UINT m, WPARAM w, LPARAM l) {
         return DefWindowProcW(h, m, w, l);
     }
     const bool cap = capturing();
+    const bool fed = g_feed_count.load(std::memory_order_relaxed) != 0;  // subscribe_window_input: records before Kiln's handling
     switch (m) {
         case kShowCursorMsg:
             if (cap) SetCursor(LoadCursorW(nullptr, IDC_ARROW));
@@ -152,6 +292,7 @@ LRESULT CALLBACK wndproc(HWND h, UINT m, WPARAM w, LPARAM l) {
             if (size > 0 && size <= sizeof(buf) &&
                 GetRawInputData(reinterpret_cast<HRAWINPUT>(l), RID_INPUT, buf, &size, sizeof(RAWINPUTHEADER)) == size) {
                 const RAWINPUT* ri = reinterpret_cast<const RAWINPUT*>(buf);
+                if (fed) feed_raw(*ri, m, w, l);
                 if (ri->header.dwType == RIM_TYPEKEYBOARD) {
                     g_raw_keyboard_seen = true;
                     const RAWKEYBOARD& kb = ri->data.keyboard;
@@ -194,8 +335,10 @@ LRESULT CALLBACK wndproc(HWND h, UINT m, WPARAM w, LPARAM l) {
         }
         case WM_KEYDOWN:
         case WM_SYSKEYDOWN: {
+            if (fed) feed(feed_record(KILN_UI_INPUT_WINDOW_KEY, m, w, l));
             const uint32_t vk = static_cast<uint32_t>(w) & 0xFF;
             bool consumed = false;
+            if (g_raw_keyboard_seen && !raw_input::registered_for(6, h)) g_raw_keyboard_seen = false;
             if (!g_raw_keyboard_seen) consumed = on_key(vk, (static_cast<uint32_t>(l) >> 16) & 0x1FF, true);
             else consumed = g_consumed[vk];
             enqueue(h, m, w, l);
@@ -207,7 +350,9 @@ LRESULT CALLBACK wndproc(HWND h, UINT m, WPARAM w, LPARAM l) {
         }
         case WM_KEYUP:
         case WM_SYSKEYUP: {
+            if (fed) feed(feed_record(KILN_UI_INPUT_WINDOW_KEY, m, w, l));
             const uint32_t vk = static_cast<uint32_t>(w) & 0xFF;
+            if (g_raw_keyboard_seen && !raw_input::registered_for(6, h)) g_raw_keyboard_seen = false;
             if (!g_raw_keyboard_seen) on_key(vk, (static_cast<uint32_t>(l) >> 16) & 0x1FF, false);
             enqueue(h, m, w, l);
             break;  // releases always reach the game
@@ -219,9 +364,23 @@ LRESULT CALLBACK wndproc(HWND h, UINT m, WPARAM w, LPARAM l) {
             if (cap) return 0;
             break;
         case WM_SETFOCUS:
+            if (fed) feed_focus_gained();
+            enqueue(h, m, w, l);
+            break;
         case WM_KILLFOCUS:
+            if (fed) feed_focus_lost(m, w, l);
+            forget_keys();
+            enqueue(h, m, w, l);
+            break;
         case WM_DPICHANGED:
             enqueue(h, m, w, l);
+            break;
+        case WM_ACTIVATEAPP:
+            if (fed) {
+                if (w) feed_focus_gained();
+                else feed_focus_lost(m, w, l);
+            }
+            if (!w) forget_keys();
             break;
         case WM_SETCURSOR:
             if (cap && LOWORD(l) == HTCLIENT) {
@@ -231,6 +390,7 @@ LRESULT CALLBACK wndproc(HWND h, UINT m, WPARAM w, LPARAM l) {
             break;
         default:
             if (is_mouse_msg(m)) {
+                if (fed) feed_button_message(m, w, l);
                 if (m == WM_MOUSEMOVE) g_n_move.fetch_add(1, std::memory_order_relaxed);
                 else if (m != WM_MOUSELEAVE && m != WM_NCMOUSEMOVE) g_n_buttons.fetch_add(1, std::memory_order_relaxed);
                 enqueue(h, m, w, l);
@@ -578,6 +738,45 @@ void input_capture_changed() {
     if (cap && g_attached) PostMessageW(g_attached, kShowCursorMsg, 0, 0);  // SetCursor belongs on the window's thread
     logf(KILN_LOG_INFO, "ui: input capture %s", cap ? "on" : "off");
     g_vx = g_vy = -1;
+}
+
+KilnResult input_feed_subscribe(KilnOwner owner, KilnUiWindowInputFn fn, void* user, KilnHandle* out) {
+    if (!fn) return KILN_ERR_INVALID_ARGUMENT;
+    auto sub = std::make_shared<FeedSub>();
+    sub->owner = owner;
+    sub->fn = fn;
+    sub->user = user;
+    std::lock_guard lk(g_feed_mu);
+    sub->handle = next_handle();
+    if (out) *out = sub->handle;
+    g_feed_subs.push_back(std::move(sub));
+    g_feed_count.store(static_cast<uint32_t>(g_feed_subs.size()), std::memory_order_release);
+    return KILN_OK;
+}
+
+KilnResult input_feed_unsubscribe(KilnHandle h) {
+    std::shared_ptr<FeedSub> removed;
+    {
+        std::lock_guard lk(g_feed_mu);
+        const auto it = std::find_if(g_feed_subs.begin(), g_feed_subs.end(), [&](const auto& s) { return s->handle == h; });
+        if (it != g_feed_subs.end()) {
+            removed = *it;
+            removed->active.store(false, std::memory_order_release);
+            g_feed_retiring[h] = removed;
+            g_feed_subs.erase(it);
+            g_feed_count.store(static_cast<uint32_t>(g_feed_subs.size()), std::memory_order_release);
+        } else if (const auto r = g_feed_retiring.find(h); r != g_feed_retiring.end()) {
+            removed = r->second;
+        }
+    }
+    if (!removed) return KILN_ERR_NOT_FOUND;
+    // A call in flight ends first (never waited for under g_feed_mu: the callback may itself unsubscribe). Inside another
+    // kiln.ui callback this only tries, so two callbacks cancelling each other cannot deadlock their threads.
+    auto drain = removed->drain(t_callback != nullptr);
+    if (!drain.owns_lock()) return KILN_ERR_WRONG_THREAD;
+    std::lock_guard lk(g_feed_mu);
+    g_feed_retiring.erase(h);
+    return KILN_OK;
 }
 
 uint32_t input_take_pressed(uint32_t* mods) {

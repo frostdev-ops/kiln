@@ -8,6 +8,8 @@
 //                     dinput8-chain.ini, so such a DLL is in the process before kiln-core's late phase can load it
 //   TEST_FAIL         DllMain returns FALSE (LoadLibrary fails with ERROR_DLL_INIT_FAILED, 1114)
 //   TEST_SHROUDFORGE  carries ShroudForge's marker text: the proxy must refuse it without loading it
+//   TEST_APPENDS_ADDON_LOG  appends a line to <game>\shroudlink_client.log from DllMain, as shroudlink's client addon
+//                     does once it loaded: the proxy measures that log before the chain (KilnBootInfo.addon_log_size)
 //   TEST_EMF05        shaped like EMF 0.5's loader: exports emf_loader_identity (EMF's marker text) and
 //                     ShroudforgeSetDinput8Provider; the proxy must load it as EMF, not refuse it as ShroudForge
 #include <cstring>
@@ -53,6 +55,25 @@ void load_listed() {
     lstrcpyW(slash, L"\\mods\\emf-x.dll");
     HMODULE h = LoadLibraryW(path);
     ph_log("loader %s started mods\\emf-x.dll: %s", g_name, h ? "yes" : "no");
+}
+#endif
+
+#ifdef TEST_APPENDS_ADDON_LOG
+void append_addon_log() {
+    wchar_t path[1024];
+    const DWORD n = GetModuleFileNameW(nullptr, path, 1000);
+    if (n == 0 || n >= 1000) return;
+    wchar_t* slash = path;
+    for (wchar_t* p = path; *p; ++p)
+        if (*p == L'\\') slash = p;
+    lstrcpyW(slash, L"\\shroudlink_client.log");
+    HANDLE h = CreateFileW(path, FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (h == INVALID_HANDLE_VALUE) return;
+    const char line[] = "[1] chained DLL line\n";
+    DWORD wrote = 0;
+    WriteFile(h, line, sizeof line - 1, &wrote, nullptr);
+    CloseHandle(h);
+    ph_log("dll %s appended %lu bytes to shroudlink_client.log", g_name, wrote);
 }
 #endif
 
@@ -103,6 +124,9 @@ BOOL WINAPI DllMain(HINSTANCE inst, DWORD reason, void*) {
 #endif
 #ifdef TEST_LOADS_EMF_X
     load_listed();
+#endif
+#ifdef TEST_APPENDS_ADDON_LOG
+    append_addon_log();
 #endif
 #ifdef TEST_SHROUDFORGE
     ph_log("dll %s: ShroudForge marker %s", g_name, proxyhost_marker);

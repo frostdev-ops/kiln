@@ -1,4 +1,4 @@
-# Shrouded Engine Tweaks (SET) 0.1.1: inventory, techniques, and gaps against Kiln
+# Shrouded Engine Tweaks (SET) 0.2.0: inventory, techniques, and gaps against Kiln
 
 SET (Nexus mod 303, by Cacaida, MIT, github.com/Cacaida/Shrouded-Engine-Tweaks) is a client-only Lua 5.4 mod framework
 for Enshrouded with a Dear ImGui overlay. It ships as one `powrprof.dll` (the game imports `POWRPROF.dll`), with
@@ -6,6 +6,20 @@ MinHook, Lua 5.4.9 and ImGui inside. Sources for this note: the 0.1.1 release's 
 `usage.md`, `modding-guide.md`, `api-reference.md`), SET's public `docs/architecture.md`, `docs/reflection-format.md`
 and `runtime/game.{h,cpp}` (helpers in the Lua adapter are adapted with MIT notices), and offline checks of SET's techniques against the current game
 binaries (server Steam build 26430253, client 26430625; both svn 1287369).
+
+**0.2.0 (2026-11-09).** One commit over 0.1.1, 39 files. Read from the tag's sources: `runtime/rules.{h,cpp}` (the
+rule engine), `contracts.{h,cpp}` (the catalog), `hooks.cpp` and `hooks_x64.asm` (rules in the entry stub, blocked
+calls, return changes), `modsettings.{h,cpp}`, `writelog.{h,cpp}`, `lua_api.cpp`, `main.cpp`, `hooks_test.cpp`, and
+the rewritten `docs/api-reference.md` and `docs/modding-guide.md`. New for mod authors: `Hooks.rule` / `Hooks.param`
+/ `Hooks.list`, the catalog targets `combat_xp` and `hit`, `Features()`, `Settings.define`, more key names. Changed
+behaviour: `settings.json` belongs to `Settings.define`; `Res`, `GameOptions` and `Systems.enable` changes are
+undone when the mod stops; a function built with `load()` belongs to the mod that registers it; reworded log lines;
+`bindings.ini` saves key names. New for players: the Entities window, the Mod Settings page, the Compatibility
+window, a bug report dialog, `debugLog`. The release zip (`shrouded_engine_tweaks_0.2.0.zip`), its layout
+(`powrprof.dll` plus `shrouded_engine_tweaks\`) and the mod layout are unchanged, except that a mod's
+`settings.json` now appears in its folder. The sections below describe 0.1.1 unless they say 0.2.0. The current
+headless server probe checked 0.2.0 settings/features and the actual `combat_xp` entry/after chain (12 PASS on each
+of two boots); no real client or player XP/damage observation was run. See [current lab evidence](../kiln/set.md#lab-tests).
 
 The safety review of commit `4116d90` fetched upstream `master` through GitHub and compared `runtime/game.cpp`
 (blob `b7db32c4592e4d12bb08bb5a6bdcd88b9312ab63`), `lua_api.cpp`
@@ -20,8 +34,9 @@ not been rerun in a live server or client. Current contracts are in [kiln.types]
 SET function → Kiln C# equivalent → kiln-set implementation → status. "lab" = checked on a dedicated-server lab
 (svn 1287369, `mods/tests/set-test` and `mods/tests/types-test` PASS lines); "built" = compiles and is wired, not run;
 "client" = needs the real game (manual checklist). The older WP15 SET probe reported 37 PASS and 2 FAIL because its
-`TestEvent1` stream was absent; that branch predated the event-layout/cache fixes in WP20/21. The integrated
-types/SET rebuild and probe are pending, so this is not a final integration result.
+`TestEvent1` stream was absent; that branch predated the event-layout/cache fixes in WP20/21. The assembled dev.20
+run superseded it with 39 PASS, 0 FAIL, including event posting/observation. The focused current-main SET 0.2.0 probe
+is described in the linked lab evidence; it did not rerun the entire historical conformance mod.
 
 | SET | Kiln C# | kiln-set | Status |
 |---|---|---|---|
@@ -35,6 +50,15 @@ types/SET rebuild and probe are pending, so this is not a final integration resu
 | `Observe(event, fn)` | `GameEvents.Each(type, fn)` | kiln.types `event_each` | lab |
 | `Events.post` | `GameEvents.Post(type, fields)` | kiln.types `event_post` (hash checked) | lab (posted 42, observed 42) |
 | `Hooks.observe`, `Hooks.remove` | `Hooks.Mid` (Kiln.Hooks) | kiln.hooks mid hook at entry, bounded queues | lab (74 captures, 0 dropped); remove built |
+| `Hooks.rule` on a pattern (0.2.0): number arguments | `Hooks.Mid` with register writes | SET's rule engine in the entry hook; registers and the caller's stack slots | host tests (fake kiln.hooks); not run in a game |
+| `Hooks.rule` on a catalog target (0.2.0): fields, `block` | `Hooks.Mid` early return | guarded field copies; the documented mid-hook early return | host tests + actual server `combat_xp` leaf probe; real damage/client pending |
+| `Hooks.rule` `after` (0.2.0) | a raw detour | a typed kiln.hooks raw link for `combat_xp` | server leaf: original 0 → 17, live param → 31, remove → 0; player XP/client pending |
+| `Hooks.param`, `Hooks.list` (0.2.0) | - | SET code, atomics | host tests; live param also checked on the actual server leaf |
+| Catalog `combat_xp`, `hit` (0.2.0) | Kiln.Combat, Kiln.Progression (their own hooks) | SET's entries; anchors checked on live memory | both uniquely scanned on server 1793791038; XP enabled after behavioral probe, hit stays client-only |
+| `Features()` (0.2.0) | service presence | SET's ids from Kiln's services, three Kiln ids | host tests + current headless server probe |
+| `Settings.define` (0.2.0) | mod config (`Config<T>`) | SET code; sandboxed file and native SET tools page | host tests exercise real widgets → typed store → next-tick onChange, deduplication and reload revisions; clamp/save/restart lab; client drawing unchecked |
+| Undo of `Res` changes when a mod stops (0.2.0) | `ReflectedResource.Restore`, overrides | write log keyed by resource and offset | host tests |
+| Key names, `bindings.ini` names (0.2.0) | `KeyBindings` | SET's table | host tests; keys need a client |
 | `Systems.list/enable/enabled` | `GameSystems.All/Search/SetEnabled`, `/systems`, `/system` | kiln.types runner detour; disabling restricted to two leaf systems, owner scoped | original lab; restrictions host tested |
 | `Systems.profile/stats` | `GameSystems.Profile/Stats`, `/systems top` | kiln.types | lab (236 systems timed) |
 | `Res.get/find/each/types` | `ReflectedResources.Get/All/FindByField`, `Assets.ListResources`, catalogs | kiln.assets `resource_list/resource_data` + reflection | lab (get, find); each/types built |
@@ -43,7 +67,7 @@ types/SET rebuild and probe are pending, so this is not a final integration resu
 | `GameOptions.machine/user/dump` | none | missing ("game options not found yet") | missing (client only) |
 | `Tick.add`, `onUpdate` | `Context.Tick.Pre/Post` | Kiln Pre tick (server), UI tick (menu) | lab |
 | `registerForEvent` onInit / onWorldEnter | `Mod.OnLoad`, world events | SET code, Kiln ticks | lab |
-| onWorldLeave / onShutdown | world events, `OnUnload` | `KILN_WORLD_STOPPING`, `on_unload` | built |
+| onWorldLeave / onShutdown | world events, `OnUnload` | `KILN_WORLD_STOPPING`; onShutdown from kiln-set's `on_unload`, which kiln-core never calls (`kiln_api.h`) | onWorldLeave built; onShutdown does not run at game exit |
 | onOverlayOpen/Close, `Overlay.isOpen` | `Ui` | kiln.ui frame (`menu_open`) | client |
 | `reload()` | `kiln/control reload <id>` | SET code | built |
 | `Keys.on/hotkey/input` | `KeyBindings.Register` | SET code (key polling, bindings.ini) | client |
@@ -57,11 +81,12 @@ types/SET rebuild and probe are pending, so this is not a final integration resu
 | `Admin.setFlameLevel` | `WorldProgress.SetFlameLevel`, `LimitsAt`, status | kiln.knowledge authoritative write | worldstatus lab: 61 PASS, restart 59 PASS; client fog/placement unchecked |
 | `Admin.send` | typed services for individual commands | missing (unavailable error) | deferred |
 | `GetMod`, `GetVersion`, `GetGameBuild`, `require`, `io`, `json`, `print`, sandbox | .NET | adapted SET code; mod-local file handles, isolated libraries and instruction/deadline limits | original lab; hardening host tested |
-| Console window | Kiln.DevTools Console, `kiln/control/console/*.cmd`, `kilnctl cmd` | `kiln/control/set/*.lua` files | file path: lab; window: view-model tests, client drawing/input unchecked |
+| Console window | SET tools Console and separate Kiln.DevTools Console | SET tools queues Lua; `kiln/control/set/*.lua` also works | queue/output host tests; file path lab; client drawing/input unchecked |
 | Systems window | **Kiln: Systems** window | Kiln's window | client |
 | Types browser | **Kiln: Types** window | - | client |
-| Bindings, Resources, Hooks, Game Log, Status windows | Kiln.DevTools windows; resources include reflected fields | Kiln windows: bindings use Kiln KeyBindings, hooks show Kiln stats; SET private registries are not exposed | view-model tests; client drawing/input unchecked |
+| Bindings, Resources, Hooks, Game Log, Status windows | Kiln.DevTools plus SET tools Bindings/Hooks | SET tools expose actual Lua bindings and observer/rule diagnostics; generic windows retain Kiln registries | host/view-model tests; client drawing/input unchecked |
 | Settings editor, ImGui Debug | Kiln config UI covers its own settings; no SET settings.ini editor or ImGui Debug | not implemented | remaining difference |
+| Mod Settings, Entities, Compatibility, bug report (0.2.0) | SET-specific native tools, linked from Mods and game main/pause menu | settings/onChange; feature reasons; nearest-first tick-copy inspector, 64 scalar watches and checked edits; explicit redacted current/previous log save/copy, last-session notice + debugLog | production Lua/UI/world host tests; client/clipboard unchecked; bounded flattened inspector, no fallback message box or automatic report-site launch |
 
 ## 1. What SET is
 - **Loader:** `powrprof.dll` proxy (forwards all 126 exports of the system DLL). At load it runs every `.dll` in
@@ -88,6 +113,10 @@ types/SET rebuild and probe are pending, so this is not a final integration resu
 | Settings | `settings.ini` editor (overlay key, fps cap, antialiasing off, async compute, console window, history); **Dump Game Options**; **Status** (what was found at startup, green/yellow/red, runtime hook refusals) |
 | ImGui Debug | style editor (save/load/default style), Metrics, ID Stack Tool |
 | Reload Mods | asks, then restarts every mod from `init.lua` in a fresh Lua state |
+| Mod Settings (0.2.0) | one page per mod from `Settings.define`: checkbox, slider, number, choice and text; edits reach `onChange` at the next tick |
+| Entities (0.2.0) | inspector: entities of the hosted world, their components and fields (`inspect.cpp`) |
+| Compatibility (0.2.0) | every `Features()` id with compatible / available and the reason |
+| Bug report (0.2.0) | collects `set.log`, the status rows and the system for a report (`report.cpp`, `docs/reporting.md`) |
 
 Other UX: first-start **overlay key picker** (refuses keys that type text or close menus, and F10; ignores keys held
 with Ctrl/Alt/Shift so another app's hotkey cannot become the overlay key; the game gets no input until a key is
@@ -98,7 +127,8 @@ picked; 5-s corner hint at every start); `(!)` in the toolbar at the worst statu
 |---|---|
 | Ecs | `Ecs.player()`, `Ecs.get(id, "Component")` (short or full name; view re-resolves on every access), `Ecs.each(n1..n8)`, `Ecs.fields(type)`, `Ecs.types(search)`; checked writes (range, enum by name or number, whole structs from tables); wrapper structs (`{value}`, `{id}`, `{index}`) read as plain values |
 | Events | `Observe("EventType", fn)` (all events of the type, after each server tick, read-only), `Events.post("EventType", {fields})` (game's own queue, checked) |
-| Native hooks | `Hooks.observe{name, pattern, args, queue, fn}` (entry observation only, ≤ 8 Win64 args, typed captures incl. reflected structs ≤ 1 KiB, bounded queues, delivery next tick), `Hooks.remove(id)` |
+| Native hooks | `Hooks.observe{name, pattern, args, queue, fn}` (entry observation only, ≤ 8 Win64 args, typed captures incl. reflected structs ≤ 1 KiB, bounded queues, delivery next tick), `Hooks.remove(id)`; 0.2.0: `Hooks.rule{name, target or pattern+builds+args, params, when, set, block, after}` (≤ 8 conditions, changes and params, 64 ids, 15 rules per function), `Hooks.param(id, name, value)`, `Hooks.list(id, ids)` |
+| Settings, Features (0.2.0) | `Settings.define{{key, type, default, label, min, max, values}, onChange = fn}` (bool, number, int, choice, text; `mods\<mod>\settings.json`), `Features()` (`{id = {compatible, available, reason, label}}`) |
 | Res | `Res.get(guid [, type])`, `Res.each(type)`, `Res.find(type, name)` (debugName, name or English name), `Res.text(guid)`, `Res.types(search)`; checked in-place edits (numbers, bools, enums, references as GUID strings) |
 | GameOptions | `GameOptions.machine()`, `GameOptions.user()` (live client options; changes apply like the menu, not saved), `GameOptions.dump([prefix])` (with defaults) |
 | Systems | `Systems.list([search])`, `enable(name, on)`, `enabled(name)`, `profile(on)`, `stats()` |
@@ -140,10 +170,13 @@ checks. A wired API or a tested view-model does not prove a window rendered or a
 | Item/template English names | item/template catalogs, `Items.Lookup` | implemented in kiln-set |
 | Arbitrary English loca tags | `Texts.Get/GetPlain`, SET `Res.text` | partial: needs the locally generated client catalog; absent catalog is unavailable |
 | Systems and profiling | `GameSystems.All/SetEnabled/Profile/Stats` | implemented; only two leaf systems may be disabled; owner cleanup |
-| Events by type name | `GameEvents.Each/Post` | implemented; stream availability still matters; older WP15 run had 2 stream failures before WP20/21, integration probe pending |
+| Events by type name | `GameEvents.Each/Post` | implemented; stream availability still matters; the assembled dev.20 probe superseded WP15's 2 stream failures |
 | Hooks, tick and lifecycle | `Kiln.Hooks`, `Context.Tick`, world events | implemented |
+| Rules (0.2.0): arguments, fields, block, after; catalog; params and lists | `Kiln.Hooks` mid and raw links | host tests + actual server XP leaf probe; XP additionally enabled on 1793791038, hit client-only; real-player behavior pending |
+| `Features()`, `Settings.define`, undo of `Res` changes (0.2.0) | services, mod config, overrides | host tests; features/settings also checked across headless lab restart |
+| Mod Settings, Entities, Compatibility windows, bug report (0.2.0) | native SET tools | implemented with documented inspector/reporting bounds; real client unchecked |
 | Keys and draw | `KeyBindings`, `Ui.Window`, `UiDraw` | implemented; client checks pending |
-| Bindings, Resources, Hooks, Game Log, Status, Console, Systems, Types windows | `Kiln.DevTools` | implemented for Kiln APIs; no SET private Lua-binding/capture registry; command/view-model tests, client checks pending |
+| Bindings, Resources, Hooks, Game Log, Status, Console, Systems, Types windows | `Kiln.DevTools` plus SET tools | implemented; SET tools add the private Lua-binding/capture/rule registry and Lua console; host/view-model tests, client checks pending |
 | SET Settings editor, ImGui Debug | no matching window | missing; Kiln's Status window does not edit SET's settings.ini |
 | GameOptions machine/user/dump | no client-options API (`Kiln.Settings` is world settings) | deferred: client object/slot offsets and behaviour need a client |
 | Admin time, teleport, spawn, give, level, settings | typed Time, World, Spawn, Items, PlayerProgression and Settings APIs | wired; player operations need a joined player |

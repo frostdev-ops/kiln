@@ -150,8 +150,9 @@ export function Stage({ root, enabled = true }: { root: RefObject<HTMLDivElement
       m[0] += (i.mx - m[0]) * 0.05; m[1] += (i.my - m[1]) * 0.05;
       const t = ms / 1000;
       const F = Math.max(0, Math.min(1, 0.5 + 0.22 * Math.sin(t * 11.3) + 0.16 * Math.sin(t * 6.1 + 1.1) + 0.12 * Math.sin(t * 2.7 + 0.3)));
-      // the Play mouth (min(500, 40vw) wide, 48 px from the right, standing on the 84 px floor) and the pilot light
-      const bw = Math.min(500, W * 0.4), bh = bw * 0.88, bx = W - 48 - bw, by = H - 84 - bh, px = W - 60, py = 7;
+      // the Play mouth (40% of the width, 62.5% of the height, at most 800 px: base.css --kiln; 48 px from the right,
+      // standing on the 84 px floor) and the pilot light
+      const bw = Math.min(800, W * 0.4, H * 0.625), bh = bw * 0.88, bx = W - 48 - bw, by = H - 84 - bh, px = W - 60, py = 7;
       const dw = Math.max(14, bw + (36 - bw) * k), dh = dw * 0.88, dx = bx + (px - bx) * k, dy = by + (py - by) * k;
       const key = `${dx.toFixed(1)} ${dy.toFixed(1)} ${dw.toFixed(1)}`;
       if (!door?.isConnected) { door = app.querySelector<HTMLElement>(".k-door"); lastDoor = ""; }

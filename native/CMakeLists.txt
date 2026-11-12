@@ -45,6 +45,15 @@ set_target_properties(kiln-proxy PROPERTIES OUTPUT_NAME dinput8)
 target_include_directories(kiln-proxy PRIVATE "${KILN_GENERATED_DIR}")
 target_link_libraries(kiln-proxy PRIVATE user32)
 
+# Production proxy chain regression host (no game): proxy/tests/test-chain.sh.
+add_executable(proxy-chain-test proxy/tests/chain_test.cpp)
+target_include_directories(proxy-chain-test PRIVATE "${KILN_GENERATED_DIR}")
+target_link_libraries(proxy-chain-test PRIVATE user32)
+add_library(proxy-test-addon SHARED proxy/tests/addon.cpp)
+add_library(proxy-test-plain SHARED proxy/tests/addon.cpp)
+target_compile_definitions(proxy-test-plain PRIVATE TEST_PLAIN_PROXY)
+add_dependencies(proxy-chain-test proxy-test-addon proxy-test-plain)
+
 add_library(kiln-core SHARED
     core/src/api.cpp
     core/src/boot.cpp
@@ -52,6 +61,7 @@ add_library(kiln-core SHARED
     core/src/common.cpp
     core/src/config.cpp
     core/src/crash.cpp
+    core/src/foreign_scan.cpp
     core/src/guard.cpp
     core/src/image.cpp
     core/src/log.cpp

@@ -105,6 +105,34 @@ fn eml_mods_follow_emls_own_loader() {
 }
 
 #[test]
+fn cleanup_reports_changed_eml_copies_as_potentially_still_running() {
+    for rel in ["src/mod.lua", "mod.json", "native-plugin.ini", "addon.dll", "player-settings.json"] {
+        let t = tmp(&format!("cleanup-{}", rel.replace('/', "-")));
+        let dirs = DataDirs::at(t.0.join("data"));
+        let game = t.0.join("game");
+        std::fs::create_dir_all(game.join("kiln")).unwrap();
+        eml_loader(&game);
+        let src = eml_src(&t.0, "changed");
+        put(&src, "native-plugin.ini", b"[plugin]\npath=addon.dll\n");
+        put(&src, "addon.dll", b"original shipped plugin");
+        let changed = import(&dirs, &[src], ModKind::Eml, "changed");
+        let clean = import(&dirs, &[eml_src(&t.0, "clean")], ModKind::Eml, "clean");
+        let mut p = profile::create(&dirs, "eml cleanup", None).unwrap();
+        p.mods.eml = vec![pm(&changed, true), pm(&clean, true)];
+        engine_mods::place(&dirs, &p, &game).unwrap();
+        put(&game.join("mods/changed"), rel, b"player-owned edit");
+        let report = engine_mods::unplace(&dirs, &game).unwrap();
+        assert_eq!(report.removed, [game.join("mods/clean")]);
+        assert_eq!(report.retained.len(), 1);
+        assert_eq!(report.retained[0].path, game.join("mods/changed"));
+        assert!(report.retained[0].may_run, "foreign EML can still discover this folder");
+        assert!(report.warning().unwrap().contains("may still run through Kiln or another loader"));
+        assert_eq!(std::fs::read(game.join("mods/changed").join(rel)).unwrap(), b"player-owned edit");
+        assert!(game.join("dbghelp.dll").is_file(), "the player's loader is not a profile placement");
+    }
+}
+
+#[test]
 fn player_folders_are_never_touched() {
     let t = tmp("player");
     let dirs = DataDirs::at(t.0.join("data"));
@@ -130,12 +158,24 @@ fn player_folders_are_never_touched() {
     engine_mods::place(&dirs, &p, &game).unwrap();
     assert!(game.join("mods/Stacks Mod/mod.json").is_file());
     std::fs::remove_dir_all(game.join("mods/Stacks Mod")).unwrap();
-    // a copy the mod wrote into is left as it is, not an error
+    // a file the mod wrote into its copy is the player's: the copy stays Kiln's, the file is kept
     p.mods.eml[0].enabled = true;
     engine_mods::place(&dirs, &p, &game).unwrap();
     put(&game, "mods/stacks/settings.txt", b"written by the player");
     let rep = engine_mods::place(&dirs, &p, &game).unwrap();
-    assert_eq!(rep.changed, ["eml:stacks"]);
+    assert_eq!((rep.kept.as_slice(), rep.changed.len()), (&["eml:stacks".to_string()][..], 0), "{rep:?}");
+    p.mods.eml.clear();
+    let rep = engine_mods::place(&dirs, &p, &game).unwrap();
+    assert_eq!(rep.removed, ["eml:stacks"]);
+    assert!(!game.join("mods/stacks").exists());
+    assert_eq!(std::fs::read(game.join("kiln/kept-mod-files/eml/stacks/settings.txt")).unwrap(), b"written by the player");
+    assert!(rep.kept_files[0].contains("settings.txt"), "{rep:?}");
+    // an edited library file still makes the copy the player's: left as it is, neither refreshed nor removed
+    p.mods.eml = vec![pm(&a, true)];
+    let rep = engine_mods::place(&dirs, &p, &game).unwrap();
+    assert_eq!(std::fs::read(game.join("mods/stacks/settings.txt")).unwrap(), b"written by the player", "{rep:?}");
+    assert!(!game.join("kiln/kept-mod-files/eml/stacks").exists());
+    put(&game, "mods/stacks/mod.json", br#"{"id":"stacks","name":"Edited","version":"1.0.0"}"#);
     p.mods.eml.clear();
     let rep = engine_mods::place(&dirs, &p, &game).unwrap();
     assert_eq!(rep.changed, ["eml:stacks"]);
@@ -209,20 +249,27 @@ fn chained_flame_greeneye_and_emf_loaders() {
     let mut p = profile::create(&dirs, "others", None).unwrap();
     p.mods.flame = vec![pm(&f, true)];
     p.mods.greeneye = vec![pm(&g, true)];
-    engine_mods::place(&dirs, &p, &game).unwrap();
-    assert!(!game.join("mods/creative").exists() && !game.join("greeneye/worstmap").exists());
-    // Flame's dinput8.dll chained by the installer, Greeneye's dbgcore.dll next to the game
+    let rep = engine_mods::place(&dirs, &p, &game).unwrap();
+    // Greeneye mods run from greeneye/<id>/ and Flame mods from mods/<id>/ with or without their engine's loader (they
+    // read and write their own files there)
+    assert!(engine_mods::marker(&game.join("mods/creative")).is_some() && engine_mods::marker(&game.join("greeneye/worstmap")).is_some());
+    assert_eq!(rep.placed, ["greeneye:worstmap", "flame:creative"]);
+    // Flame's dinput8.dll chained by the installer, Greeneye's dbgcore.dll next to the game: the same copies serve them
     put(&game, "kiln/chain/flame-dinput8.dll", &build_test_dll(&[], b"FlameStartRuntime flame.json"));
     put(&game, "kiln/chain.ini", b"[chain]\nchain\\flame-dinput8.dll\n");
     put(&game, "dbgcore.dll", &build_test_dll(&[], b"greeneye"));
     let rep = engine_mods::place(&dirs, &p, &game).unwrap();
-    assert_eq!(rep.placed, ["greeneye:worstmap", "flame:creative"]);
-    assert!(engine_mods::marker(&game.join("mods/creative")).is_some());
-    assert!(engine_mods::marker(&game.join("greeneye/worstmap")).is_some());
-    // the chain line switched off: Flame's copy goes, Greeneye's stays
+    assert_eq!((rep.placed.clone(), rep.kept.clone()), (Vec::<String>::new(), vec!["greeneye:worstmap".to_string(), "flame:creative".to_string()]));
+    assert!(rep.own_loaders.iter().any(|n| n.loader.kind == ModKind::Flame && n.copied == ["creative"]), "{rep:?}");
+    // the chain line switched off: both copies stay, the profile still has them on
     put(&game, "kiln/chain.ini", b"[chain]\n;chain\\flame-dinput8.dll\n");
     let rep = engine_mods::place(&dirs, &p, &game).unwrap();
-    assert_eq!((rep.removed.clone(), rep.kept.clone()), (vec!["flame:creative".to_string()], vec!["greeneye:worstmap".to_string()]));
+    assert_eq!((rep.removed.clone(), rep.kept.clone()), (Vec::<String>::new(), vec!["greeneye:worstmap".to_string(), "flame:creative".to_string()]));
+    // switched off in the profile: Flame's copy goes
+    p.mods.flame[0].enabled = false;
+    let rep = engine_mods::place(&dirs, &p, &game).unwrap();
+    assert_eq!(rep.removed, ["flame:creative"]);
+    assert!(!game.join("mods/creative").exists());
 }
 
 fn game_with_z(t: &Path) -> GameInstall {

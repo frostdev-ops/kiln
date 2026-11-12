@@ -132,7 +132,75 @@ pub fn install_into(g: &GameInstall, zip: &Path, components: Option<Vec<String>>
     }, &mut Printer::new())
     .km()?;
     print_receipt(&r, &g.path);
+    for line in refresh_notes(&dirs, g) { println!("{line}"); }
     Ok(r)
+}
+
+/// Refresh for the installed runtime and report both writes and copies left in place.
+fn refresh_notes(dirs: &DataDirs, g: &GameInstall) -> Vec<String> {
+    let before = kiln_manage::profile::read_game_profile(&g.path).ok().flatten().map(|f| f.generation);
+    let mut notes = Vec::new();
+    match kiln_manage::profile::refresh_active(dirs, g) {
+        Ok(Some(a)) => {
+            if before != Some(a.generation) {
+                notes.push(format!("  profile {} written again for this runtime (generation {})", a.profile_id, a.generation));
+            }
+            for line in a.kept_files.iter().chain(&a.warnings) { notes.push(format!("  note: {line}")); }
+            for k in &a.retained {
+                notes.push(format!("  kept {}: {}{}", k.path.display(), k.reason, if k.may_run { " (this mod may still run)" } else { "" }));
+            }
+        }
+        Ok(None) => {}
+        Err(e) => notes.push(format!("  note: the active profile was not written again for this runtime: {}", e.message)),
+    }
+    notes
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+    use kiln_manage::{library, manifest::ModKind, profile};
+
+    struct Tmp(PathBuf);
+    impl Drop for Tmp {
+        fn drop(&mut self) { let _ = std::fs::remove_dir_all(&self.0); }
+    }
+
+    #[test]
+    fn refresh_reports_retained_copies_without_claiming_an_unchanged_profile_was_written() {
+        let t = Tmp(std::env::temp_dir().join(format!("kilnctl-refresh-notes-{}", std::process::id())));
+        std::fs::create_dir_all(&t.0).unwrap();
+        let dirs = DataDirs::at(t.0.join("data"));
+        let source = t.0.join("flymode");
+        std::fs::create_dir_all(&source).unwrap();
+        std::fs::write(source.join("init.lua"), b"return {}").unwrap();
+        let imported = library::import(&dirs, &[source], &mut kiln_manage::task::NoProgress).unwrap();
+        let r = imported.imported.iter().find(|r| r.kind == ModKind::Set).unwrap();
+        let game = t.0.join("game");
+        std::fs::create_dir_all(game.join("kiln")).unwrap();
+        std::fs::write(game.join("enshrouded.exe"), b"MZ").unwrap();
+        let mut g = kiln_manage::game::inspect(&game).unwrap();
+        g.path_mode = kiln_manage::game::PathMode::Copy;
+        let mut p = profile::create(&dirs, "Notes", None).unwrap();
+        p.mods.set.push(profile::ProfileMod { id: r.id.clone(), version: r.version.clone(), hash: r.hash.clone(), enabled: true });
+        let mut p = profile::save(&dirs, &p).unwrap();
+        profile::activate(&dirs, &p.id, &g).unwrap();
+        let dst = game.join("shrouded_engine_tweaks/mods/flymode");
+        std::fs::write(dst.join("init.lua"), b"player edit").unwrap();
+        let before = std::fs::read(game.join("kiln/profile.json")).unwrap();
+        let generation = profile::read_game_profile(&game).unwrap().unwrap().generation;
+        let notes = refresh_notes(&dirs, &g);
+        assert_eq!(std::fs::read(game.join("kiln/profile.json")).unwrap(), before);
+        assert_eq!(profile::read_game_profile(&game).unwrap().unwrap().generation, generation);
+        assert!(!notes.iter().any(|n| n.contains("written again")), "no profile write occurred: {notes:?}");
+        assert!(notes.iter().any(|n| n.contains("kept ") && n.contains("may still run")), "retained copy still reported: {notes:?}");
+        p.mods.set.clear();
+        profile::save(&dirs, &p).unwrap();
+        let notes = refresh_notes(&dirs, &g);
+        assert!(profile::read_game_profile(&game).unwrap().unwrap().generation > generation);
+        assert!(notes.iter().any(|n| n.contains("written again")), "a real write is reported: {notes:?}");
+        assert!(notes.iter().any(|n| n.contains("kept ") && n.contains("may still run")), "retained copy still reported: {notes:?}");
+    }
 }
 
 pub fn uninstall_cmd(dir: &Path, real: bool) -> Result<i32> {

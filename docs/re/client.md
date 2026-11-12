@@ -15,6 +15,12 @@ were not observed directly.
   (XOR-decoded at entry - 0xF0, signature 0xC0DEC0DF, app id 1203620) has flags 0x6 = NoModuleVerification |
   NoEncryption, original entry 0x134ab78: the stub neither decrypts nor checksums `.text`, so early hooks are invisible
   to it; it only does the ownership and debugger checks. (static)
+- shroudlink's client addon, which Kiln's start lets finish its scans while the entry point is held, calls one game
+  function during them: its item-tooltip state init (`48 8B 05 ?? ?? ?? ?? 33 D2 48 89 41 08`, one match, RVA 0xb1f1a0
+  on build 26430625, `5d9ef2f1…`). It is a leaf that only fills the caller's buffer with zeros and with one 8-byte value
+  it reads (13 times) from `.rdata` 0x1d8a7b8: read-only, not in the IAT, no base relocation, 0 in the file, and the stub
+  does not touch `.rdata` (flags 0x6 on this build too). So the value is constant; calling it before the game's own
+  start-up code changes nothing. (static)
 - Imports `DINPUT8!DirectInput8Create` and `dbghelp!MiniDumpWriteDump`, like the server: the same proxy works.
 - Side detection: the RSDS PDB path is `...\games\game38\game38_client\...\enshrouded.pdb` (server:
   `...\game38_server\...\enshrouded_server.pdb`). The core uses the PDB file name, then the exe name

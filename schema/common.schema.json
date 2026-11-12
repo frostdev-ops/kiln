@@ -25,8 +25,8 @@
     "runSide": { "enum": ["server", "client"], "description": "The side a process runs as." },
     "clients": { "enum": ["none", "kiln", "mod"], "description": "What joining players need (manifest 'clients')." },
     "kind": {
-      "enum": ["kiln", "native", "plugin", "emf", "eml", "shroudforge", "set", "greeneye", "flame", "shroudtopia", "enshwick", "shroudlink", "ember"],
-      "description": "Library / profile mod kind: Kiln's own (kiln, native, plugin) or the engine whose Kiln plugin runs the mod (emf, eml, shroudforge, set, greeneye, flame, shroudtopia, enshwick, shroudlink, ember; Ember's mods are held but don't run until Ember publishes its mod ABI)."
+      "enum": ["kiln", "native", "plugin", "emf", "eml", "xhl", "shroudforge", "set", "greeneye", "flame", "shroudtopia", "enshwick", "shroudlink", "ember"],
+      "description": "Library / profile mod kind: xhl is a non-executable companion for separately installed XHL-Core; otherwise Kiln's own (kiln, native, plugin) or the engine whose Kiln plugin runs the mod (emf, eml, shroudforge, set, greeneye, flame, shroudtopia, enshwick, shroudlink, ember; Ember's mods are held but don't run until Ember publishes its mod ABI)."
     },
     "gamePath": {
       "type": "string",

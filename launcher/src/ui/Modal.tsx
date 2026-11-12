@@ -95,19 +95,21 @@ export interface ConfirmDangerProps {
   word: string;
   /** Button label, e.g. "Delete". */
   action: string;
+  /** Report action failures to the user, then reject to keep this dialog open for retry. */
   onConfirm: () => void | Promise<void>;
   /** Keeps the action disabled (e.g. while what the message names is still loading). */
   disabled?: boolean;
-  /** This confirmation may be a plain button when the user turned typing off in Settings (removing a mod from the
-   * Library: the word is the mod's id, which can be sixty characters long). Not for uninstalling, servers or saves. */
+  /** This confirmation is a plain button unless the player turned typing on in Settings (removing a mod: the word is
+   * the mod's id, which can be sixty characters long). Not for uninstalling, profiles, servers or saves. */
   relaxable?: boolean;
 }
 
 const TYPE_TO_CONFIRM = "kiln.confirm.typeNames";
 
-/** Settings: "Type a mod's name to remove it" (on unless turned off; kept per launcher window, like other view choices). */
+/** Settings: "Type a mod's name to remove it" (off unless turned on; kept per launcher window, like other view choices).
+ *  Removing a mod is one click with a plain confirmation by default. */
 export function typeToConfirm(): boolean {
-  try { return localStorage.getItem(TYPE_TO_CONFIRM) !== "0"; } catch { return true; }
+  try { return localStorage.getItem(TYPE_TO_CONFIRM) === "1"; } catch { return false; }
 }
 
 export function setTypeToConfirm(on: boolean) {
@@ -124,7 +126,10 @@ export function ConfirmDanger({ open, onClose, title, message, word, action, onC
   const run = async () => {
     if (!ok || busy) return;
     setBusy(true);
-    try { await onConfirm(); onClose(); } finally { setBusy(false); }
+    try { await onConfirm(); }
+    catch { return; } // The action reports the failure; keep the dialog open without leaking an event-handler rejection.
+    finally { setBusy(false); }
+    onClose();
   };
   return (
     <Modal arch open={open} onClose={onClose} title={title} locked={busy}

@@ -46,6 +46,10 @@ pub struct LaunchResult {
     pub backup: Option<SaveBackup>,
     pub uri: String,
     pub started: String,
+    /// Mode profile: the activation when the active profile had changed and was written again before the start
+    /// (profile::refresh_active), with what it kept in the game folder (`retained`, `keptFiles`, `warnings`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub activation: Option<crate::profile::Activation>,
 }
 
 /// `steam://rungameid/<app_id>`
@@ -68,6 +72,8 @@ pub fn open_uri_with(uri: &str, opener: &dyn Fn(&str) -> Result<()>) -> Result<(
 }
 
 /// The desktop's opener: `xdg-open` on Linux (spawned detached, reaped on a thread), ShellExecuteW on Windows.
+/// On Linux it runs without the launcher AppImage's environment ([`crate::hostenv`]): with Steam closed, the URI starts
+/// Steam, and a Steam that inherits the AppImage's `PYTHONHOME` cannot run Proton's launch script, so no game starts.
 pub fn desktop_open(uri: &str) -> Result<()> {
     #[cfg(windows)]
     {
@@ -86,7 +92,7 @@ pub fn desktop_open(uri: &str) -> Result<()> {
     }
     #[cfg(not(windows))]
     {
-        let mut child = std::process::Command::new("xdg-open")
+        let mut child = crate::hostenv::command("xdg-open")
             .arg(uri)
             .stdin(std::process::Stdio::null())
             .stdout(std::process::Stdio::null())
@@ -220,12 +226,36 @@ pub fn play_with(dirs: &DataDirs, install: &GameInstall, request: &LaunchRequest
     }
     // the active profile as it is now: a profile changed since its activation (kilnctl, the profile pages) is
     // written again, or the game would load the mods of the old profile.json
-    if request.mode == LaunchMode::Profile {
+    let activation = if request.mode == LaunchMode::Profile {
         crate::profile::refresh_active(dirs, install).map_err(|e| {
             let msg = format!("the active profile changed and cannot be applied: {}", e.message);
             Error { message: msg, ..e }
-        })?;
-    }
+        })?
+    } else { None };
+    // what the re-apply kept in the game folder is the player's to see, also when the start then fails
+    let mut r = start(dirs, install, request, saves, opener).map_err(|e| match &activation {
+        Some(a) => with_activation(e, a),
+        None => e,
+    })?;
+    r.activation = activation;
+    Ok(r)
+}
+
+/// An error of a start after the active profile was written again: the activation travels in `detail.activation`.
+fn with_activation(mut e: Error, a: &crate::profile::Activation) -> Error {
+    let mut d = match e.detail.take() {
+        Some(serde_json::Value::Object(o)) => o,
+        Some(other) => serde_json::Map::from_iter([("detail".to_string(), other)]),
+        None => serde_json::Map::new(),
+    };
+    d.insert("activation".into(), serde_json::to_value(a).unwrap_or_default());
+    e.detail = Some(serde_json::Value::Object(d));
+    e
+}
+
+/// The start itself (play-once flag, save backup, Steam), after the profile is as it should be.
+fn start(dirs: &DataDirs, install: &GameInstall, request: &LaunchRequest, saves: Option<&[crate::saves::SaveDir]>,
+         opener: &dyn Fn(&str) -> Result<()>) -> Result<LaunchResult> {
     let fingerprint = launch_fingerprint(dirs, install, request)?;
     // 1. the files the proxy reads at this start
     let now = crate::util::now_unix();
@@ -276,7 +306,7 @@ pub fn play_with(dirs: &DataDirs, install: &GameInstall, request: &LaunchRequest
     let started = crate::util::rfc3339(now);
     let rec = LastLaunch { fingerprint, mode: request.mode, profile_id: request.profile_id.clone(), launched: started.clone() };
     let _ = crate::util::write_json_atomic(&last_launch_path(dirs, install), &rec);
-    Ok(LaunchResult { game_id: install.id.clone(), mode: request.mode, nonce, backup, uri, started })
+    Ok(LaunchResult { game_id: install.id.clone(), mode: request.mode, nonce, backup, uri, started, activation: None })
 }
 
 pub fn play(dirs: &DataDirs, install: &GameInstall, request: &LaunchRequest) -> Result<LaunchResult> {

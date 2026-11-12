@@ -10,8 +10,9 @@
 //! - [`write_zip`] (feature `zip`) writes the zip.
 //!
 //! Layout of the zip: `summary.txt` (for a forum post), `report.json` (findings and failed sections), `game/<path>`
-//! (tails of kiln.log, proxy.log, eml.log, the newest crash report; `kiln/state/*.json`, `kiln/profile.json`,
-//! `kiln/chain.ini`, `kiln/kiln.json`, `kiln/.install.json`), `launcher/launcher.log` (tail), `listings/*.txt` (names,
+//! (tails of kiln.log, proxy.log, eml.log, shroudlink_client.log, the newest crash report; `kiln/state/*.json`, `kiln/profile.json`,
+//! `kiln/chain.ini`, `kiln/kiln.json`, `kiln/.install.json`), `greeneye-mods/<id>/<game|library>/*.log|*.status` (tails of each Greeneye
+//! mod's own log and status files, with Greeneye Loader's logs under `game/`), `launcher/launcher.log` (tail), `listings/*.txt` (names,
 //! sizes and times of the game folder's top level, `kiln/` two levels deep, each engine's mods folder).
 
 use crate::engine_mods;
@@ -29,10 +30,15 @@ use std::time::SystemTime;
 
 /// Tail of kiln.log in the zip.
 pub const KILN_LOG_MAX: u64 = 1 << 20;
-/// Tail of proxy.log, eml.log, launcher.log.
+/// Tail of proxy.log, eml.log, shroudlink_client.log, launcher.log.
 pub const SMALL_LOG_MAX: u64 = 192 * 1024;
 /// The newest crash report.
 pub const CRASH_MAX: u64 = 64 * 1024;
+/// One Greeneye log or status file (Greeneye Loader's loader.log, a Greeneye mod's own log in its folder).
+pub const GREENEYE_LOG_MAX: u64 = 64 * 1024;
+/// Greeneye mod folders whose own log and status files are read, and files read in each.
+const GREENEYE_MOD_FOLDERS: usize = 12;
+const GREENEYE_FILES_PER_MOD: usize = 4;
 /// One JSON or INI file (hooks.json may be 8 MiB: its head is kept).
 pub const FILE_MAX: u64 = 1 << 20;
 /// Lines of one listing.
@@ -481,7 +487,7 @@ pub enum Level {
 pub struct Finding {
     /// Stable name: `not-installed`, `proxy-not-kiln`, `files-missing`, `files-changed`, `not-loaded`,
     /// `proton-override`, `unknown-build`, `safe-idle`, `own-loader`, `loader-in-folder`, `unlisted-mods`,
-    /// `mod-failed`, `crash`, `profile-invalid`, `newer-mods`, `no-game`.
+    /// `mod-failed`, `hosted-mods`, `hosted-off`, `crash`, `profile-invalid`, `newer-mods`, `no-game`.
     pub id: String,
     pub level: Level,
     pub text: String,
@@ -590,11 +596,13 @@ fn rel(game: &Path, r: &str) -> PathBuf {
     r.split('/').fold(game.to_path_buf(), |p, c| p.join(c))
 }
 
-/// The last `max` bytes of a file (from a line start), CR removed. Err: why it is not readable.
+/// The last `max` bytes of a file (from a line start), CR removed. Err: why it is not readable. A link is never followed
+/// (the addon's log sits in the game root, where no Kiln component writes and an unpacked archive can leave one).
 fn tail(path: &Path, max: u64) -> std::result::Result<Option<(String, bool)>, String> {
-    match std::fs::metadata(path) {
+    match std::fs::symlink_metadata(path) {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(e) => return Err(e.to_string()),
+        Ok(m) if crate::quick::import_is_link(&m) => return Err("a link, not followed".into()),
         Ok(m) if !m.is_file() => return Err("not a file".into()),
         Ok(_) => {}
     }
@@ -604,6 +612,14 @@ fn tail(path: &Path, max: u64) -> std::result::Result<Option<(String, bool)>, St
 /// The first `max` bytes of a file; (bytes, cut).
 fn head(path: &Path, max: u64) -> std::result::Result<Option<(Vec<u8>, bool)>, String> {
     use std::io::Read;
+    // as in `tail`: the file itself, never what a link points at (the zip is posted in public)
+    match std::fs::symlink_metadata(path) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(e.to_string()),
+        Ok(m) if crate::quick::import_is_link(&m) => return Err("a link, not followed".into()),
+        Ok(m) if !m.is_file() => return Err("not a file".into()),
+        Ok(_) => {}
+    }
     let f = match std::fs::File::open(path) {
         Ok(f) => f,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
@@ -846,6 +862,18 @@ impl Ctx<'_> {
                 self.err(&format!("game/{r}"), format!("could not read: {e}"));
                 None
             }
+        }
+    }
+
+    /// A file's tail by its own path (a Greeneye mod's log in its folder, which may be in the launcher's Library).
+    fn add_tail_at(&mut self, name: &str, p: &Path, max: u64) {
+        match tail(p, max) {
+            Ok(Some((text, cut))) => {
+                let note = cut.then(|| format!("... (older lines left out: the last {} only)", crate::util::human_size(max)));
+                self.add_text(name, &text, note.as_deref());
+            }
+            Ok(None) => {}
+            Err(e) => self.err(name, format!("could not read: {e}")),
         }
     }
 
@@ -1126,6 +1154,8 @@ pub fn build(input: &ReportInput) -> Report {
     });
     let engines = engine_mods::status(&game);
     let mut failed: Vec<String> = Vec::new();
+    // a client's server mods: skipped in the menu, they start with the player's own world (docs/kiln/client.md)
+    let (mut hosted, mut hosted_off): (Vec<&str>, Vec<&str>) = (Vec::new(), Vec::new());
     if let Some(m) = &mods {
         let _ = writeln!(ls, "Kiln mods (mods.json, {}):", m.written);
         for x in &m.mods {
@@ -1134,7 +1164,23 @@ pub fn build(input: &ReportInput) -> Report {
             if x.state == crate::state::ManagedState::Failed {
                 failed.push(format!("{} (Kiln): {}", x.id, x.reason.as_deref().unwrap_or("no reason given")));
             }
+            if x.state == crate::state::ManagedState::Skipped {
+                match x.reason.as_deref() {
+                    Some(crate::profile::GAME_HOSTED_WAITING) => hosted.push(&x.id),
+                    Some(crate::profile::GAME_HOSTED_OFF) => hosted_off.push(&x.id),
+                    _ => {}
+                }
+            }
         }
+    }
+    if !hosted.is_empty() {
+        let one = hosted.len() == 1;
+        cx.find("hosted-mods", Level::Info, format!("{} {} with the player's own world (single-player or co-op), so \"skipped\" in the main \
+            menu is expected; {} not run in someone else's world.", hosted.join(", "), if one { "starts" } else { "start" }, if one { "it does" } else { "they do" }));
+    }
+    if !hosted_off.is_empty() {
+        cx.find("hosted-off", Level::Warning, format!("kiln/kiln.json has \"mods\": {{\"hosted\": false}}, so {} never {} in this game, not even \
+            in the player's own world.", hosted_off.join(", "), if hosted_off.len() == 1 { "starts" } else { "start" }));
     }
     if let Some(n) = &native {
         let _ = writeln!(ls, "Native mods (native.json, {}, policy {}):", n.written, n.policy);
@@ -1152,6 +1198,22 @@ pub fn build(input: &ReportInput) -> Report {
         }
         for c in b.chain.iter().filter(|c| matches!(c.status, crate::state::ChainStatus::Failed | crate::state::ChainStatus::Missing)) {
             failed.push(format!("{} (chain.ini): {}", c.path.rsplit(['\\', '/']).next().unwrap_or(&c.path), format!("{:?}", c.status).to_lowercase()));
+        }
+    }
+    // the profile's native mods that are another engine's own loader (r1110: SET's powrprof.dll imported as a native mod)
+    let native_loaders: Vec<(String, crate::engines::Engine, String)> = match (&profile, &install) {
+        (Some(p), Some(i)) => p.mods.native.iter().filter(|m| m.enabled)
+            .filter_map(|m| {
+                let host = crate::winpath::to_host(&m.path, i).ok()?;
+                let (engine, file) = crate::engines::own_loader_in(&host)?;
+                Some((m.id.clone(), engine, file))
+            }).collect(),
+        _ => Vec::new(),
+    };
+    for (id, engine, file) in &native_loaders {
+        let aside = engines.iter().any(|e| e.kind.engine() == Some(*engine) && e.state.as_ref().is_some_and(stood_aside));
+        if !aside {
+            cx.find("native-loader", Level::Warning, format!("The profile's {}.", crate::profile::native_loader_warning(id, *engine, file)));
         }
     }
     let _ = writeln!(ls, "Engines:");
@@ -1174,7 +1236,10 @@ pub fn build(input: &ReportInput) -> Report {
                 failed.push(format!("{id} ({}): {}", kind_name(e.kind), why.as_deref().unwrap_or("no reason given")));
             }
         }
-        if stood_aside(st) {
+        if stood_aside(st) && let Some((id, engine, file)) = native_loaders.iter().find(|(_, en, _)| Some(*en) == e.kind.engine()) {
+            cx.find("native-loader", Level::Problem, format!("{} stood aside at the last start: the profile's {}.",
+                e.plugin, crate::profile::native_loader_warning(id, *engine, file)));
+        } else if stood_aside(st) {
             let n = kind_name(e.kind);
             cx.find("own-loader", Level::Problem, format!(
                 "{} stood aside at the last start: {n}'s own loader runs in the game{}. The {n} mods in the profile did not load through Kiln; only the mods in {n}'s own folder ran.",
@@ -1185,7 +1250,15 @@ pub fn build(input: &ReportInput) -> Report {
         let _ = writeln!(ls, "  (no engine plugin wrote a state file)");
     }
     let aside: Vec<ModKind> = engines.iter().filter(|e| e.state.as_ref().is_some_and(stood_aside)).map(|e| e.kind).collect();
-    check_loaders_in_folder(&mut cx, &proxies, facts.platform, &aside);
+    // a plugin that says it did not stand aside, in a state file of the last start (boot.json's time or later)
+    // of the last start: the process boot.json names (kiln-greeneye writes its pid; it writes before boot.json, so the
+    // times say nothing). A state file without a pid (an older plugin) is not taken as this start's.
+    let boot_pid = boot.as_ref().map(|b| u64::from(b.pid));
+    let ran: Vec<ModKind> = engines.iter().filter(|e| e.state.as_ref().is_some_and(|st| {
+        st.get("steppedAside").and_then(|v| v.as_bool()) == Some(false)
+            && boot_pid.is_some() && st.get("pid").and_then(|v| v.as_u64()) == boot_pid
+    })).map(|e| e.kind).collect();
+    check_loaders_in_folder(&mut cx, &proxies, facts.platform, &aside, &ran);
     if !failed.is_empty() {
         let shown: Vec<&String> = failed.iter().take(20).collect();
         cx.find("mod-failed", Level::Problem, format!("{} failed at the last start: {}{}", plural(failed.len(), "mod or DLL", "mods or DLLs"),
@@ -1238,6 +1311,9 @@ pub fn build(input: &ReportInput) -> Report {
     }
     let proxy_log = cx.add_tail(crate::paths::game::PROXY_LOG, SMALL_LOG_MAX);
     cx.add_tail("kiln/logs/eml.log", SMALL_LOG_MAX);
+    // Native UI initialization and later player-menu visibility are separate addon paths; kiln.log alone cannot
+    // distinguish them. Read only this bounded log, not the addon's key bindings or per-server mod settings.
+    cx.add_tail("shroudlink_client.log", SMALL_LOG_MAX);
     check_not_loaded(&mut cx, install.as_ref(), dirs.as_ref(), receipt.is_some() || dinput8.as_ref().is_some_and(|d| d.kind == ProxyKind::Kiln),
         boot.as_ref(), boot_time, proxy_log.is_some(), &facts);
     if receipt.is_some() {
@@ -1287,6 +1363,7 @@ pub fn build(input: &ReportInput) -> Report {
     for f in [crate::paths::game::PROFILE, crate::paths::game::CHAIN, "kiln/kiln.json", crate::paths::game::RECEIPT, crate::paths::game::EMF_CHAIN] {
         cx.add_file(f);
     }
+    greeneye_logs(&mut cx, &game, install.as_ref(), dirs.as_ref());
     // listings: names, sizes and times only
     let skip_none = |_: &str| false;
     let mut top = Vec::new();
@@ -1355,6 +1432,94 @@ fn mod_roots(game: &Path) -> Vec<String> {
     v
 }
 
+/// Greeneye's logs (docs/kiln/engines/greeneye.md): kiln-greeneye's `kiln/logs/greeneye-loader.log`, Greeneye Loader's own
+/// `greeneye/loader.log` (and `loader.second-copy.log`), and each Greeneye mod's own `*.log` and `*.status` files in its
+/// folder. A Greeneye mod writes what it found and patched only there (The Worst Map Mod: unlock_map_markers.log,
+/// UnlockMapMarkers.status), not through the loader into kiln.log. The folders are the ones `kiln/state/greeneye.json`
+/// names (Kiln's copy in `greeneye/`, or a Library entry under an older Kiln) and those in `<game>/greeneye/`. The zip is
+/// posted in public, so a folder is read only when it lies inside `<game>/greeneye/` or the launcher's Library folder for
+/// Greeneye mods, after resolving it and with links refused from that root down; any other folder is left out with a
+/// note. Top-level files only, each a bounded tail, redacted like every file; settings (`.ini`) and data are never read.
+fn greeneye_logs(cx: &mut Ctx, game: &Path, install: Option<&GameInstall>, dirs: Option<&DataDirs>) {
+    cx.add_tail("kiln/logs/greeneye-loader.log", GREENEYE_LOG_MAX);
+    cx.add_tail("greeneye/loader.log", GREENEYE_LOG_MAX);
+    cx.add_tail("greeneye/loader.second-copy.log", GREENEYE_LOG_MAX);
+    let roots: Vec<(&str, PathBuf)> = std::iter::once(("game", game.join(crate::engine_mods::GREENEYE_MODS)))
+        .chain(dirs.map(|d| ("library", d.library().join(ModKind::Greeneye.as_str())))).collect();
+    // The root a folder lies in ("game": <game>/greeneye, "library": the launcher's Library), or None: no `..`, neither
+    // the root nor the folder a link, and the resolved folder strictly inside the resolved root. Compared resolved, so a
+    // case or alias difference on Windows is the same folder; a link further down that leads out resolves outside.
+    let is_link = |p: &Path| std::fs::symlink_metadata(p).is_ok_and(|m| crate::quick::import_is_link(&m));
+    let place = |dir: &Path| -> Option<&str> {
+        if dir.components().any(|c| matches!(c, std::path::Component::ParentDir)) || is_link(dir) { return None; }
+        let d = dir.canonicalize().ok()?;
+        roots.iter().find_map(|(label, root)| {
+            let r = root.canonicalize().ok()?;
+            (!is_link(root) && d != r && d.starts_with(&r)).then_some(*label)
+        })
+    };
+    let mut used: Vec<String> = Vec::new();
+    let mut folders: Vec<(String, PathBuf)> = Vec::new();
+    let state = crate::util::read_json::<serde_json::Value>(&game.join(crate::paths::game::STATE).join("greeneye.json")).ok().flatten();
+    for m in state.as_ref().and_then(|s| s.get("mods")).and_then(|m| m.as_array()).into_iter().flatten() {
+        let (Some(id), Some(folder)) = (jstr(m.get("id")), jstr(m.get("folder"))) else { continue };
+        let host = match install {
+            Some(i) => crate::winpath::to_host(&folder, i).ok(),
+            None => Some(PathBuf::from(&folder)),
+        };
+        if let Some(h) = host { folders.push((id, h)); }
+    }
+    let mut own: Vec<PathBuf> = std::fs::read_dir(game.join(crate::engine_mods::GREENEYE_MODS)).into_iter().flatten().flatten()
+        .map(|e| e.path()).filter(|p| p.join("mod.json").is_file()).collect();
+    own.sort();
+    for p in own {
+        let name = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        folders.push((name, p));
+    }
+    let mut seen: Vec<PathBuf> = Vec::new();
+    let mut skipped: Vec<String> = Vec::new();
+    for (id, dir) in folders {
+        if !dir.is_dir() { continue; }
+        let Some(label) = place(&dir) else {
+            if !skipped.contains(&id) { skipped.push(id); }
+            continue;
+        };
+        let key = dir.canonicalize().unwrap_or_else(|_| dir.clone());
+        if seen.contains(&key) { continue; }
+        if seen.len() == GREENEYE_MOD_FOLDERS {
+            cx.err("greeneye mod logs", format!("more than {GREENEYE_MOD_FOLDERS} Greeneye mod folders: the others are left out"));
+            break;
+        }
+        seen.push(key);
+        let safe: String = id.chars().map(|c| if c.is_ascii_alphanumeric() || "._+-".contains(c) { c } else { '_' }).collect();
+        let mut logs: Vec<PathBuf> = std::fs::read_dir(&dir).into_iter().flatten().flatten().map(|e| e.path())
+            .filter(|p| std::fs::symlink_metadata(p).is_ok_and(|m| m.is_file()))
+            .filter(|p| p.extension().is_some_and(|x| x.eq_ignore_ascii_case("log") || x.eq_ignore_ascii_case("status")))
+            .collect();
+        logs.sort();
+        // one zip folder per mod folder: `greeneye-mods/<id>/game/` (the copy in greeneye/) and `.../library/` (a Library
+        // entry), so one id with logs in both never gives two entries of one name (the zip refuses those)
+        let mut at = format!("greeneye-mods/{safe}/{label}");
+        let mut n = 2;
+        while used.contains(&at) {
+            at = format!("greeneye-mods/{safe}/{label}-{n}");
+            n += 1;
+        }
+        used.push(at.clone());
+        for p in logs.into_iter().take(GREENEYE_FILES_PER_MOD) {
+            let file: String = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
+                .chars().map(|c| if c.is_ascii_alphanumeric() || "._+-".contains(c) { c } else { '_' }).collect();
+            cx.add_tail_at(&format!("{at}/{file}"), &p, GREENEYE_LOG_MAX);
+        }
+    }
+    if !skipped.is_empty() {
+        cx.find("greeneye-log-skipped", Level::Info, format!(
+            "The logs of {} were left out: {} folder is not inside the game's greeneye folder or the launcher's Library \
+             (or is reached through a link), and the report reads no other folder.",
+            skipped.join(", "), if skipped.len() == 1 { "its" } else { "their" }));
+    }
+}
+
 /// Kiln not installed, another DLL at dinput8.dll, Kiln's files missing or changed against the receipt.
 fn check_install(cx: &mut Ctx, game: &Path, receipt: Option<&InstallReceipt>, dinput8: Option<&ProxyClass>) {
     let kind = dinput8.map(|d| d.kind).unwrap_or(ProxyKind::None);
@@ -1393,7 +1558,10 @@ fn check_install(cx: &mut Ctx, game: &Path, receipt: Option<&InstallReceipt>, di
 }
 
 /// Other engines' own loaders under the proxy names the game loads (EML's dbghelp.dll, SET's powrprof.dll ...).
-fn check_loaders_in_folder(cx: &mut Ctx, proxies: &[crate::engines::ProxySlot], platform: Option<Platform>, aside: &[ModKind]) {
+/// `ran`: the kinds whose plugin wrote at the last start that it did not stand aside (kiln-greeneye: the loader's
+/// claim was not there): the loader file is in the folder but did not start, and Kiln ran its mods itself.
+fn check_loaders_in_folder(cx: &mut Ctx, proxies: &[crate::engines::ProxySlot], platform: Option<Platform>, aside: &[ModKind],
+                           ran: &[ModKind]) {
     use crate::engines::Engine;
     for p in proxies.iter().filter(|p| !p.name.eq_ignore_ascii_case("dinput8.dll")) {
         let Some(engine) = Engine::of_proxy(p.class.kind).filter(|e| *e != Engine::Kiln) else { continue };
@@ -1402,6 +1570,15 @@ fn check_loaders_in_folder(cx: &mut Ctx, proxies: &[crate::engines::ProxySlot], 
             continue; // the own-loader finding says it, from what the plugin saw
         }
         let windows = platform == Some(Platform::Windows);
+        if ran.contains(&kind) {
+            // r1111 (Steam Deck, no dbgcore override): the note said kiln-greeneye stood aside while it had run the mods
+            cx.find("loader-in-folder", Level::Info, format!(
+                "{} is {}'s own loader. It did not start at the last start ({}), so Kiln's {} plugin ran the {} mods itself.",
+                p.name, engine.name(),
+                if windows { "something kept it from loading" } else { "under Wine or Proton it loads only with a DLL override for that name" },
+                short_name(engine), short_name(engine)));
+            continue;
+        }
         cx.find("loader-in-folder", if windows { Level::Warning } else { Level::Info }, format!(
             "{} is {}'s own loader. {}, and Kiln's {} plugin then stands aside for it: the {} mods in the profile do not load through Kiln.",
             p.name, engine.name(),

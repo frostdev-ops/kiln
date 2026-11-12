@@ -98,13 +98,13 @@ an in-progress Hold action. A disabled focused control returns focus to the curr
 ## Screens
 | Screen | What | Buttons |
 |---|---|---|
-| Home | the active profile's name, the Play arch, Kiln's state (Kiln version, "not installed", "update ready", "Game not found"), the last boot in one line ("12 mods loaded", "11 mods loaded, 1 failed", safe idle, no mods) | A on the arch: Play / Install / Find game; Install Kiln, Update Kiln, Switch profile, Pick folder, One Steam setting (to Help) as the state needs; Y profile; X play once (without mods, vanilla) |
-| Mods | the active profile's mods (Kiln, native, EMF, plugins), a flame per mod | A on/off; X remove (confirm; the library keeps it); Y switch profile. No profile yet: Choose a profile / Add mods |
-| Add mods | the mods the library recognises in Downloads (`deck_browse`: `library_detect` on zips, 7z and rar files, DLLs and mod folders), newest first, "In profile" when it is there; other folders and Places (Downloads, Home, Desktop, SD card, USB drives) | A on a mod: `library_add` (import, add to the active profile or "My mods", write profile.json); A on a modpack zip: its consent dialog, then `modpack_install`; A on a folder opens it; X up; Y places; B back up |
+| Home | the game's name, how many mods are on over every kind ("12 mods on, 15 off"; a profile other than "My mods" is named after it), the Play arch, Kiln's state (Kiln version, "not installed", "update ready", "Game not found"), the last boot in one line ("Booted, no errors", "Booted, 1 failed", "Booted, 2 errors", safe idle, no mods) | A on the arch: Play / Install / Find game; Install Kiln, Update Kiln, Pick folder, One Steam setting (to Help) as the state needs; X play once (without mods, vanilla) |
+| Mods | every mod of every kind (the desktop's list, `shell/mods.ts`): the Library's, the loaded profile's, and the mods found in the game folder ("Game folder" with their state); a flame per mod, the count over every kind | A on/off (a mod the profile lacks goes in, on); on a game-folder mod A does its fix (load that kind's game-folder mods, or add it); X remove (confirm; out of the list, its files out of the Library). No profile picker: profiles are in Settings |
+| Add mods | the mods the library recognises in Downloads (`deck_browse`: `library_detect` on zips, 7z and rar files, DLLs and mod folders), newest first, "On" when it is on already; other folders and Places (Downloads, Home, Desktop, SD card, USB drives) | A on a mod: `library_add` (import, switch it on in the loaded profile or "My mods", write profile.json); A on a modpack zip: its consent dialog, then `modpack_install`; A on a folder opens it; X up; Y places; B back up |
 | Catalog (enabled builds only) | Enshrouded's mods on Nexus Mods ([catalog.md](catalog.md)), Kiln mods first: a row per mod with its author, version, endorsements and state (Installed, Update, EMF/native/DLL); more rows with More. A mod's page: summary, what it needs, Installed or Update ready | A on a mod: its page; there A on Add (premium: downloads, adds to the active profile) or Update, or Open on Nexus Mods (free accounts download on the site); X what is shown (Kiln mods, All Enshrouded, Installed); Y the order (most endorsed, recently updated, name). After an add: OK, Undo, Get <mod it needs>. A Mod Manager Download link shows the same dialog on any screen. Account sign-in uses OAuth in desktop Settings; this tab is hidden in dev.20 |
 | Kiln | the runtime in the game: version, when, files, runs on | Install, Update to the newest bundle, Hold to uninstall (1.2 s, the Deck's stand-in for the typed word); the running step and the outcome |
 | Help | the Steam launch option for Valve's Proton (state: needed, set, not needed), how to add the launcher to Steam, the controls | D-pad walks the blocks, right stick scrolls |
-| Settings | Desktop UI (now), Start in (Auto / Deck mode / Desktop), Button glyphs, Fullscreen (Desktop Mode only), Launcher updates (check, install, restart; the Nexus Mods build instead: New versions, Nexus Mods, A opens the Kiln page there, no update check), Quit; the last line shows the version, what the detection saw and the controller | A |
+| Settings | Desktop UI (now), Start in (Auto / Deck mode / Desktop), Button glyphs, Fullscreen (Desktop Mode only), Launcher updates (check, install, restart; the Nexus Mods build instead: New versions, Nexus Mods, A opens the Kiln page there, no update check), Profile (the loaded one; A opens the list: load one, or No profile), Quit; the last line shows the version, what the detection saw and the controller | A |
 
 Text input is avoided everywhere. Where Steam needs typing (launch options), Help says Steam + X opens the keyboard.
 Notices are a short title and buttons.
@@ -173,7 +173,7 @@ steps instead:
 - No real Steam Deck has run it: the checklist below is for the first one.
 - The modpack offer after a server refused you (`kiln://last-server`) shows only in the desktop UI; a modpack zip in
   Downloads works in Deck mode.
-- Not in Deck mode: profile editing beyond on/off/remove (order, new profiles, configs), saves and backups, logs,
+- Not in Deck mode: mod editing beyond on/off/remove (order, saving a profile under a new name, configs), saves and backups, logs,
   servers and admin, rollback, "switch from ShroudForge" (typed), runtime bundle import, the save editor. Settings has
   "Desktop UI" for those.
 - The game-art extraction (`GameArtAuto`) does not run in Deck mode (only the save editor and the admin map use it).
@@ -207,7 +207,7 @@ line of Deck Settings (it names what the detection saw and your controller).
    Home's fire: does it burn smoothly (flames, embers)? Does the fan or the battery notice while the launcher sits on
    Home? (Settings, Animated fire turns it off.)
 8. Touch: tap a tab, tap a mod; does it react?
-9. Home: does it name your profile and say "Kiln …" or "Kiln not installed"? If not installed: Install (A on the
+9. Home: does it say how many mods are on and "Kiln …" or "Kiln not installed"? If not installed: Install (A on the
    arch). Did it finish?
 10. Help: is the Steam setting shown as "Needed", "Already set" or "Not needed"? If needed, follow the steps on screen
     (Steam + X for the keyboard). Easy to follow?
@@ -216,7 +216,7 @@ line of Deck Settings (it names what the detection saw and your controller).
 12. Mods: A turns it off and on; X removes it.
 13. Home: Play. Does Enshrouded start from Steam? In the game, is the launcher's input quiet (no tab switching behind
     the game)?
-14. After the game: Home's "Last boot" line, does it say how many mods loaded?
+14. After the game: Home's "Last boot" line, does it say "Booted" and whether anything failed?
 15. Settings: "Desktop UI" switches to the mouse UI; desktop Settings, "Open Deck mode" comes back.
 16. Settings, Quit: does it close cleanly back to Steam?
 17. Anything too small to read, hard to reach, or confusing?

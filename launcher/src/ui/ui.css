@@ -333,13 +333,16 @@
 @keyframes k-in { from { opacity: .1; translate: 0 14px; } }
 
 /* ---------------------------------------------------------------- toasts: bottom left */
-.k-toasts { position: fixed; left: 48px; bottom: 24px; z-index: 60; display: flex; flex-direction: column; gap: 8px; width: min(420px, calc(100vw - 96px)); pointer-events: none; }
-.k-toast { pointer-events: auto; display: flex; gap: 12px; align-items: flex-start; padding: 10px 12px 11px 16px; border-radius: var(--k-radius-m);
+.k-toasts { position: fixed; left: 48px; bottom: 24px; z-index: 60; display: flex; flex-direction: column; gap: 8px; width: min(420px, calc(100vw - 96px)); max-height: calc(100dvh - 48px); overflow-y: auto; pointer-events: none; }
+.k-toast { flex-shrink: 0; pointer-events: auto; display: flex; gap: 12px; align-items: flex-start; padding: 10px 12px 11px 16px; border-radius: var(--k-radius-m);
   background: var(--k-bg-2); box-shadow: inset 0 0 0 1px var(--k-line-strong), 0 18px 40px rgba(0, 0, 0, .6); animation: k-toast .42s var(--k-spring) backwards; }
 .k-toast-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
 .k-toast-title { font-family: var(--k-font-label); font-weight: 500; letter-spacing: .012em; font-size: 18px; color: var(--k-text-0); overflow-wrap: anywhere; }
 .k-toast-err .k-toast-title { color: var(--k-err); }
 .k-toast-detail { color: var(--k-text-2); font-size: 15.5px; overflow-wrap: anywhere; }
+.k-toast-earlier { margin-top: 6px; }
+.k-toast-earlier-title { color: var(--k-text-0); }
+.k-toast-earlier[data-kind="err"] .k-toast-earlier-title { color: var(--k-err); }
 .k-toast-actions { flex: none; display: flex; gap: 6px; align-self: center; }
 .k-toast-close { flex: none; display: grid; place-items: center; width: 28px; height: 28px; border: 0; border-radius: 50%; background: none; color: var(--k-text-2); cursor: pointer; }
 .k-toast-close:hover { color: var(--k-text-0); background: var(--k-warm-2); }
@@ -552,3 +555,17 @@
 .k-chain-link { position: relative; flex: 1; height: 1px; margin: 0 8px 16px; background: var(--k-line-hot); }
 .k-chain-link i { position: absolute; top: -3px; left: 0; display: block; width: 7px; height: 7px; transform: rotate(45deg); background: var(--k-ember-400); animation: k-run 1.5s linear infinite; }
 @keyframes k-run { from { left: 0; } to { left: calc(100% - 7px); } }
+
+/* ---------------------------------------------------------------- the load order of every kind (pages/mods/LoadOrder.tsx) */
+.k-order-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 14px; max-width: 980px; }
+.k-order-step { display: flex; flex-direction: column; gap: 4px; }
+.k-order-step-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 14px; padding: 0 4px; }
+.k-order-step-title { font-family: var(--k-font-label); font-weight: 500; letter-spacing: .012em; font-size: 18px; color: var(--k-head); }
+.k-order-group { display: flex; flex-direction: column; gap: 2px; padding: 4px 0 0 16px; }
+.k-mods-list.k-order-list { flex: none; overflow: visible; padding: 0; border-left: 1px solid var(--k-line); margin-left: 4px; }
+.k-mod.k-order-mod { grid-template-columns: 28px 36px minmax(0, 1fr) 110px 74px 30px; }
+.k-order-n { font-family: var(--k-font-mono); font-size: 15px; color: var(--k-ember-400); text-align: right; }
+
+/* Settings, Profiles (components/ProfilesSettings.tsx) */
+.k-profiles { list-style: none; margin: 0; padding: 0; }
+.k-profiles .k-list-item { gap: 10px; }

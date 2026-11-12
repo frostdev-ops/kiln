@@ -104,7 +104,9 @@ Today's layout stays (`tools/deploy-server.sh`): `kiln-core.dll`, `kiln.json`, `
 | `chain.ini`, `chain/` (displaced proxies, `once.ini`) | section 5.3 |
 | `native/<id>/` | native mod drop-in folder (a folder with `native.json`) |
 | `profiles/<pid>/<kind>/<id>/`, `profiles/<pid>/config/` | copy mode (section 6) |
-| `../mods/<id>/` (ShroudForge's mods folder, `shroudforge::mods_dir`), `../shrouded_engine_tweaks/mods/<id>/` | ShroudForge and SET mods of the active profile, placed by activation with a `.kiln-library.json` marker (`{format, kind, id, version, hash}`; 5.1). Folders without the marker are the player's and are never touched |
+| `../mods/<id>/` (ShroudForge's mods folder, `shroudforge::mods_dir`), `../shrouded_engine_tweaks/mods/<id>/` | ShroudForge and SET mods of the active profile, placed by activation with a `.kiln-library.json` marker (`{format, kind, id, version, hash}`; 5.1) plus a trusted placement receipt. A marker alone never authorizes changes; player folders are never touched |
+| `../mods/<original folder>/` | the active profile's XHL companions (only XHL-Core loads them) and EML mods a native DLL reads there, placed by activation under the folder name they came with (5.1) |
+| `../mods/<id>/`, `../greeneye/<id>/` | the active profile's enabled Flame and Greeneye mods, placed by activation with a marker and a receipt, with or without the engine's own loader: a Flame mod reads its own files (`sigs/`, `symbols/`, settings) from `<game>/mods/<id>/` wherever its DLL is loaded from, a Greeneye mod gets its folder as `greeneye\<id>\` from Greeneye's API. Files the mod wrote there stay across updates and go to `kiln/kept-mod-files/<kind>/<id>/` when the copy goes (5.1) |
 | `state/` | status files for the launcher (section 5.9); created by kiln-core at boot (`KILN_PATH_STATE`) |
 | `.install.json` | install receipt (section 5.7) |
 | `backups/install-<yyyymmddThhmmssZ>/` | what the installer replaced, byte-identical |
@@ -146,7 +148,14 @@ Rules:
   native: the same rules over `after`/`before`/`requires`/`incompatible`; EMF: EMF's own order). `enabled: false`
   entries are reported as disabled and skipped.
 - `path`: absolute game-side path (Z: or a Windows path), or relative to `<game>/kiln/` (copy mode). Kiln mods, native
-  mods and EMF mods name a folder; plugins name the DLL.
+  mods and EMF mods name a folder; plugins name the DLL. `mods.xhl` entries, and `mods.eml` entries of EML mods a native
+  DLL reads in the game's mods folder, name the copy placed in `<game>/mods/<original folder>`; `mods.greeneye` entries
+  of enabled Greeneye mods name Kiln's copy in `<game>/greeneye/<id>`, `mods.flame` entries of enabled Flame mods Kiln's
+  copy in `<game>/mods/<id>`. In copy mode those are `../mods/<original folder>`, `../greeneye/<id>` and
+  `../mods/<id>`, the only `..` forms the format allows (`../mods/` in `mods.xhl`, `mods.eml` and `mods.flame`,
+  `../greeneye/` in `mods.greeneye`; one direct child with a name under the rule of
+  `schema/fixtures/profile/game-folder-names.json`), written only for a runtime that declares `profileReader` 2 or more
+  (3 or more for `mods.flame`; section 6, copy mode).
 - `configDir` (default `<game>/kiln/config`) becomes `KILN_PATH_CONFIG`, `KilnPaths.Config` and
   `kiln.profile.config_dir()`. Mod config files (`<id>.json`), `.schema/`, `native.json` and EMF settings
   (`emf/<id>.ini`) live there.
@@ -178,22 +187,32 @@ drop-in selections require an updated core. `dropins: true` keeps the older all-
 | Kind | Plugin | Entry `path` | How the plugin takes the list |
 |---|---|---|---|
 | `emf` | kiln-emf | library folder | `kiln.profile` `get(KILN_PROFILE_KIND_EMF)` |
-| `eml` | kiln-eml (GPL) | library folder | `discover::profile_candidates` over `json()`; `enabled: false` = disabled |
-| `shroudforge` | kiln-shroudforge | the placed copy in ShroudForge's mods folder | hosts ShroudForge when an entry is enabled; ShroudForge reads its mods folder. Activation places each listed package there and writes its `extended.mod.json` `enabled` (`shroudforge::apply_switches`); Kiln's copies the profile no longer lists are switched off (settings kept); a new version keeps the player's setting values |
+| `eml` | kiln-eml (GPL) | library folder; for an EML mod a native DLL reads in the game's mods folder, the copy placed in `<game>/mods/<original folder>` | `discover::profile_candidates` over `json()`; `enabled: false` = disabled |
+| `xhl` | none: only XHL-Core, installed separately (a Native mod or the author's own install), loads these | the copy placed in `<game>/mods/<original folder>` | no Kiln plugin reads the list and kiln-core ignores it: it is placement metadata. Activation places each enabled companion there, with its `native-plugin.ini`, for XHL-Core; Kiln never loads a companion's DLL. `dropins` never names `xhl` |
+| `shroudforge` | kiln-shroudforge | the placed copy in ShroudForge's mods folder | hosts ShroudForge when an entry is enabled; ShroudForge reads its mods folder. Activation places each listed package there and writes only Kiln-owned copies' `extended.mod.json` `enabled` (`engine_mods::place`); original player folders are never switched. Kiln's copies the profile no longer lists are switched off (settings kept); a new version keeps the player's setting values |
 | `set` | kiln-set | the placed copy in `shrouded_engine_tweaks/mods/` | kiln-set reads that folder. Activation places the enabled mods and removes Kiln's copies of disabled or unlisted ones (SET has no switch). kiln-set loads nothing under play-once no-mods or an invalid profile |
-| `greeneye` | kiln-greeneye | library folder (`mod.json` + DLL) | `compat.h` `plan_engine("greeneye")` |
-| `flame` | kiln-flame | library folder (`flame.json`) | `plan_engine("flame")` |
+| `greeneye` | kiln-greeneye | Kiln's placed copy in `<game>/greeneye/<id>/` (an enabled mod), else the library folder (`mod.json` + DLL) | `compat.h` `plan_engine("greeneye")` |
+| `flame` | kiln-flame | Kiln's placed copy in `<game>/mods/<id>/` (an enabled mod: the folder a Flame mod reads its own files from), else the library folder (`flame.json`) | `plan_engine("flame")`; `kiln/state/flame.json` says where each mod ran from and whether that is the folder it reads (`docs/kiln/engines/flame.md`) |
 | `shroudtopia` | kiln-shroudtopia | library folder (mod DLL) | `plan_engine("shroudtopia")`; settings in `<configDir>/shroudtopia/shroudtopia.json` |
 | `enshwick` | kiln-enshwick | library folder (`pack.toml`, or a folder with the mod DLL) | `plan_engine("enshwick")`; the plugin copies each enabled entry into `<game>/mods/<id>/` (Enshwick's loader reads only that folder), with its own receipts, and starts Enshwick's loader |
 | `shroudlink` | kiln-shroudlink | library folder (mod DLLs directly in it) | its own `plan_from` (the same rule as `compat.h`); roots are the enabled entries, then `shroudlink_mods/` and its direct subfolders |
 | `ember` | kiln-ember | library folder (one library) | `plan_engine("ember")`; finds and reports, starts nothing: Ember has published no mod ABI (the launcher says the mods don't run yet) |
 
 Placement ownership requires `.kiln-library.json` plus a matching launcher receipt in
-`kiln/state/library-placements.json` (`{path, marker, files}` entries, recording relative paths, file hashes and
-directory entries).
+`kiln/state/library-placements.json` (`{path, marker, files, extension?, game_folder?}` entries, recording relative paths,
+file hashes, directory entries, the exact SF extension text last written by Kiln, and `game_folder: true` for a copy in
+`<game>/mods/<folder>` that a DLL reads there: an EML mod with a native part, a native mod's settings folder, an XHL
+companion; cleanup needs that flag to accept such a copy, a copy without it is cleaned like an own-loader copy).
 The marker alone is advisory: marker-only older copies and player-modified folders are left untouched. The
-inventory excludes only ShroudForge's mutable enabled switch and setting values. Copies are staged beside the
-destination and the previous folder is restored if replacement fails. Activation refuses while the game runs.
+upgrade inventory excludes only ShroudForge's mutable enabled switch and setting values. Deactivate/uninstall cleanup
+additionally requires the exact extension text to match; old receipts without it conservatively retain SF copies.
+Only Kiln's own switch of an unchanged extension advances that exact receipt, never player settings carried through
+an upgrade. Retained folders are returned as `{path, reason, mayRun}`: by deactivate and uninstall (`PlacementCleanup`)
+and by every activation (`Activation.retained`: a copy the profile switched off, removed or wants in another version,
+that activation leaves because its code changed or Kiln cannot inspect or carry what is in it; one such copy never fails
+the activation of the others). The launcher displays paths/reasons until dismissed and warns they may still run through
+Kiln's engine plugin (such as SET's) or another loader. Copies are staged beside the destination and
+the previous folder is restored if replacement fails. Activation refuses while the game runs.
 In copy mode, the ShroudForge and SET profile entry paths name the verified source copies under
 `kiln/profiles/<profile>/<kind>/<id>`; their plugins still read the separately placed fixed engine folders.
 Play once cannot select different ShroudForge or SET mods, versions or switches from the active profile: activate
@@ -402,7 +421,8 @@ through a JSONC CST (comments kept) and validates like Kiln.Api. Running servers
 ### 5.6 `kiln-runtime.json` (runtime bundle)
 Bundle file: `kiln-runtime-<VERSION>+<yyyymmdd>.<gitsha>.zip`, deterministic (entries sorted bytewise, times = the
 commit time, no extra attributes), its files laid out relative to the game folder. `kiln-runtime.json` at the root:
-`format`, `version` (= the zip's), `kiln` (VERSION), `git`, `created` (commit time), `abi`, `api`, `dotnet`,
+`format`, `version` (= the zip's), `kiln` (VERSION), `git`, `created` (commit time), `abi`, `api`, `profileReader`
+(the profile.json forms its kiln-core reads: `KILN_PROFILE_READER` in `native/core/src/profile.h`; absent = 1), `dotnet`,
 `components` (`core`, `admin`, `emf`, `samples`: `{sides, default, requires, description}`), `files[]`
 (`{path, size, sha256, component, config}`, sorted by path), `builds.{server,client}[]` (`{sha256, steamBuild, svn,
 verified}`). `config: true` files (`kiln/kiln.json`) are installed only when missing and never replaced or deleted.
@@ -539,6 +559,10 @@ kms1 differs from the game's last launched kms1 backs up the saves first.
   IGNORED_UNDELETABLE 17, IGNORED_SERVER 18, IGNORED_INVALID 19. `KILN_CHAIN_*`: LOADED 0, FAILED 1, MISSING 2,
   REFUSED 3, DUPLICATE 4, SKIPPED 5, LATE 6 (dev.21, appended; `KilnBootInfo` is unchanged: a late entry is an ordinary
   `chain[]` entry with status 6).
+- `KilnBootInfo` v3 (dev.24, 72 bytes) appends `u64 addon_log_size`: the length of `<game>\shroudlink_client.log`
+  before the proxy loaded any chained DLL (0 without the file, `KILN_BOOT_LOG_UNKNOWN` = `UINT64_MAX` when it could not
+  tell). The core's wait for shroudlink's client addon reads only what follows. With an older proxy the core takes it as
+  unknown: then only the addon's UI hook can end that wait.
 - `kiln_native.h`: `KilnNativeContext {size, abi_version, phase, side, api, owner, module, id, version, directory,
   config_dir (<configDir>/native/<id>), data_dir (<dataDir>/<id>), hooks_enabled, play_once}`,
   `typedef int (KILN_CALL* KilnNativeInitFn)(const KilnNativeContext*)`, phases, `KILN_NATIVE_INIT_{OK,FAILED,UNSUPPORTED}`.
@@ -576,6 +600,18 @@ All additive, appended to v1 tables (check `header.size`). Docs: `docs/kiln/netw
   (verified by kdh1 after the copy; unchanged copies are kept), the profile's config dir to
   `<game>/kiln/profiles/<pid>/config/` (copied back to `<data>/profiles/<pid>/config/` before the next activation and
   after the game exits), and writes relative paths (`profiles/<pid>/kiln/<id>`), resolved against `<game>/kiln/`.
+  The only paths that leave `<game>/kiln/`: an EML mod a native DLL reads in the game's mods folder and an XHL
+  companion as `../mods/<folder>`, an enabled Greeneye mod Kiln placed as `../greeneye/<id>`, an enabled Flame mod Kiln
+  placed as `../mods/<id>`, each one folder name under the rule of `schema/fixtures/profile/game-folder-names.json`.
+  Every kiln-core before `profileReader` 2 calls a profile with such an EML or Greeneye path invalid and loads no mods,
+  and every one before 3 one with such a Flame path, so the launcher writes these forms only when the bundle the game's
+  receipt names declares that revision or more and the receipt's `kiln/kiln-core.dll` is the file in the game;
+  otherwise (an older runtime, a rollback, an older core unzipped by hand over an install, or a runtime the
+  launcher has no bundle of), and for a hand-installed copy whose folder name the rule refuses (Kiln places no second
+  copy beside it), those entries keep their `profiles/<pid>/<kind>/<id>` copy. After every install, update or
+  rollback, of a client or a server, through the launcher (`runtime_install`, `runtime_rollback`, `server_deploy`:
+  `quick::resume_active`) or `kilnctl` (`profile::refresh_active`), the active profile is written again for the runtime
+  the game has then; the task's result carries that `activation`, and a failure of it is one of its `warnings`.
 - Reverse (reading state files): `Z:\a\b` -> `/a/b`; `C:\…` -> `<pfx>/drive_c/…`; other letters through
   `<pfx>/dosdevices/<l>:`; relative -> `<game>/kiln/…`.
 
@@ -584,6 +620,18 @@ All additive, appended to v1 tables (check `header.size`). Docs: `docs/kiln/netw
 1. Refuse while the game runs. Resolve the profile (preview errors are shown, not fatal: the game reports the same).
 2. Path mode (6). Copy mode: sync folders.
 3. Write `<configDir>/native.json` from the profile's native switches; write `chain.ini [profile]` (dllmain natives).
+   Place the fixed-folder copies (5.1, `engine_mods::place`). The answer, `Activation`, says what that left for the
+   player: `retained` (`{path, reason, mayRun}`, as above), `keptFiles` (one sentence per mod whose files went to or came
+   back from `kiln/kept-mod-files/` or `kiln/state/placed-settings/`), `warnings` (notes such as a ShroudForge setting
+   value a new version refuses, a profile entry the player's own folder serves), `ownLoaders`. Each `retained` reason
+   ends with what still runs from that folder. The launcher shows the first three until dismissed wherever a command
+   returns an `Activation` or carries one (`AddReport.activation`, `ModpackInstallResult.activation`,
+   `LaunchResult.activation`, an install result's `activation`, an error's `detail.activation`: `shell/notices.ts`).
+   A re-apply without `profile_activate` (a profile save, a change outside the launcher, the watcher's start-up pass,
+   a profile made or turned back on by `profile_ensure_default`) keeps its `Activation` in the launcher until the window
+   takes it with `activation_notices` (each once), and says so with `kiln://activation`. `launch_play` returns
+   `LaunchResult.activation` when it wrote the profile again before the start, or when reconciling an unchanged
+   profile's fixed folders kept a copy, files or notes (a placed copy the player changed since).
 4. Write `kiln/profile.json` (generation + 1, fingerprint, writer, written) atomically; delete a stale
    `kiln/chain/once.ini` and `kiln/profile.once.json`.
 5. Record the activation in `<data>/installs/<installId>.json`; emit `kiln://game` `{kind: "status"}`.
@@ -687,7 +735,7 @@ them to the Rust snake_case parameters). Every command rejects with `KilnError` 
 a background task and return its id at once; the task's `result` (in `kiln://task`) has the type given after `->`.
 
 Shared types (TypeScript names, defined in `commands.ts`; Rust in kiln-manage unless noted):
-`GameId`, `ProfileId`, `ServerId`, `TaskId`, `ModKind = 'kiln'|'native'|'plugin'|'emf'|'eml'|'shroudforge'|'set'|'greeneye'|'flame'|'shroudtopia'|'enshwick'|'shroudlink'|'ember'` (section 5.1), `RunSide = 'server'|'client'`,
+`GameId`, `ProfileId`, `ServerId`, `TaskId`, `ModKind = 'kiln'|'native'|'plugin'|'emf'|'eml'|'xhl'|'shroudforge'|'set'|'greeneye'|'flame'|'shroudtopia'|'enshwick'|'shroudlink'|'ember'` (section 5.1), `RunSide = 'server'|'client'`,
 `LogTarget = {game: GameId} | {server: ServerId}`, `ConfigTarget = {profile: ProfileId} | {server: ServerId} |
 {game: GameId}`.
 
@@ -711,19 +759,20 @@ Shared types (TypeScript names, defined in `commands.ts`; Rust in kiln-manage un
 | runtime | `runtime_list` | - | `RuntimeBundle[]` |
 | runtime | `runtime_import` | path: string | `RuntimeBundle` |
 | runtime | `runtime_status` | gameId | `InstallState` |
-| runtime | `runtime_install` | gameId, version: string, options: InstallOptions | `TaskId` -> `InstallReceipt` + `changedBackedUp: string[]` (Kiln files changed by hand that the install replaced, kept in the backup) + `backup: string \| null` (`<data>/backups/install/<installId>/install-<ts>`) |
-| runtime | `runtime_uninstall` | gameId | `TaskId` -> null |
-| runtime | `runtime_rollback` | gameId, version: string | `TaskId` -> `InstallReceipt` + `changedBackedUp`, `backup` (as `runtime_install`) |
+| runtime | `runtime_install` | gameId, version: string, options: InstallOptions | `TaskId` -> `InstallReceipt` + `changedBackedUp: string[]` (Kiln files changed by hand that the install replaced, kept in the backup) + `backup: string \| null` (`<data>/backups/install/<installId>/install-<ts>`) + `restoredShroudforge: string[]` (legacy helpers recovered) + `warnings: string[]` (player replacements kept, with recovery paths) |
+| runtime | `runtime_uninstall` | gameId | `TaskId` -> `UninstallReport {removed, restored, adopted, kept, placements: PlacementCleanup, warnings}`; changed player replacements remain, original backup paths are in warnings |
+| runtime | `runtime_rollback` | gameId, version: string | `TaskId` -> `InstallReceipt` + `changedBackedUp`, `backup`, `restoredShroudforge`, `warnings` (as `runtime_install`) |
 | runtime | `runtime_classify` | path: string | `ProxyClass` |
 | profile | `profile_list` | - | `ProfileSummary[]` |
 | profile | `profile_get` | profileId | `Profile` |
 | profile | `profile_create` | name: string, copyFrom: ProfileId \| null | `Profile` |
 | profile | `profile_save` | profile: Profile | `Profile` (conflict on a stale generation) |
 | profile | `profile_delete` | profileId | null |
-| profile | `profile_resolve` | profileId, side: RunSide | `ResolvePreview` |
+| profile | `profile_resolve` | profileId, side: RunSide, gameId?: the game whose kiln.json `mods.hosted` applies (absent: on) | `ResolvePreview` (`withWorld`: a client's Kiln mods that start with the player's own world) |
 | profile | `profile_activate` | profileId, gameId | `Activation` |
-| profile | `profile_deactivate` | gameId | null |
+| profile | `profile_deactivate` | gameId | `PlacementCleanup {removed: Path[], retained: [{path, reason, mayRun}]}`; removes only proven unchanged Kiln copies, keeps player edits and warns that retained mods may still run |
 | profile | `profile_active` | gameId | `Activation \| null` |
+| profile | `activation_notices` | - | `Activation[]`: the re-applies' activations the window has not shown yet, oldest first; each is returned once (`kiln://activation`) |
 | library | `library_list` | kind: ModKind \| null | `LibraryEntry[]` |
 | library | `library_detect` | path: string | `Detected` |
 | library | `library_import` | paths: string[] | `TaskId` -> `ImportReport` |
@@ -838,10 +887,10 @@ or emits `kiln://update`; its UI calls none of these commands.
 | nexus | `nexus_handler_set` | on: boolean | `HandlerStatus` (on: remember the current nxm handler, register the launcher; off: give it back; only on the user's click) |
 | engines | `engine_settings_get` | kind: ModKind, id, profileId, gameId: GameId \| null | `EngineSettings {kind, id, format: "extended.mod.json" \| "shroudtopia.json" \| "none", file, schema (JSON Schema; ShroudForge's with x-kiln-* hints), values, note?}` (valid mod id listed in the profile required; ShroudForge reads the selected game's placed copy only when this profile is active, otherwise library defaults; Shroudtopia reads the profile's effective config, using the game copy for active copy mode; other engine kinds `format: "none"` with a note) |
 | engines | `engine_settings_set` | kind, id, profileId, gameId \| null, key, value: Json | `EngineSettings` (one declared top-level key with schema validation; profile membership required; `game_running` while a game reading these files runs; ShroudForge requires the profile active in the selected game and a Kiln-owned placed copy; `unsupported` for kinds without settings) |
-| engines | `engine_status` | gameId | `EngineStatus[] {kind, plugin, state: Json \| null, file, error?}` (the engine plugins' `kiln/state/<engine>.json`, null when not written; invalid, unreadable or symlinked state files report `error`) |
+| engines | `engine_status` | gameId | `EngineStatus[] {kind, plugin, state: Json \| null, file, error?, ownLoader?, effects?, prerequisite?}`, in `ModKind::ALL` order (the engine plugins' `kiln/state/<engine>.json`, null when not written; invalid, unreadable or symlinked state files report `error`). `ownLoader`: `OwnLoaderNote {kind, engine, file, via, folder, delivery, enabled, copied, notCopied, off?, text}` when the engine's own loader is installed in the game, and what that means for the active profile's mods of the kind (`off`, EML under ShroudForge only, when not empty: ids of `copied` whose copy ShroudForge has switched off, so it does not run them). `effects` (the `shroudforge` row only, always): `SfEffects {file, state: "current"\|"stale"\|"stopped"\|"unavailable"\|"invalid", updatedAt, reason, mods: {id, state, detail}[]}`, ShroudForge's own runtime report (`mods` only while it is current; each `state` is the word ShroudForge or the mod reported, never proof of a gameplay effect). The `xhl` row has `plugin` and `file` empty, `state` null and `prerequisite: {available, text}`: whether XHL-Core was recognized on the game's active proxy or chain paths, a file check, not a runtime report |
 | engines | `eml_backup` | gameId | `EmlBackup[] {file, backup, patched}` (EML's `<exe>.kfc.bak` next to each `.kfc`; `patched`: they differ; read/hash errors and symlinks are refused) |
-| engines | `eml_restore` | gameId | `string[]` (the `.kfc` files copied back from their backup; refused with `game_running` while the game runs) |
-| compat | `chain_view` | profileId, gameId | `ChainView {entries: ChainViewEntry[], rules: CompatRuleResult[], ruleErrors, session \| null, overlaps: ChainOverlap[], active, current, error}` (the profile's chain entries with their `[late]` state and who set it (`lateBy`: `player`, `profile` or `rule:<id>`; a `[late]` line that a rule wrote into chain.ini, marked `; kiln rule <id>`, is that rule's even when it is another profile's), the compat rules evaluated over the profile, and the overlaps of the game's last `state/hooks.json` mapped to chain entries and Library items; `session` null: no hooks.json yet) |
+| engines | `eml_restore` | gameId | Legacy `string[]` signature; always `refused` for direct restoration (`game_running` takes precedence while running). Disable EML mods and launch updated Kiln for ownership-aware archive-writer restoration; shared backups alone prove no ownership. |
+| compat | `chain_view` | profileId, gameId | `ChainView {entries: ChainViewEntry[], rules: CompatRuleResult[], ruleErrors, session \| null, overlaps: ChainOverlap[], active, current, error}` (the profile's chain entries with their `[late]` state and who set it (`lateBy`: `player`, `profile` or `rule:<id>`; a `[late]` line that a rule wrote into chain.ini, marked `; kiln rule <id>`, is that rule's even when it is another profile's; `gated`: shroudlink's client addon, by its exports, as a [chain] proxy or a profile native: no late switch is offered and `chain_set_late` refuses late for it, only switching it back), the compat rules evaluated over the profile, and the overlaps of the game's last `state/hooks.json` mapped to chain entries and Library items; `session` null: no hooks.json yet) |
 | compat | `chain_set_late` | profileId, gameId, path: string, late: boolean | `ChainView` (a `[profile]` entry changes the profile's late list, saved and re-applied where it is active; a `[chain]` entry changes the game's `chain.ini [late]` for every profile and is refused with `game_running` while the game runs; `not_found` when `path` is not in the profile's chain) |
 | found | `found_scan` | gameId, profileId | `FoundReport {gameId, profileId, kilnInstalled, mods: FoundMod[], loaders: OwnLoader[], unreadable: {path, reason}[], truncated}`; `FoundMod {kind: ModKind \| null, name, id, version, path (relative to the game, '/'), state: "loads"\|"off"\|"inProfile"\|"cannotRun", via?: "kiln"\|"ownLoader", reason, fix?: "dropins"\|"add", profileMod?}`, `OwnLoader {engine, name, kinds, file}` (mods in the game folder Kiln did not put there and whether they load with that profile: profiles.md "Mods in the game folder"; never fails over a missing or unreadable folder) |
 | found | `found_add` | gameId, profileId, path | `TaskId` -> `AddReport` (imports a `found_scan` entry into the Library and adds it to the profile, enabled; through `library_add`'s flow when the profile is active in the game; a refusal is in `import.skipped`; the player's folder stays) |
@@ -923,6 +972,7 @@ Emitted with `app.emit(name, payload)`; `launcher/src/api/commands.ts` exports `
 | `kiln://console` | `{subscription, serverId, reset: boolean, source, path: string \| null, truncated, lines: ConsoleLine[]}` (`reset`: `lines` replace everything shown: a start, a stop, a start outside the launcher) |
 | `kiln://gamepad` | `{kind: 'button', button: 'a'\|'b'\|'x'\|'y'\|'lb'\|'rb'\|'lt'\|'rt'\|'select'\|'start'\|'guide'\|'ls'\|'rs'\|'up'\|'down'\|'left'\|'right', pressed, repeat, device} \| {kind: 'axis', axis: 'rx'\|'ry', value: -1..1, device} \| {kind: 'connected', device, name, vendor, product} \| {kind: 'disconnected', device, name}` (the Deck UI's native reader while `deck_gamepad(true)`: directions merge the D-pad and the left stick and repeat while held (`repeat: true`); the right stick is sent for scrolling, at most ~25 a second, then one 0; [deck.md](deck.md)) |
 | `kiln://nxm` | `{count}` (an Enshrouded Mod Manager Download link arrived; `count` links wait in `nexus_links`; the window comes to the front) |
+| `kiln://activation` | `{gameId}` (a profile was written again without `profile_activate`: after `profile_save`, `profile_revert` or `chain_set_late`, a change of `profile.json` outside the launcher, the watcher's start-up pass, `profile_ensure_default`; its `Activation` waits until the window takes it with `activation_notices`, which the launcher also calls once its listener is up) |
 
 ## 11. Errors
 Every command rejects with `KilnError = {code, message, detail?}` (`kiln_manage::Error`, serialized as is). `message`
@@ -1005,7 +1055,7 @@ kilnctl is built on the crate; it also has `bundle`, `client`, `admin` and `depl
 - React 18 + TypeScript + Vite, bun. Router: `HashRouter`. Data: TanStack Query; state: zustand.
 - `src/api/commands.ts`: one typed function per command (section 9) + the shared types + `KilnEvents`. Names and
   argument shapes are the contract; pages import from here, never call `invoke` directly.
-- `src/api/kinds.ts`: the 13 `ModKind`s for the UI: `MOD_KINDS`, `CORE_KINDS`, `IMPORTED_KINDS` (every engine kind,
+- `src/api/kinds.ts`: the 14 `ModKind`s for the UI: `MOD_KINDS`, `CORE_KINDS`, `IMPORTED_KINDS` (every engine kind,
   = `engine_mods::IMPORTED`), `ENGINE_KINDS`, `NOT_RUNNING_KINDS` / `runsYet` / `NOT_RUNNING_NOTE` (=
   `engine_mods::runs_yet`: Ember), `KIND_NAME` (= `ModKind::label`), `KIND_SHORT` (badges), `KIND_TONE`,
   `KIND_PLUGIN`, `emptyMods()`, `totalCount(counts)`.

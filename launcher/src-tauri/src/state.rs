@@ -46,8 +46,9 @@ pub fn file_hashes(d: &DataDirs) -> std::path::PathBuf {
 pub fn open_external(target: &std::ffi::OsStr) -> Result<(), Error> {
     #[cfg(windows)]
     let mut cmd = std::process::Command::new("explorer");
+    // without the AppImage's own environment: what it opens (a file manager, a browser) is a program of the host
     #[cfg(not(windows))]
-    let mut cmd = std::process::Command::new("xdg-open");
+    let mut cmd = kiln_manage::hostenv::command("xdg-open");
     cmd.arg(target).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null());
     cmd.spawn().map(|_| ()).map_err(|e| Error::new(ErrorCode::Unsupported, format!("could not open it: {e}")))
 }

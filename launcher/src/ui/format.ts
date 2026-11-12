@@ -39,8 +39,8 @@ export function shortHash(h: string | null | undefined): string {
 
 /** An install's note for its toast: "1 changed file kept in backups" when it backed up files changed by hand, else
  * undefined. */
-export function installNote(r: { changedBackedUp?: string[] } | null | undefined): string | undefined {
-  const n = r?.changedBackedUp?.length ?? 0;
+export function installNote(r: { changedBackedUp?: string[] } | { placements: unknown } | null | undefined): string | undefined {
+  const n = r && "changedBackedUp" in r ? r.changedBackedUp?.length ?? 0 : 0;
   return n ? `${n} changed file${n === 1 ? "" : "s"} kept in backups` : undefined;
 }
 

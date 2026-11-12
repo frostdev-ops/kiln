@@ -213,6 +213,13 @@ fn init_logging(logs: Option<&Utf8Path>) {
 
 // ---- standing aside for EML's own loader ----
 
+fn loader_module_candidate(path: &str) -> bool {
+    let lower = path.to_lowercase().replace('/', "\\");
+    let name = lower.rsplit('\\').next().unwrap_or("");
+    name == "dbghelp.dll" || (name.starts_with("dbghelp_") && name.ends_with(".dll"))
+        || name == "dinput8.dll" || lower.contains("\\kiln\\chain\\")
+}
+
 /// EML's own proxy (dbghelp.dll, or dinput8.dll chained by Kiln), or ShroudForge's (which carries EML), loaded in this
 /// process: it already patched the game files in its DllMain, so kiln-eml must not patch them a second time.
 #[cfg(windows)]
@@ -244,8 +251,7 @@ fn eml_loader_loaded() -> Option<(String, &'static str)> {
         }
         let path = String::from_utf16_lossy(&buf[..len]);
         let lower = path.to_lowercase();
-        let name = lower.rsplit(['\\', '/']).next().unwrap_or("");
-        let candidate = name == "dbghelp.dll" || name == "dinput8.dll" || lower.contains("\\kiln\\chain\\");
+        let candidate = loader_module_candidate(&lower);
         if !candidate || lower.contains("\\windows\\") {
             continue;
         }
@@ -305,9 +311,24 @@ fn loader_roots(game: &Utf8Path) -> Vec<Utf8PathBuf> {
     roots
 }
 
+/// ShroudForge's mods folder: its configured `paths.mods`, else `<game>/mods` (the first of [`loader_roots`]).
+fn shroudforge_root(game: &Utf8Path) -> Utf8PathBuf {
+    loader_roots(game).into_iter().next().unwrap_or_else(|| game.join("mods"))
+}
+
+/// ShroudForge's own proxy runs ShroudForge unless its config makes it plain EML (`"modloader": "eml"`).
+fn shroudforge_mode(game: &Utf8Path) -> bool {
+    std::fs::read_to_string(game.join("shroudforge/config/modloader-config.json")).ok()
+        .and_then(|t| serde_json::from_str::<serde_json::Value>(t.trim_start_matches('\u{feff}')).ok())
+        .and_then(|v| v.get("modloader").and_then(|m| m.as_str()).map(str::to_owned))
+        .is_none_or(|m| !m.eq_ignore_ascii_case("eml"))
+}
+
 /// The `aside` outcome: `why` names the loader that runs the EML mods; the profile's EML mods are listed as running
-/// under it (Kiln's copy is in its folder) or not loading (only in the Library), the latter as warnings.
-fn aside_outcome(why: &str, who: &str) -> Outcome {
+/// under it (Kiln's copy is in its folder) or not loading (only in the Library), the latter as warnings. `shroudforge`:
+/// that loader is ShroudForge, which reads only its own mods folder and runs a package there only while the package's
+/// switch is on, for this side (discover::shroudforge_switch).
+fn aside_outcome(why: &str, who: &str, shroudforge: bool) -> Outcome {
     let mut out = Outcome::new(Phase::Aside, Vec::new());
     out.aside = Some(why.into());
     let (Some(game), Some(kiln)) = (kpath(KILN_PATH_GAME), kpath(KILN_PATH_KILN)) else { return out };
@@ -315,22 +336,12 @@ fn aside_outcome(why: &str, who: &str) -> Outcome {
     let mode = unsafe { (p.mode)() };
     if mode != KILN_PROFILE_ACTIVE && mode != KILN_PROFILE_ONCE { return out; }
     let json = unsafe { (p.json)().to_string() };
-    out.mods = discover::aside_entries(&json, &kiln, &loader_roots(&game), who);
-    let (mut runs, mut lost) = (0, 0);
-    for m in &out.mods {
-        match m.state.as_str() {
-            "own-loader" => runs += 1,
-            "not-loaded" => {
-                lost += 1;
-                klog(2, &format!("kiln-eml: profile EML mod {} does not load: {}", m.id.as_deref().unwrap_or("?"),
-                    m.reason.as_deref().unwrap_or("")));
-            }
-            _ => {}
-        }
-    }
-    if runs + lost > 0 {
-        klog(if lost > 0 { 2 } else { 3 }, &format!("kiln-eml: {runs} of the profile's {} EML mod(s) run under {who}{}",
-            runs + lost, if lost > 0 { format!("; {lost} do not load (kiln/state/eml.json)") } else { String::new() }));
+    let server = std::env::current_exe().ok()
+        .and_then(|p| p.file_stem().map(|s| s.to_string_lossy().eq_ignore_ascii_case("enshrouded_server"))).unwrap_or(false);
+    let roots = if shroudforge { vec![shroudforge_root(&game)] } else { loader_roots(&game) };
+    out.mods = discover::aside_entries(&json, &kiln, &roots, who, shroudforge.then_some(server));
+    for (level, line) in discover::aside_log(&out.mods, who) {
+        klog(level, &line);
     }
     out
 }
@@ -423,13 +434,13 @@ fn run_now() {
     }
     candidates.extend(ADDED.lock().unwrap().iter().cloned());
     if dropins {
-        // The launcher's copies of the profile's own mods (placed for EML's own loader) are those profile entries.
+        // Managed placements run only through an explicit profile entry, never again as drop-ins (including retained edits).
         let ids = profile().map(|p| discover::profile_ids(&unsafe { (p.json)().to_string() })).unwrap_or_default();
         for dir in [kiln.join("eml").join("mods"), game.join("mods")] {
             let source = if dir.starts_with(&kiln) { "kiln-dropin" } else { "game-mods" };
-            let (kept, skipped) = discover::without_profile_copies(discover::folder_candidates(&dir, source), &ids);
+            let (kept, skipped) = discover::without_profile_copies(discover::folder_candidates(&dir, source), &ids, &kiln);
             for s in skipped {
-                tracing::info!("{s}: Kiln's copy of a profile mod (placed for EML's own loader); the profile entry runs");
+                tracing::info!("{s}: Kiln-managed placement; not a drop-in (only an enabled profile entry may run it)");
             }
             candidates.extend(kept);
         }
@@ -468,7 +479,12 @@ fn run_now() {
     }
     let summary = match out.phase {
         Phase::Idle if out.restored => "kiln-eml: no EML mods; the game data was restored to vanilla (EML's .kfc.bak)".to_string(),
-        Phase::Idle => "kiln-eml: no EML mods; game files untouched".to_string(),
+        Phase::Idle => match &out.reason {
+            Some(reason) => format!("kiln-eml: no EML mods; game files untouched. {reason}"),
+            None if out.stale_backup => "kiln-eml: no EML mods; game files untouched (the vanilla backup is of an earlier \
+                game build: the game was updated since; the next start with an EML mod makes a new one)".to_string(),
+            None => "kiln-eml: no EML mods; game files untouched".to_string(),
+        },
         Phase::Done if out.cached => format!(
             "kiln-eml: {} EML mod(s) loaded; nothing changed since the last run, the game files keep their patches ({:.0} ms{})",
             out.loaded(),
@@ -491,7 +507,10 @@ fn run_now() {
             if out.restored { "restored to vanilla" } else { "left as it was" }
         ),
     };
-    klog(if out.phase == Phase::Failed { 1 } else { 3 }, &summary);
+    klog(if out.phase == Phase::Failed { 1 } else if out.reason.is_some() { 2 } else { 3 }, &summary);
+    if out.phase == Phase::Done && let Some(reason) = &out.reason {
+        klog(2, &format!("kiln-eml: {reason}"));
+    }
     publish(&out, state.as_deref());
     enforce_startup_safety(&out);
 }
@@ -550,7 +569,8 @@ fn start(api: *const KilnApi, owner: u64, info: *mut KilnPluginInfo, with_ready:
     if let Some((why, who)) = eml_loader_loaded() {
         RAN.store(true, Ordering::Release);
         klog(3, &format!("kiln-eml: standing aside: {why}. Remove it to let Kiln run the EML mods (kiln/state/eml.json)"));
-        let out = aside_outcome(&why, who);
+        let sf = who.starts_with("ShroudForge") && kpath(KILN_PATH_GAME).is_some_and(|g| shroudforge_mode(&g));
+        let out = aside_outcome(&why, who, sf);
         publish(&out, state_dir(kpath(KILN_PATH_KILN).as_deref()).as_deref());
     }
     KILN_OK
@@ -639,7 +659,7 @@ unsafe extern "C" fn eml_stand_aside(reason: KilnStr) -> i32 {
             if runner::lock_game(&game).is_err() { return KILN_ERR_UNAVAILABLE; }
         } else { return KILN_ERR_UNAVAILABLE; }
         RAN.store(true, Ordering::Release);
-        let out = aside_outcome(reason, "ShroudForge (hosted by Kiln)");
+        let out = aside_outcome(reason, "ShroudForge (hosted by Kiln)", true);
         publish(&out, state_dir(kpath(KILN_PATH_KILN).as_deref()).as_deref());
         KILN_OK
     })).unwrap_or(KILN_ERR_INTERNAL)
@@ -664,6 +684,14 @@ unsafe extern "C" fn eml_state_json(buffer: *mut u8, capacity: usize, out_len: *
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn recognizes_renamed_eml_loaders_before_deciding_to_patch() {
+        for path in [r"C:\Game\dbghelp.dll", r"C:\Game\dbghelp_mod.dll", r"C:\Game\DBGHELP_HoardersHelper.DLL",
+            r"C:\Game\dinput8.dll", r"C:\Game\kiln\chain\custom-eml.dll"] {
+            assert!(loader_module_candidate(path), "loaded EML at {path} must be inspected before kiln-eml runs");
+        }
+        assert!(!loader_module_candidate(r"C:\Game\unrelated.dll"));
+    }
     #[test]
     fn pe_identity_reads_the_header_fields() {
         let mut b = vec![0u8; 512];

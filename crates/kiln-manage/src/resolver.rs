@@ -42,6 +42,10 @@ pub struct Environment {
     /// Mods already running (resolve against them; they are not reordered).
     #[serde(default)]
     pub loaded: Vec<KilnManifest>,
+    /// A client that hosts a world right now (Resolver.cs `ResolveEnvironment.Hosting`): its server world runs here, so
+    /// `side: "server"` mods load too (docs/kiln/client.md, "Mods and sides"). False: the main menu.
+    #[serde(default)]
+    pub hosting: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -113,11 +117,12 @@ fn side_name(s: Side) -> &'static str {
     }
 }
 
-fn side_matches(m: Side, current: RunSide) -> bool {
+/// Resolver.SideMatches with a hosting client: server mods match too.
+fn side_matches(m: Side, env: &Environment) -> bool {
     match m {
         Side::Both => true,
-        Side::Server => current == RunSide::Server,
-        Side::Client => current == RunSide::Client,
+        Side::Server => env.side == RunSide::Server || (env.side == RunSide::Client && env.hosting),
+        Side::Client => env.side == RunSide::Client,
     }
 }
 
@@ -172,7 +177,7 @@ pub fn resolve(candidates: &[Candidate], env: &Environment) -> Result<Resolution
             reject(&mut out, &mut rejected, c, ModState::Failed, format!("mod {} is already loaded", m.id));
             continue;
         }
-        if !side_matches(m.side, env.side) {
+        if !side_matches(m.side, env) {
             let on = if env.side == RunSide::Client { "client" } else { "server" };
             reject(&mut out, &mut rejected, c, ModState::Skipped, format!("side '{}': not loaded on a {on}", side_name(m.side)));
             continue;

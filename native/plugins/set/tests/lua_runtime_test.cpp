@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 // Executes the production Lua bridge and bundled Lua, with only game/OS services substituted.
 #include <cassert>
+#include <csignal>
+#include <sys/resource.h>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -8,19 +10,22 @@
 #include "../src/lua_api.cpp"
 #include "services/kiln_types.h"
 #include "services/kiln_assets.h"
+#include "services/kiln_players.h"
+#include "../src/overlay.h"
+#include "../src/inspector.h"
 #include <memory>
 
-namespace hk {
-void setLog(Log){} void flushLogs(){} std::vector<std::string> diagnostics(){return{};} uint64_t problems(){return 0;}
-double seconds(int64_t){return 0;} size_t retainedBytes(){return 0;} void reserve(uintptr_t,const char*){}
-uintptr_t findPattern(uintptr_t,std::string_view,std::string& e){e="unavailable";return 0;}
-void restoreCode(uintptr_t,uint8_t*,size_t){} int subscribe(uintptr_t,const std::string&,const std::vector<Arg>&,uint32_t,std::string&){return -1;}
-void unsubscribe(int){} void unsubscribeAll(){} void discardPending(){} bool drain(int,Batch&){return false;}
-bool delivered(int,uint64_t){return false;} void refuse(const std::string&){}
-}
+#include "services/kiln_hooks.h"
+#include "imgui/imgui.h"  // the vendored ImGui kiln.ui passes input_text flags to: the mock honours its real values
+namespace kset { void bindHooks(const KilnApi* api, KilnOwner owner); }
+namespace kset::hooktest { extern bool (*on_stack)(uintptr_t at, size_t n); }
 void rt::openImGui(lua_State* L){for(const char* n:{"ImGui","ImGuiCond","ImGuiWindowFlags"}){lua_newtable(L);lua_setglobal(L,n);}}
 void rt::imguiMark(){} void rt::imguiRecover(){}
 
+// The settings save's disk sync (modsettings.cpp) is the test's: counted, and as slow as asked (an HDD, btrfs under
+// Proton), so a test can see which saves sync and what that costs the thread that saves.
+unsigned fsyncCalls=0,slowSyncMs=0;
+extern "C" int fsync(int){++fsyncCalls;if(slowSyncMs)std::this_thread::sleep_for(std::chrono::milliseconds(slowSyncMs));return 0;}
 namespace {
 struct TypeFixture { std::string name,qn; uint32_t size; uint8_t kind; int inner=-1; std::vector<std::tuple<std::string,int,uint64_t>> fields; };
 std::vector<TypeFixture> ts = {
@@ -38,6 +43,20 @@ KilnStr str(const std::string& s){return {s.data(),s.size()};}
 KilnTypesApi types{};
 KilnWorldApi world{};
 KilnAssetsApi assets{};
+KilnPlayersApi toolsPlayers{};
+bool toolsPlayerService=false;
+// A fake kiln.hooks for Hooks.rule: one pattern is "found", the entry hook is kept so a test can run a call through it.
+KilnHooksApi hooksApi{};
+std::map<std::string,uintptr_t> hookScans;
+std::map<uintptr_t,std::pair<KilnMidFn,void*>> hookMids;
+bool hooksOn=true;
+void initHooks(){
+ hooksApi.header={sizeof(hooksApi),2};
+ hooksApi.read=[](uintptr_t at,void* dst,size_t n)->KilnResult{if(!at)return KILN_ERR_INVALID_ARGUMENT;memcpy(dst,reinterpret_cast<const void*>(at),n);return KILN_OK;};
+ hooksApi.scan=[](KilnStr p,uintptr_t* out,uint32_t,uint32_t* count)->KilnResult{auto it=hookScans.find(std::string(p.ptr,p.len));if(it==hookScans.end()){*count=0;return KILN_ERR_NOT_FOUND;}*count=1;out[0]=it->second;return KILN_OK;};
+ hooksApi.mid=[](KilnOwner,uintptr_t at,int32_t,KilnMidFn fn,void* user,KilnHandle* out)->KilnResult{hookMids[at]={fn,user};*out=hookMids.size();return KILN_OK;};
+ hooksApi.raw_detour=[](KilnOwner,uintptr_t,const KilnHookOrder*,void*,void** original,KilnHandle* out)->KilnResult{*original=nullptr;*out=99;return KILN_OK;};
+}
 const void* resourcePtr=nullptr;size_t resourceSize=0;
 bool tickThread=true;
 KilnApi core{};
@@ -65,14 +84,78 @@ void initServices(){
  world.component=[](KilnEntity,uint32_t,uint32_t* size)->const void*{*size=actual;return component;};
  world.entity_count=[]()->uint32_t{return 1;};
  assets.header={sizeof(assets),1};assets.resource_data=[](const KilnAssetKey*,const void** p,size_t* n)->KilnResult{*p=resourcePtr;*n=resourceSize;return resourcePtr?KILN_OK:KILN_ERR_NOT_FOUND;};
- core.service=[](KilnStr n,uint32_t)->const void*{std::string_view s(n.ptr,n.len);return s=="kiln.types"?static_cast<const void*>(&types):s=="kiln.world"?static_cast<const void*>(&world):s=="kiln.assets"?&assets:nullptr;};
+ core.service=[](KilnStr n,uint32_t)->const void*{std::string_view s(n.ptr,n.len);return s=="kiln.types"?static_cast<const void*>(&types):s=="kiln.world"?static_cast<const void*>(&world):s=="kiln.assets"?static_cast<const void*>(&assets):s=="kiln.players"&&toolsPlayerService?static_cast<const void*>(&toolsPlayers):s=="kiln.hooks"&&hooksOn?static_cast<const void*>(&hooksApi):nullptr;};
+ core.symbol=[](KilnStr,uintptr_t*)->KilnResult{return KILN_ERR_NOT_FOUND;};initHooks();
  core.on_tick_thread=[](){return tickThread;};core.server_world=[]()->uintptr_t{return 1;};
  core.owner_create=[](KilnStr)->KilnOwner{return ++nextOwner;};core.owner_revoke=[](KilnOwner){};
- kset::bind(&core);rt::bindKiln(&core,1);rt::setSystemsAvailable(true);
+ kset::bind(&core);kset::bindHooks(&core,1);rt::bindKiln(&core,1);rt::setSystemsAvailable(true);
+}
+KilnUiApi toolsUi{};
+std::string toolsTab="Mod Settings", toolsClick, toolsEnter;
+std::map<std::string,std::string> toolsInputs;
+std::vector<std::string> toolsRows;
+uint32_t toolsDemand=0,toolsCapture=0,toolsPressed=0;
+int toolsWindows=0,toolsIds=0,toolsUnsubscribed=0;
+bool toolsClose=false,toolsEscapeDuringBegin=false;
+KilnUiKeyFn toolsKey=nullptr;
+KilnUiMenuFn toolsMenu=nullptr;
+std::string textOf(KilnStr s){return std::string(s.ptr,s.len);}
+void initTools(){
+ toolsUi.header={sizeof(toolsUi),4};
+ toolsUi.status=[](KilnUiStatus*)->KilnResult{return KILN_OK;};
+ toolsUi.set_demand=[](uint32_t n){toolsDemand=n;};toolsUi.set_capture=[](uint32_t n){toolsCapture=n;};
+ toolsUi.set_next_window_size=[](float,float,uint32_t){};
+ toolsUi.begin=[](KilnStr,bool* open,uint32_t){++toolsWindows;if(toolsEscapeDuringBegin){toolsEscapeDuringBegin=false;KilnUiKey escape{};escape.down=1;escape.vk=0x1b;assert(toolsKey(&escape,nullptr));}if(toolsClose){*open=false;toolsClose=false;return false;}return true;};
+ toolsUi.end=[](){--toolsWindows;};
+ toolsUi.begin_tab_bar=[](KilnStr){return true;};toolsUi.end_tab_bar=[](){};
+ toolsUi.begin_tab_item=[](KilnStr label){return textOf(label)==toolsTab;};toolsUi.end_tab_item=[](){};
+ toolsUi.button=[](KilnStr label,float,float){if(textOf(label)!=toolsClick)return false;toolsClick.clear();return true;};
+ toolsUi.checkbox=[](KilnStr label,bool* v){auto it=toolsInputs.find(textOf(label));if(it==toolsInputs.end())return false;*v=it->second=="true";toolsInputs.erase(it);return true;};
+ // Like ImGui's InputText with live edit (its default): while a field holds typed text that differs from the
+ // caller's buffer, every call copies it in and returns true. With EnterReturnsTrue only the call on which Enter is
+ // pressed (toolsEnter) returns true, and Enter leaves the field. A field without that flag is left once the
+ // caller's buffer already holds its text.
+ toolsUi.input_text=[](KilnStr label,char* b,size_t cap,uint32_t flags){
+  const std::string name=textOf(label);auto it=toolsInputs.find(name);
+  if(it==toolsInputs.end()||!cap)return false;
+  const std::string typed=it->second.substr(0,cap-1);const bool differs=typed!=b;
+  if(differs)snprintf(b,cap,"%s",typed.c_str());
+  if(flags&ImGuiInputTextFlags_EnterReturnsTrue){if(toolsEnter!=name)return false;toolsEnter.clear();toolsInputs.erase(it);return true;}
+  if(!differs)toolsInputs.erase(it);
+  return differs;};
+ toolsUi.slider_int=[](KilnStr label,int32_t* v,int32_t,int32_t){auto it=toolsInputs.find(textOf(label));if(it==toolsInputs.end())return false;*v=std::stoi(it->second);toolsInputs.erase(it);return true;};
+ toolsUi.combo=[](KilnStr label,int32_t* v,const char*){auto it=toolsInputs.find(textOf(label));if(it==toolsInputs.end())return false;*v=std::stoi(it->second);toolsInputs.erase(it);return true;};
+ toolsUi.text=[](KilnStr v){toolsRows.push_back(textOf(v));};toolsUi.text_wrapped=toolsUi.text;
+ toolsUi.text_colored=[](uint32_t,KilnStr v){toolsRows.push_back(textOf(v));};
+ toolsUi.push_id=[](KilnStr){++toolsIds;};toolsUi.pop_id=[](){--toolsIds;};
+ toolsUi.is_item_hovered=[](){return false;};toolsUi.set_tooltip=[](KilnStr){};
+ toolsUi.collapsing_header=[](KilnStr,uint32_t){return true;};toolsUi.same_line=[](float,float){};
+ toolsUi.selectable=[](KilnStr,bool){return false;};
+ toolsUi.begin_child=[](KilnStr,float,float,uint32_t){return true;};toolsUi.end_child=[](){};
+ toolsUi.take_pressed_key=[](uint32_t* mods)->uint32_t{*mods=rt::ModCtrl;return std::exchange(toolsPressed,0);};
+ toolsUi.menu_add=[](KilnOwner,uint32_t,int32_t,KilnStr,KilnUiMenuFn fn,void*,KilnHandle* out)->KilnResult{toolsMenu=fn;*out=1;return KILN_OK;};
+ toolsUi.subscribe_key=[](KilnOwner,KilnUiKeyFn fn,void*,KilnHandle* out)->KilnResult{toolsKey=fn;*out=3;return KILN_OK;};
+ toolsUi.unsubscribe=[](KilnHandle)->KilnResult{++toolsUnsubscribed;return KILN_OK;};
 }
 void sink(const char* s){logs.emplace_back(s);}
 int env(lua_State* L,const char* name){pushModEnv(L,name);int ref=luaL_ref(L,LUA_REGISTRYINDEX);return ref;}
 bool run(lua_State* L,int ref,const char* script){assert(luaL_loadstring(L,script)==LUA_OK);lua_rawgeti(L,LUA_REGISTRYINDEX,ref);lua_setupvalue(L,-2,1);return call(L,0,0);}
+// The same, as code of the mod: a chunk named like one of its files, so its writes are the mod's (the write log).
+bool runAs(lua_State* L,int ref,const std::string& mod,const char* script){assert(luaL_loadbufferx(L,script,strlen(script),("@"+mod+"/test.lua").c_str(),"t")==LUA_OK);lua_rawgeti(L,LUA_REGISTRYINDEX,ref);lua_setupvalue(L,-2,1);return call(L,0,0);}
+void mustAs(lua_State* L,int ref,const std::string& mod,const char* script){if(!runAs(L,ref,mod,script)){for(auto& l:logs)std::cerr<<l<<'\n';assert(false);}}
+bool logged(const char* text){for(auto& l:logs)if(l.find(text)!=std::string::npos)return true;return false;}
+std::string slurp(const std::filesystem::path& p){std::ifstream f(p,std::ios::binary);return std::string((std::istreambuf_iterator<char>(f)),{});}
+// UTF-8 as MultiByteToWideChar(MB_ERR_INVALID_CHARS) takes it: no stray, cut, overlong or surrogate sequence.
+bool validUtf8(const std::string& s){
+ for(size_t i=0;i<s.size();){
+  const unsigned char c=s[i];const size_t n=c<0x80?1:c>=0xc2&&c<=0xdf?2:(c&0xf0)==0xe0?3:c>=0xf0&&c<=0xf4?4:0;
+  if(!n||i+n>s.size())return false;
+  for(size_t k=1;k<n;++k)if((static_cast<unsigned char>(s[i+k])&0xc0)!=0x80)return false;
+  const unsigned char d=s[i+1<s.size()?i+1:i];
+  if((c==0xe0&&d<0xa0)||(c==0xed&&d>=0xa0)||(c==0xf0&&d<0x90)||(c==0xf4&&d>=0x90))return false;
+  i+=n;
+ }
+ return true;}
 void must(lua_State* L,int ref,const char* script){if(!run(L,ref,script)){for(auto& l:logs)std::cerr<<l<<'\n';assert(false);}}
 }
 int main(int argc,char** argv){
@@ -201,6 +284,31 @@ auto root=std::filesystem::path(argv[1])/"mods";std::filesystem::remove_all(root
   prog.submit=[](KilnOwner,const KilnProgressionRequest* q,uint64_t*)->KilnResult{submitted.push_back(*q);return submitRc;};
   if(!core.log)core.log=[](KilnOwner,int32_t,KilnStr){};
   assets.resource_list=[](uint32_t,KilnAssetKey*,size_t,size_t* n)->KilnResult{*n=0;return KILN_OK;};
+  // Features() off the tick thread (the SET tools' Compatibility tab and support report run on the render thread)
+  // never runs the whole resource scan there; the first one on the tick thread does. (Nothing scanned before here.)
+  {static unsigned lists;lists=0;auto saved=assets.resource_list;
+   assets.resource_list=[](uint32_t,KilnAssetKey*,size_t,size_t* n)->KilnResult{
+    if(++lists==1)std::this_thread::sleep_for(std::chrono::milliseconds(80));
+    *n=0;return KILN_OK;};
+   auto resources=[]{for(auto& f:rt::features())if(f.id=="resources")return f;assert(false);return rt::Feature{};};
+   tickThread=false;const auto off=resources();
+   // a client mod's init.lua runs in the main menu, before any world: resources were available to it at 5edcf5c
+   const bool menuMod=run(L,two,"local r=Features().resources;assert(r.compatible and r.available and r.reason=='')");
+   tickThread=true;
+   if(lists)std::cerr<<"features: the resource scan ran off the tick thread ("<<lists<<" resource_list calls)\n";
+   if(!menuMod)std::cerr<<"features: a mod in the main menu sees resources unavailable before anything was checked\n";
+   assert(lists==0&&menuMod&&gScanAsked&&off.compatible&&off.available&&off.unchecked&&off.reason.empty());
+   // A dedicated server's first init or a world callback can ask before scanIfAsked. The one-time scan is host
+   // work, not the mod's: it must still finish its ordinary Lua code after an 80 ms resource service call.
+   logs.clear();
+   const bool firstScan=run(L,two,"local r=Features().resources;local n=0;for i=1,20000 do n=n+i end;assert(not r.available)");
+   if(!firstScan){std::cerr<<"resources: first scan stopped a legitimate callback:";for(auto& l:logs)std::cerr<<" ["<<l<<"]";std::cerr<<"\n";}
+   assert(firstScan&&lists>0);
+   const auto scannedLists=lists;scanIfAsked();assert(lists==scannedLists&&!gScanAsked);
+   assert(!run(L,two,"while true do Features() end")); // cached scans cannot farm extra callback time
+   tickThread=false;const auto after=resources();tickThread=true;                    // checked: this fixture has none
+   assert(!after.available&&!after.unchecked&&after.reason=="Not loaded yet"&&!gScanAsked);
+   assets.resource_list=saved;}
   gKItems=&items;gKSpawn=&spawn;
   must(L,two,"assert(Res.text('11111111-1111-1111-1111-111111111111')=='Wood Logs')");
   must(L,two,"assert(Res.text('22222222-2222-2222-2222-222222222222')=='Common Goat')");
@@ -326,9 +434,45 @@ auto root=std::filesystem::path(argv[1])/"mods";std::filesystem::remove_all(root
   must(L,two,("assert(Res.text('"+guidText+"')==nil)").c_str());assert(logs.size()==1&&logs[0].find("not a readable catalog")!=std::string::npos);
   setenv("KILN_CATALOG",(root/"nowhere").string().c_str(),1);settexts::reset();logs.clear();
   must(L,two,("assert(Res.text('"+guidText+"')==nil)").c_str());assert(logs.size()==1&&logs[0].find("no client catalog found")!=std::string::npos);
+  {
+   // The first lookup reads the whole client catalog: the real one has 16,740 texts in 21.6 MB and takes 80-140 ms, more
+   // than a callback's 50 ms. That one-time load is Kiln's work, not the mod's: the callback runs to its end. The rest
+   // of the callback stands in for settest's onWorldEnter after its first Res.text (thousands of instructions).
+   auto writeBig=[&](const std::filesystem::path& file,bool loca){
+    std::ofstream f(file,std::ios::binary);f<<"{\"format\":1,\"game\":{\"steamBuild\":\"1\",\"svn\":\"2\"},\"sections\":{\"items\":[";
+    for(int i=0;i<190000;++i)f<<(i?",":"")<<"{\"name\":\"Filler_Item_"<<i<<"\",\"id\":\"0x"<<std::hex<<i<<std::dec<<"\",\"text\":\"an entry the reader skips, as the real catalog's items\"}";
+    f<<"]";
+    if(loca){
+     f<<",\"loca\":[";
+     for(int i=0;i<16739;++i)f<<"{\"id\":\"0x"<<std::hex<<(0x10000000+i)<<std::dec<<"\",\"text\":\"Loca text "<<i<<", about as long as one of the game's own texts\"},";
+     f<<"{\"id\":\""<<hex<<"\",\"text\":\"Shock Resistance\"}]";
+    }
+    f<<"}}";};
+   const auto big=catalog/"big-client.json";writeBig(big,true);
+   setenv("KILN_CATALOG",big.string().c_str(),1);settexts::reset();logs.clear();
+   const auto t0=std::chrono::steady_clock::now();
+   const bool ran=run(L,two,("local t=Res.text('"+guidText+"');local n=0;for i=1,20000 do n=n+i end;firstText=t").c_str());
+   const double ms=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-t0).count();
+   std::cerr<<"texts: "<<std::filesystem::file_size(big)/1000000<<" MB catalog, first lookup's callback "<<ms<<" ms\n";
+   if(!ran){std::cerr<<"texts: the first lookup's catalog load stopped the callback:";for(auto& l:logs)std::cerr<<" ["<<l<<"]";std::cerr<<"\n";}
+   assert(ms>50&&ran&&settexts::table()&&settexts::table()->text.size()==16740);
+   must(L,two,"assert(firstText=='Shock Resistance')");
+   // The 50 ms still hold for the mod's own code, in that callback and in the next ones (the table is loaded once).
+   settexts::reset();
+   assert(!run(L,two,("local t=Res.text('"+guidText+"');while true do end").c_str()));
+   assert(!run(L,two,("while true do Res.text('"+guidText+"') end").c_str()));
+   // Nor can a mod farm the excuse: a refused catalog is parsed once, and a lookup loop then ends at the budget.
+   writeBig(big,false);settexts::reset();
+   const size_t before=settexts::gParses;const auto t1=std::chrono::steady_clock::now();
+   assert(!run(L,two,("while true do Res.text('"+guidText+"') end").c_str()));
+   assert(settexts::gParses==before+1&&std::chrono::steady_clock::now()-t1<std::chrono::seconds(10));
+   std::filesystem::remove(big);
+  }
   unsetenv("KILN_CATALOG");settexts::reset();logs.clear();
   for(auto& [n,v]:savedEnv)setenv(n.c_str(),v.c_str(),1);
  }
+ #include "set020_cases.inl"
+ #include "inspector_cases.inl"
  for(auto& [name,owner]:gSystemOwners){(void)name;sys::releaseOwner(owner);}
  lua_close(L);gSystemOwners.clear();gInWorld=false;gWorld=0;
  // Failed initialization removes callbacks and releases this mod's system owner; reload runs shutdown and creates a fresh state.
@@ -349,6 +493,7 @@ auto root=std::filesystem::path(argv[1])/"mods";std::filesystem::remove_all(root
   assert(one.status=="failed"&&one.reason.find("bad init")!=std::string::npos);
   assert(two.status=="loaded"&&two.title=="Two Good"&&two.version=="1.2.0"&&two.reason.empty()&&two.folder.find("two")!=std::string::npos);
   auto unicode=find(reinterpret_cast<const char*>(u8"Мод 日本語"));assert(unicode.status=="loaded"&&unicode.reason.empty());}
+ assert(logged("Mod Failed: one")&&logged("Mod Loaded: two")&&!logged("Mod loaded")&&logged("Mods: 2 loaded, 1 failed"));  // SET 0.2.0's wording
  rt::requestReload();rt::frame();assert(reported==2);rt::onModsReported(nullptr);rt::gameClosing();
  unsigned numeric=0;for(auto& l:logs){char* end=nullptr;strtod(l.c_str(),&end);if(end!=l.c_str()&&*end==0)++numeric;}assert(numeric==2);
  unsigned good=0,bad=0,shutdown=0;for(auto& l:logs){if(l=="good tick")++good;if(l=="bad callback")++bad;if(l=="good shutdown")++shutdown;}assert(good>=2&&bad==0&&shutdown==2&&!released.empty()&&disabled.empty());

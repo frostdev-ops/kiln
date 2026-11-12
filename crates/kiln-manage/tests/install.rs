@@ -98,6 +98,86 @@ fn outside_kiln(dir: &Path) -> Vec<(String, String)> {
     v
 }
 
+/// A later bundle can bring the same bytes as a pre-Kiln original. Uninstall must not delete that original after
+/// accepting it in place as its only surviving recovery source.
+#[test]
+fn uninstall_keeps_an_original_already_in_place_when_backups_are_gone() {
+    let t = tmp("original-in-place");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let game = t.0.join("game");
+    put(&game, "enshrouded.exe", b"MZ");
+    put(&game, "kiln/kiln-core.dll", b"core b");
+    let inst = client(&game);
+    let a = bundle::create(&stage(&t.0, "a", false), &t.0.join("out"), &opts(1_793_793_600, "aaaaaaa")).unwrap();
+    install::install(&dirs, &inst, &a, &InstallOptions::default(), &mut NoProgress).unwrap();
+    let b = bundle::create(&stage(&t.0, "b", false), &t.0.join("out"), &opts(1_793_880_000, "bbbbbbb")).unwrap();
+    let r = install::install(&dirs, &inst, &b, &InstallOptions::default(), &mut NoProgress).unwrap();
+    assert_eq!(std::fs::read(game.join("kiln/kiln-core.dll")).unwrap(), b"core b");
+    assert!(r.replaced.iter().any(|r| r.path == "kiln/kiln-core.dll" && r.sha256 == hash::sha256_hex(b"core b")));
+    std::fs::remove_dir_all(game.join("kiln/backups")).unwrap();
+    std::fs::remove_dir_all(dirs.backups().join("install").join(&r.install_id)).unwrap();
+    let report = install::uninstall_report(&dirs, &inst, &mut NoProgress).unwrap();
+    assert_eq!(std::fs::read(game.join("kiln/kiln-core.dll")).ok().as_deref(), Some(b"core b".as_slice()),
+        "an original accepted in place must remain: {report:?}");
+    assert!(report.warnings.is_empty(), "no missing ShroudForge helper: {report:?}");
+    assert!(!game.join("dinput8.dll").exists());
+    assert!(!game.join("kiln/.install.json").exists());
+}
+
+#[test]
+fn installed_core_receipt_and_profile_reader_follow_install_update_repair_and_rollback() {
+    use kiln_manage::{library, manifest::ModKind, profile};
+    let t = tmp("core-reader-lifecycle");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let game = t.0.join("game");
+    put(&game, "enshrouded.exe", b"MZ");
+    let inst = client(&game);
+    let make = |tag: &str, reader: u32, epoch, git| {
+        let s = stage(&t.0, tag, false);
+        let file = s.join("kiln-runtime.json");
+        let mut doc: serde_json::Value = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+        doc["profileReader"] = reader.into();
+        std::fs::write(file, serde_json::to_vec(&doc).unwrap()).unwrap();
+        let zip = bundle::create(&s, &t.0.join("out"), &opts(epoch, git)).unwrap();
+        bundle::import(&dirs, &zip).unwrap()
+    };
+    let a = make("a", 1, 1_793_793_600, "aaaaaaa");
+    let b = make("b", 2, 1_793_880_000, "bbbbbbb");
+    let src = t.0.join("map");
+    put(&src, "mod.json", br#"{"id":"map","name":"Map","version":"1.0.0","dll":"m.dll"}"#);
+    put(&src, "m.dll", &build_test_dll(&["GreeneyeModStart"], b"test mod"));
+    let imported = library::import(&dirs, &[src], &mut NoProgress).unwrap();
+    let r = imported.imported.iter().find(|r| r.kind == ModKind::Greeneye).unwrap();
+    let mut p = profile::create(&dirs, "Reader lifecycle", None).unwrap();
+    p.mods.greeneye.push(profile::ProfileMod { id: r.id.clone(), version: r.version.clone(), hash: r.hash.clone(), enabled: true });
+    let p = profile::save(&dirs, &p).unwrap();
+    let check = |expected: &bundle::RuntimeBundle, reader: u32| {
+        let rec = install::read_receipt(&game).unwrap().unwrap();
+        assert_eq!(rec.runtime.version, expected.version);
+        let manifest = bundle::read(&expected.file).unwrap();
+        let installed = rec.files.iter().find(|f| f.path == "kiln/kiln-core.dll").unwrap();
+        let shipped = manifest.files.iter().find(|f| f.path == installed.path).unwrap();
+        assert_eq!(installed.sha256, shipped.sha256);
+        assert_eq!(hash::sha256_file(&game.join(&installed.path)).unwrap().0, installed.sha256);
+        profile::refresh_active(&dirs, &inst).unwrap();
+        let file = profile::read_game_profile(&game).unwrap().unwrap();
+        assert_eq!(file.mods.greeneye[0].path.starts_with("../greeneye/"), reader >= 2, "{file:?}");
+    };
+    install::install(&dirs, &inst, &a.file, &InstallOptions::default(), &mut NoProgress).unwrap();
+    profile::activate(&dirs, &p.id, &inst).unwrap();
+    check(&a, 1);
+    install::install(&dirs, &inst, &b.file, &InstallOptions::default(), &mut NoProgress).unwrap();
+    check(&b, 2);
+    // A core that no longer matches its receipt must lose reader-2 trust until repair restores it.
+    put(&game, "kiln/kiln-core.dll", b"hand changed core");
+    profile::refresh_active(&dirs, &inst).unwrap();
+    assert!(!profile::read_game_profile(&game).unwrap().unwrap().mods.greeneye[0].path.starts_with("../greeneye/"));
+    install::install(&dirs, &inst, &b.file, &InstallOptions::default(), &mut NoProgress).unwrap();
+    check(&b, 2);
+    install::rollback(&dirs, &inst, &a.version, &mut NoProgress).unwrap();
+    check(&a, 1);
+}
+
 #[test]
 fn every_compatibility_component_is_default_on_both_sides() {
     use kiln_manage::manifest::RunSide;
@@ -345,6 +425,33 @@ fn an_upgrade_reports_the_hand_changed_files_it_backed_up() {
     assert!(rep3.changed_backed_up.is_empty(), "{rep3:?}");
 }
 
+/// Kiln's proxy changed since the install (a hand-deployed build: tools' client.sh, deploy-server.sh): uninstall moves it
+/// aside and puts the chained original loader back, as before dev.24. Keeping it would leave a Kiln proxy without its
+/// runtime in the game folder while the original loader is unchained and the receipt is gone.
+#[test]
+fn uninstall_sets_a_changed_kiln_proxy_aside_and_restores_the_chained_loader() {
+    let t = tmp("changed-kiln-proxy");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let game = t.0.join("Enshrouded");
+    put(&game, "enshrouded.exe", b"MZ fake game");
+    let emf = build_test_dll(&["DirectInput8Create", "emf_loader_identity", "emf_loader_play_once"], b"EMF loader");
+    put(&game, "dinput8.dll", &emf);
+    let before = outside_kiln(&game);
+    let b1 = bundle::create(&stage(&t.0, "a", false), &t.0.join("out"), &opts(1_793_793_600, "aaaaaaa")).unwrap();
+    let inst = client(&game);
+    install::install(&dirs, &inst, &b1, &InstallOptions::default(), &mut NoProgress).unwrap();
+    let hand = kiln_proxy("0.2.0-dev+hand-build");
+    put(&game, "dinput8.dll", &hand);
+    let report = install::uninstall_report(&dirs, &inst, &mut NoProgress).unwrap();
+    assert_eq!(std::fs::read(game.join("dinput8.dll")).unwrap(), emf, "the chained loader is back: {report:?}");
+    assert_eq!(outside_kiln(&game), before);
+    let aside: Vec<PathBuf> = std::fs::read_dir(game.join("kiln/backups")).unwrap().flatten().map(|e| e.path().join("dinput8.dll"))
+        .filter(|p| p.parent().unwrap().file_name().unwrap().to_string_lossy().starts_with("uninstall-") && p.is_file()).collect();
+    assert_eq!(aside.len(), 1, "{report:?}");
+    assert_eq!(std::fs::read(&aside[0]).unwrap(), hand, "the changed build is kept");
+    assert!(install::read_receipt(&game).unwrap().is_none());
+}
+
 #[test]
 fn shroudforge_is_refused_unless_switching_and_never_chained() {
     let t = tmp("sf");
@@ -457,6 +564,42 @@ fn refuses_while_the_game_runs() {
     let e = r.unwrap_err();
     assert_eq!(e.code, ErrorCode::GameRunning, "{e}");
     assert_eq!(e.detail.unwrap()["pid"], child.id());
+}
+
+/// A client and a dedicated server installed in one folder share its engine folders. Uninstall removes the profile's
+/// copies there, so it refuses while either of them runs, as activation does.
+#[test]
+fn uninstall_refuses_while_a_server_in_the_same_folder_runs() {
+    use kiln_manage::{library, profile};
+    let t = tmp("colocated");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let game = t.0.join("Enshrouded");
+    put(&game, "enshrouded.exe", b"MZ");
+    put(&game, "enshrouded_server.exe", b"MZ");
+    let b = bundle::create(&stage(&t.0, "a", false), &t.0.join("out"), &opts(1_793_793_600, "aaaaaaa")).unwrap();
+    install::install(&dirs, &client(&game), &b, &InstallOptions::default(), &mut NoProgress).unwrap();
+    let src = t.0.join("src/flymode");
+    put(&src, "init.lua", b"print('fly')");
+    let r = library::import(&dirs, &[src], &mut NoProgress).unwrap();
+    let mut p = profile::create(&dirs, "co-located", None).unwrap();
+    let m = &r.imported[0];
+    p.mods.set.push(profile::ProfileMod { id: m.id.clone(), version: m.version.clone(), hash: m.hash.clone(), enabled: true });
+    let p = profile::save(&dirs, &p).unwrap();
+    profile::activate(&dirs, &p.id, &client(&game)).unwrap();
+    let copy = game.join("shrouded_engine_tweaks/mods/flymode");
+    assert!(copy.join("init.lua").is_file());
+    let fake = t.0.join("bin/enshrouded_server.exe");
+    std::fs::create_dir_all(fake.parent().unwrap()).unwrap();
+    std::fs::copy("/bin/sleep", &fake).unwrap();
+    let mut child = std::process::Command::new(&fake).arg("30").current_dir(&game).spawn().unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    let r = install::uninstall_report(&dirs, &client(&game), &mut NoProgress);
+    child.kill().unwrap();
+    let _ = child.wait();
+    let e = r.unwrap_err();
+    assert_eq!(e.code, ErrorCode::GameRunning, "{e}");
+    assert!(copy.join("init.lua").is_file(), "nothing is removed under a running server");
+    assert!(install::read_receipt(&game).unwrap().is_some());
 }
 
 /// Every file below `dir` (relative path -> sha256), without kiln/backups/ (the installer's copies).
@@ -1238,4 +1381,471 @@ fn review_samples_addition_keeps_opt_outs_and_resolves_the_server_selection_unde
     assert_eq!(install::install(&dirs, &client(&game), &b1, &InstallOptions::default(), &mut NoProgress).unwrap_err().code, ErrorCode::Conflict);
     assert_eq!(std::fs::read(game.join("kiln/.install.json")).unwrap(), before);
     assert_eq!(std::fs::read(game.join("kiln/plugins/eml/eml.dll")).unwrap(), b"eml b");
+}
+
+/// A file-level inventory, including nested SF config/mods and legacy EML backups (not just the proxy).
+fn sf_inventory(game: &Path) -> std::collections::BTreeMap<String, String> {
+    fn walk(root: &Path, dir: &Path, out: &mut std::collections::BTreeMap<String, String>) {
+        for e in std::fs::read_dir(dir).unwrap().flatten() {
+            let p = e.path();
+            if p == root.join("kiln") { continue; }
+            if e.file_type().unwrap().is_dir() { walk(root, &p, out); }
+            else { out.insert(p.strip_prefix(root).unwrap().to_string_lossy().into_owned(), hash::sha256_file(&p).unwrap().0); }
+        }
+    }
+    let mut out = Default::default();
+    walk(game, game, &mut out);
+    out
+}
+
+fn sf_package(root: &Path, id: &str) -> PathBuf {
+    let folder = root.join(id);
+    put(&folder, "mod.json", format!(r#"{{"id":"{id}","name":"{id}","version":"1.0.0"}}"#).as_bytes());
+    put(&folder, "src/mod.lua", b"return {}");
+    put(&folder, "extended.mod.json", b"{\r\n  \"schemaVersion\": 1,\r\n  \"enabled\": true,\r\n  \"settings\": {\"speed\": 2}\r\n}\r\n");
+    folder
+}
+
+fn sf_setup(root: &Path) -> (DataDirs, GameInstall, PathBuf, kiln_manage::profile::Profile) {
+    use kiln_manage::{library, profile};
+    let dirs = DataDirs::at(root.join("data"));
+    let game = root.join("game");
+    put(&game, "enshrouded.exe", b"MZ");
+    put(&game, "dinput8.dll", &build_test_dll(&["ShroudforgeSetDinput8Provider"], b"original SF"));
+    put(&game, "dbghelp.dll", &build_test_dll(&["MiniDumpWriteDump"], b"shroudforge/shroudforge-runtime.dll"));
+    put(&game, "winmm.dll", &build_test_dll(&["ShroudforgeStop"], b""));
+    put(&game, "shroudforge/shroudforge-runtime.dll", b"player SF runtime");
+    put(&game, "shroudforge/config/modloader-config.json", br#"{"paths":{"mods":"SF-user-mods"},"modules":{"updater":false}}"#);
+    put(&game, "shroudforge/state.json", br#"{"previousPlayerState":true}"#);
+    // An earlier SF/EML writer's working patch and immutable backup must not be made vanilla by uninstall.
+    for (name, bytes) in [("enshrouded.kfc", "previous SF patch"), ("enshrouded.kfc_resources", "previous SF resources"),
+        ("enshrouded.kfc.bak", "prior vanilla"), ("enshrouded.kfc_resources.bak", "prior resource baseline"),
+        ("enshrouded.kfc.bak.integrity", "previous writer seal"), ("enshrouded_000.dat", "original payload")] {
+        put(&game, name, bytes.as_bytes());
+    }
+    sf_package(&game.join("SF-user-mods"), "player-mod");
+    let src = sf_package(&root.join("src"), "kiln-added");
+    let imported = library::import(&dirs, &[src], &mut NoProgress).unwrap();
+    let r = imported.imported.first().expect("SF imported");
+    let mut profile = profile::create(&dirs, "SF profile", None).unwrap();
+    profile.mods.shroudforge.push(profile::ProfileMod { id: r.id.clone(), version: r.version.clone(), hash: r.hash.clone(), enabled: true });
+    profile = profile::save(&dirs, &profile).unwrap();
+    let zip = bundle::create(&stage(root, "sf-a", false), &root.join("out"), &opts(1_793_793_600, "aaaaaaa")).unwrap();
+    (dirs, client(&game), zip, profile)
+}
+
+#[test]
+fn sf_restore_install_use_switch_repeat_upgrade_uninstall_file_roundtrip() {
+    use kiln_manage::profile;
+    let t = tmp("sf-roundtrip");
+    let (dirs, gi, zip, p) = sf_setup(&t.0);
+    let before = sf_inventory(&gi.path);
+    let opts = InstallOptions { switch_from_shroudforge: true, ..Default::default() };
+    let first = install::install(&dirs, &gi, &zip, &opts, &mut NoProgress).unwrap();
+    let original = first.replaced.iter().find(|r| r.path == "dinput8.dll").unwrap().clone();
+    profile::activate(&dirs, &p.id, &gi).unwrap();
+    assert!(kiln_manage::shroudforge::read_mod(&gi.path.join("SF-user-mods/kiln-added")).unwrap().enabled);
+    let empty = profile::create(&dirs, "Empty", None).unwrap();
+    profile::activate(&dirs, &empty.id, &gi).unwrap();
+    assert!(!kiln_manage::shroudforge::read_mod(&gi.path.join("SF-user-mods/kiln-added")).unwrap().enabled);
+    profile::activate(&dirs, &p.id, &gi).unwrap();
+    let twice = install::install(&dirs, &gi, &zip, &opts, &mut NoProgress).unwrap();
+    assert_eq!(twice.replaced.iter().find(|r| r.path == "dinput8.dll"), Some(&original), "first backup survives repeat install");
+    let upgrade = bundle::create(&stage(&t.0, "sf-b", false), &t.0.join("out"), &self::opts(1_793_880_000, "bbbbbbb")).unwrap();
+    let upgraded = install::install(&dirs, &gi, &upgrade, &opts, &mut NoProgress).unwrap();
+    assert_eq!(upgraded.replaced.iter().find(|r| r.path == "dinput8.dll"), Some(&original));
+    install::uninstall_report(&dirs, &gi, &mut NoProgress).unwrap();
+    assert_eq!(sf_inventory(&gi.path), before, "uninstall must undo unchanged placed SF files, not just restore the proxy");
+    // A second install/use/uninstall is the same roundtrip, despite retained kiln/ configuration and profiles.
+    install::install(&dirs, &gi, &zip, &opts, &mut NoProgress).unwrap();
+    profile::activate(&dirs, &p.id, &gi).unwrap();
+    install::uninstall_report(&dirs, &gi, &mut NoProgress).unwrap();
+    assert_eq!(sf_inventory(&gi.path), before);
+}
+
+#[test]
+fn sf_restore_deactivate_removes_unchanged_placed_mods_but_not_player_mods() {
+    let t = tmp("sf-deactivate");
+    let (dirs, gi, zip, p) = sf_setup(&t.0);
+    install::install(&dirs, &gi, &zip, &InstallOptions { switch_from_shroudforge: true, ..Default::default() }, &mut NoProgress).unwrap();
+    let before = sf_inventory(&gi.path);
+    kiln_manage::profile::activate(&dirs, &p.id, &gi).unwrap();
+    kiln_manage::profile::deactivate(&dirs, &gi).unwrap();
+    assert_eq!(sf_inventory(&gi.path), before, "legacy mode must not keep running a profile's SF mods");
+}
+
+#[test]
+fn sf_restore_retains_player_edits_unknown_old_receipts_and_unreceipted_markers() {
+    use kiln_manage::profile;
+    for scenario in ["settings", "added-file", "changed-code", "old-receipt", "unreceipted"] {
+        let t = tmp(&format!("sf-conflict-{scenario}"));
+        let (dirs, gi, zip, p) = sf_setup(&t.0);
+        install::install(&dirs, &gi, &zip, &InstallOptions { switch_from_shroudforge: true, ..Default::default() }, &mut NoProgress).unwrap();
+        profile::activate(&dirs, &p.id, &gi).unwrap();
+        let dst = gi.path.join("SF-user-mods/kiln-added");
+        match scenario {
+            "settings" => { kiln_manage::shroudforge::set_setting(&dst, "speed", &serde_json::json!(7)).unwrap(); }
+            "added-file" => put(&dst, ".player-settings/private.txt", b"keep me"),
+            "changed-code" => put(&dst, "src/mod.lua", b"player code"),
+            "old-receipt" | "unreceipted" => {
+                let file = gi.path.join("kiln/state/library-placements.json");
+                let mut v: serde_json::Value = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+                if scenario == "old-receipt" { for p in v.as_array_mut().unwrap() { p.as_object_mut().unwrap().remove("extension"); } }
+                else { v = serde_json::json!([]); }
+                std::fs::write(file, serde_json::to_vec(&v).unwrap()).unwrap();
+            }
+            _ => unreachable!(),
+        }
+        let own_before = sf_inventory(&gi.path);
+        let report = install::uninstall_report(&dirs, &gi, &mut NoProgress).unwrap();
+        assert!(dst.is_dir(), "{scenario}: player files must not disappear");
+        for (path, expected) in own_before.iter().filter(|(p, _)| p.starts_with("SF-user-mods/")) {
+            assert_eq!(&sf_inventory(&gi.path)[path], expected, "{scenario}: {path} changed");
+        }
+        if scenario != "unreceipted" {
+            assert_eq!(report.placements.retained.len(), 1, "{scenario}: {report:?}");
+            assert_eq!(report.placements.retained[0].path, dst);
+            assert!(report.placements.retained[0].may_run);
+            assert!(report.placements.warning().unwrap().contains("may still run through Kiln or another loader"));
+        }
+    }
+}
+
+#[test]
+fn sf_restore_settings_remain_player_owned_across_switch_and_mod_upgrade() {
+    use kiln_manage::{library, profile};
+    let t = tmp("sf-settings-upgrade");
+    let (dirs, gi, zip, mut p) = sf_setup(&t.0);
+    install::install(&dirs, &gi, &zip, &InstallOptions { switch_from_shroudforge: true, ..Default::default() }, &mut NoProgress).unwrap();
+    profile::activate(&dirs, &p.id, &gi).unwrap();
+    let dst = gi.path.join("SF-user-mods/kiln-added");
+    kiln_manage::shroudforge::set_setting(&dst, "speed", &serde_json::json!(7)).unwrap();
+    let empty = profile::create(&dirs, "Empty", None).unwrap();
+    profile::activate(&dirs, &empty.id, &gi).unwrap();
+    profile::activate(&dirs, &p.id, &gi).unwrap();
+    let src = t.0.join("src/kiln-added");
+    put(&src, "mod.json", br#"{"id":"kiln-added","name":"Upgrade","version":"2.0.0"}"#);
+    let imported = library::import(&dirs, &[src], &mut NoProgress).unwrap();
+    let r = &imported.imported[0];
+    p.mods.shroudforge[0].version = r.version.clone();
+    p.mods.shroudforge[0].hash = r.hash.clone();
+    p = profile::save(&dirs, &p).unwrap();
+    profile::activate(&dirs, &p.id, &gi).unwrap();
+    let report = profile::deactivate_report(&dirs, &gi).unwrap();
+    assert_eq!(report.retained.len(), 1);
+    assert_eq!(kiln_manage::shroudforge::read_mod(&dst).unwrap().settings[0].value, 7);
+    assert_eq!(report.retained[0].path, dst);
+}
+
+/// A retained SET folder can be read by Kiln itself, not only a separately installed loader.
+#[test]
+fn retained_set_cleanup_warns_that_kiln_can_still_run_it_without_a_standalone_loader() {
+    use kiln_manage::{library, manifest::ModKind, own_loaders, profile, task::Progress};
+    #[derive(Default)]
+    struct Said(Vec<String>);
+    impl Progress for Said {
+        fn report(&mut self, _: Option<f32>, message: &str) { self.0.push(message.into()); }
+    }
+    for uninstall in [false, true] {
+        let t = tmp(&format!("set-cleanup-warning-{uninstall}"));
+        let dirs = DataDirs::at(t.0.join("data"));
+        let game = t.0.join("game");
+        put(&game, "enshrouded.exe", b"MZ");
+        let gi = client(&game);
+        let zip = bundle::create(&stage(&t.0, "set-warning", false), &t.0.join("out"), &opts(1_793_793_600, "aaaaaaa")).unwrap();
+        install::install(&dirs, &gi, &zip, &InstallOptions::default(), &mut NoProgress).unwrap();
+        assert!(own_loaders::find(&game, None).is_empty(), "there is no standalone loader");
+        let src = t.0.join("src/set-player");
+        put(&src, "init.lua", b"return {}");
+        let imported = library::import(&dirs, &[src], &mut NoProgress).unwrap();
+        let r = imported.imported.iter().find(|r| r.kind == ModKind::Set).unwrap();
+        let mut p = profile::create(&dirs, "SET", None).unwrap();
+        p.mods.set.push(profile::ProfileMod { id: r.id.clone(), version: r.version.clone(), hash: r.hash.clone(), enabled: true });
+        let p = profile::save(&dirs, &p).unwrap();
+        profile::activate(&dirs, &p.id, &gi).unwrap();
+        let dst = game.join("shrouded_engine_tweaks/mods/set-player");
+        put(&dst, "init.lua", b"player code");
+        let empty = profile::create(&dirs, "Empty", None).unwrap();
+        let activation = profile::activate(&dirs, &empty.id, &gi).unwrap();
+        let retained = activation.retained.iter().find(|r| r.path == dst).unwrap();
+        assert!(retained.may_run && retained.reason.contains("Kiln's SET plugin"), "{activation:?}");
+        let mut said = Said::default();
+        let cleanup = if uninstall {
+            install::uninstall_report(&dirs, &gi, &mut said).unwrap().placements
+        } else {
+            let cleanup = profile::deactivate_report(&dirs, &gi).unwrap();
+            assert!(profile::read_game_profile(&game).unwrap().is_none(), "the next start uses legacy mode");
+            cleanup
+        };
+        assert!(cleanup.retained.iter().any(|r| r.path == dst && r.may_run), "{cleanup:?}");
+        let warning = cleanup.warning().unwrap();
+        assert!(warning.contains("These mods may still run through Kiln or another loader; review or move these folders with the game closed."),
+            "retained SET can still run through Kiln without a standalone loader: {warning}");
+        assert!(!warning.contains("standalone loader"));
+        if uninstall { assert!(said.0.contains(&warning), "uninstall progress must carry the warning: {:?}", said.0); }
+        assert_eq!(std::fs::read(dst.join("init.lua")).unwrap(), b"player code");
+    }
+}
+
+/// Ownership accepts generated and documented mutable files for reapply, but cleanup must not turn that acceptance
+/// into authority to delete them. Exercise both callers on the combined SET/SF receipt implementation.
+#[test]
+fn cleanup_retains_runtime_settings_on_deactivate_and_uninstall() {
+    use kiln_manage::{engine_mods, library, manifest::ModKind, profile};
+    for uninstall in [false, true] {
+        for kind in [ModKind::Set, ModKind::Eml, ModKind::ShroudForge] {
+            for shipped in [false, true] {
+                let t = tmp(&format!("cleanup-player-{}-{uninstall}-{shipped}", kind.as_str()));
+                let (dirs, gi, zip, mut p) = sf_setup(&t.0);
+                let (src, id, rel, dst) = match kind {
+                    ModKind::Set => {
+                        let src = t.0.join("src/set-player");
+                        put(&src, "init.lua", b"return {}");
+                        (src, "set-player", "settings.json", gi.path.join("shrouded_engine_tweaks/mods/set-player"))
+                    }
+                    ModKind::Eml => {
+                        let src = t.0.join("src/eml-player");
+                        put(&src, "mod.json", br#"{"id":"eml-player","name":"EML Player","version":"1.0.0","capabilities":["patch"]}"#);
+                        put(&src, "src/mod.lua", b"return {}");
+                        (src, "eml-player", "config.txt", gi.path.join("SF-user-mods/eml-player"))
+                    }
+                    ModKind::ShroudForge => (t.0.join("src/kiln-added"), "kiln-added", "runtime/settings.json", gi.path.join("SF-user-mods/kiln-added")),
+                    _ => unreachable!(),
+                };
+                // SF has no arbitrary mutable shipped-file exception: its "shipped" case is a changed setting in its
+                // shipped extended.mod.json, the other one a runtime file it adds after placement.
+                if shipped && kind != ModKind::ShroudForge { put(&src, rel, b"defaults"); }
+                let imported = library::import(&dirs, &[src], &mut NoProgress).unwrap();
+                let r = imported.imported.iter().chain(&imported.existing).find(|r| r.kind == kind && r.id == id).unwrap();
+                *p.mods.list_mut(kind) = vec![profile::ProfileMod { id: r.id.clone(), version: r.version.clone(), hash: r.hash.clone(), enabled: true }];
+                p = profile::save(&dirs, &p).unwrap();
+                install::install(&dirs, &gi, &zip, &InstallOptions { switch_from_shroudforge: true, ..Default::default() }, &mut NoProgress).unwrap();
+                profile::activate(&dirs, &p.id, &gi).unwrap();
+                if shipped && kind == ModKind::ShroudForge {
+                    kiln_manage::shroudforge::set_setting(&dst, "speed", &serde_json::json!(7)).unwrap();
+                } else {
+                    put(&dst, rel, b"player runtime settings");
+                }
+                let folder = sf_inventory(&dst);
+                let report = if uninstall {
+                    install::uninstall_report(&dirs, &gi, &mut NoProgress).unwrap().placements
+                } else {
+                    profile::deactivate_report(&dirs, &gi).unwrap()
+                };
+                assert!(report.retained.iter().any(|r| r.path == dst && r.may_run), "{kind:?}/{shipped}/{uninstall}: {report:?}");
+                assert!(!report.removed.contains(&dst));
+                assert_eq!(sf_inventory(&dst), folder, "{kind:?}/{shipped}/{uninstall}: the whole folder stays as it was");
+                // The receipt still records this as a retained placement; a second cleanup cannot adopt it as disposable.
+                let again = engine_mods::unplace(&dirs, &gi.path).unwrap();
+                assert!(again.retained.iter().any(|r| r.path == dst));
+                assert_eq!(sf_inventory(&dst), folder);
+            }
+        }
+    }
+}
+
+fn sf_legacy_helpers(game: &Path, receipt: &mut install::InstallReceipt) {
+    use install::{ReplacedAction, ReplacedClass, ReplacedFile};
+    // A real pre-compat receipt shape: old switch-from-SF displaced all three bootstrap/helper DLLs.
+    for rel in ["dbghelp.dll", "winmm.dll"] {
+        let (sha256, size) = hash::sha256_file(&game.join(rel)).unwrap();
+        let backup = format!("kiln/backups/legacy/{rel}");
+        put(game, &backup, &std::fs::read(game.join(rel)).unwrap());
+        std::fs::remove_file(game.join(rel)).unwrap();
+        receipt.replaced.push(ReplacedFile { path: rel.into(), sha256, size: Some(size), class: Some(ReplacedClass::ShroudForge),
+            action: ReplacedAction::BackedUp, chain_path: None, backup: Some(backup), engine: None });
+    }
+    std::fs::write(game.join("kiln/.install.json"), serde_json::to_vec(&receipt).unwrap()).unwrap();
+}
+
+#[test]
+fn sf_restore_legacy_switch_receipt_repairs_missing_helpers_during_reinstall() {
+    let t = tmp("sf-legacy-helpers");
+    let (dirs, gi, zip, _) = sf_setup(&t.0);
+    let opts = InstallOptions { switch_from_shroudforge: true, ..Default::default() };
+    let before = sf_inventory(&gi.path);
+    let mut receipt = install::install(&dirs, &gi, &zip, &opts, &mut NoProgress).unwrap();
+    sf_legacy_helpers(&gi.path, &mut receipt);
+    install::install(&dirs, &gi, &zip, &opts, &mut NoProgress).unwrap();
+    for rel in ["dbghelp.dll", "winmm.dll"] {
+        assert!(gi.path.join(rel).is_file(), "legacy switch backup must restore {rel} before SF is used again");
+        assert_eq!(hash::sha256_file(&gi.path.join(rel)).unwrap().0, before[rel]);
+    }
+    install::uninstall_report(&dirs, &gi, &mut NoProgress).unwrap();
+    assert_eq!(sf_inventory(&gi.path), before);
+}
+
+#[test]
+fn sf_restore_legacy_helper_recovery_preserves_newer_helpers_and_first_backups() {
+    let t = tmp("sf-legacy-conflict");
+    let (dirs, gi, zip, _) = sf_setup(&t.0);
+    let opts = InstallOptions { switch_from_shroudforge: true, ..Default::default() };
+    let mut receipt = install::install(&dirs, &gi, &zip, &opts, &mut NoProgress).unwrap();
+    sf_legacy_helpers(&gi.path, &mut receipt);
+    let replacement = build_test_dll(&["MiniDumpWriteDump"], b"player updated SF helper");
+    put(&gi.path, "dbghelp.dll", &replacement);
+    let (updated, report) = install::install_report(&dirs, &gi, &zip, &opts, &mut NoProgress).unwrap();
+    assert_eq!(updated.replaced, receipt.replaced);
+    assert_eq!(report.restored_shroudforge, ["winmm.dll"]);
+    assert_eq!(report.warnings.len(), 1);
+    assert!(report.warnings[0].contains("kiln/backups/legacy/dbghelp.dll"));
+    let report = install::uninstall_report(&dirs, &gi, &mut NoProgress).unwrap();
+    assert_eq!(report.warnings.len(), 1);
+    assert_eq!(std::fs::read(gi.path.join("dbghelp.dll")).unwrap(), replacement);
+    assert_eq!(hash::sha256_file(&gi.path.join("kiln/backups/legacy/dbghelp.dll")).unwrap().0,
+        receipt.replaced.iter().find(|r| r.path == "dbghelp.dll").unwrap().sha256);
+}
+
+#[test]
+fn sf_restore_legacy_helper_recovery_rolls_back_a_later_failed_install() {
+    let t = tmp("sf-legacy-rollback-late-receipt-failure");
+    let (dirs, gi, zip, _) = sf_setup(&t.0);
+    let opts = InstallOptions { switch_from_shroudforge: true, ..Default::default() };
+    let mut receipt = install::install(&dirs, &gi, &zip, &opts, &mut NoProgress).unwrap();
+    sf_legacy_helpers(&gi.path, &mut receipt);
+    std::fs::create_dir(gi.path.join("kiln/.install.json.tmp")).unwrap();
+    let before = sf_inventory(&gi.path);
+    let installed_before = std::fs::read(gi.path.join("dinput8.dll")).unwrap();
+    let error = install::install(&dirs, &gi, &zip, &opts, &mut NoProgress).unwrap_err();
+    assert_eq!(error.code, ErrorCode::Io);
+    assert_eq!(sf_inventory(&gi.path), before, "no partially recovered helpers");
+    assert_eq!(std::fs::read(gi.path.join("dinput8.dll")).unwrap(), installed_before);
+    assert_eq!(install::read_receipt(&gi.path).unwrap(), Some(receipt));
+}
+
+/// The helpers are a courtesy restore of files Kiln does not own: a backup that is gone or changed (the player cleaned
+/// kiln/backups), with no good copy in the launcher's data folder either, is a warning, never a refused update. With
+/// ShroudForge itself removed from the game folder they are not put back at all.
+#[test]
+fn legacy_shroudforge_helper_backups_never_block_an_update() {
+    for scenario in ["missing", "corrupt", "data-copy", "shroudforge-removed"] {
+        let t = tmp(&format!("sf-legacy-courtesy-{scenario}"));
+        let (dirs, gi, zip, _) = sf_setup(&t.0);
+        let opts = InstallOptions { switch_from_shroudforge: true, ..Default::default() };
+        let mut receipt = install::install(&dirs, &gi, &zip, &opts, &mut NoProgress).unwrap();
+        sf_legacy_helpers(&gi.path, &mut receipt);
+        let winmm = std::fs::read(gi.path.join("kiln/backups/legacy/winmm.dll")).unwrap();
+        match scenario {
+            "missing" => std::fs::remove_file(gi.path.join("kiln/backups/legacy/winmm.dll")).unwrap(),
+            "corrupt" => put(&gi.path, "kiln/backups/legacy/winmm.dll", b"corrupt backup"),
+            "data-copy" => {
+                // the second copy every install backup has in the launcher's data folder
+                put(&dirs.backups().join("install").join(&receipt.install_id), "legacy/winmm.dll", &winmm);
+                std::fs::remove_file(gi.path.join("kiln/backups/legacy/winmm.dll")).unwrap();
+            }
+            _ => std::fs::remove_dir_all(gi.path.join("shroudforge")).unwrap(),
+        }
+        let r = install::install_report(&dirs, &gi, &zip, &opts, &mut NoProgress);
+        assert!(r.is_ok(), "{scenario}: {:?}", r.err());
+        let (updated, report) = r.unwrap();
+        assert_eq!(updated.replaced, receipt.replaced, "{scenario}: the receipt keeps both originals");
+        match scenario {
+            "missing" | "corrupt" => {
+                assert_eq!(report.restored_shroudforge, ["dbghelp.dll"], "{scenario}");
+                assert!(!gi.path.join("winmm.dll").exists());
+                assert!(report.warnings.iter().any(|w| w.contains("winmm.dll") && w.contains("kiln/backups/legacy/winmm.dll")), "{scenario}: {report:?}");
+            }
+            "data-copy" => {
+                assert_eq!(report.restored_shroudforge, ["dbghelp.dll", "winmm.dll"]);
+                assert_eq!(std::fs::read(gi.path.join("winmm.dll")).unwrap(), winmm);
+            }
+            _ => {
+                assert!(report.restored_shroudforge.is_empty(), "{report:?}");
+                assert!(!gi.path.join("dbghelp.dll").exists() && !gi.path.join("winmm.dll").exists());
+            }
+        }
+    }
+}
+
+/// Uninstall in the state an update now accepts: a legacy helper backup gone, the helper itself back at its path with
+/// its original bytes, or only the launcher's copy of the backup left. It uninstalls, and warns where nothing can come back.
+#[test]
+fn uninstall_after_legacy_helper_backups_went_missing() {
+    for scenario in ["already-there", "data-copy", "gone"] {
+        let t = tmp(&format!("sf-legacy-uninstall-{scenario}"));
+        let (dirs, gi, zip, _) = sf_setup(&t.0);
+        let opts = InstallOptions { switch_from_shroudforge: true, ..Default::default() };
+        let before = sf_inventory(&gi.path);
+        let mut receipt = install::install(&dirs, &gi, &zip, &opts, &mut NoProgress).unwrap();
+        sf_legacy_helpers(&gi.path, &mut receipt);
+        let winmm = std::fs::read(gi.path.join("kiln/backups/legacy/winmm.dll")).unwrap();
+        match scenario {
+            "already-there" => {
+                install::install(&dirs, &gi, &zip, &opts, &mut NoProgress).unwrap(); // the helpers come back
+                std::fs::remove_file(gi.path.join("kiln/backups/legacy/winmm.dll")).unwrap();
+            }
+            "data-copy" => {
+                put(&dirs.backups().join("install").join(&receipt.install_id), "legacy/winmm.dll", &winmm);
+                std::fs::remove_file(gi.path.join("kiln/backups/legacy/winmm.dll")).unwrap();
+            }
+            _ => std::fs::remove_file(gi.path.join("kiln/backups/legacy/winmm.dll")).unwrap(),
+        }
+        let r = install::uninstall_report(&dirs, &gi, &mut NoProgress);
+        assert!(r.is_ok(), "{scenario}: {:?}", r.err());
+        let r = r.unwrap();
+        match scenario {
+            "gone" => {
+                assert!(!gi.path.join("winmm.dll").exists());
+                assert!(r.warnings.iter().any(|w| w.contains("winmm.dll")), "{r:?}");
+            }
+            _ => assert_eq!(sf_inventory(&gi.path), before, "{scenario}"),
+        }
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn sf_restore_cleanup_retains_symlinked_placement_without_touching_its_target() {
+    use kiln_manage::profile;
+    let t = tmp("sf-cleanup-link");
+    let (dirs, gi, zip, p) = sf_setup(&t.0);
+    install::install(&dirs, &gi, &zip, &InstallOptions { switch_from_shroudforge: true, ..Default::default() }, &mut NoProgress).unwrap();
+    profile::activate(&dirs, &p.id, &gi).unwrap();
+    let dst = gi.path.join("SF-user-mods/kiln-added");
+    let outside = t.0.join("player-elsewhere");
+    std::fs::rename(&dst, &outside).unwrap();
+    std::os::unix::fs::symlink(&outside, &dst).unwrap();
+    let before = sf_inventory(&outside);
+    let report = profile::deactivate_report(&dirs, &gi).unwrap();
+    assert_eq!(report.retained.len(), 1);
+    assert_eq!(report.retained[0].path, dst);
+    assert!(report.retained[0].reason.contains("symlink"));
+    assert_eq!(sf_inventory(&outside), before);
+    assert!(dst.is_symlink());
+}
+
+#[test]
+fn sf_restore_player_proxy_replacement_survives_uninstall_with_recovery_path() {
+    let t = tmp("sf-proxy-conflict");
+    let (dirs, gi, zip, _) = sf_setup(&t.0);
+    let receipt = install::install(&dirs, &gi, &zip, &InstallOptions { switch_from_shroudforge: true, ..Default::default() }, &mut NoProgress).unwrap();
+    let original = receipt.replaced.iter().find(|r| r.path == "dinput8.dll").unwrap();
+    let replacement = build_test_dll(&["ShroudforgeSetDinput8Provider"], b"player updated SF");
+    put(&gi.path, "dinput8.dll", &replacement);
+    let report = install::uninstall_report(&dirs, &gi, &mut NoProgress).unwrap();
+    assert_eq!(std::fs::read(gi.path.join("dinput8.dll")).unwrap(), replacement, "uninstall must not undo the player's newer loader");
+    assert!(report.kept.contains(&"dinput8.dll".into()));
+    assert_eq!(report.warnings.len(), 1);
+    assert!(report.warnings[0].contains(original.backup.as_deref().unwrap()));
+    assert_eq!(hash::sha256_file(&gi.path.join(original.backup.as_ref().unwrap())).unwrap().0, original.sha256);
+}
+
+#[test]
+fn sf_restore_activation_never_changes_a_players_own_sf_package_even_when_profile_switch_differs() {
+    use kiln_manage::{library, profile};
+    let t = tmp("sf-original-switch");
+    let (dirs, gi, zip, mut p) = sf_setup(&t.0);
+    install::install(&dirs, &gi, &zip, &InstallOptions { switch_from_shroudforge: true, ..Default::default() }, &mut NoProgress).unwrap();
+    let own = gi.path.join("SF-user-mods/player-mod");
+    let imported = library::import(&dirs, &[own.clone()], &mut NoProgress).unwrap();
+    let r = &imported.imported[0];
+    p.mods.shroudforge.push(profile::ProfileMod { id: r.id.clone(), version: r.version.clone(), hash: r.hash.clone(), enabled: false });
+    p = profile::save(&dirs, &p).unwrap();
+    let before = std::fs::read(own.join("extended.mod.json")).unwrap();
+    profile::activate(&dirs, &p.id, &gi).unwrap();
+    assert_eq!(std::fs::read(own.join("extended.mod.json")).unwrap(), before);
+    assert!(kiln_manage::shroudforge::read_mod(&own).unwrap().enabled);
+    profile::deactivate(&dirs, &gi).unwrap();
+    install::uninstall_report(&dirs, &gi, &mut NoProgress).unwrap();
+    assert_eq!(std::fs::read(own.join("extended.mod.json")).unwrap(), before);
 }

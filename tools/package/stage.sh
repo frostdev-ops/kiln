@@ -211,6 +211,8 @@ repo, stage, dotnet = sys.argv[1:]
 version = open(os.path.join(repo, "VERSION")).read().strip()
 abi = int(re.search(r"#define KILN_ABI_VERSION (\d+)", open(os.path.join(repo, "native/core/abi/kiln_api.h")).read()).group(1))
 api = re.search(r'ApiVersion = "([^"]+)"', open(os.path.join(repo, "managed/Kiln.Api/Mods.cs")).read()).group(1)
+# the profile.json forms this core reads: the launcher writes a newer form only for a runtime that declares it
+reader = int(re.search(r"#define KILN_PROFILE_READER (\d+)", open(os.path.join(repo, "native/core/src/profile.h")).read()).group(1))
 nets = sorted(os.listdir(os.path.join(dotnet, "shared/Microsoft.NETCore.App")))
 known = {
     "core": {"sides": ["server", "client"], "default": True,
@@ -249,7 +251,7 @@ for side in ("server", "client"):
         b["verified"] = True
         out.append(b)
     builds[side] = out
-m = {"format": 1, "kiln": version, "abi": abi, "api": api, "dotnet": nets[-1] if nets else None,
+m = {"format": 1, "kiln": version, "abi": abi, "api": api, "profileReader": reader, "dotnet": nets[-1] if nets else None,
      "components": {k: v for k, v in known.items() if k in present}, "builds": builds, "config": ["kiln/kiln.json"]}
 json.dump(m, open(os.path.join(stage, "kiln-runtime.json"), "w"), indent=2)
 open(os.path.join(stage, "kiln-runtime.json"), "a").write("\n")

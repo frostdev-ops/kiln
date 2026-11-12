@@ -48,7 +48,9 @@ Kiln owns only `dinput8.dll`.
   to the game (`..\xinput9_1_0.dll` in chain.ini). If that name is taken (case ignored, even identical bytes), the install is refused.
 - DLLs under any other proxy name are never moved. EML's `dbghelp.dll`, Shroudtopia's `winmm.dll` and SET's
   `powrprof.dll` keep running next to Kiln.
-- The receipt's `replaced[].engine` names the engine. Uninstall restores every file byte-identically.
+- The receipt's `replaced[].engine` names the engine. Uninstall restores every original byte-identically, unless
+  another loader's file the player put there since sits at its path: that one stays, with a warning naming the
+  backup. A changed Kiln proxy there is moved to `kiln/backups/uninstall-*` and the original comes back.
 - A full/oversized `chain.ini` is refused before taking the proxy slot. Symlinks on installation paths are refused;
   runtime bundles cannot own other proxy slots or installer recovery paths. Each install's backups have a unique
   suffix. An error, including a receipt-write error, rolls back files and restores the chain file's exact previous
@@ -241,9 +243,13 @@ engines' mods") and 5.8.
   a unique active copy is used; multiple active copies require selecting which game to edit.
 - **Status.** `engine_mods::status`: `kiln/state/{emf,eml,shroudforge,greeneye,flame,shroudtopia,set,enshwick,shroudlink,ember}.json`; missing files
   mean the plugin has not run yet, while unreadable, invalid or symlinked files report an error.
-- **Restore vanilla game data.** `engine_mods::eml_backup` / `eml_restore_vanilla`: copies `<exe>.kfc.bak` over a
-  patched `<exe>.kfc`, which is what kiln-eml does itself when no EML mod is left. Inspection reports read failures;
-  symlinks are refused and restore is refused while the game runs.
+- **Shared archive backups.** `engine_mods::eml_backup` reports whether `<exe>.kfc` differs from `<exe>.kfc.bak`,
+  not which loader wrote it. Inspection reports read failures and refuses symlinks. The legacy `eml_restore_vanilla`
+  command now refuses direct copies. Disable EML mods and start the game through Kiln: the separate archive writer
+  restores only its own unchanged output, proven by exact output/backup receipts (output of dev.20 to dev.23 once by
+  that release's change cache), with loader-state handoff ([eml.md](eml.md)). When it cannot prove ownership it leaves
+  the data and writes why into `kiln/state/eml.json` (`reason`); the way back is then to enable any EML mod for one
+  start and disable it again, or Steam's "Verify integrity of game files".
 - **Servers** keep the legacy layout. The server mod sync (`server::control`) copies each kind into the folder its
   plugin reads without a profile (`engine_mods::server_root`):
 

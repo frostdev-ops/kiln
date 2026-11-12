@@ -12,7 +12,7 @@ import { EngineStatusList, RestoreVanillaOffer } from "../components/EngineStatu
 import { SupportReport } from "../components/SupportReport";
 
 export type LogTab = "kiln" | "game" | "proxy" | "mods" | "crash" | "ticks" | "engines";
-const TAB_LABEL: Record<LogTab, string> = { kiln: "Kiln", game: "Game", proxy: "Proxy", mods: "Mods", crash: "Crashes", ticks: "Tick stats", engines: "Engines" };
+const TAB_LABEL: Record<LogTab, string> = { kiln: "Kiln", game: "Game", proxy: "Proxy", mods: "Kiln mods", crash: "Crashes", ticks: "Tick stats", engines: "Engines" };
 
 export default function LogsPage() {
   const { game } = useGame();

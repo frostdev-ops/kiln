@@ -1,7 +1,7 @@
 // The simple first run in browser-mock mode (`?mock=fresh`: no game known, no Kiln, no profiles, an empty library):
-// the launcher looks for the game by itself, Install Kiln runs right on Play, a mod dropped anywhere on the window lands
-// in the active profile ("My mods") with an Undo, a mod dropped before Kiln is installed is added after the install,
-// modpack zips ask for consent, and Settings can turn the profile step off. Screenshots of the flow go to
+// the launcher looks for the game by itself, Install Kiln runs right on Play, a mod dropped anywhere on the window is on
+// in the loaded profile ("My mods", never named on Play) with an Undo, a mod dropped before Kiln is installed is added
+// after the install, modpack zips ask for consent, and Settings can turn switching new mods on off. Screenshots of the flow go to
 // .out/simple/shots/ (SHOTS=0 skips them).
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import { mkdirSync } from "node:fs";
@@ -32,12 +32,31 @@ async function dropOn(page: Page, target: Locator, ...files: string[]) {
 const mouth = (page: Page) => page.locator(".k-door");
 const toastWith = (page: Page, text: string | RegExp) => page.locator(".k-toast").filter({ hasText: text });
 
-/** First start up to a game with Kiln and "My mods" active. */
+const say = (page: Page) => page.locator(".k-hero .k-hero-say");
+
+/** "My mods" is loaded and empty: Play says no mods yet, and names no profile (the default is never named there). */
+async function myModsReady(page: Page) {
+  await expect(say(page)).toHaveText("No mods yet.", { timeout: 10_000 });
+  await expect.poll(async () => (await page.evaluate(async () => (await import("/src/api/commands.ts")).profileActive("client-steam")))?.profileId).toBe("my-mods");
+  await expect(page.locator(".k-hero").getByRole("link", { name: /^Profile:/ })).toHaveCount(0);
+}
+
+/** "No profile" on purpose (Settings, Profiles): the launcher forgets the profile it had for the game. */
+async function loadNoProfile(page: Page) {
+  await page.evaluate(() => { location.hash = "#/settings"; });
+  const none = page.getByRole("region", { name: "Profiles" }).getByRole("listitem").filter({ hasText: "No profile" });
+  await none.getByRole("button", { name: "Load" }).click();
+  await expect(none).toContainText("Loaded", { timeout: 5000 });
+  await page.evaluate(() => { location.hash = "#/"; });
+  await expect(page.locator(".k-hero").getByRole("link", { name: "No profile loaded" })).toBeVisible({ timeout: 5000 });
+}
+
+/** First start up to a game with Kiln and "My mods" loaded. */
 async function installOnPlay(page: Page) {
   await expect(mouth(page)).toHaveAccessibleName("Install Kiln", { timeout: 8000 });
   await mouth(page).click();
   await page.getByRole("dialog", { name: "Install Kiln" }).getByRole("button", { name: "Install" }).click();
-  await expect(page.getByRole("button", { name: "Active profile: My mods. Change profile." })).toBeVisible({ timeout: 10_000 });
+  await myModsReady(page);
 }
 
 test("first run: finds the game, Install Kiln on Play, drop a mod into My mods, Undo", async ({ page }) => {
@@ -70,10 +89,10 @@ test("first run: finds the game, Install Kiln on Play, drop a mod into My mods, 
   await expect(hero.getByRole("status", { name: /^Install Kiln 0\.2\.0-dev/ })).toBeVisible();
   await shot(page, "4-installing");
 
-  // 4. done: My mods is made and active, and Play is ready
+  // 4. done: My mods is made and loaded, and Play is ready
   await expect(toastWith(page, "Kiln 0.2.0-dev+20261104.0f1ffa6 installed")).toBeVisible({ timeout: 10_000 });
-  await expect(page.getByRole("button", { name: "Active profile: My mods. Change profile." })).toBeVisible({ timeout: 5000 });
-  await expect(hero.getByText("No mods yet. Drop one anywhere on this window.")).toBeVisible();
+  await myModsReady(page);
+  await expect(hero.getByText("Add your first mod")).toBeVisible();
   await expect(mouth(page)).toHaveAccessibleName("Play My mods");
   await expect(mouth(page)).toBeEnabled();
   await page.waitForTimeout(2700); // the install toast goes
@@ -88,31 +107,33 @@ test("first run: finds the game, Install Kiln on Play, drop a mod into My mods, 
   });
   const veil = page.locator(".k-dropveil");
   await expect(veil).toBeVisible();
-  await expect(veil).toContainText("Into My mods");
+  await expect(veil).toContainText("Added and switched on");
   await shot(page, "6-drag-over", 300);
   await page.evaluate(() => clearInterval((window as unknown as { __drag: ReturnType<typeof setInterval> }).__drag));
 
-  // 6. dropped anywhere (here on Play): imported, in My mods, applied; the toast says so with Undo
+  // 6. dropped anywhere (here on Play): imported, on in My mods, applied; the toast says so with Undo
   await dropOn(page, hero, "night-owl-1.2.0.zip");
   await expect(veil).toHaveCount(0);
   const added = toastWith(page, "Added Night Owl");
   await expect(added).toBeVisible({ timeout: 5000 });
-  await expect(added.locator(".k-toast-detail")).toHaveCount(0);
+  await expect(added.locator(".k-toast-detail")).toHaveText("On at the next Play.");
   await expect(added.getByRole("button", { name: "Undo" })).toBeVisible();
-  await expect(hero.getByText("1 of 1 mods load on this client.")).toBeVisible({ timeout: 5000 });
+  await expect(say(page)).toHaveText("1 mod on.", { timeout: 5000 });
+  await expect(hero.getByRole("switch", { name: "Night Owl" })).toHaveAttribute("aria-checked", "true");
   await shot(page, "7-added");
 
-  // 7. Undo: out of the profile again
+  // 7. Undo: out of the profile again; the library keeps its copy, so it is in the list, off
   await added.getByRole("button", { name: "Undo" }).click();
   await expect(toastWith(page, "Removed Night Owl")).toBeVisible();
-  await expect(hero.getByText("No mods yet. Drop one anywhere on this window.")).toBeVisible({ timeout: 5000 });
+  await expect(say(page)).toHaveText("0 mods on, 1 off.", { timeout: 5000 });
+  await expect(hero.getByRole("switch", { name: "Night Owl" })).toHaveAttribute("aria-checked", "false");
 
-  // 8. dropped on another page: the same; the profile's mods list has it, lit
+  // 8. dropped on another page: the same; Play's list has it, on
   await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Saves" }).click();
   await dropOn(page, page.locator(".k-sheet"), "night-owl-1.2.0.zip");
   await expect(toastWith(page, "Added Night Owl")).toBeVisible({ timeout: 5000 });
-  await page.evaluate(() => { location.hash = "#/profiles/my-mods/mods"; });
-  await expect(page.locator(".k-order-row.lit", { hasText: "night-owl" })).toBeVisible({ timeout: 5000 });
+  await page.evaluate(() => { location.hash = "#/"; });
+  await expect(page.locator(".k-hero").getByRole("switch", { name: "Night Owl" })).toHaveAttribute("aria-checked", "true", { timeout: 5000 });
   expect(errors).toEqual([]);
 });
 
@@ -125,7 +146,7 @@ test("a mod that needs another says which, briefly", async ({ page }) => {
   await expect(t.locator(".k-toast-detail")).toHaveText("Needs ui-lib.");
   // the same file again: already there
   await dropOn(page, page.locator(".k-hero"), "more-hotbars-2.1.0.zip");
-  await expect(toastWith(page, "Already in My mods")).toBeVisible({ timeout: 5000 });
+  await expect(toastWith(page, "More Hotbars is on already")).toBeVisible({ timeout: 5000 });
 });
 
 test("a mod dropped before Kiln is installed is added once Install Kiln is done", async ({ page }) => {
@@ -138,8 +159,8 @@ test("a mod dropped before Kiln is installed is added once Install Kiln is done"
   await first.getByRole("button", { name: "Install Kiln" }).click();
   await page.getByRole("dialog", { name: "Install Kiln" }).getByRole("button", { name: "Install" }).click();
   await expect(toastWith(page, "Added Night Owl")).toBeVisible({ timeout: 12_000 });
-  await expect(page.getByRole("button", { name: "Active profile: My mods. Change profile." })).toBeVisible();
-  await expect(page.locator(".k-hero").getByText("1 of 1 mods load on this client.")).toBeVisible({ timeout: 5000 });
+  await expect(say(page)).toHaveText("1 mod on.", { timeout: 5000 });
+  expect((await page.evaluate(async () => (await import("/src/api/commands.ts")).profileActive("client-steam")))?.profileId).toBe("my-mods");
 });
 
 test("nothing found: Add a folder and Look again stay", async ({ page }) => {
@@ -168,30 +189,63 @@ test("a modpack zip asks for consent before anything is installed", async ({ pag
   await install.click();
   await expect(page.getByRole("dialog", { name: "Modpack installed" })).toBeVisible({ timeout: 8000 });
   await page.getByRole("dialog", { name: "Modpack installed" }).getByRole("button", { name: "Close" }).click();
-  await expect(page.getByRole("button", { name: "Active profile: Server: Ember Isles. Change profile." })).toBeVisible({ timeout: 5000 });
+  // the modpack flow loads its server's profile; Play names it in one small line that leads to Settings
+  await expect(page.locator(".k-hero").getByRole("link", { name: "Profile: Server: Ember Isles" })).toBeVisible({ timeout: 5000 });
 });
 
-test("players with profiles: a drop goes into the active one; the setting can turn that off", async ({ page }) => {
-  await start(page, null, "/library");
-  // Library's niche, setting on (the default): into the active profile (Ember run)
-  await dropOn(page, page.locator("[data-drop]"), "night-owl-1.2.0.zip");
+// What the activation a dropped modpack or a picked profile writes kept in the game folder (shell/notices.ts).
+const KEPT = { retained: [{ path: "mods/XHL-Vein-Mining", reason: "files Kiln placed were changed or removed, or code was added (native-plugin.ini). It is off in the profile, but its own loader may still load it from there.", mayRun: true }] };
+const ACT = { gameId: "client-steam", profileId: "ember-run", generation: 9, pathMode: "z", profileJson: "/x/kiln/profile.json", copied: 0, fingerprint: "kms1:00", activated: "2026-11-11T10:00:00Z", ...KEPT };
+type PlanMock = { __kilnMock: { planActivation: (r: unknown) => void; planCommand: (c: string, p: unknown) => void } };
+
+test("a dropped modpack's activation says what it kept in the game folder", async ({ page }) => {
+  await start(page, "fresh");
+  await installOnPlay(page);
+  await page.evaluate((r) => (window as unknown as PlanMock).__kilnMock.planActivation(r), KEPT);
+  await dropOn(page, page.locator(".k-hero"), "ember-isles-modpack-3.zip");
+  const dialog = page.getByRole("dialog", { name: "Install this modpack?" });
+  await dialog.getByText("I trust it and want its mods").click();
+  await dialog.getByRole("button", { name: "Install" }).click();
+  await expect(toastWith(page, "Some mod folders were kept")).toContainText("mods/XHL-Vein-Mining", { timeout: 8000 });
+});
+
+test("a mod added to a picked profile says what writing that profile kept in the game folder", async ({ page }) => {
+  await start(page, null, "/");
+  await loadNoProfile(page);
+  await dropOn(page, page.locator(".k-hero"), "night-owl-1.2.0.zip");
+  await toastWith(page, "Added Night Owl, switched off").getByRole("button", { name: "Add to a profile" }).click();
+  await page.evaluate((a) => (window as unknown as PlanMock).__kilnMock.planCommand("library_add_to_profile", { result: {
+    import: { imported: [], existing: [], skipped: [], notes: [] }, profileId: "ember-run", profileName: "Ember run", created: false, resumed: false,
+    added: [{ kind: "kiln", id: "night-owl", version: "1.2.0", name: "Night Owl" }], already: [], changes: [], applied: true, running: false,
+    activation: a, missing: [], libraryOnly: null, modpacks: [] } }), ACT);
+  await page.getByRole("dialog", { name: "Add to which profile?" }).getByRole("button", { name: /Ember run/ }).click();
+  await expect(toastWith(page, "Added Night Owl to Ember run")).toBeVisible({ timeout: 5000 });
+  await expect(toastWith(page, "Some mod folders were kept")).toContainText("mods/XHL-Vein-Mining");
+});
+
+test("players with profiles: a drop is on in the loaded one; the setting can turn that off", async ({ page }) => {
+  await start(page, null, "/");
+  const hero = page.locator(".k-hero");
+  // setting on (the default): on in the loaded profile (Ember run)
+  await dropOn(page, hero, "night-owl-1.2.0.zip");
   await expect(toastWith(page, "Added Night Owl")).toBeVisible({ timeout: 5000 });
-  await expect(page.getByRole("table", { name: "Library" }).getByText("Night Owl")).toBeVisible();
-  await page.evaluate(() => { location.hash = "#/profiles/ember-run/mods"; });
-  await expect(page.locator(".k-order-row.lit", { hasText: "night-owl" })).toBeVisible({ timeout: 5000 });
-  // off: a drop is only imported
+  await expect(hero.getByRole("switch", { name: "Night Owl" })).toHaveAttribute("aria-checked", "true", { timeout: 5000 });
+  // off: a drop joins the list switched off
   await page.locator(".k-head-link", { hasText: "Settings" }).click();
-  const sw = page.getByRole("switch", { name: /^Add new mods to the active profile/ });
+  const sw = page.getByRole("switch", { name: /^Switch new mods on/ });
   await expect(sw).toBeChecked();
-  await page.getByText("Add new mods to the active profile", { exact: true }).click();
+  await page.getByText("Switch new mods on", { exact: true }).click();
   await expect(sw).not.toBeChecked();
   await dropOn(page, page.locator(".k-sheet"), "dawn-lamp-2.0.0.zip");
-  const imported = toastWith(page, "Imported Dawn Lamp");
+  const imported = toastWith(page, "Added Dawn Lamp, switched off");
   await expect(imported).toBeVisible({ timeout: 5000 });
-  await expect(imported.getByRole("button", { name: "Library" })).toBeVisible();
-  await page.evaluate(() => { location.hash = "#/profiles/ember-run/mods"; });
-  await expect(page.locator(".k-order-row", { hasText: "night-owl" })).toBeVisible({ timeout: 5000 });
-  await expect(page.locator(".k-order-row", { hasText: "dawn-lamp" })).toHaveCount(0);
+  await imported.getByRole("button", { name: "Show" }).click();
+  await expect(page).toHaveURL(/#\/$/);
+  await expect(hero.getByRole("switch", { name: "Night Owl" })).toHaveAttribute("aria-checked", "true", { timeout: 5000 });
+  await expect(hero.getByRole("switch", { name: "Dawn Lamp" })).toHaveAttribute("aria-checked", "false");
+  const p = await page.evaluate(async () => (await import("/src/api/commands.ts")).profileGet("ember-run"));
+  expect(p.mods.kiln.map((m) => m.id)).toContain("night-owl");
+  expect(p.mods.kiln.map((m) => m.id)).not.toContain("dawn-lamp");
 });
 
 test("the first run's Play states fit 1024×640", async ({ page }) => {
@@ -213,7 +267,7 @@ test("the first run's Play states fit 1024×640", async ({ page }) => {
   await expect(page.locator(".k-hero .k-task")).toBeVisible();
   await fits("installing");
   await shot(page, "4b-installing-1024x640");
-  await expect(page.getByRole("button", { name: "Active profile: My mods. Change profile." })).toBeVisible({ timeout: 10_000 });
+  await myModsReady(page);
   await fits("ready");
   await shot(page, "5b-ready-1024x640", 2800);
 });
@@ -233,22 +287,20 @@ test("a drop says what was left out and why; Details lists everything", async ({
   await dlg.getByRole("button", { name: "OK" }).click();
 });
 
-test("no profile is active and none is remembered: the drop says it is only in the Library and offers the profiles", async ({ page }) => {
+test("no profile is loaded and none is remembered: the drop says it is in the list, off, and offers the profiles", async ({ page }) => {
   await start(page, null, "/");
   // "No profile" on purpose: the launcher forgets the profile it had for the game
-  await page.getByRole("button", { name: /^Active profile: Ember run/ }).click();
-  await page.getByRole("option", { name: /^No profile/ }).click();
-  await expect(page.getByRole("button", { name: /^Active profile: Drop-in mods/ })).toBeVisible({ timeout: 5000 });
+  await loadNoProfile(page);
   await dropOn(page, page.locator(".k-hero"), "night-owl-1.2.0.zip");
-  const toast = toastWith(page, "Imported Night Owl");
+  const toast = toastWith(page, "Added Night Owl, switched off");
   await expect(toast).toBeVisible({ timeout: 5000 });
-  await expect(toast.getByText("Only in your Library: no profile is active in this game.")).toBeVisible();
+  await expect(toast.getByText("No profile is loaded in this game, so nothing is switched on.")).toBeVisible();
   await toast.getByRole("button", { name: "Add to a profile" }).click();
   const pick = page.getByRole("dialog", { name: "Add to which profile?" });
   await pick.getByRole("button", { name: /Ember run/ }).click();
   const added = toastWith(page, "Added Night Owl to Ember run");
   await expect(added).toBeVisible({ timeout: 5000 });
-  await expect(added.getByText(/not the active profile/)).toBeVisible();
-  await page.evaluate(() => { location.hash = "#/profiles/ember-run/mods"; });
-  await expect(page.locator(".k-order-row", { hasText: "night-owl" })).toBeVisible({ timeout: 5000 });
+  await expect(added.getByText(/not the loaded profile: load it in Settings, Profiles/)).toBeVisible();
+  const p = await page.evaluate(async () => (await import("/src/api/commands.ts")).profileGet("ember-run"));
+  expect(p.mods.kiln.find((m) => m.id === "night-owl")?.enabled).toBe(true);
 });

@@ -1,7 +1,7 @@
 //! Tauri commands: other engines' mods (docs/kiln/engines.md "Managing every engine's mods"; contracts.md section 9).
 //! Settings per format (ShroudForge's `extended.mod.json`, Shroudtopia's `shroudtopia.json`), the plugins' state files
-//! for the Play and Logs pages, and EML's backup of the vanilla `.kfc` ("Restore vanilla game data"). All on
-//! kiln_manage::engine_mods; the launcher only reads and writes those files.
+//! for the Play and Logs pages, and read-only shared archive backup inspection. The legacy direct-restore command
+//! refuses; the separate archive writer owns restoration. All management calls use kiln_manage::engine_mods.
 
 use crate::state::{blocking, dirs};
 use kiln_manage::{Error, ErrorCode};
@@ -210,7 +210,9 @@ pub async fn eml_backup(game_id: String) -> Result<Vec<EmlBackup>, Error> {
     blocking(move || engine_mods::eml_backup(&crate::state::game(&game_id)?.path)).await
 }
 
-/// Copies EML's `<exe>.kfc.bak` back over each patched `.kfc`; refused while the game runs.
+/// Legacy command kept for older callers: it always refuses (`game_running` while the game runs, else `refused`) and
+/// copies nothing. A shared `.kfc.bak` cannot prove who wrote an archive; updated kiln-eml's archive writer restores
+/// only its own unchanged output at the next start (engine_mods::eml_restore_vanilla).
 #[tauri::command]
 pub async fn eml_restore(game_id: String) -> Result<Vec<String>, Error> {
     blocking(move || {

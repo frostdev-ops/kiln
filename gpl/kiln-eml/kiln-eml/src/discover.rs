@@ -27,7 +27,9 @@ pub struct Entry {
     pub source: String,
     pub path: String,
     /// `loaded` | `failed` | `skipped` | `disabled` | `duplicate` | `pending`; while another loader runs the EML mods
-    /// (phase `aside`): `own-loader` (in that loader's folder, it runs there) | `not-loaded` (only in the Library)
+    /// (phase `aside`): `own-loader` (in that loader's folder, it runs there) | `not-loaded` (only in the Library), and
+    /// under ShroudForge `off-in-shroudforge` (ShroudForge's switch for it is off) | `other-side` (it targets the other
+    /// side only)
     pub state: String,
     pub reason: Option<String>,
     pub capabilities: Vec<String>,
@@ -85,12 +87,78 @@ pub fn kiln_copy_of(dir: &Utf8Path) -> Option<String> {
     v.get("id")?.as_str().map(str::to_owned)
 }
 
-/// Drop-ins without the launcher's copies of the profile's own EML mods: such a copy is the same mod as the profile
-/// entry (placed for EML's own loader), so it neither runs a second time nor shows as a duplicate.
-pub fn without_profile_copies(candidates: Vec<Candidate>, profile: &[(String, bool)]) -> (Vec<Candidate>, Vec<Utf8PathBuf>) {
+fn bounded_json(path: &Utf8Path, limit: u64) -> Option<serde_json::Value> {
+    let m = checked_metadata(path).ok()?;
+    if !m.is_file() || m.len() > limit { return None; }
+    let mut text = String::new();
+    std::fs::File::open(path).ok()?.take(limit + 1).read_to_string(&mut text).ok()?;
+    if text.len() as u64 > limit { return None; }
+    serde_json::from_str(text.trim_start_matches('\u{feff}')).ok()
+}
+
+fn placement_path_matches(recorded: &str, candidate: &Utf8Path) -> bool {
+    placement_path_matches_with(recorded, candidate, dos_name)
+}
+
+/// `to_dos`: the Windows name Wine gives a Unix path (None off Wine).
+fn placement_path_matches_with(recorded: &str, candidate: &Utf8Path, to_dos: impl Fn(&str) -> Option<String>) -> bool {
+    let same = |root: &str| relative_under(candidate, &Utf8PathBuf::from(root.replace('\\', "/"))).is_some_and(|p| p.as_str().is_empty());
+    if same(recorded) { return true; }
+    // A Linux launcher writes Unix receipt paths; Wine exposes those same paths through its Z: drive, and through the
+    // drive whose folder holds them: Proton maps the Steam library to S:, so a game in it runs as S:\steamapps\...
+    recorded.starts_with('/') && ((candidate.as_str().get(..2).is_some_and(|s| s.eq_ignore_ascii_case("Z:")) && same(&format!("Z:{recorded}")))
+        || to_dos(recorded).is_some_and(|dos| same(&dos)))
+}
+
+/// The Windows name Wine gives the Unix path `unix` (`kernel32!wine_get_dos_file_name`: the drive whose folder is
+/// the deepest one holding it, the conversion that named the game's own path). None on Windows proper.
+#[cfg(windows)]
+fn dos_name(unix: &str) -> Option<String> {
+    use std::ffi::c_void;
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn GetModuleHandleW(name: *const u16) -> *mut c_void;
+        fn GetProcAddress(module: *mut c_void, name: *const u8) -> *mut c_void;
+        fn GetProcessHeap() -> *mut c_void;
+        fn HeapFree(heap: *mut c_void, flags: u32, memory: *mut c_void) -> i32;
+    }
+    let kernel32: Vec<u16> = "kernel32.dll".encode_utf16().chain(Some(0)).collect();
+    let module = unsafe { GetModuleHandleW(kernel32.as_ptr()) };
+    if module.is_null() { return None; }
+    let export = unsafe { GetProcAddress(module, c"wine_get_dos_file_name".as_ptr().cast()) };
+    if export.is_null() { return None; }
+    // SAFETY: Wine's export, WCHAR *CDECL wine_get_dos_file_name(LPCSTR): a heap string the caller frees, or null
+    let convert: unsafe extern "C" fn(*const std::ffi::c_char) -> *mut u16 = unsafe { std::mem::transmute(export) };
+    let unix = std::ffi::CString::new(unix).ok()?;
+    let wide = unsafe { convert(unix.as_ptr()) };
+    if wide.is_null() { return None; }
+    let mut len = 0;
+    while unsafe { *wide.add(len) } != 0 { len += 1; }
+    let name = String::from_utf16(unsafe { std::slice::from_raw_parts(wide, len) }).ok();
+    unsafe { HeapFree(GetProcessHeap(), 0, wide.cast()); }
+    name
+}
+
+#[cfg(not(windows))]
+fn dos_name(_unix: &str) -> Option<String> { None }
+
+/// A selected marked copy is already represented by its profile entry (even when disabled). An unselected copy
+/// retained after edits must not become a drop-in either, but only a matching install receipt establishes ownership:
+/// a marker shipped in an archive alone does not prevent a genuine manual mod from running.
+pub fn without_profile_copies(candidates: Vec<Candidate>, profile: &[(String, bool)], kiln: &Utf8Path) -> (Vec<Candidate>, Vec<Utf8PathBuf>) {
+    let receipts = if checked_metadata(kiln).is_ok_and(|m| m.is_dir())
+        && checked_metadata(&kiln.join("state")).is_ok_and(|m| m.is_dir()) {
+        bounded_json(&kiln.join("state/library-placements.json"), 8 * 1024 * 1024)
+    } else { None };
     let mut skipped = Vec::new();
     let kept = candidates.into_iter().filter(|c| {
-        let ours = kiln_copy_of(&c.path).is_some_and(|id| profile.iter().any(|(p, _)| p.eq_ignore_ascii_case(&id)));
+        let ours = kiln_copy_of(&c.path).is_some_and(|id| {
+            profile.iter().any(|(p, _)| p.eq_ignore_ascii_case(&id)) || receipts.as_ref().and_then(|v| v.as_array()).is_some_and(|rs| {
+                let marker = bounded_json(&c.path.join(".kiln-library.json"), 64 * 1024);
+                rs.iter().any(|r| r.get("path").and_then(|p| p.as_str()).is_some_and(|p| placement_path_matches(p, &c.path))
+                    && marker.as_ref().is_some_and(|m| m.get("format").and_then(|v| v.as_u64()) == Some(1) && r.get("marker") == Some(m)))
+            })
+        });
         if ours { skipped.push(c.path.clone()); }
         !ours
     }).collect();
@@ -100,25 +168,147 @@ pub fn without_profile_copies(candidates: Vec<Candidate>, profile: &[(String, bo
 /// What becomes of the profile's EML mods while another loader runs the EML mods (EML's own dbghelp.dll, or
 /// ShroudForge): that loader reads only its own mods folder (`roots`, the first is named in reasons), never the
 /// Library. A mod with the launcher's copy there runs under it (`own-loader`); any other enabled mod does not load
-/// (`not-loaded`).
-pub fn aside_entries(profile_json: &str, kiln_dir: &Utf8Path, roots: &[Utf8PathBuf], who: &str) -> Vec<Entry> {
+/// (`not-loaded`). `shroudforge`: Some(this process is a dedicated server) when ShroudForge is that loader. ShroudForge
+/// runs a package only while its switch is on and on the sides it targets ([`shroudforge_switch`]): a package there it
+/// has off is `off-in-shroudforge`, one for the other side `other-side`.
+pub fn aside_entries(profile_json: &str, kiln_dir: &Utf8Path, roots: &[Utf8PathBuf], who: &str, shroudforge: Option<bool>) -> Vec<Entry> {
     let ids = profile_ids(profile_json);
     let paths = profile_candidates(profile_json, kiln_dir);
     let folder = roots.first().map(|r| r.to_string()).unwrap_or_else(|| "mods".into());
     ids.into_iter().enumerate().map(|(i, (id, enabled))| {
         let path = paths.get(i).map(|c| c.path.to_string()).unwrap_or_default();
-        let copy = roots.iter().map(|r| r.join(&id)).find(|d| kiln_copy_of(d).is_some_and(|m| m == id));
+        // `<root>/<id>`, or the entry's own path when the launcher placed it in that folder under the name a native
+        // DLL looks for (`mods/XHL-Auto-Loot` for the Library id `xhl-auto-loot`)
+        let own_path = paths.get(i).map(|c| c.path.clone())
+            .filter(|p| p.parent().is_some_and(|parent| roots.iter().any(|r| relative_under(parent, r).is_some_and(|rel| rel.as_str().is_empty()))));
+        let copy = roots.iter().map(|r| r.join(&id)).chain(own_path).find(|d| kiln_copy_of(d).is_some_and(|m| m == id));
+        let wanted = paths.get(i).and_then(|c| classify(&c.path).ok()).map(|m| m.id).unwrap_or_else(|| id.clone());
+        let manual = if copy.is_none() {
+            roots.iter().flat_map(|r| folder_candidates(r, "own-loader")).map(|c| c.path)
+                .find(|p| classify(p).is_ok_and(|m| m.id.eq_ignore_ascii_case(&wanted)))
+        } else { None };
+        let own = copy.clone().or(manual);
+        let what = if copy.is_some() { "Kiln's copy" } else { "hand-installed mod" };
         let (state, reason) = if !enabled {
             ("disabled", "switched off in the profile".to_string())
-        } else if let Some(c) = &copy {
-            ("own-loader", format!("runs under {who} (Kiln copied it to {c})"))
+        } else if let Some(c) = &own {
+            match shroudforge.map(|server| shroudforge_switch(c, server)) {
+                None => ("own-loader", format!("runs under {who} ({what} at {c})")),
+                Some(Ok(())) => ("own-loader", format!("runs under {who}: its ShroudForge switch is on ({what} at {c})")),
+                Some(Err(Off::Side(why))) => ("other-side", format!("ShroudForge runs it on the other side only: {why} ({what} at {c})")),
+                Some(Err(Off::Switch(why))) if copy.is_some() => ("off-in-shroudforge", format!("{who} runs this start, but ShroudForge has \
+                    Kiln's copy at {c} switched off: {why}. Nothing applies it this start. Press Play in the Kiln launcher (or activate \
+                    the profile again): Kiln switches it on in ShroudForge's settings")),
+                // no switch helps a file ShroudForge refuses; without ShroudForge kiln-eml runs the mod (it reads only `launcher`)
+                Some(Err(Off::Refused(why))) => ("off-in-shroudforge", format!("{who} runs this start, but ShroudForge does not run the \
+                    {what} at {c}: {why}. Nothing applies it this start, and no switch changes that: a version of the mod whose file \
+                    ShroudForge reads does, or a start without ShroudForge mods in the profile (Kiln then runs it itself)")),
+                Some(Err(Off::Switch(why))) => ("off-in-shroudforge", format!("{who} runs this start, but ShroudForge has your own \
+                    folder {c} switched off: {why}. Nothing applies it this start. Kiln never writes into your own folder: switch it on in \
+                    Kiln's menu (Mods, ShroudForge) or in ShroudForge's own Modloader, then start the game again")),
+            }
         } else {
             ("not-loaded", format!("{who} runs this start and reads only {folder}; this mod is in Kiln's Library, so it does \
                 not load. Activate the profile again in the Kiln launcher to copy it there, or remove that loader to let Kiln run it"))
         };
         Entry { id: Some(id), version: None, name: None, source: "profile".into(),
-            path: copy.map(|c| c.to_string()).unwrap_or(path), state: state.into(), reason: Some(reason), capabilities: Vec::new() }
+            path: own.map(|c| c.to_string()).unwrap_or(path), state: state.into(), reason: Some(reason), capabilities: Vec::new() }
     }).collect()
+}
+
+/// Why ShroudForge does not run a package ([`shroudforge_switch`]).
+#[derive(Debug)]
+pub enum Off {
+    /// Its switch is off: no `extended.mod.json`, or `enabled` not true.
+    Switch(String),
+    /// ShroudForge refuses its `extended.mod.json` (or cannot read it): no switch makes it run.
+    Refused(String),
+    /// Its `targets` leave out this side.
+    Side(String),
+}
+
+/// Does ShroudForge run the package at `dir` (a folder or a zip) in this process (`server`: a dedicated server)? Read
+/// from ShroudForge's file `extended.mod.json`: its `enabled` must be `true` (ShroudForge keeps every package off until
+/// then, and a legacy EML package has no such file until ShroudForge writes one at the first change of its switch).
+/// `targets`, an array: "server" alone is the server, any other array the client, with "server" too both sides; none:
+/// an EML package (`launcher: "EML"`) runs on both sides, another package on the client.
+pub fn shroudforge_switch(dir: &Utf8Path, server: bool) -> Result<(), Off> {
+    const NAME: &str = "extended.mod.json";
+    let text = if dir.is_dir() {
+        let file = dir.join(NAME);
+        match checked_metadata(&file) {
+            Err(_) if !file.exists() => None,
+            Err(e) => return Err(Off::Refused(format!("its {NAME} cannot be read ({e})"))),
+            Ok(m) if !m.is_file() || m.len() > 1024 * 1024 => return Err(Off::Refused(format!("its {NAME} is no file ShroudForge reads"))),
+            Ok(_) => Some(std::fs::read_to_string(&file).map_err(|e| Off::Refused(format!("its {NAME} cannot be read ({e})")))?),
+        }
+    } else {
+        let mut zip = std::fs::File::open(dir).ok().and_then(|f| zip::ZipArchive::new(f).ok())
+            .ok_or_else(|| Off::Refused("it is not a readable zip".into()))?;
+        match zip.by_name(NAME) {
+            Err(_) => None,
+            Ok(f) if f.size() > 1024 * 1024 => return Err(Off::Refused(format!("its {NAME} is larger than ShroudForge reads"))),
+            Ok(mut f) => {
+                let mut s = String::new();
+                f.read_to_string(&mut s).map_err(|e| Off::Refused(format!("its {NAME} cannot be read ({e})")))?;
+                Some(s)
+            }
+        }
+    };
+    let Some(text) = text else {
+        return Err(Off::Switch(format!("it has no {NAME}, the file that holds ShroudForge's switch (ShroudForge keeps a package off until its switch is on)")));
+    };
+    // ShroudForge's own reader is strict JSON (no byte order mark, no comments)
+    let v: serde_json::Value = serde_json::from_str(&text).map_err(|e| Off::Refused(format!("ShroudForge refuses its {NAME} ({e})")))?;
+    let refused = |why: &str| Off::Refused(format!("ShroudForge refuses its {NAME}: {why}"));
+    if !v.is_object() || v.get("schemaVersion").and_then(|v| v.as_f64()) != Some(1.0) {
+        return Err(refused("schemaVersion must be the number 1"));
+    }
+    if v.get("launcher").is_some_and(|v| !matches!(v.as_str(), Some("EML" | "SF"))) {
+        return Err(refused("launcher must be EML or SF"));
+    }
+    if let Some(targets) = v.get("targets") {
+        let valid = targets.as_array().is_some_and(|a| !a.is_empty() && a.len() <= 2
+            && a.iter().all(|v| matches!(v.as_str(), Some("client" | "server")))
+            && (a.len() == 1 || a[0] != a[1]));
+        if !valid { return Err(refused("targets must name client or server without duplicates")); }
+    }
+    if v.get("settings").is_some_and(|s| !s.is_object()) {
+        return Err(refused("settings must be an object"));
+    }
+    if v.get("enabled").and_then(|b| b.as_bool()) != Some(true) {
+        return Err(Off::Switch(format!("its {NAME}, the file that holds ShroudForge's switch, does not say enabled: true")));
+    }
+    let runs = match v.get("targets").and_then(|t| t.as_array()) {
+        Some(targets) => {
+            let has = |side: &str| targets.iter().any(|t| t.as_str() == Some(side));
+            if server { has("server") } else { has("client") || !has("server") }
+        }
+        None => !server || v.get("launcher").and_then(|l| l.as_str()) == Some("EML"),
+    };
+    if runs { Ok(()) } else { Err(Off::Side(format!("its {NAME} targets the {} only", if server { "client" } else { "server" }))) }
+}
+
+/// The kiln.log lines of an `aside` start (level, text: 2 a warning, 3 info): one warning per profile mod that does not
+/// run, then the count of what runs under `who`.
+pub fn aside_log(entries: &[Entry], who: &str) -> Vec<(i32, String)> {
+    let mut out = Vec::new();
+    let count = |state: &str| entries.iter().filter(|m| m.state == state).count();
+    let (runs, lost, off, other) = (count("own-loader"), count("not-loaded"), count("off-in-shroudforge"), count("other-side"));
+    for m in entries.iter().filter(|m| m.state == "not-loaded" || m.state == "off-in-shroudforge") {
+        let verb = if m.state == "not-loaded" { "load" } else { "run" };
+        out.push((2, format!("kiln-eml: profile EML mod {} does not {verb}: {}", m.id.as_deref().unwrap_or("?"), m.reason.as_deref().unwrap_or(""))));
+    }
+    let total = runs + lost + off + other;
+    if total > 0 {
+        let mut line = format!("kiln-eml: {runs} of the profile's {total} EML mod(s) run under {who}");
+        if off > 0 { line.push_str(&format!("; {off} are switched off in ShroudForge, so nothing applies them")); }
+        if other > 0 { line.push_str(&format!("; {other} run on the other side only")); }
+        if lost > 0 { line.push_str(&format!("; {lost} do not load")); }
+        if lost + off > 0 { line.push_str(" (kiln/state/eml.json)"); }
+        out.push((if lost + off > 0 { 2 } else { 3 }, line));
+    }
+    out
 }
 
 /// The entries of a drop-in folder, sorted by name: folders and `.zip` files, without hidden ones (EML's rule).
@@ -471,11 +661,65 @@ mod tests {
         let j = r#"{"mods":{"eml":[{"id":"hoarders-helper","path":"Z:\\lib\\eml\\hoarders-helper\\1.0.0+h"}]},"dropins":true}"#;
         let ids = profile_ids(j);
         assert_eq!(ids, [("hoarders-helper".to_string(), true)]);
-        let (kept, skipped) = without_profile_copies(folder_candidates(&d.join("mods"), "game-mods"), &ids);
+        let (kept, skipped) = without_profile_copies(folder_candidates(&d.join("mods"), "game-mods"), &ids, &d.join("kiln"));
         assert_eq!(skipped, [copy]);
         // a marked copy the profile does not list, or a copy of another kind, stays an ordinary drop-in
         assert_eq!(kept.iter().map(|c| c.path.file_name().unwrap()).collect::<Vec<_>>(), ["other", "sf"]);
         std::fs::remove_dir_all(d).unwrap();
+    }
+
+    #[test]
+    fn removed_receipt_owned_copies_never_become_dropins_but_shipped_markers_are_not_ownership() {
+        let d = tmp("removed-owned-copy");
+        let copy = eml_mod(&d, "mods/XHL-Edited", "XHL-Edited");
+        let manual = eml_mod(&d, "mods/manual", "manual");
+        let forged = eml_mod(&d, "mods/shipped-marker", "shipped-marker");
+        let marker = serde_json::json!({"format":1,"kind":"eml","id":"xhl-edited","version":"1.0.0","hash":"hash"});
+        std::fs::write(copy.join(".kiln-library.json"), marker.to_string()).unwrap();
+        std::fs::write(forged.join(".kiln-library.json"), marker.to_string()).unwrap();
+        std::fs::create_dir_all(d.join("kiln/state")).unwrap();
+        let receipts = serde_json::json!([{"path":copy.as_str(),"marker":marker,"files":{},"game_folder":true}]);
+        std::fs::write(d.join("kiln/state/library-placements.json"), receipts.to_string()).unwrap();
+        // The profile has removed this mod; shipped Lua was edited, so placement correctly retained the folder.
+        std::fs::write(copy.join("src/mod.lua"), "-- edited code\nreturn {}").unwrap();
+        let json = r#"{"mods":{"eml":[]},"dropins":true}"#;
+        let (kept, skipped) = without_profile_copies(folder_candidates(&d.join("mods"), "game-mods"), &profile_ids(json), &d.join("kiln"));
+        assert_eq!(skipped, [copy]);
+        assert_eq!(kept.iter().map(|c| c.path.clone()).collect::<Vec<_>>(), [manual, forged]);
+        assert!(placement_path_matches("/game/mods/edited", Utf8Path::new("Z:/game/mods/edited")));
+        assert!(!placement_path_matches("/game/mods/edited", Utf8Path::new("Z:/other/mods/edited")));
+        assert!(!placement_path_matches("/game/mods/edited", Utf8Path::new("C:/game/mods/edited")));
+        std::fs::remove_dir_all(d).unwrap();
+    }
+
+    // Proton maps the Steam library to S: (its prefix's dosdevices/s:), so a client runs from S:\steamapps\...
+    // while the Linux launcher's receipt names the Unix path: a retained copy must still be recognised.
+    #[test]
+    fn a_receipt_path_matches_through_the_drive_wine_names_it_with() {
+        let steam = |u: &str| u.strip_prefix("/home/u/.local/share/Steam/").map(|rest| format!("S:/{rest}"));
+        let recorded = "/home/u/.local/share/Steam/steamapps/common/Enshrouded/mods/XHL-Edited";
+        assert!(placement_path_matches_with(recorded, Utf8Path::new("S:/steamapps/common/Enshrouded/mods/XHL-Edited"), steam));
+        if cfg!(windows) {
+            assert!(placement_path_matches_with(recorded, Utf8Path::new("s:/STEAMAPPS/common/Enshrouded/mods/xhl-edited"), steam),
+                "Windows names are case-insensitive");
+        }
+        assert!(!placement_path_matches_with(recorded, Utf8Path::new("S:/steamapps/common/Enshrouded/mods/other"), steam));
+        assert!(!placement_path_matches_with(recorded, Utf8Path::new("S:/steamapps/common/Enshrouded/mods/XHL-Edited"), |_| None),
+            "the Z: rule alone does not see it (the defect)");
+        assert!(placement_path_matches_with(recorded, Utf8Path::new("Z:/home/u/.local/share/Steam/steamapps/common/Enshrouded/mods/XHL-Edited"), |_| None));
+    }
+
+    // The same under Wine with a real drive: the harness maps dosdevices/s: to $KILN_EML_S_DRIVE (a Unix folder).
+    #[cfg(windows)]
+    #[test]
+    #[ignore = "needs KILN_EML_S_DRIVE: a Unix folder the Wine prefix maps as s: (Wine harness)"]
+    fn wine_names_a_path_in_a_mapped_folder_with_that_drive() {
+        let folder = std::env::var("KILN_EML_S_DRIVE").expect("run by the Wine harness, which maps s: and sets KILN_EML_S_DRIVE");
+        let recorded = format!("{folder}/steamapps/common/Enshrouded/mods/XHL-Edited");
+        let dos = dos_name(&recorded).expect("running under Wine");
+        assert!(dos.to_ascii_uppercase().starts_with("S:\\STEAMAPPS"), "{dos}");
+        assert!(placement_path_matches(&recorded, Utf8Path::new(r"S:\steamapps\common\Enshrouded\mods\XHL-Edited")));
+        assert!(!placement_path_matches(&recorded, Utf8Path::new(r"S:\steamapps\common\Enshrouded\mods\other")));
     }
 
     #[test]
@@ -484,12 +728,151 @@ mod tests {
         let copy = eml_mod(&d, "mods/a", "A");
         std::fs::write(copy.join(".kiln-library.json"), r#"{"format":1,"kind":"eml","id":"a","version":"1.0.0","hash":"h"}"#).unwrap();
         let j = r#"{"mods":{"eml":[{"id":"a","path":"/lib/a"},{"id":"b","path":"/lib/b"},{"id":"c","path":"/lib/c","enabled":false}]}}"#;
-        let e = aside_entries(j, &d.join("kiln"), &[d.join("mods")], "EML's own loader");
+        let e = aside_entries(j, &d.join("kiln"), &[d.join("mods")], "EML's own loader", None);
         let states: Vec<_> = e.iter().map(|x| (x.id.as_deref().unwrap(), x.state.as_str())).collect();
         assert_eq!(states, [("a", "own-loader"), ("b", "not-loaded"), ("c", "disabled")]);
         assert_eq!(e[0].path, copy.as_str());
         assert!(e[1].reason.as_deref().unwrap().starts_with("EML's own loader runs this start and reads only"));
         assert_eq!(e[1].path, "/lib/b");
+        std::fs::remove_dir_all(d).unwrap();
+    }
+
+    #[test]
+    fn shroudforge_refused_switch_shapes_never_claim_to_run() {
+        let d = tmp("sf-invalid-switch");
+        let p = eml_mod(&d, "mods/a", "a");
+        for ext in [
+            r#"{"enabled":true,"launcher":"EML"}"#,
+            r#"{"schemaVersion":2,"enabled":true}"#,
+            r#"{"schemaVersion":1,"enabled":true,"launcher":null}"#,
+            r#"{"schemaVersion":1,"enabled":true,"launcher":"eml"}"#,
+            r#"{"schemaVersion":1,"enabled":true,"targets":"server"}"#,
+            r#"{"schemaVersion":1,"enabled":true,"targets":[]}"#,
+            r#"{"schemaVersion":1,"enabled":true,"targets":["client",42]}"#,
+            r#"{"schemaVersion":1,"enabled":true,"targets":["client","client"]}"#,
+            r#"{"schemaVersion":1,"enabled":true,"settings":null}"#,
+        ] {
+            std::fs::write(p.join("extended.mod.json"), ext).unwrap();
+            assert!(matches!(shroudforge_switch(&p, false), Err(Off::Refused(_))), "{ext}");
+        }
+        std::fs::remove_dir_all(d).unwrap();
+    }
+
+    /// ShroudForge runs a package of its mods folder only while its extended.mod.json says `enabled: true`, on the sides
+    /// its `targets` name. A real client (2026-11-11) had four EML mods in ShroudForge's folder and one such file:
+    /// kiln-eml said all four ran under ShroudForge, and three were applied by nobody.
+    #[test]
+    fn under_shroudforge_only_a_switched_on_package_for_this_side_runs() {
+        let d = tmp("aside-sf");
+        let copy = |dir: &str, ext: Option<&str>| {
+            let p = eml_mod(&d, &format!("mods/{dir}"), dir);
+            std::fs::write(p.join(".kiln-library.json"), format!(r#"{{"format":1,"kind":"eml","id":"{dir}","version":"1.0.0","hash":"h"}}"#)).unwrap();
+            if let Some(ext) = ext { std::fs::write(p.join("extended.mod.json"), ext).unwrap(); }
+            p
+        };
+        copy("on", Some(r#"{"schemaVersion":1,"enabled":true,"targets":["client","server"],"launcher":"EML","settings":{}}"#));
+        copy("bare", None);
+        copy("off", Some(r#"{"schemaVersion":1,"enabled":false,"launcher":"EML"}"#));
+        copy("client", Some(r#"{"schemaVersion":1,"enabled":true,"targets":["client"],"launcher":"EML"}"#));
+        copy("broken", Some(r#"{"schemaVersion":1,"enabled":tru"#));
+        eml_mod(&d, "mods/Hand Made", "hand");  // the player's own folder: no marker, no extension
+        let j = r#"{"mods":{"eml":[{"id":"on","path":"/lib/on"},{"id":"bare","path":"/lib/bare"},{"id":"off","path":"/lib/off"},
+            {"id":"client","path":"/lib/client"},{"id":"broken","path":"/lib/broken"},{"id":"hand","path":"/lib/hand"},
+            {"id":"lib","path":"/lib/lib"},{"id":"dis","path":"/lib/dis","enabled":false}]}}"#;
+        let who = "ShroudForge (hosted by Kiln)";
+        let states = |side: Option<bool>| aside_entries(j, &d.join("kiln"), &[d.join("mods")], who, side)
+            .into_iter().map(|e| (e.id.unwrap(), e.state, e.reason.unwrap_or_default())).collect::<Vec<_>>();
+        let client = states(Some(false));
+        let state = |id: &str| client.iter().find(|x| x.0 == id).map(|x| (x.1.as_str(), x.2.as_str())).unwrap();
+        assert_eq!(state("on").0, "own-loader");
+        assert_eq!(state("client").0, "own-loader");
+        for id in ["bare", "off", "broken", "hand"] {
+            assert_eq!(state(id).0, "off-in-shroudforge", "{id}: {client:?}");
+            assert!(!state(id).1.contains("runs under"), "{id}: {}", state(id).1);
+        }
+        assert!(state("bare").1.contains("no extended.mod.json") && state("bare").1.contains("Kiln launcher"), "{}", state("bare").1);
+        assert!(state("off").1.contains("enabled: true"), "{}", state("off").1);
+        assert!(state("hand").1.contains("never writes into your own folder") && state("hand").1.contains("Mods, ShroudForge"), "{}", state("hand").1);
+        assert_eq!((state("lib").0, state("dis").0), ("not-loaded", "disabled"));
+        // a dedicated server: the client-only package runs on the client only
+        let server = states(Some(true));
+        let on_server = |id: &str| server.iter().find(|x| x.0 == id).map(|x| x.1.clone()).unwrap();
+        assert_eq!((on_server("on"), on_server("client"), on_server("bare")), ("own-loader".into(), "other-side".into(), "off-in-shroudforge".into()));
+        // EML's own loader has no switch: it runs every package of its folder
+        let eml = aside_entries(j, &d.join("kiln"), &[d.join("mods")], "EML's own loader", None);
+        assert!(eml.iter().filter(|e| e.id.as_deref() != Some("lib") && e.id.as_deref() != Some("dis")).all(|e| e.state == "own-loader"), "{eml:?}");
+        // and kiln-eml itself, in a start without ShroudForge, reads only the launcher of that file: `enabled: false`
+        // never switches a mod off for it (the profile is its switch)
+        let off = d.join("mods/off");
+        let (run, entries) = resolve(&[Candidate { path: off.clone(), source: "profile".into(), enabled: true }]);
+        assert_eq!((run, entries[0].state.as_str()), (vec![off], "pending"));
+        std::fs::remove_dir_all(d).unwrap();
+    }
+
+    /// pr-manage P5: a package whose extended.mod.json says `enabled: true` but that ShroudForge refuses (its
+    /// schemaVersion, a broken file) does not run under ShroudForge, and no advice may promise what cannot help: the
+    /// launcher cannot switch on a file ShroudForge refuses.
+    #[test]
+    fn a_package_shroudforge_refuses_is_not_counted_as_running_and_gets_no_switch_advice() {
+        let d = tmp("aside-sf-refused");
+        let copy = |dir: &str, ext: &str| {
+            let p = eml_mod(&d, &format!("mods/{dir}"), dir);
+            std::fs::write(p.join(".kiln-library.json"), format!(r#"{{"format":1,"kind":"eml","id":"{dir}","version":"1.0.0","hash":"h"}}"#)).unwrap();
+            std::fs::write(p.join("extended.mod.json"), ext).unwrap();
+        };
+        copy("schema2", r#"{"schemaVersion":2,"enabled":true,"launcher":"EML"}"#);
+        copy("broken", r#"{"schemaVersion":1,"enabled":tru"#);
+        let hand = eml_mod(&d, "mods/Hand Made", "hand");
+        std::fs::write(hand.join("extended.mod.json"), r#"{"schemaVersion":2,"enabled":true,"launcher":"EML"}"#).unwrap();
+        let j = r#"{"mods":{"eml":[{"id":"schema2","path":"/lib/schema2"},{"id":"broken","path":"/lib/broken"},{"id":"hand","path":"/lib/hand"}]}}"#;
+        let who = "ShroudForge (hosted by Kiln)";
+        let entries = aside_entries(j, &d.join("kiln"), &[d.join("mods")], who, Some(false));
+        for e in &entries {
+            let reason = e.reason.as_deref().unwrap_or_default();
+            assert_eq!(e.state, "off-in-shroudforge", "{e:?}");
+            assert!(reason.contains("refuses") && !reason.contains("runs under"), "{e:?}");
+            assert!(!reason.contains("Kiln switches it on") && !reason.contains("switch it on in"), "{e:?}");
+        }
+        let summary = aside_log(&entries, who).last().unwrap().1.clone();
+        assert!(summary.starts_with("kiln-eml: 0 of the profile's 3 EML mod(s) run under"), "{summary}");
+        std::fs::remove_dir_all(d).unwrap();
+    }
+
+    #[test]
+    fn the_aside_log_counts_only_what_runs() {
+        let entry = |id: &str, state: &str| Entry { id: Some(id.into()), version: None, name: None, source: "profile".into(),
+            path: format!("/mods/{id}"), state: state.into(), reason: Some(format!("why {id}")), capabilities: Vec::new() };
+        let lines = aside_log(&[entry("a", "own-loader"), entry("b", "off-in-shroudforge"), entry("c", "off-in-shroudforge"),
+            entry("d", "not-loaded"), entry("e", "other-side"), entry("f", "disabled")], "ShroudForge (hosted by Kiln)");
+        let summary = &lines.last().unwrap().1;
+        assert_eq!(lines.last().unwrap().0, 2, "a warning while a profile mod does not run");
+        assert!(summary.starts_with("kiln-eml: 1 of the profile's 5 EML mod(s) run under ShroudForge (hosted by Kiln)"), "{summary}");
+        assert!(summary.contains("2 are switched off in ShroudForge") && summary.contains("1 do not load") && summary.contains("1 run on the other side only"), "{summary}");
+        assert!(lines.iter().any(|(l, t)| *l == 2 && t == "kiln-eml: profile EML mod b does not run: why b"), "{lines:?}");
+        let all = aside_log(&[entry("a", "own-loader")], "ShroudForge (hosted by Kiln)");
+        assert_eq!(all, [(3, "kiln-eml: 1 of the profile's 1 EML mod(s) run under ShroudForge (hosted by Kiln)".to_string())]);
+    }
+
+    #[test]
+    fn native_folder_runs_once_with_kiln_or_is_reported_under_the_loaded_foreign_loader() {
+        let d = tmp("native-folder");
+        let copy = eml_mod(&d, "mods/XHL-Native-Mod", "XHL-Native-Mod");
+        std::fs::write(copy.join(".kiln-library.json"), r#"{"format":1,"kind":"eml","id":"xhl-native-mod"}"#).unwrap();
+        let json = serde_json::json!({"mods":{"eml":[{"id":"xhl-native-mod","path":copy.as_str()}]},"dropins":true}).to_string();
+        let (dropins, skipped) = without_profile_copies(folder_candidates(&d.join("mods"), "game-mods"), &profile_ids(&json), &d.join("kiln"));
+        assert_eq!(skipped, [copy.clone()]);
+        let mut candidates = profile_candidates(&json, &d.join("kiln"));
+        candidates.extend(dropins);
+        let (run, entries) = resolve(&candidates);
+        assert_eq!(run, [copy.clone()]);
+        assert_eq!(entries.len(), 1);
+        let aside = aside_entries(&json, &d.join("kiln"), &[d.join("mods")], "EML's own loader", None);
+        assert_eq!((aside[0].state.as_str(), aside[0].path.as_str()), ("own-loader", copy.as_str()));
+        // No marker: a real hand installation is still loaded by the foreign loader, not missing in the Library.
+        std::fs::remove_file(copy.join(".kiln-library.json")).unwrap();
+        let aside = aside_entries(&json, &d.join("kiln"), &[d.join("mods")], "EML's own loader", None);
+        assert_eq!(aside[0].state, "own-loader");
+        assert!(aside[0].reason.as_deref().unwrap().contains("hand-installed"));
         std::fs::remove_dir_all(d).unwrap();
     }
 

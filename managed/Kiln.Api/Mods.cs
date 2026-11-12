@@ -5,7 +5,8 @@ namespace Kiln;
 /// <summary>Where a mod runs.</summary>
 public enum ModSide
 {
-    /// <summary>Dedicated server only (the default).</summary>
+    /// <summary>The server world (the default): a dedicated server, and on a client the player's own world
+    /// (single-player or co-op host), loaded when that world starts (docs/kiln/client.md, "Mods and sides").</summary>
     Server = 0,
     /// <summary>Game client only.</summary>
     Client = 1,
@@ -29,6 +30,18 @@ public enum ModState
     Skipped = 4,
     /// <summary>Unloaded by an operator or by an unload of one of its dependencies.</summary>
     Unloaded = 5,
+}
+
+/// <summary>Why a client has a <c>side: "server"</c> mod <see cref="ModState.Skipped"/> (docs/kiln/client.md, "Mods and
+/// sides"): Kiln.Host writes these to <see cref="ModEntry.Error"/>, kiln.log and state/mods.json; the in-game Mods page
+/// words them for players. One place, so the two cannot drift.</summary>
+internal static class HostedReasons
+{
+    /// <summary>In the menu or in someone else's world: it loads with the player's own world (single-player or co-op).</summary>
+    public const string Waiting = "side 'server': loads while this client hosts a world";
+
+    /// <summary>kiln.json <c>"mods": {"hosted": false}</c>: it stays off on this client.</summary>
+    public const string Off = "side 'server': not loaded on a client (kiln.json mods.hosted is false)";
 }
 
 /// <summary>A dependency declared in <c>kiln.mod.json</c>.</summary>

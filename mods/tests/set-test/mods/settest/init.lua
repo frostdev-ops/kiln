@@ -2,7 +2,15 @@
 local u = require("util")
 local check = u.check
 
-check("GetVersion", GetVersion() == "0.1.1", GetVersion())
+check("GetVersion", GetVersion() == "0.2.0", GetVersion())
+-- SET 0.2.0: Features(), Settings.define, settings.json is not the mod's to write
+local feats = Features()
+check("Features", feats.game_build ~= nil and feats.hit ~= nil and type(feats.systems.reason) == "string",
+  "game_build " .. tostring(feats.game_build.compatible) .. ", hit: " .. feats.hit.reason)
+local opts = Settings.define{{key = "runs", type = "int", default = 0, min = 0, max = 1000000}}
+opts.runs = opts.runs + 1
+check("Settings.define", opts.runs >= 1, opts.runs .. " runs")
+check("settings.json is read-only for the mod", io.open("settings.json", "w") == nil)
 check("GetGameBuild", type(GetGameBuild()) == "number" and GetGameBuild() > 0, GetGameBuild())
 check("json roundtrip", json.decode(json.encode({a = 1, b = {2, 3}})).b[2] == 3)
 local f = io.open("state.json", "w")

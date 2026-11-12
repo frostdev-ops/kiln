@@ -5,12 +5,19 @@ out=${KILN_OUT:-/tmp/kiln-review-set}/set-review
 mkdir -p "$out"
 ${CXX:-clang++} -std=c++20 -O1 -g -Wall -Wextra -fsanitize=address,undefined -fno-omit-frame-pointer \
   -I"$here/tests/hooks_host" -I"$here/../../core/abi" \
-  "$here/tests/hooks_review_test.cpp" -o "$out/hooks_review_test"
+  "$here/tests/hooks_review_test.cpp" "$here/src/rules.cpp" -o "$out/hooks_review_test"
 # LeakSanitizer's thread discovery is blocked by the sandbox's ptrace policy. ASan/UBSan remain enabled.
 ASAN_OPTIONS=detect_leaks=0 "$out/hooks_review_test"
+# SET 0.2.0 rules: the rule engine, the catalog checks and rules through the real hook adapter.
+${CXX:-clang++} -std=c++20 -O1 -g -pthread -Wall -Wextra -Wno-missing-field-initializers -fsanitize=address,undefined -fno-omit-frame-pointer \
+  -I"$here/tests/hooks_host" -I"$here/../../core/abi" \
+  "$here/tests/rules_review_test.cpp" "$here/src/rules.cpp" "$here/src/contracts.cpp" -o "$out/rules_review_test"
+ASAN_OPTIONS=detect_leaks=0 "$out/rules_review_test"
 ${CXX:-clang++} -std=c++20 -O1 -Wall -Wextra -I"$here/tests/plugin_host" -I"$here/../../core/abi" \
   "$here/tests/plugin_review_test.cpp" -o "$out/plugin_review_test"
 "$out/plugin_review_test" "$out/loader-fixture"
+"$out/plugin_review_test" "$out/loader-fixture" inventory-lock
+"$out/plugin_review_test" "$out/loader-fixture" plugin-lock
 lua_sources=()
 for source in "$here"/../../third_party/lua/*.c; do
   case ${source##*/} in lua.c|luac.c) continue ;; esac

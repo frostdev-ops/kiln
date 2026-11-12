@@ -3,8 +3,8 @@
  * input (keys for key bindings, mouse + keyboard capture while a Kiln screen is open), and an immediate-mode drawing
  * table for the managed Kiln.Ui. v2 appends right clicks on items and a radial wheel; v3 appends font sizes, child
  * regions with flags, cursor and item queries, sized selectables, focus, layered drawing, colour/spacing pushes and
- * key queries; v4 appends the main-menu page (the Kiln menu inside the game's own menu) and a font choice (the last
- * slots of the table).
+ * key queries; v4 appends the main-menu page (the Kiln menu inside the game's own menu) and a font choice; v5 appends
+ * the game window's own input records for native plugins (subscribe_window_input, the last slot of the table).
  *
  * How (docs/re/client-render.md):
  *  - The game loads vulkan-1.dll at run time and presents with vkQueuePresentKHR on queue family 0 (no static Vulkan
@@ -22,6 +22,7 @@
  *  - Frame callbacks run on the game's render thread (the thread calling vkQueuePresentKHR), inside the ImGui frame.
  *    The drawing functions below work only there (elsewhere they do nothing and return false).
  *  - Key callbacks run on the window thread (the game's main thread) while the message is being handled.
+ *  - Window-input callbacks (v5) run on the window thread too, inside the window procedure.
  *  - status, set_*, key_name: any thread.
  * Native subscribers must unsubscribe before they unload. */
 #ifndef KILN_UI_H
@@ -32,9 +33,10 @@ extern "C" {
 #endif
 
 #define KILN_UI_SERVICE "kiln.ui"
-#define KILN_UI_VERSION 4u /* v2 appends is_item_clicked and the radial wheel (after add_swapchain_usage); v3 appends layout and
+#define KILN_UI_VERSION 5u /* v2 appends is_item_clicked and the radial wheel (after add_swapchain_usage); v3 appends layout and
                               look slots for full-display screens (after wheel_active); v4 appends the main-menu page and
-                              font choice (after set_scroll_here_y): check header.size */
+                              font choice (after set_scroll_here_y); v5 appends subscribe_window_input (after pop_font):
+                              check header.size */
 
 /* Colours are 0xRRGGBBAA. */
 
@@ -47,7 +49,7 @@ enum {
     KILN_UI_WINDOW_NO_COLLAPSE = 1 << 5,
     KILN_UI_WINDOW_ALWAYS_AUTO_RESIZE = 1 << 6,
     KILN_UI_WINDOW_NO_BACKGROUND = 1 << 7,
-    KILN_UI_WINDOW_NO_INPUTS = (1 << 9) | (1 << 18) | (1 << 19), /* NoMouseInputs | NoNavInputs | NoNavFocus */
+    KILN_UI_WINDOW_NO_INPUTS = (1 << 9) | (1 << 16) | (1 << 17), /* NoMouseInputs | NoNavInputs | NoNavFocus */
     /* v3 (same ImGui values; older kiln.ui passes them on to ImGui as well) */
     KILN_UI_WINDOW_NO_SAVED_SETTINGS = 1 << 8,       /* no imgui.ini entry (position and size are the caller's) */
     KILN_UI_WINDOW_NO_BRING_TO_FRONT = 1 << 13,      /* a click does not raise it above other windows */
@@ -432,6 +434,37 @@ typedef struct KilnUiMenuPage {
     uint32_t reserved2;
 } KilnUiMenuPage;           /* 104 bytes */
 
+/* ---- v5: the game window's input records, as the window received them (subscribe_window_input) ---- */
+
+/* KilnUiWindowInput.kind */
+enum {
+    KILN_UI_INPUT_RAW_KEY = 1,       /* a keyboard record of WM_INPUT: make_code, flags, vkey = RAWKEYBOARD.MakeCode,
+                                        .Flags, .VKey, unchanged */
+    KILN_UI_INPUT_WINDOW_KEY = 2,    /* WM_KEYDOWN, WM_KEYUP, WM_SYSKEYDOWN or WM_SYSKEYUP (message): wparam, lparam
+                                        unchanged */
+    KILN_UI_INPUT_MOUSE_BUTTON = 3,  /* a mouse button went down or up: button 1 left, 2 middle, 3 right, 4 XBUTTON1,
+                                        5 XBUTTON2; down 1 or 0. message: WM_INPUT (a raw mouse record), or the button
+                                        message (WM_LBUTTONDOWN ... WM_XBUTTONDBLCLK; a double click counts as down) */
+    KILN_UI_INPUT_FOCUS_LOST = 4,    /* the window lost the keyboard focus (message WM_KILLFOCUS, or WM_ACTIVATEAPP
+                                        with wparam 0). One record per loss, see subscribe_window_input */
+};
+
+typedef struct KilnUiWindowInput {
+    uint32_t size;       /* sizeof(KilnUiWindowInput) */
+    uint32_t kind;       /* KILN_UI_INPUT_* */
+    uint32_t message;    /* the window message the record came with */
+    uint32_t make_code;  /* RAW_KEY: RAWKEYBOARD.MakeCode */
+    uint32_t flags;      /* RAW_KEY: RAWKEYBOARD.Flags (RI_KEY_BREAK, RI_KEY_E0, RI_KEY_E1) */
+    uint32_t vkey;       /* RAW_KEY: RAWKEYBOARD.VKey */
+    uint32_t button;     /* MOUSE_BUTTON: 1..5 */
+    uint32_t down;       /* MOUSE_BUTTON: 1 pressed, 0 released */
+    uint64_t wparam;     /* the message's wParam, unchanged (for every kind) */
+    int64_t lparam;      /* the message's lParam, unchanged (WM_INPUT: its HRAWINPUT, valid during the call only) */
+} KilnUiWindowInput;     /* 48 bytes */
+
+/* Window thread, inside the window procedure. Keep it short: the game's message loop waits. */
+typedef void(KILN_CALL* KilnUiWindowInputFn)(const KilnUiWindowInput* input, void* user);
+
 typedef struct KilnUiApi {
     KilnServiceHeader header; /* { sizeof(KilnUiApi), KILN_UI_VERSION } */
     KilnResult(KILN_CALL* status)(KilnUiStatus* out);
@@ -689,6 +722,34 @@ typedef struct KilnUiApi {
      *   when that font is not loaded (the game's font comes from its data; it may not be there yet). Inside a frame. */
     bool(KILN_CALL* push_font)(uint32_t font);
     void(KILN_CALL* pop_font)(void);
+
+    /* ================================================================================================================
+     * v5 (appended; check header.version >= 5 and header.size >= offsetof(KilnUiApi, subscribe_window_input) +
+     * sizeof(void*) before calling it).
+     * ============================================================================================================== */
+
+    /* subscribe_window_input: fn(record) for the game window's own input records, for a native plugin that keeps a key
+     *   state of its own (kiln-shroudforge feeds ShroudForge's shortcut state with it). On the window thread, inside
+     *   Kiln's window procedure, before Kiln handles the message, and whether or not Kiln then keeps the message from
+     *   the game (the Kiln menu, a Kiln screen or text field, the radial wheel, the menu key and key bindings): what
+     *   fn does changes nothing the game or Kiln receive. Records (KilnUiWindowInput):
+     *   - RAW_KEY: every keyboard record of WM_INPUT. WINDOW_KEY: every WM_KEYDOWN, WM_KEYUP, WM_SYSKEYDOWN and
+     *     WM_SYSKEYUP. A key usually arrives both ways (the game registers raw input without RIDEV_NOLEGACY); both are
+     *     delivered, in the order the window received them, which is not always press-by-press (the window may take
+     *     WM_INPUT ahead of the window messages). Nothing is merged or left out.
+     *   - MOUSE_BUTTON: from each WM_INPUT mouse record (one record per button flag, presses before releases) and from
+     *     each button message; a click usually arrives both ways too.
+     *   - FOCUS_LOST: on WM_KILLFOCUS or WM_ACTIVATEAPP with wparam 0, once per loss: the second of the two messages
+     *     of one loss gives no record. The next loss gives one again after WM_SETFOCUS, WM_ACTIVATEAPP with wparam
+     *     other than 0, or any key or button record. Coalesced per subscription: a new subscriber gets its first loss
+     *     without rearming existing subscribers.
+     *   Only what reaches Kiln's procedure: a module that subclassed the window above Kiln and keeps a message from it
+     *   keeps it from fn too. Characters, mouse motion and the wheel are not delivered. While nobody subscribed the
+     *   window procedure pays one relaxed load per message. A fault in fn removes the subscription, with a log line.
+     *   Remove with unsubscribe: when it returns KILN_OK, a call in flight has ended and fn is not called again (from
+     *   inside another kiln.ui callback it may return KILN_ERR_WRONG_THREAD instead of waiting; call it again from
+     *   elsewhere). Native subscribers unsubscribe before they unload. INVALID_ARGUMENT: no fn. */
+    KilnResult(KILN_CALL* subscribe_window_input)(KilnOwner owner, KilnUiWindowInputFn fn, void* user, KilnHandle* out);
 } KilnUiApi;
 
 /* ====================================================================================================================

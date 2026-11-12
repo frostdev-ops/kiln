@@ -25,7 +25,8 @@
 //      Each DLL: resolved, deduplicated by canonical path (GetFinalPathNameByHandleW), checked through a read-only file
 //      mapping (never loaded for that) and refused when it is this proxy, the system dinput8, another Kiln proxy or
 //      ShroudForge's dinput8 (EMF's loader, which also exports ShroudForge's chain-host name, is accepted), then LoadLibraryExW(LOAD_WITH_ALTERED_SEARCH_PATH) under an SEH guard. Never FreeLibrary.
-//      The results go to the core in KilnBootInfo.chain (and kiln/logs/proxy.log).
+//      The results go to the core in KilnBootInfo.chain (and kiln/logs/proxy.log). Before the first DLL loads, the length
+//      of <game>\shroudlink_client.log goes to KilnBootInfo.addon_log_size (v3): where that addon's lines of this start begin.
 //      kiln/chain.ini [late] (dev.21): an entry of the lists above whose DLL is also named in [late] passes the same
 //      checks but is not loaded: its entry gets status KILN_CHAIN_LATE and kiln-core loads it after Kiln's services,
 //      plugins and native mods ran (a closed-source DLL that hooks the same functions then hooks over Kiln instead of
@@ -33,14 +34,15 @@
 //      play-once mode=profile). A [late] line that names no entry loads nothing (proxy.log says so). An older proxy
 //      ignores the unknown section and loads the entry as before. One limit: EMF's own loader (a [chain] entry) is
 //      never deferred, [late] or not: it starts EMF itself, and kiln-emf decides when the plugins start whether the
-//      real EMF is in the process. A late DLL may patch the exe's entry point like an early one (step 4).
+//      real EMF is in the process. shroudlink's client addon (shroudlink_shutdown + DirectInput8Create exports) is never
+//      deferred either: its live-code scans must finish before Kiln hooks. A late DLL may patch the entry (step 4).
 //   4. Entry gate (technique from ShroudForge's windows-bootstrap/startup_gate.h, MIT): the first 14 bytes of the exe's
 //      entry point become a jump to `gate_entry`. Installed after the chain, so an entry patch made by a chained DLL
 //      (EMF holds a server's start this way) is what the gate saves as "original": at the entry, Kiln's gate runs first,
 //      puts those bytes back and jumps there, so the chained DLL's patch runs next and unwinds to the real entry
 //      (last in, first out).
 // The gate runs on the main thread after the loader lock is released and before any game code: it restores the entry
-// bytes, loads <game>\kiln\kiln-core.dll (or %KILN_CORE%), calls kiln_boot with KilnBootInfo v2 and continues into the
+// bytes, loads <game>\kiln\kiln-core.dll (or %KILN_CORE%), calls kiln_boot with KilnBootInfo v3 and continues into the
 // entry point. The bytes go back before the core starts, so a DLL the core loads (a [late] entry, a native mod) that
 // patches the entry point saves the right bytes and its patch runs first when the gate continues: last in, first out
 // again. If anything fails the game starts vanilla.
@@ -514,6 +516,8 @@ bool export_flags(const unsigned char* b, size_t n, unsigned* flags) {
         if (!strcmp(name, "KilnProxyInfo") || !strcmp(name, "kiln_boot")) *flags |= 1;
         if (!strcmp(name, "emf_loader_identity") || !strcmp(name, "emf_loader_play_once")) *flags |= 2;
         if (!strcmp(name, "ShroudforgeSetDinput8Provider")) *flags |= 4;
+        if (!strcmp(name, "shroudlink_shutdown")) *flags |= 8;
+        if (!strcmp(name, "DirectInput8Create")) *flags |= 16;
     }
     return true;
 }
@@ -539,7 +543,8 @@ bool marker(const unsigned char* b, size_t n, const char (&text)[N]) {
 }
 
 // `emf_loader` (optional): set when the DLL is EMF's own loader (its exports or marker text).
-uint32_t classify(const wchar_t* path, bool* emf_loader = nullptr) {
+// `gated_addon`: same two-export identity as kiln-manage's is_gated_addon; never defer its live-code scans.
+uint32_t classify(const wchar_t* path, bool* emf_loader = nullptr, bool* gated_addon = nullptr) {
     HANDLE f = CreateFileW(path, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
                            FILE_ATTRIBUTE_NORMAL, nullptr);
     if (f == INVALID_HANDLE_VALUE) return kAccept;  // LoadLibrary reports the real error
@@ -553,6 +558,7 @@ uint32_t classify(const wchar_t* path, bool* emf_loader = nullptr) {
             const size_t n = static_cast<size_t>(size.QuadPart);
             unsigned flags = 0;
             if (export_flags(b, n, &flags)) {
+                if (gated_addon) *gated_addon = (flags & (8 | 16)) == (8 | 16);
                 static const wchar_t kCore[] = L"\\kiln\\kiln-core.dll";
                 static const char kWine[] = "Wine builtin DLL";
                 if (memcmp(b + 0x40, kWine, sizeof kWine - 1) == 0) result = kSystem;
@@ -674,8 +680,13 @@ void chain_one(uint32_t source, const wchar_t* base, const wchar_t* raw, uint32_
             return;
         }
     }
-    bool emf_loader = false;
-    if (refusal == kAccept) refusal = classify(shown, &emf_loader);
+    bool emf_loader = false, gated_addon = false;
+    if (refusal == kAccept) refusal = classify(shown, &emf_loader, &gated_addon);
+    if (late_at >= 0 && refusal == kAccept && gated_addon) {
+        plog(L"chain: %s: %s is shroudlink's client addon: its scans must finish before Kiln hooks, so chain.ini [late] "
+             L"does not defer it; loaded now", source_name(source), shown);
+        late_at = -1;
+    }
     if (late_at >= 0 && refusal == kAccept && emf_loader && source == KILN_CHAIN_SOURCE_CHAIN) {
         // EMF's loader starts EMF itself (its core and the DLLs of dinput8-chain.ini). kiln-emf decides when the plugins
         // start whether the real EMF is in the process; a loader that came after that would run EMF next to kiln-emf.
@@ -1279,9 +1290,30 @@ bool crash_reporter() {
     return false;
 }
 
+// shroudlink's client addon (a chained dinput8.dll) appends its start-up result to <game>\shroudlink_client.log from a
+// thread its DllMain starts. The log's length now, before any chained DLL loads, is where this start's lines begin:
+// kiln-core's wait for that addon reads only what follows (core/src/foreign_scan.h), never a second-rounded time.
+uint64_t addon_log_size() {
+    wchar_t path[kPath];
+    if (wlen(g_game) + 32 >= kPath) return KILN_BOOT_LOG_UNKNOWN;
+    lstrcpyW(path, g_game);
+    lstrcatW(path, L"\\shroudlink_client.log");
+    HANDLE h = CreateFileW(path, FILE_READ_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+                           OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (h == INVALID_HANDLE_VALUE) {
+        const DWORD e = GetLastError();
+        return e == ERROR_FILE_NOT_FOUND || e == ERROR_PATH_NOT_FOUND ? 0 : KILN_BOOT_LOG_UNKNOWN;
+    }
+    LARGE_INTEGER size{};
+    const bool ok = GetFileSizeEx(h, &size) && size.QuadPart >= 0;
+    CloseHandle(h);
+    return ok ? static_cast<uint64_t>(size.QuadPart) : KILN_BOOT_LOG_UNKNOWN;
+}
+
 void attach() {
     g_info.size = sizeof(KilnBootInfo);
     g_info.proxy_module = g_self;
+    g_info.addon_log_size = KILN_BOOT_LOG_UNKNOWN;
     if (crash_reporter()) {
         trace(L"[kiln] proxy: the game's crash reporter: no chain, no Kiln, no log\n");
         return;
@@ -1301,6 +1333,7 @@ void attach() {
         if (g_log != INVALID_HANDLE_VALUE) CloseHandle(g_log), g_log = INVALID_HANDLE_VALUE;
         return;
     }
+    g_info.addon_log_size = addon_log_size();  // before the chain: see addon_log_size()
     load_chain(mode == KILN_PLAY_ONCE_PROFILE, mode == KILN_PLAY_ONCE_NO_MODS);
     if (install_gate()) {
         plog(L"entry gate installed (%u chained DLL(s) handled)", g_count);

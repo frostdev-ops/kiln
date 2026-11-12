@@ -8,9 +8,10 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { create } from "zustand";
 import * as api from "../api/commands";
 import type { GameInstall, RuntimeBundle } from "../api/commands";
-import { qk, useGame, useGames, useGameStatus, useRuntimeChanges } from "../api/hooks";
+import { qk, useActiveProfile, useGame, useGames, useGameStatus, useRuntimeChanges } from "../api/hooks";
 import { Button, Modal, toast } from "../ui";
 import { installBundle } from "./runtimeChange";
+import { notifyActivation } from "./notices";
 
 // ---------------------------------------------------------------- finding the game
 
@@ -43,6 +44,30 @@ export function useAutoDetect() {
     if ((!games.isSuccess && !games.isError) || known || useDetect.getState().tried || useDetect.getState().busy) return;
     void detectGames(qc, true);
   }, [games.isSuccess, games.isError, known, qc]);
+}
+
+// ---------------------------------------------------------------- one loaded profile per game
+
+const ensured = new Set<string>();
+
+/** A game with Kiln and no loaded profile gets one by itself, once per start (profile_ensure_default): "My mods" when
+ *  there is no profile at all, else the one the launcher remembers for the game (a reinstall of Kiln). It stays without
+ *  one only when the player chose that (Settings, Profiles: "No profile") or the game runs another data folder's. */
+export function useEnsureProfile(game: GameInstall | null) {
+  const qc = useQueryClient();
+  const status = useGameStatus(game?.id);
+  const active = useActiveProfile(game?.id);
+  const installed = !!status.data?.runtime.installed;
+  const running = !!status.data?.running;
+  const none = active.isSuccess && !active.data;
+  useEffect(() => {
+    if (!game || !installed || running || !none || ensured.has(game.id)) return;
+    ensured.add(game.id);
+    api.profileEnsureDefault(game.id).then((a) => {
+      if (a) { qc.setQueryData(qk.active(game.id), a); notifyActivation(a); }
+      void qc.invalidateQueries({ queryKey: qk.profiles });
+    }).catch((e) => toast.error(e, "Your mod list could not be prepared"));
+  }, [game, installed, running, none, qc]);
 }
 
 // ---------------------------------------------------------------- Install Kiln on Play
@@ -102,12 +127,12 @@ export function InstallKilnModal({ onAdd }: { onAdd: (paths: string[], game: Gam
       return;
     }
     const installed = await qc.fetchQuery({ queryKey: qk.games, queryFn: api.gameList }).then((gs) => gs.find((g) => g.path === game.path) ?? game).catch(() => game);
-    // a first-time player gets "My mods" now, so Play names it and a dropped mod has somewhere to go
+    // a first-time player gets "My mods" now, so the switches and a dropped mod have somewhere to go
     try {
       const a = await api.profileEnsureDefault(installed.id);
       if (a) qc.setQueryData(qk.active(installed.id), a);
       qc.invalidateQueries({ queryKey: qk.profiles });
-    } catch (e) { toast.error(e, "Kiln installed, but the default profile could not be prepared"); }
+    } catch (e) { toast.error(e, "Kiln installed, but your mod list could not be prepared"); }
     if (useInstallPrompt.getState().pending === pending) useInstallPrompt.setState({ pending: null });
     if (pending?.paths.length) onAdd(pending.paths, installed);
   };

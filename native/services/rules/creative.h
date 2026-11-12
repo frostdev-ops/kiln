@@ -42,3 +42,15 @@ void refresh();
 uint32_t install(const KilnApi* api, KilnOwner owner, std::string& off);
 void counters(uint64_t* takeoffs, uint64_t* landings, uint64_t* ends, uint64_t* faults);
 }  // namespace kiln_rules_flight
+
+namespace kiln_rules_steer {
+// Glider steering's mid hook (steer.cpp; feature rules.glide_steer). Returns KILN_RULES_HOOK_GLIDE_STEER or 0 (`off`
+// says why). Called at boot with the other gliding hooks.
+uint32_t install(const KilnApi* api, KilnOwner owner, std::string& off);
+bool active();  // the hook is installed: GLIDE_STEER steers
+// The glide wrap's steering form (rules.cpp glide_pre: GLIDE_BOOST along the nose, no altitude hold at sink 0) for a
+// player's rules and PlayerInput: GLIDE_STEER, the hook installed, and the input mode the hook steers (0).
+bool steers(const KilnRulesPlayer& r, const uint8_t* player_input);
+uint64_t steered();
+uint64_t faults();
+}  // namespace kiln_rules_steer

@@ -13,7 +13,6 @@ use crate::task::Progress;
 use crate::{Error, ErrorCode, Result};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::time::Duration;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -110,7 +109,7 @@ fn tarball(instance: &ServerInstance, progress: &mut dyn Progress) -> Result<Ser
     }
     progress.report(None, &format!("tar -czf {}", file.display()));
     for attempt in 1..=3 {
-        let st = Command::new("tar").args(&args).status().map_err(|e| Error::new(ErrorCode::Io, format!("running tar: {e}")))?;
+        let st = crate::hostenv::command("tar").args(&args).status().map_err(|e| Error::new(ErrorCode::Io, format!("running tar: {e}")))?;
         match st.code() {
             Some(0) => {
                 let md = std::fs::metadata(&file)?;
@@ -169,11 +168,11 @@ pub fn restore(instance: &ServerInstance, name: &str, progress: &mut dyn Progres
         let file = backup_dir(instance)?.join(name);
         let parent = save.parent().ok_or_else(|| Error::invalid("savegame folder has no parent"))?;
         // the tarball holds <savegame folder name>/ then kiln/data/: extract both where they belong
-        let st = Command::new("tar").arg("-xzf").arg(&file).arg("-C").arg(parent).arg("--exclude=kiln").status()?;
+        let st = crate::hostenv::command("tar").arg("-xzf").arg(&file).arg("-C").arg(parent).arg("--exclude=kiln").status()?;
         if !st.success() {
             return Err(Error::new(ErrorCode::Io, format!("tar -x failed ({st}); the previous save is in {}", aside.display())));
         }
-        let _ = Command::new("tar").arg("-xzf").arg(&file).arg("-C").arg(&server).arg("kiln/data").status();
+        let _ = crate::hostenv::command("tar").arg("-xzf").arg(&file).arg("-C").arg(&server).arg("kiln/data").status();
     } else {
         let src = server.join("kiln/backups").join(name);
         crate::util::copy_tree(&src.join("savegame"), &save)?;

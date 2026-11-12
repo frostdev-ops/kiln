@@ -211,6 +211,10 @@ pub struct AddReport {
     pub resumed: bool,
     /// The mods reached the Library only, and why, in words for the player. None when they went into a profile.
     pub library_only: Option<String>,
+    /// What the add did in the profile besides adding, in words for the player: another mod's entry replaced (Kiln
+    /// takes them for one mod), a second copy of the same DLL switched off, an XHL-Core build kept.
+    #[serde(default)]
+    pub notices: Vec<String>,
 }
 
 /// The profile [`add`] puts mods into.
@@ -260,7 +264,7 @@ fn create_default(dirs: &DataDirs, install: &GameInstall) -> Result<Target> {
     let undo = |e: Error| cleanup_created(dirs, install, &id, e);
     let mut p = made;
     // what loaded before (the legacy layout loads every drop-in folder) keeps loading
-    p.dropins = ModKind::ALL.to_vec();
+    p.dropins = ModKind::ALL.into_iter().filter(|k| *k != ModKind::Xhl).collect();
     let p = profile::save(dirs, &p).map_err(undo)?;
     let a = profile::activate(dirs, &p.id, install).map_err(undo)?;
     Ok(Target { profile: p, created: true, activation: Some(a), resumed: false })
@@ -367,12 +371,24 @@ pub fn ensure_default_with(dirs: &DataDirs, install: &GameInstall, running: bool
 /// After Kiln is installed into a game (a reinstall after an uninstall): the profile the launcher remembers for the game
 /// is made the active one again, so the player's mods load without a step. Ok(None): nothing to do (a profile is
 /// active, none is remembered, or `profile.json` names a profile of another data folder). Refused (GameRunning) while
-/// the game runs, like any activation.
+/// the game runs, like any activation. An active profile is written again when it renders differently for the runtime
+/// the game has now (an update or a rollback: a path form an older core refuses, profile::render), so a start from
+/// Steam does not boot with a file the installed core calls invalid; its activation is returned too (what it kept in the
+/// game folder belongs in the install's result), as is profile::refresh_active's report for a current file. A dedicated
+/// server resumes no remembered profile, but its active one follows its runtime the same way.
 pub fn resume_active(dirs: &DataDirs, install: &GameInstall) -> Result<Option<Activation>> {
+    if install.kind != GameKind::Client {
+        if !install.path.join(crate::paths::game::KILN).is_dir() {
+            return Err(Error::new(ErrorCode::Unsupported, "Kiln is not in this game yet: install it first."));
+        }
+        let _lock = lock(dirs)?;
+        return profile::refresh_active(dirs, install);
+    }
     kiln_in_game(install)?;
     let _lock = lock(dirs)?;
     match destination(dirs, install)? {
         Dest::Resume(p) => profile::activate(dirs, &p.id, install).map(Some),
+        Dest::Active(_) => profile::refresh_active(dirs, install),
         _ => Ok(None),
     }
 }
@@ -412,16 +428,48 @@ fn zip_has(_zip: &Path, _name: &str) -> bool {
     false
 }
 
-/// Puts `refs` into `mods` (enabled; another version of the same mod is replaced). Returns the changes, and the refs
-/// that were in already as they are.
-fn merge(mods: &mut ProfileMods, refs: &[LibraryRef]) -> (Vec<ProfileChange>, Vec<LibraryRef>) {
-    let (mut changes, mut already) = (Vec::new(), Vec::new());
+/// Puts `refs` into `mods` (enabled; another version of the same mod is replaced). Returns the changes, the refs that
+/// were in already as they are, and what the player is told besides ([`AddReport::notices`]):
+/// - an entry replaced by one with another name: Kiln takes the two for one mod, which may not be what they are;
+/// - a Kiln-made native that brings the same proxy DLL as another enabled Kiln-made native (the same bytes, or another
+///   copy of the same package, as one dev.23 named after its version): only one of them stays on, the one with the
+///   package's files, else the one added now. A native with its author's own native.json is never switched off;
+/// - XHL-Core that came with another mod's package does not replace the enabled XHL-Core with an older build, or with
+///   a build of unknown age; XHL-Core dropped on its own does (the player's choice).
+pub(crate) fn merge(dirs: &DataDirs, mods: &mut ProfileMods, refs: &[LibraryRef]) -> (Vec<ProfileChange>, Vec<LibraryRef>, Vec<String>) {
+    let (mut changes, mut already, mut notices) = (Vec::new(), Vec::new(), Vec::new());
+    let name = |r: &LibraryRef| library::record(dirs, r).ok().and_then(|x| x.name).filter(|n| !n.trim().is_empty()).unwrap_or_else(|| r.id.clone());
+    let lref = |kind: ModKind, m: &ProfileMod| LibraryRef { kind, id: m.id.clone(), version: m.version.clone(), hash: m.hash.clone() };
     for r in refs {
         let after = ProfileMod { id: r.id.clone(), version: r.version.clone(), hash: r.hash.clone(), enabled: true };
         let list = mods_of(mods, r.kind);
         match list.iter().position(|m| m.id == r.id) {
-            Some(i) if list[i] == after => already.push(r.clone()),
+            Some(i) if list[i] == after => { already.push(r.clone()); continue; }
             Some(i) => {
+                let old_ref = lref(r.kind, &list[i]);
+                if r.kind == ModKind::Native && generated_proxy(dirs, r).is_some()
+                    && library::path_of(dirs, &old_ref).ok().and_then(|p| crate::manifest::read_native(&p).ok())
+                        .is_some_and(|m| !m.description.as_deref().is_some_and(|d| d.starts_with("Generated by Kiln from ")))
+                {
+                    notices.push(format!("{} stays as selected: its author supplied native.json. {} has the same inferred id ({}), so it is only in your Library.",
+                        name(&old_ref), name(r), r.id));
+                    continue;
+                }
+                if r.kind == ModKind::Native && list[i].enabled
+                    && generated_proxy(dirs, r).zip(generated_proxy(dirs, &old_ref))
+                        .is_some_and(|(new, old)| new.lone && !old.lone && new.sha == old.sha && new.file.eq_ignore_ascii_case(&old.file))
+                {
+                    notices.push(format!("{} stays enabled with the files of its package: {} is the same DLL alone, now in your Library.", name(&old_ref), name(r)));
+                    continue;
+                }
+                if let Some(why) = keep_xhl_core(r, &list[i], refs, &name) {
+                    notices.push(why);
+                    continue;
+                }
+                let (old, new) = (name(&lref(r.kind, &list[i])), name(r));
+                if library::package_stem(&old) != library::package_stem(&new) {
+                    notices.push(format!("{new} took the place of {old}: Kiln reads the two as one mod ({} {}). Undo puts {old} back.", r.kind.as_str(), r.id));
+                }
                 let before = std::mem::replace(&mut list[i], after.clone());
                 changes.push(ProfileChange { kind: r.kind, before: Some(before), after });
             }
@@ -430,8 +478,70 @@ fn merge(mods: &mut ProfileMods, refs: &[LibraryRef]) -> (Vec<ProfileChange>, Ve
                 changes.push(ProfileChange { kind: r.kind, before: None, after });
             }
         }
+        // one copy of a proxy DLL runs
+        if r.kind != ModKind::Native { continue; }
+        let Some(new) = generated_proxy(dirs, r) else { continue };
+        let others: Vec<ProfileMod> = mods.native.iter().filter(|m| m.enabled && m.id != r.id).cloned().collect();
+        for other in others {
+            let o = lref(ModKind::Native, &other);
+            let Some(old) = generated_proxy(dirs, &o) else { continue };
+            let (new_name, old_name) = (name(r), name(&o));
+            let same_bytes = old.sha == new.sha;
+            if !old.file.eq_ignore_ascii_case(&new.file)
+                || !(same_bytes || library::package_stem(&old_name) == library::package_stem(&new_name)) { continue; }
+            if new.lone && !old.lone {
+                // the DLL alone, next to its package with the files it reads: the package's copy stays on
+                if let Some(m) = mods.native.iter_mut().find(|m| m.id == r.id) { m.enabled = false; }
+                if let Some(c) = changes.iter_mut().rev().find(|c| c.kind == ModKind::Native && c.after.id == r.id) { c.after.enabled = false; }
+                notices.push(format!("{new_name} is in the profile switched off: {old_name} already runs the same {}, with the files of its package.", new.file));
+                break;
+            }
+            if let Some(m) = mods.native.iter_mut().find(|m| m.id == other.id) { m.enabled = false; }
+            changes.push(ProfileChange { kind: ModKind::Native, before: Some(other.clone()), after: ProfileMod { enabled: false, ..other } });
+            notices.push(if same_bytes {
+                format!("{old_name} is switched off: {new_name} brings the same {}, and both copies would load.", new.file)
+            } else {
+                format!("{old_name} is switched off: {new_name} is another copy of the same mod with its own {}, and both would load.", new.file)
+            });
+        }
     }
-    (changes, already)
+    (changes, already, notices)
+}
+
+/// A native mod Kiln made from a DLL under a proxy name (its generated native.json): that DLL's file name and sha256,
+/// and whether the folder is the DLL alone.
+struct GeneratedProxy {
+    file: String,
+    sha: String,
+    lone: bool,
+}
+
+fn generated_proxy(dirs: &DataDirs, r: &LibraryRef) -> Option<GeneratedProxy> {
+    let folder = library::path_of(dirs, r).ok()?;
+    let m: serde_json::Value = crate::util::read_json(&folder.join(crate::manifest::NATIVE_MANIFEST)).ok()??;
+    if !m.get("description")?.as_str()?.starts_with("Generated by Kiln from ") { return None; }
+    let primary = m.get("dlls")?.get(0)?.as_str()?;
+    let file = Path::new(primary).file_name()?.to_str()?.to_string();
+    if !crate::engines::is_proxy_name(&file) { return None; }
+    let sha = crate::hash::sha256_file(&folder.join(primary)).ok()?.0;
+    let lone = std::fs::read_dir(&folder).ok()?.count() <= 2;
+    Some(GeneratedProxy { file, sha, lone })
+}
+
+/// Why the enabled XHL-Core stays instead of `r` (another build of it), or None to replace it: with both versions known,
+/// only an older build stays out; with one unknown, a build that came with other mods in the same drop (an XHL mod's
+/// archive bundling it) stays out, and XHL-Core dropped on its own is taken.
+fn keep_xhl_core(r: &LibraryRef, have: &ProfileMod, refs: &[LibraryRef], name: &dyn Fn(&LibraryRef) -> String) -> Option<String> {
+    if r.kind != ModKind::Native || r.id != library::XHL_CORE_ID || !have.enabled { return None; }
+    let came_with = refs.iter().find(|o| *o != r).map(|o| name(o));
+    let parse = |v: &str| crate::semver::SemVersion::parse(v).ok().filter(|_| v != "0.0.0");
+    match (parse(&have.version), parse(&r.version)) {
+        (Some(a), Some(b)) if b.compare(&a).is_lt() => Some(format!("XHL-Core {} stays in the profile: {} brought XHL-Core {}, an older build; it is in your Library.",
+            have.version, came_with.unwrap_or_else(|| "this download".into()), r.version)),
+        (Some(_), Some(_)) => None,
+        _ => came_with.map(|with| format!("The XHL-Core you have stays in the profile: {with} brought another build of XHL-Core{}, now in your \
+            Library. Switch to it on the profile's Native mods if you want that one.", if r.version != "0.0.0" { format!(" ({})", r.version) } else { String::new() })),
+    }
 }
 
 fn named(dirs: &DataDirs, r: &LibraryRef) -> Result<AddedMod> {
@@ -531,6 +641,15 @@ fn add_impl(dirs: &DataDirs, install: &GameInstall, paths: &[PathBuf], is_runnin
             refs.push(r.clone());
         }
     }
+    for r in report.import.imported.iter().chain(&report.import.existing) {
+        if let Some(selected) = refs.iter().find(|s| s.kind == r.kind && s.id == r.id && *s != r) {
+            let (chosen, omitted) = (named(dirs, selected)?, named(dirs, r)?);
+            let notice = format!("Kiln selected {} {} ({:.8}) over {} {} ({:.8}) for this drop: both have the id {} {}. Both are in your Library.",
+                chosen.name, chosen.version, chosen.hash.trim_start_matches("kdh1:"),
+                omitted.name, omitted.version, omitted.hash.trim_start_matches("kdh1:"), r.kind.as_str(), r.id);
+            if !report.notices.contains(&notice) { report.notices.push(notice); }
+        }
+    }
     if progress.canceled() { return Err(Error::new(ErrorCode::Canceled, "canceled")); }
     if refs.is_empty() {
         return Ok(report);
@@ -580,8 +699,9 @@ fn add_impl(dirs: &DataDirs, install: &GameInstall, paths: &[PathBuf], is_runnin
 fn put_in_profile(dirs: &DataDirs, install: &GameInstall, target: &Target, refs: &[LibraryRef], running: bool, progress: &mut dyn Progress,
                   report: &mut AddReport) -> Result<()> {
     let mut p = target.profile.clone();
-    let (changes, already) = merge(&mut p.mods, refs);
+    let (changes, already, notices) = merge(dirs, &mut p.mods, refs);
     report.already = already.iter().map(|r| named(dirs, r)).collect::<Result<_>>()?;
+    report.notices.extend(notices);
     if changes.is_empty() {
         return Ok(());
     }
@@ -589,7 +709,8 @@ fn put_in_profile(dirs: &DataDirs, install: &GameInstall, target: &Target, refs:
     // with an empty dependency list, or an error after the mods have already been applied.
     let details = || -> Result<(Vec<MissingMod>, Vec<AddedMod>)> {
         let missing = missing_for(dirs, &p, &changes)?;
-        let added = changes.iter().map(|c| named(dirs, &LibraryRef {
+        // an entry switched off (a second copy of one DLL) is a change, not a mod that now runs
+        let added = changes.iter().filter(|c| c.after.enabled).map(|c| named(dirs, &LibraryRef {
             kind: c.kind, id: c.after.id.clone(), version: c.after.version.clone(), hash: c.after.hash.clone()
         })).collect::<Result<_>>()?;
         Ok((missing, added))
@@ -600,9 +721,11 @@ fn put_in_profile(dirs: &DataDirs, install: &GameInstall, target: &Target, refs:
     if !running {
         progress.report(None, "writing the game's profile.json");
         match profile::refresh_active(dirs, install) {
-            Ok(Some(a)) => {
+            Ok(Some(mut a)) => {
                 // another active profile that had changed is written again too; only the target's write counts here
                 report.applied = a.profile_id == saved.id;
+                // a new or resumed profile was activated just before: what that activation kept or noted stays in the result
+                if let Some(first) = report.activation.take() { a.keep_notes_of(first); }
                 report.activation = Some(a);
             }
             Ok(None) => {}

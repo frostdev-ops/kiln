@@ -154,6 +154,8 @@ pub struct ProfileFileMods {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub eml: Vec<FolderMod>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub xhl: Vec<FolderMod>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub shroudforge: Vec<FolderMod>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub set: Vec<FolderMod>,
@@ -180,6 +182,7 @@ impl ProfileFileMods {
             ModKind::Native => &self.native,
             ModKind::Emf => &self.emf,
             ModKind::Eml => &self.eml,
+            ModKind::Xhl => &self.xhl,
             ModKind::ShroudForge => &self.shroudforge,
             ModKind::Set => &self.set,
             ModKind::Greeneye => &self.greeneye,
@@ -198,6 +201,7 @@ impl ProfileFileMods {
             ModKind::Native => &mut self.native,
             ModKind::Emf => &mut self.emf,
             ModKind::Eml => &mut self.eml,
+            ModKind::Xhl => &mut self.xhl,
             ModKind::ShroudForge => &mut self.shroudforge,
             ModKind::Set => &mut self.set,
             ModKind::Greeneye => &mut self.greeneye,
@@ -268,6 +272,8 @@ pub struct ProfileMods {
     #[serde(default)]
     pub eml: Vec<ProfileMod>,
     #[serde(default)]
+    pub xhl: Vec<ProfileMod>,
+    #[serde(default)]
     pub shroudforge: Vec<ProfileMod>,
     #[serde(default)]
     pub set: Vec<ProfileMod>,
@@ -294,6 +300,7 @@ impl ProfileMods {
             ModKind::Plugin => &self.plugin,
             ModKind::Emf => &self.emf,
             ModKind::Eml => &self.eml,
+            ModKind::Xhl => &self.xhl,
             ModKind::ShroudForge => &self.shroudforge,
             ModKind::Set => &self.set,
             ModKind::Greeneye => &self.greeneye,
@@ -312,6 +319,7 @@ impl ProfileMods {
             ModKind::Plugin => &mut self.plugin,
             ModKind::Emf => &mut self.emf,
             ModKind::Eml => &mut self.eml,
+            ModKind::Xhl => &mut self.xhl,
             ModKind::ShroudForge => &mut self.shroudforge,
             ModKind::Set => &mut self.set,
             ModKind::Greeneye => &mut self.greeneye,
@@ -371,13 +379,13 @@ impl Profile {
     /// and Ember's while the profile lists no mod of that engine.
     pub fn dropin_kinds(&self) -> Vec<ModKind> {
         if self.dropins_engines {
-            return ModKind::ALL.into_iter().filter(|k| self.dropins.contains(k)).collect();
+            return ModKind::ALL.into_iter().filter(|k| *k != ModKind::Xhl && self.dropins.contains(k)).collect();
         }
         if ModKind::CORE.iter().all(|k| self.dropins.contains(k)) {
-            return ModKind::ALL.to_vec();
+            return ModKind::ALL.into_iter().filter(|k| *k != ModKind::Xhl).collect();
         }
-        ModKind::ALL.into_iter().filter(|k| self.dropins.contains(k) || *k == ModKind::Enshwick
-            || (READ_WHEN_UNLISTED.contains(k) && self.mods.list(*k).is_empty())).collect()
+        ModKind::ALL.into_iter().filter(|k| *k != ModKind::Xhl && (self.dropins.contains(k) || *k == ModKind::Enshwick
+            || (READ_WHEN_UNLISTED.contains(k) && self.mods.list(*k).is_empty()))).collect()
     }
 
     /// profile.json `dropins` for this profile: `true` when every folder is on, `false` when none is, else the list of
@@ -412,6 +420,8 @@ pub struct ProfileCounts {
     pub emf: u32,
     #[serde(default)]
     pub eml: u32,
+    #[serde(default)]
+    pub xhl: u32,
     #[serde(default)]
     pub shroudforge: u32,
     #[serde(default)]
@@ -459,6 +469,37 @@ pub struct Activation {
     /// (own_loaders::notes): each has a one-sentence `text` for the Play and profile pages. Empty: none installed.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub own_loaders: Vec<crate::own_loaders::OwnLoaderNote>,
+    /// Files mods wrote into their placed folders that activation moved to `kiln/kept-mod-files` or put back from
+    /// there (engine_mods::PlaceReport::kept_files): one sentence per mod. Empty: none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub kept_files: Vec<String>,
+    /// Safety repairs applied only to the game-side profile (saved profile and Library sources are unchanged), and the
+    /// per-mod notes of the placement (engine_mods::PlaceReport::warnings: a ShroudForge setting value a new version
+    /// refuses, earlier settings that could not be read).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<String>,
+    /// Placed copies activation left in the game folder although the profile switched them off, removed them or wants
+    /// another version (their code changed, or Kiln cannot inspect or carry what is in them): the same objects
+    /// [`deactivate_report`] and uninstall return, `{path, reason, mayRun}`. Their own loader may still run them.
+    /// Empty: none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub retained: Vec<crate::engine_mods::RetainedPlacement>,
+}
+
+impl Activation {
+    /// Two activations in one operation (a profile made or resumed, then written again with the added mods): what the
+    /// earlier one kept or noted is kept in this one's lists. `retained` stays this one's: it is the game folder now.
+    pub fn keep_notes_of(&mut self, earlier: Activation) {
+        self.keep_notes(earlier.kept_files, earlier.warnings);
+    }
+
+    fn keep_notes(&mut self, kept_files: Vec<String>, warnings: Vec<String>) {
+        for (mine, theirs) in [(&mut self.kept_files, kept_files), (&mut self.warnings, warnings)] {
+            let later = std::mem::take(mine);
+            *mine = theirs;
+            for s in later { if !mine.contains(&s) { mine.push(s); } }
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -476,9 +517,38 @@ pub struct NativePlanEntry {
 #[serde(rename_all = "camelCase")]
 pub struct ResolvePreview {
     pub side: RunSide,
+    /// The main menu's load order and why the others wait or stay out. On a client a `side: "server"` mod is never
+    /// "not loaded on a client" here: see `with_world`.
     pub kiln: Resolution,
     pub native: Vec<NativePlanEntry>,
     pub warnings: Vec<String>,
+    /// Client: the Kiln mods that start with the player's own world (single-player, or friends joining it) instead of
+    /// in the menu: `side: "server"` mods and the mods that need one (Kiln.Host ModManager.StartHosting), in the order
+    /// they load then. Each is also in `kiln.rejected`, skipped, with [`WITH_WORLD`] as its reason. Empty on a server
+    /// and when kiln.json `mods.hosted` is false ([`HOSTED_OFF`]).
+    #[serde(default)]
+    pub with_world: Vec<String>,
+}
+
+/// A client's `side: "server"` Kiln mod in the launcher: it starts with the player's own world, not in the menu, and
+/// not in someone else's world (docs/kiln/client.md, "Mods and sides"). The game says `side 'server': loads while this
+/// client hosts a world` (Kiln.Host ModManager.HostedReason).
+pub const WITH_WORLD: &str = "Starts with your own world, when you play alone or friends join you. It does not run in someone else's world.";
+/// The same with kiln.json `"mods": {"hosted": false}` in the game (Kiln.Host ModManager.HostedOffReason).
+pub const HOSTED_OFF: &str = "Off in this game: its kiln.json turns off mods that start with your world (mods.hosted is false).";
+/// A server mod that would not load when the player's world starts: this, then the resolver's reason.
+pub const WORLD_FAILS: &str = "Will not start with your world: ";
+/// The game's own words for the two (state/mods.json, kiln.log; managed/Kiln.Api/Mods.cs HostedReasons, a test keeps
+/// them equal).
+pub const GAME_HOSTED_WAITING: &str = "side 'server': loads while this client hosts a world";
+pub const GAME_HOSTED_OFF: &str = "side 'server': not loaded on a client (kiln.json mods.hosted is false)";
+
+/// kiln.json `"mods": {"hosted": false}` keeps a client's server mods off; anything else, a missing or unreadable file
+/// too, leaves them on (Kiln.Host HostConfig.Read).
+pub fn hosted_server_mods(game: &Path) -> bool {
+    let Ok(text) = std::fs::read_to_string(game.join(crate::paths::game::KILN).join("kiln.json")) else { return true };
+    let Ok(tree) = crate::jsonc::parse_tree(&text) else { return true };
+    tree.get("mods").and_then(|m| m.get("hosted")).and_then(|h| h.as_bool()) != Some(false)
 }
 
 /// A Kiln mod of a profile that was built against a newer Kiln than a game's runtime (its kiln.mod.json `kilnBuild`): it may
@@ -632,6 +702,7 @@ fn counts(p: &Profile) -> ProfileCounts {
         plugin: n(ModKind::Plugin),
         emf: n(ModKind::Emf),
         eml: n(ModKind::Eml),
+        xhl: n(ModKind::Xhl),
         shroudforge: n(ModKind::ShroudForge),
         set: n(ModKind::Set),
         greeneye: n(ModKind::Greeneye),
@@ -777,11 +848,75 @@ fn native_as_manifest(n: &NativeManifest) -> KilnManifest {
     }
 }
 
+/// A native mod that is another engine's own loader (SET's powrprof.dll ...): Kiln loads it, and that engine's plugin
+/// then stands aside, so the engine's mods in the profile do not run through Kiln (player report r1110).
+pub fn native_loader_warning(id: &str, engine: crate::engines::Engine, file: &str) -> String {
+    let short = crate::engines::short_name(engine);
+    format!("native mod {id} is {short}'s own loader ({file}), added before Kiln recognised it: Kiln loads it, so Kiln's {short} \
+        plugin stands aside and the profile's {short} mods do not run through Kiln. Remove {id} from the profile and the Library; \
+        Kiln runs {short} mods itself")
+}
+
+/// Old launchers imported SET's bundled proxy as a native mod. Do not run that accidental second loader from the
+/// Library; leave both the Library source and saved profile untouched. Deliberate SET installs next to the game still
+/// run as before (kiln-set's coexistence detector steps aside). Other engines may deliberately use their own loader.
+fn skipped_native_loaders(dirs: &DataDirs, profile: &Profile) -> Vec<String> {
+    profile.mods.native.iter().filter(|m| m.enabled).filter_map(|m| {
+        let folder = crate::library::path_of(dirs, &lref(ModKind::Native, m)).ok()?;
+        let (engine, file) = crate::engines::own_loader_in(&folder)?;
+        (engine == crate::engines::Engine::Set).then(|| skipped_set_loader(&m.id, &file))
+    }).collect()
+}
+
+fn skipped_set_loader(id: &str, file: &str) -> String {
+    format!("Skipped native mod {id}: {file} is Shrouded Engine Tweaks's own loader, not a mod; Kiln runs SET mods itself. \
+        The Library source and saved profile are kept unchanged. Remove this native entry from the profile and import the \
+        SET mod folders instead; to use SET's own loader deliberately, install it next to the game")
+}
+
 fn environment(side: RunSide) -> Environment {
-    Environment { kiln: crate::VERSION.into(), api: KILN_API.into(), side, unavailable_features: Vec::new(), loaded: Vec::new() }
+    Environment { kiln: crate::VERSION.into(), api: KILN_API.into(), side, unavailable_features: Vec::new(), loaded: Vec::new(), hosting: false }
+}
+
+/// A client's menu resolution (`menu`) as the launcher shows it, with what happens when the player's own world starts
+/// (`world`, resolved with `hosting`): Kiln.Host loads the server mods then, and the mods that failed for want of
+/// one. Returns the ids that start with the world; their rejections become [`WITH_WORLD`]. A mod that would not load
+/// then either says why (the two resolutions differ only where a server mod is involved). Without `world` (kiln.json
+/// `mods.hosted` false) the server mods say [`HOSTED_OFF`].
+fn with_world(menu: &mut Resolution, world: Option<&Resolution>, server_dirs: &std::collections::BTreeSet<String>) -> Vec<String> {
+    let mut ids = Vec::new();
+    for r in &mut menu.rejected {
+        if r.state == ModState::Disabled {
+            continue;
+        }
+        let side_skip = r.state == ModState::Skipped && server_dirs.contains(&r.dir);
+        match world {
+            None if side_skip => r.reason = HOSTED_OFF.into(),
+            None => {}
+            Some(w) => match w.rejected.iter().find(|x| x.dir == r.dir) {
+                Some(x) if side_skip || x.reason != r.reason => (r.state, r.reason) = (x.state, format!("{WORLD_FAILS}{}", x.reason)),
+                Some(_) => {}
+                None if w.order.contains(&r.id) => {
+                    (r.state, r.reason) = (ModState::Skipped, WITH_WORLD.into());
+                    ids.push(r.id.clone());
+                }
+                None => {}
+            },
+        }
+    }
+    if let Some(w) = world {
+        ids.sort_by_key(|id| w.order.iter().position(|x| x == id));
+    }
+    ids
 }
 
 pub fn resolve_preview(dirs: &DataDirs, profile: &Profile, side: RunSide) -> Result<ResolvePreview> {
+    resolve_preview_for(dirs, profile, side, true)
+}
+
+/// [`resolve_preview`] for a game whose kiln.json says whether a client's server mods start with the player's own
+/// world (`hosted`: [`hosted_server_mods`]).
+pub fn resolve_preview_for(dirs: &DataDirs, profile: &Profile, side: RunSide, hosted: bool) -> Result<ResolvePreview> {
     let mut warnings = Vec::new();
     // managed mods
     let mut candidates = Vec::new();
@@ -804,6 +939,46 @@ pub fn resolve_preview(dirs: &DataDirs, profile: &Profile, side: RunSide) -> Res
         }
     }
     let mut kiln = crate::resolver::resolve(&candidates, &environment(side))?;
+    let mut starts_with_world = Vec::new();
+    if side == RunSide::Client {
+        // Kiln.Host says when a server mod loads (ModManager.LoadSet); the resolver's "not loaded on a client" is not it
+        let server_dirs: std::collections::BTreeSet<String> = candidates.iter().filter(|c| c.manifest.as_ref().is_some_and(|m| m.side == crate::manifest::Side::Server))
+            .map(|c| c.dir.clone()).collect();
+        let world = if hosted {
+            // ModManager.StartHosting keeps the menu's mods running: ordering edges cannot reorder them. It resolves
+            // the skipped server mods first, then retries failed dependents of the server mods that resolved.
+            let mut env = Environment { hosting: true, ..environment(side) };
+            let manifests = |ids: &[String]| candidates.iter().filter_map(|c|
+                c.manifest.as_ref().filter(|m| ids.contains(&m.id)).cloned()).collect::<Vec<_>>();
+            env.loaded = manifests(&kiln.order);
+            let servers: Vec<_> = candidates.iter().filter(|c| kiln.rejected.iter().any(|r|
+                r.dir == c.dir && r.state == ModState::Skipped && server_dirs.contains(&r.dir))).cloned().collect();
+            let mut world = crate::resolver::resolve(&servers, &env)?;
+            let mut dependents: std::collections::BTreeSet<String> = world.order.iter().cloned().collect();
+            let mut retry_dirs = std::collections::BTreeSet::new();
+            loop {
+                let mut changed = false;
+                for c in &candidates {
+                    if !retry_dirs.contains(&c.dir)
+                        && kiln.rejected.iter().chain(&world.rejected).any(|r| r.dir == c.dir && r.state == ModState::Failed)
+                        && c.manifest.as_ref().is_some_and(|m| m.dependencies.iter().any(|d| dependents.contains(&d.id)))
+                    {
+                        retry_dirs.insert(c.dir.clone());
+                        dependents.insert(c.id());
+                        changed = true;
+                    }
+                }
+                if !changed { break; }
+            }
+            let retry: Vec<_> = candidates.iter().filter(|c| retry_dirs.contains(&c.dir) && !servers.iter().any(|s| s.dir == c.dir)).cloned().collect();
+            env.loaded.extend(manifests(&world.order));
+            let retried = crate::resolver::resolve(&retry, &env)?;
+            world.order.extend(retried.order);
+            world.rejected.extend(retried.rejected);
+            Some(world)
+        } else { None };
+        starts_with_world = with_world(&mut kiln, world.as_ref(), &server_dirs);
+    }
     kiln.rejected.extend(disabled);
     // native mods: the same rules over their native.json
     let mut ncands = Vec::new();
@@ -816,6 +991,15 @@ pub fn resolve_preview(dirs: &DataDirs, profile: &Profile, side: RunSide) -> Res
         if !m.enabled {
             native.push(NativePlanEntry { id: m.id.clone(), version: m.version.clone(), phase, enabled: false, reason: Some("disabled in the profile".into()) });
             continue;
+        }
+        if let Some((engine, file)) = crate::engines::own_loader_in(&folder) {
+            if engine == crate::engines::Engine::Set {
+                let reason = skipped_set_loader(&m.id, &file);
+                warnings.push(reason.clone());
+                native.push(NativePlanEntry { id: m.id.clone(), version: m.version.clone(), phase, enabled: false, reason: Some(reason) });
+                continue;
+            }
+            warnings.push(native_loader_warning(&m.id, engine, &file));
         }
         match man {
             Ok(n) => {
@@ -850,7 +1034,7 @@ pub fn resolve_preview(dirs: &DataDirs, profile: &Profile, side: RunSide) -> Res
             }
         }
     }
-    Ok(ResolvePreview { side, kiln, native: ordered, warnings })
+    Ok(ResolvePreview { side, kiln, native: ordered, warnings, with_world: starts_with_world })
 }
 
 fn game_or_copy(host: &Path, install: &GameInstall, mode: PathMode, rel: impl FnOnce() -> String) -> Result<String> {
@@ -871,21 +1055,67 @@ fn copy_rel(pid: &str, kind: ModKind, id: &str) -> String {
 /// `<game>/kiln/profiles` relative to `<game>/kiln/`.
 const COPY_ROOT_REL: &str = "profiles";
 
+/// The reader revision (native/core/src/profile.h KILN_PROFILE_READER) from which a core reads Copy mode's paths into
+/// a game folder outside kiln/: `../mods/<folder>` in mods.eml, `../greeneye/<id>` in mods.greeneye.
+pub const PROFILE_READER_GAME_MODS: u32 = 2;
+
+/// The reader revision from which a core reads `../mods/<id>` in mods.flame (Kiln's copy of a Flame mod in the folder it
+/// reads its own files from, engine_mods::FLAME_MODS). A core of revision 2 calls such a profile invalid.
+pub const PROFILE_READER_FLAME_MODS: u32 = 3;
+
+/// The reader revision a Copy-mode path into the game folder outside kiln/ needs for mods of `kind`.
+fn reader_for_game_path(kind: ModKind) -> u32 {
+    if kind == ModKind::Flame { PROFILE_READER_FLAME_MODS } else { PROFILE_READER_GAME_MODS }
+}
+
+/// The profile.json reader revision of the runtime in the game: what the kiln-runtime.json of the bundle its install
+/// receipt names declares (`profileReader`). 1 when it declares none (a runtime from before), and when the launcher
+/// cannot tell (no receipt, a core file that is not the receipt's, or no such bundle in `<data>/runtime/`): an older
+/// form is always read, a newer one is not.
+fn runtime_profile_reader(dirs: &DataDirs, install: &GameInstall) -> u32 {
+    let Ok(Some(receipt)) = crate::install::read_receipt(&install.path) else { return 1 };
+    // believed only while the core in the game is the one the receipt lists (an older runtime unzipped by hand over a
+    // launcher install keeps the newer receipt)
+    let core = "kiln/kiln-core.dll";
+    let listed = receipt.files.iter().find(|f| f.path == core);
+    if !listed.is_some_and(|f| crate::hash::sha256_file(&install.path.join(core)).is_ok_and(|(h, _)| h == f.sha256)) {
+        return 1;
+    }
+    crate::bundle::find(dirs, &receipt.runtime.version).ok().and_then(|b| crate::bundle::read(&b.file).ok())
+        .and_then(|m| m.profile_reader).unwrap_or(1)
+}
+
 /// Renders the game-side file for an install (no writes): game paths, fingerprint, generation.
 pub fn render(dirs: &DataDirs, profile: &Profile, install: &GameInstall, mode: PathMode) -> Result<ProfileFile> {
     check_profile(profile)?;
     let pid = &profile.id;
     let mut mods = ProfileFileMods::default();
+    // Copy mode names a game folder outside kiln/ (../mods/<folder>, ../greeneye/<id>, ../mods/<id> for Flame) only for a
+    // core that reads that form in that list, and only under its folder name rule: every older core calls the whole
+    // profile invalid and loads no mods, so those entries keep the copy under kiln/profiles/ (sync_copies makes it), as
+    // before the form existed.
+    let reader = std::cell::OnceCell::new();
+    let outside_kiln_ok = |k: ModKind, placed: &Path| *reader.get_or_init(|| runtime_profile_reader(dirs, install)) >= reader_for_game_path(k)
+        && placed.file_name().and_then(|n| n.to_str()).is_some_and(crate::engine_mods::is_game_folder_name);
     for k in ModKind::ALL.into_iter().filter(|k| *k != ModKind::Plugin) {
         for m in list_of(&profile.mods, k) {
             let folder = crate::library::path_of(dirs, &lref(k, m))?;
             // ShroudForge and SET read their mods from their own folder in the game: the copy placed there
             // (their plugins take the list as "this profile uses the engine"; copy mode keeps the relative copy path)
-            let path = match crate::engine_mods::placed_folder(k, &install.path, &m.id) {
+            // An EML mod a native DLL reads in the game's mods folder runs from the copy placed there, so the DLL and
+            // the Lua read the same settings (engine_mods::game_folder_of)
+            let game_path = crate::engine_mods::game_path_of(dirs, k, m, &install.path);
+            let placed = game_path.clone().or_else(|| crate::engine_mods::placed_folder(k, &install.path, &m.id));
+            let path = match placed {
                 Some(placed) if mode != PathMode::Copy => game_or_copy(&placed, install, mode, String::new)?,
+                Some(placed) if game_path.is_some() && outside_kiln_ok(k, &placed) => format!("../{}", placed.strip_prefix(&install.path)
+                    .map_err(|_| Error::invalid("EML game folder is outside the install"))?.to_string_lossy().replace('\\', "/")),
+                _ if mode == PathMode::Copy && crate::engine_mods::run_folder(k).is_some() => run_folder_copy_rel(profile, install, k, m, &folder)?,
                 _ => game_or_copy(&folder, install, mode, || copy_rel(pid, k, &m.id))?,
             };
-            let fm = FolderMod { id: m.id.clone(), version: Some(m.version.clone()), path, hash: Some(m.hash.clone()), enabled: m.enabled };
+            let enabled = m.enabled && !(k == ModKind::Native && crate::engines::own_loader_in(&folder)
+                .is_some_and(|(engine, _)| engine == crate::engines::Engine::Set));
+            let fm = FolderMod { id: m.id.clone(), version: Some(m.version.clone()), path, hash: Some(m.hash.clone()), enabled };
             if let Some(list) = mods.folders_mut(k) {
                 list.push(fm);
             }
@@ -967,23 +1197,122 @@ fn ensure_kiln(install: &GameInstall) -> Result<PathBuf> {
     Ok(kiln)
 }
 
+// Unlike kdh1, include dot files and empty directories: neither is disposable player data. Refuse links.
+fn same_copy_tree(a: &Path, b: &Path) -> Result<bool> {
+    crate::engine_mods::refuse_symlink_path(a, a)?;
+    crate::engine_mods::refuse_symlink_path(b, b)?;
+    let names = |p: &Path| -> Result<std::collections::BTreeSet<std::ffi::OsString>> {
+        std::fs::read_dir(p)?.map(|e| e.map(|e| e.file_name()).map_err(Error::from)).collect()
+    };
+    let entries = names(a)?;
+    if entries != names(b)? { return Ok(false); }
+    for name in entries {
+        let (a, b) = (a.join(&name), b.join(&name));
+        crate::engine_mods::refuse_symlink_path(&a, &a)?;
+        crate::engine_mods::refuse_symlink_path(&b, &b)?;
+        let (am, bm) = (std::fs::symlink_metadata(&a)?, std::fs::symlink_metadata(&b)?);
+        if am.is_dir() && bm.is_dir() {
+            if !same_copy_tree(&a, &b)? { return Ok(false); }
+        } else if !(am.is_file() && bm.is_file() && crate::hash::sha256_file(&a)? == crate::hash::sha256_file(&b)?) {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
+// The Library's files are all in `dst`, unchanged, and nothing in `dst` is a link: whatever else the folder holds, the
+// mod or the player wrote there (settings, logs). Such a copy is still the copy of that version and is used as it is;
+// a fresh sibling at every activation would leave the mod's settings behind each time.
+fn holds_copy_tree(src: &Path, dst: &Path) -> Result<bool> {
+    fn no_links(p: &Path) -> Result<bool> {
+        for e in std::fs::read_dir(p)? {
+            let e = e?.path();
+            let m = std::fs::symlink_metadata(&e)?;
+            if m.file_type().is_symlink() || !(m.is_dir() || m.is_file()) || (m.is_dir() && !no_links(&e)?) { return Ok(false); }
+        }
+        Ok(true)
+    }
+    fn within(src: &Path, dst: &Path) -> Result<bool> {
+        for e in std::fs::read_dir(src)? {
+            let name = e?.file_name();
+            let (a, b) = (src.join(&name), dst.join(&name));
+            let am = std::fs::symlink_metadata(&a)?;
+            let Ok(bm) = std::fs::symlink_metadata(&b) else { return Ok(false) };
+            if am.is_dir() {
+                if !(bm.is_dir() && within(&a, &b)?) { return Ok(false); }
+            } else if !(am.is_file() && bm.is_file() && crate::hash::sha256_file(&a)? == crate::hash::sha256_file(&b)?) {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    }
+    crate::engine_mods::refuse_symlink_path(src, src)?;
+    crate::engine_mods::refuse_symlink_path(dst, dst)?;
+    Ok(std::fs::symlink_metadata(dst)?.is_dir() && no_links(dst)? && within(src, dst)?)
+}
+
+// A fallback that a mod or player changed is not disposable, even while an older runtime still needs a copy.
+// A copy that still holds every Library file unchanged is used as it is, with what was written beside them. Any other
+// (another version, a changed shipped file, a link) is left alone and a free sibling is used instead; the unused-copy
+// pass keeps the old folder in place and reports its exact path.
+fn run_folder_copy_rel(profile: &Profile, install: &GameInstall, kind: ModKind, m: &ProfileMod, src: &Path) -> Result<String> {
+    let parent = install.path.join(crate::paths::game::COPY_PROFILES).join(&profile.id).join(kind.as_str());
+    crate::engine_mods::refuse_symlink_path(&install.path, &parent)?;
+    for n in 0..128 {
+        // A leading dot cannot be a Library mod id, so this cannot take another selected mod's destination.
+        let name = if n == 0 { m.id.clone() } else { format!(".kiln-copy-{}-{n}", m.id) };
+        let rel = copy_rel(&profile.id, kind, &name);
+        let dst = install.path.join(crate::paths::game::KILN).join(&rel);
+        match std::fs::symlink_metadata(&dst) {
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(rel),
+            Err(e) => return Err(io_at(&dst, "checking")(e)),
+            Ok(_) if holds_copy_tree(src, &dst).unwrap_or(false) => return Ok(rel),
+            Ok(_) => {},
+        }
+    }
+    Err(Error::new(ErrorCode::Refused, format!("{}: no free fallback copy folder; existing files were kept", parent.display())))
+}
+
 /// Copy mode: `<game>/kiln/profiles/<pid>/<kind>/<id>/` hold verified copies of the enabled mods; unchanged copies
-/// are kept, copies of mods the profile no longer lists are removed. Returns the number of folders copied.
-fn sync_copies(dirs: &DataDirs, profile: &Profile, install: &GameInstall) -> Result<u32> {
+/// are kept. Flame/Greeneye use a free sibling when that copy changed and retain unused changed copies. Returns the
+/// number of folders copied.
+fn sync_copies(dirs: &DataDirs, profile: &Profile, install: &GameInstall, warnings: &mut Vec<String>) -> Result<u32> {
     let base = install.path.join(crate::paths::game::COPY_PROFILES).join(&profile.id);
     let mut copied = 0;
+    // A Greeneye or Flame mod whose current copy is in <game>/greeneye/ or <game>/mods/ runs from there when the core
+    // reads `../greeneye/<id>` or `../mods/<id>` in that list (render): no copy here. An older core gets this copy, as
+    // the profile then names it.
+    let reader = std::cell::OnceCell::new();
+    let runs_placed = |k: ModKind, m: &ProfileMod| crate::engine_mods::run_folder(k).is_some()
+        && crate::engine_mods::game_path_of(dirs, k, m, &install.path).is_some()
+        && *reader.get_or_init(|| runtime_profile_reader(dirs, install)) >= reader_for_game_path(k);
     for k in ModKind::ALL {
         let kdir = base.join(k.as_str());
-        let wanted: Vec<&ProfileMod> = list_of(&profile.mods, k).iter().filter(|m| m.enabled).collect();
+        let wanted = list_of(&profile.mods, k).iter().filter(|m| m.enabled && !runs_placed(k, m)).map(|m| {
+            let rel = if crate::engine_mods::run_folder(k).is_some() {
+                run_folder_copy_rel(profile, install, k, m, &crate::library::path_of(dirs, &lref(k, m))?)?
+            } else { copy_rel(&profile.id, k, &m.id) };
+            Ok((m, install.path.join(crate::paths::game::KILN).join(rel)))
+        }).collect::<Result<Vec<_>>>()?;
         for e in std::fs::read_dir(&kdir).into_iter().flatten().flatten() {
             let name = e.file_name().to_string_lossy().into_owned();
-            if !wanted.iter().any(|m| m.id == name) {
+            if !wanted.iter().any(|(_, dst)| *dst == e.path()) {
+                if crate::engine_mods::run_folder(k).is_some() {
+                    let unchanged = crate::engine_mods::refuse_symlink_path(&install.path, &e.path()).is_ok()
+                        && list_of(&profile.mods, k).iter().find(|m| m.id == name)
+                            .and_then(|m| crate::library::path_of(dirs, &lref(k, m)).ok()
+                                .filter(|src| crate::hash::dirhash(src).is_ok_and(|h| h == m.hash)))
+                            .is_some_and(|src| same_copy_tree(&src, &e.path()).unwrap_or(false));
+                    if !unchanged {
+                        warnings.push(format!("{}:{name}: kept the unused profile copy at {}: its files are changed or unverified", k.as_str(), e.path().display()));
+                        continue;
+                    }
+                }
                 let _ = std::fs::remove_dir_all(e.path());
             }
         }
-        for m in wanted {
+        for (m, dst) in wanted {
             let src = crate::library::path_of(dirs, &lref(k, m))?;
-            let dst = kdir.join(&m.id);
             if k == ModKind::Plugin {
                 let file = src.file_name().map(|f| f.to_owned()).unwrap_or_default();
                 let target = dst.join(&file);
@@ -997,10 +1326,22 @@ fn sync_copies(dirs: &DataDirs, profile: &Profile, install: &GameInstall) -> Res
                     return Err(Error::new(ErrorCode::HashMismatch, format!("{}: the copy does not match {}", target.display(), m.hash)));
                 }
             } else {
-                if dst.is_dir() && crate::hash::dirhash(&dst).is_ok_and(|h| h == m.hash) {
-                    continue;
+                if crate::engine_mods::run_folder(k).is_some() {
+                    crate::engine_mods::refuse_symlink_path(&install.path, &dst)?;
+                    match std::fs::symlink_metadata(&dst) {
+                        // the Library entry is the profile's version and the copy still holds all of it
+                        Ok(_) if crate::hash::dirhash(&src)? == m.hash && holds_copy_tree(&src, &dst)? => continue,
+                        Ok(_) => return Err(Error::new(ErrorCode::Refused,
+                            format!("{}: the fallback copy changed while preparing it; its files were kept", dst.display()))),
+                        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {},
+                        Err(e) => return Err(io_at(&dst, "checking")(e)),
+                    }
+                } else {
+                    if dst.is_dir() && crate::hash::dirhash(&dst).is_ok_and(|h| h == m.hash) {
+                        continue;
+                    }
+                    let _ = std::fs::remove_dir_all(&dst);
                 }
-                let _ = std::fs::remove_dir_all(&dst);
                 crate::util::copy_tree(&src, &dst)?;
                 let h = crate::hash::dirhash(&dst)?;
                 if h != m.hash {
@@ -1050,7 +1391,7 @@ fn write_chain_plan(dirs: &DataDirs, profile: &Profile, install: &GameInstall, f
 
 /// Prepares everything a profile file needs on the game side (path mode, copies, config dir, native.json) and
 /// renders it. Shared by activation and play-once profiles.
-fn prepare(dirs: &DataDirs, profile: &Profile, install: &GameInstall) -> Result<(ProfileFile, PathMode, u32)> {
+fn prepare(dirs: &DataDirs, profile: &Profile, install: &GameInstall) -> Result<(ProfileFile, PathMode, u32, Vec<String>)> {
     let mut mode = crate::game::path_mode(install, dirs)?;
     let file = match render(dirs, profile, install, mode) {
         Ok(f) => f,
@@ -1061,9 +1402,10 @@ fn prepare(dirs: &DataDirs, profile: &Profile, install: &GameInstall) -> Result<
         Err(e) => return Err(e),
     };
     let mut copied = 0;
+    let mut warnings = Vec::new();
     if mode == PathMode::Copy {
         copy_back(dirs, &profile.id, install)?;
-        copied = sync_copies(dirs, profile, install)?;
+        copied = sync_copies(dirs, profile, install, &mut warnings)?;
         let game_cfg = config_host_dir(dirs, profile, install, mode);
         let _ = std::fs::remove_dir_all(&game_cfg);
         let data_cfg = dirs.profile(&profile.id).join("config");
@@ -1080,7 +1422,7 @@ fn prepare(dirs: &DataDirs, profile: &Profile, install: &GameInstall) -> Result<
         }
     }
     write_native_switches(&config_host_dir(dirs, profile, install, mode), profile)?;
-    Ok((file, mode, copied))
+    Ok((file, mode, copied, warnings))
 }
 
 fn activation_record(dirs: &DataDirs, install: &GameInstall) -> PathBuf {
@@ -1108,7 +1450,7 @@ pub fn activate(dirs: &DataDirs, profile_id: &str, install: &GameInstall) -> Res
     check_profile(&profile)?;
     let prev = read_game_profile(&install.path).ok().flatten().map(|f| f.generation).unwrap_or(0);
     let generation = next_generation(prev)?;
-    let (mut file, mode, copied) = prepare(dirs, &profile, install)?;
+    let (mut file, mode, copied, copy_warnings) = prepare(dirs, &profile, install)?;
     file.generation = generation; // grows with every write of the file
     let now = now_rfc3339();
     file.written = Some(now.clone());
@@ -1116,6 +1458,9 @@ pub fn activate(dirs: &DataDirs, profile_id: &str, install: &GameInstall) -> Res
     write_chain_plan(dirs, &profile, install, &file)?;
     // ShroudForge and SET read their mods from their own folder in the game; the other engines' own loaders too.
     let placed = crate::engine_mods::place(dirs, &profile, &install.path)?;
+    // Greeneye and Flame mods run from the copies place() just made in <game>/greeneye/ and <game>/mods/
+    // (engine_mods::game_path_of)
+    file.mods = render(dirs, &profile, install, mode)?.mods;
     let pj = install.path.join(crate::paths::game::PROFILE);
     crate::util::write_json_atomic(&pj, &file)?;
     remove_if_there(&install.path.join(crate::paths::game::CHAIN_ONCE))?;
@@ -1130,6 +1475,9 @@ pub fn activate(dirs: &DataDirs, profile_id: &str, install: &GameInstall) -> Res
         fingerprint: file.fingerprint.clone().unwrap_or_default(),
         activated: now,
         own_loaders: placed.own_loaders,
+        kept_files: placed.kept_files,
+        warnings: skipped_native_loaders(dirs, &profile).into_iter().chain(copy_warnings).chain(placed.warnings).chain(placed.own_notes).collect(),
+        retained: placed.retained,
     };
     let _ = crate::util::write_json_atomic(&activation_record(dirs, install), &a);
     Ok(a)
@@ -1137,8 +1485,12 @@ pub fn activate(dirs: &DataDirs, profile_id: &str, install: &GameInstall) -> Res
 
 /// Re-writes the game's `kiln/profile.json` when its profile changed since it was written (edited in the launcher, by
 /// `kilnctl profile add`, in another window): the profile is rendered again and compared with the file, apart from the
-/// file's write counter, time and writer. Some(activation) when it re-activated, None when the file was current or
-/// names no profile of this data folder. Refuses while the game runs (activate).
+/// file's write counter, time and writer. Some(activation) when it re-activated. A current file still has its fixed
+/// folders reconciled (engine_mods::place): when that changes what the profile renders to (a copy placed only now, as
+/// for a profile.json an older Kiln wrote), the profile is activated after all; when it kept copies, files or notes
+/// (a placed copy the player changed since), Some(the recorded activation with that report), so Play shows it too.
+/// None when there is nothing to report or the file names no profile of this data folder. Refuses while the game runs
+/// (activate).
 pub fn refresh_active(dirs: &DataDirs, install: &GameInstall) -> Result<Option<Activation>> {
     let Some(file) = read_game_profile(&install.path)? else { return Ok(None) };
     let Ok(profile) = get(dirs, &file.id) else { return Ok(None) };
@@ -1155,9 +1507,26 @@ pub fn refresh_active(dirs: &DataDirs, install: &GameInstall) -> Result<Option<A
         // A play-once profile also changes SF/SET's fixed folders. Reconcile those copies before the next normal
         // launch even though profile.json itself still describes the active profile. Never change them mid-game.
         if running_process(install)?.is_none() {
-            crate::engine_mods::place(dirs, &profile, &install.path)?;
+            let placed = crate::engine_mods::place(dirs, &profile, &install.path)?;
+            // a copy placed only now (an older Kiln's file names the Library entry): the file must name the copy
+            if !render(dirs, &profile, install, mode).is_ok_and(|fresh| same(&fresh, &file)) {
+                let mut a = activate(dirs, &profile.id, install)?;
+                // Restored files and other one-time notes belong to this operation, even when the second placement
+                // has nothing left to do. Retained copies remain the final activation's current-state report.
+                a.keep_notes(placed.kept_files, placed.warnings.into_iter().chain(placed.own_notes).collect());
+                return Ok(Some(a));
+            }
             // the profile's late natives and the compat rules live in chain.ini only
             write_chain_plan(dirs, &profile, install, &file)?;
+            if !(placed.retained.is_empty() && placed.kept_files.is_empty() && placed.warnings.is_empty())
+                && let Some(mut a) = active(dirs, install)?
+            {
+                a.own_loaders = placed.own_loaders;
+                a.kept_files = placed.kept_files;
+                a.warnings = placed.warnings;
+                a.retained = placed.retained;
+                return Ok(Some(a));
+            }
         }
         return Ok(None);
     }
@@ -1180,7 +1549,10 @@ pub fn write_once(dirs: &DataDirs, profile_id: &str, install: &GameInstall) -> R
     let loaders = crate::own_loaders::find(&install.path, Some(&crate::own_loaders::ProfileView::of_profile(&profile)));
     let fixed = crate::own_loaders::PLACED_FOR_LOADER.into_iter().filter(|k| crate::own_loaders::of_kind(&loaders, *k)
         .is_some_and(|l| l.delivery == crate::own_loaders::Delivery::Placed));
-    for kind in [ModKind::ShroudForge, ModKind::Set].into_iter().chain(fixed) {
+    // Greeneye and Flame mods run from Kiln's copies in <game>/greeneye/ and <game>/mods/ (engine_mods::run_folder): a
+    // fixed folder as well
+    for kind in [ModKind::ShroudForge, ModKind::Set, ModKind::Greeneye, ModKind::Flame].into_iter()
+        .chain(fixed.filter(|k| crate::engine_mods::run_folder(*k).is_none())) {
         let mut wanted: Vec<_> = profile.mods.list(kind).iter()
             .map(|m| (m.id.as_str(), Some(m.version.as_str()), Some(m.hash.as_str()), m.enabled)).collect();
         let mut current: Vec<_> = active.as_ref().and_then(|f| f.mods.folders(kind)).into_iter().flatten()
@@ -1198,7 +1570,26 @@ pub fn write_once(dirs: &DataDirs, profile_id: &str, install: &GameInstall) -> R
                 format!("{why}; activate this profile to change them before playing (play-once keeps the active selection)")));
         }
     }
-    let (mut file, _, _) = prepare(dirs, &profile, install)?;
+    // EML/native companions a DLL reads in the game's mods folder are fixed copies there too.
+    let in_game = |kind, mods: Vec<ProfileMod>| {
+        let mut v: Vec<_> = mods.into_iter().filter(|m| match kind {
+            ModKind::Eml | ModKind::Xhl => crate::engine_mods::game_folder_of(dirs, kind, m).is_some(),
+            ModKind::Native => crate::library::path_of(dirs, &lref(kind, m)).is_ok_and(|p| !crate::library::native_settings_dirs(&p).is_empty()),
+            _ => false,
+        }).map(|m| (m.id, m.version, m.hash, m.enabled)).collect();
+        v.sort_unstable();
+        v
+    };
+    for kind in [ModKind::Eml, ModKind::Native, ModKind::Xhl] {
+        let current = active.as_ref().and_then(|f| f.mods.folders(kind)).map(|list| list.iter().map(|m| ProfileMod {
+            id: m.id.clone(), version: m.version.clone().unwrap_or_default(), hash: m.hash.clone().unwrap_or_default(), enabled: m.enabled,
+        }).collect()).unwrap_or_default();
+        if in_game(kind, profile.mods.list(kind).clone()) != in_game(kind, current) {
+            return Err(Error::new(ErrorCode::Unsupported, "Mods that a DLL reads in the game's mods folder (Auto Loot Plus, the XHL mods) are \
+                copies there; activate this profile to change them before playing (play-once keeps the active selection)"));
+        }
+    }
+    let (mut file, _, _, _) = prepare(dirs, &profile, install)?;
     file.written = Some(now_rfc3339());
     // The single start follows this profile's plan: its compat rules (a [chain] proxy switched off, entries loaded late)
     // and its late natives, not the active profile's that chain.ini holds. once.ini carries [profile], [chain] and [late].
@@ -1210,7 +1601,13 @@ pub fn write_once(dirs: &DataDirs, profile_id: &str, install: &GameInstall) -> R
 
 /// Back to the legacy layout: profile.json and chain.ini [profile] removed (a copy is kept in kiln/backups/).
 pub fn deactivate(dirs: &DataDirs, install: &GameInstall) -> Result<()> {
+    deactivate_report(dirs, install).map(|_| ())
+}
+
+/// Deactivate with the fixed-folder cleanup result. Player-edited copies are retained, not silently deleted.
+pub fn deactivate_report(dirs: &DataDirs, install: &GameInstall) -> Result<crate::engine_mods::PlacementCleanup> {
     refuse_running(install)?;
+    let cleanup = crate::engine_mods::unplace(dirs, &install.path)?;
     let pj = install.path.join(crate::paths::game::PROFILE);
     if pj.is_file() {
         let to = install.path.join(crate::paths::game::BACKUPS).join(format!("profile-{}.json", ts_compact(crate::util::now_unix())));
@@ -1223,7 +1620,7 @@ pub fn deactivate(dirs: &DataDirs, install: &GameInstall) -> Result<()> {
     remove_if_there(&install.path.join(crate::paths::game::CHAIN_ONCE))?;
     remove_if_there(&install.path.join(crate::paths::game::PROFILE_ONCE))?;
     remove_if_there(&activation_record(dirs, install))?;
-    Ok(())
+    Ok(cleanup)
 }
 
 /// The own loaders installed now and what they mean for the active profile file (checked again on every call: the
@@ -1252,6 +1649,9 @@ pub fn active(dirs: &DataDirs, install: &GameInstall) -> Result<Option<Activatio
         fingerprint: file.fingerprint.clone().unwrap_or_default(),
         activated: file.written.clone().unwrap_or_default(),
         own_loaders: own_loader_notes(install, &file),
+        kept_files: Vec::new(),
+        warnings: Vec::new(),
+        retained: Vec::new(),
     }))
 }
 

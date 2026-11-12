@@ -54,6 +54,37 @@ fn game_mods(g: &GameInstall) -> Vec<(String, String)> {
     f.mods.kiln.iter().filter(|m| m.enabled).map(|m| (m.id.clone(), m.version.clone().unwrap_or_default())).collect()
 }
 
+/// The host keeps menu mods running, resolves server mods against them, then retries failed dependents.
+#[test]
+fn an_imported_profiles_hosting_preview_keeps_the_hosts_load_phases() {
+    use kiln_manage::manifest::RunSide;
+    for (tag, mods, menu, world) in [
+        ("order", vec![
+            ("menu", "both", r#", "loadBefore": ["world"]"#),
+            ("world", "server", r#", "loadBefore": ["menu"]"#),
+        ], vec!["menu"], vec!["world"]),
+        ("dependencies", vec![
+            ("a", "server", r#", "dependencies": {"b": "*"}"#),
+            ("b", "both", r#", "dependencies": {"c": "*"}"#),
+            ("c", "server", ""),
+        ], vec![], vec!["c", "b"]),
+    ] {
+        let t = tmp(&format!("host-phases-{tag}"));
+        let dirs = DataDirs::at(t.0.join("data"));
+        let g = game(&t.0);
+        let paths: Vec<_> = mods.into_iter().map(|(id, side, extra)| {
+            let d = kiln_mod(&t.0, id, "1.0.0", "");
+            put(&d, "kiln.mod.json", format!(r#"{{"id":"{id}","version":"1.0.0","apiVersion":"0.2","entryAssembly":"M.dll","side":"{side}"{extra}}}"#).as_bytes());
+            d
+        }).collect();
+        quick::add_with(&dirs, &g, &paths, false, &mut NoProgress).unwrap();
+        let p = profile::get(&dirs, "my-mods").unwrap();
+        let preview = profile::resolve_preview_for(&dirs, &p, RunSide::Client, true).unwrap();
+        assert_eq!(preview.kiln.order, menu, "{tag}");
+        assert_eq!(preview.with_world, world, "{tag}: preview must follow ModManager.StartHosting, not re-resolve already running mods: {:?}", preview.kiln.rejected);
+    }
+}
+
 #[test]
 fn a_first_time_player_gets_my_mods_with_the_mod_in_the_game() {
     let t = tmp("first");
@@ -417,7 +448,7 @@ fn report_and_change_shapes_match_the_frontend() {
     let v = serde_json::to_value(quick::AddReport::default()).unwrap();
     let mut keys: Vec<&str> = v.as_object().unwrap().keys().map(String::as_str).collect();
     keys.sort();
-    assert_eq!(keys, ["activation", "added", "already", "applied", "changes", "created", "import", "libraryOnly", "missing", "modpacks", "profileId", "profileName", "resumed", "running"]);
+    assert_eq!(keys, ["activation", "added", "already", "applied", "changes", "created", "import", "libraryOnly", "missing", "modpacks", "notices", "profileId", "profileName", "resumed", "running"]);
     let from_ui = r#"[{"kind":"kiln","before":null,"after":{"id":"night-owl","version":"1.2.0","hash":"kdh1:00","enabled":true}},
         {"kind":"native","before":{"id":"fps","version":"1.0.0","hash":"kdh1:01","enabled":false},"after":{"id":"fps","version":"1.0.0","hash":"kdh1:01","enabled":true}}]"#;
     let changes: Vec<quick::ProfileChange> = serde_json::from_str(from_ui).unwrap();
@@ -425,6 +456,19 @@ fn report_and_change_shapes_match_the_frontend() {
     assert!(changes[0].before.is_none() && !changes[1].before.as_ref().unwrap().enabled);
     let missing = serde_json::to_value(quick::MissingMod { id: "ui-lib".into(), range: "^1.0".into(), by: "more-hotbars".into() }).unwrap();
     assert_eq!(missing, serde_json::json!({ "id": "ui-lib", "range": "^1.0", "by": "more-hotbars" }));
+}
+
+/// The frontend's side of the same shape: launcher/src/api/commands.ts `AddReport` declares every key the backend sends
+/// (a key it lacks is one the launcher never shows, as `notices` was).
+#[test]
+fn the_launchers_add_report_type_declares_every_key() {
+    let ts = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../launcher/src/api/commands.ts")).unwrap();
+    let start = ts.find("export interface AddReport {").expect("AddReport in commands.ts");
+    let body = &ts[start..start + ts[start..].find("\n}").expect("end of AddReport")];
+    let v = serde_json::to_value(quick::AddReport::default()).unwrap();
+    for key in v.as_object().unwrap().keys() {
+        assert!(body.contains(&format!("\n  {key}:")) || body.contains(&format!("\n  {key}?:")), "AddReport.{key} is not in commands.ts");
+    }
 }
 
 /// What an uninstall of Kiln leaves behind for the next drop: the game's `kiln/profile.json` goes with Kiln's files in the

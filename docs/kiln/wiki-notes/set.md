@@ -7,11 +7,12 @@ Suggested text:
 
 > **Shrouded Engine Tweaks (SET) Lua mods** run on Kiln, on dedicated servers too, with stricter sandbox and system-control limits. Put each mod where SET
 > wants it, `<game>/shrouded_engine_tweaks/mods/<name>/init.lua`, and start the game or server; `kiln/logs/kiln.log`
-> lists them (`[set] Mod loaded: <name>`). You don't need SET's `powrprof.dll`. If you do run SET itself, Kiln steps
-> aside and lets SET run its mods. Not yet supported: `GameOptions`, English names (`Res.text`), `Admin.send`,
-> `Admin.setLevel`, `Admin.setFlameLevel`, and SET's overlay windows other than Kiln's own Systems and Types windows.
-> To run a line of Lua, put it in a file in `kiln/control/set/` (`echo 'print(#Systems.list())' >
-> kiln/control/set/x.lua`).
+> lists them (`[set] Mod Loaded: <name>`). You don't need SET's `powrprof.dll`. If you do run SET itself, Kiln steps
+> aside and lets SET run its mods. In the game, **SET tools** (in the main and pause menu) has the mod settings pages,
+> Compatibility, Entities, Hooks, Bindings, a Console and a local bug report. These are Kiln's own windows, with
+> bounds of their own, not a copy of SET's overlay (the Kiln docs list what differs). Not available at all:
+> `GameOptions`, `Admin.send`, ImGui Debug and SET's `settings.ini` editor. To run a line of Lua on a server, put it in a file in
+> `kiln/control/set/` (`echo 'print(#Systems.list())' > kiln/control/set/x.lua`).
 
 Link: docs/kiln/set.md.
 

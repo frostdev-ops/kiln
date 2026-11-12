@@ -6,7 +6,7 @@
 #               exports kiln_plugin_main/kiln_plugin_early instead of the steam_api64.dll proxy (upstream/server/src/kiln.rs).
 [workspace]
 resolver = "2"
-members = ["upstream/common", "upstream/link", "upstream/sdk", "upstream/server"]
+members = ["upstream/common", "upstream/link", "upstream/sdk", "upstream/server", "client-bridge"]
 
 [workspace.package]
 version = "0.8.0"

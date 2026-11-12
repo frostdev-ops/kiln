@@ -242,7 +242,7 @@ impl LinuxMime {
 
     fn xdg_mime(&self, args: &[&str]) -> Result<String> {
         let exe = crate::util::which("xdg-mime").ok_or_else(|| Error::new(ErrorCode::Unsupported, "xdg-mime is not installed (package xdg-utils)."))?;
-        let mut c = std::process::Command::new(exe);
+        let mut c = crate::hostenv::command(exe);
         c.args(args).envs(self.env.iter().map(|(k, v)| (k.as_str(), v.as_str()))).stdin(std::process::Stdio::null()).stderr(std::process::Stdio::null());
         let out = c.output().map_err(|e| Error::new(ErrorCode::Unsupported, format!("xdg-mime: {e}")))?;
         if !out.status.success() {
@@ -253,7 +253,7 @@ impl LinuxMime {
 
     fn refresh_db(&self) {
         if let Some(u) = crate::util::which("update-desktop-database") {
-            let _ = std::process::Command::new(u).arg(self.data_home.join("applications")).envs(self.env.iter().map(|(k, v)| (k.as_str(), v.as_str())))
+            let _ = crate::hostenv::command(u).arg(self.data_home.join("applications")).envs(self.env.iter().map(|(k, v)| (k.as_str(), v.as_str())))
                 .stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).status();
         }
     }
@@ -512,7 +512,7 @@ impl HandlerPlatform for LinuxMime {
         let exec = desktop_exec(&file).ok_or_else(|| Error::new(ErrorCode::Parse, format!("{id} has no Exec line")))?;
         let argv = exec_argv(&exec, url);
         let (prog, args) = argv.split_first().ok_or_else(|| Error::new(ErrorCode::Parse, format!("{id}: empty Exec")))?;
-        std::process::Command::new(prog).args(args).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null())
+        crate::hostenv::command(prog).args(args).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null())
             .spawn().map(|_| ()).map_err(|e| Error::new(ErrorCode::Unsupported, format!("starting {id}: {e}")))
     }
 }

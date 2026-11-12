@@ -23,6 +23,11 @@ const ENGINE_RECEIPT: &str = "kiln/state/server-library.json";
 struct EngineCopy {
     library: LibraryRef,
     payload: String,
+    /// The synced files (relative path to hash, as [`payload_files`]): the copy stays the launcher's while these are
+    /// unchanged, whatever the mod adds next to them (its settings). Receipts written before this have none: their
+    /// copy must match `payload` exactly.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    files: Option<BTreeMap<String, String>>,
 }
 type EngineCopies = BTreeMap<PathBuf, EngineCopy>;
 
@@ -54,6 +59,10 @@ fn server_library_lock(server: &Path) -> Result<std::fs::File> {
 
 // Include hidden files and empty directories too. SF's mutable setting values and enabled switch are omitted.
 fn payload(dir: &Path, kind: ModKind) -> Result<String> {
+    Ok(crate::hash::sha256_hex(&serde_json::to_vec(&payload_files(dir, kind)?)?))
+}
+
+fn payload_files(dir: &Path, kind: ModKind) -> Result<BTreeMap<String, String>> {
     fn walk(root: &Path, dir: &Path, rel: &str, kind: ModKind, out: &mut BTreeMap<String, String>) -> Result<()> {
         crate::engine_mods::refuse_symlink_path(root, dir)?;
         for e in std::fs::read_dir(dir)? {
@@ -88,17 +97,42 @@ fn payload(dir: &Path, kind: ModKind) -> Result<String> {
     }
     let mut files = BTreeMap::new();
     walk(dir, dir, "", kind, &mut files)?;
-    Ok(crate::hash::sha256_hex(&serde_json::to_vec(&files)?))
+    Ok(files)
 }
 
 /// `server` is the managed root `dir` lies under.
 fn owned_engine(server: &Path, dir: &Path, kind: ModKind, copies: &EngineCopies) -> Result<bool> {
+    Ok(engine_player_files(server, dir, kind, copies, None)?.is_some())
+}
+
+/// A copy the launcher synced (as [`owned_engine`]), with the files the mod wrote into it since: what it added and its
+/// changed settings files (engine_mods::settings_files). None: not the launcher's copy, or a synced file changed.
+/// A receipt from before the file list is read against its Library entry when `dirs` is given and that entry still
+/// matches the receipt's payload.
+fn engine_player_files(server: &Path, dir: &Path, kind: ModKind, copies: &EngineCopies, dirs: Option<&DataDirs>)
+                       -> Result<Option<Vec<String>>> {
     crate::engine_mods::refuse_symlink_path(server, dir)?;
-    let Some(saved) = copies.get(dir) else { return Ok(false) };
-    let Some(marker) = read_marker(dir) else { return Ok(false) };
-    Ok(marker.format == 1 && marker.library.kind == kind && marker.library == saved.library
-        && dir.file_name().and_then(|n| n.to_str()) == Some(marker.library.id.as_str())
-        && payload(dir, kind)? == saved.payload)
+    let Some(saved) = copies.get(dir) else { return Ok(None) };
+    let Some(marker) = read_marker(dir) else { return Ok(None) };
+    if !(marker.format == 1 && marker.library.kind == kind && marker.library == saved.library
+        && dir.file_name().and_then(|n| n.to_str()) == Some(marker.library.id.as_str())) {
+        return Ok(None);
+    }
+    let legacy = || -> Result<Option<BTreeMap<String, String>>> {
+        let Some(dirs) = dirs else { return Ok(None) };
+        let Ok(lib) = crate::library::path_of(dirs, &saved.library) else { return Ok(None) };
+        if !lib.is_dir() { return Ok(None); }
+        let files = payload_files(&lib, kind)?;
+        Ok((crate::hash::sha256_hex(&serde_json::to_vec(&files)?) == saved.payload).then_some(files))
+    };
+    let files = match &saved.files {
+        Some(files) => Some(files.clone()),
+        None => legacy()?,
+    };
+    Ok(match files {
+        Some(files) => crate::engine_mods::player_entries_of(payload_files(dir, kind)?, &files, kind),
+        None => (payload(dir, kind)? == saved.payload).then(Vec::new),
+    })
 }
 
 fn refuse_running_engine(running: bool) -> Result<()> {
@@ -120,6 +154,8 @@ fn root(server: &Path, kind: ModKind) -> Result<PathBuf> {
     match kind {
         ModKind::Kiln => Ok(server.join("kiln/mods")),
         ModKind::Native => Ok(server.join("kiln/native")),
+        ModKind::Xhl => Err(Error::new(ErrorCode::Unsupported,
+            "XHL companions require original-folder receipt placement: import them into the Library and activate a profile for this server; install and enable XHL-Core separately. This legacy Mods-page direct sync cannot place them safely")),
         // other engines' mods go where that engine's plugin reads them on a server (engine_mods::server_root)
         k => crate::engine_mods::server_root(k, server)
             .ok_or_else(|| Error::new(ErrorCode::Unsupported, format!("{} mods are not synced to servers", kind.as_str()))),
@@ -136,7 +172,8 @@ fn loader_folder(server: &Path, path: &Path) -> bool {
 
 /// The kinds a server takes: Kiln's managed and native mods, then every engine kind with a server folder.
 fn server_kinds() -> impl Iterator<Item = ModKind> {
-    ModKind::ALL.into_iter().filter(|k| matches!(k, ModKind::Kiln | ModKind::Native) || k.is_engine())
+    // External-host companions are placed by profile activation, not this legacy plugin-root sync path.
+    ModKind::ALL.into_iter().filter(|k| matches!(k, ModKind::Kiln | ModKind::Native) || (k.is_engine() && k.engine().is_some()))
 }
 
 /// The folders of `kind` in `dir` (a root several engines may share: each folder is checked for the kind).
@@ -278,7 +315,13 @@ pub fn sync(dirs: &DataDirs, instance: &ServerInstance, mods: &[LibraryRef], pro
             if mods.iter().any(|x| x.kind == kind && x.id == m.library.id) {
                 continue;
             }
-            if kind.is_engine() && !owned_engine(&server, &d, kind, &copies)? { continue; }
+            let player = if kind.is_engine() {
+                let Some(player) = engine_player_files(&server, &d, kind, &copies, Some(dirs))? else { continue };
+                player
+            } else { Vec::new() };
+            if let Some(said) = crate::engine_mods::keep_player_files(&server, &d, kind, &m.library.id, &player)? {
+                progress.report(None, &said);
+            }
             if kind == ModKind::Kiln {
                 op(&live, "mod_unload", "id", &m.library.id, progress);
             }
@@ -323,8 +366,9 @@ pub fn sync(dirs: &DataDirs, instance: &ServerInstance, mods: &[LibraryRef], pro
         let target = dst_root.join(&r.id);
         crate::engine_mods::refuse_symlink_path(&server, &target)?;
         let marker = read_marker(&target);
+        let player = if r.kind.is_engine() && target.exists() { engine_player_files(&server, &target, r.kind, &copies, Some(dirs))? } else { None };
         if target.exists() && (marker.as_ref().is_none_or(|m| m.library.kind != r.kind || m.library.id != r.id)
-            || (r.kind.is_engine() && !owned_engine(&server, &target, r.kind, &copies)?)) {
+            || (r.kind.is_engine() && player.is_none())) {
             conflicts.push(format!("{}: {} exists and was not put there by the launcher", r.id, target.display()));
             continue;
         }
@@ -345,10 +389,23 @@ pub fn sync(dirs: &DataDirs, instance: &ServerInstance, mods: &[LibraryRef], pro
         }
         if r.kind == ModKind::ShroudForge {
             if target.exists() {
-                for setting in crate::shroudforge::read_mod(&target)?.settings {
-                    // Removed settings are allowed; retained settings must continue accepting the player's value.
-                    if crate::shroudforge::read_mod(&tmp)?.settings.iter().any(|s| s.key == setting.key) {
-                        crate::shroudforge::set_setting(&tmp, &setting.key, &setting.value)?;
+                // settings the old copy cannot show are not thrown away: that copy stays, the others go on
+                let old = match crate::shroudforge::read_mod(&target) {
+                    Ok(m) => m,
+                    Err(e) => {
+                        conflicts.push(format!("{}: {} was left as it is: its ShroudForge settings cannot be read ({})", r.id, target.display(), e.message));
+                        continue;
+                    }
+                };
+                for setting in old.settings {
+                    // Removed settings are allowed; a value the new version refuses keeps its default (as activation does)
+                    let Some(default) = crate::shroudforge::read_mod(&tmp)?.settings.into_iter().find(|s| s.key == setting.key).map(|s| s.value) else { continue };
+                    match crate::shroudforge::set_setting(&tmp, &setting.key, &setting.value) {
+                        Ok(_) => {}
+                        Err(e) if e.code == ErrorCode::InvalidArgument => progress.report(None, &format!(
+                            "{}: the setting {} was {}, which version {} does not accept ({}); it starts with that version's default {default}",
+                            r.id, setting.key, setting.value, r.version, e.message)),
+                        Err(e) => return Err(e),
                     }
                 }
             }
@@ -363,7 +420,18 @@ pub fn sync(dirs: &DataDirs, instance: &ServerInstance, mods: &[LibraryRef], pro
         }
         let m = SourceMarker { format: 1, library: r.clone(), synced: crate::util::now_rfc3339(), by: format!("kiln-launcher {}", crate::VERSION) };
         crate::util::write_json_atomic(&tmp.join(MARKER), &m)?;
-        let signature = if r.kind.is_engine() { Some(payload(&tmp, r.kind)?) } else { None };
+        let signature = if r.kind.is_engine() { Some(payload_files(&tmp, r.kind)?) } else { None };
+        // what the mod wrote into its old copy (or what was kept when it was removed) goes into the new one
+        let kept_at = crate::engine_mods::kept_dir(&server, r.kind, &r.id);
+        let carry = match player {
+            Some(entries) => Some(crate::engine_mods::Carry { from: &target, entries, from_kept: false }),
+            None if r.kind.is_engine() && !target.exists() => crate::engine_mods::kept_carry(&server, &kept_at, r.kind)?,
+            None => None,
+        };
+        let done = match &carry {
+            Some(c) => Some(crate::engine_mods::carry_in(&server, r.kind, &r.id, c, &tmp)?),
+            None => None,
+        };
         let existed = target.exists();
         let old = staging.path().join("old");
         if existed { std::fs::rename(&target, &old).map_err(crate::util::io_at(&target, "parking"))?; }
@@ -374,7 +442,9 @@ pub fn sync(dirs: &DataDirs, instance: &ServerInstance, mods: &[LibraryRef], pro
             return Err(error);
         }
         if r.kind.is_engine() {
-            copies.insert(target.clone(), EngineCopy { library: r.clone(), payload: signature.expect("engine payload checked before publication") });
+            let files = signature.expect("engine payload checked before publication");
+            let payload = crate::hash::sha256_hex(&serde_json::to_vec(&files)?);
+            copies.insert(target.clone(), EngineCopy { library: r.clone(), payload, files: Some(files) });
             if let Err(error) = save_engine_copies(&server, &copies) {
                 if let Err(e) = std::fs::rename(&target, &tmp) {
                     return Err(crate::engine_mods::preserve_recovery(staging, crate::util::io_at(&target, "rolling back new mod")(e)));
@@ -384,6 +454,10 @@ pub fn sync(dirs: &DataDirs, instance: &ServerInstance, mods: &[LibraryRef], pro
                 }
                 return Err(error);
             }
+        }
+        if let (Some(c), Some(done)) = (&carry, &done)
+            && let Some(said) = crate::engine_mods::carried(&server, r.kind, &r.id, c, done, &target)? {
+            progress.report(None, &said);
         }
         if r.kind == ModKind::Kiln && !was_disabled {
             if existed { op(&live, "mod_reload", "id", &r.id, progress) } else { op(&live, "mod_load", "folder", &r.id, progress) }
@@ -492,7 +566,7 @@ mod tests {
             crate::util::write_json_atomic(&dir.join(MARKER), &SourceMarker {
                 format: 1, library: reference.clone(), synced: "now".into(), by: "forged".into()
             }).unwrap();
-            copies.insert(dir.clone(), EngineCopy { library: reference, payload: payload(&dir, ModKind::Enshwick).unwrap() });
+            copies.insert(dir.clone(), EngineCopy { library: reference, payload: payload(&dir, ModKind::Enshwick).unwrap(), files: None });
             assert!(engine_switch_candidates(&server, id, false).unwrap().is_empty());
             assert!(!mods(&instance).unwrap().iter().any(|m| m.folder == id));
         }
@@ -510,6 +584,14 @@ mod tests {
         // A different engine's isolated root is not the Enshwick loader.
         assert!(!loader_folder(&server, &server.join("ember/mods/enshwick")));
         assert!(!loader_folder(&server, &server.join("kiln/mods/enshwick")));
+    }
+
+    #[test]
+    fn external_xhl_requires_receipt_based_profile_placement_not_legacy_direct_sync() {
+        let err = root(Path::new("server"), ModKind::Xhl).unwrap_err();
+        assert_eq!(err.code, ErrorCode::Unsupported);
+        assert!(err.message.contains("activate a profile") && err.message.contains("XHL-Core separately"));
+        assert!(!server_kinds().any(|k| k == ModKind::Xhl));
     }
 
     #[test]

@@ -41,7 +41,12 @@ is_pe64_dll}` (`runtime_classify`). `InstallOptions {components, switchFromShrou
 final summary line; `canceled()` is polled between files (the install undoes itself). `install_report` returns the
 receipt and an `InstallReport {changedBackedUp, backup}`: the Kiln files changed by hand that the install replaced
 (their copies are in `kiln/backups/install-<ts>/` and `<data>/backups/install/<installId>/install-<ts>/`), and that
-launcher-side folder.
+launcher-side folder. `restoredShroudforge` lists missing helpers recovered from legacy switch receipts; `warnings`
+name current player files that were kept instead of overwriting them. A repeat install or upgrade never replaces the
+first original proxy backup. `uninstall_report` adds `placements: {removed, retained: [{path, reason, mayRun}]}` and
+`warnings`: only verified unchanged fixed-folder copies are removed, current player replacements are kept and their
+original backup recovery paths reported. The launcher returns that structured result in the task and displays retained
+paths until dismissed. It does not restore game archives from a previous SF/EML writer's working `.bak`.
 Error codes the UI should expect: `game_running` (detail `pid`), `steam_updating` (detail `stateFlags`), `refused`
 (ShroudForge, not a DLL, unsafe zip names), `hash_mismatch`, `conflict` (side mismatch), `not_found`.
 
@@ -66,15 +71,26 @@ clashes), `get`, `list` (`ProfileSummary.active` = installs whose profile.json n
 `KILN_API`.
 - `resolve_preview(profile, side)`: managed mods through the Resolver.cs port (disabled entries come back as
   `disabled`), native mods through the same rules (`requires`, `after`, `before`, `incompatible`, `kiln`), plus
-  warnings for entries missing from the library.
+  warnings for entries missing from the library. On a client the managed mods resolve twice, as Kiln.Host does: the
+  menu, then with `Environment.hosting` (the player's own world); what loads only then is `with_world` (skipped,
+  `WITH_WORLD`), a server mod that fails then says `WORLD_FAILS` + the reason. `resolve_preview_for(.., hosted)` with
+  `hosted_server_mods(game)` (kiln.json `mods.hosted`; false: `HOSTED_OFF`, no `with_world`).
 - `activate(pid, install)`: refuses while running and without `kiln/`; path mode (Z when `pfx/dosdevices/z:` -> `/`,
   else copy; an untranslatable path also means copy); copy mode syncs verified copies into
   `<game>/kiln/profiles/<pid>/<kind>/<id>/` (unchanged copies stay, stale ones go) and copies the game-side config
-  back first; writes `<configDir>/native.json` (the profile's native switches), `chain.ini [profile]` (dllmain DLLs;
-  `[chain]` byte-identical), `kiln/profile.json` (generation = previous + 1), clears `chain/once.ini` and
+  back first; XHL companions and EML mods a native DLL reads are placed in `<game>/mods/<original folder>/`, and
+  their profile.json entries name that copy (in copy mode `../mods/<original folder>`, and `../greeneye/<id>` for a
+  placed Greeneye mod, only for a runtime that declares `profileReader` 2 and under the folder name rule, else the
+  `kiln/profiles` copy; contracts.md 5.1 and 6); writes
+  `<configDir>/native.json` (the profile's native switches), `chain.ini [profile]` (dllmain DLLs; `[chain]`
+  byte-identical), `kiln/profile.json` (generation = previous + 1), clears `chain/once.ini` and
   `profile.once.json`, records `<data>/installs/<id>.active.json`.
 - `copy_back(pid, install)` after the game exits (copy mode), `deactivate` (profile.json to `kiln/backups/`,
-  `[profile]` cleared), `active`, `render` (no writes), `read_game_profile`, `write_once` (launch mode once).
+  `[profile]` cleared), `deactivate_report` (also returns the fixed-folder placement cleanup result), `active`, `render`
+  (no writes), `read_game_profile`, `write_once` (launch mode once). Activation never edits player-owned SF folders.
+  Cleanup needs a trusted placement receipt plus unchanged contents, including exact SF settings bytes (old receipts
+  without these remain ambiguous). Changed copies remain where they are; the launcher lists paths/reasons and warns
+  that Kiln's engine plugin (such as SET's) or another loader may still run them. No player settings or source Library files are deleted blindly.
 
 ## Launch, play-once, chain.ini
 - `launch::play(dirs, install, request)`: refuses while running; mode `profile` clears a stale play-once flag, `vanilla`
@@ -84,6 +100,15 @@ clashes), `get`, `list` (`ProfileSummary.active` = installs whose profile.json n
   (xdg-open / ShellExecuteW). A failure removes the flag again. `play_with` takes the save folders and the opener
   (tests). Then `wait_started`, `read_boot_for(install, nonce)`, `boot_is_current` (boot.json was written after the
   running game's process started; on Windows its pid must also be that process's).
+- `hostenv::{command, clean, clean_with, changes}`: every program of the host the crate starts (xdg-open and with it
+  Steam, Wine, SteamCMD, tar, cp, ssh, systemctl, archive tools, xdg-mime, secret-tool, a forwarded nxm handler) gets
+  this process's environment without the launcher AppImage's entries. AppRun points `PYTHONHOME`, `PYTHONPATH`,
+  `PERLLIB`, `LD_LIBRARY_PATH`, `PATH`, `XDG_DATA_DIRS`, `QT_PLUGIN_PATH` and `GSETTINGS_SCHEMA_DIR` into the mounted
+  image (`$APPDIR`); a child inherits them. Seen on 2026-11-11: Play with Steam closed started Steam through
+  `xdg-open`, Steam kept the AppImage's `PYTHONHOME`, Proton's Python launch script died with "Failed to import
+  encodings module", and no game of that Steam session started until Steam was restarted from the desktop. Rule:
+  every `:`-separated entry at or under `$APPDIR` is dropped, a variable left empty is removed, `APPDIR`, `APPIMAGE`,
+  `ARGV0` and `OWD` do not go along; with `APPDIR` unset nothing changes. New spawn sites use `hostenv::command`.
 - `playonce::{render, write, pending, clear, new_nonce, decide, decide_detail}`; `chain::{parse, parse_once, read,
   write_chain_section, write_profile_section, add_chain_entry, remove_chain_entry, write_once}`. Both match every
   `schema/fixtures/ini` case (kini.py).

@@ -10,8 +10,9 @@ Suggested guide text (section "Other mod loaders → ShroudForge"):
 > **ShroudForge mods.** Kiln runs ShroudForge mods as they are and ships ShroudForge's runtime, so you need nothing
 > else. Already have ShroudForge? Keep it: launcher Settings, "Use my installed ShroudForge", runs your copy. Kiln replaces only its
 > `dinput8.dll` and leaves `dbghelp.dll`, `winmm.dll`, the `shroudforge` folder and your `mods` folder alone. Switch
-> mods on and change their settings in ShroudForge's Modloader window or in the Kiln Launcher. On the Steam Deck
-> you need no extra launch options. Kiln's log shows ShroudForge's lines as `[sf]`, and `kiln/state/shroudforge.json`
+> mods on and change their settings in the game's **Mods → ShroudForge** page or in the Kiln Launcher. No separate
+> ShroudForge UI executable is needed. An installed ShroudForge Modloader helper remains supported. On the Steam Deck
+> you need no extra launch options; the in-game page uses Kiln's existing overlay (on-device interaction still needs testing). Kiln's log shows ShroudForge's lines as `[sf]`, and `kiln/state/shroudforge.json`
 > says whether ShroudForge ran (`hosted`, `self-hosted`, `off`, `not-installed`, `failed` with a reason).
 > ShroudForge mods also run on dedicated servers with Kiln.
 

@@ -9,6 +9,10 @@ pub const LOG: &str = "kiln://log";
 pub const LAST_SERVER: &str = "kiln://last-server";
 pub const SERVER: &str = "kiln://server";
 pub const ADMIN: &str = "kiln://admin";
+/// `kiln://activation {gameId}`: a profile was written again without a profile_activate call (after a profile edit, a
+/// change outside the launcher, the watcher's start-up pass) and what it kept in the game folder waits for the window:
+/// `activation_notices` hands those activations out once (commands::profile::queue_notices).
+pub const ACTIVATION: &str = "kiln://activation";
 
 /// `kiln://task` carries a whole [`crate::commands::app::Task`].
 pub type TaskEvent = crate::commands::app::Task;

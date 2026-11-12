@@ -55,6 +55,7 @@ pub fn create_writer(
 ) -> Result<crate::transaction::PatchWriter, ()> {
     // kiln-eml: only the private staging directory is writable by the KFC writer.
     let stage = dir.join(format!(".kiln-eml-stage-{}", uuid::Uuid::new_v4()));
+    crate::cleanup::record(dir.as_std_path(), file_name, stage.file_name().ok_or(())?).map_err(|_| ())?;
     std::fs::create_dir(&stage).map_err(|_| ())?;
     let mut patch = crate::transaction::PatchWriter {
         writer: None, stage: stage.clone().into_std_path_buf(), game: dir.into(), name: file_name.into(),
@@ -102,6 +103,13 @@ pub fn create_backup(
     kfc_path: impl AsRef<Path>
 ) -> Result<PathBuf, ()> {
     let path = kfc_path.as_ref();
+    // kiln-eml: baseline writes happen before final publication. SF's lock/status must protect this shared pair too,
+    // or a refused handoff can already have replaced the backups an active SF preparation is using.
+    let root = path.parent().ok_or(())?;
+    let stem = path.file_stem().ok_or(())?;
+    let _sf = crate::ownership::before_baseline(root.as_std_path(), stem).map_err(|error| {
+        error!(%error, "Refusing vanilla backup changes while ShroudForge owns the archive writer");
+    })?;
     let mut bak_path = path.to_string();
     bak_path.push_str(".bak");
     let bak_path = Path::new(&bak_path);
@@ -119,6 +127,15 @@ pub fn create_backup(
     // A crash can leave the old seal after both new backups were published. Only repair it when both backups
     // are byte-identical to the untouched live files; never bless a mismatching backup from a patched install.
     if bak_path.exists() && !validate_backup(path, bak_path) && backups_equal_live(path, bak_path) {
+        write_backup_seal(path, bak_path)?;
+    }
+    // kiln-eml: another writer replaced the whole pair after a game update and left this seal behind (an installed
+    // ShroudForge's Updater does). The backups then have other lengths than the seal recorded: a damaged one keeps
+    // its length and stays refused below. Such a pair is checked like an unsealed one (its version is the live
+    // one, the live resource prefix equals it) and sealed again; never promoted from a patched header of this build.
+    if bak_path.exists() && !validate_backup(path, bak_path) && replaced_since_sealed(path, bak_path)
+        && KFCFile::get_version_tag(bak_path).ok() == KFCFile::get_version_tag(path).ok() && validate_unsealed(path, bak_path) {
+        warn!("The vanilla backup pair was replaced since it was sealed (another loader after a game update); it matches the live resource file and is sealed again");
         write_backup_seal(path, bak_path)?;
     }
     if bak_path.exists() && !validate_backup(path, bak_path) {
@@ -182,6 +199,17 @@ pub fn restore_backup(
         return Err(());
     }
 
+    let root = path.parent().ok_or(())?;
+    let stem = path.file_stem().ok_or(())?;
+    // Proof is rechecked under SF's lock. Hold it through both copies AND container cleanup: SF must not append
+    // new containers between reading the restored header's range and removing the old generation's extras.
+    let _sf = crate::ownership::before_restore(root.as_std_path(), stem).map_err(|error| {
+        error!(%error, "Refusing archive restore: ownership or ShroudForge prepared-output state could not be safely checked");
+    })?;
+    let added = crate::ownership::live_containers(root.as_std_path(), stem).unwrap_or_else(|error| {
+        tracing::warn!(%error, "The receipt's containers cannot be read; the restore leaves them in place");
+        None
+    });
     if let Err(e) = crate::transaction::atomic_copy(bak_path.as_std_path(), path.as_std_path()) {
         error!(
             path = ?path,
@@ -198,18 +226,47 @@ pub fn restore_backup(
         );
     }
 
+    #[cfg(test)]
+    crate::transaction::DURING_RESTORE.with(|check| { if let Some(check) = check.take() { check(root.as_std_path()); } });
     // kiln-eml: new backups restore the resource file exactly too, after the vanilla header is live.
     let resources_backup = path.with_extension("kfc_resources.bak");
     if resources_backup.exists() {
         crate::transaction::atomic_copy(resources_backup.as_std_path(), path.with_extension("kfc_resources").as_std_path())
             .map_err(|_| ())?;
     }
+    if let Some(added) = added && let Err(error) = crate::ownership::remove_unreferenced(root.as_std_path(), stem, &added) {
+        tracing::warn!(%error, "The vanilla data is back; container files EML had added were left in place");
+    }
     Ok(())
+}
+
+/// kiln-eml: the seal is there, and the backups' lengths are not the ones it recorded (a game update changes the header
+/// and the resource file; a damaged file keeps its length).
+fn replaced_since_sealed(path: &Path, bak: &Path) -> bool {
+    let seal = seal_path(path);
+    if !seal.metadata().is_ok_and(|m| m.is_file() && m.len() <= 1024) { return false; }
+    let Ok(bytes) = std::fs::read(&seal) else { return false };
+    let Ok(sealed) = serde_json::from_slice::<BackupSeal>(&bytes) else { return false };
+    let len = |p: &Path| std::fs::metadata(p).map(|m| m.len()).ok();
+    len(bak).is_some_and(|l| l != sealed.header.0) || len(&path.with_extension("kfc_resources.bak")).is_some_and(|l| l != sealed.resources.0)
+}
+
+/// kiln-eml: `validate_backup` for the pair as if it had no seal (the rule for a pair another writer made).
+fn validate_unsealed(path: &Path, bak: &Path) -> bool {
+    validate(path, bak, false)
 }
 
 pub fn validate_backup(
     kfc_path: &Path,
     kfc_path_bak: &Path
+) -> bool {
+    validate(kfc_path, kfc_path_bak, true)
+}
+
+fn validate(
+    kfc_path: &Path,
+    kfc_path_bak: &Path,
+    use_seal: bool,
 ) -> bool {
     if crate::transaction::regular(kfc_path_bak.as_std_path()).is_err() { return false; }
     let version_bak = match KFCFile::from_path(kfc_path_bak, false) {
@@ -232,7 +289,7 @@ pub fn validate_backup(
             return false;
         }
         let seal = seal_path(kfc_path);
-        if seal.exists() {
+        if use_seal && seal.exists() {
             if crate::transaction::regular(seal.as_std_path()).is_err() { return false; }
             if !seal.metadata().is_ok_and(|m| m.len() <= 1024) { return false; }
             let Ok(bytes) = std::fs::read(&seal) else { return false; };
@@ -249,7 +306,7 @@ pub fn validate_backup(
             if a != b || a.0 != len { return false; }
         }
     } else if seal_path(kfc_path).exists() {
-        return false; // a sealed pair must never silently degrade to a legacy header-only backup
+        return false; // a sealed pair must never silently degrade to a legacy header-only backup (with or without use_seal)
     }
     true
 }
@@ -517,6 +574,9 @@ mod kiln_tests {
         create_backup(&kfc).unwrap();
         std::fs::OpenOptions::new().append(true).open(&kfc).unwrap().write_all(b"patch tail").unwrap();
         std::fs::OpenOptions::new().append(true).open(&resources).unwrap().write_all(b"patch tail").unwrap();
+        // The restore entry now rechecks the runner's authorization while holding SF's lock. Record these exact
+        // test-patch bytes as an owned publication; merely sharing a backup must not authorize their replacement.
+        crate::ownership::prepare(dir.as_std_path(), "g", &[kfc.clone().into_std_path_buf(), resources.clone().into_std_path_buf()]).unwrap();
         restore_backup(&kfc).unwrap();
         assert_eq!(std::fs::read(&kfc).unwrap(), original);
         assert_eq!(std::fs::read(&resources).unwrap(), original_resources);
@@ -661,6 +721,8 @@ mod kiln_tests {
         assert!(hit.cached);
         assert_eq!(hit.fingerprint.hashed_bytes, 0, "{}", hit.fingerprint);
         assert_eq!(hit.fingerprint.hashed_files, 0);
+        // and the ownership proof of the unchanged output is vouched for by that cache, not read again
+        assert_eq!(hit.fingerprint.ownership_bytes, 0, "{}", hit.fingerprint.brief());
         assert!(hit.fingerprint.reused_files >= 5, "{}", hit.fingerprint);
 
         // a mod changed: the game data that did not change is still not read; the mod and what the run publishes are
@@ -672,6 +734,29 @@ mod kiln_tests {
         assert!(patch.fingerprint.hashed_bytes <= patched_before - backups + game_bytes() - backups + mod_bytes(), "{}", patch.fingerprint);
         assert!(patch.fingerprint.reused_files >= 5, "{}", patch.fingerprint);
         println!("first: {}\nhit:   {}\npatch: {}", first.fingerprint, hit.fingerprint, patch.fingerprint);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn an_unchanged_start_checks_ownership_in_full_once_when_the_cache_does_not_vouch_for_it() {
+        crate::cache::RACY_WINDOW_OVERRIDE.with(|w| w.set(Some(std::time::Duration::ZERO)));
+        let (dir, env, args) = patch_fixture();
+        assert!(!crate::run(&env, args.clone()).unwrap().cached);
+        // a cache saved without the receipt's mark (an earlier build of this cache, or a hit that could not check)
+        let files = env.cache_dir().join("files.json");
+        let mut saved: serde_json::Value = serde_json::from_slice(&std::fs::read(&files).unwrap()).unwrap();
+        assert!(saved.as_object_mut().unwrap().remove("owner").is_some(), "the patch run recorded its receipt");
+        std::fs::write(&files, serde_json::to_vec(&saved).unwrap()).unwrap();
+        let first = crate::run(&env, args.clone()).unwrap();
+        assert!(first.cached && first.fingerprint.ownership_bytes > 0, "checked in full once: {}", first.fingerprint.brief());
+        let next = crate::run(&env, args.clone()).unwrap();
+        assert!(next.cached && next.fingerprint.ownership_bytes == 0, "then vouched for: {}", next.fingerprint.brief());
+        // a receipt that is not the one the cache vouched for (and does not match the live output): the patch runs
+        let receipt = dir.join("kiln/eml/ownership/g.json");
+        let mut value: serde_json::Value = serde_json::from_slice(&std::fs::read(&receipt).unwrap()).unwrap();
+        value["files"]["g.kfc"]["sha256"] = "0".repeat(64).into();
+        std::fs::write(&receipt, serde_json::to_vec(&value).unwrap()).unwrap();
+        assert!(!crate::run(&env, args).unwrap().cached);
         std::fs::remove_dir_all(dir).unwrap();
     }
 

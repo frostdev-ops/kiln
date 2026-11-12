@@ -60,6 +60,7 @@ pub mod util;
 pub mod game;
 pub mod filecache;
 pub mod hash;
+pub mod hostenv;
 pub mod launch;
 pub mod paths;
 pub mod engines;

@@ -492,7 +492,7 @@ fn bench() {
     time(rows, "profile_list", || run(profile::profile_list()));
     time(rows, "profile_get", || run(profile::profile_get(pid.clone())));
     time(rows, "profile_active", || run(profile::profile_active(gid.clone())));
-    time(rows, "profile_resolve (client)", || run(profile::profile_resolve(pid.clone(), kiln_manage::manifest::RunSide::Client)));
+    time(rows, "profile_resolve (client)", || run(profile::profile_resolve(pid.clone(), kiln_manage::manifest::RunSide::Client, Some(gid.clone()))));
     time(rows, "library_list (all)", || run(library::library_list(None)));
     time(rows, "library_list (kiln)", || run(library::library_list(Some(ModKind::Kiln))));
     time(rows, "library_unused", || run(library::library_unused()));

@@ -253,7 +253,10 @@ typedef struct KilnPluginInfo {
     uint32_t size;
     KilnStr id;
     KilnStr version;
-    void(KILN_CALL* on_unload)(void* user); /* optional; process exit */
+    /* Reserved: kiln-core never calls it, also not at process exit. A plugin stays loaded for the life of the process,
+     * and no exit callback runs; exit work needs the plugin's own DLL_PROCESS_DETACH (under the loader lock, after
+     * Windows ended the other threads). Test hosts may call it. */
+    void(KILN_CALL* on_unload)(void* user);
     void* user;
     /* optional: runs once after every service DLL and plugin has run kiln_plugin_main, still before the game's entry
      * point. Look up other services here (api->service), not in kiln_plugin_main. */
@@ -267,6 +270,7 @@ typedef KilnResult(KILN_CALL* KilnPluginMainFn)(const KilnApi* api, KilnOwner ow
  * The proxy (dinput8.dll) fills KilnBootInfo and passes it to kiln_boot. Versioned by `size`:
  *  - v1 (older proxies): size 16, {size, reserved, proxy_module}.
  *  - v2: appends the play-once decision and the chain-load results (DLLs the proxy loaded in DllMain).
+ *  - v3 (dev.24): appends addon_log_size.
  * The core reads a field only when `size` covers it (KILN_BOOT_INFO_HAS); a v1 proxy reads as play_once NONE and an
  * empty chain. Everything the proxy points to (entries, strings) stays valid for the life of the process: the proxy is
  * never unloaded and never calls FreeLibrary on a chained DLL. Formats: docs/kiln/launcher/contracts.md. */
@@ -340,10 +344,17 @@ typedef struct KilnBootInfo {
     KilnStr play_once_nonce;         /* the play-once.ini "nonce" (echoed into state/boot.json), empty when none */
     KilnStr play_once_profile;       /* KILN_PLAY_ONCE_PROFILE: the profile file to boot from (absolute game-side path;
                                         default <game>\kiln\profile.once.json) */
+    /* ---- v3 ---- */
+    uint64_t addon_log_size;         /* bytes in <game>\shroudlink_client.log before the proxy loaded any chained DLL (0:
+                                        no such file; KILN_BOOT_LOG_UNKNOWN: it could not tell). That addon only appends
+                                        to its log, so what follows is this start's: kiln-core's wait for it reads only
+                                        that part (core/src/foreign_scan.h). */
 } KilnBootInfo;
 
 #define KILN_BOOT_INFO_V1_SIZE 16u
-#define KILN_BOOT_INFO_V2_SIZE ((uint32_t)sizeof(KilnBootInfo))
+#define KILN_BOOT_INFO_V2_SIZE ((uint32_t)offsetof(KilnBootInfo, addon_log_size))
+#define KILN_BOOT_INFO_V3_SIZE ((uint32_t)sizeof(KilnBootInfo))
+#define KILN_BOOT_LOG_UNKNOWN UINT64_MAX
 /* True when the KilnBootInfo `info` points to is large enough to hold `field`. */
 #define KILN_BOOT_INFO_HAS(info, field) \
     ((info)->size >= offsetof(KilnBootInfo, field) + sizeof(((const KilnBootInfo*)0)->field))
@@ -357,7 +368,8 @@ typedef KilnResult(KILN_CALL* KilnBootFn)(const KilnBootInfo* info);
 #define KILN_PROXY_ABI 2u
 typedef struct KilnProxyInfoData {
     uint32_t size;           /* sizeof(KilnProxyInfoData) */
-    uint32_t abi;            /* KILN_PROXY_ABI: 2 = chain loading + play-once + KilnBootInfo v2 */
+    uint32_t abi;            /* KILN_PROXY_ABI: 2 = chain loading + play-once + KilnBootInfo v2 or later
+                                (boot_info_size says which: 64 bytes v2, 72 bytes v3) */
     KilnStr version;         /* the Kiln version the proxy was built from */
     KilnStr marker;          /* "KilnProxy/2 <version>" */
     uint32_t boot_info_size; /* sizeof(KilnBootInfo) this proxy passes to kiln_boot */

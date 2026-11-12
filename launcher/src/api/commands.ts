@@ -59,10 +59,10 @@ export type ProfileId = string;
 export type ServerId = string;
 export type TaskId = string;
 /** kiln_manage::manifest::ModKind: Kiln's own four, then other engines' mods, each imported by the Library and run by
- *  Kiln's plugin for that engine (Ember's are held but don't run yet: no published mod ABI). Labels and helpers:
+ *  Kiln's plugin for that engine (XHL companions require external XHL-Core; Ember's are held but don't run yet: no published mod ABI). Labels and helpers:
  *  ./kinds.ts. */
 export type ModKind = "kiln" | "native" | "plugin" | "emf"
-  | "eml" | "shroudforge" | "set" | "greeneye" | "flame" | "shroudtopia"
+  | "eml" | "xhl" | "shroudforge" | "set" | "greeneye" | "flame" | "shroudtopia"
   | "enshwick" | "shroudlink" | "ember";
 export type Side = "server" | "client" | "both";
 export type RunSide = "server" | "client";
@@ -239,6 +239,12 @@ export interface InstallResult extends InstallReceipt {
   changedBackedUp?: string[];
   /** The install's backup folder in the launcher's data dir (`backups/install/<installId>/install-<ts>`), or null. */
   backup?: string | null;
+  restoredShroudforge?: string[];
+  warnings?: string[];
+  /** runtime_install and runtime_rollback: the profile the launcher remembers for the game, made active again. */
+  resumedProfile?: string | null;
+  /** ... and its activation (what it kept in the game folder). */
+  activation?: Activation | null;
 }
 export interface InstallOptions {
   components?: string[] | null;
@@ -313,6 +319,16 @@ export interface Activation {
   /** Other engines' own loaders installed in this game (own_loaders.rs); absent or empty: none. Each `text` is one
    * sentence for the Play and profile pages. */
   ownLoaders?: OwnLoaderNote[];
+  /** Files mods wrote into their placed folders (their settings) that activation moved to `kiln/kept-mod-files` or put
+   * back from there (engine_mods.rs PlaceReport::kept_files): one sentence per mod. Absent or empty: none. */
+  keptFiles?: string[];
+  /** Safety repairs applied only to the game-side profile (Library sources and saved profiles are unchanged), and
+   * per-mod notes of the placement (a ShroudForge setting a new version refuses, earlier settings that cannot be read). */
+  warnings?: string[];
+  /** Placed copies the activation left in the game folder although the profile switched them off, removed them or
+   * wants another version (their code changed, or Kiln cannot inspect or carry what is in them): the objects
+   * profile_deactivate and uninstall return. Their own loader may still run them. Absent or empty: none. */
+  retained?: RetainedPlacement[];
 }
 /** An engine's own loader next to the game (EML's dbghelp.dll, a chained Flame loader...) and what it means for the
  * profile's mods of that engine. While it runs, it runs them only from its own folder. */
@@ -359,9 +375,15 @@ export interface NativePlanEntry {
 }
 export interface ResolvePreview {
   side: RunSide;
+  /** The main menu's load order and why the others wait or stay out (a client's server mods: `withWorld`). */
   kiln: Resolution;
   native: NativePlanEntry[];
   warnings: string[];
+  /** Client: the Kiln mods that start with the player's own world (single-player, or friends joining it) instead of in
+   *  the menu: side "server" mods and the mods that need one, in the order they load then. Each is also in
+   *  `kiln.rejected`, skipped, with the reason "Starts with your own world, ...". Empty on a server and when the game's
+   *  kiln.json has `"mods": {"hosted": false}` (then those mods say so). */
+  withWorld: string[];
 }
 
 // library
@@ -398,7 +420,7 @@ export interface LibraryEntry {
 }
 export type DetectKind = "kiln" | "native" | "plugin" | "emf" | "modpack" | "runtime" | "bare-dll" | "unknown"
   // made for other engines, or not mods: imported only once Kiln supports them; `reason` says why not yet
-  | "eml" | "shroudforge" | "set" | "enshwick" | "greeneye" | "shroudtopia" | "flame" | "shroudlink" | "ember"
+  | "eml" | "xhl" | "shroudforge" | "set" | "enshwick" | "greeneye" | "shroudtopia" | "flame" | "shroudlink" | "ember"
   | "proxy" | "data" | "save" | "reshade" | "cheat-table" | "asi";
 /** kiln_manage::engines::Engine */
 export type EngineId = "kiln" | "emf" | "shroudforge" | "eml" | "set" | "enshwick" | "greeneye" | "shroudtopia" | "flame"
@@ -465,6 +487,10 @@ export interface AddReport {
   libraryOnly: string | null;
   /** Modpack zips among the paths: not imported, they go through the consent flow (modpack_install). */
   modpacks: string[];
+  /** What the add did in the profile besides adding, in words for the player (quick::merge): another mod's entry
+   *  replaced (Kiln reads the two as one mod), a second copy of the same proxy DLL switched off, an XHL-Core build kept.
+   *  Shown until closed, with the add (shell/notices.ts notifyAdd). */
+  notices: string[];
 }
 // kiln lint: schema/lint-report.schema.json
 export type LintSeverity = "error" | "warning" | "info" | "hint";
@@ -568,6 +594,8 @@ export interface LaunchResult {
   backup: SaveBackup | null;
   uri: string;
   started: string;
+  /** Mode profile: the activation when the active profile had changed and was written again before the start. */
+  activation?: Activation;
 }
 export type ChainStatus = "loaded" | "failed" | "missing" | "refused" | "duplicate" | "skipped";
 export type RefusalDetail = "self" | "system" | "kiln" | "shroudforge" | "not-dll" | "outside" | "too-many";
@@ -1033,7 +1061,28 @@ export const runtimeStatus = (gameId: GameId) => call<InstallState>("runtime_sta
 /** Task result: InstallReceipt. */
 export const runtimeInstall = (gameId: GameId, version: string, options: InstallOptions = {}) =>
   call<TaskId>("runtime_install", { gameId, version, options });
-/** Task result: null. */
+/** A placed mod folder Kiln left where it is (engine_mods.rs RetainedPlacement): `mayRun`, its own loader may still run
+ * it whatever the profile says. */
+export interface RetainedPlacement {
+  path: string;
+  reason: string;
+  mayRun: boolean;
+}
+export interface PlacementCleanup {
+  removed: string[];
+  retained: RetainedPlacement[];
+  /** Files the mods wrote into removed copies, now in the game's kiln/kept-mod-files: one sentence per mod. Absent: none. */
+  keptFiles?: string[];
+}
+export interface UninstallResult {
+  removed: number;
+  restored: string[];
+  adopted: string[];
+  kept: string[];
+  placements: PlacementCleanup;
+  warnings: string[];
+}
+/** Task result: UninstallResult, including retained fixed-folder mods and their recovery instructions. */
 export const runtimeUninstall = (gameId: GameId) => call<TaskId>("runtime_uninstall", { gameId });
 /** Task result: InstallReceipt. */
 export const runtimeRollback = (gameId: GameId, version: string) => call<TaskId>("runtime_rollback", { gameId, version });
@@ -1045,10 +1094,15 @@ export const profileGet = (profileId: ProfileId) => call<Profile>("profile_get",
 export const profileCreate = (name: string, copyFrom: ProfileId | null = null) => call<Profile>("profile_create", { name, copyFrom });
 export const profileSave = (profile: Profile) => call<Profile>("profile_save", { profile });
 export const profileDelete = (profileId: ProfileId) => call<null>("profile_delete", { profileId });
-export const profileResolve = (profileId: ProfileId, side: RunSide) => call<ResolvePreview>("profile_resolve", { profileId, side });
+/** `gameId`: the game the preview is for (its kiln.json `mods.hosted`); null: Kiln's default. */
+export const profileResolve = (profileId: ProfileId, side: RunSide, gameId: GameId | null = null) =>
+  call<ResolvePreview>("profile_resolve", { profileId, side, gameId });
 export const profileActivate = (profileId: ProfileId, gameId: GameId) => call<Activation>("profile_activate", { profileId, gameId });
-export const profileDeactivate = (gameId: GameId) => call<null>("profile_deactivate", { gameId });
+export const profileDeactivate = (gameId: GameId) => call<PlacementCleanup>("profile_deactivate", { gameId });
 export const profileActive = (gameId: GameId) => call<Activation | null>("profile_active", { gameId });
+/** The activations of re-applies the window has not shown yet (after a profile edit, a change outside the launcher, the
+ *  watcher's start-up pass); each is returned once. Taken when `kiln://activation` arrives and once at start. */
+export const activationNotices = () => call<Activation[]>("activation_notices");
 /** Undoes a library_add (its changes); the game's profile.json follows where the profile is active. */
 export const profileRevert = (profileId: ProfileId, changes: ProfileChange[]) => call<Profile>("profile_revert", { profileId, changes });
 /** The active profile's activation; with no profile at all, makes "My mods" and activates it; null when profiles exist
@@ -1068,6 +1122,14 @@ export interface EngineSettings {
   values: Json;
   note?: string | null;
 }
+/** SF's own runtime report, not the adapter's hosted state. Only current reports have mod observations. */
+export interface SfEffects {
+  file: string;
+  state: "current" | "stale" | "stopped" | "unavailable" | "invalid";
+  updatedAt: number | null;
+  reason: string | null;
+  mods: { id: string; state: string; detail: string }[];
+}
 /** One engine plugin's state file `kiln/state/<engine>.json` (null: not written yet). */
 export interface EngineStatus {
   kind: ModKind;
@@ -1078,8 +1140,12 @@ export interface EngineStatus {
   error?: string | null;
   /** This engine's own loader, when installed, and what it means for the active profile's mods of the kind. */
   ownLoader?: OwnLoaderNote | null;
+  /** Only ShroudForge: per-mod effect/error details, with heartbeat freshness checked by the backend. */
+  effects?: SfEffects | null;
+  /** External-host presence only, not a successful runtime/gameplay report. */
+  prerequisite?: { available: boolean; text: string } | null;
 }
-/** EML's backup of a vanilla `.kfc`; `patched`: the `.kfc` differs from it. */
+/** Shared `.kfc.bak`; `patched` means the `.kfc` differs, not that EML owns it. */
 export interface EmlBackup {
   file: string;
   backup: string;
@@ -1093,7 +1159,7 @@ export const engineSettingsSet = (kind: ModKind, id: string, profileId: ProfileI
   call<EngineSettings>("engine_settings_set", { kind, id, profileId, gameId, key, value });
 export const engineStatus = (gameId: GameId) => call<EngineStatus[]>("engine_status", { gameId });
 export const emlBackup = (gameId: GameId) => call<EmlBackup[]>("eml_backup", { gameId });
-/** Copies each `.kfc.bak` over its patched `.kfc`; the files restored. Rejects with game_running while the game runs. */
+/** Legacy command: refuses direct shared-backup restores; updated Kiln's archive writer verifies ownership on launch. */
 export const emlRestore = (gameId: GameId) => call<string[]>("eml_restore", { gameId });
 
 // compat.rs (kiln_manage::compat): closed DLL mods on a profile's native page
@@ -1116,6 +1182,9 @@ export interface ChainViewEntry {
   /** EMF's loader: it starts EMF itself, which Kiln's EMF support has to see when it starts, so Kiln always loads it
    *  first and the late switch is not offered. */
   loader: boolean;
+  /** shroudlink's client addon (compat::is_gated_addon): it has to find the game's functions before Kiln hooks them,
+   *  so it is never switched late; one already late (an older Kiln allowed it) can be switched back. */
+  gated?: boolean;
 }
 export type RuleAction = "warn" | "late" | "disable";
 export interface CompatRuleResult {
@@ -1420,7 +1489,7 @@ export const COMMANDS = [
   "game_list", "game_detect", "game_add", "game_remove", "game_status",
   "runtime_list", "runtime_import", "runtime_status", "runtime_install", "runtime_uninstall", "runtime_rollback", "runtime_classify",
   "profile_list", "profile_get", "profile_create", "profile_save", "profile_delete", "profile_resolve", "profile_activate",
-  "profile_deactivate", "profile_active",
+  "profile_deactivate", "profile_active", "activation_notices",
   "library_list", "library_detect", "library_import", "library_remove", "library_remove_many", "library_unused", "library_users", "library_lint",
   "config_list", "config_read", "config_set", "config_write", "config_reset", "config_native_state", "config_native_set",
   "launch_play", "launch_state", "launch_prestart",
@@ -1465,6 +1534,8 @@ export interface KilnEvents {
   "kiln://gamepad": GamepadEvent;
   /** An Enshrouded Mod Manager Download (nxm://) link arrived: `count` wait in nexus_links (api/nexus.ts). */
   "kiln://nxm": { count: number };
+  /** A profile was written again without profile_activate and its notices wait: take them with activation_notices. */
+  "kiln://activation": { gameId: GameId };
 }
 export type KilnEventName = keyof KilnEvents;
 

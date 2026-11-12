@@ -6,6 +6,7 @@ import { create } from "zustand";
 import * as api from "./commands";
 import type { Distribution, GameId, GameInstall, ModKind, ProfileId } from "./commands";
 import { distributionOf } from "./distribution";
+import { notifyActivation } from "../shell/notices";
 
 /** Query keys, one place. */
 export const qk = {
@@ -18,7 +19,7 @@ export const qk = {
   runtimeStatus: (g: GameId) => ["runtime_status", g] as const,
   profiles: ["profile_list"] as const,
   profile: (p: ProfileId) => ["profile_get", p] as const,
-  resolve: (p: ProfileId, side: api.RunSide) => ["profile_resolve", p, side] as const,
+  resolve: (p: ProfileId, side: api.RunSide, g: GameId | null = null) => ["profile_resolve", p, side, g] as const,
   active: (g: GameId) => ["profile_active", g] as const,
   library: (k: ModKind | null) => ["library_list", k] as const,
   configs: (t: api.ConfigTarget) => ["config_list", t] as const,
@@ -175,6 +176,10 @@ export function useBackendEvents() {
       invalidateGame(qc, e.gameId);
     }));
     add(api.onKilnEvent("kiln://last-server", (e) => qc.invalidateQueries({ queryKey: qk.pending(e.gameId) })));
+    // a profile written again after an edit, a change outside the launcher or at start-up: what it kept in the game
+    // folder waits in the backend until taken here, so a re-apply before this listener existed is shown too, once
+    const take = () => api.activationNotices().then((list) => list.forEach((a) => { notifyActivation(a); invalidateGame(qc, a.gameId); })).catch(() => {});
+    add(api.onKilnEvent("kiln://activation", () => void take()).then((off) => { void take(); return off; }));
     return () => { live = false; offs.forEach((f) => f()); };
   }, [qc]);
 }

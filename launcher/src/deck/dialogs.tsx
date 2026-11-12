@@ -5,16 +5,17 @@ import { useEffect, useRef, useState, type RefObject } from "react";
 import * as api from "../api/commands";
 import type { DeckFolder, GameInstall } from "../api/commands";
 import { invalidateGame, qk, showActive, useActiveProfile, useGameSel, useGameStatus, useProfiles, useRuntimeChanges } from "../api/hooks";
-import { toast, runTask } from "../ui";
+import { toast, runTask, notifyPlacementCleanup } from "../ui";
 import { totalCount } from "../api/kinds";
 import { useKilnInstall } from "../shell/firstRun";
 import { installBundle } from "../shell/runtimeChange";
+import { notifyActivation } from "../shell/notices";
 import { focusEl, focusFirst } from "./focus";
 import { useLayer } from "./layers";
 import { DeckButton, Dialog, Overlay, Row, Word, dialogFirst, useFirstFocus, useReturnFocus } from "./ui";
 import { kilnLabel } from "./status";
 
-/** The profiles: A makes one active (Steam's Play button uses it too). */
+/** The profiles (Settings): A loads one; the Mods screen then shows its switches (Steam's Play button uses it too). */
 export function ProfileDialog({ game, onClose }: { game: GameInstall; onClose: () => void }) {
   const qc = useQueryClient();
   const profiles = useProfiles();
@@ -26,12 +27,13 @@ export function ProfileDialog({ game, onClose }: { game: GameInstall; onClose: (
   const cur = active.data?.profileId ?? "";
   const list = profiles.data ?? [];
   const activate = useMutation({
-    mutationFn: (pid: string) => (pid ? api.profileActivate(pid, game.id) : api.profileDeactivate(game.id).then(() => null)),
+    mutationFn: (pid: string) => (pid ? api.profileActivate(pid, game.id) : api.profileDeactivate(game.id).then((r) => { notifyPlacementCleanup(r); return null; })),
     onMutate: (pid) => showActive(qc, game.id, pid || null),
     onSuccess: (r, pid) => {
       qc.setQueryData(qk.active(game.id), r);
       invalidateGame(qc, game.id);
-      toast.ok(pid ? list.find((p) => p.id === pid)?.name ?? pid : "No profile");
+      toast.ok(pid ? `${list.find((p) => p.id === pid)?.name ?? pid} is loaded` : "No profile is loaded");
+      notifyActivation(r);
     },
     onError: (e, _pid, undo) => { undo?.(); toast.error(e); },
   });
@@ -42,11 +44,11 @@ export function ProfileDialog({ game, onClose }: { game: GameInstall; onClose: (
         {list.map((p) => {
           const n = totalCount(p.counts);
           return (
-            <Row key={p.id} id={`profile-${p.id}`} title={p.name} end={p.id === cur ? <Word tone="ember">Active</Word> : `${n} mod${n === 1 ? "" : "s"}`}
-              disabled={blocked || activate.isPending} a="Use" onClick={() => pick(p.id)} />
+            <Row key={p.id} id={`profile-${p.id}`} title={p.name} sub={`${n} mod${n === 1 ? "" : "s"}${p.server ? ` · for ${p.server.name ?? p.server.id}` : ""}`}
+              end={p.id === cur ? <Word tone="ember">Loaded</Word> : undefined} disabled={blocked || activate.isPending} a="Load" onClick={() => pick(p.id)} />
           );
         })}
-        <Row id="profile-none" title="No profile" sub="The mods in the game folder" end={!cur ? <Word tone="ember">Active</Word> : undefined} disabled={blocked || activate.isPending} a="Use" onClick={() => pick("")} />
+        <Row id="profile-none" title="No profile" sub="The game folder decides: its mods load as they are" end={!cur ? <Word tone="ember">Loaded</Word> : undefined} disabled={blocked || activate.isPending} a="Load" onClick={() => pick("")} />
       </div>
       {running && <p className="deck-note">Close the game to switch.</p>}
     </Dialog>
@@ -71,7 +73,7 @@ export function InstallDialog({ game, onClose, update }: { game: GameInstall; on
       const a = await api.profileEnsureDefault(installed.id);
       if (a) qc.setQueryData(qk.active(installed.id), a);
       qc.invalidateQueries({ queryKey: qk.profiles });
-    } catch (e) { toast.error(e, "Kiln installed, but the default profile could not be prepared"); }
+    } catch (e) { toast.error(e, "Kiln installed, but your mod list could not be prepared"); }
   };
   return (
     <Dialog name="install" title={update ? "Update Kiln?" : "Install Kiln?"} onClose={onClose}
@@ -211,9 +213,10 @@ export function ModpackDialog({ game, path, onClose }: { game: GameInstall; path
     setBusy(true);
     try {
       const r = await runTask<api.ModpackInstallResult>(() => api.modpackInstall(game.id, { source: { path }, consent: true, activate: true }), { done: "Modpack installed" });
+      notifyActivation(r.activation);
       invalidateGame(qc, game.id);
       qc.invalidateQueries({ queryKey: ["library_list"] });
-      toast.ok(`${r.profile.name} is active`);
+      toast.ok(`${r.profile.name} is loaded`);
       onClose();
     } catch { /* toasted */ } finally { setBusy(false); }
   };
