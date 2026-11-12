@@ -415,6 +415,10 @@ pub(crate) fn undo_work(f: &Folder, p: &mut dyn kiln_manage::task::Progress) -> 
     };
     start_state().notice = Some(n);
     launcher_log("data folder", &format!("the unfinished move to {} was undone: {:?}", journal.to.display(), c.as_ref().map(|c| (c.done, c.interrupted, c.kept.len()))));
+    // the one file the interrupted copy cut off (the beginning of the old folder's file): removed, and said here
+    for p in c.as_ref().map(|c| c.cut_off.as_slice()).unwrap_or_default() {
+        launcher_log("data folder", &format!("removed {} ({})", p.display(), dfm::partial_reason::CUT_OFF));
+    }
     c
 }
 
