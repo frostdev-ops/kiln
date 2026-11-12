@@ -56,6 +56,9 @@ internal static unsafe class SavesRuntime
             if (t == null)
             {
                 _state = 2;
+                // the rows exist from the start, also when kiln.saves is not there (once, unavailable)
+                InstanceCapabilities.Refresh();
+                InstanceCapabilities.ReportCarried();
                 return false;
             }
             ulong last = 0;
@@ -80,6 +83,8 @@ internal static unsafe class SavesRuntime
             Log(LogLevel.Info, $"Kiln.Saves: started (native events from seq {last + 1}; state {StateText(st?.State ?? 0)}, " +
                                $"world {GuidOf(st)?.ToString() ?? "unknown"} revision {st?.Revision ?? 0})");
             AttachItems();
+            InstanceCapabilities.Refresh();
+            InstanceCapabilities.ReportCarried();
             if (st is { } s0 && (s0.Features & SavesNative.CanSnapshotStage) == 0)
                 Log(LogLevel.Warn, "Kiln.Saves: this build has no snapshot staging: instance data is read one simulation step before the " +
                                    "game's snapshot, so identical items (twins) cannot be told apart after a restart (they are set aside)");
@@ -154,6 +159,7 @@ internal static unsafe class SavesRuntime
         var closed = Store.WorldId;
         Store.CloseWorld();
         _loadedEventSeen = false;
+        InstanceCapabilities.Refresh();
         Log(LogLevel.Info, $"Kiln.Saves: hosted world {closed ?? "(no id yet)"} closed after its shutdown save; the next world opens its own mod data when the game loads it");
     }
 
@@ -162,6 +168,7 @@ internal static unsafe class SavesRuntime
     {
         CloseHostedWorld();
         _labHosted = true;
+        InstanceCapabilities.Refresh();
     }
 
     /// <summary>Lab: what the next world's load does, for a world id and revision the test chooses.</summary>
@@ -170,6 +177,7 @@ internal static unsafe class SavesRuntime
         _worldFile = null;
         _loadedEventSeen = true;
         Store.OnWorldLoaded(id, revision, unix, newWorld);
+        InstanceCapabilities.Refresh();
         if (Events.HasSubscribers<WorldLoadedEvent>())
             Events.Post(new WorldLoadedEvent(Store.WorldId ?? id, revision, newWorld, WorldFile, Store.Match));
     }
@@ -193,6 +201,8 @@ internal static unsafe class SavesRuntime
             Requests.Clear();
             Watched.Clear();
         }
+        InstanceCapabilities.Forget();
+        InstanceCapabilities.Refresh();
     }
 
     /// <summary>The world's own data can be read: always on a dedicated server (its one world's data opens before the game loads
@@ -201,9 +211,11 @@ internal static unsafe class SavesRuntime
     {
         get
         {
-            if (!Ensure() || SavesNative.ReadStatus() is not { } st) return true;
-            var hosted = (st.Features & SavesNative.ClientHosted) != 0 || _labHosted;
-            return !hosted || (st.Features & SavesNative.CanLoad) == 0 || _loadedEventSeen;
+            if (!Ensure()) return true;
+            var st = SavesNative.ReadStatus();
+            var hosted = _labHosted || (st is { } h && (h.Features & SavesNative.ClientHosted) != 0);
+            // a lab's hosted close without the native status (the offline tests) waits for its load as a hosted game does
+            return !hosted || (st is { } c && (c.Features & SavesNative.CanLoad) == 0) || _loadedEventSeen;
         }
     }
 
@@ -317,6 +329,7 @@ internal static unsafe class SavesRuntime
             DrainEvents();
             Store.Entities.Tick();
             Store.Instances.Tick();
+            InstanceCapabilities.Refresh();
         }
         finally
         {
@@ -411,6 +424,7 @@ internal static unsafe class SavesRuntime
                 _loadedEventSeen = true;
                 var newWorld = (ev.Flags & SavesNative.FlagNewWorld) != 0;
                 Store.OnWorldLoaded(id, ev.Revision, ev.WorldUnix, newWorld);
+                InstanceCapabilities.Refresh();
                 if (Events.HasSubscribers<WorldLoadedEvent>())
                     Events.Post(new WorldLoadedEvent(Store.WorldId ?? id, ev.Revision, newWorld, WorldFile, Store.Match));
                 break;

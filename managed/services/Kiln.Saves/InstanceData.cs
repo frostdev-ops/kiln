@@ -68,10 +68,11 @@ public sealed class InstanceKey<T> where T : class, new()
 /// holder's whole list of items, and after a load it gives a record back only to the one item that certainly is it. When
 /// that is not certain (two identical swords in a holder that changed while Kiln was not watching) the record is set
 /// aside and reported (<see cref="InstanceDataLostEvent"/>, <see cref="InstanceLossReason.Ambiguous"/>, <see cref="Parked{T}"/>):
-/// an item never gets another item's data. The one case nobody can detect: two items with equal fingerprints swapped while
-/// no Kiln was watching, with nothing else in the holder changed.</para>
+/// an item never gets another item's data, except in the one case nobody can detect: two identical items (equal item id,
+/// level, perks, gem and dye, and the same durability and fuel) whose slots were swapped in another world, or anywhere Kiln
+/// did not see, come back by slot on the newest exact load and trade their data. Nothing reports it.</para>
 /// <para>What is proven where. Items in chests and other world holders (tombstones, stations, NPCs) are matched by the
-/// world's own generation and are proven on a test server (lab results follow in docs/kiln/services/saves.md). Items in
+/// world's own generation and are proven on a test server (the lab results are in docs/kiln/services/saves.md). Items in
 /// a player's inventory go with this world's record of the character and are matched when the player joins; that half
 /// waits for the guided client pass, because only a real client brings a character's inventory back.</para>
 /// <para>Tick thread, server side, from mod code (handlers, <c>OnLoad</c>, tasks). Keys belong to the mod that declared
@@ -123,6 +124,7 @@ public static class InstanceData
     /// <exception cref="InvalidOperationException">Not on the tick thread, or the key's mod has unloaded.</exception>
     [ServerOnly]
     [TickThreadOnly]
+    [RequiresCapability(InstanceStore.Capability)]
     public static IReadOnlyList<(ItemInstanceRef Item, T Value)> All<T>(InstanceKey<T> key) where T : class, new()
     {
         var store = Use("InstanceData.All", key);
@@ -138,6 +140,7 @@ public static class InstanceData
     /// <exception cref="InvalidOperationException">Not on the tick thread, or the key's mod has unloaded.</exception>
     [ServerOnly]
     [TickThreadOnly]
+    [RequiresCapability(InstanceStore.Capability)]
     public static IReadOnlyList<ParkedInstance<T>> Parked<T>(InstanceKey<T> key) where T : class, new()
     {
         var store = Use("InstanceData.Parked", key);
@@ -164,7 +167,7 @@ public static class InstanceData
         var store = SavesRuntime.Store.Instances;
         store.RequireWorld();
         if (!SavesRuntime.WorldDataReady)
-            throw new KilnUnavailableException(Capability, "the hosted world's data opens when the game loads it (Saves.WorldDataReady)");
+            throw new KilnUnavailableException(Capability, InstanceCapabilities.WaitingText);
         if (!store.IsDeclared(key.Info))
             throw new InvalidOperationException($"instance key {key} belongs to a mod instance that has unloaded; declare it again");
         SavesRuntime.Store.EnsureOpen();
@@ -240,6 +243,7 @@ public static class ItemInstanceDataExtensions
     /// <exception cref="InvalidOperationException">Not on the tick thread, or the key's mod has unloaded.</exception>
     [ServerOnly]
     [TickThreadOnly]
+    [RequiresCapability(InstanceStore.Capability)]
     public static T Get<T>(this ItemInstanceRef item, InstanceKey<T> key) where T : class, new()
     {
         var store = InstanceData.Use("ItemInstanceRef.Get", key);
@@ -256,6 +260,7 @@ public static class ItemInstanceDataExtensions
     /// <exception cref="InvalidOperationException">Not on the tick thread, or the key's mod has unloaded.</exception>
     [ServerOnly]
     [TickThreadOnly]
+    [RequiresCapability(InstanceStore.Capability)]
     public static bool TryGet<T>(this ItemInstanceRef item, InstanceKey<T> key, [NotNullWhen(true)] out T? value) where T : class, new()
     {
         value = null;
@@ -273,6 +278,7 @@ public static class ItemInstanceDataExtensions
     /// <exception cref="InvalidOperationException">Not on the tick thread, or the key's mod has unloaded.</exception>
     [ServerOnly]
     [TickThreadOnly]
+    [RequiresCapability(InstanceStore.Capability)]
     public static bool Has<T>(this ItemInstanceRef item, InstanceKey<T> key) where T : class, new()
     {
         var store = InstanceData.Use("ItemInstanceRef.Has", key);
@@ -287,6 +293,7 @@ public static class ItemInstanceDataExtensions
     /// <exception cref="InvalidOperationException">Not on the tick thread, or the key's mod has unloaded.</exception>
     [ServerOnly]
     [TickThreadOnly]
+    [RequiresCapability(InstanceStore.Capability)]
     public static void Set<T>(this ItemInstanceRef item, InstanceKey<T> key, T value) where T : class, new()
     {
         ArgumentNullException.ThrowIfNull(value);
@@ -310,6 +317,7 @@ public static class ItemInstanceDataExtensions
     /// <exception cref="InvalidOperationException">Not on the tick thread, or the key's mod has unloaded.</exception>
     [ServerOnly]
     [TickThreadOnly]
+    [RequiresCapability(InstanceStore.Capability)]
     public static bool Remove<T>(this ItemInstanceRef item, InstanceKey<T> key) where T : class, new()
     {
         var store = InstanceData.Use("ItemInstanceRef.Remove", key);

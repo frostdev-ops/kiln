@@ -151,6 +151,19 @@ run a native handler scenario when the test mod asks; `KILN_ITEMS_HOOKS=early` i
 Capability `items.instances` (sigdb feature of the same name: kiln.items v4 is there and its reads resolved). When it is
 off (an older Kiln, an unknown game build: no offset is guessed), every member below throws
 `KilnUnavailableException("items.instances")`, and the `Ref` fields of results and reads are `ItemInstanceRef.None`.
+`Items.Held`, `Items.Equipped` and `Location` carry `[RequiresCapability("items.instances")]`.
+
+The row comes from sigdb; Kiln.Items only lowers it, at its start (kiln.items decides the feature once, when it resolves):
+
+| kiln.items has | The row | `Capabilities.Why("items.instances")` says |
+|---|---|---|
+| no table | unavailable, the reason of `kiln.items` (usually `service-missing`) | `items.instances is unavailable: kiln.items is unavailable: <why kiln.items is not there> (<reason>, from capabilities).` |
+| a table without v4 | unavailable, `service-older` | `items.instances is unavailable: kiln.items v<n> has no item instances (update Kiln) (service-older, from capabilities).` |
+| v4 with the feature turned off | unavailable: the reason of `items.read` with `needs items.read: <why>` when the inventory reads are what is off, else `faulted` with kiln.items' status detail (unless sigdb said why already) | `items.instances is unavailable: <that text> (<reason>, from capabilities).` |
+| v4, on | sigdb's row stands | `items.instances is available.` |
+
+The feature also goes off if kiln.items ever ran out of stamps (2^32 - 1 item entities in one process); the row does not
+follow that, the members throw.
 Reads only: nothing here writes a game component, so a client without Kiln sees nothing new.
 
 | Member | Side, thread | What |

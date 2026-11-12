@@ -103,6 +103,7 @@ public static class ItemInstanceExtensions
     /// unknown game build, or the server world is not running).</exception>
     [ServerOnly]
     [TickThreadOnly]
+    [RequiresCapability(Items.Caps.Instances)]
     public static ItemLocation? Location(this ItemInstanceRef item)
     {
         Services.RequireTickThread("ItemInstanceRef.Location");
@@ -136,6 +137,7 @@ public static unsafe partial class Items
     /// reflection (kiln.types) is unavailable.</exception>
     [ServerOnly]
     [TickThreadOnly]
+    [RequiresCapability(Caps.Instances)]
     public static ItemInstanceRef Held(EntityId player)
     {
         Services.RequireTickThread("Items.Held");
@@ -154,6 +156,7 @@ public static unsafe partial class Items
     /// (kiln.types) is unavailable, or this game build has no such equipment field.</exception>
     [ServerOnly]
     [TickThreadOnly]
+    [RequiresCapability(Caps.Instances)]
     public static ItemInstanceRef Equipped(EntityId player, EquipmentSlot slot)
     {
         Services.RequireTickThread("Items.Equipped");
@@ -241,7 +244,7 @@ internal readonly record struct ItemInstanceInfo(ItemInstanceRef Item, ItemLocat
 /// <summary>The internal face of item instances for Kiln.Saves (instance data: storage and matching).</summary>
 internal static unsafe class ItemInstances
 {
-    internal const string Capability = "items.instances";
+    internal const string Capability = Items.Caps.Instances;
 
     /// <summary>Throws <see cref="KilnUnavailableException"/>(<c>items.instances</c>) when off.</summary>
     internal static void Require()

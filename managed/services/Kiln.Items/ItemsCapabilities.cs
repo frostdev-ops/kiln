@@ -34,6 +34,11 @@ public static unsafe partial class Items
         /// <summary>Kiln.Items' session row: moves run right now (the kiln_items program runs in a server world).</summary>
         public const string Moves = "items.moves";
 
+        /// <summary>sigdb: item instances (kiln.items v4: stamps, locations, save-record fields, following), what
+        /// <see cref="ItemInstanceRef"/>, <see cref="Items.Held"/>, <see cref="Items.Equipped"/> and Kiln.Saves'
+        /// InstanceData need.</summary>
+        public const string Instances = "items.instances";
+
         // sigdb rows the ones above need
         public const string Transaction = "items.transaction";
         public const string Read = "items.read";
@@ -67,13 +72,25 @@ public static unsafe partial class Items
         {
             var (reason, text) = Cause(CapabilityReason.ServiceMissing, "kiln.items is not loaded", Caps.Service);
             Capabilities.Report(Caps.ResultPeek, CapabilityState.Unavailable, reason, text);
-            foreach (var name in (string[])[Caps.Fuel, Caps.Move, Caps.Names, Caps.Transfer, Caps.Moves]) Lower(name, reason, text);
+            foreach (var name in (string[])[Caps.Fuel, Caps.Move, Caps.Names, Caps.Transfer, Caps.Moves, Caps.Instances]) Lower(name, reason, text);
             return;
         }
         var older = $"kiln.items v{t->Header.Version} has no {{0}} (update Kiln)";
         if (ResultTable != null) Capabilities.Report(Caps.ResultPeek, CapabilityState.Available);
         else Capabilities.Report(Caps.ResultPeek, CapabilityState.Unavailable, CapabilityReason.ServiceOlder, string.Format(older, "result peek"));
         if (V2 == null) Lower(Caps.Fuel, CapabilityReason.ServiceOlder, string.Format(older, "water functions"));
+        // item instances: kiln.items decides its flag once, when it resolves at its start (items.cpp, instances_ok)
+        var v4 = V4 != null;
+        switch (DecideInstances(t->Header.Version, v4, v4 && ItemInstances.On, v4 ? ItemInstances.WhyOff : ""))
+        {
+            case (InstancesVerdict.NoV4, var text):
+                Lower(Caps.Instances, CapabilityReason.ServiceOlder, text);
+                break;
+            case (InstancesVerdict.Off, var text):
+                // kiln.items turns item instances off when its inventory reads are off: then that row's reason is the cause
+                Off(Caps.Instances, text, Caps.Read);
+                break;
+        }
         var s3 = Status3();
         if (s3 == null)
         {
@@ -96,6 +113,27 @@ public static unsafe partial class Items
             foreach (var name in (string[])[Caps.Fuel, Caps.Move])
                 Lower(name, tx.Reason, $"needs {Caps.Transaction}: {tx.ReasonText}");
     }
+
+    internal enum InstancesVerdict
+    {
+        /// <summary>On: the sigdb row stands.</summary>
+        On,
+        /// <summary>No kiln.items table: lowered with the other rows (the reason of kiln.items' row).</summary>
+        NoTable,
+        /// <summary>A table without v4: lowered, service-older.</summary>
+        NoV4,
+        /// <summary>v4, but kiln.items turned the feature off (its status flag is clear): off, with its detail.</summary>
+        Off,
+    }
+
+    /// <summary>What <c>items.instances</c> becomes, from what kiln.items has: the table's version (null: no table),
+    /// whether it is v4, its InstancesOn flag and its status detail. Pure, so the three branches are tested without the
+    /// native table.</summary>
+    internal static (InstancesVerdict Verdict, string Text) DecideInstances(uint? tableVersion, bool v4, bool flagOn, string detail) =>
+        tableVersion is not { } version ? (InstancesVerdict.NoTable, "kiln.items is not loaded")
+        : !v4 ? (InstancesVerdict.NoV4, $"kiln.items v{version} has no item instances (update Kiln)")
+        : !flagOn ? (InstancesVerdict.Off, detail.Length > 0 ? detail : "kiln.items turned item instances off (see kiln.log)")
+        : (InstancesVerdict.On, "");
 
     // items.moves follows the kiln_items program: available while moves run, pending while it waits for a server world
     // (and again after one closed), unavailable when it broke or moves are off on this build.

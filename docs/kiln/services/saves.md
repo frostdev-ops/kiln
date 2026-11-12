@@ -142,6 +142,24 @@ lab has no real player, so that half rests on unit tests against the fake and on
 | `saves.instance_data` | `InstanceData` works: kiln.saves, kiln.items' item instances (`items.instances`), kiln.spawn's holder inspection/search/metadata, and the world's data open (`Saves.WorldDataReady`) |
 | `saves.instance_data.carried` | `Persist.Carried`: not available in this release; declaring such a key throws `KilnUnavailableException` |
 
+Both are rows of the [capability registry](caps.md), reported by Kiln.Saves; `Capabilities.Get` and
+`kiln/state/capabilities.json` show them. `saves.instance_data` says what the calls enforce; it is decided again at
+Kiln.Saves' start, in its pump (about once a second) and when the item source is set, a world closes or a world loads:
+
+| State | Reason | Text | When |
+|---|---|---|---|
+| unavailable | the reason of the row `kiln.saves` | the text of that row | kiln.saves is not there |
+| unavailable | the reason of the row of what is off (`items.instances` or `kiln.spawn`) when that row is unavailable; else `service-missing` (no item source at all), `service-older` (a `kiln.<service>` table without what is needed) or `faulted` | `needs <capability>: <why>` | the item source says no: kiln.items has no item instances (no v4, or the feature off), or kiln.spawn's entity inspection, template metadata or holder search is missing |
+| pending | `session` | `the hosted world's data opens when the game loads it (Saves.WorldDataReady)` | the world's data is not open: a hosted world between its start and the game's load, and again after a hosted world closed |
+| available | `none` | | otherwise |
+
+`saves.instance_data.carried` is unavailable, reason `policy`, with the sentence below.
+
+**The row exists only once Kiln.Saves has started.** A managed service's row is registered at its first use, after the
+manifests were checked, and `saves.instance_data` can be pending, so a manifest's `features` cannot require it. A mod
+asks `Capabilities.Is("saves.instance_data")` (or `Capabilities.Why` for a log line) at run time, or catches the
+`KilnUnavailableException` the calls throw.
+
 **`Persist.Carried` is not available yet.** `Persist.World` keeps the value on this world's save, the item in a player's
 inventory included; data that travels with a character between worlds is not available yet. Declaring a key with
 `Persist.Carried` throws `KilnUnavailableException("saves.instance_data.carried")` with that text as its reason.
@@ -258,6 +276,8 @@ are set aside; an item without a look-alike still finds its record.
 **What nobody can detect:** two items with equal fingerprints swapped while no Kiln was watching, with nothing else in
 the holder changed; and an item removed while no Kiln was watching with a look-alike put in its place. Both look exactly
 like nothing happened.
+
+**Two identical items trade their data when they were swapped where Kiln did not see.** Two items with equal item id, level, perks, gem and dye, and the same durability and fuel, whose slots were swapped in another world, or anywhere Kiln did not see (a world file or a character file edited offline), come back by slot on the newest exact load, and the two items trade their data. Nothing reports it: no event, no log line, no `Parked` entry. It is the one case nobody can detect, because the holder looks exactly as it was saved.
 
 ### Gone items, players, mods
 - **Destroyed** (trash, crafting, taken away) in a world holder: dropped at once (`Destroyed`).
