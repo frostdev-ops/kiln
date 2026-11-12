@@ -29,6 +29,8 @@ pub fn import_shipped(app: &AppHandle) {
     if !zip.is_file() {
         return;
     }
+    // it writes `runtime/` (also from setup's own thread): a writer a move waits for
+    let _writing = crate::state::writing();
     match dirs().and_then(|d| bundle::import_shipped(&d, &zip)) {
         Ok(Some(b)) => eprintln!("shipped Kiln runtime {} added", b.version),
         Ok(None) => {}

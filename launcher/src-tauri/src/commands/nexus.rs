@@ -501,6 +501,10 @@ pub fn start(app: &AppHandle) {
     let nexus_on = kiln_manage::nexus::enabled();
     if let Ok(r) = root() {
         std::thread::spawn(move || {
+            let _writing = crate::state::writing();
+            if crate::folder::current().held_error().is_some() {
+                return;
+            }
             let ring = keystore::legacy_keyring();
             for line in startup_cleanup(&r, nexus_on, handler::platform().as_ref(), ring.as_deref()) {
                 launcher_log("nexus", &line);
@@ -529,8 +533,11 @@ pub fn start(app: &AppHandle) {
     }
     let app = app.clone();
     std::thread::spawn(move || loop {
-        // the inbox is in the data folder: not read (its files not removed) while the folder is held (a move)
+        // the inbox is in the data folder: a writer (its files are removed once read) a move waits for, and not read
+        // while the folder is held
+        let writing = crate::state::writing();
         if crate::folder::current().held_error().is_some() {
+            drop(writing);
             std::thread::sleep(std::time::Duration::from_millis(500));
             continue;
         }
@@ -564,6 +571,7 @@ pub fn start(app: &AppHandle) {
                 let _ = w.set_focus();
             }
         }
+        drop(writing);
         std::thread::sleep(std::time::Duration::from_millis(500));
     });
 }

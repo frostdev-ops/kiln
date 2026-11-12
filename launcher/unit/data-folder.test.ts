@@ -172,4 +172,7 @@ test("a done move: the restart at once, unless there are warnings or a stopped r
   expect(doneLines({ warnings: ["A game could not be activated again."], cleanup: null })).toEqual(["A game could not be activated again."]);
   expect(doneLines({ warnings: [], cleanup: { done: false, interrupted: true, folderRemoved: false, kept: [] } }))
     .toEqual(["The data has moved. The rest of the old copy goes at the next start."]);
+  // a removal the crate did not run (a game's profile could not be written for the new place): its reason, not "next start"
+  expect(doneLines({ warnings: ["w"], cleanup: { done: false, interrupted: false, folderRemoved: false, kept: [], reason: "Enshrouded still uses /a: activate that profile again." } }))
+    .toEqual(["w", "Enshrouded still uses /a: activate that profile again."]);
 });

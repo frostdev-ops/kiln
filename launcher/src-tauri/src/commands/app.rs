@@ -623,6 +623,7 @@ const HELD_MAX: usize = 500;
 /// memory, otherwise (a broken pointer, a move elsewhere, after the commit) it goes to stderr only.
 pub fn launcher_log(area: &str, msg: &str) {
     let line = format!("{} {area}: {msg}", kiln_manage::util::now_rfc3339());
+    let _writing = crate::state::writing();
     let f = crate::folder::current();
     match f.hold() {
         crate::folder::Hold::Moving if f.problem().is_none() => {

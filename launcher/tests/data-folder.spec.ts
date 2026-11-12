@@ -280,6 +280,20 @@ test("an unfinished move undone at start, and a move's record that matches neith
   await expect(c.getByRole("button")).toHaveText(["Open old folder", "OK"]);
 });
 
+test("a removal refused at start says why, not \"the rest goes at the next start\"; an undone move that left files names them", async ({ page }) => {
+  await open(page, "/?df=moved-refused#/");
+  const n = page.getByRole("dialog", { name: "Data folder moved" });
+  await expect(n).toContainText(`Enshrouded still uses ${DATA}: activate that profile again, then the old copy goes at the next start.`, { timeout: 10_000 });
+  await expect(n).not.toContainText("Kiln removes the rest at the next start");
+  await open(page, "/?df=undone-left#/");
+  const u = page.getByRole("dialog", { name: "Move not finished" });
+  await expect(u.getByRole("list", { name: "Kiln could not remove these from the unfinished copy:" }).getByRole("listitem"))
+    .toHaveText(["backups (2.3 KB): it could not be removed: Permission denied (os error 13)"], { timeout: 10_000 });
+  await expect(u).toContainText("the folder stays marked as an unfinished move.");
+  await u.getByRole("button", { name: "OK" }).click();
+  await expect.poll(() => calls(page)).toContain("data_folder_notice_ack");
+});
+
 test("another launcher is moving the data folder: only its dialog and Quit", async ({ page }) => {
   await page.goto("/?df=elsewhere#/settings");
   const d = page.getByRole("dialog", { name: "Kiln is moving its data in another window" });
@@ -318,6 +332,21 @@ test("the move's last phase says it removes the old copy; a removal stopped ther
   await expect(moving.getByRole("button", { name: "Cancel", exact: true })).toBeEnabled();
   const done = page.getByRole("dialog", { name: "Data folder moved" });
   await expect(done).toContainText("The data has moved. The rest of the old copy goes at the next start.", { timeout: 6000 });
+  expect(await calls(page)).not.toContain("data_folder_restart");
+  await done.getByRole("button", { name: "Restart" }).click();
+  await expect.poll(() => calls(page)).toContain("data_folder_restart");
+});
+
+test("a game's profile that could not be written for the new place: the moved dialog says what to do, not \"next start\"", async ({ page }) => {
+  await open(page);
+  await df(page, "reactivationFails", "Enshrouded");
+  await pick(page, "/mnt/games");
+  await change(page).click();
+  await page.getByRole("dialog", { name: "Move the data folder?" }).getByRole("button", { name: "Move", exact: true }).click();
+  const done = page.getByRole("dialog", { name: "Data folder moved" });
+  await expect(done).toContainText("The profile of Enshrouded could not be written for the new place.", { timeout: 15_000 });
+  await expect(done).toContainText(`Enshrouded still uses ${DATA}: activate that profile again, then the old copy goes at the next start.`);
+  await expect(done).not.toContainText("The rest of the old copy goes at the next start.");
   expect(await calls(page)).not.toContain("data_folder_restart");
   await done.getByRole("button", { name: "Restart" }).click();
   await expect.poll(() => calls(page)).toContain("data_folder_restart");

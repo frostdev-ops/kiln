@@ -28,6 +28,18 @@ impl Drop for Flight {
     }
 }
 
+/// A writer of the data folder outside [`blocking`] and outside a task (a background thread's round, `launcher_log`, the
+/// self-update's `update.json`): counted with `blocking`'s work while it lives, so a move waits for it to end. Take it
+/// before [`dirs`]: a writer that got the folder before a move's hold is waited for, one that asks after it is refused.
+#[must_use]
+pub fn writing() -> Writing {
+    IN_FLIGHT.fetch_add(1, Ordering::SeqCst);
+    Writing(Flight)
+}
+
+/// [`writing`]'s guard.
+pub struct Writing(#[allow(dead_code)] Flight);
+
 /// Runs a blocking closure on the blocking pool (file and process work never runs on the IPC thread).
 pub async fn blocking<T: Send + 'static>(f: impl FnOnce() -> Result<T, Error> + Send + 'static) -> Result<T, Error> {
     IN_FLIGHT.fetch_add(1, Ordering::SeqCst);

@@ -154,14 +154,17 @@ struct StartState {
     /// `data_folder_notice_ack` was called: no notice for the rest of this process.
     acked: bool,
     cleaning: Cleaning,
+    /// What this start's removal of the old copy gave. The journal keeps a result only when the removal ran; a refusal
+    /// (a game's profile still names the old folder, no proof) is kept here, for this process.
+    removal: Option<Cleanup>,
 }
 
-static START: Mutex<StartState> = Mutex::new(StartState { notice: None, acked: false, cleaning: Cleaning::None });
+static START: Mutex<StartState> = Mutex::new(StartState { notice: None, acked: false, cleaning: Cleaning::None, removal: None });
 
 /// Tests: a new process (what this start found and did is forgotten).
 #[cfg(test)]
 pub(crate) fn forget_start() {
-    *start_state() = StartState { notice: None, acked: false, cleaning: Cleaning::None };
+    *start_state() = StartState { notice: None, acked: false, cleaning: Cleaning::None, removal: None };
 }
 
 fn start_state() -> std::sync::MutexGuard<'static, StartState> {
@@ -211,9 +214,14 @@ fn notice(f: &Folder) -> Option<NoticeOut> {
         return Some(n.clone());
     }
     let removing = matches!(st.cleaning, Cleaning::Running(_));
+    let removal = st.removal.clone();
     drop(st);
     match dfm::pending(&f.env).ok()? {
-        Pending::Committed { journal } => Some(notice_of("moved", &journal, journal.result.as_ref(), removing, None)),
+        // this start's removal when it was refused (not in the journal), else the journal's result
+        Pending::Committed { journal } => {
+            let c = removal.filter(|c| c.reason.is_some()).or_else(|| journal.result.clone());
+            Some(notice_of("moved", &journal, c.as_ref(), removing, None))
+        }
         _ => None,
     }
 }
@@ -301,7 +309,11 @@ fn spawn_cleanup(app: &AppHandle) {
 /// The removal itself (the task's work; tests call it).
 fn cleanup_work(f: &Folder, p: &mut dyn kiln_manage::task::Progress) -> Result<Cleanup, Error> {
     let r = dfm::remove_old_copy(&f.env, p);
-    start_state().cleaning = Cleaning::Ended;
+    {
+        let mut st = start_state();
+        st.cleaning = Cleaning::Ended;
+        st.removal = r.as_ref().ok().cloned();
+    }
     let c = r?;
     launcher_log("data folder", &format!(
         "old copy {}: {} files removed, {} kept, done {}, interrupted {}",
@@ -310,21 +322,27 @@ fn cleanup_work(f: &Folder, p: &mut dyn kiln_manage::task::Progress) -> Result<C
     Ok(c)
 }
 
-/// The notice was seen. A finished removal (or one with nothing to remove) acknowledges the journal; one that stopped
-/// before the end keeps it (the next start goes on), and the notice is gone for this process only.
+/// The notice was seen: it is gone for this process whatever comes next. A finished removal (or one the journal says
+/// has nothing to remove) acknowledges the journal. Kept for the next start: a removal that stopped before the end or
+/// was refused (a game's profile still names the old folder), and an unfinished move's partial copy that could not be
+/// removed (the crate refuses the acknowledgement while it carries the journal's marker).
 fn notice_ack_with(f: &Folder) -> Result<(), Error> {
+    {
+        let mut st = start_state();
+        st.acked = true;
+        st.notice = None;
+    }
     let running = matches!(start_state().cleaning, Cleaning::Running(_));
     let finished = match dfm::pending(&f.env)? {
         Pending::Committed { journal } => !running && !needs_cleanup(&journal),
-        Pending::Nothing => false,
-        Pending::Uncommitted { .. } | Pending::Unclear { .. } => true,
+        Pending::Nothing | Pending::Uncommitted { .. } => false,
+        Pending::Unclear { .. } => true,
     };
-    if finished {
-        dfm::acknowledge(&f.env)?;
+    if finished
+        && let Err(e) = dfm::acknowledge(&f.env)
+    {
+        launcher_log("data folder", &format!("the move's record stays: {}", e.message));
     }
-    let mut st = start_state();
-    st.acked = true;
-    st.notice = None;
     Ok(())
 }
 
@@ -523,11 +541,11 @@ fn cleanup_out(c: &Cleanup) -> CleanupOut {
 /// The move itself, with the folder held (`hold_for_move`): the file-hash cache stops writing, `move_to` runs with
 /// this process's lock; done (the pointer names the new place): nothing runs again until the restart; failed or
 /// canceled (the old place is in use as it was): everything runs again.
-pub(crate) fn move_with(f: &Folder, l: &Located, picked: &Path, p: &mut dyn kiln_manage::task::Progress) -> Result<MovedOut, Error> {
+pub(crate) fn move_with(f: &Folder, l: &Located, picked: &Path, opts: &dfm::MoveOptions, p: &mut dyn kiln_manage::task::Progress) -> Result<MovedOut, Error> {
     kiln_manage::filecache::unpersist();
     let r = {
         let mut g = f.lock();
-        dfm::move_to(l, &f.env, picked, &RealFacts { dirs: &l.dirs }, g.as_mut(), &dfm::MoveOptions::default(), p)
+        dfm::move_to(l, &f.env, picked, &RealFacts { dirs: &l.dirs }, g.as_mut(), opts, p)
     };
     match r {
         Ok(m) => {
@@ -629,7 +647,7 @@ pub async fn data_folder_move(app: AppHandle, path: String) -> Result<super::Tas
     off_thread(move || {
         let l = f.located()?.clone();
         hold_for_move(&f)?;
-        Ok(spawn_task(&app, "data_folder_move", "Move the data folder".into(), move |p| to_value(move_with(&f, &l, Path::new(&path), p)?)))
+        Ok(spawn_task(&app, "data_folder_move", "Move the data folder".into(), move |p| to_value(move_with(&f, &l, Path::new(&path), &dfm::MoveOptions::default(), p)?)))
     })
     .await
 }
@@ -916,7 +934,7 @@ pub(crate) mod tests {
         assert_eq!(plan.action, "move", "{plan:?}");
         hold_for_move(&f).unwrap();
         let mut w = Watch { tried: false, removing: 0, cancel_after: None, messages: vec![] };
-        let m = move_with(&f, &l, &to, &mut w).unwrap();
+        let m = move_with(&f, &l, &to, &dfm::MoveOptions::default(), &mut w).unwrap();
         assert!(w.tried, "the move copied: {:?}", w.messages);
         assert_eq!(m.to, text(&to));
         assert!(m.cleanup.as_ref().is_some_and(|c| c.done), "{m:?}");
@@ -959,7 +977,7 @@ pub(crate) mod tests {
         hold_for_move(&f).unwrap();
         // the crate reports the removal every 64 files: a cancel after its first report stops it near the start
         let mut w = Watch { tried: true, removing: 0, cancel_after: Some(1), messages: vec![] };
-        let m = move_with(&f, &l, &to, &mut w).unwrap();
+        let m = move_with(&f, &l, &to, &dfm::MoveOptions::default(), &mut w).unwrap();
         let c = m.cleanup.clone().expect("the removal ran");
         assert!(c.interrupted && !c.done, "a cancel there interrupts the removal only: {c:?}");
         assert_eq!(f.hold(), Hold::Moved, "the move itself is done");
@@ -996,7 +1014,7 @@ pub(crate) mod tests {
         let l = f.located().unwrap().clone();
         hold_for_move(&f).unwrap();
         // a folder the crate refuses: the move fails before anything is copied
-        let e = move_with(&f, &l, &from.join("library"), &mut kiln_manage::task::NoProgress).unwrap_err();
+        let e = move_with(&f, &l, &from.join("library"), &dfm::MoveOptions::default(), &mut kiln_manage::task::NoProgress).unwrap_err();
         assert_eq!(e.code, ErrorCode::Refused, "{e:?}");
         assert_eq!(f.hold(), Hold::Free);
         assert!(crate::state::dirs().is_ok());
@@ -1059,6 +1077,137 @@ pub(crate) mod tests {
         assert_eq!(json["otherFolderProfile"]["id"], p.id.as_str());
         let active = tauri::async_runtime::block_on(crate::commands::profile::profile_active(g.id.clone())).unwrap();
         assert!(active.is_none(), "never shown as loaded here: {active:?}");
+        let _ = std::fs::remove_dir_all(&t);
+    }
+
+    /// A move that fails and cannot remove a file it made (the crate's `HeldDuring`): the old place stays in use, the
+    /// next start removes the rest; while that removal cannot finish either, the notice names what is left, the ack
+    /// hides it for this process and keeps the journal, and the start after that finishes.
+    #[test]
+    #[cfg(unix)]
+    fn a_failed_move_that_left_a_file_is_finished_by_a_later_start() {
+        use std::os::unix::fs::PermissionsExt;
+        let _g = folder::test_serial();
+        forget_start();
+        let (t, env, from, to) = moving("held", 6);
+        let f = Arc::new(Folder::open(env.clone()));
+        folder::replace(f.clone());
+        let l = f.located().unwrap().clone();
+        hold_for_move(&f).unwrap();
+        let opts = dfm::MoveOptions { force_copy: true, inject: Some(dfm::Inject::HeldDuring(3)) };
+        let e = move_with(&f, &l, &to, &opts, &mut kiln_manage::task::NoProgress).unwrap_err();
+        assert!(e.message.contains("could not remove it again"), "the crate's sentence names what is left: {e:?}");
+        assert_eq!(f.hold(), Hold::Free, "nothing changed: everything runs again");
+        let c: Cleanup = serde_json::from_value(e.detail.clone().unwrap()).unwrap();
+        let left = c.kept[0].path.clone();
+        assert!(left.is_file());
+
+        // the next start cannot remove it either (a read-only folder here)
+        let dir = left.parent().unwrap().to_path_buf();
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o555)).unwrap();
+        forget_start();
+        let f2 = Arc::new(Folder::open(env.clone()));
+        folder::replace(f2.clone());
+        assert_eq!(f2.located().unwrap().dirs.root, from, "the old place is in use");
+        assert!(!start_with(&f2));
+        let n = notice(&f2).expect("the notice of the undone move");
+        assert_eq!(n.kind, "undone");
+        assert!(n.kept.iter().any(|k| left.starts_with(&k.path)), "it names what is left (the file or the entry that holds it): {n:?}");
+        assert!(n.reason.as_deref().is_some_and(|r| r.contains("stays marked")), "{n:?}");
+        notice_ack_with(&f2).unwrap();
+        assert_eq!(notice(&f2), None, "the ack hides it for this process");
+        assert!(matches!(dfm::pending(&env).unwrap(), Pending::Uncommitted { .. }), "and the journal stays");
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        // the start after that removes the rest
+        forget_start();
+        let f3 = Arc::new(Folder::open(env.clone()));
+        folder::replace(f3.clone());
+        assert!(!start_with(&f3));
+        assert_eq!(notice(&f3).map(|n| n.kind), Some("undone"));
+        assert!(!left.exists() && !to.exists(), "the partial copy is gone");
+        assert!(matches!(dfm::pending(&env).unwrap(), Pending::Nothing));
+        notice_ack_with(&f3).unwrap();
+        let _ = std::fs::remove_dir_all(&t);
+    }
+
+    /// After a move, a launcher before dev.25 at the old default root activates its own profile in a game the moved
+    /// folder knows: the removal at the next start is refused with the crate's reason (the journal keeps no result),
+    /// the notice shows that reason instead of "the rest goes at the next start", and the ack keeps the journal.
+    #[test]
+    #[cfg(unix)]
+    fn a_removal_refused_because_a_game_names_the_old_folder_says_why() {
+        use kiln_manage::game::{GameInstall, GameKind, PathMode, Platform};
+        use kiln_manage::{paths::DataDirs, profile};
+        let _g = folder::test_serial();
+        forget_start();
+        let (t, env, from, to) = moving("named", 3);
+        let path = t.join("game");
+        std::fs::create_dir_all(path.join("kiln")).unwrap();
+        std::fs::write(path.join("enshrouded.exe"), b"fixture").unwrap();
+        let prefix = t.join("pfx");
+        std::fs::create_dir_all(prefix.join("dosdevices")).unwrap();
+        std::os::unix::fs::symlink("/", prefix.join("dosdevices/z:")).unwrap();
+        let g = GameInstall { id: "named-game".into(), kind: GameKind::Client, path, exe: "enshrouded.exe".into(),
+            app_id: kiln_manage::CLIENT_APP_ID, library: None, platform: Platform::Proton, prefix: Some(prefix),
+            build_id: None, exe_sha256: None, steam_flavor: None, path_mode: PathMode::Z, source: "manual".into() };
+        kiln_manage::game::write_record(&DataDirs::at(&from), &g, None).unwrap();
+        let f = Arc::new(Folder::open(env.clone()));
+        folder::replace(f.clone());
+        let l = f.located().unwrap().clone();
+        hold_for_move(&f).unwrap();
+        // the move's own removal is stopped, so the old copy is still there at the next start
+        let mut w = Watch { tried: true, removing: 0, cancel_after: Some(1), messages: vec![] };
+        move_with(&f, &l, &to, &dfm::MoveOptions::default(), &mut w).unwrap();
+        // a launcher before dev.25 runs at the old default root as on a first run and activates its profile there
+        let old = DataDirs::at(&from);
+        let p = profile::create(&old, "Old launcher", None).unwrap();
+        profile::activate(&old, &p.id, &g).unwrap();
+
+        forget_start();
+        let f2 = Arc::new(Folder::open(env.clone()));
+        folder::replace(f2.clone());
+        assert!(start_with(&f2));
+        let c = cleanup_work(&f2, &mut kiln_manage::task::NoProgress).unwrap();
+        let reason = c.reason.clone().expect("refused with the crate's reason");
+        let n = notice(&f2).expect("the notice");
+        assert_eq!(n.reason.as_deref(), Some(reason.as_str()), "{n:?}");
+        assert!(!n.unfinished, "not \"the rest goes at the next start\": {n:?}");
+        notice_ack_with(&f2).unwrap();
+        assert!(matches!(dfm::pending(&env).unwrap(), Pending::Committed { .. }), "the journal stays for a later removal");
+        let _ = std::fs::remove_dir_all(&t);
+    }
+
+    /// The mechanism behind the writers outside `state::blocking` (state::writing): a move waits for one that got the
+    /// folder before its hold, and one that asks after the hold is refused.
+    #[test]
+    fn a_move_waits_for_a_writer_that_got_the_folder_first() {
+        let _g = folder::test_serial();
+        forget_start();
+        let (t, env) = scratch("writer");
+        let f = Arc::new(Folder::open(env.clone()));
+        folder::replace(f.clone());
+        // a writer that got the folder before the hold
+        let w = crate::state::writing();
+        let d = crate::state::dirs().unwrap();
+        let (tx, rx) = std::sync::mpsc::channel();
+        let f2 = f.clone();
+        let mover = std::thread::spawn(move || {
+            let r = hold_for_move(&f2);
+            tx.send(()).unwrap();
+            r
+        });
+        std::thread::sleep(Duration::from_millis(400));
+        assert!(rx.try_recv().is_err(), "the move waits while the writer works");
+        assert_eq!(f.hold(), Hold::Moving, "and nobody else gets the folder meanwhile");
+        let late = crate::state::writing();
+        assert!(crate::state::dirs().is_err(), "a writer that asks after the hold is refused");
+        drop(late);
+        std::fs::write(d.root.join("settings.json"), "{}").unwrap();
+        drop(w);
+        mover.join().unwrap().unwrap();
+        assert!(rx.try_recv().is_ok());
+        release_after_failure(&f);
         let _ = std::fs::remove_dir_all(&t);
     }
 }

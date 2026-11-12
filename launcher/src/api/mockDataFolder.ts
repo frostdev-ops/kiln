@@ -10,7 +10,9 @@
 //   moved-left   the same, with entries Kiln left on purpose and a file it could not remove
 //   moved-removing   the same, while the task removes the old copy
 //   moved-unfinished the same, the removal stopped (it goes on at the next start)
+//   moved-refused    the same, the removal refused (a game's profile still names the old folder): its reason
 //   undone       an unfinished move undone at this start
+//   undone-left  the same, part of the partial copy could not be removed (the next start tries again)
 //   unclear      a move's record that matches neither folder
 //   fail         every move fails half-way
 // Folders a test picks (the browser has no folder dialog): `__kilnDataFolderMock.pick(path | null)` queues the next
@@ -78,6 +80,11 @@ function start(): DataFolder {
     }
     case "moved-removing": return notice({ removing: true, folderRemoved: false });
     case "moved-unfinished": return notice({ unfinished: true, folderRemoved: false });
+    case "moved-refused": return notice({ folderRemoved: false,
+      reason: `Enshrouded still uses ${MOCK_DEFAULT_DATA}: activate that profile again, then the old copy goes at the next start.` });
+    case "undone-left": return { ...base, notice: { kind: "undone", from: MOCK_DEFAULT_DATA, to: "/mnt/games/Kiln", left: ["/mnt/games/Kiln/backups"], stayed: [],
+      kept: [{ path: "/mnt/games/Kiln/backups", bytes: 2_400, reason: "it could not be removed: Permission denied (os error 13)" }], removing: false,
+      unfinished: false, folderRemoved: false, reason: "Parts of the partial copy in /mnt/games/Kiln could not be removed: the folder stays marked as an unfinished move." } };
     case "undone": return { ...base, notice: { kind: "undone", from: MOCK_DEFAULT_DATA, to: "/mnt/games/Kiln", left: [], stayed: [], kept: [], removing: false, unfinished: false, folderRemoved: true, reason: null } };
     case "unclear": return { ...moved, notice: { kind: "unclear", ...LEFT, left: [], stayed: [], kept: [], removing: false, unfinished: false, folderRemoved: false,
       reason: `The launcher uses /mnt/games/Kiln, but the move went from ${MOCK_DEFAULT_DATA} to /mnt/other/Kiln: nothing is removed.` } };
@@ -93,6 +100,7 @@ let failNext: string | null = FAIL_URL ? "Could not copy library/kiln/new-items:
 let busy: string | null = null;
 let sizeDelay = 900;
 let interrupt = false;
+let reactivation: string | null = null;
 let stepMs = 600;
 
 /** The browser's stand-in for the folder dialog (ui: shell/dataFolder.ts pickFolder). */
@@ -137,6 +145,8 @@ export function dataFolderMockHandlers(startTask: StartTask): Record<string, (a:
     busy: (kind: string | null) => { busy = kind; },
     sizeDelay: (ms: number) => { sizeDelay = ms; },
     interruptRemoval: (on: boolean) => { interrupt = on; },
+    /** A game's profile could not be written for the new place: the move skips its removal, as the backend does. */
+    reactivationFails: (game: string | null) => { reactivation = game; },
     stepMs: (ms: number) => { stepMs = ms; },
     refusals: () => REFUSALS,
     state: () => structuredClone(folder),
@@ -159,6 +169,11 @@ export function dataFolderMockHandlers(startTask: StartTask): Record<string, (a:
         (): DataFolderMoved => {
           if (fail) rejectWith("io", fail);
           // the running launcher keeps the old folder until it restarts (data_folder_restart)
+          if (reactivation) {
+            return { from, to: p.target, stayed: p.stays, warnings: [`The profile of ${reactivation} could not be written for the new place.`],
+              cleanup: { done: false, interrupted: false, folderRemoved: false, kept: [],
+                reason: `${reactivation} still uses ${from}: activate that profile again, then the old copy goes at the next start.` } };
+          }
           return { from, to: p.target, warnings: [], stayed: p.stays,
             cleanup: { done: !interrupt, interrupted: interrupt, folderRemoved: !p.stays.length && !interrupt, kept: [], reason: null } };
         }, stepMs);

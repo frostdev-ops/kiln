@@ -110,7 +110,10 @@ export function movingLine(message: string | null | undefined): string | null {
 export function doneLines(m: Pick<DataFolderMoved, "warnings" | "cleanup"> | null | undefined): string[] | null {
   if (!m) return null;
   const lines = [...(m.warnings ?? [])];
-  if (m.cleanup?.interrupted) lines.push("The data has moved. The rest of the old copy goes at the next start.");
+  // the crate did not run the removal, or refused it (a game's profile could not be written for the new place): its
+  // reason says what the player does; else a stopped removal goes on at the next start
+  if (m.cleanup?.reason) lines.push(m.cleanup.reason);
+  else if (m.cleanup?.interrupted) lines.push("The data has moved. The rest of the old copy goes at the next start.");
   return lines.length ? lines : null;
 }
 
