@@ -165,12 +165,15 @@ internal static class InstanceMatcher
     }
 
     /// <summary>Whether a record's holder state is vouched for between the save and the load (the first half of rule 1):
-    /// its witness exists and is settled, and its observation is the generation the world file vouches for
-    /// (<paramref name="trustedGeneration"/>: given only for a world holder whose loaded generation is Exact or Staged), or
-    /// the holder's list now equals that witness. Rule 1 also needs the holder's items as the loader made them.</summary>
-    public static bool Trusted(in MatchRecord r, IReadOnlyDictionary<uint, Witness> witnesses, IReadOnlyList<MatchItem> items, uint? trustedGeneration) =>
-        r.Seen != 0 && witnesses.TryGetValue(r.Seen, out var w) && w.Settled &&
-        ((trustedGeneration is { } g && r.Seen == g) || SameAsWitness(w.Entries, items));
+    /// its witness exists and is settled, and the holder's list now equals that witness; for a world holder also its
+    /// observation is the generation the world file vouches for (<paramref name="trustedGeneration"/>: given only when the
+    /// loaded generation is Exact or Staged), so an edit of the world file that keeps its header shows as a changed list.
+    /// Rule 1 also needs the holder's items as the loader made them.</summary>
+    /// <param name="world">A world holder (a chest, an NPC); false for a player, whose state is vouched for by the witness alone.</param>
+    public static bool Trusted(in MatchRecord r, IReadOnlyDictionary<uint, Witness> witnesses, IReadOnlyList<MatchItem> items, uint? trustedGeneration,
+        bool world) =>
+        r.Seen != 0 && witnesses.TryGetValue(r.Seen, out var w) && w.Settled && SameAsWitness(w.Entries, items) &&
+        (!world || (trustedGeneration is { } g && r.Seen == g));
 
     /// <summary>Decides every record of one holder. Pure: nothing is read or changed.</summary>
     /// <param name="records">The holder's saved records (waiting and set aside alike).</param>
@@ -180,8 +183,10 @@ internal static class InstanceMatcher
     /// or for a world whose loaded generation is older than its file (or none).</param>
     /// <param name="asMade">The holder's items are as the loader made them in this session (<see cref="LoadOrder"/>):
     /// nothing changed places and nothing came in between the load and now. Without it rule 1 does not apply.</param>
+    /// <param name="world">A world holder: rule 1 needs the world file's own generation and an equal list (a player: the
+    /// list alone).</param>
     public static MatchOutcome[] Match(IReadOnlyList<MatchRecord> records, IReadOnlyDictionary<uint, Witness> witnesses,
-        IReadOnlyList<MatchItem> items, uint? trustedGeneration, bool asMade)
+        IReadOnlyList<MatchItem> items, uint? trustedGeneration, bool asMade, bool world)
     {
         var outcome = new MatchOutcome?[records.Count];
         var bySlot = new Dictionary<int, int>();
@@ -207,7 +212,7 @@ internal static class InstanceMatcher
                     "it was saved without the holder's list of items, so whether a look-alike stood beside it is not known");
                 continue;
             }
-            if (asMade && Trusted(rec, witnesses, items, trustedGeneration))
+            if (asMade && Trusted(rec, witnesses, items, trustedGeneration, world))
             {
                 // Rule 1: nothing moved unseen, so the record's own slot is the item, twins included.
                 if (bySlot.TryGetValue(rec.Slot, out var it) && items[it].Fields.Stable == rec.Stable)

@@ -22,7 +22,7 @@ public sealed class InstanceMatcherPropertyTests(ITestOutputHelper output)
     }
 
     private sealed record Case(MatchRecord[] Records, int[] RecordIdentity, MatchItem[] Items, Thing[] ItemThings, HashSet<int> Present,
-        Dictionary<uint, Witness> Witnesses, uint? Trusted, bool AsMade, bool LoadSlotsKnown, bool HonestTrust, string Story);
+        Dictionary<uint, Witness> Witnesses, uint? Trusted, bool AsMade, bool LoadSlotsKnown, bool HonestTrust, bool World, string Story);
 
     private static readonly InstanceFields[] Pool =
     [
@@ -158,8 +158,10 @@ public sealed class InstanceMatcherPropertyTests(ITestOutputHelper output)
         var ordered = state.OrderBy(kv => kv.Key).ToArray();
         var items = ordered.Select(kv => new MatchItem(kv.Key, kv.Value.Fields, HasLiveData: rng.NextDouble() < 0.05)).ToArray();
         var things = ordered.Select(kv => kv.Value).ToArray();
+        // a world holder (3 in 4) or a player (no generation, no anchor: the player's entity id is a session slot);
         // trust: none; the generation, given honestly (only when nothing changed between save and load); or claimed regardless
-        var mode = rng.Next(3);
+        var world = rng.NextDouble() < 0.75;
+        var mode = world ? rng.Next(3) : 1;
         uint? trusted = mode switch { 0 => ops1 == 0 ? seen : null, 1 => null, _ => seen };
         // as the store computes it
         var made = items.Length;
@@ -169,9 +171,9 @@ public sealed class InstanceMatcherPropertyTests(ITestOutputHelper output)
             made = gw.Entries.Count;
             loadSlots = gw.Entries.Select(e => e.Slot).ToList();
         }
-        var asMade = LoadOrder.AsMade(new EntityId(Holder), true, ordered.Select(kv => (kv.Key, kv.Value.Id)).ToList(), made, loadSlots, out _);
+        var asMade = LoadOrder.AsMade(new EntityId(Holder), world, ordered.Select(kv => (kv.Key, kv.Value.Id)).ToList(), made, loadSlots, out _);
         return new Case(records.ToArray(), recordId.ToArray(), items, things, things.Select(t => t.Identity).ToHashSet(), witnesses, trusted, asMade,
-            loadSlots is not null, mode != 2 || ops1 == 0, string.Join("; ", story));
+            loadSlots is not null, mode != 2 || ops1 == 0, world, (world ? "chest" : "player") + ": " + string.Join("; ", story));
     }
 
     /// <summary>Checks one case; returns the failures in words.</summary>
@@ -206,7 +208,7 @@ public sealed class InstanceMatcherPropertyTests(ITestOutputHelper output)
             if (item.Fields.Stable != rec.Stable) bad.Add($"record {o.Record} {rec.Stable} attached to {item.Fields.Stable}");
             // no witness, no attachment
             if (!c.Witnesses.ContainsKey(rec.Seen)) bad.Add($"record {o.Record} has no witness and got attached");
-            var ruleOne = c.AsMade && InstanceMatcher.Trusted(rec, c.Witnesses, c.Items, c.Trusted);
+            var ruleOne = c.AsMade && InstanceMatcher.Trusted(rec, c.Witnesses, c.Items, c.Trusted, c.World);
             if (ruleOne)
             {
                 // under rule 1 every attachment is the record's own slot, with equal item id and stable fingerprint
@@ -248,12 +250,12 @@ public sealed class InstanceMatcherPropertyTests(ITestOutputHelper output)
         for (var h = 0; h < holders; h++)
         {
             var c = Make(rng);
-            var outcome = InstanceMatcher.Match(c.Records, c.Witnesses, c.Items, c.Trusted, c.AsMade);
+            var outcome = InstanceMatcher.Match(c.Records, c.Witnesses, c.Items, c.Trusted, c.AsMade, c.World);
             foreach (var o in outcome) counts[o.Kind] = counts.GetValueOrDefault(o.Kind) + 1;
             if (c.Items.GroupBy(i => i.Fields.Stable).Any(g => g.Count() > 1)) twinsSeen++;
             if (c.Trusted is not null) trustedCases++;
             if (!c.AsMade) notAsMade++;
-            ruleOne += outcome.Count(o => o.Attached && c.AsMade && InstanceMatcher.Trusted(c.Records[o.Record], c.Witnesses, c.Items, c.Trusted));
+            ruleOne += outcome.Count(o => o.Attached && c.AsMade && InstanceMatcher.Trusted(c.Records[o.Record], c.Witnesses, c.Items, c.Trusted, c.World));
             foreach (var f in Check(c, outcome))
                 if (failures.Count < 20) failures.Add($"seed {seed} holder {h} (trust {c.Trusted?.ToString() ?? "none"}, as made {c.AsMade}; {c.Story}): {f}");
                 else break;

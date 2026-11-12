@@ -79,6 +79,7 @@ internal static unsafe class SavesRuntime
             var st = SavesNative.ReadStatus();
             Log(LogLevel.Info, $"Kiln.Saves: started (native events from seq {last + 1}; state {StateText(st?.State ?? 0)}, " +
                                $"world {GuidOf(st)?.ToString() ?? "unknown"} revision {st?.Revision ?? 0})");
+            AttachItems();
             if (st is { } s0 && (s0.Features & SavesNative.CanSnapshotStage) == 0)
                 Log(LogLevel.Warn, "Kiln.Saves: this build has no snapshot staging: instance data is read one simulation step before the " +
                                    "game's snapshot, so identical items (twins) cannot be told apart after a restart (they are set aside)");
@@ -87,6 +88,20 @@ internal static unsafe class SavesRuntime
     }
 
     internal static void Log(LogLevel level, string text) => Backend.Current.Log(0, level, text);
+
+    /// <summary>Instance data reads the game's items through Kiln.Items (kiln.items v4). Set once at the start; whether item
+    /// instances are on is asked at every call, so a server without them has InstanceData off, naming items.instances.</summary>
+    private static void AttachItems()
+    {
+        try
+        {
+            Store.Instances.World ??= new InstanceGame();
+        }
+        catch (Exception e) when (e is FileNotFoundException or FileLoadException or TypeLoadException or MissingMethodException)
+        {
+            Log(LogLevel.Warn, $"Kiln.Saves: Kiln.Items could not be loaded ({e.Message}); instance data is off (items.instances)");
+        }
+    }
 
     /// <summary>The sidecar folder of the world that is open (opened now if nothing used it yet, as WorldData does); null
     /// before a new world's first save, while a hosted world is closed, or without the native service.</summary>

@@ -20,21 +20,23 @@ public sealed class InstanceMatcherTests
     /// <summary>The holder at the save of observation <paramref name="seen"/>, settled.</summary>
     private static Dictionary<uint, Witness> W(uint seen, params (int slot, InstanceFields f)[] list) => new() { [seen] = Saw(true, list) };
 
-    private static MatchOutcome[] Run(MatchRecord[] records, MatchItem[] items, Dictionary<uint, Witness> witness, uint? trusted = null, bool asMade = true) =>
-        InstanceMatcher.Match(records, witness, items, trusted, asMade);
+    /// <summary>A world holder unless <paramref name="world"/> is false (a player).</summary>
+    private static MatchOutcome[] Run(MatchRecord[] records, MatchItem[] items, Dictionary<uint, Witness> witness, uint? trusted = null, bool asMade = true,
+        bool world = true) =>
+        InstanceMatcher.Match(records, witness, items, trusted, asMade, world);
 
     [Fact]
     public void ExactUnderTheWorldFilesOwnGenerationAttachesTwinsToTheirOwnSlots()
     {
-        var o = Run([R(3, Sword), R(5, Sword)], [I(3, Sword), I(5, Sword)], W(10, (3, Sword), (5, Sword), (6, Ring)), trusted: 10);
+        var o = Run([R(3, Sword), R(5, Sword)], [I(3, Sword), I(5, Sword), I(6, Ring)], W(10, (3, Sword), (5, Sword), (6, Ring)), trusted: 10);
         Assert.Equal((MatchKind.AttachExact, 0), (o[0].Kind, o[0].Item));
         Assert.Equal((MatchKind.AttachExact, 1), (o[1].Kind, o[1].Item));
     }
 
     [Fact]
-    public void ExactWhenTheHolderEqualsItsWitnessAttachesTwinsToTheirOwnSlots()
+    public void ExactWhenAPlayersInventoryEqualsItsWitnessAttachesTwinsToTheirOwnSlots()
     {
-        var o = Run([R(3, Sword), R(5, Sword)], [I(3, Sword), I(5, Sword), I(6, Ring)], W(10, (3, Sword), (5, Sword), (6, Ring)));
+        var o = Run([R(3, Sword), R(5, Sword)], [I(3, Sword), I(5, Sword), I(6, Ring)], W(10, (3, Sword), (5, Sword), (6, Ring)), world: false);
         Assert.All(o, x => Assert.Equal(MatchKind.AttachExact, x.Kind));
         Assert.Equal([0, 1], o.Select(x => x.Item));
     }
@@ -112,9 +114,9 @@ public sealed class InstanceMatcherTests
     }
 
     [Fact]
-    public void ATrustedRecordWhoseSlotHoldsSomethingElseWaitsInsteadOfMoving()
+    public void ATrustedRecordWhoseOwnSlotIsEmptyWaitsInsteadOfMoving()
     {
-        var o = Run([R(3, Ring)], [I(7, Ring)], W(10, (3, Ring)), trusted: 10);
+        var o = Run([R(3, Ring)], [I(7, Ring)], W(10, (7, Ring)), trusted: 10);
         Assert.Equal(MatchKind.Parked, o[0].Kind);
     }
 
@@ -122,9 +124,9 @@ public sealed class InstanceMatcherTests
     public void ARecordGoneAtTheSaveComesBackOnlyToAnUnchangedHolder()
     {
         var w = W(10, (3, Ring));
-        var unchanged = Run([R(3, Ring, onlyTrusted: true)], [I(3, Ring)], w);
+        var unchanged = Run([R(3, Ring, onlyTrusted: true)], [I(3, Ring)], w, world: false);
         Assert.Equal(MatchKind.AttachExact, unchanged[0].Kind);
-        var changed = Run([R(3, Ring, onlyTrusted: true)], [I(4, Ring)], w);
+        var changed = Run([R(3, Ring, onlyTrusted: true)], [I(4, Ring)], w, world: false);
         Assert.Equal(MatchKind.Parked, changed[0].Kind);
     }
 
@@ -152,7 +154,7 @@ public sealed class InstanceMatcherTests
     {
         var w = W(4, (3, Sword));
         w[10] = Saw(true, (3, Sword));
-        var o = Run([R(3, Sword, seen: 10), R(3, Sword, seen: 4)], [I(3, Sword)], w, trusted: 10);
+        var o = Run([R(3, Sword, seen: 10), R(3, Sword, seen: 4)], [I(3, Sword)], w, world: false);
         Assert.All(o, x => Assert.Equal(MatchKind.SetAside, x.Kind));
     }
 
@@ -233,8 +235,30 @@ public sealed class InstanceMatcherTests
         Assert.Equal(MatchKind.SetAside, o[0].Kind);
         Assert.Equal(MatchKind.SetAside, o[1].Kind);
         Assert.Equal(MatchKind.AttachExact, o[2].Kind);
-        var same = Run([R(3, Sword), R(5, Sword)], [I(3, Sword), I(5, Sword)], W(10, (3, Sword), (5, Sword)), asMade: false);
+        var same = Run([R(3, Sword), R(5, Sword)], [I(3, Sword), I(5, Sword)], W(10, (3, Sword), (5, Sword)), asMade: false, world: false);
         Assert.All(same, x => Assert.Equal(MatchKind.SetAside, x.Kind));   // the witness alone does not do it either
+    }
+
+    // ---- phase 2b: a world holder needs the world file's own generation and an equal list ----
+
+    [Fact]
+    public void AWorldFileEditedWithItsHeaderKeptIsNotTrusted()
+    {
+        // generation 10 is the world file's own by its header, but the file was edited: the worn and the fresh sword swapped
+        var worn = Rec.Of(Rec.Sword, durability: 50);
+        var fresh = Rec.Of(Rec.Sword, durability: 90);
+        var o = Run([R(3, worn), R(5, fresh)], [I(3, fresh), I(5, worn)], W(10, (3, worn), (5, fresh)), trusted: 10);
+        Assert.All(o, x => Assert.Equal(MatchKind.SetAside, x.Kind));
+    }
+
+    [Fact]
+    public void TheWitnessAloneVouchesForAPlayerNotForAWorldHolder()
+    {
+        var w = W(4, (3, Sword), (5, Sword));
+        var chest = Run([R(3, Sword, seen: 4), R(5, Sword, seen: 4)], [I(3, Sword), I(5, Sword)], w, trusted: null);
+        Assert.All(chest, x => Assert.Equal(MatchKind.SetAside, x.Kind));
+        var player = Run([R(3, Sword, seen: 4), R(5, Sword, seen: 4)], [I(3, Sword), I(5, Sword)], w, world: false);
+        Assert.All(player, x => Assert.Equal(MatchKind.AttachExact, x.Kind));
     }
 
     [Fact]
