@@ -150,6 +150,13 @@ never drawn from the model at run time. So a mod that changes a model ships the 
   There is no forced reload of a live texture atlas entry in v1.
 - **Formats**: encodes RGBA8/BGRA8, BC1, BC3, BC4, BC5, BC7. BC6H (HDR) and BC2 are not encoded. A retexture to an
   unsupported format fails with a logged reason.
+- **The player's animation graph is reserved** for kiln.playeranim (GUID `21319e83-5087-4fff-8795-22997843649e`,
+  `keen::anim_graph::runtime_graph::AnimationGraphResource2_0`, part 0), from process start, also when kiln.playeranim
+  is off or has nothing to merge. `resource_put` answers `KILN_ERR_UNAVAILABLE` for it (and, once kiln.playeranim has
+  put the merged graph, `resource_remove` too), an
+  `assets.json` entry for it is refused at boot with a kiln.log line naming the key, and `Assets.Override` /
+  `Assets.Register` throw `ArgumentException`. Add states in `assets/player-states.json` instead
+  ([playeranim.md](playeranim.md)). `KILN_ASSET_PUT_PIN` is for native services only; kiln.playeranim is its one caller.
 - **No save impact**: nothing is written to the game's files or the save; mod resources exist only while the mod runs.
   A removed mod's resources come off; items that referenced only a mod's resources fall back to the vanilla look/name.
 - The merged content map the game is handed, and the per-type key lists it is given, are kept for the session: the game holds on to them.

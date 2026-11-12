@@ -112,6 +112,10 @@ A rigid model on one joint: a slot of the skeleton (Head, Chest, HandPalmR, ...)
 
 Type: string
 
+## code
+
+Type: string or object
+
 ## cueFields
 
 Cue fields (tools/soundcook/sndcook/recipe.py CUE_FIELDS).
@@ -142,6 +146,10 @@ Cue fields (tools/soundcook/sndcook/recipe.py CUE_FIELDS).
 | `useMaxCountLimiting` | boolean |  |  |
 | `volume` | number |  |  |
 | `volumeRandomness` | number |  |  |
+
+## cueObject
+
+Type: object
 
 ## edit
 

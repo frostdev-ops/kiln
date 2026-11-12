@@ -59,13 +59,20 @@ public sealed class MoveChain : IEnumerable<MoveBlock>
 {
     private readonly List<MoveBlock> _moves = new();
     public MoveChain() { }
+    /// <summary>A chain of these moves, in order.</summary>
     public MoveChain(IEnumerable<MoveBlock> moves) => _moves.AddRange(moves);
+    /// <summary>Adds a move at the end (collection initializers use this).</summary>
     public void Add(MoveBlock move) => _moves.Add(move);
+    /// <summary>The number of moves.</summary>
     public int Count => _moves.Count;
+    /// <summary>The move at <paramref name="i"/>, from 0.</summary>
     public MoveBlock this[int i] => _moves[i];
+    /// <summary>The moves in order.</summary>
     public IEnumerator<MoveBlock> GetEnumerator() => _moves.GetEnumerator();
     IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+    /// <summary>A chain of one move.</summary>
     public static implicit operator MoveChain(MoveBlock move) => new() { move };
+    /// <summary>A chain of these moves, in order.</summary>
     public static implicit operator MoveChain(MoveBlock[] moves) => new(moves);
 }
 
@@ -76,14 +83,22 @@ public sealed class MoveAnimation : IEnumerable<string?>
 {
     private readonly List<string?> _names = new();
     public MoveAnimation() { }
+    /// <summary>These state names, one per state event in order; a null keeps that one.</summary>
     public MoveAnimation(IEnumerable<string?> names) => _names.AddRange(names);
+    /// <summary>Adds a state name at the end (collection initializers use this); null keeps that state.</summary>
     public void Add(string? name) => _names.Add(name);
+    /// <summary>The number of names.</summary>
     public int Count => _names.Count;
+    /// <summary>The name at <paramref name="i"/>, from 0; null keeps that state.</summary>
     public string? this[int i] => _names[i];
+    /// <summary>The names in order.</summary>
     public IEnumerator<string?> GetEnumerator() => _names.GetEnumerator();
     IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+    /// <summary>One state name for the whole move.</summary>
     public static implicit operator MoveAnimation(string name) => new() { name };
+    /// <summary>These state names, in order.</summary>
     public static implicit operator MoveAnimation(string?[] names) => new(names);
+    /// <summary>The one name, or the list as <c>[a, null, b]</c>.</summary>
     public override string ToString() => _names.Count == 1 ? _names[0] ?? "" : $"[{string.Join(", ", _names.Select(n => n ?? "null"))}]";
 }
 

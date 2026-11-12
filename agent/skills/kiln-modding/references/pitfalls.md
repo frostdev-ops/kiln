@@ -66,8 +66,8 @@
 | Mistake | Result | Use instead |
 |---|---|---|
 | A managed service's capability (`items.moves`) in the manifest's `features` | refused: the service registers its row only after manifests are checked | sigdb features and `kiln.<service>` only; `Capabilities.Is(name)` at run time for the rest |
-| Trusting `[RequiresCapability]` to guard a call | nothing checks it; no member carries it yet | `Capabilities.Is` / `Why` before the call; catch `KilnUnavailableException` |
-| `EntityRef.Of` on a chest, creature or item | `KilnUnavailableException("identity.entities")`: only player entities have a source | keep the `EntityId`; refs for players only |
+| Trusting `[RequiresCapability]` to guard a call | it is documentation; the member's own code throws `KilnUnavailableException` | `Capabilities.Is` / `Why` before the call |
+| Taking `EntityRef.IsAlive` as "the same entity" for a world entity loaded from the save | no `SpawnTime`, serial 0: `IsAlive` only says the id exists | check `HasSerial` |
 | `EntityRef.Of` / `PlayerRef.Of` in `OnLoad` | the identity sources start at the first tick: unavailable | `ServerStartedEvent` or later |
 | `x == EntityRef.None` | false for a none id with a serial (record equality) | `x.IsNone` |
 | Catching only `KilnUnavailableException` | older services still throw their own exception for an off capability | catch `NotSupportedException` too (it derives from it) |
@@ -78,3 +78,13 @@
 | An enum value of `Kiln.Ecs` used only as a constant | folded into a number: a renumbering after a game update is not caught at load | check `Ecs.Supports<T>()` for the type that holds it |
 | A test that passes under `dotnet test` taken as proof for the server | most native services are unavailable offline; cached lookups can hide that | `kiln test` on a test server too |
 | Relying on `SteamGuard` for `/questadmin` or rewards paid at a later join | not covered | a throwaway character; experimental, never run in a real client |
+| `Persist.Carried` for item data that travels with a character | `KilnUnavailableException("saves.instance_data.carried")` | `Persist.World`; not in this release |
+| Treating a set-aside item data record as lost | it waits in `InstanceData.Parked(key)`; Kiln never moves it to another item by itself | read `Parked`, `/instances`; decide in the mod |
+| `InstanceData` on a plain stack (wood, arrows) | no item entity: nothing to keep data on | data on the holder (`EntityData`, `PlayerData`) |
+| Changing `assets/player-states.json` and hot-reloading | states stay as they were at boot | restart the game and the server |
+| Player states on a server that did not cook the mod, or a mod without `"side": "both"`, `"clients": "mod"` | states refused; clients that cooked are refused at join (graph hash differs) | cook on the server too; state both |
+| `Assets.Override` / `Register` on the player graph's key, or an `assets.json` entry for it | `ArgumentException`; the entry is refused at boot | `assets/player-states.json` |
+| A second cast of a mod's wand state before the first ended | the clip continues, it does not restart | design the clip for that, or a longer cooldown |
+| A move's `animation` by name on a build without `anim.player_states` | the move keeps its `like` state; the name is reported by block and slot | check the report; a GUID or `0x` id needs no lookup |
+| `blocks.weapon_moves` or `items.*` in a manifest's `features` | refused: the rows appear after manifests are checked | `Capabilities.Is` at run time |
+| Moving Kiln's data folder, then building a native mod | CMake keeps the old SDK path | delete the project's `build` folder once |

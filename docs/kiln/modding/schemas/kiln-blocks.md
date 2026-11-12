@@ -291,6 +291,10 @@ What a piece of armor gives. A number left out: what its slot has at that level.
 | `rarity` | [rarity](#rarity) |  |  |
 | `resist` | object |  | Armour against one kind, on top of the two above. |
 
+## armorStatsRef
+
+Type: [ref](#ref) or [armorStats](#armorstats)
+
 ## beard
 
 A beard: a worn look on the jaw. A morph target named Female is its shape on a female head.
@@ -676,6 +680,22 @@ What happens. Parts run in this order: chance decides, area, spawns, vfx, sound,
 | `then` | [effects](#effects) |  | More effects, on the same target. |
 | `vfx` | [vfx](#vfx) |  |  |
 
+## effectRef
+
+Type: [ref](#ref) or [effect](#effect)
+
+## effects
+
+Type: array of [effectRef](#effectref)
+
+## equipBonus
+
+Type: `"health"` \| `"stamina"` \| `"mana"` \| `"health-regen"` \| `"stamina-regen"` \| `"mana-regen"` \| `"melee-damage"` \| `"ranged-damage"` \| `"magic-damage"` \| `"crit-chance"` \| `"crit-damage"` \| `"frost-resist"` \| `"sprint-speed"`
+
+## fitName
+
+Type: `"hat"` \| `"hood"` \| `"noArmor"` \| `"shield"` \| `"tight"` \| `"armsTight01"` \| `"legsBeltTight"` \| `"legsFeetTight"` \| `"legsFeetTight01"`
+
 ## fits
 
 What a look makes the rest of the character do: "hood" gives hair its hood cut. A name, or a list of names.
@@ -687,6 +707,10 @@ Type: [fitName](#fitname) or array of [fitName](#fitname)
 How the target flinches.
 
 Type: `"none"` \| `"veryLight"` \| `"light"` \| `"medium"` \| `"heavy"`
+
+## guid
+
+Type: string
 
 ## hair
 
@@ -879,6 +903,10 @@ The state it plays: a state of this mod by name, a game state ("State" or "Machi
 
 Type: string or array of string \| null
 
+## moveChain
+
+Type: [move](#move) or array of [move](#move)
+
 ## name
 
 The block's name. Ids come from your mod id and this: keep it. A rename says "was". Pattern `^[A-Za-z0-9_.-]+$`.
@@ -920,7 +948,7 @@ An enhancement on an item, in its perks: it runs while the item is worn or in ha
 |---|---|---|---|
 | `description` | string |  |  |
 | `icon` | string |  | A game perk, whose icon it takes, or a PNG in the mod's folder (square, 256x256 as the game's; then clients "mod"). min length 1 |
-| `modifies` | [modifies](#modifies) |  |  |
+| `modifies` | [modifies](#status) |  |  |
 | `name` | string | yes | min length 1 |
 | `onHit` | [hits](#hits) |  | What every hit they land does to what was hit. |
 | `onHitTaken` | [hits](#hits) |  | What every hit they take does to whoever dealt it. |
@@ -1406,6 +1434,10 @@ A buff or debuff, shown in the game's buff bar. It lasts its seconds, or while a
 | `was` | [name](#name) |  | The name this block had before a rename. Ids come from the oldest name, so saves keep it. |
 | `while` | [state](#state) |  | A player has it for as long as they are in this state. |
 
+## statusRef
+
+Type: [ref](#ref) or [status](#status)
+
 ## strength
 
 What it takes to dig a material. Cost per block = health / (the tool's damage for this hardness x the server's mining factor x the class modifier). A field left out stays what it was.
@@ -1442,6 +1474,10 @@ One layer of a surface: maps of your own, a game material's layer ("game", "laye
 
 Type: [surfacePart](#surfacepart) or object
 
+## surfacePart
+
+Type: `"side"` \| `"top"` \| `"bottom"` \| `"edge"` \| `"edgeTop"` \| `"noise"`
+
 ## surfacePng
 
 A PNG in the mod's folder, a power of two on both sides, 4 to 4096. Pattern `^[^/\\].*\.[pP][nN][gG]$`. A file that must exist.
@@ -1468,7 +1504,7 @@ A node: in the game's own tree with game, or in a talent tree. It works for as l
 | `icon` | string |  | A PNG in the mod's folder. Pattern `\.[pP][nN][gG]$`. |
 | `keeps` | [statusRef](#statusref) |  | A status they have for as long as they have the talent. |
 | `maxLevel` | integer |  | Levels (default 1). The game's tree keeps at most 7. min 1 max 99 |
-| `modifies` | [modifies](#modifies) |  | Stats changed, per level. |
+| `modifies` | [modifies](#status) |  | Stats changed, per level. |
 | `name` | string | yes | min length 1 |
 | `onHit` | [hits](#hits) |  |  |
 | `onHitTaken` | [hits](#hits) |  |  |
@@ -1840,6 +1876,10 @@ A weapon's numbers: the tooltip's, made exactly so.
 | `power` | integer |  | The tooltip's damage at that level. Default: what the class has, or damage's total. min 0 |
 | `rarity` | [rarity](#rarity) |  |  |
 | `staminaCost` | integer |  | Stamina each use costs; the tooltip follows. min 0 |
+
+## weaponStatsRef
+
+Type: [ref](#ref) or [weaponStats](#weaponstats)
 
 ## window
 

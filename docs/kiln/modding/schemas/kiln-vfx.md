@@ -160,6 +160,10 @@ min items 2 max items 2
 
 Type: array of number
 
+## positiveValue
+
+Type: number or [positiveRange](#positiverange)
+
 ## section
 
 Effects by name. Each becomes one VFX with an id from your mod id and its name.
@@ -177,6 +181,10 @@ Type: number
 A curve from 0 to 1.
 
 Type: number or array of number or object or object
+
+## value
+
+Type: number or array of number
 
 ## vec3
 

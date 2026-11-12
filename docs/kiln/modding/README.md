@@ -17,7 +17,7 @@ generated [../status.generated.md](../status.generated.md); what has no API yet 
 | [limits.md](limits.md) | What a mod cannot do yet: each gap, what stands in the way, the release it is planned for |
 | [blocks.md](blocks.md) | Building blocks: effects, statuses, spells, abilities, perks, talents, bodies, loot and UI; what they compile to, client requirements and errors. Start here to make something |
 | [inventory.md](inventory.md) | Moving items between inventories keeping their state (a stack, quick stack, move all), container names, transfer rules and events (ported from shroudlink), and why gear data lasts only a session |
-| [item-blocks.md](item-blocks.md) | Items, weapons, wands, armor, stations, loot tables and recipes as blocks: no base items, no GUIDs |
+| [item-blocks.md](item-blocks.md) | Items, weapons, wands, armor, stations, loot tables and recipes as blocks: no base items, no GUIDs; a weapon's own moves and held models with moving parts |
 | [world-blocks.md](world-blocks.md) | Props, crafting props, stations, containers with default loot and lids, doors, colliders and building materials |
 | [offers.md](offers.md) | Interaction offers from C#: the "E" prompt on any entity at run time, with a handler when a player accepts it (`Kiln.Offers`) |
 | [npc-blocks.md](npc-blocks.md) | Creature bodies, animation, AI, behaviour, drops, friendly NPCs and vendors |
@@ -32,7 +32,7 @@ generated [../status.generated.md](../status.generated.md); what has no API yet 
 | [screen-effects.md](screen-effects.md) | Full-screen effects: colour grading, tint, vignette, fades and flashes, on a status, an effect or from code |
 | [models.md](models.md) | Weapons and creature bodies from glTF, rigid or skinned: tools/modelcook, cook.json model steps |
 | [materials.md](materials.md) | New surfaces for models from PNGs and numbers, on the game's own shaders: no base to name, or made from a glTF's materials |
-| [animations.md](animations.md) | Clips, skeletons and state-machine graphs from glTF: tools/animcook, cook.json animation steps |
+| [animations.md](animations.md) | Clips, skeletons and state-machine graphs from glTF: tools/animcook, cook.json animation steps, clips reworked from other clips (`from`); states of a mod's own in the player's animation graph (`assets/player-states.json`) |
 | [quests.md](quests.md) | Quest chains, conversations and NPCs: QuestBlock/DialogueBlock, quests/*.json, Quests.Define, rewards and client requirements |
 | [texts.md](texts.md) | The game's English texts by loca tag (`Texts.Get`, `GetPlain`), also on a dedicated server from a local catalog |
 | [lint.md](lint.md) | `kiln lint`: usage, output, JSON dialects, every rule with an example and the fix; [schemas/](schemas/) is the field reference of each format |
@@ -79,6 +79,7 @@ first). `mods/samples/build.sh` builds the loader samples (`SampleLib`, `SampleC
 | `NetSample` | Kiln.Network: F9 on a client pings the server over `netsample:main`; the server answers and announces Kiln clients |
 | `BigStacks` | a server config (x4 stack sizes, at most 9999) that Kiln clients get through the content sync |
 | `NewItems` | kiln.content's new items and recipes from code and a data pack, plus a perk and a buff of its own (kiln.gamedata clones) |
+| `ItemData` | `InstanceData`: `/notch` cuts a notch into the weapon or tool in your hand and the count stays with that one item through moves, saves and restarts; `/notches` lists them |
 | `SpellTweaks` | a kiln.gamedata data pack: Fireball I's cost, timing and explosion, and the double jump's stamina cost |
 | `TypedFields` | a sword, a spell and a projectile changed through typed paths from your game's catalog, and a projectile clone; `Refused/`: a wrong string path the analyzer stops |
 | `CreatureTweaks` | a data pack: Vukahs notice players from further away, and a new `Kiln_Elite_Vukah` template that replaces a share of natural spawns |
@@ -93,6 +94,7 @@ first). `mods/samples/build.sh` builds the loader samples (`SampleLib`, `SampleC
 | `FrostboltBlock` | the first blocks: a staff spell, a sword and a status sharing one Frost Burst effect, with VFX of its own; Frostlance as data |
 | `AbilityBlocks` | shared effects, perks, abilities, talent trees and triggers in C# and JSON |
 | `ItemBlocks` | every item block: a material, a potion, food, an arrow, tools, a weapon of every class, a wand, armor, a station and loot; `blocks/twins.json` as data |
+| `WeaponMoves` | a sword with moves of its own (a chain of two swings, a heavy and a block, each with its own clip and timing) and a held model with moving parts; clips authored on the sample's own rig, retargeted at cook time, the second swing mirrored |
 | `LootBlocks` | loot tables, a creature that drops one, and recipes at the game's workbench |
 | `CreatureBlocks` | reusable bodies, animation, AI, behaviour and NPCs: a creature made of its own files, a Vukah that rallies, a sentinel driven by C#, a trader |
 | `StationBlocks` | a drying rack and a forge with workshops and recipes of their own, a bench, props on the game's art |
@@ -108,14 +110,14 @@ first). `mods/samples/build.sh` builds the loader samples (`SampleLib`, `SampleC
 | `ShaderSample` | particle shaders (advanced): curl-noise particles moved by `shaders/swirl.hlsl`, the same block on Kiln's sprite, and a hook that fails its checks on purpose |
 | `MaterialSample` | `MaterialBlock`: two swords on materials written from nothing, by hand and from a glTF's materials, and a particle that takes a material's look |
 | `ModelSample` | tools/modelcook + kiln.assets: a game sword's model replaced, a new sword with its own model and visual template, icons rendered from the glTF |
+| `PlayerStates` | states of a mod's own in the player's animation graph (`assets/player-states.json`): a sword whose first light attack, heavy attack and block play them, and a staff cast for the guided checks; cook its clips first |
 | `AssetSample` | kiln.assets: a PNG icon for a new item from a data pack, a retexture of a game item's inventory icon |
 | `SoundSample` | tools/soundcook + Kiln.Audio: test tones as UI, positional, looped and streamed sounds, music, a replaced game cue, a voiced line and a narration |
 | `UiSample` | Kiln.Ui from code: an FPS line on the HUD, a window (F8) with widgets, toasts |
 | `MenuButtons` | Kiln.Ui game UI: entries in the main and pause menus opening a screen, a crafting info panel, a subcategory and tab in the crafting menu |
 | `RenderSample` | render events: an FPS counter, a compass and waypoint markers in the world |
 
-Templates: 24 in Kiln.Templates; `kiln new --list` shows 23 of them with their options (not `kiln-unit-test`: use
-`dotnet new kiln-unit-test`). Block templates: `kiln-spell`, `kiln-item-blocks`,
+Templates: `kiln new --list` shows all 24 with their options. Block templates: `kiln-spell`, `kiln-item-blocks`,
 `kiln-ability-blocks`, `kiln-creature-blocks`, `kiln-world-blocks`, `kiln-npc`, `kiln-quest`, `kiln-body`, `kiln-vfx`,
 `kiln-cosmetic` and `kiln-building-material`. The others: `kiln-mod`, `kiln-test`, `kiln-unit-test`, `kiln-datapack`,
 `kiln-items`, `kiln-ability`, `kiln-creature`, `kiln-talents`, `kiln-ui`, `kiln-model`, `kiln-sound`, `kiln-native`

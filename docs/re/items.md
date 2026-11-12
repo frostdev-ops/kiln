@@ -469,8 +469,25 @@ The MIT Enshwick source at alpha.13 (`945a1b8f0c9d1971679d9f3bc3dcecc127a5bcad`)
 `crates/internal/loader/src/item_data.rs` and `item_data/{attach,world_file,carried}.rs`, uses per-session item entity ids
 and saved inventory/character anchors with item checks. Ambiguous or missing anchors are set aside and cannot later
 attach to another item. `stats/affixes.rs` serializes rolled `ItemStats` into that store and its own stat engine
-applies the modifier bundles. Kiln's persistent item store and affixes remain deferred stretch work; ordinary
-`EntityData` is not a substitute for the inventory anchors.
+applies the modifier bundles. Ordinary `EntityData` is not a substitute for the inventory anchors.
+
+**dev.25: per-item data exists.** `InstanceData` (Kiln.Saves, `managed/services/Kiln.Saves/InstanceData.cs`) keeps a
+typed value on one item with an item entity of its own (gear, tools, cans): in a session the item is its entity plus
+the stamp kiln.items v4 gives it (`ItemInstanceRef`, capability `items.instances`); at each save Kiln writes the
+item's holder, flat slot, item id, the fingerprint of its save record (level, perks, gem, dye; durability and fuel as
+ratios) and the holder's whole item list, and after a load or a join it gives a record back only to the one item that
+certainly is it. When that is not certain the record is set aside and reported, never attached by itself. `EntityData`
+on an item entity stays session-only. Limits:
+- `Persist.Carried` (data that travels with a character between worlds) is not available: declaring such a key throws
+  `KilnUnavailableException("saves.instance_data.carried")`.
+- Two identical items (equal item id, level, perks, gem, dye, durability and fuel) whose slots were swapped where Kiln
+  did not see (in another world, edited offline) come back by slot on the newest exact load and trade their data;
+  nothing reports it.
+- World holders (chests, stations, tombstones, NPCs) work on a test server (`mods/tests/instances-test`, lab copy of a
+  real world: stop, `kill -9`, a restored backup, 1,000 tagged identical swords). Nothing about items in a player's
+  inventory has run with a real player; that half waits for the guided client pass.
+- Affixes (rolled modifiers and an engine that applies them) are still not built.
+Guide: `docs/kiln/modding/inventory.md`, "Data on one item"; service: `docs/kiln/services/saves.md`.
 
 ## 9. Open questions
 - Players (no client in the lab): popup and PickupEvent with `0x01`, knowledge unlocks through the queue, the

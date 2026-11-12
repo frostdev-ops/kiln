@@ -213,6 +213,7 @@ public sealed class ParkedInstance<T> where T : class
     /// <summary>The item type it was saved on.</summary>
     public ItemId Item { get; }
 
+    /// <summary>Whether it waits for its item or was set aside (<see cref="ParkedState"/>).</summary>
     public ParkedState State { get; }
 
     /// <summary>Why it is not on an item, in words.</summary>
@@ -224,6 +225,7 @@ public sealed class ParkedInstance<T> where T : class
     /// <summary>A copy of the value; null when it does not read as <typeparamref name="T"/>.</summary>
     public T? Value { get; }
 
+    /// <summary>The record in one line, for a log: state, item type, holder, slot and reason.</summary>
     public override string ToString() => $"{State} {Item} in {Holder} slot {FlatSlot}: {Reason}";
 }
 
@@ -411,6 +413,7 @@ public sealed class InstanceDataRestoredEvent : KilnEvent
         Detail = detail;
     }
 
+    /// <summary>The item the value is on now.</summary>
     public ItemInstanceRef Item { get; }
 
     /// <summary>The mod id the value belongs to.</summary>
@@ -419,11 +422,13 @@ public sealed class InstanceDataRestoredEvent : KilnEvent
     /// <summary>The key's name.</summary>
     public string Key { get; }
 
+    /// <summary>How the record was matched to this item.</summary>
     public InstanceMatch Match { get; }
 
     /// <summary>Why this item, in words.</summary>
     public string Detail { get; }
 
+    /// <summary>The event in one line, for a log: mod, key, item and match.</summary>
     public override string ToString() => $"restored {Mod}:{Key} on {Item} ({Match})";
 }
 
@@ -451,19 +456,25 @@ public sealed class InstanceDataParkedEvent : KilnEvent
     /// <summary>The character for a player's record; <see cref="CharacterKey.None"/> otherwise.</summary>
     public CharacterKey Character { get; }
 
+    /// <summary>The flat slot it was saved at (link x 8 + index).</summary>
     public int FlatSlot { get; }
 
     /// <summary>The item type.</summary>
     public ItemId Item { get; }
 
+    /// <summary>The mod id the values belong to.</summary>
     public string Mod { get; }
 
+    /// <summary>The names of the mod's keys that wait.</summary>
     public IReadOnlyList<string> Keys { get; }
 
+    /// <summary>Why they wait.</summary>
     public InstanceParkReason Reason { get; }
 
+    /// <summary>Why, in words.</summary>
     public string Detail { get; }
 
+    /// <summary>The event in one line, for a log: mod, keys, item type, holder, slot and reason.</summary>
     public override string ToString() => $"parked {Mod} [{string.Join(", ", Keys)}] of {Item} in {Holder} slot {FlatSlot} ({Reason})";
 }
 
@@ -489,13 +500,18 @@ public sealed class InstanceDataLostEvent : KilnEvent
     /// <summary>The item as it was in this session (a destroyed item), <see cref="ItemInstanceRef.None"/> for a saved record.</summary>
     public ItemInstanceRef LastRef { get; }
 
+    /// <summary>The mod id the values belonged to.</summary>
     public string Mod { get; }
 
+    /// <summary>The names of the mod's keys that were lost or set aside.</summary>
     public IReadOnlyList<string> Keys { get; }
 
+    /// <summary>Why they no longer go with an item.</summary>
     public InstanceLossReason Reason { get; }
 
+    /// <summary>What happened, in words.</summary>
     public string Detail { get; }
 
+    /// <summary>The event in one line, for a log: mod, keys, item type, reason and detail.</summary>
     public override string ToString() => $"lost {Mod} [{string.Join(", ", Keys)}] of {Item} ({Reason}): {Detail}";
 }
