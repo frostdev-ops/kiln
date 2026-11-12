@@ -1,0 +1,365 @@
+#nullable enable
+Kiln.AttributeIds
+Kiln.AttributeIds.AttributeIds() -> void
+Kiln.AttributeIds.AttributeIds(Kiln.GameAttribute Kind, uint CurrentId, uint MinId, uint MaxId, uint ComponentHash, bool GameClamp) -> void
+Kiln.AttributeIds.ComponentHash.get -> uint
+Kiln.AttributeIds.ComponentHash.init -> void
+Kiln.AttributeIds.CurrentId.get -> uint
+Kiln.AttributeIds.CurrentId.init -> void
+Kiln.AttributeIds.Deconstruct(out Kiln.GameAttribute Kind, out uint CurrentId, out uint MinId, out uint MaxId, out uint ComponentHash, out bool GameClamp) -> void
+Kiln.AttributeIds.Equals(Kiln.AttributeIds other) -> bool
+Kiln.AttributeIds.GameClamp.get -> bool
+Kiln.AttributeIds.GameClamp.init -> void
+Kiln.AttributeIds.Kind.get -> Kiln.GameAttribute
+Kiln.AttributeIds.Kind.init -> void
+Kiln.AttributeIds.MaxId.get -> uint
+Kiln.AttributeIds.MaxId.init -> void
+Kiln.AttributeIds.MinId.get -> uint
+Kiln.AttributeIds.MinId.init -> void
+Kiln.AttributeReading
+Kiln.AttributeReading.AttributeReading() -> void
+Kiln.AttributeReading.AttributeReading(uint Id, Kiln.GameAttribute Kind, int Value, int Current, int? Min, int? Max, bool IsCurrent, uint CurrentId, uint MaxId) -> void
+Kiln.AttributeReading.Current.get -> int
+Kiln.AttributeReading.Current.init -> void
+Kiln.AttributeReading.CurrentId.get -> uint
+Kiln.AttributeReading.CurrentId.init -> void
+Kiln.AttributeReading.Deconstruct(out uint Id, out Kiln.GameAttribute Kind, out int Value, out int Current, out int? Min, out int? Max, out bool IsCurrent, out uint CurrentId, out uint MaxId) -> void
+Kiln.AttributeReading.Equals(Kiln.AttributeReading other) -> bool
+Kiln.AttributeReading.Fraction.get -> double
+Kiln.AttributeReading.Id.get -> uint
+Kiln.AttributeReading.Id.init -> void
+Kiln.AttributeReading.IsCurrent.get -> bool
+Kiln.AttributeReading.IsCurrent.init -> void
+Kiln.AttributeReading.Kind.get -> Kiln.GameAttribute
+Kiln.AttributeReading.Kind.init -> void
+Kiln.AttributeReading.Max.get -> int?
+Kiln.AttributeReading.Max.init -> void
+Kiln.AttributeReading.MaxId.get -> uint
+Kiln.AttributeReading.MaxId.init -> void
+Kiln.AttributeReading.Min.get -> int?
+Kiln.AttributeReading.Min.init -> void
+Kiln.AttributeReading.Value.get -> int
+Kiln.AttributeReading.Value.init -> void
+Kiln.Attributes
+Kiln.Combat
+Kiln.CombatOrigin
+Kiln.CombatOrigin.Game = 0 -> Kiln.CombatOrigin
+Kiln.CombatOrigin.Kiln = 1 -> Kiln.CombatOrigin
+Kiln.CombatOrigin.Other = 2 -> Kiln.CombatOrigin
+Kiln.CombatStatus
+Kiln.CombatStatus.<Clone>$() -> Kiln.CombatStatus!
+Kiln.CombatStatus.AttributeHeals.get -> bool
+Kiln.CombatStatus.AttributeHeals.init -> void
+Kiln.CombatStatus.AttributeHealsCorrected.get -> ulong
+Kiln.CombatStatus.AttributeHealsCorrected.init -> void
+Kiln.CombatStatus.AttributeHealsSeen.get -> ulong
+Kiln.CombatStatus.AttributeHealsSeen.init -> void
+Kiln.CombatStatus.CombatStatus(bool Health, bool Hits, bool Deaths, bool Holding, uint Interest, ulong HitsSeen, ulong HitsHeld, ulong HitsReleased, ulong HitsCanceled, ulong HitsModified, ulong KilnHits, ulong GodBlocked, ulong GodRestored, ulong DeathsSeen, ulong EventsDelivered, uint Invulnerable, ulong GameDiedEvents, ulong HitsDeferred, ulong DropsSeen, ulong DropsCanceled, ulong RepeatHits) -> void
+Kiln.CombatStatus.Deaths.get -> bool
+Kiln.CombatStatus.Deaths.init -> void
+Kiln.CombatStatus.DeathsSeen.get -> ulong
+Kiln.CombatStatus.DeathsSeen.init -> void
+Kiln.CombatStatus.Deconstruct(out bool Health, out bool Hits, out bool Deaths, out bool Holding, out uint Interest, out ulong HitsSeen, out ulong HitsHeld, out ulong HitsReleased, out ulong HitsCanceled, out ulong HitsModified, out ulong KilnHits, out ulong GodBlocked, out ulong GodRestored, out ulong DeathsSeen, out ulong EventsDelivered, out uint Invulnerable, out ulong GameDiedEvents, out ulong HitsDeferred, out ulong DropsSeen, out ulong DropsCanceled, out ulong RepeatHits) -> void
+Kiln.CombatStatus.DropsCanceled.get -> ulong
+Kiln.CombatStatus.DropsCanceled.init -> void
+Kiln.CombatStatus.DropsSeen.get -> ulong
+Kiln.CombatStatus.DropsSeen.init -> void
+Kiln.CombatStatus.Equals(Kiln.CombatStatus? other) -> bool
+Kiln.CombatStatus.EventsDelivered.get -> ulong
+Kiln.CombatStatus.EventsDelivered.init -> void
+Kiln.CombatStatus.Falls.get -> bool
+Kiln.CombatStatus.Falls.init -> void
+Kiln.CombatStatus.FallsCanceled.get -> ulong
+Kiln.CombatStatus.FallsCanceled.init -> void
+Kiln.CombatStatus.FallsModified.get -> ulong
+Kiln.CombatStatus.FallsModified.init -> void
+Kiln.CombatStatus.FallsSeen.get -> ulong
+Kiln.CombatStatus.FallsSeen.init -> void
+Kiln.CombatStatus.GameDiedEvents.get -> ulong
+Kiln.CombatStatus.GameDiedEvents.init -> void
+Kiln.CombatStatus.GodBlocked.get -> ulong
+Kiln.CombatStatus.GodBlocked.init -> void
+Kiln.CombatStatus.GodRestored.get -> ulong
+Kiln.CombatStatus.GodRestored.init -> void
+Kiln.CombatStatus.Health.get -> bool
+Kiln.CombatStatus.Health.init -> void
+Kiln.CombatStatus.Hits.get -> bool
+Kiln.CombatStatus.Hits.init -> void
+Kiln.CombatStatus.HitsCanceled.get -> ulong
+Kiln.CombatStatus.HitsCanceled.init -> void
+Kiln.CombatStatus.HitsDeferred.get -> ulong
+Kiln.CombatStatus.HitsDeferred.init -> void
+Kiln.CombatStatus.HitsHeld.get -> ulong
+Kiln.CombatStatus.HitsHeld.init -> void
+Kiln.CombatStatus.HitsModified.get -> ulong
+Kiln.CombatStatus.HitsModified.init -> void
+Kiln.CombatStatus.HitsReleased.get -> ulong
+Kiln.CombatStatus.HitsReleased.init -> void
+Kiln.CombatStatus.HitsSeen.get -> ulong
+Kiln.CombatStatus.HitsSeen.init -> void
+Kiln.CombatStatus.Holding.get -> bool
+Kiln.CombatStatus.Holding.init -> void
+Kiln.CombatStatus.Interest.get -> uint
+Kiln.CombatStatus.Interest.init -> void
+Kiln.CombatStatus.Invulnerable.get -> uint
+Kiln.CombatStatus.Invulnerable.init -> void
+Kiln.CombatStatus.KilnHits.get -> ulong
+Kiln.CombatStatus.KilnHits.init -> void
+Kiln.CombatStatus.KnockbacksModified.get -> ulong
+Kiln.CombatStatus.KnockbacksModified.init -> void
+Kiln.CombatStatus.KnockbacksSeen.get -> ulong
+Kiln.CombatStatus.KnockbacksSeen.init -> void
+Kiln.CombatStatus.RegenCanceled.get -> ulong
+Kiln.CombatStatus.RegenCanceled.init -> void
+Kiln.CombatStatus.RegenSeen.get -> ulong
+Kiln.CombatStatus.RegenSeen.init -> void
+Kiln.CombatStatus.Regeneration.get -> bool
+Kiln.CombatStatus.Regeneration.init -> void
+Kiln.CombatStatus.RepeatHits.get -> ulong
+Kiln.CombatStatus.RepeatHits.init -> void
+Kiln.DamageOptions
+Kiln.DamageOptions.<Clone>$() -> Kiln.DamageOptions!
+Kiln.DamageOptions.Aggro.get -> float
+Kiln.DamageOptions.Aggro.init -> void
+Kiln.DamageOptions.AsGameHit.get -> bool
+Kiln.DamageOptions.AsGameHit.init -> void
+Kiln.DamageOptions.DamageOptions() -> void
+Kiln.DamageOptions.Equals(Kiln.DamageOptions? other) -> bool
+Kiln.DamageOptions.ForceInterrupt.get -> bool
+Kiln.DamageOptions.ForceInterrupt.init -> void
+Kiln.DamageOptions.NoCredit.get -> bool
+Kiln.DamageOptions.NoCredit.init -> void
+Kiln.DamageOptions.PushBack.get -> byte
+Kiln.DamageOptions.PushBack.init -> void
+Kiln.DamageOptions.Reaction.get -> Kiln.HitReaction
+Kiln.DamageOptions.Reaction.init -> void
+Kiln.DamageOptions.Silent.get -> bool
+Kiln.DamageOptions.Silent.init -> void
+Kiln.DamageOptions.Source.get -> Kiln.EntityId
+Kiln.DamageOptions.Source.init -> void
+Kiln.EntityDamagedEvent
+Kiln.EntityDamagedEvent.Amount.get -> int
+Kiln.EntityDamagedEvent.Attacker.get -> Kiln.EntityId
+Kiln.EntityDamagedEvent.Flags.get -> Kiln.HitFlags
+Kiln.EntityDamagedEvent.HealthAfter.get -> int
+Kiln.EntityDamagedEvent.HealthBefore.get -> int
+Kiln.EntityDamagedEvent.HealthMax.get -> int
+Kiln.EntityDamagedEvent.IsPlayer.get -> bool
+Kiln.EntityDamagedEvent.KillingBlow.get -> bool
+Kiln.EntityDamagedEvent.Origin.get -> Kiln.CombatOrigin
+Kiln.EntityDamagedEvent.Position.get -> Kiln.WorldPosition
+Kiln.EntityDamagedEvent.PushBack.get -> int
+Kiln.EntityDamagedEvent.Reaction.get -> Kiln.HitReaction
+Kiln.EntityDamagedEvent.Source.get -> Kiln.EntityId
+Kiln.EntityDamagedEvent.Step.get -> ulong
+Kiln.EntityDamagedEvent.Target.get -> Kiln.EntityId
+Kiln.EntityDeathEvent
+Kiln.EntityDeathEvent.Flags.get -> Kiln.HitFlags
+Kiln.EntityDeathEvent.Health.get -> int
+Kiln.EntityDeathEvent.IsPlayer.get -> bool
+Kiln.EntityDeathEvent.Killer.get -> Kiln.EntityId
+Kiln.EntityDeathEvent.Origin.get -> Kiln.CombatOrigin
+Kiln.EntityDeathEvent.Position.get -> Kiln.WorldPosition
+Kiln.EntityDeathEvent.Source.get -> Kiln.EntityId
+Kiln.EntityDeathEvent.Step.get -> ulong
+Kiln.EntityDeathEvent.Victim.get -> Kiln.EntityId
+Kiln.EntityDropsEvent
+Kiln.EntityDropsEvent.Container.get -> Kiln.EntityId
+Kiln.EntityDropsEvent.Killer.get -> Kiln.EntityId
+Kiln.EntityDropsEvent.Position.get -> Kiln.WorldPosition
+Kiln.EntityDropsEvent.Step.get -> ulong
+Kiln.EntityDropsEvent.Victim.get -> Kiln.EntityId
+Kiln.EntityFallEvent
+Kiln.EntityFallEvent.Damage.get -> int
+Kiln.EntityFallEvent.Damage.set -> void
+Kiln.EntityFallEvent.DamageFraction.get -> float
+Kiln.EntityFallEvent.Distance.get -> float
+Kiln.EntityFallEvent.Entity.get -> Kiln.EntityId
+Kiln.EntityFallEvent.HealthBefore.get -> int
+Kiln.EntityFallEvent.HealthMax.get -> int
+Kiln.EntityFallEvent.IsPlayer.get -> bool
+Kiln.EntityFallEvent.Lethal.get -> bool
+Kiln.EntityFallEvent.OriginalDamage.get -> int
+Kiln.EntityFallEvent.Position.get -> Kiln.WorldPosition
+Kiln.EntityFallEvent.Step.get -> ulong
+Kiln.EntityHealEvent
+Kiln.EntityHealEvent.Cause.get -> Kiln.HealCause
+Kiln.EntityHurtEvent
+Kiln.EntityHurtEvent.Lethal.get -> bool
+Kiln.EntityKnockbackEvent
+Kiln.EntityKnockbackEvent.Attacker.get -> Kiln.EntityId
+Kiln.EntityKnockbackEvent.Direction.get -> System.Numerics.Vector3
+Kiln.EntityKnockbackEvent.Direction.set -> void
+Kiln.EntityKnockbackEvent.Flags.get -> Kiln.HitFlags
+Kiln.EntityKnockbackEvent.ImpactId.get -> uint
+Kiln.EntityKnockbackEvent.IsPlayer.get -> bool
+Kiln.EntityKnockbackEvent.Origin.get -> Kiln.CombatOrigin
+Kiln.EntityKnockbackEvent.OriginalDirection.get -> System.Numerics.Vector3
+Kiln.EntityKnockbackEvent.OriginalReaction.get -> Kiln.HitReaction
+Kiln.EntityKnockbackEvent.OriginalStrength.get -> int
+Kiln.EntityKnockbackEvent.Part.get -> Kiln.EntityId
+Kiln.EntityKnockbackEvent.Position.get -> Kiln.WorldPosition
+Kiln.EntityKnockbackEvent.Reaction.get -> Kiln.HitReaction
+Kiln.EntityKnockbackEvent.Reaction.set -> void
+Kiln.EntityKnockbackEvent.Source.get -> Kiln.EntityId
+Kiln.EntityKnockbackEvent.Step.get -> ulong
+Kiln.EntityKnockbackEvent.Strength.get -> int
+Kiln.EntityKnockbackEvent.Strength.set -> void
+Kiln.EntityKnockbackEvent.Target.get -> Kiln.EntityId
+Kiln.GameAttribute
+Kiln.GameAttribute.BodyHeat = 4 -> Kiln.GameAttribute
+Kiln.GameAttribute.Health = 1 -> Kiln.GameAttribute
+Kiln.GameAttribute.Mana = 3 -> Kiln.GameAttribute
+Kiln.GameAttribute.Oxygen = 5 -> Kiln.GameAttribute
+Kiln.GameAttribute.Stamina = 2 -> Kiln.GameAttribute
+Kiln.HealCause
+Kiln.HealCause.Attribute = 3 -> Kiln.HealCause
+Kiln.HealCause.Hit = 0 -> Kiln.HealCause
+Kiln.HealCause.Kiln = 1 -> Kiln.HealCause
+Kiln.HealCause.Regeneration = 2 -> Kiln.HealCause
+Kiln.Health
+Kiln.Health.Current.get -> int
+Kiln.Health.Current.init -> void
+Kiln.Health.Dead.get -> bool
+Kiln.Health.Dead.init -> void
+Kiln.Health.Deconstruct(out int Current, out int Max, out bool Dead, out bool HasActor, out bool Invulnerable) -> void
+Kiln.Health.Equals(Kiln.Health other) -> bool
+Kiln.Health.Fraction.get -> double
+Kiln.Health.HasActor.get -> bool
+Kiln.Health.HasActor.init -> void
+Kiln.Health.Health() -> void
+Kiln.Health.Health(int Current, int Max, bool Dead, bool HasActor, bool Invulnerable) -> void
+Kiln.Health.Invulnerable.get -> bool
+Kiln.Health.Invulnerable.init -> void
+Kiln.Health.Max.get -> int
+Kiln.Health.Max.init -> void
+Kiln.HitFlags
+Kiln.HitFlags.Backstab = 32 -> Kiln.HitFlags
+Kiln.HitFlags.BlockBroken = 4 -> Kiln.HitFlags
+Kiln.HitFlags.Blocked = 1 -> Kiln.HitFlags
+Kiln.HitFlags.Building = 65536 -> Kiln.HitFlags
+Kiln.HitFlags.Crit = 8 -> Kiln.HitFlags
+Kiln.HitFlags.ForceInterrupt = 8388608 -> Kiln.HitFlags
+Kiln.HitFlags.Healing = 16384 -> Kiln.HitFlags
+Kiln.HitFlags.Immune = 512 -> Kiln.HitFlags
+Kiln.HitFlags.Ineffective = 1024 -> Kiln.HitFlags
+Kiln.HitFlags.KillingBlow = 8192 -> Kiln.HitFlags
+Kiln.HitFlags.None = 0 -> Kiln.HitFlags
+Kiln.HitFlags.Parried = 2 -> Kiln.HitFlags
+Kiln.HitFlags.Resistance = 256 -> Kiln.HitFlags
+Kiln.HitFlags.SkillShot = 128 -> Kiln.HitFlags
+Kiln.HitFlags.Terrain = 32768 -> Kiln.HitFlags
+Kiln.HitFlags.Visceral = 16 -> Kiln.HitFlags
+Kiln.HitFlags.Weakspot = 64 -> Kiln.HitFlags
+Kiln.HitReaction
+Kiln.HitReaction.Boss = 5 -> Kiln.HitReaction
+Kiln.HitReaction.Heavy = 4 -> Kiln.HitReaction
+Kiln.HitReaction.Light = 2 -> Kiln.HitReaction
+Kiln.HitReaction.LongStun = 6 -> Kiln.HitReaction
+Kiln.HitReaction.Medium = 3 -> Kiln.HitReaction
+Kiln.HitReaction.None = 0 -> Kiln.HitReaction
+Kiln.HitReaction.ThrowIntoAir = 9 -> Kiln.HitReaction
+Kiln.HitReaction.TrapStun = 7 -> Kiln.HitReaction
+Kiln.HitReaction.VeryLight = 1 -> Kiln.HitReaction
+Kiln.HitResult
+Kiln.HitResult.<Clone>$() -> Kiln.HitResult!
+Kiln.HitResult.Amount.get -> int
+Kiln.HitResult.Amount.init -> void
+Kiln.HitResult.Applied.get -> bool
+Kiln.HitResult.Deconstruct(out Kiln.HitState State, out Kiln.EntityId Target, out int Amount, out int HealthBefore, out int HealthAfter, out bool KillingBlow, out int Steps) -> void
+Kiln.HitResult.Equals(Kiln.HitResult? other) -> bool
+Kiln.HitResult.HealthAfter.get -> int
+Kiln.HitResult.HealthAfter.init -> void
+Kiln.HitResult.HealthBefore.get -> int
+Kiln.HitResult.HealthBefore.init -> void
+Kiln.HitResult.HitResult(Kiln.HitState State, Kiln.EntityId Target, int Amount, int HealthBefore, int HealthAfter, bool KillingBlow, int Steps) -> void
+Kiln.HitResult.KillingBlow.get -> bool
+Kiln.HitResult.KillingBlow.init -> void
+Kiln.HitResult.State.get -> Kiln.HitState
+Kiln.HitResult.State.init -> void
+Kiln.HitResult.Steps.get -> int
+Kiln.HitResult.Steps.init -> void
+Kiln.HitResult.Target.get -> Kiln.EntityId
+Kiln.HitResult.Target.init -> void
+Kiln.HitState
+Kiln.HitState.Applied = 2 -> Kiln.HitState
+Kiln.HitState.Dropped = 3 -> Kiln.HitState
+Kiln.HitState.Pending = 0 -> Kiln.HitState
+Kiln.PendingHitEvent
+Kiln.PendingHitEvent.Amount.get -> int
+Kiln.PendingHitEvent.Amount.set -> void
+Kiln.PendingHitEvent.AttackCategory.get -> byte
+Kiln.PendingHitEvent.Attacker.get -> Kiln.EntityId
+Kiln.PendingHitEvent.DamageTypes.get -> ushort
+Kiln.PendingHitEvent.Flags.get -> Kiln.HitFlags
+Kiln.PendingHitEvent.HealthBefore.get -> int
+Kiln.PendingHitEvent.HealthMax.get -> int
+Kiln.PendingHitEvent.ImpactId.get -> uint
+Kiln.PendingHitEvent.IsPlayer.get -> bool
+Kiln.PendingHitEvent.Origin.get -> Kiln.CombatOrigin
+Kiln.PendingHitEvent.OriginalAmount.get -> int
+Kiln.PendingHitEvent.Part.get -> Kiln.EntityId
+Kiln.PendingHitEvent.Position.get -> Kiln.WorldPosition
+Kiln.PendingHitEvent.Reaction.get -> Kiln.HitReaction
+Kiln.PendingHitEvent.Source.get -> Kiln.EntityId
+Kiln.PendingHitEvent.Step.get -> ulong
+Kiln.PendingHitEvent.Target.get -> Kiln.EntityId
+Kiln.PendingHitEvent.WeaponCategory.get -> byte
+Kiln.PlayerRespawnEvent
+Kiln.PlayerRespawnEvent.Health.get -> int
+Kiln.PlayerRespawnEvent.HealthMax.get -> int
+Kiln.PlayerRespawnEvent.Player.get -> Kiln.EntityId
+Kiln.PlayerRespawnEvent.Position.get -> Kiln.WorldPosition
+Kiln.PlayerRespawnEvent.Step.get -> ulong
+override Kiln.AttributeIds.GetHashCode() -> int
+override Kiln.AttributeReading.GetHashCode() -> int
+override Kiln.AttributeReading.ToString() -> string!
+override Kiln.CombatStatus.Equals(object? obj) -> bool
+override Kiln.CombatStatus.GetHashCode() -> int
+override Kiln.CombatStatus.ToString() -> string!
+override Kiln.DamageOptions.Equals(object? obj) -> bool
+override Kiln.DamageOptions.GetHashCode() -> int
+override Kiln.DamageOptions.ToString() -> string!
+override Kiln.Health.GetHashCode() -> int
+override Kiln.Health.ToString() -> string!
+override Kiln.HitResult.Equals(object? obj) -> bool
+override Kiln.HitResult.GetHashCode() -> int
+override Kiln.HitResult.ToString() -> string!
+static Kiln.AttributeIds.operator !=(Kiln.AttributeIds left, Kiln.AttributeIds right) -> bool
+static Kiln.AttributeIds.operator ==(Kiln.AttributeIds left, Kiln.AttributeIds right) -> bool
+static Kiln.AttributeReading.operator !=(Kiln.AttributeReading left, Kiln.AttributeReading right) -> bool
+static Kiln.AttributeReading.operator ==(Kiln.AttributeReading left, Kiln.AttributeReading right) -> bool
+static Kiln.Attributes.Add(Kiln.EntityId entity, Kiln.GameAttribute attribute, int delta) -> int
+static Kiln.Attributes.Add(Kiln.EntityId entity, uint attributeId, int delta) -> int
+static Kiln.Attributes.Available.get -> bool
+static Kiln.Attributes.Get(Kiln.EntityId entity, Kiln.GameAttribute attribute) -> Kiln.AttributeReading?
+static Kiln.Attributes.Get(Kiln.EntityId entity, uint attributeId) -> Kiln.AttributeReading?
+static Kiln.Attributes.Ids(Kiln.GameAttribute attribute) -> Kiln.AttributeIds?
+static Kiln.Attributes.Set(Kiln.EntityId entity, Kiln.GameAttribute attribute, int value) -> int
+static Kiln.Attributes.Set(Kiln.EntityId entity, uint attributeId, int value) -> int
+static Kiln.Attributes.TryAdd(Kiln.EntityId entity, Kiln.GameAttribute attribute, int delta, out Kiln.AttributeReading result) -> bool
+static Kiln.Attributes.TrySet(Kiln.EntityId entity, Kiln.GameAttribute attribute, int value, out Kiln.AttributeReading result) -> bool
+static Kiln.Combat.Available.get -> bool
+static Kiln.Combat.Damage(Kiln.EntityId target, int amount, Kiln.EntityId attacker = default(Kiln.EntityId), Kiln.DamageOptions? options = null) -> System.Threading.Tasks.Task<Kiln.HitResult!>!
+static Kiln.Combat.GetHealth(Kiln.EntityId entity) -> Kiln.Health?
+static Kiln.Combat.Heal(Kiln.EntityId entity, int amount) -> int
+static Kiln.Combat.HitsAvailable.get -> bool
+static Kiln.Combat.IsInvulnerable(Kiln.EntityId entity) -> bool
+static Kiln.Combat.Kill(Kiln.EntityId target, Kiln.EntityId attacker = default(Kiln.EntityId), Kiln.DamageOptions? options = null) -> System.Threading.Tasks.Task<Kiln.HitResult!>!
+static Kiln.Combat.SetHealth(Kiln.EntityId entity, int value) -> int
+static Kiln.Combat.SetInvulnerable(Kiln.EntityId entity, bool on = true) -> void
+static Kiln.Combat.Status.get -> Kiln.CombatStatus?
+static Kiln.Combat.TryGetHealth(Kiln.EntityId entity, out Kiln.Health health) -> bool
+static Kiln.CombatStatus.operator !=(Kiln.CombatStatus? left, Kiln.CombatStatus? right) -> bool
+static Kiln.CombatStatus.operator ==(Kiln.CombatStatus? left, Kiln.CombatStatus? right) -> bool
+static Kiln.DamageOptions.operator !=(Kiln.DamageOptions? left, Kiln.DamageOptions? right) -> bool
+static Kiln.DamageOptions.operator ==(Kiln.DamageOptions? left, Kiln.DamageOptions? right) -> bool
+static Kiln.Health.operator !=(Kiln.Health left, Kiln.Health right) -> bool
+static Kiln.Health.operator ==(Kiln.Health left, Kiln.Health right) -> bool
+static Kiln.HitResult.operator !=(Kiln.HitResult? left, Kiln.HitResult? right) -> bool
+static Kiln.HitResult.operator ==(Kiln.HitResult? left, Kiln.HitResult? right) -> bool
+static readonly Kiln.DamageOptions.Default -> Kiln.DamageOptions!
+~override Kiln.AttributeIds.Equals(object obj) -> bool
+~override Kiln.AttributeIds.ToString() -> string
+~override Kiln.AttributeReading.Equals(object obj) -> bool
+~override Kiln.Health.Equals(object obj) -> bool
