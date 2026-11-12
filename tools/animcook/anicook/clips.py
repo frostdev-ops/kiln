@@ -7,6 +7,7 @@ import struct
 from kfc import anim
 
 from .gltfdoc import compose, qinv, qmul, qnorm, qrot, to_game
+from .skeleton import SYNTHETIC_ROOT
 
 FPS = 60
 LVE_TRACK = 0xFA31A0F1  # trackName of all 578 LveAnimation resources
@@ -35,7 +36,10 @@ def sample_track(doc, chans, skel, node_of_joint, f, n, t0, t1):
             q = c["rotation"].eval(t)
         if "scale" in c:
             s = c["scale"].eval(t)
-        if skel.parents[j] == 0xFFFF or skel.nodes[skel.parents[j]] is None:
+        # Only a joint with no parent joint in this file (the root, or a child of the synthetic kiln_root) takes the nodes above it (Blender's
+        # Armature object). Asked of node_of_joint, the file being sampled: a game skeleton has no glTF nodes of its own (skel.nodes all
+        # None), and asking skel.nodes put every joint's whole chain into its local transform (the body torn into spikes, dev.26).
+        if skel.parents[j] == 0xFFFF or node_of_joint[skel.parents[j]] is None:
             above = doc.world_of_parent(node)
             if above is not None:
                 tr, q, s = compose(above, (tr, q, s))
@@ -152,6 +156,17 @@ def sample_animation(doc, anim_name, skel):
         if node is None and skel.source == "game":
             node = next((i for i in range(len(doc.nodes)) if doc.extras_joint(i) == j), None)
         node_of_joint.append(node)
+    for j, node in enumerate(node_of_joint):
+        p = skel.parents[j]
+        if node is None or p == 0xFFFF or skel.names[p] == SYNTHETIC_ROOT:
+            continue
+        # a node's transform is relative to its parent node: it is the joint's local transform only when that node is the parent joint's
+        if node_of_joint[p] is None:
+            raise ClipError(f"{doc.path.name}: node {doc.names[node]!r} is joint {skel.names[j]}, but its parent joint {skel.names[p]} is not in the file")
+        if doc.parent[node] != node_of_joint[p]:
+            under = doc.names[doc.parent[node]] if doc.parent[node] is not None else "nothing"
+            raise ClipError(f"{doc.path.name}: node {doc.names[node]!r} (joint {skel.names[j]}) is under {under!r}, the skeleton has it under "
+                            f"{skel.names[p]} ({doc.names[node_of_joint[p]]!r})")
     for node in chans:
         if node not in node_of_joint:
             parts = "; ".join(sorted(chans[node]))
