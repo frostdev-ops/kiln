@@ -1,6 +1,11 @@
 #nullable enable
 *REMOVED*static Kiln.Saves.LabCloseWorld() -> void
 Kiln.InstanceData
+Kiln.InstanceDataChangedEvent
+Kiln.InstanceDataChangedEvent.Item.get -> Kiln.ItemInstanceRef
+Kiln.InstanceDataChangedEvent.Key.get -> string!
+Kiln.InstanceDataChangedEvent.Mod.get -> string!
+Kiln.InstanceDataChangedEvent.Removed.get -> bool
 Kiln.InstanceDataLostEvent
 Kiln.InstanceDataLostEvent.Detail.get -> string!
 Kiln.InstanceDataLostEvent.Item.get -> Kiln.ItemId

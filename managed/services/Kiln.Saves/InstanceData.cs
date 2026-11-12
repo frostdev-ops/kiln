@@ -298,6 +298,8 @@ public static class ItemInstanceDataExtensions
         slot.Type = typeof(T);
         slot.Json = json;
         slot.TooBig = 0;
+        if (Events.HasSubscribers<InstanceDataChangedEvent>())
+            Events.Post(new InstanceDataChangedEvent(live.Ref, key.Mod, key.Name, removed: false));
     }
 
     /// <summary>Removes the item's value of <paramref name="key"/> (from the next save on). False when it had none, or for a
@@ -311,11 +313,40 @@ public static class ItemInstanceDataExtensions
     public static bool Remove<T>(this ItemInstanceRef item, InstanceKey<T> key) where T : class, new()
     {
         var store = InstanceData.Use("ItemInstanceRef.Remove", key);
-        return store.Lookup(item, key.Info, create: false) is { } live && store.Remove(live, key.Info);
+        if (store.Lookup(item, key.Info, create: false) is not { } live || !store.Remove(live, key.Info)) return false;
+        if (Events.HasSubscribers<InstanceDataChangedEvent>())
+            Events.Post(new InstanceDataChangedEvent(live.Ref, key.Mod, key.Name, removed: true));
+        return true;
     }
 
     private static ArgumentException Stale(ItemInstanceRef item) =>
         new($"{item} is stale: the item is gone, or its id belongs to another item now", nameof(item));
+}
+
+/// <summary>A value was set or removed through the instance-data API. Tick thread, one event per successful call.
+/// In-place edits to the live object returned by Get are not intercepted; call Set to announce an edit.</summary>
+[ServerOnly]
+public sealed class InstanceDataChangedEvent : KilnEvent
+{
+    internal InstanceDataChangedEvent(ItemInstanceRef item, string mod, string key, bool removed)
+    {
+        Item = item;
+        Mod = mod;
+        Key = key;
+        Removed = removed;
+    }
+
+    /// <summary>The item whose value changed.</summary>
+    public ItemInstanceRef Item { get; }
+
+    /// <summary>The mod id the value belongs to.</summary>
+    public string Mod { get; }
+
+    /// <summary>The key's name.</summary>
+    public string Key { get; }
+
+    /// <summary>True for Remove; false for Set.</summary>
+    public bool Removed { get; }
 }
 
 /// <summary>How a saved record found its item again.</summary>
@@ -360,6 +391,7 @@ public enum InstanceLossReason
 
 /// <summary>A saved record found its item again after a load or a join: the value is on the item now. One event per key.
 /// Tick thread.</summary>
+[ServerOnly]
 public sealed class InstanceDataRestoredEvent : KilnEvent
 {
     internal InstanceDataRestoredEvent(ItemInstanceRef item, string mod, string key, InstanceMatch match, string detail)
@@ -389,6 +421,7 @@ public sealed class InstanceDataRestoredEvent : KilnEvent
 
 /// <summary>A record waits for its item: its holder was not found, the player left with it, or no item of its holder fits
 /// it. One event per mod. Tick thread.</summary>
+[ServerOnly]
 public sealed class InstanceDataParkedEvent : KilnEvent
 {
     internal InstanceDataParkedEvent(string holder, CharacterKey character, int flatSlot, ItemId item, string mod, IReadOnlyList<string> keys,
@@ -429,6 +462,7 @@ public sealed class InstanceDataParkedEvent : KilnEvent
 /// <summary>A record no longer goes with an item: the item was destroyed, it was not found in 3 sessions, the holder was
 /// over the cap, or it was set aside because it was not certain which item it belongs to (<see cref="InstanceLossReason.Ambiguous"/>:
 /// kept and listed, never attached). One event per mod. Tick thread.</summary>
+[ServerOnly]
 public sealed class InstanceDataLostEvent : KilnEvent
 {
     internal InstanceDataLostEvent(ItemId item, ItemInstanceRef lastRef, string mod, IReadOnlyList<string> keys, InstanceLossReason reason, string detail)

@@ -177,6 +177,33 @@ public sealed class InstanceApiTests : IDisposable
         Assert.Equal("{\"Count\":\"not a number\"}", live.Values.ByMod["sword-mod"]["text2"].Json);
     }
 
+    private static IDisposable WatchChanges<T>(List<KilnEvent> changes) where T : KilnEvent => Events.On<T>(changes.Add);
+
+    [Fact]
+    public void SetAndSuccessfulRemovePostServerSideChangeEvents()
+    {
+        var type = typeof(InstanceData).Assembly.GetType("Kiln.InstanceDataChangedEvent");
+        Assert.NotNull(type);
+        foreach (var eventType in new[] { type, typeof(InstanceDataRestoredEvent), typeof(InstanceDataParkedEvent), typeof(InstanceDataLostEvent) })
+            Assert.NotNull(eventType.GetCustomAttribute<ServerOnlyAttribute>());
+        var changes = new List<KilnEvent>();
+        using var subscription = (IDisposable)typeof(InstanceApiTests).GetMethod(nameof(WatchChanges), BindingFlags.NonPublic | BindingFlags.Static)!
+            .MakeGenericMethod(type).Invoke(null, [changes])!;
+        var ring = NewRing();
+        _h.Tag(ring, 1);
+        _h.Tag(ring, 2);
+        TestMods.As(_h.Mod, () => Assert.True(ring.Remove(_h.Kills)));
+        TestMods.As(_h.Mod, () => Assert.False(ring.Remove(_h.Kills)));
+        Assert.Equal(3, changes.Count);
+        Assert.All(changes, e =>
+        {
+            Assert.Equal(ring, type.GetProperty("Item")!.GetValue(e));
+            Assert.Equal("sword-mod", type.GetProperty("Mod")!.GetValue(e));
+            Assert.Equal("kills", type.GetProperty("Key")!.GetValue(e));
+        });
+        Assert.Equal([false, false, true], changes.Select(e => (bool)type.GetProperty("Removed")!.GetValue(e)!));
+    }
+
     [Fact]
     public void RestoredEventsNameTheModTheKeyAndHowItMatched()
     {
