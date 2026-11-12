@@ -38,6 +38,9 @@ missing folder, ShroudForge not installed, Ember, a stale and a cut-off report),
 `keys`, `overlay`, and `game-page` / `game-page-bright` / `game-page-problems`: the page inside the game's main menu
 (`GamePageHost`), with the rectangle and scale the game would publish at that size, over a stand-in for the close-up
 shot and its vignette (dark, or bright and busy to test readability). Add one by writing its files in a new method and listing it in `Scenes.All`.
+`--scene checks` (only when named) draws the guided check runner's screen and HUD line (`managed/Kiln.Testing/CheckUi.cs`)
+from the sample states in `CheckSamples.cs`: `checks-list` (a check running), `checks-confirm` (a Confirm text waiting for
+its yes), `checks-note` (the fail note being typed, with a guard warning).
 
 Limits: the backdrop is not the game's picture; ImGui is rasterised on the CPU (close to the GPU result, not equal); the
 game's own menu entries and transitions are not drawn; the gamepad is not simulated (keys are: `Scene.Keys`).

@@ -220,7 +220,7 @@ public static class Dialogues
         if (h.IsNone || h.IsWorld) return ConversationResult.No("a conversation needs a player");
         QuestNpcDefinition? def;
         EntityId entity = default;
-        if (npc is not null && QuestInput.IsSynthetic(h))
+        if (npc is not null && SyntheticInput.IsSynthetic(h))
         {
             def = Quests.FindNpcDef(npc, null);
             if (def is null) return ConversationResult.No($"no NPC \"{npc}\"");
@@ -242,7 +242,7 @@ public static class Dialogues
             var d = FindDefinition(name, def.ModId);
             if (d is null) return ConversationResult.No($"{def.FullId}: no dialogue \"{name}\"");
             // its lines are in the game's own menu: that is where this conversation happens
-            if (d.Native && !QuestInput.IsSynthetic(h)) return ConversationResult.No($"talk to {def.Name?.For(Quests.ChatLanguage) ?? def.Id} in the game");
+            if (d.Native && !SyntheticInput.IsSynthetic(h)) return ConversationResult.No($"talk to {def.Name?.For(Quests.ChatLanguage) ?? def.Id} in the game");
             QuestObjectives.OnTalk(h, entity, def.Template, def, 0, null);
             return Open(h, d, entity, null, def);
         }
@@ -256,7 +256,7 @@ public static class Dialogues
         var node = new DialogueNode { Text = def.Name ?? new UiText(def.Id) };
         foreach (var q in Quests.Definitions)
         {
-            if (!QuestInput.IsSynthetic(h) && NativeQuests.ShownByGame(q)) continue;  // its topics are in the game's menu
+            if (!SyntheticInput.IsSynthetic(h) && NativeQuests.ShownByGame(q)) continue;  // its topics are in the game's menu
             if (q.Giver is { } g && Quests.FindNpcDef(g, q.ModId)?.FullId == def.FullId && Quests.CanStart(q, h))
                 node.Options.Add(new DialogueOption
                 {

@@ -637,7 +637,7 @@ public static partial class Quests
         rec.StepOrigin = null;
         rec.EnteredAt = Environment.TickCount64;
         if (!h.Entity.IsNone && QuestObjectives.PositionOf(h) is { } p) rec.StepOrigin = [p.X, p.Y, p.Z];
-        else if (QuestInput.PositionOf(h) is { } sp) rec.StepOrigin = [sp.X, sp.Y, sp.Z];
+        else if (SyntheticInput.PositionOf(h) is { } sp) rec.StepOrigin = [sp.X, sp.Y, sp.Z];
         QuestPresent.Step(h, q, rec, step);
         QuestPlaces.EnterStep(q, h, rec, step);
         if (step.OnEnter.Count > 0) _ = QuestActions.RunAll(step.OnEnter, new QuestActionContext(h, q, EntityId.None, q.ModId), "onEnter", true);
@@ -654,7 +654,7 @@ public static partial class Quests
         for (var i = 0; i < step.Objectives.Count; i++)
             if (rec.Counters.GetValueOrDefault(QuestRecord.CounterKey(step.Id, i)) < step.Objectives[i].Count) return;
         // Asked again by the next poll: only objectives that are a state of the world can be full at once, and those are polled.
-        if (q.Journal == QuestJournalMode.Native && !QuestInput.IsSynthetic(h) && step.Objectives.Any(o => o.IsLevel) &&
+        if (q.Journal == QuestJournalMode.Native && !SyntheticInput.IsSynthetic(h) && step.Objectives.Any(o => o.IsLevel) &&
             Environment.TickCount64 - rec.EnteredAt < MinimumStepMs) return;
         FinishStep(q, h, rec, step);
     }
@@ -749,7 +749,7 @@ public static partial class Quests
     {
         if (!rec.RewardsPending) return;
         // an offline player gets them at the next join; a synthetic holder never comes: its rewards are run and skipped
-        if (h.Entity.IsNone && !h.IsWorld && !QuestInput.IsSynthetic(h)) return;
+        if (h.Entity.IsNone && !h.IsWorld && !SyntheticInput.IsSynthetic(h)) return;
         rec.RewardsPending = false;
         _ = QuestActions.RunAll(q.Rewards, new QuestActionContext(h, q, EntityId.None, q.ModId), "rewards", true);
     }

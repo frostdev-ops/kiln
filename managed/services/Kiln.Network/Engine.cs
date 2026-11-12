@@ -1057,5 +1057,6 @@ internal static class NetworkStartup
     {
         NetEngine.EnsureStarted();
         ConfigSync.Start();  // docs/kiln/sync.md
+        SteamGuardRelay.Start();  // both sides, before any hello: a client's hello lists its channels
     }
 }
