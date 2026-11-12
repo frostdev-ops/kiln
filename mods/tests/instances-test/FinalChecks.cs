@@ -42,14 +42,18 @@ public sealed partial class InstancesTestMod
     private async Task C1()
     {
         // 48 chests of the world's storage template, 40 m up (chests 60 m up did not come back after a restart)
-        var anchor = Items.FindInventories(InventoryKinds.Containers).Select(e => (E: e, I: Spawn.Inspect(e)))
-            .First(x => x.I?.TemplateName?.Contains("Storage_24") == true);
+        var containers = Items.FindInventories(InventoryKinds.Containers).Select(e => Spawn.Inspect(e)).Where(i => i is not null).ToList();
+        var anchor = containers.FirstOrDefault(i => i!.TemplateName?.Contains("Storage_24") == true) ?? containers.FirstOrDefault();
+        var template = anchor?.TemplateName?.Contains("Storage_24") == true ? anchor.Template!.Value
+            : Spawn.Templates.First(t => t.Name.Contains("Storage_24")).Id;
+        // A fresh, unstreamed world has no container anchor. These synthetic lab coordinates need no player.
+        var at = anchor?.Position ?? new WorldPosition(0, 0, 0);
         var st = new CostState();
         var chests = new List<EntityId>();
         for (var i = 0; i < 48; i++)
         {
-            var e = await Spawn.Entity(anchor.I!.Template!.Value,
-                new WorldPosition(anchor.I.Position.X - 30 + 2.5 * (i % 8), SafeY(anchor.I.Position.Y + 40), anchor.I.Position.Z - 60 + 2.5 * (i / 8)), 0,
+            var e = await Spawn.Entity(template,
+                new WorldPosition(at.X - 30 + 2.5 * (i % 8), SafeY(at.Y + 40), at.Z - 60 + 2.5 * (i / 8)), 0,
                 new SpawnOptions { Tag = "instances-test-t4-cost" });
             chests.Add(e);
         }

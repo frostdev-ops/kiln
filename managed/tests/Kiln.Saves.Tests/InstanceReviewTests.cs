@@ -13,6 +13,56 @@ public sealed class InstanceReviewTests : IDisposable
 
     public void Dispose() => _h.Dispose();
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void StagingBatchesItemsAndResolvesEachHolderOnceEvenDuringMoveNotices(bool notices)
+    {
+        var w = _h.World;
+        var chest = w.Chest(ChestTemplate, A);
+        for (var i = 0; i < 100; i++) _h.Tag(w.Give(chest, i, Sword), i);
+        w.NotifyMovesOnRead = notices;
+        w.ResetReadCounts();
+        Store.Stage(1, SaveReason.Request, late: false);
+        Assert.Equal(1, w.BatchReadCalls);
+        Assert.Equal(0, w.ReadCalls);
+        Assert.Equal(1, w.HolderCalls);
+        Assert.Equal(1, w.ReadHolderCalls);
+    }
+
+    [Fact]
+    public void NoKeysAndNoRecordsMeansNoPlayerInventoryReadsAtJoinOrSave()
+    {
+        var w = _h.World;
+        var player = w.Join(Hero);
+        w.Give(player, 0, Sword);
+        Store.Instances.EndSession(); // no mod uses instance data on this server
+        w.ResetReadCounts();
+        _h.Tick();
+        _h.Save(1);
+        Assert.Equal(0, w.ReadHolderCalls);
+        Assert.Empty(Store.Instances.Holders);
+    }
+
+    [Fact]
+    public void AKeyDeclaredMidVisitDoesNotInventAnEarlierPlayerWitness()
+    {
+        var w = _h.World;
+        var player = w.Join(Hero);
+        var a = w.Give(player, 0, Sword);
+        var b = w.Give(player, 1, Sword);
+        Store.Instances.EndSession();
+        _h.Tick();
+        _h.Save(1);
+        w.Swap(a, b, seen: false);
+        _h.Kills = _h.Declare<Kills>("kills");
+        _h.Tick();
+        var entry = Assert.Single(Store.Instances.Holders);
+        var state = Assert.Single(entry.States);
+        Assert.True((state.Id & InstanceStore.JoinIdBase) != 0);
+        Assert.False(entry.Witness[state.Id].Settled); // no longer in loader order
+    }
+
     [Fact]
     public void AnUnavailableHolderIdentityRefusesSetInsteadOfKeepingItOnlyInMemory()
     {

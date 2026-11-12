@@ -87,7 +87,10 @@ data (objects are serialized when the mod unloads and read into the new instance
   loads the newest older generation (`DataMatch.Older`, logged as a warning).
 - Instance data rides the same generation: at both stagings (`WorldSavingEvent` and the snapshot staging) the place and
   record fields of every item with data are read fresh from the game and written as bundles `instances/<mod>` and
-  `character-instances/<character>/<mod>`, so a crash gives the old or the new generation of them too.
+  `character-instances/<character>/<mod>`, so a crash gives the old or the new generation of them too. Each staging uses
+  one batched item read and one identity lookup per holder (including synchronous move notices from those reads).
+  Player join/save inventories are not read while no instance key is declared and no holder has saved records; a key
+  first declared mid-visit cannot rely on inventory states from before it was declared.
 - Entities: attachments are stored with the entity's template and position at the save and given back to the loaded
   entity of that template there (props within 0.5 m; creatures and NPCs within 16 m, nearest unclaimed), retried for
   10 minutes after a load (entities stream in), kept for 3 sessions if never matched. This needs a known, saved

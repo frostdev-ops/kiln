@@ -207,6 +207,9 @@ internal sealed class InstanceStore
     private bool _matching, _windowCounted;
     private ulong _windowEnd;
     private int _resolveCursor;
+    private Dictionary<uint, (HolderIdentity Identity, KilnUnavailableException? Error)>? _stagingHolders;
+
+    private bool TrackPlayerInventories => _keys.Count != 0 || _holders.Any(h => h.Records.Count != 0);
 
     private sealed class Pending
     {
@@ -526,7 +529,24 @@ internal sealed class InstanceStore
         l.Follow = null;
     }
 
-    private HolderIdentity HolderOf(IInstanceWorld w, EntityId holder) => w.Holder(holder);
+    private HolderIdentity HolderOf(IInstanceWorld w, EntityId holder)
+    {
+        if (_stagingHolders is not { } cache) return w.Holder(holder);
+        if (!cache.TryGetValue(holder.Value, out var answer))
+        {
+            try
+            {
+                answer = (w.Holder(holder), null);
+            }
+            catch (KilnUnavailableException e)
+            {
+                answer = (default, e);
+            }
+            cache[holder.Value] = answer;
+        }
+        if (answer.Error is { } error) throw error;
+        return answer.Identity;
+    }
 
     // ------------------------------------------------------------------------------------- moves and gone ----
 
@@ -695,6 +715,7 @@ internal sealed class InstanceStore
 
     private void JoinPlayers(IInstanceWorld w, IReadOnlyList<(EntityId Entity, CharacterKey Character)> players)
     {
+        if (!TrackPlayerInventories) return;
         foreach (var (entity, character) in players)
         {
             if (character.IsNone || character.IsAccountOnly) continue;
@@ -1145,6 +1166,20 @@ internal sealed class InstanceStore
     /// this read and the game's snapshot, so the witness taken now can vouch for the holder (rule 1).</param>
     public List<(string Scope, byte[] Data)> Stage(uint gen, Dictionary<string, JsonSerializerOptions> json, bool settled = false)
     {
+        // Item reads can synchronously announce moves back to this store. Share the same identity cache with them.
+        _stagingHolders = new();
+        try
+        {
+            return StageSnapshot(gen, json, settled);
+        }
+        finally
+        {
+            _stagingHolders = null;
+        }
+    }
+
+    private List<(string Scope, byte[] Data)> StageSnapshot(uint gen, Dictionary<string, JsonSerializerOptions> json, bool settled)
+    {
         var output = new List<(string Scope, byte[] Data)>();
         var w = _world;
         var reads = false;
@@ -1163,25 +1198,29 @@ internal sealed class InstanceStore
         var written = new Dictionary<HolderEntry, List<WriteRec>>(ReferenceEqualityComparer.Instance);
         List<WriteRec> Of(HolderEntry h) => written.TryGetValue(h, out var l) ? l : written[h] = [];
 
-        // 1. Every item with data, read now.
+        // 1. Every item with data, read now in one native call.
         var byHolder = new SortedDictionary<uint, List<LiveItem>>();
-        foreach (var live in _live.Values.ToArray())
+        foreach (var live in _live.Values) live.Fresh = false;
+        var persistent = _live.Values.Where(live => live.Values.HasPersistent).ToArray();
+        IReadOnlyList<InstanceItem?>? current = null;
+        if (reads && persistent.Length != 0)
         {
-            live.Fresh = false;
-            if (!live.Values.HasPersistent) continue;
-            if (reads)
+            try
             {
-                InstanceItem? now = null;
-                var known = true;
-                try
-                {
-                    now = w!.Read(live.Ref);
-                }
-                catch (KilnUnavailableException)
-                {
-                    known = false;  // cannot tell now: written where it was last seen, with its old observation
-                }
-                if (known && now is null)
+                current = w!.Read(persistent.Select(live => live.Ref).ToArray());
+            }
+            catch (KilnUnavailableException)
+            {
+                // Cannot tell now: written where last seen, with the old observation.
+            }
+        }
+        for (var i = 0; i < persistent.Length; i++)
+        {
+            var live = persistent[i];
+            if (current is not null)
+            {
+                var now = current[i];
+                if (now is null)
                 {
                     OnGone(live.Ref, live.Place, w!.Step);
                     continue;
@@ -1274,9 +1313,9 @@ internal sealed class InstanceStore
             }
         }
 
-        // 2b. Every player in game, with data or not: the inventory as this save sends it back to the client is a state it
-        // may bring back as its file, and an item that gets data later in the visit needs its slot in that state.
-        if (w is not null)
+        // 2b. When instance data is in use, every player in game, with data or not: the inventory this save sends back
+        // is a state the client may bring back. A key first declared mid-visit has no earlier state to rely on.
+        if (w is not null && TrackPlayerInventories)
         {
             IReadOnlyList<(EntityId Entity, CharacterKey Character)> players;
             try

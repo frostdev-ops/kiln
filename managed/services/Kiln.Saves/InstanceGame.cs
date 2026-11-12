@@ -21,6 +21,9 @@ internal sealed class InstanceGame : IInstanceWorld
 
     public InstanceItem? Read(ItemInstanceRef item) => ItemInstances.Read(item) is { } info ? Map(info) : null;
 
+    public IReadOnlyList<InstanceItem?> Read(IReadOnlyList<ItemInstanceRef> items) =>
+        ItemInstances.Read(items).Select(info => info is { } value ? (InstanceItem?)Map(value) : null).ToArray();
+
     public IReadOnlyList<InstanceItem> ReadHolder(EntityId holder, out bool initialized) =>
         ItemInstances.ReadHolder(holder, out initialized).Where(i => i.Location.IsPlaced && i.Location.Holder == holder).Select(i => Map(i)).ToList();
 

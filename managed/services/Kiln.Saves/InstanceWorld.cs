@@ -81,6 +81,9 @@ internal interface IInstanceWorld
     /// <exception cref="KilnUnavailableException">The reads cannot answer right now (never "gone" for that).</exception>
     InstanceItem? Read(ItemInstanceRef item);
 
+    /// <summary>One batched read of all refs, with results in input order (null for a gone or stale ref).</summary>
+    IReadOnlyList<InstanceItem?> Read(IReadOnlyList<ItemInstanceRef> items);
+
     /// <summary>Every item entity in the holder's inventories, in flat-slot order; empty when it has no inventory or the
     /// inventory is not initialized yet (<paramref name="initialized"/> false).</summary>
     IReadOnlyList<InstanceItem> ReadHolder(EntityId holder, out bool initialized);

@@ -48,7 +48,13 @@ internal sealed class FakeInstanceWorld : IInstanceWorld
     /// <summary>Ground truth of the character files: slot -> identity of the item there.</summary>
     public readonly Dictionary<CharacterKey, Dictionary<int, int>> FileIdentities = new();
     public int ReadCalls { get; private set; }
+    public int BatchReadCalls { get; private set; }
+    public int ReadHolderCalls { get; private set; }
+    public int HolderCalls { get; private set; }
+    public bool NotifyMovesOnRead { get; set; }
     public int FindCalls { get; set; }
+
+    public void ResetReadCounts() => ReadCalls = BatchReadCalls = ReadHolderCalls = HolderCalls = 0;
     public readonly Dictionary<uint, FakeItem> Items = new();
     public readonly Dictionary<uint, FakeHolder> Holders = new();
     public readonly Dictionary<uint, int> Followed = new();
@@ -69,12 +75,28 @@ internal sealed class FakeInstanceWorld : IInstanceWorld
     {
         Require();
         ReadCalls++;
-        return Items.TryGetValue(item.Entity.Id.Value, out var i) && i.Ref.Entity.Serial == item.Entity.Serial ? Info(i) : null;
+        return ReadInfo(item);
+    }
+
+    public IReadOnlyList<InstanceItem?> Read(IReadOnlyList<ItemInstanceRef> items)
+    {
+        Require();
+        BatchReadCalls++;
+        return items.Select(ReadInfo).ToArray();
+    }
+
+    private InstanceItem? ReadInfo(ItemInstanceRef item)
+    {
+        if (!Items.TryGetValue(item.Entity.Id.Value, out var i) || i.Ref.Entity.Serial != item.Entity.Serial) return null;
+        if (NotifyMovesOnRead && !i.Holder.IsNone && IsFollowed(item))
+            Moved?.Invoke(item, default, new InstancePlace(i.Holder, i.Slot));
+        return Info(i);
     }
 
     public IReadOnlyList<InstanceItem> ReadHolder(EntityId holder, out bool initialized)
     {
         Require();
+        ReadHolderCalls++;
         // a leaving player's inventory reads as long as its entity exists
         initialized = Holders.TryGetValue(holder.Value, out var h) && h.Initialized;
         return initialized ? Items.Values.Where(i => i.Holder == holder).OrderBy(i => i.Slot).Select(Info).ToList() : [];
@@ -89,6 +111,7 @@ internal sealed class FakeInstanceWorld : IInstanceWorld
 
     public HolderIdentity Holder(EntityId holder)
     {
+        HolderCalls++;
         if (SpawnOff) throw new KilnUnavailableException("kiln.spawn", "holder identity unavailable in the test");
         return !Holders.TryGetValue(holder.Value, out var h) ? HolderIdentity.None
             : h.Identity.Kind == HolderKind.Player && !h.InGame && ForgetLeavingCharacter ? HolderIdentity.OfPlayer(default, h.Identity.Name)
