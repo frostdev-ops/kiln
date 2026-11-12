@@ -358,7 +358,7 @@ echo "$caps"
 fails=$((fails + $(grep -c '^FAIL' <<<"$caps")))
 # 10 switch: on under Wine by default (plain run); "off" places no link and calls no handler (off run)
 O=$out/off
-on_line=$(grep -o 'unload: on (Wine [^:]*): [0-9]* on_unload handler(s) will be called' "$P/kiln.log" 2>/dev/null | head -1)
+on_line=$(grep -o 'unload: on (Wine .*): [0-9]* on_unload handler(s) will be called' "$P/kiln.log" 2>/dev/null | head -1)
 off_line=$(grep -o 'unload: off (kiln.json "unloadAtExit": "off"); [0-9]* on_unload handler(s) will not be called at exit' \
   "$O/kiln.log" 2>/dev/null | head -1)
 if [[ -n $on_line ]] && grep -q '"label": "kiln/unload"' "$P/hooks.json" 2>/dev/null && [[ -n $off_line && -s $O/hooks.json ]] &&
