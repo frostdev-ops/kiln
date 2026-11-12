@@ -60,7 +60,8 @@ impl DataDirs {
         DataDirs { root: root.into() }
     }
 
-    /// `$KILN_DATA_DIR`, else the platform default ([`DataEnv::locate`] over the process environment).
+    /// `$KILN_DATA_DIR`, else the folder the pointer file in the default root names, else the platform default
+    /// ([`DataEnv::locate`] over the process environment). A broken pointer is an error (`ErrorCode::DataFolder`).
     pub fn locate() -> Result<Self> {
         DataEnv::from_process().locate().map(|l| l.dirs)
     }
@@ -109,17 +110,67 @@ impl DataDirs {
 pub enum RootSource {
     /// `$KILN_DATA_DIR`: a pointer file would not be read.
     Env,
-    /// The pointer file in the default root names it (dev.25 `core-2`; [`DataEnv::locate`] does not return it yet).
+    /// The pointer file in the default root names it (`data_folder::POINTER`).
     Pointer,
     /// The platform default ([`DataEnv::default_root`]).
     Default,
 }
 
-/// The data root and how it was found.
+/// The data root, how it was found, and the default root (where the pointer and a move's journal live; None only when
+/// `KILN_DATA_DIR` is set and the platform default cannot be told).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Located {
     pub dirs: DataDirs,
     pub source: RootSource,
+    pub default_root: Option<PathBuf>,
+}
+
+/// What is wrong when the data root cannot be told ([`DataEnv::locate_checked`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ProblemKind {
+    /// The platform default cannot be told (`HOME` or `LOCALAPPDATA` is not set).
+    NoDefault,
+    /// The pointer file cannot be read.
+    Unreadable,
+    /// The pointer file is not JSON, or not a pointer.
+    Unparsable,
+    /// The pointer file has a larger `format`: a newer launcher wrote it.
+    NewerFormat,
+    /// The pointer names a relative path (or one with `\\?\`).
+    NotAbsolute,
+    /// The folder the pointer names is not there.
+    Missing,
+    /// The pointer names a file or a link, not a folder.
+    NotAFolder,
+    /// The folder is there but cannot be read.
+    FolderUnreadable,
+    /// The folder is not a Kiln data folder (`data_folder::recognize`).
+    NotKiln,
+}
+
+/// Why the data root cannot be told: the pointer file, the folder it names, and one sentence.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LocateProblem {
+    pub kind: ProblemKind,
+    /// The pointer file (`<default root>/data-folder.json`).
+    pub pointer: Option<PathBuf>,
+    /// The folder it names, when it could be read.
+    pub path: Option<PathBuf>,
+    pub reason: String,
+}
+
+impl LocateProblem {
+    /// As the crate's error: `not_found` for [`ProblemKind::NoDefault`] (as before dev.25), else `data_folder` with
+    /// `detail: {kind, pointer, path}`.
+    pub fn into_error(self) -> Error {
+        if self.kind == ProblemKind::NoDefault {
+            return Error::not_found(self.reason);
+        }
+        let detail = serde_json::json!({ "kind": self.kind, "pointer": self.pointer, "path": self.path });
+        Error::new(crate::ErrorCode::DataFolder, self.reason).with_detail(detail)
+    }
 }
 
 /// The environment the launcher's folders are found from, as a value: [`DataEnv::from_process`] reads the process
@@ -178,13 +229,29 @@ impl DataEnv {
         Ok(Path::new(home).join(".local/share/kiln"))
     }
 
-    /// The data root in use: `$KILN_DATA_DIR` (when not empty), else [`DataEnv::default_root`]. `core-2` puts the
-    /// pointer file between the two.
+    /// The data root in use: `$KILN_DATA_DIR` (when not empty), else the folder the pointer file in the default root
+    /// names (`data_folder::POINTER`), else [`DataEnv::default_root`]. A pointer that cannot be read or parsed, has a
+    /// larger `format`, or names a folder that is missing, unreadable or not a Kiln data folder is an error with code
+    /// `data_folder` (the path and the reason in it), never the default root and never an empty folder. Reading costs
+    /// the pointer file and a look at the folder's marker (its entries only when it has none).
     pub fn locate(&self) -> Result<Located> {
+        self.locate_checked().map_err(LocateProblem::into_error)
+    }
+
+    /// [`DataEnv::locate`] that says what is wrong instead of failing (the launcher's dialog for a broken pointer).
+    pub fn locate_checked(&self) -> std::result::Result<Located, LocateProblem> {
+        let default = self.default_root();
         if let Some(d) = self.kiln_data_dir.as_ref().filter(|d| !d.is_empty()) {
-            return Ok(Located { dirs: DataDirs::at(d), source: RootSource::Env });
+            return Ok(Located { dirs: DataDirs::at(d), source: RootSource::Env, default_root: default.ok() });
         }
-        Ok(Located { dirs: DataDirs::at(self.default_root()?), source: RootSource::Default })
+        let default = default.map_err(|e| LocateProblem { kind: ProblemKind::NoDefault, pointer: None, path: None, reason: e.message })?;
+        match crate::data_folder::read_pointer(&default)? {
+            None => Ok(Located { dirs: DataDirs::at(&default), source: RootSource::Default, default_root: Some(default) }),
+            Some(p) => {
+                crate::data_folder::check_pointed(&p.path, self, &default.join(crate::data_folder::POINTER))?;
+                Ok(Located { dirs: DataDirs::at(p.path), source: RootSource::Pointer, default_root: Some(default) })
+            }
+        }
     }
 
     /// `util::home()` from this environment: `USERPROFILE` on Windows, else `HOME`; `/` when unset.

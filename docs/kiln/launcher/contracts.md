@@ -68,8 +68,10 @@ Shared definitions (ids, semver, kdh1, game paths): `schema/common.schema.json`.
 `bun run check:schemas` in `launcher/`.
 
 ## 3. Launcher data
-Root: `$KILN_DATA_DIR`, else `$XDG_DATA_HOME/kiln` or `~/.local/share/kiln` (Linux), `%LOCALAPPDATA%\Kiln` (Windows).
-`kiln_manage::paths::DataDirs`.
+Root: `$KILN_DATA_DIR`, else the folder the pointer `data-folder.json` in the default root names, else the default root:
+`$XDG_DATA_HOME/kiln` or `~/.local/share/kiln` (Linux), `%LOCALAPPDATA%\Kiln` (Windows).
+`kiln_manage::paths::DataDirs::locate` (= `DataEnv::from_process().locate()`); the data folder's own rules below
+("The data folder's place").
 
 | Path | What |
 |---|---|
@@ -92,6 +94,74 @@ Root: `$KILN_DATA_DIR`, else `$XDG_DATA_HOME/kiln` or `~/.local/share/kiln` (Lin
 
 Profile ids: `^[a-z0-9][a-z0-9-]{0,47}$`, derived from the name (`Server: Ember Isles` -> `server-ember-isles`,
 a `-2` suffix on clashes).
+
+### The data folder's place (dev.25)
+The whole data folder moves as one (`kiln_manage::data_folder`, `kiln_manage::data_folder_move`).
+- **Pointer** `<default root>/data-folder.json` `{format, path, written, writer}` (`data-folder.schema.json`): `path` is
+  absolute, a host path, without `\\?\`. No pointer: the default root is the data folder. Written and replaced atomically
+  (`<name>.tmp`, flush, rename). `$KILN_DATA_DIR` wins over it. A pointer that cannot be read or parsed, has a larger
+  `format`, names a relative path, or names a folder that is missing, a file, a link, unreadable or not a Kiln data
+  folder is the error `data_folder` (section 11; `detail: {kind, pointer, path}`), never the default root and never an
+  empty folder. `DataEnv::locate_checked` gives the same answer as a value for the launcher's dialog. Reading costs the
+  pointer and one look at the folder's marker (its entries only without one). `data_folder_move::reset` (only for a
+  broken pointer) renames it to `data-folder.json.old`: the default root is used.
+- **A Kiln data folder** (`data_folder::recognize`): it has `.kiln-data-folder.json` (`{format, created}`, written into
+  the new place just before the pointer), or a structure only the launcher makes: `library/<kind>/` named after a mod
+  kind, `profiles/<pid>/meta.json`, `installs/<id>.json` or `runtime/kiln-runtime-*.zip` (unknown entries may sit next to
+  them). The default root with launcher entries only (a launcher before dev.25 ran there) counts too. A folder with
+  `.kiln-data-move.json` (`{format, id}`) is a move in progress: never "use this one", never a target.
+- **Picked folder** (`data_folder::target_rule`): missing or empty: it becomes the data folder; a Kiln data folder: used as
+  it is (no merge); anything else, and a volume root or mount point, gets the subfolder `Kiln` (Windows) or `kiln`,
+  which must itself be missing, empty or a Kiln data folder. The default root never gets the subfolder. What every
+  refusal is (`data_folder::RefusalCode`, `check`): `KILN_DATA_DIR` set, another launcher, the quick flow busy, the game or
+  a server running, an unfinished move, the target inside, around or the same as the current folder, inside a game or
+  server folder or Kiln's state or settings folder, a link, a file, a network path, not writable, too small, a path the
+  game reads longer than 259 characters (Windows), a link or special file inside the data folder.
+- **Lock** `data-folder.lock` in the data root (`data_folder::DataLock`): shared by every launcher process from dev.25 on
+  for as long as it runs, exclusive for a move or a switch; taking it never waits. A move also holds `quick.lock`.
+- **Journal** `<default root>/data-folder.move.json` (`data-folder-move.schema.json`): `{format, id, from, to, started,
+  createdTarget, createdParents, entries:[{name, known, bytes}], state, previousPointer, rewritten, rewrittenAfter,
+  hardLinks, result?}`, written atomically before the move writes into the target, kept until the launcher acknowledges
+  the result (`data_folder_move::acknowledge`). A move is refused while one exists. Recovery goes by what is on disk
+  (does the folder in use match `to`), never by `state`.
+- **File record** `<default root>/data-folder.move.files.json`: `{format, id, files:[{path, size, sha256, linked,
+  sourceSha256?}]}`, every file the move copied, written once before the pointer.
+- **A move** (`data_folder_move::move_to`): the target check again, the locks, the journal, the target and its
+  `.kiln-data-move.json`, the copy of every entry, known and unknown (not the pointer, the journal, the file record,
+  markers, lock files, and on Windows `state\` when the old root is the default root): hard links on one volume where
+  they work, except what is written in place (`data_folder::written_in_place`: `logs/`, `profiles/<pid>/config/` and
+  `data/`, `admin-assets/`, `editor-assets/`, `sdk/`, downloads under way), real copies otherwise, with modification
+  times and Unix permissions; links and special files refuse the move. Then the verify (every file read back against
+  the sha256 taken while copying; every library entry's kdh1 against its import record: an entry that already differed
+  is copied as it is and named in the warnings), the source checked for changes (copied again, at most 3 rounds), the
+  file record, the marker, **the pointer: the one commit point** (moving to the default root removes it instead), the
+  new place checked (`locate` gives it; profiles, library entries and settings read as before; if not, the previous
+  pointer is put back and the move fails), then install records written again for the new root (`pathMode`), every
+  game whose `profile.json` is this folder's activated again, built modpacks' `file` rewritten (failures there are
+  warnings). `servers/<id>.json` `backupDir` is rewritten from the old root to the new one in the copy (its record line
+  holds both hashes). A cancel, an error, a full disk or a file that cannot be read before the commit removes the
+  partial copy and the journal; the old place is as it was and in use.
+- **Removal** (`data_folder_move::{pending, remove_old_copy, remove_partial_copy}`, never by themselves): the old copy of
+  a committed move goes file by file, only where the old file's sha256 is the record's (for a rewritten file, the old
+  one's) and the file in the new place has the record's sha256 (or the one the move itself wrote after the commit:
+  `rewrittenAfter`); then empty folders, lock files, the old markers, and the old root when it is empty and is not the
+  default root. Entries the launcher does not know are never removed. Nothing is removed without the journal, with a
+  journal whose id is not the new place's marker's or the record's, without the record, when the folder in use is not
+  `to`, or while a known game's `profile.json` names the old folder; the result then says where the old folder is. A
+  partial copy goes only when the target's `.kiln-data-move.json` has the journal's id: the journal's entries, the two
+  markers, the target when the move made it and it is empty; anything else stays. The result (what stayed, why, sizes,
+  paths) is kept in the journal until acknowledged.
+- **What stays at the default root after a move away**: the pointer (about 150 bytes), the journal and the file record
+  until acknowledged, the entries the launcher does not know, files changed in either place after the move, and on
+  Windows `state\` (`util::state_dir()`: server console captures, the keyring store's lock).
+- **A launcher before dev.25** does not read the pointer and takes no data-folder lock. Started after a move it runs at
+  the default root as on a first run (or on the old copy while it is not removed). A profile it activates in a game is
+  another data folder's profile for the moved folder (`profile::game_profile_owner`: `Elsewhere`): it is not written
+  again, not taken over, its copy-mode configs are not copied back into a profile of the same id, and an activation of
+  the moved folder's profile of that id keeps that game's config copy in `kiln/backups/profile-config-<pid>-<ts>/`. The
+  old copy is not removed while such a game's profile names it. Running during a move, it can still write the old place:
+  what it changes during the copy is copied again; what it changes later stays in the old folder (the removal keeps
+  changed files).
 
 ## 4. Game folder (`<game>/kiln/`)
 Today's layout stays (`tools/deploy-server.sh`): `kiln-core.dll`, `kiln.json`, `sigdb/`, `services/`, `plugins/`,
@@ -1003,6 +1073,7 @@ is one sentence for the user; `detail` is anything that helps (paths, OS error t
 | `admin_unavailable` | no admin transport reaches the server |
 | `op_failed` | an admin op answered ok=false (message = its error) |
 | `internal` | a bug |
+| `data_folder` | the data folder's pointer cannot be used (section 3; `detail: {kind, pointer, path}`), or a moved data folder does not read as the old one |
 
 ## 12. Crate `kiln-manage` modules
 Features: default = none (serde, serde_json, sha2, unicode-normalization); `zip`, `http` (ureq, rustls), `admin`
@@ -1015,7 +1086,9 @@ default; the launcher uses `full`. Builds for Linux and `x86_64-pc-windows-msvc`
 |---|---|
 | `error` | `Error {code, message, detail}`, `ErrorCode`, `Result<T>`, `Error::{new, not_implemented, with_detail, invalid, not_found}` |
 | `task` | `trait Progress { report(Option<f32>, &str); canceled() }`, `NoProgress` |
-| `paths` | `DataDirs::{at, locate, library, profiles, installs, runtime, schema_cache, backups, logs, settings, library_entry, profile}`, `paths::game::*` constants |
+| `paths` | `DataDirs::{at, locate, library, profiles, installs, runtime, schema_cache, backups, logs, settings, library_entry, profile}`, `DataEnv::{from_process, default_root, locate, locate_checked, home_dir, state_dir, config_dir}`, `Located {dirs, source, default_root}`, `RootSource {Env, Pointer, Default}`, `LocateProblem::into_error`, `ProblemKind`, `paths::game::*` constants |
+| `data_folder` | `recognize(&Path, &DataEnv) -> Result<FolderState>`, `inventory(&Path, &DataEnv) -> Result<Inventory>`, `check(&CheckInput, &dyn SystemFacts) -> Result<Plan, Refusal>`, `check_here`, `target_rule`, `check_form`, `relation_to_current`, `game_path_too_long`, `needed_bytes`, `written_in_place`, `is_own_file`, `canonical`, `known_servers`, `read_pointer`, `write_pointer`, `remove_pointer`, `check_pointed`, `DataLock::{shared, exclusive, upgrade, downgrade, is_exclusive, path}`; `FolderState`, `Evidence`, `Inventory`, `EntrySize`, `LongestPath`, `Plan`, `Action`, `Refusal`, `RefusalCode`, `Target`, `CheckInput`, `SystemFacts`, `Facts`, `RealFacts`, `Space`, `Pointer`, `PathParts`, `PathRoot`, `PathStyle`; constants `POINTER`, `POINTER_OLD`, `JOURNAL`, `FILE_RECORD`, `MARKER`, `MOVE_MARKER`, `LOCK`, `KNOWN_ENTRIES`, `WINDOWS_MAX_PATH`, `MARGIN_BYTES` |
+| `data_folder_move` | `move_to(&Located, &DataEnv, &Path, &dyn SystemFacts, Option<&mut DataLock>, &MoveOptions, &mut dyn Progress) -> Result<MoveResult>`, `use_folder(&Located, &DataEnv, &Path, &dyn SystemFacts, Option<&mut DataLock>) -> Result<Located>`, `reset(&DataEnv) -> Result<Located>`, `pending(&DataEnv) -> Result<Pending>`, `remove_old_copy(&DataEnv, &mut dyn Progress) -> Result<Cleanup>`, `remove_partial_copy(&DataEnv) -> Result<Cleanup>`, `acknowledge(&DataEnv)`, `read_journal`, `MAX_ROUNDS`; `Journal`, `JournalEntry`, `FileRecord`, `RecordedFile`, `Rewrite`, `MoveOptions`, `MoveResult`, `Stayed`, `Pending`, `Cleanup`, `Kept` |
 | `hash` | `dirhash(&Path) -> Result<String>`, `dirhash_records(impl IntoIterator<Item = Record>)`, `sha256_file`, `sha256_hex`, `hex`, `hash8`, `fingerprint(entries) -> String`, `Record`, `FingerprintEntry` |
 | `vdf` | `parse(&str) -> Result<Vdf>`, `Vdf::{get, path, as_str, entries}` |
 | `steam` | `roots()`, `libraries(&SteamRoot)`, `app_manifest(&Path, u32)`, `compat_tool`, `launch_options`, `compatdata`; `SteamRoot`, `SteamFlavor`, `Library`, `AppManifest`, `LaunchOptions` |
@@ -1032,7 +1105,7 @@ default; the launcher uses `full`. Builds for Linux and `x86_64-pc-windows-msvc`
 | `semver` | `SemVersion::{parse, compare, release}`, `VersionRange::{parse, at_least_same_major, satisfies, is_any}` |
 | `resolver` | `resolve(&[Candidate], &Environment) -> Result<Resolution>`; `Candidate`, `Environment`, `ModState`, `Rejection`, `Resolution` |
 | `library` | `list(&DataDirs, Option<ModKind>)`, `detect(&Path)`, `import(&DataDirs, &[PathBuf], &mut dyn Progress)`, `remove(&DataDirs, &LibraryRef, bool)` (GameRunning while a game runs, or a server whose profile file points into the library, whatever the bool), `unused(&DataDirs)`, `users`, `path_of`; `LibraryRef`, `LibraryEntry`, `LibraryVersion`, `ImportSource`, `DetectKind`, `Detected`, `ImportReport`, `Skipped` |
-| `profile` | `list`, `get`, `create(&DataDirs, &str, Option<&str>)`, `save`, `delete`, `resolve_preview`, `activate(&DataDirs, &str, &GameInstall) -> Result<Activation>`, `deactivate`, `active`, `render`, `read_game_profile`, `fingerprint(&Profile)`; `ProfileFile`, `ProfileFileMods`, `FolderMod`, `PluginMod`, `Dropins`, `BoundServer`, `ModpackRef`, `Profile`, `ProfileMods`, `ProfileMod`, `DataDirMode`, `ProfileSummary`, `ProfileCounts`, `Activation`, `ResolvePreview`, `NativePlanEntry` |
+| `profile` | `list`, `get`, `create(&DataDirs, &str, Option<&str>)`, `save`, `delete`, `resolve_preview`, `activate(&DataDirs, &str, &GameInstall) -> Result<Activation>`, `deactivate`, `active`, `render`, `read_game_profile`, `game_profile_owner(&DataDirs, &GameInstall) -> Result<GameProfileOwner>`, `fingerprint(&Profile)`; `GameProfileOwner {None, Here, Elsewhere}`, `ProfileFile`, `ProfileFileMods`, `FolderMod`, `PluginMod`, `Dropins`, `BoundServer`, `ModpackRef`, `Profile`, `ProfileMods`, `ProfileMod`, `DataDirMode`, `ProfileSummary`, `ProfileCounts`, `Activation`, `ResolvePreview`, `NativePlanEntry` |
 | `quick` | `add(&DataDirs, &GameInstall, &[PathBuf], &mut dyn Progress) -> Result<AddReport>`, `add_with` (running given), `ensure_default`, `ensure_default_with`, `revert(&DataDirs, &str, &[ProfileChange]) -> Result<Profile>`, `is_modpack`, `DEFAULT_PROFILE`; `AddReport`, `AddedMod`, `MissingMod`, `ProfileChange`, `Target` |
 | `playonce` | `render(&PlayOnce) -> String`, `decide(&[u8], i64, bool, bool)`, `write(&Path, &PlayOnce)`, `pending(&Path)`, `new_nonce()`; `PlayOnce`, `PlayOnceMode`, `PlayOnceStatus` |
 | `config` | `snapshot_path`, `list`, `read`, `set`, `write`, `reset`, `validate`, `read_native_state`, `write_native_state`; `ConfigTarget`, `SchemaSnapshot`, `SnapshotSection`, `SnapshotEntry`, `SnapshotSource`, `ValueFormat`, `NativeUserState`, `NativeModSwitch`, `ConfigFileInfo`, `ConfigDocument`, `ValidationError` |

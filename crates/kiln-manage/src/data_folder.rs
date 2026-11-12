@@ -19,14 +19,22 @@ use crate::{Error, ErrorCode, Result};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
-/// The pointer file in the default root that names the data folder after a move (written by `core-2`).
+/// The pointer file in the default root that names the data folder after a move ([`Pointer`]). No pointer file: the
+/// default root is the data folder.
 pub const POINTER: &str = "data-folder.json";
-/// The move's journal in the default root (written by `core-2`).
+/// What [`crate::data_folder_move::reset`] renames a broken pointer to.
+pub const POINTER_OLD: &str = "data-folder.json.old";
+/// The move's journal in the default root (`data_folder_move::Journal`).
 pub const JOURNAL: &str = "data-folder.move.json";
-/// The file that marks a folder as a Kiln data folder (written into the target by `core-2`; folders made before
-/// dev.25 have none and are recognised by their layout).
+/// Every file a move copied (`data_folder_move::FileRecord`), in the default root, written once before the pointer.
+pub const FILE_RECORD: &str = "data-folder.move.files.json";
+/// The file that marks a folder as a Kiln data folder (`{format, created}`): a move writes it into the new place just
+/// before the pointer. Folders made before dev.25 have none and are recognised by their layout.
 pub const MARKER: &str = ".kiln-data-folder.json";
-/// The data folder's own lock, held while a launcher may write it (taken by `core-2`).
+/// The mark of a move in progress (`{format, id}`): in the target from the first moment a move writes there until the
+/// move is acknowledged. A folder with it is never "use this one" and never a target.
+pub const MOVE_MARKER: &str = ".kiln-data-move.json";
+/// The data folder's own lock ([`DataLock`]): shared by every launcher process from dev.25 on, exclusive by a move.
 pub const LOCK: &str = "data-folder.lock";
 
 /// The top-level entries a launcher data folder has (contracts.md section 3, and the launcher's and the `kiln` CLI's
@@ -53,6 +61,198 @@ pub const KNOWN_ENTRIES: [(&str, bool); 19] = [
     ("state", true),
     (MARKER, false),
 ];
+
+/// Files of a data folder that are written in place (appended, or truncated and written again, without a temporary
+/// file and a rename), by the launcher, the `kiln` CLI or the game: a move copies them for real and never hard-links
+/// them, so a write through the new place never changes the old copy. `names`: the path below the data root.
+/// - `logs/**`: the launcher's log (`launcher_log` appends);
+/// - `profiles/<pid>/config/**`: copy mode's `profile::copy_back` copies the game's files over them, and in Z and
+///   native mode the game writes mod configs there; `profiles/<pid>/data/**`: the game writes per-mod data;
+/// - `admin-assets/**`, `editor-assets/**`: the launcher's asset imports copy files over existing ones;
+/// - `sdk/**`: the `kiln` CLI unpacks the SDK with `unzip -o` over an earlier one;
+/// - `modpacks/downloads/*.part`, `nexus/downloads/**`: downloads that may be under way.
+pub fn written_in_place(names: &[String], style: PathStyle) -> bool {
+    let is = |i: usize, b: &str| names.get(i).is_some_and(|n| style.same_name(n, b));
+    is(0, "logs")
+        || is(0, "admin-assets")
+        || is(0, "editor-assets")
+        || is(0, "sdk")
+        || (is(0, "profiles") && names.len() >= 3 && (is(2, "config") || is(2, "data")))
+        || (is(0, "modpacks") && is(1, "downloads") && names.last().is_some_and(|n| n.to_lowercase().ends_with(".part")))
+        || (is(0, "nexus") && is(1, "downloads"))
+}
+
+/// `<default root>/data-folder.json`: where the data folder is when it is not the default root.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Pointer {
+    pub format: u32,
+    /// The data folder: absolute, a host path, without `\\?\`.
+    pub path: PathBuf,
+    /// RFC 3339 UTC.
+    pub written: String,
+    /// `kiln-manage <version>`.
+    pub writer: String,
+}
+
+/// Reads the pointer in `default_root`: Ok(None) when there is none. A file that cannot be read or parsed, has a
+/// larger `format`, or names a relative path is a problem ([`crate::paths::LocateProblem`]). The folder it names is
+/// not looked at here.
+pub fn read_pointer(default_root: &Path) -> std::result::Result<Option<Pointer>, crate::paths::LocateProblem> {
+    use crate::paths::{LocateProblem, ProblemKind};
+    let file = default_root.join(POINTER);
+    let problem = |kind, reason: String, path: Option<PathBuf>| LocateProblem { kind, pointer: Some(file.clone()), path, reason };
+    let bytes = match std::fs::read(&file) {
+        Ok(b) => b,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(problem(ProblemKind::Unreadable, format!("Kiln cannot read the data folder's pointer {}: {e}", file.display()), None)),
+    };
+    let bytes = bytes.strip_prefix(b"\xef\xbb\xbf").unwrap_or(&bytes);
+    let v: serde_json::Value = serde_json::from_slice(bytes)
+        .map_err(|e| problem(ProblemKind::Unparsable, format!("The data folder's pointer {} is not valid JSON ({e}).", file.display()), None))?;
+    if v.get("format").and_then(|f| f.as_u64()).is_some_and(|f| f > 1) {
+        return Err(problem(ProblemKind::NewerFormat, format!("The data folder's pointer {} was written by a newer Kiln Launcher.", file.display()), None));
+    }
+    let p: Pointer = serde_json::from_value(v)
+        .map_err(|e| problem(ProblemKind::Unparsable, format!("The data folder's pointer {} is not a pointer ({e}).", file.display()), None))?;
+    if !p.path.is_absolute() || p.path.to_string_lossy().starts_with(r"\\?\") {
+        return Err(problem(ProblemKind::NotAbsolute, format!("The data folder's pointer {} names {}, which is not a full path.", file.display(), p.path.display()), Some(p.path)));
+    }
+    Ok(Some(p))
+}
+
+/// Writes the pointer naming `path` into `default_root`, atomically (a temporary file in the same folder, flushed,
+/// renamed over the old one).
+pub fn write_pointer(default_root: &Path, path: &Path) -> Result<Pointer> {
+    let p = Pointer {
+        format: 1,
+        path: crate::steam::strip_verbatim(path.to_path_buf()),
+        written: crate::util::now_rfc3339(),
+        writer: format!("kiln-manage {}", crate::VERSION),
+    };
+    crate::util::write_json_atomic(&default_root.join(POINTER), &p)?;
+    Ok(p)
+}
+
+/// The folder a pointer names must be a real folder and a Kiln data folder: it has [`MARKER`] (one stat), else its
+/// layout says so ([`recognize`]: `Kiln`, or a committed move). `pointer`: the pointer file, for the problem.
+pub fn check_pointed(path: &Path, env: &DataEnv, pointer: &Path) -> std::result::Result<(), crate::paths::LocateProblem> {
+    use crate::paths::{LocateProblem, ProblemKind};
+    let problem = |kind, reason: String| LocateProblem { kind, pointer: Some(pointer.to_path_buf()), path: Some(path.to_path_buf()), reason };
+    let shown = path.display();
+    match std::fs::symlink_metadata(path) {
+        Ok(m) if is_link(&m) => return Err(problem(ProblemKind::NotAFolder, format!("The data folder {shown} is a link: it must be a real folder."))),
+        Ok(m) if !m.is_dir() => return Err(problem(ProblemKind::NotAFolder, format!("The data folder {shown} is a file, not a folder."))),
+        Ok(_) => {}
+        Err(e) if matches!(e.kind(), std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory) => {
+            return Err(problem(ProblemKind::Missing, format!("The data folder {shown} is not there (a disk that is not connected, or a folder that was moved or deleted).")));
+        }
+        Err(e) => return Err(problem(ProblemKind::FolderUnreadable, format!("Kiln cannot read the data folder {shown}: {e}."))),
+    }
+    if std::fs::symlink_metadata(path.join(MARKER)).is_ok_and(|m| m.is_file()) {
+        return Ok(());
+    }
+    match recognize(path, env) {
+        Ok(FolderState::Kiln { .. } | FolderState::Moving { committed: true, .. }) => Ok(()),
+        Ok(_) => Err(problem(ProblemKind::NotKiln, format!("{shown} is not a Kiln data folder."))),
+        Err(e) => Err(problem(ProblemKind::FolderUnreadable, format!("Kiln cannot read the data folder {shown}: {}.", e.message))),
+    }
+}
+
+/// Removes the pointer in `default_root` (the default root becomes the data folder). Ok when there is none.
+pub fn remove_pointer(default_root: &Path) -> Result<()> {
+    let f = default_root.join(POINTER);
+    match std::fs::remove_file(&f) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(io_at(&f, "removing")(e)),
+    }
+}
+
+/// The data folder's lock ([`LOCK`] in the data root), held as a value: released when dropped. Every launcher process
+/// from dev.25 on holds it shared for as long as it runs; a move holds it exclusively. Taking it never waits. A
+/// launcher before dev.25 takes no such lock.
+#[derive(Debug)]
+pub struct DataLock {
+    file: std::fs::File,
+    path: PathBuf,
+    exclusive: bool,
+}
+
+impl DataLock {
+    fn open(root: &Path) -> Result<(std::fs::File, PathBuf)> {
+        let path = root.join(LOCK);
+        if std::fs::symlink_metadata(&path).is_ok_and(|m| is_link(&m) || !m.is_file()) {
+            return Err(Error::new(ErrorCode::Refused, format!("{}: the data folder's lock must be a regular file", path.display())));
+        }
+        let file = std::fs::OpenOptions::new().create(true).truncate(false).read(true).write(true).open(&path).map_err(io_at(&path, "opening"))?;
+        Ok((file, path))
+    }
+
+    /// Shared, for a launcher process. None: a move holds it.
+    pub fn shared(root: &Path) -> Result<Option<DataLock>> {
+        let (file, path) = Self::open(root)?;
+        match file.try_lock_shared() {
+            Ok(()) => Ok(Some(DataLock { file, path, exclusive: false })),
+            Err(std::fs::TryLockError::WouldBlock) => Ok(None),
+            Err(std::fs::TryLockError::Error(e)) => Err(io_at(&path, "locking")(e)),
+        }
+    }
+
+    /// Exclusive, for a move. None: another launcher (or a move) holds it.
+    pub fn exclusive(root: &Path) -> Result<Option<DataLock>> {
+        let (file, path) = Self::open(root)?;
+        match file.try_lock() {
+            Ok(()) => Ok(Some(DataLock { file, path, exclusive: true })),
+            Err(std::fs::TryLockError::WouldBlock) => Ok(None),
+            Err(std::fs::TryLockError::Error(e)) => Err(io_at(&path, "locking")(e)),
+        }
+    }
+
+    pub fn is_exclusive(&self) -> bool {
+        self.exclusive
+    }
+
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    /// Shared to exclusive (this process's own shared lock, for its move). Ok(false): another launcher holds it too;
+    /// the lock is shared again then.
+    pub fn upgrade(&mut self) -> Result<bool> {
+        if self.exclusive {
+            return Ok(true);
+        }
+        self.file.unlock().map_err(io_at(&self.path, "unlocking"))?;
+        match self.file.try_lock() {
+            Ok(()) => {
+                self.exclusive = true;
+                Ok(true)
+            }
+            Err(e) => {
+                let _ = self.file.try_lock_shared();
+                match e {
+                    std::fs::TryLockError::WouldBlock => Ok(false),
+                    std::fs::TryLockError::Error(e) => Err(io_at(&self.path, "locking")(e)),
+                }
+            }
+        }
+    }
+
+    /// Exclusive back to shared.
+    pub fn downgrade(&mut self) -> Result<()> {
+        if !self.exclusive {
+            return Ok(());
+        }
+        self.file.unlock().map_err(io_at(&self.path, "unlocking"))?;
+        self.exclusive = false;
+        match self.file.try_lock_shared() {
+            Ok(()) => Ok(()),
+            Err(std::fs::TryLockError::WouldBlock) => Err(Error::new(ErrorCode::Busy, format!("{}: another process took the lock", self.path.display()))),
+            Err(std::fs::TryLockError::Error(e)) => Err(io_at(&self.path, "locking")(e)),
+        }
+    }
+}
 
 /// The most a path the game opens without a `\\?\` prefix may have on Windows: MAX_PATH (260) less the closing NUL.
 pub const WINDOWS_MAX_PATH: usize = 259;
@@ -361,6 +561,9 @@ pub enum Evidence {
     Installs,
     /// `runtime/kiln-runtime-<version>.zip`.
     Runtime,
+    /// The default root holding launcher entries only ([`KNOWN_ENTRIES`] and what a default root keeps after a move): a
+    /// launcher before dev.25 ran there once (`settings.json`, `logs/`). Only the default root is recognised this way.
+    LauncherEntries,
 }
 
 /// What a folder is ([`recognize`]).
@@ -379,6 +582,9 @@ pub enum FolderState {
     Empty,
     /// A Kiln data folder: it has the marker, or the layout of one (see [`recognize`]).
     Kiln { by: Evidence },
+    /// It holds [`MOVE_MARKER`]: a move writes into it, or wrote into it and was not acknowledged yet. `committed`: it
+    /// has [`MARKER`] too (written just before the pointer). Never "use this one", never a target.
+    Moving { id: String, committed: bool },
     /// Something else; `entry` is the first entry (by name) that is not a launcher entry, else the first entry.
     Other { entry: String },
 }
@@ -458,8 +664,7 @@ fn is_lock_name(name: &str) -> bool {
 /// What a default root keeps after a move ([`FolderState::Empty`]).
 fn is_leftover(dir: &Path, name: &str, own: &[String], style: PathStyle) -> bool {
     let is = |b: &str| style.same_name(name, b);
-    let tmp = |b: &str| style.same_name(name, &format!("{b}.tmp"));
-    if is(POINTER) || is(JOURNAL) || tmp(POINTER) || tmp(JOURNAL) || own.iter().any(|o| is(o)) {
+    if is_own_file(name, style) || own.iter().any(|o| is(o)) {
         return true;
     }
     let Ok(m) = std::fs::symlink_metadata(dir.join(name)) else { return false };
@@ -502,6 +707,15 @@ pub fn recognize(dir: &Path, env: &DataEnv) -> Result<FolderState> {
         return Ok(FolderState::NotAFolder);
     }
     let names = names_in(dir)?;
+    let is_file = |n: &str| std::fs::symlink_metadata(dir.join(n)).is_ok_and(|m| m.is_file());
+    if let Some(m) = names.iter().find(|n| style.same_name(n, MOVE_MARKER))
+        && is_file(m)
+    {
+        let id = crate::util::read_json::<serde_json::Value>(&dir.join(m)).ok().flatten()
+            .and_then(|v| v.get("id").and_then(|i| i.as_str()).map(str::to_string)).unwrap_or_default();
+        let committed = names.iter().any(|n| style.same_name(n, MARKER) && is_file(n));
+        return Ok(FolderState::Moving { id, committed });
+    }
     if let Some(m) = names.iter().find(|n| style.same_name(n, MARKER))
         && std::fs::symlink_metadata(dir.join(m)).is_ok_and(|m| m.is_file())
     {
@@ -515,6 +729,9 @@ pub fn recognize(dir: &Path, env: &DataEnv) -> Result<FolderState> {
     }
     if let Some(by) = evidence(dir, style) {
         return Ok(FolderState::Kiln { by });
+    }
+    if is_default && rest.iter().all(|n| is_known(n, style)) {
+        return Ok(FolderState::Kiln { by: Evidence::LauncherEntries });
     }
     let entry = rest.iter().find(|n| !is_known(n, style)).or(rest.first()).map(|n| n.to_string()).unwrap_or_default();
     Ok(FolderState::Other { entry })
@@ -549,8 +766,9 @@ pub struct Inventory {
     pub known: Vec<EntrySize>,
     /// Top-level entries the launcher does not know (a move copies them and leaves them at the old place).
     pub unknown: Vec<EntrySize>,
-    /// Entries that are not launcher data and never move: [`POINTER`], [`JOURNAL`] (and their `.tmp`), the entry that
-    /// holds Kiln's state or settings folder (Windows: `state\` in the default root). Not in the totals.
+    /// Entries that are not launcher data and never move: [`POINTER`], [`POINTER_OLD`], [`JOURNAL`], [`FILE_RECORD`]
+    /// (and their `.tmp`), the markers [`MARKER`] and [`MOVE_MARKER`], and the entry that holds Kiln's state or settings
+    /// folder (Windows: `state\` in the default root). Not in the totals.
     pub stays: Vec<EntrySize>,
     /// Lock files (`*.lock` at the top, `nexus/*.lock`): not data, not in the totals.
     pub locks: Vec<String>,
@@ -565,6 +783,12 @@ pub struct Inventory {
     pub longest: Option<LongestPath>,
     /// The longest one the game opens: under `library/`, or a profile's `config/` and `data/`.
     pub longest_game: Option<LongestPath>,
+    /// Of `bytes` and `files`: what is written in place ([`written_in_place`]) and so copied for real by a move that
+    /// hard-links the rest.
+    #[serde(default)]
+    pub in_place_bytes: u64,
+    #[serde(default)]
+    pub in_place_files: u64,
 }
 
 impl Inventory {
@@ -580,6 +804,7 @@ struct Walk {
     locks: Vec<String>,
     longest: Option<LongestPath>,
     longest_game: Option<LongestPath>,
+    in_place: (u64, u64),
 }
 
 fn longer(slot: &mut Option<LongestPath>, rel: &str) {
@@ -617,6 +842,10 @@ fn walk(path: &Path, names: &mut Vec<String>, style: PathStyle, w: &mut Walk) ->
             return Ok((0, 0));
         }
         note(w);
+        if written_in_place(names, style) {
+            w.in_place.0 += m.len();
+            w.in_place.1 += 1;
+        }
         return Ok((m.len(), 1));
     }
     if !m.is_dir() {
@@ -652,7 +881,7 @@ pub fn inventory(root: &Path, env: &DataEnv) -> Result<Inventory> {
         let path = root.join(&name);
         let em = std::fs::symlink_metadata(&path).map_err(io_at(&path, "inspecting"))?;
         let is = |b: &str| style.same_name(&name, b);
-        let stay = is(POINTER) || is(JOURNAL) || is(&format!("{POINTER}.tmp")) || is(&format!("{JOURNAL}.tmp")) || own.iter().any(|o| is(o));
+        let stay = is_own_file(&name, style) || own.iter().any(|o| is(o));
         if !stay && em.is_file() && !is_link(&em) && is_lock_name(&name) {
             w.locks.push(name);
             continue;
@@ -682,7 +911,17 @@ pub fn inventory(root: &Path, env: &DataEnv) -> Result<Inventory> {
         files,
         longest: w.longest,
         longest_game: w.longest_game,
+        in_place_bytes: w.in_place.0,
+        in_place_files: w.in_place.1,
     })
+}
+
+/// The data-folder machinery's own top-level files (pointer, journal, file record, their `.tmp`, the old pointer, the
+/// markers): never data, never copied by a move.
+pub fn is_own_file(name: &str, style: PathStyle) -> bool {
+    [POINTER, POINTER_OLD, JOURNAL, FILE_RECORD, MARKER, MOVE_MARKER]
+        .iter()
+        .any(|b| style.same_name(name, b) || style.same_name(name, &format!("{b}.tmp")))
 }
 
 // ------------------------------------------------------------------------------------------------ system facts
@@ -713,6 +952,8 @@ pub trait SystemFacts {
     /// `dir` (an existing folder) is where a volume is mounted (`/run/media/<user>/USB`, a folder a Windows volume is
     /// mounted on). Drive letters, shares and `/` are told by their path ([`PathParts::is_volume_root`]).
     fn volume_root(&self, dir: &Path) -> bool;
+    /// Unix: a file made in `dir` with mode 0600 keeps it (a disk without Unix permissions does not). None: not known.
+    fn private_files(&self, dir: &Path) -> Option<bool>;
 }
 
 /// Fixed answers for [`SystemFacts`].
@@ -725,6 +966,7 @@ pub struct Facts {
     pub same_volume: Option<bool>,
     pub hard_links: bool,
     pub volume_root: bool,
+    pub private_files: Option<bool>,
 }
 
 impl Facts {
@@ -738,6 +980,7 @@ impl Facts {
             same_volume: Some(false),
             hard_links: false,
             volume_root: false,
+            private_files: Some(true),
         }
     }
 }
@@ -763,6 +1006,9 @@ impl SystemFacts for Facts {
     }
     fn volume_root(&self, _: &Path) -> bool {
         self.volume_root
+    }
+    fn private_files(&self, _: &Path) -> Option<bool> {
+        self.private_files
     }
 }
 
@@ -863,6 +1109,25 @@ impl SystemFacts for RealFacts<'_> {
 
     fn volume_root(&self, dir: &Path) -> bool {
         sys::volume_root(dir)
+    }
+
+    fn private_files(&self, dir: &Path) -> Option<bool> {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+            let p = dir.join(probe_name("private"));
+            let f = std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&p).ok()?;
+            drop(f);
+            let ok = std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o600)).is_ok()
+                && std::fs::metadata(&p).is_ok_and(|m| m.permissions().mode() & 0o077 == 0);
+            let _ = std::fs::remove_file(&p);
+            Some(ok)
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = dir;
+            None
+        }
     }
 }
 
@@ -1015,6 +1280,18 @@ pub enum RefusalCode {
     TooSmall,
     /// Windows: a path the game reads would pass 259 characters.
     PathTooLong,
+    /// The folder holds a move in progress ([`MOVE_MARKER`]).
+    MoveInProgress,
+    /// The default root holds files that are not the launcher's (it never gets a `Kiln` subfolder).
+    DefaultRootTaken,
+    /// A move has not been finished: its journal is still in the default root.
+    MovePending,
+    /// A link or a special file is inside the current data folder: a move never follows or copies one.
+    LinkInside,
+    /// The launcher is busy with the data folder (an import or another flow holds `quick.lock`).
+    Busy,
+    /// "Use this one" on a folder that is not a Kiln data folder.
+    NotAKilnFolder,
 }
 
 impl RefusalCode {
@@ -1040,6 +1317,12 @@ impl RefusalCode {
             RefusalCode::NotWritable => "not_writable",
             RefusalCode::TooSmall => "too_small",
             RefusalCode::PathTooLong => "path_too_long",
+            RefusalCode::MoveInProgress => "move_in_progress",
+            RefusalCode::DefaultRootTaken => "default_root_taken",
+            RefusalCode::MovePending => "move_pending",
+            RefusalCode::LinkInside => "link_inside",
+            RefusalCode::Busy => "busy",
+            RefusalCode::NotAKilnFolder => "not_a_kiln_folder",
         }
     }
 }
@@ -1097,9 +1380,17 @@ pub struct Plan {
     pub unknown: Vec<EntrySize>,
     /// What stays at the old place because it is not data ([`Inventory::stays`]), by name.
     pub stays: Vec<String>,
-    /// Links and special files in the current folder ([`Inventory::links`], [`Inventory::special`]).
+    /// Links and special files in the current folder ([`Inventory::links`], [`Inventory::special`]); a move is refused
+    /// while there are any.
     pub links: Vec<String>,
     pub special: Vec<String>,
+    /// Unix: files made there keep their permissions (`nexus/` needs 0700 and 0600; a disk without Unix permissions,
+    /// such as exFAT, ignores them). None: not known (Windows).
+    #[serde(default)]
+    pub private_files: Option<bool>,
+    /// What will not work from there, one sentence each.
+    #[serde(default)]
+    pub warnings: Vec<String>,
 }
 
 /// What a copy of `bytes` in `files` files needs on a volume with allocation unit `unit`: the bytes, up to one unit
@@ -1121,20 +1412,27 @@ pub enum Target {
 /// The picked-folder rule, in one place (decided 2026-11-11): a missing or empty folder becomes the data folder; a
 /// Kiln data folder is offered as it is ("use this one", no merge); any other folder, and a volume root (`D:\`, `/`, a
 /// mount point) unless it is a Kiln data folder, gets the subfolder `Kiln` (Windows) or `kiln`, which must itself be
-/// missing, empty or a Kiln data folder. So a drive root never becomes a data folder. `sub` recognizes the subfolder.
+/// missing, empty or a Kiln data folder. So a drive root never becomes a data folder. The default root
+/// (`default_root`) never gets the subfolder: empty, it is the target; a Kiln data folder (also one with launcher
+/// entries only, [`Evidence::LauncherEntries`]), it is used; anything else is refused. A folder with a move in progress
+/// is refused. `sub` recognizes the subfolder.
 pub fn target_rule(
-    picked: &Path, state: &FolderState, volume_root: bool, style: PathStyle, sub: &mut dyn FnMut(&Path) -> Result<FolderState>,
+    picked: &Path, state: &FolderState, volume_root: bool, default_root: bool, style: PathStyle,
+    sub: &mut dyn FnMut(&Path) -> Result<FolderState>,
 ) -> Result<Target> {
     Ok(match state {
         FolderState::Kiln { .. } => Target::Use(picked.to_path_buf()),
+        FolderState::Moving { .. } => Target::Refused(RefusalCode::MoveInProgress, picked.to_path_buf()),
         FolderState::Link => Target::Refused(RefusalCode::Link, picked.to_path_buf()),
         FolderState::NotAFolder => Target::Refused(RefusalCode::NotAFolder, picked.to_path_buf()),
-        FolderState::Missing | FolderState::Empty if !volume_root => Target::Move(picked.to_path_buf()),
+        FolderState::Missing | FolderState::Empty if default_root || !volume_root => Target::Move(picked.to_path_buf()),
+        FolderState::Other { .. } if default_root => Target::Refused(RefusalCode::DefaultRootTaken, picked.to_path_buf()),
         _ => {
             let s = picked.join(style.subfolder());
             match sub(&s)? {
                 FolderState::Missing | FolderState::Empty => Target::Move(s),
                 FolderState::Kiln { .. } => Target::Use(s),
+                FolderState::Moving { .. } => Target::Refused(RefusalCode::MoveInProgress, s),
                 FolderState::Link => Target::Refused(RefusalCode::Link, s),
                 FolderState::NotAFolder => Target::Refused(RefusalCode::NotAFolder, s),
                 FolderState::Other { .. } => Target::Refused(RefusalCode::KilnSubfolderTaken, s),
@@ -1242,6 +1540,11 @@ pub fn check(input: &CheckInput, facts: &dyn SystemFacts) -> std::result::Result
         Err(e) => return Err(say(C::ServerRunning, format!("Kiln could not tell whether a server is running ({}): stop your servers and try again.", e.message))),
         Ok(None) => {}
     }
+    if let Ok(d) = input.env.default_root()
+        && std::fs::symlink_metadata(d.join(JOURNAL)).is_ok()
+    {
+        return Err(say(C::MovePending, format!("A move of the data folder has not been finished ({}): finish it first.", d.join(JOURNAL).display())));
+    }
     let text = input.picked.to_string_lossy();
     check_form(&text, style)?;
     let picked = crate::util::clean(&crate::steam::strip_verbatim(input.picked.to_path_buf()));
@@ -1259,8 +1562,9 @@ pub fn check(input: &CheckInput, facts: &dyn SystemFacts) -> std::result::Result
         return Err(r);
     }
     let volume_root = PathParts::of(&picked, style).is_volume_root() || (picked.is_dir() && facts.volume_root(&picked));
+    let default_root = input.env.default_root().is_ok_and(|d| PathParts::of(&canonical(&d), style).same(&PathParts::of(&canonical(&picked), style)));
     let mut sub = |p: &Path| recognize(p, input.env);
-    let (target, action) = match target_rule(&picked, &picked_state, volume_root, style, &mut sub) {
+    let (target, action) = match target_rule(&picked, &picked_state, volume_root, default_root, style, &mut sub) {
         Err(e) => return Err(say(C::Unreadable, format!("Kiln cannot read {}: {}.", picked.join(style.subfolder()).display(), e.message))),
         Ok(Target::Move(t)) => (canonical(&t), Action::Move),
         Ok(Target::Use(t)) => (canonical(&t), Action::Use),
@@ -1269,12 +1573,22 @@ pub fn check(input: &CheckInput, facts: &dyn SystemFacts) -> std::result::Result
             return Err(say(code, match code {
                 C::Link => format!("{at} is a link to another folder: pick the folder itself."),
                 C::NotAFolder => format!("{at} is a file, not a folder."),
+                C::MoveInProgress => format!("{at} holds a move of a data folder that has not been finished: finish that one first."),
+                C::DefaultRootTaken => format!("{at}, the launcher's own place, holds files that are not the launcher's: move them out of it first."),
                 _ => format!("{at} already exists and holds files that are not a Kiln data folder: pick another folder, or empty that one."),
             }));
         }
     };
     if let Some(r) = place_refusal(&target, &current, true, input, style) {
         return Err(r);
+    }
+    if action == Action::Move
+        && let Some(first) = input.inventory.links.first().or(input.inventory.special.first())
+    {
+        return Err(say(C::LinkInside, format!(
+            "{first} in the data folder {} is a link or a special file: a move never follows or copies one, so move what it points to into the folder or remove it first.",
+            current.display()
+        )));
     }
     let parts = PathParts::of(&target, style);
     if action == Action::Move
@@ -1299,7 +1613,9 @@ pub fn check(input: &CheckInput, facts: &dyn SystemFacts) -> std::result::Result
         files = input.inventory.files;
         same_volume = facts.same_volume(&current, &dir);
         hard_links = same_volume == Some(true) && facts.hard_links(&current, &dir);
-        needed = if hard_links { 0 } else { needed_bytes(bytes, files, space.map_or(4096, |s| s.unit)) };
+        let unit = space.map_or(4096, |s| s.unit);
+        // with hard links only what is written in place is copied for real (written_in_place)
+        needed = if hard_links { needed_bytes(input.inventory.in_place_bytes, input.inventory.in_place_files, unit) } else { needed_bytes(bytes, files, unit) };
         if let Some(s) = space
             && s.free < needed
         {
@@ -1310,6 +1626,14 @@ pub fn check(input: &CheckInput, facts: &dyn SystemFacts) -> std::result::Result
                 crate::util::human_size(needed)
             )));
         }
+    }
+    let private_files = facts.private_files(&dir);
+    let mut warnings = Vec::new();
+    if private_files == Some(false) && crate::nexus::enabled() {
+        warnings.push(format!(
+            "{} does not keep file permissions: from there, Mod Manager Download links from the browser do not reach the launcher, and a Nexus Mods login kept without a keyring is refused.",
+            dir.display()
+        ));
     }
     let mode = |root: &Path| -> Vec<String> {
         input
@@ -1335,6 +1659,8 @@ pub fn check(input: &CheckInput, facts: &dyn SystemFacts) -> std::result::Result
         stays: input.inventory.stays.iter().map(|e| e.name.clone()).collect(),
         links: input.inventory.links.clone(),
         special: input.inventory.special.clone(),
+        private_files,
+        warnings,
     })
 }
 
@@ -1467,7 +1793,7 @@ mod tests {
         let other = FolderState::Other { entry: "x".into() };
         let kiln = FolderState::Kiln { by: Evidence::Library };
         let rule = |state: &FolderState, root: bool, style: PathStyle, sub: FolderState| {
-            target_rule(p, state, root, style, &mut |s: &Path| {
+            target_rule(p, state, root, false, style, &mut |s: &Path| {
                 assert_eq!(s, p.join(style.subfolder()));
                 Ok(sub.clone())
             })

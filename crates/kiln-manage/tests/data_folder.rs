@@ -380,11 +380,15 @@ fn refused_without_write_access_or_space() {
     assert_eq!(check(&l, &p, &with(needed, 4096, Some(false), false)).unwrap().needed, needed);
     // a bigger allocation unit (exFAT) needs more
     assert_eq!(code(check(&l, &p, &with(needed, 128 * 1024, Some(false), false))), RefusalCode::TooSmall);
-    // hard links on one volume need no space; one volume without hard links (exFAT) is a copy
-    let plan = check(&l, &p, &with(0, 4096, Some(true), true)).unwrap();
-    assert_eq!((plan.needed, plan.hard_links, plan.same_volume), (0, true, Some(true)));
-    assert_eq!(code(check(&l, &p, &with(0, 4096, Some(true), false))), RefusalCode::TooSmall);
-    assert_eq!(code(check(&l, &p, &with(0, 4096, Some(false), true))), RefusalCode::TooSmall, "hard links only count on one volume");
+    // hard links on one volume need room only for what is written in place (copied for real) and the margin; one
+    // volume without hard links (exFAT) is a copy
+    let linked = df::needed_bytes(l.inv.in_place_bytes, l.inv.in_place_files, 4096);
+    assert!(linked < needed);
+    let plan = check(&l, &p, &with(linked, 4096, Some(true), true)).unwrap();
+    assert_eq!((plan.needed, plan.hard_links, plan.same_volume), (linked, true, Some(true)));
+    assert_eq!(code(check(&l, &p, &with(linked - 1, 4096, Some(true), true))), RefusalCode::TooSmall);
+    assert_eq!(code(check(&l, &p, &with(linked, 4096, Some(true), false))), RefusalCode::TooSmall);
+    assert_eq!(code(check(&l, &p, &with(linked, 4096, Some(false), true))), RefusalCode::TooSmall, "hard links only count on one volume");
     // unknown free space is not a refusal
     let plan = check(&l, &p, &Facts { space: None, ..Facts::all_clear() }).unwrap();
     assert_eq!((plan.free, plan.needed), (None, needed));
@@ -421,6 +425,8 @@ fn windows_forms_through_the_whole_check() {
         files: 1,
         longest: None,
         longest_game: Some(LongestPath { path: rel.into(), units: rel.len() }),
+        in_place_bytes: 0,
+        in_place_files: 0,
     };
     let all = Facts::all_clear();
     let go = |picked: &str| {
@@ -490,7 +496,8 @@ fn moving_back_to_the_default_root() {
     let s = scratch("back");
     let env = env_at(&s.0);
     let default = env.default_root().unwrap();
-    for f in [df::POINTER, df::JOURNAL, "quick.lock", "nexus/instance.lock"] {
+    // what the default root keeps after a finished (acknowledged) move: the pointer, lock files
+    for f in [df::POINTER, "quick.lock", "nexus/instance.lock"] {
         put(&default, f, b"");
     }
     let current = s.0.join("elsewhere/kiln");
@@ -501,6 +508,9 @@ fn moving_back_to_the_default_root() {
     let i = CheckInput { current: &current, source: RootSource::Pointer, picked: &default, env: &env, inventory: &inv, installs: &[], servers: &[], locked: false };
     let plan = df::check(&i, &Facts::all_clear()).unwrap();
     assert_eq!((plan.action, &plan.target), (Action::Move, &default));
+    // a move that is not finished yet: its journal is there
+    put(&default, df::JOURNAL, b"{}");
+    assert_eq!(code(df::check(&i, &Facts::all_clear())), RefusalCode::MovePending);
     assert_eq!(names(&plan.unknown), ["Unknown Thing"]);
     assert_eq!((plan.bytes, plan.files), (3, 2), "the unknown entry counts in the space, the lock does not");
 }
@@ -799,7 +809,10 @@ fn the_fixture_is_a_kiln_data_folder_and_can_be_checked_with_the_real_probes() {
     let p = fx.base.join("moved");
     let i = CheckInput { current: &fx.dirs.root, source: RootSource::Default, picked: &p, env: &fx.env, inventory: &inv, installs: &installs, servers: &servers, locked: false };
     let plan = df::check(&i, &RealFacts { dirs: &fx.dirs }).unwrap();
-    assert_eq!((plan.action, plan.same_volume, plan.hard_links, plan.needed), (Action::Move, Some(true), true, 0));
+    assert_eq!((plan.action, plan.same_volume, plan.hard_links, plan.private_files), (Action::Move, Some(true), true, Some(true)));
+    assert!(inv.in_place_files > 0, "the active profile's config is written in place");
+    let unit = RealFacts { dirs: &fx.dirs }.space(&fx.base).unwrap().unit;
+    assert_eq!(plan.needed, df::needed_bytes(inv.in_place_bytes, inv.in_place_files, unit));
     assert_eq!((plan.bytes, plan.files), (inv.bytes, inv.files));
     assert_eq!(names(&plan.unknown), ["My Notes"]);
     let copy_id = fx.game_copy.id.clone();
