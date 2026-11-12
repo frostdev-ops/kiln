@@ -32,10 +32,10 @@ The removal rule (one function, removal_case, used by removed, record and promot
 "Beside" is the same Unshipped.txt for a `*REMOVED*` entry, the project's record for a line gone since a tag (after a
 promote the pair sits in Shipped.txt). Everything else, a bare `*REMOVED*` included, is a refusal.
 
-`removed`: every line shipped at OLD that is not shipped at NEW, for every project that has a Shipped.txt at OLD. Not a
-removal: `#nullable enable`, a line with an experimental prefix, and a project with no Shipped.txt at OLD (not gated
-yet, whatever is there now: the first release with the gate). A removal the rule allows is listed with its case. A
-Shipped.txt that existed at OLD and is deleted at NEW is a removal of all its lines.
+`removed`: every line shipped at OLD that is not shipped at NEW. For a project without Shipped.txt at OLD, compare
+with the commit that introduced its Shipped.txt, including when the file was deleted before NEW. This covers the first
+release with the gate. `#nullable enable` and experimental lines are not removals. A removal the rule allows is listed
+with its case. Deleting a Shipped.txt removes all its lines.
 
 `record`: every `*REMOVED*` line of every Unshipped.txt, judged by the rule, and merge conflict markers (`<<<<<<<`,
 `|||||||`, `=======`, `>>>>>>>`) in any PublicAPI file; without an old tag (tools/check.sh's first stage).
@@ -244,18 +244,27 @@ def removal_case(line, beside, records):
 
 
 def removals(old, new):
-    """(problems, allowed, notes): problems and allowed are (file, text)."""
+    """(problems, allowed, notes, compared): problems and allowed are (file, text)."""
     problems, allowed, notes = [], [], []
-    old_files = api_files(old, SHIPPED)
-    if not old_files:
-        notes.append(f"no {SHIPPED} at {old.label}: nothing to compare (the first release with the gate)")
-    gated = {project(p) for p in old_files}
-    for p in api_files(new, SHIPPED):
-        if project(p) not in gated and old_files:
-            notes.append(f"{project(p)}: not gated at {old.label} (no {SHIPPED} there): not compared")
-    for p in old_files:
+    baselines = {p: old for p in api_files(old, SHIPPED)}
+    if not baselines:
+        notes.append(f"no {SHIPPED} at {old.label}: comparing initial records (the first release with the gate)")
+    rev = new.rev if isinstance(new, GitTree) else "HEAD"
+    # Include records deleted before NEW too: removing a whole newly gated project must not bypass the gate.
+    added = git(old.repo, "log", "--format=", "--name-only", "--diff-filter=A", f"{old.rev}..{rev}", "--",
+                f":(glob)managed/**/{SHIPPED}").splitlines()
+    for p in sorted(set(added) | set(api_files(new, SHIPPED))):
+        if not p or p in baselines:
+            continue
+        first = git(old.repo, "log", "--diff-filter=A", "--format=%H", "-1", rev, "--", p).strip()
+        if first:
+            baselines[p] = GitTree(old.repo, first)
+            notes.append(f"{project(p)}: comparing its initial record at {first[:8]} (no {SHIPPED} at {old.label})")
+        else:
+            notes.append(f"WARNING: {project(p)}: no committed initial {SHIPPED}: not compared")
+    for p, baseline in sorted(baselines.items()):
         proj = project(p)
-        before = shipped_at(old, proj)
+        before = shipped_at(baseline, proj)
         after = shipped_at(new, proj)
         kept = sorted(l for l in before if not EXPERIMENTAL.match(l))
         if after is None:
@@ -272,7 +281,7 @@ def removals(old, new):
             else:
                 where = f"{proj}/{UNSHIPPED}" if f"{REMOVED}{l}" in lines(new.read(f"{proj}/{UNSHIPPED}")) else p
                 problems.append((where, f"removed: {l}" + (f" ({why})" if why.startswith("forwarded") else "")))
-    return problems, allowed, notes
+    return problems, allowed, notes, len(baselines)
 
 
 def record_problems(t):
@@ -328,7 +337,7 @@ def ordinal(line):
 def cmd_removed(a):
     old = tree(a.repo, a.old, False)
     new = tree(a.repo, a.new or "HEAD", a.worktree)
-    problems, allowed, notes = removals(old, new)
+    problems, allowed, notes, compared = removals(old, new)
     for n in notes:
         print(f"api-gate: {n}")
     for f, what in allowed:
@@ -341,7 +350,7 @@ def cmd_removed(a):
         if len(problems) > SHOW_MAX * 5:
             print(f"  ... {len(problems) - SHOW_MAX * 5} more", file=sys.stderr)
         return 1
-    print(f"api-gate: no shipped API removed since {old.label} ({len(api_files(old, SHIPPED))} projects compared)")
+    print(f"api-gate: no shipped API removed since {old.label} ({compared} projects compared)")
     return 0
 
 

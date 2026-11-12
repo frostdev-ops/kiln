@@ -119,15 +119,42 @@ class Removed(Base):
         self.assertEqual(0, code, out)
         self.assertIn("first release with the gate", out)
 
-    def test_a_project_not_gated_at_the_old_tag_passes_even_when_its_files_are_deleted(self):
-        # the typegen package deletes Kiln.Game's files before the first gated release: Kiln.Game was never gated
+    def test_a_newly_gated_project_is_compared_even_when_its_files_are_deleted(self):
         self.r.commit(self.project(API, ["Kiln.A"]), tag="v1")
         self.r.commit({**self.project(API, ["Kiln.A"]), **self.project(GAME, ["Kiln.Game.X"])})
         code, out = run(self.r, "removed", "v1")
         self.assertEqual(0, code, out)
-        self.assertIn(f"{GAME}: not gated at v1", out)
+        self.assertIn(f"{GAME}: comparing its initial record", out)
         self.r.commit({f"{GAME}/PublicAPI.Shipped.txt": None, f"{GAME}/PublicAPI.Unshipped.txt": None})
-        self.assertEqual(0, run(self.r, "removed", "v1")[0])
+        code, out = run(self.r, "removed", "v1")
+        self.assertEqual(1, code, out)
+        self.assertIn("removed: Kiln.Game.X", out)
+
+    def test_first_gated_release_refuses_a_line_deleted_from_its_initial_record(self):
+        self.r.commit({"README": "x"}, tag="v0")
+        self.r.commit(self.project(API, ["Kiln.A", "Kiln.A.Go() -> void"]))
+        self.r.commit(self.project(API, ["Kiln.A"]))
+        code, out = run(self.r, "removed", "v0")
+        self.assertEqual(1, code, out)
+        self.assertIn("removed: Kiln.A.Go() -> void", out)
+
+    def test_first_gated_release_uses_each_projects_own_initial_commit(self):
+        self.r.commit({"README": "x"}, tag="v0")
+        self.r.commit(self.project(API, ["Kiln.A"]))
+        self.r.commit(self.project(SVC, ["Kiln.Chat", "Kiln.Chat.Send() -> void"]))
+        self.r.put(self.project(SVC, ["Kiln.Chat"]))
+        self.assertEqual(0, run(self.r, "removed", "v0")[0], "HEAD still has the line")
+        code, out = run(self.r, "removed", "v0", "--worktree")
+        self.assertEqual(1, code, out)
+        self.assertIn("removed: Kiln.Chat.Send() -> void", out)
+
+    def test_initial_record_is_selected_from_new_not_a_later_head(self):
+        self.r.commit({"README": "x"}, tag="v0")
+        self.r.commit(self.project(API, ["Kiln.A"]), tag="v1")
+        self.r.commit(self.project(API, ["Kiln.A", "Kiln.B"]))
+        code, out = run(self.r, "removed", "v0", "v1")
+        self.assertEqual(0, code, out)
+        self.assertIn("1 projects compared", out)
 
     def test_a_shipped_file_deleted_after_a_tag_that_had_it_fails_and_is_named(self):
         self.r.commit({**self.project(API, ["Kiln.A"]), **self.project(GAME, ["Kiln.Game.X", "Kiln.Game.Y"])}, tag="v1")
