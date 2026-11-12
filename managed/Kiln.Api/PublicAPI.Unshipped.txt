@@ -51,6 +51,7 @@ Kiln.PlayerRef.Equals(Kiln.PlayerRef other) -> bool
 Kiln.PlayerRef.HasCharacter.get -> bool
 Kiln.PlayerRef.IsNone.get -> bool
 Kiln.PlayerRef.IsOnline.get -> bool
+Kiln.PlayerRef.IsSamePerson(Kiln.PlayerRef other) -> bool
 Kiln.PlayerRef.PlayerRef() -> void
 Kiln.PlayerRef.PlayerRef(ulong SteamId, System.Guid CharacterId, Kiln.EntityRef Entity) -> void
 Kiln.PlayerRef.Resolve() -> Kiln.PlayerRef

@@ -114,6 +114,44 @@ public sealed class IdentityTests : KilnTest
         Assert.NotEqual(p, new PlayerRef(7, g, EntityRef.None));
     }
 
+    [Theory]
+    [InlineData(7ul, 7ul, "", "", true)]
+    [InlineData(7ul, 7ul, "11111111-1111-1111-1111-111111111111", "22222222-2222-2222-2222-222222222222", true)]
+    [InlineData(7ul, 8ul, "11111111-1111-1111-1111-111111111111", "11111111-1111-1111-1111-111111111111", false)]
+    [InlineData(0ul, 7ul, "11111111-1111-1111-1111-111111111111", "11111111-1111-1111-1111-111111111111", true)]
+    [InlineData(0ul, 0ul, "11111111-1111-1111-1111-111111111111", "11111111-1111-1111-1111-111111111111", true)]
+    [InlineData(0ul, 7ul, "11111111-1111-1111-1111-111111111111", "22222222-2222-2222-2222-222222222222", false)]
+    [InlineData(0ul, 7ul, "", "11111111-1111-1111-1111-111111111111", false)]
+    [InlineData(7ul, 0ul, "11111111-1111-1111-1111-111111111111", "", false)]
+    [InlineData(7ul, 0ul, "", "", false)]
+    [InlineData(0ul, 0ul, "", "", false)]
+    public void IsSamePerson_uses_known_Steam_ids_then_known_character_ids(
+        ulong leftSteam, ulong rightSteam, string leftCharacter, string rightCharacter, bool expected)
+    {
+        Backend.TickThread = false;  // comparing identity values never calls a source
+        var a = new PlayerRef(leftSteam, leftCharacter.Length == 0 ? Guid.Empty : Guid.Parse(leftCharacter), EntityRef.None);
+        var b = new PlayerRef(rightSteam, rightCharacter.Length == 0 ? Guid.Empty : Guid.Parse(rightCharacter), EntityRef.None);
+        Assert.Equal(expected, a.IsSamePerson(b));
+        Assert.Equal(expected, b.IsSamePerson(a));
+    }
+
+    [Fact]
+    public void IsSamePerson_ignores_the_session_but_record_equality_does_not()
+    {
+        var players = new FakePlayers();
+        IdentitySources.Players = players;
+        var character = Guid.NewGuid();
+        var old = new PlayerRef(7, character, new EntityRef(new EntityId(3), 70));
+        var current = new PlayerRef(7, character, new EntityRef(new EntityId(9), 72));
+        players.Online[(7, character)] = current;
+        Assert.NotEqual(old, old.Resolve());
+        Assert.True(old.IsSamePerson(old.Resolve()));
+        Assert.True(old.IsSamePerson(new PlayerRef(7, Guid.Empty, EntityRef.None)));
+        Assert.True(old.IsSamePerson(new PlayerRef(0, character, EntityRef.None)));
+        var sessionOnly = new PlayerRef(0, Guid.Empty, old.Entity);
+        Assert.False(sessionOnly.IsSamePerson(sessionOnly));
+    }
+
     [Fact]
     public void ToString_shows_id_serial_item_and_player()
     {

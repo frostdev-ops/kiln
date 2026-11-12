@@ -113,7 +113,8 @@ public readonly record struct ItemId(uint Value)
 }
 
 /// <summary>A person on this server: the Steam id, the character they play (may be empty) and their session entity
-/// (none while offline). <c>default</c> is <see cref="None"/>.</summary>
+/// (none while offline). <c>default</c> is <see cref="None"/>. <c>==</c> also compares the session entity;
+/// use <see cref="IsSamePerson"/> to compare known person ids across sessions.</summary>
 /// <param name="SteamId">SteamID64; 0 when unknown.</param>
 /// <param name="CharacterId">The game's CharacterId; <see cref="Guid.Empty"/> when unknown.</param>
 /// <param name="Entity">The session entity while in game; <see cref="EntityRef.None"/> while offline.</param>
@@ -130,6 +131,14 @@ public readonly record struct PlayerRef(ulong SteamId, Guid CharacterId, EntityR
 
     /// <summary>True when the character is known.</summary>
     public bool HasCharacter => CharacterId != Guid.Empty;
+
+    /// <summary>Compares Steam ids when both are non-zero; otherwise compares character ids when both are non-empty;
+    /// otherwise false. Ignores the session entity. This is not a dictionary-key equality: partial ids can make the
+    /// comparison non-transitive.</summary>
+    [AnyThread]
+    public bool IsSamePerson(PlayerRef other) => SteamId != 0 && other.SteamId != 0
+        ? SteamId == other.SteamId
+        : HasCharacter && other.HasCharacter && CharacterId == other.CharacterId;
 
     /// <summary>True only when the held session entity has a serial and is still alive (<see cref="EntityRef.IsAlive"/>).
     /// False without a serial or for an earlier session; <see cref="Resolve"/> gives the current one.</summary>

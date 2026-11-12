@@ -79,7 +79,10 @@ ref types carry enough to notice that.
   current session entity. `IsOnline` is true only when the held session entity has a serial and is alive; without a
   serial or for an earlier session it says false. Call `Resolve()` to find the current session. With no player service,
   `Of` and `Resolve` throw
-  `KilnUnavailableException("identity.players")`.
+  `KilnUnavailableException("identity.players")`. `==` also compares the session entity; use `IsSamePerson(other)`
+  across sessions (compare Steam ids when both are non-zero, otherwise character ids when both are non-empty,
+  otherwise false). This partial-id comparison is not transitive, so it is not a dictionary-key comparer;
+  use a known `SteamId` or `CharacterId` as the key for persistent per-player records.
 - **`ItemId`**: an item type (FNV-1a-32 of the item's GUID). It moved from Kiln.Items to Kiln.Api in dev.25.
   Kiln.Items forwards the type, so a mod built against the old Kiln.Items still loads and sees the same type.
 
