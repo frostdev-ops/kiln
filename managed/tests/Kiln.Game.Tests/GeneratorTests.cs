@@ -83,7 +83,7 @@ public class GeneratorTests
         var files = Directory.GetFiles(dir, "*.cs", SearchOption.AllDirectories)
             .Where(f => !Path.GetRelativePath(dir, f).Split(Path.DirectorySeparatorChar).Any(p => p is "obj" or "bin"))
             .ToList();
-        Assert.Contains(files, f => Path.GetFileName(f) == "Components.cs");
+        Assert.Contains(files, f => Path.GetFileName(f) == "GameLayoutStamps.cs");
         var bad = files.Where(f => File.ReadAllText(f).Contains("RS0016", StringComparison.Ordinal)).ToList();
         Assert.True(bad.Count == 0, "RS0016 is named in a hand-written file of Kiln.Game: " + string.Join(", ", bad));
         // The props, targets and project may not turn the gate off either.
