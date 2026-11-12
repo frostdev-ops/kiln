@@ -9,6 +9,7 @@
 #             samples kiln/state/capabilities.json's mtime every 20 ms and keeps a copy of each version)
 #   faults    the same, plus -3-fault (null write), -4-block (never returns) and -5-reexit (calls ExitProcess itself)
 #   restart   a start from the save the faults run left, then a plain stop
+#   off       kiln.json "unloadAtExit": "off" (put back afterwards), with unload-test-0-nohandler, -1-marker, -2-marker
 # Checks (PASS/FAIL lines; exit 1 when one fails):
 #   1 marker  no marker file before the stop; after it 1-marker and 2-marker wrote theirs, 0-nohandler did not
 #   2 order   unload-order.txt: 2-marker before 1-marker (faults: 5, 4, 3, 2, 1); kiln.log's "called in this order" is
@@ -41,6 +42,9 @@
 #             one-second gap (6-caps first reports "at exit" and waits until the file was written again: that wait
 #             must have seen the write), is in capabilities.json after the stop; says how long after the previous
 #             write it was written
+#   10 switch plain run: kiln.log's boot line says "unload: on (Wine ...)" and state/hooks.json lists the
+#             "kiln/unload" link; off run: the boot line says off and why, no link in hooks.json, no "unload:" line at the
+#             exit, no marker file, and a clean stop (the process ended, no crash report, no core dump, no "Unhandled")
 # Usage (the lab must exist: tools/lab/lab.sh new <lab> <port>; one lab server at a time, so hold the lab lock):
 #   flock <lock file> native/core/tests/test-unload-lab.sh <lab name> [<KILN_OUT>]
 # Env: KILN_LABSTART               the command that starts a lab, given the lab name (default: tools/lab/lab.sh start)
@@ -51,6 +55,8 @@
 #      KILN_UNLOAD_CHECK_ONLY=<dir>  no lab run: evaluate the checks on an earlier run's folder (<KILN_OUT>/unload-lab)
 #      KILN_LABS                   where the labs are (as tools/lab/lab.sh)
 #      UNLOAD_TEST_CAPS_EXIT=single  6-caps reports only the exit row in its on_unload (no write just before it)
+#      KILN_UNLOAD_OFF_VALUE       the value the off run writes (default off; any other value must fail check 10)
+#      KILN_UNLOAD_RUNS            only these runs ("plain off", ...; default all); checks without their runs fail
 set -uo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 repo=$(cd "$here/../../.." && pwd)
@@ -145,6 +151,7 @@ run() {
   awk "BEGIN{printf \"%.2f\n\", $t1 - $t0}" >"$r/sigint-to-exit"
   if [[ -n $poller ]]; then sleep 0.1; kill "$poller" 2>/dev/null; wait "$poller" 2>/dev/null; fi
   cp "$dir/kiln/state/capabilities.json" "$r/capabilities.json" 2>/dev/null
+  cp "$dir/kiln/state/hooks.json" "$r/hooks.json" 2>/dev/null
   cp "$dir/kiln/logs/caps-test.txt" "$r/" 2>/dev/null
   for p in "$@"; do rm -f "$dir/kiln/plugins/$p.dll"; done
   cp "$dir/kiln/logs/kiln.log" "$r/" 2>/dev/null
@@ -159,20 +166,33 @@ run() {
 # The save from an earlier start, so every measured run starts the same way (the first start of a lab makes a world).
 [[ -f $dir/savegame/world0.ksd ]] || run warmup
 
-if [[ -n ${KILN_UNLOAD_BASELINE_CORE:-} ]]; then
+want() { [[ -z ${KILN_UNLOAD_RUNS:-} || " $KILN_UNLOAD_RUNS " == *" $1 "* ]]; }
+if [[ -n ${KILN_UNLOAD_BASELINE_CORE:-} ]] && want baseline; then
   install -m 644 "$KILN_UNLOAD_BASELINE_CORE" "$dir/kiln/kiln-core.dll"
   run baseline
   install -m 644 "$new_core" "$dir/kiln/kiln-core.dll"
 fi
-run plain
-run markers unload-test-0-nohandler unload-test-1-marker unload-test-2-marker unload-test-6-caps
-run faults unload-test-0-nohandler unload-test-1-marker unload-test-2-marker unload-test-3-fault unload-test-4-block \
-  unload-test-5-reexit
+want plain && run plain
+want markers && run markers unload-test-0-nohandler unload-test-1-marker unload-test-2-marker unload-test-6-caps
+want faults && run faults unload-test-0-nohandler unload-test-1-marker unload-test-2-marker unload-test-3-fault \
+  unload-test-4-block unload-test-5-reexit
 if [[ ${KILN_UNLOAD_BREAK_SAVE:-} == 1 ]]; then  # a check of the check: a broken save must fail check 7
   rm -rf "$out/save-backup" && cp -a "$dir/savegame" "$out/save-backup" && : >"$dir/savegame/world0.ksd"
 fi
-run restart
+want restart && run restart
 if [[ ${KILN_UNLOAD_BREAK_SAVE:-} == 1 ]]; then rm -rf "$dir/savegame" && cp -a "$out/save-backup" "$dir/savegame"; fi
+if want off; then  # kiln.json "unloadAtExit" for one run, then kiln.json as it was
+  cp "$dir/kiln/kiln.json" "$out/kiln.json.before"
+  python3 -I - "$dir/kiln/kiln.json" "${KILN_UNLOAD_OFF_VALUE:-off}" <<'PY'
+import json, sys
+path, value = sys.argv[1:]
+cfg = json.load(open(path))
+cfg["unloadAtExit"] = value
+json.dump(cfg, open(path, "w"), indent=2)
+PY
+  run off unload-test-0-nohandler unload-test-1-marker unload-test-2-marker
+  cp "$out/kiln.json.before" "$dir/kiln/kiln.json"
+fi
 trap - EXIT
 fi  # KILN_UNLOAD_CHECK_ONLY
 
@@ -336,5 +356,18 @@ PY
 )
 echo "$caps"
 fails=$((fails + $(grep -c '^FAIL' <<<"$caps")))
-echo "== $((9 - fails)) of 9 passed"
+# 10 switch: on under Wine by default (plain run); "off" places no link and calls no handler (off run)
+O=$out/off
+on_line=$(grep -o 'unload: on (Wine [^:]*): [0-9]* on_unload handler(s) will be called' "$P/kiln.log" 2>/dev/null | head -1)
+off_line=$(grep -o 'unload: off (kiln.json "unloadAtExit": "off"); [0-9]* on_unload handler(s) will not be called at exit' \
+  "$O/kiln.log" 2>/dev/null | head -1)
+if [[ -n $on_line ]] && grep -q '"label": "kiln/unload"' "$P/hooks.json" 2>/dev/null && [[ -n $off_line && -s $O/hooks.json ]] &&
+   ! grep -q '"label": "kiln/unload"' "$O/hooks.json" && ! grep -q 'unload: the process is exiting' "$O/kiln.log" &&
+   [[ ! -f $O/unload-test-1-marker.txt && ! -f $O/unload-test-2-marker.txt && -s $O/exit-time && ! -s $O/coredumps.txt ]] &&
+   [[ ! -d $O/crash-reports ]] && ! grep -q -s 'Unhandled' "$O/wine.log" && grep -q -s 'Close Log file' "$O/game.log"; then
+  pass "10 switch: plain: '$on_line', kiln/unload in hooks.json; off: '$off_line', no link, no handler called, stop clean (SIGINT to exit $(cat "$O/sigint-to-exit") s)"
+else
+  fail "10 switch: plain: '${on_line:-no on line}', link listed: $(grep -c '"label": "kiln/unload"' "$P/hooks.json" 2>/dev/null); off: '${off_line:-no off line}' ($(grep -o 'unload: [^;]*' "$O/kiln.log" 2>/dev/null | head -1)), link listed: $(grep -c '"label": "kiln/unload"' "$O/hooks.json" 2>/dev/null), markers: $(command ls "$O" 2>/dev/null | grep -c 'marker.txt'), exit lines: $(grep -c 'unload: the process is exiting' "$O/kiln.log" 2>/dev/null)"
+fi
+echo "== $((10 - fails)) of 10 passed"
 ((fails == 0))
