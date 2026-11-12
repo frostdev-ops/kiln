@@ -299,4 +299,78 @@ public sealed class InstanceMatcherTests
         Assert.Contains("gone", why);
         Assert.True(LoadOrder.AsMade(chest, true, [(3, 1043u), (5, 1044u), (8, 1045u)], 3, [8, 3, 5], out _));
     }
+
+    // ---- a player's join: the loader makes worn gear before the backpack ----
+
+    private static readonly InstanceFields Helm = Rec.Of(Rec.Bow, level: 15, perksAvailable: 5, perksUnlocked: 5);
+
+    /// <summary>A player's inventory as the real join of 2026-11-12 made it, as far as its log tells: the item in slot 256
+    /// (entity 11643) first, the backpack's 20 items (slots 7 to 37) as one run ending at 11672 in slot 37.</summary>
+    private static List<(int Slot, uint Id, StableFingerprint Stable)> RealJoin()
+    {
+        var list = new List<(int, uint, StableFingerprint)>();
+        uint id = 11643;
+        for (var s = 256; s <= 263; s++) list.Add((s, id++, Rec.Of(Rec.Ring, level: s).Stable));   // worn, link 0
+        list.Add((266, id++, Rec.Of(Rec.Ring, level: 99).Stable));                                    // link 1
+        list.Add((312, id++, Rec.Of(Rec.Can, level: 3).Stable));                                       // link 7
+        int[] backpack = [7, 8, 10, 11, 12, 13, 14, 16, 17, 22, 24, 25, 26, 27, 28, 29, 31, 34, 35, 37];
+        foreach (var s in backpack) list.Add((s, id++, (s is 26 or 27 ? Sword : Rec.Of(Rec.Sword, level: 100 + s)).Stable));
+        list.Add((324, id++, Rec.Of(Rec.Can, level: 4).Stable));                                       // link 8
+        list.Add((325, id++, Rec.Of(Rec.Can, level: 5).Stable));
+        return list;
+    }
+
+    [Fact]
+    public void APlayersJoinWithWornGearMadeBeforeTheBackpackIsAsMade()
+    {
+        var join = RealJoin();
+        Assert.Equal(11672u, join.Single(i => i.Slot == 37).Id);
+        // the check of world holders refuses it (the warning of the real join)
+        Assert.False(LoadOrder.AsMade(new EntityId(1), false, join.Select(i => (i.Slot, i.Id)).ToList(), join.Count, null, out var flat));
+        Assert.Contains("slot 256 (entity 11643) is older than the one in slot 37 (entity 11672)", flat);
+        Assert.True(LoadOrder.AsMadeByLinks(join, out var why), why);
+        Assert.Contains("link 0 (slots 256-263) 11643-11650 (8), link 1 (slots 264-271) 11651 (1), link 7 (slots 312-319) 11652 (1), " +
+                        "the backpack 11653-11672 (20), link 8 (slots 320-327) 11673-11674 (2)", why);
+        Assert.True(LoadOrder.AsMadeByLinks([], out _));
+    }
+
+    [Fact]
+    public void APlayersJoinRefusesASwapInALinkABetweenLinksAndAnItemFromElsewhere()
+    {
+        List<(int Slot, uint Id, StableFingerprint Stable)> Swap(int a, int b) =>
+            RealJoin().Select(i => i.Slot == a ? (b, i.Id, i.Stable) : i.Slot == b ? (a, i.Id, i.Stable) : i).ToList();
+        // the twins in the backpack swapped (the fingerprints stay as they were, the ids do not)
+        Assert.False(LoadOrder.AsMadeByLinks(Swap(26, 27), out var why));
+        Assert.Contains("in the backpack the item in slot 27", why);
+        // two worn items swapped within their link
+        Assert.False(LoadOrder.AsMadeByLinks(Swap(256, 257), out why));
+        Assert.Contains("in link 0", why);
+        // a worn item and a backpack item trade places (links of several items): their ranges overlap
+        Assert.False(LoadOrder.AsMadeByLinks(Swap(263, 7), out why));
+        Assert.Contains("overlap", why);
+        // an item from a chest (made long before the join) in place of the first backpack item: the ranges overlap
+        var old = RealJoin().Select(i => i.Slot == 7 ? (7, 1043u, i.Stable) : i).ToList();
+        Assert.False(LoadOrder.AsMadeByLinks(old, out why));
+        Assert.Contains("overlap", why);
+        // an item made since the join in place of the last one the loader made: outside the run
+        var later = RealJoin().Select(i => i.Slot == 325 ? (325, 20000u, i.Stable) : i).ToList();
+        Assert.False(LoadOrder.AsMadeByLinks(later, out why));
+        Assert.Contains("came in", why);
+    }
+
+    [Fact]
+    public void APlayersJoinWithLookAlikesInTwoLinksIsNotAsMade()
+    {
+        // A one-item link and a one-item backpack trading their items keeps every id check: only look-alikes make that
+        // invisible, so look-alikes in two links turn the slot rule off (twins set aside, a unique item by rule 2).
+        List<(int, uint, StableFingerprint)> worn = [(256, 500u, Helm.Stable), (10, 501u, Sword.Stable)];
+        Assert.True(LoadOrder.AsMadeByLinks(worn, out _));
+        List<(int, uint, StableFingerprint)> twins = [(256, 500u, Sword.Stable), (10, 501u, Sword.Stable)];
+        Assert.False(LoadOrder.AsMadeByLinks(twins, out var why));
+        Assert.Contains("look-alikes", why);
+        Assert.Contains("slots 10, 256", why);
+        // look-alikes inside one link are what the order check is for
+        List<(int, uint, StableFingerprint)> backpack = [(256, 500u, Helm.Stable), (10, 501u, Sword.Stable), (11, 502u, Sword.Stable)];
+        Assert.True(LoadOrder.AsMadeByLinks(backpack, out _));
+    }
 }

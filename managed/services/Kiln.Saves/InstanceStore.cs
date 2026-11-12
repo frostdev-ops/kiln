@@ -926,8 +926,12 @@ internal sealed class InstanceStore
             made = gw.Entries.Count;
             loadSlots = gw.Entries.Select(e => e.Slot).ToList();
         }
-        var asMade = LoadOrder.AsMade(h.Bound, h.Key.Kind == HolderKind.World, items.Select(i => (i.Place.FlatSlot, i.Ref.Entity.Id.Value)).ToList(),
-            made, loadSlots, out var order);
+        // A player's character loader does not make the items in flat-slot order (worn gear first): checked per link.
+        string order;
+        var asMade = h.Key.Kind == HolderKind.Player
+            ? LoadOrder.AsMadeByLinks(items.Select(i => (i.Place.FlatSlot, i.Ref.Entity.Id.Value, i.Fields.Stable)).ToList(), out order)
+            : LoadOrder.AsMade(h.Bound, h.Key.Kind == HolderKind.World, items.Select(i => (i.Place.FlatSlot, i.Ref.Entity.Id.Value)).ToList(),
+                made, loadSlots, out order);
         // A client's character file can be newer than a restored world, including an invisible swap of twins.
         // Only the newest loaded data can vouch for all the states the client may bring.
         var slotMatch = asMade && (h.Key.Kind == HolderKind.World || _playerGenerationTrusted);
@@ -971,9 +975,12 @@ internal sealed class InstanceStore
                     break;
             }
         }
-        SavesRuntime.Log(aside > 0 ? LogLevel.Warn : LogLevel.Debug,
+        // A player's join with records says how the loader made the items (the runs by link), so a real join shows it.
+        var player = h.Key.Kind == HolderKind.Player;
+        SavesRuntime.Log(aside > 0 ? LogLevel.Warn : player && recs.Length > 0 ? LogLevel.Info : LogLevel.Debug,
             $"Kiln.Saves: instance data of {h.Describe} (entity {h.Bound}): {attached} attached, {parked} waiting, {aside} set aside" +
-            $"{(trusted is not null ? $" (generation {trusted} is the world file's own)" : "")}{(asMade ? "" : $"; not as loaded: {order}")}");
+            $"{(trusted is not null ? $" (generation {trusted} is the world file's own)" : "")}" +
+            $"{(asMade ? player ? $"; as loaded: {order}" : "" : $"; not as loaded: {order}")}");
         return asMade;
     }
 

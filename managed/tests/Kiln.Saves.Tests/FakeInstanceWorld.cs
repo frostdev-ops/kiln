@@ -168,9 +168,16 @@ internal sealed class FakeInstanceWorld : IInstanceWorld
         if (Holders.ContainsKey(e.Value)) throw new InvalidOperationException($"holder {e} exists");
         Holders[e.Value] = new FakeHolder { Entity = e, Identity = HolderIdentity.OfPlayer(character, name ?? "Player") with { Visit = ++_visits }, InGame = true };
         var ids = FileIdentities.GetValueOrDefault(character);
-        foreach (var (slot, f) in CharacterFiles.GetValueOrDefault(character) ?? []) Give(e, slot, f, identity: ids is not null && ids.TryGetValue(slot, out var x) ? x : null);
+        var file = CharacterFiles.GetValueOrDefault(character) ?? [];
+        foreach (var (slot, f) in PlayerLoaderWornFirst ? file.OrderBy(i => i.Slot < 256 ? 1 : 0).ThenBy(i => i.Slot) : file.OrderBy(i => i.Slot))
+            Give(e, slot, f, identity: ids is not null && ids.TryGetValue(slot, out var x) ? x : null);
         return e;
     }
+
+    /// <summary>The character loader as a real join showed it (dev26-playtest, 2026-11-12: the item in flat slot 256 was
+    /// made before the backpack's): the items of the links the save does not number (worn gear, 256 and up) first, then the
+    /// backpack in flat-slot order. Off: everything in flat-slot order.</summary>
+    public bool PlayerLoaderWornFirst { get; set; }
 
     /// <summary>The game sends the character back (a world save while the player is in game, or its final save): the
     /// client's file is now the inventory as it is.</summary>
