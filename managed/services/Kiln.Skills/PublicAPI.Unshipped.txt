@@ -1,1 +1,2 @@
 #nullable enable
+static Kiln.TalentHolder.explicit operator Kiln.PlayerRef(Kiln.TalentHolder holder) -> Kiln.PlayerRef

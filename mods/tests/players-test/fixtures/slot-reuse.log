@@ -1,0 +1,87 @@
+[I 00:00:00,024] 
+[I 00:00:01,000] [online] Session accepted with peer (steamid:76561190000000001)
+[I 00:00:02,000] [online] Added peer 0(1) (steamid:76561190000000001)
+[E 00:00:03,000] [online] Begin auth session with peer 0(1)
+[I 00:00:04,000] [online] Client '76561190000000001' authenticated by steam
+[I 00:00:05,000] [session] Add remote machine index 1 (id: 3282338659).
+[I 00:00:06,000] [session] Remote player added. Player handle: 0(0)
+[I 00:00:07,000] [Server] Creating player knowledge replication state for player index 0
+[I 00:00:08,000] [server] Machine '1': Player '0(0)' logged in
+[I 00:00:09,000] [server] Player 'Alder' logged in with Permissions:
+[I 00:00:10,000] 	 - CanKickBan
+[I 00:00:11,000] 	 - CanAccessInventories
+[I 00:00:12,000] 	 - CanEditBase
+[I 00:00:13,000] 	 - CanEditWorld
+[I 00:00:14,000] 	 - CanExtendBase
+[I 00:00:15,000] 	 - CanReceiveEXP
+[I 00:00:16,000] 
+[I 00:00:17,000] [ecss] Replication Checkpoint 1 Set for Player 0 in Tick 191,722
+[I 00:00:18,000] [ecss] Replication Checkpoint Reached for Player 0 in Tick 191,766
+[I 00:00:19,000] [ecss] Replication Checkpoint Reached for Player 0 in Tick 191,767
+[I 00:00:20,000] [ecss] Replication Checkpoint Reached for Player 0 in Tick 191,768
+[I 00:00:21,000] [ecss] Replication Checkpoint Reached for Player 0 in Tick 191,769
+[I 00:00:22,000] [ecss] Replication Checkpoint Reached for Player 0 in Tick 191,770
+[I 00:00:23,000] [ecss] Replication Checkpoint Reached for Player 0 in Tick 191,771
+[I 00:00:24,000] [ecss] Replication Checkpoint Reached for Player 0 in Tick 191,772
+[I 00:00:25,000] [ecss] Replication Checkpoint Reached for Player 0 in Tick 191,773
+[I 00:00:26,000] [save2] Server sent final client save for 0(0).
+[I 00:00:27,000] [server] Remove Entity for Player 'Alder'
+[I 00:00:28,000] [server] Remove Player 'Alder'
+[I 00:00:29,000] [Server] Destroying player knowledge replication state for player index 0
+[I 00:00:30,000] [online] Disconnecting peer 0(1)
+[I 00:00:31,000] [online] Removed peer 0(1)
+[I 00:00:32,000] [session] Player removed. Player handle: 0(0)
+[I 00:00:33,000] [ecss] Replication Checkpoint Reached for Player 0 in Tick 191,766
+[I 00:00:34,000] [ecss] Replication Checkpoint Reached for Player 0 in Tick 191,767
+[I 00:00:35,000] [ecss] Replication Checkpoint Reached for Player 0 in Tick 191,768
+[I 00:00:36,000] [ecss] Replication Checkpoint Reached for Player 0 in Tick 191,769
+[I 00:00:37,000] [online] Session accepted with peer (steamid:76561190000000002)
+[I 00:00:38,000] [online] Added peer 0(2) (steamid:76561190000000002)
+[E 00:00:39,000] [online] Begin auth session with peer 0(2)
+[I 00:00:40,000] [online] Client '76561190000000002' authenticated by steam
+[I 00:00:41,000] [session] Add remote machine index 2 (id: 3282338659).
+[I 00:00:42,000] [session] Remote player added. Player handle: 0(1)
+[I 00:00:43,000] [Server] Creating player knowledge replication state for player index 0
+[I 00:00:44,000] [server] Machine '2': Player '0(1)' logged in
+[I 00:00:45,000] [server] Player 'Birch' logged in with Permissions:
+[I 00:00:46,000] 	 - CanKickBan
+[I 00:00:47,000] 	 - CanAccessInventories
+[I 00:00:48,000] 	 - CanEditBase
+[I 00:00:49,000] 	 - CanEditWorld
+[I 00:00:50,000] 	 - CanExtendBase
+[I 00:00:51,000] 	 - CanReceiveEXP
+[I 00:00:52,000] 
+[I 00:00:53,000] [ecss] Replication Checkpoint 1 Set for Player 0 in Tick 191,722
+[I 00:00:54,000] [ecss] Replication Checkpoint Reached for Player 0 in Tick 191,766
+[I 00:00:55,000] [ecss] Replication Checkpoint Reached for Player 0 in Tick 191,767
+[I 00:00:56,000] [ecss] Replication Checkpoint Reached for Player 0 in Tick 191,768
+[I 00:00:57,000] [ecss] Replication Checkpoint Reached for Player 0 in Tick 191,769
+[I 00:00:58,000] [ecss] Replication Checkpoint Reached for Player 0 in Tick 191,770
+[I 00:00:59,000] [ecss] Replication Checkpoint Reached for Player 0 in Tick 191,771
+[I 00:01:00,000] [ecss] Replication Checkpoint Reached for Player 0 in Tick 191,772
+[I 00:01:01,000] [ecss] Replication Checkpoint Reached for Player 0 in Tick 191,773
+[I 00:01:02,000] [online] Session accepted with peer (steamid:76561190000000001)
+[I 00:01:03,000] [online] Added peer 1(1) (steamid:76561190000000001)
+[E 00:01:04,000] [online] Begin auth session with peer 1(1)
+[I 00:01:05,000] [online] Client '76561190000000001' authenticated by steam
+[I 00:01:06,000] [session] Add remote machine index 3 (id: 3282338659).
+[I 00:01:07,000] [session] Remote player added. Player handle: 1(0)
+[I 00:01:08,000] [Server] Creating player knowledge replication state for player index 1
+[I 00:01:09,000] [server] Machine '3': Player '1(0)' logged in
+[I 00:01:10,000] [server] Player 'Alder' logged in with Permissions:
+[I 00:01:11,000] 	 - CanKickBan
+[I 00:01:12,000] 	 - CanAccessInventories
+[I 00:01:13,000] 	 - CanEditBase
+[I 00:01:14,000] 	 - CanEditWorld
+[I 00:01:15,000] 	 - CanExtendBase
+[I 00:01:16,000] 	 - CanReceiveEXP
+[I 00:01:17,000] 
+[I 00:01:18,000] [ecss] Replication Checkpoint 1 Set for Player 1 in Tick 191,722
+[I 00:01:19,000] [ecss] Replication Checkpoint Reached for Player 1 in Tick 191,766
+[I 00:01:20,000] [ecss] Replication Checkpoint Reached for Player 1 in Tick 191,767
+[I 00:01:21,000] [ecss] Replication Checkpoint Reached for Player 1 in Tick 191,768
+[I 00:01:22,000] [ecss] Replication Checkpoint Reached for Player 1 in Tick 191,769
+[I 00:01:23,000] [ecss] Replication Checkpoint Reached for Player 1 in Tick 191,770
+[I 00:01:24,000] [ecss] Replication Checkpoint Reached for Player 1 in Tick 191,771
+[I 00:01:25,000] [ecss] Replication Checkpoint Reached for Player 1 in Tick 191,772
+[I 00:01:26,000] [ecss] Replication Checkpoint Reached for Player 1 in Tick 191,773
