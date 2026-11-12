@@ -41,31 +41,11 @@ pub fn run() {
     builder
         .register_uri_scheme_protocol("kiln-asset", |_ctx, req| assets::serve(req.uri().path()))
         .setup(|app| {
-            // the data folder first (commands/data_folder.rs): found once, its lock, an unfinished move. A broken
-            // pointer or another launcher's move: nothing else starts (no watcher, no import, no file is written) and
-            // the window shows only the dialog
-            if !commands::data_folder::start(app.handle()) {
-                return Ok(());
-            }
-            // the installed runtime's and the bundles' sha256s from the last run (a start does not hash 1.5 GB again)
-            if let Ok(d) = state::dirs() {
-                kiln_manage::filecache::persist_at(&state::file_hashes(&d));
-            }
-            watch::start(app.handle().clone());
-            let shipped = app.handle().clone();
-            std::thread::spawn(move || commands::runtime::import_shipped(&shipped));
-            // kiln://last-server comes from the modpack watcher (commands/modpack.rs)
-            commands::modpack::watch_last_server(app.handle());
-            // nxm:// links (Nexus Mods' Mod Manager Download): the instance lock and the link inbox (commands/nexus.rs)
-            commands::nexus::start(app.handle());
-            // self-update: the state for this start, then a check after 8 s and every 6 hours (crate::selfupdate)
-            #[cfg(feature = "self-update")]
-            selfupdate::start(app.handle().clone());
-            // the Nexus Mods build never updates itself (crate::distribution); launcher.log says so once
-            #[cfg(not(feature = "self-update"))]
-            commands::app::launcher_log("update", &format!(
-                "Kiln Launcher {} (pid {}), Nexus Mods build: no self-update, no update checks; new versions: {}",
-                app.package_info().version, std::process::id(), distribution::NEXUS_PAGE));
+            // the data folder first (commands/data_folder.rs): found once, its lock, an unfinished move. The start-up
+            // steps that use the folder (`after_folder`) run now; or, while an unfinished move's partial copy is removed,
+            // when that task ends; or not at all (a broken pointer, another launcher's move: the window shows only the
+            // dialog, nothing is written)
+            commands::data_folder::start(app.handle(), after_folder);
             #[cfg(any(debug_assertions, feature = "dev-eval"))]
             if let Some(dir) = std::env::var_os("KILN_DEV_EVAL_DIR").filter(|d| !d.is_empty()) {
                 dev_eval(app.handle().clone(), dir.into());
@@ -237,6 +217,31 @@ pub fn run() {
                 deck::gamepad::stop();
             }
         });
+}
+
+/// The start-up steps that use the data folder, in this order: the file-hash cache, the watcher, the shipped runtime,
+/// the modpack watcher, Nexus (its instance lock, inbox and leftovers), the self-update's first check. Run once, when the
+/// folder is free (commands/data_folder.rs `start`).
+fn after_folder(app: &tauri::AppHandle) {
+    // the installed runtime's and the bundles' sha256s from the last run (a start does not hash 1.5 GB again)
+    if let Ok(d) = state::dirs() {
+        kiln_manage::filecache::persist_at(&state::file_hashes(&d));
+    }
+    watch::start(app.clone());
+    let shipped = app.clone();
+    std::thread::spawn(move || commands::runtime::import_shipped(&shipped));
+    // kiln://last-server comes from the modpack watcher (commands/modpack.rs)
+    commands::modpack::watch_last_server(app);
+    // nxm:// links (Nexus Mods' Mod Manager Download): the instance lock and the link inbox (commands/nexus.rs)
+    commands::nexus::start(app);
+    // self-update: the state for this start, then a check after 8 s and every 6 hours (crate::selfupdate)
+    #[cfg(feature = "self-update")]
+    selfupdate::start(app.clone());
+    // the Nexus Mods build never updates itself (crate::distribution); launcher.log says so once
+    #[cfg(not(feature = "self-update"))]
+    commands::app::launcher_log("update", &format!(
+        "Kiln Launcher {} (pid {}), Nexus Mods build: no self-update, no update checks; new versions: {}",
+        app.package_info().version, std::process::id(), distribution::NEXUS_PAGE));
 }
 
 /// Every command passes the data folder's gate first (folder.rs): while the pointer is broken, another launcher moves

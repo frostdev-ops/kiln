@@ -271,9 +271,9 @@ pub fn spawn_task(
     id
 }
 
-/// Task kinds that run while the data folder is held: the move itself, and the removal of an old copy (it works on
-/// the old folder, not the one in use).
-pub const ALONE_KINDS: &[&str] = &["data_folder_move", "data_folder_cleanup"];
+/// Task kinds that run while the data folder is held: the move itself, the removal of an old copy (it works on the old
+/// folder, not the one in use), and the removal of an unfinished move's partial copy (the reason for its hold).
+pub const ALONE_KINDS: &[&str] = &["data_folder_move", "data_folder_cleanup", "data_folder_undo"];
 
 /// Runs `start` under the task table's lock with the titles of the tasks that run now: the data folder move's check
 /// ("Kiln is still working on: ...") and its hold are one step, so no task starts between them (spawn_task).
@@ -626,7 +626,7 @@ pub fn launcher_log(area: &str, msg: &str) {
     let _writing = crate::state::writing();
     let f = crate::folder::current();
     match f.hold() {
-        crate::folder::Hold::Moving if f.problem().is_none() => {
+        crate::folder::Hold::Moving | crate::folder::Hold::Undoing if f.problem().is_none() => {
             let mut h = HELD_LOG.lock().unwrap_or_else(|e| e.into_inner());
             if h.len() < HELD_MAX {
                 h.push(line);

@@ -1507,6 +1507,12 @@ export interface DataFolder {
   notice: DataFolderNotice | null;
   /** Another launcher holds the folder's lock exclusively (it is moving the data): only Quit. Absent: false. */
   elsewhere?: boolean;
+  /** An unfinished move's partial copy is being removed now (the folder is held): only its dialog, with the task's
+   *  progress and Cancel. `task`: the task "Remove the unfinished copy" (null for the moment before it starts). */
+  undoing?: { task: string | null; folder: string } | null;
+  /** Why the folder cannot be moved now (an earlier move is not finished): the Settings row says it instead of offering
+   *  the folder dialog. */
+  pending?: string | null;
 }
 /** An entry of the old folder, with its size and where it is. */
 export interface DataFolderEntry {

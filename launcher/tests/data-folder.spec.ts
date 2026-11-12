@@ -294,6 +294,68 @@ test("a removal refused at start says why, not \"the rest goes at the next start
   await expect.poll(() => calls(page)).toContain("data_folder_notice_ack");
 });
 
+test.describe("an unfinished move's partial copy is removed at start", () => {
+  const TITLE = "Removing an unfinished copy";
+  const allowed = new Set(["app_info", "task_list", "task_get", "task_cancel", "data_folder_get", "data_folder_restart", "deck_quit"]);
+
+  test("only its dialog with the task's progress, then the launcher and the notice", async ({ page }) => {
+    await page.goto("/?df=undoing#/settings");
+    const d = page.getByRole("dialog", { name: TITLE });
+    await expect(d).toBeVisible({ timeout: 10_000 });
+    await expect(d.getByTestId("data-folder-undo-path")).toHaveText("/mnt/games/Kiln");
+    await expect(d).toContainText("Cancel leaves the rest for the next start.");
+    await expect(d.getByRole("status", { name: "Remove the unfinished copy" })).toContainText("removing the unfinished copy", { timeout: 6000 });
+    await cannotDismiss(page, TITLE);
+    await expect(page.locator(".k-app, .deck")).toHaveCount(0);
+    for (const c of await calls(page)) expect(allowed.has(c), `${c} ran while the folder was held`).toBe(true);
+    // the task ends: the launcher mounts, the notice says what happened
+    const n = page.getByRole("dialog", { name: "Move not finished" });
+    await expect(n).toContainText(`The last move did not finish. Kiln uses ${DATA} as before.`, { timeout: 15_000 });
+    await expect(d).toHaveCount(0);
+    await expect(n.getByRole("list")).toHaveCount(0);
+    await expect(n.getByRole("button")).toHaveText(["OK"]);
+    await n.getByRole("button", { name: "OK" }).click();
+    await expect(page.getByTestId("data-folder-path")).toHaveText(DATA);
+  });
+
+  test("Cancel: the notice says the rest goes at the next start, with where it is and Open", async ({ page }) => {
+    await page.goto("/?df=undoing#/");
+    const d = page.getByRole("dialog", { name: TITLE });
+    const cancel = d.getByRole("button", { name: "Cancel", exact: true });
+    await expect(cancel).toBeEnabled({ timeout: 10_000 });
+    await cancel.click();
+    expect(await calls(page)).toContain("task_cancel");
+    const n = page.getByRole("dialog", { name: "Move not finished" });
+    await expect(n).toContainText("Kiln stopped removing the unfinished copy: the rest goes at the next start.", { timeout: 15_000 });
+    await expect(n.locator("dd")).toHaveText([DATA, "/mnt/games/Kiln"]);
+    await n.getByRole("button", { name: "Open unfinished copy" }).click();
+    await expect.poll(() => calls(page)).toContain("app_open_path");
+  });
+
+  test("files the recovery left are named, with their size and why", async ({ page }) => {
+    await page.goto("/?df=undoing-left#/");
+    const n = page.getByRole("dialog", { name: "Move not finished" });
+    await expect(n.getByRole("list", { name: "Kiln could not remove these from the unfinished copy:" }).getByRole("listitem"))
+      .toHaveText(["library/kiln/new-items (47 KB): it is not the same as the file in the data folder in use"], { timeout: 20_000 });
+    await expect(n).toContainText("they stay where they are.");
+    await expect(n.getByRole("button")).toHaveText(["Open unfinished copy", "OK"]);
+  });
+
+  test("the same dialog before Deck mode", async ({ page }) => {
+    await page.goto("/?df=undoing&deck=steamdeck#/");
+    await expect(page.getByRole("dialog", { name: TITLE })).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator(".k-app, .deck")).toHaveCount(0);
+  });
+});
+
+test("a partial copy left from an earlier start: the Settings row says why there is no Change", async ({ page }) => {
+  await open(page, "/?df=pending#/settings");
+  await expect(change(page)).toBeDisabled();
+  const why = "Part of an unfinished copy from the last move is still in /mnt/games/Kiln: Kiln removes it at the next start.";
+  await expect(page.getByTestId("data-folder-why")).toHaveText(why);
+  await expect(change(page)).toHaveAttribute("title", why);
+});
+
 test("another launcher is moving the data folder: only its dialog and Quit", async ({ page }) => {
   await page.goto("/?df=elsewhere#/settings");
   const d = page.getByRole("dialog", { name: "Kiln is moving its data in another window" });
