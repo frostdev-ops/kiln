@@ -8,4 +8,4 @@ mkdir -p "$out"
 g++ -std=c++20 -O1 -g -Wall -Wextra -D__fastcall= -ffunction-sections -fdata-sections \
     -fsanitize=address,undefined -I"$here/host" -I"$here/../../../core/abi" -I"$here/../../../third_party" \
     "$here/refs_test.cpp" -Wl,--gc-sections -o "$out/refs-test"
-"$out/refs-test"
+"$out/refs-test" "$out/refs-fixture-$$"

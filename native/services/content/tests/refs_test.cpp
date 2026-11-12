@@ -2,6 +2,7 @@
 // Compile the real manifest reader and ownership decision on the host; discard unused game-memory paths at link time.
 #include "../refs.cpp"
 #include <cstdarg>
+#include <chrono>
 #include <stdexcept>
 
 namespace kc {
@@ -59,11 +60,87 @@ void malformed_entries() {
         }
     }
 }
+
+void own_mod_models(const std::filesystem::path& root) {
+    using namespace kc;
+    check(!fs::exists(root), "fixture directory must be new");
+    struct Fixture {
+        fs::path path;
+        ~Fixture() {
+            set_kitbash_mod(nullptr);
+            g_mod_folders.clear();
+            g_decls.clear();
+            std::error_code ec;
+            fs::remove_all(path, ec);
+        }
+    } fixture{root};
+    test_mods_dir = root.string();
+    const std::string own = "11111111-2222-4333-8444-555555555555";
+    const std::string other_type = "21111111-2222-4333-8444-555555555555";
+    const std::string other_kind = "31111111-2222-4333-8444-555555555555";
+    const std::string foreign = "41111111-2222-4333-8444-555555555555";
+    const std::string unloaded = "51111111-2222-4333-8444-555555555555";
+    const std::string unknown = "61111111-2222-4333-8444-555555555555";
+    json manifest = {{"entries", json::array({
+        json{{"kind", "resource"}, {"type", "keen::RenderModel"}, {"guid", own}},
+        json{{"kind", "resource"}, {"type", "keen::JointAnimation"}, {"guid", other_type}},
+        json{{"kind", "texture"}, {"type", "keen::RenderModel"}, {"guid", other_kind}},
+        json{{"name", "bad-guid"}, {"kind", "resource"}, {"type", "keen::RenderModel"}, {"guid", nullptr}}
+    })}};
+    auto write_mod = [&](const std::string& id, const json& assets) {
+        const auto folder = root / id;
+        fs::create_directories(folder / "assets");
+        std::ofstream(folder / "kiln.mod.json") << json{{"id", id}};
+        std::ofstream(folder / "assets/assets.json") << assets;
+    };
+    write_mod("owner", manifest);
+    write_mod("other", json{{"entries", json::array({json{{"kind", "resource"}, {"type", "keen::RenderModel"}, {"guid", foreign}}})}});
+    write_mod("unloaded", json{{"entries", json::array({json{{"kind", "resource"}, {"type", "keen::RenderModel"}, {"guid", unloaded}}})}});
+    std::ofstream(root / "unloaded/.disabled");
+    KilnApi api{};
+    api.service = [](KilnStr, uint32_t) -> const void* { return nullptr; };
+    g_api = &api;
+
+    std::unordered_set<G, GH> models;
+    const size_t before = test_warnings.size();
+    declared_models(read_jsonc(root / "owner/assets/assets.json"), &models);
+    check(models.size() == 1, "only resource RenderModel entries declare models");
+    check(test_warnings.size() == before + 1, "non-string GUID is skipped and logged once");
+    auto accepted = [&](const std::string& text) {
+        uint8_t g[16];
+        check(guid_parse(text, g), "fixture GUID must parse");
+        return declared_by_own_mod(g);
+    };
+    check(!accepted(own), "pack rules without a mod cannot use declared models");
+    const std::string owner = "owner";
+    set_kitbash_mod(&owner);
+    check(accepted(own), "the item's own mod's declared model is accepted");
+    check(!accepted(other_type), "another resource type is refused");
+    check(!accepted(other_kind), "another entry kind is refused");
+    check(!accepted(foreign), "a model only another loaded mod declares is refused");
+    check(!accepted(unloaded), "a model only a disabled mod declares is refused");
+    check(!accepted(unknown), "an unknown GUID is refused");
+    const size_t cached_warnings = test_warnings.size();
+    check(accepted(own), "the cached manifest still accepts its model");
+    check(test_warnings.size() == cached_warnings, "cached malformed entry is not logged again");
+    const std::string missing_mod = "unloaded";
+    set_kitbash_mod(&missing_mod);
+    check(!accepted(unloaded), "a disabled mod's folder cannot authorize its model");
+    set_kitbash_mod(&owner);
+    const auto mf = root / "owner/assets/assets.json";
+    const auto stamp = fs::last_write_time(mf);
+    std::ofstream(mf) << json{{"entries", json::array()}};
+    fs::last_write_time(mf, stamp + std::chrono::seconds(1));
+    check(!accepted(own), "hot reload removes a model declaration from the cache");
+    g_api = nullptr;
+}
 }
 
-int main() {
+int main(int argc, char** argv) {
     try {
         malformed_entries();
+        if (argc != 2) throw std::runtime_error("provide a new fixture directory");
+        own_mod_models(argv[1]);
         std::printf("refs-test: %d checks passed, 0 failed\n", checks);
         return 0;
     } catch (const std::exception& e) {

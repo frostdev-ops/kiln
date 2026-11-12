@@ -11,6 +11,7 @@ here=$(cd "$(dirname "$0")" && pwd)
 export KILN_OUT
 out=$KILN_OUT/content-tests
 mkdir -p "$out"
+bash "$here/refs_test.sh"
 echo "== near-test (host)"
 g++ -std=c++20 -O1 -g -Wall -Wextra -fsanitize=address,undefined "$here/near_test.cpp" "$here/../nearmem.cpp" -o "$out/near-test"
 "$out/near-test"
