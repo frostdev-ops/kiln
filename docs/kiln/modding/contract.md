@@ -94,9 +94,15 @@ ref types carry enough to notice that.
 
 Capabilities: `identity.entities` (entity serials), `identity.players` (players).
 
-In this release the types exist and `IsAlive` and `Of` work as soon as a service fills the seam. The services start
-handing out and taking these types as their packages land; until then they still use `EntityId` and their own
-player types.
+When no service supplies entity serials, which is the case until the release notes say otherwise, `EntityRef.Of`
+for a non-none id and `IsAlive` on a non-none entity or item ref throw `KilnUnavailableException("identity.entities")`.
+When no service supplies players, which is likewise the case until the release notes say otherwise, `PlayerRef.Of`
+for a non-none id and `PlayerRef.Resolve()` on a non-none player ref throw `KilnUnavailableException("identity.players")`.
+`None.IsAlive` and `PlayerRef.None.IsOnline` still return false; `PlayerRef.IsOnline` also returns false without a
+session serial, and otherwise uses the entity source (throwing `identity.entities` when that source is missing).
+The supplying services must be initialized and their capabilities enabled before these operations can work; for
+auto-started services that means from the first tick callback, not in `OnLoad`. Services adopt these types as their
+packages land; until then they still use `EntityId` and their own player types.
 
 ## 3. Side and thread attributes
 

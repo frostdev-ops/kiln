@@ -5,6 +5,7 @@ namespace Kiln;
 /// after an entity is destroyed; the serial tells a later entity with the same id apart, so <see cref="IsAlive"/> is
 /// false once the id belongs to another spawn. <c>default</c> is <see cref="None"/>. Converts to <see cref="EntityId"/>,
 /// so every API that takes an id takes a ref. Capture one with <see cref="Of"/>.</summary>
+/// <remarks>When no service supplies entity serials, which is the case until the release notes say otherwise, <see cref="Of"/> for a non-none id and <see cref="IsAlive"/> on a non-none ref throw <see cref="KilnUnavailableException"/> (<c>identity.entities</c>).</remarks>
 /// <param name="Id">The entity id.</param>
 /// <param name="Serial">An opaque spawn stamp from the entity source; 0 when the entity has none (then
 /// <see cref="IsAlive"/> can only check that the id exists).</param>
@@ -117,6 +118,7 @@ public readonly record struct ItemId(uint Value)
 /// <summary>A person on this server: the Steam id, the character they play (may be empty) and their session entity
 /// (none while offline). <c>default</c> is <see cref="None"/>. <c>==</c> also compares the session entity;
 /// use <see cref="IsSamePerson"/> to compare known person ids across sessions.</summary>
+/// <remarks>When no service supplies players, which is the case until the release notes say otherwise, <see cref="Of"/> for a non-none id and <see cref="Resolve"/> on a non-none ref throw <see cref="KilnUnavailableException"/> (<c>identity.players</c>); <see cref="IsOnline"/> separately requires a serial and the entity source.</remarks>
 /// <param name="SteamId">SteamID64; 0 when unknown.</param>
 /// <param name="CharacterId">The game's CharacterId; <see cref="Guid.Empty"/> when unknown.</param>
 /// <param name="Entity">The session entity while in game; <see cref="EntityRef.None"/> while offline.</param>
