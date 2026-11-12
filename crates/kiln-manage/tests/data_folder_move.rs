@@ -3,19 +3,27 @@
 //! step with the old place intact and in use, a crash at each step and the recovery a new process runs, removal only
 //! with proof, writes through the new place leaving a hard-linked old copy as it was, the records that name the root
 //! after a move, and another data folder's profile in a game (Z mode and copy mode, another id and the same id).
-#![cfg(all(unix, feature = "zip"))]
+//!
+//! The file builds for Windows too (run under Wine, see tests/data_folder_windows.rs): what needs a symlink, Unix
+//! permissions, inode numbers or file modes, or Z mode and copy mode (on Windows every game is native mode) is Unix
+//! only, each marked where it is; on Windows the fixture is a Windows player's (`fixture::win_env_at`).
+#![cfg(feature = "zip")]
 
 mod fixture;
 
 use fixture::{Fixture, env_at, kiln_mod, put, scratch};
 use kiln_manage::data_folder::{self as df, DataLock, Facts, FolderState, RealFacts};
 use kiln_manage::data_folder_move::{self as dfm, Inject, MoveOptions, Pending, Step};
+#[cfg(unix)]
 use kiln_manage::game::PathMode;
 use kiln_manage::paths::{DataDirs, DataEnv, ProblemKind, RootSource};
 use kiln_manage::profile::{self, GameProfileOwner};
 use kiln_manage::task::{NoProgress, Progress};
-use kiln_manage::{ErrorCode, library, quick, util};
+use kiln_manage::{ErrorCode, library, util};
+#[cfg(unix)]
+use kiln_manage::quick;
 use std::collections::{BTreeMap, BTreeSet};
+#[cfg(unix)]
 use std::os::unix::fs::{MetadataExt, PermissionsExt, symlink};
 use std::path::{Path, PathBuf};
 
@@ -27,7 +35,7 @@ fn tree(root: &Path) -> BTreeMap<String, String> {
             let name = e.file_name().to_string_lossy().into_owned();
             let r = if rel.is_empty() { name.clone() } else { format!("{rel}/{name}") };
             let m = std::fs::symlink_metadata(e.path()).unwrap();
-            let top = rel.is_empty() && (df::is_own_file(&name, df::PathStyle::Unix) || df::is_top_lock(&name, df::PathStyle::Unix));
+            let top = rel.is_empty() && (df::is_own_file(&name, style()) || df::is_top_lock(&name, style()));
             if top || (rel == "nexus" && name.ends_with(".lock")) {
                 continue;
             }
@@ -41,6 +49,10 @@ fn tree(root: &Path) -> BTreeMap<String, String> {
     let mut out = BTreeMap::new();
     go(root, "", &mut out);
     out
+}
+
+fn style() -> df::PathStyle {
+    if cfg!(windows) { df::PathStyle::Windows } else { df::PathStyle::Unix }
 }
 
 fn located(env: &DataEnv) -> kiln_manage::paths::Located {
@@ -65,6 +77,7 @@ fn lib_dir(dirs: &DataDirs, r: &library::LibraryRef) -> PathBuf {
     dirs.library_entry(r.kind, &r.id, &r.version, &r.hash).unwrap()
 }
 
+#[cfg(unix)]
 fn ino(p: &Path) -> u64 {
     std::fs::metadata(p).unwrap().ino()
 }
@@ -141,9 +154,12 @@ fn a_broken_pointer_is_an_error_never_the_default() {
     assert_eq!(kind(&env), ProblemKind::NotAFolder);
     let real = s.0.join("real");
     put(&real, "installs/x.json", b"{}");
-    symlink(&real, s.0.join("link")).unwrap();
-    df::write_pointer(&default, &s.0.join("link")).unwrap();
-    assert_eq!(kind(&env), ProblemKind::NotAFolder, "a data root is never a link");
+    #[cfg(unix)] // Windows: a junction, tests/data_folder_windows.rs
+    {
+        symlink(&real, s.0.join("link")).unwrap();
+        df::write_pointer(&default, &s.0.join("link")).unwrap();
+        assert_eq!(kind(&env), ProblemKind::NotAFolder, "a data root is never a link");
+    }
     std::fs::create_dir_all(s.0.join("empty")).unwrap();
     df::write_pointer(&default, &s.0.join("empty")).unwrap();
     assert_eq!(kind(&env), ProblemKind::NotKiln, "never an empty folder");
@@ -151,17 +167,20 @@ fn a_broken_pointer_is_an_error_never_the_default() {
     put(&photos, "a.jpg", b"x");
     df::write_pointer(&default, &photos).unwrap();
     assert_eq!(kind(&env), ProblemKind::NotKiln);
-    let locked = s.0.join("locked");
-    put(&locked, "installs/x.json", b"{}");
-    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
-    df::write_pointer(&default, &locked).unwrap();
-    let k = kind(&env);
-    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755)).unwrap();
-    assert_eq!(k, ProblemKind::FolderUnreadable);
-    std::fs::set_permissions(&pointer, std::fs::Permissions::from_mode(0o000)).unwrap();
-    let k = kind(&env);
-    std::fs::set_permissions(&pointer, std::fs::Permissions::from_mode(0o644)).unwrap();
-    assert_eq!(k, ProblemKind::Unreadable);
+    #[cfg(unix)] // Unix permissions; Windows: a pointer opened without sharing, tests/data_folder_windows.rs
+    {
+        let locked = s.0.join("locked");
+        put(&locked, "installs/x.json", b"{}");
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
+        df::write_pointer(&default, &locked).unwrap();
+        let k = kind(&env);
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(k, ProblemKind::FolderUnreadable);
+        std::fs::set_permissions(&pointer, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let k = kind(&env);
+        std::fs::set_permissions(&pointer, std::fs::Permissions::from_mode(0o644)).unwrap();
+        assert_eq!(k, ProblemKind::Unreadable);
+    }
     // reset: only for a broken pointer; renames it and the default root is used
     df::write_pointer(&default, &photos).unwrap();
     let l = dfm::reset(&env).unwrap();
@@ -272,9 +291,12 @@ fn a_move_by_hard_links_leaves_the_old_copy_untouched_by_later_writes() {
     assert_eq!(r.stayed.iter().map(|s| (s.name.as_str(), s.path.clone())).collect::<Vec<_>>(), [("My Notes", fx.dirs.root.join("My Notes"))]);
     let lib = lib_dir(&fx.dirs, &fx.mods.kiln).join("M.dll");
     let new_lib = lib_dir(&DataDirs::at(&to), &fx.mods.kiln).join("M.dll");
-    assert_eq!(ino(&lib), ino(&new_lib), "library files are hard-linked");
-    let cfg = |root: &Path| root.join(format!("profiles/{}/config/native.json", fx.active));
-    assert_ne!(ino(&cfg(&fx.dirs.root)), ino(&cfg(&to)), "a profile's config is written in place: copied for real");
+    #[cfg(unix)] // inode numbers (Windows: the record's `linked` says it, tests/data_folder_windows.rs)
+    {
+        assert_eq!(ino(&lib), ino(&new_lib), "library files are hard-linked");
+        let cfg = |root: &Path| root.join(format!("profiles/{}/config/native.json", fx.active));
+        assert_ne!(ino(&cfg(&fx.dirs.root)), ino(&cfg(&to)), "a profile's config is written in place: copied for real");
+    }
     let l = located(&fx.env);
     assert_eq!((l.dirs.root.clone(), l.source), (to.clone(), RootSource::Pointer));
     assert_eq!(r.activated.len(), 2, "both games' profiles written again from the new place");
@@ -313,21 +335,25 @@ fn a_move_by_hard_links_leaves_the_old_copy_untouched_by_later_writes() {
     assert_eq!(located(&fx.env).dirs.root, to);
 }
 
-/// A move by real copies on one volume: times and permissions kept, `nexus/` private.
+/// A move by real copies on one volume: times and permissions kept, `nexus/` private (Unix modes).
 #[test]
 fn a_move_by_copies_keeps_times_and_permissions() {
     let fx = Fixture::build("copies");
     let to = fx.base.join("copied");
     let old_handler = fx.dirs.root.join("nexus/handler.json");
     let mtime = std::fs::metadata(&old_handler).unwrap().modified().unwrap();
+    #[cfg(unix)]
     let (old_ino, nexus_mode) = (ino(&old_handler), std::fs::metadata(fx.dirs.root.join("nexus")).unwrap().permissions().mode() & 0o777);
     let r = mv(&fx, &to, &linking(), &MoveOptions { force_copy: true, inject: None }).unwrap();
     assert_eq!(r.linked, 0);
     let h = to.join("nexus/handler.json");
-    assert_ne!(ino(&h), old_ino);
-    assert_eq!(std::fs::metadata(&h).unwrap().permissions().mode() & 0o777, 0o600);
+    #[cfg(unix)]
+    {
+        assert_ne!(ino(&h), old_ino);
+        assert_eq!(std::fs::metadata(&h).unwrap().permissions().mode() & 0o777, 0o600);
+        assert_eq!(std::fs::metadata(to.join("nexus")).unwrap().permissions().mode() & 0o777, nexus_mode);
+    }
     assert_eq!(std::fs::metadata(&h).unwrap().modified().unwrap(), mtime);
-    assert_eq!(std::fs::metadata(to.join("nexus")).unwrap().permissions().mode() & 0o777, nexus_mode);
     assert_eq!(located(&fx.env).dirs.root, to);
 }
 
@@ -349,12 +375,16 @@ fn a_move_across_two_volumes_and_back() {
     let _ = std::fs::remove_dir_all(&to);
     let facts = RealFacts { dirs: &fx.dirs };
     let plan = df::check_here(&located(&fx.env), &fx.env, &to, false).unwrap().unwrap();
-    assert_eq!((plan.same_volume, plan.hard_links, plan.private_files), (Some(false), false, Some(false)), "{plan:?}");
+    let private = if cfg!(unix) { Some(false) } else { None };
+    assert_eq!((plan.same_volume, plan.hard_links, plan.private_files), (Some(false), false, private), "{plan:?}");
     let r = dfm::move_to(&located(&fx.env), &fx.env, &to, &facts, None, &MoveOptions::default(), &mut NoProgress).unwrap();
     assert_eq!(r.linked, 0);
     assert_eq!(tree(&to).len(), before.len());
-    let mode = std::fs::metadata(to.join("nexus/handler.json")).unwrap().permissions().mode() & 0o777;
-    eprintln!("on the second volume nexus/handler.json has mode {mode:o} (written 0600)");
+    #[cfg(unix)]
+    {
+        let mode = std::fs::metadata(to.join("nexus/handler.json")).unwrap().permissions().mode() & 0o777;
+        eprintln!("on the second volume nexus/handler.json has mode {mode:o} (written 0600)");
+    }
     assert_eq!(located(&fx.env).dirs.root, to);
     let c = dfm::remove_old_copy(&fx.env, &mut NoProgress).unwrap();
     assert!(c.done, "{c:?}");
@@ -499,6 +529,7 @@ fn what_changes_in_the_source_during_the_copy_is_copied_again() {
 }
 
 #[test]
+#[cfg(unix)] // Unix permissions; Windows: a file held open without read sharing, tests/data_folder_windows.rs
 fn a_source_file_that_cannot_be_read_fails_the_move_naming_it() {
     let fx = Fixture::build("unreadable");
     let before = tree(&fx.dirs.root);
@@ -686,6 +717,7 @@ fn a_move_is_refused_while_a_journal_exists() {
 
 // ------------------------------------------------------------------------------------------------ after a move
 
+#[cfg(unix)]
 fn old_root_forms(root: &Path) -> (String, String, String) {
     let host = root.to_string_lossy().into_owned();
     let z = kiln_manage::winpath::unix_to_z(root).unwrap();
@@ -693,6 +725,7 @@ fn old_root_forms(root: &Path) -> (String, String, String) {
 }
 
 /// Files below `dir` that name `root` (host path, `Z:` form, JSON-escaped `Z:` form) as a whole path.
+#[cfg(unix)]
 fn naming(dir: &Path, root: &Path, label: &str, out: &mut BTreeSet<String>) {
     let (host, z, zj) = old_root_forms(root);
     let mut stack = vec![dir.to_path_buf()];
@@ -714,6 +747,7 @@ fn naming(dir: &Path, root: &Path, label: &str, out: &mut BTreeSet<String>) {
 
 /// After a move of the fixture, nothing the launcher reads names the old root: the rows of recorded-paths.md done.
 #[test]
+#[cfg(unix)] // Z mode and copy mode, and the Z: forms (Windows: tests/data_folder_windows.rs checks the native paths)
 fn after_a_move_nothing_names_the_old_root() {
     let fx = Fixture::build("recorded-after");
     let to = fx.base.join("moved");
@@ -749,6 +783,7 @@ fn after_a_move_nothing_names_the_old_root() {
 /// The fixture from the moved folder: the active profile names the new place, activation and deactivation work, and
 /// the placement clean-up of dev.24 behaves as before (a Kiln-owned copy goes, a copy the player changed stays).
 #[test]
+#[cfg(unix)] // Z mode and copy mode
 fn the_fixture_works_from_the_moved_folder() {
     let fx = Fixture::build("works-after");
     let to = fx.base.join("moved place");
@@ -788,6 +823,7 @@ fn the_fixture_works_from_the_moved_folder() {
 /// in a game. The moved folder never takes it over and never mixes the two (Z mode and copy mode, another id and the
 /// same id), and says whose it is.
 #[test]
+#[cfg(unix)] // Z mode and copy mode
 fn another_data_folders_profile_is_left_alone() {
     for same_id in [false, true] {
         let fx = Fixture::build(&format!("other-profile-{same_id}"));
@@ -855,32 +891,36 @@ fn a_launcher_that_never_moved_keeps_its_own_profiles() {
 /// after the copy or is canceled.
 #[test]
 fn a_target_keeps_its_own_folder_whatever_the_move_does() {
+    // Windows: `state`, Kiln's state folder in the default root as the platform has it
+    let own = if cfg!(windows) { "state" } else { "kiln" };
     for case in ["done", "fail", "cancel"] {
         let s = scratch(&format!("own-{case}"));
         let mut env = env_at(&s.0);
         let default = env.default_root().unwrap();
-        env.xdg_state_home = Some(default.clone().into());
-        assert_eq!(env.state_dir(), default.join("kiln"));
-        put(&default, "kiln/server.run.log", b"console of a running server");
+        if !cfg!(windows) {
+            env.xdg_state_home = Some(default.clone().into());
+        }
+        assert_eq!(env.state_dir(), default.join(own));
+        put(&default, &format!("{own}/server.run.log"), b"console of a running server");
         let away = s.0.join("away");
         put(&away, "library/kiln/a/1.0.0+00000000/M.dll", b"mod");
-        put(&away, "kiln/notes.txt", b"an entry of the same name");
+        put(&away, &format!("{own}/notes.txt"), b"an entry of the same name");
         df::write_pointer(&default, &away).unwrap();
-        assert_eq!(df::own_entries(&default, &env), ["kiln"]);
+        assert_eq!(df::own_entries(&default, &env), [own]);
         assert_eq!(df::recognize(&default, &env).unwrap(), FolderState::Empty);
         let opts = if case == "fail" { inject(Inject::FailAfterCopy) } else { MoveOptions::default() };
         let mut cancel = CancelAfter(std::cell::Cell::new(0));
         let mut none = NoProgress;
         let p: &mut dyn Progress = if case == "cancel" { &mut cancel } else { &mut none };
         let r = dfm::move_to(&env.locate().unwrap(), &env, &default, &linking(), None, &opts, p);
-        assert_eq!(std::fs::read(default.join("kiln/server.run.log")).unwrap(), b"console of a running server", "{case}");
-        assert_eq!(std::fs::read_dir(default.join("kiln")).unwrap().count(), 1, "{case}: nothing was copied into it");
+        assert_eq!(std::fs::read(default.join(own).join("server.run.log")).unwrap(), b"console of a running server", "{case}");
+        assert_eq!(std::fs::read_dir(default.join(own)).unwrap().count(), 1, "{case}: nothing was copied into it");
         if case == "done" {
             let r = r.unwrap();
-            assert!(r.stayed.iter().any(|s| s.name == "kiln" && s.path == away.join("kiln")), "{r:?}");
-            assert!(away.join("kiln/notes.txt").is_file(), "the entry stays in the old folder");
+            assert!(r.stayed.iter().any(|s| s.name == own && s.path == away.join(own)), "{r:?}");
+            assert!(away.join(own).join("notes.txt").is_file(), "the entry stays in the old folder");
             assert!(default.join("library/kiln/a/1.0.0+00000000/M.dll").is_file());
-            assert!(r.cleanup.unwrap().kept.iter().any(|k| k.path == away.join("kiln")));
+            assert!(r.cleanup.unwrap().kept.iter().any(|k| k.path == away.join(own)));
         } else {
             assert!(r.is_err(), "{case}");
             assert_eq!(env.locate().unwrap().dirs.root, away, "{case}: the old place is in use");
@@ -995,8 +1035,7 @@ fn another_folders_profile_is_said_in_the_status_and_its_saves_are_not_filed_her
     assert_eq!(st.active_profile, None);
     assert_eq!(st.other_folder_profile, Some(OtherFolderProfile { id: theirs.clone(), root: Some(other.root.clone()) }));
     assert_eq!(serde_json::to_value(&st).unwrap()["otherFolderProfile"]["id"], theirs.as_str());
-    let saves_dir = fx.game_z.prefix.as_ref().unwrap().join("drive_c/users/steamuser/Saved Games/Enshrouded");
-    let dir = kiln_manage::saves::SaveDir { label: "local".into(), path: saves_dir, steam_id: None, recursive: true };
+    let dir = kiln_manage::saves::SaveDir { label: "local".into(), path: fx.saves_dir.clone(), steam_id: None, recursive: true };
     let b = kiln_manage::saves::backup_from(&fx.dirs, &fx.game_z, &[dir], kiln_manage::saves::BackupReason::Manual, None, None).unwrap();
     assert!(fx.dirs.backups().join("saves").join(&fx.game_z.id).join(&b.id).join("backup.json").is_file());
     assert!(!fx.dirs.profile(&fx.active).join("save-backups").join(&b.id).exists());
@@ -1033,8 +1072,11 @@ fn repoint_after_a_broken_pointer() {
     assert_eq!(refusal(&fx.base.join("a/../found again"), &all), "parent_traversal");
     put(&fx.base, "a-file", b"x");
     assert_eq!(refusal(&fx.base.join("a-file"), &all), "not_a_folder");
-    symlink(&found, fx.base.join("a link")).unwrap();
-    assert_eq!(refusal(&fx.base.join("a link"), &all), "link");
+    #[cfg(unix)] // Windows: a junction, tests/data_folder_windows.rs
+    {
+        symlink(&found, fx.base.join("a link")).unwrap();
+        assert_eq!(refusal(&fx.base.join("a link"), &all), "link");
+    }
     std::fs::create_dir_all(fx.base.join("empty")).unwrap();
     assert_eq!(refusal(&fx.base.join("empty"), &all), "not_a_kiln_folder");
     put(&fx.base, "moving/.kiln-data-move.json", b"{\"format\":1,\"id\":\"x\"}");
