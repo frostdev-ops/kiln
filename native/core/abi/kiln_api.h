@@ -253,9 +253,10 @@ typedef struct KilnPluginInfo {
     uint32_t size;
     KilnStr id;
     KilnStr version;
-    /* optional: called once when the process exits normally (exit code 0: a dedicated server stopped with Ctrl-C,
-     * SIGINT or by the launcher, the player quitting the game), at the process's exit call: after the game saved,
-     * closed its worlds and returned from main, before Windows ends the other threads and before any
+    /* optional: called once when the process exits normally with code 0 (proven for a dedicated server stopped with
+     * Ctrl-C, SIGINT or by the launcher). The client's normal quit is expected to call this too, but its exit code is
+     * not yet confirmed to be 0; the guided client check must confirm it. Called at the process's exit call: after
+     * the game saved, closed its worlds and returned from main, before Windows ends the other threads and before any
      * DLL_PROCESS_DETACH, never under the loader lock. A plugin stays loaded for the life of the process; nothing is
      * unloaded after the call. Every service and plugin that loaded is called, in reverse load order (plugins before
      * the services they use), each on a thread kiln-core starts for the call (not the main thread, not a world
