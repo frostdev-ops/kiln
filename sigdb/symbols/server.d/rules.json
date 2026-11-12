@@ -221,9 +221,15 @@
       ]
     },
     "rules/ResolveActorCollider": {
-      "comment": "NoClip: resolve_actor_collider's per-entity step, void(ctx, iterator*, InertialFrame* own, InertialFrame* platform, then four pointers into the iterator and a null). The 6th argument (rsi) is the iterator's Actor slot; from it the MovementCollider write record is at +resolve.collider. The step's first test is MovementCollider.isEnabled (+collider.enabled): 0 clears the collision results and returns, the position stays where the velocity program put it. The frame bytes are kept exact: they are what makes rsi the 6th argument (server 0x95890, client 0x283ba0)",
+      "comment": "NoClip: resolve_actor_collider's per-entity step, void(ctx, iterator*, InertialFrame* own, InertialFrame* platform, then four pointers into the iterator and a null). The 6th argument (rsi) is the iterator's Actor slot; from it the MovementCollider write record is at +resolve.collider. The step's first test is MovementCollider.isEnabled (+collider.enabled): 0 branches to rules/ResolveActorColliderOff (captured here from the branch itself, checked below), which clears the collision results and returns, so the position stays where the velocity program put it. The frame bytes are kept exact: they are what makes rsi the 6th argument (server 0x95890, client 0x283ba0)",
       "find": [
-        { "pattern": "4C 89 4C 24 20 4C 89 44 24 18 48 89 54 24 10 48 89 4C 24 08 55 53 56 57 41 54 41 55 41 56 41 57 48 8D AC 24 38 FA FF FF 48 81 EC C8 06 00 00 48 8B B5 38 06 00 00 4C 8B F1 48 8B 8D 48 06 00 00 4D 8B E9 4C 8B A5 30 06 00 00 48 8B DA 48 8D BE {rules/resolve.collider:d32} 48 8B 41 10 4C 8B 3F 48 89 85 ?? ?? ?? ?? 48 8B 41 18 48 89 85 ?? ?? ?? ?? 41 80 7F {rules/collider.enabled:d8} 00" }
+        { "pattern": "4C 89 4C 24 20 4C 89 44 24 18 48 89 54 24 10 48 89 4C 24 08 55 53 56 57 41 54 41 55 41 56 41 57 48 8D AC 24 38 FA FF FF 48 81 EC C8 06 00 00 48 8B B5 38 06 00 00 4C 8B F1 48 8B 8D 48 06 00 00 4D 8B E9 4C 8B A5 30 06 00 00 48 8B DA 48 8D BE {rules/resolve.collider:d32} 48 8B 41 10 4C 8B 3F 48 89 85 ?? ?? ?? ?? 48 8B 41 18 48 89 85 ?? ?? ?? ?? 41 80 7F {rules/collider.enabled:d8} 00 49 8B 44 24 08 48 89 45 ?? 0F 84 {rules/ResolveActorColliderOff:rel32}" }
+      ]
+    },
+    "@rules/ResolveActorCollider.off": {
+      "comment": "where that test's branch goes when isEnabled is 0 (captured above), and that it is the exit NoClip relies on, byte for byte: if the results are set (MovementCollider +collider.results_set), mark the component written and unset them; then the function's epilogue. Nothing else: no trace, no write to the position. The scope is exactly the pattern's length, so it must match at the branch's target",
+      "find": [
+        { "scope": { "symbol": "rules/ResolveActorColliderOff", "size": 59 }, "pattern": "41 80 7F {rules/collider.results_set:d8} 00 74 E5 48 8B 4F 28 48 85 C9 74 22 0F B6 47 22 4C 8B 4F 18 4C 8B 47 10 48 8B 57 08 88 44 24 28 0F B7 47 20 66 89 44 24 20 E8 ?? ?? ?? ?? 48 8B 07 C6 40 {rules/collider.results_set:d8} 00 EB B1" }
       ]
     },
     "@rules/ResolveActorCollider.dynloco": {
@@ -267,6 +273,7 @@
     "rules/resolve.collider": { "min_votes": 1 },
     "rules/resolve.dynloco": { "min_votes": 1 },
     "rules/collider.enabled": { "min_votes": 1 },
+    "rules/collider.results_set": { "min_votes": 2 },
     "rules/glider.yaw_speed": { "min_votes": 1 },
     "rules/glider.pitch_speed": { "min_votes": 2 },
     "rules/glider.roll_speed": { "min_votes": 1 },
@@ -338,8 +345,10 @@
                     "rules/flight.actor", "rules/loco.player_input", "rules/input.mask"]
     },
     "rules.noclip": {
-      "symbols": ["rules/ResolveActorCollider", "@rules/ResolveActorCollider.dynloco", "rules/CurrentEntityId"],
-      "constants": ["rules/resolve.collider", "rules/resolve.dynloco", "rules/collider.enabled", "rules/loco.state"]
+      "symbols": ["rules/ResolveActorCollider", "rules/ResolveActorColliderOff", "@rules/ResolveActorCollider.off",
+                  "@rules/ResolveActorCollider.dynloco", "rules/CurrentEntityId"],
+      "constants": ["rules/resolve.collider", "rules/resolve.dynloco", "rules/collider.enabled", "rules/collider.results_set",
+                    "rules/loco.state"]
     },
     "rules.consume_buff": {
       "symbols": ["rules/BuffConsumed", "items/InventoryRemoveItems"]

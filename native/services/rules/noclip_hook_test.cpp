@@ -16,7 +16,7 @@ bool flame_creative() { return test_idle; }
 
 namespace {
 int failures = 0, entities = 0, steps = 0;
-bool entity_faults = false;
+bool entity_faults = false, step_faults = false;
 uint8_t seen_enabled = 0xff;  // MovementCollider.isEnabled as the game's step saw it
 void* seen_args[9]{};
 void check(bool ok, const char* why) { std::printf("%s %s\n", ok ? "PASS" : "FAIL", why); failures += !ok; }
@@ -36,6 +36,7 @@ void game_step(void* ctx, void* iter, void* frame, void* platform, void* a5, uin
     std::memcpy(seen_args, args, sizeof args);
     auto* collider = *reinterpret_cast<uint8_t**>(slots + kCollider);
     seen_enabled = collider ? collider[kEnabled] : 0xfe;
+    if (step_faults) throw 2;  // the game's own step (or a later link of the chain) faults
 }
 
 uint32_t session = KILN_SESSION_REMOTE, local = 3;
@@ -114,15 +115,25 @@ int main() {
           "a NoClip rule publishes its own flag, not character flight's");
     step();
     check(seen_enabled == 1, "the rule alone skips nothing: the character is not flying yet");
-    dyn[0x59] = flight_math::kBuildingFlying;
-    step();
-    check(seen_enabled == 1, "a BuildingFlying state Kiln did not start (another flight, a spark) keeps its collision");
-    dyn[0x59] = flight_math::kWalking;
-
-    // the production state hook takes off: from the ground, at once
     void* stack[4] = {nullptr, dyn, actor, nullptr};
     safetyhook::Context c{};
     c.rbp = c.rsp = reinterpret_cast<uintptr_t>(stack); c.rsi = c.rdi = reinterpret_cast<uintptr_t>(&e);
+    dyn[0x59] = flight_math::kBuildingFlying;
+    step();
+    check(seen_enabled == 1, "a BuildingFlying state Kiln did not start (another flight, a spark) keeps its collision");
+    // and stays so step after step: the state hook runs between collision steps and must not adopt that flight
+    for (int i = 0; i < 3; ++i) {
+        c.rax = flight_math::kBuildingFlying;
+        f::state_body(c);
+        step();
+    }
+    uint64_t takeoffs = 0, landings = 0, ends = 0, flight_faults = 0;
+    f::counters(&takeoffs, &landings, &ends, &flight_faults);
+    check(seen_enabled == 1 && c.rax == flight_math::kBuildingFlying && takeoffs == 0 && ends == 0 && !f::flown_recently(3, dyn),
+          "the state hook leaves a flight it did not start alone: not adopted, not ended, collision kept");
+    dyn[0x59] = flight_math::kWalking;
+
+    // the production state hook takes off: from the ground, at once
     actor[0] = true;  // Grounded
     c.rax = flight_math::kWalking;
     f::state_body(c);
@@ -180,6 +191,22 @@ int main() {
     step();
     entity_faults = false;
     check(steps == calls + 1 && seen_enabled == 1 && state_of(0).faults == 1, "a fault in the hook's own body: the game's step runs once, with collision");
+
+    // the game's own step faults with the switch held off: the fault goes on, the switch does not stay off
+    step_faults = true;
+    bool passed_on = false;
+    try { step(); } catch (int) { passed_on = true; }
+    step_faults = false;
+    check(passed_on && seen_enabled == 0 && collider[kEnabled] == 1, "a fault in the game's step passes through, and the switch is back on behind it");
+    set_rule(3, nullptr);
+    step();
+    check(seen_enabled == 1, "so with the rule gone the next step collides, also after such a fault");
+    set_rule(3, &rule);
+    collider[kEnabled] = 0; step_faults = true;
+    try { step(); } catch (int) {}
+    step_faults = false;
+    check(collider[kEnabled] == 0, "a collider the game had switched off itself is still off after a fault");
+    collider[kEnabled] = 1;
 
     kiln_rules_creative::test_idle = true;
     step();
@@ -242,9 +269,22 @@ int main() {
     e = 9;
     step();
     check(seen_enabled == 1, "another character in the client's prediction keeps collision");
+    // a joined game has no server tick: its client tick ages "active"
+    check(state_of(3).active == 1, "the joined client's hook says active while it skips");
+    store(g_local, nullptr);
+    step();
+    f::client_pre(nullptr, nullptr); f::client_pre(nullptr, nullptr);
+    check(seen_enabled == 1 && state_of(3).active == 0, "after the rule went, two client ticks later it is no longer active");
+    store(g_local, &rule); f::refresh();
     session = KILN_SESSION_HOST; f::refresh(); e = 3;
+    const auto before_host = state_of(0).total;
     step();
     check(seen_enabled == 1, "a host never skips collision from stale local rules: the server's per-entity rules decide");
+    n::tick(); n::tick();
+    step();
+    const auto age = n::g_tick.load();
+    f::client_pre(nullptr, nullptr);
+    check(n::g_tick.load() == age && state_of(0).total == before_host, "a host's client tick does not age it a second time (its server tick does)");
     store(g_local, nullptr); session = KILN_SESSION_REMOTE; f::refresh(); f::reset(); n::reset();
 
     // install, the ways it stays out

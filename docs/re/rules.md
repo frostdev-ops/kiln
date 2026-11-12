@@ -434,15 +434,22 @@ The step reads the write records through four small helpers (`0x6ed20`, `0x6ed60
 
 **Kiln's change** (`native/services/rules/noclip.cpp`) **[cap]**: one detour on the per-entity step, both sides. For
 an entity whose `DynamicLocomotion.state` is BuildingFlying in a flight Kiln started (section 7's hooks) and whose
-rules carry NoClip, `isEnabled` is set to 0 for the length of the call and put back afterwards. The program has write
-access to the entity's `MovementCollider`, so nothing else reads it meanwhile. Nothing is left changed between steps.
+rules carry NoClip, `isEnabled` is set to 0 for the length of the call and put back afterwards, also when the call
+unwinds with a fault. The program has write access to the entity's `MovementCollider`, so nothing else reads it
+meanwhile. Nothing is left changed between steps.
 
-Signatures: `rules/ResolveActorCollider` (the step's first 0x6d bytes; the frame bytes are literal, because they are
-what makes `rsi` the sixth argument; captures `rules/resolve.collider` 0xc0 and `rules/collider.enabled` 5) and
-`@rules/ResolveActorCollider.dynloco` (`lea rcx,[rsi+0x90]` before the null test of the optional record; captures
-`rules/resolve.dynloco`), feature `rules.noclip`. `native/services/rules/rules_sigdb_test.py` checks on both exes that
-the captures are these values, that the step loads `rsi` and tests `[r15+5]` as above, and that a changed frame, a
-missing or a doubled pattern turns off NoClip alone.
+Signatures, feature `rules.noclip`: `rules/ResolveActorCollider` (the step's start up to the branch; the frame bytes
+are literal, because they are what makes `rsi` the sixth argument; captures `rules/resolve.collider` 0xc0,
+`rules/collider.enabled` 5 and the branch's target as `rules/ResolveActorColliderOff`, `0x97b19` / `0x285e29`),
+`@rules/ResolveActorCollider.off` (the 59 bytes at that target: test `m_isSet`, mark written, unset it, and both ways
+out to the epilogue; its scope is exactly its length, so it must match at the target; captures
+`rules/collider.results_set` 0x50 twice) and `@rules/ResolveActorCollider.dynloco` (`lea rcx,[rsi+0x90]` before the
+null test of the optional record; captures `rules/resolve.dynloco`). So the feature is on only where a 0 in the switch
+means "unset the results and return". `native/services/rules/rules_sigdb_test.py` checks on both exes that the captures
+are these values, that the step loads `rsi` and tests `[r15+5]` as above, that the branch goes to the captured exit,
+that the exit writes nothing but the results' flag and ends in the function's epilogue, and that each of these turns
+off NoClip alone: a changed frame, a missing or a doubled pattern, a branch that falls through or goes straight to the
+epilogue, an exit that sets the flag, writes another byte, inverts its test or does not return.
 
 **In a lab** (`mods/tests/noclip-test`, server 26430253, a spawned `1_Player` on a fresh world, its held input written
 by the test; no client) **[rt]**:
@@ -488,7 +495,8 @@ client's two guards (docs/re/client.md):
 | `@rules/GlideSteer.ctx` (scoped to `rules/GlideSteer` + 2048; `rules/rot.ctx` 0x1670; the call's target captured as `rules/GlideSteerEntityId`, which must be `rules/CurrentEntityId`) | `0x82001` | `0x26ff01` | `rules.glide_steer` |
 | `rules/ApplyMaterials` | `0x22d480` | `0x495f20` | `rules.costs` (+ `items/tx.operator`, `world/programs.*`) |
 | `rules/TerrainDamage` | `0x22c970` | `0x495410` | `rules.dig` (+ `gameplay/TerraformImpact` and its argument constants) |
-| `rules/ResolveActorCollider` (`rules/resolve.collider` 0xc0, `rules/collider.enabled` 5; the frame bytes literal) | `0x95890` | `0x283ba0` | `rules.noclip` (needs `rules.flight` at run time) |
+| `rules/ResolveActorCollider` (`rules/resolve.collider` 0xc0, `rules/collider.enabled` 5; the frame bytes literal; the switch-off branch's target captured as `rules/ResolveActorColliderOff`) | `0x95890` | `0x283ba0` | `rules.noclip` (needs `rules.flight` at run time) |
+| `@rules/ResolveActorCollider.off` (scoped to `rules/ResolveActorColliderOff`, exactly its 59 bytes; `rules/collider.results_set` 0x50, 2 votes) | `0x97b19` | `0x285e29` | `rules.noclip` |
 | `@rules/ResolveActorCollider.dynloco` (scoped to the step + 640; `rules/resolve.dynloco` 0x90; `rules/loco.state` 0x59 from `rules.flight`) | `0x95ac3` | `0x283dd3` | `rules.noclip` |
 | `rules/client.HealthbarRay` (offset 73, scoped to `rules/client.Healthbar` `0x30bd70`; `rules/client.LineOfSight` `0xe88ee0` checked; `rules/client.hb.player_z` 0x278 fixed) | - | `0x30c4af` | `rules.healthbar_guard` (client.d only) |
 | `rules/client.CameraInput` (offset 185; `rules/client.CameraTransform` `0xe98ea0` checked; `cam.obj` 0x5c8, `cpi.camera` 0x20, `cam.distance` 0x14a4, `cam.quat0/1` 0x14b0/0x14c0, `cam.offset` 0x148c, `cam.pivot` 0x1468 fixed) | - | `0x3af55f` | `rules.camera_check` (client.d only) |

@@ -188,10 +188,14 @@ void state_body(safetyhook::Context& c) {
     if (!enabled && !(cur == flight_math::kBuildingFlying && was_ours)) return;
     float input_vy = 0.0f;
     std::memcpy(&input_vy, dyn + 4, sizeof input_vy);  // inputVelocity.y
-    const uint8_t next = flight_math::next_state(cur, game, true, enabled && flight(r), base_only(r), actor_of(actor), input_vy,
+    // A BuildingFlying state Kiln did not start (another mod's flight, a game feature) is not Kiln's to keep, to end
+    // or to count as its own: only a take-off from here makes a flight Kiln's. NoClip's collision step asks exactly
+    // that (noclip_flight below).
+    const bool ours = cur != flight_math::kBuildingFlying || was_ours;
+    const uint8_t next = flight_math::next_state(cur, game, ours, enabled && flight(r), base_only(r), actor_of(actor), input_vy,
                                                  enabled && noclip(r));
-    if (next == flight_math::kBuildingFlying) note_flying(e, dyn);
-    else forget_flying(e, dyn);
+    if (next == flight_math::kBuildingFlying && ours) note_flying(e, dyn);
+    else if (ours) forget_flying(e, dyn);
     if (next == game) return;
     if (next == flight_math::kBuildingFlying) S.takeoffs.fetch_add(1, std::memory_order_relaxed);
     else if (next == flight_math::kWalking) S.landings.fetch_add(1, std::memory_order_relaxed);
@@ -279,7 +283,11 @@ void refresh() {
     g_local_player.store(p, std::memory_order_relaxed);
 }
 
-void KILN_CALL client_pre(const KilnTickInfo*, void*) { refresh(); }
+void KILN_CALL client_pre(const KilnTickInfo*, void*) {
+    refresh();
+    // A joined game has no server tick: NoClip's "active" ages with the client's (a host's ages with its server's).
+    if (g_local_player.load(std::memory_order_relaxed) != 0) kiln_rules_noclip::tick();
+}
 
 uint32_t install(const KilnApi* api, KilnOwner owner, std::string& off) {
     g_api = api;

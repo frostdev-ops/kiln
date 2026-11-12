@@ -21,6 +21,7 @@
 #include <cstdarg>
 #include <cstdio>
 #include <cstring>
+#include <mutex>
 
 #include "creative.h"
 #include "kiln_hook.hpp"
@@ -58,6 +59,10 @@ std::atomic<uint64_t> g_tick{1};
 std::atomic<uint64_t> g_last[kPlayers + kExtra]{};   // g_tick at the entity's last skipped step (0: none)
 std::atomic<uint64_t> g_count[kPlayers + kExtra]{};  // its skipped steps
 std::atomic<uint32_t> g_who[kExtra]{};               // the entity an extra slot's numbers belong to
+// An extra slot's owner, its reset and its count change together (two characters' steps run on different threads, and
+// a slot can pass from one character to the next). Players' slots are theirs by id and need no lock. Never held
+// while game memory is touched.
+std::mutex g_extra_mu;
 
 int slot_of(uint32_t e) {
     if (e >= 1 && e < kPlayers) return static_cast<int>(e);
@@ -69,7 +74,13 @@ void mark(uint32_t e) {
     S.total.fetch_add(1, std::memory_order_relaxed);
     const int s = slot_of(e);
     if (s < 0) return;
-    if (s >= kPlayers && g_who[s - kPlayers].exchange(e, std::memory_order_relaxed) != e)
+    if (s < kPlayers) {
+        g_count[s].fetch_add(1, std::memory_order_relaxed);
+        g_last[s].store(g_tick.load(std::memory_order_relaxed), std::memory_order_relaxed);
+        return;
+    }
+    std::lock_guard lock(g_extra_mu);
+    if (g_who[s - kPlayers].exchange(e, std::memory_order_relaxed) != e)
         g_count[s].store(0, std::memory_order_relaxed);  // the slot's earlier character is gone
     g_count[s].fetch_add(1, std::memory_order_relaxed);
     g_last[s].store(g_tick.load(std::memory_order_relaxed), std::memory_order_relaxed);
@@ -96,6 +107,32 @@ uint8_t* decide_guarded(void* ctx, uint8_t* slots) {
     return nullptr;
 }
 
+// The game's step with the switch held off, and the switch put back however the call ends: by returning, or by an
+// exception passing through (the game's own fault, or a later link of the hook chain). The exception goes on to
+// whoever handles it; the byte is never left at 0 behind it.
+void step_without_collision(uint8_t* enabled, void* ctx, void* iter, void* frame, void* platform, void* a5, uint8_t* slots,
+                            void* a7, void* a8, void* a9) {
+    // This program has the entity's MovementCollider for writing, so no other thread reads it during the call.
+    const uint8_t was = *enabled;
+    *enabled = 0;
+#ifdef KILN_RULES_HOST_TEST
+    // the host tests stand C++ exceptions in for SEH (tests/stubs/windows.h): the same cleanup, then on with it
+    try {
+        h_resolve.call<void>(ctx, iter, frame, platform, a5, slots, a7, a8, a9);
+    } catch (...) {
+        *enabled = was;
+        throw;
+    }
+    *enabled = was;
+#else
+    __try {
+        h_resolve.call<void>(ctx, iter, frame, platform, a5, slots, a7, a8, a9);
+    } __finally {
+        *enabled = was;
+    }
+#endif
+}
+
 // resolve_actor_collider's per-entity step: (ctx, iterator, the entity's InertialFrame, its platform's, then four
 // pointers into the iterator and a null).
 void __fastcall hk_resolve(void* ctx, void* iter, void* frame, void* platform, void* a5, uint8_t* slots, void* a7, void* a8,
@@ -105,11 +142,7 @@ void __fastcall hk_resolve(void* ctx, void* iter, void* frame, void* platform, v
         h_resolve.call<void>(ctx, iter, frame, platform, a5, slots, a7, a8, a9);
         return;
     }
-    // This program has the entity's MovementCollider for writing, so no other thread reads it during the call.
-    const uint8_t was = *enabled;
-    *enabled = 0;
-    h_resolve.call<void>(ctx, iter, frame, platform, a5, slots, a7, a8, a9);
-    *enabled = was;
+    step_without_collision(enabled, ctx, iter, frame, platform, a5, slots, a7, a8, a9);
 }
 
 template <typename F>
@@ -135,6 +168,7 @@ void lower(KilnOwner owner, uint32_t reason, const char* why) {
 }  // namespace
 
 void reset() {
+    std::lock_guard lock(g_extra_mu);
     for (auto& v : g_last) v.store(0);
     for (auto& v : g_count) v.store(0);
     for (auto& v : g_who) v.store(0);
@@ -145,6 +179,8 @@ void tick() { g_tick.fetch_add(1, std::memory_order_relaxed); }
 uint32_t install(const KilnApi* api, KilnOwner owner, bool flight, std::string& off) {
     g_api = api;
     auto note = [&off](const char* why) { off += off.empty() ? why : std::string(", ") + why; };
+    // rules.noclip also holds the branch the step takes with the switch off and that exit's bytes (sigdb): the
+    // feature is on only where "off" means "clear the results and return".
     uintptr_t step = 0;
     if (!(feat("rules.noclip") && sym("rules/ResolveActorCollider", &step) && cst("rules/resolve.collider", &L.collider) &&
           cst("rules/resolve.dynloco", &L.dynloco) && cst("rules/collider.enabled", &L.enabled))) {
@@ -186,10 +222,14 @@ KilnResult KILN_CALL state(KilnEntity entity, KilnRulesNoClip* out) {
     v.total = S.total.load();
     v.faults = S.faults.load();
     const int s = entity ? slot_of(entity) : -1;
-    if (s >= 0 && (s < kPlayers || g_who[s - kPlayers].load() == entity)) {
-        const uint64_t last = g_last[s].load(), now = g_tick.load();
-        v.skipped = g_count[s].load();
-        v.active = last != 0 && now - last <= 1 ? 1u : 0u;
+    if (s >= 0) {
+        std::unique_lock<std::mutex> lock(g_extra_mu, std::defer_lock);
+        if (s >= kPlayers) lock.lock();  // an extra slot's owner and numbers as one
+        if (s < kPlayers || g_who[s - kPlayers].load() == entity) {
+            const uint64_t last = g_last[s].load(), now = g_tick.load();
+            v.skipped = g_count[s].load();
+            v.active = last != 0 && now - last <= 1 ? 1u : 0u;
+        }
     }
     const uint32_t n = out->size < sizeof v ? out->size : static_cast<uint32_t>(sizeof v);
     v.size = n;

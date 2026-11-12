@@ -12,6 +12,12 @@ bool idle() { return test_idle; }
 bool flame_creative() { return test_idle; }
 }
 
+// noclip.cpp is not part of this test (noclip_hook_test.cpp runs it with these hooks)
+namespace kiln_rules_noclip {
+int ticks = 0;
+void tick() { ++ticks; }
+}
+
 namespace {
 int failures = 0, entities = 0, flags = 0;
 void check(bool ok, const char* why) { std::printf("%s %s\n", ok ? "PASS" : "FAIL", why); failures += !ok; }
@@ -80,6 +86,12 @@ int main() {
     e = 5000; c.rax = flight_math::kBuildingFlying;
     f::state_body(c);
     check(c.rax == flight_math::kBuildingFlying, "a building spark is untouched");
+    // an entity WITH the rule, in a BuildingFlying state Kiln did not start: left alone too, and not taken over
+    e = 6; set_rule(6, &rule); dyn[0x59] = flight_math::kBuildingFlying; c.rax = flight_math::kBuildingFlying;
+    actor[0] = true; input[1] = uint64_t{1} << 55; f::mover_pre(reinterpret_cast<uint8_t*>(it));  // grounded and sinking: Kiln's own flight would land
+    f::state_body(c);
+    check(c.rax == flight_math::kBuildingFlying && !f::flown_recently(6, dyn), "a flight Kiln did not start is not landed, ended or adopted, rule or not");
+    set_rule(6, nullptr); actor[0] = false; e = 5000;
     set_rule(e, &rule); f::note_flying(e, dyn); set_rule(e, nullptr);
     f::state_body(c);
     check(c.rax == flight_math::kFalling, "a simulated character falls after revocation too");
@@ -94,9 +106,15 @@ int main() {
     store(g_local, &rule); e = 3; c.rax = flight_math::kFalling; dyn[0x59] = flight_math::kFalling;
     f::refresh(); f::state_body(c);
     check(c.rax == flight_math::kBuildingFlying, "a joined client's local player predicts its flight");
+    const int ticks = kiln_rules_noclip::ticks;
+    f::client_pre(nullptr, nullptr);
+    check(kiln_rules_noclip::ticks == ticks + 1, "a joined client's tick ages NoClip's activity");
     session = KILN_SESSION_HOST; f::refresh(); c.rax = flight_math::kFalling;
     f::state_body(c);
     check(c.rax == flight_math::kFalling, "a host never regrants revoked server flight from stale local rules");
+    const int host_ticks = kiln_rules_noclip::ticks;
+    f::client_pre(nullptr, nullptr);
+    check(kiln_rules_noclip::ticks == host_ticks, "a host's client tick does not age it (its server tick does)");
     session = KILN_SESSION_REMOTE; f::refresh(); f::reset();
     check(f::g_local_player == 0, "world reset drops the cached local identity immediately");
     set_rule(e, &rule);

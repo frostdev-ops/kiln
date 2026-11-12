@@ -55,7 +55,7 @@ namespace kiln_rules_noclip {
 // falls through the world. Returns KILN_RULES_HOOK_NOCLIP or 0 (`off` says why).
 uint32_t install(const KilnApi* api, KilnOwner owner, bool flight, std::string& off);
 void reset();  // world lifecycle: entity ids start over
-void tick();   // once per server tick: ages "active"
+void tick();   // once per tick of the side that simulates (the server's; a joined game's client tick): ages "active"
 KilnResult KILN_CALL state(KilnEntity entity, KilnRulesNoClip* out);
 }  // namespace kiln_rules_noclip
 
