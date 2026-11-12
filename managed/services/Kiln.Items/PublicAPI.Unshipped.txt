@@ -29,3 +29,68 @@ static readonly Kiln.ItemId.None -> Kiln.ItemId (forwarded, contained in Kiln.Ap
 *REMOVED*static Kiln.ItemId.operator ==(Kiln.ItemId left, Kiln.ItemId right) -> bool
 *REMOVED*static readonly Kiln.ItemId.None -> Kiln.ItemId
 *REMOVED*~override Kiln.ItemId.Equals(object obj) -> bool
+Kiln.EquipmentSlot
+Kiln.EquipmentSlot.ArmourArms = 7 -> Kiln.EquipmentSlot
+Kiln.EquipmentSlot.ArmourFeet = 9 -> Kiln.EquipmentSlot
+Kiln.EquipmentSlot.ArmourHead = 5 -> Kiln.EquipmentSlot
+Kiln.EquipmentSlot.ArmourLowerBody = 8 -> Kiln.EquipmentSlot
+Kiln.EquipmentSlot.ArmourUpperBody = 6 -> Kiln.EquipmentSlot
+Kiln.EquipmentSlot.Arrow = 14 -> Kiln.EquipmentSlot
+Kiln.EquipmentSlot.Backpack = 19 -> Kiln.EquipmentSlot
+Kiln.EquipmentSlot.FishingBait = 16 -> Kiln.EquipmentSlot
+Kiln.EquipmentSlot.Glider = 18 -> Kiln.EquipmentSlot
+Kiln.EquipmentSlot.HookShot = 17 -> Kiln.EquipmentSlot
+Kiln.EquipmentSlot.RangedWeapon = 12 -> Kiln.EquipmentSlot
+Kiln.EquipmentSlot.Ring0 = 10 -> Kiln.EquipmentSlot
+Kiln.EquipmentSlot.Ring1 = 11 -> Kiln.EquipmentSlot
+Kiln.EquipmentSlot.Shield = 13 -> Kiln.EquipmentSlot
+Kiln.EquipmentSlot.Spell = 15 -> Kiln.EquipmentSlot
+Kiln.EquipmentSlot.VanityArms = 2 -> Kiln.EquipmentSlot
+Kiln.EquipmentSlot.VanityFeet = 4 -> Kiln.EquipmentSlot
+Kiln.EquipmentSlot.VanityHead = 0 -> Kiln.EquipmentSlot
+Kiln.EquipmentSlot.VanityLowerBody = 3 -> Kiln.EquipmentSlot
+Kiln.EquipmentSlot.VanityUpperBody = 1 -> Kiln.EquipmentSlot
+Kiln.InventorySlot.Ref.get -> Kiln.ItemInstanceRef
+Kiln.InventorySlot.Ref.init -> void
+Kiln.ItemChange.Ref.get -> Kiln.ItemInstanceRef
+Kiln.ItemChange.Ref.init -> void
+Kiln.ItemInstanceExtensions
+Kiln.ItemLocation
+Kiln.ItemLocation.Deconstruct(out Kiln.EntityId Holder, out Kiln.SlotId Slot, out int Link, out int FlatSlot) -> void
+Kiln.ItemLocation.Equals(Kiln.ItemLocation other) -> bool
+Kiln.ItemLocation.FlatSlot.get -> int
+Kiln.ItemLocation.FlatSlot.init -> void
+Kiln.ItemLocation.Holder.get -> Kiln.EntityId
+Kiln.ItemLocation.Holder.init -> void
+Kiln.ItemLocation.IsPlaced.get -> bool
+Kiln.ItemLocation.IsSavedSlot.get -> bool
+Kiln.ItemLocation.ItemLocation() -> void
+Kiln.ItemLocation.ItemLocation(Kiln.EntityId Holder, Kiln.SlotId Slot, int Link, int FlatSlot) -> void
+Kiln.ItemLocation.Link.get -> int
+Kiln.ItemLocation.Link.init -> void
+Kiln.ItemLocation.Slot.get -> Kiln.SlotId
+Kiln.ItemLocation.Slot.init -> void
+Kiln.ItemMoveCause
+Kiln.ItemMoveCause.Observed = 2 -> Kiln.ItemMoveCause
+Kiln.ItemMoveCause.Transaction = 0 -> Kiln.ItemMoveCause
+Kiln.ItemMoveCause.Transfer = 1 -> Kiln.ItemMoveCause
+Kiln.ItemMovedEvent
+Kiln.ItemMovedEvent.Cause.get -> Kiln.ItemMoveCause
+Kiln.ItemMovedEvent.From.get -> Kiln.ItemLocation
+Kiln.ItemMovedEvent.Item.get -> Kiln.ItemInstanceRef
+Kiln.ItemMovedEvent.Step.get -> ulong
+Kiln.ItemMovedEvent.To.get -> Kiln.ItemLocation
+Kiln.MoveChange.Ref.get -> Kiln.ItemInstanceRef
+Kiln.MoveChange.Ref.init -> void
+override Kiln.ItemLocation.GetHashCode() -> int
+override Kiln.ItemLocation.ToString() -> string!
+override Kiln.ItemMovedEvent.ToString() -> string!
+static Kiln.ItemInstanceExtensions.Location(this Kiln.ItemInstanceRef item) -> Kiln.ItemLocation?
+static Kiln.ItemLocation.operator !=(Kiln.ItemLocation left, Kiln.ItemLocation right) -> bool
+static Kiln.ItemLocation.operator ==(Kiln.ItemLocation left, Kiln.ItemLocation right) -> bool
+static Kiln.Items.Equipped(Kiln.EntityId player, Kiln.EquipmentSlot slot) -> Kiln.ItemInstanceRef
+static Kiln.Items.Held(Kiln.EntityId player) -> Kiln.ItemInstanceRef
+[KILNX251]static Kiln.Items.LabFollow(Kiln.ItemInstanceRef item, System.Action<Kiln.ItemLocation, ulong>? gone = null) -> System.IDisposable!
+[KILNX252]static Kiln.Items.LabMoveUnseen(Kiln.EntityId from, Kiln.SlotId slot, Kiln.EntityId to) -> System.Threading.Tasks.Task<Kiln.MoveResult!>!
+[KILNX253]static Kiln.Items.LabInstancesStatus.get -> string!
+~override Kiln.ItemLocation.Equals(object obj) -> bool
