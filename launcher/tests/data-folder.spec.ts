@@ -303,8 +303,8 @@ test.describe("an unfinished move's partial copy is removed at start", () => {
     const d = page.getByRole("dialog", { name: TITLE });
     await expect(d).toBeVisible({ timeout: 10_000 });
     await expect(d.getByTestId("data-folder-undo-path")).toHaveText("/mnt/games/Kiln");
-    await expect(d).toContainText("Cancel leaves the rest for the next start.");
-    await expect(d.getByRole("status", { name: "Remove the unfinished copy" })).toContainText("removing the unfinished copy", { timeout: 6000 });
+    await expect(d).toContainText("Cancel leaves the rest for the next start; Kiln opens as usual.");
+    await expect(d.getByRole("status", { name: "Remove the unfinished copy" })).toContainText("checking ", { timeout: 6000 });
     await cannotDismiss(page, TITLE);
     await expect(page.locator(".k-app, .deck")).toHaveCount(0);
     for (const c of await calls(page)) expect(allowed.has(c), `${c} ran while the folder was held`).toBe(true);
@@ -330,14 +330,25 @@ test.describe("an unfinished move's partial copy is removed at start", () => {
     await expect(n.locator("dd")).toHaveText([DATA, "/mnt/games/Kiln"]);
     await n.getByRole("button", { name: "Open unfinished copy" }).click();
     await expect.poll(() => calls(page)).toContain("app_open_path");
+    // the launcher is usable on the folder in use
+    await n.getByRole("button", { name: "OK" }).click();
+    await expect(page.locator(".k-app")).toBeVisible();
+    await page.evaluate(() => { location.hash = "#/settings"; });
+    await expect(page.getByTestId("data-folder-path")).toHaveText(DATA);
+    await expect(page.getByRole("region", { name: "Profiles" })).toBeVisible();
+    await expect(change(page)).toBeDisabled();
+    await expect(page.getByTestId("data-folder-why")).toContainText("Kiln removes it at the next start.");
   });
 
   test("files the recovery left are named, with their size and why", async ({ page }) => {
     await page.goto("/?df=undoing-left#/");
     const n = page.getByRole("dialog", { name: "Move not finished" });
     await expect(n.getByRole("list", { name: "Kiln could not remove these from the unfinished copy:" }).getByRole("listitem"))
-      .toHaveText(["library/kiln/new-items (47 KB): it is not the same as the file in the data folder in use"], { timeout: 20_000 });
-    await expect(n).toContainText("they stay where they are.");
+      .toHaveText([
+        "library/kiln/new-items/1.0.0/kiln.mod.json (47 KB): it differs from the file in the old folder (added, changed or replaced after the move stopped, or the old folder's file changed since)",
+        "backups/added-after-crash.bin (2.3 KB): the old folder has no such file, so Kiln cannot tell that the move made it",
+      ], { timeout: 20_000 });
+    await expect(n.locator("dd")).toHaveText([DATA, "/mnt/games/Kiln"]);
     await expect(n.getByRole("button")).toHaveText(["Open unfinished copy", "OK"]);
   });
 

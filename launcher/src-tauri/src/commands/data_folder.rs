@@ -406,9 +406,9 @@ pub(crate) fn undo_work(f: &Folder, p: &mut dyn kiln_manage::task::Progress) -> 
         Pending::Uncommitted { journal } => journal,
         _ => return Err(Error::not_found("No unfinished move of the data folder to undo.")),
     };
-    // core-6: dfm::remove_partial_copy_with(&f.env, p) (progress per file, a cancel between files)
-    let _ = p;
-    let c = dfm::remove_partial_copy(&f.env);
+    // a file goes only when the folder in use holds the identical one; progress per file, a cancel between files
+    // (`interrupted`, the journal kept: the next start goes on); what stays is in `kept`, with why
+    let c = dfm::remove_partial_copy_with(&f.env, p);
     let n = match &c {
         Ok(c) => notice_of("undone", &journal, Some(c), false, None),
         Err(e) => notice_of("undone", &journal, None, false, Some(e.message.clone())),
@@ -1436,6 +1436,68 @@ pub(crate) mod tests {
         assert!(added.is_file(), "startup synchronously deleted an unrecorded addition (scheduled={scheduled:?})");
         assert_eq!(scheduled, Next::Undo, "the recovery is a task");
         assert_eq!(f2.hold(), Hold::Undoing, "and the folder is held for it");
+
+        // the task itself keeps it too: named with the crate's reason, the journal stays, the notice lists it
+        let c = undo_work(&f2, &mut kiln_manage::task::NoProgress).unwrap();
+        assert!(added.is_file(), "the recovery task deleted an unrecorded addition");
+        assert!(!c.done, "{c:?}");
+        let k = c.kept.iter().find(|k| k.path == added).expect("the addition is named");
+        assert_eq!(k.reason, dfm::partial_reason::NO_SUCH_FILE, "{k:?}");
+        assert_eq!(f2.hold(), Hold::Free);
+        let n = notice(&f2).expect("the notice");
+        assert!(n.kept.iter().any(|k| k.path == text(&added)), "{n:?}");
+        notice_ack_with(&f2).unwrap();
+        assert!(matches!(dfm::pending(&env).unwrap(), Pending::Uncommitted { .. }), "the next start tries again");
+
+        // the player takes the named file out: the next start finishes and drops the journal
+        std::fs::remove_file(&added).unwrap();
+        forget_start();
+        let f3 = Arc::new(Folder::open(env.clone()));
+        folder::replace(f3.clone());
+        assert_eq!(start_with(&f3), Next::Undo);
+        let c = undo_work(&f3, &mut kiln_manage::task::NoProgress).unwrap();
+        assert!(c.done, "{c:?}");
+        assert!(matches!(dfm::pending(&env).unwrap(), Pending::Nothing));
+        assert!(!to.exists(), "the unfinished copy is gone");
+        let _ = std::fs::remove_dir_all(&t);
+    }
+
+    /// Cancel: the task ends at once with the hold (the launcher mounts on the folder in use), the notice says the rest
+    /// goes at the next start, and the next start's task goes on and finishes.
+    #[test]
+    fn a_canceled_recovery_goes_on_at_the_next_start() {
+        struct Cancel;
+        impl kiln_manage::task::Progress for Cancel {
+            fn report(&mut self, _: Option<f32>, _: &str) {}
+            fn canceled(&self) -> bool {
+                true
+            }
+        }
+        let _g = folder::test_serial();
+        let (t, env, from, to) = unfinished("undo-cancel");
+        let f = Arc::new(Folder::open(env.clone()));
+        folder::replace(f.clone());
+        let ran = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let r = ran.clone();
+        assert_eq!(begin(&f, Box::new(move || { r.fetch_add(1, std::sync::atomic::Ordering::SeqCst); })), Next::Undo);
+        let c = undo_work(&f, &mut Cancel).unwrap();
+        assert!(c.interrupted && !c.done, "{c:?}");
+        assert_eq!(f.hold(), Hold::Free, "the launcher is usable on the folder in use");
+        assert_eq!(ran.load(std::sync::atomic::Ordering::SeqCst), 1, "and its start-up goes on");
+        assert_eq!(crate::state::dirs().unwrap().root, from);
+        let n = folder_out(&f).notice.expect("the notice");
+        assert!(n.kind == "undone" && n.unfinished, "{n:?}");
+        notice_ack_with(&f).unwrap();
+        assert!(matches!(dfm::pending(&env).unwrap(), Pending::Uncommitted { .. }), "the journal stays");
+        assert!(to.exists(), "the rest is still there");
+
+        forget_start();
+        let f2 = Arc::new(Folder::open(env.clone()));
+        folder::replace(f2.clone());
+        assert_eq!(begin(&f2, Box::new(|| {})), Next::Undo);
+        let c = undo_work(&f2, &mut kiln_manage::task::NoProgress).unwrap();
+        assert!(c.done, "the next start finishes: {c:?}");
+        assert!(matches!(dfm::pending(&env).unwrap(), Pending::Nothing));
         let _ = std::fs::remove_dir_all(&t);
     }
 

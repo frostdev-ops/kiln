@@ -156,21 +156,27 @@ export function dataFolderMockHandlers(startTask: StartTask, taskOf: (id: string
   if (folder.undoing) {
     const left = DF === "undoing-left";
     setTimeout(() => {
-      const kept = left ? [{ path: "/mnt/games/Kiln/library/kiln/new-items", bytes: 48_000, reason: "it is not the same as the file in the data folder in use" }] : [];
+      // the crate's sentences (data_folder_move::partial_reason)
+      const kept = left ? [
+        { path: "/mnt/games/Kiln/library/kiln/new-items/1.0.0/kiln.mod.json", bytes: 48_000, reason: "it differs from the file in the old folder (added, changed or replaced after the move stopped, or the old folder's file changed since)" },
+        { path: "/mnt/games/Kiln/backups/added-after-crash.bin", bytes: 2_400, reason: "the old folder has no such file, so Kiln cannot tell that the move made it" },
+      ] : [];
       const id = startTask("data_folder_undo", "Remove the unfinished copy",
-        ["removing the unfinished copy: library/kiln/new-items/1.0.0/kiln.mod.json", "removing the unfinished copy: runtime/kiln-runtime-0.2.0-dev.zip",
-          "removing the unfinished copy: backups/old", "removing the unfinished copy: settings.json"],
+        ["checking library/kiln/new-items/1.0.0/kiln.mod.json", "checking runtime/kiln-runtime-0.2.0-dev.zip", "checking backups/old/file-001.bin",
+          "checking settings.json"],
         () => ({ folder: "/mnt/games/Kiln", done: !left, interrupted: false, removedFiles: 12, removedBytes: 3_600_000_000, folderRemoved: !left, kept,
-          reason: left ? "Some files of the unfinished copy are not the same as in the data folder in use: they stay where they are." : null }), undoStepMs);
+          reason: null }), undoStepMs);
       folder = { ...folder, undoing: { task: id, folder: "/mnt/games/Kiln" } };
       const watch = setInterval(() => {
         const t = taskOf(id);
         if (!t || t.state === "running" || t.state === "queued") return;
         clearInterval(watch);
         const canceled = t.state === "canceled";
-        folder = { ...folder, undoing: null, notice: { kind: "undone", from: MOCK_DEFAULT_DATA, to: "/mnt/games/Kiln", left: kept.map((k) => k.path), stayed: [], kept,
+        // the journal stays while anything is left: a move would be refused until the next start finishes
+        const pending = canceled || left ? "Part of an unfinished copy from the last move is still in /mnt/games/Kiln: Kiln removes it at the next start." : null;
+        folder = { ...folder, undoing: null, pending, notice: { kind: "undone", from: MOCK_DEFAULT_DATA, to: "/mnt/games/Kiln", left: kept.map((k) => k.path), stayed: [], kept,
           removing: false, unfinished: canceled, folderRemoved: !left && !canceled,
-          reason: left ? "Some files of the unfinished copy are not the same as in the data folder in use: they stay where they are." : null } };
+          reason: null } };
       }, 100);
     }, 400);
   }

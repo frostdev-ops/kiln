@@ -190,7 +190,7 @@ export function noticeView(n: DataFolderNotice): NoticeView {
 
 /** The dialog while an unfinished move's partial copy is removed (the folder is held). */
 export const UNDOING_TITLE = "Removing an unfinished copy";
-export const UNDOING_CANCEL_LINE = "Cancel leaves the rest for the next start.";
+export const UNDOING_CANCEL_LINE = "Cancel leaves the rest for the next start; Kiln opens as usual.";
 
 /** The dialog when another launcher holds the data folder (it is moving it). */
 export const ELSEWHERE_TITLE = "Kiln is moving its data in another window";

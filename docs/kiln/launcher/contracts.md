@@ -1083,7 +1083,7 @@ The data folder (`launcher/src-tauri/src/commands/data_folder.rs`, `folder.rs`; 
 DataFolderNotice|null, elsewhere: boolean, undoing: {task: string|null, folder}|null, pending: string|null}`
 (`elsewhere`: another launcher holds the folder's lock exclusively, it is moving it; `undoing`: this start removes an
 unfinished move's partial copy at `folder`, the task "Remove the unfinished copy" (kind `data_folder_undo`; null for
-the moment before it starts); `pending`: an earlier move is not finished, the crate would refuse a move with
+the moment before it starts; its result is the crate's `Cleanup`, `remove_partial_copy_with`); `pending`: an earlier move is not finished, the crate would refuse a move with
 `move_pending`, in words), `DataFolderEntry {name, bytes, path}`, `DataFolderPlan {picked, target, action: "move"|"use"|"refuse",
 reason, code (RefusalCode, snake_case), bytes, files, needed, free, sameVolume, hardLinks, copyMode: string[] (games by
 name that would run in copy mode from there and do not now), stays: DataFolderEntry[] (entries the launcher does not

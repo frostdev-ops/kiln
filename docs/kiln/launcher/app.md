@@ -296,10 +296,14 @@ created for a broken pointer; a missing default or `KILN_DATA_DIR` root is made,
 import, no update check, no file written. Then a move the journal records. An unfinished one: nothing is removed
 during setup; the folder is held as during a move (its proof is a file identical to the one in the folder in use, so
 nothing may write that folder), the task "Remove the unfinished copy" starts two seconds later, and the window shows
-only "Removing an unfinished copy" with the folder, the task's progress and Cancel ("Cancel leaves the rest for the
-next start."). When the task ends, however it ends, the hold ends: the held log lines are written, the steps below
-run, the launcher mounts, and the notice "Move not finished" names what is left (path, size, why), where the
-unfinished copy is, and Open; a canceled one says the rest goes at the next start. A committed one not acknowledged
+only "Removing an unfinished copy" with the folder, the task's progress ("checking <file>") and Cancel ("Cancel
+leaves the rest for the next start; Kiln opens as usual."). The task is `data_folder_move::remove_partial_copy_with`:
+a file goes only when the folder in use holds the identical one; everything else stays, named with the crate's
+reason. When the task ends, however it ends, the hold ends: the held log lines are written, the steps below run, the
+launcher mounts, and the notice "Move not finished" names what is left (path, size, why), where the unfinished copy
+is, and Open; a canceled one says the rest goes at the next start. While anything is left the journal stays, the
+Settings row says so instead of Change, and every start tries again; once the player has taken the named files out
+(or removed the folder) the next start finishes. A committed one not acknowledged
 yet gets the task "Remove the old data folder" two seconds later (what the move's own removal left, or the lock files and the empty old folder
 the moving process still held; in the task tray, can be canceled, goes on at the next start). A removal the crate
 refuses (a game's profile still names the old folder) says its reason in the notice, and the ack keeps the journal;
