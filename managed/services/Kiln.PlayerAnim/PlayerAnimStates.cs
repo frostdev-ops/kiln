@@ -339,6 +339,7 @@ public static unsafe class PlayerAnimStates
         Validate(state);
         var t = T;
         if (t == null) throw new KilnUnavailableException(Capability, "the kiln.playeranim service is not loaded on this side");
+        if (Graph == PlayerAnimGraphState.Off) throw new KilnUnavailableException(Capability, Capabilities.Why(Capability));
         var mod = ModContext.CurrentMod?.Info
             ?? throw new InvalidOperationException("PlayerAnimStates.Define must be called from a mod's code (OnLoad or a tick handler)");
         var guid = GuidOf(mod.Id, state.Name);
