@@ -450,6 +450,65 @@ public sealed class PlayerIdentityTests : IDisposable
         Unavailable(() => _ = (PlayerRef)holder, "identity.players");
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void QuestHolder_without_a_character_checks_the_account_before_using_a_reused_slot(bool sessionOnly)
+    {
+        _roster.Join("Alder", 0, SteamA, 1, 100);
+        var holder = new QuestHolder(sessionOnly ? "session:1" : $"player:{SteamA}",
+            sessionOnly ? 0 : SteamA, new EntityId(1));
+        if (!sessionOnly) Assert.Equal(PlayerRef.Of(holder.Entity), (PlayerRef)holder);
+        _roster.Join("Birch", 0, SteamB, 2, 400);
+        Assert.Equal(PlayerRef.None, (PlayerRef)holder);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void QuestHolder_checks_the_account_when_the_reused_slots_character_is_unknown(bool hasAccount)
+    {
+        _roster.Join("Alder", 0, SteamA, 1, 100, character: CharA);
+        var holder = new QuestHolder($"character:{SteamA}.{CharA}", hasAccount ? SteamA : 0, new EntityId(1))
+            { Character = new CharacterKey(SteamA, CharA) };
+        Assert.Equal(PlayerRef.Of(holder.Entity), (PlayerRef)holder);
+        _roster.Join("Birch", 0, SteamB, 2, 400);
+        Assert.Equal(new PlayerRef(0, CharA, EntityRef.None), (PlayerRef)holder);
+    }
+
+    [Fact]
+    public void QuestHolder_can_check_the_account_while_the_same_players_character_is_unknown()
+    {
+        _roster.Join("Alder", 0, SteamA, 1, 100);
+        var holder = new QuestHolder($"character:{SteamA}.{CharA}", SteamA, new EntityId(1))
+            { Character = new CharacterKey(SteamA, CharA) };
+        Assert.Equal(PlayerRef.Of(holder.Entity), (PlayerRef)holder);
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public void TalentHolder_returns_offline_when_no_identity_can_be_compared_after_slot_reuse(bool hasSteam, bool hasCharacter)
+    {
+        _roster.Join("Alder", 0, SteamA, 1, 100, character: CharA);
+        var holder = new TalentHolder(hasSteam ? SteamA : 0, new EntityId(1))
+            { Character = hasCharacter ? new CharacterKey(SteamA, CharA) : default };
+        _roster.Join("Birch", 0, hasSteam ? 0 : SteamB, 2, 400);
+        Assert.Equal(new PlayerRef(hasSteam ? SteamA : 0, hasCharacter ? CharA : Guid.Empty, EntityRef.None), (PlayerRef)holder);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void TalentHolder_accepts_a_comparable_matching_identity(bool bySteam)
+    {
+        _roster.Join("Alder", 0, bySteam ? SteamA : 0, 1, 100, character: bySteam ? null : CharA);
+        var holder = new TalentHolder(bySteam ? SteamA : 0, new EntityId(1))
+            { Character = bySteam ? default : new CharacterKey(SteamA, CharA) };
+        Assert.Equal(PlayerRef.Of(holder.Entity), (PlayerRef)holder);
+    }
+
     // ---- start ----
 
     [Fact]

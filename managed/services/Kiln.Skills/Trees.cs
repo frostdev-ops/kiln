@@ -114,7 +114,8 @@ public readonly record struct TalentHolder(ulong SteamId, EntityId Entity)
 
     /// <summary>This holder as a <see cref="PlayerRef"/>. With an entity: <see cref="PlayerRef.Of"/> of it (the session
     /// stamped as Kiln.Players stamps it), unless that entity is no player in game now or is a different person (the
-    /// slot was reused), which gives the offline ref of the holder's Steam and character id. Without an entity: that
+    /// slot was reused), which gives the offline ref of the holder's Steam and character id. If neither Steam ids nor
+    /// character ids can be compared, also gives the offline ref rather than trusting the slot. Without an entity: that
     /// offline ref, read on any thread. <see cref="PlayerRef.Resolve"/> finds the current session.</summary>
     /// <exception cref="InvalidOperationException">The holder has an entity and this is not the tick thread.</exception>
     /// <exception cref="KilnUnavailableException">The holder has an entity and kiln.players cannot answer
@@ -126,9 +127,11 @@ public readonly record struct TalentHolder(ulong SteamId, EntityId Entity)
         if (holder.Entity.IsNone) return offline;
         var live = PlayerRef.Of(holder.Entity);
         if (live.IsNone) return offline;
-        var otherSteam = holder.SteamId != 0 && live.SteamId != 0 && holder.SteamId != live.SteamId;
-        var otherCharacter = holder.Character.Id != Guid.Empty && live.HasCharacter && holder.Character.Id != live.CharacterId;
-        return otherSteam || otherCharacter ? offline : live;
+        var canCompareSteam = holder.SteamId != 0 && live.SteamId != 0;
+        var canCompareCharacter = holder.Character.Id != Guid.Empty && live.HasCharacter;
+        var otherSteam = canCompareSteam && holder.SteamId != live.SteamId;
+        var otherCharacter = canCompareCharacter && holder.Character.Id != live.CharacterId;
+        return otherSteam || otherCharacter || !(canCompareSteam || canCompareCharacter) ? offline : live;
     }
 }
 
