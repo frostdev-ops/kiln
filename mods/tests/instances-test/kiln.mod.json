@@ -1,0 +1,8 @@
+{
+  "id": "instances-test",
+  "name": "instances lab test (entity refs, item instances)",
+  "version": "0.1.0",
+  "apiVersion": "0.1",
+  "entryAssembly": "InstancesTest.dll",
+  "side": "server"
+}

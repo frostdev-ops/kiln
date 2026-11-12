@@ -1,0 +1,10 @@
+{
+  "id": "item-data",
+  "name": "Item data sample",
+  "version": "0.1.0",
+  "apiVersion": "0.2",
+  "license": "MIT",
+  "entryAssembly": "ItemData.dll",
+  "side": "server",
+  "description": "Cut a notch into the weapon in your hand with /notch: the count stays with that one item through moves, saves and restarts. /notches lists them."
+}

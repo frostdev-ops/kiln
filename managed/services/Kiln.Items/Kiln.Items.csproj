@@ -10,6 +10,9 @@
   </PropertyGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="Kiln.Blocks.Tests" />
+    <!-- Item instances (ItemInstances, ItemRecord, ItemInstanceInfo): instance data lives in Kiln.Saves. -->
+    <InternalsVisibleTo Include="Kiln.Saves" />
+    <InternalsVisibleTo Include="Kiln.Saves.Tests" />
     <ProjectReference Include="../../Kiln.Api/Kiln.Api.csproj" Private="false" />
     <EmbeddedResource Include="Data/items.tsv" LogicalName="Kiln.Items.items.tsv" />
     <None Include="Data/ITEMS-LICENSE.txt" />

@@ -12,5 +12,8 @@
     <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
     <!-- Exercise the real metadata, identity, stage, manifest and restart code; only the native world is a stand-in. -->
     <ProjectReference Include="../../services/Kiln.Saves/Kiln.Saves.csproj" />
+    <!-- Only the tests reference Kiln.Chat: they prove the late-bound /instances command against the real Commands class.
+         Kiln.Saves itself has no reference to it. -->
+    <ProjectReference Include="../../services/Kiln.Chat/Kiln.Chat.csproj" />
   </ItemGroup>
 </Project>

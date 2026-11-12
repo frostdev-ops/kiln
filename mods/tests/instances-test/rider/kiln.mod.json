@@ -1,0 +1,8 @@
+{
+  "id": "instances-rider",
+  "name": "instances lab test: a second mod whose item data rides along while it is not loaded",
+  "version": "0.1.0",
+  "apiVersion": "0.1",
+  "entryAssembly": "InstancesRider.dll",
+  "side": "server"
+}

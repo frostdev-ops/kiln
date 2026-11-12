@@ -79,11 +79,29 @@ internal static unsafe class SavesRuntime
             var st = SavesNative.ReadStatus();
             Log(LogLevel.Info, $"Kiln.Saves: started (native events from seq {last + 1}; state {StateText(st?.State ?? 0)}, " +
                                $"world {GuidOf(st)?.ToString() ?? "unknown"} revision {st?.Revision ?? 0})");
+            AttachItems();
+            if (st is { } s0 && (s0.Features & SavesNative.CanSnapshotStage) == 0)
+                Log(LogLevel.Warn, "Kiln.Saves: this build has no snapshot staging: instance data is read one simulation step before the " +
+                                   "game's snapshot, so identical items (twins) cannot be told apart after a restart (they are set aside)");
             return true;
         }
     }
 
     internal static void Log(LogLevel level, string text) => Backend.Current.Log(0, level, text);
+
+    /// <summary>Instance data reads the game's items through Kiln.Items (kiln.items v4). Set once at the start; whether item
+    /// instances are on is asked at every call, so a server without them has InstanceData off, naming items.instances.</summary>
+    private static void AttachItems()
+    {
+        try
+        {
+            Store.Instances.World ??= new InstanceGame();
+        }
+        catch (Exception e) when (e is FileNotFoundException or FileLoadException or TypeLoadException or MissingMethodException)
+        {
+            Log(LogLevel.Warn, $"Kiln.Saves: Kiln.Items could not be loaded ({e.Message}); instance data is off (items.instances)");
+        }
+    }
 
     /// <summary>The sidecar folder of the world that is open (opened now if nothing used it yet, as WorldData does); null
     /// before a new world's first save, while a hosted world is closed, or without the native service.</summary>
@@ -154,6 +172,27 @@ internal static unsafe class SavesRuntime
         Store.OnWorldLoaded(id, revision, unix, newWorld);
         if (Events.HasSubscribers<WorldLoadedEvent>())
             Events.Post(new WorldLoadedEvent(Store.WorldId ?? id, revision, newWorld, WorldFile, Store.Match));
+    }
+
+    /// <summary>Test kit: the session of the open world ends, so the next one starts as a fresh process does. The world's
+    /// data closes (instance data included) and the store can open the next world; the save sequence, the shutdown
+    /// announcement, the cached world file and the pending requests go. The native table and its event sequence
+    /// (<c>_state</c>, <c>_lastSeq</c>) live for the process and stay.</summary>
+    internal static void EndSession()
+    {
+        Store.CloseWorld();
+        Store.Reopenable();
+        _shutdownAnnounced = false;
+        _loadedEventSeen = false;
+        _labHosted = false;
+        _worldFile = null;
+        _savingSeq = _snapshotSeq = 0;
+        _savingRevision = 0;
+        lock (Gate)
+        {
+            Requests.Clear();
+            Watched.Clear();
+        }
     }
 
     /// <summary>The world's own data can be read: always on a dedicated server (its one world's data opens before the game loads
@@ -277,6 +316,7 @@ internal static unsafe class SavesRuntime
         {
             DrainEvents();
             Store.Entities.Tick();
+            Store.Instances.Tick();
         }
         finally
         {
@@ -341,7 +381,7 @@ internal static unsafe class SavesRuntime
                 // Only final serialization: do not repeat WorldSaving handlers or overwrite a target after its snapshot.
                 if (ev.SaveSeq == 0 || ev.SaveSeq != _savingSeq || ev.SaveSeq == _snapshotSeq || ev.Revision != _savingRevision) break;
                 _snapshotSeq = ev.SaveSeq;
-                Store.Stage(ev.Revision, reason, late: false);
+                Store.Stage(ev.Revision, reason, late: false, snapshot: true);
                 break;
             }
             case SavesNative.EvWritten:
