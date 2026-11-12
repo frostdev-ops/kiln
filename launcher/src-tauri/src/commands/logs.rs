@@ -82,6 +82,10 @@ fn report_input(app: &tauri::AppHandle, target: Option<LogTarget>) -> Result<kil
         roots: Some(crate::state::steam_roots()),
         ..Default::default()
     };
+    // Linux: how the launcher draws its window (crate::render), one line in summary.txt
+    if let Some(c) = crate::render::choice() {
+        input.facts.push(("Launcher".into(), crate::render::says(c)));
+    }
     match target {
         Some(LogTarget::Game(id)) => input.install = Some(crate::state::game(&id)?),
         Some(t @ LogTarget::Server(_)) => input.game_dir = Some(target_dir(&t)?),

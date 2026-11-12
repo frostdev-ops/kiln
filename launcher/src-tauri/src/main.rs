@@ -67,6 +67,10 @@ fn main() {
         // SAFETY: first thing in main, before any thread exists.
         unsafe { std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1") };
     }
+    // How the window is drawn: `--software-render` / `--gpu-render` (here, after the nxm check above: a link start has
+    // no other argument), `KILN_LAUNCHER_RENDER`, the marker; software mode's variables, the watchdog (render.rs).
+    #[cfg(target_os = "linux")]
+    kiln_launcher_lib::render::prepare(&args);
     kiln_launcher_lib::run()
 }
 
@@ -80,7 +84,8 @@ mod tests {
         assert_eq!(nxm_argument(&args(&["--nxm", url])), Ok(Some(url)));
         assert_eq!(nxm_argument(&args(&[url])), Ok(Some(url)));
         assert_eq!(nxm_argument(&args(&["--selftest"])), Ok(None));
-        for tail in [vec!["--nxm"], vec!["--nxm", "--selftest"], vec!["--nxm", url, "--kiln-ctrl-c", "1"], vec!["--kiln-ctrl-c", "1", url], vec![url, "--selftest"]] {
+        for tail in [vec!["--nxm"], vec!["--nxm", "--selftest"], vec!["--nxm", url, "--kiln-ctrl-c", "1"], vec!["--kiln-ctrl-c", "1", url], vec![url, "--selftest"],
+            vec!["--nxm", url, "--software-render"], vec!["--gpu-render", url]] {
             assert!(nxm_argument(&args(&tail)).is_err());
         }
     }

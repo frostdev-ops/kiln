@@ -5,7 +5,7 @@ import { FolderPlus, Plus, RefreshCw, Trash2, X } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { useLocation } from "react-router-dom";
 import * as api from "../api/commands";
-import type { ConfigDocument, Json, LauncherSettings } from "../api/commands";
+import type { ConfigDocument, Json, LauncherSettings, RenderInfo } from "../api/commands";
 import { qk, useAppInfo, useGame, useGameStatus, useNexusEnabled, useSettings } from "../api/hooks";
 import { fallbackEnabled } from "../api/fallback";
 import { useAssetsStatus, useExtractTask } from "../components/GameArt";
@@ -91,19 +91,42 @@ function LauncherCard() {
 }
 
 /** Appearance: the fire on Play. Off (or KILN_LAUNCHER_NO_WEBGL=1 for one start) draws the plain Play button, the same
- *  one a machine without WebGL gets. */
+ *  one a machine without WebGL gets. On Linux also "Draw the launcher without the GPU" (the render marker, render.rs). */
 function AppearanceCard() {
   const qc = useQueryClient();
   const s = useSettings();
   const info = useAppInfo();
   if (!s.data) return null;
   const forced = !!info.data?.noWebgl;
+  const render = info.data?.render;
+  const setRender = (on: boolean) => api.appRenderSet(on).then((next) => {
+    qc.setQueryData(qk.appInfo, (cur: api.AppInfo | undefined) => (cur ? { ...cur, render: next } : cur));
+    toast.ok(on ? "The next start draws without the GPU" : "The next start draws with the GPU");
+  }).catch((e) => toast.error(e));
   return (
     <Card title="Appearance">
       <Toggle checked={!forced && s.data.animatedFire !== false} disabled={forced} onChange={(on) => void saveSettings(qc, () => ({ animatedFire: on }))}
-        label="Animated fire" hint={forced ? "Off for this start: KILN_LAUNCHER_NO_WEBGL is set." : "The fire on Play (WebGL). Off: a plain Play button, easier on weak GPUs."} />
+        label="Animated fire" hint={forced ? fireOff(info.data) : "The fire on Play (WebGL). Off: a plain Play button, easier on weak GPUs."} />
+      {render && <Toggle checked={render.marker} onChange={(on) => void setRender(on)} label="Draw the launcher without the GPU" hint={renderHint(render)} />}
     </Card>
   );
+}
+
+/** Why the fire is off for this start (app_info.noWebgl). */
+const fireOff = (info: api.AppInfo | undefined) =>
+  info?.render?.mode === "software" ? "Off while the launcher draws without the GPU." : "Off for this start: KILN_LAUNCHER_NO_WEBGL is set.";
+
+/** What the render switch says: when it applies, how this start draws and why, who turned it on. */
+function renderHint(r: RenderInfo): string {
+  const now = r.mode === "software" ? "This start draws without the GPU" : "This start draws with the GPU";
+  const why = {
+    default: "",
+    marker: "",
+    restart: ": the page did not start with it",
+    environment: ": KILN_LAUNCHER_RENDER is set and wins over this switch",
+    argument: `: ${r.mode === "software" ? "--software-render" : "--gpu-render"} was given and wins over this switch`,
+  }[r.why];
+  return `For a window that stays black. Applies at the next start. ${now}${why}.${r.marker && r.markerWhy ? ` ${r.markerWhy}.` : ""}`;
 }
 
 function DevCard() {

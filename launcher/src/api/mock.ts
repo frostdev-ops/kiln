@@ -6,7 +6,7 @@
 import type {
   Activation, AddReport, BundlePart, RunSide, AddedMod, AdminEndpoint, AppInfo, BootJson, BootState, ConfigDocument, ConfigFileInfo, ConfigTarget, CrashReport, ReportFinding, ReportSaved, Detected, Distribution,
   EditorBackup, FoundMod, FoundReport, GameInstall, GameStatus, ImportReport, InstallReceipt, InstallResult, InstallState, Json, KilnError, LastServer, LaunchRequest, NewerKilnMod,
-  LaunchResult, LauncherSettings, LibraryEntry, LibraryRef, LogFile, LogTarget, ModKind, ModpackInstallRequest, ModpackInstallResult, ModsJson,
+  LaunchResult, LauncherSettings, RenderInfo, LibraryEntry, LibraryRef, LogFile, LogTarget, ModKind, ModpackInstallRequest, ModpackInstallResult, ModsJson,
   NativeJson, NativePlanEntry, NativeUserState, PreStart, Profile, ProfileChange, ProfileMod, ProfileSummary, ProxyClass, Rejection, RemoveReport, ResolvePreview, RuntimeBundle, SaveBackup, SaveSlot,
   SchemaSnapshot, ServerInstance, ServerStatus, Task, TaskState,
 } from "./commands";
@@ -647,6 +647,10 @@ const crashes: CrashReport[] = [{ name: "2026-11-03T22-10-04Z-night-sky.txt", cr
 const assets = { root: "/home/player/.local/share/kiln", editor: { present: true, bytes: 0 }, admin: { map: false, catalog: false, bytes: 0 } };
 let settings: LauncherSettings = { steamRoots: [], defaultGameId: FRESH ? null : "client-steam", allowHttpModpacks: false, savesKeep: 10, updateCheck: true, animatedFire: true,
   addToActiveProfile: true };
+// how the (Linux) launcher draws its window; `?render=software` as after the fallback
+let render: RenderInfo = typeof location !== "undefined" && new URLSearchParams(location.search).get("render") === "software"
+  ? { mode: "software", why: "restart", marker: true, markerWhy: "The launcher turned this on by itself: the page did not start within 15 s of the window with the GPU (2026-11-11T21:04:10Z)" }
+  : { mode: "gpu", why: "default", marker: false };
 
 const server: ServerInstance = {
   id: "lab", name: "Lab server", kind: "local", dir: "/home/player/srv/enshrouded/lab", port: 26090, queryPort: 26091,
@@ -673,8 +677,13 @@ const S = (v: unknown) => String(v ?? "");
 
 const handlers: Record<string, Handler> = {
   // app
-  app_info: (): AppInfo => ({ version: "0.2.0-dev", kiln: "0.2.0-dev", platform: "linux", arch: "x86_64", dataDir: "/home/player/.local/share/kiln", commit: "0f1ffa6", mock: true, noWebgl: false,
-    distribution: MOCK_DISTRIBUTION, nexusEnabled: NEXUS_MOCK_ENABLED }),
+  app_info: (): AppInfo => ({ version: "0.2.0-dev", kiln: "0.2.0-dev", platform: "linux", arch: "x86_64", dataDir: "/home/player/.local/share/kiln", commit: "0f1ffa6", mock: true,
+    noWebgl: render.mode === "software", distribution: MOCK_DISTRIBUTION, nexusEnabled: NEXUS_MOCK_ENABLED, render: { ...render } }),
+  app_started: () => null,
+  app_render_set: (a) => {
+    render = { ...render, marker: !!a.software, markerWhy: a.software ? `Turned on in Settings (${new Date().toISOString()})` : undefined };
+    return { ...render };
+  },
   app_settings_get: () => settings,
   app_settings_set: (a) => (settings = { ...(a.settings as LauncherSettings) }),
   app_open_path: () => null,

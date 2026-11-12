@@ -19,8 +19,27 @@ use std::process::Command;
 #[cfg(unix)]
 const OWN: [&str; 4] = ["APPDIR", "APPIMAGE", "ARGV0", "OWD"];
 
+/// The Linux launcher's software mode (launcher/src-tauri/src/render.rs) sets these for its own webview, and names the
+/// ones it set (not the user's own) in [`RENDER_SET`], comma-separated. They are the launcher's, not the host's: a
+/// Steam it starts would draw its own window in software, so a program of the host never gets them.
+pub const RENDER_VARS: [&str; 3] = ["WEBKIT_DISABLE_COMPOSITING_MODE", "WEBKIT_SKIA_ENABLE_CPU_RENDERING", "LIBGL_ALWAYS_SOFTWARE"];
+pub const RENDER_SET: &str = "KILN_LAUNCHER_RENDER_SET";
+
+/// [`RENDER_SET`] and the [`RENDER_VARS`] it names, as removals. Any other name in it is left alone.
+#[cfg(unix)]
+fn render_removals(vars: &[(OsString, OsString)]) -> Vec<(OsString, Option<OsString>)> {
+    let Some((_, list)) = vars.iter().find(|(k, _)| k == RENDER_SET) else { return Vec::new() };
+    let list = list.to_string_lossy();
+    let mut out: Vec<(OsString, Option<OsString>)> = RENDER_VARS.iter()
+        .filter(|v| list.split(',').any(|x| x.trim() == **v) && vars.iter().any(|(k, _)| k == **v))
+        .map(|v| (OsString::from(v), None)).collect();
+    out.push((OsString::from(RENDER_SET), None));
+    out
+}
+
 /// What has to change in `vars` (a process environment) before a host program gets it: `(name, None)` removes the
-/// variable, `(name, Some(value))` replaces it. Empty when `APPDIR` is unset or empty.
+/// variable, `(name, Some(value))` replaces it. The launcher's own software-mode variables ([`RENDER_SET`]) always
+/// go; the rest is empty when `APPDIR` is unset or empty.
 ///
 /// A value is read as a `:`-separated list (a single path is a list of one). An entry is the AppImage's when it is
 /// `$APPDIR` or lies under it; AppRun writes `$APPDIR/usr/lib/:$OLD`, so with nothing in `$OLD` the list ends in an
@@ -32,12 +51,15 @@ where
 {
     use std::os::unix::ffi::{OsStrExt, OsStringExt};
     let vars: Vec<(OsString, OsString)> = vars.into_iter().collect();
-    let Some(appdir) = vars.iter().find(|(k, _)| k == "APPDIR").map(|(_, v)| v.as_bytes().to_vec()) else { return Vec::new() };
+    let mut out = render_removals(&vars);
+    let Some(appdir) = vars.iter().find(|(k, _)| k == "APPDIR").map(|(_, v)| v.as_bytes().to_vec()) else { return out };
     let appdir: &[u8] = match appdir.strip_suffix(b"/") { Some(s) => s, None => &appdir };
-    if appdir.is_empty() { return Vec::new(); }
+    if appdir.is_empty() { return out; }
     let inside = |entry: &[u8]| entry.strip_prefix(appdir).is_some_and(|rest| rest.is_empty() || rest[0] == b'/');
-    let mut out = Vec::new();
     for (name, value) in &vars {
+        if out.iter().any(|(k, _)| k == name) {
+            continue;  // a software-mode variable already removed
+        }
         if OWN.iter().any(|own| name == own) {
             out.push((name.clone(), None));
             continue;
@@ -167,6 +189,30 @@ mod tests {
         assert_eq!(of(&c, "C"), None);
         assert_eq!(of(&c, "D"), Some(&set("x::z")));
         assert_eq!(of(&c, "E"), Some(&set("x")));
+    }
+
+    /// The launcher's software mode set its variables (and named them): a host program gets none of those, keeps the
+    /// user's own value of the same kind, and an unknown name in the list is not touched. In and outside an AppImage.
+    #[test]
+    fn the_launchers_software_mode_variables_stay_with_the_launcher() {
+        let user = vars(&[
+            (RENDER_SET, "WEBKIT_SKIA_ENABLE_CPU_RENDERING, LIBGL_ALWAYS_SOFTWARE,HOME"),
+            ("WEBKIT_SKIA_ENABLE_CPU_RENDERING", "1"),
+            ("LIBGL_ALWAYS_SOFTWARE", "1"),
+            ("WEBKIT_DISABLE_COMPOSITING_MODE", "1"),  // the user's own (not in the list)
+            ("HOME", "/home/player"),
+        ]);
+        for env in [user.clone(), user.iter().cloned().chain(seen()).collect()] {
+            let c = changes(env);
+            assert_eq!(of(&c, "LIBGL_ALWAYS_SOFTWARE"), Some(&None), "{c:?}");
+            assert_eq!(of(&c, "WEBKIT_SKIA_ENABLE_CPU_RENDERING"), Some(&None));
+            assert_eq!(of(&c, RENDER_SET), Some(&None));
+            assert_eq!(of(&c, "WEBKIT_DISABLE_COMPOSITING_MODE"), None, "the user's own value stays");
+            assert_eq!(of(&c, "HOME"), None, "only the software-mode names are taken back");
+            assert_eq!(c.iter().filter(|(k, _)| k == "LIBGL_ALWAYS_SOFTWARE").count(), 1, "once");
+        }
+        // no list: nothing of the kind changes
+        assert!(changes(vars(&[("LIBGL_ALWAYS_SOFTWARE", "1")])).is_empty());
     }
 
     /// A command built for the host carries the removals, and the caller's own `env` after it wins.

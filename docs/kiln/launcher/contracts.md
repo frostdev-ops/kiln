@@ -85,6 +85,7 @@ Root: `$KILN_DATA_DIR`, else `$XDG_DATA_HOME/kiln` or `~/.local/share/kiln` (Lin
 | `schema-cache/<modid>/<version>+<hash8>/<file>.json` | config schema snapshots cached per mod version |
 | `backups/` | `saves/<gameId>/` (save backups without a profile), `install/<installId>/` (mirror of install backups), `profiles/` (deleted profiles) |
 | `logs/launcher.log` | the launcher's own log |
+| `state/software-render.json` | Linux: there, a start without an override draws without the GPU (`{format, why, at, version}`; written by the launcher when its page did not start, or by Settings; [app.md](app.md), "Drawing without the GPU") |
 | `update.json` | the self-update's state: `{format, skipped, checked, updated: {from, to, at, source, notes}}` (releasing.md) |
 | `servers/<id>.json` | launcher records of servers that are not kilnctl instances (steam, windows, remote) and renames (`ServerInstance`) |
 | `modpacks/downloads/<sha256>.zip`, `modpacks/built/<serverId>/`, `modpacks/staging/`, `modpacks/dismissed.json` | modpack downloads (reused when the sha256 matches), built server modpacks, unpack staging, offers and refusals the user dismissed (`{gameId: {serverId: modpack sha256 | "refused <written>"}}`) |
@@ -741,7 +742,9 @@ Shared types (TypeScript names, defined in `commands.ts`; Rust in kiln-manage un
 
 | File | Command | Arguments | Returns |
 |---|---|---|---|
-| app | `app_info` | - | `AppInfo` {version, kiln, platform, arch, dataDir, commit, mock, noWebgl, deck: `DeckInfo`, distribution: "direct" \| "nexus"} |
+| app | `app_info` | - | `AppInfo` {version, kiln, platform, arch, dataDir, commit, mock, noWebgl, deck: `DeckInfo`, distribution: "direct" \| "nexus", render?: `RenderInfo` (Linux)} |
+| app | `app_started` | - | null (the page's first screen is up; once per start; ends the Linux render watchdog) |
+| app | `app_render_set` | software: boolean | `RenderInfo` (sets or clears `state/software-render.json` for the next start; `unsupported` off Linux) |
 | app | `app_settings_get` | - | `LauncherSettings` |
 | app | `app_settings_set` | settings: LauncherSettings | `LauncherSettings` |
 | app | `app_open_path` | path: string | null |
@@ -903,7 +906,9 @@ before Kiln was reinstalled is active again), libraryOnly: string | null (why th
 `ProfileChange {kind, before: ProfileMod | null, after: ProfileMod}` (`kiln_manage::quick`).
 
 Launcher-only types (Rust in `launcher/src-tauri/src/commands/app.rs` and `launch.rs`): `AppInfo` (`noWebgl`:
-KILN_LAUNCHER_NO_WEBGL=1 for this start; `distribution`: "direct" for the frostdev.io/GitHub build that updates itself,
+KILN_LAUNCHER_NO_WEBGL=1 for this start, or the launcher draws without the GPU; `render` (Linux only): `RenderInfo {mode:
+"gpu"|"software", why: "default"|"marker"|"restart"|"environment"|"argument", marker: boolean, markerWhy?: string}`
+(`src-tauri/src/render.rs`); `distribution`: "direct" for the frostdev.io/GitHub build that updates itself,
 "nexus" for the Nexus Mods build, which has no self-update and whose UI shows only a link to the Kiln page there
 (`src-tauri/src/distribution.rs`; absent from an older backend: direct)), `LauncherSettings {steamRoots: string[], defaultGameId: string|null,
 allowHttpModpacks: boolean, savesKeep: number, updateCheck: boolean (default true), updateChannel?: "stable"|"dev"

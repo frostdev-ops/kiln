@@ -172,6 +172,8 @@ pub const NAMES: &[&str] = &[
     "found_add",
     "report_save",
     "report_summary",
+    "app_started",
+    "app_render_set",
 ];
 
 #[cfg(test)]
