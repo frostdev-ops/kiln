@@ -36,9 +36,11 @@
 #             mtimes, sampled every 20 ms with a copy of each version. The writer spaces the starts of its writes by
 #             1 s; an mtime trails its start by the time it took to render and write the file (up to ~60 ms seen on a
 #             busy disk), hence 0.9 s and not 1 s (a writer that wrote on every report would show 0.2 s)
+#             No "state: cannot write" line in kiln.log.
 #   9 exit    markers run: "unloadtest.exit", reported in 6-caps' on_unload while the writer thread is inside its
-#             one-second gap (it waits until the file shows its "at exit" report first), is in capabilities.json after
-#             the stop; says how long after the previous write it was written
+#             one-second gap (6-caps first reports "at exit" and waits until the file was written again: that wait
+#             must have seen the write), is in capabilities.json after the stop; says how long after the previous
+#             write it was written
 # Usage (the lab must exist: tools/lab/lab.sh new <lab> <port>; one lab server at a time, so hold the lab lock):
 #   flock <lock file> native/core/tests/test-unload-lab.sh <lab name> [<KILN_OUT>]
 # Env: KILN_LABSTART               the command that starts a lab, given the lab name (default: tools/lab/lab.sh start)
@@ -303,6 +305,8 @@ if len(window) > allowed: ok8 = False; why8.append(f"{len(window)} writes in {la
 if gaps and min(gaps) < 0.9: ok8 = False; why8.append(f"two writes {min(gaps):.3f} s apart")
 if not with_row: ok8 = False; why8.append("no version with the row, a newer generation and a later 'written'")
 lastdoc = doc(f"{r}/caps-writes/{running[-1][1]}.json") if running else None
+if (cw := sum(1 for l in open(f"{r}/kiln.log", errors="replace") if "state: cannot write" in l)):
+    ok8 = False; why8.append(f"{cw} 'state: cannot write' line(s) in kiln.log")
 lc = row(lastdoc, "unloadtest.step")
 if not lc or lc.get("reasonText") != "report 10 of 10" or lc.get("state") != "unavailable":
     ok8 = False; why8.append(f"last version before the stop shows {lc}")
@@ -313,7 +317,7 @@ print(("PASS" if ok8 else "FAIL") + f" 8 caps: {len(reports)} reports from {firs
 final = doc(f"{r}/capabilities.json")
 ec = row(final, "unloadtest.exit")
 ok9 = bool(final and final.get("pid") == pid and ec and ec.get("state") == "available" and ec.get("source") == src
-           and unloads == 1 and exit_rep and exit_rep[0] == 0)
+           and unloads == 1 and exit_rep and exit_rep[0] == 0 and (exit_rep[2] == "single" or "(found)" in (step_exit or "")))
 after = [m for m, i in writes if exit_rep and m >= exit_rep[1] - 0.005]
 before = [m for m, i in writes if exit_rep and m < exit_rep[1] - 0.005]
 how = ""

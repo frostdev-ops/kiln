@@ -10,7 +10,9 @@
 //                the sequence runs (the core must not start it again, and must still call the handlers after this one)
 //   6 caps       kiln.caps rows of its own: from the server-world tick, 4 s after the first step, ten reports of
 //                "unloadtest.step" 200 ms apart, available and unavailable in turn; in on_unload "unloadtest.step"
-//                once more ("at exit"), a wait until capabilities.json shows it, then "unloadtest.exit" (available).
+//                once more ("at exit"), a wait until capabilities.json was written again (its last-write time, read
+//                without opening the file: a reader holding it open can make the core's replace fail), then
+//                "unloadtest.exit" (available).
 //                The wait puts the core's writer thread inside its one-second gap, so only the exit path's last write
 //                can get the exit row into the file in time. UNLOAD_TEST_CAPS_EXIT=single skips the first report and
 //                the wait.
@@ -128,18 +130,13 @@ void KILN_CALL on_tick(const KilnTickInfo*, void*) {
               rc, static_cast<unsigned long long>(unix_ms()), static_cast<unsigned long long>(g_caps->generation()));
 }
 
-bool caps_file_has(const char* needle) {
+// capabilities.json's last-write time (0 when it is not there), without opening the file.
+uint64_t caps_file_time() {
     char path[1100];
     std::snprintf(path, sizeof path, "%.*s\\capabilities.json", static_cast<int>(g_state_len), g_state);
-    HANDLE h = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
-                           OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (h == INVALID_HANDLE_VALUE) return false;
-    static char text[1 << 20];
-    DWORD got = 0;
-    ReadFile(h, text, sizeof text - 1, &got, nullptr);
-    CloseHandle(h);
-    text[got] = 0;
-    return std::strstr(text, needle) != nullptr;
+    WIN32_FILE_ATTRIBUTE_DATA a{};
+    if (!GetFileAttributesExA(path, GetFileExInfoStandard, &a)) return 0;
+    return (static_cast<uint64_t>(a.ftLastWriteTime.dwHighDateTime) << 32) | a.ftLastWriteTime.dwLowDateTime;
 }
 
 void KILN_CALL on_ready(void*) {
@@ -176,10 +173,11 @@ void KILN_CALL on_unload(void*) {
     const bool single =
         GetEnvironmentVariableA("UNLOAD_TEST_CAPS_EXIT", mode, sizeof mode) && !std::strcmp(mode, "single");
     if (!single) {
+        const uint64_t before = caps_file_time();
         const KilnResult rc = report("unloadtest.step", true, "at exit");
         const uint64_t t0 = unix_ms();
         bool found = false;
-        while (!(found = caps_file_has("\"at exit\"")) && unix_ms() - t0 < 1500) Sleep(10);
+        while (!(found = caps_file_time() != before) && unix_ms() - t0 < 1500) Sleep(10);
         caps_line("step at exit rc=%d in the file after %llu ms (%s)\n", rc,
                   static_cast<unsigned long long>(unix_ms() - t0), found ? "found" : "not found");
     }
