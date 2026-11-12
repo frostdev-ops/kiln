@@ -39,6 +39,9 @@ public sealed class InstanceApiTests : IDisposable
     {
         var e = Assert.Throws<KilnUnavailableException>(() => _h.Declare<Kills>("travels", new InstanceKeyOptions { Persist = Persist.Carried }));
         Assert.Equal("saves.instance_data.carried", e.Capability);
+        Assert.Contains("Persist.World", e.Reason);
+        Assert.Contains("player's inventory", e.Reason);
+        Assert.Contains("not available yet", e.Reason);
     }
 
     [Fact]

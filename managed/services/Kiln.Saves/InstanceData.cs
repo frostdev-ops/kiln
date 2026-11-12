@@ -12,7 +12,9 @@ public enum Persist
     World = 0,
 
     /// <summary>With the character, to other worlds (<see cref="CharacterData.Carried"/>). Not available in this release:
-    /// declaring such a key throws <see cref="KilnUnavailableException"/> (<c>saves.instance_data.carried</c>).</summary>
+    /// declaring such a key throws <see cref="KilnUnavailableException"/> (<c>saves.instance_data.carried</c>). Use
+    /// <see cref="World"/>: it keeps the value on this world's save, the item in a player's inventory included; data that
+    /// travels with a character between worlds is not available yet.</summary>
     Carried = 1,
 
     /// <summary>For this server session only: never written.</summary>
@@ -84,6 +86,9 @@ public static class InstanceData
     internal const string Capability = InstanceStore.Capability;
     internal const string CarriedCapability = "saves.instance_data.carried";
 
+    internal const string CarriedReason = "Persist.World keeps the value on this world's save, the item in a player's inventory included; " +
+                                          "data that travels with a character between worlds is not available yet";
+
     /// <summary>Declares a key of the calling mod. Call it once, from a static field of your mod's class or from
     /// <c>OnLoad</c>; the same name again returns the same key.</summary>
     /// <param name="name">Unique within the mod, at most 200 characters.</param>
@@ -103,8 +108,7 @@ public static class InstanceData
         if (!Enum.IsDefined(options.Persist)) throw new ArgumentException($"unknown Persist {(int)options.Persist}", nameof(options));
         if (options.Items is { Count: 0 }) throw new ArgumentException("Items lists no item type; give at least one, or null for any item", nameof(options));
         if (options.Persist == Persist.Carried)
-            throw new KilnUnavailableException(CarriedCapability,
-                "instance data that travels with the character is not in this release; use Persist.World (this world's record of the character)");
+            throw new KilnUnavailableException(CarriedCapability, CarriedReason);
         var mod = ModContext.CurrentMod ?? throw new InvalidOperationException(
             "InstanceData.Key must be called from a mod's code (OnLoad, its handlers, or a static field of the mod's class read there)");
         var key = SavesRuntime.Store.Instances.Declare<T>(mod, name, options);

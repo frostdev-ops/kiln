@@ -126,6 +126,10 @@ save records, following) is connected in the next step. Until then every call bu
 | `saves.instance_data` | `InstanceData` works: kiln.saves, kiln.items' item instances (`items.instances`), and the world's data open (`Saves.WorldDataReady`) |
 | `saves.instance_data.carried` | `Persist.Carried`: not available in this release; declaring such a key throws `KilnUnavailableException` |
 
+**`Persist.Carried` is not available yet.** `Persist.World` keeps the value on this world's save, the item in a player's
+inventory included; data that travels with a character between worlds is not available yet. Declaring a key with
+`Persist.Carried` throws `KilnUnavailableException("saves.instance_data.carried")` with that text as its reason.
+
 Errors follow [the contract](../modding/contract.md): a none ref, a ref without a stamp, a stale ref (the item is gone,
 or its id belongs to another item now), an item type the key does not allow, a value over 64 KB as JSON at `Set`:
 `ArgumentException`; `TryGet`, `Has` and `Remove` answer false for a stale ref. A stored value that does not read as
@@ -153,7 +157,8 @@ a player whose character has no id on this build) keeps its items' data for the 
     "crowded": true,          // another entity of its template stood within the radius at the save (omitted: false)
     "aside": "<reason>",      // the holder itself was not certain: all its records are set aside
     "last": 3011,             // a player: the newest witness taken while in game
-    "witness": { "3011": [ [flat slot, item, count, level, dur, durMax, fuel, fuelMax, dye, perksAvail, perksUnlocked, gem, gemLevel], ... ] },
+    "witness": { "3011": { "settled": true,   // read at the snapshot staging or a shutdown save (see below)
+                           "items": [ [flat slot, item, count, level, dur, durMax, fuel, fuelMax, dye, perksAvail, perksUnlocked, gem, gemLevel], ... ] } },
     "records": [ {
       "id": "<16 hex>",       // joins the parts of one item in several mods' bundles
       "slot": 3, "rec": [item, count, level, dur, durMax, fuel, fuelMax, dye, perksAvail, perksUnlocked, gem, gemLevel],
@@ -163,7 +168,8 @@ a player whose character has no id on this build) keeps its items' data for the 
       "keys": { "<key>": <the value as JSON> } } ] } ] }
 ```
 A witness is the holder's whole list of item entities at that save (also those without data). Each mod's bundle carries
-the holders and records of that mod; a reader joins records with the same id, slot, fields and `seen`.
+the holders and records of that mod; a reader joins records with the same id, slot, fields and `seen`. A witness written
+as a bare list (an earlier writer of format 1) reads as not settled.
 
 ### How the matching decides
 The game keeps no id for an item. A saved record is a holder, a flat slot (link x 8 + index, the game's own number), an
@@ -171,25 +177,49 @@ item id and the fingerprint of the save record: a stable part (item id, level, p
 and level, dye) and a volatile part (durability and fuel, compared as ratios within 0.002, because a load rebuilds them
 from ratios). After a load or a join, per holder:
 
-1. **The holder is as it was saved** (the record was read at the save of the generation the world file vouches for:
-   `Exact` or `Staged`; or the holder's list now equals the record's witness, every slot and every field): a record
-   goes to the item in its own slot if item id and stable fingerprint agree, twins included. Otherwise it waits.
-2. **The holder changed** (an older generation, a character that comes back changed, a list that differs): a record
-   goes to an item only if that item is the one item of the holder with its item id and stable fingerprint, no other
-   record of the holder has that fingerprint, and the holder had no look-alike of it at the save either. In its own slot
-   that is `Exact`, elsewhere `Moved`.
-3. **Not certain** (several candidates, several records, a look-alike gone since the save, an item that already has data
-   of this session): every such record is set aside and reported (`InstanceDataLostEvent`, `Ambiguous`). It is kept,
-   listed by `Parked` and `/instances`, and never attached automatically, also not in a later session.
+Every record needs its **witness**, the holder's list at the save that placed it. A record without one (saved before
+any save could read its holder, for example an item a player got and left with before the next autosave) is set aside:
+without it nobody knows whether a look-alike stood beside it.
+
+1. **The holder is as it was saved, and as the loader made it.** Three things must hold, or rule 1 does not apply:
+   - *between the save and the load:* the record was read at the save of the generation the world file vouches for
+     (`Exact` or `Staged`), or the holder's list now equals the record's witness, every slot and every field;
+   - *at the save:* that witness is **settled**: read at the snapshot staging, where no simulation step comes before the
+     game's snapshot, or at a shutdown save. The first staging of a save is one step early, and a swap in that step is
+     saved by the game but not by Kiln;
+   - *between the load and the match:* the holder's items are as the loader made them in this session. Entity ids come
+     from one counter that only grows, and the loader makes a holder's items in one go, so the ids must ascend in
+     flat-slot order (no two items changed places), form one run right after the holder's own id (nothing made later or
+     brought in from elsewhere), and, when the generation's witness tells the loader's slots, fill exactly those slots
+     (nothing moved or taken out). Whether the loader really works this way is measured in the lab; until then this check
+     stands as written, and if it does not hold there, rule 1 stays off.
+
+   Then a record goes to the item in its own slot if item id and stable fingerprint agree, twins included. Otherwise it
+   waits.
+2. **Otherwise** (an older generation, a character that comes back changed, a list that differs, an unsettled witness,
+   items that changed since the load): a record goes to an item only if that item is the one item of the holder with
+   its item id and stable fingerprint, no other record of the holder has that fingerprint, and its witness shows no
+   look-alike of it at the save either. In its own slot that is `Exact`, elsewhere `Moved`.
+3. **Not certain** (several candidates, several records, a look-alike gone since the save, no witness, an item that
+   already has data of this session): every such record is set aside and reported (`InstanceDataLostEvent`,
+   `Ambiguous`). It is kept, listed by `Parked` and `/instances`, and never attached automatically, also not in a later
+   session.
 4. **No candidate:** the record waits (`InstanceDataParkedEvent`, `NoCandidate`); after 3 sessions without its item it
    is dropped (`Unmatched`).
 5. **The holder:** a world holder is the one unclaimed entity of its template within 0.5 m (props) or 16 m (creatures,
    NPCs) of the saved position; two or more, or another one within the radius at the save: its records are set aside.
-   It is looked for for 10 minutes after a load (entities stream in) and at once when a mod touches an item in it. A
-   player is found by `CharacterKey` once the inventory is initialized.
+   Holders not found yet are looked for during the whole session, 16 per tick (about a second) in turn, and at once when
+   a mod touches an item in one. So a chest that streams in late is matched within a pass (200 waiting holders: about
+   13 s), before players move its items about. A holder not found by the end of the first 10 minutes after a load counts
+   as missed for that session; found later, that is undone. A player is found by `CharacterKey` once the inventory is
+   initialized.
 
 A record read at an older save but carried into a newer generation unread (its holder was away) is not vouched for by
 that generation: it is matched by rules 2 to 4, or by its own witness.
+
+**A build without snapshot staging** (`Saves.SnapshotStagingAvailable` false; kiln.log says so once at start): no
+witness is settled except a shutdown save's, so identical items (twins) cannot be told apart after a restart there. They
+are set aside; an item without a look-alike still finds its record.
 
 **What nobody can detect:** two items with equal fingerprints swapped while no Kiln was watching, with nothing else in
 the holder changed; and an item removed while no Kiln was watching with a look-alike put in its place. Both look exactly

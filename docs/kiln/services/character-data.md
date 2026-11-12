@@ -89,8 +89,9 @@ follows the item, and an item in a player's inventory belongs to the character:
 - **At a leave** the item entities are destroyed with the character going back to its client; the records wait with the
   character at their last slots (`InstanceDataParkedEvent`, `PlayerLeft`), with no limit in sessions while the character
   stays away. An item trashed while the player is still in game is dropped (`Destroyed`).
-- **In `Carried`** (data that travels to other worlds with the character): not in this release.
-  `InstanceData.Key(name, new() { Persist = Persist.Carried })` throws `KilnUnavailableException("saves.instance_data.carried")`.
+- **In `Carried`** (data that travels to other worlds with the character): not available yet.
+  `InstanceData.Key(name, new() { Persist = Persist.Carried })` throws `KilnUnavailableException("saves.instance_data.carried")`:
+  `Persist.World` keeps the value on this world's save, the item in a player's inventory included.
 - A character without an id on this build (account-only key) keeps its items' data for the session only.
 
 What a real client must still confirm (guided client checks; lab results follow): that a character's inventory comes
