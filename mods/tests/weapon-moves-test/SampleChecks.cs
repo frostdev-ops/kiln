@@ -25,14 +25,12 @@ public sealed partial class WeaponMovesTestMod
         var errors = (report.Errors ?? []).ToList();
         Info($"{Sample}: blocks [{string.Join(", ", report.Blocks ?? [])}]; errors [{string.Join(" | ", errors)}]");
         Check(SampleSwords.All(b => (report.Blocks ?? []).Contains(b)), $"{Sample}: both swords are blocks, none refused: [{string.Join(", ", report.Blocks ?? [])}]");
-        foreach (var b in SampleSwords)
-            foreach (var s in SampleStates)
-            {
-                var said = errors.Count(e => e.Contains($"weapon {b}, ", StringComparison.Ordinal) && e.Contains($"\"{s}\" cannot be looked up: player states are not available in this build", StringComparison.Ordinal));
-                Check(said == (_wrong && b == SampleSwords[0] && s == "guard" ? 2 : 1), $"{Sample}: {b}'s state \"{s}\" is reported once as not available in this build ({said})");
-            }
-        var other = errors.Where(e => !e.Contains("player states are not available in this build", StringComparison.Ordinal)).ToList();
-        Check(other.Count == 0, $"{Sample}: nothing else in its blocks report: [{string.Join(" | ", other)}]");
+        foreach (var s in SampleStates)
+        {
+            var info = PlayerAnimStates.Find(Sample, s);
+            Check(info is { Status: PlayerAnimStateStatus.Live, Kind: PlayerAnimStateKind.State } && !(_wrong && s == "guard"), $"{Sample}: its state \"{s}\" is Live: {info?.Status} {info?.Kind} id 0x{info?.Id:x8} in {info?.Machine}{(info?.Reason is { Length: > 0 } r ? $" ({r})" : "")}");
+        }
+        Check(errors.Count == 0, $"{Sample}: nothing in its blocks report, no \"not available\" line: [{string.Join(" | ", errors)}]");
 
         foreach (var b in SampleSwords)
         {
@@ -51,7 +49,9 @@ public sealed partial class WeaponMovesTestMod
                 if (!Check(clone != null && clone.Guid == SampleClone(b, suffix) && clone.IsClone,
                         $"{name}: made {(atLoad ? "at load, from its like" : "when content was ready, from the slot's own")} {bases}, GUID {clone?.Guid}")) continue;
                 var game = Seq(like);
-                Check(StateOf(clone!) == StateOf(game), $"{name}: plays its like {like}'s own state {StateOf(clone!)}: the sample's state name could not be looked up");
+                var state = suffix switch { "primary.1" => "slash-1", "primary.2" => "slash-2", "heavy" => "cleave", _ => "guard" };
+                Check(StateOf(clone!) == BlockIds.Derive(Sample, "state", state) && StateOf(clone!) != StateOf(game),
+                    $"{name}: plays the sample's own state \"{state}\": {StateOf(clone!)} (its like {like}'s is {StateOf(game)})");
                 if (hitAt is { } h)
                 {
                     var first = EventsOf(clone!).Where(e => e.Type == "SpawnImpact").Min(e => e.Time);

@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 // The guided client checks of a weapon's moves: what only a player can see. Each sets the scene (the weapon in the bag, a training doll in front), says what
 // to do and what to look for, asserts what the server can read by itself (the sequences the player's character enters, the moment the hurt event came) and
-// waits for the player's verdict. ClientChecks.Register lists them (OnLoad); proof's runner runs them. Until player-anim lands, a move's "own" animation is a
-// game state of another weapon family: the instructions name which.
+// waits for the player's verdict. ClientChecks.Register lists them (OnLoad); proof's runner runs them. The chain and the heavy/block checks use the Own Sword,
+// whose moves name the test mod's own player states (assets/player-states.json): the instructions describe the clips the test cooks.
 using Kiln;
 using Kiln.Testing;
 
@@ -56,11 +56,12 @@ public sealed partial class WeaponMovesTestMod
         Tags = [ClientCheckTags.Visual], Needs = ClientCheckNeeds.Any, Order = 10)]
     private async Task Chain_plays_its_own_swings(CheckContext c)
     {
-        if (!await Scene(c, G("chain-sword"))) { await c.Verdict(); return; }
-        uint one = Abilities.IdOf(CloneGuid("chain-sword", "primary.1")), two = Abilities.IdOf(CloneGuid("chain-sword", "primary.2"));
-        c.Instruct("Take the Chain Sword from your bag in hand and give the training doll three light attacks in a row. Until player-anim lands, the sword's own swings " +
-                   "are another weapon family's game states: the first swing is the greataxe's first diagonal (SM_Attack_Hammer_FullBody/Attack_Axe_01), the second " +
-                   "the greataxe's second (Attack_Axe_02). Pass if your first swing is that first diagonal, the second the other diagonal, and the third the first one again.");
+        if (!await Scene(c, G("own-sword"))) { await c.Verdict(); return; }
+        uint one = Abilities.IdOf(CloneGuid("own-sword", "primary.1")), two = Abilities.IdOf(CloneGuid("own-sword", "primary.2"));
+        c.Instruct("Take the Own Sword from your bag in hand and give the training doll three light attacks in a row. Its swings are states of the test mod's own " +
+                   "(wm-slash-1 and wm-slash-2) playing the clips the test cooks: the first a forehand, the sword coming from high on your right across to the left " +
+                   "while the left arm pulls back; the second the same swing mirrored and a little faster, a backhand from the left across to the right. Pass if the " +
+                   "first swing is that forehand, the second that backhand, the third the forehand again, and none of them is the game's own sword swing.");
         var seen = await Entered(c, s => s.Count >= 3, TimeSpan.FromMinutes(3), "three swings");
         var swings = seen.Where(s => s == one || s == two).Take(3).ToList();
         c.Expect(swings.SequenceEqual(new[] { one, two, one }), "the game played link 1, link 2, link 1", string.Join(" -> ", swings.Select(Name)));
@@ -93,12 +94,13 @@ public sealed partial class WeaponMovesTestMod
         Tags = [ClientCheckTags.Visual], Needs = ClientCheckNeeds.Any, Order = 30)]
     private async Task Heavy_and_block_show_their_own(CheckContext c)
     {
-        if (!await Scene(c, G("chain-sword"))) { await c.Verdict(); return; }
-        uint heavy = Abilities.IdOf(CloneGuid("chain-sword", "heavy")), block = Abilities.IdOf(CloneGuid("chain-sword", "block"));
-        c.Instruct("Take the Chain Sword in hand. Give the doll a heavy attack, then hold block for two seconds. Until player-anim lands, these are another family's game " +
-                   "states: the heavy is the greatsword's heavy (SM_Attack_Greatsword_FullBody/Attack_Greatsword_Heavy), and the block holds the parry's pose " +
-                   "(Parry_FullBody) instead of the guard. Pass if the heavy is the greatsword's swing, not the sword's diagonal, and the block shows the parry's pose.");
-        await Entered(c, s => s.Contains(heavy) && s.Contains(block), TimeSpan.FromMinutes(3), "the Chain Sword's heavy and its block played");
+        if (!await Scene(c, G("own-sword"))) { await c.Verdict(); return; }
+        uint heavy = Abilities.IdOf(CloneGuid("own-sword", "heavy")), block = Abilities.IdOf(CloneGuid("own-sword", "block"));
+        c.Instruct("Take the Own Sword in hand. Give the doll a heavy attack, then hold block for two seconds. Both are states of the test mod's own playing the clips " +
+                   "it cooks: the heavy (wm-cleave) an overhead chop, the sword raised above the head and brought straight down; the block (wm-guard) the sword held " +
+                   "across the body, a slow loop, while the legs keep the game's own walk when you move. Pass if the heavy is that overhead chop, not the sword's " +
+                   "diagonal heavy, and the block shows the sword held across instead of the game's guard pose.");
+        await Entered(c, s => s.Contains(heavy) && s.Contains(block), TimeSpan.FromMinutes(3), "the Own Sword's heavy and its block played");
         await c.Verdict();
     }
 
