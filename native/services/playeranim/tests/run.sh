@@ -29,6 +29,11 @@ inc=(-I"$here/.." -I"$here/../../../third_party")
 g++ -std=c++20 -O1 -g -Wall -Wextra -fsanitize=address,undefined -fno-sanitize-recover=undefined "${inc[@]}" "${src[@]}" -o "$out/test_playeranim"
 "$out/test_playeranim" "$out/cases" ${exe:+"$exe"}
 
+# The service lifecycle with an assets table that calls ready synchronously. A lock regression fails within 5 seconds.
+g++ -std=c++20 -O1 -g -Wall -Wextra "${inc[@]}" -I"$here/platform" -I"$here/../../../core/abi" \
+  "$here/test_service.cpp" "${src[@]:1}" -o "$out/test_service"
+timeout 5 "$out/test_service" "$out/service-fixtures"
+
 # The times on the game's graph, from an optimized build without sanitizers.
 g++ -std=c++20 -O2 -Wall -Wextra "${inc[@]}" "${src[@]}" -o "$out/time_playeranim"
 "$out/time_playeranim" --time "$out/cases" ${exe:+"$exe"}

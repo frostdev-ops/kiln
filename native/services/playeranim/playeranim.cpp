@@ -774,7 +774,7 @@ Config read_config() {
 
 // After every service's kiln_plugin_main: kiln.assets and kiln.types are registered, the resource service isn't up yet.
 void KILN_CALL on_ready(void*) {
-    std::lock_guard lock(g_mu);
+    std::unique_lock lock(g_mu);
     g_assets = static_cast<const KilnAssetsApi*>(g_api->service(KilnStr{KILN_ASSETS_SERVICE, sizeof(KILN_ASSETS_SERVICE) - 1}, KILN_ASSETS_VERSION));
     g_types = static_cast<const KilnTypesApi*>(g_api->service(KilnStr{KILN_TYPES_SERVICE, sizeof(KILN_TYPES_SERVICE) - 1}, KILN_TYPES_VERSION));
     if (!g_assets || g_assets->header.size < offsetof(KilnAssetsApi, when_resources_ready) + sizeof(void*)) {
@@ -825,7 +825,10 @@ void KILN_CALL on_ready(void*) {
     g_state.store(KILN_PA_WAITING);
     PA_I("playeranim: %zu player state(s) of %zu mod(s) to merge when the game's resources come up", states, g_mods.size());
     watch_mods();
-    if (g_assets->when_resources_ready(&on_resources_ready, nullptr) != KILN_OK) {
+    const auto* assets = g_assets;  // the table is process-lived; everything else below is protected again on failure
+    lock.unlock();  // assets may call on_resources_ready synchronously, and it takes g_mu itself
+    if (assets->when_resources_ready(&on_resources_ready, nullptr) != KILN_OK) {
+        lock.lock();
         go_off("kiln.assets has no resource service on this build", KILN_CAP_REASON_SERVICE_MISSING);
         publish();
     }
