@@ -37,7 +37,8 @@ internal static class ServiceTick
         [("Kiln.Chat", "Kiln.ConsoleControl"), ("Kiln.Content", "Kiln.Content"),
          ("Kiln.Network", "Kiln.NetworkStartup"), ("Kiln.Ui", "Kiln.UiStartup"), ("Kiln.Skills", "Kiln.SkillsStartup"),
          ("Kiln.Audio", "Kiln.AudioStartup"), ("Kiln.Quests", "Kiln.QuestsStartup"), ("Kiln.Vfx", "Kiln.VfxStartup"),
-         ("Kiln.Rules", "Kiln.RulesStartup"), ("Kiln.DevTools", "Kiln.DevToolsStartup")];
+         ("Kiln.Rules", "Kiln.RulesStartup"), ("Kiln.DevTools", "Kiln.DevToolsStartup"),
+         ("Kiln.Spawn", "Kiln.SpawnStartup"), ("Kiln.Items", "Kiln.ItemsStartup")];
 
     private static readonly object Lock = new();
     private static Entry[] _entries = [];
