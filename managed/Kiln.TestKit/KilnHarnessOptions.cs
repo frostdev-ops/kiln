@@ -50,10 +50,11 @@ public sealed class KilnHarnessOptions
     /// <summary>Where the temp server folder is made; default the system's temp folder.</summary>
     public string? TempDirectory { get; init; }
 
-    /// <summary>Run in this server folder instead of a new temp one, e.g. the folder of an earlier harness that kept it
-    /// (<see cref="KeepFolder"/>, <see cref="KilnHarness.ServerDirectory"/>): its world, saved mod data and configs are
-    /// read as a restarted server reads them. Its <c>kiln/mods</c> starts empty (load the mods again); the folder is never
-    /// removed by the harness.</summary>
+    /// <summary>Run in an isolated test folder instead of a new temp one, e.g. the folder of an earlier harness that kept
+    /// it (<see cref="KeepFolder"/>, <see cref="KilnHarness.ServerDirectory"/>): its world, saved mod data and configs are
+    /// read as a restarted server reads them. Never point this at a real game/server folder. A nonempty folder without
+    /// the kit's <c>savegame/kiln-testkit-world.json</c> marker is refused before anything is written or removed.
+    /// Its <c>kiln/mods</c> starts empty (load the mods again); the folder is never removed by the harness.</summary>
     public string? ServerDirectory { get; init; }
 
     /// <summary>The id of the world the server runs (<see cref="KilnHarness.World"/>); default the world the server folder

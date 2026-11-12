@@ -207,7 +207,7 @@ internal sealed unsafe class WorldFake
 {
     private const int QueueMax = 256;
     private const long AutosaveMs = 30_000, RequestTimeoutMs = 60_000;
-    private const string StateFileName = "kiln-testkit-world.json";
+    internal const string StateFileName = "kiln-testkit-world.json";
     private static long _seq;
 
     public static ulong LastSeq => (ulong)Interlocked.Read(ref _seq);

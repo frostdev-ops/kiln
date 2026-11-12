@@ -92,7 +92,10 @@ before the first step is already in game when the mods load, which a real server
 kit's fake of `kiln.saves`, in the temporary folder. `kiln.World` has the world's `Id`, `Revision`, `Directory` and
 `Save()`. The fake world saves as the game does: every 30 s of virtual time, when a player leaves and at the stop.
 A new harness with `KilnHarnessOptions.ServerDirectory` and `WorldId` set to an earlier one's reads its last save;
-`Kill()` skips the shutdown save (the mods' `OnUnload` still runs).
+`Kill()` skips the shutdown save (the mods' `OnUnload` still runs). `ServerDirectory` is for an isolated test folder,
+never a real game/server folder: a nonempty folder without the kit's `savegame/kiln-testkit-world.json` marker is
+refused before anything is written or removed. A reused test folder keeps its saved data and configs, but its
+`kiln/mods` is cleared so the test can load the mods again.
 
 **Config.** `Config.Register` of every kind writes into the temporary `kiln/config` (`kiln.ConfigDirectory`); a file
 the test edits there reaches the change handlers through the file watcher, so pace the steps in real time

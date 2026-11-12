@@ -59,6 +59,11 @@ public sealed partial class KilnHarness : IDisposable
             Interlocked.Increment(ref _serial);
             ServerDirectory = _options.ServerDirectory is { } reuse ? Path.GetFullPath(reuse) : Path.Combine(temp, $"kiln-testkit-{Guid.NewGuid():N}");
             KilnDirectory = Path.Combine(ServerDirectory, "kiln");
+            if (_options.ServerDirectory is not null && Directory.Exists(ServerDirectory) &&
+                Directory.EnumerateFileSystemEntries(ServerDirectory).Any() &&
+                !File.Exists(Path.Combine(ServerDirectory, "savegame", WorldFake.StateFileName)))
+                throw new InvalidOperationException($"refusing nonempty server folder {ServerDirectory}: it has no savegame/{WorldFake.StateFileName} marker. " +
+                                                    "Use an empty isolated test folder or a folder kept by an earlier KilnHarness, never a real game/server folder.");
             if (_options.ServerDirectory is not null && Directory.Exists(ModsDirectory)) Directory.Delete(ModsDirectory, recursive: true);  // the mods load again
             foreach (var d in new[] { ConfigDirectory, DataDirectory, ModsDirectory, LogsDirectory, ControlDirectory, StateDirectory })
                 Directory.CreateDirectory(d);

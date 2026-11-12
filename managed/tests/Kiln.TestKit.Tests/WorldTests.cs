@@ -29,6 +29,46 @@ public sealed class WorldTests
 
     private static string Get(KilnHarness kiln, string key) => string.Join("", kiln.RunCommand($"tk-saves-get {key}").Output);
 
+    [Theory]
+    [InlineData("installed-mod.dll")]
+    [InlineData("kiln/mods/installed-mod/mod.dll")]
+    public void AnUnmarkedNonemptyServerFolderIsRefusedWithoutChangingAnything(string sentinel)
+    {
+        using var folder = new Folder();
+        var file = Path.Combine(folder.Path, sentinel);
+        Directory.CreateDirectory(Path.GetDirectoryName(file)!);
+        File.WriteAllText(file, "installed mod: leave intact");
+        var save = Path.Combine(folder.Path, "savegame", "real-world.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(save)!);
+        File.WriteAllText(save, "real server data: leave intact");
+        var before = Directory.GetFileSystemEntries(folder.Path, "*", SearchOption.AllDirectories).Order(StringComparer.Ordinal).ToArray();
+
+        var error = Record.Exception(() => { using var kiln = On(folder); });
+
+        Assert.Equal(before, Directory.GetFileSystemEntries(folder.Path, "*", SearchOption.AllDirectories).Order(StringComparer.Ordinal));
+        Assert.Equal("installed mod: leave intact", File.ReadAllText(file));
+        Assert.Equal("real server data: leave intact", File.ReadAllText(save));
+        Assert.IsType<InvalidOperationException>(error);
+        Assert.Contains("kiln-testkit-world.json", error.Message);
+        using var next = new KilnHarness();  // refusal must release the process-wide gate
+        next.Step();
+    }
+
+    [Fact]
+    public void AnEmptyExplicitServerFolderIsAcceptedAndMarkedForReuse()
+    {
+        using var folder = new Folder();
+        Directory.CreateDirectory(folder.Path);
+        Guid id;
+        using (var kiln = On(folder))
+        {
+            id = kiln.World.Id;
+            Assert.True(File.Exists(Path.Combine(folder.Path, "savegame", "kiln-testkit-world.json")));
+        }
+        using var reused = On(folder);
+        Assert.Equal(id, reused.World.Id);
+    }
+
     [Fact]
     public void EveryHarnessHasAWorldFromTheStart()
     {
