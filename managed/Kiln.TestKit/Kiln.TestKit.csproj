@@ -21,6 +21,10 @@
     <ProjectReference Include="../services/Kiln.Time/Kiln.Time.csproj" />
     <ProjectReference Include="../services/Kiln.Spawn/Kiln.Spawn.csproj" />
     <ProjectReference Include="../services/Kiln.Client/Kiln.Client.csproj" />
+    <!-- The fakes of kiln.players and kiln.saves (Fakes/): the world and players surface names Kiln.Saves' types. -->
+    <ProjectReference Include="../services/Kiln.Saves/Kiln.Saves.csproj" />
+    <!-- Kiln.Saves needs it at run time (CharacterSync's channel); it references it without copying it. -->
+    <ProjectReference Include="../services/Kiln.Network/Kiln.Network.csproj" />
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="Kiln.TestKit.Tests" />

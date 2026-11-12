@@ -54,11 +54,12 @@ public sealed partial class KilnHarness : IDisposable
         try
         {
             _aliveSince = $"created {DateTime.Now:HH:mm:ss.fff} on thread {Environment.CurrentManagedThreadId} '{Thread.CurrentThread.Name}'";
-            _keep = _options.KeepFolder || Environment.GetEnvironmentVariable("KILN_TESTKIT_KEEP") == "1";
+            _keep = _options.KeepFolder || _options.ServerDirectory is not null || Environment.GetEnvironmentVariable("KILN_TESTKIT_KEEP") == "1";
             var temp = _options.TempDirectory ?? Path.GetTempPath();
             Interlocked.Increment(ref _serial);
-            ServerDirectory = Path.Combine(temp, $"kiln-testkit-{Guid.NewGuid():N}");
+            ServerDirectory = _options.ServerDirectory is { } reuse ? Path.GetFullPath(reuse) : Path.Combine(temp, $"kiln-testkit-{Guid.NewGuid():N}");
             KilnDirectory = Path.Combine(ServerDirectory, "kiln");
+            if (_options.ServerDirectory is not null && Directory.Exists(ModsDirectory)) Directory.Delete(ModsDirectory, recursive: true);  // the mods load again
             foreach (var d in new[] { ConfigDirectory, DataDirectory, ModsDirectory, LogsDirectory, ControlDirectory, StateDirectory })
                 Directory.CreateDirectory(d);
             OpenLogFile();
@@ -69,8 +70,9 @@ public sealed partial class KilnHarness : IDisposable
             KitBackend.Instance.Capabilities.Report(HarnessCapabilities.HarnessOwner, "tick", CapState.Available, CapReason.None,
                 "the harness steps the server world by hand", KitBackend.CapabilityOwner);
             ResetStatics();
-            _subscriptionsBefore = new HashSet<EventSubscription>(Events.Subscriptions, ReferenceEqualityComparer.Instance);
             _host = new HarnessHost(this);
+            StartFakes();
+            _subscriptionsBefore = new HashSet<EventSubscription>(Events.Subscriptions, ReferenceEqualityComparer.Instance);
             _mods = new ModManager(_host, ModsDirectory, DataDirectory, new ModManagerOptions
             {
                 Side = ManifestSide.Server,
@@ -295,6 +297,12 @@ public sealed partial class KilnHarness : IDisposable
 
     // ---- statics ----
 
+    /// <summary>The fake native tables' state for this harness (KilnHarness.World.cs), after the statics are reset.</summary>
+    partial void StartFakes();
+
+    /// <summary>The fakes end with the harness: players gone, the world closed.</summary>
+    partial void EndFakes();
+
     private static bool _configUsed;
 
     static void OnConfigRegistry() => _configUsed = true;
@@ -385,6 +393,7 @@ public sealed partial class KilnHarness : IDisposable
             }
             TaskScheduler.UnobservedTaskException -= _unobserved;
             _mods.Dispose();
+            EndFakes();
             RemoveTestSubscriptions();
             if (ReferenceEquals(ModsBackend.Current, _mods)) ModsBackend.Current = null;
             Lifecycle.Phase = ServerPhase.Booting;

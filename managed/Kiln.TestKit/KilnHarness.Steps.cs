@@ -170,6 +170,8 @@ public sealed partial class KilnHarness
         Volatile.Write(ref _virtualMs, (long)(step * _options.WallDeltaMs));
         var tick = HostAccess.Tick(step, (uint)Math.Floor(_clock), delta, 0, _options.WallDeltaMs);
 
+        FakesBeforeStep(step);  // the native services' Pre (players scan, saves) runs before Kiln.Host's
+
         _lineBatch.Clear();
         lock (_gameLines)
             while (_lineBatch.Count < 1024 && _gameLines.TryDequeue(out var line))
@@ -184,7 +186,11 @@ public sealed partial class KilnHarness
             _lineBatch.Clear();  // boot lines are for the lifecycle only
             LoadMods(step);
         }
-        if (_stopRequest is { } reason && !_stopping) BeginStop(reason, step);
+        if (_stopRequest is { } reason && !_stopping)
+        {
+            BeginStop(reason, step);
+            FakesStopped(step);  // the game's shutdown save, after the mods unloaded
+        }
         if (_stopping) return;
         if (!_started && (_runSeen || !_options.WaitForWorldRunning || step - _loadStep >= StartedFallbackSteps))
             ServerStarted(step, _runSeen ? "game-log" : !_options.WaitForWorldRunning ? "first-step" : "timeout");
@@ -194,6 +200,12 @@ public sealed partial class KilnHarness
         if (_mods.AnyPost) _mods.Post(in tick);
         if (_loadStep == step) ThrowIfStagedFailed();
     }
+
+    /// <summary>The fake native tables' work at the start of a step (KilnHarness.World.cs).</summary>
+    partial void FakesBeforeStep(ulong step);
+
+    /// <summary>The server stopped: what the game does after (KilnHarness.World.cs).</summary>
+    partial void FakesStopped(ulong step);
 
     private void WatchLine(string text)
     {

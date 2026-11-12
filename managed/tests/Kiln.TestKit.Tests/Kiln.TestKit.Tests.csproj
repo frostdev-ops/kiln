@@ -27,6 +27,8 @@
     <TkMod Include="mods/TkCommands/TkCommands.csproj" />
     <TkMod Include="mods/TkFaulty/TkFaulty.csproj" />
     <TkMod Include="mods/TkLeaky/TkLeaky.csproj" />
+    <TkMod Include="mods/TkPlayers/TkPlayers.csproj" />
+    <TkMod Include="mods/TkSaves/TkSaves.csproj" />
     <ProjectReference Include="@(TkMod)" />
     <!-- Built mod folders (LoadFolder), never referenced. -->
     <TkFolderMod Include="mods/TkLocale/TkLocale.csproj" />
