@@ -379,13 +379,63 @@ def check_character_flight(side, image, doc, symbols):
                   side + " " + reason + " " + name + " disables flight while keeping consumption and building")
 
 
+def check_noclip(side, image, doc, symbols, constants):
+    names = ["rules.noclip", "rules.flight"]
+    selected = {s for n in names for s in doc["features"][n].get("symbols", [])}
+    selected.add("@rules/FlyGate.entity")  # supplies the shared CurrentEntityId capture
+    pending = list(selected)
+    while pending:
+        for spec in doc["symbols"].get(pending.pop(), {}).get("find", []):
+            dep = spec.get("scope", {}).get("symbol")
+            if dep and dep not in selected:
+                selected.add(dep)
+                pending.append(dep)
+    subset = {"symbols": {n: doc["symbols"][n] for n in selected if n in doc["symbols"]},
+              "constants": {n: doc["constants"][n] for name in names for n in doc["features"][name].get("constants", [])},
+              "features": {n: doc["features"][n] for n in names}}
+    _, _, baseline = Resolver(image, subset).run()
+    check(all(baseline.values()), side + " isolated NoClip and flight patterns resolve")
+    step = symbols["rules/ResolveActorCollider"]["rva"]
+    check(constants["rules/resolve.collider"]["value"] == 0xC0 and constants["rules/resolve.dynloco"]["value"] == 0x90 and
+          constants["rules/collider.enabled"]["value"] == 5,
+          side + " collision step: the MovementCollider record at +0xc0, DynamicLocomotion's at +0x90, isEnabled at +5")
+    # The step's own code, as the hook relies on it: rsi is the 6th argument, r15 the MovementCollider, and a 0 in
+    # isEnabled leaves through a far jump (the exit that only clears the results).
+    md = Cs(CS_ARCH_X86, CS_MODE_64)
+    code = image.img[step:step + 0x90]
+    text = [f"{i.mnemonic} {i.op_str}" for i in md.disasm(code, step)]
+    check("lea rbp, [rsp - 0x5c8]" in text and "mov rsi, qword ptr [rbp + 0x638]" in text,
+          side + " collision step: rsi is loaded from the 6th argument's stack slot (0x5c8 + 8 pushes + 0x30)")
+    at = text.index("cmp byte ptr [r15 + 5], 0")
+    check(text[at - 2] == "mov r15, qword ptr [rdi]" or "mov r15, qword ptr [rdi]" in text[:at],
+          side + " collision step: the tested byte is in the MovementCollider record's data")
+    check(any(t.startswith("je 0x") for t in text[at + 1:at + 4]), side + " collision step: isEnabled 0 branches away before anything is traced")
+    for name in ["rules/ResolveActorCollider", "@rules/ResolveActorCollider.dynloco"]:
+        spec = subset["symbols"][name]["find"][0]
+        at, _ = matches(image, symbols, spec)
+        size = parse(spec["pattern"])[2]
+        duplicate = image.text_va + len(image.text) - size
+        if "scope" in spec:
+            duplicate = symbols[spec["scope"]["symbol"]]["rva"] + spec["scope"]["size"] - size
+        for edits, reason in [([(at, b"\x90")], "missing"),
+                              ([(duplicate, image.img[at:at + size])], "ambiguous")]:
+            _, _, features = Resolver(changed(image, edits), subset).run()
+            check(not features["rules.noclip"] and features["rules.flight"],
+                  side + " " + reason + " " + name + " disables NoClip while keeping character flight")
+    # A changed frame (another argument order or stack size) must not resolve: the 6th argument is part of the pattern.
+    frame = step + bytes(image.img[step:step + 0x60]).index(bytes.fromhex("488bb538060000")) + 3
+    _, _, features = Resolver(changed(image, [(frame, b"\x40")]), subset).run()
+    check(not features["rules.noclip"] and features["rules.flight"],
+          side + " a collision step that loads rsi from another argument slot disables NoClip alone")
+
+
 def run(side, path):
     tree = Tree(ROOT / "sigdb" / "symbols" / (side + ".json"))
     check(not tree.problems, side + " definition tree has no duplicate entries")
     image = Image(path)
     symbols, constants, features = Resolver(image, tree.doc).run()
     rules = {name: ok for name, ok in features.items() if name.startswith("rules.")}
-    required = {"rules." + name for name in ("fly", "zone", "cursor", "shroud", "glide", "glide_view", "glide_stick", "glide_steer", "costs", "dig")}
+    required = {"rules." + name for name in ("fly", "zone", "cursor", "shroud", "glide", "glide_view", "glide_stick", "glide_steer", "costs", "dig", "flight", "noclip")}
     if side == "client":
         required |= {"rules.healthbar_guard", "rules.camera_check"}
     check(required.issubset(rules), side + " defines every expected rules feature")
@@ -397,6 +447,7 @@ def run(side, path):
     check_time_scale(side, image, tree.doc, symbols)
     check_creative(side, image, tree.doc, symbols)
     check_character_flight(side, image, tree.doc, symbols)
+    check_noclip(side, image, tree.doc, symbols, constants)
     check_boundaries(side, image, tree.doc, symbols)
     check_glide_stick(side, image, tree.doc, symbols, constants, features)
     check_glide_steer(side, image, tree.doc, symbols, constants, features)

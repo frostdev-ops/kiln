@@ -1,4 +1,4 @@
-# Player rules: the building fly mode, the build cursor, building costs, mining damage, the Shroud timer, gliding
+# Player rules: the building fly mode, the build cursor, building costs, mining damage, the Shroud timer, gliding, the collision step
 
 Where the game decides what a player may do and what it costs, and where Kiln.Rules changes it
 (docs/kiln/services/rules.md). Dedicated server Steam 26430253 (`f0d824be…`), client 26430625 (`5d9ef2f1…`), both svn
@@ -49,6 +49,11 @@ Tags: **[refl]** reflection, **[dec]** decompile, **[dis]** disassembly, **[cap]
   prediction; Kiln's three glider hooks give the same result on both sides from the same rules and input. **[dis]**
 - **Vitals and water need no hook:** Kiln.Abilities' attribute writes (health, stamina, mana) and Kiln.Items' refill
   policies (water) already go through the game's own paths.
+- **The game can switch a character's collision off itself:** `resolve_actor_collider`'s per-entity step reads
+  `MovementCollider.isEnabled` first; off, it clears the collision results and leaves the position where the velocity
+  step put it. Kiln's NoClip holds that switch off during the call for a flying character with the rule, on both
+  sides. The game does not push a character out of solid ground: inside rock it falls through (section 8).
+  **[dis] [rt]**
 
 ## 1. The building fly mode
 
@@ -375,7 +380,92 @@ F (the nose) while sprint is held, limits the slow-down above the game's speed b
 while boosting; `glide_sink` 0 no longer holds the altitude. The rules reach both worlds only together: Kiln.Rules
 strips `GLIDE_STEER` for a player whose game has not confirmed the hook (kiln:rules message 2).
 
-## 8. Signatures
+## 8. The character's collision step (NoClip) **[refl] [dis] [cap]**
+
+How a character moves in one step, as the program catalog and the disassembly of both exes show it (the per-entity
+code is byte-identical on server and client apart from call targets):
+
+| Order | Program | Server / client update | What it does |
+|---|---|---|---|
+| 1 | `locomotion_state`, `locomotion_execution`, `gravity_apply_velocity_actor` | section 7 | decide the state, steer and pull `Velocity` |
+| 2 | `velocity` | `0x95600` / `0x283910` | reads `Velocity`, writes `CurrentTransform`: position += velocity x dt, in 32.32 fixed point. No test of the world |
+| 3 | `resolve_actor_collider` | `0x8fd10` / `0x27e020` | reads `Actor`, `Collider`, `LastTransform`, `MovementVector` (+ ten optional components); writes `CurrentTransform`, `MovementCollider` (+ optional `DynamicLocomotion`, `PlayerLocomotion`); sys-read `CollisionTraceConnection`, `ecs::ColliderSystem`, `ecs::EntityGrid`, `ecs::PathGridSystem`, the water simulations. Sweeps the character's collider from the last position to the new one and corrects the position; writes what it hit into `MovementCollider.results` |
+| 4 | `movement_collider` | `0xfe790` / `0x33ec90` | writes `MovementCollider.isWorldColliderReady` (the voxels around the entity are loaded) and applies ground-material buffs |
+| 5 | `movement_collider_velocity_actor` | `0xfeae0` / `0x33efe0` | clips `Velocity` against the results (not for `PlayerBuildingSpark`) |
+| 6 | `actor_grounded`, `fall_damage_detection`, `safe_player_position`, … | | read the results |
+
+All of them have descriptor flags 0: they run in the server world and in a client's prediction.
+
+**`MovementCollider`** (84 bytes) **[refl]**: `yOffset` f32 +0, `isWorldColliderReady` +4, **`isEnabled` +5**, `isDirty` +6,
+`stuckTimer` f32 +8, `stuckHeight` f32 +0xc, `results` +0x10 (`OptionalMovementCollisionResults`: `spheroidNormal`,
+`groundNormal`, `areaGroundNormal` float3 at +0, +0xc, +0x18; `groundDistance` +0x24; `attachmentEntityId` +0x28;
+`groundMaterialId`, `groundVoxelTypeId`, `lastCollideAndSlideSide`; bools `preventFallDamage` +0x38,
+`hasGroundCollision` +0x39, `isGroundWalkable` +0x3a, `hasSpheroidCollision` +0x3b, `hasPlayerSpheroidCollision` +0x3c,
+`hasEmergencyGroundCollision` +0x3d; `m_isSet` +0x40, so `MovementCollider`+0x50).
+
+**The per-entity step** `0x95890` / `0x283ba0` **[dis]**, called once per entity from the program's loop as
+`step(ctx, iterator, InertialFrame* own, InertialFrame* platform, &iterator[1], &iterator[3], &iterator[0x2e], &iterator[0x27], 0)`.
+Its sixth argument (kept in `rsi`) points at the iterator's `Actor` slot. From it: `LastTransform` +0x30, `LerpTransform`
++0x38 (optional), and the write records, 0x30 bytes each with the data pointer first: `CurrentTransform` +0x60,
+`DynamicLocomotion` +0x90, `MovementCollider` +0xc0, `PlayerLocomotion` +0xf0. It starts:
+
+```
+958fd  cmp byte ptr [r15 + 5], 0        ; MovementCollider.isEnabled
+9590b  je  0x97b19                      ; off: the exit below
+95911  mov rax, [rsi + 0x38]            ; LerpTransform, if any
+9591a  cmp byte ptr [rax + 0x108], 0    ; .overrideColliderPositionEnable
+95921  jne 0x97b19                      ; the same exit
+95927  cmp byte ptr [r15 + 4], 0        ; isWorldColliderReady
+9593c  jne 0x959ab                      ; ready: the sweep
+…                                       ; not ready: CurrentTransform.position = LastTransform.position, results unset
+97b19  cmp byte ptr [r15 + 0x50], 0     ; results.m_isSet
+97b1e  je  return
+…      MarkWritten(MovementCollider); results.m_isSet = 0; return
+```
+
+So the game has the switch: with `isEnabled` 0 the step clears the collision results and returns, and the position
+stays where `velocity` put it. A scan of every program that names `MovementCollider`, and of the functions they call
+directly, finds no other read of the byte: it gates this step and nothing else. With the results unset there is no
+ground and no wall for the programs of row 5 and 6. No program in the scan writes the byte; where the game turns it
+off itself was not followed.
+
+The step reads the write records through four small helpers (`0x6ed20`, `0x6ed60`, `0x6eda0`, `0x6ede0`:
+`MarkWritten` when the record's tracker is not null, then the data pointer).
+
+**Kiln's change** (`native/services/rules/noclip.cpp`) **[cap]**: one detour on the per-entity step, both sides. For
+an entity whose `DynamicLocomotion.state` is BuildingFlying in a flight Kiln started (section 7's hooks) and whose
+rules carry NoClip, `isEnabled` is set to 0 for the length of the call and put back afterwards. The program has write
+access to the entity's `MovementCollider`, so nothing else reads it meanwhile. Nothing is left changed between steps.
+
+Signatures: `rules/ResolveActorCollider` (the step's first 0x6d bytes; the frame bytes are literal, because they are
+what makes `rsi` the sixth argument; captures `rules/resolve.collider` 0xc0 and `rules/collider.enabled` 5) and
+`@rules/ResolveActorCollider.dynloco` (`lea rcx,[rsi+0x90]` before the null test of the optional record; captures
+`rules/resolve.dynloco`), feature `rules.noclip`. `native/services/rules/rules_sigdb_test.py` checks on both exes that
+the captures are these values, that the step loads `rsi` and tests `[r15+5]` as above, and that a changed frame, a
+missing or a doubled pattern turns off NoClip alone.
+
+**In a lab** (`mods/tests/noclip-test`, server 26430253, a spawned `1_Player` on a fresh world, its held input written
+by the test; no client) **[rt]**:
+- With the rule the state hook turns Walking into BuildingFlying on the first step; from the next step the step is
+  skipped (`results.m_isSet` 0, the actor no longer Grounded) and the position is exactly what `velocity` wrote: holding
+  Sneak the character went from the surface to 7.3 m inside solid rock (voxel fill 255 at feet, waist and head) at the
+  mover's 8 m/s, and hovered there with no input.
+- **The game does not push a character out of solid ground.** With the rule ended 7.3 m deep, the step ran again, found
+  nothing (`hasGroundCollision` 0, `groundDistance` FLT_MAX) and the character fell through the rock: 26 m in 80
+  steps, still accelerating. The terrain collides at its surface only.
+- **A shallow overlap is lifted out.** With the feet 1.07 m under the surface (the waist in the surface cell, the head
+  in air) the step reported the ground above the feet (`groundDistance` -0.63, `hasSpheroidCollision` once) and raised
+  the character about 4 cm a step until it stood on the surface, Grounded from the second step.
+- Ended in the air above the ground, the character fell and landed as usual.
+So Kiln.Rules moves a character that is inside something back to its last free position before it lets the step run
+again (docs/kiln/services/rules.md, "NoClip"), and counts a place as free only when the cells at 0.5, 1.0 and 1.7 m
+above the feet are empty: then the feet are less than a metre deep at most, inside the range the game lifts by itself.
+
+Not followed: what a client shows (the camera inside terrain, other players' view), the prediction on a real
+connection, where the game itself writes `isEnabled`, and what the stuck timer (`stuckTimer`, `stuckHeight`, the
+"emergency ground collision") does for a real player over time.
+
+## 9. Signatures
 `sigdb/symbols/server.d/rules.json`, unique on the server and the client; `client.d/rules.json` extends it with the
 client's two guards (docs/re/client.md):
 
@@ -398,10 +488,12 @@ client's two guards (docs/re/client.md):
 | `@rules/GlideSteer.ctx` (scoped to `rules/GlideSteer` + 2048; `rules/rot.ctx` 0x1670; the call's target captured as `rules/GlideSteerEntityId`, which must be `rules/CurrentEntityId`) | `0x82001` | `0x26ff01` | `rules.glide_steer` |
 | `rules/ApplyMaterials` | `0x22d480` | `0x495f20` | `rules.costs` (+ `items/tx.operator`, `world/programs.*`) |
 | `rules/TerrainDamage` | `0x22c970` | `0x495410` | `rules.dig` (+ `gameplay/TerraformImpact` and its argument constants) |
+| `rules/ResolveActorCollider` (`rules/resolve.collider` 0xc0, `rules/collider.enabled` 5; the frame bytes literal) | `0x95890` | `0x283ba0` | `rules.noclip` (needs `rules.flight` at run time) |
+| `@rules/ResolveActorCollider.dynloco` (scoped to the step + 640; `rules/resolve.dynloco` 0x90; `rules/loco.state` 0x59 from `rules.flight`) | `0x95ac3` | `0x283dd3` | `rules.noclip` |
 | `rules/client.HealthbarRay` (offset 73, scoped to `rules/client.Healthbar` `0x30bd70`; `rules/client.LineOfSight` `0xe88ee0` checked; `rules/client.hb.player_z` 0x278 fixed) | - | `0x30c4af` | `rules.healthbar_guard` (client.d only) |
 | `rules/client.CameraInput` (offset 185; `rules/client.CameraTransform` `0xe98ea0` checked; `cam.obj` 0x5c8, `cpi.camera` 0x20, `cam.distance` 0x14a4, `cam.quat0/1` 0x14b0/0x14c0, `cam.offset` 0x148c, `cam.pivot` 0x1468 fixed) | - | `0x3af55f` | `rules.camera_check` (client.d only) |
 
-## 9. Open
+## 10. Open
 - The undo-record step of a blueprint placement outside every base (2.2): with `IsNearBuildingZone` forced (2.0) the
   server also decides `CanUndoBuildingAction` from the player's undo record, as inside a base.
 - The program order is taken to be the table order (the network copy #53 before the drain #349) **[hyp]**.

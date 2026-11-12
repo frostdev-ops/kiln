@@ -11,8 +11,11 @@
 //  - the vertical input: an inline hook on the BuildingFlying mover sets DynamicLocomotion.inputVelocity.y from the
 //    held Jump (climb) and Sneak (sink) bits of PlayerInput, faster with Sprint, before the mover steers toward it.
 //
-// Only entities with KILN_RULES_CHARACTER_FLIGHT, or still in a flight owned by Kiln (their rules just ended), are
-// touched: the building spark keeps its own state. Every body runs under a structured-exception guard; a fault counts,
+// KILN_RULES_NOCLIP flies with the same three hooks (flight_math.h says where it differs); noclip.cpp adds the
+// collision step and asks noclip_flight() here whose it may skip.
+//
+// Only entities with KILN_RULES_CHARACTER_FLIGHT or KILN_RULES_NOCLIP, or still in a flight owned by Kiln (their rules
+// just ended), are touched: the building spark keeps its own state. Every body runs under a structured-exception guard; a fault counts,
 // and the game's own decision stands.
 #include <windows.h>
 
@@ -78,6 +81,7 @@ struct Layout {
 constexpr uint8_t kGrounded = 0, kDead = 7, kClimbing = 34, kAttached = 36, kHangGliding = 37, kFloating = 43,
                   kUnderWater = 44;
 constexpr int kJump = 32, kSprint = 53, kSneak = 55;
+constexpr uint32_t kFlies = KILN_RULES_CHARACTER_FLIGHT | KILN_RULES_NOCLIP;  // the rule flags that fly the character
 
 struct Stats {
     std::atomic<uint64_t> takeoffs{0}, landings{0}, ends{0}, faults{0};
@@ -131,7 +135,7 @@ void forget_flying(uint32_t e, const void* dyn) {
 }
 
 bool flight_possible() {
-    return (!kiln_rules_creative::idle() && (kiln_rules_bridge::flags_seen() & KILN_RULES_CHARACTER_FLIGHT) != 0) ||
+    return (!kiln_rules_creative::idle() && (kiln_rules_bridge::flags_seen() & kFlies) != 0) ||
            g_flew.load(std::memory_order_relaxed);
 }
 
@@ -160,7 +164,10 @@ flight_math::Actor actor_of(void* actor) {
     return a;
 }
 
-bool armed(const KilnRulesPlayer& r) { return (r.flags & KILN_RULES_CHARACTER_FLIGHT) != 0; }
+// armed: the rules let the character fly, by CHARACTER_FLIGHT or by NOCLIP (which flies everywhere: flight_math.h).
+bool armed(const KilnRulesPlayer& r) { return (r.flags & kFlies) != 0; }
+bool flight(const KilnRulesPlayer& r) { return (r.flags & KILN_RULES_CHARACTER_FLIGHT) != 0; }
+bool noclip(const KilnRulesPlayer& r) { return (r.flags & KILN_RULES_NOCLIP) != 0; }
 bool base_only(const KilnRulesPlayer& r) { return (r.flags & KILN_RULES_FLIGHT_BASE_ONLY) != 0; }
 
 // ---- the state, right after LocoNextState ----
@@ -171,7 +178,7 @@ void state_body(safetyhook::Context& c) {
     if (!dyn || !actor) return;
     const uint8_t cur = dyn[L.loco_state];
     if (cur != flight_math::kBuildingFlying && (kiln_rules_creative::idle() ||
-        !(kiln_rules_bridge::flags_seen() & KILN_RULES_CHARACTER_FLIGHT))) return;
+        !(kiln_rules_bridge::flags_seen() & kFlies))) return;
     const uint8_t game = static_cast<uint8_t>(c.rax & 0xff);
     uint32_t e = 0;
     KilnRulesPlayer r{};
@@ -181,7 +188,8 @@ void state_body(safetyhook::Context& c) {
     if (!enabled && !(cur == flight_math::kBuildingFlying && was_ours)) return;
     float input_vy = 0.0f;
     std::memcpy(&input_vy, dyn + 4, sizeof input_vy);  // inputVelocity.y
-    const uint8_t next = flight_math::next_state(cur, game, true, enabled, base_only(r), actor_of(actor), input_vy);
+    const uint8_t next = flight_math::next_state(cur, game, true, enabled && flight(r), base_only(r), actor_of(actor), input_vy,
+                                                 enabled && noclip(r));
     if (next == flight_math::kBuildingFlying) note_flying(e, dyn);
     else forget_flying(e, dyn);
     if (next == game) return;
@@ -193,18 +201,20 @@ void state_body(safetyhook::Context& c) {
 
 // ---- gravity, after the strength is chosen and the step's time read ----
 void grav_body(safetyhook::Context& c) {
-    if (kiln_rules_creative::idle() || c.xmm6.f32[0] == 0.0f || !(kiln_rules_bridge::flags_seen() & KILN_RULES_CHARACTER_FLIGHT)) return;
+    if (kiln_rules_creative::idle() || c.xmm6.f32[0] == 0.0f || !(kiln_rules_bridge::flags_seen() & kFlies)) return;
     uint32_t e = 0;
     KilnRulesPlayer r{};
     if (!rules_for(reinterpret_cast<void*>(c.rdi), &e, &r) || !armed(r)) return;
     void* actor = *reinterpret_cast<void**>(c.rbp + static_cast<int8_t>(L.grav_actor));
-    if (!actor || !flight_math::allowed(true, base_only(r), actor_of(actor))) return;
+    if (!actor) return;
+    const auto a = actor_of(actor);
+    if (!flight_math::allowed_noclip(noclip(r), a) && !flight_math::allowed(flight(r), base_only(r), a)) return;
     c.xmm6.f32[0] = 0.0f;
 }
 
 // ---- the vertical input, before the BuildingFlying mover ----
 void mover_pre(uint8_t* it) {
-    if (kiln_rules_creative::idle() || !(kiln_rules_bridge::flags_seen() & KILN_RULES_CHARACTER_FLIGHT)) return;
+    if (kiln_rules_creative::idle() || !(kiln_rules_bridge::flags_seen() & kFlies)) return;
     void* ctx = *reinterpret_cast<void**>(it);
     auto* dyn = *reinterpret_cast<float* const*>(it + L.mover_dynloco);
     const auto* input = *reinterpret_cast<const uint8_t* const*>(it + L.player_input);
@@ -241,6 +251,14 @@ void __fastcall hk_mover(uint8_t* it) {
 }
 
 }  // namespace
+
+// noclip.cpp: is `dyn` (an entity's DynamicLocomotion) in a flight Kiln started, and do `ctx`'s rules carry NoClip now.
+bool noclip_flight(void* ctx, const uint8_t* dyn, uint32_t* entity) {
+    if (kiln_rules_creative::idle() || !(kiln_rules_bridge::flags_seen() & KILN_RULES_NOCLIP)) return false;
+    if (!g_entity_of || dyn[L.loco_state] != flight_math::kBuildingFlying) return false;
+    KilnRulesPlayer r{};
+    return rules_for(ctx, entity, &r) && noclip(r) && flown_recently(*entity, dyn);
+}
 
 void reset() {
     g_local_player.store(0);
