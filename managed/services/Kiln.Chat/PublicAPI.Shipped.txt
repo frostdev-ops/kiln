@@ -1,0 +1,369 @@
+#nullable enable
+Kiln.Arg
+Kiln.ArgumentNode
+Kiln.ArgumentNode.Describe(string! description) -> Kiln.ArgumentNode!
+Kiln.ArgumentNode.Executes(Kiln.CommandHandler! handler) -> Kiln.ArgumentNode!
+Kiln.ArgumentNode.Requires(Kiln.CommandPermission level, string? node = null) -> Kiln.ArgumentNode!
+Kiln.ArgumentNode.Then(Kiln.CommandNode! child) -> Kiln.ArgumentNode!
+Kiln.ArgumentNode.Type.get -> Kiln.ArgumentType!
+Kiln.ArgumentType
+Kiln.ArgumentType.ArgumentType() -> void
+Kiln.Chat
+Kiln.Chat.Diagnostics
+Kiln.ChatLine
+Kiln.ChatLine.Account.get -> ulong
+Kiln.ChatLine.Account.init -> void
+Kiln.ChatLine.ChatLine() -> void
+Kiln.ChatLine.ChatLine(uint Type, uint Connection, ulong Account, uint ReaderMask, string! Text) -> void
+Kiln.ChatLine.Connection.get -> uint
+Kiln.ChatLine.Connection.init -> void
+Kiln.ChatLine.Deconstruct(out uint Type, out uint Connection, out ulong Account, out uint ReaderMask, out string! Text) -> void
+Kiln.ChatLine.Equals(Kiln.ChatLine other) -> bool
+Kiln.ChatLine.ReaderMask.get -> uint
+Kiln.ChatLine.ReaderMask.init -> void
+Kiln.ChatLine.Text.get -> string!
+Kiln.ChatLine.Text.init -> void
+Kiln.ChatLine.Type.get -> uint
+Kiln.ChatLine.Type.init -> void
+Kiln.ChatMessage
+Kiln.ChatMessage.Cancel.get -> bool
+Kiln.ChatMessage.Cancel.set -> void
+Kiln.ChatMessage.Connection.get -> uint
+Kiln.ChatMessage.Id.get -> ulong
+Kiln.ChatMessage.IsCommand.get -> bool
+Kiln.ChatMessage.Player.get -> Kiln.ChatPlayer?
+Kiln.ChatMessage.Sender.get -> Kiln.EntityId
+Kiln.ChatMessage.SenderName.get -> string!
+Kiln.ChatMessage.Text.get -> string!
+Kiln.ChatMessageEvent
+Kiln.ChatMessageEvent.IsCommand.get -> bool
+Kiln.ChatMessageEvent.Message.get -> Kiln.ChatMessage!
+Kiln.ChatMessageEvent.Player.get -> Kiln.ChatPlayer?
+Kiln.ChatMessageEvent.Sender.get -> Kiln.EntityId
+Kiln.ChatMessageEvent.SenderName.get -> string!
+Kiln.ChatMessageEvent.Text.get -> string!
+Kiln.ChatMessageEvent.Text.set -> void
+Kiln.ChatMessageEvent.TextChanged.get -> bool
+Kiln.ChatMessageHandler
+Kiln.ChatPermissions
+Kiln.ChatPermissions.AccessInventories = 2 -> Kiln.ChatPermissions
+Kiln.ChatPermissions.EditBase = 4 -> Kiln.ChatPermissions
+Kiln.ChatPermissions.EditWorld = 8 -> Kiln.ChatPermissions
+Kiln.ChatPermissions.ExtendBase = 16 -> Kiln.ChatPermissions
+Kiln.ChatPermissions.KickBan = 1 -> Kiln.ChatPermissions
+Kiln.ChatPermissions.None = 0 -> Kiln.ChatPermissions
+Kiln.ChatPermissions.ReceiveExp = 32 -> Kiln.ChatPermissions
+Kiln.ChatPlayer
+Kiln.ChatPlayer.<Clone>$() -> Kiln.ChatPlayer!
+Kiln.ChatPlayer.Account.get -> ulong
+Kiln.ChatPlayer.Account.init -> void
+Kiln.ChatPlayer.CanKickBan.get -> bool
+Kiln.ChatPlayer.ChatPlayer(Kiln.EntityId Entity, string! Name, uint Connection, uint Reader, ulong Account, Kiln.ChatPermissions Permissions) -> void
+Kiln.ChatPlayer.Connection.get -> uint
+Kiln.ChatPlayer.Connection.init -> void
+Kiln.ChatPlayer.Deconstruct(out Kiln.EntityId Entity, out string! Name, out uint Connection, out uint Reader, out ulong Account, out Kiln.ChatPermissions Permissions) -> void
+Kiln.ChatPlayer.Entity.get -> Kiln.EntityId
+Kiln.ChatPlayer.Entity.init -> void
+Kiln.ChatPlayer.Equals(Kiln.ChatPlayer? other) -> bool
+Kiln.ChatPlayer.Name.get -> string!
+Kiln.ChatPlayer.Name.init -> void
+Kiln.ChatPlayer.Permissions.get -> Kiln.ChatPermissions
+Kiln.ChatPlayer.Permissions.init -> void
+Kiln.ChatPlayer.Reader.get -> uint
+Kiln.ChatPlayer.Reader.init -> void
+Kiln.ChatStatus
+Kiln.ChatStatus.ChatStatus() -> void
+Kiln.ChatStatus.ChatStatus(bool ReceiveHooked, bool SendReady, int Players, int Subscribers, ulong Received, ulong Consumed, ulong Sent, ulong InboxCount) -> void
+Kiln.ChatStatus.Consumed.get -> ulong
+Kiln.ChatStatus.Consumed.init -> void
+Kiln.ChatStatus.Deconstruct(out bool ReceiveHooked, out bool SendReady, out int Players, out int Subscribers, out ulong Received, out ulong Consumed, out ulong Sent, out ulong InboxCount) -> void
+Kiln.ChatStatus.Equals(Kiln.ChatStatus other) -> bool
+Kiln.ChatStatus.InboxCount.get -> ulong
+Kiln.ChatStatus.InboxCount.init -> void
+Kiln.ChatStatus.Players.get -> int
+Kiln.ChatStatus.Players.init -> void
+Kiln.ChatStatus.ReceiveHooked.get -> bool
+Kiln.ChatStatus.ReceiveHooked.init -> void
+Kiln.ChatStatus.Received.get -> ulong
+Kiln.ChatStatus.Received.init -> void
+Kiln.ChatStatus.SendReady.get -> bool
+Kiln.ChatStatus.SendReady.init -> void
+Kiln.ChatStatus.Sent.get -> ulong
+Kiln.ChatStatus.Sent.init -> void
+Kiln.ChatStatus.Subscribers.get -> int
+Kiln.ChatStatus.Subscribers.init -> void
+Kiln.ChoiceAttribute
+Kiln.ChoiceAttribute.ChoiceAttribute(params string![]! options) -> void
+Kiln.ChoiceAttribute.Options.get -> string![]!
+Kiln.CommandAttribute
+Kiln.CommandAttribute.Aliases.get -> string![]!
+Kiln.CommandAttribute.Aliases.init -> void
+Kiln.CommandAttribute.CommandAttribute(string! path) -> void
+Kiln.CommandAttribute.Description.get -> string?
+Kiln.CommandAttribute.Description.init -> void
+Kiln.CommandAttribute.Node.get -> string?
+Kiln.CommandAttribute.Node.init -> void
+Kiln.CommandAttribute.Path.get -> string!
+Kiln.CommandAttribute.Permission.get -> Kiln.CommandPermission
+Kiln.CommandAttribute.Permission.init -> void
+Kiln.CommandCompletion
+Kiln.CommandCompletion.<Clone>$() -> Kiln.CommandCompletion!
+Kiln.CommandCompletion.CommandCompletion(int Start, System.Collections.Generic.IReadOnlyList<string!>! Suggestions) -> void
+Kiln.CommandCompletion.Deconstruct(out int Start, out System.Collections.Generic.IReadOnlyList<string!>! Suggestions) -> void
+Kiln.CommandCompletion.Equals(Kiln.CommandCompletion? other) -> bool
+Kiln.CommandCompletion.Start.get -> int
+Kiln.CommandCompletion.Start.init -> void
+Kiln.CommandCompletion.Suggestions.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Kiln.CommandCompletion.Suggestions.init -> void
+Kiln.CommandContext
+Kiln.CommandContext.Arg(int index) -> string!
+Kiln.CommandContext.ArgOrDefault(int index, string? fallback = null) -> string?
+Kiln.CommandContext.ArgText.get -> string!
+Kiln.CommandContext.Args.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Kiln.CommandContext.Bool(int index) -> bool
+Kiln.CommandContext.Command.get -> Kiln.CommandInfo!
+Kiln.CommandContext.Count.get -> int
+Kiln.CommandContext.Double(int index) -> double
+Kiln.CommandContext.Fail(string! message) -> void
+Kiln.CommandContext.Get<T>(string! name) -> T
+Kiln.CommandContext.GetOrDefault<T>(string! name, T fallback) -> T
+Kiln.CommandContext.Has(string! name) -> bool
+Kiln.CommandContext.Int(int index) -> int
+Kiln.CommandContext.KeepLine.get -> bool
+Kiln.CommandContext.KeepLine.set -> void
+Kiln.CommandContext.Label.get -> string!
+Kiln.CommandContext.Node.get -> Kiln.CommandNode?
+Kiln.CommandContext.Output.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Kiln.CommandContext.Player(int index) -> Kiln.ChatPlayer!
+Kiln.CommandContext.Reply(string! text) -> void
+Kiln.CommandContext.Rest(int index) -> string!
+Kiln.CommandContext.Source.get -> Kiln.CommandSource!
+Kiln.CommandContext.TryGet<T>(string! name, out T value) -> bool
+Kiln.CommandContext.Usage(string? problem = null) -> Kiln.CommandException!
+Kiln.CommandContext.Values.get -> System.Collections.Generic.IReadOnlyDictionary<string!, object?>!
+Kiln.CommandException
+Kiln.CommandException.CommandException(string! message) -> void
+Kiln.CommandExecutedEvent
+Kiln.CommandExecutedEvent.Command.get -> Kiln.CommandInfo!
+Kiln.CommandExecutedEvent.ElapsedMs.get -> double
+Kiln.CommandExecutedEvent.Line.get -> string!
+Kiln.CommandExecutedEvent.Result.get -> Kiln.CommandResult!
+Kiln.CommandExecutedEvent.Source.get -> Kiln.CommandSource!
+Kiln.CommandExecutingEvent
+Kiln.CommandExecutingEvent.Args.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Kiln.CommandExecutingEvent.CancelMessage.get -> string?
+Kiln.CommandExecutingEvent.CancelMessage.set -> void
+Kiln.CommandExecutingEvent.Command.get -> Kiln.CommandInfo!
+Kiln.CommandExecutingEvent.Label.get -> string!
+Kiln.CommandExecutingEvent.Line.get -> string!
+Kiln.CommandExecutingEvent.Source.get -> Kiln.CommandSource!
+Kiln.CommandHandler
+Kiln.CommandInfo
+Kiln.CommandInfo.Aliases.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Kiln.CommandInfo.Description.get -> string!
+Kiln.CommandInfo.IsTyped.get -> bool
+Kiln.CommandInfo.Name.get -> string!
+Kiln.CommandInfo.Owner.get -> string!
+Kiln.CommandInfo.Permission.get -> Kiln.CommandPermission
+Kiln.CommandInfo.PermissionNode.get -> string!
+Kiln.CommandInfo.Syntax.get -> string!
+Kiln.CommandInfo.ToJson(Kiln.CommandSource? visibleTo = null) -> System.Text.Json.Nodes.JsonObject!
+Kiln.CommandInfo.Tree.get -> Kiln.LiteralNode?
+Kiln.CommandInfo.Usage.get -> string!
+Kiln.CommandInfo.UsageLines.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Kiln.CommandNode
+Kiln.CommandNode.Children.get -> System.Collections.Generic.IReadOnlyList<Kiln.CommandNode!>!
+Kiln.CommandNode.Description.get -> string?
+Kiln.CommandNode.Executable.get -> bool
+Kiln.CommandNode.Name.get -> string!
+Kiln.CommandNode.RequiredLevel.get -> Kiln.CommandPermission
+Kiln.CommandNode.RequiredNode.get -> string?
+Kiln.CommandPermission
+Kiln.CommandPermission.Admin = 1 -> Kiln.CommandPermission
+Kiln.CommandPermission.Console = 2 -> Kiln.CommandPermission
+Kiln.CommandPermission.Everyone = 0 -> Kiln.CommandPermission
+Kiln.CommandRegistration
+Kiln.CommandRegistration.Dispose() -> void
+Kiln.CommandRegistration.Info.get -> Kiln.CommandInfo!
+Kiln.CommandResult
+Kiln.CommandResult.Canceled.get -> bool
+Kiln.CommandResult.Denied.get -> bool
+Kiln.CommandResult.Error.get -> string?
+Kiln.CommandResult.Found.get -> bool
+Kiln.CommandResult.Name.get -> string!
+Kiln.CommandResult.Ok.get -> bool
+Kiln.CommandResult.Output.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Kiln.CommandResult.ParseError.get -> bool
+Kiln.CommandResult.Text.get -> string!
+Kiln.CommandSource
+Kiln.CommandSource.Has(string! node) -> bool
+Kiln.CommandSource.IsAdmin.get -> bool
+Kiln.CommandSource.IsHostConsole.get -> bool
+Kiln.CommandSource.IsPlayer.get -> bool
+Kiln.CommandSource.Kind.get -> Kiln.CommandSourceKind
+Kiln.CommandSource.Name.get -> string!
+Kiln.CommandSource.Player.get -> Kiln.EntityId
+Kiln.CommandSource.SteamId.get -> ulong
+Kiln.CommandSource.Subject.get -> Kiln.PermissionSubject
+Kiln.CommandSourceKind
+Kiln.CommandSourceKind.Console = 0 -> Kiln.CommandSourceKind
+Kiln.CommandSourceKind.Player = 1 -> Kiln.CommandSourceKind
+Kiln.CommandSourceKind.Remote = 2 -> Kiln.CommandSourceKind
+Kiln.Commands
+Kiln.EntitySelector
+Kiln.EntitySelector.Head.get -> char
+Kiln.EntitySelector.Limit.get -> int?
+Kiln.EntitySelector.MaxDistance.get -> double?
+Kiln.EntitySelector.MinDistance.get -> double?
+Kiln.EntitySelector.PlayersOnly.get -> bool
+Kiln.EntitySelector.Select(Kiln.CommandSource! source, out string! error) -> System.Collections.Generic.IReadOnlyList<Kiln.SelectedEntity>!
+Kiln.EntitySelector.Single.get -> bool
+Kiln.EntitySelector.Sort.get -> Kiln.SelectorSort?
+Kiln.EntitySelector.Text.get -> string!
+Kiln.EntitySelector.X.get -> double?
+Kiln.EntitySelector.Y.get -> double?
+Kiln.EntitySelector.Z.get -> double?
+Kiln.GreedyAttribute
+Kiln.GreedyAttribute.GreedyAttribute() -> void
+Kiln.LiteralNode
+Kiln.LiteralNode.Alias(params string![]! names) -> Kiln.LiteralNode!
+Kiln.LiteralNode.Aliases.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Kiln.LiteralNode.Describe(string! description) -> Kiln.LiteralNode!
+Kiln.LiteralNode.Executes(Kiln.CommandHandler! handler) -> Kiln.LiteralNode!
+Kiln.LiteralNode.Requires(Kiln.CommandPermission level, string? node = null) -> Kiln.LiteralNode!
+Kiln.LiteralNode.Then(Kiln.CommandNode! child) -> Kiln.LiteralNode!
+Kiln.SelectedEntity
+Kiln.SelectedEntity.Deconstruct(out Kiln.EntityId Entity, out Kiln.WorldPosition? Position, out string? TemplateName, out string? DisplayName, out Kiln.TemplateKind Kind, out Kiln.Player? Player) -> void
+Kiln.SelectedEntity.DisplayName.get -> string?
+Kiln.SelectedEntity.DisplayName.init -> void
+Kiln.SelectedEntity.Entity.get -> Kiln.EntityId
+Kiln.SelectedEntity.Entity.init -> void
+Kiln.SelectedEntity.Equals(Kiln.SelectedEntity other) -> bool
+Kiln.SelectedEntity.IsPlayer.get -> bool
+Kiln.SelectedEntity.Kind.get -> Kiln.TemplateKind
+Kiln.SelectedEntity.Kind.init -> void
+Kiln.SelectedEntity.Player.get -> Kiln.Player?
+Kiln.SelectedEntity.Player.init -> void
+Kiln.SelectedEntity.Position.get -> Kiln.WorldPosition?
+Kiln.SelectedEntity.Position.init -> void
+Kiln.SelectedEntity.SelectedEntity() -> void
+Kiln.SelectedEntity.SelectedEntity(Kiln.EntityId Entity, Kiln.WorldPosition? Position, string? TemplateName, string? DisplayName, Kiln.TemplateKind Kind, Kiln.Player? Player) -> void
+Kiln.SelectedEntity.TemplateName.get -> string?
+Kiln.SelectedEntity.TemplateName.init -> void
+Kiln.SelectorSort
+Kiln.SelectorSort.Arbitrary = 0 -> Kiln.SelectorSort
+Kiln.SelectorSort.Furthest = 2 -> Kiln.SelectorSort
+Kiln.SelectorSort.Nearest = 1 -> Kiln.SelectorSort
+Kiln.SelectorSort.Random = 3 -> Kiln.SelectorSort
+Kiln.Selectors
+Kiln.ServerLineStyle
+Kiln.ServerLineStyle.Notice = 0 -> Kiln.ServerLineStyle
+Kiln.ServerLineStyle.Spoken = 1 -> Kiln.ServerLineStyle
+Kiln.TimeOfDayAttribute
+Kiln.TimeOfDayAttribute.TimeOfDayAttribute() -> void
+Kiln.UnknownCommandPolicy
+Kiln.UnknownCommandPolicy.PassThrough = 1 -> Kiln.UnknownCommandPolicy
+Kiln.UnknownCommandPolicy.Reply = 0 -> Kiln.UnknownCommandPolicy
+Kiln.WordAttribute
+Kiln.WordAttribute.WordAttribute() -> void
+abstract Kiln.ArgumentType.Describe() -> string!
+abstract Kiln.ArgumentType.Name.get -> string!
+abstract Kiln.ArgumentType.ValueType.get -> System.Type!
+abstract Kiln.CommandNode.Display.get -> string!
+override Kiln.ArgumentNode.Display.get -> string!
+override Kiln.ArgumentType.ToString() -> string!
+override Kiln.ChatLine.GetHashCode() -> int
+override Kiln.ChatMessage.ToString() -> string!
+override Kiln.ChatPlayer.Equals(object? obj) -> bool
+override Kiln.ChatPlayer.GetHashCode() -> int
+override Kiln.ChatPlayer.ToString() -> string!
+override Kiln.ChatStatus.GetHashCode() -> int
+override Kiln.CommandCompletion.Equals(object? obj) -> bool
+override Kiln.CommandCompletion.GetHashCode() -> int
+override Kiln.CommandCompletion.ToString() -> string!
+override Kiln.CommandInfo.ToString() -> string!
+override Kiln.CommandResult.ToString() -> string!
+override Kiln.CommandSource.ToString() -> string!
+override Kiln.EntitySelector.ToString() -> string!
+override Kiln.LiteralNode.Display.get -> string!
+override Kiln.SelectedEntity.GetHashCode() -> int
+override Kiln.SelectedEntity.ToString() -> string!
+static Kiln.Arg.Bool() -> Kiln.ArgumentType!
+static Kiln.Arg.Choice(params string![]! options) -> Kiln.ArgumentType!
+static Kiln.Arg.Double(double min = -1.7976931348623157E+308, double max = 1.7976931348623157E+308) -> Kiln.ArgumentType!
+static Kiln.Arg.Duration(System.TimeSpan? min = null, System.TimeSpan? max = null) -> Kiln.ArgumentType!
+static Kiln.Arg.Entities() -> Kiln.ArgumentType!
+static Kiln.Arg.Entity() -> Kiln.ArgumentType!
+static Kiln.Arg.Enum(System.Type! enumType) -> Kiln.ArgumentType!
+static Kiln.Arg.Enum<T>() -> Kiln.ArgumentType!
+static Kiln.Arg.Greedy() -> Kiln.ArgumentType!
+static Kiln.Arg.Int(int min = -2147483648, int max = 2147483647) -> Kiln.ArgumentType!
+static Kiln.Arg.Item() -> Kiln.ArgumentType!
+static Kiln.Arg.Player() -> Kiln.ArgumentType!
+static Kiln.Arg.Players() -> Kiln.ArgumentType!
+static Kiln.Arg.Position() -> Kiln.ArgumentType!
+static Kiln.Arg.String() -> Kiln.ArgumentType!
+static Kiln.Arg.TimeOfDay() -> Kiln.ArgumentType!
+static Kiln.Arg.Word() -> Kiln.ArgumentType!
+static Kiln.Chat.Available.get -> bool
+static Kiln.Chat.Broadcast(string! text) -> int
+static Kiln.Chat.Diagnostics.Inject(uint connection, string! text) -> void
+static Kiln.Chat.Diagnostics.LastLine() -> Kiln.ChatLine?
+static Kiln.Chat.FindPlayer(Kiln.EntityId entity) -> Kiln.ChatPlayer?
+static Kiln.Chat.FindPlayer(string! name) -> Kiln.ChatPlayer?
+static Kiln.Chat.Players.get -> System.Collections.Generic.IReadOnlyList<Kiln.ChatPlayer!>!
+static Kiln.Chat.Received -> Kiln.ChatMessageHandler?
+static Kiln.Chat.Say(Kiln.EntityId speaker, string! text, Kiln.EntityId to = default(Kiln.EntityId)) -> bool
+static Kiln.Chat.ServerLines.get -> Kiln.ServerLineStyle
+static Kiln.Chat.ServerLines.set -> void
+static Kiln.Chat.ServerPrefix.get -> string!
+static Kiln.Chat.ServerPrefix.set -> void
+static Kiln.Chat.Status.get -> Kiln.ChatStatus
+static Kiln.Chat.Tell(Kiln.EntityId player, string! text) -> bool
+static Kiln.ChatLine.operator !=(Kiln.ChatLine left, Kiln.ChatLine right) -> bool
+static Kiln.ChatLine.operator ==(Kiln.ChatLine left, Kiln.ChatLine right) -> bool
+static Kiln.ChatPlayer.operator !=(Kiln.ChatPlayer? left, Kiln.ChatPlayer? right) -> bool
+static Kiln.ChatPlayer.operator ==(Kiln.ChatPlayer? left, Kiln.ChatPlayer? right) -> bool
+static Kiln.ChatStatus.operator !=(Kiln.ChatStatus left, Kiln.ChatStatus right) -> bool
+static Kiln.ChatStatus.operator ==(Kiln.ChatStatus left, Kiln.ChatStatus right) -> bool
+static Kiln.CommandCompletion.operator !=(Kiln.CommandCompletion? left, Kiln.CommandCompletion? right) -> bool
+static Kiln.CommandCompletion.operator ==(Kiln.CommandCompletion? left, Kiln.CommandCompletion? right) -> bool
+static Kiln.CommandSource.Console.get -> Kiln.CommandSource!
+static Kiln.CommandSource.ForPlayer(Kiln.EntityId player, string? name = null) -> Kiln.CommandSource!
+static Kiln.CommandSource.ForSteamId(ulong steamId, string? name = null) -> Kiln.CommandSource!
+static Kiln.CommandSource.Remote(string! name, bool admin = true) -> Kiln.CommandSource!
+static Kiln.CommandSource.implicit operator Kiln.PermissionSubject(Kiln.CommandSource! source) -> Kiln.PermissionSubject
+static Kiln.Commands.Allowed(Kiln.CommandSource! source, Kiln.CommandInfo! command) -> bool
+static Kiln.Commands.Argument(string! name, Kiln.ArgumentType! type) -> Kiln.ArgumentNode!
+static Kiln.Commands.Complete(Kiln.CommandSource! source, string! text, int max = 50) -> Kiln.CommandCompletion!
+static Kiln.Commands.Describe(Kiln.CommandSource? visibleTo = null) -> System.Text.Json.Nodes.JsonArray!
+static Kiln.Commands.Execute(Kiln.CommandSource! source, string! line) -> Kiln.CommandResult!
+static Kiln.Commands.Find(string! name) -> Kiln.CommandInfo?
+static Kiln.Commands.IsAdmin(Kiln.CommandSource! source) -> bool
+static Kiln.Commands.IsCommandLine(string! text) -> bool
+static Kiln.Commands.List(Kiln.CommandSource? visibleTo = null) -> System.Collections.Generic.IReadOnlyList<Kiln.CommandInfo!>!
+static Kiln.Commands.Literal(string! name) -> Kiln.LiteralNode!
+static Kiln.Commands.Prefix.get -> string!
+static Kiln.Commands.Prefix.set -> void
+static Kiln.Commands.Register(Kiln.LiteralNode! root, Kiln.CommandPermission permission = Kiln.CommandPermission.Everyone, string? description = null, params string![]! aliases) -> Kiln.CommandRegistration!
+static Kiln.Commands.Register(string! name, Kiln.CommandHandler! handler, Kiln.CommandPermission permission = Kiln.CommandPermission.Everyone, string? usage = null, string? description = null, params string![]! aliases) -> Kiln.CommandRegistration!
+static Kiln.Commands.RegisterAll(object! target) -> System.Collections.Generic.IReadOnlyList<Kiln.CommandRegistration!>!
+static Kiln.Commands.SetAdminCheck(System.Func<Kiln.CommandSource!, bool>? check) -> void
+static Kiln.Commands.Tokenize(string! text) -> System.Collections.Generic.IReadOnlyList<string!>!
+static Kiln.Commands.UnknownCommands.get -> Kiln.UnknownCommandPolicy
+static Kiln.Commands.UnknownCommands.set -> void
+static Kiln.Commands.Unregister(string! name) -> bool
+static Kiln.EntitySelector.IsSelector(string? text) -> bool
+static Kiln.EntitySelector.TryParse(string! text, out Kiln.EntitySelector? selector, out string! error) -> bool
+static Kiln.SelectedEntity.operator !=(Kiln.SelectedEntity left, Kiln.SelectedEntity right) -> bool
+static Kiln.SelectedEntity.operator ==(Kiln.SelectedEntity left, Kiln.SelectedEntity right) -> bool
+static Kiln.Selectors.Entities(Kiln.CommandSource! source, string! selector) -> System.Collections.Generic.IReadOnlyList<Kiln.EntityId>!
+static Kiln.Selectors.Players(Kiln.CommandSource! source, string! selector) -> System.Collections.Generic.IReadOnlyList<Kiln.Player!>!
+static Kiln.Selectors.Select(Kiln.CommandSource! source, string! selector) -> System.Collections.Generic.IReadOnlyList<Kiln.SelectedEntity>!
+virtual Kiln.ChatMessageHandler.Invoke(Kiln.ChatMessage! message) -> void
+virtual Kiln.CommandHandler.Invoke(Kiln.CommandContext! context) -> void
+~override Kiln.ChatLine.Equals(object obj) -> bool
+~override Kiln.ChatLine.ToString() -> string
+~override Kiln.ChatStatus.Equals(object obj) -> bool
+~override Kiln.ChatStatus.ToString() -> string
+~override Kiln.SelectedEntity.Equals(object obj) -> bool

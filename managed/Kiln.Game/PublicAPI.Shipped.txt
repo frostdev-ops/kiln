@@ -1,0 +1,97 @@
+#nullable enable
+Kiln.GameTypes.ComponentTypes
+Kiln.GameTypes.Components
+Kiln.GameTypes.CurrentTransform
+Kiln.GameTypes.CurrentTransform.CurrentTransform() -> void
+Kiln.GameTypes.CurrentTransform.transform -> byte*
+Kiln.GameTypes.Health
+Kiln.GameTypes.Health.Health() -> void
+Kiln.GameTypes.Health.dataStorage -> byte*
+Kiln.GameTypes.LastTransform
+Kiln.GameTypes.LastTransform.LastTransform() -> void
+Kiln.GameTypes.LastTransform.transform -> byte*
+Kiln.GameTypes.LastTransform.velocity -> byte*
+Kiln.GameTypes.Mana
+Kiln.GameTypes.Mana.Mana() -> void
+Kiln.GameTypes.Mana.dataStorage -> byte*
+Kiln.GameTypes.NetworkHealth
+Kiln.GameTypes.NetworkHealth.NetworkHealth() -> void
+Kiln.GameTypes.NetworkHealth.health -> uint
+Kiln.GameTypes.NetworkHealth.healthMax -> uint
+Kiln.GameTypes.NpcCommon
+Kiln.GameTypes.NpcCommon.NpcCommon() -> void
+Kiln.GameTypes.NpcCommon.avoidWaterData -> byte*
+Kiln.GameTypes.NpcCommon.bedId -> byte*
+Kiln.GameTypes.NpcCommon.closestBuildingCursorId -> byte*
+Kiln.GameTypes.NpcCommon.closestPlayerDistance -> float
+Kiln.GameTypes.NpcCommon.closestPlayerId -> byte*
+Kiln.GameTypes.NpcCommon.closestPlayerPosition -> byte*
+Kiln.GameTypes.NpcCommon.currentSequenceId -> byte*
+Kiln.GameTypes.NpcCommon.currentStateDuration -> byte*
+Kiln.GameTypes.NpcCommon.currentTargetId -> byte*
+Kiln.GameTypes.NpcCommon.currentTargetPosition -> byte*
+Kiln.GameTypes.NpcCommon.goToTargetTries -> byte
+Kiln.GameTypes.NpcCommon.history -> byte*
+Kiln.GameTypes.NpcCommon.historyIndex -> byte
+Kiln.GameTypes.NpcCommon.interactionStates -> byte
+Kiln.GameTypes.NpcCommon.interactionTarget -> byte*
+Kiln.GameTypes.NpcCommon.lastStateChange -> byte*
+Kiln.GameTypes.NpcCommon.movementMode -> byte
+Kiln.GameTypes.NpcCommon.previousTargetId -> byte*
+Kiln.GameTypes.NpcCommon.queryId -> byte*
+Kiln.GameTypes.NpcCommon.resumeUpdateTimeOffset -> byte*
+Kiln.GameTypes.NpcCommon.shouldBeMoving -> byte
+Kiln.GameTypes.NpcCommon.sleepTime -> float
+Kiln.GameTypes.NpcCommon.squaredDistanceToTarget -> float
+Kiln.GameTypes.NpcCommon.stateTimer -> byte*
+Kiln.GameTypes.NpcCommon.stuckTime -> byte*
+Kiln.GameTypes.NpcCommon.stuckTimeOut -> byte*
+Kiln.GameTypes.NpcCommon.targetSearchStates -> byte
+Kiln.GameTypes.NpcCommon.taskFailures -> byte
+Kiln.GameTypes.NpcCommon.unstuckTries -> byte
+Kiln.GameTypes.NpcCommon.useReducedRoamingSpace -> byte
+Kiln.GameTypes.NpcCommon.wakeUpTime -> float
+Kiln.GameTypes.NpcCommon.yDistanceToTarget -> float
+Kiln.GameTypes.Stamina
+Kiln.GameTypes.Stamina.Stamina() -> void
+Kiln.GameTypes.Stamina.dataStorage -> byte*
+Kiln.GameTypes.TeleportCount
+Kiln.GameTypes.TeleportCount.TeleportCount() -> void
+Kiln.GameTypes.TeleportCount.counter -> byte
+Kiln.GameTypes.TeleportCount.lastTeleportTime -> byte*
+Kiln.GameTypes.Velocity
+Kiln.GameTypes.Velocity.Velocity() -> void
+Kiln.GameTypes.Velocity.velocity -> byte*
+const Kiln.GameTypes.ComponentTypes.CurrentTransform = 41600356 -> uint
+const Kiln.GameTypes.ComponentTypes.Health = 3692040337 -> uint
+const Kiln.GameTypes.ComponentTypes.LastTransform = 1265286393 -> uint
+const Kiln.GameTypes.ComponentTypes.Mana = 1299327400 -> uint
+const Kiln.GameTypes.ComponentTypes.NetworkHealth = 560903673 -> uint
+const Kiln.GameTypes.ComponentTypes.NpcCommon = 120438199 -> uint
+const Kiln.GameTypes.ComponentTypes.Stamina = 2453735012 -> uint
+const Kiln.GameTypes.ComponentTypes.TeleportCount = 3221107951 -> uint
+const Kiln.GameTypes.ComponentTypes.Velocity = 4214432000 -> uint
+const Kiln.GameTypes.CurrentTransform.Hash = 41600356 -> uint
+const Kiln.GameTypes.Health.Hash = 3692040337 -> uint
+const Kiln.GameTypes.LastTransform.Hash = 1265286393 -> uint
+const Kiln.GameTypes.Mana.Hash = 1299327400 -> uint
+const Kiln.GameTypes.NetworkHealth.Hash = 560903673 -> uint
+const Kiln.GameTypes.NpcCommon.Hash = 120438199 -> uint
+const Kiln.GameTypes.Stamina.Hash = 2453735012 -> uint
+const Kiln.GameTypes.TeleportCount.Hash = 3221107951 -> uint
+const Kiln.GameTypes.Velocity.Hash = 4214432000 -> uint
+static Kiln.GameTypes.Components.All<T>() -> System.Collections.Generic.IReadOnlyList<Kiln.EntityId>!
+static Kiln.GameTypes.Components.Available.get -> bool
+static Kiln.GameTypes.Components.Get<T>(Kiln.EntityId entity) -> T?
+static Kiln.GameTypes.Components.Has<T>(Kiln.EntityId entity) -> bool
+static Kiln.GameTypes.Components.NameOf<T>() -> string?
+static Kiln.GameTypes.Components.TryGet<T>(Kiln.EntityId entity, out T value) -> bool
+~const Kiln.GameTypes.CurrentTransform.Component = "CurrentTransform" -> string
+~const Kiln.GameTypes.Health.Component = "Health" -> string
+~const Kiln.GameTypes.LastTransform.Component = "LastTransform" -> string
+~const Kiln.GameTypes.Mana.Component = "Mana" -> string
+~const Kiln.GameTypes.NetworkHealth.Component = "NetworkHealth" -> string
+~const Kiln.GameTypes.NpcCommon.Component = "NpcCommon" -> string
+~const Kiln.GameTypes.Stamina.Component = "Stamina" -> string
+~const Kiln.GameTypes.TeleportCount.Component = "TeleportCount" -> string
+~const Kiln.GameTypes.Velocity.Component = "Velocity" -> string
