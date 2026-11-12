@@ -8,6 +8,7 @@
 #pragma once
 #include <cstdint>
 #include <functional>
+#include <map>
 #include <optional>
 #include <set>
 #include <string>
@@ -48,6 +49,36 @@ using ClipFactsFn = std::function<std::optional<ClipFacts>(const std::string& gu
 // lets every one through for the game's: a provider follows that rule (see the report of part 1).
 ClipFacts joint_animation_facts(const TypeDb& types, const uint8_t* data, size_t len);
 
+// playergraph.ClipFacts: a clip's facts from the mods' assets/assets.json "resource" entries (not "side": "client", which
+// a dedicated server skips; part 0), read from their files; else from the game. Two mods serving one clip with other facts:
+// not served. Root motion and sequences: served by any mod, or the game has them. A mod's file that cannot be read counts as
+// unreadable (that mod's entry); the game's errors go through (the merge goes off), as in the Python.
+class ClipFactsProvider {
+public:
+    struct Mod {
+        std::string assets_dir;   // <mod>/assets
+        std::string assets_json;  // the text of its assets.json ("" with has_json false: none)
+        bool has_json = false;
+    };
+    struct Game {
+        // The game's own resource (part 0) of `type` under `guid`: true and the bytes, or false: not there.
+        std::function<bool(const Guid& guid, uint32_t type, Bytes* out)> read;
+        std::function<bool(const Guid& guid, uint32_t type)> has;
+    };
+    // read_file: a mod's file, `assets_dir` + "/" + the entry's "file"; false: cannot be read.
+    ClipFactsProvider(const TypeDb& types, const std::vector<Mod>& mods, std::function<bool(const std::string& path, Bytes* out)> read_file, Game game);
+    std::optional<ClipFacts> operator()(const std::string& guid);
+    std::vector<std::string> warnings;  // assets.json files the Python could not read either (it would stop there)
+
+private:
+    const TypeDb& types_;
+    std::function<bool(const std::string&, Bytes*)> read_file_;
+    Game game_;
+    uint32_t ja_ = 0, rm_ = 0, sq_ = 0;
+    std::map<std::pair<std::string, uint32_t>, std::vector<std::string>> served_;  // (guid, type hash) -> files
+    std::map<std::string, std::optional<ClipFacts>> cache_;
+};
+
 // The game's graph: bytes given, or a reader the merge calls only when a state is left to merge (so a boot with no
 // state reads nothing), or neither ("no graph to merge into").
 struct GraphRead {
@@ -64,9 +95,22 @@ struct GraphSource {
 struct MergeHooks {
     IdHooks ids;
     void (*after_encode)(int call, Bytes* out) = nullptr;
+    std::vector<std::string> drop_first;  // node kinds the graph is taken to have no template of
+    std::string missing_field;            // lab only: a field name the merge writes is taken as missing from every type
+};
+
+// Where a merge's time went, in milliseconds (for the log line and the timing test).
+struct MergeTimes {
+    double read = 0;      // the game's graph decoded twice and encoded once (the round-trip check)
+    double accept = 0;    // the graph indexed, the definitions checked, the clip facts asked
+    double build = 0;     // the new nodes written
+    double validate = 0;  // the merged graph checked
+    double encode = 0;    // encoded, decoded back, compared, encoded again
+    double total = 0;
 };
 
 struct MergeResult {
+    MergeTimes times;
     std::optional<Bytes> graph;     // the merged graph, only when report["graph"] is "merged"
     nlohmann::ordered_json report;  // playergraph's report, field for field
     std::vector<State> states;      // every state with its status and reason, by mod id then name (the report's order)
@@ -75,6 +119,9 @@ struct MergeResult {
 MergeResult merge(const GraphSource& raw, const TypeDb& types, const std::vector<ModStates>& mods, const ClipFactsFn& clip_facts,
                   const MergeHooks* hooks = nullptr);
 
+// The report's graphHash: the first 8 bytes of SHA-256 over the merged graph, 16 lower-case hex digits.
+std::string graph_hash(const Bytes& merged);
+
 // Rule 10: FNV-1a-32 of "kiln.player.<parts joined by dots>".
 uint32_t node_id(const std::vector<std::string>& parts);
 
@@ -82,11 +129,30 @@ uint32_t node_id(const std::vector<std::string>& parts);
 void validate(const TypeDb& types, const Value& pristine, const Value& merged, const std::set<uint64_t>& touched_machines,
               const std::set<uint64_t>& touched_lists, const std::set<uint64_t>& touched_selects, const std::set<uint64_t>& new_ids);
 
+// The lookup of note player-anim-04 over the game's own graph: a state by "State" or "Machine/State", its machine, how a
+// sequence enters it (the machine's kind in SUPPORTED; elsewhere the state input, else an overlay) and every id that does
+// (its global transitions' conditions; with none, its local ways in). The graph holds ids, never GUIDs.
+struct GameState {
+    std::string machine, name, kind;  // kind: "state" or "overlay"
+    std::vector<uint32_t> ids;
+};
+class GameStates {
+public:
+    // Decodes the game's graph: throws PyError when it does not decode or index.
+    GameStates(const TypeDb& types, const Bytes& raw);
+    // Every state the name names, in the graph's order (several: the bare name is in several machines).
+    std::vector<const GameState*> find(std::string_view name) const;
+    size_t size() const { return all_.size(); }
+
+private:
+    std::vector<GameState> all_;
+};
+
 // The supported neighbours (playergraph.SUPPORTED): machine names in the table's order, and for a machine whose row
 // names states, those states. The only names of the game in this code.
 struct SupportRow {
     const char* machine;
-    const char* kind;                 // the entry kind (merge.cpp's ENTRIES): "state"
+    const char* kind;                 // the entry kind (merge.cpp's ENTRIES): "state" or "overlay"
     bool every_state;                 // the Python's None: every state of the machine
     std::vector<const char*> states;  // else these
 };

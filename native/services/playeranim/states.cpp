@@ -669,7 +669,8 @@ std::string to_text(const std::vector<uint32_t>& cps, size_t lo, size_t hi) {
 
 }  // namespace
 
-ManifestFields read_manifest_text(std::string_view text, const std::string& where) {
+namespace {
+std::vector<uint32_t> strip_comments_cp(std::string_view text) {
     // re.sub(r"^\s*//.*$", "", text, flags=re.M): a line whose first non-space characters are // goes, with the
     // white space before it (which may span lines)
     const std::vector<uint32_t> in = code_points(text);
@@ -688,6 +689,17 @@ ManifestFields read_manifest_text(std::string_view text, const std::string& wher
         }
         a.push_back(in[i++]);
     }
+    return a;
+}
+}  // namespace
+
+std::string strip_line_comments(std::string_view text) {
+    const std::vector<uint32_t> a = strip_comments_cp(text);
+    return to_text(a, 0, a.size());
+}
+
+ManifestFields read_manifest_text(std::string_view text, const std::string& where) {
+    const std::vector<uint32_t> a = strip_comments_cp(text);
     // re.sub(r",(\s*[}\]])", r"\1", ...): a comma before a closing bracket goes
     std::vector<uint32_t> b;
     b.reserve(a.size());
