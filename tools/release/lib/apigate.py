@@ -70,7 +70,8 @@ SHIPPED = "PublicAPI.Shipped.txt"
 UNSHIPPED = "PublicAPI.Unshipped.txt"
 NULLABLE = "#nullable enable"
 REMOVED = "*REMOVED*"
-EXPERIMENTAL = re.compile(r"^\[KILNX[0-9A-Za-z_]*\]")
+# PublicApiAnalyzers writes the oblivious marker `~` before the experimental id: `~[KILNX001]override ...`.
+EXPERIMENTAL = re.compile(r"^(~?)(\[KILNX[0-9A-Za-z_]*\])")
 MERGE_MARKER = re.compile(r"^(<{7}|\|{7}|={7}|>{7})( |\r?$)")
 # the analyzer's record of a type moved to another assembly with a type forward
 FORWARDED = re.compile(r"^(?P<line>.+) \(forwarded, contained in (?P<asm>[A-Za-z0-9_.]+)\)$")
@@ -184,7 +185,8 @@ def shipped_at(t, proj):
 
 
 def unprefixed(line):
-    return EXPERIMENTAL.sub("", line, count=1)
+    """The line without its experimental id; an oblivious `~` stays: `~[KILNX001]x` -> `~x`."""
+    return EXPERIMENTAL.sub(r"\1", line, count=1)
 
 
 class Records:
@@ -228,7 +230,7 @@ def removal_case(line, beside, records):
         return "lab member removed: experimental, not part of the promise", None
     for b in beside:
         if EXPERIMENTAL.match(b) and unprefixed(b) == line:
-            return f"made experimental ({b[: b.index(']') + 1]})", None
+            return f"made experimental ({EXPERIMENTAL.match(b).group(2)})", None
     for b in beside:
         m = FORWARDED.match(b)
         if m and m.group("line") == line:

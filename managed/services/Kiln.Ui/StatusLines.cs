@@ -118,6 +118,11 @@ public static class StatusLines
     {
         StatusLine[] all;
         lock (Lock) all = _lines;
+        return All(all);
+    }
+
+    private static IReadOnlyList<ModStatus> All(StatusLine[] all)
+    {
         if (all.Length == 0) return [];
         var info = new Dictionary<string, ModEntry>(StringComparer.Ordinal);
         try
@@ -296,10 +301,18 @@ public static class StatusLines
                     var at = Environment.TickCount64;
                     _refresh = Task.Run(() =>
                     {
+                        // The lines are taken together with the epoch check: a refresh that was queued before a Reset and
+                        // only gets to run after it must not read the sources added since (the next test's).
+                        StatusLine[] lines;
+                        lock (Lock)
+                        {
+                            if (epoch != _epoch) return [];
+                            lines = _lines;
+                        }
                         IReadOnlyList<ModStatus> value;
                         try
                         {
-                            value = All();
+                            value = All(lines);
                         }
                         catch (Exception)
                         {

@@ -1,0 +1,50 @@
+// kiln-typegen: generated at build time from a game layout dump. Never commit this file.
+kiln.game.types	1	side=server	exe_sha256=0000000000000000000000000000000000000000000000000000000000000001	types=48
+keen::Bitmask16<keen::LanternTag>	14	2	0x58906969	keen::LanternTag
+keen::Bitmask64<keen::LanternMode>	16	8	0xE40B0CA5	keen::LanternMode
+keen::Bitmask8<keen::glimmer::Kind>	13	1	0x03EB194B	keen::glimmer::Kind
+keen::BlobArray<keen::uint8>	24	8	0x3546C53F	-
+keen::BlobString	25	8	0x7C5B3600	-
+keen::Brightness	17	4	0x9856186D	keen::Lumen
+keen::DsHandle	22	8	0x09037341	-
+keen::Guid	29	16	0x807DD69F	-
+keen::HashKey32	18	4	0xCE64F02C	-	value@0:keen::uint32
+keen::LanternMode	12	1	0x7F63D7AD	keen::uint8	Off=0	Dim=1	Bright=2
+keen::LanternTag	12	1	0xCE5AA8F6	keen::uint8	Hanging=0	Lit=1	Smoky=2	Hooded=15
+keen::Lumen	17	4	0x529DD817	keen::float32
+keen::Moment	18	8	0x1F0C23EA	-	value@0:keen::sint64
+keen::Notch	17	2	0x1EF48408	keen::sint16
+keen::ObjectReference<keen::LampModel>	28	16	0xECD8E9F6	-
+keen::StaticArray<keen::BlobString,2>	19	16	0x88FD83A6	keen::BlobString
+keen::StaticArray<keen::ecs::Spark,3>	19	24	0x48A163BF	keen::ecs::Spark
+keen::StaticArray<keen::float32,4>	19	16	0x7CE232EF	keen::float32
+keen::StaticArray<keen::sint16,4>	19	8	0xAED6C7D1	keen::sint16
+keen::StaticArray<keen::uint8,4>	19	4	0x0B45934A	keen::uint8
+keen::TagSet	17	2	0xEB1A982E	keen::Bitmask16<keen::LanternTag>
+keen::Tilt	12	2	0xD914A6E5	keen::Notch	Left=-1	Level=0	Right=1
+keen::WickId	17	4	0xBEE68669	keen::ecs::LampId
+keen::bool	1	1	0x767EF14A	-
+keen::ecs::AttributeComponent	18	8	0x81509358	keen::ecs::Component	key@0:keen::HashKey32	start@4:keen::uint16	count@6:keen::uint8
+keen::ecs::Comet	18	24	0x41BAC01D	keen::ecs::Component	trail@0:keen::glimmer::Trail	speed@16:keen::float64
+keen::ecs::Component	18	1	0xB4B5CB62	-
+keen::ecs::Event	18	1	0xD8A6B2C5	-
+keen::ecs::FloatMeter	18	8	0x16F0A988	keen::ecs::AttributeComponent
+keen::ecs::Gauges	18	56	0xC7CB5097	keen::ecs::Component	on@0:keen::bool	b@1:keen::uint8	sb@2:keen::sint8	us@4:keen::uint16	s@6:keen::sint16	ui@8:keen::uint32	i@12:keen::sint32	ul@16:keen::uint64	l@24:keen::sint64	f@32:keen::float32	d@40:keen::float64	modes@48:keen::Bitmask64<keen::LanternMode>
+keen::ecs::LampId	18	4	0xFC2DEA90	-	id@0:keen::uint32
+keen::ecs::Lantern	18	136	0xDB3FBC29	keen::ecs::Component	glow@0:keen::Brightness	wick@4:keen::WickId	mode@8:keen::LanternMode	tags@10:keen::TagSet	levels@12:keen::StaticArray<keen::sint16,4>	lit@24:keen::Moment	sparks@32:keen::StaticArray<keen::ecs::Spark,3>	params@56:keen::uint32	model@64:keen::ObjectReference<keen::LampModel>	guid@80:keen::Guid	notes@96:keen::BlobArray<keen::uint8>	title@104:keen::BlobString	opaque@112:keen::DsHandle	labels@120:keen::StaticArray<keen::BlobString,2>
+keen::ecs::LanternLit	18	12	0x2220ED62	keen::ecs::Event	lantern@0:keen::ecs::LampId	mode@4:keen::LanternMode	wicks@8:keen::StaticArray<keen::uint8,4>
+keen::ecs::Spark	18	8	0xD1E998F4	-	heat@0:keen::float32	age@4:keen::uint16	tilt@6:keen::Tilt
+keen::ecs::Unlit	18	1	0x75F74CD1	keen::ecs::Component
+keen::ecs::Warmth	18	24	0x2769ACB6	keen::ecs::FloatMeter	dataStorage@8:keen::StaticArray<keen::float32,4>
+keen::float32	10	4	0x71EC172D	-
+keen::float64	11	8	0x6DDF44EE	-
+keen::glimmer::Kind	12	4	0x765546CB	keen::uint32	Ember=0	Flash=1	event=2
+keen::glimmer::Trail	18	12	0x4F72510B	-	length@0:keen::float32	kind@4:keen::glimmer::Kind	kinds@8:keen::Bitmask8<keen::glimmer::Kind>
+keen::sint16	5	2	0x4CA4912F	-
+keen::sint32	7	4	0x58A92141	-
+keen::sint64	9	8	0xCCB093A2	-
+keen::sint8	3	1	0x58D86E48	-
+keen::uint16	4	2	0x76D64E45	-
+keen::uint32	6	4	0x82D1E3FB	-
+keen::uint64	8	8	0xF2D95010	-
+keen::uint8	2	1	0xD297A9C6	-

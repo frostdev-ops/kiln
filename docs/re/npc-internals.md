@@ -419,6 +419,29 @@ picky: never its target; the filter's pair answered 953 times      SenseFilter r
 Rates with one pair fighting: about 40 hooked calls per step. Custom faction values above 15 would fall through the game's code as "hostile to
 everyone but its own"; `DamageModAgainst_Faction_*` attributes have no slot for them **[hyp]**, not tried.
 
+**dev.24 as released (2026-11-12, server 26430253 `f0d824be…`) [rt].** npcai-test failed 6 of 31 checks, and 7 of 45 with the lab readiness
+switch on. Neither failure came from this service or from the game build. All five leaves resolved and hooked as above, and once a creature had a
+row, the row answered. There were two causes:
+- The lab had no `kiln/data/kiln.creatures/force-ready`, so every `ForceReady()` threw `NotSupportedException` ("force ready: unavailable"). That
+  is four of the six; the test now says which switch is missing instead (`services/creatures.md`, Test).
+- Every creature block defined in C# in `OnLoad` had no row and no filter when the world ran (`0 creature(s) with their own`). A `Factions.Relate`
+  made in `OnLoad` was gone as well. Kiln.Blocks' `AiRuntime.Watch` named the mod's instance by `Mods.Get(id).Info`. During `OnLoad` that is
+  Kiln.Host's entry from before the load (state Pending, a ModInfo of its own), because the host publishes the loaded entry after `OnLoad`
+  returns. The first tick saw a different ModInfo, took it for a reload and released everything the mod had set. A probe in the lab:
+  ```
+  end of OnLoad:                 Mods.Get(Me) Pending, its Info is this instance's False, AiRuntime.ByVariant 4, AiStats.Rows 0
+  120 steps after the world runs: Mods.Get(Me) Loaded,  its Info is this instance's True,  AiRuntime.ByVariant 1, AiStats.Rows 0
+  ```
+  The fix is in Kiln.Blocks: `Watch` names the instance by the calling mod's own context first. With it, three recreated labs gave 46 PASS,
+  0 FAIL each (the 45 above and a world relation set in `OnLoad`), with the numbers above again: a Vukah found a Scavenger at step 15, the table
+  answered 1,868 times out of 11,731 calls, the hunter took its target at step 30 (row 924 times), the picky one's pair answered 953 times and it
+  took its target at step 19 once allowed. Without the fix, switch on, the same test gives 38 PASS, 8 FAIL (twice).
+
+Two checks of the rules section depend on how the fight runs rather than on Kiln. The summons were looked at only after 400 steps, but a summon
+lives 20 s of wall time, and under load (about 90) those steps took 29.5 s, so both had expired. They are now looked at while they live. The immune
+check needs the wary alive: in 1 of 10 runs the level-60 Scavenger killed it (566 hp at step 100, dead at step 200) faster than its 0.5 s
+last-stand rule could act, and the check read a dead creature.
+
 ## 4. BehaviourBlock: what it decides to do
 
 ### 4.1 Is there a behaviour tree? **[data] [dis]**

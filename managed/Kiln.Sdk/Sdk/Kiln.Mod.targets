@@ -15,7 +15,9 @@
       KilnFeatures       ;-list of required Kiln features (Game.HasFeature), e.g. tick;log.mirror
       KilnExports        ;-list of assembly file names other mods compile against (e.g. MyMod.Api.dll)
       KilnServices       ;-list of Kiln service assemblies to reference: Players;Chat;World;Items;Spawn;Time;Settings;...
-                         plus Testing (Kiln.Testing, for [KilnTest] methods)
+                         plus Testing (Kiln.Testing, for [KilnTest] methods) and Game (Kiln.Game, the game's ECS types
+                         generated from its reflection: Kiln.Ecs.*; the build then writes kiln.gametypes.json,
+                         Kiln.GameTypes.targets)
       KilnTestsAutoRun   true: run the mod's [KilnTest] methods when the server has started
       KilnTestTimeoutSeconds
       KilnServer         a server folder (with enshrouded_server.exe) for KilnDeploy, or KilnModsDir (its kiln/mods)
@@ -26,6 +28,7 @@
       KilnPackExclude    ;-list of globs (relative to the mod folder) KilnPack leaves out (default assets/cooked/**)
       KilnAnalyzers      false: no Kiln analyzers (KILN1xx; Kiln.Analyzers.targets)
       KilnGameIds        game-id constants from the local catalog (Kiln.GameIds.targets, docs/kiln/modding/catalogs.md)
+      KilnGameTypes      false: no layout stamp kiln.gametypes.json (Kiln.GameTypes.targets)
     Items:
       <KilnDependency Include="other-mod" Version="^1.2" Optional="false" />
       <KilnLoadBefore Include="id" />  <KilnLoadAfter Include="id" />  <KilnIncompatible Include="id" Version="*" />
@@ -51,6 +54,7 @@
     <_KilnAuthors Condition="'$(Authors)' != '$(AssemblyName)'">$(Authors)</_KilnAuthors>
     <_KilnServiceList>;$(KilnServices.Replace(' ', '').Replace(',', ';'));</_KilnServiceList>
     <_KilnWantsTesting>$(_KilnServiceList.Contains(';Testing;'))</_KilnWantsTesting>
+    <_KilnWantsGame>$(_KilnServiceList.Contains(';Game;'))</_KilnWantsGame>
     <!-- The build task: from the package, or (repository mode) built by the Kiln.Sdk project reference into a fixed
          folder and run out of process, so a rebuilt task is never stale in a reused MSBuild node. -->
     <_KilnTasksDir Condition="'$(KilnRepoMode)' != 'true'">$(MSBuildThisFileDirectory)../tasks/net10.0/</_KilnTasksDir>
@@ -80,12 +84,17 @@
   <ItemGroup>
     <!-- Unescape: a property function's result is escaped, so its ';' would not split the list. -->
     <_KilnService Include="$([MSBuild]::Unescape($(KilnServices.Replace(',', ';'))))" Exclude="Testing" />
+    <!-- Game is not under managed/services in the repository (managed/Kiln.Game); in the package it is kiln/lib like the rest -->
+    <_KilnRepoService Include="@(_KilnService)" Exclude="Game" />
+    <!-- Kiln.Game compiles against Kiln.World: a direct, compile-only reference, so the transitive one is not copied -->
+    <_KilnRepoService Include="World" Condition="'$(_KilnWantsGame)' == 'true' and !$(_KilnServiceList.Contains(';World;'))" />
   </ItemGroup>
 
   <!-- Kiln.Api and the services come from kiln/host at run time: compile against them, never ship them. -->
   <ItemGroup Condition="'$(KilnRepoMode)' == 'true'">
     <ProjectReference Include="$(KilnRepoRoot)managed/Kiln.Api/Kiln.Api.csproj" Private="false" ExcludeAssets="runtime" />
-    <ProjectReference Include="@(_KilnService->'$(KilnRepoRoot)managed/services/Kiln.%(Identity)/Kiln.%(Identity).csproj')" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="@(_KilnRepoService->'$(KilnRepoRoot)managed/services/Kiln.%(Identity)/Kiln.%(Identity).csproj')" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="$(KilnRepoRoot)managed/Kiln.Game/Kiln.Game.csproj" Private="false" ExcludeAssets="runtime" Condition="'$(_KilnWantsGame)' == 'true'" />
     <ProjectReference Include="$(KilnRepoRoot)managed/Kiln.Testing/Kiln.Testing.csproj" Private="false" ExcludeAssets="runtime" Condition="'$(_KilnWantsTesting)' == 'true'" />
     <ProjectReference Include="$(KilnRepoRoot)managed/Kiln.Sdk/Kiln.Sdk.csproj" ReferenceOutputAssembly="false" Private="false" />
   </ItemGroup>
@@ -154,7 +163,7 @@
   <Target Name="_KilnModFiles" DependsOnTargets="KilnManifest">
     <ItemGroup>
       <_KilnModFile Include="$(OutDir)**/*"
-                    Exclude="$(OutDir)**/*.deps.json;$(OutDir)**/*.runtimeconfig.json;$(OutDir)Kiln.Api.*;$(OutDir)Kiln.Host.*;$(OutDir)Kiln.Testing.*;@(_KilnService->'$(OutDir)Kiln.%(Identity).*')" />
+                    Exclude="$(OutDir)**/*.deps.json;$(OutDir)**/*.runtimeconfig.json;$(OutDir)Kiln.Api.*;$(OutDir)Kiln.Host.*;$(OutDir)Kiln.Testing.*;$(OutDir)Kiln.Game.*;@(_KilnService->'$(OutDir)Kiln.%(Identity).*')" />
     </ItemGroup>
   </Target>
 
@@ -172,7 +181,7 @@
     <Error Condition="'$(KilnServer)' != '' and !Exists('$(KilnServer)/kiln')" Code="KILN011"
            Text="$(KilnServer) has no kiln folder: deploy Kiln to that server first (tools/deploy-server.sh)" />
     <ItemGroup>
-      <_KilnStale Include="$(_KilnDeployDir)/*.dll;$(_KilnDeployDir)/*.pdb;$(_KilnDeployDir)/kiln.mod.json;$(_KilnDeployDir)/kiln.programs.json" />
+      <_KilnStale Include="$(_KilnDeployDir)/*.dll;$(_KilnDeployDir)/*.pdb;$(_KilnDeployDir)/kiln.mod.json;$(_KilnDeployDir)/kiln.programs.json;$(_KilnDeployDir)/kiln.gametypes.json" />
     </ItemGroup>
     <Delete Files="@(_KilnStale)" />
     <Copy SourceFiles="@(_KilnModFile)" DestinationFiles="@(_KilnModFile->'$(_KilnDeployDir)/%(RecursiveDir)%(Filename)%(Extension)')" />

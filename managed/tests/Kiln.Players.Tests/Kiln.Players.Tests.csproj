@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Unit tests of Kiln.Players without a game: identity.players (PlayerRef.Of, Resolve, IsOnline through the real
+       Kiln.Api code over a fake roster), the session stamp, the players' entity source and the conversions to
+       PlayerRef of Player, TalentHolder (Kiln.Skills) and QuestHolder (Kiln.Quests). -->
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <OutputType>Exe</OutputType>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+    <!-- not Kiln.Players.*: a namespace of that name would hide the Players class -->
+    <RootNamespace>Kiln.PlayerTests</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit.v3" Version="3.1.0" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../services/Kiln.Players/Kiln.Players.csproj" />
+    <ProjectReference Include="../../services/Kiln.Skills/Kiln.Skills.csproj" />
+    <ProjectReference Include="../../services/Kiln.Quests/Kiln.Quests.csproj" />
+  </ItemGroup>
+</Project>

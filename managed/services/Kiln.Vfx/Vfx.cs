@@ -390,6 +390,8 @@ public static unsafe class Vfx
 
 /// <summary>Test seams, for mods/tests/vfx-test. The guard ones skip Kiln's own check on purpose, so the guard in the game's path has to
 /// catch the GUID; both refuse a GUID the game knows. Not for mods: a mod has <see cref="Vfx"/>.</summary>
+[System.Diagnostics.CodeAnalysis.Experimental("KILNX001")]
+[System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
 public static unsafe class VfxTestSeams
 {
     /// <summary>Through the FxController, the way data-driven VFX go: the guard at the start must empty it.</summary>
