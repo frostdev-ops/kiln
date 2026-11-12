@@ -51,7 +51,6 @@ static Kiln.Capability.operator !=(Kiln.Capability left, Kiln.Capability right) 
 static Kiln.Capability.operator ==(Kiln.Capability left, Kiln.Capability right) -> bool
 ~override Kiln.Capability.Equals(object obj) -> bool
 ~override Kiln.Capability.ToString() -> string
-||||||| 6bdf7528
 static Kiln.Mods.RuntimeApiVersion.get -> string!
 Kiln.AnyThreadAttribute
 Kiln.AnyThreadAttribute.AnyThreadAttribute() -> void
