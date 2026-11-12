@@ -1,0 +1,904 @@
+#nullable enable
+Kiln.Act
+Kiln.AiAccess
+Kiln.AiAccess.AiAccess() -> void
+Kiln.AiAccess.Get(string! path) -> string!
+Kiln.AiAccess.Get(string! path, out bool isPrivate) -> string!
+Kiln.AiAccess.GetNumber(string! path) -> double
+Kiln.AiAccess.Override(System.Action<Kiln.AiAccess>! edit) -> void
+Kiln.AiAccess.Reset(string? pathOrComponent = null) -> int
+Kiln.AiAccess.Set(string! path, bool value) -> void
+Kiln.AiAccess.Set(string! path, double value) -> void
+Kiln.AiAccess.Set(string! path, string! value) -> void
+Kiln.ArsenalAttack
+Kiln.ArsenalAttack.Abort.get -> System.Collections.Generic.List<Kiln.RuleCondition!>?
+Kiln.ArsenalAttack.Abort.init -> void
+Kiln.ArsenalAttack.ArsenalAttack() -> void
+Kiln.ArsenalAttack.Chance.get -> double?
+Kiln.ArsenalAttack.Chance.init -> void
+Kiln.ArsenalAttack.Execution.get -> System.Collections.Generic.List<Kiln.RuleCondition!>?
+Kiln.ArsenalAttack.Execution.init -> void
+Kiln.ArsenalAttack.Fields.get -> System.Collections.Generic.Dictionary<string!, object?>?
+Kiln.ArsenalAttack.Fields.init -> void
+Kiln.ArsenalAttack.Flags.get -> string![]?
+Kiln.ArsenalAttack.Flags.init -> void
+Kiln.ArsenalAttack.Id.get -> System.Guid?
+Kiln.ArsenalAttack.Id.init -> void
+Kiln.ArsenalAttack.MaxRange.get -> double?
+Kiln.ArsenalAttack.MaxRange.init -> void
+Kiln.ArsenalAttack.MinRange.get -> double?
+Kiln.ArsenalAttack.MinRange.init -> void
+Kiln.ArsenalAttack.Modify.get -> System.Guid?
+Kiln.ArsenalAttack.Modify.init -> void
+Kiln.ArsenalAttack.ModifyIndex.get -> int?
+Kiln.ArsenalAttack.ModifyIndex.init -> void
+Kiln.ArsenalAttack.Name.get -> string?
+Kiln.ArsenalAttack.Name.init -> void
+Kiln.ArsenalAttack.Selection.get -> System.Collections.Generic.List<Kiln.RuleCondition!>?
+Kiln.ArsenalAttack.Selection.init -> void
+Kiln.ArsenalAttack.Sequence.get -> System.Guid?
+Kiln.ArsenalAttack.Sequence.init -> void
+Kiln.ArsenalAttack.Style.get -> string![]?
+Kiln.ArsenalAttack.Style.init -> void
+Kiln.ArsenalAttack.Threat.get -> double?
+Kiln.ArsenalAttack.Threat.init -> void
+Kiln.ArsenalHandle
+Kiln.ArsenalHandle.Dispose() -> void
+Kiln.ArsenalHandle.Id.get -> System.Guid
+Kiln.ArsenalInfo
+Kiln.ArsenalInfo.<Clone>$() -> Kiln.ArsenalInfo!
+Kiln.ArsenalInfo.Address.get -> ulong
+Kiln.ArsenalInfo.Address.init -> void
+Kiln.ArsenalInfo.ArsenalInfo(System.Guid Id, bool IsKiln, ulong Address, System.Collections.Generic.IReadOnlyList<Kiln.ArsenalInfo.Attack!>! Attacks, System.Collections.Generic.IReadOnlyList<Kiln.ArsenalInfo.Rule!>! Rules, System.Collections.Generic.IReadOnlyList<string!>! Problems) -> void
+Kiln.ArsenalInfo.Attack
+Kiln.ArsenalInfo.Attack.<Clone>$() -> Kiln.ArsenalInfo.Attack!
+Kiln.ArsenalInfo.Attack.Attack(int Index, System.Guid Id, System.Guid Sequence, int Style) -> void
+Kiln.ArsenalInfo.Attack.Deconstruct(out int Index, out System.Guid Id, out System.Guid Sequence, out int Style) -> void
+Kiln.ArsenalInfo.Attack.Equals(Kiln.ArsenalInfo.Attack? other) -> bool
+Kiln.ArsenalInfo.Attack.Id.get -> System.Guid
+Kiln.ArsenalInfo.Attack.Id.init -> void
+Kiln.ArsenalInfo.Attack.Index.get -> int
+Kiln.ArsenalInfo.Attack.Index.init -> void
+Kiln.ArsenalInfo.Attack.Sequence.get -> System.Guid
+Kiln.ArsenalInfo.Attack.Sequence.init -> void
+Kiln.ArsenalInfo.Attack.Style.get -> int
+Kiln.ArsenalInfo.Attack.Style.init -> void
+Kiln.ArsenalInfo.Attacks.get -> System.Collections.Generic.IReadOnlyList<Kiln.ArsenalInfo.Attack!>!
+Kiln.ArsenalInfo.Attacks.init -> void
+Kiln.ArsenalInfo.Deconstruct(out System.Guid Id, out bool IsKiln, out ulong Address, out System.Collections.Generic.IReadOnlyList<Kiln.ArsenalInfo.Attack!>! Attacks, out System.Collections.Generic.IReadOnlyList<Kiln.ArsenalInfo.Rule!>! Rules, out System.Collections.Generic.IReadOnlyList<string!>! Problems) -> void
+Kiln.ArsenalInfo.Equals(Kiln.ArsenalInfo? other) -> bool
+Kiln.ArsenalInfo.Id.get -> System.Guid
+Kiln.ArsenalInfo.Id.init -> void
+Kiln.ArsenalInfo.IsKiln.get -> bool
+Kiln.ArsenalInfo.IsKiln.init -> void
+Kiln.ArsenalInfo.Problems.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Kiln.ArsenalInfo.Problems.init -> void
+Kiln.ArsenalInfo.Rule
+Kiln.ArsenalInfo.Rule.<Clone>$() -> Kiln.ArsenalInfo.Rule!
+Kiln.ArsenalInfo.Rule.Actions.get -> int
+Kiln.ArsenalInfo.Rule.Actions.init -> void
+Kiln.ArsenalInfo.Rule.Deconstruct(out int Index, out System.Guid Id, out int Mode, out int When, out int Actions) -> void
+Kiln.ArsenalInfo.Rule.Equals(Kiln.ArsenalInfo.Rule? other) -> bool
+Kiln.ArsenalInfo.Rule.Id.get -> System.Guid
+Kiln.ArsenalInfo.Rule.Id.init -> void
+Kiln.ArsenalInfo.Rule.Index.get -> int
+Kiln.ArsenalInfo.Rule.Index.init -> void
+Kiln.ArsenalInfo.Rule.Mode.get -> int
+Kiln.ArsenalInfo.Rule.Mode.init -> void
+Kiln.ArsenalInfo.Rule.Rule(int Index, System.Guid Id, int Mode, int When, int Actions) -> void
+Kiln.ArsenalInfo.Rule.When.get -> int
+Kiln.ArsenalInfo.Rule.When.init -> void
+Kiln.ArsenalInfo.Rules.get -> System.Collections.Generic.IReadOnlyList<Kiln.ArsenalInfo.Rule!>!
+Kiln.ArsenalInfo.Rules.init -> void
+Kiln.ArsenalRule
+Kiln.ArsenalRule.AbortIf.get -> System.Collections.Generic.List<Kiln.RuleCondition!>?
+Kiln.ArsenalRule.AbortIf.init -> void
+Kiln.ArsenalRule.ArsenalRule() -> void
+Kiln.ArsenalRule.Chance.get -> double
+Kiln.ArsenalRule.Chance.init -> void
+Kiln.ArsenalRule.Cooldown.get -> double
+Kiln.ArsenalRule.Cooldown.init -> void
+Kiln.ArsenalRule.Do.get -> System.Collections.Generic.List<Kiln.RuleAction!>!
+Kiln.ArsenalRule.Do.init -> void
+Kiln.ArsenalRule.Every.get -> double
+Kiln.ArsenalRule.Every.init -> void
+Kiln.ArsenalRule.EveryMax.get -> double?
+Kiln.ArsenalRule.EveryMax.init -> void
+Kiln.ArsenalRule.If.get -> System.Collections.Generic.List<Kiln.RuleCondition!>!
+Kiln.ArsenalRule.If.init -> void
+Kiln.ArsenalRule.Modify.get -> System.Guid?
+Kiln.ArsenalRule.Modify.init -> void
+Kiln.ArsenalRule.ModifyIndex.get -> int?
+Kiln.ArsenalRule.ModifyIndex.init -> void
+Kiln.ArsenalRule.Name.get -> string?
+Kiln.ArsenalRule.Name.init -> void
+Kiln.ArsenalRule.When.get -> Kiln.RuleMode
+Kiln.ArsenalRule.When.init -> void
+Kiln.ArsenalSpec
+Kiln.ArsenalSpec.ArsenalSpec() -> void
+Kiln.ArsenalSpec.Attacks.get -> System.Collections.Generic.List<Kiln.ArsenalAttack!>!
+Kiln.ArsenalSpec.Attacks.init -> void
+Kiln.ArsenalSpec.From.get -> System.Guid?
+Kiln.ArsenalSpec.From.init -> void
+Kiln.ArsenalSpec.PickAttack.get -> System.Func<Kiln.NpcView!, string?>?
+Kiln.ArsenalSpec.PickAttack.init -> void
+Kiln.ArsenalSpec.PickEvery.get -> double
+Kiln.ArsenalSpec.PickEvery.init -> void
+Kiln.ArsenalSpec.PickTarget.get -> System.Func<Kiln.NpcView!, Kiln.EntityId>?
+Kiln.ArsenalSpec.PickTarget.init -> void
+Kiln.ArsenalSpec.Rules.get -> System.Collections.Generic.List<Kiln.ArsenalRule!>!
+Kiln.ArsenalSpec.Rules.init -> void
+Kiln.Arsenals
+Kiln.AttackControl
+Kiln.AttackControl.Allow(params int[]! indexes) -> void
+Kiln.AttackControl.AttackControl() -> void
+Kiln.AttackControl.Clear() -> void
+Kiln.AttackControl.Force(System.Guid attack) -> void
+Kiln.AttackControl.Force(int index) -> void
+Kiln.AttackControl.Force(string! name) -> void
+Kiln.AttackControl.Natural() -> void
+Kiln.CreatureAdminCommands
+Kiln.CreatureCommands
+Kiln.CreatureCommands.Attack(Kiln.EntityId target, float threat = 1000) -> void
+Kiln.CreatureCommands.ControlTarget(Kiln.EntityId target) -> void
+Kiln.CreatureCommands.CreatureCommands() -> void
+Kiln.CreatureCommands.Guard(Kiln.EntityId target) -> void
+Kiln.CreatureCommands.Guard(Kiln.EntityId target, Kiln.GuardOptions! options) -> void
+Kiln.CreatureCommands.Heal(float seconds = 3) -> void
+Kiln.CreatureCommands.MoveTo(Kiln.WorldPosition position) -> void
+Kiln.CreatureCommands.Stay() -> void
+Kiln.CreatureCommands.StopGuarding(Kiln.EntityId target) -> void
+Kiln.CreatureFlags
+Kiln.CreatureFlags.Ally = 16 -> Kiln.CreatureFlags
+Kiln.CreatureFlags.Boss = 1 -> Kiln.CreatureFlags
+Kiln.CreatureFlags.BossHealthBar = 64 -> Kiln.CreatureFlags
+Kiln.CreatureFlags.Catalog = 256 -> Kiln.CreatureFlags
+Kiln.CreatureFlags.GuardsPlayer = 8 -> Kiln.CreatureFlags
+Kiln.CreatureFlags.Loaded = 512 -> Kiln.CreatureFlags
+Kiln.CreatureFlags.None = 0 -> Kiln.CreatureFlags
+Kiln.CreatureFlags.Phases = 2 -> Kiln.CreatureFlags
+Kiln.CreatureFlags.Runtime = 1024 -> Kiln.CreatureFlags
+Kiln.CreatureFlags.Saved = 4 -> Kiln.CreatureFlags
+Kiln.CreatureFlags.Weakspot = 32 -> Kiln.CreatureFlags
+Kiln.CreatureInfo
+Kiln.CreatureInfo.<Clone>$() -> Kiln.CreatureInfo!
+Kiln.CreatureInfo.Awareness.get -> float
+Kiln.CreatureInfo.Awareness.init -> void
+Kiln.CreatureInfo.AwarenessState.get -> byte
+Kiln.CreatureInfo.AwarenessState.init -> void
+Kiln.CreatureInfo.CreatureInfo(Kiln.EntityId Entity, System.Guid Template, string! TemplateName, Kiln.CreatureKind Kind, bool HasAi, Kiln.EnemyState State, byte AwarenessState, float Awareness, Kiln.Faction Faction, int Level, int LevelMax, int Health, int HealthMax, float Scale, float XpFactor, float SpeedFactor, float DamageMultiplier, Kiln.EnemyFeatures TemplateFeatures, Kiln.EnemyFeatures EnabledFeatures, Kiln.EnemyFeatures DisabledFeatures, Kiln.EntityId Target, Kiln.EntityId Guard, Kiln.WorldPosition Home, System.Guid LootLabels, int LootSlotsMin, int LootSlotsMax, bool LootDisabled, bool Dead, bool Ready, bool ForcedReady, int Layers, int PrivateCopies) -> void
+Kiln.CreatureInfo.DamageMultiplier.get -> float
+Kiln.CreatureInfo.DamageMultiplier.init -> void
+Kiln.CreatureInfo.Dead.get -> bool
+Kiln.CreatureInfo.Dead.init -> void
+Kiln.CreatureInfo.Deconstruct(out Kiln.EntityId Entity, out System.Guid Template, out string! TemplateName, out Kiln.CreatureKind Kind, out bool HasAi, out Kiln.EnemyState State, out byte AwarenessState, out float Awareness, out Kiln.Faction Faction, out int Level, out int LevelMax, out int Health, out int HealthMax, out float Scale, out float XpFactor, out float SpeedFactor, out float DamageMultiplier, out Kiln.EnemyFeatures TemplateFeatures, out Kiln.EnemyFeatures EnabledFeatures, out Kiln.EnemyFeatures DisabledFeatures, out Kiln.EntityId Target, out Kiln.EntityId Guard, out Kiln.WorldPosition Home, out System.Guid LootLabels, out int LootSlotsMin, out int LootSlotsMax, out bool LootDisabled, out bool Dead, out bool Ready, out bool ForcedReady, out int Layers, out int PrivateCopies) -> void
+Kiln.CreatureInfo.DisabledFeatures.get -> Kiln.EnemyFeatures
+Kiln.CreatureInfo.DisabledFeatures.init -> void
+Kiln.CreatureInfo.EnabledFeatures.get -> Kiln.EnemyFeatures
+Kiln.CreatureInfo.EnabledFeatures.init -> void
+Kiln.CreatureInfo.Entity.get -> Kiln.EntityId
+Kiln.CreatureInfo.Entity.init -> void
+Kiln.CreatureInfo.Equals(Kiln.CreatureInfo? other) -> bool
+Kiln.CreatureInfo.Faction.get -> Kiln.Faction
+Kiln.CreatureInfo.Faction.init -> void
+Kiln.CreatureInfo.ForcedReady.get -> bool
+Kiln.CreatureInfo.ForcedReady.init -> void
+Kiln.CreatureInfo.Guard.get -> Kiln.EntityId
+Kiln.CreatureInfo.Guard.init -> void
+Kiln.CreatureInfo.HasAi.get -> bool
+Kiln.CreatureInfo.HasAi.init -> void
+Kiln.CreatureInfo.Health.get -> int
+Kiln.CreatureInfo.Health.init -> void
+Kiln.CreatureInfo.HealthMax.get -> int
+Kiln.CreatureInfo.HealthMax.init -> void
+Kiln.CreatureInfo.Home.get -> Kiln.WorldPosition
+Kiln.CreatureInfo.Home.init -> void
+Kiln.CreatureInfo.Kind.get -> Kiln.CreatureKind
+Kiln.CreatureInfo.Kind.init -> void
+Kiln.CreatureInfo.Layers.get -> int
+Kiln.CreatureInfo.Layers.init -> void
+Kiln.CreatureInfo.Level.get -> int
+Kiln.CreatureInfo.Level.init -> void
+Kiln.CreatureInfo.LevelMax.get -> int
+Kiln.CreatureInfo.LevelMax.init -> void
+Kiln.CreatureInfo.LootDisabled.get -> bool
+Kiln.CreatureInfo.LootDisabled.init -> void
+Kiln.CreatureInfo.LootLabels.get -> System.Guid
+Kiln.CreatureInfo.LootLabels.init -> void
+Kiln.CreatureInfo.LootSlotsMax.get -> int
+Kiln.CreatureInfo.LootSlotsMax.init -> void
+Kiln.CreatureInfo.LootSlotsMin.get -> int
+Kiln.CreatureInfo.LootSlotsMin.init -> void
+Kiln.CreatureInfo.PrivateCopies.get -> int
+Kiln.CreatureInfo.PrivateCopies.init -> void
+Kiln.CreatureInfo.Ready.get -> bool
+Kiln.CreatureInfo.Ready.init -> void
+Kiln.CreatureInfo.Scale.get -> float
+Kiln.CreatureInfo.Scale.init -> void
+Kiln.CreatureInfo.SpeedFactor.get -> float
+Kiln.CreatureInfo.SpeedFactor.init -> void
+Kiln.CreatureInfo.State.get -> Kiln.EnemyState
+Kiln.CreatureInfo.State.init -> void
+Kiln.CreatureInfo.Target.get -> Kiln.EntityId
+Kiln.CreatureInfo.Target.init -> void
+Kiln.CreatureInfo.Template.get -> System.Guid
+Kiln.CreatureInfo.Template.init -> void
+Kiln.CreatureInfo.TemplateFeatures.get -> Kiln.EnemyFeatures
+Kiln.CreatureInfo.TemplateFeatures.init -> void
+Kiln.CreatureInfo.TemplateName.get -> string!
+Kiln.CreatureInfo.TemplateName.init -> void
+Kiln.CreatureInfo.XpFactor.get -> float
+Kiln.CreatureInfo.XpFactor.init -> void
+Kiln.CreatureKind
+Kiln.CreatureKind.Animal = 3 -> Kiln.CreatureKind
+Kiln.CreatureKind.Enemy = 1 -> Kiln.CreatureKind
+Kiln.CreatureKind.None = 0 -> Kiln.CreatureKind
+Kiln.CreatureKind.Villager = 4 -> Kiln.CreatureKind
+Kiln.CreatureKind.Wildlife = 2 -> Kiln.CreatureKind
+Kiln.CreatureRef
+Kiln.CreatureRef.Ai.get -> Kiln.AiAccess
+Kiln.CreatureRef.AiEnabled.get -> bool
+Kiln.CreatureRef.AiEnabled.set -> void
+Kiln.CreatureRef.Arsenal.get -> System.Guid
+Kiln.CreatureRef.Arsenal.set -> void
+Kiln.CreatureRef.Attacks.get -> Kiln.AttackControl
+Kiln.CreatureRef.Command.get -> Kiln.CreatureCommands
+Kiln.CreatureRef.CreatureRef() -> void
+Kiln.CreatureRef.DamageFactor.get -> float
+Kiln.CreatureRef.DamageFactor.set -> void
+Kiln.CreatureRef.Entity.get -> Kiln.EntityId
+Kiln.CreatureRef.Exists.get -> bool
+Kiln.CreatureRef.Faction.get -> Kiln.Faction
+Kiln.CreatureRef.Faction.set -> void
+Kiln.CreatureRef.FeatureAccess
+Kiln.CreatureRef.FeatureAccess.Disable(Kiln.EnemyFeatures f) -> void
+Kiln.CreatureRef.FeatureAccess.Disabled.get -> Kiln.EnemyFeatures
+Kiln.CreatureRef.FeatureAccess.Enable(Kiln.EnemyFeatures f) -> void
+Kiln.CreatureRef.FeatureAccess.Enabled.get -> Kiln.EnemyFeatures
+Kiln.CreatureRef.FeatureAccess.Reset() -> void
+Kiln.CreatureRef.Features.get -> Kiln.CreatureRef.FeatureAccess!
+Kiln.CreatureRef.ForceReady(bool on = true) -> void
+Kiln.CreatureRef.Home.get -> Kiln.WorldPosition
+Kiln.CreatureRef.Home.set -> void
+Kiln.CreatureRef.Inspect() -> Kiln.CreatureInfo?
+Kiln.CreatureRef.Level.get -> int
+Kiln.CreatureRef.Level.set -> void
+Kiln.CreatureRef.Loot.get -> Kiln.CreatureRef.LootAccess!
+Kiln.CreatureRef.LootAccess
+Kiln.CreatureRef.LootAccess.Disabled.get -> bool
+Kiln.CreatureRef.LootAccess.Disabled.set -> void
+Kiln.CreatureRef.LootAccess.Labels.get -> System.Guid
+Kiln.CreatureRef.LootAccess.Labels.set -> void
+Kiln.CreatureRef.LootAccess.Slots.get -> (int Min, int Max)
+Kiln.CreatureRef.LootAccess.Slots.set -> void
+Kiln.CreatureRef.Phase.get -> uint
+Kiln.CreatureRef.PreferTarget(Kiln.EntityId target, double seconds = 5, float threat = 5000) -> void
+Kiln.CreatureRef.ReleaseTarget() -> void
+Kiln.CreatureRef.Reset() -> int
+Kiln.CreatureRef.Resistance.get -> Kiln.CreatureRef.ResistanceAccess!
+Kiln.CreatureRef.ResistanceAccess
+Kiln.CreatureRef.ResistanceAccess.Reset(Kiln.DamageKind kind) -> void
+Kiln.CreatureRef.ResistanceAccess.this[Kiln.DamageKind kind].get -> float
+Kiln.CreatureRef.ResistanceAccess.this[Kiln.DamageKind kind].set -> void
+Kiln.CreatureRef.Scale.get -> float
+Kiln.CreatureRef.Scale.set -> void
+Kiln.CreatureRef.SetPhase(System.Guid phase) -> void
+Kiln.CreatureRef.SetPhase(string! name) -> void
+Kiln.CreatureRef.SpeedFactor.get -> float
+Kiln.CreatureRef.SpeedFactor.set -> void
+Kiln.CreatureRef.State.get -> Kiln.EnemyState
+Kiln.CreatureRef.Target.get -> Kiln.EntityId
+Kiln.CreatureRef.Template.get -> Kiln.CreatureTemplate?
+Kiln.CreatureRef.XpFactor.get -> float
+Kiln.CreatureRef.XpFactor.set -> void
+Kiln.CreatureSpawnOptions
+Kiln.CreatureSpawnOptions.CreatureSpawnOptions() -> void
+Kiln.CreatureSpawnOptions.DespawnOnUnload.get -> bool
+Kiln.CreatureSpawnOptions.DespawnOnUnload.init -> void
+Kiln.CreatureSpawnOptions.Flags.get -> Kiln.SpawnFlags
+Kiln.CreatureSpawnOptions.Flags.init -> void
+Kiln.CreatureSpawnOptions.Tag.get -> string?
+Kiln.CreatureSpawnOptions.Tag.init -> void
+Kiln.CreatureSpawnRule
+Kiln.CreatureSpawnRule.<Clone>$() -> Kiln.CreatureSpawnRule!
+Kiln.CreatureSpawnRule.Chance.get -> double
+Kiln.CreatureSpawnRule.Chance.init -> void
+Kiln.CreatureSpawnRule.CreatureSpawnRule(string! Template, string! Variant, double Chance = 1, bool NightOnly = false, bool DayOnly = false) -> void
+Kiln.CreatureSpawnRule.DayOnly.get -> bool
+Kiln.CreatureSpawnRule.DayOnly.init -> void
+Kiln.CreatureSpawnRule.Deconstruct(out string! Template, out string! Variant, out double Chance, out bool NightOnly, out bool DayOnly) -> void
+Kiln.CreatureSpawnRule.Equals(Kiln.CreatureSpawnRule? other) -> bool
+Kiln.CreatureSpawnRule.NightOnly.get -> bool
+Kiln.CreatureSpawnRule.NightOnly.init -> void
+Kiln.CreatureSpawnRule.Template.get -> string!
+Kiln.CreatureSpawnRule.Template.init -> void
+Kiln.CreatureSpawnRule.Variant.get -> string!
+Kiln.CreatureSpawnRule.Variant.init -> void
+Kiln.CreatureStateEvent
+Kiln.CreatureStateEvent.Condition.get -> Kiln.StateCondition
+Kiln.CreatureStateEvent.Entity.get -> Kiln.EntityId
+Kiln.CreatureStateEvent.From.get -> Kiln.EnemyState
+Kiln.CreatureStateEvent.Step.get -> ulong
+Kiln.CreatureStateEvent.Template.get -> Kiln.CreatureTemplate?
+Kiln.CreatureStateEvent.To.get -> Kiln.EnemyState
+Kiln.CreatureTargetEvent
+Kiln.CreatureTargetEvent.Acquired.get -> bool
+Kiln.CreatureTargetEvent.Entity.get -> Kiln.EntityId
+Kiln.CreatureTargetEvent.Lost.get -> bool
+Kiln.CreatureTargetEvent.Previous.get -> Kiln.EntityId
+Kiln.CreatureTargetEvent.State.get -> Kiln.EnemyState
+Kiln.CreatureTargetEvent.Step.get -> ulong
+Kiln.CreatureTargetEvent.Target.get -> Kiln.EntityId
+Kiln.CreatureTemplate
+Kiln.CreatureTemplate.<Clone>$() -> Kiln.CreatureTemplate!
+Kiln.CreatureTemplate.AnimationGraph.get -> System.Guid
+Kiln.CreatureTemplate.AnimationGraph.init -> void
+Kiln.CreatureTemplate.Arsenal.get -> System.Guid
+Kiln.CreatureTemplate.Arsenal.init -> void
+Kiln.CreatureTemplate.ClassName.get -> string!
+Kiln.CreatureTemplate.CreatureTemplate(System.Guid Id, string! Name, string! DisplayName, Kiln.CreatureKind Kind, Kiln.CreatureFlags Flags, Kiln.Faction Faction, int Level, int LevelMax, int EnemyClass, System.Guid Arsenal, System.Guid LootLabels, int LootSlotsMin, int LootSlotsMax, float XpMod, float Scale, System.Guid Model, System.Guid AnimationGraph) -> void
+Kiln.CreatureTemplate.Deconstruct(out System.Guid Id, out string! Name, out string! DisplayName, out Kiln.CreatureKind Kind, out Kiln.CreatureFlags Flags, out Kiln.Faction Faction, out int Level, out int LevelMax, out int EnemyClass, out System.Guid Arsenal, out System.Guid LootLabels, out int LootSlotsMin, out int LootSlotsMax, out float XpMod, out float Scale, out System.Guid Model, out System.Guid AnimationGraph) -> void
+Kiln.CreatureTemplate.DisplayName.get -> string!
+Kiln.CreatureTemplate.DisplayName.init -> void
+Kiln.CreatureTemplate.EnemyClass.get -> int
+Kiln.CreatureTemplate.EnemyClass.init -> void
+Kiln.CreatureTemplate.Equals(Kiln.CreatureTemplate? other) -> bool
+Kiln.CreatureTemplate.Faction.get -> Kiln.Faction
+Kiln.CreatureTemplate.Faction.init -> void
+Kiln.CreatureTemplate.Flags.get -> Kiln.CreatureFlags
+Kiln.CreatureTemplate.Flags.init -> void
+Kiln.CreatureTemplate.Id.get -> System.Guid
+Kiln.CreatureTemplate.Id.init -> void
+Kiln.CreatureTemplate.IsBoss.get -> bool
+Kiln.CreatureTemplate.IsLoaded.get -> bool
+Kiln.CreatureTemplate.IsRuntime.get -> bool
+Kiln.CreatureTemplate.IsSaved.get -> bool
+Kiln.CreatureTemplate.IsVillager.get -> bool
+Kiln.CreatureTemplate.Kind.get -> Kiln.CreatureKind
+Kiln.CreatureTemplate.Kind.init -> void
+Kiln.CreatureTemplate.Level.get -> int
+Kiln.CreatureTemplate.Level.init -> void
+Kiln.CreatureTemplate.LevelMax.get -> int
+Kiln.CreatureTemplate.LevelMax.init -> void
+Kiln.CreatureTemplate.LootLabels.get -> System.Guid
+Kiln.CreatureTemplate.LootLabels.init -> void
+Kiln.CreatureTemplate.LootSlotsMax.get -> int
+Kiln.CreatureTemplate.LootSlotsMax.init -> void
+Kiln.CreatureTemplate.LootSlotsMin.get -> int
+Kiln.CreatureTemplate.LootSlotsMin.init -> void
+Kiln.CreatureTemplate.Model.get -> System.Guid
+Kiln.CreatureTemplate.Model.init -> void
+Kiln.CreatureTemplate.Name.get -> string!
+Kiln.CreatureTemplate.Name.init -> void
+Kiln.CreatureTemplate.Scale.get -> float
+Kiln.CreatureTemplate.Scale.init -> void
+Kiln.CreatureTemplate.XpMod.get -> float
+Kiln.CreatureTemplate.XpMod.init -> void
+Kiln.CreatureVariant
+Kiln.CreatureVariant.Ai.get -> System.Collections.Generic.Dictionary<string!, string!>!
+Kiln.CreatureVariant.Ai.init -> void
+Kiln.CreatureVariant.Base.get -> string!
+Kiln.CreatureVariant.Base.init -> void
+Kiln.CreatureVariant.CreatureVariant() -> void
+Kiln.CreatureVariant.DamageFactor.get -> float?
+Kiln.CreatureVariant.DamageFactor.init -> void
+Kiln.CreatureVariant.DisableFeatures.get -> Kiln.EnemyFeatures
+Kiln.CreatureVariant.DisableFeatures.init -> void
+Kiln.CreatureVariant.EnableFeatures.get -> Kiln.EnemyFeatures
+Kiln.CreatureVariant.EnableFeatures.init -> void
+Kiln.CreatureVariant.Faction.get -> Kiln.Faction?
+Kiln.CreatureVariant.Faction.init -> void
+Kiln.CreatureVariant.Id.get -> string!
+Kiln.CreatureVariant.Id.init -> void
+Kiln.CreatureVariant.Level.get -> int?
+Kiln.CreatureVariant.Level.init -> void
+Kiln.CreatureVariant.LootDisabled.get -> bool?
+Kiln.CreatureVariant.LootDisabled.init -> void
+Kiln.CreatureVariant.LootLabels.get -> System.Guid?
+Kiln.CreatureVariant.LootLabels.init -> void
+Kiln.CreatureVariant.LootSlots.get -> (int Min, int Max)?
+Kiln.CreatureVariant.LootSlots.init -> void
+Kiln.CreatureVariant.Name.get -> string?
+Kiln.CreatureVariant.Name.init -> void
+Kiln.CreatureVariant.Persist.get -> bool
+Kiln.CreatureVariant.Persist.init -> void
+Kiln.CreatureVariant.Resistances.get -> System.Collections.Generic.Dictionary<Kiln.DamageKind, float>!
+Kiln.CreatureVariant.Resistances.init -> void
+Kiln.CreatureVariant.Scale.get -> float?
+Kiln.CreatureVariant.Scale.init -> void
+Kiln.CreatureVariant.SpeedFactor.get -> float?
+Kiln.CreatureVariant.SpeedFactor.init -> void
+Kiln.CreatureVariant.XpFactor.get -> float?
+Kiln.CreatureVariant.XpFactor.init -> void
+Kiln.CreatureVariantAppliedEvent
+Kiln.CreatureVariantAppliedEvent.Entity.get -> Kiln.EntityId
+Kiln.CreatureVariantAppliedEvent.Natural.get -> bool
+Kiln.CreatureVariantAppliedEvent.Variant.get -> Kiln.CreatureVariant!
+Kiln.CreatureVariants
+Kiln.Creatures
+Kiln.CreaturesPackReport
+Kiln.CreaturesPackReport.<Clone>$() -> Kiln.CreaturesPackReport!
+Kiln.CreaturesPackReport.Applied.get -> int
+Kiln.CreaturesPackReport.Applied.init -> void
+Kiln.CreaturesPackReport.CreaturesPackReport(int Applied, System.Collections.Generic.IReadOnlyList<string!>! Errors, System.Collections.Generic.IReadOnlyList<string!>! Warnings) -> void
+Kiln.CreaturesPackReport.Deconstruct(out int Applied, out System.Collections.Generic.IReadOnlyList<string!>! Errors, out System.Collections.Generic.IReadOnlyList<string!>! Warnings) -> void
+Kiln.CreaturesPackReport.Equals(Kiln.CreaturesPackReport? other) -> bool
+Kiln.CreaturesPackReport.Errors.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Kiln.CreaturesPackReport.Errors.init -> void
+Kiln.CreaturesPackReport.Ok.get -> bool
+Kiln.CreaturesPackReport.Warnings.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Kiln.CreaturesPackReport.Warnings.init -> void
+Kiln.CreaturesStatus
+Kiln.CreaturesStatus.<Clone>$() -> Kiln.CreaturesStatus!
+Kiln.CreaturesStatus.AiHooks.get -> bool
+Kiln.CreaturesStatus.AiHooks.init -> void
+Kiln.CreaturesStatus.ArsenalCount.get -> int
+Kiln.CreaturesStatus.ArsenalCount.init -> void
+Kiln.CreaturesStatus.Arsenals.get -> bool
+Kiln.CreaturesStatus.Arsenals.init -> void
+Kiln.CreaturesStatus.Catalog.get -> int
+Kiln.CreaturesStatus.Catalog.init -> void
+Kiln.CreaturesStatus.CatalogLoaded.get -> int
+Kiln.CreaturesStatus.CatalogLoaded.init -> void
+Kiln.CreaturesStatus.Commands.get -> bool
+Kiln.CreaturesStatus.Commands.init -> void
+Kiln.CreaturesStatus.CommandsSent.get -> ulong
+Kiln.CreaturesStatus.CommandsSent.init -> void
+Kiln.CreaturesStatus.CopyReads.get -> ulong
+Kiln.CreaturesStatus.CopyReads.init -> void
+Kiln.CreaturesStatus.CreaturesStatus(bool Slots, bool AiHooks, bool ReadyBit, bool Arsenals, bool Reflection, bool Commands, bool Marks, bool LabReady, int Catalog, int CatalogLoaded, int EngineCreaturesMissing, int ArsenalCount, int Entities, int Layers, int PrivateCopies, int PendingFree, ulong StateChanges, ulong EventsDelivered, ulong EventsDropped, ulong CommandsSent, ulong MarksWritten, ulong CopyReads) -> void
+Kiln.CreaturesStatus.Deconstruct(out bool Slots, out bool AiHooks, out bool ReadyBit, out bool Arsenals, out bool Reflection, out bool Commands, out bool Marks, out bool LabReady, out int Catalog, out int CatalogLoaded, out int EngineCreaturesMissing, out int ArsenalCount, out int Entities, out int Layers, out int PrivateCopies, out int PendingFree, out ulong StateChanges, out ulong EventsDelivered, out ulong EventsDropped, out ulong CommandsSent, out ulong MarksWritten, out ulong CopyReads) -> void
+Kiln.CreaturesStatus.EngineCreaturesMissing.get -> int
+Kiln.CreaturesStatus.EngineCreaturesMissing.init -> void
+Kiln.CreaturesStatus.Entities.get -> int
+Kiln.CreaturesStatus.Entities.init -> void
+Kiln.CreaturesStatus.Equals(Kiln.CreaturesStatus? other) -> bool
+Kiln.CreaturesStatus.EventsDelivered.get -> ulong
+Kiln.CreaturesStatus.EventsDelivered.init -> void
+Kiln.CreaturesStatus.EventsDropped.get -> ulong
+Kiln.CreaturesStatus.EventsDropped.init -> void
+Kiln.CreaturesStatus.LabReady.get -> bool
+Kiln.CreaturesStatus.LabReady.init -> void
+Kiln.CreaturesStatus.Layers.get -> int
+Kiln.CreaturesStatus.Layers.init -> void
+Kiln.CreaturesStatus.Marks.get -> bool
+Kiln.CreaturesStatus.Marks.init -> void
+Kiln.CreaturesStatus.MarksWritten.get -> ulong
+Kiln.CreaturesStatus.MarksWritten.init -> void
+Kiln.CreaturesStatus.PendingFree.get -> int
+Kiln.CreaturesStatus.PendingFree.init -> void
+Kiln.CreaturesStatus.PrivateCopies.get -> int
+Kiln.CreaturesStatus.PrivateCopies.init -> void
+Kiln.CreaturesStatus.ReadyBit.get -> bool
+Kiln.CreaturesStatus.ReadyBit.init -> void
+Kiln.CreaturesStatus.Reflection.get -> bool
+Kiln.CreaturesStatus.Reflection.init -> void
+Kiln.CreaturesStatus.Slots.get -> bool
+Kiln.CreaturesStatus.Slots.init -> void
+Kiln.CreaturesStatus.StateChanges.get -> ulong
+Kiln.CreaturesStatus.StateChanges.init -> void
+Kiln.DamageKind
+Kiln.DamageKind.All = 0 -> Kiln.DamageKind
+Kiln.DamageKind.Blunt = 4 -> Kiln.DamageKind
+Kiln.DamageKind.Cut = 2 -> Kiln.DamageKind
+Kiln.DamageKind.Explosion = 9 -> Kiln.DamageKind
+Kiln.DamageKind.Fire = 15 -> Kiln.DamageKind
+Kiln.DamageKind.Fog = 16 -> Kiln.DamageKind
+Kiln.DamageKind.Ice = 17 -> Kiln.DamageKind
+Kiln.DamageKind.Lightning = 18 -> Kiln.DamageKind
+Kiln.DamageKind.Magical = 11 -> Kiln.DamageKind
+Kiln.DamageKind.MagicalAdder = 13 -> Kiln.DamageKind
+Kiln.DamageKind.MagicalBase = 12 -> Kiln.DamageKind
+Kiln.DamageKind.MagicalMultiplier = 14 -> Kiln.DamageKind
+Kiln.DamageKind.Metal = 7 -> Kiln.DamageKind
+Kiln.DamageKind.Physical = 1 -> Kiln.DamageKind
+Kiln.DamageKind.Pierce = 3 -> Kiln.DamageKind
+Kiln.DamageKind.Poison = 8 -> Kiln.DamageKind
+Kiln.DamageKind.SkillShot = 10 -> Kiln.DamageKind
+Kiln.DamageKind.Stone = 6 -> Kiln.DamageKind
+Kiln.DamageKind.Wood = 5 -> Kiln.DamageKind
+Kiln.EnemyFeatures
+Kiln.EnemyFeatures.Awareness = 33554432 -> Kiln.EnemyFeatures
+Kiln.EnemyFeatures.BlockProjectiles = 262144 -> Kiln.EnemyFeatures
+Kiln.EnemyFeatures.CallForHelp = 32768 -> Kiln.EnemyFeatures
+Kiln.EnemyFeatures.Circling = 8388608 -> Kiln.EnemyFeatures
+Kiln.EnemyFeatures.Combat = 4096 -> Kiln.EnemyFeatures
+Kiln.EnemyFeatures.FleeHome = 2048 -> Kiln.EnemyFeatures
+Kiln.EnemyFeatures.IdleTurn = 131072 -> Kiln.EnemyFeatures
+Kiln.EnemyFeatures.Interact = 8192 -> Kiln.EnemyFeatures
+Kiln.EnemyFeatures.Investigate = 67108864 -> Kiln.EnemyFeatures
+Kiln.EnemyFeatures.Move = 8 -> Kiln.EnemyFeatures
+Kiln.EnemyFeatures.MoveToMarker = 1048576 -> Kiln.EnemyFeatures
+Kiln.EnemyFeatures.None = 0 -> Kiln.EnemyFeatures
+Kiln.EnemyFeatures.Patrol = 128 -> Kiln.EnemyFeatures
+Kiln.EnemyFeatures.Prowl = 16 -> Kiln.EnemyFeatures
+Kiln.EnemyFeatures.ReturnHome = 1024 -> Kiln.EnemyFeatures
+Kiln.EnemyFeatures.Roaming = 256 -> Kiln.EnemyFeatures
+Kiln.EnemyFeatures.Rotate = 32 -> Kiln.EnemyFeatures
+Kiln.EnemyFeatures.RotateWhileStanding = 64 -> Kiln.EnemyFeatures
+Kiln.EnemyFeatures.Run = 65536 -> Kiln.EnemyFeatures
+Kiln.EnemyFeatures.RunAround = 4194304 -> Kiln.EnemyFeatures
+Kiln.EnemyFeatures.SearchForCover = 524288 -> Kiln.EnemyFeatures
+Kiln.EnemyFeatures.ShowSpawnSequence = 512 -> Kiln.EnemyFeatures
+Kiln.EnemyFeatures.Sleep = 2097152 -> Kiln.EnemyFeatures
+Kiln.EnemyFeatures.StunnedState = 16777216 -> Kiln.EnemyFeatures
+Kiln.EnemyFeatures.TriggerAlarm = 16384 -> Kiln.EnemyFeatures
+Kiln.EnemyFeatures.UseBlocking = 4 -> Kiln.EnemyFeatures
+Kiln.EnemyFeatures.UseTaunt = 1 -> Kiln.EnemyFeatures
+Kiln.EnemyFeatures.UseThreatSystem = 2 -> Kiln.EnemyFeatures
+Kiln.EnemyState
+Kiln.EnemyState.AvoidWater = 27 -> Kiln.EnemyState
+Kiln.EnemyState.BlockProjectile = 23 -> Kiln.EnemyState
+Kiln.EnemyState.Circling = 26 -> Kiln.EnemyState
+Kiln.EnemyState.Combat = 6 -> Kiln.EnemyState
+Kiln.EnemyState.ControlledByAttack = 14 -> Kiln.EnemyState
+Kiln.EnemyState.Dead = 3 -> Kiln.EnemyState
+Kiln.EnemyState.Falling = 18 -> Kiln.EnemyState
+Kiln.EnemyState.Flee = 16 -> Kiln.EnemyState
+Kiln.EnemyState.FleeHome = 8 -> Kiln.EnemyState
+Kiln.EnemyState.Guard = 20 -> Kiln.EnemyState
+Kiln.EnemyState.Hit = 19 -> Kiln.EnemyState
+Kiln.EnemyState.Idle = 2 -> Kiln.EnemyState
+Kiln.EnemyState.Interact = 21 -> Kiln.EnemyState
+Kiln.EnemyState.Invalid = 0 -> Kiln.EnemyState
+Kiln.EnemyState.Investigate = 5 -> Kiln.EnemyState
+Kiln.EnemyState.Landing = 22 -> Kiln.EnemyState
+Kiln.EnemyState.MoveToMarker = 24 -> Kiln.EnemyState
+Kiln.EnemyState.Patrol = 11 -> Kiln.EnemyState
+Kiln.EnemyState.ReactToNoise = 10 -> Kiln.EnemyState
+Kiln.EnemyState.ReturnHome = 7 -> Kiln.EnemyState
+Kiln.EnemyState.Revive = 28 -> Kiln.EnemyState
+Kiln.EnemyState.Roaming = 15 -> Kiln.EnemyState
+Kiln.EnemyState.Sleep = 25 -> Kiln.EnemyState
+Kiln.EnemyState.Spawning = 4 -> Kiln.EnemyState
+Kiln.EnemyState.Start = 1 -> Kiln.EnemyState
+Kiln.EnemyState.Stunned = 29 -> Kiln.EnemyState
+Kiln.EnemyState.TurnAfterPatrol = 12 -> Kiln.EnemyState
+Kiln.EnemyState.WaitAfterFlee = 17 -> Kiln.EnemyState
+Kiln.EnemyState.WaitAfterPatrol = 13 -> Kiln.EnemyState
+Kiln.EnemyState.WaitAtHome = 9 -> Kiln.EnemyState
+Kiln.Faction
+Kiln.Faction.Ancients = 15 -> Kiln.Faction
+Kiln.Faction.AutomatedPlayer = 8 -> Kiln.Faction
+Kiln.Faction.Cyclops = 13 -> Kiln.Faction
+Kiln.Faction.Drak = 14 -> Kiln.Faction
+Kiln.Faction.Environment = 0 -> Kiln.Faction
+Kiln.Faction.FarmAnimal = 12 -> Kiln.Faction
+Kiln.Faction.Fogger = 2 -> Kiln.Faction
+Kiln.Faction.HitAll = 1 -> Kiln.Faction
+Kiln.Faction.HitOthers = 9 -> Kiln.Faction
+Kiln.Faction.None = 255 -> Kiln.Faction
+Kiln.Faction.Player = 7 -> Kiln.Faction
+Kiln.Faction.PlayerAlly = 11 -> Kiln.Faction
+Kiln.Faction.Scavenger = 4 -> Kiln.Faction
+Kiln.Faction.Skeleton = 10 -> Kiln.Faction
+Kiln.Faction.Vukah = 3 -> Kiln.Faction
+Kiln.Faction.WildBeast = 6 -> Kiln.Faction
+Kiln.Faction.Wildlife = 5 -> Kiln.Faction
+Kiln.GuardOptions
+Kiln.GuardOptions.<Clone>$() -> Kiln.GuardOptions!
+Kiln.GuardOptions.Assist.get -> bool
+Kiln.GuardOptions.Assist.init -> void
+Kiln.GuardOptions.CatchUpDistance.get -> double
+Kiln.GuardOptions.CatchUpDistance.init -> void
+Kiln.GuardOptions.Defend.get -> bool
+Kiln.GuardOptions.Defend.init -> void
+Kiln.GuardOptions.Equals(Kiln.GuardOptions? other) -> bool
+Kiln.GuardOptions.Focus.get -> bool
+Kiln.GuardOptions.Focus.init -> void
+Kiln.GuardOptions.GuardOptions() -> void
+Kiln.GuardOptions.HomeFollows.get -> bool
+Kiln.GuardOptions.HomeFollows.init -> void
+Kiln.GuardOptions.Keep.get -> bool
+Kiln.GuardOptions.Keep.init -> void
+Kiln.GuardOptions.StuckSeconds.get -> double
+Kiln.GuardOptions.StuckSeconds.init -> void
+Kiln.GuardOptions.Threat.get -> float
+Kiln.GuardOptions.Threat.init -> void
+Kiln.GuardOrder
+Kiln.GuardOrder.<Clone>$() -> Kiln.GuardOrder!
+Kiln.GuardOrder.CatchUps.get -> int
+Kiln.GuardOrder.Deconstruct(out Kiln.EntityId Guard, out Kiln.EntityId Target, out Kiln.GuardOptions! Options, out string! Owner) -> void
+Kiln.GuardOrder.Equals(Kiln.GuardOrder? other) -> bool
+Kiln.GuardOrder.Guard.get -> Kiln.EntityId
+Kiln.GuardOrder.Guard.init -> void
+Kiln.GuardOrder.GuardOrder(Kiln.EntityId Guard, Kiln.EntityId Target, Kiln.GuardOptions! Options, string! Owner) -> void
+Kiln.GuardOrder.Options.get -> Kiln.GuardOptions!
+Kiln.GuardOrder.Options.init -> void
+Kiln.GuardOrder.Owner.get -> string!
+Kiln.GuardOrder.Owner.init -> void
+Kiln.GuardOrder.Resent.get -> int
+Kiln.GuardOrder.Target.get -> Kiln.EntityId
+Kiln.GuardOrder.Target.init -> void
+Kiln.GuardOrder.ThreatsSent.get -> int
+Kiln.Is
+Kiln.NpcView
+Kiln.NpcView.Creature.get -> Kiln.CreatureRef
+Kiln.NpcView.Entity.get -> Kiln.EntityId
+Kiln.NpcView.Health.get -> int
+Kiln.NpcView.HealthFraction.get -> double
+Kiln.NpcView.HealthMax.get -> int
+Kiln.NpcView.InPhase(string! name) -> bool
+Kiln.NpcView.Info.get -> Kiln.CreatureInfo?
+Kiln.NpcView.Position.get -> Kiln.WorldPosition?
+Kiln.NpcView.State.get -> Kiln.EnemyState
+Kiln.NpcView.Target.get -> Kiln.EntityId
+Kiln.NpcView.TargetDistance.get -> double?
+Kiln.RuleAction
+Kiln.RuleAction.ToJson() -> string!
+Kiln.RuleCondition
+Kiln.RuleCondition.Not() -> Kiln.RuleCondition!
+Kiln.RuleCondition.ToJson() -> string!
+Kiln.RuleIds
+Kiln.RuleMode
+Kiln.RuleMode.OnEndAttack = 4 -> Kiln.RuleMode
+Kiln.RuleMode.OnEnter = 1 -> Kiln.RuleMode
+Kiln.RuleMode.OnEnterState = 5 -> Kiln.RuleMode
+Kiln.RuleMode.OnExit = 2 -> Kiln.RuleMode
+Kiln.RuleMode.OnExitState = 6 -> Kiln.RuleMode
+Kiln.RuleMode.OnStartAttack = 3 -> Kiln.RuleMode
+Kiln.RuleMode.OnUpdate = 0 -> Kiln.RuleMode
+Kiln.RulesStatus
+Kiln.RulesStatus.<Clone>$() -> Kiln.RulesStatus!
+Kiln.RulesStatus.Actions.get -> ulong
+Kiln.RulesStatus.Actions.init -> void
+Kiln.RulesStatus.ActionsDropped.get -> ulong
+Kiln.RulesStatus.ActionsDropped.init -> void
+Kiln.RulesStatus.AiOff.get -> int
+Kiln.RulesStatus.AiOff.init -> void
+Kiln.RulesStatus.AiSwitch.get -> bool
+Kiln.RulesStatus.AiSwitch.init -> void
+Kiln.RulesStatus.Arsenals.get -> int
+Kiln.RulesStatus.Arsenals.init -> void
+Kiln.RulesStatus.AttackHooks.get -> bool
+Kiln.RulesStatus.AttackHooks.init -> void
+Kiln.RulesStatus.Attacks.get -> bool
+Kiln.RulesStatus.Attacks.init -> void
+Kiln.RulesStatus.Constraints.get -> ulong
+Kiln.RulesStatus.Constraints.init -> void
+Kiln.RulesStatus.ConstraintsTrue.get -> ulong
+Kiln.RulesStatus.ConstraintsTrue.init -> void
+Kiln.RulesStatus.Deconstruct(out bool Writer, out bool Dispatcher, out bool Attacks, out bool AiSwitch, out bool RuleHooks, out bool AttackHooks, out int Arsenals, out int Tracked, out int Overrides, out int AiOff, out int MapCapacity, out int MapCount, out ulong Constraints, out ulong ConstraintsTrue, out ulong Actions, out ulong ActionsDropped, out ulong Selects, out ulong SelectsForced, out ulong SelectsFiltered, out ulong PicksWaiting, out ulong FollowupsRefused, out ulong Starts, out ulong StartsOffOverride, out ulong SequencesRefused, out ulong PreNs, out ulong PreCalls, out ulong JobTicks, out ulong JobCalls, out ulong JobTickHz) -> void
+Kiln.RulesStatus.Dispatcher.get -> bool
+Kiln.RulesStatus.Dispatcher.init -> void
+Kiln.RulesStatus.Equals(Kiln.RulesStatus? other) -> bool
+Kiln.RulesStatus.FollowupsRefused.get -> ulong
+Kiln.RulesStatus.FollowupsRefused.init -> void
+Kiln.RulesStatus.JobCalls.get -> ulong
+Kiln.RulesStatus.JobCalls.init -> void
+Kiln.RulesStatus.JobTickHz.get -> ulong
+Kiln.RulesStatus.JobTickHz.init -> void
+Kiln.RulesStatus.JobTicks.get -> ulong
+Kiln.RulesStatus.JobTicks.init -> void
+Kiln.RulesStatus.MapCapacity.get -> int
+Kiln.RulesStatus.MapCapacity.init -> void
+Kiln.RulesStatus.MapCount.get -> int
+Kiln.RulesStatus.MapCount.init -> void
+Kiln.RulesStatus.Overrides.get -> int
+Kiln.RulesStatus.Overrides.init -> void
+Kiln.RulesStatus.PicksWaiting.get -> ulong
+Kiln.RulesStatus.PicksWaiting.init -> void
+Kiln.RulesStatus.PreCalls.get -> ulong
+Kiln.RulesStatus.PreCalls.init -> void
+Kiln.RulesStatus.PreNs.get -> ulong
+Kiln.RulesStatus.PreNs.init -> void
+Kiln.RulesStatus.RuleHooks.get -> bool
+Kiln.RulesStatus.RuleHooks.init -> void
+Kiln.RulesStatus.RulesStatus(bool Writer, bool Dispatcher, bool Attacks, bool AiSwitch, bool RuleHooks, bool AttackHooks, int Arsenals, int Tracked, int Overrides, int AiOff, int MapCapacity, int MapCount, ulong Constraints, ulong ConstraintsTrue, ulong Actions, ulong ActionsDropped, ulong Selects, ulong SelectsForced, ulong SelectsFiltered, ulong PicksWaiting, ulong FollowupsRefused, ulong Starts, ulong StartsOffOverride, ulong SequencesRefused, ulong PreNs, ulong PreCalls, ulong JobTicks, ulong JobCalls, ulong JobTickHz) -> void
+Kiln.RulesStatus.Selects.get -> ulong
+Kiln.RulesStatus.Selects.init -> void
+Kiln.RulesStatus.SelectsFiltered.get -> ulong
+Kiln.RulesStatus.SelectsFiltered.init -> void
+Kiln.RulesStatus.SelectsForced.get -> ulong
+Kiln.RulesStatus.SelectsForced.init -> void
+Kiln.RulesStatus.SequencesRefused.get -> ulong
+Kiln.RulesStatus.SequencesRefused.init -> void
+Kiln.RulesStatus.Starts.get -> ulong
+Kiln.RulesStatus.Starts.init -> void
+Kiln.RulesStatus.StartsOffOverride.get -> ulong
+Kiln.RulesStatus.StartsOffOverride.init -> void
+Kiln.RulesStatus.Tracked.get -> int
+Kiln.RulesStatus.Tracked.init -> void
+Kiln.RulesStatus.Writer.get -> bool
+Kiln.RulesStatus.Writer.init -> void
+Kiln.StateCondition
+Kiln.StateCondition.CanMoveToMarker = 26 -> Kiln.StateCondition
+Kiln.StateCondition.Death = 0 -> Kiln.StateCondition
+Kiln.StateCondition.HasBeenHit = 18 -> Kiln.StateCondition
+Kiln.StateCondition.HasBeenHitRecently = 19 -> Kiln.StateCondition
+Kiln.StateCondition.HasReachedHighAwarenessState = 10 -> Kiln.StateCondition
+Kiln.StateCondition.HasReachedLowAwarenessState = 9 -> Kiln.StateCondition
+Kiln.StateCondition.HasReachedNoAwarenessState = 8 -> Kiln.StateCondition
+Kiln.StateCondition.HitReaction = 22 -> Kiln.StateCondition
+Kiln.StateCondition.IsControlledByAttack = 14 -> Kiln.StateCondition
+Kiln.StateCondition.IsExhausted = 30 -> Kiln.StateCondition
+Kiln.StateCondition.IsFalling = 21 -> Kiln.StateCondition
+Kiln.StateCondition.IsFinished = 3 -> Kiln.StateCondition
+Kiln.StateCondition.IsHelpingEnemy = 31 -> Kiln.StateCondition
+Kiln.StateCondition.IsReadyForCircling = 16 -> Kiln.StateCondition
+Kiln.StateCondition.IsReadyForRoaming = 15 -> Kiln.StateCondition
+Kiln.StateCondition.IsReadyToInteract = 12 -> Kiln.StateCondition
+Kiln.StateCondition.IsReadyToPatrol = 11 -> Kiln.StateCondition
+Kiln.StateCondition.IsReadyToTriggerAlarm = 13 -> Kiln.StateCondition
+Kiln.StateCondition.NeedsToGuard = 23 -> Kiln.StateCondition
+Kiln.StateCondition.NeedsToInvestigate = 32 -> Kiln.StateCondition
+Kiln.StateCondition.NeedsToTurn = 25 -> Kiln.StateCondition
+Kiln.StateCondition.NoiseHeard = 6 -> Kiln.StateCondition
+Kiln.StateCondition.ProjectileHeard = 7 -> Kiln.StateCondition
+Kiln.StateCondition.Revive = 29 -> Kiln.StateCondition
+Kiln.StateCondition.TargetLost = 2 -> Kiln.StateCondition
+Kiln.StateCondition.TargetOutsideLeash = 5 -> Kiln.StateCondition
+Kiln.StateCondition.TargetSelected = 1 -> Kiln.StateCondition
+Kiln.StateCondition.TargetUnreachable = 4 -> Kiln.StateCondition
+Kiln.StateCondition.Unknown = 255 -> Kiln.StateCondition
+Kiln.StateCondition.WantsToAvoidWater = 28 -> Kiln.StateCondition
+Kiln.StateCondition.WantsToFlee = 17 -> Kiln.StateCondition
+Kiln.StateCondition.WantsToLand = 24 -> Kiln.StateCondition
+Kiln.StateCondition.WantsToSleep = 27 -> Kiln.StateCondition
+Kiln.StateCondition.WasHookshotTargetRecently = 20 -> Kiln.StateCondition
+Kiln.Villager
+Kiln.Villager.Entity.get -> Kiln.EntityId
+Kiln.Villager.Follow(Kiln.EntityId target, double distance = 4, double catchUp = 40) -> void
+Kiln.Villager.GoTo(Kiln.WorldPosition target) -> void
+Kiln.Villager.IsFollowing.get -> bool
+Kiln.Villager.NpcId.get -> uint
+Kiln.Villager.Position.get -> Kiln.WorldPosition?
+Kiln.Villager.State.get -> Kiln.VillagerState
+Kiln.Villager.Stay() -> void
+Kiln.Villager.StopFollowing() -> void
+Kiln.Villager.Teleport(Kiln.WorldPosition at, float yawDegrees = 0) -> void
+Kiln.VillagerState
+Kiln.VillagerState.AvoidBuildingCursor = 14 -> Kiln.VillagerState
+Kiln.VillagerState.AvoidWater = 15 -> Kiln.VillagerState
+Kiln.VillagerState.DecideTask = 4 -> Kiln.VillagerState
+Kiln.VillagerState.Eating = 12 -> Kiln.VillagerState
+Kiln.VillagerState.FindBed = 2 -> Kiln.VillagerState
+Kiln.VillagerState.FindTarget = 5 -> Kiln.VillagerState
+Kiln.VillagerState.FinishTask = 17 -> Kiln.VillagerState
+Kiln.VillagerState.GoToTarget = 6 -> Kiln.VillagerState
+Kiln.VillagerState.Idle = 3 -> Kiln.VillagerState
+Kiln.VillagerState.InsideWater = 16 -> Kiln.VillagerState
+Kiln.VillagerState.Interacting = 10 -> Kiln.VillagerState
+Kiln.VillagerState.Invalid = 0 -> Kiln.VillagerState
+Kiln.VillagerState.NpcSocializing = 11 -> Kiln.VillagerState
+Kiln.VillagerState.Roam = 7 -> Kiln.VillagerState
+Kiln.VillagerState.Sitting = 9 -> Kiln.VillagerState
+Kiln.VillagerState.Sleep = 8 -> Kiln.VillagerState
+Kiln.VillagerState.Start = 1 -> Kiln.VillagerState
+Kiln.VillagerState.WaitingCloseToPlayer = 13 -> Kiln.VillagerState
+Kiln.VillagerStateEvent
+Kiln.VillagerStateEvent.Entity.get -> Kiln.EntityId
+Kiln.VillagerStateEvent.From.get -> Kiln.VillagerState
+Kiln.VillagerStateEvent.NpcId.get -> uint
+Kiln.VillagerStateEvent.To.get -> Kiln.VillagerState
+Kiln.Villagers
+override Kiln.ArsenalInfo.Attack.Equals(object? obj) -> bool
+override Kiln.ArsenalInfo.Attack.GetHashCode() -> int
+override Kiln.ArsenalInfo.Attack.ToString() -> string!
+override Kiln.ArsenalInfo.Equals(object? obj) -> bool
+override Kiln.ArsenalInfo.GetHashCode() -> int
+override Kiln.ArsenalInfo.Rule.Equals(object? obj) -> bool
+override Kiln.ArsenalInfo.Rule.GetHashCode() -> int
+override Kiln.ArsenalInfo.Rule.ToString() -> string!
+override Kiln.ArsenalInfo.ToString() -> string!
+override Kiln.CreatureInfo.Equals(object? obj) -> bool
+override Kiln.CreatureInfo.GetHashCode() -> int
+override Kiln.CreatureInfo.ToString() -> string!
+override Kiln.CreatureRef.ToString() -> string!
+override Kiln.CreatureSpawnRule.Equals(object? obj) -> bool
+override Kiln.CreatureSpawnRule.GetHashCode() -> int
+override Kiln.CreatureSpawnRule.ToString() -> string!
+override Kiln.CreatureTemplate.Equals(object? obj) -> bool
+override Kiln.CreatureTemplate.GetHashCode() -> int
+override Kiln.CreatureTemplate.ToString() -> string!
+override Kiln.CreatureVariant.ToString() -> string!
+override Kiln.CreaturesPackReport.Equals(object? obj) -> bool
+override Kiln.CreaturesPackReport.GetHashCode() -> int
+override Kiln.CreaturesPackReport.ToString() -> string!
+override Kiln.CreaturesStatus.Equals(object? obj) -> bool
+override Kiln.CreaturesStatus.GetHashCode() -> int
+override Kiln.CreaturesStatus.ToString() -> string!
+override Kiln.GuardOptions.Equals(object? obj) -> bool
+override Kiln.GuardOptions.GetHashCode() -> int
+override Kiln.GuardOptions.ToString() -> string!
+override Kiln.GuardOrder.Equals(object? obj) -> bool
+override Kiln.GuardOrder.GetHashCode() -> int
+override Kiln.GuardOrder.ToString() -> string!
+override Kiln.RulesStatus.Equals(object? obj) -> bool
+override Kiln.RulesStatus.GetHashCode() -> int
+override Kiln.RulesStatus.ToString() -> string!
+override Kiln.Villager.ToString() -> string!
+override Kiln.VillagerStateEvent.ToString() -> string!
+static Kiln.Act.Attack(System.Guid attack) -> Kiln.RuleAction!
+static Kiln.Act.Attack(string! name) -> Kiln.RuleAction!
+static Kiln.Act.Custom(System.Action<Kiln.NpcView!>! run) -> Kiln.RuleAction!
+static Kiln.Act.Game(string! type, params (string! Field, object? Value)[]! fields) -> Kiln.RuleAction!
+static Kiln.Act.Job(uint id, uint arg = 0) -> Kiln.RuleAction!
+static Kiln.Act.Named(string! name) -> Kiln.RuleAction!
+static Kiln.Act.SetPhase(System.Guid phase) -> Kiln.RuleAction!
+static Kiln.Act.SetPhase(string! name) -> Kiln.RuleAction!
+static Kiln.ArsenalInfo.Attack.operator !=(Kiln.ArsenalInfo.Attack? left, Kiln.ArsenalInfo.Attack? right) -> bool
+static Kiln.ArsenalInfo.Attack.operator ==(Kiln.ArsenalInfo.Attack? left, Kiln.ArsenalInfo.Attack? right) -> bool
+static Kiln.ArsenalInfo.Rule.operator !=(Kiln.ArsenalInfo.Rule? left, Kiln.ArsenalInfo.Rule? right) -> bool
+static Kiln.ArsenalInfo.Rule.operator ==(Kiln.ArsenalInfo.Rule? left, Kiln.ArsenalInfo.Rule? right) -> bool
+static Kiln.ArsenalInfo.operator !=(Kiln.ArsenalInfo? left, Kiln.ArsenalInfo? right) -> bool
+static Kiln.ArsenalInfo.operator ==(Kiln.ArsenalInfo? left, Kiln.ArsenalInfo? right) -> bool
+static Kiln.Arsenals.Action(string! name, System.Action<Kiln.NpcView!>! run) -> void
+static Kiln.Arsenals.Available.get -> bool
+static Kiln.Arsenals.Condition(string! name, System.Func<Kiln.NpcView!, bool>! check, double every = 1) -> void
+static Kiln.Arsenals.ConditionStats(Kiln.RuleCondition! condition) -> (ulong Evaluated, ulong True)
+static Kiln.Arsenals.Define(string! name, Kiln.ArsenalSpec! spec) -> Kiln.ArsenalHandle!
+static Kiln.Arsenals.Extend(System.Guid arsenal, Kiln.ArsenalSpec! spec) -> Kiln.ArsenalHandle!
+static Kiln.Arsenals.Extend(string! template, Kiln.ArsenalSpec! spec) -> Kiln.ArsenalHandle!
+static Kiln.Arsenals.Info(System.Guid id) -> Kiln.ArsenalInfo?
+static Kiln.Arsenals.JobHandler(uint id, nint function, nint user = 0) -> void
+static Kiln.Arsenals.OfTemplate(string! template) -> System.Guid?
+static Kiln.Arsenals.PumpCost.get -> (double Milliseconds, long Pumps)
+static Kiln.Arsenals.Refresh() -> int
+static Kiln.Arsenals.SelfTest() -> (int Checked, int Bad)
+static Kiln.Arsenals.Status.get -> Kiln.RulesStatus?
+static Kiln.Arsenals.Timing.set -> void
+static Kiln.CreatureAdminCommands.Register() -> Kiln.CommandRegistration!
+static Kiln.CreatureInfo.operator !=(Kiln.CreatureInfo? left, Kiln.CreatureInfo? right) -> bool
+static Kiln.CreatureInfo.operator ==(Kiln.CreatureInfo? left, Kiln.CreatureInfo? right) -> bool
+static Kiln.CreatureSpawnRule.operator !=(Kiln.CreatureSpawnRule? left, Kiln.CreatureSpawnRule? right) -> bool
+static Kiln.CreatureSpawnRule.operator ==(Kiln.CreatureSpawnRule? left, Kiln.CreatureSpawnRule? right) -> bool
+static Kiln.CreatureTemplate.operator !=(Kiln.CreatureTemplate? left, Kiln.CreatureTemplate? right) -> bool
+static Kiln.CreatureTemplate.operator ==(Kiln.CreatureTemplate? left, Kiln.CreatureTemplate? right) -> bool
+static Kiln.CreatureVariants.AddSpawnRule(Kiln.CreatureSpawnRule! rule) -> System.IDisposable!
+static Kiln.CreatureVariants.All.get -> System.Collections.Generic.IReadOnlyList<Kiln.CreatureVariant!>!
+static Kiln.CreatureVariants.Apply(Kiln.EntityId entity, string! variantId) -> System.Collections.Generic.IReadOnlyList<string!>!
+static Kiln.CreatureVariants.Get(string! id) -> Kiln.CreatureVariant?
+static Kiln.CreatureVariants.Of(Kiln.EntityId entity) -> Kiln.CreatureVariant?
+static Kiln.CreatureVariants.Register(Kiln.CreatureVariant! variant) -> System.IDisposable!
+static Kiln.CreatureVariants.SpawnRules.get -> System.Collections.Generic.IReadOnlyList<Kiln.CreatureSpawnRule!>!
+static Kiln.Creatures.AiFields(string! component = "Enemy01BehaviorState") -> string!
+static Kiln.Creatures.ApplyJson(string! sectionJson, string! owner, string! source = "") -> Kiln.CreaturesPackReport!
+static Kiln.Creatures.Available.get -> bool
+static Kiln.Creatures.GuardOrders.get -> System.Collections.Generic.IReadOnlyList<Kiln.GuardOrder!>!
+static Kiln.Creatures.Near(Kiln.WorldPosition center, double radius, Kiln.CreatureKind? kind = null) -> System.Collections.Generic.IReadOnlyList<Kiln.EntityId>!
+static Kiln.Creatures.Of(Kiln.EntityId entity) -> Kiln.CreatureRef
+static Kiln.Creatures.RefreshCopies(Kiln.EntityId entity = default(Kiln.EntityId)) -> int
+static Kiln.Creatures.RevertJson(string! owner, string? source = null) -> int
+static Kiln.Creatures.Spawn(string! variantOrTemplate, Kiln.WorldPosition position, float yawDegrees = 0, Kiln.CreatureSpawnOptions? options = null) -> System.Threading.Tasks.Task<Kiln.EntityId>!
+static Kiln.Creatures.Status.get -> Kiln.CreaturesStatus?
+static Kiln.Creatures.Template(System.Guid id) -> Kiln.CreatureTemplate?
+static Kiln.Creatures.Template(string! nameOrGuid) -> Kiln.CreatureTemplate?
+static Kiln.Creatures.Templates.get -> System.Collections.Generic.IReadOnlyList<Kiln.CreatureTemplate!>!
+static Kiln.CreaturesPackReport.operator !=(Kiln.CreaturesPackReport? left, Kiln.CreaturesPackReport? right) -> bool
+static Kiln.CreaturesPackReport.operator ==(Kiln.CreaturesPackReport? left, Kiln.CreaturesPackReport? right) -> bool
+static Kiln.CreaturesStatus.operator !=(Kiln.CreaturesStatus? left, Kiln.CreaturesStatus? right) -> bool
+static Kiln.CreaturesStatus.operator ==(Kiln.CreaturesStatus? left, Kiln.CreaturesStatus? right) -> bool
+static Kiln.GuardOptions.operator !=(Kiln.GuardOptions? left, Kiln.GuardOptions? right) -> bool
+static Kiln.GuardOptions.operator ==(Kiln.GuardOptions? left, Kiln.GuardOptions? right) -> bool
+static Kiln.GuardOrder.operator !=(Kiln.GuardOrder? left, Kiln.GuardOrder? right) -> bool
+static Kiln.GuardOrder.operator ==(Kiln.GuardOrder? left, Kiln.GuardOrder? right) -> bool
+static Kiln.Is.Custom(System.Func<Kiln.NpcView!, bool>! check, double every = 1) -> Kiln.RuleCondition!
+static Kiln.Is.Day.get -> Kiln.RuleCondition!
+static Kiln.Is.Game(string! type, params (string! Field, object? Value)[]! fields) -> Kiln.RuleCondition!
+static Kiln.Is.HasBuff(System.Guid buff) -> Kiln.RuleCondition!
+static Kiln.Is.HealthAbove(double fraction) -> Kiln.RuleCondition!
+static Kiln.Is.HealthBelow(double fraction) -> Kiln.RuleCondition!
+static Kiln.Is.InPhase(System.Guid phase) -> Kiln.RuleCondition!
+static Kiln.Is.InPhase(string! name) -> Kiln.RuleCondition!
+static Kiln.Is.Job(uint id, uint arg = 0) -> Kiln.RuleCondition!
+static Kiln.Is.Named(string! name) -> Kiln.RuleCondition!
+static Kiln.Is.Night.get -> Kiln.RuleCondition!
+static Kiln.Is.TargetBetween(double min, double max) -> Kiln.RuleCondition!
+static Kiln.Is.TargetBeyond(double metres) -> Kiln.RuleCondition!
+static Kiln.Is.TargetWithin(double metres) -> Kiln.RuleCondition!
+static Kiln.Is.TimeBetween(double from, double to) -> Kiln.RuleCondition!
+static Kiln.RuleIds.Attack(string! name) -> System.Guid
+static Kiln.RuleIds.Derive(string! mod, string! kind, string! name) -> System.Guid
+static Kiln.RuleIds.Fnv(System.Guid g) -> uint
+static Kiln.RuleIds.Phase(string! name) -> System.Guid
+static Kiln.RulesStatus.operator !=(Kiln.RulesStatus? left, Kiln.RulesStatus? right) -> bool
+static Kiln.RulesStatus.operator ==(Kiln.RulesStatus? left, Kiln.RulesStatus? right) -> bool
+static Kiln.Villagers.Available.get -> bool
+static Kiln.Villagers.Find(System.Guid template) -> Kiln.Villager?
+static Kiln.Villagers.List() -> System.Collections.Generic.IReadOnlyList<Kiln.Villager!>!
+static Kiln.Villagers.NpcIdOf(System.Guid template) -> uint
+static Kiln.Villagers.Of(Kiln.EntityId entity) -> Kiln.Villager?
+static Kiln.Villagers.Watch(Kiln.EntityId entity) -> void
+static readonly Kiln.GuardOptions.Default -> Kiln.GuardOptions!
+static readonly Kiln.GuardOptions.EventOnly -> Kiln.GuardOptions!

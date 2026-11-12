@@ -1,0 +1,471 @@
+#nullable enable
+Kiln.GameNodeDefinition
+Kiln.GameNodeDefinition.Class.get -> string?
+Kiln.GameNodeDefinition.Class.init -> void
+Kiln.GameNodeDefinition.Configs.get -> System.Collections.Generic.IReadOnlyDictionary<uint, double>?
+Kiln.GameNodeDefinition.Configs.init -> void
+Kiln.GameNodeDefinition.Cost.get -> int
+Kiln.GameNodeDefinition.Cost.init -> void
+Kiln.GameNodeDefinition.From.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Kiln.GameNodeDefinition.From.init -> void
+Kiln.GameNodeDefinition.GameNodeDefinition() -> void
+Kiln.GameNodeDefinition.Guid.get -> System.Guid
+Kiln.GameNodeDefinition.Guid.init -> void
+Kiln.GameNodeDefinition.Icon.get -> System.Guid?
+Kiln.GameNodeDefinition.Icon.init -> void
+Kiln.GameNodeDefinition.IconFile.get -> string?
+Kiln.GameNodeDefinition.IconFile.init -> void
+Kiln.GameNodeDefinition.Id.get -> uint
+Kiln.GameNodeDefinition.Like.get -> string?
+Kiln.GameNodeDefinition.Like.init -> void
+Kiln.GameNodeDefinition.MaxLevel.get -> int?
+Kiln.GameNodeDefinition.MaxLevel.init -> void
+Kiln.GameNodeDefinition.Name.get -> string!
+Kiln.GameNodeDefinition.Name.init -> void
+Kiln.GameNodeDefinition.Near.get -> string?
+Kiln.GameNodeDefinition.Near.init -> void
+Kiln.GameNodeDefinition.Offset.get -> (float X, float Y)?
+Kiln.GameNodeDefinition.Offset.init -> void
+Kiln.GameNodeDefinition.Position.get -> (float X, float Y)?
+Kiln.GameNodeDefinition.Position.init -> void
+Kiln.GameNodeDefinition.Program.get -> System.Guid?
+Kiln.GameNodeDefinition.Program.init -> void
+Kiln.GameNodeDefinition.Scales.get -> System.Collections.Generic.IReadOnlyDictionary<uint, double>?
+Kiln.GameNodeDefinition.Scales.init -> void
+Kiln.GameNodeDefinition.Texts.get -> System.Collections.Generic.IReadOnlyDictionary<string!, (string! Name, string! Description, string? PerLevel)>?
+Kiln.GameNodeDefinition.Texts.init -> void
+Kiln.GameNodeDefinition.To.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Kiln.GameNodeDefinition.To.init -> void
+Kiln.GameNodeDefinition.Type.get -> string?
+Kiln.GameNodeDefinition.Type.init -> void
+Kiln.GameNodeDefinition.UnlocksAbility.get -> System.Guid?
+Kiln.GameNodeDefinition.UnlocksAbility.init -> void
+Kiln.GameNodeInfo
+Kiln.GameNodeInfo.<Clone>$() -> Kiln.GameNodeInfo!
+Kiln.GameNodeInfo.Deconstruct(out System.Guid Guid, out uint Id, out string! Name, out string! Owner, out string! Source, out string! State, out int Index, out int LevelIndex, out string? Error) -> void
+Kiln.GameNodeInfo.Equals(Kiln.GameNodeInfo? other) -> bool
+Kiln.GameNodeInfo.Error.get -> string?
+Kiln.GameNodeInfo.Error.init -> void
+Kiln.GameNodeInfo.GameNodeInfo(System.Guid Guid, uint Id, string! Name, string! Owner, string! Source, string! State, int Index, int LevelIndex, string? Error) -> void
+Kiln.GameNodeInfo.Guid.get -> System.Guid
+Kiln.GameNodeInfo.Guid.init -> void
+Kiln.GameNodeInfo.Id.get -> uint
+Kiln.GameNodeInfo.Id.init -> void
+Kiln.GameNodeInfo.Index.get -> int
+Kiln.GameNodeInfo.Index.init -> void
+Kiln.GameNodeInfo.LevelIndex.get -> int
+Kiln.GameNodeInfo.LevelIndex.init -> void
+Kiln.GameNodeInfo.Name.get -> string!
+Kiln.GameNodeInfo.Name.init -> void
+Kiln.GameNodeInfo.Owner.get -> string!
+Kiln.GameNodeInfo.Owner.init -> void
+Kiln.GameNodeInfo.Source.get -> string!
+Kiln.GameNodeInfo.Source.init -> void
+Kiln.GameNodeInfo.State.get -> string!
+Kiln.GameNodeInfo.State.init -> void
+Kiln.GameNodesRefundedEvent
+Kiln.GameNodesRefundedEvent.Nodes.get -> System.Collections.Generic.IReadOnlyList<(uint Id, int Level)>!
+Kiln.GameNodesRefundedEvent.Player.get -> Kiln.EntityId
+Kiln.GameNodesRefundedEvent.Step.get -> ulong
+Kiln.GameShadowMessage
+Kiln.GameShadowMessage.<Clone>$() -> Kiln.GameShadowMessage!
+Kiln.GameShadowMessage.Deconstruct(out System.Collections.Generic.Dictionary<string!, int>! Levels, out long Revision) -> void
+Kiln.GameShadowMessage.Equals(Kiln.GameShadowMessage? other) -> bool
+Kiln.GameShadowMessage.GameShadowMessage(System.Collections.Generic.Dictionary<string!, int>! Levels, long Revision) -> void
+Kiln.GameShadowMessage.Levels.get -> System.Collections.Generic.Dictionary<string!, int>!
+Kiln.GameShadowMessage.Levels.init -> void
+Kiln.GameShadowMessage.Revision.get -> long
+Kiln.GameShadowMessage.Revision.init -> void
+Kiln.GameShadowState
+Kiln.GameShadowState.GameShadowState() -> void
+Kiln.GameShadowState.Levels.get -> System.Collections.Generic.Dictionary<string!, int>!
+Kiln.GameShadowState.Levels.set -> void
+Kiln.GameShadowState.Revision.get -> long
+Kiln.GameShadowState.Revision.set -> void
+Kiln.GameTree
+Kiln.GameTreeSimOp
+Kiln.GameTreeSimOp.AddRaw = 5 -> Kiln.GameTreeSimOp
+Kiln.GameTreeSimOp.Check = 4 -> Kiln.GameTreeSimOp
+Kiln.GameTreeSimOp.Lock = 3 -> Kiln.GameTreeSimOp
+Kiln.GameTreeSimOp.Strip = 6 -> Kiln.GameTreeSimOp
+Kiln.GameTreeSimOp.Unlock = 1 -> Kiln.GameTreeSimOp
+Kiln.GameTreeSimOp.UnlockForce = 2 -> Kiln.GameTreeSimOp
+Kiln.GameTreeSimResult
+Kiln.GameTreeSimResult.<Clone>$() -> Kiln.GameTreeSimResult!
+Kiln.GameTreeSimResult.Connected.get -> bool
+Kiln.GameTreeSimResult.Connected.init -> void
+Kiln.GameTreeSimResult.Deconstruct(out Kiln.GameTreeSimOp Op, out uint Node, out bool Ok, out bool Reachable, out bool Rebuild, out bool Connected, out bool LevelsValid, out int Level, out bool Known, out int Spent, out int UnlockedNodes, out int Stripped, out int Index) -> void
+Kiln.GameTreeSimResult.Equals(Kiln.GameTreeSimResult? other) -> bool
+Kiln.GameTreeSimResult.GameTreeSimResult(Kiln.GameTreeSimOp Op, uint Node, bool Ok, bool Reachable, bool Rebuild, bool Connected, bool LevelsValid, int Level, bool Known, int Spent, int UnlockedNodes, int Stripped, int Index) -> void
+Kiln.GameTreeSimResult.Index.get -> int
+Kiln.GameTreeSimResult.Index.init -> void
+Kiln.GameTreeSimResult.Known.get -> bool
+Kiln.GameTreeSimResult.Known.init -> void
+Kiln.GameTreeSimResult.Level.get -> int
+Kiln.GameTreeSimResult.Level.init -> void
+Kiln.GameTreeSimResult.LevelsValid.get -> bool
+Kiln.GameTreeSimResult.LevelsValid.init -> void
+Kiln.GameTreeSimResult.Node.get -> uint
+Kiln.GameTreeSimResult.Node.init -> void
+Kiln.GameTreeSimResult.Ok.get -> bool
+Kiln.GameTreeSimResult.Ok.init -> void
+Kiln.GameTreeSimResult.Op.get -> Kiln.GameTreeSimOp
+Kiln.GameTreeSimResult.Op.init -> void
+Kiln.GameTreeSimResult.Reachable.get -> bool
+Kiln.GameTreeSimResult.Reachable.init -> void
+Kiln.GameTreeSimResult.Rebuild.get -> bool
+Kiln.GameTreeSimResult.Rebuild.init -> void
+Kiln.GameTreeSimResult.Spent.get -> int
+Kiln.GameTreeSimResult.Spent.init -> void
+Kiln.GameTreeSimResult.Stripped.get -> int
+Kiln.GameTreeSimResult.Stripped.init -> void
+Kiln.GameTreeSimResult.UnlockedNodes.get -> int
+Kiln.GameTreeSimResult.UnlockedNodes.init -> void
+Kiln.GameTreeStatus
+Kiln.GameTreeStatus.<Clone>$() -> Kiln.GameTreeStatus!
+Kiln.GameTreeStatus.AddedLinks.get -> int
+Kiln.GameTreeStatus.AddedLinks.init -> void
+Kiln.GameTreeStatus.AddedNodes.get -> int
+Kiln.GameTreeStatus.AddedNodes.init -> void
+Kiln.GameTreeStatus.Builds.get -> int
+Kiln.GameTreeStatus.Builds.init -> void
+Kiln.GameTreeStatus.Deconstruct(out bool TreeExpansion, out bool LoginGuard, out bool GameFunctions, out bool NodeTexts, out int GameNodes, out int GameLinks, out int GameLevelMax, out int Nodes, out int Links, out int AddedNodes, out int AddedLinks, out int FreeNodes, out int FreeLevelSlots, out int Defined, out int Refused, out int Pending, out int WorldsServed, out int Builds, out ulong Refunded, out string! Reason, out int ShadowNodes, out int ShadowLevel) -> void
+Kiln.GameTreeStatus.Defined.get -> int
+Kiln.GameTreeStatus.Defined.init -> void
+Kiln.GameTreeStatus.Equals(Kiln.GameTreeStatus? other) -> bool
+Kiln.GameTreeStatus.FreeLevelSlots.get -> int
+Kiln.GameTreeStatus.FreeLevelSlots.init -> void
+Kiln.GameTreeStatus.FreeNodes.get -> int
+Kiln.GameTreeStatus.FreeNodes.init -> void
+Kiln.GameTreeStatus.GameFunctions.get -> bool
+Kiln.GameTreeStatus.GameFunctions.init -> void
+Kiln.GameTreeStatus.GameLevelMax.get -> int
+Kiln.GameTreeStatus.GameLevelMax.init -> void
+Kiln.GameTreeStatus.GameLinks.get -> int
+Kiln.GameTreeStatus.GameLinks.init -> void
+Kiln.GameTreeStatus.GameNodes.get -> int
+Kiln.GameTreeStatus.GameNodes.init -> void
+Kiln.GameTreeStatus.GameTreeStatus(bool TreeExpansion, bool LoginGuard, bool GameFunctions, bool NodeTexts, int GameNodes, int GameLinks, int GameLevelMax, int Nodes, int Links, int AddedNodes, int AddedLinks, int FreeNodes, int FreeLevelSlots, int Defined, int Refused, int Pending, int WorldsServed, int Builds, ulong Refunded, string! Reason, int ShadowNodes = 0, int ShadowLevel = 0) -> void
+Kiln.GameTreeStatus.Links.get -> int
+Kiln.GameTreeStatus.Links.init -> void
+Kiln.GameTreeStatus.LoginGuard.get -> bool
+Kiln.GameTreeStatus.LoginGuard.init -> void
+Kiln.GameTreeStatus.NodeTexts.get -> bool
+Kiln.GameTreeStatus.NodeTexts.init -> void
+Kiln.GameTreeStatus.Nodes.get -> int
+Kiln.GameTreeStatus.Nodes.init -> void
+Kiln.GameTreeStatus.Pending.get -> int
+Kiln.GameTreeStatus.Pending.init -> void
+Kiln.GameTreeStatus.Reason.get -> string!
+Kiln.GameTreeStatus.Reason.init -> void
+Kiln.GameTreeStatus.Refunded.get -> ulong
+Kiln.GameTreeStatus.Refunded.init -> void
+Kiln.GameTreeStatus.Refused.get -> int
+Kiln.GameTreeStatus.Refused.init -> void
+Kiln.GameTreeStatus.ShadowLevel.get -> int
+Kiln.GameTreeStatus.ShadowLevel.init -> void
+Kiln.GameTreeStatus.ShadowNodes.get -> int
+Kiln.GameTreeStatus.ShadowNodes.init -> void
+Kiln.GameTreeStatus.TreeExpansion.get -> bool
+Kiln.GameTreeStatus.TreeExpansion.init -> void
+Kiln.GameTreeStatus.WorldsServed.get -> int
+Kiln.GameTreeStatus.WorldsServed.init -> void
+Kiln.Skills
+Kiln.TalentAttributes
+Kiln.TalentChange
+Kiln.TalentChange.<Clone>$() -> Kiln.TalentChange!
+Kiln.TalentChange.Deconstruct(out Kiln.TalentTree! Tree, out Kiln.TalentHolder Holder, out Kiln.TalentChangeKind Kind, out string? Node, out int OldLevel, out int NewLevel, out int Points) -> void
+Kiln.TalentChange.Equals(Kiln.TalentChange? other) -> bool
+Kiln.TalentChange.Holder.get -> Kiln.TalentHolder
+Kiln.TalentChange.Holder.init -> void
+Kiln.TalentChange.Kind.get -> Kiln.TalentChangeKind
+Kiln.TalentChange.Kind.init -> void
+Kiln.TalentChange.NewLevel.get -> int
+Kiln.TalentChange.NewLevel.init -> void
+Kiln.TalentChange.Node.get -> string?
+Kiln.TalentChange.Node.init -> void
+Kiln.TalentChange.OldLevel.get -> int
+Kiln.TalentChange.OldLevel.init -> void
+Kiln.TalentChange.Points.get -> int
+Kiln.TalentChange.Points.init -> void
+Kiln.TalentChange.TalentChange(Kiln.TalentTree! Tree, Kiln.TalentHolder Holder, Kiln.TalentChangeKind Kind, string? Node, int OldLevel, int NewLevel, int Points) -> void
+Kiln.TalentChange.Tree.get -> Kiln.TalentTree!
+Kiln.TalentChange.Tree.init -> void
+Kiln.TalentChangeKind
+Kiln.TalentChangeKind.Grant = 3 -> Kiln.TalentChangeKind
+Kiln.TalentChangeKind.Lock = 1 -> Kiln.TalentChangeKind
+Kiln.TalentChangeKind.Reset = 4 -> Kiln.TalentChangeKind
+Kiln.TalentChangeKind.Respec = 2 -> Kiln.TalentChangeKind
+Kiln.TalentChangeKind.Unlock = 0 -> Kiln.TalentChangeKind
+Kiln.TalentChangedEvent
+Kiln.TalentChangedEvent.Change.get -> Kiln.TalentChange!
+Kiln.TalentContext
+Kiln.TalentContext.Holder.get -> Kiln.TalentHolder
+Kiln.TalentContext.Level.get -> int
+Kiln.TalentContext.Node.get -> Kiln.TalentNode!
+Kiln.TalentContext.Player.get -> Kiln.EntityId
+Kiln.TalentContext.State.get -> object?
+Kiln.TalentContext.State.set -> void
+Kiln.TalentContext.Tree.get -> Kiln.TalentTree!
+Kiln.TalentEffect
+Kiln.TalentEffect.TalentEffect() -> void
+Kiln.TalentHolder
+Kiln.TalentHolder.Character.get -> Kiln.CharacterKey
+Kiln.TalentHolder.Character.init -> void
+Kiln.TalentHolder.Deconstruct(out ulong SteamId, out Kiln.EntityId Entity) -> void
+Kiln.TalentHolder.Entity.get -> Kiln.EntityId
+Kiln.TalentHolder.Entity.init -> void
+Kiln.TalentHolder.Equals(Kiln.TalentHolder other) -> bool
+Kiln.TalentHolder.SteamId.get -> ulong
+Kiln.TalentHolder.SteamId.init -> void
+Kiln.TalentHolder.TalentHolder() -> void
+Kiln.TalentHolder.TalentHolder(ulong SteamId, Kiln.EntityId Entity) -> void
+Kiln.TalentNode
+Kiln.TalentNode.Column.get -> int
+Kiln.TalentNode.Column.init -> void
+Kiln.TalentNode.Cost.get -> int
+Kiln.TalentNode.Cost.init -> void
+Kiln.TalentNode.Description.get -> Kiln.UiText?
+Kiln.TalentNode.Description.init -> void
+Kiln.TalentNode.Effects.get -> System.Collections.Generic.IReadOnlyList<Kiln.TalentEffect!>!
+Kiln.TalentNode.Effects.init -> void
+Kiln.TalentNode.Icon.get -> string?
+Kiln.TalentNode.Icon.init -> void
+Kiln.TalentNode.Id.get -> string!
+Kiln.TalentNode.Id.init -> void
+Kiln.TalentNode.LevelRequired.get -> int
+Kiln.TalentNode.LevelRequired.init -> void
+Kiln.TalentNode.ListEffects.get -> bool
+Kiln.TalentNode.ListEffects.init -> void
+Kiln.TalentNode.MaxLevel.get -> int
+Kiln.TalentNode.MaxLevel.init -> void
+Kiln.TalentNode.Name.get -> Kiln.UiText!
+Kiln.TalentNode.Name.init -> void
+Kiln.TalentNode.PointsSpentRequired.get -> int
+Kiln.TalentNode.PointsSpentRequired.init -> void
+Kiln.TalentNode.RequireAll.get -> bool
+Kiln.TalentNode.RequireAll.init -> void
+Kiln.TalentNode.Requires.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Kiln.TalentNode.Requires.init -> void
+Kiln.TalentNode.Row.get -> int
+Kiln.TalentNode.Row.init -> void
+Kiln.TalentNode.TalentNode() -> void
+Kiln.TalentPoints
+Kiln.TalentPoints.TalentPoints() -> void
+Kiln.TalentPointsInfo
+Kiln.TalentPointsInfo.Available.get -> int
+Kiln.TalentPointsInfo.Available.init -> void
+Kiln.TalentPointsInfo.Deconstruct(out int Total, out int Spent, out int Available) -> void
+Kiln.TalentPointsInfo.Equals(Kiln.TalentPointsInfo other) -> bool
+Kiln.TalentPointsInfo.Spent.get -> int
+Kiln.TalentPointsInfo.Spent.init -> void
+Kiln.TalentPointsInfo.TalentPointsInfo() -> void
+Kiln.TalentPointsInfo.TalentPointsInfo(int Total, int Spent, int Available) -> void
+Kiln.TalentPointsInfo.Total.get -> int
+Kiln.TalentPointsInfo.Total.init -> void
+Kiln.TalentRequest
+Kiln.TalentRequest.<Clone>$() -> Kiln.TalentRequest!
+Kiln.TalentRequest.Deconstruct(out int Op, out string! Tree, out string! Node) -> void
+Kiln.TalentRequest.Equals(Kiln.TalentRequest? other) -> bool
+Kiln.TalentRequest.Node.get -> string!
+Kiln.TalentRequest.Node.init -> void
+Kiln.TalentRequest.Op.get -> int
+Kiln.TalentRequest.Op.init -> void
+Kiln.TalentRequest.TalentRequest(int Op, string! Tree, string! Node) -> void
+Kiln.TalentRequest.Tree.get -> string!
+Kiln.TalentRequest.Tree.init -> void
+Kiln.TalentResult
+Kiln.TalentResult.<Clone>$() -> Kiln.TalentResult!
+Kiln.TalentResult.Deconstruct(out bool Ok, out string! Reason, out int Level, out Kiln.TalentPointsInfo Points) -> void
+Kiln.TalentResult.Equals(Kiln.TalentResult? other) -> bool
+Kiln.TalentResult.Level.get -> int
+Kiln.TalentResult.Level.init -> void
+Kiln.TalentResult.Ok.get -> bool
+Kiln.TalentResult.Ok.init -> void
+Kiln.TalentResult.Points.get -> Kiln.TalentPointsInfo
+Kiln.TalentResult.Points.init -> void
+Kiln.TalentResult.Reason.get -> string!
+Kiln.TalentResult.Reason.init -> void
+Kiln.TalentResult.TalentResult(bool Ok, string! Reason, int Level, Kiln.TalentPointsInfo Points) -> void
+Kiln.TalentStateMessage
+Kiln.TalentStateMessage.<Clone>$() -> Kiln.TalentStateMessage!
+Kiln.TalentStateMessage.Available.get -> int
+Kiln.TalentStateMessage.Available.init -> void
+Kiln.TalentStateMessage.CharacterLevel.get -> int
+Kiln.TalentStateMessage.CharacterLevel.init -> void
+Kiln.TalentStateMessage.Deconstruct(out string! Tree, out int Total, out int Spent, out int Available, out System.Collections.Generic.Dictionary<string!, int>! Levels, out bool Ok, out string! Message, out long Revision, out int CharacterLevel) -> void
+Kiln.TalentStateMessage.Equals(Kiln.TalentStateMessage? other) -> bool
+Kiln.TalentStateMessage.Levels.get -> System.Collections.Generic.Dictionary<string!, int>!
+Kiln.TalentStateMessage.Levels.init -> void
+Kiln.TalentStateMessage.Message.get -> string!
+Kiln.TalentStateMessage.Message.init -> void
+Kiln.TalentStateMessage.Ok.get -> bool
+Kiln.TalentStateMessage.Ok.init -> void
+Kiln.TalentStateMessage.Revision.get -> long
+Kiln.TalentStateMessage.Revision.init -> void
+Kiln.TalentStateMessage.Spent.get -> int
+Kiln.TalentStateMessage.Spent.init -> void
+Kiln.TalentStateMessage.TalentStateMessage(string! Tree, int Total, int Spent, int Available, System.Collections.Generic.Dictionary<string!, int>! Levels, bool Ok, string! Message, long Revision, int CharacterLevel) -> void
+Kiln.TalentStateMessage.Total.get -> int
+Kiln.TalentStateMessage.Total.init -> void
+Kiln.TalentStateMessage.Tree.get -> string!
+Kiln.TalentStateMessage.Tree.init -> void
+Kiln.TalentTree
+Kiln.TalentTree.AllowRespec.get -> bool
+Kiln.TalentTree.AllowRespec.init -> void
+Kiln.TalentTree.Description.get -> Kiln.UiText?
+Kiln.TalentTree.Description.init -> void
+Kiln.TalentTree.Directory.get -> string?
+Kiln.TalentTree.Directory.set -> void
+Kiln.TalentTree.Id.get -> string!
+Kiln.TalentTree.Id.init -> void
+Kiln.TalentTree.Key.get -> string?
+Kiln.TalentTree.Key.init -> void
+Kiln.TalentTree.MenuEntry.get -> Kiln.UiText?
+Kiln.TalentTree.MenuEntry.init -> void
+Kiln.TalentTree.MenuOrder.get -> int
+Kiln.TalentTree.MenuOrder.init -> void
+Kiln.TalentTree.Name.get -> Kiln.UiText!
+Kiln.TalentTree.Name.init -> void
+Kiln.TalentTree.Nodes.get -> System.Collections.Generic.IReadOnlyList<Kiln.TalentNode!>!
+Kiln.TalentTree.Nodes.init -> void
+Kiln.TalentTree.OnChanged.get -> System.Action<Kiln.TalentChange!>?
+Kiln.TalentTree.OnChanged.init -> void
+Kiln.TalentTree.Points.get -> Kiln.TalentPoints!
+Kiln.TalentTree.Points.init -> void
+Kiln.TalentTree.TalentTree() -> void
+Kiln.TalentTreeState
+Kiln.TalentTreeState.Granted.get -> int
+Kiln.TalentTreeState.Granted.set -> void
+Kiln.TalentTreeState.LastGameTotal.get -> int
+Kiln.TalentTreeState.LastGameTotal.set -> void
+Kiln.TalentTreeState.LastLevel.get -> int
+Kiln.TalentTreeState.LastLevel.set -> void
+Kiln.TalentTreeState.Levels.get -> System.Collections.Generic.Dictionary<string!, int>!
+Kiln.TalentTreeState.Levels.set -> void
+Kiln.TalentTreeState.Revision.get -> long
+Kiln.TalentTreeState.Revision.set -> void
+Kiln.TalentTreeState.TalentTreeState() -> void
+Kiln.TalentUnlockingEvent
+Kiln.TalentUnlockingEvent.Cost.get -> int
+Kiln.TalentUnlockingEvent.Holder.get -> Kiln.TalentHolder
+Kiln.TalentUnlockingEvent.Level.get -> int
+Kiln.TalentUnlockingEvent.Node.get -> Kiln.TalentNode!
+Kiln.TalentUnlockingEvent.Reason.get -> string!
+Kiln.TalentUnlockingEvent.Reason.set -> void
+Kiln.TalentUnlockingEvent.Tree.get -> Kiln.TalentTree!
+override Kiln.GameNodeInfo.Equals(object? obj) -> bool
+override Kiln.GameNodeInfo.GetHashCode() -> int
+override Kiln.GameNodeInfo.ToString() -> string!
+override Kiln.GameNodesRefundedEvent.ToString() -> string!
+override Kiln.GameShadowMessage.Equals(object? obj) -> bool
+override Kiln.GameShadowMessage.GetHashCode() -> int
+override Kiln.GameShadowMessage.ToString() -> string!
+override Kiln.GameTreeSimResult.Equals(object? obj) -> bool
+override Kiln.GameTreeSimResult.GetHashCode() -> int
+override Kiln.GameTreeSimResult.ToString() -> string!
+override Kiln.GameTreeStatus.Equals(object? obj) -> bool
+override Kiln.GameTreeStatus.GetHashCode() -> int
+override Kiln.GameTreeStatus.ToString() -> string!
+override Kiln.TalentChange.Equals(object? obj) -> bool
+override Kiln.TalentChange.GetHashCode() -> int
+override Kiln.TalentChange.ToString() -> string!
+override Kiln.TalentChangedEvent.ToString() -> string!
+override Kiln.TalentHolder.GetHashCode() -> int
+override Kiln.TalentHolder.ToString() -> string!
+override Kiln.TalentPoints.ToString() -> string!
+override Kiln.TalentPointsInfo.GetHashCode() -> int
+override Kiln.TalentPointsInfo.ToString() -> string!
+override Kiln.TalentRequest.Equals(object? obj) -> bool
+override Kiln.TalentRequest.GetHashCode() -> int
+override Kiln.TalentRequest.ToString() -> string!
+override Kiln.TalentResult.Equals(object? obj) -> bool
+override Kiln.TalentResult.GetHashCode() -> int
+override Kiln.TalentResult.ToString() -> string!
+override Kiln.TalentStateMessage.Equals(object? obj) -> bool
+override Kiln.TalentStateMessage.GetHashCode() -> int
+override Kiln.TalentStateMessage.ToString() -> string!
+static Kiln.GameNodeInfo.operator !=(Kiln.GameNodeInfo? left, Kiln.GameNodeInfo? right) -> bool
+static Kiln.GameNodeInfo.operator ==(Kiln.GameNodeInfo? left, Kiln.GameNodeInfo? right) -> bool
+static Kiln.GameShadowMessage.operator !=(Kiln.GameShadowMessage? left, Kiln.GameShadowMessage? right) -> bool
+static Kiln.GameShadowMessage.operator ==(Kiln.GameShadowMessage? left, Kiln.GameShadowMessage? right) -> bool
+static Kiln.GameTree.Available.get -> bool
+static Kiln.GameTree.Define(params Kiln.GameNodeDefinition![]! nodes) -> System.Collections.Generic.IReadOnlyList<Kiln.GameNodeInfo!>!
+static Kiln.GameTree.DefineJson(string! json) -> System.Collections.Generic.IReadOnlyList<Kiln.GameNodeInfo!>!
+static Kiln.GameTree.Definitions.get -> System.Collections.Generic.IReadOnlyList<Kiln.GameNodeInfo!>!
+static Kiln.GameTree.Dump(bool addedOnly = false) -> string!
+static Kiln.GameTree.GameRequest(Kiln.EntityId player, int op, uint node = 0) -> bool
+static Kiln.GameTree.LabCarried(Kiln.TalentHolder holder) -> System.Collections.Generic.IReadOnlyDictionary<string!, int>!
+static Kiln.GameTree.LabLoginGuard(Kiln.EntityId player) -> bool
+static Kiln.GameTree.LabNativeRequests(Kiln.EntityId player) -> System.Collections.Generic.IReadOnlyList<uint>!
+static Kiln.GameTree.LabPlayer(Kiln.EntityId player, Kiln.TalentHolder? holder = null, bool forceNative = false) -> void
+static Kiln.GameTree.LabPutInSave(Kiln.EntityId player, uint node, int level) -> bool
+static Kiln.GameTree.LabReload(Kiln.EntityId player) -> void
+static Kiln.GameTree.LabSetCarried(Kiln.TalentHolder holder, System.Collections.Generic.IReadOnlyDictionary<string!, int>! levels) -> void
+static Kiln.GameTree.PointsSpent(Kiln.EntityId player) -> int?
+static Kiln.GameTree.Query(Kiln.EntityId player, uint node) -> (bool Unlocked, bool Reachable)?
+static Kiln.GameTree.Resource(int which, out string! check) -> byte[]!
+static Kiln.GameTree.SetShadowLevels(Kiln.EntityId player, System.Collections.Generic.IReadOnlyDictionary<uint, int>! levels) -> void
+static Kiln.GameTree.ShadowEffects(Kiln.EntityId player) -> System.Collections.Generic.IReadOnlyList<(uint Node, int Level, Kiln.EntityId Impact)>!
+static Kiln.GameTree.ShadowLevel.get -> int
+static Kiln.GameTree.ShadowLevels(Kiln.EntityId player, int world = 0) -> System.Collections.Generic.IReadOnlyDictionary<uint, int>!
+static Kiln.GameTree.ShadowNodes.get -> System.Collections.Generic.IReadOnlySet<uint>!
+static Kiln.GameTree.Simulate(params (Kiln.GameTreeSimOp Op, uint Node)[]! steps) -> System.Collections.Generic.IReadOnlyList<Kiln.GameTreeSimResult!>!
+static Kiln.GameTree.Status.get -> Kiln.GameTreeStatus?
+static Kiln.GameTreeSimResult.operator !=(Kiln.GameTreeSimResult? left, Kiln.GameTreeSimResult? right) -> bool
+static Kiln.GameTreeSimResult.operator ==(Kiln.GameTreeSimResult? left, Kiln.GameTreeSimResult? right) -> bool
+static Kiln.GameTreeStatus.operator !=(Kiln.GameTreeStatus? left, Kiln.GameTreeStatus? right) -> bool
+static Kiln.GameTreeStatus.operator ==(Kiln.GameTreeStatus? left, Kiln.GameTreeStatus? right) -> bool
+static Kiln.Skills.ActiveEffects(Kiln.EntityId player) -> System.Collections.Generic.IReadOnlyList<(string! Tree, string! Node, int Level, System.Collections.Generic.IReadOnlyList<Kiln.EntityId>! Entities)>!
+static Kiln.Skills.Available.get -> bool
+static Kiln.Skills.EnsureStarted() -> void
+static Kiln.Skills.Find(string! id) -> Kiln.TalentTree?
+static Kiln.Skills.Grant(string! tree, Kiln.EntityId player, int points) -> Kiln.TalentPointsInfo
+static Kiln.Skills.Grant(string! tree, Kiln.TalentHolder holder, int points) -> Kiln.TalentPointsInfo
+static Kiln.Skills.Has(Kiln.EntityId player, string! tree, string! node) -> bool
+static Kiln.Skills.HolderOf(Kiln.CharacterKey character, ulong legacySteamId = 0) -> Kiln.TalentHolder
+static Kiln.Skills.HolderOf(Kiln.EntityId player) -> Kiln.TalentHolder
+static Kiln.Skills.LevelOf(string! tree, string! node, Kiln.TalentHolder holder) -> int
+static Kiln.Skills.LoadTrees(string? modDirectory = null) -> System.Collections.Generic.IReadOnlyList<Kiln.TalentTree!>!
+static Kiln.Skills.Lock(string! tree, string! node, Kiln.TalentHolder holder, bool force = false) -> Kiln.TalentResult!
+static Kiln.Skills.Points(string! tree, Kiln.TalentHolder holder) -> Kiln.TalentPointsInfo
+static Kiln.Skills.Refresh(string! tree, Kiln.TalentHolder holder) -> void
+static Kiln.Skills.Register(Kiln.TalentTree! tree) -> Kiln.TalentTree!
+static Kiln.Skills.Respec(string! tree, Kiln.TalentHolder holder, bool force = false) -> Kiln.TalentResult!
+static Kiln.Skills.State(string! tree, Kiln.EntityId player) -> Kiln.TalentTreeState!
+static Kiln.Skills.State(string! tree, Kiln.TalentHolder holder) -> Kiln.TalentTreeState!
+static Kiln.Skills.Trees.get -> System.Collections.Generic.IReadOnlyList<Kiln.TalentTree!>!
+static Kiln.Skills.Unlock(Kiln.EntityId player, string! tree, string! node) -> Kiln.TalentResult!
+static Kiln.Skills.Unlock(string! tree, string! node, Kiln.TalentHolder holder, bool force = false) -> Kiln.TalentResult!
+static Kiln.TalentAttributes.NameOf(System.Guid g) -> string!
+static Kiln.TalentChange.operator !=(Kiln.TalentChange? left, Kiln.TalentChange? right) -> bool
+static Kiln.TalentChange.operator ==(Kiln.TalentChange? left, Kiln.TalentChange? right) -> bool
+static Kiln.TalentEffect.Ability(string! abilityId) -> Kiln.TalentEffect!
+static Kiln.TalentEffect.Attribute(System.Guid attribute, int amountPerLevel = 1) -> Kiln.TalentEffect!
+static Kiln.TalentEffect.Buff(System.Guid buff, double refreshSeconds = 30) -> Kiln.TalentEffect!
+static Kiln.TalentEffect.Buff(string! buff, double refreshSeconds = 30) -> Kiln.TalentEffect!
+static Kiln.TalentEffect.Callback(System.Action<Kiln.TalentContext!>! apply, System.Action<Kiln.TalentContext!>? remove = null) -> Kiln.TalentEffect!
+static Kiln.TalentEffect.GameNode(uint nodeId) -> Kiln.TalentEffect!
+static Kiln.TalentEffect.LevelledProgram(System.Guid program, string! levelConfig, System.Collections.Generic.IReadOnlyDictionary<string!, object!>? configs = null) -> Kiln.TalentEffect!
+static Kiln.TalentEffect.Program(System.Guid program, System.Collections.Generic.IReadOnlyDictionary<string!, object!>? configs = null) -> Kiln.TalentEffect!
+static Kiln.TalentHolder.operator !=(Kiln.TalentHolder left, Kiln.TalentHolder right) -> bool
+static Kiln.TalentHolder.operator ==(Kiln.TalentHolder left, Kiln.TalentHolder right) -> bool
+static Kiln.TalentPoints.Custom(System.Func<Kiln.TalentHolder, int>! total) -> Kiln.TalentPoints!
+static Kiln.TalentPoints.Own(int start = 0, int perLevel = 1) -> Kiln.TalentPoints!
+static Kiln.TalentPoints.ShareOfGame(double share) -> Kiln.TalentPoints!
+static Kiln.TalentPointsInfo.operator !=(Kiln.TalentPointsInfo left, Kiln.TalentPointsInfo right) -> bool
+static Kiln.TalentPointsInfo.operator ==(Kiln.TalentPointsInfo left, Kiln.TalentPointsInfo right) -> bool
+static Kiln.TalentRequest.operator !=(Kiln.TalentRequest? left, Kiln.TalentRequest? right) -> bool
+static Kiln.TalentRequest.operator ==(Kiln.TalentRequest? left, Kiln.TalentRequest? right) -> bool
+static Kiln.TalentResult.operator !=(Kiln.TalentResult? left, Kiln.TalentResult? right) -> bool
+static Kiln.TalentResult.operator ==(Kiln.TalentResult? left, Kiln.TalentResult? right) -> bool
+static Kiln.TalentStateMessage.operator !=(Kiln.TalentStateMessage? left, Kiln.TalentStateMessage? right) -> bool
+static Kiln.TalentStateMessage.operator ==(Kiln.TalentStateMessage? left, Kiln.TalentStateMessage? right) -> bool
+static readonly Kiln.TalentAttributes.Constitution -> System.Guid
+static readonly Kiln.TalentAttributes.Dexterity -> System.Guid
+static readonly Kiln.TalentAttributes.Endurance -> System.Guid
+static readonly Kiln.TalentAttributes.Intelligence -> System.Guid
+static readonly Kiln.TalentAttributes.Spirit -> System.Guid
+static readonly Kiln.TalentAttributes.Strength -> System.Guid
+~override Kiln.TalentHolder.Equals(object obj) -> bool
+~override Kiln.TalentPointsInfo.Equals(object obj) -> bool
