@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Event filters (Events.On<T>(handler, EventFilter)) on a dedicated server, player-free: BetterDummies' case, one watched
+       doll and every other hit of the world not held by kiln.combat. PASS/FAIL lines in kiln.log. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+    <GenerateRuntimeConfigurationFiles>false</GenerateRuntimeConfigurationFiles>
+    <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
+    <AssemblyName>EventFilterTest</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../../managed/Kiln.Api/Kiln.Api.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="../../../managed/services/Kiln.Combat/Kiln.Combat.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="../../../managed/services/Kiln.Spawn/Kiln.Spawn.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="../../../managed/services/Kiln.World/Kiln.World.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="../../../managed/Kiln.Testing/Kiln.Testing.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="../../../managed/services/Kiln.Client/Kiln.Client.csproj" Private="false" ExcludeAssets="runtime" />
+    <None Include="kiln.mod.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

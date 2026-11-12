@@ -1,1 +1,8 @@
 #nullable enable
+Kiln.EntityDamagedEvent.Involves(Kiln.EntityId entity) -> bool
+Kiln.EntityDeathEvent.Involves(Kiln.EntityId entity) -> bool
+Kiln.EntityDropsEvent.Involves(Kiln.EntityId entity) -> bool
+Kiln.EntityFallEvent.Involves(Kiln.EntityId entity) -> bool
+Kiln.EntityKnockbackEvent.Involves(Kiln.EntityId entity) -> bool
+Kiln.PendingHitEvent.Involves(Kiln.EntityId entity) -> bool
+Kiln.PlayerRespawnEvent.Involves(Kiln.EntityId entity) -> bool

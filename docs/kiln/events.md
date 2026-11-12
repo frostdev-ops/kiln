@@ -39,6 +39,16 @@ public sealed class MyMod : Mod
 - Producing an event lazily: an event class's static constructor runs when the first handler subscribes to that class
   (`PlayerJoinedEvent` starts its pump that way). Build events only when `HasSubscribers<T>()`.
 - Per-handler timing: `EventSubscription.Stats` (calls, total/avg/max ms, faults).
+- **Filters (dev.27):** `Events.On<T>(handler, EventFilter.ForEntity(doll))` (or `ForEntities(...)`, or
+  `new EventFilter { Entities = ... }`) runs the handler only for events about those entities. The event type says which
+  entities it is about by implementing `IEntityEvent.Involves(entity)`; an entity filter on a type that does not throws
+  `ArgumentException`. Kiln.Combat's events do (a hit: target, part hit, attacker, source; a death: victim, killer,
+  source; ...). A service that holds work for its handlers asks the bus for the union of their filters: kiln.combat
+  holds only the hits that name a watched entity, every other hit applies at once (one handler without a filter, also a
+  `KilnEvent` catch-all, holds every hit again) ([services/combat.md](services/combat.md)). `EventSubscription.Filter`
+  says what a subscription has. `[Subscribe]` methods take no filter: subscribe with `Events.On` for one. Filters by
+  template or component are not there: a handler checks those itself. Tests: `Kiln.Api.Tests/EventFilterTests.cs`; lab
+  `mods/tests/event-filter-test` (BetterDummies' case).
 
 ## The service tick (internal)
 `ServiceTick` (Events*.cs) gives Kiln's services one tick without a mod of their own: event pumps, the config and

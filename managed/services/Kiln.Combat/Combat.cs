@@ -318,6 +318,27 @@ public static unsafe class Combat
         if (t == null) return;
         if (Interlocked.Exchange(ref _listening, 1) != 0) return;
         t->SetListener(&OnEvents, null);
+        ReportHoldFilterRow();
+    }
+
+    /// <summary>combat.hold_filter: kiln.combat holds only the hits a handler's entity filter lets through (a table with
+    /// hold_filter, since 0.2.0-dev.27). Without it a filtered handler still gets only its entities' hits, but every hit
+    /// of the world waits a step.</summary>
+    internal const string HoldFilterCapability = "combat.hold_filter";
+
+    private static void ReportHoldFilterRow()
+    {
+        try
+        {
+            if (CombatNative.V3 != null) Capabilities.Report(HoldFilterCapability, CapabilityState.Available);
+            else
+                Capabilities.Report(HoldFilterCapability, CapabilityState.Unavailable, CapabilityReason.ServiceOlder,
+                    "this kiln-combat.dll has no hold filter (update Kiln): filtered handlers still get only their entities' hits, but every hit waits a step");
+        }
+        catch (Exception e) when (e is ArgumentException or InvalidOperationException)
+        {
+            Backend.Current.Log(0, LogLevel.Warn, $"Kiln.Combat: {HoldFilterCapability} was not reported: {e.Message}");
+        }
     }
 
     private static void Watch(ModContext? mod)
@@ -355,6 +376,49 @@ public static unsafe class Combat
         return m;
     }
 
+    // ---- the entity filter of held hits (since 0.2.0-dev.27): kiln.combat holds only the hits a handler's filter lets
+    // through (Events.On<T>(handler, EventFilter)); one handler without a filter holds every hit, as before.
+    private static int _filterVersion = -1;
+    private static uint[] _pushedFilter = [];
+
+    /// <summary>The entities the handlers of the held kinds watch: null = every hit (a handler without a filter, or
+    /// nobody with a filter). Pure over the three unions, for the tests.</summary>
+    internal static uint[]? HoldFilterOf(params IReadOnlySet<EntityId>?[] unions)
+    {
+        HashSet<uint>? all = null;
+        foreach (var u in unions)
+        {
+            if (u is null) return null;           // someone takes every event of a held kind
+            (all ??= []).UnionWith(u.Select(e => e.Value));
+        }
+        return all is { Count: > 0 } ? all.Order().ToArray() : null;
+    }
+
+    private static void PushHoldFilter()
+    {
+        var version = Events.Version;
+        if (version == _filterVersion) return;
+        _filterVersion = version;
+        var unions = new List<IReadOnlySet<EntityId>?>();
+        if (Events.HasSubscribers<EntityHurtEvent>()) unions.Add(Events.EntityFilterUnion(typeof(EntityHurtEvent)));
+        if (Events.HasSubscribers<EntityHealEvent>()) unions.Add(Events.EntityFilterUnion(typeof(EntityHealEvent)));
+        if (Events.HasSubscribers<EntityKnockbackEvent>()) unions.Add(Events.EntityFilterUnion(typeof(EntityKnockbackEvent)));
+        var ids = HoldFilterOf([.. unions]) ?? [];
+        if (ids.AsSpan().SequenceEqual(_pushedFilter)) return;
+        var t = CombatNative.V3;
+        if (t == null)
+        {
+            if (ids.Length > 0)
+                Backend.Current.Log(0, LogLevel.Info, "Kiln.Combat: this kiln-combat.dll has no hold filter: every hit is held while a handler wants hits");
+            _pushedFilter = [];
+            return;
+        }
+        if (ids.Length > 4096) ids = [];  // more than the native filter takes: hold every hit
+        int rc;
+        fixed (uint* p = ids) rc = t->HoldFilter(p, (uint)ids.Length);
+        if (rc == CombatNative.Ok) _pushedFilter = ids;
+    }
+
     private static bool _sizeWarned;
     private static readonly HashSet<ulong> CanceledHits = new();
 
@@ -377,6 +441,7 @@ public static unsafe class Combat
             CanceledHits.Clear();
             for (uint i = 0; i < count; ++i) Dispatch(ref events[i]);
             CompleteHits();
+            PushHoldFilter();
             return Interest();
         }
         catch (Exception e)

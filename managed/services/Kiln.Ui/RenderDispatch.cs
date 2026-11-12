@@ -144,6 +144,7 @@ internal static class RenderDispatch
             foreach (var sub in subs)
             {
                 if (!sub.Active) continue;
+                if (sub.Filter is { } filter && !filter.Passes(ev)) continue;
                 var mod = sub.Mod;
                 if (mod is { Alive: false }) continue;
                 ModContext.CurrentMod = mod;

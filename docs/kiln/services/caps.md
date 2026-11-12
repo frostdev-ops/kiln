@@ -100,6 +100,7 @@ naming one of them is refused, with the advice to check `Capabilities.Is` at run
 | `abilities.buff_list` | managed, static | Kiln.Abilities, with the row above | an entity's buffs read (`Abilities.BuffsOf`): needs kiln.players and `players.reflection` |
 | `players.kick` | managed, static | Kiln.Network, at its start (the first service tick) | `Players.Kick`, `Network.Kick`: needs kiln.net, `net.kick` and a process that serves clients (`wrong-side` on a client that only joins) |
 | `players.bans` | managed, static | Kiln.Network, with the row above | Kiln's ban list is enforced (`Bans`); the same needs |
+| `combat.hold_filter` | managed, static | Kiln.Combat, when its listener starts | kiln.combat holds only the hits a handler's entity filter lets through (`hold_filter`, appended in dev.27); off: filtered handlers still get only their entities' hits, but every hit waits a step |
 | `players.aim` | managed, static | Kiln.Players, at its start (the first service tick) or the first `AimOf` | `Player.Aim` / `PlayerStates.AimOf`: needs kiln.playerstate with `aim()` (dev.27) and the camera field in the game's reflection |
 
 They exist only once their service has started, after the manifests were checked: check `Capabilities.Is` at run time.
