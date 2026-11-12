@@ -1407,9 +1407,12 @@ mod win {
                 };
                 let held = std::fs::OpenOptions::new().read(true).share_mode(SHARE_READ_DELETE).open(&file).unwrap();
                 let c = if old_copy { dfm::remove_old_copy(&fx.env, &mut NoProgress).unwrap() } else { dfm::remove_partial_copy(&fx.env).unwrap() };
-                let name_stayed = std::fs::read_dir(file.parent().unwrap()).unwrap().flatten().any(|e| e.file_name() == "M.dll");
+                // the folder itself may be gone already (the name went at once and the removal took the empty folder)
+                let folder = file.parent().unwrap();
+                let folder_there = folder.is_dir();
+                let name_stayed = std::fs::read_dir(folder).map(|rd| rd.flatten().any(|e| e.file_name() == "M.dll")).unwrap_or(false);
                 let named: Vec<String> = c.kept.iter().filter(|k| k.path == file).map(|k| k.reason.clone()).collect();
-                eprintln!("{case}: the name stayed while held: {name_stayed}; named {named:?}; removed {}", c.removed_files);
+                eprintln!("{case}: the name stayed while held: {name_stayed}; named {named:?}; removed {}; its folder still there: {folder_there}; done {}", c.removed_files, c.done);
                 drop(held);
                 assert!(
                     named.iter().all(|r| r == dfm::guard_reason::PENDING),
