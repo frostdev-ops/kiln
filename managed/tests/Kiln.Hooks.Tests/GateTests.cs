@@ -51,4 +51,21 @@ public sealed class GateTests
         });
         Assert.Throws<InvalidOperationException>(() => TestMods.As(null, () => OriginalCode.Read(0x1000, 4)));
     }
+
+    [Fact]
+    public void KeepIsForAdvancedModsOnly()
+    {
+        var key = "tests.gate." + Guid.NewGuid();
+        TestMods.As(Plain, () =>
+        {
+            TestMods.AssertGated("Keep.Block", "plain-mod", () => Keep.Block(key, 8));
+            TestMods.AssertGated("Keep.Span", "plain-mod", () => { Keep.Span<int>(key, 2); });
+        });
+        TestMods.As(Advanced, () =>
+        {
+            Assert.NotEqual(0, Keep.Block(key, 8));
+            Assert.Equal(2, Keep.Span<int>(key, 2).Length);
+        });
+        Assert.Throws<InvalidOperationException>(() => TestMods.As(null, () => Keep.Block(key, 8)));
+    }
 }

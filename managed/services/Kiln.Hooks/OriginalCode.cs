@@ -325,7 +325,7 @@ public sealed class PeCode
 
 /// <summary>Zeroed native memory that outlives a mod's reload: the same block for the same key for the life of the
 /// process (the first call with a key decides the size). For state a hot-reloaded mod must find again, as Greeneye
-/// Loader's <c>host->keep</c> gives its mods.</summary>
+/// Loader's <c>host->keep</c> gives its mods. Raw native memory: advanced mods only.</summary>
 public static unsafe class Keep
 {
     static readonly object Gate = new();
@@ -348,12 +348,18 @@ public static unsafe class Keep
         }
     }
 
-    /// <summary>The block for <paramref name="key"/>; <paramref name="size"/> bytes, zeroed, on first use.</summary>
-    public static nint Block(string key, int size) => GetBlock(key, size).Ptr;
+    /// <summary>The block for <paramref name="key"/>; <paramref name="size"/> bytes, zeroed, on first use. Advanced mods
+    /// only (<c>"advanced": true</c> in kiln.mod.json): an ordinary mod gets <see cref="InvalidOperationException"/>.</summary>
+    public static nint Block(string key, int size)
+    {
+        HooksGate.RequireAdvanced("Keep.Block", OriginalCode.Why);
+        return GetBlock(key, size).Ptr;
+    }
 
-    /// <summary>The block as a span of <typeparamref name="T"/> (its first-use size, in whole T).</summary>
+    /// <summary>The block as a span of <typeparamref name="T"/> (its first-use size, in whole T). Advanced mods only.</summary>
     public static Span<T> Span<T>(string key, int count) where T : unmanaged
     {
+        HooksGate.RequireAdvanced("Keep.Span", OriginalCode.Why);
         ArgumentOutOfRangeException.ThrowIfNegative(count);
         var block = GetBlock(key, checked(count * sizeof(T)));
         return new Span<T>((void*)block.Ptr, block.Size / sizeof(T));
