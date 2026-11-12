@@ -2629,8 +2629,7 @@ pub fn xhl_host(game_dir: &Path) -> HostPrerequisite {
         if !m.is_file() || m.len() > 128 * 1024 * 1024 { return false; }
         let Ok(b) = std::fs::read(&p) else { return false };
         crate::pe::is_pe64_dll(&b) && crate::pe::parse(&b).is_ok_and(|p| p.exports.iter().any(|s| s == "DirectInput8Create"))
-            && [b"XHL-Native-Plugin-Host.log".as_slice(), b"native-plugin.ini".as_slice()].iter()
-                .all(|s| b.windows(s.len()).any(|w| w.eq_ignore_ascii_case(s)))
+            && ["XHL-Native-Plugin-Host.log", "native-plugin.ini"].iter().all(|s| crate::pe::contains_text(&b, s))
     });
     HostPrerequisite { available, text: if available {
         "XHL-Core is recognized on an active proxy/chain path. Only that external host loads XHL companions; placement does not verify gameplay. On Wine/Proton, proxy loading also needs its DLL override."

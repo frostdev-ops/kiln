@@ -73,6 +73,12 @@ fn eml_dbghelp() -> Vec<u8> { build_test_dll(&["MiniDumpWriteDump"], b"EML_LOG_F
 fn eml_dinput8() -> Vec<u8> { build_test_dll(&["DirectInput8Create"], b"EML_LOG_FILE_PATH") }
 fn alp_dinput8() -> Vec<u8> { build_test_dll(&["DirectInput8Create"], b"auto-loot-plus.log\0dinput8-chain.ini\0[Chain]\0mods\\auto-loot-plus\\config.txt") }
 fn xhl_core() -> Vec<u8> { build_test_dll(&["DirectInput8Create"], b"XHL-Native-Plugin-Host.log\0dinput8-chain.ini\0native-plugin.ini") }
+/// XHL-Core 2.0.6 (2026-11-02): its log file's name is only in the DLL as UTF-16 text (Windows' wide strings).
+fn xhl_core_2x() -> Vec<u8> {
+    let mut text = b"dinput8-chain.ini\0native-plugin.ini\0".to_vec();
+    for c in "XHL-Native-Plugin-Host.log".encode_utf16() { text.extend_from_slice(&c.to_le_bytes()); }
+    build_test_dll(&["DirectInput8Create"], &text)
+}
 fn xhl_plugin() -> Vec<u8> { build_test_dll(&["XhlPluginEntry"], b"XHL plugin") }
 
 fn eml_mod(root: &Path, dir: &str, id: &str) {
@@ -117,6 +123,8 @@ fn layout(root: &Path, which: &str) {
         }
         // XHL-Core alone
         "xhl-core" => put(root, "dinput8.dll", &xhl_core()),
+        // XHL-Core 2.0.6: its dinput8.dll alone at the archive's root
+        "xhl-core-2x" => put(root, "dinput8.dll", &xhl_core_2x()),
         // an XHL plugin without an EML part (XHL-Vein-Mining 2.x drops dbghelp.dll)
         "xhl-plugin" => {
             put(root, "mods/XHL-Vein-Mining/XHL-Vein-Mining.dll", &xhl_plugin());
@@ -387,6 +395,16 @@ fn xhl_2x_mods_with_a_naming_mod_json_are_xhl_core_plugins() {
     }
     assert_eq!(std::fs::read(d.g.path.join("mods/XHL-Free-Climb/XHL-Free-Climb.dll")).unwrap(), xhl_plugin());
     assert!(d.reasons().contains("requires XHL-Core") && d.reasons().contains("never loads this plugin DLL itself"), "{}", d.reasons());
+}
+
+/// XHL-Core 2.x is XHL-Core: one native mod ("xhl-core") whose next build replaces it, and the host the XHL plugins
+/// need. Kiln looked for its markers as 8-bit text only and told players with XHL-Core installed that it was missing.
+#[test]
+fn xhl_core_2x_is_recognised_with_its_wide_text_markers() {
+    let d = drop_on_launcher("xhl-core-2x", "XHL-Core 236 2.0.6 2026-11-02T20-51Z MdXNSV1Ib");
+    assert_eq!(d.found(), ["native/xhl-core"], "{}", d.reasons());
+    assert_eq!(d.natives(), ["xhl-core"]);
+    assert!(kiln_manage::engine_mods::xhl_host(&d.g.path).available, "{}", kiln_manage::engine_mods::xhl_host(&d.g.path).text);
 }
 
 #[test]

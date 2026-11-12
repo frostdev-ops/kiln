@@ -209,6 +209,15 @@ pub(crate) fn contains(hay: &[u8], needle: &[u8]) -> Option<usize> {
     hay.windows(needle.len()).position(|w| w == needle)
 }
 
+/// Does `bytes` hold the ASCII text `s`, as 8-bit or as UTF-16LE text (Windows' wide strings), ASCII case ignored? A
+/// DLL's file names may be either: XHL-Core 1.x held its log file's name as 8-bit text, 2.x only as wide text.
+pub fn contains_text(bytes: &[u8], s: &str) -> bool {
+    let a = s.as_bytes();
+    if a.is_empty() { return true; }
+    bytes.windows(a.len()).any(|w| w.eq_ignore_ascii_case(a))
+        || bytes.windows(a.len() * 2).any(|w| w.chunks_exact(2).zip(a).all(|(c, b)| c[1] == 0 && c[0].eq_ignore_ascii_case(b)))
+}
+
 fn utf16le(s: &str) -> Vec<u8> {
     s.encode_utf16().flat_map(|c| c.to_le_bytes()).collect()
 }
@@ -388,6 +397,16 @@ pub fn build_test_dll(exports: &[&str], extra: &[u8]) -> Vec<u8> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn text_is_found_as_8_bit_or_wide_text_with_ascii_case_ignored() {
+        let wide = |t: &str| t.encode_utf16().flat_map(|c| c.to_le_bytes()).collect::<Vec<u8>>();
+        assert!(contains_text(b"..XHL-Native-Plugin-Host.log..", "xhl-native-plugin-host.log"));
+        assert!(contains_text(&[b"..".to_vec(), wide("XHL-Native-Plugin-Host.log"), b"..".to_vec()].concat(), "XHL-NATIVE-PLUGIN-HOST.LOG"));
+        assert!(!contains_text(&wide("XHL-Native-Plugin-Host.lo"), "XHL-Native-Plugin-Host.log"));
+        // a wide character whose high byte is not zero is no ASCII letter
+        assert!(!contains_text(&[b'a', 1, b'b', 0], "ab"));
+    }
+
     use super::*;
 
     #[test]
