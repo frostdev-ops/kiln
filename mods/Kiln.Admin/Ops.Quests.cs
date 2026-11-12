@@ -75,6 +75,10 @@ internal static partial class Ops
             var h = QuestTarget(req);
             var id = req["quest"] is JsonValue v && v.TryGetValue<string>(out var s0) ? s0 : throw new AdminError("quest is required");
             var q = Quests.Find(id) ?? throw new AdminError($"no quest \"{id}\"");
+            // Even a player quest can grant world knowledge or chain another quest; start/fail actions can reward too.
+            // Conservatively latch every online recipient before any admin-driven transition.
+            var guard = await SteamGuardRelay.LatchForAll("admin bridge modquest_set");
+            await TickThread();
             QuestResult r;
             if (req["step"] is JsonValue sv && sv.TryGetValue<string>(out var step)) r = Quests.SetStep(q.FullId, h, step);
             else
@@ -90,15 +94,17 @@ internal static partial class Ops
                     _ => throw new AdminError($"status \"{status}\": start, complete, fail, reset or advance"),
                 };
             }
-            return new JsonObject { ["ok"] = r.Ok, ["reason"] = r.Reason, ["status"] = r.Status.ToString(), ["quest"] = q.FullId, ["target"] = h.Key };
+            return WorldNoted(Guarded(new JsonObject { ["ok"] = r.Ok, ["reason"] = r.Reason, ["status"] = r.Status.ToString(), ["quest"] = q.FullId, ["target"] = h.Key }, guard), EntityId.None);
         });
         // {signal, target?, amount?}
-        bridge.Register("modquest_signal", req =>
+        bridge.RegisterAsync("modquest_signal", async req =>
         {
             var name = req["signal"] is JsonValue v && v.TryGetValue<string>(out var s) ? s : throw new AdminError("signal is required");
             var amount = req["amount"] is JsonValue a && a.TryGetValue<double>(out var d) && d == Math.Floor(d) && d is >= 1 and <= 1_000_000 ? (int)d : 1;
+            var guard = await SteamGuardRelay.LatchForAll("admin bridge modquest_signal");
+            await TickThread();
             Quests.Signal(name, req["target"] is null ? null : QuestTarget(req), amount);
-            return new JsonObject { ["signal"] = name, ["amount"] = amount };
+            return WorldNoted(Guarded(new JsonObject { ["signal"] = name, ["amount"] = amount }, guard), EntityId.None);
         });
         bridge.Register("modquests_reload", _ => new JsonObject { ["fromFiles"] = Quests.Reload(), ["total"] = Quests.Definitions.Count, ["loadErrors"] = Quests.Status.Errors });
         log.Info("quest engine ops on (modquests_status, modquests_list, modquest_state, modquest_set, modquest_signal, modquests_reload)");

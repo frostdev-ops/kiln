@@ -1,1 +1,9 @@
 #nullable enable
+[KILNX002]Kiln.GuardOutcome
+[KILNX002]Kiln.GuardOutcome.Protected = 0 -> Kiln.GuardOutcome
+[KILNX002]Kiln.GuardOutcome.UnprotectedFailed = 1 -> Kiln.GuardOutcome
+[KILNX002]Kiln.GuardOutcome.UnprotectedVanilla = 2 -> Kiln.GuardOutcome
+[KILNX002]Kiln.SteamGuardRelay
+[KILNX002]static Kiln.SteamGuardRelay.LatchFor(Kiln.EntityId player, string! reason) -> System.Threading.Tasks.Task<Kiln.GuardOutcome>!
+[KILNX002]static Kiln.SteamGuardRelay.LatchForAll(string! reason) -> System.Threading.Tasks.Task<Kiln.GuardOutcome>!
+[KILNX002]static Kiln.SteamGuardRelay.Note(Kiln.GuardOutcome outcome) -> string?
