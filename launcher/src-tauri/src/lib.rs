@@ -10,6 +10,8 @@ pub mod commands;
 pub mod deck;
 pub mod distribution;
 pub mod events;
+/// The process's data folder: found once, its lock, and the hold while a move runs (dev.25).
+pub mod folder;
 /// The backend timing harness (ignored tests; tools/launcher/perf.sh).
 #[cfg(test)]
 mod perf;
@@ -39,6 +41,12 @@ pub fn run() {
     builder
         .register_uri_scheme_protocol("kiln-asset", |_ctx, req| assets::serve(req.uri().path()))
         .setup(|app| {
+            // the data folder first (commands/data_folder.rs): found once, its lock, an unfinished move. A broken
+            // pointer or another launcher's move: nothing else starts (no watcher, no import, no file is written) and
+            // the window shows only the dialog
+            if !commands::data_folder::start(app.handle()) {
+                return Ok(());
+            }
             // the installed runtime's and the bundles' sha256s from the last run (a start does not hash 1.5 GB again)
             if let Ok(d) = state::dirs() {
                 kiln_manage::filecache::persist_at(&state::file_hashes(&d));
@@ -64,7 +72,7 @@ pub fn run() {
             }
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![
+        .invoke_handler(gated(tauri::generate_handler![
             commands::app::app_info,
             commands::app::app_settings_get,
             commands::app::app_settings_set,
@@ -210,8 +218,16 @@ pub fn run() {
             commands::found::found_scan,
             commands::found::found_add,
             commands::logs::report_save,
-            commands::logs::report_summary
-        ])
+            commands::logs::report_summary,
+            commands::data_folder::data_folder_get,
+            commands::data_folder::data_folder_size,
+            commands::data_folder::data_folder_check,
+            commands::data_folder::data_folder_move,
+            commands::data_folder::data_folder_use,
+            commands::data_folder::data_folder_reset,
+            commands::data_folder::data_folder_notice_ack,
+            commands::data_folder::data_folder_restart
+        ]))
         .build(tauri::generate_context!())
         .expect("error while building the Kiln Launcher")
         .run(|_, event| {
@@ -221,6 +237,19 @@ pub fn run() {
                 deck::gamepad::stop();
             }
         });
+}
+
+/// Every command passes the data folder's gate first (folder.rs): while the pointer is broken, another launcher moves
+/// the folder, or this one moves it, only the commands that do not reach the folder answer; the others are refused
+/// with the reason before they run.
+fn gated<R: tauri::Runtime>(handler: impl Fn(tauri::ipc::Invoke<R>) -> bool + Send + Sync + 'static) -> impl Fn(tauri::ipc::Invoke<R>) -> bool + Send + Sync + 'static {
+    move |invoke| {
+        if let Some(e) = folder::current().command_refusal(invoke.message.command()) {
+            invoke.resolver.reject(e);
+            return true;
+        }
+        handler(invoke)
+    }
 }
 
 /// After `RunEvent::Exit` the process should be gone within moments. It was seen to stay instead (the old launcher

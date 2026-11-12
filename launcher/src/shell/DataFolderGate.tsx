@@ -1,5 +1,6 @@
 // The data folder at start-up (main.tsx, around both UIs):
-// - DataFolderGate asks data_folder_get first. When the pointer names a folder that cannot be used, nothing else of the
+// - DataFolderGate asks data_folder_get first. When another launcher is moving the data folder (`elsewhere`), only
+//   "Kiln is moving its data in another window" and Quit. When the pointer names a folder that cannot be used, nothing else of the
 //   launcher mounts (every other command fails then, so no page, toast or error boundary can come up): only a dialog
 //   that cannot be dismissed, with the path and the reason, Choose folder (the folder dialog, then data_folder_use),
 //   Start fresh (data_folder_reset) and Quit; the first two restart the launcher. A backend without the command (or
@@ -13,7 +14,7 @@ import type { DataFolder } from "../api/commands";
 import { qk, useDataFolder } from "../api/hooks";
 import { Button, KeyValue, Modal, PathText, Splash, errorText, toast } from "../ui";
 import { pickFolder, restartLauncher } from "./dataFolder";
-import { BROKEN_TITLE, noticeView } from "./dataFolderText";
+import { BROKEN_TITLE, ELSEWHERE_TITLE, noticeView } from "./dataFolderText";
 
 const GATE_WAIT_MS = 5000;
 
@@ -28,13 +29,14 @@ export function DataFolderGate({ children }: { children: ReactNode }) {
       if (!live) return;
       qc.setQueryData(qk.dataFolder, f);
       // a late answer with a problem still takes the window
-      setBroken(f.problem ? f : null);
+      setBroken(f.problem || f.elsewhere ? f : null);
     }, () => { if (live) setBroken((b) => (b === undefined ? null : b)); })
       .finally(() => clearTimeout(t));
     return () => { live = false; clearTimeout(t); };
   }, [qc]);
   if (broken === undefined) return <Splash done={false} />;
-  if (broken) return <BrokenPointer folder={broken} />;
+  if (broken?.problem) return <BrokenPointer folder={broken} />;
+  if (broken?.elsewhere) return <MovingElsewhere />;
   return <>{children}</>;
 }
 
@@ -95,6 +97,19 @@ export function BrokenPointer({ folder }: { folder: DataFolder }) {
   );
 }
 
+/** Another launcher holds the data folder (it is moving it): nothing else mounts; Quit. */
+export function MovingElsewhere() {
+  const [error, setError] = useState<string | null>(null);
+  return (
+    <div className="k-df-gate">
+      <Modal open locked onClose={() => {}} title={ELSEWHERE_TITLE} width={520}
+        footer={<Button variant="primary" data-autofocus onClick={() => { api.deckQuit().catch((e) => setError(errorText(e))); }}>Quit</Button>}>
+        {error && <p className="k-df-line k-tone-err" role="alert">{error}</p>}
+      </Modal>
+    </div>
+  );
+}
+
 /** The first start after a move (desktop). */
 export function DataFolderNotice() {
   const qc = useQueryClient();
@@ -107,16 +122,26 @@ export function DataFolderNotice() {
     api.dataFolderNoticeAck().catch(() => { /* it shows again at the next start */ });
   };
   return (
-    <Modal open onClose={ack} title={v.title} width={560}
+    <Modal open onClose={ack} title={v.title} width={600}
       footer={<>
-        {v.left.length > 0 && <Button onClick={() => api.appOpenPath(n.from).catch((e) => toast.error(e))}>Open old folder</Button>}
+        {v.open && <Button onClick={() => api.appOpenPath(n.kind === "undone" ? n.to : n.from).catch((e) => toast.error(e))}>Open old folder</Button>}
         <Button variant="primary" onClick={ack}>OK</Button>
       </>}>
-      <KeyValue rows={[["Now in", <PathText path={n.to} />], v.left.length > 0 && ["Old folder", <PathText path={n.from} />]]} />
-      {v.leftLine && <>
-        <p className="k-df-line">{v.leftLine}</p>
-        <ul className="k-df-list" aria-label="Left in the old folder">{v.left.map((l) => <li key={l} className="k-mono">{l}</li>)}</ul>
-      </>}
+      <NoticeBody v={v} />
     </Modal>
   );
+}
+
+/** The notice's facts, lines and lists (desktop). */
+function NoticeBody({ v }: { v: ReturnType<typeof noticeView> }) {
+  return <>
+    {v.facts.length > 0 && <KeyValue rows={v.facts.map((x): [string, ReactNode] => [x.label, <PathText path={x.value} />])} />}
+    {v.lines.map((l) => <p key={l} className="k-df-line">{l}</p>)}
+    {v.lists.map((l) => (
+      <div key={l.line}>
+        <p className="k-df-line">{l.line}</p>
+        <ul className="k-df-list" aria-label={l.line}>{l.items.map((i) => <li key={i.title + i.text} className="k-mono" title={i.title}>{i.text}</li>)}</ul>
+      </div>
+    ))}
+  </>;
 }

@@ -5,14 +5,19 @@
 //   env          KILN_DATA_DIR is set: the row shows the path and Open, Change is off
 //   broken       the pointer names a folder that is gone: the dialog over the whole app; every other command fails
 //   unreadable   the same, with a folder that is there but not a Kiln data folder
+//   elsewhere    another launcher is moving the data folder: "Kiln is moving its data in another window", Quit
 //   moved        the first start after a move: the notice, nothing left behind
-//   moved-left   the same, with files that stayed in the old folder
+//   moved-left   the same, with entries Kiln left on purpose and a file it could not remove
+//   moved-removing   the same, while the task removes the old copy
+//   moved-unfinished the same, the removal stopped (it goes on at the next start)
+//   undone       an unfinished move undone at this start
+//   unclear      a move's record that matches neither folder
 //   fail         every move fails half-way
 // Folders a test picks (the browser has no folder dialog): `__kilnDataFolderMock.pick(path | null)` queues the next
 // answer of the picker (null: canceled); without one the picker answers /mnt/games. What a picked folder gives:
 //   /mnt/games                 move (an empty folder: used as it is)
 //   /mnt/storage               move into /mnt/storage/Kiln (the folder has other files)
-//   /media/player/USB stick    move; Enshrouded gets copies of its mods from there
+//   /media/player/USB stick    move; Enshrouded gets copies of its mods from there, and a disk without file permissions
 //   /mnt/stays                 move; two entries the launcher does not know stay in the old folder too
 //   /mnt/old-kiln, /mnt/usb/Kiln   use (already a Kiln data folder)
 //   the paths in REFUSALS      refuse, with that sentence; `busy(kind)` refuses every folder (game, server, launcher)
@@ -28,36 +33,53 @@ export const MOCK_DEFAULT_DATA = `${HOME}/.local/share/kiln`;
 const GAME = `${HOME}/.local/share/Steam/steamapps/common/Enshrouded`;
 const LONG = `/mnt/archive/${"a folder with a long name/".repeat(9)}kiln`;
 
-/** Every refusal the mock knows: by the folder picked, or (no path) by what runs (`busy`). */
+/** Every refusal the mock knows (`kind`: the crate's RefusalCode): by the folder picked, or (no path) by what runs
+ *  (`busy`). */
 export const REFUSALS: { kind: string; path: string | null; reason: string }[] = [
-  { kind: "game", path: null, reason: "Close Enshrouded first: it reads its mods from the data folder while it runs." },
-  { kind: "server", path: null, reason: "Stop the server Ember Isles first: it reads its mods from the data folder while it runs." },
-  { kind: "launcher", path: null, reason: "Another Kiln Launcher is open. Close it first." },
-  { kind: "same", path: MOCK_DEFAULT_DATA, reason: "This is the data folder already." },
-  { kind: "inside", path: `${MOCK_DEFAULT_DATA}/library`, reason: "This folder is inside the data folder." },
-  { kind: "around", path: `${HOME}/.local/share`, reason: "The data folder is inside this folder. Pick a folder outside it." },
-  { kind: "game-folder", path: `${GAME}/mods`, reason: "This folder is inside a game folder. Pick a folder outside it." },
-  { kind: "not-writable", path: "/mnt/readonly", reason: "Kiln cannot write to this folder." },
-  { kind: "too-small", path: "/mnt/small", reason: "Not enough free space there: 3.4 GB is needed, 1.2 GB is free." },
-  { kind: "not-kiln", path: "/mnt/shared", reason: "There is a folder named Kiln in it that is not a Kiln data folder." },
-  { kind: "too-long", path: LONG, reason: "Paths in the library would be longer than Windows allows. Pick a folder with a shorter path." },
+  { kind: "game_running", path: null, reason: "Close Enshrouded first: it reads its mods from the data folder while it runs." },
+  { kind: "server_running", path: null, reason: "Stop the server Ember Isles first: it reads its mods from the data folder while it runs." },
+  { kind: "locked", path: null, reason: "Another Kiln Launcher is open. Close it first." },
+  { kind: "same_folder", path: MOCK_DEFAULT_DATA, reason: "This is the data folder already." },
+  { kind: "inside_current", path: `${MOCK_DEFAULT_DATA}/library`, reason: "This folder is inside the data folder." },
+  { kind: "contains_current", path: `${HOME}/.local/share`, reason: "The data folder is inside this folder. Pick a folder outside it." },
+  { kind: "inside_game", path: `${GAME}/mods`, reason: "This folder is inside a game folder. Pick a folder outside it." },
+  { kind: "not_writable", path: "/mnt/readonly", reason: "Kiln cannot write to this folder." },
+  { kind: "too_small", path: "/mnt/small", reason: "Not enough free space there: 3.4 GB is needed, 1.2 GB is free." },
+  { kind: "kiln_subfolder_taken", path: "/mnt/shared", reason: "There is a folder named Kiln in it that is not a Kiln data folder." },
+  { kind: "path_too_long", path: LONG, reason: "Paths in the library would be longer than Windows allows. Pick a folder with a shorter path." },
 ];
 
 const USE = new Set(["/mnt/old-kiln", "/mnt/usb/Kiln"]);
 const SIZE: DataFolderSize = { bytes: 3_650_000_000, files: 12_408 };
 
+const LEFT = { from: MOCK_DEFAULT_DATA, to: "/mnt/games/Kiln" };
+const STAYED = [
+  { name: "my-notes.txt", bytes: 12_400, path: `${MOCK_DEFAULT_DATA}/my-notes.txt` },
+  { name: "old-mods", bytes: 1_250_000_000, path: `${MOCK_DEFAULT_DATA}/old-mods` },
+];
+
 function start(): DataFolder {
   const q = typeof location !== "undefined" ? new URLSearchParams(location.search).get("df") : null;
-  const base: DataFolder = { path: MOCK_DEFAULT_DATA, defaultPath: MOCK_DEFAULT_DATA, source: "default", problem: null, notice: null };
+  const base: DataFolder = { path: MOCK_DEFAULT_DATA, defaultPath: MOCK_DEFAULT_DATA, source: "default", problem: null, notice: null, elsewhere: false };
+  const moved = { ...base, path: "/mnt/games/Kiln", source: "pointer" as const };
+  const notice = (n: Partial<NonNullable<DataFolder["notice"]>>) => ({ ...moved, notice: { kind: "moved" as const, ...LEFT, left: [], stayed: [], kept: [], removing: false,
+    unfinished: false, folderRemoved: true, reason: null, ...n } });
   switch (q) {
-    case "pointer": return { ...base, path: "/mnt/games/Kiln", source: "pointer" };
+    case "pointer": return moved;
     case "env": return { ...base, path: "/srv/kiln-data", source: "env" };
-    case "broken": return { ...base, source: "pointer", problem: { path: "/mnt/usb/Kiln", reason: "The folder is not there. If it is on a drive that is not connected, connect it and start Kiln again." } };
-    case "unreadable": return { ...base, source: "pointer", problem: { path: "/mnt/games/Kiln", reason: "The folder is there but holds no Kiln data." } };
-    case "moved": return { ...base, path: "/mnt/games/Kiln", source: "pointer", notice: { from: MOCK_DEFAULT_DATA, to: "/mnt/games/Kiln", left: [] } };
-    case "moved-left": return { ...base, path: "/mnt/games/Kiln", source: "pointer", notice: {
-      from: MOCK_DEFAULT_DATA, to: "/mnt/games/Kiln", left: [`${MOCK_DEFAULT_DATA}/my-notes.txt`, `${MOCK_DEFAULT_DATA}/old-mods`],
-    } };
+    case "elsewhere": return { ...base, elsewhere: true };
+    case "broken": return { ...base, source: "pointer", problem: { path: "/mnt/usb/Kiln", kind: "missing", reason: "The folder is not there. If it is on a drive that is not connected, connect it and start Kiln again." } };
+    case "unreadable": return { ...base, source: "pointer", problem: { path: "/mnt/games/Kiln", kind: "notKiln", reason: "The folder is there but holds no Kiln data." } };
+    case "moved": return notice({});
+    case "moved-left": {
+      const kept = [{ path: `${MOCK_DEFAULT_DATA}/profiles/ember-run/config/kiln.json`, bytes: 2_048, reason: "it changed after the move" }];
+      return notice({ stayed: STAYED, kept, left: [...STAYED.map((e) => e.path), ...kept.map((k) => k.path)], folderRemoved: false });
+    }
+    case "moved-removing": return notice({ removing: true, folderRemoved: false });
+    case "moved-unfinished": return notice({ unfinished: true, folderRemoved: false });
+    case "undone": return { ...base, notice: { kind: "undone", from: MOCK_DEFAULT_DATA, to: "/mnt/games/Kiln", left: [], stayed: [], kept: [], removing: false, unfinished: false, folderRemoved: true, reason: null } };
+    case "unclear": return { ...moved, notice: { kind: "unclear", ...LEFT, left: [], stayed: [], kept: [], removing: false, unfinished: false, folderRemoved: false,
+      reason: `The launcher uses /mnt/games/Kiln, but the move went from ${MOCK_DEFAULT_DATA} to /mnt/other/Kiln: nothing is removed.` } };
     default: return base;
   }
 }
@@ -78,25 +100,29 @@ export function mockPickFolder(): string | null {
 /** The data folder in use (app_info.dataDir). */
 export const mockDataDir = () => folder.path;
 
-/** Commands that still answer while the pointer is broken; every other one fails then, as in the backend. */
-const OPEN_WHEN_BROKEN = new Set(["data_folder_get", "data_folder_use", "data_folder_reset", "data_folder_restart", "deck_quit"]);
+/** Commands that still answer while the pointer is broken, or another launcher moves the folder; every other one
+ *  fails then, as in the backend (src-tauri/src/folder.rs). */
+const OPEN_WHEN_BROKEN = new Set(["app_info", "data_folder_get", "data_folder_use", "data_folder_reset", "data_folder_restart", "deck_quit"]);
+const OPEN_WHEN_ELSEWHERE = new Set(["app_info", "data_folder_get", "data_folder_restart", "deck_quit"]);
 export function dataFolderBlocks(cmd: string): KilnError | null {
-  if (!folder.problem || OPEN_WHEN_BROKEN.has(cmd)) return null;
-  return { code: "refused", message: `The data folder ${folder.problem.path} cannot be used.` };
+  if (folder.problem && !OPEN_WHEN_BROKEN.has(cmd)) return { code: "data_folder", message: folder.problem.reason };
+  if (folder.elsewhere && !OPEN_WHEN_ELSEWHERE.has(cmd)) return { code: "busy", message: "Kiln is moving its data in another window." };
+  return null;
 }
 
 function plan(path: string): DataFolderPlan {
   const picked = path.replace(/(?<=.)[\\/]+$/, "");
   const base: DataFolderPlan = { picked, target: picked, action: "move", reason: null, bytes: SIZE.bytes, files: SIZE.files, free: 412_000_000_000,
-    sameVolume: false, copyMode: [], stays: [] };
-  const refuse = (reason: string): DataFolderPlan => ({ ...base, action: "refuse", reason });
-  if (busy) return refuse(REFUSALS.find((r) => r.kind === busy)?.reason ?? busy);
+    needed: 4_100_000_000, sameVolume: false, hardLinks: false, copyMode: [], stays: [], warnings: [] };
+  const refuse = (code: string, reason: string): DataFolderPlan => ({ ...base, action: "refuse", reason, code });
+  if (busy) return refuse(busy, REFUSALS.find((r) => r.kind === busy)?.reason ?? busy);
   const r = REFUSALS.find((x) => x.path === picked);
-  if (r) return refuse(r.reason);
+  if (r) return refuse(r.kind, r.reason);
   if (USE.has(picked)) return { ...base, action: "use", bytes: 0, files: 0 };
   if (picked === "/mnt/storage" || picked === "/run/media/mmcblk0p1") return { ...base, target: `${picked}/Kiln` };
-  if (picked === "/media/player/USB stick") return { ...base, free: 58_000_000_000, copyMode: ["Enshrouded"] };
-  if (picked === "/mnt/stays") return { ...base, stays: ["my-notes.txt", "old-mods"] };
+  if (picked === "/media/player/USB stick") return { ...base, free: 58_000_000_000, copyMode: ["Enshrouded"],
+    warnings: [`${picked} does not keep file permissions: from there, Mod Manager Download links from the browser do not reach the launcher, and a Nexus Mods login kept without a keyring is refused.`] };
+  if (picked === "/mnt/stays") return { ...base, stays: STAYED };
   if (picked.startsWith(`${HOME}/`)) return { ...base, sameVolume: true, free: 96_000_000_000 };
   return base;
 }
@@ -127,7 +153,8 @@ export function dataFolderMockHandlers(startTask: StartTask): Record<string, (a:
         (): DataFolderMoved => {
           if (fail) rejectWith("io", fail);
           // the running launcher keeps the old folder until it restarts (data_folder_restart)
-          return { from, to: p.target, warnings: p.stays.length ? [`${p.stays.join(", ")} stayed in ${from} too: Kiln does not know them.`] : [] };
+          return { from, to: p.target, warnings: [], stayed: p.stays,
+            cleanup: { done: true, interrupted: false, folderRemoved: !p.stays.length, kept: [], reason: null } };
         }, 600);
     },
     data_folder_use: (a) => {

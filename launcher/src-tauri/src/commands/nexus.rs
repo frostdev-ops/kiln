@@ -416,7 +416,7 @@ struct LinkEnv {
 
 impl LinkEnv {
     fn system() -> LinkEnv {
-        LinkEnv { root: kiln_manage::paths::DataDirs::locate().ok().map(|d| catalog::root_of(&d)), platform: handler::platform() }
+        LinkEnv { root: crate::state::dirs().ok().map(|d| catalog::root_of(&d)), platform: handler::platform() }
     }
 }
 
@@ -519,6 +519,11 @@ pub fn start(app: &AppHandle) {
     }
     let app = app.clone();
     std::thread::spawn(move || loop {
+        // the inbox is in the data folder: not read (its files not removed) while the folder is held (a move)
+        if crate::folder::current().held_error().is_some() {
+            std::thread::sleep(std::time::Duration::from_millis(500));
+            continue;
+        }
         let urls = handler::take_links(&r);
         let mut added = 0;
         for url in urls {

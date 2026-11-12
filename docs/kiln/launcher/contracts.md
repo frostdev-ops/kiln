@@ -965,6 +965,14 @@ or emits `kiln://update`; its UI calls none of these commands.
 | found | `found_scan` | gameId, profileId | `FoundReport {gameId, profileId, kilnInstalled, mods: FoundMod[], loaders: OwnLoader[], unreadable: {path, reason}[], truncated}`; `FoundMod {kind: ModKind \| null, name, id, version, path (relative to the game, '/'), state: "loads"\|"off"\|"inProfile"\|"cannotRun", via?: "kiln"\|"ownLoader", reason, fix?: "dropins"\|"add", profileMod?}`, `OwnLoader {engine, name, kinds, file}` (mods in the game folder Kiln did not put there and whether they load with that profile: profiles.md "Mods in the game folder"; never fails over a missing or unreadable folder) |
 | found | `found_add` | gameId, profileId, path | `TaskId` -> `AddReport` (imports a `found_scan` entry into the Library and adds it to the profile, enabled; through `library_add`'s flow when the profile is active in the game; a refusal is in `import.skipped`; the player's folder stays) |
 
+| data_folder | `data_folder_get` | - | `DataFolder` (answers in every state; with a broken pointer `path` is the default place and `problem` is set) |
+| data_folder | `data_folder_size` | - | `{bytes, files}` (`data_folder::inventory`: what a move copies) |
+| data_folder | `data_folder_check` | path (the folder the player picked) | `DataFolderPlan` (`data_folder::check_here`; a refusal is `action: "refuse"` with the crate's `reason` and `code`; a task that runs is the refusal `busy`, "Kiln is still working on: <title>.") |
+| data_folder | `data_folder_move` | path (picked; the crate checks it again) | `TaskId` -> `DataFolderMoved` (`data_folder_move::move_to`; refused while a task runs; the restart follows) |
+| data_folder | `data_folder_use` | path (picked) | `DataFolder` of the folder now named (`use_folder`; with a broken pointer `repoint`); the restart follows |
+| data_folder | `data_folder_reset` | - | `DataFolder` at the default place (`reset`; only with a broken pointer); the restart follows |
+| data_folder | `data_folder_notice_ack` | - | null (the notice was seen: the move's journal is acknowledged when its removal is finished, else it stays for the next start) |
+| data_folder | `data_folder_restart` | - | does not return (the watcher stops, the lock goes, Tauri's `restart()`) |
 `ImportReport {imported: LibraryRef[], existing: LibraryRef[], skipped: {path, reason}[], notes: {path, text}[], names:
 {"<kind>/<id>": string}}`, `AddReport {import: ImportReport, profileId, profileName, created (My mods made now), added:
 AddedMod[], already: AddedMod[], changes: ProfileChange[], applied (profile.json written now), running (the game runs:
@@ -986,6 +994,21 @@ readers ignore it), `UpdateStatus` (`launcher/src-tauri/src/selfupdate/mod.rs`; 
 message: string|null, started, finished: string|null, result?, error?: KilnError}`, `BootState {boot: BootJson|null,
 mods: ModsJson|null, native: NativeJson|null, stale: boolean, log: {errors: number, first: string[]}|null}` (`log`:
 kiln.log's `[E` lines of the run that wrote boot.json).
+
+The data folder (`launcher/src-tauri/src/commands/data_folder.rs`, `folder.rs`; the crate's side in section 3):
+`DataFolder {path, defaultPath, source: "env"|"pointer"|"default", problem: {path, reason, kind}|null, notice:
+DataFolderNotice|null, elsewhere: boolean}` (`elsewhere`: another launcher holds the folder's lock exclusively, it is
+moving it), `DataFolderEntry {name, bytes, path}`, `DataFolderPlan {picked, target, action: "move"|"use"|"refuse",
+reason, code (RefusalCode, snake_case), bytes, files, needed, free, sameVolume, hardLinks, copyMode: string[] (games by
+name that would run in copy mode from there and do not now), stays: DataFolderEntry[] (entries the launcher does not
+know: copied, and left in the old folder), warnings: string[]}`, `DataFolderNotice {kind: "moved"|"undone"|"unclear",
+from, to, left: string[], stayed: DataFolderEntry[], kept: {path, bytes, reason}[], removing, unfinished,
+folderRemoved, reason}`. While the pointer is broken only `app_info`, `data_folder_get`, `_use`, `_reset`, `_restart`
+and `deck_quit` answer, every other command rejects with `data_folder`; while another launcher moves the folder only
+`app_info`, `data_folder_get`, `_restart` and `deck_quit` (the others: `busy`); while this one moves it or has moved it,
+only `app_info`, `task_*`, `data_folder_get`, `_restart`, `deck_quit`, `deck_fullscreen`, `deck_gamepad`,
+`app_open_path` and `app_open_url` (the others: `busy`). New tasks fail at once with `busy` then, except the move and
+the removal of an old copy.
 
 `--selftest`: the binary runs headless, exercises the Rust side (data dir, crate calls with temp
 folders) and exits 0/1; used under Wine for the NSIS build. Its report has `distribution` ("direct" or "nexus"; also
@@ -1126,6 +1149,8 @@ kilnctl is built on the crate; it also has `bundle`, `client`, `admin` and `depl
 
 ## 13. Frontend contracts (`launcher/`)
 - React 18 + TypeScript + Vite, bun. Router: `HashRouter`. Data: TanStack Query; state: zustand.
+- `src/main.tsx`: `DataFolderGate` (`src/shell/DataFolderGate.tsx`) around both UIs: `data_folder_get` first; a broken
+  pointer or another launcher's move mounts only its dialog ([app.md](app.md), "The data folder").
 - `src/api/commands.ts`: one typed function per command (section 9) + the shared types + `KilnEvents`. Names and
   argument shapes are the contract; pages import from here, never call `invoke` directly.
 - `src/api/kinds.ts`: the 14 `ModKind`s for the UI: `MOD_KINDS`, `CORE_KINDS`, `IMPORTED_KINDS` (every engine kind,

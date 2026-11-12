@@ -4,23 +4,39 @@
 use kiln_manage::game::GameInstall;
 use kiln_manage::paths::DataDirs;
 use kiln_manage::{Error, ErrorCode};
-use std::sync::OnceLock;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
-static DIRS: OnceLock<DataDirs> = OnceLock::new();
-
-/// The launcher data dirs (`$KILN_DATA_DIR`, else the platform default); the root is created on first use.
+/// The launcher's data folder for this process (`$KILN_DATA_DIR`, else the pointer's folder, else the platform
+/// default; crate::folder): found once and kept until the process ends. Refused while the folder is held (a broken
+/// pointer, a move here or in another launcher, a committed move waiting for the restart): the one choke point for
+/// commands and background threads.
 pub fn dirs() -> Result<DataDirs, Error> {
-    if let Some(d) = DIRS.get() {
-        return Ok(d.clone());
+    crate::folder::current().dirs()
+}
+
+/// Closures [`blocking`] runs right now (a move waits for them to end: crate::commands::data_folder).
+static IN_FLIGHT: AtomicUsize = AtomicUsize::new(0);
+
+pub fn in_flight() -> usize {
+    IN_FLIGHT.load(Ordering::SeqCst)
+}
+
+struct Flight;
+impl Drop for Flight {
+    fn drop(&mut self) {
+        IN_FLIGHT.fetch_sub(1, Ordering::SeqCst);
     }
-    let d = DataDirs::locate()?;
-    std::fs::create_dir_all(&d.root).map_err(|e| Error::from(e).with_detail(d.root.display().to_string()))?;
-    Ok(DIRS.get_or_init(|| d).clone())
 }
 
 /// Runs a blocking closure on the blocking pool (file and process work never runs on the IPC thread).
 pub async fn blocking<T: Send + 'static>(f: impl FnOnce() -> Result<T, Error> + Send + 'static) -> Result<T, Error> {
-    tauri::async_runtime::spawn_blocking(f).await.map_err(|e| Error::new(ErrorCode::Internal, format!("worker failed: {e}")))?
+    IN_FLIGHT.fetch_add(1, Ordering::SeqCst);
+    let flight = Flight;
+    let r = tauri::async_runtime::spawn_blocking(move || {
+        let _flight = flight;
+        f()
+    });
+    r.await.map_err(|e| Error::new(ErrorCode::Internal, format!("worker failed: {e}")))?
 }
 
 pub fn read_settings() -> Result<crate::commands::app::LauncherSettings, Error> {

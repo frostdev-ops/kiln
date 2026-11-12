@@ -1,0 +1,774 @@
+//! The data folder's commands (dev.25, package `data-folder`; contracts.md section 9): where the launcher keeps its
+//! data, a check of a folder the player picked, the move (a task), "use this one", a fresh start after a broken
+//! pointer, the notice after a move, and the restart. The crate does the work (kiln_manage::data_folder,
+//! kiln_manage::data_folder_move); this file decides when, and holds the process's data folder while it runs
+//! (crate::folder).
+//!
+//! At start ([`start`], before any watcher): a broken pointer or another launcher's move stops here (the window shows
+//! only the dialog); an unfinished move's partial copy is removed (or left with its path when the proof is missing);
+//! a committed move whose old copy is not removed yet gets a task that removes it ("Remove the old data folder"),
+//! after the window is up. The result is `data_folder_get().notice` until `data_folder_notice_ack`.
+
+use crate::commands::app::{begin_alone, drop_held_log, flush_held_log, launcher_log, spawn_task, to_value};
+use crate::folder::{self, Folder, Hold};
+use kiln_manage::data_folder::{self as df, RealFacts};
+use kiln_manage::data_folder_move::{self as dfm, Cleanup, Journal, Pending};
+use kiln_manage::paths::{LocateProblem, Located, RootSource};
+use kiln_manage::{Error, ErrorCode};
+use serde::Serialize;
+use std::path::{Path, PathBuf};
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
+use tauri::AppHandle;
+
+// ---------------------------------------------------------------- what the front end gets (api/commands.ts)
+
+/// An entry of the old folder, with its size and where it is.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EntryOut {
+    pub name: String,
+    pub bytes: u64,
+    pub path: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KeptOut {
+    pub path: String,
+    pub bytes: u64,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProblemOut {
+    /// The folder the pointer names (the pointer file when it could not be read).
+    pub path: String,
+    pub reason: String,
+    pub kind: kiln_manage::paths::ProblemKind,
+}
+
+/// The notice at the start after a move.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NoticeOut {
+    /// moved: a move finished; undone: a move that did not finish was undone at this start (its partial copy
+    /// removed, or left where `kept` and `reason` say); unclear: the move's record matches neither folder (nothing
+    /// was removed, `reason` says where things are).
+    pub kind: &'static str,
+    pub from: String,
+    pub to: String,
+    /// Every path still in the old folder (`stayed` and `kept`).
+    pub left: Vec<String>,
+    /// Entries the launcher does not know: copied, and left in the old folder on purpose.
+    pub stayed: Vec<EntryOut>,
+    /// What could not be removed (a file that changed since the move, a game's profile that names the old folder).
+    pub kept: Vec<KeptOut>,
+    /// The removal of the old copy runs now (a task).
+    pub removing: bool,
+    /// The removal stopped before the end (canceled, or the launcher closed): it goes on at the next start.
+    pub unfinished: bool,
+    /// The old folder itself is gone.
+    pub folder_removed: bool,
+    /// Why nothing was removed, and where the folder is.
+    pub reason: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DataFolderOut {
+    /// The data folder in use (the default place when the pointer is broken).
+    pub path: String,
+    pub default_path: String,
+    pub source: &'static str,
+    pub problem: Option<ProblemOut>,
+    pub notice: Option<NoticeOut>,
+    /// Another launcher holds the folder's lock exclusively: it is moving the data.
+    pub elsewhere: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SizeOut {
+    pub bytes: u64,
+    pub files: u64,
+}
+
+/// A check of a picked folder: a plan (`move`, `use`) or a refusal (`reason`, `code`).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlanOut {
+    pub picked: String,
+    pub target: String,
+    pub action: &'static str,
+    pub reason: Option<String>,
+    /// The refusal's stable code (`data_folder::RefusalCode`, snake_case).
+    pub code: Option<String>,
+    pub bytes: u64,
+    pub files: u64,
+    /// What the target needs free.
+    pub needed: u64,
+    pub free: Option<u64>,
+    pub same_volume: Option<bool>,
+    pub hard_links: bool,
+    /// The games (by name) that would get their mods copied into their game folder from there and do not today.
+    pub copy_mode: Vec<String>,
+    /// Entries the launcher does not know: copied, and also left in the old folder.
+    pub stays: Vec<EntryOut>,
+    /// What will not work from there, one sentence each (the crate's).
+    pub warnings: Vec<String>,
+}
+
+fn text(p: &Path) -> String {
+    p.display().to_string()
+}
+
+fn source_word(s: RootSource) -> &'static str {
+    match s {
+        RootSource::Env => "env",
+        RootSource::Pointer => "pointer",
+        RootSource::Default => "default",
+    }
+}
+
+fn busy(m: impl Into<String>) -> Error {
+    Error::new(ErrorCode::Busy, m)
+}
+
+// ---------------------------------------------------------------- the start, the notice
+
+/// The removal of an old copy at this start.
+#[derive(Debug, Clone, PartialEq)]
+enum Cleaning {
+    None,
+    /// Scheduled or running (the task id once it runs).
+    Running(Option<String>),
+    Ended,
+}
+
+/// What this start found and did about a move (the notice's other parts are read live from the journal).
+struct StartState {
+    /// The notice of an unfinished or unclear move, made at the start (the crate removes the journal of an undone move).
+    notice: Option<NoticeOut>,
+    /// `data_folder_notice_ack` was called: no notice for the rest of this process.
+    acked: bool,
+    cleaning: Cleaning,
+}
+
+static START: Mutex<StartState> = Mutex::new(StartState { notice: None, acked: false, cleaning: Cleaning::None });
+
+fn start_state() -> std::sync::MutexGuard<'static, StartState> {
+    START.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// The journal's unknown entries (copied, left in the old folder).
+fn stayed_of(j: &Journal) -> Vec<EntryOut> {
+    j.entries.iter().filter(|e| !e.known).map(|e| EntryOut { name: e.name.clone(), bytes: e.bytes, path: text(&j.from.join(&e.name)) }).collect()
+}
+
+fn kept_of(c: Option<&Cleanup>) -> Vec<KeptOut> {
+    c.map(|c| c.kept.iter().map(|k| KeptOut { path: text(&k.path), bytes: k.bytes, reason: k.reason.clone() }).collect()).unwrap_or_default()
+}
+
+fn notice_of(kind: &'static str, j: &Journal, c: Option<&Cleanup>, removing: bool, reason: Option<String>) -> NoticeOut {
+    let stayed = if kind == "moved" { stayed_of(j) } else { Vec::new() };
+    let kept = kept_of(c);
+    let left = stayed.iter().map(|s| s.path.clone()).chain(kept.iter().map(|k| k.path.clone())).collect();
+    let (from, to) = (text(&j.from), text(&j.to));
+    NoticeOut {
+        kind,
+        from,
+        to,
+        left,
+        stayed,
+        kept,
+        removing,
+        unfinished: kind == "moved" && !removing && !c.is_some_and(|c| c.done || c.reason.is_some()),
+        folder_removed: c.is_some_and(|c| c.folder_removed),
+        reason: reason.or_else(|| c.and_then(|c| c.reason.clone())),
+    }
+}
+
+/// The notice now: none after the ack or with `KILN_DATA_DIR`; an undone or unclear move from the start; a committed
+/// move from its journal (and whether its removal runs).
+fn notice(f: &Folder) -> Option<NoticeOut> {
+    let l = f.located().ok()?;
+    if l.source == RootSource::Env {
+        return None;
+    }
+    let st = start_state();
+    if st.acked {
+        return None;
+    }
+    if let Some(n) = &st.notice {
+        return Some(n.clone());
+    }
+    let removing = matches!(st.cleaning, Cleaning::Running(_));
+    drop(st);
+    match dfm::pending(&f.env).ok()? {
+        Pending::Committed { journal } => Some(notice_of("moved", &journal, journal.result.as_ref(), removing, None)),
+        _ => None,
+    }
+}
+
+/// The old copy of a committed move is still to be removed (no result yet, or one that stopped before the end).
+fn needs_cleanup(j: &Journal) -> bool {
+    !j.result.as_ref().is_some_and(|c| c.done || c.reason.is_some())
+}
+
+/// Before any watcher (lib.rs setup). False: the data folder cannot be used here now (a broken pointer, another
+/// launcher's move): nothing else starts, the window shows the dialog.
+pub fn start(app: &AppHandle) -> bool {
+    let f = folder::current();
+    if let Some(p) = f.problem() {
+        eprintln!("data folder: {}", p.reason);
+        return false;
+    }
+    if f.hold() == Hold::Elsewhere {
+        eprintln!("data folder: {MOVING_ELSEWHERE_LOG}");
+        return false;
+    }
+    if start_with(&f) {
+        let app = app.clone();
+        // after the window is up; it never holds up the start, and a cancel or a closed launcher go on next time
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_secs(2));
+            spawn_cleanup(&app);
+        });
+    }
+    true
+}
+
+const MOVING_ELSEWHERE_LOG: &str = "another launcher holds the data folder's lock exclusively (a move)";
+
+/// What a start does about a move (no window needed; tests call it): the partial copy of an unfinished move is
+/// removed now, an unclear record becomes the notice. True: a committed move's old copy is left to remove (the task).
+fn start_with(f: &Folder) -> bool {
+    let Ok(l) = f.located() else { return false };
+    if l.source == RootSource::Env {
+        return false;
+    }
+    match dfm::pending(&f.env) {
+        Ok(Pending::Committed { journal }) if needs_cleanup(&journal) => {
+            start_state().cleaning = Cleaning::Running(None);
+            return true;
+        }
+        Ok(Pending::Uncommitted { journal }) => {
+            let c = dfm::remove_partial_copy(&f.env);
+            let n = match &c {
+                Ok(c) => notice_of("undone", &journal, Some(c), false, None),
+                Err(e) => notice_of("undone", &journal, None, false, Some(e.message.clone())),
+            };
+            launcher_log("data folder", &format!("an unfinished move to {} was undone at start: {:?}", journal.to.display(), c.as_ref().map(|c| c.done)));
+            start_state().notice = Some(n);
+        }
+        Ok(Pending::Unclear { journal, reason }) => {
+            let n = match &journal {
+                Some(j) => notice_of("unclear", j, j.result.as_ref(), false, Some(reason)),
+                None => NoticeOut {
+                    kind: "unclear", from: String::new(), to: String::new(), left: vec![], stayed: vec![], kept: vec![], removing: false,
+                    unfinished: false, folder_removed: false, reason: Some(reason),
+                },
+            };
+            start_state().notice = Some(n);
+        }
+        _ => {}
+    }
+    false
+}
+
+/// The task that removes a committed move's old copy ("Remove the old data folder"; cancel between two files).
+fn spawn_cleanup(app: &AppHandle) {
+    let id = spawn_task(app, "data_folder_cleanup", "Remove the old data folder".into(), move |p| {
+        let f = folder::current();
+        let r = cleanup_work(&f, p);
+        start_state().cleaning = Cleaning::Ended;
+        to_value(r?)
+    });
+    let mut st = start_state();
+    if st.cleaning == Cleaning::Running(None) {
+        st.cleaning = Cleaning::Running(Some(id));
+    }
+}
+
+/// The removal itself (the task's work; tests call it).
+fn cleanup_work(f: &Folder, p: &mut dyn kiln_manage::task::Progress) -> Result<Cleanup, Error> {
+    let c = dfm::remove_old_copy(&f.env, p)?;
+    launcher_log("data folder", &format!(
+        "old copy {}: {} files removed, {} kept, done {}, interrupted {}",
+        c.folder.display(), c.removed_files, c.kept.len(), c.done, c.interrupted
+    ));
+    Ok(c)
+}
+
+/// The notice was seen. A finished removal (or one with nothing to remove) acknowledges the journal; one that stopped
+/// before the end keeps it (the next start goes on), and the notice is gone for this process only.
+fn notice_ack_with(f: &Folder) -> Result<(), Error> {
+    let running = matches!(start_state().cleaning, Cleaning::Running(_));
+    let finished = match dfm::pending(&f.env)? {
+        Pending::Committed { journal } => !running && !needs_cleanup(&journal),
+        Pending::Nothing => false,
+        Pending::Uncommitted { .. } | Pending::Unclear { .. } => true,
+    };
+    if finished {
+        dfm::acknowledge(&f.env)?;
+    }
+    let mut st = start_state();
+    st.acked = true;
+    st.notice = None;
+    Ok(())
+}
+
+fn folder_out(f: &Folder) -> DataFolderOut {
+    let default_path = f.env.default_root().map(|p| text(&p)).unwrap_or_default();
+    match f.located() {
+        Ok(l) => DataFolderOut {
+            path: text(&l.dirs.root),
+            default_path,
+            source: source_word(l.source),
+            problem: None,
+            notice: if f.hold() == Hold::Elsewhere { None } else { notice(f) },
+            elsewhere: f.hold() == Hold::Elsewhere,
+        },
+        Err(_) => {
+            let p: &LocateProblem = f.problem().expect("a folder that is not found has a problem");
+            DataFolderOut {
+                path: default_path.clone(),
+                default_path,
+                source: "pointer",
+                problem: Some(ProblemOut {
+                    path: p.path.as_deref().or(p.pointer.as_deref()).map(text).unwrap_or_default(),
+                    reason: p.reason.clone(),
+                    kind: p.kind,
+                }),
+                notice: None,
+                elsewhere: false,
+            }
+        }
+    }
+}
+
+fn located_out(l: &Located, f: &Folder) -> DataFolderOut {
+    DataFolderOut {
+        path: text(&l.dirs.root),
+        default_path: f.env.default_root().map(|p| text(&p)).unwrap_or_default(),
+        source: source_word(l.source),
+        problem: None,
+        notice: None,
+        elsewhere: false,
+    }
+}
+
+// ---------------------------------------------------------------- the check
+
+/// Another launcher holds the lock too (this process's own lock made exclusive for a moment, then shared again).
+fn locked_by_another(f: &Folder) -> bool {
+    let mut g = f.lock();
+    match g.as_mut() {
+        Some(l) => match l.upgrade() {
+            Ok(true) => {
+                let _ = l.downgrade();
+                false
+            }
+            Ok(false) => true,
+            Err(_) => false,
+        },
+        None => false,
+    }
+}
+
+fn plan_out(f: &Folder, l: &Located, r: Result<df::Plan, df::Refusal>, picked: &Path) -> Result<PlanOut, Error> {
+    match r {
+        Err(rf) => Ok(PlanOut {
+            picked: text(picked), target: text(picked), action: "refuse", reason: Some(rf.reason), code: Some(rf.code.as_str().into()),
+            bytes: 0, files: 0, needed: 0, free: None, same_volume: None, hard_links: false, copy_mode: vec![], stays: vec![], warnings: vec![],
+        }),
+        Ok(p) => {
+            let games = kiln_manage::game::known(&l.dirs).unwrap_or_default();
+            let name = |id: &String| {
+                games.iter().find(|g| &g.id == id).map(|g| g.path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| text(&g.path))).unwrap_or_else(|| id.clone())
+            };
+            let _ = f;
+            Ok(PlanOut {
+                picked: text(&p.picked),
+                target: text(&p.target),
+                action: match p.action { df::Action::Move => "move", df::Action::Use => "use" },
+                reason: None,
+                code: None,
+                bytes: p.bytes,
+                files: p.files,
+                needed: p.needed,
+                free: p.free,
+                same_volume: p.same_volume,
+                hard_links: p.hard_links,
+                copy_mode: p.copy_mode_after.iter().filter(|id| !p.copy_mode_now.contains(id)).map(name).collect(),
+                stays: p.unknown.iter().map(|e| EntryOut { name: e.name.clone(), bytes: e.bytes, path: text(&l.dirs.root.join(&e.name)) }).collect(),
+                warnings: p.warnings.clone(),
+            })
+        }
+    }
+}
+
+/// `data_folder_check` without the window: a running task is a refusal too (the move would refuse it).
+fn check_with(f: &Folder, picked: &Path, running: &[String]) -> Result<PlanOut, Error> {
+    f.dirs()?;
+    let l = f.located()?.clone();
+    if !running.is_empty() {
+        let rf = df::Refusal::new(df::RefusalCode::Busy, still_working(running));
+        return plan_out(f, &l, Err(rf), picked);
+    }
+    let r = df::check_here(&l, &f.env, picked, locked_by_another(f))?;
+    plan_out(f, &l, r, picked)
+}
+
+fn still_working(running: &[String]) -> String {
+    format!("Kiln is still working on: {}. Wait for it to finish.", running.join(", "))
+}
+
+// ---------------------------------------------------------------- holding the folder
+
+/// Holds the data folder for a move or a switch: refused while a task runs ("Kiln is still working on: ..."), then
+/// no command, task or background thread gets the folder (crate::folder), and the work that got it just before has
+/// ended (`state::blocking`'s closures; at most `DRAIN` is waited).
+pub fn hold_for_move(f: &Folder) -> Result<(), Error> {
+    begin_alone(|running| {
+        if let Some(e) = f.held_error() {
+            return Err(e);
+        }
+        if !running.is_empty() {
+            return Err(busy(still_working(running)));
+        }
+        f.set_hold(Hold::Moving);
+        Ok(())
+    })?;
+    let until = Instant::now() + DRAIN;
+    while crate::state::in_flight() > 0 {
+        if Instant::now() > until {
+            release_after_failure(f);
+            return Err(busy("Kiln is still working on something: try again in a moment."));
+        }
+        std::thread::sleep(Duration::from_millis(40));
+    }
+    Ok(())
+}
+
+const DRAIN: Duration = Duration::from_secs(15);
+
+/// A move or a switch did not happen: everything runs again.
+pub fn release_after_failure(f: &Folder) {
+    if f.hold() == Hold::Moving {
+        f.set_hold(Hold::Free);
+    }
+    flush_held_log();
+}
+
+/// The pointer names the new place: nothing of this process touches the folder again until the restart.
+pub fn after_commit(f: &Folder) {
+    f.set_hold(Hold::Moved);
+    crate::watch::leaving();
+    drop_held_log();
+}
+
+// ---------------------------------------------------------------- use, reset
+
+fn use_with(f: &Folder, picked: &Path) -> Result<DataFolderOut, Error> {
+    if f.problem().is_some() {
+        // a broken pointer: the crate's repoint (core-3)
+        return Err(Error::new(ErrorCode::NotImplemented, "Choosing the data folder after a broken pointer comes with the crate's repoint."));
+    }
+    let l = f.located()?.clone();
+    hold_for_move(f)?;
+    let r = {
+        let mut g = f.lock();
+        dfm::use_folder(&l, &f.env, picked, &RealFacts { dirs: &l.dirs }, g.as_mut())
+    };
+    match r {
+        Ok(now) => {
+            after_commit(f);
+            launcher_log("data folder", &format!("switched to {}", now.dirs.root.display()));
+            Ok(located_out(&now, f))
+        }
+        Err(e) => {
+            release_after_failure(f);
+            Err(e)
+        }
+    }
+}
+
+fn reset_with(f: &Folder) -> Result<DataFolderOut, Error> {
+    if f.problem().is_none() {
+        return Err(Error::new(ErrorCode::Refused, "The data folder's pointer is fine: start fresh only after a broken one."));
+    }
+    let now = dfm::reset(&f.env)?;
+    f.set_hold(Hold::Moved);
+    Ok(located_out(&now, f))
+}
+
+// ---------------------------------------------------------------- commands
+
+async fn off_thread<T: Send + 'static>(work: impl FnOnce() -> Result<T, Error> + Send + 'static) -> Result<T, Error> {
+    // not state::blocking: a move waits for those to end, and these are the move's own steps
+    tauri::async_runtime::spawn_blocking(work).await.map_err(|e| Error::new(ErrorCode::Internal, format!("worker failed: {e}")))?
+}
+
+#[tauri::command]
+pub async fn data_folder_get() -> Result<DataFolderOut, Error> {
+    off_thread(|| Ok(folder_out(&folder::current()))).await
+}
+
+#[tauri::command]
+pub async fn data_folder_size() -> Result<SizeOut, Error> {
+    crate::state::blocking(|| {
+        let f = folder::current();
+        let d = f.dirs()?;
+        let inv = df::inventory(&d.root, &f.env)?;
+        Ok(SizeOut { bytes: inv.bytes, files: inv.files })
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn data_folder_check(path: String) -> Result<PlanOut, Error> {
+    crate::state::blocking(move || {
+        let running = begin_alone(|r| r.to_vec());
+        check_with(&folder::current(), Path::new(&path), &running)
+    })
+    .await
+}
+
+/// Task result: the move's result. Written with the crate's `core-3` (the removal of the old copy as its last phase).
+#[tauri::command]
+pub async fn data_folder_move(path: String) -> Result<super::TaskId, Error> {
+    let _ = path;
+    Err(Error::new(ErrorCode::NotImplemented, "The move comes with the crate's core-3."))
+}
+
+#[tauri::command]
+pub async fn data_folder_use(path: String) -> Result<DataFolderOut, Error> {
+    off_thread(move || use_with(&folder::current(), &PathBuf::from(path))).await
+}
+
+#[tauri::command]
+pub async fn data_folder_reset() -> Result<DataFolderOut, Error> {
+    off_thread(|| reset_with(&folder::current())).await
+}
+
+#[tauri::command]
+pub async fn data_folder_notice_ack() -> Result<(), Error> {
+    off_thread(|| notice_ack_with(&folder::current())).await
+}
+
+/// Restarts the launcher: the watcher stops, the lock goes, then Tauri's restart (in every build). Does not return.
+#[tauri::command]
+pub async fn data_folder_restart(app: AppHandle) -> Result<(), Error> {
+    crate::watch::leaving();
+    let f = folder::current();
+    if f.hold() != Hold::Moved {
+        f.set_hold(Hold::Leaving);
+    }
+    f.release_lock();
+    launcher_log("data folder", "restarting");
+    app.restart()
+}
+
+#[cfg(test)]
+pub(crate) mod tests {
+    use super::*;
+    use kiln_manage::data_folder::DataLock;
+    use kiln_manage::paths::DataEnv;
+    use std::collections::BTreeSet;
+    use std::sync::Arc;
+
+    /// A scratch folder for one test (under TMPDIR), and an environment whose default root is `<it>/xdg/kiln` (nothing
+    /// of the real launcher data: no HOME, no KILN_DATA_DIR).
+    pub(crate) fn scratch(name: &str) -> (PathBuf, DataEnv) {
+        let t = std::env::temp_dir().join(format!("kl-df-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&t);
+        std::fs::create_dir_all(&t).unwrap();
+        let env = DataEnv {
+            home: Some(t.join("home").into()),
+            xdg_data_home: Some(t.join("xdg").into()),
+            xdg_state_home: Some(t.join("state").into()),
+            xdg_config_home: Some(t.join("config").into()),
+            ..Default::default()
+        };
+        (t, env)
+    }
+
+    /// A data folder the crate recognises by its layout (`library/<kind>/`, `settings.json`).
+    pub(crate) fn data_folder(root: &Path) {
+        std::fs::create_dir_all(root.join("library/kiln")).unwrap();
+        std::fs::create_dir_all(root.join("profiles")).unwrap();
+        std::fs::write(root.join("settings.json"), "{\"savesKeep\": 5}\n").unwrap();
+    }
+
+    /// Every path below `t` (files and folders).
+    pub(crate) fn tree(t: &Path) -> BTreeSet<String> {
+        fn go(d: &Path, base: &Path, out: &mut BTreeSet<String>) {
+            for e in std::fs::read_dir(d).into_iter().flatten().flatten() {
+                out.insert(e.path().strip_prefix(base).unwrap().display().to_string());
+                if e.file_type().is_ok_and(|f| f.is_dir()) {
+                    go(&e.path(), base, out);
+                }
+            }
+        }
+        let mut out = BTreeSet::new();
+        go(t, t, &mut out);
+        out
+    }
+
+    #[test]
+    fn a_start_with_a_broken_pointer_creates_nothing_and_answers_only_its_commands() {
+        let _g = folder::test_serial();
+        let (t, env) = scratch("broken");
+        let default = env.default_root().unwrap();
+        std::fs::create_dir_all(&default).unwrap();
+        df::write_pointer(&default, &t.join("usb/Kiln")).unwrap();
+        let before = tree(&t);
+        let f = Arc::new(Folder::open(env.clone()));
+        folder::replace(f.clone());
+        assert!(f.problem().is_some());
+        assert!(f.lock().is_none(), "no lock taken");
+        // start-up stops before any watcher, and the gate refuses every command but the five (and app_info)
+        assert!(!start_with(&f));
+        for name in crate::commands::NAMES {
+            let refused = f.command_refusal(name);
+            if folder::OPEN_WHEN_BROKEN.contains(name) {
+                assert!(refused.is_none(), "{name} answers");
+            } else {
+                assert_eq!(refused.map(|e| e.code), Some(ErrorCode::DataFolder), "{name} is refused with the crate's error");
+            }
+        }
+        assert_eq!(OPEN_COUNT_BROKEN, folder::OPEN_WHEN_BROKEN.len());
+        // what data_folder_get says, and every way the process reaches the folder
+        let out = folder_out(&f);
+        assert_eq!(out.problem.as_ref().map(|p| p.path.clone()), Some(text(&t.join("usb/Kiln"))));
+        assert_eq!(out.path, text(&default));
+        assert_eq!(crate::state::dirs().unwrap_err().code, ErrorCode::DataFolder);
+        crate::commands::app::launcher_log("test", "a line that has nowhere to go");
+        assert!(crate::state::read_settings().is_err());
+        let info = tauri::async_runtime::block_on(async { crate::folder::current().located().map(|l| l.dirs.root.clone()) });
+        assert!(info.is_err());
+        assert_eq!(tree(&t), before, "nothing was created anywhere");
+        let _ = std::fs::remove_dir_all(&t);
+    }
+
+    const OPEN_COUNT_BROKEN: usize = 6;
+
+    #[test]
+    fn the_folder_is_refused_during_a_move_and_free_again_after_it() {
+        let _g = folder::test_serial();
+        let (t, env) = scratch("hold");
+        let f = Arc::new(Folder::open(env.clone()));
+        folder::replace(f.clone());
+        let root = f.located().unwrap().dirs.root.clone();
+        assert!(root.is_dir(), "the default root is made, as before dev.25");
+        assert!(f.lock().is_some(), "and its lock taken shared");
+        let settings = root.join("settings.json");
+        let set = |keep: u32| {
+            let s = crate::commands::app::LauncherSettings { saves_keep: keep, ..Default::default() };
+            tauri::async_runtime::block_on(crate::commands::app::app_settings_set(s))
+        };
+        set(3).unwrap();
+        let written = std::fs::read(&settings).unwrap();
+
+        hold_for_move(&f).unwrap();
+        // every way in: the choke point, a writing command, the gate in front of the commands, a task's start
+        let e = crate::state::dirs().unwrap_err();
+        assert_eq!((e.code, e.message.as_str()), (ErrorCode::Busy, folder::MOVING_HERE));
+        assert_eq!(set(9).unwrap_err().code, ErrorCode::Busy);
+        assert_eq!(std::fs::read(&settings).unwrap(), written, "the settings file is as it was");
+        assert!(f.command_refusal("app_settings_set").is_some());
+        assert!(f.command_refusal("library_import").is_some());
+        assert!(f.command_refusal("task_cancel").is_none(), "the move's own Cancel answers");
+        crate::commands::app::launcher_log("test", "held back during the move");
+        assert!(!root.join("logs/launcher.log").exists(), "the log waits");
+        assert_eq!(hold_for_move(&f).unwrap_err().code, ErrorCode::Busy, "one move at a time");
+
+        // a failed or canceled move: everything runs again, the held line is written
+        release_after_failure(&f);
+        set(4).unwrap();
+        assert!(std::fs::read_to_string(root.join("logs/launcher.log")).unwrap().contains("held back during the move"));
+        assert!(f.command_refusal("app_settings_set").is_none());
+
+        // a committed one: nothing runs again until the restart
+        hold_for_move(&f).unwrap();
+        after_commit(&f);
+        assert_eq!(crate::state::dirs().unwrap_err().message, folder::MOVED);
+        assert_eq!(set(5).unwrap_err().code, ErrorCode::Busy);
+        let _ = std::fs::remove_dir_all(&t);
+    }
+
+    #[test]
+    fn another_launchers_exclusive_lock_is_seen() {
+        let _g = folder::test_serial();
+        let (t, env) = scratch("elsewhere");
+        let root = env.default_root().unwrap();
+        data_folder(&root);
+        // another launcher's move holds the lock exclusively
+        let other = DataLock::exclusive(&root).unwrap().unwrap();
+        let f = Arc::new(Folder::open(env.clone()));
+        folder::replace(f.clone());
+        assert_eq!(f.hold(), Hold::Elsewhere);
+        assert!(f.lock().is_none());
+        assert_eq!(crate::state::dirs().unwrap_err().message, folder::MOVING_ELSEWHERE);
+        for name in crate::commands::NAMES {
+            assert_eq!(f.command_refusal(name).is_none(), folder::OPEN_WHEN_ELSEWHERE.contains(name), "{name}");
+        }
+        assert!(folder_out(&f).elsewhere);
+        assert!(!start_with(&f));
+        drop(other);
+        // a second launcher of dev.25 holds it shared: a move here is refused by the crate, the check says so
+        let f = Arc::new(Folder::open(env.clone()));
+        folder::replace(f.clone());
+        assert_eq!(f.hold(), Hold::Free);
+        let second = DataLock::shared(&root).unwrap().unwrap();
+        assert!(locked_by_another(&f));
+        drop(second);
+        assert!(!locked_by_another(&f));
+        assert!(f.lock().as_ref().is_some_and(|l| !l.is_exclusive()), "the check leaves this process's lock shared");
+        let _ = std::fs::remove_dir_all(&t);
+    }
+
+    #[test]
+    fn use_this_one_switches_and_then_nothing_runs_until_the_restart() {
+        let _g = folder::test_serial();
+        let (t, env) = scratch("use");
+        let default = env.default_root().unwrap();
+        data_folder(&default);
+        let other = t.join("disk/Kiln");
+        data_folder(&other);
+        let f = Arc::new(Folder::open(env.clone()));
+        folder::replace(f.clone());
+        let plan = check_with(&f, &other, &[]).unwrap();
+        assert_eq!((plan.action, plan.target.clone()), ("use", text(&other)), "{plan:?}");
+        // a running task refuses, with its title
+        let busy = check_with(&f, &other, &["Install Kiln".into()]).unwrap();
+        assert_eq!((busy.action, busy.code.as_deref()), ("refuse", Some("busy")));
+        assert_eq!(busy.reason.as_deref(), Some("Kiln is still working on: Install Kiln. Wait for it to finish."));
+        let out = use_with(&f, &other).unwrap();
+        assert_eq!((out.path.as_str(), out.source), (text(&other).as_str(), "pointer"));
+        assert_eq!(f.hold(), Hold::Moved);
+        assert!(crate::state::dirs().is_err());
+        // the next start (a new value over the same folders) finds the other folder
+        let next = Folder::open(env.clone());
+        assert_eq!(next.located().unwrap().dirs.root, other);
+        let _ = std::fs::remove_dir_all(&t);
+    }
+
+    #[test]
+    fn a_refusal_keeps_the_crates_sentence_and_code() {
+        let _g = folder::test_serial();
+        let (t, env) = scratch("refuse");
+        let default = env.default_root().unwrap();
+        data_folder(&default);
+        let f = Arc::new(Folder::open(env.clone()));
+        folder::replace(f.clone());
+        let inside = default.join("library");
+        let p = check_with(&f, &inside, &[]).unwrap();
+        assert_eq!((p.action, p.code.as_deref()), ("refuse", Some("inside_current")));
+        assert!(p.reason.as_deref().unwrap().contains("is inside the current data folder"), "{p:?}");
+        let _ = std::fs::remove_dir_all(&t);
+    }
+}

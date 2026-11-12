@@ -8,7 +8,7 @@ const folder = (o: Partial<DataFolder> = {}): DataFolder => ({
 });
 const plan = (o: Partial<DataFolderPlan> = {}): DataFolderPlan => ({
   picked: "/mnt/games", target: "/mnt/games", action: "move", reason: null, bytes: 3_650_000_000, files: 12_408, free: 412_000_000_000,
-  sameVolume: false, copyMode: [], stays: [], ...o,
+  sameVolume: false, copyMode: [], stays: [], warnings: [], ...o,
 });
 
 test("a plain move: where to, what moves, the free space; no extra line", () => {
@@ -29,7 +29,11 @@ test("a move says only what changes the decision: a new folder inside, copy mode
   ]);
   expect(planView(plan({ copyMode: ["Enshrouded"] })).lines).toEqual(["From there, mods are copied into the game folder of Enshrouded."]);
   expect(planView(plan({ copyMode: ["Enshrouded", "Ember Isles", "Lab"] })).lines[0]).toContain("of Enshrouded, Ember Isles and Lab.");
-  expect(planView(plan({ stays: ["my-notes.txt", "old-mods"] })).lines).toEqual(["Also kept in the old folder: my-notes.txt, old-mods."]);
+  expect(planView(plan({ stays: [{ name: "my-notes.txt", bytes: 12_400, path: "/d/my-notes.txt" }, { name: "old-mods", bytes: 1_250_000_000, path: "/d/old-mods" }] })).lines)
+    .toEqual(["These stay in the old folder too, Kiln copies them and does not remove them: my-notes.txt (12 KB), old-mods (1.2 GB)."]);
+  // the crate's warnings come last, as they are
+  expect(planView(plan({ copyMode: ["Enshrouded"], warnings: ["/media/x does not keep file permissions: ..."] })).lines)
+    .toEqual(["From there, mods are copied into the game folder of Enshrouded.", "/media/x does not keep file permissions: ..."]);
   // the same volume changes nothing for the player
   expect(planView(plan({ sameVolume: true })).lines).toEqual([]);
 });
@@ -84,13 +88,50 @@ test("a move that did not finish says nothing changed; a failure says why first"
   expect(stoppedView("canceled", "Canceled.").lines).toHaveLength(1);
 });
 
-test("the notice: what stayed, relative to the old folder", () => {
+test("the notice: where the data is now; nothing left: no old folder, no Open", () => {
   const from = "/home/player/.local/share/kiln";
-  expect(noticeView({ from, to: "/mnt/games/Kiln", left: [] })).toEqual({ title: "Data folder moved", left: [], leftLine: null });
-  const v = noticeView({ from, to: "/mnt/games/Kiln", left: [`${from}/my-notes.txt`, `${from}/old-mods`, "/elsewhere/x"] });
-  expect(v.left).toEqual(["my-notes.txt", "old-mods", "/elsewhere/x"]);
-  expect(v.leftLine).toBe("These stayed in the old folder:");
-  expect(noticeView({ from, to: "/t", left: [`${from}/a`] }).leftLine).toBe("This stayed in the old folder:");
+  const v = noticeView({ kind: "moved", from, to: "/mnt/games/Kiln", left: [], stayed: [], kept: [], removing: false, unfinished: false, folderRemoved: true, reason: null });
+  expect(v).toEqual({ title: "Data folder moved", facts: [{ label: "Now in", value: "/mnt/games/Kiln" }], lines: [], lists: [], open: false });
+});
+
+test("the notice names what Kiln left on purpose and what it could not remove, each with its size", () => {
+  const from = "/home/player/.local/share/kiln";
+  const v = noticeView({
+    kind: "moved", from, to: "/mnt/games/Kiln", left: [], removing: false, unfinished: false, folderRemoved: false, reason: null,
+    stayed: [{ name: "old-mods", bytes: 1_250_000_000, path: `${from}/old-mods` }],
+    kept: [{ path: `${from}/profiles/p/config/a.json`, bytes: 2048, reason: "it changed after the move" }, { path: "/elsewhere/x", bytes: 1, reason: "r" }],
+  });
+  expect(v.facts.map((f) => f.label)).toEqual(["Now in", "Old folder"]);
+  expect(v.lists).toEqual([
+    { line: "Kiln did not remove this, it does not know it:", items: [{ text: "old-mods (1.2 GB)", title: `${from}/old-mods` }] },
+    { line: "Kiln could not remove these:", items: [
+      { text: "profiles/p/config/a.json (2.0 KB): it changed after the move", title: `${from}/profiles/p/config/a.json` },
+      { text: "/elsewhere/x (1 B): r", title: "/elsewhere/x" },
+    ] },
+  ]);
+  expect(v.open).toBe(true);
+});
+
+test("the notice while the old copy is removed, and when its removal goes on next time", () => {
+  const n = { kind: "moved" as const, from: "/a", to: "/b", left: [], stayed: [], kept: [], folderRemoved: false, reason: null };
+  expect(noticeView({ ...n, removing: true, unfinished: false }).lines).toEqual(["Kiln is removing the old copy."]);
+  expect(noticeView({ ...n, removing: false, unfinished: true }).lines).toEqual(["Part of the old copy is still there: Kiln removes the rest at the next start."]);
+  expect(noticeView({ ...n, removing: false, unfinished: true }).open).toBe(true);
+});
+
+test("an unfinished move undone at start, and a record that matches neither folder", () => {
+  const u = noticeView({ kind: "undone", from: "/a", to: "/b", left: [], stayed: [], kept: [], removing: false, unfinished: false, folderRemoved: true, reason: null });
+  expect(u.title).toBe("Move not finished");
+  expect(u.lines).toEqual(["The last move did not finish. Kiln uses /a as before."]);
+  const c = noticeView({ kind: "unclear", from: "/a", to: "/b", left: [], removing: false, unfinished: false, folderRemoved: false, reason: "nothing is removed." });
+  expect(c.title).toBe("Kiln did not finish a move");
+  expect(c.lines).toEqual(["nothing is removed."]);
+});
+
+test("a notice from an older backend (only `left`) still lists what stayed", () => {
+  const from = "/home/player/.local/share/kiln";
+  const v = noticeView({ from, to: "/t", left: [`${from}/a`, `${from}/b`] });
+  expect(v.lists).toEqual([{ line: "These stayed in the old folder:", items: [{ text: "a", title: `${from}/a` }, { text: "b", title: `${from}/b` }] }]);
 });
 
 test("relativeTo needs a separator at the edge (kiln-old is not inside kiln)", () => {

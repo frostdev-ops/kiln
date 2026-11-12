@@ -20,6 +20,7 @@ pub mod nexus;
 pub mod engines;
 pub mod compat;
 pub mod found;
+pub mod data_folder;
 
 /// A background task id; the task reports through `kiln://task`.
 pub type TaskId = String;
@@ -172,6 +173,14 @@ pub const NAMES: &[&str] = &[
     "found_add",
     "report_save",
     "report_summary",
+    "data_folder_get",
+    "data_folder_size",
+    "data_folder_check",
+    "data_folder_move",
+    "data_folder_use",
+    "data_folder_reset",
+    "data_folder_notice_ack",
+    "data_folder_restart",
 ];
 
 #[cfg(test)]

@@ -1,7 +1,7 @@
 // The words of the data folder's row and dialogs (Settings, Deck Settings, the broken-pointer dialog, the notice after a
 // move), apart from React so the unit tests read them (unit/data-folder.test.ts). The owner's rule: a title and
 // buttons, and one line only where it changes the player's decision.
-import type { DataFolder, DataFolderNotice, DataFolderPlan, DataFolderSize } from "../api/commands";
+import type { DataFolder, DataFolderEntry, DataFolderNotice, DataFolderPlan, DataFolderSize } from "../api/commands";
 import { fmtBytes } from "../ui/format";
 
 /** `p` relative to `base` when it is inside it ("tools/kiln"), else as it is. */
@@ -80,7 +80,8 @@ export function planView(p: DataFolderPlan): PlanView {
   const lines: string[] = [];
   if (p.target !== p.picked) lines.push("That folder has other files in it, so the data goes into a new folder inside it.");
   if (p.copyMode.length) lines.push(`From there, mods are copied into the game folder of ${listWords(p.copyMode)}.`);
-  if (p.stays.length) lines.push(`Also kept in the old folder: ${p.stays.join(", ")}.`);
+  if (p.stays.length) lines.push(`These stay in the old folder too, Kiln copies them and does not remove them: ${p.stays.map(sized).join(", ")}.`);
+  lines.push(...(p.warnings ?? []));
   return {
     title: "Move the data folder?",
     facts: [
@@ -96,6 +97,9 @@ export function planView(p: DataFolderPlan): PlanView {
 
 // ---------------------------------------------------------------- after the move
 
+/** "old-mods (1.2 GB)" */
+export const sized = (e: Pick<DataFolderEntry, "name" | "bytes">) => `${e.name} (${fmtBytes(e.bytes)})`;
+
 /** A move that did not finish: the old folder is in use as it was. */
 export function stoppedView(how: "failed" | "canceled", error: string | null): { title: string; lines: string[] } {
   return {
@@ -104,15 +108,58 @@ export function stoppedView(how: "failed" | "canceled", error: string | null): {
   };
 }
 
-/** The notice at the first start after a move: where the data is now, and what stayed in the old folder (relative
- *  to it). */
-export function noticeView(n: DataFolderNotice): { title: string; left: string[]; leftLine: string | null } {
-  const left = n.left.map((p) => relativeTo(n.from, p));
+/** One list in the notice: a line, then its items (an item's `title`: its full path). */
+export interface NoticeList {
+  line: string;
+  items: { text: string; title: string }[];
+}
+
+export interface NoticeView {
+  title: string;
+  facts: { label: string; value: string }[];
+  lines: string[];
+  lists: NoticeList[];
+  /** Open old folder: something is still there. */
+  open: boolean;
+}
+
+/** The notice at the start after a move: where the data is now, what is still in the old folder (what Kiln left on
+ *  purpose, with sizes, and what it could not remove, with why), whether the removal runs or goes on next time. An
+ *  unfinished move undone at start, and a record that matches neither folder, have their own title. */
+export function noticeView(n: DataFolderNotice): NoticeView {
+  const stayed = (n.stayed ?? []).map((e) => ({ text: `${relativeTo(n.from, e.path)} (${fmtBytes(e.bytes)})`, title: e.path }));
+  const kept = (n.kept ?? []).map((k) => ({ text: `${relativeTo(n.kind === "undone" ? n.to : n.from, k.path)} (${fmtBytes(k.bytes)}): ${k.reason}`, title: k.path }));
+  // an older backend: only `left`
+  const plain = !n.stayed && !n.kept ? n.left.map((p) => ({ text: relativeTo(n.from, p), title: p })) : [];
+  const lists: NoticeList[] = [];
+  const lines: string[] = [];
+  if (n.kind === "undone") {
+    lines.push(`The last move did not finish. Kiln uses ${n.from} as before.`);
+    if (kept.length) lists.push({ line: "Kiln could not remove these from the unfinished copy:", items: kept });
+    if (n.reason) lines.push(n.reason);
+    return { title: "Move not finished", facts: [{ label: "Data folder", value: n.from }], lines, lists, open: false };
+  }
+  if (n.kind === "unclear") {
+    if (n.reason) lines.push(n.reason);
+    return { title: "Kiln did not finish a move", facts: n.from ? [{ label: "Old folder", value: n.from }, { label: "New folder", value: n.to }] : [], lines, lists, open: !!n.from };
+  }
+  if (n.removing) lines.push("Kiln is removing the old copy.");
+  else if (n.unfinished) lines.push("Part of the old copy is still there: Kiln removes the rest at the next start.");
+  if (stayed.length) lists.push({ line: stayed.length === 1 ? "Kiln did not remove this, it does not know it:" : "Kiln did not remove these, it does not know them:", items: stayed });
+  if (kept.length) lists.push({ line: kept.length === 1 ? "Kiln could not remove this:" : "Kiln could not remove these:", items: kept });
+  if (plain.length) lists.push({ line: plain.length === 1 ? "This stayed in the old folder:" : "These stayed in the old folder:", items: plain });
+  if (n.reason) lines.push(n.reason);
+  const open = !n.folderRemoved && (lists.length > 0 || !!n.removing || !!n.unfinished || !!n.reason);
   return {
     title: "Data folder moved",
-    left,
-    leftLine: left.length ? (left.length === 1 ? "This stayed in the old folder:" : "These stayed in the old folder:") : null,
+    facts: [{ label: "Now in", value: n.to }, ...(open ? [{ label: "Old folder", value: n.from }] : [])],
+    lines,
+    lists,
+    open,
   };
 }
+
+/** The dialog when another launcher holds the data folder (it is moving it). */
+export const ELSEWHERE_TITLE = "Kiln is moving its data in another window";
 
 export const BROKEN_TITLE = "Kiln cannot open its data folder";

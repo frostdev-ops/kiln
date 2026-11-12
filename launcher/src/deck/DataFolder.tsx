@@ -116,17 +116,21 @@ export function DeckDataFolderNotice() {
   return (
     <Dialog name="data-notice" title={v.title} onClose={ack} backLabel="Close" wide
       buttons={<>
-        {v.left.length > 0 && <DeckButton onClick={() => api.appOpenPath(n.from).catch((e) => toast.error(e))}>Open old folder</DeckButton>}
+        {v.open && <DeckButton onClick={() => api.appOpenPath(n.kind === "undone" ? n.to : n.from).catch((e) => toast.error(e))}>Open old folder</DeckButton>}
         <DeckButton primary onClick={ack}>OK</DeckButton>
       </>}>
-      <dl className="deck-facts deck-df">
-        <div><dt>Now in</dt><dd><PathText path={n.to} /></dd></div>
-        {v.left.length > 0 && <div><dt>Old folder</dt><dd><PathText path={n.from} /></dd></div>}
-      </dl>
-      {v.leftLine && <>
-        <p className="deck-note">{v.leftLine}</p>
-        <ul className="k-df-list deck-mono" aria-label="Left in the old folder">{v.left.map((l) => <li key={l}>{l}</li>)}</ul>
-      </>}
+      {v.facts.length > 0 && (
+        <dl className="deck-facts deck-df">
+          {v.facts.map((x) => <div key={x.label}><dt>{x.label}</dt><dd><PathText path={x.value} /></dd></div>)}
+        </dl>
+      )}
+      {v.lines.map((l) => <p key={l} className="deck-note">{l}</p>)}
+      {v.lists.map((l) => (
+        <div key={l.line}>
+          <p className="deck-note">{l.line}</p>
+          <ul className="k-df-list deck-mono" aria-label={l.line}>{l.items.map((i) => <li key={i.title + i.text} title={i.title}>{i.text}</li>)}</ul>
+        </div>
+      ))}
     </Dialog>
   );
 }

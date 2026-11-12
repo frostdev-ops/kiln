@@ -1,7 +1,9 @@
 // Smoke (browser mock): the data folder. Settings' "Data folder" row (the path at once, the size when measured), a move
 // from its confirmation through the task's progress to the restart, Cancel, a failed move, every refusal with its
 // sentence, "Use it", the dialog over the whole app for a pointer to a folder that cannot be used (Choose folder,
-// Start fresh, Quit), the notice after a move with and without files left behind, KILN_DATA_DIR, and the Deck's row.
+// Start fresh, Quit) and while another launcher moves the folder, the notice after a move (nothing left, entries left
+// on purpose and kept, the removal running or unfinished, an unfinished move undone, an unclear record),
+// KILN_DATA_DIR, and the Deck's row.
 // The mock (src/api/mockDataFolder.ts) starts from `?df=` and answers the folder dialog from __kilnDataFolderMock.pick.
 import { expect, test, type Page } from "@playwright/test";
 
@@ -111,6 +113,8 @@ test("a move that fails: the error, nothing changed, no restart", async ({ page 
 });
 
 test("every refusal shows its reason, with Choose another and Close", async ({ page }) => {
+  // eleven dialogs in a row: on a busy PC more than the default minute
+  test.setTimeout(150_000);
   await open(page);
   const refusals = await df(page, "refusals") as { kind: string; path: string | null; reason: string }[];
   expect(refusals.length).toBeGreaterThanOrEqual(11);
@@ -238,18 +242,68 @@ test("the first start after a move: where the data is now, until OK", async ({ p
   await expect(page.getByRole("dialog", { name: "Data folder moved" })).toHaveCount(0);
 });
 
-test("the notice with files left in the old folder: the list and Open old folder", async ({ page }) => {
+test("the notice with entries left in the old folder: what Kiln left on purpose and what it could not remove, Open old folder", async ({ page }) => {
   await open(page, "/?df=moved-left#/");
   const n = page.getByRole("dialog", { name: "Data folder moved" });
   await expect(n.locator("dd")).toHaveText(["/mnt/games/Kiln", DATA]);
-  await expect(n).toContainText("These stayed in the old folder:");
-  await expect(n.getByRole("list", { name: "Left in the old folder" }).getByRole("listitem")).toHaveText(["my-notes.txt", "old-mods"]);
+  await expect(n.getByRole("list", { name: "Kiln did not remove these, it does not know them:" }).getByRole("listitem"))
+    .toHaveText(["my-notes.txt (12 KB)", "old-mods (1.2 GB)"]);
+  await expect(n.getByRole("list", { name: "Kiln could not remove this:" }).getByRole("listitem"))
+    .toHaveText(["profiles/ember-run/config/kiln.json (2.0 KB): it changed after the move"]);
   await n.getByRole("button", { name: "Open old folder" }).click();
   await expect.poll(() => calls(page)).toContain("app_open_path");
   await expect(n).toBeVisible();
   expect(await calls(page)).not.toContain("data_folder_notice_ack");
   await n.getByRole("button", { name: "OK" }).click();
   await expect.poll(() => calls(page)).toContain("data_folder_notice_ack");
+});
+
+test("the notice while the old copy is removed, and when the rest goes at the next start", async ({ page }) => {
+  await open(page, "/?df=moved-removing#/");
+  const n = page.getByRole("dialog", { name: "Data folder moved" });
+  await expect(n).toContainText("Kiln is removing the old copy.");
+  await expect(n.getByRole("button", { name: "Open old folder" })).toBeVisible();
+  await open(page, "/?df=moved-unfinished#/");
+  await expect(page.getByRole("dialog", { name: "Data folder moved" })).toContainText("Part of the old copy is still there: Kiln removes the rest at the next start.");
+});
+
+test("an unfinished move undone at start, and a move's record that matches neither folder", async ({ page }) => {
+  await open(page, "/?df=undone#/");
+  const u = page.getByRole("dialog", { name: "Move not finished" });
+  await expect(u).toContainText(`The last move did not finish. Kiln uses ${DATA} as before.`);
+  await expect(u.getByRole("button")).toHaveText(["OK"]);
+  await u.getByRole("button", { name: "OK" }).click();
+  await expect.poll(() => calls(page)).toContain("data_folder_notice_ack");
+  await open(page, "/?df=unclear#/");
+  const c = page.getByRole("dialog", { name: "Kiln did not finish a move" });
+  await expect(c).toContainText("nothing is removed.");
+  await expect(c.getByRole("button")).toHaveText(["Open old folder", "OK"]);
+});
+
+test("another launcher is moving the data folder: only its dialog and Quit", async ({ page }) => {
+  await page.goto("/?df=elsewhere#/settings");
+  const d = page.getByRole("dialog", { name: "Kiln is moving its data in another window" });
+  await expect(d).toBeVisible();
+  await expect(d.getByRole("button")).toHaveText(["Quit"]);
+  await cannotDismiss(page, "Kiln is moving its data in another window");
+  await page.waitForTimeout(1000);
+  await expect(page.locator(".k-app, .deck")).toHaveCount(0);
+  expect(new Set(await calls(page))).toEqual(new Set(["data_folder_get"]));
+  await d.getByRole("button", { name: "Quit" }).click();
+  await expect.poll(() => calls(page)).toContain("deck_quit");
+});
+
+test("a move's plan names what stays in the old folder with its size, and the crate's warnings", async ({ page }) => {
+  await open(page);
+  await pick(page, "/mnt/stays");
+  await change(page).click();
+  const d = page.getByRole("dialog", { name: "Move the data folder?" });
+  await expect(d).toContainText("These stay in the old folder too, Kiln copies them and does not remove them: my-notes.txt (12 KB), old-mods (1.2 GB).");
+  await d.getByRole("button", { name: "Cancel" }).click();
+  await pick(page, "/media/player/USB stick");
+  await change(page).click();
+  await expect(d).toContainText("From there, mods are copied into the game folder of Enshrouded.");
+  await expect(d).toContainText("/media/player/USB stick does not keep file permissions");
 });
 
 test("KILN_DATA_DIR set: the path and Open; Change is off with the reason", async ({ page }) => {
@@ -290,7 +344,7 @@ test.describe("Deck mode", () => {
 
   test("a refusal in the Deck's dialog, and Choose another goes back to the folders", async ({ page }) => {
     await page.goto("/?deck=steamdeck#/deck/settings");
-    await page.evaluate(() => (window as unknown as { __kilnDataFolderMock: Mock }).__kilnDataFolderMock.busy("game"));
+    await page.evaluate(() => (window as unknown as { __kilnDataFolderMock: Mock }).__kilnDataFolderMock.busy("game_running"));
     await page.locator('[data-deck-id="set-data"]').click();
     await page.getByRole("dialog", { name: "Data folder" }).getByRole("button", { name: "Use this folder" }).click();
     const d = page.getByRole("dialog", { name: "Kiln cannot use this folder" });
