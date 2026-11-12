@@ -32,7 +32,7 @@ public sealed record PlayerAnimState(string Name, string Clip, string Like)
 }
 
 /// <summary>How a sequence enters a state.</summary>
-public enum PlayerStateKind
+public enum PlayerAnimStateKind
 {
     /// <summary><c>SetAnimationEvent.animationName</c> = the state's GUID (full-body machines).</summary>
     State = 0,
@@ -41,7 +41,7 @@ public enum PlayerStateKind
 }
 
 /// <summary>Where a mod's state stands.</summary>
-public enum PlayerStateStatus
+public enum PlayerAnimStateStatus
 {
     /// <summary>In the graph this process serves: a sequence that names it enters it.</summary>
     Live = 0,
@@ -56,7 +56,7 @@ public enum PlayerStateStatus
 }
 
 /// <summary>What the player's graph is.</summary>
-public enum PlayerGraphState
+public enum PlayerAnimGraphState
 {
     /// <summary>The service is missing or turned off, or the merge cannot be proven on this game build: the game's own
     /// graph is served.</summary>
@@ -76,7 +76,7 @@ public enum PlayerGraphState
 /// <param name="Ids">What enters it: one id for most states, four for a jump-attack state (one per weapon family), none
 /// for a state no id enters (such as <c>Idle_Block</c>).</param>
 [AnyThread]
-public sealed record GamePlayerState(string Machine, string Name, PlayerStateKind Kind, IReadOnlyList<uint> Ids);
+public sealed record PlayerAnimGameState(string Machine, string Name, PlayerAnimStateKind Kind, IReadOnlyList<uint> Ids);
 
 /// <summary>A state a mod defines, in its <c>assets/player-states.json</c> or from code.</summary>
 /// <param name="Mod">The defining mod's id.</param>
@@ -89,11 +89,11 @@ public sealed record GamePlayerState(string Machine, string Name, PlayerStateKin
 /// <param name="Machine">The debug name of the machine it is in; empty when it was not placed.</param>
 /// <param name="Reason">Why it is not live; empty when it is.</param>
 [AnyThread]
-public sealed record PlayerAnimStateInfo(string Mod, string Name, Guid Guid, uint Id, PlayerStateKind Kind,
-    PlayerStateStatus Status, string Like, string Machine, string Reason);
+public sealed record PlayerAnimStateInfo(string Mod, string Name, Guid Guid, uint Id, PlayerAnimStateKind Kind,
+    PlayerAnimStateStatus Status, string Like, string Machine, string Reason);
 
 /// <summary>The answer to <see cref="PlayerAnimStates.Define"/>. <see cref="Ok"/> is true only when the state is
-/// <see cref="PlayerStateStatus.Live"/>: the boot merge already has exactly this definition. <see cref="PlayerStateStatus.Pending"/>
+/// <see cref="PlayerAnimStateStatus.Live"/>: the boot merge already has exactly this definition. <see cref="PlayerAnimStateStatus.Pending"/>
 /// means the definition is kept for the next start and is not in the game now; a sequence that names the state does
 /// nothing until the game (server and every client) has restarted with it.</summary>
 /// <param name="Mod">The defining mod's id.</param>
@@ -103,21 +103,22 @@ public sealed record PlayerAnimStateInfo(string Mod, string Name, Guid Guid, uin
 /// <param name="Status">Live, Pending or Refused.</param>
 /// <param name="Reason">Null when live; "kept for the next start" when pending; the service's reason when refused.</param>
 [AnyThread]
-public sealed record PlayerStateDefineResult(string Mod, string Name, Guid Guid, uint Id, PlayerStateStatus Status, string? Reason)
+public sealed record PlayerAnimDefineResult(string Mod, string Name, Guid Guid, uint Id, PlayerAnimStateStatus Status, string? Reason)
     : IKilnResult
 {
-    /// <summary>True only for <see cref="PlayerStateStatus.Live"/>.</summary>
-    public bool Ok => Status == PlayerStateStatus.Live;
+    /// <summary>True only for <see cref="PlayerAnimStateStatus.Live"/>.</summary>
+    public bool Ok => Status == PlayerAnimStateStatus.Live;
 }
 
 /// <summary>Mods' states in the player's animation graph (<c>kiln.playeranim</c>). Kiln merges every enabled mod's
 /// <c>assets/player-states.json</c> into the player's graph once, at boot, on the server and on each client with the
 /// same mods, and serves the result for the whole process; the join handshake refuses a client whose graph differs.
 /// Both sides, any thread. Without the service (an older native side) <see cref="Available"/> is false, the graph is
-/// <see cref="PlayerGraphState.Off"/> and the lookups answer empty; asking never throws.
+/// <see cref="PlayerAnimGraphState.Off"/> and the lookups answer empty; asking never throws.
 /// Capability: <c>anim.player_states</c>. Guide: <c>docs/kiln/services/playeranim.md</c>.</summary>
-/// <remarks>Not to be confused with Kiln.Players' <c>PlayerStates</c>, <c>PlayerState</c> and <c>PlayerStateInfo</c>
-/// (the game's player state flags and the join state): these are animation states, hence the <c>Anim</c> in the names.</remarks>
+/// <remarks>Every type of this library starts with <c>PlayerAnim</c>: Kiln.Players' <c>PlayerState…</c> family
+/// (<c>PlayerStates</c>, <c>PlayerState</c>, <c>PlayerStateInfo</c>, <c>PlayerStateId</c> and more: the game's player state
+/// flags and the join state) means something else. These are states of the player's animation graph.</remarks>
 public static unsafe class PlayerAnimStates
 {
     /// <summary>The capability this class answers for.</summary>
@@ -133,23 +134,22 @@ public static unsafe class PlayerAnimStates
     private static readonly Guid Namespace = new("6f6d2a44-53c1-5c52-9d51-0a3c6e1f2b77");
 
     private static PlayerAnimNative.Table* _table;
-    private static PlayerAnimNative.Table* T =>
-        _table != null ? _table : (_table = Services.Get<PlayerAnimNative.Table>(PlayerAnimNative.Service, PlayerAnimNative.Version));
+    private static PlayerAnimNative.Table* T => _table != null ? _table : (_table = PlayerAnimNative.Get());
 
     /// <summary>True when the native service <c>kiln.playeranim</c> is here.</summary>
     [AnyThread]
     public static bool Available => T != null;
 
-    /// <summary>What the player's graph is on this side: <see cref="PlayerGraphState.Off"/> without the service.</summary>
+    /// <summary>What the player's graph is on this side: <see cref="PlayerAnimGraphState.Off"/> without the service.</summary>
     [AnyThread]
-    public static PlayerGraphState Graph
+    public static PlayerAnimGraphState Graph
     {
         get
         {
             var t = T;
-            if (t == null) return PlayerGraphState.Off;
+            if (t == null) return PlayerAnimGraphState.Off;
             var s = t->State();
-            return s is >= 0 and <= (int)PlayerGraphState.Merged ? (PlayerGraphState)s : PlayerGraphState.Off;
+            return s is >= 0 and <= (int)PlayerAnimGraphState.Merged ? (PlayerAnimGraphState)s : PlayerAnimGraphState.Off;
         }
     }
 
@@ -173,11 +173,11 @@ public static unsafe class PlayerAnimStates
     /// <summary>The game's own states with this name, <c>State</c> or <c>Machine/State</c>. Empty: the game's graph has
     /// no such state (or it cannot be read on this build, or the service is missing). One entry: that state. Several:
     /// the bare name is in several machines, one entry each, in the graph's order; name it as <c>Machine/State</c>.
-    /// Service v1 describes only the first of several in full: the others have an empty <see cref="GamePlayerState.Machine"/>
-    /// and no ids.</summary>
+    /// An older service table without <c>game_state_at</c> describes only the first of several in full: there the others
+    /// have an empty <see cref="PlayerAnimGameState.Machine"/> and no ids.</summary>
     /// <exception cref="ArgumentNullException"><paramref name="name"/> is null.</exception>
     [AnyThread]
-    public static IReadOnlyList<GamePlayerState> FindGameStates(string name)
+    public static IReadOnlyList<PlayerAnimGameState> FindGameStates(string name)
     {
         ArgumentNullException.ThrowIfNull(name);
         var t = T;
@@ -186,25 +186,30 @@ public static unsafe class PlayerAnimStates
         PlayerAnimNative.GameState g = default;
         g.Size = (uint)sizeof(PlayerAnimNative.GameState);
         uint matches = 0;
-        int rc;
-        uint[] ids;
         fixed (byte* p = bytes)
         {
             var s = new NativeStr { Ptr = p, Len = (nuint)bytes.Length };
-            rc = t->GameState(s, &g, &matches);
-            if (rc != PlayerAnimNative.Ok || matches == 0) return [];
-            ids = GameIds(t, s, g.IdCount);
+            if (t->GameState(s, &g, &matches) != PlayerAnimNative.Ok || matches == 0) return [];
+            var count = (int)Math.Min(matches, 64u);
+            var list = new List<PlayerAnimGameState>(count) { Game(&g, GameIds(t, s, g.IdCount, null)) };
+            var full = PlayerAnimNative.HasAt(t);
+            for (uint i = 1; i < count; i++)
+            {
+                PlayerAnimNative.GameState gi = default;
+                gi.Size = (uint)sizeof(PlayerAnimNative.GameState);
+                if (full && t->GameStateAt(s, i, &gi) == PlayerAnimNative.Ok) list.Add(Game(&gi, GameIds(t, s, gi.IdCount, i)));
+                else list.Add(new PlayerAnimGameState("", g.Name.ToString(), (PlayerAnimStateKind)g.Kind, []));
+            }
+            return list;
         }
-        var kind = (PlayerStateKind)g.Kind;
-        var list = new List<GamePlayerState>((int)Math.Min(matches, 64u))
-        {
-            new(g.Machine.ToString(), g.Name.ToString(), kind, ids),
-        };
-        for (uint i = 1; i < matches && i < 64; i++) list.Add(new GamePlayerState("", g.Name.ToString(), kind, []));
-        return list;
     }
 
-    private static uint[] GameIds(PlayerAnimNative.Table* t, NativeStr name, uint hint)
+    private static PlayerAnimGameState Game(PlayerAnimNative.GameState* g, uint[] ids) =>
+        new(g->Machine.ToString(), g->Name.ToString(), (PlayerAnimStateKind)g->Kind, ids);
+
+    /// <summary>The ids of the first match (<paramref name="index"/> null: game_state_ids) or of match
+    /// <paramref name="index"/> (game_state_ids_at).</summary>
+    private static uint[] GameIds(PlayerAnimNative.Table* t, NativeStr name, uint hint, uint? index)
     {
         var capacity = Math.Max(hint, 4u);
         for (int attempt = 0; attempt < 3; attempt++)
@@ -212,7 +217,8 @@ public static unsafe class PlayerAnimStates
             var ids = new uint[capacity];
             nuint count = 0;
             int rc;
-            fixed (uint* p = ids) rc = t->GameStateIds(name, p, capacity, &count);
+            fixed (uint* p = ids)
+                rc = index is { } i ? t->GameStateIdsAt(name, i, p, capacity, &count) : t->GameStateIds(name, p, capacity, &count);
             if (rc == PlayerAnimNative.BufferTooSmall || (rc == PlayerAnimNative.Ok && count > capacity))
             {
                 capacity = (uint)Math.Min((ulong)count, 4096);
@@ -266,8 +272,8 @@ public static unsafe class PlayerAnimStates
     }
 
     private static PlayerAnimStateInfo Info(PlayerAnimNative.State* s) => new(
-        s->Mod.ToString(), s->Name.ToString(), new Guid(new ReadOnlySpan<byte>(s->Guid, 16)), s->Id, (PlayerStateKind)s->Kind,
-        s->Status <= (uint)PlayerStateStatus.Unavailable ? (PlayerStateStatus)s->Status : PlayerStateStatus.Unavailable,
+        s->Mod.ToString(), s->Name.ToString(), new Guid(new ReadOnlySpan<byte>(s->Guid, 16)), s->Id, (PlayerAnimStateKind)s->Kind,
+        s->Status <= (uint)PlayerAnimStateStatus.Unavailable ? (PlayerAnimStateStatus)s->Status : PlayerAnimStateStatus.Unavailable,
         s->Like.ToString(), s->Machine.ToString(), s->Reason.ToString());
 
     /// <summary>The GUID of mod <paramref name="mod"/>'s state <paramref name="name"/>, by the rule alone (no lookup):
@@ -307,9 +313,9 @@ public static unsafe class PlayerAnimStates
     /// and a change while a player's graph is live would end the game, so a definition from code never changes the
     /// running game: when the boot merge already has exactly this definition (it is in the mod's
     /// <c>assets/player-states.json</c>, or was kept from code on an earlier run) the result is
-    /// <see cref="PlayerStateStatus.Live"/>; otherwise it is <see cref="PlayerStateStatus.Pending"/>, "kept for the next
+    /// <see cref="PlayerAnimStateStatus.Live"/>; otherwise it is <see cref="PlayerAnimStateStatus.Pending"/>, "kept for the next
     /// start": the state is in the graph after a restart, on every side that runs the mod, and not before. A definition
-    /// the service will not take is <see cref="PlayerStateStatus.Refused"/> with its reason. Prefer
+    /// the service will not take is <see cref="PlayerAnimStateStatus.Refused"/> with its reason. Prefer
     /// <c>assets/player-states.json</c>: it is in the graph from the first start.</summary>
     /// <remarks>Call it from the mod's own code (<c>OnLoad</c>, a tick handler): that is how the defining mod is found.</remarks>
     /// <exception cref="ArgumentNullException"><paramref name="state"/> or one of its texts is null.</exception>
@@ -320,7 +326,7 @@ public static unsafe class PlayerAnimStates
     /// is off on this game build.</exception>
     /// <exception cref="InvalidOperationException">Not called from a mod's code.</exception>
     [AnyThread]
-    public static PlayerStateDefineResult Define(PlayerAnimState state)
+    public static PlayerAnimDefineResult Define(PlayerAnimState state)
     {
         Validate(state);
         var t = T;
@@ -329,27 +335,27 @@ public static unsafe class PlayerAnimStates
             ?? throw new InvalidOperationException("PlayerAnimStates.Define must be called from a mod's code (OnLoad or a tick handler)");
         var guid = GuidOf(mod.Id, state.Name);
         var id = IdOf(guid);
-        PlayerStateDefineResult Result(PlayerStateStatus status, string? reason) => new(mod.Id, state.Name, guid, id, status, reason);
+        PlayerAnimDefineResult Result(PlayerAnimStateStatus status, string? reason) => new(mod.Id, state.Name, guid, id, status, reason);
 
         var json = DefinitionJson(mod.Id, mod.Directory, state);
         var (rc, report) = CallDefine(t, json);
-        if (rc == PlayerAnimNative.Unavailable) return Result(PlayerStateStatus.Refused, NoDefineInBuild);
+        if (rc == PlayerAnimNative.Unavailable) return Result(PlayerAnimStateStatus.Refused, NoDefineInBuild);
         var (status, reason) = ReportEntry(report, state.Name);
         if (rc != PlayerAnimNative.Ok)
-            return Result(PlayerStateStatus.Refused, string.IsNullOrEmpty(reason) ? $"the service refused the definition (error {rc})" : reason);
+            return Result(PlayerAnimStateStatus.Refused, string.IsNullOrEmpty(reason) ? $"the service refused the definition (error {rc})" : reason);
         switch (status)
         {
             case "refused":
-                return Result(PlayerStateStatus.Refused, string.IsNullOrEmpty(reason) ? "refused by the service" : reason);
+                return Result(PlayerAnimStateStatus.Refused, string.IsNullOrEmpty(reason) ? "refused by the service" : reason);
             case "unavailable":
                 throw new KilnUnavailableException(Capability, string.IsNullOrEmpty(reason) ? "the merge is off on this game build" : reason);
             case "live":
                 // Live only when the served graph has it: never claim a state the running game cannot play.
-                if (Graph == PlayerGraphState.Merged && Find(mod.Id, state.Name) is { Status: PlayerStateStatus.Live })
-                    return Result(PlayerStateStatus.Live, null);
-                return Result(PlayerStateStatus.Pending, KeptForNextStart);
+                if (Graph == PlayerAnimGraphState.Merged && Find(mod.Id, state.Name) is { Status: PlayerAnimStateStatus.Live })
+                    return Result(PlayerAnimStateStatus.Live, null);
+                return Result(PlayerAnimStateStatus.Pending, KeptForNextStart);
             default:
-                return Result(PlayerStateStatus.Pending, KeptForNextStart);
+                return Result(PlayerAnimStateStatus.Pending, KeptForNextStart);
         }
     }
 

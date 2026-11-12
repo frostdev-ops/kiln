@@ -49,5 +49,21 @@ internal static unsafe class PlayerAnimNative
         public delegate* unmanaged[Cdecl]<NativeStr, byte*, nuint, nuint*, int> DefineJson;
         public delegate* unmanaged[Cdecl]<NativeStr, NativeStr, int> PrunePending;
         public delegate* unmanaged[Cdecl]<byte*, nuint, nuint*, int> StatusJson;
+        // appended after v1's first table: an older table's header.size stops before these (HasAt)
+        public delegate* unmanaged[Cdecl]<NativeStr, uint, GameState*, int> GameStateAt;
+        public delegate* unmanaged[Cdecl]<NativeStr, uint, uint*, nuint, nuint*, int> GameStateIdsAt;
     }
+
+    /// <summary>The table up to status_json: what every v1 table has.</summary>
+    public static readonly uint FirstSize = (uint)(sizeof(ServiceHeader) + 10 * sizeof(nint));
+
+    /// <summary>The table, or null when the service is missing or its table is shorter than the first v1 table.</summary>
+    public static Table* Get()
+    {
+        var h = Services.Get<ServiceHeader>(Service, Version);
+        return h != null && h->Size >= FirstSize ? (Table*)h : null;
+    }
+
+    /// <summary>Whether the table has game_state_at and game_state_ids_at.</summary>
+    public static bool HasAt(Table* t) => t->Header.Size >= (uint)sizeof(Table);
 }
