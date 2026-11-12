@@ -262,6 +262,31 @@ def test_refuses_a_component_kiln_world_cannot_find_by_name():
             "component keen::glimmer::Trail", "keen::ecs::Trail", "typed access by name cannot reach it")
 
 
+def test_the_table_lists_the_generated_methods_of_a_struct():
+    with open(os.path.join(EXPECTED, "Kiln.Game.layouts"), encoding="utf-8") as f:
+        lines = {l.split("\t")[1]: l.split("\t") for l in f.read().split("\n") if l[1:2] == "\t"}
+    methods = {n: [m for m in p[6:] if "@method:" in m] for n, p in lines.items()}
+    # wrappers: the conversions to and from the wrapped type; the attribute component: its value view
+    assert methods["Kiln.Ecs+LampId"] == ["op_Implicit@method:uint"]
+    assert methods["Kiln.Ecs+HashKey32"] == ["op_Implicit@method:uint"]
+    assert methods["Kiln.Ecs+Moment"] == ["op_Implicit@method:long"]
+    assert methods["Kiln.Ecs+Warmth"] == ["get_Values@method:Span<float>"]
+    # nothing else: not a wrapper (several fields, an empty struct, a single field smaller than its struct), no view
+    for n in ("Kiln.Ecs+Lantern", "Kiln.Ecs+Spark", "Kiln.Ecs+Component", "Kiln.Ecs+Unlit", "Kiln.Ecs+FloatMeter"):
+        assert methods[n] == [], (n, methods[n])
+    assert sum(len(v) for v in methods.values()) == 4
+    # the method members come after the fields, and their "offset" is never a number
+    for p in lines.values():
+        ms = p[6:]
+        k = [i for i, m in enumerate(ms) if "@method:" in m]
+        assert k == list(range(len(ms) - len(k), len(ms))), p[1]
+
+
+def test_refuses_a_field_named_like_a_table_method():
+    refused("method-name", lambda d: field(find(d, "keen::ecs::Lantern"), "glow").update(name="op_Implicit"),
+            "keen::ecs::Lantern.op_Implicit", "a generated method's name")
+
+
 def test_an_attribute_component_gets_its_value_view():
     with open(os.path.join(EXPECTED, "Kiln.Game.Ecs.g.cs"), encoding="utf-8") as f:
         text = f.read()

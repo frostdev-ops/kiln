@@ -20,6 +20,10 @@ public static class GameLayoutStamps
     /// <summary>The name of the embedded table.</summary>
     internal const string ResourceName = "Kiln.Game.layouts";
 
+    // The generated methods a mod can bind to, listed in a struct's table line as <name>@method:<C# type> and stamped
+    // like fields: a wrapper's implicit conversions (the wrapped type) and an attribute component's Values (Span<T>).
+    private const string ImplicitMethod = "op_Implicit", ValuesMethod = "get_Values";
+
     private static readonly Lazy<string> _table = new(() =>
     {
         using var s = typeof(GameLayoutStamps).Assembly.GetManifestResourceStream(ResourceName);
@@ -101,9 +105,19 @@ public static class GameLayoutStamps
                     {
                         string was = f.Value.ValueKind == JsonValueKind.String ? f.Value.GetString()! : f.Value.GetRawText();
                         if (!have.Fields.TryGetValue(f.Name, out var now))
-                            return Fail(out reason, $"{who}{t.Name}.{f.Name} ({was}) is gone in this Kiln.Game ({table.Describe()})");
+                            return Fail(out reason, f.Name switch
+                            {
+                                ImplicitMethod => $"{who}{t.Name}: the conversion to and from {was} is gone in this Kiln.Game ({table.Describe()}): it is no longer a single-field wrapper",
+                                ValuesMethod => $"{who}{t.Name}: the attribute view Values ({was}) is gone in this Kiln.Game ({table.Describe()})",
+                                _ => $"{who}{t.Name}.{f.Name} ({was}) is gone in this Kiln.Game ({table.Describe()})",
+                            });
                         if (!string.Equals(was, now, StringComparison.Ordinal))
-                            return Fail(out reason, $"{who}{t.Name}.{f.Name} changed from {was} to {now} in this Kiln.Game ({table.Describe()})");
+                            return Fail(out reason, f.Name switch
+                            {
+                                ImplicitMethod => $"{who}{t.Name}: the conversion to and from {was} is now to and from {now} in this Kiln.Game ({table.Describe()})",
+                                ValuesMethod => $"{who}{t.Name}: the attribute view Values changed from {was} to {now} in this Kiln.Game ({table.Describe()})",
+                                _ => $"{who}{t.Name}.{f.Name} changed from {was} to {now} in this Kiln.Game ({table.Describe()})",
+                            });
                     }
                 }
                 if (t.Value.TryGetProperty("values", out var values) && values.ValueKind == JsonValueKind.Object)
@@ -136,7 +150,7 @@ public static class GameLayoutStamps
     private sealed class Entry
     {
         public required string Layout;
-        public Dictionary<string, string>? Fields;   // struct: field name -> C# type as written in the generated source
+        public Dictionary<string, string>? Fields;   // struct: field (or generated method) name -> C# type as written in the generated source
         public Dictionary<string, decimal>? Values;  // enum or bitmask: name -> value
     }
 

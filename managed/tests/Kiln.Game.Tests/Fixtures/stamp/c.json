@@ -4,6 +4,7 @@
  "exe_sha256": "000000000000000000000000000000000000000000000000000000000000000c",
  "components": [
   "keen::ecs::Component",
+  "keen::ecs::Glow",
   "keen::ecs::Lamp",
   "keen::ecs::Torch"
  ],
@@ -39,6 +40,36 @@
    ]
   },
   {
+   "name": "StaticArray<keen::float32,2>",
+   "qualifiedName": "keen::StaticArray<keen::float32,2>",
+   "hash": "0xFCF073F9",
+   "kind": 19,
+   "size": 8,
+   "align": 4,
+   "inner": "keen::float32"
+  },
+  {
+   "name": "AttributeComponent",
+   "qualifiedName": "keen::ecs::AttributeComponent",
+   "hash": "0x81509358",
+   "kind": 18,
+   "size": 8,
+   "align": 4,
+   "inner": "keen::ecs::Component",
+   "fields": [
+    {
+     "name": "key",
+     "offset": 0,
+     "type": "keen::uint32"
+    },
+    {
+     "name": "count",
+     "offset": 4,
+     "type": "keen::uint16"
+    }
+   ]
+  },
+  {
    "name": "Component",
    "qualifiedName": "keen::ecs::Component",
    "hash": "0xB4B5CB62",
@@ -46,6 +77,22 @@
    "size": 1,
    "align": 1,
    "fields": []
+  },
+  {
+   "name": "Glow",
+   "qualifiedName": "keen::ecs::Glow",
+   "hash": "0xD577E672",
+   "kind": 18,
+   "size": 16,
+   "align": 4,
+   "inner": "keen::ecs::AttributeComponent",
+   "fields": [
+    {
+     "name": "dataStorage",
+     "offset": 8,
+     "type": "keen::StaticArray<keen::float32,2>"
+    }
+   ]
   },
   {
    "name": "Lamp",
@@ -64,7 +111,7 @@
     {
      "name": "wick",
      "offset": 8,
-     "type": "keen::uint32"
+     "type": "keen::ecs::WickId"
     },
     {
      "name": "mode",
@@ -106,6 +153,21 @@
      "name": "hue",
      "offset": 4,
      "type": "keen::glimmer::Hue"
+    }
+   ]
+  },
+  {
+   "name": "WickId",
+   "qualifiedName": "keen::ecs::WickId",
+   "hash": "0x18B16DDC",
+   "kind": 18,
+   "size": 4,
+   "align": 4,
+   "fields": [
+    {
+     "name": "id",
+     "offset": 0,
+     "type": "keen::uint32"
     }
    ]
   },
@@ -166,6 +228,14 @@
      "value": 2
     }
    ]
+  },
+  {
+   "name": "sint32",
+   "qualifiedName": "keen::sint32",
+   "hash": "0x58A92141",
+   "kind": 7,
+   "size": 4,
+   "align": 4
   },
   {
    "name": "uint16",

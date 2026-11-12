@@ -1,5 +1,5 @@
 // kiln-typegen: generated at build time from a game layout dump. Never commit this file.
-kiln.game.layouts	1	side=server	exe_sha256=0000000000000000000000000000000000000000000000000000000000000001	root=Ecs	types=22	set=b441ecc0a182a692
+kiln.game.layouts	1	side=server	exe_sha256=0000000000000000000000000000000000000000000000000000000000000001	root=Ecs	types=22	set=456700a02b8691ee
 S	Kiln.Ecs+AttributeComponent	aa284951e411c126	keen::ecs::AttributeComponent	8	struct	key@0:Ecs.HashKey32	start@4:ushort	count@6:byte
 S	Kiln.Ecs+Comet	920a9621ba725134	keen::ecs::Comet	24	component	trail@0:Ecs.Glimmer_Trail	speed@16:double
 S	Kiln.Ecs+Component	65e177bf2d18bbbf	keen::ecs::Component	1	component
@@ -9,16 +9,16 @@ S	Kiln.Ecs+Gauges	d8daf0a885973832	keen::ecs::Gauges	56	component	on@0:bool	b@1:
 E	Kiln.Ecs+Glimmer_Kind	9bbe5c7fb7f8c166	keen::glimmer::Kind	4	uint	Ember=0	Flash=1	event=2
 F	Kiln.Ecs+Glimmer_KindMask	fd6ede5f227e3bcf	keen::Bitmask8<keen::glimmer::Kind>	1	byte	Ember=1	Flash=2	event=4
 S	Kiln.Ecs+Glimmer_Trail	85a822fdcfea1700	keen::glimmer::Trail	12	struct	length@0:float	kind@4:Ecs.Glimmer_Kind	kinds@8:Ecs.Glimmer_KindMask
-S	Kiln.Ecs+HashKey32	f24f4ce566418098	keen::HashKey32	4	struct	value@0:uint
-S	Kiln.Ecs+LampId	53035b0a41d70d36	keen::ecs::LampId	4	struct	id@0:uint
+S	Kiln.Ecs+HashKey32	f24f4ce566418098	keen::HashKey32	4	struct	value@0:uint	op_Implicit@method:uint
+S	Kiln.Ecs+LampId	53035b0a41d70d36	keen::ecs::LampId	4	struct	id@0:uint	op_Implicit@method:uint
 S	Kiln.Ecs+Lantern	3a58317628135ea2	keen::ecs::Lantern	136	component	glow@0:float	wick@4:Ecs.LampId	mode@8:Ecs.LanternMode	tags@10:Ecs.LanternTagMask	levels@12:Ecs.StaticArray4<short>	lit@24:Ecs.Moment	sparks@32:Ecs.StaticArray3<Ecs.Spark>	params@56:uint	model@64:Ecs.ObjectReference	guid@80:Ecs.GameGuid	notes@96:fixed byte[8]	title@104:fixed byte[8]	opaque@112:fixed byte[8]	labels@120:fixed byte[16]
 S	Kiln.Ecs+LanternLit	d9803d78f1eb8021	keen::ecs::LanternLit	12	event	lantern@0:Ecs.LampId	mode@4:Ecs.LanternMode	wicks@8:Ecs.StaticArray4<byte>
 E	Kiln.Ecs+LanternMode	8b28080c33f6b362	keen::LanternMode	1	byte	Off=0	Dim=1	Bright=2
 F	Kiln.Ecs+LanternModeMask	b2cb96da7d347736	keen::Bitmask64<keen::LanternMode>	8	ulong	Off=1	Dim=2	Bright=4
 E	Kiln.Ecs+LanternTag	53a23903ffdf0f63	keen::LanternTag	1	byte	Hanging=0	Lit=1	Smoky=2	Hooded=15
 F	Kiln.Ecs+LanternTagMask	d9b986e211fcb3b0	keen::Bitmask16<keen::LanternTag>	2	ushort	Hanging=1	Lit=2	Smoky=4	Hooded=32768
-S	Kiln.Ecs+Moment	280e8f3404163fc7	keen::Moment	8	struct	value@0:long
+S	Kiln.Ecs+Moment	280e8f3404163fc7	keen::Moment	8	struct	value@0:long	op_Implicit@method:long
 S	Kiln.Ecs+Spark	285d66df530d7b10	keen::ecs::Spark	8	struct	heat@0:float	age@4:ushort	tilt@6:Ecs.Tilt
 E	Kiln.Ecs+Tilt	d2d474e449f2ddcb	keen::Tilt	2	short	Left=-1	Level=0	Right=1
 S	Kiln.Ecs+Unlit	70240e8ec51c2ede	keen::ecs::Unlit	1	component
-S	Kiln.Ecs+Warmth	0b3d41b13369232f	keen::ecs::Warmth	24	component	key@0:Ecs.HashKey32	start@4:ushort	count@6:byte	dataStorage@8:Ecs.StaticArray4<float>
+S	Kiln.Ecs+Warmth	0b3d41b13369232f	keen::ecs::Warmth	24	component	key@0:Ecs.HashKey32	start@4:ushort	count@6:byte	dataStorage@8:Ecs.StaticArray4<float>	get_Values@method:Span<float>

@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
-// Reads a Lamp component out of a buffer through the generated struct, the way a mod reads one: by field name, bound
-// when this code is compiled at run time against whichever Kiln.Game is loaded. Names Lamp.glow, wick, mode, flags and
-// core, and LampCore.heat and ticks (a nested-struct field chain); never Lamp.spare, Torch or Glimmer_Hue.
+// Reads a Lamp and a Glow component out of a buffer through the generated structs, the way a mod reads them: by member
+// name, bound when this code is compiled at run time against whichever Kiln.Game is loaded. Names Lamp.glow, wick, mode,
+// flags and core, LampCore.heat and ticks (a nested-struct field chain), WickId's implicit conversion to uint (a
+// generated method, not its field) and Glow's Values view (a generated method); never Lamp.spare, Torch or Glimmer_Hue.
 using System.Globalization;
 using System.Runtime.InteropServices;
 using Kiln;
@@ -13,8 +14,16 @@ public static class Probe
     public static string Read(byte[] buffer)
     {
         var lamp = MemoryMarshal.Read<Ecs.Lamp>(buffer);
+        uint wick = lamp.wick;
         return string.Create(CultureInfo.InvariantCulture,
-            $"glow={lamp.glow} wick={lamp.wick} mode={lamp.mode} flags={(byte)lamp.flags} heat={lamp.core.heat} ticks={lamp.core.ticks} bright={IsBright(lamp)}");
+            $"glow={lamp.glow} wick={wick} mode={lamp.mode} flags={(byte)lamp.flags} heat={lamp.core.heat} ticks={lamp.core.ticks} bright={IsBright(lamp)}");
+    }
+
+    public static string ReadGlow(byte[] buffer)
+    {
+        var glow = MemoryMarshal.Read<Ecs.Glow>(buffer);
+        var values = glow.Values;
+        return string.Create(CultureInfo.InvariantCulture, $"values={values[0]},{values[1]}");
     }
 
     static bool IsBright(Ecs.Lamp lamp) => lamp.mode == Ecs.Glimmer_Mode.Bright;
