@@ -82,7 +82,8 @@ internal readonly record struct MatchOutcome(int Record, MatchKind Kind, int Ite
 /// the holder (the lab has to show this; one data point so far: chest 1042, its can in slot 3 entity 1043, its pouch in slot
 /// 8 entity 1044), then a swap of two items breaks the ascending order, and an item made later or brought in from elsewhere
 /// falls outside the loader's run of ids. The lab measurement decides the slack constants; it must never turn the
-/// predicate into "always true": if the loader does not work that way, rule 1 stays off.</remarks>
+/// predicate into "always true": if the loader does not work that way, rule 1 stays off. A player's character loader does
+/// not work that way (worn gear first): <see cref="AsMadeByLinks"/>.</remarks>
 internal static class LoadOrder
 {
     /// <summary>Condition 2: the ids span at most (made - 1 + this): a gapless run, today.</summary>
@@ -151,6 +152,96 @@ internal static class LoadOrder
             return false;
         }
         why = $"entity ids ascend in slot order in one run after the holder";
+        return true;
+    }
+
+    /// <summary>Flat slots from here on are not the save's own numbers: worn gear, currency, nested links (256 + the
+    /// link's position in the holder's link tree x 8 + index).</summary>
+    internal const int UnsavedSlotBase = 256;
+
+    /// <summary>A player's run: at most this many ids that are not the inventory's items may lie among them (the link
+    /// inventories, anything the loader makes for an item). Not measured yet; the join's log line lists the runs.</summary>
+    internal const int PlayerSpanSlack = 64;
+
+    /// <summary>A player's link group of a flat slot: -1 for the backpack (the saved slots 0-255, which the character
+    /// saver numbers in one sequence), else the link tree position of an unsaved link.</summary>
+    internal static int LinkGroup(int flatSlot) => flatSlot < UnsavedSlotBase ? -1 : (flatSlot - UnsavedSlotBase) / 8;
+
+    private static string GroupName(int group) =>
+        group < 0 ? "the backpack" : $"link {group} (slots {UnsavedSlotBase + group * 8}-{UnsavedSlotBase + group * 8 + 7})";
+
+    /// <summary>The same question for a player's inventory just after its join, where the character loader's order is not
+    /// the flat-slot order: a real join (dev26-playtest, 2026-11-12) made the item in flat slot 256 (worn) before the
+    /// backpack's. So the order is checked per link group (the backpack's saved slots as one group, each other link as its
+    /// own): within each group the ids ascend with the slot, and the groups' id ranges do not overlap, in whatever order the
+    /// loader made the groups. All ids lie within one run (<see cref="PlayerSpanSlack"/>), so an item from elsewhere shows.</summary>
+    /// <param name="items">The inventory now: flat slot, entity id, stable fingerprint.</param>
+    /// <param name="why">The reason in words; it lists each group's id range, so a join's log line shows the loader's
+    /// order.</param>
+    /// <remarks>What the ids cannot show is a swap between two groups when nothing else breaks: two one-item groups trading
+    /// their items, or equal groups trading all of them. That needs look-alikes in two groups (a move of one item to another
+    /// group, with every slot's fingerprint as before, leaves a look-alike of it behind), so a holder with look-alikes in two
+    /// groups (a sword worn and its twin in the backpack) is not "as made": its twins are set aside, a unique item still
+    /// comes back by rule 2. Like <see cref="AsMade"/>, ascending ids prove that nothing changed places, not that nothing
+    /// moved to an empty slot.</remarks>
+    public static bool AsMadeByLinks(IReadOnlyList<(int Slot, uint Id, StableFingerprint Stable)> items, out string why)
+    {
+        if (items.Count == 0)
+        {
+            why = "no items";
+            return true;
+        }
+        var groups = items.GroupBy(i => LinkGroup(i.Slot))
+            .Select(g => (Group: g.Key, Items: g.OrderBy(i => i.Slot).ToArray()))
+            .OrderBy(g => g.Items.Min(i => i.Id))
+            .ToArray();
+        var runs = string.Join(", ", groups.Select(g =>
+        {
+            var lo = g.Items.Min(i => i.Id);
+            var hi = g.Items.Max(i => i.Id);
+            return $"{GroupName(g.Group)} {lo}{(hi != lo ? $"-{hi}" : "")} ({g.Items.Length})";
+        }));
+        // 1. within a group, ids strictly ascending in slot order: no two of its items changed places
+        foreach (var (group, sorted) in groups)
+            for (var i = 1; i < sorted.Length; i++)
+                if (sorted[i].Id <= sorted[i - 1].Id)
+                {
+                    why = $"in {GroupName(group)} the item in slot {sorted[i].Slot} (entity {sorted[i].Id}) is older than the one in slot " +
+                          $"{sorted[i - 1].Slot} (entity {sorted[i - 1].Id}): items changed places since they were made; ids by link: {runs}";
+                    return false;
+                }
+        // 2. the groups were made one after the other: an item moved between two groups of several items overlaps them
+        for (var g = 1; g < groups.Length; g++)
+        {
+            var below = groups[g - 1];
+            var above = groups[g];
+            if (below.Items.Max(i => i.Id) > above.Items.Min(i => i.Id))
+            {
+                why = $"the ids of {GroupName(below.Group)} and {GroupName(above.Group)} overlap: items changed places between links since " +
+                      $"they were made; ids by link: {runs}";
+                return false;
+            }
+        }
+        // 3. one run: an item brought in from elsewhere lies far outside it
+        var span = (long)items.Max(i => i.Id) - items.Min(i => i.Id);
+        if (span > items.Count - 1 + PlayerSpanSlack)
+        {
+            why = $"entity ids {items.Min(i => i.Id)} to {items.Max(i => i.Id)} for {items.Count} item(s): an item came in from elsewhere since " +
+                  $"the join; ids by link: {runs}";
+            return false;
+        }
+        // 4. look-alikes in two groups: a swap between them would leave every check above as it was
+        foreach (var same in items.GroupBy(i => i.Stable))
+        {
+            var where = same.Select(i => LinkGroup(i.Slot)).Distinct().ToArray();
+            if (where.Length > 1)
+            {
+                why = $"look-alikes {same.Key} in {GroupName(where[0])} and {GroupName(where[1])} (slots " +
+                      $"{string.Join(", ", same.Select(i => i.Slot).Order())}): a swap between links would not show in the ids; ids by link: {runs}";
+                return false;
+            }
+        }
+        why = $"entity ids ascend in slot order within each link, one link after the other: {runs}";
         return true;
     }
 }
@@ -223,6 +314,23 @@ internal static class InstanceMatcher
                 : $"the inventory is as the character's file of an earlier save had it: the item in slot {slots[0]}");
     }
 
+    /// <summary>The record's states that rule 2's look-alike doubt has to consider: every one, except for a player whose
+    /// inventory is as the loader made it from the client's file (<paramref name="asMade"/>, which for a player also means
+    /// the loaded generation is the newest). Then the file is the inventory now, so it is not a settled state whose list
+    /// differs from it; it is a state equal to it, or an unsettled one (read a step before the file was made). If no state
+    /// is either, the file is none Kiln knows, and every state counts.</summary>
+    /// <remarks>Without this, a look-alike that stood beside the item at an older save and left the inventory before the
+    /// leave set the record aside, although no file the client can have holds it (the second real rejoin of
+    /// 2026-11-12).</remarks>
+    internal static IEnumerable<(uint Seen, int Slot)> PossibleFiles(in MatchRecord r, IReadOnlyDictionary<uint, Witness> witnesses,
+        IReadOnlyList<MatchItem> items, bool asMade, bool world)
+    {
+        var all = r.Observations.ToList();
+        if (world || !asMade) return all;
+        var possible = all.Where(o => !witnesses[o.Seen].Settled || SameAsWitness(witnesses[o.Seen].Entries, items)).ToList();
+        return possible.Count > 0 ? possible : all;
+    }
+
     /// <summary>Decides every record of one holder. Pure: nothing is read or changed.</summary>
     /// <param name="records">The holder's saved records (waiting and set aside alike).</param>
     /// <param name="witnesses">Observation -> the holder's whole list of item entities at that save.</param>
@@ -230,7 +338,8 @@ internal static class InstanceMatcher
     /// <param name="trustedGeneration">The generation whose observations the world file vouches for; null for a player,
     /// or for a world whose loaded generation is older than its file (or none).</param>
     /// <param name="asMade">The holder's items are as the loader made them in this session (<see cref="LoadOrder"/>):
-    /// nothing changed places and nothing came in between the load and now. Without it rule 1 does not apply.</param>
+    /// nothing changed places and nothing came in between the load and now. Without it rule 1 does not apply, and rule 2's
+    /// look-alike doubt looks at every state of a player's record (<see cref="PossibleFiles"/>).</param>
     /// <param name="world">A world holder: rule 1 needs the world file's own generation and an equal list (a player: the
     /// list alone).</param>
     public static MatchOutcome[] Match(IReadOnlyList<MatchRecord> records, IReadOnlyDictionary<uint, Witness> witnesses,
@@ -312,7 +421,8 @@ internal static class InstanceMatcher
                 var it = candidates[0];
                 // At a save the holder had a look-alike of this item too, and one of the two is gone: which one is not known.
                 // (A state in which the item was not there but a look-alike was: the look-alike may be what came back.)
-                var doubt = records[r].Observations.Select(o => (o.Slot, Twins: witnesses[o.Seen].Entries.Count(e => e.Fields.Stable == fp)))
+                var doubt = PossibleFiles(records[r], witnesses, items, asMade, world)
+                    .Select(o => (o.Slot, Twins: witnesses[o.Seen].Entries.Count(e => e.Fields.Stable == fp)))
                     .FirstOrDefault(o => o.Slot >= 0 ? o.Twins > 1 : o.Twins > 0);
                 if (doubt.Twins > 0)
                 {

@@ -3,7 +3,9 @@
 // tags, swaps and moves the store sees, saves the client receives or misses, and an end at a random point: a crash (no
 // leave save; the client keeps the last file it received) or a menu leave (the leave save, its file sent). Then the
 // player comes back with the file it holds. Ground truth: every item carries its identity as its value, so no item may
-// ever carry another one's.
+// ever carry another one's. The second theory adds what the first real player showed (2026-11-12): worn gear (flat slots
+// 256 and up) that the character loader makes before the backpack, look-alikes going into a chest and back, and a menu
+// leave whose save read the player only once, a step before the game's snapshot.
 using Xunit;
 using static Kiln.InstanceHarness;
 
@@ -23,16 +25,20 @@ public sealed class InstanceLeaveRandomTests(ITestOutputHelper output)
 
     private sealed record Outcome(int Restored, int Wrong, int Untagged, string Story, List<string> Failures);
 
-    private static Outcome Visit(Random rng)
+    private static Outcome Visit(Random rng, bool real = false)
     {
         using var h = new InstanceHarness();
         var w = h.World;
+        w.PlayerLoaderWornFirst = real;
+        var chest = real ? w.Chest(ChestTemplate, A) : EntityId.None;
+        int[] worn = real ? [256, 257, 258, 259, 264] : [];
+        var slots = Enumerable.Range(0, 12).Concat(worn).ToArray();
         var story = new List<string>();
         var nextIdentity = 1;
         // the file the client joins with
         var file = new List<(int Slot, InstanceFields Fields)>();
         var ids = new Dictionary<int, int>();
-        foreach (var slot in Enumerable.Range(0, 12).OrderBy(_ => rng.Next()).Take(rng.Next(2, 7)))
+        foreach (var slot in slots.OrderBy(_ => rng.Next()).Take(rng.Next(2, 7)))
         {
             file.Add((slot, Pool[rng.Next(Pool.Length)]));
             ids[slot] = nextIdentity++;
@@ -58,8 +64,8 @@ public sealed class InstanceLeaveRandomTests(ITestOutputHelper output)
         for (var o = 0; o < ops; o++)
         {
             var mine = w.Items.Values.Where(i => i.Holder == p).ToList();
-            var free = Enumerable.Range(0, 16).Where(s => mine.All(i => i.Slot != s)).ToArray();
-            switch (rng.Next(6))
+            var free = Enumerable.Range(0, 16).Concat(worn).Where(s => mine.All(i => i.Slot != s)).ToArray();
+            switch (rng.Next(real ? 8 : 6))
             {
                 case 0 when mine.Count > 1:
                 {
@@ -104,6 +110,23 @@ public sealed class InstanceLeaveRandomTests(ITestOutputHelper output)
                     TagSome();
                     story.Add("tag");
                     break;
+                case 6 when mine.Count > 0:
+                {
+                    var a = mine[rng.Next(mine.Count)];
+                    var to = Enumerable.Range(0, 24).First(s => w.Items.Values.All(i => i.Holder != chest || i.Slot != s));
+                    story.Add($"{a.Slot} into the chest");
+                    w.Move(a.Ref, chest, to);
+                    break;
+                }
+                case 7 when free.Length > 0 && w.Items.Values.Any(i => i.Holder == chest):
+                {
+                    var stored = w.Items.Values.Where(i => i.Holder == chest).ToList();
+                    var a = stored[rng.Next(stored.Count)];
+                    var to = free[rng.Next(free.Length)];
+                    story.Add($"from the chest into {to}");
+                    w.Move(a.Ref, p, to);
+                    break;
+                }
             }
             if (rng.NextDouble() < 0.3) h.Tick();
         }
@@ -115,11 +138,13 @@ public sealed class InstanceLeaveRandomTests(ITestOutputHelper output)
         }
         else
         {
-            story.Add($"menu leave (save {rev})");
+            // the real leaves were read once, at the request: the snapshot staging did not read the leaving player again
+            var once = real && rng.NextDouble() < 0.5;
+            story.Add($"menu leave (save {rev}{(once ? ", read once" : "")})");
             Store.Stage(rev, SaveReason.PlayerLeft, late: false);
             w.BeginLeave(p);
             h.Tick();
-            Store.Stage(rev, SaveReason.PlayerLeft, late: false, snapshot: true);
+            if (!once) Store.Stage(rev, SaveReason.PlayerLeft, late: false, snapshot: true);
             Store.Commit(rev, 1000 + rev, SaveReason.PlayerLeft);
             w.SendCharacter(p);
             w.DestroyPlayerEntity(p);
@@ -159,14 +184,22 @@ public sealed class InstanceLeaveRandomTests(ITestOutputHelper output)
     [InlineData(20261112, 150)]
     [InlineData(11, 150)]
     [InlineData(31337, 150)]
-    public void NoItemEverCarriesAnotherItemsValueAfterALeaveAndARejoin(int seed, int visits)
+    public void NoItemEverCarriesAnotherItemsValueAfterALeaveAndARejoin(int seed, int visits) => Run(seed, visits, real: false);
+
+    [Theory]
+    [InlineData(20261112, 300)]
+    [InlineData(7, 300)]
+    [InlineData(4242, 300)]
+    public void NoItemEverCarriesAnotherItemsValueWithWornGearChestsAndALeaveReadOnce(int seed, int visits) => Run(seed, visits, real: true);
+
+    private void Run(int seed, int visits, bool real)
     {
         var rng = new Random(seed);
         int restored = 0, aside = 0;
         var failures = new List<string>();
         for (var v = 0; v < visits; v++)
         {
-            var o = Visit(rng);
+            var o = Visit(rng, real);
             restored += o.Restored;
             aside += o.Untagged;
             foreach (var f in o.Failures)
