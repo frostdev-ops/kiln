@@ -35,6 +35,7 @@ internal static class ChecksService
                 try
                 {
                     _net = CheckNet.Open(runner, env);
+                    if (env.IsClient) Client.Tick += static (in TickInfo _) => _net?.Step();
                 }
                 catch (Exception e)
                 {
@@ -63,7 +64,7 @@ internal static class ChecksService
         try
         {
             _control?.Poll();
-            _net?.Step();
+            if (Mods.Side != ModSide.Client) _net?.Step();
             _runner?.Step();
         }
         catch (Exception e)

@@ -106,6 +106,8 @@ internal sealed class CheckNet
     private readonly CheckRunner _runner;
     private readonly IRunnerEnv _env;
     private readonly NetChannel _channel;
+    private readonly Func<object, bool> _sendToServer;
+    private readonly Func<NetPeer?> _readServer;
     private readonly object _lock = new();
 
     // client half (main thread handlers, screen reads): under _lock
@@ -116,13 +118,17 @@ internal sealed class CheckNet
     private bool _runningAll;
     private NetPeer? _server;
     private string? _changed;
+    private IDisposable? _hold;
+    private (string Mod, string Id)? _pending;
     private ViewItem? _asking;  // a cheats check waiting for the runner's throwaway question, asked here on the client
 
-    private CheckNet(CheckRunner runner, IRunnerEnv env, NetChannel channel)
+    internal CheckNet(CheckRunner runner, IRunnerEnv env, NetChannel channel, Func<object, bool>? sendToServer = null, Func<NetPeer?>? readServer = null)
     {
         _runner = runner;
         _env = env;
         _channel = channel;
+        _sendToServer = sendToServer ?? (message => channel.SendToServer(message));
+        _readServer = readServer ?? (() => env.IsClient ? Network.Server : null);
     }
 
     /// <summary>Opens the channel as Kiln's own (call outside any mod's context).</summary>
@@ -219,7 +225,7 @@ internal sealed class CheckNet
 
     public void RequestCatalog()
     {
-        if (Joined) _channel.SendToServer(new NetCatalogRequest());
+        if (Joined) _sendToServer(new NetCatalogRequest());
     }
 
     /// <summary>Starts a server check from the joined client's screen. A cheats check first asks the runner's
@@ -241,8 +247,38 @@ internal sealed class CheckNet
 
     private void Send(ViewItem item, NetAttest? attest)
     {
+        if (_pending is not null) return;
+        _server = _readServer();
+        _pending = (item.Mod, item.Id);
+        try
+        {
+            _env.Guard?.TryHold("guided checks are running (joined)", out _hold);
+        }
+        catch (Exception e)
+        {
+            _env.Write(LogLevel.Warn, $"checks: holding the joined achievement guard threw {e.GetType().Name}");
+        }
         lock (_lock) _message = $"starting {item.Mod}/{item.Id}";
-        _channel.SendToServer(new NetStart { Mod = item.Mod, Id = item.Id, Attest = attest });
+        var sent = false;
+        try
+        {
+            if (sent = _sendToServer(new NetStart { Mod = item.Mod, Id = item.Id, Attest = attest })) return;
+            lock (_lock) _message = "the check start could not be sent";
+        }
+        finally
+        {
+            // A thrown or refused send has no server outcome to release this hold.
+            if (!sent) ReleaseHold();
+        }
+    }
+
+    private void ReleaseHold()
+    {
+        _pending = null;
+        var hold = _hold;
+        _hold = null;
+        try { hold?.Dispose(); }
+        catch (Exception e) { _env.Write(LogLevel.Warn, $"checks: ending the joined guard hold threw {e.GetType().Name}"); }
     }
 
     public void StartAll()
@@ -309,7 +345,7 @@ internal sealed class CheckNet
         }
         if (cheats && kind is AnswerKind.Pass or AnswerKind.Fail or AnswerKind.Skip && _env.Guard is { } g)
             guard = CheatsRule.ReadStatus(g).Status;
-        _channel.SendToServer(new NetAnswer { Kind = kind.ToString().ToLowerInvariant(), Note = note, Guard = NetGuard.Of(guard) });
+        _sendToServer(new NetAnswer { Kind = kind.ToString().ToLowerInvariant(), Note = note, Guard = NetGuard.Of(guard) });
     }
 
     private void OnCatalog(NetCatalog m)
@@ -321,9 +357,10 @@ internal sealed class CheckNet
         }
     }
 
-    private void OnState(NetState m)
+    internal void OnState(NetState m)
     {
         var next = false;
+        if (m.Kind is "finished" or "refused" or "declined" && _pending == (m.Mod, m.Id)) ReleaseHold();
         lock (_lock)
         {
             _message = m.Kind == "refused" ? $"refused {m.Mod}/{m.Id}: {m.Message}" : m.Message;
@@ -390,7 +427,7 @@ internal sealed class CheckNet
         NetPeer? server = null;
         try
         {
-            if (_env.IsClient) server = Network.Server;
+            server = _readServer();
         }
         catch
         {
@@ -398,7 +435,8 @@ internal sealed class CheckNet
         }
         lock (_lock)
         {
-            if (ReferenceEquals(server, _server)) return;
+            if (server is not null && ReferenceEquals(server, _server)) return;
+            ReleaseHold();
             _server = server;
             _catalog = null;
             _current = null;
