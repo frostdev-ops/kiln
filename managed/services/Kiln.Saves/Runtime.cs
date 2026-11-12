@@ -156,6 +156,27 @@ internal static unsafe class SavesRuntime
             Events.Post(new WorldLoadedEvent(Store.WorldId ?? id, revision, newWorld, WorldFile, Store.Match));
     }
 
+    /// <summary>Test kit: the session of the open world ends, so the next one starts as a fresh process does. The world's
+    /// data closes (instance data included) and the store can open the next world; the save sequence, the shutdown
+    /// announcement, the cached world file and the pending requests go. The native table and its event sequence
+    /// (<c>_state</c>, <c>_lastSeq</c>) live for the process and stay.</summary>
+    internal static void EndSession()
+    {
+        Store.CloseWorld();
+        Store.Reopenable();
+        _shutdownAnnounced = false;
+        _loadedEventSeen = false;
+        _labHosted = false;
+        _worldFile = null;
+        _savingSeq = _snapshotSeq = 0;
+        _savingRevision = 0;
+        lock (Gate)
+        {
+            Requests.Clear();
+            Watched.Clear();
+        }
+    }
+
     /// <summary>The world's own data can be read: always on a dedicated server (its one world's data opens before the game loads
     /// it), and on a game client once the game has loaded the hosted world.</summary>
     internal static bool WorldDataReady
@@ -277,6 +298,7 @@ internal static unsafe class SavesRuntime
         {
             DrainEvents();
             Store.Entities.Tick();
+            Store.Instances.Tick();
         }
         finally
         {
