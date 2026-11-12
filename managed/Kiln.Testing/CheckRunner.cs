@@ -628,6 +628,8 @@ internal sealed class CheckRunner
             else guard = new LedgerGuard();
             if (warning is not null)
             {
+                // A dropped report is not proof of protection when another escaped or the guard failed.
+                if (c.GuardProof) verdict = ClientCheckVerdict.Fail;
                 _warning = $"{c.Key}: {warning}";
                 _env.Write(LogLevel.Error, $"checks: achievement guard warning for {c.Key}: {warning}");
                 note = (note.Length > 0 ? note + " " : "") + "[guard warning: " + warning + "]";

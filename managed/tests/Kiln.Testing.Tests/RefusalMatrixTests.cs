@@ -646,6 +646,26 @@ public sealed class RefusalMatrixTests
         Assert.Equal(1, CheckMod.CheatsRan);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void A_dropped_report_does_not_pass_proof_if_protection_failed_or_a_report_escaped(bool escaped)
+    {
+        using var h = new Harness();
+        h.Start("t.proof");
+        Assert.Null(h.Runner.Answer(AnswerKind.Yes));
+        h.Pump();
+        var ready = h.Guard!.Value!.Value;
+        h.Guard.Value = ready with { Dropped = 1, Passed = escaped ? 1 : 0, HookInstalled = escaped };
+        var entry = h.Answer(AnswerKind.Pass);
+        Assert.Equal("fail", entry.Verdict);
+        Assert.Contains("guard warning", entry.Note);
+        h.Guard.Value = ready;
+        h.Start("t.cheats");
+        Assert.Equal(0, CheckMod.CheatsRan);
+        Assert.Contains("failed", h.Last(RunEventKind.Refused)!.Message);
+    }
+
     [Fact]
     public void Joined_guard_proof_reads_the_clients_counters()
     {
