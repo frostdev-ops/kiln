@@ -63,6 +63,32 @@ public sealed class InstanceRejoinTests : IDisposable
     }
 
     [Fact]
+    public void AnItemWhoseLookAlikeLeftTheInventoryBeforeTheLeaveComesBackAfterAMenuLeave()
+    {
+        // The second repro: two equal swords in the backpack at one save; the clean one went into a chest, the notched one
+        // to slot 3; then the leave. Only one sword comes back, and every file the client can have says it is this one.
+        var w = _h.World;
+        var p = w.Join(Hero);
+        w.Give(p, 256, Helm);
+        var notched = w.Give(p, 26, Sword);
+        var clean = w.Give(p, 27, Sword);
+        _h.Tag(notched, 1);
+        _h.Tick();
+        SaveAndSend(1, p);                                       // both swords: notched@26, clean@27
+        var chest = w.Chest(ChestTemplate, A);
+        w.Move(clean, chest, 0);
+        SaveAndSend(2, p);                                       // notched@26
+        w.Move(notched, p, 3);
+        SaveAndSend(3, p);                                       // notched@3
+        MenuLeaveReadOnceAtTheRequest(p, 4);
+        Assert.Equal(InstanceParkReason.PlayerLeft, Assert.Single(_h.Of<InstanceDataParkedEvent>()).Reason);
+        var back = w.Join(Hero);                                 // helm first, then the sword at 3
+        _h.Tick();
+        Assert.Equal(1, _h.Count(w.At(back, 3)));
+        Assert.Empty(_h.Of<InstanceDataLostEvent>());
+    }
+
+    [Fact]
     public void TwinsAtAMenuLeaveWhoseLeaveSaveWasReadOnlyAtTheRequestAreSetAsideNeverSwapped()
     {
         // The first repro: both swords in the backpack at the leave. The leave save's read is one simulation step before the

@@ -225,6 +225,38 @@ public sealed class InstanceMatcherTests
         Assert.Contains("changed", o[2].Reason);   // decided by rule 2
     }
 
+    [Fact]
+    public void AnOlderPlayerStateWithALookAlikeTheInventoryIsNotNowRaisesNoDoubt()
+    {
+        // The second real rejoin: at save 43 the inventory had two equal swords (the record's at 26); the other one went
+        // into a chest, the record's moved to 3 (saves 46, settled, and 47, the leave, read a step early). The inventory
+        // now is save 46's and 47's: no file the client can have holds the second sword.
+        var states = new Dictionary<uint, Witness>
+        {
+            [43] = Saw(true, (26, Sword), (27, Sword), (256, Ring)),
+            [46] = Saw(true, (3, Sword), (256, Ring)),
+            [47] = Saw(false, (3, Sword), (256, Ring)),
+        };
+        var rec = new MatchRecord(3, Sword.Stable, 47, Alt: [(43, 26), (46, 3)]);
+        MatchItem[] now = [I(3, Sword), I(256, Ring)];
+        var o = Run([rec], now, states, world: false);
+        Assert.Equal(MatchKind.AttachExact, o[0].Kind);
+        Assert.Contains("still in its slot 3", o[0].Reason);
+        // not as the loader made it: the file may be save 43's with a sword taken out since the join, so the doubt stays
+        Assert.Equal(MatchKind.SetAside, Run([rec], now, states, asMade: false, world: false)[0].Kind);
+        // a world holder has one state, whatever it held
+        Assert.Equal(MatchKind.SetAside, Run([new MatchRecord(3, Sword.Stable, 43)], [I(3, Sword)], states, trusted: null)[0].Kind);
+        // an unsettled state with the look-alike may be a step away from the file: it still counts
+        states[47] = Saw(false, (3, Sword), (4, Sword), (256, Ring));
+        Assert.Equal(MatchKind.SetAside, Run([rec], now, states, world: false)[0].Kind);
+        // the inventory equal to no state at all: the file is none Kiln knows, and every state counts again
+        states[47] = Saw(false, (3, Sword), (256, Ring));
+        Assert.Equal(MatchKind.SetAside, Run([rec], [I(3, Sword), I(256, Ring), I(9, Sword7)], new Dictionary<uint, Witness>
+        {
+            [43] = states[43], [46] = states[46], [47] = Saw(true, (3, Sword), (256, Ring)),
+        }, world: false)[0].Kind);
+    }
+
     // ---- H2: rule 1 needs the items as the loader made them ----
 
     [Fact]

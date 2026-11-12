@@ -314,6 +314,23 @@ internal static class InstanceMatcher
                 : $"the inventory is as the character's file of an earlier save had it: the item in slot {slots[0]}");
     }
 
+    /// <summary>The record's states that rule 2's look-alike doubt has to consider: every one, except for a player whose
+    /// inventory is as the loader made it from the client's file (<paramref name="asMade"/>, which for a player also means
+    /// the loaded generation is the newest). Then the file is the inventory now, so it is not a settled state whose list
+    /// differs from it; it is a state equal to it, or an unsettled one (read a step before the file was made). If no state
+    /// is either, the file is none Kiln knows, and every state counts.</summary>
+    /// <remarks>Without this, a look-alike that stood beside the item at an older save and left the inventory before the
+    /// leave set the record aside, although no file the client can have holds it (the second real rejoin of
+    /// 2026-11-12).</remarks>
+    internal static IEnumerable<(uint Seen, int Slot)> PossibleFiles(in MatchRecord r, IReadOnlyDictionary<uint, Witness> witnesses,
+        IReadOnlyList<MatchItem> items, bool asMade, bool world)
+    {
+        var all = r.Observations.ToList();
+        if (world || !asMade) return all;
+        var possible = all.Where(o => !witnesses[o.Seen].Settled || SameAsWitness(witnesses[o.Seen].Entries, items)).ToList();
+        return possible.Count > 0 ? possible : all;
+    }
+
     /// <summary>Decides every record of one holder. Pure: nothing is read or changed.</summary>
     /// <param name="records">The holder's saved records (waiting and set aside alike).</param>
     /// <param name="witnesses">Observation -> the holder's whole list of item entities at that save.</param>
@@ -321,7 +338,8 @@ internal static class InstanceMatcher
     /// <param name="trustedGeneration">The generation whose observations the world file vouches for; null for a player,
     /// or for a world whose loaded generation is older than its file (or none).</param>
     /// <param name="asMade">The holder's items are as the loader made them in this session (<see cref="LoadOrder"/>):
-    /// nothing changed places and nothing came in between the load and now. Without it rule 1 does not apply.</param>
+    /// nothing changed places and nothing came in between the load and now. Without it rule 1 does not apply, and rule 2's
+    /// look-alike doubt looks at every state of a player's record (<see cref="PossibleFiles"/>).</param>
     /// <param name="world">A world holder: rule 1 needs the world file's own generation and an equal list (a player: the
     /// list alone).</param>
     public static MatchOutcome[] Match(IReadOnlyList<MatchRecord> records, IReadOnlyDictionary<uint, Witness> witnesses,
@@ -403,7 +421,8 @@ internal static class InstanceMatcher
                 var it = candidates[0];
                 // At a save the holder had a look-alike of this item too, and one of the two is gone: which one is not known.
                 // (A state in which the item was not there but a look-alike was: the look-alike may be what came back.)
-                var doubt = records[r].Observations.Select(o => (o.Slot, Twins: witnesses[o.Seen].Entries.Count(e => e.Fields.Stable == fp)))
+                var doubt = PossibleFiles(records[r], witnesses, items, asMade, world)
+                    .Select(o => (o.Slot, Twins: witnesses[o.Seen].Entries.Count(e => e.Fields.Stable == fp)))
                     .FirstOrDefault(o => o.Slot >= 0 ? o.Twins > 1 : o.Twins > 0);
                 if (doubt.Twins > 0)
                 {
