@@ -42,7 +42,8 @@ public readonly record struct EntityRef(EntityId Id, ulong Serial)
 
     /// <summary>True while the id still belongs to the spawn this ref captured. False for <see cref="None"/>, for an id
     /// that no longer exists, when no entity source is registered, and when the id now carries another serial. Without
-    /// a serial (<see cref="HasSerial"/> false) this only says the id exists, which is the weaker answer.</summary>
+    /// a serial (<see cref="HasSerial"/> false, <see cref="Serial"/> 0) true means no more than "an entity with this id
+    /// exists"; <see cref="HasSerial"/> is the way to tell.</summary>
     /// <exception cref="InvalidOperationException">Not on the tick thread (not thrown for <see cref="None"/>).</exception>
     [TickThreadOnly]
     public bool IsAlive
@@ -59,6 +60,28 @@ public readonly record struct EntityRef(EntityId Id, ulong Serial)
 
     /// <summary><c>"12#345"</c>, <c>"12"</c> without a serial, <c>"none"</c>.</summary>
     public override string ToString() => IsNone ? "none" : Serial == 0 ? Id.ToString() : $"{Id}#{Serial}";
+}
+
+/// <summary>One particular item in the world (not an item type, which is <see cref="ItemId"/>, and not
+/// <c>Kiln.Blocks</c>' <c>ItemRef</c>, which names an item for a recipe): the item's entity and its type; its
+/// <see cref="IsAlive"/> says nothing more than its entity's <see cref="EntityRef.IsAlive"/> does. <c>default</c> is
+/// <see cref="None"/>.</summary>
+/// <param name="Entity">The item's entity.</param>
+/// <param name="Item">The item's type.</param>
+public readonly record struct ItemInstanceRef(EntityRef Entity, ItemId Item)
+{
+    /// <summary>No item.</summary>
+    public static readonly ItemInstanceRef None = default;
+
+    /// <summary>True when this refers to no item entity.</summary>
+    public bool IsNone => Entity.IsNone;
+
+    /// <summary>Exactly the entity's <see cref="EntityRef.IsAlive"/>, nothing more.</summary>
+    [TickThreadOnly]
+    public bool IsAlive => Entity.IsAlive;
+
+    /// <summary><c>"0x0000abcd@12#345"</c>, <c>"none"</c>.</summary>
+    public override string ToString() => IsNone ? "none" : $"{Item}@{Entity}";
 }
 
 /// <summary>An item type: FNV-1a-32 of the item's 16 GUID bytes, as the game computes it (and the dashboard catalog

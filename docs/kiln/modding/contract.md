@@ -49,7 +49,7 @@ arguments throw (`managed/services/Kiln.Quests/Knowledge.cs`, the remarks on `Kn
 implement it from dev.26 on; in this release none does yet, and other services may still throw their own exception
 types for an unavailable capability.
 
-## 2. Identity: EntityRef, PlayerRef, ItemId
+## 2. Identity: EntityRef, ItemInstanceRef, PlayerRef, ItemId
 
 An `EntityId` is a number, and the game hands the same number to a new entity after the old one is destroyed. A mod
 that keeps an id across steps (a dummy it spawned, a chest it watches) can end up talking to a different entity. The
@@ -61,11 +61,15 @@ ref types carry enough to notice that.
   that would hide the capture.
 - **`IsAlive`** (tick thread) is false for `None`, false when the id no longer exists, false when no service supplies
   serials, and false when the id now has another serial: the id was reused. When the ref has no serial
-  (`HasSerial` false, `Serial` 0), `IsAlive` can only say that the id exists. That is the weaker answer: a reused id
-  still counts as alive. Check `HasSerial` when it matters.
+  (`HasSerial` false, `Serial` 0), `IsAlive` true means no more than "an entity with this id exists": a reused id
+  still counts as alive. `HasSerial` is the way to tell which answer you have.
 - Where serials come from is up to the service that fills the seam. kiln.spawn has a tracker serial only for entities
   Kiln spawned with tracking; the game's `SpawnTime` component exists on entities spawned at run time, not on
   entities loaded from the save. An entity with neither has serial 0.
+- **`ItemInstanceRef(EntityRef Entity, ItemId Item)`**: one particular item in the world: its entity and its type.
+  It is not an item type (that is `ItemId`) and not Kiln.Blocks' `ItemRef` (which names an item for a recipe).
+  `IsAlive` says nothing more than its entity's `IsAlive` does.
+  Where the item is and its data come as extension methods in Kiln.Items.
 - **`PlayerRef(ulong SteamId, Guid CharacterId, EntityRef Entity)`**: a person: the Steam id, the character
   (`Guid.Empty` when unknown, see `HasCharacter`) and the session entity (none while offline). `PlayerRef.Of(entity)`
   finds the player of a session entity (`None` when it is not one); `Resolve()` gives the same person with their

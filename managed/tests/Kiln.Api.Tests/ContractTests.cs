@@ -93,6 +93,7 @@ public sealed class ContractTests
     {
         Assert.NotNull(typeof(EntityRef).GetMethod(nameof(EntityRef.Of))!.GetCustomAttribute<TickThreadOnlyAttribute>());
         Assert.NotNull(typeof(EntityRef).GetProperty(nameof(EntityRef.IsAlive))!.GetCustomAttribute<TickThreadOnlyAttribute>());
+        Assert.NotNull(typeof(ItemInstanceRef).GetProperty(nameof(ItemInstanceRef.IsAlive))!.GetCustomAttribute<TickThreadOnlyAttribute>());
         Assert.NotNull(typeof(PlayerRef).GetMethod(nameof(PlayerRef.Of))!.GetCustomAttribute<TickThreadOnlyAttribute>());
         Assert.NotNull(typeof(PlayerRef).GetMethod(nameof(PlayerRef.Resolve))!.GetCustomAttribute<TickThreadOnlyAttribute>());
         Assert.NotNull(typeof(PlayerRef).GetProperty(nameof(PlayerRef.IsOnline))!.GetCustomAttribute<TickThreadOnlyAttribute>());

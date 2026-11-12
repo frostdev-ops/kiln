@@ -3,7 +3,7 @@ using Xunit;
 
 namespace Kiln.Api.Tests;
 
-/// <summary>EntityRef and PlayerRef: none values, equality, the conversion to EntityId, and the resolver seams
+/// <summary>EntityRef, ItemInstanceRef and PlayerRef: none values, equality, the conversion to EntityId, and the resolver seams
 /// through fakes (id reuse, serial 0, no source, wrong thread).</summary>
 public sealed class IdentityTests : KilnTest
 {
@@ -66,6 +66,9 @@ public sealed class IdentityTests : KilnTest
         Assert.Equal(EntityRef.None, default);
         Assert.False(default(EntityRef).HasSerial);
         Assert.Equal("none", EntityRef.None.ToString());
+        Assert.True(default(ItemInstanceRef).IsNone);
+        Assert.Equal(ItemInstanceRef.None, default);
+        Assert.Equal("none", ItemInstanceRef.None.ToString());
         Assert.True(default(PlayerRef).IsNone);
         Assert.Equal(PlayerRef.None, default);
         Assert.False(default(PlayerRef).HasCharacter);
@@ -78,6 +81,8 @@ public sealed class IdentityTests : KilnTest
     {
         Assert.False(new EntityRef(new EntityId(3), 0).IsNone);
         Assert.True(new EntityRef(EntityId.None, 9).IsNone);  // a serial without an id refers to nothing
+        Assert.False(new ItemInstanceRef(new EntityRef(new EntityId(4), 1), ItemId.None).IsNone);
+        Assert.True(new ItemInstanceRef(EntityRef.None, new ItemId(7)).IsNone);
         Assert.False(new PlayerRef(76561198000000001, Guid.Empty, EntityRef.None).IsNone);
         Assert.False(new PlayerRef(0, Guid.NewGuid(), EntityRef.None).IsNone);
         Assert.False(new PlayerRef(0, Guid.Empty, new EntityRef(new EntityId(2), 0)).IsNone);
@@ -94,6 +99,12 @@ public sealed class IdentityTests : KilnTest
         Assert.NotEqual(a, new EntityRef(new EntityId(12), 346));
         Assert.NotEqual(a, new EntityRef(new EntityId(13), 345));
 
+        var i = new ItemInstanceRef(a, new ItemId(0xabcd));
+        Assert.Equal(i, new ItemInstanceRef(new EntityRef(new EntityId(12), 345), new ItemId(0xabcd)));
+        Assert.Equal(i.GetHashCode(), new ItemInstanceRef(new EntityRef(new EntityId(12), 345), new ItemId(0xabcd)).GetHashCode());
+        Assert.NotEqual(i, new ItemInstanceRef(a, new ItemId(0xabce)));
+        Assert.NotEqual(i, new ItemInstanceRef(new EntityRef(new EntityId(12), 1), new ItemId(0xabcd)));
+
         var g = Guid.NewGuid();
         var p = new PlayerRef(7, g, a);
         Assert.Equal(p, new PlayerRef(7, g, new EntityRef(new EntityId(12), 345)));
@@ -108,6 +119,7 @@ public sealed class IdentityTests : KilnTest
     {
         Assert.Equal("12#345", new EntityRef(new EntityId(12), 345).ToString());
         Assert.Equal("12", new EntityRef(new EntityId(12), 0).ToString());
+        Assert.Equal("0x0000abcd@12#345", new ItemInstanceRef(new EntityRef(new EntityId(12), 345), new ItemId(0xabcd)).ToString());
         var g = Guid.Parse("1b4e28ba-2fa1-11d2-883f-0016d3cca427");
         Assert.Equal("76/1b4e28ba-2fa1-11d2-883f-0016d3cca427@3#7", new PlayerRef(76, g, new EntityRef(new EntityId(3), 7)).ToString());
         Assert.Equal("76", new PlayerRef(76, Guid.Empty, EntityRef.None).ToString());
@@ -199,8 +211,22 @@ public sealed class IdentityTests : KilnTest
         Backend.TickThread = false;
         Assert.Throws<InvalidOperationException>(() => EntityRef.Of(new EntityId(12)));
         Assert.Throws<InvalidOperationException>(() => r.IsAlive);
+        Assert.Throws<InvalidOperationException>(() => new ItemInstanceRef(r, new ItemId(1)).IsAlive);
         Assert.Throws<InvalidOperationException>(() => PlayerRef.Of(new EntityId(1)));
         Assert.False(EntityRef.None.IsAlive);  // none never asks, so it never throws
+    }
+
+    // --- ItemInstanceRef ---
+
+    [Fact]
+    public void ItemInstanceRef_IsAlive_follows_its_entity()
+    {
+        _serials.Live[900] = 11;
+        var item = new ItemInstanceRef(EntityRef.Of(new EntityId(900)), new ItemId(0x1234));
+        Assert.True(item.IsAlive);
+        _serials.Live[900] = 12;
+        Assert.False(item.IsAlive);
+        Assert.False(ItemInstanceRef.None.IsAlive);
     }
 
     // --- PlayerRef ---
