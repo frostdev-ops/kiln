@@ -49,13 +49,15 @@ internal static partial class Ops
         {
             var p = RequirePlayer(req);
             var steps = new JsonArray();
+            var guard = await SteamGuardRelay.LatchFor(p.Entity, "admin bridge players_progression_set");
+            await TickThread();  // the answer may come back off the tick thread: the writes below run on it
             if (req["level"] is not null) steps.Add(await Run(Progression.SetLevel(p.Entity, ProgInt(req, "level", 1, 1000))));
             if (req["experience"] is not null)
                 steps.Add(await Run(Progression.SetExperience(p.Entity, (uint)ProgInt(req, "experience", 0, 100_000_000))));
             if (req["skillPoints"] is not null) steps.Add(await Run(Progression.GiveSkillPoints(p.Entity, ProgInt(req, "skillPoints", 1, 1000))));
             if (req["respec"] is JsonValue rv && rv.TryGetValue<bool>(out var respec) && respec) steps.Add(await Run(Progression.Respec(p.Entity)));
             if (steps.Count == 0) throw new AdminError("give level, experience, skillPoints or respec");
-            return new JsonObject { ["steps"] = steps, ["progression"] = ProgJson(p) };
+            return Guarded(new JsonObject { ["steps"] = steps, ["progression"] = ProgJson(p) }, guard);
         });
         // {entity, amount, source?}
         bridge.RegisterAsync("give_xp", async req =>
@@ -64,25 +66,39 @@ internal static partial class Ops
             var source = ProgStr(req, "source") is { } s
                 ? Enum.TryParse<ExperienceSource>(s, true, out var src) ? src : throw new AdminError($"unknown experience source '{s}'")
                 : ExperienceSource.None;
-            return await Run(Progression.AddExperience(p.Entity, (uint)ProgInt(req, "amount", 1, 100_000_000), source));
+            var guard = await SteamGuardRelay.LatchFor(p.Entity, "admin bridge give_xp");
+            await TickThread();  // the answer may come back off the tick thread: the writes below run on it
+            return Guarded(await Run(Progression.AddExperience(p.Entity, (uint)ProgInt(req, "amount", 1, 100_000_000), source)), guard);
         });
         bridge.RegisterAsync("give_skill_points", async req =>
         {
             var p = RequirePlayer(req);
-            return await Run(Progression.GiveSkillPoints(p.Entity, ProgInt(req, "amount", 1, 1000)));
+            var guard = await SteamGuardRelay.LatchFor(p.Entity, "admin bridge give_skill_points");
+            await TickThread();  // the answer may come back off the tick thread: the writes below run on it
+            return Guarded(await Run(Progression.GiveSkillPoints(p.Entity, ProgInt(req, "amount", 1, 1000))), guard);
         });
         // {entity, node ("0x…" or a number), force?}
         bridge.RegisterAsync("skill_unlock", async req =>
         {
             var p = RequirePlayer(req);
-            return await Run(Progression.Unlock(p.Entity, NodeOf(req), ProgBool(req, "force")));
+            var guard = await SteamGuardRelay.LatchFor(p.Entity, "admin bridge skill_unlock");
+            await TickThread();  // the answer may come back off the tick thread: the writes below run on it
+            return Guarded(await Run(Progression.Unlock(p.Entity, NodeOf(req), ProgBool(req, "force"))), guard);
         });
         bridge.RegisterAsync("skill_lock", async req =>
         {
             var p = RequirePlayer(req);
-            return await Run(Progression.Lock(p.Entity, NodeOf(req), ProgBool(req, "force")));
+            var guard = await SteamGuardRelay.LatchFor(p.Entity, "admin bridge skill_lock");
+            await TickThread();  // the answer may come back off the tick thread: the writes below run on it
+            return Guarded(await Run(Progression.Lock(p.Entity, NodeOf(req), ProgBool(req, "force"))), guard);
         });
-        bridge.RegisterAsync("skill_respec", async req => await Run(Progression.Respec(RequirePlayer(req).Entity)));
+        bridge.RegisterAsync("skill_respec", async req =>
+        {
+            var p = RequirePlayer(req);
+            var guard = await SteamGuardRelay.LatchFor(p.Entity, "admin bridge skill_respec");
+            await TickThread();  // the answer may come back off the tick thread: the writes below run on it
+            return Guarded(await Run(Progression.Respec(p.Entity)), guard);
+        });
         bridge.Register("skill_nodes", req =>
         {
             var p = RequirePlayer(req);
@@ -99,6 +115,18 @@ internal static partial class Ops
         var commands = Commands.RegisterAll(new ProgressionCommands());
         log.Info($"progression ops on ({Progression.Status}); chat commands: {string.Join(", ", commands.Select(c => "/" + c.Info.Name))}");
         return true;
+    }
+
+    // The bridge's answer carries the achievement guard's outcome for the affected player(s): "Protected",
+    // "UnprotectedFailed" or "UnprotectedVanilla", plus a plain note when not protected.
+    internal static JsonNode? Guarded(JsonNode? result, GuardOutcome guard)
+    {
+        if (result is JsonObject o)
+        {
+            o["steamGuard"] = guard.ToString();
+            if (SteamGuardRelay.Note(guard) is { } note) o["steamGuardNote"] = note;
+        }
+        return result;
     }
 
     private static async Task<JsonNode?> Run(Task<ProgressionResult> task)
@@ -195,16 +223,22 @@ internal sealed class ProgressionCommands
             return;
         }
         c.Reply($"{player.Name}: setting level {level}...");
+        var guard = await SteamGuardRelay.LatchFor(player.Entity, "admin level");
+        await Ops.TickThread();  // the answer may come back off the tick thread: the writes below run on it
         var r = await Progression.SetLevel(player.Entity, level);
-        c.Reply(r.Ok ? $"{player.Name} is level {r.After?.Level}{(r.Reason.Length > 0 ? $" ({r.Reason})" : "")}" : $"{player.Name}: {r.Reason}");
+        var note = SteamGuardRelay.Note(guard);
+        c.Reply(r.Ok ? $"{player.Name} is level {r.After?.Level}{(r.Reason.Length > 0 ? $" ({r.Reason})" : "")}{(note is null ? "" : $" — {note}")}" : $"{player.Name}: {r.Reason}");
     }
 
     [Command("xp", Description = "gives a player experience (the game levels them up)", Permission = CommandPermission.Admin)]
     private async Task Xp(CommandContext c, Player player, [Range(1, 100_000_000)] int amount)
     {
         c.Reply($"{player.Name}: granting {amount} experience...");
+        var guard = await SteamGuardRelay.LatchFor(player.Entity, "admin xp");
+        await Ops.TickThread();  // the answer may come back off the tick thread: the writes below run on it
         var r = await Progression.AddExperience(player.Entity, (uint)amount, ExperienceSource.Quest);
-        c.Reply(r.Ok ? $"gave {player.Name} {r.Applied} experience: {r.After}" : $"{player.Name}: {r.Reason}");
+        var note = SteamGuardRelay.Note(guard);
+        c.Reply(r.Ok ? $"gave {player.Name} {r.Applied} experience: {r.After}{(note is null ? "" : $" — {note}")}" : $"{player.Name}: {r.Reason}");
     }
 
     [Command("skillpoints", Description = "shows a player's skill points, or gives that many (as the game's skill-point knowledge)", Permission = CommandPermission.Admin)]
@@ -219,8 +253,11 @@ internal sealed class ProgressionCommands
             return;
         }
         c.Reply($"{player.Name}: giving {amount} skill point(s)...");
+        var guard = await SteamGuardRelay.LatchFor(player.Entity, "admin skillpoints");
+        await Ops.TickThread();  // the answer may come back off the tick thread: the writes below run on it
         var r = await Progression.GiveSkillPoints(player.Entity, amount);
-        c.Reply(r.Ok ? $"gave {player.Name} {r.Applied} skill point(s): {r.After?.SkillPoints} unspent{(r.Reason.Length > 0 ? $" ({r.Reason})" : "")}"
+        var note = SteamGuardRelay.Note(guard);
+        c.Reply(r.Ok ? $"gave {player.Name} {r.Applied} skill point(s): {r.After?.SkillPoints} unspent{(r.Reason.Length > 0 ? $" ({r.Reason})" : "")}{(note is null ? "" : $" — {note}")}"
                      : $"{player.Name}: {r.Reason}");
     }
 
@@ -239,17 +276,23 @@ internal sealed class ProgressionCommands
                 return;
             case "respec":
                 c.Reply($"{player.Name}: respec...");
+                var gs = await SteamGuardRelay.LatchFor(player.Entity, "admin skill respec");
+                await Ops.TickThread();  // the answer may come back off the tick thread: the writes below run on it
                 var rs = await Progression.Respec(player.Entity);
-                c.Reply(rs.Ok ? $"{player.Name}: {rs.Applied} node(s) reset, {rs.After?.SkillPoints} unspent points" : $"{player.Name}: {rs.Reason}");
+                var notes = SteamGuardRelay.Note(gs);
+                c.Reply(rs.Ok ? $"{player.Name}: {rs.Applied} node(s) reset, {rs.After?.SkillPoints} unspent points{(notes is null ? "" : $" — {notes}")}" : $"{player.Name}: {rs.Reason}");
                 return;
             case "unlock":
             case "lock":
                 var n2 = Progression.ParseNode(node) ?? throw new CommandException($"no skill node '{node}' (give its id, e.g. 0xffd5f940)");
                 c.Reply($"{player.Name}: {action} {Ops.NodeName(n2.Id)}...");
+                var g = await SteamGuardRelay.LatchFor(player.Entity, $"admin skill {action}");
+                await Ops.TickThread();  // the answer may come back off the tick thread: the writes below run on it
                 var r = action.Equals("unlock", StringComparison.OrdinalIgnoreCase)
                     ? await Progression.Unlock(player.Entity, n2.Id, forced)
                     : await Progression.Lock(player.Entity, n2.Id, forced);
-                c.Reply(r.Ok ? $"{player.Name}: {action}ed {Ops.NodeName(n2.Id)}, {r.After?.SkillPoints} unspent points{(r.Reason.Length > 0 ? $" ({r.Reason})" : "")}" : $"{player.Name}: {r.Reason}");
+                var noteu = SteamGuardRelay.Note(g);
+                c.Reply(r.Ok ? $"{player.Name}: {action}ed {Ops.NodeName(n2.Id)}, {r.After?.SkillPoints} unspent points{(r.Reason.Length > 0 ? $" ({r.Reason})" : "")}{(noteu is null ? "" : $" — {noteu}")}" : $"{player.Name}: {r.Reason}");
                 return;
             default:
                 throw new CommandException("action: list, unlock, lock or respec");

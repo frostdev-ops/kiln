@@ -10,6 +10,17 @@ namespace Kiln.Admin;
 /// ("npc:NPC_Workshop_Bard01.unlock", "quest:0x8755c335", "query:…").</summary>
 internal static partial class Ops
 {
+    // World knowledge reaches every player's achievement queries; the guard request goes to the players online now.
+    internal const string WorldGuardNote =
+        "players who join later are not covered: this world can report achievements in their games";
+
+    // A world target's bridge answer says so too.
+    private static JsonNode? WorldNoted(JsonNode? result, EntityId target)
+    {
+        if (target.IsNone && result is JsonObject o) o["steamGuardWorld"] = WorldGuardNote;
+        return result;
+    }
+
     internal static bool RegisterKnowledgeSafe(Bridge bridge, Logger log)
     {
         try
@@ -75,7 +86,10 @@ internal static partial class Ops
         {
             var target = KnowTarget(req);
             var id = KnowId(req);
-            return ResultJson(await KnowCall(() => Knowledge.For(target).Grant(id, (uint)KnowInt(req, "value", 1, 0, int.MaxValue))));
+            var guard = target.IsNone ? await SteamGuardRelay.LatchForAll("admin bridge knowledge_grant")
+                                      : await SteamGuardRelay.LatchFor(target, "admin bridge knowledge_grant");
+            await TickThread();  // the answer may come back off the tick thread: the writes below run on it
+            return WorldNoted(Ops.Guarded(ResultJson(await KnowCall(() => Knowledge.For(target).Grant(id, (uint)KnowInt(req, "value", 1, 0, int.MaxValue)))), guard), target);
         });
         // {target, id|name, flag?} (flag: one flag of a Flags object; default all)
         bridge.RegisterAsync("knowledge_revoke", async req =>
@@ -90,7 +104,10 @@ internal static partial class Ops
             var target = KnowTarget(req);
             var id = KnowId(req);
             if (req["value"] is null) throw new AdminError("value is required");
-            return ResultJson(await KnowCall(() => Knowledge.For(target).Set(id, (uint)KnowInt(req, "value", 0, 0, int.MaxValue))));
+            var guard = target.IsNone ? await SteamGuardRelay.LatchForAll("admin bridge knowledge_set")
+                                      : await SteamGuardRelay.LatchFor(target, "admin bridge knowledge_set");
+            await TickThread();  // the answer may come back off the tick thread: the writes below run on it
+            return WorldNoted(Ops.Guarded(ResultJson(await KnowCall(() => Knowledge.For(target).Set(id, (uint)KnowInt(req, "value", 0, 0, int.MaxValue)))), guard), target);
         });
         bridge.Register("knowledge_resolve", req =>
         {
@@ -287,8 +304,12 @@ internal sealed class KnowledgeCommands
                     c.Reply($"{n}: {(n.IsQuery ? $"holds {Knowledge.TryQuery(target, n.Requirement)?.ToString() ?? "?"}" : s?.ToString() ?? "not an object of this target")}");
                     return;
                 case "grant":
+                    var guard = target.IsNone ? await SteamGuardRelay.LatchForAll("admin knowledge grant")
+                                              : await SteamGuardRelay.LatchFor(target, "admin knowledge grant");
+                    await Ops.TickThread();  // the answer may come back off the tick thread: the writes below run on it
                     var rg = await scope.Grant(name, value < 0 ? 1u : (uint)value);
-                    c.Reply($"{scope}: {rg}");
+                    var note = SteamGuardRelay.Note(guard);
+                    c.Reply($"{scope}: {rg}{(note is null ? "" : $" — {note}")}{(target.IsNone ? $" — {Ops.WorldGuardNote}" : "")}");
                     return;
                 case "revoke":
                     var rr = await scope.Revoke(name, value);
