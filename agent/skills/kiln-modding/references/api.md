@@ -22,21 +22,25 @@ work waits for the first world step.
 dev.25 is not released: these need a dev.25 runtime and MDK. Page: `docs/kiln/modding/contract.md`.
 - **One error rule.** The game refused: a result with `Ok = false` and `Reason` (`IKilnResult`). A bad argument:
   `ArgumentException`. A capability that is off: `KilnUnavailableException` (`Capability`, `Reason`; a
-  `NotSupportedException`). No service result implements `IKilnResult` yet, and older services still throw their own
-  exception types: catch `NotSupportedException`.
+  `NotSupportedException`). Few results implement `IKilnResult` yet (`PlayerAnimDefineResult`), and older services still
+  throw their own exception types: catch `NotSupportedException`.
 - **Capabilities.** `Capabilities.Is(name)`, `Get(name)` (`Capability`: `State`, `Reason`, `ReasonText`, `Source`,
   `SessionDependent`, `IsAvailable`), `Why(name)` (one sentence to log), `All`; any thread. `CapabilityChangedEvent`
   on the tick thread. `Game.HasFeature(name)` asks the same table. Names: every sigdb feature, `kiln.<service>`,
-  `identity.entities`, `identity.players`. A row a managed service registers exists only after its first use, so name
-  only sigdb features and `kiln.<service>` in a manifest's `features`; check the rest with `Capabilities.Is` at run
-  time. `[RequiresCapability(name)]` is documentation only: nothing checks it, and no member carries it yet.
+  `identity.entities`, `identity.players`, `items.*`, `saves.instance_data`, `anim.player_states`, `blocks.weapon_moves`.
+  A row a managed service registers exists only after its first use (Kiln.Items: the first tick; item blocks: the
+  first compile), so name only sigdb features, `kiln.<service>` and `anim.player_states` in a manifest's `features`;
+  check the rest with `Capabilities.Is` at run time. `[RequiresCapability(name)]` marks members of Kiln.Items, item data,
+  Kiln.PlayerAnim and the move blocks; it is documentation: the member's own code throws, nothing checks the attribute.
 - **Identity.** `EntityRef(EntityId Id, ulong Serial)`: `EntityRef.Of(id)`, `IsAlive`, `HasSerial`, `IsNone`;
   converts implicitly to `EntityId`. `PlayerRef(ulong SteamId, Guid CharacterId, EntityRef Entity)`: `PlayerRef.Of(entity)`,
-  `Resolve()`, `IsOnline`, `IsSamePerson(other)`; explicit conversions from `Player`, `TalentHolder`, `QuestHolder`.
+  `Resolve()`, `IsOnline`, `IsSamePerson(other)`; explicit conversions from `Player`, `TalentHolder`, `QuestHolder`,
+  `CharacterKey`.
   `ItemInstanceRef(EntityRef Entity, ItemId Item)` (not Kiln.Blocks' `ItemRef`). `ItemId` moved to Kiln.Api (old builds
-  load unchanged). Tick thread, from the first tick, not in `OnLoad`. Only player entities have a source: `EntityRef.Of`
-  on any other entity throws `KilnUnavailableException("identity.entities")`. Test `IsNone`, not `== None`.
-  Player refs ran on a test server with simulated players only.
+  load unchanged). Tick thread, from the first tick, not in `OnLoad`. Sources: players, item entities, every entity
+  kiln.spawn can inspect. An entity loaded from the save with no `SpawnTime` has serial 0 (`HasSerial` false): its
+  `IsAlive` only says the id exists. Test `IsNone`, not `== None`. Refs ran on a test server; player refs with
+  simulated players only.
 - **Side and thread markers:** `[ServerOnly]`, `[ClientOnly]`, `[AnyThread]`, `[RenderThread]`, `[WorkerThread]`
   beside `[TickThreadOnly]`. Markers only; few members carry them yet.
 - **API version:** `Mods.RuntimeApiVersion` is the running Kiln's mod API. `Mods.ApiVersion` is obsolete: a const,
@@ -182,7 +186,25 @@ reloads. `WorldSavingEvent` runs before the game's snapshot. Backups: `Saves.Req
 In a hosted world, `OnLoad` sees empty world data until `WorldLoadedEvent`: read per-world data from that event.
 **dev.20+:** `EntityData.IsPersistent(gearEntity)` is false. Gear has no stable world-position identity: its data follows a
 move within the session, not a restart. Kiln skips these attachments on save and refuses old positional gear records.
-World entities such as saved chests retain their normal persistence. Persistent per-item data and affixes are not supplied.
+World entities such as saved chests retain their normal persistence. dev.24 and older supply no persistent per-item data.
+
+**Data on one item (dev.25+, in development; a player's inventory not seen by a player):** Kiln.Saves.
+```csharp
+_kills = InstanceData.Key<Kills>("kills");          // OnLoad; options: new InstanceKeyOptions { Persist = Persist.Session }
+var sword = Items.Held(player);                     // ItemInstanceRef; also Items.Equipped(player, EquipmentSlot.ArmourHead),
+sword.Get(_kills).Count++;                          //   InventorySlot.Ref, give/take/move results' Ref
+```
+- `Get` (the live object, saved with the world), `TryGet`, `Has`, `Set`, `Remove`; `InstanceData.All(key)`,
+  `InstanceData.Parked(key)` (waiting or set aside, with the reason). Tick thread.
+- Events: `InstanceDataChangedEvent` (a `Set`/`Remove`), `InstanceDataRestoredEvent` (`Exact`, `Moved`),
+  `InstanceDataParkedEvent`, `InstanceDataLostEvent` (`Destroyed`, `Unmatched`, `Ambiguous`, `Capped`). Kiln.Items:
+  `ItemMovedEvent` (`Transaction`, `Transfer`, `Observed`), `item.Location()` (`ItemLocation`). Admins: `/instances`.
+- When Kiln is not sure which of two identical items a value belongs to, it sets the value aside, never on another item.
+  Identical items swapped where Kiln did not see it (another world, an offline edit) trade their data.
+- `Persist.Carried` throws `KilnUnavailableException("saves.instance_data.carried")`: not in this release. Plain stacks
+  have no item entity. 256 records per holder per mod, 64 KB per value, waiting records dropped after 3 sessions.
+- Chests proven on a test server; backpack, action bar and worn items wait for the guided client pass. Affixes: none (perks
+  come from the item type). Page: `docs/kiln/modding/inventory.md` "Data on one item"; sample `mods/samples/ItemData`.
 
 ## Content and game data
 ```csharp
@@ -236,7 +258,14 @@ CastTime, Targeting, OnCast = async cast => { await cast.Impact(template, pos, c
 `Abilities.Cast(actor, id)`, `ImpactStartingEvent` (change configs or cancel before a game impact runs; narrow with
 `Abilities.HoldPrograms(ids)`), `await Abilities.RunImpact(...)`, `Abilities.PlaySequence(actor, guid)`,
 `await Abilities.ApplyBuff(target, buffGuid, duration, caster)`, `Abilities.Attributes.Get/Add`,
-`Abilities.Natives.Register(name, argc, call => ...)` for Impact programs. A Kiln impact has no used item: give it
+`Abilities.Natives.Register(name, argc, call => ...)` for Impact programs.
+dev.25+ (not seen by a player): a mod's own **player animation states** come from `assets/player-states.json`
+(`{"format": 1, "states": {"my-slash": {"clip": "my_slash", "like": "Attack_Sword_Shield_01"}}}`), merged into the
+player's graph at boot, never hot-reloaded; the mod needs `"side": "both"`, `"clients": "mod"` and its cook on the server.
+Sequences enter them: a weapon's `Moves` or a cast's `Animation` names them ([blocks.md](blocks.md)). `Kiln.PlayerAnim`'s
+`PlayerAnimStates` (any thread) only reads: `Available`, `Graph`, `GraphHash`, `Find(mod, name)`, `FindGameStates(name)`,
+`All`, `GuidOf(mod, name)`, `IdOf(guid)`; `Define(state)` is refused in this release. The player graph's key cannot be
+overridden (`Assets.Override`/`Register` throw). Page: `docs/kiln/modding/animations.md` "Player states". A Kiln impact has no used item: give it
 its own `Damage1` config or it hits for 0.
 
 ## World edits

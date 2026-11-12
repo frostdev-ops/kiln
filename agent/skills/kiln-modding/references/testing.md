@@ -133,6 +133,11 @@ public async Task Frost_flash(CheckContext c)
 - A `cheats` check (level, xp, skill points, knowledge) starts only while the player's achievement guard protects and a
   `guard-proof` check passed on that build; it asks for a throwaway character every time.
 - Write checks for what you could not see; don't report them as passed until a player ran them.
+- Check sets to copy (dev.25+, none run by a player yet): item data (`mods/tests/instances-test/ClientChecks.cs`, area
+  "Item data"), player states (`mods/samples/PlayerStates`, area "Player animations"), weapon moves and held models
+  (`mods/tests/weapon-moves-test`, `blocks.moves-*`, `blocks.held-animated*`).
+- Offline (`Kiln.TestKit`) item data, player states and weapon moves are unavailable: `kiln.items`, `kiln.playeranim` and
+  `kiln.gamedata` have no fakes. Test them on a test server.
 
 ## Reading the logs
 `kiln logs [-f] [--mod ID] [--level E] [-n N]`, or:

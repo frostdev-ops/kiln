@@ -18,7 +18,8 @@ Enshrouded is a trademark of Keen Games GmbH. Kiln is unofficial.
 2. The current build is **0.2.0-dev.24**, with mod API 0.2 and the matching dev.24 MDK pack. References marked **dev.20+**,
    **dev.21+** or **dev.22+** require that runtime and MDK or newer; dev.19 lacks the dev.20 additions. Check the installed build.
    Items marked **dev.25+** are in development, not released: they need a dev.25 build, and none has been seen by a player
-   (contract and capabilities, typed ECS reads, `Kiln.TestKit`, `[ClientCheck]`, `SteamGuard`).
+   (contract and capabilities, typed ECS reads, `Kiln.TestKit`, `[ClientCheck]`, `SteamGuard`, `InstanceData`, player
+   animation states, weapon moves, the movable data folder).
    Server/offline verification does not establish the pending client rendering, input or multiplayer checks. Many dev.21 to dev.24
    paths were verified only under Wine (tests, dedicated-server labs), not on Windows, a Steam Deck or in a real client; of dev.24
    only Kiln's main-menu entries with ShroudForge mods on, W and S steering with ShroudForge's Unlimited Flight and SET's
@@ -64,8 +65,9 @@ Never deploy to a server players are using. Use a separate local test server.
 - **Registrations belong to one mod lifetime.** Do not retain callbacks or handles from an old load. Release threads, timers,
   sockets, files and static references held by non-mod code. ECS bindings drain callbacks at unload but keep an inert scheduler
   entry until restart; see [references/world-programs.md](references/world-programs.md).
-- **Item state (dev.20+).** Use `Items.Move` for gear transfers, not take + give. Item-entity `EntityData` is session-only; no persistent
-  per-item payload or affix API is supplied. [references/api.md](references/api.md#inventory-transfers-dev20).
+- **Item state (dev.20+).** Use `Items.Move` for gear transfers, not take + give. Item-entity `EntityData` is session-only.
+  dev.25+: `InstanceData` keeps a value on one item (a player's inventory not yet seen by a player); no affix API.
+  [references/api.md](references/api.md#persistent-data).
 - **Changes are layers.** They come off when the mod unloads. Do content changes in `Content.OnReady(...)`.
 - **Fixed ids.** GUIDs of items, recipes, clones, perks, buffs, tree nodes and NPCs, and ids of quests, steps and talents, never
   change after release. Saves keep them. For native quests and dialogue, names and option order feed the ids too.
