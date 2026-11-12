@@ -28,7 +28,14 @@ KilnOwner t_next_owner = 1;
 std::atomic<uint64_t> t_version{1};
 bool t_tick = true, t_lifecycle = true;
 std::vector<std::string> t_errors;  // KLOG_E lines
-std::vector<std::string> t_writes;  // texts write_file_atomic got
+std::vector<std::string> t_writes;  // texts write_file_atomic wrote (successful writes only)
+std::vector<double> t_attempts;     // the fake clock at every call of write_file_atomic, failed ones too
+int t_fail_next = 0;                // the next n calls of write_file_atomic fail (as a rename under Wine while a
+                                    // reader holds the file open)
+bool t_block = false;               // write_file_atomic waits until t_block is false again (a write in flight)
+bool t_in_write = false;            // a write_file_atomic call is inside its wait
+std::condition_variable t_write_cv;
+std::vector<std::string> t_infos;   // KLOG_I / KLOG_W lines
 std::filesystem::path t_last_file;
 kiln::Paths t_paths;
 double t_now = 0;
@@ -63,21 +70,31 @@ const char* side_name(uint32_t side) { return side == KILN_SIDE_CLIENT ? "client
 const Paths& paths() { return t_paths; }
 std::string utc_now() { return "2026-11-11T22:40:00Z"; }
 bool write_file_atomic(const std::filesystem::path& file, std::string_view text) {
-    std::lock_guard l(t_mutex);
+    std::unique_lock l(t_mutex);
+    t_attempts.push_back(fake_clock());
+    if (t_block) {
+        t_in_write = true;
+        t_write_cv.notify_all();
+        t_write_cv.wait(l, [] { return !t_block; });
+        t_in_write = false;
+    }
+    if (t_fail_next > 0) {
+        --t_fail_next;
+        return false;
+    }
     t_writes.emplace_back(text);
     t_last_file = file;
     return true;
 }
 namespace log {
 void writef(int level, const char*, const char* fmt, ...) {
-    if (level != KILN_LOG_ERROR) return;
     char b[512];
     va_list ap;
     va_start(ap, fmt);
     std::vsnprintf(b, sizeof b, fmt, ap);
     va_end(ap);
     std::lock_guard l(t_mutex);
-    t_errors.emplace_back(b);
+    (level == KILN_LOG_ERROR ? t_errors : t_infos).emplace_back(b);
 }
 }  // namespace log
 namespace reg {
@@ -688,6 +705,117 @@ void writer() {
     CHECK(writes() == 4, "writer: after flush the thread has nothing left to write");
 }
 
+size_t attempts() {
+    std::lock_guard l(t_mutex);
+    return t_attempts.size();
+}
+bool wait_attempts(size_t n) {
+    for (int i = 0; i < 300 && attempts() < n; ++i) std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    return attempts() >= n;
+}
+size_t infos_with(const char* what) {
+    std::lock_guard l(t_mutex);
+    return std::count_if(t_infos.begin(), t_infos.end(), [&](const std::string& s) { return s.find(what) != std::string::npos; });
+}
+void fail_next(int n) {
+    std::lock_guard l(t_mutex);
+    t_fail_next = n;
+}
+void block(bool on) {
+    {
+        std::lock_guard l(t_mutex);
+        t_block = on;
+    }
+    t_write_cv.notify_all();
+}
+bool wait_in_write() {
+    std::unique_lock l(t_mutex);
+    return t_write_cv.wait_for(l, std::chrono::seconds(3), [] { return t_in_write; });
+}
+
+// A write that fails (the stub's t_fail_next, as Wine's replacing rename while a reader holds the file) is tried again
+// after the gap, without another change; flush() keeps the dirt of a failed write and waits for a write in flight.
+// Runs after writer(): the writer thread is up, the last write was at fake 50000.
+void writer_retry() {
+    const KilnOwner o = owner("host");
+    const size_t a0 = attempts(), w0 = writes();
+    set_clock(70000);
+    fail_next(2);
+    rep(o, "r.one", A, 0);
+    CHECK(wait_attempts(a0 + 1) && writes() == w0, "retry: the writer's write fails");
+    std::this_thread::sleep_for(std::chrono::milliseconds(150));
+    set_clock(70999);
+    std::this_thread::sleep_for(std::chrono::milliseconds(150));
+    CHECK(attempts() == a0 + 1, "retry: no second try within the second (no busy loop)");
+    set_clock(71000);
+    CHECK(wait_attempts(a0 + 2) && writes() == w0, "retry: tried again once the second is over, with no new change; fails again");
+    set_clock(71999);
+    std::this_thread::sleep_for(std::chrono::milliseconds(150));
+    CHECK(attempts() == a0 + 2, "retry: still at most one try a second across failures");
+    set_clock(72000);
+    CHECK(wait_writes(w0 + 1) && attempts() == a0 + 3 && last_write().find("r.one") != std::string::npos,
+          "retry: the third try writes, and the file holds the change");
+    std::this_thread::sleep_for(std::chrono::milliseconds(150));
+    set_clock(90000);
+    std::this_thread::sleep_for(std::chrono::milliseconds(150));
+    CHECK(attempts() == a0 + 3 && writes() == w0 + 1, "retry: then parked, nothing dirty");
+    CHECK(infos_with("cannot write") == 1 && infos_with("written again") == 1,
+          "retry: one line for the failures, one when writing works again");
+
+    // flush: a failed one keeps the dirt, the next one writes
+    const size_t w1 = writes();
+    fail_next(1);
+    {
+        std::lock_guard l(caps::g_wmutex);
+        caps::g_last_write = 90000;  // as if written just now: the writer thread waits out its gap, flush ignores it
+    }
+    rep(o, "r.two", A, 0);
+    const bool first = caps::flush();
+    CHECK(!first && writes() == w1, "flush: a failed write answers false");
+    const bool second = caps::flush();
+    CHECK(second && writes() == w1 + 1 && last_write().find("r.two") != std::string::npos,
+          "flush: the dirt of the failed write stayed, so the next flush writes it");
+
+    // flush during the writer's write in flight
+    const size_t w2 = writes();
+    rep(o, "r.three", A, 0);
+    block(true);
+    set_clock(91000);  // past flush's last try (90000): the writer takes the write and stays inside it
+    const bool entered = wait_in_write();
+    std::atomic<bool> returned{false};
+    bool result = false;
+    std::thread f([&] {
+        result = caps::flush();
+        returned = true;
+    });
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    const bool waited = !returned;
+    block(false);
+    f.join();
+    CHECK(entered && waited && result && writes() == w2 + 1 && last_write().find("r.three") != std::string::npos,
+          "flush: waits for the write in flight and answers true once it is in the file (one write)");
+
+    // the write in flight fails: flush writes itself
+    const size_t w3 = writes();
+    rep(o, "r.four", A, 0);
+    fail_next(1);
+    block(true);
+    set_clock(92000);
+    const bool entered2 = wait_in_write();
+    returned = false;
+    result = false;
+    std::thread g([&] {
+        result = caps::flush();
+        returned = true;
+    });
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    const bool waited2 = !returned;
+    block(false);
+    g.join();
+    CHECK(entered2 && waited2 && result && writes() == w3 + 1 && last_write().find("r.four") != std::string::npos,
+          "flush: a write in flight that fails is done again by flush, which then answers true");
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -698,5 +826,6 @@ int main(int argc, char** argv) {
     core_rows(dir);
     json_file();
     writer();
+    writer_retry();
     return g_fail ? 1 : 0;
 }

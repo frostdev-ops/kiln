@@ -568,11 +568,16 @@ const KilnCapsApi kTable = {
 };
 
 // ---- capabilities.json ----
+// g_dirty: a change that no finished, successful write holds yet (a failed write sets it again). g_in_flight: a write
+// was taken (dirt cleared) and has not finished; one at a time, whoever takes it (boot, the writer thread, flush). The
+// file is current exactly when neither is set.
 std::mutex& g_wmutex = *new std::mutex;  // the writer's state below
-std::condition_variable& g_wcv = *new std::condition_variable;
+std::condition_variable& g_wcv = *new std::condition_variable;    // the writer thread: dirt, or a write finished
+std::condition_variable& g_wdone = *new std::condition_variable;  // flush(): a write in flight finished
 bool g_dirty = false;
+bool g_in_flight = false;
 bool g_booted = false;  // boot_complete() ran: writes are allowed
-double g_last_write = 0;
+double g_last_write = 0;  // when the last write was taken (also a failed one: retries keep the gap)
 std::timed_mutex& g_file_mutex = *new std::timed_mutex;  // one writer of the file at a time
 std::once_flag g_thread_once;
 std::atomic<bool> g_write_failed_logged{false};
@@ -637,28 +642,57 @@ bool write_now(std::chrono::milliseconds wait) {
         return false;
     }
     if (text.empty()) return false;
-    if (write_file_atomic(paths().state / L"capabilities.json", text)) return true;
-    if (!g_write_failed_logged.exchange(true)) KLOG_W("state: cannot write %s", u8(paths().state / L"capabilities.json").c_str());
+    if (write_file_atomic(paths().state / L"capabilities.json", text)) {
+        if (g_write_failed_logged.exchange(false)) KLOG_I("state: capabilities.json written again");
+        return true;
+    }
+    // once per run of failures: the writer tries again each second while it fails (a reader holding the file under
+    // Wine makes the replacing rename fail)
+    if (!g_write_failed_logged.exchange(true))
+        KLOG_W("state: cannot write %s; trying again each second", u8(paths().state / L"capabilities.json").c_str());
     return false;
+}
+
+// g_wmutex held: take the dirt for one write.
+void take_write_locked() {
+    g_dirty = false;
+    g_in_flight = true;
+    g_last_write = g_clock();
+}
+
+// g_wmutex held: the write taken ended. A failed one leaves the registry dirty, so it is tried again after the gap.
+void end_write_locked(bool ok) {
+    g_in_flight = false;
+    if (!ok) g_dirty = true;
+    g_wdone.notify_all();
+    g_wcv.notify_all();
+}
+
+// One write taken under g_wmutex (held by `lk` on entry and on return), done with it released.
+bool write_taken(std::unique_lock<std::mutex>& lk, std::chrono::milliseconds file_wait, std::chrono::milliseconds wait) {
+    take_write_locked();
+    lk.unlock();
+    bool ok = false;
+    try {
+        std::unique_lock file(g_file_mutex, std::defer_lock);
+        if (file.try_lock_for(file_wait)) ok = write_now(wait);
+    } catch (...) {
+    }
+    lk.lock();
+    end_write_locked(ok);
+    return ok;
 }
 
 void writer_loop() {
     std::unique_lock lk(g_wmutex);
     for (;;) {
-        g_wcv.wait(lk, [] { return g_dirty; });  // parked: no timer while nothing changed
+        g_wcv.wait(lk, [] { return g_dirty && !g_in_flight; });  // parked: no timer while nothing changed
         const double wait = g_last_write + kMinGapMs - g_clock();
-        if (wait > 0) {
+        if (wait > 0) {  // also after a failed write: the next try waits out the gap
             g_wcv.wait_for(lk, std::chrono::duration<double, std::milli>(wait));
             continue;
         }
-        g_dirty = false;
-        g_last_write = g_clock();
-        lk.unlock();
-        {
-            std::lock_guard file(g_file_mutex);
-            write_now(std::chrono::milliseconds(5000));
-        }
-        lk.lock();
+        write_taken(lk, std::chrono::milliseconds(5000), std::chrono::milliseconds(5000));
     }
 }
 
@@ -734,14 +768,13 @@ void core_rows(bool hooks, bool verified, const std::string& safe_idle) {
 void boot_complete() {
     try {
         {
-            std::lock_guard lock(g_wmutex);
+            std::unique_lock lk(g_wmutex);
             g_booted = true;
-            g_dirty = false;
-            g_last_write = g_clock();
-        }
-        {
-            std::lock_guard file(g_file_mutex);
-            write_now(std::chrono::milliseconds(5000));
+            // a second call (boot's catch blocks) may meet the writer's write: one at a time, bounded
+            if (g_wdone.wait_for(lk, std::chrono::milliseconds(6000), [] { return !g_in_flight; }))
+                write_taken(lk, std::chrono::milliseconds(5000), std::chrono::milliseconds(5000));  // failed: the thread retries
+            else
+                g_dirty = true;
         }
         std::call_once(g_thread_once, [] { std::thread(&writer_loop).detach(); });
     } catch (const std::exception& e) {
@@ -750,19 +783,18 @@ void boot_complete() {
     }
 }
 
-// A last write when something changed since the last one (the exit path). Any thread; waits at most about 2 s for
-// the file and the registry. True when the file is current.
+// A last write when something changed since the last one (the exit path), ignoring the gap. Any thread. Waits at most
+// about 2 s: 1 s for a write in flight to end (and the file), 1 s for the registry. True only when the file holds the
+// current state: nothing dirty and no write in flight, or its own write succeeded. A failed write stays dirty.
 bool flush() {
     try {
-        {
-            std::lock_guard lock(g_wmutex);
-            if (!g_booted || !g_dirty) return true;
-            g_dirty = false;
-            g_last_write = g_clock();
-        }
-        std::unique_lock file(g_file_mutex, std::defer_lock);
-        if (!file.try_lock_for(std::chrono::milliseconds(1000))) return false;
-        return write_now(std::chrono::milliseconds(1000));
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(1000);
+        std::unique_lock lk(g_wmutex);
+        if (!g_booted) return true;
+        if (!g_wdone.wait_until(lk, deadline, [] { return !g_in_flight; })) return false;  // the writer's, still going
+        if (!g_dirty) return true;  // the last write succeeded (a failed one leaves the dirt)
+        const auto left = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - std::chrono::steady_clock::now());
+        return write_taken(lk, std::max(left, std::chrono::milliseconds(0)), std::chrono::milliseconds(1000));
     } catch (...) {
         return false;
     }
