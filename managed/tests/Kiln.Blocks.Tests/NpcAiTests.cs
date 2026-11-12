@@ -336,6 +336,56 @@ public sealed class NpcAiTests : IDisposable
         Assert.False(context.IsAlive);
     }
 
+    private sealed class ListedMods(params ModEntry[] entries) : IModsBackend
+    {
+        public IReadOnlyList<ModEntry> All => entries;
+        public ModSide Side => ModSide.Server;
+        public ModEntry? Get(string id) => Array.Find(entries, e => e.Id == id);
+        public ModStats Stats(string id) => default;
+        public bool Send(ModContext? sender, string targetId, string method, object? payload) => false;
+        public Task<ModOperationResult> Request(ModOperation op, string arg) => throw new NotSupportedException();
+        public void Request(ModOperation op, string arg, Action<ModOperationResult> done, ModContext? caller) => throw new NotSupportedException();
+    }
+
+    private static ModEntry Loaded(ModContext instance) =>
+        new(instance.Info.Id, instance.Info.Name, instance.Info.Version, ".", ModSide.Server, ModState.Loaded, null, [], 0, instance.Info);
+
+    // Kiln.Host publishes its mod list after OnLoad returns: during a boot's OnLoad the list still has the entry from before the load (Pending, with
+    // a ModInfo object of its own). What the mod registered there belongs to the instance that runs, so the first tick must not take the new entry
+    // for a reload (npcai-test, dev.24: every creature block defined in OnLoad lost its relations and filter on the first tick).
+    [Fact]
+    public void What_a_mod_registers_in_OnLoad_stays_with_its_instance()
+    {
+        const string id = "ai-onload";
+        var instance = HostAccess.CreateContext(new ModInfo(id, "AI OnLoad", "1", "."), 0, ".");
+        var previousMods = ModsBackend.Current;
+        var previousCaller = ModContext.CurrentMod;
+        (NpcServerSide.OnTickThread, NpcServerSide.IsClient, NpcServerSide.ServerRunning) = (() => true, () => false, () => true);
+        try
+        {
+            // OnLoad at boot: the entry from before the load, as Kiln.Host makes it (its own ModInfo)
+            ModsBackend.Current = new ListedMods(new ModEntry(id, "AI OnLoad", "1", ".", ModSide.Server, ModState.Pending, null, [], -1, new ModInfo(id, "AI OnLoad", "1", ".")));
+            ModContext.CurrentMod = instance;
+            AiRuntime.RegisterFilter("onload-filter", (_, _) => true);
+            ModContext.CurrentMod = previousCaller;
+            ModsBackend.Current = new ListedMods(Loaded(instance));   // after OnLoad: the list names it
+            AiRuntime.OnTick(1);
+            Assert.NotNull(AiRuntime.FindFilter(id, "onload-filter"));
+
+            // a reload is another instance under the same id: what the old one registered goes
+            var reloaded = HostAccess.CreateContext(new ModInfo(id, "AI OnLoad", "1", "."), 0, ".");
+            ModsBackend.Current = new ListedMods(Loaded(reloaded));
+            AiRuntime.OnTick(2);
+            Assert.Null(AiRuntime.FindFilter(id, "onload-filter"));
+        }
+        finally
+        {
+            AiRuntime.Retire(id);
+            ModContext.CurrentMod = previousCaller;
+            ModsBackend.Current = previousMods;
+        }
+    }
+
     [Fact]
     public void Json_action_modifier_order_does_not_change_the_action()
     {

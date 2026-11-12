@@ -281,10 +281,14 @@ internal sealed unsafe class HostRuntime : IHostServices, IKilnBackend
         var hostDir = Path.GetDirectoryName(typeof(HostRuntime).Assembly.Location)!;
         AssemblyLoadContext.Default.Resolving += (context, name) =>
         {
+            if (name.Name == GameTypes.AssemblyName) return GameTypes.Load();  // this build's Kiln.Game, else kiln/host's
             var candidate = Path.Combine(hostDir, name.Name + ".dll");
             return File.Exists(candidate) ? context.LoadFromAssemblyPath(candidate) : null;
         };
         var host = new HostRuntime(api);
+        string? exeSha;
+        fixed (byte* p = host._build.ExeSha256) exeSha = Marshal.PtrToStringAnsi((nint)p);
+        GameTypes.Configure(KilnAbi.SideName(api), exeSha, host.Log);
         Instance = host;
         Backend.Current = host;
         ModsBackend.Current = host._mods;

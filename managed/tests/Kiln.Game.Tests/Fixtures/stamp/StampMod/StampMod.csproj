@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- A mod-like library compiled against Kiln.Game built from the made-up dump a.json (variant stamp-a). The stamp
+       task runs on it (StampTaskTests), and StampCrossLayoutTests runs it against the variants stamp-b and stamp-c.
+       Kiln.Game is a compile reference only, as in a mod. The properties are the ones Kiln.Game.Tests.csproj builds the
+       variant with (normalized paths), so the variant is one project instance. -->
+  <PropertyGroup>
+    <AssemblyName>StampMod</AssemblyName>
+    <IsPackable>false</IsPackable>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../../../../Kiln.Game/Kiln.Game.csproj" Private="false"
+                      AdditionalProperties="KilnGameVariant=stamp-a;KilnGameDump=$([MSBuild]::NormalizePath('$(MSBuildThisFileDirectory)../a.json'));KilnLocalGameTypes=$([MSBuild]::NormalizePath('$(MSBuildThisFileDirectory)../../../../../Kiln.Game/Generated.cs'))" />
+  </ItemGroup>
+</Project>
