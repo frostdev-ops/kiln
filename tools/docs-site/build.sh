@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Builds the modding site as a folder: the API reference from the assemblies and XML docs of Kiln.Api, Kiln.Testing and
-# the services (managed/Kiln.Sdk/pack.sh's stage), plus docs/kiln/modding/*.md. It publishes nothing: the release puts
-# the folder into <release>/sdk/api/, putting it online is the owner's decision.
+# Builds the modding site as a folder: the API reference from the assemblies and XML docs of Kiln.Api, Kiln.Testing,
+# Kiln.Game and the services (managed/Kiln.Sdk/pack.sh's stage) and of Kiln.TestKit (its testkit-stage), plus
+# docs/kiln/modding/*.md. It publishes nothing: the release puts the folder into <release>/sdk/api/, putting it online
+# is the owner's decision. filterConfig.yml leaves out what DocFX cannot take (it says why).
 #   KILN_OUT=<build dir> tools/docs-site/build.sh [<site folder>]   -> <site folder>/index.html
 # The site folder defaults to $KILN_OUT/docs-site; an existing one is replaced only when it holds a site from here.
 # The tool goes into $KILN_OUT/tools (dotnet tool install, from NuGet). Generated files stay out of the repository: the
@@ -32,11 +33,15 @@ fi
 [[ -f $stage/Kiln.Api.xml ]] || KILN_OUT=$out "$repo/managed/Kiln.Sdk/pack.sh"
 [[ -x $tools/docfx ]] || dotnet tool install docfx --version "$version" --tool-path "$tools" >/dev/null
 rm -rf "$work" && mkdir -p "$work"
-cp "$here"/index.md "$here"/toc.yml "$work"/
+cp "$here"/index.md "$here"/toc.yml "$here"/filterConfig.yml "$work"/
 cp -r "$repo/docs/kiln/modding" "$work/modding"      # docfx wants its sources below the config
 cp -r "$stage" "$work/stage"                          # annotate.py rewrites the XML docs of this copy
+# Kiln.TestKit (mod tests) is packed from a stage of its own; its dll and docs join, with Kiln.Host.dll only for docfx to
+# resolve its references (docfx.json leaves Kiln.Host out of the reference)
+for f in "$out"/testkit-stage/Kiln.{TestKit.dll,TestKit.xml,Host.dll}; do [[ -f $f ]] && cp "$f" "$work/stage/"; done
+[[ -f $work/stage/Kiln.TestKit.dll ]] || echo "no Kiln.TestKit in $out/testkit-stage: the reference leaves it out" >&2
 sed -e "s#MDK_STAGE#$work/stage#" "$here/docfx.json" > "$work/docfx.json"
-sed -e "s#MDK_STAGE#$stage#" -e 's#"dest": "api"#"dest": "api-raw"#' "$here/docfx.json" > "$work/docfx-raw.json"
+sed -e "s#MDK_STAGE#$work/stage#" -e 's#"dest": "api"#"dest": "api-raw"#' "$here/docfx.json" > "$work/docfx-raw.json"
 cd "$work"
 # A private copy of the tool: without its deps.json every dll next to it is found, and the SDK's Microsoft.Extensions.*
 # stand in for the ones ASP.NET Core would provide.
