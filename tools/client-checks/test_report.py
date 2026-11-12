@@ -185,7 +185,23 @@ def coverage_problems(rows: dict, ids: list[str]) -> list[str]:
         for cid in row.get("checks", []):
             if "/" not in cid and cid not in seen:
                 problems.append(f"row {row.get('key')!r} names {cid}, which is no check in the pack")
+            elif "/" in cid:
+                mod, _, other = cid.rpartition("/")
+                if other not in mod_check_ids(mod):
+                    problems.append(f"row {row.get('key')!r} names {cid}, which is no check of the mod {mod}")
     return problems
+
+
+def mod_check_ids(mod: str) -> set[str]:
+    """The check ids in the sources of the mod (under mods/) whose kiln.mod.json has this id; empty when none has."""
+    for manifest in sorted((PACK.parent.parent).glob("**/kiln.mod.json")):
+        try:
+            if json.loads(manifest.read_text("utf-8")).get("id") != mod:
+                continue
+        except (ValueError, OSError):
+            continue
+        return {cid for src in manifest.parent.rglob("*.cs") for cid in CHECK_ID.findall(src.read_text("utf-8"))}
+    return set()
 
 
 class CoverageTests(unittest.TestCase):
