@@ -625,7 +625,8 @@ pub fn update(inst: &Instance, a: UpdateArgs) -> Result<()> {
         stop(inst, None)?;
     }
     println!("== backup");
-    let backup = if save_dir(inst).is_dir() { Some(backup(inst)?) } else {
+    // the one step of an update that may use the launcher's data root (a backup_dir inside it): the lock for that step
+    let backup = if save_dir(inst).is_dir() { Some({ let _held = crate::lock::hold()?; backup(inst)? }) } else {
         println!("no savegame yet; nothing to back up");
         None
     };

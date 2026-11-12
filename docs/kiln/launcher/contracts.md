@@ -128,7 +128,10 @@ The whole data folder moves as one (`kiln_manage::data_folder`, `kiln_manage::da
 - **Lock files** at the top of a data folder are `quick.lock` and `data-folder.lock`, by their names; inside `nexus/`
   every `*.lock`. Any other `*.lock` at the top is an entry the launcher does not know. Lock files are never copied.
 - **Lock** `data-folder.lock` in the data root (`data_folder::DataLock`): shared by every launcher process from dev.25 on
-  for as long as it runs and by `kiln` for its whole command when the root exists, exclusive for a move, a switch or
+  for as long as it runs, by `kiln` for its whole command when the root exists, and by `kilnctl` for every command
+  that uses the root (the library, profiles, client and bundle installs, `deploy --bundle`, `backup`, `report`; for
+  `update` only its backup step; not the commands on the server folder alone, such as `run`, `start`, `logs` or
+  `gate`, so a server in the foreground never blocks a move), exclusive for a move, a switch or
   unfinished-copy recovery; taking it never waits. Recovery upgrades the launcher's lock and holds the partial copy's
   lock exclusively too, before scheduling its task and until it returns (also on Cancel or error). If either lock
   cannot be taken, nothing is removed and the notice asks the player to close other Kiln processes and restart. A move also holds `quick.lock`, and
