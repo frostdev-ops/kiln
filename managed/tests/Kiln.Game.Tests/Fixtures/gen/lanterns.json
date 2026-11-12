@@ -284,6 +284,32 @@
    "align": 1
   },
   {
+   "name": "AttributeComponent",
+   "qualifiedName": "keen::ecs::AttributeComponent",
+   "hash": "0x81509358",
+   "kind": 18,
+   "size": 8,
+   "align": 4,
+   "inner": "keen::ecs::Component",
+   "fields": [
+    {
+     "name": "key",
+     "offset": 0,
+     "type": "keen::HashKey32"
+    },
+    {
+     "name": "start",
+     "offset": 4,
+     "type": "keen::uint16"
+    },
+    {
+     "name": "count",
+     "offset": 6,
+     "type": "keen::uint8"
+    }
+   ]
+  },
+  {
    "name": "Comet",
    "qualifiedName": "keen::ecs::Comet",
    "hash": "0x41BAC01D",
@@ -329,7 +355,7 @@
    "kind": 18,
    "size": 8,
    "align": 4,
-   "inner": "keen::ecs::MeterBase",
+   "inner": "keen::ecs::AttributeComponent",
    "fields": []
   },
   {
@@ -526,32 +552,6 @@
    ]
   },
   {
-   "name": "MeterBase",
-   "qualifiedName": "keen::ecs::MeterBase",
-   "hash": "0xC1231971",
-   "kind": 18,
-   "size": 8,
-   "align": 4,
-   "inner": "keen::ecs::Component",
-   "fields": [
-    {
-     "name": "key",
-     "offset": 0,
-     "type": "keen::HashKey32"
-    },
-    {
-     "name": "start",
-     "offset": 4,
-     "type": "keen::uint16"
-    },
-    {
-     "name": "count",
-     "offset": 6,
-     "type": "keen::uint8"
-    }
-   ]
-  },
-  {
    "name": "Spark",
    "qualifiedName": "keen::ecs::Spark",
    "hash": "0xD1E998F4",
@@ -596,7 +596,7 @@
    "inner": "keen::ecs::FloatMeter",
    "fields": [
     {
-     "name": "store",
+     "name": "dataStorage",
      "offset": 8,
      "type": "keen::StaticArray<keen::float32,4>"
     }

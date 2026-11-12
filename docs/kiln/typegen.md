@@ -129,7 +129,7 @@ dump before the compiler and compiles what it writes:
 python3 tools/typegen/typegen.py generate --dump sigdb/types/server/<sha>.json --out <dir> --root Ecs --legacy-obsolete
 ```
 
-It writes four files into `<dir>` and prints one summary line. On the committed server dump:
+It writes five files into `<dir>` and prints one summary line. On the committed server dump:
 
 ```
 typegen: f0d824be….json (server): 1839 types: 1201 structs, 227 enums, 68 bitmasks, 133 typedefs, 116 static arrays,
@@ -143,6 +143,7 @@ lengths; 37 raw buffers (36 a blob array (its elements live outside the struct);
 | `Kiln.Game.Arrays.g.cs` | one `Ecs.StaticArray<N><T>` inline array per array length in use |
 | `Kiln.Game.Legacy.g.cs` | the nine dev.24 types of namespace `Kiln.GameTypes`, by the v1 emitter (§3.8) |
 | `Kiln.Game.layouts` | the layout table, embedded in the dll as the resource `Kiln.Game.layouts` (§3.6) |
+| `Kiln.Game.types` | every type of the dump, embedded as `Kiln.Game.types`, for the first-use check (§4.2) |
 
 Every one of them starts with the line
 `// kiln-typegen: generated at build time from a game layout dump. Never commit this file.`
@@ -173,7 +174,9 @@ sit in a namespace a mod imports next to `using Kiln;`.
 The generator stops, naming both game types, when two types map to one C# name. It also stops when a type would
 take a name the root class uses for itself: the root's own name, `StaticArray<N>`, and the hand-written or reserved
 members of `Ecs` (`ObjectReference`, `GameGuid`, and for typed access `Get`, `TryGet`, `Has`, `All`, `Available`,
-`NameOf`, `Find`, `Read`, `TryRead`, `Write`, `TryWrite`, `Types`, `Layouts`; `ROOT_RESERVED` in `typegen.py`, to be
+`NameOf`, `Find`, `Read`, `TryRead`, `Write`, `TryWrite`, `Types`, `Layouts`, `Supports`, `WhyNot`, `RequireWorld`,
+and the names the generated code uses unqualified inside the class: `System`, `Kiln`, `Span`, the layout attributes and
+the marker interfaces; `ROOT_RESERVED` in `typegen.py`, to be
 extended with every hand-written member of `Ecs`). A struct field named `Hash`, `Name`, `QualifiedName`, `Size` or
 `Layout`, or named like its struct, stops it too.
 
@@ -378,18 +381,113 @@ dotnet build managed/Kiln.Game -c Release --artifacts-path $KILN_OUT/dotnet \
   golden.
 - `GameLayoutStampsTests`: `Check` against hand-made tables and stamps, and the embedded table.
 
-## 4. The typed read API
-`Kiln.GameTypes.Components` reads components by type over kiln.world (tick thread):
+## 4. Typed access (`Kiln.Ecs`)
+### 4.1 The calls
+On the root class, for `T : unmanaged, IGameComponent<T>` (every generated ECS component):
+
+| Member | Thread | |
+|---|---|---|
+| `bool Ecs.Available` | `[AnyThread]` | kiln.world is loaded on this build |
+| `bool Ecs.TryGet<T>(EntityId entity, out T value)` | `[TickThreadOnly]` | a copy of the entity's component |
+| `T? Ecs.Get<T>(EntityId entity)` | `[TickThreadOnly]` | the same, or null |
+| `bool Ecs.Has<T>(EntityId entity)` | `[TickThreadOnly]` | the entity has the component |
+| `IReadOnlyList<EntityId> Ecs.All<T>()` | `[TickThreadOnly]` | every entity that has it |
+| `bool Ecs.Supports<T>()` (any `IGameStruct<T>`) | `[AnyThread]` | the first-use check's answer for `T` |
+| `string? Ecs.WhyNot<T>()` (any `IGameStruct<T>`) | `[AnyThread]` | null when supported, else the difference |
+
+They go through `World` (kiln.world) by the component's game name, as `Kiln.GameTypes.Components` does; there is no
+new native call. kiln.world finds a component by the hash of `keen::ecs::<name>`, so the generator stops when a type in
+the dump's component list has another hash (every component is in `keen::ecs` on this build). They work on both
+sides. A `Kiln.EntityRef` converts to `EntityId` implicitly, so a mod can pass either.
+
+Two different "no" answers (docs/kiln/modding/contract.md §1):
+- **kiln.world is not loaded** (`Ecs.Available` false): a capability that is off. `TryGet`, `Get`, `Has` and `All`
+  throw `KilnUnavailableException` with `Capability == "kiln.world"`. Ask `Ecs.Available` first.
+- **The type does not match the running game** (the first-use check below refuses it): not an error of the mod and
+  not an off capability, just a layout this `Kiln.Game.dll` cannot read on this build. `TryGet` returns false, `Get`
+  null, `Has` false, `All` an empty list; the mod's log gets **one** warning per type
+  (`Kiln.Game: Kiln.Ecs+Fuel cannot be read on this game build, typed access to it returns nothing: <difference>`);
+  `Supports<T>()` is false and `WhyNot<T>()` gives the difference. Never an exception, never a partial read.
+
+### 4.2 The first-use check
+A `Kiln.Game.dll` generated for one game build may run on another (an update Kiln has no dump for yet, or the flat
+`host/Kiln.Game.dll` on the other side). So each type is checked once, at first use (any of the calls above), and the
+answer is cached; the check is thread-safe.
+- **With the game's live type table** (kiln.types, `GameTypes.Available`): the type is found by qualified name, and
+  its kind, size and hash, and for a struct every field (base classes first) with its offset and its type's qualified
+  name, must equal the generated layout, and so, recursively, must every type inside it: nested structs, static arrays
+  and their elements, typedef targets, enums (every name with the same value, no extra one), bitmasks and their enums.
+  Each nested type is looked up once. A live struct with a field the generated one lacks differs too.
+- **Without it:** supported only if this `Kiln.Game.dll` was generated for exactly the running exe: the table's
+  `exe_sha256` equals the SHA-256 of the process image (`Environment.ProcessPath`), computed once, on a worker, when
+  the check first needs it.
+
+The generated side is the embedded resource `Kiln.Game.types`, written by the generator beside the layout table: the
+marker line, a header `kiln.game.types  1  side=<side>  exe_sha256=<sha>  types=<n>`, then one tab-separated line per
+type of the dump, sorted by qualified name: `<qualified name> <kind> <size> <hash> <inner or -> <members>`, members
+being a struct's own fields as `<name>@<offset>:<type's qualified name>` or an enum's values as `<name>=<value>`. It
+holds structure only, the same as the dump.
+
+`WhyNot` texts name the type, the field or value, the generated and the live value, through the chain of fields:
+- `keen::ecs::Lantern.mode: offset 8 generated, 9 live`
+- `keen::ecs::Comet.trail: keen::glimmer::Trail.kind: offset 4 generated, 5 live`
+- `keen::ecs::Lantern.lit: keen::Moment: the game has no such type`
+- `the game's type table (kiln.types) is not available and this Kiln.Game was generated for server f0d824be, not for the running exe 1a2b3c4d`
+
+The nine legacy types get the same check by name: `Kiln.GameTypes.Components` (now `[Obsolete("Use Kiln.Ecs.")]`,
+like `ComponentTypes`) checks `keen::ecs::<Name>` the same way and also that each field of the legacy struct sits at
+its generated offset with its generated size. Its behaviour without kiln.world is unchanged (it throws as `World`
+does). The comparison is `LayoutCheck.WhyNot` in `managed/Kiln.Game/EcsLayoutCheck.cs`, a pure function over a small
+internal interface for the live table; `EcsAccessTests` drives it with a fake.
+
+### 4.3 Example
+```csharp
+if (!Ecs.Available) return;                       // kiln.world is off: the reads would throw
+if (!Ecs.Supports<Ecs.LastTransform>()) { Log.Warn(Ecs.WhyNot<Ecs.LastTransform>()!); return; }
+if (Ecs.TryGet<Ecs.LastTransform>(entity, out var t))
+    Log.Info($"at {t.transform.position.x}, moving {t.velocity.z}");          // nested fields
+if (Ecs.Get<Ecs.NpcCommon>(entity) is { } npc)
+    Log.Info($"mode {npc.movementMode}, last step {npc.history[npc.historyIndex].movement.x}");  // an enum, an array element
+foreach (var e in Ecs.All<Ecs.Health>()) { /* ... */ }
+```
+`EcsAccessTests.DocExample` compiles the same code. A struct is a copy: change it, and nothing in the game changes
+(typed writes are dev.26 work).
+
+### 4.4 Attribute components
+A component whose base chain runs through `keen::ecs::AttributeComponent` and that has a `dataStorage` static array
+(59 on this build: `Health`, `Stamina`, `Mana`, `Fuel`, `Level`, …) implements `IGameAttribute<TSelf, TValue>`
+(`TValue` the element type, `int`, `float` or `uint`) and has `Span<TValue> Values` over `dataStorage`:
 
 ```csharp
-using Kiln.GameTypes;
-if (Components.Get<NetworkHealth>(entity) is { } nh) Log.Info($"{nh.health}/{nh.healthMax}");
-foreach (var e in Components.All<TeleportCount>()) { ... }
-bool has = Components.Has<CurrentTransform>(entity);
+if (Ecs.Get<Ecs.Health>(entity) is { } hp) Log.Info(string.Join(",", hp.Values.ToArray()));
+static Span<V> Slots<T, V>(ref T x) where T : unmanaged, IGameAttribute<T, V> where V : unmanaged => T.ValuesOf(ref x);
 ```
+The slots have no names: which one is the current, the base or the maximum value is the game's data and differs per
+attribute. The four base fields (`rootId`, `storageOffset`, `flags`, `storageCount`) are ordinary fields.
 
-`Get<T>`/`TryGet<T>` map `T` to its component name and call `World.TryRead<T>`. Because the struct layout is the
-engine's, the bytes line up exactly.
+### 4.5 Program descriptors (`typegen.py programs`)
+```sh
+python3 tools/typegen/typegen.py programs --catalog <catalog.json> --dump <dump> --out <dir> [--root Ecs]
+```
+reads a program catalog, `[{"name": "fuel_setup", "lists": {"0x18": ["FuelSetup"], "0x58": ["Fuel"]}}, …]`, the list
+keys being offsets in the game's program descriptor (0x18 tpl, 0x28 tpl_opt, 0x38 read, 0x48 read_opt, 0x58 write,
+0x68 write_opt, 0x78 add, 0x88 remove, 0x98 sys_read, 0xB0 sys_write, 0xD0 other_tpl, 0xE0 other_read, 0xF0
+other_write, 0x100 other_write_unser, 0x110 with, 0x120 without, 0x130 any_of, 0x140 all_write, 0x150 all_read, 0x160
+events_in, 0x170 events_out), and writes `Kiln.Game.Programs.g.cs`: a static class `Kiln.EcsPrograms` with one nested
+class per program (`FuelSetup`; a name that does not start with a letter gets `Program` in front) holding `Name`,
+`Contract` and each list as `Type[]` of generated types (`typeof(Ecs.Fuel)`; event lists name events; the two `sys_`
+lists stay names). A name the dump lacks in the component (or event) list, an unknown key or offset, and two programs
+with one C# name stop the generator. `Contract` is FNV-1a-64 of the text `program <name>\n` followed, for each
+non-empty list in offset order, by `<list> <qualified names sorted, comma-separated>\n`.
+
+A catalog is read from the exe: none is in the tree, and nothing generated from one is committed. The build compiles
+the descriptors only when `-p:KilnGamePrograms=<catalog>` is given (the tests pass the made-up
+`Fixtures/gen/programs.json`). The typed program views of the foundations design need `Kiln.Systems`, which does not
+exist yet.
+
+### 4.6 Still raw
+Blob arrays and blob strings (37 fields on this build) stay `fixed byte` buffers: their data lies behind a
+self-relative offset. Writing a component, typed program access and typed events are not here (dev.26).
 
 ## 5. Verified (lab, server svn 1285601)
 The probe dumped 9 component types with real offsets (e.g. `NetworkHealth {health@0, healthMax@4}`,
@@ -408,6 +506,13 @@ on live entities: **CurrentTransform matched on 2702 entities, TeleportCount on 
 - Blob arrays and blob strings stay raw bytes: their data lives outside the struct, behind a self-relative offset that
   only means something in the game's memory.
 - The base of the attribute components (`keen::ecs::AttributeComponent`) is reflected on this build and flattened like
-  any base. What the slots of an attribute's `dataStorage` mean is not in the reflection; a view over them is left to
-  the typed access work.
+  any base. What the slots of an attribute's `dataStorage` mean is not in the reflection: `Values` (§4.4) has no slot
+  names.
+- The typed reads (§4) are proven offline only (the check against a fake live table, the calls without a game). That
+  they read the right bytes on live entities is the lab check's job.
+- Without the game's type table, a `Kiln.Game.dll` reads nothing on an exe it was not generated for; the first check
+  hashes the running exe once (a few hundred megabytes on a client).
+- The hand-written part of `Ecs` names every type with `global::`: a generated type such as `Ecs.EntityId` or
+  `Ecs.Time` hides a namespace-level type of the same name inside the class. Every member name it declares is in
+  `ROOT_RESERVED` (a test checks it).
 - No GPL code is used (kfc-parser is never read); the layouts come from the game's own reflection table.

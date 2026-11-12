@@ -41,11 +41,12 @@
     <Copy SourceFiles="@(_KilnLegacyCopy)" DestinationFolder="$(OutDir)legacy/%(_KilnLegacyCopy.Dir)" SkipUnchangedFiles="true" />
   </Target>
   <!-- Kiln.Game built from the made-up fixture dump (Fixtures/gen/lanterns.json), as a variant beside the main build;
-       its legacy part is the golden Generated.cs, since the fixture has none of the nine types. RoundTripTests reads it
-       from variants/lanterns/. -->
+       its legacy part is the golden Generated.cs, since the fixture has none of the nine types, and it compiles the
+       program descriptors of the made-up catalog Fixtures/gen/programs.json. RoundTripTests reads it from
+       variants/lanterns/. -->
   <Target Name="_KilnGenFixtureVariant" AfterTargets="Build">
     <MSBuild Projects="../../Kiln.Game/Kiln.Game.csproj" Targets="Build"
-             Properties="KilnGameVariant=lanterns;KilnGameDump=$(MSBuildThisFileDirectory)Fixtures/gen/lanterns.json;KilnLocalGameTypes=$(MSBuildThisFileDirectory)../../Kiln.Game/Generated.cs">
+             Properties="KilnGameVariant=lanterns;KilnGameDump=$(MSBuildThisFileDirectory)Fixtures/gen/lanterns.json;KilnLocalGameTypes=$(MSBuildThisFileDirectory)../../Kiln.Game/Generated.cs;KilnGamePrograms=$(MSBuildThisFileDirectory)Fixtures/gen/programs.json">
       <Output TaskParameter="TargetOutputs" ItemName="_KilnLanternsGame" />
     </MSBuild>
     <Copy SourceFiles="@(_KilnLanternsGame)" DestinationFolder="$(OutDir)variants/lanterns" SkipUnchangedFiles="true" />

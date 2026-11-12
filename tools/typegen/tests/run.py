@@ -26,7 +26,8 @@ EXPECTED = os.path.join(FIX, "expected")
 OLD_DUMP = os.path.join(ROOT, "sigdb", "types", "server",
                         "c5c9fe50c6398d2adedd98923c2d04bf9d9b4af64c1447ac167cdf8f874ff84f.json")
 GENERATED_CS = os.path.join(ROOT, "managed", "Kiln.Game", "Generated.cs")
-OUTPUTS = ("Kiln.Game.Ecs.g.cs", "Kiln.Game.Arrays.g.cs", "Kiln.Game.Legacy.g.cs", "Kiln.Game.layouts")
+OUTPUTS = ("Kiln.Game.Ecs.g.cs", "Kiln.Game.Arrays.g.cs", "Kiln.Game.Legacy.g.cs", "Kiln.Game.layouts",
+           "Kiln.Game.types")
 
 sys.path.insert(0, os.path.dirname(TYPEGEN))
 import typegen  # noqa: E402
@@ -224,10 +225,10 @@ def test_refuses_a_layout_that_does_not_add_up():
             "keen::ecs::Lantern: fields glow and wick overlap")
     refused("past-end", lambda d: field(find(d, "keen::ecs::Lantern"), "labels").update(offset=128),
             "ends past the struct's 136 bytes")
-    refused("in-base", lambda d: field(find(d, "keen::ecs::Warmth"), "store").update(offset=4),
-            "keen::ecs::Warmth.store at 4 lies inside its base keen::ecs::FloatMeter")
-    refused("repeat", lambda d: field(find(d, "keen::ecs::Warmth"), "store").update(name="key"),
-            "field 'key' is declared by keen::ecs::MeterBase and by keen::ecs::Warmth")
+    refused("in-base", lambda d: field(find(d, "keen::ecs::Warmth"), "dataStorage").update(offset=4),
+            "keen::ecs::Warmth.dataStorage at 4 lies inside its base keen::ecs::FloatMeter")
+    refused("repeat", lambda d: field(find(d, "keen::ecs::Warmth"), "dataStorage").update(name="key"),
+            "field 'key' is declared by keen::ecs::AttributeComponent and by keen::ecs::Warmth")
     refused("array", lambda d: find(d, "keen::StaticArray<keen::sint16,4>").update(size=10),
             "is not 4 elements of 2 bytes")
 
@@ -245,6 +246,78 @@ def test_refuses_a_wrong_hash_and_the_wrong_schema():
     refused("hash", lambda d: find(d, "keen::ecs::Lantern").update(hash="0x00000000"),
             "is not FNV-1a-32 of the qualified name")
     refused("schema", lambda d: d.update(schema=1), "this generator reads schema 2")
+
+
+def test_refuses_a_type_name_that_is_not_its_qualified_names_tail():
+    refused("name-literal", lambda d: find(d, "keen::ecs::Lantern").update(name='Lantern\\"; x'),
+            "(keen::ecs::Lantern).name", "is not the last part of the qualified name ('Lantern')")
+    refused("name-other", lambda d: find(d, "keen::ecs::Lantern").update(name="Lamp"),
+            "'Lamp' is not the last part of the qualified name ('Lantern')")
+    refused("name-template", lambda d: find(d, "keen::StaticArray<keen::sint16,4>").update(name="StaticArray"),
+            "('StaticArray<keen::sint16,4>')")
+
+
+def test_refuses_a_component_kiln_world_cannot_find_by_name():
+    refused("component-ns", lambda d: d["components"].append("keen::glimmer::Trail"),
+            "component keen::glimmer::Trail", "keen::ecs::Trail", "typed access by name cannot reach it")
+
+
+def test_an_attribute_component_gets_its_value_view():
+    with open(os.path.join(EXPECTED, "Kiln.Game.Ecs.g.cs"), encoding="utf-8") as f:
+        text = f.read()
+    assert "public partial struct Warmth : IGameAttribute<Warmth, float>" in text
+    assert "public Span<float> Values => dataStorage;" in text
+    assert "IGameAttribute<Warmth, float>.ValuesOf(ref Warmth self) => self.dataStorage;" in text
+    assert text.count("IGameAttribute<") == 2  # Warmth only (its declaration and ValuesOf)
+
+
+def test_the_types_resource_lists_every_type_of_the_dump():
+    d = load_fixture()
+    with open(os.path.join(EXPECTED, "Kiln.Game.types"), encoding="utf-8") as f:
+        lines = f.read().split("\n")
+    assert lines[0] == typegen.MARKER and lines[1].startswith("kiln.game.types\t1\tside=server\texe_sha256=")
+    rows = [l for l in lines[2:] if l]
+    assert [r.split("\t")[0] for r in rows] == sorted(t["qualifiedName"] for t in d["types"])
+    assert "keen::ecs::Spark\t18\t8\t0x" in "\n".join(rows)
+    assert any(r.startswith("keen::Tilt\t12\t2\t") and r.endswith("\tLeft=-1\tLevel=0\tRight=1") for r in rows)
+
+
+# --- programs -------------------------------------------------------------------------------------------------------
+
+CATALOG = os.path.join(FIX, "programs.json")
+
+
+def test_programs_match_their_expected_output():
+    out = work("programs")
+    rc, so, se = run("programs", "--catalog", CATALOG, "--dump", DUMP, "--out", out)
+    assert rc == 0, se
+    assert so == "typegen: programs.json: 3 program descriptors\n", so
+    assert read(os.path.join(out, "Kiln.Game.Programs.g.cs")) == read(os.path.join(EXPECTED, "Kiln.Game.Programs.g.cs"))
+    text = read(os.path.join(out, "Kiln.Game.Programs.g.cs")).decode()
+    contract = ("program lantern_glow\ntpl keen::ecs::Lantern\nread keen::ecs::Comet,keen::ecs::Gauges\n"
+                "write keen::ecs::Warmth\nsys_read light_cache\nevents_out keen::ecs::LanternLit\n")
+    assert f"Contract = 0x{typegen.fnv1a64(contract):016X}ul;" in text
+
+
+def programs_refused(name, catalog, *needles):
+    p = os.path.join(WORK, "cat-" + name + ".json")
+    with open(p, "w", encoding="utf-8") as f:
+        json.dump(catalog, f)
+    out = work("cat-" + name)
+    rc, so, se = run("programs", "--catalog", p, "--dump", DUMP, "--out", out)
+    assert rc == 1 and se.startswith("typegen: error: "), (rc, se)
+    for n in needles:
+        assert n in se, f"{n!r} not in {se!r}"
+    assert not os.path.exists(out)
+
+
+def test_programs_refuse_what_the_dump_cannot_name():
+    programs_refused("missing", [{"name": "p", "lists": {"0x58": ["Torch"]}}], "(p).write: Torch is not among the components of lanterns.json")
+    programs_refused("event", [{"name": "p", "lists": {"0x160": ["Lantern"]}}], "(p).events_in: Lantern is not among the events")
+    programs_refused("offset", [{"name": "p", "lists": {"0x20": ["Lantern"]}}], "'0x20'", "not a known access list offset")
+    programs_refused("name", [{"name": "p q", "lists": {}}], "'p q' is not a program name")
+    programs_refused("key", [{"name": "p", "lists": {}, "fn": 1}], "a program is {name, lists}")
+    programs_refused("twice", [{"name": "a_b", "lists": {}}, {"name": "a__b", "lists": {}}], "name collision", "a_b", "a__b")
 
 
 # --- the legacy mode ------------------------------------------------------------------------------------------------
@@ -287,6 +360,11 @@ def main():
             shutil.copyfile(os.path.join(out, n), os.path.join(EXPECTED, n))
         with open(os.path.join(EXPECTED, "summary.txt"), "w", encoding="utf-8", newline="\n") as f:
             f.write(so)
+        rc, so, se = run("programs", "--catalog", os.path.join(FIX, "programs.json"), "--dump", DUMP, "--out", out)
+        if rc != 0:
+            print(se, end="")
+            return 1
+        shutil.copyfile(os.path.join(out, "Kiln.Game.Programs.g.cs"), os.path.join(EXPECTED, "Kiln.Game.Programs.g.cs"))
         print(f"blessed {EXPECTED}")
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     tests.sort(key=lambda f: f.__code__.co_firstlineno)
