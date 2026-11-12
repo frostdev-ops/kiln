@@ -258,9 +258,10 @@ def render(server: dict, server_rows: dict, client: dict | None, client_rows: di
         by_area.setdefault(area if isinstance(area, str) and area else "(no area)", []).append(c)
     w("## Client checks")
     w("")
-    w("The newest verdict of each guided check (`[ClientCheck]`, docs/kiln/client-pass.md). Session `hosted` or")
-    w("`joined` is a player in the game client; `server` is a dedicated server answered through its control folder,")
-    w("which proves the check runner, not the game.")
+    w("The newest verdict of each guided check (`[ClientCheck]`, docs/kiln/client-pass.md). A verdict says what")
+    w("whoever answered it saw. Session `server` was answered through a dedicated server's control folder, and on a lab")
+    w("a `joined` verdict can come from a scripted client: both prove the check runner, not the game. A pass is a")
+    w("real-client statement only when a player gave it in the game client.")
     w("")
     if not catalogue:
         w("The ledger holds no checks.")
