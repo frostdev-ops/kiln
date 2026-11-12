@@ -176,7 +176,7 @@ The lab marks are from alpha.13 and earlier. Nothing alpha.14 added (commands, `
 | Services and calls between mods (`publish`, `service`, `serve_call`, `call`) | hosted | `Mods.Send`, `Kiln.Network` ModCalls | hosted; host (no game needed) |
 | Extension points (`define_point`, `attach_point`, `run_point`; alpha.14: Luau `points.define_point`, `[[point]]` in `pack.toml`) | hosted | **`Kiln.Points`** (new, ported from Enshwick's model) | hosted; C# unit-tested |
 | World, players, entities (`world_*`, `player`, `players`, `entities`, `entity_template`, `spawn`, `destroy`, `teleport`, `server_world`, `server_wait`) | hosted | `Kiln.World`, `Kiln.Players`, `Kiln.Spawn` | hosted; lab |
-| Entity and item data (`entity_data_open`, `item_data_*`) | hosted | `EntityData` (`Kiln.Saves`); gear uses `InventorySlot.ItemEntity` in the current world session; no persistent per-item store | hosted; client |
+| Entity and item data (`entity_data_open`, `item_data_*`) | hosted | `EntityData` (`Kiln.Saves`) for placed objects and creatures; `InstanceData` (`Kiln.Saves`, dev.25) for one item's data across moves, saves and restarts, `Persist.World` or `Session` (`Persist.Carried` not available) | hosted; Kiln's `InstanceData`: world holders on a test server, a player's inventory not run with a real player |
 | Saves and state (`save_world`, `save_info`, `hold_saves`, `data_dir`, `set_saved`) | hosted | `WorldData`, `PlayerData`, `ModContext.DataDirectory` | hosted; lab |
 | Items, inventory, transactions (`item_*`, `inventory_*`, `transaction_*`, `summon_*`, `local_held`) | hosted | `Kiln.Items` | hosted; client |
 | Content (`declare_content`, `declare_change`, `use_content`, `content_*`, `rename_*`, `add_text`, `texts`, `icons_ready`, `workshop_recipes`, `recipe_*`, `crafting_prop`) | hosted | `Kiln.Content`, `Kiln.Blocks` | hosted; client |
@@ -200,8 +200,10 @@ The lab marks are from alpha.13 and earlier. Nothing alpha.14 added (commands, `
 
 Counts: 33 areas, 33 hosted. Of the 199 entries, 199 are served by Enshwick's own code. On Kiln's side,
 `Kiln.Points`, per-world config, reflected resources and `StatusLines` have Kiln C# APIs.
-Persistent per-item data, affixes, survivor recruit/assign and base-limit increases remain gaps. Gear
-`EntityData` is limited to its item entity in the current world session. `Pacing` has native loop/server-wait hooks and startup worker caps on supported server builds. Its lab changed
+Per-item data has a Kiln C# API since dev.25, `InstanceData` ([inventory.md](../modding/inventory.md#data-on-one-item-instancedata)):
+data that travels with a character (`Persist.Carried`), and two identical items swapped where Kiln did not see (they
+trade their data), are its limits. Affixes, survivor recruit/assign and base-limit increases remain gaps. Gear
+`EntityData` is limited to its item entity in the current world session; use `InstanceData` for items. `Pacing` has native loop/server-wait hooks and startup worker caps on supported server builds. Its lab changed
 server waits from 40 to 80 to 10 ms, then restored 40 ms; disposal left no callbacks. Both Enshwick hook orders
 ran in the lab. Client wait sites have static matches only; check `Pacing.Sites` and the client checklist.
 See [lifecycle.md](../modding/lifecycle.md).
