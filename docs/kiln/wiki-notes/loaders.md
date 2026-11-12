@@ -22,5 +22,7 @@ Suggested text for the guide ("Mods for other loaders" page):
 > If the other loader is still installed and starts, Kiln leaves its mods to it and says so in `kiln/logs/kiln.log`.
 > Each loader's mods are listed with their status in `kiln/state/greeneye.json`, `flame.json` and `shroudtopia.json`.
 
-For mod authors (Kiln API): `Kiln.Hooks` gained `OriginalCode.FindUnique` / `Read` (find and read the game's code as
-it is in the exe file, even where another mod hooked it) and `Keep.Block` (memory that survives a hot reload).
+For authors of advanced mods (Kiln API, `"advanced": true` in `kiln.mod.json` only): `Kiln.Hooks` gained
+`OriginalCode.FindUnique` / `Read` (find and read the game's code as it is in the exe file, even where another mod
+hooked it) and `Keep.Block` (memory that survives a hot reload). They need the calling mod's context: call them in
+`OnLoad` or a Kiln callback and cache what a background thread or raw job handler needs.

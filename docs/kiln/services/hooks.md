@@ -255,8 +255,10 @@ work around it.
 A revoked link keeps its slot, because a call may still be inside it. It leaves the chain (the map and `stats()` show
 live links only). Installing the same handler on the same target again (same kind, function, user data, owner and label)
 takes the revoked link's slot back, with a new handle: a service that toggles its hook, or a mod that re-installs one
-static handler, costs one slot. A different user pointer or label each time costs a new slot each time (managed
-`Hooks.Detour` / `Hooks.Mid` do that). kiln.log warns once when 75% of the slots are used and once when all are; after
+static handler, costs one slot. A different user pointer or label each time costs a new slot each time. Managed
+`Hooks.Detour` / `Hooks.Mid` reuse the slot of the same mod id, kind and address, also across a hot reload: their
+links sit under one hooks owner per mod id, named `mod:<id>`, and keep one user pointer per (mod id, kind, address)
+for the life of the process (`managed/services/Kiln.Hooks/Cookies.cs`). kiln.log warns once when 75% of the slots are used and once when all are; after
 that only revived links can be installed. `stats()` (`links_used`, `links_cap`) and hooks.json (`linkSlots`) show the
 use.
 
