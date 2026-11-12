@@ -44,6 +44,15 @@ export function installNote(r: { changedBackedUp?: string[] } | { placements: un
   return n ? `${n} changed file${n === 1 ? "" : "s"} kept in backups` : undefined;
 }
 
+/** A path cut for the middle shortening of `PathText`: everything up to the last name, and the last name with the
+ *  separator before it ("/mnt/games" + "/Kiln"). A root ("/", "D:\") is all tail. */
+export function splitPath(path: string): [string, string] {
+  const trimmed = path.length > 1 ? path.replace(/(?<!^[A-Za-z]:)[\\/]+$/, "") : path;
+  const i = Math.max(trimmed.lastIndexOf("/"), trimmed.lastIndexOf("\\"));
+  if (i <= 0 || /^[A-Za-z]:[\\/]?$/.test(trimmed) || i === trimmed.length - 1) return ["", trimmed];
+  return [trimmed.slice(0, i), trimmed.slice(i)];
+}
+
 export function errorText(e: unknown): string {
   return toKilnError(e).message;
 }

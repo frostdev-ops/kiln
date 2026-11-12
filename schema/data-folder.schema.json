@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "data-folder.schema.json",
+  "title": "Data folder pointer (<default root>/data-folder.json), format 1",
+  "description": "Written atomically by the launcher's data-folder move or 'use this one' (kiln_manage::data_folder::write_pointer) into the default root (Windows %LOCALAPPDATA%\\Kiln, else $XDG_DATA_HOME/kiln or ~/.local/share/kiln). Read by DataDirs::locate() after $KILN_DATA_DIR and before the default. No file: the default root is the data folder. A file that cannot be parsed, has a larger format, or names a folder that is missing, unreadable or not a Kiln data folder is the error data_folder, never the default. Contracts: docs/kiln/launcher/contracts.md section 3.",
+  "type": "object",
+  "required": ["format", "path", "written", "writer"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "format": { "const": 1 },
+    "path": { "type": "string", "minLength": 1, "description": "The data folder: absolute, a host path, without the \\\\?\\ prefix." },
+    "written": { "$ref": "common.schema.json#/$defs/time" },
+    "writer": { "type": "string", "description": "kiln-manage <version>." }
+  },
+  "additionalProperties": true
+}

@@ -196,9 +196,18 @@ pub async fn profile_deactivate(app: AppHandle, game_id: String) -> Result<kiln_
     Ok(report)
 }
 
+/// The profile of this data folder that is active in the game. None also when another data folder's profile is
+/// (`GameStatus.otherFolderProfile` says that one): it is never shown as loaded here, even with the same id.
 #[tauri::command]
 pub async fn profile_active(game_id: String) -> Result<Option<Activation>, Error> {
-    blocking(move || profile::active(&dirs()?, &crate::state::game(&game_id)?)).await
+    blocking(move || {
+        let (d, g) = (dirs()?, crate::state::game(&game_id)?);
+        if matches!(profile::game_profile_owner(&d, &g)?, profile::GameProfileOwner::Elsewhere { .. }) {
+            return Ok(None);
+        }
+        profile::active(&d, &g)
+    })
+    .await
 }
 
 /// Undoes a `library_add` (its toast's Undo): the changed entries go back (kiln_manage::quick::revert), then, like

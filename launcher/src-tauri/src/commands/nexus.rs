@@ -43,6 +43,16 @@ static CATALOG: Mutex<Option<Arc<Catalog>>> = Mutex::new(None);
 static ACCOUNT: Mutex<Option<CachedAccount>> = Mutex::new(None);
 static LINKS: LazyLock<Mutex<Vec<Pending>>> = LazyLock::new(|| Mutex::new(Vec::new()));
 static INSTANCE: Mutex<Option<handler::Instance>> = Mutex::new(None);
+
+/// In a build with Nexus on, another launcher holds `nexus/instance.lock` of this data folder (one that takes no
+/// data-folder lock: dev.24 and earlier). A move or a switch is refused then (commands/data_folder.rs).
+pub fn other_instance(dirs: &kiln_manage::paths::DataDirs) -> bool {
+    if !kiln_manage::nexus::enabled() || INSTANCE.lock().unwrap_or_else(|e| e.into_inner()).is_some() {
+        return false;
+    }
+    // taken now (and let go at once): nobody else has it
+    matches!(handler::acquire_instance(&catalog::root_of(dirs)), Ok(None))
+}
 static NEXT_LINK: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 struct Pending {
@@ -416,7 +426,7 @@ struct LinkEnv {
 
 impl LinkEnv {
     fn system() -> LinkEnv {
-        LinkEnv { root: kiln_manage::paths::DataDirs::locate().ok().map(|d| catalog::root_of(&d)), platform: handler::platform() }
+        LinkEnv { root: crate::state::dirs().ok().map(|d| catalog::root_of(&d)), platform: handler::platform() }
     }
 }
 
@@ -491,6 +501,10 @@ pub fn start(app: &AppHandle) {
     let nexus_on = kiln_manage::nexus::enabled();
     if let Ok(r) = root() {
         std::thread::spawn(move || {
+            let _writing = crate::state::writing();
+            if crate::folder::current().held_error().is_some() {
+                return;
+            }
             let ring = keystore::legacy_keyring();
             for line in startup_cleanup(&r, nexus_on, handler::platform().as_ref(), ring.as_deref()) {
                 launcher_log("nexus", &line);
@@ -519,6 +533,14 @@ pub fn start(app: &AppHandle) {
     }
     let app = app.clone();
     std::thread::spawn(move || loop {
+        // the inbox is in the data folder: a writer (its files are removed once read) a move waits for, and not read
+        // while the folder is held
+        let writing = crate::state::writing();
+        if crate::folder::current().held_error().is_some() {
+            drop(writing);
+            std::thread::sleep(std::time::Duration::from_millis(500));
+            continue;
+        }
         let urls = handler::take_links(&r);
         let mut added = 0;
         for url in urls {
@@ -549,6 +571,7 @@ pub fn start(app: &AppHandle) {
                 let _ = w.set_focus();
             }
         }
+        drop(writing);
         std::thread::sleep(std::time::Duration::from_millis(500));
     });
 }

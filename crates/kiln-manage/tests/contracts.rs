@@ -111,6 +111,8 @@ fn every_example_deserializes_into_its_type() {
     let l: state::LastServer = example("state-last-server.json");
     assert_eq!(l.history.len(), 1);
     let _: admin::protocol::Endpoint = example("admin-endpoint.json");
+    let (_, j): (kiln_manage::data_folder::Pointer, kiln_manage::data_folder_move::Journal) = (example("data-folder.json"), example("data-folder-move.json"));
+    assert_eq!((j.entries.len(), j.rewritten_after.len()), (5, 1));
 }
 
 #[test]

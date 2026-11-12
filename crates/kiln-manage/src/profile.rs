@@ -1356,12 +1356,82 @@ fn sync_copies(dirs: &DataDirs, profile: &Profile, install: &GameInstall, warnin
 
 /// Copy mode: the game-side config folder (`<game>/kiln/profiles/<pid>/config`, where Kiln writes) back into
 /// `<data>/profiles/<pid>/config`. Called before an activation and after the game exits. Returns the files copied.
+/// Nothing is copied while the game's `profile.json` is another data folder's profile of the same id
+/// ([`game_profile_owner`]): that copy was written for the other one.
 pub fn copy_back(dirs: &DataDirs, profile_id: &str, install: &GameInstall) -> Result<u64> {
     let from = install.path.join(crate::paths::game::COPY_PROFILES).join(profile_id).join("config");
-    if !from.is_dir() {
+    if !from.is_dir() || foreign_same_id(dirs, profile_id, install) {
         return Ok(0);
     }
     crate::util::copy_tree(&from, &dirs.profile(profile_id).join("config"))
+}
+
+/// Who a game's `kiln/profile.json` belongs to, seen from one data folder ([`game_profile_owner`]).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", tag = "owner")]
+pub enum GameProfileOwner {
+    /// No `profile.json`: the legacy layout.
+    None,
+    /// A profile of this data folder.
+    Here { id: String },
+    /// Another data folder's profile (another launcher, a `KILN_DATA_DIR`, a launcher before dev.25 at the default root
+    /// after a move): left alone. `root`: the data folder its paths name, in Z and native mode.
+    Elsewhere { id: String, root: Option<PathBuf> },
+}
+
+/// The data root a profile file's absolute paths name: `configDir` is `<root>/profiles/<id>/config` in Z and native
+/// mode. None in copy mode (relative paths) and when it is not that shape.
+fn root_named(file: &ProfileFile, install: &GameInstall) -> Option<PathBuf> {
+    let cfg = file.config_dir.as_deref()?;
+    if !crate::winpath::is_absolute_game_path(cfg) && !cfg.starts_with('/') {
+        return None;
+    }
+    let host = crate::winpath::to_host(cfg, install).ok()?;
+    let last: Vec<String> = host.components().rev().take(3).map(|c| c.as_os_str().to_string_lossy().into_owned()).collect();
+    if last != ["config", file.id.as_str(), "profiles"] {
+        return None;
+    }
+    host.parent()?.parent()?.parent().map(Path::to_path_buf)
+}
+
+/// A game's profile file is this data folder's: the profile is here, and the file names this data folder (Z and
+/// native mode: its `configDir`), or it is the one this data folder last wrote into the game (`installs/<id>.active.json`:
+/// the same id, generation and fingerprint). In copy mode the paths name no folder: the record decides, and without a
+/// record the id alone does (as before dev.25).
+pub(crate) fn file_is_here(dirs: &DataDirs, install: &GameInstall, file: &ProfileFile) -> bool {
+    if get(dirs, &file.id).is_err() {
+        return false;
+    }
+    let rec = crate::util::read_json::<Activation>(&activation_record(dirs, install)).ok().flatten();
+    let recorded = rec.as_ref().is_some_and(|a| {
+        a.profile_id == file.id && a.generation == file.generation && file.fingerprint.clone().unwrap_or_default() == a.fingerprint
+    });
+    match root_named(file, install) {
+        Some(root) => {
+            let style = crate::data_folder::PathStyle::of(&crate::paths::DataEnv { windows: cfg!(windows), ..Default::default() });
+            let same = |a: &Path, b: &Path| {
+                crate::data_folder::PathParts::of(&crate::data_folder::canonical(a), style)
+                    .same(&crate::data_folder::PathParts::of(&crate::data_folder::canonical(b), style))
+            };
+            same(&root, &dirs.root) || recorded
+        }
+        None => recorded || rec.is_none(),
+    }
+}
+
+fn foreign_same_id(dirs: &DataDirs, profile_id: &str, install: &GameInstall) -> bool {
+    read_game_profile(&install.path).ok().flatten().is_some_and(|f| f.id == profile_id && !file_is_here(dirs, install, &f))
+}
+
+/// Who the game's `kiln/profile.json` belongs to ([`file_is_here`]'s rule), so the launcher can say "another data
+/// folder's profile is active in this game" instead of taking it over.
+pub fn game_profile_owner(dirs: &DataDirs, install: &GameInstall) -> Result<GameProfileOwner> {
+    let Some(file) = read_game_profile(&install.path)? else { return Ok(GameProfileOwner::None) };
+    Ok(if file_is_here(dirs, install, &file) {
+        GameProfileOwner::Here { id: file.id }
+    } else {
+        GameProfileOwner::Elsewhere { root: root_named(&file, install), id: file.id }
+    })
 }
 
 fn config_host_dir(dirs: &DataDirs, profile: &Profile, install: &GameInstall, mode: PathMode) -> PathBuf {
@@ -1404,10 +1474,26 @@ fn prepare(dirs: &DataDirs, profile: &Profile, install: &GameInstall) -> Result<
     let mut copied = 0;
     let mut warnings = Vec::new();
     if mode == PathMode::Copy {
+        // the game's config copy of another data folder's profile with this id is that folder's: kept aside, not
+        // copied back here and not deleted
+        let foreign = foreign_same_id(dirs, &profile.id, install);
         copy_back(dirs, &profile.id, install)?;
         copied = sync_copies(dirs, profile, install, &mut warnings)?;
         let game_cfg = config_host_dir(dirs, profile, install, mode);
-        let _ = std::fs::remove_dir_all(&game_cfg);
+        if foreign && game_cfg.is_dir() {
+            let base = install.path.join(crate::paths::game::BACKUPS).join(format!("profile-config-{}-{}", profile.id, ts_compact(crate::util::now_unix())));
+            let aside = (1..).map(|n| if n == 1 { base.clone() } else { crate::util::with_suffix(&base, &format!("-{n}")) })
+                .find(|p| std::fs::symlink_metadata(p).is_err()).expect("a free name");
+            std::fs::create_dir_all(aside.parent().expect("parent")).map_err(io_at(&aside, "creating"))?;
+            std::fs::rename(&game_cfg, &aside).map_err(io_at(&aside, "moving the other data folder's config to"))?;
+            warnings.push(format!(
+                "The game held the configs of another data folder's profile \"{}\": they were kept in {}, not mixed into this one.",
+                profile.id,
+                aside.display()
+            ));
+        } else {
+            let _ = std::fs::remove_dir_all(&game_cfg);
+        }
         let data_cfg = dirs.profile(&profile.id).join("config");
         std::fs::create_dir_all(&data_cfg).map_err(io_at(&data_cfg, "creating"))?;
         crate::util::copy_tree(&data_cfg, &game_cfg)?;
@@ -1489,11 +1575,15 @@ pub fn activate(dirs: &DataDirs, profile_id: &str, install: &GameInstall) -> Res
 /// folders reconciled (engine_mods::place): when that changes what the profile renders to (a copy placed only now, as
 /// for a profile.json an older Kiln wrote), the profile is activated after all; when it kept copies, files or notes
 /// (a placed copy the player changed since), Some(the recorded activation with that report), so Play shows it too.
-/// None when there is nothing to report or the file names no profile of this data folder. Refuses while the game runs
-/// (activate).
+/// None when there is nothing to report or the file names no profile of this data folder (an id this folder does not
+/// have, or another data folder's profile: [`game_profile_owner`]). Refuses while the game runs (activate).
 pub fn refresh_active(dirs: &DataDirs, install: &GameInstall) -> Result<Option<Activation>> {
     let Some(file) = read_game_profile(&install.path)? else { return Ok(None) };
     let Ok(profile) = get(dirs, &file.id) else { return Ok(None) };
+    // another data folder's profile with an id this folder has too: left alone ([`game_profile_owner`] says so)
+    if !file_is_here(dirs, install, &file) {
+        return Ok(None);
+    }
     let mode = match file.path_mode {
         Some(m) => m,
         None => crate::game::path_mode(install, dirs)?,
