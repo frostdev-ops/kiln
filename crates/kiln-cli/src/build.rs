@@ -27,11 +27,13 @@ pub struct BuildArgs {
 
 #[derive(clap::Args)]
 pub struct CookArgs {
+    /// The project, or an installed mod's folder (with its kiln.mod.json); default: the current folder.
     pub project: Option<PathBuf>,
     /// Only say whether a cook is needed (exit 1 when it is); never reads the game.
     #[arg(long)]
     pub check: bool,
-    /// The game folder the tools read (default: $KILN_GAME, else the installed client).
+    /// The game folder the tools read (default: $KILN_GAME, else the installed client). A dedicated server's folder
+    /// cooks what a server uses and skips the models, which only a game client draws.
     #[arg(long)]
     pub game: Option<PathBuf>,
 }
@@ -229,12 +231,28 @@ fn pack_native(p: &Project, config: Option<&str>, output: Option<&Path>, json: b
 // ---- cook ----
 
 pub fn cook(a: CookArgs, json: bool) -> Result<i32> {
-    let p = Project::find(a.project.as_deref())?;
+    let p = cook_target(a.project.as_deref())?;
     let r = cook_project(&p, a.check, a.game.as_deref(), json, false)?;
     if json {
         out::print_json(&r);
     }
     Ok(if r["ok"] == true { 0 } else { 1 })
+}
+
+/// What `kiln cook` cooks: a mod project, or an installed mod's folder (the one with its kiln.mod.json, as under a server's
+/// kiln/mods: a server operator cooks the mods there against the server's files, `--game <server folder>`).
+fn cook_target(arg: Option<&Path>) -> Result<Project> {
+    Project::find(arg).or_else(|e| {
+        let dir = match arg {
+            Some(p) => p.to_path_buf(),
+            None => std::env::current_dir()?,
+        };
+        let dir = std::path::absolute(&dir).unwrap_or(dir);
+        if dir.is_dir() && dir.join("kiln.mod.json").is_file() {
+            return Ok(Project { kind: Kind::Native, path: dir.clone(), dir });
+        }
+        Err(e)
+    })
 }
 
 /// The tool behind a recipe's "tool" (or the steps' own "tool"s; modelcook dispatches those itself).

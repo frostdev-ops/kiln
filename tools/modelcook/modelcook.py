@@ -22,6 +22,8 @@ validated on the spot: decode with tools/kfc, re-encode byte-exact, geometry bac
 structure as the base. glTF space (right-handed, +Y up, metres) becomes the game's left-handed space by mirroring x;
 the model's origin is the attachment point (the hand grip for weapons).
 Common options: --game DIR (default Steam's Enshrouded), --exe EXE (default the game's exe; read only).
+--game may be a dedicated server's folder (enshrouded_server.kfc): recipe and looks then skip the model steps, one line each
+("skipped on a dedicated server: only a game client draws it"), and cook the rest.
 """
 import argparse
 import json
@@ -79,6 +81,23 @@ def _dispatch(a, doc, extra):
     return rc
 
 
+def _say_steps(r):
+    """One line per step of a recipe's run; a step skipped on a dedicated server says so."""
+    for s in r["steps"]:
+        if s.get("skipped"):
+            print(f"step {s['step']} {s['op']} {s['name']}: {s['skipped']}")
+            continue
+        print(f"step {s['step']} {s['op']}: {s['guid']} {'ok' if s['ok'] else 'FAILED'}"
+              + ("" if s["ok"] else " " + json.dumps({c: v for c, v in s["checks"].items() if not v})))
+
+
+def _say_unmarked(r):
+    files = r["manifest"].get("clientOnlyUnmarked")
+    if files:
+        print(f"assets.json: {len(files)} entr{'y' if len(files) == 1 else 'ies'} of the skipped steps lack \"side\": \"client\", so kiln.assets "
+              "warns for each at every server start (run with --update-manifest): " + ", ".join(files))
+
+
 def cmd_recipe(a):
     doc = recipe.load(a.recipe)
     others = [] if a.no_dispatch else recipe.other_tools(doc)
@@ -91,13 +110,12 @@ def cmd_recipe(a):
         return _dispatch(a, doc, ["--update-manifest"] if a.update_manifest else []) if others else 0
     k, t = _ctx(a)
     r = recipe.run(a.recipe, k, t, exe_sha256=t.dump.get("exe_sha256"), update_manifest=a.update_manifest)
-    for s in r["steps"]:
-        print(f"step {s['step']} {s['op']}: {s['guid']} {'ok' if s['ok'] else 'FAILED'}"
-              + ("" if s["ok"] else " " + json.dumps({c: v for c, v in s["checks"].items() if not v})))
+    _say_steps(r)
     if r["manifest"]["missing"] or r["manifest"]["mismatched"]:
         print("assets.json does not match the cooked files (run with --update-manifest):")
         for e in r["manifest"]["missing"] + r["manifest"]["mismatched"]:
             print("  " + json.dumps(e))
+    _say_unmarked(r)
     print(f"{'ok' if r['ok'] else 'FAILED'}: {len(r['outputs'])} file(s), report {Path(a.recipe).parent / doc.get('out', 'cooked') / recipe.report_name(doc)}")
     rc = _dispatch(a, doc, ["--update-manifest"] if a.update_manifest else []) if others else 0
     return 0 if r["ok"] and not rc else 1
@@ -154,11 +172,10 @@ def cmd_looks(a):
         return 1 if need else 0
     k, t = _ctx(a)
     r = recipe.run(path, k, t, exe_sha256=t.dump.get("exe_sha256"), update_manifest=a.update_manifest, given=doc)
-    for s in r["steps"]:
-        print(f"step {s['step']} {s['op']}: {s['guid']} {'ok' if s['ok'] else 'FAILED'}"
-              + ("" if s["ok"] else " " + json.dumps({c: v for c, v in s["checks"].items() if not v})))
+    _say_steps(r)
     if r["manifest"]["missing"] or r["manifest"]["mismatched"]:
         print("assets.json does not match the cooked files (run with --update-manifest)")
+    _say_unmarked(r)
     print(f"{'ok' if r['ok'] else 'FAILED'}: {len(r['outputs'])} file(s), report {path.parent / doc['out'] / recipe.LOOKS_REPORT}")
     return 0 if r["ok"] else 1
 

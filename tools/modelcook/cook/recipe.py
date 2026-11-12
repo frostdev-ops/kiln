@@ -50,6 +50,13 @@ The runner writes `<out>/cook-report.json`, so a launcher can decide when to coo
 - every output's sha256.
 
 Cook again when any of them differs, or when an output is missing.
+
+On a dedicated server's files (`enshrouded_server.kfc`) the model steps (and worn and placed looks, which are model steps) are
+skipped: a server has no RenderModel, and only a game client draws one (docs/kiln/modding/models.md, "On a dedicated server").
+An input of a type a server's files never hold (CLIENT_ONLY_TYPES) is then not read; any other input still has to be there.
+Everything else runs as on a client: a visual template is served on both sides, and the material blocks a step makes from its
+glTF are blocks every machine reads. With update_manifest, the assets.json entries of a skipped step get "side": "client", so
+kiln.assets on the server skips them without a warning (assets.cpp, load_manifest).
 """
 import json
 import os
@@ -65,8 +72,25 @@ HIERARCHY = "keen::ModelHierarchyResource"
 KNOWN_TOOLS = ("modelcook", "soundcook", "animcook")
 
 
+SERVER_KFC = "enshrouded_server.kfc"
+# Types a dedicated server's files never hold: what only a game client draws (none of them is in enshrouded_server.kfc, svn 1287369)
+CLIENT_ONLY_TYPES = ("keen::RenderModel", "keen::RenderMaterialResource", "keen::RenderTextureResource", "keen::UiTextureResource")
+CLIENT_ONLY_OPS = ("model",)  # a worn look and a placed thing are model steps too
+SKIPPED = "skipped on a dedicated server: only a game client draws it"
+
+
 class RecipeError(Exception):
     pass
+
+
+def side_of(k):
+    """'server' for a dedicated server's game files (enshrouded_server.kfc), else 'client'."""
+    return "server" if k is not None and Path(k.path).name.lower() == SERVER_KFC else "client"
+
+
+def _stem_of(st):
+    """The file stem a model step writes (steps.model: stem, else name, else the glTF's)."""
+    return st.get("stem") or st.get("name") or Path(st["gltf"]).stem
 
 
 def _resolve(ref, inputs):
@@ -308,6 +332,8 @@ def run(path, k, t, exe_sha256=None, update_manifest=False, given=None):
     out = doc.get("out", "cooked")
     inputs, in_report = {}, {}
     foreign = _foreign_inputs(doc)
+    server = side_of(k) == "server"
+    skipped_files = set()  # what the steps skipped on a server would have written
     for iid, spec in doc.get("inputs", {}).items():
         if iid in foreign:
             continue  # used only by another tool's steps (e.g. a vanilla sound cue): that tool reads it
@@ -315,6 +341,11 @@ def run(path, k, t, exe_sha256=None, update_manifest=False, given=None):
         if tt is None:
             raise RecipeError(f"input {iid}: unknown type {spec['type']}")
         key = ResourceKey(spec["guid"], tt["hash"], spec.get("part", 0))
+        if not k.has(key) and server and spec["type"] in CLIENT_ONLY_TYPES:
+            # a dedicated server has none of these: only the client-only steps read it, and those are skipped here
+            inputs[iid] = {"guid": key.guid, "type": spec["type"], "part": key[2]}
+            in_report[iid] = dict(inputs[iid], available=False, why=f"a dedicated server's files have no {spec['type']}")
+            continue
         if not k.has(key):
             raise RecipeError(f"input {iid}: {key} is not in {k.path} (game update or wrong side?)")
         bundle = k.bundles.get(tt["hash"], {})
@@ -355,6 +386,13 @@ def run(path, k, t, exe_sha256=None, update_manifest=False, given=None):
                     mm.setdefault(key, name)
                 own["blocks"] = {**own["blocks"], **{n: (b, f"blocks/{stem}.materials.json") for n, b in blocks.items()}}
                 mod_files.update(made)
+            if server and op in CLIENT_ONLY_OPS:
+                stem = _stem_of(st)
+                skipped_files.update({f"{out}/{stem}.bin", f"{out}/{stem}.blob"})
+                reports.append({"op": op, "step": i, "name": st.get("name") or stem,
+                                "guid": _model_guid(doc, st, inputs, p) or (inputs[base_id]["guid"] if base_id else None),
+                                "ok": True, "skipped": SKIPPED, "warnings": from_gltf})
+                continue
             f, e, r = S.model(k, t, gl, inputs[base_id]["guid"] if base_id else None, guid=_model_guid(doc, st, inputs, p),
                               mode=st.get("mode"), name=st.get("name"), material=material,
                               material_map=mm, pixel_sizes=st.get("pixelSizes"), stem=st.get("stem"), subdir=out,
@@ -381,20 +419,26 @@ def run(path, k, t, exe_sha256=None, update_manifest=False, given=None):
     have = {(e.get("kind"), e.get("file")): e for e in man.get("entries", [])}
     missing = [e for e in entries if (e["kind"], e["file"]) not in have]
     mismatched = [e for e in entries if (e["kind"], e["file"]) in have and have[(e["kind"], e["file"])] != e]
-    if update_manifest and (missing or mismatched):
-        keep = [x for x in man.get("entries", []) if (x.get("kind"), x.get("file")) not in {(e["kind"], e["file"]) for e in entries}]
-        man["entries"] = keep + entries
+    # on a server, the entries of a skipped step stay (they are the clients'), marked so that kiln.assets skips them quietly there
+    unmarked = [x for x in man.get("entries", []) if x.get("file") in skipped_files and x.get("side") != "client"
+                and (x.get("kind") == "blob" or x.get("type") in CLIENT_ONLY_TYPES)]
+    if update_manifest and (missing or mismatched or unmarked):
+        for x in unmarked:
+            x["side"] = "client"
+        if missing or mismatched:
+            keep = [x for x in man.get("entries", []) if (x.get("kind"), x.get("file")) not in {(e["kind"], e["file"]) for e in entries}]
+            man["entries"] = keep + entries
         mp.write_text(json.dumps(man, indent=2) + "\n")
-        missing, mismatched = [], []
+        missing, mismatched, unmarked = [], [], []
 
     ok = all(r.get("ok") for r in reports) and not missing and not mismatched
     report = {
         "recipe": str(p), "recipe_sha256": S.sha256(_recipe_bytes(p, given)), "ok": ok,
-        "game": {"kfc": str(k.path), "version": k.version, "exe_sha256": exe_sha256},
+        "game": dict({"kfc": str(k.path), "version": k.version, "exe_sha256": exe_sha256}, **({"side": "server"} if server else {})),
         "inputs": in_report,
         "sources": {src: S.sha256((base_dir / src).read_bytes()) for src in sources_of(doc, p) if not _made_here(base_dir / src, mod_dir, mod_files)},
         "outputs": [{"file": rel, "size": len(d), "sha256": S.sha256(d)} for rel, d in files.items()],
-        "manifest": {"missing": missing, "mismatched": mismatched},
+        "manifest": dict({"missing": missing, "mismatched": mismatched}, **({"clientOnlyUnmarked": [x["file"] for x in unmarked]} if unmarked else {})),
         "steps": reports,
     }
     (base_dir / out / report_name(doc)).write_text(json.dumps(report, indent=2) + "\n")
