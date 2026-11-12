@@ -94,9 +94,11 @@ A `"server"` or `"client"` section overrides the top-level keys on that side (`c
   - `client.d/<name>.json` without `"extends"` is a standalone client definition (e.g. `net.json`, `ui.json`).
 - Overlays today: `assets`, `chat`, `content`, `emf`, `gameplay`, `pacing`, `quests`, `rules`, `saves`, `skills` and
   `time` (`.json`; patterns that differ on the client). The newest client build record, 26430625
-  (`sigdb/builds/client/5d9ef2f1….json`, verified), has all 109 of its features on, `time.weather` and `content.loot`
-  included; on 26404966 (`ce6fdba6…`) `content.loot` was off. The composed client set now declares 176 features; 67 of
-  them (audio, quests, rules, skills, pacing and others) are not in that record.
+  (`sigdb/builds/client/5d9ef2f1….json`, verified), has all 177 features of the composed client set on, `time.weather`
+  and `content.loot` included; on 26404966 (`ce6fdba6…`) `content.loot` was off. Per name the record says how far it
+  was seen: 106 features `lab` (loaded at the real-client boot of 2026-11-05 with Kiln's checks passing; only ui-test
+  ran there), 71 `static` (resolved offline only, among them every feature of audio, quests, rules, skills, pacing and
+  steamguard).
 - Tools:
   - `tools/sigport/sigdb_check.py sigdb/symbols/client.json <exe>` resolves exactly what the core will see.
   - `tools/sigport/sidecompare.py <server exe> <client exe>` compares the two sides function by function.
