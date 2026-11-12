@@ -33,7 +33,7 @@ framework's internals are in `docs/kiln/architecture.md`.
 | [texts.md](texts.md) | The game's English texts by loca tag (`Texts.Get`, `GetPlain`), also on a dedicated server from a local catalog |
 | [lint.md](lint.md) | `kiln lint`: usage, output, JSON dialects, every rule with an example and the fix; [schemas/](schemas/) is the field reference of each format |
 | [vscode.md](vscode.md) | The VS Code extension (tools/vscode): schemas, lint, game ids, build/deploy/reload, Testing view, kiln.log, KAP/1 console, Impact assembly |
-| [cli.md](cli.md) | The `kiln` command: new, build, cook, deploy, run, reload, test, debug, lint, pack, logs, catalog |
+| [cli.md](cli.md) | The `kiln` command: new, build, cook, deploy, run, reload, test, debug, lint, pack, logs, blocks, catalog, vfx, skeleton |
 | [analyzers.md](analyzers.md) | KILN1xx: compiler warnings about threads, hot reload and the manifest, with code fixes |
 | [catalogs.md](catalogs.md) | The local game-data catalog and the game-id constants |
 | [typed-fields.md](typed-fields.md) | The game's data as typed C# structures, for what blocks don't cover: `GameFields`, `GameEnums`, checked string paths |
