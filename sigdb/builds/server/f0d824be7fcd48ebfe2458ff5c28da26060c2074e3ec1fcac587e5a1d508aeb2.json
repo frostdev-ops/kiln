@@ -9,9 +9,9 @@
   "verified": true,
   "note": "runtime-verified in labs on this exe, 2026-11-11, Kiln 0.2.0-dev+20261112.68988ae, policy any, standard lab save copied fresh for each group, one group per boot (or per run of boots): the running core resolved sigdb 447/447 symbols (355 defined, 92 captured), 542/542 constants (493 defined, 49 captured) and 146/146 features, each to the same value as the offline resolve (compared per name from sigdb-report.json); base world 24/0, players 30/0, chat+time 50/0, hooks 17/0, content 33/0, newcontent 24/0; api 74/0; settings 70/0; items 95/0 (kiln.items self-test on); combat 203/0 (watch-all); spawn 57/0 over 3 boots; gameplay 48/0; creatures 63/0; assets 17/0; rules 53/0; pacing 21/0; types 32/0 + types-peer 8/0; progression 45/0 (no player); net 168/0 with nettest 95 PASS, 0 FAIL; quests 188/0 over 3 boots; skills 124/0 over 2 boots; characters 53/0 over 3 boots; gamedata 71/0 over 2 boots (reload, restart); saves 54/0 over 8 boots (SIGINT, kill -9 x3, restore, game backup); build 79/0 over 4 boots; placeholder 34/0 over 4 boots (kill -9). Failing, so their names stay static: abilities 70/3, 70/3, 71/2 over three runs (the bow shot is refused by the core's PlaySequence guard every time, the Greet emote ran 73/66/79 steps of the 80 the test wants, the staff cast 38/35 then passed, the PC under heavy load); npcai 25/6 twice (force ready unavailable on four spawned creatures, the peacekeeper's relations not applied). Not run: emf (its probe needs third-party EMF mods). Levels: lab 1093 names in 24 services, static 42 (abilities, npcai, emf). With this record under verified-only: build verified, SimStep hooked, every server service loaded (27; audio, screen, ui and vfx skipped as client-only), 0 error lines.",
   "declared": {
-    "symbols": 447,
-    "constants": 542,
-    "features": 146
+    "symbols": 452,
+    "constants": 549,
+    "features": 147
   },
   "features": {
     "abilities.attributes": true,
@@ -70,6 +70,7 @@
     "gameplay.terraform": true,
     "items.catalog": true,
     "items.fuel": true,
+    "items.instances": true,
     "items.move": true,
     "items.names": true,
     "items.pide_options": true,
@@ -305,6 +306,7 @@
     "items/ReadOther": "0x64e9e0",
     "items/ReadOtherImpl": "0x64ea80",
     "items/RecipeApply": "0x19a1d0",
+    "items/RecordBuild": "0x72a9b0",
     "items/RegisterAllPrograms": "0x245960",
     "items/RegisterProgram": "0x67ede0",
     "items/SetString": "0x915b80",
@@ -669,6 +671,11 @@
     "gameplay/teleport.applied": "0x48",
     "gameplay/teleport.find_ground": "0x49",
     "gameplay/teleport.target_entity": "0x38",
+    "items/attr.durability": "0xed71dc01",
+    "items/attr.durability_max": "0x3c8a292f",
+    "items/attr.fuel": "0x5b0bf75",
+    "items/attr.fuel_max": "0xa00e2601",
+    "items/attr.level": "0x724bf568",
     "items/hmap.bits": "0x8",
     "items/hmap.capacity": "0x10",
     "items/hmap.count": "0x54",
@@ -679,11 +686,13 @@
     "items/item.max_stack": "0x14",
     "items/pide.count": "0xa0",
     "items/pide.list": "0x98",
+    "items/queue.next_id": "0x38",
     "items/registry.components": "0x88",
     "items/registry.items": "0x38",
     "items/setup.operator": "0xc8",
     "items/setup_c.initialized": "0x53",
     "items/storage.entities": "0x148",
+    "items/storage.next_id": "0x498",
     "items/strings.bitmap": "0x198",
     "items/strings.capacity": "0x1a0",
     "items/strings.count": "0x1e4",
@@ -1006,8 +1015,8 @@
   "services": {
     "core": {
       "level": "lab",
-      "date": "2026-11-11",
-      "evidence": "lab a lab server, policy any, 2 boots, Kiln 0.2.0-dev, 2026-11-11: hooks-test 17/0 (boot base); api-test 74/0 (boot api) (passed/failed); the core resolved the same values as the offline resolve",
+      "date": "2026-11-12",
+      "evidence": "lab dev25-waveend, policy any, 2 boots, Kiln 0.2.0-dev, 2026-11-12: hooks-test 19/0 (boot base); api-test 74/0 (boot api) (passed/failed); the core resolved the same values as the offline resolve",
       "symbols": {
         "@RegisterSingleton.fields": "lab",
         "@SimStep.fields": "lab",
@@ -1053,7 +1062,7 @@
     "abilities": {
       "level": "static",
       "date": "2026-11-11",
-      "evidence": "resolved offline; not lab: lab a lab server, policy any, 3 boots, Kiln 0.2.0-dev, 2026-11-11: abilities-test 70/3 (boot abilities); abilities-test 70/3 (boot abilities); abilities-test 71/2 (boot abilities) (passed/failed); failed: boot abilities: abilities-test 70/3: abilities-test: FAIL the Greet emote plays on the player character for 73 steps (3.83 s) through ExternalTrigger, the trigger the game's own emotes use (NetworkActor.triggerType 22); abilities-test: FAIL with HoldInputs the staff cast plays through its shot and its loop (38 steps, about 1.9 of its 2.08 s); abilities-test: FAIL a bow shot: -1 steps without the hold, -1 with it (0.8 s = 20) | boot abilities: abilities-test 70/3: abilities-test: FAIL the Greet emote plays on the player character for 66 steps (3.83 s) through ExternalTrigger, the trigger the game's own emotes use (NetworkActor.triggerType 22); abilities-test: FAIL with HoldInputs the staff cast plays through its shot and its loop (35 steps, about 1.9 of its 2.08 s); abilities-test: FAIL a bow shot: -1 steps without the hold, -1 with it (0.8 s = 20) | boot abilities: abilities-test 71/2: abilities-test: FAIL the Greet emote plays on the player character for 79 steps (3.83 s) through ExternalTrigger, the trigger the game's own emotes use (NetworkActor.triggerType 22); abilities-test: FAIL a bow shot: -1 steps without the hold, -1 with it (0.8 s = 20)",
+      "evidence": "resolved offline; not lab: lab dev25-waveend, policy any, 1 boot, Kiln 0.2.0-dev, 2026-11-12: abilities-test 72/1 (boot abilities) (passed/failed); failed: boot abilities: abilities-test 72/1: abilities-test: FAIL a bow shot: -1 steps without the hold, -1 with it (0.8 s = 20)",
       "symbols": {
         "@abilities/CreateInstance.fields": "static",
         "@abilities/RunImpact.fields": "static",
@@ -1092,8 +1101,8 @@
     },
     "assets": {
       "level": "lab",
-      "date": "2026-11-11",
-      "evidence": "lab a lab server, policy any, 1 boot, Kiln 0.2.0-dev, 2026-11-11: assets-test 17/0 (boot assets) (passed/failed); the core resolved the same values as the offline resolve",
+      "date": "2026-11-12",
+      "evidence": "lab dev25-waveend, policy any, 1 boot, Kiln 0.2.0-dev, 2026-11-12: assets-test 17/0 (boot assets) (passed/failed); the core resolved the same values as the offline resolve",
       "symbols": {
         "@assets/ResourceInit.io": "lab",
         "@assets/ResourceService.slots": "lab",
@@ -1121,8 +1130,8 @@
     },
     "build": {
       "level": "lab",
-      "date": "2026-11-11",
-      "evidence": "lab a lab server, policy any, 4 boots, Kiln 0.2.0-dev, 2026-11-11: build-test 79/0 (4 boots of build) (passed/failed); the core resolved the same values as the offline resolve",
+      "date": "2026-11-12",
+      "evidence": "lab dev25-waveend, policy any, 4 boots, Kiln 0.2.0-dev, 2026-11-12: build-test 79/0 (4 boots of build) (passed/failed); the core resolved the same values as the offline resolve",
       "symbols": {
         "@build/BuildZoneAdd.lists": "lab",
         "@build/BuildZoneAppend.stride": "lab",
@@ -1191,8 +1200,8 @@
     },
     "characters": {
       "level": "lab",
-      "date": "2026-11-11",
-      "evidence": "lab a lab server, policy any, 3 boots, Kiln 0.2.0-dev, 2026-11-11: character-test 53/0 (3 boots of characters) (passed/failed); the core resolved the same values as the offline resolve",
+      "date": "2026-11-12",
+      "evidence": "lab dev25-waveend, policy any, 3 boots, Kiln 0.2.0-dev, 2026-11-12: character-test 53/0 (3 boots of characters) (passed/failed); the core resolved the same values as the offline resolve",
       "symbols": {
         "@characters/PlayerRecordSetup": "lab"
       },
@@ -1205,8 +1214,8 @@
     },
     "chat": {
       "level": "lab",
-      "date": "2026-11-11",
-      "evidence": "lab a lab server, policy any, 1 boot, Kiln 0.2.0-dev, 2026-11-11: chat-test 50/0 (boot base) (passed/failed); the core resolved the same values as the offline resolve",
+      "date": "2026-11-12",
+      "evidence": "lab dev25-waveend, policy any, 1 boot, Kiln 0.2.0-dev, 2026-11-12: chat-test 50/0 (boot base) (passed/failed); the core resolved the same values as the offline resolve",
       "symbols": {
         "@chat.add_fields": "lab",
         "@chat.players": "lab",
@@ -1252,8 +1261,8 @@
     },
     "combat": {
       "level": "lab",
-      "date": "2026-11-11",
-      "evidence": "lab a lab server, policy any, 1 boot, Kiln 0.2.0-dev, 2026-11-11: combat-test 203/0 (boot combat) (passed/failed); the core resolved the same values as the offline resolve",
+      "date": "2026-11-12",
+      "evidence": "lab dev25-waveend, policy any, 1 boot, Kiln 0.2.0-dev, 2026-11-12: combat-test 203/0 (boot combat) (passed/failed); the core resolved the same values as the offline resolve",
       "symbols": {
         "@combat/ApplyHit.fields": "lab",
         "@combat/ClearPendingHits.fields": "lab",
@@ -1313,8 +1322,8 @@
     },
     "content": {
       "level": "lab",
-      "date": "2026-11-11",
-      "evidence": "lab a lab server, policy any, 5 boots, Kiln 0.2.0-dev, 2026-11-11: content-test 33/0, newcontent-test 24/0 (boot base); placeholder-test 34/0 (4 boots of placeholder) (passed/failed); the core resolved the same values as the offline resolve",
+      "date": "2026-11-12",
+      "evidence": "lab dev25-waveend, policy any, 5 boots, Kiln 0.2.0-dev, 2026-11-12: content-test 33/0, newcontent-test 24/0 (boot base); placeholder-test 34/0 (4 boots of placeholder) (passed/failed); the core resolved the same values as the offline resolve",
       "symbols": {
         "@content/ItemRegistryUpdate.fields": "lab",
         "@content/LootFind.fields": "lab",
@@ -1496,8 +1505,8 @@
     },
     "gamedata": {
       "level": "lab",
-      "date": "2026-11-11",
-      "evidence": "lab a lab server, policy any, 2 boots, Kiln 0.2.0-dev, 2026-11-11: gamedata-test 71/0 (2 boots of gamedata) (passed/failed); the core resolved the same values as the offline resolve",
+      "date": "2026-11-12",
+      "evidence": "lab dev25-waveend, policy any, 2 boots, Kiln 0.2.0-dev, 2026-11-12: gamedata-test 71/0 (2 boots of gamedata) (passed/failed); the core resolved the same values as the offline resolve",
       "symbols": {
         "@gamedata/RegisterTemplateInfo.fields": "lab",
         "gamedata/GetBuffType": "lab",
@@ -1516,8 +1525,8 @@
     },
     "gameplay": {
       "level": "lab",
-      "date": "2026-11-11",
-      "evidence": "lab a lab server, policy any, 1 boot, Kiln 0.2.0-dev, 2026-11-11: gameplay-test 48/0 (boot gameplay) (passed/failed); the core resolved the same values as the offline resolve",
+      "date": "2026-11-12",
+      "evidence": "lab dev25-waveend, policy any, 1 boot, Kiln 0.2.0-dev, 2026-11-12: gameplay-test 48/0 (boot gameplay) (passed/failed); the core resolved the same values as the offline resolve",
       "symbols": {
         "@gameplay/BuildFinish.fields": "lab",
         "@gameplay/DeliverEvents.fields": "lab",
@@ -1592,11 +1601,12 @@
     },
     "items": {
       "level": "lab",
-      "date": "2026-11-11",
-      "evidence": "lab a lab server, policy any, 1 boot, Kiln 0.2.0-dev, 2026-11-11: items-test 95/0 (boot items) (passed/failed); the core resolved the same values as the offline resolve",
+      "date": "2026-11-12",
+      "evidence": "lab dev25-waveend, policy any, 2 boots, Kiln 0.2.0-dev, 2026-11-12: items-test 95/0 (boot items); instances-test 109/0 (boot instances) (passed/failed); the core resolved the same values as the offline resolve",
       "symbols": {
         "@items/AttrChanged.site": "lab",
         "@items/AttrFind.site": "lab",
+        "@items/CreateEntity.next_id": "lab",
         "@items/CreatePide.fields": "lab",
         "@items/FuelWrite.site": "lab",
         "@items/GetComponent.fields": "lab",
@@ -1604,7 +1614,10 @@
         "@items/InventoryRemoveItems.fields": "lab",
         "@items/InventoryTxCtor.fields": "lab",
         "@items/InventoryTxInit.fields": "lab",
+        "@items/QueueCreate.next_id": "lab",
+        "@items/QueueSetup.next_id": "lab",
         "@items/ReadOtherImpl.fields": "lab",
+        "@items/RecordBuild.fields": "lab",
         "@items/RegisterProgram.fields": "lab",
         "@items/SetString.fields": "lab",
         "items/AddComponent": "lab",
@@ -1635,6 +1648,7 @@
         "items/ReadOther": "lab",
         "items/ReadOtherImpl": "lab",
         "items/RecipeApply": "lab",
+        "items/RecordBuild": "lab",
         "items/RegisterAllPrograms": "lab",
         "items/RegisterProgram": "lab",
         "items/SetString": "lab",
@@ -1642,6 +1656,11 @@
         "items/WriteOther": "lab"
       },
       "constants": {
+        "items/attr.durability": "lab",
+        "items/attr.durability_max": "lab",
+        "items/attr.fuel": "lab",
+        "items/attr.fuel_max": "lab",
+        "items/attr.level": "lab",
         "items/hmap.bits": "lab",
         "items/hmap.capacity": "lab",
         "items/hmap.count": "lab",
@@ -1652,11 +1671,13 @@
         "items/item.max_stack": "lab",
         "items/pide.count": "lab",
         "items/pide.list": "lab",
+        "items/queue.next_id": "lab",
         "items/registry.components": "lab",
         "items/registry.items": "lab",
         "items/setup.operator": "lab",
         "items/setup_c.initialized": "lab",
         "items/storage.entities": "lab",
+        "items/storage.next_id": "lab",
         "items/strings.bitmap": "lab",
         "items/strings.capacity": "lab",
         "items/strings.count": "lab",
@@ -1678,6 +1699,7 @@
       "features": {
         "items.catalog": "lab",
         "items.fuel": "lab",
+        "items.instances": "lab",
         "items.move": "lab",
         "items.names": "lab",
         "items.pide_options": "lab",
@@ -1691,8 +1713,8 @@
     },
     "net": {
       "level": "lab",
-      "date": "2026-11-11",
-      "evidence": "lab a lab server, policy any, 1 boot, Kiln 0.2.0-dev, 2026-11-11: net-test 168/0 (boot net) (passed/failed); the core resolved the same values as the offline resolve",
+      "date": "2026-11-12",
+      "evidence": "lab dev25-waveend, policy any, 1 boot, Kiln 0.2.0-dev, 2026-11-12: net-test 168/0 (boot net) (passed/failed); the core resolved the same values as the offline resolve",
       "symbols": {
         "@net.abort_call": "lab",
         "@net.channel_modes": "lab",
@@ -1752,7 +1774,7 @@
     "npcai": {
       "level": "static",
       "date": "2026-11-11",
-      "evidence": "resolved offline; not lab: lab a lab server, policy any, 2 boots, Kiln 0.2.0-dev, 2026-11-11: npcai-test 25/6 (boot npcai); npcai-test 25/6 (boot npcai) (passed/failed); failed: boot npcai: npcai-test 25/6: npcai-test: FAIL the peacekeeper (its own relations: Scavenger neutral) would not, and does not count it a friend; npcai-test: FAIL the peacekeeper's row is mapped onto its Faction component: kiln.npcai on, hooks out: 0 relation(s), 0 creature(s) with their own, 0 pair(s), 0 mapped; 60 call(s), 0 answered by Kiln (pair 0, creature 0, table 0); npcai-test: FAIL natural threw: System.NotSupportedException: entity 2553: force ready: unavailable (the entity lacks that component, or this build/world does not support it); npcai-test: FAIL rows threw: System.NotSupportedException: entity 2555: force ready: unavailable (the entity lacks that component, or this build/world does not support it); npcai-test: FAIL filter threw: System.NotSupportedException: entity 2557: force ready: unavailable (the entity lacks that component, or this build/world does not support it) | boot npcai: npcai-test 25/6: npcai-test: FAIL the peacekeeper (its own relations: Scavenger neutral) would not, and does not count it a friend; npcai-test: FAIL the peacekeeper's row is mapped onto its Faction component: kiln.npcai on, hooks out: 0 relation(s), 0 creature(s) with their own, 0 pair(s), 0 mapped; 60 call(s), 0 answered by Kiln (pair 0, creature 0, table 0); npcai-test: FAIL natural threw: System.NotSupportedException: entity 2553: force ready: unavailable (the entity lacks that component, or this build/world does not support it); npcai-test: FAIL rows threw: System.NotSupportedException: entity 2555: force ready: unavailable (the entity lacks that component, or this build/world does not support it); npcai-test: FAIL filter threw: System.NotSupportedException: entity 2557: force ready: unavailable (the entity lacks that component, or this build/world does not support it)",
+      "evidence": "resolved offline; not lab: lab dev25-waveend, policy any, 1 boot, Kiln 0.2.0-dev, 2026-11-12: npcai-test 45/1 (boot npcai) (passed/failed); failed: boot npcai: npcai-test 45/1: npcai-test: FAIL below 15% its rule makes it immune: CombatFlags.immune 0 -> 0 (+0x0)",
       "symbols": {
         "npcai/FactionFriend": "static",
         "npcai/FactionFriendOpt": "static",
@@ -1765,8 +1787,8 @@
     },
     "pacing": {
       "level": "lab",
-      "date": "2026-11-11",
-      "evidence": "lab a lab server, policy any, 1 boot, Kiln 0.2.0-dev, 2026-11-11: pacing-test 21/0 (boot pacing) (passed/failed); the core resolved the same values as the offline resolve",
+      "date": "2026-11-12",
+      "evidence": "lab dev25-waveend, policy any, 1 boot, Kiln 0.2.0-dev, 2026-11-12: pacing-test 21/0 (boot pacing) (passed/failed); the core resolved the same values as the offline resolve",
       "symbols": {
         "pacing/BackgroundWorkers": "lab",
         "pacing/DefaultWorkers": "lab",
@@ -1782,8 +1804,8 @@
     },
     "players": {
       "level": "lab",
-      "date": "2026-11-11",
-      "evidence": "lab a lab server, policy any, 1 boot, Kiln 0.2.0-dev, 2026-11-11: players-test 30/0 (boot base) (passed/failed); the core resolved the same values as the offline resolve",
+      "date": "2026-11-12",
+      "evidence": "lab dev25-waveend, policy any, 1 boot, Kiln 0.2.0-dev, 2026-11-12: players-test 36/0 (boot base) (passed/failed); the core resolved the same values as the offline resolve",
       "symbols": {
         "@players/AddPlayer.fields": "lab",
         "@players/RegisterSingleton.fields": "lab",
@@ -1853,8 +1875,8 @@
     },
     "progression": {
       "level": "lab",
-      "date": "2026-11-11",
-      "evidence": "lab a lab server, policy any, 1 boot, Kiln 0.2.0-dev, 2026-11-11: progression-test 45/0 (boot progression) (passed/failed); the core resolved the same values as the offline resolve",
+      "date": "2026-11-12",
+      "evidence": "lab dev25-waveend, policy any, 1 boot, Kiln 0.2.0-dev, 2026-11-12: progression-test 45/0 (boot progression) (passed/failed); the core resolved the same values as the offline resolve",
       "symbols": {
         "@players/KnowledgeInput.push": "lab",
         "@players/KnowledgePoints.index": "lab",
@@ -1922,8 +1944,8 @@
     },
     "quests": {
       "level": "lab",
-      "date": "2026-11-11",
-      "evidence": "lab a lab server, policy any, 3 boots, Kiln 0.2.0-dev, 2026-11-11: quests-test 188/0 (3 boots of quests) (passed/failed); the core resolved the same values as the offline resolve",
+      "date": "2026-11-12",
+      "evidence": "lab dev25-waveend, policy any, 3 boots, Kiln 0.2.0-dev, 2026-11-12: quests-test 188/0 (3 boots of quests) (passed/failed); the core resolved the same values as the offline resolve",
       "symbols": {
         "@quests/Apply.player": "lab",
         "@quests/Apply.world": "lab",
@@ -2000,8 +2022,8 @@
     },
     "rules": {
       "level": "lab",
-      "date": "2026-11-11",
-      "evidence": "lab a lab server, policy any, 1 boot, Kiln 0.2.0-dev, 2026-11-11: rules-test 53/0 (boot rules) (passed/failed); the core resolved the same values as the offline resolve",
+      "date": "2026-11-12",
+      "evidence": "lab dev25-waveend, policy any, 1 boot, Kiln 0.2.0-dev, 2026-11-12: rules-test 53/0 (boot rules) (passed/failed); the core resolved the same values as the offline resolve",
       "symbols": {
         "@rules/FlightGravity.actor": "lab",
         "@rules/FlightMover.actor": "lab",
@@ -2104,8 +2126,8 @@
     },
     "saves": {
       "level": "lab",
-      "date": "2026-11-11",
-      "evidence": "lab a lab server, policy any, 8 boots, Kiln 0.2.0-dev, 2026-11-11: saves-test 54/0 (8 boots of saves) (passed/failed); the core resolved the same values as the offline resolve",
+      "date": "2026-11-12",
+      "evidence": "lab dev25-waveend, policy any, 8 boots, Kiln 0.2.0-dev, 2026-11-12: saves-test 54/0 (8 boots of saves) (passed/failed); the core resolved the same values as the offline resolve",
       "symbols": {
         "@saves.inst_save2": "lab",
         "@saves.load_fields": "lab",
@@ -2141,8 +2163,8 @@
     },
     "settings": {
       "level": "lab",
-      "date": "2026-11-11",
-      "evidence": "lab a lab server, policy any, 1 boot, Kiln 0.2.0-dev, 2026-11-11: settings-test 70/0 (boot settings) (passed/failed); the core resolved the same values as the offline resolve",
+      "date": "2026-11-12",
+      "evidence": "lab dev25-waveend, policy any, 1 boot, Kiln 0.2.0-dev, 2026-11-12: settings-test 70/0 (boot settings) (passed/failed); the core resolved the same values as the offline resolve",
       "symbols": {
         "@settings/ApplySettings.fields": "lab",
         "@settings/DaytimeIsDay": "lab",
@@ -2187,8 +2209,8 @@
     },
     "skills": {
       "level": "lab",
-      "date": "2026-11-11",
-      "evidence": "lab a lab server, policy any, 2 boots, Kiln 0.2.0-dev, 2026-11-11: skills-test 124/0 (2 boots of skills) (passed/failed); the core resolved the same values as the offline resolve",
+      "date": "2026-11-12",
+      "evidence": "lab dev25-waveend, policy any, 2 boots, Kiln 0.2.0-dev, 2026-11-12: skills-test 124/0 (2 boots of skills) (passed/failed); the core resolved the same values as the offline resolve",
       "symbols": {
         "@skills/LoginCheck.calls": "lab",
         "@skills/Unlock.calls": "lab",
@@ -2227,8 +2249,8 @@
     },
     "spawn": {
       "level": "lab",
-      "date": "2026-11-11",
-      "evidence": "lab a lab server, policy any, 3 boots, Kiln 0.2.0-dev, 2026-11-11: spawn-test 57/0 (3 boots of spawn) (passed/failed); the core resolved the same values as the offline resolve",
+      "date": "2026-11-12",
+      "evidence": "lab dev25-waveend, policy any, 3 boots, Kiln 0.2.0-dev, 2026-11-12: spawn-test 57/0 (3 boots of spawn) (passed/failed); the core resolved the same values as the offline resolve",
       "symbols": {
         "@spawn/CreateEntity.fields": "lab",
         "@spawn/DestroyEntity.fields": "lab",
@@ -2262,8 +2284,8 @@
     },
     "time": {
       "level": "lab",
-      "date": "2026-11-11",
-      "evidence": "lab a lab server, policy any, 1 boot, Kiln 0.2.0-dev, 2026-11-11: chat-test 50/0 (boot base) (passed/failed); the core resolved the same values as the offline resolve",
+      "date": "2026-11-12",
+      "evidence": "lab dev25-waveend, policy any, 1 boot, Kiln 0.2.0-dev, 2026-11-12: chat-test 50/0 (boot base) (passed/failed); the core resolved the same values as the offline resolve",
       "symbols": {
         "@time.daytime_fields": "lab",
         "@time.daytime_update": "lab",
@@ -2314,8 +2336,8 @@
     },
     "types": {
       "level": "lab",
-      "date": "2026-11-11",
-      "evidence": "lab a lab server, policy any, 1 boot, Kiln 0.2.0-dev, 2026-11-11: types-test 32/0, types-peer-test 8/0 (boot types) (passed/failed); the core resolved the same values as the offline resolve",
+      "date": "2026-11-12",
+      "evidence": "lab dev25-waveend, policy any, 1 boot, Kiln 0.2.0-dev, 2026-11-12: types-test 32/0, types-peer-test 8/0 (boot types) (passed/failed); the core resolved the same values as the offline resolve",
       "symbols": {
         "@types/EventStreams": "lab",
         "types/ProgramRunner": "lab"
@@ -2331,8 +2353,8 @@
     },
     "world": {
       "level": "lab",
-      "date": "2026-11-11",
-      "evidence": "lab a lab server, policy any, 1 boot, Kiln 0.2.0-dev, 2026-11-11: world-test 24/0 (boot base) (passed/failed); the core resolved the same values as the offline resolve",
+      "date": "2026-11-12",
+      "evidence": "lab dev25-waveend, policy any, 1 boot, Kiln 0.2.0-dev, 2026-11-12: world-test 24/0 (boot base) (passed/failed); the core resolved the same values as the offline resolve",
       "symbols": {
         "@world/GetComponent.maps": "lab",
         "@world/GetComponentByType.fields": "lab",

@@ -6,6 +6,8 @@
 #   record  the API record before anything builds (tools/release/api-gate.sh record --worktree): every *REMOVED* line
 #           of a PublicAPI.Unshipped.txt beside its [KILNX...] line (made experimental) or its "(forwarded, contained
 #           in <Assembly>)" line (a type moved, recorded by <Assembly>), and no merge conflict marker in a PublicAPI file
+#   records tools/sigport/build_record.py check: the newest build record of each side lists every name sigdb declares,
+#           once, with a level (sigdb/builds/README.md); a sigdb name added without a refresh fails here
 #   build   every managed project with a PublicAPI.Shipped.txt (found by that file, so gate 1, the PublicApiAnalyzers
 #           record, runs), Kiln.Host and the unit test projects: one Release build of one generated solution
 #           ($KILN_OUT/check/check.slnx), so each project is built once
@@ -81,6 +83,16 @@ else
   grep -E '^  ' "$work/record.log" | head -40
   ((rc == 1)) || tail -5 "$work/record.log"
   failed+=(record)
+fi
+
+# records
+t=$SECONDS
+if python3 "$repo/tools/sigport/build_record.py" check >"$work/records.log" 2>&1; then
+  result records OK $((SECONDS - t)) "$(grep -c '^ok ' "$work/records.log") build records list every declared name with a level"
+else
+  result records FAILED $((SECONDS - t)) "a build record does not list what sigdb declares:"
+  grep -vE '^ +(server|client) [0-9a-f]+… .*superseded' "$work/records.log" | head -40
+  failed+=(records)
 fi
 
 # build
