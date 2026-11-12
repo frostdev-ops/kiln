@@ -457,8 +457,47 @@ public sealed record ArsenalInfo(Guid Id, bool IsKiln, ulong Address, IReadOnlyL
     public sealed record Rule(int Index, Guid Id, int Mode, int When, int Actions);
 }
 
-/// <summary>What the rule system has resolved and done so far. Any thread, except that the counts of creatures read 0 off the tick.</summary>
+/// <summary>What the rule system has resolved and done so far. Any thread, except that the counts of creatures read 0 off the tick.
+/// Obsolete: Kiln.Rules has a <c>Kiln.RulesStatus</c> of its own, so a mod with both libraries cannot name this one; use
+/// <see cref="ArsenalRulesStatus"/> (same fields, from <see cref="Arsenals.RulesState"/>).</summary>
+[Obsolete("Use ArsenalRulesStatus.")]
 public sealed record RulesStatus(bool Writer, bool Dispatcher, bool Attacks, bool AiSwitch, bool RuleHooks, bool AttackHooks, int Arsenals, int Tracked,
+    int Overrides, int AiOff, int MapCapacity, int MapCount, ulong Constraints, ulong ConstraintsTrue, ulong Actions, ulong ActionsDropped, ulong Selects,
+    ulong SelectsForced, ulong SelectsFiltered, ulong PicksWaiting, ulong FollowupsRefused, ulong Starts, ulong StartsOffOverride, ulong SequencesRefused,
+    ulong PreNs, ulong PreCalls, ulong JobTicks, ulong JobCalls, ulong JobTickHz);
+
+/// <summary>What the arsenal rule system has resolved and done so far (<see cref="Arsenals.RulesState"/>). Any thread, except that
+/// the counts of creatures read 0 off the tick.</summary>
+/// <param name="Writer">Arsenals can be written (the registry map and the record layout were read).</param>
+/// <param name="Dispatcher">The targets of the two rule hooks resolved.</param>
+/// <param name="Attacks">The attack override's targets resolved.</param>
+/// <param name="AiSwitch">The AI switch's field resolved.</param>
+/// <param name="RuleHooks">The rule hooks are installed now.</param>
+/// <param name="AttackHooks">The attack hooks are installed now.</param>
+/// <param name="Arsenals">Kiln's arsenals in the registry.</param>
+/// <param name="Tracked">Creatures in the published table (0 off the tick).</param>
+/// <param name="Overrides">Creatures with an attack override (0 off the tick).</param>
+/// <param name="AiOff">Creatures whose AI Kiln switched off (0 off the tick).</param>
+/// <param name="MapCapacity">Capacity of the registry's lookup map.</param>
+/// <param name="MapCount">Entries in the registry's lookup map.</param>
+/// <param name="Constraints">Kiln constraints evaluated on the job threads.</param>
+/// <param name="ConstraintsTrue">Of those, the ones that were true.</param>
+/// <param name="Actions">Kiln actions fired.</param>
+/// <param name="ActionsDropped">Kiln actions lost to a full queue.</param>
+/// <param name="Selects">The game's attack selections seen.</param>
+/// <param name="SelectsForced">Selections an override forced.</param>
+/// <param name="SelectsFiltered">Attacks an allow mask refused.</param>
+/// <param name="PicksWaiting">Selections that waited for an override.</param>
+/// <param name="FollowupsRefused">Combo follow-ups an override refused.</param>
+/// <param name="Starts">Attacks started.</param>
+/// <param name="StartsOffOverride">Attacks started against an override (rewritten).</param>
+/// <param name="SequencesRefused">Attack sequences played by a rule that were refused.</param>
+/// <param name="PreNs">The tick side's cost so far, in nanoseconds.</param>
+/// <param name="PreCalls">The tick side's calls so far.</param>
+/// <param name="JobTicks">The job-thread side's cost so far, in counter ticks (rdtsc, while <see cref="Arsenals.Timing"/> is on).</param>
+/// <param name="JobCalls">The job-thread side's calls so far.</param>
+/// <param name="JobTickHz">The counter's frequency: <paramref name="JobTicks"/> / <paramref name="JobTickHz"/> is seconds.</param>
+public sealed record ArsenalRulesStatus(bool Writer, bool Dispatcher, bool Attacks, bool AiSwitch, bool RuleHooks, bool AttackHooks, int Arsenals, int Tracked,
     int Overrides, int AiOff, int MapCapacity, int MapCount, ulong Constraints, ulong ConstraintsTrue, ulong Actions, ulong ActionsDropped, ulong Selects,
     ulong SelectsForced, ulong SelectsFiltered, ulong PicksWaiting, ulong FollowupsRefused, ulong Starts, ulong StartsOffOverride, ulong SequencesRefused,
     ulong PreNs, ulong PreCalls, ulong JobTicks, ulong JobCalls, ulong JobTickHz);
@@ -575,10 +614,21 @@ public static unsafe class Arsenals
     private static int _generation;
 
     /// <summary>True when arsenals can be written on this build.</summary>
-    public static bool Available => Status is { Writer: true };
+    public static bool Available => RulesState is { Writer: true };
 
-    /// <summary>What resolved and what ran; null without kiln.creatures.</summary>
-    public static RulesStatus? Status
+    /// <summary>What resolved and what ran; null without kiln.creatures. Obsolete: its type clashes with Kiln.Rules'
+    /// <c>Kiln.RulesStatus</c>; <see cref="RulesState"/> has the same fields.</summary>
+    [Obsolete("Use Arsenals.RulesState.")]
+#pragma warning disable CS0618 // the old record, kept for this old property
+    public static RulesStatus? Status => RulesState is { } s
+        ? new RulesStatus(s.Writer, s.Dispatcher, s.Attacks, s.AiSwitch, s.RuleHooks, s.AttackHooks, s.Arsenals, s.Tracked, s.Overrides, s.AiOff,
+            s.MapCapacity, s.MapCount, s.Constraints, s.ConstraintsTrue, s.Actions, s.ActionsDropped, s.Selects, s.SelectsForced, s.SelectsFiltered,
+            s.PicksWaiting, s.FollowupsRefused, s.Starts, s.StartsOffOverride, s.SequencesRefused, s.PreNs, s.PreCalls, s.JobTicks, s.JobCalls, s.JobTickHz)
+        : null;
+#pragma warning restore CS0618
+
+    /// <summary>What the arsenal rule system resolved and what ran; null without kiln.creatures. Any thread.</summary>
+    public static ArsenalRulesStatus? RulesState
     {
         get
         {
@@ -586,14 +636,14 @@ public static unsafe class Arsenals
             if (t == null) return null;
             var s = new CreaturesNative.RulesStatus { Size = (uint)sizeof(CreaturesNative.RulesStatus) };
             if (t->GetRulesStatus(&s) != CreaturesNative.Ok) return null;
-            return new RulesStatus(s.Writer != 0, s.Dispatcher != 0, s.Attacks != 0, s.AiSwitch != 0, s.RuleHooks != 0, s.AttackHooks != 0, (int)s.Arsenals,
+            return new ArsenalRulesStatus(s.Writer != 0, s.Dispatcher != 0, s.Attacks != 0, s.AiSwitch != 0, s.RuleHooks != 0, s.AttackHooks != 0, (int)s.Arsenals,
                 (int)s.Tracked, (int)s.Overrides, (int)s.AiOff, (int)s.MapCapacity, (int)s.MapCount, s.Constraints, s.ConstraintsTrue, s.Actions, s.ActionsDropped,
                 s.Selects, s.SelectsForced, s.SelectsFiltered, s.PicksWaiting, s.FollowupsRefused, s.Starts, s.StartsOffOverride, s.SequencesRefused,
                 s.PreNs, s.PreCalls, s.JobTicks, s.JobCalls, s.JobTickHz);
         }
     }
 
-    /// <summary>Times the job-thread side (<see cref="RulesStatus.JobTicks"/>); a few nanoseconds per Kiln kind while on.</summary>
+    /// <summary>Times the job-thread side (<see cref="ArsenalRulesStatus.JobTicks"/>); a few nanoseconds per Kiln kind while on.</summary>
     public static bool Timing
     {
         set => RulePump.SetTiming(value);

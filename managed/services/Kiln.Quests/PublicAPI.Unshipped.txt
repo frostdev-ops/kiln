@@ -1,2 +1,26 @@
 #nullable enable
 static Kiln.QuestHolder.explicit operator Kiln.PlayerRef(Kiln.QuestHolder holder) -> Kiln.PlayerRef
+*REMOVED*Kiln.QuestInput
+*REMOVED*static Kiln.Knowledge.LabRecord(Kiln.EntityId block, int phase, params (uint Id, uint Value)[]! record) -> bool
+*REMOVED*static Kiln.QuestInput.Build(Kiln.QuestHolder h, string! prop, int count = 1) -> void
+*REMOVED*static Kiln.QuestInput.Clear() -> void
+*REMOVED*static Kiln.QuestInput.Craft(Kiln.QuestHolder h, string! item, int count = 1) -> void
+*REMOVED*static Kiln.QuestInput.IsSynthetic(Kiln.QuestHolder h) -> bool
+*REMOVED*static Kiln.QuestInput.Kill(Kiln.QuestHolder? killer, string! template, string? tag = null, Kiln.WorldPosition? at = null, bool destroyed = false) -> void
+*REMOVED*static Kiln.QuestInput.Known.get -> System.Collections.Generic.IReadOnlyCollection<Kiln.QuestHolder>!
+*REMOVED*static Kiln.QuestInput.Reach(Kiln.QuestHolder h, Kiln.WorldPosition at) -> void
+*REMOVED*static Kiln.QuestInput.SetInventory(Kiln.QuestHolder h, string! item, int count) -> void
+*REMOVED*static Kiln.QuestInput.SetLevel(Kiln.QuestHolder h, int level) -> void
+*REMOVED*static Kiln.QuestInput.Talk(Kiln.QuestHolder h, string! npc, uint line = 0, string? node = null, string? modId = null) -> void
+[KILNX001]Kiln.QuestInput
+[KILNX001]static Kiln.Knowledge.LabRecord(Kiln.EntityId block, int phase, params (uint Id, uint Value)[]! record) -> bool
+[KILNX001]static Kiln.QuestInput.Build(Kiln.QuestHolder h, string! prop, int count = 1) -> void
+[KILNX001]static Kiln.QuestInput.Clear() -> void
+[KILNX001]static Kiln.QuestInput.Craft(Kiln.QuestHolder h, string! item, int count = 1) -> void
+[KILNX001]static Kiln.QuestInput.IsSynthetic(Kiln.QuestHolder h) -> bool
+[KILNX001]static Kiln.QuestInput.Kill(Kiln.QuestHolder? killer, string! template, string? tag = null, Kiln.WorldPosition? at = null, bool destroyed = false) -> void
+[KILNX001]static Kiln.QuestInput.Known.get -> System.Collections.Generic.IReadOnlyCollection<Kiln.QuestHolder>!
+[KILNX001]static Kiln.QuestInput.Reach(Kiln.QuestHolder h, Kiln.WorldPosition at) -> void
+[KILNX001]static Kiln.QuestInput.SetInventory(Kiln.QuestHolder h, string! item, int count) -> void
+[KILNX001]static Kiln.QuestInput.SetLevel(Kiln.QuestHolder h, int level) -> void
+[KILNX001]static Kiln.QuestInput.Talk(Kiln.QuestHolder h, string! npc, uint line = 0, string? node = null, string? modId = null) -> void
