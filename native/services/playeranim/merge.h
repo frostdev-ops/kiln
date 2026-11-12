@@ -49,8 +49,9 @@ using ClipFactsFn = std::function<std::optional<ClipFacts>(const std::string& gu
 // lets every one through for the game's: a provider follows that rule (see the report of part 1).
 ClipFacts joint_animation_facts(const TypeDb& types, const uint8_t* data, size_t len);
 
-// playergraph.ClipFacts: a clip's facts from the mods' assets/assets.json "resource" entries (not "side": "client", which
-// a dedicated server skips; part 0), read from their files; else from the game. Two mods serving one clip with other facts:
+// playergraph.ClipFacts: a clip's facts from the mods' shared assets/assets.json "resource" entries (part 0), read from
+// their files; else from the game. A one-sided clip, root motion or sequences entry refuses that GUID on both sides.
+// Two mods serving one clip with other facts:
 // not served. Root motion and sequences: served by any mod, or the game has them. A mod's file that cannot be read counts as
 // unreadable (that mod's entry); the game's errors go through (the merge goes off), as in the Python.
 class ClipFactsProvider {
@@ -76,6 +77,7 @@ private:
     Game game_;
     uint32_t ja_ = 0, rm_ = 0, sq_ = 0;
     std::map<std::pair<std::string, uint32_t>, std::vector<std::string>> served_;  // (guid, type hash) -> files
+    std::set<std::string> one_sided_;  // no state may sample a GUID whose clip, root motion or sequences differ by side
     std::map<std::string, std::optional<ClipFacts>> cache_;
 };
 

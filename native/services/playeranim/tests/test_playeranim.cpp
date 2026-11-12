@@ -428,6 +428,18 @@ void clip_facts(Ctx& c, const json& cases) {
         if (got != want && ++bad) std::printf("  clip facts %s: %s, want %s\n", q[0].get<std::string>().c_str(), got ? "facts" : "none", want ? "facts" : "none");
     }
     check("clip facts from mods' assets.json and the game as playergraph.ClipFacts gives them (" + std::to_string(k["results"].size()) + " clips)", bad == 0);
+    const std::string guid = derive("m", "clip", "one-sided");
+    for (const char* side : {"client", "server"})
+        for (const char* type : {kJointAnim, kRootMotion, kSequences}) {
+            ClipFactsProvider::Mod m{"one-sided", json{{"entries", {{{"kind", "resource"}, {"guid", guid}, {"type", type}, {"file", "x.bin"}, {"side", side}}}}}.dump(), true};
+            auto run = [&](bool served) {
+                ClipFactsProvider::Game g;
+                g.has = [=](const Guid&, uint32_t) { return served; };
+                g.read = [&](const Guid&, uint32_t, Bytes* out) { out->assign(gb.begin(), gb.end()); return true; };
+                return ClipFactsProvider(c.bundled, {m}, [&](const std::string&, Bytes* out) { out->assign(gb.begin(), gb.end()); return true; }, g)(guid);
+            };
+            check(std::string("one-sided ") + side + " " + type + " refused on both sides", !run(false) && !run(true));
+        }
 }
 
 // note 04's lookup on a graph: every state by bare name and by Machine/State

@@ -1069,7 +1069,6 @@ ClipFactsProvider::ClipFactsProvider(const TypeDb& types, const std::vector<Mod>
             const Json* kind = e.find("kind");
             if (!kind || kind->t != Json::Str || kind->s != "resource") continue;
             const Json* side = e.find("side");
-            if (side && side->t == Json::Str && side->s == "client") continue;
             if (const Json* part = e.find("part")) {  // int(e.get("part", 0)) != 0
                 const bool zero = (part->t == Json::Int && part->s == "0") || (part->t == Json::Float && part->f > -1.0 && part->f < 1.0) || part->t == Json::False ||
                                   (part->t == Json::Str && part->s == "0");
@@ -1080,7 +1079,13 @@ ClipFactsProvider::ClipFactsProvider(const TypeDb& types, const std::vector<Mod>
             std::string g;
             if (!uuid_text(guid->s, &g)) continue;
             const uint32_t th = type_hash_of(types, type->s);
-            if (th == ja_ || th == rm_ || th == sq_) served_[{g, th}].push_back(m.assets_dir + "/" + file->s);
+            if (th != ja_ && th != rm_ && th != sq_) continue;
+            if (side && side->t == Json::Str && (side->s == "client" || side->s == "server")) {
+                one_sided_.insert(g);
+                warnings.push_back(m.assets_dir + "/assets.json: one-sided " + side->s + " resource " + g + ": states sampling this GUID are refused on both sides");
+                continue;
+            }
+            served_[{g, th}].push_back(m.assets_dir + "/" + file->s);
         }
     }
 }
@@ -1088,6 +1093,7 @@ ClipFactsProvider::ClipFactsProvider(const TypeDb& types, const std::vector<Mod>
 std::optional<ClipFacts> ClipFactsProvider::operator()(const std::string& guid_in) {
     std::string guid = guid_in;
     for (char& c : guid) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    if (one_sided_.contains(guid)) return std::nullopt;  // never fall back to a side-dependent resource_read
     if (const auto it = cache_.find(guid); it != cache_.end()) return it->second;
     Guid g;
     const bool parsed = Guid::parse(guid, &g);

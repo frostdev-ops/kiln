@@ -1139,6 +1139,20 @@ class Facts(unittest.TestCase):
         (d / "assets.json").write_text("// cooked by animcook\n" + json.dumps({"format": 1, "entries": entries}))
         return d
 
+    def test_one_sided_entries_never_feed_shared_graph(self):
+        guid = mclip("one-sided")
+        class ServedGame:
+            def has(self, key):
+                return True  # a client's resource_read includes the one-sided override
+            def read(self, key):
+                return Facts.ja(None)
+        for side in ("client", "server"):
+            for typ in (PG.JOINT_ANIM, PG.ROOT_MOTION, PG.SEQUENCES):
+                with self.subTest(side=side, type=typ):
+                    d = self.assets(side + typ, [{"kind": "resource", "guid": guid, "type": typ, "file": "x.bin", "side": side}], {"x.bin": self.ja()})
+                    self.assertIsNone(PG.ClipFacts(TYPES, [d], ServedGame())(guid))
+                    self.assertIsNone(PG.ClipFacts(TYPES, [d])(guid))
+
     def test_from_mods_and_the_game(self):
         g1, g2, g3, g4 = (str(G.derive("t", "clip", x)) for x in "abcd")
         a = self.assets("a", [{"kind": "resource", "guid": g1.upper(), "type": PG.JOINT_ANIM, "file": "a.bin"},
@@ -1158,7 +1172,7 @@ class Facts(unittest.TestCase):
                 return Facts.ja(None, fps=20, frames=5, flags=0)
         f = PG.ClipFacts(TYPES, [a, b], Game())
         self.assertEqual(f(g1), facts(fps=30, frames=45, loop=True, rm=True, seq=True))
-        self.assertEqual(f(g2), facts(fps=20, frames=5, loop=False, rm=True, seq=False), "a client-only entry is not served on a server: the game's")
+        self.assertIsNone(f(g2), "a client-only override must not fall back to side-dependent served bytes")
         self.assertIsNone(f(g3), "two mods serve the clip with other facts")
         self.assertEqual(f(g4)["fps"], 20)
         self.assertIsNone(PG.ClipFacts(TYPES, [a, b])(g4))
