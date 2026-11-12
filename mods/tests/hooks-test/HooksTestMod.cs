@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using Kiln;
 
@@ -13,7 +14,10 @@ namespace HooksTest;
 /// and owner-revoke on every reload. Link slots: 1,000 install/remove cycles of a detour and of a mid hook, and a run
 /// of hot reloads (<c>reload-test hooks-test 20</c>), must leave <c>linkSlots.used</c> in kiln/state/hooks.json where it
 /// started (the count of loads and the first full run's number live in a <see cref="Keep"/> block, which outlives a
-/// reload). Prints "hooks-test: PASS|FAIL ..." lines and a summary.
+/// reload). With a file <c>throw-on-unload.flag</c> in the mod's folder (off by default), <c>OnUnload</c> throws while the
+/// hooks are still installed; the next full run then checks that no handler of an earlier load is still called, that no
+/// link of the mod is left in hooks.json, and that the handler count is where the first run left it.
+/// Prints "hooks-test: PASS|FAIL ..." lines and a summary.
 /// </summary>
 public sealed class HooksTestMod : Mod
 {
@@ -37,7 +41,9 @@ public sealed class HooksTestMod : Mod
 
     public override void OnLoad()
     {
-        Keep.Span<int>(SlotsKey, 2)[0]++;  // loads of this mod in this process (survives hot reloads)
+        _keep = Keep.Block(SlotsKey, KeepBytes);
+        _load = Keep.Span<int>(SlotsKey, KeepInts)[0] += 1;  // loads of this mod in this process (survives hot reloads)
+        _throwOnUnload = File.Exists(Path.Combine(Context.Info.Directory, "throw-on-unload.flag"));
         if (!Hooks.Available)
         {
             Check(false, "kiln.hooks unavailable on this build");
@@ -62,6 +68,7 @@ public sealed class HooksTestMod : Mod
         var before = Hooks.Stats().Handlers;
         _hooks.Add(Hooks.Detour("GetComponent", call =>
         {
+            StaleCheck();
             Interlocked.Increment(ref _d0Calls);
             if (_world == 0 && (uint)call[3] != Sentinel) _world = call[1];
             return call.CallOriginal();
@@ -72,6 +79,7 @@ public sealed class HooksTestMod : Mod
         if (Symbols.TryGet("GetEntityTransform", out _))
             _hooks.Add(Hooks.Mid("GetEntityTransform", (ref Registers r) =>
             {
+                StaleCheck();
                 Interlocked.Increment(ref _midCalls);
                 _midRcx = r.Rcx; _midRdx = r.Rdx; _midR8 = r.R8;
             }));
@@ -176,7 +184,31 @@ public sealed class HooksTestMod : Mod
     }
 
     // ---- link slots ----
-    private const string SlotsKey = "hooks-test.link-slots";  // [0] loads, [1] linkSlots.used after the first full run
+    // Keep block (outlives a reload): [0] loads, [1] linkSlots.used after the first full run, [2] calls into a handler
+    // of an earlier load, [3] Hooks.Stats().Handlers after the first full run.
+    private const string SlotsKey = "hooks-test.link-slots";
+    private const int KeepInts = 8, KeepBytes = KeepInts * sizeof(int);
+    private nint _keep;
+    private int _load;
+    private bool _throwOnUnload;
+
+    // A handler of this load called while a later load is current: its context unloaded and the link was not revoked.
+    private void StaleCheck()
+    {
+        if (Marshal.ReadInt32(_keep) != _load) Marshal.WriteInt32(_keep + 8, Marshal.ReadInt32(_keep + 8) + 1);
+    }
+
+    // Links of this mod in hooks.json (written by SlotsUsed's wait).
+    private int OwnLinks()
+    {
+        var file = Path.GetFullPath(Path.Combine(Context.Info.Directory, "..", "..", "state", "hooks.json"));
+        using var doc = JsonDocument.Parse(File.ReadAllText(file));
+        var n = 0;
+        foreach (var t in doc.RootElement.GetProperty("targets").EnumerateArray())
+            foreach (var l in t.GetProperty("links").EnumerateArray())
+                if (l.GetProperty("owner").GetString() == "mod:" + Context.Info.Id) n++;
+        return n;
+    }
 
     private static nuint CycleDetour(HookCall call) => call.CallOriginal();
     private static void CycleMid(ref Registers r) { }
@@ -207,15 +239,24 @@ public sealed class HooksTestMod : Mod
         Check(end == start, $"{Cycles} detour and {Cycles} mid install/remove cycles leave linkSlots.used where it started " +
                             $"({start} -> {end}, {sw.Elapsed.TotalMilliseconds:F0} ms)");
 
-        var keep = Keep.Span<int>(SlotsKey, 2);
+        var handlers = Hooks.Stats().Handlers;  // every hook of this mod is removed by now
+        var own = OwnLinks();
+        Check(own == 0, $"no link of this mod is left in hooks.json after its hooks were removed ({own})");
+        var keep = Keep.Span<int>(SlotsKey, KeepInts);
         var loads = keep[0];
         if (keep[1] == 0)
         {
             keep[1] = end;
-            Log.Info($"hooks-test: link slots baseline {end} (load {loads}); a hot reload test compares against it");
+            keep[3] = handlers;
+            Log.Info($"hooks-test: link slots baseline {end}, handlers {handlers} (load {loads}); a hot reload test compares against it");
         }
         else
-            Check(end == keep[1], $"after {loads - 1} hot reload(s) linkSlots.used is where it started ({keep[1]} -> {end})");
+        {
+            var how = _throwOnUnload ? " whose OnUnload threw with hooks installed" : "";
+            Check(end == keep[1], $"after {loads - 1} hot reload(s){how} linkSlots.used is where it started ({keep[1]} -> {end})");
+            Check(handlers == keep[3], $"after {loads - 1} hot reload(s){how} the handler count is where it started ({keep[3]} -> {handlers})");
+            Check(keep[2] == 0, $"no handler of an earlier load ran after it unloaded ({keep[2]} calls)");
+        }
     }
 
     private unsafe nuint CallGetComponent(uint entity)
@@ -265,6 +306,11 @@ public sealed class HooksTestMod : Mod
 
     public override void OnUnload()
     {
+        if (_throwOnUnload)
+        {
+            Log.Info($"hooks-test: OnUnload throws with {_hooks.Count} hook(s) installed (throw-on-unload.flag)");
+            throw new InvalidOperationException("hooks-test: OnUnload throws on purpose (throw-on-unload.flag)");
+        }
         foreach (var h in _hooks) h.Remove();  // optional: owner-revoke also does this and restores the patch
         _hooks.Clear();
         Log.Info("hooks-test: unloading");
