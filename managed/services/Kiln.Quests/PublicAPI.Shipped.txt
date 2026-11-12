@@ -1,0 +1,1933 @@
+#nullable enable
+Kiln.Boss
+Kiln.Boss.<Clone>$() -> Kiln.Boss!
+Kiln.Boss.Boss(string! Id, string! Template, string? Spawner, uint NameTag, Kiln.WorldPosition Position, Kiln.ProgressFact? Kill) -> void
+Kiln.Boss.Deconstruct(out string! Id, out string! Template, out string? Spawner, out uint NameTag, out Kiln.WorldPosition Position, out Kiln.ProgressFact? Kill) -> void
+Kiln.Boss.Equals(Kiln.Boss? other) -> bool
+Kiln.Boss.Id.get -> string!
+Kiln.Boss.Id.init -> void
+Kiln.Boss.Kill.get -> Kiln.ProgressFact?
+Kiln.Boss.Kill.init -> void
+Kiln.Boss.Killed.get -> bool?
+Kiln.Boss.KilledBy(Kiln.Player! player) -> bool?
+Kiln.Boss.NameTag.get -> uint
+Kiln.Boss.NameTag.init -> void
+Kiln.Boss.Position.get -> Kiln.WorldPosition
+Kiln.Boss.Position.init -> void
+Kiln.Boss.Spawner.get -> string?
+Kiln.Boss.Spawner.init -> void
+Kiln.Boss.Template.get -> string!
+Kiln.Boss.Template.init -> void
+Kiln.Boss.Tracked.get -> bool
+Kiln.BossKilledEvent
+Kiln.BossKilledEvent.Boss.get -> Kiln.Boss?
+Kiln.BossKilledEvent.Entity.get -> Kiln.EntityId
+Kiln.BossKilledEvent.Killer.get -> Kiln.EntityId
+Kiln.BossKilledEvent.KillerPlayer.get -> Kiln.Player?
+Kiln.BossKilledEvent.Position.get -> Kiln.WorldPosition?
+Kiln.BossKilledEvent.Recorded.get -> bool
+Kiln.BossKilledEvent.Step.get -> ulong
+Kiln.BossKilledEvent.Template.get -> string?
+Kiln.CharacterProgress
+Kiln.CharacterProgress.BossesKilled.get -> System.Collections.Generic.IReadOnlyList<Kiln.Boss!>!
+Kiln.CharacterProgress.ObelisksRead.get -> System.Collections.Generic.IReadOnlyList<Kiln.Obelisk!>!
+Kiln.CharacterProgress.Player.get -> Kiln.EntityId
+Kiln.CharacterProgress.Quests.get -> Kiln.QuestLog!
+Kiln.CharacterProgress.RootsDestroyed.get -> System.Collections.Generic.IReadOnlyList<Kiln.ShroudRoot!>!
+Kiln.CharacterProgress.ShrinesFound.get -> System.Collections.Generic.IReadOnlyList<Kiln.FlameShrine!>!
+Kiln.CharacterProgress.SpireTopsReached.get -> System.Collections.Generic.IReadOnlyList<Kiln.Spire!>!
+Kiln.CharacterProgress.SpiresUnlocked.get -> System.Collections.Generic.IReadOnlyList<Kiln.Spire!>!
+Kiln.ChestLootedEvent
+Kiln.ChestLootedEvent.Chest.get -> Kiln.ChestStatus!
+Kiln.ChestLootedEvent.NearestPlayer.get -> Kiln.EntityId
+Kiln.ChestStatus
+Kiln.ChestStatus.<Clone>$() -> Kiln.ChestStatus!
+Kiln.ChestStatus.ChestStatus(uint LootId, string! Template, Kiln.WorldPosition Position, Kiln.EntityId Entity, bool? Opened, bool? Looted) -> void
+Kiln.ChestStatus.Deconstruct(out uint LootId, out string! Template, out Kiln.WorldPosition Position, out Kiln.EntityId Entity, out bool? Opened, out bool? Looted) -> void
+Kiln.ChestStatus.Entity.get -> Kiln.EntityId
+Kiln.ChestStatus.Entity.init -> void
+Kiln.ChestStatus.Equals(Kiln.ChestStatus? other) -> bool
+Kiln.ChestStatus.Loaded.get -> bool
+Kiln.ChestStatus.LootId.get -> uint
+Kiln.ChestStatus.LootId.init -> void
+Kiln.ChestStatus.Looted.get -> bool?
+Kiln.ChestStatus.Looted.init -> void
+Kiln.ChestStatus.Opened.get -> bool?
+Kiln.ChestStatus.Opened.init -> void
+Kiln.ChestStatus.Position.get -> Kiln.WorldPosition
+Kiln.ChestStatus.Position.init -> void
+Kiln.ChestStatus.Template.get -> string!
+Kiln.ChestStatus.Template.init -> void
+Kiln.ConversationOptionEvent
+Kiln.ConversationOptionEvent.Dialogue.get -> Kiln.DialogueDefinition!
+Kiln.ConversationOptionEvent.Holder.get -> Kiln.QuestHolder
+Kiln.ConversationOptionEvent.Node.get -> string!
+Kiln.ConversationOptionEvent.Npc.get -> Kiln.EntityId
+Kiln.ConversationOptionEvent.Option.get -> int
+Kiln.ConversationOptionEvent.RefuseMessage.get -> string?
+Kiln.ConversationOptionEvent.RefuseMessage.set -> void
+Kiln.ConversationResult
+Kiln.ConversationResult.<Clone>$() -> Kiln.ConversationResult!
+Kiln.ConversationResult.ConversationResult(bool Ok, string! Reason) -> void
+Kiln.ConversationResult.Deconstruct(out bool Ok, out string! Reason) -> void
+Kiln.ConversationResult.Equals(Kiln.ConversationResult? other) -> bool
+Kiln.ConversationResult.Ok.get -> bool
+Kiln.ConversationResult.Ok.init -> void
+Kiln.ConversationResult.Reason.get -> string!
+Kiln.ConversationResult.Reason.init -> void
+Kiln.ConversationView
+Kiln.ConversationView.<Clone>$() -> Kiln.ConversationView!
+Kiln.ConversationView.ConversationView(long Id, string! Dialogue, string! Node, Kiln.UiText? Speaker, Kiln.UiText! Text, System.Collections.Generic.IReadOnlyList<(int Index, Kiln.UiText! Text)>! Options, Kiln.EntityId Npc) -> void
+Kiln.ConversationView.Deconstruct(out long Id, out string! Dialogue, out string! Node, out Kiln.UiText? Speaker, out Kiln.UiText! Text, out System.Collections.Generic.IReadOnlyList<(int Index, Kiln.UiText! Text)>! Options, out Kiln.EntityId Npc) -> void
+Kiln.ConversationView.Dialogue.get -> string!
+Kiln.ConversationView.Dialogue.init -> void
+Kiln.ConversationView.Equals(Kiln.ConversationView? other) -> bool
+Kiln.ConversationView.Id.get -> long
+Kiln.ConversationView.Id.init -> void
+Kiln.ConversationView.Node.get -> string!
+Kiln.ConversationView.Node.init -> void
+Kiln.ConversationView.Npc.get -> Kiln.EntityId
+Kiln.ConversationView.Npc.init -> void
+Kiln.ConversationView.Options.get -> System.Collections.Generic.IReadOnlyList<(int Index, Kiln.UiText! Text)>!
+Kiln.ConversationView.Options.init -> void
+Kiln.ConversationView.Speaker.get -> Kiln.UiText?
+Kiln.ConversationView.Speaker.init -> void
+Kiln.ConversationView.Text.get -> Kiln.UiText!
+Kiln.ConversationView.Text.init -> void
+Kiln.DialogueAction
+Kiln.DialogueAction.Start = 0 -> Kiln.DialogueAction
+Kiln.DialogueAction.Stop = 1 -> Kiln.DialogueAction
+Kiln.DialogueDefinition
+Kiln.DialogueDefinition.DialogueDefinition() -> void
+Kiln.DialogueDefinition.Farewell.get -> System.Collections.Generic.List<Kiln.UiText!>!
+Kiln.DialogueDefinition.Farewell.set -> void
+Kiln.DialogueDefinition.FullId.get -> string!
+Kiln.DialogueDefinition.Greet.get -> bool?
+Kiln.DialogueDefinition.Greet.set -> void
+Kiln.DialogueDefinition.Greetings.get -> System.Collections.Generic.List<Kiln.DialogueGreeting!>!
+Kiln.DialogueDefinition.Greetings.set -> void
+Kiln.DialogueDefinition.Hint.get -> string?
+Kiln.DialogueDefinition.Hint.set -> void
+Kiln.DialogueDefinition.Id.get -> string!
+Kiln.DialogueDefinition.Id.init -> void
+Kiln.DialogueDefinition.ModId.get -> string!
+Kiln.DialogueDefinition.Native.get -> bool
+Kiln.DialogueDefinition.Native.set -> void
+Kiln.DialogueDefinition.Nodes.get -> System.Collections.Generic.Dictionary<string!, Kiln.DialogueNode!>!
+Kiln.DialogueDefinition.Nodes.set -> void
+Kiln.DialogueDefinition.Start.get -> string!
+Kiln.DialogueDefinition.Start.set -> void
+Kiln.DialogueDefinition.Transition.get -> System.Collections.Generic.List<Kiln.UiText!>!
+Kiln.DialogueDefinition.Transition.set -> void
+Kiln.DialogueGreeting
+Kiln.DialogueGreeting.DialogueGreeting() -> void
+Kiln.DialogueGreeting.Hint.get -> string?
+Kiln.DialogueGreeting.Hint.set -> void
+Kiln.DialogueGreeting.If.get -> Kiln.QuestCondition?
+Kiln.DialogueGreeting.If.set -> void
+Kiln.DialogueGreeting.Text.get -> Kiln.UiText!
+Kiln.DialogueGreeting.Text.set -> void
+Kiln.DialogueGreeting.Voice.get -> string?
+Kiln.DialogueGreeting.Voice.set -> void
+Kiln.DialogueKnowledgeEvent
+Kiln.DialogueKnowledgeEvent.CheckError.get -> bool
+Kiln.DialogueKnowledgeEvent.ChecksOn.get -> bool
+Kiln.DialogueKnowledgeEvent.DefaultApplies.get -> bool
+Kiln.DialogueKnowledgeEvent.Distance.get -> double?
+Kiln.DialogueKnowledgeEvent.LineId.get -> uint
+Kiln.DialogueKnowledgeEvent.Npc.get -> Kiln.EntityId
+Kiln.DialogueKnowledgeEvent.Operations.get -> System.Collections.Generic.IReadOnlyList<Kiln.KnowledgeOperation>!
+Kiln.DialogueKnowledgeEvent.Player.get -> Kiln.Player?
+Kiln.DialogueKnowledgeEvent.PlayerEntity.get -> Kiln.EntityId
+Kiln.DialogueKnowledgeEvent.RequirementFailed.get -> bool
+Kiln.DialogueKnowledgeEvent.Step.get -> ulong
+Kiln.DialogueKnowledgeEvent.TooFar.get -> bool
+Kiln.DialogueLineEvent
+Kiln.DialogueLineEvent.Action.get -> Kiln.DialogueAction
+Kiln.DialogueLineEvent.IsFarewell.get -> bool
+Kiln.DialogueLineEvent.IsMissingRequirement.get -> bool
+Kiln.DialogueLineEvent.LineId.get -> uint
+Kiln.DialogueLineEvent.Npc.get -> Kiln.EntityId
+Kiln.DialogueLineEvent.Player.get -> Kiln.Player?
+Kiln.DialogueLineEvent.PlayerEntity.get -> Kiln.EntityId
+Kiln.DialogueLineEvent.Step.get -> ulong
+Kiln.DialogueNode
+Kiln.DialogueNode.DialogueNode() -> void
+Kiln.DialogueNode.Do.get -> System.Collections.Generic.List<Kiln.QuestAction!>!
+Kiln.DialogueNode.Do.set -> void
+Kiln.DialogueNode.Goto.get -> string?
+Kiln.DialogueNode.Goto.set -> void
+Kiln.DialogueNode.Hint.get -> string?
+Kiln.DialogueNode.Hint.set -> void
+Kiln.DialogueNode.Options.get -> System.Collections.Generic.List<Kiln.DialogueOption!>!
+Kiln.DialogueNode.Options.set -> void
+Kiln.DialogueNode.Speaker.get -> Kiln.UiText?
+Kiln.DialogueNode.Speaker.set -> void
+Kiln.DialogueNode.Text.get -> Kiln.UiText!
+Kiln.DialogueNode.Text.set -> void
+Kiln.DialogueNode.Voice.get -> string?
+Kiln.DialogueNode.Voice.set -> void
+Kiln.DialogueOption
+Kiln.DialogueOption.Close.get -> bool
+Kiln.DialogueOption.Close.set -> void
+Kiln.DialogueOption.DialogueOption() -> void
+Kiln.DialogueOption.Do.get -> System.Collections.Generic.List<Kiln.QuestAction!>!
+Kiln.DialogueOption.Do.set -> void
+Kiln.DialogueOption.Goto.get -> string?
+Kiln.DialogueOption.Goto.set -> void
+Kiln.DialogueOption.Hint.get -> string?
+Kiln.DialogueOption.Hint.set -> void
+Kiln.DialogueOption.If.get -> Kiln.QuestCondition?
+Kiln.DialogueOption.If.set -> void
+Kiln.DialogueOption.Once.get -> bool
+Kiln.DialogueOption.Once.set -> void
+Kiln.DialogueOption.Reply.get -> Kiln.UiText?
+Kiln.DialogueOption.Reply.set -> void
+Kiln.DialogueOption.Text.get -> Kiln.UiText!
+Kiln.DialogueOption.Text.set -> void
+Kiln.DialogueOption.Voice.get -> string?
+Kiln.DialogueOption.Voice.set -> void
+Kiln.Dialogues
+Kiln.FlameChange
+Kiln.FlameChange.<Clone>$() -> Kiln.FlameChange!
+Kiln.FlameChange.After.get -> int
+Kiln.FlameChange.After.init -> void
+Kiln.FlameChange.Before.get -> int
+Kiln.FlameChange.Before.init -> void
+Kiln.FlameChange.Clamped.get -> bool
+Kiln.FlameChange.Clamped.init -> void
+Kiln.FlameChange.Deconstruct(out ulong Request, out bool Ok, out string! Status, out int Requested, out int Before, out int After, out int Max, out bool Clamped, out bool Marked, out bool Mirrored, out int Steps, out string! Reason) -> void
+Kiln.FlameChange.Equals(Kiln.FlameChange? other) -> bool
+Kiln.FlameChange.FlameChange(ulong Request, bool Ok, string! Status, int Requested, int Before, int After, int Max, bool Clamped, bool Marked, bool Mirrored, int Steps, string! Reason) -> void
+Kiln.FlameChange.Marked.get -> bool
+Kiln.FlameChange.Marked.init -> void
+Kiln.FlameChange.Max.get -> int
+Kiln.FlameChange.Max.init -> void
+Kiln.FlameChange.Mirrored.get -> bool
+Kiln.FlameChange.Mirrored.init -> void
+Kiln.FlameChange.Ok.get -> bool
+Kiln.FlameChange.Ok.init -> void
+Kiln.FlameChange.Reason.get -> string!
+Kiln.FlameChange.Reason.init -> void
+Kiln.FlameChange.Request.get -> ulong
+Kiln.FlameChange.Request.init -> void
+Kiln.FlameChange.Requested.get -> int
+Kiln.FlameChange.Requested.init -> void
+Kiln.FlameChange.Status.get -> string!
+Kiln.FlameChange.Status.init -> void
+Kiln.FlameChange.Steps.get -> int
+Kiln.FlameChange.Steps.init -> void
+Kiln.FlameLevelChangedEvent
+Kiln.FlameLevelChangedEvent.Flame.get -> Kiln.FlameStatus!
+Kiln.FlameLevelChangedEvent.NewLevel.get -> int
+Kiln.FlameLevelChangedEvent.OldLevel.get -> int
+Kiln.FlameLimits
+Kiln.FlameLimits.<Clone>$() -> Kiln.FlameLimits!
+Kiln.FlameLimits.Altars.get -> int
+Kiln.FlameLimits.Altars.init -> void
+Kiln.FlameLimits.Deconstruct(out int Level, out int Altars, out int WaterSources, out int FogResistance, out int? FogRemovalLevel, out bool? FogRemoved) -> void
+Kiln.FlameLimits.Equals(Kiln.FlameLimits? other) -> bool
+Kiln.FlameLimits.FlameLimits(int Level, int Altars, int WaterSources, int FogResistance, int? FogRemovalLevel, bool? FogRemoved) -> void
+Kiln.FlameLimits.FogRemovalLevel.get -> int?
+Kiln.FlameLimits.FogRemovalLevel.init -> void
+Kiln.FlameLimits.FogRemoved.get -> bool?
+Kiln.FlameLimits.FogRemoved.init -> void
+Kiln.FlameLimits.FogResistance.get -> int
+Kiln.FlameLimits.FogResistance.init -> void
+Kiln.FlameLimits.Level.get -> int
+Kiln.FlameLimits.Level.init -> void
+Kiln.FlameLimits.WaterSources.get -> int
+Kiln.FlameLimits.WaterSources.init -> void
+Kiln.FlameShrine
+Kiln.FlameShrine.<Clone>$() -> Kiln.FlameShrine!
+Kiln.FlameShrine.Deconstruct(out string! Id, out Kiln.ShrineKind Kind, out string! Region, out string? Template, out uint NameTag, out Kiln.WorldPosition? Position, out Kiln.ProgressFact! Discovery) -> void
+Kiln.FlameShrine.Discovery.get -> Kiln.ProgressFact!
+Kiln.FlameShrine.Discovery.init -> void
+Kiln.FlameShrine.Equals(Kiln.FlameShrine? other) -> bool
+Kiln.FlameShrine.FlameShrine(string! Id, Kiln.ShrineKind Kind, string! Region, string? Template, uint NameTag, Kiln.WorldPosition? Position, Kiln.ProgressFact! Discovery) -> void
+Kiln.FlameShrine.FoundBy(Kiln.Player! player) -> bool?
+Kiln.FlameShrine.Id.get -> string!
+Kiln.FlameShrine.Id.init -> void
+Kiln.FlameShrine.Kind.get -> Kiln.ShrineKind
+Kiln.FlameShrine.Kind.init -> void
+Kiln.FlameShrine.NameTag.get -> uint
+Kiln.FlameShrine.NameTag.init -> void
+Kiln.FlameShrine.Position.get -> Kiln.WorldPosition?
+Kiln.FlameShrine.Position.init -> void
+Kiln.FlameShrine.Region.get -> string!
+Kiln.FlameShrine.Region.init -> void
+Kiln.FlameShrine.Template.get -> string?
+Kiln.FlameShrine.Template.init -> void
+Kiln.FlameStatus
+Kiln.FlameStatus.<Clone>$() -> Kiln.FlameStatus!
+Kiln.FlameStatus.Altars.get -> int
+Kiln.FlameStatus.Altars.init -> void
+Kiln.FlameStatus.Deconstruct(out int Level, out int Altars, out int HighestAltarLevel, out int WaterSources, out Kiln.EntityId Entity) -> void
+Kiln.FlameStatus.Entity.get -> Kiln.EntityId
+Kiln.FlameStatus.Entity.init -> void
+Kiln.FlameStatus.Equals(Kiln.FlameStatus? other) -> bool
+Kiln.FlameStatus.FlameStatus(int Level, int Altars, int HighestAltarLevel, int WaterSources, Kiln.EntityId Entity) -> void
+Kiln.FlameStatus.HighestAltarLevel.get -> int
+Kiln.FlameStatus.HighestAltarLevel.init -> void
+Kiln.FlameStatus.Level.get -> int
+Kiln.FlameStatus.Level.init -> void
+Kiln.FlameStatus.Max.get -> int?
+Kiln.FlameStatus.Max.init -> void
+Kiln.FlameStatus.Stored.get -> int?
+Kiln.FlameStatus.Stored.init -> void
+Kiln.FlameStatus.SystemLevel.get -> int?
+Kiln.FlameStatus.SystemLevel.init -> void
+Kiln.FlameStatus.WaterSources.get -> int
+Kiln.FlameStatus.WaterSources.init -> void
+Kiln.Journal
+Kiln.JournalQuest
+Kiln.JournalQuest.<Clone>$() -> Kiln.JournalQuest!
+Kiln.JournalQuest.Deconstruct(out int Index, out uint EntryId, out uint NameTag, out Kiln.QuestSource Source, out Kiln.QuestType Type, out bool IsMain, out bool IsTutorial, out bool ForAllPlayers, out int Priority, out System.Collections.Generic.IReadOnlyList<Kiln.JournalStep!>! Steps, out int Rewards, out System.Collections.Generic.IReadOnlyList<uint>! RewardExperience, out System.Collections.Generic.IReadOnlyList<uint>! RewardItems) -> void
+Kiln.JournalQuest.EntryId.get -> uint
+Kiln.JournalQuest.EntryId.init -> void
+Kiln.JournalQuest.Equals(Kiln.JournalQuest? other) -> bool
+Kiln.JournalQuest.ForAllPlayers.get -> bool
+Kiln.JournalQuest.ForAllPlayers.init -> void
+Kiln.JournalQuest.Index.get -> int
+Kiln.JournalQuest.Index.init -> void
+Kiln.JournalQuest.IsMain.get -> bool
+Kiln.JournalQuest.IsMain.init -> void
+Kiln.JournalQuest.IsTutorial.get -> bool
+Kiln.JournalQuest.IsTutorial.init -> void
+Kiln.JournalQuest.JournalQuest(int Index, uint EntryId, uint NameTag, Kiln.QuestSource Source, Kiln.QuestType Type, bool IsMain, bool IsTutorial, bool ForAllPlayers, int Priority, System.Collections.Generic.IReadOnlyList<Kiln.JournalStep!>! Steps, int Rewards, System.Collections.Generic.IReadOnlyList<uint>! RewardExperience, System.Collections.Generic.IReadOnlyList<uint>! RewardItems) -> void
+Kiln.JournalQuest.Name.get -> string!
+Kiln.JournalQuest.NameTag.get -> uint
+Kiln.JournalQuest.NameTag.init -> void
+Kiln.JournalQuest.Priority.get -> int
+Kiln.JournalQuest.Priority.init -> void
+Kiln.JournalQuest.RewardExperience.get -> System.Collections.Generic.IReadOnlyList<uint>!
+Kiln.JournalQuest.RewardExperience.init -> void
+Kiln.JournalQuest.RewardItems.get -> System.Collections.Generic.IReadOnlyList<uint>!
+Kiln.JournalQuest.RewardItems.init -> void
+Kiln.JournalQuest.Rewards.get -> int
+Kiln.JournalQuest.Rewards.init -> void
+Kiln.JournalQuest.Source.get -> Kiln.QuestSource
+Kiln.JournalQuest.Source.init -> void
+Kiln.JournalQuest.Steps.get -> System.Collections.Generic.IReadOnlyList<Kiln.JournalStep!>!
+Kiln.JournalQuest.Steps.init -> void
+Kiln.JournalQuest.Type.get -> Kiln.QuestType
+Kiln.JournalQuest.Type.init -> void
+Kiln.JournalQuestState
+Kiln.JournalQuestState.<Clone>$() -> Kiln.JournalQuestState!
+Kiln.JournalQuestState.Completed.get -> bool?
+Kiln.JournalQuestState.Deconstruct(out Kiln.JournalQuest! Quest, out Kiln.EntityId Target, out System.Collections.Generic.IReadOnlyList<Kiln.JournalStepState!>! Steps, out bool? Rewarded) -> void
+Kiln.JournalQuestState.Equals(Kiln.JournalQuestState? other) -> bool
+Kiln.JournalQuestState.JournalQuestState(Kiln.JournalQuest! Quest, Kiln.EntityId Target, System.Collections.Generic.IReadOnlyList<Kiln.JournalStepState!>! Steps, bool? Rewarded) -> void
+Kiln.JournalQuestState.Quest.get -> Kiln.JournalQuest!
+Kiln.JournalQuestState.Quest.init -> void
+Kiln.JournalQuestState.Rewarded.get -> bool?
+Kiln.JournalQuestState.Rewarded.init -> void
+Kiln.JournalQuestState.Started.get -> bool
+Kiln.JournalQuestState.Steps.get -> System.Collections.Generic.IReadOnlyList<Kiln.JournalStepState!>!
+Kiln.JournalQuestState.Steps.init -> void
+Kiln.JournalQuestState.Target.get -> Kiln.EntityId
+Kiln.JournalQuestState.Target.init -> void
+Kiln.JournalQuestState.VisibleSteps.get -> int
+Kiln.JournalStep
+Kiln.JournalStep.<Clone>$() -> Kiln.JournalStep!
+Kiln.JournalStep.Deconstruct(out int Index, out uint EntryId, out uint NameTag, out uint TextTag, out uint MapMarkerTag, out Kiln.KnowledgeQuery Visible, out Kiln.KnowledgeQuery Done, out int ProgressSteps, out int RecommendedLevel) -> void
+Kiln.JournalStep.Done.get -> Kiln.KnowledgeQuery
+Kiln.JournalStep.Done.init -> void
+Kiln.JournalStep.EntryId.get -> uint
+Kiln.JournalStep.EntryId.init -> void
+Kiln.JournalStep.Equals(Kiln.JournalStep? other) -> bool
+Kiln.JournalStep.Index.get -> int
+Kiln.JournalStep.Index.init -> void
+Kiln.JournalStep.JournalStep(int Index, uint EntryId, uint NameTag, uint TextTag, uint MapMarkerTag, Kiln.KnowledgeQuery Visible, Kiln.KnowledgeQuery Done, int ProgressSteps, int RecommendedLevel) -> void
+Kiln.JournalStep.MapMarkerTag.get -> uint
+Kiln.JournalStep.MapMarkerTag.init -> void
+Kiln.JournalStep.NameOf(Kiln.JournalQuest! quest) -> string!
+Kiln.JournalStep.NameTag.get -> uint
+Kiln.JournalStep.NameTag.init -> void
+Kiln.JournalStep.ProgressSteps.get -> int
+Kiln.JournalStep.ProgressSteps.init -> void
+Kiln.JournalStep.RecommendedLevel.get -> int
+Kiln.JournalStep.RecommendedLevel.init -> void
+Kiln.JournalStep.TextTag.get -> uint
+Kiln.JournalStep.TextTag.init -> void
+Kiln.JournalStep.Visible.get -> Kiln.KnowledgeQuery
+Kiln.JournalStep.Visible.init -> void
+Kiln.JournalStepState
+Kiln.JournalStepState.<Clone>$() -> Kiln.JournalStepState!
+Kiln.JournalStepState.Deconstruct(out Kiln.JournalStep! Step, out bool? Visible, out bool? Done) -> void
+Kiln.JournalStepState.Done.get -> bool?
+Kiln.JournalStepState.Done.init -> void
+Kiln.JournalStepState.Equals(Kiln.JournalStepState? other) -> bool
+Kiln.JournalStepState.JournalStepState(Kiln.JournalStep! Step, bool? Visible, bool? Done) -> void
+Kiln.JournalStepState.Step.get -> Kiln.JournalStep!
+Kiln.JournalStepState.Step.init -> void
+Kiln.JournalStepState.Visible.get -> bool?
+Kiln.JournalStepState.Visible.init -> void
+Kiln.Knowledge
+Kiln.Knowledge.Security
+Kiln.KnowledgeCatalog
+Kiln.KnowledgeCatalog.Npcs = 1 -> Kiln.KnowledgeCatalog
+Kiln.KnowledgeCatalog.Queries = 3 -> Kiln.KnowledgeCatalog
+Kiln.KnowledgeCatalog.Quests = 2 -> Kiln.KnowledgeCatalog
+Kiln.KnowledgeChangedEvent
+Kiln.KnowledgeChangedEvent.ByKiln.get -> bool
+Kiln.KnowledgeChangedEvent.Gained.get -> bool
+Kiln.KnowledgeChangedEvent.Id.get -> uint
+Kiln.KnowledgeChangedEvent.IsWorld.get -> bool
+Kiln.KnowledgeChangedEvent.Lost.get -> bool
+Kiln.KnowledgeChangedEvent.Name.get -> string?
+Kiln.KnowledgeChangedEvent.NewValue.get -> uint
+Kiln.KnowledgeChangedEvent.OldValue.get -> uint
+Kiln.KnowledgeChangedEvent.Player.get -> Kiln.Player?
+Kiln.KnowledgeChangedEvent.Request.get -> ulong
+Kiln.KnowledgeChangedEvent.Step.get -> ulong
+Kiln.KnowledgeChangedEvent.Target.get -> Kiln.EntityId
+Kiln.KnowledgeChangedEvent.Type.get -> Kiln.KnowledgeType
+Kiln.KnowledgeCompare
+Kiln.KnowledgeCompare.Equals = 2 -> Kiln.KnowledgeCompare
+Kiln.KnowledgeCompare.GreaterThan = 0 -> Kiln.KnowledgeCompare
+Kiln.KnowledgeCompare.LessThan = 1 -> Kiln.KnowledgeCompare
+Kiln.KnowledgeInfo
+Kiln.KnowledgeInfo.Deconstruct(out uint Id, out Kiln.KnowledgeObjectFlags Flags, out Kiln.KnowledgeType WorldType, out Kiln.KnowledgeType PlayerType, out uint WorldFlags, out uint PlayerFlags, out uint ExperienceId, out int SkillPoints) -> void
+Kiln.KnowledgeInfo.Equals(Kiln.KnowledgeInfo other) -> bool
+Kiln.KnowledgeInfo.ExperienceId.get -> uint
+Kiln.KnowledgeInfo.ExperienceId.init -> void
+Kiln.KnowledgeInfo.Flags.get -> Kiln.KnowledgeObjectFlags
+Kiln.KnowledgeInfo.Flags.init -> void
+Kiln.KnowledgeInfo.Id.get -> uint
+Kiln.KnowledgeInfo.Id.init -> void
+Kiln.KnowledgeInfo.IsPlayer.get -> bool
+Kiln.KnowledgeInfo.IsWorld.get -> bool
+Kiln.KnowledgeInfo.KnowledgeInfo() -> void
+Kiln.KnowledgeInfo.KnowledgeInfo(uint Id, Kiln.KnowledgeObjectFlags Flags, Kiln.KnowledgeType WorldType, Kiln.KnowledgeType PlayerType, uint WorldFlags, uint PlayerFlags, uint ExperienceId, int SkillPoints) -> void
+Kiln.KnowledgeInfo.Known.get -> bool
+Kiln.KnowledgeInfo.PlayerFlags.get -> uint
+Kiln.KnowledgeInfo.PlayerFlags.init -> void
+Kiln.KnowledgeInfo.PlayerType.get -> Kiln.KnowledgeType
+Kiln.KnowledgeInfo.PlayerType.init -> void
+Kiln.KnowledgeInfo.SkillPoints.get -> int
+Kiln.KnowledgeInfo.SkillPoints.init -> void
+Kiln.KnowledgeInfo.WorldFlags.get -> uint
+Kiln.KnowledgeInfo.WorldFlags.init -> void
+Kiln.KnowledgeInfo.WorldType.get -> Kiln.KnowledgeType
+Kiln.KnowledgeInfo.WorldType.init -> void
+Kiln.KnowledgeMode
+Kiln.KnowledgeMode.Personal = 2 -> Kiln.KnowledgeMode
+Kiln.KnowledgeMode.Player = 1 -> Kiln.KnowledgeMode
+Kiln.KnowledgeMode.Shared = 0 -> Kiln.KnowledgeMode
+Kiln.KnowledgeName
+Kiln.KnowledgeName.<Clone>$() -> Kiln.KnowledgeName!
+Kiln.KnowledgeName.Deconstruct(out string! Text, out bool IsQuery, out uint Id, out Kiln.KnowledgeQuery Requirement) -> void
+Kiln.KnowledgeName.Equals(Kiln.KnowledgeName? other) -> bool
+Kiln.KnowledgeName.Id.get -> uint
+Kiln.KnowledgeName.Id.init -> void
+Kiln.KnowledgeName.IsQuery.get -> bool
+Kiln.KnowledgeName.IsQuery.init -> void
+Kiln.KnowledgeName.KnowledgeName(string! Text, bool IsQuery, uint Id, Kiln.KnowledgeQuery Requirement) -> void
+Kiln.KnowledgeName.Requirement.get -> Kiln.KnowledgeQuery
+Kiln.KnowledgeName.Requirement.init -> void
+Kiln.KnowledgeName.Text.get -> string!
+Kiln.KnowledgeName.Text.init -> void
+Kiln.KnowledgeNpc
+Kiln.KnowledgeNpc.<Clone>$() -> Kiln.KnowledgeNpc!
+Kiln.KnowledgeNpc.CraftingAssistant.get -> bool
+Kiln.KnowledgeNpc.CraftingAssistant.init -> void
+Kiln.KnowledgeNpc.DebugName.get -> string!
+Kiln.KnowledgeNpc.DebugName.init -> void
+Kiln.KnowledgeNpc.Deconstruct(out int Index, out string! DebugName, out uint NpcId, out uint NameTag, out uint Workshop, out uint SummonItem, out Kiln.KnowledgeQuery Unlock, out bool? Unlocked, out bool CraftingAssistant) -> void
+Kiln.KnowledgeNpc.Equals(Kiln.KnowledgeNpc? other) -> bool
+Kiln.KnowledgeNpc.Index.get -> int
+Kiln.KnowledgeNpc.Index.init -> void
+Kiln.KnowledgeNpc.KnowledgeNpc(int Index, string! DebugName, uint NpcId, uint NameTag, uint Workshop, uint SummonItem, Kiln.KnowledgeQuery Unlock, bool? Unlocked, bool CraftingAssistant) -> void
+Kiln.KnowledgeNpc.Name.get -> string!
+Kiln.KnowledgeNpc.NameTag.get -> uint
+Kiln.KnowledgeNpc.NameTag.init -> void
+Kiln.KnowledgeNpc.NpcId.get -> uint
+Kiln.KnowledgeNpc.NpcId.init -> void
+Kiln.KnowledgeNpc.SummonItem.get -> uint
+Kiln.KnowledgeNpc.SummonItem.init -> void
+Kiln.KnowledgeNpc.Unlock.get -> Kiln.KnowledgeQuery
+Kiln.KnowledgeNpc.Unlock.init -> void
+Kiln.KnowledgeNpc.Unlocked.get -> bool?
+Kiln.KnowledgeNpc.Unlocked.init -> void
+Kiln.KnowledgeNpc.Workshop.get -> uint
+Kiln.KnowledgeNpc.Workshop.init -> void
+Kiln.KnowledgeObjectFlags
+Kiln.KnowledgeObjectFlags.Analytics = 8 -> Kiln.KnowledgeObjectFlags
+Kiln.KnowledgeObjectFlags.Experience = 16 -> Kiln.KnowledgeObjectFlags
+Kiln.KnowledgeObjectFlags.None = 0 -> Kiln.KnowledgeObjectFlags
+Kiln.KnowledgeObjectFlags.Player = 2 -> Kiln.KnowledgeObjectFlags
+Kiln.KnowledgeObjectFlags.SkillPoints = 32 -> Kiln.KnowledgeObjectFlags
+Kiln.KnowledgeObjectFlags.Twin = 4 -> Kiln.KnowledgeObjectFlags
+Kiln.KnowledgeObjectFlags.World = 1 -> Kiln.KnowledgeObjectFlags
+Kiln.KnowledgeOp
+Kiln.KnowledgeOp.Grant = 1 -> Kiln.KnowledgeOp
+Kiln.KnowledgeOp.Revoke = 2 -> Kiln.KnowledgeOp
+Kiln.KnowledgeOp.Set = 3 -> Kiln.KnowledgeOp
+Kiln.KnowledgeOperation
+Kiln.KnowledgeOperation.Deconstruct(out uint Id, out Kiln.KnowledgeType Type, out uint Value, out Kiln.EntityId Player) -> void
+Kiln.KnowledgeOperation.Equals(Kiln.KnowledgeOperation other) -> bool
+Kiln.KnowledgeOperation.Id.get -> uint
+Kiln.KnowledgeOperation.Id.init -> void
+Kiln.KnowledgeOperation.KnowledgeOperation() -> void
+Kiln.KnowledgeOperation.KnowledgeOperation(uint Id, Kiln.KnowledgeType Type, uint Value, Kiln.EntityId Player) -> void
+Kiln.KnowledgeOperation.Player.get -> Kiln.EntityId
+Kiln.KnowledgeOperation.Player.init -> void
+Kiln.KnowledgeOperation.Type.get -> Kiln.KnowledgeType
+Kiln.KnowledgeOperation.Type.init -> void
+Kiln.KnowledgeOperation.Value.get -> uint
+Kiln.KnowledgeOperation.Value.init -> void
+Kiln.KnowledgeQuery
+Kiln.KnowledgeQuery.Compare.get -> Kiln.KnowledgeCompare
+Kiln.KnowledgeQuery.Compare.init -> void
+Kiln.KnowledgeQuery.CompareValue.get -> uint
+Kiln.KnowledgeQuery.CompareValue.init -> void
+Kiln.KnowledgeQuery.Deconstruct(out uint Id, out Kiln.KnowledgeQueryType Type, out Kiln.KnowledgeCompare Compare, out uint CompareValue, out bool PlayerOnly) -> void
+Kiln.KnowledgeQuery.Equals(Kiln.KnowledgeQuery other) -> bool
+Kiln.KnowledgeQuery.Id.get -> uint
+Kiln.KnowledgeQuery.Id.init -> void
+Kiln.KnowledgeQuery.IsEmpty.get -> bool
+Kiln.KnowledgeQuery.KnowledgeQuery() -> void
+Kiln.KnowledgeQuery.KnowledgeQuery(uint Id, Kiln.KnowledgeQueryType Type, Kiln.KnowledgeCompare Compare, uint CompareValue, bool PlayerOnly = false) -> void
+Kiln.KnowledgeQuery.PlayerOnly.get -> bool
+Kiln.KnowledgeQuery.PlayerOnly.init -> void
+Kiln.KnowledgeQuery.Type.get -> Kiln.KnowledgeQueryType
+Kiln.KnowledgeQuery.Type.init -> void
+Kiln.KnowledgeQueryType
+Kiln.KnowledgeQueryType.Extern = 0 -> Kiln.KnowledgeQueryType
+Kiln.KnowledgeQueryType.SimpleBool = 1 -> Kiln.KnowledgeQueryType
+Kiln.KnowledgeQueryType.SimpleCount = 2 -> Kiln.KnowledgeQueryType
+Kiln.KnowledgeQueryType.SimpleFlag = 3 -> Kiln.KnowledgeQueryType
+Kiln.KnowledgeRequestEvent
+Kiln.KnowledgeRequestEvent.Held.get -> bool
+Kiln.KnowledgeRequestEvent.Id.get -> uint
+Kiln.KnowledgeRequestEvent.Name.get -> string?
+Kiln.KnowledgeRequestEvent.Player.get -> Kiln.Player?
+Kiln.KnowledgeRequestEvent.PlayerEntity.get -> Kiln.EntityId
+Kiln.KnowledgeRequestEvent.Step.get -> ulong
+Kiln.KnowledgeRequestEvent.Type.get -> Kiln.KnowledgeType
+Kiln.KnowledgeRequestEvent.Value.get -> uint
+Kiln.KnowledgeResult
+Kiln.KnowledgeResult.<Clone>$() -> Kiln.KnowledgeResult!
+Kiln.KnowledgeResult.After.get -> uint
+Kiln.KnowledgeResult.After.init -> void
+Kiln.KnowledgeResult.Before.get -> uint
+Kiln.KnowledgeResult.Before.init -> void
+Kiln.KnowledgeResult.Changed.get -> bool
+Kiln.KnowledgeResult.Changed.init -> void
+Kiln.KnowledgeResult.Deconstruct(out ulong Request, out Kiln.KnowledgeOp Op, out Kiln.EntityId Target, out uint Id, out bool Ok, out string! Status, out uint Before, out uint After, out bool Changed, out int Steps, out string! Reason) -> void
+Kiln.KnowledgeResult.Equals(Kiln.KnowledgeResult? other) -> bool
+Kiln.KnowledgeResult.Id.get -> uint
+Kiln.KnowledgeResult.Id.init -> void
+Kiln.KnowledgeResult.KnowledgeResult(ulong Request, Kiln.KnowledgeOp Op, Kiln.EntityId Target, uint Id, bool Ok, string! Status, uint Before, uint After, bool Changed, int Steps, string! Reason) -> void
+Kiln.KnowledgeResult.Ok.get -> bool
+Kiln.KnowledgeResult.Ok.init -> void
+Kiln.KnowledgeResult.Op.get -> Kiln.KnowledgeOp
+Kiln.KnowledgeResult.Op.init -> void
+Kiln.KnowledgeResult.Reason.get -> string!
+Kiln.KnowledgeResult.Reason.init -> void
+Kiln.KnowledgeResult.Request.get -> ulong
+Kiln.KnowledgeResult.Request.init -> void
+Kiln.KnowledgeResult.Status.get -> string!
+Kiln.KnowledgeResult.Status.init -> void
+Kiln.KnowledgeResult.Steps.get -> int
+Kiln.KnowledgeResult.Steps.init -> void
+Kiln.KnowledgeResult.Target.get -> Kiln.EntityId
+Kiln.KnowledgeResult.Target.init -> void
+Kiln.KnowledgeScope
+Kiln.KnowledgeScope.Get(string! name) -> Kiln.KnowledgeState?
+Kiln.KnowledgeScope.Get(uint id) -> Kiln.KnowledgeState?
+Kiln.KnowledgeScope.Grant(string! name, uint value = 1) -> System.Threading.Tasks.Task<Kiln.KnowledgeResult!>!
+Kiln.KnowledgeScope.Grant(uint id, uint value = 1) -> System.Threading.Tasks.Task<Kiln.KnowledgeResult!>!
+Kiln.KnowledgeScope.Has(string! name) -> bool
+Kiln.KnowledgeScope.Has(uint id) -> bool
+Kiln.KnowledgeScope.IsWorld.get -> bool
+Kiln.KnowledgeScope.List() -> System.Collections.Generic.IReadOnlyList<Kiln.KnowledgeState>!
+Kiln.KnowledgeScope.Revoke(string! name, int flag = -1) -> System.Threading.Tasks.Task<Kiln.KnowledgeResult!>!
+Kiln.KnowledgeScope.Revoke(uint id, int flag = -1) -> System.Threading.Tasks.Task<Kiln.KnowledgeResult!>!
+Kiln.KnowledgeScope.Set(string! name, uint value) -> System.Threading.Tasks.Task<Kiln.KnowledgeResult!>!
+Kiln.KnowledgeScope.Set(uint id, uint value) -> System.Threading.Tasks.Task<Kiln.KnowledgeResult!>!
+Kiln.KnowledgeScope.Target.get -> Kiln.EntityId
+Kiln.KnowledgeSecurity
+Kiln.KnowledgeSecurity.<Clone>$() -> Kiln.KnowledgeSecurity!
+Kiln.KnowledgeSecurity.AllowedIds.get -> int
+Kiln.KnowledgeSecurity.AllowedIds.init -> void
+Kiln.KnowledgeSecurity.CheckDialogue.get -> bool
+Kiln.KnowledgeSecurity.CheckDialogue.init -> void
+Kiln.KnowledgeSecurity.Deconstruct(out bool VetoClientKnowledge, out bool CheckDialogue, out double DialogueRange, out bool LogClientKnowledge, out int AllowedIds) -> void
+Kiln.KnowledgeSecurity.DialogueRange.get -> double
+Kiln.KnowledgeSecurity.DialogueRange.init -> void
+Kiln.KnowledgeSecurity.Equals(Kiln.KnowledgeSecurity? other) -> bool
+Kiln.KnowledgeSecurity.KnowledgeSecurity(bool VetoClientKnowledge = false, bool CheckDialogue = false, double DialogueRange = 12, bool LogClientKnowledge = true, int AllowedIds = 0) -> void
+Kiln.KnowledgeSecurity.LogClientKnowledge.get -> bool
+Kiln.KnowledgeSecurity.LogClientKnowledge.init -> void
+Kiln.KnowledgeSecurity.VetoClientKnowledge.get -> bool
+Kiln.KnowledgeSecurity.VetoClientKnowledge.init -> void
+Kiln.KnowledgeSettings
+Kiln.KnowledgeSettings.AllowClientKnowledge.get -> System.Collections.Generic.List<string!>!
+Kiln.KnowledgeSettings.AllowClientKnowledge.set -> void
+Kiln.KnowledgeSettings.CheckDialogue.get -> bool
+Kiln.KnowledgeSettings.CheckDialogue.set -> void
+Kiln.KnowledgeSettings.DialogueRange.get -> double
+Kiln.KnowledgeSettings.DialogueRange.set -> void
+Kiln.KnowledgeSettings.KnowledgeSettings() -> void
+Kiln.KnowledgeSettings.LogClientKnowledge.get -> bool
+Kiln.KnowledgeSettings.LogClientKnowledge.set -> void
+Kiln.KnowledgeSettings.VetoClientKnowledge.get -> bool
+Kiln.KnowledgeSettings.VetoClientKnowledge.set -> void
+Kiln.KnowledgeState
+Kiln.KnowledgeState.Deconstruct(out Kiln.EntityId Target, out uint Id, out uint Value, out Kiln.KnowledgeType Type, out bool Present, out byte NewMask, out ulong Step) -> void
+Kiln.KnowledgeState.Equals(Kiln.KnowledgeState other) -> bool
+Kiln.KnowledgeState.HasFlag(int flag) -> bool
+Kiln.KnowledgeState.Id.get -> uint
+Kiln.KnowledgeState.Id.init -> void
+Kiln.KnowledgeState.IsSet.get -> bool
+Kiln.KnowledgeState.KnowledgeState() -> void
+Kiln.KnowledgeState.KnowledgeState(Kiln.EntityId Target, uint Id, uint Value, Kiln.KnowledgeType Type, bool Present, byte NewMask, ulong Step) -> void
+Kiln.KnowledgeState.NewMask.get -> byte
+Kiln.KnowledgeState.NewMask.init -> void
+Kiln.KnowledgeState.Present.get -> bool
+Kiln.KnowledgeState.Present.init -> void
+Kiln.KnowledgeState.Step.get -> ulong
+Kiln.KnowledgeState.Step.init -> void
+Kiln.KnowledgeState.Target.get -> Kiln.EntityId
+Kiln.KnowledgeState.Target.init -> void
+Kiln.KnowledgeState.Type.get -> Kiln.KnowledgeType
+Kiln.KnowledgeState.Type.init -> void
+Kiln.KnowledgeState.Value.get -> uint
+Kiln.KnowledgeState.Value.init -> void
+Kiln.KnowledgeStatus
+Kiln.KnowledgeStatus.<Clone>$() -> Kiln.KnowledgeStatus!
+Kiln.KnowledgeStatus.Applied.get -> ulong
+Kiln.KnowledgeStatus.Applied.init -> void
+Kiln.KnowledgeStatus.Applying.get -> bool
+Kiln.KnowledgeStatus.Applying.init -> void
+Kiln.KnowledgeStatus.Changes.get -> bool
+Kiln.KnowledgeStatus.Changes.init -> void
+Kiln.KnowledgeStatus.ChangesSeen.get -> ulong
+Kiln.KnowledgeStatus.ChangesSeen.init -> void
+Kiln.KnowledgeStatus.ClientInput.get -> bool
+Kiln.KnowledgeStatus.ClientInput.init -> void
+Kiln.KnowledgeStatus.ClientOps.get -> ulong
+Kiln.KnowledgeStatus.ClientOps.init -> void
+Kiln.KnowledgeStatus.ClientVetoed.get -> ulong
+Kiln.KnowledgeStatus.ClientVetoed.init -> void
+Kiln.KnowledgeStatus.Deconstruct(out bool Knowledge, out bool Changes, out bool Journal, out bool Npc, out bool Dialogue, out bool ClientInput, out bool Program, out bool World, out int WorldObjects, out int PlayerObjects, out int WorldEntries, out int Players, out int Npcs, out int Quests, out int Queries, out int Pending, out ulong Submitted, out ulong Applied, out ulong Failed, out ulong ChangesSeen, out ulong ClientOps, out ulong ClientVetoed, out ulong DialogueEvents, out ulong DialogueHeld, out ulong DialogueDropped, out int QueueMax, out string! Reason, out bool Applying) -> void
+Kiln.KnowledgeStatus.Dialogue.get -> bool
+Kiln.KnowledgeStatus.Dialogue.init -> void
+Kiln.KnowledgeStatus.DialogueDropped.get -> ulong
+Kiln.KnowledgeStatus.DialogueDropped.init -> void
+Kiln.KnowledgeStatus.DialogueEvents.get -> ulong
+Kiln.KnowledgeStatus.DialogueEvents.init -> void
+Kiln.KnowledgeStatus.DialogueHeld.get -> ulong
+Kiln.KnowledgeStatus.DialogueHeld.init -> void
+Kiln.KnowledgeStatus.Equals(Kiln.KnowledgeStatus? other) -> bool
+Kiln.KnowledgeStatus.Failed.get -> ulong
+Kiln.KnowledgeStatus.Failed.init -> void
+Kiln.KnowledgeStatus.Journal.get -> bool
+Kiln.KnowledgeStatus.Journal.init -> void
+Kiln.KnowledgeStatus.Knowledge.get -> bool
+Kiln.KnowledgeStatus.Knowledge.init -> void
+Kiln.KnowledgeStatus.KnowledgeStatus(bool Knowledge, bool Changes, bool Journal, bool Npc, bool Dialogue, bool ClientInput, bool Program, bool World, int WorldObjects, int PlayerObjects, int WorldEntries, int Players, int Npcs, int Quests, int Queries, int Pending, ulong Submitted, ulong Applied, ulong Failed, ulong ChangesSeen, ulong ClientOps, ulong ClientVetoed, ulong DialogueEvents, ulong DialogueHeld, ulong DialogueDropped, int QueueMax, string! Reason, bool Applying = false) -> void
+Kiln.KnowledgeStatus.Npc.get -> bool
+Kiln.KnowledgeStatus.Npc.init -> void
+Kiln.KnowledgeStatus.Npcs.get -> int
+Kiln.KnowledgeStatus.Npcs.init -> void
+Kiln.KnowledgeStatus.Pending.get -> int
+Kiln.KnowledgeStatus.Pending.init -> void
+Kiln.KnowledgeStatus.PlayerObjects.get -> int
+Kiln.KnowledgeStatus.PlayerObjects.init -> void
+Kiln.KnowledgeStatus.Players.get -> int
+Kiln.KnowledgeStatus.Players.init -> void
+Kiln.KnowledgeStatus.Program.get -> bool
+Kiln.KnowledgeStatus.Program.init -> void
+Kiln.KnowledgeStatus.Queries.get -> int
+Kiln.KnowledgeStatus.Queries.init -> void
+Kiln.KnowledgeStatus.Quests.get -> int
+Kiln.KnowledgeStatus.Quests.init -> void
+Kiln.KnowledgeStatus.QueueMax.get -> int
+Kiln.KnowledgeStatus.QueueMax.init -> void
+Kiln.KnowledgeStatus.Reason.get -> string!
+Kiln.KnowledgeStatus.Reason.init -> void
+Kiln.KnowledgeStatus.Submitted.get -> ulong
+Kiln.KnowledgeStatus.Submitted.init -> void
+Kiln.KnowledgeStatus.World.get -> bool
+Kiln.KnowledgeStatus.World.init -> void
+Kiln.KnowledgeStatus.WorldEntries.get -> int
+Kiln.KnowledgeStatus.WorldEntries.init -> void
+Kiln.KnowledgeStatus.WorldObjects.get -> int
+Kiln.KnowledgeStatus.WorldObjects.init -> void
+Kiln.KnowledgeType
+Kiln.KnowledgeType.Bool = 0 -> Kiln.KnowledgeType
+Kiln.KnowledgeType.Counter = 1 -> Kiln.KnowledgeType
+Kiln.KnowledgeType.Flags = 2 -> Kiln.KnowledgeType
+Kiln.KnowledgeType.None = 255 -> Kiln.KnowledgeType
+Kiln.NativeComputed
+Kiln.NativeComputed.<Clone>$() -> Kiln.NativeComputed!
+Kiln.NativeComputed.Deconstruct(out string! Mod, out uint Id, out string! Kind, out string! Target, out string! Node, out int Index, out uint Gate, out uint Heard) -> void
+Kiln.NativeComputed.Equals(Kiln.NativeComputed? other) -> bool
+Kiln.NativeComputed.Gate.get -> uint
+Kiln.NativeComputed.Gate.init -> void
+Kiln.NativeComputed.Heard.get -> uint
+Kiln.NativeComputed.Heard.init -> void
+Kiln.NativeComputed.Id.get -> uint
+Kiln.NativeComputed.Id.init -> void
+Kiln.NativeComputed.Index.get -> int
+Kiln.NativeComputed.Index.init -> void
+Kiln.NativeComputed.Kind.get -> string!
+Kiln.NativeComputed.Kind.init -> void
+Kiln.NativeComputed.Mod.get -> string!
+Kiln.NativeComputed.Mod.init -> void
+Kiln.NativeComputed.NativeComputed(string! Mod, uint Id, string! Kind, string! Target, string! Node, int Index, uint Gate, uint Heard) -> void
+Kiln.NativeComputed.Node.get -> string!
+Kiln.NativeComputed.Node.init -> void
+Kiln.NativeComputed.Target.get -> string!
+Kiln.NativeComputed.Target.init -> void
+Kiln.NativeIds
+Kiln.NativeLineInfo
+Kiln.NativeLineInfo.<Clone>$() -> Kiln.NativeLineInfo!
+Kiln.NativeLineInfo.Auto.get -> string!
+Kiln.NativeLineInfo.Auto.init -> void
+Kiln.NativeLineInfo.Deconstruct(out string! Mod, out string! Dialogue, out string! Npc, out string! Node, out int Option, out uint Line, out string! Auto) -> void
+Kiln.NativeLineInfo.Dialogue.get -> string!
+Kiln.NativeLineInfo.Dialogue.init -> void
+Kiln.NativeLineInfo.Equals(Kiln.NativeLineInfo? other) -> bool
+Kiln.NativeLineInfo.Line.get -> uint
+Kiln.NativeLineInfo.Line.init -> void
+Kiln.NativeLineInfo.Mod.get -> string!
+Kiln.NativeLineInfo.Mod.init -> void
+Kiln.NativeLineInfo.NativeLineInfo(string! Mod, string! Dialogue, string! Npc, string! Node, int Option, uint Line, string! Auto = "") -> void
+Kiln.NativeLineInfo.Node.get -> string!
+Kiln.NativeLineInfo.Node.init -> void
+Kiln.NativeLineInfo.Npc.get -> string!
+Kiln.NativeLineInfo.Npc.init -> void
+Kiln.NativeLineInfo.Option.get -> int
+Kiln.NativeLineInfo.Option.init -> void
+Kiln.NativeMarkerInfo
+Kiln.NativeMarkerInfo.<Clone>$() -> Kiln.NativeMarkerInfo!
+Kiln.NativeMarkerInfo.At.get -> Kiln.WorldPosition?
+Kiln.NativeMarkerInfo.At.init -> void
+Kiln.NativeMarkerInfo.Deconstruct(out string! Mod, out string! Quest, out string! Step, out string! Template, out System.Guid Guid, out Kiln.WorldPosition? At) -> void
+Kiln.NativeMarkerInfo.Equals(Kiln.NativeMarkerInfo? other) -> bool
+Kiln.NativeMarkerInfo.Guid.get -> System.Guid
+Kiln.NativeMarkerInfo.Guid.init -> void
+Kiln.NativeMarkerInfo.Mod.get -> string!
+Kiln.NativeMarkerInfo.Mod.init -> void
+Kiln.NativeMarkerInfo.NativeMarkerInfo(string! Mod, string! Quest, string! Step, string! Template, System.Guid Guid, Kiln.WorldPosition? At) -> void
+Kiln.NativeMarkerInfo.Quest.get -> string!
+Kiln.NativeMarkerInfo.Quest.init -> void
+Kiln.NativeMarkerInfo.Step.get -> string!
+Kiln.NativeMarkerInfo.Step.init -> void
+Kiln.NativeMarkerInfo.Template.get -> string!
+Kiln.NativeMarkerInfo.Template.init -> void
+Kiln.NativeModInfo
+Kiln.NativeModInfo.<Clone>$() -> Kiln.NativeModInfo!
+Kiln.NativeModInfo.Computed.get -> System.Collections.Generic.IReadOnlyList<Kiln.NativeComputed!>!
+Kiln.NativeModInfo.Computed.init -> void
+Kiln.NativeModInfo.Deconstruct(out string! Id, out bool Ok, out System.Collections.Generic.IReadOnlyDictionary<string!, uint>! Knowledge, out System.Collections.Generic.IReadOnlyList<Kiln.NativeQuestInfo!>! Quests, out System.Collections.Generic.IReadOnlyList<Kiln.NativeLineInfo!>! Lines, out System.Collections.Generic.IReadOnlyList<Kiln.NativeNpcInfo!>! Npcs, out System.Collections.Generic.IReadOnlyList<Kiln.NativeMarkerInfo!>! Markers, out System.Collections.Generic.IReadOnlyList<string!>! Errors, out System.Collections.Generic.IReadOnlyList<Kiln.NativeComputed!>! Computed) -> void
+Kiln.NativeModInfo.Equals(Kiln.NativeModInfo? other) -> bool
+Kiln.NativeModInfo.Errors.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Kiln.NativeModInfo.Errors.init -> void
+Kiln.NativeModInfo.Id.get -> string!
+Kiln.NativeModInfo.Id.init -> void
+Kiln.NativeModInfo.Knowledge.get -> System.Collections.Generic.IReadOnlyDictionary<string!, uint>!
+Kiln.NativeModInfo.Knowledge.init -> void
+Kiln.NativeModInfo.Lines.get -> System.Collections.Generic.IReadOnlyList<Kiln.NativeLineInfo!>!
+Kiln.NativeModInfo.Lines.init -> void
+Kiln.NativeModInfo.Markers.get -> System.Collections.Generic.IReadOnlyList<Kiln.NativeMarkerInfo!>!
+Kiln.NativeModInfo.Markers.init -> void
+Kiln.NativeModInfo.NativeModInfo(string! Id, bool Ok, System.Collections.Generic.IReadOnlyDictionary<string!, uint>! Knowledge, System.Collections.Generic.IReadOnlyList<Kiln.NativeQuestInfo!>! Quests, System.Collections.Generic.IReadOnlyList<Kiln.NativeLineInfo!>! Lines, System.Collections.Generic.IReadOnlyList<Kiln.NativeNpcInfo!>! Npcs, System.Collections.Generic.IReadOnlyList<Kiln.NativeMarkerInfo!>! Markers, System.Collections.Generic.IReadOnlyList<string!>! Errors, System.Collections.Generic.IReadOnlyList<Kiln.NativeComputed!>! Computed) -> void
+Kiln.NativeModInfo.Npcs.get -> System.Collections.Generic.IReadOnlyList<Kiln.NativeNpcInfo!>!
+Kiln.NativeModInfo.Npcs.init -> void
+Kiln.NativeModInfo.Ok.get -> bool
+Kiln.NativeModInfo.Ok.init -> void
+Kiln.NativeModInfo.Quests.get -> System.Collections.Generic.IReadOnlyList<Kiln.NativeQuestInfo!>!
+Kiln.NativeModInfo.Quests.init -> void
+Kiln.NativeNpcInfo
+Kiln.NativeNpcInfo.<Clone>$() -> Kiln.NativeNpcInfo!
+Kiln.NativeNpcInfo.Deconstruct(out string! Mod, out string! Id, out string! FullId, out string! Template, out System.Guid Guid, out bool IsClone, out uint NpcId, out bool Roster, out uint Unlock, out Kiln.NativePlacement? Place, out string! Dialogue, out string! SummonItem) -> void
+Kiln.NativeNpcInfo.Dialogue.get -> string!
+Kiln.NativeNpcInfo.Dialogue.init -> void
+Kiln.NativeNpcInfo.Equals(Kiln.NativeNpcInfo? other) -> bool
+Kiln.NativeNpcInfo.FullId.get -> string!
+Kiln.NativeNpcInfo.FullId.init -> void
+Kiln.NativeNpcInfo.Guid.get -> System.Guid
+Kiln.NativeNpcInfo.Guid.init -> void
+Kiln.NativeNpcInfo.Id.get -> string!
+Kiln.NativeNpcInfo.Id.init -> void
+Kiln.NativeNpcInfo.IsClone.get -> bool
+Kiln.NativeNpcInfo.IsClone.init -> void
+Kiln.NativeNpcInfo.Mod.get -> string!
+Kiln.NativeNpcInfo.Mod.init -> void
+Kiln.NativeNpcInfo.NativeNpcInfo(string! Mod, string! Id, string! FullId, string! Template, System.Guid Guid, bool IsClone, uint NpcId, bool Roster, uint Unlock, Kiln.NativePlacement? Place, string! Dialogue, string! SummonItem) -> void
+Kiln.NativeNpcInfo.NpcId.get -> uint
+Kiln.NativeNpcInfo.NpcId.init -> void
+Kiln.NativeNpcInfo.Place.get -> Kiln.NativePlacement?
+Kiln.NativeNpcInfo.Place.init -> void
+Kiln.NativeNpcInfo.Roster.get -> bool
+Kiln.NativeNpcInfo.Roster.init -> void
+Kiln.NativeNpcInfo.SummonItem.get -> string!
+Kiln.NativeNpcInfo.SummonItem.init -> void
+Kiln.NativeNpcInfo.Template.get -> string!
+Kiln.NativeNpcInfo.Template.init -> void
+Kiln.NativeNpcInfo.Unlock.get -> uint
+Kiln.NativeNpcInfo.Unlock.init -> void
+Kiln.NativePlacement
+Kiln.NativePlacement.<Clone>$() -> Kiln.NativePlacement!
+Kiln.NativePlacement.Deconstruct(out Kiln.QuestPlace! Spec, out float Yaw, out bool Once, out bool? Unlock) -> void
+Kiln.NativePlacement.Equals(Kiln.NativePlacement? other) -> bool
+Kiln.NativePlacement.NativePlacement(Kiln.QuestPlace! Spec, float Yaw, bool Once, bool? Unlock) -> void
+Kiln.NativePlacement.Once.get -> bool
+Kiln.NativePlacement.Once.init -> void
+Kiln.NativePlacement.Spec.get -> Kiln.QuestPlace!
+Kiln.NativePlacement.Spec.init -> void
+Kiln.NativePlacement.Unlock.get -> bool?
+Kiln.NativePlacement.Unlock.init -> void
+Kiln.NativePlacement.Yaw.get -> float
+Kiln.NativePlacement.Yaw.init -> void
+Kiln.NativeQuestInfo
+Kiln.NativeQuestInfo.<Clone>$() -> Kiln.NativeQuestInfo!
+Kiln.NativeQuestInfo.Active.get -> uint
+Kiln.NativeQuestInfo.Active.init -> void
+Kiln.NativeQuestInfo.Deconstruct(out string! Mod, out string! Id, out string! FullId, out string! Scope, out uint EntryId, out uint Started, out uint Active, out uint Done, out System.Collections.Generic.IReadOnlyList<Kiln.NativeStepInfo!>! Steps) -> void
+Kiln.NativeQuestInfo.Done.get -> uint
+Kiln.NativeQuestInfo.Done.init -> void
+Kiln.NativeQuestInfo.EntryId.get -> uint
+Kiln.NativeQuestInfo.EntryId.init -> void
+Kiln.NativeQuestInfo.Equals(Kiln.NativeQuestInfo? other) -> bool
+Kiln.NativeQuestInfo.FullId.get -> string!
+Kiln.NativeQuestInfo.FullId.init -> void
+Kiln.NativeQuestInfo.Id.get -> string!
+Kiln.NativeQuestInfo.Id.init -> void
+Kiln.NativeQuestInfo.Mod.get -> string!
+Kiln.NativeQuestInfo.Mod.init -> void
+Kiln.NativeQuestInfo.NativeQuestInfo(string! Mod, string! Id, string! FullId, string! Scope, uint EntryId, uint Started, uint Active, uint Done, System.Collections.Generic.IReadOnlyList<Kiln.NativeStepInfo!>! Steps) -> void
+Kiln.NativeQuestInfo.Scope.get -> string!
+Kiln.NativeQuestInfo.Scope.init -> void
+Kiln.NativeQuestInfo.Started.get -> uint
+Kiln.NativeQuestInfo.Started.init -> void
+Kiln.NativeQuestInfo.Steps.get -> System.Collections.Generic.IReadOnlyList<Kiln.NativeStepInfo!>!
+Kiln.NativeQuestInfo.Steps.init -> void
+Kiln.NativeQuests
+Kiln.NativeStepInfo
+Kiln.NativeStepInfo.<Clone>$() -> Kiln.NativeStepInfo!
+Kiln.NativeStepInfo.Active.get -> uint
+Kiln.NativeStepInfo.Active.init -> void
+Kiln.NativeStepInfo.Count.get -> uint
+Kiln.NativeStepInfo.Count.init -> void
+Kiln.NativeStepInfo.Deconstruct(out string! Id, out uint Visible, out uint Active, out uint Done, out uint Count, out int Total, out uint Ready) -> void
+Kiln.NativeStepInfo.Done.get -> uint
+Kiln.NativeStepInfo.Done.init -> void
+Kiln.NativeStepInfo.Equals(Kiln.NativeStepInfo? other) -> bool
+Kiln.NativeStepInfo.Id.get -> string!
+Kiln.NativeStepInfo.Id.init -> void
+Kiln.NativeStepInfo.NativeStepInfo(string! Id, uint Visible, uint Active, uint Done, uint Count = 0, int Total = 0, uint Ready = 0) -> void
+Kiln.NativeStepInfo.Ready.get -> uint
+Kiln.NativeStepInfo.Ready.init -> void
+Kiln.NativeStepInfo.Total.get -> int
+Kiln.NativeStepInfo.Total.init -> void
+Kiln.NativeStepInfo.Visible.get -> uint
+Kiln.NativeStepInfo.Visible.init -> void
+Kiln.NativeWanted
+Kiln.NativeWanted.Deconstruct(out string! Name, out uint Id, out uint Value) -> void
+Kiln.NativeWanted.Equals(Kiln.NativeWanted other) -> bool
+Kiln.NativeWanted.Id.get -> uint
+Kiln.NativeWanted.Id.init -> void
+Kiln.NativeWanted.Name.get -> string!
+Kiln.NativeWanted.Name.init -> void
+Kiln.NativeWanted.NativeWanted() -> void
+Kiln.NativeWanted.NativeWanted(string! Name, uint Id, uint Value) -> void
+Kiln.NativeWanted.Value.get -> uint
+Kiln.NativeWanted.Value.init -> void
+Kiln.Obelisk
+Kiln.Obelisk.<Clone>$() -> Kiln.Obelisk!
+Kiln.Obelisk.Deconstruct(out string! Id, out string! Region, out Kiln.WorldPosition? Position, out Kiln.ProgressFact! Reading) -> void
+Kiln.Obelisk.Equals(Kiln.Obelisk? other) -> bool
+Kiln.Obelisk.Id.get -> string!
+Kiln.Obelisk.Id.init -> void
+Kiln.Obelisk.Obelisk(string! Id, string! Region, Kiln.WorldPosition? Position, Kiln.ProgressFact! Reading) -> void
+Kiln.Obelisk.Position.get -> Kiln.WorldPosition?
+Kiln.Obelisk.Position.init -> void
+Kiln.Obelisk.ReadBy(Kiln.Player! player) -> bool?
+Kiln.Obelisk.Reading.get -> Kiln.ProgressFact!
+Kiln.Obelisk.Reading.init -> void
+Kiln.Obelisk.Region.get -> string!
+Kiln.Obelisk.Region.init -> void
+Kiln.ProgressFact
+Kiln.ProgressFact.<Clone>$() -> Kiln.ProgressFact!
+Kiln.ProgressFact.Deconstruct(out Kiln.KnowledgeQuery Query, out Kiln.ProgressScope Scope) -> void
+Kiln.ProgressFact.Equals(Kiln.ProgressFact? other) -> bool
+Kiln.ProgressFact.Holds(Kiln.EntityId target) -> bool?
+Kiln.ProgressFact.Holds(Kiln.Player! player) -> bool?
+Kiln.ProgressFact.Id.get -> uint
+Kiln.ProgressFact.ProgressFact(Kiln.KnowledgeQuery Query, Kiln.ProgressScope Scope) -> void
+Kiln.ProgressFact.Query.get -> Kiln.KnowledgeQuery
+Kiln.ProgressFact.Query.init -> void
+Kiln.ProgressFact.Scope.get -> Kiln.ProgressScope
+Kiln.ProgressFact.Scope.init -> void
+Kiln.ProgressScope
+Kiln.ProgressScope.Both = 2 -> Kiln.ProgressScope
+Kiln.ProgressScope.Character = 1 -> Kiln.ProgressScope
+Kiln.ProgressScope.World = 0 -> Kiln.ProgressScope
+Kiln.QuestAction
+Kiln.QuestAction.At.get -> Kiln.WorldPosition?
+Kiln.QuestAction.At.set -> void
+Kiln.QuestAction.BindNpc.get -> string?
+Kiln.QuestAction.BindNpc.set -> void
+Kiln.QuestAction.Clear.get -> bool
+Kiln.QuestAction.Clear.set -> void
+Kiln.QuestAction.Count.get -> int
+Kiln.QuestAction.Count.set -> void
+Kiln.QuestAction.Exact.get -> bool
+Kiln.QuestAction.Exact.set -> void
+Kiln.QuestAction.Force.get -> bool
+Kiln.QuestAction.Force.set -> void
+Kiln.QuestAction.Kind.get -> Kiln.QuestActionKind
+Kiln.QuestAction.Kind.init -> void
+Kiln.QuestAction.Name.get -> string?
+Kiln.QuestAction.Name.set -> void
+Kiln.QuestAction.Node.get -> string?
+Kiln.QuestAction.Node.set -> void
+Kiln.QuestAction.Offset.get -> Kiln.WorldPosition?
+Kiln.QuestAction.Offset.set -> void
+Kiln.QuestAction.QuestAction() -> void
+Kiln.QuestAction.Run.get -> System.Func<Kiln.QuestActionContext!, System.Threading.Tasks.Task!>?
+Kiln.QuestAction.Run.set -> void
+Kiln.QuestAction.Tag.get -> string?
+Kiln.QuestAction.Tag.set -> void
+Kiln.QuestAction.Target.get -> string?
+Kiln.QuestAction.Target.set -> void
+Kiln.QuestAction.Text.get -> Kiln.UiText?
+Kiln.QuestAction.Text.set -> void
+Kiln.QuestAction.ToastKind.get -> string?
+Kiln.QuestAction.ToastKind.set -> void
+Kiln.QuestAction.Transient.get -> bool
+Kiln.QuestAction.Transient.set -> void
+Kiln.QuestAction.Value.get -> uint
+Kiln.QuestAction.Value.set -> void
+Kiln.QuestAction.Yaw.get -> double
+Kiln.QuestAction.Yaw.set -> void
+Kiln.QuestActionContext
+Kiln.QuestActionContext.<Clone>$() -> Kiln.QuestActionContext!
+Kiln.QuestActionContext.Deconstruct(out Kiln.QuestHolder Holder, out Kiln.QuestDefinition? Quest, out Kiln.EntityId Npc, out string! ModId) -> void
+Kiln.QuestActionContext.Equals(Kiln.QuestActionContext? other) -> bool
+Kiln.QuestActionContext.Holder.get -> Kiln.QuestHolder
+Kiln.QuestActionContext.Holder.init -> void
+Kiln.QuestActionContext.ModId.get -> string!
+Kiln.QuestActionContext.ModId.init -> void
+Kiln.QuestActionContext.Npc.get -> Kiln.EntityId
+Kiln.QuestActionContext.Npc.init -> void
+Kiln.QuestActionContext.Player.get -> Kiln.Player?
+Kiln.QuestActionContext.Quest.get -> Kiln.QuestDefinition?
+Kiln.QuestActionContext.Quest.init -> void
+Kiln.QuestActionContext.QuestActionContext(Kiln.QuestHolder Holder, Kiln.QuestDefinition? Quest, Kiln.EntityId Npc, string! ModId) -> void
+Kiln.QuestActionKind
+Kiln.QuestActionKind.Advance = 8 -> Kiln.QuestActionKind
+Kiln.QuestActionKind.Call = 18 -> Kiln.QuestActionKind
+Kiln.QuestActionKind.Chat = 13 -> Kiln.QuestActionKind
+Kiln.QuestActionKind.Complete = 6 -> Kiln.QuestActionKind
+Kiln.QuestActionKind.Despawn = 11 -> Kiln.QuestActionKind
+Kiln.QuestActionKind.Fail = 7 -> Kiln.QuestActionKind
+Kiln.QuestActionKind.Give = 0 -> Kiln.QuestActionKind
+Kiln.QuestActionKind.Knowledge = 3 -> Kiln.QuestActionKind
+Kiln.QuestActionKind.Reset = 9 -> Kiln.QuestActionKind
+Kiln.QuestActionKind.Revoke = 4 -> Kiln.QuestActionKind
+Kiln.QuestActionKind.Signal = 17 -> Kiln.QuestActionKind
+Kiln.QuestActionKind.Spawn = 10 -> Kiln.QuestActionKind
+Kiln.QuestActionKind.Start = 5 -> Kiln.QuestActionKind
+Kiln.QuestActionKind.Take = 1 -> Kiln.QuestActionKind
+Kiln.QuestActionKind.Talk = 16 -> Kiln.QuestActionKind
+Kiln.QuestActionKind.Teleport = 12 -> Kiln.QuestActionKind
+Kiln.QuestActionKind.Toast = 14 -> Kiln.QuestActionKind
+Kiln.QuestActionKind.Waypoint = 15 -> Kiln.QuestActionKind
+Kiln.QuestActionKind.Xp = 2 -> Kiln.QuestActionKind
+Kiln.QuestBook
+Kiln.QuestBook.QuestBook() -> void
+Kiln.QuestBook.Quests.get -> System.Collections.Generic.Dictionary<string!, Kiln.QuestRecord!>!
+Kiln.QuestBook.Quests.set -> void
+Kiln.QuestBook.Revision.get -> long
+Kiln.QuestBook.Revision.set -> void
+Kiln.QuestBook.Tracked.get -> string?
+Kiln.QuestBook.Tracked.set -> void
+Kiln.QuestCancelableEvent
+Kiln.QuestCancelableEvent.Holder.get -> Kiln.QuestHolder
+Kiln.QuestCancelableEvent.Player.get -> Kiln.Player?
+Kiln.QuestCancelableEvent.Quest.get -> Kiln.QuestDefinition!
+Kiln.QuestCompletedEvent
+Kiln.QuestCondition
+Kiln.QuestCondition.Children.get -> System.Collections.Generic.List<Kiln.QuestCondition!>!
+Kiln.QuestCondition.Children.set -> void
+Kiln.QuestCondition.Count.get -> int
+Kiln.QuestCondition.Count.set -> void
+Kiln.QuestCondition.Is.get -> string?
+Kiln.QuestCondition.Is.set -> void
+Kiln.QuestCondition.Kind.get -> Kiln.QuestConditionKind
+Kiln.QuestCondition.Kind.init -> void
+Kiln.QuestCondition.Name.get -> string?
+Kiln.QuestCondition.Name.set -> void
+Kiln.QuestCondition.Predicate.get -> System.Func<Kiln.QuestContext!, bool>?
+Kiln.QuestCondition.Predicate.set -> void
+Kiln.QuestCondition.QuestCondition() -> void
+Kiln.QuestConditionKind
+Kiln.QuestConditionKind.All = 5 -> Kiln.QuestConditionKind
+Kiln.QuestConditionKind.Any = 6 -> Kiln.QuestConditionKind
+Kiln.QuestConditionKind.Item = 4 -> Kiln.QuestConditionKind
+Kiln.QuestConditionKind.Knowledge = 0 -> Kiln.QuestConditionKind
+Kiln.QuestConditionKind.Level = 1 -> Kiln.QuestConditionKind
+Kiln.QuestConditionKind.Not = 7 -> Kiln.QuestConditionKind
+Kiln.QuestConditionKind.Predicate = 8 -> Kiln.QuestConditionKind
+Kiln.QuestConditionKind.Quest = 2 -> Kiln.QuestConditionKind
+Kiln.QuestConditionKind.Step = 3 -> Kiln.QuestConditionKind
+Kiln.QuestContext
+Kiln.QuestContext.<Clone>$() -> Kiln.QuestContext!
+Kiln.QuestContext.Deconstruct(out Kiln.QuestHolder Holder, out Kiln.QuestDefinition? Quest, out Kiln.EntityId Npc, out string! ModId) -> void
+Kiln.QuestContext.Equals(Kiln.QuestContext? other) -> bool
+Kiln.QuestContext.Holder.get -> Kiln.QuestHolder
+Kiln.QuestContext.Holder.init -> void
+Kiln.QuestContext.ModId.get -> string!
+Kiln.QuestContext.ModId.init -> void
+Kiln.QuestContext.Npc.get -> Kiln.EntityId
+Kiln.QuestContext.Npc.init -> void
+Kiln.QuestContext.Player.get -> Kiln.Player?
+Kiln.QuestContext.Quest.get -> Kiln.QuestDefinition?
+Kiln.QuestContext.Quest.init -> void
+Kiln.QuestContext.QuestContext(Kiln.QuestHolder Holder, Kiln.QuestDefinition? Quest, Kiln.EntityId Npc, string! ModId) -> void
+Kiln.QuestDefinition
+Kiln.QuestDefinition.Abandonable.get -> bool
+Kiln.QuestDefinition.Abandonable.set -> void
+Kiln.QuestDefinition.Auto.get -> bool
+Kiln.QuestDefinition.Auto.set -> void
+Kiln.QuestDefinition.Description.get -> Kiln.UiText?
+Kiln.QuestDefinition.Description.set -> void
+Kiln.QuestDefinition.FullId.get -> string!
+Kiln.QuestDefinition.Giver.get -> string?
+Kiln.QuestDefinition.Giver.set -> void
+Kiln.QuestDefinition.Hidden.get -> bool
+Kiln.QuestDefinition.Hidden.set -> void
+Kiln.QuestDefinition.Id.get -> string!
+Kiln.QuestDefinition.Id.init -> void
+Kiln.QuestDefinition.Journal.get -> Kiln.QuestJournalMode
+Kiln.QuestDefinition.Journal.set -> void
+Kiln.QuestDefinition.Main.get -> bool
+Kiln.QuestDefinition.Main.set -> void
+Kiln.QuestDefinition.ModId.get -> string!
+Kiln.QuestDefinition.Name.get -> Kiln.UiText!
+Kiln.QuestDefinition.Name.set -> void
+Kiln.QuestDefinition.OnFail.get -> System.Collections.Generic.List<Kiln.QuestAction!>!
+Kiln.QuestDefinition.OnFail.set -> void
+Kiln.QuestDefinition.OnStart.get -> System.Collections.Generic.List<Kiln.QuestAction!>!
+Kiln.QuestDefinition.OnStart.set -> void
+Kiln.QuestDefinition.PartyRadius.get -> double
+Kiln.QuestDefinition.PartyRadius.set -> void
+Kiln.QuestDefinition.Priority.get -> int?
+Kiln.QuestDefinition.Priority.set -> void
+Kiln.QuestDefinition.QuestDefinition() -> void
+Kiln.QuestDefinition.Repeatable.get -> bool
+Kiln.QuestDefinition.Repeatable.set -> void
+Kiln.QuestDefinition.Requires.get -> System.Collections.Generic.List<Kiln.QuestCondition!>!
+Kiln.QuestDefinition.Requires.set -> void
+Kiln.QuestDefinition.Retryable.get -> bool
+Kiln.QuestDefinition.Retryable.set -> void
+Kiln.QuestDefinition.Rewards.get -> System.Collections.Generic.List<Kiln.QuestAction!>!
+Kiln.QuestDefinition.Rewards.set -> void
+Kiln.QuestDefinition.Scope.get -> Kiln.QuestScope
+Kiln.QuestDefinition.Scope.set -> void
+Kiln.QuestDefinition.Source.get -> string?
+Kiln.QuestDefinition.Source.set -> void
+Kiln.QuestDefinition.Step(string! id) -> Kiln.QuestStep?
+Kiln.QuestDefinition.Steps.get -> System.Collections.Generic.List<Kiln.QuestStep!>!
+Kiln.QuestDefinition.Steps.set -> void
+Kiln.QuestEngineStatus
+Kiln.QuestEngineStatus.<Clone>$() -> Kiln.QuestEngineStatus!
+Kiln.QuestEngineStatus.ActionFailures.get -> ulong
+Kiln.QuestEngineStatus.ActionFailures.init -> void
+Kiln.QuestEngineStatus.Actions.get -> ulong
+Kiln.QuestEngineStatus.Actions.init -> void
+Kiln.QuestEngineStatus.Channel.get -> bool
+Kiln.QuestEngineStatus.Conversations.get -> int
+Kiln.QuestEngineStatus.Conversations.init -> void
+Kiln.QuestEngineStatus.Deconstruct(out bool Started, out bool ServerSide, out int Quests, out int Dialogues, out int Npcs, out int Conversations, out int Errors, out ulong Transitions, out ulong Actions, out ulong ActionFailures, out bool Waypoints, out System.Collections.Generic.IReadOnlyList<string!>! LoadErrors) -> void
+Kiln.QuestEngineStatus.Dialogues.get -> int
+Kiln.QuestEngineStatus.Dialogues.init -> void
+Kiln.QuestEngineStatus.Equals(Kiln.QuestEngineStatus? other) -> bool
+Kiln.QuestEngineStatus.Errors.get -> int
+Kiln.QuestEngineStatus.Errors.init -> void
+Kiln.QuestEngineStatus.LoadErrors.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Kiln.QuestEngineStatus.LoadErrors.init -> void
+Kiln.QuestEngineStatus.Npcs.get -> int
+Kiln.QuestEngineStatus.Npcs.init -> void
+Kiln.QuestEngineStatus.QuestEngineStatus(bool Started, bool ServerSide, int Quests, int Dialogues, int Npcs, int Conversations, int Errors, ulong Transitions, ulong Actions, ulong ActionFailures, bool Waypoints, System.Collections.Generic.IReadOnlyList<string!>! LoadErrors) -> void
+Kiln.QuestEngineStatus.Quests.get -> int
+Kiln.QuestEngineStatus.Quests.init -> void
+Kiln.QuestEngineStatus.ServerSide.get -> bool
+Kiln.QuestEngineStatus.ServerSide.init -> void
+Kiln.QuestEngineStatus.Started.get -> bool
+Kiln.QuestEngineStatus.Started.init -> void
+Kiln.QuestEngineStatus.Transitions.get -> ulong
+Kiln.QuestEngineStatus.Transitions.init -> void
+Kiln.QuestEngineStatus.Waypoints.get -> bool
+Kiln.QuestEngineStatus.Waypoints.init -> void
+Kiln.QuestEntry
+Kiln.QuestEntry.<Clone>$() -> Kiln.QuestEntry!
+Kiln.QuestEntry.Active.get -> bool
+Kiln.QuestEntry.Deconstruct(out string! Id, out string? Name, out Kiln.QuestKind Kind, out Kiln.QuestStatus Status, out int Step, out int Steps, out string? StepId, out uint NameTag, out Kiln.JournalQuest? Journal, out Kiln.QuestDefinition? Definition) -> void
+Kiln.QuestEntry.Definition.get -> Kiln.QuestDefinition?
+Kiln.QuestEntry.Definition.init -> void
+Kiln.QuestEntry.Done.get -> bool
+Kiln.QuestEntry.Equals(Kiln.QuestEntry? other) -> bool
+Kiln.QuestEntry.Id.get -> string!
+Kiln.QuestEntry.Id.init -> void
+Kiln.QuestEntry.Journal.get -> Kiln.JournalQuest?
+Kiln.QuestEntry.Journal.init -> void
+Kiln.QuestEntry.Kind.get -> Kiln.QuestKind
+Kiln.QuestEntry.Kind.init -> void
+Kiln.QuestEntry.Name.get -> string?
+Kiln.QuestEntry.Name.init -> void
+Kiln.QuestEntry.NameTag.get -> uint
+Kiln.QuestEntry.NameTag.init -> void
+Kiln.QuestEntry.QuestEntry(string! Id, string? Name, Kiln.QuestKind Kind, Kiln.QuestStatus Status, int Step, int Steps, string? StepId, uint NameTag, Kiln.JournalQuest? Journal, Kiln.QuestDefinition? Definition) -> void
+Kiln.QuestEntry.Status.get -> Kiln.QuestStatus
+Kiln.QuestEntry.Status.init -> void
+Kiln.QuestEntry.Step.get -> int
+Kiln.QuestEntry.Step.init -> void
+Kiln.QuestEntry.StepId.get -> string?
+Kiln.QuestEntry.StepId.init -> void
+Kiln.QuestEntry.Steps.get -> int
+Kiln.QuestEntry.Steps.init -> void
+Kiln.QuestFailedEvent
+Kiln.QuestFailedEvent.Reason.get -> string!
+Kiln.QuestHolder
+Kiln.QuestHolder.Account.get -> ulong
+Kiln.QuestHolder.Account.init -> void
+Kiln.QuestHolder.Character.get -> Kiln.CharacterKey
+Kiln.QuestHolder.Character.init -> void
+Kiln.QuestHolder.Deconstruct(out string! Key, out ulong Account, out Kiln.EntityId Entity) -> void
+Kiln.QuestHolder.Entity.get -> Kiln.EntityId
+Kiln.QuestHolder.Entity.init -> void
+Kiln.QuestHolder.Equals(Kiln.QuestHolder other) -> bool
+Kiln.QuestHolder.IsNone.get -> bool
+Kiln.QuestHolder.IsWorld.get -> bool
+Kiln.QuestHolder.Key.get -> string!
+Kiln.QuestHolder.Key.init -> void
+Kiln.QuestHolder.QuestHolder() -> void
+Kiln.QuestHolder.QuestHolder(string! Key, ulong Account, Kiln.EntityId Entity) -> void
+Kiln.QuestInput
+Kiln.QuestJournalMode
+Kiln.QuestJournalMode.Chat = 0 -> Kiln.QuestJournalMode
+Kiln.QuestJournalMode.Native = 2 -> Kiln.QuestJournalMode
+Kiln.QuestKind
+Kiln.QuestKind.Kiln = 1 -> Kiln.QuestKind
+Kiln.QuestKind.Vanilla = 0 -> Kiln.QuestKind
+Kiln.QuestLog
+Kiln.QuestLog.Active.get -> System.Collections.Generic.IEnumerable<Kiln.QuestEntry!>!
+Kiln.QuestLog.All.get -> System.Collections.Generic.IReadOnlyList<Kiln.QuestEntry!>!
+Kiln.QuestLog.Completed.get -> System.Collections.Generic.IEnumerable<Kiln.QuestEntry!>!
+Kiln.QuestLog.Find(string! idOrName) -> Kiln.QuestEntry?
+Kiln.QuestLog.Kiln.get -> System.Collections.Generic.IEnumerable<Kiln.QuestEntry!>!
+Kiln.QuestLog.Player.get -> Kiln.EntityId
+Kiln.QuestLog.StatusOf(string! idOrName) -> Kiln.QuestStatus
+Kiln.QuestLog.Vanilla.get -> System.Collections.Generic.IEnumerable<Kiln.QuestEntry!>!
+Kiln.QuestMarker
+Kiln.QuestMarker.<Clone>$() -> Kiln.QuestMarker!
+Kiln.QuestMarker.At.get -> Kiln.WorldPosition?
+Kiln.QuestMarker.At.init -> void
+Kiln.QuestMarker.Base.get -> string?
+Kiln.QuestMarker.Base.init -> void
+Kiln.QuestMarker.Deconstruct(out Kiln.WorldPosition? At, out double Radius, out bool Waypoint, out Kiln.UiText? Name, out string? Base) -> void
+Kiln.QuestMarker.Equals(Kiln.QuestMarker? other) -> bool
+Kiln.QuestMarker.Name.get -> Kiln.UiText?
+Kiln.QuestMarker.Name.init -> void
+Kiln.QuestMarker.QuestMarker(Kiln.WorldPosition? At = null, double Radius = 0, bool Waypoint = true, Kiln.UiText? Name = null, string? Base = null) -> void
+Kiln.QuestMarker.Radius.get -> double
+Kiln.QuestMarker.Radius.init -> void
+Kiln.QuestMarker.Waypoint.get -> bool
+Kiln.QuestMarker.Waypoint.init -> void
+Kiln.QuestNpcDefinition
+Kiln.QuestNpcDefinition.At.get -> Kiln.WorldPosition?
+Kiln.QuestNpcDefinition.At.set -> void
+Kiln.QuestNpcDefinition.Clone.get -> bool
+Kiln.QuestNpcDefinition.Clone.set -> void
+Kiln.QuestNpcDefinition.CloneGuid.get -> System.Guid?
+Kiln.QuestNpcDefinition.CloneGuid.set -> void
+Kiln.QuestNpcDefinition.CloneName.get -> string?
+Kiln.QuestNpcDefinition.CloneName.set -> void
+Kiln.QuestNpcDefinition.Dialogue.get -> string?
+Kiln.QuestNpcDefinition.Dialogue.set -> void
+Kiln.QuestNpcDefinition.FullId.get -> string!
+Kiln.QuestNpcDefinition.Id.get -> string!
+Kiln.QuestNpcDefinition.Id.init -> void
+Kiln.QuestNpcDefinition.ModId.get -> string!
+Kiln.QuestNpcDefinition.Name.get -> Kiln.UiText?
+Kiln.QuestNpcDefinition.Name.set -> void
+Kiln.QuestNpcDefinition.Place.get -> Kiln.QuestPlace?
+Kiln.QuestNpcDefinition.Place.set -> void
+Kiln.QuestNpcDefinition.QuestNpcDefinition() -> void
+Kiln.QuestNpcDefinition.TalkRange.get -> double
+Kiln.QuestNpcDefinition.TalkRange.set -> void
+Kiln.QuestNpcDefinition.Template.get -> string?
+Kiln.QuestNpcDefinition.Template.set -> void
+Kiln.QuestObjective
+Kiln.QuestObjective.At.get -> Kiln.WorldPosition?
+Kiln.QuestObjective.At.set -> void
+Kiln.QuestObjective.Count.get -> int
+Kiln.QuestObjective.Count.set -> void
+Kiln.QuestObjective.CountDestroyed.get -> bool
+Kiln.QuestObjective.CountDestroyed.set -> void
+Kiln.QuestObjective.Family.get -> string?
+Kiln.QuestObjective.Family.set -> void
+Kiln.QuestObjective.Item.get -> string?
+Kiln.QuestObjective.Item.set -> void
+Kiln.QuestObjective.Kind.get -> Kiln.QuestObjectiveKind
+Kiln.QuestObjective.Kind.init -> void
+Kiln.QuestObjective.Knowledge.get -> string?
+Kiln.QuestObjective.Knowledge.set -> void
+Kiln.QuestObjective.Line.get -> string?
+Kiln.QuestObjective.Line.set -> void
+Kiln.QuestObjective.Marker.get -> string?
+Kiln.QuestObjective.Marker.set -> void
+Kiln.QuestObjective.Near.get -> Kiln.WorldPosition?
+Kiln.QuestObjective.Near.set -> void
+Kiln.QuestObjective.Node.get -> string?
+Kiln.QuestObjective.Node.set -> void
+Kiln.QuestObjective.Npc.get -> string?
+Kiln.QuestObjective.Npc.set -> void
+Kiln.QuestObjective.Offset.get -> Kiln.WorldPosition?
+Kiln.QuestObjective.Offset.set -> void
+Kiln.QuestObjective.Progress.get -> System.Func<Kiln.QuestContext!, int>?
+Kiln.QuestObjective.Progress.set -> void
+Kiln.QuestObjective.QuestObjective() -> void
+Kiln.QuestObjective.Radius.get -> double
+Kiln.QuestObjective.Radius.set -> void
+Kiln.QuestObjective.Recipe.get -> string?
+Kiln.QuestObjective.Recipe.set -> void
+Kiln.QuestObjective.Signal.get -> string?
+Kiln.QuestObjective.Signal.set -> void
+Kiln.QuestObjective.Site.get -> bool
+Kiln.QuestObjective.Site.set -> void
+Kiln.QuestObjective.Tag.get -> string?
+Kiln.QuestObjective.Tag.set -> void
+Kiln.QuestObjective.Template.get -> string?
+Kiln.QuestObjective.Template.set -> void
+Kiln.QuestObjective.Text.get -> Kiln.UiText?
+Kiln.QuestObjective.Text.set -> void
+Kiln.QuestObjective.To.get -> string?
+Kiln.QuestObjective.To.set -> void
+Kiln.QuestObjectiveKind
+Kiln.QuestObjectiveKind.Build = 6 -> Kiln.QuestObjectiveKind
+Kiln.QuestObjectiveKind.Collect = 1 -> Kiln.QuestObjectiveKind
+Kiln.QuestObjectiveKind.Craft = 5 -> Kiln.QuestObjectiveKind
+Kiln.QuestObjectiveKind.Custom = 8 -> Kiln.QuestObjectiveKind
+Kiln.QuestObjectiveKind.Deliver = 2 -> Kiln.QuestObjectiveKind
+Kiln.QuestObjectiveKind.Kill = 0 -> Kiln.QuestObjectiveKind
+Kiln.QuestObjectiveKind.Knowledge = 7 -> Kiln.QuestObjectiveKind
+Kiln.QuestObjectiveKind.Reach = 3 -> Kiln.QuestObjectiveKind
+Kiln.QuestObjectiveKind.Talk = 4 -> Kiln.QuestObjectiveKind
+Kiln.QuestObjectiveProgressEvent
+Kiln.QuestObjectiveProgressEvent.Holder.get -> Kiln.QuestHolder
+Kiln.QuestObjectiveProgressEvent.Index.get -> int
+Kiln.QuestObjectiveProgressEvent.Objective.get -> Kiln.QuestObjective!
+Kiln.QuestObjectiveProgressEvent.OldValue.get -> int
+Kiln.QuestObjectiveProgressEvent.Quest.get -> Kiln.QuestDefinition!
+Kiln.QuestObjectiveProgressEvent.Step.get -> Kiln.QuestStep!
+Kiln.QuestObjectiveProgressEvent.Target.get -> int
+Kiln.QuestObjectiveProgressEvent.Value.get -> int
+Kiln.QuestPlace
+Kiln.QuestPlace.At.get -> Kiln.WorldPosition?
+Kiln.QuestPlace.At.set -> void
+Kiln.QuestPlace.BaseMargin.get -> double
+Kiln.QuestPlace.BaseMargin.set -> void
+Kiln.QuestPlace.Exact.get -> bool
+Kiln.QuestPlace.Exact.set -> void
+Kiln.QuestPlace.InBase.get -> bool
+Kiln.QuestPlace.InBase.set -> void
+Kiln.QuestPlace.MaxDistance.get -> double
+Kiln.QuestPlace.MaxDistance.set -> void
+Kiln.QuestPlace.MinDistance.get -> double
+Kiln.QuestPlace.MinDistance.set -> void
+Kiln.QuestPlace.NearNpc.get -> string?
+Kiln.QuestPlace.NearNpc.set -> void
+Kiln.QuestPlace.NearPlayer.get -> bool
+Kiln.QuestPlace.NearPlayer.set -> void
+Kiln.QuestPlace.QuestPlace() -> void
+Kiln.QuestProgress
+Kiln.QuestProgress.<Clone>$() -> Kiln.QuestProgress!
+Kiln.QuestProgress.Completions.get -> int
+Kiln.QuestProgress.Completions.init -> void
+Kiln.QuestProgress.Counter(int objective = 0) -> int
+Kiln.QuestProgress.Counters.get -> System.Collections.Generic.IReadOnlyDictionary<string!, int>!
+Kiln.QuestProgress.Counters.init -> void
+Kiln.QuestProgress.Deconstruct(out Kiln.QuestDefinition! Quest, out Kiln.QuestHolder Holder, out Kiln.QuestStatus Status, out string? StepId, out int StepIndex, out System.Collections.Generic.IReadOnlyDictionary<string!, int>! Counters, out int Completions) -> void
+Kiln.QuestProgress.Equals(Kiln.QuestProgress? other) -> bool
+Kiln.QuestProgress.Holder.get -> Kiln.QuestHolder
+Kiln.QuestProgress.Holder.init -> void
+Kiln.QuestProgress.Quest.get -> Kiln.QuestDefinition!
+Kiln.QuestProgress.Quest.init -> void
+Kiln.QuestProgress.QuestProgress(Kiln.QuestDefinition! Quest, Kiln.QuestHolder Holder, Kiln.QuestStatus Status, string? StepId, int StepIndex, System.Collections.Generic.IReadOnlyDictionary<string!, int>! Counters, int Completions) -> void
+Kiln.QuestProgress.Status.get -> Kiln.QuestStatus
+Kiln.QuestProgress.Status.init -> void
+Kiln.QuestProgress.StepId.get -> string?
+Kiln.QuestProgress.StepId.init -> void
+Kiln.QuestProgress.StepIndex.get -> int
+Kiln.QuestProgress.StepIndex.init -> void
+Kiln.QuestRecord
+Kiln.QuestRecord.Completions.get -> int
+Kiln.QuestRecord.Completions.set -> void
+Kiln.QuestRecord.Counters.get -> System.Collections.Generic.Dictionary<string!, int>!
+Kiln.QuestRecord.Counters.set -> void
+Kiln.QuestRecord.EnteredAt.get -> long
+Kiln.QuestRecord.EnteredAt.set -> void
+Kiln.QuestRecord.FinishedAt.get -> long
+Kiln.QuestRecord.FinishedAt.set -> void
+Kiln.QuestRecord.QuestRecord() -> void
+Kiln.QuestRecord.RewardsPending.get -> bool
+Kiln.QuestRecord.RewardsPending.set -> void
+Kiln.QuestRecord.StartedAt.get -> long
+Kiln.QuestRecord.StartedAt.set -> void
+Kiln.QuestRecord.Status.get -> Kiln.QuestStatus
+Kiln.QuestRecord.Status.set -> void
+Kiln.QuestRecord.StepId.get -> string?
+Kiln.QuestRecord.StepId.set -> void
+Kiln.QuestRecord.StepIndex.get -> int
+Kiln.QuestRecord.StepIndex.set -> void
+Kiln.QuestRecord.StepOrigin.get -> double[]?
+Kiln.QuestRecord.StepOrigin.set -> void
+Kiln.QuestResult
+Kiln.QuestResult.<Clone>$() -> Kiln.QuestResult!
+Kiln.QuestResult.Deconstruct(out bool Ok, out string! Reason, out Kiln.QuestStatus Status) -> void
+Kiln.QuestResult.Equals(Kiln.QuestResult? other) -> bool
+Kiln.QuestResult.Ok.get -> bool
+Kiln.QuestResult.Ok.init -> void
+Kiln.QuestResult.QuestResult(bool Ok, string! Reason, Kiln.QuestStatus Status) -> void
+Kiln.QuestResult.Reason.get -> string!
+Kiln.QuestResult.Reason.init -> void
+Kiln.QuestResult.Status.get -> Kiln.QuestStatus
+Kiln.QuestResult.Status.init -> void
+Kiln.QuestScope
+Kiln.QuestScope.Party = 1 -> Kiln.QuestScope
+Kiln.QuestScope.Player = 0 -> Kiln.QuestScope
+Kiln.QuestScope.World = 2 -> Kiln.QuestScope
+Kiln.QuestSource
+Kiln.QuestSource.Alchemist = 3 -> Kiln.QuestSource
+Kiln.QuestSource.AncientLands = 19 -> Kiln.QuestSource
+Kiln.QuestSource.AncientResearcher = 12 -> Kiln.QuestSource
+Kiln.QuestSource.Barber = 10 -> Kiln.QuestSource
+Kiln.QuestSource.Bard = 8 -> Kiln.QuestSource
+Kiln.QuestSource.Blacksmith = 2 -> Kiln.QuestSource
+Kiln.QuestSource.Carpenter = 6 -> Kiln.QuestSource
+Kiln.QuestSource.ChineseNewYearTrader = 9 -> Kiln.QuestSource
+Kiln.QuestSource.ColdHeights = 17 -> Kiln.QuestSource
+Kiln.QuestSource.CryptKeeper = 7 -> Kiln.QuestSource
+Kiln.QuestSource.Deepforest = 14 -> Kiln.QuestSource
+Kiln.QuestSource.Desert = 16 -> Kiln.QuestSource
+Kiln.QuestSource.Farmer = 5 -> Kiln.QuestSource
+Kiln.QuestSource.Fisher = 11 -> Kiln.QuestSource
+Kiln.QuestSource.Flame = 1 -> Kiln.QuestSource
+Kiln.QuestSource.Grassland = 13 -> Kiln.QuestSource
+Kiln.QuestSource.Huntress = 4 -> Kiln.QuestSource
+Kiln.QuestSource.None = 0 -> Kiln.QuestSource
+Kiln.QuestSource.Steppes = 15 -> Kiln.QuestSource
+Kiln.QuestSource.Wetlands = 18 -> Kiln.QuestSource
+Kiln.QuestSpawn
+Kiln.QuestSpawn.Count.get -> int
+Kiln.QuestSpawn.Count.set -> void
+Kiln.QuestSpawn.Level.get -> int
+Kiln.QuestSpawn.Level.set -> void
+Kiln.QuestSpawn.Place.get -> Kiln.QuestPlace?
+Kiln.QuestSpawn.Place.set -> void
+Kiln.QuestSpawn.QuestSpawn() -> void
+Kiln.QuestSpawn.Retries.get -> int
+Kiln.QuestSpawn.Retries.set -> void
+Kiln.QuestSpawn.Spread.get -> double
+Kiln.QuestSpawn.Spread.set -> void
+Kiln.QuestSpawn.Tag.get -> string?
+Kiln.QuestSpawn.Tag.set -> void
+Kiln.QuestSpawn.Template.get -> string!
+Kiln.QuestSpawn.Template.init -> void
+Kiln.QuestStartedEvent
+Kiln.QuestStateChangedEvent
+Kiln.QuestStateChangedEvent.Holder.get -> Kiln.QuestHolder
+Kiln.QuestStateChangedEvent.OldStatus.get -> Kiln.QuestStatus
+Kiln.QuestStateChangedEvent.Quest.get -> Kiln.QuestDefinition!
+Kiln.QuestStateChangedEvent.Status.get -> Kiln.QuestStatus
+Kiln.QuestStateChangedEvent.StepId.get -> string?
+Kiln.QuestStateChangedEvent.StepIndex.get -> int
+Kiln.QuestStatus
+Kiln.QuestStatus.Active = 2 -> Kiln.QuestStatus
+Kiln.QuestStatus.Available = 1 -> Kiln.QuestStatus
+Kiln.QuestStatus.Done = 3 -> Kiln.QuestStatus
+Kiln.QuestStatus.Failed = 4 -> Kiln.QuestStatus
+Kiln.QuestStatus.Locked = 0 -> Kiln.QuestStatus
+Kiln.QuestStatusChangedEvent
+Kiln.QuestStatusChangedEvent.NewStatus.get -> Kiln.QuestStatus
+Kiln.QuestStatusChangedEvent.NewStep.get -> int
+Kiln.QuestStatusChangedEvent.OldStatus.get -> Kiln.QuestStatus
+Kiln.QuestStatusChangedEvent.OldStep.get -> int
+Kiln.QuestStatusChangedEvent.Player.get -> Kiln.Player?
+Kiln.QuestStatusChangedEvent.PlayerEntity.get -> Kiln.EntityId
+Kiln.QuestStatusChangedEvent.Quest.get -> Kiln.QuestEntry!
+Kiln.QuestStep
+Kiln.QuestStep.Id.get -> string!
+Kiln.QuestStep.Id.init -> void
+Kiln.QuestStep.Marker.get -> Kiln.QuestMarker?
+Kiln.QuestStep.Marker.set -> void
+Kiln.QuestStep.NoMarker.get -> bool
+Kiln.QuestStep.NoMarker.set -> void
+Kiln.QuestStep.Objectives.get -> System.Collections.Generic.List<Kiln.QuestObjective!>!
+Kiln.QuestStep.Objectives.set -> void
+Kiln.QuestStep.OnDone.get -> System.Collections.Generic.List<Kiln.QuestAction!>!
+Kiln.QuestStep.OnDone.set -> void
+Kiln.QuestStep.OnEnter.get -> System.Collections.Generic.List<Kiln.QuestAction!>!
+Kiln.QuestStep.OnEnter.set -> void
+Kiln.QuestStep.QuestStep() -> void
+Kiln.QuestStep.RecommendedLevel.get -> int
+Kiln.QuestStep.RecommendedLevel.set -> void
+Kiln.QuestStep.Site.get -> Kiln.QuestPlace?
+Kiln.QuestStep.Site.set -> void
+Kiln.QuestStep.Spawns.get -> System.Collections.Generic.List<Kiln.QuestSpawn!>!
+Kiln.QuestStep.Spawns.set -> void
+Kiln.QuestStep.Text.get -> Kiln.UiText!
+Kiln.QuestStep.Text.set -> void
+Kiln.QuestStep.Title.get -> Kiln.UiText?
+Kiln.QuestStep.Title.set -> void
+Kiln.QuestStep.Voice.get -> string?
+Kiln.QuestStep.Voice.set -> void
+Kiln.QuestStepEvent
+Kiln.QuestStepEvent.Next.get -> Kiln.QuestStep?
+Kiln.QuestStepEvent.Step.get -> Kiln.QuestStep!
+Kiln.QuestStepEvent.StepId.get -> string!
+Kiln.QuestType
+Kiln.QuestType.Auto = 0 -> Kiln.QuestType
+Kiln.QuestType.PlayerQuest = 2 -> Kiln.QuestType
+Kiln.QuestType.WorldQuest = 1 -> Kiln.QuestType
+Kiln.Quests
+Kiln.ShrineFoundEvent
+Kiln.ShrineFoundEvent.Shrine.get -> Kiln.FlameShrine!
+Kiln.ShrineKind
+Kiln.ShrineKind.Sanctum = 1 -> Kiln.ShrineKind
+Kiln.ShrineKind.Shrine = 0 -> Kiln.ShrineKind
+Kiln.ShroudRoot
+Kiln.ShroudRoot.<Clone>$() -> Kiln.ShroudRoot!
+Kiln.ShroudRoot.Deconstruct(out string! Id, out string! Region, out bool ElixirWell, out int SkillPoints, out Kiln.WorldPosition? Position, out Kiln.ProgressFact! Destruction) -> void
+Kiln.ShroudRoot.DestroyedBy(Kiln.Player! player) -> bool?
+Kiln.ShroudRoot.Destruction.get -> Kiln.ProgressFact!
+Kiln.ShroudRoot.Destruction.init -> void
+Kiln.ShroudRoot.ElixirWell.get -> bool
+Kiln.ShroudRoot.ElixirWell.init -> void
+Kiln.ShroudRoot.Equals(Kiln.ShroudRoot? other) -> bool
+Kiln.ShroudRoot.Id.get -> string!
+Kiln.ShroudRoot.Id.init -> void
+Kiln.ShroudRoot.Position.get -> Kiln.WorldPosition?
+Kiln.ShroudRoot.Position.init -> void
+Kiln.ShroudRoot.Region.get -> string!
+Kiln.ShroudRoot.Region.init -> void
+Kiln.ShroudRoot.ShroudRoot(string! Id, string! Region, bool ElixirWell, int SkillPoints, Kiln.WorldPosition? Position, Kiln.ProgressFact! Destruction) -> void
+Kiln.ShroudRoot.SkillPoints.get -> int
+Kiln.ShroudRoot.SkillPoints.init -> void
+Kiln.ShroudRootDestroyedEvent
+Kiln.ShroudRootDestroyedEvent.Root.get -> Kiln.ShroudRoot!
+Kiln.Spire
+Kiln.Spire.<Clone>$() -> Kiln.Spire!
+Kiln.Spire.Beacon.get -> Kiln.ProgressFact?
+Kiln.Spire.Beacon.init -> void
+Kiln.Spire.BeaconLit.get -> bool?
+Kiln.Spire.Deconstruct(out string! Id, out string! Template, out uint NameTag, out Kiln.WorldPosition Position, out Kiln.ProgressFact! Unlock, out Kiln.ProgressFact? TopReached, out Kiln.ProgressFact? Beacon) -> void
+Kiln.Spire.Equals(Kiln.Spire? other) -> bool
+Kiln.Spire.Id.get -> string!
+Kiln.Spire.Id.init -> void
+Kiln.Spire.NameTag.get -> uint
+Kiln.Spire.NameTag.init -> void
+Kiln.Spire.Position.get -> Kiln.WorldPosition
+Kiln.Spire.Position.init -> void
+Kiln.Spire.Spire(string! Id, string! Template, uint NameTag, Kiln.WorldPosition Position, Kiln.ProgressFact! Unlock, Kiln.ProgressFact? TopReached, Kiln.ProgressFact? Beacon) -> void
+Kiln.Spire.Template.get -> string!
+Kiln.Spire.Template.init -> void
+Kiln.Spire.TopReached.get -> Kiln.ProgressFact?
+Kiln.Spire.TopReached.init -> void
+Kiln.Spire.TopReachedBy(Kiln.Player! player) -> bool?
+Kiln.Spire.Unlock.get -> Kiln.ProgressFact!
+Kiln.Spire.Unlock.init -> void
+Kiln.Spire.Unlocked.get -> bool?
+Kiln.Spire.UnlockedFor(Kiln.Player! player) -> bool?
+Kiln.SpireUnlockedEvent
+Kiln.SpireUnlockedEvent.Spire.get -> Kiln.Spire!
+Kiln.SpireUnlockedEvent.TopReached.get -> bool
+Kiln.Survivor
+Kiln.Survivor.<Clone>$() -> Kiln.Survivor!
+Kiln.Survivor.Deconstruct(out string! Id, out uint NameTag, out Kiln.ProgressFact! Rescue) -> void
+Kiln.Survivor.Equals(Kiln.Survivor? other) -> bool
+Kiln.Survivor.Id.get -> string!
+Kiln.Survivor.Id.init -> void
+Kiln.Survivor.NameTag.get -> uint
+Kiln.Survivor.NameTag.init -> void
+Kiln.Survivor.Rescue.get -> Kiln.ProgressFact!
+Kiln.Survivor.Rescue.init -> void
+Kiln.Survivor.Rescued.get -> bool?
+Kiln.Survivor.RescuedFor(Kiln.Player! player) -> bool?
+Kiln.Survivor.Survivor(string! Id, uint NameTag, Kiln.ProgressFact! Rescue) -> void
+Kiln.WorldDifficulty
+Kiln.WorldDifficulty.<Clone>$() -> Kiln.WorldDifficulty!
+Kiln.WorldDifficulty.Deconstruct(out string? Preset, out System.Collections.Generic.IReadOnlyDictionary<string!, object!>! Settings) -> void
+Kiln.WorldDifficulty.Equals(Kiln.WorldDifficulty? other) -> bool
+Kiln.WorldDifficulty.IsCustom.get -> bool
+Kiln.WorldDifficulty.Number(string! name) -> double?
+Kiln.WorldDifficulty.Preset.get -> string?
+Kiln.WorldDifficulty.Preset.init -> void
+Kiln.WorldDifficulty.Settings.get -> System.Collections.Generic.IReadOnlyDictionary<string!, object!>!
+Kiln.WorldDifficulty.Settings.init -> void
+Kiln.WorldDifficulty.WorldDifficulty(string? Preset, System.Collections.Generic.IReadOnlyDictionary<string!, object!>! Settings) -> void
+Kiln.WorldIndexState
+Kiln.WorldIndexState.Building = 1 -> Kiln.WorldIndexState
+Kiln.WorldIndexState.Failed = 3 -> Kiln.WorldIndexState
+Kiln.WorldIndexState.NotStarted = 0 -> Kiln.WorldIndexState
+Kiln.WorldIndexState.Ready = 2 -> Kiln.WorldIndexState
+Kiln.WorldProgress
+Kiln.WorldProgressEvent
+Kiln.WorldProgressEvent.IsWorld.get -> bool
+Kiln.WorldProgressEvent.Player.get -> Kiln.Player?
+Kiln.WorldProgressEvent.Step.get -> ulong
+Kiln.WorldProgressEvent.Target.get -> Kiln.EntityId
+Kiln.WorldProgressStatus
+Kiln.WorldProgressStatus.<Clone>$() -> Kiln.WorldProgressStatus!
+Kiln.WorldProgressStatus.Assets.get -> bool
+Kiln.WorldProgressStatus.Assets.init -> void
+Kiln.WorldProgressStatus.BossCount.get -> int
+Kiln.WorldProgressStatus.BossCount.init -> void
+Kiln.WorldProgressStatus.Bosses.get -> Kiln.WorldIndexState
+Kiln.WorldProgressStatus.Bosses.init -> void
+Kiln.WorldProgressStatus.BossesSeconds.get -> double
+Kiln.WorldProgressStatus.BossesSeconds.init -> void
+Kiln.WorldProgressStatus.Deconstruct(out bool Knowledge, out bool World, out bool Settings, out bool Assets, out Kiln.WorldIndexState Places, out Kiln.WorldIndexState Bosses, out int Spires, out int Shrines, out int Roots, out int Obelisks, out int BossCount, out int TrackedBosses, out double PlacesSeconds, out double BossesSeconds, out System.Collections.Generic.IReadOnlyList<string!>! Problems) -> void
+Kiln.WorldProgressStatus.Equals(Kiln.WorldProgressStatus? other) -> bool
+Kiln.WorldProgressStatus.Knowledge.get -> bool
+Kiln.WorldProgressStatus.Knowledge.init -> void
+Kiln.WorldProgressStatus.Obelisks.get -> int
+Kiln.WorldProgressStatus.Obelisks.init -> void
+Kiln.WorldProgressStatus.Places.get -> Kiln.WorldIndexState
+Kiln.WorldProgressStatus.Places.init -> void
+Kiln.WorldProgressStatus.PlacesSeconds.get -> double
+Kiln.WorldProgressStatus.PlacesSeconds.init -> void
+Kiln.WorldProgressStatus.Problems.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Kiln.WorldProgressStatus.Problems.init -> void
+Kiln.WorldProgressStatus.Roots.get -> int
+Kiln.WorldProgressStatus.Roots.init -> void
+Kiln.WorldProgressStatus.Settings.get -> bool
+Kiln.WorldProgressStatus.Settings.init -> void
+Kiln.WorldProgressStatus.Shrines.get -> int
+Kiln.WorldProgressStatus.Shrines.init -> void
+Kiln.WorldProgressStatus.Spires.get -> int
+Kiln.WorldProgressStatus.Spires.init -> void
+Kiln.WorldProgressStatus.TrackedBosses.get -> int
+Kiln.WorldProgressStatus.TrackedBosses.init -> void
+Kiln.WorldProgressStatus.World.get -> bool
+Kiln.WorldProgressStatus.World.init -> void
+Kiln.WorldProgressStatus.WorldProgressStatus(bool Knowledge, bool World, bool Settings, bool Assets, Kiln.WorldIndexState Places, Kiln.WorldIndexState Bosses, int Spires, int Shrines, int Roots, int Obelisks, int BossCount, int TrackedBosses, double PlacesSeconds, double BossesSeconds, System.Collections.Generic.IReadOnlyList<string!>! Problems) -> void
+override Kiln.Boss.Equals(object? obj) -> bool
+override Kiln.Boss.GetHashCode() -> int
+override Kiln.Boss.ToString() -> string!
+override Kiln.BossKilledEvent.ToString() -> string!
+override Kiln.ChestLootedEvent.ToString() -> string!
+override Kiln.ChestStatus.Equals(object? obj) -> bool
+override Kiln.ChestStatus.GetHashCode() -> int
+override Kiln.ChestStatus.ToString() -> string!
+override Kiln.ConversationOptionEvent.ToString() -> string!
+override Kiln.ConversationResult.Equals(object? obj) -> bool
+override Kiln.ConversationResult.GetHashCode() -> int
+override Kiln.ConversationResult.ToString() -> string!
+override Kiln.ConversationView.Equals(object? obj) -> bool
+override Kiln.ConversationView.GetHashCode() -> int
+override Kiln.ConversationView.ToString() -> string!
+override Kiln.DialogueDefinition.ToString() -> string!
+override Kiln.DialogueKnowledgeEvent.ToString() -> string!
+override Kiln.DialogueLineEvent.ToString() -> string!
+override Kiln.FlameChange.Equals(object? obj) -> bool
+override Kiln.FlameChange.GetHashCode() -> int
+override Kiln.FlameChange.ToString() -> string!
+override Kiln.FlameLevelChangedEvent.ToString() -> string!
+override Kiln.FlameLimits.Equals(object? obj) -> bool
+override Kiln.FlameLimits.GetHashCode() -> int
+override Kiln.FlameLimits.ToString() -> string!
+override Kiln.FlameShrine.Equals(object? obj) -> bool
+override Kiln.FlameShrine.GetHashCode() -> int
+override Kiln.FlameShrine.ToString() -> string!
+override Kiln.FlameStatus.Equals(object? obj) -> bool
+override Kiln.FlameStatus.GetHashCode() -> int
+override Kiln.FlameStatus.ToString() -> string!
+override Kiln.JournalQuest.Equals(object? obj) -> bool
+override Kiln.JournalQuest.GetHashCode() -> int
+override Kiln.JournalQuest.ToString() -> string!
+override Kiln.JournalQuestState.Equals(object? obj) -> bool
+override Kiln.JournalQuestState.GetHashCode() -> int
+override Kiln.JournalQuestState.ToString() -> string!
+override Kiln.JournalStep.Equals(object? obj) -> bool
+override Kiln.JournalStep.GetHashCode() -> int
+override Kiln.JournalStep.ToString() -> string!
+override Kiln.JournalStepState.Equals(object? obj) -> bool
+override Kiln.JournalStepState.GetHashCode() -> int
+override Kiln.JournalStepState.ToString() -> string!
+override Kiln.KnowledgeChangedEvent.ToString() -> string!
+override Kiln.KnowledgeInfo.GetHashCode() -> int
+override Kiln.KnowledgeInfo.ToString() -> string!
+override Kiln.KnowledgeName.Equals(object? obj) -> bool
+override Kiln.KnowledgeName.GetHashCode() -> int
+override Kiln.KnowledgeName.ToString() -> string!
+override Kiln.KnowledgeNpc.Equals(object? obj) -> bool
+override Kiln.KnowledgeNpc.GetHashCode() -> int
+override Kiln.KnowledgeNpc.ToString() -> string!
+override Kiln.KnowledgeOperation.GetHashCode() -> int
+override Kiln.KnowledgeOperation.ToString() -> string!
+override Kiln.KnowledgeQuery.GetHashCode() -> int
+override Kiln.KnowledgeQuery.ToString() -> string!
+override Kiln.KnowledgeRequestEvent.ToString() -> string!
+override Kiln.KnowledgeResult.Equals(object? obj) -> bool
+override Kiln.KnowledgeResult.GetHashCode() -> int
+override Kiln.KnowledgeResult.ToString() -> string!
+override Kiln.KnowledgeScope.ToString() -> string!
+override Kiln.KnowledgeSecurity.Equals(object? obj) -> bool
+override Kiln.KnowledgeSecurity.GetHashCode() -> int
+override Kiln.KnowledgeSecurity.ToString() -> string!
+override Kiln.KnowledgeState.GetHashCode() -> int
+override Kiln.KnowledgeState.ToString() -> string!
+override Kiln.KnowledgeStatus.Equals(object? obj) -> bool
+override Kiln.KnowledgeStatus.GetHashCode() -> int
+override Kiln.KnowledgeStatus.ToString() -> string!
+override Kiln.NativeComputed.Equals(object? obj) -> bool
+override Kiln.NativeComputed.GetHashCode() -> int
+override Kiln.NativeComputed.ToString() -> string!
+override Kiln.NativeLineInfo.Equals(object? obj) -> bool
+override Kiln.NativeLineInfo.GetHashCode() -> int
+override Kiln.NativeLineInfo.ToString() -> string!
+override Kiln.NativeMarkerInfo.Equals(object? obj) -> bool
+override Kiln.NativeMarkerInfo.GetHashCode() -> int
+override Kiln.NativeMarkerInfo.ToString() -> string!
+override Kiln.NativeModInfo.Equals(object? obj) -> bool
+override Kiln.NativeModInfo.GetHashCode() -> int
+override Kiln.NativeModInfo.ToString() -> string!
+override Kiln.NativeNpcInfo.Equals(object? obj) -> bool
+override Kiln.NativeNpcInfo.GetHashCode() -> int
+override Kiln.NativeNpcInfo.ToString() -> string!
+override Kiln.NativePlacement.Equals(object? obj) -> bool
+override Kiln.NativePlacement.GetHashCode() -> int
+override Kiln.NativePlacement.ToString() -> string!
+override Kiln.NativeQuestInfo.Equals(object? obj) -> bool
+override Kiln.NativeQuestInfo.GetHashCode() -> int
+override Kiln.NativeQuestInfo.ToString() -> string!
+override Kiln.NativeStepInfo.Equals(object? obj) -> bool
+override Kiln.NativeStepInfo.GetHashCode() -> int
+override Kiln.NativeStepInfo.ToString() -> string!
+override Kiln.NativeWanted.GetHashCode() -> int
+override Kiln.Obelisk.Equals(object? obj) -> bool
+override Kiln.Obelisk.GetHashCode() -> int
+override Kiln.Obelisk.ToString() -> string!
+override Kiln.ProgressFact.Equals(object? obj) -> bool
+override Kiln.ProgressFact.GetHashCode() -> int
+override Kiln.ProgressFact.ToString() -> string!
+override Kiln.QuestActionContext.Equals(object? obj) -> bool
+override Kiln.QuestActionContext.GetHashCode() -> int
+override Kiln.QuestActionContext.ToString() -> string!
+override Kiln.QuestCompletedEvent.ToString() -> string!
+override Kiln.QuestContext.Equals(object? obj) -> bool
+override Kiln.QuestContext.GetHashCode() -> int
+override Kiln.QuestContext.ToString() -> string!
+override Kiln.QuestDefinition.ToString() -> string!
+override Kiln.QuestEngineStatus.Equals(object? obj) -> bool
+override Kiln.QuestEngineStatus.GetHashCode() -> int
+override Kiln.QuestEngineStatus.ToString() -> string!
+override Kiln.QuestEntry.Equals(object? obj) -> bool
+override Kiln.QuestEntry.GetHashCode() -> int
+override Kiln.QuestEntry.ToString() -> string!
+override Kiln.QuestFailedEvent.ToString() -> string!
+override Kiln.QuestHolder.GetHashCode() -> int
+override Kiln.QuestHolder.ToString() -> string!
+override Kiln.QuestMarker.Equals(object? obj) -> bool
+override Kiln.QuestMarker.GetHashCode() -> int
+override Kiln.QuestMarker.ToString() -> string!
+override Kiln.QuestObjectiveProgressEvent.ToString() -> string!
+override Kiln.QuestProgress.Equals(object? obj) -> bool
+override Kiln.QuestProgress.GetHashCode() -> int
+override Kiln.QuestProgress.ToString() -> string!
+override Kiln.QuestResult.Equals(object? obj) -> bool
+override Kiln.QuestResult.GetHashCode() -> int
+override Kiln.QuestResult.ToString() -> string!
+override Kiln.QuestStartedEvent.ToString() -> string!
+override Kiln.QuestStateChangedEvent.ToString() -> string!
+override Kiln.QuestStatusChangedEvent.ToString() -> string!
+override Kiln.QuestStepEvent.ToString() -> string!
+override Kiln.ShrineFoundEvent.ToString() -> string!
+override Kiln.ShroudRoot.Equals(object? obj) -> bool
+override Kiln.ShroudRoot.GetHashCode() -> int
+override Kiln.ShroudRoot.ToString() -> string!
+override Kiln.ShroudRootDestroyedEvent.ToString() -> string!
+override Kiln.Spire.Equals(object? obj) -> bool
+override Kiln.Spire.GetHashCode() -> int
+override Kiln.Spire.ToString() -> string!
+override Kiln.SpireUnlockedEvent.ToString() -> string!
+override Kiln.Survivor.Equals(object? obj) -> bool
+override Kiln.Survivor.GetHashCode() -> int
+override Kiln.Survivor.ToString() -> string!
+override Kiln.WorldDifficulty.Equals(object? obj) -> bool
+override Kiln.WorldDifficulty.GetHashCode() -> int
+override Kiln.WorldDifficulty.ToString() -> string!
+override Kiln.WorldProgressStatus.Equals(object? obj) -> bool
+override Kiln.WorldProgressStatus.GetHashCode() -> int
+override Kiln.WorldProgressStatus.ToString() -> string!
+static Kiln.Boss.operator !=(Kiln.Boss? left, Kiln.Boss? right) -> bool
+static Kiln.Boss.operator ==(Kiln.Boss? left, Kiln.Boss? right) -> bool
+static Kiln.ChestStatus.operator !=(Kiln.ChestStatus? left, Kiln.ChestStatus? right) -> bool
+static Kiln.ChestStatus.operator ==(Kiln.ChestStatus? left, Kiln.ChestStatus? right) -> bool
+static Kiln.ConversationResult.operator !=(Kiln.ConversationResult? left, Kiln.ConversationResult? right) -> bool
+static Kiln.ConversationResult.operator ==(Kiln.ConversationResult? left, Kiln.ConversationResult? right) -> bool
+static Kiln.ConversationView.operator !=(Kiln.ConversationView? left, Kiln.ConversationView? right) -> bool
+static Kiln.ConversationView.operator ==(Kiln.ConversationView? left, Kiln.ConversationView? right) -> bool
+static Kiln.Dialogues.ApplyOption(Kiln.EntityId player, Kiln.EntityId npc, string! fullDialogueId, string! nodeId, int optionIndex) -> System.Threading.Tasks.Task<Kiln.ConversationResult!>!
+static Kiln.Dialogues.Choose(Kiln.QuestHolder h, long conversation, int option) -> System.Threading.Tasks.Task<Kiln.ConversationResult!>!
+static Kiln.Dialogues.Close(Kiln.QuestHolder h) -> void
+static Kiln.Dialogues.Define(Kiln.DialogueDefinition! dialogue) -> Kiln.DialogueDefinition!
+static Kiln.Dialogues.Definitions.get -> System.Collections.Generic.IReadOnlyList<Kiln.DialogueDefinition!>!
+static Kiln.Dialogues.Find(string! id) -> Kiln.DialogueDefinition?
+static Kiln.Dialogues.Open(Kiln.EntityId player, string! dialogue, Kiln.EntityId npc = default(Kiln.EntityId), string? node = null) -> Kiln.ConversationResult!
+static Kiln.Dialogues.Talk(Kiln.QuestHolder h, string? npc = null) -> Kiln.ConversationResult!
+static Kiln.Dialogues.View(Kiln.QuestHolder h) -> Kiln.ConversationView?
+static Kiln.FlameChange.operator !=(Kiln.FlameChange? left, Kiln.FlameChange? right) -> bool
+static Kiln.FlameChange.operator ==(Kiln.FlameChange? left, Kiln.FlameChange? right) -> bool
+static Kiln.FlameLimits.operator !=(Kiln.FlameLimits? left, Kiln.FlameLimits? right) -> bool
+static Kiln.FlameLimits.operator ==(Kiln.FlameLimits? left, Kiln.FlameLimits? right) -> bool
+static Kiln.FlameShrine.operator !=(Kiln.FlameShrine? left, Kiln.FlameShrine? right) -> bool
+static Kiln.FlameShrine.operator ==(Kiln.FlameShrine? left, Kiln.FlameShrine? right) -> bool
+static Kiln.FlameStatus.operator !=(Kiln.FlameStatus? left, Kiln.FlameStatus? right) -> bool
+static Kiln.FlameStatus.operator ==(Kiln.FlameStatus? left, Kiln.FlameStatus? right) -> bool
+static Kiln.Journal.Find(string! name) -> Kiln.JournalQuest?
+static Kiln.Journal.Find(uint entryId) -> Kiln.JournalQuest?
+static Kiln.Journal.Quests() -> System.Collections.Generic.IReadOnlyList<Kiln.JournalQuest!>!
+static Kiln.Journal.State(Kiln.EntityId target, Kiln.JournalQuest! quest) -> Kiln.JournalQuestState!
+static Kiln.Journal.State(Kiln.Player! player, Kiln.JournalQuest! quest) -> Kiln.JournalQuestState!
+static Kiln.Journal.States(Kiln.EntityId target) -> System.Collections.Generic.IReadOnlyList<Kiln.JournalQuestState!>!
+static Kiln.JournalQuest.operator !=(Kiln.JournalQuest? left, Kiln.JournalQuest? right) -> bool
+static Kiln.JournalQuest.operator ==(Kiln.JournalQuest? left, Kiln.JournalQuest? right) -> bool
+static Kiln.JournalQuestState.operator !=(Kiln.JournalQuestState? left, Kiln.JournalQuestState? right) -> bool
+static Kiln.JournalQuestState.operator ==(Kiln.JournalQuestState? left, Kiln.JournalQuestState? right) -> bool
+static Kiln.JournalStep.operator !=(Kiln.JournalStep? left, Kiln.JournalStep? right) -> bool
+static Kiln.JournalStep.operator ==(Kiln.JournalStep? left, Kiln.JournalStep? right) -> bool
+static Kiln.JournalStepState.operator !=(Kiln.JournalStepState? left, Kiln.JournalStepState? right) -> bool
+static Kiln.JournalStepState.operator ==(Kiln.JournalStepState? left, Kiln.JournalStepState? right) -> bool
+static Kiln.Knowledge.Available.get -> bool
+static Kiln.Knowledge.Catalog(Kiln.KnowledgeCatalog catalog) -> System.Collections.Generic.IReadOnlyList<Kiln.KnowledgeName!>!
+static Kiln.Knowledge.FindNpc(string! name) -> Kiln.KnowledgeNpc?
+static Kiln.Knowledge.For(Kiln.EntityId player) -> Kiln.KnowledgeScope!
+static Kiln.Knowledge.For(Kiln.Player! player) -> Kiln.KnowledgeScope!
+static Kiln.Knowledge.Get(Kiln.EntityId target, uint id) -> Kiln.KnowledgeState?
+static Kiln.Knowledge.Get(Kiln.Player! player, string! name) -> Kiln.KnowledgeState?
+static Kiln.Knowledge.Grant(Kiln.EntityId player, string! name, uint value = 1) -> System.Threading.Tasks.Task<Kiln.KnowledgeResult!>!
+static Kiln.Knowledge.Grant(Kiln.Player! player, string! name, uint value = 1) -> System.Threading.Tasks.Task<Kiln.KnowledgeResult!>!
+static Kiln.Knowledge.GrantUnchecked(Kiln.EntityId target, uint id) -> System.Threading.Tasks.Task<Kiln.KnowledgeResult!>!
+static Kiln.Knowledge.Has(Kiln.EntityId target, string! name) -> bool
+static Kiln.Knowledge.Has(Kiln.Player! player, string! name) -> bool
+static Kiln.Knowledge.Info(uint id) -> Kiln.KnowledgeInfo?
+static Kiln.Knowledge.LabRecord(Kiln.EntityId block, int phase, params (uint Id, uint Value)[]! record) -> bool
+static Kiln.Knowledge.List(Kiln.EntityId target) -> System.Collections.Generic.IReadOnlyList<Kiln.KnowledgeState>!
+static Kiln.Knowledge.NameOf(uint id, bool query = false) -> string?
+static Kiln.Knowledge.Npcs.get -> System.Collections.Generic.IReadOnlyList<Kiln.KnowledgeNpc!>!
+static Kiln.Knowledge.Query(Kiln.EntityId target, Kiln.KnowledgeQuery query, Kiln.KnowledgeMode mode = Kiln.KnowledgeMode.Player) -> bool
+static Kiln.Knowledge.Resolve(string! name) -> Kiln.KnowledgeName!
+static Kiln.Knowledge.Revoke(Kiln.EntityId player, string! name, int flag = -1) -> System.Threading.Tasks.Task<Kiln.KnowledgeResult!>!
+static Kiln.Knowledge.Revoke(Kiln.Player! player, string! name, int flag = -1) -> System.Threading.Tasks.Task<Kiln.KnowledgeResult!>!
+static Kiln.Knowledge.Security.Allow(System.Collections.Generic.IEnumerable<uint>! ids) -> void
+static Kiln.Knowledge.Security.Apply(Kiln.KnowledgeSecurity! settings, bool save = false) -> void
+static Kiln.Knowledge.Security.Current.get -> Kiln.KnowledgeSecurity!
+static Kiln.Knowledge.Status.get -> Kiln.KnowledgeStatus?
+static Kiln.Knowledge.Submit(Kiln.KnowledgeOp op, Kiln.EntityId target, uint id, uint value) -> System.Threading.Tasks.Task<Kiln.KnowledgeResult!>!
+static Kiln.Knowledge.TryParseId(string! s, out uint id) -> bool
+static Kiln.Knowledge.TryQuery(Kiln.EntityId target, Kiln.KnowledgeQuery query, Kiln.KnowledgeMode mode = Kiln.KnowledgeMode.Player) -> bool?
+static Kiln.Knowledge.TryResolve(string! name, out Kiln.KnowledgeName! result) -> bool
+static Kiln.Knowledge.World.get -> Kiln.KnowledgeScope!
+static Kiln.KnowledgeInfo.operator !=(Kiln.KnowledgeInfo left, Kiln.KnowledgeInfo right) -> bool
+static Kiln.KnowledgeInfo.operator ==(Kiln.KnowledgeInfo left, Kiln.KnowledgeInfo right) -> bool
+static Kiln.KnowledgeName.operator !=(Kiln.KnowledgeName? left, Kiln.KnowledgeName? right) -> bool
+static Kiln.KnowledgeName.operator ==(Kiln.KnowledgeName? left, Kiln.KnowledgeName? right) -> bool
+static Kiln.KnowledgeNpc.operator !=(Kiln.KnowledgeNpc? left, Kiln.KnowledgeNpc? right) -> bool
+static Kiln.KnowledgeNpc.operator ==(Kiln.KnowledgeNpc? left, Kiln.KnowledgeNpc? right) -> bool
+static Kiln.KnowledgeOperation.operator !=(Kiln.KnowledgeOperation left, Kiln.KnowledgeOperation right) -> bool
+static Kiln.KnowledgeOperation.operator ==(Kiln.KnowledgeOperation left, Kiln.KnowledgeOperation right) -> bool
+static Kiln.KnowledgeQuery.IsSet(uint id) -> Kiln.KnowledgeQuery
+static Kiln.KnowledgeQuery.operator !=(Kiln.KnowledgeQuery left, Kiln.KnowledgeQuery right) -> bool
+static Kiln.KnowledgeQuery.operator ==(Kiln.KnowledgeQuery left, Kiln.KnowledgeQuery right) -> bool
+static Kiln.KnowledgeResult.operator !=(Kiln.KnowledgeResult? left, Kiln.KnowledgeResult? right) -> bool
+static Kiln.KnowledgeResult.operator ==(Kiln.KnowledgeResult? left, Kiln.KnowledgeResult? right) -> bool
+static Kiln.KnowledgeSecurity.operator !=(Kiln.KnowledgeSecurity? left, Kiln.KnowledgeSecurity? right) -> bool
+static Kiln.KnowledgeSecurity.operator ==(Kiln.KnowledgeSecurity? left, Kiln.KnowledgeSecurity? right) -> bool
+static Kiln.KnowledgeState.operator !=(Kiln.KnowledgeState left, Kiln.KnowledgeState right) -> bool
+static Kiln.KnowledgeState.operator ==(Kiln.KnowledgeState left, Kiln.KnowledgeState right) -> bool
+static Kiln.KnowledgeStatus.operator !=(Kiln.KnowledgeStatus? left, Kiln.KnowledgeStatus? right) -> bool
+static Kiln.KnowledgeStatus.operator ==(Kiln.KnowledgeStatus? left, Kiln.KnowledgeStatus? right) -> bool
+static Kiln.NativeComputed.operator !=(Kiln.NativeComputed? left, Kiln.NativeComputed? right) -> bool
+static Kiln.NativeComputed.operator ==(Kiln.NativeComputed? left, Kiln.NativeComputed? right) -> bool
+static Kiln.NativeIds.Derive(string! mod, string! kind, string! name) -> System.Guid
+static Kiln.NativeIds.Fnv(System.Guid g) -> uint
+static Kiln.NativeIds.Knowledge(string! mod, string! name) -> uint
+static Kiln.NativeIds.Line(string! mod, string! dialogue, string! node, int option) -> uint
+static Kiln.NativeLineInfo.operator !=(Kiln.NativeLineInfo? left, Kiln.NativeLineInfo? right) -> bool
+static Kiln.NativeLineInfo.operator ==(Kiln.NativeLineInfo? left, Kiln.NativeLineInfo? right) -> bool
+static Kiln.NativeMarkerInfo.operator !=(Kiln.NativeMarkerInfo? left, Kiln.NativeMarkerInfo? right) -> bool
+static Kiln.NativeMarkerInfo.operator ==(Kiln.NativeMarkerInfo? left, Kiln.NativeMarkerInfo? right) -> bool
+static Kiln.NativeModInfo.operator !=(Kiln.NativeModInfo? left, Kiln.NativeModInfo? right) -> bool
+static Kiln.NativeModInfo.operator ==(Kiln.NativeModInfo? left, Kiln.NativeModInfo? right) -> bool
+static Kiln.NativeNpcInfo.operator !=(Kiln.NativeNpcInfo? left, Kiln.NativeNpcInfo? right) -> bool
+static Kiln.NativeNpcInfo.operator ==(Kiln.NativeNpcInfo? left, Kiln.NativeNpcInfo? right) -> bool
+static Kiln.NativePlacement.operator !=(Kiln.NativePlacement? left, Kiln.NativePlacement? right) -> bool
+static Kiln.NativePlacement.operator ==(Kiln.NativePlacement? left, Kiln.NativePlacement? right) -> bool
+static Kiln.NativeQuestInfo.operator !=(Kiln.NativeQuestInfo? left, Kiln.NativeQuestInfo? right) -> bool
+static Kiln.NativeQuestInfo.operator ==(Kiln.NativeQuestInfo? left, Kiln.NativeQuestInfo? right) -> bool
+static Kiln.NativeQuests.Counters.get -> (ulong Mirrored, ulong Lines, ulong Placed)
+static Kiln.NativeQuests.Holds(Kiln.NativeComputed! c, Kiln.QuestHolder holder) -> bool
+static Kiln.NativeQuests.KnowledgeId(string! mod, string! name) -> uint?
+static Kiln.NativeQuests.ManifestJson.get -> string!
+static Kiln.NativeQuests.Mod(string! id) -> Kiln.NativeModInfo?
+static Kiln.NativeQuests.Mods.get -> System.Collections.Generic.IReadOnlyList<Kiln.NativeModInfo!>!
+static Kiln.NativeQuests.Npc(string! fullId) -> Kiln.NativeNpcInfo?
+static Kiln.NativeQuests.Quest(string! fullId) -> Kiln.NativeQuestInfo?
+static Kiln.NativeQuests.Resync(Kiln.QuestHolder holder, bool quiet = false) -> void
+static Kiln.NativeQuests.ShownByGame(Kiln.QuestDefinition! q) -> bool
+static Kiln.NativeQuests.Start() -> void
+static Kiln.NativeQuests.Wanted(string! fullQuestId, Kiln.QuestHolder holder) -> System.Collections.Generic.IReadOnlyList<Kiln.NativeWanted>!
+static Kiln.NativeStepInfo.operator !=(Kiln.NativeStepInfo? left, Kiln.NativeStepInfo? right) -> bool
+static Kiln.NativeStepInfo.operator ==(Kiln.NativeStepInfo? left, Kiln.NativeStepInfo? right) -> bool
+static Kiln.NativeWanted.operator !=(Kiln.NativeWanted left, Kiln.NativeWanted right) -> bool
+static Kiln.NativeWanted.operator ==(Kiln.NativeWanted left, Kiln.NativeWanted right) -> bool
+static Kiln.Obelisk.operator !=(Kiln.Obelisk? left, Kiln.Obelisk? right) -> bool
+static Kiln.Obelisk.operator ==(Kiln.Obelisk? left, Kiln.Obelisk? right) -> bool
+static Kiln.ProgressFact.operator !=(Kiln.ProgressFact? left, Kiln.ProgressFact? right) -> bool
+static Kiln.ProgressFact.operator ==(Kiln.ProgressFact? left, Kiln.ProgressFact? right) -> bool
+static Kiln.QuestAction.Code(System.Func<Kiln.QuestActionContext!, System.Threading.Tasks.Task!>! run) -> Kiln.QuestAction!
+static Kiln.QuestAction.Experience(uint amount) -> Kiln.QuestAction!
+static Kiln.QuestAction.GrantKnowledge(string! name, string? target = null) -> Kiln.QuestAction!
+static Kiln.QuestAction.Item(string! item, int count = 1) -> Kiln.QuestAction!
+static Kiln.QuestActionContext.operator !=(Kiln.QuestActionContext? left, Kiln.QuestActionContext? right) -> bool
+static Kiln.QuestActionContext.operator ==(Kiln.QuestActionContext? left, Kiln.QuestActionContext? right) -> bool
+static Kiln.QuestCondition.HasItem(string! item, int count = 1) -> Kiln.QuestCondition!
+static Kiln.QuestCondition.HasKnowledge(string! name) -> Kiln.QuestCondition!
+static Kiln.QuestCondition.Level(int level) -> Kiln.QuestCondition!
+static Kiln.QuestCondition.Quest(string! quest, string! state) -> Kiln.QuestCondition!
+static Kiln.QuestCondition.QuestStep(string! questDotStep, string! state) -> Kiln.QuestCondition!
+static Kiln.QuestCondition.When(System.Func<Kiln.QuestContext!, bool>! predicate) -> Kiln.QuestCondition!
+static Kiln.QuestContext.operator !=(Kiln.QuestContext? left, Kiln.QuestContext? right) -> bool
+static Kiln.QuestContext.operator ==(Kiln.QuestContext? left, Kiln.QuestContext? right) -> bool
+static Kiln.QuestEngineStatus.operator !=(Kiln.QuestEngineStatus? left, Kiln.QuestEngineStatus? right) -> bool
+static Kiln.QuestEngineStatus.operator ==(Kiln.QuestEngineStatus? left, Kiln.QuestEngineStatus? right) -> bool
+static Kiln.QuestEntry.operator !=(Kiln.QuestEntry? left, Kiln.QuestEntry? right) -> bool
+static Kiln.QuestEntry.operator ==(Kiln.QuestEntry? left, Kiln.QuestEntry? right) -> bool
+static Kiln.QuestHolder.Of(Kiln.EntityId player) -> Kiln.QuestHolder
+static Kiln.QuestHolder.Of(Kiln.Player! p) -> Kiln.QuestHolder
+static Kiln.QuestHolder.OfAccount(ulong account) -> Kiln.QuestHolder
+static Kiln.QuestHolder.OfCharacter(Kiln.CharacterKey character, ulong legacyAccount = 0) -> Kiln.QuestHolder
+static Kiln.QuestHolder.Parse(string! who) -> Kiln.QuestHolder
+static Kiln.QuestHolder.Synthetic(string! name) -> Kiln.QuestHolder
+static Kiln.QuestHolder.World.get -> Kiln.QuestHolder
+static Kiln.QuestHolder.operator !=(Kiln.QuestHolder left, Kiln.QuestHolder right) -> bool
+static Kiln.QuestHolder.operator ==(Kiln.QuestHolder left, Kiln.QuestHolder right) -> bool
+static Kiln.QuestInput.Build(Kiln.QuestHolder h, string! prop, int count = 1) -> void
+static Kiln.QuestInput.Clear() -> void
+static Kiln.QuestInput.Craft(Kiln.QuestHolder h, string! item, int count = 1) -> void
+static Kiln.QuestInput.IsSynthetic(Kiln.QuestHolder h) -> bool
+static Kiln.QuestInput.Kill(Kiln.QuestHolder? killer, string! template, string? tag = null, Kiln.WorldPosition? at = null, bool destroyed = false) -> void
+static Kiln.QuestInput.Known.get -> System.Collections.Generic.IReadOnlyCollection<Kiln.QuestHolder>!
+static Kiln.QuestInput.Reach(Kiln.QuestHolder h, Kiln.WorldPosition at) -> void
+static Kiln.QuestInput.SetInventory(Kiln.QuestHolder h, string! item, int count) -> void
+static Kiln.QuestInput.SetLevel(Kiln.QuestHolder h, int level) -> void
+static Kiln.QuestInput.Talk(Kiln.QuestHolder h, string! npc, uint line = 0, string? node = null, string? modId = null) -> void
+static Kiln.QuestMarker.operator !=(Kiln.QuestMarker? left, Kiln.QuestMarker? right) -> bool
+static Kiln.QuestMarker.operator ==(Kiln.QuestMarker? left, Kiln.QuestMarker? right) -> bool
+static Kiln.QuestObjective.Collect(string! item, int count = 1) -> Kiln.QuestObjective!
+static Kiln.QuestObjective.Custom(string! signal, int count = 1) -> Kiln.QuestObjective!
+static Kiln.QuestObjective.Deliver(string! item, int count, string! to) -> Kiln.QuestObjective!
+static Kiln.QuestObjective.HasKnowledge(string! name) -> Kiln.QuestObjective!
+static Kiln.QuestObjective.Kill(string? template = null, string? family = null, string? tag = null, int count = 1) -> Kiln.QuestObjective!
+static Kiln.QuestObjective.Reach(Kiln.WorldPosition at, double radius = 10) -> Kiln.QuestObjective!
+static Kiln.QuestObjective.Talk(string! npc, string? node = null, string? line = null) -> Kiln.QuestObjective!
+static Kiln.QuestProgress.operator !=(Kiln.QuestProgress? left, Kiln.QuestProgress? right) -> bool
+static Kiln.QuestProgress.operator ==(Kiln.QuestProgress? left, Kiln.QuestProgress? right) -> bool
+static Kiln.QuestRecord.CounterKey(string! step, int objective) -> string!
+static Kiln.QuestResult.operator !=(Kiln.QuestResult? left, Kiln.QuestResult? right) -> bool
+static Kiln.QuestResult.operator ==(Kiln.QuestResult? left, Kiln.QuestResult? right) -> bool
+static Kiln.Quests.Abandon(string! quest, Kiln.QuestHolder holder) -> Kiln.QuestResult!
+static Kiln.Quests.Advance(string! quest, Kiln.QuestHolder holder, string? step = null, bool force = false) -> System.Threading.Tasks.Task<Kiln.QuestResult!>!
+static Kiln.Quests.Available.get -> bool
+static Kiln.Quests.BindNpc(string! fullNpcId, Kiln.EntityId entity) -> void
+static Kiln.Quests.CanStart(string! quest, Kiln.QuestHolder holder) -> bool
+static Kiln.Quests.ChatLanguage.get -> string!
+static Kiln.Quests.ChatLanguage.set -> void
+static Kiln.Quests.Complete(string! quest, Kiln.QuestHolder holder) -> Kiln.QuestResult!
+static Kiln.Quests.Define(Kiln.QuestDefinition! quest) -> Kiln.QuestDefinition!
+static Kiln.Quests.DefineNpc(Kiln.QuestNpcDefinition! npc) -> Kiln.QuestNpcDefinition!
+static Kiln.Quests.Definitions.get -> System.Collections.Generic.IReadOnlyList<Kiln.QuestDefinition!>!
+static Kiln.Quests.EnsureStarted() -> void
+static Kiln.Quests.Evaluate(Kiln.QuestCondition! condition, Kiln.QuestContext! context) -> bool
+static Kiln.Quests.Fail(string! quest, Kiln.QuestHolder holder, string! reason = "") -> Kiln.QuestResult!
+static Kiln.Quests.Find(string! id, string? modId = null) -> Kiln.QuestDefinition?
+static Kiln.Quests.LineResolver.get -> System.Func<string!, string!, uint?>?
+static Kiln.Quests.LineResolver.set -> void
+static Kiln.Quests.NpcDefinitions.get -> System.Collections.Generic.IReadOnlyList<Kiln.QuestNpcDefinition!>!
+static Kiln.Quests.Of(Kiln.EntityId player) -> Kiln.QuestLog!
+static Kiln.Quests.Of(Kiln.Player! player) -> Kiln.QuestLog!
+static Kiln.Quests.PlaceOf(string! quest, string! step) -> Kiln.WorldPosition?
+static Kiln.Quests.Progress(string! quest, Kiln.QuestHolder holder) -> Kiln.QuestProgress?
+static Kiln.Quests.ProgressOf(Kiln.EntityId player) -> System.Collections.Generic.IReadOnlyList<Kiln.QuestProgress!>!
+static Kiln.Quests.ProgressOf(Kiln.QuestHolder holder) -> System.Collections.Generic.IReadOnlyList<Kiln.QuestProgress!>!
+static Kiln.Quests.RecentActions.get -> System.Collections.Generic.IReadOnlyList<string!>!
+static Kiln.Quests.RegisterAction(string! name, System.Func<Kiln.QuestActionContext!, System.Threading.Tasks.Task!>! action) -> void
+static Kiln.Quests.RegisterPredicate(string! name, System.Func<Kiln.QuestContext!, bool>! predicate) -> void
+static Kiln.Quests.Reload() -> int
+static Kiln.Quests.Reset(string! quest, Kiln.QuestHolder holder) -> Kiln.QuestResult!
+static Kiln.Quests.SetStep(string! quest, Kiln.QuestHolder holder, string! step) -> Kiln.QuestResult!
+static Kiln.Quests.Signal(string! name, Kiln.QuestHolder? holder = null, int amount = 1) -> void
+static Kiln.Quests.SpawnGaveUp(string! quest, string! step, Kiln.QuestHolder holder) -> bool
+static Kiln.Quests.SpawnedBy(string! quest, string! step, Kiln.QuestHolder holder) -> System.Collections.Generic.IReadOnlyList<Kiln.EntityId>!
+static Kiln.Quests.Start(string! quest, Kiln.QuestHolder holder, bool force = false) -> Kiln.QuestResult!
+static Kiln.Quests.Status.get -> Kiln.QuestEngineStatus!
+static Kiln.Quests.StatusOf(string! quest, Kiln.QuestHolder holder) -> Kiln.QuestStatus
+static Kiln.Quests.TrackedBy(Kiln.QuestHolder holder) -> string?
+static Kiln.Quests.WaypointCounters.get -> (ulong Requests, ulong Written)
+static Kiln.ShroudRoot.operator !=(Kiln.ShroudRoot? left, Kiln.ShroudRoot? right) -> bool
+static Kiln.ShroudRoot.operator ==(Kiln.ShroudRoot? left, Kiln.ShroudRoot? right) -> bool
+static Kiln.Spire.operator !=(Kiln.Spire? left, Kiln.Spire? right) -> bool
+static Kiln.Spire.operator ==(Kiln.Spire? left, Kiln.Spire? right) -> bool
+static Kiln.Survivor.operator !=(Kiln.Survivor? left, Kiln.Survivor? right) -> bool
+static Kiln.Survivor.operator ==(Kiln.Survivor? left, Kiln.Survivor? right) -> bool
+static Kiln.WorldDifficulty.operator !=(Kiln.WorldDifficulty? left, Kiln.WorldDifficulty? right) -> bool
+static Kiln.WorldDifficulty.operator ==(Kiln.WorldDifficulty? left, Kiln.WorldDifficulty? right) -> bool
+static Kiln.WorldProgress.Available.get -> bool
+static Kiln.WorldProgress.Boss(string! id) -> Kiln.Boss?
+static Kiln.WorldProgress.Bosses.get -> System.Collections.Generic.IReadOnlyList<Kiln.Boss!>!
+static Kiln.WorldProgress.BossesNear(Kiln.WorldPosition at, double radius) -> System.Collections.Generic.IReadOnlyList<Kiln.Boss!>!
+static Kiln.WorldProgress.BossesReady.get -> bool
+static Kiln.WorldProgress.Chest(Kiln.WorldPosition at, double radius = 3) -> Kiln.ChestStatus?
+static Kiln.WorldProgress.Chest(uint lootId, Kiln.WorldPosition near) -> Kiln.ChestStatus?
+static Kiln.WorldProgress.ChestOf(Kiln.EntityId entity) -> Kiln.ChestStatus?
+static Kiln.WorldProgress.Chests(Kiln.WorldPosition at, double radius) -> System.Collections.Generic.IReadOnlyList<Kiln.ChestStatus!>!
+static Kiln.WorldProgress.Difficulty.get -> Kiln.WorldDifficulty?
+static Kiln.WorldProgress.ElixirWells.get -> System.Collections.Generic.IReadOnlyList<Kiln.ShroudRoot!>!
+static Kiln.WorldProgress.Flame.get -> Kiln.FlameStatus?
+static Kiln.WorldProgress.FlameLevel.get -> int?
+static Kiln.WorldProgress.For(Kiln.EntityId player) -> Kiln.CharacterProgress!
+static Kiln.WorldProgress.For(Kiln.Player! player) -> Kiln.CharacterProgress!
+static Kiln.WorldProgress.LimitsAt(int level) -> Kiln.FlameLimits?
+static Kiln.WorldProgress.Obelisk(string! id) -> Kiln.Obelisk?
+static Kiln.WorldProgress.Obelisks.get -> System.Collections.Generic.IReadOnlyList<Kiln.Obelisk!>!
+static Kiln.WorldProgress.PlacesReady.get -> bool
+static Kiln.WorldProgress.SetFlameLevel(int level) -> System.Threading.Tasks.Task<Kiln.FlameChange!>!
+static Kiln.WorldProgress.Shrine(string! id) -> Kiln.FlameShrine?
+static Kiln.WorldProgress.Shrines.get -> System.Collections.Generic.IReadOnlyList<Kiln.FlameShrine!>!
+static Kiln.WorldProgress.ShroudRoot(string! id) -> Kiln.ShroudRoot?
+static Kiln.WorldProgress.ShroudRoots.get -> System.Collections.Generic.IReadOnlyList<Kiln.ShroudRoot!>!
+static Kiln.WorldProgress.Spire(string! id) -> Kiln.Spire?
+static Kiln.WorldProgress.Spires.get -> System.Collections.Generic.IReadOnlyList<Kiln.Spire!>!
+static Kiln.WorldProgress.Status.get -> Kiln.WorldProgressStatus!
+static Kiln.WorldProgress.Survivors.get -> System.Collections.Generic.IReadOnlyList<Kiln.Survivor!>!
+static Kiln.WorldProgress.WhenReady(bool bosses = false, System.TimeSpan? timeout = null) -> System.Threading.Tasks.Task<bool>!
+static Kiln.WorldProgressStatus.operator !=(Kiln.WorldProgressStatus? left, Kiln.WorldProgressStatus? right) -> bool
+static Kiln.WorldProgressStatus.operator ==(Kiln.WorldProgressStatus? left, Kiln.WorldProgressStatus? right) -> bool
+~override Kiln.KnowledgeInfo.Equals(object obj) -> bool
+~override Kiln.KnowledgeOperation.Equals(object obj) -> bool
+~override Kiln.KnowledgeQuery.Equals(object obj) -> bool
+~override Kiln.KnowledgeState.Equals(object obj) -> bool
+~override Kiln.NativeWanted.Equals(object obj) -> bool
+~override Kiln.NativeWanted.ToString() -> string
+~override Kiln.QuestHolder.Equals(object obj) -> bool

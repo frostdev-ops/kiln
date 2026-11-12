@@ -1,0 +1,267 @@
+#nullable enable
+Kiln.AudioStatus
+Kiln.AudioStatus.<Clone>$() -> Kiln.AudioStatus!
+Kiln.AudioStatus.AudioStatus(bool Available, bool SoundSystem, bool Voiceover, bool Narration, bool VoiceoverManager, bool Frames, int MainThread, uint VoiceLanguageId, string! VoiceLanguage, float VoiceoverVolume, uint LoreMode, uint LoreQueued, uint Live, ulong Played, ulong Failed, ulong GameStarts, ulong GameStartsOffMainThread, uint GameThreads, System.Collections.Generic.IReadOnlyList<uint>! Scenes) -> void
+Kiln.AudioStatus.Available.get -> bool
+Kiln.AudioStatus.Available.init -> void
+Kiln.AudioStatus.Deconstruct(out bool Available, out bool SoundSystem, out bool Voiceover, out bool Narration, out bool VoiceoverManager, out bool Frames, out int MainThread, out uint VoiceLanguageId, out string! VoiceLanguage, out float VoiceoverVolume, out uint LoreMode, out uint LoreQueued, out uint Live, out ulong Played, out ulong Failed, out ulong GameStarts, out ulong GameStartsOffMainThread, out uint GameThreads, out System.Collections.Generic.IReadOnlyList<uint>! Scenes) -> void
+Kiln.AudioStatus.Equals(Kiln.AudioStatus? other) -> bool
+Kiln.AudioStatus.Failed.get -> ulong
+Kiln.AudioStatus.Failed.init -> void
+Kiln.AudioStatus.Frames.get -> bool
+Kiln.AudioStatus.Frames.init -> void
+Kiln.AudioStatus.GameStarts.get -> ulong
+Kiln.AudioStatus.GameStarts.init -> void
+Kiln.AudioStatus.GameStartsOffMainThread.get -> ulong
+Kiln.AudioStatus.GameStartsOffMainThread.init -> void
+Kiln.AudioStatus.GameThreads.get -> uint
+Kiln.AudioStatus.GameThreads.init -> void
+Kiln.AudioStatus.Live.get -> uint
+Kiln.AudioStatus.Live.init -> void
+Kiln.AudioStatus.LoreMode.get -> uint
+Kiln.AudioStatus.LoreMode.init -> void
+Kiln.AudioStatus.LoreQueued.get -> uint
+Kiln.AudioStatus.LoreQueued.init -> void
+Kiln.AudioStatus.MainThread.get -> int
+Kiln.AudioStatus.MainThread.init -> void
+Kiln.AudioStatus.Narration.get -> bool
+Kiln.AudioStatus.Narration.init -> void
+Kiln.AudioStatus.Played.get -> ulong
+Kiln.AudioStatus.Played.init -> void
+Kiln.AudioStatus.Scenes.get -> System.Collections.Generic.IReadOnlyList<uint>!
+Kiln.AudioStatus.Scenes.init -> void
+Kiln.AudioStatus.SoundSystem.get -> bool
+Kiln.AudioStatus.SoundSystem.init -> void
+Kiln.AudioStatus.VoiceLanguage.get -> string!
+Kiln.AudioStatus.VoiceLanguage.init -> void
+Kiln.AudioStatus.VoiceLanguageId.get -> uint
+Kiln.AudioStatus.VoiceLanguageId.init -> void
+Kiln.AudioStatus.Voiceover.get -> bool
+Kiln.AudioStatus.Voiceover.init -> void
+Kiln.AudioStatus.VoiceoverManager.get -> bool
+Kiln.AudioStatus.VoiceoverManager.init -> void
+Kiln.AudioStatus.VoiceoverVolume.get -> float
+Kiln.AudioStatus.VoiceoverVolume.init -> void
+Kiln.CueInfo
+Kiln.CueInfo.<Clone>$() -> Kiln.CueInfo!
+Kiln.CueInfo.Bus.get -> string?
+Kiln.CueInfo.Bus.init -> void
+Kiln.CueInfo.CueInfo(string! Mod, string! Name, Kiln.SoundId Id, string? Bus, Kiln.SoundScene DefaultScene, bool Loop, double? MinDistance, double? MaxDistance, float Volume, int DurationMs, bool Override) -> void
+Kiln.CueInfo.Deconstruct(out string! Mod, out string! Name, out Kiln.SoundId Id, out string? Bus, out Kiln.SoundScene DefaultScene, out bool Loop, out double? MinDistance, out double? MaxDistance, out float Volume, out int DurationMs, out bool Override) -> void
+Kiln.CueInfo.DefaultScene.get -> Kiln.SoundScene
+Kiln.CueInfo.DefaultScene.init -> void
+Kiln.CueInfo.DurationMs.get -> int
+Kiln.CueInfo.DurationMs.init -> void
+Kiln.CueInfo.Equals(Kiln.CueInfo? other) -> bool
+Kiln.CueInfo.Id.get -> Kiln.SoundId
+Kiln.CueInfo.Id.init -> void
+Kiln.CueInfo.Loop.get -> bool
+Kiln.CueInfo.Loop.init -> void
+Kiln.CueInfo.MaxDistance.get -> double?
+Kiln.CueInfo.MaxDistance.init -> void
+Kiln.CueInfo.MinDistance.get -> double?
+Kiln.CueInfo.MinDistance.init -> void
+Kiln.CueInfo.Mod.get -> string!
+Kiln.CueInfo.Mod.init -> void
+Kiln.CueInfo.Name.get -> string!
+Kiln.CueInfo.Name.init -> void
+Kiln.CueInfo.Override.get -> bool
+Kiln.CueInfo.Override.init -> void
+Kiln.CueInfo.Volume.get -> float
+Kiln.CueInfo.Volume.init -> void
+Kiln.Sound
+Kiln.SoundEndReason
+Kiln.SoundEndReason.EntityGone = 3 -> Kiln.SoundEndReason
+Kiln.SoundEndReason.Finished = 1 -> Kiln.SoundEndReason
+Kiln.SoundEndReason.NoSoundSystem = 5 -> Kiln.SoundEndReason
+Kiln.SoundEndReason.None = 0 -> Kiln.SoundEndReason
+Kiln.SoundEndReason.NotFound = 11 -> Kiln.SoundEndReason
+Kiln.SoundEndReason.Refused = 9 -> Kiln.SoundEndReason
+Kiln.SoundEndReason.Remote = 100 -> Kiln.SoundEndReason
+Kiln.SoundEndReason.Replaced = 7 -> Kiln.SoundEndReason
+Kiln.SoundEndReason.Silent = 8 -> Kiln.SoundEndReason
+Kiln.SoundEndReason.StartFailed = 4 -> Kiln.SoundEndReason
+Kiln.SoundEndReason.Stopped = 2 -> Kiln.SoundEndReason
+Kiln.SoundEndReason.TimedOut = 6 -> Kiln.SoundEndReason
+Kiln.SoundEndReason.WorldEnded = 10 -> Kiln.SoundEndReason
+Kiln.SoundHandle
+Kiln.SoundHandle.Deconstruct(out uint Value) -> void
+Kiln.SoundHandle.Equals(Kiln.SoundHandle other) -> bool
+Kiln.SoundHandle.IsNone.get -> bool
+Kiln.SoundHandle.IsRemote.get -> bool
+Kiln.SoundHandle.SoundHandle() -> void
+Kiln.SoundHandle.SoundHandle(uint Value) -> void
+Kiln.SoundHandle.Value.get -> uint
+Kiln.SoundHandle.Value.init -> void
+Kiln.SoundId
+Kiln.SoundId.Cue.get -> System.Guid
+Kiln.SoundId.Cue.init -> void
+Kiln.SoundId.Deconstruct(out System.Guid Cue) -> void
+Kiln.SoundId.Equals(Kiln.SoundId other) -> bool
+Kiln.SoundId.IsNone.get -> bool
+Kiln.SoundId.SoundId() -> void
+Kiln.SoundId.SoundId(System.Guid Cue) -> void
+Kiln.SoundInfo
+Kiln.SoundInfo.<Clone>$() -> Kiln.SoundInfo!
+Kiln.SoundInfo.Deconstruct(out Kiln.SoundHandle Handle, out Kiln.SoundState State, out Kiln.SoundEndReason Reason, out Kiln.SoundScene Scene, out uint Instance, out int Thread, out Kiln.EntityId Entity, out bool Following, out bool Unmatched, out string? VoiceLanguage, out System.TimeSpan? StartDelay, out System.TimeSpan? Played, out Kiln.WorldPosition Position) -> void
+Kiln.SoundInfo.Entity.get -> Kiln.EntityId
+Kiln.SoundInfo.Entity.init -> void
+Kiln.SoundInfo.Equals(Kiln.SoundInfo? other) -> bool
+Kiln.SoundInfo.Following.get -> bool
+Kiln.SoundInfo.Following.init -> void
+Kiln.SoundInfo.Handle.get -> Kiln.SoundHandle
+Kiln.SoundInfo.Handle.init -> void
+Kiln.SoundInfo.Instance.get -> uint
+Kiln.SoundInfo.Instance.init -> void
+Kiln.SoundInfo.Played.get -> System.TimeSpan?
+Kiln.SoundInfo.Played.init -> void
+Kiln.SoundInfo.Position.get -> Kiln.WorldPosition
+Kiln.SoundInfo.Position.init -> void
+Kiln.SoundInfo.Reason.get -> Kiln.SoundEndReason
+Kiln.SoundInfo.Reason.init -> void
+Kiln.SoundInfo.Scene.get -> Kiln.SoundScene
+Kiln.SoundInfo.Scene.init -> void
+Kiln.SoundInfo.SoundInfo(Kiln.SoundHandle Handle, Kiln.SoundState State, Kiln.SoundEndReason Reason, Kiln.SoundScene Scene, uint Instance, int Thread, Kiln.EntityId Entity, bool Following, bool Unmatched, string? VoiceLanguage, System.TimeSpan? StartDelay, System.TimeSpan? Played, Kiln.WorldPosition Position) -> void
+Kiln.SoundInfo.StartDelay.get -> System.TimeSpan?
+Kiln.SoundInfo.StartDelay.init -> void
+Kiln.SoundInfo.State.get -> Kiln.SoundState
+Kiln.SoundInfo.State.init -> void
+Kiln.SoundInfo.Thread.get -> int
+Kiln.SoundInfo.Thread.init -> void
+Kiln.SoundInfo.Unmatched.get -> bool
+Kiln.SoundInfo.Unmatched.init -> void
+Kiln.SoundInfo.VoiceLanguage.get -> string?
+Kiln.SoundInfo.VoiceLanguage.init -> void
+Kiln.SoundScene
+Kiln.SoundScene.Ambience = 3 -> Kiln.SoundScene
+Kiln.SoundScene.Game = 2 -> Kiln.SoundScene
+Kiln.SoundScene.LoreVoiceover = 6 -> Kiln.SoundScene
+Kiln.SoundScene.Music = 0 -> Kiln.SoundScene
+Kiln.SoundScene.Ui = 1 -> Kiln.SoundScene
+Kiln.SoundState
+Kiln.SoundState.Failed = 4 -> Kiln.SoundState
+Kiln.SoundState.None = 0 -> Kiln.SoundState
+Kiln.SoundState.Pending = 1 -> Kiln.SoundState
+Kiln.SoundState.Playing = 2 -> Kiln.SoundState
+Kiln.SoundState.Stopped = 3 -> Kiln.SoundState
+Kiln.Voiceover
+Kiln.VoiceoverId
+Kiln.VoiceoverId.Deconstruct(out System.Guid Value) -> void
+Kiln.VoiceoverId.Equals(Kiln.VoiceoverId other) -> bool
+Kiln.VoiceoverId.IsNone.get -> bool
+Kiln.VoiceoverId.Value.get -> System.Guid
+Kiln.VoiceoverId.Value.init -> void
+Kiln.VoiceoverId.VoiceoverId() -> void
+Kiln.VoiceoverId.VoiceoverId(System.Guid Value) -> void
+Kiln.VoiceoverInfo
+Kiln.VoiceoverInfo.<Clone>$() -> Kiln.VoiceoverInfo!
+Kiln.VoiceoverInfo.Deconstruct(out string! Mod, out string! Name, out Kiln.VoiceoverId Id, out bool Narration, out string? Fallback, out System.Collections.Generic.IReadOnlyDictionary<string!, Kiln.VoiceoverLanguage?>! Languages, out System.Collections.Generic.IReadOnlyDictionary<string!, string!>! Subtitles) -> void
+Kiln.VoiceoverInfo.Equals(Kiln.VoiceoverInfo? other) -> bool
+Kiln.VoiceoverInfo.Fallback.get -> string?
+Kiln.VoiceoverInfo.Fallback.init -> void
+Kiln.VoiceoverInfo.Id.get -> Kiln.VoiceoverId
+Kiln.VoiceoverInfo.Id.init -> void
+Kiln.VoiceoverInfo.Languages.get -> System.Collections.Generic.IReadOnlyDictionary<string!, Kiln.VoiceoverLanguage?>!
+Kiln.VoiceoverInfo.Languages.init -> void
+Kiln.VoiceoverInfo.MaxDurationMs.get -> int
+Kiln.VoiceoverInfo.Mod.get -> string!
+Kiln.VoiceoverInfo.Mod.init -> void
+Kiln.VoiceoverInfo.Name.get -> string!
+Kiln.VoiceoverInfo.Name.init -> void
+Kiln.VoiceoverInfo.Narration.get -> bool
+Kiln.VoiceoverInfo.Narration.init -> void
+Kiln.VoiceoverInfo.Subtitles.get -> System.Collections.Generic.IReadOnlyDictionary<string!, string!>!
+Kiln.VoiceoverInfo.Subtitles.init -> void
+Kiln.VoiceoverInfo.VoiceoverInfo(string! Mod, string! Name, Kiln.VoiceoverId Id, bool Narration, string? Fallback, System.Collections.Generic.IReadOnlyDictionary<string!, Kiln.VoiceoverLanguage?>! Languages, System.Collections.Generic.IReadOnlyDictionary<string!, string!>! Subtitles) -> void
+Kiln.VoiceoverLanguage
+Kiln.VoiceoverLanguage.<Clone>$() -> Kiln.VoiceoverLanguage!
+Kiln.VoiceoverLanguage.Cue.get -> System.Guid
+Kiln.VoiceoverLanguage.Cue.init -> void
+Kiln.VoiceoverLanguage.Deconstruct(out string! Language, out System.Guid Cue, out int DurationMs, out string? FallbackOf) -> void
+Kiln.VoiceoverLanguage.DurationMs.get -> int
+Kiln.VoiceoverLanguage.DurationMs.init -> void
+Kiln.VoiceoverLanguage.Equals(Kiln.VoiceoverLanguage? other) -> bool
+Kiln.VoiceoverLanguage.FallbackOf.get -> string?
+Kiln.VoiceoverLanguage.FallbackOf.init -> void
+Kiln.VoiceoverLanguage.Language.get -> string!
+Kiln.VoiceoverLanguage.Language.init -> void
+Kiln.VoiceoverLanguage.VoiceoverLanguage(string! Language, System.Guid Cue, int DurationMs, string? FallbackOf) -> void
+override Kiln.AudioStatus.Equals(object? obj) -> bool
+override Kiln.AudioStatus.GetHashCode() -> int
+override Kiln.AudioStatus.ToString() -> string!
+override Kiln.CueInfo.Equals(object? obj) -> bool
+override Kiln.CueInfo.GetHashCode() -> int
+override Kiln.CueInfo.ToString() -> string!
+override Kiln.SoundHandle.GetHashCode() -> int
+override Kiln.SoundHandle.ToString() -> string!
+override Kiln.SoundId.GetHashCode() -> int
+override Kiln.SoundId.ToString() -> string!
+override Kiln.SoundInfo.Equals(object? obj) -> bool
+override Kiln.SoundInfo.GetHashCode() -> int
+override Kiln.SoundInfo.ToString() -> string!
+override Kiln.VoiceoverId.GetHashCode() -> int
+override Kiln.VoiceoverId.ToString() -> string!
+override Kiln.VoiceoverInfo.Equals(object? obj) -> bool
+override Kiln.VoiceoverInfo.GetHashCode() -> int
+override Kiln.VoiceoverInfo.ToString() -> string!
+override Kiln.VoiceoverLanguage.Equals(object? obj) -> bool
+override Kiln.VoiceoverLanguage.GetHashCode() -> int
+override Kiln.VoiceoverLanguage.ToString() -> string!
+static Kiln.AudioStatus.operator !=(Kiln.AudioStatus? left, Kiln.AudioStatus? right) -> bool
+static Kiln.AudioStatus.operator ==(Kiln.AudioStatus? left, Kiln.AudioStatus? right) -> bool
+static Kiln.CueInfo.operator !=(Kiln.CueInfo? left, Kiln.CueInfo? right) -> bool
+static Kiln.CueInfo.operator ==(Kiln.CueInfo? left, Kiln.CueInfo? right) -> bool
+static Kiln.Sound.Available.get -> bool
+static Kiln.Sound.Describe(Kiln.SoundId cue) -> Kiln.CueInfo?
+static Kiln.Sound.Info(Kiln.SoundHandle h) -> Kiln.SoundInfo?
+static Kiln.Sound.IsPlaying(Kiln.SoundHandle h) -> bool
+static Kiln.Sound.Play2D(Kiln.SoundId cue, float volume = 1, Kiln.SoundScene? scene = null) -> Kiln.SoundHandle
+static Kiln.Sound.PlayAt(Kiln.SoundId cue, Kiln.WorldPosition at, float volume = 1, float radius = 0) -> Kiln.SoundHandle
+static Kiln.Sound.PlayFor(Kiln.EntityId player, Kiln.SoundId cue, float volume = 1) -> Kiln.SoundHandle
+static Kiln.Sound.PlayMusic(Kiln.SoundId cue, float volume = 1, System.TimeSpan fadeIn = default(System.TimeSpan)) -> Kiln.SoundHandle
+static Kiln.Sound.PlayOn(Kiln.SoundId cue, Kiln.EntityId entity, float volume = 1) -> Kiln.SoundHandle
+static Kiln.Sound.Replace(Kiln.SoundId cue, Kiln.SoundId replacement) -> bool
+static Kiln.Sound.Restore(Kiln.SoundId cue) -> void
+static Kiln.Sound.SetPosition(Kiln.SoundHandle h, Kiln.WorldPosition at) -> void
+static Kiln.Sound.SetVolume(Kiln.SoundHandle h, float volume, System.TimeSpan fade = default(System.TimeSpan)) -> void
+static Kiln.Sound.State(Kiln.SoundHandle h) -> Kiln.SoundState
+static Kiln.Sound.Status.get -> Kiln.AudioStatus?
+static Kiln.Sound.StatusJson() -> string!
+static Kiln.Sound.Stop(Kiln.SoundHandle h, System.TimeSpan fade = default(System.TimeSpan)) -> void
+static Kiln.Sound.StopAll(System.TimeSpan fade = default(System.TimeSpan)) -> int
+static Kiln.SoundHandle.operator !=(Kiln.SoundHandle left, Kiln.SoundHandle right) -> bool
+static Kiln.SoundHandle.operator ==(Kiln.SoundHandle left, Kiln.SoundHandle right) -> bool
+static Kiln.SoundId.Named(Kiln.ModContext! mod, string! name) -> Kiln.SoundId
+static Kiln.SoundId.Named(string! modId, string! name) -> Kiln.SoundId
+static Kiln.SoundId.Of(System.Guid cue) -> Kiln.SoundId
+static Kiln.SoundId.Of(string! cue) -> Kiln.SoundId
+static Kiln.SoundId.operator !=(Kiln.SoundId left, Kiln.SoundId right) -> bool
+static Kiln.SoundId.operator ==(Kiln.SoundId left, Kiln.SoundId right) -> bool
+static Kiln.SoundInfo.operator !=(Kiln.SoundInfo? left, Kiln.SoundInfo? right) -> bool
+static Kiln.SoundInfo.operator ==(Kiln.SoundInfo? left, Kiln.SoundInfo? right) -> bool
+static Kiln.Voiceover.Available.get -> bool
+static Kiln.Voiceover.Describe(Kiln.VoiceoverId line) -> Kiln.VoiceoverInfo?
+static Kiln.Voiceover.IsPlaying(Kiln.SoundHandle h) -> bool
+static Kiln.Voiceover.Narrate(Kiln.VoiceoverId line, Kiln.UiText? subtitle = null, uint nameLoca = 0, uint descriptionLoca = 0) -> Kiln.SoundHandle
+static Kiln.Voiceover.NarrateFor(Kiln.EntityId player, Kiln.VoiceoverId line) -> Kiln.SoundHandle
+static Kiln.Voiceover.NarrationAvailable.get -> bool
+static Kiln.Voiceover.Play(Kiln.VoiceoverId line, Kiln.EntityId speaker = default(Kiln.EntityId), Kiln.UiText? subtitle = null) -> Kiln.SoundHandle
+static Kiln.Voiceover.PlayAt(Kiln.VoiceoverId line, Kiln.WorldPosition at, Kiln.UiText? subtitle = null) -> Kiln.SoundHandle
+static Kiln.Voiceover.PlayFor(Kiln.EntityId player, Kiln.VoiceoverId line, Kiln.EntityId speaker = default(Kiln.EntityId)) -> Kiln.SoundHandle
+static Kiln.Voiceover.Stop(System.TimeSpan fade = default(System.TimeSpan)) -> void
+static Kiln.VoiceoverId.Named(Kiln.ModContext! mod, string! name) -> Kiln.VoiceoverId
+static Kiln.VoiceoverId.Named(string! modId, string! name) -> Kiln.VoiceoverId
+static Kiln.VoiceoverId.Of(System.Guid line) -> Kiln.VoiceoverId
+static Kiln.VoiceoverId.Of(string! line) -> Kiln.VoiceoverId
+static Kiln.VoiceoverId.operator !=(Kiln.VoiceoverId left, Kiln.VoiceoverId right) -> bool
+static Kiln.VoiceoverId.operator ==(Kiln.VoiceoverId left, Kiln.VoiceoverId right) -> bool
+static Kiln.VoiceoverInfo.operator !=(Kiln.VoiceoverInfo? left, Kiln.VoiceoverInfo? right) -> bool
+static Kiln.VoiceoverInfo.operator ==(Kiln.VoiceoverInfo? left, Kiln.VoiceoverInfo? right) -> bool
+static Kiln.VoiceoverLanguage.operator !=(Kiln.VoiceoverLanguage? left, Kiln.VoiceoverLanguage? right) -> bool
+static Kiln.VoiceoverLanguage.operator ==(Kiln.VoiceoverLanguage? left, Kiln.VoiceoverLanguage? right) -> bool
+static readonly Kiln.SoundHandle.None -> Kiln.SoundHandle
+static readonly Kiln.SoundId.None -> Kiln.SoundId
+static readonly Kiln.VoiceoverId.None -> Kiln.VoiceoverId
+~override Kiln.SoundHandle.Equals(object obj) -> bool
+~override Kiln.SoundId.Equals(object obj) -> bool
+~override Kiln.VoiceoverId.Equals(object obj) -> bool

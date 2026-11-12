@@ -1,0 +1,82 @@
+#nullable enable
+Kiln.DayStartedEvent
+Kiln.DayStartedEvent.Hours.get -> double
+Kiln.DayStartedEvent.State.get -> Kiln.DayTimeState
+Kiln.DayTimeState
+Kiln.DayTimeState.ChangeCounter.get -> uint
+Kiln.DayTimeState.ChangeCounter.init -> void
+Kiln.DayTimeState.Clock.get -> string!
+Kiln.DayTimeState.DayLength.get -> System.TimeSpan
+Kiln.DayTimeState.DayLength.init -> void
+Kiln.DayTimeState.DayStart.get -> double
+Kiln.DayTimeState.DayStart.init -> void
+Kiln.DayTimeState.DayTimeState() -> void
+Kiln.DayTimeState.DayTimeState(double Hours, double HoursField, bool IsDay, double DayStart, double NightStart, System.TimeSpan DayLength, System.TimeSpan NightLength, float TimeScale, uint ChangeCounter, uint? SyncedCounter, System.TimeSpan GameTime, System.TimeSpan EcsTime, bool WeatherAvailable, int WeatherLayers) -> void
+Kiln.DayTimeState.Deconstruct(out double Hours, out double HoursField, out bool IsDay, out double DayStart, out double NightStart, out System.TimeSpan DayLength, out System.TimeSpan NightLength, out float TimeScale, out uint ChangeCounter, out uint? SyncedCounter, out System.TimeSpan GameTime, out System.TimeSpan EcsTime, out bool WeatherAvailable, out int WeatherLayers) -> void
+Kiln.DayTimeState.EcsTime.get -> System.TimeSpan
+Kiln.DayTimeState.EcsTime.init -> void
+Kiln.DayTimeState.Equals(Kiln.DayTimeState other) -> bool
+Kiln.DayTimeState.GameTime.get -> System.TimeSpan
+Kiln.DayTimeState.GameTime.init -> void
+Kiln.DayTimeState.Hours.get -> double
+Kiln.DayTimeState.Hours.init -> void
+Kiln.DayTimeState.HoursField.get -> double
+Kiln.DayTimeState.HoursField.init -> void
+Kiln.DayTimeState.IsDay.get -> bool
+Kiln.DayTimeState.IsDay.init -> void
+Kiln.DayTimeState.NightLength.get -> System.TimeSpan
+Kiln.DayTimeState.NightLength.init -> void
+Kiln.DayTimeState.NightStart.get -> double
+Kiln.DayTimeState.NightStart.init -> void
+Kiln.DayTimeState.SyncedCounter.get -> uint?
+Kiln.DayTimeState.SyncedCounter.init -> void
+Kiln.DayTimeState.TimeScale.get -> float
+Kiln.DayTimeState.TimeScale.init -> void
+Kiln.DayTimeState.WeatherAvailable.get -> bool
+Kiln.DayTimeState.WeatherAvailable.init -> void
+Kiln.DayTimeState.WeatherLayers.get -> int
+Kiln.DayTimeState.WeatherLayers.init -> void
+Kiln.NightStartedEvent
+Kiln.NightStartedEvent.Hours.get -> double
+Kiln.NightStartedEvent.State.get -> Kiln.DayTimeState
+Kiln.Time
+Kiln.TimeCycle
+Kiln.TimeCycle.Fast = 2 -> Kiln.TimeCycle
+Kiln.TimeCycle.Normal = 0 -> Kiln.TimeCycle
+Kiln.TimeCycle.Stopped = 1 -> Kiln.TimeCycle
+Kiln.TimeSetEvent
+Kiln.TimeSetEvent.Before.get -> double
+Kiln.TimeSetEvent.By.get -> string!
+Kiln.TimeSetEvent.Hours.get -> double
+Kiln.TimeSetEvent.Mode.get -> Kiln.TimeSetMode
+Kiln.TimeSetMode
+Kiln.TimeSetMode.Forward = 0 -> Kiln.TimeSetMode
+Kiln.TimeSetMode.GameReset = 1 -> Kiln.TimeSetMode
+override Kiln.DayTimeState.GetHashCode() -> int
+override Kiln.DayTimeState.ToString() -> string!
+override Kiln.TimeSetEvent.ToString() -> string!
+static Kiln.DayTimeState.operator !=(Kiln.DayTimeState left, Kiln.DayTimeState right) -> bool
+static Kiln.DayTimeState.operator ==(Kiln.DayTimeState left, Kiln.DayTimeState right) -> bool
+static Kiln.Time.Available.get -> bool
+static Kiln.Time.CanSetSpeed.get -> bool
+static Kiln.Time.Cycle.get -> Kiln.TimeCycle
+static Kiln.Time.DayLength.get -> System.TimeSpan
+static Kiln.Time.FastSpeed(System.TimeSpan day, System.TimeSpan night) -> double
+static Kiln.Time.Format(double hours) -> string!
+static Kiln.Time.HeldSpeed.get -> double?
+static Kiln.Time.IsDay.get -> bool
+static Kiln.Time.NightLength.get -> System.TimeSpan
+static Kiln.Time.OfDay.get -> double
+static Kiln.Time.OfDay.set -> void
+static Kiln.Time.Ready.get -> bool
+static Kiln.Time.ResetWeather() -> void
+static Kiln.Time.Set(System.TimeSpan timeOfDay, Kiln.TimeSetMode mode = Kiln.TimeSetMode.Forward) -> void
+static Kiln.Time.Set(double hours, Kiln.TimeSetMode mode = Kiln.TimeSetMode.Forward) -> void
+static Kiln.Time.Set(string! text, Kiln.TimeSetMode mode = Kiln.TimeSetMode.Forward) -> void
+static Kiln.Time.SetCycle(Kiln.TimeCycle cycle) -> void
+static Kiln.Time.SetSpeed(double? speed) -> void
+static Kiln.Time.State.get -> Kiln.DayTimeState
+static Kiln.Time.TryGetState(out Kiln.DayTimeState state) -> bool
+static Kiln.Time.TryParse(string? text, out double hours) -> bool
+static readonly Kiln.Time.FastCycle -> System.TimeSpan
+~override Kiln.DayTimeState.Equals(object obj) -> bool

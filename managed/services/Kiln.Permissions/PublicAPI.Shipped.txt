@@ -1,0 +1,102 @@
+#nullable enable
+Kiln.PermissionDecision
+Kiln.PermissionDecision.<Clone>$() -> Kiln.PermissionDecision!
+Kiln.PermissionDecision.Allowed.get -> bool
+Kiln.PermissionDecision.Allowed.init -> void
+Kiln.PermissionDecision.Deconstruct(out bool Allowed, out string! Node, out Kiln.PermissionLevel Level, out string? Rule, out string! From, out System.Collections.Generic.IReadOnlyList<string!>! Groups) -> void
+Kiln.PermissionDecision.Equals(Kiln.PermissionDecision? other) -> bool
+Kiln.PermissionDecision.From.get -> string!
+Kiln.PermissionDecision.From.init -> void
+Kiln.PermissionDecision.Groups.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Kiln.PermissionDecision.Groups.init -> void
+Kiln.PermissionDecision.Level.get -> Kiln.PermissionLevel
+Kiln.PermissionDecision.Level.init -> void
+Kiln.PermissionDecision.Node.get -> string!
+Kiln.PermissionDecision.Node.init -> void
+Kiln.PermissionDecision.PermissionDecision(bool Allowed, string! Node, Kiln.PermissionLevel Level, string? Rule, string! From, System.Collections.Generic.IReadOnlyList<string!>! Groups) -> void
+Kiln.PermissionDecision.Rule.get -> string?
+Kiln.PermissionDecision.Rule.init -> void
+Kiln.PermissionLevel
+Kiln.PermissionLevel.Admin = 1 -> Kiln.PermissionLevel
+Kiln.PermissionLevel.Console = 2 -> Kiln.PermissionLevel
+Kiln.PermissionLevel.Everyone = 0 -> Kiln.PermissionLevel
+Kiln.PermissionNode
+Kiln.PermissionNode.<Clone>$() -> Kiln.PermissionNode!
+Kiln.PermissionNode.Deconstruct(out string! Node, out Kiln.PermissionLevel DefaultLevel, out string! Description, out string! Owner) -> void
+Kiln.PermissionNode.DefaultLevel.get -> Kiln.PermissionLevel
+Kiln.PermissionNode.DefaultLevel.init -> void
+Kiln.PermissionNode.Description.get -> string!
+Kiln.PermissionNode.Description.init -> void
+Kiln.PermissionNode.Equals(Kiln.PermissionNode? other) -> bool
+Kiln.PermissionNode.Node.get -> string!
+Kiln.PermissionNode.Node.init -> void
+Kiln.PermissionNode.Owner.get -> string!
+Kiln.PermissionNode.Owner.init -> void
+Kiln.PermissionNode.PermissionNode(string! Node, Kiln.PermissionLevel DefaultLevel, string! Description, string! Owner) -> void
+Kiln.PermissionSubject
+Kiln.PermissionSubject.AdminOverride.get -> bool?
+Kiln.PermissionSubject.AdminOverride.init -> void
+Kiln.PermissionSubject.DeclaredAdmin.get -> bool
+Kiln.PermissionSubject.DeclaredAdmin.init -> void
+Kiln.PermissionSubject.Entity.get -> Kiln.EntityId
+Kiln.PermissionSubject.Entity.init -> void
+Kiln.PermissionSubject.Equals(Kiln.PermissionSubject other) -> bool
+Kiln.PermissionSubject.GameRights.get -> Kiln.PlayerPermissions?
+Kiln.PermissionSubject.GameRights.init -> void
+Kiln.PermissionSubject.Kind.get -> Kiln.PermissionSubjectKind
+Kiln.PermissionSubject.Kind.init -> void
+Kiln.PermissionSubject.Name.get -> string!
+Kiln.PermissionSubject.Name.init -> void
+Kiln.PermissionSubject.PermissionSubject() -> void
+Kiln.PermissionSubject.SteamId.get -> ulong
+Kiln.PermissionSubject.SteamId.init -> void
+Kiln.PermissionSubject.UserGroupId.get -> uint?
+Kiln.PermissionSubject.UserGroupId.init -> void
+Kiln.PermissionSubjectKind
+Kiln.PermissionSubjectKind.Console = 0 -> Kiln.PermissionSubjectKind
+Kiln.PermissionSubjectKind.Player = 1 -> Kiln.PermissionSubjectKind
+Kiln.PermissionSubjectKind.Remote = 2 -> Kiln.PermissionSubjectKind
+Kiln.Permissions
+Kiln.PermissionsChangedEvent
+Kiln.PermissionsChangedEvent.Reason.get -> string!
+override Kiln.PermissionDecision.Equals(object? obj) -> bool
+override Kiln.PermissionDecision.GetHashCode() -> int
+override Kiln.PermissionDecision.ToString() -> string!
+override Kiln.PermissionNode.Equals(object? obj) -> bool
+override Kiln.PermissionNode.GetHashCode() -> int
+override Kiln.PermissionNode.ToString() -> string!
+override Kiln.PermissionSubject.GetHashCode() -> int
+override Kiln.PermissionSubject.ToString() -> string!
+static Kiln.PermissionDecision.operator !=(Kiln.PermissionDecision? left, Kiln.PermissionDecision? right) -> bool
+static Kiln.PermissionDecision.operator ==(Kiln.PermissionDecision? left, Kiln.PermissionDecision? right) -> bool
+static Kiln.PermissionNode.operator !=(Kiln.PermissionNode? left, Kiln.PermissionNode? right) -> bool
+static Kiln.PermissionNode.operator ==(Kiln.PermissionNode? left, Kiln.PermissionNode? right) -> bool
+static Kiln.PermissionSubject.Console.get -> Kiln.PermissionSubject
+static Kiln.PermissionSubject.ForPlayer(Kiln.EntityId entity) -> Kiln.PermissionSubject
+static Kiln.PermissionSubject.ForPlayer(Kiln.Player! player) -> Kiln.PermissionSubject
+static Kiln.PermissionSubject.ForSteamId(ulong steamId, string? name = null, Kiln.PlayerPermissions? gameRights = null, uint? userGroupId = null) -> Kiln.PermissionSubject
+static Kiln.PermissionSubject.Remote(string! name, bool admin = true) -> Kiln.PermissionSubject
+static Kiln.PermissionSubject.operator !=(Kiln.PermissionSubject left, Kiln.PermissionSubject right) -> bool
+static Kiln.PermissionSubject.operator ==(Kiln.PermissionSubject left, Kiln.PermissionSubject right) -> bool
+static Kiln.Permissions.AddPlayerToGroup(ulong steamId, string! group, string? name = null) -> void
+static Kiln.Permissions.Explain(Kiln.PermissionSubject subject, string! node) -> Kiln.PermissionDecision!
+static Kiln.Permissions.FilePath.get -> string!
+static Kiln.Permissions.Find(string! node) -> Kiln.PermissionNode?
+static Kiln.Permissions.GroupsOf(Kiln.PermissionSubject subject) -> System.Collections.Generic.IReadOnlyList<string!>!
+static Kiln.Permissions.Has(Kiln.EntityId player, string! node) -> bool
+static Kiln.Permissions.Has(Kiln.PermissionSubject subject, string! node) -> bool
+static Kiln.Permissions.Has(Kiln.Player! player, string! node) -> bool
+static Kiln.Permissions.IsAdmin(Kiln.PermissionSubject subject) -> bool
+static Kiln.Permissions.MapUserGroup(string! userGroup, System.Collections.Generic.IEnumerable<string!>! groups) -> void
+static Kiln.Permissions.Nodes.get -> System.Collections.Generic.IReadOnlyList<Kiln.PermissionNode!>!
+static Kiln.Permissions.Register(string! node, Kiln.PermissionLevel defaultLevel = Kiln.PermissionLevel.Admin, string? description = null) -> Kiln.PermissionNode!
+static Kiln.Permissions.Reload() -> void
+static Kiln.Permissions.RemoveGroup(string! group) -> void
+static Kiln.Permissions.RemovePlayerFromGroup(ulong steamId, string! group) -> void
+static Kiln.Permissions.ServerUserGroups.get -> System.Collections.Generic.IReadOnlyList<(string! Name, Kiln.PlayerPermissions Rights)>!
+static Kiln.Permissions.SetGroup(string! group, bool? admin = null, System.Collections.Generic.IEnumerable<string!>? inherits = null) -> void
+static Kiln.Permissions.SetGroupNode(string! group, string! node, bool? allow) -> void
+static Kiln.Permissions.SetPlayerNode(ulong steamId, string! node, bool? allow, string? name = null) -> void
+static Kiln.Permissions.ToJson() -> System.Text.Json.Nodes.JsonObject!
+static Kiln.Permissions.UserGroupOf(Kiln.PermissionSubject subject) -> string?
+~override Kiln.PermissionSubject.Equals(object obj) -> bool
