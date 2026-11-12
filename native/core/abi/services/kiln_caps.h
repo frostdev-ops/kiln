@@ -31,6 +31,10 @@
  * only require rows without that flag ("features" in kiln.mod.json): the loader refuses a session row as a
  * requirement and says so. Report a session row as pending before the mods load (kiln_plugin_main, on_ready, the
  * managed service's start), not only once a world is there.
+ * A name the core itself reports (a sigdb feature, "kiln.<service>") is static: report() refuses PENDING for it. A
+ * service may still report such a name unavailable (its hook failed at boot). The part of an ability that depends on
+ * the session gets a row of its own ("items.fuel" stays what this build can do; "items.fuel_program" could say
+ * whether it runs right now), so a manifest can go on requiring the static one.
  *
  * Threads: every function may be called on any thread. Strings in a KilnCapRow filled by at() or find() point into
  * storage of the calling thread and stay valid until that thread's next call of at() or find(); copy what you keep.
@@ -122,7 +126,8 @@ typedef struct KilnCapsApi {
 
     /* Sets `owner`'s report for `name` (replacing its earlier one). state: KILN_CAP_*; reason: KILN_CAP_REASON_*,
      * NONE exactly when state is AVAILABLE; text: optional words (cut at KILN_CAP_TEXT_MAX).
-     * KILN_ERR_INVALID_ARGUMENT: a bad name, state or reason, UNKNOWN as the reason, or owner 0 (the core's own);
+     * KILN_ERR_INVALID_ARGUMENT: a bad name, state or reason, UNKNOWN as the reason, owner 0 (the core's own), or
+     * PENDING for a name the core reports itself (see "Static and session rows");
      * KILN_ERR_REVOKED: the owner is gone; KILN_ERR_UNAVAILABLE: the owner already holds KILN_CAP_OWNER_MAX reports.
      * A report that changes nothing a reader sees raises no change. */
     KilnResult(KILN_CALL* report)(KilnOwner owner, KilnStr name, uint32_t state, uint32_t reason, KilnStr text);
