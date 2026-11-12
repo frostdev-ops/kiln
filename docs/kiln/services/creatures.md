@@ -538,6 +538,11 @@ It spawns transient Vukahs 60 m from the base and destroys them; it unloads and 
 `mods/tests/npc-rules-test/` and its `Companion/` build the same way (`NpcRulesTest.csproj` to `$KILN_OUT/mods/npc-rules-test`, `Companion/NpcRulesCompanion.csproj` to `$KILN_OUT/mods/npc-rules-companion`), and need the
 `force-ready` file. Forced-ready creatures fight each other; `grep -a npc-rules-test <lab>/kiln/logs/kiln.log` ends in a summary. To see what happens when a target does not resolve, break that symbol's pattern in the lab's `kiln/sigdb/server.d/creatures.json`: the test runs its short path.
 
+`mods/tests/npcai-test` (kiln.npcai and the AI blocks; `NpcAiTest.csproj` to `$KILN_OUT/mods/npcai-test`) needs the file as well. The switch is read once,
+when the service gets ready, so the file must be there before the server starts. Without it `ForceReady()` throws `NotSupportedException` ("force
+ready: unavailable"), whatever the entity: npcai-test then counts its four sections with forced-ready creatures (natural, rows, filter, rules) as one
+FAIL each, with the file's name, and creatures-test skips its readiness checks with an INFO line.
+
 ## Manual test (needs a joined player)
 
 1. View range: walk toward a Vukah with `/creature ai <id> combatCommitmentSetup.view.range 40` (in daylight: the
