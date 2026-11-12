@@ -247,3 +247,24 @@ test("a right click on a row opens its menu where the pointer is", async ({ page
   await page.locator(".k-hero").getByLabel("Filter").click({ button: "right" });
   await expect(page.getByRole("menu")).toHaveCount(0);
 });
+
+test("a mod with several Library versions: its menu picks one and removes another (what the Library page did)", async ({ page }) => {
+  await desktop(page);
+  const dt = await page.evaluateHandle(() => { const d = new DataTransfer(); d.items.add(new File(["x"], "more-hotbars-2.2.0.zip")); return d; });
+  await page.locator(".k-hero").dispatchEvent("dragover", { dataTransfer: dt });
+  await page.locator(".k-hero").dispatchEvent("drop", { dataTransfer: dt });
+  const r = row(page, "More Hotbars");
+  await expect(r).toContainText("2.2.0", { timeout: 10_000 }); // the dropped version is the one switched on
+  await r.getByRole("button", { name: "More for More Hotbars" }).click();
+  await page.getByRole("menuitem", { name: "Use 2.1.0" }).click();
+  await expect(r).toContainText("2.1.0");
+  await expect.poll(async () => (await profileMods(page)).kiln.find((m) => m.id === "more-hotbars")?.version).toBe("2.1.0");
+  await r.getByRole("button", { name: "More for More Hotbars" }).click();
+  await expect(page.getByRole("menuitem", { name: "Remove 2.1.0" })).toHaveCount(0); // not the version in use
+  await page.getByRole("menuitem", { name: "Remove 2.2.0" }).click();
+  const dialog = page.getByRole("dialog", { name: "Remove More Hotbars 2.2.0?" });
+  await dialog.getByRole("button", { name: "Remove", exact: true }).click();
+  await expect(dialog).toBeHidden();
+  await expect.poll(async () => (await api<{ id: string; versions: { version: string }[] }[]>(page, "libraryList")).find((e) => e.id === "more-hotbars")?.versions.map((v) => v.version)).toEqual(["2.1.0"]);
+  await expect(r.getByRole("switch", { name: "More Hotbars" })).toHaveAttribute("aria-checked", "true");
+});

@@ -1,5 +1,11 @@
 // Retained player files need recovery instructions until the player dismisses them, not just a success toast.
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
+
+/** Settings, Profiles: Load on a profile's row ("No profile" too). */
+async function loadInSettings(page: Page, name: string) {
+  await page.evaluate(() => { location.hash = "#/settings"; });
+  await page.getByRole("region", { name: "Profiles" }).getByRole("listitem").filter({ hasText: name }).getByRole("button", { name: "Load" }).click();
+}
 
 test("deactivating a profile keeps retained-folder warnings through later notifications", async ({ page }) => {
   await page.goto("/#/");
@@ -11,8 +17,7 @@ test("deactivating a profile keeps retained-folder warnings through later notifi
       retained: [{ path: "mods/edited-addon", reason: "player-settings.json was added by the player", mayRun: true }],
     } });
   });
-  await page.getByRole("button", { name: /^Active profile: .* Change profile\.$/ }).click();
-  await page.getByRole("option", { name: "No profile drop-ins" }).click();
+  await loadInSettings(page, "No profile");
   const warning = page.locator(".k-toast", { hasText: "Some mod folders were kept" });
   await expect(warning).toContainText("mods/edited-addon");
   await expect(warning).toContainText("player-settings.json was added by the player");
@@ -53,14 +58,13 @@ test("persistent warnings remain scrollable on a small screen while timed notice
 test("an empty cleanup result does not show a retained-folder warning", async ({ page }) => {
   await page.goto("/#/");
   await page.locator(".k-splash").waitFor({ state: "detached" });
-  await page.getByRole("button", { name: /^Active profile: .* Change profile\.$/ }).click();
-  await page.getByRole("option", { name: "No profile drop-ins" }).click();
-  await expect(page.locator(".k-toast", { hasText: "No profile" })).toBeVisible();
+  await loadInSettings(page, "No profile");
+  await expect(page.locator(".k-toast", { hasText: "No profile is loaded" })).toBeVisible();
   await expect(page.locator(".k-toast", { hasText: "Some mod folders were kept" })).toHaveCount(0);
 });
 
 // Every activation path reports the copies it left in the game folder (Activation.retained), the settings it kept and
-// its notes, all until closed: the Play page's profile switch, the Profiles list, a profile's own Activate, the re-apply
+// its notes, all until closed: Settings, Profiles' Load, a profile saved there and loaded from its toast, the re-apply
 // after a profile edit (also one before the window listened), Play itself (also when the start fails), a modpack from
 // a server's offer and its Launch. The drop, the Deck, an update and a reinstall have theirs in firstrun, deck and
 // update specs. Each reason ends with what still runs from that folder (engine_mods::still_runs).
@@ -81,40 +85,34 @@ async function expectActivationNotices(page: import("@playwright/test").Page) {
   await expect(kept).not.toContainText("standalone loader");
   const settings = page.locator(".k-toast", { hasText: "Mod settings kept" });
   await expect(settings).toContainText("kiln/state/placed-settings/xhl/xhl-vein-mining");
-  const notes = page.locator(".k-toast", { hasText: "Profile notes" });
+  const notes = page.locator(".k-toast", { hasText: "Notes on your mods" });
   await expect(notes).toContainText("the setting speed was 7");
   // none of them goes by itself
   await page.clock.fastForward(10_000);
   for (const t of [kept, settings, notes]) await expect(t).toBeVisible();
   for (const t of [kept, settings, notes]) await t.getByRole("button", { name: "Dismiss", exact: true }).click();
-  await expect(page.locator(".k-toast", { hasText: /Some mod folders were kept|Mod settings kept|Profile notes/ })).toHaveCount(0);
+  await expect(page.locator(".k-toast", { hasText: /Some mod folders were kept|Mod settings kept|Notes on your mods/ })).toHaveCount(0);
 }
 
-test("the Play page's profile switch shows what the activation kept in the game folder", async ({ page }) => {
+test("Settings, Profiles' Load shows what the activation kept in the game folder", async ({ page }) => {
   await page.clock.install();
   await page.goto("/#/");
   await page.locator(".k-splash").waitFor({ state: "detached" });
   await planActivation(page);
-  await page.getByRole("button", { name: /^Active profile: .* Change profile\.$/ }).click();
-  await page.getByRole("option", { name: /^Vanilla plus/ }).click();
+  await loadInSettings(page, "Vanilla plus");
   await expectActivationNotices(page);
 });
 
-test("the Profiles list's Activate shows what the activation kept in the game folder", async ({ page }) => {
+test("a profile saved in Settings and loaded from its toast shows what the activation kept in the game folder", async ({ page }) => {
   await page.clock.install();
-  await page.goto("/#/profiles");
+  await page.goto("/#/settings");
   await page.locator(".k-splash").waitFor({ state: "detached" });
+  await page.getByRole("region", { name: "Profiles" }).getByRole("button", { name: "Save current as…" }).click();
+  const dialog = page.getByRole("dialog", { name: "Save current as" });
+  await dialog.getByLabel("Name").fill("Copy run");
+  await dialog.getByRole("button", { name: "Save", exact: true }).click();
   await planActivation(page);
-  await page.getByRole("row", { name: /Vanilla plus/ }).getByRole("button", { name: "Activate" }).click();
-  await expectActivationNotices(page);
-});
-
-test("a profile's own Activate shows what the activation kept in the game folder", async ({ page }) => {
-  await page.clock.install();
-  await page.goto("/#/profiles/vanilla-plus/mods");
-  await page.locator(".k-splash").waitFor({ state: "detached" });
-  await planActivation(page);
-  await page.getByRole("complementary").getByRole("button", { name: "Activate", exact: true }).click();
+  await page.locator(".k-toast", { hasText: "Saved as Copy run" }).getByRole("button", { name: "Load it" }).click();
   await expectActivationNotices(page);
 });
 
@@ -238,7 +236,7 @@ test("a dropped mod's add says what else it changed in the profile, until closed
   const dt = await page.evaluateHandle(() => { const d = new DataTransfer(); d.items.add(new File(["x"], "night-owl-1.2.0.zip")); return d; });
   await page.locator(".k-hero").dispatchEvent("drop", { dataTransfer: dt });
   await expect(page.locator(".k-toast", { hasText: "Added Night Owl" })).toBeVisible();
-  const changed = page.locator(".k-toast", { hasText: "Changes in the profile" });
+  const changed = page.locator(".k-toast", { hasText: "Changes in your mod list" });
   await expect(changed).toContainText(ADD_NOTICE);
   await page.clock.fastForward(10_000);
   await expect(changed).toBeVisible();

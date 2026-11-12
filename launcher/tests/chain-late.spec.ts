@@ -1,11 +1,12 @@
 // shroudlink's client addon is never loaded late (kiln_manage::compat, ChainViewEntry.gated): it has to find the game's
 // functions before Kiln hooks them. The native page's chain card offers no late switch for it, as a [chain] entry or
-// as a profile native, and one an older Kiln left late can be switched back. Browser mock (src/api/mockChain.ts).
+// as a profile native, and one an older Kiln left late can be switched back (Native and DLLs, /mods/native). Browser
+// mock (src/api/mockChain.ts).
 import { expect, test, type Page } from "@playwright/test";
 import type { ChainView, ChainViewEntry } from "../src/api/commands";
 
 async function nativePage(page: Page) {
-  await page.goto("/#/profiles/ember-run/native");
+  await page.goto("/#/mods/native");
   await page.locator(".k-splash").waitFor({ state: "detached" });
 }
 const entries = (page: Page) => page.getByRole("list", { name: "Chain entries" });
