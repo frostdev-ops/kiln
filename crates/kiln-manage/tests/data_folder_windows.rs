@@ -1192,6 +1192,118 @@ mod win {
         }
     }
 
+    /// What this Windows (or Wine) answers to the calls the removals and the durable writes make, printed: a file opened
+    /// as the proof opens it (`FILE_GENERIC_READ | DELETE | FILE_WRITE_ATTRIBUTES`, `FILE_SHARE_READ`, the reparse point
+    /// itself), deleted through `FileDispositionInfoEx` (POSIX, read-only ignored) or, when that is refused, through
+    /// `FileDispositionInfo` after the read-only attribute is cleared through the handle; and `MoveFileExW` with
+    /// `MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH` over a plain and over a read-only file. Each file goes one
+    /// way or the other; which way is the output.
+    #[test]
+    fn the_delete_and_rename_paths_this_windows_takes() {
+        seen();
+        use std::os::windows::io::AsRawHandle;
+        use windows_sys::Win32::Storage::FileSystem::{
+            DELETE, FILE_ATTRIBUTE_NORMAL, FILE_ATTRIBUTE_READONLY, FILE_BASIC_INFO, FILE_DISPOSITION_FLAG_DELETE,
+            FILE_DISPOSITION_FLAG_IGNORE_READONLY_ATTRIBUTE, FILE_DISPOSITION_FLAG_POSIX_SEMANTICS, FILE_DISPOSITION_INFO,
+            FILE_DISPOSITION_INFO_EX, FILE_FLAG_OPEN_REPARSE_POINT, FILE_GENERIC_READ, FILE_SHARE_READ, FILE_WRITE_ATTRIBUTES,
+            FileBasicInfo, FileDispositionInfo, FileDispositionInfoEx, GetFileInformationByHandleEx, MOVEFILE_REPLACE_EXISTING,
+            MOVEFILE_WRITE_THROUGH, MoveFileExW, SetFileInformationByHandle,
+        };
+        let s = scratch("delete-paths");
+        let wide = |p: &Path| -> Vec<u16> { use std::os::windows::ffi::OsStrExt; p.as_os_str().encode_wide().chain(Some(0)).collect() };
+        for read_only in [false, true] {
+            let f = s.0.join(format!("proved-{read_only}.bin"));
+            std::fs::write(&f, b"proved").unwrap();
+            if read_only {
+                let mut p = std::fs::metadata(&f).unwrap().permissions();
+                p.set_readonly(true);
+                std::fs::set_permissions(&f, p).unwrap();
+            }
+            let open = |access: u32| std::fs::OpenOptions::new().access_mode(access).share_mode(FILE_SHARE_READ).custom_flags(FILE_FLAG_OPEN_REPARSE_POINT).open(&f);
+            for (what, access) in [("FILE_GENERIC_READ | DELETE", FILE_GENERIC_READ | DELETE), ("FILE_GENERIC_READ | FILE_WRITE_ATTRIBUTES", FILE_GENERIC_READ | FILE_WRITE_ATTRIBUTES), ("DELETE", DELETE), ("FILE_WRITE_ATTRIBUTES", FILE_WRITE_ATTRIBUTES)] {
+                eprintln!("open a {} file with {what}: {:?}", if read_only { "read-only" } else { "plain" }, open(access).map(|_| "ok"));
+            }
+            let file = match open(FILE_GENERIC_READ | DELETE | FILE_WRITE_ATTRIBUTES) {
+                Ok(file) => file,
+                Err(e) => {
+                    eprintln!("open a {} file as the proof does (FILE_GENERIC_READ | DELETE | FILE_WRITE_ATTRIBUTES, FILE_SHARE_READ): {e}; nothing to delete through", if read_only { "read-only" } else { "plain" });
+                    assert!(read_only, "a plain file opens as the proof opens it: {e}");
+                    // the same delete through a handle without FILE_WRITE_ATTRIBUTES
+                    if let Ok(g) = open(FILE_GENERIC_READ | DELETE) {
+                        let ex = FILE_DISPOSITION_INFO_EX {
+                            Flags: FILE_DISPOSITION_FLAG_DELETE | FILE_DISPOSITION_FLAG_POSIX_SEMANTICS | FILE_DISPOSITION_FLAG_IGNORE_READONLY_ATTRIBUTE,
+                        };
+                        // SAFETY: a valid handle opened with DELETE; a struct of the right type and size.
+                        let r = unsafe { SetFileInformationByHandle(g.as_raw_handle() as _, FileDispositionInfoEx, &ex as *const _ as *const _, std::mem::size_of::<FILE_DISPOSITION_INFO_EX>() as u32) };
+                        let r = if r != 0 { "ok".to_string() } else { std::io::Error::last_os_error().to_string() };
+                        drop(g);
+                        eprintln!("a read-only file opened with FILE_GENERIC_READ | DELETE, FileDispositionInfoEx (read-only ignored): {r}; after close the file is {}", if f.exists() { "still there" } else { "gone" });
+                    }
+                    if !f.exists() {
+                        continue;
+                    }
+                    let mut p = std::fs::metadata(&f).unwrap().permissions();
+                    p.set_readonly(false);
+                    std::fs::set_permissions(&f, p).unwrap();
+                    std::fs::remove_file(&f).unwrap();
+                    continue;
+                }
+            };
+            let h = file.as_raw_handle() as _;
+            // SAFETY: a valid handle opened with DELETE and FILE_WRITE_ATTRIBUTES; structs of the right type and size.
+            let (ex, fallback) = unsafe {
+                let ex = FILE_DISPOSITION_INFO_EX {
+                    Flags: FILE_DISPOSITION_FLAG_DELETE | FILE_DISPOSITION_FLAG_POSIX_SEMANTICS | FILE_DISPOSITION_FLAG_IGNORE_READONLY_ATTRIBUTE,
+                };
+                if SetFileInformationByHandle(h, FileDispositionInfoEx, &ex as *const _ as *const _, std::mem::size_of::<FILE_DISPOSITION_INFO_EX>() as u32) != 0 {
+                    ("ok".to_string(), None)
+                } else {
+                    let e = std::io::Error::last_os_error().to_string();
+                    let mut basic: FILE_BASIC_INFO = std::mem::zeroed();
+                    let mut cleared = "not read-only";
+                    if GetFileInformationByHandleEx(h, FileBasicInfo, &mut basic as *mut _ as *mut _, std::mem::size_of::<FILE_BASIC_INFO>() as u32) != 0
+                        && basic.FileAttributes & FILE_ATTRIBUTE_READONLY != 0
+                    {
+                        let rest = basic.FileAttributes & !FILE_ATTRIBUTE_READONLY;
+                        let clear = FILE_BASIC_INFO { CreationTime: 0, LastAccessTime: 0, LastWriteTime: 0, ChangeTime: 0, FileAttributes: if rest == 0 { FILE_ATTRIBUTE_NORMAL } else { rest } };
+                        cleared = if SetFileInformationByHandle(h, FileBasicInfo, &clear as *const _ as *const _, std::mem::size_of::<FILE_BASIC_INFO>() as u32) != 0 { "read-only cleared" } else { "read-only NOT cleared" };
+                    }
+                    let d = FILE_DISPOSITION_INFO { DeleteFile: true };
+                    let r = if SetFileInformationByHandle(h, FileDispositionInfo, &d as *const _ as *const _, std::mem::size_of::<FILE_DISPOSITION_INFO>() as u32) != 0 {
+                        "ok".to_string()
+                    } else {
+                        std::io::Error::last_os_error().to_string()
+                    };
+                    (e, Some(format!("{cleared}, FileDispositionInfo: {r}")))
+                }
+            };
+            let while_open = f.exists();
+            drop(file);
+            eprintln!("delete through the proving handle, read-only {read_only}: FileDispositionInfoEx: {ex}; fallback: {fallback:?}; the name still there while the handle is open: {while_open}; after close: {}", f.exists());
+            assert!(!f.exists(), "read-only {read_only}: opened as the proof opens it, the file goes one way or the other");
+        }
+        for read_only in [false, true] {
+            let target = s.0.join(format!("journal-{read_only}.json"));
+            let tmp = s.0.join(format!("journal-{read_only}.json.0123.tmp"));
+            std::fs::write(&target, b"old").unwrap();
+            std::fs::write(&tmp, b"new").unwrap();
+            if read_only {
+                let mut p = std::fs::metadata(&target).unwrap().permissions();
+                p.set_readonly(true);
+                std::fs::set_permissions(&target, p).unwrap();
+            }
+            let (a, b) = (wide(&tmp), wide(&target));
+            // SAFETY: two live NUL-terminated wide strings.
+            let ok = unsafe { MoveFileExW(a.as_ptr(), b.as_ptr(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) } != 0;
+            let err = if ok { String::new() } else { std::io::Error::last_os_error().to_string() };
+            eprintln!("MoveFileExW(REPLACE_EXISTING | WRITE_THROUGH) over a {} file: {} {err}; the target now holds {:?}",
+                if read_only { "read-only" } else { "plain" }, if ok { "replaced" } else { "refused" }, String::from_utf8_lossy(&std::fs::read(&target).unwrap()));
+            if !read_only {
+                assert!(ok, "a plain file is replaced: {err}");
+            }
+        }
+    }
+
     /// The journal and the file record are written with a temporary name of their own and a write-through rename, as
     /// the pointer: a folder where `util::write_atomic` would put its temporary file does not stop a move, and nothing
     /// of the temporary files stays.

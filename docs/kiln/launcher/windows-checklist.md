@@ -3,14 +3,17 @@
 Verified under Wine: NSIS install/uninstall, `--selftest` 11/11, WebView2 UI (runtime 156, `--no-sandbox`),
 Rust suites for x86_64-pc-windows-msvc, proxyhost with `C:\` paths (107/107), a dedicated server installed, started,
 administered over KAP and stopped with Ctrl-C by the Windows runner. Test user "Jörg Müller" (non-ASCII paths).
-The data folder's move (dev.25, `tests/data_folder*.rs` for x86_64-pc-windows-msvc, 83/83): to `D:\` (made `D:\Kiln`),
+The data folder's move (dev.25, `tests/data_folder*.rs` for x86_64-pc-windows-msvc, 86/88): to `D:\` (made `D:\Kiln`),
 to another letter on the same disk, to another volume (exFAT `E:`) and within it (with a crashed move's recovery), to
 `D:\Spiele Ordner\Jörg Müller\データ`, with a 259-character library path (a 260 one refused) and a data folder past 260
 characters, each and back; `\\?\` and another case; junctions refused, and no old copy removed through one;
 `%LOCALAPPDATA%\Kiln\state` untouched; a file held without read sharing (fails the move cleanly, nothing left in the
-target, on the same letter and another); a file the move made held without delete sharing while the move fails (named,
-the target stays marked until the next start removes it); read-only files and a re-activation that fails (the old copy
-stays until the profile is activated again); the lock across two processes.
+target, on the same letter and another); a file open for writing kept and named during a removal, a writer refused
+while a file is proved and removed; a file the move made held without delete sharing while the move fails (named, the
+target stays marked until the next start removes it); a re-activation that fails (the old copy stays until the profile
+is activated again); the journal's write-through rename; the lock across two processes. The two failures are one Wine
+difference: a read-only file is kept, not removed, because Wine refuses `FILE_WRITE_ATTRIBUTES` on a read-only file
+(Windows allows it; see item 10).
 
 On a real Windows 10/11 PC:
 1. NSIS install with the WebView2 bootstrapper on a clean PC; `kiln-launcher.exe --selftest --out r.json` from cmd and
