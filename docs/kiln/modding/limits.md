@@ -3,7 +3,9 @@
 Read this before you spend a day on something that has no API. Each row says what is missing, what stands in the way
 (in the game or in Kiln), what to do meanwhile if the tree has an honest workaround, and the release it is planned for.
 
-Checked against **0.2.0-dev.24** on 2026-11-11. The planned releases are named dev.25, dev.26, dev.27 and dev.28,
+Checked against the dev.25 development tree on 2026-11-12: 0.2.0-dev.24 plus the dev.25 work merged so far
+(identity, api-gate, typegen, hygiene, proof, testkit, core). dev.25 is not released, and **nothing of dev.25 has
+run in a real client**; rows that name dev.25 work say so. The planned releases are named dev.25, dev.26, dev.27 and dev.28,
 then the API freeze at **0.3.0**. A planned release is a plan, not a promise: rows move when the work shows a cost the
 plan did not see.
 
@@ -13,15 +15,15 @@ still open.
 
 ## Being closed in dev.25
 
-In work, not in a release yet.
+In work, not in the tree yet. The capability table, identity types and offline unit tests have landed for dev.25:
+their limits are under "There, but limited".
 
-| What | Today (dev.24) | State |
+| What | Today | State |
 |---|---|---|
-| Persistent per-item data (a value on one sword that survives moves, saves and restarts) | `EntityData` on an item is session-only and refuses positional item records ([inventory.md](inventory.md#per-item-instance-data-and-affixes)) | in work, not in a release yet |
-| Offline unit tests for a mod (`dotnet test` with no game) | [Kiln.Testing](testing.md) runs inside a server; the fakes are private to Kiln's own tests | in work, not in a release yet |
-| A mod's own states in the player's animation graph, and a weapon's own moves | Only the game's sequences, through `Abilities.PlaySequence` ([services/abilities.md](../services/abilities.md)); no merged player graph | in work, not in a release yet |
-| One capability table with reasons (`Is`, `Why`, `All`) | Each service has its own `Available` / `Supports…` property; the manifest's `features` are checked against core sigdb names, with no reason a mod can read ([manifest.md](manifest.md)) | in work, not in a release yet |
-| Identity types (`EntityRef`, `ItemRef`, `PlayerRef`) | A player has several types across services; entity ids are reused and not generation-checked; items are `ItemId` in one service and bare `uint` in others | in work, not in a release yet |
+| Persistent per-item data (a value on one sword that survives moves, saves and restarts) | `EntityData` on an item is session-only and refuses positional item records ([inventory.md](inventory.md#per-item-instance-data-and-affixes)) | in work, not in the tree yet |
+| A mod's own states in the player's animation graph, and a weapon's own moves | Only the game's sequences, through `Abilities.PlaySequence` ([services/abilities.md](../services/abilities.md)); no merged player graph | in work, not in the tree yet |
+<!-- Room for the limits of the packages still out: Persist.Carried (instances); player states never hot-reload,
+     a second cast of a mod's wand state does not restart its clip (player-anim). -->
 
 ## No API yet
 
@@ -34,7 +36,7 @@ In work, not in a release yet.
 | Pathfinding queries | Only "go there": `CreatureRef.MoveTo` sets a home, `NpcRuntime.MoveTo` walks; no path or reachability answer ([services/creatures.md](../services/creatures.md)) | none | dev.27 |
 | Choosing a weather; fog and light | `Time.ResetWeather()` only. The weather layers are mapped; the phenomenon ids and the call that adds one need RE ([services/time.md](../services/time.md)) | none | dev.26 (weather choice); fog and light not in a release yet |
 | Map markers, compass pins, nameplates | Only a quest's marker and waypoint. The game's marker types are mapped, including the player's custom pin | a quest step's `Marker` ([quests.md](quests.md)); on a Kiln client, draw a marker on screen with `Render` (unit tests only) ([render.md](../render.md)) | dev.27 |
-| Kick and ban a player; a cancelable login event | The native `kick` call exists in kiln.net; the managed call is internal | `NetVanillaClientEvent.Kick` refuses a client without Kiln at join (test server with simulated peers; not run in a client) ([network.md](../network.md)) | dev.26 (kick, ban list); dev.27 (cancelable login) |
+| Kick and ban a player; a cancelable login event | The native `kick` call exists in kiln.net; the managed call is internal. `PlayerRef` (dev.25) names a player, but nothing takes it to kick | `NetVanillaClientEvent.Kick` refuses a client without Kiln at join (test server with simulated peers; not run in a client) ([network.md](../network.md)) | dev.26 (kick, ban list); dev.27 (cancelable login) |
 | Equip, unequip, set a slot | Equipment is read-only. The game's `equipItem` is mapped; Kiln would call it inside kiln.items' program | taking gear from a player with `MoveOptions.Equipped` unequips it (client check open) ([services/items.md](../services/items.md)) | dev.26 |
 | Remove a buff from C# | The game's `removeBuff` native is used by Kiln's blocks; there is no public call | an effect block's `Removes` takes a block's or a game status off (works on a test server) ([blocks.md](blocks.md)) | dev.26 |
 | Playing an animation of its own; a cancelable "sequence starting" event | Only the game's sequences through `Abilities.PlaySequence`; `SequenceStartedEvent` is observe only | none | dev.25 (own states, above); a cancelable sequence start is not in a release yet |
@@ -47,16 +49,21 @@ In work, not in a release yet.
 
 | What | What stands in the way | Meanwhile | Planned |
 |---|---|---|---|
-| Typed game data | `Kiln.Game` has 9 generated structs from an old server dump and is not in the SDK. The rest is string paths (`"Health.dataStorage[2]"`), raw offsets and `0x…` ids ([../typegen.md](../typegen.md)) | `Reflected` values by name ([services/types.md](../services/types.md)) | dev.25 (typegen package) |
+| Capability table (dev.25) | `Capabilities.Is/Get/Why/All` and `CapabilityChangedEvent` answer for sigdb features and services ([../services/caps.md](../services/caps.md)). A row a managed service registers exists only after that service was first used, after manifests were checked, so a manifest's `features` cannot require it: check `Capabilities.Is` at run time. `[RequiresCapability]` is documentation only and is on no member yet; most services still have their own `Available` property. Unit tests and a test server | `Capabilities.Is(name)` at run time | dev.26 (adoption in every service) |
+| Identity types (dev.25) | `EntityRef`, `ItemInstanceRef`, `PlayerRef` and the error rule are in Kiln.Api ([contract.md](contract.md)). Only player entities have a source: `EntityRef.Of` on any other entity throws `KilnUnavailableException("identity.entities")`, although that capability reads available. `PlayerRef` converts from `Player`, `TalentHolder` and `QuestHolder` only. No service result implements `IKilnResult` yet. Player refs work on a test server with simulated players; no real player has run them | `PlayerRef.Of`, `Resolve`, `IsOnline` for players, from the first tick (not in `OnLoad`) | dev.25 (item entities); dev.26 (spawned entities, adoption) |
+| Offline unit tests (dev.25) | `Kiln.TestKit` runs a mod under `dotnet test` ([unit-tests.md](unit-tests.md)). Only players and saved data are faked; every other native service (spawn, items, combat, content, rendering, hooks…) reports itself unavailable, and a test that needed one is skipped by name. `EntityData` works on player entities only. No network pair: `Kiln.Network` is unavailable offline. Known gap: a service that caches "no table" in a `Lazy` or `static readonly` field (`Kiln.Ui`'s render table; `kiln.net` at the first channel) asks once per process, so a later test using it can pass where it should be skipped. Unit tests and one test-server parity run; Windows not run | read the service's `Available` in the test | dev.26 (fake world, recording fakes) |
+| Typed game data (dev.25) | `Kiln.Ecs` in Kiln.Game (`KilnServices` `Game`) has typed structs for the game's 687 components and 132 events, checked against the running game before the first read ([../typegen.md](../typegen.md#4-typed-access-kilnecs)). Reads only: writes are still raw (`World.TryWrite`). An enum constant the compiler folds into a number is not stamped, so a renumbered value is not caught at load. Typed reads equal the raw bytes on a test server for 118 components; the other 569 had no live entity there, and the client side has not run | `Reflected` values by name ([services/types.md](../services/types.md)) | dev.26 (`World.Update<T>`, typed program access) |
+| Lab and test helpers on service classes (dev.25) | `Rules.Simulate`, `QuestInput`, `Knowledge.LabRecord`, `GameTree.Simulate` and `Lab*`, `CreatureRef.ForceReady` and others are `[Experimental("KILNX001")]` and hidden: calling one is a build error until the project adds `KILNX001` to `NoWarn`, and they may change without notice | `NoWarn` for a lab-only project | not in a release yet |
 | Writes the game saves and sends | `World.TryWrite` and `ReflectedValue` are raw stores the game does not mark written: a player-free test showed the save skips them on a container a save already wrote. Attribute writes are not marked written for saving either. Only kiln.items uses the tracked path, for water ([services/items.md](../services/items.md)) | `Items.Fuel` for water (works on a test server); a Kiln service call where one exists | dev.26 |
 | Systems | `GameSystems.Hook(name, before, after)` and on/off only: no Replace, no per-entity wrap, no typed views ([ecs-programs.md](ecs-programs.md)) | a world program of your own ([ecs-programs.md](ecs-programs.md)) | dev.27 |
 | Kiln natives in Impact programs | A native suspends the program for one step, and only programs a mod clones or writes call them ([impact.md](impact.md)) | none | dev.27 |
-| Hooks from C# | `Hooks.Detour` sees the first four integer arguments; floats need `Hooks.Mid` or a native mod's `raw_detour`. Each managed install takes a new link slot, and slots are never freed ([services/hooks.md](../services/hooks.md#limits-and-failures)) | `Hooks.Mid`; a [native mod](../native-mods.md) | dev.27 (typed hooks with floats); dev.25 (managed hooks reuse their slot) |
+| Hooks from C# | `Hooks.Detour` sees the first four integer arguments; floats need `Hooks.Mid` or a native mod's `raw_detour`. Slots are never freed; from dev.25 a re-install by the same mod, kind and address reuses its slot, also across a hot reload (test server), but each new address takes one ([services/hooks.md](../services/hooks.md#limits-and-failures)) | `Hooks.Mid`; a [native mod](../native-mods.md) | dev.27 (typed hooks with floats) |
 | Writes that raise no event | Attribute writes, `Combat.SetHealth` / `SetInvulnerable`, `CreatureRef` setters, content `Set` / `Apply` / `Revert`, `Time.SetSpeed` / `SetCycle` / `ResetWeather` and `World.TryWrite` post nothing ([../events.md](../events.md)) | none: a mod that needs to know has to poll | dev.26 (a change event for each of Kiln's own writes) |
 | Events that cannot be canceled | Death, item pickup, a player's build edits and equipment changes are reported after the fact | death: cancel or lower the lethal `EntityHurtEvent` ([services/combat.md](../services/combat.md)); build edits: `Gameplay.Protect` zones (client check open) ([services/gameplay.md](../services/gameplay.md#protection-zones)) | dev.27 |
 | Events for one entity only | No per-entity filter: watching one target makes kiln.combat hold every hit in the world for a step | filter in the handler | dev.26 |
 | Definitions from code | Talent nodes, quests, VFX, NPCs, materials and world-program declarations made in C# take effect from the next start: mods load after the game's registries close ([vfx.md](vfx.md), [quests.md](quests.md), [world-blocks.md](world-blocks.md)) | put them in `blocks/*.json`, `quests/*.json` or `skills/*.json`: those are in from the first start (works on a test server) | dev.26 (baked at build); dev.27 (`Mod.OnBoot`) |
 | UI blocks | No text fields, tables, tabs, images or trees; no values from the game's world; no state of a window's own; a block's `command` does not reach a joined server ([ui-blocks.md](ui-blocks.md#what-it-does-not-do)) | `Ui.Window` and `Ui.Screen` in C# ([../ui.md](../ui.md)); Kiln's own windows have opened in the game | dev.27 |
+| A native plugin's `on_unload` at exit (dev.25) | Called once at a normal exit with code 0, under Wine only by default: off on native Windows unless `kiln.json` has `"unloadAtExit": "on"`, which has never run. Proven for a dedicated server stopped with SIGINT on a test server; the client's quit is not confirmed. Not called on a kill, a crash or any non-zero exit ([../native-mods.md](../native-mods.md)) | write state as you go, not only at exit | not in a release yet |
 | Station menus with tabs of their own | A station's menu uses its kind's tabs, or `Menu.Like`'s ([world-blocks.md](world-blocks.md)) | `Menu.Like` an existing station | dev.28 |
 | Per-use durability on tools | Only a torch burns down by a number of the item's own; the game wears other tools by the world's durability setting, so `Durability` on them is refused ([item-blocks.md](item-blocks.md)) | none | dev.28 |
 | Cloth and chains on a model | The model cook does not write them ([models.md](models.md)) | rigid or skinned parts | dev.28 |
@@ -84,7 +91,7 @@ value is the count for the current game build.
 | New terrain materials, all mods together | 11 | a terrain material is a cell's low byte 1..127 and the game uses 1..116 ([world-blocks.md](world-blocks.md)) | not in a release yet |
 | Faction values | 0..15 | the game's faction type; a value above 15 is untried and would fall through the game's code as hostile to everyone but its own ([npc-ai.md](npc-ai.md)) | not in a release yet |
 | Hooked addresses | 512 per process | kiln.hooks' target table ([services/hooks.md](../services/hooks.md#limits-and-failures)) | not in a release yet |
-| Hook link slots | 65,536 per process, never freed | kiln.hooks' stubs ([services/hooks.md](../services/hooks.md#limits-and-failures)) | dev.25 (managed hooks reuse their slot) |
+| Hook link slots | 65,536 per process, never freed; a re-install of the same mod, kind and address reuses its slot (dev.25) | kiln.hooks' stubs ([services/hooks.md](../services/hooks.md#limits-and-failures)) | not in a release yet |
 | Water in a container | 1,023 charges | the game sends a container's water to players as charges × 64 in 16 bits ([item-blocks.md](item-blocks.md)) | not in a release yet |
 
 ## Seen failing in the game
@@ -93,7 +100,7 @@ From real-client test records. "Now" says what the tree does today.
 
 | What | Where it was seen | Now |
 |---|---|---|
-| Admin commands reach the real Steam account: `level` on a local test character unlocked three real achievements, and restoring saves did not undo them | real client, test round 2, 2026-11-05 | no guard in dev.24; a guard on achievement writes is in work for dev.25. Do not run level or knowledge commands on a Steam account you care about |
+| Admin commands reach the real Steam account: `level` on a local test character unlocked three real achievements, and restoring saves did not undo them | real client, test round 2, 2026-11-05 | dev.25: `Kiln.SteamGuard` (experimental, `KILNX002`) drops the client's achievement reports while held or latched, and Kiln.Admin's level, experience, knowledge and quest commands latch it first. It has not run in a real client. Not covered: `/questadmin`, quest rewards paid later to a player who was offline, the game's own stat reset, other mods' Steam calls, a player without Kiln. Do not run level or knowledge commands on a Steam account you care about |
 | Too many wall materials crash a hosting game: 65 and 67 items in the wall pool, three crashes out of three when entering a hosted world | real client, build 26430625, 2026-11-06 | Kiln refuses a wall material past the pool's room, by name (works on a test server) ([services/worldtables.md](../services/worldtables.md)) |
 | A client without Kiln crashes joining a server that has entities of Kiln-added templates, about 2 s into its loading screen | real client, test round 2, 2026-11-05 | the server holds an unproven client and refuses it or lets it in without those entities; tested with simulated peers, not yet run in a client ([network.md](../network.md)) |
 | Ore painting (`/glacier-vein` in TerrainSample) filled 0 cells in a hosted world and said "ok" | real client, 2026-11-06 | the sample finds the ground and fails when no cell changed; a cell edit on a hosting client has not run yet ([world-blocks.md](world-blocks.md)) |

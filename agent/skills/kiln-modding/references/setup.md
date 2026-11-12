@@ -2,7 +2,7 @@
 
 Wiki: [dev kit](https://frostdev.io/kiln/wiki/dev-kit), [your first mod](https://frostdev.io/kiln/wiki/first-mod).
 
-`Kiln.Api`, `Kiln.Sdk` and `Kiln.Templates` share the full MDK pack version: `0.2.0-dev.22` for this release, or a unique
+`Kiln.Api`, `Kiln.Sdk` and `Kiln.Templates` share the full MDK pack version: `0.2.0-dev.24` for this release, or a unique
 `0.2.0-dev.local.<date>.<time>` for a local pack. `0.2.0` is only the source's base version. These packages use a local feed,
 not nuget.org: pass the MDK feed as `--feed` or `$KILN_FEED`. Use the actual pack version when editing a project by hand.
 
@@ -32,9 +32,14 @@ dotnet new kiln-mod -n MyMod --feed <feed> --server <server folder> --tests --se
 installed MDK to confirm availability. These add typed blocks and/or `blocks/*.json`; keep the form you need. `items` and
 `creature` remain the clone-based path when a block has no field for the change. [blocks.md](blocks.md).
 
+**dev.25+ (in development):** `dotnet new kiln-unit-test -n MyMod.Tests --mod ../MyMod/MyMod.csproj` makes an xunit project on
+the `Kiln.TestKit` package ([testing.md](testing.md)). `Game` in `KilnServices` references `Kiln.Game` (`Kiln.Ecs` typed reads);
+the build then writes `kiln.gametypes.json` beside the mod, which Kiln checks at load. Release packs carry their full version
+(`0.2.0-dev.25`) and an SDK feed folder (`sdk/feed/`).
+
 The project file:
 ```xml
-<Project Sdk="Kiln.Sdk/0.2.0-dev.22">
+<Project Sdk="Kiln.Sdk/0.2.0-dev.24">
   <PropertyGroup>
     <KilnModId>my-mod</KilnModId>
     <Version>1.0.0</Version>
