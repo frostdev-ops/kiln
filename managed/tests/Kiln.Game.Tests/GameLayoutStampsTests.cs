@@ -140,6 +140,33 @@ public class GameLayoutStampsTests
         Assert.Equal("Lanterns.dll: Kiln.Ecs+Lamp: the attribute view Values (Span<float>) is gone in this Kiln.Game (server 00000000)", reason);
     }
 
+    [Theory]
+    [InlineData("component", "event")]
+    [InlineData("event", "struct")]
+    public void A_changed_role_is_refused_even_with_the_same_layout_hash(string was, string now)
+    {
+        var table = Table.Replace("24\tcomponent\tglow", "24\t" + now + "\tglow", StringComparison.Ordinal);
+        Assert.False(GameLayoutStamps.Check(Stamp($$"""
+            "Kiln.Ecs+Lamp": { "layout": "00000000000000a1", "role": "{{was}}", "attribute": null, "fields": {} }
+            """), table, out var reason));
+        Assert.Equal($"Lanterns.dll: Kiln.Ecs+Lamp: role changed from {was} to {now} in this Kiln.Game (server 00000000)", reason);
+    }
+
+    [Theory]
+    [InlineData("float")]
+    [InlineData("int")]
+    public void A_lost_or_retyped_attribute_interface_is_refused_without_a_Values_member_reference(string element)
+    {
+        Assert.False(Check(Stamp($$"""
+            "Kiln.Ecs+Lamp": { "layout": "00000000000000a1", "role": "component", "attribute": "{{element}}", "fields": {} }
+            """), out var reason));
+        Assert.Contains($"Kiln.Ecs+Lamp: attribute element changed from {element} to none", reason, StringComparison.Ordinal);
+        Assert.False(Check(Stamp($$"""
+            "Kiln.Ecs+Warmth": { "layout": "00000000000000e5", "role": "component", "attribute": "double", "fields": {} }
+            """), out reason));
+        Assert.Contains("Kiln.Ecs+Warmth: attribute element changed from double to float", reason, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void Bad_json_is_refused()
     {

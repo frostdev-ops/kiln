@@ -84,6 +84,10 @@
     <MSBuild Projects="../../Kiln.Game/Kiln.Game.csproj" Targets="Build" Properties="KilnGameVariant=stamp-e;KilnGameDump=$(_KilnStampDir)e.json;$(_KilnStampLegacy)">
       <Output TaskParameter="TargetOutputs" ItemName="_KilnStampE" />
     </MSBuild>
+    <MSBuild Projects="../../Kiln.Game/Kiln.Game.csproj" Targets="Build" Properties="KilnGameVariant=stamp-f;KilnGameDump=$(_KilnStampDir)f.json;$(_KilnStampLegacy)">
+      <Output TaskParameter="TargetOutputs" ItemName="_KilnStampF" />
+    </MSBuild>
+    <Copy SourceFiles="@(_KilnStampF)" DestinationFolder="$(OutDir)variants/stamp-f" SkipUnchangedFiles="true" />
     <Copy SourceFiles="@(_KilnStampA)" DestinationFolder="$(OutDir)variants/stamp-a" SkipUnchangedFiles="true" />
     <Copy SourceFiles="@(_KilnStampB)" DestinationFolder="$(OutDir)variants/stamp-b" SkipUnchangedFiles="true" />
     <Copy SourceFiles="@(_KilnStampC)" DestinationFolder="$(OutDir)variants/stamp-c" SkipUnchangedFiles="true" />

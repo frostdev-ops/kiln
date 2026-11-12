@@ -312,7 +312,12 @@ with this assembly's table:
 - `schema` other than 1, unreadable JSON, not an object: refused, with that reason.
 - `layoutSet` equal to the table's `set`: fine.
 - a stamped type this assembly lacks: refused, naming the type.
-- equal layout hash: fine. Different: every stamped field or method must exist with the same C# type, every stamped enum
+- for every named struct, its stamped `role` (`component`, `event`, `struct`) and `attribute` element type (or null)
+  must match. These are checked **before** the per-type hash shortcut: a component can leave the component list with
+  every byte unchanged, yet break a mod's generic constraint. The element type comes from the table's `Values` view,
+  emitted together with `IGameAttribute<TSelf, TValue>`; no direct `get_Values` call is needed for this check.
+  Older schema-1 stamps without these properties retain their previous checks.
+- equal layout hash: fine after those checks. Different: every stamped field or method must exist with the same C# type, every stamped enum
   value must exist with the same number; otherwise refused, naming the type, the field or value, and what it changed
   from and to. A type whose layout changed while what the mod uses did not is fine (new fields, new enum values,
   moved fields).
@@ -632,11 +637,11 @@ converts `Lamp.wick` (an `Ecs.WickId` wrapper) to `uint` and reads `Glow.Values`
   "types": {
     "Kiln.Ecs+Glimmer_Mode": { "layout": "3a947bfe0c52a885", "values": { "Off": 0, "Dim": 1, "Bright": 2 } },
     "Kiln.Ecs+Glimmer_ModeMask": { "layout": "3b7d12d47050fbc8", "values": { "Off": 1, "Dim": 2, "Bright": 4 } },
-    "Kiln.Ecs+Glow": { "layout": "3b820f10b22aab59", "fields": { "get_Values": "Span<float>" } },
-    "Kiln.Ecs+Lamp": { "layout": "78c59da4f8db77c4",
+    "Kiln.Ecs+Glow": { "layout": "3b820f10b22aab59", "role": "component", "attribute": "float", "fields": { "get_Values": "Span<float>" } },
+    "Kiln.Ecs+Lamp": { "layout": "78c59da4f8db77c4", "role": "component", "attribute": null,
                        "fields": { "core": "Ecs.LampCore", "flags": "Ecs.Glimmer_ModeMask", "glow": "float", "mode": "Ecs.Glimmer_Mode", "wick": "Ecs.WickId" } },
-    "Kiln.Ecs+LampCore": { "layout": "ed4894308b12acb3", "fields": { "heat": "float", "ticks": "uint" } },
-    "Kiln.Ecs+WickId": { "layout": "4576842960f4952e", "fields": { "op_Implicit": "uint" } }
+    "Kiln.Ecs+LampCore": { "layout": "ed4894308b12acb3", "role": "struct", "attribute": null, "fields": { "heat": "float", "ticks": "uint" } },
+    "Kiln.Ecs+WickId": { "layout": "4576842960f4952e", "role": "struct", "attribute": null, "fields": { "op_Implicit": "uint" } }
   }
 }
 ```
@@ -714,9 +719,11 @@ element type, is refused before load (§3.7). Not covered, and not checked befor
   (the wrapper `WickId` gained a field) `Check` refuses with `StampMod.dll: Kiln.Ecs+WickId: the conversion to and from
   uint is gone in this Kiln.Game (server 00000000): it is no longer a single-field wrapper`, and without the check the
   code throws `MissingMethodException` naming `op_Implicit`; against `stamp-e` (`Glow` holds ints) it refuses with
-  `StampMod.dll: Kiln.Ecs+Glow: the attribute view Values changed from Span<float> to Span<int> in this Kiln.Game
+  `StampMod.dll: Kiln.Ecs+Glow: attribute element changed from float to int in this Kiln.Game
   (server 00000000)`, and without the check reading `Values` throws `MissingMethodException` naming `get_Values`
-  while the Lamp code still runs.
+  while the Lamp code still runs. Against `stamp-f`, Lamp leaves the component list but stays nested in Torch with
+  the same layout hash: the check refuses Lamp by name for its changed role; without it a generic
+  `IGameComponent<T>` call throws `VerificationException`.
 - `Kiln.Host.Tests/GameTypesTests` (in the host patch): the variant name, the file choice, the log line, a refused mod
   (state failed, the reason in the record and the log), a passing stamp, a stale MVID, no Kiln.Game, an older one.
 

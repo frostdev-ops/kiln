@@ -117,12 +117,16 @@ public class StampTaskTests
                 },
                 "Kiln.Ecs+Glow": {
                   "layout": "{{L("Kiln.Ecs+Glow")}}",
+                  "role": "component",
+                  "attribute": "float",
                   "fields": {
                     "get_Values": "Span<float>"
                   }
                 },
                 "Kiln.Ecs+Lamp": {
                   "layout": "{{L("Kiln.Ecs+Lamp")}}",
+                  "role": "component",
+                  "attribute": null,
                   "fields": {
                     "core": "Ecs.LampCore",
                     "flags": "Ecs.Glimmer_ModeMask",
@@ -133,6 +137,8 @@ public class StampTaskTests
                 },
                 "Kiln.Ecs+LampCore": {
                   "layout": "{{L("Kiln.Ecs+LampCore")}}",
+                  "role": "struct",
+                  "attribute": null,
                   "fields": {
                     "heat": "float",
                     "ticks": "uint"
@@ -140,6 +146,8 @@ public class StampTaskTests
                 },
                 "Kiln.Ecs+WickId": {
                   "layout": "{{L("Kiln.Ecs+WickId")}}",
+                  "role": "struct",
+                  "attribute": null,
                   "fields": {
                     "op_Implicit": "uint"
                   }

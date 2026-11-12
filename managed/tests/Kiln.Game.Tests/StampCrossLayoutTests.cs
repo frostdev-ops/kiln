@@ -198,7 +198,29 @@ public class StampCrossLayoutTests
         var stamp = Stamps.ModStamp();
         var (ok, reason) = With("e", (game, _) => Check(game, stamp));
         Assert.False(ok);
-        Assert.Equal("StampMod.dll: Kiln.Ecs+Glow: the attribute view Values changed from Span<float> to Span<int> in this Kiln.Game (server 00000000)", reason);
+        Assert.Equal("StampMod.dll: Kiln.Ecs+Glow: attribute element changed from float to int in this Kiln.Game (server 00000000)", reason);
+    }
+
+    [Fact]
+    public void A_type_that_stops_being_a_component_is_refused_even_when_its_layout_hash_is_unchanged()
+    {
+        var a = Stamps.Line(Stamps.Table(Stamps.Variant("a")), "Kiln.Ecs+Lamp");
+        var f = Stamps.Line(Stamps.Table(Stamps.Variant("f")), "Kiln.Ecs+Lamp");
+        Assert.Equal(a[2], f[2]);
+        Assert.Equal("component", a[5]);
+        Assert.Equal("struct", f[5]);
+        var (ok, reason) = With("f", (game, _) => Check(game, Stamps.ModStamp()));
+        Assert.False(ok);
+        Assert.Equal("StampMod.dll: Kiln.Ecs+Lamp: role changed from component to struct in this Kiln.Game (server 00000000)", reason);
+    }
+
+    [Fact]
+    public void Without_the_check_a_lost_component_role_breaks_the_mods_generic_constraint()
+    {
+        Assert.Equal("keen::ecs::Lamp", With("a", (_, mod) => Read(mod, [], "LampComponent")));
+        var e = Assert.ThrowsAny<Exception>(() => With("f", (_, mod) => Read(mod, [], "LampComponent")));
+        Assert.IsType<System.Security.VerificationException>(e);
+        Assert.Contains("Lamp", e.Message, StringComparison.Ordinal);
     }
 
     [Fact]

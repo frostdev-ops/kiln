@@ -11,6 +11,7 @@ c.json  a field the mod uses changed type: Lamp.glow is a float64 instead of a f
 d.json  the wrapper WickId gained a field (gen), so it is no longer a wrapper and has no implicit conversions; Lamp.wick
         keeps its type name and grows to 8 bytes.
 e.json  the attribute component Glow's dataStorage holds sint32 instead of float32: its Values view is a Span<int>.
+f.json  Lamp leaves the component list but stays nested in Torch, with its own layout unchanged.
 All of them also hold types the mod never names (Torch, Glimmer_Hue), which must not appear in its stamp.
 """
 import json
@@ -58,7 +59,7 @@ def dump(variant):
     t("keen::glimmer::Hue", 12, 1, 1, "keen::uint8", values=[("Amber", 0), ("Blue", 1)])
     t("keen::Bitmask8<keen::glimmer::Mode>", 13, 1, 1, "keen::glimmer::Mode")
     t("keen::LampCore", 18, 8, 4, fields=[("heat", 0, "keen::float32"), ("ticks", 4, "keen::uint32")])
-    if variant in ("a", "e"):
+    if variant in ("a", "e", "f"):
         lamp = (20, 4, [("glow", 0, "keen::float32"), ("wick", 4, "keen::ecs::WickId"), ("mode", 8, "keen::glimmer::Mode"),
                         ("flags", 9, "keen::Bitmask8<keen::glimmer::Mode>"), ("spare", 10, "keen::uint16"),
                         ("core", 12, "keen::LampCore")])
@@ -75,15 +76,22 @@ def dump(variant):
                         ("flags", 13, "keen::Bitmask8<keen::glimmer::Mode>"), ("spare", 14, "keen::uint16"),
                         ("core", 16, "keen::LampCore")])
     t("keen::ecs::Lamp", 18, lamp[0], lamp[1], "keen::ecs::Component", lamp[2])
-    t("keen::ecs::Torch", 18, 8, 4, "keen::ecs::Component", [("fuel", 0, "keen::float32"), ("hue", 4, "keen::glimmer::Hue")])
+    torch = [("fuel", 0, "keen::float32"), ("hue", 4, "keen::glimmer::Hue")]
+    if variant == "f":
+        # Lamp stops being a component but remains in the closure as a nested struct; its layout is unchanged.
+        torch.append(("lamp", 8, "keen::ecs::Lamp"))
+    t("keen::ecs::Torch", 18, 28 if variant == "f" else 8, 4, "keen::ecs::Component", torch)
     types.sort(key=lambda e: e["qualifiedName"])
+    components = ["keen::ecs::Component", "keen::ecs::Glow", "keen::ecs::Torch"]
+    if variant != "f":
+        components.append("keen::ecs::Lamp")
     return {"schema": 2, "side": "server", "exe_sha256": "0" * 62 + "0" + variant,
-            "components": sorted(["keen::ecs::Component", "keen::ecs::Glow", "keen::ecs::Lamp", "keen::ecs::Torch"]),
+            "components": sorted(components),
             "events": [],
             "types": types}
 
 
-for v in "abcde":
+for v in "abcdef":
     path = os.path.join(sys.argv[1], v + ".json")
     with open(path, "w", newline="\n") as f:
         json.dump(dump(v), f, indent=1)

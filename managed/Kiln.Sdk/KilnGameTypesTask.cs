@@ -12,7 +12,8 @@ namespace Kiln.Sdk;
 /// <summary>
 /// Writes the mod's layout stamp, <c>kiln.gametypes.json</c> in <see cref="OutputDirectory"/>: for every generated game
 /// type of <c>Kiln.Game</c> the built mod references (<c>Kiln.Ecs+Lamp</c>), the layout hash it was compiled against,
-/// the fields it names with their C# types, and for an enum or bitmask all its values. Kiln.Host compares it with the
+/// the fields it names with their C# types, each named struct's role and attribute element type (or null), and for an
+/// enum or bitmask all its values. Kiln.Host compares it with the
 /// loaded <c>Kiln.Game</c> before the mod loads (<c>GameLayoutStamps.Check</c>, docs/kiln/typegen.md §3.7).
 /// Both assemblies are read with System.Reflection.Metadata and never loaded. The layouts come from the table embedded
 /// in <see cref="GameReference"/> (resource <c>Kiln.Game.layouts</c>); a type that is not in it (the nine legacy types
@@ -212,6 +213,8 @@ public sealed class KilnGameTypes : Microsoft.Build.Utilities.Task
                 w.WriteString("layout", t.Layout);
                 if (t.Fields is { } fields)
                 {
+                    w.WriteString("role", t.Role);
+                    w.WriteString("attribute", t.Attribute);
                     w.WriteStartObject("fields");
                     foreach (var f in used[name]) w.WriteString(f, fields[f]);
                     w.WriteEndObject();
@@ -245,6 +248,7 @@ public sealed class KilnGameTypes : Microsoft.Build.Utilities.Task
         internal sealed class Entry
         {
             public required string Layout;
+            public string? Role, Attribute;
             public Dictionary<string, string>? Fields;        // struct: name -> C# type, as in the table
             public List<(string Name, string Value)>? Values;  // enum or bitmask: in table order
         }
@@ -284,6 +288,7 @@ public sealed class KilnGameTypes : Microsoft.Build.Utilities.Task
                 var e = new Entry { Layout = p[2] };
                 if (p[0] == "S")
                 {
+                    e.Role = p[5];
                     e.Fields = new(StringComparer.Ordinal);
                     foreach (var m in p.Skip(6))
                     {
@@ -296,6 +301,9 @@ public sealed class KilnGameTypes : Microsoft.Build.Utilities.Task
                         e.Fields[m[..at]] = m[(colon + 1)..];
                         if (m.AsSpan(at + 1, colon - at - 1).SequenceEqual("method")) t.Methods.Add((p[1], m[..at]));
                     }
+                    // The generator emits Values and IGameAttribute<TSelf, TValue> together, with the same element.
+                    if (e.Fields.TryGetValue("get_Values", out var view) && view.StartsWith("Span<", StringComparison.Ordinal) && view.EndsWith('>'))
+                        e.Attribute = view[5..^1];
                 }
                 else
                 {

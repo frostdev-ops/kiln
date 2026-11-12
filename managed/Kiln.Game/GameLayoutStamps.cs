@@ -95,6 +95,24 @@ public static class GameLayoutStamps
                     return Fail(out reason, $"{who}{t.Name} is not in this Kiln.Game ({table.Describe()})");
                 if (t.Value.ValueKind != JsonValueKind.Object)
                     return Fail(out reason, $"{who}{t.Name}: the stamp's entry is not an object");
+                // Roles are not part of the physical layout hash. Check them before the per-type shortcut: losing a
+                // marker interface breaks a mod's generic constraints even if every byte of the struct stays the same.
+                // Older schema-1 stamps omitted these members and retain their previous checks.
+                if (t.Value.TryGetProperty("role", out var role))
+                {
+                    if (role.ValueKind != JsonValueKind.String)
+                        return Fail(out reason, $"{who}{t.Name}: the stamp's role is not a string");
+                    if (!string.Equals(role.GetString(), have.Role, StringComparison.Ordinal))
+                        return Fail(out reason, $"{who}{t.Name}: role changed from {role.GetString()} to {have.Role ?? "non-struct"} in this Kiln.Game ({table.Describe()})");
+                }
+                if (t.Value.TryGetProperty("attribute", out var attribute))
+                {
+                    if (attribute.ValueKind is not (JsonValueKind.String or JsonValueKind.Null))
+                        return Fail(out reason, $"{who}{t.Name}: the stamp's attribute element is not a string or null");
+                    var was = attribute.GetString();
+                    if (!string.Equals(was, have.Attribute, StringComparison.Ordinal))
+                        return Fail(out reason, $"{who}{t.Name}: attribute element changed from {was ?? "none"} to {have.Attribute ?? "none"} in this Kiln.Game ({table.Describe()})");
+                }
                 if (t.Value.TryGetProperty("layout", out var lay) && lay.ValueKind == JsonValueKind.String &&
                     string.Equals(lay.GetString(), have.Layout, StringComparison.OrdinalIgnoreCase))
                     continue;
@@ -152,6 +170,7 @@ public static class GameLayoutStamps
     private sealed class Entry
     {
         public required string Layout;
+        public string? Role, Attribute;
         public Dictionary<string, string>? Fields;   // struct: field (or generated method) name -> C# type as written in the generated source
         public Dictionary<string, decimal>? Values;  // enum or bitmask: name -> value
     }
@@ -201,6 +220,7 @@ public static class GameLayoutStamps
                 var e = new Entry { Layout = p[2] };
                 if (p[0] == "S")
                 {
+                    e.Role = p[5];
                     e.Fields = new(StringComparer.Ordinal);
                     foreach (var m in p.Skip(6))
                     {
@@ -208,6 +228,9 @@ public static class GameLayoutStamps
                         if (at <= 0 || colon < at) { t.Error = "bad field " + m + " of " + p[1]; return t; }
                         e.Fields[m[..at]] = m[(colon + 1)..];
                     }
+                    // The generator emits Values and IGameAttribute<TSelf, TValue> together, with the same element.
+                    if (e.Fields.TryGetValue(ValuesMethod, out var view) && view.StartsWith("Span<", StringComparison.Ordinal) && view.EndsWith('>'))
+                        e.Attribute = view[5..^1];
                 }
                 else
                 {

@@ -27,6 +27,9 @@ public static class Probe
         return string.Create(CultureInfo.InvariantCulture, $"values={values[0]},{values[1]}");
     }
 
+    public static string LampComponent(byte[] _) => Component<Ecs.Lamp>();
+    static string Component<T>() where T : unmanaged, IGameComponent<T> => T.QualifiedName;
+
     static bool IsBright(Ecs.Lamp lamp) => lamp.mode == Ecs.Glimmer_Mode.Bright;
 
     // Roslyn emits only the number 1, not a reference to Glimmer_Hue: intentionally not stampable from metadata.
