@@ -239,6 +239,21 @@ void GRegistry::add(GEntry e) {
     entries.push_back(std::move(e));
 }
 
+void GRegistry::rename(uint32_t id, const std::string& name) {
+    auto it = by_id.find(id);
+    if (it == by_id.end()) return;
+    const uint32_t i = it->second;
+    GEntry& e = entries[i];
+    if (e.name == name) return;
+    if (auto n = by_name.find(e.name); n != by_name.end() && n->second == i) by_name.erase(n);
+    if (auto n = by_lower.find(lower(e.name)); n != by_lower.end() && n->second == i) by_lower.erase(n);
+    e.name = name;
+    if (!name.empty()) {
+        by_name.emplace(name, i);
+        by_lower.emplace(lower(name), i);
+    }
+}
+
 const GEntry* GRegistry::get(uint32_t id) const {
     auto it = by_id.find(id);
     return it == by_id.end() ? nullptr : &entries[it->second];
@@ -279,6 +294,25 @@ std::vector<const GEntry*> GRegistry::select(const std::string& sel) const {
     }
     if (const GEntry* e = lookup(sel)) out.push_back(e);
     return out;
+}
+
+void sequence_clone_entries(GRegistry& S, const uint8_t guid[16], const std::string& name, uintptr_t subs, uint32_t n, size_t stride) {
+    for (uint32_t k = 0; k < n && k < 64; ++k) {
+        const uint32_t id = sub_id(guid, static_cast<int>(k));
+        if (S.get(id)) {
+            // A later world of this process: kiln.assets still serves the clone, and build_sections listed it with the game's sequences under
+            // the sub-sequence name its bytes copy from the base (the base's, so its GUID). Its own name, or a block that names it fails here
+            // ("is neither a GUID nor the name of a template, sequence or perk": a joined server after a hosted game, a second hosted world).
+            S.entries[S.by_id.at(id)].clone = true;
+            S.rename(id, k ? name + "#" + std::to_string(k) : name);
+            continue;
+        }
+        GEntry e;
+        e.id = id, e.addr = subs + static_cast<uintptr_t>(k) * stride, e.sub = static_cast<int32_t>(k), e.clone = true;
+        e.name = k ? name + "#" + std::to_string(k) : name;
+        std::memcpy(e.guid, guid, 16);
+        S.add(std::move(e));
+    }
 }
 
 std::string entry_key(uint32_t section, const GEntry& e) {

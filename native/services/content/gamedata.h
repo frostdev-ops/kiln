@@ -167,6 +167,7 @@ struct GRegistry {
     std::unordered_map<std::string, uint32_t> by_name, by_lower;
     void clear();
     void add(GEntry e);
+    void rename(uint32_t id, const std::string& name);  // the index follows; a name another entry has stays that entry's (as in add)
     const GEntry* get(uint32_t id) const;
     const GEntry* lookup(const std::string& key) const;          // name, ci name, 0x id, GUID ("guid#k" for subs)
     std::vector<const GEntry*> select(const std::string& sel) const;  // + globs; a GUID selects every sub of it
@@ -182,6 +183,10 @@ std::string entry_key(uint32_t section, const GEntry& e);  // export key: GUID (
 Node root_of(uint32_t section, const GEntry& e);
 // Arsenal entries by template ("template:<name>"), skill nodes by unlocked item ("item:<name>").
 const GEntry* lookup_alias(uint32_t section, const std::string& key);
+// A sequence clone's sub-sequences (n of them, `stride` bytes apart from `subs`) as clone entries "<name>", "<name>#k"
+// (ids FNV-1a(guid), ^ k * 0x9E3779B1 for k > 0). Entries the registry already has are renamed: in a later world of the
+// process kiln.assets still serves the clone, so build_sections listed it with the game's sequences under its GUID.
+void sequence_clone_entries(GRegistry& S, const uint8_t guid[16], const std::string& name, uintptr_t subs, uint32_t n, size_t stride);
 
 // ============================================================================================= changes ==========
 // Applies one value (any JSON for a path) as owner's layer; fans out over [*] and struct objects. Returns the number
