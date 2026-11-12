@@ -39,6 +39,13 @@ void boot_complete();
 }  // namespace kiln::caps
 
 namespace kiln {
+
+// api.cpp: KilnPluginInfo.on_unload at process exit. The sequence is there; its trigger is armed below.
+size_t unload_prepare();
+DWORD unload_handler_ms();
+DWORD unload_total_ms();
+void unload_run(uint32_t exit_code, const char* via);
+
 namespace {
 
 bool g_booted = false;
@@ -258,6 +265,59 @@ void write_boot_json(const BootFacts& f) {
         KLOG_W("state: cannot write %s", u8(paths().state / L"boot.json").c_str());
 }
 
+// ---- the exit trigger for on_unload ----
+// Every ExitProcess path meets in ntdll!RtlExitUserProcess: the game's CRT exit after main returns (under Wine it goes
+// through mscoree!CorExitProcess, past the exe's own ExitProcess import), kernelbase's ExitProcess (an export forwarded
+// there), any other DLL's ExitProcess. One raw link there runs the sequence on the way in, before the loader lock is
+// taken and while the other threads still run (kernel32!ExitProcess when that link cannot be placed). The link lives for
+// the process, like the tick's; hooks.json lists it as "kiln/unload" (its "rva" is relative to the exe, which it is
+// not in). Contract for plugin authors: kiln_api.h, KilnPluginInfo.on_unload.
+void* g_exit_next = nullptr;  // the chain's continuation: the real exit
+const char* g_exit_via = "";
+
+// RtlExitUserProcess(NTSTATUS) and ExitProcess(UINT): one 32-bit argument, no return (x64 has one convention).
+void exit_call(uint32_t code) {
+    try {
+        unload_run(code, g_exit_via);
+    } catch (...) {  // /EHa: a fault of the sequence itself must not keep the process from exiting
+    }
+    reinterpret_cast<void (*)(uint32_t)>(g_exit_next)(code);
+}
+
+// After every module ran kiln_plugin_main and on_ready, only with hooks on (no plugin is loaded in safe idle), and only
+// when a loaded module has an on_unload.
+void arm_unload() {
+    const size_t n = unload_prepare();
+    if (!n) return;
+    if (!hooks::ensure_ready()) {
+        KLOG_W("unload: kiln.hooks is not ready; %zu on_unload handler(s) will not be called", n);
+        return;
+    }
+    const struct {
+        const wchar_t* dll;
+        const char* fn;
+        const char* via;
+    } at[] = {{L"ntdll.dll", "RtlExitUserProcess", "ntdll!RtlExitUserProcess"},
+              {L"kernel32.dll", "ExitProcess", "kernel32!ExitProcess"}};
+    for (const auto& a : at) {
+        const HMODULE m = GetModuleHandleW(a.dll);
+        const auto target = m ? reinterpret_cast<uintptr_t>(GetProcAddress(m, a.fn)) : 0;
+        if (!target) continue;
+        hooks::chain::Order o;
+        o.label = "kiln/unload";
+        KilnHandle h = 0;
+        g_exit_via = a.via;
+        if (hooks::chain::install_raw(0, target, o, reinterpret_cast<void*>(&exit_call), &g_exit_next, &h) == KILN_OK) {
+            KLOG_I("unload: %zu on_unload handler(s) will be called when the process exits with code 0 (link on %s; "
+                   "up to %lu ms each, %lu ms in all)",
+                   n, a.via, unload_handler_ms(), unload_total_ms());
+            return;
+        }
+        KLOG_W("unload: no link on %s", a.via);
+    }
+    KLOG_W("unload: the process exit cannot be watched; %zu on_unload handler(s) will not be called", n);
+}
+
 void boot() {
     snapshot_entry();  // before anything loads a DLL
     init_paths();
@@ -334,6 +394,7 @@ void boot() {
     for (const auto& feature : sigdb::failed_features()) KLOG_W("feature %s unavailable on this build", feature.c_str());
 
     if (hooks) load_plugins();  // kiln/services/*.dll, then plugins (profile-aware), then on_ready
+    if (hooks) arm_unload();    // on_unload at the process's exit call
     for (const auto& p : plugin_records())
         if (std::string_view(p.status) == "failed") f.errors.push_back("plugin " + p.file + ": " + p.error);
     native_mods::run_boot();
