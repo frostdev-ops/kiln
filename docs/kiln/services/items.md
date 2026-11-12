@@ -235,11 +235,37 @@ followed. In order:
 2. A transfer report (the game's quick stack or move all, also `Items.QuickStack` / `Items.MoveAll`) makes the tracker
    read again at once the followed items whose holder is the report's from or to: cause `Transfer`. A followed item makes
    the tracker register one report listener, which installs kiln.items' two transfer hooks (never removed; chained).
-3. One batched location read of every followed item per step catches the rest: cause `Observed`, reported when two reads
-   in a row agree (one step later than the move), so a hooked report of the same move wins.
+3. The per-step read catches the rest, within a budget: cause `Observed`, reported when two reads in a row agree, so a
+   hooked report of the same move wins. 1 and 2 are not limited by the budget.
+4. A fresh read through Kiln.Items' internal face (Kiln.Saves reads every item with data at each save) brings a followed
+   item's location up to date (as an `Observed` move when it changed): the tracker is never older than the last such
+   read.
 
-A followed item that is gone (not found, or the id holds another item entity) is reported once with its last known
-location and is no longer followed.
+A followed item that is gone (not found, or the id holds another item entity) is reported once with its last placed
+location and is no longer followed. A read that finds an item entity that exists but sits in no holder's slot changes
+nothing: no move, no candidate, the last placed location stays. That is what a holder's teardown looks like: the holder
+(a player leaving, a chest destroyed) goes in one call and its item entities one step later (the leave-order
+investigation, `out/instances/t3/leave-order.md`), so the gone that follows carries the location in that holder.
+
+#### The budget
+Each step the per-step read reads, in one native call, the next **64** followed items of a rotation (in the order they
+were followed) and, outside the rotation, up to **64** items a read found somewhere new one step earlier, until each is
+reported or back where it was. Only a read that finds an item somewhere new adds such an item, so the rotation adds at
+most 64 a step, and a step reads at most 128 items, whatever the number followed (lab cost below). With N items
+followed:
+- every item is read at least once every ceil(N / 64) steps;
+- a move no hook names is reported at most **ceil(N / 64) + 1** steps after the step it happened in (the rotation's read
+  that sees it, then the confirming read; it waits a step longer only when more than 64 items keep moving every step);
+- a gone item is reported at most **ceil(N / 64)** steps after it went (no confirmation is needed).
+
+| Followed | Read every | A move reported within | A gone item within | the move, at 20.9 steps/s (lab) | the move, at 60 steps/s (a hosted world) |
+|---|---|---|---|---|---|
+| 64 or fewer | 1 step | 2 steps | 1 step | 0.1 s | 0.03 s |
+| 1,000 | 16 steps | 17 steps | 16 steps | 0.8 s | 0.3 s |
+| 10,000 | 157 steps | 158 steps | 157 steps | 7.6 s | 2.6 s |
+
+A dedicated server without players steps at about 21 to 25 steps a second. Nothing a save writes depends on this lag:
+the store reads every item with data and every holder's item list fresh at each save (below).
 
 Moves only the per-step read sees (they reach the inventories through the game's slot transfer `0x1b4550`, take/put
 `0x1b9620` / `0x1b7100`, or its equip path, none of which kiln.items hooks; docs/re/items.md section 13 and the item
@@ -352,9 +378,27 @@ difference only on a container a save already wrote, so the test writes in boot 
   and a start the holders came back as other entities (1153 → 1156, 1150 → 1152), found by template and position, and
   each sword was at the same flat slot, as a new item entity in a new inventory entity. The world save written before the
   restart holds the swords' records with slot bytes 8, 8 and 9 (`entity_chunk00`), the numbers kiln.items reported.
-- **What the per-step read costs** (lab at nice 19 on a busy PC, location reads of all followed items, average of 64
-  steps): 10 items 9.0 to 9.8 µs, 100 items 42.7 to 90.2 µs, 1000 items 4,604 µs. Nothing is read while nothing is
-  followed.
+- **What the per-step read costs**, with the budget (64 a step) and without (every followed item every step, the lab
+  switch `Items.LabTrackerReadsPerStep = 0`): one native location read per step, µs, average of 64 steps and the worst
+  step, two lab runs of two passes each (the lab at nice 19; the PC was busy: load average 20 to 31, other packages
+  building). 10,000 item entities: 420 spawned 24-slot containers (`Prop_Decoration_T1_Storage_24`).
+
+  | Followed | budget, average | budget, worst | without, average | without, worst |
+  |---|---|---|---|---|
+  | 10 | 6.1 to 22.6 | 9.1 to 706 | 6.8 to 36.9 | 10.3 to 1,022 |
+  | 100 | 28.8 to 42.3 | 82 to 809 | 33.0 to 161.7 | 47 to 5,371 |
+  | 1,000 | 25.2 to 72.0 | 36.5 to 2,535 | 291 to 380 | 1,266 to 2,381 |
+  | 10,000 | 21.3 to 24.5 | 34.6 to 37.8 | 2,328 to 2,372 | 6,622 to 8,637 |
+
+  With the budget a step reads 64 items (10 when fewer are followed) whatever the number followed; the worst steps above
+  a few dozen µs are the scheduler (they appear without the budget at 10 items as well). Without it the cost grows with
+  the number followed: 2.3 ms a step at 10,000.
+- **The bound holds:** 1,000 followed, the last item of the rotation moved by a move the hooks do not see right after the
+  rotation had read it: reported 18 steps after the step the move was asked in (it ran in the next one: 17 = ceil(1,000 /
+  64) + 1).
+- **A holder's teardown is not a move:** a container with 5 followed items destroyed (`Spawn.Destroy`): the next read
+  found them placed nowhere and reported nothing; the read after that reported each gone once, with its last placed
+  location in the container (destroyed at step 1634, gone at 1636; budget 0, so the one-step gap was read for sure).
 - **Census** (ids 1 to 2681 after a start): 67 item stamps, 1,219 SpawnTime serials, 232 entities without a serial (save
   props and scatter, the linked inventory entities, stations, NPCs), 1,163 ids absent.
 - With `KILN_LAB_NO_ENTITY_SOURCES=1` check 1 and check 2 fail ("no service supplies entity serials in this process").
