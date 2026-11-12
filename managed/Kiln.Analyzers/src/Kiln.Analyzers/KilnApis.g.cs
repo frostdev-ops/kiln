@@ -641,6 +641,7 @@ internal static partial class KilnApis
         "Items",
         "Network",
         "Permissions",
+        "PlayerAnim",
         "Players",
         "Quests",
         "Rules",
