@@ -1562,12 +1562,34 @@ fn probe_dir(path: &Path) -> std::result::Result<PathBuf, PathBuf> {
     Ok(last.to_path_buf())
 }
 
+/// String canonicalization on Unix need not fold case (for example exFAT). Compare actual ancestor identities too.
+#[cfg(unix)]
+fn identity_relation(path: &Path, current: &Path, contains: bool) -> Option<RefusalCode> {
+    use std::os::unix::fs::MetadataExt;
+    let id = |p: &Path| std::fs::metadata(p).ok().map(|m| (m.dev(), m.ino()));
+    let root = id(current)?;
+    for (i, a) in path.ancestors().enumerate() {
+        if id(a) == Some(root) {
+            return Some(if i == 0 { RefusalCode::SameFolder } else { RefusalCode::InsideCurrent });
+        }
+    }
+    if contains && let Some(target) = id(path) {
+        if current.ancestors().skip(1).any(|a| id(a) == Some(target)) {
+            return Some(RefusalCode::ContainsCurrent);
+        }
+    }
+    None
+}
+
 /// The places a data folder may not be (the same folder, inside the current one or (`contains`) around it, inside a
 /// game folder, a server's folder, or Kiln's state or settings folder).
 fn place_refusal(path: &Path, current: &Path, contains: bool, input: &CheckInput, style: PathStyle) -> Option<Refusal> {
     let p = PathParts::of(path, style);
     let shown = path.display();
-    match relation_to_current(&p, &PathParts::of(current, style), contains) {
+    let relation = relation_to_current(&p, &PathParts::of(current, style), contains);
+    #[cfg(unix)]
+    let relation = relation.or_else(|| (style == PathStyle::Unix).then(|| identity_relation(path, current, contains)).flatten());
+    match relation {
         Some(RefusalCode::SameFolder) => return Some(say(RefusalCode::SameFolder, format!("{shown} is the data folder already."))),
         Some(RefusalCode::InsideCurrent) => {
             return Some(say(RefusalCode::InsideCurrent, format!("{shown} is inside the current data folder {}.", current.display())));

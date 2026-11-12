@@ -147,6 +147,8 @@ The whole data folder moves as one (`kiln_manage::data_folder`, `kiln_manage::da
   `.kiln-data-move.json`, the copy of every entry, known and unknown (not the pointer, the journal, the file record,
   markers, lock files, the hash cache, and an entry the target keeps for itself, `Journal::skipped`: on Windows the
   default root's `state\`, which is `util::state_dir()`; it stays in the old folder and the result names it). A move
+  on Unix also compares `(dev, ino)` for existing ancestors before any target or write probe is made, so another
+  spelling on a case-insensitive disk cannot put the target inside the source. It
   never copies into, replaces or removes anything in the target that it did not make: a file or folder that is already
   there fails it (`conflict`, named). Hard links on one volume where they work, except what is written in place
   (`data_folder::written_in_place`: `logs/`, `profiles/<pid>/config/` and `data/`, `admin-assets/`, `editor-assets/`,

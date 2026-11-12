@@ -377,6 +377,46 @@ fn a_move_by_copies_keeps_times_and_permissions() {
 
 /// To a second volume (the exFAT disk) and back to the default root. Skipped, and said so, without
 /// `KILN_TEST_VOLUME_B` or when the disk is not there.
+#[cfg(unix)]
+#[test]
+fn a_symlink_alias_of_an_inside_folder_is_refused_before_creation() {
+    let fx = Fixture::build("inside-symlink");
+    let alias = fx.base.join("alias");
+    symlink(fx.dirs.root.join("library"), &alias).unwrap();
+    let picked = alias.join("new-destination");
+    let before = tree(&fx.dirs.root);
+    let result = df::check_here(&located(&fx.env), &fx.env, &picked, false).unwrap();
+    assert!(matches!(result, Err(ref r) if r.code == df::RefusalCode::InsideCurrent), "{result:?}");
+    assert!(!picked.exists());
+    assert_eq!(tree(&fx.dirs.root), before);
+}
+
+#[cfg(unix)]
+#[test]
+fn an_inside_target_with_another_case_is_refused_by_identity() {
+    let Some(b) = std::env::var_os("KILN_TEST_VOLUME_B").map(PathBuf::from).filter(|b| b.is_dir()) else {
+        eprintln!("SKIPPED identity alias: no second volume"); return;
+    };
+    struct Remove(PathBuf);
+    impl Drop for Remove { fn drop(&mut self) { let _ = std::fs::remove_dir_all(&self.0); } }
+    let base = b.join(format!("sol-f6-{}", std::process::id()));
+    std::fs::create_dir(&base).unwrap();
+    let _remove = Remove(base.clone());
+    let fx = Fixture::build("identity-alias");
+    let to = base.join("CURRENT");
+    mv(&fx, &to, &Facts { same_volume: Some(false), ..Facts::all_clear() }, &MoveOptions::default()).unwrap();
+    dfm::acknowledge(&fx.env).unwrap();
+    let alias = base.join("current");
+    if !alias.is_dir() { eprintln!("SKIPPED identity alias: second volume is case-sensitive"); return; }
+    assert_eq!(std::fs::metadata(&alias).unwrap().ino(), std::fs::metadata(&to).unwrap().ino());
+    let picked = alias.join("backups/new-destination");
+    let before = tree(&to);
+    let result = df::check_here(&located(&fx.env), &fx.env, &picked, false).unwrap();
+    assert!(matches!(result, Err(ref r) if r.code == df::RefusalCode::InsideCurrent), "{result:?}");
+    assert!(!picked.exists(), "refuse before making the target");
+    assert_eq!(tree(&to), before);
+}
+
 #[test]
 fn a_move_across_two_volumes_and_back() {
     let Some(b) = std::env::var_os("KILN_TEST_VOLUME_B").map(PathBuf::from) else {
