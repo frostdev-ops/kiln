@@ -59,7 +59,7 @@ fn cook_without_a_checkout_runs_the_tools_this_kiln_carries() {
     assert!(ok, "the cook: {said}");
     assert!(mod_dir.join("assets/cooked").is_dir(), "{said}");
     // the tools ran from the copy under the data folder, not from a checkout
-    let copies: Vec<PathBuf> = std::fs::read_dir(root.join("data/cooktools")).unwrap().flatten().map(|e| e.path()).collect();
+    let copies: Vec<PathBuf> = std::fs::read_dir(root.join("data/cooktools")).unwrap().flatten().map(|e| e.path()).filter(|p| p.is_dir()).collect();
     assert_eq!(copies.len(), 1, "one unpacked copy: {copies:?}");
     assert!(copies[0].join("tools/modelcook/modelcook.py").is_file() && copies[0].join(".complete").is_file());
     assert!(!root.join("no-checkout/tools").exists());

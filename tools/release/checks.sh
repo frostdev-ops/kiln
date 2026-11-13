@@ -165,6 +165,14 @@ check_cook_shipped() {
   helper=$copy/bin/kiln-soundcook
   [[ -x $helper ]] || { echo "soundcook's helper is not in the shipped copy"; return 1; }
   python3 "$lib/release.py" glibc "$copy/bin" --max "${glibc_max:-2.35}" --tmp "$d/glibc" || return
+  # the helper works: it says its version, and cooks a made-up 44.1 kHz stereo WAV, which only it can (the tools'
+  # own Python path takes 48 kHz only): decoded, resampled to 48 kHz, encoded
+  "$helper" version || return
+  python3 -I -c 'import math, struct, sys, wave
+w = wave.open(sys.argv[1], "wb"); w.setnchannels(2); w.setsampwidth(2); w.setframerate(44100)
+w.writeframes(b"".join(struct.pack("<hh", int(12000 * math.sin(i / 20)), int(12000 * math.sin(i / 31))) for i in range(8820))); w.close()' "$d/tone.wav" || return
+  "$helper" cook "$d/tone.wav" --pcm "$d/tone.pcm" --qoa "$d/tone.qoa" || return
+  [[ -s $d/tone.pcm && -s $d/tone.qoa ]] || { echo "the helper cooked nothing"; return 1; }
   env -u KILN_REPO -u KILN_GAME -u KILN_PYTHON KILN_DATA_DIR="$d/data" KILN_OUT="$d/out" "$out/sdk/kiln" cook "$d/mod" --game "$d/client" --check
 }
 

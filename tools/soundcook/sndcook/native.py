@@ -70,6 +70,10 @@ class Native:
         """The helper, or None when it is missing and cannot be built (callers then use the Python fallback)."""
         if explicit:
             return cls(explicit)
+        # The copy Kiln ships (kiln_manage::cooktools) names its helper in KILN_SOUNDCOOK and forbids building one:
+        # a player's machine compiles nothing.
+        if os.environ.get("KILN_SOUNDCOOK_NO_BUILD") == "1":
+            allow_build = False
         for p in candidates():
             if p.exists():
                 if allow_build and p.parent == _out_root() / "soundcook" / "bin" and _stale(p):
@@ -79,6 +83,8 @@ class Native:
                         log(f"soundcook: {e}")
                 return cls(p)
         if not allow_build:
+            if os.environ.get("KILN_SOUNDCOOK_NO_BUILD") == "1":
+                log("soundcook: this copy of the cook tools has no kiln-soundcook helper; using the pure-Python path (48 kHz WAV only, slower)")
             return None
         try:
             return cls(build(log))

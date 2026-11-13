@@ -66,6 +66,8 @@ def _system_libzstd():
                 lib.ZSTD_decompress.argtypes = [ctypes.c_char_p, ctypes.c_size_t, ctypes.c_char_p, ctypes.c_size_t]
                 lib.ZSTD_isError.restype = ctypes.c_uint
                 lib.ZSTD_isError.argtypes = [ctypes.c_size_t]
+                lib.ZSTD_findFrameCompressedSize.restype = ctypes.c_size_t
+                lib.ZSTD_findFrameCompressedSize.argtypes = [ctypes.c_char_p, ctypes.c_size_t]
             except (OSError, AttributeError):
                 continue
             _libzstd = lib
@@ -74,20 +76,32 @@ def _system_libzstd():
 
 
 def _libzstd_decompress(lib, data, size_hint):
+    """Every frame of `data`, one after the other (the standard library's decompress does the same). A frame that
+    does not say its size gets what is left of the hint, or 64 MiB; all frames together stay under _ZSTD_MAX_OUT."""
     import ctypes
     data = bytes(data)
-    size = lib.ZSTD_getFrameContentSize(data, len(data))
-    if size == _ZSTD_NOT_A_FRAME:
-        raise RuntimeError("zstd: not a zstd frame")
-    if size == _ZSTD_UNKNOWN:
-        size = size_hint or (64 << 20)
-    if size > _ZSTD_MAX_OUT:
-        raise RuntimeError(f"zstd: the frame says {size} bytes, more than any game resource holds")
-    out = ctypes.create_string_buffer(max(size, 1))
-    n = lib.ZSTD_decompress(out, size, data, len(data))
-    if lib.ZSTD_isError(n):
-        raise RuntimeError("zstd: the data does not decompress (damaged, or larger than expected)")
-    return out.raw[:n]
+    parts, total, at = [], 0, 0
+    while at < len(data) or not parts:
+        frame = data[at:]
+        used = lib.ZSTD_findFrameCompressedSize(frame, len(frame))
+        if lib.ZSTD_isError(used) or used == 0:
+            raise RuntimeError("zstd: not a zstd frame" if not parts else "zstd: bytes after the last frame are no frame")
+        frame = frame[:used]
+        size = lib.ZSTD_getFrameContentSize(frame, len(frame))
+        if size == _ZSTD_NOT_A_FRAME:
+            raise RuntimeError("zstd: not a zstd frame")
+        if size == _ZSTD_UNKNOWN:
+            size = max(size_hint - total, 0) or (64 << 20)
+        if total + size > _ZSTD_MAX_OUT:
+            raise RuntimeError(f"zstd: the data says {total + size} bytes, more than any game resource holds")
+        out = ctypes.create_string_buffer(max(size, 1))
+        n = lib.ZSTD_decompress(out, size, frame, len(frame))
+        if lib.ZSTD_isError(n):
+            raise RuntimeError("zstd: the data does not decompress (damaged, or larger than expected)")
+        parts.append(out.raw[:n])
+        total += n
+        at += used
+    return parts[0] if len(parts) == 1 else b"".join(parts)
 
 
 def zstd_backend():
