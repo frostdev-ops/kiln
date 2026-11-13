@@ -3048,6 +3048,10 @@ pub struct EngineStatus {
     pub effects: Option<crate::shroudforge::SfEffects>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prerequisite: Option<HostPrerequisite>,
+    /// ShroudForge's startup pass failed at the last start ([`crate::sf_startup::EngineNotes`]): on the `shroudforge`
+    /// row whoever ran it, on the `eml` row as a pointer while ShroudForge runs the EML mods.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub startup_failed: Option<crate::sf_startup::SfStartupNote>,
 }
 
 /// The state file name of a kind's plugin.
@@ -3071,13 +3075,15 @@ pub fn state_file(kind: ModKind) -> Option<&'static str> {
 /// Enshwick, shroudlink, Ember).
 pub fn status(game_dir: &Path) -> Vec<EngineStatus> {
     let view = crate::profile::read_game_profile(game_dir).ok().flatten().map(|f| crate::own_loaders::ProfileView::of_file(&f));
-    let notes = crate::own_loaders::notes(game_dir, &crate::own_loaders::find(game_dir, view.as_ref()), view.as_ref());
+    let loaders = crate::own_loaders::find(game_dir, view.as_ref());
+    let notes = crate::own_loaders::notes(game_dir, &loaders, view.as_ref());
+    let sf_startup = crate::sf_startup::EngineNotes::read(game_dir, &loaders);
     ModKind::ALL
         .into_iter()
         .filter_map(|k| {
             if k == ModKind::Xhl {
                 return Some(EngineStatus { kind: k, plugin: String::new(), state: None, error: None,
-                    file: String::new(), own_loader: None, effects: None, prerequisite: Some(xhl_host(game_dir)) });
+                    file: String::new(), own_loader: None, effects: None, prerequisite: Some(xhl_host(game_dir)), startup_failed: None });
             }
             let f = game_dir.join("kiln").join("state").join(state_file(k)?);
             let (state, error) = match read_json_checked(game_dir, &f) {
@@ -3103,6 +3109,7 @@ pub fn status(game_dir: &Path) -> Vec<EngineStatus> {
                 own_loader: notes.iter().find(|n| n.loader.kind == k).cloned(),
                 effects,
                 prerequisite: None,
+                startup_failed: sf_startup.of(k),
             })
         })
         .collect()

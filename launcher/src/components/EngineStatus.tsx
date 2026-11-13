@@ -61,7 +61,8 @@ export function EngineStatusList({ gameId }: { gameId: GameId }) {
   const inProfile = (k: ModKind) => (profile.data?.mods[k] ?? []).length > 0;
   if (q.isLoading) return <Skeleton lines={3} />;
   if (q.error) return <EmptyState title="The engine state files are not readable" hint={errorText(q.error)} />;
-  const rows = (q.data ?? []).filter((s) => s.state !== null || !!s.error || inProfile(s.kind) || !!s.ownLoader || s.prerequisite?.available || (s.effects && s.effects.state !== "unavailable"))
+  const rows = (q.data ?? []).filter((s) => s.state !== null || !!s.error || inProfile(s.kind) || !!s.ownLoader || s.prerequisite?.available || (s.effects && s.effects.state !== "unavailable")
+    || (s.kind === "shroudforge" && !!s.startupFailed))
     .sort((a, b) => MOD_KINDS.indexOf(a.kind) - MOD_KINDS.indexOf(b.kind));
   if (!rows.length) return <EmptyState title="No other engine has run yet." hint="Kiln's engine plugins write their state at each start." />;
   return (
@@ -121,6 +122,12 @@ export function EngineRow({ s }: { s: EngineStatus }) {
       {s.ownLoader && (
         <span className={s.ownLoader.notCopied.length ? "k-hint k-tone-warn" : "k-hint"} data-own-loader={s.ownLoader.file} style={{ flexBasis: "100%" }}>
           {s.ownLoader.text}.
+        </span>
+      )}
+      {/* ShroudForge's startup pass failed at the last start (sf_startup.rs): whoever ran it, with or without an own loader's note. */}
+      {s.startupFailed && (
+        <span className="k-hint k-tone-warn" data-startup-failed="" style={{ flexBasis: "100%" }}>
+          {s.startupFailed.text}.
         </span>
       )}
     </div>
