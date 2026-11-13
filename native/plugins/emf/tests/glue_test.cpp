@@ -2,13 +2,17 @@
 // Exercise the production adapters against fake Kiln services, including
 // callback reentrancy.
 #include "emf_internal.h"
+#include "services/kiln_render.h"
 #include "v26_model.h"
 #include <algorithm>
+#include <atomic>
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
 #include <map>
 #include <stdexcept>
+#include <thread>
 
 static int failures = 0, checks = 0;
 #define CHECK(x)                                                                                                       \
@@ -585,6 +589,162 @@ static void wheel_cb(EmfWorld *w, int choice, void *user) {
     wheel_last_world = w;
     wheel_last_user = user;
 }
+// v28-v40: every slot filled; a function Kiln does not carry yet gives EMF's documented failure, clears its out buffer,
+// says why where the request has room for it, refuses a request that is too small, and never calls a callback.
+static int v40_callbacks = 0;
+static std::atomic<bool> render_ok{true};
+static std::atomic<int> render_lookups{0};
+static KilnRenderApi fake_render{};
+// A kiln-emf without kiln.render (a dedicated server, an older core): its own process, because the lookup happens once.
+static int test_v40_no_render(KilnApi &api) {
+    api.service = [](KilnStr, uint32_t) -> const void * {
+        ++render_lookups;
+        return nullptr;
+    };
+    EmfApi t{};
+    fill_v40(&t);
+    float px = -1, py = -1;
+    const int before = unsupported_calls;
+    CHECK(!t.world_to_screen(1, 2, 3, &px, &py) && px == -1 && py == -1);
+    CHECK(!t.world_to_screen(1, 2, 3, nullptr, nullptr));
+    CHECK(unsupported_calls == before + 2 && render_lookups == 1);
+    std::printf("glue_test (no kiln.render): %d checks, %d failures\n", checks, failures);
+    return failures ? 1 : 0;
+}
+static void test_v40(KilnApi &api) {
+    fake_render.header.size = sizeof fake_render;
+    fake_render.header.version = KILN_RENDER_VERSION;
+    fake_render.world_to_screen = [](const double w[3], float, float, float out[3]) -> bool {
+        out[0] = static_cast<float>(w[0]) + 0.5f;
+        out[1] = static_cast<float>(w[2]) + 0.25f;
+        out[2] = 3.f;
+        return render_ok.load();
+    };
+    api.service = [](KilnStr n, uint32_t) -> const void * {
+        ++render_lookups;
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));  // widen the window of a racing first call
+        return std::string(n.ptr, n.len) == KILN_RENDER_SERVICE ? &fake_render : nullptr;
+    };
+    EmfApi t{};
+    fill_v40(&t);
+    {
+        // world_to_screen is an any-thread function: first calls that race see one lookup and all get the answer
+        std::atomic<int> good{0};
+        std::vector<std::thread> threads;
+        for (int i = 0; i < 8; ++i)
+            threads.emplace_back([&] {
+                float px = -1, py = -1;
+                if (t.world_to_screen(10, 20, 30, &px, &py) && px == 10.5f && py == 30.25f) ++good;
+            });
+        for (auto &th : threads) th.join();
+        CHECK(good == 8 && render_lookups == 1);
+    }
+    // the two chat functions come from fill_game (api_game.cpp, not built into this test)
+    const size_t first = offsetof(EmfApi, on_player) / sizeof(void *), n = sizeof(EmfApi) / sizeof(void *);
+    const auto *slots = reinterpret_cast<void *const *>(&t);
+    int empty = 0;
+    for (size_t i = first; i < n; ++i)
+        if (!slots[i] && i != offsetof(EmfApi, chat_tell_ex) / sizeof(void *) &&
+            i != offsetof(EmfApi, chat_broadcast_ex) / sizeof(void *))
+            ++empty;
+    CHECK(n - first == 45 && empty == 0);
+    CHECK(!t.chat_tell_ex && !t.chat_broadcast_ex && !t.net_peer);
+
+    auto *w = reinterpret_cast<EmfWorld *>(worlds[0]);
+    const int before = unsupported_calls, refused_before = refusals;
+    char buf[16];
+    auto dirty = [&] { std::memset(buf, 'x', sizeof buf); };
+    CHECK(!t.on_player([](EmfWorld *, const EmfPlayerEvent *, void *) { ++v40_callbacks; }, nullptr));
+    dirty();
+    CHECK(t.item_name(w, 1, 0, buf, sizeof buf) == 0 && buf[0] == 0);
+    CHECK(t.item_name(w, 1, 0, nullptr, 0) == 0);
+    dirty();
+    CHECK(t.game_language(buf, sizeof buf) == 0 && buf[0] == 0);
+    CHECK(t.game_language(nullptr, 0) == 0);
+    dirty();
+    CHECK(!t.player_character_name(w, 1, buf, sizeof buf) && buf[0] == 0);
+    CHECK(!t.on_hit([](EmfWorld *, const EmfHit *, void *) { ++v40_callbacks; }, nullptr));
+    CHECK(!t.on_hit_before([](EmfWorld *, EmfHit *, void *) { ++v40_callbacks; }, nullptr));
+    EmfHitRule rule{};
+    rule.size = sizeof rule;
+    CHECK(t.hit_rule_add(&rule) == 0 && !t.hit_rule_remove(1));
+    EmfBuffType bt{};
+    EmfBuff b{};
+    CHECK(t.buff_types(w, &bt, 1) == 0 && !t.buff_type(w, 1, &bt) && t.buffs_of(w, 1, &b, 1) == 0);
+    dirty();
+    CHECK(!t.buff_text(1, 0, buf, sizeof buf) && buf[0] == 0);
+    auto buff_cb = [](EmfWorld *, const EmfBuffEvent *, void *) { ++v40_callbacks; };
+    CHECK(!t.buff_apply(w, 1, 2, 0, 0, 0, buff_cb, nullptr) && !t.buff_remove(w, 1, 2, buff_cb, nullptr) &&
+          !t.on_buff(buff_cb, nullptr));
+    EmfMarker mk{};
+    mk.size = sizeof mk;
+    mk.id = "m";
+    EmfMapMarkerType mt{};
+    CHECK(!t.marker_set(&mk) && !t.marker_remove("m") && t.marker_clear() == 0 && t.marker_types(&mt, 1) == 0);
+    CHECK(t.marker_send(0, &mk, 1) == 0 && t.marker_unsend(0, "m") == 0);
+    double x = 7, z = 9;
+    CHECK(!t.map_cursor(&x, &z) && x == 7 && z == 9);
+    CHECK(!t.on_map_click([](const EmfMapClick *, void *) { ++v40_callbacks; }, nullptr));
+    CHECK(!t.map_action("a", "A", 0, [](EmfWorld *, const EmfMapDone *, void *) { ++v40_callbacks; }, nullptr));
+    CHECK(!t.ground_at(w, 1, 2, [](EmfWorld *, const EmfGround *, void *) { ++v40_callbacks; }, nullptr));
+    EmfPlayerView view{};
+    view.size = sizeof view;
+    float explored = 4;
+    EmfGameMarker gm{};
+    EmfCanvas canvas{};
+    canvas.size = sizeof canvas;
+    EmfCanvasCmd cmd{};
+    CHECK(!t.player_view(&view) && !t.fog_at(1, 2, &explored) && explored == 4 && t.map_markers(&gm, 1) == 0);
+    CHECK(!t.canvas_set("c", &canvas) && !t.canvas_draw("c", &cmd, 1));
+    EmfPathQuery q{};
+    q.size = sizeof q;
+    CHECK(t.path_find(w, &q, [](EmfWorld *, uint32_t, const EmfPathResult *, const EmfPathPoint *, void *) { ++v40_callbacks; },
+                      nullptr) == 0 &&
+          !t.path_cancel(1));
+    CHECK(t.door_state(w, 1) == EMF_DOOR_NONE && !t.door_set(w, 1, 1, 0) && !t.door_lock(w, 1, 1));
+    CHECK(!t.enemy_order_cancel(1) && t.enemy_target(w, 1) == 0 && !t.enemy_move_cancel(1) && t.enemy_moving(w, 1) == 0);
+    CHECK(v40_callbacks == 0);
+    CHECK(refusals == refused_before);
+
+    // the three requests with a `why`: refused with the reason, and a request that is too small is refused untouched
+    EmfRemoveBuilding rb{};
+    rb.size = sizeof rb;
+    rb.entity = 5;
+    rb.refunded = 77;
+    CHECK(!t.remove_building(w, &rb) && rb.refunded == 0 && std::string(rb.why) == "not available on Kiln yet");
+    EmfEnemyOrder eo{};
+    eo.size = sizeof eo;
+    CHECK(t.enemy_order(w, &eo) == 0 && std::string(eo.why) == "not available on Kiln yet");
+    EmfMoveOrder mo{};
+    mo.size = sizeof mo;
+    CHECK(t.enemy_move(w, &mo, [](EmfWorld *, uint32_t, uint32_t, void *) { ++v40_callbacks; }, nullptr) == 0 &&
+          std::string(mo.why) == "not available on Kiln yet");
+    const int counted = unsupported_calls - before;
+    CHECK(counted >= 42);  // every function that is not carried reported itself at least once
+    rb = {};
+    rb.size = sizeof rb - 1;
+    rb.refunded = 77;
+    CHECK(!t.remove_building(w, &rb) && rb.refunded == 77 && rb.why[0] == 0);
+    CHECK(!t.remove_building(w, nullptr));
+    eo = {};
+    eo.size = 8;
+    CHECK(t.enemy_order(w, &eo) == 0 && eo.why[0] == 0 && t.enemy_order(w, nullptr) == 0);
+    mo = {};
+    mo.size = 8;
+    CHECK(t.enemy_move(w, &mo, nullptr, nullptr) == 0 && mo.why[0] == 0 && t.enemy_move(w, nullptr, nullptr, nullptr) == 0);
+    CHECK(refusals == refused_before + 6 && unsupported_calls - before == counted && v40_callbacks == 0);
+
+    // world_to_screen: kiln.render's answer; a point behind the camera (false) leaves px, py alone
+    float px = -1, py = -1;
+    CHECK(t.world_to_screen(10, 20, 30, &px, &py) && px == 10.5f && py == 30.25f);
+    CHECK(t.world_to_screen(10, 20, 30, nullptr, nullptr));
+    render_ok = false;
+    px = py = -1;
+    CHECK(!t.world_to_screen(10, 20, 30, &px, &py) && px == -1 && py == -1);
+    render_ok = true;
+    CHECK(unsupported_calls - before == counted);
+}
+
 static void test_wheel_and_right_clicks(KilnUiApi &ui) {
     auto *server = reinterpret_cast<EmfWorld *>(worlds[0]);
     int token = 0;
@@ -760,7 +920,7 @@ static void test_wheel_and_right_clicks(KilnUiApi &ui) {
 }
 
 int main(int argc, char **argv) {
-    if (argc != 2)
+    if (argc != 2 && argc != 3)
         return 2;
     std::setvbuf(stdout, nullptr, _IONBF, 0); // a crash must not eat the FAIL lines
     P.emf = argv[1];
@@ -787,6 +947,8 @@ int main(int argc, char **argv) {
         return KILN_OK;
     };
     g_api = &api;
+    if (argc == 3 && std::string(argv[2]) == "no-render")
+        return test_v40_no_render(api);
     static KilnUiApi ui{};
     init_ui(ui);
     S.ui = &ui;
@@ -847,6 +1009,7 @@ int main(int argc, char **argv) {
     test_pending_portrait();
     test_attributes();
     test_wheel_and_right_clicks(ui);
+    test_v40(api);
     windows_shutdown();
     CHECK(live_images == 0);
     std::printf("glue_test: %d checks, %d failures\n", checks, failures);

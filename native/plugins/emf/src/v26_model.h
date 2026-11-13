@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// kiln-emf: the parts of EmfApi v22-v26 that need no game and no Windows, so host tests (tests/run.sh) run them with
+// kiln-emf: the parts of EmfApi v22-v26 (and the table sizes up to v40) that need no game and no Windows, so host tests (tests/run.sh) run them with
 // fakes: the table layout per version, mod windows (v24/v26 definitions as EMF copies them), the component policy and
 // the change queue (v23), E-prompt offers (v25) and picture paths (v26). The glue onto Kiln's services is in
 // api_level.cpp, api_components.cpp and api_windows.cpp.
@@ -40,6 +40,25 @@ constexpr uint32_t kApiV24Size = KEMF_FIELD_END(EmfApi, window_close);
 constexpr uint32_t kApiV25Size = KEMF_FIELD_END(EmfApi, offer_remove);
 constexpr uint32_t kApiV26Size = KEMF_FIELD_END(EmfApi, offer_active);
 constexpr uint32_t kApiV27Size = KEMF_FIELD_END(EmfApi, net_peer);
+// v28-v40 (EMF 0.6.3 to 0.6.8): the table only grew; the sizes are EMF's own (src/core/api_sizes.h at 0.6.8).
+constexpr uint32_t kApiV28Size = KEMF_FIELD_END(EmfApi, on_player);
+constexpr uint32_t kApiV29Size = KEMF_FIELD_END(EmfApi, game_language);
+constexpr uint32_t kApiV30Size = KEMF_FIELD_END(EmfApi, chat_broadcast_ex);
+constexpr uint32_t kApiV31Size = KEMF_FIELD_END(EmfApi, hit_rule_remove);
+constexpr uint32_t kApiV32Size = KEMF_FIELD_END(EmfApi, on_buff);
+constexpr uint32_t kApiV33Size = KEMF_FIELD_END(EmfApi, marker_unsend);
+constexpr uint32_t kApiV34Size = KEMF_FIELD_END(EmfApi, ground_at);
+constexpr uint32_t kApiV35Size = KEMF_FIELD_END(EmfApi, canvas_draw);
+constexpr uint32_t kApiV36Size = KEMF_FIELD_END(EmfApi, remove_building);
+constexpr uint32_t kApiV37Size = KEMF_FIELD_END(EmfApi, path_cancel);
+constexpr uint32_t kApiV38Size = KEMF_FIELD_END(EmfApi, door_lock);
+constexpr uint32_t kApiV39Size = KEMF_FIELD_END(EmfApi, enemy_target);
+constexpr uint32_t kApiV40Size = KEMF_FIELD_END(EmfApi, enemy_moving);
+// The smallest `size` each v36-v40 request struct may carry (the end of its last field in the version that added it).
+constexpr uint32_t kRemoveBuildingV36Size = KEMF_FIELD_END(EmfRemoveBuilding, why);
+constexpr uint32_t kPathQueryV37Size = KEMF_FIELD_END(EmfPathQuery, max_nodes);
+constexpr uint32_t kEnemyOrderV39Size = KEMF_FIELD_END(EmfEnemyOrder, why);
+constexpr uint32_t kMoveOrderV40Size = KEMF_FIELD_END(EmfMoveOrder, why);
 constexpr uint32_t kComponentChangeV23Size = KEMF_FIELD_END(EmfComponentChange, user);
 constexpr uint32_t kWindowDefV24Size = KEMF_FIELD_END(EmfWindowDef, user);
 constexpr uint32_t kUiWidgetV24Size = KEMF_FIELD_END(EmfUiWidget, pad);
@@ -52,7 +71,40 @@ static_assert(kApiV21Size == 592, "EmfApi v21 size");
 static_assert(kApiV22Size == 616 && kApiV23Size == 624 && kApiV24Size == 648 && kApiV25Size == 672,
               "EmfApi v22-v25 sizes");
 static_assert(kApiV26Size == 688 && offsetof(EmfApi, net_channel) == kApiV26Size, "EmfApi v26 prefix");
-static_assert(kApiV27Size == 728 && sizeof(EmfApi) == kApiV27Size, "EmfApi v27 size");
+static_assert(kApiV27Size == 728 && offsetof(EmfApi, on_player) == kApiV27Size, "EmfApi v27 prefix");
+static_assert(kApiV28Size == 736 && kApiV29Size == 752 && kApiV30Size == 776 && kApiV31Size == 808 && kApiV32Size == 864,
+              "EmfApi v28-v32 sizes");
+static_assert(kApiV33Size == 920 && kApiV34Size == 952 && kApiV35Size == 992 && kApiV36Size == 1000 && kApiV37Size == 1016,
+              "EmfApi v33-v37 sizes");
+static_assert(kApiV38Size == 1040 && kApiV39Size == 1064 && kApiV40Size == 1088 && sizeof(EmfApi) == kApiV40Size,
+              "EmfApi v38-v40 sizes");
+static_assert(offsetof(EmfApi, chat_tell_ex) == 760 && offsetof(EmfApi, hit_rule_add) == 792 &&
+                  offsetof(EmfApi, buff_apply) == 840 && offsetof(EmfApi, world_to_screen) == 896,
+              "EmfApi v30-v33 slots");
+static_assert(sizeof(EmfPlayerEvent) == 96 && offsetof(EmfPlayerEvent, account) == 8 && offsetof(EmfPlayerEvent, player) == 16 &&
+                  offsetof(EmfPlayerEvent, host) == 24 && offsetof(EmfPlayerEvent, name) == 32,
+              "EmfPlayerEvent layout (v28)");
+static_assert(sizeof(EmfBuffType) == 40 && sizeof(EmfBuff) == 40 && sizeof(EmfBuffEvent) == 48 &&
+                  offsetof(EmfBuffEvent, why) == 40,
+              "EmfBuffType / EmfBuff / EmfBuffEvent layouts (v32)");
+static_assert(sizeof(EmfMarker) == 80 && offsetof(EmfMarker, text) == 40 && offsetof(EmfMarker, flags) == 64 &&
+                  offsetof(EmfMarker, game_icon) == 72 && sizeof(EmfMapMarkerType) == 64,
+              "EmfMarker / EmfMapMarkerType layouts (v33)");
+static_assert(sizeof(EmfMapClick) == 32 && offsetof(EmfMapClick, x) == 16, "EmfMapClick layout (v34)");
+static_assert(sizeof(EmfPlayerView) == 48 && offsetof(EmfPlayerView, heading_deg) == 32 && sizeof(EmfGameMarker) == 40 &&
+                  sizeof(EmfCanvas) == 24 && sizeof(EmfCanvasCmd) == 64 && offsetof(EmfCanvasCmd, s) == 56,
+              "EmfPlayerView / EmfGameMarker / EmfCanvas / EmfCanvasCmd layouts (v35)");
+static_assert(kRemoveBuildingV36Size == 144 && sizeof(EmfRemoveBuilding) == 144 && offsetof(EmfRemoveBuilding, refunded) == 20 &&
+                  offsetof(EmfRemoveBuilding, why) == 24,
+              "EmfRemoveBuilding layout (v36)");
+static_assert(kPathQueryV37Size == 52 && sizeof(EmfPathQuery) == 52 && offsetof(EmfPathQuery, max_nodes) == 48 &&
+                  sizeof(EmfPathPoint) == 16 && sizeof(EmfPathResult) == 20,
+              "EmfPathQuery / EmfPathPoint / EmfPathResult layouts (v37)");
+static_assert(kEnemyOrderV39Size == 120 && sizeof(EmfEnemyOrder) == 120 && offsetof(EmfEnemyOrder, why) == 24,
+              "EmfEnemyOrder layout (v39)");
+static_assert(kMoveOrderV40Size == 128 && sizeof(EmfMoveOrder) == 128 && offsetof(EmfMoveOrder, points) == 16 &&
+                  offsetof(EmfMoveOrder, why) == 32,
+              "EmfMoveOrder layout (v40)");
 static_assert(kComponentChangeV23Size == 48 && sizeof(EmfComponentChange) == 48, "EmfComponentChange layout (v23)");
 static_assert(kWindowDefV24Size == 72 && sizeof(EmfWindowDef) == 72 && offsetof(EmfWindowDef, cb) == 56,
               "EmfWindowDef layout (v24)");
@@ -66,6 +118,13 @@ static_assert(kWheelV10Size == 56 && sizeof(EmfWheel) == 56 && offsetof(EmfWheel
 
 // The table size a mod built against API `version` checks (api->size >= this); 0 for an unknown version.
 uint32_t api_size_for(uint32_t version);
+
+// An on-screen note as rows that fit `max_width` (measured by `width`), at most `max_rows`. Rows break at spaces; a
+// line break or a tab in the text counts as a space. What does not fit the last row is cut at a word and the row ends
+// with "..." (the dots alone when no word fits beside them). A word wider than a row stays whole on its own row: it
+// is never split, so never inside a UTF-8 character.
+std::vector<std::string> note_rows(std::string_view text, float max_width, size_t max_rows,
+                                   const std::function<float(std::string_view)>& width);
 // Saturate manifest requirements so a huge future version cannot wrap into a supported version.
 uint32_t api_requirement(uint64_t version);
 

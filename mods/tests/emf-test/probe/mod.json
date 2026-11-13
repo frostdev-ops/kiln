@@ -2,9 +2,9 @@
   "id": "emf_probe",
   "name": "kiln-emf conformance probe",
   "version": "1.0.0",
-  "description": "Lab test for kiln-emf: checks the EmfApi v27 table and logs PASS / FAIL lines. Not for real servers.",
+  "description": "Lab test for kiln-emf: checks the EmfApi v40 table and logs PASS / FAIL lines. Not for real servers.",
   "authors": ["Kiln"],
-  "emf": 27,
+  "emf": 40,
   "side": "server",
   "settings": [
     {"key": "level", "type": "int", "default": 3, "min": 0, "max": 10, "live": true, "label": "Level"},

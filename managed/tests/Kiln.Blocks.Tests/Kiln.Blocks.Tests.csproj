@@ -14,5 +14,8 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../../services/Kiln.Blocks/Kiln.Blocks.csproj" />
+    <!-- AffixTests: affixes are item data, so they run on Kiln.Saves' real instance store over its tests' fake game. -->
+    <Compile Include="../Kiln.Saves.Tests/InstanceHarness.cs" Link="Saves/InstanceHarness.cs" />
+    <Compile Include="../Kiln.Saves.Tests/FakeInstanceWorld.cs" Link="Saves/FakeInstanceWorld.cs" />
   </ItemGroup>
 </Project>

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// From matenm/emf-enshrouded v0.6.0, src/core/net/net_peers.cpp.
+// From matenm/emf-enshrouded v0.6.8, src/core/net/net_peers.cpp.
 // Copyright (c) 2026 EMF contributors. See licenses/EMF-LICENSE.txt.
 #include "net_peers.h"
 

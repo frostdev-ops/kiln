@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
-// Frozen x64 slot map reviewed against EMF 0.6.0 sdk/include/emf/emf_api.h.
+// Frozen x64 slot map reviewed against EMF 0.6.8 sdk/include/emf/emf_api.h (v27: 728 bytes; v40: 1088 bytes).
 #include "emf/emf_api.h"
 #include <cstddef>
 #define SLOT(name, offset) static_assert(offsetof(EmfApi, name) == offset)
-static_assert(sizeof(EmfApi)==728 && alignof(EmfApi)==8);
+static_assert(sizeof(EmfApi)==1088 && alignof(EmfApi)==8);
 static_assert(offsetof(EmfApi,version)==0 && offsetof(EmfApi,size)==4);
 SLOT(log, 8);
 SLOT(server_world, 16);
@@ -95,6 +95,55 @@ SLOT(net_to_server, 696);
 SLOT(net_to_player, 704);
 SLOT(net_to_players, 712);
 SLOT(net_peer, 720);
+// v28-v40 (EMF 0.6.3 to 0.6.8)
+SLOT(on_player, 728);
+SLOT(item_name, 736);
+SLOT(game_language, 744);
+SLOT(player_character_name, 752);
+SLOT(chat_tell_ex, 760);
+SLOT(chat_broadcast_ex, 768);
+SLOT(on_hit, 776);
+SLOT(on_hit_before, 784);
+SLOT(hit_rule_add, 792);
+SLOT(hit_rule_remove, 800);
+SLOT(buff_types, 808);
+SLOT(buff_type, 816);
+SLOT(buff_text, 824);
+SLOT(buffs_of, 832);
+SLOT(buff_apply, 840);
+SLOT(buff_remove, 848);
+SLOT(on_buff, 856);
+SLOT(marker_set, 864);
+SLOT(marker_remove, 872);
+SLOT(marker_clear, 880);
+SLOT(marker_types, 888);
+SLOT(world_to_screen, 896);
+SLOT(marker_send, 904);
+SLOT(marker_unsend, 912);
+SLOT(map_cursor, 920);
+SLOT(on_map_click, 928);
+SLOT(map_action, 936);
+SLOT(ground_at, 944);
+SLOT(player_view, 952);
+SLOT(fog_at, 960);
+SLOT(map_markers, 968);
+SLOT(canvas_set, 976);
+SLOT(canvas_draw, 984);
+SLOT(remove_building, 992);
+SLOT(path_find, 1000);
+SLOT(path_cancel, 1008);
+SLOT(door_state, 1016);
+SLOT(door_set, 1024);
+SLOT(door_lock, 1032);
+SLOT(enemy_order, 1040);
+SLOT(enemy_order_cancel, 1048);
+SLOT(enemy_target, 1056);
+SLOT(enemy_move, 1064);
+SLOT(enemy_move_cancel, 1072);
+SLOT(enemy_moving, 1080);
 static_assert(sizeof(EmfNetFrom) == 24 && offsetof(EmfNetFrom, account) == 8);
 static_assert(sizeof(EmfNetChannel) == 56 && offsetof(EmfNetChannel, on_server) == 32);
-int main() { return EMF_API_VERSION == 27 ? 0 : 1; }
+static_assert(sizeof(EmfPlayerEvent) == 96 && sizeof(EmfHit) == 80 && sizeof(EmfHitRule) == 36);
+static_assert(sizeof(EmfRemoveBuilding) == 144 && sizeof(EmfEnemyOrder) == 120 && sizeof(EmfMoveOrder) == 128);
+static_assert(sizeof(EmfPathQuery) == 52 && sizeof(EmfMarker) == 80 && sizeof(EmfCanvas) == 24 && sizeof(EmfCanvasCmd) == 64);
+int main() { return EMF_API_VERSION == 40 ? 0 : 1; }

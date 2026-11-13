@@ -5,6 +5,6 @@
   "apiVersion": "0.2",
   "license": "MIT",
   "entryAssembly": "ItemData.dll",
-  "side": "server",
-  "description": "Cut a notch into the weapon in your hand with /notch: the count stays with that one item through moves, saves and restarts. /notches lists them."
+  "side": "both",
+  "description": "Cut a notch into the weapon in your hand with /notch: the count stays with that one item through moves, saves and restarts, and the server sends it to your game, which shows it as a notice. /notches lists them."
 }

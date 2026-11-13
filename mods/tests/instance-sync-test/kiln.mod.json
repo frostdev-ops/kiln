@@ -1,0 +1,10 @@
+{
+  "id": "instance-sync-test",
+  "name": "Instance data sync lab test",
+  "version": "0.1.0",
+  "apiVersion": "0.2",
+  "license": "MIT",
+  "entryAssembly": "InstanceSyncTest.dll",
+  "side": "both",
+  "description": "Instance data on players' games (channel kiln:instance). In a lab without a player, syncnet.py's fake clients stand for the holders of two chests and receive the values of their items. With a player, guided checks (area Item data): the client side shows every change of its copies as a notice and reports it to the server."
+}

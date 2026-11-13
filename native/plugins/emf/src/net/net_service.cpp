@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// From matenm/emf-enshrouded v0.6.0, src/core/net/net_service.cpp.
+// From matenm/emf-enshrouded v0.6.8, src/core/net/net_service.cpp.
 // Copyright (c) 2026 EMF contributors. See licenses/EMF-LICENSE.txt.
 #include "net_service.h"
 
@@ -193,6 +193,7 @@ std::map<std::string, uint32_t> NetService::channel_versions() {
 void NetService::enable_server(ServerEnv env) {
     ServerLinkDeps l;
     l.channels = [this] { return channel_versions(); };
+    l.greets = [this] { return greets_for(channel_versions(), core_greets_ && core_greets_()); };
     l.send = std::move(env.send);
     l.send_lines = std::move(env.send_lines);
     l.room = std::move(env.room);
@@ -206,6 +207,9 @@ void NetService::enable_server(ServerEnv env) {
     l.beacon_delay_ms = env.beacon_delay_ms;
     l.on_message = [this](uint32_t handle, uint64_t account, const std::string& channel, uint32_t peer_version,
                           const std::string& data) { remote_to_server(handle, account, channel, peer_version, data); };
+    l.on_peer = [this](uint32_t, uint64_t account, bool joined) {
+        if (peer_watch_) peer_watch_(account, joined);
+    };
     server_owned_ = std::make_unique<ServerLink>(std::move(l));
     server_.store(server_owned_.get());
 }
@@ -330,8 +334,8 @@ void NetService::client_put_back(std::vector<std::string> lines) {
     if (client_) client_.load()->put_back(std::move(lines));
 }
 
-void NetService::client_reset() {
-    if (client_) client_.load()->reset();
+void NetService::client_reset(bool keep_held_beacon) {
+    if (client_) client_.load()->reset(keep_held_beacon);
 }
 
 }  // namespace emf::core::net
