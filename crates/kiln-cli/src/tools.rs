@@ -143,13 +143,13 @@ fn unzip_native(nupkg: &Path, dest: &Path) -> Result<()> {
     }
 }
 
-pub fn python() -> Result<String> {
-    for p in ["python3", "python"] {
-        if kiln_manage::util::which(p).is_some() {
-            return Ok(p.to_string());
-        }
-    }
-    Err(CliError::new("tool_missing", "python3 is needed for the cook tools").into())
+/// The cook tools and the Python that runs them (kiln_manage::cooktools): a checkout's when there is one
+/// ([`repo`]: `$KILN_REPO`, or the tree a development build came from), else the copy this kiln carries, unpacked
+/// once under the data folder (`<data>/cooktools/`). `$KILN_PYTHON` names a Python by hand.
+pub fn cook_tools() -> Result<kiln_manage::cooktools::CookTools> {
+    use kiln_manage::cooktools::{locate, Locate};
+    let cache = kiln_manage::paths::DataDirs::locate().ok().map(|d| d.root.join("cooktools"));
+    locate(&Locate::from_process(repo(), cache, None)).map_err(|e| CliError::new("tool_missing", e.message).into())
 }
 
 pub fn require(tool: &str, hint: &str) -> Result<()> {
