@@ -1121,32 +1121,6 @@ pub struct MigratedEntry {
     pub from: String,
     /// Its identity (`hash::mod_identity`).
     pub to: String,
-    /// The entry's kind when it is not a Kiln mod (a [`take_over`] of another kind's entry); none: a Kiln mod.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub kind: Option<ModKind>,
-    /// The version it has now, when that is not `version` (a [`take_over`] of files whose manifest names another).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub to_version: Option<String>,
-    /// Made by [`take_over`]: the player changed the entry's files in its folder, and the changed files became the new
-    /// entry. The old one goes once nothing reads it (a later [`migrate_identities`] removes it then).
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub taken_over: bool,
-}
-
-impl MigratedEntry {
-    fn kind(&self) -> ModKind {
-        self.kind.unwrap_or(ModKind::Kiln)
-    }
-
-    /// The entry it was moved from.
-    pub fn from_ref(&self) -> LibraryRef {
-        LibraryRef { kind: self.kind(), id: self.id.clone(), version: self.version.clone(), hash: self.from.clone() }
-    }
-
-    /// The entry it became.
-    pub fn to_ref(&self) -> LibraryRef {
-        LibraryRef { kind: self.kind(), id: self.id.clone(), version: self.to_version.clone().unwrap_or_else(|| self.version.clone()), hash: self.to.clone() }
-    }
 }
 
 /// `<library>/kiln-moved.json`: every move [`migrate_identities`] made, kept, so a reference made before a move (a
@@ -1160,18 +1134,33 @@ pub fn moved(dirs: &DataDirs) -> Vec<MigratedEntry> {
     crate::util::read_json::<Vec<MigratedEntry>>(&moved_file(dirs)).ok().flatten().unwrap_or_default()
 }
 
-/// A reference by the hash an entry had before [`migrate_identities`] or [`take_over`] moved it: the reference it
-/// became (followed through every move); any other reference as it is.
+/// A reference by the hash a Kiln entry had before [`migrate_identities`] moved it: the reference it became (followed
+/// through every move); any other reference as it is. A [`take_over`] is not followed: it changed the contents, and
+/// whoever asked for a hash (a server's list, a modpack) is never handed other contents.
 pub fn moved_to(dirs: &DataDirs, r: &LibraryRef) -> LibraryRef {
     let all = moved(dirs);
     let mut cur = r.clone();
     for _ in 0..=all.len() {
-        match all.iter().find(|m| m.from_ref() == cur) {
-            Some(m) => cur = m.to_ref(),
+        match all.iter().find(|m| cur.kind == ModKind::Kiln && m.id == cur.id && m.version == cur.version && m.from == cur.hash) {
+            Some(m) => cur.hash = m.to.clone(),
             None => break,
         }
     }
     cur
+}
+
+/// `<version>+<hash8>.taken-over` next to an entry [`take_over`] could not remove yet (something still read it): the
+/// hash its files were taken over as. It lives and goes with that entry, and counts only while the entry's files are
+/// still exactly those ([`taken_over_leftover`]).
+fn taken_over_path(folder: &Path) -> PathBuf {
+    crate::util::with_suffix(folder, ".taken-over")
+}
+
+/// An entry a take-over left behind: its marker names the hash its files became, and they still are exactly that (a
+/// copy of them is the new entry). Anything else (no marker, files changed or restored since) is an entry like any.
+fn taken_over_leftover(folder: &Path, rec: &ImportRecord) -> bool {
+    let Ok(to) = std::fs::read_to_string(taken_over_path(folder)) else { return false };
+    recorded_hash(folder, rec).is_ok_and(|h| h == to.trim())
 }
 
 /// Kiln entries imported before 0.2.0-dev.27 from a folder that held cook outputs are recorded under the kdh1 of the
@@ -1208,30 +1197,35 @@ pub fn migrate_identities_with(dirs: &DataDirs, find: &mut dyn FnMut(&Path, &str
         if identity == rec.hash || crate::hash::dirhash(&folder).ok().as_deref() != Some(rec.hash.as_str()) {
             continue; // recorded by its identity already, or changed since its import
         }
-        let entry = MigratedEntry { id: rec.id.clone(), version: rec.version.clone(), from: rec.hash.clone(), to: identity.clone(),
-            kind: None, to_version: None, taken_over: false };
-        if move_entry(dirs, &folder, &rec, ImportRecord { hash: identity.clone(), ..rec.clone() }, entry.clone(), &mut *find)? {
+        let entry = MigratedEntry { id: rec.id.clone(), version: rec.version.clone(), from: rec.hash.clone(), to: identity.clone() };
+        if move_entry(dirs, &folder, &rec, ImportRecord { hash: identity.clone(), ..rec.clone() }, Some(entry.clone()), &mut *find)?.is_some() {
             moved.push(entry);
         }
     }
-    // the entries a take-over left behind because something still read them then: gone once nothing does
-    for m in self::moved(dirs).iter().filter(|m| m.taken_over) {
-        let old = m.from_ref();
-        if checked_entry(dirs, &old).is_ok_and(|f| f.is_dir()) {
-            let _ = remove_with(dirs, &old, false, &mut *find);
+    // the entries a take-over left behind because something still read them then: gone once nothing does, and only
+    // while their files are still exactly what was taken over (a copy of them is the new entry)
+    for kind in ModKind::ALL {
+        for (folder, rec) in records(dirs, kind) {
+            if taken_over_leftover(&folder, &rec) {
+                let old = LibraryRef { kind: rec.kind, id: rec.id.clone(), version: rec.version.clone(), hash: rec.hash.clone() };
+                let _ = remove_with(dirs, &old, false, &mut *find);
+            }
         }
     }
     Ok(moved)
 }
 
 /// Moves the Library entry at `folder` (recorded as `rec`) to the entry `to_rec` names, the step [`migrate_identities`]
-/// and [`take_over`] share: (1) the entry at `to_rec` is used when its record and files are that already, else made
-/// from a copy of `folder` checked against `to_rec.hash` (never replacing what is there under a game or server that may
-/// read it, nor under a cook of it); (2) the move is kept in `kiln-moved.json` before anything points at the new entry
-/// ([`moved_to`]); (3) every profile that lists the old entry lists the new one; (4) the old entry goes unless something
-/// still reads it (a running game, a game's profile file naming its path). -> false: left for a later run (busy).
-fn move_entry(dirs: &DataDirs, folder: &Path, rec: &ImportRecord, mut to_rec: ImportRecord, entry: MigratedEntry,
-              find: &mut dyn FnMut(&Path, &str) -> Result<Option<crate::proc::ProcessInfo>>) -> Result<bool> {
+/// (`migrated`: the move to keep) and [`take_over`] (`None`) share: (1) the entry at `to_rec` is used when its record
+/// and files are that already, else made from a copy of `folder` checked against `to_rec.hash` (never replacing what is
+/// there under a game or server that may read it, nor under a cook of it; a take-over never replaces it at all: that
+/// entry's own files may be a player's edit, and it is refused); (2) a migration's move is kept in `kiln-moved.json`
+/// before anything points at the new entry ([`moved_to`]); (3) every profile that lists the old entry lists the new
+/// one; (4) the old entry goes unless something still reads it (a running game, a game's profile file naming its path)
+/// or, for a take-over, its files changed again since they were copied: then they stay, and the answer says so.
+/// -> None: left for a later run (busy); Some(true): the old folder was kept because it changed again.
+fn move_entry(dirs: &DataDirs, folder: &Path, rec: &ImportRecord, mut to_rec: ImportRecord, migrated: Option<MigratedEntry>,
+              find: &mut dyn FnMut(&Path, &str) -> Result<Option<crate::proc::ProcessInfo>>) -> Result<Option<bool>> {
     let kind = rec.kind;
     let old = LibraryRef { kind, id: rec.id.clone(), version: rec.version.clone(), hash: rec.hash.clone() };
     let new = LibraryRef { kind, id: to_rec.id.clone(), version: to_rec.version.clone(), hash: to_rec.hash.clone() };
@@ -1240,13 +1234,20 @@ fn move_entry(dirs: &DataDirs, folder: &Path, rec: &ImportRecord, mut to_rec: Im
         return Err(Error::new(ErrorCode::Conflict, format!("{}: the changed files would replace their own folder", folder.display())));
     }
     // 1. the entry at the new hash (the same mod imported again may be there already): used only when its record and its
-    // files are that hash, else made again from the entry being moved
+    // files are that hash
     let there = to.is_dir() && crate::util::read_json::<ImportRecord>(&record_path(&to)).ok().flatten().is_some_and(|r| r.hash == new.hash)
         && recorded_hash(&to, &to_rec).ok().as_deref() == Some(new.hash.as_str());
     if !there {
+        if migrated.is_none() && std::fs::symlink_metadata(&to).is_ok() {
+            // another entry is where the changed files would go, and its own files are not those: they may be the
+            // player's edit of that entry, so nothing of it is touched
+            return Err(Error::new(ErrorCode::Conflict, format!(
+                "Another entry of this mod is where the changed files would go ({}), and its own files were changed too: take that one over first (or put its files back), then try again.",
+                to.display())));
+        }
         // what is there is replaced below: never under a game or server that may be reading it
         if std::fs::symlink_metadata(&to).is_ok() && Guard::read(dirs, &mut *find)?.refuse_while_running(dirs, &new).is_err() {
-            return Ok(false);
+            return Ok(None);
         }
         // nor under a cook of it (a game that loads the Library entry itself cooks in it: the cook has set its last
         // good files aside there and changes the recipe, which is why it reads as changed right now): held until the
@@ -1254,7 +1255,7 @@ fn move_entry(dirs: &DataDirs, folder: &Path, rec: &ImportRecord, mut to_rec: Im
         let _cook = if std::fs::symlink_metadata(&to).is_ok() {
             match crate::state::lock_cook_folder(&to, std::time::Duration::ZERO, &|| false, "a cook of this Library entry runs") {
                 Ok(held) => Some(held),
-                Err(_) => return Ok(false),
+                Err(_) => return Ok(None),
             }
         } else { None };
         let tmp = TempDir::new(&dirs.library(), "migrate")?;
@@ -1264,7 +1265,7 @@ fn move_entry(dirs: &DataDirs, folder: &Path, rec: &ImportRecord, mut to_rec: Im
         if recorded_hash(&work, &to_rec)? != new.hash {
             return Err(Error::new(ErrorCode::HashMismatch, format!("{}: changed while it was moved to its new hash", folder.display())));
         }
-        // a half move without its record, or an entry whose files are not its hash
+        // a half move without its record, or (a migration only) an entry whose files are not its hash
         if std::fs::symlink_metadata(&to).is_ok() {
             std::fs::remove_dir_all(&to).map_err(io(&to, "replacing"))?;
         }
@@ -1274,11 +1275,13 @@ fn move_entry(dirs: &DataDirs, folder: &Path, rec: &ImportRecord, mut to_rec: Im
         std::fs::rename(&work, &to).map_err(io(&to, "moving into the library"))?;
         crate::util::write_json_atomic(&record_path(&to), &to_rec)?;
     }
-    // 2. the move is kept before anything points at the new entry: a reference made before it finds that entry later
-    let mut all = self::moved(dirs);
-    if !all.contains(&entry) {
-        all.push(entry);
-        crate::util::write_json_atomic(&moved_file(dirs), &all)?;
+    // 2. a migration's move is kept before anything points at the new entry: a reference made before it finds that entry
+    if let Some(entry) = migrated.clone() {
+        let mut all = self::moved(dirs);
+        if !all.contains(&entry) {
+            all.push(entry);
+            crate::util::write_json_atomic(&moved_file(dirs), &all)?;
+        }
     }
     // 3. the profiles that list the old entry
     for summary in crate::profile::list(dirs)? {
@@ -1294,8 +1297,22 @@ fn move_entry(dirs: &DataDirs, folder: &Path, rec: &ImportRecord, mut to_rec: Im
         }
     }
     // 4. the old entry, unless something still reads it (a running game, a game's profile file naming its path)
-    let _ = remove_with(dirs, &old, false, &mut *find);
-    Ok(true)
+    if migrated.is_some() {
+        let _ = remove_with(dirs, &old, false, &mut *find);
+        return Ok(Some(false));
+    }
+    // a take-over removes the player's folder only while it still holds exactly what was taken: looked at again after
+    // the running check, right before it goes (an editor may have saved once more meanwhile)
+    let guard = Guard::read(dirs, &mut *find)?;
+    if recorded_hash(folder, &to_rec).ok().as_deref() != Some(new.hash.as_str()) {
+        return Ok(Some(true));
+    }
+    let gone = guard.refuse_while_running(dirs, &old).and_then(|()| guard.remove_checked(dirs, &old, folder, &Force::No));
+    if gone.is_err() {
+        // something still reads it: it stays until nothing does (migrate_identities), hidden while it is this copy
+        crate::util::write_atomic(&taken_over_path(folder), new.hash.as_bytes())?;
+    }
+    Ok(Some(false))
 }
 
 /// The record of the changed files in `folder`, the entry `rec` names, read from its manifest again (`hash`: their
@@ -1366,6 +1383,9 @@ pub struct TakenOver {
     pub to: LibraryRef,
     /// Its name as its manifest gives it now.
     pub name: String,
+    /// Something the player should know: the folder changed again while it was taken over, so it was kept.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
 }
 
 /// Has the entry at `folder` changed since its record was written? Cheap enough for every list: the entry is hashed only
@@ -1422,7 +1442,6 @@ pub fn take_over(dirs: &DataDirs, r: &LibraryRef) -> Result<TakenOver> {
 /// [`take_over`] with the process lookup given (`find(game folder, exe name)`), for tests.
 pub fn take_over_with(dirs: &DataDirs, r: &LibraryRef, find: &mut dyn FnMut(&Path, &str) -> Result<Option<crate::proc::ProcessInfo>>)
                       -> Result<TakenOver> {
-    let r = &moved_to(dirs, r);
     let folder = Guard::folder(dirs, r)?;
     let rec = record(dirs, r)?;
     let shown = |rec: &ImportRecord| rec.name.clone().filter(|n| !n.trim().is_empty()).unwrap_or_else(|| rec.id.clone());
@@ -1434,17 +1453,17 @@ pub fn take_over_with(dirs: &DataDirs, r: &LibraryRef, find: &mut dyn FnMut(&Pat
     } else { None };
     let hash = recorded_hash(&folder, &rec)?;
     if hash == rec.hash {
-        return Ok(TakenOver { from: r.clone(), to: r.clone(), name: shown(&rec) });
+        return Ok(TakenOver { from: r.clone(), to: r.clone(), name: shown(&rec), note: None });
     }
     let to_rec = record_of_changed(&folder, &rec, hash)?;
     let to = LibraryRef { kind: r.kind, id: to_rec.id.clone(), version: to_rec.version.clone(), hash: to_rec.hash.clone() };
-    let entry = MigratedEntry { id: r.id.clone(), version: r.version.clone(), from: r.hash.clone(), to: to.hash.clone(),
-        kind: (r.kind != ModKind::Kiln).then_some(r.kind), to_version: (to.version != r.version).then(|| to.version.clone()), taken_over: true };
     let name = shown(&to_rec);
-    if !move_entry(dirs, &folder, &rec, to_rec, entry, &mut *find)? {
+    let Some(kept) = move_entry(dirs, &folder, &rec, to_rec, None, &mut *find)? else {
         return Err(Error::new(ErrorCode::Busy, format!("{name}: its new Library entry is in use right now (a game, a server or a cook reads it). Try again when it is done.")));
-    }
-    Ok(TakenOver { from: r.clone(), to, name })
+    };
+    let note = kept.then(|| format!("{name}'s folder changed again while Kiln took it over: the newer files stay in {}, and it reads as changed again. Use the changed files once more to take those too.",
+        folder.display()));
+    Ok(TakenOver { from: r.clone(), to, name, note })
 }
 
 fn source_of(path: &Path, kind: &str) -> ImportSource {
@@ -1763,13 +1782,12 @@ pub fn list(dirs: &DataDirs, kind: Option<ModKind>) -> Result<Vec<LibraryEntry>>
         None => ModKind::ALL.to_vec(),
     };
     let mut out: Vec<LibraryEntry> = Vec::new();
-    // what a take-over left behind while something still read it: its files are the new entry's, and it goes at the
-    // next activation (migrate_identities); not a version to list
-    let left: Vec<LibraryRef> = moved(dirs).iter().filter(|m| m.taken_over).map(MigratedEntry::from_ref).collect();
     for k in kinds {
         let mut by_id: std::collections::BTreeMap<String, Vec<(PathBuf, ImportRecord)>> = Default::default();
         for (folder, rec) in records(dirs, k) {
-            if left.iter().any(|l| l.kind == rec.kind && l.id == rec.id && l.version == rec.version && l.hash == rec.hash) {
+            // what a take-over left behind while something still read it: a copy of its files is the new entry, and it
+            // goes at the next activation (migrate_identities); not a version to list
+            if taken_over_leftover(&folder, &rec) {
                 continue;
             }
             by_id.entry(rec.id.clone()).or_default().push((folder, rec));
@@ -2082,6 +2100,7 @@ impl Guard {
         }
         std::fs::remove_file(record_path(folder)).map_err(io(folder, "removing the record of"))?;
         std::fs::remove_dir_all(folder).map_err(io(folder, "removing"))?;
+        let _ = std::fs::remove_file(taken_over_path(folder));
         if let Some(parent) = folder.parent() {
             let _ = std::fs::remove_dir(parent);
         }

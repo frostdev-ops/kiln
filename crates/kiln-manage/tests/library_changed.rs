@@ -139,7 +139,7 @@ fn a_mod_json_edited_in_its_library_folder_is_taken_over_with_one_action() {
     let rec = library::record(&dirs, &new).unwrap();
     assert_eq!(rec.game_folder.as_deref(), Some("xhl-grappling-hook-pull-2x"), "what Kiln knew of the package stays");
     assert!(!entry.exists(), "the old entry is gone: nothing reads it any more");
-    assert_eq!(library::moved_to(&dirs, &old), new, "the move is kept");
+    assert_eq!(library::moved_to(&dirs, &old), old, "a take-over is a change of contents, not a move: a request by the old hash is never handed the new one");
     // the profile lists the new entry, and the game gets the changed files
     let p = profile::get(&dirs, "my-mods").unwrap();
     assert_eq!(p.mods.eml.iter().map(|m| (m.version.as_str(), m.hash.as_str())).collect::<Vec<_>>(), [("2.0.0", new.hash.as_str())]);
@@ -263,7 +263,7 @@ fn every_kind_is_taken_over() {
         let lib = library::list(&dirs, Some(*kind)).unwrap();
         let e = version_of(&lib, *kind, id);
         assert_eq!((e.name.clone(), e.versions.len(), e.versions[0].changed), (format!("{name} (edited)"), 1, false), "{kind:?}: {e:?}");
-        assert_eq!(library::moved_to(&dirs, old), done.to, "{kind:?}");
+        assert_eq!(library::moved_to(&dirs, old), *old, "{kind:?}: not remapped");
     }
     let p2 = profile::get(&dirs, &p.id).unwrap();
     for (kind, id, ..) in cases {
@@ -324,4 +324,145 @@ fn copy_mode_names_the_changed_kiln_mod() {
     assert_eq!(f.mods.kiln[0].hash.as_deref(), Some(done.to.hash.as_str()));
     let copy = g.path.join("kiln").join(&f.mods.kiln[0].path);
     assert!(std::fs::read_to_string(copy.join("kiln.mod.json")).unwrap().contains("Sharp Blades"), "the game gets the changed files");
+}
+
+// ---- review of 2026-11-13 (a take-over moves and deletes a player's mod folders) ----
+
+fn eml_src(root: &Path, dir: &str, version: &str, body: &[u8]) -> PathBuf {
+    let d = root.join(dir);
+    put(&d, "mod.json", format!(r#"{{"id":"stacks","name":"Stacks","version":"{version}","capabilities":["patch"]}}"#).as_bytes());
+    put(&d, "src/mod.lua", body);
+    d
+}
+
+fn copy_over(from: &Path, to: &Path) {
+    std::fs::remove_dir_all(to).unwrap();
+    kiln_manage::util::copy_tree(from, to).unwrap();
+}
+
+/// 1. A destination entry whose own files the player changed is never deleted to make room: versions A and B are in the
+/// Library, B is edited, then A's folder gets B's originally imported files; taking A over lands on B's entry, which is
+/// not exactly those files. Refused, and B keeps its edit.
+#[test]
+fn a_take_over_never_deletes_another_entrys_edits() {
+    let t = tmp("review-dest");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let a_src = eml_src(&t.0, "src/a", "1.0.0", b"return 'a'");
+    let b_src = eml_src(&t.0, "src/b", "1.1.0", b"return 'b'");
+    let r = library::import(&dirs, &[a_src, b_src.clone()], &mut NoProgress).unwrap();
+    let a = r.imported.iter().find(|x| x.version == "1.0.0").unwrap().clone();
+    let b = r.imported.iter().find(|x| x.version == "1.1.0").unwrap().clone();
+    let b_dir = library::path_of(&dirs, &b).unwrap();
+    put(&b_dir, "src/edit.lua", b"the player's own edit of B");
+    copy_over(&b_src, &library::path_of(&dirs, &a).unwrap());
+    let err = library::take_over_with(&dirs, &a, &mut no_game).unwrap_err();
+    assert_eq!(err.code, ErrorCode::Conflict, "{err:?}");
+    assert!(err.message.contains("take that one over first"), "{}", err.message);
+    assert_eq!(std::fs::read(b_dir.join("src/edit.lua")).unwrap(), b"the player's own edit of B", "B's edit is kept");
+    assert!(library::record(&dirs, &a).is_ok() && library::path_of(&dirs, &a).unwrap().is_dir(), "A is left as it is");
+    // B taken over first, then A: A's files are B's original ones, a new entry of their own again
+    library::take_over_with(&dirs, &b, &mut no_game).unwrap();
+    let done = library::take_over_with(&dirs, &a, &mut no_game).unwrap();
+    assert_eq!(done.to, b, "A's files are exactly B's imported entry, which is free again");
+}
+
+/// 2. The folder changed again while it was taken over (an editor saved once more): it is not deleted, the newer edit
+/// stays in it, and the answer says so.
+#[test]
+fn a_folder_changed_again_during_the_take_over_is_kept() {
+    let t = tmp("review-again");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let old = library::import(&dirs, &[eml_src(&t.0, "src/a", "1.0.0", b"return 1")], &mut NoProgress).unwrap().imported[0].clone();
+    let folder = library::path_of(&dirs, &old).unwrap();
+    put(&folder, "src/mod.lua", b"return 2");
+    kiln_manage::game::write_record(&dirs, &game_with_z(&t.0), None).unwrap();
+    // the process lookup runs at the start and again right before the old folder goes (each time twice for the one known
+    // game: its client and its server exe): the editor saves between the two
+    let mut calls = 0;
+    let f2 = folder.clone();
+    let mut find = |_: &Path, _: &str| {
+        calls += 1;
+        if calls == 3 { put(&f2, "src/mod.lua", b"return 3"); }
+        Ok(None)
+    };
+    let done = library::take_over_with(&dirs, &old, &mut find).unwrap();
+    assert!(calls >= 3);
+    assert_eq!(std::fs::read(folder.join("src/mod.lua")).unwrap(), b"return 3", "the newer edit is still there");
+    assert!(done.note.as_deref().is_some_and(|n| n.contains("changed again")), "{done:?}");
+    assert_ne!(done.to, old);
+    // and it reads as changed again, to be taken over once more
+    assert!(library::list(&dirs, None).unwrap().iter().flat_map(|e| e.versions.iter()).any(|v| v.hash == old.hash));
+}
+
+/// 4. A take-over stopped after its new entry was made (a profile could not be saved) is finished by trying again.
+#[test]
+fn a_take_over_stopped_half_way_is_finished_by_trying_again() {
+    use std::os::unix::fs::PermissionsExt;
+    let t = tmp("review-retry");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let old = library::import(&dirs, &[eml_src(&t.0, "src/a", "1.0.0", b"return 1")], &mut NoProgress).unwrap().imported[0].clone();
+    let mut ids = Vec::new();
+    for name in ["one", "two"] {
+        let mut p = profile::create(&dirs, name, None).unwrap();
+        p.mods.eml.push(ProfileMod { id: old.id.clone(), version: old.version.clone(), hash: old.hash.clone(), enabled: true });
+        ids.push(profile::save(&dirs, &p).unwrap().id);
+    }
+    put(&library::path_of(&dirs, &old).unwrap(), "src/mod.lua", b"return 2");
+    let locked = dirs.profile(&ids[1]);
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o555)).unwrap();
+    let first = library::take_over_with(&dirs, &old, &mut no_game);
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755)).unwrap();
+    assert!(first.is_err(), "{first:?}");
+    let done = library::take_over_with(&dirs, &old, &mut no_game).unwrap();
+    assert_ne!(done.to, old);
+    for id in &ids {
+        assert_eq!(profile::get(&dirs, id).unwrap().mods.eml[0].hash, done.to.hash, "{id}: finished");
+    }
+    assert!(library::record(&dirs, &old).is_err(), "the old entry went");
+}
+
+/// 3 and 5. A take-over hands nobody another hash for the one they asked for, and leaves nothing that hides an entry
+/// later: the original imported again is listed, and survives the migration; editing back and taking over again too.
+#[test]
+fn a_take_over_leaves_no_record_that_remaps_or_hides() {
+    let t = tmp("review-history");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let src = eml_src(&t.0, "src/a", "1.0.0", b"return 1");
+    let a = library::import(&dirs, &[src.clone()], &mut NoProgress).unwrap().imported[0].clone();
+    let folder = library::path_of(&dirs, &a).unwrap();
+    put(&folder, "src/mod.lua", b"return 2");
+    let b = library::take_over_with(&dirs, &a, &mut no_game).unwrap().to;
+    assert_eq!(library::moved_to(&dirs, &a), a, "a request for A (a server's list) is not handed B");
+    let again = library::import(&dirs, &[src.clone()], &mut NoProgress).unwrap();
+    assert_eq!(again.imported, [a.clone()], "{again:?}");
+    let hashes = |dirs: &DataDirs| library::list(dirs, None).unwrap().iter().flat_map(|e| e.versions.iter().map(|v| v.hash.clone()).collect::<Vec<_>>()).collect::<Vec<_>>();
+    assert!(hashes(&dirs).contains(&a.hash), "A imported again is listed");
+    library::migrate_identities(&dirs).unwrap();
+    assert!(library::path_of(&dirs, &a).unwrap().is_dir(), "and the migration leaves it");
+    // B edited back to A's contents and taken over: B's folder becomes A, which is there and exactly that
+    copy_over(&src, &library::path_of(&dirs, &b).unwrap());
+    let back = library::take_over_with(&dirs, &b, &mut no_game).unwrap();
+    assert_eq!(back.to, a);
+    assert!(hashes(&dirs).contains(&a.hash));
+    assert!(!hashes(&dirs).contains(&b.hash), "B's folder went: its files are A's");
+}
+
+/// 6 (H4). A save of a profile that was deleted meanwhile never lands on a profile made again under its id, even at the
+/// same generation (a save still on its way from the launcher, or another window).
+#[test]
+fn a_save_of_a_deleted_profile_never_lands_on_one_made_again() {
+    let t = tmp("review-profile");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let mut old = profile::create(&dirs, "My mods", None).unwrap();
+    old.notes = "the deleted one's".into();
+    profile::delete(&dirs, &old.id).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(5));
+    let made = profile::create(&dirs, "My mods", None).unwrap();
+    assert_eq!((made.id.as_str(), made.generation), (old.id.as_str(), old.generation), "same id, same generation");
+    let err = profile::save(&dirs, &old).unwrap_err();
+    assert_eq!(err.code, ErrorCode::Conflict);
+    assert!(err.message.contains("deleted and made again"), "{}", err.message);
+    assert_eq!(profile::get(&dirs, &made.id).unwrap().notes, "", "the new profile is untouched");
+    // its own saves go on
+    profile::save(&dirs, &made).unwrap();
 }

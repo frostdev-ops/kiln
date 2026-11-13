@@ -447,8 +447,11 @@ export interface LibraryVersion {
   changed?: boolean;
 }
 /** library_take_over (kiln_manage::library::TakenOver): the entry as it was, the entry its changed files are now
- *  (`from` again when nothing was changed), and the mod's name as its manifest gives it now. */
-export interface TakenOver { from: LibraryRef; to: LibraryRef; name: string }
+ *  (`from` again when nothing was changed), the mod's name as its manifest gives it now, and a note when the folder
+ *  changed again meanwhile. */
+export interface TakenOver { from: LibraryRef; to: LibraryRef; name: string;
+  /** The folder changed again while it was taken over: the newer files stayed in it (it reads as changed again). */
+  note?: string | null }
 export interface LibraryEntry {
   kind: ModKind;
   id: string;
