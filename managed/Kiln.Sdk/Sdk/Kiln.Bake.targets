@@ -77,9 +77,18 @@
     <Delete Files="$(_KilnBakeStamp)" Condition="'@(_KilnBakeMissing)' != ''" />
   </Target>
 
-  <Target Name="KilnBake" AfterTargets="KilnManifest" DependsOnTargets="_KilnBakeStage;_KilnBakeConfig;_KilnBakeOutputsGone"
+  <!-- What the mod's code may read in OnLoad from its output folder (a JSON file it defines from): every None and Content
+       item copied there, PreserveNewest or Always. One that changed bakes again. -->
+  <Target Name="_KilnBakeInputs">
+    <ItemGroup>
+      <_KilnBakeInput Include="@(None->WithMetadataValue('CopyToOutputDirectory','PreserveNewest'));@(None->WithMetadataValue('CopyToOutputDirectory','Always'))" />
+      <_KilnBakeInput Include="@(Content->WithMetadataValue('CopyToOutputDirectory','PreserveNewest'));@(Content->WithMetadataValue('CopyToOutputDirectory','Always'))" />
+    </ItemGroup>
+  </Target>
+
+  <Target Name="KilnBake" AfterTargets="KilnManifest" DependsOnTargets="_KilnBakeStage;_KilnBakeConfig;_KilnBakeOutputsGone;_KilnBakeInputs"
           Condition="'$(_KilnBakeNow)' == 'true' and '$(KilnManifest)' != 'false'"
-          Inputs="$(TargetPath);$(OutDir)kiln.mod.json;$(_KilnBakeConfig);@(None->WithMetadataValue('CopyToOutputDirectory','PreserveNewest'));$(_KilnBakeHostDir)Kiln.Sdk.Bake.dll"
+          Inputs="$(TargetPath);$(OutDir)kiln.mod.json;$(_KilnBakeConfig);@(_KilnBakeInput);$(_KilnBakeHostDir)Kiln.Sdk.Bake.dll"
           Outputs="$(_KilnBakeStamp)">
     <Delete Files="$(_KilnBakeStamp)" />
     <Exec Command="&quot;$(_KilnBakeDotnet)&quot; exec &quot;$(_KilnBakeHostDir)Kiln.Sdk.Bake.dll&quot; &quot;$(OutDir.TrimEnd('/').TrimEnd('\'))&quot; --steps $(KilnBakeSteps) --timeout $(KilnBakeTimeoutSeconds) --list &quot;$(_KilnBakeList)&quot;"

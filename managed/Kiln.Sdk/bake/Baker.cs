@@ -200,13 +200,14 @@ internal static class Baker
         return doc.Count > 2 ? doc : null;
     }
 
-    /// <summary>"vfx/&lt;name&gt;" and "materials/&lt;name&gt;" of every blocks/*.json in the folder.</summary>
+    /// <summary>"vfx/&lt;name&gt;" and "materials/&lt;name&gt;" of every blocks/*.json in the folder, whatever the case of
+    /// ".json" (as Kiln.Blocks' reader takes them, on Windows and Linux alike).</summary>
     internal static HashSet<string> DataBlockNames(string folder)
     {
         var names = new HashSet<string>(StringComparer.Ordinal);
         var dir = Path.Combine(folder, "blocks");
         if (!Directory.Exists(dir)) return names;
-        foreach (var file in Directory.GetFiles(dir, "*.json"))
+        foreach (var file in Directory.EnumerateFiles(dir).Where(f => f.EndsWith(".json", StringComparison.OrdinalIgnoreCase)))
         {
             JsonObject? o;
             try { o = JsonNode.Parse(File.ReadAllText(file), documentOptions: Relaxed) as JsonObject; }
@@ -225,8 +226,10 @@ internal static class Baker
         Put(folder, VfxFile(mod), vfx, "VFX and materials (blocks/generated)", result, options);
     }
 
-    /// <summary>Writes one file, removes a stale one the bake wrote, and leaves a file of the author's alone.</summary>
-    private static void Put(string folder, string relative, JsonObject? doc, string what, BakeResult result, BakeOptions options)
+    /// <summary>Writes one file, removes a stale one the bake wrote, and leaves a file of the author's alone. A file over
+    /// what readers of baked files take (BakedFiles.MaxBytes) is not written: they would refuse it, and the next bake would
+    /// take it for the author's and leave it stale; an earlier bake's goes then, and the build warns.</summary>
+    internal static void Put(string folder, string relative, JsonObject? doc, string what, BakeResult result, BakeOptions options)
     {
         var file = Path.Combine(folder, relative);
         var shown = relative.Replace('\\', '/');
@@ -245,6 +248,17 @@ internal static class Baker
             return;
         }
         var text = doc.ToJsonString(Pretty) + "\n";
+        if (System.Text.Encoding.UTF8.GetByteCount(text) > BakedFiles.MaxBytes)
+        {
+            result.Warnings.Add($"{shown}: its {what} make {System.Text.Encoding.UTF8.GetByteCount(text) >> 20} MiB, more than the {BakedFiles.MaxBytes >> 20} MiB a baked file may hold: not baked, " +
+                                "so they are there from the next start (docs/kiln/modding/baked.md)");
+            if (ours)
+            {
+                if (!options.DryRun) File.Delete(file);
+                result.Removed.Add(shown);
+            }
+            return;
+        }
         if (ours && BakedFiles.Read(folder, relative) == text)
         {
             result.Unchanged.Add(shown);
