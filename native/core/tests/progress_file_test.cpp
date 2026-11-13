@@ -372,6 +372,28 @@ int main() {
         nb.at(10);
         CHECK(nb.last()["state"] == "ready");
     }
+    // ---- a plan with steps the start does not have (kiln.json's side section switched .NET off after the plan): the core's
+    // skip_to takes them out, and the start ends in ready rather than loading for ever ----
+    {
+        Bench b;
+        b.w.first("start", 0);
+        for (const char* id : {"native-early", "early-plugins", "signatures", "services", "plugins", "native"}) b.w.step(id);
+        CHECK(b.w.step("game") == Result::refused);  // dotnet is next
+        std::vector<std::string> dropped;
+        CHECK(b.w.skip_to("game", "The game is loading its main menu", {}, &dropped) == Result::ok);
+        CHECK((dropped == std::vector<std::string>{"dotnet", "mods", "content"}));
+        b.w.loading();
+        b.w.mark(Mark::menu);
+        b.at(1);
+        auto d = b.last();
+        CHECK(d["state"] == "ready" && d["plan"].size() == 8 && d["plan"].back() == "game" && d["steps"].size() == 8);
+        CHECK(b.w.skip_to("start", {}, {}, nullptr) == Result::over);
+    }
+    {
+        Bench b;
+        walk_boot(b);
+        CHECK(b.w.skip_to("native", {}, {}, nullptr) == Result::refused);  // never back
+    }
     // ---- parts: from 500 ms, at most 16 a step ----
     {
         Bench b;

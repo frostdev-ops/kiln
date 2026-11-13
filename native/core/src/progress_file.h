@@ -225,6 +225,24 @@ public:
         return who_.side == "client" ? menu_ : index_of("dotnet") >= 0 ? server_started_ : world_started_;
     }
 
+    // The core's own way past steps of the plan that this start turned out not to have (a second line of defence: the
+    // plan is made from the settings that apply, so this is a Kiln bug when it happens). The steps between the running
+    // one and `id` that never began are taken out of the plan (the file then says what the start really went through,
+    // rather than steps that took 0 ms or a start that waits for ever), and `id` begins. `dropped` lists them.
+    Result skip_to(std::string_view id, std::string_view label, std::string_view detail, uint64_t now, Change* change,
+                   std::vector<std::string>* dropped) {
+        *change = Change::none;
+        if (final()) return Result::over;
+        const int at = index_of(id);
+        const int from = steps_.empty() ? -1 : index_of(steps_.back().id);
+        if (at < 0 || at <= from) return Result::refused;
+        for (int i = at - 1; i > from; --i) {
+            if (dropped) dropped->insert(dropped->begin(), plan_[static_cast<size_t>(i)]);
+            plan_.erase(plan_.begin() + i);
+        }
+        return step(id, label, detail, 0, 0, now, change);
+    }
+
     // The JSON of the file as it stands at `now` (a final state: as it stood when it ended, so that the steps' tookMs
     // add up to atMs).
     std::string render(uint64_t now) const {
@@ -309,6 +327,9 @@ public:
     Result step(std::string_view id, std::string_view label = {}, std::string_view detail = {}, uint64_t done = 0,
                 uint64_t total = 0) {
         return apply([&](uint64_t now, Model::Change* c) { return model_.step(id, label, detail, done, total, now, c); });
+    }
+    Result skip_to(std::string_view id, std::string_view label, std::string_view detail, std::vector<std::string>* dropped) {
+        return apply([&](uint64_t now, Model::Change* c) { return model_.skip_to(id, label, detail, now, c, dropped); });
     }
     // The first step, which began before the writer existed (boot's start: at 0).
     Result first(std::string_view id, uint64_t at) {
