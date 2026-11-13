@@ -266,6 +266,9 @@ bool noclip_flight(void* ctx, const uint8_t* dyn, uint32_t* entity) {
 
 void forget_local() { g_local_player.store(0); }
 
+// A server world started here and no prediction world has since: a host's session is beginning.
+static std::atomic<bool> g_server_began{false};
+
 // Flight ownership is keyed by a character's objects, and the locomotion hooks cannot tell which world a character is
 // in. So the table is one for all worlds, and the world events decide when it is forgotten:
 // - A world with characters in it (server, prediction) stops: everything goes; its objects die with it, and on a host
@@ -277,11 +280,22 @@ void forget_local() { g_local_player.store(0); }
 //   world stops (`stops_seen` false: KilnSessionInfo.lifecycle) and this is not the first world of its kind
 //   (`session` > 1), it may replace one whose stop nobody saw, and ownership from that one must not meet a new
 //   character at an old address.
+//   A host's worlds start in one order: the server's, then the prediction. That prediction start belongs to the
+//   session the server start began (and already forgot everything for): it forgets nothing, or a character that got
+//   NoClip in the new server world in between were left flying inside something with collision back on.
 // The cached local identity is dropped at every event.
 void world(uint32_t event, uint32_t kind, uint32_t session, bool stops_seen) {
     const bool has_characters = kind != KILN_WORLD_CLIENT;
-    if (event == KILN_WORLD_STOPPING && has_characters) reset();
-    else if (event == KILN_WORLD_STARTED && has_characters && !stops_seen && session > 1) reset();
+    bool forget = false;
+    if (event == KILN_WORLD_STOPPING && has_characters) {
+        forget = true;
+        if (kind == KILN_WORLD_SERVER) g_server_began.store(false);
+    } else if (event == KILN_WORLD_STARTED && has_characters) {
+        const bool same_session = kind == KILN_WORLD_PREDICTION && g_server_began.exchange(false);
+        if (kind == KILN_WORLD_SERVER) g_server_began.store(true);
+        forget = !stops_seen && session > 1 && !same_session;
+    }
+    if (forget) reset();
     else forget_local();
 }
 

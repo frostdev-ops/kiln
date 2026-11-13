@@ -587,7 +587,7 @@ internal static unsafe class RulesRuntime
         if (r.Trip is { } trip)
         {
             // the requests are used up, and resolving reaches the tracker's Leaving
-            SpendNoClip(s.Entity, clip.LastSeen, trip);
+            SpendNoClip(s.Entity, r.Before, trip);
             Resolve();
         }
         if (r.Released || r.Held) PushNative(s);  // collision is back, or off again, from the next step

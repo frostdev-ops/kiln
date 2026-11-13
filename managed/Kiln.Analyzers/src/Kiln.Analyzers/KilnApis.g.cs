@@ -503,7 +503,7 @@ internal static partial class KilnApis
         "M:Kiln.ReflectedValue.set_Item(System.String,System.Object)", // ReflectedValue.this[string].set: via ReflectedValue.Span()
         "M:Kiln.RuleSet.Update(Kiln.PlayerRules)", // RuleSet.Update(PlayerRules): Game.AssertTickThread
         "M:Kiln.Rules.Apply(Kiln.EntityId,Kiln.PlayerRules,System.Nullable{System.TimeSpan},System.String)", // Rules.Apply(EntityId, PlayerRules, TimeSpan?, string?): via Rules.Apply(RuleScope, PlayerRules, TimeSpan?, string?)
-        "M:Kiln.Rules.Apply(Kiln.RuleScope,Kiln.PlayerRules,System.Nullable{System.TimeSpan},System.String)", // Rules.Apply(RuleScope, PlayerRules, TimeSpan?, string?): Game.AssertTickThread
+        "M:Kiln.Rules.Apply(Kiln.RuleScope,Kiln.PlayerRules,System.Nullable{System.TimeSpan},System.String)", // Rules.Apply(RuleScope, PlayerRules, TimeSpan?, string?): via Rules.Apply(RuleScope, PlayerRules, TimeSpan?, string?, Action<RuleSet>?)
         "M:Kiln.Rules.Of(Kiln.EntityId)", // Rules.Of(EntityId): Game.AssertTickThread
         "M:Kiln.Rules.Simulate(Kiln.EntityId,System.Boolean)", // Rules.Simulate(EntityId, bool): Game.AssertTickThread
         "M:Kiln.Schematic.Capture(Kiln.CellBox,Kiln.CaptureOptions)", // Schematic.Capture(CellBox, CaptureOptions?): via Build.CornerOf(CellPos)

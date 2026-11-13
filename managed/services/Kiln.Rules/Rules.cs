@@ -26,7 +26,12 @@ public static unsafe class Rules
     /// <summary>Applies <paramref name="rules"/> to <paramref name="scope"/> until the returned handle is disposed, the
     /// calling mod unloads, <paramref name="duration"/> runs out, or (for a single player) the player leaves.</summary>
     /// <exception cref="ArgumentException">A value is out of range (named in the message).</exception>
-    public static RuleSet Apply(RuleScope scope, PlayerRules rules, TimeSpan? duration = null, string? label = null)
+    public static RuleSet Apply(RuleScope scope, PlayerRules rules, TimeSpan? duration = null, string? label = null) =>
+        Apply(scope, rules, duration, label, null);
+
+    // `made` gets the rule set before it is registered and resolved: resolving runs other code, and a caller that
+    // must take back exactly its own set when that throws has no return value to take it from.
+    internal static RuleSet Apply(RuleScope scope, PlayerRules rules, TimeSpan? duration, string? label, Action<RuleSet>? made)
     {
         ArgumentNullException.ThrowIfNull(scope);
         ArgumentNullException.ThrowIfNull(rules);
@@ -36,6 +41,7 @@ public static unsafe class Rules
         RulesRuntime.Start();
         var mod = ModContext.CurrentMod;
         var set = new RuleSet(scope, rules, mod?.Info.Id ?? "kiln", label, duration is { } d ? DateTime.UtcNow + d : null);
+        made?.Invoke(set);
         RulesRuntime.Add(set, mod);
         return set;
     }
