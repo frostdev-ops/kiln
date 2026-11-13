@@ -1,13 +1,17 @@
 #!/usr/bin/env bash
 # Cross-builds the Kiln Launcher for Windows from Linux: NSIS installer via cargo-xwin.
 #   tools/launcher/build-windows.sh [--debug] [--selftest] [--webview bootstrapper|skip] [--runtime ZIP|none] [--version V]
-#                                   [--config JSON|FILE]... [--nexus]
+#                                   [--python DIR|none] [--config JSON|FILE]... [--nexus]
 # --nexus: the Nexus Mods build: no self-update at all (cargo --no-default-features drops the self-update feature and
 #   tauri-plugin-updater; src-tauri/tauri.nexus.conf.json drops the updater key from the config). Output in
 #   bundles/windows-nexus/. docs/kiln/launcher/releasing.md, "The two builds".
 # --version: the launcher's version (a release: tools/release/version.sh). --config: more Tauri config to merge, in order
 #   (a release passes bundle.windows.signCommand when it signs with Authenticode).
 # --runtime: the Kiln runtime to ship (shipped-runtime.sh). Default: built from this tree; --selftest ships none.
+# --python: the Python to ship as python/ for the cook tools (kiln_manage::cooktools; a player's own Python is never
+#   used). Default: the pinned embeddable package (tools/package/fetch-python.sh: cached, else downloaded and checked
+#   by sha256). DIR: an unpacked one. none: no Python (--selftest's default; a release build refuses it): cooking in
+#   that launcher then needs KILN_PYTHON.
 # Output: $KILN_OUT/bundles/windows/ (kiln-launcher-setup.exe, kiln-launcher.exe).
 # --webview: what the installer does about the WebView2 runtime. bootstrapper (default for releases) downloads
 #   Microsoft's WebView2 bootstrapper at install time when the runtime is missing; skip installs nothing (Windows 11
@@ -27,6 +31,7 @@ profile=()
 selftest=0
 webview=
 runtime=
+python=
 extra=()
 nexus=0
 source "$here/shipped-runtime.sh"
@@ -38,11 +43,13 @@ while (($#)); do
     --selftest) selftest=1; shift ;;
     --webview) webview=$2; shift 2 ;;
     --runtime) runtime=$2; shift 2 ;;
+    --python) python=$2; shift 2 ;;
     --nexus) nexus=1; shift ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
-((selftest)) && runtime=${runtime:-none}
+((selftest)) && runtime=${runtime:-none} python=${python:-none}
+[[ $python == none && ${KILN_RELEASE_BUILD:-} == 1 ]] && { echo "--python none: a release build ships the pinned Python" >&2; exit 2; }
 # the Nexus Mods build: no self-update feature and no updater key in the config (its config goes last)
 runner_args=()
 variant=windows
@@ -52,6 +59,7 @@ if ((nexus)); then
   variant=windows-nexus
 fi
 resources=$(shipped_runtime_resources "$runtime")
+resources=$(shipped_python_resources "$python" "$resources")
 cd "$repo/launcher"
 [[ -d node_modules ]] || bun install --frozen-lockfile
 [[ -z $webview ]] && { ((selftest)) && webview=skip || webview=bootstrapper; }

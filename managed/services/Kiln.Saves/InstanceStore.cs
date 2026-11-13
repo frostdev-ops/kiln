@@ -273,6 +273,11 @@ internal sealed partial class InstanceStore
     /// <summary>The world closed or another one opens: nothing of this one stays (declared keys do: they are the mods').</summary>
     public void Clear()
     {
+        // What still waits to be told (the bus refused it earlier) is told now, about the world it happened in. What
+        // cannot be told now either is dropped: it must not arrive in the next world.
+        if (_passes == 0 && !_draining) Drain();
+        _afterPass.Clear();
+        _cleared++;
         foreach (var l in _live.Values) Unfollow(l);
         foreach (var p in _pending) Unfollow(p.Item);
         _live.Clear();
@@ -720,6 +725,7 @@ internal sealed partial class InstanceStore
     private int _passes;
     private bool _draining;
     private readonly Queue<Action> _afterPass = new();
+    private int _cleared;  // counts Clear(): a handler that closed the world emptied the queue under the loop below
 
     private void BeginPass() => _passes++;
 
@@ -740,8 +746,9 @@ internal sealed partial class InstanceStore
         {
             while (_afterPass.TryPeek(out var post))
             {
+                var cleared = _cleared;
                 post();
-                _afterPass.Dequeue();
+                if (cleared == _cleared) _afterPass.Dequeue();  // else the queue is another one by now
             }
         }
         catch (Exception e)
@@ -756,10 +763,12 @@ internal sealed partial class InstanceStore
         }
     }
 
+    // Always through the queue: an event posted outside a pass (a discard) must not overtake ones that still wait
+    // because the bus refused them at the end of an earlier pass.
     private void Post<T>(T ev) where T : KilnEvent
     {
-        if (_passes > 0 || _draining) _afterPass.Enqueue(() => Events.Post(ev));
-        else Events.Post(ev);
+        _afterPass.Enqueue(() => Events.Post(ev));
+        if (_passes == 0 && !_draining) Drain();
     }
 
     // ------------------------------------------------------------------------------------------- the tick ----

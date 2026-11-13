@@ -181,6 +181,53 @@ public sealed class InstanceClaimTests : IDisposable
         Assert.Equal(_h.World.At(b, 4), order[2]);
     }
 
+    private sealed class DeepEvent : KilnEvent;
+
+    /// <summary>Runs <paramref name="act"/> as deep inside event handlers as the bus allows: an event posted from there
+    /// is refused by the bus.</summary>
+    private static void AtTheBusLimit(Action act)
+    {
+        var depth = 0;
+        using var sub = Kiln.Events.On<DeepEvent>(_ =>
+        {
+            if (++depth < Kiln.Events.MaxDepth) Kiln.Events.Post(new DeepEvent());
+            else act();
+        });
+        Kiln.Events.Post(new DeepEvent());
+        Assert.Equal(Kiln.Events.MaxDepth, depth);
+    }
+
+    [Fact]
+    public void AnEventPostedOutsideAPassWaitsBehindTheOnesTheBusRefused()
+    {
+        var (at4, _) = SetAside();
+        var two = _h.Parked().Single(p => p.Value!.Count == 2);
+        var three = _h.Parked().Single(p => p.Value!.Count == 3);
+        _h.Events.Clear();
+        var dropped = false;
+        AtTheBusLimit(() => dropped = TestMods.As(_h.Mod, () => InstanceData.Discard(two)));
+        Assert.True(dropped);
+        Assert.Empty(_h.Events);                 // the bus refused the event there: it waits
+        // the next event, posted outside any pass, goes out behind the one that waits, not ahead of it
+        Assert.True(TestMods.As(_h.Mod, () => InstanceData.Claim(three, at4)).Ok);
+        Assert.Equal([typeof(InstanceDataLostEvent), typeof(InstanceDataRestoredEvent)], _h.Events.Select(e => e.GetType()));
+    }
+
+    [Fact]
+    public void AWorldThatClosesTellsWhatStillWaitsAndTakesNothingIntoTheNextOne()
+    {
+        SetAside();
+        var two = _h.Parked().Single(p => p.Value!.Count == 2);
+        _h.Events.Clear();
+        AtTheBusLimit(() => TestMods.As(_h.Mod, () => InstanceData.Discard(two)));
+        Assert.Empty(_h.Events);
+        Store.Instances.Clear();                 // the world closes
+        Assert.IsType<InstanceDataLostEvent>(Assert.Single(_h.Events));  // told now, about the world it happened in
+        _h.Events.Clear();
+        _h.Tick();
+        Assert.Empty(_h.Events);                 // and not again in the next one
+    }
+
     [Fact]
     public void AHandlerThatDiscardsWhileHoldersAreCountedAsMissedBreaksNothing()
     {

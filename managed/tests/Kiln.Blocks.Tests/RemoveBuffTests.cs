@@ -142,6 +142,16 @@ public sealed class RemoveBuffTests
     }
 
     [Fact]
+    public void NoRemovalStartsWhileTheServerStops()
+    {
+        Assert.True(Abilities.Admits(false, ServerPhase.Running));
+        Assert.True(Abilities.Admits(false, ServerPhase.Starting));
+        Assert.False(Abilities.Admits(true, ServerPhase.Running));    // Kiln's own handler of the stop ran
+        // the first removal ever, asked for inside a handler of the stop: Kiln's handler was added too late to run
+        Assert.False(Abilities.Admits(false, ServerPhase.Stopping));
+    }
+
+    [Fact]
     public void TheResultFollowsTheErrorRule()
     {
         IKilnResult ok = new BuffRemoveResult(new EntityId(7), 0x339519bd, true, "ignored");

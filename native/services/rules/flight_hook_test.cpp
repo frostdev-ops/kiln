@@ -120,6 +120,14 @@ int main() {
     f::world(KILN_WORLD_STARTED, KILN_WORLD_SERVER, 2, false);
     check(!f::flown_recently(e, dyn) && !f::flown_recently(3, dyn) && !f::flight_possible(),
           "without seen stops, a second world of its kind forgets flight ownership (no old flight meets a new character)");
+    // ...and the prediction world of that same new session, starting after its server world, forgets nothing more
+    f::note_flying(e, dyn); f::note_flying(3, dyn);
+    f::world(KILN_WORLD_STARTED, KILN_WORLD_PREDICTION, 2, false);
+    check(f::flown_recently(e, dyn) && f::flown_recently(3, dyn) && f::flight_possible(),
+          "without seen stops, a host's second prediction world keeps the flights its new server world started");
+    f::world(KILN_WORLD_STARTED, KILN_WORLD_PREDICTION, 3, false);
+    check(!f::flown_recently(e, dyn) && !f::flown_recently(3, dyn),
+          "without seen stops, a prediction world with no server start before it (a joined game after hosting) forgets them");
     f::note_flying(e, dyn); f::note_flying(3, dyn);
     f::world(KILN_WORLD_STOPPING, KILN_WORLD_CLIENT, 1, true);
     check(f::flown_recently(e, dyn) && f::flown_recently(3, dyn), "the client's own world stopping forgets no flight");
