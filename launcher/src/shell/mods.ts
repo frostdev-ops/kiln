@@ -3,7 +3,7 @@
 // folder that the launcher did not place (kiln_manage::found). A row is on when its mod is in the loaded profile and
 // enabled; a game-folder row has no switch (only its state and fix). One short note per row, only when there is
 // something to say. Pure: shell/useMods.ts reads the queries and the edits.
-import type { BootState, FoundMod, LibraryEntry, ModKind, Profile, ProfileMod, ResolvePreview, RetainedPlacement } from "../api/commands";
+import type { BootState, FoundMod, LibraryEntry, LibraryRef, ModKind, Profile, ProfileMod, ResolvePreview, RetainedPlacement } from "../api/commands";
 import { MOD_KINDS, NOT_RUNNING_KINDS } from "../api/kinds";
 
 export type NoteTone = "info" | "warn" | "err" | "idle";
@@ -28,6 +28,9 @@ export interface ModRow {
   note: ModNote | null;
   /** On, and it will not run in this game: why, in a few words (the count's exceptions). */
   wontRun: string | null;
+  /** The Library version this row uses (the profile's, else the newest) was changed in its folder since its import:
+   *  the entry to give library_take_over ("Use the changed files"). */
+  changed: LibraryRef | null;
   /** On, a Kiln mod for the server side: it starts with the player's own world. */
   withWorld: boolean;
   /** On, and it stays off in this game (the game's kiln.json turns off mods that start with your world). */
@@ -91,7 +94,7 @@ export function buildRows(x: ModInputs): ModRow[] {
     const on = !!entry?.enabled;
     const row: ModRow = {
       key, kind, id, name: lib?.name ?? id, version: entry?.version ?? lib?.versions[0]?.version ?? null, on, entry, lib, found: null,
-      note: null, wontRun: null, withWorld: false, staysOff: false,
+      note: null, wontRun: null, withWorld: false, staysOff: false, changed: null,
     };
     if (on) {
       const fail = failed.get(key);
@@ -127,6 +130,13 @@ export function buildRows(x: ModInputs): ModRow[] {
       const kept = retained.find((k) => names.includes(k.base));
       if (kept) row.note = { text: "Left in the game folder", tone: "warn", title: kept.r.reason };
     }
+    // its files were changed in its Library folder (a mod.json edited by hand): what Play would refuse, so it comes first
+    const used = entry ? lib?.versions.find((v) => v.hash === entry.hash) : lib?.versions[0];
+    if (used?.changed) {
+      row.changed = { kind, id, version: used.version, hash: used.hash };
+      row.note = { text: "Changed on disk", tone: "warn",
+        title: "Its files were changed in its folder since Kiln imported them. Use the changed files to load them, with the name and info they give now." };
+    }
     rows.push(row);
   };
 
@@ -139,7 +149,7 @@ export function buildRows(x: ModInputs): ModRow[] {
 
   const folder: ModRow[] = x.found.map((f) => ({
     key: `found:${f.path}`, kind: f.kind, id: f.id ?? f.name, name: f.name, version: f.version, on: false, entry: null, lib: null, found: f,
-    note: foundNote(f), wontRun: null, withWorld: false, staysOff: false,
+    note: foundNote(f), wontRun: null, withWorld: false, staysOff: false, changed: null,
   }));
   folder.sort(byName);
   return [...rows, ...folder];

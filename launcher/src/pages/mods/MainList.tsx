@@ -16,6 +16,7 @@ import { FolderNotesButton } from "../../components/FolderNotes";
 import { ConfigEditor } from "../../components/ConfigEditor";
 import { cookAgain } from "../../shell/cook";
 import { useAddMods } from "../../shell/drop";
+import { takeOver, USE_CHANGED } from "../../shell/libraryChanged";
 import { MOD_FILE_FILTERS, MOD_FILE_WORDS } from "../../shell/modFiles";
 import { bulkPlan, filterRows, kindsOf, type ModRow } from "../../shell/mods";
 import { notifyAdd } from "../../shell/notices";
@@ -102,6 +103,13 @@ export function MainList({ game, mods, running }: { game: GameInstall; mods: Mod
     }
   };
 
+  /** "Use the changed files" of a mod changed in its Library folder. */
+  const takeChanged = async (r: ModRow) => {
+    if (!r.changed) return;
+    setBusy(r.key);
+    try { await takeOver(qc, r.changed, r.name); } finally { setBusy(null); }
+  };
+
   const menu = (r: ModRow): MenuItem[] => {
     if (r.found) {
       const f = r.found;
@@ -116,6 +124,7 @@ export function MainList({ game, mods, running }: { game: GameInstall; mods: Mod
     const sw: MenuItem[] = loaded && (r.entry || r.lib) ? [{ label: r.on ? "Switch off" : "Switch on", onSelect: () => mods.toggle(r, !r.on) }] : [];
     const folder = versions.find((v) => v.version === cur)?.folder ?? versions[0]?.folder;
     return [
+      ...(r.changed ? [{ label: USE_CHANGED, disabled: running || !!busy, onSelect: () => void takeChanged(r) }] : []),
       ...sw,
       ...(r.kind && r.entry && SETTINGS_KINDS.includes(r.kind) ? [{ label: "Settings", onSelect: () => setSettings({ kind: r.kind!, id: r.id, name: r.name }) }] : []),
       ...(withConfig.has(r.id) ? [{ label: "Configs", onSelect: () => setConfigs(r.id) }] : []),
@@ -182,6 +191,12 @@ export function MainList({ game, mods, running }: { game: GameInstall; mods: Mod
                   <span className="k-mod-note">
                     {r.found && <span className="k-mod-where">Game folder</span>}
                     {r.note && <span className={`k-tone-${r.note.tone}`} title={r.note.title}>{r.note.text}</span>}
+                    {r.changed && (
+                      <button type="button" className="k-link" disabled={!!busy || running} onClick={() => void takeChanged(r)}
+                        aria-label={`${USE_CHANGED} of ${r.name}`} title="Kiln takes the files in its folder over as the mod's files, with the name and info they give now">
+                        {busy === r.key ? "Taking over…" : USE_CHANGED}
+                      </button>
+                    )}
                     {r.found?.fix && (
                       <button type="button" className="k-link" disabled={!!busy || !loaded} onClick={() => void fixFound(r)}
                         aria-label={r.found.fix === "dropins" && r.found.kind ? `Load the game-folder ${KIND_SHORT[r.found.kind]} mods` : `Add ${r.name} to my mods`}

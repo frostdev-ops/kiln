@@ -441,7 +441,13 @@ export interface LibraryVersion {
    *  the Library id is its Kiln-id slug). Engine plugins report their state rows under this id. */
   manifestId: string | null;
   manifest: Json | null;
+  /** Its files were changed in its folder since Kiln imported them (a player edited its mod.json): Play refuses it as
+   *  it is until libraryTakeOver makes the changed files the mod's entry. Absent: not changed. */
+  changed?: boolean;
 }
+/** library_take_over (kiln_manage::library::TakenOver): the entry as it was, the entry its changed files are now
+ *  (`from` again when nothing was changed), and the mod's name as its manifest gives it now. */
+export interface TakenOver { from: LibraryRef; to: LibraryRef; name: string }
 export interface LibraryEntry {
   kind: ModKind;
   id: string;
@@ -1436,6 +1442,10 @@ export const libraryUnused = () => call<LibraryRef[]>("library_unused");
 /** What library_remove refuses (conflict) over without force: profile ids, and "<profile> (active in <game>)" /
  *  "(play-once in <game>)" for each game whose profile file points at the version. */
 export const libraryUsers = (entry: LibraryRef) => call<string[]>("library_users", { entry });
+/** "Use the changed files": a Library entry the player changed in its folder becomes the mod's new entry, every profile
+ *  that listed it lists that one, and the games where such a profile is active get it written again. Rejects with
+ *  game_running while a game, or a server that may read the entry, runs. */
+export const libraryTakeOver = (entry: LibraryRef) => call<TakenOver>("library_take_over", { entry });
 /** One entry (with profileId: checked against the profile's other mods), or a whole profile (entry null). */
 export const libraryLint = (entry: LibraryRef | null, profileId: ProfileId | null = null) => call<LintReport>("library_lint", { entry, profileId });
 
@@ -1745,7 +1755,7 @@ export const COMMANDS = [
   "runtime_list", "runtime_import", "runtime_status", "runtime_install", "runtime_uninstall", "runtime_rollback", "runtime_classify",
   "profile_list", "profile_get", "profile_create", "profile_save", "profile_delete", "profile_resolve", "profile_activate",
   "profile_deactivate", "profile_active", "activation_notices", "notices_unseen", "notices_shown",
-  "library_list", "library_detect", "library_import", "library_remove", "library_remove_many", "library_unused", "library_users", "library_lint",
+  "library_list", "library_detect", "library_import", "library_remove", "library_remove_many", "library_unused", "library_users", "library_lint", "library_take_over",
   "config_list", "config_read", "config_set", "config_write", "config_reset", "config_native_state", "config_native_set",
   "launch_play", "launch_state", "launch_prestart",
   "logs_list", "logs_read", "logs_follow", "logs_unfollow", "logs_crash_reports",

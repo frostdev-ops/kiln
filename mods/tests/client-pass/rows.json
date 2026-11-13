@@ -73,6 +73,8 @@
     { "section": "New in 0.2.0-dev.27", "key": "Add mods takes 7z and rar; All on and All off; a new profile from a drop", "checks": ["launcher.add-7z-rar", "launcher.all-on-off-new-profile"] },
     { "section": "New in 0.2.0-dev.27", "key": "A waiting ShroudForge mod says what it waits for", "checks": ["menu.sf-waiting-for"] },
     { "section": "New in 0.2.0-dev.27", "key": "The launcher names an EML mod in your own folder that ShroudForge has off", "checks": ["launcher.own-eml-folder-under-sf"] },
-    { "section": "New in 0.2.0-dev.27", "key": "Many mods' menu entries no longer push Quit off the screen, and the Mods page reaches them", "checks": ["menu.rows-quit"] }
+    { "section": "New in 0.2.0-dev.27", "key": "Many mods' menu entries no longer push Quit off the screen, and the Mods page reaches them", "checks": ["menu.rows-quit"] },
+    { "section": "New in 0.2.0-dev.27", "key": "A profile deleted and made again under the same name takes a switch", "checks": ["launcher.profile-again"] },
+    { "section": "New in 0.2.0-dev.27", "key": "A mod edited in its own Library folder: Changed on disk, and Use the changed files", "checks": ["launcher.library-changed"] }
   ]
 }

@@ -10,6 +10,7 @@ import type { GameInstall, LaunchMode } from "../api/commands";
 import { invalidateGame, useActiveProfile, useGame, useGameStatus, useLaunchState, useProfiles, useRuntimeChanges } from "../api/hooks";
 import { toast } from "../ui";
 import { cookBeforePlay } from "./cook";
+import { notifyLibraryChanged } from "./libraryChanged";
 import { playState, runStarted, type GameStateView } from "./gameState";
 import { notifyActivation, notifyActivationOf } from "./notices";
 
@@ -80,8 +81,9 @@ export function usePlayControl(): PlayControl {
       toast.ok(r.mode === "vanilla" ? "Starting vanilla" : r.mode === "no-mods" ? "Starting without mods" : "Starting", r.backup ? "Saves backed up first." : "Through Steam.");
       notifyActivation(r.activation);
     },
-    // the re-apply before the start may have kept copies even when the start then failed
-    onError: (e) => { notifyActivationOf(e); toast.error(e); },
+    // the re-apply before the start may have kept copies even when the start then failed; a mod changed in its Library
+    // folder is named, with "Use the changed files" and Play again
+    onError: (e, req) => { notifyActivationOf(e); if (!notifyLibraryChanged(qc, e, () => launch.mutate(req))) toast.error(e); },
   });
 
   // Missing or skewed process timestamps fall back to when this session first saw it running. The launch request

@@ -113,6 +113,23 @@ public sealed partial class ClientPassMod
         "\"Make and add\"; press \"Load it\" in the toast. Is the new profile loaded with the mod on, and did Play start " +
         "the game with it?");
 
+    [ClientCheck("launcher.library-changed", "A mod edited in its own folder: Changed on disk, and Use the changed files",
+        Area = "Launcher", Since = Dev27, Tags = [Launcher], Order = 427)]
+    public Task LauncherLibraryChanged(CheckContext c) => Outside(c,
+        "With the game closed, an EML mod on in the main list (an XHL mod is a good one): its menu, Open folder; change " +
+        "the \"name\" in its mod.json and save it. Go to Settings and back: its row says \"Changed on disk\" with " +
+        "\"Use the changed files\". In Settings, Profiles, load \"No profile\", then load your profile again: the error " +
+        "names the mod (\"... was changed in its folder\", not \"library hash mismatch\") and offers Use the changed " +
+        "files; press it. Is the profile loaded then, does the list show the new name, and does Play start the game " +
+        "with the mod?");
+
+    [ClientCheck("launcher.profile-again", "A profile deleted and made again under the same name takes a switch",
+        Area = "Launcher", Since = Dev27, Tags = [Launcher], Order = 428)]
+    public Task LauncherProfileAgain(CheckContext c) => Outside(c,
+        "In Settings, Profiles: load another profile, delete your usual one, then Save current as... with the deleted " +
+        "one's name and Load it. On the main screen switch a mod off and on. Does it switch without \"changed meanwhile " +
+        "(generation ... on disk, ... here)\", and does the profile hold only its own mods?");
+
     // ---- a Steam Deck ----
 
     [ClientCheck("deck.no-kiln", "\"No Kiln\" in the launcher on a Steam Deck", Area = "Steam Deck", Since = Dev16,
