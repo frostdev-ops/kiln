@@ -816,9 +816,12 @@ public sealed class AbilitiesTestMod : Mod
         Check(fbNo.Steps is > 0 and <= 8, $"without the hold the staff cast ends at its first KeepAliveEvent ({fbNo.Steps} steps; 0.2 s = 5): what session #7 saw");
         Check(fbHold.Steps >= 40, $"with HoldInputs the staff cast plays through its shot and its loop ({fbHold.Steps} steps, about 1.9 of its 2.08 s)");
         Check((fbHold.NetStates & InRangeCombatShooting) != 0, "the held input state (InRangeCombatShooting) is in the replicated NetworkActor.setStateMask while it plays");
+        // A bow shot's sequence spawns its arrow from the used item. PlaySequence gives the game no item, and the game
+        // reads the item without a check: Kiln refuses such a sequence (SequenceGuard) instead of letting the server crash.
         var bowNo = await Play(p, BowShot, new SequenceOptions { HoldInputs = false });
         var bowHold = await Play(p, BowShot, SequenceOptions.Default);
-        Check(bowHold.Steps > bowNo.Steps + 5, $"a bow shot: {bowNo.Steps} steps without the hold, {bowHold.Steps} with it (0.8 s = 20)");
+        Check(bowNo.Steps == -1 && bowHold.Steps == -1,
+            $"a bow shot is refused, with or without the hold: its sequence consumes the used item and PlaySequence has none ({bowNo.Steps}, {bowHold.Steps}; -1 = not played)");
         var na = World.ReadBytes(p, "Actor");
         Check(na is not null && (BitConverter.ToUInt64(na, 0xbd0) & (0xFul << 25)) == 0, "no held state is left on the actor after the sequences ended");
     }

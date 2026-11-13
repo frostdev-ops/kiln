@@ -175,8 +175,9 @@ destroyed before the first run). Keys: a variable alias or debug name of the pro
     (replicated) until each gate has passed, each loop body plays once, then gives them back. Evidence:
     docs/re/abilities.md §9. Lab, a player-template entity (`1_Player`): `the Greet emote plays on the player
     character for 92 steps (3.83 s) ... (NetworkActor.triggerType 22)`, `a melee attack ... plays on the player for 41
-    steps`, `Fireball cast: 5 steps without the hold, 46 with it (replicated states seen 0x40000e000000)`, `a bow shot:
-    4 steps without the hold, 18 with it`.
+    steps`, `Fireball cast: 5 steps without the hold, 46 with it (replicated states seen 0x40000e000000)`. (A bow shot
+    played the same way, `4 steps without the hold, 18 with it`, until Kiln began to refuse sequences that consume the
+    used item: `PlaySequence` gives the game none, and the lab now checks the refusal.)
   - C: `sequence_play(entity, id, trigger | 0x10000)` holds (the flag is a Kiln extension; older services answer
     `INVALID_ARGUMENT` and the managed API retries without it).
   - **In a vanilla client joined to a lab, the player's own character:** the Greet and Dance emotes (`queue`, trigger 22) animate on the player's own screen
