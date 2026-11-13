@@ -188,13 +188,25 @@ first step) that kiln.world publishes whole, so no thread reads the live world's
 
 ### Which entity a waiting request names
 Entity ids are not all fresh: a player's entity is `slot + 1` (docs/re/players.md, `0x160ee0` **[dis]**), so the next
-player in a slot gets the id of the one who left. kiln.world therefore keeps two facts with each request: the server
-world it was made in (worlds are counted as they register their programs; a request of an earlier one is dropped),
-and whether its entity lacked the component at any update while it waited behind a full update (512 a step). Such a
-request never runs. A player's removal and the next player's spawn in the slot are several states of the player
-record apart (4 removing entity, 5 removing, 0 free, then 1 loading, 2 waiting for the login, 3 spawn), so the gap is
-at least one step and the watch sees it **[dis]** of the update switch; that no other entity id is handed out twice in
-one world is **[hyp]** (ids grow at every spawn in the lab, and are handed out anew at every start).
+player in a slot gets the id of the one who left. kiln.world keeps three facts with each request:
+- the server world it was made in (worlds are counted before `g_world` names a new one; a request of an earlier world
+  is dropped, and `write_info` answers "not ready" until the new world's catalog, tagged with it, is published);
+- its entity's generation: the entity's `SpawnTime` (8 bytes; the game gives one to the entities it spawns into the
+  world, Kiln.Spawn to its own, docs/re/spawn.md), read at submit and compared through the write program's `SpawnTime`
+  read accessor right before the write. Another value: the id names a new entity, and nothing is written. Entities
+  loaded from the save have no `SpawnTime` **[rt]** (docs/re/spawn.md, Persistence), and neither had a watering can
+  given into a chest with `Items.Give` in the lab (an item entity) **[rt]**; whether a player's entity has one is not known
+  **[hyp]**. A request for an entity without one is taken only when it runs in the next update: behind a full update's
+  share (512) it is answered DROPPED at once. Submits come from the tick thread between two steps
+  (`KILN_ERR_WRONG_THREAD` otherwise), and the engine applies a step's structural changes at its end (the command
+  buffers, **[dis]**), so a request that runs in the next update finds the entities the submitter saw;
+- whether its entity lacked the component at an update while it waited (it then never runs).
+What this does not cover: a hook callback (mod code inside a game function, mid-step) that submits for an entity
+without a SpawnTime; its request runs in the same step's update or the next one, after that step's structural
+changes. Only player ids are known to be handed out again, and a player's removal and the next player's spawn in the
+slot are several states of the player record apart (4 removing entity, 5 removing, 0 free, 1 loading, 2 waiting for
+the login, 3 spawn) **[dis]**, so for them the gap is many steps; for the others, no id handed out twice in one world
+was seen (ids grow at every spawn in the lab) **[hyp]**.
 
 ### Where the write sits in the step
 - The scheduler orders two programs whose access conflicts by registration order, and a program that declares
@@ -289,7 +301,13 @@ INFO ServerToggleState.lastChange, written tracked with the same component: read
   entities, the delivery, the watchdog, the catalog, a consumer compiled against the dev.26 header, the layout of
   every field in `tests/abi.json`, the shared boundaries in `tests/parity.json`). The review-fix lab run
   (`dev27-world`, a new lab on the standard save, three boots) gave 27, 9 and 11 PASS, 0 FAIL, the lines above with
-  91 for replication.
+  91 for replication. The confirm-review run (same lab, new) gave 29, 9 and 11 PASS, 0 FAIL, among them:
+  ```
+  tracked writes: program kiln_world_writes runs in world 0x…, 5 accessor(s) verified against the component map, attribute formulas on, generations (SpawnTime) on
+  INFO generations: chest 1026 has a SpawnTime: False; can 2542: False
+  PASS 513 writes in one step to an entity without a SpawnTime: 512 ran (Unchanged, in 1 step(s)), the 513th was not kept waiting: Dropped: ScaleComponent of 1026: entity 1026 has no SpawnTime, …
+  PASS an entity with a SpawnTime (2083, ServerToggleState) waited behind a full step and its generation still matched right before the write: Unchanged: ServerToggleState of 2083 (28 game writers, marked for the save); in 2 step(s)
+  ```
 
 ### Still open
 - A player's screen: whether and when a tracked write shows there. Guided checks, above.

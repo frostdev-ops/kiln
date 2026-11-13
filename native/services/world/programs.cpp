@@ -398,6 +398,7 @@ void on_world(uintptr_t world) {
              static_cast<unsigned long long>(world));
         return;
     }
+    writes_world_changing();     // the previous world's requests and catalog end before g_world names this one
     g_world.store(world);
     writes_before_world(world);  // may still hand over the write program: before registration closes
     g_registered_once.store(true);

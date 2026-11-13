@@ -103,3 +103,6 @@ Kiln.WorldWriteInfo.WorldWriteInfo(string! Component, Kiln.WorldWriteState State
 Kiln.WorldWriteResult.ReplicationTracked.get -> bool?
 Kiln.WorldWriteResult.SaveTracked.get -> bool?
 const Kiln.EntitySet.Capability = "world.find" -> string!
+Kiln.WorldWriteState.ListRefused = 7 -> Kiln.WorldWriteState
+Kiln.WorldWriteInfo.FactsKnown.get -> bool
+Kiln.WorldWriteInfo.FactsKnown.init -> void

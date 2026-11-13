@@ -59,11 +59,16 @@ public enum WorldWriteState
     /// <summary>Listed, but this game build has no component type of that name.</summary>
     UnknownComponent = 4,
 
-    /// <summary>Listed after the write program's 92 component types were taken.</summary>
+    /// <summary>Listed after the write program's 91 component types were taken.</summary>
     OverLimit = 5,
 
     /// <summary>Tracked writes do not work here (<see cref="Capabilities.Why"/> of <c>world.tracked_writes</c> says why).</summary>
     Off = 6,
+
+    /// <summary>The mod's <c>"writes"</c> in kiln.mod.json could not be read when the server started (not a list, a name
+    /// that is not a component's, more than 64 entries): the mod loaded, none of its tracked writes is taken, and kiln.log
+    /// and each write's answer say what is wrong with the list.</summary>
+    ListRefused = 7,
 }
 
 /// <summary>A change to a component, made on the value the entity holds at that moment (<see cref="World.Update{T}"/>).</summary>
@@ -173,6 +178,11 @@ public sealed record WorldWriteInfo(string Component, WorldWriteState State, str
 {
     /// <summary><see cref="State"/> is <see cref="WorldWriteState.Ready"/>.</summary>
     public bool CanWrite => State == WorldWriteState.Ready;
+
+    /// <summary>False while the running server world has not published what it knows of the type (no world runs yet, or
+    /// a new one is being set up): the counts are 0 and the tracked flags null, not the previous world's. Ask again after
+    /// a step. <see cref="State"/> is known either way.</summary>
+    public bool FactsKnown { get; init; } = true;
 }
 
 /// <summary>A tracked write changed a component: posted on the tick thread when the write's answer arrives, one step
@@ -220,12 +230,15 @@ public static unsafe partial class World
     /// step; the task completes on the tick thread one step later, two when the game writes the type too.
     /// The type must be listed under <c>"writes"</c> in the mod's kiln.mod.json when the server starts: Kiln.Sdk adds it
     /// from this call at build time. An attribute (Health, Stamina, Fuel) takes its header from the game: use
-    /// <see cref="Update{T}"/> to change its values. Since 0.2.0-dev.27.</summary>
+    /// <see cref="Update{T}"/> to change its values. The write goes to the entity the id names at the call: its
+    /// generation (its SpawnTime) is compared right before the write, and a write for an entity without one (loaded
+    /// from the save, an item entity, maybe a player) is not kept waiting behind a full step (it answers
+    /// <see cref="WorldWriteStatus.Dropped"/> then). Since 0.2.0-dev.27.</summary>
     /// <returns>The answer; <see cref="WorldWriteResult.Ok"/> false with the reason when the game did not take it
     /// (no such entity, not listed, another layout on this build).</returns>
     /// <exception cref="ArgumentException"><paramref name="entity"/> is none.</exception>
     /// <exception cref="KilnUnavailableException"><c>world.tracked_writes</c> is off.</exception>
-    /// <exception cref="InvalidOperationException">Not on the tick thread.</exception>
+    /// <exception cref="InvalidOperationException">Not on the tick thread, or inside a world program's update.</exception>
     [ServerOnly]
     [TickThreadOnly]
     [RequiresCapability(TrackedWritesCapability)]
@@ -246,7 +259,7 @@ public static unsafe partial class World
     /// <exception cref="ArgumentNullException"><paramref name="change"/> is null.</exception>
     /// <exception cref="ArgumentException"><paramref name="entity"/> is none.</exception>
     /// <exception cref="KilnUnavailableException"><c>world.tracked_writes</c> is off.</exception>
-    /// <exception cref="InvalidOperationException">Not on the tick thread.</exception>
+    /// <exception cref="InvalidOperationException">Not on the tick thread, or inside a world program's update.</exception>
     [ServerOnly]
     [TickThreadOnly]
     [RequiresCapability(TrackedWritesCapability)]
@@ -271,7 +284,7 @@ public static unsafe partial class World
     /// <exception cref="ArgumentException"><paramref name="entity"/> is none, the component type or the field is unknown,
     /// the field is not a scalar, or the value does not fit it.</exception>
     /// <exception cref="KilnUnavailableException"><c>world.tracked_writes</c> is off, or kiln.types is not running.</exception>
-    /// <exception cref="InvalidOperationException">Not on the tick thread.</exception>
+    /// <exception cref="InvalidOperationException">Not on the tick thread, or inside a world program's update.</exception>
     [ServerOnly]
     [TickThreadOnly]
     [RequiresCapability(TrackedWritesCapability)]
@@ -296,7 +309,7 @@ public static unsafe partial class World
     /// <exception cref="ArgumentException"><paramref name="entity"/> is none, <paramref name="component"/> is empty, or
     /// <paramref name="offset"/> is negative.</exception>
     /// <exception cref="KilnUnavailableException"><c>world.tracked_writes</c> is off.</exception>
-    /// <exception cref="InvalidOperationException">Not on the tick thread.</exception>
+    /// <exception cref="InvalidOperationException">Not on the tick thread, or inside a world program's update.</exception>
     [ServerOnly]
     [TickThreadOnly]
     [RequiresCapability(TrackedWritesCapability)]
@@ -450,6 +463,8 @@ internal static unsafe class WorldWrites
             Forget(cookie);
             if (rc == WorldNative.Unavailable)
                 throw new KilnUnavailableException(World.TrackedWritesCapability, WorldCapabilities.Why(World.TrackedWritesCapability));
+            if (rc == WorldNative.WrongThread)
+                throw new InvalidOperationException("a tracked write is asked for on the tick thread between two steps, not inside a world program's update");
             if (rc == WorldNative.BufferTooSmall)
                 return Task.FromResult(new WorldWriteResult
                 {
@@ -481,7 +496,9 @@ internal static unsafe class WorldWrites
 
     internal static WorldWriteInfo FromNative(string component, string? modId, in WriteInfoNative n)
     {
-        var state = n.State <= (uint)WorldWriteState.Off ? (WorldWriteState)n.State : WorldWriteState.Off;
+        var state = n.State <= (uint)WorldWriteState.ListRefused ? (WorldWriteState)n.State : WorldWriteState.Off;
+        if ((n.Flags & WorldWritesAbi.NotReady) != 0)
+            return new WorldWriteInfo(component, state, RefusalText(state, component, modId), 0, [], 0, null, null, false, 0) { FactsKnown = false };
         string names;
         fixed (byte* p = n.WriterNames) names = Encoding.UTF8.GetString(MemoryMarshal.CreateReadOnlySpanFromNullTerminated(p));
         bool known = (n.Flags & WorldWritesAbi.BitsKnown) != 0;
@@ -508,6 +525,9 @@ internal static unsafe class WorldWrites
         WorldWriteState.OverLimit =>
             $"{component} was listed after the write program's {WorldWritesAbi.MaxTypes} component types were taken (the game's limit " +
             "for one program): fewer mods or fewer \"writes\" entries are needed",
+        WorldWriteState.ListRefused =>
+            $"the \"writes\" of mod '{modId}' in its kiln.mod.json was not read when the server started (kiln.log says what is wrong " +
+            "with it), so none of its tracked writes is taken (the mod itself loaded): fix the list and restart the server",
         _ => "tracked writes are off: " + WorldCapabilities.Why(World.TrackedWritesCapability),
     };
 
@@ -617,7 +637,8 @@ internal static unsafe class WorldWrites
                 result = result with
                 {
                     GameWriters = info.GameWriters,
-                    Reason = result.Status == WorldWriteStatus.NotDeclared ? info.Reason ?? result.Reason : result.Reason,
+                    // kiln.world's own words for a refused list say what is wrong with it; the managed ones cannot
+                    Reason = result.Status == WorldWriteStatus.NotDeclared && info.State != WorldWriteState.ListRefused ? info.Reason ?? result.Reason : result.Reason,
                 };
             }
             if (p.ChangeError is { } error) p.Mod?.Log.Error($"World.Update<{p.Component}>: the change threw, nothing was written: {error}");
@@ -639,8 +660,9 @@ internal static class WorldWritesAbi
     public const uint Whole = 0x01, Verify = 0x02;
     // KilnWorldWriteResult.flags / KilnWorldWriteInfo.flags
     public const uint GameWrites = 0x01, BitsKnown = 0x02, Saved = 0x04, Replicated = 0x08, Attribute = 0x10, Checked = 0x20, Kept = 0x40;
+    public const uint NotReady = 0x80;  // KILN_WORLD_INFO_NOT_READY
     public const uint CapTrackedWrites = 1u << 3;
-    public const int MaxBytes = 4096, MaxTypes = 92;
+    public const int MaxBytes = 4096, MaxTypes = 91;
     // KILN_PROGRAM_* (KilnWorldWriteStatus.program)
     public const uint ProgramPending = 0, ProgramActive = 1, ProgramRefused = 2, ProgramFaulted = 3, ProgramSkipped = 4;
 }

@@ -99,10 +99,22 @@ struct FakeStore final : WriteStore {
         *accepted = fn(entity, data, size, user);
         return true;
     }
+    // Generations: an entity's SpawnTime; by default the id itself (stable), `gens` sets one, `no_gen` removes it.
+    std::map<uint32_t, uint64_t> gens;
+    std::set<uint32_t> no_gen;
+    bool generation(uint32_t entity, uint64_t* out) override {
+        if (no_gen.count(entity)) return false;
+        const auto at = gens.find(entity);
+        *out = at == gens.end() ? entity : at->second;
+        return true;
+    }
 };
 
+// A request as write_submit makes it for an entity with a generation (FakeStore's default: the id).
 WriteJob job_of(uint32_t entity, uint32_t component, uint32_t offset, std::vector<uint8_t> data, uint32_t flags = 0) {
     WriteJob job;
+    job.has_generation = true;
+    job.generation = entity;
     job.entity = entity;
     job.component = component;
     job.offset = offset;
@@ -174,9 +186,11 @@ void declarations() {
     check(many.lookup("more", write_hash("Other39"), &type, &state) && state == KILN_WORLD_WRITES_PENDING,
           "before a world says which names it has, every listed name waits");
     many.admit([](uint32_t) { return true; });
-    check(many.count() == 104 && many.program_names().size() == kWriteMaxTypes, "the program takes 92 types, in listing order");
+    check(many.count() == 104 && many.program_names().size() == kWriteMaxTypes, "the program takes 91 types, in listing order");
     check(many.lookup("more", write_hash("Other39"), &type, &state) && state == KILN_WORLD_WRITES_OVER_LIMIT, "a type past the limit says so");
-    check(many.lookup("more", write_hash("Other27"), &type, &state) && state == KILN_WORLD_WRITES_PENDING, "the last one within it is in");
+    check(many.lookup("more", write_hash("Other26"), &type, &state) && state == KILN_WORLD_WRITES_PENDING &&
+          many.lookup("more", write_hash("Other27"), &type, &state) && state == KILN_WORLD_WRITES_OVER_LIMIT,
+          "the 91st is in, the 92nd is not (one of the engine's 92 accessors reads SpawnTime)");
     many.set_program(true, false);
     check(many.lookup("more", write_hash("Other39"), &type, &state) && state == KILN_WORLD_WRITES_OVER_LIMIT, "and it stays refused once the program runs");
     for (uint32_t s : {KILN_WORLD_WRITES_NOT_DECLARED, KILN_WORLD_WRITES_NOT_LISTED, KILN_WORLD_WRITES_UNKNOWN,
@@ -184,6 +198,24 @@ void declarations() {
         check(!write_refusal(s, "Fuel", "alpha").empty(), "every refusal has a sentence");
     check(write_refusal(KILN_WORLD_WRITES_NOT_LISTED, "Fuel", "alpha").find("\"writes\": [\"Fuel\"]") != std::string::npos,
           "the sentence says what to add");
+
+    // a mod whose "writes" could not be read at boot loads; every write of it is refused with what is wrong
+    WriteDeclarations lists;
+    lists.add("good", {"Fuel"});
+    lists.refuse_list("bad", "\"writes\" must be a list of at most 64 component names");
+    lists.admit([](uint32_t) { return true; });
+    lists.set_program(true, false);
+    check(lists.lookup("good", write_hash("Fuel"), &type, &state) && state == KILN_WORLD_WRITES_READY, "the other mods' lists stand");
+    lists.lookup("bad", write_hash("Fuel"), &type, &state);
+    check(state == KILN_WORLD_WRITES_LIST_REFUSED && lists.list_refusal("bad").find("at most 64") != std::string::npos,
+          "the refused mod gets LIST_REFUSED for every type, with the reason kept");
+    lists.lookup("bad", write_hash("Mana"), &type, &state);
+    check(state == KILN_WORLD_WRITES_LIST_REFUSED && write_refusal(state, "Mana", "bad").find("the mod itself loaded") != std::string::npos,
+          "also for a type nobody listed, and the sentence says the mod loaded");
+    WriteJob j = job_of(7, write_hash("Fuel"), 0, {1});
+    j.mod = "bad";
+    FakeStore none;
+    check(!write_run(j, &type, KILN_WORLD_WRITES_LIST_REFUSED, none) && j.status == KILN_WORLD_WRITE_NOT_DECLARED, "and its write is not declared");
 }
 
 void one_write() {
@@ -448,10 +480,44 @@ void saturation() {
     check(refused == 10 && q.outstanding() == kWriteMaxPending, "refusals pile up to the limit and no further");
     check(q.submit(job_of(1, 1, 0, {1}), 0, nullptr) == KILN_ERR_BUFFER_TOO_SMALL, "and a request to run is refused while they wait");
     auto first = q.drain();
-    check(first.size() == kWriteDeliverPerPre && q.outstanding() == kWriteMaxPending - kWriteDeliverPerPre,
-          "one Pre delivers a bounded share, the rest wait for the next");
+    check(first.size() == kWriteDeliverPerPre && q.outstanding() == kWriteMaxPending,
+          "one Pre delivers a bounded share, and a drained answer still counts until it is handed over");
     q.end_delivery();
+    check(q.outstanding() == kWriteMaxPending - kWriteDeliverPerPre, "the rest wait for the next Pre");
     check(q.submit(job_of(1, 1, 0, {1}), 0, nullptr) == KILN_OK, "delivered answers free their places");
+}
+
+// The limit counts a request until its answer was handed over: callbacks that submit while their batch is delivered
+// never take the total past it (the review's case: 4096 refusals, 1024 drained, a callback submits 1024 more).
+WriteQueue* g_sat = nullptr;
+size_t g_sat_max = 0;
+int g_sat_accepted = 0, g_sat_refused = 0;
+void saturation_during_delivery() {
+    WriteQueue q;
+    g_sat = &q;
+    for (size_t i = 0; i < kWriteMaxPending; ++i) {
+        WriteJob job = job_of(1, 1, 0, {1});
+        job.status = KILN_WORLD_WRITE_NOT_DECLARED;
+        job.callback = [](const KilnWorldWriteResult*, void*) {
+            for (int k = 0; k < 1024; ++k) {
+                const KilnResult rc = g_sat->submit(job_of(2, 1, 0, {1}), 0, nullptr);
+                if (rc == KILN_OK) ++g_sat_accepted;
+                else ++g_sat_refused;
+                g_sat_max = std::max(g_sat_max, g_sat->outstanding());
+            }
+        };
+        q.reject(std::move(job), 0, nullptr);
+    }
+    auto done = q.drain();
+    write_deliver(q, done, [](KilnOwner) { return true; }, [](WriteJob& job) {
+        KilnWorldWriteResult r{};
+        r.size = sizeof r;
+        job.callback(&r, job.user);
+    });
+    check(g_sat_max <= kWriteMaxPending, "the total never passes the limit while a batch is delivered");
+    check(g_sat_accepted == static_cast<int>(kWriteDeliverPerPre) - 1 && q.outstanding() == kWriteMaxPending - 1,
+          "each delivered answer frees one place, after its callback ran");
+    g_sat = nullptr;
 }
 
 // The world a request was asked in, and the entity it names.
@@ -491,44 +557,99 @@ void lifetime(const nlohmann::json& fx) {
     scale.name = "ScaleComponent";
     scale.hash = write_hash(scale.name);
     scale.state = KILN_WORLD_WRITES_READY;
-    FakeStore store;
-    store.blocks[{1, scale.hash}] = {0, 0, 0, 0};       // player 1's entity
-    store.blocks[{900, scale.hash}] = {0, 0, 0, 0};     // the filler's target
-    WriteQueue q;
     const size_t filler = lt.at("filler").get<size_t>();
-    for (size_t i = 0; i < filler; ++i) q.submit(job_of(900, scale.hash, 0, {static_cast<uint8_t>(i), 1, 1, 1}), 0, nullptr);
-    uint64_t mine = 0;
-    q.submit(job_of(1, scale.hash, 0, {7, 7, 7, 7}), 0, &mine);
-    auto present = [&](const WriteJob& job) {
-        const uint8_t* data = nullptr;
-        uint32_t size = 0;
-        return store.read(job.entity, scale, &data, &size) && data && size;
+    auto present_in = [&](FakeStore& store) {
+        return [&store, &scale](const WriteJob& job) {
+            const uint8_t* data = nullptr;
+            uint32_t size = 0;
+            return store.read(job.entity, scale, &data, &size) && data && size;
+        };
     };
-    // update 1: the filler takes the whole share; the player leaves during it
-    for (auto& job : q.take(kWritePerUpdate)) {
-        write_run(job, &scale, KILN_WORLD_WRITES_READY, store);
-        q.complete(std::move(job), 1);
+
+    // 1. The review's case: a request waits behind a full update; its entity is there at the watch, and is removed and
+    // made again under the same id (with the same component) before the next update. The generation tells them apart.
+    {
+        FakeStore store;
+        store.blocks[{1, scale.hash}] = {0, 0, 0, 0};
+        store.blocks[{900, scale.hash}] = {0, 0, 0, 0};
+        store.gens[1] = 111;  // the first entity's SpawnTime
+        WriteQueue q;
+        for (size_t i = 0; i < filler; ++i) q.submit(job_of(900, scale.hash, 0, {static_cast<uint8_t>(i), 1, 1, 1}), 0, nullptr);
+        WriteJob mine_job = job_of(1, scale.hash, 0, {7, 7, 7, 7});
+        mine_job.generation = 111;
+        uint64_t mine = 0;
+        q.submit(std::move(mine_job), 0, &mine);
+        for (auto& job : q.take(kWritePerUpdate)) {
+            write_run(job, &scale, KILN_WORLD_WRITES_READY, store);
+            q.complete(std::move(job), 1);
+        }
+        q.watch(present_in(store));  // still there: not lost
+        q.end_update();
+        store.blocks[{1, scale.hash}] = {3, 3, 3, 3};  // removed and made again between the two updates
+        store.gens[1] = 222;
+        auto batch = q.take(kWritePerUpdate);
+        check(batch.size() == 1 && batch[0].ticket == mine && !batch[0].lost, "the watch saw an entity there each time");
+        write_run(batch[0], &scale, KILN_WORLD_WRITES_READY, store);
+        const auto& want = lt.at("replaced");
+        check(want.at("status") == "NoComponent" && batch[0].status == KILN_WORLD_WRITE_NO_COMPONENT &&
+                  batch[0].reason.find(want.at("reasonContains").get<std::string>()) != std::string::npos,
+              "the generation compared right before the write refuses the new entity, as the fixture says");
+        check(store.blocks[{1, scale.hash}] == std::vector<uint8_t>({3, 3, 3, 3}), "and the new entity under the same id is untouched");
     }
-    store.blocks.erase({1, scale.hash});
-    q.watch(present);
-    q.end_update();
-    // the next player takes the slot: the same id, a new entity
-    store.blocks[{1, scale.hash}] = {3, 3, 3, 3};
-    // update 2: the waiting request runs
-    auto batch = q.take(kWritePerUpdate);
-    check(batch.size() == 1 && batch[0].ticket == mine && batch[0].lost, "the request that waited saw its entity go");
-    write_run(batch[0], &scale, KILN_WORLD_WRITES_READY, store);
-    const bool status = std::string(lt.at("status").get<std::string>()) == "NoComponent" && batch[0].status == KILN_WORLD_WRITE_NO_COMPONENT;
-    check(status && batch[0].reason.find(lt.at("reasonContains").get<std::string>()) != std::string::npos,
-          "it fails as the fixture says, with the reason");
-    check(store.blocks[{1, scale.hash}] == std::vector<uint8_t>({3, 3, 3, 3}), "and the new entity under the same id is untouched");
-    // an entity that is there all the time is not lost
-    WriteQueue r;
-    for (size_t i = 0; i < filler + 1; ++i) r.submit(job_of(900, scale.hash, 0, {1}), 0, nullptr);
-    r.take(kWritePerUpdate);
-    r.watch(present);
-    auto rest = r.take(kWritePerUpdate);
-    check(rest.size() == 1 && !rest[0].lost, "a waiting request whose entity stays is not lost");
+    // 2. An entity without a generation (no SpawnTime: loaded from the save, or a player) is never kept waiting behind a
+    // full update: it is answered at once.
+    {
+        WriteQueue q;
+        for (size_t i = 0; i < filler; ++i) q.submit(job_of(900, scale.hash, 0, {1}), 0, nullptr);
+        WriteJob bare = job_of(1, scale.hash, 0, {7});
+        bare.has_generation = false;
+        uint64_t ticket = 0;
+        check(q.submit(std::move(bare), 0, &ticket) == KILN_OK && ticket != 0, "it is accepted as a request");
+        check(q.not_run() == filler, "but not queued behind the full share");
+        auto done = q.drain();
+        const auto& want = lt.at("noGeneration");
+        check(done.size() == 1 && done[0].ticket == ticket && want.at("status") == "Dropped" && done[0].status == KILN_WORLD_WRITE_DROPPED &&
+                  done[0].reason.find(want.at("reasonContains").get<std::string>()) != std::string::npos,
+              "it is answered Dropped at once, with the reason the fixture says");
+        q.end_delivery();
+        WriteQueue room;
+        WriteJob fits = job_of(1, scale.hash, 0, {7});
+        fits.has_generation = false;
+        room.submit(std::move(fits), 0, nullptr);
+        check(room.not_run() == 1, "with room in the next update it is queued as any other");
+    }
+    // 3. The watch still ends a waiting request whose entity is gone at an update.
+    {
+        FakeStore store;
+        store.blocks[{1, scale.hash}] = {0, 0, 0, 0};
+        WriteQueue q;
+        for (size_t i = 0; i < filler; ++i) q.submit(job_of(900, scale.hash, 0, {1}), 0, nullptr);
+        q.submit(job_of(1, scale.hash, 0, {7}), 0, nullptr);
+        q.take(kWritePerUpdate);
+        store.blocks.erase({1, scale.hash});
+        q.watch(present_in(store));
+        q.end_update();
+        store.blocks[{1, scale.hash}] = {3};
+        auto batch = q.take(kWritePerUpdate);
+        check(batch.size() == 1 && batch[0].lost, "the request that waited saw its entity go");
+        write_run(batch[0], &scale, KILN_WORLD_WRITES_READY, store);
+        check(lt.at("status") == "NoComponent" && batch[0].status == KILN_WORLD_WRITE_NO_COMPONENT &&
+                  batch[0].reason.find(lt.at("reasonContains").get<std::string>()) != std::string::npos &&
+                  store.blocks[{1, scale.hash}] == std::vector<uint8_t>({3}),
+              "and never writes, also when the id is back");
+    }
+    // the check one step later does not count another entity's bytes as kept
+    {
+        FakeStore store;
+        store.blocks[{5, scale.hash}] = {0, 0, 0, 0};
+        WriteJob held = job_of(5, scale.hash, 0, {9, 9, 9, 9}, KILN_WORLD_WRITE_VERIFY);
+        WriteType written = scale;
+        written.writers = 1;
+        check(write_run(held, &written, KILN_WORLD_WRITES_READY, store), "held for its check");
+        store.gens[5] = 999;
+        write_check(held, &written, store);
+        check((held.out_flags & KILN_WORLD_WROTE_CHECKED) && !(held.out_flags & KILN_WORLD_WROTE_KEPT), "another entity's bytes are not kept");
+    }
 }
 
 // The watchdog counts the requests held for their check too: a world that stops between a write and its check still
@@ -617,12 +738,17 @@ void deps() {
 void catalog() {
     WriteCatalog c;
     CatalogEntry e;
-    check(!c.find(5, &e), "nothing before a world published its catalog");
+    using A = WriteCatalog::Answer;
+    check(c.find(0, 5, &e) == A::NotReady && c.find(1, 5, &e) == A::NotReady, "not ready before a world published its catalog");
     auto map = std::make_shared<WriteCatalog::Map>();
     (*map)[5].writers = 2;
     (*map)[5].writer_names = "fuel_setup, actor_interaction";
-    c.publish(map);
-    check(c.find(5, &e) && e.writers == 2 && e.writer_names == "fuel_setup, actor_interaction" && !c.find(6, &e), "a published entry is found");
+    c.publish(map, 1, false);
+    check(c.find(1, 5, &e) == A::Found && e.writers == 2 && e.writer_names == "fuel_setup, actor_interaction" && c.find(1, 6, &e) == A::Absent,
+          "a published entry is found for its world");
+    check(c.find(2, 5, &e) == A::NotReady, "while a new world (epoch 2) is being set up, the old catalog is not its: not ready");
+    c.publish(std::make_shared<WriteCatalog::Map>(), 2, false);
+    check(c.find(2, 5, &e) == A::Absent && !c.current().bits, "the new world's catalog answers for the new world only");
     std::atomic<bool> stop{false};
     std::atomic<int> reads{0}, bad{0};
     std::vector<std::thread> readers;
@@ -630,14 +756,16 @@ void catalog() {
         readers.emplace_back([&] {
             CatalogEntry x;
             while (!stop.load()) {
-                if (c.find(5, &x) && x.writer_names.size() < 5) ++bad;
+                if (c.find(3, 5, &x) == WriteCatalog::Answer::Found && x.writer_names.size() < 5) ++bad;
                 ++reads;
             }
         });
+    c.publish(map, 3, true);
     for (int i = 0; i < 2000; ++i) {
         auto next = std::make_shared<WriteCatalog::Map>();
         for (uint32_t k = 0; k < 64; ++k) (*next)[k].writer_names = "program_" + std::to_string(i);
-        c.publish(next);
+        (*next)[5].writer_names = "program_" + std::to_string(i);
+        c.publish(next, 3, true);
     }
     stop.store(true);
     for (auto& t : readers) t.join();
@@ -891,6 +1019,7 @@ int main(int argc, char** argv) {
     one_write();
     queue();
     saturation();
+    saturation_during_delivery();
     identity();
     lifetime(fx);
     watchdog();

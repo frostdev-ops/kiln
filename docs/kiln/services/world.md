@@ -118,17 +118,30 @@ using var sub = Events.On<ComponentWrittenEvent>(e => Log.Info($"{e.Component} o
   `EventFilter.ForEntity` works. A change the game makes itself raises nothing.
 - **Which world, which entity.** A write belongs to the server world that runs when you call: one made before the
   first world exists answers `Dropped`, and one that has not run when a hosted game opens another world answers
-  `Dropped` too. A write whose entity is removed while it waits never runs (`NoComponent`, "lost its … while the write
-  waited"), also when the id comes back: a player's entity is slot + 1, and the next player in the slot gets it. An id
-  you keep from an earlier step can name another entity by now; check before you write.
-- **Limits.** 64 entries in a mod's `writes` (a repeated name counts each time), 92 component types for all mods
-  together (one program's accessors; a name the world does not have takes no place); 4,096 bytes per write (`Update`
-  takes components up to 64 KB); 512 writes run per step, the rest wait for the next steps; 4,096 writes not yet
-  answered (waiting, held for the check, or answered and waiting for delivery, refusals included), past that the call
-  answers `Dropped` at once; 1,024 answers per step. The server world only.
+  `Dropped` too. It also carries its entity's generation, the entity's `SpawnTime` (the entities the game or Kiln.Spawn
+  spawns into the world have one), read at the call and compared right before the write: another value means the id
+  names a new entity, and the answer is `NoComponent` ("is not the entity the write was asked for"). An entity without
+  a `SpawnTime` (one loaded from the save, an item given into an inventory; a player may have none) cannot be told
+  apart that way, so a write to it is
+  never kept waiting behind a full step: when the step's 512 places are taken, it answers `Dropped` at once ("has no
+  SpawnTime"; ask again in the next step). A write whose entity loses the component while it waits never runs either.
+  Ask on the tick thread between two steps (a mod's tick, a command, an event), not inside a world program's update
+  (`InvalidOperationException`). An id you keep from an earlier step can name another entity by now; check before you
+  write.
+- **Limits.** 64 entries in a mod's `writes` (a repeated name counts each time), 91 component types for all mods
+  together (one program's 92 accessors, one of which reads `SpawnTime`; a name the world does not have takes no place);
+  4,096 bytes per write (`Update` takes components up to 64 KB); 512 writes run per step, the rest wait for the next
+  steps; 4,096 writes whose answer has not been handed over yet (waiting, running, held for the check, answered, or
+  being delivered; refusals included), past that the call answers `Dropped` at once; 1,024 answers per step. The
+  server world only.
+- **A list kiln.world cannot read** (`"writes": null`, a name with a stray character, more than 64 entries) costs the
+  mod its tracked writes, not its loading: the mod loads with a warning in kiln.log, `WriteInfo` says `ListRefused`,
+  and each write answers `NotDeclared` with what is wrong with the list.
 - `World.WriteInfo("Health")` answers for any component, listed or not, once a world runs: look before you list. It
-  reads what kiln.world published for the running world (the game's writers at the world's setup, the save and
-  replication bits at its first step), never the live world, so any thread may ask.
+  reads what kiln.world published for the running world, tagged with that world (the game's writers at the world's
+  setup, the save and replication bits at its first step), never the live world, so any thread may ask. While a world
+  is being set up (or none runs) `FactsKnown` is false: the counts are 0 and the flags null, never the previous
+  world's.
 
 ### Entity sets
 `World.Query(with…)` and `World.Query(with, without)` give an `EntitySet`: the entities that have every component of
@@ -276,8 +289,13 @@ of the component inside the step) and answers through `callback` in a later Pre;
 `write_info(mod_id, hash, &info)`; `write_status(&status)`; `write_declare(owner, who, names, count)` lists a native
 service's own component types (from `kiln_plugin_main` or `on_ready`: the write program is made when the first server
 world registers its programs). A mod's types come from `"writes"` in its kiln.mod.json, read at boot next to
-`kiln.programs.json`; a name the world does not know is left out of the program alone and takes none of its 92
-places (the first server world decides this, before the program is made). A request remembers the server world it
+`kiln.programs.json`; a name the world does not know is left out of the program alone and takes none of its 91
+places (the first server world decides this, before the program is made). The program also reads `SpawnTime`
+(`other_read`), the entities' generation: `write_submit` (tick thread, between steps) reads the entity's `SpawnTime`
+and the write compares it right before writing; a request for an entity without one is answered `DROPPED` at once
+when the next update's 512 places are taken. `write_info` answers from a catalog tagged with the world it describes
+(`KILN_WORLD_INFO_NOT_READY` while the running world's is not published). A mod whose `"writes"` could not be read is
+`KILN_WORLD_WRITES_LIST_REFUSED`: it loads, every write of it is refused with the reason. A request remembers the server world it
 was made in (one of an earlier world is dropped when the next registers) and is watched while it waits: if its entity
 lacks the component at an update, it never runs. Before each result callback kiln.world asks again whether the
 request is still wanted and its owner alive, so a callback that cancels another request or unloads another owner

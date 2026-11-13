@@ -59,9 +59,11 @@ write tracking, so the save and players see the change ([../services/world.md](.
 They run inside one program of Kiln's in the game's scheduler, and the game fixes a program's access when the world
 starts. So the component types have to be known before that: `writes` lists them, by the game's short names (`Fuel`,
 `CurrentTransform`; letters, digits and `_`, up to 120 characters). At most 64 entries as written: a name listed twice
-counts twice and is read once. `null` or anything but a list of such names is refused whole: the loader refuses the
-mod and kiln.world takes none of its names (the native reader, the managed reader and the schema share these rules;
-`native/services/world/tests/parity.json` holds the cases they are all tested on). kiln.world reads the lists of
+counts twice and is read once. `null` or anything but a list of such names is not read: the mod still loads (as it
+did before tracked writes, when `writes` was a key nobody read), kiln.log warns once with the reason, and each of its
+tracked writes is refused with what is wrong with the list (`WorldWriteState.ListRefused`). The native reader, the
+managed reader and the schema share these rules; `native/services/world/tests/parity.json` holds the cases they are
+all tested on. Kiln.Sdk stops the mod's own build on such a list (`KILN031`). kiln.world reads the lists of
 every enabled server mod when the server starts.
 - **Kiln.Sdk fills it.** After the mod compiles, the build reads the built assembly and adds every generated component
   type the code passes to `World.Write<T>` or `World.Update<T>` to `writes` in the output's kiln.mod.json (the copy
@@ -73,7 +75,7 @@ every enabled server mod when the server starts.
   `Ok == false`, `Status == NotDeclared`. Nothing is written raw instead. A new entry takes effect at the next server
   start, not on a hot reload.
 - A name that is no component of the running game build is left out alone (kiln.log names it, `World.WriteInfo` says
-  `UnknownComponent`) and takes no place; the mod's other types still work. All mods together can list 92 types the
+  `UnknownComponent`) and takes no place; the mod's other types still work. All mods together can list 91 types the
   game has: the game's limit for one program (`OverLimit` for the ones listed after them, in boot order). `-p:KilnWrites=false` turns the build step off (error `KILN031`: it could not read the built assembly or
   write the manifest).
 

@@ -54,7 +54,7 @@ std::string manifest_json(std::string text) {
     }
     return text;
 }
-struct Candidate { fs::path directory; BootCandidate policy; std::vector<std::string> writes; };
+struct Candidate { fs::path directory; BootCandidate policy; std::vector<std::string> writes; std::string writes_error; };
 void reserve(const Candidate& candidate) {
     const auto file = candidate.directory / L"kiln.programs.json";
     std::error_code error;
@@ -124,9 +124,13 @@ void boot_programs_init() {
             if (!item.policy.profile) item.policy.id = id;
             else if (item.policy.id != id) item.policy.enabled = false;
             item.policy.server = side == "server" || side == "both";
-            // A bad "writes" costs the mod its tracked writes, not its programs.
+            // A bad "writes" costs the mod its tracked writes, not its programs and not its loading: each of its writes
+            // then answers with what is wrong with the list.
             try { item.writes = parse_boot_writes(manifest); }
-            catch (const std::exception& error) { KW_W("tracked writes of %s refused: %s",id.c_str(),error.what()); }
+            catch (const std::exception& error) {
+                item.writes_error = error.what();
+                KW_W("mod %s loads, but its \"writes\" in kiln.mod.json is not read: %s; its tracked writes are refused",id.c_str(),error.what());
+            }
         } catch (...) { item.policy.enabled = false; }
         policies.push_back(item.policy);
     }
@@ -134,6 +138,7 @@ void boot_programs_init() {
         try { reserve(candidates[token]); }
         catch (const std::exception& error) { KW_W("managed programs for %s refused: %s",candidates[token].policy.id.c_str(),error.what()); }
         const auto& item = candidates[token];
+        if (!item.writes_error.empty()) writes_refuse_list(item.policy.id, item.writes_error);
         if (item.writes.empty()) continue;
         // The write program itself is made when the first server world registers its programs (writes.cpp).
         for (const auto& name : writes_declare(item.policy.id,item.writes))

@@ -208,6 +208,8 @@ void program_set_prune(KilnHandle program, ProgramPrunedFn removed);
 bool writes_available();
 void writes_resolve();
 std::vector<std::string> writes_declare(const std::string& who, const std::vector<std::string>& names);  // refused names
+void writes_world_changing();               // a new server world, before g_world names it
+void writes_refuse_list(const std::string& mod, const std::string& why);  // boot: the mod's "writes" was not read
 void writes_before_world(uintptr_t world);  // server thread, before Kiln's programs register into a new server world
 void writes_after_world();                  // after they registered
 void writes_pre(const KilnTickInfo* tick);  // tick thread, Pre

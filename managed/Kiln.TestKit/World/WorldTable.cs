@@ -25,7 +25,7 @@ internal static unsafe class WorldAbi
     public const uint Ready = 0, Pending = 1, StateNotDeclared = 2, NotListed = 3, Unknown = 4, OverLimit = 5, Off = 6;
     // KILN_PROGRAM_* (KilnWorldWriteStatus.program)
     public const uint ProgramPending = 0, ProgramActive = 1;
-    public const int MaxBytes = 4096, MaxComponent = 65536, MaxTypes = 92, MaxPerMod = 64, MaxPending = 4096, AttributeHeader = 8;
+    public const int MaxBytes = 4096, MaxComponent = 65536, MaxTypes = 91, MaxPerMod = 64, MaxPending = 4096, AttributeHeader = 8;
     public const int PerUpdate = 512, DeliverPerPre = 1024;  // write_queue.h kWritePerUpdate, kWriteDeliverPerPre
 
     // keen::ecs::CurrentTransform (native/services/world/transform_layout.h): i64 x, y, z in metres as 32.32 fixed point at

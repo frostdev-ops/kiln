@@ -90,7 +90,9 @@ public sealed class KilnWrites : Microsoft.Build.Utilities.Task
             var text = File.ReadAllText(ManifestPath);
             var (filled, added) = Fill(text, names);
             if (added.Count == 0) return true;
-            Manifest.Parse(filled);  // what the build writes is what the loader accepts
+            // What the build writes is what the loader reads. The loader only warns about a list it cannot read (a mod
+            // that loaded before tracked writes must still load); the mod's own build stops instead.
+            if (Manifest.Parse(filled).WritesError is { } why) throw new InvalidDataException($"kiln.mod.json: \"writes\": {why}");
             File.WriteAllText(ManifestPath, filled, new UTF8Encoding(false));
             Added = string.Join(";", added);
             Log.LogMessage(MessageImportance.Normal, $"kiln.mod.json: \"writes\" += {string.Join(", ", added)} (the component types {Path.GetFileName(AssemblyPath)} writes)");

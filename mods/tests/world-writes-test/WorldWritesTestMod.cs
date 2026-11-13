@@ -145,6 +145,34 @@ public sealed partial class WorldWritesTestMod : Mod
             Check(r is { Ok: true, Changed: true, Steps: 1 } && Scale(chest) == scaleWas + 0.5f, $"a type with no game writer answers one step later, no check needed: {r}; in {r.Steps} step(s)");
             r = await World.Update<Ecs.ScaleComponent>(chest, (ref Ecs.ScaleComponent s) => s.uniformScale -= 0.5f);
             Check(r.Ok && Scale(chest) == scaleWas, $"World.Update<Ecs.ScaleComponent> back: {r}");
+
+            // The generation: an entity's SpawnTime. A chest loaded from the save has none, so a write to it is not kept
+            // waiting behind a full step (512): the 513th of one step is answered at once.
+            Info($"generations: chest {chest} has a SpawnTime: {World.Has(chest, "SpawnTime")}; can {can.Item}: {World.Has(can.Item, "SpawnTime")}");
+            var full = Enumerable.Range(0, 512).Select(_ => World.Write(chest, new Ecs.ScaleComponent { uniformScale = scaleWas })).ToList();
+            var behind = World.Write(chest, new Ecs.ScaleComponent { uniformScale = scaleWas });
+            await Task.WhenAll(full.Append(behind));
+            var lastStep = full.Max(t => t.Result.Steps);
+            Check(World.Has(chest, "SpawnTime") || (behind.Result.Status == WorldWriteStatus.Dropped &&
+                    behind.Result.Reason!.Contains("has no SpawnTime") && full.All(t => t.Result.Status == WorldWriteStatus.Unchanged)),
+                $"513 writes in one step to an entity without a SpawnTime: 512 ran (Unchanged, in {lastStep} step(s)), the 513th was not kept waiting: {behind.Result}");
+
+            // An entity the game spawned carries a SpawnTime: its write may wait behind a full step, and the generation read
+            // at the call is compared with the one read right before the write (the same entity: they match).
+            EntityId spawned = EntityId.None;
+            string? listed = null;
+            foreach (var name in (string[])["ScaleComponent", "ServerToggleState", "UsedItem", "Fuel"])
+                if (World.Query(["SpawnTime", name], null).Entities.FirstOrDefault() is { IsNone: false } found) { spawned = found; listed = name; break; }
+            if (spawned.IsNone) Info("generations: no entity with a SpawnTime carries a listed component in this world: the compare is not exercised here");
+            else
+            {
+                var first = World.ReadBytes(spawned, listed!)![0];
+                var ahead = Enumerable.Range(0, 512).Select(_ => World.Write(chest, new Ecs.ScaleComponent { uniformScale = scaleWas })).ToList();
+                var waits = World.WriteAt(spawned, listed!, 0, first);
+                await Task.WhenAll(ahead.Append(waits));
+                Check(waits.Result is { Status: WorldWriteStatus.Unchanged } && waits.Result.Steps > ahead.Max(t => t.Result.Steps),
+                    $"an entity with a SpawnTime ({spawned}, {listed}) waited behind a full step and its generation still matched right before the write: {waits.Result}; in {waits.Result.Steps} step(s)");
+            }
         }
 
         // baseline for the restart check: entities a save has written, values a save writes

@@ -31,7 +31,8 @@ constexpr size_t kWriteMaxPending = 4096;  // requests not yet delivered (waitin
                                            // and waiting for their delivery, refusals included); more are refused
 constexpr size_t kWritePerUpdate = 512;    // requests run in one update of the program
 constexpr size_t kWriteDeliverPerPre = 1024;  // answers delivered in one Pre; the rest in the next
-constexpr size_t kWriteMaxTypes = 92;      // the engine's limit of other-entity accessors of one program
+constexpr size_t kWriteMaxTypes = 91;      // the engine's 92 other-entity accessors of one program, less the one that
+                                           // reads the entities' SpawnTime (their generation)
 constexpr size_t kWriteMaxPerMod = 64;     // names in one mod's "writes"
 constexpr size_t kAttributeHeader = 8;     // {u32 group; u16 values offset; u8 flags; u8 count}
 constexpr int64_t kWriteStallMs = 10000;   // requests wait this long for a program that does not run
@@ -77,6 +78,20 @@ struct WriteType {
 // path.
 class WriteDeclarations {
   public:
+    // A mod whose "writes" could not be read at boot: it loads, and every write of it is refused with `why` (a list
+    // that is not a list, a name that is not a component's, more than 64 entries).
+    void refuse_list(const std::string& mod, const std::string& why) {
+        std::lock_guard lock(mutex_);
+        refused_lists_[mod] = why;
+    }
+
+    // Why the mod's list was refused; empty when it was not.
+    std::string list_refusal(std::string_view mod) const {
+        std::lock_guard lock(mutex_);
+        const auto at = refused_lists_.find(std::string(mod));
+        return at == refused_lists_.end() ? std::string() : at->second;
+    }
+
     // One mod's "writes". Names that are not component names are returned (refused); a repeated name counts once. Every
     // accepted name waits (PENDING) until a server world says which of them it has (admit).
     std::vector<std::string> add(const std::string& mod, const std::vector<std::string>& names) {
@@ -206,9 +221,16 @@ class WriteDeclarations {
         return all;
     }
 
-    // The type and its state for `mod` ("" = any mod). False when nobody listed it (state = _NOT_DECLARED).
+    // The type and its state for `mod` ("" = any mod). False when nobody listed it (state = _NOT_DECLARED). A mod whose
+    // list was refused at boot gets _LIST_REFUSED for every type.
     bool lookup(std::string_view mod, uint32_t hash, WriteType* out, uint32_t* state) const {
         std::lock_guard lock(mutex_);
+        if (!mod.empty() && refused_lists_.count(std::string(mod))) {
+            const auto at = by_hash_.find(hash);
+            if (at != by_hash_.end()) *out = at->second;
+            *state = KILN_WORLD_WRITES_LIST_REFUSED;
+            return at != by_hash_.end();
+        }
         auto at = by_hash_.find(hash);
         if (at == by_hash_.end()) {
             *state = KILN_WORLD_WRITES_NOT_DECLARED;
@@ -224,6 +246,7 @@ class WriteDeclarations {
     mutable std::mutex mutex_;
     std::map<uint32_t, WriteType> by_hash_;
     std::vector<uint32_t> order_;
+    std::map<std::string, std::string> refused_lists_;  // mod -> why its "writes" was not read
 };
 
 // ---- one request ----------------------------------------------------------------------------------------------
@@ -240,6 +263,8 @@ struct WriteJob {
     uint64_t submitted = 0;  // world step at submit
     uint64_t epoch = 0;      // the server world it was asked in (writes.cpp counts worlds from 1); another: dropped
     bool lost = false;       // its entity lacked the component at an update while the request waited: it never runs
+    bool has_generation = false;  // the entity's generation (its SpawnTime) was read at submit
+    uint64_t generation = 0;      // compared right before the write: another value means another entity under the id
     // the outcome
     uint32_t status = KILN_WORLD_WRITE_DROPPED, out_flags = 0, component_size = 0, writers = 0, steps = 0;
     bool read = false;  // before/after hold bytes
@@ -258,6 +283,8 @@ struct WriteStore {
     virtual bool formulas(uint8_t* component, const WriteType& type) = 0;
     // The request's change callback on a copy. False: it faulted. *accepted: what it returned.
     virtual bool change(KilnWorldChangeFn fn, uint32_t entity, uint8_t* data, uint32_t size, void* user, bool* accepted) = 0;
+    // The entity's generation now (its SpawnTime, 8 bytes). False: it has none, or it cannot be read.
+    virtual bool generation(uint32_t entity, uint64_t* out) = 0;
     virtual ~WriteStore() = default;
 };
 
@@ -291,6 +318,10 @@ inline std::string write_refusal(uint32_t state, std::string_view component, std
             return "no server world runs yet: the write program has not been registered";
         case KILN_WORLD_WRITES_OFF:
             return "tracked writes are off: the write program was refused, faulted or is unavailable on this game build (kiln.log says which)";
+        case KILN_WORLD_WRITES_LIST_REFUSED:
+            return write_text("the \"writes\" of mod '%s' in its kiln.mod.json was not read when the server started, so none of its "
+                              "tracked writes is taken (the mod itself loaded): fix the list (at most 64 component names; letters, "
+                              "digits and _) and restart the server", m.c_str());
         default:
             return "";
     }
@@ -303,6 +334,17 @@ inline std::string write_lost(uint32_t entity, std::string_view component) {
 }
 
 inline const char* write_world_changed() { return "the server world it was asked in closed or was replaced before the write ran"; }
+
+inline std::string write_replaced(uint32_t entity) {
+    return write_text("entity %u is not the entity the write was asked for: its SpawnTime changed (the id was given to a new entity "
+                      "while the write waited): nothing was written", entity);
+}
+
+inline std::string write_no_generation(uint32_t entity) {
+    return write_text("entity %u has no SpawnTime, so Kiln cannot tell it from a later entity under the same id, and the write program's "
+                      "%u writes of the next step are taken: a write to it is not kept waiting behind them (ask again in the next "
+                      "step)", entity, static_cast<unsigned>(kWritePerUpdate));
+}
 
 // Runs one request against the store. Fills the job's outcome; returns true when the job wants its check one step
 // later: KILN_WORLD_WRITE_VERIFY on a write that happened, of a type the game's own programs write too (nothing can
@@ -322,6 +364,11 @@ inline bool write_run(WriteJob& job, const WriteType* type, uint32_t state, Writ
     job.writers = type->writers;
     if (job.lost)  // the id may name another entity by now (a player's slot is reused): never write through it
         return fail(KILN_WORLD_WRITE_NO_COMPONENT, write_lost(job.entity, type->name));
+    if (job.has_generation) {  // right before the write: the entity the request was made for, not a later one
+        uint64_t now = 0;
+        if (!store.generation(job.entity, &now) || now != job.generation)
+            return fail(KILN_WORLD_WRITE_NO_COMPONENT, write_replaced(job.entity));
+    }
     const uint8_t* now = nullptr;
     uint32_t size = 0;
     if (!store.read(job.entity, *type, &now, &size)) return fail(KILN_WORLD_WRITE_FAULTED, "reading the component faulted");
@@ -386,6 +433,8 @@ inline bool write_run(WriteJob& job, const WriteType* type, uint32_t state, Writ
 // The check one step later, after the game's programs ran once more: are the written bytes still there?
 inline void write_check(WriteJob& job, const WriteType* type, WriteStore& store) {
     job.out_flags |= KILN_WORLD_WROTE_CHECKED;
+    uint64_t generation = 0;
+    if (job.has_generation && (!store.generation(job.entity, &generation) || generation != job.generation)) return;  // another entity: not kept
     const uint8_t* now = nullptr;
     uint32_t size = 0;
     if (!type || !store.read(job.entity, *type, &now, &size) || !now || job.offset > size || job.length > size - job.offset) return;
@@ -402,14 +451,24 @@ struct WriteCounters {
 // end_delivery: the tick thread.
 class WriteQueue {
   public:
+    // A request to run. One whose entity has no generation is taken only when it runs in the next update: behind a full
+    // update's share it would wait while its id could come to name another entity, so it is answered DROPPED at once.
     KilnResult submit(WriteJob&& job, uint64_t step, uint64_t* ticket) {
         std::lock_guard lock(mutex_);
-        if (outstanding_() >= kWriteMaxPending) return KILN_ERR_BUFFER_TOO_SMALL;
+        if (open_ >= kWriteMaxPending) return KILN_ERR_BUFFER_TOO_SMALL;
         job.ticket = ++last_;
         job.submitted = step;
         if (ticket) *ticket = job.ticket;
-        pending_.push_back(std::move(job));
+        ++open_;
         ++counters_.submitted;
+        if (!job.has_generation && pending_.size() >= kWritePerUpdate) {
+            job.status = KILN_WORLD_WRITE_DROPPED;
+            job.reason = write_no_generation(job.entity);
+            ++counters_.failed;
+            done_.push_back(std::move(job));
+            return KILN_OK;
+        }
+        pending_.push_back(std::move(job));
         return KILN_OK;
     }
 
@@ -417,7 +476,8 @@ class WriteQueue {
     // the same limit as every other request.
     KilnResult reject(WriteJob&& job, uint64_t step, uint64_t* ticket) {
         std::lock_guard lock(mutex_);
-        if (outstanding_() >= kWriteMaxPending) return KILN_ERR_BUFFER_TOO_SMALL;
+        if (open_ >= kWriteMaxPending) return KILN_ERR_BUFFER_TOO_SMALL;
+        ++open_;
         job.ticket = ++last_;
         job.submitted = step;
         if (ticket) *ticket = job.ticket;
@@ -434,6 +494,7 @@ class WriteQueue {
         for (auto at = pending_.begin(); at != pending_.end(); ++at)
             if (at->ticket == ticket) {
                 pending_.erase(at);
+                --open_;  // it never runs and gets no answer
                 return true;
             }
         for (auto* list : {&checking_, &done_})
@@ -528,6 +589,7 @@ class WriteQueue {
 
     // Up to `max` finished requests, oldest first, for delivery on the tick thread (write_deliver). They stay
     // cancellable until end_delivery.
+    // They still count against the limit until write_deliver has handed each over (delivered) or end_delivery.
     std::vector<WriteJob> drain(size_t max = kWriteDeliverPerPre) {
         std::lock_guard lock(mutex_);
         std::vector<WriteJob> out;
@@ -535,10 +597,20 @@ class WriteQueue {
             out.push_back(std::move(done_.front()));
             done_.pop_front();
         }
+        open_ -= drained_;  // a previous batch nobody ended
+        drained_ = out.size();
         delivering_.clear();
         for (const auto& job : out)
             if (job.callback) delivering_.emplace(job.ticket, job.owner);
         return out;
+    }
+
+    // One drained request is done with: its answer was delivered, or it needs none.
+    void delivered() {
+        std::lock_guard lock(mutex_);
+        if (drained_ == 0) return;
+        --drained_;
+        --open_;
     }
 
     // Whether a drained request is still to be delivered: not cancelled, its owner not dropped since the drain.
@@ -550,6 +622,8 @@ class WriteQueue {
     void end_delivery() {
         std::lock_guard lock(mutex_);
         delivering_.clear();
+        open_ -= drained_;
+        drained_ = 0;
     }
 
     // Everything that has not run fails with `reason` (the world closed, the program is off). Requests that wait for
@@ -575,7 +649,9 @@ class WriteQueue {
     // The owner is gone: its waiting requests are forgotten and nothing of it is called any more.
     void drop_owner(KilnOwner owner) {
         std::lock_guard lock(mutex_);
+        const size_t before = pending_.size();
         pending_.erase(std::remove_if(pending_.begin(), pending_.end(), [&](const WriteJob& j) { return j.owner == owner; }), pending_.end());
+        open_ -= before - pending_.size();
         for (auto* list : {&checking_, &done_})
             for (auto& job : *list)
                 if (job.owner == owner) job.callback = nullptr;
@@ -600,10 +676,11 @@ class WriteQueue {
         std::lock_guard lock(mutex_);
         return pending_.size();
     }
-    // Everything not delivered yet: what the limit counts.
+    // Every accepted request whose answer has not been handed over yet (waiting, running, held for its check, answered,
+    // or drained and being delivered): what the limit counts.
     size_t outstanding() const {
         std::lock_guard lock(mutex_);
-        return outstanding_();
+        return open_;
     }
     WriteCounters counters() const {
         std::lock_guard lock(mutex_);
@@ -611,7 +688,6 @@ class WriteQueue {
     }
 
   private:
-    size_t outstanding_() const { return pending_.size() + checking_.size() + done_.size(); }
     bool cancelled_running_(uint64_t ticket) {
         if (std::find(running_.begin(), running_.end(), ticket) == running_.end()) return false;
         dropped_running_.insert(ticket);
@@ -626,6 +702,8 @@ class WriteQueue {
     std::vector<uint64_t> running_;      // taken by the update that runs now
     std::set<uint64_t> dropped_running_; // cancelled while their update ran
     std::map<uint64_t, KilnOwner> delivering_;  // drained and not delivered yet
+    size_t open_ = 0;     // accepted and not handed over yet
+    size_t drained_ = 0;  // of those, drained and not marked delivered
     uint64_t last_ = 0;
     WriteCounters counters_;
 };
@@ -637,12 +715,17 @@ template <class Alive, class Deliver>
 size_t write_deliver(WriteQueue& queue, std::vector<WriteJob>& done, Alive&& alive, Deliver&& deliver) {
     size_t delivered = 0;
     for (auto& job : done) {
-        if (!job.callback || !queue.wanted(job.ticket)) continue;
+        if (!job.callback || !queue.wanted(job.ticket)) {
+            queue.delivered();
+            continue;
+        }
         if (!alive(job.owner)) {
             queue.drop_owner(job.owner);
+            queue.delivered();
             continue;
         }
         deliver(job);
+        queue.delivered();  // after its callback: a request counts until its answer was handed over
         ++delivered;
     }
     queue.end_delivery();
@@ -683,28 +766,35 @@ struct CatalogEntry {
 class WriteCatalog {
   public:
     using Map = std::map<uint32_t, CatalogEntry>;
+    struct Snapshot {
+        std::shared_ptr<const Map> map;
+        uint64_t epoch = 0;  // the server world it describes
+        bool bits = false;   // the save and replication bits are in it (from the world's first live step)
+    };
 
-    void publish(std::shared_ptr<const Map> map) {
+    void publish(std::shared_ptr<const Map> map, uint64_t epoch, bool bits) {
         std::lock_guard lock(mutex_);
-        map_ = std::move(map);
+        now_ = Snapshot{std::move(map), epoch, bits};
     }
-    std::shared_ptr<const Map> current() const {
+    Snapshot current() const {
         std::lock_guard lock(mutex_);
-        return map_;
+        return now_;
     }
-    // False before a world published one, or when the world has no such type.
-    bool find(uint32_t hash, CatalogEntry* out) const {
-        const auto map = current();
-        if (!map) return false;
-        const auto at = map->find(hash);
-        if (at == map->end()) return false;
+
+    // What a reader gets for `hash` while the running world is `epoch`.
+    enum class Answer { NotReady, Absent, Found };
+    Answer find(uint64_t epoch, uint32_t hash, CatalogEntry* out) const {
+        const Snapshot s = current();
+        if (!s.map || s.epoch != epoch) return Answer::NotReady;  // none yet, or the previous world's
+        const auto at = s.map->find(hash);
+        if (at == s.map->end()) return Answer::Absent;
         *out = at->second;
-        return true;
+        return Answer::Found;
     }
 
   private:
     mutable std::mutex mutex_;
-    std::shared_ptr<const Map> map_;
+    Snapshot now_;
 };
 
 }  // namespace kw

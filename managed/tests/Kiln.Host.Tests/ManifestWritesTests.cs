@@ -21,13 +21,31 @@ public class ManifestWritesTests
     [Theory]
     [InlineData("[\"keen::ecs::Fuel\"]", "short name")]
     [InlineData("[\"two words\"]", "short name")]
-    [InlineData("\"Fuel\"", "array of strings")]
-    [InlineData("[7]", "non-empty strings")]
-    public void Anything_else_is_refused_with_the_field_named(string value, string says)
+    [InlineData("\"Fuel\"", "list of at most 64")]
+    [InlineData("[7]", "short name")]
+    public void Anything_else_is_not_read_and_the_mod_still_loads_with_a_warning(string value, string says)
     {
-        var e = Assert.Throws<InvalidDataException>(() => Manifest.Parse(Head + value + " }"));
-        Assert.Contains("writes", e.Message);
-        Assert.Contains(says, e.Message);
+        var m = Manifest.Parse(Head + value + " }");
+        Assert.Empty(m.Writes);
+        Assert.Contains(says, m.WritesError);
+        var warning = Assert.Single(m.Warnings);
+        Assert.Contains("\"writes\" is not read", warning);
+        Assert.Contains("the mod loads", warning);
+    }
+
+    // The review's three manifests: each loaded on 0.2.0-dev.26, where "writes" was a key nobody read, and still loads.
+    [Theory]
+    [InlineData("null", "not null")]
+    [InlineData("[\"Fuel\\n\"]", "'Fuel\\n' is not a component's short name")]
+    [InlineData("65 copies", "it lists 65 entries")]
+    public void A_manifest_that_loaded_before_tracked_writes_still_loads(string writes, string says)
+    {
+        var value = writes == "65 copies" ? "[" + string.Join(",", Enumerable.Repeat("\"Fuel\"", 65)) + "]" : writes;
+        var m = Manifest.Parse(Head + value + " }");
+        Assert.Equal("a", m.Id);
+        Assert.Empty(m.Writes);
+        Assert.Contains(says, m.WritesError);
+        Assert.Contains(m.Warnings, w => w.Contains("tracked writes are refused (the mod loads)"));
     }
 
     // native/services/world/tests/parity.json: the cases the native reader (writes_test.cpp) is tested on too.
@@ -42,11 +60,16 @@ public class ManifestWritesTests
         var fields = c["manifest"]!.AsObject();
         if (fields.TryGetPropertyValue("writes", out var writes))
             manifest["writes"] = writes is JsonObject spec ? new JsonArray([.. Expand(spec).Select(n => (JsonNode?)n)]) : writes?.DeepClone();
-        Manifest? m = null;
-        try { m = Manifest.Parse(manifest.ToJsonString()); }
-        catch (InvalidDataException) { }
-        Assert.Equal((bool)c["valid"]!, m is not null);
-        if (m is null) return;
+        // valid false: the list is refused and the mod still loads (the native reader throws to its caller, which then
+        // refuses only the mod's tracked writes)
+        var m = Manifest.Parse(manifest.ToJsonString());
+        Assert.Equal((bool)c["valid"]!, m.WritesError is null);
+        if (m.WritesError is not null)
+        {
+            Assert.Empty(m.Writes);
+            Assert.Contains(m.Warnings, w => w.Contains("\"writes\" is not read"));
+            return;
+        }
         if (c["writes"] is JsonArray list) Assert.Equal(list.Select(n => (string)n!), m.Writes);
         if (c["count"] is { } count) Assert.Equal((int)count, m.Writes.Count);
     }
@@ -71,6 +94,8 @@ public class ManifestWritesTests
     {
         string List(int n) => "[" + string.Join(",", Enumerable.Range(0, n).Select(i => $"\"T{i}\"")) + "]";
         Assert.Equal(Manifest.MaxWrites, Manifest.Parse(Head + List(Manifest.MaxWrites) + " }").Writes.Count);
-        Assert.Contains("64 at most", Assert.Throws<InvalidDataException>(() => Manifest.Parse(Head + List(Manifest.MaxWrites + 1) + " }")).Message);
+        var over = Manifest.Parse(Head + List(Manifest.MaxWrites + 1) + " }");
+        Assert.Empty(over.Writes);
+        Assert.Contains("64 at most", over.WritesError);
     }
 }

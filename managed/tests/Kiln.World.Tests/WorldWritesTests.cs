@@ -181,6 +181,24 @@ public unsafe class WorldWritesTests
             Assert.Equal(state == WorldWriteState.Ready, WorldWrites.RefusalText(state, "Fuel", "m") is null);
         n.State = 77;
         Assert.Equal(WorldWriteState.Off, WorldWrites.FromNative("Fuel", null, in n).State);
+
+        // a mod whose "writes" was not read at boot: the state says so, the mod loaded
+        n.State = 7;
+        var refused = WorldWrites.FromNative("Fuel", "my-mod", in n);
+        Assert.Equal(WorldWriteState.ListRefused, refused.State);
+        Assert.Contains("was not read when the server started", refused.Reason);
+        Assert.Contains("the mod itself loaded", refused.Reason);
+
+        // what the running world knows is not published yet: nothing of the previous world's is passed on
+        n.State = 0;
+        n.Flags = WorldWritesAbi.NotReady | WorldWritesAbi.GameWrites | WorldWritesAbi.BitsKnown | WorldWritesAbi.Saved;
+        n.Writers = 3;
+        var early = WorldWrites.FromNative("Fuel", "my-mod", in n);
+        Assert.False(early.FactsKnown);
+        Assert.True(early.CanWrite);
+        Assert.Equal((0, 0), (early.GameWriterCount, early.ComponentSize));
+        Assert.Null(early.SaveTracked);
+        Assert.True(ready.FactsKnown);
     }
 
     [Fact]

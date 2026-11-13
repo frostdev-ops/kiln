@@ -16,6 +16,7 @@ namespace {
 
 constexpr const char* kProgramName = "kiln_world_writes";
 constexpr const char* kAttributeRegistry = "impact::AttributeRegistry";
+constexpr const char* kSpawnTime = "SpawnTime";  // an entity's generation: set when it is spawned, 8 bytes (docs/re/spawn.md)
 
 using AttrChangedFn = void (*)(void* component, void* registry);
 
@@ -41,6 +42,9 @@ thread_local bool t_in_writes = false;
 std::mutex g_slots_mutex;
 std::map<uint32_t, int32_t> g_slots;      // component hash -> iterator slot of its accessor
 int32_t g_registry_slot = -1;
+int32_t g_spawn_slot = -1;                // iterator slot of the SpawnTime read accessor
+std::atomic<bool> g_generations{false};   // the program reads SpawnTime: requests carry their entity's generation
+uint32_t spawn_time_hash() { return write_hash(kSpawnTime); }
 
 int64_t now_ms() {
     return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
@@ -109,6 +113,21 @@ struct EngineStore final : WriteStore {
         unsigned long code = 0;
         return seh_write_change(fn, entity, data, size, user, accepted, &code);
     }
+    bool generation(uint32_t entity, uint64_t* out) override {
+        int32_t slot = -1;
+        {
+            std::lock_guard lock(g_slots_mutex);
+            slot = g_spawn_slot;
+        }
+        if (slot < 0 || !iter[slot]) return false;
+        Slice s{};
+        unsigned long code = 0;
+        if (!seh_read_other(&s, storage, reinterpret_cast<void*>(iter[slot]), entity, &code)) {
+            broken("the game's SpawnTime read faulted", code);
+            return false;
+        }
+        return s.ptr && s.size == 8 && seh_copy(out, s.ptr, 8);
+    }
 };
 
 // Once per world: every accessor must be the type the component map says, as kiln.items checks its own.
@@ -132,16 +151,30 @@ bool verify(ProgramCtx* ctx, const uint64_t* iter) {
         slots[type.hash] = slot;
     }
     const int32_t registry_slot = g_attr_changed ? program_slot(g_program, KILN_SLOT_SINGLETON, kstr(kAttributeRegistry)) : -1;
+    int32_t spawn_slot = -1;
+    if (g_generations.load()) {
+        spawn_slot = program_slot(g_program, KILN_SLOT_OTHER_READ, kstr(kSpawnTime));
+        uint16_t index = 0, held = 0;
+        if (spawn_slot < 1 || !iter[spawn_slot] || !map_find_u16(registry + L.reg_components, spawn_time_hash(), &index) ||
+            !seh_copy(&held, reinterpret_cast<const void*>(iter[spawn_slot]), 2) || held != index) {
+            KW_E("tracked writes: the SpawnTime accessor is not what the world's component map says (slot %d, type %u, held %u); "
+                 "they are off until the server restarts", spawn_slot, index, held);
+            g_broken.store(true);
+            g_types.set_program(false, true);
+            return false;
+        }
+    }
     {
         std::lock_guard lock(g_slots_mutex);
         g_slots = std::move(slots);
         g_registry_slot = registry_slot;
+        g_spawn_slot = spawn_slot;
     }
     g_seen_world.store(world);
     g_verified.store(true);
     KW_I("tracked writes: program %s runs in world 0x%llx, %u accessor(s) verified against the component map, attribute "
-         "formulas %s", kProgramName, static_cast<unsigned long long>(world), static_cast<unsigned>(g_slots.size()),
-         registry_slot >= 0 && iter[registry_slot] ? "on" : "off");
+         "formulas %s, generations (SpawnTime) %s", kProgramName, static_cast<unsigned long long>(world),
+         static_cast<unsigned>(g_slots.size()), registry_slot >= 0 && iter[registry_slot] ? "on" : "off", spawn_slot >= 0 ? "on" : "off");
     return true;
 }
 
@@ -325,7 +358,7 @@ void read_facts(uintptr_t world, bool bits) {
 
 // The catalog of every component type of this world, with the game's writers the scan found: write_info answers from
 // it on any thread, never from the world itself.
-void publish_catalog(uintptr_t world, std::map<uint32_t, CatalogEntry> catalog, bool bits) {
+void publish_catalog(uintptr_t world, std::map<uint32_t, CatalogEntry> catalog, bool bits, uint64_t epoch) {
     std::vector<uint32_t> hashes;
     if (const uintptr_t map = components_map(world)) map_each_u16(map, [&](uint32_t key, uint16_t) { hashes.push_back(key); });
     for (const auto& [hash, entry] : catalog) hashes.push_back(hash);  // a written type the map does not hold: its size still
@@ -338,7 +371,7 @@ void publish_catalog(uintptr_t world, std::map<uint32_t, CatalogEntry> catalog, 
         entry.flags = (entry.flags & KILN_WORLD_WROTE_GAME_WRITES) | facts_flags(f);
     }
     const size_t types = catalog.size();
-    g_catalog.publish(std::make_shared<const WriteCatalog::Map>(std::move(catalog)));
+    g_catalog.publish(std::make_shared<const WriteCatalog::Map>(std::move(catalog)), epoch, bits);
     KW_D("tracked writes: catalog of %zu component type(s) published", types);
 }
 
@@ -350,19 +383,21 @@ void rescan(uintptr_t world) {
         std::lock_guard lock(g_scan_mutex);
         g_scan = scan;
     }
-    publish_catalog(world, std::move(scan), false);
+    publish_catalog(world, std::move(scan), false, g_epoch.load());
     g_bits_due.store(true);
 }
 
 // The world's first live step, tick thread: the save and replication bits, for the listed types and the catalog.
 void read_bits(uintptr_t world) {
+    const uint64_t epoch = g_epoch.load();
     read_facts(world, true);
     std::map<uint32_t, CatalogEntry> scan;
     {
         std::lock_guard lock(g_scan_mutex);
         scan = g_scan;
     }
-    publish_catalog(world, std::move(scan), true);
+    if (g_epoch.load() != epoch || g_world.load() != world) return;  // another world began meanwhile: its setup publishes
+    publish_catalog(world, std::move(scan), true, epoch);
     log_listed();
 }
 
@@ -415,12 +450,19 @@ std::vector<std::string> writes_declare(const std::string& who, const std::vecto
     return g_types.add(who, names);
 }
 
-// A server world is about to register its programs: a new world for the requests (those of an earlier one end), on
-// the first one the names the program takes and the write program itself (once), then what the game's own programs
-// write and the catalog. Server thread, inside the world setup, before register_into.
-void writes_before_world(uintptr_t world) {
+// A new server world, before g_world names it: the requests and the catalog of the previous one are not its. Requests
+// that have not run end; write_info answers "not ready" until this world's catalog is published.
+void writes_world_changing() {
     const uint64_t epoch = g_epoch.fetch_add(1) + 1;
     g_queue.drop_stale(epoch, g_internal_runs.load());
+}
+
+void writes_refuse_list(const std::string& mod, const std::string& why) { g_types.refuse_list(mod, why); }
+
+// A server world is about to register its programs: on the first one the names the program takes and the write program
+// itself (once), then what the game's own programs write and the catalog. Server thread, inside the world setup, after
+// writes_world_changing, before register_into.
+void writes_before_world(uintptr_t world) {
     if (!writes_available()) return;
     if (g_types.count() == 0) {
         rescan(world);  // write_info still answers what a mod would get if it listed a type
@@ -435,6 +477,9 @@ void writes_before_world(uintptr_t world) {
         std::vector<KilnStr> other;
         for (const auto& name : names) other.push_back(kstr(name));
         const KilnStr registry = kstr(kAttributeRegistry);
+        const KilnStr spawn_time = kstr(kSpawnTime);
+        // The generation: without SpawnTime in this world every request is "without a generation" (write_queue.h).
+        g_generations.store(map && map_find_u16(map, spawn_time_hash(), nullptr));
         KilnProgramDesc d{};
         d.size = sizeof d;
         d.flags = KILN_PROGRAM_SYSTEM | KILN_PROGRAM_HOST_ONLY;
@@ -445,6 +490,7 @@ void writes_before_world(uintptr_t world) {
             d.singletons_read_optional = 1;  // without it the program still runs; attributes then get no formulas
         }
         d.other_write = KilnNames{other.data(), static_cast<uint32_t>(other.size()), 0};
+        if (g_generations.load()) d.other_read = KilnNames{&spawn_time, 1, 0};
         if (register_program(g_owner, &d, &g_program, false) != KILN_OK) {
             KW_E("tracked writes: program %s could not be made; World.Write is off", kProgramName);
             g_types.set_program(false, true);
@@ -479,6 +525,8 @@ KilnResult KILN_CALL write_submit(KilnOwner owner, const KilnWorldWriteRequest* 
     if (r->flags & ~static_cast<uint32_t>(KILN_WORLD_WRITE_WHOLE | KILN_WORLD_WRITE_VERIFY)) return KILN_ERR_INVALID_ARGUMENT;
     if (r->mod_id.len > 64) return KILN_ERR_INVALID_ARGUMENT;
     if (!writes_available()) return KILN_ERR_UNAVAILABLE;
+    // Between two steps, on the tick thread: the entity (and its generation) is read as the next update will find it.
+    if (t_in_writes || t_in_program || !g_api->on_tick_thread()) return KILN_ERR_WRONG_THREAD;
     WriteJob job;
     job.owner = owner;
     job.entity = r->entity;
@@ -496,6 +544,11 @@ KilnResult KILN_CALL write_submit(KilnOwner owner, const KilnWorldWriteRequest* 
     }
     const uint64_t step = g_internal_runs.load(std::memory_order_relaxed);
     job.epoch = g_epoch.load();
+    if (g_generations.load()) {
+        uint32_t size = 0;
+        const void* p = component(job.entity, spawn_time_hash(), &size);
+        job.has_generation = p && size == 8 && seh_copy(&job.generation, p, 8);
+    }
     WriteType type;
     uint32_t state = 0;
     const bool known = g_types.lookup(job.mod, job.component, &type, &state);
@@ -506,6 +559,7 @@ KilnResult KILN_CALL write_submit(KilnOwner owner, const KilnWorldWriteRequest* 
         const bool never = state == KILN_WORLD_WRITES_OFF || state == KILN_WORLD_WRITES_PENDING;
         job.status = never ? KILN_WORLD_WRITE_DROPPED : KILN_WORLD_WRITE_NOT_DECLARED;
         job.reason = write_refusal(state, known ? std::string_view(type.name) : std::string_view(), job.mod);
+        if (state == KILN_WORLD_WRITES_LIST_REFUSED) job.reason += ": " + g_types.list_refusal(job.mod);
         return g_queue.reject(std::move(job), step, out);
     }
     return g_queue.submit(std::move(job), step, out);
@@ -530,29 +584,27 @@ KilnResult KILN_CALL write_info(KilnStr mod_id, uint32_t component, KilnWorldWri
     uint32_t state = 0;
     const bool known = g_types.lookup(sv(mod_id), component, &type, &state);
     out->state = g_broken.load() && known ? static_cast<uint32_t>(KILN_WORLD_WRITES_OFF) : state;
-    if (!known) {
-        // Not listed: what a mod would get if it listed it (who else writes it, whether the save carries it), from the
-        // catalog the last server world's setup published. Nothing is known before a server world exists.
-        CatalogEntry entry;
-        if (!g_catalog.find(component, &entry)) {
-            if (!g_catalog.current()) return KILN_OK;
+    // What the running world knows of the type, listed or not: from the catalog published for that world (tagged with
+    // it), never from the world itself. A catalog of another world (a new one is being set up), or none: not ready.
+    CatalogEntry entry;
+    switch (g_catalog.find(g_epoch.load(), component, &entry)) {
+        case WriteCatalog::Answer::NotReady:
+            out->flags = KILN_WORLD_INFO_NOT_READY;
+            return KILN_OK;
+        case WriteCatalog::Answer::Absent: {
             const Facts f = type_facts(component);  // not in the world's map: what kiln.types says of it, nothing more
             out->component_size = f.size;
             out->flags = f.attribute ? static_cast<uint32_t>(KILN_WORLD_WROTE_ATTRIBUTE) : 0u;
             return KILN_OK;
         }
-        out->writers = entry.writers;
-        out->init_writers = entry.init_writers;
-        out->component_size = entry.size;
-        out->flags = entry.flags;
-        std::snprintf(out->writer_names, sizeof out->writer_names, "%s", entry.writer_names.c_str());
-        return KILN_OK;
+        case WriteCatalog::Answer::Found:
+            break;
     }
-    out->flags = type.flags;
-    out->writers = type.writers;
-    out->init_writers = type.init_writers;
-    out->component_size = type.size;
-    std::snprintf(out->writer_names, sizeof out->writer_names, "%s", type.writer_names.c_str());
+    out->writers = entry.writers;
+    out->init_writers = entry.init_writers;
+    out->component_size = entry.size;
+    out->flags = entry.flags;
+    std::snprintf(out->writer_names, sizeof out->writer_names, "%s", entry.writer_names.c_str());
     return KILN_OK;
 }
 

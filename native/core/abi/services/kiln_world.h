@@ -261,6 +261,9 @@ enum {
     KILN_WORLD_WROTE_ATTRIBUTE = 0x10u,   /* an attribute (Health, Fuel, ...): the game's formulas ran after the write */
     KILN_WORLD_WROTE_CHECKED = 0x20u,     /* result only: VERIFY ran one step later */
     KILN_WORLD_WROTE_KEPT = 0x40u,        /* result only, with CHECKED: the written bytes were still there */
+    KILN_WORLD_INFO_NOT_READY = 0x80u,    /* write_info only: what the running server world knows of the type is not
+                                             published yet (no world runs, or a new one is being set up): writers,
+                                             size and bits are not filled. The state is. Ask again after a step */
 };
 
 typedef struct KilnWorldWriteResult {
@@ -315,6 +318,9 @@ enum {
                                             world does not have take no place) */
     KILN_WORLD_WRITES_OFF = 6,           /* tracked writes do not work on this build, or the program was refused,
                                             faulted or is skipped by the engine (kiln.log says which) */
+    KILN_WORLD_WRITES_LIST_REFUSED = 7,  /* the mod's "writes" could not be read at boot (not a list, a name that is not
+                                            a component's, over 64 entries): the mod loaded, none of its writes is
+                                            taken; the reason says what is wrong */
 };
 
 typedef struct KilnWorldWriteInfo {
@@ -439,14 +445,21 @@ typedef struct KilnWorldApi {
     /* ---- tracked writes: appended in v3, since 0.2.0-dev.27. Check header.size and KILN_WORLD_CAP_TRACKED_WRITES ---- */
     /* Queues one write. It runs in the write program's next update (the next sim step; one update runs 512, the rest
      * wait for the next ones) and its result comes one Pre later (two with KILN_WORLD_WRITE_VERIFY; one Pre delivers
-     * 1024 results at most). *out_ticket = its id (never 0). Any thread.
+     * 1024 results at most). *out_ticket = its id (never 0). Tick thread, outside any program update
+     * (KILN_ERR_WRONG_THREAD otherwise): the entity is read as it is between two steps.
      * A request belongs to the server world that runs when it is submitted: before the first one it is DROPPED, and
-     * one that has not run when another world registers is DROPPED (a held one completes unchecked). A request whose
-     * entity lacks the component at an update while it waits never runs (NO_COMPONENT), also when the id comes back:
-     * a player's entity is slot + 1 and the next player in the slot gets it.
+     * one that has not run when another world registers is DROPPED (a held one completes unchecked). It also carries
+     * its entity's generation, the entity's SpawnTime (entities the game or Kiln.Spawn spawns into the world have one;
+     * entities loaded from the save and item entities do not, players may not), compared right before the write:
+     * another value means the id names
+     * another entity now, and the answer is NO_COMPONENT. A request for an entity without a SpawnTime is taken only
+     * when it runs in the next update; behind a full update's share it is answered DROPPED at once instead of waiting
+     * while its id could come to name another entity. A request whose entity lacks the component at an update while
+     * it waits never runs either.
      * KILN_ERR_INVALID_ARGUMENT: a bad size, no entity, no component, neither or both of data and change, length 0
      * or over 4096. KILN_ERR_UNAVAILABLE: tracked writes do not work on this build. KILN_ERR_BUFFER_TOO_SMALL: 4096
-     * requests are not delivered yet (waiting, held, or answered and waiting for their Pre, refusals included).
+     * accepted requests have not had their answer handed over yet (waiting, running, held, answered, or being
+     * delivered; refusals included).
      * Everything else (not declared, no such entity, a size that does not fit) comes back through the callback, never
      * as "ok": check the result. */
     KilnResult(KILN_CALL* write_submit)(KilnOwner owner, const KilnWorldWriteRequest* request, uint64_t* out_ticket);
@@ -457,9 +470,9 @@ typedef struct KilnWorldApi {
     /* What kiln.world knows about writing component `component` for `mod_id` (empty: any mod): its state, and what
      * the running world says about the type (the game's own writers, the save and replication bits), also for a type
      * nobody listed, so an author can look before listing it: answered from a catalog kiln.world publishes for the
-     * running server world (writers at its setup, the save and replication bits at its first step), never from the
-     * world itself. Before a server world exists only the state; before its first step the bits are not known. Any
-     * thread. */
+     * running server world, tagged with it (writers and sizes at its setup, the save and replication bits at its first
+     * step), never from the world itself. KILN_WORLD_INFO_NOT_READY when the catalog is not the running world's yet
+     * (none runs, or a new one is being set up): only the state is filled then. Any thread. */
     KilnResult(KILN_CALL* write_info)(KilnStr mod_id, uint32_t component, KilnWorldWriteInfo* out);
     KilnResult(KILN_CALL* write_status)(KilnWorldWriteStatus* out);
     /* A native service's own list of component types to write (a service has no manifest), under the name `who`,

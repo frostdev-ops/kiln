@@ -128,6 +128,27 @@ public sealed unsafe class WorldContractTests
         return WorldNative.Ok;
     }
 
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static int SubmitWrongThread(ulong owner, WriteRequestNative* request, ulong* ticket) => WorldNative.WrongThread;
+
+    [Fact]
+    public void A_write_asked_for_inside_a_program_s_update_is_a_thread_error()
+    {
+        var v3 = Table((uint)sizeof(WorldWritesTable), 3);
+        try
+        {
+            ((WorldWritesTable*)v3)->WriteSubmit = &SubmitWrongThread;
+            With(v3, () =>
+            {
+                Assert.True(World.SupportsTrackedWrites);
+                var e = Assert.Throws<InvalidOperationException>(() => { _ = World.WriteAt(new EntityId(5), "Fuel", 8, 1); });
+                Assert.Contains("between two steps", e.Message);
+                return 0;
+            });
+        }
+        finally { NativeMemory.Free((void*)v3); }
+    }
+
     // A v3 table as kiln.world publishes it, with the entries these tests call; `size`/`version` make it look older.
     private static nint Table(uint size, uint version)
     {
