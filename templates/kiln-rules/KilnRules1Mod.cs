@@ -22,7 +22,14 @@ public sealed class KilnRules1Mod : Mod
         // Flight moves the character in the player's own game too: it needs Kiln there (a host has it).
         if (Rules.ClientOf(c.Source.Player) is not (RulesClient.Kiln or RulesClient.Host))
             return "flight needs Kiln in your game";
-        Rules.Apply(c.Source.Player, new PlayerRules { FlyAnywhere = true }, TimeSpan.FromSeconds(60), "flight");
+        var flight = Rules.Apply(c.Source.Player, new PlayerRules { FlyAnywhere = true }, TimeSpan.FromSeconds(60), "flight");
+        // A rule set asks; the server's rules.json and other rule sets decide. Read what the player really has now
+        // before you promise it.
+        if (!Rules.Of(c.Source.Player).FlyAnywhere)
+        {
+            flight.Dispose();
+            return "this server's rules do not allow flight outside bases";
+        }
         return "you can fly for a minute";
     }
 

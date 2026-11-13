@@ -11,7 +11,10 @@
     <Description>KilnShader1, a Kiln mod.</Description>
     <!-- <PackageLicenseExpression>MIT</PackageLicenseExpression>   the licence others may use it under (kiln.mod.json "license") -->
     <!-- Kiln service assemblies this mod uses (they ship with Kiln, never with the mod). -->
-    <KilnServices>Blocks;Vfx;Client;Ui;World</KilnServices>
+    <KilnServices>Blocks;Vfx;Client;Ui</KilnServices>
+    <!-- A mod with GPU code of its own is the advanced tier: without "advanced": true in its manifest Kiln does not
+         link the module, draws the effect with its own sprite and says why in kiln.log. -->
+    <KilnAdvanced>true</KilnAdvanced>
     <!-- Every player's game draws the effect, so the mod has to be on theirs too. -->
     <KilnSide>both</KilnSide>
     <KilnClients>mod</KilnClients>

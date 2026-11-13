@@ -49,9 +49,17 @@ public sealed class SavedDataMod : Mod
         Log.Info($"saved-data: world data loaded as {WorldData.Loaded}; entity data {(EntityData.Available ? "available" : "not available (kiln.spawn is missing)")}");
     }
 
+    // Each service a call needs is asked for where it is used: a server can run without any one of them, and a sample
+    // that throws from a handler or answers a command with a stack trace teaches the wrong thing.
+    private static void NeedSaves()
+    {
+        if (!Saves.Available) throw new CommandException("saved data is not available on this server (kiln.saves is missing)");
+    }
+
     [Subscribe]
     private void OnJoined(PlayerJoinedEvent e)
     {
+        if (!Saves.Available) return;  // nothing to count without it
         var now = DateTime.UtcNow;
         // Get creates the object on first use and returns the same live object afterwards: change it in place.
         var book = WorldData.Get<Guestbook>(GuestbookKey);
@@ -78,6 +86,7 @@ public sealed class SavedDataMod : Mod
     [Command("visits", Description = "how often you were here; an admin may name another player, online or not")]
     private string Visits(CommandContext c, string? player = null)
     {
+        NeedSaves();
         if (player is null)
         {
             if (!c.Source.IsPlayer || c.Source.SteamId == 0) throw new CommandException("name a player");
@@ -95,6 +104,7 @@ public sealed class SavedDataMod : Mod
     [Command("guestbook", Description = "the world's guestbook")]
     private string ShowGuestbook(CommandContext c)
     {
+        NeedSaves();
         if (!WorldData.TryGet<Guestbook>(GuestbookKey, out var book)) return "the guestbook is empty";
         return $"{book.Joins} join(s) in this world ({WorldData.WorldId}); last: {string.Join(", ", book.Recent)}";
     }
@@ -103,7 +113,11 @@ public sealed class SavedDataMod : Mod
     private string SetLabel(CommandContext c, [Greedy] string text)
     {
         if (!c.Source.IsPlayer) throw new CommandException("stand next to a chest");
+        // A label is owned by a Steam id. A player whose id is not known yet (0) must not own one: every other such
+        // player would count as its owner.
+        if (c.Source.SteamId == 0) throw new CommandException("your Steam id is not known yet: try again in a moment");
         if (!EntityData.Available) throw new CommandException("labels need kiln.spawn, which is not available on this server");
+        if (!Items.Available || !World.Available) throw new CommandException("labels need kiln.items and kiln.world, which are not both available on this server");
         // The chests and other containers within reach, nearest first.
         var near = Nearby.Within(Items.FindInventories(), c.Source.Player, Reach);
         if (near.Count == 0) throw new CommandException($"no chest within {Reach:0} m");

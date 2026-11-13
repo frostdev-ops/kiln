@@ -28,6 +28,8 @@ public sealed class AdminToolsMod : Mod
     // scouting away from one admin group in kiln/config/permissions.json and leave the rest.
     private const string ScoutNode = "admin-tools.scout";
     private static readonly TimeSpan BanFor = TimeSpan.FromHours(24);
+    // Players.Kick and Bans.Add take a reason of at most 200 characters, and the mod puts "Second strike: " before it.
+    private const int MaxReason = 180;
 
     public override void OnLoad()
     {
@@ -40,6 +42,10 @@ public sealed class AdminToolsMod : Mod
     private async Task Strike(CommandContext c, Player target, [Greedy] string reason)
     {
         if (target.SteamId == 0) throw new CommandException($"{target.Name}'s Steam id is not known yet");
+        // Everything that can be refused is checked before anything is changed: a strike that was counted and then
+        // failed on its reason's length would be a strike nobody was told about.
+        if (reason.Length > MaxReason) throw new CommandException($"the reason may have at most {MaxReason} characters (this one has {reason.Length})");
+        if (!Saves.Available) throw new CommandException("strikes cannot be kept on this server (kiln.saves is missing)");
         var record = PlayerData.Get<Record>(target.SteamId, RecordKey);
         record.Name = target.Name;
         record.Strikes++;
@@ -78,6 +84,7 @@ public sealed class AdminToolsMod : Mod
     [Command("pardon", Description = "lifts a player's ban and forgets the strikes (a name from /strikes, or a Steam id)", Permission = CommandPermission.Admin)]
     private string Pardon(CommandContext c, string who)
     {
+        if (!Saves.Available) throw new CommandException("strikes cannot be kept on this server (kiln.saves is missing)");
         var steamId = ulong.TryParse(who, out var id) ? id : Known().FirstOrDefault(k => k.Record.Name.Equals(who, StringComparison.OrdinalIgnoreCase)).SteamId;
         if (steamId == 0) throw new CommandException($"no strikes on record for {who}");
         var unbanned = Capabilities.Is(BansCapability) && Bans.Remove(steamId);
@@ -88,8 +95,9 @@ public sealed class AdminToolsMod : Mod
     [Command("strikes", Description = "who has strikes, and Kiln's ban list", Permission = CommandPermission.Admin)]
     private void Strikes(CommandContext c)
     {
-        foreach (var (steamId, record) in Known())
-            c.Reply($"  {record.Name} ({steamId}): {record.Strikes} strike(s), last: {record.Reasons.LastOrDefault()}");
+        if (Saves.Available)
+            foreach (var (steamId, record) in Known())
+                c.Reply($"  {record.Name} ({steamId}): {record.Strikes} strike(s), last: {record.Reasons.LastOrDefault()}");
         if (!Capabilities.Is(BansCapability)) return;
         foreach (var ban in Bans.All)
             c.Reply($"  banned: {ban.Name} ({ban.SteamId}) by {ban.By}, {(ban.Until is { } until ? $"until {until:yyyy-MM-dd HH:mm} UTC" : "until unbanned")}: {ban.Reason}");

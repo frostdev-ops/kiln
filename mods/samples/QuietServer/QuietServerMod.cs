@@ -27,8 +27,15 @@ public sealed class QuietServerMod : Mod
             Log.Info("quiet-server: this game build's server wait is not known to Kiln: nothing is changed");
             return;
         }
-        _handler = Pacing.OnServerWait(OnServerWait);
+        // Whether the server is empty comes from kiln.players. Without it the mod could not tell, and a server that
+        // waits longer with players online is worse than one that is not quiet: do nothing then.
+        if (!Players.Available)
+        {
+            Log.Info("quiet-server: kiln.players is not available, so the mod cannot tell an empty server: nothing is changed");
+            return;
+        }
         _empty = Players.All.Count == 0;
+        _handler = Pacing.OnServerWait(OnServerWait);
         Log.Info($"quiet-server: an empty server waits {QuietWaitNs / 1_000_000} ms between passes instead of {Pacing.ServerIdleWaitNs / 1_000_000} ms");
     }
 
@@ -48,7 +55,7 @@ public sealed class QuietServerMod : Mod
 
     [Command("quiet", Description = "what the quiet server sample does right now", Permission = CommandPermission.Admin)]
     private string Quiet(CommandContext c) =>
-        _handler is null ? "not active: this game build's server wait is not known to Kiln"
+        _handler is null ? "not active: this game build's server wait is not known to Kiln, or kiln.players is missing (kiln.log says which)"
         : $"{(_empty ? "empty: waiting longer" : "players online: the game's own pace")}; {Interlocked.Read(ref _lengthened)} wait(s) lengthened so far";
 
     // Kiln removes a mod's handlers when it unloads; disposing says it in the code.
