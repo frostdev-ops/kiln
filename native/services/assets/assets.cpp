@@ -213,6 +213,7 @@ KilnResult load_manifest(KilnOwner owner, const std::string& mod_dir, std::strin
             if (e.is_object()) {
                 it.kind = e.value("kind", "");
                 it.file = e.value("file", "");
+                it.fixed_hash = it.kind == "blob" && e.contains("hash");
                 if (it.kind == "resource") {
                     it.type = type_hash(e.value("type", "0x0"), &ok);
                     for (const json& p : e.value("patch", json::array()))
@@ -324,11 +325,11 @@ KilnResult load_manifest(KilnOwner owner, const std::string& mod_dir, std::strin
     *report = std::string(b) + (problems.empty() ? "" : " (" + problems + ")");
     LOGI("assets: %s: %s", mod_dir.c_str(), report->c_str());
     // A model's entry needs no mark (it is skipped by its type). The cook of Kiln 0.2.0-dev.26 wrote the mark into a server's copy of
-    // assets.json, which made that copy another file than the players': their games then see this mod as changed.
+    // assets.json, which made that copy another file than the players'. A mod may also ship the mark itself, so this is a note.
     if (marked_models)
-        LOGW("assets: %s: %d model entr%s in assets/assets.json carr%s a \"side\": \"client\" mark. A cook of Kiln 0.2.0-dev.26 wrote such marks "
-             "into a server's copy of the file; players' copies have none, so their games see another mod than this server's. Cook the mod "
-             "again on this server (kiln cook): that takes the marks out",
+        LOGI("assets: %s: %d model entr%s in assets/assets.json carr%s a \"side\": \"client\" mark. If a cook of Kiln 0.2.0-dev.26 wrote it on "
+             "this server (the mod ships the file without it), players' games see another mod than this server's: run kiln cook for this mod "
+             "again (it takes that cook's marks out), or put the mod's own assets/assets.json back",
              mod_dir.c_str(), marked_models, marked_models == 1 ? "y" : "ies", marked_models == 1 ? "ies" : "y");
     return KILN_OK;
 }

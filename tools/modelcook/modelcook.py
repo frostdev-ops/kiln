@@ -100,9 +100,13 @@ def _say_marks(r):
     if gone:
         print(f"assets.json: took the \"side\": \"client\" mark of an older cook out of {n(gone)} (a server skips a model by its type; with the mark "
               "this copy was another file than the players'): " + ", ".join(gone))
-    if there:
-        print(f"assets.json: {n(there)} of the models carry a \"side\": \"client\" mark an older cook wrote on a server, so this copy differs from the "
-              "players' (run with --update-manifest to take it out): " + ", ".join(there))
+    if there and r["manifest"].get("legacyMarks"):
+        print(f"assets.json: {n(there)} of the models carry a \"side\": \"client\" mark the cook of 0.2.0-dev.26 wrote on this server, so this copy "
+              "differs from the players' (run with --update-manifest to take it out): " + ", ".join(there))
+    elif there:
+        print(f"assets.json: {n(there)} of the models carry a \"side\": \"client\" mark. Nothing here says a cook wrote it, so it stays as the mod has "
+              "it. If a cook of 0.2.0-dev.26 wrote it on this server, this copy differs from the players': put the mod's own assets/assets.json back. "
+              + ", ".join(there))
 
 
 def cmd_recipe(a):

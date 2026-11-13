@@ -31,6 +31,7 @@ from kfc.archive import Kfc, ResourceKey
 from kfc.refl import TypeDb
 from kfc.util import guid_bytes, guid_text
 
+from . import cookpaths as CP
 from . import pcm as P
 from . import res as R
 from . import validate as V
@@ -93,29 +94,13 @@ def report_name(doc):
     return "cook-report.json" if doc.get("tool", DEFAULT_TOOL) == TOOL else f"cook-report.{TOOL}.json"
 
 
-def mod_dir(recipe_path):
-    """The folder of the mod a recipe belongs to: the nearest kiln.mod.json above it, or the recipe's parent's parent, as <mod>/assets/cook.json is."""
-    p = Path(recipe_path).resolve()
-    for d in p.parents:
-        if (d / "kiln.mod.json").exists():
-            return d
-    return p.parent.parent
-
-
 def out_dir(recipe_path, doc, default="cooked"):
-    """Where a recipe's cook writes: its "out", relative to the recipe. It is the mod's assets/cooked folder or a folder in it, or the recipe is
-    refused (the same rule in every cook tool: tools/modelcook/cook/recipe.py). The cook asks this, not load."""
-    p = Path(recipe_path)
-    out = doc.get("out", default)
-    if not isinstance(out, str) or not out:
-        raise RecipeError(f"{p}: \"out\" is the folder the cook writes to, relative to this file (\"{default}\")")
-    where = (p.parent / out).resolve()
-    cooked = mod_dir(p).joinpath("assets", "cooked").resolve()
-    if where != cooked and cooked not in where.parents:
-        raise RecipeError(f"{p}: \"out\": \"{out}\" is {where}, outside the mod's assets/cooked folder ({cooked}). A cook writes only there: it is what a mod "
-                          f"never ships and what a server and a player's game each make for themselves. Use \"out\": \"cooked\" in assets/cook.json, "
-                          f"or \"../assets/cooked/<name>\" in a recipe of another folder.")
-    return where
+    """Where a recipe's cook writes: its "out", relative to the recipe. It is the mod's assets/cooked folder or a folder in it, by its spelling and
+    with no link on the way (cookpaths, the same rule in every cook tool), or the recipe is refused. The cook asks this, not load."""
+    try:
+        return CP.out_dir(recipe_path, doc.get("out", default), default)
+    except CP.Refused as e:
+        raise RecipeError(f"{recipe_path}: {e}") from e
 
 
 def load(path):
@@ -783,7 +768,14 @@ def run(path, game=None, native=None, update_manifest=False, cross_check=False, 
     index_bytes = (json.dumps(index, indent=2) + "\n").encode()
     files[c.out / "audio.json"] = index_bytes
 
-    # 8. write
+    # 8. write. Every file is checked before the first one is written: a name with ".." or a "/" in it, or a link, would lead out of
+    # assets/cooked; the manifest is the mod's assets/assets.json and no other file
+    try:
+        for f in files:
+            CP.cooked(p, f, f"the output {c.rel_recipe(f)}")
+        CP.manifest(p, c.manifest)
+    except CP.Refused as e:
+        raise RecipeError(f"{p}: {e}") from e
     for f, data in files.items():
         f.parent.mkdir(parents=True, exist_ok=True)
         f.write_bytes(data)

@@ -52,7 +52,8 @@ subfolders are allowed; absolute paths and `..` are rejected.
 - **`kind`**: `icon` | `texture` | `resource` | `blob`. On a dedicated server the entries only a game client uses are
   skipped by what they are, whether or not their files are there: `icon` and `texture` entries, a `resource` of a type a
   server's files never hold (`keen::RenderModel`, `keen::RenderMaterialResource`, `keen::RenderTextureResource`,
-  `keen::UiTextureResource`), and a `blob` that only such resources name in `patch` (a model's render data). The report
+  `keen::UiTextureResource`), and a `blob` that only such resources name in `patch` (a model's render data; a blob with
+  a fixed `hash` is always kept: it replaces game content a server mod may read by that hash). The report
   counts them (`… (4 entries for clients only, skipped on this server) …`). So the manifest is the same file on a server
   and in a player's game: a server's cook makes no models, and nothing has to be marked for it (dev.27; the cook of
   0.2.0-dev.26 wrote `"side": "client"` on the models' entries of the server's copy, and the server now names such a

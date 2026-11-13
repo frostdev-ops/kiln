@@ -194,12 +194,14 @@ lists a cooked mod as missing or changed after a join, and a modpack built from 
 `assets/cooked` out) is the mod your players have, cooked or not.
 
 Cooked with 0.2.0-dev.26? That version's cook wrote `"side": "client"` on the models' entries of the server's
-`assets/assets.json`, which made the server's copy another file than the players'. The server says so at its start
+`assets/assets.json`, which made the server's copy another file than the players'. The server notes it at its start
 (`… model entries in assets/assets.json carry a "side": "client" mark …`). Run the same `kiln cook` command again: it sees
-the old cook's report, cooks again and takes the marks out, and nothing else of the file changes. When the mod's manifest
-was written by the cook itself (as `kiln build` does), the file is then the shipped one again, byte for byte. If its
-author formatted it by hand, the old cook already rewrote the whole file: copy the mod's own `assets/assets.json` over
-it (or install the mod again) and cook once more. Build the server's modpack again afterwards: a pack built by dev.26
+the old cook's report in `assets/cooked`, cooks again and takes the marks out, and nothing else of the file changes.
+When the mod's manifest was written by the cook itself (as `kiln build` does), the file is then the shipped one again,
+byte for byte. If its author formatted it by hand, the old cook already rewrote the whole file: copy the mod's own
+`assets/assets.json` over it (or install the mod again) and cook once more. The cook takes a mark out only with that
+old report as its evidence: without it (the `assets/cooked` folder was deleted, or the mod itself ships the mark) the
+mark stays, the cook says so, and putting the mod's own `assets/assets.json` back is the way. Build the server's modpack again afterwards: a pack built by dev.26
 from a cooked folder carries the cooked files and the old hash, and the launcher refuses it.
 
 No Python on the server? Cook the mod on a PC with the game, then copy the mod folder with its `assets/cooked` folder to

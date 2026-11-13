@@ -409,6 +409,20 @@ class CookTests(unittest.TestCase):
             # everything the cook wrote is in the mod's assets/cooked folder (the report too) and its manifest
             written = sorted(f.relative_to(mod).as_posix() for f in mod.rglob("*") if f.is_file() and f.relative_to(mod).parts[0] != "impact")
             self.assertEqual(written, ["assets/assets.json", "assets/cooked/impact/c.bin", "assets/cooked/impact/cook-report.json", "assets/cooked/impact/new.bin"])
+            # a stem that would lead out of that folder is refused before anything is written
+            rp.write_text(json.dumps(dict(recipe, steps=[dict(recipe["steps"][0], stem="../../escaped")])))
+            before = sorted(str(f) for f in mod.rglob("*"))
+            with self.assertRaises(cook.RecipeError) as e:
+                cook.run(rp, g, update_manifest=True)
+            self.assertIn("outside the mod's assets/cooked folder", str(e.exception))
+            self.assertEqual(sorted(str(f) for f in mod.rglob("*")), before)
+            self.assertFalse((mod / "assets" / "escaped.bin").exists())
+            # another manifest than the mod's assets/assets.json is refused
+            rp.write_text(json.dumps(dict(recipe, manifest="../elsewhere.json")))
+            with self.assertRaises(cook.RecipeError) as e:
+                cook.run(rp, g, update_manifest=True)
+            self.assertIn("assets/assets.json only", str(e.exception))
+            self.assertFalse((mod / "elsewhere.json").exists())
             # an "out" outside it is refused with what to change, and nothing is written
             for out in ("built", "../cooked/impact", "../assets", "../assets/cooked/../impact"):
                 rp.write_text(json.dumps(dict(recipe, out=out)))

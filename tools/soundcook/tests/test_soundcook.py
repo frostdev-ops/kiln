@@ -273,6 +273,13 @@ class RecipeTests(unittest.TestCase):
             with self.assertRaises(recipe.RecipeError):
                 recipe.needs_cook(path)
             self.assertEqual(sorted(str(f) for f in self.root.rglob("*")), before)
+        # a step's name that would lead out of the folder, and another manifest than the mod's: refused, nothing written
+        for extra, steps in (({}, [dict(BASIC_STEPS[0], name="../../../escaped")]), ({"manifest": "../elsewhere.json"}, BASIC_STEPS)):
+            path = _mod(self.root, steps, extra)
+            before = sorted(str(f) for f in self.root.rglob("*"))
+            with self.assertRaises(recipe.RecipeError):
+                recipe.run(path, None, NATIVE, log=lambda m: None, update_manifest=True)
+            self.assertEqual(sorted(str(f) for f in self.root.rglob("*")), before)
         self.assertEqual(recipe.out_dir(_mod(self.root, BASIC_STEPS, {"out": "cooked/snd"}, sources=False), {"out": "cooked/snd"}),
                          (self.root / "assets/cooked/snd").resolve())
 

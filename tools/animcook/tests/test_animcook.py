@@ -441,6 +441,16 @@ class RecipeRun(Base):
             with self.assertRaises(R.RecipeError):
                 R.needs_cook(self.r)
             self.assertEqual(sorted(str(f) for f in self.mod.parent.rglob("*")), before)
+        # a step's name that would lead out of the folder: refused before anything is written
+        rec = json.loads(json.dumps(self.RECIPE))
+        rec["steps"][0]["name"] = "../../escaped"
+        rec["steps"][1]["skeleton"] = rec["steps"][2]["skeleton"] = "../../escaped"
+        self.r.write_text(json.dumps(rec))
+        before = sorted(str(f) for f in self.mod.parent.rglob("*"))
+        with self.assertRaises(R.RecipeError) as e:
+            R.Run(self.r, TYPES).run(update_manifest=True)
+        self.assertIn("outside the mod's assets/cooked folder", str(e.exception))
+        self.assertEqual(sorted(str(f) for f in self.mod.parent.rglob("*")), before)
         self.r.write_text(json.dumps(dict(self.RECIPE, out="cooked/anim")))
         self.assertTrue(R.Run(self.r, TYPES).run(update_manifest=True)["ok"])
         self.assertTrue((self.mod / "cooked/anim/cook-report.json").exists())

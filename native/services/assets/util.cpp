@@ -77,7 +77,7 @@ std::vector<bool> client_only_entries(const std::vector<ManifestItem>& items) {
         const ManifestItem& e = items[i];
         if (e.kind == "resource") {
             out[i] = client_only_type(e.type);
-        } else if (e.kind == "blob" && !e.file.empty()) {
+        } else if (e.kind == "blob" && !e.file.empty() && !e.fixed_hash) {
             // a blob is client-only when a client-only resource patches it in and nothing a server serves does
             bool by_client = false, by_other = false;
             for (const ManifestItem& r : items) {

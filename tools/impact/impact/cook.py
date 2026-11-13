@@ -29,7 +29,7 @@ import hashlib
 import json
 from pathlib import Path
 
-from . import asm, catalog, lint as L, patch, program as P
+from . import asm, catalog, cookpaths as CP, lint as L, patch, program as P
 
 
 class RecipeError(Exception):
@@ -43,29 +43,13 @@ def sha256(b):
     return hashlib.sha256(b).hexdigest()
 
 
-def mod_dir(recipe_path):
-    """The folder of the mod a recipe belongs to: the nearest kiln.mod.json above it, or the recipe's parent's parent, as <mod>/assets/cook.json is."""
-    p = Path(recipe_path).resolve()
-    for d in p.parents:
-        if (d / "kiln.mod.json").exists():
-            return d
-    return p.parent.parent
-
-
 def out_dir(recipe_path, doc, default="../assets/cooked/impact"):
-    """Where a recipe's cook writes: its "out", relative to the recipe. It is the mod's assets/cooked folder or a folder in it, or the recipe is
-    refused (the same rule in every cook tool: tools/modelcook/cook/recipe.py). The cook asks this, not load."""
-    p = Path(recipe_path)
-    out = doc.get("out", default)
-    if not isinstance(out, str) or not out:
-        raise RecipeError(f"{p}: \"out\" is the folder the cook writes to, relative to this file (\"{default}\")")
-    where = (p.parent / out).resolve()
-    cooked = mod_dir(p).joinpath("assets", "cooked").resolve()
-    if where != cooked and cooked not in where.parents:
-        raise RecipeError(f"{p}: \"out\": \"{out}\" is {where}, outside the mod's assets/cooked folder ({cooked}). A cook writes only there: it is what a mod "
-                          f"never ships and what a server and a player's game each make for themselves. Use \"out\": \"cooked\" in assets/cook.json, "
-                          f"or \"../assets/cooked/<name>\" in a recipe of another folder.")
-    return where
+    """Where a recipe's cook writes: its "out", relative to the recipe. It is the mod's assets/cooked folder or a folder in it, by its spelling and
+    with no link on the way (cookpaths, the same rule in every cook tool), or the recipe is refused. The cook asks this, not load."""
+    try:
+        return CP.out_dir(recipe_path, doc.get("out", default), default)
+    except CP.Refused as e:
+        raise RecipeError(f"{recipe_path}: {e}") from e
 
 
 def load(path):
@@ -86,7 +70,10 @@ def load(path):
 def _paths(p, doc):
     base = p.parent
     out = out_dir(p, doc)  # refused unless it is in the mod's assets/cooked: needs_cook and run both come through here
-    man = (base / doc.get("manifest", "../assets/assets.json")).resolve()
+    try:
+        man = CP.manifest(p, doc.get("manifest", "../assets/assets.json"))  # the mod's assets/assets.json and no other file
+    except CP.Refused as e:
+        raise RecipeError(f"{p}: {e}") from e
     return base, out, man
 
 
@@ -182,6 +169,12 @@ def run(path, g, update_manifest=False):
             s["error"] = str(e)
         steps.append(s)
 
+    # every file is checked before the first one is written: a stem with ".." or a "/" in it, or a link, would lead out of assets/cooked
+    try:
+        for rel in files:
+            CP.cooked(p, out / rel, f"the output {rel}")
+    except CP.Refused as e:
+        raise RecipeError(f"{p}: {e}") from e
     out.mkdir(parents=True, exist_ok=True)
     for rel, b in files.items():
         (out / rel).write_bytes(b)

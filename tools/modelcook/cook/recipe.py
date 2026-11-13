@@ -73,7 +73,7 @@ from pathlib import Path
 
 from kfc.archive import ResourceKey
 
-from . import material as MB, steps as S, worn as W
+from . import cookpaths as CP, material as MB, steps as S, worn as W
 
 OPS = ("model", "visual", "worn")
 TOOL = "modelcook"
@@ -123,19 +123,21 @@ def looks_recipe(mod_dir, mod=None):
 
 
 def out_dir(path, doc, default="cooked"):
-    """Where a recipe's cook writes: its "out", relative to the recipe. It is the mod's assets/cooked folder or a folder in it, or the recipe is refused.
-    The cook asks this (run, needs_cook and the command), not load: load reads a recipe's shape wherever the file lies, as kiln lint does."""
-    p = Path(path)
-    out = doc.get("out", default)
-    if not isinstance(out, str) or not out:
-        raise RecipeError(f"{p}: \"out\" is the folder the cook writes to, relative to this file (\"{default}\")")
-    where = (p.parent / out).resolve()
-    cooked = _mod_dir(p).joinpath(*COOKED).resolve()
-    if where != cooked and cooked not in where.parents:
-        raise RecipeError(f"{p}: \"out\": \"{out}\" is {where}, outside the mod's assets/cooked folder ({cooked}). A cook writes only there: it is what a mod "
-                          f"never ships and what a server and a player's game each make for themselves. Use \"out\": \"cooked\" in assets/cook.json, "
-                          f"or \"../assets/cooked/<name>\" in a recipe of another folder.")
-    return where
+    """Where a recipe's cook writes: its "out", relative to the recipe. It is the mod's assets/cooked folder or a folder in it, by its spelling and
+    with no link on the way (cookpaths), or the recipe is refused. The cook asks this (run, needs_cook and the command), not load: load reads a
+    recipe's shape wherever the file lies, as kiln lint does."""
+    try:
+        return CP.out_dir(path, doc.get("out", default), default)
+    except CP.Refused as e:
+        raise RecipeError(f"{path}: {e}") from e
+
+
+def _checked(path, check, *a):
+    """A cookpaths check as a RecipeError."""
+    try:
+        return check(path, *a)
+    except CP.Refused as e:
+        raise RecipeError(f"{path}: {e}") from e
 
 
 def _recipe_bytes(path, given=None):
@@ -244,7 +246,7 @@ def needs_cook(path, given=None):
     r = json.loads(rep.read_text())
     if r.get("recipe_sha256") != S.sha256(_recipe_bytes(p, given)) or not r.get("ok"):
         return True
-    if (r.get("game") or {}).get("side") == "server" and "marked" not in (r.get("manifest") or {}):
+    if _legacy_server_report(r):
         # a server's cook of 0.2.0-dev.26: it marked the models' entries in assets.json, which made the server's copy another mod than the
         # players'. This cook takes the marks out
         return True
@@ -348,6 +350,13 @@ def sources_of(doc, path=None):
     return sorted(out)
 
 
+def _legacy_server_report(r):
+    """Whether a cook report is the evidence that a cook marked the manifest: the report of a server's cook of 0.2.0-dev.26 (a server's report
+    without the "marked" list this version writes), or a later report that found those marks and could not take them out (no update_manifest)."""
+    man = (r or {}).get("manifest") or {}
+    return ((r or {}).get("game") or {}).get("side") == "server" and ("marked" not in man or man.get("legacyMarks") is True)
+
+
 def _is_marked(have, cooked):
     """Whether a manifest entry is a cooked model entry with nothing but "side": "client" added."""
     return (cooked is not None and have.get("side") == "client" and "side" not in cooked
@@ -426,6 +435,8 @@ def run(path, k, t, exe_sha256=None, update_manifest=False, given=None):
             if server and op in CLIENT_ONLY_OPS:
                 # no model is made here, and its entries in assets.json are still the ones a client's cook writes: the manifest is one file for both sides
                 stem = _stem_of(st)
+                for ext in ("bin", "blob"):  # the names its entries carry: checked like the files a client's cook writes
+                    _checked(p, CP.cooked, base_dir / f"{out}/{stem}.{ext}", f"the output {out}/{stem}.{ext} of step {i}")
                 guid, mode = S.model_identity(_model_guid(doc, st, inputs, p), inputs[base_id]["guid"] if base_id else None, st.get("mode"))
                 entries.extend(S.model_entries(guid, mode, f"{out}/{stem}.bin", f"{out}/{stem}.blob"))
                 reports.append({"op": op, "step": i, "name": st.get("name") or stem, "guid": guid,
@@ -444,6 +455,16 @@ def run(path, k, t, exe_sha256=None, update_manifest=False, given=None):
         entries.extend(e)
         reports.append(r)
 
+    # Every file this cook writes is checked before the first one is written: a step's stem or name with ".." or a "/" in it, or a link in
+    # the mod's folders, would lead out of assets/cooked. The blocks made from a glTF go to blocks/<stem>.materials.json and nowhere else.
+    for rel in files:
+        _checked(p, CP.cooked, base_dir / rel, f"the output {rel}")
+    for rel in mod_files:
+        if Path(rel).parts[:1] == (CP.BLOCKS,):
+            _checked(p, CP.blocks_file, mod_dir / rel)
+        else:
+            _checked(p, CP.cooked, mod_dir / rel, f"the output {rel}")
+    _checked(p, CP.manifest, base_dir / "assets.json")
     (base_dir / out).mkdir(parents=True, exist_ok=True)
     for rel, data in files.items():
         (base_dir / rel).write_bytes(data)
@@ -459,15 +480,23 @@ def run(path, k, t, exe_sha256=None, update_manifest=False, given=None):
     man = json.loads(mp.read_text()) if mp.exists() else {"format": 1, "entries": []}
     have = {(e.get("kind"), e.get("file")): e for e in man.get("entries", [])}
     want = {(e["kind"], e["file"]): e for e in entries}
-    # "side": "client" on a model's entry, the entry otherwise as cooked: the mark a server's cook of 0.2.0-dev.26 wrote into its copy of the file
+    # "side": "client" on a model's entry, the entry otherwise as cooked. A server's cook of 0.2.0-dev.26 wrote that mark into its copy of the
+    # file; a mod's author may have written it too. It is taken out only with evidence that a cook wrote it: that cook's report in this folder
+    # (read here, before this run's report replaces it). Without it the mark stays and the entry counts as matching: the file is the mod's.
     marked = [x for x in man.get("entries", []) if _is_marked(x, want.get((x.get("kind"), x.get("file"))))]
+    try:
+        legacy = bool(marked) and _legacy_server_report(json.loads((base_dir / out / report_name(doc)).read_text()))
+    except (OSError, ValueError):
+        legacy = False
     missing = [e for e in entries if (e["kind"], e["file"]) not in have]
     mismatched = [e for e in entries if (e["kind"], e["file"]) in have and have[(e["kind"], e["file"])] != e and not _is_marked(have[(e["kind"], e["file"])], e)]
     unmarked = []
-    if update_manifest and (missing or mismatched or marked):
-        for x in marked:
-            del x["side"]  # in place and nothing else: a file the cook wrote before the mark is the shipped one again, byte for byte
-        unmarked, marked = [x["file"] for x in marked], []
+    heal = legacy and update_manifest
+    if update_manifest and (missing or mismatched or heal):
+        if heal:
+            for x in marked:
+                del x["side"]  # in place and nothing else: a file the cook wrote before the mark is the shipped one again, byte for byte
+            unmarked, marked = [x["file"] for x in marked], []
         if missing or mismatched:
             keep = [x for x in man.get("entries", []) if (x.get("kind"), x.get("file")) not in want]
             man["entries"] = keep + entries
@@ -481,7 +510,8 @@ def run(path, k, t, exe_sha256=None, update_manifest=False, given=None):
         "inputs": in_report,
         "sources": {src: S.sha256((base_dir / src).read_bytes()) for src in sources_of(doc, p) if not _made_here(base_dir / src, mod_dir, mod_files)},
         "outputs": [{"file": rel, "size": len(d), "sha256": S.sha256(d)} for rel, d in files.items()],
-        "manifest": dict({"missing": missing, "mismatched": mismatched, "marked": [x["file"] for x in marked]}, **({"unmarked": unmarked} if unmarked else {})),
+        "manifest": dict({"missing": missing, "mismatched": mismatched, "marked": [x["file"] for x in marked]}, **({"unmarked": unmarked} if unmarked else {}),
+                         **({"legacyMarks": True} if legacy and marked else {})),
         "steps": reports,
     }
     (base_dir / out / report_name(doc)).write_text(json.dumps(report, indent=2) + "\n")

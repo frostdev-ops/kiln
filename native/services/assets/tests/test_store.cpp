@@ -290,6 +290,15 @@ int main() {
     check(client_only_entries(entries) == std::vector<bool>{true, true, false, false, false, true, false, false, false, false, true},
           "a model and the blob only it patches in; a template, a clip, a shared blob and a blob of its own are loaded");
     check(client_only_entries({}).empty(), "an empty manifest");
+    // a blob that overrides the game's content of a fixed hash: a server mod may read that hash, so the server keeps the override even
+    // when a model patches the same file in (only "side": "client" in the manifest keeps it from a server)
+    const std::vector<ManifestItem> fixed = {
+        {"blob", "cooked/shared.blob", 0, {}, true},
+        {"resource", "cooked/blade.bin", model, {"cooked/shared.blob"}, false},
+        {"blob", "cooked/own.blob", 0, {}, false},
+        {"resource", "cooked/other.bin", model, {"cooked/own.blob"}, false},
+    };
+    check(client_only_entries(fixed) == std::vector<bool>{false, true, true, true}, "a blob with a fixed hash is kept for the server, the model and a blob only it uses are not");
 
     std::printf("%d passed, %d failed\n", g_pass, g_fail);
     return g_fail ? 1 : 0;

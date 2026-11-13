@@ -83,8 +83,11 @@ struct ManifestItem {  // one entry, as far as the rule looks at it
     std::string kind, file;
     uint32_t type = 0;                     // of a resource
     std::vector<std::string> patch_blobs;  // the blobs a resource names in "patch"
+    bool fixed_hash = false;               // a blob with "hash": it overrides the game's content of that hash, whoever reads it
 };
 // For each entry: a resource of a client-only type, or a blob that only such resources patch in (a model's render data).
+// A blob with a fixed "hash" is never one: it replaces game content a server mod may read by that hash, whatever else
+// names the file. Only "side": "client" in the manifest keeps such a blob from a server.
 std::vector<bool> client_only_entries(const std::vector<ManifestItem>& items);
 
 // ------------------------------------------------------------------------------------------- engine ----------

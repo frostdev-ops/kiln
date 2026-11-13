@@ -189,20 +189,97 @@ class ServerCook(unittest.TestCase):
         self.assertEqual(dirhash.mod_identity(mod), dirhash.mod_identity(self.mod_client))
         self.assertFalse(R.needs_cook(r))
 
-    def test_the_marks_are_taken_out_in_place_and_on_a_client_too(self):
-        """A marked manifest in the author's own order (the mark is all the old cook changed): the order stays. A player who got the
-        server's marked file (a modpack built by 0.2.0-dev.26) has the shipped one again after a cook."""
+    def _legacy_report(self, r):
+        """The report a server's cook of 0.2.0-dev.26 left: this cook's, without the lists this version adds."""
+        R.run(r, self.server, self.t, update_manifest=True)
+        rp = r.parent / "cooked" / "cook-report.json"
+        old = json.loads(rp.read_text())
+        old["manifest"] = {"missing": [], "mismatched": []}
+        rp.write_text(json.dumps(old, indent=2) + "\n")
+
+    def test_the_marks_are_taken_out_in_place(self):
+        """A marked manifest in the author's own order (the mark is all the old cook changed), with that cook's report: the marks go, the
+        order stays."""
         man = json.loads((self.mod_client / "assets" / "assets.json").read_text())
         man["entries"] = list(reversed(man["entries"]))
         shipped = json.dumps(man, indent=2) + "\n"
-        for name, game in (("mod-marked-server", self.server), ("mod-marked-client", self.client)):
+        r = self._server_mod("mod-marked-server")
+        mp = r.parent / "assets.json"
+        mp.write_text(shipped)
+        self._legacy_report(r)
+        mp.write_text(marked_by_dev26(shipped))
+        rep = R.run(r, self.server, self.t, update_manifest=True)
+        self.assertTrue(rep["ok"])
+        self.assertEqual(set(rep["manifest"]["unmarked"]), SKIPPED_FILES)
+        self.assertNotIn("legacyMarks", rep["manifest"])
+        self.assertEqual(mp.read_text(), shipped)
+
+    def test_a_mark_the_mods_author_wrote_stays(self):
+        """Model entries marked "side": "client" and no report of a 0.2.0-dev.26 server cook: nothing says a cook wrote the mark, so it is
+        the mod's. The file is not written, on a server or a client, and the cook is not due again because of it."""
+        authored = marked_by_dev26((self.mod_client / "assets" / "assets.json").read_text())
+        for name, game in (("mod-authored-server", self.server), ("mod-authored-client", self.client)):
             r = self._server_mod(name)
             mp = r.parent / "assets.json"
-            mp.write_text(marked_by_dev26(shipped))
-            rep = R.run(r, game, self.t, update_manifest=True)
-            self.assertTrue(rep["ok"], name)
-            self.assertEqual(set(rep["manifest"]["unmarked"]), SKIPPED_FILES, name)
-            self.assertEqual(mp.read_text(), shipped, name)
+            mp.write_text(authored)
+            stamp = mp.stat().st_mtime_ns
+            for _ in range(2):  # the second cook has the first one's report: still no evidence
+                rep = R.run(r, game, self.t, update_manifest=True)
+                self.assertTrue(rep["ok"], name)
+                self.assertEqual(set(rep["manifest"]["marked"]), SKIPPED_FILES, name)
+                self.assertNotIn("unmarked", rep["manifest"])
+                self.assertNotIn("legacyMarks", rep["manifest"])
+                self.assertEqual((mp.read_text(), mp.stat().st_mtime_ns), (authored, stamp), name)
+                self.assertFalse(R.needs_cook(r), name)
+        # a client's report is no evidence either, even without the lists this version writes
+        r = self._server_mod("mod-authored-old-client")
+        mp = r.parent / "assets.json"
+        R.run(r, self.client, self.t, update_manifest=True)
+        rp = r.parent / "cooked" / "cook-report.json"
+        old = json.loads(rp.read_text())
+        old["manifest"] = {"missing": [], "mismatched": []}
+        rp.write_text(json.dumps(old, indent=2) + "\n")
+        mp.write_text(authored)
+        self.assertEqual(R.run(r, self.client, self.t, update_manifest=True)["manifest"]["marked"], sorted(SKIPPED_FILES, key=[e["file"] for e in json.loads(authored)["entries"]].index))
+        self.assertEqual(mp.read_text(), authored)
+
+    def test_the_evidence_survives_a_cook_that_may_not_write_the_manifest(self):
+        """An old server report, then a cook without update_manifest (it writes a new report): the next cook still knows the marks are a cook's."""
+        shipped = (self.mod_client / "assets" / "assets.json").read_text()
+        r = self._server_mod("mod-marked-twice")
+        mp = r.parent / "assets.json"
+        self._legacy_report(r)
+        mp.write_text(marked_by_dev26(shipped))
+        rep = R.run(r, self.server, self.t)
+        self.assertEqual((set(rep["manifest"]["marked"]), rep["manifest"].get("legacyMarks")), (SKIPPED_FILES, True))
+        self.assertTrue(R.needs_cook(r))
+        rep = R.run(r, self.server, self.t, update_manifest=True)
+        self.assertEqual(set(rep["manifest"]["unmarked"]), SKIPPED_FILES)
+        self.assertEqual(mp.read_text(), shipped)
+        self.assertFalse(R.needs_cook(r))
+
+    def test_a_stem_cannot_lead_out_of_cooked(self):
+        """A step's stem with ".." in it would put its files (and the blocks made from its glTF) elsewhere in the mod, where they count as the
+        mod: refused before anything is written, on both sides (a server names the files in the manifest without writing them)."""
+        for stem in ("../../escaped", "../escaped", "sub/../../escaped"):
+            for side, game in (("server", self.server), ("client", self.client)):
+                rec = json.loads(json.dumps(self.recipe))
+                rec["steps"][1]["stem"] = stem
+                r = F.write_mod(self.root / f"mod-escape-{side}", rec)
+                mod = r.parent.parent
+                before = sorted(str(f) for f in mod.rglob("*"))
+                with self.assertRaises(R.RecipeError, msg=f"{stem} {side}") as e:
+                    R.run(r, game, self.t, update_manifest=True)
+                self.assertIn("outside the mod's assets/cooked folder", str(e.exception))
+                self.assertIn("plain name or stem", str(e.exception))
+                self.assertEqual(sorted(str(f) for f in mod.rglob("*")), before, f"{stem} {side}: nothing written")
+        # the blocks file of a "materials": "gltf" step is named after the stem too
+        rec = json.loads(json.dumps(self.recipe))
+        rec["steps"][-1]["stem"] = "../c"
+        r = F.write_mod(self.root / "mod-escape-blocks", rec)
+        with self.assertRaises(R.RecipeError):
+            R.run(r, self.client, self.t, update_manifest=True)
+        self.assertFalse((r.parent.parent / "c.materials.json").exists())
 
     def test_a_mark_on_an_entry_that_differs_otherwise_is_a_mismatch(self):
         r = self._server_mod("mod-server-mismatch")
@@ -277,6 +354,58 @@ class OutFolder(unittest.TestCase):
                     if out:
                         self.assertIn("outside the mod's assets/cooked folder", str(e.exception), out)
                         self.assertIn('"out": "cooked"', str(e.exception))
+
+    def test_the_four_tools_share_one_check(self):
+        tools = HERE.parents[1]
+        texts = {d: (tools / d / "cookpaths.py").read_text() for d in ("modelcook/cook", "animcook/anicook", "soundcook/sndcook", "impact/impact")}
+        self.assertEqual(len(set(texts.values())), 1, "cookpaths.py differs between the cook tools: " + ", ".join(texts))
+
+    def test_spelling_and_links(self):
+        from cook import cookpaths as CP
+        with tempfile.TemporaryDirectory() as d:
+            r = self._recipe(d, None)
+            mod = r.parent.parent
+            ok = CP.cooked(r, "cooked/a.bin", "x")
+            self.assertEqual(ok, mod / "assets/cooked/a.bin")
+            for target in ("cooked/../x.bin", "cooked/sub/../../x.bin", "../x.bin", "Cooked/a.bin", "cooked", "../../outside/assets/cooked/a.bin", str(Path(d) / "x.bin")):
+                if target == "cooked":
+                    CP.cooked(r, target, "x")  # the folder itself
+                    continue
+                with self.assertRaises(CP.Refused, msg=target):
+                    CP.cooked(r, target, "x")
+            # where the folder is there under another spelling, the refusal says so
+            (mod / "assets" / "Cooked").mkdir()
+            with self.assertRaises(CP.Refused) as e:
+                CP.cooked(r, "Cooked/a.bin", "x")
+            self.assertIn("it has to be assets/cooked, in lower case", str(e.exception))
+            # a link named assets/cooked, a link inside it, a link in place of an output: all refused, nothing is written through one
+            outside = Path(d) / "outside"
+            outside.mkdir()
+            (mod / "assets" / "cooked").symlink_to(outside, target_is_directory=True)
+            with self.assertRaises(CP.Refused) as e:
+                CP.out_dir(r, "cooked", "cooked")
+            self.assertIn("is a link", str(e.exception))
+            (mod / "assets" / "cooked").unlink()
+            (mod / "assets" / "cooked").mkdir()
+            (mod / "assets" / "cooked" / "sub").symlink_to(outside, target_is_directory=True)
+            with self.assertRaises(CP.Refused):
+                CP.cooked(r, "cooked/sub/a.bin", "x")
+            (mod / "assets" / "cooked" / "a.bin").symlink_to(outside / "a.bin")
+            with self.assertRaises(CP.Refused):
+                CP.cooked(r, "cooked/a.bin", "x")
+            self.assertEqual(list(outside.iterdir()), [])
+            # the manifest and the blocks file: their exact place only
+            self.assertEqual(CP.manifest(r, "assets.json"), mod / "assets/assets.json")
+            self.assertEqual(CP.blocks_file(r, mod / "blocks/a.materials.json"), mod / "blocks/a.materials.json")
+            for bad in ("../assets.json", "cooked/assets.json", "other.json"):
+                with self.assertRaises(CP.Refused, msg=bad):
+                    CP.manifest(r, bad)
+            for bad in ("blocks/../a.materials.json", "blocks/sub/a.materials.json", "blocks/a.json", "a.materials.json"):
+                with self.assertRaises(CP.Refused, msg=bad):
+                    CP.blocks_file(r, mod / bad)
+            # a mod reached through a link above its folder is fine: that link is the player's
+            (Path(d) / "via").symlink_to(mod, target_is_directory=True)
+            self.assertEqual(CP.cooked(Path(d) / "via" / "assets" / "cook.json", "cooked/b.bin", "x"), Path(d) / "via/assets/cooked/b.bin")
 
     def test_the_command_refuses_and_writes_nothing(self):
         import subprocess

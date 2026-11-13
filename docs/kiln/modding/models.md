@@ -137,7 +137,11 @@ files, and outside one folder nothing differs.
   server's files; neither makes it another mod.
 - **`"out"` is `assets/cooked` or a folder in it.** `"cooked"` in `assets/cook.json`, `"../assets/cooked/impact"` in
   `impact/cook.json`. Every cook tool refuses another place and says what to change:
-  `"out": "built" is …, outside the mod's assets/cooked folder (…). A cook writes only there …`.
+  `"out": "built" is …, outside the mod's assets/cooked folder (…). A cook writes only there …`. The same check
+  (`cookpaths.py`, one text in the four tools) is made for every file before the first one is written: a step's `stem` or
+  `name` with `..` or a `/` in it is refused, the two folders have to be spelled `assets/cooked` in lower case (on
+  Windows `Cooked` would be another folder to the mod's hash), and no folder or file on the way may be a link. The
+  manifest a cook writes is the mod's `assets/assets.json` and no other file.
 - **Outside it a cook writes only what follows from your own files**, the same bytes on every machine, and only when they
   differ from what is there:
   - the entries of the cooked files in `assets/assets.json` (`--update-manifest`, which `kiln cook` passes). They name
