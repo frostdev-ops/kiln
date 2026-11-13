@@ -1023,6 +1023,9 @@ fn copy_mod_tree_inner(from: &Path, to: &Path, skip: Option<&Path>, skipped: &mu
     Ok(size)
 }
 
+/// The name part of a Library folder moved aside to be removed ([`Guard::remove_checked`]).
+const REMOVING: &str = ".removing-";
+
 fn record_path(folder: &Path) -> PathBuf {
     crate::util::with_suffix(folder, ".json")
 }
@@ -1202,6 +1205,18 @@ pub fn migrate_identities_with(dirs: &DataDirs, find: &mut dyn FnMut(&Path, &str
             moved.push(entry);
         }
     }
+    // what a removal moved aside and could not delete all the way (a file in it was open then)
+    for kind in ModKind::ALL {
+        for idd in std::fs::read_dir(kind_dir(dirs, kind)).into_iter().flatten().flatten() {
+            for e in std::fs::read_dir(idd.path()).into_iter().flatten().flatten() {
+                let name = e.file_name().to_string_lossy().into_owned();
+                let aside = name.rsplit_once(REMOVING).is_some_and(|(_, tag)| tag.len() == 8 && tag.bytes().all(|b| b.is_ascii_hexdigit()));
+                if aside && e.path().is_dir() && !record_path(&e.path()).exists() {
+                    let _ = std::fs::remove_dir_all(e.path());
+                }
+            }
+        }
+    }
     // the entries a take-over left behind because something still read them then: gone once nothing does, and only
     // while their files are still exactly what was taken over (a copy of them is the new entry)
     for kind in ModKind::ALL {
@@ -1223,9 +1238,11 @@ pub fn migrate_identities_with(dirs: &DataDirs, find: &mut dyn FnMut(&Path, &str
 /// before anything points at the new entry ([`moved_to`]); (3) every profile that lists the old entry lists the new
 /// one; (4) the old entry goes unless something still reads it (a running game, a game's profile file naming its path)
 /// or, for a take-over, its files changed again since they were copied: then they stay, and the answer says so.
-/// -> None: left for a later run (busy); Some(true): the old folder was kept because it changed again.
+/// A take-over also carries every file of the old folder the new entry lacks into it before the old folder goes (files
+/// its hash does not count: a plugin's other files, dot files), never overwriting one, and stops when both hold a file of
+/// one name with other contents ([`carry_files`]). -> None: left for a later run (busy); Some(what was left behind).
 fn move_entry(dirs: &DataDirs, folder: &Path, rec: &ImportRecord, mut to_rec: ImportRecord, migrated: Option<MigratedEntry>,
-              find: &mut dyn FnMut(&Path, &str) -> Result<Option<crate::proc::ProcessInfo>>) -> Result<Option<bool>> {
+              find: &mut dyn FnMut(&Path, &str) -> Result<Option<crate::proc::ProcessInfo>>) -> Result<Option<Left>> {
     let kind = rec.kind;
     let old = LibraryRef { kind, id: rec.id.clone(), version: rec.version.clone(), hash: rec.hash.clone() };
     let new = LibraryRef { kind, id: to_rec.id.clone(), version: to_rec.version.clone(), hash: to_rec.hash.clone() };
@@ -1234,9 +1251,24 @@ fn move_entry(dirs: &DataDirs, folder: &Path, rec: &ImportRecord, mut to_rec: Im
         return Err(Error::new(ErrorCode::Conflict, format!("{}: the changed files would replace their own folder", folder.display())));
     }
     // 1. the entry at the new hash (the same mod imported again may be there already): used only when its record and its
-    // files are that hash
-    let there = to.is_dir() && crate::util::read_json::<ImportRecord>(&record_path(&to)).ok().flatten().is_some_and(|r| r.hash == new.hash)
-        && recorded_hash(&to, &to_rec).ok().as_deref() == Some(new.hash.as_str());
+    // files are that hash, checked by its own record (a plugin's DLL may have another name there)
+    let dest_rec = crate::util::read_json::<ImportRecord>(&record_path(&to)).ok().flatten();
+    let mut there = to.is_dir() && dest_rec.as_ref().is_some_and(|r| r.hash == new.hash && recorded_hash(&to, r).ok().as_deref() == Some(new.hash.as_str()));
+    if !there && migrated.is_none() && to.is_dir() && dest_rec.is_none() {
+        // a folder without its record: a take-over stopped after its copy was put in place. When its files are the ones
+        // being taken over (the same check), it is finished; else it is not Kiln's entry, and nothing of it is touched
+        if recorded_hash(&to, &to_rec).ok().as_deref() != Some(new.hash.as_str()) {
+            return Err(Error::new(ErrorCode::Conflict, format!(
+                "A folder with no import record is where the changed files would go ({}), and its files are not these: it is not an entry of Kiln's Library. Move it out of the Library (or delete it), then try again.",
+                to.display())));
+        }
+        to_rec.size = crate::hash::dir_records(&to)?.iter().map(|r| r.size).sum();
+        crate::util::write_json_atomic(&record_path(&to), &to_rec)?;
+        there = true;
+    }
+    if there && migrated.is_none() && let Some(rel) = carry_files(folder, &to, rec, dest_rec.as_ref().unwrap_or(&to_rec), false)? {
+        return Err(clash(&rel, folder, &to));
+    }
     if !there {
         if migrated.is_none() && std::fs::symlink_metadata(&to).is_ok() {
             // another entry is where the changed files would go, and its own files are not those: they may be the
@@ -1299,20 +1331,104 @@ fn move_entry(dirs: &DataDirs, folder: &Path, rec: &ImportRecord, mut to_rec: Im
     // 4. the old entry, unless something still reads it (a running game, a game's profile file naming its path)
     if migrated.is_some() {
         let _ = remove_with(dirs, &old, false, &mut *find);
-        return Ok(Some(false));
+        return Ok(Some(Left::Nothing));
     }
     // a take-over removes the player's folder only while it still holds exactly what was taken: looked at again after
     // the running check, right before it goes (an editor may have saved once more meanwhile)
     let guard = Guard::read(dirs, &mut *find)?;
     if recorded_hash(folder, &to_rec).ok().as_deref() != Some(new.hash.as_str()) {
-        return Ok(Some(true));
+        return Ok(Some(Left::ChangedAgain));
     }
-    let gone = guard.refuse_while_running(dirs, &old).and_then(|()| guard.remove_checked(dirs, &old, folder, &Force::No));
-    if gone.is_err() {
-        // something still reads it: it stays until nothing does (migrate_identities), hidden while it is this copy
-        crate::util::write_atomic(&taken_over_path(folder), new.hash.as_bytes())?;
+    // and only once every file of it is in the new entry with the same bytes
+    let dest_rec = crate::util::read_json::<ImportRecord>(&record_path(&to)).ok().flatten().unwrap_or(to_rec);
+    if let Some(rel) = carry_files(folder, &to, rec, &dest_rec, true)? {
+        return Ok(Some(Left::Clash(clash(&rel, folder, &to).message)));
     }
-    Ok(Some(false))
+    match guard.refuse_while_running(dirs, &old).and_then(|()| guard.remove_checked(dirs, &old, folder, &Force::No)) {
+        Ok(None) => Ok(Some(Left::Nothing)),
+        Ok(Some(rest)) => Ok(Some(Left::Rest(rest))),
+        // something still reads it (a game's profile file names it): it stays until nothing does (migrate_identities),
+        // hidden while it is this copy
+        Err(e) if matches!(e.code, ErrorCode::Conflict | ErrorCode::GameRunning) => {
+            let _ = crate::util::write_atomic(&taken_over_path(folder), new.hash.as_bytes());
+            Ok(Some(Left::Nothing))
+        }
+        // it could not be moved aside (a file in it is open): it keeps its record and stays a Library entry, so a
+        // later take-over finishes
+        Err(e) => {
+            let _ = crate::util::write_atomic(&taken_over_path(folder), new.hash.as_bytes());
+            Ok(Some(Left::Stays(e.message)))
+        }
+    }
+}
+
+/// What a take-over left of the old folder.
+enum Left {
+    Nothing,
+    /// It changed again while it was taken over: kept as it is.
+    ChangedAgain,
+    /// A file of it is in the new entry with other contents: kept (the message says which).
+    Clash(String),
+    /// It could not be moved aside (the reason): still the entry it was.
+    Stays(String),
+    /// Its record went, and this much of it could not be deleted (moved aside under this name).
+    Rest(PathBuf),
+}
+
+/// The refusal for a file both folders hold with other contents.
+fn clash(rel: &str, from: &Path, to: &Path) -> Error {
+    Error::new(ErrorCode::Conflict, format!(
+        "{rel} is in {} and in {} with different contents: Kiln keeps both and deletes nothing. Make the two files the same (or remove the one you do not want), then try again.",
+        from.display(), to.display()))
+}
+
+/// Copies into `to` (an entry recorded as `to_rec`) every file of `from` (recorded as `from_rec`) that `to` lacks, never
+/// overwriting one; with `write` false it only looks. A Kiln mod's cook outputs are left out (made on each PC by its
+/// cook, as an import leaves them out), and so is a plugin's own DLL when the new entry has the same bytes under its own
+/// name. -> the first file (relative path) both hold with other contents: nothing more is copied then.
+fn carry_files(from: &Path, to: &Path, from_rec: &ImportRecord, to_rec: &ImportRecord, write: bool) -> Result<Option<String>> {
+    fn walk(dir: &Path, prefix: &str, out: &mut Vec<String>) -> Result<()> {
+        for e in std::fs::read_dir(dir).map_err(io(dir, "reading"))? {
+            let e = e?;
+            let name = e.file_name().to_string_lossy().into_owned();
+            let rel = if prefix.is_empty() { name } else { format!("{prefix}/{name}") };
+            let meta = std::fs::symlink_metadata(e.path())?;
+            if crate::quick::import_is_link(&meta) {
+                return Err(Error::new(ErrorCode::Refused, format!("{}: links are not allowed in a mod folder", e.path().display())));
+            } else if meta.is_dir() {
+                walk(&e.path(), &rel, out)?;
+            } else if meta.is_file() {
+                out.push(rel);
+            }
+        }
+        Ok(())
+    }
+    let mut files = Vec::new();
+    walk(from, "", &mut files)?;
+    let cooked = (from_rec.kind == ModKind::Kiln).then(|| format!("{}/", crate::hash::COOKED));
+    let same_dll = match (from_rec.file.as_deref(), to_rec.file.as_deref()) {
+        (Some(a), Some(b)) if a != b => crate::hash::sha256_file(&from.join(a)).ok().map(|x| x.0) == crate::hash::sha256_file(&to.join(b)).ok().map(|x| x.0),
+        _ => false,
+    };
+    for rel in files {
+        if cooked.as_deref().is_some_and(|c| rel.replace('\\', "/").to_ascii_lowercase().starts_with(c)) { continue; }
+        if same_dll && from_rec.file.as_deref() == Some(rel.as_str()) { continue; }
+        let (src, dst) = (from.join(&rel), to.join(&rel));
+        if std::fs::symlink_metadata(&dst).is_ok() {
+            if !dst.is_file() || crate::hash::sha256_file(&src)?.0 != crate::hash::sha256_file(&dst)?.0 {
+                return Ok(Some(rel));
+            }
+            continue;
+        }
+        if write {
+            if let Some(p) = dst.parent() { std::fs::create_dir_all(p).map_err(io(p, "creating"))?; }
+            std::fs::copy(&src, &dst).map_err(io(&dst, "copying to"))?;
+            if crate::hash::sha256_file(&dst)?.0 != crate::hash::sha256_file(&src)?.0 {
+                return Err(Error::new(ErrorCode::HashMismatch, format!("{}: changed while it was copied", src.display())));
+            }
+        }
+    }
+    Ok(None)
 }
 
 /// The record of the changed files in `folder`, the entry `rec` names, read from its manifest again (`hash`: their
@@ -1458,11 +1574,19 @@ pub fn take_over_with(dirs: &DataDirs, r: &LibraryRef, find: &mut dyn FnMut(&Pat
     let to_rec = record_of_changed(&folder, &rec, hash)?;
     let to = LibraryRef { kind: r.kind, id: to_rec.id.clone(), version: to_rec.version.clone(), hash: to_rec.hash.clone() };
     let name = shown(&to_rec);
-    let Some(kept) = move_entry(dirs, &folder, &rec, to_rec, None, &mut *find)? else {
+    let Some(left) = move_entry(dirs, &folder, &rec, to_rec, None, &mut *find)? else {
         return Err(Error::new(ErrorCode::Busy, format!("{name}: its new Library entry is in use right now (a game, a server or a cook reads it). Try again when it is done.")));
     };
-    let note = kept.then(|| format!("{name}'s folder changed again while Kiln took it over: the newer files stay in {}, and it reads as changed again. Use the changed files once more to take those too.",
-        folder.display()));
+    let note = match left {
+        Left::Nothing => None,
+        Left::ChangedAgain => Some(format!("{name}'s folder changed again while Kiln took it over: the newer files stay in {}, and it reads as changed again. Use the changed files once more to take those too.",
+            folder.display())),
+        Left::Clash(why) => Some(format!("{name} uses the changed files now, but its old folder was kept: {why}")),
+        Left::Stays(why) => Some(format!("{name} uses the changed files now, but its old folder could not be removed ({why}): it stays in {}, and Kiln removes it the next time it loads a profile into a game once nothing holds it open.",
+            folder.display())),
+        Left::Rest(rest) => Some(format!("{name} uses the changed files now. Kiln could not delete all of its old folder: what is left is in {}, and Kiln removes it the next time it loads a profile into a game (or delete it yourself).",
+            rest.display())),
+    };
     Ok(TakenOver { from: r.clone(), to, name, note })
 }
 
@@ -2088,7 +2212,10 @@ impl Guard {
 
     /// Removes one version once the running check passed: refused (Conflict) while something lists it that `force`
     /// does not go past.
-    fn remove_checked(&self, dirs: &DataDirs, r: &LibraryRef, folder: &Path, force: &Force) -> Result<()> {
+    /// The folder is moved aside first (a file in it that is open stops that, and nothing is changed then), its record
+    /// goes next, and the moved folder last: a folder that cannot be deleted all the way is never an entry without its
+    /// record. -> the moved folder when part of it is left (`*.removing-*`, removed by [`migrate_identities`]).
+    fn remove_checked(&self, dirs: &DataDirs, r: &LibraryRef, folder: &Path, force: &Force) -> Result<Option<PathBuf>> {
         let used = self.usage.users(dirs, r);
         let past = match force {
             Force::No => used.is_empty(),
@@ -2098,13 +2225,18 @@ impl Guard {
         if !past {
             return Err(Error::new(ErrorCode::Conflict, format!("{} {} is used by profile(s) {}", r.id, r.version, used.join(", "))).with_detail(used));
         }
-        std::fs::remove_file(record_path(folder)).map_err(io(folder, "removing the record of"))?;
-        std::fs::remove_dir_all(folder).map_err(io(folder, "removing"))?;
+        let aside = crate::util::with_suffix(folder, &format!("{REMOVING}{}", crate::hash::hex(&crate::util::random_bytes::<4>()?)));
+        std::fs::rename(folder, &aside).map_err(io(folder, "moving aside to remove"))?;
+        if let Err(e) = std::fs::remove_file(record_path(folder)) {
+            let _ = std::fs::rename(&aside, folder);
+            return Err(io(folder, "removing the record of")(e));
+        }
         let _ = std::fs::remove_file(taken_over_path(folder));
+        let rest = std::fs::remove_dir_all(&aside).err().map(|_| aside);
         if let Some(parent) = folder.parent() {
             let _ = std::fs::remove_dir(parent);
         }
-        Ok(())
+        Ok(rest)
     }
 }
 
@@ -2142,7 +2274,7 @@ pub fn remove_with(
     let folder = Guard::folder(dirs, r)?;
     let guard = Guard::read(dirs, find)?;
     guard.refuse_while_running(dirs, r)?;
-    guard.remove_checked(dirs, r, &folder, &force.into())
+    guard.remove_checked(dirs, r, &folder, &force.into()).map(|_| ())
 }
 
 /// What [`remove_many`] did: the versions removed, and each one that was not with the reason (`Conflict` while
@@ -2184,7 +2316,7 @@ pub fn remove_many_with(
     let mut report = RemoveReport::default();
     let force = Force::from(force);
     for r in refs {
-        match Guard::folder(dirs, r).and_then(|folder| guard.remove_checked(dirs, r, &folder, &force)) {
+        match Guard::folder(dirs, r).and_then(|folder| guard.remove_checked(dirs, r, &folder, &force).map(|_| ())) {
             Ok(()) => report.removed.push(r.clone()),
             Err(error) => report.failed.push(RemoveFailure { entry: r.clone(), error }),
         }
