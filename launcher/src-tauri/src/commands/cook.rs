@@ -31,7 +31,7 @@ pub async fn cook_plan(game_id: String) -> Result<Vec<CookJob>, Error> {
 /// is written again first when it changed since its activation (`activation` in the result), so Play cooks the mods
 /// it then starts. Each due mod is cooked from nothing, every recipe: what made it due may be the game, which a
 /// recipe's own check does not read. The game's lock is held meanwhile: no start of the game, no other cook of it.
-/// Refused while the game runs ("Cook again" also right after a start). A tool that hangs is stopped within the
+/// Refused while the game runs, and right after any start of it (Play's cook and "Cook again" alike). A tool that hangs is stopped within the
 /// launcher's limits, and the task's Cancel stops the tool that runs: either with every process it started. A mod's
 /// failed cook is in the result with the tools' last lines, never an error of the task: the others are cooked, and
 /// the caller starts the game all the same. When no tool can run (no Python, no zstd), every due mod is reported as
