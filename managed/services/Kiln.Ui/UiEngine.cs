@@ -902,5 +902,9 @@ internal sealed class OwnedList<T> where T : Delegate
 /// <summary>Started by Kiln's service autostart (or the first use).</summary>
 internal static class UiStartup
 {
-    static UiStartup() => UiEngine.EnsureStarted();
+    static UiStartup()
+    {
+        UiCaps.Rows.Ensure();
+        UiEngine.EnsureStarted();
+    }
 }

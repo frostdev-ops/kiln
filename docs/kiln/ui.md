@@ -412,3 +412,19 @@ tables in the same header.
   early step (`kiln.progress`, [eml.md](eml.md#what-you-see-while-it-runs)).
 - The game-UI hooks cost one check per UI frame and per menu-entry call (a return-address compare); entries draw only
   while their menu is open. `KILN_NO_MENU_LOAD=1` keeps the mods' load at the first world step.
+
+## The contract (dev.27)
+
+Kiln.Ui follows [the API contract](modding/contract.md) as far as it applies. It is a game-client service: `Ui` (with
+`Ui.Screens`, `Ui.Menus`, `Ui.Crafting`), `Hud`, `Render`, `KeyBindings`, `UiDraw`, `RenderDraw` and `WorldDraw` are
+`[ClientOnly]`; on a dedicated server their calls draw nothing and answer null or false, as before.
+
+- **Capabilities.** `kiln.ui`, `kiln.render` and the client's sigdb features (`ui.screens`, `ui.main_menu`,
+  `ui.menu_page`, `ui.menu_page_sound`, `ui.system_menu`, `ui.crafting`, `ui.error_popup`, `ui.language`,
+  `render.camera`), lowered by Kiln.Ui when their service is not loaded. No member throws for a missing capability, so
+  none carries `[RequiresCapability]`; the `Available` properties answer as before.
+- **Threads.** `UiDraw` is `[RenderThread]` (it exists only inside a draw callback). `Ui.Screens.Current`,
+  `Render.Camera`, `Hud.Toast`, `HudLine.Text`, `UiWindow.Open`, `MenuEntry.Text` and `StatusLines.Set` are
+  `[AnyThread]`, as their docs said.
+- **Events.** `Ui.Screens.Changed` (the game's UI thread, at once) and `ScreenChangedEvent` (the bus, tick thread, one
+  step later) are two deliveries of one native callback, not two sources; both stay.

@@ -144,6 +144,7 @@ public sealed class KeyBinding : IDisposable
 }
 
 /// <summary>Key bindings: register, remap, persist (<c>&lt;configDir&gt;/keybinds.json</c>: kiln/config or the profile's configDir).</summary>
+[ClientOnly]
 public static class KeyBindings
 {
     private static readonly object Lock = new();

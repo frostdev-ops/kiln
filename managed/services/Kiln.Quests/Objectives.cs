@@ -500,6 +500,7 @@ public static class QuestInput
     public static bool IsSynthetic(QuestHolder h) => SyntheticInput.IsSynthetic(h);
 
     /// <summary>A creature died (or was destroyed, with <paramref name="destroyed"/>): the same path as the game's deaths.</summary>
+    [TickThreadOnly]
     public static void Kill(QuestHolder? killer, string template, string? tag = null, WorldPosition? at = null, bool destroyed = false)
     {
         Game.AssertTickThread();
@@ -508,6 +509,7 @@ public static class QuestInput
     }
 
     /// <summary>Sets how many of an item a synthetic holder has and evaluates their collect objectives.</summary>
+    [TickThreadOnly]
     public static void SetInventory(QuestHolder h, string item, int count)
     {
         Game.AssertTickThread();
@@ -517,6 +519,7 @@ public static class QuestInput
     }
 
     /// <summary>Puts a synthetic holder at a position and evaluates reach objectives (their own and the world's).</summary>
+    [TickThreadOnly]
     public static void Reach(QuestHolder h, WorldPosition at)
     {
         Game.AssertTickThread();
@@ -527,6 +530,7 @@ public static class QuestInput
     }
 
     /// <summary>A holder talked to an NPC (a definition id, or a template name). <paramref name="line"/>: the game's line id.</summary>
+    [TickThreadOnly]
     public static void Talk(QuestHolder h, string npc, uint line = 0, string? node = null, string? modId = null)
     {
         Game.AssertTickThread();
@@ -535,6 +539,7 @@ public static class QuestInput
         QuestObjectives.OnTalk(h, EntityId.None, def?.Template ?? npc, def, line, node);
     }
 
+    [TickThreadOnly]
     public static void Craft(QuestHolder h, string item, int count = 1)
     {
         Game.AssertTickThread();
@@ -542,6 +547,7 @@ public static class QuestInput
         QuestObjectives.OnCraftInput(h, item, count);
     }
 
+    [TickThreadOnly]
     public static void Build(QuestHolder h, string prop, int count = 1)
     {
         Game.AssertTickThread();

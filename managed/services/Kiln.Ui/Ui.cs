@@ -12,6 +12,8 @@ namespace Kiln;
 /// <remarks>Runs on the game's render thread, once per frame while visible. Keep it quick, read game state through
 /// snapshots the mod keeps, and hop to the game's threads to act (<c>Client.Post</c> for the client world,
 /// <c>Context.Scheduler.Post</c> for the server world).</remarks>
+[ClientOnly]
+[RenderThread]
 public sealed unsafe partial class UiDraw
 {
     internal UiDraw() { }
@@ -394,6 +396,7 @@ public sealed class UiWindow : IDisposable
     private volatile bool _open;
 
     /// <summary>Shown right now. Setting it opens or closes the window (any thread).</summary>
+    [AnyThread]
     public bool Open
     {
         get => _open;
@@ -435,6 +438,7 @@ public sealed class HudLine : IDisposable
     public Color Color { get; set; } = Color.White;
 
     /// <summary>Text shown (any thread).</summary>
+    [AnyThread]
     public string Text { get; set; } = "";
 
     /// <summary>When set, called every frame for the text instead of <see cref="Text"/> (render thread).</summary>
@@ -447,6 +451,7 @@ public sealed class HudLine : IDisposable
 }
 
 /// <summary>Text on the game's screen and short pop-up messages (Forge: GUI overlays, toasts).</summary>
+[ClientOnly]
 public static class Hud
 {
     /// <summary>Shows (or returns the existing) line <paramref name="id"/> at <paramref name="anchor"/>.</summary>
@@ -476,6 +481,7 @@ public static class Hud
     }
 
     /// <summary>A message in the corner of the screen for <paramref name="seconds"/> (any thread).</summary>
+    [AnyThread]
     public static void Toast(string text, ToastKind kind = ToastKind.Info, double seconds = 4)
     {
         UiEngine.EnsureStarted();
@@ -485,6 +491,7 @@ public static class Hud
 
 /// <summary>Kiln's overlay: windows, per-frame drawing, the Kiln menu; the game's screens (<see cref="Screens"/>), entries
 /// in its menus (<see cref="Menus"/>), crafting menus (<see cref="Crafting"/>) and full mod screens (<see cref="Screen"/>).</summary>
+[ClientOnly]
 public static partial class Ui
 {
     /// <summary>The overlay exists in this process (a game client with a supported renderer).</summary>

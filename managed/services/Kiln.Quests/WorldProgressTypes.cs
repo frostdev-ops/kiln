@@ -25,6 +25,7 @@ public sealed record ProgressFact(KnowledgeQuery Query, ProgressScope Scope)
 
     /// <summary>For the world (<paramref name="target"/> None) or a player in game. Tick thread. Null when it cannot be read:
     /// kiln.knowledge is not loaded, the player is not in game, or a character fact asked of the world.</summary>
+    [TickThreadOnly]
     public bool? Holds(EntityId target)
     {
         if (!Knowledge.Available) return null;
@@ -33,6 +34,7 @@ public sealed record ProgressFact(KnowledgeQuery Query, ProgressScope Scope)
         return Knowledge.TryQuery(target, Query, target.IsNone ? KnowledgeMode.Shared : KnowledgeMode.Player);
     }
 
+    [TickThreadOnly]
     public bool? Holds(Player player) => Holds(player.Entity);
 
     public override string ToString() => $"{Query} ({Scope})";
@@ -119,12 +121,16 @@ public sealed record Spire(string Id, string Template, uint NameTag, WorldPositi
     ProgressFact? TopReached, ProgressFact? Beacon)
 {
     /// <summary>The spire's fast travel is unlocked in this world (tick thread; null when unreadable).</summary>
+    [TickThreadOnly]
     public bool? Unlocked => Unlock.Holds(EntityId.None);
     /// <summary>Unlocked as this character sees it (the world's value, or its own twin in personal progression).</summary>
+    [TickThreadOnly]
     public bool? UnlockedFor(Player player) => Unlock.Holds(player.Entity);
     /// <summary>The character reached the top (its own knowledge; the game's spire achievement reads it).</summary>
+    [TickThreadOnly]
     public bool? TopReachedBy(Player player) => TopReached?.Holds(player.Entity);
     /// <summary>The beacon on top is lit in this world.</summary>
+    [TickThreadOnly]
     public bool? BeaconLit => Beacon?.Holds(EntityId.None);
     public override string ToString() => $"spire {Id} ({Template}) at {Position}";
 }
@@ -143,6 +149,7 @@ public enum ShrineKind : byte
 public sealed record FlameShrine(string Id, ShrineKind Kind, string Region, string? Template, uint NameTag, WorldPosition? Position,
     ProgressFact Discovery)
 {
+    [TickThreadOnly]
     public bool? FoundBy(Player player) => Discovery.Holds(player.Entity);
     public override string ToString() => $"{Kind.ToString().ToLowerInvariant()} {Id}";
 }
@@ -152,6 +159,7 @@ public sealed record FlameShrine(string Id, ShrineKind Kind, string Region, stri
 /// <param name="ElixirWell">This root is the one at an Elixir Well (the well counts as cleared when it is destroyed).</param>
 public sealed record ShroudRoot(string Id, string Region, bool ElixirWell, int SkillPoints, WorldPosition? Position, ProgressFact Destruction)
 {
+    [TickThreadOnly]
     public bool? DestroyedBy(Player player) => Destruction.Holds(player.Entity);
     public override string ToString() => $"{(ElixirWell ? "elixir well root" : "shroud root")} {Id}";
 }
@@ -159,6 +167,7 @@ public sealed record ShroudRoot(string Id, string Region, bool ElixirWell, int S
 /// <summary>An Ancient Obelisk (reading one reveals its region's shrines).</summary>
 public sealed record Obelisk(string Id, string Region, WorldPosition? Position, ProgressFact Reading)
 {
+    [TickThreadOnly]
     public bool? ReadBy(Player player) => Reading.Holds(player.Entity);
     public override string ToString() => $"obelisk {Id}";
 }
@@ -173,7 +182,9 @@ public sealed record Boss(string Id, string Template, string? Spawner, uint Name
     /// <summary>The game records this boss's kill.</summary>
     public bool Tracked => Kill is not null;
     /// <summary>Killed in this world (tick thread); null when the game keeps no record or it is a character fact.</summary>
+    [TickThreadOnly]
     public bool? Killed => Kill?.Holds(EntityId.None);
+    [TickThreadOnly]
     public bool? KilledBy(Player player) => Kill?.Holds(player.Entity);
     public override string ToString() => $"boss {Id} at {Position}";
 }
@@ -193,7 +204,9 @@ public sealed record ChestStatus(uint LootId, string Template, WorldPosition Pos
 /// <summary>A survivor (an NPC of the game's roster with a rescue requirement).</summary>
 public sealed record Survivor(string Id, uint NameTag, ProgressFact Rescue)
 {
+    [TickThreadOnly]
     public bool? Rescued => Rescue.Holds(EntityId.None);
+    [TickThreadOnly]
     public bool? RescuedFor(Player player) => Rescue.Holds(player.Entity);
 }
 

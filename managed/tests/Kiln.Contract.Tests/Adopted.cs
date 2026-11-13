@@ -27,6 +27,8 @@ internal static class Adopted
         typeof(Skills),
         typeof(Content),
         typeof(Creatures),
+        typeof(Ui),
+        typeof(Knowledge),
     ];
 
     internal static IEnumerable<Assembly> Assemblies => Anchors.Select(t => t.Assembly).Distinct();

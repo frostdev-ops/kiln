@@ -54,6 +54,7 @@ public sealed class CraftingMenuAddition : IDisposable
 public static unsafe partial class Ui
 {
     /// <summary>The game's crafting menus: <c>Ui.Crafting.Current</c>, <c>AddPanel</c>, <c>AddTab</c>, <c>AddSubcategory</c>.</summary>
+    [ClientOnly]
     public static class Crafting
     {
         private sealed class Panel(UiText title, Action<UiDraw, CraftingScreen> draw, CraftingPanelOptions options, ModContext? owner)

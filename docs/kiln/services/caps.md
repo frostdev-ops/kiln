@@ -139,6 +139,7 @@ that needs a hook says so only while the hook is in. When a service's table is m
 | `content.references` | managed, static | Kiln.Content | this kiln.content sets references (`ContentEntry.SetRef`, `SetPerks`; table v4) |
 | `content.ready` | managed, session | Kiln.Content, at its start and every 25 steps | the registries are loaded and the data packs applied (`Content.Ready`); unavailable without kiln.content |
 | `content.*` (eight, server side), `gamedata.template_clones`, `gamedata.buff_lookup`, `creatures.*` (ten) | sigdb features | core; Kiln.Content and Kiln.Creatures lower theirs when their service is not loaded | what kiln.content, kiln.gamedata and kiln.creatures serve |
+| `quests.*` (six), `ui.*` (eight, game client), `render.camera` | sigdb features | core; Kiln.Quests and Kiln.Ui lower theirs when kiln.knowledge, kiln.ui or kiln.render is not loaded | what kiln.knowledge, kiln.ui and kiln.render serve |
 
 ## Rules
 - Each owner holds at most one report per name. A reader sees the worst report for the name: unavailable beats

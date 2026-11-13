@@ -158,6 +158,8 @@ public sealed class ServiceStartTests
     [InlineData("spawn.components", "needs kiln.spawn")]
     [InlineData("skills.functions", "needs kiln.skills")]
     [InlineData("chat.send", "needs kiln.chat")]
+    [InlineData("quests.journal", "needs kiln.knowledge")]
+    [InlineData("ui.screens", "needs kiln.ui")]
     public void A_row_a_service_reports_itself_is_there_after_the_first_tick(string row, string because)
     {
         var (state, reason, text) = Started.Value.Row(row);

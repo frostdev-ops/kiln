@@ -296,3 +296,21 @@ A lab `knowledge` (Admin password in its `enshrouded_server.json`), a LOCAL char
 - **K4 veto:** play normal UI paths, note `client knowledge from player N: 0x…` ids. Set `vetoClientKnowledge` true in
   `kiln/config/knowledge.json`, repeat, note anything that stops working. Set `checkDialogue` true, talk nearby: `default applies`,
   no `too far`. Set both back to false.
+
+## The contract (dev.27)
+
+`Knowledge`, `Journal` and `WorldProgress` follow [the API contract](../modding/contract.md).
+
+- **Capabilities.** `kiln.knowledge` and its sigdb features `quests.knowledge`, `quests.journal`, `quests.dialogue`,
+  `quests.npc`, `quests.changes`, `quests.client_input` (lowered by Kiln.Quests at its start, the first service tick,
+  when the service is not loaded). The world's progress lists get no row: they are built on demand from kiln.assets'
+  data (`WorldProgress.PlacesReady`, `BossesReady`, `WhenReady`), and nothing throws for them.
+- **Errors.** Without the service a call throws `KilnUnavailableException` naming `kiln.knowledge` (a
+  `NotSupportedException`, as before); the members that throw carry `[RequiresCapability("kiln.knowledge")]`; the
+  ones that answer null or an empty list without it (`TryQuery`, `WorldProgress.Survivors`, the world-progress facts
+  such as `Spire.Unlocked` or `Boss.KilledBy`) do not. **Not changed:** the native answer "unavailable" (no world, the
+  player is not in game, or the part is off) keeps its plain `NotSupportedException`: it is a refusal about the call's
+  target as often as a missing capability.
+- **Results.** `KnowledgeResult` implements `IKilnResult`: through the interface `Reason` is null when `Ok`; the
+  record's own `Reason` may still carry a note then, as before.
+- **Threads.** `[TickThreadOnly]` on the reads and changes of knowledge, the journal and the world's progress.
