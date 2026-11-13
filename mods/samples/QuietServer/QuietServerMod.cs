@@ -51,7 +51,7 @@ public sealed class QuietServerMod : Mod
     private void OnJoined(PlayerJoinedEvent e) => _empty = false;
 
     [Subscribe]
-    private void OnLeft(PlayerLeftEvent e) => _empty = Players.All.Count == 0;
+    private void OnLeft(PlayerLeftEvent e) => _empty = !Players.Available || Players.All.Count == 0;
 
     [Command("quiet", Description = "what the quiet server sample does right now", Permission = CommandPermission.Admin)]
     private string Quiet(CommandContext c) =>

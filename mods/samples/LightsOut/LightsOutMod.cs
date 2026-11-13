@@ -26,6 +26,9 @@ public sealed class LightsOutMod : Mod
     {
         if (state is not ("on" or "off")) throw c.Usage("say on or off");
         if (!World.SupportsTrackedWrites) c.Fail(Capabilities.Why(World.TrackedWritesCapability));
+        // Finding the lights is kiln.world's pass over the entities (world.find); telling a lantern from a door, kiln.spawn's.
+        if (!Capabilities.Is(EntitySet.Capability)) c.Fail(Capabilities.Why(EntitySet.Capability));
+        if (!Spawn.Available) c.Fail(Capabilities.Why("kiln.spawn"));
         var on = state == "on";
         int switched = 0, already = 0;
         string? problem = null;

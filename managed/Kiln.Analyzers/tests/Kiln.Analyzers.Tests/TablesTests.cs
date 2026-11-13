@@ -45,6 +45,7 @@ public sealed class TablesTests
     [InlineData("P:Kiln.Items.GearOptionsAvailable", "kiln.items")]        // => Available && ...
     [InlineData("P:Kiln.Build.Available", "kiln.build")]                   // => T != null, T => BuildNative.T
     [InlineData("P:Kiln.Content.Available", "kiln.content")]               // T from Backend.Current.Service("kiln.content")
+    [InlineData("P:Kiln.World.SupportsTrackedWrites", "world.tracked_writes")] // not named ...Available: WorldCapabilities.Is(...)
     [InlineData("P:Kiln.Settings.Ready", "kiln.settings")]                 // => T != null && ...
     public void Capability_guards(string property, string row) =>
         Assert.Contains(KilnApis.CapabilityGuards, g => g.StartsWith(property + "=", StringComparison.Ordinal) && g.Substring(property.Length + 1).Split(',').Contains(row));

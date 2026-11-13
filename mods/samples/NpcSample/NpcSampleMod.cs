@@ -18,7 +18,7 @@ public sealed class NpcSampleMod : Mod
     {
         if (!c.Source.Player.IsNone) return c.Source.Player;
         // the console folder (kiln/control/console) has no player: the first in game
-        foreach (var p in Players.All) return p.Entity;
+        if (Players.Available) foreach (var p in Players.All) return p.Entity;
         return EntityId.None;
     }
 

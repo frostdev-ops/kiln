@@ -5,7 +5,7 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
 
 namespace Kiln.Analyzers.Tools;
 
-/// <summary>KILN121's guard table: the public static bool properties named "...Available" or "...Ready" that answer the same question
+/// <summary>KILN121's guard table: the public static bool properties (of any name) that answer the same question
 /// as <c>Capabilities.Is(row)</c> for a row, so a mod that asks them has asked for the row. Only the property's own code
 /// counts, and only a term it always asks: its getter is an <c>&amp;&amp;</c> of terms, and a term is
 /// <c>Capabilities.Is(row)</c>, a one-line helper that returns <c>Capabilities.Is(its argument)</c> called with the row,
@@ -23,12 +23,12 @@ internal static class ApiScanGuards
         public readonly List<string> Why = new();
     }
 
-    /// <summary>The guard facts of one property declaration; null when it is no candidate (not static bool "...Available"
-    /// or "...Ready", or no getter) or its getter always asks no row.</summary>
+    /// <summary>The guard facts of one property declaration; null when it is no candidate (not a static bool with a
+    /// getter) or its getter always asks no row.</summary>
     internal static Guard? Read(SemanticModel model, PropertyDeclarationSyntax pd, CancellationToken ct = default)
     {
-        if (model.GetDeclaredSymbol(pd, ct) is not { IsStatic: true, Type.SpecialType: SpecialType.System_Boolean, GetMethod: not null } p ||
-            !(p.Name.EndsWith("Available", StringComparison.Ordinal) || p.Name.EndsWith("Ready", StringComparison.Ordinal)))
+        // any name: what the getter asks decides (World.SupportsTrackedWrites is WorldCapabilities.Is(TrackedWritesCapability))
+        if (model.GetDeclaredSymbol(pd, ct) is not { IsStatic: true, Type.SpecialType: SpecialType.System_Boolean, GetMethod: not null })
             return null;
         var g = new Guard();
         if (Getter(pd) is { } expr)
@@ -51,8 +51,41 @@ internal static class ApiScanGuards
                 }
             }
         }
+        // { var t = AiNative.T; if (t == null) return false; ...; return ...; }: every other answer passed the check
+        if (NullCheckFirst(pd, model, ct) is { } checkedRow && g.Rows.Add(checkedRow)) g.Why.Add($"returns false first when the table of {checkedRow} is null");
         return g.Rows.Count > 0 || g.Via.Count > 0 ? g : null;
     }
+
+    /// <summary>The row of the table a block getter tests first: before <c>if (t == null) return false;</c> (t a table, or
+    /// a local set from one) there are only declarations and plain statements, no return; so any answer the getter gives
+    /// after that passed the check. Null for any other shape (a cached answer returned before the check: Saves.Available's
+    /// SavesRuntime.Ensure()).</summary>
+    private static string? NullCheckFirst(PropertyDeclarationSyntax pd, SemanticModel model, CancellationToken ct)
+    {
+        var get = pd.AccessorList?.Accessors.FirstOrDefault(a => a.IsKind(SyntaxKind.GetAccessorDeclaration));
+        if (get?.Body is not { } body) return null;
+        foreach (var s in body.Statements)
+        {
+            if (s is IfStatementSyntax { Else: null } ifs && NullTest(ifs.Condition) is { } tested &&
+                ifs.Statement is ReturnStatementSyntax { Expression: LiteralExpressionSyntax { RawKind: (int)SyntaxKind.FalseLiteralExpression } } or
+                    BlockSyntax { Statements: [.., ReturnStatementSyntax { Expression: LiteralExpressionSyntax { RawKind: (int)SyntaxKind.FalseLiteralExpression } }] } &&
+                model.GetSymbolInfo(tested, ct).Symbol is { } table)
+                return TableRow(table, model.Compilation, ct);
+            if (s is not (LocalDeclarationStatementSyntax or ExpressionStatementSyntax) ||
+                s.DescendantNodes(n => n is not AnonymousFunctionExpressionSyntax).OfType<ReturnStatementSyntax>().Any())
+                return null;
+        }
+        return null;
+    }
+
+    // `x == null`, `null == x`, `x is null`: x
+    private static ExpressionSyntax? NullTest(ExpressionSyntax e) => e switch
+    {
+        BinaryExpressionSyntax { RawKind: (int)SyntaxKind.EqualsExpression, Right: LiteralExpressionSyntax { RawKind: (int)SyntaxKind.NullLiteralExpression } } b => b.Left,
+        BinaryExpressionSyntax { RawKind: (int)SyntaxKind.EqualsExpression, Left: LiteralExpressionSyntax { RawKind: (int)SyntaxKind.NullLiteralExpression } } b => b.Right,
+        IsPatternExpressionSyntax { Pattern: ConstantPatternSyntax { Expression: LiteralExpressionSyntax { RawKind: (int)SyntaxKind.NullLiteralExpression } } } i => i.Expression,
+        _ => null,
+    };
 
     // `x != null`, `null != x`, `x is not null`: x
     private static ExpressionSyntax? NotNull(ExpressionSyntax e) => e switch
@@ -144,7 +177,12 @@ internal static class ApiScanGuards
         foreach (var r in m.DeclaringSyntaxReferences)
         {
             if (r.GetSyntax(ct) is not MethodDeclarationSyntax md || !compilation.SyntaxTrees.Contains(md.SyntaxTree)) continue;
-            var body = md.ExpressionBody?.Expression ?? (md.Body?.Statements is [ReturnStatementSyntax { Expression: { } e }] ? e : null);
+            // `=> Capabilities.Is(x)`, or a body whose last statement returns it after plain calls
+            // (WorldCapabilities.Is: `{ Ensure(); return Capabilities.Is(capability); }`)
+            var statements = md.Body?.Statements ?? default;
+            var body = md.ExpressionBody?.Expression ??
+                       (statements.Count > 0 && statements[statements.Count - 1] is ReturnStatementSyntax { Expression: { } e } &&
+                        statements.Take(statements.Count - 1).All(s => s is ExpressionStatementSyntax) ? e : null);
             if (body is not InvocationExpressionSyntax { ArgumentList.Arguments: [{ Expression: IdentifierNameSyntax arg }] } inv) return false;
             var model = compilation.GetSemanticModel(md.SyntaxTree);
             return model.GetSymbolInfo(inv, ct).Symbol is IMethodSymbol inner && IsCapabilitiesIs(inner) &&

@@ -737,6 +737,96 @@ public sealed class CapabilityTests
     }
 
     [Fact]
+    public async Task A_call_marked_DoesNotReturn_leaves()
+    {
+        // `if (!World.SupportsTrackedWrites) c.Fail(...)` in mods/samples/LightsOut: once Fail is marked [DoesNotReturn],
+        // the refusal leaves like a throw
+        var lib = Library("""
+            namespace Kiln.Lab
+            {
+                public sealed class Ctx
+                {
+                    [System.Diagnostics.CodeAnalysis.DoesNotReturn] public void Fail(string message) => throw new InvalidOperationException(message);
+                    public void Reply(string message) { }
+                }
+            }
+            """, "Kiln.Lab");
+        var d = await Run(A, """
+            using Kiln.Lab;
+            public sealed class M : Mod
+            {
+                [System.Diagnostics.CodeAnalysis.DoesNotReturn] private static void Refuse(string why) => throw new InvalidOperationException(why);
+                public void Marked(Ctx c, EntityId p)
+                {
+                    if (!NoClip.Available) c.Fail(Capabilities.Why(NoClip.Capability));
+                    _ = NoClip.Set(p, true);
+                }
+                public void Own(EntityId p)
+                {
+                    if (!NoClip.Available) Refuse("no noclip");
+                    _ = NoClip.Set(p, true);
+                }
+                public void Returns(Ctx c, EntityId p)
+                {
+                    if (!NoClip.Available) c.Reply("no noclip");
+                    _ = NoClip.Set(p, true);      // Reply returns: reported
+                }
+            }
+            """, extra: [lib]);
+        Ids(d, "KILN121");
+        Assert.Equal(17, d[0].Location.GetLineSpan().StartLinePosition.Line);
+    }
+
+    [Fact]
+    public async Task A_block_that_ends_in_a_leave_leaves()
+    {
+        var lib = Library("""
+            namespace Kiln.Lab
+            {
+                public sealed class Ctx
+                {
+                    [System.Diagnostics.CodeAnalysis.DoesNotReturn] public void Fail(string message) => throw new InvalidOperationException(message);
+                    public InvalidOperationException Usage(string problem) => new(problem);
+                }
+            }
+            """, "Kiln.Lab");
+        var d = await Run(A, """
+            using Kiln.Lab;
+            public sealed class M : Mod
+            {
+                public void Fails(Ctx c, EntityId p)
+                {
+                    if (!NoClip.Available)
+                    {
+                        Log.Warn(Capabilities.Why(NoClip.Capability));
+                        c.Fail("no noclip here");
+                    }
+                    _ = NoClip.Set(p, true);
+                }
+                public void Usage(Ctx c, EntityId p, bool quiet)
+                {
+                    if (!NoClip.Available)
+                    {
+                        if (quiet) return;
+                        else throw c.Usage("no noclip here");
+                    }
+                    _ = NoClip.Set(p, true);
+                }
+                public void GoesOn(Ctx c, EntityId p)
+                {
+                    if (!NoClip.Available)
+                    {
+                        Log.Warn("no noclip");
+                    }
+                    _ = NoClip.Set(p, true);      // the block goes on: reported
+                }
+            }
+            """, extra: [lib]);
+        Ids(d, "KILN121");
+        Assert.Equal(27, d[0].Location.GetLineSpan().StartLinePosition.Line);
+    }
+
+    [Fact]
     public async Task A_negated_test_kept_in_a_bool_local_is_a_check()
     {
         // Codex review, finding 1

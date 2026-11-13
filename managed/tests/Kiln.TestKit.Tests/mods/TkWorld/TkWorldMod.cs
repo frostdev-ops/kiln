@@ -1,4 +1,7 @@
 // SPDX-License-Identifier: MIT
+// The kit's example of ordinary world code. It leaves out the capability checks a published mod would have (the tests
+// that load it serve the world rows), so KILN121 (a capability asked first) is switched off for the file.
+#pragma warning disable KILN121
 using Kiln;
 
 namespace TkWorld;
