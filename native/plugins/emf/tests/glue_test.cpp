@@ -5,11 +5,14 @@
 #include "services/kiln_render.h"
 #include "v26_model.h"
 #include <algorithm>
+#include <atomic>
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
 #include <map>
 #include <stdexcept>
+#include <thread>
 
 static int failures = 0, checks = 0;
 #define CHECK(x)                                                                                                       \
@@ -589,22 +592,53 @@ static void wheel_cb(EmfWorld *w, int choice, void *user) {
 // v28-v40: every slot filled; a function Kiln does not carry yet gives EMF's documented failure, clears its out buffer,
 // says why where the request has room for it, refuses a request that is too small, and never calls a callback.
 static int v40_callbacks = 0;
-static bool render_ok = true;
-static void test_v40(KilnApi &api) {
-    static KilnRenderApi render{};
-    render.header.size = sizeof render;
-    render.header.version = KILN_RENDER_VERSION;
-    render.world_to_screen = [](const double w[3], float, float, float out[3]) -> bool {
-        out[0] = static_cast<float>(w[0]) + 0.5f;
-        out[1] = static_cast<float>(w[2]) + 0.25f;
-        out[2] = 3.f;
-        return render_ok;
-    };
-    api.service = [](KilnStr n, uint32_t) -> const void * {
-        return std::string(n.ptr, n.len) == KILN_RENDER_SERVICE ? &render : nullptr;
+static std::atomic<bool> render_ok{true};
+static std::atomic<int> render_lookups{0};
+static KilnRenderApi fake_render{};
+// A kiln-emf without kiln.render (a dedicated server, an older core): its own process, because the lookup happens once.
+static int test_v40_no_render(KilnApi &api) {
+    api.service = [](KilnStr, uint32_t) -> const void * {
+        ++render_lookups;
+        return nullptr;
     };
     EmfApi t{};
     fill_v40(&t);
+    float px = -1, py = -1;
+    const int before = unsupported_calls;
+    CHECK(!t.world_to_screen(1, 2, 3, &px, &py) && px == -1 && py == -1);
+    CHECK(!t.world_to_screen(1, 2, 3, nullptr, nullptr));
+    CHECK(unsupported_calls == before + 2 && render_lookups == 1);
+    std::printf("glue_test (no kiln.render): %d checks, %d failures\n", checks, failures);
+    return failures ? 1 : 0;
+}
+static void test_v40(KilnApi &api) {
+    fake_render.header.size = sizeof fake_render;
+    fake_render.header.version = KILN_RENDER_VERSION;
+    fake_render.world_to_screen = [](const double w[3], float, float, float out[3]) -> bool {
+        out[0] = static_cast<float>(w[0]) + 0.5f;
+        out[1] = static_cast<float>(w[2]) + 0.25f;
+        out[2] = 3.f;
+        return render_ok.load();
+    };
+    api.service = [](KilnStr n, uint32_t) -> const void * {
+        ++render_lookups;
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));  // widen the window of a racing first call
+        return std::string(n.ptr, n.len) == KILN_RENDER_SERVICE ? &fake_render : nullptr;
+    };
+    EmfApi t{};
+    fill_v40(&t);
+    {
+        // world_to_screen is an any-thread function: first calls that race see one lookup and all get the answer
+        std::atomic<int> good{0};
+        std::vector<std::thread> threads;
+        for (int i = 0; i < 8; ++i)
+            threads.emplace_back([&] {
+                float px = -1, py = -1;
+                if (t.world_to_screen(10, 20, 30, &px, &py) && px == 10.5f && py == 30.25f) ++good;
+            });
+        for (auto &th : threads) th.join();
+        CHECK(good == 8 && render_lookups == 1);
+    }
     // the two chat functions come from fill_game (api_game.cpp, not built into this test)
     const size_t first = offsetof(EmfApi, on_player) / sizeof(void *), n = sizeof(EmfApi) / sizeof(void *);
     const auto *slots = reinterpret_cast<void *const *>(&t);
@@ -886,7 +920,7 @@ static void test_wheel_and_right_clicks(KilnUiApi &ui) {
 }
 
 int main(int argc, char **argv) {
-    if (argc != 2)
+    if (argc != 2 && argc != 3)
         return 2;
     std::setvbuf(stdout, nullptr, _IONBF, 0); // a crash must not eat the FAIL lines
     P.emf = argv[1];
@@ -913,6 +947,8 @@ int main(int argc, char **argv) {
         return KILN_OK;
     };
     g_api = &api;
+    if (argc == 3 && std::string(argv[2]) == "no-render")
+        return test_v40_no_render(api);
     static KilnUiApi ui{};
     init_ui(ui);
     S.ui = &ui;

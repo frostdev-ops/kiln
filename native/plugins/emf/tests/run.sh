@@ -11,11 +11,12 @@ g++ -std=c++20 -Wall -Wextra -I"$here/../include" "$here/abi_test.cpp" -o "$out/
 g++ -std=c++20 -O1 -g -Wall -Wextra -fsanitize=address,undefined -I"$here/../include" -I"$here/../src" \
     "$here/v26_model_test.cpp" "$here/../src/v26_model.cpp" -o "$out/v26_model_test"
 "$out/v26_model_test"
-g++ -std=c++20 -O1 -g -Wall -Wextra -fsanitize=address,undefined \
+g++ -std=c++20 -O1 -g -Wall -Wextra -fsanitize=address,undefined -pthread \
     -I"$here/host" -I"$here/../include" -I"$here/../src" -I"$here/../../../core/abi" -I"$here/../../../services/players" \
     "$here/glue_test.cpp" "$here/../src/api_windows.cpp" "$here/../src/api_wheel.cpp" "$here/../src/api_attributes.cpp" "$here/../src/api_level.cpp" "$here/../src/api_components.cpp" "$here/../src/api_events.cpp" "$here/../src/api_v40.cpp" "$here/../src/v26_model.cpp" \
     -o "$out/glue_test"
 "$out/glue_test" "$out"
+"$out/glue_test" "$out" no-render
 g++ -std=c++20 -O1 -g -Wall -Wextra -fsanitize=address,undefined -pthread -DKEMF_NET_CLIENT_TEST \
     -I"$here/host" -I"$here/../include" -I"$here/../src" -I"$here/../../../core/abi" -I"$here/../../../services/players" \
     "$here/net_test.cpp" "$here/../src/api_net.cpp" "$here/../src/api_net_client.cpp" \

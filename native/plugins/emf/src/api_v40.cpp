@@ -143,15 +143,23 @@ uint32_t api_marker_types(EmfMapMarkerType*, uint32_t) {
     return 0;
 }
 
-// A world point in display pixels with the newest camera, through kiln.render (the client; any thread). False when it
-// is behind the camera, when no frame is known yet, or without kiln.render (a dedicated server, an older Kiln core).
-bool api_world_to_screen(double x, double y, double z, float* px, float* py) {
-    static const KilnRenderApi* render = nullptr;
-    static std::atomic<bool> looked{false};
-    if (!looked.exchange(true)) {
+// kiln.render, looked up at the first call. A function-local static: concurrent first callers wait for the one lookup
+// (world_to_screen may be called from any thread), and the pointer never changes afterwards. Services are published
+// before any mod loads, so the first call cannot come too early.
+const KilnRenderApi* render_api() {
+    static const KilnRenderApi* const render = []() -> const KilnRenderApi* {
         auto* r = static_cast<const KilnRenderApi*>(g_api->service(kstr(KILN_RENDER_SERVICE), 1));
-        if (r && r->header.size >= offsetof(KilnRenderApi, world_to_screen) + sizeof(void*) && r->world_to_screen) render = r;
-    }
+        const bool usable = r && r->header.size >= offsetof(KilnRenderApi, world_to_screen) + sizeof(void*) && r->world_to_screen;
+        return usable ? r : nullptr;
+    }();
+    return render;
+}
+
+// A world point in display pixels with the newest camera, through kiln.render (the client; any thread). False when it
+// is behind the camera, when no frame is known yet, or without kiln.render (a dedicated server, an older Kiln core);
+// px and py are written only for a point on screen.
+bool api_world_to_screen(double x, double y, double z, float* px, float* py) {
+    const KilnRenderApi* render = render_api();
     if (!render) {
         unsupported(caller_mod(_ReturnAddress()), "world_to_screen",
                     g_side == KILN_SIDE_SERVER ? "a dedicated server draws nothing" : "kiln.render is not available");
