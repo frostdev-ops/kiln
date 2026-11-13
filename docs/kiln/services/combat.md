@@ -108,13 +108,28 @@ listen server). Without subscribers hits are untouched. **With entity filters (d
 watched entity wait: when every hurt, heal and knockback handler subscribed with `Events.On<T>(handler,
 EventFilter.ForEntity(...))`, kiln.combat holds a hit only if its target, root target, source or root source is one of
 the watched entities, and every other hit applies at once, untouched (`hold_filter`, appended to the table; capability
-`combat.hold_filter`; one handler without a filter holds every hit again). Lab (`mods/tests/event-filter-test`, one
+`combat.hold_filter`; one handler without a filter holds every hit again). A hit is about an entity when it is the hit's
+target, the part hit, its attacker or its source: the hold and the events take these four from one place
+(`hold_filter.h` `hit_entities`), so a held hit is always one a filtered handler is given. A watched creature's own
+attacks are about it too: they come with the player it hit as `Target` and the creature as `Attacker` (the first
+guided check in a real game, 13 Nov 2026, got three of those before the player had swung). A handler that wants only
+the hits the creature takes tests `e.Target == creature` (or `e.Part` for a weak spot). Kiln's own hits name the same
+four: `DamageOptions.Source` is the `Source` of the hurt and knockback events `Combat.Damage` posts in the call, as it is
+of the held record (until dev.27 the events in the call named the attacker there). Lab (`mods/tests/event-filter-test`, one
 watched doll): `a hit on another creature applies ... and is not held: hits held 0 -> 0`, `a hit on the doll ... is held
-for the watcher: hits held 0 -> 1`, `control: with a handler without a filter the other creature's hit is held too`.
-`AsGameHit` sends a Kiln hit through the same hold (it is
+for the watcher: hits held 0 -> 1`, `control: with a handler without a filter the other creature's hit is held too`,
+`a hit the doll deals is held and reported to the doll's handler, Target the other creature`, `a Kiln hit with a source
+reaches a handler filtered on the source, in the call and held alike`; and the game's own hits, a spawned player
+character's sword swing on eight watched Vukahs round it and their attacks on it (lab 2026-11-13, server 26430253):
+`the game's melee hit names the Vukah it landed on as Target (and the character as Attacker): target 2568 part 2568
+source 2550`, `a watched Vukah's own attack names the character as Target and the Vukah as Attacker: target 2550 part
+2550 attacker 2564 source 2564 ... origin Game` (25 PASS). `AsGameHit` sends a Kiln hit through the same hold (it is
 reported like a game hit, not inside the call). Hits on one swing/projectile that the engine would merge (same
 target and impact) are reported once; the decision applies to all of them. Repeat hits of an impact that already hit
-the target (which the engine skips) are not reported (`CombatStatus.RepeatHits`).
+the target (which the engine skips) are not reported (`CombatStatus.RepeatHits`). A target in god mode
+(`SetInvulnerable`) is the exception: kiln.combat drops the hit before the game records that the impact touched it, so a
+swing that stays on it is reported again in each step (lab: one sword swing, impact `0x01000002`, four hurt events in
+steps 462 to 465 on an invulnerable Vukah, one event on the same Vukah out of god mode); count by `ImpactId` there.
 
 **Knockback, falls and regeneration.** A knockback event comes from the same one-step hold as the hurt
 event (subscribing to `EntityKnockbackEvent` alone turns the hold on). Fall damage never was a hit: the game's

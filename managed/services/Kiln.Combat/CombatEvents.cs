@@ -55,7 +55,8 @@ public enum HitReaction : ushort
 /// <summary>Common fields of a hit that is about to apply (<see cref="EntityHurtEvent"/>, <see cref="EntityHealEvent"/>).</summary>
 public abstract class PendingHitEvent : CancelableEvent, IEntityEvent
 {
-    /// <summary>For event filters (<see cref="EventFilter"/>): the target, the part hit, the attacker or the source. Since 0.2.0-dev.27.</summary>
+    /// <summary>For event filters (<see cref="EventFilter"/>): the target, the part hit, the attacker or the source, the
+    /// four entities kiln.combat's hold also tests (a hit an entity deals is about it too). Since 0.2.0-dev.27.</summary>
     public bool Involves(EntityId entity) => !entity.IsNone && (Target == entity || Part == entity || Attacker == entity || Source == entity);
 
     private int _amount;
@@ -81,10 +82,13 @@ public abstract class PendingHitEvent : CancelableEvent, IEntityEvent
         Step = e.Step;
     }
 
-    internal PendingHitEvent(EntityId target, EntityId attacker, int amount, int healthBefore, int healthMax, bool isPlayer)
+    // Kiln's own hit (Combat.Damage, Kill, Heal), posted inside the call: the entities kiln.combat's record of it names
+    // (t_damage: target and root target the target, root source the attacker, source the given one or else the attacker)
+    internal PendingHitEvent(EntityId target, EntityId attacker, EntityId source, int amount, int healthBefore, int healthMax, bool isPlayer)
     {
         Target = Part = target;
-        Attacker = Source = attacker;
+        Attacker = attacker;
+        Source = source.IsNone ? attacker : source;
         _amount = OriginalAmount = amount;
         HealthBefore = healthBefore;
         HealthMax = healthMax;
@@ -145,8 +149,8 @@ public sealed class EntityHurtEvent : PendingHitEvent
 {
     internal EntityHurtEvent(in CombatNative.Event e) : base(e) => Lethal = e.Lethal != 0;
 
-    internal EntityHurtEvent(EntityId target, EntityId attacker, int amount, int healthBefore, int healthMax, bool isPlayer)
-        : base(target, attacker, amount, healthBefore, healthMax, isPlayer) =>
+    internal EntityHurtEvent(EntityId target, EntityId attacker, EntityId source, int amount, int healthBefore, int healthMax, bool isPlayer)
+        : base(target, attacker, source, amount, healthBefore, healthMax, isPlayer) =>
         Lethal = healthBefore > 0 && amount >= healthBefore;
 
     /// <summary>The original amount would kill the target (cancel or lower it to keep the target alive).</summary>
@@ -177,7 +181,7 @@ public sealed class EntityHealEvent : PendingHitEvent
     internal EntityHealEvent(in CombatNative.Event e) : base(e) => Cause = (HealCause)e.Cause;
 
     internal EntityHealEvent(EntityId target, int amount, int healthBefore, int healthMax, bool isPlayer)
-        : base(target, EntityId.None, amount, healthBefore, healthMax, isPlayer) => Cause = HealCause.Kiln;
+        : base(target, EntityId.None, EntityId.None, amount, healthBefore, healthMax, isPlayer) => Cause = HealCause.Kiln;
 
     public HealCause Cause { get; }
 }
@@ -214,10 +218,11 @@ public sealed class EntityKnockbackEvent : CancelableEvent, IEntityEvent
         Id = e.Id;
     }
 
-    internal EntityKnockbackEvent(EntityId target, EntityId attacker, int strength, HitReaction reaction, bool isPlayer)
+    internal EntityKnockbackEvent(EntityId target, EntityId attacker, EntityId source, int strength, HitReaction reaction, bool isPlayer)
     {
         Target = Part = target;
-        Attacker = Source = attacker;
+        Attacker = attacker;
+        Source = source.IsNone ? attacker : source;
         _strength = OriginalStrength = strength;
         Reaction = OriginalReaction = reaction;
         Origin = CombatOrigin.Kiln;

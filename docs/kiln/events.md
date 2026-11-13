@@ -43,7 +43,8 @@ public sealed class MyMod : Mod
   `new EventFilter { Entities = ... }`) runs the handler only for events about those entities. The event type says which
   entities it is about by implementing `IEntityEvent.Involves(entity)`; an entity filter on a type that does not throws
   `ArgumentException`. Kiln.Combat's events do (a hit: target, part hit, attacker, source; a death: victim, killer,
-  source; ...). A service that holds work for its handlers asks the bus for the union of their filters: kiln.combat
+  source; ...): a filter on a creature gets the hits it takes and the hits it deals (its attack on a player has the
+  player as `Target`), so a handler that wants only the first tests `e.Target`. A service that holds work for its handlers asks the bus for the union of their filters: kiln.combat
   holds only the hits that name a watched entity, every other hit applies at once (one handler without a filter, also a
   `KilnEvent` catch-all, holds every hit again) ([services/combat.md](services/combat.md)). `EventSubscription.Filter`
   says what a subscription has. `[Subscribe]` methods take no filter: subscribe with `Events.On` for one. Filters by

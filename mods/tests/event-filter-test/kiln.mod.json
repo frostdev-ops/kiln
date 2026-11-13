@@ -4,5 +4,6 @@
   "version": "0.1.0",
   "apiVersion": "0.2",
   "entryAssembly": "EventFilterTest.dll",
-  "side": "server"
+  "side": "server",
+  "advanced": true
 }
