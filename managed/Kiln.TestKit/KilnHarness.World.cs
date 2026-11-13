@@ -48,10 +48,12 @@ public sealed partial class KilnHarness
         WorldFake = new WorldFake(this, _options.WorldId);
         _host.Log(LogLevel.Info, $"testkit: world {WorldFake.Id} revision {WorldFake.Revision} ({(WorldFake.Revision == 0 ? "never saved" : "saved before")}), " +
                                  $"saves in {WorldFake.SaveDirectory}");
+        StartRecordingFakes();  // KilnHarness.Fakes.cs
     }
 
     partial void EndFakes()
     {
+        EndRecordingFakes();
         EndPlayers();
         EndEntities();
     }
@@ -64,6 +66,7 @@ public sealed partial class KilnHarness
         WorldFake?.BeforeStep(step, _started);
         if (PlayersFake?.Scan(step) is { } left) WorldFake?.PlayersLeft(left);
         WorldFake?.AfterScan();
+        RecordingFakesBeforeStep(step);
     }
 
     /// <summary>The server stopped and its mods unloaded: the game's shutdown save.</summary>

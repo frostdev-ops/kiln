@@ -2,7 +2,7 @@
   <!-- A test mod of Kiln.TestKit.Tests: [KilnTest] methods that reach for what the kit does not fake. -->
   <ItemGroup>
     <ProjectReference Include="$(KilnManaged)Kiln.Testing/Kiln.Testing.csproj" Private="false" ExcludeAssets="runtime" />
-    <ProjectReference Include="$(KilnManaged)services/Kiln.Spawn/Kiln.Spawn.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="$(KilnManaged)services/Kiln.Settings/Kiln.Settings.csproj" Private="false" ExcludeAssets="runtime" />
     <ProjectReference Include="$(KilnManaged)services/Kiln.Hooks/Kiln.Hooks.csproj" Private="false" ExcludeAssets="runtime" />
   </ItemGroup>
 </Project>

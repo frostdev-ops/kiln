@@ -32,7 +32,46 @@ internal static class FakeTables
         if (Interlocked.Exchange(ref _registered, 1) != 0) return;
         KitBackend.Instance.RegisterTable(PlayersService, PlayersTable.Create());
         KitBackend.Instance.RegisterTable(SavesService, SavesTable.Create());
+        // dev.27's recording fakes: each table, the game features it serves as rows of the kit's (a test may switch one
+        // off), and what it does not model as offline
+        KitBackend.Instance.RegisterTable(SpawnAbi.Service, SpawnTable.Create());
+        Features(SpawnFake.Features);
+        Offline(SpawnFake.ComponentsRow, "extra spawn components are not modelled by the test kit");
+        Session(SpawnFake.WorldRow, false, SpawnFake.NoServer);
+        KitBackend.Instance.RegisterTable(ChatAbi.Service, ChatTable.Create());
+        Features(ChatFake.Features);
+        KitBackend.Instance.RegisterTable(ItemsAbi.Service, ItemsTable.Create());
+        Features(ItemsFake.Features);
+        foreach (var row in ItemsFake.OfflineRows) Offline(row, "kiln.items' fake in the test kit has the v1 table only (give, take, read, the catalog)");
+        KitBackend.Instance.RegisterTable(CombatAbi.Service, CombatTable.Create());
+        Features(CombatFake.Features);
+        foreach (var row in CombatFake.OfflineRows) Offline(row, "kiln.combat's fake in the test kit has the v1 table's health, hits and deaths only");
+        KitBackend.Instance.RegisterTable(TimeAbi.Service, TimeTable.Create());
+        Features(TimeFake.Features);
+        foreach (var row in TimeFake.OfflineRows) Offline(row, "the weather is not modelled by the test kit's fake of kiln.time");
     }
+
+    /// <summary>Game features a fake models: available rows of the kit's, which a test can switch off.</summary>
+    private static void Features(IEnumerable<string> names)
+    {
+        foreach (var name in names)
+            KitBackend.Instance.Capabilities.Report(KitBackend.CapabilityOwner, name, CapState.Available, CapReason.None, "faked by the test kit",
+                KitBackend.CapabilityOwner);
+    }
+
+    /// <summary>A row a fake does not model: unavailable with reason offline (and a test cannot switch it on).</summary>
+    private static void Offline(string name, string text) =>
+        KitBackend.Instance.Capabilities.Report(KitBackend.CapabilityOwner, name, CapState.Unavailable, CapReason.Offline, text, KitBackend.CapabilityOwner);
+
+    /// <summary>A session row of a fake in the kit's table: available while <paramref name="on"/>, else pending.</summary>
+    public static void Session(string name, bool on, string waiting) =>
+        KitBackend.Instance.Capabilities.Report(KitBackend.CapabilityOwner, name, on ? CapState.Available : CapState.Pending,
+            on ? CapReason.None : CapReason.Session, on ? "faked by the test kit" : waiting, KitBackend.CapabilityOwner);
+
+    /// <summary>Whether the test switched <paramref name="name"/> off (<see cref="HarnessCapabilities.Override"/>): a fake
+    /// then answers for it as the native service does when its feature is off.</summary>
+    public static bool Off(string name) =>
+        KitBackend.Instance.Capabilities.Get(name) is { State: CapState.Unavailable } row && row.Source == HarnessCapabilities.TestOwner;
 
     /// <summary>The harness a table answers for: the one that runs now, when the test has not switched
     /// <paramref name="service"/> off.</summary>

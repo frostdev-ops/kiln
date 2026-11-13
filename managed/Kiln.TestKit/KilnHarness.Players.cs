@@ -26,7 +26,8 @@ public sealed partial class KilnHarness
     /// <summary>Runs a command line as <paramref name="player"/> typed it in chat (<see cref="CommandSource.ForPlayer"/>),
     /// through the public <see cref="Commands.Execute"/> on the tick thread: the real permission rules decide
     /// (permissions.json in <see cref="ConfigDirectory"/>, the server's user groups, the player's rights). The reply lines
-    /// come back in <see cref="CommandResult.Output"/>; nothing is sent to a chat (kiln.chat is not faked).</summary>
+    /// come back in <see cref="CommandResult.Output"/> and, as in the game, reach the player's chat (<see cref="FakePlayer.Chat"/>).
+    /// A line the player types in chat instead is <see cref="FakePlayer.Say"/>.</summary>
     public CommandResult RunCommand(FakePlayer player, string line)
     {
         ArgumentNullException.ThrowIfNull(player);

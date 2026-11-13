@@ -235,13 +235,14 @@ public sealed class WorldTests
             kiln.Step(2);
             var ada = kiln.Players.Join("Ada", AdaSteam);
             kiln.Step();
-            Assert.Equal(["False"], kiln.RunCommand("tk-saves-entity-available").Output);  // needs kiln.spawn
+            Assert.Equal(["True"], kiln.RunCommand("tk-saves-entity-available").Output);  // kiln.spawn's fake finds the world's entities
             Assert.True(kiln.RunCommand($"tk-saves-eset {ada.Entity.Value} 9").Ok);  // a player entity: PlayerData by Steam id
             Assert.Equal(["9"], kiln.RunCommand($"tk-saves-pget {AdaSteam}").Output);
             kiln.RunCommand($"tk-saves-pset {AdaSteam + 1} 4");  // a player who is not online
-            var other = kiln.RunCommand("tk-saves-eset 2000 1");  // not a player: needs kiln.spawn's entity lookups
-            Assert.False(other.Ok);
-            Assert.Contains(kiln.LogsOf("tk-saves"), l => l.Text.Contains("EntityData needs kiln.spawn", StringComparison.Ordinal));
+            Assert.False(kiln.RunCommand("tk-saves-eset 4000 1").Ok);  // no such entity in the world
+            var chest = kiln.Entities.Create(new WorldPosition(3, 0, 3));  // an entity of the fake world: kept with the world's mod data
+            Assert.True(kiln.RunCommand($"tk-saves-eset {chest.Value} 5").Ok);
+            Assert.Equal(["5"], kiln.RunCommand($"tk-saves-eget {chest.Value}").Output);
             kiln.World.Save();
             kiln.Kill();
         }

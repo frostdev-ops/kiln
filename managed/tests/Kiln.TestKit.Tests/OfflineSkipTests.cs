@@ -15,15 +15,15 @@ public sealed class OfflineSkipTests
     {
         using var session = Session();
         var r = session.RunAll(typeof(TkOfflineMod));
-        var passed = r.Named("TkOfflineMod.Reads_spawn_and_passes");
+        var passed = r.Named("TkOfflineMod.Reads_settings_and_passes");
         Assert.Equal(TestOutcome.Skip, passed.Outcome);
-        Assert.Equal("needs kiln.spawn, which the test kit does not fake; the body passed", passed.Message);
-        Assert.Equal(["kiln.spawn"], passed.Unavailable);
+        Assert.Equal("needs kiln.settings, which the test kit does not fake; the body passed", passed.Message);
+        Assert.Equal(["kiln.settings"], passed.Unavailable);
         Assert.Equal(TestOutcome.Pass, passed.Runner!.Outcome);
-        var failed = r.Named("TkOfflineMod.Reads_spawn_and_fails");
+        var failed = r.Named("TkOfflineMod.Reads_settings_and_fails");
         Assert.Equal(TestOutcome.Fail, failed.Outcome);
-        Assert.Equal("needs kiln.spawn, which the test kit does not fake; the body failed: spawn should be there", failed.Message);
-        Assert.Equal(["kiln.spawn"], failed.Unavailable);
+        Assert.Equal("needs kiln.settings, which the test kit does not fake; the body failed: settings should be there", failed.Message);
+        Assert.Equal(["kiln.settings"], failed.Unavailable);
         Assert.Throws<Kiln.TestKit.Xunit.KilnTestFailedException>(() => Kiln.TestKit.Xunit.KilnTestReport.Report(failed));
         var feature = r.Named("TkOfflineMod.Reads_a_feature");
         Assert.Equal(TestOutcome.Skip, feature.Outcome);
@@ -75,11 +75,11 @@ public sealed class OfflineSkipTests
     [Fact]
     public void TheAllowListTurnsTheRuleOff()
     {
-        using var session = Session("kiln.spawn", "kiln.hooks");
-        Assert.Equal(TestOutcome.Pass, session.Run("TkOfflineMod.Reads_spawn_and_passes").Outcome);
-        var failed = session.Run("TkOfflineMod.Reads_spawn_and_fails");
+        using var session = Session("kiln.settings", "kiln.hooks");
+        Assert.Equal(TestOutcome.Pass, session.Run("TkOfflineMod.Reads_settings_and_passes").Outcome);
+        var failed = session.Run("TkOfflineMod.Reads_settings_and_fails");
         Assert.Equal(TestOutcome.Fail, failed.Outcome);
-        Assert.Equal("spawn should be there", failed.Message);
+        Assert.Equal("settings should be there", failed.Message);
         Assert.Equal(TestOutcome.Pass, session.Run("TkOfflineMod.Hooks_second").Outcome);
         Assert.Equal(TestOutcome.Skip, session.Run("TkOfflineMod.Reads_a_feature").Outcome);  // only the names allowed
     }
