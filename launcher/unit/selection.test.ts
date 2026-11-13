@@ -66,3 +66,38 @@ test("a Load or No profile of the game ends its selection, list open or not", as
   expect(selectionOf("g2", a).keys).toEqual([]);
   expect(selectionOf("g3", a).keys).toEqual(["kiln/x"]);
 });
+
+// pruneSelection (what both lists call when their rows change) and forgetSelected (what a removal calls)
+import { dropSelection, forgetSelected, pruneSelection, selectionOf, setSelection, useSelection } from "../src/shell/selection";
+
+test("a removed mod leaves every game's selection: added again under the same id it is not selected", () => {
+  dropSelection("g"); dropSelection("h");
+  setSelection("g", "p1", { keys: ["mod:a"], anchor: "mod:a" });
+  setSelection("h", "p2", { keys: ["mod:a", "mod:b"], anchor: "mod:b" });
+  // the list's own clean-up does not run on an empty list (the only mod was removed): the removal itself lets go
+  expect(pruneSelection("g", "p1", [], false)).toBe(0);
+  expect(selectionOf("g", "p1").keys).toEqual(["mod:a"]);
+  forgetSelected(["mod:a"]);
+  expect(selectionOf("g", "p1")).toEqual({ keys: [], anchor: null });
+  expect(selectionOf("h", "p2")).toEqual({ keys: ["mod:b"], anchor: "mod:b" });
+  // the same id is back in the list: nothing selects it
+  expect(pruneSelection("g", "p1", ["mod:a"], true)).toBe(0);
+  expect(selectionOf("g", "p1").keys).toEqual([]);
+  const before = useSelection.getState();
+  forgetSelected(["mod:zzz"]);
+  expect(useSelection.getState()).toBe(before); // nothing selected of it: no change, no re-render
+});
+
+test("nothing is let go while the rows are not read, nor for a list without a loaded profile", () => {
+  dropSelection("g");
+  setSelection("g", "p1", { keys: ["mod:a", "mod:b"], anchor: "mod:a" });
+  expect(pruneSelection("g", "p1", [], false)).toBe(0);
+  expect(pruneSelection("g", null, [], true)).toBe(0);
+  expect(selectionOf("g", "p1").keys).toEqual(["mod:a", "mod:b"]);
+  // read: the row that is gone leaves, and the bar's line is only asked for by the list that shows one
+  expect(pruneSelection("g", "p1", ["mod:b"], true, true)).toBe(1);
+  expect(useSelection.getState().byGame.g).toEqual({ owner: "p1", sel: { keys: ["mod:b"], anchor: null }, note: "1 not shown any more left the selection" });
+  setSelection("g", "p1", { keys: ["mod:b", "mod:c"], anchor: "mod:c" });
+  expect(pruneSelection("g", "p1", ["mod:b"], true)).toBe(1);
+  expect(useSelection.getState().byGame.g.note).toBeNull();
+});

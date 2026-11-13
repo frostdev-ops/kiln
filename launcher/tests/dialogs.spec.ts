@@ -55,3 +55,47 @@ test("on the Deck a dialog covers the screen the same way", async ({ page }) => 
   await expect(dialog).toHaveCount(0);
   await expect.poll(() => covered(page)).toBe(false);
 });
+
+test("a menu left open on the page closes when a dialog opens over it", async ({ page }) => {
+  await page.goto("/#/");
+  await page.locator(".k-splash").waitFor({ state: "detached" });
+  const list = page.locator(".k-hero").getByRole("list", { name: "Mods" });
+  await expect(list).toBeVisible({ timeout: 10_000 });
+  const rows = list.getByRole("listitem");
+  const first = rows.nth(0).getByRole("button", { name: /^More for / });
+  const second = rows.nth(1).getByRole("button", { name: /^More for / });
+  await first.click({ timeout: 10_000 });
+  await expect(page.getByRole("menu")).toHaveCount(1);
+  // the keyboard reaches another row's menu without a click anywhere: the first one stays open (it closes on a click
+  // elsewhere, on Escape, on a resize and on a scroll of its row)
+  await second.focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("menu")).toHaveCount(2);
+  // Remove in the second menu, by the keyboard: its dialog covers the page, and the first menu (which lives on the
+  // body, outside what the cover hides) goes with it
+  await page.getByRole("menu").last().getByRole("menuitem", { name: "Remove", exact: true }).focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("dialog")).toBeVisible();
+  await expect(page.getByRole("menu")).toHaveCount(0);
+  await page.getByRole("dialog").getByRole("button", { name: "Cancel" }).click();
+});
+
+test.describe("on Windows", () => {
+  test.use({ userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36 Edg/130.0.0.0" });
+  test("a dialog leaves the page's scrollbars alone: they take room there, and hiding them would shift the rows", async ({ page }) => {
+    await page.goto("/#/");
+    await page.locator(".k-splash").waitFor({ state: "detached" });
+    const list = page.locator(".k-hero").getByRole("list", { name: "Mods" });
+    await expect(list).toBeVisible({ timeout: 10_000 });
+    const row = list.getByRole("listitem").filter({ has: page.getByText("Night Sky", { exact: true }) });
+    const width = () => row.evaluate((el) => el.getBoundingClientRect().width);
+    const before = await width();
+    await row.getByRole("button", { name: "More for Night Sky" }).click({ timeout: 10_000 });
+    await page.getByRole("menuitem", { name: "Remove", exact: true }).click();
+    await expect(page.getByRole("dialog", { name: "Remove Night Sky?" })).toBeVisible();
+    expect(await covered(page)).toBe(false);
+    expect(await listScrollbar(page)).toBe("thin");
+    expect(await width()).toBe(before);
+    await page.getByRole("dialog").getByRole("button", { name: "Cancel" }).click();
+  });
+});

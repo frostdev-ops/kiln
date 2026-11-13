@@ -15,7 +15,7 @@ import { useEnsureProfile } from "../../shell/firstRun";
 import { bulkPlan, type ModRow } from "../../shell/mods";
 import { notifyAdd } from "../../shell/notices";
 import { NOT_REMOVABLE, removable, removeMany, removeMod, useRemoveCheck, useRemoveMany, withoutRows, type RemoveTarget } from "../../shell/removeMod";
-import { NONE, ownerOf, pick as pickSelected, setSelection, toggle as toggleSelected, useOwnedSelection } from "../../shell/selection";
+import { NONE, ownerOf, pick as pickSelected, pruneSelection, setSelection, toggle as toggleSelected, useOwnedSelection } from "../../shell/selection";
 import { useMods } from "../../shell/useMods";
 import { withDropin } from "../../pages/profiles/dropins";
 import { runTask, toast } from "../../ui";
@@ -73,6 +73,12 @@ export default function Mods() {
   const owner = ownerOf(mods.profileId, mods.profile);
   const { sel } = useOwnedSelection(gid, owner);
   const picked = pickSelected(sel, mods.rows);
+  // a row that is gone (removed elsewhere, or by a filter of the profile) leaves the selection
+  const rowKeys = mods.rows.map((r) => r.key).join("\n");
+  const read = !mods.loading && mods.rows.length > 0;
+  useEffect(() => {
+    if (gid) pruneSelection(gid, owner, rowKeys ? rowKeys.split("\n") : [], read);
+  }, [rowKeys, read, gid, owner]);
   const [selMenu, setSelMenu] = useState(false);
   const [removingMany, setRemovingMany] = useState<ModRow[] | null>(null);
   const many = useRemoveMany(removingMany ?? [], mods.profileId, !!removingMany);
