@@ -1,0 +1,10 @@
+{
+  "id": "loadouts",
+  "name": "Loadouts sample",
+  "version": "0.1.0",
+  "apiVersion": "0.2",
+  "license": "MIT",
+  "entryAssembly": "Loadouts.dll",
+  "side": "server",
+  "description": "/loadout save <name> remembers which kind of gear you wear in each slot, /loadout wear <name> puts gear of those kinds on again from your backpack. Shows Kiln's equip and unequip calls, how to read their refusals and how to stay with one player across steps."
+}

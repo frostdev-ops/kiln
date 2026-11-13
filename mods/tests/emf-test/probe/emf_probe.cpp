@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: MIT
-// emf_probe: an EMF mod (EMF C API v27, emf_api.h only) that checks kiln-emf's EmfApi table in a lab and logs
+// emf_probe: an EMF mod (EMF C API v40, emf_api.h only) that checks kiln-emf's EmfApi table in a lab and logs
 // one "PASS <what>" / "FAIL <what>" line per check, then "emf-probe done: N PASS, M FAIL". Player-free: it uses a
 // villager of the copied world (teleport, put/take items), spawns one Vukah next to it and kills it (damage ->
 // EntityDiedEvent), changes and resets a world setting, asks for a save, runs its own command through
 // emf/commands.txt, and hooks SimStep (chained over Kiln's own SimStep hook). Install: <game>/emf/mods/emf_probe/
-// (mod.json + emf_probe.dll); tools/emf/lab-check.sh does it. Not for real servers: it changes a villager's
+// (mod.json + emf_probe.dll); tools/emf/lab-check.py does it. Not for real servers: it changes a villager's
 // position for a moment, spawns a creature and saves the world.
 // v22-v26: the level curve and its refusals, change_component (ScaleComponent on a second Vukah), E-prompt offers
 // (offer / offer_active / offer_remove on it, spawn_offer), and the window / picture refusals of a dedicated server.
+// v28-v40: the two chat functions with flags, and the documented failure of every function Kiln does not carry yet.
 #include <windows.h>
 
 #include <atomic>
@@ -224,6 +225,95 @@ void ws_cb(const char* key, double, void*) {
     if (key && std::strcmp(key, "experienceCombatFactor") == 0) ++g_ws_changes;
 }
 
+// ---- v28-v40 (EMF 0.6.3 to 0.6.8) on a dedicated server, inside a server world callback ----
+int g_v40_callbacks = 0;
+void v40_checks(EmfWorld* w) {
+    // carried: chat lines with flags (kiln.chat's server lines have no speaker), world_to_screen (a server has no screen)
+    check(A->chat_broadcast_ex("[probe] a system line for everyone", EMF_CHAT_SYSTEM) && A->chat_broadcast_ex("[probe] flags 0", 0),
+          "chat_broadcast_ex queues a line with EMF_CHAT_SYSTEM and with flags 0");
+    check(!A->chat_broadcast_ex("x", 2) && !A->chat_broadcast_ex("x", EMF_CHAT_SYSTEM | 0x80),
+          "chat_broadcast_ex refuses flags it does not know");
+    check(!A->chat_tell_ex(w, 1, "x", EMF_CHAT_SYSTEM) && !A->chat_tell_ex(w, 1, "x", 4),
+          "chat_tell_ex to a player who is not there, and with unknown flags, is refused");
+    float px = -1, py = -1;
+    check(!A->world_to_screen(0, 0, 0, &px, &py) && px == -1 && py == -1, "world_to_screen is false on a dedicated server (px, py untouched)");
+
+    // not carried yet: the documented failure, cleared buffers, a reason where the request has room, no callback
+    char buf[32];
+    auto dirty = [&] { std::memset(buf, 'x', sizeof buf); };
+    check(!A->on_player([](EmfWorld*, const EmfPlayerEvent*, void*) { ++g_v40_callbacks; }, nullptr), "on_player answers false");
+    dirty();
+    const bool name0 = A->item_name(w, kWood, 0, buf, sizeof buf) == 0 && buf[0] == 0;
+    dirty();
+    check(name0 && A->game_language(buf, sizeof buf) == 0 && buf[0] == 0 && A->game_language(nullptr, 0) == 0,
+          "item_name and game_language answer 0 with an empty buffer");
+    dirty();
+    check(!A->player_character_name(w, 1, buf, sizeof buf) && buf[0] == 0, "player_character_name answers false with an empty buffer");
+    EmfHitRule rule{};
+    rule.size = sizeof rule;
+    check(!A->on_hit([](EmfWorld*, const EmfHit*, void*) { ++g_v40_callbacks; }, nullptr) &&
+              !A->on_hit_before([](EmfWorld*, EmfHit*, void*) { ++g_v40_callbacks; }, nullptr) && A->hit_rule_add(&rule) == 0 &&
+              !A->hit_rule_remove(1),
+          "hits: on_hit, on_hit_before, hit_rule_add, hit_rule_remove answer false / 0");
+    EmfBuffType bt{};
+    EmfBuff bf{};
+    auto buff_cb = [](EmfWorld*, const EmfBuffEvent*, void*) { ++g_v40_callbacks; };
+    dirty();
+    check(A->buff_types(w, &bt, 1) == 0 && !A->buff_type(w, 1, &bt) && !A->buff_text(1, 0, buf, sizeof buf) && buf[0] == 0 &&
+              A->buffs_of(w, 1, &bf, 1) == 0 && !A->buff_apply(w, 1, 2, 0, 0, 0, buff_cb, nullptr) &&
+              !A->buff_remove(w, 1, 2, buff_cb, nullptr) && !A->on_buff(buff_cb, nullptr),
+          "buffs: the seven functions answer false / 0");
+    EmfMarker mk{};
+    mk.size = sizeof mk;
+    mk.id = "probe";
+    EmfMapMarkerType mt{};
+    check(!A->marker_set(&mk) && !A->marker_remove("probe") && A->marker_clear() == 0 && A->marker_types(&mt, 1) == 0 &&
+              A->marker_send(0, &mk, 1) == 0 && A->marker_unsend(0, "probe") == 0,
+          "markers: the six functions answer false / 0");
+    double mx = 7, mz = 9;
+    check(!A->map_cursor(&mx, &mz) && mx == 7 && mz == 9 && !A->on_map_click([](const EmfMapClick*, void*) { ++g_v40_callbacks; }, nullptr) &&
+              !A->map_action("probe", "Probe", 0, [](EmfWorld*, const EmfMapDone*, void*) { ++g_v40_callbacks; }, nullptr) &&
+              !A->ground_at(w, 0, 0, [](EmfWorld*, const EmfGround*, void*) { ++g_v40_callbacks; }, nullptr),
+          "map: map_cursor, on_map_click, map_action, ground_at answer false");
+    EmfPlayerView view{};
+    view.size = sizeof view;
+    float explored = 4;
+    EmfGameMarker gm{};
+    EmfCanvas canvas{};
+    canvas.size = sizeof canvas;
+    EmfCanvasCmd cmd{};
+    check(!A->player_view(&view) && !A->fog_at(0, 0, &explored) && explored == 4 && A->map_markers(&gm, 1) == 0 &&
+              !A->canvas_set("probe", &canvas) && !A->canvas_draw("probe", &cmd, 1),
+          "minimap parts: player_view, fog_at, map_markers, canvas_set, canvas_draw answer false / 0");
+    EmfRemoveBuilding rb{};
+    rb.size = sizeof rb;
+    rb.entity = F.villager;
+    rb.refunded = 77;
+    const bool rb1 = !A->remove_building(w, &rb) && rb.refunded == 0 && rb.why[0] != 0;
+    const std::string rb_why = rb.why;
+    rb = {};
+    rb.size = 8;
+    rb.refunded = 77;
+    check(rb1 && !A->remove_building(w, &rb) && rb.refunded == 77 && rb.why[0] == 0 && !A->remove_building(w, nullptr),
+          "remove_building is refused with a reason; a request that is too small, or none, is refused untouched", rb_why);
+    EmfPathQuery q{};
+    q.size = sizeof q;
+    check(A->path_find(w, &q, [](EmfWorld*, uint32_t, const EmfPathResult*, const EmfPathPoint*, void*) { ++g_v40_callbacks; }, nullptr) == 0 &&
+              !A->path_cancel(1),
+          "paths: path_find answers 0, path_cancel false");
+    check(A->door_state(w, F.villager) == EMF_DOOR_NONE && !A->door_set(w, F.villager, 1, 0) && !A->door_lock(w, F.villager, 1),
+          "doors: door_state answers EMF_DOOR_NONE, door_set and door_lock false");
+    EmfEnemyOrder eo{};
+    eo.size = sizeof eo;
+    EmfMoveOrder mo{};
+    mo.size = sizeof mo;
+    check(A->enemy_order(w, &eo) == 0 && eo.why[0] != 0 && !A->enemy_order_cancel(1) && A->enemy_target(w, F.villager) == 0 &&
+              A->enemy_move(w, &mo, [](EmfWorld*, uint32_t, uint32_t, void*) { ++g_v40_callbacks; }, nullptr) == 0 && mo.why[0] != 0 &&
+              !A->enemy_move_cancel(1) && A->enemy_moving(w, F.villager) == 0,
+          "enemy orders and moves answer 0 / false, with a reason in the order", std::string(eo.why));
+    check(g_v40_callbacks == 0, "no callback of a function that is not carried was called");
+}
+
 void sync_checks(EmfWorld* w) {
     check(A->world_kind(w) == EMF_WORLD_SERVER && A->server_world() == w && A->client_world() == nullptr,
           "worlds: on_tick gets the server world; no client world on a dedicated server");
@@ -332,6 +422,7 @@ void sync_checks(EmfWorld* w) {
     char name[64];
     check(!A->player_name(w, 1, name, sizeof name), "player_name of a missing player is false");
     check(A->spawn(nullptr, kVukah, 0, 0, 0) == 0, "spawn refuses a world that is not the callback's");
+    v40_checks(w);
 }
 
 // ---- v22-v26 ----
@@ -671,9 +762,9 @@ void on_tick(EmfWorld* w, void*) {
 }  // namespace
 
 extern "C" __declspec(dllexport) bool emf_mod_load(const EmfApi* api) {
-    if (!api || api->version < 27 || api->size < sizeof(EmfApi)) return false;
+    if (!api || api->version < 40 || api->size < sizeof(EmfApi)) return false;
     A = api;
-    check(api->version == 27 && api->size == sizeof(EmfApi) && sizeof(EmfApi) == 728, "the table is EmfApi v27 of the SDK's size",
+    check(api->version == 40 && api->size == sizeof(EmfApi) && sizeof(EmfApi) == 1088, "the table is EmfApi v40 of the SDK's size",
           std::to_string(api->version) + ", " + std::to_string(api->size) + " bytes");
     bool all = true;
     for (size_t i = 0; i < (sizeof(EmfApi) - 8) / sizeof(void*); ++i)

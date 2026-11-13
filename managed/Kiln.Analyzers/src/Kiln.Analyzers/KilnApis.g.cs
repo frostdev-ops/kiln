@@ -32,6 +32,19 @@ internal static partial class KilnApis
         "M:Kiln.Abilities.SequenceOf(Kiln.EntityId)", // Abilities.SequenceOf(EntityId): Game.AssertTickThread
         "M:Kiln.AbilityCast.Impact(System.String,System.Nullable{Kiln.WorldPosition},Kiln.ImpactConfigs)", // AbilityCast.Impact(string, WorldPosition?, ImpactConfigs?): via Abilities.RunImpact(string, WorldPosition, ImpactOptions?)
         "M:Kiln.AbilityCast.PlaySequence(System.Guid,System.Boolean)", // AbilityCast.PlaySequence(Guid, bool): via Abilities.PlaySequence(EntityId, Guid, bool)
+        "M:Kiln.AffixPoolHandle.Roll(Kiln.ItemInstanceRef,System.Random,System.Boolean)", // AffixPoolHandle.Roll(ItemInstanceRef, Random?, bool): via Affixes.Roll(ItemInstanceRef, AffixPoolHandle, Random?, bool)
+        "M:Kiln.Affixes.Active(Kiln.EntityId)", // Affixes.Active(EntityId): Services.RequireTickThread
+        "M:Kiln.Affixes.Add(Kiln.ItemInstanceRef,System.String,System.Int32,System.Nullable{System.Double},System.Random)", // Affixes.Add(ItemInstanceRef, string, int, double?, Random?): via AffixRuntime.Guarded<T>(string, Func<InstanceKey<AffixData>, T>)
+        "M:Kiln.Affixes.Clear(Kiln.ItemInstanceRef)", // Affixes.Clear(ItemInstanceRef): via AffixRuntime.Guarded<T>(string, Func<InstanceKey<AffixData>, T>)
+        "M:Kiln.Affixes.Define(System.String,Kiln.AffixBlock)", // Affixes.Define(string, AffixBlock): via AffixRuntime.CallerMod(string)
+        "M:Kiln.Affixes.DefinePool(System.String,Kiln.AffixPoolBlock)", // Affixes.DefinePool(string, AffixPoolBlock): via AffixRuntime.CallerMod(string)
+        "M:Kiln.Affixes.LabTrack(Kiln.EntityId,System.Boolean)", // Affixes.LabTrack(EntityId, bool): Services.RequireTickThread
+        "M:Kiln.Affixes.Load(System.String)", // Affixes.Load(string): via AffixRuntime.CallerMod(string)
+        "M:Kiln.Affixes.Of(Kiln.ItemInstanceRef)", // Affixes.Of(ItemInstanceRef): via AffixRuntime.Guarded<T>(string, Func<InstanceKey<AffixData>, T>)
+        "M:Kiln.Affixes.Remove(Kiln.ItemInstanceRef,System.String)", // Affixes.Remove(ItemInstanceRef, string): via AffixRuntime.Guarded<T>(string, Func<InstanceKey<AffixData>, T>)
+        "M:Kiln.Affixes.Roll(Kiln.ItemInstanceRef,Kiln.AffixPoolHandle,System.Random,System.Boolean)", // Affixes.Roll(ItemInstanceRef, AffixPoolHandle, Random?, bool): via AffixRuntime.Guarded<T>(string, Func<InstanceKey<AffixData>, T>)
+        "M:Kiln.Affixes.Set(Kiln.ItemInstanceRef,System.Collections.Generic.IReadOnlyList{Kiln.RolledAffix})", // Affixes.Set(ItemInstanceRef, IReadOnlyList<RolledAffix>): via AffixRuntime.Guarded<T>(string, Func<InstanceKey<AffixData>, T>)
+        "M:Kiln.Affixes.StatOf(Kiln.EntityId,Kiln.Stat)", // Affixes.StatOf(EntityId, Stat): Services.RequireTickThread
         "M:Kiln.AiAccess.Get(System.String)", // AiAccess.Get(string): via AiAccess.Get(string, out bool)
         "M:Kiln.AiAccess.Get(System.String,System.Boolean@)", // AiAccess.Get(string, out bool): via Creatures.Tick(string)
         "M:Kiln.AiAccess.GetNumber(System.String)", // AiAccess.GetNumber(string): via AiAccess.Get(string)
@@ -505,7 +518,7 @@ internal static partial class KilnApis
         "M:Kiln.ReflectedValue.set_Item(System.String,System.Object)", // ReflectedValue.this[string].set: via ReflectedValue.Span()
         "M:Kiln.RuleSet.Update(Kiln.PlayerRules)", // RuleSet.Update(PlayerRules): Game.AssertTickThread
         "M:Kiln.Rules.Apply(Kiln.EntityId,Kiln.PlayerRules,System.Nullable{System.TimeSpan},System.String)", // Rules.Apply(EntityId, PlayerRules, TimeSpan?, string?): via Rules.Apply(RuleScope, PlayerRules, TimeSpan?, string?)
-        "M:Kiln.Rules.Apply(Kiln.RuleScope,Kiln.PlayerRules,System.Nullable{System.TimeSpan},System.String)", // Rules.Apply(RuleScope, PlayerRules, TimeSpan?, string?): Game.AssertTickThread
+        "M:Kiln.Rules.Apply(Kiln.RuleScope,Kiln.PlayerRules,System.Nullable{System.TimeSpan},System.String)", // Rules.Apply(RuleScope, PlayerRules, TimeSpan?, string?): via Rules.Apply(RuleScope, PlayerRules, TimeSpan?, string?, Action<RuleSet>?)
         "M:Kiln.Rules.Of(Kiln.EntityId)", // Rules.Of(EntityId): Game.AssertTickThread
         "M:Kiln.Rules.Simulate(Kiln.EntityId,System.Boolean)", // Rules.Simulate(EntityId, bool): Game.AssertTickThread
         "M:Kiln.Schematic.Capture(Kiln.CellBox,Kiln.CaptureOptions)", // Schematic.Capture(CellBox, CaptureOptions?): via Build.CornerOf(CellPos)

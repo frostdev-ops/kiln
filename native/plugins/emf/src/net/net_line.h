@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// From matenm/emf-enshrouded v0.6.0, src/core/net/net_line.h.
+// From matenm/emf-enshrouded v0.6.8, src/core/net/net_line.h.
 // Copyright (c) 2026 EMF contributors. See licenses/EMF-LICENSE.txt.
 #pragma once
 // Mod messages (API v27): the marked chat line EMF sends between a player's game and the server, and a message split

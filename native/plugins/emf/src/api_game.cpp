@@ -11,6 +11,7 @@
 #include <map>
 
 #include "emf_internal.h"
+#include "v26_model.h"
 
 namespace kemf {
 
@@ -365,16 +366,18 @@ void send_lines(KilnEntity to, const std::vector<std::string>& lines) {
     for (const auto& l : lines) S.chat->send(to, kstr(l), nullptr);
 }
 
-bool api_chat_tell(EmfWorld* w, uint32_t player, const char* text) {
-    Mod* m = caller_mod(_ReturnAddress());
-    if (!S.chat) return unsupported(m, "chat_tell", "kiln.chat is not available"), false;
-    if (!is_server_world(w)) return refuse(m, "chat_tell", "not a server world"), false;
+// chat_tell and chat_tell_ex (v30). kiln.chat's server lines are notices: a client shows them as their text alone,
+// without a speaker's name, also on a server with text chat off. That is what EMF_CHAT_SYSTEM asks for, so flags 0
+// and EMF_CHAT_SYSTEM send the same line here (on EMF a plain chat_tell shows under the player's own name).
+bool chat_tell(Mod* m, const char* fn, EmfWorld* w, uint32_t player, const char* text) {
+    if (!S.chat) return unsupported(m, fn, "kiln.chat is not available"), false;
+    if (!is_server_world(w)) return refuse(m, fn, "not a server world"), false;
     KilnChatPlayer p{};
     p.size = sizeof p;
-    if (!player || S.chat->find_player(player, &p) != KILN_OK) return refuse(m, "chat_tell", "no such player"), false;
+    if (!player || S.chat->find_player(player, &p) != KILN_OK) return refuse(m, fn, "no such player"), false;
     auto lines = chat_lines(text ? text : "");
     for (const auto& l : lines) mod_logf(m, KILN_LOG_INFO, "[tell %u] %s", player, l.c_str());
-    if (!rate_ok(m, lines.size())) return refuse(m, "chat_tell", "more than 30 lines in 10 s"), false;
+    if (!rate_ok(m, lines.size())) return refuse(m, fn, "more than 30 lines in 10 s"), false;
     if (g_api->on_tick_thread()) {
         send_lines(player, lines);
         return true;
@@ -382,17 +385,34 @@ bool api_chat_tell(EmfWorld* w, uint32_t player, const char* text) {
     return post_tick([player, lines] { send_lines(player, lines); });
 }
 
-bool api_chat_broadcast(const char* text) {
-    Mod* m = caller_mod(_ReturnAddress());
-    if (!S.chat) return unsupported(m, "chat_broadcast", "kiln.chat is not available"), false;
+bool chat_broadcast(Mod* m, const char* fn, const char* text) {
+    if (!S.chat) return unsupported(m, fn, "kiln.chat is not available"), false;
     auto lines = chat_lines(text ? text : "");
     for (const auto& l : lines) mod_logf(m, KILN_LOG_INFO, "[broadcast] %s", l.c_str());
-    if (!rate_ok(m, lines.size())) return refuse(m, "chat_broadcast", "more than 30 lines in 10 s"), false;
+    if (!rate_ok(m, lines.size())) return refuse(m, fn, "more than 30 lines in 10 s"), false;
     if (g_api->on_tick_thread()) {
         send_lines(0, lines);
         return true;
     }
     return post_tick([lines] { send_lines(0, lines); });
+}
+
+bool api_chat_tell(EmfWorld* w, uint32_t player, const char* text) {
+    return chat_tell(caller_mod(_ReturnAddress()), "chat_tell", w, player, text);
+}
+
+bool api_chat_broadcast(const char* text) { return chat_broadcast(caller_mod(_ReturnAddress()), "chat_broadcast", text); }
+
+bool api_chat_tell_ex(EmfWorld* w, uint32_t player, const char* text, uint32_t flags) {
+    Mod* m = caller_mod(_ReturnAddress());
+    if (flags & ~EMF_CHAT_SYSTEM) return refuse(m, "chat_tell_ex", "unknown flags"), false;
+    return chat_tell(m, "chat_tell_ex", w, player, text);
+}
+
+bool api_chat_broadcast_ex(const char* text, uint32_t flags) {
+    Mod* m = caller_mod(_ReturnAddress());
+    if (flags & ~EMF_CHAT_SYSTEM) return refuse(m, "chat_broadcast_ex", "unknown flags"), false;
+    return chat_broadcast(m, "chat_broadcast_ex", text);
 }
 
 bool api_player_name(EmfWorld* w, uint32_t player, char* buf, uint32_t size) {
@@ -990,7 +1010,8 @@ void update_demand() {
 void KILN_CALL hud_frame(const KilnUiFrame* f, void*) {
     std::lock_guard lock(g_hud_mutex);
     const uint64_t now = now_ms();
-    while (!g_notes.empty() && g_notes.front().until < now) g_notes.pop_front();
+    // every expired note goes, not only leading ones: notes do not all stay equally long (core_note's stay longer)
+    std::erase_if(g_notes, [now](const Note& n) { return n.until < now; });
     const float lh = 20.0f * (f->dpi_scale > 0 ? f->dpi_scale : 1.0f);
     float y[3] = {f->height * 0.25f, f->height - 40.0f * (f->dpi_scale > 0 ? f->dpi_scale : 1.0f), f->height - 40.0f * (f->dpi_scale > 0 ? f->dpi_scale : 1.0f)};
     // bottom places grow upwards: count lines first
@@ -1006,12 +1027,18 @@ void KILN_CALL hud_frame(const KilnUiFrame* f, void*) {
         S.ui->draw_text(x, y[p], l.rgba ? l.rgba : 0xFFFFFFE6u, 0, kstr(l.text));
         y[p] += lh;
     }
+    // a note is at most three rows that fit the screen (EMF: "an on-screen note has 3 rows"), each centred
+    const auto text_width = [](std::string_view t) {
+        float w = 0, h = 0;
+        S.ui->text_size(kstr(t), 0, &w, &h);
+        return w;
+    };
     float ny = 60.0f;
     for (const auto& n : g_notes) {
-        float w = 0, h = 0;
-        S.ui->text_size(kstr(n.text), 0, &w, &h);
-        S.ui->draw_text((f->width - w) * 0.5f, ny, 0xFFE9A0FFu, 0, kstr(n.text));
-        ny += lh;
+        for (const auto& row : v26::note_rows(n.text, f->width * 0.8f, 3, text_width)) {
+            S.ui->draw_text((f->width - text_width(row)) * 0.5f, ny, 0xFFE9A0FFu, 0, kstr(row));
+            ny += lh;
+        }
     }
     if (g_hud.empty() && g_notes.empty() && !windows_want_frame()) S.ui->set_demand(0);
 }
@@ -1068,6 +1095,18 @@ void api_notify(const char* fmt, ...) {
 
 }  // namespace
 
+// A note of kiln-emf itself, not of a mod (the mod check's warning to the player). Any thread. It stays longer than a
+// mod's note: it is one long sentence, shown once per session.
+void core_note(std::string_view text) {
+    logf(KILN_LOG_INFO, "[note] %.*s", static_cast<int>(text.size()), text.data());
+    if (!S.ui) return;
+    std::lock_guard lock(g_hud_mutex);
+    g_notes.push_back({std::string(text), now_ms() + 10000});
+    while (g_notes.size() > 5) g_notes.pop_front();
+    ensure_frame();
+    update_demand();
+}
+
 void hud_on_ready() {}
 
 uint32_t spawn_for(Mod* m, EmfWorld* w, const uint8_t guid[16], double x, double y, double z, const char* fn) {
@@ -1099,6 +1138,8 @@ void fill_game(EmfApi* t) {
     t->damage = &api_damage;
     t->chat_tell = &api_chat_tell;
     t->chat_broadcast = &api_chat_broadcast;
+    t->chat_tell_ex = &api_chat_tell_ex;            // v30
+    t->chat_broadcast_ex = &api_chat_broadcast_ex;  // v30
     t->player_name = &api_player_name;
     t->request_save = &api_request_save;
     t->teleport = &api_teleport;

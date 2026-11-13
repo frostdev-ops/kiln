@@ -2,6 +2,10 @@
 // Data on one item (docs/kiln/modding/inventory.md, "Data on one item"): /notch cuts a notch into the weapon or tool in
 // your hand. The count belongs to that one item, not to its slot or to its kind: move it to a chest, swap it with an
 // identical sword, save, restart, and it is still on it. /notches lists every notched item.
+//
+// The mod runs on both sides (kiln.mod.json "side": "both"). The server keeps the counts; the key says the player who
+// holds the item may see its count (Sync = InstanceSync.Holder), so Kiln sends it to that player's game, where this same
+// mod shows it as a notice. A player without the mod, or without Kiln, plays as before and sees nothing of it.
 using Kiln;
 
 namespace ItemData;
@@ -19,10 +23,24 @@ public sealed class ItemDataMod : Mod
 
     public override void OnLoad()
     {
-        // One typed key per kind of value. Persist.World (the default) keeps it in this world's save, in a chest or in a
-        // player's backpack alike.
-        _notches = InstanceData.Key<Notches>("notches");
-        Log.Info($"item-data: key {_notches} declared; {InstanceData.All(_notches).Count} notched item(s) in this session so far");
+        // One typed key per kind of value, declared the same way on the server and in a player's game. Persist.World (the
+        // default) keeps it in this world's save, in a chest or in a player's backpack alike. Sync.Holder sends it to the
+        // game of the player who holds the item.
+        _notches = InstanceData.Key<Notches>("notches", new InstanceKeyOptions { Sync = InstanceSync.Holder });
+        // The server's calls need a world with items: a game client that only joins a server has none.
+        Log.Info(Capabilities.Is("saves.instance_data")
+            ? $"item-data: key {_notches} declared; {InstanceData.All(_notches).Count} notched item(s) in this session so far"
+            : $"item-data: key {_notches} declared; no item data of its own here ({Capabilities.Why("saves.instance_data")})");
+    }
+
+    // In the player's game: the server's copy of a count arrived or changed. The copy is read-only; e.Item says which item
+    // (its slot in the holder, its type) and whether this game's player holds it.
+    [Subscribe]
+    private void OnSynced(InstanceDataSyncedEvent e)
+    {
+        if (e.Mod != Context.Info.Id || e.Change != InstanceSyncChange.Set || !e.Item.TryGet(_notches, out var n)) return;
+        Log.Info($"item-data: the server says {n.Count} notch(es) on {e.Item}");
+        if (Ui.Available) Hud.Toast($"{n.Count} notch(es) on the item in slot {e.Item.FlatSlot}");
     }
 
     [Command("notch", Description = "cut a notch into the weapon or tool in your hand")]

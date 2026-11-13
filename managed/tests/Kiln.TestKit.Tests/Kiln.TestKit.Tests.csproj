@@ -45,6 +45,7 @@
     <ProjectReference Include="../../services/Kiln.Spawn/Kiln.Spawn.csproj" />
     <ProjectReference Include="../../services/Kiln.Items/Kiln.Items.csproj" />
     <ProjectReference Include="../../services/Kiln.World/Kiln.World.csproj" />
+    <ProjectReference Include="../../services/Kiln.Time/Kiln.Time.csproj" />
     <!-- Kiln's sample mods: built folders for LoadFolder; SampleTests also referenced so a suite can name its class. -->
     <TkSample Include="../../../mods/samples/SampleLib/SampleLib.csproj" />
     <TkSample Include="../../../mods/samples/SampleConsumer/SampleConsumer.csproj" />
@@ -54,6 +55,8 @@
     <TkSample Include="../../../mods/samples/AdminTools/AdminTools.csproj" />
     <TkSample Include="../../../mods/samples/CalmBell/CalmBell.csproj" />
     <TkSample Include="../../../mods/samples/QuietServer/QuietServer.csproj" />
+    <TkSample Include="../../../mods/samples/Loadouts/Loadouts.csproj" />
+    <TkSample Include="../../../mods/samples/SkyControl/SkyControl.csproj" />
     <ProjectReference Include="@(TkSample)" ReferenceOutputAssembly="false" />
     <TkSample Include="../../../mods/samples/SampleTests/SampleTests.csproj" />
     <ProjectReference Include="../../../mods/samples/SampleTests/SampleTests.csproj" />

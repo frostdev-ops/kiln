@@ -94,6 +94,15 @@ public sealed partial class ClientPassMod
         "Upload kiln-server-<version>.zip to a rented Enshrouded host as its page says, with one server mod, start the " +
         "server and join it. Did the server start with Kiln (its log names Kiln) and could you join and see the mod act?");
 
+    [ClientCheck("emf.mods-check", "An EMF server's mod check on join", Area = "Other frameworks", Since = Dev27,
+        Tags = [OtherHost], Order = 934)]
+    public Task EmfModsCheck(CheckContext c) => Outside(c,
+        "Join a server that runs EMF 0.6.8 with [net] mods_check=refuse and at least one mod with a channel, with the same " +
+        "EMF mods in your own game. After 90 seconds you are still connected, and kiln.log has \"EMF mods check: against " +
+        "the server's mods: same mods\". Then, with the server on mods_check=warn and one of its \"side\": \"both\" mods " +
+        "missing in your game: one note at the top of the screen names the mod and ends \"Install the same versions in " +
+        "the Kiln launcher.\", in at most three rows. Did you stay connected, and did the note show as described?");
+
     [ClientCheck("launcher.linked-home", "An EML mod on a host where /home links to /var/home", Area = "Launcher",
         Since = Dev21, Tags = [OtherHost], Order = 933)]
     public Task LauncherLinkedHome(CheckContext c) => Outside(c,
