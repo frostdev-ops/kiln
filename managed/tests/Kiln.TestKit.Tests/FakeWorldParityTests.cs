@@ -14,7 +14,7 @@ using Xunit;
 
 namespace Kiln.TestKit.Tests;
 
-public sealed class FakeWorldParityTests
+public sealed unsafe class FakeWorldParityTests
 {
     private static JsonNode Fixture(string file, [CallerFilePath] string self = "")
     {
@@ -127,6 +127,7 @@ public sealed class FakeWorldParityTests
         kiln.Step();
         var e = kiln.Entities.Create();
         kiln.Entities.Set(e, new Ecs.ScaleComponent { uniformScale = 0f });
+        Spawned(kiln, e, 12345);   // with a generation, a write may wait behind a full step
         var mod = kiln.Mod("tk-world");
         var tasks = kiln.As(mod, () => Enumerable.Range(1, (int)b["submitted"]!)
             .Select(i => World.Write(e, new Ecs.ScaleComponent { uniformScale = i })).ToList());
@@ -161,8 +162,43 @@ public sealed class FakeWorldParityTests
 
     // ---- an entity that goes away while its write waits ----
 
+    // An entity's generation is its SpawnTime (8 bytes), as the game gives every entity it spawns.
+    private static void Spawned(KilnHarness kiln, EntityId e, long spawnTime) =>
+        kiln.Entities.SetBytes(e, "SpawnTime", BitConverter.GetBytes(spawnTime));
+
+    private static List<Task<WorldWriteResult>> Filler(KilnHarness kiln, ModHandle mod, int count)
+    {
+        var filler = kiln.Entities.Create();
+        kiln.Entities.Set(filler, new Ecs.ScaleComponent { uniformScale = 0f });
+        Spawned(kiln, filler, 777);
+        return kiln.As(mod, () => Enumerable.Range(1, count).Select(i => World.Write(filler, new Ecs.ScaleComponent { uniformScale = i })).ToList());
+    }
+
     [Fact]
-    public void A_write_that_waits_while_its_player_leaves_never_lands_on_the_next_player_in_the_slot()
+    public void A_write_whose_entity_was_made_again_under_its_id_is_refused_right_before_the_write()
+    {
+        var lt = Parity["lifetime"]!;
+        using var kiln = new KilnHarness();
+        Load(kiln);
+        kiln.Step();
+        var mod = kiln.Mod("tk-world");
+        var e = kiln.Entities.Create();
+        kiln.Entities.Set(e, new Ecs.ScaleComponent { uniformScale = 1f });
+        Spawned(kiln, e, 111);
+        Filler(kiln, mod, (int)lt["filler"]!);
+        var mine = kiln.As(mod, () => World.Write(e, new Ecs.ScaleComponent { uniformScale = 9f }));
+        kiln.Step();                            // the filler takes the step; the entity is there at the watch
+        Assert.False(mine.IsCompleted);
+        Spawned(kiln, e, 222);                  // between two steps the id names a new entity (another SpawnTime)
+        kiln.Step();
+        var want = lt["replaced"]!;
+        Assert.Equal((string)want["status"]!, mine.Result.Status.ToString());
+        Assert.Contains((string)want["reasonContains"]!, mine.Result.Reason);
+        Assert.Equal(1f, kiln.Entities.Get<Ecs.ScaleComponent>(e).uniformScale);
+    }
+
+    [Fact]
+    public void A_write_for_an_entity_without_a_generation_is_not_kept_waiting_behind_a_full_step()
     {
         var lt = Parity["lifetime"]!;
         using var kiln = new KilnHarness();
@@ -170,27 +206,102 @@ public sealed class FakeWorldParityTests
         kiln.Step();
         var ada = kiln.Players.Join("Ada", position: new WorldPosition(1, 2, 3));
         kiln.Step();
-        kiln.Entities.Set(ada.Entity, new Ecs.ScaleComponent { uniformScale = 1f });
-        var filler = kiln.Entities.Create();
-        kiln.Entities.Set(filler, new Ecs.ScaleComponent { uniformScale = 0f });
+        kiln.Entities.Set(ada.Entity, new Ecs.ScaleComponent { uniformScale = 1f });   // a player: no SpawnTime here
         var mod = kiln.Mod("tk-world");
-        var mine = kiln.As(mod, () =>
-        {
-            for (var i = 1; i <= (int)lt["filler"]!; i++) _ = World.Write(filler, new Ecs.ScaleComponent { uniformScale = i });
-            return World.Write(ada.Entity, new Ecs.ScaleComponent { uniformScale = 9f });
-        });
+        Filler(kiln, mod, (int)lt["filler"]!);
+        var mine = kiln.As(mod, () => World.Write(ada.Entity, new Ecs.ScaleComponent { uniformScale = 9f }));
         ada.Leave();
-        kiln.Step();                       // the filler takes the step; Ada is gone at its end
-        Assert.False(mine.IsCompleted);
-        Assert.False(kiln.Entities.Exists(ada.Entity) && kiln.Entities.TryGet<Ecs.ScaleComponent>(ada.Entity, out _));
+        kiln.Step();
+        var want = lt["noGeneration"]!;
+        Assert.True(mine.IsCompleted);          // answered at once, never queued behind the filler
+        Assert.Equal((string)want["status"]!, mine.Result.Status.ToString());
+        Assert.Contains((string)want["reasonContains"]!, mine.Result.Reason);
         var bea = kiln.Players.Join("Bea");
         Assert.Equal(ada.Entity, bea.Entity);   // the same slot: the same id
         Assert.False(kiln.Entities.TryGet<Ecs.ScaleComponent>(bea.Entity, out _));   // Ada's record did not become Bea's
         kiln.Entities.Set(bea.Entity, new Ecs.ScaleComponent { uniformScale = 3f });
-        kiln.Step();
-        Assert.Equal((string)lt["status"]!, mine.Result.Status.ToString());
-        Assert.Contains((string)lt["reasonContains"]!, mine.Result.Reason);
+        kiln.Step(2);
         Assert.Equal(3f, kiln.Entities.Get<Ecs.ScaleComponent>(bea.Entity).uniformScale);
+        // with room in the next step, a write to an entity without a generation runs as any other
+        var now = kiln.As(mod, () => World.Write(bea.Entity, new Ecs.ScaleComponent { uniformScale = 4f }));
+        kiln.Step();
+        Assert.Equal(WorldWriteStatus.Written, now.Result.Status);
+    }
+
+    [Fact]
+    public void A_waiting_write_never_lands_on_the_next_player_in_the_slot()
+    {
+        using var kiln = new KilnHarness();
+        Load(kiln);
+        kiln.Step();
+        var ada = kiln.Players.Join("Ada");
+        kiln.Step();
+        kiln.Entities.Set(ada.Entity, new Ecs.ScaleComponent { uniformScale = 1f });
+        Spawned(kiln, ada.Entity, 111);
+        var mod = kiln.Mod("tk-world");
+        Filler(kiln, mod, WorldAbi.PerUpdate);
+        var mine = kiln.As(mod, () => World.Write(ada.Entity, new Ecs.ScaleComponent { uniformScale = 9f }));
+        ada.Leave();
+        kiln.Step();                            // the filler takes the step; Ada is gone at its end
+        Assert.False(mine.IsCompleted);
+        var bea = kiln.Players.Join("Bea");
+        kiln.Entities.Set(bea.Entity, new Ecs.ScaleComponent { uniformScale = 3f });
+        Spawned(kiln, bea.Entity, 222);
+        kiln.Step();
+        Assert.Equal(WorldWriteStatus.NoComponent, mine.Result.Status);
+        Assert.Equal(3f, kiln.Entities.Get<Ecs.ScaleComponent>(bea.Entity).uniformScale);
+    }
+
+    // The review's case: 4096 refusals wait, 1024 are delivered, and a callback submits 1024 more while its batch is being
+    // delivered. A request counts until its answer was handed over, so the total never passes 4096.
+    private static int _accepted, _refused;
+    private static ulong _owner;
+
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static void SubmitMore(WorldAbi.WriteResult* r, void* user)
+    {
+        for (var i = 0; i < 1024; i++)
+            if (Refusal(null) == FakeTables.Ok) _accepted++;
+            else _refused++;
+    }
+
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static void Ignore(WorldAbi.WriteResult* r, void* user) { }
+
+    // A write of a type nobody lists (refused at submit), through the kit's own table as a native service would call it.
+    private static int Refusal(delegate* unmanaged[Cdecl]<WorldAbi.WriteResult*, void*, void> callback)
+    {
+        var t = (WorldAbi.Table*)WorldTable.Create();
+        var one = (byte)1;
+        WorldAbi.WriteRequest r = default;
+        r.Size = (uint)sizeof(WorldAbi.WriteRequest);
+        r.Entity = 5;
+        r.Component = WorldAbi.Hash("Stamina");
+        r.Offset = 8;
+        r.Length = 1;
+        r.Data = &one;
+        r.Callback = callback == null ? &Ignore : callback;
+        ulong ticket;
+        return t->WriteSubmit(_owner, &r, &ticket);
+    }
+
+    [Fact]
+    public void A_request_counts_against_the_limit_until_its_answer_was_handed_over()
+    {
+        using var kiln = new KilnHarness();
+        Load(kiln);
+        kiln.Step();
+        _accepted = _refused = 0;
+        kiln.Run(() =>
+        {
+            Assert.Equal(FakeTables.Ok, Refusal(&SubmitMore));
+            for (var i = 1; i < WorldAbi.MaxPending; i++) Assert.Equal(FakeTables.Ok, Refusal(null));
+            Assert.Equal(FakeTables.BufferTooSmall, Refusal(null));   // 4096 wait
+        });
+        kiln.Step();   // delivers 1024: the first answer's callback submits 1024 while the other 1023 are still to come
+        Assert.Equal(0, _accepted);
+        Assert.Equal(1024, _refused);
+        Assert.Equal(FakeTables.Ok, kiln.Run(() => Refusal(null)));   // 1023 handed over and the callback's own: places again
     }
 
     [Fact]
@@ -213,6 +324,76 @@ public sealed class FakeWorldParityTests
         kiln.Step();
         kiln.Run(() => Assert.False(World.Has(bea.Entity, "ScaleComponent")));
         Assert.DoesNotContain(ada.Entity, kiln.Entities.All);
+    }
+
+    // ---- a "writes" list the readers cannot take: the mod loads, its tracked writes are refused ----
+
+    public static TheoryData<string> BadLists() => ["null", "trailing newline", "65 copies"];
+
+    [Theory]
+    [MemberData(nameof(BadLists))]
+    public void A_mod_with_a_list_kiln_world_cannot_read_still_loads_and_its_writes_say_why(string which)
+    {
+        var copy = Directory.CreateTempSubdirectory("kiln-bad-writes-").FullName;
+        try
+        {
+            foreach (var f in Directory.GetFiles(TestMods.Folder("TkWorld"))) File.Copy(f, Path.Combine(copy, Path.GetFileName(f)));
+            var path = Path.Combine(copy, "kiln.mod.json");
+            var manifest = JsonNode.Parse(File.ReadAllText(path), documentOptions: new System.Text.Json.JsonDocumentOptions
+                { CommentHandling = System.Text.Json.JsonCommentHandling.Skip, AllowTrailingCommas = true })!.AsObject();
+            manifest["writes"] = which switch
+            {
+                "null" => null,
+                "trailing newline" => new JsonArray("Fuel\n"),
+                _ => new JsonArray([.. Enumerable.Repeat<JsonNode?>("Fuel", 65).Select(n => n?.DeepClone())]),
+            };
+            File.WriteAllText(path, manifest.ToJsonString());
+            using var kiln = new KilnHarness();
+            var mod = kiln.LoadFolder(copy);
+            kiln.Step();
+            Assert.True(mod.IsLoaded, mod.Error);
+            Assert.True(kiln.HasLog("\"writes\" is not read"), kiln.DumpLogs());
+            Assert.Equal(WorldWriteState.ListRefused, kiln.As(mod, () => World.WriteInfo<Ecs.Fuel>().State));
+            var e = kiln.Entities.Create();
+            kiln.Entities.Set(e, new Ecs.ScaleComponent { uniformScale = 1f });
+            var r = kiln.As(mod, () => World.Write(e, new Ecs.ScaleComponent { uniformScale = 2f }));
+            kiln.Step();
+            Assert.Equal(WorldWriteStatus.NotDeclared, r.Result.Status);
+            Assert.Contains("was not read when the server started", r.Result.Reason);
+            Assert.Equal(1f, kiln.Entities.Get<Ecs.ScaleComponent>(e).uniformScale);
+        }
+        finally { Directory.Delete(copy, recursive: true); }
+    }
+
+    [Fact]
+    public void Without_a_way_to_check_names_every_listed_name_is_refused()
+    {
+        var lists = WriteLists.Admit([("a", ["Fuel", "NoSuchComponentKiln"])], inWorld: null);
+        Assert.All(lists.Types.Values, s => Assert.Equal(WorldAbi.Unknown, s));
+    }
+
+    // ---- a read changes nothing ----
+
+    [Fact]
+    public void Moving_a_player_s_entity_is_seen_at_once_and_kept_by_the_next_step()
+    {
+        using var kiln = new KilnHarness();
+        Load(kiln);
+        kiln.Step();
+        var ada = kiln.Players.Join("Ada", position: new WorldPosition(1, 2, 3));
+        kiln.Step();
+        kiln.Run(() => Assert.Equal(new WorldPosition(1, 2, 3), World.Position(ada.Entity)));
+        kiln.Entities.SetPosition(ada.Entity, new WorldPosition(7, 8, 9));
+        kiln.Run(() => Assert.Equal(new WorldPosition(7, 8, 9), World.Position(ada.Entity)));   // read at once: not put back
+        kiln.Run(() => Assert.Equal(new WorldPosition(7, 8, 9), World.Position(ada.Entity)));   // and a second read neither
+        Assert.Equal(new WorldPosition(7, 8, 9), ada.Position);   // the player moved with it
+        kiln.Step();
+        kiln.Run(() => Assert.Equal(new WorldPosition(7, 8, 9), World.Position(ada.Entity)));
+        // the test moves the player: the world follows when it steps, as the game's movement does
+        ada.Position = new WorldPosition(4, 4, 4);
+        kiln.Run(() => Assert.Equal(new WorldPosition(7, 8, 9), World.Position(ada.Entity)));
+        kiln.Step();
+        kiln.Run(() => Assert.Equal(new WorldPosition(4, 4, 4), World.Position(ada.Entity)));
     }
 
     // ---- where an entity stands is its CurrentTransform ----

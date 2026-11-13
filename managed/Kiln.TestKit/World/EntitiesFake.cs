@@ -12,13 +12,16 @@ namespace Kiln.TestKit;
 
 /// <summary>Which listed component types the write program takes, by kiln.world's rule (write_queue.h
 /// WriteDeclarations add + admit): mods in boot order, each mod's names in its order, a name listed twice counted once; a
-/// name the world has no component type for is refused as unknown and takes no accessor; of the others the first 92 are
-/// the program's and the rest over the limit.</summary>
+/// name the world has no component type for is refused as unknown and takes no accessor; of the others the first 91 are
+/// the program's and the rest over the limit. Without a way to tell (<paramref name="inWorld"/> null: no Kiln.Game beside
+/// the tests) every name is refused: the kit cannot check one. A mod whose list was not read is refused whole.</summary>
 internal static class WriteLists
 {
-    internal sealed record Result(Dictionary<string, HashSet<uint>> Listed, Dictionary<uint, uint> Types, Dictionary<uint, string> Names);
+    internal sealed record Result(Dictionary<string, HashSet<uint>> Listed, Dictionary<uint, uint> Types, Dictionary<uint, string> Names,
+        Dictionary<string, string> Refused);
 
-    public static Result Admit(IEnumerable<(string Mod, IReadOnlyList<string> Writes)> mods, Func<uint, bool>? inWorld)
+    public static Result Admit(IEnumerable<(string Mod, IReadOnlyList<string> Writes)> mods, Func<uint, bool>? inWorld,
+        IReadOnlyDictionary<string, string>? refusedLists = null)
     {
         var listed = new Dictionary<string, HashSet<uint>>(StringComparer.Ordinal);
         var names = new Dictionary<uint, string>();
@@ -37,10 +40,10 @@ internal static class WriteLists
         var types = new Dictionary<uint, uint>();
         var taken = 0;
         foreach (var hash in order)
-            types[hash] = inWorld is not null && !inWorld(hash) ? WorldAbi.Unknown
+            types[hash] = inWorld is null || !inWorld(hash) ? WorldAbi.Unknown
                 : taken++ < WorldAbi.MaxTypes ? WorldAbi.Ready
                 : WorldAbi.OverLimit;
-        return new Result(listed, types, names);
+        return new Result(listed, types, names, new Dictionary<string, string>(refusedLists ?? new Dictionary<string, string>(), StringComparer.Ordinal));
     }
 }
 
@@ -63,7 +66,8 @@ internal sealed unsafe class EntitiesFake : IDisposable
         public delegate* unmanaged[Cdecl]<WorldAbi.WriteResult*, void*, void> Callback;
         public void* User;
         public string Mod = "";
-        public bool Lost;
+        public bool Lost, HasGeneration;
+        public ulong Generation;
         public uint Status = WorldAbi.Dropped, OutFlags, ComponentSize, Writers, Steps;
         public byte[]? Before, After;
         public string Reason = "";
@@ -98,6 +102,7 @@ internal sealed unsafe class EntitiesFake : IDisposable
     private readonly List<FakeWorldWrite> _record = [];
     private readonly List<Job> _pending = [], _checking = [], _done = [];
     private readonly Dictionary<ulong, ulong> _delivering = [];  // drained in this step's delivery: ticket -> owner
+    private int _open;  // accepted requests whose answer has not been handed over (write_queue.h open_)
     private Meta _meta;
     private uint _nextEntity = 2000;
     private ulong _lastTicket, _steps, _submitted, _written, _unchanged, _failed;
@@ -114,14 +119,7 @@ internal sealed unsafe class EntitiesFake : IDisposable
 
     public ulong Steps => _steps;
 
-    public int Count
-    {
-        get
-        {
-            RetireDeparted();
-            return _entities.Count;
-        }
-    }
+    public int Count => _entities.Keys.Count(id => Live(id) is not null);
 
     public IReadOnlyList<FakeWorldWrite> Record
     {
@@ -131,14 +129,7 @@ internal sealed unsafe class EntitiesFake : IDisposable
         }
     }
 
-    public IReadOnlyList<uint> Entities
-    {
-        get
-        {
-            RetireDeparted();
-            return [.. _entities.Keys.Order()];
-        }
-    }
+    public IReadOnlyList<uint> Entities => [.. _entities.Keys.Where(id => Live(id) is not null).Order()];
 
     // The tick thread changed what WriteInfo answers from: publish it whole.
     private void Publish(WriteLists.Result? lists = null) =>
@@ -189,35 +180,28 @@ internal sealed unsafe class EntitiesFake : IDisposable
         foreach (var id in gone) Destroy(id);
     }
 
-    private Entity? Live(uint entity)
-    {
-        if (!_entities.TryGetValue(entity, out var e)) return null;
-        if (e.Player is { Phase: FakePlayer.Stage.Left })
-        {
-            Destroy(entity);
-            return null;
-        }
-        return e;
-    }
+    // A read: a departed player's record reads as gone, and nothing changes (it is retired when the world steps).
+    private Entity? Live(uint entity) =>
+        _entities.TryGetValue(entity, out var e) && e.Player is not { Phase: FakePlayer.Stage.Left } ? e : null;
 
     /// <summary>An entity of the fake world, or a fake player's (which stands in the world without being made here).</summary>
     public bool Exists(uint entity) => Live(entity) is not null || Player(entity) is not null;
 
-    // The entity's record; a fake player's entity gets one at its first component.
+    // The entity's record; a fake player's entity gets one at its first component (the record of the player who held the
+    // slot before is retired first).
     private Entity Need(uint entity)
     {
+        RetireDeparted();
         if (Live(entity) is { } e) return e;
         if (Player(entity) is not { } player) throw new ArgumentException($"entity {entity} is not in the fake world (make it with Create, or join a fake player)");
         return _entities[entity] = new Entity { Player = player };
     }
 
-    public Slot? Block(uint entity, uint hash)
-    {
-        if (hash == WorldAbi.CurrentTransform) FollowPlayer(entity);
-        return Live(entity) is { } e && e.Components.TryGetValue(hash, out var slot) ? slot : null;
-    }
+    public Slot? Block(uint entity, uint hash) =>
+        Live(entity) is { } e && e.Components.TryGetValue(hash, out var slot) ? slot : null;
 
-    // A fake player's CurrentTransform is where the test says the player stands, as the game's movement writes it.
+    // A fake player's CurrentTransform is where the test says the player stands, written as the game's movement writes it:
+    // when the world steps, never on a read.
     private void FollowPlayer(uint entity)
     {
         if (Player(entity) is not { LivePosition: { } position }) return;
@@ -227,7 +211,7 @@ internal sealed unsafe class EntitiesFake : IDisposable
             var now = WorldAbi.DecodeTransform(new ReadOnlySpan<byte>((void*)slot.Data, slot.Size));
             if (now.Position == position) return;
         }
-        SetPosition(entity, position);
+        SetTransform(entity, position);
     }
 
     // ---- the transform: CurrentTransform's bytes are the only record of where an entity stands ----
@@ -240,8 +224,14 @@ internal sealed unsafe class EntitiesFake : IDisposable
             : null;
 
     /// <summary>Moves an entity: the position of its CurrentTransform (rotation and scale stay; a new one gets the identity
-    /// rotation and scale 1).</summary>
+    /// rotation and scale 1). A fake player's entity moves the player with it, so the next step keeps it there.</summary>
     public void SetPosition(uint entity, WorldPosition position)
+    {
+        if (Player(entity) is { } player && player.LivePosition != position) player.Position = position;
+        SetTransform(entity, position);
+    }
+
+    private void SetTransform(uint entity, WorldPosition position)
     {
         var e = Need(entity);
         var size = TypesFake.Find(WorldAbi.CurrentTransform)?.Size is int s and >= WorldAbi.TransformMinSize ? s : TransformSize;
@@ -289,10 +279,7 @@ internal sealed unsafe class EntitiesFake : IDisposable
     /// types do not name it; without them, no entity ever had it).</summary>
     public List<uint>? With(uint hash)
     {
-        RetireDeparted();
-        if (hash == WorldAbi.CurrentTransform)
-            foreach (var p in _harness.PlayersFake?.Present ?? []) FollowPlayer(p.Entity.Value);
-        var found = _entities.Where(e => e.Value.Components.ContainsKey(hash)).Select(e => e.Key).Order().ToList();
+        var found = _entities.Where(e => Live(e.Key) is not null && e.Value.Components.ContainsKey(hash)).Select(e => e.Key).Order().ToList();
         return found.Count > 0 || TypesFake.IsComponent(hash) || (!TypesFake.Available && _names.ContainsKey(hash)) ? found : null;
     }
 
@@ -335,6 +322,7 @@ internal sealed unsafe class EntitiesFake : IDisposable
     private WriteLists.Result ReadLists()
     {
         var mods = new List<(string Mod, IReadOnlyList<string> Writes)>();
+        var refused = new Dictionary<string, string>(StringComparer.Ordinal);
         if (Directory.Exists(_harness.ModsDirectory))
         {
             var read = new List<Manifest>();
@@ -352,14 +340,19 @@ internal sealed unsafe class EntitiesFake : IDisposable
             }
             var shared = read.GroupBy(m => m.Id, StringComparer.Ordinal).Where(g => g.Count() > 1).Select(g => g.Key).ToHashSet(StringComparer.Ordinal);
             foreach (var m in read)
-                if (m.Side != ManifestSide.Client && m.Writes.Count > 0 && !shared.Contains(m.Id)) mods.Add((m.Id, m.Writes));
+            {
+                if (m.Side == ManifestSide.Client || shared.Contains(m.Id)) continue;
+                if (m.WritesError is { } why) refused[m.Id] = why;
+                else if (m.Writes.Count > 0) mods.Add((m.Id, m.Writes));
+            }
         }
-        return WriteLists.Admit(mods, TypesFake.Available ? TypesFake.IsComponent : null);
+        return WriteLists.Admit(mods, TypesFake.Available ? TypesFake.IsComponent : null, refused);
     }
 
     private uint StateFor(Meta meta, string mod, uint hash)
     {
         var lists = meta.Lists ?? ReadLists();
+        if (mod.Length > 0 && lists.Refused.ContainsKey(mod)) return WorldAbi.ListRefused;
         if (!lists.Types.TryGetValue(hash, out var state)) return WorldAbi.StateNotDeclared;
         if (mod.Length > 0 && !(lists.Listed.TryGetValue(mod, out var own) && own.Contains(hash))) return WorldAbi.NotListed;
         // before the world: listed names wait (which of them the program takes is the world's to say)
@@ -368,6 +361,12 @@ internal sealed unsafe class EntitiesFake : IDisposable
 
     private static string Refusal(uint state, string component, string mod) => state switch
     {
+        WorldAbi.ListRefused =>
+            $"the \"writes\" of mod '{mod}' in its kiln.mod.json was not read when the server started, so none of its tracked writes is " +
+            "taken (the mod itself loaded): fix the list (at most 64 component names; letters, digits and _) and restart the server",
+        WorldAbi.Unknown when !TypesFake.Available =>
+            $"the test kit cannot check '{component}' against the game's component types: there is no Kiln.Game beside the tests " +
+            "(reference Kiln.Game, as a mod that writes generated types does), so every listed name is refused",
         WorldAbi.StateNotDeclared =>
             "no loaded mod lists this component under \"writes\" in its kiln.mod.json: add it there (Kiln.Sdk does that for a mod whose " +
             "code calls World.Write or World.Update with the type) and restart the server; the game fixes a program's access when the world starts",
@@ -381,6 +380,23 @@ internal sealed unsafe class EntitiesFake : IDisposable
         WorldAbi.Pending => "no server world runs yet: the write program has not been registered",
         _ => "tracked writes are off",
     };
+
+    private static string Replaced(uint entity) =>
+        $"entity {entity} is not the entity the write was asked for: its SpawnTime changed (the id was given to a new entity while the " +
+        "write waited): nothing was written";
+
+    private static string NoGeneration(uint entity) =>
+        $"entity {entity} has no SpawnTime, so Kiln cannot tell it from a later entity under the same id, and the write program's " +
+        $"{WorldAbi.PerUpdate} writes of the next step are taken: a write to it is not kept waiting behind them (ask again in the next step)";
+
+    // The entity's generation: its SpawnTime (8 bytes), as kiln.world reads it.
+    private bool GenerationOf(uint entity, out ulong generation)
+    {
+        generation = 0;
+        if (Block(entity, WorldAbi.SpawnTime) is not { Size: 8 } slot) return false;
+        generation = *(ulong*)slot.Data;
+        return true;
+    }
 
     private static string Lost(uint entity, string component) =>
         $"entity {entity} lost its {component} while the write waited (it was removed, or removed and made again under the same id, as a " +
@@ -403,10 +419,12 @@ internal sealed unsafe class EntitiesFake : IDisposable
             job.Data = new ReadOnlySpan<byte>(r->Data, (int)r->Length).ToArray();
         }
         var state = StateFor(meta, job.Mod, job.Component);
+        job.HasGeneration = GenerationOf(job.Entity, out job.Generation);
         lock (_lock)
         {
-            // every request not delivered yet counts, refusals included (write_queue.h kWriteMaxPending)
-            if (_pending.Count + _checking.Count + _done.Count >= WorldAbi.MaxPending) return FakeTables.BufferTooSmall;
+            // every request whose answer has not been handed over counts, refusals included (write_queue.h open_)
+            if (_open >= WorldAbi.MaxPending) return FakeTables.BufferTooSmall;
+            _open++;
             job.Ticket = ++_lastTicket;
             if (ticket != null) *ticket = job.Ticket;
             _submitted++;
@@ -415,6 +433,14 @@ internal sealed unsafe class EntitiesFake : IDisposable
                 // known now: it only waits for its delivery. Pending: no world yet, so no entity id can be one of its.
                 job.Status = state is WorldAbi.Pending or WorldAbi.Off ? WorldAbi.Dropped : WorldAbi.NotDeclared;
                 job.Reason = Refusal(state, NameOf(meta, job.Component), job.Mod);
+                if (state == WorldAbi.ListRefused && (meta.Lists ?? ReadLists()).Refused.TryGetValue(job.Mod, out var why)) job.Reason += ": " + why;
+                _failed++;
+                _done.Add(job);
+            }
+            else if (!job.HasGeneration && _pending.Count >= WorldAbi.PerUpdate)
+            {
+                job.Status = WorldAbi.Dropped;
+                job.Reason = NoGeneration(job.Entity);
                 _failed++;
                 _done.Add(job);
             }
@@ -427,7 +453,11 @@ internal sealed unsafe class EntitiesFake : IDisposable
     {
         lock (_lock)
         {
-            if (_pending.RemoveAll(j => j.Ticket == ticket) > 0) return true;
+            if (_pending.RemoveAll(j => j.Ticket == ticket) > 0)
+            {
+                _open--;  // it never runs and gets no answer
+                return true;
+            }
             foreach (var job in _checking.Concat(_done))
                 if (job.Ticket == ticket && job.Callback != null)
                 {
@@ -443,6 +473,11 @@ internal sealed unsafe class EntitiesFake : IDisposable
     {
         var meta = Volatile.Read(ref _meta);
         output->State = StateFor(meta, mod, hash);
+        if (meta.Lists is null)
+        {
+            output->Flags = WorldAbi.NotReady;  // no world yet: kiln.world has published nothing about it
+            return;
+        }
         var writers = meta.Writers.TryGetValue(hash, out var w) ? w : [];
         output->Writers = (uint)writers.Length;
         output->Flags = FlagsOf(meta, hash);
@@ -504,7 +539,8 @@ internal sealed unsafe class EntitiesFake : IDisposable
         foreach (var job in due)
         {
             job.OutFlags |= WorldAbi.Checked;
-            if (Block(job.Entity, job.Component) is { } now && job.Offset <= now.Size && job.Length <= now.Size - job.Offset &&
+            var same = !job.HasGeneration || (GenerationOf(job.Entity, out var g) && g == job.Generation);
+            if (same && Block(job.Entity, job.Component) is { } now && job.Offset <= now.Size && job.Length <= now.Size - job.Offset &&
                 new ReadOnlySpan<byte>((byte*)now.Data + job.Offset, (int)job.Length).SequenceEqual(job.After))
                 job.OutFlags |= WorldAbi.Kept;
             Complete(job, step);
@@ -530,6 +566,12 @@ internal sealed unsafe class EntitiesFake : IDisposable
     {
         var lists = ReadLists();
         Publish(lists);
+        if (!TypesFake.Available && lists.Types.Count > 0)
+            KitBackend.Instance.Log(0, LogLevel.Warn,
+                "testkit: tracked writes: there is no Kiln.Game beside the tests, so the kit cannot check a \"writes\" name against the game's " +
+                "component types: every listed name is refused (reference Kiln.Game to test tracked writes)");
+        foreach (var (mod, why) in lists.Refused)
+            KitBackend.Instance.Log(0, LogLevel.Warn, $"testkit: tracked writes: the \"writes\" of {mod} is not read: {why}; its tracked writes are refused");
         if (lists.Types.Count > 0)
             KitBackend.Instance.Log(0, LogLevel.Info,
                 $"testkit: tracked writes: {lists.Types.Values.Count(s => s == WorldAbi.Ready)} component type(s) can be written " +
@@ -565,6 +607,8 @@ internal sealed unsafe class EntitiesFake : IDisposable
         job.OutFlags = FlagsOf(meta, job.Component);
         job.Writers = (uint)(meta.Writers.TryGetValue(job.Component, out var w) ? w.Length : 0);
         if (job.Lost) return Fail(WorldAbi.NoComponent, Lost(job.Entity, name));
+        if (job.HasGeneration && !(GenerationOf(job.Entity, out var generation) && generation == job.Generation))
+            return Fail(WorldAbi.NoComponent, Replaced(job.Entity));
         if (Block(job.Entity, job.Component) is not { } slot)
             return Fail(WorldAbi.NoComponent, $"entity {job.Entity} has no {name} (or does not exist)");
         var now = new Span<byte>((void*)slot.Data, slot.Size);
@@ -632,7 +676,11 @@ internal sealed unsafe class EntitiesFake : IDisposable
         {
             bool wanted;
             lock (_lock) wanted = _delivering.ContainsKey(job.Ticket);
-            if (job.Callback == null || !wanted) continue;
+            if (job.Callback == null || !wanted)
+            {
+                lock (_lock) _open--;
+                continue;
+            }
             var reason = Encoding.UTF8.GetBytes(job.Reason);
             fixed (byte* before = job.Before, after = job.After, text = reason)
             {
@@ -653,6 +701,7 @@ internal sealed unsafe class EntitiesFake : IDisposable
                 r.Reason = new NativeStr { Ptr = text, Len = (nuint)reason.Length };
                 job.Callback(&r, job.User);
             }
+            lock (_lock) _open--;  // after its callback: a request counts until its answer was handed over
         }
         lock (_lock) _delivering.Clear();
     }

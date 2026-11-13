@@ -22,10 +22,13 @@ internal static unsafe class WorldAbi
     // KilnWorldWriteResult.flags / KilnWorldWriteInfo.flags
     public const uint GameWrites = 0x01, BitsKnown = 0x02, Saved = 0x04, Replicated = 0x08, Attribute = 0x10, Checked = 0x20, Kept = 0x40;
     // KilnWorldWriteInfo.state
-    public const uint Ready = 0, Pending = 1, StateNotDeclared = 2, NotListed = 3, Unknown = 4, OverLimit = 5, Off = 6;
+    public const uint Ready = 0, Pending = 1, StateNotDeclared = 2, NotListed = 3, Unknown = 4, OverLimit = 5, Off = 6, ListRefused = 7;
+    // KilnWorldWriteInfo.flags only
+    public const uint NotReady = 0x80;
     // KILN_PROGRAM_* (KilnWorldWriteStatus.program)
     public const uint ProgramPending = 0, ProgramActive = 1;
     public const int MaxBytes = 4096, MaxComponent = 65536, MaxTypes = 91, MaxPerMod = 64, MaxPending = 4096, AttributeHeader = 8;
+    public const uint SpawnTime = 0x583963a3u;  // keen::ecs::SpawnTime: an entity's generation, 8 bytes
     public const int PerUpdate = 512, DeliverPerPre = 1024;  // write_queue.h kWritePerUpdate, kWriteDeliverPerPre
 
     // keen::ecs::CurrentTransform (native/services/world/transform_layout.h): i64 x, y, z in metres as 32.32 fixed point at
@@ -414,6 +417,7 @@ internal static unsafe class WorldTable
         if (r->Data != null && (r->Length == 0 || r->Length > WorldAbi.MaxBytes)) return FakeTables.InvalidArgument;
         if ((r->Flags & ~(WorldAbi.Whole | WorldAbi.Verify)) != 0 || r->ModId.Len > 64) return FakeTables.InvalidArgument;
         if (Fake is not { } w) return FakeTables.Unavailable;
+        if (!FakeTables.OnTickThread) return FakeTables.WrongThread;  // between two steps, as in the game
         return w.Submit(owner, r, ticket);
     }
 
