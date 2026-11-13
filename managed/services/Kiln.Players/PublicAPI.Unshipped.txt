@@ -90,3 +90,13 @@ Kiln.PlayerKickedEvent.Reason.get -> string!
 override Kiln.BanEntry.ToString() -> string!
 static Kiln.BanEntry.operator !=(Kiln.BanEntry? left, Kiln.BanEntry? right) -> bool
 static Kiln.BanEntry.operator ==(Kiln.BanEntry? left, Kiln.BanEntry? right) -> bool
+Kiln.PlayerProgressionChangedEvent
+Kiln.PlayerProgressionChangedEvent.After.get -> long
+Kiln.PlayerProgressionChangedEvent.Before.get -> long
+Kiln.PlayerProgressionChangedEvent.Involves(Kiln.EntityId entity) -> bool
+Kiln.PlayerProgressionChangedEvent.Origin.get -> string!
+Kiln.PlayerProgressionChangedEvent.Player.get -> Kiln.EntityId
+Kiln.PlayerProgressionChangedEvent.Request.get -> ulong
+Kiln.PlayerProgressionChangedEvent.What.get -> string!
+override Kiln.PlayerProgressionChangedEvent.ToString() -> string!
+static Kiln.Players.FindPerson(Kiln.PlayerRef person) -> Kiln.Player?

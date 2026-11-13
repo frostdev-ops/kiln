@@ -53,6 +53,7 @@ public static unsafe class WorldProgress
 
     /// <summary>The world's flame (tick thread). Null when kiln.world is not loaded or the world's progress entity is not
     /// found (before the world runs).</summary>
+    [TickThreadOnly]
     public static FlameStatus? Flame
     {
         get
@@ -83,12 +84,14 @@ public static unsafe class WorldProgress
     }
 
     /// <summary>The Mother Flame's level (tick thread); null when unknown.</summary>
+    [TickThreadOnly]
     public static int? FlameLevel => Flame?.Level;
 
     /// <summary>What the game derives from a flame level: how many Flame Altars and water sources the world may have, the
     /// Shroud resistance a player gets, and whether the level is high enough to remove the fog for altar placement (the game's
     /// <c>flameLevelFogRemoval</c> setting). Read from the game's balancing table (kiln.assets); null when it cannot be read or
     /// the level is above the game's maximum. Tick thread (it reads the setting).</summary>
+    [TickThreadOnly]
     public static FlameLimits? LimitsAt(int level)
     {
         Services.RequireTickThread("WorldProgress.LimitsAt");
@@ -229,6 +232,7 @@ public static unsafe class WorldProgress
     }
 
     /// <summary>The survivors (NPCs of the game's roster with a rescue requirement) and whether they are rescued (tick thread).</summary>
+    [TickThreadOnly]
     public static IReadOnlyList<Survivor> Survivors
     {
         get
@@ -250,6 +254,7 @@ public static unsafe class WorldProgress
     /// <summary>The loot chest placed nearest to <paramref name="at"/> within <paramref name="radius"/> metres
     /// (horizontally), with its state when its entity is loaded. Null when there is none. Tick thread (the first lookup in
     /// an area reads that part of the game's data: a few milliseconds).</summary>
+    [TickThreadOnly]
     public static ChestStatus? Chest(WorldPosition at, double radius = 3)
     {
         Services.RequireTickThread("WorldProgress.Chest");
@@ -258,6 +263,7 @@ public static unsafe class WorldProgress
     }
 
     /// <summary>Every loot chest placed within <paramref name="radius"/> metres of a point, nearest first. Tick thread.</summary>
+    [TickThreadOnly]
     public static IReadOnlyList<ChestStatus> Chests(WorldPosition at, double radius)
     {
         Services.RequireTickThread("WorldProgress.Chests");
@@ -265,6 +271,7 @@ public static unsafe class WorldProgress
     }
 
     /// <summary>A chest by its loot container id, searched around <paramref name="near"/> (its chunk and the ones next to it).</summary>
+    [TickThreadOnly]
     public static ChestStatus? Chest(uint lootId, WorldPosition near)
     {
         Services.RequireTickThread("WorldProgress.Chest");
@@ -273,6 +280,7 @@ public static unsafe class WorldProgress
 
     /// <summary>The chest state of a loaded entity (a chest's live entity, e.g. from <see cref="World.Find"/>); null when
     /// it is not a chest. Tick thread.</summary>
+    [TickThreadOnly]
     public static ChestStatus? ChestOf(EntityId entity)
     {
         Services.RequireTickThread("WorldProgress.ChestOf");
@@ -332,5 +340,6 @@ public sealed class CharacterProgress
     public IReadOnlyList<Boss> BossesKilled => [.. WorldProgress.Bosses.Where(b => b.Kill?.Holds(Player) == true)];
 
     /// <summary>The character's quests, vanilla and Kiln (<see cref="Quests.Of(EntityId)"/>).</summary>
+    [TickThreadOnly]
     public QuestLog Quests => global::Kiln.Quests.Of(Player);
 }

@@ -176,3 +176,23 @@ The idle copied world (no player) creates and destroys nothing by itself (0 in 2
 11. **Entity lifecycle near a player**: walking into a camp gives `EntityJoinLevelEvent` for spawned enemies
     (`ByKiln false`), killing one gives leaves for its loot containers/corpse later; a player joining/leaving gives
     Player-category join/leave; canceling the join of a natural enemy: it never shows up (or pops in and out?).
+
+## The contract (dev.27)
+
+Kiln.Gameplay follows [the API contract](../modding/contract.md). Server side only (`[ServerOnly]` on `Gameplay` and `Offers`).
+
+- **Capabilities.** `kiln.gameplay`; its sigdb features (`gameplay.build`, `craft`, `discard`, `emit`, `entities`,
+  `intercept`, `queues`, `recipes`, `spawn`, `terraform`), lowered by Kiln.Gameplay when the service is not loaded;
+  `gameplay.entity_events` (the entity lifecycle events work: `Gameplay.EntityEventsAvailable`) and
+  `gameplay.spawn_replace` (`Gameplay.ReplaceNaturalSpawns`), both managed and fixed at the service's first use.
+- **Errors.** A capability that is off throws `KilnUnavailableException` naming it, where these members threw
+  `NotSupportedException` before (it still is one): `Recipe` / `WorkshopRecipes` name `gameplay.recipes`,
+  `Gameplay.Inject` names `gameplay.emit`, `ReplaceNaturalSpawns` names `gameplay.spawn_replace`, the rest
+  `kiln.gameplay`.
+- **Threads.** `[TickThreadOnly]` on the world calls; `Status`, `Available`, `EntityEventsAvailable`, `WatchEntities`
+  and `ReplaceNaturalSpawns` are `[AnyThread]`.
+- **Start.** The rows are reported at the first service tick (`GameplayStartup`). The event listener, through which a
+  handler can cancel crafting, interacting and looting, still starts at the first use only: a call into `Gameplay`,
+  `Gameplay.Enable()`, or a subscription to one of Kiln.Gameplay's events. A handler of every event (`KilnEvent`,
+  `CancelableEvent`) is not a use, so a server whose mods never use Kiln.Gameplay has no listener, as before dev.27.
+- Not changed: `IsDenied` and `Offers.TryAdd` keep their `out` reasons; no result record exists in this service.

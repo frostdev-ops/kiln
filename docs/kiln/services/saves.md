@@ -501,6 +501,28 @@ kiln/backups/<stamp>-<name>/backup.json, savegame/world0.ksd, worlds/<id>/{manif
 ```
 `kiln/data/worlds` is reserved (a mod with id `worlds` would clash with it).
 
+## The contract (dev.27)
+
+Kiln.Saves follows [the API contract](../modding/contract.md); InstanceData took it up in dev.26 (above).
+
+- **Capabilities.** `kiln.saves` (the core's row) and its sigdb features (`saves.load`, `saves.reasons`,
+  `saves.request`, `saves.write`), lowered when the table is missing; `saves.instance_data`, `.carried` and `.sync`
+  (InstanceData's rows, now reported again after a registry reset, as the test kit's next harness has). Kiln.Saves
+  still starts at its first use: its start subscribes to kiln.saves' pump, which a server whose mods do not use it
+  does not pay for; the rows are reported then.
+- **Errors.** Without kiln.saves the data stores (`WorldData`, `PlayerData`, `CharacterData` with `Carried`,
+  `EntityData`), `Saves.Request` and `Saves.Backup` throw `KilnUnavailableException` naming `kiln.saves`; `EntityData`
+  without kiln.spawn names `kiln.spawn` (both `NotSupportedException`s, as before, same sentences). **Not changed:** a
+  restore staged on a game client keeps its plain `NotSupportedException` (it is the client's world storage, not a
+  capability).
+- **Results.** `SaveResult` implements `IKilnResult`: `Ok` (new) is `Success`; `IKilnResult.Reason` is `Error` when
+  the save was not written. Its own `Reason` stays what asked for the save.
+- **Threads.** The data stores' reads and writes are `[TickThreadOnly]` (they check it); `WorldId`, `Loaded`,
+  `Available` and the other reads that do not are unmarked.
+- **Events.** The data stores hold each mod's own keys, which no other mod reads: no change event. Saves keep
+  `WorldSavingEvent` and `WorldSavedEvent`; InstanceData its own.
+- Tested offline: `managed/tests/Kiln.Contract.Tests/SavesContractTests.cs` and the conformance rules.
+
 ## C (native plugins)
 
 ```c

@@ -799,6 +799,8 @@ public static unsafe class ContentSync
     /// gone (what a client with local-only changes gets from a vanilla server); (3) takes the layer off and checks the
     /// state is back. Everything happens inside this call: the game sees no step in between.
     /// </summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.content")]
     public static ContentRoundTrip CheckRoundTrip()
     {
         Content.Require("ContentSync.CheckRoundTrip");

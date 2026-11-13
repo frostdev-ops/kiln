@@ -123,6 +123,33 @@ Not run with a real player: whether the login failure takes a player who is alre
 was seen to obey it only during the join, [../../re/network.md](../../re/network.md)), and what the game's dialog says
 for the Generic error. Guided checks `kick-test/players.kick`, `players.kick.after`, `players.ban`, `players.ban.after`.
 
+## The contract (dev.27)
+
+Kiln.Players follows [the API contract](../modding/contract.md). `Players` and `Progression` are `[ServerOnly]`.
+
+- **Capabilities.** `kiln.players`, `kiln.progression`, `kiln.playerstate` (the core's rows) and the sigdb features
+  each serves, lowered at Kiln.Players' start (the first service tick) when that table is missing;
+  `players.positions` (managed, session: `Players.PositionOf` works now, pending without a server world);
+  `players.aim` (reported with them); `players.kick` and `players.bans` are Kiln.Network's rows (above).
+- **Errors.** Without kiln.players the reads (`All`, `Connected`, `Count`, `Find`, `FindBySteamId`, `IsPlayer`,
+  `PositionOf`, `Joined`, `Left`) throw `KilnUnavailableException` naming `kiln.players`; `PositionOf` without
+  positions names `players.positions`; `Progression`'s calls name `kiln.progression`. All three are
+  `NotSupportedException`s, as before, with the same sentences. **Not changed:** a kiln.players table that answers
+  "unavailable" (no source on this build) keeps a plain `NotSupportedException`.
+- **Results.** `ProgressionResult` implements `IKilnResult` (`Reason` null when `Ok`; the record's own `Reason` keeps
+  its text). `KickResult` already did.
+- **Identity.** `Players.FindPerson(PlayerRef)` finds a person's current session (a slot's entity id goes to the next
+  player who joins, so an id kept from an earlier step can name someone else); `person.Progression` and the other
+  `Player` members then act on that session.
+- **Events.** `PlayerProgressionChangedEvent` (new) for a Kiln progression request that changed experience
+  (`Experience`) or skill points (`SkillPoints`), posted when the request completes, before the caller's task
+  continues; levels and nodes keep `PlayerLevelChangedEvent` and `PlayerSkillsChangedEvent`. Through the contract's
+  change notices ([contract](../modding/contract.md#3-change-events)).
+- **Threads.** The reads of `Players` and `Progression.Get`/`Status` are `[AnyThread]` (kiln.players answers from the
+  last step's snapshot); `FindPerson`, `UnlockedNodes` and the lab diagnostics that read game memory are
+  `[TickThreadOnly]`.
+- Tested offline: `managed/tests/Kiln.Contract.Tests/PlayersContractTests.cs` and the conformance rules.
+
 ## C (native plugins)
 
 ```c

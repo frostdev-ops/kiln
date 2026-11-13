@@ -117,10 +117,12 @@ public sealed class AbilityCast
 
     /// <summary>Spawns an impact template bound to the caster (<see cref="Abilities.RunImpact"/>), at
     /// <paramref name="at"/> or the cast's <see cref="Position"/>.</summary>
+    [TickThreadOnly]
     public Task<EntityId> Impact(string template, WorldPosition? at = null, ImpactConfigs? configs = null) =>
         Abilities.RunImpact(template, at ?? Position, new ImpactOptions { Root = Caster, Configs = configs, Tag = Ability.Id });
 
     /// <summary>Plays an existing action sequence on the caster (<see cref="Abilities.PlaySequence"/>).</summary>
+    [TickThreadOnly]
     public bool PlaySequence(Guid sequence, bool abortCurrent = true) => Abilities.PlaySequence(Caster, sequence, abortCurrent);
 
     /// <summary>Damages an entity as the caster (kiln.combat: a real engine hit with kill credit).</summary>
@@ -129,7 +131,7 @@ public sealed class AbilityCast
 }
 
 /// <summary>The outcome of a cast request.</summary>
-public sealed record CastResult(bool Ok, string? Reason, TimeSpan CooldownLeft, AbilityCast? Cast = null)
+public sealed record CastResult(bool Ok, string? Reason, TimeSpan CooldownLeft, AbilityCast? Cast = null) : IKilnResult
 {
     public static CastResult Refused(string reason, TimeSpan cooldown = default) => new(false, reason, cooldown);
 }
@@ -496,6 +498,7 @@ public static partial class Abilities
 
     /// <summary>Casts an ability for <paramref name="caster"/> (a player or any actor with the attributes it costs):
     /// the same checks as a key press (cooldown, cast lock, cost, targeting). Server, tick thread.</summary>
+    [TickThreadOnly]
     public static CastResult Cast(EntityId caster, string abilityId, CastOrigin origin = CastOrigin.Server) =>
         AbilityRegistry.CastNow(caster, abilityId, origin);
 

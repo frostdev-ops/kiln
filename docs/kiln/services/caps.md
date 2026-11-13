@@ -103,11 +103,11 @@ naming one of them is refused, with the advice to check `Capabilities.Is` at run
 ## Rows added in dev.27
 | Row | Kind | Reported by | What it says |
 |---|---|---|---|
-| `abilities.buffs` | managed, session | Kiln.Abilities, at its first use, at every call that needs it and about once a second | buffs removed (and applied) through the game's natives (`Abilities.RemoveBuff`, `Abilities.ApplyBuff`): needs kiln.abilities with its natives, programs and instance hooks (`abilities.natives`, `abilities.programs`, `abilities.instances`) and a kiln.spawn that takes extra components (`service-older` otherwise). Pending while no server world has set up the game's native and program registries (a client in its menu: mods load there, the world comes later) |
-| `abilities.buff_list` | managed, static | Kiln.Abilities, once, at its first use | an entity's buffs read (`Abilities.BuffsOf`): needs kiln.playerstate (`service-missing` without it) and its reflection reads (`players.reflection`; `faulted` when the service is there and read nothing) |
+| `abilities.buffs` | managed, session | Kiln.Abilities, at its start (the first service tick; before dev.27's adoption: at its first use), at every call that needs it and about once a second | buffs removed (and applied) through the game's natives (`Abilities.RemoveBuff`, `Abilities.ApplyBuff`): needs kiln.abilities with its natives, programs and instance hooks (`abilities.natives`, `abilities.programs`, `abilities.instances`) and a kiln.spawn that takes extra components (`service-older` otherwise). Pending while no server world has set up the game's native and program registries (a client in its menu: mods load there, the world comes later) |
+| `abilities.buff_list` | managed, static | Kiln.Abilities, at its start (the first service tick) | an entity's buffs read (`Abilities.BuffsOf`): needs kiln.playerstate (`service-missing` without it) and its reflection reads (`players.reflection`; `faulted` when the service is there and read nothing) |
 | `players.kick` | managed, static | Kiln.Network, at its start (the first service tick) | `Players.Kick`, `Network.Kick`: needs kiln.net, `net.kick`, `net.players` (the game's connection records, which say whose connection one is) and a process that serves clients (`wrong-side` on a client that only joins) |
 | `players.bans` | managed, static | Kiln.Network, with the row above | Kiln's ban list is enforced (`Bans`); the same needs |
-| `combat.hold_filter` | managed, static | Kiln.Combat, when its listener starts | kiln.combat holds only the hits a handler's entity filter lets through (`hold_filter`, appended in dev.27); off: filtered handlers still get only their entities' hits, but every hit waits a step |
+| `combat.hold_filter` | managed, static | Kiln.Combat, at its start (the first service tick; before dev.27's adoption: when its listener started) | kiln.combat holds only the hits a handler's entity filter lets through (`hold_filter`, appended in dev.27); off: filtered handlers still get only their entities' hits, but every hit waits a step |
 | `players.aim` | managed, static | Kiln.Players, at its start (the first service tick) or the first `AimOf` | `Player.Aim` / `PlayerStates.AimOf`: needs kiln.playerstate with `aim()` (dev.27) and the camera field in the game's reflection |
 | `blocks.affixes` | managed, session | Kiln.Blocks, at the first affix call and every 25 steps | affixes' rolls work (`Affixes.Roll`, `Of`, `Add`, `Set`, `Remove`; [modding/affixes.md](../modding/affixes.md)): follows `saves.instance_data`, with its reason as `needs saves.instance_data: ...` |
 | `blocks.affixes.effects` | managed, session | Kiln.Blocks, with the row above | worn and held affixes change stats, and `Affixes.StatOf` reads one: needs `blocks.affixes`, `abilities.programs`, `abilities.natives`, `items.instances`, kiln.assets, kiln.spawn with `spawn.destroy` (a stat change ends when its entity is destroyed: none starts without it), and a server world whose Impact program registry has taken Kiln's four affix programs (pending without a world, and until it has) |
@@ -118,6 +118,56 @@ naming one of them is refused, with the advice to check `Capabilities.Is` at run
 
 They exist only once their service has started, after the manifests were checked: check `Capabilities.Is` at run time
 (`world.component_bits` is a sigdb feature and can be named in a manifest's `features`).
+
+## Rows added in dev.27 (the contract in every service)
+One table for the services that took up the contract in dev.27. A managed row of a service's own is reported at the
+service's start, the first service tick (each service with such a row has a startup type in `ServiceTick.AutoStart`),
+so a mod's `Capabilities.Is` in its first tick sees it without having called the service; again after the registry was
+reset; a session row is refreshed on the service tick. A sigdb feature a service lowers because its table is missing
+is lowered at the service's start where it has one, else at its first use (Kiln.Build, Kiln.Creatures: the core's
+`kiln.<service>` row says the table is missing from the start). Only the core's own claim is lowered (an available
+row from sigdb): with no Kiln core (a unit test, the test kit) a feature has no row, and a test kit's "switched on by
+the test" stays the test's. A row says "available" exactly when the call it stands for works: one
+that needs a hook says so only while the hook is in. When a service's table is missing, the service lowers the sigdb features it serves, so
+`Capabilities.Why` names the missing service and not a feature that resolved for nobody. A service whose table is
+there but one of whose hooks failed lowers the features that hook carries (`faulted`): kiln.ui's hook on the game's UI
+frame (`ui.screens`, `ui.main_menu`, `ui.system_menu`, `ui.crafting`), kiln.render's camera hook (`render.camera`),
+kiln.knowledge's parts by its status (`quests.knowledge`, `changes`, `journal`, `npc`, `dialogue`, `client_input`;
+`quests.changes` also when the game's knowledge apply faulted later, read every 25 steps). A session row's refresh asks
+for a service the core does not have again, so a table published late is found.
+
+| Row | Kind | Reported by | What it says |
+|---|---|---|---|
+| `spawn.components` | managed, static | Kiln.Spawn | this kiln.spawn takes `SpawnOptions.Components` (`service-older` otherwise) |
+| `spawn.world` | managed, session | Kiln.Spawn, every 25 steps | the server world runs, so entities can be created and the tracked list cleaned up (`Spawn.WorldRunning`); pending while the save loads and after a hosted world closed; unavailable without kiln.spawn |
+| `spawn.create`, `spawn.destroy`, `spawn.entities`, `spawn.templates` | sigdb features | core; Kiln.Spawn lowers them when kiln.spawn is not loaded | creating entities, `Spawn.Destroy`, the entity scan, the game's template list |
+| `settings.ready` | managed, session | Kiln.Settings, every 25 steps | the live game settings were found (`Settings.Ready`): pending until the end of the server's first world step; unavailable without kiln.settings. The members still throw `InvalidOperationException` before that, as they always did |
+| `settings.live`, `settings.world`, `settings.resend`, `settings.daytime` | sigdb features | core; Kiln.Settings lowers them when kiln.settings is not loaded | the live settings, the world's own values, the resend to players, the day/night clock |
+| `assets.textures` | managed, static | Kiln.Assets | texture overrides (`Assets.OverrideTexture`): kiln.assets is here, this is a game client (`wrong-side` on a server), and its resource and content hooks are in (`faulted` with kiln.assets' reason otherwise) |
+| `assets.resources`, `assets.content`, `assets.ui_icons` | sigdb features | core; Kiln.Assets lowers them when kiln.assets is not loaded, and each one whose hooks are off (`faulted`, kiln.assets' `status` reason) | resources, content blobs, item icons (game client) |
+| `chat.send`, `chat.receive`, `chat.players` | sigdb features | core; Kiln.Chat lowers them when kiln.chat is not loaded | server lines, players' typed lines, the chat's player list |
+| `audio.relay` | managed, session | Kiln.Audio, at its start (the first service tick) and every 25 steps | server side: a sound, track or voice line reaches someone (`Sound.Available`, `Voiceover.Available` there): a Kiln client with the `kiln:audio` channel is connected, or this host's own client plays. Pending while nobody listens; unavailable without the channel (`needs kiln.net`); `wrong-side` in a client that only joined |
+| `vfx.relay` | managed, session | Kiln.Vfx, likewise | the same for `Vfx.Available` and the `kiln:vfx` channel |
+| `screen.relay` | managed, session | Kiln.Vfx, likewise | server side: the `kiln:screen` channel is open (`ScreenEffects.Available` there) |
+| `gameplay.entity_events` | managed, static | Kiln.Gameplay | the entity lifecycle events work (`Gameplay.EntityEventsAvailable`): needs kiln.gameplay and `gameplay.entities` |
+| `gameplay.spawn_replace` | managed, static | Kiln.Gameplay | natural spawns can be replaced (`Gameplay.ReplaceNaturalSpawns`): needs kiln.gameplay with the replacement function, `gameplay.spawn`, and the random spawners' hook in (`faulted` when it is off) |
+| `gameplay.*` (ten), `build.*` (five), `skills.functions`, `skills.login_guard`, `skills.shadow`, `skills.tree_load` | sigdb features | core; Kiln.Gameplay, Kiln.Build and Kiln.Skills lower theirs when their service is not loaded | what kiln.gameplay, kiln.build and kiln.skills serve |
+| `content.references` | managed, static | Kiln.Content | this kiln.content sets references (`ContentEntry.SetRef`, `SetPerks`; table v4) |
+| `content.ready` | managed, session | Kiln.Content, at its start and every 25 steps | the registries are loaded and the data packs applied (`Content.Ready`); unavailable without kiln.content |
+| `content.*` (eight, server side), `gamedata.template_clones`, `gamedata.buff_lookup`, `creatures.*` (ten) | sigdb features | core; Kiln.Content and Kiln.Creatures lower theirs when their service is not loaded | what kiln.content, kiln.gamedata and kiln.creatures serve |
+| `quests.*` (six), `ui.*` (eight, game client), `render.camera` | sigdb features | core; Kiln.Quests and Kiln.Ui lower theirs when kiln.knowledge, kiln.ui or kiln.render is not loaded | what kiln.knowledge, kiln.ui and kiln.render serve |
+| `combat.attributes` | managed, session | Kiln.Combat, at its start and every 25 steps | `Attributes` reads and writes the game's attributes: kiln.combat has its attribute functions (`service-older` otherwise) and the game's attribute resource was read, and a server world with its registry is there now (pending until a server world runs and again after it closed; pending for good on a build whose resource Kiln does not understand) |
+| `combat.actor_states`, `combat.attr_heals`, `combat.deaths`, `combat.falls`, `combat.health`, `combat.hits`, `combat.regen` | sigdb features | core; Kiln.Combat lowers them when kiln.combat is not loaded | what kiln.combat serves |
+| `abilities.attributes`, `abilities.instances`, `abilities.natives`, `abilities.programs`, `abilities.sequences` | sigdb features | core; Kiln.Abilities lowers them when kiln.abilities is not loaded (at its start, the first service tick, with `abilities.buffs` and `abilities.buff_list`) | what kiln.abilities serves |
+| `time.speed` | managed, session | Kiln.Time, at its start (the first service tick), refreshed every 25 steps | the clock's speed can be held now (`Time.SetSpeed`, `Time.SetCycle`): needs kiln.time with its scale functions (`service-older` without) and `time.scale`; pending until the server world's clock is there (a client in its menu, a server before its world runs: `SetSpeed` throws `InvalidOperationException` then, as before). `Time.CanSetSpeed` stays the static part |
+| `time.read`, `time.set`, `time.scale`, `time.sync_probe`, `time.weather`, `time.weather_choose` | sigdb features | core; Kiln.Time lowers them when kiln.time is not loaded | what kiln.time serves |
+| `players.positions` | managed, session | Kiln.Players, at its start (the first service tick) and every 25 steps | `Players.PositionOf` works now: kiln.players reads positions in a running server world (pending without one, `faulted` when the world runs and it still cannot; unavailable without kiln.players) |
+| `players.records`, `players.admin`, `players.singleton_map`; `players.progression`, `players.skills`, `players.skill_knowledge`, `players.progression_events`; `players.reflection`, `players.action_cancel`, `players.sequence_names`, `players.client_action_hold` | sigdb features | core; Kiln.Players lowers them at its start when kiln.players, kiln.progression or kiln.playerstate (in that order) is not loaded | |
+| `net.client_guard`, `net.gate`, `net.kick`, `net.players`, `net.transport`, `net.withhold` | sigdb features | core; Kiln.Network lowers them at its start when kiln.net is not loaded | |
+| `saves.load`, `saves.reasons`, `saves.request`, `saves.write` | sigdb features | core; Kiln.Saves lowers them at its start (its first use) when kiln.saves is not loaded | |
+| `rules.consume` ... `rules.zone` (sixteen) | sigdb features | core; Kiln.Rules lowers them at its start when kiln.rules is not loaded | |
+| `world.component_bits` ... `world.write` (twelve) | sigdb features | core; Kiln.World lowers them at its first use when kiln.world is not loaded | |
+| `items.pide_options` | sigdb feature | core; Kiln.Items lowers it with its other rows when kiln.items is not loaded (dev.27; before, it kept the core's verdict) | `Gear.Unlocked`, `Gear.GemSlot` at creation |
 
 ## Rules
 - Each owner holds at most one report per name. A reader sees the worst report for the name: unavailable beats

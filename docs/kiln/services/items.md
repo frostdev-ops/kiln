@@ -509,3 +509,17 @@ difference only on a container a save already wrote, so the test writes in boot 
   prediction worlds); with kiln.world the program goes into the server world only.
 - When the game closes the server world, queued requests end as DROPPED ("the server world closed"), and the next
   world's first program run verifies its accessors and item registry again (they are per world).
+
+## The contract in dev.27
+
+Kiln.Items followed [the API contract](../modding/contract.md) since dev.26; dev.27 adds:
+
+- the rows run on a `ServiceCapRows`: reported again under a new registry binding (the test kit's), a failure logged
+  once; `items.pide_options` is lowered with the other rows when kiln.items is not loaded;
+- `KilnUnavailableException` (a `NotSupportedException`, as before) naming `kiln.items`, `items.fuel` (an older
+  kiln.items without water), `items.move` (without moves), `items.names` (`ContainerName`) or `items.transfer`
+  (`Transfers`);
+- `FuelResult` implements `IKilnResult` (`Reason` is its `Message` when not `Ok`);
+- `[TickThreadOnly]` on every member that reaches a tick-thread check (`Read`, `Give`, `Take`, `Move`, the `Fuel`
+  calls, ...).
+- Tested offline: `managed/tests/Kiln.Contract.Tests/Group10ContractTests.cs` and the conformance rules.

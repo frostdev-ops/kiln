@@ -117,16 +117,32 @@ public sealed class SpawnOptions
     /// component Kiln sets itself (CurrentTransform, OverrideLevel, DoNotSave) takes your value instead; SpawnTime is
     /// refused unless <see cref="SpawnFlags.NoTrack"/> (Kiln marks tracked spawns with it). Examples: Faction,
     /// ImpactHierarchy (the root of an impact), Impact (the program of a generic impact template). Needs a kiln.spawn
-    /// build with <see cref="Spawn.SupportsComponents"/>; otherwise the spawn throws <see cref="NotSupportedException"/>.
+    /// build with <see cref="Spawn.SupportsComponents"/> (capability <c>spawn.components</c>); otherwise the spawn throws
+    /// <see cref="KilnUnavailableException"/> (a <see cref="NotSupportedException"/>) naming it.
     /// </summary>
+    [RequiresCapability(Spawn.Caps.Components)]
     public IReadOnlyList<SpawnComponent>? Components { get; init; }
 }
 
-/// <summary>The game (or Kiln) refused a spawn; <see cref="Code"/> is the native result code.</summary>
+/// <summary>The game (or Kiln) refused a spawn; <see cref="Code"/> is the native result code. <see cref="Spawn.TryEntity(string, WorldPosition, float, SpawnOptions?)"/>
+/// and <see cref="Spawn.TryItem"/> report the same refusal as a <see cref="SpawnResult"/> instead of throwing.</summary>
 public sealed class SpawnException(string message, int code) : Exception(message)
 {
     public int Code { get; } = code;
 }
+
+/// <summary>The answer to <see cref="Spawn.TryEntity(string, WorldPosition, float, SpawnOptions?)"/> and
+/// <see cref="Spawn.TryItem"/>: the new entity, or why the game (or kiln.spawn) refused. Since 0.2.0-dev.27.</summary>
+/// <param name="Ok">True when the entity was created.</param>
+/// <param name="Entity">The new entity with its serial, so a stale id is noticed later (<see cref="EntityRef.IsAlive"/>);
+/// <see cref="EntityRef.None"/> when refused. The serial is 0 (<see cref="EntityRef.HasSerial"/> false) when no entity
+/// source could stamp it at once.</param>
+/// <param name="Reason">Null when <see cref="Ok"/>; else why: an unknown template, an invalid position or request, or
+/// the engine's refusal (kiln.log has the game's own reason).</param>
+/// <param name="Code">The native result code: 0 when <see cref="Ok"/>, else the code a <see cref="SpawnException"/>
+/// would carry (2 unknown template, 1 invalid argument, other values: the engine refused).</param>
+[ServerOnly]
+public sealed record SpawnResult(bool Ok, EntityRef Entity, string? Reason, int Code) : IKilnResult;
 
 /// <summary>
 /// Creates and destroys server-world entities from templates (creatures, item drops, props), and keeps a per-world
@@ -137,8 +153,14 @@ public sealed class SpawnException(string message, int code) : Exception(message
 /// <c>await</c> already do); other threads get <see cref="InvalidOperationException"/>. The tasks complete before the
 /// call returns (the engine creates the entity at once); game programs see the entity from the next sim step. Entity
 /// ids change after a server restart; Kiln re-finds tracked entities by itself.
+/// <para>Server side only: a dedicated server, or a game client while it hosts a world. Capabilities
+/// (<see cref="Capabilities"/>): <c>kiln.spawn</c> (the service is here), <c>spawn.world</c> (the server world runs:
+/// pending until its save is loaded, and again after a hosted world closed) and <c>spawn.components</c>
+/// (<see cref="SpawnOptions.Components"/>). A member that needs one that is off throws
+/// <see cref="KilnUnavailableException"/> naming it; that is a <see cref="NotSupportedException"/>, as before.</para>
 /// </remarks>
-public static unsafe class Spawn
+[ServerOnly]
+public static unsafe partial class Spawn
 {
     // ---- native layout (kiln_spawn.h) ----
     [StructLayout(LayoutKind.Sequential)]
@@ -267,7 +289,9 @@ public static unsafe class Spawn
 
     private static Table* T => _table != null ? _table : (_table = Services.Get<Table>("kiln.spawn", 1));
 
-    /// <summary>True when the native service is loaded and usable on this game build.</summary>
+    /// <summary>True when the native service is loaded and usable on this game build (capability <c>kiln.spawn</c>;
+    /// <see cref="Capabilities.Why"/> says why not).</summary>
+    [AnyThread]
     public static bool Available => T != null;
 
     // ---- spawning ----
@@ -275,6 +299,8 @@ public static unsafe class Spawn
     /// <summary>Spawns a template by name ("Enemy_Vukah_Melee"), display name ("Vukah") or GUID text at
     /// <paramref name="position"/> (metres; placed exactly there, so pick a point on the ground), turned
     /// <paramref name="yawDegrees"/> about the up axis.</summary>
+    [TickThreadOnly]
+    [RequiresCapability(Caps.World)]
     public static Task<EntityId> Entity(string template, WorldPosition position, float yawDegrees = 0, SpawnOptions? options = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(template);
@@ -283,14 +309,101 @@ public static unsafe class Spawn
     }
 
     /// <summary>Spawns a template by GUID (see <see cref="TemplateInfo.Id"/>).</summary>
+    [TickThreadOnly]
+    [RequiresCapability(Caps.World)]
     public static Task<EntityId> Entity(Guid template, WorldPosition position, float yawDegrees = 0, SpawnOptions? options = null)
     {
         if (template == System.Guid.Empty) throw new ArgumentException("empty template GUID", nameof(template));
         return Run(() => SpawnCore(template, null, position, yawDegrees, options));
     }
 
+    /// <summary>Spawns a template like <see cref="Entity(string, WorldPosition, float, SpawnOptions?)"/> and reports
+    /// the engine's refusal as a result instead of a <see cref="SpawnException"/>: <see cref="SpawnResult.Ok"/> false
+    /// with the reason. The entity comes back as an <see cref="EntityRef"/>. Posts <see cref="EntitySpawnedEvent"/>.
+    /// Since 0.2.0-dev.27.</summary>
+    /// <exception cref="ArgumentException">The template is unknown (ask <see cref="Lookup"/> first), or the position
+    /// or the options are invalid.</exception>
+    /// <exception cref="KilnUnavailableException"><c>kiln.spawn</c> is off, the server world does not run yet
+    /// (<c>spawn.world</c>), or <see cref="SpawnOptions.Components"/> is set and <c>spawn.components</c> is off.</exception>
+    /// <exception cref="InvalidOperationException">Not on the tick thread.</exception>
+    [TickThreadOnly]
+    [RequiresCapability(Caps.World)]
+    public static SpawnResult TryEntity(string template, WorldPosition position, float yawDegrees = 0, SpawnOptions? options = null)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(template);
+        RequireTickThread("Spawn.TryEntity");
+        return System.Guid.TryParse(template, out var g)
+            ? Try(() => SpawnCore(g, null, position, yawDegrees, options), nameof(template))
+            : Try(() => SpawnCore(default, template, position, yawDegrees, options), nameof(template));
+    }
+
+    /// <summary>Spawns a template by GUID like <see cref="Entity(Guid, WorldPosition, float, SpawnOptions?)"/>, with the
+    /// answer as a result (see <see cref="TryEntity(string, WorldPosition, float, SpawnOptions?)"/>). Since 0.2.0-dev.27.</summary>
+    /// <exception cref="ArgumentException">The GUID is empty or no template has it, or the position or the options are
+    /// invalid.</exception>
+    /// <exception cref="KilnUnavailableException">As for the overload by name.</exception>
+    /// <exception cref="InvalidOperationException">Not on the tick thread.</exception>
+    [TickThreadOnly]
+    [RequiresCapability(Caps.World)]
+    public static SpawnResult TryEntity(Guid template, WorldPosition position, float yawDegrees = 0, SpawnOptions? options = null)
+    {
+        if (template == System.Guid.Empty) throw new ArgumentException("empty template GUID", nameof(template));
+        RequireTickThread("Spawn.TryEntity");
+        return Try(() => SpawnCore(template, null, position, yawDegrees, options), nameof(template));
+    }
+
+    /// <summary>Drops an item like <see cref="Item"/>, named by its <see cref="ItemId"/>, with the answer as a result
+    /// (see <see cref="TryEntity(string, WorldPosition, float, SpawnOptions?)"/>). The item id is not checked against the
+    /// game's item registry (look ids up with Kiln.Items). Since 0.2.0-dev.27.</summary>
+    /// <exception cref="ArgumentException">The item id is 0, the amount is not 1..65535, or the position is invalid.</exception>
+    /// <exception cref="KilnUnavailableException"><c>kiln.spawn</c> is off, or the server world does not run yet
+    /// (<c>spawn.world</c>).</exception>
+    /// <exception cref="InvalidOperationException">Not on the tick thread.</exception>
+    [TickThreadOnly]
+    [RequiresCapability(Caps.World)]
+    public static SpawnResult TryItem(ItemId item, int amount, WorldPosition position, int level = 0, SpawnOptions? options = null)
+    {
+        if (item.Value == 0) throw new ArgumentException("item id 0", nameof(item));
+        ArgumentOutOfRangeException.ThrowIfLessThan(amount, 1);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(amount, 65535);
+        RequireTickThread("Spawn.TryItem");
+        return Try(() => ItemCore(item.Value, amount, position, level, options), nameof(item));
+    }
+
+    // The one error rule over SpawnCore's exceptions: an unknown template or a bad request is the caller's argument,
+    // an unavailable capability passes through, and only the engine's own refusal is a result.
+    private static SpawnResult Try(Func<EntityId> spawn, string argument)
+    {
+        EntityId id;
+        try
+        {
+            id = spawn();
+        }
+        catch (SpawnException e) when (e.Code is NotFound or InvalidArgument)
+        {
+            throw new ArgumentException(e.Message, e.Code == NotFound ? argument : null, e);
+        }
+        catch (SpawnException e)
+        {
+            return new SpawnResult(false, EntityRef.None, e.Message, e.Code);
+        }
+        // The serial, when an entity source can stamp the new entity at once; else a ref that only knows the id.
+        var made = new EntityRef(id, 0);
+        try
+        {
+            if (EntityRef.Of(id) is { IsNone: false } stamped) made = stamped;
+        }
+        catch (KilnUnavailableException)
+        {
+            // no entity source (identity.entities): the id alone
+        }
+        return new SpawnResult(true, made, null, Ok);
+    }
+
     /// <summary>Spawns <paramref name="count"/> (1..50) copies on a circle of radius <paramref name="spread"/> around
     /// <paramref name="center"/> (the admin "spawn N enemies near a player"). Faults only if none could be spawned.</summary>
+    [TickThreadOnly]
+    [RequiresCapability(Caps.World)]
     public static Task<IReadOnlyList<EntityId>> Group(string template, WorldPosition center, int count, double spread = 4,
         SpawnOptions? options = null)
     {
@@ -325,33 +438,39 @@ public static unsafe class Spawn
     /// <summary>Drops <paramref name="amount"/> (1..65535) of an item (the game's ItemId, e.g. from kiln.items) as a
     /// loose pickup at <paramref name="position"/>: the game's generic pickup with gravity, collected like loot. It
     /// falls once a player is near (the server does not simulate empty areas). Not saved by the game.</summary>
+    [TickThreadOnly]
+    [RequiresCapability(Caps.World)]
     public static Task<EntityId> Item(uint itemId, int amount, WorldPosition position, int level = 0, SpawnOptions? options = null)
     {
         if (itemId == 0) throw new ArgumentException("item id 0", nameof(itemId));
         ArgumentOutOfRangeException.ThrowIfLessThan(amount, 1);
         ArgumentOutOfRangeException.ThrowIfGreaterThan(amount, 65535);
-        return Run(() =>
-        {
-            var t = Require("Spawn.Item");
-            uint id = 0;
-            int rc;
-            var tagBytes = Utf8(options?.Tag ?? "item");
-            var originBytes = Utf8(Origin);
-            fixed (byte* tag = tagBytes)
-            fixed (byte* origin = originBytes)
-            {
-                rc = t->SpawnItem(itemId, (uint)amount, new Vec3(position), Math.Max(level, options?.Level ?? 0),
-                    (uint)(options?.Flags ?? SpawnFlags.None), new NativeStr { Ptr = tag, Len = (nuint)tagBytes.Length },
-                    new NativeStr { Ptr = origin, Len = (nuint)originBytes.Length }, &id);
-            }
-            Check(rc, $"item {itemId} x{amount}");
-            if (Events.HasSubscribers<EntitySpawnedEvent>())
-                Events.Post(new EntitySpawnedEvent(new EntityId(id), SpawnedKind.Item, null, null, position, itemId, amount, options?.Tag, Origin));
-            return new EntityId(id);
-        });
+        return Run(() => ItemCore(itemId, amount, position, level, options));
     }
 
-    /// <summary>True when this kiln.spawn honours <see cref="SpawnOptions.Components"/>.</summary>
+    private static EntityId ItemCore(uint itemId, int amount, WorldPosition position, int level, SpawnOptions? options)
+    {
+        var t = Require("Spawn.Item");
+        uint id = 0;
+        int rc;
+        var tagBytes = Utf8(options?.Tag ?? "item");
+        var originBytes = Utf8(Origin);
+        fixed (byte* tag = tagBytes)
+        fixed (byte* origin = originBytes)
+        {
+            rc = t->SpawnItem(itemId, (uint)amount, new Vec3(position), Math.Max(level, options?.Level ?? 0),
+                (uint)(options?.Flags ?? SpawnFlags.None), new NativeStr { Ptr = tag, Len = (nuint)tagBytes.Length },
+                new NativeStr { Ptr = origin, Len = (nuint)originBytes.Length }, &id);
+        }
+        Check(rc, $"item {itemId} x{amount}");
+        if (Events.HasSubscribers<EntitySpawnedEvent>())
+            Events.Post(new EntitySpawnedEvent(new EntityId(id), SpawnedKind.Item, null, null, position, itemId, amount, options?.Tag, Origin));
+        return new EntityId(id);
+    }
+
+    /// <summary>True when this kiln.spawn honours <see cref="SpawnOptions.Components"/> (capability
+    /// <c>spawn.components</c>).</summary>
+    [AnyThread]
     public static bool SupportsComponents
     {
         get
@@ -369,7 +488,10 @@ public static unsafe class Spawn
         if (comps is { Count: > 0 })
         {
             if (!SupportsComponents)
-                throw new NotSupportedException("Spawn: SpawnOptions.Components needs a newer kiln.spawn on this server");
+            {
+                Rows.Ensure();
+                throw ServiceCaps.Unavailable(Caps.Components, "SpawnOptions.Components needs a newer kiln.spawn on this server");
+            }
             if (comps.Count > 64) throw new ArgumentException("at most 64 extra spawn components", nameof(options));
             return SpawnWithComponents(t, guid, name, p, yaw, options!, comps);
         }
@@ -441,7 +563,27 @@ public static unsafe class Spawn
 
     // ---- destroy / inspect / find ----
 
+    /// <summary>Destroys the entity <paramref name="entity"/> was captured from, now (and drops its tracked record).
+    /// False, and nothing is destroyed, when that entity is gone: its id no longer exists, or names another entity by
+    /// now (ids are handed out again when a world is set up). A ref without a serial (<see cref="EntityRef.HasSerial"/>
+    /// false) can only tell that the id exists. Posts <see cref="EntityDestroyedEvent"/> like
+    /// <see cref="Destroy(EntityId)"/>. Since 0.2.0-dev.27.</summary>
+    /// <exception cref="ArgumentException">The entity is a player.</exception>
+    /// <exception cref="KilnUnavailableException"><c>kiln.spawn</c> or <c>spawn.destroy</c> is off, or no service
+    /// supplies entity serials (<c>identity.entities</c>).</exception>
+    [TickThreadOnly]
+    [RequiresCapability(Caps.Destroy)]
+    public static bool DestroyIfAlive(EntityRef entity)
+    {
+        if (entity.IsNone) return false;
+        if (entity.Id.IsPlayer) throw new ArgumentException("players cannot be destroyed", nameof(entity));
+        Require("Spawn.DestroyIfAlive");
+        return entity.IsAlive && Destroy(entity.Id);
+    }
+
     /// <summary>Destroys a non-player entity now (and drops its tracked record). False if it does not exist.</summary>
+    [TickThreadOnly]
+    [RequiresCapability(Caps.Destroy)]
     public static bool Destroy(EntityId entity)
     {
         if (entity.IsNone) return false;
@@ -450,22 +592,26 @@ public static unsafe class Spawn
         var info = watched ? Inspect(entity) : null;
         var rc = Require("Spawn.Destroy")->Destroy(entity.Value);
         if (rc == NotFound) return false;
-        Check(rc, $"destroy {entity}");
+        Check(rc, $"destroy {entity}", Caps.Destroy);
         if (watched) Events.Post(new EntityDestroyedEvent(entity, info?.Template, info?.TemplateName, info?.Position, "destroy", Origin));
         return true;
     }
 
     /// <summary>Whether the entity exists right now.</summary>
+    [TickThreadOnly]
+    [RequiresCapability(Caps.Service)]
     public static bool Exists(EntityId entity) => Inspect(entity) is not null;
 
     /// <summary>The entity's template and transform, or null when it does not exist.</summary>
+    [TickThreadOnly]
+    [RequiresCapability(Caps.Service)]
     public static EntityInfo? Inspect(EntityId entity)
     {
         if (entity.IsNone) return null;
         var s = new NativeSnapshot { Size = (uint)sizeof(NativeSnapshot) };
         var rc = Require("Spawn.Inspect")->EntityInfo(entity.Value, &s);
         if (rc == NotFound) return null;
-        Check(rc, $"inspect {entity}");
+        Check(rc, $"inspect {entity}", Caps.Service);
         Guid? tmpl = s.HasTemplate != 0 ? ReadGuid(&s.Template) : null;
         return new EntityInfo(entity, tmpl, tmpl is { } g ? Template(g)?.Name : null, s.Position.ToPosition(), s.Yaw,
             s.Tracked != 0, s.Serial, s.HasSpawnTime != 0 ? s.SpawnTime : null, new EntityId(s.Parent));
@@ -473,10 +619,14 @@ public static unsafe class Spawn
 
     /// <summary>Entities of a template within <paramref name="radius"/> metres of <paramref name="near"/> (null: the
     /// whole world), nearest first.</summary>
+    [TickThreadOnly]
+    [RequiresCapability(Caps.Entities)]
     public static IReadOnlyList<EntityId> Find(Guid template, WorldPosition? near = null, double radius = 0, int max = 256) =>
         FindCore(template, null, near, radius, max);
 
     /// <summary>Number of entities in the server world right now.</summary>
+    [TickThreadOnly]
+    [RequiresCapability(Caps.Entities)]
     public static int EntityCount
     {
         get
@@ -487,6 +637,8 @@ public static unsafe class Spawn
     }
 
     /// <summary>Entities whose template name contains <paramref name="nameContains"/> (case-insensitive).</summary>
+    [TickThreadOnly]
+    [RequiresCapability(Caps.Entities)]
     public static IReadOnlyList<EntityId> FindByName(string nameContains, WorldPosition? near = null, double radius = 0, int max = 256)
     {
         ArgumentException.ThrowIfNullOrEmpty(nameContains);
@@ -512,7 +664,7 @@ public static unsafe class Spawn
             rc = t->Find(guid != System.Guid.Empty ? &g : null, new NativeStr { Ptr = f, Len = (nuint)fb.Length },
                 near is { } c ? new Vec3(c) : default, near is null ? 0 : radius, o, (nuint)max, &count);
         }
-        Check(rc, "find");
+        Check(rc, "find", Caps.Entities);
         total = (int)count;
         var n = (int)Math.Min((ulong)count, (ulong)max);
         var list = new EntityId[n];
@@ -523,6 +675,7 @@ public static unsafe class Spawn
     // ---- templates (any thread) ----
 
     /// <summary>A template by name, display name or GUID text; null if unknown.</summary>
+    [AnyThread]
     public static TemplateInfo? Lookup(string name)
     {
         var t = T;
@@ -535,6 +688,7 @@ public static unsafe class Spawn
     }
 
     /// <summary>A template by GUID; null if unknown.</summary>
+    [AnyThread]
     public static TemplateInfo? Template(Guid id)
     {
         var t = T;
@@ -546,6 +700,7 @@ public static unsafe class Spawn
     }
 
     /// <summary>Every known template (the game's loaded templates plus Kiln's catalog), sorted by name.</summary>
+    [AnyThread]
     public static IReadOnlyList<TemplateInfo> Templates
     {
         get
@@ -566,6 +721,7 @@ public static unsafe class Spawn
     // ---- tracking ----
 
     /// <summary>What Kiln spawned in this world and has not removed yet (live or not found right now).</summary>
+    [AnyThread]
     public static IReadOnlyList<TrackedEntity> Tracked
     {
         get
@@ -588,6 +744,8 @@ public static unsafe class Spawn
 
     /// <summary>Destroys tracked entities (all, or those with <paramref name="tag"/> / spawned by
     /// <paramref name="origin"/>) and drops records whose entity is gone.</summary>
+    [TickThreadOnly]
+    [RequiresCapability(Caps.World)]
     public static CleanupResult CleanupTracked(string? tag = null, string? origin = null)
     {
         var t = Require("Spawn.CleanupTracked");
@@ -612,6 +770,8 @@ public static unsafe class Spawn
     }
 
     /// <summary>Re-checks the tracked list against the world now; returns how many are live.</summary>
+    [TickThreadOnly]
+    [RequiresCapability(Caps.World)]
     public static int Refresh()
     {
         uint live = 0;
@@ -619,11 +779,14 @@ public static unsafe class Spawn
         return (int)live;
     }
 
-    /// <summary>True once the server world runs (its save is loaded). Spawning before that fails with
-    /// <see cref="NotSupportedException"/>: the server steps its world while it still loads the save.</summary>
+    /// <summary>The question for the row <c>spawn.world</c>: true once the server world runs (its save is loaded). Spawning before
+    /// that fails with <see cref="KilnUnavailableException"/> (a <see cref="NotSupportedException"/>): the server steps
+    /// its world while it still loads the save.</summary>
+    [AnyThread]
     public static bool WorldRunning => T != null && T->WorldState() == 2;
 
     /// <summary>The world the tracked list belongs to (the world GUID from the save), or null.</summary>
+    [AnyThread]
     public static string? WorldKey
     {
         get
@@ -645,7 +808,11 @@ public static unsafe class Spawn
     private static Table* Require(string api)
     {
         var t = T;
-        if (t == null) throw new NotSupportedException("kiln.spawn is unavailable on this server");
+        if (t == null)
+        {
+            Rows.Ensure();
+            throw ServiceCaps.Unavailable(Caps.Service, "kiln.spawn is unavailable on this server");
+        }
         Services.RequireTickThread(api);
         return t;
     }
@@ -663,12 +830,14 @@ public static unsafe class Spawn
         }
     }
 
-    private static void Check(int rc, string what)
+    // `capability`: what an "unavailable" answer of this call means (the world does not run, or a feature is off).
+    private static void Check(int rc, string what, string capability = Caps.World)
     {
         if (rc == Ok) return;
+        if (rc == Unavailable) Rows.Refresh();  // the row follows before the exception names it
         throw rc switch
         {
-            Unavailable => new NotSupportedException($"kiln.spawn: {what}: unavailable (the world is not running yet, or not on this build)"),
+            Unavailable => ServiceCaps.Unavailable(capability, $"kiln.spawn: {what}: unavailable (the world is not running yet, or not on this build)"),
             WrongThread => new InvalidOperationException($"kiln.spawn: {what}: not on the tick thread"),
             NotFound => new SpawnException($"kiln.spawn: {what}: unknown template or entity", rc),
             InvalidArgument => new SpawnException($"kiln.spawn: {what}: invalid argument", rc),

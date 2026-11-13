@@ -93,8 +93,15 @@ public sealed record SettingsStatus(
 /// <c>enshrouded_server.json</c> so they survive a restart.
 /// </summary>
 /// <remarks>Everything except <see cref="Available"/> and <see cref="Status"/> runs on the tick thread. The settings are
-/// found at the end of the server's first world step: <see cref="Ready"/> is false during a mod's first OnLoad.</remarks>
-public static unsafe class Settings
+/// found at the end of the server's first world step: <see cref="Ready"/> is false during a mod's first OnLoad.
+/// <para>Server side only. Capabilities (<see cref="Capabilities"/>): <c>kiln.settings</c> (the service is here) and
+/// <c>settings.ready</c> (the live settings were found: pending until the end of the server's first world step). A
+/// member that needs the service throws <see cref="KilnUnavailableException"/> naming <c>kiln.settings</c> when it is
+/// off (a <see cref="NotSupportedException"/>, as before). A call before the settings are ready still throws
+/// <see cref="InvalidOperationException"/>, as it always did: check <see cref="Ready"/> or
+/// <c>Capabilities.Is("settings.ready")</c> first.</para></remarks>
+[ServerOnly]
+public static unsafe partial class Settings
 {
     private const string Name = "kiln.settings";
 
@@ -167,13 +174,17 @@ public static unsafe class Settings
 
     private sealed record Meta(string Name, SettingKind Kind, string[] Options, long[] OptionValues);
 
-    /// <summary>True when the native service is loaded and usable on this game build.</summary>
+    /// <summary>True when the native service is loaded and usable on this game build (capability <c>kiln.settings</c>).</summary>
+    [AnyThread]
     public static bool Available => T != null;
 
-    /// <summary>True once the live settings were found (from the end of the server's first world step).</summary>
+    /// <summary>True once the live settings were found (from the end of the server's first world step; capability
+    /// <c>settings.ready</c>).</summary>
+    [AnyThread]
     public static bool Ready => T != null && Native().Ready != 0;
 
     /// <summary>State of kiln.settings and of the day/night clock. Any thread.</summary>
+    [AnyThread]
     public static SettingsStatus Status
     {
         get
@@ -190,9 +201,12 @@ public static unsafe class Settings
     }
 
     /// <summary>+1 for every change kiln.settings saw (its own, or the game's admin menu). Cheap; any thread.</summary>
+    [AnyThread]
     public static long Revision => T != null ? (long)Native().Revision : 0;
 
     /// <summary>Every setting with its current value, in the game's order.</summary>
+    [TickThreadOnly]
+    [RequiresCapability(Caps.Service)]
     public static IReadOnlyList<SettingInfo> All
     {
         get
@@ -206,6 +220,8 @@ public static unsafe class Settings
     }
 
     /// <summary>name → current value, JSON-friendly (what an admin "settings_get" returns).</summary>
+    [TickThreadOnly]
+    [RequiresCapability(Caps.Service)]
     public static IReadOnlyDictionary<string, object> Values
     {
         get
@@ -224,6 +240,8 @@ public static unsafe class Settings
     }
 
     /// <summary>Everything about one setting. <exception cref="KeyNotFoundException">unknown name</exception></summary>
+    [TickThreadOnly]
+    [RequiresCapability(Caps.Service)]
     public static SettingInfo Info(string name)
     {
         Require("Settings.Info");
@@ -234,6 +252,8 @@ public static unsafe class Settings
     public static bool Has(string name) => T != null && Ready && TryIndex(name, out _);
 
     /// <summary>The current value: bool, double, long (whole numbers, nanosecond durations) or string (option name).</summary>
+    [TickThreadOnly]
+    [RequiresCapability(Caps.Service)]
     public static object Get(string name)
     {
         Require("Settings.Get");
@@ -252,6 +272,8 @@ public static unsafe class Settings
     /// <exception cref="ArgumentException">the value is refused (the message says why and gives the range)</exception>
     /// <exception cref="KeyNotFoundException">no such setting</exception>
     /// <exception cref="InvalidOperationException">not ready yet, or not on the tick thread</exception>
+    [TickThreadOnly]
+    [RequiresCapability(Caps.Service)]
     public static SettingChange Set(string name, object value, bool resend = true, bool anyValue = false)
     {
         if (!TrySet(name, value, out var change, out var error, resend, anyValue))
@@ -260,6 +282,8 @@ public static unsafe class Settings
     }
 
     /// <summary><see cref="Set"/> without the argument exception: false and the reason when refused.</summary>
+    [TickThreadOnly]
+    [RequiresCapability(Caps.Service)]
     public static bool TrySet(string name, object value, out SettingChange? change, out string error, bool resend = true,
         bool anyValue = false)
     {
@@ -288,6 +312,8 @@ public static unsafe class Settings
     }
 
     /// <summary>Back to the world's own value (what the server started with).</summary>
+    [TickThreadOnly]
+    [RequiresCapability(Caps.Service)]
     public static SettingChange Reset(string name, bool resend = true)
     {
         Require("Settings.Reset");
@@ -304,6 +330,8 @@ public static unsafe class Settings
     }
 
     /// <summary>Every setting back to the world's own value. Returns how many changed.</summary>
+    [TickThreadOnly]
+    [RequiresCapability(Caps.Service)]
     public static int ResetAll(bool resend = true)
     {
         Require("Settings.ResetAll");
@@ -316,6 +344,8 @@ public static unsafe class Settings
     }
 
     /// <summary>Sends the settings to every player now (after several <c>Set(..., resend: false)</c>).</summary>
+    [TickThreadOnly]
+    [RequiresCapability(Caps.Service)]
     public static void Resend()
     {
         Require("Settings.Resend");
@@ -328,6 +358,8 @@ public static unsafe class Settings
     /// reads the file when it starts. Returns what was done ("saved 38 settings ...").
     /// </summary>
     /// <exception cref="IOException">the file could not be read, parsed or written</exception>
+    [TickThreadOnly]
+    [RequiresCapability(Caps.Service)]
     public static string Save()
     {
         Require("Settings.Save");
@@ -351,7 +383,11 @@ public static unsafe class Settings
 
     private static void Require(string api)
     {
-        if (T == null) throw new NotSupportedException("kiln.settings is unavailable on this game build");
+        if (T == null)
+        {
+            Rows.Ensure();
+            throw ServiceCaps.Unavailable(Caps.Service, "kiln.settings is unavailable on this game build");
+        }
         Services.RequireTickThread(api);
         if (Native().Ready == 0)
             throw new InvalidOperationException("kiln.settings: the live settings are not found yet (they are from the end of the server's first world step)");

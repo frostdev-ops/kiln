@@ -653,12 +653,16 @@ internal static class InstanceSyncRuntime
 
     /// <summary>The row saves.instance_data.sync: the channel can open here (kiln.net is in this process). Reported once, at
     /// Kiln.Saves' start; it does not depend on a session.</summary>
+    private static long _capEpoch = -1;
+
     internal static void ReportCapability()
     {
         lock (Gate)
         {
-            if (_capShown) return;
+            var epoch = Capabilities.CurrentBinding.Epoch;
+            if (_capShown && _capEpoch == epoch) return;  // again under a new registry binding
             _capShown = true;
+            _capEpoch = epoch;
         }
         try
         {

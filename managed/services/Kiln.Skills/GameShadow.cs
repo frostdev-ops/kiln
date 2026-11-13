@@ -606,6 +606,7 @@ public static unsafe partial class GameTree
     public static void SetShadowLevels(EntityId player, IReadOnlyDictionary<uint, int> levels) => GameShadow.Set(0, player, levels);
 
     /// <summary>The game's own PointsSpent for a player's real components (the shadow table answers inside it).</summary>
+    [TickThreadOnly]
     public static int? PointsSpent(EntityId player)
     {
         Game.AssertTickThread();
@@ -616,6 +617,7 @@ public static unsafe partial class GameTree
     }
 
     /// <summary>The game's own IsUnlocked and Reachable for a node of a player (the shadow table answers inside them).</summary>
+    [TickThreadOnly]
     public static (bool Unlocked, bool Reachable)? Query(EntityId player, uint node)
     {
         Game.AssertTickThread();
@@ -631,6 +633,7 @@ public static unsafe partial class GameTree
     /// waits for skill-point knowledge a player entity without a client never gets). Op 4 sets an item entity's unlocked enhancements to <paramref name="node"/> (no cost, no
     /// replication). Op 5 sets a player entity's selected hotbar slot. Op <c>8 | slot &lt;&lt; 8</c> says which inventory slot an equipment slot is (<paramref name="node"/>: the
     /// inventory's entity, the slot's index in the top byte), on a player entity with none set.</para></summary>
+    [TickThreadOnly]
     public static bool GameRequest(EntityId player, int op, uint node = 0)
     {
         Game.AssertTickThread();
@@ -668,6 +671,7 @@ public static unsafe partial class GameTree
     public static IReadOnlyList<uint> LabNativeRequests(EntityId player) => GameShadow.RequestsOf(player);
 
     /// <summary>Lab: writes a node into a player entity's UnlockedSkillNodes as a character's save holds it. False unless <c>&lt;kiln&gt;/data/skills/lab-ops</c> exists.</summary>
+    [TickThreadOnly]
     [System.Diagnostics.CodeAnalysis.Experimental("KILNX001", UrlFormat = "https://github.com/frostdev-ops/kiln/blob/main/docs/kiln/modding/analyzers.md#kilnx001")]
     [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
     public static bool LabPutInSave(EntityId player, uint node, int level)
@@ -678,6 +682,7 @@ public static unsafe partial class GameTree
     }
 
     /// <summary>Lab: does to that list what the login guard does with the shadow ids it finds at a join. False unless <c>&lt;kiln&gt;/data/skills/lab-ops</c> exists.</summary>
+    [TickThreadOnly]
     [System.Diagnostics.CodeAnalysis.Experimental("KILNX001", UrlFormat = "https://github.com/frostdev-ops/kiln/blob/main/docs/kiln/modding/analyzers.md#kilnx001")]
     [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
     public static bool LabLoginGuard(EntityId player)

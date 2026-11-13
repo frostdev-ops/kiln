@@ -9,6 +9,7 @@
   <ItemGroup>
     <InternalsVisibleTo Include="Kiln.Host" />
     <InternalsVisibleTo Include="Kiln.Host.Tests" />
+    <InternalsVisibleTo Include="Kiln.Contract.Tests" />
     <InternalsVisibleTo Include="Kiln.Network.Tests" />
     <InternalsVisibleTo Include="Kiln.Blocks.Tests" />
     <InternalsVisibleTo Include="Kiln.World.Tests" />

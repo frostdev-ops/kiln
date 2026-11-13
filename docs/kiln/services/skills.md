@@ -480,3 +480,17 @@ with "skills-test done: N PASS, 0 FAIL". Admin password:
 
 ### Afterwards (game closed)
 Stop the lab, restore the save backup (the whole LOCAL folder, `backup/` included), and `tools/client/client.sh undeploy --real`.
+
+## The contract (dev.27)
+
+Kiln.Skills follows [the API contract](../modding/contract.md).
+
+- **Capabilities.** `kiln.skills` and its server-side sigdb features `skills.functions`, `skills.login_guard`,
+  `skills.shadow`, `skills.tree_load` (lowered by Kiln.Skills when the service is not loaded). Kiln's own talent trees
+  (`Skills`) are managed and need no capability; nodes in the game's tree (`GameTree.Define`, `DefineJson`, `Dump`,
+  `Resource`) carry `[RequiresCapability("kiln.skills")]` and throw `KilnUnavailableException` naming it (a
+  `NotSupportedException`, as before).
+- **Results.** `TalentResult` implements `IKilnResult`: through the interface `Reason` is null when `Ok`; the record's
+  own `Reason` keeps its text (empty when ok), as before.
+- **Threads.** `[TickThreadOnly]` on the calls that read or change a holder's state.
+- **Events.** `TalentUnlockingEvent` (cancelable) and `TalentChangedEvent` cover every write.

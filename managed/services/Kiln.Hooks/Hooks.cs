@@ -134,10 +134,12 @@ public static unsafe class Hooks
     // ---- detours ----
     /// <summary>Detours the function at <paramref name="symbol"/> (a sigdb name — core, or "&lt;modid&gt;/name" from a
     /// shipped fragment). Higher <paramref name="priority"/> runs first.</summary>
+    [RequiresCapability(HooksCaps.Service)]
     public static HookHandle Detour(string symbol, DetourHandler handler, int priority = 0)
         => Detour(Symbols.Get(symbol), handler, priority, symbol);
 
     /// <summary>Detours the function at <paramref name="address"/> (absolute).</summary>
+    [RequiresCapability(HooksCaps.Service)]
     public static HookHandle Detour(nuint address, DetourHandler handler, int priority = 0)
         => Detour(address, handler, priority, null);
 
@@ -156,10 +158,12 @@ public static unsafe class Hooks
 
     // ---- mid hooks ----
     /// <summary>Installs a mid-function hook at <paramref name="symbol"/>.</summary>
+    [RequiresCapability(HooksCaps.Service)]
     public static HookHandle Mid(string symbol, MidHandler handler, int priority = 0)
         => Mid(Symbols.Get(symbol), handler, priority, symbol);
 
     /// <summary>Installs a mid-function hook at <paramref name="address"/> (absolute).</summary>
+    [RequiresCapability(HooksCaps.Service)]
     public static HookHandle Mid(nuint address, MidHandler handler, int priority = 0)
         => Mid(address, handler, priority, null);
 
@@ -347,6 +351,7 @@ public static unsafe class Hooks
     }
 
     /// <summary>Hook/patch counts for diagnostics.</summary>
+    [RequiresCapability(HooksCaps.Service)]
     public static HooksStats Stats()
     {
         var t = HooksNative.Require("Hooks.Stats");

@@ -53,20 +53,15 @@ public static unsafe partial class Items
     // which reports the rows) has run before the first read, also from a nested type (Fuel, Transfers).
     private static bool Can(string capability) => Capabilities.Is(capability);
 
-    static Items()
-    {
-        try
-        {
-            ReportCapabilities();
-        }
-        catch (Exception e) when (e is ArgumentException or InvalidOperationException)
-        {
-            Backend.Current.Log(0, LogLevel.Warn, $"kiln.items: its capability rows were not reported: {e.Message}");
-        }
-    }
+    // dev.27: the rows run on a ServiceCapRows, so they are reported again under a new registry binding (the test kit's,
+    // a contract test's) and a failure is logged once, never thrown out of the static constructor.
+    internal static readonly ServiceCapRows Rows = new(Caps.Service, ReportCapabilities);
+
+    static Items() => Rows.Ensure();
 
     private static IDisposable? _capabilityTick;
     private static (CapabilityState State, CapabilityReason Reason, string Text) _moves = ((CapabilityState)(-1), 0, "");
+    private static long _movesEpoch = -1;
 
     // The rows that are fixed once the service has started. A sigdb row is only lowered, never raised.
     private static void ReportCapabilities()
@@ -76,7 +71,7 @@ public static unsafe partial class Items
         {
             var (reason, text) = Cause(CapabilityReason.ServiceMissing, "kiln.items is not loaded", Caps.Service);
             Capabilities.Report(Caps.ResultPeek, CapabilityState.Unavailable, reason, text);
-            foreach (var name in (string[])[Caps.Fuel, Caps.Move, Caps.Names, Caps.Transfer, Caps.Moves, Caps.Instances, Caps.Equip]) Lower(name, reason, text);
+            foreach (var name in (string[])[Caps.Fuel, Caps.Move, Caps.Names, Caps.Transfer, Caps.Moves, Caps.Instances, Caps.Equip, Caps.GearOptions]) Lower(name, reason, text);
             return;
         }
         // equip (v5): kiln.items decides it at its start (the symbols, kiln.world, the program's registration)
@@ -187,8 +182,9 @@ public static unsafe partial class Items
             : !Capabilities.Is(Caps.Move) || s is null or { Program: 0 or 4 }
                 ? Unavailable(Cause(CapabilityReason.Faulted, s?.Detail ?? "", Caps.Move, Caps.Transaction, Caps.Program))
                 : (CapabilityState.Pending, CapabilityReason.Session, s.Detail.Length > 0 ? s.Detail : "waiting for the server world");
-        if (now == _moves) return;
+        if (now == _moves && _movesEpoch == Capabilities.CurrentBinding.Epoch) return;
         _moves = now;
+        _movesEpoch = Capabilities.CurrentBinding.Epoch;
         Capabilities.Report(Caps.Moves, now.Item1, now.Item2, now.Item3);
     }
 

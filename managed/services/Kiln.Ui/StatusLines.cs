@@ -78,6 +78,7 @@ public static class StatusLines
 
     /// <summary>Sets the text of line <paramref name="id"/> of the calling mod, creating it (it stays until changed). An empty
     /// or null text removes the line. Any thread.</summary>
+    [AnyThread]
     public static StatusLine? Set(string id, string? text)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(id);

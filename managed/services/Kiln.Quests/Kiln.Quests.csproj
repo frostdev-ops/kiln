@@ -15,6 +15,8 @@
     <InternalsVisibleTo Include="Kiln.Blocks" />
     <!-- The game-data readers and catalog rules of world progress (GameDataReader.cs, WorldCatalog.cs) are tested without a game. -->
     <InternalsVisibleTo Include="Kiln.Quests.Tests" />
+    <!-- the features a failed hook takes down, on a fake kiln.knowledge table -->
+    <InternalsVisibleTo Include="Kiln.Contract.Tests" />
     <!-- Kiln.Sdk's bake (managed/Kiln.Sdk/bake) takes what a mod's code defines at build: Native/NativeExport.cs. -->
     <InternalsVisibleTo Include="Kiln.Sdk.Bake" />
     <InternalsVisibleTo Include="Kiln.Sdk.Tests" />

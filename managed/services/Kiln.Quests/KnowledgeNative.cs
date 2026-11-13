@@ -216,8 +216,13 @@ internal static unsafe class KnowledgeNative
         }
     }
 
-    internal static Table* Require(string api) =>
-        T != null ? T : throw new NotSupportedException($"Knowledge.{api}: kiln.knowledge is unavailable on this server");
+    internal static Table* Require(string api)
+    {
+        var t = T;
+        if (t != null) return t;
+        QuestsCaps.Rows.Ensure();
+        throw ServiceCaps.Unavailable(QuestsCaps.Service, $"Knowledge.{api}: kiln.knowledge is unavailable on this server");
+    }
 
     internal static string Text(byte* p, int max)
     {
@@ -242,6 +247,7 @@ internal static unsafe class KnowledgeNative
         switch (rc)
         {
             case Ok: return;
+            // not a capability: "no world" and "the player is not in game" are refusals about this call's target
             case Unavailable: throw new NotSupportedException($"Knowledge.{api}: unavailable (no world, the player is not in game, or the part is off on this build)");
             case WrongThread: throw new InvalidOperationException($"Knowledge.{api}: call it on the tick thread");
             case InvalidArgument: throw new ArgumentException($"Knowledge.{api}: invalid arguments");

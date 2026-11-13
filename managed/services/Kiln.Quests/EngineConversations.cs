@@ -6,8 +6,11 @@
 namespace Kiln;
 
 /// <summary>The answer to a conversation request.</summary>
-public sealed record ConversationResult(bool Ok, string Reason)
+public sealed record ConversationResult(bool Ok, string Reason) : IKilnResult
 {
+    // IKilnResult's reason is null when the action happened; this record's own Reason keeps its text ("" then).
+    string? IKilnResult.Reason => Ok ? null : Reason;
+
     internal static readonly ConversationResult Yes = new(true, "");
     internal static ConversationResult No(string why) => new(false, why);
     public override string ToString() => Ok ? "ok" : $"refused: {Reason}";
@@ -178,6 +181,7 @@ public static class Dialogues
 
     /// <summary>Opens a dialogue for a player in game (at <paramref name="node"/>, default its start). Replaces a
     /// conversation they had open. Tick thread.</summary>
+    [TickThreadOnly]
     public static ConversationResult Open(EntityId player, string dialogue, EntityId npc = default, string? node = null)
     {
         Game.AssertTickThread();
@@ -214,6 +218,7 @@ public static class Dialogues
 
     /// <summary>A player talks to the NPC near them (or, for a synthetic holder, the one named): a conversation, or
     /// the quests that NPC offers and takes. Tick thread.</summary>
+    [TickThreadOnly]
     public static ConversationResult Talk(QuestHolder h, string? npc = null)
     {
         Game.AssertTickThread();
@@ -298,7 +303,8 @@ public static class Dialogues
         }
         if (open || e.IsFarewell || def?.Dialogue is not { } name) return;
         // a native dialogue's lines are in the game's menu; a chat conversation starts here for players the menu cannot reach
-        if (FindDefinition(name, def.ModId) is { Native: false } d) Open(h, d, e.Npc, null, def);
+        // refused (not a player, the dialogue lacks the node): the game's own dialogue goes on, nothing waits for it
+        if (FindDefinition(name, def.ModId) is { Native: false } d) _ = Open(h, d, e.Npc, null, def);
     }
 
     // ---------------------------------------------------------------------------------------------- showing --------
@@ -333,6 +339,7 @@ public static class Dialogues
     }
 
     /// <summary>What a holder is being shown; null when no conversation is open. Tick thread.</summary>
+    [TickThreadOnly]
     public static ConversationView? View(QuestHolder h)
     {
         Game.AssertTickThread();
@@ -357,6 +364,7 @@ public static class Dialogues
 
     /// <summary>Runs a choice: <paramref name="option"/> is the option's place in the node (-1: continue a node without
     /// options). The option's condition is checked now, not when it was shown. Tick thread; completes on it.</summary>
+    [TickThreadOnly]
     public static async Task<ConversationResult> Choose(QuestHolder h, long conversation, int option)
     {
         Game.AssertTickThread();
@@ -431,6 +439,7 @@ public static class Dialogues
     }
 
     /// <summary>Ends a holder's conversation. Tick thread.</summary>
+    [TickThreadOnly]
     public static void Close(QuestHolder h)
     {
         Game.AssertTickThread();
@@ -457,6 +466,7 @@ public static class Dialogues
     /// <summary>The game's own dialogue chose an option that a mod's quest file defines (Kiln.Quests/Native maps the line
     /// to the option): checks its <c>if</c> and runs its <c>do</c>; the game's menu goes on by itself, so <c>goto</c> is
     /// ignored. Tick thread; completes on it.</summary>
+    [TickThreadOnly]
     public static async Task<ConversationResult> ApplyOption(EntityId player, EntityId npc, string fullDialogueId, string nodeId, int optionIndex)
     {
         Game.AssertTickThread();

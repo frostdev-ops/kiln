@@ -302,6 +302,8 @@ public sealed class NetChannel : IDisposable
     // ---- sending ----
 
     /// <summary>Client side: sends to the server. False when not connected to a Kiln server that has this channel.</summary>
+    [ClientOnly]
+    [AnyThread]
     public bool SendToServer<T>(T message) where T : notnull => NetEngine.SendToServer(this, Encode(message));
 
     /// <summary>Sends to one peer (server side: a client; client side: <see cref="Network.Server"/>).</summary>
@@ -312,10 +314,12 @@ public sealed class NetChannel : IDisposable
     }
 
     /// <summary>Server side: sends to the player <paramref name="player"/>. False when they have no Kiln or lack the channel.</summary>
+    [ServerOnly]
     public bool SendTo<T>(EntityId player, T message) where T : notnull =>
         Network.PeerOf(player) is { } p && NetEngine.SendToPeer(this, p, Encode(message));
 
     /// <summary>Server side: sends to every Kiln client that has this channel. Returns how many got it.</summary>
+    [ServerOnly]
     public int SendToAll<T>(T message, NetPeer? except = null) where T : notnull
     {
         var e = Encode(message);
@@ -327,6 +331,8 @@ public sealed class NetChannel : IDisposable
 
     /// <summary>Server side: sends to Kiln clients whose player is within <paramref name="radius"/> metres of
     /// <paramref name="position"/>. Tick thread (reads positions).</summary>
+    [ServerOnly]
+    [TickThreadOnly]
     public int SendNear<T>(WorldPosition position, double radius, T message, NetPeer? except = null) where T : notnull
     {
         Services.RequireTickThread("NetChannel.SendNear");
@@ -381,7 +387,8 @@ public readonly record struct NetworkStatus(
 /// <summary>Kiln's mod networking: channels, peers, the join handshake and mod sync.</summary>
 public static class Network
 {
-    /// <summary>The transport (kiln.net) works on this build.</summary>
+    /// <summary>The transport (kiln.net) works on this build (capability <c>kiln.net</c>).</summary>
+    [AnyThread]
     public static bool Available => NetNative.Available;
 
     /// <summary>Creates (or returns the same mod's existing) channel <paramref name="name"/>. Use a name prefixed with
@@ -391,15 +398,19 @@ public static class Network
         NetEngine.Open(name, version, required, maxMessageBytes);
 
     /// <summary>Server side: connected clients (Kiln or vanilla), a snapshot.</summary>
+    [ServerOnly]
     public static IReadOnlyList<NetPeer> Peers => NetEngine.ServerPeers();
 
     /// <summary>Client side: the server connection, null when not in a game.</summary>
+    [ClientOnly]
     public static NetPeer? Server => NetEngine.ServerLink;
 
     /// <summary>Client side: connected to a server that speaks Kiln (handshake done).</summary>
+    [ClientOnly]
     public static bool ServerHasKiln => NetEngine.ServerLink is { State: NetPeerState.Ready };
 
     /// <summary>Server side: the peer of a player (null when not connected).</summary>
+    [ServerOnly]
     public static NetPeer? PeerOf(EntityId player) => NetEngine.PeerOfPlayer(player);
 
     /// <summary>Server side: refuses a connection, also one whose player the game has not made yet (from
@@ -455,20 +466,25 @@ public static class Network
 
     /// <summary>Server side: this server's stable id (network.json <c>serverId</c>, else
     /// <c>kiln/data/kiln-network/server-id</c>, generated once).</summary>
+    [ServerOnly]
     public static string ServerId => NetAdvertise.ServerId(NetEngine.Config);
 
     /// <summary>Server side: the name sent to clients (network.json <c>serverName</c>, else enshrouded_server.json).</summary>
+    [ServerOnly]
     public static string? ServerName => NetAdvertise.ServerName(NetEngine.Config);
 
     /// <summary>Server side: what REJECT/WELCOME advertise: id, name, modpack and the mods players need (manifest
     /// <c>clients: "mod"</c>, with the kdh1 of their folders; <see cref="NetServerAdvert.Pending"/> until hashed).</summary>
+    [ServerOnly]
     public static NetServerAdvert Advertised => NetEngine.Advertised();
 
     /// <summary>Server side: hash the required mods again now (they are refreshed when the mod list changes and every
     /// 60 s anyway).</summary>
+    [ServerOnly]
     public static void RefreshRequired() => NetAdvertise.Refresh();
 
     /// <summary>Client side: what the server sent in its REJECT/WELCOME (null before an answer).</summary>
+    [ClientOnly]
     public static NetServerAdvert? ServerAdvert => NetEngine.ServerAdvert;
 
     /// <summary>The last network.json load error (null when it loaded or is absent).</summary>
@@ -477,6 +493,7 @@ public static class Network
     // ---- client-side events (main thread). Server-side events are on the event bus (NetClientHandshakeEvent ...). ----
 
     /// <summary>Client: the server answered the handshake (Kiln channels usable).</summary>
+    [ClientOnly]
     public static event Action<NetPeer>? ServerReady
     {
         add => NetEngine.ServerReadyHandlers.Add(value);
@@ -484,6 +501,7 @@ public static class Network
     }
 
     /// <summary>Client: the server refused this client (reason, details).</summary>
+    [ClientOnly]
     public static event Action<string, IReadOnlyList<string>>? Rejected
     {
         add => NetEngine.RejectedHandlers.Add(value);
@@ -491,6 +509,7 @@ public static class Network
     }
 
     /// <summary>Client: the server has no Kiln (no answer to the handshake).</summary>
+    [ClientOnly]
     public static event Action<NetPeer>? ServerVanilla
     {
         add => NetEngine.ServerVanillaHandlers.Add(value);
@@ -498,6 +517,7 @@ public static class Network
     }
 
     /// <summary>Client: the connection to the server is gone.</summary>
+    [ClientOnly]
     public static event Action<NetPeer>? Disconnected
     {
         add => NetEngine.DisconnectedHandlers.Add(value);

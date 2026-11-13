@@ -82,6 +82,8 @@ public static partial class Build
     /// <summary>Reverts the newest journal entry of <paramref name="owner"/> (default: the calling mod's own edits; pass
     /// <see cref="JournalOwner"/> of a player's options for theirs, or <c>"*"</c> for the newest of anyone). Null when
     /// there is nothing to undo. Loads the tiles first.</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.build")]
     public static async Task<UndoResult?> Undo(string? owner = null, TimeSpan? timeout = null)
     {
         Ensure("Build.Undo");
@@ -91,6 +93,8 @@ public static partial class Build
     }
 
     /// <summary>Reverts one journal entry by id.</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.build")]
     public static async Task<UndoResult?> UndoEntry(long id, TimeSpan? timeout = null)
     {
         Ensure("Build.Undo");

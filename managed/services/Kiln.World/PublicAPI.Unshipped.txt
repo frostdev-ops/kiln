@@ -106,3 +106,4 @@ const Kiln.EntitySet.Capability = "world.find" -> string!
 Kiln.WorldWriteState.ListRefused = 7 -> Kiln.WorldWriteState
 Kiln.WorldWriteInfo.FactsKnown.get -> bool
 Kiln.WorldWriteInfo.FactsKnown.init -> void
+Kiln.TeleportResult.Ok.get -> bool

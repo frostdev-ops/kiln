@@ -173,6 +173,25 @@ crash them that way. A mod that adds items should state `clients`, and then the 
 **Not proven yet.** The real-client hold, refusal, let-in and the two hooks have not run: client launches are on hold.
 Lab results and "Client checks" are in docs/re/network.md.
 
+## The contract (dev.27)
+
+Kiln.Network follows [the API contract](modding/contract.md).
+
+- **Capabilities.** `kiln.net` (the core's row) and its sigdb features (`net.client_guard`, `net.gate`, `net.kick`,
+  `net.players`, `net.transport`, `net.withhold`), lowered at Kiln.Network's start (the first service tick) when
+  kiln.net is missing; `players.kick` and `players.bans` (managed, PlayerGate, at the same start).
+- **Errors.** Nothing throws for a missing transport (channels open, sends return false, peer lists are empty);
+  `Network.Kick` throws `KilnUnavailableException` naming `players.kick` (dev.27).
+- **Sides and threads.** `[ServerOnly]`: `Peers`, `PeerOf`, `Kick`, `ServerId`, `ServerName`, `Advertised`,
+  `RefreshRequired`, `NetChannel.SendTo(EntityId, ...)`, `SendToAll`, `SendNear`. `[ClientOnly]`: `Server`,
+  `ServerHasKiln`, `ServerAdvert`, the four client events, `NetChannel.SendToServer` (also `[AnyThread]`, as the
+  remarks say). `[TickThreadOnly]` where the code checks it: `NetChannel.SendNear`, `ConfigSync.CheckRoundTrip`.
+  **Not marked:** the server's other sends, which the remarks ask for on the tick thread but which do not check it: a
+  mark would give code that works today a new analyzer warning.
+- **Results and events.** No result record here (`KickResult` is Kiln.Players'); Kiln.Network writes no world state,
+  so it has no change event of its own.
+- Tested offline: `managed/tests/Kiln.Contract.Tests/NetworkContractTests.cs` and the conformance rules.
+
 ## Limits
 - Game frames are zero-padded to 4 bytes; Kiln trims the padding in fragments and JSON messages.
 - Frames up to kiln.net's `max_frame` (8000 bytes, under the game's 8192 per message on channel 12). Bigger messages

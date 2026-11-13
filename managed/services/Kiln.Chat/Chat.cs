@@ -30,6 +30,18 @@ public sealed record ChatPlayer(EntityId Entity, string Name, uint Connection, u
 {
     /// <summary>The user group may kick and ban (Kiln's default meaning of "admin").</summary>
     public bool CanKickBan => (Permissions & ChatPermissions.KickBan) != 0;
+
+    /// <summary>This chat player as a <see cref="PlayerRef"/>: the person in game with <see cref="Entity"/> now
+    /// (<see cref="PlayerRef.Of"/>). <see cref="PlayerRef.None"/> while the player is still loading (no entity) and
+    /// when nobody is in game there any more. Tick thread. Since 0.2.0-dev.27.</summary>
+    /// <exception cref="ArgumentNullException"><paramref name="player"/> is null.</exception>
+    /// <exception cref="KilnUnavailableException">No service supplies players (<c>identity.players</c>).</exception>
+    [TickThreadOnly]
+    public static explicit operator PlayerRef(ChatPlayer player)
+    {
+        ArgumentNullException.ThrowIfNull(player);
+        return player.Entity.IsNone ? PlayerRef.None : PlayerRef.Of(player.Entity);
+    }
 }
 
 /// <summary>A line a player typed. Raised on the tick thread before anyone sees it.</summary>
@@ -91,13 +103,19 @@ public readonly record struct ChatLine(uint Type, uint Connection, ulong Account
 /// The server's text chat (service <c>kiln.chat</c>): see players' lines (and drop them), send server lines.
 /// </summary>
 /// <remarks>
-/// A server line (<see cref="Broadcast"/>, <see cref="Tell"/>, command replies) shows as a notice: its text alone, in
+/// A server line (<see cref="Broadcast"/>, <see cref="Tell(EntityId, string)"/>, command replies) shows as a notice: its text alone, in
 /// the style of the game's own "Player X joined." lines, with no name in front. (The client only takes lines with a
 /// known speaker, so each recipient's copy is stored with them as speaker and sent to them alone; a notice doesn't
 /// show the speaker.) <see cref="ServerPrefix"/> marks it; <see cref="ServerLines"/> = <see cref="ServerLineStyle.Spoken"/>
 /// gives the older look, "&lt;their name&gt;: [Server] text". Text chat must be on (<c>"enableTextChat": true</c>).
+/// <para>Server side only. Capabilities (<see cref="Capabilities"/>): <c>kiln.chat</c> (the service is here) and the
+/// sigdb features <c>chat.send</c>, <c>chat.receive</c> and <c>chat.players</c>. A member that needs the service
+/// throws <see cref="KilnUnavailableException"/> naming <c>kiln.chat</c> when it is off (a
+/// <see cref="NotSupportedException"/>, as before). A send before the game server was seen still throws
+/// <see cref="InvalidOperationException"/>, as it always did.</para>
 /// </remarks>
-public static unsafe class Chat
+[ServerOnly]
+public static unsafe partial class Chat
 {
     private const int Ok = 0, NotFound = 2, Unavailable = 3, WrongThread = 4;
     internal const int MaxBytes = 1024;
@@ -162,16 +180,18 @@ public static unsafe class Chat
 
     static Chat()
     {
+        Rows.Ensure();
         ModCalls.OnRetire(mod =>
         {
             lock (Lock) Handlers.RemoveAll(h => ReferenceEquals(h.Owner, mod));
         });
     }
 
-    /// <summary>True when the native service is loaded on this game build.</summary>
+    /// <summary>True when the native service is loaded on this game build (capability <c>kiln.chat</c>).</summary>
+    [AnyThread]
     public static bool Available => T != null;
 
-    /// <summary>Text put in front of every server line (<see cref="Broadcast"/>, <see cref="Tell"/>, command replies).</summary>
+    /// <summary>Text put in front of every server line (<see cref="Broadcast"/>, <see cref="Tell(EntityId, string)"/>, command replies).</summary>
     public static string ServerPrefix { get; set; } = "[Server] ";
 
     /// <summary>How server lines look in players' chat. Default: <see cref="ServerLineStyle.Notice"/>.</summary>
@@ -201,6 +221,8 @@ public static unsafe class Chat
     }
 
     /// <summary>Sends a server line to every connected player. Returns how many were addressed. Tick thread only.</summary>
+    [TickThreadOnly]
+    [RequiresCapability(Caps.Service)]
     public static int Broadcast(string text)
     {
         var t = Require();
@@ -232,6 +254,8 @@ public static unsafe class Chat
     }
 
     /// <summary>Sends a server line to one player. Returns false when they are not connected. Tick thread only.</summary>
+    [TickThreadOnly]
+    [RequiresCapability(Caps.Service)]
     public static bool Tell(EntityId player, string text)
     {
         var t = Require();
@@ -250,8 +274,26 @@ public static unsafe class Chat
         return any;
     }
 
+    /// <summary>Sends a server line to this person, if they are still in the session the ref was captured in
+    /// (<see cref="PlayerRef.IsOnline"/>): a ref kept across an <c>await</c> or a timer never reaches whoever has that
+    /// entity slot now. Returns false when they left, or the ref has no stamped session entity (call
+    /// <see cref="PlayerRef.Resolve"/> first to find the person's current session). Tick thread only.
+    /// Since 0.2.0-dev.27.</summary>
+    /// <exception cref="KilnUnavailableException"><c>kiln.chat</c> is off, or no service supplies entity serials
+    /// (<c>identity.entities</c>).</exception>
+    [TickThreadOnly]
+    [RequiresCapability(Caps.Service)]
+    public static bool TellIfOnline(PlayerRef player, string text)
+    {
+        Require();
+        Services.RequireTickThread("Chat.TellIfOnline");
+        return player.IsOnline && Tell(player.Entity.Id, text);
+    }
+
     /// <summary>Adds a line spoken by <paramref name="speaker"/> (as if they typed it, no prefix), shown to everyone
     /// or only to <paramref name="to"/>. Returns false when a player is not connected. Tick thread only.</summary>
+    [TickThreadOnly]
+    [RequiresCapability(Caps.Service)]
     public static bool Say(EntityId speaker, string text, EntityId to = default)
     {
         var t = Require();
@@ -268,6 +310,7 @@ public static unsafe class Chat
     }
 
     /// <summary>Connected players (including ones still loading, whose <see cref="ChatPlayer.Entity"/> is none).</summary>
+    [AnyThread]
     public static IReadOnlyList<ChatPlayer> Players
     {
         get
@@ -321,6 +364,8 @@ public static unsafe class Chat
         /// <summary>Queues <paramref name="text"/> as if the player with connection handle
         /// <paramref name="connection"/> (0 = nobody) typed it. It reaches <see cref="Received"/> and the command
         /// registry at the next step and, unless consumed, the chat. Any thread.</summary>
+        [AnyThread]
+        [RequiresCapability(Caps.Service)]
         public static void Inject(uint connection, string text)
         {
             var t = Require();
@@ -332,6 +377,8 @@ public static unsafe class Chat
         }
 
         /// <summary>The newest line in the server's chat inbox, or null when it is empty. Tick thread only.</summary>
+        [TickThreadOnly]
+        [RequiresCapability(Caps.Service)]
         public static ChatLine? LastLine()
         {
             var t = Require();
@@ -439,8 +486,13 @@ public static unsafe class Chat
         return message.IsCommand && Commands.RunFromChat(message);
     }
 
-    private static Table* Require() =>
-        T != null ? T : throw new NotSupportedException("kiln.chat is unavailable on this game build");
+    private static Table* Require()
+    {
+        var t = T;
+        if (t != null) return t;
+        Rows.Ensure();
+        throw ServiceCaps.Unavailable(Caps.Service, "kiln.chat is unavailable on this game build");
+    }
 
     private static int SendRaw(Table* t, uint to, string line, uint* delivered)
     {

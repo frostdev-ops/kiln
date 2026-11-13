@@ -8,6 +8,7 @@ using System.Text.Json.Serialization;
 namespace Kiln;
 
 /// <summary>The EML mods of this start and what kiln-eml did with them (docs/kiln/eml.md).</summary>
+[AnyThread]
 public static class Eml
 {
     private static readonly Lazy<EmlStatus?> Current = new(() => Load(DefaultStateFile, currentProcess: true));

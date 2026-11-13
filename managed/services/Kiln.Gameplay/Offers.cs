@@ -62,6 +62,7 @@ public enum OfferStatus
 /// tick thread. An offer belongs to the mod that added it and is taken off when that mod unloads. Kiln removes only the
 /// components it added, never an offer the game made (a chest, a bench, a bed refuse an offer).
 /// </summary>
+[ServerOnly]
 [TickThreadOnly]
 public static class Offers
 {

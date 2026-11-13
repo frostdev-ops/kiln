@@ -57,6 +57,7 @@ public sealed record CreatureSpawnRule(string Template, string Variant, double C
     bool DayOnly = false);
 
 /// <summary>The variant registry (per owner: a mod, or a data pack's "creatures" section).</summary>
+[ServerOnly]
 public static class CreatureVariants
 {
     internal sealed class Entry
@@ -434,6 +435,7 @@ public static partial class Creatures
 {
     /// <summary>Spawns a variant (by id) or a plain template (by name/GUID) and applies the variant's overrides in
     /// the same step, before any client sees the creature. The task is complete when it returns. Tick thread.</summary>
+    [TickThreadOnly]
     public static Task<EntityId> Spawn(string variantOrTemplate, WorldPosition position, float yawDegrees = 0,
         CreatureSpawnOptions? options = null)
     {

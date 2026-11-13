@@ -158,6 +158,10 @@ internal static unsafe class CombatNative
 
     private static Table* _t;
 
+    /// <summary>The v3 table if kiln.combat was found already; never asks the backend (EntityWatch's push runs on every
+    /// subscription, in the subscribing mod's code: a test kit would count a lookup there as that mod needing kiln.combat).</summary>
+    public static TableV3* V3Found => _t != null && _t->Header.Size >= (uint)sizeof(TableV3) ? (TableV3*)_t : null;
+
     /// <summary>The table, or null when kiln.combat is not loaded (looked up again until it is found).</summary>
     public static Table* T => _t != null ? _t : _t = Services.Get<Table>(Name, Version);
 
@@ -176,9 +180,9 @@ internal static unsafe class CombatNative
     {
         var t = V2;
         if (t != null) return t;
-        throw new NotSupportedException(T == null
-            ? $"{api}: kiln.combat is not available on this server build"
-            : $"{api}: this Kiln runtime's kiln.combat has no attribute functions (update Kiln)");
+        throw T == null
+            ? CombatCaps.Off(CombatCaps.Service, $"{api}: kiln.combat is not available on this server build")
+            : CombatCaps.Off(CombatCaps.Attributes, $"{api}: this Kiln runtime's kiln.combat has no attribute functions (update Kiln)");
     }
 
     public static string DescribeAttribute(int rc) => rc switch
@@ -191,7 +195,7 @@ internal static unsafe class CombatNative
     };
 
     public static Table* Require(string api) =>
-        T != null ? T : throw new NotSupportedException($"{api}: kiln.combat is not available on this server build");
+        T != null ? T : throw CombatCaps.Off(CombatCaps.Service, $"{api}: kiln.combat is not available on this server build");
 
     public static string Describe(int rc) => rc switch
     {

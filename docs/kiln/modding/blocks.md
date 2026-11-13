@@ -324,6 +324,22 @@ A rename without `Was` makes a new item, and what the world holds of the old one
 | Load | `BlockError` with the block and the field: `block spell bad, cast.manaCost: -1 is less than 0`. A wrong block makes nothing, and the file's other blocks still load. A VFX's fields are checked on a server too; a client's builder also checks what needs its PNGs |
 | Content ready | What the game could not take, by name: `block status x, onApply[0].applies: the game has no status "0xdeadbeef"` |
 
+## The contract (dev.27)
+
+Kiln.Blocks follows [the API contract](contract.md). It has no native table of its own.
+
+- **Capabilities.** `blocks.weapon_moves` and `blocks.animated_held` (at the first item block's compile),
+  `blocks.affixes` and `blocks.affixes.effects` (the affix session): rows from Kiln.Blocks' first use, so a manifest's
+  `features` cannot require them; reported again after a registry reset. `Factions` needs `kiln.npcai`.
+- **Errors.** `Factions.Relate`, `Reset`, `Fights`, `Friends` and `Between` throw `KilnUnavailableException` naming
+  `kiln.npcai` without it (a `NotSupportedException`, as before, same sentence); `Factions.Get` answers `Game` without
+  it. A per-call "unavailable" from kiln.npcai keeps its plain `NotSupportedException`.
+- **Threads.** `[TickThreadOnly]` also on `Factions.Relate`, `Reset`, `Between` and `AiStats.SummonsOf`, which check it.
+- **Overloads.** `Blocks.Define` has two typed affix overloads since dev.27 (`AffixBlock`, `AffixPoolBlock`): with
+  nine in dev.26, `var d = Blocks.Define;` and `Define(null)` were ambiguous already, and no dev.26 argument converts to
+  the new types, so no dev.26 call changes (`OldCallShapesTests` lists it as accepted).
+- Tested offline: `managed/tests/Kiln.Contract.Tests/BlocksContractTests.cs` and the conformance rules.
+
 ## Seeing what a block became
 ```
 kiln blocks list [--mod ID] [--server SERVER]     the mods with blocks, their errors and warnings

@@ -220,6 +220,7 @@ internal static class RulesStartup
 {
     static RulesStartup()
     {
+        RulesCaps.Rows.Ensure();  // the rules.* features lowered when kiln.rules is missing (never throws)
         try
         {
             RulesNet.Start();

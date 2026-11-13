@@ -259,6 +259,9 @@ public static class Events
     /// bus's lock: a service that holds work for subscribers (<see cref="EntityWatch"/>) widens what it holds at once.</summary>
     internal static event Action? SubscriptionAdded;
 
+    /// <summary>As <see cref="SubscriptionAdded"/>, with the event type subscribed to (<see cref="ServiceUse"/>).</summary>
+    internal static event Action<Type>? SubscriptionTypeAdded;
+
     /// <summary>Subscribes every <see cref="SubscribeAttribute"/> method of <paramref name="target"/> (instance and
     /// static methods of its type; pass a <see cref="Type"/> for its static methods only). Kiln calls this for each
     /// <see cref="Mod"/> before <c>OnLoad</c>, and then also registers the mod's <c>[Command]</c> methods (Kiln.Chat).
@@ -557,6 +560,7 @@ public static class Events
         try
         {
             SubscriptionAdded?.Invoke();
+            SubscriptionTypeAdded?.Invoke(type);
         }
         catch (Exception e)
         {

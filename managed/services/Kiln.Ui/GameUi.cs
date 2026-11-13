@@ -204,6 +204,7 @@ public sealed class ScreenChangedEvent(GameScreen previous, GameScreen current) 
 public static unsafe partial class Ui
 {
 /// <summary>The game's screens (client): <c>Ui.Screens.Current</c>, <c>Ui.Screens.Changed</c>.</summary>
+[ClientOnly]
 public static class Screens
 {
     private static StrongBox<GameScreen> _current = new(GameScreen.None);  // replaced whole: readers never see a torn value
@@ -212,6 +213,7 @@ public static class Screens
     private static readonly OwnedList<Action<GameScreen>> TickHandlers = new();
 
     /// <summary>The screen kiln.ui reads from the game's UI (any thread). <see cref="GameScreen.None"/> when not available.</summary>
+    [AnyThread]
     public static GameScreen Current
     {
         get
@@ -356,6 +358,7 @@ public sealed class MenuEntry : IDisposable
     public Action OnClick { get; set; }
 
     /// <summary>The label (any thread; per language).</summary>
+    [AnyThread]
     public UiText Text
     {
         get => _text;
@@ -396,6 +399,7 @@ public sealed class MenuEntry : IDisposable
 public static unsafe partial class Ui
 {
 /// <summary>Entries in the game's own menus (Forge: adding buttons in ScreenEvent.Init): <c>Ui.Menus.Add</c>.</summary>
+[ClientOnly]
 public static class Menus
 {
     private static readonly object Lock = new();

@@ -15,6 +15,7 @@ namespace Kiln;
 /// placement need Kiln in the player's game: <see cref="ClientOf"/> says whether it has it. Rules are session state:
 /// nothing is saved, so a restart starts from the game's rules.
 /// </remarks>
+[ServerOnly]
 public static unsafe class Rules
 {
     /// <summary>The network channel a player's game applies its rules from (flight and the build cursor).</summary>
@@ -26,6 +27,7 @@ public static unsafe class Rules
     /// <summary>Applies <paramref name="rules"/> to <paramref name="scope"/> until the returned handle is disposed, the
     /// calling mod unloads, <paramref name="duration"/> runs out, or (for a single player) the player leaves.</summary>
     /// <exception cref="ArgumentException">A value is out of range (named in the message).</exception>
+    [TickThreadOnly]
     public static RuleSet Apply(RuleScope scope, PlayerRules rules, TimeSpan? duration = null, string? label = null) =>
         Apply(scope, rules, duration, label, null);
 
@@ -47,10 +49,12 @@ public static unsafe class Rules
     }
 
     /// <summary>Applies <paramref name="rules"/> to one player (<see cref="RuleScope.ForPlayer"/>).</summary>
+    [TickThreadOnly]
     public static RuleSet Apply(EntityId player, PlayerRules rules, TimeSpan? duration = null, string? label = null) =>
         Apply(RuleScope.ForPlayer(player), rules, duration, label);
 
     /// <summary>A player's rules as they stand now (every rule set that applies, combined, the server's limits held).</summary>
+    [TickThreadOnly]
     public static EffectiveRules Of(EntityId player)
     {
         Game.AssertTickThread();
@@ -81,6 +85,7 @@ public static unsafe class Rules
     /// client; never needed for real players. Up to 16 at once for the native hooks.</summary>
     [System.Diagnostics.CodeAnalysis.Experimental("KILNX001", UrlFormat = "https://github.com/frostdev-ops/kiln/blob/main/docs/kiln/modding/analyzers.md#kilnx001")]
     [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
+    [TickThreadOnly]
     public static void Simulate(EntityId character, bool on = true)
     {
         Game.AssertTickThread();
@@ -155,6 +160,7 @@ public sealed class RuleSet : IDisposable
     /// read right after, as after <see cref="Kiln.Rules.Apply(RuleScope, PlayerRules, TimeSpan?, string?)"/>. Updating
     /// a set with the rules it already has asks again for what a death or a teleport used up
     /// (<see cref="PlayerRules.NoClip"/>).</summary>
+    [TickThreadOnly]
     public void Update(PlayerRules rules)
     {
         ArgumentNullException.ThrowIfNull(rules);

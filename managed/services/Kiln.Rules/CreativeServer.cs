@@ -7,6 +7,7 @@ namespace Kiln;
 /// Creative mode's tools beyond the rules: taking items from the game's catalogue, the time of day and the day and
 /// night cycle. The same checks serve the creative menu, <c>/creative give|time|cycle</c> and remote tools. Tick thread.
 /// </summary>
+[ServerOnly]
 public static class CreativeTools
 {
     /// <summary>Items one request may give at most.</summary>
@@ -23,6 +24,7 @@ public static class CreativeTools
     /// <summary>Gives <paramref name="count"/> of <paramref name="item"/> to the player, as a stack the game makes
     /// (gear with a level and rarity when given). Refused (Ok false) unless <see cref="CanGive"/>; the server's catalogue
     /// decides what exists.</summary>
+    [TickThreadOnly]
     public static Task<CreativeResult> Give(EntityId player, ItemId item, int count = 1, int? level = null, ItemRarity? rarity = null) =>
         Give(player, item, count, level, rarity, upgrades: 0, gemSlot: false);
 
@@ -30,11 +32,13 @@ public static class CreativeTools
     /// <paramref name="upgrades"/> of its upgrades unlocked (5: all; each raises the level by 1, as at the workbench) and,
     /// for a weapon, an empty gem slot (<paramref name="gemSlot"/>) when the game's roll gave none. Both need
     /// <see cref="Items.GearOptionsAvailable"/>; without it they are refused.</summary>
+    [TickThreadOnly]
     public static Task<CreativeResult> Give(EntityId player, ItemId item, int count, int? level, ItemRarity? rarity, int upgrades,
         bool gemSlot) => Give(player, item, count, level, rarity, upgrades, gemSlot, slot: null);
 
     /// <summary>As above, into <paramref name="slot"/> of the player's own backpack first (the creative menu's backpack
     /// grid); the rest goes where the game puts it. A slot outside the player's backpack is refused.</summary>
+    [TickThreadOnly]
     public static async Task<CreativeResult> Give(EntityId player, ItemId item, int count, int? level, ItemRarity? rarity, int upgrades,
         bool gemSlot, SlotId? slot)
     {
@@ -153,6 +157,7 @@ public static class CreativeTools
 
     /// <summary>Jumps the world's clock forward to <paramref name="hours"/> (0..24). Refused unless
     /// <see cref="MayChangeTime"/>.</summary>
+    [TickThreadOnly]
     public static CreativeResult SetTime(EntityId player, double hours)
     {
         Game.AssertTickThread();
@@ -162,6 +167,7 @@ public static class CreativeTools
 
     /// <summary>Jumps the world's clock forward to <paramref name="hours"/>, with no check of who asks: for the console,
     /// commands that check their own permission, and remote tools. <paramref name="who"/> goes into the log.</summary>
+    [TickThreadOnly]
     public static CreativeResult SetTime(double hours, string who)
     {
         Game.AssertTickThread();
@@ -175,6 +181,7 @@ public static class CreativeTools
 
     /// <summary>Sets the day and night cycle (Normal, Stopped, Fast) for the whole world, for this session. Refused unless
     /// <see cref="MayChangeTime"/>.</summary>
+    [TickThreadOnly]
     public static CreativeResult SetCycle(EntityId player, TimeCycle cycle)
     {
         Game.AssertTickThread();
@@ -183,6 +190,7 @@ public static class CreativeTools
     }
 
     /// <summary>Sets the day and night cycle, with no check of who asks (see <see cref="SetTime(double, string)"/>).</summary>
+    [TickThreadOnly]
     public static CreativeResult SetCycle(TimeCycle cycle, string who)
     {
         Game.AssertTickThread();
@@ -220,6 +228,7 @@ public static class CreativeTools
     /// id; set when the player picks the item up, crafts, uses or inspects it) is not empty. Null when this server
     /// cannot read knowledge (kiln.knowledge) or the player is not in game. The creative menu's journey mode lists only
     /// these.</summary>
+    [TickThreadOnly]
     public static IReadOnlyList<ItemId>? Found(EntityId player)
     {
         Game.AssertTickThread();

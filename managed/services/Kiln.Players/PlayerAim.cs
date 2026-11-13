@@ -54,12 +54,14 @@ public sealed record PlayerAim(WorldPosition Origin, Vector3 Direction, Quaterni
         return new PlayerAim(new WorldPosition(a.X / Fixed, a.Y / Fixed, a.Z / Fixed), dir, q, a.Distance, a.FovY, source);
     }
 
-    private static int _reported;
+    private static long _reportedEpoch = -1;
 
-    /// <summary>Reports <c>players.aim</c> once (Kiln.Players' start, or the first read). Never throws.</summary>
+    /// <summary>Reports <c>players.aim</c> once per registry binding (Kiln.Players' rows at its start, or the first read;
+    /// again after a reset, as a test kit's next harness has). Never throws.</summary>
     internal static void ReportCapability()
     {
-        if (Interlocked.Exchange(ref _reported, 1) == 1) return;
+        var epoch = Capabilities.CurrentBinding.Epoch;
+        if (Interlocked.Exchange(ref _reportedEpoch, epoch) == epoch) return;
         try
         {
             var (state, reason, text) = Decide();

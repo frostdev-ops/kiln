@@ -69,6 +69,8 @@ public static unsafe class Journal
     private readonly record struct CacheKey(int Count, uint First);
 
     /// <summary>Every journal quest (tick thread; empty until the catalog exists, a few steps after the world started).</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.knowledge")]
     public static IReadOnlyList<JournalQuest> Quests()
     {
         var t = KnowledgeNative.Require("Journal");
@@ -108,6 +110,8 @@ public static unsafe class Journal
     }
 
     /// <summary>A quest by "quest:0x…", "0x…" or its entry id; null when there is none.</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.knowledge")]
     public static JournalQuest? Find(string name)
     {
         ArgumentNullException.ThrowIfNull(name);
@@ -118,10 +122,14 @@ public static unsafe class Journal
         return Knowledge.TryParseId(s, out var id) ? Find(id) : null;
     }
 
+    [TickThreadOnly]
+    [RequiresCapability("kiln.knowledge")]
     public static JournalQuest? Find(uint entryId) => Quests().FirstOrDefault(q => q.EntryId == entryId);
 
     /// <summary>The quest's state for the world (<paramref name="target"/> 0) or a player (tick thread): every step's
     /// visibility and completion query evaluated with the game's evaluator.</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.knowledge")]
     public static JournalQuestState State(EntityId target, JournalQuest quest)
     {
         ArgumentNullException.ThrowIfNull(quest);
@@ -134,8 +142,12 @@ public static unsafe class Journal
         return new JournalQuestState(quest, target, steps, rewarded);
     }
 
+    [TickThreadOnly]
+    [RequiresCapability("kiln.knowledge")]
     public static JournalQuestState State(Player player, JournalQuest quest) => State(player.Entity, quest);
 
     /// <summary>Every quest's state for a target (tick thread).</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.knowledge")]
     public static IReadOnlyList<JournalQuestState> States(EntityId target) => [.. Quests().Select(q => State(target, q))];
 }

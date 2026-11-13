@@ -178,7 +178,8 @@ public sealed class BakeUnitTests
             GameTree.ForgetBaked("rec-test");
         }
         Assert.False(GameTree.Available);
-        Assert.Throws<NotSupportedException>(() => GameTree.DefineJson("""{"nodes":[]}"""));
+        // a KilnUnavailableException naming kiln.skills since dev.27's contract adoption: still a NotSupportedException
+        Assert.ThrowsAny<NotSupportedException>(() => GameTree.DefineJson("""{"nodes":[]}"""));
     }
 
     [Fact]

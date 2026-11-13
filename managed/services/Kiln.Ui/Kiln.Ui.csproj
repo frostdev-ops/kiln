@@ -12,6 +12,8 @@
     <InternalsVisibleTo Include="Kiln.Ui.Tests" />
     <InternalsVisibleTo Include="Kiln.Ui.Preview" />
     <InternalsVisibleTo Include="Kiln.Admin" />
+    <!-- the features a failed hook takes down, on a fake kiln.ui table -->
+    <InternalsVisibleTo Include="Kiln.Contract.Tests" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../../Kiln.Api/Kiln.Api.csproj" Private="false" />

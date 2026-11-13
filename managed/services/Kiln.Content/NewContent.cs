@@ -269,6 +269,7 @@ public static unsafe class NewContent
 
     /// <summary>Registers a new item as the calling mod's (see <see cref="ItemDefinition"/>).</summary>
     /// <exception cref="ArgumentException">The definition is invalid (the message says why).</exception>
+    [RequiresCapability("content.new")]
     public static ContentDefinition Register(ItemDefinition def) => Register(def, Content.Owner());
 
     /// <summary>Registers a new item as a given owner (Kiln.Blocks: a data-only mod's blocks).</summary>
@@ -338,6 +339,7 @@ public static unsafe class NewContent
     }
 
     /// <summary>Registers a new recipe as the calling mod's (see <see cref="RecipeDefinition"/>).</summary>
+    [RequiresCapability("content.new")]
     public static ContentDefinition Register(RecipeDefinition def) => Register(def, Content.Owner());
 
     /// <summary>Registers a new recipe as a given owner (Kiln.Blocks: a data-only mod's blocks).</summary>
@@ -362,10 +364,12 @@ public static unsafe class NewContent
     }
 
     /// <summary>Registers a definition given in the data-pack form (one entry of an <c>"add"</c> list).</summary>
+    [RequiresCapability("content.new")]
     public static ContentDefinition RegisterJson(ContentKind kind, string json) =>
         Define(kind, JsonNode.Parse(json) as JsonObject ?? throw new ArgumentException("a JSON object is expected"));
 
     /// <summary>Every definition (of every mod and data pack) with its state.</summary>
+    [RequiresCapability("content.new")]
     public static IReadOnlyList<ContentDefinition> Definitions()
     {
         var t = Table("NewContent.Definitions");
@@ -390,6 +394,7 @@ public static unsafe class NewContent
     }
 
     /// <summary>Placeholders "[Missing: mod:item]" registered for items whose mod is gone (missing content).</summary>
+    [RequiresCapability("content.new")]
     public static IReadOnlyList<ContentDefinition> Placeholders() => Definitions().Where(d => d.IsPlaceholder && d.State != "orphaned").ToList();
 
     /// <summary>kiln.content v4's info: game languages, reference pools, placeholders (JSON; "{}" before v4).</summary>
@@ -423,6 +428,7 @@ public static unsafe class NewContent
     }
 
     /// <summary>The definitions as kiln.content's JSON (for admin tools).</summary>
+    [RequiresCapability("content.new")]
     public static string DefinitionsJson()
     {
         var t = Table("NewContent.DefinitionsJson");
@@ -434,8 +440,8 @@ public static unsafe class NewContent
     private static ContentNative.Table* Table(string api)
     {
         var t = Content.T;
-        if (t == null) throw new NotSupportedException("kiln.content is not available");
-        if (t->Header.Version < 3 || t->Define == null) throw new NotSupportedException($"{api}: kiln.content has no new-content support (v{t->Header.Version})");
+        if (t == null) throw ContentCaps.Off(ContentCaps.Service, "kiln.content is not available");
+        if (t->Header.Version < 3 || t->Define == null) throw ContentCaps.Off(ContentCaps.New, $"{api}: kiln.content has no new-content support (v{t->Header.Version})");
         return t;
     }
 
@@ -463,7 +469,7 @@ public static unsafe class NewContent
             if (r.TryGetProperty("id", out var i)) id = i.GetString();
         }
         catch (JsonException) { }
-        if (rc == ContentNative.Unavailable) throw new NotSupportedException($"{kind} register: {error ?? "unavailable on this build"}");
+        if (rc == ContentNative.Unavailable) throw ContentCaps.Off(ContentCaps.New, $"{kind} register: {error ?? "unavailable on this build"}");
         if (rc != ContentNative.Ok) throw new ArgumentException($"{kind} register {(string?)j["name"]}: {error ?? ContentNative.Message(rc)}");
         var guid = Guid.Parse((string)j["guid"]!);
         return new ContentDefinition(kind, guid, id != null ? ParseId(id) : IdOf(guid), (string)j["name"]!, state ?? "defined", [], null, warning);
@@ -509,10 +515,12 @@ public static unsafe class NewContent
 public static class ContentRegistryDefinitions
 {
     /// <summary>Registers a new item (<paramref name="registry"/> must be <c>Content.Items</c>).</summary>
+    [RequiresCapability("content.new")]
     public static ContentDefinition Register(this ContentRegistry registry, ItemDefinition def) =>
         registry.Kind == ContentKind.Items ? NewContent.Register(def) : throw new ArgumentException("items are registered in Content.Items");
 
     /// <summary>Registers a new recipe (<paramref name="registry"/> must be <c>Content.Recipes</c>).</summary>
+    [RequiresCapability("content.new")]
     public static ContentDefinition Register(this ContentRegistry registry, RecipeDefinition def) =>
         registry.Kind == ContentKind.Recipes ? NewContent.Register(def) : throw new ArgumentException("recipes are registered in Content.Recipes");
 }

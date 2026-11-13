@@ -32,14 +32,21 @@ internal static class ServiceTick
     }
 
     /// <summary>Assemblies (in kiln/host) whose startup type is started at the first service tick, so their file
-    /// watchers run even when no mod touched them (the console folder lives in Kiln.Chat).</summary>
+    /// watchers run and their capability rows are reported even when no mod touched them (the console folder lives in
+    /// Kiln.Chat; a service's rows: docs/kiln/services/README.md, "Managed rules").</summary>
     internal static readonly (string Assembly, string Type)[] AutoStart =
         [("Kiln.Chat", "Kiln.ConsoleControl"), ("Kiln.Content", "Kiln.Content"),
          ("Kiln.Network", "Kiln.NetworkStartup"), ("Kiln.Ui", "Kiln.UiStartup"), ("Kiln.Skills", "Kiln.SkillsStartup"),
          ("Kiln.Audio", "Kiln.AudioStartup"), ("Kiln.Quests", "Kiln.QuestsStartup"), ("Kiln.Vfx", "Kiln.VfxStartup"),
          ("Kiln.Rules", "Kiln.RulesStartup"), ("Kiln.DevTools", "Kiln.DevToolsStartup"),
          ("Kiln.Spawn", "Kiln.SpawnStartup"), ("Kiln.Items", "Kiln.ItemsStartup"),
-         ("Kiln.Players", "Kiln.PlayersStartup")];
+         ("Kiln.Players", "Kiln.PlayersStartup"),
+         // dev.27: services with capability rows of their own, which must be there from the first tick, not from the
+         // service's first use (a service that only lowers the sigdb features of its missing table is not here: the
+         // core's kiln.<service> row says so from the start, and every assembly loaded here costs every start)
+         ("Kiln.Assets", "Kiln.AssetsStartup"), ("Kiln.Settings", "Kiln.SettingsStartup"),
+         ("Kiln.Gameplay", "Kiln.GameplayStartup"), ("Kiln.Combat", "Kiln.CombatStartup"),
+         ("Kiln.Abilities", "Kiln.AbilitiesStartup"), ("Kiln.Time", "Kiln.TimeStartup")];
 
     private static readonly object Lock = new();
     private static Entry[] _entries = [];
@@ -52,6 +59,17 @@ internal static class ServiceTick
 
     /// <summary>The step of the last run (0 before the first).</summary>
     public static ulong Step => _lastStep;
+
+    /// <summary>Changes when <see cref="Reset"/> dropped every handler (tests): a handler added once and kept adds itself
+    /// again when it sees another value.</summary>
+    internal static int Generation => Volatile.Read(ref _generation);
+
+    private static int _generation;
+
+    /// <summary>True while the first service tick starts the <see cref="AutoStart"/> services (tick thread). That start
+    /// is for a service's rows, not a use: a service whose first use does more (Kiln.Gameplay's event listener) leaves
+    /// that for a mod's first use.</summary>
+    internal static bool StartingServices { get; private set; }
 
     /// <summary>Whether autostart runs (tests turn it off).</summary>
     internal static bool AutoStartEnabled { get; set; } = true;
@@ -154,6 +172,9 @@ internal static class ServiceTick
                 _started = true;
                 if (AutoStartEnabled) StartServices();
             }
+            // change events that waited for this step go out first, so whatever the rest of the step writes during a
+            // dispatch waits for the next one, whatever order the handlers were added in
+            ChangeNoticeQueue.FlushAll();
             Events.DrainQueued();
             foreach (var e in Volatile.Read(ref _entries))
             {
@@ -188,10 +209,25 @@ internal static class ServiceTick
             _lastStep = 0;
             _started = false;
             _hostDriven = false;
+            _generation++;
         }
+        ChangeNoticeQueue.ResetAll();
     }
 
     private static void StartServices()
+    {
+        StartingServices = true;
+        try
+        {
+            StartAutoServices();
+        }
+        finally
+        {
+            StartingServices = false;
+        }
+    }
+
+    private static void StartAutoServices()
     {
         var self = typeof(ServiceTick).Assembly;
         var alc = AssemblyLoadContext.GetLoadContext(self) ?? AssemblyLoadContext.Default;

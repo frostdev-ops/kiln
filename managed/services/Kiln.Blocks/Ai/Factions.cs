@@ -32,6 +32,8 @@ public static unsafe class Factions
     }
 
     /// <summary>a toward b, and b toward a unless <paramref name="mutual"/> is false. <see cref="Relation.Game"/> gives the pair back to the game.</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.npcai")]
     public static void Relate(Faction a, Faction b, Relation relation, bool mutual = true)
     {
         Set(a, b, relation);
@@ -39,6 +41,8 @@ public static unsafe class Factions
     }
 
     /// <summary>Gives every relation the calling mod set back to the game.</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.npcai")]
     public static void Reset()
     {
         var t = Require("Factions.Reset");
@@ -56,6 +60,7 @@ public static unsafe class Factions
     }
 
     /// <summary>What the game's own check answers now: would a fight b. With Kiln's table in it.</summary>
+    [RequiresCapability("kiln.npcai")]
     public static bool Fights(Faction a, Faction b)
     {
         var t = Require("Factions.Fights");
@@ -65,6 +70,7 @@ public static unsafe class Factions
     }
 
     /// <summary>What the game's own check answers now: is b on a's side.</summary>
+    [RequiresCapability("kiln.npcai")]
     public static bool Friends(Faction a, Faction b)
     {
         var t = Require("Factions.Friends");
@@ -75,6 +81,8 @@ public static unsafe class Factions
 
     /// <summary>What the game's checks answer now for two entities, a about b, with Kiln's table, a's own relations and its SenseFilter in them.
     /// A creature's own relations and filter answers count from the next step. Tick thread.</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.npcai")]
     public static (bool Fights, bool Friends) Between(EntityId a, EntityId b)
     {
         var t = Require("Factions.Between");
@@ -111,7 +119,10 @@ public static unsafe class Factions
     internal static AiNative.Table* Require(string api)
     {
         var t = AiNative.T;
-        return t != null ? t : throw new NotSupportedException($"{api}: kiln.npcai is not loaded (an unknown game build, or not a server world)");
+        if (t != null) return t;
+        BlocksRows.Rows.Ensure();
+        // a KilnUnavailableException is a NotSupportedException: a catch written before dev.27 still catches it
+        throw ServiceCaps.Unavailable("kiln.npcai", $"{api}: kiln.npcai is not loaded (an unknown game build, or not a server world)");
     }
 
     private static void RequireTick(string api) => Game.AssertTickThread();

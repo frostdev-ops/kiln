@@ -28,6 +28,7 @@ public static unsafe partial class Items
         /// <summary>The water <paramref name="container"/> holds (an item entity, a barrel, a well), or null when it
         /// holds none.</summary>
         [RequiresCapability(Caps.Fuel)]
+        [TickThreadOnly]
         public static FuelLevel? Read(EntityId container)
         {
             Services.RequireTickThread("Items.Fuel.Read");
@@ -44,34 +45,40 @@ public static unsafe partial class Items
 
         /// <summary>Sets <paramref name="container"/>'s water to <paramref name="units"/> (clamped to 0..max).</summary>
         [RequiresCapability(Caps.Fuel)]
+        [TickThreadOnly]
         public static Task<FuelResult> Set(EntityId container, int units, bool dryRun = false) =>
             Submit(container, ItemsNative.FuelSet, units, ItemId.None, dryRun);
 
         /// <summary>Adds <paramref name="units"/> (negative: takes) to <paramref name="container"/>'s water.</summary>
         [RequiresCapability(Caps.Fuel)]
+        [TickThreadOnly]
         public static Task<FuelResult> Add(EntityId container, int units, bool dryRun = false) =>
             Submit(container, ItemsNative.FuelAdd, units, ItemId.None, dryRun);
 
         /// <summary>Fills <paramref name="container"/> to its max.</summary>
         [RequiresCapability(Caps.Fuel)]
+        [TickThreadOnly]
         public static Task<FuelResult> Fill(EntityId container, bool dryRun = false) =>
             Submit(container, ItemsNative.FuelFill, 0, ItemId.None, dryRun);
 
         /// <summary>Fills every water container in <paramref name="holder"/>'s inventories (a player's backpack, action
         /// bars and equipment, a chest), only those of <paramref name="item"/> when given.</summary>
         [RequiresCapability(Caps.Fuel)]
+        [TickThreadOnly]
         public static Task<FuelResult> FillAll(EntityId holder, ItemId item = default, bool dryRun = false) =>
             Submit(holder, ItemsNative.FuelFill | ItemsNative.FuelInventories, 0, item, dryRun);
 
         /// <summary>Sets every water container in <paramref name="holder"/>'s inventories to <paramref name="units"/>
         /// (each clamped to its max), only those of <paramref name="item"/> when given.</summary>
         [RequiresCapability(Caps.Fuel)]
+        [TickThreadOnly]
         public static Task<FuelResult> SetAll(EntityId holder, int units, ItemId item = default, bool dryRun = false) =>
             Submit(holder, ItemsNative.FuelSet | ItemsNative.FuelInventories, units, item, dryRun);
 
         /// <summary>Fills every water container of the given items in <paramref name="holder"/>'s inventories, one
         /// request per item (an empty list: every container). The result adds up the requests.</summary>
         [RequiresCapability(Caps.Fuel)]
+        [TickThreadOnly]
         public static Task<FuelResult> FillAll(EntityId holder, IEnumerable<ItemId> items, bool dryRun = false) =>
             FuelSequence.FillEach(holder, items.Distinct().ToList(), dryRun);
 
@@ -85,6 +92,7 @@ public static unsafe partial class Items
         /// <remarks>It does not end when the entity goes away. A player's entity id is reused by the next player who
         /// joins, so dispose it when the player leaves (Kiln.Rules' <c>Water</c> rule does that for you).</remarks>
         [RequiresCapability(Caps.Fuel)]
+        [TickThreadOnly]
         public static FuelKeep Refill(EntityId entity, FuelRefill policy, ItemId item = default, bool inventories = true)
         {
             ArgumentNullException.ThrowIfNull(policy);
@@ -127,6 +135,7 @@ public static unsafe partial class Items
 
         /// <summary>Keeps water containers full (<see cref="Refill"/> with <see cref="FuelRefill.Full"/>).</summary>
         [RequiresCapability(Caps.Fuel)]
+        [TickThreadOnly]
         public static FuelKeep KeepFull(EntityId entity, ItemId item = default, bool inventories = true) =>
             Refill(entity, FuelRefill.Full, item, inventories);
 
@@ -265,7 +274,9 @@ public static unsafe partial class Items
     {
         var t = V2;
         if (t == null)
-            throw new NotSupportedException(T == null ? "kiln.items is unavailable" : $"{api}: this Kiln runtime's kiln.items has no water functions (update Kiln)");
+            throw T == null
+                ? ServiceCaps.Unavailable(Caps.Service, "kiln.items is unavailable")
+                : ServiceCaps.Unavailable(Caps.Fuel, $"{api}: this Kiln runtime's kiln.items has no water functions (update Kiln)");
         return t;
     }
 }
@@ -292,9 +303,12 @@ public readonly record struct FuelChange(EntityId Container, ItemId Item, SlotId
 /// change (<see cref="Changed"/> 0); <see cref="ItemsStatus.SlotChanged"/> when the entity holds no water;
 /// <see cref="ItemsStatus.NoInventory"/> when a holder has no inventory.</summary>
 public sealed record FuelResult(ItemsStatus Status, EntityId Entity, ItemId Item, int Matched, int Changed,
-    IReadOnlyList<FuelChange> Changes, string Message, int Steps, bool DryRun)
+    IReadOnlyList<FuelChange> Changes, string Message, int Steps, bool DryRun) : IKilnResult
 {
     public bool Ok => Status == ItemsStatus.Done;
+
+    // IKilnResult's reason is null when the change was made; the record's Message says why otherwise (since 0.2.0-dev.27)
+    string? IKilnResult.Reason => Ok ? null : Message;
 
     internal static FuelResult Fail(ItemsStatus s, EntityId e, ItemId item, string why) =>
         new(s, e, item, 0, 0, Array.Empty<FuelChange>(), why, 0, false);

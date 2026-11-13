@@ -114,7 +114,7 @@ internal sealed class EntityTable
     public Rec Attach(EntityId e)
     {
         if (_live.TryGetValue(e.Value, out var r)) return r;
-        if (!SpawnLink.Available) throw new NotSupportedException("EntityData needs kiln.spawn (entity lookups), which is unavailable");
+        if (!SpawnLink.Available) throw SavesCaps.Off("kiln.spawn", "EntityData needs kiln.spawn (entity lookups), which is unavailable");
         var info = SpawnLink.Inspect(e) ?? throw new ArgumentException($"entity {e} does not exist", nameof(e));
         // A loaded attachment waiting for exactly this entity?
         if (CanPersist(info.Template))

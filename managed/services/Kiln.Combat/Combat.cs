@@ -56,11 +56,23 @@ public enum HitState
     Dropped = 3,
 }
 
-/// <summary>Outcome of one <see cref="Combat.Damage"/> / <see cref="Combat.Kill"/> hit.</summary>
+/// <summary>Outcome of one <see cref="Combat.Damage"/> / <see cref="Combat.Kill"/> hit. A hit the game did not apply
+/// (<see cref="HitState.Dropped"/>) is the game's refusal: <see cref="Ok"/> false with <see cref="Reason"/>.</summary>
 public sealed record HitResult(HitState State, EntityId Target, int Amount, int HealthBefore, int HealthAfter,
-    bool KillingBlow, int Steps)
+    bool KillingBlow, int Steps) : IKilnResult
 {
     public bool Applied => State == HitState.Applied;
+
+    /// <summary>The engine applied the hit (<see cref="Applied"/>). Since 0.2.0-dev.27.</summary>
+    public bool Ok => Applied;
+
+    /// <summary>Why the hit was not applied; null when it was. Since 0.2.0-dev.27.</summary>
+    public string? Reason => State switch
+    {
+        HitState.Applied => null,
+        HitState.Pending => "pending: the engine has not concluded the hit yet",
+        _ => "dropped: canceled by a handler, the target is invulnerable or gone, or the engine skipped it",
+    };
     public override string ToString() => Applied
         ? $"hit {Target}: {HealthBefore} -> {HealthAfter}{(KillingBlow ? " (killing blow)" : "")} after {Steps} step(s)"
         : $"hit {Target} {State}";
@@ -95,8 +107,9 @@ public sealed record CombatStatus(bool Health, bool Hits, bool Deaths, bool Hold
 /// real engine hit (health change, killing blow, hit reaction, damage numbers and kill credit for the attacker).
 /// Tick thread only. Events: <see cref="EntityHurtEvent"/>, <see cref="EntityHealEvent"/>,
 /// <see cref="EntityDamagedEvent"/>, <see cref="EntityDeathEvent"/>, <see cref="PlayerRespawnEvent"/>,
-/// <see cref="EntityDropsEvent"/>.
+/// <see cref="EntityDropsEvent"/>; <see cref="CombatChangedEvent"/> for health set and god mode.
 /// </summary>
+[ServerOnly]
 public static unsafe class Combat
 {
     private sealed class Pending
@@ -111,16 +124,27 @@ public static unsafe class Combat
     private static readonly object Gate = new();
     private static readonly List<Pending> PendingHits = new();
     private static readonly HashSet<ModContext> WatchedMods = new(ReferenceEqualityComparer.Instance);
+
+    // The entities each mod turned god mode on for: native ends a mod's holds at its unload without saying which, and the
+    // unload posts CombatChangedEvent for each one whose god mode that ended (under Gate).
+    private static readonly Dictionary<ModContext, HashSet<uint>> GodHolds = new(ReferenceEqualityComparer.Instance);
     private static int _listening;
 
-    static Combat() => EnsureListener();
+    static Combat()
+    {
+        if (!ServiceTick.StartingServices) EnsureListener();  // a call into Combat is a use; the rows' start is not
+    }
 
     /// <summary>True when health access works on this build and a server world runs.</summary>
+    [AnyThread]
     public static bool Available => CombatNative.T != null && Status is { Health: true };
 
     /// <summary>True when Damage/Kill (the engine hit path) work.</summary>
+    [AnyThread]
     public static bool HitsAvailable => CombatNative.T != null && Status is { Hits: true };
 
+    /// <summary>kiln.combat's state and counters, or null when it is not loaded. Any thread.</summary>
+    [AnyThread]
     public static CombatStatus? Status
     {
         get
@@ -147,8 +171,13 @@ public static unsafe class Combat
     // ------------------------------------------------------------------------------------------------ health ------
 
     /// <summary>The entity's health, or null when it has none (props without Health, unknown ids).</summary>
+    [TickThreadOnly]
+    [RequiresCapability(CombatCaps.Service)]
     public static Health? GetHealth(EntityId entity) => TryGetHealth(entity, out var h) ? h : null;
 
+    /// <summary>The entity's health; false when it has none.</summary>
+    [TickThreadOnly]
+    [RequiresCapability(CombatCaps.Service)]
     public static bool TryGetHealth(EntityId entity, out Health health)
     {
         var t = CombatNative.Require("Combat.GetHealth");
@@ -165,19 +194,37 @@ public static unsafe class Combat
     }
 
     /// <summary>Sets current health (clamped to 0..max) silently. 0 kills on the next step without a killer. Returns
-    /// the new health.</summary>
+    /// the new health. Posts <see cref="CombatChangedEvent"/> (<c>Health</c>) when the health changed.</summary>
+    [TickThreadOnly]
+    [RequiresCapability(CombatCaps.Service)]
     public static int SetHealth(EntityId entity, int value)
     {
         var t = CombatNative.Require("Combat.SetHealth");
         Services.RequireTickThread("Combat.SetHealth");
+        var watched = Events.HasSubscribers<CombatChangedEvent>();
+        var before = watched && TryGetHealth(entity, out var was) ? was.Current : (int?)null;
         int applied = 0;
         var rc = t->SetHealth(entity.Value, value, &applied);
         if (rc != CombatNative.Ok) throw new InvalidOperationException($"Combat.SetHealth({entity}): {CombatNative.Describe(rc)}");
+        if (before is { } b && b != applied) Changed(entity, "Health", b, applied);
         return applied;
+    }
+
+    // One key per value of one entity changed by one mod: a handler that writes again waits for the next step.
+    internal static readonly ChangeNotices<CombatChangedEvent, (EntityId, string, string)> Notices = new("kiln.combat");
+
+    /// <summary>Posts <see cref="CombatChangedEvent"/> for a change that took (the caller checked that someone listens).</summary>
+    internal static void Changed(EntityId entity, string what, int before, int after, string? origin = null)
+    {
+        if (!Events.HasSubscribers<CombatChangedEvent>()) return;
+        origin ??= ModContext.CurrentMod?.Info.Id ?? "";
+        Notices.Post((entity, what, origin), new CombatChangedEvent(entity, what, before, after, origin), entity);
     }
 
     /// <summary>Heals up to max, silently (no HitEvent). Fires <see cref="EntityHealEvent"/> first (cancelable,
     /// amount writable). Returns the health actually added (0 when canceled or already full).</summary>
+    [TickThreadOnly]
+    [RequiresCapability(CombatCaps.Service)]
     public static int Heal(EntityId entity, int amount)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(amount);
@@ -202,6 +249,8 @@ public static unsafe class Combat
     /// <see cref="EntityHurtEvent"/> first (unless <see cref="DamageOptions.AsGameHit"/>); a canceled event gives a
     /// Dropped result. The hit applies in the engine's next hit conclusion (this step when called in Pre); the task
     /// completes on the tick thread at the next Pre after that.</summary>
+    [TickThreadOnly]
+    [RequiresCapability(CombatCaps.Service)]
     public static Task<HitResult> Damage(EntityId target, int amount, EntityId attacker = default, DamageOptions? options = null)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(amount);
@@ -210,6 +259,8 @@ public static unsafe class Combat
 
     /// <summary>Kills <paramref name="target"/> with a hit of exactly its current health (a killing blow; kill credit
     /// for <paramref name="attacker"/>). Fires <see cref="EntityHurtEvent"/> (Lethal) first.</summary>
+    [TickThreadOnly]
+    [RequiresCapability(CombatCaps.Service)]
     public static Task<HitResult> Kill(EntityId target, EntityId attacker = default, DamageOptions? options = null) =>
         Hit(target, 0, attacker, options ?? DamageOptions.Default, kill: true);
 
@@ -286,16 +337,35 @@ public static unsafe class Combat
     /// <summary>God mode for one entity (players too): damage hits on it are dropped before they apply (no reaction
     /// either), and health it loses another way (fall damage, drowning) is restored before the game's death check.
     /// Healing still works. Held per mod: it ends when the mod turns it off or unloads (and every mod that turned it
-    /// on has let go).</summary>
+    /// on has let go). Posts <see cref="CombatChangedEvent"/> (<c>Invulnerable</c>) when the entity's god mode changed
+    /// (not when another mod still holds it), also when a mod's unload ended it (its origin is that mod).</summary>
+    [TickThreadOnly]
+    [RequiresCapability(CombatCaps.Service)]
     public static void SetInvulnerable(EntityId entity, bool on = true)
     {
         var t = CombatNative.Require("Combat.SetInvulnerable");
         Services.RequireTickThread("Combat.SetInvulnerable");
+        var watched = Events.HasSubscribers<CombatChangedEvent>();
+        var before = watched && t->Invulnerable(entity.Value) != 0;
         var rc = t->SetInvulnerable(Services.CallerOwner, entity.Value, on ? (byte)1 : (byte)0);
         if (rc != CombatNative.Ok) throw new InvalidOperationException($"Combat.SetInvulnerable({entity}): {CombatNative.Describe(rc)}");
-        lock (Gate) Watch(ModContext.CurrentMod);
+        var mod = ModContext.CurrentMod;
+        lock (Gate)
+        {
+            Watch(mod);
+            if (mod is not null)
+            {
+                if (!GodHolds.TryGetValue(mod, out var held)) GodHolds[mod] = held = [];
+                if (on) held.Add(entity.Value);
+                else held.Remove(entity.Value);
+            }
+        }
+        if (watched && (t->Invulnerable(entity.Value) != 0) != before) Changed(entity, "Invulnerable", before ? 1 : 0, before ? 0 : 1);
     }
 
+    /// <summary>Kiln god mode is on for the entity (<see cref="SetInvulnerable"/>, any mod). False without kiln.combat.
+    /// Any thread (kiln.combat reads a counter and its holders under a lock).</summary>
+    [AnyThread]
     public static bool IsInvulnerable(EntityId entity)
     {
         var t = CombatNative.T;
@@ -307,9 +377,11 @@ public static unsafe class Combat
     // ------------------------------------------------------------------------------------------------ plumbing ----
 
     // Runs when the assembly is first used (a mod creating a handler for one of its events, or calling Combat): the
-    // native service then calls OnEvents once per step.
+    // native service then calls OnEvents once per step. Kiln's first service tick loads the assembly for its rows
+    // (CombatStartup): that is not a use, so the listener (hits held a step for handlers, hurt events a handler can
+    // cancel) waits for one (ServiceUse).
     [ModuleInitializer]
-    internal static void ModuleInit() => EnsureListener();
+    internal static void ModuleInit() => ServiceUse.Start(typeof(Combat).Assembly, static () => EnsureListener());
 
     internal static void EnsureListener()
     {
@@ -318,28 +390,13 @@ public static unsafe class Combat
         if (t == null) return;
         if (Interlocked.Exchange(ref _listening, 1) != 0) return;
         t->SetListener(&OnEvents, null);
-        ReportHoldFilterRow();
+        CombatCaps.Rows.Ensure();
     }
 
     /// <summary>combat.hold_filter: kiln.combat holds only the hits a handler's entity filter lets through (a table with
     /// hold_filter, since 0.2.0-dev.27). Without it a filtered handler still gets only its entities' hits, but every hit
-    /// of the world waits a step.</summary>
-    internal const string HoldFilterCapability = "combat.hold_filter";
-
-    private static void ReportHoldFilterRow()
-    {
-        try
-        {
-            if (CombatNative.V3 != null) Capabilities.Report(HoldFilterCapability, CapabilityState.Available);
-            else
-                Capabilities.Report(HoldFilterCapability, CapabilityState.Unavailable, CapabilityReason.ServiceOlder,
-                    "this kiln-combat.dll has no hold filter (update Kiln): filtered handlers still get only their entities' hits, but every hit waits a step");
-        }
-        catch (Exception e) when (e is ArgumentException or InvalidOperationException)
-        {
-            Backend.Current.Log(0, LogLevel.Warn, $"Kiln.Combat: {HoldFilterCapability} was not reported: {e.Message}");
-        }
-    }
+    /// of the world waits a step. Reported by <see cref="CombatCaps"/>.</summary>
+    internal const string HoldFilterCapability = CombatCaps.HoldFilter;
 
     private static void Watch(ModContext? mod)
     {
@@ -351,14 +408,29 @@ public static unsafe class Combat
     private static void Retire(ModContext mod)
     {
         List<Pending> drop;
+        HashSet<uint>? held;
         lock (Gate)
         {
             WatchedMods.Remove(mod);
             drop = PendingHits.Where(p => ReferenceEquals(p.Mod, mod)).ToList();
             PendingHits.RemoveAll(p => ReferenceEquals(p.Mod, mod));
+            GodHolds.Remove(mod, out held);
         }
         var t = CombatNative.T;
-        if (t != null) t->ReleaseOwner(mod.Owner);
+        if (t != null)
+        {
+            // god mode the release ends: on before (this mod's hold among others), off after (it was the last)
+            List<uint>? on = null;
+            if (held is { Count: > 0 } && Events.HasSubscribers<CombatChangedEvent>())
+                foreach (var e in held)
+                    if (t->Invulnerable(e) != 0)
+                        (on ??= []).Add(e);
+            t->ReleaseOwner(mod.Owner);
+            if (on is not null)
+                foreach (var e in on)
+                    if (t->Invulnerable(e) == 0)
+                        Changed(new EntityId(e), "Invulnerable", 1, 0, mod.Info.Id);
+        }
         foreach (var p in drop) p.Source.TrySetCanceled();
     }
 
@@ -389,7 +461,9 @@ public static unsafe class Combat
     // them under its own lock, from any thread; kinds are only added here, the listener's return narrows them.
     private static bool PushHoldFilter(uint[] ids)
     {
-        var t = CombatNative.V3;
+        // the table as found at the service's start (a missing table does not appear later): no lookup on a mod's
+        // subscription
+        var t = CombatNative.V3Found;
         if (t == null)
         {
             if (ids.Length > 0 && !_noFilterSaid)

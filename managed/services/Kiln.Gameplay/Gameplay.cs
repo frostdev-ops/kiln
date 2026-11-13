@@ -61,6 +61,8 @@ public sealed class ZoneHandle : IDisposable
     public bool Active { get; internal set; } = true;
 
     /// <summary>Replaces the zone's shape, actions and owners. Tick thread.</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.gameplay")]
     public void Update(ProtectionZone zone) => Gameplay.UpdateZone(this, zone);
 
     public void Dispose() => Gameplay.RemoveZone(this);
@@ -98,8 +100,14 @@ public sealed record GameplayStatus(bool Intercept, bool Inject, bool CraftHook,
 /// Kiln's bus (<see cref="Events"/>) once this assembly is active: it activates itself the first time any of its code
 /// runs (creating an event, calling <see cref="Gameplay"/>). A mod that only declares <c>[Subscribe]</c> handlers should
 /// call <see cref="Enable"/> in <c>OnLoad</c>.
+/// <para>Server side only. Capabilities (<see cref="Capabilities"/>): <c>kiln.gameplay</c> (the service is here), its
+/// sigdb features (<c>gameplay.emit</c>, <c>gameplay.recipes</c>, <c>gameplay.spawn</c>, ...), and Kiln.Gameplay's own
+/// rows <c>gameplay.entity_events</c> (<see cref="EntityEventsAvailable"/>) and <c>gameplay.spawn_replace</c>
+/// (<see cref="ReplaceNaturalSpawns"/>). A member that needs one that is off throws
+/// <see cref="KilnUnavailableException"/> naming it (a <see cref="NotSupportedException"/>, as before).</para>
 /// </remarks>
-public static unsafe class Gameplay
+[ServerOnly]
+public static unsafe partial class Gameplay
 {
     private const int Ok = 0;
     private static int _listening;
@@ -108,17 +116,20 @@ public static unsafe class Gameplay
     private static readonly Dictionary<uint, ZoneHandle> ZonesById = new();
     private static readonly HashSet<ModContext> Watched = new(ReferenceEqualityComparer.Instance);
 
-    /// <summary>True when the native service is loaded on this game build.</summary>
+    /// <summary>True when the native service is loaded on this game build (capability <c>kiln.gameplay</c>).</summary>
+    [AnyThread]
     public static bool Available => GameplayNative.T != null;
 
     /// <summary>Makes sure the native service delivers events to the bus. Safe to call often.</summary>
     public static bool Enable() => EnsureListener();
 
 #pragma warning disable CA2255 // a service assembly activates itself on first use, as Kiln.Combat does
+    // Kiln's first service tick loads this assembly for its capability rows (GameplayStartup): that is not a use, so the
+    // listener (and with it the game actions a handler can cancel) waits for one (ServiceUse).
     [ModuleInitializer]
-    internal static void ModuleInit() => EnsureListener();
-#pragma warning restore CA2255
+    internal static void ModuleInit() => ServiceUse.Start(typeof(Gameplay).Assembly, static () => EnsureListener());
 
+    [AnyThread]
     public static GameplayStatus? Status
     {
         get
@@ -148,6 +159,8 @@ public static unsafe class Gameplay
     // ------------------------------------------------------------------------------------------------ zones ----
 
     /// <summary>Adds a protection zone, owned by the calling mod (removed when it unloads). Tick thread.</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.gameplay")]
     public static ZoneHandle Protect(ProtectionZone zone)
     {
         ArgumentNullException.ThrowIfNull(zone);
@@ -178,6 +191,8 @@ public static unsafe class Gameplay
 
     /// <summary>Would <paramref name="action"/> by <paramref name="player"/> at <paramref name="position"/> be denied
     /// by a zone? Uses the player list of the last step. Tick thread.</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.gameplay")]
     public static bool IsDenied(EntityId player, WorldPosition position, GameplayActions action, out uint zoneId)
     {
         var t = Require();
@@ -235,15 +250,22 @@ public static unsafe class Gameplay
     /// <paramref name="chance"/> (0..1): decided inside the random spawner's own spawn call, so its bookkeeping follows
     /// the new entity. The <see cref="NaturalSpawnEvent"/> then reports the new template with
     /// <see cref="NaturalSpawnEvent.Replaced"/>. Owned by the calling mod (removed when it unloads, or on Dispose). Any
-    /// thread. Throws <see cref="NotSupportedException"/> when this kiln.gameplay has no replacement (older DLL, or the
-    /// spawn hook is off on this build).
+    /// thread. Throws <see cref="KilnUnavailableException"/> (a <see cref="NotSupportedException"/>) naming
+    /// <c>gameplay.spawn_replace</c> when this kiln.gameplay has no replacement (older DLL, or the spawn hook is off on
+    /// this build).
     /// </summary>
+    [AnyThread]
+    [RequiresCapability("gameplay.spawn_replace")]
     public static IDisposable ReplaceNaturalSpawns(Guid from, Guid to, double chance = 1)
     {
         if (chance is < 0 or > 1 || double.IsNaN(chance)) throw new ArgumentOutOfRangeException(nameof(chance));
         var t = Require();
         var set = GameplayNative.SpawnReplace(t);
-        if (set == null) throw new NotSupportedException("Gameplay.ReplaceNaturalSpawns: this kiln.gameplay has no spawn replacement");
+        if (set == null)
+        {
+            Rows.Ensure();
+            throw ServiceCaps.Unavailable(Caps.SpawnReplace, "Gameplay.ReplaceNaturalSpawns: this kiln.gameplay has no spawn replacement");
+        }
         var owner = Services.CallerOwner;
         var mod = ModContext.CurrentMod;
         Span<byte> f = stackalloc byte[16], tg = stackalloc byte[16];
@@ -253,7 +275,11 @@ public static unsafe class Gameplay
         fixed (byte* pf = f)
         fixed (byte* pt = tg)
             rc = set(owner, pf, pt, (float)chance);
-        if (rc != Ok) throw new NotSupportedException($"Gameplay.ReplaceNaturalSpawns: refused (kiln error {rc})");
+        if (rc != Ok)
+        {
+            Rows.Ensure();
+            throw ServiceCaps.Unavailable(Caps.SpawnReplace, $"Gameplay.ReplaceNaturalSpawns: refused (kiln error {rc})");
+        }
         if (mod != null) lock (Gate) if (Watched.Add(mod)) mod.Retiring += () => Retire(mod);
         return new SpawnReplacement(owner, from, to);
     }
@@ -320,6 +346,7 @@ public static unsafe class Gameplay
     /// <summary>Which entities <see cref="EntityJoinLevelEvent"/> / <see cref="EntityLeaveLevelEvent"/> report: the
     /// union of every mod's requests (<see cref="EntityCategories.Default"/> while subscribers exist and nobody asked).
     /// Dispose the handle (or unload the mod) to drop the request. Any thread.</summary>
+    [AnyThread]
     public static IDisposable WatchEntities(EntityCategories categories)
     {
         EnsureListener();
@@ -333,7 +360,8 @@ public static unsafe class Gameplay
         return w;
     }
 
-    /// <summary>True when the entity lifecycle events work on this build.</summary>
+    /// <summary>True when the entity lifecycle events work on this build (capability <c>gameplay.entity_events</c>).</summary>
+    [AnyThread]
     public static bool EntityEventsAvailable => GameplayNative.EntityFilter(GameplayNative.T) != null && Status is { EntityHooks: true };
 
     // Once per step (tick): tell the native hooks which categories to record.
@@ -358,26 +386,32 @@ public static unsafe class Gameplay
 
     /// <summary>Adds (or removes) a non-player entity to the teleport watch list, so <see cref="TeleportEvent"/> and
     /// <see cref="TeleportedEvent"/> fire for it. Players are always watched. Tick thread.</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.gameplay")]
     public static void WatchTeleports(EntityId entity, bool watch = true)
     {
         var t = Require();
         Services.RequireTickThread("Gameplay.WatchTeleports");
-        Check(t->Watch(entity.Value, watch ? (byte)1 : (byte)0), "Gameplay.WatchTeleports");
+        Check(t->Watch(entity.Value, watch ? (byte)1 : (byte)0), "Gameplay.WatchTeleports", Caps.Service);
     }
 
     /// <summary>Sends the game's own request events from Kiln's ECS program (next step), as a client or villager
     /// would: the game validates them as usual, and they pass through the cancelable events like the game's.</summary>
+    [RequiresCapability(Caps.Emit)]
     public static class Inject
     {
         /// <summary>A CraftRecipeEvent: <paramref name="operatorEntity"/> pays and receives (a player, or a chest with
         /// an inventory), <paramref name="station"/> has <c>Crafting</c> (a workbench, a villager).</summary>
+        [TickThreadOnly]
         public static void Craft(EntityId operatorEntity, EntityId station, uint recipeId, int amount = 1) =>
             Send(1, operatorEntity, station, recipeId, (uint)Math.Clamp(amount, 1, 65535), 0);
 
         /// <summary>An AcceptOfferedInteractionEvent (<paramref name="offerId"/> = the host's current offer).</summary>
+        [TickThreadOnly]
         public static void Interact(EntityId guest, EntityId host, uint offerId) => Send(2, guest, host, offerId, 0, 0);
 
         /// <summary>A LootInteractionEvent.</summary>
+        [TickThreadOnly]
         public static void Loot(EntityId guest, EntityId host, uint offerId = 0, bool lootAll = true, bool bypassInteraction = true) =>
             Send(3, guest, host, offerId, 0, (lootAll ? 1u : 0u) | (bypassInteraction ? 2u : 0u));
 
@@ -390,13 +424,15 @@ public static unsafe class Gameplay
                 Size = (uint)sizeof(GameplayNative.Inject), Kind = kind, Actor = actor.Value, Target = target.Value, Id = id,
                 Amount = amount, Flags = flags,
             };
-            Check(t->Inject(&r), "Gameplay.Inject");
+            Check(t->Inject(&r), "Gameplay.Inject", Caps.Emit);
         }
     }
 
     // ---------------------------------------------------------------------------------------------- recipes ----
 
     /// <summary>A recipe by id, or null. Tick thread.</summary>
+    [TickThreadOnly]
+    [RequiresCapability("gameplay.recipes")]
     public static GameplayRecipe? Recipe(uint id)
     {
         var t = Require();
@@ -405,7 +441,7 @@ public static unsafe class Gameplay
         r.Size = (uint)sizeof(GameplayNative.Recipe);
         var rc = t->Recipe(id, &r);
         if (rc == 2) return null;
-        Check(rc, "Gameplay.Recipe");
+        Check(rc, "Gameplay.Recipe", Caps.Recipes);
         var ins = new GameplayItemStack[Math.Min(r.InputCount, 8u)];
         for (var i = 0; i < ins.Length; i++) ins[i] = new GameplayItemStack(r.Inputs[i * 2], (int)r.Inputs[i * 2 + 1]);
         var outs = new GameplayItemStack[Math.Min(r.OutputCount, 8u)];
@@ -414,6 +450,8 @@ public static unsafe class Gameplay
     }
 
     /// <summary>The recipe ids a workshop (a station kind; 0 = hand crafting) offers. Empty when unknown. Tick thread.</summary>
+    [TickThreadOnly]
+    [RequiresCapability("gameplay.recipes")]
     public static IReadOnlyList<uint> WorkshopRecipes(uint workshop)
     {
         var t = Require();
@@ -423,7 +461,7 @@ public static unsafe class Gameplay
         int rc;
         fixed (uint* p = buf) rc = t->WorkshopRecipes(workshop, p, (uint)buf.Length, &n);
         if (rc == 2) return [];
-        if (rc != Ok && rc != 5) Check(rc, "Gameplay.WorkshopRecipes");
+        if (rc != Ok && rc != 5) Check(rc, "Gameplay.WorkshopRecipes", Caps.Recipes);
         return buf.Take((int)Math.Min(n, (uint)buf.Length)).ToArray();
     }
 
@@ -680,18 +718,25 @@ public static unsafe class Gameplay
     private static GameplayNative.Table* Require()
     {
         var t = GameplayNative.T;
-        if (t == null) throw new NotSupportedException("kiln.gameplay is unavailable on this game build");
+        if (t == null)
+        {
+            Rows.Ensure();
+            throw ServiceCaps.Unavailable(Caps.Service, "kiln.gameplay is unavailable on this game build");
+        }
         EnsureListener();
         return t;
     }
 
-    private static void Check(int rc, string api)
+    // `capability`: what an "unavailable" answer of this call means.
+    private static void Check(int rc, string api, string capability)
     {
         switch (rc)
         {
             case Ok: return;
             case 1: throw new ArgumentException($"{api}: invalid argument");
-            case 3: throw new NotSupportedException($"{api}: unavailable on this game build");
+            case 3:
+                Rows.Ensure();
+                throw ServiceCaps.Unavailable(capability, $"{api}: unavailable on this game build");
             case 4: throw new InvalidOperationException($"{api} must be called on the tick thread");
             case 5: throw new InvalidOperationException($"{api}: too many pending requests");
             default: throw new InvalidOperationException($"{api} failed (kiln error {rc})");

@@ -20,8 +20,10 @@ public sealed class GateTests
     {
         // Neither context has a kiln.mod.json in its folder: only ModInfo.Advanced can say "advanced".
         TestMods.As(Plain, () => TestMods.AssertGated("Memory.Read", "plain-mod", () => Memory.Read<int>(0x1000)));
-        var e = Assert.Throws<NotSupportedException>(() => TestMods.As(Advanced, () => Memory.Read<int>(0x1000)));
+        // unavailable names the capability since dev.27; it is still a NotSupportedException
+        NotSupportedException e = Assert.Throws<KilnUnavailableException>(() => TestMods.As(Advanced, () => Memory.Read<int>(0x1000)));
         Assert.Contains("kiln.hooks is unavailable", e.Message);
+        Assert.Equal("kiln.hooks", ((KilnUnavailableException)e).Capability);
     }
 
     [Fact]

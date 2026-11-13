@@ -158,3 +158,23 @@ Errors: `KILN_ERR_UNAVAILABLE` (no world yet / build lacks it), `KILN_ERR_WRONG_
   layer layout is the same). Only a WeatherSystem of mode 0 that is the server world's own singleton is used.
 - When the game closes the server world, the Daytime, WeatherSystem, GameServer and a pending sync check are released;
   the next session binds its own.
+
+## The contract (dev.27)
+
+`Time` follows [the API contract](../modding/contract.md). Server side (`[ServerOnly]`).
+
+- **Capabilities.** `kiln.time` and its sigdb features (`time.read`, `set`, `scale`, `sync_probe`, `weather`,
+  `weather_choose`), lowered when the service is not loaded; `time.speed` (managed, session: pending until the server
+  world's clock is there, available then; the clock's speed can be
+  held). Reported at Kiln.Time's start, the first service tick (`TimeStartup`).
+- **Errors.** Without the service `State`, `Set`, `ResetWeather` (and the properties that read `State`) throw
+  `KilnUnavailableException` naming `kiln.time`; `SetSpeed` and `SetCycle` on a kiln.time without the scale functions
+  name `time.speed` (both `NotSupportedException`s, as before). **Not changed:** the native "unavailable" (no server
+  world yet) keeps its `InvalidOperationException`.
+- **Threads.** Reads are `[AnyThread]` (`State`, `TryGetState`, `Ready`, `IsDay`, `DayLength`, `NightLength`,
+  `CanSetSpeed`, `HeldSpeed`, `Cycle`, the `OfDay` getter); changes are `[TickThreadOnly]` (`Set`, `ResetWeather`,
+  `SetSpeed`, `SetCycle`, the `OfDay` setter). The weather calls carry their own attributes (dev.27's weather choice).
+- **Events.** `TimeSetEvent` for `Set`, `WeatherChangedEvent` for every weather change, `TimeSpeedChangedEvent` (new)
+  for `SetSpeed` and `SetCycle` when the held speed changed (`Before`, `After`: null = the game decides; `By`), through
+  the contract's change notices ([contract](../modding/contract.md#3-change-events)).
+- Tested offline: `managed/tests/Kiln.Contract.Tests/Group9ContractTests.cs` and the conformance rules.

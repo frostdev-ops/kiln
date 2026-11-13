@@ -101,6 +101,7 @@ public readonly record struct PlayerSlotRaw(
 /// tick thread (e.g. <c>OnLoad</c>); handlers are dropped when your mod unloads. Players already in game when you
 /// subscribe raise no <see cref="Joined"/>: read <see cref="All"/> first.</para>
 /// </remarks>
+[ServerOnly]
 public static unsafe partial class Players
 {
     // ---- native mirror (kiln_players.h) ----
@@ -191,22 +192,41 @@ public static unsafe partial class Players
         }
     }
 
+    // a KilnUnavailableException is a NotSupportedException: a catch written before dev.27 still catches it
     private static Table* Require(string api) =>
-        T != null ? T : throw new NotSupportedException($"Players.{api}: kiln.players is unavailable on this server");
+        T != null ? T : throw PlayersCaps.Off(PlayersCaps.Service, $"Players.{api}: kiln.players is unavailable on this server");
 
-    /// <summary>True when kiln.players is loaded and works on this game build.</summary>
+    /// <summary>The table is here (the rows; no lookup after the first).</summary>
+    internal static bool TableHere => T != null;
+
+    /// <summary>Whether kiln.players reads positions now, and the server world it reads (0: none).</summary>
+    internal static (bool Positions, nuint World) PositionsNow()
+    {
+        var s = ReadStatus();
+        return (s.Positions != 0, s.World);
+    }
+
+    /// <summary>True when kiln.players is loaded and works on this game build (capability <c>kiln.players</c>).</summary>
+    [AnyThread]
     public static bool Available => T != null && Source != PlayerSource.None;
 
     /// <summary>Where the data comes from on this build.</summary>
+    [AnyThread]
     public static PlayerSource Source => T == null ? PlayerSource.None : (PlayerSource)ReadStatus().Source;
 
     /// <summary>Players in game, in slot order.</summary>
+    [AnyThread]
+    [RequiresCapability(PlayersCaps.Service)]
     public static IReadOnlyList<Player> All => List(0, nameof(All));
 
     /// <summary>Every connection: joining, in game and leaving.</summary>
+    [AnyThread]
+    [RequiresCapability(PlayersCaps.Service)]
     public static IReadOnlyList<Player> Connected => List(1, nameof(Connected));
 
     /// <summary>How many players are in game.</summary>
+    [AnyThread]
+    [RequiresCapability(PlayersCaps.Service)]
     public static int Count
     {
         get
@@ -216,7 +236,10 @@ public static unsafe partial class Players
         }
     }
 
-    /// <summary>The player with this entity id (any state), or null.</summary>
+    /// <summary>The player with this entity id (any state), or null. A player slot's id goes to the next player who
+    /// joins: to find a person you kept from an earlier step, use <see cref="FindPerson"/>.</summary>
+    [AnyThread]
+    [RequiresCapability(PlayersCaps.Service)]
     public static Player? Find(EntityId entity)
     {
         var t = Require(nameof(Find));
@@ -226,6 +249,8 @@ public static unsafe partial class Players
 
     /// <summary>The player with this name, or null. Exact match first, then case-insensitive (ASCII); an in-game
     /// player wins over a joining or leaving one.</summary>
+    [AnyThread]
+    [RequiresCapability(PlayersCaps.Service)]
     public static Player? Find(string name)
     {
         ArgumentNullException.ThrowIfNull(name);
@@ -241,6 +266,8 @@ public static unsafe partial class Players
     }
 
     /// <summary>The player with this SteamID64, or null.</summary>
+    [AnyThread]
+    [RequiresCapability(PlayersCaps.Service)]
     public static Player? FindBySteamId(ulong steamId)
     {
         var t = Require(nameof(FindBySteamId));
@@ -248,18 +275,39 @@ public static unsafe partial class Players
         return steamId != 0 && Check(t->FindSteamId(steamId, &p), nameof(FindBySteamId)) ? Convert(&p) : null;
     }
 
+    /// <summary>The person <paramref name="person"/> as a player in game now (their current session, whatever slot it
+    /// has), or null while they are offline. Unlike <see cref="Find(EntityId)"/> with an id kept from an earlier step,
+    /// this never answers with another player who took the slot since. Tick thread.</summary>
+    /// <exception cref="KilnUnavailableException"><c>kiln.players</c> is off, or no player source is registered
+    /// (<c>identity.players</c>).</exception>
+    [TickThreadOnly]
+    [RequiresCapability(PlayersCaps.Service)]
+    [RequiresCapability("identity.players")]
+    public static Player? FindPerson(PlayerRef person)
+    {
+        if (person.SteamId == 0 && person.CharacterId == Guid.Empty) return null;
+        var now = person.Resolve();
+        return now.Entity.IsNone ? null : Find(now.Entity) is { InGame: true } p ? p : null;
+    }
+
     /// <summary>True if the entity is a player in game.</summary>
+    [AnyThread]
+    [RequiresCapability(PlayersCaps.Service)]
     public static bool IsPlayer(EntityId entity) => Find(entity) is { InGame: true };
 
     /// <summary>The player's position now (tick thread) or at the last step (other threads); null if the entity is
-    /// not a player in game or has no transform. Throws <see cref="NotSupportedException"/> when positions do not work
-    /// on this build.</summary>
+    /// not a player in game or has no transform. Throws <see cref="KilnUnavailableException"/> (a
+    /// <see cref="NotSupportedException"/>) naming <c>players.positions</c> when positions do not work now (no server
+    /// world yet, or this build).</summary>
+    [AnyThread]
+    [RequiresCapability(PlayersCaps.Service)]
+    [RequiresCapability(PlayersCaps.Positions)]
     public static WorldPosition? PositionOf(EntityId entity)
     {
         var t = Require(nameof(PositionOf));
         Vec3 v;
         var rc = t->Position(entity.Value, &v);
-        if (rc == Unavailable) throw new NotSupportedException("Players.PositionOf: positions are unavailable on this build");
+        if (rc == Unavailable) throw PlayersCaps.Off(PlayersCaps.Positions, "Players.PositionOf: positions are unavailable on this build");
         return rc == Ok ? new WorldPosition(v.X, v.Y, v.Z) : null;
     }
 
@@ -276,6 +324,7 @@ public static unsafe partial class Players
     private static readonly object _lock = new();
 
     /// <summary>A player logged in (their entity exists). Raised on the tick thread in your mod's tick.</summary>
+    [RequiresCapability(PlayersCaps.Service)]
     public static event Action<Player> Joined
     {
         add => Attach(nameof(Joined)).Joined += value;
@@ -283,6 +332,7 @@ public static unsafe partial class Players
     }
 
     /// <summary>A player left (disconnect, kick, shutdown). <see cref="Player"/> is as they were last seen in game.</summary>
+    [RequiresCapability(PlayersCaps.Service)]
     public static event Action<Player> Left
     {
         add => Attach(nameof(Left)).Left += value;
@@ -387,6 +437,7 @@ public static unsafe partial class Players
 
         /// <summary>One player record as the game holds it. Tick thread. Null when the records are unavailable or the
         /// slot is out of range.</summary>
+        [TickThreadOnly]
         public static PlayerSlotRaw? RawSlot(int slot)
         {
             var t = Require(nameof(RawSlot));
@@ -401,6 +452,7 @@ public static unsafe partial class Players
 
         /// <summary>The position path used for players (GetEntityTransform on the captured server world), for any
         /// entity: checks it on a server with no players. Tick thread; null if there is no such entity.</summary>
+        [TickThreadOnly]
         public static WorldPosition? ProbePosition(EntityId entity)
         {
             var t = Require(nameof(ProbePosition));
@@ -463,6 +515,8 @@ public static unsafe partial class Players
     {
         Ok => true,
         NotFound => false,
+        // the table is here and answers "unavailable" (no source on this build, or the test kit switched it off): a plain
+        // NotSupportedException still, since the test kit's tests check that exact type (Kiln.TestKit.Tests PlayersTests)
         Unavailable => throw new NotSupportedException($"Players.{api}: kiln.players is unavailable on this build"),
         _ => throw new InvalidOperationException($"Players.{api}: kiln.players returned {rc}"),
     };

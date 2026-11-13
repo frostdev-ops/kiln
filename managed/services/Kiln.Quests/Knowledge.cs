@@ -119,8 +119,11 @@ public enum KnowledgeOp
 /// <summary>What a change did. <see cref="Before"/>/<see cref="After"/> are the target's value around the apply (inside the
 /// game's knowledge update of the step).</summary>
 public sealed record KnowledgeResult(ulong Request, KnowledgeOp Op, EntityId Target, uint Id, bool Ok, string Status, uint Before,
-    uint After, bool Changed, int Steps, string Reason)
+    uint After, bool Changed, int Steps, string Reason) : IKilnResult
 {
+    // IKilnResult's reason is null when the change was applied; this record's own Reason may still carry a note then.
+    string? IKilnResult.Reason => Ok ? null : Reason;
+
     public override string ToString() => Ok
         ? $"{Op} 0x{Id:x8}: {Before} -> {After}{(Reason.Length > 0 ? $" ({Reason})" : "")}"
         : $"{Op} 0x{Id:x8} failed: {Reason}";
@@ -160,31 +163,50 @@ public sealed class KnowledgeScope
     public bool IsWorld => Target.IsNone;
 
     /// <summary>The id's state (tick thread); null when the id is not an object of this kind of target.</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.knowledge")]
     public KnowledgeState? Get(uint id) => Knowledge.Get(Target, id);
+    [TickThreadOnly]
+    [RequiresCapability("kiln.knowledge")]
     public KnowledgeState? Get(string name) => Knowledge.Get(Target, Knowledge.KnowledgeId(name, nameof(Get)));
 
     /// <summary>True when the id is set; for a name with a requirement (an NPC's unlock, a quest step, a named query) the
     /// requirement is evaluated with the game's evaluator. Tick thread.</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.knowledge")]
     public bool Has(uint id) => Get(id)?.IsSet ?? false;
+    [TickThreadOnly]
+    [RequiresCapability("kiln.knowledge")]
     public bool Has(string name) => Knowledge.Has(Target, name);
 
     /// <summary>Every set id of this target (tick thread).</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.knowledge")]
     public IReadOnlyList<KnowledgeState> List() => Knowledge.List(Target);
 
     /// <summary>Grants through the game's own knowledge apply (XP, triggers, replication: the game's). Bool: set; Counter:
     /// + <paramref name="value"/>; Flags: flag number <paramref name="value"/>. A player grant of a world object with a
     /// player twin also sets the world object (the game's rule).</summary>
+    [RequiresCapability("kiln.knowledge")]
     public Task<KnowledgeResult> Grant(uint id, uint value = 1) => Knowledge.Submit(KnowledgeOp.Grant, Target, id, value);
+    [TickThreadOnly]
+    [RequiresCapability("kiln.knowledge")]
     public Task<KnowledgeResult> Grant(string name, uint value = 1) => Grant(Knowledge.KnowledgeId(name, nameof(Grant)), value);
 
     /// <summary>Clears the id (Flags: one flag, or all with -1). A direct write of the map, the change list and the version;
     /// clients erase it, the next save leaves it out. Re-granting a player object pays its XP again.</summary>
+    [RequiresCapability("kiln.knowledge")]
     public Task<KnowledgeResult> Revoke(uint id, int flag = -1) =>
         Knowledge.Submit(KnowledgeOp.Revoke, Target, id, flag < 0 ? uint.MaxValue : (uint)flag);
+    [TickThreadOnly]
+    [RequiresCapability("kiln.knowledge")]
     public Task<KnowledgeResult> Revoke(string name, int flag = -1) => Revoke(Knowledge.KnowledgeId(name, nameof(Revoke)), flag);
 
     /// <summary>Writes an exact value (a direct write: no XP, no query-trigger event).</summary>
+    [RequiresCapability("kiln.knowledge")]
     public Task<KnowledgeResult> Set(uint id, uint value) => Knowledge.Submit(KnowledgeOp.Set, Target, id, value);
+    [TickThreadOnly]
+    [RequiresCapability("kiln.knowledge")]
     public Task<KnowledgeResult> Set(string name, uint value) => Set(Knowledge.KnowledgeId(name, nameof(Set)), value);
 
     public override string ToString() => IsWorld ? "world knowledge" : $"knowledge of player {Target}";
@@ -237,14 +259,27 @@ public static unsafe class Knowledge
     public static KnowledgeScope For(Player player) => For(player.Entity);
 
     // ---- shortcuts (player first) ----
+    [TickThreadOnly]
+    [RequiresCapability("kiln.knowledge")]
     public static Task<KnowledgeResult> Grant(EntityId player, string name, uint value = 1) => For(player).Grant(name, value);
+    [TickThreadOnly]
+    [RequiresCapability("kiln.knowledge")]
     public static Task<KnowledgeResult> Grant(Player player, string name, uint value = 1) => For(player.Entity).Grant(name, value);
+    [TickThreadOnly]
+    [RequiresCapability("kiln.knowledge")]
     public static Task<KnowledgeResult> Revoke(EntityId player, string name, int flag = -1) => For(player).Revoke(name, flag);
+    [TickThreadOnly]
+    [RequiresCapability("kiln.knowledge")]
     public static Task<KnowledgeResult> Revoke(Player player, string name, int flag = -1) => For(player.Entity).Revoke(name, flag);
+    [TickThreadOnly]
+    [RequiresCapability("kiln.knowledge")]
     public static bool Has(Player player, string name) => Has(player.Entity, name);
+    [TickThreadOnly]
+    [RequiresCapability("kiln.knowledge")]
     public static KnowledgeState? Get(Player player, string name) => For(player.Entity).Get(name);
 
     /// <summary>What GameKnowledgeResource says about an id; null when the game does not know it.</summary>
+    [RequiresCapability("kiln.knowledge")]
     public static KnowledgeInfo? Info(uint id)
     {
         var t = KnowledgeNative.Require(nameof(Info));
@@ -260,6 +295,8 @@ public static unsafe class Knowledge
     /// <summary>An id in a target's map (tick thread). Null when the id is not an object of that kind of target (a
     /// player-only id asked of the world, an unknown id). Throws <see cref="NotSupportedException"/> when the player is not
     /// in game.</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.knowledge")]
     public static KnowledgeState? Get(EntityId target, uint id)
     {
         var t = KnowledgeNative.Require(nameof(Get));
@@ -273,6 +310,8 @@ public static unsafe class Knowledge
     }
 
     /// <summary>True when the name's requirement holds for the target (see <see cref="KnowledgeScope.Has(string)"/>).</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.knowledge")]
     public static bool Has(EntityId target, string name)
     {
         var n = Resolve(name);
@@ -283,6 +322,8 @@ public static unsafe class Knowledge
     }
 
     /// <summary>Every set id of a target (tick thread).</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.knowledge")]
     public static IReadOnlyList<KnowledgeState> List(EntityId target)
     {
         var t = KnowledgeNative.Require(nameof(List));
@@ -309,6 +350,8 @@ public static unsafe class Knowledge
     /// <summary>Evaluates a requirement with the game's evaluator (named queries, NPC / inventory / flame runtime queries
     /// included) for the world (<paramref name="target"/> 0; player queries throw <see cref="ArgumentException"/>) or a
     /// player. Tick thread.</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.knowledge")]
     public static bool Query(EntityId target, KnowledgeQuery query, KnowledgeMode mode = KnowledgeMode.Player)
     {
         var t = KnowledgeNative.Require(nameof(Query));
@@ -324,6 +367,7 @@ public static unsafe class Knowledge
     }
 
     /// <summary>Evaluates a requirement; null when it cannot be (no player for a player query, unknown query, part off).</summary>
+    [TickThreadOnly]
     public static bool? TryQuery(EntityId target, KnowledgeQuery query, KnowledgeMode mode = KnowledgeMode.Player)
     {
         try
@@ -344,9 +388,13 @@ public static unsafe class Knowledge
     /// "query:&lt;query name&gt;", "line:&lt;template&gt;/option&lt;k&gt;|init&lt;k&gt;|transition&lt;k&gt;|farewell&lt;k&gt;".
     /// Throws <see cref="KeyNotFoundException"/> for an unknown name. Tick thread for names (raw ids: any thread); the
     /// catalog exists from the world's first steps on.</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.knowledge")]
     public static KnowledgeName Resolve(string name) =>
         TryResolve(name, out var n) ? n : throw new KeyNotFoundException($"Knowledge: unknown knowledge name '{name}'");
 
+    [TickThreadOnly]
+    [RequiresCapability("kiln.knowledge")]
     public static bool TryResolve(string name, out KnowledgeName result)
     {
         ArgumentNullException.ThrowIfNull(name);
@@ -390,6 +438,8 @@ public static unsafe class Knowledge
     }
 
     /// <summary>The catalog's names (NPC unlocks, journal quests, named queries). Tick thread.</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.knowledge")]
     public static IReadOnlyList<KnowledgeName> Catalog(KnowledgeCatalog catalog)
     {
         var t = KnowledgeNative.Require(nameof(Catalog));
@@ -409,6 +459,8 @@ public static unsafe class Knowledge
     }
 
     /// <summary>The game's NPC roster with the registry's unlock state (tick thread; empty before the catalog exists).</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.knowledge")]
     public static IReadOnlyList<KnowledgeNpc> Npcs
     {
         get
@@ -432,6 +484,8 @@ public static unsafe class Knowledge
     }
 
     /// <summary>The NPC with this debug name ("NPC_Workshop_Bard01") or "npc:" name; null when there is none.</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.knowledge")]
     public static KnowledgeNpc? FindNpc(string name)
     {
         var s = name.StartsWith("npc:", StringComparison.OrdinalIgnoreCase) ? name[4..] : name;
@@ -468,8 +522,10 @@ public static unsafe class Knowledge
     /// is not in game or a part that is off completes the task with Ok = false.</summary>
     /// <summary>A grant the game's apply gets even when <paramref name="id"/> is in no static map, where the game drops it
     /// (<see cref="KnowledgeResult.After"/> stays 0). For tests of the game's own rule; docs/kiln/services/npcs.md.</summary>
+    [RequiresCapability("kiln.knowledge")]
     public static Task<KnowledgeResult> GrantUnchecked(EntityId target, uint id) => Submit(KnowledgeOp.Grant, target, id, 1, 1);
 
+    [RequiresCapability("kiln.knowledge")]
     public static Task<KnowledgeResult> Submit(KnowledgeOp op, EntityId target, uint id, uint value) => Submit(op, target, id, value, 0);
 
     private static Task<KnowledgeResult> Submit(KnowledgeOp op, EntityId target, uint id, uint value, uint flags)
@@ -540,6 +596,7 @@ public static unsafe class Knowledge
     public static class Security
     {
         /// <summary>The settings in use.</summary>
+        [RequiresCapability("kiln.knowledge")]
         public static KnowledgeSecurity Current
         {
             get
@@ -554,6 +611,7 @@ public static unsafe class Knowledge
 
         /// <summary>Applies settings now (until kiln/config/knowledge.json changes). <paramref name="save"/> also writes them
         /// into that file (tick thread).</summary>
+        [RequiresCapability("kiln.knowledge")]
         public static void Apply(KnowledgeSecurity settings, bool save = false)
         {
             var t = KnowledgeNative.Require("Security");
@@ -568,6 +626,7 @@ public static unsafe class Knowledge
         }
 
         /// <summary>Ids that pass the client veto at run time (in addition to the file's allowClientKnowledge).</summary>
+        [RequiresCapability("kiln.knowledge")]
         public static void Allow(IEnumerable<uint> ids)
         {
             var t = KnowledgeNative.Require("Security.Allow");

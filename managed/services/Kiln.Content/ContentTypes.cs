@@ -71,9 +71,13 @@ public sealed record ContentField(int Index, string Path, string TypeName, int O
 /// <summary>One ingredient or result of a recipe. <see cref="Category"/> != 0: "any item of that input category".</summary>
 public readonly record struct RecipeStack(ItemId Item, int Count, uint Category = 0)
 {
+    [TickThreadOnly]
+    [RequiresCapability("kiln.content")]
     public static RecipeStack Of(string item, int count) =>
         new(Content.Items.Get(item) is { } e ? new ItemId(e.Id) : throw new ArgumentException($"unknown item {item}"), count);
 
+    [TickThreadOnly]
+    [RequiresCapability("kiln.content")]
     public override string ToString() =>
         Category != 0 ? $"category 0x{Category:x8} x{Count}" : $"{Content.Items.Get(Item.Value)?.Name ?? Item.ToString()} x{Count}";
 }

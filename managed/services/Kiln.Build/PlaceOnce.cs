@@ -23,7 +23,16 @@ public sealed class PlaceOnceRecord
 /// <summary>What <see cref="Build.PlaceOnce(string, Schematic, WorldPosition, PasteOptions?)"/> did.</summary>
 /// <param name="Placed">True when it placed now; false when the world already had it (<see cref="Record"/>) or the
 /// edit failed (<see cref="Error"/>).</param>
-public sealed record PlaceOnceResult(bool Placed, bool AlreadyPlaced, PlaceOnceRecord? Record, PasteResult? Paste, string? Error = null);
+public sealed record PlaceOnceResult(bool Placed, bool AlreadyPlaced, PlaceOnceRecord? Record, PasteResult? Paste, string? Error = null)
+    : IKilnResult
+{
+    /// <summary>The structure is in the world: placed now, or by an earlier call. Since 0.2.0-dev.27.</summary>
+    public bool Ok => Placed || AlreadyPlaced;
+
+    /// <summary>Why it is not (<see cref="Error"/>, else the paste's reason); null when <see cref="Ok"/>.
+    /// Since 0.2.0-dev.27.</summary>
+    public string? Reason => Ok ? null : Error ?? Paste?.Reason ?? "not placed";
+}
 
 public static partial class Build
 {
@@ -44,6 +53,8 @@ public static partial class Build
 
     /// <summary>Pastes <paramref name="schematic"/> at <paramref name="at"/> unless the calling mod already placed
     /// <paramref name="key"/> in this world. Waits for the world to run and the tiles to load.</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.build")]
     public static Task<PlaceOnceResult> PlaceOnce(string key, Schematic schematic, WorldPosition at, PasteOptions? options = null)
     {
         ArgumentNullException.ThrowIfNull(schematic);
@@ -65,6 +76,8 @@ public static partial class Build
 
     /// <summary>Runs <paramref name="edit"/> (any Kiln.Build edits; return true when it worked) unless the calling
     /// mod already placed <paramref name="key"/> in this world.</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.build")]
     public static Task<PlaceOnceResult> PlaceOnce(string key, Func<Task<bool>> edit)
     {
         ArgumentNullException.ThrowIfNull(edit);
