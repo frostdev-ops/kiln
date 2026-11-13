@@ -168,8 +168,8 @@ pub fn find(game_dir: &Path, profile: Option<&ProfileView>) -> Vec<OwnLoader> {
     // With drop-ins on, the adapter hosts ShroudForge when its `legacy_wanted` (native/plugins/shroudforge/src/plugin.cpp)
     // says so: a switched-on ShroudForge package in its mods folder, or a startup patch of an earlier start in its state
     // file (ShroudForge then puts the game data back). The launcher must reach the same answer: it places the profile's
-    // EML mods for the loader that runs them ([`adapter_hosts_dropins`]).
-    let hosts = profile.is_some_and(|p| p.enabled(ModKind::ShroudForge).next().is_some() || (p.dropins_shroudforge && adapter_hosts_dropins(game_dir)));
+    // EML mods for the loader that runs them (`sf_paths::adapter_hosts_dropins`).
+    let hosts = profile.is_some_and(|p| p.enabled(ModKind::ShroudForge).next().is_some() || (p.dropins_shroudforge && crate::sf_paths::adapter_hosts_dropins(game_dir)));
     if hosts && runtime && game_dir.join(plugin).is_file() {
         let dir = crate::shroudforge::mods_dir(game_dir);
         let folder = dir.strip_prefix(game_dir).map(|p| p.to_string_lossy().replace('\\', "/")).unwrap_or_else(|_| dir.display().to_string());
@@ -177,173 +177,6 @@ pub fn find(game_dir: &Path, profile: Option<&ProfileView>) -> Vec<OwnLoader> {
             delivery: Delivery::Placed });
     }
     out
-}
-
-// ---- the adapter's drop-ins rule, read as the adapter reads it ----
-//
-// The adapter reads ShroudForge's config and state with plain ifstream and nlohmann::json (plugin.cpp `read_text`,
-// processes.cpp `read_config` and `sf_directory`): it follows links, has no size limit, takes `paths.<name>` exactly as
-// written (a Windows path, absolute or relative to the game folder), and any type it does not expect makes it fall back
-// (`sf_directory`) or answer the way its catch says (`legacy_wanted`). The functions below do the same on the launcher's
-// side, with two limits that protect the launcher and nothing else:
-// - [`MAX_SF_FILE`]: a file larger than that is not read. A ShroudForge state or config file is a few kilobytes to a
-//   few megabytes; the answer is then "hosted" (a state file that large holds a startup record, and an
-//   `extended.mod.json` the adapter cannot parse counts as a package too), so the worst case is EML copies placed with
-//   ShroudForge's switch for a start in which kiln-eml runs them (it ignores that switch).
-// - only regular files are read (a link is followed to its target, which must be a file): a link to a device or a
-//   pipe would block or never end. The adapter's read of such a target fails the same way as a missing file in
-//   practice; the launcher answers as for a missing file.
-// A Windows folder this system cannot name (a drive the Wine prefix does not map, a network path) leaves the answer
-// open; the launcher then answers "hosted" for the same reason as above, and the Play page names ShroudForge as the
-// loader of the profile's EML mods.
-
-/// Files larger than this are not read (see above).
-const MAX_SF_FILE: u64 = 64 * 1024 * 1024;
-
-enum SfRead {
-    Missing,
-    TooLarge,
-    Bytes(Vec<u8>),
-}
-
-/// A file as the adapter's ifstream reads it: links followed, regular files only, at most [`MAX_SF_FILE`].
-fn sf_read(file: &Path) -> SfRead {
-    match std::fs::metadata(file) {
-        Ok(m) if m.is_file() && m.len() > MAX_SF_FILE => SfRead::TooLarge,
-        Ok(m) if m.is_file() => match std::fs::File::open(file) {
-            Ok(f) => {
-                use std::io::Read;
-                let mut b = Vec::new();
-                match f.take(MAX_SF_FILE + 1).read_to_end(&mut b) {
-                    Ok(_) if b.len() as u64 > MAX_SF_FILE => SfRead::TooLarge,
-                    Ok(_) => SfRead::Bytes(b),
-                    Err(_) => SfRead::Missing,
-                }
-            }
-            Err(_) => SfRead::Missing,
-        },
-        _ => SfRead::Missing,
-    }
-}
-
-/// nlohmann::json::parse: strict JSON, a UTF-8 byte order mark skipped.
-fn sf_json(b: &[u8]) -> Option<serde_json::Value> {
-    serde_json::from_slice(b.strip_prefix(b"\xef\xbb\xbf").unwrap_or(b)).ok()
-}
-
-/// A folder ShroudForge's config names, as the adapter's `sf_directory(root, name, fallback)` finds it: `paths.<name>`
-/// of `shroudforge/config/modloader-config.json` when it is a non-empty string, else `fallback`; an absolute Windows path
-/// as it is, any other one under the game folder. None: this system cannot name that folder.
-fn sf_directory(game_dir: &Path, name: &str, fallback: &str) -> Option<PathBuf> {
-    let configured = match sf_read(&game_dir.join(crate::shroudforge::CONFIG_FILE)) {
-        SfRead::Bytes(b) => sf_json(&b).and_then(|v| match v.as_object()?.get("paths") {
-            None => None,
-            // a `paths` that is no object, or a value that is no string: nlohmann throws, sf_directory falls back
-            Some(paths) => paths.as_object()?.get(name)?.as_str().map(str::to_owned),
-        }),
-        _ => None,
-    };
-    match configured.filter(|v| !v.is_empty()) {
-        Some(v) => windows_folder(game_dir, &v),
-        None => Some(game_dir.join(fallback)),
-    }
-}
-
-/// `value` as the game (a Windows process, under Wine or Proton on this system) names the folder: absolute, else joined
-/// to the game folder; then found on this system with Windows' rules (`.` and `..` resolved by name, case ignored,
-/// trailing dots and spaces dropped from a name unless the path is verbatim `\\?\`).
-fn windows_folder(game_dir: &Path, value: &str) -> Option<PathBuf> {
-    if cfg!(windows) {
-        let p = Path::new(value);
-        return Some(if p.is_absolute() { p.to_path_buf() } else { game_dir.join(p) });
-    }
-    let raw = value.replace('/', "\\");
-    let verbatim = raw.starts_with(r"\\?\");
-    let plain = crate::winpath::strip_verbatim(&raw).into_owned();
-    let b = plain.as_bytes();
-    let (base, rest): (PathBuf, &str) = if b.len() >= 2 && b[0].is_ascii_alphabetic() && b[1] == b':' {
-        // `C:\x` is absolute; `C:x` is relative to that drive's current folder, which the launcher cannot know
-        if b.len() > 2 && b[2] != b'\\' { return None; }
-        (drive_host(game_dir, b[0] as char)?, &plain[2..])
-    } else if plain.starts_with(r"\\") {
-        return None; // a network path
-    } else if plain.starts_with('\\') {
-        (game_drive_root(game_dir)?, &plain[..]) // `\x`: the root of the game's drive
-    } else {
-        (game_dir.to_path_buf(), &plain[..])
-    };
-    // `..` stops at a drive's root; relative to the game folder it may leave it, as on Windows
-    let floor = (rest.len() != plain.len() || plain.starts_with('\\')).then(|| base.clone());
-    let mut out = base;
-    for c in rest.split('\\').filter(|c| !c.is_empty()) {
-        let c = if verbatim || c == "." || c == ".." { c } else { c.trim_end_matches([' ', '.']) };
-        match c {
-            "" | "." => {}
-            ".." => { if floor.as_ref() != Some(&out) { out.pop(); } }
-            _ => {
-                let exact = out.join(c);
-                let found = if exact.exists() { None } else {
-                    let low = c.to_lowercase();
-                    std::fs::read_dir(&out).into_iter().flatten().flatten().map(|e| e.file_name())
-                        .find(|n| n.to_str().is_some_and(|n| n.to_lowercase() == low))
-                };
-                out = match found { Some(n) => out.join(n), None => exact };
-            }
-        }
-    }
-    Some(out)
-}
-
-/// The Wine prefix of the game in `game_dir`: kilnctl's `<game>.pfx`, else Steam's `compatdata/<app>/pfx` of the library
-/// the game is in.
-fn wine_prefix(game_dir: &Path) -> Option<PathBuf> {
-    let mut own = game_dir.as_os_str().to_owned();
-    own.push(".pfx");
-    let steamapps = game_dir.parent().and_then(Path::parent);
-    std::iter::once(PathBuf::from(own))
-        .chain([crate::CLIENT_APP_ID, crate::SERVER_APP_ID].into_iter()
-            .filter_map(|app| steamapps.map(|s| s.join("compatdata").join(app.to_string()).join("pfx"))))
-        .find(|p| p.join("dosdevices").is_dir())
-}
-
-/// Where the drive `letter` of the game's prefix is on this system.
-fn drive_host(game_dir: &Path, letter: char) -> Option<PathBuf> {
-    crate::winpath::drive_target(wine_prefix(game_dir).as_deref(), letter)
-}
-
-/// The root of the drive the game folder is on, as Wine maps it (the drive whose folder holds the game folder, the
-/// longest such one; Z: is `/`).
-fn game_drive_root(game_dir: &Path) -> Option<PathBuf> {
-    let game = std::fs::canonicalize(game_dir).unwrap_or_else(|_| game_dir.to_path_buf());
-    let pfx = wine_prefix(game_dir);
-    let letters = ('a'..='z').filter_map(|l| crate::winpath::drive_target(pfx.as_deref(), l));
-    letters.filter_map(|t| std::fs::canonicalize(&t).ok().filter(|t| game.starts_with(t)))
-        .max_by_key(|t| t.components().count())
-}
-
-/// The adapter's `legacy_wanted` with drop-ins on: true when ShroudForge's mods folder holds a package whose
-/// `extended.mod.json` the adapter counts (enabled unless it says otherwise, launcher not EML, or a file it cannot
-/// read), or ShroudForge's state file records a startup patch (`assets.status` applied, preparing or failed).
-fn adapter_hosts_dropins(game_dir: &Path) -> bool {
-    let Some(mods) = sf_directory(game_dir, "mods", "mods") else { return true };
-    for e in std::fs::read_dir(&mods).into_iter().flatten().flatten() {
-        let ext = e.path().join("extended.mod.json");
-        if !std::fs::metadata(&ext).is_ok_and(|m| m.is_file()) { continue; }
-        let SfRead::Bytes(b) = sf_read(&ext) else { return true };
-        // anything nlohmann rejects or throws on (`value` of another type) counts: "let SF diagnose its own package"
-        let Some(o) = sf_json(&b).and_then(|v| v.as_object().cloned()) else { return true };
-        let enabled = match o.get("enabled") { None => true, Some(v) => match v.as_bool() { Some(b) => b, None => return true } };
-        let launcher = match o.get("launcher") { None => String::new(), Some(v) => match v.as_str() { Some(s) => s.to_owned(), None => return true } };
-        if enabled && launcher != "EML" { return true; }
-    }
-    let Some(state) = sf_directory(game_dir, "state", "shroudforge") else { return true };
-    match sf_read(&state.join("state.json")) {
-        SfRead::Missing => false,
-        SfRead::TooLarge => true,
-        SfRead::Bytes(b) => sf_json(&b).and_then(|v| v.get("assets").cloned())
-            .and_then(|a| a.as_object()?.get("status")?.as_str().map(str::to_owned))
-            .is_some_and(|s| matches!(s.as_str(), "applied" | "preparing" | "failed")),
-    }
 }
 
 /// The own loader of a kind that decides where its mods are placed (the first found), if any.
@@ -513,17 +346,30 @@ fn own_folder_of(root: &Path, kind: ModKind, id: &str, src: Option<&Path>) -> Op
     }
 }
 
-/// Does EML's own loader take the folder `dir` as a mod? Its reader (EML's `ModManifest`) needs a mod.json with the
-/// strings `id` and `name`, a semantic `version`, and in the optional fields only their types (`capabilities` from
-/// export, patch, runtime and runtime-register-dll; `dependencies` with an `id` and a `version` range; `authors`
-/// strings; `description`, `license`, `icon` strings), and the mod's `src/mod.lua`. Err: why not. A dependency's version
-/// range is only checked to be a string here: EML's own range parser may refuse one this accepts.
+/// Does EML's own loader take the folder `dir` as a mod, and can it run it? Read from EML's own source (GPL, in
+/// `gpl/kiln-eml/eml`; only its rules are restated here):
+/// - its registry (`mod-loader-base/src/registry/mod.rs`, `ModRegistry::load` and `load_mod_at`) takes every folder of
+///   its mods folder whose name does not start with `.` and whose `mod.json` serde_json reads as its `ModManifest`
+///   (`registry/manifest.rs`): the strings `id` and `name`; `version` a semantic version (`semver::Version`: three
+///   numbers that fit 64 bits, no leading zeros, optional pre-release and build parts); `capabilities` export, patch,
+///   runtime or runtime-register-dll; each dependency an object with the string `id`, a `version` range and `optional`
+///   absent, null or a boolean; `authors` strings; `description`, `license` and `icon` strings or null. No byte order
+///   mark (serde_json refuses one). Nothing else is needed: a helper package (no patch or export capability, no
+///   `src/mod.lua`) registers and serves other mods' `require`.
+/// - its runner (`mod-loader-lua/src/runner/mod.rs`, `run`) requires `mods.<id>`, the mod's `src/mod.lua`, only for a
+///   mod with the patch or the export capability: such a mod needs that file.
+/// Err: why not. A dependency's version range is only checked to be a string here: EML's own range parser may refuse
+/// one this accepts.
 fn eml_takes(dir: &Path) -> Result<(), String> {
     if !dir.is_dir() { return Err("it is not a folder".into()); }
+    if dir.file_name().is_some_and(|n| n.to_string_lossy().starts_with('.')) { return Err("its name starts with a dot, so EML skips it".into()); }
     let file = dir.join("mod.json");
-    let SfRead::Bytes(b) = (if std::fs::metadata(&file).is_ok_and(|m| m.len() <= 1024 * 1024) { sf_read(&file) } else { SfRead::TooLarge })
-        else { return Err("it has no readable mod.json".into()) };
-    let v = sf_json(&b).ok_or("its mod.json is not valid JSON")?;
+    let b = match std::fs::metadata(&file) {
+        Ok(m) if m.is_file() && m.len() <= 1024 * 1024 => std::fs::read(&file).map_err(|_| "its mod.json cannot be read".to_string())?,
+        Ok(m) if m.is_file() => return Err("its mod.json is larger than 1 MiB".into()),
+        _ => return Err("it has no mod.json".into()),
+    };
+    let v: serde_json::Value = serde_json::from_slice(&b).map_err(|_| "its mod.json is not valid JSON".to_string())?;
     let o = v.as_object().ok_or("its mod.json is not an object")?;
     let text = |k: &str| o.get(k).and_then(|v| v.as_str());
     if text("id").is_none() || text("name").is_none() { return Err("its mod.json lacks the id or the name".into()); }
@@ -535,22 +381,25 @@ fn eml_takes(dir: &Path) -> Result<(), String> {
         return Err("its mod.json names a capability EML does not know".into());
     }
     if !list("authors", &|a| a.is_string()) { return Err("its mod.json has authors that are not text".into()); }
-    if !list("dependencies", &|d| d.get("id").is_some_and(|i| i.is_string()) && d.get("version").is_some_and(|i| i.is_string())) {
-        return Err("its mod.json has a dependency without an id or a version range".into());
+    if !list("dependencies", &|d| d.get("id").is_some_and(|i| i.is_string()) && d.get("version").is_some_and(|i| i.is_string())
+        && d.get("optional").is_none_or(|x| x.is_null() || x.is_boolean())) {
+        return Err("its mod.json has a dependency without an id, a version range or a true or false for optional".into());
     }
-    if !dir.join("src").join("mod.lua").is_file() { return Err("it has no src/mod.lua".into()); }
+    let runs = o.get("capabilities").and_then(|c| c.as_array())
+        .is_some_and(|a| a.iter().any(|c| matches!(c.as_str(), Some("patch" | "export"))));
+    if runs && !dir.join("src").join("mod.lua").is_file() { return Err("it has the patch or export capability but no src/mod.lua".into()); }
     Ok(())
 }
 
-/// `MAJOR.MINOR.PATCH[-pre][+build]` without leading zeros, as the semver crate parses it.
+/// `MAJOR.MINOR.PATCH[-pre][+build]` as the semver crate parses it: the three numbers fit 64 bits, no leading zeros.
 fn strict_semver(v: &str) -> bool {
     let (core, build) = match v.split_once('+') { Some((c, b)) => (c, Some(b)), None => (v, None) };
     let (nums, pre) = match core.split_once('-') { Some((n, p)) => (n, Some(p)), None => (core, None) };
-    let num = |n: &str| !n.is_empty() && n.bytes().all(|c| c.is_ascii_digit()) && (n == "0" || !n.starts_with('0'));
+    let digits = |n: &str| !n.is_empty() && n.bytes().all(|c| c.is_ascii_digit()) && (n == "0" || !n.starts_with('0'));
     let ident = |s: &str| !s.is_empty() && s.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'-');
     let parts: Vec<&str> = nums.split('.').collect();
-    parts.len() == 3 && parts.iter().all(|p| num(p))
-        && pre.is_none_or(|p| p.split('.').all(|i| ident(i) && (!i.bytes().all(|c| c.is_ascii_digit()) || num(i))))
+    parts.len() == 3 && parts.iter().all(|p| digits(p) && p.parse::<u64>().is_ok())
+        && pre.is_none_or(|p| p.split('.').all(|i| ident(i) && (!i.bytes().all(|c| c.is_ascii_digit()) || digits(i))))
         && build.is_none_or(|b| b.split('.').all(ident))
 }
 
@@ -1047,6 +896,154 @@ mod tests {
         let n = notes(&g, &find(&g, None), Some(&view));
         assert!(n[0].own_refused.is_empty() && n[0].own.len() == 2, "{:?}", n[0]);
         std::fs::remove_dir_all(g).unwrap();
+    }
+
+    /// A Steam library layout: `<t>/lib/steamapps/common/<folder>` with `exes`, Kiln's ShroudForge plugin and runtime,
+    /// and the Proton prefix of `app` with `c:` linked to its drive_c.
+    fn proton_game(name: &str, folder: &str, exes: &[&str], apps: &[u32]) -> (PathBuf, PathBuf) {
+        let t = tmp(name);
+        let g = t.join("lib/steamapps/common").join(folder);
+        std::fs::create_dir_all(g.join("kiln/plugins/shroudforge")).unwrap();
+        std::fs::write(g.join("kiln/plugins/kiln-shroudforge.dll"), b"x").unwrap();
+        std::fs::write(g.join("kiln/plugins/shroudforge/shroudforge-runtime.dll"), b"x").unwrap();
+        std::fs::create_dir_all(g.join("shroudforge/config")).unwrap();
+        for exe in exes { std::fs::write(g.join(exe), b"MZ").unwrap(); }
+        for app in apps {
+            let pfx = t.join(format!("lib/steamapps/compatdata/{app}/pfx"));
+            std::fs::create_dir_all(pfx.join("dosdevices")).unwrap();
+            std::fs::create_dir_all(pfx.join("drive_c")).unwrap();
+            std::os::unix::fs::symlink("../drive_c", pfx.join("dosdevices/c:")).unwrap();
+        }
+        (t, g)
+    }
+
+    /// Rerun 2, finding 1: the folder Kiln copies the profile's EML mods into is the one the hosting decision looked at.
+    /// `paths.mods` = `C:\sfmods` under Proton is in the prefix's drive_c; the old resolver fell back to `<game>/mods`.
+    #[test]
+    fn placement_and_hosting_resolve_shroudforge_s_mods_folder_alike() {
+        let (t, g) = proton_game("r2-mods", "Enshrouded", &[crate::game::CLIENT_EXE], &[crate::CLIENT_APP_ID]);
+        let sfmods = t.join("lib/steamapps/compatdata/1203620/pfx/drive_c/sfmods");
+        std::fs::create_dir_all(sfmods.join("pack")).unwrap();
+        std::fs::write(sfmods.join("pack/extended.mod.json"), br#"{"launcher":"SF"}"#).unwrap();
+        std::fs::write(g.join(crate::shroudforge::CONFIG_FILE), br#"{"paths":{"mods":"C:\\sfmods"}}"#).unwrap();
+        assert_eq!(crate::shroudforge::mods_dir(&g), sfmods);
+        let view = ProfileView { dropins_shroudforge: true, ..ProfileView::default() };
+        let l = find(&g, Some(&view));
+        let host = l.iter().find(|l| l.via == Via::HostedShroudForge).expect("hosted for the package in C:\\sfmods");
+        assert_eq!(host.root(&g), sfmods);
+        std::fs::remove_dir_all(t).unwrap();
+    }
+
+    /// Rerun 2, finding 2: a dedicated server's folder takes the server app's prefix, not the client's. With both
+    /// executables (or neither) no Steam prefix is taken: drive paths then stay unnamed and the answer is "hosted".
+    #[test]
+    fn a_server_folder_takes_the_server_app_s_prefix() {
+        let apps = [crate::CLIENT_APP_ID, crate::SERVER_APP_ID];
+        let (t, g) = proton_game("r2-server", "EnshroudedServer", &[crate::game::SERVER_EXE], &apps);
+        let server_c = t.join("lib/steamapps/compatdata/2278520/pfx/drive_c");
+        std::fs::create_dir_all(server_c.join("sf-state")).unwrap();
+        std::fs::create_dir_all(t.join("lib/steamapps/compatdata/1203620/pfx/drive_c/sf-state")).unwrap();
+        std::fs::write(server_c.join("sf-state/state.json"), APPLIED).unwrap();
+        std::fs::write(g.join(crate::shroudforge::CONFIG_FILE), br#"{"paths":{"state":"C:\\sf-state"}}"#).unwrap();
+        let view = ProfileView { dropins_shroudforge: true, ..ProfileView::default() };
+        assert!(hosted(&g, &view), "the server prefix's C: holds the record");
+        // the client's prefix with the record, the server's without: not hosted
+        std::fs::remove_file(server_c.join("sf-state/state.json")).unwrap();
+        std::fs::write(t.join("lib/steamapps/compatdata/1203620/pfx/drive_c/sf-state/state.json"), APPLIED).unwrap();
+        assert!(!hosted(&g, &view), "the client's prefix is not this folder's");
+        assert_eq!(crate::sf_paths::wine_prefix(&g), Some(t.join("lib/steamapps/compatdata/2278520/pfx")));
+        std::fs::write(g.join(crate::game::CLIENT_EXE), b"MZ").unwrap();
+        assert_eq!(crate::sf_paths::wine_prefix(&g), None, "both executables: no Steam prefix");
+        std::fs::remove_dir_all(t).unwrap();
+    }
+
+    /// Rerun 2, finding 3: Windows finds the config, `state.json` and `extended.mod.json` whatever their case.
+    #[test]
+    fn shroudforge_s_files_are_found_without_regard_to_case() {
+        let (g, view) = sf_game("r2-case");
+        std::fs::write(g.join("shroudforge/STATE.JSON"), APPLIED).unwrap();
+        assert!(hosted(&g, &view), "STATE.JSON in the default folder");
+        std::fs::remove_file(g.join("shroudforge/STATE.JSON")).unwrap();
+        std::fs::remove_dir_all(g.join("shroudforge/config")).unwrap();
+        std::fs::create_dir_all(g.join("shroudforge/Config")).unwrap();
+        std::fs::create_dir_all(g.join("now")).unwrap();
+        std::fs::write(g.join("shroudforge/state.json"), APPLIED).unwrap();  // old record in the default folder
+        std::fs::write(g.join("shroudforge/Config/ModLoader-Config.json"), br#"{"paths":{"state":"now"}}"#).unwrap();
+        assert!(!hosted(&g, &view), "the config in other case moves the state folder");
+        std::fs::create_dir_all(g.join("mods/pack")).unwrap();
+        std::fs::write(g.join("mods/pack/Extended.Mod.Json"), br#"{"launcher":"SF"}"#).unwrap();
+        assert!(hosted(&g, &view), "a package whose file is in other case");
+        std::fs::remove_dir_all(g).unwrap();
+    }
+
+    /// Rerun 2, finding 7: a state file of any size gets the adapter's answer (the old 64 MiB limit answered "hosted"),
+    /// and only the wanted members are kept while it is parsed.
+    #[test]
+    fn a_state_file_over_the_old_limit_gets_the_adapter_s_answer() {
+        let (g, view) = sf_game("r2-big");
+        let mut f = std::io::BufWriter::new(std::fs::File::create(g.join("shroudforge/state.json")).unwrap());
+        use std::io::Write;
+        f.write_all(br#"{"pad":["#).unwrap();
+        for i in 0..(33 * 1024 * 1024) { f.write_all(if i == 0 { b"0" } else { b",0" }).unwrap(); }
+        f.write_all(br#"],"assets":{"status":"restored"}}"#).unwrap();
+        drop(f);
+        assert!(std::fs::metadata(g.join("shroudforge/state.json")).unwrap().len() > 64 * 1024 * 1024);
+        assert!(!hosted(&g, &view), "no startup record in it");
+        std::fs::remove_dir_all(g).unwrap();
+    }
+
+    /// Rerun 2, finding 9: `enabled: false` ends the adapter's check of a package before `launcher` is read.
+    #[test]
+    fn a_package_switched_off_is_off_whatever_its_launcher() {
+        let (g, view) = sf_game("r2-short");
+        std::fs::create_dir_all(g.join("mods/pack")).unwrap();
+        std::fs::write(g.join("mods/pack/extended.mod.json"), br#"{"enabled":false,"launcher":7}"#).unwrap();
+        assert!(!hosted(&g, &view));
+        std::fs::write(g.join("mods/pack/extended.mod.json"), br#"{"enabled":true,"launcher":7}"#).unwrap();
+        assert!(hosted(&g, &view), "on, and a launcher nlohmann cannot read as text: the catch counts it");
+        std::fs::write(g.join("mods/pack/extended.mod.json"), br#"{"launcher":"EML","enabled":true}"#).unwrap();
+        assert!(!hosted(&g, &view), "an EML package");
+        std::fs::remove_dir_all(g).unwrap();
+    }
+
+    /// Rerun 2, finding 5: `..` relative to the game folder stops at the root of the game's drive, as on Windows.
+    #[test]
+    fn dot_dot_stops_at_the_game_drive_s_root() {
+        let (t, g) = proton_game("r2-dotdot", "Enshrouded", &[crate::game::CLIENT_EXE], &[crate::CLIENT_APP_ID]);
+        // S: is the game folder itself
+        std::os::unix::fs::symlink(&g, t.join("lib/steamapps/compatdata/1203620/pfx/dosdevices/s:")).unwrap();
+        std::fs::create_dir_all(t.join("lib/steamapps/common/sf-state")).unwrap();
+        std::fs::write(t.join("lib/steamapps/common/sf-state/state.json"), APPLIED).unwrap();
+        std::fs::write(g.join(crate::shroudforge::CONFIG_FILE), br#"{"paths":{"state":"..\\sf-state"}}"#).unwrap();
+        let view = ProfileView { dropins_shroudforge: true, ..ProfileView::default() };
+        assert!(!hosted(&g, &view), "S:\\sf-state, not the folder beside the game");
+        std::fs::create_dir_all(g.join("sf-state")).unwrap();
+        std::fs::write(g.join("sf-state/state.json"), APPLIED).unwrap();
+        assert!(hosted(&g, &view));
+        std::fs::remove_dir_all(t).unwrap();
+    }
+
+    /// Rerun 2, findings 8 and 10: EML's registry (mod-loader-base/src/registry/mod.rs `load_mod_at`, manifest.rs)
+    /// takes a helper package without src/mod.lua; its runner needs that file only for patch or export. It refuses an
+    /// `optional` that is no boolean, a version number above 64 bits and a byte order mark.
+    #[test]
+    fn eml_s_own_loader_takes_and_refuses_what_its_registry_does() {
+        let d = tmp("r2-eml").join("mods");
+        let pkg = |name: &str, manifest: &str, lua: Option<&str>| {
+            let dir = d.join(name);
+            std::fs::create_dir_all(dir.join("src")).unwrap();
+            std::fs::write(dir.join("mod.json"), manifest).unwrap();
+            if let Some(f) = lua { std::fs::write(dir.join("src").join(f), b"return {}").unwrap(); }
+            dir
+        };
+        assert_eq!(eml_takes(&pkg("helper", r#"{"id":"helper","name":"H","version":"1.0.0"}"#, Some("util.lua"))), Ok(()));
+        assert!(eml_takes(&pkg("patcher", r#"{"id":"p","name":"P","version":"1.0.0","capabilities":["patch"]}"#, Some("util.lua"))).is_err());
+        assert!(eml_takes(&pkg("opt", r#"{"id":"o","name":"O","version":"1.0.0","dependencies":[{"id":"x","version":"^1","optional":"yes"}]}"#, None)).is_err());
+        assert_eq!(eml_takes(&pkg("opt2", r#"{"id":"o","name":"O","version":"1.0.0","dependencies":[{"id":"x","version":"^1","optional":true}]}"#, None)), Ok(()));
+        assert!(eml_takes(&pkg("big", r#"{"id":"b","name":"B","version":"1.0.18446744073709551616"}"#, None)).is_err());
+        assert!(eml_takes(&pkg("bom", "\u{feff}{\"id\":\"b\",\"name\":\"B\",\"version\":\"1.0.0\"}", None)).is_err());
+        assert!(eml_takes(&pkg(".hidden", r#"{"id":"h","name":"H","version":"1.0.0"}"#, None)).is_err());
+        std::fs::remove_dir_all(d.parent().unwrap()).unwrap();
     }
 
     #[test]
