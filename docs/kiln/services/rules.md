@@ -466,7 +466,9 @@ It never lands, because without collision there is no ground. Water does not end
   at worst): until it has, nothing ends but by death, also when the player has flown out meanwhile, and where it
   landed is looked at with collision still off. If a death ended things first and the move then puts the
   respawned character where something was built meanwhile, collision goes off again until the character is free
-  (no second event).
+  (no second event). The same holds for a move the teleport service gave up after 10 seconds: the game may still
+  carry it out later, so Kiln remembers where it was sent, takes a teleport that ends there for its own move (never
+  for someone else's), and holds collision off again if that puts the character inside something.
   After a move back the character is kept safe until it stands on the ground (as after a carried flight),
   since the free position can be in the air; turning NoClip on again ends that protection. This order
   matters: the game does not push a character out of solid ground. In a lab a character whose rule ended 7 m inside

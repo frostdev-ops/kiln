@@ -99,27 +99,22 @@ public static class NoClip
         if (!Turning.TryAdd(player, false))
             return new(true, RulesRuntime.Fresh(player).NoClip, null, $"NoClip is being turned on for {name}.");
         var offAsked = false;
-        // what is there before, so a failure below takes back exactly what it added
-        var before = own is null ? RulesRuntime.Sets().Select(x => x.Id).ToHashSet() : null;
         // Kiln's rule set, whoever asked: it outlives the mod or tool that turned it on
         var outer = ModContext.CurrentMod;
         ModContext.CurrentMod = null;
         try
         {
-            if (own is null) Sets[player] = own = Rules.Apply(player, new PlayerRules { NoClip = true }, label: Label);
+            // the set is held from before it is registered: a failure below takes back exactly this one
+            if (own is null) Rules.Apply(RuleScope.ForPlayer(player), new PlayerRules { NoClip = true }, null, Label, made => Sets[player] = own = made);
             else own.Update(own.Rules);  // asks anew after a death or a teleport
         }
         catch
         {
             // Applying makes the rule set before it resolves, and resolving runs other code (handlers, services). If
-            // that threw, a set may be active that this switch does not hold: nothing could turn it off. Nothing of
-            // the switch stays on after a failure.
+            // that threw, the set is active: nothing of the switch stays on after a failure. Only the switch's own
+            // set goes; another one that a handler made meanwhile, whatever it is called, is not this switch's.
             Sets.Remove(player);
             Quietly(own);
-            if (before is not null)
-                foreach (var left in RulesRuntime.Sets())
-                    if (!before.Contains(left.Id) && left.Active && left.Owner == "kiln" && left.Label == Label && left.Scope.Player == player)
-                        Quietly(left);
             throw;
         }
         finally

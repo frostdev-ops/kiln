@@ -45,6 +45,18 @@ public class NoClipTrackTests
             done.SetResult(new TeleportResult(TeleportStatus.Moved, new EntityId(7), to, to, 0, TeleportFlags.None, 3, ""));
         }
 
+        /// <summary>The newest move is given up after ten seconds, and the game may still carry it out.</summary>
+        public void TimeOut() =>
+            Moves[^1].Done.SetResult(new TeleportResult(TeleportStatus.Failed, new EntityId(7), At!.Value, Moves[^1].To, 0, TeleportFlags.TimedOut, 0,
+                "no move within 10 s and the Teleport component could not be removed"));
+
+        /// <summary>The game carries out a move that had been given up: the character is at its target, a teleport is counted.</summary>
+        public void LandLate(int move)
+        {
+            At = Moves[move].To;
+            Count = (byte)(Count!.Value + 1);
+        }
+
         public void Refuse(string why) =>
             Moves[^1].Done.SetResult(new TeleportResult(TeleportStatus.Failed, new EntityId(7), At!.Value, Moves[^1].To, 0, TeleportFlags.None, 0, why));
     }
@@ -712,6 +724,8 @@ public class NoClipTrackTests
         var r = t.Step();
         Assert.Equal(NoClipEnd.Teleport, r.Trip);  // now it is known: the runtime uses up the requests
         Assert.True(r.Released);
+        Assert.Equal(Deep, r.Before);            // against where the character was before it (the area it left)
+        Assert.Null(t.LastSeen);                 // which the tracker itself has forgotten by now
         Assert.Null(r.Problem);                  // not a failed move
         Assert.Equal([(NoClipEnd.Teleport, (WorldPosition?)null)], Ended(t));
         w.Clock = w.Clock.AddSeconds(5);
@@ -941,6 +955,117 @@ public class NoClipTrackTests
         Assert.Null(t.Step().Trip);              // the counter is read anew at each start
         t.Leaving(out _);
         Assert.Single(Ended(t));
+    }
+
+    [Fact]
+    public void ASecondTeleportAfterOneThatWasToldStillEndsNoClip()
+    {
+        // told of a teleport through Leaving during a hold, asked again, and teleported once more before a step ran:
+        // what was told is that one teleport, not whatever the counter shows afterwards
+        var (t, w) = Flying();
+        w.At = Deep;
+        t.Step();
+        t.Leaving(out _);
+        w.Refuse("busy");
+        t.Step();                                // the hold goes on with no move out
+        t.Entering();
+        w.Count = 8;
+        w.At = new WorldPosition(900, 60, 900);
+        Assert.Equal(NoClipEnd.Teleport, t.Leaving(out _));
+        t.Entering();                            // asked anew after that teleport
+        w.Count = 9;                             // and teleported again
+        w.At = new WorldPosition(1900, 60, 900);
+        Assert.Equal(NoClipEnd.Teleport, t.Step().Trip);
+    }
+
+    [Fact]
+    public void AMoveKeepsTheWordOfItsOwnStartingPlaceWhenNoClipBeginsAgainElsewhere()
+    {
+        // a move back to a slope is out, the character dies, respawns, turns NoClip on elsewhere and dies again: the
+        // move then lands on the slope it came from, unchanged. That place is still one a character stands at.
+        var (t, w) = FlyingFromASlope();
+        w.At = Deep;
+        t.Step();
+        t.Leaving(out _);                        // move 1 to the starting place on the slope is out
+        w.IsDead = true;
+        Assert.True(t.Step().Released);
+        w.IsDead = false;
+        w.At = new WorldPosition(140, 60, 100);  // respawned in the open
+        t.Step();
+        t.Entering();                            // NoClip again, here
+        t.Step();
+        w.IsDead = true;
+        Assert.Equal(NoClipEnd.Death, t.Step().Trip);
+        t.Leaving(out _);
+        w.IsDead = false;
+        w.At = new WorldPosition(150, 60, 100);
+        t.Step();
+        w.Land();                                // the first move lands on the slope
+        var r = t.Step();
+        Assert.False(r.Held);
+        Assert.False(t.Restoring);
+    }
+
+    [Fact]
+    public void AMoveThatTimedOutAndIsCarriedOutLaterIntoSomethingTurnsCollisionOffAgainQuietly()
+    {
+        var (t, w) = Flying();
+        w.At = Deep;
+        t.Step();
+        t.Leaving(out _);                        // move 1 to the surface is out
+        w.TimeOut();                             // given up; the component could not be taken off
+        Assert.Contains("did not work", t.Step().Problem);
+        w.At = new WorldPosition(104, 60, 100);  // the player flies out by itself
+        Assert.True(t.Step().Released);
+        Assert.Equal([(NoClipEnd.RuleEnded, (WorldPosition?)null)], Ended(t));
+        // someone builds over the old target, and the game carries the old move out after all
+        w.Kind = p => Math.Abs(p.X - 100) < 2 ? NoClipSpace.Inside : Rock(p);
+        Assert.Equal(default, t.Step());
+        w.LandLate(0);
+        var r = t.Step();
+        Assert.True(r.Held);
+        Assert.True(t.Restoring);
+        w.At = new WorldPosition(104, 55, 100);
+        Assert.True(t.Step().Released);
+        Assert.Empty(Ended(t));                  // NoClip's end was reported once, before
+        // a teleport somewhere else afterwards is nobody's business here
+        w.Count = (byte)(w.Count!.Value + 1);
+        w.At = new WorldPosition(2000, 60, 100);
+        Assert.Equal(default, t.Step());
+    }
+
+    [Fact]
+    public void AMoveThatTimedOutAndLandsDuringTheHoldIsThatMoveNotSomeoneElsesTeleport()
+    {
+        var (t, w) = Flying();
+        w.At = Deep;
+        t.Step();
+        t.Leaving(out _);
+        w.TimeOut();
+        t.Step();                                // the hold goes on; the next move is due in a second
+        w.LandLate(0);                           // the old move is carried out: the character is at the surface
+        var r = t.Step();
+        Assert.Null(r.Trip);                     // not a teleport by someone else
+        Assert.True(r.Released);
+        Assert.Equal([(NoClipEnd.RuleEnded, (WorldPosition?)Surface)], Ended(t));
+    }
+
+    [Fact]
+    public void AMoveThatTimedOutAndLandsWhileNoClipIsOnAgainEndsNothing()
+    {
+        var (t, w) = Flying();
+        w.At = Deep;
+        t.Step();
+        t.Leaving(out _);
+        w.TimeOut();
+        t.Step();
+        t.Entering();                            // asked again during the hold
+        t.Step();
+        w.LandLate(0);
+        Assert.Null(t.Step().Trip);              // Kiln's own move: NoClip goes on
+        Assert.True(t.On);
+        Assert.Null(t.Leaving(out _));           // and it ends as a rule that ended, at the surface, in the open
+        Assert.False(t.Restoring);
     }
 
     [Fact]
