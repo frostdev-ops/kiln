@@ -44,10 +44,16 @@ public sealed class EmfCheckMod : Mod
         var state = JsonNode.Parse(File.ReadAllText(Path.Combine(kiln, "state", "emf.json")))!;
         var mods = state["mods"]!.AsArray().ToDictionary(m => (string)m!["id"]!, m => m!);
         string Status(string id) => mods.TryGetValue(id, out var m) ? (string)m["status"]! : "absent";
-        Check((bool)state["steppedAside"]! == false && (int)state["emfApi"]! == 27, "state/emf.json: kiln-emf runs, EmfApi v27");
+        Check((bool)state["steppedAside"]! == false && (int)state["emfApi"]! == 40, "state/emf.json: kiln-emf runs, EmfApi v40");
+        // EMF's own mods are checked where the lab has them (a lab with the probes alone has none)
         foreach (var id in new[] { "big_stacks", "herald", "server-admin", "sleep", "teleports" })
-            Check(Status(id) == "loaded", $"state/emf.json: {id} loaded ({Status(id)})");
-        Check(Status("clock") == "rejected", $"state/emf.json: clock (side client) is not loaded on a server ({Status("clock")})");
+        {
+            if (Status(id) == "absent") Log.Info($"SKIP state/emf.json: {id} is not installed in this lab");
+            else Check(Status(id) == "loaded", $"state/emf.json: {id} loaded ({Status(id)})");
+        }
+        if (Status("clock") == "absent") Log.Info("SKIP state/emf.json: clock is not installed in this lab");
+        else Check(Status("clock") == "rejected", $"state/emf.json: clock (side client) is not loaded on a server ({Status("clock")})");
+        Check(Status("emf_probe") == "loaded", $"state/emf.json: emf_probe (built for EmfApi v40) loaded ({Status("emf_probe")})");
 
         // big_stacks through Kiln's registry: every stackable item x4, at most 9999 (its defaults)
         if (Status("big_stacks") == "loaded")
@@ -70,18 +76,20 @@ public sealed class EmfCheckMod : Mod
             Check(Content.StackGuard, "Kiln.Content: the stack guard is on (raised stacks are not cut back)");
         }
 
-        // launcher files: <configDir>/emf/<id>.ini + .schema/emf/<id>.json (contracts.md 5.5)
+        // launcher files: <configDir>/emf/<id>.ini + .schema/emf/<id>.json (contracts.md 5.5), of big_stacks where the lab
+        // has it, else of the probe (which every lab of this check has)
+        var (fid, fkey, ftype) = Status("big_stacks") == "absent" ? ("emf_probe", "level", "int") : ("big_stacks", "multiplier", "float");
         var cfg = Kiln.Config.Directory;
-        var ini = Path.Combine(cfg, "emf", "big_stacks.ini");
-        Check(File.Exists(ini) && File.ReadAllText(ini).Contains("[big_stacks]") && File.ReadAllText(ini).Contains("multiplier="),
+        var ini = Path.Combine(cfg, "emf", fid + ".ini");
+        Check(File.Exists(ini) && File.ReadAllText(ini).Contains($"[{fid}]") && File.ReadAllText(ini).Contains(fkey + "="),
               $"{ini} has the section and the seeded settings");
-        var mirror = Path.Combine(Path.GetDirectoryName(kiln)!, "emf", "config", "big_stacks.ini");
+        var mirror = Path.Combine(Path.GetDirectoryName(kiln)!, "emf", "config", fid + ".ini");
         Check(File.Exists(mirror) && File.ReadAllText(mirror).Contains("enabled=1"), $"mirror {mirror} carries the switch");
-        var schema = Path.Combine(cfg, ".schema", "emf", "big_stacks.json");
+        var schema = Path.Combine(cfg, ".schema", "emf", fid + ".json");
         var sj = File.Exists(schema) ? JsonNode.Parse(File.ReadAllText(schema)) : null;
-        Check(sj is not null && (string)sj["source"]! == "emf" && (string)sj["file"]! == "emf/big_stacks.ini" &&
-              sj["entries"]!.AsArray().Any(e => (string)e!["path"]! == "big_stacks.multiplier" && (string)e["type"]! == "float"),
-              $"{schema}: source emf, file emf/big_stacks.ini, big_stacks.multiplier float");
+        Check(sj is not null && (string)sj["source"]! == "emf" && (string)sj["file"]! == $"emf/{fid}.ini" &&
+              sj["entries"]!.AsArray().Any(e => (string)e!["path"]! == $"{fid}.{fkey}" && (string)e["type"]! == ftype),
+              $"{schema}: source emf, file emf/{fid}.ini, {fid}.{fkey} {ftype}");
         Log.Info($"emf-check done: {_pass} PASS, {_fail} FAIL");
     }
 }

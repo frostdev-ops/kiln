@@ -14,7 +14,8 @@ void net_client_clear();
 bool net_client_line(std::string_view line, uint64_t speaker);
 std::vector<std::string> net_client_take(size_t count);
 void net_client_put_back(std::vector<std::string> lines);
-void net_client_reset();
+void net_client_reset();      // another GameClient: the client link starts over, queued client callbacks go
+void net_client_new_world();  // a new client world on the same connection: the link starts over, a held greeting stays
 
 #ifdef KEMF_NET_CLIENT_TEST
 // The production detours, with only their three engine functions replaced.
