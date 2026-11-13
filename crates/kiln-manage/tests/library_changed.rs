@@ -466,3 +466,149 @@ fn a_save_of_a_deleted_profile_never_lands_on_one_made_again() {
     // its own saves go on
     profile::save(&dirs, &made).unwrap();
 }
+
+// ---- review of c13a9226 (Codex, rerun 1) ----
+
+/// Two builds of a plugin in the Library; returns (older entry, newer entry).
+fn two_plugin_builds(t: &Path, dirs: &DataDirs, first: &str, second: &str) -> (LibraryRef, LibraryRef) {
+    put(t, &format!("p1/{first}"), &build_test_dll(&["kiln_plugin_main"], b"build 1"));
+    put(t, &format!("p2/{second}"), &build_test_dll(&["kiln_plugin_main"], b"build 2"));
+    let r = library::import(dirs, &[t.join(format!("p1/{first}")), t.join(format!("p2/{second}"))], &mut NoProgress).unwrap();
+    assert_eq!(r.imported.len(), 2, "{r:?}");
+    let one = library::path_of(dirs, &r.imported[0]).unwrap();
+    let older = if std::fs::read(&one).unwrap() == build_test_dll(&["kiln_plugin_main"], b"build 1") { 0 } else { 1 };
+    (r.imported[older].clone(), r.imported[1 - older].clone())
+}
+
+/// R1. The older plugin entry's DLL replaced with the newer build and a settings file put beside it: the take-over
+/// reuses the newer entry (the same DLL) and that entry receives the settings file before the old folder goes.
+#[test]
+fn a_reused_plugin_destination_receives_the_players_other_files() {
+    let t = tmp("r1-carry");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let (old, newer) = two_plugin_builds(&t.0, &dirs, "hello.dll", "hello.dll");
+    let folder = library::path_of(&dirs, &old).unwrap().parent().unwrap().to_path_buf();
+    put(&folder, "hello.dll", &build_test_dll(&["kiln_plugin_main"], b"build 2"));
+    put(&folder, "settings.ini", b"[hello]\nloud=1\n");
+    put(&folder, ".notes", b"a dot file of the player's");
+    let done = library::take_over_with(&dirs, &old, &mut no_game).unwrap();
+    assert_eq!(done.to, newer);
+    let dest = library::path_of(&dirs, &newer).unwrap().parent().unwrap().to_path_buf();
+    assert_eq!(std::fs::read(dest.join("settings.ini")).unwrap(), b"[hello]\nloud=1\n", "the settings file is in the entry it became");
+    assert_eq!(std::fs::read(dest.join(".notes")).unwrap(), b"a dot file of the player's");
+    assert!(!folder.exists(), "the old folder went only after that");
+    assert_eq!(kiln_manage::hash::sha256_file(&library::path_of(&dirs, &newer).unwrap()).unwrap().0, newer.hash);
+}
+
+/// R1. The same, but the reused entry has a settings file of its own with other contents: the take-over stops, names
+/// the file and both folders, and deletes nothing.
+#[test]
+fn a_reused_destination_with_a_different_file_of_the_same_name_stops_the_take_over() {
+    let t = tmp("r1-clash");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let (old, newer) = two_plugin_builds(&t.0, &dirs, "hello.dll", "hello.dll");
+    let folder = library::path_of(&dirs, &old).unwrap().parent().unwrap().to_path_buf();
+    let dest = library::path_of(&dirs, &newer).unwrap().parent().unwrap().to_path_buf();
+    put(&dest, "settings.ini", b"loud=0");
+    put(&folder, "hello.dll", &build_test_dll(&["kiln_plugin_main"], b"build 2"));
+    put(&folder, "settings.ini", b"loud=1");
+    let err = library::take_over_with(&dirs, &old, &mut no_game).unwrap_err();
+    assert_eq!(err.code, ErrorCode::Conflict, "{err:?}");
+    assert!(err.message.contains("settings.ini") && err.message.contains(&folder.display().to_string()) && err.message.contains(&dest.display().to_string()), "{}", err.message);
+    assert_eq!(std::fs::read(folder.join("settings.ini")).unwrap(), b"loud=1", "nothing deleted");
+    assert_eq!(std::fs::read(dest.join("settings.ini")).unwrap(), b"loud=0", "nothing overwritten");
+    assert!(library::record(&dirs, &old).is_ok());
+}
+
+/// R5. Two plugins whose file names give one id ("hello plugin.dll", "hello-plugin.dll"): the first one's DLL replaced
+/// with the second build. The reused entry is checked by its own DLL's name, and taken as it is.
+#[test]
+fn a_plugin_destination_is_checked_by_its_own_dll_name() {
+    let t = tmp("r5-name");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let (old, newer) = two_plugin_builds(&t.0, &dirs, "hello plugin.dll", "hello-plugin.dll");
+    assert_eq!(old.id, newer.id);
+    let dll = library::path_of(&dirs, &old).unwrap();
+    std::fs::write(&dll, build_test_dll(&["kiln_plugin_main"], b"build 2")).unwrap();
+    let done = library::take_over_with(&dirs, &old, &mut no_game).unwrap_or_else(|e| panic!("{e:?}"));
+    assert_eq!(done.to, newer);
+    let dest = library::path_of(&dirs, &newer).unwrap();
+    assert!(!dest.parent().unwrap().join("hello plugin.dll").exists(), "the same bytes under the other name are not copied in");
+    assert!(!dll.exists());
+}
+
+/// R3. A take-over stopped after its copy was put in place but before the copy's record was written: a retry finishes
+/// that copy; a folder there with other files and no record stays a Conflict that says so.
+#[test]
+fn a_destination_left_without_its_record_is_finished_on_retry() {
+    let t = tmp("r3-half");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let old = library::import(&dirs, &[eml_src(&t.0, "src/a", "1.0.0", b"return 1")], &mut NoProgress).unwrap().imported[0].clone();
+    let mut p = profile::create(&dirs, "p", None).unwrap();
+    p.mods.eml.push(ProfileMod { id: old.id.clone(), version: old.version.clone(), hash: old.hash.clone(), enabled: true });
+    let p = profile::save(&dirs, &p).unwrap();
+    let folder = library::path_of(&dirs, &old).unwrap();
+    put(&folder, "src/mod.lua", b"return 2");
+    let h = kiln_manage::hash::dirhash(&folder).unwrap();
+    let dest = dirs.library_entry(ModKind::Eml, &old.id, "1.0.0", &h).unwrap();
+    kiln_manage::util::copy_tree(&folder, &dest).unwrap();
+    put(&dest, "stray.txt", b"not the taken files");
+    let err = library::take_over_with(&dirs, &old, &mut no_game).unwrap_err();
+    assert_eq!(err.code, ErrorCode::Conflict);
+    assert!(err.message.contains("no import record"), "{}", err.message);
+    assert!(folder.is_dir() && dest.join("stray.txt").is_file(), "nothing deleted");
+    std::fs::remove_file(dest.join("stray.txt")).unwrap();
+    let done = library::take_over_with(&dirs, &old, &mut no_game).unwrap_or_else(|e| panic!("{e:?}"));
+    assert_eq!(done.to.hash, h);
+    assert_eq!(library::record(&dirs, &done.to).unwrap().hash, h, "the record was written");
+    assert_eq!(profile::get(&dirs, &p.id).unwrap().mods.eml[0].hash, h);
+    assert!(!folder.exists());
+}
+
+/// R4. The old folder cannot be deleted all the way (a file in it is locked: here a folder without write access): its
+/// record is never dropped before the folder is out of the way, the result says what is left and where, and the next
+/// migration removes the rest. A folder that cannot even be moved aside keeps its record, and a retry finishes.
+#[test]
+fn a_folder_that_cannot_be_removed_stays_findable_and_is_finished_later() {
+    use std::os::unix::fs::PermissionsExt;
+    let t = tmp("r4-locked");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let old = library::import(&dirs, &[eml_src(&t.0, "src/a", "1.0.0", b"return 1")], &mut NoProgress).unwrap().imported[0].clone();
+    let folder = library::path_of(&dirs, &old).unwrap();
+    put(&folder, "src/mod.lua", b"return 2");
+    let mode = |p: &Path, m: u32| std::fs::set_permissions(p, std::fs::Permissions::from_mode(m)).unwrap();
+    mode(&folder.join("src"), 0o555);
+    let done = library::take_over_with(&dirs, &old, &mut no_game);
+    let left: Vec<PathBuf> = std::fs::read_dir(folder.parent().unwrap()).unwrap().map(|e| e.unwrap().path())
+        .filter(|p| p.is_dir() && p != &library::path_of(&dirs, &done.as_ref().unwrap().to).unwrap()).collect();
+    for l in &left { mode(&l.join("src"), 0o755); }
+    let done = done.unwrap();
+    let note = done.note.clone().unwrap_or_default();
+    assert_eq!(left.len(), 1, "{left:?}");
+    assert!(note.contains(&left[0].display().to_string()), "the result names what is left: {note:?}");
+    library::migrate_identities(&dirs).unwrap();
+    assert!(!left[0].exists(), "the next migration removes the rest");
+
+    // the folder cannot be moved aside at all (its parent is read-only): it keeps its record and a retry finishes
+    let t2 = tmp("r4-stuck");
+    let dirs = DataDirs::at(t2.0.join("data"));
+    let old = library::import(&dirs, &[eml_src(&t2.0, "src/a", "1.0.0", b"return 1")], &mut NoProgress).unwrap().imported[0].clone();
+    let folder = library::path_of(&dirs, &old).unwrap();
+    put(&folder, "src/mod.lua", b"return 2");
+    let h = kiln_manage::hash::dirhash(&folder).unwrap();
+    // its new entry is made first (as a retry would find it), then the parent of both is made read-only
+    let dest = dirs.library_entry(ModKind::Eml, &old.id, "1.0.0", &h).unwrap();
+    kiln_manage::util::copy_tree(&folder, &dest).unwrap();
+    let mut rec: serde_json::Value = serde_json::from_slice(&std::fs::read(format!("{}.json", folder.display())).unwrap()).unwrap();
+    rec["hash"] = h.clone().into();
+    kiln_manage::util::write_json_atomic(&PathBuf::from(format!("{}.json", dest.display())), &rec).unwrap();
+    let parent = folder.parent().unwrap().to_path_buf();
+    mode(&parent, 0o555);
+    let first = library::take_over_with(&dirs, &old, &mut no_game);
+    mode(&parent, 0o755);
+    let first = first.unwrap_or_else(|e| panic!("{e:?}"));
+    assert!(first.note.as_deref().is_some_and(|n| n.contains("could not be removed")), "{first:?}");
+    assert!(library::record(&dirs, &old).is_ok() && folder.is_dir(), "still a Library entry, findable");
+    library::take_over_with(&dirs, &old, &mut no_game).unwrap();
+    assert!(!folder.exists() && library::record(&dirs, &old).is_err(), "the retry finished");
+}
