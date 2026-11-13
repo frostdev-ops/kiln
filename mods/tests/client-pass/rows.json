@@ -62,6 +62,7 @@
     { "section": "New in 0.2.0-dev.27", "key": "Player.Aim follows the player's camera", "checks": ["players.aim"] },
     { "section": "New in 0.2.0-dev.27", "key": "Kick and ban a joined player", "checks": ["kick-test/players.kick", "kick-test/players.kick.after", "kick-test/players.ban", "kick-test/players.ban.after"] },
     { "section": "New in 0.2.0-dev.27", "key": "An item with a model of its own lies on the ground as that model", "checks": ["weapon-moves-test/blocks.dropped-own-model"] },
-    { "section": "New in 0.2.0-dev.27", "key": "Event filters: one watched creature's hits, the others untouched", "checks": ["event-filter-test/events.filter-hits"] }
+    { "section": "New in 0.2.0-dev.27", "key": "Event filters: one watched creature's hits, the others untouched", "checks": ["event-filter-test/events.filter-hits"] },
+    { "section": "New in 0.2.0-dev.27", "key": "A tracked world write reaches your screen and is still there after you leave and come back", "checks": ["world-writes-test/world.tracked-water", "world-writes-test/world.tracked-water-rejoin"] }
   ]
 }

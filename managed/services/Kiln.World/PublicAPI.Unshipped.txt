@@ -102,3 +102,4 @@ Kiln.WorldWriteInfo.SaveTracked.init -> void
 Kiln.WorldWriteInfo.WorldWriteInfo(string! Component, Kiln.WorldWriteState State, string? Reason, int GameWriterCount, System.Collections.Generic.IReadOnlyList<string!>! GameWriters, int InitWriterCount, bool? SaveTracked, bool? ReplicationTracked, bool Attribute, int ComponentSize) -> void
 Kiln.WorldWriteResult.ReplicationTracked.get -> bool?
 Kiln.WorldWriteResult.SaveTracked.get -> bool?
+const Kiln.EntitySet.Capability = "world.find" -> string!

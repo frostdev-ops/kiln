@@ -180,9 +180,21 @@ JobWriteFlag(ctx))` for the same block, the copy, and for an attribute `AttrChan
 | which entities the save tracks | entity record `+4` id, `+0xC` u8, `+0xD` flags | | ids 1..1023 (players): only with flag 8; every other entity: when `+0xC != 0` or flag 8. The meaning of the two fields is not decoded | [dis]; meaning [hyp] |
 
 The two bitsets are captured from the mark itself (`@world/WriteMark.bits`, feature `world.component_bits`): one
-match each on the server and on the client exe, the same two values. kiln.world reads a listed type's two bits when
-a server world registers its programs and hands them out with every answer (`Saved`, `Replicated`); `World.WriteInfo`
-reads them for any type on demand.
+match each on the server and on the client exe, the same two values. kiln.world reads the two bits at the world's
+first live step (inside the world's setup the replication bits are not set yet: see the table below) and hands them
+out with every answer (`Saved`, `Replicated`); for a type nobody listed, `World.WriteInfo` answers from a catalog of
+every component type of the world's component map (the game's writers and sizes from the setup, both bits from the
+first step) that kiln.world publishes whole, so no thread reads the live world's maps for it.
+
+### Which entity a waiting request names
+Entity ids are not all fresh: a player's entity is `slot + 1` (docs/re/players.md, `0x160ee0` **[dis]**), so the next
+player in a slot gets the id of the one who left. kiln.world therefore keeps two facts with each request: the server
+world it was made in (worlds are counted as they register their programs; a request of an earlier one is dropped),
+and whether its entity lacked the component at any update while it waited behind a full update (512 a step). Such a
+request never runs. A player's removal and the next player's spawn in the slot are several states of the player
+record apart (4 removing entity, 5 removing, 0 free, then 1 loading, 2 waiting for the login, 3 spawn), so the gap is
+at least one step and the watch sees it **[dis]** of the update switch; that no other entity id is handed out twice in
+one world is **[hyp]** (ids grow at every spawn in the lab, and are handed out anew at every start).
 
 ### Where the write sits in the step
 - The scheduler orders two programs whose access conflicts by registration order, and a program that declares
@@ -233,6 +245,7 @@ program kiln_world_writes: the world has no component 'NoSuchComponentKiln'; reg
 program kiln_world_writes registered as #830 (T0 R0 W0 S1 OT0 O5 EI0 EO0, iterator 56 bytes, flags 0x14)
 tracked writes: program kiln_world_writes runs in world 0x…, 5 accessor(s) verified against the component map, attribute formulas on
 PASS the build's answer for every component type: 687 types, 404 that no game program writes, 40 tracked for the save, 88 tracked for replication (components.tsv)
+   (the review-fix run of the same lab, logs/lab-rf-boot1: 91 for replication; the three listed types below were read too early, see the next list)
 PASS a type that is not listed: NotDeclared: Stamina of 2542: no loaded mod lists Stamina under "writes" in its kiln.mod.json: add "writes": ["Stamina"] (…) and restart the server; …
 PASS World.Update<Ecs.Fuel> 0 -> 1234: Written: Fuel of 2542 (9 game writers, kept, marked for the save); in 2 steps
 PASS the game's own fuel_network program picked the write up: NetworkFuel 1234
@@ -260,14 +273,23 @@ INFO ServerToggleState.lastChange, written tracked with the same component: read
 - **The table** (`components.tsv`, written by the test from `World.WriteInfo` for each of the 687 component types;
   not committed, it is read from the game): 404 types have no writer among the game's server programs, 283 have one
   or more; 40 are tracked for the save (6 of them without a game writer: `DoNotSave`, `LogicGraphComponent`,
-  `PerkContainer`, `SpawnTime`, `TeleportZoneConnection`, `UsedItem`), 88 for replication (the `Network*` and
-  `Client*` mirrors, transforms, inventories, item state); 19 for both; 63 are attributes.
-- `NetworkFuel` is tracked for neither, and `fuel_network` still copies `Fuel` into it every step: how that value
-  reaches a player's game is not through this tracking. So a clear replication bit does not say "players never see
-  it" **[hyp for the route; rt for the bits]**.
+  `PerkContainer`, `SpawnTime`, `TeleportZoneConnection`, `UsedItem`), 91 for replication (the `Network*` and
+  `Client*` mirrors, transforms, inventories, item state, `ScaleComponent`, `UsedItem`); 20 for both; 63 are
+  attributes. The first run said 88 and 19: kiln.world then read a listed type's bits inside the world's setup, where
+  the game has not set the replication bits yet (every type reads "no" there), and the three listed types that have
+  the bit (`NetworkFuel`, `ScaleComponent`, `UsedItem`) came out "no". Since the review fixes the bits are read at the
+  world's first live step; the other 684 types read the same at both times **[rt]**, so the bits are set between
+  `RegisterAllPrograms` and the first step and do not change after.
+- `Fuel` is not tracked for replication, and `fuel_network` copies it every step into `NetworkFuel`, which is: so a
+  player's game gets the value through the derived component. A clear replication bit therefore does not say
+  "players never see it" **[rt for the bits; the route is what fuel_network does, not proven on a screen]**.
 - Host tests (no game): `native/services/world/tests/run.sh`: boot declarations 26 checks, program boundaries 26
-  checks (the write program is registered without the names a world lacks), tracked writes 93 checks (every status,
-  the check one step later, the queue, the table's layout: v2 is a prefix of v3).
+  checks (the write program is registered without the names a world lacks), tracked writes 174 checks since the review fixes
+  (every status, the check one step later, the queue and its limits, world identity, the watch over waiting requests'
+  entities, the delivery, the watchdog, the catalog, a consumer compiled against the dev.26 header, the layout of
+  every field in `tests/abi.json`, the shared boundaries in `tests/parity.json`). The review-fix lab run
+  (`dev27-world`, a new lab on the standard save, three boots) gave 27, 9 and 11 PASS, 0 FAIL, the lines above with
+  91 for replication.
 
 ### Still open
 - A player's screen: whether and when a tracked write shows there. Guided checks, above.

@@ -85,9 +85,8 @@
     "writes": {
       "type": "array",
       "maxItems": 64,
-      "uniqueItems": true,
       "items": { "type": "string", "pattern": "^[A-Za-z0-9_]{1,120}$" },
-      "description": "Component types the mod writes through the game's write tracking (World.Write, World.Update, World.WriteField, World.WriteAt): short names such as Fuel. kiln.world reads the list when the server starts, because the game fixes a program's access then; a write to a type that is not listed is refused. Kiln.Sdk adds the types the mod's code passes to World.Write<T> and World.Update<T>; list by hand what the code names only as a string."
+      "description": "Component types the mod writes through the game's write tracking (World.Write, World.Update, World.WriteField, World.WriteAt): short names such as Fuel. At most 64 entries, a repeated name counted each time and read once. kiln.world reads the list when the server starts, because the game fixes a program's access then; a write to a type that is not listed is refused. Kiln.Sdk adds the types the mod's code passes to World.Write<T> and World.Update<T>; list by hand what the code names only as a string."
     },
     "tests": {
       "description": "Kiln.Testing: true = autoRun.",

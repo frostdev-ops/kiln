@@ -52,9 +52,11 @@ internal sealed class Manifest
     ];
 
     /// <summary>A component's short name, as kiln.world takes it in <c>"writes"</c>.</summary>
-    private static readonly Regex ComponentName = new("^[A-Za-z0-9_]{1,120}$", RegexOptions.CultureInvariant);
+    private static readonly Regex ComponentName = new(@"\A[A-Za-z0-9_]{1,120}\z", RegexOptions.CultureInvariant);
 
-    /// <summary>The most names <c>"writes"</c> may hold (kiln.world: boot_programs.h, kBootWrites).</summary>
+    /// <summary>The most entries <c>"writes"</c> may hold, a repeated name counted each time (kiln.world: boot_programs.h,
+    /// kBootWrites; the schema's maxItems). The same rule in the same order as the native reader
+    /// (native/services/world/tests/parity.json holds the cases both readers are tested on).</summary>
     public const int MaxWrites = 64;
 
     public required string Id { get; init; }
@@ -167,11 +169,16 @@ internal sealed class Manifest
                 if (!IsDllName(x))
                     throw Bad($"exports: '{x}' must be a .dll file name in the mod folder");
 
-            var writes = Strings(root, "writes").Distinct(StringComparer.Ordinal).ToList();
-            if (writes.Count > MaxWrites) throw Bad($"'writes' lists {writes.Count} component types; {MaxWrites} at most");
-            foreach (var w in writes)
+            // As kiln.world reads it at boot (boot_programs.h parse_boot_writes): a list (null is not one), at most 64
+            // entries as written, each a component's short name; a repeated name is then read once.
+            if (root.TryGetProperty("writes", out var writesValue) && writesValue.ValueKind == JsonValueKind.Null)
+                throw Bad("'writes' must be an array of strings");
+            var listed = Strings(root, "writes");
+            if (listed.Count > MaxWrites) throw Bad($"'writes' lists {listed.Count} entries; {MaxWrites} at most (a repeated name counts each time)");
+            foreach (var w in listed)
                 if (!ComponentName.IsMatch(w))
                     throw Bad($"writes: '{w}' is not a component's short name (letters, digits and _, such as Fuel or CurrentTransform)");
+            var writes = listed.Distinct(StringComparer.Ordinal).ToList();
 
             var loadBefore = Ids(root, "loadBefore");
             var loadAfter = Ids(root, "loadAfter");

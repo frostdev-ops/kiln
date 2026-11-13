@@ -16,12 +16,17 @@ namespace {
 
 constexpr const char* kProgramName = "kiln_world_writes";
 constexpr const char* kAttributeRegistry = "impact::AttributeRegistry";
-constexpr auto kStall = std::chrono::seconds(10);  // requests wait this long for a program that does not run
 
 using AttrChangedFn = void (*)(void* component, void* registry);
 
 WriteDeclarations g_types;
 WriteQueue g_queue;
+WriteCatalog g_catalog;                   // every component type of the last server world, for write_info
+std::mutex g_scan_mutex;
+std::map<uint32_t, CatalogEntry> g_scan;  // the game's writers of the last server world (its setup's scan)
+std::atomic<bool> g_bits_due{false};      // the save and replication bits are read at the world's first live step
+WriteWatchdog g_watchdog;                 // tick thread
+std::atomic<uint64_t> g_epoch{0};         // server worlds registered so far: a request belongs to the one it was asked in
 KilnHandle g_program = 0;
 AttrChangedFn g_attr_changed = nullptr;
 int64_t g_reg_replicated = -1, g_reg_saved = -1;
@@ -165,42 +170,47 @@ void KILN_CALL writes_update(KilnProgramCtx* c, void*) {
         write_check(job, known ? &type : nullptr, store);
         g_queue.complete(std::move(job), step);
     }
+    const uint64_t epoch = g_epoch.load();
     for (auto& job : g_queue.take(kWritePerUpdate)) {
         WriteType type;
         uint32_t state = 0;
         const bool known = g_types.lookup(job.mod, job.component, &type, &state);
-        if (g_broken.load(std::memory_order_relaxed)) {
+        if (g_broken.load(std::memory_order_relaxed) || job.epoch != epoch) {
             job.status = KILN_WORLD_WRITE_DROPPED;
-            job.reason = write_refusal(KILN_WORLD_WRITES_OFF, {}, {});
+            job.reason = job.epoch != epoch ? std::string(write_world_changed()) : write_refusal(KILN_WORLD_WRITES_OFF, {}, {});
             g_queue.complete(std::move(job), step);
             continue;
         }
         if (write_run(job, known ? &type : nullptr, state, store)) g_queue.hold(std::move(job));
         else g_queue.complete(std::move(job), step);
     }
+    // What still waits (more than one update's share): an entity that lacks its component now may be gone, and its id
+    // may name another entity by the time the request runs. Such a request never writes.
+    if (g_queue.not_run() > 0)
+        g_queue.watch([&](const WriteJob& job) {
+            WriteType type;
+            uint32_t state = 0;
+            if (!g_types.lookup({}, job.component, &type, &state) || state != KILN_WORLD_WRITES_READY) return true;  // refused when it runs
+            const uint8_t* data = nullptr;
+            uint32_t size = 0;
+            return !store.read(job.entity, type, &data, &size) || (data && size);  // a faulting read is reported by its run
+        });
     g_queue.end_update();
     t_in_writes = false;
 }
 
 void KILN_CALL owner_probe(void*) {}
 
-// What the game's own programs do with the listed components: the world's program table, right after the game
-// registered its programs and before Kiln's are added. Descriptors are static data of the exe; every read is guarded.
-struct GameWriters {
-    uint32_t writers = 0, init = 0;
-    std::string names;
-};
-std::mutex g_catalog_mutex;
-std::map<uint32_t, GameWriters> g_catalog;  // every component a server program of the game writes, by hash
-uintptr_t g_catalog_world = 0;              // the world the catalog was read from
-
-void scan_game_writers(uintptr_t world) {
+// What the game's own programs do with the components: the world's program table, right after the game registered its
+// programs and before Kiln's are added. Descriptors are static data of the exe; every read is guarded. Fills the
+// listed types (g_types) and returns every written type's writers for the catalog.
+std::map<uint32_t, CatalogEntry> scan_game_writers(uintptr_t world) {
     g_types.clear_writers();
-    std::map<uint32_t, GameWriters> catalog;
+    std::map<uint32_t, CatalogEntry> catalog;
     uint16_t count = 0;
     if (L.programs_count < 0 || L.programs_table < 0 || L.programs_stride <= 0 ||
-        !seh_copy(&count, reinterpret_cast<const void*>(world + L.programs_count), 2) || count > L.programs_max) return;
-    uint32_t programs = 0, found = 0;
+        !seh_copy(&count, reinterpret_cast<const void*>(world + L.programs_count), 2) || count > L.programs_max) return catalog;
+    uint32_t programs = 0;
     for (uint16_t i = 0; i < count; ++i) {
         const uintptr_t entry = world + L.programs_table + static_cast<uintptr_t>(i) * L.programs_stride;
         const EngineDesc* at = nullptr;
@@ -221,23 +231,23 @@ void scan_game_writers(uintptr_t world) {
                     !seh_copy(component, ref.s, ref.n)) continue;
                 const std::string_view what(component, ref.n), who(name, desc.name.n);
                 g_types.add_writer(what, who, init);
-                GameWriters& entry = catalog[write_hash(what)];
+                CatalogEntry& entry = catalog[write_hash(what)];
                 if (init) {
-                    ++entry.init;
+                    ++entry.init_writers;
                 } else {
                     ++entry.writers;
-                    if (entry.names.size() + who.size() + 2 < 200) entry.names += (entry.names.empty() ? "" : ", ") + std::string(who);
+                    entry.flags |= KILN_WORLD_WROTE_GAME_WRITES;
+                    if (entry.writer_names.size() + who.size() + 2 < 200)
+                        entry.writer_names += (entry.writer_names.empty() ? "" : ", ") + std::string(who);
                 }
-                ++found;
             }
         }
     }
-    (void)found;
-    {
-        std::lock_guard lock(g_catalog_mutex);
-        g_catalog = std::move(catalog);
-        g_catalog_world = world;
-    }
+    KW_D("tracked writes: read %u server program descriptor(s)", programs);
+    return catalog;
+}
+
+void log_listed() {
     for (const auto& type : g_types.snapshot())
         if (type.state != KILN_WORLD_WRITES_OVER_LIMIT && type.state != KILN_WORLD_WRITES_UNKNOWN)
             KW_I("tracked writes: %s: %u game program(s) write it%s%s%s; %u bytes%s; save %s, replication %s", type.name.c_str(),
@@ -245,16 +255,22 @@ void scan_game_writers(uintptr_t world) {
                  type.attribute() ? ", an attribute" : "",
                  !(type.flags & KILN_WORLD_WROTE_BITS_KNOWN) ? "not known" : (type.flags & KILN_WORLD_WROTE_SAVED) ? "yes" : "no",
                  !(type.flags & KILN_WORLD_WROTE_BITS_KNOWN) ? "not known" : (type.flags & KILN_WORLD_WROTE_REPLICATED) ? "yes" : "no");
-    KW_D("tracked writes: read %u server program descriptor(s)", programs);
 }
 
 // What the build says about one component type: its reflected size, whether it is an attribute, and the engine's
-// per-component save and replication bits (docs/re/world.md, "Tracked writes").
+// per-component save and replication bits (docs/re/world.md, "Tracked writes"). Server thread, inside the world setup.
 struct Facts {
     uint32_t size = 0;
     bool attribute = false, bits = false, saved = false, replicated = false, in_world = false;
 };
-Facts facts_of(uintptr_t world, uint32_t hash) {
+uintptr_t components_map(uintptr_t world) {
+    if (!world || L.reg_components < 0) return 0;
+    uintptr_t registry = 0;
+    if (!seh_copy(&registry, reinterpret_cast<const void*>(world + L.world_storage), sizeof registry) || !registry) return 0;
+    return registry + L.reg_components;
+}
+// The reflected size and the attribute flag: kiln.types' table only (its own service, loaded once; no world is read).
+Facts type_facts(uint32_t hash) {
     Facts f;
     if (const auto* types = program_types()) {
         KilnTypeInfo info{};
@@ -272,13 +288,21 @@ Facts facts_of(uintptr_t world, uint32_t hash) {
             }
         }
     }
-    if (!world || L.reg_components < 0) return f;
-    uintptr_t registry = 0;
-    if (!seh_copy(&registry, reinterpret_cast<const void*>(world + L.world_storage), sizeof registry) || !registry) return f;
+    return f;
+}
+
+// `bits`: read the save and replication bits too. Not at the world's setup: the game sets the replication bits later
+// (read there, every type said "no"; at the first live step 91 of 687 say yes), so they are read on the tick thread
+// at the world's first live step, as every other world read of kiln.world is.
+Facts facts_of(uintptr_t world, uint32_t hash, bool bits) {
+    Facts f = type_facts(hash);
+    const uintptr_t map = components_map(world);
+    if (!map) return f;
+    const uintptr_t registry = map - static_cast<uintptr_t>(L.reg_components);
     uint16_t index = 0;
-    f.in_world = map_find_u16(registry + L.reg_components, hash, &index);
+    f.in_world = map_find_u16(map, hash, &index);
     uint64_t saved = 0, replicated = 0;
-    f.bits = f.in_world && g_reg_replicated >= 0 && g_reg_saved >= 0 &&
+    f.bits = bits && f.in_world && g_reg_replicated >= 0 && g_reg_saved >= 0 &&
              seh_copy(&saved, reinterpret_cast<const void*>(registry + g_reg_saved + (index >> 6) * 8), 8) &&
              seh_copy(&replicated, reinterpret_cast<const void*>(registry + g_reg_replicated + (index >> 6) * 8), 8);
     f.saved = (saved >> (index & 63)) & 1;
@@ -286,11 +310,60 @@ Facts facts_of(uintptr_t world, uint32_t hash) {
     return f;
 }
 
-void read_facts(uintptr_t world) {
+uint32_t facts_flags(const Facts& f) {
+    return (f.attribute ? KILN_WORLD_WROTE_ATTRIBUTE : 0u) |
+           (f.bits ? KILN_WORLD_WROTE_BITS_KNOWN | (f.saved ? KILN_WORLD_WROTE_SAVED : 0u) | (f.replicated ? KILN_WORLD_WROTE_REPLICATED : 0u) : 0u);
+}
+
+// The listed types' facts.
+void read_facts(uintptr_t world, bool bits) {
     for (const auto& type : g_types.snapshot()) {
-        const Facts f = facts_of(world, type.hash);
+        const Facts f = facts_of(world, type.hash, bits);
         g_types.set_facts(type.hash, f.size, f.attribute, f.bits, f.saved, f.replicated);
     }
+}
+
+// The catalog of every component type of this world, with the game's writers the scan found: write_info answers from
+// it on any thread, never from the world itself.
+void publish_catalog(uintptr_t world, std::map<uint32_t, CatalogEntry> catalog, bool bits) {
+    std::vector<uint32_t> hashes;
+    if (const uintptr_t map = components_map(world)) map_each_u16(map, [&](uint32_t key, uint16_t) { hashes.push_back(key); });
+    for (const auto& [hash, entry] : catalog) hashes.push_back(hash);  // a written type the map does not hold: its size still
+    std::sort(hashes.begin(), hashes.end());
+    hashes.erase(std::unique(hashes.begin(), hashes.end()), hashes.end());
+    for (uint32_t hash : hashes) {
+        const Facts f = facts_of(world, hash, bits);
+        CatalogEntry& entry = catalog[hash];
+        entry.size = f.size;
+        entry.flags = (entry.flags & KILN_WORLD_WROTE_GAME_WRITES) | facts_flags(f);
+    }
+    const size_t types = catalog.size();
+    g_catalog.publish(std::make_shared<const WriteCatalog::Map>(std::move(catalog)));
+    KW_D("tracked writes: catalog of %zu component type(s) published", types);
+}
+
+// At a world's setup: the game's writers, sizes and attributes now (the bits wait for the first live step).
+void rescan(uintptr_t world) {
+    read_facts(world, false);
+    auto scan = scan_game_writers(world);
+    {
+        std::lock_guard lock(g_scan_mutex);
+        g_scan = scan;
+    }
+    publish_catalog(world, std::move(scan), false);
+    g_bits_due.store(true);
+}
+
+// The world's first live step, tick thread: the save and replication bits, for the listed types and the catalog.
+void read_bits(uintptr_t world) {
+    read_facts(world, true);
+    std::map<uint32_t, CatalogEntry> scan;
+    {
+        std::lock_guard lock(g_scan_mutex);
+        scan = g_scan;
+    }
+    publish_catalog(world, std::move(scan), true);
+    log_listed();
 }
 
 void deliver(WriteJob& job) {
@@ -317,7 +390,15 @@ void deliver(WriteJob& job) {
 
 }  // namespace
 
-bool writes_available() { return F.programs && F.write_other && L.job_storage >= 0 && F.names; }
+bool writes_available() {
+    WriteDeps d;
+    d.programs = F.programs;
+    d.write_other = F.write_other;
+    d.read_other = F.read_other && fn.read_other;
+    d.names = F.names;
+    d.job_storage = L.job_storage;
+    return write_deps_ok(d);
+}
 
 void writes_resolve() {
     uintptr_t address = 0;
@@ -334,12 +415,22 @@ std::vector<std::string> writes_declare(const std::string& who, const std::vecto
     return g_types.add(who, names);
 }
 
-// The first server world is about to register its programs: hand the write program over (once), then read what the
-// game's own programs write. Server thread, inside the world setup, before register_into.
+// A server world is about to register its programs: a new world for the requests (those of an earlier one end), on
+// the first one the names the program takes and the write program itself (once), then what the game's own programs
+// write and the catalog. Server thread, inside the world setup, before register_into.
 void writes_before_world(uintptr_t world) {
-    if (!writes_available() || g_types.count() == 0) return;
+    const uint64_t epoch = g_epoch.fetch_add(1) + 1;
+    g_queue.drop_stale(epoch, g_internal_runs.load());
+    if (!writes_available()) return;
+    if (g_types.count() == 0) {
+        rescan(world);  // write_info still answers what a mod would get if it listed a type
+        return;
+    }
     if (!g_made) {
         g_made = true;
+        const uintptr_t map = components_map(world);
+        g_types.admit(map ? std::function<bool(uint32_t)>([map](uint32_t hash) { return map_find_u16(map, hash, nullptr); })
+                          : std::function<bool(uint32_t)>());
         const auto names = g_types.program_names();
         std::vector<KilnStr> other;
         for (const auto& name : names) other.push_back(kstr(name));
@@ -361,8 +452,7 @@ void writes_before_world(uintptr_t world) {
         }
         program_set_prune(g_program, [](std::string_view name) { g_types.set_unknown(name); });
     }
-    read_facts(world);
-    scan_game_writers(world);
+    rescan(world);
 }
 
 // After register_into: the names follow the program's state.
@@ -405,16 +495,18 @@ KilnResult KILN_CALL write_submit(KilnOwner owner, const KilnWorldWriteRequest* 
         if (!seh_copy(job.data.data(), r->data, r->length)) return KILN_ERR_INVALID_ARGUMENT;
     }
     const uint64_t step = g_internal_runs.load(std::memory_order_relaxed);
+    job.epoch = g_epoch.load();
     WriteType type;
     uint32_t state = 0;
     const bool known = g_types.lookup(job.mod, job.component, &type, &state);
     if (g_broken.load()) state = KILN_WORLD_WRITES_OFF;
-    if (state != KILN_WORLD_WRITES_READY && state != KILN_WORLD_WRITES_PENDING) {
-        // Known now: it needs no program, only its delivery.
-        job.status = state == KILN_WORLD_WRITES_OFF ? KILN_WORLD_WRITE_DROPPED : KILN_WORLD_WRITE_NOT_DECLARED;
+    if (state != KILN_WORLD_WRITES_READY) {
+        // Known now: it needs no program, only its delivery. PENDING: no server world registered the program yet, so
+        // no entity id can be one of its entities.
+        const bool never = state == KILN_WORLD_WRITES_OFF || state == KILN_WORLD_WRITES_PENDING;
+        job.status = never ? KILN_WORLD_WRITE_DROPPED : KILN_WORLD_WRITE_NOT_DECLARED;
         job.reason = write_refusal(state, known ? std::string_view(type.name) : std::string_view(), job.mod);
-        g_queue.reject(std::move(job), step, out);
-        return KILN_OK;
+        return g_queue.reject(std::move(job), step, out);
     }
     return g_queue.submit(std::move(job), step, out);
 }
@@ -439,28 +531,21 @@ KilnResult KILN_CALL write_info(KilnStr mod_id, uint32_t component, KilnWorldWri
     const bool known = g_types.lookup(sv(mod_id), component, &type, &state);
     out->state = g_broken.load() && known ? static_cast<uint32_t>(KILN_WORLD_WRITES_OFF) : state;
     if (!known) {
-        // Not listed: what a mod would get if it listed it (who else writes it, whether the save carries it), read from
-        // the running world. Nothing is known before a server world exists.
-        const uintptr_t world = g_world.load();
-        if (!world) return KILN_OK;
-        {
-            std::unique_lock lock(g_catalog_mutex);
-            if (g_catalog_world != world) {
-                lock.unlock();
-                scan_game_writers(world);
-                lock.lock();
-            }
-            if (const auto at = g_catalog.find(component); at != g_catalog.end()) {
-                out->writers = at->second.writers;
-                out->init_writers = at->second.init;
-                if (at->second.writers) out->flags |= KILN_WORLD_WROTE_GAME_WRITES;
-                std::snprintf(out->writer_names, sizeof out->writer_names, "%s", at->second.names.c_str());
-            }
+        // Not listed: what a mod would get if it listed it (who else writes it, whether the save carries it), from the
+        // catalog the last server world's setup published. Nothing is known before a server world exists.
+        CatalogEntry entry;
+        if (!g_catalog.find(component, &entry)) {
+            if (!g_catalog.current()) return KILN_OK;
+            const Facts f = type_facts(component);  // not in the world's map: what kiln.types says of it, nothing more
+            out->component_size = f.size;
+            out->flags = f.attribute ? static_cast<uint32_t>(KILN_WORLD_WROTE_ATTRIBUTE) : 0u;
+            return KILN_OK;
         }
-        const Facts f = facts_of(world, component);
-        out->component_size = f.size;
-        if (f.attribute) out->flags |= KILN_WORLD_WROTE_ATTRIBUTE;
-        if (f.bits) out->flags |= KILN_WORLD_WROTE_BITS_KNOWN | (f.saved ? KILN_WORLD_WROTE_SAVED : 0) | (f.replicated ? KILN_WORLD_WROTE_REPLICATED : 0);
+        out->writers = entry.writers;
+        out->init_writers = entry.init_writers;
+        out->component_size = entry.size;
+        out->flags = entry.flags;
+        std::snprintf(out->writer_names, sizeof out->writer_names, "%s", entry.writer_names.c_str());
         return KILN_OK;
     }
     out->flags = type.flags;
@@ -511,35 +596,24 @@ KilnResult KILN_CALL write_declare(KilnOwner, KilnStr who, const KilnStr* names,
 // Tick thread, Pre: owners that went away, requests whose program does not run, then the results.
 void writes_pre(const KilnTickInfo*) {
     static std::chrono::steady_clock::time_point next_probe{};
-    static int64_t waiting_since = 0;
     const auto now = std::chrono::steady_clock::now();
+    auto alive = [](KilnOwner owner) { return owner == g_owner || g_api->post(owner, &owner_probe, nullptr) != KILN_ERR_REVOKED; };
+    if (g_world_live.load(std::memory_order_relaxed) && g_bits_due.exchange(false)) read_bits(g_world.load());
     if (now >= next_probe) {
         next_probe = now + std::chrono::seconds(1);
         for (KilnOwner owner : g_queue.owners())
-            if (owner != g_owner && g_api->post(owner, &owner_probe, nullptr) == KILN_ERR_REVOKED) g_queue.drop_owner(owner);
+            if (!alive(owner)) g_queue.drop_owner(owner);
     }
-    if (g_queue.not_run() == 0) {
-        waiting_since = 0;
-    } else {
-        const int64_t ms = now_ms();
-        if (waiting_since == 0) waiting_since = ms;
-        const int64_t since_update = ms - g_last_update_ms.load();
-        const bool stalled = ms - waiting_since > std::chrono::duration_cast<std::chrono::milliseconds>(kStall).count() &&
-                             since_update > std::chrono::duration_cast<std::chrono::milliseconds>(kStall).count();
-        if (g_broken.load() || stalled) {
-            g_queue.drop_waiting(g_broken.load() ? write_refusal(KILN_WORLD_WRITES_OFF, {}, {})
-                                                 : std::string("the write program did not run for 10 s (no server world runs)"),
-                                 g_internal_runs.load());
-            waiting_since = 0;
-        }
-    }
-    auto done = g_queue.drain();
-    std::set<KilnOwner> gone;  // a result is never delivered into an owner that unloaded since it asked
-    for (const auto& job : done)
-        if (job.callback && job.owner != g_owner && !gone.count(job.owner) &&
-            g_api->post(job.owner, &owner_probe, nullptr) == KILN_ERR_REVOKED) gone.insert(job.owner);
-    for (auto& job : done)
-        if (!gone.count(job.owner)) deliver(job);
+    // Requests that wait for a run or for their check, with no update of the program for 10 s: the world stopped.
+    const bool stalled = g_watchdog.stalled(g_queue, now_ms(), g_last_update_ms.load());
+    if (g_broken.load() || stalled)
+        g_queue.drop_waiting(g_broken.load() ? write_refusal(KILN_WORLD_WRITES_OFF, {}, {})
+                                             : std::string("the write program did not run for 10 s (no server world runs)"),
+                             g_internal_runs.load());
+    // A result is never delivered into an owner that unloaded since it asked, nor after a callback of this batch
+    // cancelled it or unloaded its owner: both are asked again right before each callback.
+    auto done = g_queue.drain(kWriteDeliverPerPre);
+    write_deliver(g_queue, done, alive, [](WriteJob& job) { deliver(job); });
 }
 
 }  // namespace kw

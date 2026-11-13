@@ -1,11 +1,27 @@
 // SPDX-License-Identifier: MIT
-// Tracked writes without the game: the table's layout (append-only), what mods list, one write over a fake component
-// store (every status), the check one step later, and the queue (order, cancel, owners, limits).
+// Tracked writes without the game: the table's layout (append-only) and a consumer built against v2 on it, what mods
+// list and which names the program takes, one write over a fake component store (every status), the check one step
+// later, the queue (order, cancel, owners, limits, world identity, the watch over waiting requests' entities), the
+// delivery, the watchdog, the catalog, and the boundaries tests/parity.json shares with Kiln.TestKit's fake world.
 #include "../boot_programs.h"
+#include "../transform_layout.h"
 #include "../write_queue.h"
+#include <atomic>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <fstream>
 #include <memory>
+#include <thread>
+#include <type_traits>
+
+// v2_consumer.cpp, compiled against the header 0.2.0-dev.26 shipped.
+extern "C" bool v2_accepts(const void* table);
+extern "C" void v2_call_all(const void* table);
+extern "C" uint32_t v2_entries();
+extern "C" uint32_t v2_table_size();
+extern "C" uint32_t v2_cap_bits();
+extern "C" uint32_t v2_struct_sizes(uint32_t* out, uint32_t capacity);
 
 // The v2 table is a prefix of v3: nothing before write_submit moved, and the new entries follow in this order.
 static_assert(offsetof(KilnWorldApi, status) == 184 && offsetof(KilnWorldApi, write_other) == 192);
@@ -155,6 +171,9 @@ void declarations() {
     names.clear();
     for (int i = 0; i < 40; ++i) names.push_back("Other" + std::to_string(i));
     many.add("more", names);
+    check(many.lookup("more", write_hash("Other39"), &type, &state) && state == KILN_WORLD_WRITES_PENDING,
+          "before a world says which names it has, every listed name waits");
+    many.admit([](uint32_t) { return true; });
     check(many.count() == 104 && many.program_names().size() == kWriteMaxTypes, "the program takes 92 types, in listing order");
     check(many.lookup("more", write_hash("Other39"), &type, &state) && state == KILN_WORLD_WRITES_OVER_LIMIT, "a type past the limit says so");
     check(many.lookup("more", write_hash("Other27"), &type, &state) && state == KILN_WORLD_WRITES_PENDING, "the last one within it is in");
@@ -416,6 +435,430 @@ void queue() {
     check(n.submitted == 9 && n.written == 3 && n.unchanged == 1 && n.failed == 2, "the counters add up");
 }
 
+// Refusals at submit count against the same limit, and one Pre delivers a bounded share.
+void saturation() {
+    WriteQueue q;
+    int refused = 0;
+    for (size_t i = 0; i < kWriteMaxPending + 10; ++i) {
+        WriteJob job = job_of(1, 1, 0, {1});
+        job.status = KILN_WORLD_WRITE_NOT_DECLARED;
+        job.callback = [](const KilnWorldWriteResult*, void*) {};
+        if (q.reject(std::move(job), 0, nullptr) != KILN_OK) ++refused;
+    }
+    check(refused == 10 && q.outstanding() == kWriteMaxPending, "refusals pile up to the limit and no further");
+    check(q.submit(job_of(1, 1, 0, {1}), 0, nullptr) == KILN_ERR_BUFFER_TOO_SMALL, "and a request to run is refused while they wait");
+    auto first = q.drain();
+    check(first.size() == kWriteDeliverPerPre && q.outstanding() == kWriteMaxPending - kWriteDeliverPerPre,
+          "one Pre delivers a bounded share, the rest wait for the next");
+    q.end_delivery();
+    check(q.submit(job_of(1, 1, 0, {1}), 0, nullptr) == KILN_OK, "delivered answers free their places");
+}
+
+// The world a request was asked in, and the entity it names.
+void identity() {
+    WriteQueue q;
+    auto make = [](uint64_t epoch, uint32_t entity) {
+        WriteJob job = job_of(entity, 1, 0, {1});
+        job.epoch = epoch;
+        job.callback = [](const KilnWorldWriteResult*, void*) {};
+        return job;
+    };
+    uint64_t old_pending = 0, old_held = 0, now_pending = 0;
+    q.submit(make(1, 5), 10, &old_held);
+    q.submit(make(1, 6), 10, &old_pending);
+    auto batch = q.take(1);
+    batch[0].status = KILN_WORLD_WRITE_DONE;
+    q.hold(std::move(batch[0]));
+    q.end_update();
+    q.submit(make(2, 7), 11, &now_pending);
+    q.drop_stale(2, 12);
+    auto done = q.drain();
+    check(done.size() == 2 && q.waiting() == 1 && q.not_run() == 1, "a new world ends the requests of the old one, not its own");
+    bool dropped = false, unchecked = false;
+    for (const auto& job : done) {
+        if (job.ticket == old_pending && job.status == KILN_WORLD_WRITE_DROPPED && job.reason == write_world_changed()) dropped = true;
+        if (job.ticket == old_held && job.status == KILN_WORLD_WRITE_DONE && !(job.out_flags & KILN_WORLD_WROTE_CHECKED)) unchecked = true;
+    }
+    check(dropped && unchecked, "one that never ran is dropped with the reason; one already written completes unchecked");
+    q.end_delivery();
+}
+
+// A request that waits behind a full update while its entity goes away and an entity is made again under the same id
+// (a player's slot: entity = slot + 1) never writes into the new entity.
+void lifetime(const nlohmann::json& fx) {
+    const auto& lt = fx.at("lifetime");
+    WriteType scale;
+    scale.name = "ScaleComponent";
+    scale.hash = write_hash(scale.name);
+    scale.state = KILN_WORLD_WRITES_READY;
+    FakeStore store;
+    store.blocks[{1, scale.hash}] = {0, 0, 0, 0};       // player 1's entity
+    store.blocks[{900, scale.hash}] = {0, 0, 0, 0};     // the filler's target
+    WriteQueue q;
+    const size_t filler = lt.at("filler").get<size_t>();
+    for (size_t i = 0; i < filler; ++i) q.submit(job_of(900, scale.hash, 0, {static_cast<uint8_t>(i), 1, 1, 1}), 0, nullptr);
+    uint64_t mine = 0;
+    q.submit(job_of(1, scale.hash, 0, {7, 7, 7, 7}), 0, &mine);
+    auto present = [&](const WriteJob& job) {
+        const uint8_t* data = nullptr;
+        uint32_t size = 0;
+        return store.read(job.entity, scale, &data, &size) && data && size;
+    };
+    // update 1: the filler takes the whole share; the player leaves during it
+    for (auto& job : q.take(kWritePerUpdate)) {
+        write_run(job, &scale, KILN_WORLD_WRITES_READY, store);
+        q.complete(std::move(job), 1);
+    }
+    store.blocks.erase({1, scale.hash});
+    q.watch(present);
+    q.end_update();
+    // the next player takes the slot: the same id, a new entity
+    store.blocks[{1, scale.hash}] = {3, 3, 3, 3};
+    // update 2: the waiting request runs
+    auto batch = q.take(kWritePerUpdate);
+    check(batch.size() == 1 && batch[0].ticket == mine && batch[0].lost, "the request that waited saw its entity go");
+    write_run(batch[0], &scale, KILN_WORLD_WRITES_READY, store);
+    const bool status = std::string(lt.at("status").get<std::string>()) == "NoComponent" && batch[0].status == KILN_WORLD_WRITE_NO_COMPONENT;
+    check(status && batch[0].reason.find(lt.at("reasonContains").get<std::string>()) != std::string::npos,
+          "it fails as the fixture says, with the reason");
+    check(store.blocks[{1, scale.hash}] == std::vector<uint8_t>({3, 3, 3, 3}), "and the new entity under the same id is untouched");
+    // an entity that is there all the time is not lost
+    WriteQueue r;
+    for (size_t i = 0; i < filler + 1; ++i) r.submit(job_of(900, scale.hash, 0, {1}), 0, nullptr);
+    r.take(kWritePerUpdate);
+    r.watch(present);
+    auto rest = r.take(kWritePerUpdate);
+    check(rest.size() == 1 && !rest[0].lost, "a waiting request whose entity stays is not lost");
+}
+
+// The watchdog counts the requests held for their check too: a world that stops between a write and its check still
+// answers it.
+void watchdog() {
+    WriteQueue q;
+    uint64_t t = 0;
+    WriteJob held = job_of(1, 1, 0, {1}, KILN_WORLD_WRITE_VERIFY);
+    held.callback = [](const KilnWorldWriteResult*, void*) {};
+    q.submit(std::move(held), 0, &t);
+    auto batch = q.take(8);
+    batch[0].status = KILN_WORLD_WRITE_DONE;
+    q.hold(std::move(batch[0]));
+    q.end_update();
+    check(q.not_run() == 0 && q.waiting() == 1, "only a held request is left");
+    WriteWatchdog w;
+    const int64_t last_update = 1000;
+    check(!w.stalled(q, 1000, last_update), "it starts watching");
+    check(!w.stalled(q, 1000 + kWriteStallMs, last_update), "10 s are not over yet");
+    check(w.stalled(q, 2000 + kWriteStallMs, last_update), "past 10 s with no update, a held request alone is stalled");
+    q.drop_waiting("no world", 5);
+    auto done = q.drain();
+    check(done.size() == 1 && done[0].status == KILN_WORLD_WRITE_DONE && !(done[0].out_flags & KILN_WORLD_WROTE_CHECKED),
+          "the held request completes, written and unchecked");
+    q.end_delivery();
+    WriteWatchdog running;
+    WriteQueue busy, idle;
+    busy.submit(job_of(1, 1, 0, {1}), 0, nullptr);
+    check(!running.stalled(busy, 20000, 0) && !running.stalled(busy, 45000, 44000), "a program that runs is never stalled");
+    check(!running.stalled(idle, 90000, 0), "nothing waiting: nothing to drop");
+}
+
+// Each callback is checked right before it runs: one that ran before it may have cancelled it or unloaded its owner.
+std::set<KilnOwner> g_dead;
+std::vector<int> g_ran;
+WriteQueue* g_q = nullptr;
+uint64_t g_cancel_me = 0;
+
+void delivery() {
+    WriteQueue q;
+    g_q = &q;
+    auto make = [](KilnOwner owner, int tag, KilnWorldWriteFn fn) {
+        WriteJob job = job_of(1, 1, 0, {1});
+        job.owner = owner;
+        job.status = KILN_WORLD_WRITE_NOT_DECLARED;
+        job.callback = fn;
+        job.user = reinterpret_cast<void*>(static_cast<intptr_t>(tag));
+        return job;
+    };
+    auto record = [](const KilnWorldWriteResult*, void* user) { g_ran.push_back(static_cast<int>(reinterpret_cast<intptr_t>(user))); };
+    // 1 (owner 10) unloads owner 20; 2 (owner 20) must not run. 3 (owner 10) cancels 4; 4 must not run. 5 runs.
+    q.reject(make(10, 1, [](const KilnWorldWriteResult*, void*) { g_ran.push_back(1); g_dead.insert(20); }), 0, nullptr);
+    q.reject(make(20, 2, record), 0, nullptr);
+    q.reject(make(10, 3, [](const KilnWorldWriteResult*, void*) { g_ran.push_back(3); g_q->cancel(g_cancel_me); }), 0, nullptr);
+    q.reject(make(30, 4, record), 0, &g_cancel_me);
+    q.reject(make(30, 5, record), 0, nullptr);
+    auto done = q.drain();
+    const size_t n = write_deliver(q, done, [](KilnOwner owner) { return !g_dead.count(owner); },
+                                   [](WriteJob& job) {
+                                       KilnWorldWriteResult r{};
+                                       r.size = sizeof r;
+                                       job.callback(&r, job.user);
+                                   });
+    check(g_ran == std::vector<int>({1, 3, 5}) && n == 3, "a callback is not run after an earlier one unloaded its owner or cancelled it");
+    check(!q.wanted(g_cancel_me), "nothing stays wanted after the delivery");
+    g_q = nullptr;
+}
+
+void deps() {
+    WriteDeps d;
+    d.programs = d.write_other = d.read_other = d.names = true;
+    d.job_storage = 0x40;
+    check(write_deps_ok(d), "everything resolved: tracked writes are offered");
+    for (int i = 0; i < 5; ++i) {
+        WriteDeps m = d;
+        if (i == 0) m.programs = false;
+        if (i == 1) m.write_other = false;
+        if (i == 2) m.read_other = false;
+        if (i == 3) m.names = false;
+        if (i == 4) m.job_storage = -1;
+        check(!write_deps_ok(m), i == 2 ? "without ReadOther (every write reads first) they are not offered" : "a missing dependency turns them off");
+    }
+}
+
+// write_info's source for a type nobody listed: published whole, read on any thread while a new one is published.
+void catalog() {
+    WriteCatalog c;
+    CatalogEntry e;
+    check(!c.find(5, &e), "nothing before a world published its catalog");
+    auto map = std::make_shared<WriteCatalog::Map>();
+    (*map)[5].writers = 2;
+    (*map)[5].writer_names = "fuel_setup, actor_interaction";
+    c.publish(map);
+    check(c.find(5, &e) && e.writers == 2 && e.writer_names == "fuel_setup, actor_interaction" && !c.find(6, &e), "a published entry is found");
+    std::atomic<bool> stop{false};
+    std::atomic<int> reads{0}, bad{0};
+    std::vector<std::thread> readers;
+    for (int t = 0; t < 4; ++t)
+        readers.emplace_back([&] {
+            CatalogEntry x;
+            while (!stop.load()) {
+                if (c.find(5, &x) && x.writer_names.size() < 5) ++bad;
+                ++reads;
+            }
+        });
+    for (int i = 0; i < 2000; ++i) {
+        auto next = std::make_shared<WriteCatalog::Map>();
+        for (uint32_t k = 0; k < 64; ++k) (*next)[k].writer_names = "program_" + std::to_string(i);
+        c.publish(next);
+    }
+    stop.store(true);
+    for (auto& t : readers) t.join();
+    check(bad.load() == 0 && reads.load() > 0, "readers on other threads always see a whole catalog");
+}
+
+// ---- tests/parity.json: the boundaries Kiln.TestKit's fake world mirrors ----
+
+std::vector<std::string> expand(const nlohmann::json& spec) {
+    std::vector<std::string> out;
+    auto one = [&](const nlohmann::json& item) {
+        if (item.is_string()) {
+            out.push_back(item.get<std::string>());
+            return;
+        }
+        const std::string pattern = item.at("pattern").get<std::string>();
+        const int count = item.at("count").get<int>(), from = item.value("from", 0);
+        for (int i = from; i < from + count; ++i) {
+            std::string name = pattern;
+            if (const auto at = name.find("{i}"); at != std::string::npos) name.replace(at, 3, std::to_string(i));
+            out.push_back(name);
+        }
+    };
+    if (spec.is_array()) for (const auto& item : spec) one(item);
+    else one(spec);
+    return out;
+}
+
+// "known:3" -> a name the test's world has, "unknown:3" -> one it does not.
+std::string world_name(const std::string& ref) {
+    const auto colon = ref.find(':');
+    return (ref.substr(0, colon) == "known" ? "Known" : "Nope") + ref.substr(colon + 1);
+}
+
+const char* state_name(uint32_t state) {
+    switch (state) {
+        case KILN_WORLD_WRITES_READY: return "Ready";
+        case KILN_WORLD_WRITES_PENDING: return "Pending";
+        case KILN_WORLD_WRITES_NOT_DECLARED: return "NotDeclared";
+        case KILN_WORLD_WRITES_NOT_LISTED: return "NotListed";
+        case KILN_WORLD_WRITES_UNKNOWN: return "UnknownComponent";
+        case KILN_WORLD_WRITES_OVER_LIMIT: return "OverLimit";
+        default: return "Off";
+    }
+}
+
+void parity(const nlohmann::json& fx) {
+    const auto& lim = fx.at("limits");
+    check(lim.at("perUpdate") == kWritePerUpdate && lim.at("maxPending") == kWriteMaxPending && lim.at("maxTypes") == kWriteMaxTypes &&
+          lim.at("maxPerMod") == kWriteMaxPerMod && lim.at("deliverPerPre") == kWriteDeliverPerPre && lim.at("maxBytes") == kWriteMaxBytes &&
+          lim.at("maxPerMod") == kBootWrites, "parity: the limits are the native ones");
+
+    // one update runs perUpdate requests, the next the rest
+    const auto& b = fx.at("batch");
+    WriteQueue q;
+    for (int i = 0; i < b.at("submitted").get<int>(); ++i) q.submit(job_of(1, 1, 0, {1}), 0, nullptr);
+    const size_t first = q.take(kWritePerUpdate).size();
+    q.end_update();
+    const size_t second = q.take(kWritePerUpdate).size();
+    check(first == b.at("firstStep").get<size_t>() && second == b.at("secondStep").get<size_t>(), "parity: 513 requests run 512, then 1");
+
+    // the manifest's "writes", as boot_programs.cpp reads it
+    for (const auto& c : fx.at("manifests")) {
+        nlohmann::json manifest = c.at("manifest");
+        if (manifest.contains("writes") && manifest["writes"].is_object()) manifest["writes"] = expand(manifest["writes"]);
+        bool valid = true;
+        std::vector<std::string> list;
+        try { list = parse_boot_writes(manifest); }
+        catch (const std::runtime_error&) { valid = false; }
+        const std::string what = "parity manifest: " + c.at("case").get<std::string>();
+        check(valid == c.at("valid").get<bool>(), what.c_str());
+        if (valid && c.contains("writes")) check(list == c.at("writes").get<std::vector<std::string>>(), what.c_str());
+        if (valid && c.contains("count")) check(list.size() == c.at("count").get<size_t>(), what.c_str());
+    }
+
+    // which names the program takes
+    std::set<uint32_t> world;
+    for (int i = 0; i < 200; ++i) world.insert(write_hash("Known" + std::to_string(i)));
+    for (const auto& c : fx.at("declarations")) {
+        WriteDeclarations d;
+        for (const auto& mod : c.at("mods")) {
+            std::vector<std::string> names;
+            for (const auto& ref : expand(mod.at("writes"))) names.push_back(world_name(ref));
+            d.add(mod.at("id").get<std::string>(), names);
+        }
+        d.admit([&](uint32_t hash) { return world.count(hash) != 0; });
+        d.set_program(true, false);
+        auto expect = [&](const std::string& mod, const nlohmann::json& states) {
+            for (const auto& [ref, want] : states.items()) {
+                WriteType type;
+                uint32_t state = 0;
+                d.lookup(mod, write_hash(world_name(ref)), &type, &state);
+                const std::string what = "parity declarations: " + c.at("case").get<std::string>() + " (" + ref + " for '" + mod + "': " +
+                                         state_name(state) + ")";
+                check(want.get<std::string>() == state_name(state), what.c_str());
+            }
+        };
+        expect("", c.at("expect"));
+        if (c.contains("expectFor"))
+            for (const auto& [mod, states] : c.at("expectFor").items()) expect(mod, states);
+    }
+
+    // CurrentTransform's bytes
+    const auto& t = fx.at("transform");
+    const std::string hex = t.at("hex").get<std::string>();
+    std::vector<uint8_t> bytes;
+    for (size_t i = 0; i + 1 < hex.size(); i += 2) bytes.push_back(static_cast<uint8_t>(std::stoul(hex.substr(i, 2), nullptr, 16)));
+    KilnTransform out{};
+    check(t.at("minSize") == kTransformMinSize && t.at("component") == "CurrentTransform" &&
+          write_hash("CurrentTransform") == kCurrentTransformHash, "parity transform: the component and its size");
+    check(transform_decode(bytes.data(), static_cast<uint32_t>(bytes.size()), &out), "parity transform: decoded");
+    const auto p = t.at("position"), r = t.at("rotation"), s = t.at("scale");
+    bool same = out.position.x == p[0].get<double>() && out.position.y == p[1].get<double>() && out.position.z == p[2].get<double>();
+    for (int i = 0; i < 4; ++i) same = same && out.rotation[i] == r[i].get<float>();
+    for (int i = 0; i < 3; ++i) same = same && out.scale[i] == s[i].get<float>();
+    check(same, "parity transform: position, rotation and scale as the fixture says");
+    check(!transform_decode(bytes.data(), kTransformMinSize - 1, &out), "parity transform: a smaller component is no transform");
+}
+
+// ---- a consumer built against v2, on the v3 table ----
+
+std::vector<int> g_hits;
+template <int I, class F>
+struct StubOf;
+template <int I, class R, class... A>
+struct StubOf<I, R(KILN_CALL*)(A...)> {
+    static R KILN_CALL fn(A...) {
+        g_hits.push_back(I);
+        if constexpr (!std::is_void_v<R>) return R{};
+    }
+};
+
+void v2_consumer() {
+    KilnWorldApi t{};
+    t.header = {sizeof(KilnWorldApi), KILN_WORLD_VERSION};
+    int i = 0;
+#define STUB(field) t.field = &StubOf<__COUNTER__, decltype(t.field)>::fn
+    const int base = __COUNTER__ + 1;
+    STUB(register_program); STUB(program_slot); STUB(program_info); STUB(iter_begin); STUB(iter_next); STUB(current_entity);
+    STUB(command_buffer); STUB(queue_push); STUB(queue_add); STUB(queue_remove); STUB(mark_written); STUB(read_other);
+    STUB(component_hash); STUB(component); STUB(exists); STUB(transform); STUB(position); STUB(find); STUB(entity_count);
+    STUB(server_world); STUB(teleport); STUB(teleport_cancel); STUB(status); STUB(write_other); STUB(unregister_program);
+    STUB(bind_program); STUB(capabilities); STUB(program_events); STUB(program_emit);
+    STUB(write_submit); STUB(write_cancel); STUB(write_info); STUB(write_status); STUB(write_declare);
+#undef STUB
+    (void)i;
+    check(v2_accepts(&t), "v2 consumer: a v3 table passes its size and version checks");
+    check(v2_table_size() == offsetof(KilnWorldApi, write_submit), "v2 consumer: its whole table is the v3 table's prefix");
+    g_hits.clear();
+    v2_call_all(&t);
+    bool in_order = g_hits.size() == v2_entries();
+    for (size_t k = 0; in_order && k < g_hits.size(); ++k) in_order = g_hits[k] == base + static_cast<int>(k);
+    check(in_order, "v2 consumer: each of its 29 calls lands on the entry v3 has at that place");
+    uint32_t sizes[16] = {};
+    const uint32_t n = v2_struct_sizes(sizes, 16);
+    const uint32_t now[] = {sizeof(KilnProgramDesc), sizeof(KilnProgramInfo), sizeof(KilnNames), sizeof(KilnTransform), sizeof(KilnVec3),
+                            sizeof(KilnTeleportRequest), sizeof(KilnTeleportResult), sizeof(KilnWorldStatus)};
+    bool same = n == sizeof now / sizeof now[0];
+    for (uint32_t k = 0; same && k < n; ++k) same = sizes[k] == now[k];
+    check(same, "v2 consumer: every struct it shares with v3 kept its size");
+    check((v2_cap_bits() & KILN_WORLD_CAP_TRACKED_WRITES) == 0, "v2 consumer: the new capability bit is one it never knew");
+    KilnWorldApi small = t;
+    small.header.size = v2_table_size();
+    check(small.header.size < offsetof(KilnWorldApi, write_submit) + sizeof(void*), "a v3 consumer's size check refuses a v2 table's write entries");
+}
+
+// tests/abi.json: every field of the v3 header, in order, at its offset; the managed mirrors are checked against the
+// same file.
+void abi(const nlohmann::json& fx) {
+    nlohmann::json now;
+    auto list = [&](const char* name, size_t size) -> nlohmann::json& {
+        now[name]["size"] = size;
+        now[name]["fields"] = nlohmann::json::array();
+        return now[name]["fields"];
+    };
+#define F(S, f) l.push_back(nlohmann::json::array({#f, offsetof(S, f)}))
+    {
+        auto& l = list("KilnWorldApi", sizeof(KilnWorldApi));
+        F(KilnWorldApi, header); F(KilnWorldApi, register_program); F(KilnWorldApi, program_slot); F(KilnWorldApi, program_info);
+        F(KilnWorldApi, iter_begin); F(KilnWorldApi, iter_next); F(KilnWorldApi, current_entity); F(KilnWorldApi, command_buffer);
+        F(KilnWorldApi, queue_push); F(KilnWorldApi, queue_add); F(KilnWorldApi, queue_remove); F(KilnWorldApi, mark_written);
+        F(KilnWorldApi, read_other); F(KilnWorldApi, component_hash); F(KilnWorldApi, component); F(KilnWorldApi, exists);
+        F(KilnWorldApi, transform); F(KilnWorldApi, position); F(KilnWorldApi, find); F(KilnWorldApi, entity_count);
+        F(KilnWorldApi, server_world); F(KilnWorldApi, teleport); F(KilnWorldApi, teleport_cancel); F(KilnWorldApi, status);
+        F(KilnWorldApi, write_other); F(KilnWorldApi, unregister_program); F(KilnWorldApi, bind_program); F(KilnWorldApi, capabilities);
+        F(KilnWorldApi, program_events); F(KilnWorldApi, program_emit); F(KilnWorldApi, write_submit); F(KilnWorldApi, write_cancel);
+        F(KilnWorldApi, write_info); F(KilnWorldApi, write_status); F(KilnWorldApi, write_declare);
+    }
+    {
+        auto& l = list("KilnWorldWriteRequest", sizeof(KilnWorldWriteRequest));
+        F(KilnWorldWriteRequest, size); F(KilnWorldWriteRequest, flags); F(KilnWorldWriteRequest, entity); F(KilnWorldWriteRequest, component);
+        F(KilnWorldWriteRequest, offset); F(KilnWorldWriteRequest, length); F(KilnWorldWriteRequest, data); F(KilnWorldWriteRequest, change);
+        F(KilnWorldWriteRequest, callback); F(KilnWorldWriteRequest, user); F(KilnWorldWriteRequest, mod_id);
+    }
+    {
+        auto& l = list("KilnWorldWriteResult", sizeof(KilnWorldWriteResult));
+        F(KilnWorldWriteResult, size); F(KilnWorldWriteResult, status); F(KilnWorldWriteResult, ticket); F(KilnWorldWriteResult, entity);
+        F(KilnWorldWriteResult, component); F(KilnWorldWriteResult, offset); F(KilnWorldWriteResult, length); F(KilnWorldWriteResult, component_size);
+        F(KilnWorldWriteResult, flags); F(KilnWorldWriteResult, steps); F(KilnWorldWriteResult, writers); F(KilnWorldWriteResult, before);
+        F(KilnWorldWriteResult, after); F(KilnWorldWriteResult, reason);
+    }
+    {
+        auto& l = list("KilnWorldWriteInfo", sizeof(KilnWorldWriteInfo));
+        F(KilnWorldWriteInfo, size); F(KilnWorldWriteInfo, state); F(KilnWorldWriteInfo, flags); F(KilnWorldWriteInfo, writers);
+        F(KilnWorldWriteInfo, init_writers); F(KilnWorldWriteInfo, component_size); F(KilnWorldWriteInfo, writer_names);
+    }
+    {
+        auto& l = list("KilnWorldWriteStatus", sizeof(KilnWorldWriteStatus));
+        F(KilnWorldWriteStatus, size); F(KilnWorldWriteStatus, program); F(KilnWorldWriteStatus, available); F(KilnWorldWriteStatus, running);
+        F(KilnWorldWriteStatus, attributes); F(KilnWorldWriteStatus, bits); F(KilnWorldWriteStatus, declared); F(KilnWorldWriteStatus, refused);
+        F(KilnWorldWriteStatus, pending); F(KilnWorldWriteStatus, reserved); F(KilnWorldWriteStatus, submitted); F(KilnWorldWriteStatus, written);
+        F(KilnWorldWriteStatus, unchanged); F(KilnWorldWriteStatus, failed); F(KilnWorldWriteStatus, updates);
+    }
+#undef F
+    for (const auto& [name, layout] : now.items()) {
+        const std::string what = std::string("abi.json: ") + name + " field for field";
+        check(fx.contains(name) && fx.at(name) == layout, what.c_str());
+    }
+    check(fx.at("v2Entries").get<size_t>() * sizeof(void*) == v2_table_size(), "abi.json: the v2 table is its first v2Entries entries");
+}
+
 void manifest_writes() {
     auto parse = [](const char* text) { return parse_boot_writes(nlohmann::json::parse(text)); };
     auto bad = [&](const char* text) { try { parse(text); return false; } catch (const std::runtime_error&) { return true; } };
@@ -429,10 +872,34 @@ void manifest_writes() {
 }
 }  // namespace
 
-int main() {
+int main(int argc, char** argv) {
+    const char* fixture = argc > 1 ? argv[1] : "parity.json";
+    std::ifstream in(fixture);
+    if (!in) {
+        std::fprintf(stderr, "cannot read %s\n", fixture);
+        return 2;
+    }
+    const nlohmann::json fx = nlohmann::json::parse(in);
+    const std::string dir = std::string(fixture).substr(0, std::string(fixture).find_last_of('/') + 1);
+    std::ifstream abi_in(dir + "abi.json");
+    if (!abi_in) {
+        std::fprintf(stderr, "cannot read %sabi.json\n", dir.c_str());
+        return 2;
+    }
+    const nlohmann::json abi_fx = nlohmann::json::parse(abi_in);
     declarations();
     one_write();
     queue();
+    saturation();
+    identity();
+    lifetime(fx);
+    watchdog();
+    delivery();
+    deps();
+    catalog();
+    parity(fx);
+    v2_consumer();
+    abi(abi_fx);
     manifest_writes();
     std::printf("world tracked writes: %s %d checks, %d failures\n", failures ? "FAIL" : "PASS", checks, failures);
     return failures ? 1 : 0;

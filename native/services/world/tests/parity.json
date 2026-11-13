@@ -1,0 +1,73 @@
+{
+  "_comment": [
+    "kiln.world tracked writes: the boundaries where a mod could tell the native service from Kiln.TestKit's fake world.",
+    "Read by native/services/world/tests/writes_test.cpp (the native rules), by managed/tests/Kiln.TestKit.Tests",
+    "(FakeWorldParityTests: the fake) and by managed/tests/Kiln.Host.Tests (ManifestWritesTests: the managed manifest",
+    "reader). A change here changes all three. Names: a string, or {\"pattern\": \"T{i}\", \"count\": n, \"from\": k}",
+    "(T0..). Declaration names: \"known:i\" is the i-th component type the world has (the native test makes its own",
+    "world; the fake's are Kiln.Game's components in name order), \"unknown:i\" a name the world does not have."
+  ],
+  "limits": { "perUpdate": 512, "maxPending": 4096, "maxTypes": 92, "maxPerMod": 64, "deliverPerPre": 1024, "maxBytes": 4096 },
+  "batch": { "submitted": 513, "firstStep": 512, "secondStep": 1 },
+  "manifests": [
+    { "case": "no writes key", "manifest": {}, "valid": true, "writes": [] },
+    { "case": "a repeated name is read once, in order", "manifest": { "writes": ["Fuel", "Health", "Fuel"] }, "valid": true, "writes": ["Fuel", "Health"] },
+    { "case": "64 entries", "manifest": { "writes": { "pattern": "T{i}", "count": 64 } }, "valid": true, "count": 64 },
+    { "case": "65 entries", "manifest": { "writes": { "pattern": "T{i}", "count": 65 } }, "valid": false },
+    { "case": "64 copies of one name", "manifest": { "writes": { "pattern": "Fuel", "count": 64 } }, "valid": true, "writes": ["Fuel"] },
+    { "case": "65 copies of one name: every entry counts", "manifest": { "writes": { "pattern": "Fuel", "count": 65 } }, "valid": false },
+    { "case": "not a list", "manifest": { "writes": "Fuel" }, "valid": false },
+    { "case": "null instead of a list", "manifest": { "writes": null }, "valid": false },
+    { "case": "an empty list", "manifest": { "writes": [] }, "valid": true, "writes": [] },
+    { "case": "a trailing newline", "manifest": { "writes": ["Fuel\n"] }, "valid": false },
+    { "case": "a blank name", "manifest": { "writes": [" "] }, "valid": false },
+    { "case": "a number", "manifest": { "writes": [1] }, "valid": false },
+    { "case": "null in the list", "manifest": { "writes": [null] }, "valid": false },
+    { "case": "a qualified name", "manifest": { "writes": ["keen::ecs::Fuel"] }, "valid": false },
+    { "case": "a space", "manifest": { "writes": ["a b"] }, "valid": false },
+    { "case": "an empty name", "manifest": { "writes": [""] }, "valid": false },
+    { "case": "120 characters", "manifest": { "writes": { "pattern": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "count": 1 } }, "valid": true, "count": 1 },
+    { "case": "121 characters", "manifest": { "writes": { "pattern": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", "count": 1 } }, "valid": false }
+  ],
+  "declarations": [
+    {
+      "case": "unknown names take no accessor: a known name after 92 unknown ones is the program's",
+      "mods": [
+        { "id": "a", "writes": { "pattern": "unknown:{i}", "count": 64 } },
+        { "id": "b", "writes": [{ "pattern": "unknown:{i}", "count": 28, "from": 64 }, "known:0"] }
+      ],
+      "expect": { "known:0": "Ready", "unknown:0": "UnknownComponent", "unknown:91": "UnknownComponent" }
+    },
+    {
+      "case": "the program takes 92 known types in listing order, the 93rd is over the limit",
+      "mods": [
+        { "id": "a", "writes": { "pattern": "known:{i}", "count": 64 } },
+        { "id": "b", "writes": { "pattern": "known:{i}", "count": 29, "from": 64 } }
+      ],
+      "expect": { "known:0": "Ready", "known:91": "Ready", "known:92": "OverLimit" }
+    },
+    {
+      "case": "a type two mods list counts once and is each mod's",
+      "mods": [
+        { "id": "a", "writes": ["known:0", "known:1"] },
+        { "id": "b", "writes": ["known:1"] }
+      ],
+      "expect": { "known:0": "Ready", "known:1": "Ready" },
+      "expectFor": { "b": { "known:0": "NotListed", "known:1": "Ready" } }
+    }
+  ],
+  "lifetime": {
+    "case": "a write that waits behind a full update while its entity is removed and made again under the same id never writes",
+    "filler": 512,
+    "status": "NoComponent",
+    "reasonContains": "while the write waited"
+  },
+  "transform": {
+    "component": "CurrentTransform",
+    "minSize": 52,
+    "hex": "000000800c000000000000c0fcffffff000000c00004000000000000f304353f00000000f304353f0000803f000000400000003f00000000",
+    "position": [12.5, -3.25, 1024.75],
+    "rotation": [0.0, 0.7071067690849304, 0.0, 0.7071067690849304],
+    "scale": [1.0, 2.0, 0.5]
+  }
+}

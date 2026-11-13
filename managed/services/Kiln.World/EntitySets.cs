@@ -9,8 +9,11 @@ namespace Kiln;
 /// <see cref="Without"/>, as of the last <see cref="Refresh"/>. A set is a snapshot: entities come and go with every
 /// step, so refresh it when you need it current (it costs one pass over the world's entities for the rarest of the
 /// <see cref="With"/> components, then a lookup per candidate and other component). Since 0.2.0-dev.27.</summary>
-public sealed class EntitySet : IReadOnlyCollection<EntityId>
+public sealed unsafe class EntitySet : IReadOnlyCollection<EntityId>
 {
+    /// <summary>The capability entity sets need: <c>world.find</c> (kiln.world's pass over the entity map).</summary>
+    public const string Capability = "world.find";
+
     private EntityId[] _entities = [];
     private HashSet<EntityId>? _lookup;
 
@@ -37,17 +40,20 @@ public sealed class EntitySet : IReadOnlyCollection<EntityId>
 
     /// <summary>Reads the set again from the world. Tick thread.</summary>
     /// <returns>This set.</returns>
-    /// <exception cref="NotSupportedException">kiln.world is unavailable on this server build.</exception>
+    /// <exception cref="KilnUnavailableException"><c>world.find</c> is off: kiln.world is not loaded, or it cannot walk the
+    /// entity map on this game build.</exception>
     /// <exception cref="InvalidOperationException">Not on the tick thread.</exception>
     [TickThreadOnly]
+    [RequiresCapability(Capability)]
     public EntitySet Refresh()
     {
+        var t = Table();
         // The rarest component gives the candidates; a component type the world does not have gives none.
         IReadOnlyList<EntityId>? candidates = null;
         var first = -1;
         for (var i = 0; i < With.Count; i++)
         {
-            var found = World.Find(With[i]);
+            var found = World.FindCore(t, With[i], sets: true);
             if (candidates is not null && found.Count >= candidates.Count) continue;
             candidates = found;
             first = i;
@@ -68,6 +74,15 @@ public sealed class EntitySet : IReadOnlyCollection<EntityId>
         return this;
     }
 
+    // The capability first (the one error rule), then the thread.
+    internal static WorldNative.Table* Table()
+    {
+        var t = WorldNative.T;
+        if (t == null) throw new KilnUnavailableException(Capability, "kiln.world is not loaded on this server");
+        Services.RequireTickThread("World.Query");
+        return t;
+    }
+
     /// <inheritdoc/>
     public IEnumerator<EntityId> GetEnumerator() => ((IEnumerable<EntityId>)_entities).GetEnumerator();
 
@@ -79,18 +94,22 @@ public static unsafe partial class World
     /// <summary>The entities that have every one of <paramref name="with"/> (component short names), read now. Keep the
     /// set and call <see cref="EntitySet.Refresh"/> to read it again. Since 0.2.0-dev.27.</summary>
     /// <exception cref="ArgumentException">No component, or an empty name.</exception>
-    /// <exception cref="NotSupportedException">kiln.world is unavailable on this server build.</exception>
+    /// <exception cref="KilnUnavailableException"><c>world.find</c> is off (kiln.world is not loaded, or cannot walk the
+    /// entity map on this game build).</exception>
     /// <exception cref="InvalidOperationException">Not on the tick thread.</exception>
     [TickThreadOnly]
+    [RequiresCapability(EntitySet.Capability)]
     public static EntitySet Query(params string[] with) => Query(with, null);
 
     /// <summary>The entities that have every one of <paramref name="with"/> and none of <paramref name="without"/>, read
     /// now. Since 0.2.0-dev.27.</summary>
     /// <exception cref="ArgumentNullException"><paramref name="with"/> is null.</exception>
     /// <exception cref="ArgumentException">No component in <paramref name="with"/>, or an empty name in either list.</exception>
-    /// <exception cref="NotSupportedException">kiln.world is unavailable on this server build.</exception>
+    /// <exception cref="KilnUnavailableException"><c>world.find</c> is off (kiln.world is not loaded, or cannot walk the
+    /// entity map on this game build).</exception>
     /// <exception cref="InvalidOperationException">Not on the tick thread.</exception>
     [TickThreadOnly]
+    [RequiresCapability(EntitySet.Capability)]
     public static EntitySet Query(IEnumerable<string> with, IEnumerable<string>? without)
     {
         ArgumentNullException.ThrowIfNull(with);
@@ -101,11 +120,17 @@ public static unsafe partial class World
     }
 
     /// <summary>The entities that have component <typeparamref name="T"/>, read now.</summary>
+    /// <exception cref="KilnUnavailableException"><c>world.find</c> is off.</exception>
+    /// <exception cref="InvalidOperationException">Not on the tick thread.</exception>
     [TickThreadOnly]
+    [RequiresCapability(EntitySet.Capability)]
     public static EntitySet Query<T>() where T : unmanaged, IGameComponent<T> => Query([T.Name], null);
 
     /// <summary>The entities that have both <typeparamref name="T1"/> and <typeparamref name="T2"/>, read now.</summary>
+    /// <exception cref="KilnUnavailableException"><c>world.find</c> is off.</exception>
+    /// <exception cref="InvalidOperationException">Not on the tick thread.</exception>
     [TickThreadOnly]
+    [RequiresCapability(EntitySet.Capability)]
     public static EntitySet Query<T1, T2>() where T1 : unmanaged, IGameComponent<T1> where T2 : unmanaged, IGameComponent<T2> =>
         Query([T1.Name, T2.Name], null);
 }

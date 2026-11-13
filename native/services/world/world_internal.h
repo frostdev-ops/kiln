@@ -8,6 +8,7 @@
 #include <mutex>
 #include <string>
 #include <string_view>
+#include <functional>
 #include <vector>
 
 #include "kiln_api.h"
@@ -153,6 +154,8 @@ inline uintptr_t storage_of(uintptr_t world) { return world + static_cast<uintpt
 
 // Keen hash map lookups (u32 keys used as-is: components, singletons, events). Bounded; return false when absent.
 bool map_find_u16(uintptr_t map, uint32_t key, uint16_t* value);
+// Every key of such a map with its value, in slot order (the server thread, inside a world's setup).
+void map_each_u16(uintptr_t map, const std::function<void(uint32_t key, uint16_t value)>& fn);
 
 // ---- guarded calls (seh.cpp; no C++ objects with destructors in those frames) ----
 bool seh_each(KilnProgramEachFn fn, KilnProgramCtx* ctx, uint64_t* iter, KilnEntity e, void* user, unsigned long* code);

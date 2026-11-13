@@ -172,9 +172,13 @@ public static unsafe partial class World
 
     /// <summary>Every entity that has the per-entity component <paramref name="component"/> (one pass over the entity
     /// map). Empty when the component type does not exist in this world.</summary>
-    public static IReadOnlyList<EntityId> Find(string component)
+    public static IReadOnlyList<EntityId> Find(string component) => FindCore(Tick("World.Find"), component, sets: false);
+
+    /// <summary>World.Find's pass, shared with the entity sets: with <paramref name="sets"/> a find the native side
+    /// cannot do on this build throws <see cref="KilnUnavailableException"/> for <c>world.find</c> (the sets' contract);
+    /// without it, the InvalidOperationException World.Find has always thrown.</summary>
+    internal static IReadOnlyList<EntityId> FindCore(WorldNative.Table* t, string component, bool sets)
     {
-        var t = Tick("World.Find");
         var hash = ComponentHash(component);
         for (var attempt = 0; attempt < 3; attempt++)
         {
@@ -187,6 +191,7 @@ public static unsafe partial class World
                 continue;
             }
             if (rc == WorldNative.NotFound) return [];
+            if (sets && rc == WorldNative.Unavailable) throw new KilnUnavailableException(EntitySet.Capability, Capabilities.Why(EntitySet.Capability));
             if (rc != WorldNative.Ok) throw new InvalidOperationException($"World.Find({component}): {WorldNative.Describe(rc)}");
             var list = new EntityId[count];
             for (var i = 0; i < count; i++) list[i] = new EntityId(_findBuffer[i]);

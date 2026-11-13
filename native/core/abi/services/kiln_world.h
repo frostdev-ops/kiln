@@ -306,11 +306,13 @@ typedef struct KilnWorldWriteRequest {
 /* KilnWorldWriteInfo.state: can this component be written right now, for this mod? */
 enum {
     KILN_WORLD_WRITES_READY = 0,         /* yes */
-    KILN_WORLD_WRITES_PENDING = 1,       /* listed, and the write program waits for a server world */
+    KILN_WORLD_WRITES_PENDING = 1,       /* listed, and the write program waits for a server world (which then says
+                                            whether the name is a component and within the program's 92) */
     KILN_WORLD_WRITES_NOT_DECLARED = 2,  /* no loaded mod listed it at boot */
     KILN_WORLD_WRITES_NOT_LISTED = 3,    /* another mod listed it, mod_id did not */
     KILN_WORLD_WRITES_UNKNOWN = 4,       /* listed, but the world has no component type of that name */
-    KILN_WORLD_WRITES_OVER_LIMIT = 5,    /* listed, but the program's accessor limit was reached before it */
+    KILN_WORLD_WRITES_OVER_LIMIT = 5,    /* listed, but the program's accessor limit was reached before it (names the
+                                            world does not have take no place) */
     KILN_WORLD_WRITES_OFF = 6,           /* tracked writes do not work on this build, or the program was refused,
                                             faulted or is skipped by the engine (kiln.log says which) */
 };
@@ -435,19 +437,29 @@ typedef struct KilnWorldApi {
     KilnResult(KILN_CALL* program_emit)(KilnProgramCtx* ctx, KilnStr name, const void* data, uint32_t size);
 
     /* ---- tracked writes: appended in v3, since 0.2.0-dev.27. Check header.size and KILN_WORLD_CAP_TRACKED_WRITES ---- */
-    /* Queues one write. It runs in the write program's next update (the next sim step) and its result comes one Pre
-     * later (two with KILN_WORLD_WRITE_VERIFY). *out_ticket = its id (never 0). Any thread.
+    /* Queues one write. It runs in the write program's next update (the next sim step; one update runs 512, the rest
+     * wait for the next ones) and its result comes one Pre later (two with KILN_WORLD_WRITE_VERIFY; one Pre delivers
+     * 1024 results at most). *out_ticket = its id (never 0). Any thread.
+     * A request belongs to the server world that runs when it is submitted: before the first one it is DROPPED, and
+     * one that has not run when another world registers is DROPPED (a held one completes unchecked). A request whose
+     * entity lacks the component at an update while it waits never runs (NO_COMPONENT), also when the id comes back:
+     * a player's entity is slot + 1 and the next player in the slot gets it.
      * KILN_ERR_INVALID_ARGUMENT: a bad size, no entity, no component, neither or both of data and change, length 0
      * or over 4096. KILN_ERR_UNAVAILABLE: tracked writes do not work on this build. KILN_ERR_BUFFER_TOO_SMALL: 4096
-     * requests are waiting already. Everything else (not declared, no such entity, a size that does not fit) comes
-     * back through the callback, never as "ok": check the result. */
+     * requests are not delivered yet (waiting, held, or answered and waiting for their Pre, refusals included).
+     * Everything else (not declared, no such entity, a size that does not fit) comes back through the callback, never
+     * as "ok": check the result. */
     KilnResult(KILN_CALL* write_submit)(KilnOwner owner, const KilnWorldWriteRequest* request, uint64_t* out_ticket);
     /* Drops the request's callbacks. A request that has not run yet is not run (its change callback is not called
-     * after this returns). Tick thread. KILN_ERR_NOT_FOUND when it already completed. */
+     * after this returns); a result drained for delivery in this Pre is not delivered (a result callback may cancel
+     * another request). Tick thread. KILN_ERR_NOT_FOUND when it already completed. */
     KilnResult(KILN_CALL* write_cancel)(uint64_t ticket);
     /* What kiln.world knows about writing component `component` for `mod_id` (empty: any mod): its state, and what
      * the running world says about the type (the game's own writers, the save and replication bits), also for a type
-     * nobody listed, so an author can look before listing it. Before a server world exists only the state. Any thread. */
+     * nobody listed, so an author can look before listing it: answered from a catalog kiln.world publishes for the
+     * running server world (writers at its setup, the save and replication bits at its first step), never from the
+     * world itself. Before a server world exists only the state; before its first step the bits are not known. Any
+     * thread. */
     KilnResult(KILN_CALL* write_info)(KilnStr mod_id, uint32_t component, KilnWorldWriteInfo* out);
     KilnResult(KILN_CALL* write_status)(KilnWorldWriteStatus* out);
     /* A native service's own list of component types to write (a service has no manifest), under the name `who`,

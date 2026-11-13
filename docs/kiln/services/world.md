@@ -101,7 +101,7 @@ using var sub = Events.On<ComponentWrittenEvent>(e => Log.Info($"{e.Component} o
   change it: `Kept` says whether the bytes were still there one step later. `Kept == false` on a value the game
   derives every step (`NetworkFuel` from `Fuel`) means: write the source instead.
 - **`SaveTracked`, `ReplicationTracked`.** Whether the game's write tracking records a change of that type for the
-  save and for replication: the game's own per-type bits, 40 and 88 of its 687 component types on this build (null
+  save and for replication: the game's own per-type bits, 40 and 91 of its 687 component types on this build (null
   where a build does not tell). `SaveTracked == true`: the write marked the entity and the next save writes it.
   `false`: no write of that type marks anything, the game's own included, so on an entity a save has already
   written the value is gone after a restart, tracked or not (`ScaleComponent`). `ReplicationTracked == false` does
@@ -116,15 +116,27 @@ using var sub = Events.On<ComponentWrittenEvent>(e => Log.Info($"{e.Component} o
 - **Events.** `ComponentWrittenEvent` is posted on the tick thread for every write a mod made through these calls
   that changed bytes (not for `Unchanged`, not for a refusal), with the result; it is an `IEntityEvent`, so
   `EventFilter.ForEntity` works. A change the game makes itself raises nothing.
-- **Limits.** 64 types per mod, 92 for all mods together (one program's accessors); 4,096 bytes per write
-  (`Update` takes components up to 64 KB); 4,096 writes waiting, 512 run per step. The server world only.
-- `World.WriteInfo("Health")` answers for any component, listed or not, once a world runs: look before you list.
+- **Which world, which entity.** A write belongs to the server world that runs when you call: one made before the
+  first world exists answers `Dropped`, and one that has not run when a hosted game opens another world answers
+  `Dropped` too. A write whose entity is removed while it waits never runs (`NoComponent`, "lost its … while the write
+  waited"), also when the id comes back: a player's entity is slot + 1, and the next player in the slot gets it. An id
+  you keep from an earlier step can name another entity by now; check before you write.
+- **Limits.** 64 entries in a mod's `writes` (a repeated name counts each time), 92 component types for all mods
+  together (one program's accessors; a name the world does not have takes no place); 4,096 bytes per write (`Update`
+  takes components up to 64 KB); 512 writes run per step, the rest wait for the next steps; 4,096 writes not yet
+  answered (waiting, held for the check, or answered and waiting for delivery, refusals included), past that the call
+  answers `Dropped` at once; 1,024 answers per step. The server world only.
+- `World.WriteInfo("Health")` answers for any component, listed or not, once a world runs: look before you list. It
+  reads what kiln.world published for the running world (the game's writers at the world's setup, the save and
+  replication bits at its first step), never the live world, so any thread may ask.
 
 ### Entity sets
 `World.Query(with…)` and `World.Query(with, without)` give an `EntitySet`: the entities that have every component of
 one list and none of the other, read at that moment (`Query<T>()`, `Query<T1, T2>()` take generated types). A set is a
 snapshot; `Refresh()` reads it again, `Contains`, `Count` and enumeration read the snapshot. The cost is one pass over
-the world's entities for the rarest listed component, then one lookup per candidate and other component.
+the world's entities for the rarest listed component, then one lookup per candidate and other component. Sets need
+`world.find` (`EntitySet.Capability`): without kiln.world, or on a build where it cannot walk the entity map, `Query`
+and `Refresh` throw `KilnUnavailableException("world.find")` (`World.Find` keeps its own behaviour).
 
 ### The admin contract (Kiln.Admin)
 | Admin op | kiln.world |
@@ -235,9 +247,14 @@ Tick thread (Pre/Post) or inside your program: `component(e, hash, &size)`, `exi
 - Offline, in a mod's own unit tests: Kiln.TestKit's fake world (`kiln.Entities`) runs the same `World` calls under
   `dotnet test`, tracked writes with kiln.world's rules included ([../modding/unit-tests.md](../modding/unit-tests.md)).
 - Host tests without a game: `KILN_OUT=… native/services/world/tests/run.sh` (boot declarations, program boundaries,
-  tracked writes: 26 + 26 + 93 checks, under ASan); `managed/tests/Kiln.World.Tests` (29 tests: the native mirrors'
-  sizes, results, the capability row, the SDK's `writes` fill on a fixture mod, Kiln.Game's forwards of the moved
-  marker interfaces).
+  tracked writes: 26 + 26 + 174 checks, under ASan: the queue's limits, world identity and the watch over waiting
+  requests' entities, the delivery that checks each callback right before it runs, the watchdog, the catalog under
+  concurrent readers, a consumer compiled against the dev.26 header on the v3 table, and the cases of
+  `tests/parity.json` and `tests/abi.json`); `managed/tests/Kiln.World.Tests` (33 tests: the native mirrors field for
+  field against `abi.json`, Kiln.Api's v2 table and Kiln.World's v1 table on a v3 and on a v2 provider, the exception
+  contract of the dev.27 members, results, the capability row, the SDK's `writes` fill on a fixture mod, Kiln.Game's
+  forwards of the moved marker interfaces). `parity.json` is also read by `Kiln.Host.Tests` (the manifest reader) and
+  `Kiln.TestKit.Tests` (the fake world), so the three agree on every boundary in it.
 
 ## Client checklist (needs a joined player)
 - `Teleport.To(player, …)` snaps the client once (no rubber-band), `TeleportCount`/`RenderTeleportCount` change, and
@@ -259,7 +276,13 @@ of the component inside the step) and answers through `callback` in a later Pre;
 `write_info(mod_id, hash, &info)`; `write_status(&status)`; `write_declare(owner, who, names, count)` lists a native
 service's own component types (from `kiln_plugin_main` or `on_ready`: the write program is made when the first server
 world registers its programs). A mod's types come from `"writes"` in its kiln.mod.json, read at boot next to
-`kiln.programs.json`; a name the world does not know is left out of the program alone. The program
+`kiln.programs.json`; a name the world does not know is left out of the program alone and takes none of its 92
+places (the first server world decides this, before the program is made). A request remembers the server world it
+was made in (one of an earlier world is dropped when the next registers) and is watched while it waits: if its entity
+lacks the component at an update, it never runs. Before each result callback kiln.world asks again whether the
+request is still wanted and its owner alive, so a callback that cancels another request or unloads another owner
+stops that one's delivery. `KILN_ERR_BUFFER_TOO_SMALL` counts every request not delivered yet, refusals included.
+The program
 (`kiln_world_writes`, SYSTEM | HOST_ONLY, the listed types as `other_write`, `impact::AttributeRegistry` as an optional
 read singleton) exists only when something is listed: a server whose mods list nothing gets no extra program.
 kiln.items keeps its own program for water and moves; nothing was moved onto this one.

@@ -4,6 +4,8 @@
        fixture mod Fixtures/WritesMod, which is compiled against Kiln.World and Kiln.Game like a mod). -->
   <PropertyGroup>
     <IsPackable>false</IsPackable>
+    <!-- Not Kiln.World.Tests: xunit's generated code would open a namespace Kiln.World that hides the World class. -->
+    <RootNamespace>Kiln.WorldTests</RootNamespace>
     <IsTestProject>true</IsTestProject>
     <OutputType>Exe</OutputType>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
