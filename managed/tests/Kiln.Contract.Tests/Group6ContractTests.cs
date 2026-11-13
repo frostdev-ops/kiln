@@ -192,4 +192,73 @@ public sealed class QuestCompletionTests : ContractTest
         Assert.True((await Quests.Advance(id, QuestHolder.World, force: true)).Ok);
         Assert.Equal(1, gives);
     }
+
+    [Fact]
+    public async Task An_onDone_action_that_completes_its_own_quest_pays_once()
+    {
+        var rewards = 0;
+        var id = "self-complete-" + Guid.NewGuid().ToString("N")[..8];
+        Quests.Define(new QuestDefinition
+        {
+            Id = id,
+            Scope = QuestScope.World,
+            Rewards = { QuestAction.Code(_ => { rewards++; return Task.CompletedTask; }) },
+            Steps =
+            {
+                new QuestStep
+                {
+                    Id = "last",
+                    Objectives = { new QuestObjective { Kind = QuestObjectiveKind.Custom } },
+                    OnDone = { QuestAction.Code(_ => { Quests.Complete(id, QuestHolder.World); return Task.CompletedTask; }) },
+                },
+            },
+        });
+        var completed = 0;
+        using var sub = Events.On<QuestStateChangedEvent>(e => { if (e.Status == QuestStatus.Done) completed++; });
+        Assert.True(Quests.Start(id, QuestHolder.World).Ok);
+        Assert.True((await Quests.Advance(id, QuestHolder.World, force: true)).Ok);
+        Assert.Equal(1, rewards);
+        Assert.Equal(1, completed);
+        Assert.Equal(QuestStatus.Done, Quests.StatusOf(id, QuestHolder.World));
+    }
+
+    [Fact]
+    public async Task Nothing_of_a_step_s_end_runs_for_a_quest_its_actions_failed_or_reset()
+    {
+        var rewards = 0;
+        var entered = 0;
+        var id = "self-fail-" + Guid.NewGuid().ToString("N")[..8];
+        Quests.Define(new QuestDefinition
+        {
+            Id = id,
+            Scope = QuestScope.World,
+            Retryable = true,
+            Rewards = { QuestAction.Code(_ => { rewards++; return Task.CompletedTask; }) },
+            Steps =
+            {
+                new QuestStep
+                {
+                    Id = "first",
+                    Objectives = { new QuestObjective { Kind = QuestObjectiveKind.Custom } },
+                    OnDone = { QuestAction.Code(_ => { Quests.Reset(id, QuestHolder.World); return Task.CompletedTask; }) },
+                },
+                new QuestStep
+                {
+                    Id = "last",
+                    Objectives = { new QuestObjective { Kind = QuestObjectiveKind.Custom } },
+                    OnEnter = { QuestAction.Code(_ => { entered++; return Task.CompletedTask; }) },
+                    OnDone = { QuestAction.Code(_ => { Quests.Fail(id, QuestHolder.World, "gave up"); return Task.CompletedTask; }) },
+                },
+            },
+        });
+        Assert.True(Quests.Start(id, QuestHolder.World).Ok);
+        Assert.True((await Quests.Advance(id, QuestHolder.World, force: true)).Ok);
+        Assert.Equal(0, entered);  // reset by the first step's action: the next step is not entered
+        Assert.NotEqual(QuestStatus.Active, Quests.StatusOf(id, QuestHolder.World));
+        Assert.True(Quests.Start(id, QuestHolder.World).Ok);
+        Assert.True(Quests.SetStep(id, QuestHolder.World, "last").Ok);
+        Assert.True((await Quests.Advance(id, QuestHolder.World, force: true)).Ok);
+        Assert.Equal(QuestStatus.Failed, Quests.StatusOf(id, QuestHolder.World));  // failed by its action, not completed
+        Assert.Equal(0, rewards);
+    }
 }

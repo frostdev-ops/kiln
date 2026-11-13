@@ -75,6 +75,7 @@ public static unsafe class Attributes
     [AnyThread]
     public static AttributeIds? Ids(GameAttribute attribute)
     {
+        Combat.Used();
         var t = CombatNative.V2;
         if (t == null) return null;
         CombatNative.AttributeIds ids = default;
@@ -98,6 +99,7 @@ public static unsafe class Attributes
     [RequiresCapability(CombatCaps.Attributes)]
     public static AttributeReading? Get(EntityId entity, uint attributeId)
     {
+        Combat.Used();
         var t = CombatNative.RequireV2("Attributes.Get");
         Services.RequireTickThread("Attributes.Get");
         CombatNative.AttributeValue v = default;
@@ -181,6 +183,7 @@ public static unsafe class Attributes
 
     private static AttributeReading Write(string api, EntityId entity, uint attributeId, int value, bool add)
     {
+        Combat.Used();
         var t = CombatNative.RequireV2(api);
         Services.RequireTickThread(api);
         var before = Before(t, entity, attributeId);

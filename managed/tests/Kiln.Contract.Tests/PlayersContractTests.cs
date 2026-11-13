@@ -137,3 +137,71 @@ public sealed class ProgressionChangeTests : ContractTest
         Assert.Equal(2, calls);
     }
 }
+
+/// <summary>Ban changes post through the change notices: a handler that bans again does not recurse, and banning the
+/// same again in it writes nothing and posts nothing.</summary>
+public sealed class BanChangeTests : ContractTest
+{
+    private const ulong Steam = 76561190000000009;
+    private readonly string _dir = Path.Combine(Path.GetTempPath(), "kiln-bans-" + Guid.NewGuid().ToString("n"));
+
+    public BanChangeTests()
+    {
+        PlayerAdmin.UseStore(new BanStore(Path.Combine(_dir, "bans.json")));
+        PlayerAdmin.Kicker = (p, r, reason, by, banned) => Task.FromResult(new KickResult(r, p.Name, true, null));
+        PlayerAdmin.KickOff = () => null;
+    }
+
+    public override void Dispose()
+    {
+        PlayerAdmin.Kicker = null;
+        PlayerAdmin.KickOff = null;
+        PlayerAdmin.UseStore(null);
+        try { Directory.Delete(_dir, true); } catch (IOException) { }
+        base.Dispose();
+    }
+
+    [Fact]
+    public void A_handler_that_bans_again_ends_in_one_step_with_one_event_per_change()
+    {
+        var banned = new List<BanEntry>();
+        using var sub = Events.On<PlayerBannedEvent>(e =>
+        {
+            banned.Add(e.Ban);
+            Bans.Add(Steam, "griefing");                                 // the same ban again: no change
+            if (e.Ban.Reason == "griefing") Bans.Add(Steam + 1, "alt");  // another one: a change, at the next step
+        });
+        var first = Bans.Add(Steam, "griefing");
+        Assert.Equal([first], banned);
+        Assert.Same(first, Bans.Find(Steam));  // still the first entry: the list was not written again
+        Assert.Equal(1, PlayerAdmin.BanNotices.Waiting);
+        Step();
+        Assert.Equal(2, banned.Count);
+        Assert.Equal(Steam + 1, banned[1].SteamId);
+        Step(3);
+        Assert.Equal(2, banned.Count);  // one event per change, nothing more
+        Assert.Same(first, Bans.Find(Steam));
+        Assert.Equal(0, sub.Stats.Faults);
+        Assert.DoesNotContain(Backend.Lines, l => l.Contains("threw", StringComparison.Ordinal) || l.Contains("MaxDepth", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void A_ban_that_waits_is_not_announced_after_a_later_unban_of_it()
+    {
+        var seen = new List<string>();
+        var first = true;
+        using var banned = Events.On<PlayerBannedEvent>(e =>
+        {
+            seen.Add("ban " + e.Ban.SteamId);
+            if (!first) return;
+            first = false;
+            Bans.Add(Steam + 2, "alt");  // during the dispatch: waits
+        });
+        using var unbanned = Events.On<PlayerUnbannedEvent>(e => seen.Add("unban " + e.Ban.SteamId));
+        Bans.Add(Steam, "griefing");
+        Assert.True(Bans.Remove(Steam + 2));  // inline: the waiting ban is older
+        Step(2);
+        Assert.Equal(["ban " + Steam, "unban " + (Steam + 2)], seen);
+        Assert.Null(Bans.Find(Steam + 2));
+    }
+}

@@ -135,13 +135,22 @@ public static unsafe class Combat
         if (!ServiceTick.StartingServices) EnsureListener();  // a call into Combat is a use; the rows' start is not
     }
 
+    /// <summary>A call into Kiln.Combat by a mod is a use (its first one started the listener in dev.26): every public
+    /// entry asks this. After the first service tick ran the static constructor for the rows, it is what starts the
+    /// listener for a mod that calls Combat and has only a catch-all handler. One field read once listening; Kiln's own
+    /// reads (the rows, the service tick) do not count.</summary>
+    internal static void Used()
+    {
+        if (Volatile.Read(ref _listening) == 0 && ServiceUse.ByMod) EnsureListener();
+    }
+
     /// <summary>True when health access works on this build and a server world runs.</summary>
     [AnyThread]
-    public static bool Available => CombatNative.T != null && Status is { Health: true };
+    public static bool Available => Used(CombatNative.T != null) && Status is { Health: true };
 
     /// <summary>True when Damage/Kill (the engine hit path) work.</summary>
     [AnyThread]
-    public static bool HitsAvailable => CombatNative.T != null && Status is { Hits: true };
+    public static bool HitsAvailable => Used(CombatNative.T != null) && Status is { Hits: true };
 
     /// <summary>kiln.combat's state and counters, or null when it is not loaded. Any thread.</summary>
     [AnyThread]
@@ -149,6 +158,7 @@ public static unsafe class Combat
     {
         get
         {
+            Used();
             var t = CombatNative.T;
             if (t == null) return null;
             CombatNative.Status s = default;
@@ -180,6 +190,7 @@ public static unsafe class Combat
     [RequiresCapability(CombatCaps.Service)]
     public static bool TryGetHealth(EntityId entity, out Health health)
     {
+        Used();
         var t = CombatNative.Require("Combat.GetHealth");
         Services.RequireTickThread("Combat.GetHealth");
         CombatNative.Health h = default;
@@ -199,6 +210,7 @@ public static unsafe class Combat
     [RequiresCapability(CombatCaps.Service)]
     public static int SetHealth(EntityId entity, int value)
     {
+        Used();
         var t = CombatNative.Require("Combat.SetHealth");
         Services.RequireTickThread("Combat.SetHealth");
         var watched = Events.HasSubscribers<CombatChangedEvent>();
@@ -227,6 +239,7 @@ public static unsafe class Combat
     [RequiresCapability(CombatCaps.Service)]
     public static int Heal(EntityId entity, int amount)
     {
+        Used();
         ArgumentOutOfRangeException.ThrowIfNegative(amount);
         var t = CombatNative.Require("Combat.Heal");
         Services.RequireTickThread("Combat.Heal");
@@ -343,6 +356,7 @@ public static unsafe class Combat
     [RequiresCapability(CombatCaps.Service)]
     public static void SetInvulnerable(EntityId entity, bool on = true)
     {
+        Used();
         var t = CombatNative.Require("Combat.SetInvulnerable");
         Services.RequireTickThread("Combat.SetInvulnerable");
         var watched = Events.HasSubscribers<CombatChangedEvent>();
@@ -368,11 +382,19 @@ public static unsafe class Combat
     [AnyThread]
     public static bool IsInvulnerable(EntityId entity)
     {
+        Used();
         var t = CombatNative.T;
         return t != null && t->Invulnerable(entity.Value) != 0;
     }
 
     private static bool IsPlayerId(EntityId e) => e.Value is >= 1 and <= 1023;
+
+    // Used() inside an expression (the availability getters)
+    private static bool Used(bool value)
+    {
+        Used();
+        return value;
+    }
 
     // ------------------------------------------------------------------------------------------------ plumbing ----
 
