@@ -41,7 +41,9 @@ constexpr int32_t kNotch = 120;              // WHEEL_DELTA
 constexpr int kMaxNotchesPerTurn = 16;       // one message never makes more presses than this
 constexpr uint32_t kTolMs = 50;              // a twin's message time may differ this much (three ticks of Windows' clock)
 constexpr uint32_t kTwinMs = 1000;           // how long (message time) a lead waits; a merged message covers leads this old
-constexpr size_t kMaxWaiting = 64;           // leads waiting for their twin
+constexpr size_t kMaxWaiting = 1024;         // leads waiting for their twin: more than a free-spinning high-resolution
+                                             // wheel sends within kTwinMs (about 400 records of +15 a second), so a
+                                             // merged message never finds its records gone and counts them again
 
 enum class Source : uint8_t { Raw, Message };
 

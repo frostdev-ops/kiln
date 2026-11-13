@@ -69,8 +69,16 @@ void twins() {
     t.lead(Source::Raw, up, 120, 0xFFFFFFF0u, true);
     check(!t.follow(Source::Message, up, 120, 0x10u + kTwinMs).matched && t.waiting() == 0,
           "a lead kTwinMs older than a later input is dropped");
-    for (int i = 0; i < 200; ++i) t.lead(Source::Raw, up, 120, 5000, false);  // a window without messages
+    for (size_t i = 0; i < kMaxWaiting + 200; ++i) t.lead(Source::Raw, up, 120, 5000, false);  // a window without messages
     check(t.waiting() == kMaxWaiting, "leads nothing follows are bounded");
+    t.clear();
+    // a hitch on a high-resolution wheel: 80 records of +15 (ten notches) wait, then one merged message of +1200
+    // covers all of them and brings no new input (with 64 places the first sixteen were gone and counted again)
+    for (int i = 0; i < 80; ++i) t.lead(Source::Raw, up, 15, 9000 + static_cast<uint32_t>(i) * 4, true);
+    {
+        const auto r = t.follow(Source::Message, up, 1200, 9000 + 79 * 4);
+        check(r.matched && r.rest == 0 && t.waiting() == 0, "a merged message covers every record of a long turn");
+    }
 }
 
 void reconcile() {
