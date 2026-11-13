@@ -10,7 +10,7 @@
 | `logo/lockup-dark.svg`, `logo/lockup-light.svg` | mark + wordmark, on dark / light |
 | `logo/app-icon.svg`, `logo/png/`, `logo/kiln.ico` | app icon |
 | `logo/favicon.svg` | favicon |
-| `community/discord-banner.png` (1600×500), `-1200x630.png`, `-960x540.png` | Discord invite banner: README, Nexus and social posts. The `.svg` files are the sources (fonts embedded); render with `rsvg-convert` |
+| `community/discord-banner.png` (1600×500), `-1200x630.png`, `-960x540.png` | Discord invite banner: README, Nexus and social posts. The `.svg` files are the sources (fonts embedded); render with `rsvg-convert`. The Discord symbol is Discord's own ([discord.com/branding](https://discord.com/branding)), unaltered |
 
 Clear space: ¼ of the mark's height. Minimum: mark 16 px, lockup 96 px wide. No recolouring, stretching or effects.
 
