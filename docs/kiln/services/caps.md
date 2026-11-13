@@ -121,7 +121,9 @@ service's start, the first service tick (each service with such a row has a star
 so a mod's `Capabilities.Is` in its first tick sees it without having called the service; again after the registry was
 reset; a session row is refreshed on the service tick. A sigdb feature a service lowers because its table is missing
 is lowered at the service's start where it has one, else at its first use (Kiln.Build, Kiln.Creatures: the core's
-`kiln.<service>` row says the table is missing from the start). A row says "available" exactly when the call it stands for works: one
+`kiln.<service>` row says the table is missing from the start). Only the core's own claim is lowered (an available
+row from sigdb): with no Kiln core (a unit test, the test kit) a feature has no row, and a test kit's "switched on by
+the test" stays the test's. A row says "available" exactly when the call it stands for works: one
 that needs a hook says so only while the hook is in. When a service's table is missing, the service lowers the sigdb features it serves, so
 `Capabilities.Why` names the missing service and not a feature that resolved for nobody.
 
@@ -148,6 +150,9 @@ that needs a hook says so only while the hook is in. When a service's table is m
 | `combat.attributes` | managed, session | Kiln.Combat, at its start and every 25 steps | `Attributes` reads and writes the game's attributes: kiln.combat has its attribute functions (`service-older` otherwise) and the game's attribute resource was read (pending until a server world runs; pending for good on a build whose resource Kiln does not understand) |
 | `combat.actor_states`, `combat.attr_heals`, `combat.deaths`, `combat.falls`, `combat.health`, `combat.hits`, `combat.regen` | sigdb features | core; Kiln.Combat lowers them when kiln.combat is not loaded | what kiln.combat serves |
 | `abilities.attributes`, `abilities.instances`, `abilities.natives`, `abilities.programs`, `abilities.sequences` | sigdb features | core; Kiln.Abilities lowers them when kiln.abilities is not loaded (at its start, the first service tick, with `abilities.buffs` and `abilities.buff_list`) | what kiln.abilities serves |
+| `time.speed` | managed, static | Kiln.Time, at its start (the first service tick) | the clock's speed can be held (`Time.SetSpeed`, `Time.SetCycle`, `Time.CanSetSpeed`): needs kiln.time with its scale functions (`service-older` without) and `time.scale` |
+| `time.read`, `time.set`, `time.scale`, `time.sync_probe`, `time.weather`, `time.weather_choose` | sigdb features | core; Kiln.Time lowers them when kiln.time is not loaded | what kiln.time serves |
+| `items.pide_options` | sigdb feature | core; Kiln.Items lowers it with its other rows when kiln.items is not loaded (dev.27; before, it kept the core's verdict) | `Gear.Unlocked`, `Gear.GemSlot` at creation |
 
 ## Rules
 - Each owner holds at most one report per name. A reader sees the worst report for the name: unavailable beats

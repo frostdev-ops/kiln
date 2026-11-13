@@ -105,6 +105,7 @@ public static unsafe partial class Items
 
     /// <summary>The inventory of <paramref name="entity"/>, or null when it has none (or it does not exist).</summary>
     [RequiresCapability(Caps.Service)]
+    [TickThreadOnly]
     public static InventoryContents? Read(EntityId entity)
     {
         var t = Require("Items.Read");
@@ -136,6 +137,7 @@ public static unsafe partial class Items
 
     /// <summary>Entities with an initialized inventory of these kinds (one pass over the world's entities).</summary>
     [RequiresCapability(Caps.Service)]
+    [TickThreadOnly]
     public static IReadOnlyList<EntityId> FindInventories(InventoryKinds kinds = InventoryKinds.Containers)
     {
         var t = Require("Items.FindInventories");
@@ -163,6 +165,7 @@ public static unsafe partial class Items
     /// game-side outcomes; check <see cref="ItemsResult.Status"/>).
     /// </summary>
     [RequiresCapability(Caps.Service)]
+    [TickThreadOnly]
     public static Task<ItemsResult> Give(EntityId target, ItemId item, int count = 1, Gear? gear = null,
         GiveOptions options = GiveOptions.None, SlotId? slot = null)
     {
@@ -208,6 +211,7 @@ public static unsafe partial class Items
     /// <see cref="ItemsResult.Changes"/> lists the stacks with their item entities.
     /// </summary>
     [RequiresCapability(Caps.Service)]
+    [TickThreadOnly]
     public static Task<ItemsResult> GiveRecipeResult(EntityId target, uint recipeId, int count = 1,
         GiveOptions options = GiveOptions.None)
     {
@@ -222,6 +226,7 @@ public static unsafe partial class Items
     /// <summary>Give by name or id (see <see cref="Lookup"/>); an unknown name completes with
     /// <see cref="ItemsStatus.UnknownItem"/>.</summary>
     [RequiresCapability(Caps.Service)]
+    [TickThreadOnly]
     public static Task<ItemsResult> Give(EntityId target, string item, int count = 1, Gear? gear = null,
         GiveOptions options = GiveOptions.None)
     {
@@ -238,6 +243,7 @@ public static unsafe partial class Items
     /// still holds the item (and <paramref name="itemEntity"/> when given). Gear taken out is destroyed by the game.
     /// </summary>
     [RequiresCapability(Caps.Service)]
+    [TickThreadOnly]
     public static Task<ItemsResult> Take(EntityId target, ItemId item, int count = 1, SlotId? from = null,
         bool exactSlot = false, EntityId? itemEntity = null, bool dryRun = false)
     {
@@ -255,6 +261,7 @@ public static unsafe partial class Items
 
     /// <summary>Takes everything in one slot as read (exact slot, the same item entity for gear).</summary>
     [RequiresCapability(Caps.Service)]
+    [TickThreadOnly]
     public static Task<ItemsResult> TakeSlot(EntityId target, InventorySlot slot, bool dryRun = false) =>
         slot.IsEmpty
             ? Invalid(target, slot.Item, 0, "the slot is empty")
@@ -267,7 +274,11 @@ public static unsafe partial class Items
     {
         Services.RequireTickThread(api);
         var t = T;
-        if (t == null) throw new NotSupportedException("kiln.items is unavailable");
+        if (t == null)
+        {
+            Rows.Ensure();
+            throw ServiceCaps.Unavailable(Caps.Service, "kiln.items is unavailable");
+        }
         return t;
     }
 

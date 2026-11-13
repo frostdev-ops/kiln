@@ -31,6 +31,8 @@ internal static class Adopted
         typeof(Knowledge),
         typeof(Combat),
         typeof(Abilities),
+        typeof(Time),
+        typeof(Items),
     ];
 
     internal static IEnumerable<Assembly> Assemblies => Anchors.Select(t => t.Assembly).Distinct();

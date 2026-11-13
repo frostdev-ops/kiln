@@ -29,7 +29,9 @@ public static unsafe partial class Items
     {
         var t = V3;
         if (t == null)
-            throw new NotSupportedException(T == null ? "kiln.items is unavailable" : $"{api}: this Kiln runtime's kiln.items has no move, name or transfer functions (update Kiln)");
+            throw T == null
+                ? ServiceCaps.Unavailable(Caps.Service, "kiln.items is unavailable")
+                : ServiceCaps.Unavailable(Caps.Move, $"{api}: this Kiln runtime's kiln.items has no move, name or transfer functions (update Kiln)");
         return t;
     }
 
@@ -64,6 +66,7 @@ public static unsafe partial class Items
     /// </summary>
     /// <example><code>if (Items.ContainerName(chest) == "Ores") { /* deposit ore here */ }</code></example>
     [RequiresCapability(Caps.Names)]
+    [TickThreadOnly]
     public static string? ContainerName(EntityId entity)
     {
         var t = Require3("Items.ContainerName");
@@ -80,7 +83,7 @@ public static unsafe partial class Items
             case ItemsNative.Unavailable:
                 // before the world's first step, or this build has no names: tell them apart through the status
                 if (Status3()?.Names == true) return null;
-                throw new NotSupportedException("Items.ContainerName: " + (Status3()?.Detail is { Length: > 0 } d ? d : "the container-name table is not available"));
+                throw ServiceCaps.Unavailable(Caps.Names, "Items.ContainerName: " + (Status3()?.Detail is { Length: > 0 } d ? d : "the container-name table is not available"));
             default:
                 throw Failure("Items.ContainerName", rc);
         }
@@ -115,6 +118,7 @@ public static unsafe partial class Items
     /// if (r.Succeeded) Log.Info($"moved {r.Changes[0].ItemEntity}");   // the same item entity as sword.ItemEntity
     /// </code></example>
     [RequiresCapability(Caps.Move)]
+    [TickThreadOnly]
     public static Task<MoveResult> Move(EntityId from, SlotId slot, EntityId to, int count = 0,
         MoveOptions options = MoveOptions.None, SlotId? toSlot = null)
     {
@@ -134,6 +138,7 @@ public static unsafe partial class Items
     /// <see cref="InventoryTransferEvent.ByMod"/>, unless <see cref="MoveOptions.Silent"/>.
     /// </summary>
     [RequiresCapability(Caps.Move)]
+    [TickThreadOnly]
     public static Task<MoveResult> QuickStack(EntityId from, EntityId to, MoveOptions options = MoveOptions.None) =>
         SubmitMove(NewMove(MoveKind.QuickStack, from, to, options), "Items.QuickStack");
 
@@ -143,6 +148,7 @@ public static unsafe partial class Items
     /// rules and events see it, unless <see cref="MoveOptions.Silent"/>.
     /// </summary>
     [RequiresCapability(Caps.Move)]
+    [TickThreadOnly]
     public static Task<MoveResult> MoveAll(EntityId from, EntityId to, MoveOptions options = MoveOptions.None) =>
         SubmitMove(NewMove(MoveKind.All, from, to, options), "Items.MoveAll");
 
@@ -350,7 +356,7 @@ public static unsafe partial class Items
             var rc = t->TransferRuleAdd(Services.CallerOwner, &r, &handle);
             if (rc == ItemsNative.InvalidArgument) throw new ArgumentException("the rule is not valid");
             if (rc != ItemsNative.Ok)
-                throw new NotSupportedException("Items.Transfers: " + (Status3()?.Detail is { Length: > 0 } d ? d : "the hooks are not available (or 256 rules are active)"));
+                throw ServiceCaps.Unavailable(Caps.Transfer, "Items.Transfers: " + (Status3()?.Detail is { Length: > 0 } d ? d : "the hooks are not available (or 256 rules are active)"));
             var rule = new TransferRule(handle, what);
             var mod = ModContext.CurrentMod;
             if (mod != null)

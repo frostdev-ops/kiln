@@ -216,7 +216,8 @@ public sealed unsafe class TimeAbiReviewTests
             Assert.True(Time.Available); // the old get/set/weather prefix still loads
             Assert.False(Time.CanSetSpeed);
             Assert.Null(Time.HeldSpeed);
-            Assert.Throws<NotSupportedException>(() => Time.SetSpeed(0));
+            // dev.27: a KilnUnavailableException naming time.speed, still a NotSupportedException
+            Assert.Equal("time.speed", Assert.IsType<KilnUnavailableException>(Assert.ThrowsAny<NotSupportedException>(() => Time.SetSpeed(0))).Capability);
             t.Size = (uint)sizeof(Table);
             Assert.True(Time.CanSetSpeed);
             Assert.Equal(TimeCycle.Normal, Time.Cycle);
