@@ -107,6 +107,7 @@ bool net_client_line(std::string_view line, uint64_t) {
 std::vector<std::string> net_client_take(size_t) { return {}; }
 void net_client_put_back(std::vector<std::string>) {}
 void net_client_reset() {}
+void net_client_new_world() {}  // a new client world on the same connection (api_net.cpp): nothing to start over here
 }  // namespace kemf
 
 // ---------------------------------------------------------------------------------------------------------------------
