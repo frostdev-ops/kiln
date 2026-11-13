@@ -88,28 +88,45 @@ struct Stats {
 } S;
 
 // Ownership is keyed by the locomotion object as well as the entity. It does not expire with wall time: a paused
-// prediction can resume after its rule was revoked. Player ids have two ownership slots (server and prediction).
-// The bounded extra history serves simulated characters (at most 16 extra rule ids, on two worlds).
+// prediction can resume after its rule was revoked. A player id has one ownership slot per world with characters: the
+// server world's record and the other world's (a client's prediction; a joined client has only that one). The bounded
+// extra history serves simulated characters, which live in the server world only (at most 16 extra rule ids).
+//
+// The worlds are told apart on the server tick, between two server steps, where kiln.world may read: it gives the
+// server world's record of every player Kiln flies or may fly (server_tick), and a record that is that one is the
+// server world's; any other record of the player belongs to the other world. The locomotion programs' contexts cannot
+// tell the worlds apart themselves (docs/re/rules.md 7: their job copies have no storage pointer).
 //
 // The object moves. The game keeps an entity's components by archetype, so adding a component or taking one away
 // copies all of them to another place: every teleport adds the Teleport component and takes it away the step after
-// (docs/re/creatures.md 1.4), and other components come and go too. The record keeps its bytes, BuildingFlying included,
-// but no longer its address. So a BuildingFlying record of an entity whose Kiln flight has not been seen to end, at an
-// address that is not one of its own, is that flight's record moved: it takes the place of the entity's record seen
-// least recently (a host's other world sees its own record every step; a paused one takes its place back when it
-// resumes). Without this, a teleport left the character in the sticky BuildingFlying state with no hook to end it: no
-// walking and no animation, with collision back. Nothing is adopted while Kiln's flight steps aside for Creative Mode,
-// and an entity whose Kiln flight is over has nothing that could have moved.
+// (docs/re/creatures.md 1.4, docs/re/rules.md 8), and other components come and go too. The record keeps its bytes,
+// BuildingFlying included, but no longer its address. So a BuildingFlying record of a player at an address that is not
+// one of its own is its flight moved, when Kiln has a flight of that player in the record's own world that it has not
+// seen end: it takes that world's slot. A flight in one world never vouches for a record in the other. Without this, a
+// teleport left the character in the sticky BuildingFlying state with no hook to end it: no walking and no animation,
+// with collision back. Nothing is adopted while Kiln's flight steps aside for Creative Mode.
+//
+// Ownership lives as long as the character: it is forgotten when the server world no longer has the player's
+// character (server_tick), when the player leaves or its connection is replaced (retire, from Kiln.Rules), and when a
+// world with characters stops. Rules ending alone keep it, so the hooks can still land or end the flight.
 constexpr int kRecent = 64;
+constexpr uint32_t kMaxPlayerId = 1023;
 std::atomic<bool> g_flew{false};
-std::atomic<uintptr_t> g_player_dyn[1024][2]{};
-std::atomic<uint64_t> g_player_seen[1024][2]{};  // g_seen when the slot's record was last seen by the state hook
+std::atomic<uintptr_t> g_player_dyn[kMaxPlayerId + 1][2]{};  // [kServer, kOther]
 std::atomic<uint32_t> g_recent_id[kRecent]{};
 std::atomic<uintptr_t> g_recent_dyn[kRecent]{};
 std::atomic<uint64_t> g_recent_seen[kRecent]{};
 std::atomic<unsigned> g_next_recent{0};
 std::atomic<uint64_t> g_seen{0};
 std::atomic<uint32_t> g_local_player{0};  // refreshed once per client tick, never a service call per actor
+// the server tick's view: its step count (0: no server world steps here), and per player the server world's record and
+// the step it was read at
+constexpr int kServer = 0, kOther = 1;
+std::atomic<uint64_t> g_server_step{0};
+std::atomic<uintptr_t> g_server_dyn[kMaxPlayerId + 1]{};
+std::atomic<uint64_t> g_server_read[kMaxPlayerId + 1]{};
+std::atomic<uint64_t> g_want[(kMaxPlayerId + 1) / 64]{};  // players the next server tick reads (their rules may fly them)
+std::atomic<bool> g_reads_work{false};                       // the server tick's reading has found a character
 // the moves followed, and the last one, for the log (refresh() reports them once a tick)
 std::atomic<uint64_t> g_moves{0};
 std::atomic<uint32_t> g_move_entity{0};
@@ -117,22 +134,31 @@ std::atomic<uintptr_t> g_move_from{0}, g_move_to{0};
 
 uint64_t stamp() { return g_seen.fetch_add(1, std::memory_order_relaxed) + 1; }
 
+void want(uint32_t e) {
+    if (e && e <= kMaxPlayerId) g_want[e / 64].fetch_or(uint64_t{1} << (e % 64), std::memory_order_relaxed);
+}
+
+// The world of player `e`'s record `dyn`: kServer, kOther, or -1 when the server tick has not read the player lately
+// (the next one does). Without a server world in this process every record is the other world's.
+int world_of(uint32_t e, const void* dyn) {
+    const uint64_t now = g_server_step.load(std::memory_order_acquire);
+    if (now == 0) return kOther;
+    const uint64_t at = g_server_read[e].load(std::memory_order_acquire);
+    const bool server = g_server_dyn[e].load(std::memory_order_relaxed) == reinterpret_cast<uintptr_t>(dyn);
+    if (at == now) return server ? kServer : kOther;
+    // read one step ago: still enough to say a record is not the server's (it moves only at the end of a server
+    // step, to an address the server world holds); "it is the server's" needs this step's reading
+    if (at != 0 && at + 1 == now && !server) return kOther;
+    want(e);
+    return -1;
+}
+
 void note_flying(uint32_t e, const void* dyn) {
     g_flew.store(true, std::memory_order_relaxed);
     const auto ptr = reinterpret_cast<uintptr_t>(dyn);
-    if (e && e <= 1023) {
-        auto& slots = g_player_dyn[e];
-        auto& seen = g_player_seen[e];
-        int at = slots[0].load() == ptr ? 0 : slots[1].load() == ptr ? 1 : -1;
-        for (int i = 0; at < 0 && i < 2; ++i) {
-            uintptr_t empty = 0;
-            if (slots[i].compare_exchange_strong(empty, ptr)) at = i;
-        }
-        if (at < 0) {
-            at = seen[0].load() <= seen[1].load() ? 0 : 1;  // both taken: the one seen least recently
-            slots[at].store(ptr);
-        }
-        seen[at].store(stamp(), std::memory_order_relaxed);
+    if (e && e <= kMaxPlayerId) {
+        const int w = world_of(e, dyn);
+        if (w >= 0) g_player_dyn[e][w].store(ptr);
         return;
     }
     for (int i = 0; i < kRecent; ++i)
@@ -146,21 +172,18 @@ void note_flying(uint32_t e, const void* dyn) {
     g_recent_seen[i].store(stamp(), std::memory_order_relaxed);
 }
 
-// `dyn` is the record of a flight of `e` that Kiln has not seen end, moved there (see above): it replaces the entity's
-// record seen least recently. False when Kiln has no such flight of `e`.
+// `dyn` is the record of a flight of `e` that Kiln has not seen end, moved there (see above): it takes the slot of its
+// own world (a simulated character's: the entry seen least recently). False when Kiln has no such flight of `e` there.
 bool follow_move(uint32_t e, const void* dyn) {
     if (!e || kiln_rules_creative::idle()) return false;
     const auto ptr = reinterpret_cast<uintptr_t>(dyn);
     uintptr_t from = 0;
-    if (e <= 1023) {
-        auto& slots = g_player_dyn[e];
-        auto& seen = g_player_seen[e];
-        int pick = -1;
-        for (int i = 0; i < 2; ++i)
-            if (slots[i].load() != 0 && (pick < 0 || seen[i].load() < seen[pick].load())) pick = i;
-        if (pick < 0) return false;
-        from = slots[pick].exchange(ptr);
-        seen[pick].store(stamp(), std::memory_order_relaxed);
+    if (e <= kMaxPlayerId) {
+        const int w = world_of(e, dyn);
+        if (w < 0) return false;
+        auto& slot = g_player_dyn[e][w];
+        from = slot.load();
+        if (from == 0 || !slot.compare_exchange_strong(from, ptr)) return false;
     } else {
         int pick = -1;
         for (int i = 0; i < kRecent; ++i)
@@ -179,8 +202,8 @@ bool follow_move(uint32_t e, const void* dyn) {
 }
 
 bool flown_recently(uint32_t e, const void* dyn) {
-    if (e && e <= 1023) return g_player_dyn[e][0].load() == reinterpret_cast<uintptr_t>(dyn) ||
-                              g_player_dyn[e][1].load() == reinterpret_cast<uintptr_t>(dyn);
+    if (e && e <= kMaxPlayerId) return g_player_dyn[e][0].load() == reinterpret_cast<uintptr_t>(dyn) ||
+                                       g_player_dyn[e][1].load() == reinterpret_cast<uintptr_t>(dyn);
     for (int i = 0; i < kRecent; ++i)
         if (g_recent_id[i].load() == e && g_recent_dyn[i].load() == reinterpret_cast<uintptr_t>(dyn)) return true;
     return false;
@@ -188,7 +211,7 @@ bool flown_recently(uint32_t e, const void* dyn) {
 
 void forget_flying(uint32_t e, const void* dyn) {
     auto ptr = reinterpret_cast<uintptr_t>(dyn);
-    if (e && e <= 1023) {
+    if (e && e <= kMaxPlayerId) {
         g_player_dyn[e][0].compare_exchange_strong(ptr, 0);
         ptr = reinterpret_cast<uintptr_t>(dyn);
         g_player_dyn[e][1].compare_exchange_strong(ptr, 0);
@@ -197,6 +220,10 @@ void forget_flying(uint32_t e, const void* dyn) {
             if (g_recent_id[i].load() == e) { ptr = reinterpret_cast<uintptr_t>(dyn); g_recent_dyn[i].compare_exchange_strong(ptr, 0); }
     }
 }
+
+// Whether a take-off of `e` at `dyn` can be told to a world now (a player's record whose world is not known yet waits
+// one server step).
+bool placeable(uint32_t e, const void* dyn) { return !(e && e <= kMaxPlayerId) || world_of(e, dyn) >= 0; }
 
 // Kiln's flight of `e` is in `dyn`: a record Kiln took off with, or (`flying`: `dyn` is in BuildingFlying) the record of
 // a flight of `e` that has not ended, moved there.
@@ -265,6 +292,7 @@ void state_body(safetyhook::Context& c) {
     const bool has = rules_for(reinterpret_cast<void*>(c.rsi), &e, &r);
     const bool was_ours = owned(e, dyn, cur == flight_math::kBuildingFlying);
     const bool enabled = has && armed(r) && !kiln_rules_creative::idle();
+    if (enabled) want(e);  // the server tick keeps telling this player's records apart
     if (!enabled && !(cur == flight_math::kBuildingFlying && was_ours)) return;
     float input_vy = 0.0f;
     std::memcpy(&input_vy, dyn + 4, sizeof input_vy);  // inputVelocity.y
@@ -274,6 +302,8 @@ void state_body(safetyhook::Context& c) {
     const bool ours = cur != flight_math::kBuildingFlying || was_ours;
     const uint8_t next = flight_math::next_state(cur, game, ours, enabled && flight(r), base_only(r), actor_of(actor), input_vy,
                                                  enabled && noclip(r));
+    // a take-off waits until its world is known (one server step at most): ownership is per world
+    if (next == flight_math::kBuildingFlying && cur != flight_math::kBuildingFlying && !placeable(e, dyn)) return;
     if (next == flight_math::kBuildingFlying && ours) note_flying(e, dyn);
     else if (ours) forget_flying(e, dyn);
     if (next == game) return;
@@ -346,6 +376,52 @@ bool noclip_flight(void* ctx, const uint8_t* dyn, uint32_t* entity) {
 
 void forget_local() { g_local_player.store(0); }
 
+// The player (or simulated character) `e` left, or its connection was replaced: its records' ownership goes, so whoever
+// gets the id next starts with no flight of Kiln's (Kiln.Rules' Leave; the server tick when the character is gone).
+void retire(uint32_t e) {
+    if (!e) return;
+    if (e <= kMaxPlayerId) {
+        g_player_dyn[e][kServer].store(0);
+        g_player_dyn[e][kOther].store(0);
+        g_server_dyn[e].store(0);
+        g_server_read[e].store(0);
+        return;
+    }
+    for (int i = 0; i < kRecent; ++i)
+        if (g_recent_id[i].load() == e) g_recent_dyn[i].store(0);
+}
+
+// Once a server step, before it (the server tick, where kiln.world may read): `record(e)` is the server world's
+// DynamicLocomotion of `e` now (0: no such character). Read for every player Kiln flies or may fly; a flown character
+// the server world no longer has is retired.
+void server_tick(uintptr_t (*record)(uint32_t entity)) {
+    if (!record) return;  // without kiln.world every record counts as one world's, as on a dedicated server
+    const uint64_t now = g_server_step.fetch_add(1, std::memory_order_acq_rel) + 1;
+    if (!g_flew.load(std::memory_order_relaxed) && !(kiln_rules_bridge::flags_seen() & kFlies)) return;
+    for (uint32_t block = 0; block < (kMaxPlayerId + 1) / 64; ++block) {
+        uint64_t bits = g_want[block].exchange(0, std::memory_order_relaxed);
+        for (uint32_t e = block * 64; e < block * 64 + 64; ++e) {
+            const bool flown = g_player_dyn[e][kServer].load() != 0 || g_player_dyn[e][kOther].load() != 0;
+            if (!e || (!flown && !((bits >> (e % 64)) & 1))) continue;
+            const uintptr_t was = g_server_dyn[e].load(std::memory_order_relaxed), mine = record(e);
+            if (mine) g_reads_work.store(true, std::memory_order_relaxed);
+            g_server_dyn[e].store(mine, std::memory_order_relaxed);
+            g_server_read[e].store(now, std::memory_order_release);
+            // the server world had this character and has it no more: gone (a reading that never finds anything
+            // retires nothing; every record then counts as the other world's, as without kiln.world)
+            if (!mine && was && g_player_dyn[e][kServer].load() != 0) retire(e);
+        }
+    }
+    // a simulated character the server world no longer has (once the reading has been seen to find characters)
+    for (int i = 0; i < kRecent; ++i) {
+        const uint32_t e = g_recent_id[i].load();
+        if (e && g_recent_dyn[i].load() != 0) {
+            if (record(e)) g_reads_work.store(true, std::memory_order_relaxed);
+            else if (g_reads_work.load(std::memory_order_relaxed)) g_recent_dyn[i].store(0);
+        }
+    }
+}
+
 // A server world started here and no prediction world has since: a host's session is beginning.
 static std::atomic<bool> g_server_began{false};
 
@@ -383,8 +459,12 @@ void reset() {
     g_local_player.store(0);
     g_flew.store(false);
     for (auto& slots : g_player_dyn) for (auto& ptr : slots) ptr.store(0);
-    for (auto& seen : g_player_seen) for (auto& at : seen) at.store(0);
     for (int i = 0; i < kRecent; ++i) { g_recent_id[i].store(0); g_recent_dyn[i].store(0); g_recent_seen[i].store(0); }
+    g_server_step.store(0);
+    for (auto& d : g_server_dyn) d.store(0);
+    for (auto& at : g_server_read) at.store(0);
+    for (auto& w : g_want) w.store(0);
+    g_reads_work.store(false);
     g_moves.store(0);
     g_moves_told.store(0);
 }

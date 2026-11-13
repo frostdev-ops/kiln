@@ -42,6 +42,11 @@ void reset();                // forget local identity and flight ownership befor
 // flight ownership is forgotten and when only the cached local identity is.
 void world(uint32_t event, uint32_t kind, uint32_t session, bool stops_seen);
 void refresh();
+// The server tick (rules.cpp on_pre, before each server step): `record(e)` gives the server world's DynamicLocomotion
+// of entity `e` (0: none). Flight ownership is per world, and this is how the hooks tell the worlds apart.
+void server_tick(uintptr_t (*record)(uint32_t entity));
+// Player (or simulated character) `e` left or its connection was replaced: what Kiln's flight owned of it goes.
+void retire(uint32_t e);
 // Character flight's three hooks (flight.cpp; feature rules.flight), nothing while Creative Mode runs. Returns
 // KILN_RULES_HOOK_FLIGHT or 0 (`off` says why). Called with the creative hooks, at the first world.
 uint32_t install(const KilnApi* api, KilnOwner owner, std::string& off);
