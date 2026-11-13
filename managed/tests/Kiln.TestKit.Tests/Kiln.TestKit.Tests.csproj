@@ -37,6 +37,7 @@
     <TkMod Include="mods/TkOffline/TkOffline.csproj" />
     <TkMod Include="mods/TkBlock/TkBlock.csproj" />
     <TkMod Include="mods/TkFakes/TkFakes.csproj" />
+    <TkMod Include="mods/TkProgress/TkProgress.csproj" />
     <ProjectReference Include="@(TkMod)" />
     <!-- Kiln.Hooks beside the kit, as in kiln/host: TkOffline reads it (a service that remembers a missing table). -->
     <ProjectReference Include="../../services/Kiln.Hooks/Kiln.Hooks.csproj" />
@@ -53,6 +54,9 @@
     <ProjectReference Include="../../services/Kiln.Content/Kiln.Content.csproj" />
     <!-- Beside the kit for the recording fake of kiln.combat (TkFakes uses Kiln.Combat). -->
     <ProjectReference Include="../../services/Kiln.Combat/Kiln.Combat.csproj" />
+    <!-- Beside the kit for TkProgress: Kiln.Quests' and Kiln.Skills' engines on the kit's players and saves. -->
+    <ProjectReference Include="../../services/Kiln.Quests/Kiln.Quests.csproj" />
+    <ProjectReference Include="../../services/Kiln.Skills/Kiln.Skills.csproj" />
     <!-- Kiln's sample mods: built folders for LoadFolder; SampleTests also referenced so a suite can name its class. -->
     <TkSample Include="../../../mods/samples/SampleLib/SampleLib.csproj" />
     <TkSample Include="../../../mods/samples/SampleConsumer/SampleConsumer.csproj" />
@@ -66,6 +70,7 @@
     <TkSample Include="../../../mods/samples/SkyControl/SkyControl.csproj" />
     <!-- Samples that run their real logic on the kit's recording fakes (SampleFakesTests). -->
     <TkSample Include="../../../mods/samples/CreatureTweaks/CreatureTweaks.csproj" />
+    <TkSample Include="../../../mods/samples/SkillTreeSample/SkillTreeSample.csproj" />
     <ProjectReference Include="@(TkSample)" ReferenceOutputAssembly="false" />
     <TkSample Include="../../../mods/samples/SampleTests/SampleTests.csproj" />
     <ProjectReference Include="../../../mods/samples/SampleTests/SampleTests.csproj" />

@@ -92,4 +92,24 @@ public sealed class SampleFakesTests
         kiln.StepUntil(() => Said(kiln.RunCommand(admin, "labels")).Contains("0 label(s)", StringComparison.Ordinal), maxSteps: 200,
             pace: TimeSpan.FromMilliseconds(20));
     }
+
+    [Fact]
+    public void SkillTreeSamplesTalentTreeIsUnlockedForAFakePlayer()
+    {
+        using var kiln = new KilnHarness();
+        kiln.LoadFolder(TestMods.Folder("SkillTreeSample"));
+        var ada = kiln.Players.Join("Ada", AdaSteam);
+        kiln.Step(2);
+        Assert.Contains("skilltreesample: kiln.skills is not available here", kiln.Lines("skilltreesample", "skilltreesample:"));  // the game's tree
+        // Kiln.Skills reads the "trees" of the loaded mods' skills/*.json once per process, at its start (the first service
+        // tick): under the kit that tick runs before any harness loads a mod, so the test loads the sample's file as the mod
+        var trees = kiln.As(kiln.Mod("skilltreesample"), () => Skills.LoadTrees());
+        Assert.Equal(["skilltreesample:ember"], trees.Select(t => t.Id));
+        // the sample's first node, as the player's tree screen asks for it
+        var r = kiln.Run(() => Skills.Unlock(ada.Entity, "skilltreesample:ember", "kindle"));
+        Assert.True(r.Ok, r.Reason);
+        Assert.Contains(kiln.Lines("skilltreesample", "skilltreesample:"), l => l.Contains("Unlock kindle -> level 1", StringComparison.Ordinal));
+        Assert.Equal(1, kiln.Run(() => Skills.LevelOf("skilltreesample:ember", "kindle", Skills.HolderOf(ada.Entity))));
+        Assert.False(kiln.Run(() => Skills.Unlock(ada.Entity, "skilltreesample:ember", "core")).Ok);  // needs step
+    }
 }

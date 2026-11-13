@@ -69,6 +69,16 @@ public static partial class Coverage
             "TimeSetEvent and the day and night events as Kiln.Time polls the clock; KilnHarness.Time.Calls records mods' changes. " +
             "Offline: the weather (its table, layers, choice and reset), the sync probe, sleeping, saving the time with the world",
             [TimeAbi.Service, .. TimeFake.Features, .. TimeFake.OfflineRows]);
+        Row("Quests (Kiln.Quests' engine)", CoverageKind.Real,
+            "a quest a mod defines (Quests.Define, quests/*.json) is started, advanced and completed for a fake player through " +
+            "Quests.Start, Advance, Complete, SetStep, Fail and Abandon, with QuestStartedEvent, QuestStepEvent, QuestCompletedEvent and " +
+            "its record in the world's saved data: the engine is Kiln's managed code on the fake players and saves. Unavailable: the " +
+            "game's journal and knowledge (kiln.knowledge), quest markers (kiln.questmark), the game's NPCs and their conversations");
+        Row("Skills (Kiln.Skills' talent trees)", CoverageKind.Real,
+            "a talent tree a mod registers (Skills.Register, skills/*.json \"trees\"): Skills.Unlock, LevelOf, Points, State, " +
+            "TalentUnlockingEvent (a handler may refuse) and TalentChangedEvent, per player in the saved data: Kiln's managed code on " +
+            "the fake players and saves. Unavailable: the game's own skill tree (kiln.skills: GameTree), the game's levels and points " +
+            "(kiln.progression), the tree screen and what an effect does in the game");
         Row("kiln.net", CoverageKind.Unavailable,
             "no fake: a true pair is a client hosting its world (a kiln.client fake, a client-side harness, a client tick) and " +
             "shares one channel registry, so no handshake refusal could be tested; Kiln.Network reports itself unavailable",

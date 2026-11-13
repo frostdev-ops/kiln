@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- A test mod of Kiln.TestKit.Tests: a quest and a talent tree defined in code, on the kit's players and saves (see ../Directory.Build.targets). -->
+  <ItemGroup>
+    <ProjectReference Include="$(KilnManaged)services/Kiln.Quests/Kiln.Quests.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="$(KilnManaged)services/Kiln.Skills/Kiln.Skills.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="$(KilnManaged)services/Kiln.Players/Kiln.Players.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="$(KilnManaged)services/Kiln.Chat/Kiln.Chat.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="$(KilnManaged)services/Kiln.Permissions/Kiln.Permissions.csproj" Private="false" ExcludeAssets="runtime" />
+    <None Include="TkProgress.kiln.mod.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>
