@@ -1,0 +1,10 @@
+{
+  "id": "calm-bell",
+  "name": "Calm bell sample",
+  "version": "0.1.0",
+  "apiVersion": "0.2",
+  "license": "MIT",
+  "entryAssembly": "CalmBell.dll",
+  "side": "server",
+  "description": "/bell puts down a barrel anyone can use: enemies then hit half as hard for ten minutes. Shows an interaction offer of a mod's own and a game setting changed for a while and put back."
+}

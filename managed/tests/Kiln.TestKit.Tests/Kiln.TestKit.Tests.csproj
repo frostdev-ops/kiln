@@ -37,9 +37,23 @@
     <ProjectReference Include="@(TkMod)" />
     <!-- Kiln.Hooks beside the kit, as in kiln/host: TkOffline reads it (a service that remembers a missing table). -->
     <ProjectReference Include="../../services/Kiln.Hooks/Kiln.Hooks.csproj" />
+    <!-- The services the samples of SampleModsTests use, beside the kit as in kiln/host (a mod whose service assembly
+         is not there does not load). With no game they answer "not available", which is what those tests check. -->
+    <ProjectReference Include="../../services/Kiln.Rules/Kiln.Rules.csproj" />
+    <ProjectReference Include="../../services/Kiln.Gameplay/Kiln.Gameplay.csproj" />
+    <ProjectReference Include="../../services/Kiln.Settings/Kiln.Settings.csproj" />
+    <ProjectReference Include="../../services/Kiln.Spawn/Kiln.Spawn.csproj" />
+    <ProjectReference Include="../../services/Kiln.Items/Kiln.Items.csproj" />
+    <ProjectReference Include="../../services/Kiln.World/Kiln.World.csproj" />
     <!-- Kiln's sample mods: built folders for LoadFolder; SampleTests also referenced so a suite can name its class. -->
     <TkSample Include="../../../mods/samples/SampleLib/SampleLib.csproj" />
     <TkSample Include="../../../mods/samples/SampleConsumer/SampleConsumer.csproj" />
+    <!-- Samples of the docs' table that the kit can run offline (SampleModsTests): building them here is also what
+         makes the gate fail when one stops compiling. -->
+    <TkSample Include="../../../mods/samples/SavedData/SavedData.csproj" />
+    <TkSample Include="../../../mods/samples/AdminTools/AdminTools.csproj" />
+    <TkSample Include="../../../mods/samples/CalmBell/CalmBell.csproj" />
+    <TkSample Include="../../../mods/samples/QuietServer/QuietServer.csproj" />
     <ProjectReference Include="@(TkSample)" ReferenceOutputAssembly="false" />
     <TkSample Include="../../../mods/samples/SampleTests/SampleTests.csproj" />
     <ProjectReference Include="../../../mods/samples/SampleTests/SampleTests.csproj" />
