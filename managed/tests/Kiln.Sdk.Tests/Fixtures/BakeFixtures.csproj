@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Mods the bake tests run (../BakeTests.cs) from folders they make: a plain class library, not Kiln.Sdk, so building it
+       never bakes (one of them never returns from OnLoad). -->
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../../Kiln.Api/Kiln.Api.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="../../../services/Kiln.Quests/Kiln.Quests.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="../../../services/Kiln.Ui/Kiln.Ui.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="../../../services/Kiln.Assets/Kiln.Assets.csproj" Private="false" ExcludeAssets="runtime" />
+  </ItemGroup>
+</Project>

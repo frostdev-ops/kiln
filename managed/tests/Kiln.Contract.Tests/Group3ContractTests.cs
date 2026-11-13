@@ -13,7 +13,7 @@ public sealed class ChatContractTests : ContractTest
         Assert.False(Chat.Available);
         AssertOffline("kiln.chat");
         foreach (var name in (string[])["chat.send", "chat.receive", "chat.players"])
-            Assert.StartsWith("needs kiln.chat", AssertOffline(name).ReasonText);
+            AssertOffOffline(name, "needs kiln.chat");
     }
 
     [Fact]

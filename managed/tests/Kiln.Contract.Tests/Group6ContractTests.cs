@@ -16,8 +16,8 @@ public sealed class UiContractTests : ContractTest
         AssertOffline("kiln.ui");
         AssertOffline("kiln.render");
         foreach (var name in (string[])["ui.screens", "ui.main_menu", "ui.menu_page", "ui.crafting", "ui.language"])
-            Assert.StartsWith("needs kiln.ui", AssertOffline(name).ReasonText);
-        Assert.StartsWith("needs kiln.render", AssertOffline("render.camera").ReasonText);
+            AssertOffOffline(name, "needs kiln.ui");
+        AssertOffOffline("render.camera", "needs kiln.render");
     }
 
     [Fact]
@@ -45,7 +45,7 @@ public sealed class QuestsContractTests : ContractTest
         Assert.False(WorldProgress.PlacesReady);
         AssertOffline("kiln.knowledge");
         foreach (var name in (string[])["quests.knowledge", "quests.journal", "quests.dialogue", "quests.npc", "quests.changes", "quests.client_input"])
-            Assert.StartsWith("needs kiln.knowledge", AssertOffline(name).ReasonText);
+            AssertOffOffline(name, "needs kiln.knowledge");
         // the world's progress lists are built on demand (kiln.assets' data), not a capability: no row, and asking the
         // rows never starts the build
         Assert.Equal(CapabilityReason.Unknown, Capabilities.Get("world_progress.places").Reason);

@@ -62,6 +62,7 @@ copied); copies NuGet dependencies next to the mod (they load into the mod's own
 | `KilnPackExclude` | `assets/cooked/**` | globs KilnPack leaves out, relative to the mod folder. Cooked files are made from the player's own game, so they never ship |
 | `KilnAnalyzers` | true | false: no KILN1xx analyzers ([analyzers.md](analyzers.md)) |
 | `KilnGameIds` | `Items;Perks;Buffs;Skills;Workshops` | game-id constants generated from the local catalog; `All`, `None` ([catalogs.md](catalogs.md)) |
+| `KilnBake`, `KilnBakeSteps` | true when `KilnServices` names Quests, Skills, Blocks or Vfx; 10 | bake what the code defines (quests, game-tree nodes, VFX, materials) into the mod, so the first start has it ([baked.md](baked.md)); false: no bake |
 | `KilnCatalog`, `KilnCatalogSide` | `$KILN_CATALOG`, else `<data>/catalog`; server for `KilnSide` server, otherwise client | which catalog file `KilnGameIds` reads |
 
 Items: `KilnDependency` (`Version`, `Optional`), `KilnLoadBefore`, `KilnLoadAfter`, `KilnIncompatible` (`Version`).
@@ -81,6 +82,9 @@ service in `KilnServices`; warning `KILN003` (unknown keys, short versions, id d
 
 ### Targets
 - `dotnet build`: the output folder **is** the mod folder (`<Mod>.dll`, `.pdb`, `kiln.mod.json`, NuGet dependencies).
+  `KilnBake` runs the built mod under KilnHarness and writes what its code defines for the game's start into it
+  ([baked.md](baked.md)); a mod that does not load without the game is not baked (a build line says so), other
+  problems are a warning `KILN030`, never an error.
 - `dotnet build -t:KilnDeploy -p:KilnServer=<server>`: copies the mod's files (not Kiln.*, not deps/runtimeconfig
   files) into `<server>/kiln/mods/<id>/`, replacing old dlls/pdbs. With `-p:KilnReload=true` the running server
   reloads it within a second (a mod that was not loaded yet is loaded: `reload` falls back to the folder).
@@ -131,6 +135,14 @@ like `kiln.example`: `native/services/weather/`, `native/core/abi/services/kiln_
 | `kiln-cosmetic` | A hat, a hair style and a beard on the game's looks, in C# and `blocks/*.json` | both, kiln | Builds and lints. How it looks needs a client |
 | `kiln-building-material` | A building material with a surface, and a terrain material, as data | both, mod | Builds and lints |
 | `kiln-ability-blocks` | A weapon perk, an ability on a key, a talent tree and a trigger, in C# and `blocks/*.json` | both, mod | Builds and lints. Keys and the tree need a client |
+| `kiln-unit-test` | An xunit project that runs a mod with no game, under `dotnet test` (Kiln.TestKit, [unit-tests.md](unit-tests.md)) | | Runs offline; not a lab mod |
+| `kiln-events` | `[Subscribe]` methods, `Events.On` with a priority, and a cancelable event of the mod's own that other mods can change | server, none | Created from the packed SDK and built; not run in a lab |
+| `kiln-saved-data` | A value for the world (`WorldData`) and one per player by Steam id (`PlayerData`), `/notes`, `/motto` | server, none | Created from the packed SDK and built; not run in a lab (the sample `SavedData` is tested offline) |
+| `kiln-rules` | Kiln.Rules: a rule for everyone, a timed rule for one player (`/fly`), NoClip through Kiln's switch (`/ghost`) | server, none | Created from the packed SDK and built; not run in a lab |
+| `kiln-network` | A network channel between the mod's server side and its client side: typed messages, a reply, a broadcast | both, mod | Created from the packed SDK and built; needs a client |
+| `kiln-screen-effect` | Screen effects as blocks: a tint while a status lasts, a flash where a spell lands | both, kiln | Created from the packed SDK and built; what the screen shows needs a client |
+| `kiln-hooks` | Advanced: a detour on a function of the game itself with Kiln.Hooks, which counts calls and runs the original (`KilnAdvanced`) | server, none | Created from the packed SDK and built; not run in a lab (the sample `HookSample` is) |
+| `kiln-shader` | Advanced: a particle effect moved by the mod's own shader hooks (`shaders/swirl.hlsl`, the built `shaders/build/swirl.spv`, `blocks/vfx.json`) | both, mod | Created from the packed SDK and built, the built module arrives in the mod folder unchanged; what it draws needs a client |
 
 ### Block templates
 The `-blocks` templates and `kiln-npc`, `kiln-cosmetic`, `kiln-building-material` build everything from typed blocks

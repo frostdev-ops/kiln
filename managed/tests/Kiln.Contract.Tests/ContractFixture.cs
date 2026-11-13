@@ -84,6 +84,20 @@ public abstract class ContractTest : IDisposable
         return row;
     }
 
+    /// <summary>With no game: a row of the service's own is off and names what it needs; a sigdb feature the service
+    /// serves has no row (the core reports features; the service lowers one in a game where the core claims it and the
+    /// service is missing), and the service's start has handled it.</summary>
+    internal static void AssertOffOffline(string name, string needs)
+    {
+        if (ServiceCaps.IsServedFeature(name))
+        {
+            Assert.Equal(CapabilityReason.Unknown, Capabilities.Get(name).Reason);
+            Assert.False(Capabilities.Is(name));
+            return;
+        }
+        Assert.StartsWith(needs, AssertOffline(name).ReasonText);
+    }
+
     /// <summary>The call throws <see cref="KilnUnavailableException"/> naming <paramref name="capability"/>, and a
     /// <c>catch (NotSupportedException)</c> written before dev.27 still catches it.</summary>
     internal static KilnUnavailableException AssertUnavailable(string capability, Action call)

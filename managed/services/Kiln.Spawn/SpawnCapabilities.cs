@@ -33,7 +33,7 @@ public static unsafe partial class Spawn
         public const string World = "spawn.world";
     }
 
-    internal static readonly ServiceCapRows Rows = new(Caps.Service, ReportCapabilities, everySteps: 25);
+    internal static readonly ServiceCapRows Rows = new(Caps.Service, ReportCapabilities, everySteps: 25, refreshOnlyWithService: true);
 
     static Spawn() => Rows.Ensure();
 

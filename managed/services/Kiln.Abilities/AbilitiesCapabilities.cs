@@ -28,7 +28,7 @@ internal static class AbilitiesCaps
     // Reported at the service's start, again under a new registry binding (the test kit's), and every 25 steps (about
     // once a second): abilities.buffs follows the server world (its registries come with it; a client hosts after its
     // mods loaded). ServiceCaps writes a row only when it changed.
-    internal static readonly ServiceCapRows Rows = new(Service, Report, everySteps: 25);
+    internal static readonly ServiceCapRows Rows = new(Service, Report, everySteps: 25, refreshOnlyWithService: true);
 
     /// <summary>Reports the rows when they were not reported under the current registry binding yet. Never throws.</summary>
     internal static void Ensure() => Rows.Ensure();

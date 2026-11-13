@@ -14,7 +14,7 @@ public sealed class GameplayContractTests : ContractTest
         Assert.False(Gameplay.EntityEventsAvailable);
         AssertOffline("kiln.gameplay");
         foreach (var name in (string[])["gameplay.emit", "gameplay.recipes", "gameplay.spawn", "gameplay.entities", "gameplay.entity_events", "gameplay.spawn_replace"])
-            Assert.StartsWith("needs kiln.gameplay", AssertOffline(name).ReasonText);
+            AssertOffOffline(name, "needs kiln.gameplay");
     }
 
     [Fact]
@@ -54,7 +54,7 @@ public sealed class BuildContractTests : ContractTest
         Assert.Null(Build.Status);
         AssertOffline("kiln.build");
         foreach (var name in (string[])["build.read", "build.write", "build.persist", "build.items", "build.zones"])
-            Assert.StartsWith("needs kiln.build", AssertOffline(name).ReasonText);
+            AssertOffOffline(name, "needs kiln.build");
     }
 
     [Fact]
@@ -125,7 +125,7 @@ public sealed class SkillsContractTests : ContractTest
         Assert.False(GameTree.Available);
         AssertOffline("kiln.skills");
         foreach (var name in (string[])["skills.functions", "skills.login_guard", "skills.shadow", "skills.tree_load"])
-            Assert.StartsWith("needs kiln.skills", AssertOffline(name).ReasonText);
+            AssertOffOffline(name, "needs kiln.skills");
     }
 
     [Fact]

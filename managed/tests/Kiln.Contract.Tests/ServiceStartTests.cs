@@ -67,6 +67,10 @@ internal sealed class IsolatedKiln
         return (P("State"), P("Reason"), P("ReasonText"));
     }
 
+    /// <summary>A sigdb feature a service's start has handled (ServiceCaps.IsServedFeature in this copy).</summary>
+    public bool ServedFeature(string name) =>
+        (bool)Type("Kiln.ServiceCaps").GetMethod("IsServedFeature", All)!.Invoke(null, [name])!;
+
     /// <summary>The names of the service tick's handlers now.</summary>
     public IReadOnlyList<string> TickHandlers()
     {
@@ -141,7 +145,10 @@ public sealed class ServiceStartTests
             foreach (var cap in IsolatedKiln.RequiredNames(assembly).Distinct())
             {
                 var (state, reason, text) = kiln.Row(cap);
-                if (reason == "Unknown") bad.Add($"{name}: {cap} has no row after the first tick");
+                if (reason == "Unknown")
+                {
+                    if (!kiln.ServedFeature(cap)) bad.Add($"{name}: {cap} has no row after the first tick");
+                }
                 else if (state == "Available") bad.Add($"{name}: {cap} is available with no game");
                 else if (text.Length == 0) bad.Add($"{name}: {cap} is off without a reason text");
             }
@@ -156,18 +163,32 @@ public sealed class ServiceStartTests
     [InlineData("assets.textures", "needs kiln.assets")]
     [InlineData("settings.ready", "needs kiln.settings")]
     [InlineData("spawn.components", "needs kiln.spawn")]
-    [InlineData("skills.functions", "needs kiln.skills")]
-    [InlineData("chat.send", "needs kiln.chat")]
-    [InlineData("quests.journal", "needs kiln.knowledge")]
-    [InlineData("ui.screens", "needs kiln.ui")]
     [InlineData("combat.attributes", "needs kiln.combat")]
-    [InlineData("abilities.natives", "needs kiln.abilities")]
+    [InlineData("combat.hold_filter", "needs kiln.combat")]
+    [InlineData("abilities.buffs", "kiln.abilities is unavailable")]
     public void A_row_a_service_reports_itself_is_there_after_the_first_tick(string row, string because)
     {
         var (state, reason, text) = Started.Value.Row(row);
         Assert.Equal("Unavailable", state);
         Assert.Equal("Offline", reason);
         Assert.StartsWith(because, text);
+    }
+
+    /// <summary>The sigdb features a service serves are handled at its start: with no Kiln core they have no row (the
+    /// core reports features), and in a game a feature the core claims is lowered while its service is missing.</summary>
+    [Theory]
+    [InlineData("chat.send")]
+    [InlineData("quests.journal")]
+    [InlineData("ui.screens")]
+    [InlineData("combat.hits")]
+    [InlineData("abilities.natives")]
+    [InlineData("gameplay.craft")]
+    [InlineData("content.items")]
+    [InlineData("skills.functions")]
+    public void A_feature_a_service_serves_is_handled_at_its_start(string feature)
+    {
+        Assert.True(Started.Value.ServedFeature(feature));
+        Assert.Equal("Unknown", Started.Value.Row(feature).Reason);
     }
 
     [Fact]

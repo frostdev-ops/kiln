@@ -17,8 +17,8 @@ public sealed class ContentContractTests : ContractTest
         AssertOffline("kiln.content");
         AssertOffline("kiln.gamedata");
         foreach (var name in (string[])["content.items", "content.recipes", "content.new", "content.references", "content.ready"])
-            Assert.StartsWith("needs kiln.content", AssertOffline(name).ReasonText);
-        Assert.StartsWith("needs kiln.gamedata", AssertOffline("gamedata.template_clones").ReasonText);
+            AssertOffOffline(name, "needs kiln.content");
+        AssertOffOffline("gamedata.template_clones", "needs kiln.gamedata");
         Assert.False(Capabilities.Get("content.ready").SessionDependent);
     }
 
@@ -79,7 +79,7 @@ public sealed class CreaturesContractTests : ContractTest
         Assert.Null(Creatures.Status);
         AssertOffline("kiln.creatures");
         foreach (var name in (string[])["creatures.ai", "creatures.arsenals", "creatures.attacks", "creatures.rules", "creatures.commands"])
-            Assert.StartsWith("needs kiln.creatures", AssertOffline(name).ReasonText);
+            AssertOffOffline(name, "needs kiln.creatures");
     }
 
     [Fact]

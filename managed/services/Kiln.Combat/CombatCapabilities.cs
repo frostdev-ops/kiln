@@ -20,7 +20,7 @@ internal static unsafe class CombatCaps
     public static readonly string[] Features =
         ["combat.actor_states", "combat.attr_heals", "combat.deaths", "combat.falls", "combat.health", "combat.hits", "combat.regen"];
 
-    internal static readonly ServiceCapRows Rows = new(Service, Report, everySteps: 25);
+    internal static readonly ServiceCapRows Rows = new(Service, Report, everySteps: 25, refreshOnlyWithService: true);
 
     private static void Report()
     {

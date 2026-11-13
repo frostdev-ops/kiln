@@ -17,7 +17,7 @@ public sealed class CombatContractTests : ContractTest
         Assert.False(Attributes.Available);
         AssertOffline("kiln.combat");
         foreach (var name in (string[])["combat.health", "combat.hits", "combat.deaths", "combat.falls", "combat.hold_filter", "combat.attributes"])
-            Assert.StartsWith("needs kiln.combat", AssertOffline(name).ReasonText);
+            AssertOffOffline(name, "needs kiln.combat");
         Assert.False(Capabilities.Get("combat.attributes").SessionDependent);  // never pending without the service
     }
 

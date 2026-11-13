@@ -158,6 +158,10 @@ internal static unsafe class CombatNative
 
     private static Table* _t;
 
+    /// <summary>The v3 table if kiln.combat was found already; never asks the backend (EntityWatch's push runs on every
+    /// subscription, in the subscribing mod's code: a test kit would count a lookup there as that mod needing kiln.combat).</summary>
+    public static TableV3* V3Found => _t != null && _t->Header.Size >= (uint)sizeof(TableV3) ? (TableV3*)_t : null;
+
     /// <summary>The table, or null when kiln.combat is not loaded (looked up again until it is found).</summary>
     public static Table* T => _t != null ? _t : _t = Services.Get<Table>(Name, Version);
 

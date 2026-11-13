@@ -88,11 +88,30 @@ internal static class ServiceCaps
     }
 
     /// <summary>Lowers a row the core reports (a sigdb feature): unavailable, unless the row already says why it is off
-    /// (then the core's reason stands).</summary>
+    /// (then the core's reason stands). Only the core's own claim is lowered: a feature sigdb resolved (source
+    /// <c>sigdb</c>). A feature with no row (no Kiln core: a unit test, a tool) stays without one, as
+    /// <see cref="Capabilities.Is"/> is false for it anyway, and a row someone else claims (a test kit's backend that
+    /// switches a feature on for a test) stays theirs: lowering either would hold the feature off for the rest of the
+    /// process, also after the test switched it on.</summary>
     public static void Lower(string name, CapabilityReason reason, string text)
     {
-        if (Capabilities.Get(name) is { State: CapabilityState.Unavailable, Reason: not CapabilityReason.Unknown }) return;
-        Report(name, CapabilityState.Unavailable, reason, text);
+        lock (Gate) Declared.Add(name);
+        if (LowersRow(Capabilities.Get(name))) Report(name, CapabilityState.Unavailable, reason, text);
+    }
+
+    /// <summary>Whether <see cref="Lower"/> lowers a row that reads <paramref name="row"/> now: an available feature
+    /// that sigdb resolved.</summary>
+    internal static bool LowersRow(Capability row) =>
+        row.State == CapabilityState.Available && string.Equals(row.Source, "sigdb", StringComparison.Ordinal);
+
+    // every feature name a service has lowered or would have (a service's sigdb features; tests read it)
+    private static readonly HashSet<string> Declared = new(StringComparer.Ordinal);
+
+    /// <summary>A sigdb feature some service's start has handled with <see cref="Lower"/>: with no Kiln core it has no
+    /// row, in a game the core's.</summary>
+    internal static bool IsServedFeature(string name)
+    {
+        lock (Gate) return Declared.Contains(name);
     }
 
     /// <summary>Why something is off: the first row of <paramref name="needs"/> that is off (its reason, and
@@ -144,7 +163,11 @@ internal static class ServiceCaps
 /// touch game state.</param>
 /// <param name="everySteps">0: the rows are fixed. Otherwise <paramref name="report"/> runs again every that many
 /// steps of the service tick.</param>
-internal sealed class ServiceCapRows(string owner, Action report, int everySteps = 0)
+/// <param name="refreshOnlyWithService">The periodic run is skipped while <paramref name="owner"/>'s own row says the
+/// service is off: its session rows cannot change then, and a wrapper that looks a missing table up again on every read
+/// would ask the backend for it every <paramref name="everySteps"/> steps (a test kit counts that as the test needing
+/// the service).</param>
+internal sealed class ServiceCapRows(string owner, Action report, int everySteps = 0, bool refreshOnlyWithService = false)
 {
     private readonly object _gate = new();
     private long _epoch = -1;
@@ -170,7 +193,9 @@ internal sealed class ServiceCapRows(string owner, Action report, int everySteps
                     _tick?.Dispose();
                     _tick = ServiceTick.Add(owner + " capabilities", (in TickInfo t) =>
                     {
-                        if (t.Step % (ulong)everySteps == 0) Refresh();
+                        if (t.Step % (ulong)everySteps != 0) return;
+                        if (refreshOnlyWithService && Capabilities.Get(owner).State == CapabilityState.Unavailable) return;
+                        Refresh();
                     });
                 }
             }

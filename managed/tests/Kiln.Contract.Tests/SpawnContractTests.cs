@@ -15,10 +15,7 @@ public sealed class SpawnContractTests : ContractTest
         Assert.False(Spawn.Available);
         AssertOffline("kiln.spawn");
         foreach (var name in (string[])["spawn.create", "spawn.destroy", "spawn.entities", "spawn.templates", "spawn.components", "spawn.world"])
-        {
-            var row = AssertOffline(name);
-            Assert.StartsWith("needs kiln.spawn", row.ReasonText);
-        }
+            AssertOffOffline(name, "needs kiln.spawn");
         // a row that is off from the start never claims to follow the session
         Assert.False(Capabilities.Get("spawn.world").SessionDependent);
     }

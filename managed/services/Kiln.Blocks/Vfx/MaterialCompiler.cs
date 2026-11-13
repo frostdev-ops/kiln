@@ -58,12 +58,13 @@ internal static partial class Compiler
         if (result == VfxBlockStatus.Pending)
             low.AfterCommit(() =>
             {
-                var text = $"material {name} is new to this game: it is kept for the next start, and a model that names it doesn't draw until then";
+                var (text, toast) = VfxNative.PendingNote("material", name, mod.Id,
+                    VfxNative.BakedNames(BlocksBridge.ModDirectory(mod.Id), mod.Id).Contains($"materials/{name}"));
                 lock (mod.Warnings)
                     if (!mod.Warnings.Contains(text)) mod.Warnings.Add(text);
                 mod.ReportDirty = true;
                 BlocksBridge.Log(LogLevel.Warn, $"blocks: {mod.Id}: {text}");
-                Hud.Toast($"{mod.Id}: new material \"{name}\": restart the game to see it", ToastKind.Warning, 8);
+                Hud.Toast(toast, ToastKind.Warning, 8);
             });
         return result;
     }

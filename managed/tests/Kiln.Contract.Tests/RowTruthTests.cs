@@ -138,8 +138,8 @@ public sealed unsafe class AssetsRowTruthTests : FakeTableTest
         Assert.Equal(CapabilityState.Unavailable, row.State);
         Assert.Equal(CapabilityReason.Faulted, row.Reason);
         Assert.Contains("content hooks", row.ReasonText);
-        Assert.Equal(CapabilityReason.Faulted, Capabilities.Get("assets.content").Reason);
-        Assert.Contains("ReadContent", Capabilities.Get("assets.content").ReasonText);
+        Assert.Contains("ReadContent", row.ReasonText);  // kiln.assets' own reason
+        Assert.False(Capabilities.Is("assets.content"));
         AssertUnavailable("assets.textures", OverrideTexture);
     }
 
@@ -166,5 +166,29 @@ public sealed unsafe class AssetsRowTruthTests : FakeTableTest
         UseTable(ModSide.Server, resources: true, content: true);
         Assert.Equal(CapabilityReason.WrongSide, Capabilities.Get("assets.textures").Reason);
         AssertUnavailable("assets.textures", OverrideTexture);
+    }
+}
+
+/// <summary>Which rows a service's start lowers (ServiceCaps.Lower): only the core's own claim, a feature sigdb resolved.</summary>
+public sealed class FeatureLoweringTests
+{
+    private static Capability Row(CapabilityState state, string source, CapabilityReason reason = CapabilityReason.None) =>
+        new("gameplay.craft", state, reason, "", source);
+
+    [Fact]
+    public void A_feature_sigdb_resolved_is_lowered_while_its_service_is_missing()
+    {
+        Assert.True(ServiceCaps.LowersRow(Row(CapabilityState.Available, "sigdb")));
+    }
+
+    [Fact]
+    public void A_row_someone_else_claims_or_no_row_is_left_alone()
+    {
+        // a test kit's backend switching the feature on for a test, a feature with no row (no Kiln core), and a feature
+        // that is already off with its own reason
+        Assert.False(ServiceCaps.LowersRow(Row(CapabilityState.Available, "backend")));
+        Assert.False(ServiceCaps.LowersRow(Row(CapabilityState.Available, "testkit")));
+        Assert.False(ServiceCaps.LowersRow(Row(CapabilityState.Unavailable, "", CapabilityReason.Unknown)));
+        Assert.False(ServiceCaps.LowersRow(Row(CapabilityState.Unavailable, "sigdb", CapabilityReason.SymbolMissing)));
     }
 }

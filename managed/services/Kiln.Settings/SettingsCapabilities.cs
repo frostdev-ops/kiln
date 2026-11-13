@@ -18,7 +18,7 @@ public static unsafe partial class Settings
         public static readonly string[] Features = ["settings.live", "settings.world", "settings.resend", "settings.daytime"];
     }
 
-    internal static readonly ServiceCapRows Rows = new(Name, ReportCapabilities, everySteps: 25);
+    internal static readonly ServiceCapRows Rows = new(Name, ReportCapabilities, everySteps: 25, refreshOnlyWithService: true);
 
     static Settings() => Rows.Ensure();
 

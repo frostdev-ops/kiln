@@ -164,7 +164,7 @@ Blocks.Define("ember-arts", new TalentTreeBlock
 });
 Blocks.Define("ember-ward", new TalentBlock { Name = "Ember Ward", MaxLevel = 3, Modifies = { [Stat.Strength] = 1 }, Game = new GameTreePlace { From = ["0x8efcc472"], Offset = [170, -40] } });
 ```
-A tree goes on Kiln's own screen ([skills.md](../services/skills.md), part B): `Points`, `Menu`, `Key`, `Respec`; nodes without `Column` and `Row` are laid out from what leads where. A node's tooltip is its name, level and cost, and its `Description`, or what its `Modifies` say. The node names are what saves keep. A talent with `Game` is a node of the game's own tree (part A): its screen draws it and its skill points pay for it. Past the game's room it is a shadow node. A dedicated server reads its tree before mods load, so a node defined in code or a data file is in from the next start. Both need `clients: mod`. Names in `Requires`, `Unlocks` and `Keeps` are block references, so code and JSON can
+A tree goes on Kiln's own screen ([skills.md](../services/skills.md), part B): `Points`, `Menu`, `Key`, `Respec`; nodes without `Column` and `Row` are laid out from what leads where. A node's tooltip is its name, level and cost, and its `Description`, or what its `Modifies` say. The node names are what saves keep. A talent with `Game` is a node of the game's own tree (part A): its screen draws it and its skill points pay for it. Past the game's room it is a shadow node. A dedicated server reads its tree before mods load, so a node defined in code or a data file is in from the next start (Kiln.Sdk's bake cannot help here: a talent block needs the game to load, [baked.md](baked.md); `GameTree.Define` nodes are baked). Both need `clients: mod`. Names in `Requires`, `Unlocks` and `Keeps` are block references, so code and JSON can
 share them. Keep the tree, node and ability names stable: saves use them. `Skills.Unlock`, `Lock` and `Respec`
 exercise the server rules; a client still has to confirm the screen, key binding and learned talent presentation.
 
@@ -236,7 +236,7 @@ var burst = Blocks.Define("frost_burst", new VfxBlock
 ```
 Every field is in [the builder's guide](../services/vfx-cook.md#the-definition). PNGs go in the mod's `vfx/` folder.
 
-**A block in a data file is there from the first start. One from code is there from the next**, because the game lists its VFX once, before mod code runs. Until then what names it shows nothing, `handle.Status` says `Pending`, and the log and a toast say so. The definition is kept in `kiln/data/vfx/pending/<mod>/` and built at the next start. That file stays until deleted, even if the mod stops defining the block.
+**A block in a data file is there from the first start. One from code is there from the next**, because the game lists its VFX once, before mod code runs. Built with Kiln.Sdk, a mod has its code's VFX at the first start too: the build bakes them into `blocks/generated/<mod>.json` ([baked.md](baked.md)). Until then what names it shows nothing, `handle.Status` says `Pending`, and the log and a toast say so. The definition is kept in `kiln/data/vfx/pending/<mod>/` and built at the next start. That file stays until deleted, even if the mod stops defining the block.
 
 Attach one with a `Vfx` field. It takes what `Define` returned or a block's name, `"other-mod:name"`, or `"game:<name>"` for one of the game's (`VfxRef.Game(...)` in C#). A game name is a template that carries the VFX, a sequence that plays it, or a GUID. Kiln picks the route:
 

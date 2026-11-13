@@ -32,7 +32,7 @@ internal static unsafe class ContentCaps
         "content.stack_guard",
     ];
 
-    internal static readonly ServiceCapRows Rows = new(Service, Report, everySteps: 25);
+    internal static readonly ServiceCapRows Rows = new(Service, Report, everySteps: 25, refreshOnlyWithService: true);
 
     private static void Report()
     {

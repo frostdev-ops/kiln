@@ -426,7 +426,9 @@ public static unsafe class Combat
     // them under its own lock, from any thread; kinds are only added here, the listener's return narrows them.
     private static bool PushHoldFilter(uint[] ids)
     {
-        var t = CombatNative.V3;
+        // the table as found at the service's start (a missing table does not appear later): no lookup on a mod's
+        // subscription
+        var t = CombatNative.V3Found;
         if (t == null)
         {
             if (ids.Length > 0 && !_noFilterSaid)

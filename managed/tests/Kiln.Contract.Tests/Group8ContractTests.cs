@@ -14,7 +14,7 @@ public sealed class AbilitiesContractTests : ContractTest
         Assert.Null(Abilities.Status);
         AssertOffline("kiln.abilities");
         foreach (var name in (string[])["abilities.attributes", "abilities.instances", "abilities.natives", "abilities.programs", "abilities.sequences"])
-            Assert.StartsWith("needs kiln.abilities", AssertOffline(name).ReasonText);
+            AssertOffOffline(name, "needs kiln.abilities");
         Assert.Equal(CapabilityState.Unavailable, Capabilities.Get("abilities.buffs").State);
         Assert.NotEqual(CapabilityReason.Unknown, Capabilities.Get("abilities.buff_list").Reason);
     }

@@ -98,6 +98,13 @@ internal static unsafe class SkillsNative
     private static Table* _t;
     private static bool _looked;
 
+    /// <summary>Tests: a fake kiln.skills table (null: none, as offline). Kiln never calls this.</summary>
+    internal static void UseForTests(Table* table)
+    {
+        _t = table;
+        _looked = true;
+    }
+
     public static Table* T
     {
         get
@@ -286,12 +293,14 @@ public sealed class GameNodesRefundedEvent : KilnEvent
 /// the next world it enters (define them in OnLoad: mods load in the main menu, before any world); on a dedicated
 /// server the world reads its tree before managed mods load, so put the nodes into the mod folder's
 /// <c>skills/*.json</c> (<c>"gameTree": {"nodes": [...]}</c>, read natively at boot) — a code definition is cached and in
-/// from the next start.</summary>
+/// from the next start, unless the mod is built with Kiln.Sdk, whose build bakes what the code defines into
+/// <c>skills/&lt;mod&gt;.generated.json</c> (docs/kiln/modding/baked.md).</summary>
 public static unsafe partial class GameTree
 {
-    /// <summary>True when kiln.skills is loaded on this game build (capability <c>kiln.skills</c>).</summary>
+    /// <summary>True when kiln.skills is loaded on this game build (capability <c>kiln.skills</c>), or while Kiln.Sdk's
+    /// build bakes a mod's definitions (docs/kiln/modding/baked.md).</summary>
     [AnyThread]
-    public static bool Available => SkillsNative.T != null;
+    public static bool Available => SkillsNative.T != null || Baking;
 
     /// <summary>The capability names Kiln.Skills answers for.</summary>
     internal static class Caps
@@ -309,7 +318,7 @@ public static unsafe partial class GameTree
 
     private static void ReportCapabilities()
     {
-        if (Available) return;
+        if (SkillsNative.T != null) return;
         ServiceCaps.LowerFeatures(Caps.Service, Caps.Features);
     }
 
@@ -355,12 +364,16 @@ public static unsafe partial class GameTree
 
     private static IReadOnlyList<GameNodeInfo> DefineJson(string json, ModContext? mod)
     {
+        if (SkillsNative.T == null && Baking) return Record(json, mod);
         var t = Need();
         if (mod is not null && !json.Contains("\"mod\"", StringComparison.Ordinal) && JsonNode.Parse(json) is JsonObject o && o.ContainsKey("nodes"))
         {
             o["mod"] = mod.Info.Id;
             json = o.ToJsonString();
         }
+        var kept = new List<GameNodeInfo>();
+        json = Unbaked(json, mod, kept);
+        if (kept.Count > 0 && NodesOf(json).Nodes.Count == 0) return kept;
         var owner = mod is null ? 0UL : OwnerOf(mod);
         var bytes = Encoding.UTF8.GetBytes(json);
         string report;
@@ -381,6 +394,7 @@ public static unsafe partial class GameTree
                     mod?.Info.Id ?? "", "code", n?["state"]?.GetValue<string>() ?? "error", -1, -1, err));
                 if (err is not null) SkillsInternals.Warn($"game-tree node {n?["name"]}: {err}");
             }
+        list.AddRange(kept);
         return list;
     }
 

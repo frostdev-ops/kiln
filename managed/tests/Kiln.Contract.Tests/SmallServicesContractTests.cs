@@ -36,7 +36,7 @@ public sealed class AssetsContractTests : ContractTest
         Assert.False(Assets.Available);
         AssertOffline("kiln.assets");
         foreach (var name in (string[])["assets.resources", "assets.content", "assets.ui_icons", "assets.textures"])
-            Assert.StartsWith("needs kiln.assets", AssertOffline(name).ReasonText);
+            AssertOffOffline(name, "needs kiln.assets");
     }
 
     [Fact]
@@ -91,7 +91,7 @@ public sealed class SettingsContractTests : ContractTest
         Assert.Equal(0, Settings.Revision);
         AssertOffline("kiln.settings");
         foreach (var name in (string[])["settings.ready", "settings.live", "settings.world", "settings.resend", "settings.daytime"])
-            Assert.StartsWith("needs kiln.settings", AssertOffline(name).ReasonText);
+            AssertOffOffline(name, "needs kiln.settings");
         Assert.False(Capabilities.Get("settings.ready").SessionDependent);
     }
 

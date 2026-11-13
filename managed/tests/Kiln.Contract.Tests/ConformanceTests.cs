@@ -74,7 +74,11 @@ public sealed class ConformanceTests : ContractTest
                 if (!Capabilities.ValidName(a.Name)) bad.Add($"{Name(m)}: '{a.Name}' is not a capability name");
                 var row = Capabilities.Get(a.Name);
                 if (row.State == CapabilityState.Available) bad.Add($"{Name(m)}: {a.Name} is available with no game");
-                else if (row.Reason == CapabilityReason.Unknown) bad.Add($"{Name(m)}: {a.Name} has no row after the service's rows were reported");
+                else if (row.Reason == CapabilityReason.Unknown)
+                {
+                    // a sigdb feature the service serves: the core's row in a game, none without one
+                    if (!ServiceCaps.IsServedFeature(a.Name)) bad.Add($"{Name(m)}: {a.Name} has no row after the service's rows were reported");
+                }
                 else if (row.ReasonText.Length == 0) bad.Add($"{Name(m)}: {a.Name} is off without a reason text");
             }
         Assert.True(bad.Count == 0, string.Join("; ", bad.Distinct()));

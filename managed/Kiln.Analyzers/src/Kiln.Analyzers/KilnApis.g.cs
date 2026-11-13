@@ -350,6 +350,7 @@ internal static partial class KilnApis
         "M:Kiln.ItemInstanceExtensions.Location(Kiln.ItemInstanceRef)", // ItemInstanceExtensions.Location(ItemInstanceRef): Services.RequireTickThread
         "M:Kiln.ItemInstanceRef.get_IsAlive", // ItemInstanceRef.IsAlive.get: via EntityRef.IsAlive.get
         "M:Kiln.Items.ContainerName(Kiln.EntityId)", // Items.ContainerName(EntityId): via Items.Require3(string)
+        "M:Kiln.Items.Equip(Kiln.EntityId,Kiln.SlotId,System.Nullable{Kiln.EquipmentSlot},Kiln.EquipOptions,Kiln.EntityId)", // Items.Equip(EntityId, SlotId, EquipmentSlot?, EquipOptions, EntityId): Services.RequireTickThread
         "M:Kiln.Items.Equipped(Kiln.EntityId,Kiln.EquipmentSlot)", // Items.Equipped(EntityId, EquipmentSlot): Services.RequireTickThread
         "M:Kiln.Items.FindInventories(Kiln.InventoryKinds)", // Items.FindInventories(InventoryKinds): via Items.Require(string)
         "M:Kiln.Items.Fuel.Add(Kiln.EntityId,System.Int32,System.Boolean)", // Items.Fuel.Add(EntityId, int, bool): via Items.Fuel.Submit(EntityId, uint, int, ItemId, bool, int)
@@ -373,6 +374,7 @@ internal static partial class KilnApis
         "M:Kiln.Items.Read(Kiln.EntityId)", // Items.Read(EntityId): via Items.Require(string)
         "M:Kiln.Items.Take(Kiln.EntityId,Kiln.ItemId,System.Int32,System.Nullable{Kiln.SlotId},System.Boolean,System.Nullable{Kiln.EntityId},System.Boolean)", // Items.Take(EntityId, ItemId, int, SlotId?, bool, EntityId?, bool): via Items.Submit(bool, ItemsNative.Request, string)
         "M:Kiln.Items.TakeSlot(Kiln.EntityId,Kiln.InventorySlot,System.Boolean)", // Items.TakeSlot(EntityId, InventorySlot, bool): via Items.Take(EntityId, ItemId, int, SlotId?, bool, EntityId?, bool)
+        "M:Kiln.Items.Unequip(Kiln.EntityId,Kiln.EquipmentSlot,Kiln.EquipOptions)", // Items.Unequip(EntityId, EquipmentSlot, EquipOptions): Services.RequireTickThread
         "M:Kiln.Journal.Find(System.String)", // Journal.Find(string): via Journal.Find(uint)
         "M:Kiln.Journal.Find(System.UInt32)", // Journal.Find(uint): via Journal.Quests()
         "M:Kiln.Journal.Quests", // Journal.Quests(): Services.RequireTickThread
@@ -575,12 +577,17 @@ internal static partial class KilnApis
         "M:Kiln.Teleport.To(Kiln.EntityId,Kiln.WorldPosition,Kiln.TeleportOptions)", // Teleport.To(EntityId, WorldPosition, TeleportOptions?): via Teleport.Start(EntityId, WorldPosition, EntityId, TeleportOptions)
         "M:Kiln.Teleport.ToEntity(Kiln.EntityId,Kiln.EntityId,System.Double,Kiln.TeleportOptions)", // Teleport.ToEntity(EntityId, EntityId, double, TeleportOptions?): Services.RequireTickThread
         "M:Kiln.Teleport.ToSpawnPoint(Kiln.EntityId,Kiln.EntityId,Kiln.TeleportOptions)", // Teleport.ToSpawnPoint(EntityId, EntityId, TeleportOptions?): via Teleport.Start(EntityId, WorldPosition, EntityId, TeleportOptions)
+        "M:Kiln.Time.ReleaseWeather(System.Nullable{System.Int32},System.Boolean)", // Time.ReleaseWeather(int?, bool): Services.RequireTickThread
         "M:Kiln.Time.ResetWeather", // Time.ResetWeather(): Services.RequireTickThread
         "M:Kiln.Time.Set(System.Double,Kiln.TimeSetMode)", // Time.Set(double, TimeSetMode): Services.RequireTickThread
         "M:Kiln.Time.Set(System.String,Kiln.TimeSetMode)", // Time.Set(string, TimeSetMode): via Time.Set(double, TimeSetMode)
         "M:Kiln.Time.Set(System.TimeSpan,Kiln.TimeSetMode)", // Time.Set(TimeSpan, TimeSetMode): via Time.Set(double, TimeSetMode)
         "M:Kiln.Time.SetCycle(Kiln.TimeCycle)", // Time.SetCycle(TimeCycle): via Time.SetSpeed(double?)
         "M:Kiln.Time.SetSpeed(System.Nullable{System.Double})", // Time.SetSpeed(double?): Services.RequireTickThread
+        "M:Kiln.Time.SetWeather(Kiln.WeatherPhenomenon,System.Nullable{System.TimeSpan})", // Time.SetWeather(WeatherPhenomenon, TimeSpan?): Services.RequireTickThread
+        "M:Kiln.Time.SetWeather(System.String,System.Nullable{System.TimeSpan},System.Nullable{System.Int32})", // Time.SetWeather(string, TimeSpan?, int?): Services.RequireTickThread
+        "M:Kiln.Time.get_Weather", // Time.Weather.get: Services.RequireTickThread
+        "M:Kiln.Time.get_WeatherPhenomena", // Time.WeatherPhenomena.get: Services.RequireTickThread
         "M:Kiln.Time.set_OfDay(System.Double)", // Time.OfDay.set: via Time.Set(double, TimeSetMode)
         "M:Kiln.Vfx.PlayAt(Kiln.VfxId,Kiln.WorldPosition,System.Nullable{System.Numerics.Quaternion},System.Single,Kiln.VfxParams,System.Nullable{System.TimeSpan},System.Single)", // Vfx.PlayAt(VfxId, WorldPosition, Quaternion?, float, VfxParams?, TimeSpan?, float): via VfxRelay.Play(byte, Guid, WorldPosition, Quaternion?, float, EntityId, Slot, Offset, long, VfxParams?, float, EntityId)
         "M:Kiln.Vfx.PlayFor(Kiln.EntityId,Kiln.VfxId,Kiln.WorldPosition,Kiln.VfxParams,System.Nullable{System.TimeSpan})", // Vfx.PlayFor(EntityId, VfxId, WorldPosition, VfxParams?, TimeSpan?): via VfxRelay.Play(byte, Guid, WorldPosition, Quaternion?, float, EntityId, Slot, Offset, long, VfxParams?, float, EntityId)
