@@ -146,11 +146,19 @@ public static unsafe class Combat
 
     /// <summary>True when health access works on this build and a server world runs.</summary>
     [AnyThread]
-    public static bool Available => Used(CombatNative.T != null) && Status is { Health: true };
+    public static bool Available
+    {
+        // a block with one return: the analyzers' guard table reads the returned terms (KILN121 takes this property as
+        // asking kiln.combat), which a call wrapped around them would hide
+        get { Used(); return CombatNative.T != null && Status is { Health: true }; }
+    }
 
     /// <summary>True when Damage/Kill (the engine hit path) work.</summary>
     [AnyThread]
-    public static bool HitsAvailable => Used(CombatNative.T != null) && Status is { Hits: true };
+    public static bool HitsAvailable
+    {
+        get { Used(); return CombatNative.T != null && Status is { Hits: true }; }
+    }
 
     /// <summary>kiln.combat's state and counters, or null when it is not loaded. Any thread.</summary>
     [AnyThread]
@@ -388,13 +396,6 @@ public static unsafe class Combat
     }
 
     private static bool IsPlayerId(EntityId e) => e.Value is >= 1 and <= 1023;
-
-    // Used() inside an expression (the availability getters)
-    private static bool Used(bool value)
-    {
-        Used();
-        return value;
-    }
 
     // ------------------------------------------------------------------------------------------------ plumbing ----
 

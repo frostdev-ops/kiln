@@ -118,7 +118,12 @@ public static unsafe partial class Gameplay
 
     /// <summary>True when the native service is loaded on this game build (capability <c>kiln.gameplay</c>).</summary>
     [AnyThread]
-    public static bool Available => Used(GameplayNative.T != null);
+    public static bool Available
+    {
+        // a block with one return: the analyzers' guard table reads the returned terms (KILN121 takes this property as
+        // asking kiln.gameplay), which a call wrapped around them would hide
+        get { Used(); return GameplayNative.T != null; }
+    }
 
     /// <summary>Makes sure the native service delivers events to the bus. Safe to call often.</summary>
     public static bool Enable() => EnsureListener();
@@ -367,7 +372,10 @@ public static unsafe partial class Gameplay
 
     /// <summary>True when the entity lifecycle events work on this build (capability <c>gameplay.entity_events</c>).</summary>
     [AnyThread]
-    public static bool EntityEventsAvailable => Used(GameplayNative.EntityFilter(GameplayNative.T) != null) && Status is { EntityHooks: true };
+    public static bool EntityEventsAvailable
+    {
+        get { Used(); return GameplayNative.EntityFilter(GameplayNative.T) != null && Status is { EntityHooks: true }; }
+    }
 
     // Once per step (tick): tell the native hooks which categories to record.
     private static void SyncEntityFilter()
@@ -479,12 +487,6 @@ public static unsafe partial class Gameplay
     internal static void Used()
     {
         if (Volatile.Read(ref _listening) == 0 && ServiceUse.ByMod) EnsureListener();
-    }
-
-    private static bool Used(bool value)
-    {
-        Used();
-        return value;
     }
 
     internal static bool EnsureListener()
