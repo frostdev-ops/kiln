@@ -94,7 +94,8 @@ test.describe("choosing the UI", () => {
     await page.getByRole("button", { name: "Open Deck mode" }).click();
     await expect(page.locator(".deck")).toBeVisible();
     // and Deck Settings' first row goes to the desktop UI now (the screen remembers its last focus: "Start in")
-    for (let i = 0; i < 7; i++) await pad(page, "rb");
+    // one tab at a time: the Editor tab draws a whole inventory on the way (the session from the first visit)
+    for (const n of ["mods", "add", "catalog", "kiln", "editor", "help", "settings"]) { await pad(page, "rb"); await expect.poll(() => screen(page)).toBe(n); }
     await expect.poll(() => focused(page)).toBe("set-start");
     await pad(page, "up");
     expect(await focused(page)).toBe("set-desktop");
