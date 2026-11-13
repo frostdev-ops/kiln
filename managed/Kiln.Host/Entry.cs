@@ -723,6 +723,7 @@ internal sealed unsafe class HostRuntime : IHostServices, IKilnBackend
         if (source == "timeout") Log(LogLevel.Warn, $"lifecycle: '{RunLine}' not seen in the game log; ServerStarted fires anyway");
         _mods.PostEvent(new ServerStartedEvent(step, source));
         Log(LogLevel.Info, $"lifecycle: server started (step {step}, {source})");
+        if (!_client) StartProgress.Mark(StartProgress.MarkServerStarted);  // progress.json: the point kilnctl run --wait waits for
         _mods.QueueAutoTests();
     }
 
