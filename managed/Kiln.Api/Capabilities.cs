@@ -194,7 +194,7 @@ public static unsafe class Capabilities
         ArgumentNullException.ThrowIfNull(name);
         var s = Current();
         if (s.Rows.TryGetValue(name, out var row)) return row.State == CapabilityState.Available;
-        return s.Binding.Table == null && s.Binding.Backend.HasFeature(name);
+        return s.Binding.Table == null && s.Binding.Backend.HasFeature(name) && ServiceCaps.LoweredClaim(name) is null;
     }
 
     /// <summary>The row of <paramref name="name"/>. A name with no row gives
@@ -207,7 +207,7 @@ public static unsafe class Capabilities
         var s = Current();
         if (s.Rows.TryGetValue(name, out var row)) return row;
         if (s.Binding.Table == null && s.Binding.Backend.HasFeature(name))
-            return new Capability(name, CapabilityState.Available, CapabilityReason.None, "", "backend");
+            return ServiceCaps.LoweredClaim(name) ?? new Capability(name, CapabilityState.Available, CapabilityReason.None, "", "backend");
         return NoRow(name);
     }
 

@@ -271,7 +271,11 @@ with the game's resource when `KILN_GAME_DIR` and `KILN_SERVER_EXE` are set): `n
   (`Invulnerable`, only when the entity's god mode changed, not while another mod still holds it) and the attribute
   writes (`Attribute.Stamina`, ...), with the value before and after; only when the value changed, and a write made
   by a handler while the event is dispatched is posted at the next step ([contract](../modding/contract.md#3-change-events)).
-  Hits and heals keep `EntityHurtEvent` and `EntityHealEvent`.
+  A mod's unload that ends god mode it held posts `Invulnerable` 1 -> 0 with that mod as `Origin`.
+  `Abilities.Attributes.Add` posts the same event. Hits and heals keep `EntityHurtEvent` and `EntityHealEvent`.
+- **Listener.** Kiln.Combat starts at the first service tick for its rows; its hit listener (with which kiln.combat
+  holds hits a step for handlers) starts at the first use, as before: a call into `Combat`, or a subscription to one of
+  its events. A handler of every event (`KilnEvent`) is not a use.
 - **Threads.** `[TickThreadOnly]` on every call that touches an entity; `Available`, `HitsAvailable`, `Status`,
   `Attributes.Available` and `Attributes.Ids` are `[AnyThread]`.
 - Tested offline (`managed/tests/Kiln.Contract.Tests/Group7ContractTests.cs`): rows, exceptions, attributes,

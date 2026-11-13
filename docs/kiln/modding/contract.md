@@ -131,11 +131,27 @@ Every write Kiln makes for a mod posts a bus event (`ContentChangedEvent`, `Crea
 `EntitySpawnedEvent`, ...), on the tick thread, right after the write took, and only when it changed something: a
 data-pack document whose every section was refused, a reset of a layer the mod did not have or of a creature that is
 gone posts nothing. A write made while an event of the same kind is being dispatched (a handler of it, or a catch-all
-`Events.On<KilnEvent>` handler, writes again) is not posted inside that dispatch: its event goes out at the start of the
-next step, one per changed value (the newest write wins), under the same rule. So a handler that writes in answer to
-the event sees its own write once a step at most, never recursively, and a mod written before the event existed keeps
-working (no `Events.MaxDepth` exception, no faulted handler). The events added in dev.27 post through
-`managed/Kiln.Api/Services/ChangeNotices.cs` (tests: `managed/tests/Kiln.Contract.Tests/ChangeEventTests.cs`); the
+`Events.On<KilnEvent>` handler, writes again) is not posted inside that dispatch: its event waits, under the same rule.
+So a handler that writes in answer to the event sees its own write once a step at most, never recursively, and a mod
+written before the event existed keeps working (no `Events.MaxDepth` exception, no faulted handler). What a waiting
+event is promised:
+
+- **When.** At the start of the next step, before anything else of that step runs (Kiln's own service handlers, queued
+  events, every mod's tick), one per changed value (the newest write wins). A write made during that delivery waits
+  for the step after. The order in which services or mods subscribed does not change this.
+- **Nothing is dropped for want of room.** The waiting set holds one event per value written during a dispatch in one
+  step, and is emptied at the next.
+- **Identity, not only an id.** An event about an entity (`CreatureChangedEvent`, `CombatChangedEvent`) keeps the
+  entity's spawn serial from the moment of the write and goes out only while that entity is still there: if it is gone,
+  or its id now names another entity, the event is dropped instead of naming the wrong one (the entity's end is its own
+  news). The same holds for an impact instance (`ImpactVariableChangedEvent`). Without an entity source to ask (no
+  Kiln.Spawn on that side) Kiln cannot tell, and the event goes out as written.
+- **At a stop.** When the server stops or a client's hosted world closes, the events that wait go out before the mods
+  unload, as the step they were waiting for. A write made by that last round's handlers is not announced (no step
+  follows); Kiln logs how many.
+
+The events added in dev.27 post through `managed/Kiln.Api/Services/ChangeNotices.cs` (tests:
+`managed/tests/Kiln.Contract.Tests/ChangeEventTests.cs`, `managed/tests/Kiln.Host.Tests/ChangeNoticeStopTests.cs`); the
 older ones (`SettingChangedEvent`, `EntitySpawnedEvent`, `EntityDestroyedEvent`, ...) keep the inline delivery they
 always had, so nothing changes for a mod that handles them.
 

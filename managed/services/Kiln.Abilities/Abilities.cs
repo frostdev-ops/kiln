@@ -344,7 +344,8 @@ public static unsafe partial class Abilities
         }
 
         /// <summary>Adds <paramref name="delta"/> (negative to spend) through the game's attribute code. False when the
-        /// entity has no such attribute.</summary>
+        /// entity has no such attribute. A change posts <see cref="CombatChangedEvent"/> (<c>Attribute.Mana</c>, ...), as
+        /// Kiln.Combat's attribute writes do.</summary>
         [TickThreadOnly]
         public static bool Add(EntityId entity, AbilityResource resource, int delta)
         {
@@ -352,7 +353,13 @@ public static unsafe partial class Abilities
             var t = AbilitiesNative.T;
             if (t == null) return false;
             var (c, a, _) = Ids(resource);
-            return t->AttrAdd(entity.Value, c, a, delta) == AbilitiesNative.Ok;
+            // the value before, read only while someone listens for the change
+            int before = 0, after = 0;
+            var watched = Events.HasSubscribers<CombatChangedEvent>() && t->AttrGet(entity.Value, c, a, &before) == AbilitiesNative.Ok;
+            if (t->AttrAdd(entity.Value, c, a, delta) != AbilitiesNative.Ok) return false;
+            if (watched && t->AttrGet(entity.Value, c, a, &after) == AbilitiesNative.Ok && after != before)
+                Combat.Changed(entity, "Attribute." + resource, before, after);
+            return true;
         }
 
         /// <summary>Any attribute by component and attribute id (e.g. "Mana", 0x6aa2574e).</summary>

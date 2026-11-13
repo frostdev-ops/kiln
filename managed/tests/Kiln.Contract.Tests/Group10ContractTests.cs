@@ -40,3 +40,23 @@ public sealed class ItemsContractTests : ContractTest
         AssertHas<TickThreadOnlyAttribute>(Method(typeof(Items.Fuel), "Read", typeof(EntityId)));
     }
 }
+
+/// <summary>Kiln.Items on an older (v2) kiln.items table: each v3 member names its own row when it throws.</summary>
+public sealed unsafe class ItemsOlderTableTests : FakeTableTest
+{
+    public ItemsOlderTableTests()
+    {
+        var t = Alloc<ItemsNative.TableV2>();
+        t->V1.Header = new ServiceHeader { Size = (uint)sizeof(ItemsNative.TableV2), Version = ItemsNative.Version };
+        Swap(typeof(Items), "_v3", Box<ItemsNative.TableV3>(null));
+        Serve("kiln.items", (ItemsNative.Table*)t, typeof(Items), "_table");
+    }
+
+    [Fact]
+    public void Names_and_transfers_name_their_own_row_not_moves()
+    {
+        AssertUnavailable("items.names", () => Items.ContainerName(new EntityId(5000)));
+        AssertUnavailable("items.transfer", () => Items.Transfers.Deny(new EntityId(5000)));
+        AssertUnavailable("items.move", () => Items.QuickStack(new EntityId(5000), new EntityId(5001)));
+    }
+}

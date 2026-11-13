@@ -605,9 +605,11 @@ internal sealed class ModManager : IModsBackend, IDisposable
         return weak;
     }
 
-    /// <summary>Unloads everything, dependents first (server shutdown).</summary>
+    /// <summary>Unloads everything, dependents first (server shutdown). The change events that wait for the next step go
+    /// out first: that step never comes for these mods (docs/kiln/modding/contract.md, "Change events").</summary>
     public void UnloadAll(string reason)
     {
+        ChangeNoticeQueue.FlushFinal(reason);
         for (var i = _mods.Count - 1; i >= 0; i--) UnloadOne(_mods[i], ModState.Unloaded, reason);
         UnloadCaches.Clear(_host.Log);
         PublishSnapshot();
@@ -719,6 +721,7 @@ internal sealed class ModManager : IModsBackend, IDisposable
     public List<string> StopHosting(string reason)
     {
         if (!Hosting) return [];
+        ChangeNoticeQueue.FlushFinal(reason);  // what waits for the next step: the server mods see no next step
         Hosting = false;
         var sw = Stopwatch.StartNew();
         var unloaded = new List<string>();

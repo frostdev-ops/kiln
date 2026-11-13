@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: MIT
 using System.Reflection;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using System.Runtime.Loader;
 using Xunit;
 
@@ -70,6 +72,29 @@ internal sealed class IsolatedKiln
     /// <summary>A sigdb feature a service's start has handled (ServiceCaps.IsServedFeature in this copy).</summary>
     public bool ServedFeature(string name) =>
         (bool)Type("Kiln.ServiceCaps").GetMethod("IsServedFeature", All)!.Invoke(null, [name])!;
+
+    /// <summary>Serves <paramref name="table"/> as the native service <paramref name="name"/> to this copy.</summary>
+    public void Serve(string name, nint table)
+    {
+        var backend = Type("Kiln.Backend").GetProperty("Current", All)!.GetValue(null)!;
+        ((Dictionary<string, nint>)backend.GetType().GetField("Tables", All)!.GetValue(backend)!)[name] = table;
+    }
+
+    /// <summary>Subscribes a handler that does nothing to the event type <paramref name="eventType"/> (a type of this copy)
+    /// through this copy's <c>Events.On</c>.</summary>
+    public void Subscribe(Type eventType)
+    {
+        var handler = Delegate.CreateDelegate(typeof(Action<>).MakeGenericType(eventType),
+            typeof(IsolatedKiln).GetMethod(nameof(Ignore), All)!.MakeGenericMethod(eventType));
+        var on = Type("Kiln.Events").GetMethods(All).Single(m => m.Name == "On" && m.GetParameters() is { Length: 3 } p &&
+                                                                 p[1].ParameterType.Name == "EventPriority");
+        var g = on.MakeGenericMethod(eventType);
+        g.Invoke(null, [handler, .. g.GetParameters().Skip(1).Select(p => p.DefaultValue)]);
+    }
+
+    private static void Ignore<T>(T e)
+    {
+    }
 
     /// <summary>The names of the service tick's handlers now.</summary>
     public IReadOnlyList<string> TickHandlers()
@@ -196,5 +221,77 @@ public sealed class ServiceStartTests
     public void Content_keeps_its_session_row_in_step_on_the_service_tick()
     {
         Assert.Contains("kiln.content capabilities", Started.Value.TickHandlers());
+    }
+}
+
+/// <summary>Kiln.Gameplay starts at the first service tick for its rows; its event listener, and with it the game actions
+/// a handler can cancel, waits for a mod's use, as when nothing loaded the assembly before a mod did.</summary>
+public sealed unsafe class GameplayStartTests
+{
+    private static int _subscribes;
+
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static int FakeSubscribe(ulong owner, uint mask, delegate* unmanaged[Cdecl]<GameplayNative.Event*, void*, uint> fn,
+        void* user, ulong* handle)
+    {
+        _subscribes++;
+        *handle = 1;
+        return 0;
+    }
+
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static int FakeStatus(GameplayNative.Status* s) => 3;  // unavailable: no status
+
+    [Fact]
+    public void The_first_tick_reports_the_rows_and_a_catch_all_handler_starts_no_listener()
+    {
+        _subscribes = 0;
+        var t = (GameplayNative.Table*)NativeMemory.AllocZeroed((nuint)sizeof(GameplayNative.Table));
+        t->Header = new ServiceHeader { Size = (uint)sizeof(GameplayNative.Table), Version = 1 };
+        t->Subscribe = &FakeSubscribe;
+        t->Status = &FakeStatus;
+        var kiln = new IsolatedKiln(["Kiln.Gameplay"]);
+        kiln.Serve("kiln.gameplay", (nint)t);
+        kiln.Step();
+        Assert.NotEqual("Unknown", kiln.Row("gameplay.entity_events").Reason);  // the rows are reported
+        Assert.Equal(0, _subscribes);
+        // a handler of every event (a mod written before Kiln.Gameplay was started at the first tick) is not a use
+        kiln.Subscribe(kiln.Type("Kiln.KilnEvent"));
+        kiln.Subscribe(kiln.Type("Kiln.CancelableEvent"));
+        kiln.Step();
+        Assert.Equal(0, _subscribes);
+        // a handler of one of its events is
+        kiln.Subscribe(kiln.Services["Kiln.Gameplay"].GetType("Kiln.CraftEvent", throwOnError: true)!);
+        Assert.Equal(1, _subscribes);
+    }
+
+    private static int _listeners;
+
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static int FakeSetListener(delegate* unmanaged[Cdecl]<CombatNative.Event*, uint, void*, uint> fn, void* user)
+    {
+        _listeners++;
+        return 0;
+    }
+
+    /// <summary>Kiln.Combat the same way: with its listener kiln.combat holds hits a step for a handler (and a hurt event
+    /// can be canceled); a catch-all handler must not start that on a server whose mods never use Kiln.Combat.</summary>
+    [Fact]
+    public void Combat_starts_its_rows_at_the_first_tick_and_its_listener_at_a_use()
+    {
+        _listeners = 0;
+        var t = (CombatNative.Table*)NativeMemory.AllocZeroed((nuint)sizeof(CombatNative.Table));
+        t->Header = new ServiceHeader { Size = (uint)sizeof(CombatNative.Table), Version = 1 };
+        t->SetListener = &FakeSetListener;
+        var kiln = new IsolatedKiln(["Kiln.Combat"]);
+        kiln.Serve("kiln.combat", (nint)t);
+        kiln.Step();
+        Assert.NotEqual("Unknown", kiln.Row("combat.hold_filter").Reason);
+        Assert.Equal(0, _listeners);
+        kiln.Subscribe(kiln.Type("Kiln.KilnEvent"));
+        kiln.Step();
+        Assert.Equal(0, _listeners);
+        kiln.Subscribe(kiln.Services["Kiln.Combat"].GetType("Kiln.EntityDeathEvent", throwOnError: true)!);
+        Assert.Equal(1, _listeners);
     }
 }

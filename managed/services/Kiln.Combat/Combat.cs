@@ -124,9 +124,16 @@ public static unsafe class Combat
     private static readonly object Gate = new();
     private static readonly List<Pending> PendingHits = new();
     private static readonly HashSet<ModContext> WatchedMods = new(ReferenceEqualityComparer.Instance);
+
+    // The entities each mod turned god mode on for: native ends a mod's holds at its unload without saying which, and the
+    // unload posts CombatChangedEvent for each one whose god mode that ended (under Gate).
+    private static readonly Dictionary<ModContext, HashSet<uint>> GodHolds = new(ReferenceEqualityComparer.Instance);
     private static int _listening;
 
-    static Combat() => EnsureListener();
+    static Combat()
+    {
+        if (!ServiceTick.StartingServices) EnsureListener();  // a call into Combat is a use; the rows' start is not
+    }
 
     /// <summary>True when health access works on this build and a server world runs.</summary>
     [AnyThread]
@@ -207,11 +214,11 @@ public static unsafe class Combat
     internal static readonly ChangeNotices<CombatChangedEvent, (EntityId, string, string)> Notices = new("kiln.combat");
 
     /// <summary>Posts <see cref="CombatChangedEvent"/> for a change that took (the caller checked that someone listens).</summary>
-    internal static void Changed(EntityId entity, string what, int before, int after)
+    internal static void Changed(EntityId entity, string what, int before, int after, string? origin = null)
     {
         if (!Events.HasSubscribers<CombatChangedEvent>()) return;
-        var origin = ModContext.CurrentMod?.Info.Id ?? "";
-        Notices.Post((entity, what, origin), new CombatChangedEvent(entity, what, before, after, origin));
+        origin ??= ModContext.CurrentMod?.Info.Id ?? "";
+        Notices.Post((entity, what, origin), new CombatChangedEvent(entity, what, before, after, origin), entity);
     }
 
     /// <summary>Heals up to max, silently (no HitEvent). Fires <see cref="EntityHealEvent"/> first (cancelable,
@@ -331,7 +338,7 @@ public static unsafe class Combat
     /// either), and health it loses another way (fall damage, drowning) is restored before the game's death check.
     /// Healing still works. Held per mod: it ends when the mod turns it off or unloads (and every mod that turned it
     /// on has let go). Posts <see cref="CombatChangedEvent"/> (<c>Invulnerable</c>) when the entity's god mode changed
-    /// (not when another mod still holds it).</summary>
+    /// (not when another mod still holds it), also when a mod's unload ended it (its origin is that mod).</summary>
     [TickThreadOnly]
     [RequiresCapability(CombatCaps.Service)]
     public static void SetInvulnerable(EntityId entity, bool on = true)
@@ -342,12 +349,23 @@ public static unsafe class Combat
         var before = watched && t->Invulnerable(entity.Value) != 0;
         var rc = t->SetInvulnerable(Services.CallerOwner, entity.Value, on ? (byte)1 : (byte)0);
         if (rc != CombatNative.Ok) throw new InvalidOperationException($"Combat.SetInvulnerable({entity}): {CombatNative.Describe(rc)}");
-        lock (Gate) Watch(ModContext.CurrentMod);
+        var mod = ModContext.CurrentMod;
+        lock (Gate)
+        {
+            Watch(mod);
+            if (mod is not null)
+            {
+                if (!GodHolds.TryGetValue(mod, out var held)) GodHolds[mod] = held = [];
+                if (on) held.Add(entity.Value);
+                else held.Remove(entity.Value);
+            }
+        }
         if (watched && (t->Invulnerable(entity.Value) != 0) != before) Changed(entity, "Invulnerable", before ? 1 : 0, before ? 0 : 1);
     }
 
-    /// <summary>Kiln god mode is on for the entity (<see cref="SetInvulnerable"/>, any mod). False without kiln.combat.</summary>
-    [TickThreadOnly]
+    /// <summary>Kiln god mode is on for the entity (<see cref="SetInvulnerable"/>, any mod). False without kiln.combat.
+    /// Any thread (kiln.combat reads a counter and its holders under a lock).</summary>
+    [AnyThread]
     public static bool IsInvulnerable(EntityId entity)
     {
         var t = CombatNative.T;
@@ -359,9 +377,11 @@ public static unsafe class Combat
     // ------------------------------------------------------------------------------------------------ plumbing ----
 
     // Runs when the assembly is first used (a mod creating a handler for one of its events, or calling Combat): the
-    // native service then calls OnEvents once per step.
+    // native service then calls OnEvents once per step. Kiln's first service tick loads the assembly for its rows
+    // (CombatStartup): that is not a use, so the listener (hits held a step for handlers, hurt events a handler can
+    // cancel) waits for one (ServiceUse).
     [ModuleInitializer]
-    internal static void ModuleInit() => EnsureListener();
+    internal static void ModuleInit() => ServiceUse.Start(typeof(Combat).Assembly, static () => EnsureListener());
 
     internal static void EnsureListener()
     {
@@ -388,14 +408,29 @@ public static unsafe class Combat
     private static void Retire(ModContext mod)
     {
         List<Pending> drop;
+        HashSet<uint>? held;
         lock (Gate)
         {
             WatchedMods.Remove(mod);
             drop = PendingHits.Where(p => ReferenceEquals(p.Mod, mod)).ToList();
             PendingHits.RemoveAll(p => ReferenceEquals(p.Mod, mod));
+            GodHolds.Remove(mod, out held);
         }
         var t = CombatNative.T;
-        if (t != null) t->ReleaseOwner(mod.Owner);
+        if (t != null)
+        {
+            // god mode the release ends: on before (this mod's hold among others), off after (it was the last)
+            List<uint>? on = null;
+            if (held is { Count: > 0 } && Events.HasSubscribers<CombatChangedEvent>())
+                foreach (var e in held)
+                    if (t->Invulnerable(e) != 0)
+                        (on ??= []).Add(e);
+            t->ReleaseOwner(mod.Owner);
+            if (on is not null)
+                foreach (var e in on)
+                    if (t->Invulnerable(e) == 0)
+                        Changed(new EntityId(e), "Invulnerable", 1, 0, mod.Info.Id);
+        }
         foreach (var p in drop) p.Source.TrySetCanceled();
     }
 

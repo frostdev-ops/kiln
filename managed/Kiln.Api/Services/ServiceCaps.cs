@@ -87,6 +87,30 @@ internal static class ServiceCaps
         foreach (var name in features) Lower(name, reason, text);
     }
 
+    // feature -> why it is off although its service is here (LowerOff), under the registry binding of then
+    private static readonly Dictionary<string, (long Epoch, CapabilityReason Reason, string Text)> OffHere = new(StringComparer.Ordinal);
+
+    /// <summary>A feature its service is here for but cannot serve (its hook failed to install, or broke later): lowered
+    /// as <see cref="Lower"/> lowers a feature sigdb resolved, and a backend's claim of it (no kiln.caps) is lowered too,
+    /// for as long as the registry binding of now lasts (a new one, as a test kit's next harness, starts without it).</summary>
+    public static void LowerOff(string name, CapabilityReason reason, string text)
+    {
+        lock (Gate) OffHere[name] = (Capabilities.CurrentBinding.Epoch, reason, text);
+        Lower(name, reason, text);
+    }
+
+    /// <summary>With no kiln.caps table (no Kiln core: a test kit, a tool; every core publishes one) the backend's
+    /// feature claims are the rows (source <c>backend</c>): a test's own switches, which a missing service does not lower.
+    /// A feature its service said it cannot serve (<see cref="LowerOff"/>, under this registry binding) is the one
+    /// exception: the service is here and knows. Null: the claim stands.</summary>
+    internal static Capability? LoweredClaim(string name)
+    {
+        lock (Gate)
+            return OffHere.TryGetValue(name, out var off) && off.Epoch == Capabilities.CurrentBinding.Epoch
+                ? new Capability(name, CapabilityState.Unavailable, off.Reason, off.Text, "kiln")
+                : null;
+    }
+
     /// <summary>Lowers a row the core reports (a sigdb feature): unavailable, unless the row already says why it is off
     /// (then the core's reason stands). Only the core's own claim is lowered: a feature sigdb resolved (source
     /// <c>sigdb</c>). A feature with no row (no Kiln core: a unit test, a tool) stays without one, as
@@ -103,6 +127,7 @@ internal static class ServiceCaps
     /// that sigdb resolved.</summary>
     internal static bool LowersRow(Capability row) =>
         row.State == CapabilityState.Available && string.Equals(row.Source, "sigdb", StringComparison.Ordinal);
+    // (a backend's claim, source "backend", is a test's switch; only LowerOff lowers it, live: LoweredClaim)
 
     // every feature name a service has lowered or would have (a service's sigdb features; tests read it)
     private static readonly HashSet<string> Declared = new(StringComparer.Ordinal);
@@ -194,7 +219,7 @@ internal sealed class ServiceCapRows(string owner, Action report, int everySteps
                     _tick = ServiceTick.Add(owner + " capabilities", (in TickInfo t) =>
                     {
                         if (t.Step % (ulong)everySteps != 0) return;
-                        if (refreshOnlyWithService && Capabilities.Get(owner).State == CapabilityState.Unavailable) return;
+                        if (refreshOnlyWithService && SkipsRefresh(Capabilities.Get(owner))) return;
                         Refresh();
                     });
                 }
@@ -205,6 +230,13 @@ internal sealed class ServiceCapRows(string owner, Action report, int everySteps
             Warn(e);
         }
     }
+
+    // The service is off for a reason a later step cannot change (no Kiln core in this process: a test kit, a tool; an
+    // older or faulted table): its session rows cannot change, and asking for the table again would only add asks. A
+    // service the core does not have (yet) is asked again: a table published late is found then, and that takes back
+    // the "missing" report of the first lookup.
+    private static bool SkipsRefresh(Capability service) =>
+        service.State == CapabilityState.Unavailable && service.Reason != CapabilityReason.ServiceMissing;
 
     /// <summary>Reports the rows again now (a state change the service noticed itself, or the tick). An unchanged row
     /// is not written. Never throws.</summary>

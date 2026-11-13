@@ -167,7 +167,8 @@ public static unsafe partial class Content
             System.Buffers.ArrayPool<byte>.Shared.Return(buf);
         }
         if (rc != ContentNative.Ok && rc != ContentNative.InvalidArgument) throw Failure("Content.Apply", rc);
-        var report = ParseReport(text, rc == ContentNative.InvalidArgument ? "not a data-pack document (JSON object)" : null);
+        var report = ParseReport(text, rc == ContentNative.InvalidArgument ? "not a data-pack document (JSON object)" : null,
+            cut: len >= cap);
         // native says Ok also for a document whose every section was refused: an event only when something changed
         if (rc == ContentNative.Ok && report.Applied > 0) Changed(ContentChange.Applied, null, src);
         return report;
@@ -385,7 +386,9 @@ public static unsafe partial class Content
         if (Events.HasSubscribers<ContentReadyEvent>()) Events.Post(ev);
     }
 
-    private static ContentReport ParseReport(string text, string? fallbackError)
+    // cut: native wrote only the first cap - 1 bytes of a longer report. The document was applied all the same, so its
+    // count is read from the start of the text ("applied" is the report's first key), and the report says it was cut.
+    private static ContentReport ParseReport(string text, string? fallbackError, bool cut = false)
     {
         var errors = new List<string>();
         var warnings = new List<string>();
@@ -406,10 +409,35 @@ public static unsafe partial class Content
         }
         catch (JsonException)
         {
-            errors.Add("the report could not be read");
+            if (cut) applied = LeadingApplied(text);
+            errors.Add(cut ? "the report could not be read (longer than 2 MiB, cut)" : "the report could not be read");
         }
         if (fallbackError != null && errors.Count == 0) errors.Add(fallbackError);
         return new ContentReport(applied, errors, warnings, conflicts);
+    }
+
+    // The top-level "applied" of a report cut short, read as far as the text goes; 0 when it is not there.
+    private static int LeadingApplied(string text)
+    {
+        var reader = new Utf8JsonReader(System.Text.Encoding.UTF8.GetBytes(text), isFinalBlock: false, state: default);
+        try
+        {
+            if (!reader.Read() || reader.TokenType != JsonTokenType.StartObject) return 0;
+            while (reader.Read())
+            {
+                if (reader.TokenType == JsonTokenType.EndObject && reader.CurrentDepth == 0) return 0;
+                if (reader.TokenType != JsonTokenType.PropertyName || reader.CurrentDepth != 1) continue;
+                var name = reader.ValueTextEquals("applied"u8);
+                if (!reader.Read()) return 0;
+                if (name) return reader.TokenType == JsonTokenType.Number && reader.TryGetInt32(out var n) ? n : 0;
+                if (reader.TokenType is JsonTokenType.StartObject or JsonTokenType.StartArray && !reader.TrySkip()) return 0;
+            }
+        }
+        catch (JsonException)
+        {
+            // not a report at all
+        }
+        return 0;
     }
 }
 

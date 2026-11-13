@@ -153,12 +153,21 @@ public sealed unsafe class ImpactInstance
         return rc == AbilitiesNative.Ok ? buf : null;
     }
 
+    /// <summary>Writes a variable. False when the instance is gone or refused the write. A write that changed the value
+    /// posts <see cref="ImpactVariableChangedEvent"/>.</summary>
     [RequiresCapability(AbilitiesCaps.Service)]
     public bool Write(ImpactVariable v, ReadOnlySpan<byte> bytes)
     {
         if (bytes.Length != v.Size) throw new ArgumentException($"{v.Name} is {v.Size} bytes, got {bytes.Length}");
         var t = AbilitiesNative.Require("ImpactInstance.Write");
-        fixed (byte* p = bytes) return t->InstanceWrite(ImpactId, (uint)v.Index, p, (uint)bytes.Length) == AbilitiesNative.Ok;
+        // the bytes before, read only while someone listens for the change
+        var watched = Events.HasSubscribers<ImpactVariableChangedEvent>();
+        var before = watched ? Read(v) : null;
+        int rc;
+        fixed (byte* p = bytes) rc = t->InstanceWrite(ImpactId, (uint)v.Index, p, (uint)bytes.Length);
+        if (rc != AbilitiesNative.Ok) return false;
+        if (before is not null && !bytes.SequenceEqual(before)) ImpactChanges.Changed(t, ImpactId, v);
+        return true;
     }
 
     public float? GetFloat(string key) => Find(key) is { Size: 4 } v && Read(v) is { } b ? BitConverter.ToSingle(b) : null;
@@ -264,5 +273,33 @@ public sealed class ImpactConfigs : Dictionary<string, object>
                 _ => null,
             },
         };
+    }
+}
+
+/// <summary>The change events of <see cref="ImpactInstance"/> writes (the contract: every write Kiln makes has one).</summary>
+internal static unsafe class ImpactChanges
+{
+    // One key per variable of one instance changed by one mod: a handler that writes again waits for the next step.
+    internal static readonly ChangeNotices<ImpactVariableChangedEvent, (uint, int, string)> Notices = new("kiln.abilities");
+
+    /// <summary>Posts <see cref="ImpactVariableChangedEvent"/> for a write that changed <paramref name="v"/>. A waiting
+    /// event goes out only while the instance is the one written (same program and self entity).</summary>
+    internal static void Changed(AbilitiesNative.Table* t, uint impactId, ImpactVariable v)
+    {
+        if (!Events.HasSubscribers<ImpactVariableChangedEvent>()) return;
+        uint s = 0, p = 0, flags = 0;
+        if (t->InstanceInfo(impactId, &s, &p, &flags) != AbilitiesNative.Ok) return;
+        var (self, program) = (s, p);
+        var origin = ModContext.CurrentMod?.Info.Id ?? "";
+        Notices.PostChecked((impactId, v.Index, origin),
+            new ImpactVariableChangedEvent(impactId, program, new EntityId(self), v.Name, origin),
+            () => Same(impactId, self, program));
+    }
+
+    private static bool Same(uint impactId, uint self, uint program)
+    {
+        var t = AbilitiesNative.T;
+        uint s = 0, p = 0, f = 0;
+        return t != null && t->InstanceInfo(impactId, &s, &p, &f) == AbilitiesNative.Ok && s == self && p == program;
     }
 }

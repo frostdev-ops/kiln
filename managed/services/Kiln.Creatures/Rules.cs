@@ -610,6 +610,7 @@ public readonly unsafe struct AttackControl
         var t = Creatures.Tick("AttackControl.Clear");
         var o = Creatures.RequireOwner(_owner, "AttackControl.Clear");
         Creatures.Check(t->SetAttackOverride(o.Native, _entity.Value, null), $"entity {_entity}: attack override");
+        Creatures.Held(o, _entity, Creatures.Hold.Attack, false);
     }
 
     private void Set(int forced, uint allow)
@@ -623,6 +624,7 @@ public readonly unsafe struct AttackControl
         if (forced >= 0 && rc == CreaturesNative.Unavailable)
             throw new NotSupportedException($"entity {_entity}: cannot force an attack (no arsenal, or attack overrides are off here)");
         Creatures.Check(rc, $"entity {_entity}: attack override");
+        Creatures.Held(o, _entity, Creatures.Hold.Attack, true);
     }
 }
 

@@ -71,6 +71,7 @@ public readonly unsafe struct CreatureRef
             var t = Creatures.Tick("CreatureRef.AiEnabled");
             var o = Creatures.RequireOwner(_owner, "CreatureRef.AiEnabled");
             Creatures.Check(t->AiSwitch(o.Native, Entity.Value, value ? 1u : 0u), $"entity {Entity}: AI switch");
+            Creatures.Held(o, Entity, Creatures.Hold.AiOff, !value);
             Creatures.Changed(Entity, "AiEnabled");
         }
     }
@@ -116,6 +117,7 @@ public readonly unsafe struct CreatureRef
         var o = Creatures.RequireOwner(_owner, "CreatureRef.PreferTarget");
         Command.Attack(target, threat);
         Creatures.Check(t->TargetPrefer(o.Native, Entity.Value, target.Value, (float)seconds), $"entity {Entity}: target");
+        Creatures.Held(o, Entity, Creatures.Hold.Target, true, seconds);
         Creatures.Changed(Entity, "Target");
     }
 
@@ -127,6 +129,7 @@ public readonly unsafe struct CreatureRef
         var t = Creatures.Tick("CreatureRef.ReleaseTarget");
         var o = Creatures.RequireOwner(_owner, "CreatureRef.ReleaseTarget");
         Creatures.Check(t->TargetPrefer(o.Native, Entity.Value, 0, 0), $"entity {Entity}: target");
+        Creatures.Held(o, Entity, Creatures.Hold.Target, false);
         Creatures.Changed(Entity, "Target");
     }
 
@@ -262,8 +265,9 @@ public readonly unsafe struct CreatureRef
 
     /// <summary>Drops everything the calling mod changed on this creature (values, AI overrides, its attack override, AI
     /// switch and held target). Returns how many values and AI overrides were dropped. Posts
-    /// <see cref="CreatureChangedEvent"/> (<c>Reset</c>) when values or AI overrides were dropped or the AI came back on;
-    /// nothing for a creature that is gone or that the mod had not changed.</summary>
+    /// <see cref="CreatureChangedEvent"/> (<c>Reset</c>) when it dropped anything of the mod's (a value, an AI override,
+    /// a held target, an attack override, a readiness hold, the mod's AI switch) or the AI came back on; nothing for a
+    /// creature that is gone or that the mod had not changed.</summary>
     [TickThreadOnly]
     [RequiresCapability("kiln.creatures")]
     public int Reset()
@@ -278,13 +282,16 @@ public readonly unsafe struct CreatureRef
         t->SetAttackOverride(o.Native, Entity.Value, null);
         // the switch is the one release whose effect shows on the creature now: read it around the release
         uint aiBefore = 1, aiAfter = 1;
-        var switchRead = t->AiSwitchGet(Entity.Value, &aiBefore) == CreaturesNative.Ok;
+        var switchRc = t->AiSwitchGet(Entity.Value, &aiBefore);
+        var switchRead = switchRc == CreaturesNative.Ok;
         t->AiSwitch(o.Native, Entity.Value, 1);
         if (switchRead && t->AiSwitchGet(Entity.Value, &aiAfter) != CreaturesNative.Ok) aiAfter = aiBefore;
         t->TargetPrefer(o.Native, Entity.Value, 0, 0);
-        // an event only for a change: values or AI overrides dropped, or the AI back on (nothing for a creature that is
-        // gone, or one the mod had not changed)
-        if (a + b > 0 || (switchRead && aiBefore == 0 && aiAfter != 0)) Creatures.Changed(Entity, "Reset");
+        // native drops the target, attack, readiness and switch holds without a count: the managed record has them
+        var held = Creatures.DropHolds(o, Entity) != 0 && switchRc != CreaturesNative.NotFound;
+        // an event only for a change: values or AI overrides dropped, a hold of the mod's dropped, or the AI back on
+        // (nothing for a creature that is gone, or one the mod had not changed)
+        if (a + b > 0 || held || (switchRead && aiBefore == 0 && aiAfter != 0)) Creatures.Changed(Entity, "Reset");
         return (int)(a + b);
     }
 
@@ -299,6 +306,7 @@ public readonly unsafe struct CreatureRef
         var t = Creatures.Tick("CreatureRef.ForceReady");
         var o = Creatures.RequireOwner(_owner, "ForceReady");
         Creatures.Check(t->SetReady(o.Native, Entity.Value, on ? 1u : 0u), $"entity {Entity}: force ready");
+        Creatures.Held(o, Entity, Creatures.Hold.Ready, on);
     }
 
     /// <summary>Commands sent as the game's own events (applied in the next sim step).</summary>

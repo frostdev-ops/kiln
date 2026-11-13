@@ -10,6 +10,8 @@
   </PropertyGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="Kiln.Contract.Tests" />
+    <!-- Abilities.Attributes.Add posts CombatChangedEvent through Combat.Changed (one event for one kind of value) -->
+    <InternalsVisibleTo Include="Kiln.Abilities" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../../Kiln.Api/Kiln.Api.csproj" Private="false" />

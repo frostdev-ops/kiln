@@ -129,7 +129,12 @@ is lowered at the service's start where it has one, else at its first use (Kiln.
 row from sigdb): with no Kiln core (a unit test, the test kit) a feature has no row, and a test kit's "switched on by
 the test" stays the test's. A row says "available" exactly when the call it stands for works: one
 that needs a hook says so only while the hook is in. When a service's table is missing, the service lowers the sigdb features it serves, so
-`Capabilities.Why` names the missing service and not a feature that resolved for nobody.
+`Capabilities.Why` names the missing service and not a feature that resolved for nobody. A service whose table is
+there but one of whose hooks failed lowers the features that hook carries (`faulted`): kiln.ui's hook on the game's UI
+frame (`ui.screens`, `ui.main_menu`, `ui.system_menu`, `ui.crafting`), kiln.render's camera hook (`render.camera`),
+kiln.knowledge's parts by its status (`quests.knowledge`, `changes`, `journal`, `npc`, `dialogue`, `client_input`;
+`quests.changes` also when the game's knowledge apply faulted later, read every 25 steps). A session row's refresh asks
+for a service the core does not have again, so a table published late is found.
 
 | Row | Kind | Reported by | What it says |
 |---|---|---|---|
@@ -151,10 +156,10 @@ that needs a hook says so only while the hook is in. When a service's table is m
 | `content.ready` | managed, session | Kiln.Content, at its start and every 25 steps | the registries are loaded and the data packs applied (`Content.Ready`); unavailable without kiln.content |
 | `content.*` (eight, server side), `gamedata.template_clones`, `gamedata.buff_lookup`, `creatures.*` (ten) | sigdb features | core; Kiln.Content and Kiln.Creatures lower theirs when their service is not loaded | what kiln.content, kiln.gamedata and kiln.creatures serve |
 | `quests.*` (six), `ui.*` (eight, game client), `render.camera` | sigdb features | core; Kiln.Quests and Kiln.Ui lower theirs when kiln.knowledge, kiln.ui or kiln.render is not loaded | what kiln.knowledge, kiln.ui and kiln.render serve |
-| `combat.attributes` | managed, session | Kiln.Combat, at its start and every 25 steps | `Attributes` reads and writes the game's attributes: kiln.combat has its attribute functions (`service-older` otherwise) and the game's attribute resource was read (pending until a server world runs; pending for good on a build whose resource Kiln does not understand) |
+| `combat.attributes` | managed, session | Kiln.Combat, at its start and every 25 steps | `Attributes` reads and writes the game's attributes: kiln.combat has its attribute functions (`service-older` otherwise) and the game's attribute resource was read, and a server world with its registry is there now (pending until a server world runs and again after it closed; pending for good on a build whose resource Kiln does not understand) |
 | `combat.actor_states`, `combat.attr_heals`, `combat.deaths`, `combat.falls`, `combat.health`, `combat.hits`, `combat.regen` | sigdb features | core; Kiln.Combat lowers them when kiln.combat is not loaded | what kiln.combat serves |
 | `abilities.attributes`, `abilities.instances`, `abilities.natives`, `abilities.programs`, `abilities.sequences` | sigdb features | core; Kiln.Abilities lowers them when kiln.abilities is not loaded (at its start, the first service tick, with `abilities.buffs` and `abilities.buff_list`) | what kiln.abilities serves |
-| `time.speed` | managed, static | Kiln.Time, at its start (the first service tick) | the clock's speed can be held (`Time.SetSpeed`, `Time.SetCycle`, `Time.CanSetSpeed`): needs kiln.time with its scale functions (`service-older` without) and `time.scale` |
+| `time.speed` | managed, session | Kiln.Time, at its start (the first service tick), refreshed every 25 steps | the clock's speed can be held now (`Time.SetSpeed`, `Time.SetCycle`): needs kiln.time with its scale functions (`service-older` without) and `time.scale`; pending until the server world's clock is there (a client in its menu, a server before its world runs: `SetSpeed` throws `InvalidOperationException` then, as before). `Time.CanSetSpeed` stays the static part |
 | `time.read`, `time.set`, `time.scale`, `time.sync_probe`, `time.weather`, `time.weather_choose` | sigdb features | core; Kiln.Time lowers them when kiln.time is not loaded | what kiln.time serves |
 | `items.pide_options` | sigdb feature | core; Kiln.Items lowers it with its other rows when kiln.items is not loaded (dev.27; before, it kept the core's verdict) | `Gear.Unlocked`, `Gear.GemSlot` at creation |
 

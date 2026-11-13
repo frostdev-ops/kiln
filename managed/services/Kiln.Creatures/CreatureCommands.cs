@@ -29,6 +29,7 @@ public static class CreatureAdminCommands
     private static unsafe void Released()
     {
         Guarding.Retire(Owner);
+        Creatures.ForgetHolds(Owner.Native);
         var t = CreaturesNative.T;
         if (t != null) t->ReleaseOwner(Owner.Native);
     }

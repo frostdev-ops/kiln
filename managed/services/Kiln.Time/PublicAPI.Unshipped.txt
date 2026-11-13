@@ -86,3 +86,8 @@ static Kiln.WeatherPhenomenon.operator ==(Kiln.WeatherPhenomenon? left, Kiln.Wea
 static Kiln.WeatherResult.operator !=(Kiln.WeatherResult? left, Kiln.WeatherResult? right) -> bool
 static Kiln.WeatherResult.operator ==(Kiln.WeatherResult? left, Kiln.WeatherResult? right) -> bool
 static readonly Kiln.Time.MaxWeatherDuration -> System.TimeSpan
+Kiln.TimeSpeedChangedEvent
+Kiln.TimeSpeedChangedEvent.After.get -> double?
+Kiln.TimeSpeedChangedEvent.Before.get -> double?
+Kiln.TimeSpeedChangedEvent.By.get -> string!
+override Kiln.TimeSpeedChangedEvent.ToString() -> string!

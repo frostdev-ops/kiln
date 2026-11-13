@@ -124,9 +124,10 @@ public static unsafe partial class Gameplay
     public static bool Enable() => EnsureListener();
 
 #pragma warning disable CA2255 // a service assembly activates itself on first use, as Kiln.Combat does
+    // Kiln's first service tick loads this assembly for its capability rows (GameplayStartup): that is not a use, so the
+    // listener (and with it the game actions a handler can cancel) waits for one (ServiceUse).
     [ModuleInitializer]
-    internal static void ModuleInit() => EnsureListener();
-#pragma warning restore CA2255
+    internal static void ModuleInit() => ServiceUse.Start(typeof(Gameplay).Assembly, static () => EnsureListener());
 
     [AnyThread]
     public static GameplayStatus? Status

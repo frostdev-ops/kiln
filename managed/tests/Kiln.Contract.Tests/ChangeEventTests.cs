@@ -104,11 +104,120 @@ public sealed class ChangeNoticesTests : ContractTest
         Events.Post(new Probe());
         Assert.Equal(0, seen);
         Assert.Equal(1, _notices.Waiting);
-        Step();
+        // the refused post released the guard: an ordinary write goes out at once, nothing more waits
+        Write(10);
         Assert.Equal(1, seen);
+        Assert.Equal(1, _notices.Waiting);
+        Step();
+        Assert.Equal(2, seen);
+        Assert.Equal(0, _notices.Waiting);
     }
 
     private sealed class Probe : KilnEvent;
+
+    [Fact]
+    public void A_write_during_a_dispatch_waits_for_the_next_step_whatever_order_the_service_handlers_have()
+    {
+        var seen = new List<(int Key, ulong Step)>();
+        // a service handler added before the notices' first wait (a pump): it posts an event whose handler writes
+        using var pump = ServiceTick.Add("pump", (in TickInfo t) =>
+        {
+            if (t.Step == 2) Events.Post(new Probe());
+        });
+        using var probe = Events.On<Probe>(_ => Write(1));
+        using var sub = Events.On<Changed>(e =>
+        {
+            seen.Add((e.Key, ServiceTick.Step));
+            if (e.Key is 1 or 5) Write(e.Key + 1);  // during the dispatch of 1 (or 5): waits
+        });
+        Write(5);   // before the first step: 6 waits, so the notices are flushed on the service tick from now on
+        Step();     // step 1: 6 goes out
+        Step();     // step 2: the pump's event writes 1; its handler writes 2, which waits
+        Assert.Equal([(5, 0UL), (6, 1UL), (1, 2UL)], seen);
+        Assert.Equal(1, _notices.Waiting);
+        Step();
+        Assert.Equal([(5, 0UL), (6, 1UL), (1, 2UL), (2, 3UL)], seen);
+    }
+
+    [Fact]
+    public void No_waiting_event_is_dropped_for_want_of_room()
+    {
+        var seen = new HashSet<int>();
+        var first = true;
+        using var sub = Events.On<Changed>(e =>
+        {
+            seen.Add(e.Key);
+            if (!first) return;
+            first = false;
+            for (var k = 1; k <= 5000; k++) Write(k);  // 5000 values changed during one dispatch: every write took
+        });
+        Write(0);
+        Assert.Equal(5000, _notices.Waiting);
+        Step();
+        Assert.Equal(5001, seen.Count);
+        Assert.Equal(0, _notices.Waiting);
+        Assert.DoesNotContain(Backend.Lines, l => l.Contains("dropped", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void The_last_round_before_mods_unload_sends_what_waits_and_announces_no_further_write()
+    {
+        var seen = new List<int>();
+        using var sub = Events.On<Changed>(e =>
+        {
+            seen.Add(e.Key);
+            if (e.Key < 3) Write(e.Key + 1);  // each event's handler writes again
+        });
+        Write(1);
+        Assert.Equal([1], seen);
+        Assert.Equal(1, ChangeNoticeQueue.FlushFinal("test"));  // 2 goes out; 3, written by its handler, is not posted
+        Assert.Equal([1, 2], seen);
+        Assert.Equal(0, _notices.Waiting);
+        Assert.Contains(Backend.Lines, l => l.Contains("1 change event(s)", StringComparison.Ordinal));
+        Step();
+        Assert.Equal([1, 2], seen);
+    }
+
+    private sealed class Serials : IEntitySerialSource
+    {
+        public readonly Dictionary<EntityId, ulong> Alive = new();
+        public bool TryGetSerial(EntityId entity, out ulong serial) => Alive.TryGetValue(entity, out serial);
+    }
+
+    [Fact]
+    public void A_waiting_event_about_an_entity_goes_out_only_while_that_entity_is_there()
+    {
+        var serials = new Serials();
+        var was = IdentitySources.Entities;
+        IdentitySources.Entities = serials;
+        try
+        {
+            serials.Alive[new EntityId(10)] = 7;   // will be destroyed, its id given to another entity
+            serials.Alive[new EntityId(11)] = 3;   // stays
+            serials.Alive[new EntityId(12)] = 0;   // stays, has no stamp
+            serials.Alive[new EntityId(13)] = 4;   // will be destroyed
+            var seen = new List<int>();
+            var first = true;
+            using var sub = Events.On<Changed>(e =>
+            {
+                seen.Add(e.Key);
+                if (!first) return;
+                first = false;
+                for (var id = 10; id <= 13; id++) _notices.Post(id, new Changed(id), new EntityId((uint)id));
+            });
+            Write(0);
+            Assert.Equal(4, _notices.Waiting);
+            serials.Alive[new EntityId(10)] = 8;
+            serials.Alive.Remove(new EntityId(13));
+            Step();
+            Assert.Equal([0, 11, 12], seen);
+            Assert.Equal(0, _notices.Waiting);
+        }
+        finally
+        {
+            IdentitySources.Entities = was;
+        }
+    }
 
     [Fact]
     public void A_write_off_the_tick_thread_is_posted_at_the_next_step()
@@ -178,6 +287,7 @@ public sealed unsafe class ContentChangeTests : FakeTableTest
 {
     private static int _setRc, _resetRc, _applied, _sets;
     private static uint _reverted;
+    private static bool _longReport;
 
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
     private static int FakeLabel(ulong owner, NativeStr label) => 0;
@@ -197,6 +307,14 @@ public sealed unsafe class ContentChangeTests : FakeTableTest
     {
         // what native says for a document: Ok also when every section was refused
         var json = _applied > 0 ? $"{{\"applied\":{_applied},\"errors\":[]}}" : "{\"applied\":0,\"errors\":[\"items: an array, not an object\"]}";
+        if (_longReport)
+        {
+            // native's report lists every conflict of the store (its keys sorted: applied, conflicts, errors, warnings)
+            var c = new StringBuilder($"{{\"applied\":{_applied},\"conflicts\":[");
+            for (var i = 0; c.Length <= (int)cap; i++)
+                c.Append(i == 0 ? "" : ",").Append($"{{\"field\":\"items.{i}.maxStackSize\",\"winner\":\"a\",\"winnerValue\":\"1\",\"loser\":\"b\",\"loserValue\":\"2\"}}");
+            json = c.Append("],\"errors\":[],\"warnings\":[]}").ToString();
+        }
         var bytes = Encoding.UTF8.GetBytes(json);
         for (var i = 0; i < bytes.Length && i < (int)cap - 1; i++) report[i] = bytes[i];
         *len = (nuint)bytes.Length;
@@ -215,6 +333,7 @@ public sealed unsafe class ContentChangeTests : FakeTableTest
     {
         _setRc = _resetRc = _applied = _sets = 0;
         _reverted = 0;
+        _longReport = false;
         var t = Alloc<ContentNative.Table>();
         t->Header = new ServiceHeader { Size = (uint)sizeof(ContentNative.Table), Version = 4 };
         t->LabelOwner = &FakeLabel;
@@ -307,6 +426,20 @@ public sealed unsafe class ContentChangeTests : FakeTableTest
         Assert.Equal(ContentChange.Applied, e.Change);
         Assert.Equal("test: stacks.json", e.Path);
     }
+
+    [Fact]
+    public void A_report_cut_at_its_buffer_still_counts_what_was_applied_and_posts_Applied()
+    {
+        var seen = new List<ContentChangedEvent>();
+        using var sub = Events.On<ContentChangedEvent>(seen.Add);
+        _applied = 3;
+        _longReport = true;  // longer than the 2 MiB native may write: the text is cut, the document was applied
+        var r = Content.Apply("""{"items":{"Material_T1_Wood_Logs":{"maxStackSize":200}}}""", "test: big.json");
+        Assert.Equal(3, r.Applied);
+        Assert.False(r.Ok);  // as before: the report itself could not be read whole
+        Assert.Contains("could not be read", Assert.Single(r.Errors), StringComparison.Ordinal);
+        Assert.Equal(ContentChange.Applied, Assert.Single(seen).Change);
+    }
 }
 
 /// <summary>Kiln.Creatures' writes with subscribers attached, on a fake kiln.creatures table.</summary>
@@ -356,6 +489,9 @@ public sealed unsafe class CreatureChangeTests : FakeTableTest
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
     private static int FakePrefer(ulong owner, uint e, uint target, float seconds) => 0;
 
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static int FakeCommand(CreaturesNative.Command* c) => 0;
+
     private readonly CreatureRef _creature;
 
     public CreatureChangeTests()
@@ -373,6 +509,7 @@ public sealed unsafe class CreatureChangeTests : FakeTableTest
         t->AiSwitch = &FakeAiSwitch;
         t->AiSwitchGet = &FakeAiSwitchGet;
         t->TargetPrefer = &FakePrefer;
+        t->SendCommand = &FakeCommand;
         Swap(typeof(Creatures), "_listening", 1);  // no native listener on a fake table
         Swap(typeof(CreaturesNative), "_t", Box(t));
         _creature = Creatures.Of(new EntityId(5000));
@@ -430,6 +567,71 @@ public sealed unsafe class CreatureChangeTests : FakeTableTest
         _aiOn = 1;
         Assert.Equal(0, _creature.Reset());
         Assert.Empty(seen);
+    }
+
+    [Fact]
+    public void Resetting_a_held_target_or_an_attack_override_alone_posts_Reset()
+    {
+        var seen = new List<string>();
+        using var sub = Events.On<CreatureChangedEvent>(e => seen.Add(e.What));
+        // no value or AI layer, the AI stays on: what the mod held is the only thing Reset drops
+        _creature.PreferTarget(new EntityId(6000), seconds: 60);
+        Assert.Equal(0, _creature.Reset());
+        Assert.Equal(["Target", "Reset"], seen);
+        seen.Clear();
+        _creature.Attacks.Natural();
+        Assert.Equal(0, _creature.Reset());
+        Assert.Equal(["Reset"], seen);
+        // dropped once: a second Reset has nothing left
+        seen.Clear();
+        Assert.Equal(0, _creature.Reset());
+        Assert.Empty(seen);
+        // let go of before the Reset: nothing to drop
+        _creature.PreferTarget(new EntityId(6000), seconds: 60);
+        _creature.ReleaseTarget();
+        seen.Clear();
+        Assert.Equal(0, _creature.Reset());
+        Assert.Empty(seen);
+    }
+
+    private sealed class Serials : IEntitySerialSource
+    {
+        public readonly Dictionary<EntityId, ulong> Alive = new();
+        public bool TryGetSerial(EntityId entity, out ulong serial) => Alive.TryGetValue(entity, out serial);
+    }
+
+    [Fact]
+    public void A_change_that_waited_names_no_creature_that_took_the_id_since()
+    {
+        var serials = new Serials();
+        serials.Alive[new EntityId(5000)] = 7;
+        serials.Alive[new EntityId(5001)] = 3;
+        var was = IdentitySources.Entities;
+        IdentitySources.Entities = serials;
+        try
+        {
+            var seen = new List<EntityId>();
+            var creature = _creature;
+            var other = Creatures.Of(new EntityId(5001));
+            var first = true;
+            using var sub = Events.On<CreatureChangedEvent>(e =>
+            {
+                seen.Add(e.Entity);
+                if (!first) return;
+                first = false;
+                creature.Level = 6;  // both wait for the next step
+                other.Level = 6;
+            });
+            _creature.Level = 5;
+            Assert.Equal(2, Creatures.Notices.Waiting);
+            serials.Alive[new EntityId(5000)] = 8;  // 5000 is destroyed and its id given to a new entity
+            Step();
+            Assert.Equal([new EntityId(5000), new EntityId(5001)], seen);  // nothing about the newcomer
+        }
+        finally
+        {
+            IdentitySources.Entities = was;
+        }
     }
 
     [Fact]

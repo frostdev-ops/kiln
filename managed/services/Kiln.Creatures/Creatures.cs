@@ -204,6 +204,7 @@ public static unsafe partial class Creatures
         CreatureVariants.Retire(mod);
         try { Guarding.Retire(mod); } catch (Exception) { }
         try { Arsenals.Retire(mod); } catch (Exception) { }
+        ForgetHolds(mod.Owner);
         var t = CreaturesNative.T;
         if (t != null) t->ReleaseOwner(mod.Owner);
     }
@@ -225,7 +226,57 @@ public static unsafe partial class Creatures
     {
         if (!Events.HasSubscribers<CreatureChangedEvent>()) return;
         var origin = ModContext.CurrentMod?.Info.Id ?? "";
-        Notices.Post((entity, what, origin), new CreatureChangedEvent(entity, what, origin));
+        Notices.Post((entity, what, origin), new CreatureChangedEvent(entity, what, origin), entity);
+    }
+
+    // ------------------------------------------------------------------------------------------------- holds ----
+
+    /// <summary>What an owner holds on a creature besides value and AI layers. Native releases these without saying
+    /// whether there was one, so they are recorded here: <see cref="CreatureRef.Reset"/> drops them, and a Reset that
+    /// dropped one changed the creature.</summary>
+    [Flags]
+    internal enum Hold : byte
+    {
+        Target = 1,
+        Attack = 2,
+        Ready = 4,
+        AiOff = 8,
+    }
+
+    private static readonly Dictionary<(ulong Owner, uint Entity), (Hold Flags, long TargetUntil)> Holds = new();
+
+    /// <summary>The owner placed (<paramref name="on"/>) or let go of a hold. For a target, <paramref name="seconds"/> is
+    /// how long it is held.</summary>
+    internal static void Held(OwnerKey owner, EntityId entity, Hold hold, bool on, double seconds = 0)
+    {
+        var key = (owner.Native, entity.Value);
+        lock (Holds)
+        {
+            Holds.TryGetValue(key, out var h);
+            var flags = on ? h.Flags | hold : h.Flags & ~hold;
+            var until = hold == Hold.Target && on ? Environment.TickCount64 + (long)(Math.Max(seconds, 0) * 1000) : h.TargetUntil;
+            if (flags == 0) Holds.Remove(key);
+            else Holds[key] = (flags, until);
+        }
+    }
+
+    /// <summary>Forgets the owner's holds on the creature and returns those still in effect (a target held for seconds
+    /// that have passed is not).</summary>
+    internal static Hold DropHolds(OwnerKey owner, EntityId entity)
+    {
+        lock (Holds)
+        {
+            if (!Holds.Remove((owner.Native, entity.Value), out var h)) return 0;
+            return h.TargetUntil < Environment.TickCount64 ? h.Flags & ~Hold.Target : h.Flags;
+        }
+    }
+
+    /// <summary>The owner is released (native drops all of its holds).</summary>
+    internal static void ForgetHolds(ulong owner)
+    {
+        lock (Holds)
+            foreach (var k in Holds.Keys.Where(k => k.Owner == owner).ToList())
+                Holds.Remove(k);
     }
 
     // "Unavailable" from a per-creature call stays a plain NotSupportedException: it means "this entity lacks that

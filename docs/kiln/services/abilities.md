@@ -420,7 +420,11 @@ events, as dev.27's buff work set them).
   `RunProgram`, `Instance`, `SequenceOf`, `PlaySequence`, `ApplyBuff`, `Cast`, `OnDamage`, `Attributes`,
   `Programs.Register`/`Refresh`, `Natives.Register`/`Wrap`, `AbilityCast.Impact`/`PlaySequence`); `Available`,
   `Status`, `IdOf`, `HashOf` are `[AnyThread]`.
-- **Not done in dev.27:** no change event for `ImpactInstance.Write` and `Abilities.Attributes.Add` (writes without a
-  bus event; `CombatChangedEvent` covers the attribute writes of Kiln.Combat's `Attributes`), and `PlaySequence`
-  keeps its `bool`.
+- **Events.** `Abilities.Attributes.Add` posts Kiln.Combat's `CombatChangedEvent` (`Attribute.Mana`, `Attribute.Stamina`,
+  `Attribute.Health`, `Attribute.SpecialAbility`) when the value changed, as Kiln.Combat's attribute writes do;
+  `ImpactInstance.Write` (and `Set`, the typed setters) posts `ImpactVariableChangedEvent` (new: `ImpactId`,
+  `ProgramId`, `Self`, `Variable`, `Origin`) when the bytes changed. A write made by a handler while the event is
+  dispatched waits for the next step, and an impact change that waited goes out only while the instance is the one
+  written ([contract](../modding/contract.md#3-change-events)).
+- **Not done in dev.27:** `PlaySequence` keeps its `bool`.
 - Tested offline: `managed/tests/Kiln.Contract.Tests/Group8ContractTests.cs` and the conformance rules.

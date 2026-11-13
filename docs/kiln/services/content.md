@@ -699,7 +699,9 @@ Kiln.Content follows [the API contract](../modding/contract.md).
   `SetInputs` / `SetOutputs`, `SetStacks` (`Set`), `ContentEntry.Reset` (`Reset`), `Content.Apply` (`Applied`) and
   `Content.Revert` (`Reverted`), with the entry, the path and the mod; only when the call changed something (a
   document whose every section was refused, a `Reset` of a layer the mod did not have and a `Revert` with nothing to
-  put back post nothing). A write made by a handler while the event is being dispatched (a catch-all
+  put back post nothing). A report longer than the 2 MiB buffer is cut: `Applied` still counts what was applied (read
+  from the report's start) and `Applied` is posted; the report's errors then say it could not be read whole, as
+  before. A write made by a handler while the event is being dispatched (a catch-all
   `Events.On<KilnEvent>` that writes again) is posted at the start of the next step, once per field: such a handler
   cannot loop ([contract](../modding/contract.md#3-change-events)). Data packs that load without a call keep
   reporting through `ContentReadyEvent`. Not covered yet: `GameDataEntry.Set` and `NewContent.Register` (kiln.gamedata

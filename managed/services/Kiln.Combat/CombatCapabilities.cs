@@ -33,8 +33,19 @@ internal static unsafe class CombatCaps
             ServiceCaps.Report(Attributes, CapabilityState.Unavailable, CapabilityReason.ServiceOlder,
                 "this Kiln runtime's kiln.combat has no attribute functions (update Kiln)");
         else
-            ServiceCaps.Session(Attributes, global::Kiln.Attributes.Available,
+            ServiceCaps.Session(Attributes, global::Kiln.Attributes.Available && WorldReady(t),
                 "the game's attribute resource is read once a server world runs", Service);
+    }
+
+    // The attribute calls also need the server world and its registry now (kiln.combat drops both when the world closes,
+    // while the ids it resolved stay): its status's health bit is exactly that. Read here, not through Combat.Available:
+    // touching Combat starts its listener, which the rows' refresh must not.
+    private static bool WorldReady(CombatNative.Table* t)
+    {
+        if (t == null) return false;
+        CombatNative.Status s = default;
+        s.Size = (uint)sizeof(CombatNative.Status);
+        return t->GetStatus != null && t->GetStatus(&s) == CombatNative.Ok && s.Health != 0;
     }
 
     /// <summary>The exception a member throws when <paramref name="capability"/> is off; the rows are reported first.</summary>

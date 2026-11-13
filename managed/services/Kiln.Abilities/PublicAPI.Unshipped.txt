@@ -38,3 +38,12 @@ static Kiln.BuffRemoveResult.operator !=(Kiln.BuffRemoveResult? left, Kiln.BuffR
 static Kiln.BuffRemoveResult.operator ==(Kiln.BuffRemoveResult? left, Kiln.BuffRemoveResult? right) -> bool
 static Kiln.EntityBuff.operator !=(Kiln.EntityBuff? left, Kiln.EntityBuff? right) -> bool
 static Kiln.EntityBuff.operator ==(Kiln.EntityBuff? left, Kiln.EntityBuff? right) -> bool
+Kiln.ImpactVariableChangedEvent
+Kiln.ImpactVariableChangedEvent.ImpactId.get -> uint
+Kiln.ImpactVariableChangedEvent.Instance.get -> Kiln.ImpactInstance!
+Kiln.ImpactVariableChangedEvent.Involves(Kiln.EntityId entity) -> bool
+Kiln.ImpactVariableChangedEvent.Origin.get -> string!
+Kiln.ImpactVariableChangedEvent.ProgramId.get -> uint
+Kiln.ImpactVariableChangedEvent.Self.get -> Kiln.EntityId
+Kiln.ImpactVariableChangedEvent.Variable.get -> string!
+override Kiln.ImpactVariableChangedEvent.ToString() -> string!

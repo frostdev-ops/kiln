@@ -66,6 +66,11 @@ internal static class ServiceTick
 
     private static int _generation;
 
+    /// <summary>True while the first service tick starts the <see cref="AutoStart"/> services (tick thread). That start
+    /// is for a service's rows, not a use: a service whose first use does more (Kiln.Gameplay's event listener) leaves
+    /// that for a mod's first use.</summary>
+    internal static bool StartingServices { get; private set; }
+
     /// <summary>Whether autostart runs (tests turn it off).</summary>
     internal static bool AutoStartEnabled { get; set; } = true;
 
@@ -167,6 +172,9 @@ internal static class ServiceTick
                 _started = true;
                 if (AutoStartEnabled) StartServices();
             }
+            // change events that waited for this step go out first, so whatever the rest of the step writes during a
+            // dispatch waits for the next one, whatever order the handlers were added in
+            ChangeNoticeQueue.FlushAll();
             Events.DrainQueued();
             foreach (var e in Volatile.Read(ref _entries))
             {
@@ -203,9 +211,23 @@ internal static class ServiceTick
             _hostDriven = false;
             _generation++;
         }
+        ChangeNoticeQueue.ResetAll();
     }
 
     private static void StartServices()
+    {
+        StartingServices = true;
+        try
+        {
+            StartAutoServices();
+        }
+        finally
+        {
+            StartingServices = false;
+        }
+    }
+
+    private static void StartAutoServices()
     {
         var self = typeof(ServiceTick).Assembly;
         var alc = AssemblyLoadContext.GetLoadContext(self) ?? AssemblyLoadContext.Default;

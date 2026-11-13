@@ -16,6 +16,8 @@
     <InternalsVisibleTo Include="Kiln.Blocks" />
     <!-- the advanced gate's tests drive the job-thread wrap dispatcher as the core does -->
     <InternalsVisibleTo Include="Kiln.Blocks.Tests" />
+    <!-- the change events of its writes, on a fake kiln.abilities table -->
+    <InternalsVisibleTo Include="Kiln.Contract.Tests" />
     <ProjectReference Include="../../Kiln.Api/Kiln.Api.csproj" Private="false" />
     <ProjectReference Include="../Kiln.Spawn/Kiln.Spawn.csproj" Private="false" />
     <ProjectReference Include="../Kiln.World/Kiln.World.csproj" Private="false" />

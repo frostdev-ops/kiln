@@ -15,7 +15,8 @@ internal sealed class OfflineBackend : IKilnBackend
     public bool TickThread = true;
     public string Version => "test";
     public bool IsTickThread => TickThread;
-    public bool HasFeature(string name) => false;
+    public readonly HashSet<string> Features = new(StringComparer.Ordinal);  // what this backend claims (no kiln.caps)
+    public bool HasFeature(string name) => Features.Contains(name);
     public nint Service(string name, uint minVersion) => Tables.GetValueOrDefault(name);
 
     public void Log(ulong owner, LogLevel level, string text)

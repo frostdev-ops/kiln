@@ -97,7 +97,11 @@ public static unsafe partial class Creatures
         var n = CreatureVariants.RemoveOwned(key, source);
         n += Arsenals.RemoveOwned(key, source);
         var t = CreaturesNative.T;
-        if (source is null && key.Mod is null && t != null) t->ReleaseOwner(key.Native);
+        if (source is null && key.Mod is null && t != null)
+        {
+            ForgetHolds(key.Native);
+            t->ReleaseOwner(key.Native);
+        }
         return n;
     }
 

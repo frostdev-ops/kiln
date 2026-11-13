@@ -191,4 +191,8 @@ Kiln.Gameplay follows [the API contract](../modding/contract.md). Server side on
   `kiln.gameplay`.
 - **Threads.** `[TickThreadOnly]` on the world calls; `Status`, `Available`, `EntityEventsAvailable`, `WatchEntities`
   and `ReplaceNaturalSpawns` are `[AnyThread]`.
+- **Start.** The rows are reported at the first service tick (`GameplayStartup`). The event listener, through which a
+  handler can cancel crafting, interacting and looting, still starts at the first use only: a call into `Gameplay`,
+  `Gameplay.Enable()`, or a subscription to one of Kiln.Gameplay's events. A handler of every event (`KilnEvent`,
+  `CancelableEvent`) is not a use, so a server whose mods never use Kiln.Gameplay has no listener, as before dev.27.
 - Not changed: `IsDenied` and `Offers.TryAdd` keep their `out` reasons; no result record exists in this service.

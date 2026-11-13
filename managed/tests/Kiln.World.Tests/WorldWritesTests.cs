@@ -111,14 +111,17 @@ public unsafe class WorldWritesTests
     [Fact]
     public void A_type_of_another_layout_is_answered_before_anything_is_sent()
     {
-        Assert.Null(WorldWrites.LayoutProblem(typeof(int), "Fuel", "keen::ecs::Fuel", 16, 16, new EntityId(3)));
-        var bad = WorldWrites.LayoutProblem(typeof(int), "Fuel", "keen::ecs::Fuel", 16, 12, new EntityId(3))!;
-        Assert.Equal(WorldWriteStatus.LayoutMismatch, bad.Status);
-        Assert.False(bad.Ok);
-        Assert.Contains("12 bytes", bad.Reason);
+        // Kiln.Game sets the live layout check when it loads (another test of this process may have loaded it): the
+        // size rule is tested without it
         var previous = WorldWrites.LayoutWhyNot;
         try
         {
+            WorldWrites.LayoutWhyNot = null;
+            Assert.Null(WorldWrites.LayoutProblem(typeof(int), "Fuel", "keen::ecs::Fuel", 16, 16, new EntityId(3)));
+            var bad = WorldWrites.LayoutProblem(typeof(int), "Fuel", "keen::ecs::Fuel", 16, 12, new EntityId(3))!;
+            Assert.Equal(WorldWriteStatus.LayoutMismatch, bad.Status);
+            Assert.False(bad.Ok);
+            Assert.Contains("12 bytes", bad.Reason);
             WorldWrites.LayoutWhyNot = (_, qn) => $"{qn}: size 16 generated, 24 live";
             var live = WorldWrites.LayoutProblem(typeof(int), "Fuel", "keen::ecs::Fuel", 16, 16, new EntityId(3))!;
             Assert.Contains("size 16 generated, 24 live", live.Reason);

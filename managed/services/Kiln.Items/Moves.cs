@@ -25,13 +25,15 @@ public static unsafe partial class Items
         }
     }
 
-    private static ItemsNative.TableV3* RequireV3(string api)
+    // capability: the row the calling member needs (items.move, items.names, items.transfer): an older table lacks all
+    // three, and the exception names the caller's own
+    private static ItemsNative.TableV3* RequireV3(string api, string capability)
     {
         var t = V3;
         if (t == null)
             throw T == null
                 ? ServiceCaps.Unavailable(Caps.Service, "kiln.items is unavailable")
-                : ServiceCaps.Unavailable(Caps.Move, $"{api}: this Kiln runtime's kiln.items has no move, name or transfer functions (update Kiln)");
+                : ServiceCaps.Unavailable(capability, $"{api}: this Kiln runtime's kiln.items has no move, name or transfer functions (update Kiln)");
         return t;
     }
 
@@ -69,7 +71,7 @@ public static unsafe partial class Items
     [TickThreadOnly]
     public static string? ContainerName(EntityId entity)
     {
-        var t = Require3("Items.ContainerName");
+        var t = Require3("Items.ContainerName", Caps.Names);
         var buf = stackalloc byte[512];
         uint len = 0;
         var rc = t->ContainerName(entity.Value, buf, 512, &len);
@@ -89,10 +91,10 @@ public static unsafe partial class Items
         }
     }
 
-    private static ItemsNative.TableV3* Require3(string api)
+    private static ItemsNative.TableV3* Require3(string api, string capability)
     {
         Services.RequireTickThread(api);
-        return RequireV3(api);
+        return RequireV3(api, capability);
     }
 
     // ------------------------------------------------------------------------------------------- moves ---------
@@ -186,7 +188,7 @@ public static unsafe partial class Items
 
     private static Task<MoveResult> SubmitMove(ItemsNative.MoveRequest r, string api, bool unseen = false)
     {
-        var t = Require3(api);
+        var t = Require3(api, Caps.Move);
         var kind = (MoveKind)r.Kind;
         var from = new EntityId(r.From);
         var to = new EntityId(r.To);
@@ -350,7 +352,7 @@ public static unsafe partial class Items
 
         private static TransferRule Add(ItemsNative.TransferRule r, string what)
         {
-            var t = RequireV3("Items.Transfers");
+            var t = RequireV3("Items.Transfers", Caps.Transfer);
             r.Size = (uint)sizeof(ItemsNative.TransferRule);
             ulong handle = 0;
             var rc = t->TransferRuleAdd(Services.CallerOwner, &r, &handle);

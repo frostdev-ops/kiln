@@ -4,7 +4,9 @@ namespace Kiln;
 /// <summary>
 /// A mod changed an entity through Kiln.Combat without a hit or a heal: its health set (<see cref="Combat.SetHealth"/>),
 /// its god mode (<see cref="Combat.SetInvulnerable"/>) or an attribute's current value (<see cref="Attributes"/>:
-/// <c>Set</c>, <c>Add</c>, <c>TrySet</c>, <c>TryAdd</c>). Posted on the tick thread right after the change took, and only
+/// <c>Set</c>, <c>Add</c>, <c>TrySet</c>, <c>TryAdd</c>; Kiln.Abilities' <c>Abilities.Attributes.Add</c> too, as
+/// <c>Attribute.Health</c>, <c>Attribute.Mana</c>, <c>Attribute.Stamina</c> or <c>Attribute.SpecialAbility</c>), or a
+/// mod's unload ended god mode it held (its origin is that mod). Posted on the tick thread right after the change took, and only
 /// when the value changed; a change made while this event is being dispatched (a handler that writes again) is posted
 /// at the start of the next step instead, once per entity and value (the newest wins), so such a handler cannot loop.
 /// Observe only. Built only while someone subscribes. Hits and heals keep their own events

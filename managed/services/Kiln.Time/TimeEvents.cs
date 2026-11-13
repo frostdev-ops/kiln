@@ -29,6 +29,35 @@ public sealed class TimeSetEvent : KilnEvent
     public override string ToString() => $"time set {Time.Format(Before)} -> {Time.Format(Hours)} ({Mode}) by {By}";
 }
 
+/// <summary>
+/// Code changed the speed Kiln holds the day/night clock at (<see cref="Time.SetSpeed"/>, <see cref="Time.SetCycle"/>).
+/// Posted on the tick thread right after the change took, and only when the held speed changed; a change made while this
+/// event is being dispatched (a handler that sets it again) is posted at the start of the next step instead, once per mod
+/// (the newest wins), so such a handler cannot loop. Observe only. Built only while someone subscribes. The game's own
+/// speed-up while players sleep does not raise it. Since 0.2.0-dev.27.
+/// </summary>
+[ServerOnly]
+public sealed class TimeSpeedChangedEvent : KilnEvent
+{
+    internal TimeSpeedChangedEvent(double? before, double? after, string by)
+    {
+        Before = before;
+        After = after;
+        By = by;
+    }
+
+    /// <summary>The held speed before (<see cref="Time.HeldSpeed"/>; null: the game decided).</summary>
+    public double? Before { get; }
+
+    /// <summary>The held speed now (null: the game decides again).</summary>
+    public double? After { get; }
+
+    /// <summary>Id of the mod whose code set it ("kiln" for Kiln itself).</summary>
+    public string By { get; }
+
+    public override string ToString() => $"clock speed {Before?.ToString("0.###") ?? "game"} -> {After?.ToString("0.###") ?? "game"} by {By}";
+}
+
 /// <summary>The day phase began (the clock passed <see cref="DayTimeState.DayStart"/>, also by a set or sleeping).
 /// Kiln samples the clock every 12 steps (about 0.5 s) while someone listens, so it is posted up to that late, on the
 /// tick thread. Not cancelable.</summary>

@@ -222,6 +222,17 @@ public static unsafe partial class Time
     [AnyThread]
     public static bool CanSetSpeed => HasScale && T2->TimeScaleHold() > -1.5f;
 
+    /// <summary>The server world's clock is there: kiln.time holds the speed on it only (it binds the clock at that
+    /// world's first step). A client in its menu, or a server before its world runs, has none: <see cref="SetSpeed"/>
+    /// then throws <see cref="InvalidOperationException"/>, and <c>time.speed</c> is pending.</summary>
+    internal static bool ServerClock => TryGetState(out _) && ServerWorldThere();
+
+    private static bool ServerWorldThere()
+    {
+        var w = ReflectedValue.World;
+        return w != null && w->ServerWorld != null && w->ServerWorld() != 0;
+    }
+
     // Why time.speed is off (with CanSetSpeed false): no kiln.time, an older one, or a build where it cannot hold it.
     internal static CapabilityReason SpeedOffReason(out string text)
     {
@@ -254,7 +265,8 @@ public static unsafe partial class Time
 
     /// <summary>Holds the day/night clock at a speed: 0 stops it (sleeping doesn't move it either), 1 is the game's
     /// normal speed, more runs it faster (at most 1000). Null gives the speed back to the game. Clients follow through
-    /// the game's own daytime sync. Session state: it ends when the world closes or the server restarts. Tick thread.</summary>
+    /// the game's own daytime sync. Session state: it ends when the world closes or the server restarts. A change posts
+    /// <see cref="TimeSpeedChangedEvent"/>. Tick thread.</summary>
     [TickThreadOnly]
     [RequiresCapability(TimeCaps.Speed)]
     public static void SetSpeed(double? speed)
@@ -262,8 +274,18 @@ public static unsafe partial class Time
         if (!HasScale) throw TimeCaps.Off(TimeCaps.Speed, "kiln.time cannot hold the clock's speed (an older Kiln)");
         if (speed is { } v && (!double.IsFinite(v) || v < 0 || v > 1000)) throw new ArgumentOutOfRangeException(nameof(speed), "0..1000");
         Services.RequireTickThread("Time.SetSpeed");
+        var watched = Events.HasSubscribers<TimeSpeedChangedEvent>();
+        var before = watched ? HeldSpeed : null;
         Check(T2->SetTimeScale(speed is { } x ? (float)x : -1f), "Time.SetSpeed");
+        if (!watched) return;
+        var after = HeldSpeed;
+        if (after == before) return;
+        var by = ModContext.CurrentMod?.Info.Id ?? "kiln";
+        SpeedNotices.Post(by, new TimeSpeedChangedEvent(before, after, by));
     }
+
+    // One key per mod: a handler that sets the speed again waits for the next step.
+    internal static readonly ChangeNotices<TimeSpeedChangedEvent, string> SpeedNotices = new("kiln.time");
 
     /// <summary>The day and night cycle as the held speed shows it.</summary>
     [AnyThread]
