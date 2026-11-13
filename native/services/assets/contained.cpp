@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cwctype>
+#include <optional>
 
 #include "assets.h"
 
@@ -25,73 +26,86 @@ bool inside(const std::wstring& root, const std::wstring& file) {
     return root.back() == L'\\' || file[root.size()] == L'\\';
 }
 
-bool id_of(HANDLE h, std::tuple<uint32_t, uint32_t, uint32_t>* id) {
+bool id_of(HANDLE h, FileId* id) {
     BY_HANDLE_FILE_INFORMATION info{};
     if (!GetFileInformationByHandle(h, &info)) return false;
     *id = {info.dwVolumeSerialNumber, info.nFileIndexHigh, info.nFileIndexLow};
     return true;
 }
 
-void walk_ids(const std::filesystem::path& dir, FileIds* ids, int depth) {
-    if (depth > 16) return;
+// By name: a link (a reparse point; Wine shows its Unix links to folders so), a plain file or folder, or nothing.
+NameKind name_kind(const std::filesystem::path& p) {
+    const DWORD a = GetFileAttributesW(p.c_str());
+    if (a == INVALID_FILE_ATTRIBUTES) return NameKind::Missing;
+    return (a & FILE_ATTRIBUTE_REPARSE_POINT) ? NameKind::Link : NameKind::Plain;
+}
+
+std::optional<std::vector<Entry>> list_dir(const std::filesystem::path& dir) {
     WIN32_FIND_DATAW fd{};
     HANDLE ff = FindFirstFileW((dir / L"*").c_str(), &fd);
-    if (ff == INVALID_HANDLE_VALUE) return;
+    if (ff == INVALID_HANDLE_VALUE) return std::nullopt;
+    std::vector<Entry> out;
     do {
         const std::wstring n = fd.cFileName;
         if (n == L"." || n == L"..") continue;
-        const std::filesystem::path p = dir / n;
-        if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
-            walk_ids(p, ids, depth + 1);
-            continue;
-        }
-        HANDLE h = CreateFileW(p.c_str(), FILE_READ_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
-                               FILE_ATTRIBUTE_NORMAL, nullptr);
-        if (h == INVALID_HANDLE_VALUE) continue;
-        std::tuple<uint32_t, uint32_t, uint32_t> id;
-        if (id_of(h, &id)) ids->insert(id);
-        CloseHandle(h);
+        Entry::Kind k = Entry::File;
+        if (fd.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) k = Entry::Link;
+        else if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) k = name_kind(dir / n) == NameKind::Link ? Entry::Link : Entry::Dir;
+        out.push_back({n, k});
     } while (FindNextFileW(ff, &fd));
+    const bool done = GetLastError() == ERROR_NO_MORE_FILES;
     FindClose(ff);
+    if (!done) return std::nullopt;
+    return out;
+}
+
+std::optional<FileId> id_by_name(const std::filesystem::path& p) {
+    HANDLE h = CreateFileW(p.c_str(), FILE_READ_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
+                           FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (h == INVALID_HANDLE_VALUE) return std::nullopt;
+    FileId id;
+    const bool ok = id_of(h, &id);
+    CloseHandle(h);
+    if (!ok) return std::nullopt;
+    return id;
+}
+
+std::wstring final_path_of(const std::filesystem::path& dir) {
+    HANDLE h = CreateFileW(dir.c_str(), FILE_READ_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
+                           FILE_FLAG_BACKUP_SEMANTICS, nullptr);
+    if (h == INVALID_HANDLE_VALUE) return {};
+    const std::wstring out = final_path(h);
+    CloseHandle(h);
+    return out;
 }
 
 }  // namespace
 
-void add_cooked_ids(const std::filesystem::path& mod_dir, FileIds* ids) { walk_ids(mod_dir / L"assets" / L"cooked", ids, 0); }
+CookedIds cooked_ids_of(const std::vector<std::filesystem::path>& mod_dirs) {
+    return scan_load_order(mod_dirs, list_dir, id_by_name, name_kind);
+}
 
 bool read_contained(const std::filesystem::path& base, const std::filesystem::path& file, std::vector<uint8_t>* out, std::string* why,
-                    const FileIds* cooked_ids) {
+                    const CookedIds* cooked_ids, CookedPolicy policy, bool* unproven) {
     namespace fs = std::filesystem;
     const fs::path rel = file.lexically_normal().lexically_relative(base.lexically_normal());
     if (rel.empty() || *rel.begin() == L"..") {
         *why = narrow(file.wstring()) + " is not in the mod's assets folder";
         return false;
     }
-    // 1. by name, every folder and the file from the assets folder down: no link and no junction. On Windows a link is
-    //    a reparse point; Wine reports a Unix symlink as one to a query by name too (its handles follow the link).
-    fs::path cur = base;
-    for (const auto& part : rel) {
-        cur /= part;
-        const DWORD a = GetFileAttributesW(cur.c_str());
-        if (a == INVALID_FILE_ATTRIBUTES) {
-            *why = "cannot read " + narrow(file.wstring()) + " (no " + narrow(cur.lexically_relative(base).generic_wstring()) + ")";
-            return false;
-        }
-        if (a & FILE_ATTRIBUTE_REPARSE_POINT) {
-            *why = narrow(cur.lexically_relative(base).generic_wstring()) +
-                   " is a link or a junction: a mod's assets are read from its own assets folder only";
-            return false;
-        }
-    }
-    // 2. what is opened: its final path lies in the assets folder's final path (Windows resolves every link here)
-    HANDLE dir = CreateFileW(base.c_str(), FILE_READ_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
-                             OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, nullptr);
-    if (dir == INVALID_HANDLE_VALUE) {
+    // 1. by name, the assets folder itself and every folder and the file below it: no link and no junction (scan.cpp)
+    if (!names_plain(base, rel, name_kind, why)) return false;
+    // 2. what is opened: the assets folder's final path lies in the mod folder's (a junction or link at assets itself,
+    //    which Windows resolves here), and the file's final path in the assets folder's (any link below it)
+    const std::wstring root = final_path_of(base), mod = final_path_of(base.parent_path());
+    if (root.empty() || mod.empty()) {
         *why = "cannot open " + narrow(base.wstring());
         return false;
     }
-    const std::wstring root = final_path(dir);
-    CloseHandle(dir);
+    if (!inside(mod, root)) {
+        *why = "the mod's assets folder is a link or a junction: a mod's assets are read from its own folder only";
+        return false;
+    }
     HANDLE h = CreateFileW(file.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
     if (h == INVALID_HANDLE_VALUE) {
         *why = "cannot open " + narrow(file.wstring());
@@ -106,19 +120,20 @@ bool read_contained(const std::filesystem::path& base, const std::filesystem::pa
         return false;
     }
     // 3. the same file as a cooked file of a mod being loaded, under a name outside this mod's assets/cooked: another
-    //    name for a cook's output (a link to a file, which Wine cannot show; a hard link)
-    const bool named_cooked = [&] {
-        auto it = rel.begin();
-        if (it == rel.end()) return false;
-        std::wstring first = it->wstring();
-        for (auto& c : first) c = static_cast<wchar_t>(std::towlower(c));
-        return first == L"cooked" && ++it != rel.end();
-    }();
-    if (cooked_ids && !named_cooked && cooked_ids->count({info.dwVolumeSerialNumber, info.nFileIndexHigh, info.nFileIndexLow})) {
-        CloseHandle(h);
-        *why = narrow(rel.generic_wstring()) + " is a cooked file of a mod (its assets/cooked) under another name: a mod's assets are "
-               "read from its own assets folder only";
-        return false;
+    //    name for a cook's output (a link to a file, which Wine cannot show; a hard link). When the cooked folders were
+    //    not all scanned, a file outside its own assets/cooked cannot be shown to be no such name (scan.cpp)
+    if (cooked_ids) {
+        const AliasVerdict v = alias_verdict(named_in_cooked(rel), cooked_ids->ids.count({info.dwVolumeSerialNumber, info.nFileIndexHigh,
+                                                                                          info.nFileIndexLow}) != 0,
+                                             cooked_ids->complete, policy);
+        if (v == AliasVerdict::Alias || v == AliasVerdict::Unproven) {
+            CloseHandle(h);
+            *why = narrow(rel.generic_wstring()) + (v == AliasVerdict::Alias
+                ? " is a cooked file of a mod (its assets/cooked) under another name: a mod's assets are read from its own assets folder only"
+                : " cannot be shown to be no other name for a cooked file: a mod's cooked folder could not be scanned whole (kiln.log says which)");
+            return false;
+        }
+        if (v == AliasVerdict::UnprovenWarn && unproven) *unproven = true;
     }
     // 4. the bytes come from that same handle
     LARGE_INTEGER size{};

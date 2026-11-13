@@ -574,20 +574,39 @@ pub fn cook_folder_watched(tools: &CookTools, dir: &Path, opts: &CookOptions, on
         };
         Some(held.map_err(|e| fail(if e.code == ErrorCode::Canceled { "canceled" } else { "busy" }, e.message))?)
     };
-    if !opts.clean || opts.check {
+    if opts.check {
         return cook_steps(tools, dir, opts, on_line, stop);
     }
-    // A clean cook: what the folder holds is set aside (its cooked files, their receipts, the mod's files a cook may
-    // write) and comes back when the cook does not end well (a missing source, a cancel, a tool that fails): a mod that
-    // worked keeps working. When it ends well, what was set aside goes.
-    let kept = set_aside(dir, opts.game.as_deref()).map_err(|e| fail("io", e.message))?;
-    let r = cook_steps(tools, dir, opts, on_line, stop);
+    // What earlier runs left set aside (their putting back failed, or they were stopped) is never read as instructions
+    // and never deleted before a cook of this mod ended well. All it may do: when assets/cooked is missing, its plain
+    // `cooked` folder becomes assets/cooked again (without receipts: the next cook that ends well writes them).
+    let note = put_back_cooked(dir);
+    if let Some(n) = &note {
+        on_line(false, &format!("kiln: {n}"));
+    }
+    // A clean cook sets what it replaces aside, held by this run (set_aside) and put back by this run when the cook
+    // does not end well (a missing source, a cancel, a tool that fails): a mod that worked keeps working.
+    let kept = if opts.clean { Some(set_aside(dir, opts.game.as_deref()).map_err(|e| fail("io", e.message))?) } else { None };
+    let mut r = cook_steps(tools, dir, opts, on_line, stop);
+    if let (Ok(rep), Some(n)) = (&mut r, &note)
+        && !rep.ok
+    {
+        rep.text.push_str(&format!("kiln: {n}\n")); // the end of the text is what a failed cook's notice shows
+    }
     if r.as_ref().is_ok_and(|rep| rep.ok) {
-        kept.drop_old();
-    } else if let Err(e) = kept.restore(dir, opts.game.as_deref()) {
-        on_line(false, &format!("kiln: the files of {} from before this cook could not be put back: {}", dir.display(), e.message));
-    } else {
-        on_line(false, &format!("kiln: {} keeps the files of its last cook", dir.display()));
+        if let Some(k) = kept {
+            k.drop_stale_receipts(dir, opts.game.as_deref());
+        }
+        if opts.clean || opts.force {
+            remove_left_overs(dir);
+        }
+    } else if let Some(k) = kept {
+        match k.restore(dir, opts.game.as_deref()) {
+            Ok(()) => on_line(false, &format!("kiln: {} keeps the files of its last cook", dir.display())),
+            Err(e) => on_line(false, &format!("kiln: the files of {} from before this cook could not be put back ({}): they stay in {}, and \
+                become its assets/cooked again at its next cook if that folder is missing then", dir.display(), e.message,
+                k.prev.as_deref().unwrap_or(dir).display())),
+        }
     }
     r
 }
@@ -768,9 +787,9 @@ fn cook_steps(tools: &CookTools, dir: &Path, opts: &CookOptions, on_line: &mut d
     Ok(CookReport { ok: all_ok, recipes: results, text: text.text() })
 }
 
-/// What a clean cook set aside ([`set_aside`]): the folder's cooked files (renamed to `assets/.kiln-cooked-prev-<hex>`,
-/// a dot name no identity counts), the receipts of this folder in the game, and the mod's files a cook may write
-/// (`assets/assets.json`, `assets/cook.json`, `blocks/*.materials.json`), as they were.
+/// What one clean cook set aside, held by that run alone ([`set_aside`]): `assets/cooked` renamed to
+/// `assets/.kiln-cooked-prev-<hex>/cooked` (a dot name no identity counts), and in memory the receipts of this folder
+/// and the mod's own files a cook may write, as they were. Only this run puts them back ([`SetAside::restore`]).
 struct SetAside {
     prev: Option<PathBuf>,
     receipts: Vec<(PathBuf, Vec<u8>)>,
@@ -778,6 +797,12 @@ struct SetAside {
 }
 
 const PREV_PREFIX: &str = ".kiln-cooked-prev-";
+
+#[cfg(test)]
+thread_local! {
+    /// The next [`SetAside::restore`] on this thread fails, as a sharing violation or a permission would.
+    static FAIL_RESTORE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
 
 fn own_files(dir: &Path) -> Vec<PathBuf> {
     let mut v = vec![dir.join("assets/assets.json"), dir.join("assets/cook.json")];
@@ -787,23 +812,83 @@ fn own_files(dir: &Path) -> Vec<PathBuf> {
     v
 }
 
-/// A clean cook's start: the folder's `assets/cooked` is moved aside (a link in its place is refused, never followed),
-/// and so are the receipts of this folder in the game; the mod's own files a cook may write are remembered. What an
-/// earlier start left set aside (a stop in between) goes first: the cook that follows replaces it.
-fn set_aside(dir: &Path, game: Option<&Path>) -> Result<SetAside> {
-    let assets = dir.join("assets");
-    for e in std::fs::read_dir(&assets).into_iter().flatten().flatten() {
-        if e.file_name().to_string_lossy().starts_with(PREV_PREFIX) && e.file_type().is_ok_and(|t| t.is_dir()) {
-            let _ = std::fs::remove_dir_all(e.path());
+/// The set-asides earlier runs left in `dir`'s assets folder, newest first (whatever they hold, links too).
+fn left_over(dir: &Path) -> Vec<PathBuf> {
+    let mut v: Vec<(std::time::SystemTime, PathBuf)> = std::fs::read_dir(dir.join("assets")).into_iter().flatten().flatten()
+        .filter(|e| e.file_name().to_string_lossy().starts_with(PREV_PREFIX))
+        .map(|e| (e.path().symlink_metadata().and_then(|m| m.modified()).unwrap_or(std::time::UNIX_EPOCH), e.path())).collect();
+    v.sort_by(|a, b| b.cmp(a));
+    v.into_iter().map(|(_, p)| p).collect()
+}
+
+/// Whether `dir` and everything below it are plain folders and files (no link anywhere, none followed).
+fn plain_tree(dir: &Path) -> bool {
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        let Ok(rd) = std::fs::read_dir(&d) else { return false };
+        for e in rd.flatten() {
+            match e.file_type() {
+                Ok(t) if t.is_dir() => stack.push(e.path()),
+                Ok(t) if t.is_file() => {}
+                _ => return false,
+            }
         }
     }
+    true
+}
+
+/// When `assets/cooked` is missing: the newest left-over whose `cooked` is a plain folder with no link in it becomes
+/// `assets/cooked` again (a rename within the mod's assets folder). Nothing else of a left-over is read or written.
+/// -> what to tell (put back, or why not), None when there is no left-over or assets/cooked is there.
+fn put_back_cooked(dir: &Path) -> Option<String> {
+    let assets = dir.join("assets");
+    let cooked = assets.join("cooked");
+    let left = left_over(dir);
+    if left.is_empty() || std::fs::symlink_metadata(&cooked).is_ok() || crate::engine_mods::refuse_symlink_path(dir, &cooked).is_err() {
+        return None;
+    }
+    for l in &left {
+        let inner = l.join("cooked");
+        let plain = std::fs::symlink_metadata(l).is_ok_and(|m| m.is_dir()) && std::fs::symlink_metadata(&inner).is_ok_and(|m| m.is_dir());
+        if plain && plain_tree(&inner) && std::fs::rename(&inner, &cooked).is_ok() {
+            return Some(format!("{}: the cooked files of an earlier cook were put back from {} (without their receipts: under \"cooked\": \
+                \"local\" they load again once a cook of this mod ends well)", dir.display(), l.display()));
+        }
+    }
+    Some(format!("{}: an earlier cook left {} set aside, and none of it could be made its assets/cooked again; it is kept until a \
+        cook of this mod ends well", dir.display(), left.iter().map(|l| l.display().to_string()).collect::<Vec<_>>().join(", ")))
+}
+
+/// After a cook that ended well: every set-aside of the mod goes (by its name, inside its own assets folder; a link
+/// among them is removed as a link, never followed).
+fn remove_left_overs(dir: &Path) {
+    for l in left_over(dir) {
+        match std::fs::symlink_metadata(&l) {
+            Ok(m) if m.is_dir() => { let _ = std::fs::remove_dir_all(&l); }
+            Ok(_) => { let _ = std::fs::remove_file(&l); }
+            Err(_) => {}
+        }
+    }
+}
+
+/// A clean cook's start: `assets/cooked` moved aside (a link in its place is refused, never followed); the receipts of
+/// this folder in the game and the mod's own files a cook may write are remembered. The receipts stay in the store:
+/// after a stop here they still name the files the next run puts back.
+fn set_aside(dir: &Path, game: Option<&Path>) -> Result<SetAside> {
+    let assets = dir.join("assets");
     let cooked = assets.join("cooked");
     crate::engine_mods::refuse_symlink_path(dir, &cooked)?;
+    let receipts = game.map(|g| receipts_of(g, dir).into_iter().filter_map(|(f, _)| std::fs::read(&f).ok().map(|b| (f, b))).collect()).unwrap_or_default();
+    let own = own_files(dir).into_iter().map(|f| { let b = std::fs::read(&f).ok(); (f, b) }).collect();
     let prev = match std::fs::symlink_metadata(&cooked) {
         Ok(m) if m.is_dir() => {
             let hex: String = crate::util::random_bytes::<6>()?.iter().map(|b| format!("{b:02x}")).collect();
             let to = assets.join(format!("{PREV_PREFIX}{hex}"));
-            std::fs::rename(&cooked, &to).map_err(crate::util::io_at(&cooked, "setting aside"))?;
+            std::fs::create_dir(&to).map_err(crate::util::io_at(&to, "creating"))?;
+            if let Err(e) = std::fs::rename(&cooked, to.join("cooked")) {
+                let _ = std::fs::remove_dir(&to);
+                return Err(crate::util::io_at(&cooked, "setting aside")(e));
+            }
             Some(to)
         }
         Ok(_) => {
@@ -812,37 +897,36 @@ fn set_aside(dir: &Path, game: Option<&Path>) -> Result<SetAside> {
         }
         Err(_) => None,
     };
-    let mut receipts = Vec::new();
-    if let Some(game) = game {
-        for (file, _) in receipts_of(game, dir) {
-            if let Ok(bytes) = std::fs::read(&file) {
-                let _ = std::fs::remove_file(&file);
-                receipts.push((file, bytes));
-            }
-        }
-    }
-    let own = own_files(dir).into_iter().map(|f| { let b = std::fs::read(&f).ok(); (f, b) }).collect();
     Ok(SetAside { prev, receipts, own })
 }
 
 impl SetAside {
-    /// The cook ended well: what was set aside goes.
-    fn drop_old(self) {
-        if let Some(p) = self.prev {
-            let _ = std::fs::remove_dir_all(p);
+    /// The cook ended well: the receipts it did not write again (their bytes are as they were) name files it did not
+    /// make, and go. Its set-aside goes with the others ([`remove_left_overs`]).
+    fn drop_stale_receipts(&self, dir: &Path, game: Option<&Path>) {
+        let Some(game) = game else { return };
+        for (file, _) in receipts_of(game, dir) {
+            if self.receipts.iter().any(|(f, b)| *f == file && std::fs::read(&file).ok().as_deref() == Some(b.as_slice())) {
+                let _ = std::fs::remove_file(&file);
+            }
         }
     }
 
-    /// The cook did not end well: the folder gets back what it had (its cooked files, their receipts, the mod's own
-    /// files as they were), and what the failed cook made goes.
-    fn restore(self, dir: &Path, game: Option<&Path>) -> Result<()> {
+    /// The cook did not end well: this run puts back what it set aside (the cooked files, their receipts, the mod's own
+    /// files as they were); what the failed cook made goes. Err leaves the set-aside where it is.
+    fn restore(&self, dir: &Path, game: Option<&Path>) -> Result<()> {
+        #[cfg(test)]
+        if FAIL_RESTORE.with(|f| f.replace(false)) {
+            return Err(Error::new(ErrorCode::Io, "injected: the set-aside could not be put back"));
+        }
         let cooked = dir.join("assets").join("cooked");
         crate::engine_mods::refuse_symlink_path(dir, &cooked)?;
         if std::fs::symlink_metadata(&cooked).is_ok() {
             std::fs::remove_dir_all(&cooked).or_else(|_| std::fs::remove_file(&cooked)).map_err(crate::util::io_at(&cooked, "removing"))?;
         }
         if let Some(p) = &self.prev {
-            std::fs::rename(p, &cooked).map_err(crate::util::io_at(&cooked, "putting back"))?;
+            std::fs::rename(p.join("cooked"), &cooked).map_err(crate::util::io_at(&cooked, "putting back"))?;
+            let _ = std::fs::remove_dir(p);
         }
         if let Some(game) = game {
             for (file, _) in receipts_of(game, dir) {
@@ -1475,12 +1559,15 @@ mod tests {
         std::fs::write(folder.join("kiln.mod.json"), b"made here").unwrap();
         crate::util::write_json_atomic(&receipts_dir(&game).join("r1.json"), &receipt(serde_json::json!({ "../kiln.mod.json": digest }))).unwrap();
         assert_eq!(check_receipts(&game, &folder), (1, false));
-        // a clean cook's start: the cooked folder and this folder's receipts are set aside, another folder's stay
+        // a clean cook's start: the cooked folder is set aside; the receipts stay in the store (they name what a stop
+        // here leaves to be put back), another folder's too
         std::fs::write(folder.join("assets/cooked/b.bin"), b"x").unwrap();
         std::fs::write(folder.join("assets/assets.json"), b"{ \"shipped\": true }").unwrap();
         let kept = set_aside(&folder, Some(&game)).unwrap();
         assert!(!folder.join("assets/cooked").exists() && folder.join("kiln.mod.json").is_file());
-        assert!(receipts_of(&game, &folder).is_empty() && receipts_dir(&game).join("r2.json").is_file());
+        assert!(kept.prev.as_ref().unwrap().join("cooked/b.bin").is_file());
+        assert_eq!(receipts_of(&game, &folder).len(), 1);
+        assert!(receipts_dir(&game).join("r2.json").is_file());
         // the cook fails after it wrote things: all of it goes, and the folder has what it had
         std::fs::create_dir_all(folder.join("assets/cooked")).unwrap();
         std::fs::write(folder.join("assets/cooked/half.bin"), b"half").unwrap();
@@ -1493,11 +1580,14 @@ mod tests {
         assert!(!folder.join("assets/cooked/half.bin").exists() && !folder.join("blocks/new.materials.json").exists());
         assert_eq!(std::fs::read(folder.join("assets/assets.json")).unwrap(), b"{ \"shipped\": true }");
         assert_eq!(receipts_of(&game, &folder).iter().map(|(f, _)| f.file_name().unwrap().to_string_lossy().into_owned()).collect::<Vec<_>>(), ["r1.json"]);
-        // it ends well: what was set aside goes, nothing of it is left
+        assert!(left_over(&folder).is_empty(), "the run's set-aside went back whole");
+        // it ends well: the receipts it did not write again go, and so does every set-aside of the mod
         let kept = set_aside(&folder, Some(&game)).unwrap();
         std::fs::create_dir_all(folder.join("assets/cooked")).unwrap();
-        kept.drop_old();
-        assert!(std::fs::read_dir(folder.join("assets")).unwrap().flatten().all(|e| !e.file_name().to_string_lossy().starts_with(PREV_PREFIX)));
+        kept.drop_stale_receipts(&folder, Some(&game));
+        remove_left_overs(&folder);
+        assert!(receipts_of(&game, &folder).is_empty() && receipts_dir(&game).join("r2.json").is_file());
+        assert!(left_over(&folder).is_empty());
         // a link in place of the cooked folder is refused, its target left alone
         #[cfg(unix)]
         {
@@ -1514,6 +1604,155 @@ mod tests {
             std::os::unix::fs::symlink(d.path().join("store-elsewhere"), &store).unwrap();
             assert!(receipts_of(&game, &folder).is_empty());
         }
+    }
+
+    /// A cook tools stand-in: a "Python" that fails every run (`/bin/false`) or ends well (`/bin/true`).
+    #[cfg(unix)]
+    fn fake_tools(root: &Path, program: &str) -> crate::cooktools::CookTools {
+        use crate::cooktools::{CookTools, Python, Source};
+        std::fs::create_dir_all(root.join("tools/modelcook")).unwrap();
+        std::fs::write(root.join("tools/modelcook/modelcook.py"), b"").unwrap();
+        CookTools { root: root.to_path_buf(), source: Source::Checkout, sound_helper: None,
+            python: Python { program: PathBuf::from(program), version: (3, 14), zstd: "stdlib".into(), given: false } }
+    }
+
+    /// A mod folder in a game, cooked once: its file, its receipt, its recipe and manifest.
+    #[cfg(unix)]
+    fn cooked_mod(d: &Path) -> (PathBuf, PathBuf) {
+        let (game, folder) = (d.join("game"), d.join("game/kiln/profiles/p/kiln/blades"));
+        std::fs::create_dir_all(game.join("kiln/state")).unwrap();
+        std::fs::create_dir_all(folder.join("assets/cooked")).unwrap();
+        std::fs::write(folder.join("kiln.mod.json"), br#"{ "id": "blades" }"#).unwrap();
+        std::fs::write(folder.join("assets/cook.json"), br#"{ "format": 1, "tool": "modelcook", "out": "cooked", "steps": [] }"#).unwrap();
+        std::fs::write(folder.join("assets/assets.json"), b"{ \"shipped\": true }").unwrap();
+        std::fs::write(folder.join("assets/cooked/a.bin"), b"made by the last good cook").unwrap();
+        let digest = crate::hash::hex(&sha2::Sha256::digest(b"made by the last good cook"));
+        std::fs::create_dir_all(receipts_dir(&game)).unwrap();
+        crate::util::write_json_atomic(&receipts_dir(&game).join("r1.json"),
+            &serde_json::json!({ "format": 1, "tool": "modelcook", "mod": folder, "recipe": "assets/cook.json", "files": { "cooked/a.bin": digest } })).unwrap();
+        (game, folder)
+    }
+
+    /// A clean cook whose tool fails and whose putting back fails too (a sharing violation, a permission) leaves its
+    /// set-aside; the next cook, whose tool fails as well, makes that set-aside's cooked folder assets/cooked again (it
+    /// was missing) and puts back what it set aside itself: the files and receipts of the last good cook are there. A
+    /// left-over goes only after a cook that ended well.
+    #[cfg(unix)]
+    #[test]
+    fn a_set_aside_that_could_not_be_put_back_survives_the_next_failed_cook() {
+        let d = crate::library::TempDir::new(&std::env::temp_dir(), "cook-setaside").unwrap();
+        let (game, folder) = cooked_mod(d.path());
+        let opts = CookOptions { game: Some(game.clone()), force: true, clean: true, ..CookOptions::default() };
+        let good = |folder: &Path| std::fs::read(folder.join("assets/cooked/a.bin")).ok().as_deref() == Some(b"made by the last good cook".as_slice())
+            && check_receipts(&game, folder) == (1, true) && std::fs::read(folder.join("assets/assets.json")).unwrap() == b"{ \"shipped\": true }";
+        assert!(good(&folder));
+        // 1. the tool fails, and so does putting back: the set-aside stays
+        FAIL_RESTORE.with(|f| f.set(true));
+        let mut said = Vec::new();
+        assert!(!cook_folder_watched(&fake_tools(&d.path().join("t"), "/bin/false"), &folder, &opts, &mut |_, l| said.push(l.to_string()), &|| false).unwrap().ok);
+        assert!(said.iter().any(|l| l.contains("could not be put back")), "{said:?}");
+        assert_eq!(left_over(&folder).len(), 1);
+        assert!(!folder.join("assets/cooked").exists());
+        // 2. the next cook fails as well: the last good cook's files and receipts are there after it
+        let mut said = Vec::new();
+        assert!(!cook_folder_watched(&fake_tools(&d.path().join("t"), "/bin/false"), &folder, &opts, &mut |_, l| said.push(l.to_string()), &|| false).unwrap().ok);
+        assert!(said.iter().any(|l| l.contains("were put back from")), "{said:?}");
+        assert!(good(&folder), "the last good cook's files and receipts");
+        assert_eq!(left_over(&folder).len(), 1, "the emptied left-over is kept until a cook ends well");
+        // 3. a cook that ends well removes every set-aside of the mod
+        assert!(cook_folder_watched(&fake_tools(&d.path().join("t"), "/bin/true"), &folder, &opts, &mut |_, _| {}, &|| false).unwrap().ok);
+        assert!(left_over(&folder).is_empty());
+    }
+
+    /// A set-aside of an older layout (the cooked files right in `.kiln-cooked-prev-*`, no `cooked` inside, no index)
+    /// is never deleted before a cook ends well: a cook that fails leaves its files as they were.
+    #[cfg(unix)]
+    #[test]
+    fn an_old_left_over_is_kept_through_a_failed_cook() {
+        let d = crate::library::TempDir::new(&std::env::temp_dir(), "cook-oldleft").unwrap();
+        let (game, folder) = cooked_mod(d.path());
+        let old = folder.join("assets/.kiln-cooked-prev-0011aabbccdd");
+        std::fs::rename(folder.join("assets/cooked"), &old).unwrap();
+        let opts = CookOptions { game: Some(game.clone()), force: true, clean: true, ..CookOptions::default() };
+        let mut said = Vec::new();
+        assert!(!cook_folder_watched(&fake_tools(&d.path().join("t"), "/bin/false"), &folder, &opts, &mut |_, l| said.push(l.to_string()), &|| false).unwrap().ok);
+        assert_eq!(std::fs::read(old.join("a.bin")).unwrap(), b"made by the last good cook", "the only working files are still there");
+        assert!(said.iter().any(|l| l.contains("is kept until a cook of this mod ends well") && l.contains(".kiln-cooked-prev-0011aabbccdd")), "{said:?}");
+    }
+
+    /// A downloaded, hand-placed mod that brings its own `.kiln-cooked-prev-*` (with an index of the layout of 9f4d81a1
+    /// that names a file outside the mod, and receipt and recipe copies) can at most get a folder named cooked inside its
+    /// own assets folder, without receipts: nothing outside the mod is written, nothing of the mod's own files changes.
+    #[cfg(unix)]
+    #[test]
+    fn a_planted_set_aside_writes_nothing_outside_the_mod() {
+        let d = crate::library::TempDir::new(&std::env::temp_dir(), "cook-planted").unwrap();
+        let (game, folder) = cooked_mod(d.path());
+        std::fs::remove_dir_all(folder.join("assets/cooked")).unwrap();
+        let canary = d.path().join("canary.txt");
+        std::fs::write(&canary, b"the player's file").unwrap();
+        let planted = folder.join("assets/.kiln-cooked-prev-feedfeedfeed");
+        std::fs::create_dir_all(planted.join("receipts")).unwrap();
+        std::fs::create_dir_all(planted.join("own")).unwrap();
+        std::fs::create_dir_all(planted.join("cooked")).unwrap();
+        std::fs::write(planted.join("cooked/shipped.bin"), b"shipped by the download").unwrap();
+        std::fs::write(planted.join("receipts/0.json"), b"overwritten by the download").unwrap();
+        std::fs::write(planted.join("own/0"), b"a recipe of the download's").unwrap();
+        std::fs::write(planted.join("set-aside.json"), serde_json::to_vec(&serde_json::json!({ "format": 1, "hadCooked": true,
+            "receipts": [[canary, "receipts/0.json"]], "own": [[folder.join("assets/cook.json"), "own/0"]] })).unwrap()).unwrap();
+        let recipe = std::fs::read(folder.join("assets/cook.json")).unwrap();
+        let opts = CookOptions { game: Some(game.clone()), force: true, clean: true, ..CookOptions::default() };
+        let _ = cook_folder_watched(&fake_tools(&d.path().join("t"), "/bin/false"), &folder, &opts, &mut |_, _| {}, &|| false).unwrap();
+        assert_eq!(std::fs::read(&canary).unwrap(), b"the player's file", "nothing outside the mod is written");
+        assert_eq!(std::fs::read(folder.join("assets/cook.json")).unwrap(), recipe, "the mod's own files stay as they are");
+        // at most: its cooked folder became the mod's assets/cooked, without a receipt
+        assert_eq!(std::fs::read(folder.join("assets/cooked/shipped.bin")).unwrap(), b"shipped by the download");
+        assert!(receipts_of(&game, &folder).iter().all(|(_, r)| !r.files.contains_key("cooked/shipped.bin")));
+        // a planted cooked folder with a link in it is not taken
+        std::fs::remove_dir_all(folder.join("assets/cooked")).unwrap();
+        std::fs::create_dir_all(planted.join("cooked")).unwrap();
+        std::os::unix::fs::symlink(&canary, planted.join("cooked/link.bin")).unwrap();
+        let _ = cook_folder_watched(&fake_tools(&d.path().join("t"), "/bin/false"), &folder, &opts, &mut |_, _| {}, &|| false).unwrap();
+        assert!(!folder.join("assets/cooked/link.bin").exists());
+        assert_eq!(std::fs::read(&canary).unwrap(), b"the player's file");
+    }
+
+    /// A left-over, then the player fixes the recipe and cooks with --force (not clean) and that ends well, then a clean
+    /// cook that fails: the newer outputs, their receipt and the recipe fix are what the folder has.
+    #[cfg(unix)]
+    #[test]
+    fn newer_outputs_and_a_recipe_fix_win_over_a_left_over() {
+        let d = crate::library::TempDir::new(&std::env::temp_dir(), "cook-newer").unwrap();
+        let (game, folder) = cooked_mod(d.path());
+        let clean = CookOptions { game: Some(game.clone()), force: true, clean: true, ..CookOptions::default() };
+        FAIL_RESTORE.with(|f| f.set(true));
+        let _ = cook_folder_watched(&fake_tools(&d.path().join("t"), "/bin/false"), &folder, &clean, &mut |_, _| {}, &|| false).unwrap();
+        assert_eq!(left_over(&folder).len(), 1);
+        // the player's fix and the newer cook's results (its outputs and receipt)
+        let fixed = br#"{ "format": 1, "tool": "modelcook", "out": "cooked", "steps": [], "comment": "fixed" }"#;
+        std::fs::write(folder.join("assets/cook.json"), fixed).unwrap();
+        std::fs::create_dir_all(folder.join("assets/cooked")).unwrap();
+        std::fs::write(folder.join("assets/cooked/a.bin"), b"newer").unwrap();
+        let digest = crate::hash::hex(&sha2::Sha256::digest(b"newer"));
+        crate::util::write_json_atomic(&receipts_dir(&game).join("r1.json"),
+            &serde_json::json!({ "format": 1, "tool": "modelcook", "mod": folder, "recipe": "assets/cook.json", "files": { "cooked/a.bin": digest } })).unwrap();
+        let force = CookOptions { game: Some(game.clone()), force: true, ..CookOptions::default() };
+        assert!(cook_folder_watched(&fake_tools(&d.path().join("t"), "/bin/true"), &folder, &force, &mut |_, _| {}, &|| false).unwrap().ok);
+        assert!(left_over(&folder).is_empty(), "a --force cook that ended well removes the left-over");
+        // the clean cook fails: what is there now comes back, not the left-over's
+        assert!(!cook_folder_watched(&fake_tools(&d.path().join("t"), "/bin/false"), &folder, &clean, &mut |_, _| {}, &|| false).unwrap().ok);
+        assert_eq!(std::fs::read(folder.join("assets/cooked/a.bin")).unwrap(), b"newer");
+        assert_eq!(check_receipts(&game, &folder), (1, true));
+        assert_eq!(std::fs::read(folder.join("assets/cook.json")).unwrap(), fixed);
+        // a left-over beside a present assets/cooked is not touched at all
+        FAIL_RESTORE.with(|f| f.set(true));
+        let _ = cook_folder_watched(&fake_tools(&d.path().join("t"), "/bin/false"), &folder, &clean, &mut |_, _| {}, &|| false).unwrap();
+        std::fs::create_dir_all(folder.join("assets/cooked")).unwrap();
+        std::fs::write(folder.join("assets/cooked/a.bin"), b"newest").unwrap();
+        let left = left_over(&folder);
+        let _ = cook_folder_watched(&fake_tools(&d.path().join("t"), "/bin/false"), &folder, &clean, &mut |_, _| {}, &|| false).unwrap();
+        assert_eq!(std::fs::read(folder.join("assets/cooked/a.bin")).unwrap(), b"newest");
+        assert!(left.iter().all(|l| l.join("cooked/a.bin").is_file()));
     }
 
     /// Two cooks of one folder: the second waits for the first, says so, and can be stopped while it waits.

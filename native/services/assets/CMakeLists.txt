@@ -4,6 +4,7 @@ kiln_service(assets
     assets.cpp
     contained.cpp
     cooktrust.cpp
+    scan.cpp
     hooks.cpp
     store.cpp
     image.cpp

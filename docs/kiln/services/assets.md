@@ -58,11 +58,14 @@ subfolders are allowed; absolute paths and `..` are rejected.
   and in a player's game: a server's cook makes no models, and nothing has to be marked for it (dev.27; the cook of
   0.2.0-dev.26 wrote `"side": "client"` on the models' entries of the server's copy, and the server now names such a
   copy in a warning: it is another file than the players').
-- **Every file is read from the mod's own `assets` folder** (`contained.cpp`): a link or junction from there down (by
-  name, which shows Wine's links to folders; on Windows the opened file's final path too) makes the entry an error, as
-  does a file whose identity (volume, file index) is that of a cooked file of any mod of the load order while its name
-  is not under the mod's own `assets/cooked` (a Unix link to a file is a plain file under Wine). The bytes come from the
-  handle that was checked.
+- **Every file is read from the mod's own `assets` folder** (`contained.cpp`, its portable half `scan.cpp` with the host
+  test `tests/test_scan.cpp`): a link or junction at the `assets` folder itself or below it (by name, which shows Wine's
+  links to folders; on Windows the final paths too: the assets folder's inside the mod folder's, the opened file's
+  inside the assets folder's) makes the entry an error, as does a file whose identity (volume, file index) is that of a
+  cooked file of any mod of the load order while its name is not under the mod's own `assets/cooked` (a Unix link to a
+  file is a plain file under Wine). The cooked folders of every enabled mod of the load order, with an `assets.json` or
+  not, are scanned whole (an explicit stack, no link followed, at most 200000 entries each); a scan that is cut is named in kiln.log, and then a file outside its own `assets/cooked` is
+  refused under `"local"` and named under `"warn"`. The bytes come from the handle that was checked.
 - **A file in `assets/cooked`** (a `patch` blob too) is compared with the cook receipts of this game
   (`<game>/kiln/state/cook-receipts/*.json`, written by the cook tools when Kiln runs them:
   [../modding/cooking.md](../modding/cooking.md)). One no receipt lists is handled by `kiln.json` `"cooked"`: `"warn"`
