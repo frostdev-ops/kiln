@@ -267,6 +267,32 @@ internal static unsafe class UiNative
         }
     }
 
+    /// <summary>The kiln.ui v7 table (0.2.0-dev.27): <see cref="Table6Scroll"/>, then subscribe_key_ex (key callbacks
+    /// that also get the middle and side mouse buttons and the wheel's notches, <see cref="KeysMouse"/>).</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    public struct Table7
+    {
+        public Table6Scroll Base;
+        public delegate* unmanaged[Cdecl]<ulong, delegate* unmanaged[Cdecl]<Key*, void*, byte>, void*, uint, ulong*, int> SubscribeKeyEx;
+    }
+
+    /// <summary>KILN_UI_KEYS_MOUSE (kiln_ui.h v7).</summary>
+    public const uint KeysMouse = 1;
+
+    /// <summary>kiln.ui's subscribe_key_ex, or null on a table without it (a kiln-ui.dll older than 0.2.0-dev.27).</summary>
+    public static delegate* unmanaged[Cdecl]<ulong, delegate* unmanaged[Cdecl]<Key*, void*, byte>, void*, uint, ulong*, int> SubscribeKeyExSlot
+    {
+        get
+        {
+            var t = T;
+            if (t == null || t->Header.Size < (uint)sizeof(Table7)) return null;
+            return ((Table7*)t)->SubscribeKeyEx;
+        }
+    }
+
+    /// <summary>The key subscription gets mouse presses (kiln.ui v7): key bindings on the mouse can fire.</summary>
+    public static bool MouseKeysAvailable { get; private set; }
+
     /// <summary>KilnCraftMenuApi (kiln_ui.h): kiln.content's crafting-menu extension point.</summary>
     [StructLayout(LayoutKind.Sequential)]
     public struct CraftMenuTable
@@ -335,6 +361,7 @@ internal static unsafe class UiNative
         _table3 = null;
         _table4 = null;
         _table6 = null;
+        MouseKeysAvailable = false;
     }
 
     public static bool Available => T != null;
@@ -349,7 +376,13 @@ internal static unsafe class UiNative
             if (_frameHandle != 0) return true;
             ulong f = 0, k = 0;
             if (T->SubscribeFrame(0, &OnFrame, null, &f) != Ok) return false;
-            if (T->SubscribeKey(0, &OnKey, null, &k) != Ok) return false;
+            // keys and, from kiln.ui v7, the mouse buttons and the wheel (subscribe_key gets keyboard keys only)
+            var ex = SubscribeKeyExSlot;
+            if (ex != null ? ex(0, &OnKey, null, KeysMouse, &k) != Ok : T->SubscribeKey(0, &OnKey, null, &k) != Ok) return false;
+            MouseKeysAvailable = ex != null;
+            if (ex == null)
+                UiEngine.Log(LogLevel.Warn, "this kiln-ui.dll is older than Kiln.Ui (no subscribe_key_ex): key bindings on the mouse " +
+                                            "(Mouse4, Ctrl+WheelUp, ...) register but do not fire, and the Keys page takes keys only");
             _frameHandle = f;
             _keyHandle = k;
             return true;

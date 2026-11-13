@@ -831,9 +831,11 @@ internal static unsafe class UiEngine
         var now = Environment.TickCount64;
         if (now - _keysDrawnAtMs > 250) _remapping = null;
         _keysDrawnAtMs = now;
-        ui.TextDisabled("Click a key, then press the new one: a key, the middle or a side mouse button, or a turn of the wheel, " +
-                        "with Ctrl, Shift or Alt if you like (left and right click can't be bound). Click it again to cancel; " +
-                        "Escape cancels and closes the menu. Saved to kiln/config/keybinds.json.");
+        ui.TextDisabled(UiNative.MouseKeysAvailable
+            ? "Click a key, then press the new one: a key, the middle or a side mouse button, or a turn of the wheel, " +
+              "with Ctrl, Shift or Alt if you like (left and right click can't be bound). Click it again to cancel; " +
+              "Escape cancels and closes the menu. Saved to kiln/config/keybinds.json."
+            : "Click a key, then press the new one. Click it again to cancel; Escape cancels and closes the menu. Saved to kiln/config/keybinds.json.");
         if (!ui.BeginTable("kiln.keys", "Action", "Key", "Default", "")) return;
         void Line(string id, string what, KeyChord key, KeyChord def)
         {

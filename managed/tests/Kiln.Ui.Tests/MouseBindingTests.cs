@@ -6,6 +6,8 @@
 // kiln.ui's half (one press per notch from raw input and the message, what the game gets) is
 // native/services/ui/tests/window_input/harness.cpp. No game: a fake kiln.ui table.
 using System.Reflection;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using System.Text.Json.Nodes;
 using Kiln.FakeUi;
 using Xunit;
@@ -322,5 +324,110 @@ public sealed class MouseBindingTests : IDisposable
         Assert.False(UiEngine.ForPlay(0x04, KeyMods.Shift));
         Assert.True(UiEngine.ForPlay(0x4B, KeyMods.None));  // K, as before
         Assert.False(UiEngine.ForPlay(0x77, KeyMods.None));  // F8, as before
+    }
+}
+
+/// <summary>Kiln.Ui's key subscription: subscribe_key_ex with KILN_UI_KEYS_MOUSE where kiln.ui has it (v7), else
+/// subscribe_key, which gets keyboard keys only (mouse bindings then register but never fire).</summary>
+[Collection(UiSerial.Name)]
+public sealed unsafe class KeySubscriptionTests : IDisposable
+{
+    private const BindingFlags Static = BindingFlags.NonPublic | BindingFlags.Static;
+    private static readonly List<string> Calls = [];
+    private readonly IKilnBackend _previous = Backend.Current;
+    private readonly UiNative.Table4* _fake;
+    private UiNative.Table7* _t7;
+
+    public KeySubscriptionTests()
+    {
+        FakeUiTable.Install();
+        Backend.Current = new FakeUiTable.Backend();
+        _fake = FakeUiTable.Table;
+        lock (Calls) Calls.Clear();
+        ForgetSubscription();
+    }
+
+    public void Dispose()
+    {
+        ForgetSubscription();
+        FakeUiTable.Table = _fake;
+        if (_t7 != null) NativeMemory.Free(_t7);
+        Backend.Current = _previous;
+        UiNative.ResetForTests();
+        FakeUiTable.Free();
+    }
+
+    private static void ForgetSubscription()
+    {
+        typeof(UiNative).GetField("_frameHandle", Static)!.SetValue(null, 0UL);
+        typeof(UiNative).GetField("_keyHandle", Static)!.SetValue(null, 0UL);
+        UiNative.ResetForTests();
+    }
+
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static int Frame(ulong o, delegate* unmanaged[Cdecl]<UiNative.Frame*, void*, void> f, void* u, ulong* h)
+    {
+        *h = 1;
+        return 0;
+    }
+
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static int OldKeys(ulong o, delegate* unmanaged[Cdecl]<UiNative.Key*, void*, byte> f, void* u, ulong* h)
+    {
+        lock (Calls) Calls.Add("subscribe_key");
+        *h = 2;
+        return 0;
+    }
+
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static int NewKeys(ulong o, delegate* unmanaged[Cdecl]<UiNative.Key*, void*, byte> f, void* u, uint flags, ulong* h)
+    {
+        lock (Calls) Calls.Add($"subscribe_key_ex {flags}");
+        *h = 3;
+        return 0;
+    }
+
+    /// <summary>The fake table grown to v7; <paramref name="size"/> says how much of it this kiln.ui has.</summary>
+    private void InstallV7(int size)
+    {
+        _t7 = (UiNative.Table7*)NativeMemory.AllocZeroed((nuint)sizeof(UiNative.Table7));
+        _t7->Base.Base.Base = *_fake;
+        ref var t = ref _t7->Base.Base.Base.Base.Base.Base;
+        t.Header.Size = (uint)size;
+        t.Header.Version = size >= sizeof(UiNative.Table7) ? 7u : 6u;
+        t.SubscribeFrame = &Frame;
+        t.SubscribeKey = &OldKeys;
+        _t7->SubscribeKeyEx = &NewKeys;
+        FakeUiTable.Table = (UiNative.Table4*)_t7;
+        UiNative.ResetForTests();
+    }
+
+    [Fact]
+    public void The_v7_slot_follows_menu_scroll_as_in_kiln_ui_h()
+    {
+        // ui.cpp: static_assert(offsetof(KilnUiApi, subscribe_key_ex) == offsetof(KilnUiApi, menu_scroll) + sizeof(void*))
+        Assert.Equal(sizeof(UiNative.Table6Scroll), (int)Marshal.OffsetOf<UiNative.Table7>(nameof(UiNative.Table7.SubscribeKeyEx)));
+        Assert.Equal(sizeof(UiNative.Table6Scroll) + 8, sizeof(UiNative.Table7));
+        Assert.Equal(1u, UiNative.KeysMouse);  // KILN_UI_KEYS_MOUSE
+    }
+
+    [Fact]
+    public void A_v7_kiln_ui_gives_Kiln_Ui_the_mouse_presses()
+    {
+        InstallV7(sizeof(UiNative.Table7));
+        Assert.True(UiNative.Subscribe());
+        lock (Calls) Assert.Equal(["subscribe_key_ex 1"], Calls);
+        Assert.True(UiNative.MouseKeysAvailable);
+    }
+
+    [Fact]
+    public void An_older_kiln_ui_gives_keys_only_and_mouse_names_still_parse()
+    {
+        InstallV7(sizeof(UiNative.Table6Scroll));  // a kiln-ui.dll from before subscribe_key_ex
+        Assert.True(UiNative.Subscribe());
+        lock (Calls) Assert.Equal(["subscribe_key"], Calls);
+        Assert.False(UiNative.MouseKeysAvailable);
+        Assert.True(KeyChord.TryParse("Ctrl+WheelUp", out var c));  // a mod's Register still works; the binding never fires
+        Assert.Equal(0x100u, c.VirtualKey);
     }
 }

@@ -69,7 +69,8 @@ kiln.ui subclasses the window (`SetWindowLongPtrW(GWLP_WNDPROC)`, re-applied if 
   (default Insert) → key subscribers (Kiln.Ui key bindings). A consumed key's `WM_INPUT` press and its legacy
   messages are kept from the game.
 - Mouse presses (0.2.0-dev.27): the middle and side buttons and each wheel notch go the same way, as `KilnUiKey`s
-  (`KILN_UI_VK_WHEEL_*` for the wheel). The window gets each from `WM_INPUT` (RAWMOUSE flags, `usButtonData`) and as a
+  (`KILN_UI_VK_WHEEL_*` for the wheel), to the key subscribers that ask for them (`subscribe_key_ex`,
+  `KILN_UI_KEYS_MOUSE`, kiln.ui v7; without one nothing of this runs). The window gets each from `WM_INPUT` (RAWMOUSE flags, `usButtonData`) and as a
   message (`WM_XBUTTON*`, `WM_MBUTTON*`, `WM_MOUSEWHEEL`, `WM_MOUSEHWHEEL`); whichever comes first is dispatched and
   the other, its twin by input and message time, follows its decision (`native/services/ui/mouse_press.h`). A taken
   press is kept from the game in both forms; a raw record that also carries another button's input passes whole.

@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 // kiln.ui: the middle and side mouse buttons and the wheel as key presses (key bindings, the Kiln menu key, the Keys
-// page's "press a key"), the rules without a window. input.cpp applies them in the window procedure;
-// tests/mouse_press_test.cpp checks them on the host.
+// page's "press a key"), the rules without a window. input.cpp applies them in the window procedure, for the key
+// subscribers that ask for mouse presses (subscribe_key_ex with KILN_UI_KEYS_MOUSE, keys.cpp; subscribe_key gets keyboard
+// keys only); tests/mouse_press_test.cpp checks them on the host.
 //  - Codes: the buttons keep their Windows virtual keys (VK_MBUTTON 0x04, VK_XBUTTON1 0x05, VK_XBUTTON2 0x06). The
 //    wheel has none: KILN_UI_VK_WHEEL_UP/DOWN/LEFT/RIGHT (kiln_ui.h) are 0x100..0x103, above every virtual key, so no key
 //    can be taken for a notch. The left and right buttons are never presses here: Kiln's own screens need them.

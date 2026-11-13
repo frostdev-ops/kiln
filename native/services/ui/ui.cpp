@@ -57,15 +57,8 @@ struct FrameSub : CallbackLifetime {
     KilnUiFrameFn fn;
     void* user;
 };
-struct KeySub : CallbackLifetime {
-    KilnHandle handle;
-    KilnOwner owner;
-    KilnUiKeyFn fn;
-    void* user;
-};
 std::mutex g_sub_mu;
-std::vector<std::shared_ptr<FrameSub>> g_frame_subs;
-std::vector<std::shared_ptr<KeySub>> g_key_subs;
+std::vector<std::shared_ptr<FrameSub>> g_frame_subs;  // key subscribers: keys.cpp
 // Keep canceled calls discoverable while another thread drains them (including self-unsubscribe during cleanup).
 std::unordered_map<KilnHandle, std::shared_ptr<CallbackLifetime>> g_retiring_subs;
 
@@ -81,15 +74,6 @@ void after_library_load() {
 bool guarded_frame(KilnUiFrameFn fn, const KilnUiFrame* f, void* user) {
     __try {
         fn(f, user);
-        return true;
-    } __except (EXCEPTION_EXECUTE_HANDLER) {
-        return false;
-    }
-}
-
-bool guarded_key(KilnUiKeyFn fn, const KilnUiKey* k, void* user, bool* consumed) {
-    __try {
-        *consumed = fn(k, user);
         return true;
     } __except (EXCEPTION_EXECUTE_HANDLER) {
         return false;
@@ -244,7 +228,7 @@ bool build_frame(float width, float height, float dpi) {
     return true;
 }
 
-bool dispatch_key(const KilnUiKey& key) {
+bool dispatch_key(const KilnUiKey& key, bool mouse) {
     // the menu key first (works without the managed host); in the main menu it opens or leaves the game page
     if (key.down && !key.repeat && !key.text_input && key.vk == g_menu_vk.load() && key.mods == g_menu_mods.load()) {
         if (page_menu_key()) return true;
@@ -260,31 +244,7 @@ bool dispatch_key(const KilnUiKey& key) {
         return true;
     }
     if (wheel_active() && wheel_on_key(key)) return true;  // Esc cancels the wheel; its hold key's release is noted
-    std::vector<std::shared_ptr<KeySub>> subs;
-    {
-        std::lock_guard<std::mutex> lk(g_sub_mu);
-        subs = g_key_subs;
-    }
-    bool consumed = false;
-    for (const auto& s : subs) {
-        std::lock_guard call(s->gate);
-        if (!s->active.load(std::memory_order_acquire)) continue;
-        bool c = false;
-        CallbackLifetime::Invocation invocation(s.get());
-        auto* outer = t_callback;
-        t_callback = s.get();
-        const bool ok = guarded_key(s->fn, &key, s->user, &c);
-        t_callback = outer;
-        if (!ok) {
-            s->active.store(false, std::memory_order_release);
-            set_error("a key callback faulted; removed");
-            std::lock_guard<std::mutex> lk(g_sub_mu);
-            std::erase_if(g_key_subs, [&](const auto& x) { return x == s; });
-            continue;
-        }
-        consumed |= c;
-    }
-    return consumed;
+    return keys_dispatch(key, mouse);  // subscribe_key gets keyboard keys only; mouse presses need KILN_UI_KEYS_MOUSE
 }
 
 }  // namespace kui
@@ -306,7 +266,7 @@ KilnResult KILN_CALL t_status(KilnUiStatus* out) {
     out->capturing = capturing() ? 1 : 0;
     {
         std::lock_guard<std::mutex> lk(g_sub_mu);
-        out->subscribers = static_cast<uint32_t>(g_frame_subs.size() + g_key_subs.size());
+        out->subscribers = static_cast<uint32_t>(g_frame_subs.size() + keys_count());
     }
     std::lock_guard<std::mutex> lk(g_err_mu);
     std::snprintf(out->error, sizeof out->error, "%s", g_error);
@@ -328,17 +288,7 @@ KilnResult KILN_CALL t_subscribe_frame(KilnOwner owner, KilnUiFrameFn fn, void* 
 }
 
 KilnResult KILN_CALL t_subscribe_key(KilnOwner owner, KilnUiKeyFn fn, void* user, KilnHandle* out) {
-    if (!fn) return KILN_ERR_INVALID_ARGUMENT;
-    std::lock_guard<std::mutex> lk(g_sub_mu);
-    const KilnHandle h = next_handle();
-    auto sub = std::make_shared<KeySub>();
-    sub->handle = h;
-    sub->owner = owner;
-    sub->fn = fn;
-    sub->user = user;
-    g_key_subs.push_back(std::move(sub));
-    if (out) *out = h;
-    return KILN_OK;
+    return keys_subscribe(owner, fn, user, 0, out);  // keyboard keys only, as before 0.2.0-dev.27
 }
 
 KilnResult KILN_CALL t_unsubscribe(KilnHandle h) {
@@ -353,7 +303,6 @@ KilnResult KILN_CALL t_unsubscribe(KilnHandle h) {
             return true;
         };
         std::erase_if(g_frame_subs, erase);
-        std::erase_if(g_key_subs, erase);
         if (!removed) {
             const auto it = g_retiring_subs.find(h);
             if (it != g_retiring_subs.end()) removed = it->second;
@@ -368,6 +317,7 @@ KilnResult KILN_CALL t_unsubscribe(KilnHandle h) {
         g_retiring_subs.erase(h);
         return KILN_OK;
     }
+    if (const KilnResult r = keys_unsubscribe(h); r != KILN_ERR_NOT_FOUND) return r;  // key callbacks (keys.cpp)
     if (const KilnResult r = input_feed_unsubscribe(h); r != KILN_ERR_NOT_FOUND) return r;  // window input (v5)
     if (game_unsubscribe(h)) return KILN_OK;  // menu entries, screen and UI-tick subscriptions
     // Frame callbacks run under Vulkan's mutex. Look up local handles first to avoid recursively locking it.
@@ -475,6 +425,11 @@ uint32_t KILN_CALL t_menu_entries(KilnUiMenuEntry* out, uint32_t capacity) { ret
 KilnResult KILN_CALL t_menu_activate(KilnHandle entry) { return game_menu_activate(entry); }
 uint32_t KILN_CALL t_menu_scroll() { return scroll_status(); }
 
+// v7: key callbacks that take mouse presses too (keys.cpp)
+KilnResult KILN_CALL t_subscribe_key_ex(KilnOwner o, KilnUiKeyFn fn, void* u, uint32_t flags, KilnHandle* out) {
+    return keys_subscribe(o, fn, u, flags, out);
+}
+
 // kiln.ui.tick (for Kiln.Host)
 KilnResult KILN_CALL tt_subscribe(KilnOwner o, KilnUiFrameTickFn fn, void* u, KilnHandle* out) { return game_subscribe_frame_tick(o, fn, u, out); }
 KilnResult KILN_CALL tt_unsubscribe(KilnHandle h) { return game_unsubscribe(h) ? KILN_OK : KILN_ERR_NOT_FOUND; }
@@ -491,8 +446,11 @@ static_assert(offsetof(KilnUiApi, menu_page) == offsetof(KilnUiApi, set_scroll_h
 static_assert(offsetof(KilnUiApi, subscribe_window_input) == offsetof(KilnUiApi, pop_font) + sizeof(void*),
               "kiln.ui v5 appends subscribe_window_input after pop_font");
 static_assert(offsetof(KilnUiApi, menu_shown) == offsetof(KilnUiApi, subscribe_window_input) + sizeof(void*) &&
-                  sizeof(KilnUiApi) == offsetof(KilnUiApi, menu_scroll) + sizeof(void*),
+                  offsetof(KilnUiApi, menu_scroll) == offsetof(KilnUiApi, menu_shown) + 3 * sizeof(void*),
               "kiln.ui v6 appends menu_shown, menu_entries, menu_activate, menu_scroll after subscribe_window_input");
+static_assert(offsetof(KilnUiApi, subscribe_key_ex) == offsetof(KilnUiApi, menu_scroll) + sizeof(void*) &&
+                  sizeof(KilnUiApi) == offsetof(KilnUiApi, subscribe_key_ex) + sizeof(void*),
+              "kiln.ui v7 appends subscribe_key_ex after menu_scroll (UiNative.Table7)");
 static_assert(sizeof(KilnUiMenuEntry) == 40 && offsetof(KilnUiMenuEntry, entry) == 8 && offsetof(KilnUiMenuEntry, text) == 16 &&
                   offsetof(KilnUiMenuEntry, drawn) == 36,
               "KilnUiMenuEntry layout (UiNative.MenuEntryInfo)");
@@ -534,6 +492,8 @@ const KilnUiApi kTable = {
     &t_subscribe_window_input,
     // v6
     &t_menu_shown, &t_menu_entries, &t_menu_activate, &t_menu_scroll,
+    // v7
+    &t_subscribe_key_ex,
 };
 
 std::string api_path(int kind) {

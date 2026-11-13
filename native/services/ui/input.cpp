@@ -9,10 +9,11 @@
 //    move freely; ImGui draws the cursor.
 //  - subscribe_window_input (kiln_ui.h v5): the window's key, button and focus-loss records go to native subscribers
 //    as received, before any of the above decides what the game gets.
-//  - The middle and side buttons and the wheel go to the key subscribers too, as key presses (since 0.2.0-dev.27,
-//    mouse_press.h): once per physical input although the window gets each one as a raw record and as a message, a
-//    notch per WHEEL_DELTA. A press a subscriber takes is kept from the game like a bound key (its raw record and its
-//    message); releases always pass. Over a Kiln panel the middle button and the wheel stay the panel's.
+//  - The middle and side buttons and the wheel go to the key subscribers that ask for them (subscribe_key_ex with
+//    KILN_UI_KEYS_MOUSE, kiln_ui.h v7; Kiln.Ui does), as key presses (mouse_press.h): once per physical input although
+//    the window gets each one as a raw record and as a message, a notch per WHEEL_DELTA. A press such a subscriber takes
+//    is kept from the game like a bound key (its raw record and its message); releases always pass. Over a Kiln panel
+//    the middle button and the wheel stay the panel's. Without such a subscriber none of this runs.
 #include <windows.h>
 #include <windowsx.h>
 
@@ -137,7 +138,7 @@ bool on_key(uint32_t vk, uint32_t scan, bool down, bool from_mouse = false) {
         g_pressed_mods.store(k.mods);
         g_pressed_vk.store(vk);
     }
-    const bool consumed = dispatch_key(k);
+    const bool consumed = dispatch_key(k, from_mouse);
     if (!down) {
         g_consumed[vk] = false;
         return false;  // releases always reach the game
@@ -147,8 +148,10 @@ bool on_key(uint32_t vk, uint32_t scan, bool down, bool from_mouse = false) {
 }
 
 // A middle or side button transition from one source: dispatched once per physical transition, whichever of its raw
-// record and its message comes first (mouse_press.h Twins). true = keep this press from the game.
+// record and its message comes first (mouse_press.h Twins), to the key subscribers that take mouse presses
+// (KILN_UI_KEYS_MOUSE, keys.cpp). true = keep this press from the game. No such subscriber: nothing happens.
 bool mouse_button(mouse::Source s, uint32_t vk, bool down) {
+    if (!keys_mouse_wanted()) return false;
     const uint32_t kind = mouse::button_kind(vk, down);
     const auto time = static_cast<uint32_t>(GetMessageTime());
     if (const auto twin = g_twins.follow(s, kind, time)) return *twin;
@@ -160,8 +163,9 @@ bool mouse_button(mouse::Source s, uint32_t vk, bool down) {
 // One wheel turn from one source: a press per notch it completes, with the modifiers held now (mouse_press.h).
 // true = keep this turn from the game: a notch a subscriber took, or a part of a notch of a chord whose last notch was
 // taken. While Kiln captures input the notches come with captured 1 (the Keys page's capture) and the screen scrolls.
+// Only key subscribers with KILN_UI_KEYS_MOUSE get them; with none, nothing happens.
 bool mouse_wheel(mouse::Source s, int axis, int32_t delta) {
-    if (delta == 0) return false;
+    if (delta == 0 || !keys_mouse_wanted()) return false;
     const uint32_t kind = mouse::wheel_kind(axis, delta);
     const auto time = static_cast<uint32_t>(GetMessageTime());
     if (const auto twin = g_twins.follow(s, kind, time)) return *twin;
@@ -179,7 +183,7 @@ bool mouse_wheel(mouse::Source s, int axis, int32_t delta) {
     k.text_input = g_text_input.load() ? 1 : 0;
     k.captured = cap ? 1 : 0;
     bool kept = false;
-    for (int i = 0; i < std::min(std::abs(n), mouse::kMaxNotchesPerTurn); ++i) kept = dispatch_key(k) || kept;
+    for (int i = 0; i < std::min(std::abs(n), mouse::kMaxNotchesPerTurn); ++i) kept = dispatch_key(k, true) || kept;
     if (!cap) {
         if (n) g_kept_chords.set(k.vk, k.mods, kept);
         else kept = g_kept_chords.get(k.vk, k.mods);
@@ -435,7 +439,7 @@ LRESULT CALLBACK wndproc(HWND h, UINT m, WPARAM w, LPARAM l) {
                     const RAWMOUSE& ms = ri->data.mouse;
                     // middle and side buttons and wheel notches go to the key subscribers with captured 1 (the Keys
                     // page takes one for a binding); a notch taken there does not scroll the screen too
-                    const USHORT taken = (ms.usButtonFlags & kRawButtonFlags)
+                    const USHORT taken = (ms.usButtonFlags & kRawButtonFlags) && keys_mouse_wanted()
                                              ? raw_mouse_presses(ms, false) & (RI_MOUSE_WHEEL | RI_MOUSE_HWHEEL)
                                              : 0;
                     // a release the game saw the press of (e.g. the click that opened a Kiln screen) still reaches
@@ -456,7 +460,8 @@ LRESULT CALLBACK wndproc(HWND h, UINT m, WPARAM w, LPARAM l) {
                     if (release_only) break;
                     DefWindowProcW(h, m, w, l);
                     return 0;
-                } else if (ri->header.dwType == RIM_TYPEMOUSE && (ri->data.mouse.usButtonFlags & kRawButtonFlags)) {
+                } else if (ri->header.dwType == RIM_TYPEMOUSE && (ri->data.mouse.usButtonFlags & kRawButtonFlags) &&
+                           keys_mouse_wanted()) {
                     // play: middle and side buttons and wheel notches as key presses. A press a subscriber took is
                     // kept from the game with its whole record (motion in it too), unless the record also holds
                     // another button's or the wheel's input the game must get: then it passes whole (rare)
@@ -539,7 +544,7 @@ LRESULT CALLBACK wndproc(HWND h, UINT m, WPARAM w, LPARAM l) {
                 if (m == WM_MOUSEMOVE) g_n_move.fetch_add(1, std::memory_order_relaxed);
                 else if (m != WM_MOUSELEAVE && m != WM_NCMOUSEMOVE) g_n_buttons.fetch_add(1, std::memory_order_relaxed);
                 // middle and side buttons and wheel notches as key presses (once with their raw records)
-                const bool kept = m != WM_MOUSEMOVE && message_mouse_presses(m, w, !cap && hover_capture());
+                const bool kept = m != WM_MOUSEMOVE && keys_mouse_wanted() && message_mouse_presses(m, w, !cap && hover_capture());
                 const bool wheel = m == WM_MOUSEWHEEL || m == WM_MOUSEHWHEEL;
                 if (!(cap && kept && wheel)) enqueue(h, m, w, l);  // a notch the Keys page took does not scroll it too
                 if (cap && !is_button_up(m)) return 0;  // releases reach the game (see WM_INPUT)

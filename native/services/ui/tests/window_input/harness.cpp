@@ -18,7 +18,9 @@
 //     add up to one press per notch; a chord a key subscriber takes is kept from the game (record and message), one it
 //     does not take passes; while Kiln captures input the press comes with captured 1 and the game gets nothing; over a
 //     Kiln panel the wheel is the panel's; the left and right buttons are never presses; take_pressed_key stays
-//     keyboard only; key_name names them.
+//     keyboard only; key_name names them; only subscribe_key_ex(KILN_UI_KEYS_MOUSE) subscribers get mouse presses
+//     (keys.cpp, linked here): a subscribe_key subscriber gets none and cannot take one, and with no mouse subscriber
+//     the mouse reaches the game untouched.
 // Lines: "PASS ...", "FAIL ...". Exit code 0 = no FAIL.
 #include <windows.h>
 
@@ -65,15 +67,17 @@ KilnHandle next_handle() {
     return h++;
 }
 // Kiln's own key handling (the menu key, bindings, the wheel): what reaches it, and one key it consumes (with these
-// modifiers only, unless g_consume_mods is ~0u).
+// modifiers only, unless g_consume_mods is ~0u). The real key subscribers (keys.cpp: subscribe_key, subscribe_key_ex)
+// get it after, as in ui.cpp.
 std::vector<std::string> g_kiln_keys;
 uint32_t g_consume_vk = 0, g_consume_mods = ~0u;
-bool dispatch_key(const KilnUiKey& k) {
+bool dispatch_key(const KilnUiKey& k, bool mouse) {
     char b[96];
     std::snprintf(b, sizeof b, "vk=%u scan=%x mods=%u down=%u repeat=%u captured=%u", k.vk, k.scan, k.mods, k.down, k.repeat,
                   k.captured);
     g_kiln_keys.push_back(b);
-    return k.down && k.vk == g_consume_vk && (g_consume_mods == ~0u || k.mods == g_consume_mods);
+    const bool subscribers = keys_dispatch(k, mouse);
+    return subscribers || (k.down && k.vk == g_consume_vk && (g_consume_mods == ~0u || k.mods == g_consume_mods));
 }
 }  // namespace kui
 
@@ -937,6 +941,99 @@ void mouse_captured() {
     kui::g_demand = 0;
 }
 
+// ---- who gets mouse presses: subscribe_key (keyboard only, as before) and subscribe_key_ex(KILN_UI_KEYS_MOUSE) ----
+struct KeyLog {
+    std::vector<std::string> lines;
+    uint32_t take_vk = 0;   // the press this subscriber takes
+    bool take_all = false;  // a plugin that takes every press it gets
+};
+bool KILN_CALL key_collect(const KilnUiKey* k, void* user) {
+    auto* log = static_cast<KeyLog*>(user);
+    char b[48];
+    std::snprintf(b, sizeof b, "vk=%u down=%u", k->vk, k->down);
+    log->lines.push_back(b);
+    return log->take_all || (k->down && k->vk == log->take_vk);
+}
+bool has_code_above_ff_or_button(const std::vector<std::string>& lines) {
+    for (const auto& x : lines) {
+        unsigned vk = 0;
+        if (std::sscanf(x.c_str(), "vk=%u", &vk) == 1 && (vk > 0xFF || vk == VK_MBUTTON || vk == VK_XBUTTON1 || vk == VK_XBUTTON2))
+            return true;
+    }
+    return false;
+}
+void play_mouse_all() {
+    raw_wheel(120);
+    msg_wheel(120);
+    raw_wheel(-120);
+    msg_wheel(-120);
+    send(WM_INPUT, RIM_INPUT, raw_mouse(RI_MOUSE_BUTTON_4_DOWN));
+    send(WM_XBUTTONDOWN, MAKEWPARAM(MK_XBUTTON1, XBUTTON1), 0);
+    send(WM_INPUT, RIM_INPUT, raw_mouse(RI_MOUSE_BUTTON_4_UP));
+    send(WM_XBUTTONUP, MAKEWPARAM(0, XBUTTON1), 0);
+    send(WM_INPUT, RIM_INPUT, raw_mouse(RI_MOUSE_MIDDLE_BUTTON_DOWN));
+    send(WM_MBUTTONDOWN, MK_MBUTTON, 0);
+    send(WM_INPUT, RIM_INPUT, raw_mouse(RI_MOUSE_MIDDLE_BUTTON_UP));
+    send(WM_MBUTTONUP, 0, 0);
+}
+void mouse_subscribers() {
+    fresh();
+    // A plugin built before 0.2.0-dev.27 (subscribe_key) that takes every press it gets: alone, it changes nothing for
+    // the mouse, and Kiln makes no mouse press at all.
+    KeyLog old_plugin;
+    old_plugin.take_all = true;
+    KilnHandle old_h = 0, new_h = 0;
+    check(kui::keys_subscribe(11, &key_collect, &old_plugin, 0, &old_h) == KILN_OK, "a subscribe_key subscriber");
+    Run r = run(&play_mouse_all, nullptr);
+    check(old_plugin.lines.empty(), "subscribe_key: no mouse press, no wheel code (%zu calls)", old_plugin.lines.size());
+    check(r.kiln.empty(), "no KILN_UI_KEYS_MOUSE subscriber: no mouse press is made at all (%zu)", r.kiln.size());
+    check(r.game.size() == 12 && count_prefix(r.game, "020a ") == 2 && game_has_raw_wheel(r),
+          "...and the game gets every record and message untouched (%zu of 12):%s", r.game.size(), game_text(r).c_str());
+    r = run([] {
+        send(WM_INPUT, RIM_INPUT, raw_key(0x43, RI_KEY_MAKE, VK_F9));
+        send(WM_INPUT, RIM_INPUT, raw_key(0x43, RI_KEY_BREAK, VK_F9));
+    }, nullptr);
+    check(old_plugin.lines == std::vector<std::string>{"vk=120 down=1", "vk=120 down=0"} && r.game.size() == 1,
+          "subscribe_key still gets keyboard keys and still takes the press it wants:%s", join(old_plugin.lines).c_str());
+
+    // Kiln.Ui's way: subscribe_key_ex with KILN_UI_KEYS_MOUSE, next to the old plugin in the same process.
+    KeyLog bindings;
+    bindings.take_vk = KILN_UI_VK_WHEEL_UP;  // a binding on WheelUp
+    check(kui::keys_subscribe(12, &key_collect, &bindings, KILN_UI_KEYS_MOUSE, &new_h) == KILN_OK,
+          "a subscribe_key_ex(KILN_UI_KEYS_MOUSE) subscriber");
+    old_plugin.lines.clear();
+    r = run(&play_mouse_all, nullptr);
+    check(old_plugin.lines.empty(), "the subscribe_key subscriber still gets no mouse press (%zu calls), so it cannot take one",
+          old_plugin.lines.size());
+    check(!has_code_above_ff_or_button(old_plugin.lines), "...no wheel code and no button code reached it");
+    check(bindings.lines == std::vector<std::string>{"vk=256 down=1", "vk=257 down=1", "vk=5 down=1", "vk=5 down=0", "vk=4 down=1",
+                                                     "vk=4 down=0"},
+          "the KILN_UI_KEYS_MOUSE subscriber gets each notch and click once:%s", join(bindings.lines).c_str());
+    check(r.game.size() == 10 && count_prefix(r.game, "020a ") == 1 && count_prefix(r.game, "00ff mouse 400 ") == 1,
+          "the notch it took is kept from the game (record and message), the rest passes (%zu of 12):%s", r.game.size(),
+          game_text(r).c_str());
+    bindings.lines.clear();
+    old_plugin.take_all = false;
+    send(WM_INPUT, RIM_INPUT, raw_key(0x43, RI_KEY_MAKE, VK_F9));
+    send(WM_INPUT, RIM_INPUT, raw_key(0x43, RI_KEY_BREAK, VK_F9));
+    check(bindings.lines.size() == 2 && old_plugin.lines.size() == 2, "a keyboard key reaches both");
+    KeyLog bad;
+    KilnHandle bad_h = 0;
+    check(kui::keys_subscribe(13, &key_collect, &bad, 2, &bad_h) == KILN_ERR_INVALID_ARGUMENT &&
+              kui::keys_subscribe(13, &key_collect, &bad, KILN_UI_KEYS_MOUSE | 0x80000000u, &bad_h) == KILN_ERR_INVALID_ARGUMENT &&
+              kui::keys_subscribe(13, nullptr, &bad, KILN_UI_KEYS_MOUSE, &bad_h) == KILN_ERR_INVALID_ARGUMENT,
+          "subscribe_key_ex refuses flags it does not know and a missing callback");
+
+    // The last KILN_UI_KEYS_MOUSE subscriber gone: the mouse passes untouched again.
+    check(kui::keys_unsubscribe(new_h) == KILN_OK && kui::keys_unsubscribe(new_h) == KILN_ERR_NOT_FOUND,
+          "unsubscribe, once");
+    fresh();
+    r = run([] { raw_wheel(120); msg_wheel(120); }, nullptr);
+    check(r.kiln.empty() && r.game.size() == 2, "no KILN_UI_KEYS_MOUSE subscriber left: no press, the game gets both (%zu)",
+          r.game.size());
+    kui::keys_unsubscribe(old_h);
+}
+
 void mouse_key_names() {
     const struct {
         uint32_t vk;
@@ -1001,11 +1098,19 @@ int main() {
 
     const RAWINPUTDEVICE mouse{1, 2, 0, nullptr};  // the game registers raw mouse input too
     check(RegisterRawInputDevices(&mouse, 1, sizeof mouse), "raw mouse registered");
+    // Kiln.Ui's key subscriber asks for mouse presses (subscribe_key_ex, KILN_UI_KEYS_MOUSE); its bindings are played by
+    // dispatch_key's consume rule above.
+    KeyLog kiln_ui;
+    KilnHandle kiln_ui_h = 0;
+    check(kui::keys_subscribe(10, &key_collect, &kiln_ui, KILN_UI_KEYS_MOUSE, &kiln_ui_h) == KILN_OK,
+          "Kiln.Ui's key subscriber, with KILN_UI_KEYS_MOUSE");
     mouse_wheel_presses();
     mouse_wheel_small_deltas();
     mouse_wheel_bound();
     mouse_buttons();
     mouse_captured();
+    kui::keys_unsubscribe(kiln_ui_h);
+    mouse_subscribers();
     mouse_key_names();
 
     std::printf("%s: %d checks, %d failed\n", g_fails ? "FAIL" : "PASS", g_checks, g_fails);

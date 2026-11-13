@@ -4,7 +4,8 @@
  * table for the managed Kiln.Ui. v2 appends right clicks on items and a radial wheel; v3 appends font sizes, child
  * regions with flags, cursor and item queries, sized selectables, focus, layered drawing, colour/spacing pushes and
  * key queries; v4 appends the main-menu page (the Kiln menu inside the game's own menu) and a font choice; v5 appends
- * the game window's own input records for native plugins (subscribe_window_input, the last slot of the table).
+ * the game window's own input records for native plugins (subscribe_window_input); v6 appends the mods' entries in the
+ * game's menus; v7 appends subscribe_key_ex, key callbacks that also get mouse presses (the last slot of the table).
  *
  * How (docs/re/client-render.md):
  *  - The game loads vulkan-1.dll at run time and presents with vkQueuePresentKHR on queue family 0 (no static Vulkan
@@ -33,11 +34,11 @@ extern "C" {
 #endif
 
 #define KILN_UI_SERVICE "kiln.ui"
-#define KILN_UI_VERSION 6u /* v2 appends is_item_clicked and the radial wheel (after add_swapchain_usage); v3 appends layout and
+#define KILN_UI_VERSION 7u /* v2 appends is_item_clicked and the radial wheel (after add_swapchain_usage); v3 appends layout and
                               look slots for full-display screens (after wheel_active); v4 appends the main-menu page and
                               font choice (after set_scroll_here_y); v5 appends subscribe_window_input (after pop_font);
-                              v6 appends menu_shown, menu_entries, menu_activate, menu_scroll (after subscribe_window_input):
-                              check header.size */
+                              v6 appends menu_shown, menu_entries, menu_activate, menu_scroll (after subscribe_window_input);
+                              v7 (0.2.0-dev.27) appends subscribe_key_ex (after menu_scroll): check header.size */
 
 /* Colours are 0xRRGGBBAA. */
 
@@ -105,14 +106,17 @@ typedef struct KilnUiFrame {
     uint64_t frame;         /* overlay frames since start */
 } KilnUiFrame;
 
-/* KilnUiKey.vk of a wheel notch (since 0.2.0-dev.27). The wheel has no Windows virtual key: these are above every one.
- * Since 0.2.0-dev.27 key callbacks also get the middle and side mouse buttons (VK_MBUTTON 0x04, VK_XBUTTON1 0x05,
- * VK_XBUTTON2 0x06; a press and a release, scan 0) and one press per wheel notch (one per WHEEL_DELTA turned, added up
- * from a high-resolution wheel's smaller deltas; scan 0, never a release or a repeat), with the modifiers held at that
- * moment, once each although the window gets them both as raw input and as a message. Returning true keeps the press
- * (and its raw record) from the game as for a key; releases always reach it. While Kiln captures input they come with
- * captured 1 (the Keys page takes them for a binding; the wheel then scrolls Kiln's screen). The left and right buttons
- * never come. set_menu_key takes the buttons, not the wheel; take_pressed_key stays keyboard only. */
+/* KilnUiKey.vk of a wheel notch (v7, 0.2.0-dev.27). The wheel has no Windows virtual key: these are above every one.
+ * Mouse presses go only to a callback made with subscribe_key_ex and KILN_UI_KEYS_MOUSE (v7); subscribe_key callbacks
+ * get keyboard keys only, as before, and so never see these codes nor take a mouse press. Such a callback gets the middle
+ * and side mouse buttons (VK_MBUTTON 0x04, VK_XBUTTON1 0x05, VK_XBUTTON2 0x06; a press and a release, scan 0) and one
+ * press per wheel notch (one per WHEEL_DELTA turned, added up from a high-resolution wheel's smaller deltas; scan 0,
+ * never a release or a repeat), with the modifiers held at that moment, once each although the window gets them both as
+ * raw input and as a message. Returning true keeps the press (and its raw record) from the game as for a key; releases
+ * always reach it. While Kiln captures input they come with captured 1 (the Keys page takes them for a binding; the
+ * wheel then scrolls Kiln's screen). The left and right buttons never come. With no such callback the mouse costs
+ * nothing and reaches the game untouched. set_menu_key takes the buttons, not the wheel; take_pressed_key stays
+ * keyboard only. */
 enum {
     KILN_UI_VK_WHEEL_UP = 0x100u,
     KILN_UI_VK_WHEEL_DOWN = 0x101u,
@@ -120,9 +124,14 @@ enum {
     KILN_UI_VK_WHEEL_RIGHT = 0x103u,
 };
 
+/* subscribe_key_ex flags (v7) */
+enum {
+    KILN_UI_KEYS_MOUSE = 1u, /* also the middle and side buttons and the wheel's notches (above) */
+};
+
 typedef struct KilnUiKey {
     uint32_t size;
-    uint32_t vk;            /* Windows virtual-key code; the mouse buttons and KILN_UI_VK_WHEEL_* too (since 0.2.0-dev.27) */
+    uint32_t vk;            /* Windows virtual-key code; with KILN_UI_KEYS_MOUSE (v7) the mouse buttons and KILN_UI_VK_WHEEL_* too */
     uint32_t scan;          /* scan code (extended bit 0x100) */
     uint32_t mods;          /* KILN_UI_MOD_* held at the time */
     uint8_t down;           /* 1 press, 0 release */
@@ -575,8 +584,8 @@ typedef struct KilnUiApi {
     void(KILN_CALL* draw_text)(float x, float y, uint32_t rgba, float size, KilnStr text);
     void(KILN_CALL* draw_rect)(float x0, float y0, float x1, float y1, uint32_t rgba, float rounding, int32_t filled);
     void(KILN_CALL* text_size)(KilnStr text, float size, float* width, float* height);
-    /* The next key pressed (for "press a key" remapping): returns its vk once, 0 while none. Keyboard keys only: the
-     * mouse presses key callbacks get since 0.2.0-dev.27 are not taken here. Any thread. */
+    /* The next key pressed (for "press a key" remapping): returns its vk once, 0 while none. Keyboard keys only (the
+     * mouse presses of subscribe_key_ex are not taken here). Any thread. */
     uint32_t(KILN_CALL* take_pressed_key)(uint32_t* mods);
 
     /* ================================================================================================================
@@ -823,6 +832,12 @@ typedef struct KilnUiApi {
     KilnResult(KILN_CALL* menu_activate)(KilnHandle entry);
     /* menu_scroll: KILN_UI_SCROLL_* (any thread). */
     uint32_t(KILN_CALL* menu_scroll)(void);
+
+    /* ---- v7 (0.2.0-dev.27; check header.size >= offsetof(KilnUiApi, subscribe_key_ex) + sizeof(void*)) ----
+     * subscribe_key_ex: subscribe_key with flags. 0 is subscribe_key (keyboard keys only); KILN_UI_KEYS_MOUSE adds the
+     * mouse presses described at KILN_UI_VK_WHEEL_UP. Other bits: KILN_ERR_INVALID_ARGUMENT. Remove it with
+     * unsubscribe. */
+    KilnResult(KILN_CALL* subscribe_key_ex)(KilnOwner owner, KilnUiKeyFn fn, void* user, uint32_t flags, KilnHandle* out);
 } KilnUiApi;
 
 /* ====================================================================================================================

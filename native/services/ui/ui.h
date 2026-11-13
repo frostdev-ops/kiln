@@ -87,11 +87,20 @@ void input_replay();            // render thread, before ImGui::NewFrame: feeds 
 void input_capture_changed();   // render thread: capture started/stopped (cursor clip, ImGui mouse cursor)
 uint32_t input_take_pressed(uint32_t* mods);
 void key_name(uint32_t vk, char* out, size_t cap);
-bool dispatch_key(const KilnUiKey& key);  // runs the menu key, the wheel and key subscribers; true = consumed
+// Runs the menu key, the wheel and the key subscribers; true = consumed. `mouse`: a mouse press (mouse_press.h), which
+// only subscribers with KILN_UI_KEYS_MOUSE get (keys.cpp).
+bool dispatch_key(const KilnUiKey& key, bool mouse = false);
 bool input_key_held(uint32_t vk);         // the key is down now, as far as the window's messages have told (any thread)
 // subscribe_window_input (kiln_ui.h v5): the window's input records for native subscribers. Any thread.
 KilnResult input_feed_subscribe(KilnOwner owner, KilnUiWindowInputFn fn, void* user, KilnHandle* out);
 KilnResult input_feed_unsubscribe(KilnHandle h);  // KILN_ERR_NOT_FOUND: not a window-input subscription
+
+// ---- keys.cpp (the key subscribers: subscribe_key, v7 subscribe_key_ex) ----
+KilnResult keys_subscribe(KilnOwner owner, KilnUiKeyFn fn, void* user, uint32_t flags, KilnHandle* out);  // KILN_UI_KEYS_*
+KilnResult keys_unsubscribe(KilnHandle h);  // KILN_ERR_NOT_FOUND: not a key subscription
+bool keys_dispatch(const KilnUiKey& key, bool mouse);  // to the subscribers that get it; true = one of them took it
+bool keys_mouse_wanted();                  // a subscriber gets mouse presses (any thread)
+size_t keys_count();
 
 // ---- ui.cpp ----
 // Builds one ImGui frame (NewFrame, frame callbacks, the fallback menu, Render). Render thread. False = nothing drawn.
