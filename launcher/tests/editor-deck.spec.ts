@@ -150,7 +150,8 @@ test.describe("the save editor in Deck mode", () => {
     await expect(cat.locator('[data-deck-id="cat-search"]')).toHaveAttribute("placeholder", /Steam \+ X/);
     // Steam + X's keyboard types into the focused field
     await page.keyboard.type("iron bar");
-    await expect(cat.locator(".ke-cat-grid .ke-slot")).toHaveCount(await cat.locator(".ke-cat-grid .ke-slot").count());
+    // the grid follows the field a moment later: one item is left
+    await expect(cat.locator(".ke-cat-grid .ke-slot")).toHaveCount(1);
     await expect(cat.locator('.ke-cat-grid [aria-label="Iron Bars"]')).toBeVisible();
     await shot(page, "catalog");
     await pad(page, "down");
