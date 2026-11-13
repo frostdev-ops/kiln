@@ -75,6 +75,7 @@ public sealed partial class AffixTestMod : Mod
             await Until(() => Capabilities.Is("blocks.affixes.effects"), 25 * 30);
             Check(Capabilities.Is("blocks.affixes"), $"capability blocks.affixes: {Capabilities.Why("blocks.affixes")}");
             Check(Capabilities.Is("blocks.affixes.effects"), $"capability blocks.affixes.effects: {Capabilities.Why("blocks.affixes.effects")}");
+            Check(Capabilities.Is("spawn.destroy"), $"capability spawn.destroy, which the stat changes' teardown needs (no stat change starts without it): {Capabilities.Why("spawn.destroy")}");
             if (boot == 1)
             {
                 Authoring();
@@ -342,7 +343,18 @@ public sealed partial class AffixTestMod : Mod
         Affixes.Define("frost-ward", new AffixBlock { Name = "Frost Ward", Stat = Stat.ResistIce, Group = "ward", Tiers = [new AffixTier { Min = 0.05, Max = 0.2 }] });
         Affixes.Define("vigor", new AffixBlock { Name = "of Vigor", Stat = Stat.MaxHealth, Tiers = [new AffixTier { Min = 10, Max = 20 }, new AffixTier { Min = 100, Max = 200, MinItemLevel = 500 }] });
         var one = Affixes.DefinePool("one-of-three", new AffixPoolBlock { Items = ["Weapon_T1_1H_SwordEpic_01"], Affixes = [new AffixEntry { Affix = "bear" }, new AffixEntry { Affix = "ember-ward" }, new AffixEntry { Affix = "vigor" }] });
-        var wards = Affixes.DefinePool("wards", new AffixPoolBlock { Affixes = [new AffixEntry { Affix = "ember-ward" }, new AffixEntry { Affix = "frost-ward" }, new AffixEntry { Affix = "vigor" }], Min = 3, Max = 3 });
+        string refusedMin;
+        try
+        {
+            Affixes.DefinePool("wards-3", new AffixPoolBlock { Affixes = [new AffixEntry { Affix = "ember-ward" }, new AffixEntry { Affix = "frost-ward" }, new AffixEntry { Affix = "vigor" }], Min = 3, Max = 3 });
+            refusedMin = "";
+        }
+        catch (BlockError e)
+        {
+            refusedMin = e.Message;
+        }
+        Check(refusedMin.Contains("at most 2"), $"a pool that asks 3 of affixes that give at most 2 (two share a group) is refused where it is defined: {refusedMin}");
+        var wards = Affixes.DefinePool("wards", new AffixPoolBlock { Affixes = [new AffixEntry { Affix = "ember-ward" }, new AffixEntry { Affix = "frost-ward" }, new AffixEntry { Affix = "vigor" }], Min = 2, Max = 3 });
         var other = Affixes.DefinePool("not-swords", new AffixPoolBlock { Items = ["Material_T1_Wood_Logs"], Affixes = [new AffixEntry { Affix = "bear" }] });
 
         var first = one.Roll(sword, new Random(1));
@@ -369,16 +381,36 @@ public sealed partial class AffixTestMod : Mod
         Check(one.Roll(sword, new Random(7), replace: true).Affixes.SequenceEqual(one.Roll(sword, new Random(7), replace: true).Affixes), "the same seed rolls the same");
         var grouped = wards.Roll(sword, new Random(3), replace: true);
         Check(grouped.Ok && grouped.Affixes.Count == 2 && grouped.Affixes.Count(x => x.Affix.EndsWith("-ward")) == 1,
-            $"two affixes of one group never roll together (a pool that asks 3 gives 2): {grouped}");
+            $"two affixes of one group never roll together (a pool of three that asks 2 to 3 gives 2): {grouped}");
+        // a pool that could give its minimum when defined, and cannot now: its two affixes were defined again into one group
+        Affixes.Define("solo-a", new AffixBlock { Name = "Solo A", Stat = Stat.MaxStamina, Tiers = [new AffixTier { Min = 4, Max = 4 }] });
+        Affixes.Define("solo-b", new AffixBlock { Name = "Solo B", Stat = Stat.MaxMana, Tiers = [new AffixTier { Min = 4, Max = 4 }] });
+        var duo = Affixes.DefinePool("duo", new AffixPoolBlock { Affixes = [new AffixEntry { Affix = "solo-a" }, new AffixEntry { Affix = "solo-b" }], Min = 2, Max = 2 });
+        var had = duo.Roll(sword, new Random(4), replace: true);
+        Affixes.Define("solo-a", new AffixBlock { Name = "Solo A", Stat = Stat.MaxStamina, Group = "solo", Tiers = [new AffixTier { Min = 4, Max = 4 }] });
+        Affixes.Define("solo-b", new AffixBlock { Name = "Solo B", Stat = Stat.MaxMana, Group = "solo", Tiers = [new AffixTier { Min = 4, Max = 4 }] });
+        var shortRoll = duo.Roll(sword, new Random(5), replace: true);
+        Check(had.Ok && had.Affixes.Count == 2 && !shortRoll.Ok && shortRoll.Reason!.Contains("at least 2") && Affixes.Of(sword).SequenceEqual(had.Affixes),
+            $"a roll that cannot reach its pool's minimum now is refused with a reason, and the item keeps its affixes: {shortRoll.Reason}");
         Check(Affixes.Clear(sword) && Affixes.Of(sword).Count == 0 && !Affixes.Clear(sword), "Clear takes them all off; a second Clear says there was nothing");
         var set = Affixes.Set(sword, [new RolledAffix("some-mod:gone", "Lost", "strength", 1, 4), new RolledAffix("affix-test:bear", "of the Bear", "strength", 9, 2)]);
         Check(set.Ok && Affixes.Of(sword).Count == 2, $"Set gives exactly what it is told, also an affix of a mod that is not loaded: {set}");
         Affixes.LabTrack(holder);
+        var str0 = await Affixes.StatOf(holder, Stat.Strength);
+        var hp0 = await Affixes.StatOf(holder, Stat.MaxHealth);
         await Hold(holder, sword);
         await Until(() => Affixes.Active(holder).Count >= 1, 40);
         await Steps(10);
         Check(Affixes.Active(holder).Select(x => (x.Affix, x.Value)).SequenceEqual([("affix-test:bear", 2.0)]),
             $"an affix whose mod is not loaded stays on the item and does nothing; the one that is defined acts: {string.Join(", ", Affixes.Active(holder).Select(x => $"{x.Affix} {x.Value}"))}");
+        // the affix defined again with another stat: the roll on the sword keeps the stat it shows ("+2 Strength")
+        Affixes.Define("bear", new AffixBlock { Name = "of the Bear", Stat = Stat.MaxHealth, Tiers = [new AffixTier { Min = 3, Max = 3 }, new AffixTier { Min = 5, Max = 5 }] });
+        await Steps(30);
+        var str1 = await Affixes.StatOf(holder, Stat.Strength);
+        var hp1 = await Affixes.StatOf(holder, Stat.MaxHealth);
+        Check(str0 is { } s0 && hp0 is { } h0 && Near(str1, s0 + 2) && Near(hp1, h0) && Affixes.Active(holder).Single().Stat == "strength",
+            $"bear defined again as max health: the roll that shows \"{Affixes.Of(sword).First(x => x.Affix == "affix-test:bear").Text}\" still acts on strength: strength {str0} -> {str1}, max health {hp0} -> {hp1}");
+        Affixes.Define("bear", new AffixBlock { Name = "of the Bear", Stat = Stat.Strength, Tiers = [new AffixTier { Min = 3, Max = 3 }, new AffixTier { Min = 5, Max = 5 }] });
         Affixes.LabTrack(holder, false);
         Spawn.Destroy(holder);
         await Steps(10);

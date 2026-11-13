@@ -38,12 +38,14 @@ The same as data, with `Affixes.Load(File.ReadAllText(path))` in `OnLoad` (camel
 | Block | Fields |
 |---|---|
 | `AffixBlock` | `Name` (what players read; kept with every roll), `Stat` (a [`Stat`](blocks.md#statuses) constant, or `new Stat("my-key", guid, Whole: true)` for another attribute of the game), `Tiers` (1 to 16, the weakest first), `Stacks` (default true), `Group` |
-| `AffixTier` | `Min`, `Max`: whole points for a whole-number stat (`Strength`: 3), a share for the others (`MoveSpeed`: 0.05 is 5 %). Never 0, one sign (negative ranges make a curse). `Step`: the grid a value lies on (default 1, or 0.01 for a share). `Weight`: how likely this tier is, among the tiers the item's level allows. `MinItemLevel` (default 0; at least one tier must allow any level) |
-| `AffixPoolBlock` | `Items`: the item types that roll from it (`GameItems` constants, or items of the mod by block name); left out: any item with an item entity of its own (gear, tools). `Affixes`: entries of `Affix` (a name of this mod, or `"other-mod:name"`) and `Weight`. `Min`, `Max`: how many different affixes one roll gives (0 to 8, default 1 and 1) |
+| `AffixTier` | `Min`, `Max`: whole points for a whole-number stat (`Strength`: 3), a share for the others (`MoveSpeed`: 0.05 is 5 %). Never 0, one sign (negative ranges make a curse). `Step`: the grid a value lies on (default 1, or 0.01 for a share). `Weight`: how likely this tier is, among the tiers the item's level allows. `MinItemLevel` (default 0; at least one tier with a weight above 0 must allow any level) |
+| `AffixPoolBlock` | `Items`: the item types that roll from it (`GameItems` constants, or items of the mod by block name); left out: any item with an item entity of its own (gear, tools). `Affixes`: entries of `Affix` (a name of this mod, or `"other-mod:name"`) and `Weight`. `Min`, `Max`: how many different affixes one roll gives (0 to 8, default 1 and 1). A pool whose entries can never give `Min` (entries with a weight above 0, one per group) is refused with a `BlockError` on `min` |
 
 A roll picks `Min` to `Max` different affixes by weight, never two of one `Group`, then for each a tier by weight among
 those whose `MinItemLevel` the item's level reaches, then a value on the tier's grid. A seeded `Random` makes a roll
-repeat. A mistake in a block is a `BlockError` that names the block and the field.
+repeat. A mistake in a block is a `BlockError` that names the block and the field. When fewer than `Min` can roll on
+an item now (an affix's mod is not loaded, an affix has no tier for the item's level, or affixes defined again share a
+group), the roll is refused with a reason that says which, and the item keeps what it had.
 
 `Affixes.Define` and `DefinePool` belong to the calling mod (call them in `OnLoad`); a pool's affixes must be defined
 before it. They are not sections of `blocks/*.json` yet and `Blocks.Define` does not take them: see
@@ -54,7 +56,7 @@ before it. They are not sections of `blocks/*.json` yet and `Blocks.Define` does
 | Call | Does |
 |---|---|
 | `Affixes.Of(item)` | the item's affixes: `RolledAffix(Affix, Name, Stat, Tier, Value)`, with `Text` ("+5 Strength (of the Bear)") and `ValueText` |
-| `Affixes.Roll(item, pool, random, replace)` / `pool.Roll(item)` | rolls the pool onto the item. Not `Ok` when the pool is not for this item type, or the item already has affixes and `replace` is false |
+| `Affixes.Roll(item, pool, random, replace)` / `pool.Roll(item)` | rolls the pool onto the item. Not `Ok` when the pool is not for this item type, the item already has affixes and `replace` is false, or fewer than the pool's `Min` can roll on it now |
 | `Affixes.Add(item, affix, tier, value)` | adds one; the value is rolled in the tier's range when left out. Not `Ok` when the item has that affix, one of its group, or 8 already |
 | `Affixes.Set(item, list)` | gives the item exactly these (for commands and tools); the affixes need not be defined now |
 | `Affixes.Remove(item, affix)` / `Clear(item)` | takes one, or all, off: true when something went |
@@ -74,7 +76,7 @@ Kiln.Saves' `InstanceDataChangedEvent` fires as for any item data.
 | Capability | Means |
 |---|---|
 | `blocks.affixes` | the rolls work: needs `saves.instance_data` (pending while a hosted world's data is not open) |
-| `blocks.affixes.effects` | worn and held affixes change stats: also needs `abilities.programs`, `abilities.natives`, `items.instances`, and a server world whose Impact program registry has taken Kiln's four programs (pending until then) |
+| `blocks.affixes.effects` | worn and held affixes change stats: also needs `abilities.programs`, `abilities.natives`, `items.instances`, `spawn.destroy` (a stat change ends when its entity is destroyed: without it none starts), and a server world whose Impact program registry has taken Kiln's four programs (pending until then) |
 
 ## Where the rolls are kept
 
@@ -101,10 +103,13 @@ ones that are no longer wanted and starts the missing ones. That one rule is all
 | the player leaves, or crashes | Kiln ends what it held; nothing is saved on the character, so nothing can stay behind |
 | the server restarts, the player joins again | the rolls come back with the item (item data); the pass applies them as for any worn item |
 | the affix's value changes (`Set`, an upgrade) | the old change ends and the new one starts, never both |
+| the affix is defined again with another stat | rolls made before keep the stat they name (`RolledAffix.Stat`, which is what players' games show: "+3 Strength" stays Strength); new rolls take the new stat. A roll whose stat Kiln cannot name any more (a mod's own attribute the affix no longer uses) does nothing |
 | the affix's mod unloads | its changes end at the next pass |
+| a stat change cannot be ended (kiln.spawn refuses to destroy its entity) | it is kept, and tried again at every pass, also after the player left; no second change takes its place meanwhile (one wanted again as it is is taken back), so a bonus is never held twice. `Affixes.Active` lists it while it acts |
 
 **Stacking.** Two acting items with the same affix add up: +3 and +5 Strength are +8. An affix with `Stacks = false`
-counts once, with the highest value among the acting items. Different affixes on the same stat always add up.
+counts once, with the highest value among the acting items (once per stat, when rolls made before a redefinition name
+another one). Different affixes on the same stat always add up.
 
 **What a stat change is.** One instance of a small Impact program on the game's generic impact entity, with the
 attribute, the operation and the value as its config values: `applyAttributeValue` on the player in its code, the
@@ -180,18 +185,25 @@ show in the game's own bars and numbers.
 - The pass runs every 10 steps and at once after an affix call: a change of what is worn acts within half a second on a
   dedicated server, not in the same step.
 - If Kiln's managed side stops while the server keeps running, the stat changes it held stay until the server
-  restarts (they are never saved, so a restart always clears them).
+  restarts (they are never saved, so a restart always clears them). The same holds for a change kiln.spawn keeps
+  refusing to end: it is retried at every pass, and a restart clears it.
 - An NPC or a creature that holds an item gets nothing: the pass looks at players.
 
 ## What was checked
 
-Offline (`managed/tests/Kiln.Blocks.Tests/AffixTests.cs`, 13 tests on Kiln.Saves' real item-data store and a fake
+Offline (`managed/tests/Kiln.Blocks.Tests/AffixTests.cs`, 17 tests on Kiln.Saves' real item-data store and a fake
 game): every refusal of a definition by field, the data file, rolls in range and repeatable, groups, item level, the
 rules and the argument errors, the stored JSON and its way back after a restart, and the pass: carried against worn,
-stacking, a changed roll, an item gone, a wearer gone, a stat change the game ended, an inventory that cannot be read.
+stacking, a changed roll, an item gone, a wearer gone, a stat change the game ended, an inventory that cannot be read;
+a stat change that cannot be ended (kept, retried, never doubled on a re-equip or a changed roll, retried after the
+wearer left), nothing started without `spawn.destroy`, a roll that keeps its stat after its affix is defined again, a
+pool that can never give its minimum and a roll that cannot reach it now.
 
-Lab `dev27-affix` (server 26430253, a copy of a real world, no player; `mods/tests/affix-test`, two boots, 85 checks
-on the first and 8 on the second, all passing on 2026-11-12): the capability rows; the 39 stats above by the attribute's value; a sword in the bag does nothing, in hand it acts, put away
+Lab `dev27-affix` (server 26430253, a copy of a real world, no player; `mods/tests/affix-test`, two boots, 89 checks
+on the first and 9 on the second, all passing on 2026-11-12): the capability rows (`spawn.destroy` among them); a
+pool that asks 3 of affixes that give at most 2 refused where it is defined; a roll that cannot reach its pool's
+minimum refused with its reason, the item keeping its affixes; bear defined again as max health while a sword showing
+"+2 Strength (of the Bear)" was in hand: strength stayed 0 -> 2, max health 0 -> 0; the 39 stats above by the attribute's value; a sword in the bag does nothing, in hand it acts, put away
 it stops; a second item in the chest slot adds up (+3 and +5 = 8) and a non-stacking affix counts once (0.03 and 0.05 =
 0.05); the worn item moved into a chest loses its share and keeps its rolls; 90 seconds on the change still holds and
 the game ended none; the item destroyed in hand and the wearer destroyed leave nothing; 90 rolls of a pool of three in

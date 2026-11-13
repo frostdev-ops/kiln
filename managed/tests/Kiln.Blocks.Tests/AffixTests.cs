@@ -3,6 +3,7 @@
 // its tests' fake game), a save and a restart, and the pass that keeps what is held on a wearer equal to what the wearer's
 // worn and held items say, against a fake of the game (who wears what; stat changes started and ended). That a stat
 // change moves the game's attribute is the lab's part (mods/tests/affix-test).
+#define AFFIX_TEARDOWN
 using Xunit;
 using static Kiln.InstanceHarness;
 
@@ -34,10 +35,36 @@ public sealed class AffixTests : IDisposable
             return e;
         }
 
+        /// <summary>kiln.spawn's destruction is on (false: a stat change could not be ended here).</summary>
+        public bool Ends = true;
+
+        /// <summary>Ending fails now (kiln.spawn refuses the destruction): the entity stays, and its value still counts.</summary>
+        public bool EndFails;
+
+#if AFFIX_TEARDOWN
+        public bool CanEnd => Ends;
+
+        public bool End(EntityId helper)
+        {
+            if ((EndFails || !Ends) && Running.ContainsKey(helper.Value))
+            {
+                Log.Add("end failed");
+                return false;
+            }
+            if (Running.Remove(helper.Value, out var r)) Log.Add($"end {r.Stat.Key} {r.Value} on {r.Wearer}");
+            return true;
+        }
+#else
         public void End(EntityId helper)
         {
+            if ((EndFails || !Ends) && Running.ContainsKey(helper.Value))
+            {
+                Log.Add("end failed");
+                return;
+            }
             if (Running.Remove(helper.Value, out var r)) Log.Add($"end {r.Stat.Key} {r.Value} on {r.Wearer}");
         }
+#endif
 
         /// <summary>What the game would add up to on a wearer for a stat.</summary>
         public double Sum(EntityId wearer, Stat stat) => Running.Values.Where(r => r.Wearer == wearer && ReferenceEquals(r.Stat, stat)).Sum(r => r.Value);
@@ -70,7 +97,11 @@ public sealed class AffixTests : IDisposable
     }
 
     private AffixHandle Define(string name, AffixBlock block) => TestMods.As(_h.Mod, () => Affixes.Define(name, block));
-    private AffixPoolHandle Pool(string name, AffixPoolBlock block) => TestMods.As(_h.Mod, () => Affixes.DefinePool(name, block));
+    private AffixPoolHandle Pool(string name, AffixPoolBlock block, Action? define = null)
+    {
+        define?.Invoke();
+        return TestMods.As(_h.Mod, () => Affixes.DefinePool(name, block));
+    }
     private T As<T>(Func<T> body) => TestMods.As(_h.Mod, body);
 
     private void Pass()
@@ -210,7 +241,7 @@ public sealed class AffixTests : IDisposable
     public void ARollObeysThePoolsCountItsGroupsAndTheItemsLevel()
     {
         var sword = Give(3, Sword, worn: false);
-        var two = Pool("two", new AffixPoolBlock { Affixes = [new AffixEntry { Affix = "bear" }, new AffixEntry { Affix = "keen" }, new AffixEntry { Affix = "fleet" }], Min = 3, Max = 3 });
+        var two = Pool("two", new AffixPoolBlock { Affixes = [new AffixEntry { Affix = "bear" }, new AffixEntry { Affix = "keen" }, new AffixEntry { Affix = "fleet" }], Min = 2, Max = 3 });
         for (var i = 0; i < 50; i++)
         {
             var r = As(() => Affixes.Roll(sword, two, new Random(i), replace: true));
@@ -425,5 +456,138 @@ public sealed class AffixTests : IDisposable
         _game.Bags.Remove(_hero.Value);                                     // the hero's inventory cannot be read now (not initialized)
         Pass();
         Assert.Equal(0, _game.Sum(_hero, Stat.Strength));
+    }
+
+    // ---- review of b30f339d: teardown, a redefined affix, a pool's minimum ----
+
+    [Fact]
+    public void AStatChangeThatCouldNotBeEndedIsKeptTriedAgainAndNeverDoubled()
+    {
+        var sword = Give(3, Sword, worn: true);
+        As(() => Affixes.Add(sword, "bear", 1, 3));
+        Pass();
+        Assert.Equal(3, _game.Sum(_hero, Stat.Strength));
+        _game.EndFails = true;                                              // kiln.spawn refuses the destruction now
+        TakeOff(sword);
+        Pass();
+        Assert.Equal(3, _game.Sum(_hero, Stat.Strength));                   // it still acts: the game could not end it
+        Assert.Single(As(() => Affixes.Active(_hero)));                     // and Kiln says so
+        Wear(sword);
+        Pass();
+        Assert.Equal(3, _game.Sum(_hero, Stat.Strength));                   // put on again: that change is held again, never a second one
+        Assert.Single(_game.Running);
+        TakeOff(sword);
+        Pass();
+        Pass();
+        Assert.Equal(3, _game.Sum(_hero, Stat.Strength));
+        _game.EndFails = false;                                             // the next try works
+        Pass();
+        Assert.Equal(0, _game.Sum(_hero, Stat.Strength));
+        Assert.Empty(_game.Running);
+        Assert.Empty(As(() => Affixes.Active(_hero)));
+
+        // a changed roll while the old change cannot end: the new one waits, so the two never add up
+        Wear(sword);
+        Pass();
+        _game.EndFails = true;
+        As(() => Affixes.Set(sword, [new RolledAffix("sword-mod:bear", "of the Bear", "strength", 2, 6)]));
+        Pass();
+        Assert.Equal(3, _game.Sum(_hero, Stat.Strength));
+        _game.EndFails = false;
+        Pass();
+        Pass();
+        Assert.Equal(6, _game.Sum(_hero, Stat.Strength));
+
+        // the wearer leaves while its change cannot end: it is still tried, until it is gone
+        _game.EndFails = true;
+        _game.In.Clear();
+        Pass();
+        Assert.Single(_game.Running);
+        _game.EndFails = false;
+        Pass();
+        Assert.Empty(_game.Running);
+    }
+
+    [Fact]
+    public void NothingStartsWhereAStatChangeCouldNotBeEnded()
+    {
+        _game.Ends = false;                                                 // spawn.destroy is off on this build
+        var sword = Give(3, Sword, worn: true);
+        As(() => Affixes.Add(sword, "bear", 1, 3));
+        Pass();
+        Pass();
+        Assert.Empty(_game.Running);
+        Assert.Empty(As(() => Affixes.Active(_hero)));
+        _game.Ends = true;
+        Pass();
+        Assert.Equal(3, _game.Sum(_hero, Stat.Strength));
+    }
+
+    [Fact]
+    public void ARollKeepsTheStatItWasRolledWithWhenItsAffixIsDefinedAgain()
+    {
+        var sword = Give(3, Sword, worn: true);
+        As(() => Affixes.Add(sword, "bear", 1, 3));                         // +3 Strength
+        Define("bear", new AffixBlock { Name = "of the Bear", Stat = Stat.MoveSpeed, Tiers = [new AffixTier { Min = 0.05, Max = 0.1 }] });   // now Move Speed
+        Pass();
+        Assert.Equal("+3 Strength (of the Bear)", As(() => Affixes.Of(sword))[0].Text);   // what players' games show
+        Assert.Equal(3, _game.Sum(_hero, Stat.Strength));                   // is what acts
+        Assert.Equal(0, _game.Sum(_hero, Stat.MoveSpeed));
+        Assert.Equal("strength", Assert.Single(As(() => Affixes.Active(_hero))).Stat);
+
+        var ring = Give(4, Ring, worn: true);
+        As(() => Affixes.Add(ring, "bear", 1, 0.05));                       // a new roll takes the new meaning
+        Pass();
+        Assert.Equal(0.05, _game.Sum(_hero, Stat.MoveSpeed), 6);
+        Assert.Equal(3, _game.Sum(_hero, Stat.Strength));
+
+        var odd = Give(5, Ring, worn: true);                                // a stat Kiln cannot name does nothing
+        As(() => Affixes.Set(odd, [new RolledAffix("sword-mod:bear", "of the Bear", "my-own-stat", 1, 2)]));
+        Pass();
+        Assert.Equal(2, _game.Running.Count);
+    }
+
+    [Fact]
+    public void APoolThatCanNeverGiveItsMinimumIsRefusedAndOneThatCannotNowSaysWhy()
+    {
+        // keen and fleet share the group "edge": these three give at most two
+        Assert.Equal("min", Assert.Throws<BlockError>(() => Pool("three", new AffixPoolBlock
+            { Affixes = [new AffixEntry { Affix = "bear" }, new AffixEntry { Affix = "keen" }, new AffixEntry { Affix = "fleet" }], Min = 3, Max = 3 })).Field);
+        Assert.Equal("min", Assert.Throws<BlockError>(() => Pool("lonely", new AffixPoolBlock { Affixes = [new AffixEntry { Affix = "bear" }], Min = 2, Max = 2 })).Field);
+        Assert.Equal("min", Assert.Throws<BlockError>(() => Pool("weightless", new AffixPoolBlock
+            { Affixes = [new AffixEntry { Affix = "bear" }, new AffixEntry { Affix = "keen", Weight = 0 }], Min = 2, Max = 2 })).Field);
+        // an affix whose only tier for every item level never comes up is refused where it is defined
+        Assert.Equal("tiers", Assert.Throws<BlockError>(() => Define("late-only", new AffixBlock
+            { Name = "x", Stat = Stat.MaxHealth, Tiers = [new AffixTier { Min = 1, Max = 1, Weight = 0 }, new AffixTier { Min = 5, Max = 5, MinItemLevel = 3 }] })).Field);
+
+        // a pool of two that can, until one of its affixes leaves with its mod
+        var other = TestMods.Create("ring-mod");
+        TestMods.As(other, () => Affixes.Define("glow", new AffixBlock { Name = "Glowing", Stat = Stat.MaxMana, Tiers = [new AffixTier { Min = 5, Max = 5 }] }));
+        var pair = Pool("pair", new AffixPoolBlock { Affixes = [new AffixEntry { Affix = "bear" }, new AffixEntry { Affix = "ring-mod:glow" }], Min = 2, Max = 2 });
+        var sword = Give(3, Sword, worn: false);
+        var first = As(() => pair.Roll(sword, new Random(1)));
+        Assert.True(first.Ok, first.Reason);
+        Assert.Equal(2, first.Affixes.Count);
+        TestMods.Retire(other);
+        var changes = new List<AffixesChangedEvent>();
+        using var sub = Events.On<AffixesChangedEvent>(changes.Add);
+        var again = As(() => pair.Roll(sword, new Random(2), replace: true));
+        Assert.False(again.Ok);
+        Assert.Contains("at least 2", again.Reason);
+        Assert.Contains("ring-mod:glow", again.Reason);
+        Assert.Equal(first.Affixes, again.Affixes);                          // the item keeps what it had
+        Assert.Equal(first.Affixes, As(() => Affixes.Of(sword)));
+        Assert.Empty(changes);
+
+        // two affixes defined again into one group: the pool asks two, one can roll
+        var plain = Give(4, Ring, worn: false);
+        var duo = Pool("duo", new AffixPoolBlock { Affixes = [new AffixEntry { Affix = "bear" }, new AffixEntry { Affix = "solo" }], Min = 2, Max = 2 },
+            define: () => Define("solo", new AffixBlock { Name = "Solo", Stat = Stat.MaxHealth, Tiers = [new AffixTier { Min = 1, Max = 1 }] }));
+        Define("bear", new AffixBlock { Name = "of the Bear", Stat = Stat.Strength, Group = "g", Tiers = [new AffixTier { Min = 1, Max = 3 }] });
+        Define("solo", new AffixBlock { Name = "Solo", Stat = Stat.MaxHealth, Group = "g", Tiers = [new AffixTier { Min = 1, Max = 1 }] });
+        var grouped = As(() => duo.Roll(plain, new Random(3)));
+        Assert.False(grouped.Ok);
+        Assert.Contains("share a group", grouped.Reason);
+        Assert.Empty(As(() => Affixes.Of(plain)));
     }
 }

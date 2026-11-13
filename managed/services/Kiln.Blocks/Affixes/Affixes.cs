@@ -134,8 +134,10 @@ public static class Affixes
     /// <param name="pool">The pool.</param>
     /// <param name="random">A seeded one makes the roll repeat; null: the shared one.</param>
     /// <param name="replace">Roll again over affixes the item already has (false: such an item is refused).</param>
-    /// <returns><see cref="AffixResult.Ok"/> false when the pool is not for this item type, or the item already has
-    /// affixes and <paramref name="replace"/> is false.</returns>
+    /// <returns><see cref="AffixResult.Ok"/> false when the pool is not for this item type, the item already has
+    /// affixes and <paramref name="replace"/> is false, or fewer than the pool's <c>Min</c> affixes can roll on this item
+    /// now (an affix's mod is not loaded, no tier for the item's level, or the rest share a group); the item keeps what it
+    /// had then.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="pool"/> is null.</exception>
     /// <exception cref="ArgumentException">A none, stamp-less or stale ref, or a pool whose mod has unloaded.</exception>
     /// <exception cref="KilnUnavailableException"><c>blocks.affixes</c> is off.</exception>

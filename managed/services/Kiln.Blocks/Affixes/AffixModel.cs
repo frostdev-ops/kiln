@@ -77,7 +77,8 @@ public sealed record AffixPoolBlock
     /// <summary>What can come up. At least one.</summary>
     public required IReadOnlyList<AffixEntry> Affixes { get; init; }
 
-    /// <summary>How many different affixes a roll gives at least (0 to 8).</summary>
+    /// <summary>How many different affixes a roll gives at least (0 to 8). A pool whose entries can never give that many
+    /// (one per group) is refused; a roll that cannot reach it on an item now is refused with a reason.</summary>
     public int Min { get; init; } = 1;
 
     /// <summary>How many at most; at least <see cref="Min"/>, at most 8.</summary>
@@ -97,7 +98,9 @@ public sealed record AffixEntry
 /// <summary>One affix as an item carries it: which affix, which tier, and the rolled value.</summary>
 /// <param name="Affix">The affix: <c>"mod:name"</c>.</param>
 /// <param name="Name">Its display name, as it was when rolled.</param>
-/// <param name="Stat">The stat's key (<c>"strength"</c>, <c>"move-speed"</c>, or a GUID for an attribute of the mod's own).</param>
+/// <param name="Stat">The stat's key (<c>"strength"</c>, <c>"move-speed"</c>, or the key of a mod's own <c>Stat</c>), as it was
+/// when rolled: the roll acts on this stat, which is what players' games show, even after its affix is defined again with
+/// another one.</param>
 /// <param name="Tier">The tier, from 1.</param>
 /// <param name="Value">The value: whole points, or a share (0.05 is 5 %).</param>
 public sealed record RolledAffix(string Affix, string Name, string Stat, int Tier, double Value)
@@ -125,8 +128,8 @@ public sealed record RolledAffix(string Affix, string Name, string Stat, int Tie
 }
 
 /// <summary>The answer of a call that changes an item's affixes. <see cref="Ok"/> false, with a <see cref="Reason"/>, when
-/// the rules said no (the pool is not for this item, the item already has affixes, it would carry more than 8); nothing
-/// changed then.</summary>
+/// the rules said no (the pool is not for this item, the item already has affixes, it would carry more than 8, fewer than
+/// the pool's minimum can roll on it now); nothing changed then.</summary>
 [ServerOnly]
 public sealed record AffixResult : IKilnResult
 {

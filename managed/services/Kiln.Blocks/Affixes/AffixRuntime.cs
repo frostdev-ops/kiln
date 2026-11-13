@@ -131,7 +131,8 @@ internal static partial class AffixRuntime
             if (t.MinItemLevel < 0) throw new BlockError(what, $"{at}.minItemLevel", $"{t.MinItemLevel}: an item level is 0 or more");
         }
         if (block.Tiers.All(t => t.Weight <= 0)) throw new BlockError(what, "tiers", "no tier has a weight above 0: nothing could roll");
-        if (block.Tiers.All(t => t.MinItemLevel > 0)) throw new BlockError(what, "tiers", "every tier asks an item level: give one tier minItemLevel 0, so the affix can roll on any item of its pool");
+        if (!block.Tiers.Any(t => t.MinItemLevel == 0 && t.Weight > 0))
+            throw new BlockError(what, "tiers", "no tier with a weight above 0 rolls at every item level: give one such tier minItemLevel 0, so the affix can roll on any item of its pool");
         var handle = new AffixHandle(mod.Info.Id, name, block);
         Watch(mod);
         lock (Gate) Defs[handle.Id] = new AffixDef(handle.Id, mod.Info.Id, handle, block);
@@ -160,11 +161,24 @@ internal static partial class AffixRuntime
             entries.Add((id, e.Weight));
         }
         if (entries.All(e => e.Item2 <= 0)) throw new BlockError(what, "affixes", "no entry has a weight above 0: nothing could roll");
+        var most = MostDifferent(entries.Where(e => e.Item2 > 0).Select(e => FindAffix(e.Item1)!));
+        if (block.Min > most)
+            throw new BlockError(what, "min", $"{block.Min}: the pool can give at most {most} different affixes (entries with a weight above 0, one per group), so a roll could never reach its minimum");
         var handle = new AffixPoolHandle(mod.Info.Id, name, block);
         Watch(mod);
         lock (Gate) Pools[handle.Id] = new PoolDef(handle.Id, mod.Info.Id, handle, block, entries);
         EnsureStarted();
         return handle;
+    }
+
+    /// <summary>How many different affixes one roll can give at most from these: one per group, every one without a group.</summary>
+    private static int MostDifferent(IEnumerable<AffixDef> defs)
+    {
+        var groups = new HashSet<string>(StringComparer.Ordinal);
+        var n = 0;
+        foreach (var d in defs)
+            if (d.Block.Group is not { } g || groups.Add(g)) n++;
+        return n;
     }
 
     internal static AffixFile Load(ModContext mod, string json)
@@ -333,18 +347,36 @@ internal static partial class AffixRuntime
         if (before.Count > 0 && !replace) return new AffixResult(item, before, "the item already has affixes (replace: true rolls again)");
         var level = LevelOf(item);
         var left = new List<(AffixDef, double)>();
+        var unloaded = new List<string>();
         foreach (var (id, weight) in pool.Entries)
-            if (FindAffix(id) is { } def) left.Add((def, weight));  // an affix whose mod has unloaded since does not come up
+        {
+            if (FindAffix(id) is { } def) left.Add((def, weight));
+            else if (weight > 0) unloaded.Add(id);  // an affix whose mod has unloaded since does not come up
+        }
         var count = rng.Next(pool.Block.Min, pool.Block.Max + 1);
         var rolled = new List<RolledAffix>();
         var groups = new HashSet<string>(StringComparer.Ordinal);
+        var noTier = new List<string>();
+        // every entry is tried until the count is reached, so a roll that stops short gave all the pool allows here
         while (rolled.Count < count && Pick(left, rng) is { } def)
         {
             left.RemoveAll(x => ReferenceEquals(x.Item1, def));
             if (def.Block.Group is { } g && groups.Contains(g)) continue;
-            if (RollOne(def, level, rng) is not { } one) continue;  // no tier for this item level
+            if (RollOne(def, level, rng) is not { } one)
+            {
+                noTier.Add(def.Id);  // no tier for this item level
+                continue;
+            }
             if (def.Block.Group is { } group) groups.Add(group);
             rolled.Add(one);
+        }
+        if (rolled.Count < pool.Block.Min)
+        {
+            var why = new List<string>();
+            if (unloaded.Count > 0) why.Add($"not loaded: {string.Join(", ", unloaded)}");
+            if (noTier.Count > 0) why.Add($"no tier for item level {level}: {string.Join(", ", noTier)}");
+            if (why.Count == 0) why.Add("the rest share a group with one already rolled");
+            return new AffixResult(item, before, $"pool {pool.Id} asks at least {pool.Block.Min} affixes, and only {rolled.Count} can roll on this item now ({string.Join("; ", why)})");
         }
         if (rolled.Count == 0 && before.Count == 0) return new AffixResult(item, before, null);  // the pool gave nothing this time: nothing to store
         return Write(item, key, before, rolled);
