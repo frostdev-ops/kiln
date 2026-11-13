@@ -39,7 +39,7 @@ test("an amount above the game's stack is said, not refused", () => {
 test("a new entry of a stacking item takes an amount above its stack size, bounded by the save", () => {
   const [id, it] = stacking;
   expect(newEntry(Number(id), 0, it.maxStack).count).toBe(it.maxStack);
-  expect(newEntry(Number(id), 0, it.maxStack * 10).count).toBe(it.maxStack * 10);
+  expect(newEntry(Number(id), 0, it.maxStack * 10).count).toBe(Math.min(it.maxStack * 10, MAX_AMOUNT));
   expect(newEntry(Number(id), 0, 70000).count).toBe(65535);
   expect(newEntry(Number(id), 0, 0).count).toBe(1);
 });
