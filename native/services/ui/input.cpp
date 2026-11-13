@@ -13,6 +13,7 @@
 #include <windowsx.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cstdio>
 #include <cstring>
 #include <deque>
@@ -544,18 +545,38 @@ void feed_pad(ImGuiIO& io) {
 }  // namespace
 
 void input_hook_xinput() {
-    if (g_xinput_hook) return;
-    for (const wchar_t* dll : {L"xinput1_4.dll", L"xinput1_3.dll", L"xinput9_1_0.dll"}) {
-        HMODULE m = GetModuleHandleW(dll);
-        if (!m) continue;
-        void* fn = reinterpret_cast<void*>(GetProcAddress(m, "XInputGetState"));
-        if (!fn) continue;
-        g_xinput_hook = safetyhook::create_inline(fn, reinterpret_cast<void*>(&hk_xinput_get_state));
-        char name[32];
-        std::snprintf(name, sizeof name, "%ls", dll);
-        logf(g_xinput_hook ? KILN_LOG_INFO : KILN_LOG_WARN, "ui: gamepad: %s XInputGetState %s", name,
-             g_xinput_hook ? "hooked (idle for the game while Kiln has the input)" : "could not be hooked");
-        return;
+    // Runs after every library load, on the thread that loaded. Two loads can end at the same moment (they no longer
+    // queue behind the LoadLibraryExW hook's mutex), so one thread at a time looks for an XInput library and makes the
+    // hook: it is made once and is not replaced while another thread reads it. A thread that finds one at work says
+    // "look again" and leaves; the library its own load brought may have come after the other's look, and no later
+    // load may follow. Flags, not a mutex: a load made by the working thread itself comes back here and must pass
+    // too, and nothing here may wait (the thread can hold the loader lock). The flags keep the default, strictest
+    // order: "look again" is written before `busy` is tried and read after `busy` is let go, so one of the two sees it.
+    static std::atomic<bool> hooked{false}, again{false};
+    static std::atomic_flag busy;
+    if (hooked.load()) return;
+    again.store(true);
+    while (again.load() && !hooked.load()) {
+        if (busy.test_and_set()) return;
+        if (hooked.load()) {  // made by another thread between this loop's look and the flag: never made twice
+            busy.clear();
+            return;
+        }
+        again.store(false);
+        for (const wchar_t* dll : {L"xinput1_4.dll", L"xinput1_3.dll", L"xinput9_1_0.dll"}) {
+            HMODULE m = GetModuleHandleW(dll);
+            if (!m) continue;
+            void* fn = reinterpret_cast<void*>(GetProcAddress(m, "XInputGetState"));
+            if (!fn) continue;
+            g_xinput_hook = safetyhook::create_inline(fn, reinterpret_cast<void*>(&hk_xinput_get_state));
+            char name[32];
+            std::snprintf(name, sizeof name, "%ls", dll);
+            logf(g_xinput_hook ? KILN_LOG_INFO : KILN_LOG_WARN, "ui: gamepad: %s XInputGetState %s", name,
+                 g_xinput_hook ? "hooked (idle for the game while Kiln has the input)" : "could not be hooked");
+            if (g_xinput_hook) hooked.store(true);  // not hooked: the next load tries again
+            break;
+        }
+        busy.clear();
     }
 }
 

@@ -57,7 +57,8 @@
       "find": [
         {
           "pattern": "48 8B C4 55 53 56 57 41 54 41 56 41 57 48 8D A8 ?? ?? FF FF 48 81 EC ?? ?? 00 00 0F 29 70 B8 48 8B FA 0F 29 78 A8 4C 8B F1 44 0F 29 40 98"
-        }
+        },
+        { "pattern": "48 8D 4D 88 44 0F 29 48 88 33 D2 44 0F 29 90 78 FF FF FF 44 0F 29 98 68 FF FF FF", "offset": -46 }
       ]
     },
     "ui/MainMenuSettingsA": {
@@ -176,7 +177,7 @@
     "@ui/ErrorPopup.flag": {
       "find": [
         {
-          "pattern": "48 8B C4 55 56 48 8D A8 ?? ?? FF FF 48 81 EC ?? ?? 00 00 80 B9 {ui/popups.error:d32} 00 48 8B F1 0F 84"
+          "pattern": "80 B9 {ui/popups.error:d32} 00 48 8B F1 0F 84 ?? ?? ?? ?? 48 89 58 10 48 8D 54 24 50"
         }
       ]
     }

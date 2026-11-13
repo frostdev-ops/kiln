@@ -20,6 +20,7 @@
 #include "safetyhook.hpp"
 #include "services/kiln_render.h"
 #include "ui.h"
+#include "load_hook.h"
 #include "slider.h"
 #include "draw_slots.h"
 
@@ -67,15 +68,12 @@ std::vector<std::shared_ptr<KeySub>> g_key_subs;
 // Keep canceled calls discoverable while another thread drains them (including self-unsubscribe during cleanup).
 std::unordered_map<KilnHandle, std::shared_ptr<CallbackLifetime>> g_retiring_subs;
 
-SafetyHookInline g_load_library;
-using LoadLibraryExWFn = HMODULE(WINAPI*)(LPCWSTR, HANDLE, DWORD);
-
-HMODULE WINAPI hk_load_library_ex_w(LPCWSTR name, HANDLE file, DWORD flags) {
-    HMODULE m = g_load_library.call<HMODULE>(name, file, flags);
+// After every library load that gave a module (load_hook.h), on the loading thread; several threads at once, and the
+// thread may hold the loader lock. Neither call waits for another thread: each lets one thread work and the others pass.
+void after_library_load() {
     // every load: vulkan-1.dll present and our hooks not in its code (first load, or a reload) -> (re)install
-    if (m && GetModuleHandleW(L"vulkan-1.dll")) vk_install();
-    if (m) input_hook_xinput();
-    return m;
+    if (GetModuleHandleW(L"vulkan-1.dll")) vk_install();
+    input_hook_xinput();
 }
 
 // Calls a native frame callback under a fault guard (the game's render thread must survive a bad subscriber).
@@ -206,6 +204,8 @@ bool build_frame(float width, float height, float dpi) {
     f.size = sizeof f;
     f.width = width;
     f.height = height;
+    // the style's scale (apply_style above) and what Ui.Scale gives every mod: one value. A page that grows with the
+    // display on top of it bounds its own scale (ModManagerHost.PageScale), not this one.
     f.dpi_scale = dpi;
     f.delta_seconds = dt;
     f.menu_open = g_menu_open.load() ? 1 : 0;
@@ -569,10 +569,7 @@ extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api,
     if (GetModuleHandleW(L"vulkan-1.dll")) {
         vk_install();
     } else {
-        void* target = reinterpret_cast<void*>(GetProcAddress(GetModuleHandleW(L"kernelbase.dll"), "LoadLibraryExW"));
-        if (!target) target = reinterpret_cast<void*>(GetProcAddress(GetModuleHandleW(L"kernel32.dll"), "LoadLibraryExW"));
-        g_load_library = safetyhook::create_inline(target, reinterpret_cast<void*>(&hk_load_library_ex_w));
-        if (!g_load_library) {
+        if (!load_hook::install(&after_library_load)) {
             logf(KILN_LOG_ERROR, "ui: hooking LoadLibraryExW failed: no overlay");
             return KILN_ERR_UNAVAILABLE;
         }
