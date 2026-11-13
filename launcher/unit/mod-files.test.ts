@@ -4,7 +4,7 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { MOD_FILE_EXTENSIONS, MOD_FILE_FILTERS } from "../src/shell/modFiles";
+import { MOD_FILE_EXTENSIONS, modFileFilters } from "../src/shell/modFiles";
 
 const library = readFileSync(join(import.meta.dir, "..", "..", "crates", "kiln-manage", "src", "library.rs"), "utf8");
 
@@ -13,5 +13,14 @@ test("the dialog offers every archive kind the Library unpacks, and DLLs", () =>
   const archives = [...body.matchAll(/"([a-z0-9]+)" => Some\(ArchiveKind::/g)].map((m) => m[1]);
   expect(archives).toEqual(["zip", "7z", "rar"]);
   for (const ext of [...archives, "dll"]) expect(MOD_FILE_EXTENSIONS).toContain(ext);
-  expect(MOD_FILE_FILTERS).toEqual([{ name: "Mods", extensions: MOD_FILE_EXTENSIONS }]);
+  expect(modFileFilters(true)).toEqual([{ name: "Mods", extensions: MOD_FILE_EXTENSIONS }]);
+});
+
+// review finding 5: GTK and the desktop portal match `*.7z` case-sensitively, so `MOD.7Z` stayed hidden on Linux
+test("on Linux the dialog also lists the upper-case patterns; Windows and macOS get each extension once", () => {
+  const linux = modFileFilters(false)[0].extensions;
+  for (const e of ["zip", "7z", "rar", "dll"]) expect(linux).toEqual(expect.arrayContaining([e, e.toUpperCase()]));
+  expect(new Set(linux).size).toBe(linux.length);
+  const win = modFileFilters(true)[0].extensions;
+  expect(win.map((e) => e.toLowerCase())).toEqual(["zip", "7z", "rar", "dll"]);
 });

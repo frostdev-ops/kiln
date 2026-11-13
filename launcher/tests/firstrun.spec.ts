@@ -332,3 +332,45 @@ test("Add to which profile? makes a new profile with the dropped mod in it, and 
   await expect(page.locator(".k-hero").getByRole("switch", { name: "Night Owl" })).toHaveAttribute("aria-checked", "true", { timeout: 5000 });
   await expect(page.locator(".k-hero").getByRole("link", { name: "Profile: Night run" })).toBeVisible();
 });
+
+// review finding 3: the toast's Load it while a Load from Settings still runs: one activation at a time, the later
+// click is refused with a sentence, and the profile the player loaded first stays loaded
+test("Load it while another profile is still loading is refused, and the first load stays", async ({ page }) => {
+  await start(page, null, "/");
+  await loadNoProfile(page);
+  await dropOn(page, page.locator(".k-hero"), "night-owl-1.2.0.zip");
+  await toastWith(page, "Added Night Owl, switched off").getByRole("button", { name: "Add to a profile" }).click();
+  await page.getByRole("dialog", { name: "Add to which profile?" }).getByRole("button", { name: /Ember run/ }).click();
+  const added = toastWith(page, "Added Night Owl to Ember run");
+  await expect(added).toBeVisible({ timeout: 5000 });
+  await page.evaluate(() => { location.hash = "#/settings"; });
+  const vanilla = page.getByRole("region", { name: "Profiles" }).getByRole("listitem").filter({ hasText: "Vanilla plus" });
+  await vanilla.getByRole("button", { name: "Load" }).click(); // the mock takes 1.5 s
+  await added.getByRole("button", { name: "Load it" }).click();
+  await expect(toastWith(page, "Could not load Ember run")).toContainText("Kiln is still loading a profile in this game. Try again when that is done.");
+  await expect(vanilla).toContainText("Loaded", { timeout: 5000 });
+  await page.waitForTimeout(500);
+  await expect.poll(async () => (await page.evaluate(async () => (await import("/src/api/commands.ts")).profileActive("client-steam")))?.profileId).toBe("vanilla-plus");
+});
+
+// review finding 4: the profile is made, then adding the drop to it fails: the dialog keeps the drop, lists the new
+// profile, and says what happened; picking it again adds the mod
+test("Make and add that fails after the profile was made keeps the drop, says so, and the new profile takes it on a retry", async ({ page }) => {
+  await start(page, null, "/");
+  await loadNoProfile(page);
+  await dropOn(page, page.locator(".k-hero"), "night-owl-1.2.0.zip");
+  await toastWith(page, "Added Night Owl, switched off").getByRole("button", { name: "Add to a profile" }).click();
+  const pick = page.getByRole("dialog", { name: "Add to which profile?" });
+  await pick.getByRole("button", { name: "New profile…" }).click();
+  await pick.getByLabel("Name of the new profile").fill("Night run");
+  await page.evaluate(() => (window as unknown as PlanMock).__kilnMock.planCommand("library_add_to_profile", { error: { code: "io", message: "the disk is full" } } as never));
+  await pick.getByRole("button", { name: "Make and add" }).click();
+  await expect(toastWith(page, "Not added")).toContainText("the disk is full");
+  await expect(toastWith(page, "Night run was made, without Night Owl")).toContainText("Pick Night run here to add it again");
+  await expect(pick).toBeVisible();
+  await pick.getByRole("button", { name: /Night run/ }).click();
+  await expect(pick).toBeHidden();
+  await expect(toastWith(page, "Added Night Owl to Night run")).toBeVisible({ timeout: 5000 });
+  const p = await page.evaluate(async () => (await import("/src/api/commands.ts")).profileGet("night-run"));
+  expect(Object.values(p.mods).flat().map((m) => [m.id, m.enabled])).toEqual([["night-owl", true]]);
+});
