@@ -410,9 +410,10 @@ public static class Menus
 
     /// <summary>Adds an entry to the main menu or the pause menu. Lower <paramref name="order"/> first; Kiln's own
     /// "Mods" entry has order 1000. Owned by the calling mod. Returns null when this menu is not available (dedicated
-    /// server, unsupported build). The game's menus do not scroll, so by default a menu draws mods' entries only while
-    /// it has at most 3 of them (the player's Kiln setting <c>modEntries</c>: Few, Always, Never); the entry is then
-    /// chosen from Kiln's Mods page ("Menu entries") instead, and <c>OnClick</c> runs the same way.</summary>
+    /// server, unsupported build). The game's menus do not scroll by themselves. By default (the player's Kiln setting
+    /// <c>modEntries</c>: Auto, Few, Always, Never) the pause menu draws every entry where Kiln can make it scroll,
+    /// and a menu that cannot scroll draws mods' entries only while it has at most 3 of them; an entry that is not
+    /// drawn is chosen from Kiln's Mods page ("Menu entries") instead, and <c>OnClick</c> runs the same way.</summary>
     public static MenuEntry? Add(MenuLocation where, UiText text, Action onClick, int order = 0)
     {
         ArgumentNullException.ThrowIfNull(text);

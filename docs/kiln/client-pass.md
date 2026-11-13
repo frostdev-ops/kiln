@@ -42,6 +42,7 @@ assets built first: their descriptions say so).
 | `npcsample` | `mods/samples/NpcSample` | an NPC and a quest in the game's UI |
 | `rules-sample` | `mods/samples/RulesSample` | `/flight` |
 | `world-programs` | `mods/samples/WorldPrograms` | a world program with a player |
+| `menu-many-test` | `mods/tests/menu-many-test` | many pause-menu entries (`menu.rows-quit`, `menu.scroll`); its setting `Entries` (0 to 24) takes a new number without a restart |
 | `weapon-moves-test` | `mods/tests/weapon-moves-test` (run `build-assets.py` first) | moves and held models with moving parts (`blocks.moves-*`, `blocks.held-animated`); `blocks.held-animated-two-players` needs a joined dedicated server |
 | `cosmetic-sample` | `mods/samples/CosmeticSample` | session 2 only: the hood and the cape |
 
