@@ -31,6 +31,8 @@ export async function takeOver(qc: QueryClient, entry: LibraryRef, name: string,
       qc.invalidateQueries({ queryKey: ["found_scan"] }),
     ]);
     if (!quiet) toast.ok(`${r.name} uses the changed files`, r.to.version !== r.from.version ? `Now version ${r.to.version}.` : undefined);
+    // an editor saved once more while Kiln took the files over: those newer files were kept, not deleted
+    if (r.note) toast.info(`${r.name} changed again`, r.note, { ms: 0 });
     return true;
   } catch (e) {
     toast.error(e, `Could not use the changed files of ${name}`);

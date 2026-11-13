@@ -841,6 +841,7 @@ const handlers: Record<string, Handler> = {
   profile_save: (a) => {
     const p = a.profile as Profile;
     const cur = profiles.get(p.id) ?? reject("not_found", `No profile '${p.id}'.`);
+    if (cur.created !== p.created) reject("conflict", `profile ${p.id} was deleted and made again meanwhile; this change was for the deleted one, reload it`);
     if (cur.generation !== p.generation) reject("conflict", "The profile changed elsewhere. Reload it.");
     const next = { ...clone(p), generation: p.generation + 1, updated: now() };
     profiles.set(p.id, next);

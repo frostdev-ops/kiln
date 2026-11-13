@@ -757,12 +757,14 @@ pub fn create(dirs: &DataDirs, name: &str, copy_from: Option<&str>) -> Result<Pr
         n += 1;
     }
     let now = now_rfc3339();
+    // `created` tells this profile from a deleted one with the same id (save): to the millisecond
+    let created = created_now();
     let src = copy_from.map(|s| get(dirs, s)).transpose()?;
     let p = Profile {
         format: 1,
         id: id.clone(),
         name: name.to_string(),
-        created: now.clone(),
+        created,
         updated: now,
         generation: 1,
         notes: src.as_ref().map(|s| s.notes.clone()).unwrap_or_default(),
@@ -788,10 +790,26 @@ pub fn create(dirs: &DataDirs, name: &str, copy_from: Option<&str>) -> Result<Pr
     Ok(p)
 }
 
-/// Saves meta.json (generation + 1). Conflict when `profile.generation` is not the stored generation.
+/// `2026-11-13T16:20:53.123Z`: when a profile was made, to the millisecond (RFC 3339 like every other time here).
+fn created_now() -> String {
+    let ms = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.subsec_millis()).unwrap_or(0);
+    let secs = now_rfc3339();
+    format!("{}.{ms:03}Z", secs.trim_end_matches('Z'))
+}
+
+/// Saves meta.json (generation + 1). Conflict when `profile.generation` is not the stored generation, or `created` is not
+/// the stored profile's (it was deleted and made again under its id).
 pub fn save(dirs: &DataDirs, profile: &Profile) -> Result<Profile> {
     check_profile(profile)?;
     let stored = get(dirs, &profile.id)?;
+    // another profile under the same id: the one this save was made from was deleted and made again meanwhile (its
+    // generation may well be the same), so nothing of it is written over the new one
+    if stored.created != profile.created {
+        return Err(Error::new(
+            ErrorCode::Conflict,
+            format!("profile {} was deleted and made again meanwhile; this change was for the deleted one, reload it", profile.id),
+        ));
+    }
     if stored.generation != profile.generation {
         return Err(Error::new(
             ErrorCode::Conflict,
