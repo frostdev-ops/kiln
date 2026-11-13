@@ -20,6 +20,9 @@ g++ -std=c++20 -O1 -g -Wall -Wextra -fsanitize=address,undefined -I"$here/../../
 # the scrolling pause menu's rules: begin/end pairing, when it scrolls, the crash guard (menu_scroll.h)
 g++ -std=c++20 -O1 -g -Wall -Wextra -fsanitize=address,undefined -I"$here/../../../core/abi" "$here/menu_scroll_test.cpp" -o "$out/menu_scroll_test"
 "$out/menu_scroll_test"
+# the middle and side mouse buttons and the wheel as key presses: twins of raw records and messages, notches (mouse_press.h)
+g++ -std=c++20 -O1 -g -Wall -Wextra -fsanitize=address,undefined "$here/mouse_press_test.cpp" -o "$out/mouse_press_test"
+"$out/mouse_press_test"
 # the window procedure chain (another mod subclassing the game window after Kiln): fake window functions
 g++ -std=c++20 -O1 -g -Wall -Wextra -fsanitize=address,undefined -I"$here/chain_host" "$here/wndproc_chain_test.cpp" -o "$out/wndproc_chain_test"
 "$out/wndproc_chain_test"

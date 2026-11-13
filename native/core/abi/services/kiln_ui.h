@@ -105,9 +105,24 @@ typedef struct KilnUiFrame {
     uint64_t frame;         /* overlay frames since start */
 } KilnUiFrame;
 
+/* KilnUiKey.vk of a wheel notch (since 0.2.0-dev.27). The wheel has no Windows virtual key: these are above every one.
+ * Since 0.2.0-dev.27 key callbacks also get the middle and side mouse buttons (VK_MBUTTON 0x04, VK_XBUTTON1 0x05,
+ * VK_XBUTTON2 0x06; a press and a release, scan 0) and one press per wheel notch (one per WHEEL_DELTA turned, added up
+ * from a high-resolution wheel's smaller deltas; scan 0, never a release or a repeat), with the modifiers held at that
+ * moment, once each although the window gets them both as raw input and as a message. Returning true keeps the press
+ * (and its raw record) from the game as for a key; releases always reach it. While Kiln captures input they come with
+ * captured 1 (the Keys page takes them for a binding; the wheel then scrolls Kiln's screen). The left and right buttons
+ * never come. set_menu_key takes the buttons, not the wheel; take_pressed_key stays keyboard only. */
+enum {
+    KILN_UI_VK_WHEEL_UP = 0x100u,
+    KILN_UI_VK_WHEEL_DOWN = 0x101u,
+    KILN_UI_VK_WHEEL_LEFT = 0x102u,
+    KILN_UI_VK_WHEEL_RIGHT = 0x103u,
+};
+
 typedef struct KilnUiKey {
     uint32_t size;
-    uint32_t vk;            /* Windows virtual-key code */
+    uint32_t vk;            /* Windows virtual-key code; the mouse buttons and KILN_UI_VK_WHEEL_* too (since 0.2.0-dev.27) */
     uint32_t scan;          /* scan code (extended bit 0x100) */
     uint32_t mods;          /* KILN_UI_MOD_* held at the time */
     uint8_t down;           /* 1 press, 0 release */
@@ -510,7 +525,8 @@ typedef struct KilnUiApi {
     /* The Kiln menu: -1 toggle, 0 close, 1 open. Its key toggles it from the window thread (default Insert). */
     void(KILN_CALL* set_menu)(int32_t open);
     void(KILN_CALL* set_menu_key)(uint32_t vk, uint32_t mods);
-    /* Name of a virtual key ("F8", "Insert", "A"), NUL-terminated. Any thread. */
+    /* Name of a virtual key ("F8", "Insert", "A", "Mouse4", "MouseMiddle"; "WheelUp" for KILN_UI_VK_WHEEL_UP since
+     * 0.2.0-dev.27), NUL-terminated. Any thread. */
     void(KILN_CALL* key_name)(uint32_t vk, char* buffer, size_t capacity);
 
     /* ---- drawing: only inside a frame callback ---- */
@@ -559,7 +575,8 @@ typedef struct KilnUiApi {
     void(KILN_CALL* draw_text)(float x, float y, uint32_t rgba, float size, KilnStr text);
     void(KILN_CALL* draw_rect)(float x0, float y0, float x1, float y1, uint32_t rgba, float rounding, int32_t filled);
     void(KILN_CALL* text_size)(KilnStr text, float size, float* width, float* height);
-    /* The next key pressed (for "press a key" remapping): returns its vk once, 0 while none. Any thread. */
+    /* The next key pressed (for "press a key" remapping): returns its vk once, 0 while none. Keyboard keys only: the
+     * mouse presses key callbacks get since 0.2.0-dev.27 are not taken here. Any thread. */
     uint32_t(KILN_CALL* take_pressed_key)(uint32_t* mods);
 
     /* ================================================================================================================

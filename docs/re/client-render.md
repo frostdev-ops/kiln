@@ -68,6 +68,13 @@ kiln.ui subclasses the window (`SetWindowLongPtrW(GWLP_WNDPROC)`, re-applied if 
 - Keys: from `WM_INPUT` (RAWKEYBOARD; falls back to WM_KEYDOWN if no raw keyboard ever arrives) → the Kiln menu key
   (default Insert) → key subscribers (Kiln.Ui key bindings). A consumed key's `WM_INPUT` press and its legacy
   messages are kept from the game.
+- Mouse presses (0.2.0-dev.27): the middle and side buttons and each wheel notch go the same way, as `KilnUiKey`s
+  (`KILN_UI_VK_WHEEL_*` for the wheel). The window gets each from `WM_INPUT` (RAWMOUSE flags, `usButtonData`) and as a
+  message (`WM_XBUTTON*`, `WM_MBUTTON*`, `WM_MOUSEWHEEL`, `WM_MOUSEHWHEEL`); whichever comes first is dispatched and
+  the other, its twin by input and message time, follows its decision (`native/services/ui/mouse_press.h`). A taken
+  press is kept from the game in both forms; a raw record that also carries another button's input passes whole.
+  Which of the two forms the game's camera zoom reads was not looked up: both are kept, so either way it does not see
+  a taken notch. Not verified in a real game yet (guided check `ui.mouse-bindings`).
 - Capture (Kiln menu open, or an interactive Kiln window): `WM_INPUT`, key presses, characters and mouse messages
   are kept from the game (`DefWindowProc` for raw input so the system frees it); key releases always pass (nothing
   stays held); Alt+F4 passes. The game's `SetCursorPos` calls are ignored and `ClipCursor` is lifted (the game's last
