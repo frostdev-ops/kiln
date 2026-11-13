@@ -118,7 +118,8 @@ public sealed record WorldWriteResult : IKilnResult
     public bool? Kept { get; internal init; }
 
     /// <summary>For a write that was not <see cref="Kept"/>: the policy of Kiln's that wrote over it in the step the write
-    /// was checked (its own report of that step shows it changing the written value), as a phrase that names it (<c>"kiln.items' water refill 1 (keep full) of the inventories of 1, set by kiln"</c>). Such a policy
+    /// was checked (its own report of that step shows it changing the written value into what the check found), as a
+    /// phrase that names it (<c>"kiln.items' water refill 1 (keep full) of the inventories of 1, set by kiln"</c>). Such a policy
     /// writes the component again every step, after the game's programs: a water refill (<c>Items.Fuel.Refill</c>,
     /// <c>Items.Fuel.KeepFull</c>, or a player's <c>Water</c> rule; the Creative menu's rule set has one) keeps every
     /// container it covers at its level, so a tracked write of their <c>Fuel</c> lasts one step. End that policy (or
