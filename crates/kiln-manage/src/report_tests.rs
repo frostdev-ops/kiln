@@ -726,6 +726,7 @@ fn sf_own_loader(name: &str) -> Fx {
     // Kiln's own ShroudForge, which would run the mods if ShroudForge's own loader did not start itself
     f.w("kiln/plugins/kiln-shroudforge.dll", b"adapter");
     f.w("kiln/plugins/shroudforge/shroudforge-runtime.dll", b"runtime");
+    f.w("kiln/plugins/shroudforge/version.json", br#"{"version":"1.7.9","build":"kiln.63b8862","host":"kiln"}"#);
     f.w("kiln/state/shroudforge.json", br#"{"format":1,"mode":"self-hosted","pid":412,"side":"client","source":"installed","updated":1794308400,
         "reason":"ShroudForge's own bootstrap runs (Z:\\var\\home\\frostling\\Enshrouded\\winmm.dll)"}"#);
     f.w("mods/bone-caller/mod.json", br#"{"id":"bone-caller","name":"Bone Caller","version":"1.0.0","capabilities":["patch","runtime"]}"#);
@@ -767,6 +768,71 @@ fn shroudforges_own_failed_startup_pass_is_a_finding() {
     let w = build(&f.input());
     let s = finding(&w, "sf-startup-failed");
     assert!(s.text.contains("(os error 5)") && !s.text.contains("WINEDLLOVERRIDES"), "{}", s.text);
+}
+
+/// Review of 6e231b37, finding 1. ShroudForge's words name files, so they can name the home folder. They were put on
+/// one line (runs of spaces collapsed) and cut to their bound before the report redacted them: a home folder whose
+/// name has two spaces no longer matched, and a cut inside a name left its beginning. The whole original text is
+/// redacted first.
+#[test]
+fn shroudforges_words_are_redacted_before_they_are_put_on_one_line_and_cut() {
+    let f = sf_own_loader("sf-redact");
+    let record = |error: &str| f.w("shroudforge/state.json", serde_json::json!({"schemaVersion": 1, "assets": {
+        "status": "failed", "phase": "startup", "target": "enshrouded", "completedAt": 1794308414u64, "error": error}}).to_string());
+    // a home folder with two spaces in its name, as ShroudForge's error would spell it
+    let mut i = f.input();
+    let mut r = Redactor::new(Some(r"C:\Users\Frost  Ling"), Some("Frost  Ling"), Some("frost-desk"));
+    r.add_home(&f.root.to_string_lossy());
+    i.redactor = Some(r);
+    record(r"pregame phase failed: C:\Users\Frost  Ling\Games\Enshrouded\enshrouded.kfc_resources: Access denied. (os error 5)");
+    let rep = build(&i);
+    let s = finding(&rep, "sf-startup-failed");
+    assert!(s.text.contains(r"pregame phase failed: <home>\Games\Enshrouded\enshrouded.kfc_resources: Access denied. (os error 5)"), "{}", s.text);
+    for text in [&s.text, &rep.summary, &rep.short] {
+        assert!(!text.contains("Frost") && !text.contains("Ling"), "the name is in the report: {text}");
+    }
+    // a long text whose bound falls inside the user's name: no beginning of the name is left
+    let long = format!("pregame phase failed: {} /var/home/frostling/Games/Enshrouded/enshrouded.kfc: denied", "x".repeat(263));
+    assert_eq!(&long[..300][286..], "/var/home/fros", "the fixture: the cut is inside the name");
+    record(&long);
+    let rep = build(&f.input());
+    let s = finding(&rep, "sf-startup-failed");
+    for text in [&s.text, &rep.summary, &rep.short] {
+        assert!(!text.contains("fros"), "a part of the name is in the report: {text}");
+    }
+    assert!(s.text.contains(" <home>/Games"), "redacted, then cut: {}", s.text);
+}
+
+/// Review of 6e231b37, finding 2: a hosted pass failed, then the player started once without mods. That start skips
+/// Kiln's plugins, so the adapter's status and ShroudForge's record are still the earlier start's; the report is about
+/// the last start and says nothing of it.
+#[test]
+fn a_start_without_shroudforge_does_not_repeat_an_earlier_starts_failed_pass() {
+    let f = Fx::healthy("sf-old-boot");
+    f.w("kiln/plugins/kiln-shroudforge.dll", b"adapter");
+    f.w("kiln/plugins/shroudforge/shroudforge-runtime.dll", b"runtime");
+    f.w("mods/bone-caller/mod.json", br#"{"id":"bone-caller","name":"Bone Caller","version":"1.0.0","capabilities":["patch","runtime"]}"#);
+    f.w("mods/bone-caller/extended.mod.json", br#"{"schemaVersion":1,"enabled":true,"targets":["client"],"settings":{}}"#);
+    f.w("mods/bone-caller/src/mod.lua", "return {}");
+    // the start of 11:00:00 (Fx::boot, pid 412): Kiln hosted ShroudForge and its pass failed
+    f.w("kiln/state/shroudforge.json", br#"{"format":1,"mode":"hosted","source":"bundled","pid":412,"side":"client","updated":1794308900,
+        "bundled":{"version":"1.7.9","build":"kiln.63b8862"},"startupPrepared":true}"#);
+    f.w("shroudforge/state.json", br#"{"schemaVersion":1,"assets":{"status":"failed","phase":"startup","target":"enshrouded",
+        "completedAt":1794308403,"error":"pregame phase failed: could not create a new enshrouded.kfc working baseline"}}"#);
+    let s = build(&f.input());
+    assert!(finding(&s, "sf-startup-failed").text.starts_with("ShroudForge 1.7.9, hosted by Kiln, could not write"), "that start's failure");
+    // the next start, an hour later: play once without mods (the same pid, as under Proton; another, as on Windows)
+    for pid in [412, 977] {
+        f.w("kiln/state/boot.json", serde_json::to_vec(&serde_json::json!({
+            "format": 1, "kiln": "0.2.0-dev.22", "pid": pid, "started": "2026-11-10T12:00:00Z", "written": "2026-11-10T12:00:02Z", "side": "client",
+            "exe": {"name": "enshrouded.exe", "verified": true}, "policy": "verified-only", "hooks": true, "safeIdle": null,
+            "playOnce": {"mode": "no-mods", "consumed": true, "nonce": null}, "profile": {"mode": "no-mods"},
+            "paths": {"game": r"Z:\var\home\frostling\Enshrouded"}, "chain": [], "plugins": [], "errors": [],
+        })).unwrap());
+        let r = build(&f.input());
+        assert!(!r.findings.iter().any(|x| x.id == "sf-startup-failed"), "pid {pid}: {:#?}", r.findings);
+        assert!(!r.summary.contains("ShroudForge's record of its startup pass"), "pid {pid}: {}", r.summary);
+    }
 }
 
 #[test]

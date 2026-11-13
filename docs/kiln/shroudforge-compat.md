@@ -488,19 +488,33 @@ own loader.
 
 What Kiln does about it (it cannot fix the other loader's process, and it never moves a loader the player installed):
 `crates/kiln-manage/src/sf_startup.rs` reads ShroudForge's own record of the pass (`<paths.state>/state.json`
-`assets`). A `failed` record of the last start becomes
+`assets`). The record names no process, so it counts only when it belongs to Kiln's last start (`kiln/state/boot.json`):
+written no more than two minutes before that start began (ShroudForge's own loader holds the game's entry point for its
+pass, and Kiln boots at that entry point), and run by something at that start: kiln-shroudforge's
+`kiln/state/shroudforge.json` says `hosted` or `self-hosted` and was written in that start (its `pid` and `updated`
+against boot.json's `pid` and `started`; under Proton the pid repeats, so the time decides), or ShroudForge's own loader
+is installed and wrote the record after the adapter's last word. A start that skips Kiln's plugins ("Play once: without
+mods") leaves both files as the start before it left them, and nothing is said about it. A `failed` record of the last
+start becomes
 
-- a sentence on ShroudForge's line of the launcher's engine list (`own_loaders::notes`, `OwnLoaderNote.startupFailed`,
-  shown as a warning) and a pointer on the EML line of the same loader: who ran the pass, ShroudForge's own words, the
-  switched-on packages that need the pass on this side, and
-- the support report's finding `sf-startup-failed` with the record's line under "The last start".
+- a sentence on ShroudForge's row of the launcher's engine list, whoever ran the pass and whatever other loaders' files
+  are in the game (`engine_status` `startupFailed`, `sf_startup::EngineNotes`, shown as a warning), and a pointer on the
+  EML row while ShroudForge runs the EML mods: who ran the pass, ShroudForge's own words, the switched-on packages that
+  need the pass on this side, what to change;
+- on the Deck, a line on Home ("ShroudForge mods did not load") and a button to the whole text in a dialog the right
+  stick scrolls, and
+- the support report's finding `sf-startup-failed` with the record's line under "The last start" (ShroudForge's words
+  are redacted whole before they are put on one line and cut).
 
-For this fault (Wine or Proton, `os error 5`, a ShroudForge before 1.8.0, Kiln's own ShroudForge installed) the sentence
-names the cure: take `dbghelp` and `winmm` out of `WINEDLLOVERRIDES` in the game's Steam launch options and keep
-`dinput8=n,b`; Kiln then hosts its own ShroudForge for the profile's ShroudForge mods. When Kiln hosted the player's
-installed 1.7.9 ("Use my installed ShroudForge"), which runs the same code, the cure is that setting. The in-game Mods
-page reads the same record and ShroudForge's per-mod errors while the game runs ([ui.md](ui.md)); what was missing is
-the launcher and the report, which the player sees once the game is closed.
+For this fault (Wine or Proton, `os error 5`, a ShroudForge build without the fix, Kiln's own ShroudForge with the fix
+installed) the sentence names the cure: take `dbghelp` and `winmm` out of `WINEDLLOVERRIDES` in the game's Steam launch
+options and keep `dinput8=n,b`; Kiln then hosts its own ShroudForge for the profile's ShroudForge mods. When Kiln hosted
+the player's installed 1.7.9 ("Use my installed ShroudForge"), which runs the same code, the cure is that setting. A
+build has the fix when its `version.json` names 1.8.0 or later, or Kiln's fork (`host: kiln`, `build: kiln.<commit>`;
+the fork calls itself 1.7.9 too) other than the two pins Kiln shipped before `03b4950` (`kiln.e4c6535`,
+`kiln.3586804`). A version that is not `major.minor.patch` gets no cure. The in-game Mods page reads the same record
+and ShroudForge's per-mod errors while the game runs ([ui.md](ui.md)); what was missing is the launcher and the report,
+which the player sees once the game is closed.
 
 ## 6. What other agents need to do (detect, launcher)
 

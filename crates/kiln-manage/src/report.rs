@@ -1250,9 +1250,10 @@ pub fn build(input: &ReportInput) -> Report {
         let _ = writeln!(ls, "  (no engine plugin wrote a state file)");
     }
     // ShroudForge's own record of its startup pass (sf_startup.rs): a failed pass leaves out every mod it writes into
-    // the game data, and only ShroudForge's own log said so (player report 327)
+    // the game data, and only ShroudForge's own log said so (player report 327). Its words are redacted whole, before
+    // they are put on one line and cut (a cut name, or a home folder's collapsed spaces, would not match).
     let under_wine = install.as_ref().map(|i| i.platform != Platform::Windows).unwrap_or(cfg!(not(windows)));
-    if let Some(f) = crate::sf_startup::failure(&game, under_wine) {
+    if let Some(f) = crate::sf_startup::failure(&game, under_wine).map(|f| f.redacted(|t| redact(t, cx.red))) {
         let _ = writeln!(ls, "ShroudForge's record of its startup pass (state.json \"assets\"): {}", f.line());
         cx.find("sf-startup-failed", Level::Problem, format!("{}.", f.text()));
     }

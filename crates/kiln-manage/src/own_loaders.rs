@@ -260,11 +260,6 @@ pub struct OwnLoaderNote {
     /// `extended.mod.json`): ShroudForge does not run them, and no switch changes that.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub unreadable: Vec<String>,
-    /// ShroudForge's startup pass failed at its last start ([`crate::sf_startup::failure`]): the mods it writes into the
-    /// game data (its own startup mods and the EML mods it runs) did not load. On the notes of a ShroudForge loader
-    /// only; `text` says it too.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub startup_failed: Option<crate::sf_startup::SfStartupFailure>,
     /// One sentence for the Play and profile pages.
     pub text: String,
 }
@@ -295,8 +290,6 @@ fn names(ids: &[String]) -> String {
 /// profile lists nothing still get a note, so the launcher can say the loader is there.
 pub fn notes(game_dir: &Path, loaders: &[OwnLoader], profile: Option<&ProfileView>) -> Vec<OwnLoaderNote> {
     let mut out = Vec::new();
-    // read once, and only when a ShroudForge loader is in play (a launcher built for Linux manages games under Wine or Proton)
-    let sf_failure = loaders.iter().any(|o| o.engine == Engine::ShroudForge).then(|| crate::sf_startup::failure(game_dir, cfg!(not(windows)))).flatten();
     for kind in ModKind::ALL {
         let Some(l) = of_kind(loaders, kind) else { continue };
         let root = l.root(game_dir);
@@ -379,20 +372,7 @@ pub fn notes(game_dir: &Path, loaders: &[OwnLoader], profile: Option<&ProfileVie
                 of the mod whose files ShroudForge reads does, or a profile without ShroudForge mods (Kiln then runs them itself)",
                 unreadable.len(), if unreadable.len() == 1 { String::new() } else { format!("{}; ", names(&unreadable)) }, refused.unwrap_or_default()));
         }
-        // ShroudForge's own record of its startup pass: a pass that failed leaves out every mod it writes into the game
-        // data, and nothing else of Kiln says so once the game is closed. Said in full on ShroudForge's own line; the
-        // EML line of the same loader points there (it has it in full when ShroudForge has no line of its own: hosted).
-        let startup_failed = if l.engine == Engine::ShroudForge { sf_failure.clone() } else { None };
-        if let Some(f) = &startup_failed {
-            if kind == ModKind::ShroudForge || of_kind(loaders, ModKind::ShroudForge).is_none() {
-                text.push_str(". ");
-                text.push_str(&f.text());
-            } else {
-                text.push_str(&format!(". ShroudForge's startup pass failed at its last start, so the changes of the {label} mods are not in the game \
-                    data either (ShroudForge's line says why)"));
-            }
-        }
-        out.push(OwnLoaderNote { loader: l.clone(), enabled: n as u32, copied, not_copied, off, other_side, unreadable, startup_failed, text });
+        out.push(OwnLoaderNote { loader: l.clone(), enabled: n as u32, copied, not_copied, off, other_side, unreadable, text });
     }
     out
 }
@@ -522,45 +502,6 @@ mod tests {
         crate::util::write_json_atomic(&g.join("mods/c").join(crate::engine_mods::MARKER), &m).unwrap();
         let n = notes(&g, &l, Some(&view));
         assert!(n[0].text.contains("Kiln copied this profile's 3 EML mod(s) into mods/ for it"), "{}", n[0].text);
-        std::fs::remove_dir_all(g).unwrap();
-    }
-
-    /// Player report 327: ShroudForge's own loader failed its startup pass and the launcher said nothing. The note of
-    /// ShroudForge's loader now says what its record says, which mods that leaves out and, for the fault its own
-    /// loader before 1.8.0 has under Wine and Proton, what to change.
-    #[test]
-    fn shroudforges_failed_startup_pass_is_in_its_note() {
-        let g = tmp("sfpass");
-        std::fs::write(g.join("enshrouded.exe"), b"MZ").unwrap();
-        std::fs::write(g.join("dbghelp.dll"), dll(b"EML_LOG_FILE_PATH shroudforge")).unwrap();
-        std::fs::create_dir_all(g.join("shroudforge")).unwrap();
-        std::fs::write(g.join("shroudforge/shroudforge-runtime.dll"), b"x").unwrap();
-        std::fs::write(g.join("shroudforge/version.json"), br#"{"version":"1.7.9"}"#).unwrap();
-        std::fs::create_dir_all(g.join("kiln/plugins/shroudforge")).unwrap();
-        std::fs::write(g.join("kiln/plugins/kiln-shroudforge.dll"), b"x").unwrap();
-        std::fs::write(g.join("kiln/plugins/shroudforge/shroudforge-runtime.dll"), b"x").unwrap();
-        std::fs::create_dir_all(g.join("mods/bone-caller/src")).unwrap();
-        std::fs::write(g.join("mods/bone-caller/mod.json"), br#"{"id":"bone-caller","name":"Bone Caller","version":"1.0.0","capabilities":["patch","runtime"]}"#).unwrap();
-        std::fs::write(g.join("mods/bone-caller/extended.mod.json"), br#"{"schemaVersion":1,"enabled":true,"targets":["client"],"settings":{}}"#).unwrap();
-        std::fs::write(g.join("mods/bone-caller/src/mod.lua"), "return {}").unwrap();
-        let l = find(&g, None);
-        let mut view = ProfileView::default();
-        view.mods.push((ModKind::ShroudForge, "bone-caller".into(), true));
-        let sf = |g: &Path| notes(g, &l, Some(&view)).into_iter().find(|n| n.loader.kind == ModKind::ShroudForge).expect("ShroudForge's loader note");
-        assert!(!sf(&g).text.contains("could not write"), "no record: nothing to say");
-        std::fs::write(g.join("shroudforge/state.json"), br#"{"schemaVersion":1,"assets":{"status":"failed","phase":"startup","target":"enshrouded",
-            "completedAt":1794308414,"error":"pregame phase failed: Access denied. (os error 5)"}}"#).unwrap();
-        let n = sf(&g);
-        assert!(n.text.contains("ShroudForge 1.7.9's own loader could not write"), "{}", n.text);
-        assert!(n.text.contains("pregame phase failed: Access denied. (os error 5)") && n.text.contains("(bone-caller)"), "{}", n.text);
-        if cfg!(not(windows)) {
-            assert!(n.text.contains("WINEDLLOVERRIDES"), "a launcher for Linux manages games under Wine or Proton: {}", n.text);
-        }
-        // the EML mods ShroudForge's loader runs go through the same pass
-        let eml = notes(&g, &l, Some(&view)).into_iter().find(|n| n.loader.kind == ModKind::Eml).expect("the EML note of ShroudForge's loader");
-        assert!(eml.text.contains("startup pass failed"), "{}", eml.text);
-        std::fs::write(g.join("shroudforge/state.json"), br#"{"schemaVersion":1,"assets":{"status":"applied","phase":"startup","target":"enshrouded","completedAt":1794309300}}"#).unwrap();
-        assert!(!sf(&g).text.contains("could not write"), "the next pass applied: the note is gone");
         std::fs::remove_dir_all(g).unwrap();
     }
 }

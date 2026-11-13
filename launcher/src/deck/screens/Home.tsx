@@ -1,16 +1,22 @@
 // Deck Home: the game's name, how many mods are on (every kind counts), the big Play button (the kiln's mouth), Kiln's
 // state with its one next step (Install, Update, Find game), and the last boot in one line. Only a profile other than
 // the default is named; profiles are switched in Settings (the desktop UI's, or the Deck's).
-import { useQueryClient } from "@tanstack/react-query";
+// When ShroudForge's startup pass failed at the last start (engine_status `startupFailed`, sf_startup.rs), a line says
+// so and a button opens the whole text (what happened, the mods it left out, what to change) in a dialog the right stick
+// scrolls: on a Deck nothing else shows it (player report 327).
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useGame, useGameStatus, useLaunchState, useRuntimeChanges } from "../../api/hooks";
+import * as api from "../../api/commands";
+import type { SfStartupNote } from "../../api/commands";
+import { useGame, useGameStatus, useLaunchState, usePoll, useRuntimeChanges } from "../../api/hooks";
+import { engineStatusKey } from "../../components/EngineStatus";
 import { errorText } from "../../ui";
 import { clock, usePlayControl } from "../../shell/play";
 import { detectGames, useDetect, useEnsureProfile, useKilnInstall } from "../../shell/firstRun";
 import { isDefaultProfile, useMods } from "../../shell/useMods";
 import { FindGameDialog, InstallDialog, PlayOnceDialog } from "../dialogs";
-import { DeckButton, Screen, Word } from "../ui";
+import { DeckButton, Dialog, Screen, Word } from "../ui";
 import { bootLine, kilnLabel } from "../status";
 import { deckFire } from "../Fire";
 import type { DeckAction } from "../layers";
@@ -30,7 +36,12 @@ export default function Home() {
   const mods = useMods(game);
   useEnsureProfile(game);
   const change = useRuntimeChanges((s) => (game ? s.last[game.id] : undefined));
+  const engines = useQuery({ queryKey: engineStatusKey(game?.id ?? ""), queryFn: () => api.engineStatus(game!.id), enabled: !!game,
+    refetchInterval: usePoll(10_000) });
+  const sfStartup = engines.data?.find((e) => e.kind === "shroudforge")?.startupFailed ?? null;
   const [open, setOpen] = useState<Open>(null);
+  // the note the dialog shows: the one A was pressed on (a poll that changes it neither closes nor reopens the dialog)
+  const [sfOpen, setSfOpen] = useState<SfStartupNote | null>(null);
   const s = status.data;
   const rt = s?.runtime;
   const v = ctl.view;
@@ -77,7 +88,12 @@ export default function Home() {
         {count && <p className="deck-line" data-testid="deck-mods"><span className="deck-label">Mods</span> {count}{other && <span data-testid="deck-profile"> · Profile: {other}</span>}</p>}
         <p className="deck-line" data-testid="deck-kiln-state"><Word tone={kilnWord.tone}>{kilnWord.text}</Word></p>
         {game && <p className="deck-line" data-testid="deck-last-boot"><span className="deck-label">Last boot</span> <Word tone={boot.tone}>{boot.text}</Word></p>}
+        {game && sfStartup && (
+          <p className="deck-line" data-testid="deck-sf-startup"><span className="deck-label">ShroudForge</span> <Word tone="warn">{sfStartup.mods.length ? "mods did not load" : "startup pass failed"}</Word></p>
+        )}
         <div className="deck-home-actions">
+          {/* once the game's state is known, as the other actions: the arch takes the first focus (it is disabled before) */}
+          {game && rt && v.phase !== "none" && sfStartup && <DeckButton id="sf-startup" a="Read" onClick={() => setSfOpen(sfStartup)}>ShroudForge: why, and what to do</DeckButton>}
           {!game && !looking && tried && <DeckButton id="pick-folder" a="Open" onClick={() => setOpen("find")}>Pick folder</DeckButton>}
           {game && rt && !rt.installed && !kiln.shroudforge && !kiln.installing && ctl.canPlay && (
             <DeckButton id="install" onClick={() => setOpen("install")}>Install Kiln</DeckButton>
@@ -102,6 +118,18 @@ export default function Home() {
       {(open === "install" || open === "update") && game && <InstallDialog game={game} update={open === "update"} onClose={() => setOpen(null)} />}
       {open === "once" && <PlayOnceDialog onClose={() => setOpen(null)} onPlay={(m) => ctl.play(m)} />}
       {open === "find" && <FindGameDialog onClose={() => setOpen(null)} />}
+      {sfOpen && <SfStartupDialog note={sfOpen} onClose={() => setSfOpen(null)} />}
     </Screen>
+  );
+}
+
+/** ShroudForge's failed startup pass in full: a long text (the mods it left out, the cure), so the body scrolls with the
+ *  right stick, as the Deck's notices do; A on OK or B closes it. */
+function SfStartupDialog({ note, onClose }: { note: SfStartupNote; onClose: () => void }) {
+  return (
+    <Dialog name="sf-startup" title={note.mods.length ? "ShroudForge mods did not load" : "ShroudForge's startup pass failed"} wide onClose={onClose}
+      backLabel="Close" buttons={<DeckButton primary onClick={onClose}>OK</DeckButton>}>
+      <div className="deck-scroll" data-kind="warn" style={{ overflowWrap: "anywhere" }}>{note.text}.</div>
+    </Dialog>
   );
 }

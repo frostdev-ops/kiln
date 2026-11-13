@@ -57,8 +57,8 @@ Notes:
     ones that change game data) into the game files under Wine or Proton: its log says `pregame phase failed: ...
     (os error 5)` and it marks those mods as failed, at every start. The ShroudForge that comes with Kiln does not have
     this fault. Take `dbghelp=n,b` and `winmm=n,b` out of the launch options and keep `dinput8=n,b`: Kiln then runs the
-    ShroudForge mods of your profile itself. From 0.2.0-dev.27 the launcher's engine list and the support report say
-    this when it happens ([shroudforge-compat.md](shroudforge-compat.md#57-shroudforges-own-loader-under-wine-and-proton)).
+    ShroudForge mods of your profile itself. From 0.2.0-dev.27 the launcher says this when it happens: on the Deck's Home, in the
+    engine list (Mods > Engines) and in the support report ([shroudforge-compat.md](shroudforge-compat.md#57-shroudforges-own-loader-under-wine-and-proton)).
 - **Updates:** the bundled runtime updates with Kiln. While Kiln hosts your installed copy, ShroudForge does not update
   itself at game start, so its updater cannot replace Kiln's `dinput8.dll`. To update your own ShroudForge, run its
   updater (`shroudforge/shroudforge.exe`) with the game closed. If it puts its own `dinput8.dll` back, reinstall Kiln
