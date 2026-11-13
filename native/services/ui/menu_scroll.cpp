@@ -80,6 +80,7 @@ std::atomic<bool> g_clear_marker{false};  // the trial passed: after_frame remov
 uint32_t g_scrolled_frames = 0;
 menu_scroll::Trial g_trial;
 std::wstring g_trying, g_off;  // the marker files
+std::wstring g_gave_up;       // why Kiln ended the game on purpose (give_up), for the next start and the player
 std::string g_trying_u8, g_off_u8;
 
 std::wstring widen(const std::string& s) {
@@ -159,10 +160,41 @@ bool finite_rect(const float r[4]) {
 // Nesting that cannot be restored: the game would fail on its column a moment later anyway (its layout errors are
 // fatal and cannot be caught). End the process now, said in kiln.log; the crash guard's marker is on the disk, so the
 // next start keeps scrolling off.
-[[noreturn]] void give_up(const char* what) {
-    logf(KILN_LOG_ERROR, "ui: the scrolling pause menu %s and the game's menu cannot be put back in order: the game ends "
-                         "now; scrolling stays off on the next start (kiln/state/menu-scroll.off)", what);
-    __fastfail(7);  // FAST_FAIL_FATAL_APP_EXIT
+// Why, where the next start and the player find it: kiln/state/menu-scroll.gave-up, written through to the disk by this
+// thread with no allocation (the path is made at install). kiln.log's writer is another thread that dies with the
+// process, so the line given to it may never reach the file.
+void say_on_disk(const char* what) noexcept {
+    try {
+        if (g_gave_up.empty()) return;
+        HANDLE h = CreateFileW(g_gave_up.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_FLAG_WRITE_THROUGH, nullptr);
+        if (h == INVALID_HANDLE_VALUE) return;
+        static const char kHead[] = "Kiln ended the game on purpose: the scrolling pause menu ";
+        static const char kTail[] = " and the game's menu could not be put back in order. Scrolling stays off from the next "
+                                    "start (menu-scroll.off).\r\n";
+        DWORD n = 0;
+        WriteFile(h, kHead, sizeof kHead - 1, &n, nullptr);
+        WriteFile(h, what, static_cast<DWORD>(std::strlen(what)), &n, nullptr);
+        WriteFile(h, kTail, sizeof kTail - 1, &n, nullptr);
+        FlushFileBuffers(h);
+        CloseHandle(h);
+    } catch (...) {  // /EHa: a fault here too. Nothing may keep the process from ending below
+    }
+}
+
+// The same in kiln.log when its writer still works: the line is queued, and the writer gets a moment to put it out.
+void say_in_log(const char* what) noexcept {
+    try {
+        logf(KILN_LOG_ERROR, "ui: the scrolling pause menu %s and the game's menu cannot be put back in order: the game "
+                             "ends now; scrolling stays off on the next start (kiln/state/menu-scroll.off)", what);
+        Sleep(250);
+    } catch (...) {
+    }
+}
+
+[[noreturn]] void give_up(const char* what) noexcept {
+    say_on_disk(what);
+    say_in_log(what);
+    __fastfail(7);  // FAST_FAIL_FATAL_APP_EXIT: reached whatever the two calls above did
 }
 
 // One of the game's calls, under a guard: false when it faulted (an access violation; the game's own error handling
@@ -351,6 +383,15 @@ bool scroll_install(bool system_menu_hooked) {
     g_off_u8 = dir + "\\menu-scroll.off";
     g_trying = widen(g_trying_u8);
     g_off = widen(g_off_u8);
+    g_gave_up = widen(dir + "\\menu-scroll.gave-up");
+    {
+        // an earlier start ended the game on purpose (give_up): say it once here, where kiln.log is whole
+        std::string why;
+        if (read_file(g_gave_up, why) == menu_scroll::File::read && !why.empty()) {
+            while (!why.empty() && (why.back() == '\n' || why.back() == '\r')) why.pop_back();
+            logf(KILN_LOG_WARN, "ui: at an earlier start: %s (kiln/state/menu-scroll.gave-up)", why.c_str());
+        }
+    }
     KilnBuildInfo bi{};
     bi.size = sizeof bi;
     std::string kiln = "?", build = "?";
