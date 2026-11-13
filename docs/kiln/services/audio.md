@@ -286,3 +286,18 @@ sound (ids match) answers the remote entity-id question (C9).
 - `fade_in` is best effort for streamed takes; `PlayParams` flag bits stay 0 (their meaning is [hyp]).
 - The relay has no feedback: server handles cannot be observed.
 - Without kiln.ui (no `kiln.ui.tick`) sounds start only in game (client steps).
+
+## The contract (dev.27)
+
+Kiln.Audio follows [the API contract](../modding/contract.md) as far as it applies: its calls never throw for a missing capability (they return
+`SoundHandle.None`), so no member carries `[RequiresCapability]`.
+
+- **Capabilities.** In the game client: `kiln.audio` and the sigdb features `audio.play`, `audio.voiceover`,
+  `audio.narration`. On the server side nothing is played here; `audio.relay` (managed, session, refreshed every 25
+  steps) says what `Sound.Available` and `Voiceover.Available` say there: available while a Kiln client with the
+  `kiln:audio` channel is connected (or this host's own client can play), pending while the channel is open and
+  nobody listens, unavailable without the channel (`needs kiln.net`), `wrong-side` in a client that only joined.
+- **Threads.** Reads (`IsPlaying`, `State`, `Info`, `Describe`, `Status`, `SetVolume`, `SetPosition`) are `[AnyThread]`
+  (kiln_audio.h: every function any thread). The play and stop calls carry no thread attribute: any thread in the
+  game client, the tick thread on the server side, where they go through the relay. The analyzer rule KILN101 reads
+  the code and still lists them as tick-thread calls.

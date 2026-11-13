@@ -274,6 +274,7 @@ internal static class AudioStartup
         try
         {
             AudioRelay.Start();
+            AudioCaps.Rows.Ensure();
             CookIndex.ScanLoadedMods();
             unsafe
             {

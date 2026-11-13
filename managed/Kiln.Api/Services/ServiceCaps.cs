@@ -77,6 +77,16 @@ internal static class ServiceCaps
     public static unsafe bool Probe(string service, uint minVersion = 1) =>
         Services.Get<ServiceHeader>(service, minVersion) != null;
 
+    /// <summary>For a service whose table is missing: lowers the sigdb features it serves, since sigdb may have
+    /// resolved a feature that no service is here to serve. Probes the service first (<see cref="Probe"/>), so its
+    /// own row gives the reason the features are lowered with.</summary>
+    public static void LowerFeatures(string service, params string[] features)
+    {
+        Probe(service);
+        var (reason, text) = Cause(CapabilityReason.ServiceMissing, $"{service} is not loaded", service);
+        foreach (var name in features) Lower(name, reason, text);
+    }
+
     /// <summary>Lowers a row the core reports (a sigdb feature): unavailable, unless the row already says why it is off
     /// (then the core's reason stands).</summary>
     public static void Lower(string name, CapabilityReason reason, string text)

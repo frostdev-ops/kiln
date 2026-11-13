@@ -289,10 +289,36 @@ public sealed class GameNodesRefundedEvent : KilnEvent
 /// from the next start.</summary>
 public static unsafe partial class GameTree
 {
+    /// <summary>True when kiln.skills is loaded on this game build (capability <c>kiln.skills</c>).</summary>
+    [AnyThread]
     public static bool Available => SkillsNative.T != null;
 
-    private static SkillsNative.Table* Need() =>
-        SkillsNative.T is var t && t != null ? t : throw new NotSupportedException("kiln.skills is unavailable");
+    /// <summary>The capability names Kiln.Skills answers for.</summary>
+    internal static class Caps
+    {
+        /// <summary>The native table is here (the core's row).</summary>
+        public const string Service = "kiln.skills";
+
+        /// <summary>The sigdb features kiln.skills serves on the server side.</summary>
+        public static readonly string[] Features = ["skills.functions", "skills.login_guard", "skills.shadow", "skills.tree_load"];
+    }
+
+    // Kiln.Skills in the capability registry: reported at the service's first use, fixed from then on.
+    internal static readonly ServiceCapRows Rows = new(Caps.Service, ReportCapabilities);
+
+    private static void ReportCapabilities()
+    {
+        if (Available) return;
+        ServiceCaps.LowerFeatures(Caps.Service, Caps.Features);
+    }
+
+    private static SkillsNative.Table* Need()
+    {
+        var t = SkillsNative.T;
+        if (t != null) return t;
+        Rows.Ensure();
+        throw ServiceCaps.Unavailable(Caps.Service, "kiln.skills is unavailable");
+    }
 
     public static GameTreeStatus? Status
     {
@@ -313,6 +339,7 @@ public static unsafe partial class GameTree
 
     /// <summary>Defines (or redefines) nodes as the calling mod's. Returns kiln.skills' report per node (state
     /// "defined" / "redefined" / "pending" / "error"). Any thread.</summary>
+    [RequiresCapability("kiln.skills")]
     public static IReadOnlyList<GameNodeInfo> Define(params GameNodeDefinition[] nodes)
     {
         var mod = SkillsInternals.CurrentMod;
@@ -322,6 +349,7 @@ public static unsafe partial class GameTree
     }
 
     /// <summary>Defines nodes from JSON (one node object, an array, or {"nodes": [...]}), as in skills/*.json.</summary>
+    [RequiresCapability("kiln.skills")]
     public static IReadOnlyList<GameNodeInfo> DefineJson(string json) => DefineJson(json, SkillsInternals.CurrentMod);
 
     private static IReadOnlyList<GameNodeInfo> DefineJson(string json, ModContext? mod)
@@ -384,6 +412,8 @@ public static unsafe partial class GameTree
 
     /// <summary>The server world's tree as the game holds it (JSON: nodes by index through the game's own lookup, map
     /// counts). <paramref name="addedOnly"/>: Kiln's nodes only. Tick thread.</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.skills")]
     public static string Dump(bool addedOnly = false)
     {
         Game.AssertTickThread();
@@ -394,6 +424,8 @@ public static unsafe partial class GameTree
     }
 
     /// <summary>Runs steps with the game's own skill functions on a scratch node list (no player). Tick thread.</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.skills")]
     [System.Diagnostics.CodeAnalysis.Experimental("KILNX001", UrlFormat = "https://github.com/frostdev-ops/kiln/blob/main/docs/kiln/modding/analyzers.md#kilnx001")]
     [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
     public static IReadOnlyList<GameTreeSimResult> Simulate(params (GameTreeSimOp Op, uint Node)[] steps)
@@ -414,6 +446,7 @@ public static unsafe partial class GameTree
     /// <summary>The resource kiln.skills serves (or would serve now): <paramref name="which"/> 0 = expanded, 1 = the
     /// game's own, 2 = the copy path without additions (round-trip test). <paramref name="check"/> = the round-trip
     /// report (every game node, link and sub-array compared with the game's).</summary>
+    [RequiresCapability("kiln.skills")]
     public static byte[] Resource(int which, out string check)
     {
         var t = Need();

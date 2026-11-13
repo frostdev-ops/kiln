@@ -137,10 +137,26 @@ public enum BuildRefusal
 /// <param name="Box">The cells the edit covered.</param>
 /// <param name="Zone">The denying zone (<see cref="BuildRefusal.Zone"/>) or base altar (<see cref="BuildRefusal.Base"/>).</param>
 public sealed record BuildResult(long CellsChanged, int BlocksWritten, bool Verified, bool Kept, CellBox Box,
-    double Milliseconds, BuildRefusal Refusal = BuildRefusal.None, uint Zone = 0)
+    double Milliseconds, BuildRefusal Refusal = BuildRefusal.None, uint Zone = 0) : IKilnResult
 {
     public bool Changed => CellsChanged > 0 && Refusal == BuildRefusal.None;
     public bool Refused => Refusal is not (BuildRefusal.None or BuildRefusal.DryRun);
+
+    /// <summary>The edit was not refused (<see cref="Refused"/> is false): it ran, or was a dry run. An edit that ran
+    /// and found nothing to change is still ok; <see cref="Changed"/> says whether cells changed. Since 0.2.0-dev.27.</summary>
+    public bool Ok => !Refused;
+
+    /// <summary>Why the edit was refused, in words (<see cref="Refusal"/> is the code); null when <see cref="Ok"/>.
+    /// Since 0.2.0-dev.27.</summary>
+    public string? Reason => Refusal switch
+    {
+        BuildRefusal.None or BuildRefusal.DryRun => null,
+        BuildRefusal.Zone => $"a protection zone denies the edit (zone {Zone})",
+        BuildRefusal.Base => $"the box touches a player base (altar {Zone})",
+        BuildRefusal.NotLoaded => "the voxel tiles did not stream in in time",
+        BuildRefusal.Canceled => "a BuildEditingEvent handler canceled the edit",
+        _ => Refusal.ToString(),
+    };
 }
 
 /// <summary>An edit Kiln could not run at all (service unavailable, bad box, engine fault).</summary>

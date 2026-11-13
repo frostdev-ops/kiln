@@ -35,6 +35,8 @@ public sealed class ConformanceTests : ContractTest
     {
         var missing = PublicTypes(Adopted.Named(service))
             .Where(t => t.Name.EndsWith("Result", StringComparison.Ordinal) && !t.IsEnum && !t.IsInterface)
+            // lab and test types ([Experimental]) are outside the contract: their Ok is a probe's answer, not a refusal
+            .Where(t => t.GetCustomAttribute<System.Diagnostics.CodeAnalysis.ExperimentalAttribute>(false) is null)
             .Where(t => t.GetProperty("Ok", BindingFlags.Public | BindingFlags.Instance) is { } ok && ok.PropertyType == typeof(bool))
             .Where(t => !typeof(IKilnResult).IsAssignableFrom(t))
             .Select(t => t.FullName)
@@ -77,8 +79,36 @@ public sealed class ConformanceTests : ContractTest
         Assert.True(bad.Count == 0, string.Join("; ", bad.Distinct()));
     }
 
+    /// <summary>Types whose members need the tick thread on the server side only (there the call is relayed to Kiln
+    /// clients over a channel) and may be called on any thread in the game client. Neither [TickThreadOnly] nor
+    /// [AnyThread] is true for them on both sides, so they carry no thread attribute; the analyzers' table still lists
+    /// them, as it reads the code and not the side.</summary>
+    internal static readonly Dictionary<string, string> ThreadBySide = new(StringComparer.Ordinal)
+    {
+        ["Kiln.Sound"] = "the kiln:audio relay",
+        ["Kiln.Voiceover"] = "the kiln:audio relay",
+        ["Kiln.Vfx"] = "the kiln:vfx relay",
+        ["Kiln.VfxTestSeams"] = "the kiln:vfx relay (lab seams)",
+        ["Kiln.ScreenEffects"] = "the kiln:screen relay",
+    };
+
+    [Fact]
+    public void A_type_listed_as_thread_by_side_is_in_the_tick_table_and_marks_no_member_tick_thread_only()
+    {
+        var table = TickTable().Select(id => Split(id).Type).ToHashSet(StringComparer.Ordinal);
+        foreach (var (type, why) in ThreadBySide)
+        {
+            Assert.True(table.Contains(type), $"{type} ({why}) is no longer in the tick table: drop it from ThreadBySide");
+            var t = Adopted.Assemblies.SelectMany(PublicTypes).FirstOrDefault(x => TypeId(x) == type);
+            if (t is null) continue;  // its service is not adopted yet
+            var marked = t.GetMembers(Declared).Where(m => m.GetCustomAttribute<TickThreadOnlyAttribute>(false) is not null).Select(Name).ToArray();
+            Assert.True(marked.Length == 0, $"{type}: [TickThreadOnly] on {string.Join(", ", marked)}, but the rule depends on the side");
+        }
+    }
+
     /// <summary>The analyzers' table lists the public members that reach a tick-thread check in the code (ApiScan). Each
-    /// of them carries [TickThreadOnly] itself, on its property or event, or on its type.</summary>
+    /// of them carries [TickThreadOnly] itself, on its property or event, or on its type. The exception:
+    /// <see cref="ThreadBySide"/>.</summary>
     [Theory]
     [MemberData(nameof(Adopted.Names), MemberType = typeof(Adopted))]
     public void What_the_code_requires_the_tick_thread_for_is_marked_TickThreadOnly(string service)
@@ -108,12 +138,13 @@ public sealed class ConformanceTests : ContractTest
                 }
             }
         }
-        var own = new HashSet<string>(assembly.GetTypes().Select(TypeId), StringComparer.Ordinal);
+        // the table lists public API only: an internal type may share its full name with a public one of another service
+        var own = new HashSet<string>(PublicTypes(assembly).Select(TypeId), StringComparer.Ordinal);
         var missing = new List<string>();
         foreach (var id in TickTable())
         {
             var (type, member) = Split(id);
-            if (!own.Contains(type) || typesMarked.Contains(type)) continue;
+            if (!own.Contains(type) || typesMarked.Contains(type) || ThreadBySide.ContainsKey(type)) continue;
             if (!marked.Contains(type + "." + member)) missing.Add(id);
         }
         Assert.True(missing.Count == 0, $"{missing.Count} member(s) reach a tick-thread check without [TickThreadOnly]: " + string.Join("; ", missing.Take(12)));

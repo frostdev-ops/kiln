@@ -20,6 +20,11 @@ internal static class Adopted
         typeof(Chat),
         typeof(Hooks),
         typeof(Eml),
+        typeof(Sound),
+        typeof(Vfx),
+        typeof(Gameplay),
+        typeof(Build),
+        typeof(Skills),
     ];
 
     internal static IEnumerable<Assembly> Assemblies => Anchors.Select(t => t.Assembly).Distinct();
