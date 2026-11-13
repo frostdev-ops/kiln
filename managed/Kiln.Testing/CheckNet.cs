@@ -330,6 +330,9 @@ internal sealed class CheckNet
         ViewItem? next = null;
         lock (_lock)
         {
+            // one at a time: while a start is on its way or its question is open, nothing leaves the queue (a state the
+            // server sends about another check than the pending one must not take the next one out and lose it)
+            if (_pending is not null || _asking is not null) return;
             if (_runningAll && !_all.TryDequeue(out next)) _runningAll = false;
         }
         if (next is not null) Begin(next);
