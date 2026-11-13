@@ -597,3 +597,115 @@ fn a_dev26_entry_recorded_with_its_cook_outputs_moves_to_its_identity() {
         assert!(!legacy2.exists());
     }
 }
+
+/// The launcher's cook (kiln_manage::cook): which mods of the game's profile need a cook, one after the other, a
+/// failure of one stops nothing, and the record that says when a mod is cooked again.
+#[cfg(feature = "cooktools")]
+#[test]
+fn the_mods_that_need_a_cook_are_cooked_one_by_one_and_a_failure_stops_nothing() {
+    use kiln_manage::cook::{self, CookReason};
+    let t = tmp("cook-plan");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let blades = kiln_mod(&t.0, "blades", "1.0.0", r#", "name": "Blades""#);
+    put(&blades, "assets/cook.json", br#"{ "format": 1, "out": "cooked", "steps": [] }"#);
+    let shields = kiln_mod(&t.0, "shields", "1.0.0", "");
+    put(&shields, "blocks/looks.json", b"{}");
+    let plain = kiln_mod(&t.0, "plain", "1.0.0", "");
+    let r = library::import(&dirs, &[blades.clone(), shields, plain], &mut NoProgress).unwrap();
+    let game = t.0.join("game");
+    put(&game, "enshrouded.exe", b"MZ");
+    put(&game, "enshrouded.kfc", b"game data, build one");
+    std::fs::create_dir_all(game.join("kiln")).unwrap();
+    let mut inst = install_at(&game, None);
+    inst.build_id = Some("100".into());
+    assert!(cook::plan(&inst).unwrap().is_empty(), "no profile in the game yet: nothing to cook");
+    let mut p = profile::create(&dirs, "p", None).unwrap();
+    p.mods.kiln = ["blades", "shields", "plain"].iter().map(|id| pm(&refs(&r, ModKind::Kiln, id), true)).collect();
+    p.mods.kiln[2].enabled = true;
+    let p = profile::save(&dirs, &p).unwrap();
+    profile::activate(&dirs, &p.id, &inst).unwrap();
+
+    // installed and switched on: both mods with something to cook are due; the one without is not listed
+    let jobs = cook::plan(&inst).unwrap();
+    assert_eq!(jobs.iter().map(|j| (j.id.as_str(), j.name.as_str(), j.reason)).collect::<Vec<_>>(),
+        [("blades", "Blades", Some(CookReason::NotCooked)), ("shields", "shields", Some(CookReason::NotCooked))]);
+    assert!(jobs[0].folder.starts_with(game.join("kiln/profiles")), "the folder the game loads: {}", jobs[0].folder.display());
+    let identity = jobs[0].identity.clone();
+
+    // one cooks, one fails: the failure is reported with the tool's words, the other is cooked, both are recorded
+    let mut events = Vec::new();
+    let mut cooker = |job: &cook::CookJob, line: &mut dyn FnMut(&str)| {
+        line(&format!("cooking {}", job.id));
+        if job.id == "shields" {
+            return (false, "kiln: cooking the looks\nmodelcook: models/hat.gltf: no such file\n".to_string());
+        }
+        put(&job.folder, "assets/cooked/blade.bin", b"made from this game");
+        put(&job.folder, "assets/cooked/cook-report.json", b"{}");
+        (true, "ok: 1 file(s)\n".to_string())
+    };
+    let run = cook::cook_mods(&inst, &jobs, Ok(()), &mut cooker, &mut |i, n, job, line| events.push(format!("{}/{n} {} {}", i + 1, job.id, line.unwrap_or("start")))).unwrap();
+    assert_eq!(run.mods.iter().map(|m| (m.id.as_str(), m.ok, m.reason)).collect::<Vec<_>>(), [("blades", true, CookReason::NotCooked), ("shields", false, CookReason::NotCooked)]);
+    assert_eq!(run.mods[1].error.as_deref(), Some("kiln: cooking the looks\nmodelcook: models/hat.gltf: no such file"));
+    assert_eq!(run.failed().count(), 1);
+    assert_eq!(events, ["1/2 blades start", "1/2 blades cooking blades", "2/2 shields start", "2/2 shields cooking shields"]);
+    let state = cook::read_state(&game);
+    assert_eq!((state.mods["blades"].ok, state.mods["blades"].identity.as_str(), state.mods["blades"].game_build.as_str()), (true, identity.as_str(), "steam:100"));
+    assert!(!state.mods["shields"].ok && state.mods["shields"].error.is_some());
+
+    // the cooked mod kept its identity (a cook writes only into assets/cooked): activation keeps its copy, and it is not due
+    assert_eq!(profile::activate(&dirs, &p.id, &inst).unwrap().copied, 0);
+    let jobs = cook::plan(&inst).unwrap();
+    assert_eq!(jobs.iter().map(|j| (j.id.as_str(), j.reason)).collect::<Vec<_>>(), [("blades", None), ("shields", Some(CookReason::LastFailed))]);
+    assert!(jobs[0].last.as_ref().is_some_and(|l| l.ok));
+    // nothing due but the failed one: only that is tried again
+    let mut seen = Vec::new();
+    cook::cook_mods(&inst, &jobs, Ok(()), &mut |job, _| { seen.push(job.id.clone()); (true, String::new()) }, &mut |_, _, _, _| {}).unwrap();
+    assert_eq!(seen, ["shields"]);
+    assert!(cook::plan(&inst).unwrap().iter().all(|j| j.reason.is_none()));
+
+    // the game was updated: every cooked mod is due again
+    inst.build_id = Some("101".into());
+    assert!(cook::plan(&inst).unwrap().iter().all(|j| j.reason == Some(CookReason::GameChanged)));
+    // (an install without Steam's build id: the game's data file tells the builds apart)
+    inst.build_id = None;
+    let by_file = cook::game_build(&inst);
+    assert!(by_file.starts_with("file:enshrouded.kfc:20:"), "{by_file}");
+    put(&game, "enshrouded.kfc", b"game data, build two (longer)");
+    assert_ne!(cook::game_build(&inst), by_file);
+    inst.build_id = Some("100".into());
+    assert!(cook::plan(&inst).unwrap().iter().all(|j| j.reason.is_none()));
+
+    // no tool can run (no Python): every due mod is reported as not cooked with that sentence, nothing is started
+    inst.build_id = Some("102".into());
+    let jobs = cook::plan(&inst).unwrap();
+    let mut started = 0;
+    let run = cook::cook_mods(&inst, &jobs, Err("Kiln needs Python 3.10 or newer to cook mods: install python3.".into()), &mut |_, _| { started += 1; (true, String::new()) }, &mut |_, _, _, _| {}).unwrap();
+    assert_eq!((started, run.mods.len(), run.failed().count()), (0, 2, 2));
+    assert_eq!(run.mods[0].error.as_deref(), Some("Kiln needs Python 3.10 or newer to cook mods: install python3."));
+    assert_eq!(cook::plan(&inst).unwrap()[0].reason, Some(CookReason::LastFailed), "tried again at the next start");
+    cook::cook_mods(&inst, &cook::plan(&inst).unwrap(), Ok(()), &mut |_, _| (true, String::new()), &mut |_, _, _, _| {}).unwrap();
+
+    // its cooked files are gone: due again; "Cook again" cooks a mod that is not due
+    let jobs = cook::plan(&inst).unwrap();
+    assert!(jobs.iter().all(|j| j.reason.is_none()));
+    let again = cook::cook_mods(&inst, &[cook::asked(jobs[0].clone())], Ok(()), &mut |_, _| (true, String::new()), &mut |_, _, _, _| {}).unwrap();
+    assert_eq!(again.mods[0].reason, CookReason::Asked);
+    std::fs::remove_dir_all(jobs[0].folder.join("assets/cooked")).unwrap();
+    assert_eq!(cook::plan(&inst).unwrap()[0].reason, Some(CookReason::FilesGone));
+
+    // the mod was updated: another identity, due again
+    std::fs::write(blades.join("M.dll"), b"blades 1.1").unwrap();
+    put(&blades, "kiln.mod.json", br#"{ "id": "blades", "name": "Blades", "version": "1.1.0", "apiVersion": "0.2", "entryAssembly": "M.dll", "side": "both" }"#);
+    let r2 = library::import(&dirs, &[blades], &mut NoProgress).unwrap();
+    let mut p = profile::get(&dirs, &p.id).unwrap();
+    p.mods.kiln[0] = pm(&refs(&r2, ModKind::Kiln, "blades"), true);
+    let p = profile::save(&dirs, &p).unwrap();
+    profile::activate(&dirs, &p.id, &inst).unwrap();
+    assert_eq!(cook::plan(&inst).unwrap()[0].reason, Some(CookReason::ModChanged));
+    // a mod that is off is not cooked
+    let mut p = profile::get(&dirs, &p.id).unwrap();
+    p.mods.kiln[0].enabled = false;
+    let p = profile::save(&dirs, &p).unwrap();
+    profile::activate(&dirs, &p.id, &inst).unwrap();
+    assert!(cook::plan(&inst).unwrap().iter().all(|j| j.id != "blades"));
+}
