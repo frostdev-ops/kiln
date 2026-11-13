@@ -27,14 +27,21 @@ Unchanged: `data/*`, `shared/*` except `character.mjs`, and every `src/` file no
 | `src/ui.js` | gameart: `itemIcon` uses an entry's own `icon` (mod items) when it has one |
 | `src/Catalog.jsx` | gameart: the item list is built when the catalog opens (mod items merge after the module loads) |
 | `shared/character.mjs` | gameart: when no equipment list of at least 4 pieces fits, the search accepts a shorter one (new characters wear fewer; the inventory header and the mask must still close; checked: byte-identical round trips) |
-| `src/i18n/en.json` | gameart: "Unknown item (0x{h})", the read-only note for saves with unknown items; Kiln's UI strings (`kiln/`) at the end |
+| `src/i18n/en.json` | gameart: "Unknown item (0x{h})", the read-only note for saves with unknown items; Kiln's UI strings (`kiln/`, `deck/`) at the end, with English words for upstream's three messages about a save it cannot read |
 | `src/i18n.js` | without a saved choice, anything but Portuguese defaults to English (upstream: Portuguese) |
 | `src/styles.css` | scoped under `.kiln-editor` by `launcher/scripts/scope-editor-css.ts` (`:root`/`html`/`body`/`#root` → `.kiln-editor`, every selector prefixed, `.viewport` absolute instead of fixed). Regenerate, don't hand-edit |
+
+Also Kiln's: `deck/` (the Deck's Editor tab, `DeckEditor.jsx`: the same views in the Deck env, the number pad, the
+character and backup lists; `deck-editor.css`; docs/kiln/launcher/deck.md "Editor").
 
 Added by Kiln: `KilnEditor.jsx` (wrapper: missing-asset placeholders, the one-line "Preparing game art…", the mod
 overlay loaded and merged before a save is read, remounts when the art or the overlay changes), `KilnEditor.d.ts`,
 `kiln-editor.css`, this file, and `kiln/`: the editor's UI in the launcher's look (Hearth), which replaced upstream's
-in-game frame on 2026-11-05. `kiln/EditorApp.jsx` (page head, character switch, Save, Backups, tabs, keys),
+in-game frame on 2026-11-05. `kiln/session.js` (the saves, the open character, change, discard, save, restore: one
+store for the desktop page and the Deck, so changes survive leaving the page; a save the game wrote after it was read
+is refused with Read again; a save read only by accepting unknown ids stays read-only), `kiln/pending.ts` (whether
+changes are pending, for the shells), `kiln/art.js` (the art and mod-item readiness, shared), `kiln/env.jsx` (desktop
+or Deck: the Deck's dialogs, number pad, choice list and hint-bar actions), `kiln/EditorApp.jsx` (page head, character switch, Save, Backups, tabs, keys),
 `Equipment.jsx`, `Inventory.jsx`, `Skills.jsx`, `Knowledge.jsx`, `Catalog.jsx` (add an item), `Inspector.jsx` (one
 item), `parts.jsx`, `amounts.js` (how many of an item a slot may hold), `editor.css`. They call upstream's data and save code unchanged (`src/platform.js`,
 `src/tauri-api.js`, `src/gamedata.js`, `src/itemstats.js`, `src/treecheck.js`, `src/i18n.js`, `shared/*`) and keep
