@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Host checks of rule publication, ABI compatibility, Shroud floors, client ray guards and the flight, creative and
-# glider-steering hooks.
+# Host checks of rule publication, ABI compatibility, Shroud floors, client ray guards and the flight, NoClip, creative
+# and glider-steering hooks.
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 out=${KILN_OUT:-$here/../../build}/rules-guards
@@ -15,6 +15,9 @@ cxx=${CXX:-$(command -v clang++ || command -v g++)}
 "$cxx" -std=c++20 -O2 -Wall -Wextra -Wno-unused-function -pthread -I"$here/tests/stubs" -I"$here/../../core/abi" \
     -o "$out/flight_hook_test" "$here/flight_hook_test.cpp"
 "$out/flight_hook_test"
+"$cxx" -std=c++20 -O2 -Wall -Wextra -Wno-unused-function -pthread -I"$here/tests/stubs" -I"$here/../../core/abi" \
+    -o "$out/noclip_hook_test" "$here/noclip_hook_test.cpp"
+"$out/noclip_hook_test"
 "$cxx" -std=c++20 -O2 -Wall -Wextra -Wno-unused-function -pthread -I"$here/tests/stubs" -I"$here/../../core/abi" \
     -o "$out/steer_hook_test" "$here/steer_hook_test.cpp"
 "$out/steer_hook_test"

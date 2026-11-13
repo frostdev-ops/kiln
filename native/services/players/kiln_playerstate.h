@@ -116,6 +116,20 @@ typedef struct KilnPlayerBuff {
     uint32_t level, reserved;
 } KilnPlayerBuff;
 
+/* Where a player's camera is and where it looks (aim, since 0.2.0-dev.27): PlayerInput.fromClient.camera, the camera
+ * the player's client sends with its input every step (keen::ecs::ClientCamera). The game's camera is third person: the
+ * view ray starts at the camera, behind the character, not at its eyes. The camera's forward is its orientation applied
+ * to (0, 0, 1), as the game's own code turns it (kiln.rules' steered glider uses the same). */
+typedef struct KilnPlayerAim {
+    uint32_t size;         /* set to sizeof(KilnPlayerAim) before calling */
+    uint32_t world;        /* KILN_PLAYERSTATE_SERVER, or KILN_PLAYERSTATE_PREDICTION for a joined client's own player */
+    int64_t position[3];   /* keen::WorldPosition: x, y, z in 32.32 fixed point metres */
+    float orientation[4];  /* keen::Quaternion x, y, z, w */
+    float distance;        /* camera distance (the third-person boom) */
+    float fov_y;           /* vertical field of view, radians */
+    int64_t server_time;   /* the world's ECS time, ns, when read */
+} KilnPlayerAim;
+
 /* A versioned action the client sends (PlayerInput.fromClient and fromAdminClient, named by the game's own field): it
  * counts a version up, and a game program runs the action once when that differs from ServerConsumedPlayerInput. */
 typedef struct KilnPlayerClientAction {
@@ -146,7 +160,9 @@ typedef struct KilnPlayerStateStatus {
     uint8_t items;       /* item details can be read */
     uint32_t sources;    /* sources resolved */
     uint8_t client_hold; /* client actions can be held, and so canceled, on this build (client_action_hold) */
-    uint8_t reserved[3];
+    uint8_t aim;         /* since 0.2.0-dev.27: aim() reads the camera on this build (PlayerInput.fromClient.camera
+                            resolved); 0 from an older kiln-players.dll, which has no aim() either */
+    uint8_t reserved[2];
     uint64_t scans, entities_read;
     uint64_t reserved2;
     char detail[160];    /* what did not resolve */
@@ -203,6 +219,13 @@ typedef struct KilnPlayerStateApi {
     KilnResult(KILN_CALL* client_action_held)(KilnPlayerHeldAction* out, uint32_t capacity, uint32_t* count);
     /* cancel 0: let it run; 1: cancel it. KILN_ERR_NOT_FOUND: no such held action (already answered, or the player left). */
     KilnResult(KILN_CALL* client_action_decide)(KilnEntity entity, uint32_t index, uint32_t version, uint32_t cancel);
+
+    /* ---- since 0.2.0-dev.27: check header.size ----
+     * The player's camera (KilnPlayerAim). The server world's thread: any player; a joined client's main thread: its
+     * own player, from the prediction world. KILN_ERR_NOT_FOUND: no PlayerInput on the entity, or its client has sent
+     * no camera yet (the camera still at the world's origin, or a zero orientation). KILN_ERR_UNAVAILABLE: the camera
+     * field did not resolve (status aim 0). */
+    KilnResult(KILN_CALL* aim)(KilnEntity entity, KilnPlayerAim* out);
 } KilnPlayerStateApi;
 
 #ifdef __cplusplus

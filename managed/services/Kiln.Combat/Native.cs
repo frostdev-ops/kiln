@@ -137,6 +137,25 @@ internal static unsafe class CombatNative
         public delegate* unmanaged[Cdecl]<uint, uint, int, AttributeValue*, int> AttributeAdd;
     }
 
+    /// <summary>Since 0.2.0-dev.27 (appended): the entity filter of held hits.</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    public struct TableV3
+    {
+        public TableV2 V2;
+        public delegate* unmanaged[Cdecl]<uint*, uint, uint, int> HoldFilter;  // entities, count, interest bits to turn on now
+    }
+
+    /// <summary>The table with hold_filter, or null (kiln.combat missing, or an older runtime's).</summary>
+    public static TableV3* V3
+    {
+        get
+        {
+            var t = T;
+            if (t == null || t->Header.Size < (uint)sizeof(TableV3)) return null;
+            return (TableV3*)t;
+        }
+    }
+
     private static Table* _t;
 
     /// <summary>The table, or null when kiln.combat is not loaded (looked up again until it is found).</summary>

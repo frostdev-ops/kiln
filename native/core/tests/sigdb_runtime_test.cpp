@@ -175,6 +175,34 @@ static void pool_and_resolver(const char* dir) {
     CHECK(r.symbol("scoped", &a) && a == kiln::test_image.base + TestPe::kFunc + 15 &&
           r.constant("field", &field) && field == 0x1234, "runtime: huge scope remains bounded and captures disk bytes");
     std::filesystem::remove(file);
+    // A symbol with a pattern of its own that a capture elsewhere also names: when the two name different addresses,
+    // the symbol is not resolved, and stays so through every later pass (the capture is not taken after all).
+    {
+        std::ofstream out(file);
+        out << R"({"format":1,"symbols":{
+          "root":{"find":[{"pattern":"48 B8 ?? ?? ?? ?? ?? ?? ?? ?? E8 {helper:rel32}"}]},
+          "helper":{"find":[{"pattern":"8B 81 34 12 00 00 C3"}]},
+          "later":{"find":[{"pattern":"E8 {negative:rel32} 8B 81","scope":{"symbol":"root","size":64}}]}
+        }})";
+    }
+    sigdb::Resolver bad;
+    CHECK(bad.load(file, ""), "runtime: a cross-checked definition loads");
+    bad.resolve();
+    CHECK(bad.symbol("root", &a) && !bad.symbol("helper", &a),
+          "runtime: a symbol whose pattern and capture disagree is not resolved, on any pass");
+    {
+        std::ofstream out(file);
+        out << R"({"format":1,"symbols":{
+          "root":{"find":[{"pattern":"48 B8 ?? ?? ?? ?? ?? ?? ?? ?? E8 {helper:rel32}"}]},
+          "helper":{"find":[{"pattern":"8B 81 34 12 00 00 C3 FF FF FF FF FF"}]}
+        }})";
+    }
+    sigdb::Resolver fallback;
+    CHECK(fallback.load(file, ""), "runtime: a definition with a failing pattern loads");
+    fallback.resolve();
+    CHECK(fallback.symbol("helper", &a) && a == kiln::test_image.base + TestPe::kHelper,
+          "runtime: a symbol whose own pattern matches nothing is still taken from an agreeing capture");
+    std::filesystem::remove(file);
 }
 
 // kiln.hooks v2's accessors: the exe file's bytes at a live address, the symbol name at an address, and the symbols whose

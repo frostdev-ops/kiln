@@ -31,7 +31,8 @@ public sealed record VisualBlock : IBlock
     public string? Model { get; init; }
     /// <summary>The icon alone: <c>item:&lt;name&gt;</c>, or a PNG in the mod's folder (then <c>clients: mod</c>).</summary>
     public string? Icon { get; init; }
-    /// <summary>A game item, or an item of this mod, whose model this item shows lying on the ground.</summary>
+    /// <summary>A game item, or an item of this mod, whose model this item shows lying on the ground. Unset: a <see cref="Model"/> of
+    /// the mod's own (a GUID) lies on the ground as itself; an <c>item:</c> model or <see cref="Like"/> lies there as that item does.</summary>
     public ItemRef? Dropped { get; init; }
     /// <summary><c>#rrggbb</c>: the colour of the parts the game lets you tint. A client check: nothing here draws it.</summary>
     public string? Tint { get; init; }

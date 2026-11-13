@@ -448,6 +448,96 @@ public sealed partial class ClientPassMod
         await c.Verdict();
     }
 
+    [ClientCheck("rules.noclip", "NoClip: through the ground, and safely off inside it", Area = "Creative mode", Since = Dev27,
+        Needs = ClientCheckNeeds.Hosted, Order = 150)]
+    public async Task RulesNoClip(CheckContext c)
+    {
+        if (!await NeedPlayer(c) || !await NeedNoClip(c)) return;
+        var ended = new List<PlayerNoClipEndedEvent>();
+        var sub = Events.On<PlayerNoClipEndedEvent>(e => { if (e.Player == c.Player) ended.Add(e); });
+        c.OnEnd(() =>
+        {
+            sub.Dispose();
+            NoClip.Set(c.Player, false);
+        });
+        var on = NoClip.Set(c.Player, true);
+        if (!c.Expect(on.Ok, "NoClip turned on for you", on.Message))
+        {
+            c.Instruct($"NoClip could not be turned on: {on.Message} Press fail, with that line as the note.");
+            await c.Verdict();
+            return;
+        }
+        c.Instruct("NoClip is on and you lift off. Fly with the movement keys; jump climbs, sneak sinks, sprint is faster. " +
+                   "Sink into the ground until you are well inside it, fly through a wall or a rock, and stop INSIDE the " +
+                   "ground. Then type /noclip in chat to turn it off.");
+        var active = await c.Until(() => NoClip.Of(c.Player).Active, TimeSpan.FromSeconds(20), "the server skips your character's collision");
+        c.Expect(active, "the server's world moves your character without collision", NoClip.Of(c.Player).ToString());
+        var off = await c.Until(() => ended.Count > 0, TimeSpan.FromMinutes(5), "you turned NoClip off");
+        if (off)
+        {
+            c.Expect(ended[0].Reason == NoClipEnd.RuleEnded, "it ended because it was turned off", ended[0].ToString());
+            c.Expect(ended[0].RestoredTo is not null, "it was turned off inside something, and Kiln put you back at your last free position",
+                ended[0].ToString());
+        }
+        await c.Ticks(60);
+        c.Expect(!NoClip.Of(c.Player).Active, "collision is back on the server", NoClip.Of(c.Player).ToString());
+        c.Instruct("Three things, all must be yes to pass. While NoClip was on, did you pass through the ground and the wall " +
+                   "smoothly, without being pulled back? When you turned it off inside the ground, were you put back in " +
+                   "open space near where you went in? Are you now standing or landing normally, not inside the ground " +
+                   "and not falling under the world? (In the fail note, say which one was not so, and what the camera did " +
+                   "inside the ground.)");
+        await c.Verdict();
+    }
+
+    [ClientCheck("rules.noclip-teleport", "NoClip ends on a teleport", Area = "Creative mode", Since = Dev27,
+        Needs = ClientCheckNeeds.Hosted, Order = 151)]
+    public async Task RulesNoClipTeleport(CheckContext c)
+    {
+        if (!await NeedPlayer(c) || !await NeedNoClip(c)) return;
+        var ended = new List<PlayerNoClipEndedEvent>();
+        var sub = Events.On<PlayerNoClipEndedEvent>(e => { if (e.Player == c.Player) ended.Add(e); });
+        c.OnEnd(() =>
+        {
+            sub.Dispose();
+            NoClip.Set(c.Player, false);
+        });
+        var on = NoClip.Set(c.Player, true);
+        if (!c.Expect(on.Ok, "NoClip turned on for you", on.Message))
+        {
+            c.Instruct($"NoClip could not be turned on: {on.Message} Press fail, with that line as the note.");
+            await c.Verdict();
+            return;
+        }
+        c.Instruct("NoClip is on. Open the map and fast travel to any Flame Altar (or sleep in a bed, or use a teleport of " +
+                   "your own).");
+        var tripped = await c.Until(() => ended.Count > 0, TimeSpan.FromMinutes(5), "you teleported");
+        if (tripped) c.Expect(ended[0].Reason == NoClipEnd.Teleport, "it ended because of the teleport", ended[0].ToString());
+        await c.Ticks(60);
+        c.Expect(!Rules.Of(c.Player).NoClip && !NoClip.Of(c.Player).Active, "NoClip is off after the teleport", NoClip.Of(c.Player).ToString());
+        c.Instruct("Did you arrive standing on the ground with normal collision, and did a chat line say that NoClip ended " +
+                   "because you were teleported?");
+        await c.Verdict();
+    }
+
+    // NoClip's checks need the hooks on this game build and the world's rules.json allowing it.
+    private static async Task<bool> NeedNoClip(CheckContext c)
+    {
+        if (!NoClip.Available)
+        {
+            c.Expect(false, "NoClip works on this game build (rules.noclip)", Capabilities.Why(NoClip.Capability));
+            c.Instruct($"NoClip does not work in this game: {Capabilities.Why(NoClip.Capability)} Press skip (or fail, if this " +
+                       "is a game build Kiln supports and the Creative Mode mod is not installed).");
+            await c.Verdict();
+            return false;
+        }
+        if (Rules.Policy.AllowNoClip) return true;
+        c.Instruct("NoClip is switched off in this world's rules. Open kiln/config/rules.json in the folder of the game (or " +
+                   "of the server), set \"allowNoClip\": true and save: Kiln rereads the file within a second. Then start " +
+                   "this check again. Press skip now.");
+        await c.Verdict();
+        return false;
+    }
+
     [ClientCheck("time.set", "Time of day set by a mod", Area = "Gameplay", Since = Dev21,
         Tags = [Visual], Needs = ClientCheckNeeds.Hosted, Order = 136)]
     public async Task TimeSet(CheckContext c)
@@ -475,6 +565,59 @@ public sealed partial class ClientPassMod
         if (!e.IsNone) c.Expect(Spawn.Exists(e), "the Vukah exists in the world");
         c.Instruct("A Vukah appeared 10 m ahead of you. It stands on the ground, looks and moves like any Vukah and comes " +
                    "for you. Did it appear where the check put it, and act normally? (It is removed when the check ends.)");
+        await c.Verdict();
+    }
+
+    [ClientCheck("abilities.remove-buff", "A buff taken off by a mod", Area = "Gameplay", Since = Dev27,
+        Tags = [Visual], Needs = ClientCheckNeeds.Hosted, Order = 139)]
+    public async Task AbilitiesRemoveBuff(CheckContext c)
+    {
+        if (!await NeedPlayer(c)) return;
+        // the heal-over-time potion's buff: an icon in the buff row while it lasts
+        var hot = new Guid("be0e7626-e95f-4a14-844a-2af52501698e");
+        c.Expect(Capabilities.Is("abilities.buffs"), "abilities.buffs is available", Capabilities.Why("abilities.buffs"));
+        await Abilities.ApplyBuff(c.Player, hot, TimeSpan.FromSeconds(120), c.Player);
+        c.OnEnd(() => { if (Capabilities.Is("abilities.buffs")) _ = Abilities.RemoveBuff(c.Player, hot); });
+        await c.Until(() => Abilities.BuffsOf(c.Player).Any(b => b.Is(hot)), TimeSpan.FromSeconds(5), "the buff is on the player");
+        c.Instruct("The check gave you the healing potion's buff for 2 minutes: its icon is in the buff row of your HUD. Look " +
+                   "at it now. The check takes the buff off in 10 seconds through Abilities.RemoveBuff; watch the icon.");
+        await c.Ticks(240);
+        var r = await Abilities.RemoveBuff(c.Player, hot);
+        c.Expect(r.Ok, "RemoveBuff says the game removed it", r.ToString());
+        // the game answers at once and clears the slot a step later
+        await c.Until(() => !Abilities.BuffsOf(c.Player).Any(b => b.Is(hot)), TimeSpan.FromSeconds(5), "the buff is no longer in the player's buff slots");
+        c.Instruct("Did the buff's icon appear in your HUD, and did it go away when the check took the buff off (about 10 " +
+                   "seconds later), with no other buff touched?");
+        await c.Verdict();
+    }
+
+    [ClientCheck("players.aim", "Where the player looks: Player.Aim follows the camera", Area = "Gameplay", Since = Dev27,
+        Needs = ClientCheckNeeds.Hosted, Order = 140)]
+    public async Task PlayersAim(CheckContext c)
+    {
+        if (!await NeedPlayer(c)) return;
+        c.Expect(Capabilities.Is("players.aim"), "players.aim is available", Capabilities.Why("players.aim"));
+        PlayerAim? Aim() { try { return PlayerStates.AimOf(c.Player); } catch (KilnUnavailableException) { return null; } }
+        var first = Aim();
+        var body = World.Position(c.Player);
+        c.Expect(first is not null, "the player's client has sent a camera", first?.ToString());
+        if (first is not null && body is { } b)
+            c.Expect(first.Origin.DistanceTo(b) < 15, "the camera is near the character (third person)",
+                $"{first.Origin.DistanceTo(b):0.0} m from the character, distance setting {first.Distance:0.0}");
+        c.Instruct("Step 1 of 3: look straight down at your feet with the camera.");
+        if (await c.Until(() => Aim() is { PitchDegrees: < -45 }, TimeSpan.FromSeconds(60), "Aim's pitch went below -45 (looking down)"))
+            c.Expect(true, "Aim's pitch went below -45 (looking down)", $"{Aim()?.PitchDegrees:0} degrees");
+        c.Instruct("Step 2 of 3: Kiln saw you look down. Now look up at the sky.");
+        if (await c.Until(() => Aim() is { PitchDegrees: > 30 }, TimeSpan.FromSeconds(60), "Aim's pitch went above 30 (looking up)"))
+            c.Expect(true, "Aim's pitch went above 30 (looking up)", $"{Aim()?.PitchDegrees:0} degrees");
+        var yaw0 = Aim()?.YawDegrees ?? 0;
+        c.Instruct("Step 3 of 3: Kiln saw you look up. Now turn the camera half a turn (180 degrees) left or right.");
+        if (await c.Until(() => Aim() is { } a && Math.Abs(((a.YawDegrees - yaw0 + 540) % 360) - 180) > 150, TimeSpan.FromSeconds(60),
+                "Aim's yaw turned by more than 150 degrees"))
+            c.Expect(true, "Aim's yaw turned by more than 150 degrees", $"{yaw0:0} -> {Aim()?.YawDegrees:0} degrees");
+        var last = Aim();
+        c.Instruct($"Kiln read your camera as yaw {last?.YawDegrees:0} and pitch {last?.PitchDegrees:0} degrees. Did each step's " +
+                   "text move on right after you moved the camera that way, and not before?");
         await c.Verdict();
     }
 

@@ -84,6 +84,7 @@ Root: `$KILN_DATA_DIR`, else the folder the pointer `data-folder.json` in the de
 | `profiles/<pid>/save-backups/<yyyymmddThhmmssZ>/` | automatic save backups, 10 kept (+ `backup.json`) |
 | `installs/<installId>.json` | the launcher's record of a game install: the `GameInstall` + a copy of its receipt |
 | `installs/<installId>.notices-seen.json` | (dev.26) which activation notices the player has closed in the launcher for that game: `{format: 1, seen: [sha256 hex of each sentence]}`, oldest first, at most 512 (`kiln_manage::notices`, `notices_shown`; written through a temp file of its own random name) |
+| `installs/<installId>.notices-seen.lock` | (dev.27) an empty file two launchers lock while one of them reads, changes and writes the memory above, so neither drops what the other remembered (`kiln_manage::notices::mark_seen`). Never read; safe to delete while no launcher runs |
 | `runtime/kiln-runtime-<version>.zip` | runtime bundles (import, rollback) |
 | `schema-cache/<modid>/<version>+<hash8>/<file>.json` | config schema snapshots cached per mod version |
 | `backups/` | `saves/<gameId>/` (save backups without a profile), `install/<installId>/` (mirror of install backups), `profiles/` (deleted profiles) |

@@ -31,6 +31,7 @@ foreach (var p in Players.All)
 | `player.Health`, `HealthMax`, `Mana`, `ManaMax`, `Stamina`, `StaminaMax`, `ShroudTimeLeft` | null when unknown. Each is a full read: take a `Snapshot()` for several |
 | `player.Equipment` | `[PlayerEquipSlot.Glider]`, `Held`, `HotbarIndex` |
 | `player.HeldItem`, `player.Buffs`, `player.CurrentAction` | |
+| `player.Aim`, `PlayerStates.AimOf(entity)` (dev.27) | where the player's camera is and where it looks (`PlayerAim`: `Origin`, `Direction`, `Rotation`, `Distance`, `FieldOfView`, `YawDegrees`, `PitchDegrees`, `At(metres)`); see "Aim" below |
 | `PlayerStates.All` | every state the running game has, from its own reflection |
 | `PlayerStates.NameOf(state)`, `InfoOf`, `Find(gameName)`, `Raw(source, n)`, `SourceOf` | the table |
 | `PlayerStates.Read(entity)`, `Is`, `Check`, `BuffsOf`, `EquipmentOf`, `BuffsGivenBy(item)` | by entity id |
@@ -40,6 +41,32 @@ foreach (var p in Players.All)
 **Threads.** Live on the world's own thread: the tick thread on a server or host, the main thread on a joined client. That is where `OnTick` and event handlers run. From any other thread, `Read`, `Is` and `Check` give the copy from the last tick, and null the first time: an off-thread read starts the scan for a minute. `Equipment`, `Buffs` and item names are for the world's thread.
 
 **Unknown is never a guess.** If a field or enum did not resolve on a build, `Check` is null and `Is` is false. kiln.log says what is missing: `playerstate: source 2: keen::ecs::DynamicLocomotion.state is not in the game's reflection on this build: its states read unknown`.
+
+## Aim (dev.27)
+```csharp
+if (player.Aim is { } aim)
+    Abilities.RunImpact("Explosion_Player_Spell_Fireball_1", aim.At(12));   // 12 m out along the view
+```
+`PlayerStates.AimOf(entity)` reads `PlayerInput.fromClient.camera` (`keen::ecs::ClientCamera`), the camera the player's
+client sends with its input every step, through kiln.playerstate's `aim()` (appended to its table in dev.27; status
+byte `aim`). The convention:
+- **The ray starts at the camera.** Enshrouded's camera is third person: `Origin` is the camera, behind and above the
+  character (about `Distance` metres, the boom setting), not the character's eyes. "What the player looks at" is the ray
+  from `Origin` along `Direction`; a target between the camera and the character is in front of the ray's start.
+- `Direction` is `Rotation` applied to (0, 0, 1), the game's forward axis; the game's own `QuatRotate` gives the same
+  (lab). `YawDegrees` counts as `EntityTransform.YawDegrees` (0 = +Z, 90 = +X, 0..360), `PitchDegrees` is positive up.
+- `Origin` is the camera's `WorldPosition` (32.32 fixed point), in world metres like every Kiln position.
+- Server (dedicated or host): any player. A joined client: its own player only (the prediction world).
+- Null: not a player, or no camera sent yet (a player entity starts with its camera at the world's origin, unrotated;
+  `aim()` treats that, and a zero orientation, as "none").
+- It is what the client sent for the step: as fresh as the player's input, and as trustworthy (a modified client can
+  send any camera).
+- Capability `players.aim`; off (older kiln-players.dll, no camera field in this build's reflection) throws
+  `KilnUnavailableException`. World's thread.
+- Lab (`mods/tests/playerstate-test`, a camera written into a spawned `1_Player`'s PlayerInput as a client's would be):
+  `PlayerStates.AimOf reads the camera: origin (3841.8, 837.8, 1479.2) (wrote (3841.8, 837.8, 1479.2)), direction
+  <0.9396926, -0.34202015, ...>`, `the game's QuatRotate(camera, (0,0,1)) gives the same direction`, `a player entity no
+  client ever drove has no aim`. A real client's camera: guided check `players.aim`.
 
 ## Events
 ```csharp

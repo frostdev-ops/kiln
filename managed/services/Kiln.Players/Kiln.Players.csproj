@@ -11,6 +11,9 @@
   <ItemGroup>
     <!-- PlayerIdentity.cs over a fake roster, without a game. -->
     <InternalsVisibleTo Include="Kiln.Players.Tests" />
+    <!-- Kiln.Network kicks for Players.Kick and enforces the ban list (it references this library, not the other way) -->
+    <InternalsVisibleTo Include="Kiln.Network" />
+    <InternalsVisibleTo Include="Kiln.Network.Tests" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../../Kiln.Api/Kiln.Api.csproj" Private="false" />

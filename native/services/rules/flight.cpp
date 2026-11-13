@@ -11,8 +11,11 @@
 //  - the vertical input: an inline hook on the BuildingFlying mover sets DynamicLocomotion.inputVelocity.y from the
 //    held Jump (climb) and Sneak (sink) bits of PlayerInput, faster with Sprint, before the mover steers toward it.
 //
-// Only entities with KILN_RULES_CHARACTER_FLIGHT, or still in a flight owned by Kiln (their rules just ended), are
-// touched: the building spark keeps its own state. Every body runs under a structured-exception guard; a fault counts,
+// KILN_RULES_NOCLIP flies with the same three hooks (flight_math.h says where it differs); noclip.cpp adds the
+// collision step and asks noclip_flight() here whose it may skip.
+//
+// Only entities with KILN_RULES_CHARACTER_FLIGHT or KILN_RULES_NOCLIP, or still in a flight owned by Kiln (their rules
+// just ended), are touched: the building spark keeps its own state. Every body runs under a structured-exception guard; a fault counts,
 // and the game's own decision stands.
 #include <windows.h>
 
@@ -78,6 +81,7 @@ struct Layout {
 constexpr uint8_t kGrounded = 0, kDead = 7, kClimbing = 34, kAttached = 36, kHangGliding = 37, kFloating = 43,
                   kUnderWater = 44;
 constexpr int kJump = 32, kSprint = 53, kSneak = 55;
+constexpr uint32_t kFlies = KILN_RULES_CHARACTER_FLIGHT | KILN_RULES_NOCLIP;  // the rule flags that fly the character
 
 struct Stats {
     std::atomic<uint64_t> takeoffs{0}, landings{0}, ends{0}, faults{0};
@@ -131,7 +135,7 @@ void forget_flying(uint32_t e, const void* dyn) {
 }
 
 bool flight_possible() {
-    return (!kiln_rules_creative::idle() && (kiln_rules_bridge::flags_seen() & KILN_RULES_CHARACTER_FLIGHT) != 0) ||
+    return (!kiln_rules_creative::idle() && (kiln_rules_bridge::flags_seen() & kFlies) != 0) ||
            g_flew.load(std::memory_order_relaxed);
 }
 
@@ -160,7 +164,10 @@ flight_math::Actor actor_of(void* actor) {
     return a;
 }
 
-bool armed(const KilnRulesPlayer& r) { return (r.flags & KILN_RULES_CHARACTER_FLIGHT) != 0; }
+// armed: the rules let the character fly, by CHARACTER_FLIGHT or by NOCLIP (which flies everywhere: flight_math.h).
+bool armed(const KilnRulesPlayer& r) { return (r.flags & kFlies) != 0; }
+bool flight(const KilnRulesPlayer& r) { return (r.flags & KILN_RULES_CHARACTER_FLIGHT) != 0; }
+bool noclip(const KilnRulesPlayer& r) { return (r.flags & KILN_RULES_NOCLIP) != 0; }
 bool base_only(const KilnRulesPlayer& r) { return (r.flags & KILN_RULES_FLIGHT_BASE_ONLY) != 0; }
 
 // ---- the state, right after LocoNextState ----
@@ -171,7 +178,7 @@ void state_body(safetyhook::Context& c) {
     if (!dyn || !actor) return;
     const uint8_t cur = dyn[L.loco_state];
     if (cur != flight_math::kBuildingFlying && (kiln_rules_creative::idle() ||
-        !(kiln_rules_bridge::flags_seen() & KILN_RULES_CHARACTER_FLIGHT))) return;
+        !(kiln_rules_bridge::flags_seen() & kFlies))) return;
     const uint8_t game = static_cast<uint8_t>(c.rax & 0xff);
     uint32_t e = 0;
     KilnRulesPlayer r{};
@@ -181,9 +188,14 @@ void state_body(safetyhook::Context& c) {
     if (!enabled && !(cur == flight_math::kBuildingFlying && was_ours)) return;
     float input_vy = 0.0f;
     std::memcpy(&input_vy, dyn + 4, sizeof input_vy);  // inputVelocity.y
-    const uint8_t next = flight_math::next_state(cur, game, true, enabled, base_only(r), actor_of(actor), input_vy);
-    if (next == flight_math::kBuildingFlying) note_flying(e, dyn);
-    else forget_flying(e, dyn);
+    // A BuildingFlying state Kiln did not start (another mod's flight, a game feature) is not Kiln's to keep, to end
+    // or to count as its own: only a take-off from here makes a flight Kiln's. NoClip's collision step asks exactly
+    // that (noclip_flight below).
+    const bool ours = cur != flight_math::kBuildingFlying || was_ours;
+    const uint8_t next = flight_math::next_state(cur, game, ours, enabled && flight(r), base_only(r), actor_of(actor), input_vy,
+                                                 enabled && noclip(r));
+    if (next == flight_math::kBuildingFlying && ours) note_flying(e, dyn);
+    else if (ours) forget_flying(e, dyn);
     if (next == game) return;
     if (next == flight_math::kBuildingFlying) S.takeoffs.fetch_add(1, std::memory_order_relaxed);
     else if (next == flight_math::kWalking) S.landings.fetch_add(1, std::memory_order_relaxed);
@@ -193,18 +205,20 @@ void state_body(safetyhook::Context& c) {
 
 // ---- gravity, after the strength is chosen and the step's time read ----
 void grav_body(safetyhook::Context& c) {
-    if (kiln_rules_creative::idle() || c.xmm6.f32[0] == 0.0f || !(kiln_rules_bridge::flags_seen() & KILN_RULES_CHARACTER_FLIGHT)) return;
+    if (kiln_rules_creative::idle() || c.xmm6.f32[0] == 0.0f || !(kiln_rules_bridge::flags_seen() & kFlies)) return;
     uint32_t e = 0;
     KilnRulesPlayer r{};
     if (!rules_for(reinterpret_cast<void*>(c.rdi), &e, &r) || !armed(r)) return;
     void* actor = *reinterpret_cast<void**>(c.rbp + static_cast<int8_t>(L.grav_actor));
-    if (!actor || !flight_math::allowed(true, base_only(r), actor_of(actor))) return;
+    if (!actor) return;
+    const auto a = actor_of(actor);
+    if (!flight_math::allowed_noclip(noclip(r), a) && !flight_math::allowed(flight(r), base_only(r), a)) return;
     c.xmm6.f32[0] = 0.0f;
 }
 
 // ---- the vertical input, before the BuildingFlying mover ----
 void mover_pre(uint8_t* it) {
-    if (kiln_rules_creative::idle() || !(kiln_rules_bridge::flags_seen() & KILN_RULES_CHARACTER_FLIGHT)) return;
+    if (kiln_rules_creative::idle() || !(kiln_rules_bridge::flags_seen() & kFlies)) return;
     void* ctx = *reinterpret_cast<void**>(it);
     auto* dyn = *reinterpret_cast<float* const*>(it + L.mover_dynloco);
     const auto* input = *reinterpret_cast<const uint8_t* const*>(it + L.player_input);
@@ -242,6 +256,49 @@ void __fastcall hk_mover(uint8_t* it) {
 
 }  // namespace
 
+// noclip.cpp: is `dyn` (an entity's DynamicLocomotion) in a flight Kiln started, and do `ctx`'s rules carry NoClip now.
+bool noclip_flight(void* ctx, const uint8_t* dyn, uint32_t* entity) {
+    if (kiln_rules_creative::idle() || !(kiln_rules_bridge::flags_seen() & KILN_RULES_NOCLIP)) return false;
+    if (!g_entity_of || dyn[L.loco_state] != flight_math::kBuildingFlying) return false;
+    KilnRulesPlayer r{};
+    return rules_for(ctx, entity, &r) && noclip(r) && flown_recently(*entity, dyn);
+}
+
+void forget_local() { g_local_player.store(0); }
+
+// A server world started here and no prediction world has since: a host's session is beginning.
+static std::atomic<bool> g_server_began{false};
+
+// Flight ownership is keyed by a character's objects, and the locomotion hooks cannot tell which world a character is
+// in. So the table is one for all worlds, and the world events decide when it is forgotten:
+// - A world with characters in it (server, prediction) stops: everything goes; its objects die with it, and on a host
+//   the worlds of a session stop together. The client's own world (camera, presentation) has no locomotion: when
+//   only that one stops, nothing is forgotten.
+// - A world starts: it has no flights yet, and another world may be running with characters in Kiln's flight (a host's
+//   server world when its prediction starts). Forgetting ownership then orphaned those flights: still flying, and no
+//   longer Kiln's to land or to end. So a start forgets nothing, with one exception: where the core does not see
+//   world stops (`stops_seen` false: KilnSessionInfo.lifecycle) and this is not the first world of its kind
+//   (`session` > 1), it may replace one whose stop nobody saw, and ownership from that one must not meet a new
+//   character at an old address.
+//   A host's worlds start in one order: the server's, then the prediction. That prediction start belongs to the
+//   session the server start began (and already forgot everything for): it forgets nothing, or a character that got
+//   NoClip in the new server world in between were left flying inside something with collision back on.
+// The cached local identity is dropped at every event.
+void world(uint32_t event, uint32_t kind, uint32_t session, bool stops_seen) {
+    const bool has_characters = kind != KILN_WORLD_CLIENT;
+    bool forget = false;
+    if (event == KILN_WORLD_STOPPING && has_characters) {
+        forget = true;
+        if (kind == KILN_WORLD_SERVER) g_server_began.store(false);
+    } else if (event == KILN_WORLD_STARTED && has_characters) {
+        const bool same_session = kind == KILN_WORLD_PREDICTION && g_server_began.exchange(false);
+        if (kind == KILN_WORLD_SERVER) g_server_began.store(true);
+        forget = !stops_seen && session > 1 && !same_session;
+    }
+    if (forget) reset();
+    else forget_local();
+}
+
 void reset() {
     g_local_player.store(0);
     g_flew.store(false);
@@ -261,7 +318,11 @@ void refresh() {
     g_local_player.store(p, std::memory_order_relaxed);
 }
 
-void KILN_CALL client_pre(const KilnTickInfo*, void*) { refresh(); }
+void KILN_CALL client_pre(const KilnTickInfo*, void*) {
+    refresh();
+    // A joined game has no server tick: NoClip's "active" ages with the client's (a host's ages with its server's).
+    if (g_local_player.load(std::memory_order_relaxed) != 0) kiln_rules_noclip::tick();
+}
 
 uint32_t install(const KilnApi* api, KilnOwner owner, std::string& off) {
     g_api = api;

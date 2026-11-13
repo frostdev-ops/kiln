@@ -29,6 +29,12 @@
  *    glide_steer_limit, centred holds, W dives); with it GLIDE_BOOST only sets the speed along the nose while sprint
  *    is held (no plane path) and sink 0 no longer holds the altitude. Server world and the client's prediction world
  *    (the same values on both, or the client is corrected every step).
+ *  - NoClip: the game's own switch for a character's collision step (resolve_actor_collider reads
+ *    MovementCollider.isEnabled first: off, it clears the collision results and leaves the position where the velocity
+ *    step put it). A player with NOCLIP flies as with CHARACTER_FLIGHT, at once and also from the ground or water, and
+ *    while it is in that flight its collision step sees the switch off. Nothing is written that outlives the step: with
+ *    the hook gone, the rule ended or the flight over, the next step collides again. Server world and the client's
+ *    prediction world.
  *
  * Sides: on a server (and a client that hosts a world) rules are per player entity of the server world (set). On a
  * client, the prediction world and the client's own cursor act only for the local player: set_local gives its rules.
@@ -75,6 +81,14 @@ enum {
                                                    the game; GLIDE_BOOST then speeds up along the nose instead of its plane
                                                    path. Server world and the client's prediction world (Kiln.Rules sends it
                                                    only to a game that confirmed the hook) */
+    /* since 0.2.0-dev.27 */
+    KILN_RULES_NOCLIP = 0x4000u,                /* the character moves through terrain, blocks and props (HOOK_NOCLIP): it flies
+                                                   as with CHARACTER_FLIGHT (the same hooks; it takes off at once, from the
+                                                   ground and from water too, and does not land), and while it is in that
+                                                   flight the game's collision step is skipped for it. Death, the glider,
+                                                   a ladder or a wall end the flight, and collision with it. Server world and
+                                                   the client's prediction world (Kiln.Rules sends it only to a game that
+                                                   confirmed the hook, and only where the server's rules.json allows it) */
 };
 
 typedef struct KilnRulesPlayer {
@@ -116,6 +130,8 @@ enum {
     KILN_RULES_HOOK_FLIGHT = 0x1000u,      /* character flight: the locomotion state, gravity and the BuildingFlying mover */
     /* since 0.2.0-dev.24 */
     KILN_RULES_HOOK_GLIDE_STEER = 0x2000u, /* the glider's pitch step in actor_rotation (GLIDE_STEER) */
+    /* since 0.2.0-dev.27 */
+    KILN_RULES_HOOK_NOCLIP = 0x4000u,      /* the character's collision step (NOCLIP); only ever set with HOOK_FLIGHT */
 };
 
 /* map_reveal modes (client) */
@@ -160,6 +176,15 @@ typedef struct KilnRulesStatus {
     uint64_t glide_steered;      /* since 0.2.0-dev.24 (was reserved, 0): glider pitch steps steered (GLIDE_STEER) */
 } KilnRulesStatus;
 
+/* since 0.2.0-dev.27: NoClip as the hook sees it (noclip below) */
+typedef struct KilnRulesNoClip {
+    uint32_t size;    /* in: sizeof(KilnRulesNoClip) */
+    uint32_t active;  /* 1 while the entity's collision step is skipped: its last one was, at most one tick ago (0 for entity 0) */
+    uint64_t skipped; /* collision steps skipped for the entity since the world started (0 for entity 0) */
+    uint64_t total;   /* collision steps skipped for every entity, both worlds of this process */
+    uint64_t faults;  /* hook bodies that faulted (the game's collision step ran as usual) */
+} KilnRulesNoClip;
+
 typedef struct KilnRulesApi {
     KilnServiceHeader header; /* { sizeof(KilnRulesApi), KILN_RULES_VERSION } */
 
@@ -178,6 +203,9 @@ typedef struct KilnRulesApi {
      * character, as the game saves it. KILN_ERR_UNAVAILABLE when the hook is off on this build or side. */
     KilnResult(KILN_CALL* map_reveal)(uint32_t mode, float radius);
     KilnResult(KILN_CALL* creative)(KilnRulesCreative* out);
+    /* since 0.2.0-dev.27 (check header.size): what the NoClip hook did for `entity` (a player or one of the other player
+     * characters `set` accepts; 0 = the totals only). KILN_ERR_UNAVAILABLE when the hook is off on this build or side. */
+    KilnResult(KILN_CALL* noclip)(KilnEntity entity, KilnRulesNoClip* out);
 } KilnRulesApi;
 
 #ifdef __cplusplus

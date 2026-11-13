@@ -2,7 +2,9 @@
 """Structural checks on keen::RenderMaterialResource, as decoded by blob.Decoder.
 
 The same rules run over the game's own materials and over what kiln-vfxcook writes, so "passes" means the output has the shape the game's data has. Every
-rule holds for all 3,458 materials of client 26430625 (docs/re/vfx.md section 5). check_material(strict=True) adds what the builder promises on top.
+rule holds for all 3,458 materials of client 26430625 (docs/re/vfx.md section 5): the game's own, read with Kfc.unpatched where a
+mod loader patched the installed archive (a mod's material, written by another tool, can break a rule here and still load: an EML body
+texture mod's four player materials have another sort key on their mip tails). check_material(strict=True) adds what the builder promises on top.
 """
 import struct
 

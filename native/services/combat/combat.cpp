@@ -31,6 +31,7 @@
 
 #include "attr_table.h"
 #include "combat_internal.h"
+#include "hold_filter.h"
 #include "kiln_api.h"
 #include "kiln_hook.hpp"
 #include "safetyhook.hpp"  // Context only: mid handlers keep their safetyhook::Context& signature
@@ -99,6 +100,10 @@ std::atomic<KilnCombatListenerFn> g_listener{nullptr};
 std::atomic<void*> g_listener_user{nullptr};
 std::atomic<uint32_t> g_interest{0};
 std::atomic<bool> g_holding{false};
+static_assert(kHoldOffsets[0] == HitOffsets::target && kHoldOffsets[1] == HitOffsets::root_target &&
+              kHoldOffsets[2] == HitOffsets::source && kHoldOffsets[3] == HitOffsets::root_source);
+HoldFilter g_hold_filter;  // g_mu: the entities the handlers watch (hold_filter, since 0.2.0-dev.27); off: hold every hit
+std::atomic<uint64_t> c_unheld{0};  // hits the filter let through without holding (logged with the filter)
 
 // ---- counters ----
 std::atomic<uint64_t> c_seen{0}, c_held{0}, c_released{0}, c_canceled{0}, c_modified{0}, c_kiln{0}, c_god{0},
@@ -276,7 +281,8 @@ void before_conclusion(void* sys) {
                 uint8_t* rec = data + i * H.size;
                 uint8_t kind = 0xFF;
                 if (!read_u8(rec + H.kind, &kind)) break;
-                if (kind == 0) {  // entity hit: hold it for the listener
+                if (kind == 0 && !g_hold_filter.wants(rec)) c_unheld.fetch_add(1, std::memory_order_relaxed);
+                else if (kind == 0) {  // entity hit: hold it for the listener
                     Held h{g_next_id++, step, 0, {}};
                     if (copy_bytes(h.rec.b, rec, static_cast<size_t>(H.size))) {
                         g_held_new.push_back(h);
@@ -343,7 +349,9 @@ void before_conclusion(void* sys) {
         }
         set.insert(get<uint32_t>(q.rec.b, HitOffsets::impact_id));
         if ((q.flags & KILN_DAMAGE_KILL)) finalize_kill(q.rec);
-        if ((q.flags & KILN_DAMAGE_AS_GAME_HIT) && g_holding.load()) {
+        const bool as_game = (q.flags & KILN_DAMAGE_AS_GAME_HIT) && g_holding.load();
+        if (as_game && !g_hold_filter.wants(q.rec.b)) c_unheld.fetch_add(1, std::memory_order_relaxed);
+        if (as_game && g_hold_filter.wants(q.rec.b)) {
             g_held_new.push_back(Held{g_next_id++, step, q.id, q.rec});
             c_held.fetch_add(1, std::memory_order_relaxed);
             auto s = g_req_state.find(q.id);
@@ -1736,11 +1744,41 @@ KilnResult t_status(KilnCombatStatus* out) {
     return KILN_OK;
 }
 
+// A handler added between two steps: the kinds it wants count from now, not from the listener's next return (which sets
+// the whole mask as before, and is the only place the mask narrows). Without this a hit on a new watcher's entity was
+// held by the widened filter and then let go unannounced, because its kind was not in the mask yet.
+void widen_interest(uint32_t mask) {
+    if (!mask || !g_listener.load()) return;
+    const uint32_t old = g_interest.fetch_or(mask);
+    const uint32_t next = old | mask;
+    if (next == old) return;
+    const bool hold = (next & (KILN_COMBAT_MASK(KILN_COMBAT_HURT) | KILN_COMBAT_MASK(KILN_COMBAT_HEAL) |
+                               KILN_COMBAT_MASK(KILN_COMBAT_KNOCKBACK))) != 0 &&
+                      g_hits_ok;
+    if (hold && !g_holding.exchange(true)) LOGI("holding entity hits for the listener (interest 0x%x, a handler was added)", next);
+    else LOGI("listener interest 0x%x (a handler was added)", next);
+}
+
+KilnResult KILN_CALL t_hold_filter(const KilnEntity* entities, uint32_t count, uint32_t interest) {
+    if (count > HoldFilter::kMax || (count && !entities)) return KILN_ERR_INVALID_ARGUMENT;
+    {
+        std::lock_guard lock(g_mu);
+        // said only when it changes: it is pushed at every added subscription, whatever the event
+        if (g_hold_filter.set(entities, count))
+            LOGI("hold filter: %s (%llu hit(s) let through unheld so far)",
+                 g_hold_filter.all() ? "every hit" : (std::to_string(g_hold_filter.size()) + " watched entit(ies)").c_str(),
+                 static_cast<unsigned long long>(c_unheld.load()));
+    }
+    widen_interest(interest);
+    return KILN_OK;
+}
+
 const KilnCombatApi kTable = {
     {sizeof(KilnCombatApi), KILN_COMBAT_VERSION},
     &t_health, &t_set_health, &t_heal, &t_damage, &t_hit_status, &t_set_invulnerable, &t_invulnerable,
     &t_release_owner, &t_set_listener, &t_status,
     &t_attribute_ids, &t_attribute_get, &t_attribute_set, &t_attribute_add,
+    &t_hold_filter,  // since 0.2.0-dev.27
 };
 
 // ============================================================================ boot ===============================
