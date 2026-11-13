@@ -108,6 +108,42 @@ def build_kfc(dirpath, resources, contents, chunk_size=64):
     return ckeys
 
 
+class ZstdBackendTests(unittest.TestCase):
+    """A Python older than 3.14 without the zstandard package reads the game's archives through the system's
+    libzstd (ctypes): the path a player's Linux machine takes."""
+
+    def test_a_backend_is_named(self):
+        from kfc import archive
+        self.assertIn(archive.zstd_backend(), ("stdlib", "zstandard", "libzstd"))
+
+    @unittest.skipIf(zstd is None, "needs Python 3.14 compression.zstd to make the frames")
+    def test_the_system_library_decompresses_what_the_stdlib_does(self):
+        from kfc import archive
+        lib = archive._system_libzstd()
+        if not lib:
+            self.skipTest("no libzstd on this machine")
+        for raw in (b"", b"a", b"blob zero" * 1000, bytes(range(256)) * 300):
+            self.assertEqual(archive._libzstd_decompress(lib, zstd.compress(raw), 0), raw)
+        # a frame without its content size (a streamed one): the hint, or the default, bounds the output
+        streamed = zstd.ZstdCompressor().compress(b"x" * 5000, zstd.ZstdCompressor.FLUSH_FRAME)
+        self.assertEqual(archive._libzstd_decompress(lib, streamed, 5000), b"x" * 5000)
+        with self.assertRaises(RuntimeError):
+            archive._libzstd_decompress(lib, b"not a frame at all", 0)
+        with self.assertRaises(RuntimeError):
+            archive._libzstd_decompress(lib, zstd.compress(b"y" * 4000)[:-8], 0)
+
+    def test_without_any_decoder_the_error_says_what_to_install(self):
+        from kfc import archive
+        saved = archive._zstd, archive._zstandard, archive._libzstd
+        archive._zstd, archive._zstandard, archive._libzstd = None, None, False
+        try:
+            self.assertIsNone(archive.zstd_backend())
+            with self.assertRaisesRegex(RuntimeError, "libzstd"):
+                archive.zstd_decompress(b"x")
+        finally:
+            archive._zstd, archive._zstandard, archive._libzstd = saved
+
+
 @unittest.skipIf(zstd is None, "needs Python 3.14 compression.zstd")
 class ArchiveTests(unittest.TestCase):
     def setUp(self):

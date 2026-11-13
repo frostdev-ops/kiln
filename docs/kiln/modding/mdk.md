@@ -46,7 +46,7 @@ copied); copies NuGet dependencies next to the mod (they load into the mod's own
 | `KilnModName` | `AssemblyName` | `name` |
 | `Version` | 1.0.0 | `version` |
 | `Authors`, `Description`, `PackageLicenseExpression`, `PackageProjectUrl` | | `authors`, `description`, `license`, `url` |
-| `KilnApiVersion` | the SDK's (0.2.1) | `apiVersion` |
+| `KilnApiVersion` | the SDK's (0.2.2) | `apiVersion` |
 | `KilnSide` | server; `both` when `KilnServices` has `Blocks` | `side` |
 | `KilnClients` | from the side: server `none`, otherwise `mod`; with `Blocks` in `KilnServices`, what the blocks need ([blocks.md](blocks.md)) | `clients`: what joining players need (`none`, `kiln`, `mod`; manifest.md) |
 | `KilnEntryType` | | `entryType` |

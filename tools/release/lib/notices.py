@@ -12,7 +12,7 @@
   - optionally the system libraries bundled into the Linux AppImage (--appimage-root: the unpacked AppImage; owners
     and licences from the system package manager, pacman or dpkg).
 
-  notices.py --src <export> --out FILE [--dotnet-root DIR] [--appimage-root DIR] [--nuget-assets FILE]... [--enshwick-src DIR]
+  notices.py --src <export> --out FILE [--dotnet-root DIR] [--python-root DIR] [--appimage-root DIR] [--nuget-assets FILE]... [--enshwick-src DIR]
 """
 import argparse
 import glob
@@ -422,6 +422,7 @@ def main():
     ap.add_argument("--out", required=True)
     ap.add_argument("--version", default="")
     ap.add_argument("--dotnet-root")
+    ap.add_argument("--python-root", help="the unpacked embeddable Python the Windows launcher ships (tools/package/fetch-python.sh)")
     ap.add_argument("--appimage-root")
     ap.add_argument("--append-appimage", action="store_true", help="append only the bundled system libraries to existing host notices")
     ap.add_argument("--nuget-assets", action="append", default=[])
@@ -449,7 +450,7 @@ def main():
         n.add("npm packages (the VS Code extension)", npm_closure(os.path.join(src, "tools", "vscode")))
     n.add("NuGet packages (referenced by the Kiln SDK and the runtime's .NET projects)", nuget_entries(a.nuget_assets))
     tp = os.path.join(src, "native", "third_party")
-    n.add("Vendored code (native/third_party, compiled into Kiln's DLLs)", tree_entries(
+    n.add("Vendored code (native/third_party, compiled into Kiln's DLLs and into the cook tools' sound helper)", tree_entries(
         [(d, "", "", "", sorted(license_files(os.path.join(tp, d)))) for d in sorted(os.listdir(tp)) if os.path.isdir(os.path.join(tp, d))]))
     fonts = os.path.join(src, "launcher", "src", "assets", "fonts")
     n.add("Fonts (the launcher)", tree_entries(
@@ -466,6 +467,9 @@ def main():
         n.add(".NET runtime (kiln/dotnet in the runtime)", tree_entries(
             [(".NET runtime", "", "MIT", "https://github.com/dotnet/runtime",
               [os.path.join(a.dotnet_root, "LICENSE.txt"), os.path.join(a.dotnet_root, "ThirdPartyNotices.txt")])]))
+    if a.python_root:
+        n.add("Python (python/ in the Windows launcher: runs the cook tools; python.org's embeddable package, unchanged)", tree_entries(
+            [("Python", "", "PSF-2.0", "https://www.python.org", [os.path.join(a.python_root, "LICENSE.txt")])]))
     if a.appimage_root:
         n.add("System libraries bundled into the Linux AppImage (from the build machine's packages; LGPL libraries can be "
               "replaced: extract the AppImage with --appimage-extract and swap the .so files in usr/lib)", appimage_libs(a.appimage_root))
