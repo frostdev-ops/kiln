@@ -97,6 +97,21 @@ fn a_mod_json_edited_in_its_library_folder_is_taken_over_with_one_action() {
     assert!(e.versions[0].changed, "Changed on disk: {e:?}");
     assert_eq!(e.name, "钩爪拉力2倍");
 
+    // Play after the mod was switched off and on again (the profile changed, so Play writes it again and places the
+    // entry): it names the mod, without "the active profile changed and cannot be applied:" in front (a mod's files
+    // changed, not the profile)
+    let start = kiln_manage::launch::LaunchRequest { mode: kiln_manage::launch::LaunchMode::Profile, profile_id: None, skip_backup: true };
+    let switch = |on: bool| {
+        let mut p = profile::get(&dirs, "my-mods").unwrap();
+        p.mods.eml[0].enabled = on;
+        profile::save(&dirs, &p).unwrap();
+    };
+    switch(false);
+    kiln_manage::launch::play_with(&dirs, &g, &start, Some(&[]), &|_: &str| Ok(())).unwrap();
+    switch(true);
+    let play = kiln_manage::launch::play_with(&dirs, &g, &start, Some(&[]), &|_: &str| Ok(())).unwrap_err();
+    assert!(play.message.starts_with("钩爪拉力2倍 was changed in its folder ("), "{}", play.message);
+
     // a placement of the entry (here: the profile loaded again) says which mod was changed, and how to go on
     profile::deactivate(&dirs, &g).unwrap();
     let err = profile::activate(&dirs, "my-mods", &g).unwrap_err();
