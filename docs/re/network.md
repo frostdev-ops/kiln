@@ -417,7 +417,7 @@ message a create. Full message/codec listings stay in chapter 11.
 | ApplyMap / ApplyEntity | `0x6c4790` / `0x62f260` | `0xa27ee0` / `0x9933d0` |
 | StateAt | `0x64f470` | `0x9b35e0` |
 | createEntityWithId | — | `0x987e50` |
-| DestroyEntity: `bool(Storage*,u32 entity,u8 reason,u8 keepReplication)`: 0/1 in AL only, upper RAX unspecified (corrected from u64: `mov al,1` S `0x63ede8` / C `0x9a2f58`, `xor al,al` S `0x63edec` / C `0x9a2f5c`, no later RAX write) [static] | `0x63e8a0` | `0x9a2a10` |
+| DestroyEntity: `bool(Storage*,u32 entity,u8 mode,u8 skipReplication)`: 0/1 in AL only, upper RAX unspecified; mode 2 = unload (no removed bit, event kind 1, players' destroy-list B; compares S `0x63e95d`/`0x63ea82`/`0x63eb1a`/`0x63ec6f`), other = real destroy (removed bit, event kind 2, list A); skipReplication non-zero skips queuing the id into every player's destroy sets (S `0x63ea90` `test r15b,r15b`, C `0x9a2c00`) (corrected from u64: `mov al,1` S `0x63ede8` / C `0x9a2f58`, `xor al,al` S `0x63edec` / C `0x9a2f5c`, no later RAX write) [static] | `0x63e8a0` | `0x9a2a10` |
 
 ClientStore decodes immediately using template/prior baseline and StoreState retains up to **32 states/entity**
 (oldest freed via Alloc). Bucket map `W+0x15f5788`, stride 0x58, client records `+8`, prediction `+0x30`.

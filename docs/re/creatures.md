@@ -1051,7 +1051,7 @@ fall infliction also bypasses ApplyHit. Hurt-only clamps miss direct Health 0, d
 Later native safety prototype [lab]: active Vukah swing, pre-death skip retained raw dead/pending clear beyond 8 steps,
 outgoing/root and queued post-retirement hits denied, then existing Spawn.Destroy removed actor in same safe Pre;
 no later death event/victim loss. ApplyHit S `0x190fb0` / C `0x3efd10` has native propagate-byte early-return seam;
-DestroyEntity S `0x63e8a0` / C `0x9a2a10` takes Storage*, entity, mode 1, skip 0 through existing service;
+DestroyEntity S `0x63e8a0` / C `0x9a2a10` takes Storage*, entity, mode 1 (real destroy), skipReplication 0 through existing service;
 only its low-byte result is used here. It returns a bool in AL (0/1, upper RAX unspecified) on both exes; see
 [network.md](network.md) [static]. **AI-off alone was not this protection.**
 Dossier's Downed retires combat body/keeps a virtual recovery
