@@ -137,6 +137,20 @@ public unsafe class WorldWritesTests
     }
 
     [Fact]
+    public void A_mod_built_against_the_older_Kiln_Game_still_finds_the_marker_interfaces()
+    {
+        // They moved to Kiln.Api; Kiln.Game forwards them, so a reference to "Kiln.IGameComponent`1, Kiln.Game" resolves.
+        var forwarded = typeof(Ecs).Assembly.GetForwardedTypes();
+        foreach (var type in (Type[])[typeof(IGameStruct<>), typeof(IGameComponent<>), typeof(IGameEvent<>), typeof(IGameAttribute<,>)])
+        {
+            Assert.Contains(type, forwarded);
+            Assert.Equal("Kiln.Api", type.Assembly.GetName().Name);
+            Assert.Same(type, Type.GetType($"{type.FullName}, Kiln.Game", throwOnError: true));
+        }
+        Assert.True(typeof(IGameComponent<Ecs.Fuel>).IsAssignableFrom(typeof(Ecs.Fuel)));
+    }
+
+    [Fact]
     public void Write_info_says_what_to_add()
     {
         var n = new WriteInfoNative { Size = (uint)sizeof(WriteInfoNative), State = 2 };

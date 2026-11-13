@@ -235,8 +235,9 @@ Tick thread (Pre/Post) or inside your program: `component(e, hash, &size)`, `exi
 - Offline, in a mod's own unit tests: Kiln.TestKit's fake world (`kiln.Entities`) runs the same `World` calls under
   `dotnet test`, tracked writes with kiln.world's rules included ([../modding/unit-tests.md](../modding/unit-tests.md)).
 - Host tests without a game: `KILN_OUT=… native/services/world/tests/run.sh` (boot declarations, program boundaries,
-  tracked writes: 26 + 26 + 93 checks, under ASan); `managed/tests/Kiln.World.Tests` (28 tests: the native mirrors'
-  sizes, results, the capability row, the SDK's `writes` fill on a fixture mod).
+  tracked writes: 26 + 26 + 93 checks, under ASan); `managed/tests/Kiln.World.Tests` (29 tests: the native mirrors'
+  sizes, results, the capability row, the SDK's `writes` fill on a fixture mod, Kiln.Game's forwards of the moved
+  marker interfaces).
 
 ## Client checklist (needs a joined player)
 - `Teleport.To(player, …)` snaps the client once (no rubber-band), `TeleportCount`/`RenderTeleportCount` change, and
