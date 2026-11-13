@@ -51,6 +51,8 @@
     <ProjectReference Include="../../services/Kiln.Time/Kiln.Time.csproj" />
     <!-- Beside the kit for the samples of SampleFakesTests (CreatureTweaks reads kiln.gamedata through it). -->
     <ProjectReference Include="../../services/Kiln.Content/Kiln.Content.csproj" />
+    <!-- Beside the kit for the recording fake of kiln.combat (TkFakes uses Kiln.Combat). -->
+    <ProjectReference Include="../../services/Kiln.Combat/Kiln.Combat.csproj" />
     <!-- Kiln's sample mods: built folders for LoadFolder; SampleTests also referenced so a suite can name its class. -->
     <TkSample Include="../../../mods/samples/SampleLib/SampleLib.csproj" />
     <TkSample Include="../../../mods/samples/SampleConsumer/SampleConsumer.csproj" />

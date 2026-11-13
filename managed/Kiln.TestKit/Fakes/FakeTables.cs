@@ -43,6 +43,12 @@ internal static class FakeTables
         KitBackend.Instance.RegisterTable(ItemsAbi.Service, ItemsTable.Create());
         Features(ItemsFake.Features);
         foreach (var row in ItemsFake.OfflineRows) Offline(row, "kiln.items' fake in the test kit has the v1 table only (give, take, read, the catalog)");
+        KitBackend.Instance.RegisterTable(CombatAbi.Service, CombatTable.Create());
+        Features(CombatFake.Features);
+        foreach (var row in CombatFake.OfflineRows) Offline(row, "kiln.combat's fake in the test kit has the v1 table's health, hits and deaths only");
+        KitBackend.Instance.RegisterTable(TimeAbi.Service, TimeTable.Create());
+        Features(TimeFake.Features);
+        foreach (var row in TimeFake.OfflineRows) Offline(row, "the weather is not modelled by the test kit's fake of kiln.time");
     }
 
     /// <summary>Game features a fake models: available rows of the kit's, which a test can switch off.</summary>

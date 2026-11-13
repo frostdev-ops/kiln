@@ -53,6 +53,22 @@ public static partial class Coverage
             "and the catalog read the fake; KilnHarness.Items.Calls records each. Offline: water, moves, container names, transfer " +
             "hooks, item instances, equip, recipe results, upgrades and gem slots, the game's player inventory layout",
             [ItemsAbi.Service, .. ItemsFake.Features, .. ItemsFake.OfflineRows]);
+        Row("Combat", CoverageKind.RecordingFake,
+            "Kiln.Combat's own code on the kit's kiln.combat (the v1 table): health is what the test gives an entity of the fake world " +
+            "or a fake player (KilnHarness.Combat.SetHealth); a mod's Damage or Kill and the game's hit (KilnHarness.Combat.Hit) apply " +
+            "at the start of the next step, the game's held one step for EntityHurtEvent / EntityHealEvent handlers, who may change or " +
+            "cancel it; EntityDamagedEvent, EntityDeathEvent (health below 1, the killing blow's attacker), PlayerRespawnEvent " +
+            "(KilnHarness.Combat.Respawn) at the next step; SetHealth (0 kills without a killer), Heal up to the maximum, god mode; " +
+            "KilnHarness.Combat.Hits records each hit. Offline: attributes, the hold filter, fall damage, regeneration, attribute heals, " +
+            "knockback, loot drops, the game's damage formulas and kill credit",
+            [CombatAbi.Service, .. CombatFake.Features, .. CombatFake.OfflineRows]);
+        Row("Time", CoverageKind.RecordingFake,
+            "Kiln.Time's own code on the kit's kiln.time: the day/night clock runs on the harness's virtual time from the first step " +
+            "(a new world at 06:00; day 06:00 to 18:00 in KilnHarness.Time.DayLength, 30 min by default, night in NightLength, 12 min), " +
+            "times the speed a mod holds (Time.SetSpeed); Time.State, OfDay, IsDay, Set (forward, or the game's reset), SetCycle, " +
+            "TimeSetEvent and the day and night events as Kiln.Time polls the clock; KilnHarness.Time.Calls records mods' changes. " +
+            "Offline: the weather (its table, layers, choice and reset), the sync probe, sleeping, saving the time with the world",
+            [TimeAbi.Service, .. TimeFake.Features, .. TimeFake.OfflineRows]);
         Row("kiln.net", CoverageKind.Unavailable,
             "no fake: a true pair is a client hosting its world (a kiln.client fake, a client-side harness, a client tick) and " +
             "shares one channel registry, so no handshake refusal could be tested; Kiln.Network reports itself unavailable",

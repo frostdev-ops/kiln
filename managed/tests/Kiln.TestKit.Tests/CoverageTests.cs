@@ -27,7 +27,8 @@ public sealed class CoverageTests
         foreach (var area in new[] { "Events", "Scheduler and await", "Config (global)", "Commands (console)", "Inter-mod messages", "Locale files",
                      "Lifecycle", "Mod loading and reload", "Fault policy", "Tests.RunAsync" })
             Assert.Single(rows, r => r.Area == area);
-        Assert.Equal(CoverageKind.Unavailable, rows.Single(r => r.Area == "kiln.combat").Kind);
+        Assert.Equal(CoverageKind.Unavailable, rows.Single(r => r.Area == "kiln.abilities").Kind);
+        Assert.Equal(CoverageKind.RecordingFake, rows.Single(r => r.Area == "Combat").Kind);
         Assert.Equal(CoverageKind.Unavailable, rows.Single(r => r.Area == "Tests.RunAsync").Kind);
         Assert.All(rows, r => Assert.False(string.IsNullOrWhiteSpace(r.Note)));
     }

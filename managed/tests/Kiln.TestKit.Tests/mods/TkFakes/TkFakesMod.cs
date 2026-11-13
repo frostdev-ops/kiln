@@ -100,6 +100,22 @@ public sealed class TkFakesMod : Mod
         });
         Commands.Register("tkf-chests", ctx => ctx.Reply($"chests: {string.Join(",", Items.FindInventories(InventoryKinds.Containers).Select(e => e.Value))}; " +
             $"players: {string.Join(",", Items.FindInventories(InventoryKinds.Players).Select(e => e.Value))}"));
+        // combat: health reads, a mod's damage (logged when the hit concluded), heals and god mode
+        Commands.Register("tkf-hp", ctx => ctx.Reply(Combat.GetHealth(Who(ctx)) is { } h ? $"hp: {h.Current}/{h.Max} dead {h.Dead} god {h.Invulnerable}" : "hp: none"));
+        Commands.Register("tkf-damage", ctx => _ = LoggedHit("damage", Combat.Damage(Who(ctx), int.Parse(ctx.Args[1], CultureInfo.InvariantCulture), ctx.Source.Player)));
+        Commands.Register("tkf-kill", ctx => _ = LoggedHit("kill", Combat.Kill(Who(ctx), ctx.Source.Player)));
+        Commands.Register("tkf-heal", ctx => ctx.Reply($"healed {Combat.Heal(Who(ctx), int.Parse(ctx.Args[1], CultureInfo.InvariantCulture))}"));
+        Commands.Register("tkf-sethp", ctx => ctx.Reply($"set {Combat.SetHealth(Who(ctx), int.Parse(ctx.Args[1], CultureInfo.InvariantCulture))}"));
+        Commands.Register("tkf-god", ctx => Combat.SetInvulnerable(Who(ctx), ctx.Args[1] == "on"));
+        Commands.Register("tkf-shield", ctx => _shielded.Add(Who(ctx)));
+        // time: the clock, a set, the speed
+        Commands.Register("tkf-time", ctx =>
+        {
+            var t = Time.State;
+            ctx.Reply(FormattableString.Invariant($"time: {t.Clock} day {t.IsDay} speed {t.TimeScale:0.##} counter {t.ChangeCounter}"));
+        });
+        Commands.Register("tkf-settime", ctx => Time.Set(double.Parse(ctx.Args[0], CultureInfo.InvariantCulture), ctx.Count > 1 ? TimeSetMode.GameReset : TimeSetMode.Forward));
+        Commands.Register("tkf-speed", ctx => Time.SetSpeed(ctx.Args[0] == "off" ? null : double.Parse(ctx.Args[0], CultureInfo.InvariantCulture)));
         Commands.Register("tkf-cleanup", ctx =>
         {
             var r = Spawn.CleanupTracked(ctx.Count > 0 ? ctx.Args[0] : null);
@@ -115,6 +131,41 @@ public sealed class TkFakesMod : Mod
         var r = await transaction;
         Log.Info($"{what} done: {r.Status} {r.Done}/{r.Requested} changes {r.Changes.Count} steps {r.Steps} dry {r.DryRun}: {r.Message}");
     }
+
+    private readonly HashSet<EntityId> _shielded = [];
+
+    private async Task LoggedHit(string what, Task<HitResult> hit)
+    {
+        var r = await hit;
+        Log.Info($"{what} done: {r.State} {r.HealthBefore}->{r.HealthAfter} killing {r.KillingBlow}");
+    }
+
+    // A shielded entity takes half damage; a hit of exactly 13 never lands.
+    [Subscribe]
+    private void OnHurt(EntityHurtEvent e)
+    {
+        Log.Info($"hurt: {e.Target.Value} by {e.Attacker.Value} for {e.Amount} lethal {e.Lethal} origin {e.Origin}");
+        if (e.Amount == 13) e.Cancel();
+        else if (_shielded.Contains(e.Target)) e.Amount /= 2;
+    }
+
+    [Subscribe]
+    private void OnDamaged(EntityDamagedEvent e) => Log.Info($"damaged: {e.Target.Value} {e.HealthBefore}->{e.HealthAfter} by {e.Attacker.Value}");
+
+    [Subscribe]
+    private void OnDeath(EntityDeathEvent e) => Log.Info($"died: {e.Victim.Value} killer {e.Killer.Value} origin {e.Origin}");
+
+    [Subscribe]
+    private void OnRespawn(PlayerRespawnEvent e) => Log.Info($"respawned: {e.Player.Value} with {e.Health}/{e.HealthMax}");
+
+    [Subscribe]
+    private void OnDay(DayStartedEvent e) => Log.Info($"day started at {Time.Format(e.Hours)}");
+
+    [Subscribe]
+    private void OnNight(NightStartedEvent e) => Log.Info($"night started at {Time.Format(e.Hours)}");
+
+    [Subscribe]
+    private void OnTimeSet(TimeSetEvent e) => Log.Info($"time set: {Time.Format(e.Hours)} {e.Mode} by {e.By}");
 
     [Subscribe]
     private void OnGiven(ItemsGivenEvent e) => Log.Info($"event given: {e.Result.Done} x {Items.Get(e.Result.Item)?.Name} to {e.Result.Entity.Value} by {e.Origin}");
