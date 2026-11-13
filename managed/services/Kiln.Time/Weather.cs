@@ -78,8 +78,9 @@ public sealed record WeatherResult(bool Ok, string? Reason, IReadOnlyList<Weathe
 /// One event per change, in the order they happened (kiln.time records each where it is made, so A then B then A on one
 /// layer within one weather update is two events), including a restart of the same phenomenon (<see cref="Before"/> and
 /// <see cref="After"/> equal: a new instance). From the first subscription on Kiln reads the changes once a step and
-/// posts them on the tick thread while a handler subscribes; nothing is read before. Not cancelable (it already
-/// happened). Capability <c>time.weather_choose</c>.</summary>
+/// posts them on the tick thread while a handler subscribes; nothing is read before. kiln.time keeps the newest 512
+/// changes: after more than 512 between two steps the oldest are not reported (kiln.log says so, once). Not cancelable (it
+/// already happened). Capability <c>time.weather_choose</c>.</summary>
 [ServerOnly]
 public sealed class WeatherChangedEvent : KilnEvent
 {
@@ -624,12 +625,26 @@ internal static class WeatherWatch
         }
     }
 
+    private static bool _toldGap;
+
     private static void Poll(in TickInfo tick)
     {
         var changes = Time.ReadWeatherChanges(_seq);
         if (changes.Length == 0) return;
+        var lost = LostBefore(_seq, changes);
         _seq = changes[^1].Seq;
+        if (lost > 0 && !_toldGap)
+        {
+            _toldGap = true;
+            Backend.Current.Log(0, LogLevel.Warn, $"time: {lost} weather change(s) were not reported as WeatherChangedEvent: more than " +
+                                                  "512 happened between two reads, and kiln.time keeps the newest 512 (said once)");
+        }
         if (!Events.HasSubscribers<WeatherChangedEvent>()) return;
         foreach (var e in Time.EventsOf(changes, Time.ReadTable(), Time.ReadLayers())) Events.Post(e);
     }
+
+    /// <summary>How many changes kiln.time no longer had when they were read after <paramref name="after"/> (its first
+    /// record should be the next one): 0 when none were lost.</summary>
+    internal static ulong LostBefore(ulong after, IReadOnlyList<Time.NativeChange> read) =>
+        read.Count == 0 || read[0].Seq <= after + 1 ? 0 : read[0].Seq - after - 1;
 }

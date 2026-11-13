@@ -167,6 +167,17 @@ public sealed partial class ChatTestMod
         Check("weather.event.restart", again.Ok && restart.Count == 1 && restart[0].Before?.Name == a && restart[0].After?.Name == a,
             $"{a} started again while it runs (a new instance): [{string.Join("; ", restart)}]");
 
+        // a release with now, then a timed choice on the same layer in one step: the choice is Kiln's, and the game's roll at
+        // its end is the game's own (the release's pending roll was superseded)
+        _weatherEvents.Clear();
+        var released = Time.ReleaseWeather(0, now: true);
+        var timed = Time.SetWeather(b, TimeSpan.FromSeconds(30), layer: 0);
+        await Task.WhenAll(released, timed);
+        await WaitFor(() => _weatherEvents.Count(e => e.Layer == 0) >= 2, 25 * 20);
+        var seq = _weatherEvents.Where(e => e.Layer == 0).ToList();
+        Check("weather.event.superseded", timed.Result.Ok && seq.Count >= 2 && seq[0].ByKiln && seq[0].After?.Name == b && !seq[1].ByKiln,
+            $"release now, then {b} for 30 s in one step, then the game's roll: [{string.Join("; ", seq)}]");
+
         // "none" on every layer, again and again in one step: what fits runs, the next is a refused result, nothing half done
         var layers = Time.Weather.Count;
         var accepted = new List<Task<WeatherResult>>();

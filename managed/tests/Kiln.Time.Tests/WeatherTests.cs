@@ -69,6 +69,15 @@ public sealed unsafe class WeatherTests
     }
 
     [Fact]
+    public void AReaderThatFellBehindSeesTheGap()
+    {
+        Assert.Equal(0ul, WeatherWatch.LostBefore(6, [Change(7, 0, 1, 0, 1, 2), Change(8, 0, 0, 1, 2, 3)]));
+        Assert.Equal(0ul, WeatherWatch.LostBefore(6, []));
+        // kiln.time keeps the newest 512: after 600 changes the reader at 6 gets 95.. first, 88 were not kept
+        Assert.Equal(88ul, WeatherWatch.LostBefore(6, [Change(95, 0, 1, 0, 1, 2)]));
+    }
+
+    [Fact]
     public void AFullQueueIsARefusedResultAndNothingIsQueued()
     {
         var calls = 0;

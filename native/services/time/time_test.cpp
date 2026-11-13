@@ -80,6 +80,25 @@ void weather_tests() {
         check(old.size() == 2 && q.room() == 255, "expired requests leave the queue, the rest stay");
     }
 
+    // What a request leaves for the layer's next change: a release with now makes the game's coming roll Kiln's; a set
+    // that follows on the layer supersedes it (its own change is recorded at once; the game's next roll is the game's).
+    {
+        WeatherMarks m;
+        m.after_request(2, KILN_TIME_WEATHER_RELEASE | KILN_TIME_WEATHER_NOW);
+        check(m.take_resync(2) && m.kiln_next(2), "a release with now: the layer is taken as seen, the coming roll is Kiln's");
+        m.after_request(2, KILN_TIME_WEATHER_HOLD);  // a timed or held set on the same layer, later in the queue
+        check(!m.kiln_next(2), "a set after a release with now: the game's later natural roll is the game's, not Kiln's");
+        m.after_request(3, KILN_TIME_WEATHER_RELEASE | KILN_TIME_WEATHER_NOW);
+        m.after_request(3, KILN_TIME_WEATHER_RELEASE);
+        check(m.kiln_next(3), "a release without now after one with now: the coming roll is still Kiln's");
+        m.after_reset(4);
+        check(m.kiln_next(0) && m.kiln_next(3) && !m.kiln_next(4), "a reset: the next roll of every layer is Kiln's");
+        m.after_request(1, 0);
+        check(!m.kiln_next(1) && !m.take_resync(1), "a set after a reset supersedes it on that layer");
+        m.roll_seen(0);
+        check(!m.kiln_next(0), "the roll seen: the mark is spent");
+    }
+
     // The changes, in order: A, B, A on one layer in one update are two changes; a restart (another instance) is one.
     {
         WeatherChanges c;
