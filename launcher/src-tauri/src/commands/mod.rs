@@ -20,6 +20,7 @@ pub mod nexus;
 pub mod engines;
 pub mod compat;
 pub mod found;
+pub mod cook;
 pub mod data_folder;
 
 /// A background task id; the task reports through `kiln://task`.
@@ -175,6 +176,8 @@ pub const NAMES: &[&str] = &[
     "chain_set_late",
     "found_scan",
     "found_add",
+    "cook_plan",
+    "cook_run",
     "report_save",
     "report_summary",
     "data_folder_get",

@@ -205,6 +205,8 @@ pub fn run() {
             commands::compat::chain_set_late,
             commands::found::found_scan,
             commands::found::found_add,
+            commands::cook::cook_plan,
+            commands::cook::cook_run,
             commands::logs::report_save,
             commands::logs::report_summary,
             commands::data_folder::data_folder_get,

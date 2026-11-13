@@ -9,6 +9,7 @@ import * as api from "../api/commands";
 import type { GameInstall, LaunchMode } from "../api/commands";
 import { invalidateGame, useActiveProfile, useGame, useGameStatus, useLaunchState, useProfiles, useRuntimeChanges } from "../api/hooks";
 import { toast } from "../ui";
+import { cookBeforePlay } from "./cook";
 import { playState, runStarted, type GameStateView } from "./gameState";
 import { notifyActivation, notifyActivationOf } from "./notices";
 
@@ -67,7 +68,12 @@ export function usePlayControl(): PlayControl {
   const { view, kilnMissing } = state;
   const launch = useMutation({
     mutationKey: ["launch_play"],
-    mutationFn: (req: api.LaunchRequest) => api.launchPlay(id, req),
+    // Mods with a cook recipe are cooked first when they need it (a start with mods only). A cook never stops the
+    // start: what could not be cooked is said in a notice, and the game starts all the same.
+    mutationFn: async (req: api.LaunchRequest) => {
+      if (req.mode === "profile") await cookBeforePlay(id, (jobs) => toast.info(jobs.length === 1 ? `Cooking ${jobs[0].name}` : `Cooking ${jobs.length} mods`, "Making their models, animations and sounds from your game, then the game starts."));
+      return api.launchPlay(id, req);
+    },
     onSuccess: (r) => {
       useLaunchMemo.setState((m) => ({ at: { ...m.at, [id]: playNow() }, mode: { ...m.mode, [id]: r.mode } }));
       invalidateGame(qc, id);

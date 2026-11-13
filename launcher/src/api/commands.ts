@@ -1346,6 +1346,46 @@ export const foundScan = (gameId: GameId, profileId: ProfileId) => call<FoundRep
 /** Task result: AddReport (`import.skipped` says why the Library refused it). */
 export const foundAdd = (gameId: GameId, profileId: ProfileId, path: string) => call<TaskId>("found_add", { gameId, profileId, path });
 
+// ---- cooking mods (kiln_manage::cook) ----
+/** Why a mod is cooked before the game starts (cook::needs_cook). */
+export type CookReason = "notCooked" | "modChanged" | "gameChanged" | "lastFailed" | "filesGone" | "asked";
+/** The last cook of a mod for a game (`<game>/kiln/state/cooked.json`). */
+export interface CookedMod {
+  identity: string;
+  gameBuild: string;
+  at: string;
+  ok: boolean;
+  files?: boolean;
+  /** A failed cook: the last lines the tools said. */
+  error?: string | null;
+}
+/** A mod of the game's profile that has something to cook. */
+export interface CookJob {
+  id: string;
+  name: string;
+  /** The folder the game loads the mod from: where its `assets/cooked` is made. */
+  folder: string;
+  identity: string;
+  /** Absent: cooked for this game build, nothing to do. */
+  reason?: CookReason | null;
+  last?: CookedMod | null;
+}
+/** How one mod's cook ended. */
+export interface ModCook {
+  id: string;
+  name: string;
+  reason: CookReason;
+  ok: boolean;
+  /** Not cooked: the tools' last lines, or the one sentence that says why no tool ran. */
+  error?: string | null;
+}
+export interface CookRun { mods: ModCook[] }
+/** The mods of the game's profile with something to cook, each with whether it needs a cook now. Reads only. */
+export const cookPlan = (gameId: GameId) => call<CookJob[]>("cook_plan", { gameId });
+/** A task (result CookRun): cooks the mods that need it, or with `modId` that one mod whatever its record says.
+ *  Refuses while the game runs. A mod's failed cook is in the result, never the task's error. */
+export const cookRun = (gameId: GameId, modId: string | null = null) => call<TaskId>("cook_run", { gameId, modId });
+
 // library.rs
 export const libraryList = (kind: ModKind | null = null) => call<LibraryEntry[]>("library_list", { kind });
 export const libraryDetect = (path: string) => call<Detected>("library_detect", { path });
@@ -1703,6 +1743,7 @@ export const COMMANDS = [
   "engine_settings_get", "engine_settings_set", "engine_status", "engine_own_folders", "engine_adopt_folder", "eml_backup", "eml_restore",
   "chain_view", "chain_set_late",
   "found_scan", "found_add",
+  "cook_plan", "cook_run",
   "report_save", "report_summary",
   "data_folder_get", "data_folder_size", "data_folder_check", "data_folder_move", "data_folder_use", "data_folder_reset",
   "data_folder_notice_ack", "data_folder_restart",

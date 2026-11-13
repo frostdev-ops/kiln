@@ -126,6 +126,10 @@ mismatch.
 
 ### What a cook writes
 
+Players do not run the cook by hand: the launcher cooks a mod before the game starts when it was installed, updated or
+switched on, or when the game was updated ([launcher/app.md](../launcher/app.md), "Cooking mods"). Authors run
+`kiln cook` (and `kiln build` does); a server's operator runs `kiln cook <mod> --game <server folder>`.
+
 A cooked mod is the same mod on every machine: a dedicated server and each player's game cook it from their own game
 files, and outside one folder nothing differs.
 

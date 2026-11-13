@@ -19,7 +19,7 @@ fn game_running_with(game_dir: &std::path::Path, mut find: impl FnMut(&std::path
     Ok(false)
 }
 
-fn game_running(game: &kiln_manage::game::GameInstall) -> Result<bool, Error> {
+pub(super) fn game_running(game: &kiln_manage::game::GameInstall) -> Result<bool, Error> {
     game_running_with(&game.path, |dir, exe| kiln_manage::proc::find_exe(dir, exe).map(|p| p.is_some()))
 }
 
