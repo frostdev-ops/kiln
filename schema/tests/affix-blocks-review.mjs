@@ -35,6 +35,8 @@ check({ affixes: { bear: { ...bear, tiers: [{ min: 1, max: 2, step: 0 }] } } }, 
 check({ affixes: { bear: { ...bear, tiers: [{ min: 1, max: 2, weight: -1 }] } } }, false);
 check({ affixes: { bear: { ...bear, tiers: [{ min: 1, max: 2, wieght: 2 }] } } }, false);
 check({ affixes: { bear: { ...bear, name: "" } } }, false);
+check({ affixes: { bear: { ...bear, name: "  " } } }, false);                                                                   // only spaces: the runtime refuses it too
+check({ affixPools: { blades: { ...blades, affixes: [{ affix: " " }] } } }, false);
 check({ affixes: { bear: { ...bear, group: "" } } }, false);
 const { stat, ...noStat } = bear;
 check({ affixes: { bear: noStat } }, false);

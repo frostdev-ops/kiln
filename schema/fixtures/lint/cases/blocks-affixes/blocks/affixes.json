@@ -8,6 +8,7 @@
     "misspelt": { "name": "Misspelt", "stat": "strenght", "tiers": [ { "min": 1, "max": 2 } ] },
     "zero": { "name": "Zero", "stat": "strength", "tiers": [ { "min": 0, "max": 2 } ] },
     "no-tiers": { "name": "None", "stat": "strength", "tiers": [] },
+    "blank": { "name": "  ", "stat": "strength", "tiers": [ { "min": 1, "max": 2 } ] },
     "typo": { "name": "Typo", "stat": "strength", "tiers": [ { "min": 1, "max": 2, "wieght": 2 } ] }
   },
   "affixPools": {

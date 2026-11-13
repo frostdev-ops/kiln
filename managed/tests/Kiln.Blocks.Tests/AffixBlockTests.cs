@@ -305,6 +305,101 @@ namespace Kiln
             Assert.Equal(held[0], held[1]);
             Assert.Equal([true, false, true, false], applied.Select(e => e.Now.Count > 0));
         }
+
+        // ---- review round: the shapes a file can hold, the data pass's order, a refused removal ----
+
+        [Fact]
+        public void ASectionOrABlockOfAnotherShapeCostsOnlyItselfAndTheRestLoads()
+        {
+            // a section that is not an object (a list, a string, a number, null, true) is that file's error naming the
+            // section, and the file's other sections and the later files load; a block below a section that is not an
+            // object is that block's error, as a wrong block is
+            var (_, mod, folder) = ModWithFiles("shape-mod",
+                ("a.json", """{ "format": 1, "affixes": [], "affixPools": { "fine": { "affixes": [ { "affix": "good" } ] } } }"""),
+                ("b.json", """{ "affixes": "bear", "affixPools": 3, "statuses": [] }"""),
+                ("c.json", """{ "affixes": null, "affixPools": true }"""),
+                ("d.json", """
+                    { "affixes": { "good": { "name": "Good", "stat": "strength", "tiers": [ { "min": 1, "max": 2 } ] }, "list": [], "text": "bear", "number": 3, "nothing": null },
+                      "affixPools": { "plist": [], "ptext": "x", "pnumber": 1, "pnothing": null } }
+                    """));
+            Assert.Equal(2, DataPass(mod, folder));
+            Assert.NotNull(Affixes.Find("shape-mod:good"));
+            Assert.NotNull(Affixes.FindPool("shape-mod:fine"));
+            string ErrorOf(string start) => Assert.Single(mod.Errors, e => e.StartsWith(start, StringComparison.Ordinal));
+            Assert.Contains("is a list, not an object of block name -> block", ErrorOf("blocks/a.json: \"affixes\" "));
+            Assert.Contains("is a string", ErrorOf("blocks/b.json: \"affixes\" "));
+            Assert.Contains("is a number", ErrorOf("blocks/b.json: \"affixPools\" "));
+            Assert.Contains("is a list", ErrorOf("blocks/b.json: \"statuses\" "));      // the same rule holds for the sections before affixes
+            Assert.Contains("is null", ErrorOf("blocks/c.json: \"affixes\" "));
+            Assert.Contains("is true", ErrorOf("blocks/c.json: \"affixPools\" "));
+            foreach (var block in new[] { "affixes.list", "affixes.text", "affixes.number", "affixes.nothing", "affixPools.plist", "affixPools.ptext", "affixPools.pnumber", "affixPools.pnothing" })
+                ErrorOf($"blocks/d.json: {block}: ");
+            Assert.Equal(14, mod.Errors.Count);
+        }
+
+        [Fact]
+        public void ADataFilesAffixIsTheModsAfterOnLoadWhetherCodeNamedItFirstOrNot()
+        {
+            const string File = """{ "affixes": { "bear": { "name": "File Bear", "stat": "strength", "tiers": [ { "min": 2, "max": 2 } ] } } }""";
+            var codeBear = new AffixBlock { Name = "Code Bear", Stat = Stat.MaxHealth, Tiers = [new AffixTier { Min = 9, Max = 9 }] };
+            var rolls = new AffixPoolBlock { Affixes = [new AffixEntry { Affix = "bear" }] };
+
+            // a pool in code names bear first (the file's is compiled there and then), and code defines bear after it
+            var (first, firstBlocks, firstFolder) = ModWithFiles("named-first", ("bear.json", File));
+            var namedPool = TestMods.As(first, () => TheBlocks.Define("rolls", rolls));
+            var fileBear = Affixes.Find("named-first:bear")!;
+            Assert.Equal("File Bear", fileBear.Block.Name);
+            TestMods.As(first, () => TheBlocks.Define("bear", codeBear));
+            Assert.Equal("Code Bear", Affixes.Find("named-first:bear")!.Block.Name);   // during OnLoad, the code's
+            Assert.Equal(1, DataPass(firstBlocks, firstFolder));
+            Assert.Same(fileBear, Affixes.Find("named-first:bear"));                      // after it, the file's: the same object
+            Assert.Same(fileBear, TheBlocks.Find("bear", "named-first"));
+            Assert.Equal("File Bear", JsonNode.Parse(TheBlocks.Lowered("bear", "named-first")!)!["affix"]!["name"]!.GetValue<string>());
+
+            // code defines bear first, then a pool in code names it (the code's), then the data pass
+            var (code, codeBlocks, codeFolder) = ModWithFiles("code-first", ("bear.json", File));
+            TestMods.As(code, () => TheBlocks.Define("bear", codeBear));
+            var codePool = TestMods.As(code, () => TheBlocks.Define("rolls", rolls));
+            Assert.Equal(1, DataPass(codeBlocks, codeFolder));
+            Assert.Equal("File Bear", Affixes.Find("code-first:bear")!.Block.Name);
+            Assert.Same(Affixes.Find("code-first:bear"), TheBlocks.Find("bear", "code-first"));
+
+            // either way the pool code defined rolls the file's bear
+            foreach (var (pool, slot) in new[] { (namedPool, 3), (codePool, 4) })
+            {
+                var rolled = As(() => pool.Roll(Give(slot, Sword, worn: false), new Random(1)));
+                Assert.True(rolled.Ok, rolled.Reason);
+                Assert.Equal(("File Bear", "strength", 2.0), (rolled.Affixes.Single().Name, rolled.Affixes.Single().Stat, rolled.Affixes.Single().Value));
+            }
+        }
+
+        [Fact]
+        public void ARemovalTheItemDataStoreRefusesAnswersFalseAndChangesNothing()
+        {
+            var sword = Give(3, Sword, worn: false);
+            Assert.True(As(() => Affixes.Add(sword, "bear", 1, 2)).Ok);
+            var changes = new List<AffixesChangedEvent>();
+            using var sub = Events.On<AffixesChangedEvent>(changes.Add);
+            var real = AffixRuntime.RemoveData;
+            AffixRuntime.RemoveData = (_, _) => false;   // the store had nothing to take any more
+            try
+            {
+                Assert.False(As(() => Affixes.Remove(sword, "bear")));
+                Assert.False(As(() => Affixes.Clear(sword)));
+                var set = As(() => Affixes.Set(sword, []));
+                Assert.False(set.Ok);
+                Assert.Contains("not taken off", set.Reason);
+                Assert.Equal("sword-mod:bear", Assert.Single(set.Affixes).Affix);
+                Assert.Empty(changes);                                                // no event for what did not happen
+            }
+            finally
+            {
+                AffixRuntime.RemoveData = real;
+            }
+            Assert.True(As(() => Affixes.Remove(sword, "bear")));
+            Assert.Empty(As(() => Affixes.Of(sword)));
+            Assert.Single(changes);
+        }
     }
 }
 

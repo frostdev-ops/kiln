@@ -19,6 +19,7 @@ internal static partial class Compiler
         {
             ["id"] = handle.Id, ["name"] = a.Name, ["stat"] = a.Stat.Key, ["tiers"] = a.Tiers.Count, ["stacks"] = a.Stacks, ["group"] = a.Group,
         };
+        handle.Lowered = low.Json;
         low.AfterCommit(() => AffixRuntime.Register(handle));
         return handle;
     }
@@ -28,7 +29,7 @@ internal static partial class Compiler
         var what = $"affix pool {name}";
         AffixRuntime.CheckName(what, name);
         var entries = AffixRuntime.CheckPool(what, ctx.Mod.Id, p, (affix, path) => AffixOf(ctx, what, affix, path));
-        var handle = new AffixPoolHandle(ctx.Mod.Id, name, p);
+        var handle = new AffixPoolHandle(ctx.Mod.Id, name, p) { Entries = entries };
         low.Json["affixPool"] = new JsonObject
         {
             ["id"] = handle.Id,
@@ -37,8 +38,32 @@ internal static partial class Compiler
             ["min"] = p.Min,
             ["max"] = p.Max,
         };
+        handle.Lowered = low.Json;
         low.AfterCommit(() => AffixRuntime.Register(handle, entries));
         return handle;
+    }
+
+    /// <summary>The data pass's rule for an affix or a pool of a data file (BlockJson.LoadMod): after <c>OnLoad</c> the file's
+    /// definition is the mod's, as for every block whose name code also defines. One that code named during <c>OnLoad</c>
+    /// was compiled then, and the data pass gets that same handle back; if code defined the name again after naming it,
+    /// the file's goes back in here, so the outcome does not depend on whether something named the affix first.</summary>
+    internal static void AffixDataPass(ModBlocks mod, string name, BlockHandle made, string file)
+    {
+        if (made is not (AffixHandle or AffixPoolHandle) || !mod.Handles.TryGetValue(name, out var now) || ReferenceEquals(now, made)) return;
+        mod.Handles[name] = made;
+        switch (made)
+        {
+            case AffixHandle a:
+                if (a.Lowered is { } la) mod.Lowered[name] = la;
+                AffixRuntime.Register(a);
+                break;
+            case AffixPoolHandle p:
+                if (p.Lowered is { } lp) mod.Lowered[name] = lp;
+                AffixRuntime.Register(p, p.Entries);
+                break;
+        }
+        mod.ReportDirty = true;
+        BlocksBridge.Log(LogLevel.Info, $"blocks: {mod.Id}: {file}'s {(made is AffixPoolHandle ? "affix pool" : "affix")} {name} replaces the one code defined after naming it, as data files' blocks do");
     }
 
     /// <summary>A pool entry's affix: of this mod by its name (or <c>"this-mod:name"</c>), defined in code or in a data file

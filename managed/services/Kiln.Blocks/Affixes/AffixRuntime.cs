@@ -317,10 +317,15 @@ internal static partial class AffixRuntime
         }
     }
 
+    /// <summary>Takes the item's rolls off in item data: false when the store had nothing to take (the item changed since it
+    /// was read). A seam: the offline tests make the store refuse.</summary>
+    internal static Func<ItemInstanceRef, InstanceKey<AffixData>, bool> RemoveData = static (item, key) => item.Remove(key);
+
     private static AffixResult Write(ItemInstanceRef item, InstanceKey<AffixData> key, IReadOnlyList<RolledAffix> before, IReadOnlyList<RolledAffix> now)
     {
-        if (now.Count == 0) item.Remove(key);
-        else item.Set(key, new AffixData { Rolls = now.Select(a => new AffixRoll { Id = a.Affix, Name = a.Name, Stat = a.Stat, Tier = a.Tier, Value = a.Value }).ToList() });
+        // nothing changed then: no event, and the caller says so (Remove and Clear answer false, the others Ok = false)
+        if (now.Count == 0 && !RemoveData(item, key)) return new AffixResult(item, before, "the item's affixes were not taken off: its item data had none any more");
+        if (now.Count > 0) item.Set(key, new AffixData { Rolls = now.Select(a => new AffixRoll { Id = a.Affix, Name = a.Name, Stat = a.Stat, Tier = a.Tier, Value = a.Value }).ToList() });
         _dirty = true;  // what is worn may act differently now: the next step's pass sees it
         if (Events.HasSubscribers<AffixesChangedEvent>()) Events.Post(new AffixesChangedEvent(item, before, now));
         return new AffixResult(item, now, null);
@@ -482,7 +487,7 @@ internal static partial class AffixRuntime
         var before = Read(item, key);
         var now = id is null ? [] : before.Where(a => a.Affix != id).ToList();
         if (now.Count == before.Count) return false;
-        Write(item, key, before, now);
-        return true;
+        // true only when something went: a write the store refused leaves the item as it was
+        return Write(item, key, before, now).Ok;
     }
 }

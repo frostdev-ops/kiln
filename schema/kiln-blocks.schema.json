@@ -4139,7 +4139,7 @@
       "required": ["name", "stat", "tiers"],
       "description": "One kind of rolled modifier on an item (AffixBlock): its stat, and its tiers with the range each rolls in. A roll picks a tier, then a value in its range, and that value is what the one item carries.",
       "properties": {
-        "name": { "type": "string", "minLength": 1, "maxLength": 64, "description": "What players read: \"of the Bear\", \"Fleet\". Kept with every roll." },
+        "name": { "type": "string", "minLength": 1, "maxLength": 64, "pattern": "\\S", "x-kiln-message": "a name players can read: 1 to 64 characters, not only spaces", "description": "What players read: \"of the Bear\", \"Fleet\". Kept with every roll." },
         "stat": { "type": "string", "allOf": [ { "$ref": "#/$defs/status/properties/modifies/propertyNames" } ], "description": "The stat it changes while its item is worn or in hand: a stat's key (\"strength\", \"move-speed\"), or a GUID for another attribute of the game (a share)." },
         "tiers": { "type": "array", "minItems": 1, "maxItems": 16, "items": { "$ref": "#/$defs/affixTier" }, "description": "Its tiers, the weakest first: tier 1 is the first. At least one tier with a weight above 0 has minItemLevel 0." },
         "stacks": { "type": "boolean", "description": "Two worn items with it add up (true, the default), or only the highest value counts (false)." },
@@ -4177,7 +4177,7 @@
       "required": ["affix"],
       "description": "One affix a pool can give.",
       "properties": {
-        "affix": { "type": "string", "minLength": 1, "description": "An affix of this mod by its name (defined in code or in any blocks file of the mod), or \"other-mod:name\"." },
+        "affix": { "type": "string", "minLength": 1, "pattern": "\\S", "x-kiln-message": "an affix's name, not only spaces", "description": "An affix of this mod by its name (defined in code or in any blocks file of the mod), or \"other-mod:name\"." },
         "weight": { "type": "number", "minimum": 0, "description": "How likely it is to come up, among the pool's (default 1)." }
       },
       "additionalProperties": false

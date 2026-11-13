@@ -227,6 +227,9 @@ public sealed class AffixHandle : BlockHandle<AffixBlock>
     /// (An affix makes nothing in the game, so the game id <see cref="BlockHandle.Id"/> of other blocks has no use here.)</summary>
     public new string Id => $"{Mod}:{Name}";
 
+    /// <summary>What the block lowered to (Blocks.Lowered), kept for the data pass that puts a data file's affix back.</summary>
+    internal System.Text.Json.Nodes.JsonObject? Lowered { get; set; }
+
     /// <inheritdoc cref="Id"/>
     public override string ToString() => Id;
 }
@@ -239,6 +242,11 @@ public sealed class AffixPoolHandle : BlockHandle<AffixPoolBlock>
 
     /// <summary><c>"mod:name"</c>, the same whichever route defined the pool.</summary>
     public new string Id => $"{Mod}:{Name}";
+
+    /// <summary>Its entries as affix ids with their weights, as compiled; and what it lowered to (Blocks.Lowered).</summary>
+    internal IReadOnlyList<(string Affix, double Weight)> Entries { get; init; } = [];
+
+    internal System.Text.Json.Nodes.JsonObject? Lowered { get; set; }
 
     /// <summary>Rolls the pool onto <paramref name="item"/>: <see cref="Affixes.Roll(ItemInstanceRef, AffixPoolHandle, Random?, bool)"/>.</summary>
     [ServerOnly]

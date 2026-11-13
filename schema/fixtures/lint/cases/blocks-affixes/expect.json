@@ -1,6 +1,6 @@
 {
   "catalog": true,
-  "description": "blocks-affixes: affixes and affixPools sections: schema (an affix name's own rule, a stat that is none, a range at 0, no tiers, a misspelt field, max over 8), KL314 for a pool entry that is no affix of the mod or another kind of block and for a pool item that is nothing or not an item (a game item and another mod's affix are fine), KL305 for a pool named like an affix; affix sections ask no more than clients none (no KL201).",
+  "description": "blocks-affixes: affixes and affixPools sections: schema (an affix name's own rule, a display name of spaces only, a stat that is none, a range at 0, no tiers, a misspelt field, max over 8), KL314 for a pool entry that is no affix of the mod or another kind of block and for a pool item that is nothing or not an item (a game item and another mod's affix are fine), KL305 for a pool named like an affix, saying Kiln.Blocks refuses it (an affix kind shares no name); affix sections ask no more than clients none (no KL201).",
   "diagnostics": [
     {
       "code": "KL106",
@@ -35,10 +35,18 @@
       "severity": "error"
     },
     {
+      "code": "KL106",
+      "col": 24,
+      "file": "blocks/affixes.json",
+      "line": 11,
+      "message": "\"  \": a name players can read: 1 to 64 characters, not only spaces",
+      "severity": "error"
+    },
+    {
       "code": "KL102",
       "col": 84,
       "file": "blocks/affixes.json",
-      "line": 11,
+      "line": 12,
       "message": "\"wieght\" is not allowed here; did you mean \"weight\"?",
       "severity": "error"
     },
@@ -46,7 +54,7 @@
       "code": "KL314",
       "col": 39,
       "file": "blocks/affixes.json",
-      "line": 15,
+      "line": 16,
       "message": "no affix block \"nowhere\" in this mod's blocks/*.json or code (Kiln.Blocks refuses it at load); another mod's is \"mod-id:nowhere\"",
       "severity": "warning"
     },
@@ -54,7 +62,7 @@
       "code": "KL314",
       "col": 27,
       "file": "blocks/affixes.json",
-      "line": 16,
+      "line": 17,
       "message": "\"zap\" is an effect block; this field takes an item",
       "severity": "warning"
     },
@@ -62,7 +70,7 @@
       "code": "KL314",
       "col": 34,
       "file": "blocks/affixes.json",
-      "line": 16,
+      "line": 17,
       "message": "no item \"No_Such_Item\": not a block in this mod's blocks/*.json or code, and not an item of the game (the definition that names it is refused when content is ready)",
       "severity": "warning"
     },
@@ -70,7 +78,7 @@
       "code": "KL314",
       "col": 76,
       "file": "blocks/affixes.json",
-      "line": 16,
+      "line": 17,
       "message": "\"zap\" is an effect block; this field takes an affix",
       "severity": "warning"
     },
@@ -78,7 +86,7 @@
       "code": "KL107",
       "col": 62,
       "file": "blocks/affixes.json",
-      "line": 17,
+      "line": 18,
       "message": "9 is above the maximum 8",
       "severity": "error"
     },
@@ -86,8 +94,8 @@
       "code": "KL305",
       "col": 5,
       "file": "blocks/affixes.json",
-      "line": 18,
-      "message": "block \"bear\" is defined twice in this mod (the later one replaces the earlier)",
+      "line": 19,
+      "message": "block \"bear\" is defined twice in this mod, as an affix and as an affix pool: an affix or an affix pool shares its name with no other block of its mod, so Kiln.Blocks keeps the one it compiles first and refuses the other",
       "severity": "error"
     }
   ]
