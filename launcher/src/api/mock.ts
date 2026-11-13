@@ -16,7 +16,6 @@ import { updateMockHandlers } from "./mockUpdate";
 import { deckMockHandlers } from "../deck/mockDeck";
 import { nexusMockHandlers, NEXUS_MOCK_ENABLED } from "./mockNexus";
 import { chainMockHandlers } from "./mockChain";
-import { editorMockHandlers } from "./mockEditor";
 import { dataFolderBlocks, dataFolderMockHandlers, mockDataDir, mockPickFolder } from "./mockDataFolder";
 import bootExample from "../../../schema/examples/state-boot.json";
 import modsExample from "../../../schema/examples/state-mods.json";
@@ -1266,8 +1265,14 @@ Object.assign(handlers, deckMockHandlers(handlers));
 Object.assign(handlers, nexusMockHandlers(handlers, mockEmit, startTask, quickAdd));
 Object.assign(handlers, chainMockHandlers({ profiles, library, reject }));
 Object.assign(handlers, dataFolderMockHandlers(startTask, (id) => tasks.get(id)));
-// the save editor: synthetic character saves in memory, or a local fixture with ?editor=fixture (mockEditor.ts)
-Object.assign(handlers, editorMockHandlers(reject, () => Object.values(running).some(Boolean)));
+// the save editor: synthetic character saves in memory, or a local fixture with ?editor=fixture (mockEditor.ts). Loaded
+// at the first editor command: its saves bring hash and buffer code no other page of the mock needs, and loading that
+// with the mock made every first page of a cold dev server slower
+let editorMock: Promise<Record<string, Handler>> | null = null;
+for (const cmd of ["editor_list_saves", "editor_file_info", "editor_read_file", "editor_zstd_decompress", "editor_game_running", "editor_backup_file",
+  "editor_write_save", "editor_list_backups", "editor_restore_backup", "editor_open_backups"]) {
+  handlers[cmd] = async (a) => (await (editorMock ??= import("./mockEditor").then((m) => m.editorMockHandlers(reject, () => Object.values(running).some(Boolean)))))[cmd](a);
+}
 
 /** The folder dialog's stand-in in a plain browser (shell/dataFolder.ts pickFolder; tests queue answers). */
 export { mockPickFolder };
