@@ -1,0 +1,10 @@
+{
+  "id": "affix-sword",
+  "name": "Affix sword sample",
+  "version": "0.1.0",
+  "apiVersion": "0.2",
+  "license": "MIT",
+  "entryAssembly": "AffixSword.dll",
+  "side": "both",
+  "description": "A sword that rolls one of three affixes: /affix-sword gives you one, and its bonus acts while it is in your hand. /affixes lists what the item in your hand carries; /affix-reroll rolls it again. In your game a notice shows what your item rolled."
+}

@@ -98,6 +98,21 @@ internal static unsafe class SpawnLink
         return new Ent(e, g, g is { } x ? Template(x).name : null, new WorldPosition(s.Position.X, s.Position.Y, s.Position.Z), s.Yaw);
     }
 
+    /// <summary>Tick thread. Where the entity stands now (dev.27, instance data sync's "nearby"); null when it does not
+    /// exist, has no transform, or kiln.spawn could not tell: never a guess. kiln.spawn fills position and rotation only
+    /// from a transform it read, and a transform's rotation is a unit quaternion, never all zero.</summary>
+    public static WorldPosition? PositionOf(EntityId e)
+    {
+        var t = T;
+        if (t == null || t->EntityInfo == null || e.IsNone) return null;
+        var s = new Snapshot { Size = (uint)sizeof(Snapshot) };
+        if (t->EntityInfo(e.Value, &s) != 0) return null;
+        if (s.Rotation[0] == 0 && s.Rotation[1] == 0 && s.Rotation[2] == 0 && s.Rotation[3] == 0) return null;
+        return double.IsFinite(s.Position.X) && double.IsFinite(s.Position.Y) && double.IsFinite(s.Position.Z)
+            ? new WorldPosition(s.Position.X, s.Position.Y, s.Position.Z)
+            : null;
+    }
+
     /// <summary>Tick thread. Entities of the template within radius of the point, nearest first.</summary>
     public static IReadOnlyList<EntityId> Find(Guid template, WorldPosition near, double radius, int max, bool required = false)
     {

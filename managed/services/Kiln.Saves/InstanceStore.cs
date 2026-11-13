@@ -59,10 +59,21 @@ internal sealed class InstanceKeyInfo(ModContext mod, string name, Type type, Pe
     public readonly HashSet<ItemId>? Items = items is null ? null : [.. items];
     public object? Key;
 
+    /// <summary>Who gets the values on their game (dev.27; InstanceSync.cs), and how near "nearby" is, in metres.</summary>
+    public InstanceSync Sync { get; init; }
+
+    public double NearbyRadius { get; init; } = InstanceKeyOptions.DefaultNearbyRadius;
+
+    /// <summary>Reads the server's JSON on a client (SyncedItem.TryGet), on any thread: options of its own, as the store's
+    /// per-mod ones are the tick thread's. They go with the key when its mod unloads.</summary>
+    public readonly JsonSerializerOptions SyncJson = new() { IncludeFields = true };
+
     public string ModId => Mod.Info.Id;
 
     public bool SameOptions(Persist persist, IReadOnlyList<ItemId>? items) =>
         persist == Persist && (items is null ? Items is null : Items is not null && Items.SetEquals(items));
+
+    public bool SameSync(InstanceSync sync, double radius) => sync == Sync && (sync != InstanceSync.Nearby || radius.Equals(NearbyRadius));
 }
 
 /// <summary>An item that carries data in this session.</summary>
@@ -166,7 +177,7 @@ internal sealed class HolderEntry
     public string Describe => Name is null ? Key.Text : $"{Name} {Key.Text}";
 }
 
-internal sealed class InstanceStore
+internal sealed partial class InstanceStore
 {
     internal const string Capability = "saves.instance_data";
     internal const string WorldPrefix = "instances/", CharacterPrefix = "character-instances/";
@@ -301,12 +312,12 @@ internal sealed class InstanceStore
         {
             if (have.Type != typeof(T))
                 throw new ArgumentException($"instance key '{name}' of {mod.Info.Id} is already declared with type {have.Type.FullName}, not {typeof(T).FullName}", nameof(name));
-            if (!have.SameOptions(options.Persist, options.Items))
+            if (!have.SameOptions(options.Persist, options.Items) || !have.SameSync(options.Sync, options.NearbyRadius))
                 throw new ArgumentException($"instance key '{name}' of {mod.Info.Id} is already declared with other options (Persist {have.Persist}" +
-                                            $"{(have.Items is null ? "" : $", {have.Items.Count} items")})", nameof(name));
+                                            $"{(have.Items is null ? "" : $", {have.Items.Count} items")}, Sync {have.Sync})", nameof(name));
             return (InstanceKey<T>)have.Key!;
         }
-        var info = new InstanceKeyInfo(mod, name, typeof(T), options.Persist, options.Items);
+        var info = new InstanceKeyInfo(mod, name, typeof(T), options.Persist, options.Items) { Sync = options.Sync, NearbyRadius = options.NearbyRadius };
         var key = new InstanceKey<T>(info);
         info.Key = key;
         map[name] = info;
