@@ -494,8 +494,18 @@ pass, and Kiln boots at that entry point), and run by something at that start: k
 `kiln/state/shroudforge.json` says `hosted` or `self-hosted` and was written in that start (its `pid` and `updated`
 against boot.json's `pid` and `started`; under Proton the pid repeats, so the time decides), or ShroudForge's own loader
 is installed and wrote the record after the adapter's last word. A start that skips Kiln's plugins ("Play once: without
-mods") leaves both files as the start before it left them, and nothing is said about it. A `failed` record of the last
-start becomes
+mods") leaves both files as the start before it left them, and nothing is said about it.
+
+**Where this rule is wrong (known limits, from the review of dev.27).** It ties the record to a start by times and by
+the game's process id, because ShroudForge's record names neither. So the notice can be missing after a start that
+crashed before Kiln wrote its boot record (a failure of that start is then taken for an older one), and after the
+machine's clock was set back during a start (a record more than two minutes "before" the start is taken for stale);
+and it can show an old failure again after the clock was set back between two starts, or when two game installs share
+one state folder. None of this touches what the game loads: it is the notice only. The cure is a launch identity that
+Kiln's core writes before any plugin runs and that the adapter and the record are matched against; that is a change in
+the core's boot and is not in this release.
+
+A `failed` record of the last start becomes
 
 - a sentence on ShroudForge's row of the launcher's engine list, whoever ran the pass and whatever other loaders' files
   are in the game (`engine_status` `startupFailed`, `sf_startup::EngineNotes`, shown as a warning), and a pointer on the
