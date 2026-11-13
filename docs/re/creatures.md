@@ -33,7 +33,7 @@ Everything not tagged **[hyp]** is proven by one of the first three.
 | Bosses, phases, shields, adds? | Arsenal behaviours: `IsInPhaseConstrain` (293 uses), `SetPhaseAction` (124), `EnemyHealthPercentageConstrain`, `SetImmuneAction`, `SendToggleEventAction`, `SpawnedEntitiesAliveConstraint`. Phase GUIDs live in `EnemyPhases`/`DynamicEnemyPhases`. Weak spots are child entities with their own `DamageSusceptibility` that pass hits to the parent. | data |
 | Looks? | Client-only template data: `ModelResource` → RenderModel (skinned, names its skeleton), `AnimationGraphResourceComponent2` (same skeleton), VFX. The server has **no** model component. Scale is a per-entity `ScaleComponent` plus the transform scale (both sides). Monsters have no tint component; humanoid NPCs have `CharacterSetup` colour presets. | data, rt, emf |
 | Can a mod change things live? | Yes, on the server:<br>• template data is shared, read-only resource memory; a write through `VirtualProtect` reaches every entity of the template at once;<br>• the per-entity template slot can point **one** entity at a private copy, and `enemy01` reads the copy for that entity only;<br>• dynamic components (faction, level, scale, resistances, loot labels, speed) are per entity and writable. | rt |
-| Why don't enemies act in the lab? | They are created and their AI program runs. They stay in state `Spawning` until `Actor+0xBF8` bit 50 (IsReadyForGameplay) is set, which happens only where terrain is streamed (near a player). Forced, the AI picks Roaming/Idle on its own; it does not walk because there is no path grid. | dis, rt |
+| Why don't enemies act in the lab? | Ordinary spawned AI waits for gameplay readiness/streaming. The old forced-ready lab did not walk, but dev.28 loaded nonplayer path queries succeeded (§13). Direct ActorInput control has a separate blocker: steering_locomotion overwrites movement while SteeringAgent remains (§15). | dis, rt, static, lab |
 | New creatures? | `createEntity` locks the template **resource** by GUID, then looks up a `TemplateInfo`; both are needed, on the server and on the client. A clone therefore needs a new resource (kiln.assets can serve new resources of any type) plus a TemplateInfo; clients need the same definition. | dis |
 | Vanilla clients? | They see server-side changes (stats, level, faction, AI, attacks, loot, spawns) through the normal replicated components (NetworkHealth, NetworkLevel, NetworkEnemy, NetworkActor, transforms). New templates, model changes and anything client-only need Kiln on the client. | rt for the server half, hyp for the client half |
 
@@ -996,3 +996,96 @@ solve it. This is a **derived cache** bound, not proof that save/wire fields nee
 thread API is proved. Client has two relocated-identical unlock programs: `@quests/NpcUnlock.calls` is ambiguous
 there. Common Eval/IsUnlocked/SetUnlocks signatures are unique on S/C and old server `d7baa768…`; use those rather
 than treating one copied caller as unique. Full widening design and consumer audit remain in dossier chapter 17.3.
+
+## 15. Direct control, pet survival and native taming (dev.28; server 26430253 / client 26430625)
+
+S `f0d824be…`, C `5d9ef2f1…`. Dossier chapters 19a/19d/19e, riding/pets REPORT deltas and VERIFY. Pets VERIFY:
+15 confirmed/two corrected (offer override fields and non-diagnostic constant pet ID). Later safety restart proof is
+bounded below. All scheduler/EnemyContext pointers are invocation-local, not tick-call APIs.
+
+### Direct input has a steering owner [static] [refl] [lab]
+
+`void steering_locomotion(ProgramContext*)` S `0x112f00` / C `0x3538a0` writes ActorInput movement `+0x198` from
+SteeringAgent.velocity `+0x1c`, including idle zero. AI-off alone does not remove that writer. Tick/program/tracked
+input writes and steering-velocity writes produced no movement in the early probes; with SteeringAgent removed,
+AI-off sabertooth moved 12.4 m/40 steps, turned toward movement; vultures/dragon climbed in 3D. Tested sabertooth
+Sneak/Walk/Run/Sprint speeds .5/2.3/7/10 m/s are **body-specific**, not engine constants.
+
+ActorInput 456 B: movement float3 `+0x198`, look `+0x1b8`, speed byte `+0x1c4`. SteeringAgent 80 B: queryId u32 `+0`,
+active `+4`, desiredVelocity float3 `+8`, velocity float3 `+0x1c`, maxSpeed `+0x28`. DynamicLocomotion 456 B:
+inputVelocity `+0`, rootMotionMode `+0x58`, state `+0x59`. Locomotion velocity program S `0x1e0db0` / C `0x4414f0`
+normalizes full XYZ input for Flying 3/BuildingFlying 11; walking uses horizontal movement. Read/modify through declared
+access and queued structural changes, not NativeOfferWorld.Change (that native whitelist accepts only three offer types).
+
+[lab] Riding run 7 restored saved SteeringAgent bytes and AI roamed 10.7 m; a zero queryId was recreated within 20 steps.
+The dossier's **restoration safety rule** resets queryId `+0`, desiredVelocity `+8` and velocity `+0x1c` before adding
+saved configuration back, avoiding expired query handles/stale movement; absence-at-baseline stays absent. The full
+broker/lease contract is a **design**, not an engine API installed by this wave. Do not run direct path/input control
+and the existing EngineGuard keeper concurrently. AI-off also does **not abort an active action sequence**; quiescence
+or actor retirement is distinct from disabling the next AI decision. Riding/carry/flight details are in [mounts.md](mounts.md).
+
+### Guard, death and revival are different mechanisms [static] [refl] [lab]
+
+Enemy StateDispatch S `0x13a7f0` / C `0x37b100` is `void(EnemyContext*,u8 state,u8 phase)`; enter/execute/exit 0/1/2.
+Guard handler S `0x1371e0` / C `0x377af0` is `void(ctx*,u8 phase)`. Context pointers dynamic/template/arsenal
+`+0x48/+0x50/+0x58`; tracked records `+8`, template table `+0x28`. DynamicEnemy01BehaviorState 0x4e8 B has guard
+entity `+0x454`, distance `+0x468`, next check Time `+0x480`; template 0x9d8 B GuardSetup `+0x598`, DeathSetup `+0x854`,
+revive sequence `+0x858`. Start/StopGuardingEvent 16 B has time `+0`, guarding/guarded ids `+8/+0xc`.
+
+Guard target/faction do not confer persistent ownership. OwnerRelationship **exists**, 4 B session owner EntityId
+`+0`, not CharacterKey. [lab] Guard bound a synthetic player-template target and keeper catch-up teleported the wolf;
+no path following or terrain-safe placement was shown. Existing keeper already retains order, focus, defend/assist
+and catch-up; it is not a missing native primitive.
+
+Enemy states Dead 3/Guard 20/Revive 28; **enemy01** StateCondition.Revive 29. Revive case enters the configured sequence
+and waits for Actor flags; no owner, cost/channel or health restoration was established there. A healed Skeleton Hound
+remained AI Dead after 30 steps despite HP 20, zero Revive transitions. Player Revive 32 B (six float storage values `+8`)
+and NetworkReviveData 12 B (state/duration/left `+0/+4/+8`) are not a general pet revive API.
+
+Health>0 clears raw Actor Dead but may still emit **pending EntityDiedEvent**; after-the-mark healing is too late
+for a no-death guarantee. See [combat.md](combat.md), pre-death MID S `0x8971a` / C `0x277a1a`, next entity
+S `0x89b30` / C `0x277e30`. Oxygen update S `0x59210` / C `0x23c340` writes Health directly, without ApplyHit;
+fall infliction also bypasses ApplyHit. Hurt-only clamps miss direct Health 0, drowning and destruction. Injected
+50 m/100% fall was canceled/clamped to HP 1; not an actual falling trajectory or universal hazard proof.
+
+Later native safety prototype [lab]: active Vukah swing, pre-death skip retained raw dead/pending clear beyond 8 steps,
+outgoing/root and queued post-retirement hits denied, then existing Spawn.Destroy removed actor in same safe Pre;
+no later death event/victim loss. ApplyHit S `0x190fb0` / C `0x3efd10` has native propagate-byte early-return seam;
+DestroyEntity S `0x63e8a0` / C `0x9a2a10` takes Storage*, entity, mode 1, skip 0 through existing service;
+only its low-byte result is used here. Pet/marker chapters declare u8 return while [network.md](network.md) records
+u64; the full returned width is not resolved by these callers. **AI-off alone was not this protection.**
+Dossier's Downed retires combat body/keeps a virtual recovery
+anchor; Revive creates a new protected generation. Those lifecycle choices are not claims of a native corpse-revive
+mechanic or completed service. Full root-provenance/retirement design stays in chapter 19d.
+
+[lab] Original CharacterData restart tests proved Template/FeedSteps/boot counter, **not logical-ID retention**:
+initializer supplied the same constant GUID. Later safety first/restart runs each 23 checks passed with a random ID
+and separately persisted Guid.Empty-default witness. This closes synthetic-record identity only; authenticated
+character relog/crash durability and cross-store cost atomicity remain unproved.
+
+### Wildlife taming [static] [refl], threshold injection [lab]
+
+| Program `void(ProgramContext*)` | S / C RVA | Role |
+|---|---|---|
+| wildlife | `0x21f880` / `0x488400` | separate wildlife FSM; can stop when IsTame and activeWhileTamed=false |
+| wildlife_farm_animal_transformer | `0x21fe70` / `0x4889f0` | Tameable bit 3 + progress>=required → FarmAnimal 12 and queued IsTame |
+| wildlife_enemy_transformer | `0x21fa80` / `0x488600` | hit/no-hit behavior switch, including enemy enabled `+0x498` |
+| interaction_taming | `0xa8320` / `0x2aaeb0` | no IsTame, state FoodBaitEat 15, bait!=0, Actor not Dead → offer overrides |
+
+Wildlife 736 B: feature mask `+0x80`, TamingSetup 72 B `+0x1c0`, sequence/verb GUIDs `+0x2c0/+0x2d0`.
+TamingSetup: activeWhileTamed `+0`, favoriteFood reference `+4`, required steps byte `+0x14`, sensor range `+0x18`,
+eat/alert Times `+0x20/+0x28/+0x30`, approach/flee tuning `+0x38/+0x3c/+0x40`.
+DynamicWildlife 176 B: state/last `+0/+1`, eat timer `+0x60`, bait EntityId `+0x88`, sensed/fully-eaten flags
+`+0x8c/+0x8d`, progress byte `+0x8e`. NetworkWildlife 24 B: alert `+0`, Time `+8`, progress/eating `+0x10/+0x11`.
+IsTame/FoodBait are 1-byte markers; wildlife Dead 12/Pursue 14/Eat 15 are **not enemy state numbers**.
+
+Corrected by VERIFY: taming program hashes template sequence/verb into InteractionOfferRuntime **overrideSequence
+`+0xc` / overrideVerbLocaId `+0x14`**, not defaults `+8/+0x10`. It writes no food debit/progress/player ownership.
+AnimalSaved 56 B stores needs/times/home, no CharacterKey. Native farm registration S `0x4ecc0` is an inspection
+lead, not a qualified call. [lab] Injected dog progress 2 led to IsTame/faction 12, while network progress remained 0:
+no natural feeding or client progress proof. Existing dog offer was not replaceable through Offers.TryAdd.
+
+A separate weakened Heavy Wolf fixture consumed three exact-slot custom tokens and saved a synthetic pet record
+(12 checks); full-health refusal consumed nothing. Token was not verified native bait; tool wear, natural tamer
+attribution, real-player authority and crash-safe cost+ownership commit remain unproved. Byte counters are
+representation widths, not validated 255-step gameplay. Full custom taming/protocol designs stay in chapter 19e.

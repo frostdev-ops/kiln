@@ -262,8 +262,10 @@ line's knowledge operations plus "line heard" (knowledge id = the line id), with
 - **Waypoints**: `ecs::PlayerWaypoint {enabled, waypointPosition}` is a component of the player entity written by the
   **server** program `player_waypoint_selection` (#314, `0xd64f0`; input `WaypointAction {position, enable, isPing}`;
   events-out UiPingEvent) and read for every player by the client's `player_waypoints_ui` (#724) **[dis]**. A server
-  mod that writes it would put a waypoint on that player's map and compass with a vanilla client **[hyp]**
-  (replication of the component: client checklist).
+  mod can write a replicated waypoint. **Corrected 2026-11 (dev.28 RE, S 26430253 `f0d824be…`, C 26430625
+  `5d9ef2f1…`) [lab] [seen]:** registry marks PlayerWaypoint replicated/not saved; session 4 showed a vanilla
+  compass diamond 304–321 m away after exact server component readback. A distinct waypoint map-pin shape and
+  restoration were not established. See [map.md](map.md) §7.
 - New markers need a template with a `MapMarker` (its name and icon are template data): a Kiln client and a cloned
   template, or an existing marker template placed by world-edit (its vanilla name).
 
@@ -306,7 +308,7 @@ singletons write, `+0xd0`/`+0xe0`/`+0xf0` random-access template/read/write, `+0
 | Rewards | XP via the game's path or Kiln's progression; items via Kiln.Items | – | server |
 | New dialogue lines/options, texts | the server runs knowledge of lines it has in its template data | options are built from the client's template data and loca | client UI, server effects (unchecked) |
 | React to "player talks to NPC" | `ServerSelectDialogOptionEvent` / the input (creatures.md §7) | – | server |
-| Objective markers | `PlayerWaypoint` **[hyp]**; placed vanilla marker templates | new marker names/icons/visibility | client display |
+| Objective markers | `PlayerWaypoint` vanilla compass **[seen, dev.28 session 4]**; new shipped-template map icon appears/removes **[seen, session 5]**; range/per-player relevance unproved | new marker names/icons/visibility | client display |
 | Objectives (kill, collect, reach, craft, talk) | Kiln events + knowledge or Kiln state | – | server |
 
 ## 9. Lab run (a copied save, no player) **[rt]**
@@ -334,7 +336,8 @@ quests-probe: world knowledge dumped: 566 entries (566 non-zero)
 1. **Answered** (section 11): the evaluator's rule for world objects and player twins.
 2. The item-reward claim (`CreateItemAction` type ClaimQuestItem): which program, which checks.
 3. **Answered** (section 11): the registry and knowledge only; nothing reads `JournalRegistryInfo`.
-4. `PlayerWaypoint` replication and drawing on a vanilla client (client checklist).
+4. `PlayerWaypoint` replication and vanilla compass drawing answered by dev.28 session 4; distinct map-pin shape,
+   restoration and far/multiplayer marker relevance remain open ([map.md](map.md) §7).
 5. The query state (`G38Knowledge+0x10`) sizes its per-query arrays from the query db at creation: new Extern queries
    need the query db rebuilt before the world starts, and probably the same `queryIndex` order on clients **[hyp]**.
    Kiln quests can avoid them (SimpleBool/Count/Flag steps, Kiln-side logic).

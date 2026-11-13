@@ -97,11 +97,11 @@ descriptor, **[dis]** disassembly, **[dec]** decompile, **[cap]** typed-hole cap
 
 | Function | 1285601 | 1273043 | Signature / refusal |
 |---|---|---|---|
-| `PlaceBlueprint` | `0x225c10` | `0x220030` | `bool (BuildingOp*, const float* xf /*pos m +0, rot +0xc*/, u32 item)`; return → `BuildFinish` r9b **[dis]** |
+| `PlaceBlueprint` | `0x225c10` | `0x220030` | `bool (BuildingOp*, const PlacementRecord*, u32 item)`; current payload includes pos +0, rot +0xc, **material u32 +0x1c, flag byte +0x20** (corrected dev.28 [static]); return → `BuildFinish` r9b |
 | `PlaceProp` | `0x2253d0` | `0x21f7f0` | `bool (op, PropDesc* /*+0 template GUID, +0x10 float3 pos*/, u32 item)` **[dec] [dis]** |
-| `DismantleBlock` / `DismantleBlock2` | `0x226440` / `0x226fd0` | (call-site patterns do not match) | `bool (op, const float* xf, u32 item)` from player_building_dismantle **[dis]** |
+| `DismantleBlock` / `DismantleBlock2` | `0x226440` / `0x226fd0` | (call-site patterns do not match) | `bool (op, payload*, u32 item)`; first reads transform, **second only opaque u64 lookup key at +0x18, not transform** (corrected dev.28 [static]) |
 | `PickUpProp` | `0x227f50` | | `bool (op, {u32 entity; u8 flag}*, u32 item)` **[dis]** |
-| `BuildFinish` | `0x22a5f0` | `0x224d7c`-area | `(op, InventoryTx*, u32 material, bool success)`: success → commit + undo entry; failure → rollback; always `UiBuildingEvent` {op+0x14c player, material, op+0x150 secondary, op+0x151 replay, success} **[dec] [cap op.player]** |
+| `BuildFinish` | `0x22a5f0` | `0x224d7c`-area | `(op, InventoryTx*, u32 material, bool success)`: success → commit; failure → inventory rollback **and pending undo-record discard, never voxel rollback**; always UiBuildingEvent {player, material, secondary, **isUndoAction**, success}; op+0x151 is undo, not replay (corrected dev.28 [static] [refl]) |
 | `TerraformImpact` | `0x18e0b0` | `0x1888f0` | impact function `Result* (Result* out, args**, ImpactContext* ctx)`; arg i = `ctx[2] + *(u16*)(ctx[0] + 0xe + (handle_i & 0xffff)*0x18)`; arg0 player u32, arg1 WorldTransform (i64 32.32), arg2 u8 TerraformingType; its own early exit for a missing argument writes `{u8 0x18 @0, u32 0 @4, u8 0 @8}` **[dec] [cap]** |
 
 - The positions passed to the building core are world-space float metres (`(float)fixed * 2^-32` in the callers).
@@ -199,3 +199,67 @@ descriptor, **[dis]** disassembly, **[dec]** decompile, **[cap]** typed-hole cap
   the same frame, and what the client shows when the server never acts on its action (client checklist).
 - Stack contents for the event: the slot's inventory entity has an 8-slot `Inventory` {u32 item; u32 count; u32 item
   entity} (docs/re/items.md section 7).
+
+## 11. Pre-mutation refusal sites (dev.28; server 26430253 / client 26430625)
+
+S `f0d824be…`, C `5d9ef2f1…`. Dossier chapter 07; events VERIFY 22 confirmed/four corrected. Payload/undo/result
+corrections are incorporated above and in [items.md](items.md). These are engine seams, not new managed decisions.
+
+### Walk-over versus interaction acquisition [static] [lab] [refl]
+
+`loot_pickup_in_range` S `0x1a9050` / C `0x407d50` has **no LootInteractionEvent input**. It checks the receiver
+from DynamicIsPlayerInRange `+4` is 1..1023, calls range helper S `0x19cbe0` / C `0x3fb900`, then updates
+PickupItemZone.lastAttempt even after refusal. Interaction `loot_pickup_item` S `0x1a9200` / C `0x407f00` calls
+**different** helper S `0x19d050` / C `0x3fbd70`; existing LootEvent cancellation already covers that queued path.
+
+Both reconstruct as `Result8*(out,ProgramContext*,const SourceSlice*,const Accessors*,const Singletons*,
+const EventSenders*,u32 receiver,u8 feedback)`, returning out. First four arguments use Win64 registers;
+receiver/feedback are entry RSP `+0x38/+0x40`. Packs differ: never swap range/interaction iterator slices.
+Range other-accessors are InventorySetup, PlayerInput, Inventory, InventoryEmptyState, ItemState, OwnerRelationship,
+SlotSelection; singletons BalancingRegistry, ItemRegistry, optional KnowledgeTriggerQueue; events InventoryFull,
+PickupEvent. Calls require the originating declared program access, not a fabricated tick context.
+
+Result is **8 B** `{u8 error,pad[3],u32 zero}`; writes only `+0/+4`. Zeroing 12 B corrupted the next game local and
+broke tick delivery in the first probe. Native errors include 0x12 already destroying, 0x1f missing definition,
+0x15 nothing added. Helper applies scaling, stages add, commits, then sets shouldDestroy—even a **partial add** can
+consume the source. Editing only PickupItem.amount is not a safe partial-acquisition cancellation mechanism.
+
+PickupItem 28 B: itemId `+0`, item GUID `+4`, level `+0x14`, rarity `+0x18`, amount u16 `+0x1a`.
+DestroyOnLoot 104 B: active `+0x40`, shouldDestroy `+0x41`. PickupItemZone 8 B (lastAttempt Time).
+DynamicIsPlayerInRange size 16 B is [lab] readback, receiver `+4` [static], not a reflected 8-byte contract.
+
+[lab] Refusal preserved receiver slots and source; allowed controls granted items. The final **tagged** range-only
+run saw range calls 0→10 while interaction calls stayed 2→2, settling VERIFY's earlier attribution concern.
+Fixture injected proximity and bypassed reserved-id guard for a synthetic player; no physical walk-in, client rollback
+or multiplayer arbitration was tested.
+
+### Player building [static only]
+
+Current S/C pairs: PlaceBlueprint `0x225c10/0x48e6f0`, PlaceProp `0x2253d0/0x48deb0`, DismantleBlock
+`0x226440/0x48ef20`, DismantleBlock2 `0x226fd0/0x48fab0`, PickUpProp `0x227f50/0x490a30`, BuildFinish
+`0x22a5f0/0x4930d0`, TerraformImpact `0x18e0b0/0x3ece10`. Primitive return is bool in AL. Prop descriptor also has
+fields beyond GUID/pose; it is not fully typed here. DismantleBlock2's key resolves through S `0x654da0`; key-to-zone
+position is still unqualified. BuildFinish's UiBuildingEvent is 24 B, player/material `+8/+0xc`, secondary/undo/success
+`+0x10/+0x11/+0x12`; failure always discards pending undo storage. Never force failure **after voxel mutation**.
+
+Player programs consume action-sequence windows **within the simulation step**, not pending ECS events available
+in the next Pre. Therefore the event-buffer cancellation mechanism in §1 does not by itself supply player-build
+hold/replay. No genuine player build attempt was generated; capture/reconstruction of valid request context remains
+unproved. Kiln BuildEditingEvent covers Kiln edits, not this player route. TerraformImpact's early failure shape is
+`u8 0x18 @0,u32 0 @4,u8 0 @8`, before kernels; no managed terraforming replay was established.
+
+### Threads and dirty marks [static], bounded thread result [lab]
+
+See [world.md](world.md), Scheduler and threads. A spawned player id>1023 did not select live-player scheduling.
+Forced-mask repeat: world thread 432, custom equip refusal thread 340; death/pickup stayed on 432 in that fixture.
+CHUNKED pickup/build programs stay on world thread with pin-main=1, but are still **inside program access**, not
+Pre/Post. Do not dispatch managed buses or call tick-only APIs from arbitrary detours.
+
+Record mark S `0x66f170` / C `0x9d3280`:
+`void(Storage*,Tracker*,EntityRecord*,u16 component,u8 flag)`.
+Iterator mark S `0x66f040` / C `0x9d3150`:
+`void(Tracker*,u32* networkEpoch,u32* saveEpoch,EntityTrackingRecord*,u16 component,u8 flag)`.
+They mark access **before mutation**, carry no old/new bytes and coalesce epochs. Save/replication queues omit
+ineligible/server-only components and can be empty without peers; WriteOther alone misses iterator writes.
+They are not a universal every-store change feed. Safe net-change sampling uses borrowed GetComponent values after
+existing WaitWorldJobs S `0x6ca080` / C `0xa2d7d0` (`void(World*)`), already before core Post callbacks.

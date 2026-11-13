@@ -239,7 +239,7 @@ be seen by `death` in the same step.
 | What | Value | Where | Tag |
 |---|---|---|---|
 | programs | `fall_damage_detection` #389 `0x89e50` (writes DynamicFallDamage from Actor/Velocity/MovementCollider), `fall_damage_calculation` #390 `0x89cb0`, `fall_damage_infliction` #391 `0x8a3c0`; all write DynamicFallDamage, so they run in this order in one step | descriptors | static |
-| DynamicFallDamage | `+0` wasFalling, `+4` fallStartAltitude, `+8` detectedFallDistance, `+0xC` detectedFallDamagePercentage | EMF; calc/infliction reads | static |
+| DynamicFallDamage | 16 B: `+0` wasFalling, **`+1` resetFallAltitudeOnApex**, `+4` fallStartAltitude, `+8` detectedFallDistance, `+0xC` detectedFallDamagePercentage (dev.28 reflection/detection recheck, [players.md](players.md)) | EMF; current reflection and calc/infliction reads | static, refl |
 | calculation | `if (FallDamage.start >= lethal) pct = 0; else if (dist >= start) pct = clamp((dist-start)/(lethal-start), 0, 1) + pct` | `0x89cb0` | static |
 | infliction | per entity: `if (pct <= 0) skip` (`comiss xmm8,[rax+0xc]; jae` at `0x8a4a4`); `hp = max(0, floorf(hp - max*pct))` written straight into the Health slot (no hit, no attrAdd), `attrRecalc 0x52700`; FallDamage `+8` sequence → ActorInput (hard-landing stagger, `0x369d0`); then `pct = -pct` (`xorps xmm6, sign` + `movss [rax+0xc], xmm6` at `0x8a793`), which makes the next calculation produce 0; player deaths: TrackingSystem stat | `0x8a3c0` | static |
 | hook points | mid hooks `combat/FallCheck` `0x8a4a0` (`mov rax,[rbp-0x50]`: rbp disp captured as `combat/fall.frame` 0xB0, pct offset `combat/fall.pct` 0xC) and `combat/FallStore` `0x8a793` (the flip store; `combat/fall.pct2`); entity = `CurrentEntityId(r15)`, the call at `0x8a79b` captured as `combat/FallEntityId` and compared with `world/CurrentEntityId`. 1273043: `0x86a30` / `0x86d23` | sigdb | static |
@@ -254,8 +254,9 @@ detected distance 0 so the calculation leaves it; the game's own infliction appl
 `fall event: fraction 0.25, damage 30 (expected 30), distance 0; health 119 -> 89`, `after the fall pct = -0.25`,
 `canceled fall: health 119 -> 119`, `canceled fall left the applied mark (-0.5)`, `fall damage changed to 7: health
 119 -> 112`, `applied once (no second infliction): 112/119`, `lethal fall: 119 -> 0` (then `0/119 dead`), `god mode:
-the fall event arrives canceled, health 119 -> 119`. A real fall (detection from movement) needs a simulated
-actor: client checklist.
+the fall event arrives canceled, health 119 -> 119`. That run did not exercise detection from movement.
+Dev.28 later reproduced a carried mortal player's lethal 25.50 m fall and a combined reset+cancel guard; see
+[players.md](players.md), Carried-player fall detection. The original injected-percentage tests remain separate.
 
 ## Regeneration and attribute heals (HEAL events with a cause)
 - `health_recharge` #673 `0x57190` (read Actor, read-opt HealthRechargeMod, write Health + HealthRecharge, sys-read
@@ -286,3 +287,27 @@ actor: client checklist.
 - Whether `CombatFlags.immune` is honoured in `applyDamage` (impact native, before queuing): not needed by Kiln.
 - Overflow pool (`+0x138`): hits pushed there when the primary list is full are only processed next step; Kiln never
   uses it.
+
+## Health-driven death decision (dev.28; server 26430253 / client 26430625)
+
+S `f0d824be…`, C `5d9ef2f1…`; dossier chapter 07, events VERIFY claim 1 confirmed. [static] [lab]
+Death program S `0x89660` / C `0x277960`, `void(ProgramContext*)`, has a pre-Actor-write MID at
+S `0x8971a` / C `0x277a1a`: EAX=signed current HP, RBX=Health*, RSI=context, Actor* at stack `+0x48`.
+Skip only the current entity via next-iterator site S `0x89b30` / C `0x277e30`, **not** a return from the program.
+A 5-byte patch covers the initial mov; a longer patch must relocate the following short conditional branch.
+
+This is after health loss but before raw Dead `+0xbf8 bit7` / pending-death `+0xeaa` writes. EntityDiedEvent is later/
+conditional and too late for this decision. It is **not damage cancellation**: hit effects/HP debit may already exist.
+[lab] Synthetic player held at HP=0 for three passes without transition, cancel restored HP=1, allowed control died.
+The probe wrote Health inside a read-only death access; this is **not** an approved production write contract—restore
+through a normal tracked safe-phase API. Coverage of forced Dead, creatures and all fall paths was not established.
+Death slices are worker-eligible with live-player scheduling even though this small fixture stayed on the world thread.
+
+### Pending death and direct hazard loss (dev.28; server 26430253 / client 26430625)
+
+S `f0d824be…`, C `5d9ef2f1…`; dossier chapter 19d, pets VERIFY. [static] Death event join S `0x89a69` only
+emits when Actor.sendDeathEvent `+0xeaa` is set: reached on death-sequence start, Spawning or Health>0. Healing after
+mark can clear Dead **and still emit the pending death**; with allowDeathSequence=0 and HP<=0 it may stay pending.
+OxygenUpdate S `0x59210` / C `0x23c340` debits Health storage directly and refreshes attributes, no ApplyHit.
+Thus hurt listeners alone are not universal survival/downed interception. Pet safety/retirement probe limits are
+in [creatures.md](creatures.md) §15; carried-player fall detection/reset is in [players.md](players.md).

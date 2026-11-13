@@ -37,7 +37,7 @@ from `kfc-parser/`. Evidence tags: **[dis]** disassembly, **[cap]** typed-hole c
 |---|---|---|---|---|
 | `content/TypeByHash` | `0x7e15d0` | `0x7d7ed0` | `0x8de780` | `TypeRecord* (u32 hash)`: static reflection (same pattern as `settings/TypeByHash`) |
 | `content/ItemRegistryFind` | `0x93b5c0` | `0x9315d0` | `0xe94390` | `ItemInfo* (u32 id, ItemRegistry*)`; map at `+0x38` **[cap items.map]** |
-| `content/ItemRegistryUpdate` | `0x96abc0` | | resolves | per-frame loader: `cmp byte [rcx+0x320],0` (loading), `[rcx+0x321]` (started) **[cap]** |
+| `content/ItemRegistryUpdate` | `0x96abc0` (historical build only) | | resolves | loading/started `+0x320/+0x321`; **current dev.28 S entry is 0x96abb0, not +0x10** (correction below) **[cap] [static]** |
 | `content/RecipeFind` | `0x940a30` | `0x936a30` | `0xe99700` | `RecipeInfo* (u32 id, RecipeRegistry*)`: count `+0x9c`, cap `+0x58`, bits `+0x50`, keys `+0x70`, values `+0x88` **[cap]** |
 | `content/RecipeFinishLoading` | `0x96df10` | `0x963ab0` | `0xec5f80` | resource `+0x20` **[cap]**, maps `+0x48` (id → RecipeInfo*) **[cap]**, `+0xA0` input categories, `+0xF8` workshop lists (`0x1008`-byte `SmallDynamicArray<RecipeInfo*,512>`, u16 count `+0x1000`) **[dis]** |
 | `content/LootFind` | `0x92f950` | `0x925970` | `0xe886c0` | `LootableItemInfo* (LootRegistry*, u32 itemId)`: count `+0x94`, cap `+0x50`, bits `+0x48`, keys `+0x68`, values `+0x80` **[cap]** (captured as the call target of the roll at `0x16b6de`) |
@@ -606,3 +606,32 @@ each kind, one hold for every pack file, most of it the lab set's largest pack. 
 kiln.assets built its index of served resources again for every resource it was given and kept every old one: 4.6-8 s of the 1,000-per-kind
 load for 3,097 clone resources, and the server grew to 6.6 GB. A put now adds to a small index of recent resources, and replaced indexes are
 freed once no reader holds them ([assets.md](../kiln/services/assets.md)): 0.2 s, and 1.3 GB.
+
+## Boot consumer ordering (dev.28; server 26430253 / client 26430625)
+
+S `f0d824be…`, C `5d9ef2f1…`. Dossier chapter 08, events REPORT delta/VERIFY; engine contracts [static],
+dedicated ordering [lab], Kiln collector order [source]. This is not an implemented managed OnBoot API.
+
+| Current target | S / C RVA | Contract |
+|---|---|---|
+| ResourceInit | `0x828510` / `0x107f3b0` | `u8(ResourceService*,const void* config)`, nonzero AL success |
+| RegisterSingleton | `0x67e720` / `0x9e2780` | `u8(World*,const GameString*,void* object,const void* options)`; GameString={ptr,u64 len} |
+| ItemRegistryUpdate | **`0x96abb0`** / `0xec2d10` | `void(ItemRegistry*)`; loading/started bytes `+0x320/+0x321` |
+| RecipeFinishLoading | `0x96df00` / `0xec6060` | loader anchor only; no new direct-call ABI qualified |
+| RegisterAllPrograms | `0x245960` / `0x4acf80` | `void(World*)`, once during setup, before finalization |
+
+Corrected 2026-11: current ItemRegistryUpdate starts at **0x96abb0**, not the old table's 0x96abc0 (mid-prologue
+on this build). Historical table addresses above retain their older build scope; do not detour current +0x10.
+
+Observed dedicated sequence: native plugin main/collectors → on_ready → CLR startup → executable entry release →
+ResourceInit (resource merge callbacks run **inside** it) → world singleton registrations → registry loader steps →
+managed OnLoad, with some loading still in progress. Native plugin/on_ready/ResourceInit were boot-thread;
+singletons and item updates world-setup thread. Borrow names/options/config only for the callback.
+
+In final run, ItemRegistry loading started 00:28:48.811, managed OnLoad 00:28:49.250, loading completed
+00:28:49.647. Thus **not all registries close before the first managed mod tick**. Singleton registration also does
+not imply populated contents. Specific early Kiln collectors (content/gamedata, assets, VFX, skills, knowledge packs,
+worldtables) can nevertheless have consumed definitions already; a later OnLoad does not retroactively re-run them.
+There is no demonstrated single hook after all live registries populate but before every cooker/resource consumer.
+ResourceInit return is too late for merges inside it. Hosted/joined ordering and first-start activation of every
+content kind were not run; the pre-entry definition-only barrier and commit protocol stay in dossier chapter 08.

@@ -118,8 +118,10 @@ Teleport added to the character 4 steps into a flight ended it in the next step.
 during a flight. With `FlightCarriesBody`, when the spark goes (any reason) Kiln teleports the character to the
 spark's last position, on the ground a voxel column read finds below it (the game's ground search only looks near
 its target: a landing 88 m above the ground stayed in the air in the lab), and keeps it invulnerable until it has been
-grounded for 12 checks (60 s at most). Moving it along during the flight would need a marked write of its `CurrentTransform` and
-`LastTransform` from a Kiln program (the foundations' write path), not a teleport.
+grounded for 12 checks (60 s at most). Corrected 2026-11 (dev.28 RE, S26430253 `f0d824be…`, C26430625
+`5d9ef2f1…`) [static] [lab]: direct marked-transform writes are not the only route. Runtime EntityAttachment or
+ServerSlotAttachment carries a rider in the same step without Teleport; both have scale/client-prediction caveats.
+This has not been integrated with FlightCarriesBody here. See [mounts.md](mounts.md).
 
 ## 2. The build cursor **[dec] [cap]**
 

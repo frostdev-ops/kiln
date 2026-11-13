@@ -250,3 +250,23 @@ sync: round trip: ok: 27 change(s) exported, 28 re-applied unchanged, 27 put bac
 A bug found on the way: on a re-application kiln.content drops the pack owners' layers but writes them out only at the
 end, so paths that go through list headers (added configs, sorted events) were resolved in stale memory and the add
 was lost; Kiln now flushes before it resolves.
+
+## 9. Action follow-ups versus pose exits (dev.28; server 26430253 / client 26430625)
+
+S `f0d824be…`, C `5d9ef2f1…`; dossier chapter 16c, blocks-a VERIFY claims 11–12 confirmed. [refl] [data]
+ActorSequenceResource 0x18 B: GUID `+0`, subSequences `+0x10`; ActorSubSequenceResource 0x48 B: events `+0`,
+length Time `+8`, loop `+0x10`, name `+0x14`, requirements `+0x20`, source GUID `+0x30`, direction/mask `+0x40/+0x41`.
+
+`SetActionOportunity` (engine spelling) is 0xd8 B/align8: time/duration `+0/+8`, required tag GUID `+0x10`,
+forbidden tags[4] `+0x20`, trigger **u16** `+0x60`, required/forbidden skill GUID `+0x64/+0x74`, followUpTime
+signed ns `+0x88`, eventGuid `+0x90`, override `+0xa0`, **followUp GUID `+0xa8`**, costImpact `+0xb8`, values `+0xc8`.
+ClearActionOportunity is 0x68 B. Parry **input=9**, Parried **outcome=23**, ParriedOverride=26; do not conflate them.
+A single trigger may have several skill-conditioned rows with different follow-up times. Empty-GUID evade/cancel
+opportunities are not the same as nonempty sequence links. [source] The existing rewriter intentionally skips them.
+
+The 2,944-node player AnimationGraphResource2_0 uses fromState/toState transition nodes for **pose exits**, not next
+weapon sequence selection. Weapon ItemInfo.sequences chooses entry; timed opportunities choose follow-up. Held
+Ability_Block has loop=false but a timed LoopEvent; setting the subsequence loop flag is not equivalent. Staff cast
+can combine overlay/full-body events and loops, not a single generic primary pose. [source] Retiming only the clip leaves
+sequence/impact/followUpTime windows unchanged. No new native hook is needed to expose existing resource links;
+full examples, route policy and compiler-extension-only chapter 16d remain in the dossier.

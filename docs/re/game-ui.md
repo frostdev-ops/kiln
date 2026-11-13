@@ -143,8 +143,9 @@ reflection, **[data]** the game's UI data, **[sf]** ShroudForge's shipped implem
   0x38 B {groupId GUID, icon UiTexture, label LocaTagReference, sets}), each tab's **subcategories** =
   `keen::FbUiCraftingRecipeSet` 0x28 B {label, recipeSetId, entries: BlobArray<RecipeId>}; the first subcategory of a
   tab has a zero label (no header). `maxRecipeGroupCount` 15 / `maxRecipeSetCount` 28 are exactly the largest counts
-  in the data (workshop 0: 6 tabs). **[refl] [data]** The game sizes its menu by these maxima **[hyp]**: Kiln's
-  additions stay within them.
+  in the data (workshop 0: 6 tabs). **[refl] [data]** Corrected 2026-11 (dev.28 RE) **[static]**: current builder
+  reads max groups at bundle+0xf0a8 and group walker reserves sets from +0xf0ac; a separate 512-output bound also
+  applies (current lookup section below). Kiln's additions must respect each bound.
 - Extension point (shipped): `kiln.craftmenu` v1, implemented inside content-data's existing `0xd5ade0` hook (no
   second detour): Kiln tabs and subcategories are copies of a workshop's tab array in near memory with Kiln's entries
   appended; the tree header is pointed at the copy; labels are new LocaTagReference GUIDs whose tag ids content's loca
@@ -275,3 +276,127 @@ ui-test summary: 25 PASS, 0 FAIL, nothing waiting; UI thread 2
   the selected recipe and its button takes the click while the game keeps the keyboard. **[rt]**
 - The UI thread is the game's main thread (managed thread 2, the one that also steps the client world). **[rt]**
 - Not covered: a gamepad (none attached), language switching (game in English), a joined remote server, HDR.
+
+## Native value, slot and text sites (dev.28; client 26430625 / server 26430253)
+
+C `5d9ef2f1…`, S `f0d824be…`. Dossier chapters 05a/05b/09, values-ui REPORT delta/VERIFY and sessions 2/6.
+VERIFY: 18 confirmed/one corrected (detail record ownership), plus slot gating/units/finalizer corrections below.
+Drawing sites are **client-only**. `[seen]` denotes coordinator sessions, not new tests performed for this note.
+
+### Presentation boundary [static], tested ordering [seen]
+
+Current UiApp global C `0x283f4a8` is frame-scoped: `app=*UiApp; data=*(app+0xd0); state=*data;
+play=*(state+0x38)`. Last step is a **dereference**, not an inline play object. Frame code publishes/clears UiApp
+at `0xbd1116/0xbd1639`; it can be null in world callbacks. Bundle `app+0xc8`, line style bundle `+0x10bbc`,
+balancing registry play `+0x4667d8`. Never keep UiApp/play/game pointers across frame, update or world lifetime.
+
+`player_ui` C `0x2b8430` is `void(ProgramContext*)`, **not void(play*)**. Capture MID `0x2b8c1e` has RSI=play,
+ECX=vanilla health before store. It reloads RSI per entity; verify play's local entity `+0x18`, not merely the last
+captured pointer. Held MID `0x2bbb70`: RSI=play, EDI=held pide, RBX=NetworkFuel* or null. The no-held branch also
+reaches it with zero/zero; its short conditional branch requires trampoline relocation.
+
+Play u32 current/max pairs: health `+0x578/+0x57c`, stamina `+0x584/+0x588`, mana `+0x59c/+0x5a0`, held fuel
+`+0x2e40/+0x2e44`. Adjacent `+0x580/+0x58c/+0x5a4` are **not generic maxima**. HUD C `0xc68c60` is
+`void(int mode)` and gates on local player/nonzero healthMax; held reader C `0xbf5d80` reads held pair. Original
+update owns all ECS work; only presentation values are substituted after its matching return. Session 1 UPDATE/HUD/
+detail/slot ran on thread 392; session 2 on 400. This is tested ordering, not arbitrary-thread UI safety.
+
+Models: play pointer/count `+0x3060/+0x3068`, stride 0x8f70, owner `+0`; views pointer/count model `+0x2d8/+0x2e0`,
+stride 0x48. ItemView prefix: inventory page u32 `+0`, slot index byte `+4`, ItemId `+8`, count u32 `+0x10`,
+pide u32 `+0x14`, durability u32 pair `+0x18/+0x1c`, fuel u16 pair `+0x20/+0x22`, level u32 `+0x24`, rarity byte
+`+0x2c`, durability-initialized `+0x34`. Offsets `+0xc/+0x28` exist, but palette/base-damage semantic names were not
+independently verified. Stackable views can have pide=0; numeric equality alone is not replicated provenance.
+
+### Temporary bars and units [static], drawing [seen]
+
+| Site | Register contract |
+|---|---|
+| Detail bar MID `0xc1401a`, before `0xc12890` | RCX=Bar*, RDI=thumbnail descriptor, `[RDI+0x18]`=detail-owned record |
+| `void draw_bar(Bar*,float width,u16 align)` `0xc12890` | RCX/XMM1/R8W; current/max text from 32-bit words |
+| Slot bar MID `0xc05895`, before `0xd79920` | RCX=Bar*, RBX=ItemView*; fraction drawing |
+
+Bar: fraction f32 `+0`, current/max 32-bit `+4/+8`, animation/show-text bytes `+0xc/+0xf`, color `+0x2c`,
+GameText `+0x38`; detail object extends through `+0x4f`. Mutate only temporary bar output, not its source view.
+
+**Correction:** detail `[rdi+0x18]` is an at-least-0x180-byte **copy owned by ItemDetail**, not a live model-array
+pointer. First 0x48 B matches ItemView, but thumbnail also reads `+0x60/+0xbc/+0xd4/+0xdc`. Synthetic branch
+`0xc1028c` rebuilds a substitute-item prefix with pide/count/fuel=0. Instance identity is optional; do not write
+through it or treat it as authoritative inventory.
+
+Slot fuel gates: resource exists, descriptor `+0x7d` set, context `+0x51` clear, item!=0, resource flags `+0x5d8`
+bit 0x2000. **No fuelMax gate**: fraction helper `0xd34ac0` returns 1.0 for max=0, so slot 0/0 draws full.
+Detail skips max=0 at `0xc13ebe`. Both can select durability when view `+0x34` and the world setting permit it.
+
+Units differ: **detail water=charges**, slot/held water=raw fuel units; durability raw; HUD respective vital units.
+`u32 units_to_charges(u32)` C `0xd49090` dereferences frame UiApp, calls `u32 charge_amount(registry)`
+C `0xe9fa40`: resource `+0x20`, u32 `+0xfc`; missing resource→1, zero divisor leaves raw value (effective divisor 1).
+Do not call outside native frame. Field-getter signature is unique only in its 22-byte scope (three image-wide hits).
+[seen] Detail displayed `1000098 / 2000000` and quarter fill; hotbar quarter fill, HUD health/mana sentinels.
+This proves 32-bit storage, **not unsigned high-bit formatting**. Held nonzero water and visual stamina identification
+remain unverified; session 6 only exercised the no-held zero/zero branch.
+
+### Text construction is not layout integration [static] [seen]
+
+ItemDetail C `0xc109f0` is `void(detail*,u8 flag)`. Collection MID **`0xc1216e`** is before mainContentArea
+ScopeEnd, after selected body. A branch jumps directly there; `0xc12165` is not the common merge point. Preview
+mode 4 exits before this scope and has no such callback.
+
+`void* NativeTextLine(void* out,const GameText*,const void* style,u8 mode)` C **`0xb1da10`** returns out;
+allocate 0x150 B/align 16 (constructor writes through `+0x140`). Body uses style bundle `+0x10bbc`, mode 1;
+vanilla numeric bars use mode 0. GameText 24 B `{utf8 pointer,u64 byteLength,u64 hash}` is borrowed, not owned.
+Existing Kiln non-ASCII signed-byte FNV convention is [source]; VERIFY independently checked only ASCII.
+
+**Required draw:** `void NativeTextDraw(node*)` C **`0xb25160`** shapes via `0xb2d820`, submits via `0xd0ee60`,
+then tail-jumps to generic ScopeEnd C `0xa40080`, including shaping failure. Constructor already does state `+0x16`
+finalization. ScopeEnd alone does **not draw**, and an extra ScopeEnd after draw is not needed. Session 1's
+scope-only probe drew nothing; session 2's constructor+draw produced a short line inside the panel.
+
+**Session 6 corrects the general native-footer claim:** short line contained; long line did **not wrap**, escaping
+to screen edge. German Ü/ö/ß/ü drew correctly but escaped too. Sixteen numbered rows drew in order, yet their
+bottom-anchored block **covered vanilla stats/description** and did not share usable scrolling. A visible scrollbar
+was not proof of reserved vertical space. Splitting/wrapping alone cannot fix that overlap. General native reflow/
+scroll integration is unproved; dossier's item-text design now uses a separate explicitly opened owned viewer,
+not this raw footer recipe. Two UI scales, long vanilla description and chest movement were not checked. The later
+client-exit SIGSEGV was not investigated or attributed to this probe.
+
+### Slot geometry and safe read boundaries [static], geometry also [seen]
+
+`void* ItemSlot(out32*,descriptor*,options*,context*)` C `0xc046c0` returns its hidden output buffer: float XYWH
+`+0`, state/action bytes `+0x10..+0x1f`. Descriptor `+0` points to view, including empty slots. State `+0x10` comes
+from focus predicate `0xa4d2d0`; **mouse-hover versus gamepad focus is not settled**. Inner MID `0xc05433` has
+RAX→float XYWH, R15→descriptor. Session 1 saw initial zero bounds then 80×80 slots; reject initial zero/nonfinite
+bounds. Native UI units are not automatically viewport pixels; viewport/pixels-per-unit mapping still needs checking.
+
+World reads are not frame APIs. Generic GetComponent S `0x64ed50` / C `0x9b2ec0` takes explicit world and returns
+borrowed `{ptr,u64 size}`; GetEntityTransform S `0x64fd40` / C `0x9b3eb0` is `const void*(World*,u32 entity)`.
+Use completed-world Post snapshots; existing public World/Time wrappers are server-bound, and Client.Tick is Pre,
+not automatically a post-job sampler. Replicated pides already equal server IDs (see [network.md](network.md));
+client-local/catalog/pide-zero views have no justified server identity. Holder sync excludes merely opening a chest.
+
+[refl] Experience 20 B, Level 16 B start with UInt32Attribute header (rootId `+0`, storageOffset u16 `+4`,
+flags/count bytes `+6/+7`); NetworkFuel 4 B, NetworkPlayerAttributes 256 B. They are fixed components, **not mod-stat
+maps**. [lab] Independent CharacterData XP/currency survived restart for two character fixtures. Fake-peer command
+used a fixed synthetic Player permission subject and got admin refusal: transport/storage proof, **not real-player
+authentication**. Rich blocks reuse existing ImGui widgets/input/textures and add no new engine RVA. Complete
+catalogs, immutable-snapshot, custom-stat and owned-viewer contracts remain in dossier chapters 05a/05b/09.
+
+## Current crafting-tree lookup (dev.28; client 26430625 / server 26430253)
+
+C `5d9ef2f1…`, S `f0d824be…`; dossier chapter 16a, blocks-a VERIFY claims 1–2 confirmed. [static] [refl] [data]
+Current C builder **0xb80130**, categories **0xd5aec0** supersede older C 0xb80050/0xd5ade0 in §5 for this build.
+`u64 CraftMenuCategories(Lists* out,void* allocationContext,u32 workshop,u8 filterMode)` clears lists, finds workshop
+in the client FbUiBundle, walks its parallel tree and returns listed recipe total. RCX/RDX/R8D/R9B; preserve opaque
+allocation context. Requires live UI app/config and original output storage, not a server tick call. Kiln's existing
+content hook already owns this seam; no second detour is needed. Nonzero filter excludes one output equipment type
+(`d33510(ItemInfo+0x104)==0x18`), **not a general unlock flag**.
+
+Station CraftingInteraction.workshopId `+0x1c` selects the workshop; station templates carry **no tab layout**.
+Collection at bundle `+0xf098`, 24 B: workshops BlobArray `+0`, trees `+8`, maximum groups/sets u32 `+0x10/+0x14`.
+Tree 8 B; groups 0x38 B (id GUID `+0`, icon `+0x10`, loca label `+0x20`, sets `+0x30`); sets 0x28 B (label `+0`,
+recipeSetId `+0x10`, recipe IDs `+0x20`). Rebase every copied self-relative BlobArray, not only the outer tree.
+WalkGroups C `0xd5acd0`, WalkSets `0xd5ef00` are inspection anchors, not extra public calls.
+
+Current bundle has 48 workshops/48 trees, declared and observed maximum 15 groups/28 sets. Separately, set walker
+bounds **512 recipe outputs per group**, u16 count `+0x9820`, 0x4c-byte records. These are independent capacities;
+increasing UI maxima alone does not expand output storage. First set receives the tab's special header handling.
+No new joined-client station-menu presentation check was run; schema/sync/ownership designs stay in chapter 16a.
