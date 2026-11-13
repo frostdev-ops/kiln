@@ -180,7 +180,8 @@ export function newEntry(itemId, slot, count, template, nivelPersonagem) {
     return { ...rest, slot, count: 1, itemId };
   }
   const it = items[itemId];
-  const base = { slot, itemId, count: Math.max(1, Math.min(count, it.maxStack || 1)) };
+  // Kiln: an item that stacks takes any amount the save holds (65535): a mod may have raised its stack size
+  const base = { slot, itemId, count: Math.max(1, Math.min(count, it.maxStack > 1 ? 65535 : 1)) };
   if (it.maxStack > 1) return base;
   // O nível gravado no item é o que o jogo usa para escalar o efeito (as joias, por exemplo, têm
   // uiValues com isScaled e function WeaponPowerCreep). Itens que caem no jogo vêm no nível da
