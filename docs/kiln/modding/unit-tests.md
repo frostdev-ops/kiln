@@ -97,6 +97,47 @@ never a real game/server folder: a nonempty folder without the kit's `savegame/k
 refused before anything is written or removed. A reused test folder keeps its saved data and configs, but its
 `kiln/mods` is cleared so the test can load the mods again.
 
+**A world of entities (since 0.2.0-dev.27).** `kiln.Entities` is a `FakeWorld`: entities with components laid out by
+Kiln.Game's types, under the real Kiln.World. A mod's `World.Has`, `TryRead`, `Find`, `Query`, `Position`,
+`Ecs.TryGet<T>` and `Reflected.Component` read it, and its tracked writes run on it with kiln.world's rules, so the
+same world code runs offline and in a server.
+```csharp
+using var kiln = new KilnHarness();
+var mod = kiln.LoadFolder(builtModFolder);          // or Load<TMod>(new ModManifest("my-mod").Writes("Fuel"))
+kiln.Step();                                        // the server starts: the mods' "writes" are read now
+var can = kiln.Entities.Create(new WorldPosition(10, 20, 30));
+kiln.Entities.Set(can, new Ecs.ScaleComponent { uniformScale = 1f });      // the test's hand: untracked, at once
+var r = kiln.As(mod, () => World.Write(can, new Ecs.ScaleComponent { uniformScale = 2f }));   // the mod's call
+kiln.Step();                                        // the world steps: the write runs and answers
+Assert.True(r.Result.Ok, r.Result.Reason);
+Assert.Equal(2f, kiln.Entities.Get<Ecs.ScaleComponent>(can).uniformScale);
+```
+- **The test's hand:** `Create()`, `Create(position)`, `Destroy`, `Set<T>`, `Get<T>`, `TryGet<T>`, `Remove<T>`,
+  `SetBytes` / `GetBytes` (a component by name, as bytes), `SetPosition`, `All`, `Exists`. They put things into the
+  world as the game would have: no write tracking, no event. A fake player's entity stands in the world at the
+  player's position and can be given components.
+- **Tracked writes** (`World.Write`, `Update`, `WriteField`, `WriteAt`) follow kiln.world: the write runs at the
+  start of the harness's next step and its task completes in that step. A type the mod's manifest does not list
+  under `"writes"` is refused with the sentence that says what to add. The lists are read from the manifests in the
+  harness's mods folder at its first step, as kiln.world reads them when a server starts, so a mod loaded later (a
+  hot load) is refused, as in the game. A mod built with Kiln.Sdk and loaded with `LoadFolder` has the list its build
+  made; for `Load<TMod>` with a manifest of the test's own, `ModManifest.Writes("Fuel", …)` lists them.
+  `ComponentWrittenEvent` is posted for a change, and `kiln.Entities.Writes` records every write that reached the
+  world, with the bytes before and after.
+- **The game's side** is the test's to script. `kiln.Entities.GameWrites<Ecs.Fuel>("fuel_setup", (EntityId e, ref
+  Ecs.Fuel f) => …)` is a program of the game that writes the type every step: tracked writes of the type then name
+  it (`GameWriters`), wait one more step and say whether the value stayed (`Kept`); a writer that derives the value
+  makes `Kept` false. `kiln.Entities.Track("Fuel", save: true, replication: false)` says what the game's write
+  tracking does with a type (`SaveTracked`, `ReplicationTracked`; null otherwise: the kit cannot know).
+- **Game types.** With a Kiln.Game beside the tests (the mod references it), the kit's `kiln.types` holds the layouts
+  that Kiln.Game was generated with, so Kiln.Game's first-use check passes for the types the mod was compiled
+  against, and `GameTypes.Find`, `Reflected.Component(e, "Fuel")["dataStorage[0]"]` and `World.WriteField` work.
+- **Not faked, and they say so:** world programs (`EcsPrograms.Available` is false: there is no scheduler), game
+  systems and their hooks (`GameSystems`), the game's event streams (`GameEvents`), teleport (`Teleport.To` answers
+  Failed), the game's attribute formulas (a write over the maximum is not clamped), a save of the world's entities,
+  and everything behind a component: no program of the game runs, so a `Health` of 0 kills nobody. Spawning,
+  items, combat and the other services have fakes of their own or none (the table below).
+
 **Config.** `Config.Register` of every kind writes into the temporary `kiln/config` (`kiln.ConfigDirectory`); a file
 the test edits there reaches the change handlers through the file watcher, so pace the steps in real time
 (`StepUntil(cond, pace: ...)`). `Mod.WorldConfig<T>()` binds to the harness world's folder.
@@ -208,6 +249,9 @@ time with them sees almost none pass between steps, and an `await Task.Delay(...
 | EntityData | recording fake | `kiln.saves` | on player entities: stored as PlayerData under the fake player's Steam id. On every other entity unavailable (EntityData.Available is false: it needs kiln.spawn, which is not faked before dev.27's fake world) |
 | Config (per world) | real |  | Mod.WorldConfig<T>() binds to the harness world's folder (kiln/data/worlds/<id>/config) through Kiln.Saves and differs between world ids |
 | kiln.net | unavailable | `kiln.net` | no fake: a true pair is a client hosting its world (a kiln.client fake, a client-side harness, a client tick) and shares one channel registry, so no handshake refusal could be tested; Kiln.Network reports itself unavailable |
+| World: entities and components | recording fake | `kiln.world` | Kiln.World's own code on the kit's kiln.world: KilnHarness.Entities (FakeWorld) makes entities and puts components on them, laid out by Kiln.Game's types; World.Exists, Has, TryRead, ReadBytes, Find, Query, Position and WriteRaw read and store them, a fake player's entity stands at the player's position. Unavailable: teleport, world programs (EcsPrograms: there is no scheduler), and everything behind a component (the game's programs do not run: a Health of 0 kills nobody) |
+| World: tracked writes | recording fake | `world.tracked_writes` | World.Write, Update, WriteField and WriteAt with kiln.world's rules: the write runs at the next step and answers in it (one step later for a type a fake game program writes, with Kept), a type the mod's manifest does not list under "writes" is refused with the sentence that says what to add (the lists are read at the first step, so a hot-loaded mod's are not), ComponentWrittenEvent for a change, FakeWorld.Writes records each. Not modelled: the game's attribute formulas (no clamp), which types the game saves or replicates (null unless FakeWorld.Track says), a save of the world's entities |
+| Game types (Kiln.Ecs, Reflected, GameTypes) | recording fake | `kiln.types` | the kit's kiln.types holds the types of the Kiln.Game beside the tests (the layouts the mod was compiled against: about 1,500 structs, enums and arrays of the game's components and events), so Ecs.TryGet, Ecs.Has, Ecs.All, Reflected.Component and GameTypes.Find work on the fake world. Without a Kiln.Game in the test output the service is unavailable. Unavailable either way: game systems and their hooks (GameSystems), the profiler, the game's event streams (GameEvents), default values, alignments, and the game's other 9,500 types |
 | [KilnTest] tests | real |  | Kiln.Testing's own runner, started test by test through Kiln.Host (KilnHarness.RunTest, KilnTestSession, the xunit KilnTestSuite): same order, timeouts and results as in a server. Offline a passing body that asked for an unfaked service or a feature that is off is skipped with the names; failed bodies and timeouts remain failures with the names. A test that blocks the tick thread is stopped by the watchdog and reported as a timeout with the stack where it blocked |
 | kiln.abilities | unavailable | `kiln.abilities` | no fake: the service finds no native table, so its own Available is false and its row says offline |
 | kiln.assets | unavailable | `kiln.assets` | no fake: the service finds no native table, so its own Available is false and its row says offline |
@@ -246,11 +290,9 @@ time with them sees almost none pass between steps, and an `await Task.Delay(...
 | kiln.steamguard | unavailable | `kiln.steamguard` | no fake: the service finds no native table, so its own Available is false and its row says offline |
 | kiln.surfaces | unavailable | `kiln.surfaces` | no fake: the service finds no native table, so its own Available is false and its row says offline |
 | kiln.time | unavailable | `kiln.time` | no fake: the service finds no native table, so its own Available is false and its row says offline |
-| kiln.types | unavailable | `kiln.types` | no fake: the service finds no native table, so its own Available is false and its row says offline |
 | kiln.ui | unavailable | `kiln.ui` | no fake: the service finds no native table, so its own Available is false and its row says offline |
 | kiln.ui.tick | unavailable | `kiln.ui.tick` | no fake: the service finds no native table, so its own Available is false and its row says offline |
 | kiln.vfx | unavailable | `kiln.vfx` | no fake: the service finds no native table, so its own Available is false and its row says offline |
-| kiln.world | unavailable | `kiln.world` | no fake: the service finds no native table, so its own Available is false and its row says offline |
 | kiln.worldtables | unavailable | `kiln.worldtables` | no fake: the service finds no native table, so its own Available is false and its row says offline |
 <!-- coverage:end -->
 
@@ -274,6 +316,15 @@ Run on Linux (.NET SDK 10.0.113) for dev.26, with every package restored from a 
   `blocks/dummies.json` sits in the mod folder but nothing reads it offline, and no line says so.
 - `tk-parity` (`managed/tests/Kiln.TestKit.Tests/mods/TkParity`) offline: its event and command tests passed, its
   three network tests were skipped for `kiln.net`. The same folder in a lab server: not run when this page was written.
+
+For dev.27, the fake world: `managed/tests/Kiln.TestKit.Tests/EntitiesTests.cs` (10 tests) loads `tk-world`
+(`mods/TkWorld`, a mod built with Kiln.Sdk whose build filled `"writes": ["Fuel", "ScaleComponent"]` from its code) and
+runs its world code on `kiln.Entities`: typed and reflected reads, entity sets, tracked writes with their answers and
+events, the refusals, a scripted game writer (`Kept` true and false), the lists read at the first step, a fake
+player's entity, the unfaked parts. The same calls run in a lab server in `mods/tests/world-writes-test`
+([../services/world.md](../services/world.md#tests-lab)); the two are not one test body, and the kit's attribute
+writes are not clamped as the game's are. Not run: the fake world from the packed `Kiln.TestKit` package (only from
+the tree).
 
 Not checked: Windows (the package's targets, the harness's temporary folders, the watchdog's stop), macOS, Visual
 Studio's and Rider's test explorers (only `dotnet test` was run), and any SDK other than 10.0.113.

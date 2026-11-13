@@ -232,6 +232,8 @@ Tick thread (Pre/Post) or inside your program: `component(e, hash, &size)`, `exi
   INFO ServerToggleState.lastChange, written tracked with the same component: reads 0 (written 12345, before 0): the game's save record of the type does not carry this field
   ```
   The full log and what it shows about the save: [docs/re/world.md](../../re/world.md#tracked-writes-dev27-server-26430253-exe-f0d824be-client-26430625-exe-5d9ef2f1).
+- Offline, in a mod's own unit tests: Kiln.TestKit's fake world (`kiln.Entities`) runs the same `World` calls under
+  `dotnet test`, tracked writes with kiln.world's rules included ([../modding/unit-tests.md](../modding/unit-tests.md)).
 - Host tests without a game: `KILN_OUT=… native/services/world/tests/run.sh` (boot declarations, program boundaries,
   tracked writes: 26 + 26 + 93 checks, under ASan); `managed/tests/Kiln.World.Tests` (28 tests: the native mirrors'
   sizes, results, the capability row, the SDK's `writes` fill on a fixture mod).
