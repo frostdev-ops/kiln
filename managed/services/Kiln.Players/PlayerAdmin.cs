@@ -352,7 +352,9 @@ internal static class PlayerAdmin
         // a handler of the ban that bans the same again (ids, name, reason, mod and length): nothing changes, so nothing is
         // written or posted (it would be again at every step)
         if (BanNotices.Dispatching && Store.Same(entry, now) is { } held) return held;
-        Store.Put(entry, now);
+        // an entry this one replaces may be keyed otherwise (a ban by Steam id replaces one by player, of both ids): its
+        // event still waiting is older than this ban, and goes
+        foreach (var old in Store.Put(entry, now)) BanNotices.Withdraw((old.SteamId, old.AccountId));
         UnbanNotices.Withdraw((entry.SteamId, entry.AccountId));  // an unban of it still waiting is older than this ban
         if (Events.HasSubscribers<PlayerBannedEvent>())
             BanNotices.Post((entry.SteamId, entry.AccountId), new PlayerBannedEvent(entry));
@@ -450,14 +452,18 @@ internal sealed class BanStore(string path)
         return null;
     }
 
-    public void Put(BanEntry entry, DateTimeOffset now)
+    /// <summary>Puts the entry in place of every entry of the same person. -> the entries it replaced.</summary>
+    public IReadOnlyList<BanEntry> Put(BanEntry entry, DateTimeOffset now)
     {
         lock (_lock)
         {
-            var next = Load().Where(b => b.IsActive(now) && !b.Matches(entry.SteamId, entry.AccountId)).ToList();
+            var list = Load();
+            var replaced = list.Where(b => b.Matches(entry.SteamId, entry.AccountId)).ToList();
+            var next = list.Where(b => b.IsActive(now) && !replaced.Contains(b)).ToList();
             next.Add(entry);
             Save(next);
             _entries = next;
+            return replaced;
         }
     }
 

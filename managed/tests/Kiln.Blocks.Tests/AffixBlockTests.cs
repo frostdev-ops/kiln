@@ -422,7 +422,7 @@ namespace Kiln
             As(() => Affixes.Add(good, "bear", 1, 3));
             var shapes = new[]
             {
-                """{"Rolls":null}""", """{"Rolls":5}""", """[1,2]""", """{"Other":1}""",
+                """{"Rolls":null}""", """{"Rolls":5}""", """[1,2]""", """{"Other":1}""", "null",
                 """{"Rolls":[null,5,"x",{"Name":"no id"},{"Id":""},{"Id":"sword-mod:keen","Value":"much"}]}""",
             };
             var bad = shapes.Select((json, i) => { var r = Give(10 + i, Ring, worn: true); StoreRaw(r, json); return r; }).ToList();
@@ -445,6 +445,26 @@ namespace Kiln
             var saved = string.Concat(_h.Scopes(1).Select(scope => _h.Bundle(1, scope)?.ToJsonString()));   // the player's items are in the player's scope
             Assert.All(shapes, json => Assert.Contains(JsonNode.Parse(json)?.ToJsonString() ?? "null", saved));
             Assert.Contains("\"Extra\":true", saved);
+            Assert.DoesNotContain("\"Rolls\":[]", saved);                       // the stored null was not made an empty value
+        }
+
+        [Fact]
+        public void StoredTextThatIsNoTextCostsOnlyItsRoll()
+        {
+            var good = Give(3, Sword, worn: true);
+            As(() => Affixes.Add(good, "bear", 1, 3));
+            // half a surrogate pair written as an escape: it parses as JSON and cannot be read as text. The store reads every
+            // item's slot before the pass sees one, so the reader itself must not throw
+            var half = Give(10, Ring, worn: true);
+            StoreRaw(half, """{"Rolls":[{"Id":"sword-mod:keen","Name":"\uD800","Stat":"crit-chance","Tier":1,"Value":0.02},{"Id":"sword-mod:bear","Name":"of the Bear","Stat":"strength","Tier":1,"Value":2}]}""");
+            ServerPass();
+            Assert.Equal(3 + 2, _game.Sum(_hero, Stat.Strength));               // the roll beside the unreadable one acts
+            Assert.Equal(0, _game.Sum(_hero, Stat.CritChance));
+            Assert.Equal(1, AffixRuntime.ItemNotes);
+            Assert.Equal(["sword-mod:bear"], As(() => Affixes.Of(half)).Select(a => a.Affix));
+            TakeOff(good);
+            ServerPass();
+            Assert.Equal(2, _game.Sum(_hero, Stat.Strength));                   // the pass still takes bonuses off
         }
 
         [Fact]

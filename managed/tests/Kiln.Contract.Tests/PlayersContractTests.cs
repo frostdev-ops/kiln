@@ -204,4 +204,25 @@ public sealed class BanChangeTests : ContractTest
         Assert.Equal(["ban " + Steam, "unban " + (Steam + 2)], seen);
         Assert.Null(Bans.Find(Steam + 2));
     }
+
+    [Fact]
+    public void A_ban_that_waits_is_not_announced_after_a_ban_that_replaced_it_under_another_key()
+    {
+        var seen = new List<string>();
+        var first = true;
+        using var banned = Events.On<PlayerBannedEvent>(e =>
+        {
+            seen.Add(e.Ban.Reason);
+            if (!first) return;
+            first = false;
+            PlayerAdmin.AddBan(Steam + 3, 4242, "alt", "old", null);  // by player (both ids), during the dispatch: waits
+        });
+        Bans.Add(Steam, "griefing");
+        Assert.Equal(1, PlayerAdmin.BanNotices.Waiting);
+        Bans.Add(Steam + 3, "new");  // by Steam id alone: replaces that entry, announced now; the one that waits is older
+        Assert.Equal(0, PlayerAdmin.BanNotices.Waiting);
+        Step(2);
+        Assert.Equal(["griefing", "new"], seen);
+        Assert.Equal("new", Bans.Find(Steam + 3)!.Reason);
+    }
 }

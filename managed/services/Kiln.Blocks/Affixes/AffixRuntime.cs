@@ -36,35 +36,56 @@ internal sealed class AffixData
 
 /// <summary>{ "Rolls": [ { "Id", "Name", "Stat", "Tier", "Value" } ] }, read leniently: a value that is not an object,
 /// Rolls that are null or not a list, an entry that is null or not an object, without an id, a second entry of one id,
-/// or a field of another type: the entry (or the whole value) is left out and named in <see cref="AffixData.Problem"/>.
-/// Never throws for a shape. Writes what Kiln wrote before this reader existed, byte for byte.</summary>
+/// a field of another type, or text that is no text (half a surrogate pair written as an escape): the entry (or the
+/// whole value) is left out and named in <see cref="AffixData.Problem"/>. A stored <c>null</c> is read here too. Never
+/// throws for what a JSON value holds: the store reads every item's slot before the pass sees one, so an exception here
+/// would stop the pass for everybody. Writes what Kiln wrote before this reader existed, byte for byte.</summary>
 internal sealed class AffixDataConverter : JsonConverter<AffixData>
 {
+    // a stored null comes here as well (else the store makes an empty value without Raw and writes {"Rolls":[]} back)
+    public override bool HandleNull => true;
+
     public override AffixData Read(ref Utf8JsonReader r, Type t, JsonSerializerOptions o)
     {
         using var doc = JsonDocument.ParseValue(ref r);
         var root = doc.RootElement;
         var data = new AffixData { Raw = root.GetRawText() };
         var problems = new List<string>();
-        if (root.ValueKind != JsonValueKind.Object) problems.Add($"the value is {Shape(root)}, not an object with Rolls");
-        else if (!root.TryGetProperty("Rolls", out var rolls) || rolls.ValueKind != JsonValueKind.Array) problems.Add($"Rolls is {(rolls.ValueKind == JsonValueKind.Undefined ? "missing" : Shape(rolls))}, not a list");
-        else
+        try
         {
-            var n = 0;
-            foreach (var e in rolls.EnumerateArray())
+            if (root.ValueKind != JsonValueKind.Object) problems.Add($"the value is {Shape(root)}, not an object with Rolls");
+            else if (!root.TryGetProperty("Rolls", out var rolls) || rolls.ValueKind != JsonValueKind.Array) problems.Add($"Rolls is {(rolls.ValueKind == JsonValueKind.Undefined ? "missing" : Shape(rolls))}, not a list");
+            else
             {
-                n++;
-                if (e.ValueKind != JsonValueKind.Object) { problems.Add($"roll {n} is {Shape(e)}"); continue; }
-                if (!Text(e, "Id", out var id) || string.IsNullOrEmpty(id)) { problems.Add($"roll {n} has no id"); continue; }
-                if (data.Rolls.Any(x => x.Id == id)) { problems.Add($"{id} is there twice (the first counts)"); continue; }
-                if (!Text(e, "Name", out var name) || !Text(e, "Stat", out var stat) || !Number(e, "Tier", out var tier) || tier != Math.Floor(tier) || Math.Abs(tier) > int.MaxValue
-                    || !e.TryGetProperty("Value", out var v) || v.ValueKind != JsonValueKind.Number || !v.TryGetDouble(out var value) || !double.IsFinite(value))
+                var n = 0;
+                foreach (var e in rolls.EnumerateArray())
                 {
-                    problems.Add($"roll {n} ({id}) has a field that is not what a roll holds");
-                    continue;
+                    n++;
+                    try
+                    {
+                        if (e.ValueKind != JsonValueKind.Object) { problems.Add($"roll {n} is {Shape(e)}"); continue; }
+                        if (!Text(e, "Id", out var id) || string.IsNullOrEmpty(id)) { problems.Add($"roll {n} has no id"); continue; }
+                        if (data.Rolls.Any(x => x.Id == id)) { problems.Add($"{id} is there twice (the first counts)"); continue; }
+                        if (!Text(e, "Name", out var name) || !Text(e, "Stat", out var stat) || !Number(e, "Tier", out var tier) || tier != Math.Floor(tier) || Math.Abs(tier) > int.MaxValue
+                            || !e.TryGetProperty("Value", out var v) || v.ValueKind != JsonValueKind.Number || !v.TryGetDouble(out var value) || !double.IsFinite(value))
+                        {
+                            problems.Add($"roll {n} ({id}) has a field that is not what a roll holds");
+                            continue;
+                        }
+                        data.Rolls.Add(new AffixRoll { Id = id, Name = name ?? "", Stat = stat ?? "", Tier = (int)tier, Value = value });
+                    }
+                    catch (Exception x)
+                    {
+                        // text that cannot be read as text (a lone surrogate escape) throws from the element, not from the parse
+                        problems.Add($"roll {n} could not be read ({x.GetType().Name})");
+                    }
                 }
-                data.Rolls.Add(new AffixRoll { Id = id, Name = name ?? "", Stat = stat ?? "", Tier = (int)tier, Value = value });
             }
+        }
+        catch (Exception x)
+        {
+            data.Rolls.Clear();
+            problems.Add($"the value could not be read ({x.GetType().Name})");
         }
         data.Problem = problems.Count == 0 ? null : string.Join("; ", problems);
         return data;
@@ -95,6 +116,11 @@ internal sealed class AffixDataConverter : JsonConverter<AffixData>
 
     public override void Write(Utf8JsonWriter w, AffixData v, JsonSerializerOptions o)
     {
+        if (v is null)
+        {
+            w.WriteNullValue();
+            return;
+        }
         if (v.Raw is { } raw)
         {
             w.WriteRawValue(raw, skipInputValidation: true);
