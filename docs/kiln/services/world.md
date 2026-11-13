@@ -280,6 +280,11 @@ Tick thread (Pre/Post) or inside your program: `component(e, hash, &size)`, `exi
   `world.tracked-water`: a can in your backpack is set from full to half by `World.Update<Ecs.Fuel>` while you look
   at it, and shows half without your touching it; `world.tracked-water-rejoin`: a can set to 23 of 100 shows 23
   before you leave to the menu and after you come back. Until these pass, "players see a tracked write" is unproven.
+  First try in a real game (13 Nov 2026, a hosting game, 0.2.0-dev.27 test build): `world.tracked-water` did NOT
+  pass. The write to half answered `Written: Fuel of <entity> (9 game writers, written over by the game one step
+  later, marked for the save)`, `Kept` false: with the can in the player's backpack one of the game's own programs
+  wrote `Fuel` back in the next step. Which one, and what it derives the value from there, is not known yet (the
+  lab's can, on a server with no player, keeps the write). `world.tracked-water-rejoin` was not run.
 
 
 ## Tracked writes for native services (v3)
