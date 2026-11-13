@@ -81,12 +81,14 @@ public unsafe class WorldWritesTests
 
     // The first try in a real game (13 Nov 2026): a can in the player's backpack, the Creative menu's rule set on (a water
     // rule: kiln.items' refill of the player's inventories). The answer said "written over by the game one step later";
-    // it was Kiln's own refill. A policy of Kiln's that covers the entity is named, with nothing blamed on the game.
+    // it was Kiln's own refill. A policy of Kiln's its service shows wrote over the bytes is named, nothing is blamed on the game.
     [Fact]
     public void A_write_a_Kiln_refill_wrote_over_names_the_refill_not_the_game()
     {
         const string refill = "kiln.items' water refill 1 (keep full) of the inventories of 1, set by kiln";
-        ComponentKeepers.Keeper keeper = (e, component) => e == new EntityId(1042) && component == "Fuel" ? refill : null;
+        // the keeper gets the bytes the write left (offset 8, the 4 bytes 9 2 3 4 of Result's After)
+        ComponentKeepers.Keeper keeper = (e, component, offset, written) =>
+            e == new EntityId(1042) && component == "Fuel" && offset == 8 && written.Span.SequenceEqual(new byte[] { 9, 2, 3, 4 }) ? refill : null;
         ComponentKeepers.Add(keeper);
         try
         {
@@ -112,22 +114,22 @@ public unsafe class WorldWritesTests
     [Fact]
     public void A_keeper_that_throws_names_nothing_and_the_next_one_answers()
     {
-        ComponentKeepers.Keeper broken = (_, _) => throw new InvalidOperationException("not on the tick thread");
-        ComponentKeepers.Keeper other = (e, c) => c == "Fuel" ? $"a refill of {e}" : null;
+        ComponentKeepers.Keeper broken = (_, _, _, _) => throw new InvalidOperationException("not on the tick thread");
+        ComponentKeepers.Keeper other = (e, c, _, _) => c == "Fuel" ? $"a refill of {e}" : null;
         ComponentKeepers.Add(broken);
         ComponentKeepers.Add(other);
         ComponentKeepers.Add(other);  // once only
         try
         {
-            Assert.Equal("a refill of 1042", ComponentKeepers.Who(new EntityId(1042), "Fuel"));
-            Assert.Null(ComponentKeepers.Who(new EntityId(1042), "Health"));
+            Assert.Equal("a refill of 1042", ComponentKeepers.Who(new EntityId(1042), "Fuel", 0, default));
+            Assert.Null(ComponentKeepers.Who(new EntityId(1042), "Health", 0, default));
         }
         finally
         {
             ComponentKeepers.Remove(broken);
             ComponentKeepers.Remove(other);
         }
-        Assert.Null(ComponentKeepers.Who(new EntityId(1042), "Fuel"));
+        Assert.Null(ComponentKeepers.Who(new EntityId(1042), "Fuel", 0, default));
     }
 
     [Theory]

@@ -18,6 +18,8 @@
     <PackageReference Include="Microsoft.Build.Utilities.Core" Version="17.14.28" />
     <PackageReference Include="Microsoft.Build.Framework" Version="17.14.28" />
     <Compile Remove="Fixtures/**" />
+    <!-- the guided rejoin checks' plan and matching (mods/tests/world-writes-test), plain functions with no game -->
+    <Compile Include="../../../mods/tests/world-writes-test/RejoinPlan.cs" Link="WorldWritesTest/RejoinPlan.cs" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../../Kiln.Api/Kiln.Api.csproj" />

@@ -117,14 +117,14 @@ public sealed record WorldWriteResult : IKilnResult
     /// game writer, nothing written, or the world closed).</summary>
     public bool? Kept { get; internal init; }
 
-    /// <summary>For a write that was not <see cref="Kept"/>: the policy of Kiln's that wrote over it, as a phrase that
-    /// names it (<c>"kiln.items' water refill 1 (keep full) of the inventories of 1, set by kiln"</c>). Such a policy
+    /// <summary>For a write that was not <see cref="Kept"/>: the policy of Kiln's that wrote over it in the step the write
+    /// was checked (its own report of that step shows it changing the written value), as a phrase that names it (<c>"kiln.items' water refill 1 (keep full) of the inventories of 1, set by kiln"</c>). Such a policy
     /// writes the component again every step, after the game's programs: a water refill (<c>Items.Fuel.Refill</c>,
     /// <c>Items.Fuel.KeepFull</c>, or a player's <c>Water</c> rule; the Creative menu's rule set has one) keeps every
     /// container it covers at its level, so a tracked write of their <c>Fuel</c> lasts one step. End that policy (or
     /// narrow it to other items) before the write, or change the water through it. Null when the write was kept, was
-    /// not checked, or no policy of Kiln's covers the entity (then one of the game's programs most likely wrote over
-    /// it). Since 0.2.0-dev.27.</summary>
+    /// not checked, or Kiln cannot show that one of its policies wrote over it (then one of the game's programs most
+    /// likely did); never the name of a policy that did not write. Since 0.2.0-dev.27.</summary>
     public string? WrittenOverBy { get; internal init; }
 
     /// <summary>Whether the game's write tracking records a change of this component type for the save (the game's own
@@ -588,10 +588,12 @@ internal static unsafe class WorldWrites
         };
     }
 
-    /// <summary>A write that was not kept, with the policy of Kiln's that wrote over it when one covers the entity
-    /// (kiln.items' water refills: ComponentKeepers). Tick thread, as the answer is.</summary>
+    /// <summary>A write that was not kept, with the policy of Kiln's that wrote over it when its service can show that it
+    /// did (kiln.items' water refills: ComponentKeepers). Tick thread, in the Pre the answer arrives in.</summary>
     internal static WorldWriteResult WrittenOver(WorldWriteResult result) =>
-        result.Kept == false && ComponentKeepers.Who(result.Entity, result.Component) is { } by ? result with { WrittenOverBy = by } : result;
+        result.Kept == false && ComponentKeepers.Who(result.Entity, result.Component, result.Offset, result.After) is { } by
+            ? result with { WrittenOverBy = by }
+            : result;
 
     private static Pending? Forget(long cookie)
     {

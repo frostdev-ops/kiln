@@ -28,8 +28,19 @@ public static class Lifecycle
     public static ServerPhase Phase
     {
         get => (ServerPhase)_phase;
-        internal set => _phase = (int)value;
+        internal set
+        {
+            if (value == ServerPhase.Booting) Interlocked.Increment(ref _serverSession);
+            _phase = (int)value;
+        }
     }
+
+    private static long _serverSession;
+
+    /// <summary>Counts server worlds in this process: raised each time one boots (a dedicated server's start, each world a
+    /// game client hosts). What a native service set up for one world (kiln.items' refills, which its world's closing
+    /// ends) belongs to the session it was made in.</summary>
+    internal static long ServerSession => Interlocked.Read(ref _serverSession);
 
     /// <summary>True once <see cref="ModsLoadedEvent"/> fired (all mods found at start-up are loaded).</summary>
     public static bool ModsLoaded { get; internal set; }
