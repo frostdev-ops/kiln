@@ -547,12 +547,15 @@ void feed_pad(ImGuiIO& io) {
 void input_hook_xinput() {
     // Runs after every library load, on the thread that loaded. Two loads can end at the same moment (they no longer
     // queue behind the LoadLibraryExW hook's mutex): one thread looks, the others leave it to that one, so the hook is
-    // made once and is not replaced while another thread reads it.
+    // made once and is not replaced while another thread reads it. A flag, not a mutex: a load made by this very
+    // thread while it works here comes back to this function, and it must pass too.
     static std::atomic<bool> hooked{false};
-    static std::mutex one;
-    if (hooked.load(std::memory_order_acquire)) return;
-    std::unique_lock<std::mutex> lk(one, std::try_to_lock);
-    if (!lk.owns_lock() || hooked.load(std::memory_order_acquire)) return;
+    static std::atomic_flag busy;
+    if (hooked.load(std::memory_order_acquire) || busy.test_and_set(std::memory_order_acquire)) return;
+    struct Leave {
+        ~Leave() { busy.clear(std::memory_order_release); }
+    } leave;
+    if (hooked.load(std::memory_order_acquire)) return;  // made between the first look and the flag
     for (const wchar_t* dll : {L"xinput1_4.dll", L"xinput1_3.dll", L"xinput9_1_0.dll"}) {
         HMODULE m = GetModuleHandleW(dll);
         if (!m) continue;

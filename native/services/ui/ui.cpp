@@ -20,6 +20,7 @@
 #include "safetyhook.hpp"
 #include "services/kiln_render.h"
 #include "ui.h"
+#include "load_hook.h"
 #include "slider.h"
 #include "draw_slots.h"
 
@@ -67,24 +68,12 @@ std::vector<std::shared_ptr<KeySub>> g_key_subs;
 // Keep canceled calls discoverable while another thread drains them (including self-unsubscribe during cleanup).
 std::unordered_map<KilnHandle, std::shared_ptr<CallbackLifetime>> g_retiring_subs;
 
-SafetyHookInline g_load_library;
-using LoadLibraryExWFn = HMODULE(WINAPI*)(LPCWSTR, HANDLE, DWORD);
-// The original, published before the hook is enabled and called without the hook's mutex (vk.cpp's pattern).
-// SafetyHookInline::call() holds that mutex for the whole original call. A load waits for the loader lock with the
-// mutex held, and the thread that holds the loader lock (a DllMain that loads a library, a graphics driver's does)
-// waits for the mutex in this detour: the game hung at its start in a stack with other engines (GitHub PR 27).
-// The hook is never removed, so the trampoline lives as long as the process.
-std::atomic<LoadLibraryExWFn> g_load_library_original{nullptr};
-
-HMODULE WINAPI hk_load_library_ex_w(LPCWSTR name, HANDLE file, DWORD flags) {
-    // Nothing runs before the original, and nothing after a load that failed: its caller reads the last error.
-    const LoadLibraryExWFn original = g_load_library_original.load(std::memory_order_acquire);
-    // never null here (published before enable()); the locked call is what this detour did before
-    HMODULE m = original ? original(name, file, flags) : g_load_library.call<HMODULE>(name, file, flags);
+// After every library load that gave a module (load_hook.h), on the loading thread; several threads at once, and the
+// thread may hold the loader lock. Neither call waits for another thread: each lets one thread work and the others pass.
+void after_library_load() {
     // every load: vulkan-1.dll present and our hooks not in its code (first load, or a reload) -> (re)install
-    if (m && GetModuleHandleW(L"vulkan-1.dll")) vk_install();
-    if (m) input_hook_xinput();
-    return m;
+    if (GetModuleHandleW(L"vulkan-1.dll")) vk_install();
+    input_hook_xinput();
 }
 
 // Calls a native frame callback under a fault guard (the game's render thread must survive a bad subscriber).
@@ -580,15 +569,7 @@ extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api,
     if (GetModuleHandleW(L"vulkan-1.dll")) {
         vk_install();
     } else {
-        void* target = reinterpret_cast<void*>(GetProcAddress(GetModuleHandleW(L"kernelbase.dll"), "LoadLibraryExW"));
-        if (!target) target = reinterpret_cast<void*>(GetProcAddress(GetModuleHandleW(L"kernel32.dll"), "LoadLibraryExW"));
-        // Created disabled, the original published, then enabled: another engine's thread loads its plugins while
-        // this runs, and a load that reached the detour before the original was known came back as failed.
-        g_load_library = safetyhook::create_inline(target, reinterpret_cast<void*>(&hk_load_library_ex_w),
-                                                   SafetyHookInline::StartDisabled);
-        if (g_load_library)
-            g_load_library_original.store(g_load_library.original<LoadLibraryExWFn>(), std::memory_order_release);
-        if (!g_load_library || !g_load_library.enable()) {
+        if (!load_hook::install(&after_library_load)) {
             logf(KILN_LOG_ERROR, "ui: hooking LoadLibraryExW failed: no overlay");
             return KILN_ERR_UNAVAILABLE;
         }
