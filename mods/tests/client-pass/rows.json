@@ -63,6 +63,7 @@
     { "section": "New in 0.2.0-dev.27", "key": "An item with a model of its own lies on the ground as that model", "checks": ["weapon-moves-test/blocks.dropped-own-model"] },
     { "section": "New in 0.2.0-dev.27", "key": "Event filters: one watched creature's hits, the others untouched", "checks": ["event-filter-test/events.filter-hits"] },
     { "section": "New in 0.2.0-dev.27", "key": "Equip and unequip by a mod", "checks": ["items.equip", "items.unequip"] },
-    { "section": "New in 0.2.0-dev.27", "key": "The weather a mod chose", "checks": ["time.weather"] }
+    { "section": "New in 0.2.0-dev.27", "key": "The weather a mod chose", "checks": ["time.weather"] },
+    { "section": "New in 0.2.0-dev.27", "key": "EMF mods built since EMF 0.6.3 run again, and an EMF server's mod check is answered", "checks": ["emf.current-mods", "emf.mods-check"] }
   ]
 }

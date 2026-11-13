@@ -88,6 +88,13 @@ public sealed partial class ClientPassMod
         "plain chat line. Each command answers, and the plain line shows in chat. Did both kinds of command work and the " +
         "line show?");
 
+    [ClientCheck("emf.current-mods", "A current EMF mod runs with no EMF installed", Area = "Other frameworks", Since = Dev27,
+        Order = 314)]
+    public Task EmfCurrentMods(CheckContext c) => Outside(c,
+        "Put EMF 0.6.8's lua mod and its kill_counter in emf/mods (switched on in kiln/config/emf/<id>.ini), start through " +
+        "Kiln with no EMF installed, and kill a creature. kiln.log then has a line \"[emf:lua] lua 1.33.0 ... loaded\" and " +
+        "no line with \"built for EMF API\". Did the kill counter's line show on screen, with kiln.log as described?");
+
     [ClientCheck("dll.xhl-late", "XHL-Core loaded late, after Kiln and ShroudForge", Area = "Other frameworks", Since = Dev21,
         Order = 313)]
     public Task DllXhlLate(CheckContext c) => Outside(c,
