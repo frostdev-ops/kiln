@@ -174,7 +174,8 @@ if (!Capabilities.Is("items.fuel")) { Log.Warn(Capabilities.Why("items.fuel")); 
   text, source), `Why(name)` one sentence to log, `All` every row. Any thread. `Game.HasFeature` asks the same table.
 - `CapabilityChangedEvent` (bus, tick thread) reports a row that is new, changed or removed.
 - A member marked `[RequiresCapability("name")]` throws `KilnUnavailableException` naming that capability when it is
-  off ([contract.md](contract.md)). The attribute only documents this; nothing checks it.
+  off ([contract.md](contract.md)). Nothing checks the attribute at run time; the analyzer KILN121 reads it and warns
+  where a marked member is used with no check before it.
 
 **`features` in the manifest.** Each name must be a capability that is available and fixed at boot:
 - an unavailable one refuses the mod with the reason:

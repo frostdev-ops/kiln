@@ -30,8 +30,8 @@ kiln pack                                     # bin/<config>/my-items-0.1.0.zip 
   (`~/srv/enshrouded/labs/<name>`, `$KILN_LABS`), or a server instance id (the launcher's and kilnctl's,
   `kiln_manage::server::instance`). Without it: `$KILN_SERVER`, then the project's `KilnServer` property.
 - **Where things come from.** The MDK feed (Kiln.Sdk, Kiln.Api, Kiln.Templates): `--feed`, `$KILN_FEED`,
-  `$KILN_OUT/nuget`, `<data>/sdk/nuget`. The cook tools and labs: the Kiln checkout `kiln` was built from, or
-  `$KILN_REPO`. The installed game the cook tools read: `--game`, `$KILN_GAME`, else the Steam client detected by
+  `$KILN_OUT/nuget`, `<data>/sdk/nuget`. The cook tools: `$KILN_REPO` or a development checkout when one is set, otherwise the copy
+  `kiln` carries (unpacked on first use). Labs still need a checkout. The installed game the cook tools read: `--game`, `$KILN_GAME`, else the Steam client detected by
   kiln-manage. The native SDK (headers, `KilnPlugin.cmake`, the Linux toolchain): `$KILN_SDK_DIR`, the restored
   Kiln.Sdk package, the package in the feed (unpacked into `<data>/sdk/`), or the checkout's `managed/Kiln.Sdk/native`.
 
