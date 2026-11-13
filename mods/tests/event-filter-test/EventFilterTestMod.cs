@@ -113,6 +113,22 @@ public sealed partial class EventFilterTestMod : Mod
             damagedSub.Dispose();
             await Steps(3);
             Check(Combat.Status is { Holding: false }, $"with no hit handler left kiln.combat holds nothing: {Combat.Status?.Holding}");
+
+            // 5. a handler added in the same step as the hit is served. Only heals of the doll are watched; then a hurt
+            // handler for the other creature subscribes and the hit follows with no step in between: its filter and its
+            // kind of event are with kiln.combat when Events.On returns.
+            var healSub = Events.On<EntityHealEvent>(_ => { }, EventFilter.ForEntity(doll));
+            await Steps(3);
+            var late = new List<EntityHurtEvent>();
+            var held6 = Held;
+            var o0 = Combat.GetHealth(other)!.Value.Current;
+            var lateSub = Events.On<EntityHurtEvent>(e => { late.Add(e); e.Amount = 1; }, EventFilter.ForEntity(other));
+            var r6 = await Combat.Damage(other, 7, default, GameHit);
+            await Steps(2);
+            Check(late.Count == 1 && Held == held6 + 1 && Combat.GetHealth(other)!.Value.Current == o0 - 1,
+                $"a handler added in the same step as the hit is served: {late.Count} event(s), hits held {held6} -> {Held}, health {o0} -> {Combat.GetHealth(other)!.Value.Current} (7 cut to 1), {r6}");
+            lateSub.Dispose();
+            healSub.Dispose();
         }
         catch (Exception e)
         {

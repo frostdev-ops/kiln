@@ -24,7 +24,8 @@ public sealed class PlayerGateTests : IDisposable
         public NetNative.PeerInfo? Info(uint peer) => Peers.TryGetValue(peer, out var x)
             ? new NetNative.PeerInfo { Peer = peer, Flags = NetNative.PeerHasPlayer, Entity = x.Entity, Account = x.Account }
             : null;
-        public int Kick(uint peer, uint reason) { Kicks.Enqueue((peer, reason)); return NetNative.Ok; }
+        public int KickAnswer = NetNative.Ok;  // what the game's kick call answers
+        public int Kick(uint peer, uint reason) { Kicks.Enqueue((peer, reason)); return KickAnswer; }
     }
 
     public PlayerGateTests()
@@ -75,6 +76,51 @@ public sealed class PlayerGateTests : IDisposable
         var (s, r, t) = PlayerGate.Decide(true, ok, ok, unknown, NetNative.RoleServer);
         Assert.Equal((CapabilityState.Unavailable, CapabilityReason.SymbolMissing), (s, r));
         Assert.Contains("net.players", t);
+    }
+
+    [Fact]
+    public async Task AKickTheGameRefusedIsTriedAgainAndABannedPlayerDoesNotStay()
+    {
+        Bans.Add(5151UL, "griefing");
+        var kicked = new List<PlayerKickedEvent>();
+        using var sub = Events.On<PlayerKickedEvent>(e => kicked.Add(e));
+        var p = Up(Vanilla, 5151);
+        _net.KickAnswer = NetNative.Ok + 7;      // the game's kick call fails
+        PlayerGate.Check(p);
+        var first = p.Kick!.Done.Task;
+        NetEngine.RunDueKicks(DateTime.UtcNow);
+        var r = await first;
+        Assert.False(r.Ok);
+        Assert.Contains("rc", r.Reason);
+        Assert.Empty(kicked);
+        Assert.Null(p.Kick);                     // the connection is not left as "being refused" for good
+        Assert.Equal(1, p.KickFailures);
+        // the gate does not hammer it every tick ...
+        PlayerGate.Check(p);
+        Assert.Null(p.Kick);
+        Assert.Single(_net.Kicks);
+        // ... but after the pause the ban is enforced again, and this time the game takes it
+        p.KickRetryAt = DateTime.UtcNow.AddSeconds(-1);
+        _net.KickAnswer = NetNative.Ok;
+        PlayerGate.Check(p);
+        Assert.NotNull(p.Kick);
+        var second = p.Kick!.Done.Task;
+        Assert.NotSame(first, second);
+        NetEngine.RunDueKicks(DateTime.UtcNow);
+        Assert.True((await second).Ok);
+        Assert.Equal(2, _net.Kicks.Count);
+        Assert.Single(kicked);
+        // an explicit kick after a failure does not get the old failed task either
+        var q = Up(Other, 77);
+        _net.KickAnswer = NetNative.Ok + 7;
+        var failed = PlayerGate.Refuse(q, default, "lab", "bye", "admin", false);
+        NetEngine.RunDueKicks(DateTime.UtcNow);
+        Assert.False((await failed).Ok);
+        _net.KickAnswer = NetNative.Ok;
+        var again = PlayerGate.Refuse(q, default, "lab", "bye", "admin", false);
+        Assert.NotSame(failed, again);
+        NetEngine.RunDueKicks(DateTime.UtcNow);
+        Assert.True((await again).Ok);
     }
 
     [Fact]

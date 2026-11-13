@@ -707,25 +707,47 @@ internal sealed class InstanceStore
     // a pass wait until the outermost pass is finished, and then go out in order: a handler finds the store as the pass
     // left it. What it changes then belongs to the next pass (for a save: the next save).
     private int _passes;
-    private readonly List<Action> _afterPass = new();
+    private bool _draining;
+    private readonly Queue<Action> _afterPass = new();
 
     private void BeginPass() => _passes++;
 
     private void EndPass()
     {
-        if (--_passes > 0) return;
-        // handlers may start passes of their own; their events come after the ones already waiting
-        while (_afterPass.Count > 0)
+        if (--_passes > 0 || _draining) return;
+        Drain();
+    }
+
+    // One queue, delivered in order by one loop. A handler may start a pass of its own (touching an item matches its
+    // holder) or claim and discard: those events join the end of the queue and go out when the ones already waiting
+    // have, from this loop, never from inside the handler. (Delivered from inside, they overtook the ones waiting, and a
+    // chain of them ran into the event bus's nesting limit.)
+    private void Drain()
+    {
+        _draining = true;
+        try
         {
-            var batch = _afterPass.ToArray();
-            _afterPass.Clear();
-            foreach (var post in batch) post();
+            while (_afterPass.TryPeek(out var post))
+            {
+                post();
+                _afterPass.Dequeue();
+            }
+        }
+        catch (Exception e)
+        {
+            // The bus isolates handlers, so this is the bus itself refusing (nested too deep in a caller's own event).
+            // The event stays first in line for the next pass's end; nothing behind it is lost.
+            SavesRuntime.Log(LogLevel.Warn, $"Kiln.Saves: {_afterPass.Count} item data event(s) wait for the next step: {e.Message}");
+        }
+        finally
+        {
+            _draining = false;
         }
     }
 
     private void Post<T>(T ev) where T : KilnEvent
     {
-        if (_passes > 0) _afterPass.Add(() => Events.Post(ev));
+        if (_passes > 0 || _draining) _afterPass.Enqueue(() => Events.Post(ev));
         else Events.Post(ev);
     }
 

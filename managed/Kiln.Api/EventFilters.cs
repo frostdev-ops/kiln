@@ -60,9 +60,11 @@ public sealed record EventFilter
 
 /// <summary>Keeps what a service holds for the handlers of some event types in step with the bus: the entities their
 /// filters name, pushed to the service whenever they change (kiln.combat's hit hold: only hits on watched entities are
-/// held for the handlers). A subscription that is added is pushed before <c>Events.On</c> returns, on the subscribing
-/// thread: from then on the service holds that subscriber's events too. A removed one only narrows the set, which waits
-/// for the next <see cref="Refresh"/> (the service calls it once a step).</summary>
+/// held for the handlers). Every subscription that is added leads to a push before <c>Events.On</c> returns, on the
+/// subscribing thread, also when the entities stay the same: from then on the service holds that subscriber's events
+/// too, and the push is where a service passes on what else the new handler needs (kiln.combat: the kinds of event it
+/// wants). A removed one only narrows the set, which waits for the next <see cref="Refresh"/> (the service calls it
+/// once a step, and nothing is pushed then unless the entities changed).</summary>
 internal sealed class EntityWatch : IDisposable
 {
     private readonly Type[] _kinds;
@@ -78,10 +80,12 @@ internal sealed class EntityWatch : IDisposable
     {
         _kinds = kinds;
         _push = push;
-        Events.SubscriptionAdded += Refresh;
+        Events.SubscriptionAdded += Added;
     }
 
-    public void Dispose() => Events.SubscriptionAdded -= Refresh;
+    public void Dispose() => Events.SubscriptionAdded -= Added;
+
+    private void Added() => Refresh(force: true);
 
     /// <summary>The watched ids from each kind's union (<see cref="Events.EntityFilterUnion"/>): empty as soon as one
     /// kind has a handler that takes every event, or when nobody filters at all. Pure.</summary>
@@ -96,15 +100,17 @@ internal sealed class EntityWatch : IDisposable
         return all is { Count: > 0 } ? all.Order().ToArray() : [];
     }
 
-    /// <summary>Pushes the set when subscriptions changed since the last push. Any thread.</summary>
-    public void Refresh()
+    /// <summary>Pushes the set when subscriptions changed since the last push and the entities are other ones. Any thread.</summary>
+    public void Refresh() => Refresh(force: false);
+
+    private void Refresh(bool force)
     {
         lock (_lock)
         {
             var version = Events.Version;
-            if (version == _version) return;
+            if (!force && version == _version) return;
             var ids = Compute(_kinds.Select(Events.EntityFilterUnion));
-            if (_pushed is null || !ids.AsSpan().SequenceEqual(_pushed))
+            if (force || _pushed is null || !ids.AsSpan().SequenceEqual(_pushed))
             {
                 if (!_push(ids)) return;
                 _pushed = ids;

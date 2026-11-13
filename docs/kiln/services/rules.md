@@ -461,10 +461,12 @@ It never lands, because without collision there is no ground. Water does not end
   began outside the world's bounds) nothing is moved: in both cases it keeps flying without collision, with a warning
   in kiln.log, until that place is free again or the player flies out into open space. A death during
   the wait ends it (the game moves the body), and so does a teleport by the game or a mod (fast travel): the
-  character stays where that put it, the event's `Reason` is `Teleport`, and Kiln never pulls it back, also not
-  with a move that was already on its way. A move back cannot be called off once it is asked for: if the player
-  flew out and got collision back before it landed, and it then lands where something was built meanwhile,
-  collision goes off again until the character is free (no second event).
+  character stays where that put it, the event's `Reason` is `Teleport`, and Kiln never pulls it back. A move
+  back cannot be called off once it is asked for, and it always answers (two or three steps as a rule, 15 seconds
+  at worst): until it has, nothing ends but by death, also when the player has flown out meanwhile, and where it
+  landed is looked at with collision still off. If a death ended things first and the move then puts the
+  respawned character where something was built meanwhile, collision goes off again until the character is free
+  (no second event).
   After a move back the character is kept safe until it stands on the ground (as after a carried flight),
   since the free position can be in the air; turning NoClip on again ends that protection. This order
   matters: the game does not push a character out of solid ground. In a lab a character whose rule ended 7 m inside

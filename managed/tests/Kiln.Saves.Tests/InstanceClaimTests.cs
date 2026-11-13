@@ -150,6 +150,38 @@ public sealed class InstanceClaimTests : IDisposable
     }
 
     [Fact]
+    public void EventsOfAMatchThatAHandlerStartedComeAfterTheOnesAlreadyWaiting()
+    {
+        // two chests with data; after the restart nothing is matched until a mod touches an item
+        var w = _h.World;
+        var chestA = w.Chest(ChestTemplate, A);
+        var chestB = w.Chest(ChestTemplate, B);
+        _h.Tag(w.Give(chestA, 4, Sword), 2);
+        _h.Tag(w.Give(chestA, 5, Rec.Of(Rec.Ring)), 3);
+        _h.Tag(w.Give(chestB, 4, Sword), 5);
+        _h.Save(1);
+        _h.Restart(1, FakeInstanceWorld.Load(w.SaveGame()), tick: false);
+        _h.Events.Clear();
+        var a = _h.World.HolderAt(ChestTemplate, A);
+        var b = _h.World.HolderAt(ChestTemplate, B);
+        // a handler of the first restored event touches an item of the other chest: that matches the other chest now
+        var touched = false;
+        using var sub = Kiln.Events.On<InstanceDataRestoredEvent>(_ =>
+        {
+            if (touched) return;
+            touched = true;
+            Assert.Equal(5, _h.Count(_h.World.At(b, 4)));
+        });
+        Assert.Equal(2, _h.Count(_h.World.At(a, 4)));  // touching chest A's item matches chest A: two events wait
+        var order = _h.Of<InstanceDataRestoredEvent>().Select(e => e.Item).ToList();
+        Assert.True(touched);
+        Assert.Equal(3, order.Count);
+        // chest A's two events first, in the order they were waiting; chest B's, caused by a handler, after them
+        Assert.Equal(new HashSet<ItemInstanceRef> { _h.World.At(a, 4), _h.World.At(a, 5) }, order.Take(2).ToHashSet());
+        Assert.Equal(_h.World.At(b, 4), order[2]);
+    }
+
+    [Fact]
     public void AHandlerThatDiscardsWhileHoldersAreCountedAsMissedBreaksNothing()
     {
         var w = _h.World;

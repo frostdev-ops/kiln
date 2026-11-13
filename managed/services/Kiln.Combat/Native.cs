@@ -142,7 +142,7 @@ internal static unsafe class CombatNative
     public struct TableV3
     {
         public TableV2 V2;
-        public delegate* unmanaged[Cdecl]<uint*, uint, int> HoldFilter;
+        public delegate* unmanaged[Cdecl]<uint*, uint, uint, int> HoldFilter;  // entities, count, interest bits to turn on now
     }
 
     /// <summary>The table with hold_filter, or null (kiln.combat missing, or an older runtime's).</summary>

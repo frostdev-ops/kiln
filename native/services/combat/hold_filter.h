@@ -18,13 +18,17 @@ class HoldFilter {
 public:
     static constexpr uint32_t kMax = 4096;
 
-    // count 0: every hit is held (no filter)
-    void set(const uint32_t* ids, uint32_t count) {
-        ids_.assign(ids, ids + count);
-        std::sort(ids_.begin(), ids_.end());
-        ids_.erase(std::unique(ids_.begin(), ids_.end()), ids_.end());
-        ids_.erase(std::remove(ids_.begin(), ids_.end(), 0u), ids_.end());
-        all_ = count == 0;
+    // count 0: every hit is held (no filter). True when the filter is another one than before.
+    bool set(const uint32_t* ids, uint32_t count) {
+        std::vector<uint32_t> next(ids, ids + count);
+        std::sort(next.begin(), next.end());
+        next.erase(std::unique(next.begin(), next.end()), next.end());
+        next.erase(std::remove(next.begin(), next.end(), 0u), next.end());
+        const bool all = count == 0;
+        if (all == all_ && next == ids_) return false;
+        ids_ = std::move(next);
+        all_ = all;
+        return true;
     }
 
     bool all() const { return all_; }

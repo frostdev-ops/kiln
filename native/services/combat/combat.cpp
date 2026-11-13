@@ -1744,13 +1744,32 @@ KilnResult t_status(KilnCombatStatus* out) {
     return KILN_OK;
 }
 
-KilnResult KILN_CALL t_hold_filter(const KilnEntity* entities, uint32_t count) {
+// A handler added between two steps: the kinds it wants count from now, not from the listener's next return (which sets
+// the whole mask as before, and is the only place the mask narrows). Without this a hit on a new watcher's entity was
+// held by the widened filter and then let go unannounced, because its kind was not in the mask yet.
+void widen_interest(uint32_t mask) {
+    if (!mask || !g_listener.load()) return;
+    const uint32_t old = g_interest.fetch_or(mask);
+    const uint32_t next = old | mask;
+    if (next == old) return;
+    const bool hold = (next & (KILN_COMBAT_MASK(KILN_COMBAT_HURT) | KILN_COMBAT_MASK(KILN_COMBAT_HEAL) |
+                               KILN_COMBAT_MASK(KILN_COMBAT_KNOCKBACK))) != 0 &&
+                      g_hits_ok;
+    if (hold && !g_holding.exchange(true)) LOGI("holding entity hits for the listener (interest 0x%x, a handler was added)", next);
+    else LOGI("listener interest 0x%x (a handler was added)", next);
+}
+
+KilnResult KILN_CALL t_hold_filter(const KilnEntity* entities, uint32_t count, uint32_t interest) {
     if (count > HoldFilter::kMax || (count && !entities)) return KILN_ERR_INVALID_ARGUMENT;
-    std::lock_guard lock(g_mu);
-    g_hold_filter.set(entities, count);
-    LOGI("hold filter: %s (%llu hit(s) let through unheld so far)",
-         g_hold_filter.all() ? "every hit" : (std::to_string(g_hold_filter.size()) + " watched entit(ies)").c_str(),
-         static_cast<unsigned long long>(c_unheld.load()));
+    {
+        std::lock_guard lock(g_mu);
+        // said only when it changes: it is pushed at every added subscription, whatever the event
+        if (g_hold_filter.set(entities, count))
+            LOGI("hold filter: %s (%llu hit(s) let through unheld so far)",
+                 g_hold_filter.all() ? "every hit" : (std::to_string(g_hold_filter.size()) + " watched entit(ies)").c_str(),
+                 static_cast<unsigned long long>(c_unheld.load()));
+    }
+    widen_interest(interest);
     return KILN_OK;
 }
 

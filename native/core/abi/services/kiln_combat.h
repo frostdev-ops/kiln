@@ -292,8 +292,10 @@ typedef struct KilnCombatApi {
      * hit whose target, root target, source or root source is one of `entities` is held; every other hit applies at once,
      * untouched, as when nobody listens. count 0 (the default): every hit is held. The set replaces the previous one and
      * counts from the next hit conclusion. At most 4096 entities (INVALID_ARGUMENT above, or entities NULL with count >
-     * 0). Any thread. */
-    KilnResult(KILN_CALL* hold_filter)(const KilnEntity* entities, uint32_t count);
+     * 0). `interest`: listener mask bits (KILN_COMBAT_MASK) to turn on at once, 0 for none: a handler that was added
+     * between two steps is served from the next hit on, and hits are held from now if the mask asks for it. The
+     * listener's return value still sets the whole mask at each step; only that narrows it. Any thread. */
+    KilnResult(KILN_CALL* hold_filter)(const KilnEntity* entities, uint32_t count, uint32_t interest);
 } KilnCombatApi;
 
 #ifdef __cplusplus
