@@ -5,6 +5,7 @@
 // acknowledgements go back the same way, after the pass, as they would arrive from the network. The channel itself
 // (Kiln.Network, the handshake, lab peers) is the lab test's part (mods/tests/instance-sync-test).
 #define SYNC_ACKS
+#define SYNC_BACKOFF
 using Xunit;
 using static Kiln.InstanceHarness;
 
@@ -137,9 +138,11 @@ public sealed class InstanceSyncTests : IDisposable
     private InstanceSyncServer NewServer() => new(Store.Instances, _link);
 #endif
 
-    /// <summary>One pass of <paramref name="server"/> (the test's own by default), then the games' acknowledgements.</summary>
+    /// <summary>One pass of <paramref name="server"/> (the test's own by default) a quarter of a second after the last, as
+    /// the runtime's timer makes them, then the games' acknowledgements.</summary>
     private int Pass(InstanceSyncServer? server = null)
     {
+        _clock += 250;
         server ??= _server;
         var n = server.Pass();
         _link.Deliver(server);
@@ -671,6 +674,89 @@ public sealed class InstanceSyncTests : IDisposable
         Assert.Equal(InstanceSyncClient.MaxItems - 1, Held(game, waiting, _shown));   // there is room again: it came
     }
 
+
+    // ---- confirm review of f114cec0: a game that keeps reporting losses, bytes per game, removals behind eight ----
+
+    [Fact]
+    public void AGameThatReportsALossEverySecondIsStartedOverAtABackedOffRateAndAnHonestOneWithinASecond()
+    {
+        var swords = Enumerable.Range(0, 20).Select(i => _h.World.Give(_hero, i, Rec.Of(Rec.Sword, level: 1 + i))).ToList();
+        for (var i = 0; i < swords.Count; i++) Set(swords[i], _mine, i);
+        var game = _link.Connect(1, _hero);
+        Pass();
+        var t0 = _clock;
+        var starts = new List<long>();
+        for (var pass = 0; pass < 4 * 130; pass++)                    // 130 seconds of a hostile game
+        {
+            if (pass % 4 == 0)                                        // once a second: "lost one after your last reset"
+                _server.Ack(1, new SyncAck(game.Updates.Last(u => u.Update.Reset).Update.Seq, Lost: true));
+            var before = game.Updates.Count;
+            Pass();
+            if (game.Updates.Count > before && game.Updates[^1].Update.Reset) starts.Add(_clock - t0);
+        }
+        var gaps = starts.Zip(starts.Skip(1), (a, b) => b - a).ToList();
+        Assert.InRange(starts.Count, 6, 8);                           // 1, 2, 4, ... 64 s apart: seven, not 130
+        Assert.All(gaps.Zip(gaps.Skip(1)), g => Assert.True(g.Second >= 2 * g.First - 300, $"gaps {string.Join(", ", gaps)}"));
+        Assert.True(gaps[^1] >= 32_000, $"gaps {string.Join(", ", gaps)}");
+
+        // it stops reporting. Its last report is still honoured at its backed-off time (a minute on); then five calm
+        // minutes, every update acknowledged, step the wait back, one step per 30 s
+        for (var pass = 0; pass < 4 * 60 * 5; pass++) Pass();
+#if SYNC_BACKOFF
+        Assert.Equal(InstanceSyncServer.LostEveryMs, _server.WaitOf(1).GapMs);   // the wait stepped back to one second
+#endif
+        // an honest game that lost one update now is made good within about a second
+        _link.Lose = 1;
+        Set(swords[0], _mine, 100);
+        Pass();                                                       // lost
+        Set(swords[1], _mine, 101);
+        Pass();                                                       // noticed: the game reports the loss
+        var noticed = _clock;
+        while (Held(game, swords[0], _mine) != 100 && _clock - noticed < 5_000) Pass();
+        Assert.Equal((100, 101), (Held(game, swords[0], _mine), Held(game, swords[1], _mine)));
+        Assert.True(_clock - noticed <= 1_000, $"made good {_clock - noticed} ms after the loss was noticed");
+    }
+
+    [Fact]
+    public void AGameIsSentAtMostItsByteBudgetASecondAndStillEverything()
+    {
+        var big = _h.Declare<Note>("story", new InstanceKeyOptions { Sync = InstanceSync.Holder });
+        for (var i = 0; i < 20; i++)
+        {
+            var item = _h.World.Give(_hero, i, Rec.Of(Rec.Sword, level: i + 1));
+            TestMods.As(_h.Mod, () => item.Set(big, new Note { Text = new string('a', 40_000) }));
+        }
+        var game = _link.Connect(1, _hero);
+        for (var pass = 0; pass < 8; pass++) Pass();                  // two seconds
+        var sent = game.Updates.Sum(u => u.Bytes);
+        Assert.True(sent <= 96 * 1024 + 2 * 256 * 1024, $"{sent} bytes in two seconds: more than one update and 256 KiB a second");
+        for (var pass = 0; pass < 40 && game.Store.Count < 20; pass++) Pass();
+        Assert.Equal(20, game.Store.Count);                           // nothing is dropped, only spread out
+    }
+
+    [Fact]
+    public void ARemovalDoesNotWaitBehindEightUnacknowledgedUpdates()
+    {
+        var sword = _h.World.Give(_hero, 3, Sword);
+        var ring = _h.World.Give(_hero, 4, Ring);
+        Set(sword, _mine, 0);
+        Set(ring, _mine, 1);
+        var game = _link.Connect(1, _hero);
+        _link.LoseAcks = true;                                        // the game's acknowledgements are slow: none arrives yet
+        Pass();
+        for (var i = 1; i < 8; i++)
+        {
+            Set(sword, _mine, i);
+            Pass();
+        }
+        Assert.Equal(8, game.Updates.Count);                          // eight under way
+        TestMods.As(_h.Mod, () => Assert.True(ring.Remove(_mine)));  // the player may no longer see the ring's value
+        Set(sword, _mine, 50);
+        Pass();
+        Assert.Null(game.Store.Find(ring.Entity.Id));                 // that goes at once
+        Assert.Equal(7, Held(game, sword, _mine));                    // a new value waits for an acknowledgement
+    }
+
 #if SYNC_ACKS
     [Fact]
     public void AGameThatAcknowledgesNothingGetsEightUpdatesThenStartsOver()
@@ -713,7 +799,8 @@ public sealed class InstanceSyncTests : IDisposable
         Assert.Equal(sent, game.Updates.Count);
         Assert.Equal(0, _server.StartOvers);
 
-        // a loss after an update it took starts it over once, and not again within a second however often it is said
+        // a loss after an update it took starts it over once, and not again within the next wait (2 s after a first start
+        // over) however often it is said
         for (var i = 0; i < 5; i++) _server.Ack(1, new SyncAck(game.Updates[^1].Update.Seq, Lost: true));
         Pass();
         Assert.Equal(1, _server.StartOvers);

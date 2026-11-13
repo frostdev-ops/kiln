@@ -18,7 +18,8 @@ deployed:
 
 first (the default): the holder, nobody else, nearby, moves, removals, losses, sizes, a later join, clients without the channel,
 an update lost on the way (noticed by the next, and the game starts over), a game that acknowledges nothing (at most eight
-updates, then a start over after ten seconds).
+updates, a removal still reaches it, then a start over after ten seconds), a game that reports a loss every second (started
+over at a falling rate).
 restart: after a stop and a start: the values the first phase left on two swords are back on them (the store matched
 them) and reach the holder's game in its first update, with nothing set in this boot.
 
@@ -79,6 +80,7 @@ class C(nt.Client):
         self.received = 0    # updates that arrived (taken or not)
         self.skipped = 0     # updates that arrived but did not follow the one taken last
         self.losses = []     # the "lost" reports sent: the update taken last
+        self.last_reset = 0  # the number of the last reset taken
 
     def set_table(self, table):
         self.table = table
@@ -128,6 +130,8 @@ class C(nt.Client):
                     self.send_ack(self.last, True)
             return
         self.last, self.chain, self.lost_said = seq, True, False
+        if reset:
+            self.last_reset = seq
         if self.ack:
             self.send_ack(seq, False)
         self.updates.append((time.time(), len(body), reset, gone, items))
@@ -403,17 +407,38 @@ def main():
         p7.ctl("edit", 0, "held", n)
         p7.pump(0.35)
     got = p7.received
-    s.check(f"a game that acknowledges nothing gets at most {IN_FLIGHT} updates, then nothing while none is acknowledged",
+    s.check(f"a game that acknowledges nothing gets at most {IN_FLIGHT} updates, then nothing new while none is acknowledged",
             got <= IN_FLIGHT, f"{got} updates")
+    p7.ctl("remove", 0, "held")                       # its only value: the player may no longer see the sword's data
+    t = p7.until(lambda: it[0]["Entity"] not in p7.items, 3)
+    s.check(f"a removal still reaches it with {IN_FLIGHT} updates unacknowledged (removals do not wait behind them)",
+            t is not None and p7.received == got + 1, f"after {t and round(t * 1000)} ms; {p7.received} updates")
     p7.ack = True
-    t = p7.until(lambda: p7.updates and p7.updates[-1][2] and (p7.value(it[0]["Entity"], "held") or {}).get("Count") == 71, ACK_TIMEOUT + 6)
+    t = p7.until(lambda: p7.updates and p7.updates[-1][2], ACK_TIMEOUT + 6)
     s.check("ten seconds after its oldest update it is started over with a reset, and is current again",
-            t is not None, f"after {t and round(t, 1)} s more; {p7.items.get(it[0]['Entity'])}")
+            t is not None and it[0]["Entity"] not in p7.items, f"after {t and round(t, 1)} s more; {p7.items}")
     r = p1.ctl("move", 0)                             # sword 0 back into chest A
-    p1.until(lambda: (p1.value(it[0]["Entity"], "held") or {}).get("Count") == 71, 4)
-    p1.ctl("set", 0, "held", 40, 40000)               # what the restart phase looks for, as before these two checks
+    p1.ctl("set", 0, "held", 40, 40000)               # what the restart phase looks for, as before these checks
     p1.ctl("set", 1, "held", 41, 40000)
-    p1.until(lambda: (p1.value(it[1]["Entity"], "held") or {}).get("Count") == 41, 6)
+    p1.until(lambda: (p1.value(it[0]["Entity"], "held") or {}).get("Count") == 40
+             and (p1.value(it[1]["Entity"], "held") or {}).get("Count") == 41, 6)
+
+    # ---- a game that reports a loss every second ----
+    p9 = C(a.port, "sync-liar", a.verbose)
+    p9.join([CH, CTL])
+    p9.view(A, pos_a)
+    p9.until(lambda: len(p9.items) == 2 and len(p9.items.get(it[1]["Entity"], {}).get("values", {})) == 2, 8)
+    first = len(p9.updates)
+    t0 = time.time()
+    while time.time() - t0 < 16:                      # "lost one after your last reset", once a second, for 16 seconds
+        p9.send_ack(p9.last_reset, True)
+        p9.pump(1.0)
+    starts = [round(u[0] - t0, 1) for u in p9.updates[first:] if u[2]]
+    gaps = [round(b - a, 1) for a, b in zip(starts, starts[1:])]
+    s.check("a game that reports a loss every second is started over at a falling rate (1, 2, 4, 8 s apart), not every second",
+            2 <= len(starts) <= 5 and all(g2 >= 1.6 * g1 for g1, g2 in zip(gaps, gaps[1:])), f"resets at {starts} s")
+    t = p9.until(lambda: len(p9.items) == 2 and len(p9.items.get(it[1]["Entity"], {}).get("values", {})) == 2, 4)
+    s.check("and each start over still gives it the whole set it may see", t is not None, {e: sorted(k for _, k in v["values"]) for e, v in p9.items.items()})
 
     # ---- games that must notice nothing ----
     p5 = C(a.port, "sync-old", a.verbose)  # a Kiln client without the channel (an older Kiln, or no mod that reads)

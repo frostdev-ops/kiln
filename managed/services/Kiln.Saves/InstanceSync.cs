@@ -15,8 +15,10 @@
 // Delivery: kiln.net can accept an update and drop it later (its retry queue gives up after two seconds), so an update
 // counts as delivered only when the game acknowledges it. Every update names the one before it (prev); a game takes an
 // update only right after the one it names, and otherwise reports the loss. A reported loss, or an update without an
-// acknowledgement after ten seconds, starts that game over: a reset with the whole set, as at the first update. At most
-// eight updates wait for their acknowledgement; the next difference waits for room.
+// acknowledgement after ten seconds, starts that game over: a reset with the whole set, as at the first update. The
+// client may be hostile: start overs of one game back off (each waits twice as long as the one before, up to 64 s; calm
+// stretches step the wait back), and one game is sent at most 256 KiB a second. At most eight updates wait for their
+// acknowledgement; while eight wait, only removals go (up to sixteen under way).
 //
 // Limits: a value is at most 64 KB as JSON (the store's cap); one update is at most 96 KB encoded (everything in it:
 // values, removals, gone items, headers) and 512 items, and what does not fit follows in the next updates (nothing is
@@ -170,14 +172,28 @@ internal sealed class InstanceSyncServer(InstanceStore store, IInstanceSyncLink 
     /// <summary>Items a game holds copies for at most: the client's own cap. The server never sends more.</summary>
     internal const int MaxHeldItems = InstanceSyncClient.MaxItems;
 
-    /// <summary>Updates that may wait for their acknowledgement; while that many wait, a game gets nothing new.</summary>
+    /// <summary>Updates that may wait for their acknowledgement; while that many wait, a game gets nothing new but
+    /// removals (gone items, removed values), which may take it to twice that many.</summary>
     internal const int MaxInFlight = 8;
 
     /// <summary>An update without an acknowledgement this long counts as lost: the game starts over.</summary>
     internal const long AckTimeoutMs = 10_000;
 
-    /// <summary>A game's report of a lost update starts it over at most this often (a client may be hostile).</summary>
+    /// <summary>The first start over of a game comes at once; each further one waits twice as long after the one before
+    /// (this, then 2, 4, ... seconds), up to <see cref="MaxStartOverGapMs"/>. A client may be hostile: a reset sends
+    /// everything it may see, so a game that keeps reporting losses is started over at a falling rate.</summary>
     internal const long LostEveryMs = 1_000;
+
+    internal const long MaxStartOverGapMs = 64_000;
+
+    /// <summary>Each stretch this long without trouble (every update acknowledged, no loss, no timeout) halves the wait
+    /// again (one step back).</summary>
+    internal const long CalmDecayMs = 30_000;
+
+    /// <summary>What one game is sent at most, on average: bytes a second, with one full update as the burst.</summary>
+    internal const int ViewerBytesPerSecond = 256 * 1024;
+
+    private const int MaxLevel = 6;  // LostEveryMs << 6 = 64 s
 
     private sealed class SentItem
     {
@@ -195,10 +211,21 @@ internal sealed class InstanceSyncServer(InstanceStore store, IInstanceSyncLink 
         /// <summary>The last update that went out to this game; the reset that started it over last (0: none yet).</summary>
         public uint Last, ResetSeq;
 
-        /// <summary>The game said it lost an update after one of this state's: it starts over at the next pass.</summary>
+        /// <summary>The game said it lost an update after one of this state's: it starts over once its wait allows.</summary>
         public bool LostReported;
 
         public long StartedOverAt = long.MinValue / 2;
+
+        /// <summary>How far the start-over wait has doubled (0: the next one may come at once); when the last trouble was,
+        /// and the last step back.</summary>
+        public int Level;
+
+        public long TroubleAt = long.MinValue / 2, CalmedAt = long.MinValue / 2;
+
+        /// <summary>Bytes this game may be sent now (refills at <see cref="ViewerBytesPerSecond"/>, at most one update).</summary>
+        public double Credit = UpdateBudgetBytes;
+
+        public long CreditAt;
 
         /// <summary>Updates that went out and wait for the game's acknowledgement, oldest first.</summary>
         public readonly List<(uint Seq, long At)> InFlight = [];
@@ -249,9 +276,16 @@ internal sealed class InstanceSyncServer(InstanceStore store, IInstanceSyncLink 
         state.Items.Clear();
         state.InFlight.Clear();
         state.LostReported = false;
-        state.StartedOverAt = now;
+        state.StartedOverAt = state.TroubleAt = now;
+        state.Level = Math.Min(state.Level + 1, MaxLevel);
         StartOvers++;
     }
+
+    /// <summary>How long after its last start over a game may be started over again.</summary>
+    internal static long StartOverGap(int level) => Math.Min(LostEveryMs << Math.Clamp(level, 0, MaxLevel), MaxStartOverGapMs);
+
+    /// <summary>A game's start-over wait now, and the start overs so far (the admin listing, the tests).</summary>
+    internal (long GapMs, long StartOvers) WaitOf(ulong viewer) => _viewers.TryGetValue(viewer, out var s) ? (StartOverGap(s.Level), StartOvers) : (0, StartOvers);
 
     /// <summary>One pass: for every viewer, what it may see now against what it was sent. Returns the updates that went out.</summary>
     internal int Pass()
@@ -279,11 +313,25 @@ internal sealed class InstanceSyncServer(InstanceStore store, IInstanceSyncLink 
         var sent = 0;
         foreach (var viewer in viewers)
         {
-            if (!_viewers.TryGetValue(viewer.Id, out var state)) _viewers[viewer.Id] = state = new ViewerState(viewer.Player);
-            if (state.LostReported && now - state.StartedOverAt >= LostEveryMs) StartOver(state, now);
-            else if (state.InFlight.Count > 0 && now - state.InFlight[0].At >= AckTimeoutMs) StartOver(state, now);
-            if (state.LostReported) continue;                    // the game takes nothing but the reset: it comes once allowed
-            if (state.InFlight.Count >= MaxInFlight) continue;  // it waits for the game to take what is under way
+            if (!_viewers.TryGetValue(viewer.Id, out var state)) _viewers[viewer.Id] = state = new ViewerState(viewer.Player) { CreditAt = now };
+            var lost = state.LostReported || (state.InFlight.Count > 0 && now - state.InFlight[0].At >= AckTimeoutMs);
+            if (lost)
+            {
+                state.TroubleAt = now;
+                if (now - state.StartedOverAt >= StartOverGap(state.Level)) StartOver(state, now);
+            }
+            else if (state.Level > 0 && !state.Fresh && state.InFlight.Count == 0 && now - Math.Max(state.TroubleAt, state.CalmedAt) >= CalmDecayMs)
+            {
+                state.Level--;  // a long stretch without trouble: the wait halves again
+                state.CalmedAt = now;
+            }
+            if (state.LostReported) continue;                        // the game takes nothing but the reset: it comes once allowed
+            if (state.InFlight.Count >= 2 * MaxInFlight) continue;  // it waits for the game to take what is under way
+            var removalsOnly = state.InFlight.Count >= MaxInFlight;  // eight wait: only what the player may no longer see goes
+            state.Credit = Math.Min(UpdateBudgetBytes, state.Credit + (now - state.CreditAt) * (ViewerBytesPerSecond / 1000.0));
+            state.CreditAt = now;
+            var allow = (int)Math.Min(budget, state.Credit);
+            if (allow < SyncUpdate.HeaderBytes + SyncUpdate.GoneBytes) continue;
             var want = new List<(uint Entity, LiveItem Item, List<InstanceStore.SyncedValue> Values, bool Own)>();
             foreach (var (item, values) in byItem)
             {
@@ -297,7 +345,7 @@ internal sealed class InstanceSyncServer(InstanceStore store, IInstanceSyncLink 
             }
             // the player's own items first, so others' never crowd them out of the game's cap; then by entity
             want.Sort(static (a, b) => a.Own != b.Own ? (a.Own ? -1 : 1) : a.Entity.CompareTo(b.Entity));
-            var (update, commit) = Diff(state, want, budget);
+            var (update, commit, bytes) = Diff(state, want, budget, allow, removalsOnly);
             if (update.IsEmpty) continue;
             if (++_seq == 0) _seq = 1;
             update.Seq = _seq;
@@ -308,6 +356,7 @@ internal sealed class InstanceSyncServer(InstanceStore store, IInstanceSyncLink 
                 continue;
             }
             commit();
+            state.Credit -= bytes;
             state.Last = update.Seq;
             if (update.Reset) state.ResetSeq = update.Seq;
             state.InFlight.Add((update.Seq, now));
@@ -326,9 +375,12 @@ internal sealed class InstanceSyncServer(InstanceStore store, IInstanceSyncLink 
         return where is { } p && p.DistanceTo(at) <= radius;
     }
 
-    /// <summary>The update that turns what the viewer was sent into what it may see now (as far as one update holds), and
-    /// what to remember once it went out. <paramref name="budget"/> covers the whole encoded update.</summary>
-    private (SyncUpdate Update, Action Commit) Diff(ViewerState state, List<(uint Entity, LiveItem Item, List<InstanceStore.SyncedValue> Values, bool Own)> want, int budget)
+    /// <summary>The update that turns what the viewer was sent into what it may see now (as far as one update holds), what
+    /// to remember once it went out, and its size as counted. <paramref name="allow"/> bytes may go now (the whole encoded
+    /// update); <paramref name="budget"/> is what one update may ever carry (a value larger alone is never sent). With
+    /// <paramref name="removalsOnly"/> only gone items and removed values go.</summary>
+    private (SyncUpdate Update, Action Commit, int Bytes) Diff(ViewerState state, List<(uint Entity, LiveItem Item, List<InstanceStore.SyncedValue> Values, bool Own)> want,
+        int budget, int allow, bool removalsOnly)
     {
         var update = new SyncUpdate { Reset = state.Fresh };
         var commits = new List<Action> { () => state.Fresh = false };
@@ -341,7 +393,7 @@ internal sealed class InstanceSyncServer(InstanceStore store, IInstanceSyncLink 
         foreach (var (entity, had) in state.Items.OrderBy(i => i.Key))
         {
             if (serialOf.TryGetValue(entity, out var serial) && serial == had.Serial) continue;
-            if (used + SyncUpdate.GoneBytes > budget || update.Gone.Count >= SyncUpdate.MaxGone)
+            if (used + SyncUpdate.GoneBytes > allow || update.Gone.Count >= SyncUpdate.MaxGone)
             {
                 waiting.Add(entity);
                 continue;
@@ -358,10 +410,10 @@ internal sealed class InstanceSyncServer(InstanceStore store, IInstanceSyncLink 
             if (update.Items.Count >= MaxItemsPerUpdate) break;
             if (waiting.Contains(entity)) continue;  // the item the id stood for leaves the game first
             var had = state.Items.TryGetValue(entity, out var h) && h.Serial == item.Ref.Entity.Serial ? h : null;
-            if (had is null && held >= MaxHeldItems) continue;  // no room in the game: it follows once there is
+            if (had is null && (removalsOnly || held >= MaxHeldItems)) continue;  // no room in the game: it follows once there is
             var op = new SyncItemUpdate { Entity = entity, Item = item.Ref.Item.Value, Holder = item.Place.Holder.Value, Slot = item.Place.FlatSlot };
             var cost = SyncUpdate.ItemHeaderBytes;
-            var full = used + cost > budget;
+            var full = used + cost > allow;
             var sets = 0;
             // removals first: a value the player may not see any more leaves its game before anything new arrives
             if (had is not null && !full)
@@ -369,7 +421,7 @@ internal sealed class InstanceSyncServer(InstanceStore store, IInstanceSyncLink 
                 {
                     if (list.Any(v => v.Key.ModId == at.Mod && v.Key.Name == at.Key && !TooLarge(item, v, budget))) continue;
                     var c = SyncUpdate.ValueBytes(at.Mod, at.Key, null);
-                    if (used + cost + c > budget || op.Values.Count >= SyncUpdate.MaxValuesPerItem)
+                    if (used + cost + c > allow || op.Values.Count >= SyncUpdate.MaxValuesPerItem)
                     {
                         full = true;
                         break;
@@ -377,14 +429,14 @@ internal sealed class InstanceSyncServer(InstanceStore store, IInstanceSyncLink 
                     cost += c;
                     op.Values.Add((at.Mod, at.Key, null));
                 }
-            if (!full)
+            if (!full && !removalsOnly)
                 foreach (var v in list)
                 {
                     var at = (v.Key.ModId, v.Key.Name);
                     if (had is not null && had.Values.TryGetValue(at, out var old) && old == v.Json) continue;
                     if (TooLarge(item, v, budget)) continue;  // it stays on the server (an old copy went as a removal above)
                     var c = SyncUpdate.ValueBytes(at.ModId, at.Name, v.Json);
-                    if (used + cost + c > budget || op.Values.Count >= SyncUpdate.MaxValuesPerItem)
+                    if (used + cost + c > allow || op.Values.Count >= SyncUpdate.MaxValuesPerItem)
                     {
                         full = true;  // the rest follows in the next update
                         break;
@@ -393,9 +445,9 @@ internal sealed class InstanceSyncServer(InstanceStore store, IInstanceSyncLink 
                     sets++;
                     op.Values.Add((at.ModId, at.Name, v.Json));
                 }
-            var moved = had is not null && (had.Holder != op.Holder || had.Slot != op.Slot);
+            var moved = !removalsOnly && had is not null && (had.Holder != op.Holder || had.Slot != op.Slot);
             // a new item goes out only with a value: one without is nothing a client could show
-            if ((op.Values.Count > 0 || moved) && used + cost <= budget)
+            if ((op.Values.Count > 0 || moved) && used + cost <= allow)
             {
                 used += cost;
                 values += sets;
@@ -427,7 +479,7 @@ internal sealed class InstanceSyncServer(InstanceStore store, IInstanceSyncLink 
         return (update, () =>
         {
             foreach (var c in commits) c();
-        });
+        }, bytes);
     }
 
     /// <summary>A value that does not fit one update even alone (network.json maxMessageBytes was lowered below it): it

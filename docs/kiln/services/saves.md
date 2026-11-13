@@ -387,10 +387,24 @@ public sealed class Swords : Mod   // kiln.mod.json: "side": "both"
 - **Nothing lost on the way.** kiln.net can take an update and drop it later (a frame it cannot hand to the game within
   two seconds), so an update counts only once the player's game acknowledges it. Every update names the one before it;
   a game takes an update only right after the one it names, and otherwise tells the server it lost one. The server then
-  starts that game over (a reset with the whole set, at most once a second); an update that is not acknowledged within
-  ten seconds does the same. At most eight updates wait for their acknowledgement; while eight wait, the game gets
-  nothing new. So a lost value, removal or reset is made good within about a second when another update follows it,
-  and within ten seconds when none does.
+  starts that game over (a reset with the whole set); an update that is not acknowledged within ten seconds does the
+  same. So a lost value, removal or reset is made good within about a second when another update follows it, and within
+  ten seconds when none does.
+- **A game cannot make the server send more.** The client is another machine and may be hostile. A game's first start
+  over comes at once; each further one waits twice as long after the one before (2, 4, 8 ... seconds, at most 64), and
+  each 30 seconds without trouble (every update acknowledged, no loss, no timeout) halve the wait again. One game is sent
+  at most 256 KiB a second on average (one 96 KB update as the burst) and one update per pass, so a game that reports a
+  loss every second gets the whole set at a falling rate, not every second. An acknowledgement of an update the server
+  is not waiting for, and a loss before the game's last reset, change nothing.
+- **Removals do not wait behind eight.** At most eight updates wait for their acknowledgement; while eight wait, the game
+  gets no new value, but what it may no longer see (a gone item, a removed value) still goes, up to sixteen updates
+  under way in all.
+- **What the protocol leaves.** A game that acknowledges nothing at all (sixteen under way) gets nothing, a removal
+  included, until the ten-second recovery starts it over (and then at its backed-off rate). A game whose connection id
+  and player entity id are both reused within one pass (a quarter of a second) is not told apart from the one before:
+  its first update does not follow what it holds, it reports the loss, and the ten-second recovery starts it over. Update
+  numbers are compared as 32-bit sequence numbers: a game more than 2^31 updates behind would be misread (at four
+  updates a second, after 17 years).
 - **The client's copies** are read-only. `SyncedItem.Entity` is the item entity's id **on the server**, `Holder` the
   holder's, `FlatSlot` the slot as Kiln.Items numbers it there (0 to 255: backpack and action bar, 8 per page; 256 and
   up: worn gear and the other links), `Item` the item type, `Own` whether this game's player holds it. Whether the
@@ -405,10 +419,12 @@ public sealed class Swords : Mod   // kiln.mod.json: "side": "both"
 | Limit | Value | Above it |
 |---|---|---|
 | one value | 64 KB as JSON, the store's cap | `Set` throws `ArgumentException`; a live object that grew past it is sent (and saved) in its last form that fit |
-| one update to one player | 96 KB encoded (everything in it: values, removals, gone items, headers), 512 items, 256 values per item | the rest follows in the next updates, a quarter of a second apart: nothing is dropped, a long list of gone items or of removed keys included. A player holding 1 MB of synced values has all of it after about 3 seconds |
+| one update to one player | 96 KB encoded (everything in it: values, removals, gone items, headers), 512 items, 256 values per item | the rest follows in the next updates, a quarter of a second apart: nothing is dropped, a long list of gone items or of removed keys included |
+| bytes to one player's game | 256 KiB a second on average, one 96 KB update as the burst | what is over waits for the next passes. A player holding 1 MB of synced values has all of it after about 4 seconds |
+| start overs of one game | the first at once, then 2, 4, 8 ... up to 64 seconds apart; 30 calm seconds halve the wait again | a reported loss waits for its turn; the game takes nothing but the reset meanwhile |
 | a value against the server's `network.json` `maxMessageBytes` (default 256 KiB) | one update with that value alone (the value, its mod id and key name, and the update's headers) must fit in `maxMessageBytes` | a server whose operator lowered the limit below a value's size never sends that value (warned once per item and key in kiln.log), and takes an older copy of it off the game; the others go |
 | a client's copies | 4,096 items | the server sends no more than that to one game, the player's own items first; an item that waits goes out as soon as one of the game's leaves. A client also leaves out what goes over it (warned once in its kiln.log), which a Kiln server never sends |
-| updates waiting for a game's acknowledgement | 8 | the game gets nothing new until one is acknowledged; ten seconds without, it starts over |
+| updates waiting for a game's acknowledgement | 8, and up to 16 for removals | the game gets no new value until one is acknowledged, removals still go; ten seconds without, it starts over |
 | what a client accepts in one update | version 1, 4,096 items, 65,536 gone ids, 256 values per item, 64 KB per value, mod id 128 bytes, key 800 bytes | the whole update is dropped as malformed (counted as a decode error of the channel) |
 
 **Wire** (channel `kiln:instance` v1, not required; integers little-endian, strings and counts as in
@@ -423,12 +439,14 @@ it is not waiting for, and a loss before the game's last reset. (`seq`, `prev` a
 after the dev.27 review.)
 
 **What is proven where.** The passes, the limits and the client's store are proven offline with the real store and a
-fake game (`InstanceSyncTests`, 35 tests: every update goes through the real encoder and decoder into a real client
+fake game (`InstanceSyncTests`, 38 tests: every update goes through the real encoder and decoder into a real client
 store per player, and the acknowledgements come back the same way; they include an NPC that walks away, updates the
 network took and lost, 2,048 items gone and 59 long key names removed at once over an 8 KB channel, 4,097 items for a
-game that keeps 4,096, a game that acknowledges nothing, and acknowledgements a hostile game makes up). The channel is
+game that keeps 4,096, a game that acknowledges nothing, acknowledgements a hostile game makes up, a game that reports a
+loss every second for 130 seconds (started over 1, 2, 4 ... 64 s apart, and within a second for an honest loss after
+calm minutes), the byte budget per game, and a removal behind eight unacknowledged updates). The channel is
 proven on a lab server (a copy of a real world, no player, server 26430253) with fake clients on kiln.net's lab
-transport (`mods/tests/instance-sync-test`, `syncnet.py`, 46 checks and 8 after a restart, all passing on 2026-11-12):
+transport (`mods/tests/instance-sync-test`, `syncnet.py`, 49 checks and 8 after a restart, all passing on 2026-11-12):
 lab peers stand for the holders of two chests and for a player near them. The holder got a value
 115 to 170 ms after `Set`, with the item's type, holder and flat slot as the server reads them; an edit without `Set`
 arrived; the key without `Sync` never did; the other chest's holder and a player far away got nothing; a player 3 m from
@@ -439,8 +457,9 @@ got the whole set after a reset; a Kiln client without the channel and a client 
 NPC (a player-template entity) carrying a sword was moved 60 m (`Teleport.To`) with the sword in the same slot: the game
 3 m from its old place lost the `Nearby` copy 131 ms later and a game beside its new place got it. An update the peer
 dropped on purpose was noticed by the next one, and the server started that game over with the whole set 269 ms later;
-a peer that acknowledged nothing got 8 updates and then nothing, until the server started it over ten seconds after
-the oldest one. After a stop
+a peer that acknowledged nothing got 8 updates and then no new value, but a removal still reached it 84 ms later, and
+the server started it over ten seconds after the oldest one; a peer that reported a loss every second for 16 seconds was
+started over at 1.0, 3.0, 7.0 and 15.1 s, each time with the whole set. After a stop
 and a start the two swords had their values again and the holder's game got them in its first updates, with nothing
 set in that boot. A lab has no player with an inventory, so **a real player's inventory and a real game showing a value
 wait for the guided checks** `instances.synced`, `instances.synced-moves`, `instances.synced-rejoin` and
