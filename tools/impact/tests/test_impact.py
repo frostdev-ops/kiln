@@ -406,6 +406,20 @@ class CookTests(unittest.TestCase):
             c = P.decode((mod / "assets" / "cooked" / "impact" / "c.bin").read_bytes())
             self.assertIn(P.fnv1a32("mod.Ping"), [i.args[1] for i in ops.decode(c.code) if i.code == ops.ECALL])
             self.assertTrue(cook.needs_cook(rp))       # the failed step keeps it "needs cook"
+            # everything the cook wrote is in the mod's assets/cooked folder (the report too) and its manifest
+            written = sorted(f.relative_to(mod).as_posix() for f in mod.rglob("*") if f.is_file() and f.relative_to(mod).parts[0] != "impact")
+            self.assertEqual(written, ["assets/assets.json", "assets/cooked/impact/c.bin", "assets/cooked/impact/cook-report.json", "assets/cooked/impact/new.bin"])
+            # an "out" outside it is refused with what to change, and nothing is written
+            for out in ("built", "../cooked/impact", "../assets", "../assets/cooked/../impact"):
+                rp.write_text(json.dumps(dict(recipe, out=out)))
+                before = sorted(str(f) for f in mod.rglob("*"))
+                with self.assertRaises(cook.RecipeError, msg=out) as e:
+                    cook.run(rp, g, update_manifest=True)
+                self.assertIn("outside the mod's assets/cooked folder", str(e.exception))
+                self.assertIn('"../assets/cooked/<name>"', str(e.exception))
+                with self.assertRaises(cook.RecipeError):
+                    cook.needs_cook(rp)
+                self.assertEqual(sorted(str(f) for f in mod.rglob("*")), before)
             k.close()
 
 

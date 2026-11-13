@@ -261,6 +261,21 @@ class RecipeTests(unittest.TestCase):
     def run_recipe(self, native=NATIVE, **kw):
         return recipe.run(self.path, None, native, log=lambda m: None, **kw)
 
+    def test_out_is_the_mods_cooked_folder(self):
+        """A cook writes into the mod's assets/cooked folder only: another "out" is refused with what to change, and nothing is written."""
+        for out in ("built", "../cooked", ".", "cooked/../../audio"):
+            path = _mod(self.root, BASIC_STEPS, {"out": out}, sources=False)
+            before = sorted(str(f) for f in self.root.rglob("*"))
+            with self.assertRaises(recipe.RecipeError, msg=out) as e:
+                recipe.run(path, None, NATIVE, log=lambda m: None, update_manifest=True)
+            self.assertIn("outside the mod's assets/cooked folder", str(e.exception))
+            self.assertIn('"out": "cooked"', str(e.exception))
+            with self.assertRaises(recipe.RecipeError):
+                recipe.needs_cook(path)
+            self.assertEqual(sorted(str(f) for f in self.root.rglob("*")), before)
+        self.assertEqual(recipe.out_dir(_mod(self.root, BASIC_STEPS, {"out": "cooked/snd"}, sources=False), {"out": "cooked/snd"}),
+                         (self.root / "assets/cooked/snd").resolve())
+
     def test_cook_outputs_manifest_index(self):
         self.assertTrue(recipe.needs_cook(self.path))
         r = self.run_recipe(update_manifest=True, cross_check=True)

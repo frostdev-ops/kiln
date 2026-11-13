@@ -23,7 +23,8 @@ structure as the base. glTF space (right-handed, +Y up, metres) becomes the game
 the model's origin is the attachment point (the hand grip for weapons).
 Common options: --game DIR (default Steam's Enshrouded), --exe EXE (default the game's exe; read only).
 --game may be a dedicated server's folder (enshrouded_server.kfc): recipe and looks then skip the model steps, one line each
-("skipped on a dedicated server: only a game client draws it"), and cook the rest.
+("skipped on a dedicated server: only a game client draws it"), and cook the rest. assets.json is the same file as after a client's cook.
+Everything a cook writes from the game goes into the mod's assets/cooked folder; a recipe whose "out" is elsewhere is refused.
 """
 import argparse
 import json
@@ -91,11 +92,17 @@ def _say_steps(r):
               + ("" if s["ok"] else " " + json.dumps({c: v for c, v in s["checks"].items() if not v})))
 
 
-def _say_unmarked(r):
-    files = r["manifest"].get("clientOnlyUnmarked")
-    if files:
-        print(f"assets.json: {len(files)} entr{'y' if len(files) == 1 else 'ies'} of the skipped steps lack \"side\": \"client\", so kiln.assets "
-              "warns for each at every server start (run with --update-manifest): " + ", ".join(files))
+def _say_marks(r):
+    """The "side": "client" marks a server's cook of 0.2.0-dev.26 wrote on the models' entries: taken out, or still there."""
+    def n(files):
+        return f"{len(files)} entr{'y' if len(files) == 1 else 'ies'}"
+    gone, there = r["manifest"].get("unmarked"), r["manifest"].get("marked")
+    if gone:
+        print(f"assets.json: took the \"side\": \"client\" mark of an older cook out of {n(gone)} (a server skips a model by its type; with the mark "
+              "this copy was another file than the players'): " + ", ".join(gone))
+    if there:
+        print(f"assets.json: {n(there)} of the models carry a \"side\": \"client\" mark an older cook wrote on a server, so this copy differs from the "
+              "players' (run with --update-manifest to take it out): " + ", ".join(there))
 
 
 def cmd_recipe(a):
@@ -115,7 +122,7 @@ def cmd_recipe(a):
         print("assets.json does not match the cooked files (run with --update-manifest):")
         for e in r["manifest"]["missing"] + r["manifest"]["mismatched"]:
             print("  " + json.dumps(e))
-    _say_unmarked(r)
+    _say_marks(r)
     print(f"{'ok' if r['ok'] else 'FAILED'}: {len(r['outputs'])} file(s), report {Path(a.recipe).parent / doc.get('out', 'cooked') / recipe.report_name(doc)}")
     rc = _dispatch(a, doc, ["--update-manifest"] if a.update_manifest else []) if others else 0
     return 0 if r["ok"] and not rc else 1
@@ -175,7 +182,7 @@ def cmd_looks(a):
     _say_steps(r)
     if r["manifest"]["missing"] or r["manifest"]["mismatched"]:
         print("assets.json does not match the cooked files (run with --update-manifest)")
-    _say_unmarked(r)
+    _say_marks(r)
     print(f"{'ok' if r['ok'] else 'FAILED'}: {len(r['outputs'])} file(s), report {path.parent / doc['out'] / recipe.LOOKS_REPORT}")
     return 0 if r["ok"] else 1
 

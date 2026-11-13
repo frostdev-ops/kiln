@@ -422,10 +422,28 @@ class RecipeRun(Base):
          "states": {"idle": {"engine": "Idle", "clip": "idle"}, "slam": {"clip": "slam"}, "step": {"clip": "step"}}}]}
 
     def setUp(self):
-        self.mod = Path(tempfile.mkdtemp(dir=self.dir))
+        self.mod = Path(tempfile.mkdtemp(dir=self.dir)) / "assets"  # a recipe is in its mod's assets folder: the cook writes to assets/cooked only
+        self.mod.mkdir()
         (self.mod / "golem.glb").write_bytes(self.glb.read_bytes())
         self.r = self.mod / "cook.json"
         self.r.write_text(json.dumps(self.RECIPE))
+
+    def test_out_is_the_mods_cooked_folder(self):
+        """A cook writes into the mod's assets/cooked folder only: another "out" is refused with what to change, and nothing is written."""
+        for out in ("built", "../cooked", ".", "cooked/../src"):
+            self.r.write_text(json.dumps(dict(self.RECIPE, out=out)))
+            before = sorted(str(f) for f in self.mod.parent.rglob("*"))
+            with self.assertRaises(R.RecipeError, msg=out) as e:
+                R.Run(self.r, TYPES)
+            self.assertIn("outside the mod's assets/cooked folder", str(e.exception))
+            self.assertIn('"out": "cooked"', str(e.exception))
+            with self.assertRaises(R.RecipeError):
+                R.needs_cook(self.r)
+            self.assertEqual(sorted(str(f) for f in self.mod.parent.rglob("*")), before)
+        self.r.write_text(json.dumps(dict(self.RECIPE, out="cooked/anim")))
+        self.assertTrue(R.Run(self.r, TYPES).run(update_manifest=True)["ok"])
+        self.assertTrue((self.mod / "cooked/anim/cook-report.json").exists())
+        self.assertEqual(sorted(f.name for f in self.mod.iterdir()), ["assets.json", "cook.json", "cooked", "golem.glb"])
 
     def test_run_and_check(self):
         self.assertTrue(R.needs_cook(self.r))

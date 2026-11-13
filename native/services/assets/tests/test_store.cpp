@@ -263,6 +263,34 @@ int main() {
     op_icon_remove(playeranim, icon.g);
     check(read(icon) == "PA-ICON" && by_handle(kIconHandle) == "PA-ICON", "icon_remove leaves it; the pinned bytes are served");
 
+    // 10. What a dedicated server skips of an assets.json, by what the entry is (no mark in the file needed).
+    std::puts("-- 10: the manifest entries only a game client uses");
+    const uint32_t model = type_hash("keen::RenderModel", &ok), tmpl = type_hash("keen::ecs::TemplateResource", &ok), clip = type_hash("keen::JointAnimation", &ok);
+    check(model == 0x177394c7u && client_only_type(model) && client_only_type(type_hash("0x177394C7", &ok)), "a RenderModel, by name and by hex");
+    check(client_only_type(type_hash("keen::RenderMaterialResource", &ok)) && client_only_type(type_hash("keen::RenderTextureResource", &ok)) &&
+              client_only_type(type_hash("keen::UiTextureResource", &ok)) && client_only_type(KILN_ASSET_TYPE_UI_TEXTURE),
+          "materials, textures and UI textures, each by its name's hash");
+    check(!client_only_type(tmpl) && !client_only_type(clip) && !client_only_type(type_hash("keen::ImpactProgram", &ok)) &&
+              !client_only_type(type_hash("keen::ModelHierarchyResource", &ok)) && !client_only_type(type_hash("keen::SoundResource", &ok)) &&
+              !client_only_type(kPlayerGraphType) && !client_only_type(0),
+          "what a server serves is not client-only");
+    const std::vector<ManifestItem> entries = {
+        {"blob", "cooked/blade.blob", 0, {}},                         // 0 a model's render data
+        {"resource", "cooked/blade.bin", model, {"cooked/blade.blob"}},  // 1 the model that patches it in
+        {"resource", "cooked/visual.bin", tmpl, {}},                  // 2 a visual template: both sides
+        {"resource", "cooked/clip.bin", clip, {}},                    // 3 a clip: both sides
+        {"blob", "cooked/shared.blob", 0, {}},                        // 4 patched into a model and into a template: a server needs it
+        {"resource", "cooked/m2.bin", model, {"cooked\\shared.blob"}},  // 5
+        {"resource", "cooked/t2.bin", tmpl, {"cooked/shared.blob"}},  // 6
+        {"blob", "cooked/alone.blob", 0, {}},                         // 7 named by no resource: loaded
+        {"blob", "", 0, {}},                                          // 8 a hash-only blob
+        {"icon", "icons/a.png", 0, {}},                               // 9 the loader skips an icon by its kind
+        {"resource", "cooked/Blade.bin", model, {"cooked/Blade.blob"}},  // 10 another spelling is another file here
+    };
+    check(client_only_entries(entries) == std::vector<bool>{true, true, false, false, false, true, false, false, false, false, true},
+          "a model and the blob only it patches in; a template, a clip, a shared blob and a blob of its own are loaded");
+    check(client_only_entries({}).empty(), "an empty manifest");
+
     std::printf("%d passed, %d failed\n", g_pass, g_fail);
     return g_fail ? 1 : 0;
 }

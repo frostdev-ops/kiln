@@ -93,6 +93,31 @@ def report_name(doc):
     return "cook-report.json" if doc.get("tool", DEFAULT_TOOL) == TOOL else f"cook-report.{TOOL}.json"
 
 
+def mod_dir(recipe_path):
+    """The folder of the mod a recipe belongs to: the nearest kiln.mod.json above it, or the recipe's parent's parent, as <mod>/assets/cook.json is."""
+    p = Path(recipe_path).resolve()
+    for d in p.parents:
+        if (d / "kiln.mod.json").exists():
+            return d
+    return p.parent.parent
+
+
+def out_dir(recipe_path, doc, default="cooked"):
+    """Where a recipe's cook writes: its "out", relative to the recipe. It is the mod's assets/cooked folder or a folder in it, or the recipe is
+    refused (the same rule in every cook tool: tools/modelcook/cook/recipe.py)."""
+    p = Path(recipe_path)
+    out = doc.get("out", default)
+    if not isinstance(out, str) or not out:
+        raise RecipeError(f"{p}: \"out\" is the folder the cook writes to, relative to this file (\"{default}\")")
+    where = (p.parent / out).resolve()
+    cooked = mod_dir(p).joinpath("assets", "cooked").resolve()
+    if where != cooked and cooked not in where.parents:
+        raise RecipeError(f"{p}: \"out\": \"{out}\" is {where}, outside the mod's assets/cooked folder ({cooked}). A cook writes only there: it is what a mod "
+                          f"never ships and what a server and a player's game each make for themselves. Use \"out\": \"cooked\" in assets/cook.json, "
+                          f"or \"../assets/cooked/<name>\" in a recipe of another folder.")
+    return where
+
+
 def load(path):
     p = Path(path)
     try:
@@ -103,6 +128,7 @@ def load(path):
         raise RecipeError(f"{p}: format {doc.get('format')!r}, expected 1")
     if doc.get("tool", DEFAULT_TOOL) not in KNOWN_TOOLS:
         raise RecipeError(f"{p}: tool {doc.get('tool')!r} (known: {', '.join(KNOWN_TOOLS)})")
+    out_dir(p, doc)
     names = {op: set() for op in OPS}
     for i, st in enumerate(doc.get("steps", [])):
         tl = tool_of(doc, st)

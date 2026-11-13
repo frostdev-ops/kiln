@@ -54,6 +54,43 @@ static const Named kTypes[] = {
     {"keen::anim_graph::runtime_graph::AnimationGraphResource2_0", kPlayerGraphType},
 };
 
+bool client_only_type(uint32_t type) {
+    static const uint32_t kClientOnly[] = {
+        0x177394c7u,  // keen::RenderModel (a type's hash is the FNV-1a of its name)
+        0xaee1894bu,  // keen::RenderMaterialResource
+        0x3002d39du,  // keen::RenderTextureResource
+        0xf9e86997u,  // keen::UiTextureResource
+    };
+    for (const uint32_t t : kClientOnly)
+        if (t == type) return true;
+    return false;
+}
+
+std::vector<bool> client_only_entries(const std::vector<ManifestItem>& items) {
+    auto same = [](std::string a, std::string b) {  // one file under either slash
+        for (char& c : a) if (c == '\\') c = '/';
+        for (char& c : b) if (c == '\\') c = '/';
+        return a == b;
+    };
+    std::vector<bool> out(items.size(), false);
+    for (size_t i = 0; i < items.size(); ++i) {
+        const ManifestItem& e = items[i];
+        if (e.kind == "resource") {
+            out[i] = client_only_type(e.type);
+        } else if (e.kind == "blob" && !e.file.empty()) {
+            // a blob is client-only when a client-only resource patches it in and nothing a server serves does
+            bool by_client = false, by_other = false;
+            for (const ManifestItem& r : items) {
+                if (r.kind != "resource") continue;
+                for (const std::string& b : r.patch_blobs)
+                    if (same(b, e.file)) (client_only_type(r.type) ? by_client : by_other) = true;
+            }
+            out[i] = by_client && !by_other;
+        }
+    }
+    return out;
+}
+
 uint32_t type_hash(const std::string& s, bool* ok) {
     *ok = true;
     if (s.size() > 2 && s[0] == '0' && (s[1] == 'x' || s[1] == 'X'))

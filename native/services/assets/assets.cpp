@@ -194,18 +194,47 @@ KilnResult load_manifest(KilnOwner owner, const std::string& mod_dir, std::strin
         *report = "assets.json is not valid JSON";
         return KILN_ERR_INVALID_ARGUMENT;
     }
-    int icons = 0, res = 0, blobs = 0, tex = 0, errs = 0, icons_server = 0;
+    int icons = 0, res = 0, blobs = 0, tex = 0, errs = 0, icons_server = 0, marked_models = 0;
     std::string problems;
     auto fail = [&](const std::string& m) {
         ++errs;
         problems += (problems.empty() ? "" : "; ") + m;
         LOGW("assets: %s: %s", mod_dir.c_str(), m.c_str());
     };
-    for (const json& e : doc.value("entries", json::array())) {
+    const json entries = doc.value("entries", json::array());
+    // What only a game client uses, by what the entry is (a model and its render data): a dedicated server skips it. The manifest is
+    // the same file on a server and in a player's game; a server's cook made no model, and one copied from a PC is not served either.
+    std::vector<bool> clients_only;
+    if (!g_client) {
+        std::vector<ManifestItem> items;
+        for (const json& e : entries) {
+            ManifestItem it;
+            bool ok;
+            if (e.is_object()) {
+                it.kind = e.value("kind", "");
+                it.file = e.value("file", "");
+                if (it.kind == "resource") {
+                    it.type = type_hash(e.value("type", "0x0"), &ok);
+                    for (const json& p : e.value("patch", json::array()))
+                        if (p.is_object()) it.patch_blobs.push_back(p.value("blob", ""));
+                }
+            }
+            items.push_back(std::move(it));
+        }
+        clients_only = client_only_entries(items);
+    }
+    size_t index = 0;
+    for (const json& e : entries) {
+        const size_t i = index++;
         const std::string kind = e.value("kind", "");
         const std::string file = e.value("file", "");
         // "side": "client" (soundcook's sounds and cues): a dedicated server has no sound system: not an error
-        if (!g_client && e.value("side", "") == "client") { ++icons_server; continue; }
+        if (!g_client && e.value("side", "") == "client") {
+            ++icons_server;
+            if (kind == "resource" && clients_only[i]) ++marked_models;
+            continue;
+        }
+        if (!g_client && clients_only[i]) { ++icons_server; continue; }
         fs::path fp;
         if (kind != "blob" || !file.empty()) {  // every kind but a hash-only blob names a file
             if (!safe_path(base, file, &fp, &why)) { fail(kind + ": " + why); continue; }
@@ -294,6 +323,13 @@ KilnResult load_manifest(KilnOwner owner, const std::string& mod_dir, std::strin
                   blobs, errs);
     *report = std::string(b) + (problems.empty() ? "" : " (" + problems + ")");
     LOGI("assets: %s: %s", mod_dir.c_str(), report->c_str());
+    // A model's entry needs no mark (it is skipped by its type). The cook of Kiln 0.2.0-dev.26 wrote the mark into a server's copy of
+    // assets.json, which made that copy another file than the players': their games then see this mod as changed.
+    if (marked_models)
+        LOGW("assets: %s: %d model entr%s in assets/assets.json carr%s a \"side\": \"client\" mark. A cook of Kiln 0.2.0-dev.26 wrote such marks "
+             "into a server's copy of the file; players' copies have none, so their games see another mod than this server's. Cook the mod "
+             "again on this server (kiln cook): that takes the marks out",
+             mod_dir.c_str(), marked_models, marked_models == 1 ? "y" : "ies", marked_models == 1 ? "ies" : "y");
     return KILN_OK;
 }
 

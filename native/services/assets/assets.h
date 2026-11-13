@@ -75,6 +75,18 @@ std::string hash_str(const HashK& h);  // "size-h0-h1-h2" hex
 bool parse_hash(const std::string& s, HashK* out);
 HashK content_hash_of(const void* data, size_t len);  // SHA-256 rule (kiln_assets.h / docs)
 
+// What of an assets.json only a game client uses, by what the entry is: a dedicated server skips it, whether or not its file is there
+// (a server's cook makes no model, and the manifest is the same file on both sides). The types are the cook's list
+// (tools/modelcook/cook/recipe.py CLIENT_ONLY_TYPES: what a dedicated server's files never hold).
+bool client_only_type(uint32_t type);
+struct ManifestItem {  // one entry, as far as the rule looks at it
+    std::string kind, file;
+    uint32_t type = 0;                     // of a resource
+    std::vector<std::string> patch_blobs;  // the blobs a resource names in "patch"
+};
+// For each entry: a resource of a client-only type, or a blob that only such resources patch in (a model's render data).
+std::vector<bool> client_only_entries(const std::vector<ManifestItem>& items);
+
 // ------------------------------------------------------------------------------------------- engine ----------
 // Game function signatures (MS x64). Layouts: docs/re/resources.md.
 struct DataSpan {  // ResourceData's 24-byte result

@@ -89,6 +89,8 @@ Rigid and skinned models work the same way. The model needs no `base`. The step 
 ```
 It writes `blocks/<stem>.materials.json`, with blocks named `<stem>.<glTF material>`, and any PNGs embedded in the glTF to `<out>/materials/<stem>/`. A PNG beside the glTF stays where it is, and has to be inside the mod. Copy a block into your own file and name it in `materialMap` when you want to change it.
 
+That blocks file is the one thing a model's cook writes outside `assets/cooked`. It is made from your glTF alone (no game data), so it is the same bytes on a server and in every player's game, and a cook only writes it when it differs. Ship it with the mod (cook before you pack): then a cook changes nothing of your mod on any machine ([models.md](models.md), "What a cook writes").
+
 | glTF | Block |
 |---|---|
 | `baseColorTexture`, `baseColorFactor` | `albedo`, `tint` |
