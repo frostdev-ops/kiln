@@ -47,9 +47,10 @@ public sealed class SampleModsTests
             kiln.Step();
             Assert.Contains("Ada: 2 visit(s)", Said(kiln.RunCommand(ada, "visits")));
             Assert.Contains("3 join(s)", Said(kiln.RunCommand(bo, "guestbook")));
-            // another player's visits are an admin's to look up; a label needs kiln.spawn, which the kit does not have
+            // another player's visits are an admin's to look up; a label needs a chest next to the player (SampleFakesTests
+            // labels one on the kit's fakes of kiln.spawn and kiln.items)
             Assert.Contains("only an admin", Said(kiln.RunCommand(bo, "visits Ada")));
-            Assert.Contains("kiln.spawn", Said(kiln.RunCommand(bo, "label mine")));
+            Assert.Contains("no chest within", Said(kiln.RunCommand(bo, "label mine")));
             kiln.World.Save();
         }
         using (var kiln = new KilnHarness(new KilnHarnessOptions { ServerDirectory = folder.Path, WorldId = world }))
@@ -75,8 +76,8 @@ public sealed class SampleModsTests
         // a reason too long for the kick or ban it may lead to is refused before anything is counted
         Assert.Contains("at most 180 characters", Said(kiln.RunCommand(admin, "strike Bo " + new string('x', 181))));
         Assert.DoesNotContain("Bo", Said(kiln.RunCommand(admin, "strikes")));
-        // no chat with no game: the strike counts, and the admin is told the warning did not go out
-        Assert.Contains("first strike recorded (the warning could not be sent", Said(kiln.RunCommand(admin, "strike Bo breaking the gate")));
+        // the kit fakes kiln.chat since 0.2.0-dev.27: the warning reaches Bo's chat (SampleFakesTests reads it)
+        Assert.Contains("Bo: first strike, warned", Said(kiln.RunCommand(admin, "strike Bo breaking the gate")));
         // with no game there is no kick and no ban list: the strikes are still counted, and the reply says what was not done
         Assert.Contains("this server cannot kick (players.kick is off)", Said(kiln.RunCommand(admin, "strike Bo again")));
         Assert.Contains("keeps no ban list (players.bans is off)", Said(kiln.RunCommand(admin, "strike Bo a third time")));
