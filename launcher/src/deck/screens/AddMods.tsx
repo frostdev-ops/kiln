@@ -23,7 +23,7 @@ const one = (m: DeckFoundMod) => (m.detected.kind === "unknown" && m.detected.it
 function modName(m: DeckFoundMod): string {
   const d = m.detected.kind === "unknown" && m.detected.items.length === 1 ? m.detected.items[0] : m.detected;
   if (m.detected.kind === "unknown" && m.detected.items.length > 1) return `${m.file} (${m.detected.items.length} mods)`;
-  if (d.name && d.name !== m.file && !/\.(zip|dll)$/i.test(d.name)) return d.name;
+  if (d.name && d.name !== m.file && !/\.(zip|7z|rar|dll)$/i.test(d.name)) return d.name;
   return d.id ? d.id.replace(/[-_.]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()) : m.file;
 }
 

@@ -95,7 +95,8 @@ text is about Kiln's own kind it says "Kiln mods".
   typed confirmations. Refused while the game runs.
 - **Above the list**: Filter (words in the name or id) and Kind (when more than one kind is present), shown with more
   than six rows; Notes (N) when the last activation said something about mod folders (below); Load order, Engines,
-  Catalog (Nexus builds), Add mods (the file dialog; the drop anywhere and the Catalog stay). With no mod at all the list says how to add one. The list scrolls inside the page.
+  Catalog (Nexus builds), Add mods (the file dialog: zip, 7z, rar and DLL files, `shell/modFiles.ts`; folders are
+  dropped; the drop anywhere and the Catalog stay). With no mod at all the list says how to add one. The list scrolls inside the page.
 - **Profiles are a background feature**: one profile is always loaded per game. `useEnsureProfile` calls
   `profile_ensure_default` once per start for a game with Kiln and no loaded profile: "My mods" when there is none at
   all, or the one the launcher remembers for the game (a reinstall of Kiln); a player who chose "No profile" in
@@ -235,7 +236,8 @@ window, Play. The mod is in the list on Play, switched on.
   with Install Kiln (the dropped files are added once the install is done). With profiles but none active in the game
   the drop goes to the profile the launcher remembers for it (after an uninstall and a reinstall of Kiln: that profile
   is loaded again, "Your mod list is loaded again."); with none remembered (the player chose "No profile") the toast says
-  "Added <name>, switched off" with "Add to a profile" (`library_add_to_profile`). Modpack zips open the consent dialog (`ModpackDropOffer`: tick the box, then
+  "Added <name>, switched off" with "Add to a profile" (`library_add_to_profile`). A drop takes a zip, 7z or rar
+  (`library::archive_kind`), a folder or a DLL. Modpack zips open the consent dialog (`ModpackDropOffer`: tick the box, then
   `modpack_install` with `{path}`). A drop on a DropZone (Runtime's bundle row) or while a dialog is
   open is not the window's; a covered or busy DropZone takes no drops. Overlapping identical drops run once; other
   window drops run in order. Settings "Switch new mods on" off: ordinary mods are only imported (in the list, off);

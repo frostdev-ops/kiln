@@ -16,6 +16,7 @@ import { FolderNotesButton } from "../../components/FolderNotes";
 import { ConfigEditor } from "../../components/ConfigEditor";
 import { cookAgain } from "../../shell/cook";
 import { useAddMods } from "../../shell/drop";
+import { MOD_FILE_FILTERS, MOD_FILE_WORDS } from "../../shell/modFiles";
 import { filterRows, kindsOf, type ModRow } from "../../shell/mods";
 import { notifyAdd } from "../../shell/notices";
 import { removeMod, useRemoveCheck, type RemoveTarget } from "../../shell/removeMod";
@@ -52,7 +53,7 @@ export function MainList({ game, mods, running }: { game: GameInstall; mods: Mod
 
   const pick = async () => {
     try {
-      const paths = await pickPaths({ multiple: true, filters: [{ name: "Mods", extensions: ["zip", "dll"] }], title: "Add mods" });
+      const paths = await pickPaths({ multiple: true, filters: MOD_FILE_FILTERS, title: "Add mods" });
       if (paths?.length) await addMods(paths, game);
     } catch (e) { toast.error(e, "Could not open files"); }
   };
@@ -124,7 +125,7 @@ export function MainList({ game, mods, running }: { game: GameInstall; mods: Mod
         <Link className="k-link" to="/mods/order">Load order</Link>
         <Link className="k-link" to="/mods/engines">Engines</Link>
         {nexus && <Link className="k-link" to="/catalog">Catalog</Link>}
-        <button type="button" className="k-link" disabled={!api.isTauri()} title={api.isTauri() ? "Zip, folder or DLL of any kind" : "Needs the desktop app: drop a file instead"} onClick={() => void pick()}>Add mods</button>
+        <button type="button" className="k-link" disabled={!api.isTauri()} title={api.isTauri() ? "A zip, 7z, rar or DLL of any kind (a folder: drop it on the window)" : "Needs the desktop app: drop a file instead"} onClick={() => void pick()}>Add mods</button>
       </div>
       {mods.error ? (
         <div className="k-mods-empty" role="alert">
@@ -134,7 +135,7 @@ export function MainList({ game, mods, running }: { game: GameInstall; mods: Mod
       ) : !mods.rows.length ? (
         <div className="k-mods-empty">
           <p>Add your first mod</p>
-          <p className="k-hint">Drop its zip, folder or DLL anywhere on this window: Kiln, native, EMF, EML, ShroudForge, SET and the other loaders' mods all go here.{nexus ? " Or find one in the Catalog." : ""} It is on at the next Play.</p>
+          <p className="k-hint">Drop its {MOD_FILE_WORDS} anywhere on this window: Kiln, native, EMF, EML, ShroudForge, SET and the other loaders' mods all go here.{nexus ? " Or find one in the Catalog." : ""} It is on at the next Play.</p>
         </div>
       ) : (
         <ul className="k-mods-list" aria-label="Mods">
