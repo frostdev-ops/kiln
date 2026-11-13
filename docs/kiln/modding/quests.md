@@ -199,7 +199,7 @@ Reference Kiln.Quests like any service: `<ProjectReference Include=".../managed/
 Private="false" ExcludeAssets="runtime" />`. Definitions belong to the mod that made them and go away when it unloads;
 players' progress stays.
 
-A quest from code gets the game's UI with no flag, like one from a file: the mod says `"clients": "mod"`, and the journal, counters, markers and topics follow. Only one thing differs. The game's journal is built at boot, before a C# mod runs, so Kiln writes what your code defines to `kiln/data/kiln-quests/native/<mod>.json` and builds it at the next start; until then the quest runs with chat lines, and kiln.log says so. To have it at the first start, on every client too, ship that file as `quests/generated/<mod>.json` in the mod (the sample does) and write it again when the quest's steps or texts change. Only what the game shows goes into it: objectives, conditions and rewards keep running from your C# objects, including `Progress` functions and `QuestCondition.When`.
+A quest from code gets the game's UI with no flag, like one from a file: the mod says `"clients": "mod"`, and the journal, counters, markers and topics follow. Only one thing differs. The game's journal is built at boot, before a C# mod runs, so Kiln writes what your code defines to `kiln/data/kiln-quests/native/<mod>.json` and builds it at the next start; until then the quest runs with chat lines, and kiln.log says so. A mod built with Kiln.Sdk (0.2.0-dev.27 or later) has it at the first start, on every client too: the build runs your code and bakes that file into the mod as `quests/generated/<mod>.json` ([baked.md](baked.md)). Without the SDK, ship that file yourself (quests-sample does) and write it again when the quest's steps or texts change. Only what the game shows goes into it: objectives, conditions and rewards keep running from your C# objects, including `Progress` functions and `QuestCondition.When`.
 
 ## Quests as blocks
 The same quests and conversations, as building blocks ([blocks.md](blocks.md)): `QuestBlock` and `DialogueBlock` in C#, or the `quests` and `dialogues` sections of
@@ -266,7 +266,7 @@ action lists with the keys of the table in "Actions" above, except `toast` and `
 - A block in `blocks/*.json` is read by that start-up build from the mod's folder: it is built into the game's journal data at the **first start**, with the NPC blocks (a lab
   server counts it in kiln.log's `native:` line; how it looks in a player's journal is still to be checked with a client).
 - A block written in C# is known only once the mod's code runs. Kiln writes it to `kiln/data/kiln-quests/native/<mod>.json` and the start-up build reads it from the next start; until then it
-  runs with chat lines, and kiln.log says so. Ship that file as `quests/generated/<mod>.json` to have it at once ("Code" above).
+  runs with chat lines, and kiln.log says so. Built with Kiln.Sdk, the mod has it at the first start: the build bakes it into `quests/generated/<mod>.json` ([baked.md](baked.md); "Code" above).
 
 `kiln lint` checks the sections against the schema, item, status, NPC, quest, step, dialogue and loot table names, and says when the manifest's `clients` is below "mod" (KL210).
 `kiln blocks show <name>` says what a block became. `mods/tests/blocks-quest-test` is the lab test, and `dotnet new kiln-quest` a project to start from ([mdk.md](mdk.md)).

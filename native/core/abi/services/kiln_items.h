@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: MIT
  * kiln.items v4 (v1 + water in containers: fuel, fuel_read, fuel_keep, fuel_keep_end; v3 + item moves that keep item state,
  * container names, inventory-transfer events and rules; v4 + item instances: a stamp per item entity, its location and
- * its save record's fields in one read): put items into and take them out of inventories (players'
+ * its save record's fields in one read; v5 + equip and unequip through the game's own functions): put items into and take them out of inventories (players'
  * backpacks, chests, villagers), gear with a level and rarity included; read an entity's inventory; the game's item
  * catalog.
  *
@@ -32,8 +32,9 @@ extern "C" {
 #endif
 
 #define KILN_ITEMS_SERVICE "kiln.items"
-#define KILN_ITEMS_VERSION 4u  /* v2 appends the fuel functions, v3 the move, name and transfer functions, v4 the item
-                                  instances (stamps, locations, records); check header.size */
+#define KILN_ITEMS_VERSION 5u  /* v2 appends the fuel functions, v3 the move, name and transfer functions, v4 the item
+                                  instances (stamps, locations, records), v5 (0.2.0-dev.27) equip and unequip; check
+                                  header.size */
 
 typedef uint32_t KilnItemId;  /* 0 = none */
 typedef uint64_t KilnSlotId;  /* 0 = none / let the game choose */
@@ -591,6 +592,89 @@ typedef struct KilnItemsInstancesStatus {
     char detail[160];         /* why it is off; NUL-terminated */
 } KilnItemsInstancesStatus;
 
+/* ---------------------------------------------------------------------------------------------- equipment ---- */
+
+/* since 0.2.0-dev.27 (v5; feature items.equip; check header.size before calling `equip` or `equip_status`).
+ *
+ * Puts an item a player has on (into one of the player's equipment slots) or takes one off, through the game's own
+ * equip and unequip: the two functions its equipment_actions program runs for a player's changeEquipmentAction, with
+ * all their checks (the item's EquipmentSlotType must be the slot's, a backpack swap moves the old backpack's contents,
+ * an unequip needs a free Generic slot). They take the player from the running program's current entity, so they run
+ * inside kiln.items' second program "kiln_items_equip": an entity program over the player characters (PlayerInput),
+ * registered through kiln.world (without kiln.world equip is unavailable). Each request is one transaction of its own,
+ * set up as equipment_actions sets up its own: the game's error rolls the whole of it back, so a refused equip leaves
+ * the inventory as it was.
+ *
+ * Order in a step: the game's equipment_actions runs a player's own equip first, kiln_items_equip later in the same
+ * step, on what that left. Both happen, in that order; a request whose slot the player's own action emptied comes back
+ * KILN_ITEMS_SLOT_CHANGED. The player's input (PlayerInput, ServerConsumedPlayerInput) is never touched, so a client's
+ * next action is never skipped or replayed.
+ *
+ * Slots are the game's keen::EquipmentSlot values that SlotSelection.equipment holds: 0-16 (Vanity_Head .. FishingBait),
+ * 21 HookShot, 22 Glider, 23 Backpack. 17-20 (the building materials) are not equipment slots and are refused. */
+
+#define KILN_ITEMS_EQUIP_ANY 0xFFu /* KilnItemsEquipRequest.equipment_slot of an equip: the slot the item names itself */
+
+/* KilnItemsEquipRequest.flags */
+enum {
+    KILN_ITEMS_EQUIP_UNEQUIP = 0x01u, /* take off what `equipment_slot` holds (`slot` and `pide` must be 0) */
+    KILN_ITEMS_EQUIP_DRY_RUN = 0x02u, /* run the game's call and roll it back: the result says what would happen */
+};
+
+typedef struct KilnItemsEquipRequest {
+    uint32_t size;            /* sizeof(KilnItemsEquipRequest) */
+    uint32_t flags;           /* KILN_ITEMS_EQUIP_* above; other bits are refused */
+    KilnEntity player;        /* a player character: an entity with PlayerInput */
+    uint8_t equipment_slot;   /* keen::EquipmentSlot (see above); KILN_ITEMS_EQUIP_ANY for an equip */
+    uint8_t reserved[3];      /* 0 */
+    KilnSlotId slot;          /* equip: the slot of the player's inventories that holds the item; unequip: 0 */
+    KilnEntity pide;          /* equip: the item entity that slot must hold (0 = whatever it holds); unequip: 0 */
+    uint32_t reserved2;       /* 0 */
+} KilnItemsEquipRequest;
+
+typedef struct KilnItemsEquipResult {
+    uint32_t size;            /* sizeof(KilnItemsEquipResult) of kiln.items */
+    int32_t status;           /* KILN_ITEMS_DONE; SLOT_CHANGED (equip: the slot is not one of the player's, is empty or
+                                 holds another item entity; unequip: nothing is equipped there); NO_INVENTORY (no player
+                                 character with that id in the world); NO_ROOM (unequip: no free Generic slot);
+                                 REFUSED (the game refused: game_error, message); UNAVAILABLE; DROPPED. Only DONE
+                                 changed anything (a dry run: would have) */
+    uint64_t ticket;          /* what equip returned */
+    KilnEntity player;
+    uint32_t flags;           /* the request's flags */
+    uint8_t equipment_slot;   /* the slot asked for; for KILN_ITEMS_EQUIP_ANY the slot the item went to (0xFF unknown) */
+    uint8_t game_error;       /* the game's error code (0x11 refused, 0x15 no item, 0x1f not a player / no room); 0 none */
+    uint16_t reserved0;
+    uint32_t steps;           /* sim steps between submit and run */
+    KilnItemId item;          /* the item put on or taken off */
+    KilnEntity pide;          /* its item entity (0: a plain stack, arrows or bait) */
+    uint32_t stamp;           /* the stamp of pide (v4 item instances; 0 when off or no pide) */
+    KilnItemId replaced;      /* equip: what the equipment slot held before (0 = it was empty) */
+    KilnSlotId from;          /* where the item was */
+    KilnSlotId to;            /* where it is now (DONE; a dry run: where it would be) */
+    KilnEntity replaced_pide; /* equip: the item entity of `replaced` */
+    uint32_t replaced_stamp;  /* its stamp */
+    KilnSlotId replaced_to;   /* equip: where `replaced` went (0 = not found) */
+    uint32_t reserved[4];
+    char message[160];        /* why, for anything but DONE; NUL-terminated */
+} KilnItemsEquipResult;
+
+/* Tick thread, Pre of the step after the one the request ran in. */
+typedef void(KILN_CALL* KilnItemsEquipDoneFn)(const KilnItemsEquipResult* result, void* user);
+
+typedef struct KilnItemsEquipStatus {
+    uint32_t size;            /* in: sizeof(KilnItemsEquipStatus) */
+    uint8_t available;        /* 1: equip runs now (feature items.equip, kiln.world, the program verified or waiting
+                                 for its first player) */
+    uint8_t program;          /* KILN_ITEMS_PROGRAM_* of kiln_items_equip */
+    uint16_t reserved;
+    uint32_t pending;         /* requests waiting */
+    uint32_t reserved2;
+    uint64_t done;            /* requests that changed equipment (dry runs not counted) */
+    uint64_t refused;         /* requests that came back with anything but DONE */
+    char detail[160];         /* why it is off; NUL-terminated */
+} KilnItemsEquipStatus;
+
 /* ---------------------------------------------------------------------------------------------- the table ---- */
 
 typedef struct KilnItemsApi {
@@ -713,6 +797,23 @@ typedef struct KilnItemsApi {
 
     /* The stamps' state. Any thread. */
     KilnResult(KILN_CALL* instances_status)(KilnItemsInstancesStatus* out);
+
+    /* ---- v5, since 0.2.0-dev.27: equipment (check header.size; KILN_ERR_UNAVAILABLE without feature items.equip) ---- */
+
+    /* Queues an equip or unequip (see "equipment"). *out_ticket (optional) = its ticket. Refused at once with
+     * KILN_ERR_INVALID_ARGUMENT (player 0, a slot that is no equipment slot, ANY with UNEQUIP, an equip without `slot`, an
+     * unequip with `slot` or `pide`, bad flags, non-zero reserved fields), KILN_ERR_UNAVAILABLE (feature items.equip off,
+     * no kiln.world or kiln.players, the death check cannot be made, the program refused or broken, no live server world
+     * in this process (a game client in its menu or joined to another machine's world, a world that stopped), or the
+     * core's session query does not answer) or KILN_ERR_BUFFER_TOO_SMALL (1024 requests are waiting: a refusal for now).
+     * Otherwise `done` runs once with the result (it may be NULL). cancel(ticket) and cancel_owner(owner) drop the
+     * callback; owner 0 is Kiln's own (no release drops it). Any thread. A request for a player entity (1..1023) runs only
+     * for the session it was made for, checked in the Pre of its step against the game's player record read then: the
+     * next player in the slot gets the same id, so a request whose player left comes back NO_INVENTORY (REFUSED when the
+     * records cannot be read). A dead player is refused (REFUSED) right before the transaction. */
+    KilnResult(KILN_CALL* equip)(KilnOwner owner, const KilnItemsEquipRequest* request, KilnItemsEquipDoneFn done,
+                                 void* user, uint64_t* out_ticket);
+    KilnResult(KILN_CALL* equip_status)(KilnItemsEquipStatus* out); /* any thread */
 } KilnItemsApi;
 
 #ifdef __cplusplus

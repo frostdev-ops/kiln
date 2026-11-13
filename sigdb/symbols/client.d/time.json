@@ -4,6 +4,16 @@
   "extends": "server.d/time.json",
   "comment": "Client build 26404966: (1) the ServerGameDaytimeSync tail (mov r8,[r8+0x2D0]; jmp DaytimeSyncIfChanged) occurs a second time in the client, so the pattern is anchored on the int3 padding before it. (2) Weather: the client's WeatherSystem update (0xaac5a0) is a larger function than the server's (client-side phenomena after the layer update, when the system's mode field is 1; WeatherRemoveInstance indexes instances with stride 0x50 instead of 0x48), so WeatherUpdate and its probe are re-cut; the mode field (+8) and the layer layout (time/weather.layer_*, captured from WeatherUpdateLayers, unchanged) are the same. kiln.time only takes a WeatherSystem of mode 0 that is the server world's own singleton. Evidence: docs/re/client.md.",
   "symbols": {
+    "@time.weather_table": {
+      "comment": "client 26430625: the start of a phenomenon (0xaab220) allocates other registers than the server's (0xa22830); same offsets",
+      "find": [
+        {"scope": {"symbol": "time/WeatherStartPhenomenon", "size": 256}, "pattern": "48 8D 42 {time/weather.res_layers:d8} 33 DB"},
+        {"scope": {"symbol": "time/WeatherStartPhenomenon", "size": 256}, "pattern": "49 69 F1 {time/weather.res_layer_stride:d32} 88 9C 24 ?? ?? 00 00 42 3A 54 16 {time/weather.res_layer_count:d8} 75 ?? 4C 8D 6E {time/weather.res_layer_nothing:d8}"},
+        {"scope": {"symbol": "time/WeatherStartPhenomenon", "size": 256}, "pattern": "49 63 4B {time/weather.res_phenomena:d8} 49 8D 43 ?? 44 0F B6 CA 46 02 4C 16 {time/weather.res_layer_first:d8}"},
+        {"scope": {"symbol": "time/WeatherStartPhenomenon", "size": 256}, "pattern": "4C 69 E8 {time/weather.res_phenomenon_stride:d32} 4C 03 E9"},
+        {"scope": {"symbol": "time/WeatherStartPhenomenon", "size": 256}, "pattern": "49 89 54 EE {time/weather.layer_phenomenon:d8}"}
+      ]
+    },
     "time/ServerGameDaytimeSync": {
       "find": [
         {

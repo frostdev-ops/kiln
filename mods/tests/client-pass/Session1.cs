@@ -631,4 +631,74 @@ public sealed partial class ClientPassMod
                    "for this start, with no error from world-programs after it?");
         await c.Verdict();
     }
+
+    // ---- equip and unequip by a mod (Items.Equip / Items.Unequip, dev.27): the server's game equips, the player sees ----
+    private const string Hat = "Armor_T1_Mage_Wizard_DPS_Helmet";  // Alchemist Apprentice Hat: shows on the head
+
+    [ClientCheck("items.equip", "A mod puts a hat on the character, and it comes off by hand", Area = "Gameplay",
+        Since = Dev27, Tags = [Visual], Order = 139)]
+    public async Task ItemsEquip(CheckContext c)
+    {
+        if (!await NeedPlayer(c)) return;
+        if (!c.Expect(Capabilities.Is("items.equip"), "items.equip is available", Capabilities.Why("items.equip"))) return;
+        await GiveGame(c, Hat);
+        await c.Ticks(4);
+        var hat = Items.Lookup(Hat);
+        var slot = hat is null ? null : Items.Read(c.Player)?.Slots.FirstOrDefault(s => s.Item == hat.Id && !s.IsEquipped);
+        if (!c.Expect(slot is not null, "the hat lies in the inventory, not worn")) return;
+        var r = await Items.Equip(c.Player, slot!.Slot, EquipmentSlot.ArmourHead);
+        c.Expect(r.Ok, "Items.Equip put it on the head", r.ToString());
+        await c.Ticks(8);
+        c.Expect(Items.Equipped(c.Player, EquipmentSlot.ArmourHead).Item == hat!.Id, "the server's head slot holds the hat");
+        c.Instruct("The check put an Alchemist Apprentice Hat on your character's head through the game's own equip (what " +
+                   "was on the head before went into your backpack). Look at your character: does it wear the hat? Open " +
+                   "the inventory: is the hat in the head slot of the equipment, and does the preview show it? Then take it " +
+                   "off by hand (drag it into the backpack) and put it on again by hand. Did all of that work as usual?");
+        await c.Verdict();
+    }
+
+    [ClientCheck("items.unequip", "A mod takes the hat off the character", Area = "Gameplay", Since = Dev27,
+        Tags = [Visual], Order = 140)]
+    public async Task ItemsUnequip(CheckContext c)
+    {
+        if (!await NeedPlayer(c)) return;
+        if (!c.Expect(Capabilities.Is("items.equip"), "items.equip is available", Capabilities.Why("items.equip"))) return;
+        var hat = Items.Lookup(Hat);
+        if (hat is not null && Items.Equipped(c.Player, EquipmentSlot.ArmourHead).Item != hat.Id &&
+            Items.Read(c.Player)?.Slots.FirstOrDefault(s => s.Item == hat.Id && !s.IsEquipped) is { } loose)
+            await Items.Equip(c.Player, loose.Slot, EquipmentSlot.ArmourHead);
+        await c.Ticks(8);
+        var r = await Items.Unequip(c.Player, EquipmentSlot.ArmourHead);
+        c.Expect(r.Ok, "Items.Unequip took the head slot off", r.ToString());
+        await c.Ticks(8);
+        c.Expect(Items.Equipped(c.Player, EquipmentSlot.ArmourHead).IsNone, "the server's head slot is empty");
+        c.Instruct("The check took the hat (or whatever your character wore on the head) off through the game's own " +
+                   "unequip: it went into a free slot of your backpack. Is the head bare on your character and empty in " +
+                   "the equipment screen, and is the hat in the backpack? Can you put it on again by hand?");
+        await c.Verdict();
+    }
+
+    // ---- the weather a mod chose (Time.SetWeather, dev.27): the server's game starts it, the player's game shows it ----
+    [ClientCheck("time.weather", "A mod chooses the weather", Area = "Gameplay", Since = Dev27, Tags = [Visual], Order = 141)]
+    public async Task TimeWeather(CheckContext c)
+    {
+        if (!await NeedPlayer(c)) return;
+        if (!c.Expect(Capabilities.Is("time.weather_choose") && Time.WeatherChoiceAvailable, "the weather can be chosen",
+                Capabilities.Why("time.weather_choose"))) return;
+        c.OnEnd(async () => await Time.ReleaseWeather(now: true));
+        var none = await Time.SetWeather("none", layer: 0);
+        c.Expect(none.Ok, "no clouds on the clouds layer, held", none.ToString());
+        c.Instruct("Step 1 of 2: the check took the clouds away (the game's \"nothing\" on its clouds layer, held). Look at " +
+                   "the sky for half a minute: do the clouds thin out and go? Then press pass or fail for step 1 and 2 " +
+                   "together after step 2 below.");
+        await c.Ticks(30 * 25);
+        var overcast = await Time.SetWeather("clouds_overcast", layer: 0);
+        var rain = await Time.SetWeather("rain", TimeSpan.FromMinutes(10));
+        c.Expect(overcast.Ok && rain.Ok, "overcast held, rain in every region for ten game minutes", $"{overcast}; {rain}");
+        c.Instruct("Step 2: the check made the sky overcast and started rain in every region of the world (each rain is a " +
+                   "cloud at a random place in its region, so it may be far from you). Within a minute, does the sky turn " +
+                   "overcast? If rain reaches you, does it look like the game's own? Did the clouds go away in step 1? When " +
+                   "the check ends, the weather goes back to the game.");
+        await c.Verdict();
+    }
 }

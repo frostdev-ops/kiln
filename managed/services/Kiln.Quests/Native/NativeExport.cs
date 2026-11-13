@@ -3,7 +3,8 @@
 // managed mod runs (docs/re/quests.md R4), so what code defines is written down here in the file format, and kiln-quests.dll
 // builds it at the next start: kiln/data/kiln-quests/native/<mod>.json. Only what the game's UI shows goes into it: objectives,
 // conditions and rewards keep running from the C# objects. A mod can ship that file as quests/generated/<anything>.json, and then
-// the first start has it too.
+// the first start has it too. Kiln.Sdk's bake (managed/Kiln.Sdk/bake) writes it into the mod at build: quests/generated/<mod>.json,
+// this Document with BakedComment; at run time Write says whether what the code defines still matches it.
 using System.Text.Json;
 using System.Text.Json.Nodes;
 
@@ -13,6 +14,16 @@ internal static class NativeExport
 {
     private static readonly HashSet<string> Dirty = new(StringComparer.Ordinal);
     private static readonly JsonSerializerOptions Pretty = new() { WriteIndented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
+
+    /// <summary>The "comment" of a file Kiln.Sdk's bake wrote; how Kiln tells it from a file the author wrote.</summary>
+    internal const string BakedComment = "baked by the Kiln SDK at build from what the mod defines in code: docs/kiln/modding/baked.md";
+
+    /// <summary>Kiln.Sdk's bake runs the mod under KilnHarness and takes <see cref="Document"/> itself: nothing is written to
+    /// Kiln's data folder meanwhile.</summary>
+    internal static volatile bool Baking;
+
+    /// <summary>The text of a document, as both this writer and the bake write it.</summary>
+    internal static string Serialize(JsonObject doc) => doc.ToJsonString(Pretty);
 
     public static void Changed(string modId)
     {
@@ -42,6 +53,7 @@ internal static class NativeExport
     /// <summary>From the service tick.</summary>
     public static void Flush()
     {
+        if (Baking) return;
         string[] mods;
         lock (Dirty)
         {
@@ -65,6 +77,9 @@ internal static class NativeExport
     private static void Write(string mod)
     {
         var doc = Document(mod, out var missing);
+        var baked = Mods.Get(mod)?.Directory is { Length: > 0 } modDir ? BakedFile(modDir, mod) : null;
+        CompareBaked(mod, doc, baked);
+        doc = ForDataFile(doc, baked);
         var dir = Path.Combine(QuestsInternals.DataOwner.DataDirectory, "native");
         var file = Path.Combine(dir, mod + ".json");
         if (doc is null)
@@ -83,7 +98,81 @@ internal static class NativeExport
         }
         foreach (var q in missing)
             QuestsInternals.Warn($"{q} is defined in code, and the game's journal is built at boot: it shows from the next start on. Until then it runs with chat lines only. " +
-                                 $"To have it at the first start, ship {file} as quests/generated/{mod}.json in the mod");
+                                 $"To have it at the first start, build the mod with Kiln.Sdk (its build bakes the file in; when it was, the build log says why it could not), " +
+                                 $"or ship {file} as quests/generated/{mod}.json in the mod");
+    }
+
+    private static readonly Dictionary<string, string> Told = new(StringComparer.Ordinal);
+
+    /// <summary>The mod's own quests/generated/&lt;mod&gt;.json when Kiln.Sdk's bake wrote it (its comment says so); null otherwise,
+    /// a file the author wrote included: that one is theirs, as before.</summary>
+    internal static JsonObject? BakedFile(string modDirectory, string mod)
+    {
+        try
+        {
+            // bounded: at most 4 MiB, no link on the way, nothing outside the mod's folder (BakedFiles)
+            if (BakedFiles.Read(modDirectory, Path.Combine("quests", "generated", mod + ".json")) is not { } text) return null;
+            return JsonNode.Parse(text) is JsonObject o && (string?)o["comment"] == BakedComment ? o : null;
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or JsonException or InvalidOperationException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>What differs between a baked file and what the code defines now (the game's UI part): null when nothing does.</summary>
+    internal static string? BakedDifference(JsonObject baked, JsonObject? now)
+    {
+        var diffs = new List<string>();
+        foreach (var (section, what) in new[] { ("npcs", "NPC"), ("quests", "quest"), ("dialogues", "dialogue") })
+        {
+            var b = baked[section] as JsonObject;
+            var n = now?[section] as JsonObject;
+            foreach (var (id, value) in n ?? [])
+            {
+                if (b is null || !b.TryGetPropertyValue(id, out var was)) diffs.Add($"{what} {id} is not in it");
+                else if (!JsonNode.DeepEquals(was, value)) diffs.Add($"{what} {id} differs");
+            }
+            foreach (var (id, _) in b ?? [])
+                if (n is null || !n.ContainsKey(id)) diffs.Add($"{what} {id} is only in it");
+        }
+        return diffs.Count == 0 ? null : string.Join(", ", diffs.Take(6)) + (diffs.Count > 6 ? $" and {diffs.Count - 6} more" : "");
+    }
+
+    /// <summary>What goes to Kiln's data file next to a baked file: what the code defines that the baked file does not
+    /// have. The start-up build reads the mod's own files first, and for dialogues the last file wins, so leaving the
+    /// baked ids out keeps the baked file ahead for every kind (quests, NPCs, dialogues). Without a baked file: all of
+    /// it, as before. Null: nothing to write.</summary>
+    internal static JsonObject? ForDataFile(JsonObject? doc, JsonObject? baked)
+    {
+        if (doc is null || baked is null) return doc;
+        var copy = (JsonObject)doc.DeepClone();
+        foreach (var section in new[] { "npcs", "quests", "dialogues" })
+        {
+            if (copy[section] is not JsonObject mine || baked[section] is not JsonObject theirs) continue;
+            foreach (var (id, _) in theirs.ToList()) mine.Remove(id);
+            if (mine.Count == 0) copy.Remove(section);
+        }
+        return copy.ContainsKey("npcs") || copy.ContainsKey("quests") || copy.ContainsKey("dialogues") ? copy : null;
+    }
+
+    // A mod built with the bake ships what its code defined at build: the game built that at this start. Said once per outcome.
+    private static void CompareBaked(string mod, JsonObject? doc, JsonObject? baked)
+    {
+        if (baked is null) return;
+        var diff = BakedDifference(baked, doc);
+        var key = diff ?? "";
+        lock (Told)
+        {
+            if (Told.TryGetValue(mod, out var was) && was == key) return;
+            Told[mod] = key;
+        }
+        if (diff is null)
+            QuestsInternals.Info($"{mod}: what it defines in code matches quests/generated/{mod}.json, baked into the mod at build: the game's journal has it from the first start");
+        else
+            QuestsInternals.Warn($"{mod}: what it defines in code is not what was baked into the mod at build (quests/generated/{mod}.json): {diff}. The baked file wins at every start (Kiln keeps " +
+                                 "only what it does not have), so the game shows the baked version; code that defines something else after the build (from settings, other mods or the game) " +
+                                 "needs KilnBake=false in the project, and a rebuild brings the file up to date");
     }
 
     /// <summary>The file-format document of what a mod defined in code and the game's UI shows. Null: nothing.</summary>
