@@ -11,6 +11,11 @@
     <NoWarn>$(NoWarn);CS1591;CS1573</NoWarn>
   </PropertyGroup>
   <ItemGroup>
+    <!-- Kiln.Sdk's bake (managed/Kiln.Sdk/bake) takes the game-tree nodes a mod's code defines at build: GameTreeBake.cs. -->
+    <InternalsVisibleTo Include="Kiln.Sdk.Bake" />
+    <InternalsVisibleTo Include="Kiln.Sdk.Tests" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="../../Kiln.Api/Kiln.Api.csproj" Private="false" />
     <ProjectReference Include="../Kiln.Saves/Kiln.Saves.csproj" Private="false" />
     <ProjectReference Include="../Kiln.Players/Kiln.Players.csproj" Private="false" />

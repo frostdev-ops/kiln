@@ -10,6 +10,8 @@
   </PropertyGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="Kiln.Blocks.Tests" />
+    <!-- Equip (EquipResult from a native result, the slot mapping, the capability verdict): pure parts tested offline. -->
+    <InternalsVisibleTo Include="Kiln.Items.Tests" />
     <!-- Item instances (ItemInstances, ItemRecord, ItemInstanceInfo): instance data lives in Kiln.Saves. -->
     <InternalsVisibleTo Include="Kiln.Saves" />
     <InternalsVisibleTo Include="Kiln.Saves.Tests" />

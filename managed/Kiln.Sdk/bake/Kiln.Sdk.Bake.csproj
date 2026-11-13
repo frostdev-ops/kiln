@@ -1,0 +1,43 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Kiln.Sdk.Bake: the build step that writes into a mod what its code defines and the game reads only at start (quests, game-tree
+       nodes, VFX and materials), so the first start has them too: docs/kiln/modding/baked.md. It runs the mod's OnLoad and first
+       steps under KilnHarness (Kiln's own loader, no game) with the services' recorders on (Kiln.Quests Native/NativeExport.cs,
+       Kiln.Skills GameTreeBake.cs, Kiln.Vfx VfxBake.cs) and writes quests/generated/<mod>.json, skills/<mod>.generated.json and
+       blocks/generated/<mod>.json. Sdk/Kiln.Bake.targets runs it after KilnManifest. Repository mode: built through a project
+       reference and copied to $(KILN_OUT)/sdk-bake/kiln/host/ (or .out/sdk-bake/...); the package carries it in bake/ and the target
+       puts it beside Kiln.Api's kiln/lib, the services Kiln shares with mods (Kiln.Host loads them from its own folder). -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>Kiln.Sdk.Bake</AssemblyName>
+    <RootNamespace>Kiln.Sdk.Bake</RootNamespace>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <IsPackable>false</IsPackable>
+    <!-- a newer runtime than the one it was built for runs it too (a mod author's machine) -->
+    <RollForward>Major</RollForward>
+    <!-- as Kiln.Host in the game: a mod's code formats numbers and compares strings the same on every build machine -->
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../Kiln.TestKit/Kiln.TestKit.csproj" />
+    <!-- Every service: a mod's OnLoad may call any of them, and Kiln.Host takes them from its own folder, as in the game. -->
+    <ProjectReference Include="../../services/*/Kiln.*.csproj" />
+    <ProjectReference Include="../../Kiln.Testing/Kiln.Testing.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Kiln.Sdk.Tests" />
+    <!-- the bounded read of a baked file, as the game reads them -->
+    <Compile Include="../../Kiln.Api/BakedFiles.cs" Link="Shared/BakedFiles.cs" />
+  </ItemGroup>
+  <!-- Repository mode: a fixed folder the mods' target can name, laid out as a kiln folder (kiln/host), so whatever a service
+       writes beside its own folder stays under sdk-bake. -->
+  <PropertyGroup>
+    <KilnSdkBakeDir Condition="'$(KILN_OUT)' != ''">$([MSBuild]::NormalizeDirectory('$(KILN_OUT)', 'sdk-bake', 'kiln', 'host'))</KilnSdkBakeDir>
+    <KilnSdkBakeDir Condition="'$(KILN_OUT)' == ''">$([MSBuild]::NormalizeDirectory('$(MSBuildThisFileDirectory)', '..', '..', '..', '.out', 'sdk-bake', 'kiln', 'host'))</KilnSdkBakeDir>
+  </PropertyGroup>
+  <Target Name="KilnCopyBake" AfterTargets="Build" Condition="'$(KilnBakeNoCopy)' != 'true'">
+    <ItemGroup>
+      <_KilnBakeFile Include="$(OutDir)*.dll;$(OutDir)*.pdb;$(OutDir)Kiln.Sdk.Bake.runtimeconfig.json;$(OutDir)Kiln.Sdk.Bake.deps.json" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_KilnBakeFile)" DestinationFolder="$(KilnSdkBakeDir)" SkipUnchangedFiles="true" />
+  </Target>
+</Project>

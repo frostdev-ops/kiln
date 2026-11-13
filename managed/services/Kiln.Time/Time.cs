@@ -72,7 +72,7 @@ public readonly record struct DayTimeState(
 /// own sync and are saved with the world. Reads work from any thread; changes must be made on the tick thread
 /// (mod code normally runs there).
 /// </summary>
-public static unsafe class Time
+public static unsafe partial class Time
 {
     private const int Ok = 0, InvalidArgument = 1, Unavailable = 3, WrongThread = 4;
 
@@ -80,7 +80,7 @@ public static unsafe class Time
     private struct NativeState
     {
         public uint Size;
-        public byte IsDay, WeatherAvailable, R0, R1;
+        public byte IsDay, WeatherAvailable, WeatherChoiceReady, R1;
         public double Hours, HoursField, DayStartHours, NightStartHours, DayLengthS, NightLengthS;
         public float TimeScale;
         public uint ChangeCounter;
@@ -148,6 +148,14 @@ public static unsafe class Time
         if (T->Get(&s) != Ok) return false;
         state = Convert(in s);
         return true;
+    }
+
+    // kiln.time's own flag (any thread): weather_set would take a request now. Not the layers (a tick-thread read).
+    internal static bool WeatherChoiceReadyNow()
+    {
+        if (T == null) return false;
+        NativeState s;
+        return T->Get(&s) == Ok && s.WeatherChoiceReady != 0;
     }
 
     public static bool IsDay => State.IsDay;

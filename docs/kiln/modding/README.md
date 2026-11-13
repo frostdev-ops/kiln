@@ -7,6 +7,7 @@ generated [../status.generated.md](../status.generated.md); what has no API yet 
 | Page | What |
 |---|---|
 | [mdk.md](mdk.md) | The MDK: `dotnet new kiln-mod`, Kiln.Sdk, build, deploy, pack, local NuGet feed |
+| [baked.md](baked.md) | Definitions baked at build: quests, game-tree nodes, VFX and materials a mod defines in code, there at the first start |
 | [manifest.md](manifest.md) | `kiln.mod.json` v2: fields, version ranges, dependencies, load order, exports, sides |
 | [lifecycle.md](lifecycle.md) | Mod and server lifecycle events, the `Mods` API, inter-mod messages, hot reload |
 | [testing.md](testing.md) | Kiln.Testing: `[KilnTest]` methods that run inside the server |

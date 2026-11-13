@@ -4,7 +4,7 @@ using System.Runtime.InteropServices;
 
 namespace Kiln;
 
-internal static unsafe class VfxNative
+internal static unsafe partial class VfxNative
 {
     public const string Name = "kiln.vfx";
     public const uint Version = 1;
@@ -102,7 +102,7 @@ internal static unsafe class VfxNative
     public static string? DefineJson(string json, ulong owner)
     {
         var t = T;
-        if (t == null) return null;
+        if (t == null) return Baking ? Record(json) : null;
         var bytes = System.Text.Encoding.UTF8.GetBytes(json);
         fixed (byte* p = bytes)
         {
@@ -115,7 +115,7 @@ internal static unsafe class VfxNative
     public static string? BuildStatusJson()
     {
         var t = T;
-        return t == null ? null : Text((b, cap, n) => t->BuildStatus(b, cap, n));
+        return t == null ? (Baking ? BakingStatus : null) : Text((b, cap, n) => t->BuildStatus(b, cap, n));
     }
 
     private delegate int Reader(byte* buffer, nuint capacity, nuint* length);

@@ -66,12 +66,14 @@ internal static partial class Compiler
         if (result == VfxBlockStatus.Pending)
             low.AfterCommit(() =>
             {
-                var text = $"vfx {name} is new to this game: it is kept for the next start, and shows nothing until then";
+                // a block the mod's baked file has: every start builds the baked one, so the author needs a rebuild, not a restart
+                var (text, toast) = VfxNative.PendingNote("vfx", name, mod.Id,
+                    VfxNative.BakedNames(BlocksBridge.ModDirectory(mod.Id), mod.Id).Contains($"vfx/{name}"));
                 lock (mod.Warnings)
                     if (!mod.Warnings.Contains(text)) mod.Warnings.Add(text);
                 mod.ReportDirty = true;
                 BlocksBridge.Log(LogLevel.Warn, $"blocks: {mod.Id}: {text}");
-                Hud.Toast($"{mod.Id}: new VFX \"{name}\": restart the game to see it", ToastKind.Warning, 8);
+                Hud.Toast(toast, ToastKind.Warning, 8);
             });
         return result;
     }
