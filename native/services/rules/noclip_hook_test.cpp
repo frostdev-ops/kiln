@@ -66,12 +66,6 @@ void set_rule(uint32_t e, const KilnRulesPlayer* rule) {
     if (e <= kMaxPlayer) { store(g_players[e], rule); return; }
     store(g_extra[0], rule); g_extra_ids[0] = rule ? e : 0; g_extra_hint[0] = rule ? e : 0;
 }
-// The server world as the server tick reads it: each entity's DynamicLocomotion (none: 0).
-std::unordered_map<uint32_t, uintptr_t> server_world;
-uintptr_t server_record(uint32_t e) {
-    const auto it = server_world.find(e);
-    return it == server_world.end() ? 0 : it->second;
-}
 KilnRulesNoClip state_of(uint32_t e) {
     KilnRulesNoClip s{};
     s.size = sizeof s;
@@ -352,145 +346,42 @@ int main() {
     check(c.rax == flight_math::kBuildingFlying && seen_enabled == 1 && !f::flown_recently(3, rec[5]),
           "after Kiln's flight ended, another BuildingFlying record of the player is not adopted");
 
-    // A host: the server world's record and the prediction's. The server tick, before each server step, reads the server
-    // world's record of the player (kiln.world); that is how the hooks tell the two worlds apart.
-    auto tick = [&] { f::server_tick(&server_record); };
-    auto at = [](uint8_t* r) { return reinterpret_cast<uintptr_t>(r); };
-    uint8_t* pre = rec[6];
-    void* stack2[4] = {nullptr, pre, actor, nullptr};
-    safetyhook::Context c2{};
-    c2.rbp = c2.rsp = reinterpret_cast<uintptr_t>(stack2); c2.rsi = c2.rdi = reinterpret_cast<uintptr_t>(&e);
-    auto both = [&](int steps) {
-        for (int i = 0; i < steps; ++i) {
-            tick();
-            c.rax = flight_math::kBuildingFlying; f::state_body(c);
-            c2.rax = flight_math::kBuildingFlying; f::state_body(c2);
-        }
-    };
-    // both records take off; the first step waits for the server tick to tell the worlds apart
-    auto host_takeoff = [&](uint8_t* srv) {
-        std::memset(srv, 0, 128); std::memset(pre, 0, 128);
-        use(srv); server_world[3] = at(srv);
-        tick();  // a server step before the rule (the server world runs)
-        actor[0] = true;
-        c.rax = flight_math::kWalking; f::state_body(c);
-        const bool waited = c.rax == flight_math::kWalking;
-        tick();
-        c.rax = flight_math::kWalking; f::state_body(c); srv[0x59] = static_cast<uint8_t>(c.rax);
-        c2.rax = flight_math::kWalking; f::state_body(c2); pre[0x59] = static_cast<uint8_t>(c2.rax);
-        actor[0] = false;
-        return waited;
-    };
+    // a host: the server's record and the prediction's, both flying; the server's moves, the prediction's stays
     {
-        clean(); set_rule(3, &rule); server_world.clear();
-        const bool waited = host_takeoff(rec[7]);
-        check(waited && rec[7][0x59] == flight_math::kBuildingFlying && pre[0x59] == flight_math::kBuildingFlying,
-              "a host: a take-off waits one server step until the worlds are told apart, then both records fly");
+        clean(); set_rule(3, &rule);
+        uint8_t* pre = rec[6];
+        void* stack2[4] = {nullptr, pre, actor, nullptr};
+        safetyhook::Context c2{};
+        c2.rbp = c2.rsp = reinterpret_cast<uintptr_t>(stack2); c2.rsi = c2.rdi = reinterpret_cast<uintptr_t>(&e);
+        use(rec[7]);
+        takeoff();
+        actor[0] = true; c2.rax = flight_math::kWalking; f::state_body(c2); pre[0x59] = static_cast<uint8_t>(c2.rax); actor[0] = false;
+        auto both = [&](int steps) {
+            for (int i = 0; i < steps; ++i) {
+                c.rax = flight_math::kBuildingFlying; f::state_body(c);
+                c2.rax = flight_math::kBuildingFlying; f::state_body(c2);
+            }
+        };
         both(3);
         check(f::flown_recently(3, rec[7]) && f::flown_recently(3, pre), "a host: the server's and the prediction's records both fly");
-        move_to(rec[7], rec[8]); server_world[3] = at(rec[8]);
+        move_to(rec[7], rec[8]);
         both(3);
         check(f::flown_recently(3, rec[8]) && f::flown_recently(3, pre) && !f::flown_recently(3, rec[7]),
               "the server's record moved: it is still Kiln's, and the prediction's record stays Kiln's beside it");
         // the prediction pauses while the server's record moves on twice, then resumes
-        move_to(rec[8], rec[9]); server_world[3] = at(rec[9]);
-        for (int i = 0; i < 3; ++i) { tick(); c.rax = flight_math::kBuildingFlying; f::state_body(c); }
-        move_to(rec[9], rec[10]); server_world[3] = at(rec[10]);
-        for (int i = 0; i < 3; ++i) { tick(); c.rax = flight_math::kBuildingFlying; f::state_body(c); }
+        move_to(rec[8], rec[9]);
+        for (int i = 0; i < 3; ++i) { c.rax = flight_math::kBuildingFlying; f::state_body(c); }
+        move_to(rec[9], rec[10]);
+        for (int i = 0; i < 3; ++i) { c.rax = flight_math::kBuildingFlying; f::state_body(c); }
         both(2);
         check(f::flown_recently(3, rec[10]) && f::flown_recently(3, pre), "a paused prediction that resumes is still Kiln's");
         set_rule(3, nullptr);
-        tick();
         c.rax = flight_math::kBuildingFlying; f::state_body(c);
         c2.rax = flight_math::kBuildingFlying; f::state_body(c2);
         check(c.rax == flight_math::kFalling && c2.rax == flight_math::kFalling && !f::flown_recently(3, rec[10]) &&
               !f::flown_recently(3, pre) && !f::flown_recently(3, rec[8]) && !f::flown_recently(3, rec[9]),
               "NoClip ends: both records fall, and nothing of the flight is left");
     }
-    // One world's flight never vouches for a record in the other. The prediction pauses, the rule ends and the server's
-    // character leaves the flight; then another mod flies the server's character.
-    {
-        clean(); set_rule(3, &rule); server_world.clear();
-        host_takeoff(rec[7]);
-        both(2);
-        set_rule(3, nullptr);
-        tick();
-        c.rax = flight_math::kBuildingFlying; f::state_body(c); rec[7][0x59] = static_cast<uint8_t>(c.rax);
-        rec[7][0x59] = flight_math::kBuildingFlying;  // another mod's flight
-        tick();
-        c.rax = flight_math::kBuildingFlying; f::state_body(c);
-        check(c.rax == flight_math::kBuildingFlying && !f::flown_recently(3, rec[7]) && f::flown_recently(3, pre),
-              "a paused prediction's flight does not make another mod's flight of the server's character Kiln's");
-        c2.rax = flight_math::kBuildingFlying; f::state_body(c2);
-        check(c2.rax == flight_math::kFalling && !f::flown_recently(3, pre),
-              "and when the prediction resumes, its own flight is still Kiln's and ends: it falls, not stuck flying");
-    }
-    // ...and the other way round: the prediction leaves the flight first, another mod flies its character
-    {
-        clean(); set_rule(3, &rule); server_world.clear();
-        host_takeoff(rec[7]);
-        both(2);
-        set_rule(3, nullptr);
-        c2.rax = flight_math::kBuildingFlying; f::state_body(c2);
-        const bool fell = c2.rax == flight_math::kFalling;
-        pre[0x59] = flight_math::kBuildingFlying;  // another mod's flight
-        c2.rax = flight_math::kBuildingFlying; f::state_body(c2);
-        check(fell && c2.rax == flight_math::kBuildingFlying && !f::flown_recently(3, pre),
-              "the server's flight does not make another mod's flight of the prediction's character Kiln's");
-        tick();
-        c.rax = flight_math::kBuildingFlying; f::state_body(c);
-        check(c.rax == flight_math::kFalling && !f::flown_recently(3, rec[7]), "and the server's own flight still ends");
-    }
-    // Ownership lives as long as the character. A player flies on a dedicated server (the server tick reads its record)...
-    auto server_takeoff = [&](uint32_t who, uint8_t* r) {
-        e = who; std::memset(r, 0, 128); use(r); server_world[who] = at(r);
-        tick();  // a server step before the rule (the server world runs)
-        actor[0] = true; c.rax = flight_math::kWalking; f::state_body(c); actor[0] = false;
-        tick();
-        takeoff();
-        tick();
-        c.rax = flight_math::kBuildingFlying; f::state_body(c);
-        return r[0x59] == flight_math::kBuildingFlying && f::flown_recently(who, r);
-    };
-    {
-        // ...and disconnects while flying, before a hook saw the flight end: its rules go, then its character
-        clean(); server_world.clear(); set_rule(7, &rule);
-        const bool flew = server_takeoff(7, rec[0]);
-        set_rule(7, nullptr);
-        server_world.erase(7);
-        tick();
-        // a newcomer gets the id, and another mod flies its new character
-        std::memset(rec[1], 0, 128); rec[1][0x59] = flight_math::kBuildingFlying; use(rec[1]); server_world[7] = at(rec[1]);
-        tick();
-        c.rax = flight_math::kBuildingFlying; f::state_body(c);
-        check(flew && c.rax == flight_math::kBuildingFlying && !f::flown_recently(7, rec[1]) && !f::flown_recently(7, rec[0]),
-              "a departed player's flight goes with its character: another mod's flight of the newcomer with its id is left alone");
-    }
-    {
-        // ...or its connection is replaced in one go (the server tick never sees the id empty): Kiln.Rules' Leave says so
-        clean(); server_world.clear(); set_rule(8, &rule);
-        const bool flew = server_takeoff(8, rec[2]);
-        set_rule(8, nullptr);
-        f::retire(8);  // KilnRulesApi.player_left
-        std::memset(rec[3], 0, 128); rec[3][0x59] = flight_math::kBuildingFlying; use(rec[3]); server_world[8] = at(rec[3]);
-        tick();
-        c.rax = flight_math::kBuildingFlying; f::state_body(c);
-        check(flew && c.rax == flight_math::kBuildingFlying && !f::flown_recently(8, rec[3]),
-              "a player whose connection was replaced leaves no flight: the newcomer's flight by another mod is left alone");
-    }
-    {
-        // the rule ending alone (the player stays) keeps the flight Kiln's until it has ended, also when a teleport
-        // moves the record in the same step
-        clean(); server_world.clear(); set_rule(9, &rule);
-        const bool flew = server_takeoff(9, rec[4]);
-        set_rule(9, nullptr);
-        move_to(rec[4], rec[5]); server_world[9] = at(rec[5]);
-        tick();
-        c.rax = flight_math::kBuildingFlying; f::state_body(c);
-        check(flew && c.rax == flight_math::kFalling && !f::flown_recently(9, rec[5]),
-              "a rule that ends while the player stays: Kiln still owns the moved flight and ends it");
-    }
-    e = 3; server_world.clear(); use(dyn);
 
     // a lab's simulated character (an extra id) follows its record the same way
     clean(); e = 5000; set_rule(5000, &rule); std::memset(rec[0], 0, 128); use(rec[0]);

@@ -1189,21 +1189,7 @@ void resolve_build_programs() {
          static_cast<unsigned long long>(f[2] ? f[2] - base : 0), static_cast<unsigned long long>(f[3] ? f[3] - base : 0));
 }
 
-// The server world's DynamicLocomotion of `e` for character flight's ownership (kiln.world reads on the server tick only).
-uint32_t g_dynloco_hash = 0;
-uintptr_t server_record(uint32_t e) {
-    uint32_t size = 0;
-    return reinterpret_cast<uintptr_t>(g_world_api->component(e, g_dynloco_hash, &size));
-}
-
 void KILN_CALL on_pre(const KilnTickInfo* t, void*) {
-    if (!g_world_api) {
-        const auto* w = static_cast<const KilnWorldApi*>(
-            g_api->service(KilnStr{KILN_WORLD_SERVICE, sizeof(KILN_WORLD_SERVICE) - 1}, KILN_WORLD_VERSION));
-        if (w && w->header.size >= offsetof(KilnWorldApi, position) + sizeof(void*)) g_world_api = w;
-    }
-    if (g_world_api && !g_dynloco_hash) g_dynloco_hash = g_world_api->component_hash(KilnStr{"DynamicLocomotion", 17});
-    kiln_rules_flight::server_tick(g_world_api && g_dynloco_hash ? &server_record : nullptr);
     kiln_rules_flight::refresh();
     kiln_rules_noclip::tick();
     resolve_build_programs();
@@ -1334,15 +1320,9 @@ void fill_status(KilnRulesStatus* out) {
     std::snprintf(out->detail, sizeof out->detail, "%s", g_detail.c_str());
 }
 
-KilnResult KILN_CALL t_player_left(KilnEntity entity) {
-    if (entity == 0) return KILN_ERR_INVALID_ARGUMENT;
-    kiln_rules_flight::retire(entity);
-    return KILN_OK;
-}
-
 const KilnRulesApi kTable = {
     {sizeof(KilnRulesApi), KILN_RULES_VERSION}, &t_set, &t_clear, &t_get, &t_set_local, &t_status,
-    &kiln_rules_creative::map_reveal, &kiln_rules_creative::creative_status, &kiln_rules_noclip::state, &t_player_left,
+    &kiln_rules_creative::map_reveal, &kiln_rules_creative::creative_status, &kiln_rules_noclip::state,
 };
 
 // ============================================================================================= boot ============

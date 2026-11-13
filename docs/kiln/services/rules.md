@@ -508,15 +508,10 @@ for a character that is in Kiln's flight and whose rules carry NoClip, and puts 
 the call ends with a fault passing through. The flight is character flight's three hooks with NoClip's differences
 (`flight_math.h`). Only a flying character is touched: one that could not fly would fall through the world. And only a
 flight Kiln started: a character that another mod put into the flying state is left alone by all four hooks. Kiln
-knows its flights by the character and its locomotion record, one per world (on a hosting game the server world's and
-the player's prediction; the server tick tells them apart through kiln.world, before each server step, and a
-take-off waits that one step). When the game moves a record (a component added or taken away), a record of the same
-character in the flying state, in the same world, is the same flight, as long as Kiln has not seen that flight end
-(`flight.cpp`; `kiln.log` says so for the first few moves of a world: `character flight: entity N's locomotion record
-moved`). A flight in one world never vouches for a record in the other. What Kiln owns lives as long as the character:
-it goes when the server world no longer has the character, when the player leaves or another connection takes its
-entity id (`KilnRulesApi.player_left`, from Kiln.Rules), and when the world closes; rules ending alone keep it until
-the flight has ended. The
+knows its flights by the character and its locomotion record; when the game moves that record (a component added or
+taken away), a record of the same character in the flying state is the same flight, as long as Kiln has not seen
+that flight end (`flight.cpp`; `kiln.log` says so for the first few moves of a world: `character flight: entity N's
+locomotion record moved`). The
 feature `rules.noclip` is on only where the game's code is the code this was written for: the step's first test, the
 branch it takes with the switch off, and that branch's target byte for byte (unset the results, return).
 `KilnRulesApi.noclip(entity, &state)` gives what the hook did.

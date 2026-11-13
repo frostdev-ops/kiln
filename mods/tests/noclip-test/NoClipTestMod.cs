@@ -13,7 +13,7 @@ public sealed class NoClipTestMod : Mod
     // PlayerInput.fromClient.movementStick (float2, y forward) and fromClient.camera.orientation (x, y, z, w)
     private const int Stick = 0x2c0, CameraRotation = 0x40;
     private int _pass, _fail;
-    private EntityId _character, _neighbour;  // what the test spawned, for CleanUp
+    private EntityId _neighbour;
 
     private void Info(string s) => Log.Info($"{Me}: INFO {s}");
     private bool Check(bool ok, string what)
@@ -34,32 +34,12 @@ public sealed class NoClipTestMod : Mod
         Log.Info($"{Me} done: {_pass} PASS, {_fail} FAIL");
     });
 
-    // An unload drops the scheduler's waiting continuations, so Run may never reach its end: the characters go here too.
-    public override void OnUnload() => CleanUp();
-
-    // Takes away what the test spawned; once, from whichever comes first (Run's end or the unload).
-    private void CleanUp()
-    {
-        var (f, n) = (_character, _neighbour);
-        _character = _neighbour = default;
-        if (!f.IsNone)
-        {
-            Rules.Simulate(f, false);
-            Spawn.Destroy(f);
-        }
-        if (!n.IsNone) Spawn.Destroy(n);
-    }
-
     private async Task Run()
     {
         for (var i = 0; i < 240 && !(Spawn.WorldRunning && Build.Available); i++) await Steps(25);
         await Steps(50);
         var f = await Character();
-        if (f.IsNone)
-        {
-            CleanUp();  // a spawned character that is not a player character goes too
-            return;
-        }
+        if (f.IsNone) return;
         Rules.Simulate(f);
         try
         {
@@ -67,7 +47,9 @@ public sealed class NoClipTestMod : Mod
         }
         finally
         {
-            CleanUp();
+            Rules.Simulate(f, false);
+            Spawn.Destroy(f);
+            if (!_neighbour.IsNone) Spawn.Destroy(_neighbour);
         }
     }
 
@@ -313,7 +295,7 @@ public sealed class NoClipTestMod : Mod
         try { await Build.Load(Build.BoxAround(at, 8, 128, 8)); } catch (Exception e) { Info($"loading the terrain there: {e.Message}"); }
         var ground = GroundY(at) ?? anchor.Y;
         at = at with { Y = ground + 1.0 };
-        var f = _character = await Spawn.Entity("1_Player", at, 0, new SpawnOptions { Tag = Me, Flags = SpawnFlags.Transient });
+        var f = await Spawn.Entity("1_Player", at, 0, new SpawnOptions { Tag = Me, Flags = SpawnFlags.Transient });
         if (!Check(!f.IsNone && World.Has(f, "PlayerInput"), $"a player character {f} at {at}")) return default;
         for (var i = 0; i < 50 && Combat.GetHealth(f) is null; i++) await Steps(1);
         Combat.SetInvulnerable(f);

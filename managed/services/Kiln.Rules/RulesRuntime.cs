@@ -455,8 +455,6 @@ internal static unsafe class RulesRuntime
         }
         s.Clip = null;
         if (RulesNative.T is var t && t != null) t->Set(s.Entity.Value, null);
-        // what the hooks owned of the character (a flight) goes with the player, not with the rules alone
-        RulesNative.PlayerLeft(s.Entity.Value);
         lock (Gate) Spent.Remove(s.Entity);
         foreach (var k in s.Water) k.Dispose();
         s.Water.Clear();
