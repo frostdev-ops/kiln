@@ -1532,6 +1532,8 @@ export const launchPrestart = (gameId: GameId) => call<PreStart | null>("launch_
 export const launchBegin = (gameId: GameId, mode: LaunchMode) => call<void>("launch_begin", { gameId, mode });
 /** What the start is doing now (null: nothing to show). */
 export const launchProgress = (gameId: GameId) => call<StartTimeline | null>("launch_progress", { gameId });
+/** Play ended before the game existed: the start the launcher was timing is over. */
+export const launchEnd = (gameId: GameId) => call<void>("launch_end", { gameId });
 
 // logs.rs
 export const logsList = (target: LogTarget) => call<LogFile[]>("logs_list", { target });
@@ -1819,7 +1821,7 @@ export const COMMANDS = [
   "profile_deactivate", "profile_active", "activation_notices", "notices_unseen", "notices_shown",
   "library_list", "library_detect", "library_import", "library_remove", "library_remove_many", "library_unused", "library_users", "library_lint", "library_take_over",
   "config_list", "config_read", "config_set", "config_write", "config_reset", "config_native_state", "config_native_set",
-  "launch_play", "launch_state", "launch_prestart", "launch_begin", "launch_progress",
+  "launch_play", "launch_state", "launch_prestart", "launch_begin", "launch_progress", "launch_end",
   "logs_list", "logs_read", "logs_follow", "logs_unfollow", "logs_crash_reports",
   "saves_list", "saves_backups", "saves_backup", "saves_restore", "saves_delete",
   "editor_list_saves", "editor_file_info", "editor_read_file", "editor_zstd_decompress", "editor_zstd_compress",

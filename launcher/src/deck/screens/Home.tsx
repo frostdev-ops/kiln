@@ -118,8 +118,10 @@ export default function Home() {
           {change?.state === "failed" && <DeckButton id="kiln-failed" onClick={() => nav("/deck/kiln")}>Kiln</DeckButton>}
         </div>
       </div>
-      <button type="button" className={`deck-mouth heat-${heat}`} disabled={!act} onClick={() => act?.()} data-deck-autofocus="" data-deck-id="mouth"
-        data-deck-a={word} aria-label={sub ? `${word}: ${sub}` : word}
+      {/* while the game starts or runs the mouth keeps the focus (aria-disabled, A does nothing): a gamepad is never left with
+          nothing focused for the two minutes of a start, or after it */}
+      <button type="button" className={`deck-mouth heat-${heat}`} disabled={!act && !ctl.starting && !ctl.running} aria-disabled={!act || undefined} onClick={() => act?.()}
+        data-deck-autofocus="" data-deck-id="mouth" data-deck-a={act ? word : undefined} aria-label={sub ? `${word}: ${sub}` : word}
         onFocus={() => { deckFire.hot = !!act; }} onBlur={() => { deckFire.hot = false; }}>
         <span className="deck-mouth-fire" aria-hidden />
         <svg className="deck-mouth-ring" viewBox="0 0 100 88" preserveAspectRatio="none" aria-hidden>

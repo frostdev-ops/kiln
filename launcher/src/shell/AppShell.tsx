@@ -84,7 +84,7 @@ function Header({ isPlay, ctl }: { isPlay: boolean; ctl: PlayControl }) {
           <NavLink key={n.to} to={n.to} className={({ isActive }) => "k-head-link" + (isActive ? " on" : "")}>{n.label}</NavLink>
         ))}
         {mock && <span className="k-mock-flag" title={info.data?.mock ? "Browser mock" : `Mock data for: ${fallback.join(", ")}`}>Mock</span>}
-        <span role="status" className={`k-head-state k-tone-${tone}${t ? " k-head-start" : ""}`} style={{ opacity: isPlay ? 0 : 1 }}
+        <span role="status" aria-live={t ? "off" : undefined} className={`k-head-state k-tone-${tone}${t ? " k-head-start" : ""}`} style={{ opacity: isPlay ? 0 : 1 }}
           title={tw ? `${tw.line}. ${tw.left}` : v.detail ?? undefined} data-testid="head-state">{word}</span>
       </div>
     </header>

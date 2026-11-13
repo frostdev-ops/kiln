@@ -265,7 +265,7 @@ function TopBar({ tab, tabs, goTab }: { tab: number; tabs: readonly Tab[]; goTab
         ))}
         <button type="button" tabIndex={-1} className="deck-tab-glyph" aria-label="Next tab" onClick={() => goTab(tab + 1)}><Glyph button="rb" style={style} size={1.6} /></button>
       </nav>
-      <span className={`deck-state deck-word ${tone}`} role="status" data-testid="deck-state">{word}</span>
+      <span className={`deck-state deck-word ${tone}`} role="status" aria-live={tw ? "off" : undefined} data-testid="deck-state">{word}</span>
     </header>
   );
 }

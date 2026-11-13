@@ -254,12 +254,20 @@ still takes (0.2.0-dev.27; `kiln_manage::start_progress`, commands `launch_begin
 - **Slower than usual.** A step at 1.5 times its usual time says "taking longer than usual (usually 19 s)", and the
   time left stays at what the steps after it take until it ends. The bar never moves back, and it is full only at the
   main menu.
-- **Not progress.** Safe idle (with Kiln's reason), Kiln failing to go on, the game ending, and no word from Kiln for
-  60 s (120 s inside the early plugins) are said as what they are. A game with a Kiln runtime older than
+- **Not progress.** Safe idle (with Kiln's reason), Kiln failing to go on, the game ending, "No Kiln" (Steam did not
+  load Kiln's proxy), a vanilla start and Steam updating the game are said as before, without a bar. No word from Kiln
+  for 60 s (120 s inside the early plugins) is "No word from Kiln" with its sentence (a game waiting at its menu for
+  its mods says so), without a bar or a countdown, and the mod list is back. A Play that ends before the game exists
+  (refused, or Steam took it and no game came within 5 minutes) ends the start, and the page is as it was before
+  Play. The window keeps following a start while it is hidden or in the background (the game has the display then);
+  the launcher's watcher keeps a start that reached the main menu even when no window asks. A game with a Kiln runtime older than
   0.2.0-dev.27 writes no progress.json: after the launcher's own steps the line says "Waiting for Kiln to boot" until
   its boot.json, then "Running" as before, and nothing is kept.
-- **The history.** `start-times.json` is written under its own lock (`state/start-times.lock`) whenever a start
-  reaches the main menu (the launcher's watcher keeps it even when no window asks), and goes with the data folder when
+- **The history.** Starts are kept and looked up by the runtime's own version (progress.json's `kiln`, with its build
+  stamp; before progress.json, found through the install's version). A file of a newer format, or one that cannot be
+  read, is left as it is: no estimates, and one line in launcher.log. Times beyond a day in progress.json or the
+  history make the file unreadable, never a crash. `start-times.json` is written under its own lock
+  (`state/start-times.lock`) whenever a start reaches the main menu (the launcher's watcher keeps it even when no window asks), and goes with the data folder when
   it moves (on Windows not from the default folder, whose `state` is the system's: the history starts again there).
   Deleting it loses only the estimates; the next start is timed again.
 

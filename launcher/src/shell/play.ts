@@ -13,7 +13,7 @@ import { cookBeforePlay } from "./cook";
 import { notifyLibraryChanged } from "./libraryChanged";
 import { gameState, playState, runStarted, type GameStateView } from "./gameState";
 import { notifyActivation, notifyActivationOf } from "./notices";
-import { showsProgress } from "./startProgress";
+import { quietText, showsProgress, STEAM_WAIT_MS } from "./startProgress";
 
 // A shared monotonic clock: changing the system clock while a start is pending cannot restart its grace period.
 const epoch = Date.now(), tick = performance.now();
@@ -72,14 +72,25 @@ export function usePlayControl(): PlayControl {
   const sameRun = !memo.process[id] || memo.process[id] === process;
   const now = useNow(running || at !== undefined ? 1000 : 0);
   const launching = useIsMutating({ mutationKey: ["launch_play"] });
-  const tl = useStartTimeline(id, !!game && (running || launching > 0 || at !== undefined)).data ?? null;
-  const progress = showsProgress(tl) ? tl : null;
+  // a start Steam was asked for and no game came: over when the backend gives it up too (start_progress STEAM_WAIT_MS)
+  const pending = at !== undefined && !running && now - at < STEAM_WAIT_MS;
+  const following = !!game && (running || launching > 0 || pending);
+  const tlq = useStartTimeline(id, following, running);
+  // an answer of a start that is not followed any more (refused, given up, the game gone) is not shown
+  const tl = following ? tlq.data ?? null : null;
   const state = playState(game ? s : null, launchState.data, sameRun ? { at, mode: memo.mode[id], seen: memo.since[id] } : {}, now, !!game && status.isLoading);
   // the runtime says what it does (progress.json): Kiln is loaded, and "Running" waits for the main menu (ready)
   const spoke = !!tl && ["booting", "loading", "quiet", "ready", "idle", "failed"].includes(tl.phase);
   const kilnMissing = state.kilnMissing && !spoke;
-  const running_ = progress && running && !s?.steamUpdating;
-  const view: GameStateView = running_ ? { phase: "starting", label: "Starting", tone: "ember", pulse: true, detail: progress.running != null ? progress.steps[progress.running].label : "Waiting for Kiln" }
+  // the states that are not a start going well win over the timeline, as before it: Steam updating, vanilla, No Kiln
+  // (the proxy did not load: play-once still there, or no boot and no word from Kiln a minute in)
+  const exception = !!s?.steamUpdating || (running && (state.view.phase === "vanilla" || kilnMissing));
+  const progress = !exception && showsProgress(tl) ? tl : null;
+  const running_ = !!progress && running;
+  const quiet = !exception && running && tl?.phase === "quiet" ? tl : null;
+  const view: GameStateView = exception ? state.view
+    : running_ ? { phase: "starting", label: "Starting", tone: "ember", pulse: true, detail: progress!.running != null ? progress!.steps[progress!.running].label : "Waiting for Kiln" }
+    : quiet ? { phase: "running", label: "No word from Kiln", tone: "warn", pulse: true, detail: quietText(quiet) }
     : tl?.phase === "idle" && running && state.view.label !== "Safe idle" ? { phase: "running", label: "Safe idle", tone: "warn", pulse: true, detail: tl.why ?? "Kiln hooked nothing" }
     : tl?.phase === "failed" && running ? { phase: "running", label: "Kiln stopped", tone: "warn", pulse: true, detail: tl.why ?? "Kiln could not go on" }
     : state.kilnMissing && spoke ? gameState(game ? s : null, launchState.data, false, now) : state.view;
@@ -102,7 +113,11 @@ export function usePlayControl(): PlayControl {
     },
     // the re-apply before the start may have kept copies even when the start then failed; a mod changed in its Library
     // folder is named, with "Use the changed files" and Play again
-    onError: (e, req) => { notifyActivationOf(e); if (!notifyLibraryChanged(qc, e, () => launch.mutate(req))) toast.error(e); },
+    onError: (e, req) => {
+      // Play ended before the game existed: the start the launcher was timing is over (the window as before Play)
+      void api.launchEnd(id).catch(() => {}).then(() => qc.invalidateQueries({ queryKey: ["launch_progress", id] }));
+      notifyActivationOf(e); if (!notifyLibraryChanged(qc, e, () => launch.mutate(req))) toast.error(e);
+    },
   });
 
   // Missing or skewed process timestamps fall back to when this session first saw it running. The launch request
@@ -115,6 +130,12 @@ export function usePlayControl(): PlayControl {
         since: { ...m.since, [id]: playNow() }, process: { ...m.process, [id]: process },
         ...(!sameRun ? { at: Object.fromEntries(Object.entries(m.at).filter(([g]) => g !== id)), mode: Object.fromEntries(Object.entries(m.mode).filter(([g]) => g !== id)) } : {}),
       }));
+    } else if (!running && !since && memo.at[id] !== undefined && !pending && launching === 0) {
+      // Steam was asked and no game came within the wait (the backend gave the start up too): Play again
+      useLaunchMemo.setState((m) => {
+        const drop = <T,>(r: Record<string, T>) => { const n = { ...r }; delete n[id]; return n; };
+        return { at: drop(m.at), mode: drop(m.mode) };
+      });
     } else if (!running && since) {
       // the run this launcher saw has ended: its launch (time, mode) is over too, so a later start from Steam is not
       // taken for it
@@ -123,9 +144,10 @@ export function usePlayControl(): PlayControl {
         return { since: drop(m.since), at: drop(m.at), mode: drop(m.mode), process: drop(m.process) };
       });
     }
-  }, [id, running, process, sameRun]);
+  }, [id, running, process, sameRun, pending, launching, memo.at]);
   const since = runStarted(s, now, memo.since[id]);
-  const starting = (state.starting && !(spoke && !progress)) || !!running_ || (!running && !s?.steamUpdating && (launching > 0 || (at !== undefined && now - at < 120_000)));
+  const starting = exception ? state.starting && !s?.steamUpdating
+    : (state.starting && !(spoke && !progress)) || running_ || (!running && !s?.steamUpdating && (launching > 0 || (!!progress && pending) || (at !== undefined && now - at < 120_000)));
   const activeProfile = profiles.data?.find((p) => p.id === active.data?.profileId) ?? null;
   return {
     game,
@@ -138,7 +160,7 @@ export function usePlayControl(): PlayControl {
     elapsed: running && since ? Math.max(0, Math.round((now - since) / 1000)) : null,
     stuck: kilnMissing || (!!s?.playOncePending && !running && memo.mode[id] !== "vanilla" && at !== undefined && now - at > 120_000),
     kilnMissing,
-    timeline: progress && !s?.steamUpdating ? progress : null,
+    timeline: progress,
     lastTimeline: tl,
     profileName: activeProfile?.name ?? null,
     play: (mode, profileId) => launch.mutate({ mode, profileId: profileId ?? null }),

@@ -17,7 +17,7 @@ import { deckMockHandlers } from "../deck/mockDeck";
 import { nexusMockHandlers, NEXUS_MOCK_ENABLED } from "./mockNexus";
 import { chainMockHandlers } from "./mockChain";
 import { dataFolderBlocks, dataFolderMockHandlers, mockDataDir, mockPickFolder } from "./mockDataFolder";
-import { bootJsonAt, clearStartHistory, mockBegin, mockProgress, mockStartEnded, ownerScript, processAt, scriptedStart, setStartScript, type StartScript } from "./mockProgress";
+import { ended as endedStarts, bootJsonAt, clearStartHistory, mockBegin, mockProgress, mockStartEnded, ownerScript, processAt, scriptedStart, setStartScript, type StartScript } from "./mockProgress";
 import bootExample from "../../../schema/examples/state-boot.json";
 import modsExample from "../../../schema/examples/state-mods.json";
 import nativeExample from "../../../schema/examples/state-native.json";
@@ -521,9 +521,10 @@ function launch(gameId: string, req: LaunchRequest): LaunchResult {
     const at = (ms: number) => sc.began + ms * sc.script.scale;
     const idle = sc.script.idle;
     const bootMs = idle ? bootJsonAt({ ...sc.script, runtime: sc.script.runtime.slice(0, sc.script.runtime.findIndex((x) => x.id === idle.at) + 1), loadingAfter: idle.at }) : bootJsonAt(sc.script);
-    Object.assign(running[gameId]!, { from: at(processAt(sc.script)), at: at(processAt(sc.script)), bootAt: at(bootMs), safeIdle: idle?.why ?? null });
-    setTimeout(() => emitGame(gameId, "started"), Math.max(0, at(processAt(sc.script)) - Date.now()) + 50);
-    setTimeout(() => emitGame(gameId, "boot"), Math.max(0, at(bootMs) - Date.now()) + 50);
+    Object.assign(running[gameId]!, sc.script.noProcess ? { from: Infinity }
+      : { from: at(processAt(sc.script)), at: at(processAt(sc.script)), bootAt: at(bootMs), safeIdle: idle?.why ?? null });
+    if (!sc.script.noProcess) setTimeout(() => emitGame(gameId, "started"), Math.max(0, at(processAt(sc.script)) - Date.now()) + 50);
+    if (!sc.script.noProcess) setTimeout(() => emitGame(gameId, "boot"), Math.max(0, at(bootMs) - Date.now()) + 50);
   } else {
     setTimeout(() => emitGame(gameId, "started"), 300);
     setTimeout(() => emitGame(gameId, "boot"), 2600);
@@ -1176,7 +1177,16 @@ const handlers: Record<string, Handler> = {
   launch_play: (a) => launch(S(a.gameId), a.request as LaunchRequest),
   // what a start is doing (mockProgress.ts): only a scripted start has a timeline; a plain one is a dev.26 runtime's
   launch_begin: (a) => { gameOf(S(a.gameId)); mockBegin(S(a.gameId), S(a.mode)); return null; },
-  launch_progress: (a) => mockProgress(S(a.gameId)),
+  launch_progress: (a) => {
+    const g = S(a.gameId);
+    const t = mockProgress(g);
+    // Steam took the start and no game came (a script's noProcess): the fake game's pending entry goes with it
+    if (endedStarts.delete(g) && running[g]?.from === Infinity) running[g] = null;
+    // Steam did not load Kiln's proxy: no boot.json ever, so the backend's answer stays "waiting"
+    if (t && noProxy && t.phase === "legacy") t.phase = "waiting";
+    return t;
+  },
+  launch_end: (a) => { mockStartEnded(S(a.gameId)); return null; },
   launch_state: (a): BootState => {
     const boot = bootFor(S(a.gameId));
     const r = live(S(a.gameId));
