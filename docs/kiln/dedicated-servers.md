@@ -175,11 +175,16 @@ machine; a mod archive doesn't carry them. A mod with player animation states ne
 without them the server refuses those states, and then refuses every player whose game has them. Cook it on the server:
 
 ```
-KILN_REPO=<a Kiln source checkout> kiln cook <server folder>/kiln/mods/<mod> --game <server folder>
+kiln cook <server folder>/kiln/mods/<mod> --game <server folder>
 ```
 
-You need Python 3.14 (or an older Python 3 with the `zstandard` package) and the Kiln source (the cook tools are its
-`tools/` folder), so this works on your own server, not on a rented one with only FTP. The cook makes what the server uses
+`kiln` is the command line tool in a release's `sdk/` folder (`kiln` for Linux, `kiln.exe` for Windows). It carries the
+cook tools itself and unpacks them on first use into Kiln's data folder (`cooktools/`): no Kiln source is needed. What it
+needs from the machine is Python 3.10 or newer (`python3`). Python 3.14 reads the game's archives by itself; an older
+one uses the system's zstd library (libzstd, which nearly every Linux has) or the `zstandard` package, and `kiln cook`
+says in one sentence what is missing. On Windows, set `KILN_PYTHON` to a `python.exe`, or cook with the launcher, which
+brings its own Python. So this works on your own server, not on a rented one with only FTP. A developer's checkout
+still wins when `KILN_REPO` names one. The cook makes what the server uses
 (animations, skeletons, graphs, templates) and skips what only a player's game draws (models), one line each:
 `step 5 model moves_blade_anim: skipped on a dedicated server: only a game client draws it`. Cook again after every game
 update.
