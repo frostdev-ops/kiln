@@ -30,8 +30,12 @@ public readonly record struct WorldStatus(bool Programs, bool WorldLive, bool Te
 /// </summary>
 /// <remarks>Component names are the engine's short names without <c>keen::ecs::</c> ("CurrentTransform",
 /// "TeleportCount", "PlayerInput"). Entity ids are not stable across server restarts.</remarks>
+[ServerOnly]
 public static unsafe partial class World
 {
+    // the world.* features lowered when kiln.world is missing, at Kiln.World's first use (never throws)
+    static World() => WorldRows.Rows.Ensure();
+
     private static readonly Dictionary<string, uint> Hashes = new(StringComparer.Ordinal);
     private static uint[] _findBuffer = new uint[4096];
 
@@ -71,6 +75,7 @@ public static unsafe partial class World
     }
 
     /// <summary>True if the entity exists (has a world transform).</summary>
+    [TickThreadOnly]
     public static bool Exists(EntityId entity)
     {
         var t = Tick("World.Exists");
@@ -78,8 +83,10 @@ public static unsafe partial class World
     }
 
     /// <summary>The entity's position in metres, or null when it does not exist or has no transform.</summary>
+    [TickThreadOnly]
     public static WorldPosition? Position(EntityId entity) => TryGetPosition(entity, out var p) ? p : null;
 
+    [TickThreadOnly]
     public static bool TryGetPosition(EntityId entity, out WorldPosition position)
     {
         var t = Tick("World.Position");
@@ -94,6 +101,7 @@ public static unsafe partial class World
     }
 
     /// <summary>The entity's CurrentTransform, or null.</summary>
+    [TickThreadOnly]
     public static EntityTransform? Transform(EntityId entity)
     {
         var t = Tick("World.Transform");
@@ -105,6 +113,7 @@ public static unsafe partial class World
     }
 
     /// <summary>True if the entity has the per-entity component <paramref name="component"/>.</summary>
+    [TickThreadOnly]
     public static bool Has(EntityId entity, string component)
     {
         var t = Tick("World.Has");
@@ -113,6 +122,7 @@ public static unsafe partial class World
     }
 
     /// <summary>Size in bytes of the entity's component, or 0 when it has none.</summary>
+    [TickThreadOnly]
     public static int ComponentSize(EntityId entity, string component)
     {
         var t = Tick("World.ComponentSize");
@@ -122,6 +132,7 @@ public static unsafe partial class World
 
     /// <summary>Copies the first <c>sizeof(T)</c> bytes of the entity's component into <paramref name="value"/>.
     /// False when the entity has no such component or it is smaller than T. Layouts depend on the game build.</summary>
+    [TickThreadOnly]
     public static bool TryRead<T>(EntityId entity, string component, out T value) where T : unmanaged
     {
         var t = Tick("World.TryRead");
@@ -140,6 +151,7 @@ public static unsafe partial class World
     /// the game is not told. False when the entity has no such component or it doesn't fit. It keeps working as before;
     /// what replaces it depends on what the value is: see <see cref="WriteRaw{T}"/>.</summary>
     [Obsolete("Use World.Write, World.Update, World.WriteField or World.WriteAt: this raw store skips the game's write tracking, so the save and players may never see the change. For an input the game neither saves nor sends, use World.WriteRaw.")]
+    [TickThreadOnly]
     public static bool TryWrite<T>(EntityId entity, string component, int offset, T value) where T : unmanaged =>
         WriteRaw(entity, component, offset, value);
 
@@ -162,6 +174,7 @@ public static unsafe partial class World
     }
 
     /// <summary>A copy of the entity's component bytes, or null.</summary>
+    [TickThreadOnly]
     public static byte[]? ReadBytes(EntityId entity, string component)
     {
         var t = Tick("World.ReadBytes");
@@ -172,6 +185,7 @@ public static unsafe partial class World
 
     /// <summary>Every entity that has the per-entity component <paramref name="component"/> (one pass over the entity
     /// map). Empty when the component type does not exist in this world.</summary>
+    [TickThreadOnly]
     public static IReadOnlyList<EntityId> Find(string component) => FindCore(Tick("World.Find"), component, sets: false);
 
     /// <summary>World.Find's pass, shared with the entity sets: with <paramref name="sets"/> a find the native side
@@ -201,6 +215,7 @@ public static unsafe partial class World
     }
 
     /// <summary>Entities in the server world.</summary>
+    [TickThreadOnly]
     public static int EntityCount => (int)Tick("World.EntityCount")->EntityCount();
 
     private static WorldNative.Table* Tick(string api)

@@ -37,6 +37,7 @@ internal static class Adopted
         typeof(Network),
         typeof(Saves),
         typeof(Rules),
+        typeof(World),
     ];
 
     internal static IEnumerable<Assembly> Assemblies => Anchors.Select(t => t.Assembly).Distinct();

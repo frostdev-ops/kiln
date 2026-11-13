@@ -133,6 +133,7 @@ public sealed class ServiceStartTests
         ["Kiln.Creatures"] = "creatures.* lowered when kiln.creatures is missing",
         ["Kiln.Hooks"] = "kiln.hooks probed again after a registry reset",
         ["Kiln.Example"] = "the template: only the core's kiln.example row",
+        ["Kiln.World"] = "world.* lowered when kiln.world is missing, at its first use, with world.tracked_writes",
         ["Kiln.Saves"] = "starts at its first use: its start subscribes to kiln.saves' pump; saves.* lowered and " +
                          "InstanceData's rows reported then (the core's kiln.saves row says the table is missing from the start)",
     };

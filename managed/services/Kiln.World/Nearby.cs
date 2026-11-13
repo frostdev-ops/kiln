@@ -5,11 +5,13 @@
 namespace Kiln;
 
 /// <summary>Entities near a point or another entity. Tick thread, as <see cref="World"/>.</summary>
+[ServerOnly]
 public static class Nearby
 {
     /// <summary>Entities with the per-entity component <paramref name="component"/> within <paramref name="radius"/>
     /// metres of <paramref name="center"/>, nearest first; <paramref name="center"/> itself is left out. Empty when
     /// the center has no position. shroudlink: <c>World::entities_near(entity, radius, type)</c>.</summary>
+    [TickThreadOnly]
     public static IReadOnlyList<EntityId> Entities(EntityId center, double radius, string component)
     {
         Validate(default, radius);
@@ -19,6 +21,7 @@ public static class Nearby
 
     /// <summary>Entities with <paramref name="component"/> within <paramref name="radius"/> metres of a point,
     /// nearest first.</summary>
+    [TickThreadOnly]
     public static IReadOnlyList<EntityId> Entities(WorldPosition at, double radius, string component)
     {
         Validate(at, radius);
@@ -28,6 +31,7 @@ public static class Nearby
     /// <summary>The entities of <paramref name="candidates"/> within <paramref name="radius"/> metres of
     /// <paramref name="center"/>, nearest first (center left out). Inventories near a player, as shroudlink's
     /// <c>World::inventories_near(player, 40.0)</c>: <c>Nearby.Within(Items.FindInventories(), player, 40)</c>.</summary>
+    [TickThreadOnly]
     public static IReadOnlyList<EntityId> Within(IEnumerable<EntityId> candidates, EntityId center, double radius)
     {
         ArgumentNullException.ThrowIfNull(candidates);
@@ -38,6 +42,7 @@ public static class Nearby
 
     /// <summary>The entities of <paramref name="candidates"/> within <paramref name="radius"/> metres of a point,
     /// nearest first.</summary>
+    [TickThreadOnly]
     public static IReadOnlyList<EntityId> Within(IEnumerable<EntityId> candidates, WorldPosition at, double radius) =>
         Filter(candidates, at, radius, default);
 

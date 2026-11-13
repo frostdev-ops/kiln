@@ -166,6 +166,7 @@ for a service the core does not have again, so a table published late is found.
 | `net.client_guard`, `net.gate`, `net.kick`, `net.players`, `net.transport`, `net.withhold` | sigdb features | core; Kiln.Network lowers them at its start when kiln.net is not loaded | |
 | `saves.load`, `saves.reasons`, `saves.request`, `saves.write` | sigdb features | core; Kiln.Saves lowers them at its start (its first use) when kiln.saves is not loaded | |
 | `rules.consume` ... `rules.zone` (sixteen) | sigdb features | core; Kiln.Rules lowers them at its start when kiln.rules is not loaded | |
+| `world.component_bits` ... `world.write` (twelve) | sigdb features | core; Kiln.World lowers them at its first use when kiln.world is not loaded | |
 | `items.pide_options` | sigdb feature | core; Kiln.Items lowers it with its other rows when kiln.items is not loaded (dev.27; before, it kept the core's verdict) | `Gear.Unlocked`, `Gear.GemSlot` at creation |
 
 ## Rules

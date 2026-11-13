@@ -305,6 +305,24 @@ The program
 read singleton) exists only when something is listed: a server whose mods list nothing gets no extra program.
 kiln.items keeps its own program for water and moves; nothing was moved onto this one.
 
+## The contract (dev.27)
+
+Kiln.World follows [the API contract](../modding/contract.md); its tracked writes and entity sets were written to it
+(above). `World`, `Nearby` and `Teleport` are `[ServerOnly]` (the server world's entities).
+
+- **Capabilities.** `kiln.world` (the core's row) and its sigdb features (`world.component_bits`, `dead_check`,
+  `entities`, `find`, `names`, `names.events`, `names.singletons`, `programs`, `queue`, `read_other`, `teleport`,
+  `write`), lowered at Kiln.World's first use when kiln.world is missing; `world.tracked_writes` (session, reported
+  with them and again after a registry reset).
+- **Threads.** `[TickThreadOnly]` on every read and write that checks it: `Exists`, `Position`, `TryGetPosition`,
+  `Transform`, `Has`, `ComponentSize`, `TryRead`, `TryWrite`, `WriteRaw`, `ReadBytes`, `Find`, `EntityCount`,
+  `Nearby.Entities`, `Nearby.Within`, `Teleport.To`, `ToEntity`, `ToSpawnPoint`, and the sets and tracked writes.
+- **Errors, results, events.** The sets name `world.find` and the tracked writes `world.tracked_writes` (dev.27);
+  `WorldWriteResult` and now `TeleportResult` are kiln results (`Ok`, new, is `Moved`); a tracked write posts
+  `ComponentWrittenEvent`. Not changed: `WriteRaw` and `TryWrite` stay raw stores with no event (the table above);
+  `World.Write` and its kin are the tracked path.
+- Tested offline: `managed/tests/Kiln.Contract.Tests/WorldContractTests.cs` and the conformance rules.
+
 ## Programs v2
 
 [Managed ECS programs and system hooks](../modding/ecs-programs.md) describes boot-time declarations and normal
