@@ -109,8 +109,11 @@ public sealed class SampleModsTests
         kiln.Step();
         // with no game there are no items to read and no weather to choose: each command says so and changes nothing
         Assert.Contains("only a player", Said(kiln.RunCommand("loadout save town")));
-        Assert.Contains("kiln.items is missing", Said(kiln.RunCommand(admin, "loadout save town")));
-        Assert.Contains("kiln.items is missing", Said(kiln.RunCommand(admin, "loadout off Ring0")));
+        Assert.Contains("items.instances is off", Said(kiln.RunCommand(admin, "loadout save town")));
+        Assert.Contains("items.instances is off", Said(kiln.RunCommand(admin, "loadout wear town")));
+        Assert.Contains("items.instances is off", Said(kiln.RunCommand(admin, "loadout off Ring0")));
+        Assert.Contains("no slot Hat", Said(kiln.RunCommand(admin, "loadout off Hat")));
+        Assert.Contains("no slot 99", Said(kiln.RunCommand(admin, "loadout off 99")));
         Assert.Contains("time.weather_choose is off", Said(kiln.RunCommand(admin, "sky")));
         Assert.Contains("time.weather_choose is off", Said(kiln.RunCommand(admin, "sky rain 10m")));
     }

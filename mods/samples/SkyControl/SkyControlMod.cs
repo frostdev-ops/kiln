@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 // Sky control: the server's weather read, chosen and given back (docs/kiln/services/time.md, "Choosing the weather").
-//   /sky                  each weather layer: what runs there, what Kiln holds, the names a layer can run
+//   /sky                  each weather layer: what runs there, what Kiln holds, what the layer can run
 //   /sky rain 10m         every region's rain for ten minutes of game time, then the game's weather again
 //   /sky clear            nothing on every layer, held until released
 //   /sky <name>           that phenomenon on every layer that has it, held until released
@@ -33,8 +33,9 @@ public sealed class SkyControlMod : Mod
             Show(c);
             return;
         }
-        // No duration given: the choice is held. Kiln.Time takes null for that.
-        TimeSpan? span = duration == TimeSpan.Zero ? null : duration;
+        // No duration given: the choice is held, and Kiln.Time takes null for that. The command's values say whether
+        // the argument was typed, so "0s" is a duration that is too short, not a hold.
+        TimeSpan? span = c.Has(nameof(duration)) ? duration : null;
         if (span is { } d && (d < TimeSpan.FromSeconds(1) || d > Time.MaxWeatherDuration))
             throw new CommandException($"a duration from one second to {Time.MaxWeatherDuration.TotalDays:0} days");
         WeatherResult result;
@@ -62,8 +63,8 @@ public sealed class SkyControlMod : Mod
     private static void Show(CommandContext c)
     {
         foreach (var layer in Time.Weather)
-            c.Reply($"  {layer}");
-        c.Reply($"  names: clear, {string.Join(", ", Names())}");
+            c.Reply($"  {layer}; can run: {string.Join(", ", layer.Choices.Where(p => !p.IsNothing).Select(p => p.Name))}");
+        c.Reply($"  /sky takes: clear, {string.Join(", ", Names())}");
     }
 
     // The names the game's rolls can pick, each once (rain is on several layers).
