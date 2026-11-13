@@ -240,15 +240,19 @@ export function applyBulk(p: Profile, changes: BulkChange[]): void {
   }
 }
 
-/** Undo: every entry the plan changed and nobody changed since goes back (out again when the profile lacked it).
- *  Returns how many were changed since and kept. */
-export function revertBulk(p: Profile, changes: BulkChange[]): number {
+/** "<kind>/<id>": how an Undo names the mods the player touched since the action (ModRow.key's form). */
+export const changeKey = (c: { kind: ModKind; after: { id: string } }) => `${c.kind}/${c.after.id}`;
+
+/** Undo: every entry the plan changed goes back (out again when the profile lacked it), except the ones in `touched`
+ *  (the player switched, re-versioned or removed them since: their final values cannot tell an edit back and forth)
+ *  and any whose entry is not as the plan left it. Returns how many were kept. */
+export function revertBulk(p: Profile, changes: BulkChange[], touched: ReadonlySet<string> = new Set()): number {
   let kept = 0;
   for (const c of changes) {
     const list = p.mods[c.kind] ?? [];
     const i = list.findIndex((m) => m.id === c.after.id);
     const m = list[i];
-    if (!m || m.enabled !== c.after.enabled || m.version !== c.after.version || m.hash !== c.after.hash) { kept++; continue; }
+    if (touched.has(changeKey(c)) || !m || m.enabled !== c.after.enabled || m.version !== c.after.version || m.hash !== c.after.hash) { kept++; continue; }
     if (c.before) list[i] = { ...m, enabled: c.before.enabled };
     else list.splice(i, 1);
     p.mods[c.kind] = list;

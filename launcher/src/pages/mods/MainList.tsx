@@ -5,7 +5,7 @@
 // said something), Load order, Engines and Add mods. It scrolls inside the page.
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { MoreHorizontal } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import * as api from "../../api/commands";
 import type { AddReport, GameInstall, ModKind } from "../../api/commands";
@@ -29,6 +29,8 @@ import { Badge, Button, ConfirmDanger, FlameToggle, Menu, Modal, Select, WellInp
 const FILTER_FROM = 6;
 
 type Mods = ReturnType<typeof useMods>;
+/** The mounted list (one at a time): what a bulk action's Undo acts through. */
+let liveList: { mods: Mods } | null = null;
 
 export function MainList({ game, mods, running }: { game: GameInstall; mods: Mods; running: boolean }) {
   const qc = useQueryClient();
@@ -63,14 +65,24 @@ export function MainList({ game, mods, running }: { game: GameInstall; mods: Mod
     const what = n ? `Switches ${on ? "on" : "off"} ${n} mod${n === 1 ? "" : "s"} of the ${shown.length}${filtered ? " the filter shows" : " in the list"}` : `Every mod ${filtered ? "the filter shows" : "in the list"} is ${on ? "on" : "off"} already`;
     return p.left.length ? `${what}. ${p.left.length} can't be switched: ${[...new Set(p.left.map((l) => l.why))].join("; ")}.` : `${what}.`;
   };
+  // the toast's Undo runs on the list as it is when pressed (its profile, its save queue), never on this render's copy
+  const here = useRef({ mods });
+  here.current.mods = mods;
+  useEffect(() => {
+    const me = here.current;
+    liveList = me;
+    return () => { if (liveList === me) liveList = null; };
+  }, []);
   const setAll = (on: boolean) => {
-    const plan = mods.setAll(shown, on);
-    if (!plan || !plan.change.length) return;
+    const r = mods.setAll(shown, on);
+    if (!r?.undo) return;
+    const { plan, undo } = r;
     const n = plan.change.length;
     const left = plan.left.length ? `${plan.left.length} left out: ${[...new Set(plan.left.map((l) => l.why))].join("; ")}.` : undefined;
-    toast.ok(`Switched ${n} mod${n === 1 ? "" : "s"} ${on ? "on" : "off"}`, left, { actions: [{ label: "Undo", onClick: () => {
-      const kept = mods.undoAll(plan.change);
-      if (kept) toast.info("Undo kept later changes", `${kept} mod${kept === 1 ? " was" : "s were"} switched since.`);
+    toast.ok(`Switched ${n} mod${n === 1 ? "" : "s"} ${on ? "on" : "off"}`, left, { actions: [{ label: "Undo", onClick: async () => {
+      const res = liveList ? await liveList.mods.undoAll(undo) : { ok: false as const, why: "the mods list is not open" };
+      if (!res.ok) toast.info("Can't undo that", `${res.why[0].toUpperCase()}${res.why.slice(1)}. Switch the mods in the list instead.`);
+      else if (res.kept) toast.info("Undo kept later changes", `${res.kept} mod${res.kept === 1 ? " was" : "s were"} switched since.`);
     } }] });
   };
 

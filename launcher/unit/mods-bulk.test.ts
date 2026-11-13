@@ -72,3 +72,26 @@ test("Undo puts back what the action changed, and keeps a mod changed since", ()
   expect(back.mods.kiln).toEqual([pm("a"), pm("b", false), { ...pm("c"), enabled: false }]);
   expect(back.mods.eml).toEqual([pm("gone", false)]);
 });
+
+// review finding 1: "All on" adds an absent mod; the player switches it off and on again; its values match the
+// action's again, but Undo must leave it: the player chose it since
+test("Undo leaves a mod the player touched since, even when its values are back to the action's", () => {
+  const { p, rows } = fixture();
+  const plan = bulkPlan(rows, true);
+  const after = clone(p);
+  applyBulk(after, plan.change);
+  const back = clone(after); // off and on again: the same values as after the action
+  expect(revertBulk(back, plan.change, new Set(["kiln/c"]))).toBe(1);
+  expect(back.mods.kiln).toEqual([pm("a"), pm("b", false), pm("c")]);
+  expect(back.mods.eml).toEqual([pm("gone", false)]);
+});
+
+// review finding 6: nothing touched since, nothing kept (the count came from the profile before the action)
+test("Undo right after the action keeps nothing", () => {
+  const { p, rows } = fixture();
+  const plan = bulkPlan(rows, false);
+  const after = clone(p);
+  applyBulk(after, plan.change);
+  expect(revertBulk(after, plan.change, new Set())).toBe(0);
+  expect(after.mods).toEqual(p.mods);
+});
