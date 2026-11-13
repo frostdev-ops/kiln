@@ -779,7 +779,7 @@ public static unsafe partial class Spawn
         return (int)live;
     }
 
-    /// <summary>True once the server world runs (its save is loaded; capability <c>spawn.world</c>). Spawning before
+    /// <summary>The question for the row <c>spawn.world</c>: true once the server world runs (its save is loaded). Spawning before
     /// that fails with <see cref="KilnUnavailableException"/> (a <see cref="NotSupportedException"/>): the server steps
     /// its world while it still loads the save.</summary>
     [AnyThread]

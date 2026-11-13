@@ -53,7 +53,8 @@ public static unsafe partial class Content
     /// <summary>The native service is loaded (capability <c>kiln.content</c>).</summary>
     public static bool Available => T != null;
 
-    /// <summary>The registries are loaded and the data packs applied (capability <c>content.ready</c>).</summary>
+    /// <summary>The registries are loaded and the data packs applied: the question for the row <c>content.ready</c>, true
+    /// only when <c>kiln.content</c> is here.</summary>
     [AnyThread]
     public static bool Ready => Status()?.Ready == true;
 

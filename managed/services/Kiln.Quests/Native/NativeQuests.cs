@@ -609,9 +609,10 @@ public static class NativeQuests
     {
         try
         {
-            await Knowledge.World.Grant(unlock).OnTick();
-            QuestsInternals.Info($"native: NPC {n.FullId}: its unlock 0x{unlock:x8} granted for this world");
-            PlaceWhenUnlocked(n);
+            var granted = await Knowledge.World.Grant(unlock).OnTick();
+            if (granted.Ok) QuestsInternals.Info($"native: NPC {n.FullId}: its unlock 0x{unlock:x8} granted for this world");
+            else QuestsInternals.Warn($"native: NPC {n.FullId}: its unlock 0x{unlock:x8} was not granted ({granted.Reason}); placing it once the roster says it is unlocked");
+            PlaceWhenUnlocked(n);  // waits for the roster either way, and places it after 300 steps without it
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {

@@ -303,7 +303,8 @@ public static class Dialogues
         }
         if (open || e.IsFarewell || def?.Dialogue is not { } name) return;
         // a native dialogue's lines are in the game's menu; a chat conversation starts here for players the menu cannot reach
-        if (FindDefinition(name, def.ModId) is { Native: false } d) Open(h, d, e.Npc, null, def);
+        // refused (not a player, the dialogue lacks the node): the game's own dialogue goes on, nothing waits for it
+        if (FindDefinition(name, def.ModId) is { Native: false } d) _ = Open(h, d, e.Npc, null, def);
     }
 
     // ---------------------------------------------------------------------------------------------- showing --------

@@ -73,3 +73,31 @@ public sealed class ProbeMod : Mod
 {
     public override void OnLoad() { }
 }
+
+/// <summary>[RequiresCapability] says that a member throws when its row is off: of PlayerAnimStates only Define does; the
+/// lookups answer Off, the zero hash, null or empty without the service (dev.26's behaviour), so they carry no mark.</summary>
+public sealed unsafe class CapabilityMarkTests
+{
+    [Fact]
+    public void Only_Define_is_marked_and_the_lookups_answer_without_the_service()
+    {
+        var field = typeof(PlayerAnimStates).GetField("_table", BindingFlags.Static | BindingFlags.NonPublic)!;
+        var before = field.GetValue(null);
+        field.SetValue(null, Pointer.Box(null, field.FieldType));  // no kiln.playeranim: no backend of this process has one
+        try
+        {
+            Assert.Equal(PlayerAnimGraphState.Off, PlayerAnimStates.Graph);
+            Assert.Equal("0000000000000000", PlayerAnimStates.GraphHash);
+            Assert.Empty(PlayerAnimStates.FindGameStates("Idle"));
+            Assert.Null(PlayerAnimStates.Find("mod", "slash"));
+            Assert.Empty(PlayerAnimStates.All);
+        }
+        finally
+        {
+            field.SetValue(null, before);
+        }
+        var marked = typeof(PlayerAnimStates).GetMembers(BindingFlags.Public | BindingFlags.Static)
+            .Where(m => m.GetCustomAttribute<RequiresCapabilityAttribute>() is not null).Select(m => m.Name).ToArray();
+        Assert.Equal(["Define"], marked);
+    }
+}

@@ -439,13 +439,14 @@ public static partial class Quests
         if (!ready) return;
         foreach (var q in autos)
         {
+            // a refusal (a QuestStartedEvent handler canceled it) leaves the quest unstarted: the next pass asks again
             if (q.Scope == QuestScope.World)
             {
-                if (CanStart(q, QuestHolder.World)) StartOne(q, QuestHolder.World, false);
+                if (CanStart(q, QuestHolder.World)) _ = StartOne(q, QuestHolder.World, false);
                 continue;
             }
             foreach (var h in Online())
-                if (CanStart(q, h)) StartOne(q, h, false);
+                if (CanStart(q, h)) _ = StartOne(q, h, false);
         }
     }
 
@@ -613,7 +614,7 @@ public static partial class Quests
         var r = StartOne(q, h, force);
         if (r.Ok && q.Scope == QuestScope.Party)
             foreach (var o in QuestObjectives.PartyOf(h, q.PartyRadius))
-                if (CanStart(q, o)) StartOne(q, o, force);
+                if (CanStart(q, o)) _ = StartOne(q, o, force);  // a member it is refused for stays out; the holder's start stands
         return r;
     }
 
@@ -668,7 +669,7 @@ public static partial class Quests
         // Asked again by the next poll: only objectives that are a state of the world can be full at once, and those are polled.
         if (q.Journal == QuestJournalMode.Native && !SyntheticInput.IsSynthetic(h) && step.Objectives.Any(o => o.IsLevel) &&
             Environment.TickCount64 - rec.EnteredAt < MinimumStepMs) return;
-        FinishStep(q, h, rec, step);
+        _ = FinishStep(q, h, rec, step);  // canceled by a QuestStepEvent handler: the step stays, the next change asks again
     }
 
     private static QuestResult FinishStep(QuestDefinition q, QuestHolder h, QuestRecord rec, QuestStep step)
