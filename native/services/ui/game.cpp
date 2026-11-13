@@ -340,6 +340,7 @@ bool settings_entry(uintptr_t r, const uintptr_t* frame) {
 bool __fastcall hk_main_entry(void* state, const MainDesc* d) {
     const uintptr_t r = g_main_hook.caller();  // the renderer's return address, read before the original
     if (d && settings_entry(r, static_cast<const uintptr_t*>(_AddressOfReturnAddress()))) {
+        start_drawn("the main menu");  // progress.json: once (an atomic test on later frames)
         page_main_menu_drawn(state);  // a menu-key request for the main-menu page is served here (menu_page.cpp)
         for (const Entry& e : entries_of(KILN_UI_MENU_MAIN)) {
             MainDesc c = *d;  // the Settings entry's option bytes: same style, same behaviour
@@ -418,6 +419,7 @@ void after_frame(uintptr_t sys10) {
         g_screen = s;
         g_have_prev = true;
     }
+    if (changed && s.ui_state == KILN_UI_STATE_PLAY) start_drawn("the first world frame");  // a start straight into a world
     if (changed) {
         logf(KILN_LOG_DEBUG, "ui: game screen %s hud %u interaction %u crafting %u station %u workshop %08x recipe %08x language %u (frame %llu, thread %lu)",
              state_name(s.ui_state), s.hud_screen, s.interaction, s.crafting, s.station, s.workshop, s.recipe, s.language,

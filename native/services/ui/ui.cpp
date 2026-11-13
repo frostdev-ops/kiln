@@ -18,6 +18,7 @@
 #include "backends/imgui_impl_win32.h"
 #include "imgui.h"
 #include "safetyhook.hpp"
+#include "services/kiln_progress.h"
 #include "services/kiln_render.h"
 #include "ui.h"
 #include "load_hook.h"
@@ -543,6 +544,17 @@ std::string api_path(int kind) {
 }
 
 }  // namespace
+
+namespace kui {
+void start_drawn(const char* what) {
+    static std::atomic<bool> said{false};
+    if (said.load(std::memory_order_relaxed) || said.exchange(true) || !g_api) return;
+    const auto* t = static_cast<const KilnProgressApi*>(g_api->service(KilnStr{KILN_PROGRESS_SERVICE, sizeof(KILN_PROGRESS_SERVICE) - 1}, 1));
+    if (!t || t->header.size < offsetof(KilnProgressApi, mark) + sizeof(void*) || !t->mark) return;  // a core older than dev.27
+    const KilnResult rc = t->mark(KILN_PROGRESS_MARK_MENU);
+    logf(KILN_LOG_INFO, "ui: %s drew: told the start's progress (rc %d)", what, static_cast<int>(rc));
+}
+}  // namespace kui
 
 extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api, KilnOwner owner, KilnPluginInfo* info) {
     if (api->abi_version != KILN_ABI_VERSION || api->size < offsetof(KilnApi, side)) return KILN_ERR_UNAVAILABLE;

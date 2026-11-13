@@ -131,7 +131,9 @@ CookResult cook_mods(const std::vector<ModInput>& mods, const CookOptions& opt) 
     std::set<std::string> seen_mods;
     std::set<Guid> counted_meshes;
 
+    size_t nth = 0;
     for (const ModInput& mod : mods) {
+        ++nth;
         if (!seen_mods.insert(mod.id).second) {
             out.warnings.push_back("mod " + mod.id + ": listed twice, the second is ignored");
             continue;
@@ -323,7 +325,14 @@ CookResult cook_mods(const std::vector<ModInput>& mods, const CookOptions& opt) 
         std::vector<std::string> vfx_names;
         BudgetNeed need;
         std::vector<std::string> used_meshes, used_textures;
+        size_t built_n = 0;
+        const size_t built_total = blocks.size() + material_blocks.size();
+        const auto say = [&](const char* kind, const std::string& name) {
+            if (opt.progress) opt.progress(mod.id, nth, mods.size(), kind, name, built_n, built_total);
+            ++built_n;
+        };
         for (const Block& b : blocks) {
+            say("VFX", b.def.name);
             bool bad = false;
             // It has said which material isn't there.
             if (std::any_of(b.def.particles.begin(), b.def.particles.end(), [&](const ParticleDef& p) { return !p.material.empty() && !material_named.count(p.material); })) continue;
@@ -422,6 +431,7 @@ CookResult cook_mods(const std::vector<ModInput>& mods, const CookOptions& opt) 
             return true;
         };
         for (const MaterialBlock& b : material_blocks) {
+            say("material", b.def.name);
             MaterialBuilt m;
             std::string field, why;
             if (!material_maps(b.def, load_image, opt.cache, &m.maps, &field, &why)) {

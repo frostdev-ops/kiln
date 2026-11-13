@@ -20,6 +20,7 @@
 #include <vector>
 
 #include "boot.h"
+#include "services/kiln_progress.h"
 #include "cook/vfxcook.h"
 #include "core.h"
 #include "generated.h"
@@ -666,6 +667,15 @@ void build_on_ready(const KilnApi* api, KilnOwner self) {
         shader_switches(&opt);
         const char* fingerprint = diff.empty() && material_diff.empty() ? "ok" : "changed";
         const std::string fingerprint_detail = diff.empty() ? material_diff : diff;
+        // progress.json: this runs in on_ready, kiln-core's step "plugins"; the detail says which mod's block is built
+        // (kiln.progress v2; nothing with an older core, and kiln-core writes it at most every 250 ms)
+        const auto* progress = static_cast<const KilnProgressApi*>(api->service(KilnStr{KILN_PROGRESS_SERVICE, sizeof(KILN_PROGRESS_SERVICE) - 1}, 1));
+        if (progress && progress->header.size >= offsetof(KilnProgressApi, step) + sizeof(void*) && progress->step)
+            opt.progress = [progress](const std::string& mod, size_t nth, size_t of, const char* kind, const std::string& name, size_t done, size_t total) {
+                const std::string detail = "kiln-vfx: building the materials and VFX of " + mod + (of > 1 ? " (mod " + std::to_string(nth) + " of " + std::to_string(of) + ")" : "") +
+                                           ": " + kind + " " + name + " (" + std::to_string(done + 1) + " of " + std::to_string(total) + ")";
+                progress->step(KilnStr{"plugins", 7}, KilnStr{nullptr, 0}, KilnStr{detail.data(), detail.size()}, 0, 0);
+            };
         const uint64_t t0 = GetTickCount64();
         const kvb::CookResult r = kvb::cook_mods(mods, opt);
         for (const std::string& e : r.errors) KV_E("vfx: %s", e.c_str());

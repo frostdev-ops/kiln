@@ -25,6 +25,8 @@
 #include "log.h"
 #include "profile.h"
 #include "progress.h"
+#include "progress_file.h"  // module_name
+#include "progress_state.h"
 #include "registry.h"
 
 namespace kiln::early_plugins {
@@ -59,6 +61,7 @@ struct Early {
     KilnOwner owner = 0;
     KilnPluginInfo info{};
     bool ok = false;
+    double ms = 0;  // kiln_plugin_early + on_ready (progress.json's parts)
 };
 
 void KILN_CALL run_ready(void* p) {
@@ -109,7 +112,17 @@ void run() {
     std::stable_sort(early.begin(), early.end(), [](const Early& a, const Early& b) {
         return provider_before(a.name, b.name);
     });
+    // progress.json: the step's detail is the plugin that runs now, the count is the early plugins (the progress window's
+    // text, an EML preparation's, replaces the detail while it shows: services/progress.cpp)
+    uint64_t done = 0;
     for (auto& e : early) {
+        progress_state::step("early-plugins", {}, progress_file::module_name(e.name), done++, early.size());
+        const double t0 = now_ms();
+        struct Took {
+            Early& e;
+            double t0;
+            ~Took() { e.ms += now_ms() - t0; }
+        } took{e, t0};
         e.owner = reg::owner_create("early:" + e.name);
         e.info.size = sizeof e.info;
         KilnResult rc = KILN_ERR_INTERNAL;
@@ -148,13 +161,18 @@ void run() {
     }
     for (auto& e : early) {
         if (!e.ok || e.info.size < offsetof(KilnPluginInfo, on_ready) + sizeof(void*) || !e.info.on_ready) continue;
+        progress_state::step("early-plugins", {}, progress_file::module_name(e.name));
+        const double t0 = now_ms();
         unsigned long code = 0;
         if (!guard::task(&run_ready, &e, &code)) {
             KLOG_E("early plugin %s: on_ready faulted (0x%08lx); revoked", e.name.c_str(), code);
             e.ok = false;
             reg::owner_revoke(e.owner);
         }
+        e.ms += now_ms() - t0;
     }
+    for (const auto& e : early) progress_state::part(progress_file::module_name(e.name), static_cast<uint64_t>(e.ms));
+    progress_state::step("early-plugins", {}, {}, early.size(), early.size());
     // The progress window (kiln.progress) of a plugin that did not end its task, or faulted: the game's own window is next.
     progress::close_all();
 }

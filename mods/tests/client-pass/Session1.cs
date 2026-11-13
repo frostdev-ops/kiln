@@ -761,4 +761,42 @@ public sealed partial class ClientPassMod
                    "the check ends, the weather goes back to the game.");
         await c.Verdict();
     }
+    [ClientCheck("boot.progress-file", "Kiln says what a start is doing, step by step, until the main menu", Area = "Core",
+        Since = Dev27, Tags = [Visual], Order = 152)]
+    public async Task BootProgressFile(CheckContext c)
+    {
+        // kiln/state/progress.json of this start (kiln-core writes it; schema/state-progress.schema.json): it must have
+        // reached ready (the main menu drew with every mod loaded, before this world), with a plan, every step ended,
+        // and the steps' tookMs adding up to atMs.
+        var file = Path.Combine(KilnFolder(), "state", "progress.json");
+        System.Text.Json.Nodes.JsonObject? doc = null;
+        try { doc = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(file)) as System.Text.Json.Nodes.JsonObject; }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.Text.Json.JsonException) { c.Expect(false, "kiln/state/progress.json is readable", e.Message); }
+        if (doc != null)
+        {
+            c.Expect((int?)doc["pid"] == Environment.ProcessId, "the file is this start's", $"pid {doc["pid"]}, this game {Environment.ProcessId}");
+            c.Expect((string?)doc["state"] == "ready", "state ready", $"{doc["state"]} (why: {doc["why"]})");
+            var plan = doc["plan"] as System.Text.Json.Nodes.JsonArray ?? [];
+            var steps = doc["steps"] as System.Text.Json.Nodes.JsonArray ?? [];
+            c.Expect(plan.Count > 0 && plan[0]?.ToString() == "start" && plan[^1]?.ToString() == "game", "a plan from start to game", string.Join(", ", plan));
+            var ids = steps.Select(s => (string?)s?["id"] ?? "").ToList();
+            c.Expect(ids.SequenceEqual(plan.Select(p => p?.ToString() ?? "").Take(ids.Count)), "the steps follow the plan, none left out", string.Join(", ", ids));
+            c.Expect(steps.All(s => s?["tookMs"] != null), "every step ended (tookMs)", string.Join(", ", steps.Where(s => s?["tookMs"] == null).Select(s => (string?)s?["id"])));
+            var sum = steps.Sum(s => (long?)s?["tookMs"] ?? 0);
+            var at = (long?)doc["atMs"] ?? -1;
+            c.Expect(sum == at, "the steps' tookMs add up to atMs", $"sum {sum} ms, atMs {at} ms");
+            var lines = steps.Select(s =>
+            {
+                var parts = (s?["parts"] as System.Text.Json.Nodes.JsonArray ?? []).Select(p => $"{p?["label"]} {(long?)p?["tookMs"] / 1000.0:F1} s");
+                var count = s?["total"] != null ? $" ({s["done"]} of {s["total"]})" : "";
+                var list = string.Join(", ", parts);
+                return $"{(long?)s?["tookMs"] / 1000.0:F1} s  {s?["label"]}{count}{(list.Length > 0 ? " [" + list + "]" : "")}";
+            });
+            c.Instruct($"This start took {at / 1000.0:F1} s from Kiln's first moment to a usable main menu. What Kiln wrote " +
+                       "it did, step by step: " + string.Join("; ", lines) + ". Does that list make sense for what you saw " +
+                       "(the long steps where you waited), and did the launcher's progress bar show the same steps while " +
+                       "the game started?");
+        }
+        await c.Verdict();
+    }
 }

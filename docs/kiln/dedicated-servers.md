@@ -133,6 +133,24 @@ Open `kiln/logs/kiln.log` after the server has started.
 
 On Linux, `kilnctl status myserver` shows the same build line.
 
+### What a slow start is doing
+
+Since 0.2.0-dev.27 Kiln keeps `kiln/state/progress.json` up to date while the server starts: the step it is in, what
+it works on and how far it got, and what every finished step took. It is rewritten whole a few times a second at most,
+so reading it never disturbs the server, and it stops changing when the start is over: `state` is then `ready` (the
+world runs with the mods loaded), `idle` (safe idle; `why` says why) or `failed` (`why`). A file whose `pid` is not
+the running server's is from an earlier start.
+
+```sh
+cd /path/to/server
+jq -r '"\(.state) after \(.atMs / 1000) s"' kiln/state/progress.json
+jq -r '.steps[] | "\(.id)\t\(.tookMs // "running")\t\(.label)\(if .detail then ": " + .detail else "" end)\(if .total then " (\(.done) of \(.total))" else "" end)"' kiln/state/progress.json
+watch -n 1 cat kiln/state/progress.json   # without jq
+```
+
+The step that has no `tookMs` is the one running; its `detail` names the service, plugin, mod or block being worked
+on. The fields are in [launcher/contracts.md](launcher/contracts.md) (`schema/state-progress.schema.json`).
+
 Asking for help: `kilnctl report myserver` (or the Kiln Launcher's Logs page, "Save report...") writes one zip with
 these logs, Kiln's state files and a summary that names the usual causes; names, paths and addresses are replaced
 ([launcher/support-report.md](launcher/support-report.md)).

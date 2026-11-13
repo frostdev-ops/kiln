@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "state-progress.schema.json",
+  "title": "Kiln start progress (<game>/kiln/state/progress.json), format 1",
+  "description": "Written by kiln-core only (0.2.0-dev.27), on clients and dedicated servers, replaced whole and atomically (<file>.tmp, then a rename): at once at every change of step or state, at most every 250 ms for a change of label, detail or count (the last one is never lost). Services, plugins and Kiln.Host report to the core through kiln.progress v2 (native/core/abi/services/kiln_progress.h). A new process writes a new file from its first step: a reader tells a stale file by pid and started, as for boot.json. After ready, idle or failed the file is not written again in that process; nothing deletes it. A runtime older than dev.27 writes no such file. docs/kiln/launcher/contracts.md.",
+  "type": "object",
+  "required": ["format", "pid", "kiln", "side", "started", "atMs", "state", "plan", "steps", "why"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "format": { "const": 1 },
+    "pid": { "type": "integer", "minimum": 0, "description": "The game process, as boot.json's pid (the Windows pid under Wine and Proton)." },
+    "kiln": { "type": "string", "minLength": 1, "description": "Kiln's version with its build stamp (\"0.2.0-dev.27+20261113.2e75c1f\"); boot.json's kiln is the version without the stamp." },
+    "side": { "enum": ["client", "server"] },
+    "started": { "type": "string", "description": "When Kiln's boot began in this process: RFC 3339 UTC with milliseconds." },
+    "atMs": { "type": "integer", "minimum": 0, "description": "Milliseconds since started when this file was written; in a final state (ready, idle, failed), when that state began, so that the steps' tookMs add up to it." },
+    "state": {
+      "enum": ["booting", "loading", "ready", "idle", "failed"],
+      "description": "booting: inside Kiln's boot. loading: the boot is complete and the game goes on loading (managed mods load in its first frames on a client). ready: a client's main menu (or first world frame) has drawn with every mod loaded; a server's world runs with the mods loaded (Kiln.Host's ServerStarted; without .NET the server world's first step). idle: safe idle, Kiln hooked nothing (why). failed: Kiln could not go on (why): the boot threw, or the .NET host did not start."
+    },
+    "plan": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/stepId" },
+      "uniqueItems": true,
+      "description": "Every step this start goes through, in order, known at its start. Without .NET (kiln.json clr off) there is no dotnet, mods or content."
+    },
+    "steps": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/step" },
+      "description": "Every step begun so far, in the plan's order (none left out between two of them); the last one runs unless it has tookMs. Each step begins when the one before it ends."
+    },
+    "why": { "type": ["string", "null"], "description": "state idle or failed: one sentence (idle: boot.json's safeIdle). null otherwise." }
+  },
+  "$defs": {
+    "stepId": {
+      "enum": ["start", "native-early", "early-plugins", "signatures", "services", "plugins", "native", "dotnet", "mods", "content", "game"]
+    },
+    "step": {
+      "type": "object",
+      "required": ["id", "label", "ms"],
+      "properties": {
+        "id": { "$ref": "#/$defs/stepId" },
+        "label": { "type": "string", "minLength": 1, "maxLength": 255, "description": "A short English fragment a player can read, without a full stop. It may change while the step runs (step plugins: \"Starting plugins\", then \"Getting Kiln's services and plugins ready\"; step mods: \"Waiting for the game to load the mods\", then \"Loading the mods\")." },
+        "detail": { "type": "string", "maxLength": 255, "description": "What is being worked on right now (a service, plugin, mod or block by the name a player knows). Absent: nothing named." },
+        "done": { "type": "integer", "minimum": 0 },
+        "total": { "type": "integer", "minimum": 1, "description": "With done: the step is a loop over known things, both in the same unit (services: service DLLs; plugins: modules getting ready; early-plugins: early plugins; mods: mods; content: data blocks)." },
+        "ms": { "type": "integer", "minimum": 0, "description": "When the step began, ms since started." },
+        "tookMs": { "type": "integer", "minimum": 0, "description": "What it took, once it ended." },
+        "parts": {
+          "type": "array",
+          "maxItems": 16,
+          "items": {
+            "type": "object",
+            "required": ["label", "tookMs"],
+            "properties": {
+              "label": { "type": "string", "minLength": 1, "description": "The same from start to start (a module's name: \"ShroudForge\", \"kiln-vfx: getting ready\"); no counts, no times." },
+              "tookMs": { "type": "integer", "minimum": 500 }
+            },
+            "additionalProperties": false
+          },
+          "description": "Named pieces of the step that took 500 ms or more: early-plugins per early plugin; services and plugins per module's start (\"<name>: starting\") and on_ready (\"<name>: getting ready\")."
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

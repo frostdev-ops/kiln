@@ -144,7 +144,7 @@ internal static class BlockJson
     }
 
     /// <summary>Compiles a mod's blocks/*.json: what <see cref="Read"/> read, or reads it now. Returns how many blocks it defined. Any thread that may touch content (the tick thread).</summary>
-    public static int LoadMod(ModBlocks mod, string directory)
+    public static int LoadMod(ModBlocks mod, string directory, Action<string, string>? each = null)
     {
         if (mod.DataLoaded) return 0;
         Read(mod, directory);
@@ -154,6 +154,7 @@ internal static class BlockJson
         var n = 0;
         foreach (var (file, section, name, compile) in data.Entries)
         {
+            each?.Invoke(section, name);
             try
             {
                 mod.Compiling.Add(name);
@@ -289,14 +290,28 @@ internal static class BlocksStartup
                 var old = Blocks.AllMods.FirstOrDefault(b => b.Id == m.Id);
                 if (old != null && (old.DataLoaded || old.Data != null || old.OwnedByMod)) BlockJson.Unloaded(old);
             }
+        var due = new List<(ModEntry Entry, ModBlocks Blocks)>();
         foreach (var m in Mods.All)
         {
             if (!m.IsLoaded || m.Directory.Length == 0 || Done.Contains(m.Id) || !Directory.Exists(Path.Combine(m.Directory, "blocks"))) continue;
             Done.Add(m.Id);
             var mod = Blocks.ModFor(m.Id, () => BlocksBridge.ServiceOwner($"blocks:{m.Id}"));
             if (mod.Owner == 0) mod.Owner = BlocksBridge.ServiceOwner($"blocks:{m.Id}");
-            var n = BlockJson.LoadMod(mod, m.Directory);
+            due.Add((m, mod));
+        }
+        if (due.Count == 0) return;
+        // progress.json, step "content": every data block of this pass counted (the first pass after the mods load is
+        // the start's; a later one, a reload, finds the file's life over and reports nothing)
+        foreach (var (m, mod) in due)
+            if (!mod.DataLoaded) BlockJson.Read(mod, m.Directory);
+        var total = (ulong)due.Sum(d => d.Blocks.DataLoaded ? 0 : d.Blocks.Data?.Entries.Count ?? 0);
+        var done = 0UL;
+        foreach (var (m, mod) in due)
+        {
+            var n = BlockJson.LoadMod(mod, m.Directory, (section, name) => StartProgress.Step("content", "", $"{m.Id}: {section} {name}", done++, total));
             BlocksBridge.Log(LogLevel.Info, $"blocks: {m.Id}: {n} block(s) from blocks/*.json, {mod.Errors.Count} error(s)");
         }
+        if (StartProgress.Step("content", "", "", total, total) == StartProgress.Ok)
+            StartProgress.Step("game", StartProgress.GameLabel(BlocksBridge.IsClient));
     }
 }

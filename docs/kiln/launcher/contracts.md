@@ -45,6 +45,7 @@ Machine-readable copies:
 | `<game>/kiln/.install.json` | installer | installer, launcher | `install-receipt.schema.json`, `examples/install-receipt.json` |
 | `kiln-modpack.json` (modpack root) | modpack build | launcher | `kiln-modpack.schema.json`, `examples/kiln-modpack.json` |
 | `<game>/kiln/state/boot.json` | kiln-core | launcher | `state-boot.schema.json`, `examples/state-boot.json` |
+| `<game>/kiln/state/progress.json` | kiln-core (dev.27; services, plugins and Kiln.Host report through kiln.progress v2) | launcher, server operators | `state-progress.schema.json`, `examples/state-progress.json`; section "Start progress" below |
 | `<game>/kiln/state/mods.json` | Kiln.Host | launcher | `state-mods.schema.json`, `examples/state-mods.json` |
 | `<game>/kiln/state/native.json` | native loader (core) | launcher | `state-native.schema.json`, `examples/state-native.json` |
 | `<game>/kiln/state/hooks.json` | kiln-core (kiln.hooks v2, compat report) | launcher | `hooks-state.schema.json`, `examples/hooks-state.json`, `fixtures/hooks-state/` |
@@ -63,6 +64,35 @@ Machine-readable copies:
 | `*.kschem` header | Kiln.Build | Kiln.Build, `kiln lint` | `kschem-header.schema.json` |
 | `schema/schemas.json`, `schema/idrefs.json` | `kiln lint` (`idrefs.json` is generated) | `kiln lint`, tools/vscode | which schema and JSON dialect each file has; where files name game entries |
 | `kiln lint --json`, `library_lint` result | `kiln lint` | tools/vscode, launcher | `lint-report.schema.json`, `fixtures/lint/output.json` |
+
+### Start progress (`kiln/state/progress.json`, 0.2.0-dev.27)
+What a start is doing from `kiln_boot` until the game can be used, for the launcher's progress bar and time estimate.
+kiln-core is the one writer: it replaces the file whole (`<file>.tmp`, then a rename) at once at every change of step
+or state and at most every 250 ms for a change of label, detail or count (the last change is never lost), from a
+thread of its own (nothing in the game waits for the disk, and no write comes from a per-frame hook). Fields:
+`format` 1, `pid`, `kiln` (with the build stamp), `side`, `started` (UTC, milliseconds), `atMs`, `state`
+(`booting`, `loading`, `ready`, `idle`, `failed`), `plan`, `steps` (`id`, `label`, `detail`, `done`/`total`, `ms`,
+`tookMs`, `parts`), `why`. A stale file is told by `pid` and `started`, as for boot.json; nothing deletes it, and it
+is not written again after `ready`, `idle` or `failed`. boot.json is unchanged.
+
+| Step | What Kiln does there | Detail, count |
+|---|---|---|
+| `start` | kiln.json, the profile, compat rules, hashing the game image (from boot's first moment) | - |
+| `native-early` | native mods of phase early; waiting for another loader's code scans (label says so) | - |
+| `early-plugins` | `kiln_plugin_early` and its on_ready of each early plugin (ShroudForge's startup, EML's preparation) | the plugin by its loader's name (the progress window's text replaces it while it shows); early plugins; parts per plugin |
+| `signatures` | sigdb: finding the game's functions | - |
+| `services` | the tick hook, the in-core services, every service DLL's `kiln_plugin_main` | the service; service DLLs; parts `<name>: starting` |
+| `plugins` | every plugin's `kiln_plugin_main`, then every module's `on_ready` (label "Getting Kiln's services and plugins ready"; kiln-vfx builds the mods' materials and VFX here), the exit link | the module (kiln-vfx: the mod and block it builds); modules with on_ready; parts `<name>: getting ready` |
+| `native` | native mods of phase boot, world armed | - |
+| `dotnet` | .NET and Kiln.Host start; chain.ini `[late]` DLLs | `Kiln.Host` |
+| `mods` | from the end of boot (state `loading`; label "Waiting for the game to load the mods") until Kiln.Host has loaded the managed mods (client: the game's first menu frame; server: the world's first step) | the mod; mods |
+| `content` | Kiln.Blocks compiles the loaded mods' `blocks/*.json` (materials are checked against kiln-vfx's boot build); none: it ends at once | `<mod>: <section> <block>`; data blocks |
+| `game` | Kiln is done; the game goes on loading | - |
+
+`ready`: a client when kiln-ui sees the main menu's builder run (or the first in-game frame) and Kiln.Host has loaded
+the mods; a server at Kiln.Host's ServerStarted (what `kilnctl run --wait` waits for), or without .NET the server
+world's first step. A step begins when the one before it ends, so in a final state the steps' `tookMs` add up to
+`atMs`.
 
 Shared definitions (ids, semver, kdh1, game paths): `schema/common.schema.json`. Validate every example with
 `bun run check:schemas` in `launcher/`.
