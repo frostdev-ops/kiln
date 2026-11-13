@@ -175,6 +175,14 @@ fn last_launch_path(dirs: &DataDirs, install: &GameInstall) -> std::path::PathBu
     dirs.installs().join(format!("{}.launch.json", install.id))
 }
 
+/// Whether this game was started through Kiln less than `within` ago (the time its [`LastLaunch`] was written): Steam may
+/// still be starting it, and the game reads the mods' files as it does ([`crate::cook`] refuses a cook then).
+pub fn started_within(dirs: &DataDirs, install: &GameInstall, within: std::time::Duration) -> bool {
+    std::fs::metadata(last_launch_path(dirs, install)).and_then(|m| m.modified()).ok()
+        .and_then(|t| std::time::SystemTime::now().duration_since(t).ok())
+        .is_some_and(|age| age < within)
+}
+
 pub fn last_launch(dirs: &DataDirs, install: &GameInstall) -> Result<Option<LastLaunch>> {
     crate::util::read_json(&last_launch_path(dirs, install))
 }
@@ -225,6 +233,12 @@ pub fn play_with(dirs: &DataDirs, install: &GameInstall, request: &LaunchRequest
     if install.kind != crate::game::GameKind::Client {
         return Err(Error::invalid("launch_play starts the game client; servers start through server_start"));
     }
+    // A start with mods holds the game's lock until Steam was asked (state::lock_game): no cook writes a mod's files
+    // meanwhile (one that runs now is waited for a moment, then the start is refused with a sentence that says so),
+    // and a cook asked for right after is refused while the game starts (cook::AFTER_START).
+    let _cooks = if matches!(request.mode, LaunchMode::Profile | LaunchMode::Once) {
+        crate::state::lock_game(&install.path, std::time::Duration::from_secs(5), &|| false)?
+    } else { None };
     // the active profile as it is now: a profile changed since its activation (kilnctl, the profile pages) is
     // written again, or the game would load the mods of the old profile.json
     let activation = if request.mode == LaunchMode::Profile {

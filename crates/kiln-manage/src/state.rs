@@ -532,3 +532,48 @@ pub fn read_native(game_dir: &Path) -> Result<Option<NativeJson>> {
 pub fn read_last_server(game_dir: &Path) -> Result<Option<LastServer>> {
     read_json(&game_dir.join(crate::paths::game::LAST_SERVER_JSON))
 }
+
+/// Holds a lock file ([`lock_file`]) until dropped.
+#[derive(Debug)]
+pub struct HeldLock {
+    _file: std::fs::File,
+}
+
+/// Takes the lock of `path` (an exclusive lock on the file, made when missing), across threads and processes: polled every
+/// 100 ms until it is free, `canceled()` says stop (`Canceled`) or `wait` is over (`Busy`, with `busy` as the message).
+/// The lock goes when the [`HeldLock`] is dropped, and with the process. The file itself stays (an empty file).
+pub fn lock_file(path: &Path, wait: std::time::Duration, canceled: &dyn Fn() -> bool, busy: &str) -> Result<HeldLock> {
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(crate::util::io_at(dir, "creating"))?;
+    }
+    let file = std::fs::OpenOptions::new().create(true).truncate(false).write(true).open(path).map_err(crate::util::io_at(path, "opening"))?;
+    let start = std::time::Instant::now();
+    loop {
+        match file.try_lock() {
+            Ok(()) => return Ok(HeldLock { _file: file }),
+            Err(std::fs::TryLockError::WouldBlock) => {}
+            Err(std::fs::TryLockError::Error(e)) => return Err(crate::util::io_at(path, "locking")(e)),
+        }
+        if canceled() {
+            return Err(Error::new(crate::ErrorCode::Canceled, "canceled"));
+        }
+        if start.elapsed() >= wait {
+            return Err(Error::new(crate::ErrorCode::Busy, busy));
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+}
+
+/// `<game>/kiln/state/cook.lock`: one cook or one start with mods of a game at a time, whoever asks (the launcher,
+/// kilnctl, `kiln cook`). The launcher's cook holds it for its whole run, a start with mods until Steam was asked to
+/// start the game ([`crate::launch::play_with`]): a cook never writes a mod's files while the game starts with them.
+/// A game folder without Kiln has nothing to cook: no lock is taken there (None).
+pub fn lock_game(game_dir: &Path, wait: std::time::Duration, canceled: &dyn Fn() -> bool) -> Result<Option<HeldLock>> {
+    let kiln = game_dir.join(crate::paths::game::KILN);
+    if !kiln.is_dir() {
+        return Ok(None);
+    }
+    let file = kiln.join("state").join("cook.lock");
+    crate::engine_mods::refuse_symlink_path(game_dir, &file)?;
+    lock_file(&file, wait, canceled, "Kiln is cooking this game's mods, or starting the game: wait until that is done (the task list shows it), then try again.").map(Some)
+}

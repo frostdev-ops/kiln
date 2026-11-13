@@ -3,8 +3,10 @@
 // and the dump / status / console surface. Resource and content RE: docs/re/resources.md. Guide:
 // docs/kiln/services/assets.md.
 #include <filesystem>
+#include <optional>
 
 #include "assets.h"
+#include "cooktrust.h"
 #include "nlohmann/json.hpp"
 #include "services/kiln_profile.h"
 
@@ -174,8 +176,33 @@ bool load_png_file(const fs::path& p, Rgba* out, std::string* why) {
     return png_decode(bytes.data(), bytes.size(), out, why);
 }
 
-// Reads <mod_dir>/assets/assets.json. Each entry: {kind, guid?, type?, part?, file?, hash?, mode?, patch?}.
-KilnResult load_manifest(KilnOwner owner, const std::string& mod_dir, std::string* report) {
+// This game's cook receipts and its "cooked" policy (cooktrust.h), with what could not be read logged once.
+CookTrust read_cook_trust() {
+    CookTrust t = load_cook_trust(fs::path(widen(api_path(KILN_PATH_KILN))), fs::path(widen(api_path(KILN_PATH_STATE))), g_client);
+    for (const auto& n : t.notes) LOGW("assets: cook receipts: %s", n.c_str());
+    if (t.any)
+        LOGW("assets: kiln.json \"cooked\": \"any\": cooked files load whoever made them (a setting for development servers; a player's "
+             "game loads only what its own cook made)");
+    return t;
+}
+
+// Whether `fp` (a file a manifest names) is a cook output of the mod whose assets folder is `base`: below assets/cooked
+// by its name, or by where it really is (a link that leads there from another name).
+bool in_cooked(const fs::path& base, const fs::path& fp) {
+    if (is_cooked_path(narrow(fp.lexically_relative(base).generic_wstring()))) return true;
+    std::error_code ec;
+    const fs::path real = fs::weakly_canonical(fp, ec);
+    if (ec) return false;
+    const fs::path cooked = fs::weakly_canonical(base / L"cooked", ec);
+    if (ec) return false;
+    const auto rel = real.lexically_relative(cooked);
+    return !rel.empty() && *rel.begin() != L"..";
+}
+
+// Reads <mod_dir>/assets/assets.json. Each entry: {kind, guid?, type?, part?, file?, hash?, mode?, patch?}. A file of
+// the mod's assets/cooked loads only when a cook receipt of this game lists its bytes (cooktrust.h); `trust` null: they
+// are read here.
+KilnResult load_manifest(KilnOwner owner, const std::string& mod_dir, std::string* report, const CookTrust* trust_in = nullptr) {
     const fs::path base = fs::path(widen(mod_dir)) / L"assets";
     const fs::path mf = base / L"assets.json";
     std::error_code ec;
@@ -194,8 +221,20 @@ KilnResult load_manifest(KilnOwner owner, const std::string& mod_dir, std::strin
         *report = "assets.json is not valid JSON";
         return KILN_ERR_INVALID_ARGUMENT;
     }
-    int icons = 0, res = 0, blobs = 0, tex = 0, errs = 0, icons_server = 0, marked_models = 0;
-    std::string problems;
+    int icons = 0, res = 0, blobs = 0, tex = 0, errs = 0, icons_server = 0, marked_models = 0, not_here = 0;
+    std::string problems, not_here_names;
+    std::optional<CookTrust> own_trust;
+    auto trust = [&]() -> const CookTrust& {
+        if (trust_in) return *trust_in;
+        if (!own_trust) own_trust = read_cook_trust();
+        return *own_trust;
+    };
+    // a cooked file this game's cook did not make: not loaded, counted and named (the first three) in the report
+    auto made_here = [&](const fs::path& fp, const std::vector<uint8_t>& bytes) {
+        if (!in_cooked(base, fp) || cooked_trusted(trust(), bytes.data(), bytes.size())) return true;
+        if (++not_here <= 3) not_here_names += (not_here_names.empty() ? "" : ", ") + narrow(fp.lexically_relative(base).generic_wstring());
+        return false;
+    };
     auto fail = [&](const std::string& m) {
         ++errs;
         problems += (problems.empty() ? "" : "; ") + m;
@@ -244,8 +283,11 @@ KilnResult load_manifest(KilnOwner owner, const std::string& mod_dir, std::strin
             uint8_t g[16];
             if (!parse_guid(e.value("guid", ""), g)) { fail("icon: bad guid"); continue; }
             if (!g_client) { ++icons_server; continue; }  // a dedicated server draws no icons: not an error
+            std::vector<uint8_t> png;
             Rgba img;
-            if (!load_png_file(fp, &img, &why)) { fail("icon " + file + ": " + why); continue; }
+            if (!read_file(fp.wstring(), &png, &why)) { fail("icon " + file + ": " + why); continue; }
+            if (!made_here(fp, png)) continue;
+            if (!png_decode(png.data(), png.size(), &img, &why)) { fail("icon " + file + ": " + why); continue; }
             if (icon_for_item(owner, g, img, "icon " + file) == KILN_OK) ++icons; else fail("icon " + file + ": register failed");
         } else if (kind == "texture") {
             uint8_t g[16];
@@ -258,6 +300,7 @@ KilnResult load_manifest(KilnOwner owner, const std::string& mod_dir, std::strin
             k.part = e.value("part", 0);
             std::vector<uint8_t> png;
             if (!read_file(fp.wstring(), &png, &why)) { fail("texture " + file + ": " + why); continue; }
+            if (!made_here(fp, png)) continue;
             if (g_S.load()) {  // the resource service is up: do it now
                 if (texture_override(owner, &k, png.data(), png.size(), &why) == KILN_OK) ++tex; else fail("texture " + file + ": " + why);
             } else {  // boot: queue until S appears (flushed by flush_pending_textures)
@@ -268,6 +311,7 @@ KilnResult load_manifest(KilnOwner owner, const std::string& mod_dir, std::strin
         } else if (kind == "blob") {
             std::vector<uint8_t> bytes;
             if (!read_file(fp.wstring(), &bytes, &why)) { fail("blob " + file + ": " + why); continue; }
+            if (!made_here(fp, bytes)) continue;
             HashK fixed;
             KilnResult r;
             if (e.contains("hash") && parse_hash(e["hash"].get<std::string>(), &fixed)) {
@@ -283,7 +327,11 @@ KilnResult load_manifest(KilnOwner owner, const std::string& mod_dir, std::strin
             if (!parse_guid(e.value("guid", ""), g)) { fail("resource: bad guid"); continue; }
             std::vector<uint8_t> bytes;
             if (!read_file(fp.wstring(), &bytes, &why)) { fail("resource " + file + ": " + why); continue; }
-            // patch: write a referenced blob's ContentHash at the given offset
+            if (!made_here(fp, bytes)) continue;
+            // patch: write a referenced blob's ContentHash at the given offset. Every blob is read and judged before
+            // anything is added: a resource whose blob this game's cook did not make is left out whole.
+            std::vector<std::pair<size_t, std::vector<uint8_t>>> patches;
+            bool blobs_here = true;
             for (const json& p : e.value("patch", json::array())) {
                 const size_t off = p.value("offset", 0);
                 const std::string bf = p.value("blob", "");
@@ -291,6 +339,11 @@ KilnResult load_manifest(KilnOwner owner, const std::string& mod_dir, std::strin
                 if (!safe_path(base, bf, &bp, &why)) { fail("patch blob " + bf + ": " + why); continue; }
                 std::vector<uint8_t> bb;
                 if (!read_file(bp.wstring(), &bb, &why)) { fail("patch blob " + bf + ": " + why); continue; }
+                if (!made_here(bp, bb)) { blobs_here = false; break; }
+                patches.emplace_back(off, std::move(bb));
+            }
+            if (!blobs_here) continue;
+            for (auto& [off, bb] : patches) {
                 HashK h = content_hash_of(bb.data(), bb.size());
                 op_blob_add(owner, bb.data(), bb.size(), nullptr);
                 if (off + 16 <= bytes.size()) std::memcpy(bytes.data() + off, &h, 16);
@@ -322,8 +375,15 @@ KilnResult load_manifest(KilnOwner owner, const std::string& mod_dir, std::strin
     std::snprintf(b, sizeof b, "icons %d%s, textures %d, resources %d, blobs %d, errors %d", icons,
                   icons_server ? (" (" + std::to_string(icons_server) + " entries for clients only, skipped on this server)").c_str() : "", tex, res,
                   blobs, errs);
-    *report = std::string(b) + (problems.empty() ? "" : " (" + problems + ")");
+    *report = std::string(b) + (not_here ? ", " + std::to_string(not_here) + " cooked file" + (not_here == 1 ? "" : "s") + " not made here" : "") +
+              (problems.empty() ? "" : " (" + problems + ")");
     LOGI("assets: %s: %s", mod_dir.c_str(), report->c_str());
+    if (not_here)
+        LOGW("assets: %s: %d cooked file%s not loaded (%s%s): no cook of this game made %s. Cooked files are made on each PC from its own "
+             "game, never taken from a download or a copy: the launcher cooks the mod before the game starts; on a dedicated server run "
+             "kiln cook <mod folder> --game <server folder>",
+             mod_dir.c_str(), not_here, not_here == 1 ? "" : "s", not_here_names.c_str(), not_here > 3 ? ", ..." : "",
+             not_here == 1 ? "it" : "them");
     // A model's entry needs no mark (it is skipped by its type). The cook of Kiln 0.2.0-dev.26 wrote the mark into a server's copy of
     // assets.json, which made that copy another file than the players'. A mod may also ship the mark itself, so this is a note.
     if (marked_models)
@@ -433,12 +493,13 @@ void load_profile_manifests() {
     // Every mod folder in the load order: kiln.profile when present, else the legacy kiln/mods drop-ins.
     const KilnProfileApi* prof = static_cast<const KilnProfileApi*>(g_api->service(KilnStr{"kiln.profile", 12}, 1));
     int loaded = 0;
+    const CookTrust trust = read_cook_trust();  // read once for every mod of the load order
     auto one = [&](const std::string& dir) {
         std::error_code ec;
         if (!fs::exists(fs::path(widen(dir)) / L"assets" / L"assets.json", ec)) return;
         KilnOwner o = g_api->owner_create(KilnStr{dir.c_str(), dir.size()});
         std::string rep;
-        if (load_manifest(o, dir, &rep) == KILN_OK) ++loaded;
+        if (load_manifest(o, dir, &rep, &trust) == KILN_OK) ++loaded;
     };
     bool used_profile = false;
     bool scan_dropins = true;  // legacy / no profile: scan kiln/mods

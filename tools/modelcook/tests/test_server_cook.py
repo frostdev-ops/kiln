@@ -7,11 +7,13 @@ Made-up games (tests/fakegame.py), nothing from the real one.
     python3 -m unittest discover -s tools/modelcook/tests -p test_server_cook.py -v
 """
 import json
+import os
 import shutil
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
@@ -327,11 +329,19 @@ class ServerCook(unittest.TestCase):
             self.assertEqual(sorted(f.name for f in outside.iterdir()), ["deep", "victim.json"])
             self.assertFalse((cooked / "escape.bin").exists())
 
+    @mock.patch.dict(os.environ, {"KILN_COOK_RECEIPT": "1"})
     def test_a_cook_records_what_it_wrote_in_the_game_it_read(self):
         """The receipt (cookpaths.receipt): in <game>/kiln/state/cook-receipts, one file per mod folder and recipe, listing every file the
         cook wrote into assets/cooked (its report too) with its SHA-256; the next cook of the recipe replaces it. A game folder without Kiln
         gets none, and nothing is written there."""
         import hashlib
+        # a tool run by hand writes nothing into the game's folder: only a cook Kiln runs asks for the receipt
+        gdir = Path(self.client.path).parent
+        (gdir / "kiln").mkdir(exist_ok=True)
+        with mock.patch.dict(os.environ, {"KILN_COOK_RECEIPT": ""}):
+            R.run(self._server_mod("mod-receipt-by-hand"), self.client, self.t, update_manifest=True)
+        self.assertFalse((gdir / "kiln" / "state").exists())
+        shutil.rmtree(gdir / "kiln")
         for side, game in (("client", self.client), ("server", self.server)):
             gdir = Path(game.path).parent
             receipts = gdir / "kiln" / "state" / "cook-receipts"
@@ -531,7 +541,7 @@ class ServerCookCommand(unittest.TestCase):
             F.build(root / "server", "server", kiln_out=root / "out").close()
             (root / "server" / "kiln").mkdir()
             r = F.write_mod(root / "mod")
-            env = dict(os.environ, KILN_OUT=str(root / "out"), TMPDIR=d)
+            env = dict(os.environ, KILN_OUT=str(root / "out"), TMPDIR=d, KILN_COOK_RECEIPT="1")
             p = subprocess.run([sys.executable, str(HERE.parent / "modelcook.py"), "--game", str(root / "server"), "recipe", str(r), "--update-manifest"],
                                capture_output=True, text=True, env=env, timeout=300)
             self.assertEqual(p.returncode, 0, p.stdout + p.stderr)

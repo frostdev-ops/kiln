@@ -32,6 +32,10 @@ pub struct CookArgs {
     /// Only say whether a cook is needed (exit 1 when it is); never reads the game.
     #[arg(long)]
     pub check: bool,
+    /// Cook every recipe, also one whose own check calls it up to date. That check reads the mod's files only: use
+    /// this after the game (or the dedicated server) was updated, since cooked files are made from the game's data.
+    #[arg(long, conflicts_with = "check")]
+    pub force: bool,
     /// The game folder the tools read (default: $KILN_GAME, else the installed client). A dedicated server's folder
     /// cooks what a server uses and skips the models, which only a game client draws.
     #[arg(long)]
@@ -70,7 +74,7 @@ fn config_args(c: &Option<String>) -> Vec<String> {
 pub fn build(a: BuildArgs, json: bool) -> Result<i32> {
     let p = Project::find(a.project.as_deref())?;
     if !a.no_cook {
-        cook_project(&p, false, None, json, true)?;
+        cook_project(&p, false, false, None, json, true)?;
     }
     let ok = match p.kind {
         Kind::Dotnet => {
@@ -124,6 +128,17 @@ pub fn deploy(a: DeployArgs, json: bool) -> Result<i32> {
             (ok, p.native_manifest().ok().and_then(|m| m["id"].as_str().map(str::to_string)))
         }
     };
+    // The server loads a mod's cooked files only when a cook of that server made them (kiln.assets checks the receipts
+    // in its kiln/state/cook-receipts): files cooked for another game are copied, never loaded there. Said once.
+    if ok && let Some(id) = &id {
+        let deployed = srv.dir.join("kiln/mods").join(id);
+        let cooked = deployed.join("assets/cooked");
+        let made_here = kiln_manage::cook::check_receipts(&srv.dir, &deployed);
+        if cooked.is_dir() && !(made_here.0 > 0 && made_here.1) {
+            out::say(json, format!("kiln: {id}: its cooked files were made from another game; this one loads only what its own cook makes: \
+                kiln cook {} --game {}", deployed.display(), srv.dir.display()));
+        }
+    }
     if json {
         out::print_json(&json!({"ok": ok, "project": p.path, "server": srv.dir, "via": srv.via, "id": id,
                                 "reload": a.reload && p.kind == Kind::Dotnet}));
@@ -232,7 +247,7 @@ fn pack_native(p: &Project, config: Option<&str>, output: Option<&Path>, json: b
 
 pub fn cook(a: CookArgs, json: bool) -> Result<i32> {
     let p = cook_target(a.project.as_deref())?;
-    let r = cook_project(&p, a.check, a.game.as_deref(), json, false)?;
+    let r = cook_project(&p, a.check, a.force, a.game.as_deref(), json, false)?;
     if json {
         out::print_json(&r);
     }
@@ -265,8 +280,8 @@ fn cook_mod_id(p: &Project) -> Result<Option<String>> {
 
 /// Runs (or checks) every recipe of the project (kiln_manage::cook::cook_folder: the launcher cooks with the same
 /// code). `auto`: called by `kiln build`: silent when nothing is to do, and a recipe whose tool or game is missing
-/// only warns.
-fn cook_project(p: &Project, check: bool, game: Option<&Path>, json: bool, auto: bool) -> Result<Value> {
+/// only warns. `force`: every recipe is cooked, also one whose own check calls it up to date (`kiln cook --force`).
+fn cook_project(p: &Project, check: bool, force: bool, game: Option<&Path>, json: bool, auto: bool) -> Result<Value> {
     use kiln_manage::cook;
     if !cook::wants_tools(&p.dir) {
         if !auto {
@@ -283,8 +298,11 @@ fn cook_project(p: &Project, check: bool, game: Option<&Path>, json: bool, auto:
         }
         Err(e) => return Err(e),
     };
-    let opts = cook::CookOptions { game: game.map(Path::to_path_buf).or_else(tools::client_dir), check, mod_id: cook_mod_id(p)?, strict: !auto };
-    let r = cook::cook_folder(&tools, &p.dir, &opts, &mut |line| out::say(json, line)).map_err(|stop| CliError::new(stop.code, stop.message))?;
+    let opts = cook::CookOptions { game: game.map(Path::to_path_buf).or_else(tools::client_dir), check, mod_id: cook_mod_id(p)?, strict: !auto, force, ..Default::default() };
+    // each line where the tool printed it, as when the tools' output went straight to the terminal: stderr to stderr,
+    // stdout to stdout (to stderr with --json, which keeps stdout for the result)
+    let r = cook::cook_folder_watched(&tools, &p.dir, &opts, &mut |err, line| if err { eprintln!("{line}") } else { out::say(json, line) }, &|| false)
+        .map_err(|stop| CliError::new(stop.code, stop.message))?;
     Ok(json!({"ok": r.ok, "recipes": r.recipes}))
 }
 
@@ -293,7 +311,7 @@ fn cook_project(p: &Project, check: bool, game: Option<&Path>, json: bool, auto:
 fn write_sound_blocks(p: &Project, json: bool, check: bool, auto: bool) -> Result<bool> {
     use kiln_manage::cook;
     let tools = tools::cook_tools()?;
-    let opts = cook::CookOptions { game: None, check, mod_id: cook_mod_id(p)?, strict: !auto };
+    let opts = cook::CookOptions { game: None, check, mod_id: cook_mod_id(p)?, strict: !auto, ..Default::default() };
     cook::sound_blocks(&tools, &p.dir, &opts, &mut |line| out::say(json, line)).map_err(|stop| CliError::new(stop.code, stop.message).into())
 }
 

@@ -82,6 +82,9 @@ tools/client/client.sh logs [n] | report [n] | check | backup-saves
   "client": { "policy": "any" } }
 ```
 A `"server"` or `"client"` section overrides the top-level keys on that side (`config.cpp: apply_side`).
+`"cooked": "local"` (the default) or `"any"`: whether kiln.assets loads a mod's cooked files only when a cook of this game
+made them (its receipts, [modding/cooking.md](modding/cooking.md)), or whoever made them (development servers); read by
+kiln.assets itself, with the same side sections.
 
 ## Symbol database per side
 - `sigdb/symbols/client.json` is the core set. It is the server's core set unchanged (all of its patterns match the

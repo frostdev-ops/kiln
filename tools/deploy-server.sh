@@ -9,18 +9,22 @@
 #   <server>/kiln/mods/<id>/        managed mods (--samples: hello; --loader-samples: mods/samples/build.sh set;
 #                                   plus every folder with a kiln.mod.json under $KILN_OUT/mods)
 #   <server>/kiln/plugins/          native plugins (--samples: kiln-native-hello)
-#   <server>/kiln/kiln.json         created if missing (--policy sets it)
+#   <server>/kiln/kiln.json         created if missing (--policy sets it; "cooked" is set at every deploy, below)
 # The server must be stopped first; this script does not restart it.
-#   tools/deploy-server.sh <server dir> [--policy any|verified-only] [--samples] [--loader-samples] [--no-build]
+#   tools/deploy-server.sh <server dir> [--policy any|verified-only] [--cooked any|local] [--samples] [--loader-samples] [--no-build]
+# --cooked: kiln.assets loads a mod's cooked files (assets/cooked) only when a cook of this server made them (a receipt in
+# kiln/state/cook-receipts: kiln cook <mod> --game <server>; docs/kiln/modding/cooking.md). A lab gets "any" by default:
+# its test mods are cooked by their own build scripts, against the client too. --cooked local tests the real rule.
 # KILN_OUT (default <repo>/native/build) holds all build output; parallel builds each use their own.
 set -euo pipefail
 repo=$(cd "$(dirname "$0")/.." && pwd)
-server=${1:?usage: $0 <server dir> [--policy any|verified-only] [--samples] [--loader-samples] [--no-build]}
+server=${1:?usage: $0 <server dir> [--policy any|verified-only] [--cooked any|local] [--samples] [--loader-samples] [--no-build]}
 shift
-policy="" samples=0 build=1 loader_samples=0
+policy="" cooked=any samples=0 build=1 loader_samples=0
 while (($#)); do
   case $1 in
     --policy) policy=$2; shift ;;
+    --cooked) cooked=$2; shift; [[ $cooked == any || $cooked == local ]] || { echo "--cooked is any or local" >&2; exit 2; } ;;
     --samples) samples=1 ;;
     --loader-samples) loader_samples=1 ;;  # dependency/exports/IMC/testing samples + resolver fixtures (mods/samples)
     --no-build) build=0 ;;
@@ -157,4 +161,11 @@ elif [[ -n $policy ]]; then
 elif [[ ! -f $k/kiln.json ]]; then
   printf '{\n  "policy": "verified-only",\n  "clr": true,\n  "plugins": true,\n  "log_level": "info"\n}\n' > "$k/kiln.json"
 fi
-echo "Kiln deployed to $server (policy: $(grep -o '"policy": "[^"]*"' "$k/kiln.json" | cut -d'"' -f4))"
+python3 - "$k/kiln.json" "$cooked" <<'PY'  # "cooked": change only that key, keep other edits
+import json, sys
+path, cooked = sys.argv[1:]
+cfg = json.load(open(path))
+cfg["cooked"] = cooked
+json.dump(cfg, open(path, "w"), indent=2)
+PY
+echo "Kiln deployed to $server (policy: $(grep -o '"policy": "[^"]*"' "$k/kiln.json" | cut -d'"' -f4), cooked: $cooked)"

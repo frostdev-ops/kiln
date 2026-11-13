@@ -644,6 +644,16 @@ fn a_damaged_entry_at_the_identity_is_replaced_by_the_verified_one_before_the_ol
     assert_eq!(library::path_of(&dirs, &new_ref).unwrap(), at);
 }
 
+/// A cook receipt in `game` for `folder`, as the cook tools write one (tools/modelcook/cook/cookpaths.py `receipt`).
+#[cfg(feature = "cooktools")]
+fn receipt(game: &Path, folder: &Path, files: &[(&str, &[u8])]) {
+    use sha2::Digest;
+    let listed: serde_json::Map<String, serde_json::Value> = files.iter().map(|(rel, data)| (rel.to_string(), hash::hex(&sha2::Sha256::digest(data)).into())).collect();
+    let doc = serde_json::json!({ "format": 1, "tool": "modelcook", "mod": folder, "recipe": "assets/cook.json", "at": "2026-11-12T10:00:00Z", "files": listed });
+    let key = hash::hex(&sha2::Sha256::digest(folder.to_string_lossy().as_bytes())[..12]);
+    kiln_manage::util::write_json_atomic(&kiln_manage::cook::receipts_dir(game).join(format!("{key}.json")), &doc).unwrap();
+}
+
 /// The launcher's cook (kiln_manage::cook): which mods of the game's profile need a cook, one after the other, a
 /// failure of one stops nothing, and the record that says when a mod is cooked again.
 #[cfg(feature = "cooktools")]
@@ -687,9 +697,10 @@ fn the_mods_that_need_a_cook_are_cooked_one_by_one_and_a_failure_stops_nothing()
         }
         put(&job.folder, "assets/cooked/blade.bin", b"made from this game");
         put(&job.folder, "assets/cooked/cook-report.json", b"{}");
+        receipt(&game, &job.folder, &[("cooked/blade.bin", b"made from this game"), ("cooked/cook-report.json", b"{}")]);
         (true, "ok: 1 file(s)\n".to_string())
     };
-    let run = cook::cook_mods(&inst, &jobs, Ok(()), &mut cooker, &mut |i, n, job, line| events.push(format!("{}/{n} {} {}", i + 1, job.id, line.unwrap_or("start")))).unwrap();
+    let run = cook::cook_mods(&inst, &jobs, Ok(()), &mut cooker, &mut |i, n, job, line| events.push(format!("{}/{n} {} {}", i + 1, job.id, line.unwrap_or("start"))), &|| false).unwrap();
     assert_eq!(run.mods.iter().map(|m| (m.id.as_str(), m.ok, m.reason)).collect::<Vec<_>>(), [("blades", true, CookReason::NotCooked), ("shields", false, CookReason::NotCooked)]);
     assert_eq!(run.mods[1].error.as_deref(), Some("kiln: cooking the looks\nmodelcook: models/hat.gltf: no such file"));
     assert_eq!(run.failed().count(), 1);
@@ -705,7 +716,7 @@ fn the_mods_that_need_a_cook_are_cooked_one_by_one_and_a_failure_stops_nothing()
     assert!(jobs[0].last.as_ref().is_some_and(|l| l.ok));
     // nothing due but the failed one: only that is tried again
     let mut seen = Vec::new();
-    cook::cook_mods(&inst, &jobs, Ok(()), &mut |job, _| { seen.push(job.id.clone()); (true, String::new()) }, &mut |_, _, _, _| {}).unwrap();
+    cook::cook_mods(&inst, &jobs, Ok(()), &mut |job, _| { seen.push(job.id.clone()); (true, String::new()) }, &mut |_, _, _, _| {}, &|| false).unwrap();
     assert_eq!(seen, ["shields"]);
     assert!(cook::plan(&inst).unwrap().iter().all(|j| j.reason.is_none()));
 
@@ -725,19 +736,30 @@ fn the_mods_that_need_a_cook_are_cooked_one_by_one_and_a_failure_stops_nothing()
     inst.build_id = Some("102".into());
     let jobs = cook::plan(&inst).unwrap();
     let mut started = 0;
-    let run = cook::cook_mods(&inst, &jobs, Err("Kiln needs Python 3.10 or newer to cook mods: install python3.".into()), &mut |_, _| { started += 1; (true, String::new()) }, &mut |_, _, _, _| {}).unwrap();
+    let run = cook::cook_mods(&inst, &jobs, Err("Kiln needs Python 3.10 or newer to cook mods: install python3.".into()), &mut |_, _| { started += 1; (true, String::new()) }, &mut |_, _, _, _| {}, &|| false).unwrap();
     assert_eq!((started, run.mods.len(), run.failed().count()), (0, 2, 2));
     assert_eq!(run.mods[0].error.as_deref(), Some("Kiln needs Python 3.10 or newer to cook mods: install python3."));
     assert_eq!(cook::plan(&inst).unwrap()[0].reason, Some(CookReason::LastFailed), "tried again at the next start");
-    cook::cook_mods(&inst, &cook::plan(&inst).unwrap(), Ok(()), &mut |_, _| (true, String::new()), &mut |_, _, _, _| {}).unwrap();
+    cook::cook_mods(&inst, &cook::plan(&inst).unwrap(), Ok(()), &mut |_, _| (true, String::new()), &mut |_, _, _, _| {}, &|| false).unwrap();
 
     // its cooked files are gone: due again; "Cook again" cooks a mod that is not due
     let jobs = cook::plan(&inst).unwrap();
     assert!(jobs.iter().all(|j| j.reason.is_none()));
-    let again = cook::cook_mods(&inst, &[cook::asked(jobs[0].clone())], Ok(()), &mut |_, _| (true, String::new()), &mut |_, _, _, _| {}).unwrap();
+    let again = cook::cook_mods(&inst, &[cook::asked(jobs[0].clone())], Ok(()), &mut |_, _| (true, String::new()), &mut |_, _, _, _| {}, &|| false).unwrap();
     assert_eq!(again.mods[0].reason, CookReason::Asked);
     std::fs::remove_dir_all(jobs[0].folder.join("assets/cooked")).unwrap();
     assert_eq!(cook::plan(&inst).unwrap()[0].reason, Some(CookReason::FilesGone));
+    // one file of those its cook made changed, or a receipt that says it is gone while the record says files were made
+    put(&jobs[0].folder, "assets/cooked/blade.bin", b"made from this game");
+    put(&jobs[0].folder, "assets/cooked/cook-report.json", b"{}");
+    assert_eq!(cook::plan(&inst).unwrap()[0].reason, None, "the files the receipt lists, as they were made");
+    put(&jobs[0].folder, "assets/cooked/blade.bin", b"made from another game");
+    assert_eq!(cook::plan(&inst).unwrap()[0].reason, Some(CookReason::FilesGone), "one file's bytes changed");
+    put(&jobs[0].folder, "assets/cooked/blade.bin", b"made from this game");
+    for f in std::fs::read_dir(cook::receipts_dir(&game)).unwrap().flatten() {
+        std::fs::remove_file(f.path()).unwrap();
+    }
+    assert_eq!(cook::plan(&inst).unwrap()[0].reason, Some(CookReason::FilesGone), "the record says files were made, no receipt lists them");
 
     // the mod was updated: another identity, due again
     std::fs::write(blades.join("M.dll"), b"blades 1.1").unwrap();
@@ -754,4 +776,77 @@ fn the_mods_that_need_a_cook_are_cooked_one_by_one_and_a_failure_stops_nothing()
     let p = profile::save(&dirs, &p).unwrap();
     profile::activate(&dirs, &p.id, &inst).unwrap();
     assert!(cook::plan(&inst).unwrap().iter().all(|j| j.id != "blades"));
+}
+
+/// Which folder the launcher cooks: the one the game loads the mod from, by the game's own profile file. Z mode (the
+/// game reads the Library through Z:): the Library entry itself; copy mode: Kiln's copy in the game. What the cook
+/// makes there is what that game loads (its receipts are that game's), the next activation keeps it, and a server's
+/// copy made from the cooked Library entry carries no cooked file (the server's cook makes its own). A mod a modpack
+/// brought is a Library entry like any other (an import, and a pack that carries cooked files is refused:
+/// modpack::verify), so it is cooked where the game loads it too.
+#[cfg(all(unix, feature = "cooktools"))]
+#[test]
+fn the_folder_cooked_is_the_one_the_game_loads_in_each_path_mode() {
+    use kiln_manage::cook;
+    let t = tmp("cook-where");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let blades = kiln_mod(&t.0, "blades", "1.0.0", "");
+    put(&blades, "assets/cook.json", br#"{ "format": 1, "out": "cooked", "steps": [] }"#);
+    let r = library::import(&dirs, &[blades], &mut NoProgress).unwrap();
+    let e = refs(&r, ModKind::Kiln, "blades");
+    let entry = library::path_of(&dirs, &e).unwrap();
+    let mut p = profile::create(&dirs, "p", None).unwrap();
+    p.mods.kiln.push(pm(&e, true));
+    let p = profile::save(&dirs, &p).unwrap();
+    let cooker = |game: PathBuf| move |job: &cook::CookJob, _: &mut dyn FnMut(&str)| {
+        put(&job.folder, "assets/cooked/blade.bin", b"made from this game");
+        receipt(&game, &job.folder, &[("cooked/blade.bin", b"made from this game")]);
+        (true, String::new())
+    };
+    for (name, z) in [("game-z", true), ("game-copy", false)] {
+        let game = t.0.join(name);
+        put(&game, "enshrouded.exe", b"MZ");
+        std::fs::create_dir_all(game.join("kiln")).unwrap();
+        let pfx = t.0.join(format!("pfx-{name}"));
+        if z {
+            std::fs::create_dir_all(pfx.join("dosdevices")).unwrap();
+            std::os::unix::fs::symlink("/", pfx.join("dosdevices/z:")).unwrap();
+        }
+        let mut inst = install_at(&game, z.then(|| pfx.clone()));
+        inst.build_id = Some("7".into());
+        let a = profile::activate(&dirs, &p.id, &inst).unwrap();
+        assert_eq!(a.path_mode, if z { PathMode::Z } else { PathMode::Copy });
+        let jobs = cook::plan(&inst).unwrap();
+        assert_eq!(jobs.len(), 1);
+        let f = profile::read_game_profile(&game).unwrap().unwrap();
+        let loads = if z { kiln_manage::winpath::to_host(&f.mods.kiln[0].path, &inst).unwrap() } else { game.join("kiln").join(&f.mods.kiln[0].path) };
+        assert_eq!(jobs[0].folder, loads, "{name}: the folder the game's profile file names");
+        assert_eq!(jobs[0].folder == entry, z, "{name}: the Library entry in Z mode, Kiln's copy in the game otherwise");
+        let mut cooked = cooker(game.clone());
+        let run = cook::cook_mods(&inst, &jobs, Ok(()), &mut cooked, &mut |_, _, _, _| {}, &|| false).unwrap();
+        assert!(run.mods[0].ok);
+        assert_eq!(std::fs::read(loads.join("assets/cooked/blade.bin")).unwrap(), b"made from this game");
+        assert_eq!(cook::check_receipts(&game, &loads), (1, true), "{name}: this game's receipt lists what its game loads");
+        assert_eq!(cook::plan(&inst).unwrap()[0].reason, None);
+        // the next activation keeps the cooked folder where the game loads it
+        profile::activate(&dirs, &p.id, &inst).unwrap();
+        assert_eq!(cook::plan(&inst).unwrap()[0].reason, None, "{name}");
+        assert!(loads.join("assets/cooked/blade.bin").is_file());
+    }
+    // the Library entry was cooked in place for the Z-mode game; the copy-mode game's receipts do not cover it
+    assert_eq!(cook::check_receipts(&t.0.join("game-copy"), &entry), (0, true));
+    // a server's copy of that entry carries no cooked file: the server's own cook makes them
+    #[cfg(feature = "server")]
+    {
+        use kiln_manage::server::{control, instance::ServerInstance};
+        let server = t.0.join("server");
+        std::fs::create_dir_all(server.join("kiln")).unwrap();
+        let inst: ServerInstance = serde_json::from_value(serde_json::json!({
+            "id": "s", "name": "s", "kind": "local", "dir": server, "port": 27142, "queryPort": 27142, "wine": null,
+            "policy": "any", "source": "launcher", "remote": null })).unwrap();
+        control::sync(&dirs, &inst, std::slice::from_ref(&e), &mut NoProgress).unwrap();
+        assert!(server.join("kiln/mods/blades/kiln.mod.json").is_file());
+        assert!(!server.join("kiln/mods/blades/assets/cooked").exists());
+        assert_eq!(hash::mod_identity(&server.join("kiln/mods/blades")).unwrap(), e.hash);
+    }
 }

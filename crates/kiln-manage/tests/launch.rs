@@ -62,3 +62,43 @@ fn modes_write_play_once_backup_on_change_and_open_steam() {
     let _ = std::fs::remove_dir_all(&root);
     let _: PathBuf = root;
 }
+
+/// A cook of the game holds its lock (state::lock_game, kiln_manage::cook::cook_due) while it writes mods' files. A
+/// start with mods waits for it a moment, then is refused with a sentence that says why, and Steam is not asked: the
+/// game never starts while a cook writes its mods. A vanilla start loads no mod and is not held back. Once the cook
+/// ended, the start goes through, and holds the lock itself until Steam was asked.
+#[test]
+fn a_start_with_mods_never_overlaps_a_cook_of_the_game() {
+    let root = std::env::temp_dir().join(format!("km-launch-lock-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    let game = root.join("game");
+    std::fs::create_dir_all(game.join("kiln")).unwrap();
+    std::fs::write(game.join("enshrouded.exe"), b"MZ").unwrap();
+    let dirs = DataDirs::at(root.join("data"));
+    let inst = GameInstall {
+        id: "g-lock".into(), kind: GameKind::Client, path: game.clone(), exe: "enshrouded.exe".into(),
+        app_id: kiln_manage::CLIENT_APP_ID, library: None, platform: Platform::Proton, prefix: None, build_id: None,
+        exe_sha256: None, steam_flavor: None, path_mode: PathMode::Copy, source: "manual".into(),
+    };
+    let opened: RefCell<Vec<String>> = RefCell::new(Vec::new());
+    let opener = |u: &str| {
+        opened.borrow_mut().push(u.to_string());
+        Ok(())
+    };
+    let req = |mode| LaunchRequest { mode, profile_id: None, skip_backup: true };
+    let cooking = kiln_manage::state::lock_game(&game, std::time::Duration::ZERO, &|| false).unwrap().expect("a game with Kiln");
+    let t = std::time::Instant::now();
+    let e = launch::play_with(&dirs, &inst, &req(LaunchMode::Profile), Some(&[]), &opener).unwrap_err();
+    assert_eq!(e.code, kiln_manage::ErrorCode::Busy, "{e}");
+    assert!(e.message.contains("cooking"), "{}", e.message);
+    assert!(t.elapsed() >= std::time::Duration::from_secs(4), "it waited for the cook a moment");
+    assert!(opened.borrow().is_empty(), "Steam was not asked");
+    launch::play_with(&dirs, &inst, &req(LaunchMode::Vanilla), Some(&[]), &opener).unwrap();
+    assert_eq!(opened.borrow().len(), 1);
+    drop(cooking);
+    launch::play_with(&dirs, &inst, &req(LaunchMode::Profile), Some(&[]), &opener).unwrap();
+    assert_eq!(opened.borrow().len(), 2);
+    // a start was just made: "Cook again" is refused for a while (kiln_manage::cook::AFTER_START)
+    assert!(launch::started_within(&dirs, &inst, std::time::Duration::from_secs(120)));
+    let _ = std::fs::remove_dir_all(&root);
+}

@@ -157,18 +157,32 @@ Deck's Settings shows the notes without the button.
 ## Cooking mods
 
 A mod with a cook recipe (`assets/cook.json`, `impact/cook.json`, or looks and sounds declared in its blocks) has files
-that are made on each PC from that PC's game: models, animations, sounds, Impact programs. They are never shipped
-(models.md, "What a cook writes"; the Library leaves `assets/cooked` out at an import). The launcher makes them
-(dev.27, `shell/cook.ts`, `cook_plan` / `cook_run`, `kiln_manage::cook`):
+that are made on each PC from that PC's game: models, animations, sounds, Impact programs. They are never shipped, and
+the game loads only the ones a cook on this PC made ([../modding/cooking.md](../modding/cooking.md)). The launcher makes
+them (dev.27, `shell/cook.ts`, `cook_plan` / `cook_run`, `kiln_manage::cook`):
 
-- **Before the game starts.** Play (desktop and Deck: the shared `usePlayControl`) asks `cook_plan` first and, when a
-  mod needs a cook, runs `cook_run` before `launch_play`. A mod needs a cook when it was never cooked for this game (it
-  was installed, or switched on), when it was updated (its identity changed), when the game was updated (cooked files
-  are made from the game's data; Steam's build id tells, else the game's data file), when its last cook failed, or when
-  the cooked files its last cook left are gone. That rule is one function, `cook::needs_cook`; the record it reads is
-  the game's `kiln/state/cooked.json`. A start without mods, a vanilla start and "play once" do not cook.
-- **What the player sees.** "Cooking <mod>" (or "Cooking N mods"), then the task with each line the tools print, then
-  "Starting" as before. Nothing is shown when nothing needs a cook: no tool is started then.
+- **Before the game starts.** Play (desktop and Deck: the shared `usePlayControl`) runs `cook_run` before `launch_play`
+  for a start with the profile. The cook first writes the active profile again when it changed since its activation
+  (kilnctl, another window), so it cooks the mods the start then loads, and ends at once when nothing needs a cook. A mod
+  needs a cook when it was never cooked for this game (it was installed, or switched on), when it was updated (its
+  identity changed), when the game was updated (cooked files are made from the game's data; Steam's build id tells,
+  else the game's data file), when its last cook failed, or when a file its last cook made is gone or is not the bytes
+  that cook made (its receipt in `kiln/state/cook-receipts` says). That rule is one function, `cook::needs_cook`; the
+  record it reads is the game's `kiln/state/cooked.json`. A vanilla start and "play once" do not cook.
+- **From nothing.** A mod that needs a cook gets its `assets/cooked` emptied and every recipe run, also one whose own
+  check calls it up to date (that check reads the mod's files, never the game).
+- **What the player sees.** "Cooking <mod>" (or "Cooking N mods"), then the task with "Cooking <mod> (i of n)" and each
+  line the tools print, then "Starting" as before. Nothing is said when nothing needs a cook.
+- **Never stuck.** Each tool runs within limits: 30 minutes for one recipe, 10 minutes without a line, 2 minutes for a
+  check. One that passes a limit is stopped with every process it started (its process group; on Windows its job), its
+  mod is reported as not cooked, and the next mod and the start go on. The task's Cancel stops the tool that runs the
+  same way; the game then starts with what was cooked. A tool's very long lines are cut and only the end of what it said
+  is kept.
+- **One at a time.** A cook holds the game's lock (`kiln/state/cook.lock`) for its whole run, and a start with mods holds
+  it until Steam was asked: the game never starts while a cook writes its mods, and a start that finds a cook running
+  waits a moment, then says so. "Cook again" is refused while the game runs and in the two minutes after a start through
+  the launcher (Steam may still be starting the game). Two cooks of one folder (two games that load one Library entry,
+  `kiln cook` beside the launcher) wait for each other. A cook stops when the game is started from Steam meanwhile.
 - **A failed cook stops nothing.** The other mods are cooked and the game starts. One notice stays until closed:
   "<mod> was not cooked", each such mod's name with the tools' own last lines (a missing input after a game update, a
   glTF the cook refuses), how many others were cooked, and that a mod that is not cooked runs without the models,
@@ -176,18 +190,19 @@ that are made on each PC from that PC's game: models, animations, sounds, Impact
   with B. When no tool can run at all (Linux without Python 3.10 or newer, or without a zstd decoder), every due mod
   gets the one sentence that says what to install. The failed mod is tried again at the next start.
 - **"Cook again"** in a mod's menu (the main list's "More for <mod>", for a Kiln mod that is on and has something to
-  cook) cooks that one mod whatever its record says, and answers "<mod> cooked" or the same notice.
-- **Where the files go.** Into `assets/cooked` of the folder the game loads the mod from (the Library entry, or its
-  copy in the game where the game cannot read the Library), and nowhere else (the cook tools refuse any other place),
-  so the mod keeps its identity: the next activation keeps the copy, and a server sees the same mod.
+  cook; on the Deck's Mods screen: Y on that mod's row) cooks that one mod whatever its record says, and answers "<mod>
+  cooked" or the same notice.
+- **Where the files go.** Into `assets/cooked` of the folder the game loads the mod from (the Library entry where the
+  game reads the Library through Z:, else Kiln's copy in the game), and nowhere else (the cook tools refuse any other
+  place), so the mod keeps its identity: the next activation keeps the copy, and a server sees the same mod. The tools
+  record each file in the game's receipts; kiln.assets loads a cooked file only when they list it.
 - The tools are the ones `kiln cook` runs, carried by the launcher and unpacked once under `<data>/cooktools`
   (releasing.md, "The cook tools and the bundled Python"). On Windows the bundle's own Python runs them; the player's
   Python, if any, is never used.
 
-Not yet: the mods of a drop-in folder (`kiln/mods`, not in the profile) and a local server's mods are not cooked by the
-launcher (`kiln cook <mod> --game <server folder>` does the latter, dedicated-servers.md); a profile written again by
-`launch_play` itself right before the start (a safety net: an edited profile is normally applied when it is edited) is
-cooked at the next Play.
+Not cooked by the launcher: drop-in folders (`kiln/mods`, not in the profile; `kiln cook <folder> --game <game>`), and a
+local server's mods (a server sync copies a mod without `assets/cooked`; `kiln cook <server>/kiln/mods/<mod> --game
+<server>`, dedicated-servers.md).
 
 ## The first run and dropping a mod
 For a player who wants one mod: install the launcher, it finds the game and offers Install Kiln, drop the mod on the

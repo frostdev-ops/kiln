@@ -18,9 +18,10 @@ A path is judged as it is written: a ".." right after a link would climb out of 
 path is normalised. A cook writes to the path a check returned (normalised, every component checked), never to the one it was given,
 and through write(): a temporary file beside it, renamed over it, so a link put in an output's place is replaced, never followed.
 
-receipt() records, in the game's kiln/state/cook-receipts, what one cook wrote into a mod's assets/cooked and the SHA-256 of each file.
-kiln.assets loads a file of a mod's assets/cooked only when a receipt of that game lists its bytes (docs/kiln/modding/cooking.md): a
-cooked file a player was given (an archive, a modpack, a copy) is never loaded, only what a cook on this machine made from this game.
+receipt() records, in the game's kiln/state/cook-receipts, what one cook wrote into a mod's assets/cooked and the SHA-256 of each file,
+when Kiln ran the cook (KILN_COOK_RECEIPT=1). kiln.assets loads a file of a mod's assets/cooked only when a receipt of that game lists its
+bytes (docs/kiln/modding/cooking.md): a cooked file a player was given (an archive, a modpack, a copy) is never loaded, only what a cook on
+this machine made from this game.
 """
 import hashlib
 import json
@@ -184,9 +185,10 @@ def receipt(game, recipe_path, tool, written):
     """Records what one cook wrote into the mod's assets/cooked, in the game's kiln/state/cook-receipts (one file per mod folder, recipe
     and tool, replaced by that recipe's next cook): each file by its path below the mod's assets folder (as assets.json names it) and
     its SHA-256. kiln.assets of that game loads a cooked file only when a receipt lists its bytes; the launcher checks the files of the
-    folders it cooks against them. `written`: {path a check returned: bytes}. Nothing is recorded for a cook that read no game, or a
-    game folder without Kiln (nothing there loads the mod). -> the receipt's path, or None."""
-    if game is None:
+    folders it cooks against them. `written`: {path a check returned: bytes}. Only a cook Kiln runs asks for it (KILN_COOK_RECEIPT=1:
+    kiln cook, kiln build, the launcher); a tool run by hand writes nothing into the game's folder. Nothing is recorded for a cook that
+    read no game, or a game folder without Kiln (nothing there loads the mod). -> the receipt's path, or None."""
+    if game is None or os.environ.get("KILN_COOK_RECEIPT") != "1":
         return None
     kiln = Path(game) / RECEIPTS[0]
     if not kiln.is_dir() or kiln.is_symlink():

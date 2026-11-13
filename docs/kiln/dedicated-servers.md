@@ -189,6 +189,13 @@ still wins when `KILN_REPO` names one. The cook makes what the server uses
 `step 5 model moves_blade_anim: skipped on a dedicated server: only a game client draws it`. Cook again after every game
 update.
 
+**The server loads only what its own cook made.** The cook records what it wrote in the server's
+`kiln/state/cook-receipts`, and Kiln loads a file of a mod's `assets/cooked` only when such a receipt lists its bytes
+([modding/cooking.md](modding/cooking.md)). Cooked files copied from somewhere else (your PC, a download, a mod folder
+cooked by Kiln 0.2.0-dev.26 or older) are not loaded, and the log names them: `… cooked files not loaded (…): no cook of
+this game made them …`. So after updating Kiln to 0.2.0-dev.27, run the `kiln cook` line above once more for each mod
+with a recipe. A development server can load any cooked file with `"cooked": "any"` in its `kiln/kiln.json`.
+
 **A cooked mod is the same mod on the server and in a player's game.** Everything the cook makes from the game goes into
 the mod's `assets/cooked` folder, and that folder does not count as the mod: the hash the server advertises for the mod,
 the hash a modpack names and the one a player's game compares all leave it out (the mod's identity,

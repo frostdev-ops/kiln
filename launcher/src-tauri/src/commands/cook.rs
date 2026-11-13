@@ -7,9 +7,9 @@
 use super::TaskId;
 use super::app::{spawn_task, to_value};
 use crate::state::{blocking, dirs};
-use kiln_manage::cook::{self, CookJob, CookOptions, CookRun};
-use kiln_manage::cooktools::{self, Locate};
-use kiln_manage::{Error, ErrorCode};
+use kiln_manage::Error;
+use kiln_manage::cook::{self, CookJob, CookRun};
+use kiln_manage::cooktools::Locate;
 use tauri::{AppHandle, Manager};
 
 /// The Python the Windows bundle carries (`<resources>/python/python.exe`, tools/launcher/build-windows.sh). None on
@@ -27,10 +27,15 @@ pub async fn cook_plan(game_id: String) -> Result<Vec<CookJob>, Error> {
 }
 
 /// Cooks the mods of the game's profile that need it, or with `mod_id` that one mod whatever its record says ("Cook
-/// again"), as one task (result: CookRun, one entry per mod cooked). Refused while the game runs. A mod's failed cook
-/// is in the result with the tools' last lines, never an error of the task: the others are cooked, and the caller
-/// starts the game all the same. When no tool can run (no Python, no zstd), every due mod is reported as not cooked
-/// with the one sentence that says what to install.
+/// again"), as one task (result: CookRun, one entry per mod cooked; kiln_manage::cook::cook_due). The active profile
+/// is written again first when it changed since its activation (`activation` in the result), so Play cooks the mods
+/// it then starts. Each due mod is cooked from nothing, every recipe: what made it due may be the game, which a
+/// recipe's own check does not read. The game's lock is held meanwhile: no start of the game, no other cook of it.
+/// Refused while the game runs ("Cook again" also right after a start). A tool that hangs is stopped within the
+/// launcher's limits, and the task's Cancel stops the tool that runs: either with every process it started. A mod's
+/// failed cook is in the result with the tools' last lines, never an error of the task: the others are cooked, and
+/// the caller starts the game all the same. When no tool can run (no Python, no zstd), every due mod is reported as
+/// not cooked with the one sentence that says what to install.
 #[tauri::command]
 pub async fn cook_run(app: AppHandle, game_id: String, mod_id: Option<String>) -> Result<TaskId, Error> {
     let g = blocking({ let id = game_id.clone(); move || crate::state::game(&id) }).await?;
@@ -41,39 +46,24 @@ pub async fn cook_run(app: AppHandle, game_id: String, mod_id: Option<String>) -
     };
     Ok(spawn_task(&app, "cook_run", title, move |p| {
         cook::refuse_running(super::engines::game_running(&g)?)?;
-        let mut jobs = cook::plan(&g)?;
-        if let Some(id) = &mod_id {
-            jobs = jobs.into_iter().filter(|j| &j.id == id).map(cook::asked).collect();
-            if jobs.is_empty() {
-                return Err(Error::new(ErrorCode::NotFound, format!("{id} is not a mod of this game's profile with something to cook")));
-            }
+        let dirs = dirs()?;
+        // the tools: the copy this launcher carries, unpacked once under the data folder; never a checkout
+        let locate = Locate::from_process(None, Some(dirs.root.join("cooktools")), python);
+        // the task's progress takes the tools' lines, and its Cancel stops the tool that runs (with what it started)
+        let p = std::cell::RefCell::new(p);
+        let run: CookRun = cook::cook_due(&dirs, &g, mod_id.as_deref(), &locate, &mut |i, n, job, line| {
+            let said = match line {
+                None => format!("Cooking {} ({} of {n})", job.name, i + 1),
+                Some(l) => format!("{}: {l}", job.name),
+            };
+            p.borrow_mut().report(Some(i as f32 / n.max(1) as f32), &said);
+        }, &|| p.borrow().canceled())?;
+        if !run.mods.is_empty() {
+            p.borrow_mut().report(Some(1.0), &match run.failed().count() {
+                0 => format!("{} cooked", run.mods.len()),
+                f => format!("{} cooked, {f} not", run.mods.len() - f),
+            });
         }
-        if jobs.iter().all(|j| j.reason.is_none()) {
-            return to_value(CookRun::default());
-        }
-        let tools = cooktools::locate(&Locate::from_process(None, Some(dirs()?.root.join("cooktools")), python));
-        let ready = tools.as_ref().map(|_| ()).map_err(|e| e.message.clone());
-        let opts = CookOptions { game: Some(g.path.clone()), check: false, mod_id: None, strict: false };
-        let progress = std::cell::RefCell::new(p);
-        let run = cook::cook_mods(&g, &jobs, ready,
-            &mut |job, line| match tools.as_ref() {
-                Ok(t) => match cook::cook_folder(t, &job.folder, &opts, line) {
-                    Ok(r) => (r.ok, r.text),
-                    Err(stop) => (false, stop.message),
-                },
-                Err(e) => (false, e.message.clone()),
-            },
-            &mut |i, n, job, line| {
-                let said = match line {
-                    None => format!("Cooking {} ({} of {n})", job.name, i + 1),
-                    Some(l) => format!("{}: {l}", job.name),
-                };
-                progress.borrow_mut().report(Some(i as f32 / n.max(1) as f32), &said);
-            })?;
-        progress.borrow_mut().report(Some(1.0), &match run.failed().count() {
-            0 => format!("{} cooked", run.mods.len()),
-            f => format!("{} cooked, {f} not", run.mods.len() - f),
-        });
         to_value(run)
     }))
 }

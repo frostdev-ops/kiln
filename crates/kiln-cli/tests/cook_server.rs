@@ -83,6 +83,17 @@ fn cook_against_a_dedicated_server_skips_the_models_and_succeeds() {
     let again = cook(&root, &server_mod, &root.join("server"));
     assert!(again.status.success());
     assert!(String::from_utf8_lossy(&again.stdout).contains("up to date"), "{}", String::from_utf8_lossy(&again.stdout));
+    // "up to date" is the recipe's own check, which reads the mod's files and never the game. After the server was
+    // updated its operator says --force: every recipe is cooked again from the server's files as they are now,
+    // and the mod stays the one it was
+    let mut forced = Command::new(env!("CARGO_BIN_EXE_kiln"));
+    forced.arg("cook").arg(&server_mod).arg("--game").arg(root.join("server")).arg("--force");
+    let forced = scratch_env(&mut forced, &root).output().unwrap();
+    let said = format!("{}{}", String::from_utf8_lossy(&forced.stdout), String::from_utf8_lossy(&forced.stderr));
+    assert!(forced.status.success(), "{said}");
+    assert!(said.contains("kiln: cooking ") && !said.contains("up to date"), "{said}");
+    assert_eq!(std::fs::read(server_mod.join("assets/assets.json")).unwrap(), shipped);
+    assert_eq!(hash::mod_identity(&server_mod).unwrap(), hash::mod_identity(&client_mod).unwrap());
 
     // a server folder cooked with 0.2.0-dev.26: the models' entries marked "side": "client" in its copy of the manifest, and the
     // report of that cook. `kiln cook` sees the old report, cooks again and puts the shipped file back
