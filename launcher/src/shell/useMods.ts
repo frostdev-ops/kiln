@@ -9,7 +9,7 @@ import type { GameInstall, Profile, ProfileMod } from "../api/commands";
 import { qk, useActiveProfile, useGameStatus, useLaunchState, useLibrary, useProfiles } from "../api/hooks";
 import { engineStatusKey } from "../components/EngineStatus";
 import { useFound } from "../pages/profiles/GameFolder";
-import { useProfileEdit } from "../pages/profiles/useProfileEdit";
+import { profileQueueState, useProfileEdit, watchProfileEdits, type Edit } from "../pages/profiles/useProfileEdit";
 import { applyBulk, buildRows, bulkPlan, changeKey, countLine, revertBulk, type BulkChange, type BulkPlan, type ModRow } from "./mods";
 import { useRetained } from "./notices";
 
@@ -18,22 +18,30 @@ import { useRetained } from "./notices";
 export const DEFAULT_PROFILE = "My mods";
 export const isDefaultProfile = (p: { id: string; name: string } | null | undefined) => !!p && (p.id === "my-mods" || p.name === DEFAULT_PROFILE);
 
-/** What "All on" / "All off" did, for its Undo. The Undo is good only while its profile is the loaded one and nothing
- *  outside this list changed it: `gen` is the generation the profile has after the action and after every switch made
- *  in the list since (null while a save is in flight); a change from elsewhere (another page, another window, a
- *  profile deleted and made again) leaves the shown generation or `created` different, and the Undo says it cannot.
- *  The mods the player switched in the list since are `touched`: the Undo leaves them as they are. */
+/** What "All on" / "All off" did, for its Undo. Every later edit of the profile, from any page, reaches the record
+ *  through the shared save queue (useProfileEdit's watchers): the mods it changed are `touched`, and the Undo leaves
+ *  them as they are. A copy the queue did not save itself (another window, a refetch with news) or a failed save ends
+ *  the Undo; so does another profile being loaded, and the backend's copy is read before it writes. */
 export interface BulkUndo {
   profileId: string;
   profileName: string;
   created: string;
   changes: BulkChange[];
-  gen: number | null;
+  /** The action's own edit (not a touch). */
+  edit: Edit;
   touched: Set<string>;
   /** Why the Undo cannot run any more (a failed save, a change from elsewhere, done already). */
   over: string | null;
 }
 const undos = new Set<BulkUndo>();
+watchProfileEdits({
+  onEdit: (profileId, changed, edit) => {
+    for (const rec of undos) if (!rec.over && rec.profileId === profileId && edit !== rec.edit) changed.forEach((k) => rec.touched.add(k));
+  },
+  onOutside: (profileId) => {
+    for (const rec of undos) if (!rec.over && rec.profileId === profileId) { rec.over = `${rec.profileName} changed elsewhere since`; undos.delete(rec); }
+  },
+});
 
 export type UndoResult = { ok: true; kept: number } | { ok: false; why: string };
 
@@ -67,71 +75,52 @@ export function useMods(game: GameInstall | null) {
    *  switching off keeps the entry, disabled, so its version, order and settings stay. */
   const toggle = (r: ModRow, on: boolean) => {
     if (!profile || !r.kind || r.found) return;
-    if (r.entry) { edit.toggle(r.kind, r.id, on); touch(r); return; }
+    if (r.entry) { edit.toggle(r.kind, r.id, on); return; }
     const v = r.lib?.versions[0];
     if (!on || !v) return;
     const mod: ProfileMod = { id: r.id, version: v.version, hash: v.hash, enabled: true };
     edit.add(r.kind, mod);
-    touch(r);
   };
   /** Another Library version: a mod in the profile keeps its switch; one the profile lacks goes in with it, on. */
   const setVersion = (r: ModRow, version: string, hash: string) => {
     if (!profile || !r.kind || r.found) return;
     const kind = r.kind;
-    if (!r.entry) { edit.add(kind, { id: r.id, version, hash, enabled: true }); touch(r); return; }
+    if (!r.entry) { edit.add(kind, { id: r.id, version, hash, enabled: true }); return; }
     edit.update((p) => { p.mods[kind] = (p.mods[kind] ?? []).map((m) => (m.id === r.id ? { ...m, version, hash } : m)); });
-    touch(r);
   };
   /** Out of the loaded profile (the Library keeps it). */
-  const drop = (r: ModRow) => { if (r.kind && r.entry) { edit.remove(r.kind, r.id); touch(r); } };
-  /** The generation the profile has once its queue is saved: an Undo's `gen` follows the saves made from the list. */
-  const settle = (rec: BulkUndo) => {
-    rec.gen = null;
-    void edit.flush().then((ok) => {
-      if (rec.over) return;
-      if (!ok) { rec.over = "a save of the profile failed since"; return; }
-      rec.gen = qc.getQueryData<Profile>(qk.profile(rec.profileId))?.generation ?? null;
-    });
-  };
-  /** A switch, version or removal made in the list: every live Undo of this profile leaves the mod alone. A profile
-   *  that changed elsewhere first (its shown generation is not the Undo's) ends that Undo. */
-  function touch(r: ModRow) {
-    if (!profile) return;
-    for (const rec of undos) {
-      if (rec.over || rec.profileId !== profile.id) continue;
-      if (rec.gen !== null && (profile.generation !== rec.gen || profile.created !== rec.created)) { rec.over = `${rec.profileName} changed elsewhere since`; continue; }
-      rec.touched.add(r.key);
-      settle(rec);
-    }
-  }
+  const drop = (r: ModRow) => { if (r.kind && r.entry) edit.remove(r.kind, r.id); };
   /** "All on" / "All off" over `shown`: every switch that would change, as one edit (one save of the profile). */
   const setAll = (shown: ModRow[], on: boolean): { plan: BulkPlan; undo: BulkUndo | null } | null => {
     if (!profile) return null;
     const plan = bulkPlan(shown, on);
     if (!plan.change.length) return { plan, undo: null };
-    edit.update((p) => applyBulk(p, plan.change));
-    const rec: BulkUndo = { profileId: profile.id, profileName: profile.name, created: profile.created, changes: plan.change, gen: null, touched: new Set(), over: null };
+    const change: Edit = (p) => applyBulk(p, plan.change);
+    edit.update(change);
+    const rec: BulkUndo = { profileId: profile.id, profileName: profile.name, created: profile.created, changes: plan.change, edit: change, touched: new Set(), over: null };
     undos.add(rec);
-    settle(rec);
     return { plan, undo: rec };
   };
   /** Undoes setAll's changes in one save, from the list as it is now (call it on the mounted list's useMods). Leaves the
    *  mods touched since; refuses when another profile is loaded, a save still runs, or the profile changed elsewhere:
-   *  the backend's copy is read first, since the list may not have seen another window's save yet. */
+   *  the backend's copy must be the one the queue saved last. */
   const undoAll = async (rec: BulkUndo): Promise<UndoResult> => {
     const no = (why: string): UndoResult => ({ ok: false, why });
     if (rec.over) return no(rec.over);
     if (pid !== rec.profileId || !profile) return no(`${rec.profileName} is not the loaded profile now`);
-    if (rec.gen === null || edit.saving) return no("the profile is still being saved");
-    const elsewhere = (p: Profile) => p.created !== rec.created || p.generation !== rec.gen;
+    const q = profileQueueState(rec.profileId);
+    if (!q.idle || edit.saving) return no("the profile is still being saved");
     let disk: Profile;
     try { disk = await api.profileGet(rec.profileId); } catch (e) { return no(api.toKilnError(e).message); }
-    if (elsewhere(profile) || elsewhere(disk)) {
+    if (rec.over) return no(rec.over);
+    const now = profileQueueState(rec.profileId);
+    if (!now.idle) return no("the profile is still being saved");
+    if (disk.created !== rec.created || disk.generation !== now.generation) {
       rec.over = `${rec.profileName} changed elsewhere since`;
+      undos.delete(rec);
       void qc.invalidateQueries({ queryKey: qk.profile(rec.profileId) });
       return no(rec.over);
     }
-    if (rec.over) return no(rec.over);
     rec.over = "it was undone already";
     undos.delete(rec);
     const kept = rec.changes.filter((c) => rec.touched.has(changeKey(c))).length;
