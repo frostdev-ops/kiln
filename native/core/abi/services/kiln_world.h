@@ -1,10 +1,12 @@
 /* SPDX-License-Identifier: MIT
- * kiln.world v2: the server world's ECS for other services and mods.
+ * kiln.world v3: the server world's ECS for other services and mods.
  *   1. ECS programs: register your own program (system) into the game's scheduler, with declared component,
  *      singleton and event access, and helpers to use inside its update (iterator, command buffer, other entities).
  *   2. Entity access on the tick thread: component lookup by name/hash, transform and position in metres, "all
  *      entities that have component X", entity count.
  *   3. Teleport: moves an entity the way the game's own fast travel does (the engine's Teleport component).
+ *   4. Tracked writes (v3): changes to a component of any entity through the game's own write tracking, so the
+ *      game's save and its replication to players see them (write_submit; docs/re/world.md "Tracked writes").
  * Only kiln.world hooks the game's program registration; everyone else registers programs through this table.
  * Evidence and engine notes: docs/re/world.md. Usage: docs/kiln/services/world.md.
  *
@@ -36,7 +38,7 @@ extern "C" {
 #endif
 
 #define KILN_WORLD_SERVICE "kiln.world"
-#define KILN_WORLD_VERSION 2u
+#define KILN_WORLD_VERSION 3u
 
 /* ======================================================================================= programs ============== */
 
@@ -216,6 +218,137 @@ typedef struct KilnWorldStatus {
     uint64_t world_steps;     /* server-world steps in which kiln.world's own program ran */
 } KilnWorldStatus;
 
+/* ======================================================================================= tracked writes ======== */
+/* Since 0.2.0-dev.27 (v3). A raw store into component memory (the pointer `component` returns) is invisible to the
+ * game: the save skips it on an entity it has already written and players may never be sent it. A tracked write goes
+ * through the engine's own WriteOther with the job's tracker, inside one Kiln system program (kiln_world_writes) that
+ * kiln.world registers when at least one loaded mod lists a component under "writes" in its kiln.mod.json. The
+ * engine fixes a program's access when the world starts, so only components listed at boot can be written; a new
+ * entry needs a restart. The program is appended after the game's own programs and conflicts with every program
+ * that reads or writes one of its components, so its write is the last of the step for that component. */
+
+/* KilnWorldWriteResult.status */
+enum {
+    KILN_WORLD_WRITE_DONE = 0,          /* written through the game's tracked path (what that marks: the flags) */
+    KILN_WORLD_WRITE_UNCHANGED = 1,     /* the component already held these bytes: nothing written, nothing marked */
+    KILN_WORLD_WRITE_NO_COMPONENT = 2,  /* the entity does not exist or has no such component */
+    KILN_WORLD_WRITE_OUT_OF_RANGE = 3,  /* the bytes do not fit the live component (its size is in the result) */
+    KILN_WORLD_WRITE_NOT_DECLARED = 4,  /* the component is not in the write program's list for this mod (write_info
+                                           says which case; the reason says what to add) */
+    KILN_WORLD_WRITE_REFUSED = 5,       /* the change callback returned false, or an attribute's header would change */
+    KILN_WORLD_WRITE_FAULTED = 6,       /* the change callback or the engine's write faulted; the component is as it was */
+    KILN_WORLD_WRITE_DROPPED = 7,       /* never ran: no server world, the write program is off, or the owner unloaded */
+};
+
+/* KilnWorldWriteRequest.flags */
+enum {
+    KILN_WORLD_WRITE_WHOLE = 0x01u,   /* data is the whole component: its length must equal the live size */
+    KILN_WORLD_WRITE_VERIFY = 0x02u,  /* for a type the game's own programs write too: hold the result one more step
+                                         and say whether they left the bytes as written (KILN_WORLD_WROTE_CHECKED,
+                                         _KEPT). A type with no other writer is answered at once, unchecked */
+};
+
+/* KilnWorldWriteResult.flags and KilnWorldWriteInfo.flags */
+enum {
+    KILN_WORLD_WROTE_GAME_WRITES = 0x01u, /* programs of the game write this component type too, every step they run
+                                             (`writers` says how many); Kiln's write lands after them in the step */
+    KILN_WORLD_WROTE_BITS_KNOWN = 0x02u,  /* SAVED and REPLICATED below were read on this build (else: not known) */
+    KILN_WORLD_WROTE_SAVED = 0x04u,       /* the game's write tracking records changes of this type for the save: the
+                                             write marked the entity, and the next save writes it. Clear: no write of
+                                             this type marks anything, the game's own included */
+    KILN_WORLD_WROTE_REPLICATED = 0x08u,  /* ... and for replication. Clear does not say players never get the value:
+                                             the game sends many through another component it derives from this one */
+    KILN_WORLD_WROTE_ATTRIBUTE = 0x10u,   /* an attribute (Health, Fuel, ...): the game's formulas ran after the write */
+    KILN_WORLD_WROTE_CHECKED = 0x20u,     /* result only: VERIFY ran one step later */
+    KILN_WORLD_WROTE_KEPT = 0x40u,        /* result only, with CHECKED: the written bytes were still there */
+    KILN_WORLD_INFO_NOT_READY = 0x80u,    /* write_info only: what the running server world knows of the type is not
+                                             published yet (no world runs, or a new one is being set up): writers,
+                                             size and bits are not filled. The state is. Ask again after a step */
+};
+
+typedef struct KilnWorldWriteResult {
+    uint32_t size;            /* sizeof(KilnWorldWriteResult) of kiln.world */
+    uint32_t status;          /* KILN_WORLD_WRITE_* status */
+    uint64_t ticket;          /* the id write_submit returned */
+    KilnEntity entity;
+    uint32_t component;       /* component hash */
+    uint32_t offset, length;  /* the bytes the request named (a change callback: 0 and the component's size) */
+    uint32_t component_size;  /* the live component's size; 0 when it was not found */
+    uint32_t flags;           /* KILN_WORLD_WROTE_* */
+    uint32_t steps;           /* sim steps from the request to this result */
+    uint32_t writers;         /* game programs that write this component type */
+    const void* before;       /* `length` bytes the component held before; NULL when nothing was read */
+    const void* after;        /* `length` bytes it holds after the write (DONE: after the game's formulas for an
+                                 attribute); NULL when nothing was read. Both valid during the callback */
+    KilnStr reason;           /* why not, in words; "" for DONE and UNCHANGED. Valid during the callback */
+} KilnWorldWriteResult;
+
+/* Runs exactly once per accepted request, on the tick thread in Pre (game state may be touched). */
+typedef void(KILN_CALL* KilnWorldWriteFn)(const KilnWorldWriteResult* result, void* user);
+
+/* Read-modify-write. Runs inside the write program, in the sim step: the tick thread on a dedicated server, maybe a
+ * game worker thread on a client host. `data` is a copy of the whole component (`size` bytes) taken after the
+ * game's own programs of this step wrote it; edit it in place and return true to have it written, false to leave
+ * the component alone (KILN_WORLD_WRITE_REFUSED). Touch nothing else of the game here. */
+typedef bool(KILN_CALL* KilnWorldChangeFn)(KilnEntity entity, void* data, uint32_t size, void* user);
+
+typedef struct KilnWorldWriteRequest {
+    uint32_t size;              /* sizeof(KilnWorldWriteRequest) */
+    uint32_t flags;             /* KILN_WORLD_WRITE_WHOLE | _VERIFY */
+    KilnEntity entity;
+    uint32_t component;         /* component hash (component_hash) */
+    uint32_t offset, length;    /* the bytes to replace; ignored with `change` */
+    const void* data;           /* `length` bytes, copied by write_submit; NULL with `change`. length <= 4096 */
+    KilnWorldChangeFn change;   /* optional: read-modify-write instead of `data` */
+    KilnWorldWriteFn callback;  /* may be NULL */
+    void* user;                 /* for both callbacks */
+    KilnStr mod_id;             /* the mod whose manifest must list the component; empty: any listed component
+                                   (native services, which have no manifest) */
+} KilnWorldWriteRequest;
+
+/* KilnWorldWriteInfo.state: can this component be written right now, for this mod? */
+enum {
+    KILN_WORLD_WRITES_READY = 0,         /* yes */
+    KILN_WORLD_WRITES_PENDING = 1,       /* listed, and the write program waits for a server world (which then says
+                                            whether the name is a component and within the program's 92) */
+    KILN_WORLD_WRITES_NOT_DECLARED = 2,  /* no loaded mod listed it at boot */
+    KILN_WORLD_WRITES_NOT_LISTED = 3,    /* another mod listed it, mod_id did not */
+    KILN_WORLD_WRITES_UNKNOWN = 4,       /* listed, but the world has no component type of that name */
+    KILN_WORLD_WRITES_OVER_LIMIT = 5,    /* listed, but the program's accessor limit was reached before it (names the
+                                            world does not have take no place) */
+    KILN_WORLD_WRITES_OFF = 6,           /* tracked writes do not work on this build, or the program was refused,
+                                            faulted or is skipped by the engine (kiln.log says which) */
+    KILN_WORLD_WRITES_LIST_REFUSED = 7,  /* the mod's "writes" could not be read at boot (not a list, a name that is not
+                                            a component's, over 64 entries): the mod loaded, none of its writes is
+                                            taken; the reason says what is wrong */
+};
+
+typedef struct KilnWorldWriteInfo {
+    uint32_t size;            /* set to sizeof(KilnWorldWriteInfo) before calling */
+    uint32_t state;           /* KILN_WORLD_WRITES_* */
+    uint32_t flags;           /* KILN_WORLD_WROTE_GAME_WRITES | _BITS_KNOWN | _SAVED | _REPLICATED | _ATTRIBUTE */
+    uint32_t writers;         /* game programs that write this component type each step they run */
+    uint32_t init_writers;    /* game programs that write it only when an entity is created (INIT programs) */
+    uint32_t component_size;  /* the reflected size (kiln.types); 0 when not known */
+    char writer_names[232];   /* the first of them, ", " separated, NUL terminated ("fuel_setup, inventory_actions") */
+} KilnWorldWriteInfo;
+
+typedef struct KilnWorldWriteStatus {
+    uint32_t size;       /* set to sizeof(KilnWorldWriteStatus) before calling */
+    uint32_t program;    /* KILN_PROGRAM_* state of kiln_world_writes; KILN_PROGRAM_PENDING until the first server
+                            world registers its programs (the program is made then, when something is listed) */
+    uint8_t available;   /* 1: the engine's tracked write path resolved on this build */
+    uint8_t running;     /* 1: the program ran in the last step */
+    uint8_t attributes;  /* 1: attribute formulas can be re-run after a write */
+    uint8_t bits;        /* 1: the per-component save and replication bits can be read */
+    uint32_t declared;   /* component types in the program's write list */
+    uint32_t refused;    /* names listed by mods that are not in it (unknown, over the limit) */
+    uint32_t pending;    /* requests waiting for the program or for their check */
+    uint32_t reserved;
+    uint64_t submitted, written, unchanged, failed;
+    uint64_t updates;    /* updates of the program so far */
+} KilnWorldWriteStatus;
+
 /* ======================================================================================= the table ============= */
 
 typedef void(KILN_CALL* KilnProgramEventFn)(const void* data, uint32_t size, void* user);
@@ -308,12 +441,52 @@ typedef struct KilnWorldApi {
     KilnResult(KILN_CALL* program_events)(KilnProgramCtx* ctx, KilnStr name, KilnProgramEventFn callback, void* user);
     /* v2: copy an exact reflected payload into a declared output stream; GameEvent timestamps use program time. */
     KilnResult(KILN_CALL* program_emit)(KilnProgramCtx* ctx, KilnStr name, const void* data, uint32_t size);
+
+    /* ---- tracked writes: appended in v3, since 0.2.0-dev.27. Check header.size and KILN_WORLD_CAP_TRACKED_WRITES ---- */
+    /* Queues one write. It runs in the write program's next update (the next sim step; one update runs 512, the rest
+     * wait for the next ones) and its result comes one Pre later (two with KILN_WORLD_WRITE_VERIFY; one Pre delivers
+     * 1024 results at most). *out_ticket = its id (never 0). Tick thread, outside any program update
+     * (KILN_ERR_WRONG_THREAD otherwise): the entity is read as it is between two steps.
+     * A request belongs to the server world that runs when it is submitted: before the first one it is DROPPED, and
+     * one that has not run when another world registers is DROPPED (a held one completes unchecked). It also carries
+     * its entity's generation, the entity's SpawnTime (entities the game or Kiln.Spawn spawns into the world have one;
+     * entities loaded from the save and item entities do not, players may not), compared right before the write:
+     * another value means the id names
+     * another entity now, and the answer is NO_COMPONENT. A request for an entity without a SpawnTime is taken only
+     * when it runs in the next update; behind a full update's share it is answered DROPPED at once instead of waiting
+     * while its id could come to name another entity. A request whose entity lacks the component at an update while
+     * it waits never runs either.
+     * KILN_ERR_INVALID_ARGUMENT: a bad size, no entity, no component, neither or both of data and change, length 0
+     * or over 4096. KILN_ERR_UNAVAILABLE: tracked writes do not work on this build. KILN_ERR_BUFFER_TOO_SMALL: 4096
+     * accepted requests have not had their answer handed over yet (waiting, running, held, answered, or being
+     * delivered; refusals included).
+     * Everything else (not declared, no such entity, a size that does not fit) comes back through the callback, never
+     * as "ok": check the result. */
+    KilnResult(KILN_CALL* write_submit)(KilnOwner owner, const KilnWorldWriteRequest* request, uint64_t* out_ticket);
+    /* Drops the request's callbacks. A request that has not run yet is not run (its change callback is not called
+     * after this returns); a result drained for delivery in this Pre is not delivered (a result callback may cancel
+     * another request). Tick thread. KILN_ERR_NOT_FOUND when it already completed. */
+    KilnResult(KILN_CALL* write_cancel)(uint64_t ticket);
+    /* What kiln.world knows about writing component `component` for `mod_id` (empty: any mod): its state, and what
+     * the running world says about the type (the game's own writers, the save and replication bits), also for a type
+     * nobody listed, so an author can look before listing it: answered from a catalog kiln.world publishes for the
+     * running server world, tagged with it (writers and sizes at its setup, the save and replication bits at its first
+     * step), never from the world itself. KILN_WORLD_INFO_NOT_READY when the catalog is not the running world's yet
+     * (none runs, or a new one is being set up): only the state is filled then. Any thread. */
+    KilnResult(KILN_CALL* write_info)(KilnStr mod_id, uint32_t component, KilnWorldWriteInfo* out);
+    KilnResult(KILN_CALL* write_status)(KilnWorldWriteStatus* out);
+    /* A native service's own list of component types to write (a service has no manifest), under the name `who`,
+     * which it then passes as KilnWorldWriteRequest.mod_id (or it passes none). From kiln_plugin_main or on_ready
+     * only: KILN_ERR_UNAVAILABLE once the first server world registered its programs, and when tracked writes do
+     * not work on this build. KILN_ERR_INVALID_ARGUMENT: no names, over 64, or a name that is not a component's. */
+    KilnResult(KILN_CALL* write_declare)(KilnOwner owner, KilnStr who, const KilnStr* names, uint32_t count);
 } KilnWorldApi;
 
 enum {
     KILN_WORLD_CAP_WRITE_OTHER = 1u << 0,
     KILN_WORLD_CAP_MULTI_EVENTS = 1u << 1,
     KILN_WORLD_CAP_BIND_PROGRAM = 1u << 2,
+    KILN_WORLD_CAP_TRACKED_WRITES = 1u << 3, /* since 0.2.0-dev.27: write_submit works on this build */
 };
 
 #ifdef __cplusplus

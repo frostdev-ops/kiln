@@ -214,6 +214,15 @@ public readonly unsafe ref struct EcsProgramContext
         *(T*)data = value;
         return true;
     }
+    /// <summary><see cref="TryRead{T}(string, out T, bool)"/> for a generated component type (<c>Kiln.Ecs.Health</c>): the
+    /// declared name is the type's. Since 0.2.0-dev.27.</summary>
+    public bool TryGet<T>(out T value, bool template = false) where T : unmanaged, IGameComponent<T> => TryRead(T.Name, out value, template);
+    /// <summary><see cref="TryWrite{T}(string, T)"/> for a generated component type. Since 0.2.0-dev.27.</summary>
+    public bool TrySet<T>(T value) where T : unmanaged, IGameComponent<T> => TryWrite(T.Name, value);
+    /// <summary><see cref="TryReadOther{T}(EntityId, string, out T)"/> for a generated component type. Since 0.2.0-dev.27.</summary>
+    public bool TryGetOther<T>(EntityId entity, out T value) where T : unmanaged, IGameComponent<T> => TryReadOther(entity, T.Name, out value);
+    /// <summary><see cref="TryWriteOther{T}(EntityId, string, T)"/> for a generated component type. Since 0.2.0-dev.27.</summary>
+    public bool TrySetOther<T>(EntityId entity, T value) where T : unmanaged, IGameComponent<T> => TryWriteOther(entity, T.Name, value);
     /// <summary>A copy of each event in this declared input stream, in queue order. Multiple input types are allowed.</summary>
     public byte[][] ReadEvents(string name)
     {

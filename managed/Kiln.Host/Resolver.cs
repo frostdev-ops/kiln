@@ -21,6 +21,12 @@ internal sealed class ModCandidate
         {
             return new ModCandidate { Directory = directory, Error = e.Message };
         }
+        catch (InvalidOperationException e)
+        {
+            // A string the JSON parser accepted and the decoder refuses (an escape that is half a surrogate pair): one
+            // mod's bad manifest is that mod's error, never the end of the scan of all mods.
+            return new ModCandidate { Directory = directory, Error = $"kiln.mod.json holds a string that is not text: {e.Message}" };
+        }
     }
 
     public override string ToString() => Manifest is { } m ? $"{m.Id} {m.Version}" : $"folder {Folder}";

@@ -23,6 +23,8 @@
     <ProjectReference Include="../services/Kiln.Time/Kiln.Time.csproj" />
     <ProjectReference Include="../services/Kiln.Spawn/Kiln.Spawn.csproj" />
     <ProjectReference Include="../services/Kiln.Client/Kiln.Client.csproj" />
+    <!-- The fake world (FakeWorld.cs, World/): the kit names Kiln.World's result types and resets its caches. -->
+    <ProjectReference Include="../services/Kiln.World/Kiln.World.csproj" />
     <!-- The fakes of kiln.players and kiln.saves (Fakes/): the world and players surface names Kiln.Saves' types. -->
     <ProjectReference Include="../services/Kiln.Saves/Kiln.Saves.csproj" />
     <!-- Kiln.Saves needs it at run time (CharacterSync's channel); it references it without copying it. -->

@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- A mod-like library: what the SDK's KilnWrites task reads. Compiled against Kiln.World and Kiln.Game like a mod;
+       nothing in it runs. -->
+  <PropertyGroup>
+    <AssemblyName>WritesMod</AssemblyName>
+    <IsPackable>false</IsPackable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <NoWarn>$(NoWarn);CS1591;CS0618</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../../../Kiln.Api/Kiln.Api.csproj" Private="false" />
+    <ProjectReference Include="../../../../services/Kiln.World/Kiln.World.csproj" Private="false" />
+    <ProjectReference Include="../../../../Kiln.Game/Kiln.Game.csproj" Private="false" />
+  </ItemGroup>
+</Project>

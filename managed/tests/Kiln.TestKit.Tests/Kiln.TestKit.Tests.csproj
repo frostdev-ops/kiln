@@ -6,6 +6,8 @@
     <InvariantGlobalization Condition="'$(InvariantGlobalization)' == ''">true</InvariantGlobalization>
     <OutputType>Exe</OutputType>
     <NoWarn>$(NoWarn);CS1591</NoWarn>
+    <!-- FakeWorldParityTests calls the kit's kiln.world table as a native service does (function pointers). -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
   <ItemGroup>
     <Compile Remove="mods/**" />
@@ -57,12 +59,20 @@
     <TkSample Include="../../../mods/samples/QuietServer/QuietServer.csproj" />
     <TkSample Include="../../../mods/samples/Loadouts/Loadouts.csproj" />
     <TkSample Include="../../../mods/samples/SkyControl/SkyControl.csproj" />
+    <TkSample Include="../../../mods/samples/EngineRoom/EngineRoom.csproj" />
     <ProjectReference Include="@(TkSample)" ReferenceOutputAssembly="false" />
     <TkSample Include="../../../mods/samples/SampleTests/SampleTests.csproj" />
     <ProjectReference Include="../../../mods/samples/SampleTests/SampleTests.csproj" />
     <!-- The parity mod: a Kiln.Sdk mod whose built folder also deploys into a lab server (LoadFolder offline). -->
     <TkSample Include="mods/TkParity/TkParity.csproj" />
     <ProjectReference Include="mods/TkParity/TkParity.csproj" />
+    <!-- The world mod: a Kiln.Sdk mod with tracked writes (its build fills "writes"); loaded as its built folder, and
+         referenced so a test can load its class with a manifest of the test's own. Kiln.Game: the generated game types
+         the tests put on the fake world's entities, and the layout data the kit's type table is made from. -->
+    <TkSample Include="mods/TkWorld/TkWorld.csproj" />
+    <ProjectReference Include="mods/TkWorld/TkWorld.csproj" />
+    <ProjectReference Include="../../Kiln.Game/Kiln.Game.csproj" />
+    <ProjectReference Include="../../services/Kiln.World/Kiln.World.csproj" />
     <!-- Built mod folders (LoadFolder), never referenced. -->
     <TkFolderMod Include="mods/TkLocale/TkLocale.csproj" />
     <ProjectReference Include="@(TkFolderMod)" ReferenceOutputAssembly="false" />
