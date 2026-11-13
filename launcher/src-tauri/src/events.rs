@@ -26,6 +26,9 @@ pub enum GameEventKind {
     Mods,
     Native,
     Status,
+    /// `kiln/state/progress.json` was written by the running game (what the start is doing): the window looks again,
+    /// also when it had decided the start (No Kiln) and stopped following it.
+    Progress,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Unit tests of Kiln.World's tracked writes with no game: the native structs' sizes, how a native answer becomes a
+       WorldWriteResult, the capability row, and the SDK task that fills "writes" in kiln.mod.json (run in-process on the
+       fixture mod Fixtures/WritesMod, which is compiled against Kiln.World and Kiln.Game like a mod). -->
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <!-- Not Kiln.World.Tests: xunit's generated code would open a namespace Kiln.World that hides the World class. -->
+    <RootNamespace>Kiln.WorldTests</RootNamespace>
+    <IsTestProject>true</IsTestProject>
+    <OutputType>Exe</OutputType>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit.v3" Version="3.1.0" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+    <PackageReference Include="Microsoft.Build.Utilities.Core" Version="17.14.28" />
+    <PackageReference Include="Microsoft.Build.Framework" Version="17.14.28" />
+    <Compile Remove="Fixtures/**" />
+    <!-- the guided rejoin checks' plan and matching (mods/tests/world-writes-test), plain functions with no game -->
+    <Compile Include="../../../mods/tests/world-writes-test/RejoinPlan.cs" Link="WorldWritesTest/RejoinPlan.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../Kiln.Api/Kiln.Api.csproj" />
+    <ProjectReference Include="../../services/Kiln.World/Kiln.World.csproj" />
+    <ProjectReference Include="../../Kiln.Game/Kiln.Game.csproj" />
+    <ProjectReference Include="../../Kiln.Sdk/Kiln.Sdk.csproj" />
+    <ProjectReference Include="Fixtures/WritesMod/WritesMod.csproj" />
+  </ItemGroup>
+</Project>

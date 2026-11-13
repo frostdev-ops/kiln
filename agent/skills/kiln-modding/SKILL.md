@@ -15,11 +15,15 @@ Enshrouded is a trademark of Keen Games GmbH. Kiln is unofficial.
 
 1. Read the page for what you're using: https://frostdev.io/kiln/wiki. [references/docs-map.md](references/docs-map.md) says
    which one.
-2. The current build is **0.2.0-dev.26**, with mod API 0.2.1 and the matching dev.26 MDK pack. References marked **dev.20+**,
-   **dev.21+** or **dev.22+** require that runtime and MDK or newer; dev.19 lacks the dev.20 additions. Check the installed build.
-   Items marked **dev.26+** are in development, not released: they need a dev.26 build, and none has been seen by a player
-   (contract and capabilities, typed ECS reads, `Kiln.TestKit`, `[ClientCheck]`, `SteamGuard`, `InstanceData`, player
-   animation states, weapon moves, the movable data folder).
+2. The current build is **0.2.0-dev.27**, with mod API 0.2.2 and the matching dev.27 MDK pack. References marked **dev.20+**
+   to **dev.27+** require that runtime and MDK or newer; dev.19 lacks the dev.20 additions. Check the installed build
+   (`Mods.RuntimeApiVersion`). Items marked **dev.26+** were released without a client pass, so none has been verified in a
+   player's game (contract and capabilities, typed ECS reads, `Kiln.TestKit`, `[ClientCheck]`, `SteamGuard`, `InstanceData`,
+   player animation states, weapon moves, the movable data folder).
+   Items marked **dev.27+** were proven on test servers with stand-ins for players; of them only NoClip switched on and
+   off and the scrolling pause menu were tried in a real game (one PC). Not seen by a player: buff removal, a player's
+   aim, kick and ban, event filters, equip, weather, tracked world writes, item data in players' games, affixes, baked
+   definitions, mouse key bindings. One dev.26 call shape no longer compiles: `Events.On<T>(handler, default)`.
    Server/offline verification does not establish the pending client rendering, input or multiplayer checks. Many dev.21 to dev.24
    paths were verified only under Wine (tests, dedicated-server labs), not on Windows, a Steam Deck or in a real client; of dev.24
    only Kiln's main-menu entries with ShroudForge mods on, W and S steering with ShroudForge's Unlimited Flight and SET's
@@ -66,16 +70,21 @@ Never deploy to a server players are using. Use a separate local test server.
   sockets, files and static references held by non-mod code. ECS bindings drain callbacks at unload but keep an inert scheduler
   entry until restart; see [references/world-programs.md](references/world-programs.md).
 - **Item state (dev.20+).** Use `Items.Move` for gear transfers, not take + give. Item-entity `EntityData` is session-only.
-  dev.26+: `InstanceData` keeps a value on one item (a player's inventory not yet seen by a player); no affix API.
+  dev.26+: `InstanceData` keeps a value on one item (a player's inventory not yet seen by a player). dev.27+: `Affixes`
+  rolls bonuses onto one item; define the kinds and pools as blocks.
   [references/api.md](references/api.md#persistent-data).
 - **Changes are layers.** They come off when the mod unloads. Do content changes in `Content.OnReady(...)`.
 - **Fixed ids.** GUIDs of items, recipes, clones, perks, buffs, tree nodes and NPCs, and ids of quests, steps and talents, never
   change after release. Saves keep them. For native quests and dialogue, names and option order feed the ids too.
 - **Fail soft.** Check `X.Available` and degrade: services can be missing on a build Kiln doesn't know. dev.26+:
-  `Capabilities.Is(name)` / `Why(name)`; an off capability throws `KilnUnavailableException`.
+  `Capabilities.Is(name)` / `Why(name)`; an off capability throws `KilnUnavailableException`. dev.27+: every service
+  does, and KILN121 warns when a `[RequiresCapability]` member is used with nothing asking first.
+- **Read every result (dev.27+).** A refusal by the game is a result with `Ok = false` and a `Reason`, not an exception.
+  KILN120 warns when nobody reads one; pass the reason on to the player or the log.
 - **Never ship Kiln assemblies.** Kiln.Sdk references them with `ExcludeAssets=runtime`.
 - **Never ship game data.** Models, sounds, Impact programs and catalogs are made on the user's machine. Ship your sources and a
-  `cook.json`. `assets/cooked/` stays out.
+  `cook.json`. `assets/cooked/` stays out: dev.27+ a cooked file no local cook receipt lists loads with a warning, and a
+  later release refuses it.
 - **Faults disable your mod, not the server.** 5 exceptions in 60 s by default. Fix the cause, then `reload <id>`.
 - **Say what you haven't seen.** A dedicated server draws nothing and has no sound. Report what only a player can see or hear as
   "needs a client check" until you've seen it. What Kiln itself has confirmed: https://frostdev.io/kiln/wiki/status.

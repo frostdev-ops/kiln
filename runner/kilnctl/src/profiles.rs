@@ -35,8 +35,29 @@ pub fn list(kind: Option<String>) -> Result<i32> {
     let k = kind.as_deref().map(parse_kind).transpose()?;
     for e in kiln_manage::library::list(&dirs, k).km()? {
         for v in &e.versions {
-            println!("{:<7} {:<24} {:<14} {}  {}", e.kind.as_str(), e.id, v.version, v.hash, v.folder.display());
+            println!("{:<7} {:<24} {:<14} {}  {}{}", e.kind.as_str(), e.id, v.version, v.hash, v.folder.display(),
+                if v.changed { "  (changed on disk)" } else { "" });
         }
+    }
+    Ok(0)
+}
+
+/// `kind:id[@version]`: a Library entry whose files were changed in its folder becomes the mod's entry
+/// (kiln_manage::library::take_over); the profiles that listed it list the new one.
+pub fn take_over(spec: &str) -> Result<i32> {
+    let dirs = data_dirs()?;
+    let Some((kind, rest)) = spec.split_once(':') else { bail!("{spec:?}: use kind:id[@version]") };
+    let kind = parse_kind(kind)?;
+    let (id, version) = rest.split_once('@').map(|(i, v)| (i, Some(v))).unwrap_or((rest, None));
+    let entries = kiln_manage::library::list(&dirs, Some(kind)).km()?;
+    let Some(e) = entries.iter().find(|e| e.id == id) else { bail!("{} {id} is not in the library", kind.as_str()) };
+    let Some(v) = e.versions.iter().find(|v| version.is_none_or(|w| v.version == w)) else { bail!("{id}: no version {}", version.unwrap_or("?")) };
+    let r = kiln_manage::library::LibraryRef { kind, id: id.into(), version: v.version.clone(), hash: v.hash.clone() };
+    let done = kiln_manage::library::take_over(&dirs, &r).km()?;
+    if done.to == done.from {
+        println!("{} {} {}: its files are the ones imported, nothing to take over", kind.as_str(), id, v.version);
+    } else {
+        println!("{} {}: now {} {} ({}), was {} ({})", kind.as_str(), id, done.name, done.to.version, done.to.hash, done.from.version, done.from.hash);
     }
     Ok(0)
 }

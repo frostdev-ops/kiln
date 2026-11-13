@@ -153,6 +153,8 @@ public sealed class DataClientsTests
         { "lootTables", """{ "entries": [ { "item": "Material_T1_Twigs", "countMin": 2 } ] }""", null },
         { "creatures", """{ "body": "Enemy_Wolf", "drops": { "entries": [ { "item": "Material_T1_Twigs" } ] } }""", null },
         { "creatures", """{ "body": "Enemy_Wolf", "drops": "pelts" }""", null },
+        { "affixes", """{ "name": "of the Bear", "stat": "strength", "tiers": [ { "min": 2, "max": 4 } ] }""", null },
+        { "affixPools", """{ "items": [ "Weapon_T1_1H_SwordEpic_01" ], "affixes": [ { "affix": "bear" } ] }""", null },
         // mod: every player's game builds it from the mod's own files
         { "vfx", """{ "particles": [] }""", "mod" },
         { "materials", """{ "texture": "glow.png" }""", "mod" },

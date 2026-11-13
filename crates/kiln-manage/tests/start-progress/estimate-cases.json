@@ -1,0 +1,37 @@
+{
+  "about": "One set of cases for the time-left estimate, run by the Rust tests (kiln_manage::start_progress::estimate, src/start_progress_tests.rs) and the TypeScript tests of the browser mock's copy (launcher/src/api/mockProgress.ts, launcher/unit/startProgress.test.ts), so the two cannot drift. Times in milliseconds; `now` and a step's `ms` since the start began; a history entry's step `ms` is what it took.",
+  "histories": {
+    "one": [{ "kiln": "k", "fingerprint": "f", "steps": [{ "id": "a", "ms": 10000 }, { "id": "b", "ms": 20000, "total": 10 }, { "id": "c", "ms": 5000 }] }],
+    "cook": [{ "kiln": "k", "fingerprint": "f", "steps": [{ "id": "cook", "ms": 30000, "total": 2, "parts": [{ "key": "m1", "ms": 10000 }, { "key": "m2", "ms": 20000 }] }] }],
+    "two": [{ "kiln": "k", "fingerprint": "f", "steps": [{ "id": "a", "ms": 10000 }] }, { "kiln": "k", "fingerprint": "f", "steps": [{ "id": "a", "ms": 20001 }] }]
+  },
+  "cases": [
+    { "name": "a first start has no number", "plan": ["a", "b", "c"], "history": null, "kiln": "k", "fingerprint": "f", "now": 3000, "ready": false,
+      "steps": [{ "id": "a", "ms": 0 }],
+      "expect": { "leftMs": null, "slow": null, "starts": 0, "same": false, "stepsDone": 0, "usual": [null, null, null] } },
+    { "name": "same Kiln and mods: the usual time alone counts for the running step", "plan": ["a", "b", "c"], "history": "one", "kiln": "k", "fingerprint": "f", "now": 15000, "ready": false,
+      "steps": [{ "id": "a", "ms": 0, "tookMs": 10000 }, { "id": "b", "ms": 10000, "done": 5, "total": 10 }],
+      "expect": { "leftMs": 20000, "slow": null, "starts": 1, "same": true, "stepsDone": 1, "usual": [10000, 20000, 5000] } },
+    { "name": "other mods: scaled by total, and the larger of usual time and pace", "plan": ["a", "b", "c"], "history": "one", "kiln": "k", "fingerprint": "g", "now": 15000, "ready": false,
+      "steps": [{ "id": "a", "ms": 0, "tookMs": 10000 }, { "id": "b", "ms": 10000, "done": 1, "total": 20 }],
+      "expect": { "leftMs": 100000, "slow": null, "starts": 1, "same": false, "stepsDone": 1, "usual": [10000, 40000, 5000] } },
+    { "name": "slow on the same basis: its share is spent, what comes after stays", "plan": ["a", "b", "c"], "history": "one", "kiln": "k", "fingerprint": "f", "now": 41000, "ready": false,
+      "steps": [{ "id": "a", "ms": 0, "tookMs": 10000 }, { "id": "b", "ms": 10000, "done": 5, "total": 10 }],
+      "expect": { "leftMs": 5000, "slow": { "id": "b", "usualMs": 20000 }, "starts": 1, "same": true, "stepsDone": 1, "usual": [10000, 20000, 5000] } },
+    { "name": "slow on the other basis: the pace no longer counts", "plan": ["a", "b", "c"], "history": "one", "kiln": "k", "fingerprint": "g", "now": 41000, "ready": false,
+      "steps": [{ "id": "a", "ms": 0, "tookMs": 10000 }, { "id": "b", "ms": 10000, "done": 1, "total": 10 }],
+      "expect": { "leftMs": 5000, "slow": { "id": "b", "usualMs": 20000 }, "starts": 1, "same": false, "stepsDone": 1, "usual": [10000, 20000, 5000] } },
+    { "name": "a planned step passed over counts as done", "plan": ["a", "b", "c"], "history": "one", "kiln": "k", "fingerprint": "f", "now": 12000, "ready": false,
+      "steps": [{ "id": "a", "ms": 0, "tookMs": 10000 }, { "id": "c", "ms": 10000 }],
+      "expect": { "leftMs": 3000, "slow": null, "starts": 1, "same": true, "stepsDone": 2, "usual": [10000, 20000, 5000] } },
+    { "name": "the cook mod by mod", "plan": ["cook"], "history": "cook", "kiln": "k", "fingerprint": "x", "now": 15000, "ready": false,
+      "steps": [{ "id": "cook", "ms": 0, "done": 1, "total": 2, "keys": ["m1", "m2"], "parts": [{ "key": "m1", "ms": 10000 }, { "key": "m2", "ms": 0 }], "partMs": 10000 }],
+      "expect": { "leftMs": 15000, "slow": null, "starts": 1, "same": true, "stepsDone": 0, "usual": [30000] } },
+    { "name": "ready: nothing left", "plan": ["a"], "history": "one", "kiln": "k", "fingerprint": "f", "now": 9000, "ready": true,
+      "steps": [{ "id": "a", "ms": 0 }],
+      "expect": { "leftMs": 0, "slow": null, "starts": 1, "same": true, "stepsDone": 1, "usual": [10000] } },
+    { "name": "the median of two is their middle", "plan": ["a"], "history": "two", "kiln": "k", "fingerprint": "f", "now": 0, "ready": false,
+      "steps": [],
+      "expect": { "leftMs": 15000, "slow": null, "starts": 2, "same": true, "stepsDone": 0, "usual": [15000] } }
+  ]
+}

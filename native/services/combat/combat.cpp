@@ -31,6 +31,7 @@
 
 #include "attr_table.h"
 #include "combat_internal.h"
+#include "hold_filter.h"
 #include "kiln_api.h"
 #include "kiln_hook.hpp"
 #include "safetyhook.hpp"  // Context only: mid handlers keep their safetyhook::Context& signature
@@ -99,6 +100,16 @@ std::atomic<KilnCombatListenerFn> g_listener{nullptr};
 std::atomic<void*> g_listener_user{nullptr};
 std::atomic<uint32_t> g_interest{0};
 std::atomic<bool> g_holding{false};
+// The listener's return sets the whole mask each step, and it worked that mask out before a handler added on another
+// thread existed. What widen_interest added since the listener was called is kept here and put back in when the
+// return is taken (both under this lock), or holding went off again right after Events.On had returned.
+std::mutex g_interest_mu;
+uint32_t g_widened = 0;
+static_assert(kHitTarget == HitOffsets::target && kHitRootTarget == HitOffsets::root_target &&
+              kHitSource == HitOffsets::source && kHitRootSource == HitOffsets::root_source &&
+              kHitImpact == HitOffsets::impact_id);
+HoldFilter g_hold_filter;  // g_mu: the entities the handlers watch (hold_filter, since 0.2.0-dev.27); off: hold every hit
+std::atomic<uint64_t> c_unheld{0};  // hits the filter let through without holding (logged with the filter)
 
 // ---- counters ----
 std::atomic<uint64_t> c_seen{0}, c_held{0}, c_released{0}, c_canceled{0}, c_modified{0}, c_kiln{0}, c_god{0},
@@ -228,12 +239,12 @@ KilnCombatEvent blank(uint32_t kind) {
 }
 
 void fill_from_hit(KilnCombatEvent& ev, const uint8_t* r) {
-    const uint32_t target = get<uint32_t>(r, HitOffsets::target);
-    const uint32_t root = get<uint32_t>(r, HitOffsets::root_target);
-    ev.target = root ? root : target;
-    ev.part = target;
-    ev.attacker = get<uint32_t>(r, HitOffsets::root_source);
-    ev.source = get<uint32_t>(r, HitOffsets::source);
+    // the four entities the hold filter tests (hold_filter.h): a held hit's event names the watched entity
+    const HitEntities e = hit_entities(r);
+    ev.target = e.target;
+    ev.part = e.part;
+    ev.attacker = e.attacker;
+    ev.source = e.source;
     ev.hit_flags = get<uint32_t>(r, H.flags);
     ev.damage_types = get<uint16_t>(r, HitOffsets::damage_types);
     ev.reaction = get<uint16_t>(r, HitOffsets::reaction);
@@ -271,12 +282,24 @@ void before_conclusion(void* sys) {
         uint8_t* data = nullptr;
         uint64_t count = 0;
         if (read_list(sys, &data, &count) && count) {
-            uint64_t kept = 0;
+            // the step's entity hits first: the filter holds whole merge groups (hold_filter.h HoldFilter::hold)
+            std::vector<uint8_t> kinds;
+            std::vector<const uint8_t*> hits;
+            kinds.reserve(count);
             for (uint64_t i = 0; i < count; ++i) {
-                uint8_t* rec = data + i * H.size;
                 uint8_t kind = 0xFF;
-                if (!read_u8(rec + H.kind, &kind)) break;
-                if (kind == 0) {  // entity hit: hold it for the listener
+                if (!read_u8(data + i * H.size + H.kind, &kind)) break;  // unreadable: the rest is dropped, as before
+                kinds.push_back(kind);
+                if (kind == 0) hits.push_back(data + i * H.size);
+            }
+            const std::vector<bool> hold = g_hold_filter.hold(hits);
+            uint64_t kept = 0;
+            size_t next_hit = 0;
+            for (uint64_t i = 0; i < kinds.size(); ++i) {
+                uint8_t* rec = data + i * H.size;
+                if (kinds[i] == 0 && !hold[next_hit++]) {
+                    c_unheld.fetch_add(1, std::memory_order_relaxed);
+                } else if (kinds[i] == 0) {  // entity hit: hold it for the listener
                     Held h{g_next_id++, step, 0, {}};
                     if (copy_bytes(h.rec.b, rec, static_cast<size_t>(H.size))) {
                         g_held_new.push_back(h);
@@ -343,7 +366,9 @@ void before_conclusion(void* sys) {
         }
         set.insert(get<uint32_t>(q.rec.b, HitOffsets::impact_id));
         if ((q.flags & KILN_DAMAGE_KILL)) finalize_kill(q.rec);
-        if ((q.flags & KILN_DAMAGE_AS_GAME_HIT) && g_holding.load()) {
+        const bool as_game = (q.flags & KILN_DAMAGE_AS_GAME_HIT) && g_holding.load();
+        if (as_game && !g_hold_filter.wants(q.rec.b)) c_unheld.fetch_add(1, std::memory_order_relaxed);
+        if (as_game && g_hold_filter.wants(q.rec.b)) {
             g_held_new.push_back(Held{g_next_id++, step, q.id, q.rec});
             c_held.fetch_add(1, std::memory_order_relaxed);
             auto s = g_req_state.find(q.id);
@@ -1036,6 +1061,10 @@ void on_pre_impl(const KilnTickInfo* tick) {
     // Deliver. Every step, so the listener can change its interest.
     uint32_t next = interest;
     if (fn) {
+        {
+            std::lock_guard lock(g_interest_mu);
+            g_widened = 0;  // what was added before this call is in the listener's own answer
+        }
         if (!seh_call_listener(fn, events.data(), static_cast<uint32_t>(events.size()), g_listener_user.load(), &next)) {
             LOGE("the combat listener faulted; removed (held hits go back unchanged)");
             g_listener.store(nullptr);
@@ -1157,11 +1186,18 @@ void on_pre_impl(const KilnTickInfo* tick) {
         }
         g_release.push_back(held[i]);
     }
-    const uint32_t old = g_interest.exchange(next);
-    const bool hold = (next & (KILN_COMBAT_MASK(KILN_COMBAT_HURT) | KILN_COMBAT_MASK(KILN_COMBAT_HEAL) |
-                               KILN_COMBAT_MASK(KILN_COMBAT_KNOCKBACK))) != 0 &&
-                      g_hits_ok && g_listener.load();
-    if (g_holding.exchange(hold) != hold)
+    uint32_t old;
+    bool hold, hold_changed;
+    {
+        std::lock_guard lock(g_interest_mu);
+        if (g_listener.load()) next |= g_widened;  // a handler added while the listener ran
+        old = g_interest.exchange(next);
+        hold = (next & (KILN_COMBAT_MASK(KILN_COMBAT_HURT) | KILN_COMBAT_MASK(KILN_COMBAT_HEAL) |
+                        KILN_COMBAT_MASK(KILN_COMBAT_KNOCKBACK))) != 0 &&
+               g_hits_ok && g_listener.load();
+        hold_changed = g_holding.exchange(hold) != hold;
+    }
+    if (hold_changed)
         LOGI("%s entity hits for the listener (interest 0x%x)", hold ? "holding" : "no longer holding", next);
     else if (old != next)
         LOGI("listener interest 0x%x", next);
@@ -1736,11 +1772,48 @@ KilnResult t_status(KilnCombatStatus* out) {
     return KILN_OK;
 }
 
+// A handler added between two steps: the kinds it wants count from now, not from the listener's next return (which sets
+// the whole mask as before, and is the only place the mask narrows). Without this a hit on a new watcher's entity was
+// held by the widened filter and then let go unannounced, because its kind was not in the mask yet.
+void widen_interest(uint32_t mask) {
+    if (!mask || !g_listener.load()) return;
+    uint32_t old, next;
+    bool began = false;
+    {
+        std::lock_guard lock(g_interest_mu);
+        g_widened |= mask;
+        old = g_interest.fetch_or(mask);
+        next = old | mask;
+        const bool hold = (next & (KILN_COMBAT_MASK(KILN_COMBAT_HURT) | KILN_COMBAT_MASK(KILN_COMBAT_HEAL) |
+                                   KILN_COMBAT_MASK(KILN_COMBAT_KNOCKBACK))) != 0 &&
+                          g_hits_ok;
+        if (hold) began = !g_holding.exchange(true);
+    }
+    if (next == old) return;
+    if (began) LOGI("holding entity hits for the listener (interest 0x%x, a handler was added)", next);
+    else LOGI("listener interest 0x%x (a handler was added)", next);
+}
+
+KilnResult KILN_CALL t_hold_filter(const KilnEntity* entities, uint32_t count, uint32_t interest) {
+    if (count > HoldFilter::kMax || (count && !entities)) return KILN_ERR_INVALID_ARGUMENT;
+    {
+        std::lock_guard lock(g_mu);
+        // said only when it changes: it is pushed at every added subscription, whatever the event
+        if (g_hold_filter.set(entities, count))
+            LOGI("hold filter: %s (%llu hit(s) let through unheld so far)",
+                 g_hold_filter.all() ? "every hit" : (std::to_string(g_hold_filter.size()) + " watched entit(ies)").c_str(),
+                 static_cast<unsigned long long>(c_unheld.load()));
+    }
+    widen_interest(interest);
+    return KILN_OK;
+}
+
 const KilnCombatApi kTable = {
     {sizeof(KilnCombatApi), KILN_COMBAT_VERSION},
     &t_health, &t_set_health, &t_heal, &t_damage, &t_hit_status, &t_set_invulnerable, &t_invulnerable,
     &t_release_owner, &t_set_listener, &t_status,
     &t_attribute_ids, &t_attribute_get, &t_attribute_set, &t_attribute_add,
+    &t_hold_filter,  // since 0.2.0-dev.27
 };
 
 // ============================================================================ boot ===============================

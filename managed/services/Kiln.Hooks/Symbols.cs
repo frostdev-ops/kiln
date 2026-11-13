@@ -5,6 +5,7 @@ namespace Kiln;
 
 /// <summary>sigdb symbol lookup and image scanning for advanced mods: core symbols, the mod's own shipped fragment,
 /// and ad-hoc pattern scans in the running executable.</summary>
+[RequiresCapability(HooksCaps.Service)]
 public static unsafe class Symbols
 {
     /// <summary>The image base of the running executable.</summary>
@@ -109,6 +110,7 @@ public static unsafe class Symbols
 }
 
 /// <summary>sigdb layout constants for advanced mods.</summary>
+[RequiresCapability(HooksCaps.Service)]
 public static unsafe class Constants
 {
     /// <summary>The sigdb constant <paramref name="name"/> (core, or "&lt;modid&gt;/name").</summary>

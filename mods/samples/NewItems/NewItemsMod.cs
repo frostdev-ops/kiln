@@ -34,11 +34,13 @@ public sealed class NewItemsMod : Mod
     private static readonly Guid FrostEdgeRecipe = Guid.Parse("51805e95-e1ea-44ef-85ea-cfbfc7882644");
 
     private HashSet<string> _kits = new();
-    private IDisposable? _frostbite;
+    private IDisposable? _frostbite, _wearFrost;
 
     public override void OnLoad()
     {
-        if (!NewContent.Available)
+        // new items are kiln.content's (Content.Available) with its feature content.new; NewContent.Available also asks
+        // that this kiln.content is one that defines items
+        if (!Content.Available || !Capabilities.Is("content.new") || !NewContent.Available)
         {
             Log.Warn("kiln.content cannot add items on this game build; NewItems does nothing");
             return;
@@ -139,6 +141,10 @@ public sealed class NewItemsMod : Mod
         // A command handler returns void: it starts the async Task, which catches what it can throw (never async void).
         _frostbite = Commands.Register("frostbite", c => _ = ApplyFrostbite(c), CommandPermission.Admin,
             description: "put the Frostbite buff (a kiln.gamedata clone) on yourself for its 8 s");
+        // "/wearfrost" (admins): puts Frost Mail on your chest through the game's own equip (Items.Equip, dev.27); what you
+        // wore there goes into the backpack. "/wearfrost off" takes the chest piece off again (Items.Unequip).
+        _wearFrost = Commands.Register("wearfrost", c => _ = WearFrost(c), CommandPermission.Admin, usage: "[off]",
+            description: "put Frost Mail on (or take the chest piece off) through the game's own equip");
         // Starter kit: only where the server world runs (a dedicated server, or a game that hosts).
         if (Players.Available)
         {
@@ -165,7 +171,57 @@ public sealed class NewItemsMod : Mod
         Log.Info($"NewItems: Glacier perk 3 = {perk.Name} (0x{perk.Id:x8}), which applies {buff?.Name} (0x{buff?.Id:x8}, {buff?.Get("defaultLifeTime")})");
     }
 
-    public override void OnUnload() => _frostbite?.Dispose();
+    public override void OnUnload()
+    {
+        _frostbite?.Dispose();
+        _wearFrost?.Dispose();
+    }
+
+    // Items.Equip / Items.Unequip follow Kiln's error rule: a refusal by the game is a result (Ok false, Reason), a bad
+    // argument throws ArgumentException, a capability that is off (items.equip) throws KilnUnavailableException.
+    private async Task WearFrost(CommandContext c)
+    {
+        try
+        {
+            var who = !c.Source.Player.IsNone ? c.Source.Player : Players.All.FirstOrDefault()?.Entity ?? EntityId.None;
+            if (who.IsNone)
+            {
+                c.Reply("no player to dress");
+                return;
+            }
+            if (c.Count > 0 && c.Args[0] == "off")
+            {
+                var off = await Items.Unequip(who, EquipmentSlot.ArmourUpperBody);
+                c.Reply(off.Ok ? $"chest piece {Items.Get(off.Item)?.Label} is in the backpack ({off.To})" : $"not taken off: {off.Reason}");
+                return;
+            }
+            var mail = Items.Lookup("Kiln_Sample_FrostMail");
+            if (mail == null)
+            {
+                c.Reply("Frost Mail is not registered here");
+                return;
+            }
+            var slot = Items.Read(who)?.Slots.FirstOrDefault(s => s.Item == mail.Id && !s.IsEquipped);
+            if (slot == null)
+            {
+                await Items.Give(who, mail.Id, 1);
+                slot = Items.Read(who)?.Slots.FirstOrDefault(s => s.Item == mail.Id && !s.IsEquipped);
+            }
+            if (slot == null)
+            {
+                c.Reply("no Frost Mail in the inventory (the backpack is full?)");
+                return;
+            }
+            var on = await Items.Equip(who, slot.Slot, EquipmentSlot.ArmourUpperBody);
+            c.Reply(on.Ok
+                ? $"Frost Mail on{(on.Replaced.IsNone ? "" : $"; {Items.Get(on.Replaced)?.Label} went to {on.ReplacedTo}")}"
+                : $"not equipped: {on.Reason}");
+        }
+        catch (Exception e) when (e is KilnUnavailableException or ArgumentException)
+        {
+            c.Reply($"wearfrost: {e.Message}");
+        }
+    }
 
     private async Task ApplyFrostbite(CommandContext c)
     {
@@ -209,7 +265,7 @@ public sealed class NewItemsMod : Mod
     private async Task GiveKit(Player p)
     {
         var key = p.SteamId != 0 ? p.SteamId.ToString() : p.Name;
-        if (_kits.Contains(key)) return;
+        if (_kits.Contains(key) || !Items.Available) return;
         await Context.Scheduler.NextTick();
         var edge = await Items.Give(p.Entity, new ItemId(NewContent.IdOf(FrostEdge)), 1, options: GiveOptions.Notify);
         var shards = await Items.Give(p.Entity, new ItemId(NewContent.IdOf(FrostShard)), 3, options: GiveOptions.Notify);

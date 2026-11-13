@@ -25,12 +25,13 @@ public sealed class RulesSampleMod : Mod
         _config = Config.Register<Settings>();
         _config.Changed += _ => HalfCost();
         HalfCost();
-        // no stamina drain inside any base: one area rule per base (the bases as the world has them now)
-        foreach (var b in Build.Bases)
-            _bases.Add(Rules.Apply(RuleScope.Box(
-                    new WorldPosition(b.Center.X - b.Half.X, b.Center.Y - b.Half.Y, b.Center.Z - b.Half.Z),
-                    new WorldPosition(b.Center.X + b.Half.X, b.Center.Y + b.Half.Y, b.Center.Z + b.Half.Z)),
-                new PlayerRules { MinStamina = 1 }, label: $"base {b.Altar} stamina"));
+        // no stamina drain inside any base: one area rule per base (the bases as the world has them now; kiln.build knows them)
+        if (Build.Available)
+            foreach (var b in Build.Bases)
+                _bases.Add(Rules.Apply(RuleScope.Box(
+                        new WorldPosition(b.Center.X - b.Half.X, b.Center.Y - b.Half.Y, b.Center.Z - b.Half.Z),
+                        new WorldPosition(b.Center.X + b.Half.X, b.Center.Y + b.Half.Y, b.Center.Z + b.Half.Z)),
+                    new PlayerRules { MinStamina = 1 }, label: $"base {b.Altar} stamina"));
         Log.Info($"rules sample: {_bases.Count} base(s) with full stamina, half-cost building {(_config.Value.HalfCostBuilding ? "on" : "off")}");
     }
 

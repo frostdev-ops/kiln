@@ -102,6 +102,8 @@ internal static class GameDataSectionStarter
         {
             var t = Type.GetType("Kiln.BlocksStartup, Kiln.Blocks");
             if (t != null) RuntimeHelpers.RunClassConstructor(t.TypeHandle);
+            // progress.json: nothing will apply the blocks/ folders, so the step "content" Kiln.Host began is over
+            else if (StartProgress.Step("content") == StartProgress.Ok) StartProgress.Step("game", StartProgress.GameLabel(Kiln.Client.IsClient));
             Backend.Current.Log(0, t != null ? LogLevel.Info : LogLevel.Warn, t != null
                 ? "Kiln.Content: started Kiln.Blocks for a mod's blocks/ folder"
                 : "Kiln.Content: a mod has a blocks/ folder and Kiln.Blocks is not installed");
@@ -204,7 +206,7 @@ public static unsafe partial class Content
     {
         Services.RequireTickThread(api);
         var t = GD;
-        if (t == null) throw new NotSupportedException("kiln.gamedata is not available on this build");
+        if (t == null) throw ContentCaps.Off(ContentCaps.GameData, "kiln.gamedata is not available on this build");
         return t;
     }
 
@@ -269,6 +271,8 @@ public static unsafe partial class Content
     }
 
     /// <summary>The config vocabulary (config ids, their aliases from the game's Impact programs, C++-read costs).</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.gamedata")]
     public static string ConfigVocabulary()
     {
         var t = RequireGD("Content.ConfigVocabulary");
@@ -290,13 +294,14 @@ public static unsafe partial class Content
     /// application, in pack order. Registered after the packs applied, the waiting sections are applied at once.
     /// Exceptions become pack errors. Do not call <see cref="Apply"/> from a handler.
     /// </summary>
+    [RequiresCapability("kiln.gamedata")]
     public static void RegisterSection(string name, Func<ContentSectionCall, ContentSectionResult> apply, Action<string, string?> revert)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
         ArgumentNullException.ThrowIfNull(apply);
         ArgumentNullException.ThrowIfNull(revert);
         var t = GD;
-        if (t == null) throw new NotSupportedException("kiln.gamedata is not available on this build");
+        if (t == null) throw ContentCaps.Off(ContentCaps.GameData, "kiln.gamedata is not available on this build");
         Sections[name] = (apply, revert);
         using var n = new ContentNative.Utf8(name);
         var rc = t->RegisterSection(0, n.Str, &OnSectionApply, &OnSectionRevert, null);
@@ -380,6 +385,8 @@ public sealed unsafe class GameDataRegistry : IReadOnlyList<GameDataEntry>
 
     public GameDataSection Section { get; }
 
+    [TickThreadOnly]
+    [RequiresCapability("kiln.gamedata")]
     public int Count
     {
         get
@@ -389,6 +396,8 @@ public sealed unsafe class GameDataRegistry : IReadOnlyList<GameDataEntry>
         }
     }
 
+    [TickThreadOnly]
+    [RequiresCapability("kiln.gamedata")]
     public GameDataEntry this[int index]
     {
         get
@@ -403,6 +412,8 @@ public sealed unsafe class GameDataRegistry : IReadOnlyList<GameDataEntry>
     }
 
     /// <summary>The entry for a key, or null.</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.gamedata")]
     public GameDataEntry? Get(string key)
     {
         var t = Content.RequireGD("GameDataRegistry.Get");
@@ -412,11 +423,17 @@ public sealed unsafe class GameDataRegistry : IReadOnlyList<GameDataEntry>
         return t->Find((uint)Section, k.Str, &e) == ContentNative.Ok ? new GameDataEntry(Section, e) : null;
     }
 
+    [TickThreadOnly]
+    [RequiresCapability("kiln.gamedata")]
     public GameDataEntry? Get(uint id) => Get("0x" + id.ToString("x8"));
 
+    [TickThreadOnly]
+    [RequiresCapability("kiln.gamedata")]
     public GameDataEntry? Get(Guid guid) => Get(guid.ToString());
 
     /// <summary>The entry is a clone (an "add" definition), not one of the game's.</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.gamedata")]
     public bool IsClone(Guid guid) => Get(guid)?.IsClone == true;
 
     /// <summary>
@@ -429,6 +446,8 @@ public sealed unsafe class GameDataRegistry : IReadOnlyList<GameDataEntry>
     /// </summary>
     /// <exception cref="ArgumentException">The definition is refused (the message says why).</exception>
     /// <exception cref="NotSupportedException">Clones of this section are not available on this build.</exception>
+    [TickThreadOnly]
+    [RequiresCapability("gamedata.template_clones")]
     public GameDataDefinition Define(JsonObject definition) => Define(definition, Content.Owner());
 
     /// <summary>Defines a clone as a given owner (Kiln.Blocks: a data-only mod's blocks).</summary>
@@ -439,7 +458,7 @@ public sealed unsafe class GameDataRegistry : IReadOnlyList<GameDataEntry>
         using var j = new ContentNative.Utf8(definition.ToJsonString());
         var (rc, text) = GameDataNative.Json((b, c, l) => Content.GD->Define(owner, (uint)Section, j.Str, (byte*)b, c, (nuint*)l), 1 << 16);
         var r = JsonNode.Parse(string.IsNullOrEmpty(text) ? "{}" : text) as JsonObject;
-        if (rc == ContentNative.Unavailable) throw new NotSupportedException((string?)r?["error"] ?? $"{Section}: clones are not available");
+        if (rc == ContentNative.Unavailable) throw ContentCaps.Off(ContentCaps.Clones, (string?)r?["error"] ?? $"{Section}: clones are not available");
         if (rc != ContentNative.Ok) throw new ArgumentException($"{Section} clone {(string?)definition["name"]}: {(string?)r?["error"] ?? ContentNative.Message(rc)}");
         // the report carries the definition as Definitions() lists it: listing them all for each one makes defining many slow
         if (r?["entry"] is JsonObject entry && GameDataDefinition.From(entry) is { } listed) return listed;
@@ -449,6 +468,8 @@ public sealed unsafe class GameDataRegistry : IReadOnlyList<GameDataEntry>
     }
 
     /// <inheritdoc cref="Define(JsonObject)"/>
+    [TickThreadOnly]
+    [RequiresCapability("gamedata.template_clones")]
     public GameDataDefinition Define(GameDataClone clone)
     {
         clone.Values.Require(Section.ToString().ToLowerInvariant(), $"{Section} clone {clone.Name}");
@@ -460,6 +481,8 @@ public sealed unsafe class GameDataRegistry : IReadOnlyList<GameDataEntry>
 
     /// <summary>Writes entries as JSON (key null: all of them) to <paramref name="path"/> (null:
     /// <c>kiln/data/content/gamedata-&lt;section&gt;.json</c>). Returns the path.</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.gamedata")]
     public string Dump(string? key = null, string? path = null)
     {
         var t = Content.RequireGD("GameDataRegistry.Dump");
@@ -470,6 +493,8 @@ public sealed unsafe class GameDataRegistry : IReadOnlyList<GameDataEntry>
         return text;
     }
 
+    [TickThreadOnly]
+    [RequiresCapability("kiln.gamedata")]
     public IEnumerator<GameDataEntry> GetEnumerator()
     {
         var n = Count;
@@ -507,15 +532,23 @@ public sealed unsafe class GameDataEntry
     public override string ToString() => $"{Section} {Name} (0x{Id:x8})";
 
     /// <summary>The current value of a leaf.</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.gamedata")]
     public ContentValue Get(string path) => Read(path, false);
 
     /// <summary>The game's original value of a leaf.</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.gamedata")]
     public ContentValue Original(string path) => Read(path, true);
 
+    [TickThreadOnly]
+    [RequiresCapability("kiln.gamedata")]
     public double GetNumber(string path) => Get(path).AsDouble;
 
     /// <summary>Any node as JSON: <c>{path, type, value, original, writable, address}</c> (an array when the path
     /// fans out with <c>[*]</c>; <c>{"absent": true}</c> for a config the struct does not have yet).</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.gamedata")]
     public JsonNode? GetJson(string path = "")
     {
         var t = Content.RequireGD("GameDataEntry.GetJson");
@@ -526,20 +559,36 @@ public sealed unsafe class GameDataEntry
         return JsonNode.Parse(text);
     }
 
+    [TickThreadOnly]
+    [RequiresCapability("kiln.gamedata")]
     public void Set(string path, double value) => SetJson(path, JsonSerializer.Serialize(value));
+    [TickThreadOnly]
+    [RequiresCapability("kiln.gamedata")]
     public void Set(string path, long value) => SetJson(path, JsonSerializer.Serialize(value));
+    [TickThreadOnly]
+    [RequiresCapability("kiln.gamedata")]
     public void Set(string path, int value) => SetJson(path, JsonSerializer.Serialize(value));
+    [TickThreadOnly]
+    [RequiresCapability("kiln.gamedata")]
     public void Set(string path, bool value) => SetJson(path, value ? "true" : "false");
+    [TickThreadOnly]
+    [RequiresCapability("kiln.gamedata")]
     public void Set(string path, TimeSpan value) => SetJson(path, JsonSerializer.Serialize(value.TotalSeconds));
 
     /// <summary>An enum name, a GUID, a template / sequence name for references, or <c>"0x..."</c>.</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.gamedata")]
     public void Set(string path, string value) => SetJson(path, JsonSerializer.Serialize(value));
 
+    [TickThreadOnly]
+    [RequiresCapability("kiln.gamedata")]
     public void Set(string path, Guid value) => SetJson(path, JsonSerializer.Serialize(value.ToString()));
 
     /// <summary>Any JSON value for the path, as in data packs: numbers, names, flag lists, objects for structs,
     /// <c>{"mul": 1.5}</c>. Returns how many leaves changed.</summary>
     /// <exception cref="ArgumentException">Nothing changed (the message lists why).</exception>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.gamedata")]
     public int SetJson(string path, string json)
     {
         var t = Content.RequireGD("GameDataEntry.Set");
@@ -556,6 +605,8 @@ public sealed unsafe class GameDataEntry
     }
 
     /// <summary>Takes the calling mod's layers of the path (and below) off. False when it had none.</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.gamedata")]
     public bool Reset(string path)
     {
         var t = Content.RequireGD("GameDataEntry.Reset");
@@ -565,6 +616,8 @@ public sealed unsafe class GameDataEntry
     }
 
     /// <summary>Every leaf below <paramref name="prefix"/> (null: the whole entry), from the game's reflection.</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.gamedata")]
     public IReadOnlyList<GameDataField> Fields(string? prefix = null, int limit = 0)
     {
         var t = Content.RequireGD("GameDataEntry.Fields");
@@ -625,13 +678,27 @@ public sealed class GameDataConfig
     public string Path { get; }
 
     /// <summary>The entry has this config (else <see cref="Set(double)"/> adds it).</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.gamedata")]
     public bool Exists => _entry.GetJson(Path)?["absent"] is null;
 
+    [TickThreadOnly]
+    [RequiresCapability("kiln.gamedata")]
     public ContentValue Get() => _entry.Get(Path);
+    [TickThreadOnly]
+    [RequiresCapability("kiln.gamedata")]
     public ContentValue Original() => _entry.Original(Path);
+    [TickThreadOnly]
+    [RequiresCapability("kiln.gamedata")]
     public void Set(double value) => _entry.Set(Path, value);
+    [TickThreadOnly]
+    [RequiresCapability("kiln.gamedata")]
     public void Set(long value) => _entry.Set(Path, value);
+    [TickThreadOnly]
+    [RequiresCapability("kiln.gamedata")]
     public void Set(string value) => _entry.Set(Path, value);
+    [TickThreadOnly]
+    [RequiresCapability("kiln.gamedata")]
     public bool Reset() => _entry.Reset(Path);
     public override string ToString() => $"{_entry.Name}.{Path}";
 }
@@ -649,19 +716,27 @@ public sealed class GameDataEvent
 
     public string Path { get; }
 
+    [TickThreadOnly]
+    [RequiresCapability("kiln.gamedata")]
     public TimeSpan Time
     {
         get => TimeSpan.FromSeconds(_entry.Get(Path + ".time").Number);
         set => _entry.Set(Path + ".time", value);
     }
 
+    [TickThreadOnly]
+    [RequiresCapability("kiln.gamedata")]
     public TimeSpan Duration
     {
         get => TimeSpan.FromSeconds(_entry.Get(Path + ".duration").Number);
         set => _entry.Set(Path + ".duration", value);
     }
 
+    [TickThreadOnly]
+    [RequiresCapability("kiln.gamedata")]
     public ContentValue Get(string field) => _entry.Get(Path + "." + field);
+    [TickThreadOnly]
+    [RequiresCapability("kiln.gamedata")]
     public void SetJson(string field, string json) => _entry.SetJson(Path + "." + field, json);
     public override string ToString() => $"{_entry.Name}.{Path}";
 }
@@ -670,6 +745,8 @@ public sealed class GameDataEvent
 public static class GameDataItemExtensions
 {
     /// <summary>The item as a kiln.gamedata entry (config values, lists).</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.gamedata")]
     public static GameDataEntry Data(this ContentEntry item) =>
         item.Kind == ContentKind.Items
             ? Content.ItemData.Get(item.Id) ?? throw new KeyNotFoundException($"{item.Name} is not in kiln.gamedata")
@@ -677,6 +754,8 @@ public static class GameDataItemExtensions
 
     /// <summary>A config value of an item by alias (<c>ManaCost</c>, <c>StaminaCost</c>, <c>Damage</c>) or <c>0x</c>
     /// id: <c>impactValues.&lt;alias&gt;</c>; its tooltip value follows.</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.gamedata")]
     public static GameDataConfig Config(this ContentEntry item, string alias) => item.Data().Config(alias);
 }
 

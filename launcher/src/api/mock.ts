@@ -4,9 +4,9 @@
 // a fake game that "runs" after Play. Fixtures are built on schema/examples (the contract examples).
 // Commands without a mock reject with not_implemented, like the wave-0 Rust stubs.
 import type {
-  Activation, AddReport, BundlePart, RunSide, AddedMod, AdminEndpoint, AppInfo, BootJson, BootState, ConfigDocument, ConfigFileInfo, ConfigTarget, CrashReport, ReportFinding, ReportSaved, Detected, Distribution,
-  EditorBackup, FoundMod, FoundReport, GameInstall, GameStatus, ImportReport, InstallReceipt, InstallResult, InstallState, Json, KilnError, LastServer, LaunchRequest, NewerKilnMod,
-  LaunchResult, LauncherSettings, RenderInfo, LibraryEntry, LibraryRef, LogFile, LogTarget, ModKind, ModpackInstallRequest, ModpackInstallResult, ModsJson,
+  Activation, AddReport, BundlePart, RunSide, AddedMod, AdminEndpoint, AppInfo, BootJson, BootState, ConfigDocument, CookJob, CookReason, CookedMod, ConfigFileInfo, ConfigTarget, CrashReport, ReportFinding, ReportSaved, Detected, Distribution,
+  FoundMod, FoundReport, GameInstall, GameStatus, ImportReport, InstallReceipt, InstallResult, InstallState, Json, KilnError, LastServer, LaunchRequest, NewerKilnMod,
+  LaunchResult, LauncherSettings, RenderInfo, LibraryEntry, LibraryRef, TakenOver, LogFile, LogTarget, ModKind, ModpackInstallRequest, ModpackInstallResult, ModsJson,
   NativeJson, NativePlanEntry, NativeUserState, PreStart, Profile, ProfileChange, ProfileMod, ProfileSummary, ProxyClass, Rejection, RemoveReport, ResolvePreview, RuntimeBundle, SaveBackup, SaveSlot,
   SchemaSnapshot, ServerInstance, ServerStatus, Task, TaskState,
 } from "./commands";
@@ -17,6 +17,7 @@ import { deckMockHandlers } from "../deck/mockDeck";
 import { nexusMockHandlers, NEXUS_MOCK_ENABLED } from "./mockNexus";
 import { chainMockHandlers } from "./mockChain";
 import { dataFolderBlocks, dataFolderMockHandlers, mockDataDir, mockPickFolder } from "./mockDataFolder";
+import { mockSpeak, bootJsonAt, clearStartHistory, mockBegin, mockProgress, mockStartEnded, ownerScript, processAt, scriptedStart, setStartScript, type StartScript } from "./mockProgress";
 import bootExample from "../../../schema/examples/state-boot.json";
 import modsExample from "../../../schema/examples/state-mods.json";
 import nativeExample from "../../../schema/examples/state-native.json";
@@ -61,7 +62,11 @@ export const MOCK_DISTRIBUTION: Distribution = typeof location !== "undefined" &
 /** Every URL app_open_url was asked to open (tests: `__kilnMock.opened()`). */
 const openedUrls: string[] = [];
 /** Deterministic IPC delays/failures for browser regressions; each plan is consumed by one call. */
-interface CommandPlan { delay?: number; error?: KilnError; result?: unknown }
+/** `gate`: the call waits until a test opens that gate (`__kilnMock.openGate(name)`), for an order that must not
+ *  depend on timing. */
+interface CommandPlan { delay?: number; gate?: string; error?: KilnError; result?: unknown }
+const gates = new Map<string, { open: boolean; waiters: (() => void)[] }>();
+const gateOf = (name: string) => { let g = gates.get(name); if (!g) { g = { open: false, waiters: [] }; gates.set(name, g); } return g; };
 const commandPlans: Record<string, CommandPlan[]> = typeof window === "undefined" ? {} :
   (window as unknown as { __kilnMockPlans?: Record<string, CommandPlan[]> }).__kilnMockPlans ?? {};
 const commandCalls: string[] = [];
@@ -80,7 +85,11 @@ const kilnProxy: ProxyClass = { kind: "kiln", version: "0.2.0-dev", abi: 2, sha2
 const runtime: Record<string, InstallState> = FRESH ? {} : {
   "client-steam": { installed: true, receipt: baseReceipt, proxy: kilnProxy, modified: [], upgradeAvailable: null },
 };
-const running: Record<string, { pid: number; mode: LaunchRequest["mode"]; nonce: string | null; at: number; profile: string | null } | null> = {};
+const running: Record<string, { pid: number; mode: LaunchRequest["mode"]; nonce: string | null; at: number; profile: string | null;
+  /** A scripted start (mockProgress.ts): the process exists from then, boot.json is written at `bootAt`. */
+  from?: number; bootAt?: number; safeIdle?: string | null } | null> = {};
+/** The fake game's process as the status sees it: a scripted start's exists only once Steam has started it. */
+const live = (gameId: string) => { const r = running[gameId]; return r && (!r.from || Date.now() >= r.from) ? r : null; };
 let pidSeq = 4100;
 /** How long profile_activate takes to answer. */
 const ACTIVATE_MS = 1500;
@@ -222,6 +231,20 @@ function fingerprint(p: Profile): string {
 /** What the next add result says it did in the profile besides adding (AddReport.notices; tests: `__kilnMock.planAddNotices`). */
 const addNotices: string[] = [];
 
+/** The player's own ShroudForge folders as engine_own_folders lists them (engine_mods::own_folders): where each is, the name Kiln would give
+ *  it, and why Kiln cannot take it over, if so. An activation says its own-folder note for each. Tests:
+ *  `__kilnMock.setOwnFolder`. */
+const ownFolders = new Map<string, { path: string; renameTo?: string; refusal?: string }>();
+/** engine_mods::own_folder's sentence for a ShroudForge entry the player's own folder serves. */
+const ownFolderNote = (id: string, path: string, on: boolean) => on
+  ? `shroudforge:${id}: the game uses your own folder ${path} for this mod; Kiln leaves it as it is and places no copy of its own.`
+  : `shroudforge:${id}: your own folder ${path} stays as it is; Kiln never switches a folder it did not place.`;
+/** kiln_manage::cook in the fake game: the mods with something to cook (by id), why each is due, and what its tools
+ *  say when its cook fails. Tests: `__kilnMock.setCook`. */
+const cookMods = new Map<string, { reason: CookReason | null; fails?: string; last?: CookedMod }>();
+/** How long each line of a cook task shows (tests: `__kilnMock.setCookPace`). */
+let cookStepMs = 120;
+
 /** What the next activation reports it kept in the game folder (tests: `__kilnMock.planActivation`), by whatever path
  *  it runs (profile_activate, the re-apply after profile_save, a reinstall's resume). */
 let activationPlan: Pick<Activation, "retained" | "keptFiles" | "warnings"> | null = null;
@@ -236,11 +259,31 @@ function activate(pid: string, gameId: string): Activation {
     copied: 0, fingerprint: fingerprint(p), activated: now(), ...activationPlan,
   };
   activationPlan = null;
+  // the player's own folders that serve ShroudForge entries: a note each, a safety note for a mod that is off
+  for (const m of p.mods.shroudforge ?? []) {
+    const own = ownFolders.get(m.id);
+    if (!own) continue;
+    const note = ownFolderNote(m.id, own.path, m.enabled);
+    a.warnings = [...(a.warnings ?? []), note];
+    if (!m.enabled) a.safetyNotes = [...(a.safetyNotes ?? []), note];
+  }
   activations[gameId] = a;
   remembered[gameId] = pid;
   return a;
 }
 if (!FRESH) activate("ember-run", "client-steam");
+
+/** cook::plan: the enabled Kiln mods of the profile the game uses that have something to cook. */
+function cookPlan(gameId: string): CookJob[] {
+  const g = gameOf(gameId);
+  const p = profiles.get(activations[gameId]?.profileId ?? "");
+  if (!p) return [];
+  return (p.mods.kiln ?? []).filter((m) => m.enabled && cookMods.has(m.id)).map((m) => {
+    const c = cookMods.get(m.id)!;
+    const name = library.find((e) => e.kind === "kiln" && e.id === m.id)?.name ?? m.id;
+    return { id: m.id, name, folder: `${g.path}/kiln/profiles/${p.id}/kiln/${m.id}`, identity: m.hash, ...(c.reason ? { reason: c.reason } : {}), ...(c.last ? { last: c.last } : {}) };
+  });
+}
 
 function summary(p: Profile): ProfileSummary {
   return {
@@ -420,13 +463,15 @@ function gameOf(id: unknown): GameInstall {
 const launched = new Set<string>();
 
 function bootFor(gameId: string): BootJson | null {
-  const r = running[gameId];
+  const r = live(gameId);
   if (!r && FRESH && !launched.has(gameId)) return null;
   if (r && noProxy) return null;
-  if (!r || Date.now() - r.at < 2500 || r.mode === "vanilla") return r ? null : clone(bootExample as unknown as BootJson);
+  const bootAt = r?.bootAt ?? (r ? r.at + 2500 : 0);
+  if (!r || Date.now() < bootAt || r.mode === "vanilla") return r ? null : clone(bootExample as unknown as BootJson);
   const b = clone(bootExample as unknown as BootJson);
   b.pid = r.pid;
-  b.written = new Date(r.at + 2500).toISOString();
+  b.written = new Date(bootAt).toISOString();
+  if (r.safeIdle) b.safeIdle = r.safeIdle;
   b.playOnce = { mode: r.mode === "once" ? "profile" : r.mode === "no-mods" ? "no-mods" : "none", nonce: r.nonce };
   const p = r.profile ? profiles.get(r.profile) : null;
   b.profile = { ...b.profile, mode: r.mode === "no-mods" ? "no-mods" : r.mode === "once" ? "once" : "active", id: p?.id ?? null, name: p?.name ?? null,
@@ -436,7 +481,7 @@ function bootFor(gameId: string): BootJson | null {
 
 function status(gameId: string): GameStatus {
   const g = gameOf(gameId);
-  const r = running[gameId];
+  const r = live(gameId);
   return {
     id: g.id, running: !!r, pid: r?.pid ?? null, started: r ? new Date(r.at - (noProxy ? 31_000 : 0)).toISOString() : null, steamUpdating: false, runtime: withMissing(runtime[gameId] ?? { installed: false, receipt: null, proxy: null, modified: [], upgradeAvailable: null }, g.kind),
     activeProfile: otherFolder[gameId] ? null : activations[gameId]?.profileId ?? null,
@@ -454,10 +499,13 @@ function emitGame(gameId: string, kind: "started" | "stopped" | "boot" | "mods" 
 
 function launch(gameId: string, req: LaunchRequest): LaunchResult {
   const g = gameOf(gameId);
-  if (running[gameId]) reject("game_running", "The game is already running.");
+  // a scripted start Steam never made a game for (noProcess) is no game: Play again replaces it
+  if (running[gameId] && running[gameId]!.from !== Infinity) reject("game_running", "The game is already running.");
   if (req.mode === "once" && !req.profileId) reject("invalid_argument", "Pick a profile to play once.");
   const st = runtime[gameId];
   if (!st?.installed && req.mode !== "vanilla") reject("unsupported", "Kiln is not installed in this game.");
+  const active = req.mode === "profile" && activations[gameId] ? profiles.get(activations[gameId]!.profileId) : undefined;
+  if (active) rejectChanged(active);
   // Play writes a changed profile again first (profile::refresh_active): a planned report stands for what that kept
   const act = req.mode === "profile" && activationPlan && activations[gameId] ? activate(activations[gameId]!.profileId, gameId) : undefined;
   const pid = ++pidSeq;
@@ -467,9 +515,22 @@ function launch(gameId: string, req: LaunchRequest): LaunchResult {
   if (!req.skipBackup && req.mode !== "vanilla") backup = makeBackup(gameId, "launch", null, profile);
   running[gameId] = { pid, mode: req.mode, nonce, at: Date.now(), profile };
   launched.add(gameId);
-  setTimeout(() => emitGame(gameId, "started"), 300);
-  setTimeout(() => emitGame(gameId, "boot"), 2600);
-  setTimeout(() => emitGame(gameId, "mods"), 3200);
+  const sc = scriptedStart(gameId);
+  if (sc) {
+    // the scripted start: Steam starts the process when the script says, boot.json comes at the end of Kiln's boot
+    // (a safe idle start: where it stops, with its reason)
+    const at = (ms: number) => sc.began + ms * sc.script.scale;
+    const idle = sc.script.idle;
+    const bootMs = idle ? bootJsonAt({ ...sc.script, runtime: sc.script.runtime.slice(0, sc.script.runtime.findIndex((x) => x.id === idle.at) + 1), loadingAfter: idle.at }) : bootJsonAt(sc.script);
+    Object.assign(running[gameId]!, sc.script.noProcess ? { from: Infinity }
+      : { from: at(processAt(sc.script)), at: at(processAt(sc.script)), bootAt: at(bootMs), safeIdle: idle?.why ?? null });
+    if (!sc.script.noProcess) setTimeout(() => emitGame(gameId, "started"), Math.max(0, at(processAt(sc.script)) - Date.now()) + 50);
+    if (!sc.script.noProcess) setTimeout(() => emitGame(gameId, "boot"), Math.max(0, at(bootMs) - Date.now()) + 50);
+  } else {
+    setTimeout(() => emitGame(gameId, "started"), 300);
+    setTimeout(() => emitGame(gameId, "boot"), 2600);
+    setTimeout(() => emitGame(gameId, "mods"), 3200);
+  }
   return { gameId: g.id, mode: req.mode, nonce, backup, uri: "steam://rungameid/1203620", started: now(), ...(act ? { activation: act } : {}) };
 }
 
@@ -484,6 +545,7 @@ export function mockStartOutside(secondsAgo: number, gameId = "client-steam") {
 export function mockStopGame(gameId = "client-steam") {
   if (!running[gameId]) return;
   running[gameId] = null;
+  mockStartEnded(gameId);
   emitGame(gameId, "stopped");
 }
 
@@ -805,6 +867,7 @@ const handlers: Record<string, Handler> = {
   profile_save: (a) => {
     const p = a.profile as Profile;
     const cur = profiles.get(p.id) ?? reject("not_found", `No profile '${p.id}'.`);
+    if (cur.created !== p.created) reject("conflict", `profile ${p.id} was deleted and made again meanwhile; this change was for the deleted one, reload it`);
     if (cur.generation !== p.generation) reject("conflict", "The profile changed elsewhere. Reload it.");
     const next = { ...clone(p), generation: p.generation + 1, updated: now() };
     profiles.set(p.id, next);
@@ -930,6 +993,7 @@ const handlers: Record<string, Handler> = {
     .map((v) => ({ kind: e.kind, id: e.id, version: v.version, hash: v.hash }))
     .filter((r) => !mockLibraryUsers(r).length)),
   library_users: (a) => mockLibraryUsers(a.entry as LibraryRef),
+  library_take_over: (a) => mockTakeOver(a.entry as LibraryRef),
   library_remove: (a) => {
     if (Object.values(running).some(Boolean)) reject("game_running", "Close Enshrouded first: the game may be reading this mod.");
     mockLibraryRemove(a.entry as LibraryRef, Array.isArray(a.shown) ? (a.shown as string[]) : !!a.force);
@@ -964,6 +1028,55 @@ const handlers: Record<string, Handler> = {
       shroudtopiaFiles.set(pid, file);
     }
     return engineSettings(kind, id, pid);
+  },
+  // engine_mods::own_folders / adopt: the player's own ShroudForge folders, and "Let Kiln manage this folder"
+  engine_own_folders: (a) => {
+    const pid = S(a.profileId), p = profiles.get(pid) ?? reject("not_found", `No profile '${pid}'.`);
+    gameOf(S(a.gameId));
+    if (activations[S(a.gameId)]?.profileId !== pid) return [];
+    return (p.mods.shroudforge ?? []).flatMap((m) => {
+      const own = ownFolders.get(m.id);
+      return own ? [{ kind: "shroudforge", id: m.id, version: m.version, path: own.path, ...(own.renameTo ? { renameTo: own.renameTo } : {}), ...(own.refusal ? { refusal: own.refusal } : {}) }] : [];
+    });
+  },
+  engine_adopt_folder: (a) => {
+    const kind = a.kind as ModKind, id = S(a.id), pid = S(a.profileId), gid = S(a.gameId);
+    const p = profiles.get(pid) ?? reject("not_found", `No profile '${pid}'.`);
+    gameOf(gid);
+    if (kind !== "shroudforge") reject("unsupported", `Kiln takes over ShroudForge folders only, not ${kind} folders`);
+    const m = (p.mods.shroudforge ?? []).find((x) => x.id === id) ?? reject("not_found", `shroudforge mod ${id} is not in profile ${pid}`);
+    if (running[gid]) reject("game_running", "Close the game first.");
+    if (activations[gid]?.profileId !== pid) reject("conflict", "Load this profile in the selected game first: Kiln takes a folder over for the profile the game uses.");
+    const own = ownFolders.get(id);
+    if (!own) return { kind, id, version: m.version, path: `${gameOf(gid).path}/mods/${id}`, already: true };
+    if (own.refusal) reject("refused", `${own.path}: ${own.refusal}`);
+    ownFolders.delete(id);
+    sfOwn.delete(id);
+    return { kind, id, version: m.version, path: own.renameTo ?? own.path, ...(own.renameTo ? { renamedFrom: own.path } : {}) };
+  },
+  // kiln_manage::cook: what needs a cook, and the cook as a task whose lines are the tools'
+  cook_plan: (a) => cookPlan(S(a.gameId)),
+  cook_run: (a) => {
+    const gid = S(a.gameId), one = a.modId ? S(a.modId) : null;
+    gameOf(gid);
+    let jobs = cookPlan(gid);
+    if (one) {
+      jobs = jobs.filter((j) => j.id === one).map((j) => ({ ...j, reason: "asked" as CookReason }));
+      if (!jobs.length) reject("not_found", `${one} is not a mod of this game's profile with something to cook`);
+    }
+    const due = jobs.filter((j) => j.reason);
+    const steps = due.flatMap((j, i) => [`Cooking ${j.name} (${i + 1} of ${due.length})`, `${j.name}: kiln: cooking assets/cook.json (modelcook)`]);
+    return startTask("cook_run", one ? `Cook ${one}` : "Cook mods", steps.length ? steps : ["Nothing to cook"], () => {
+      if (running[gid]) reject("game_running", "Close the game first: a cook writes the files the game is using.");
+      const mods = due.map((j) => {
+        const m = cookMods.get(j.id)!;
+        const ok = !m.fails;
+        m.last = { identity: j.identity, gameBuild: "steam:100", at: now(), ok, files: ok, ...(ok ? {} : { error: m.fails }) };
+        m.reason = ok ? null : "lastFailed";
+        return { id: j.id, name: j.name, reason: j.reason!, ok, ...(ok ? {} : { error: m.fails }) };
+      });
+      return { mods };
+    }, cookStepMs);
   },
   engine_status: (a) => {
     const g = gameOf(S(a.gameId));
@@ -1063,9 +1176,19 @@ const handlers: Record<string, Handler> = {
 
   // launch
   launch_play: (a) => launch(S(a.gameId), a.request as LaunchRequest),
+  // what a start is doing (mockProgress.ts): only a scripted start has a timeline; a plain one is a dev.26 runtime's
+  launch_begin: (a) => { gameOf(S(a.gameId)); mockBegin(S(a.gameId), S(a.mode)); return null; },
+  launch_progress: (a) => {
+    const g = S(a.gameId);
+    const t = mockProgress(g);
+    // Steam did not load Kiln's proxy: no boot.json ever, so the backend's answer stays "waiting"
+    if (t && noProxy && t.phase === "legacy") t.phase = "waiting";
+    return t;
+  },
+  launch_end: (a) => { mockStartEnded(S(a.gameId)); return null; },
   launch_state: (a): BootState => {
     const boot = bootFor(S(a.gameId));
-    const r = running[S(a.gameId)];
+    const r = live(S(a.gameId));
     // the example's run logged two errors after its boot (a service tick at the menu); a run started here has none
     const log = !boot ? null : r ? { errors: 0, first: [] } : { errors: 2, first: [
       "[E 12:01:20.749] [kiln] kiln service tick 'kiln creature brains' threw (1x): System.InvalidOperationException: wrong thread",
@@ -1076,7 +1199,7 @@ const handlers: Record<string, Handler> = {
 
   // what kiln-eml does before the game's window exists: only on request (tests: `__kilnMock.setPreStart`), so that a plain
   // start still says "Waiting for Kiln to boot."
-  launch_prestart: (a): PreStart | null => (running[S(a.gameId)] ? preStart : null),
+  launch_prestart: (a): PreStart | null => (live(S(a.gameId)) ? preStart : null),
 
   // logs
   logs_list: (a) => {
@@ -1132,26 +1255,6 @@ const handlers: Record<string, Handler> = {
   },
   saves_delete: (a) => { backups[S(a.gameId)] = (backups[S(a.gameId)] ?? []).filter((b) => b.id !== a.backupId); return null; },
 
-  // editor: the browser has no save files (the editor shows its empty state) unless a local fixture is there
-  // (launcher/assets-local/fixtures/editor/: copies of your own saves plus their zstd blocks, never committed)
-  editor_list_saves: async () => (await editorFixture())?.saves ?? [],
-  editor_file_info: () => ({ modified: Date.now() }),
-  editor_read_file: async (a) => {
-    const r = await fetch(EDITOR_FIXTURE + S(a.path).split("/").pop());
-    if (!r.ok) reject("not_found", "No such save.");
-    return r.arrayBuffer();
-  },
-  editor_zstd_decompress: async (a) => {
-    const d = a.data as number[];
-    const key = `${d.length}:${d.slice(0, 24).map((b) => b.toString(16).padStart(2, "0")).join("")}`;
-    const b64 = (await editorFixture())?.blocks[key];
-    if (!b64) reject("unsupported", "The browser mock can only read the fixture's own blocks.");
-    return Uint8Array.from(atob(b64!), (c) => c.charCodeAt(0)).buffer;
-  },
-  editor_game_running: () => Object.values(running).some(Boolean),
-  editor_list_backups: (): EditorBackup[] => [],
-  editor_open_backups: () => null,
-
   // modpack (the refusal banner on Play); servers: the server mock handlers below override these
   modpack_pending: () => pendingLastServer(),
   server_list: () => [server],
@@ -1202,16 +1305,17 @@ Object.assign(handlers, deckMockHandlers(handlers));
 Object.assign(handlers, nexusMockHandlers(handlers, mockEmit, startTask, quickAdd));
 Object.assign(handlers, chainMockHandlers({ profiles, library, reject }));
 Object.assign(handlers, dataFolderMockHandlers(startTask, (id) => tasks.get(id)));
+// the save editor: synthetic character saves in memory, or a local fixture with ?editor=fixture (mockEditor.ts). Loaded
+// at the first editor command: its saves bring hash and buffer code no other page of the mock needs, and loading that
+// with the mock made every first page of a cold dev server slower
+let editorMock: Promise<Record<string, Handler>> | null = null;
+for (const cmd of ["editor_list_saves", "editor_file_info", "editor_read_file", "editor_zstd_decompress", "editor_game_running", "editor_backup_file",
+  "editor_write_save", "editor_list_backups", "editor_restore_backup", "editor_open_backups"]) {
+  handlers[cmd] = async (a) => (await (editorMock ??= import("./mockEditor").then((m) => m.editorMockHandlers(reject, () => Object.values(running).some(Boolean)))))[cmd](a);
+}
 
 /** The folder dialog's stand-in in a plain browser (shell/dataFolder.ts pickFolder; tests queue answers). */
 export { mockPickFolder };
-
-const EDITOR_FIXTURE = "/assets-local/fixtures/editor/";
-let editorFix: Promise<{ saves: { path: string; file: string; modified: number }[]; blocks: Record<string, string> } | null> | null = null;
-function editorFixture() {
-  editorFix ??= fetch(EDITOR_FIXTURE + "index.json").then((r) => (r.ok ? r.json() : null)).catch(() => null);
-  return editorFix;
-}
 
 /** "My mods": the profile a first-time player gets (every drop-in folder on, like kiln_manage::quick). */
 function makeDefault(): Profile {
@@ -1260,6 +1364,50 @@ function mockLibraryUsers(r: LibraryRef): string[] {
 
 /** One version out of the library, as library_remove after its running check (conflict while a profile lists it).
  *  `force`: true past every user, a list past exactly those (library::Force::Past). */
+/** What a player changed in a Library folder (tests: `__kilnMock.editInLibrary`): the version reads as changed, and
+ *  what its manifest says now waits for library_take_over. */
+const edited = new Map<string, { name?: string; version?: string }>();
+const editKey = (kind: ModKind, id: string, hash: string) => `${kind}/${id}/${hash}`;
+
+/** A Library version whose files were changed (library::changed_error): Play refuses it, naming it, with the entry to take over. */
+function rejectChanged(p: Profile) {
+  for (const kind of MOD_KINDS) {
+    for (const m of p.mods[kind] ?? []) {
+      const e = library.find((l) => l.kind === kind && l.id === m.id);
+      const v = e?.versions.find((x) => x.hash === m.hash);
+      if (!m.enabled || !e || !v?.changed) continue;
+      reject("hash_mismatch", `the active profile changed and cannot be applied: ${e.name} was changed in its folder (${v.folder}): its files are not the ones Kiln imported, so Kiln does not load it as it is. Use the changed files (Kiln takes them over as the mod's new files), or put the old files back.`,
+        { libraryChanged: { kind, id: m.id, version: m.version, hash: m.hash }, name: e.name, folder: v.folder });
+    }
+  }
+}
+
+/** library_take_over (kiln_manage::library::take_over): the changed files become the mod's entry; profiles follow. */
+function mockTakeOver(r: LibraryRef): TakenOver {
+  if (Object.values(running).some(Boolean)) reject("game_running", "Close Enshrouded first: the game may be reading this mod.");
+  const e = library.find((l) => l.kind === r.kind && l.id === r.id) ?? reject("not_found", `${r.kind} ${r.id} ${r.version} is not in the library`);
+  const i = e.versions.findIndex((v) => v.hash === r.hash);
+  if (i < 0) reject("not_found", `${r.kind} ${r.id} ${r.version} is not in the library`);
+  const v = e.versions[i];
+  if (!v.changed) return { from: r, to: r, name: e.name };
+  const change = edited.get(editKey(r.kind, r.id, r.hash)) ?? {};
+  edited.delete(editKey(r.kind, r.id, r.hash));
+  const version = change.version ?? v.version;
+  const hash = kdh(`${r.kind}${r.id}${version}edited${v.hash}`);
+  const manifest = { ...(v.manifest as Record<string, Json>), version, ...(change.name ? { name: change.name } : {}) } as Json;
+  e.versions[i] = { ...v, version, hash, folder: `library/${r.kind}/${r.id}/${version}+${hash.slice(5, 13)}`, imported: now(), manifest, changed: undefined };
+  if (change.name) e.name = change.name;
+  const to: LibraryRef = { kind: r.kind, id: r.id, version, hash };
+  for (const [pid, p] of profiles) {
+    const list = p.mods[r.kind] ?? [];
+    if (!list.some((m) => m.id === r.id && m.hash === r.hash)) continue;
+    profiles.set(pid, { ...p, mods: { ...p.mods, [r.kind]: list.map((m) => (m.id === r.id && m.hash === r.hash ? { ...m, version, hash } : m)) },
+      generation: p.generation + 1, updated: now() });
+    reapplyWhereActive(pid);
+  }
+  return { from: r, to, name: e.name };
+}
+
 function mockLibraryRemove(r: LibraryRef, force: boolean | string[]) {
   const used = mockLibraryUsers(r);
   const past = Array.isArray(force) ? used.every((u) => force.includes(u)) : force || !used.length;
@@ -1469,6 +1617,7 @@ export async function mockInvoke<T>(cmd: string, args: Record<string, unknown>):
   commandCalls.push(cmd);
   const plan = commandPlans[cmd]?.shift();
   if (plan?.delay) await new Promise((r) => setTimeout(r, plan.delay));
+  if (plan?.gate) { const g = gateOf(plan.gate); if (!g.open) await new Promise<void>((r) => g.waiters.push(r)); }
   if (plan?.error) throw plan.error;
   if (plan && Object.hasOwn(plan, "result")) return clone(plan.result) as T;
   await new Promise((r) => setTimeout(r, 30)); // async like IPC
@@ -1501,14 +1650,39 @@ export function mockEmit(name: string, payload: unknown): void {
 if (typeof window !== "undefined") (window as unknown as { __kilnMock?: unknown }).__kilnMock = { stopGame: mockStopGame, emit: mockEmit, setLastServer: mockSetLastServer,
   calls: () => [...commandCalls],
   planCommand: (cmd: string, plan: CommandPlan) => { (commandPlans[cmd] ??= []).push(plan); },
+  openGate: (name: string) => { const g = gateOf(name); g.open = true; g.waiters.splice(0).forEach((w) => w()); },
   planActivation: (report: Pick<Activation, "retained" | "keptFiles" | "warnings">) => { activationPlan = report; },
   planAddNotices: (lines: string[]) => { addNotices.push(...lines); },
   setSfOwnFolder: (id: string, own = true) => { if (own) sfOwn.add(id); else sfOwn.delete(id); },
+  setCookPace: (ms: number) => { cookStepMs = ms; },
+  setCook: (id: string, cook: { reason?: CookReason | null; fails?: string | null } | null) => {
+    if (!cook) { cookMods.delete(id); return; }
+    const m = cookMods.get(id) ?? { reason: null };
+    if ("reason" in cook) m.reason = cook.reason ?? null;
+    if ("fails" in cook) m.fails = cook.fails ?? undefined;
+    cookMods.set(id, m);
+  },
+  setOwnFolder: (id: string, own: { path: string; renameTo?: string; refusal?: string } | null) => {
+    if (own) { ownFolders.set(id, own); sfOwn.add(id); } else { ownFolders.delete(id); sfOwn.delete(id); }
+  },
   setGameFileUsers: (users: Record<string, string[]>) => { gameFileUsers = users; },
   failNextInstall: (message: string) => { failNextInstall = message; },
+  /** The player changes a mod's files in its Library folder ("Open folder", mod.json edited): its newest version. */
+  editInLibrary: (kind: ModKind, id: string, change: { name?: string; version?: string }) => {
+    const e = library.find((l) => l.kind === kind && l.id === id);
+    if (!e) throw new Error(`${kind} ${id} is not in the mock library`);
+    e.versions[0] = { ...e.versions[0], changed: true };
+    edited.set(editKey(kind, id, e.versions[0].hash), change);
+  },
   setModified: (files: string[], gameId = "client-steam") => { if (runtime[gameId]) runtime[gameId] = { ...runtime[gameId], modified: files }; emitGame(gameId, "status"); },
   startOutside: mockStartOutside, setServer: mockSetServer, opened: () => [...openedUrls],
   setPreStart: (p: PreStart | null) => { preStart = p; },
+  /** The next Play plays the owner's start of 13 Nov (mockProgress.ts), compressed and changed by `o`; null: off. */
+  scriptStart: (o: Partial<StartScript> | null) => setStartScript(o ? ownerScript(o) : null),
+  /** The running game's Kiln writes its first progress.json now (after a slow chained DLL): the watcher's event. */
+  speak: (gameId = "client-steam") => { mockSpeak(gameId); mockEmit("kiln://game", { gameId, kind: "progress", pid: running[gameId]?.pid ?? null, status: null }); },
+  /** Forgets the earlier starts: the next one is a first start. */
+  clearStartHistory: (gameId = "client-steam") => clearStartHistory(gameId),
   setNoProxy: (on: boolean, gameId = "client-steam") => { noProxy = on; emitGame(gameId, "status"); },
   setOtherFolderProfile: (o: { id: string; root?: string | null } | null, gameId = "client-steam") => { otherFolder[gameId] = o; emitGame(gameId, "status"); },
   setNewerMods: (mods: NewerKilnMod[], gameId = "client-steam") => { newerMods[gameId] = mods; emitGame(gameId, "status"); },

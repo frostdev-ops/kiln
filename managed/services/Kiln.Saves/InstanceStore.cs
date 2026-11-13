@@ -59,10 +59,21 @@ internal sealed class InstanceKeyInfo(ModContext mod, string name, Type type, Pe
     public readonly HashSet<ItemId>? Items = items is null ? null : [.. items];
     public object? Key;
 
+    /// <summary>Who gets the values on their game (dev.27; InstanceSync.cs), and how near "nearby" is, in metres.</summary>
+    public InstanceSync Sync { get; init; }
+
+    public double NearbyRadius { get; init; } = InstanceKeyOptions.DefaultNearbyRadius;
+
+    /// <summary>Reads the server's JSON on a client (SyncedItem.TryGet), on any thread: options of its own, as the store's
+    /// per-mod ones are the tick thread's. They go with the key when its mod unloads.</summary>
+    public readonly JsonSerializerOptions SyncJson = new() { IncludeFields = true };
+
     public string ModId => Mod.Info.Id;
 
     public bool SameOptions(Persist persist, IReadOnlyList<ItemId>? items) =>
         persist == Persist && (items is null ? Items is null : Items is not null && Items.SetEquals(items));
+
+    public bool SameSync(InstanceSync sync, double radius) => sync == Sync && (sync != InstanceSync.Nearby || radius.Equals(NearbyRadius));
 }
 
 /// <summary>An item that carries data in this session.</summary>
@@ -166,7 +177,7 @@ internal sealed class HolderEntry
     public string Describe => Name is null ? Key.Text : $"{Name} {Key.Text}";
 }
 
-internal sealed class InstanceStore
+internal sealed partial class InstanceStore
 {
     internal const string Capability = "saves.instance_data";
     internal const string WorldPrefix = "instances/", CharacterPrefix = "character-instances/";
@@ -262,6 +273,11 @@ internal sealed class InstanceStore
     /// <summary>The world closed or another one opens: nothing of this one stays (declared keys do: they are the mods').</summary>
     public void Clear()
     {
+        // What still waits to be told (the bus refused it earlier) is told now, about the world it happened in. What
+        // cannot be told now either is dropped: it must not arrive in the next world.
+        if (_passes == 0 && !_draining) Drain();
+        _afterPass.Clear();
+        _cleared++;
         foreach (var l in _live.Values) Unfollow(l);
         foreach (var p in _pending) Unfollow(p.Item);
         _live.Clear();
@@ -296,12 +312,12 @@ internal sealed class InstanceStore
         {
             if (have.Type != typeof(T))
                 throw new ArgumentException($"instance key '{name}' of {mod.Info.Id} is already declared with type {have.Type.FullName}, not {typeof(T).FullName}", nameof(name));
-            if (!have.SameOptions(options.Persist, options.Items))
+            if (!have.SameOptions(options.Persist, options.Items) || !have.SameSync(options.Sync, options.NearbyRadius))
                 throw new ArgumentException($"instance key '{name}' of {mod.Info.Id} is already declared with other options (Persist {have.Persist}" +
-                                            $"{(have.Items is null ? "" : $", {have.Items.Count} items")})", nameof(name));
+                                            $"{(have.Items is null ? "" : $", {have.Items.Count} items")}, Sync {have.Sync})", nameof(name));
             return (InstanceKey<T>)have.Key!;
         }
-        var info = new InstanceKeyInfo(mod, name, typeof(T), options.Persist, options.Items);
+        var info = new InstanceKeyInfo(mod, name, typeof(T), options.Persist, options.Items) { Sync = options.Sync, NearbyRadius = options.NearbyRadius };
         var key = new InstanceKey<T>(info);
         info.Key = key;
         map[name] = info;
@@ -437,7 +453,7 @@ internal sealed class InstanceStore
     /// <summary>The item's data in this session, by (entity id, stamp). Null when the ref is stale (the item is gone or the
     /// id belongs to another item now), or when it has none and <paramref name="create"/> is false.</summary>
     /// <exception cref="ArgumentException">A none ref, a ref without a stamp, an item the key does not allow.</exception>
-    internal LiveItem? Lookup(ItemInstanceRef item, InstanceKeyInfo info, bool create)
+    internal LiveItem? Lookup(ItemInstanceRef item, InstanceKeyInfo? info, bool create)
     {
         if (item.IsNone) throw new ArgumentException("no item (ItemInstanceRef.None)", nameof(item));
         if (!item.Entity.HasSerial)
@@ -469,9 +485,9 @@ internal sealed class InstanceStore
         return live;
     }
 
-    private static void CheckAllowed(InstanceKeyInfo info, ItemId actual, ItemInstanceRef item)
+    private static void CheckAllowed(InstanceKeyInfo? info, ItemId actual, ItemInstanceRef item)
     {
-        if (info.Items is { } allowed && !allowed.Contains(actual))
+        if (info?.Items is { } allowed && !allowed.Contains(actual))
             throw new ArgumentException($"instance key '{info.Name}' of {info.ModId} is only for {allowed.Count} item type(s); {item} is {actual}", nameof(item));
     }
 
@@ -515,6 +531,81 @@ internal sealed class InstanceStore
         foreach (var p in _pending)
             if (p.Item.Values.ByMod.TryGetValue(info.ModId, out var keys) && keys.TryGetValue(info.Name, out var s))
                 yield return (null, null, p.Item, s);
+    }
+
+    // ------------------------------------------------------------------------- claim and discard (dev.27) ----
+
+    /// <summary>The saved record with this id, in its holder; null when no holder has it now.</summary>
+    internal (HolderEntry Holder, SavedRecord Record)? FindRecord(string id)
+    {
+        foreach (var h in _holders)
+            foreach (var r in h.Records)
+                if (string.Equals(r.Id, id, StringComparison.OrdinalIgnoreCase)) return (h, r);
+        return null;
+    }
+
+    /// <summary>Whether the record still waits in its holder with values of <paramref name="mod"/> (null: any mod).</summary>
+    internal bool IsParked(HolderEntry h, SavedRecord r, string? mod) =>
+        _holders.Contains(h) && h.Records.Contains(r) && (mod is null ? !r.Values.IsEmpty : r.Values.ByMod.TryGetValue(mod, out var k) && k.Count > 0);
+
+    /// <summary>Moves the values of <paramref name="mod"/> (null: every mod) from a parked record onto an item. Nothing moves
+    /// when the item already has a value of one of those keys. The record goes once it holds nothing.</summary>
+    /// <exception cref="ArgumentException">The record is not parked any more, or the item is none, stamp-less, stale or of a
+    /// type <paramref name="info"/> does not allow.</exception>
+    internal InstanceClaimResult ClaimRecord(HolderEntry h, SavedRecord r, string? mod, ItemInstanceRef item, InstanceKeyInfo? info, string by)
+    {
+        if (!IsParked(h, r, mod)) throw new ArgumentException($"record {r.Id} is no longer parked", nameof(item));
+        var existed = item.IsNone ? null : LiveOf(item);
+        var live = Lookup(item, info, create: true)
+                   ?? throw new ArgumentException($"{item} is stale: the item is gone, or its id belongs to another item now", nameof(item));
+        var parts = r.Values.ByMod.Where(kv => kv.Value.Count > 0 && (mod is null || kv.Key == mod)).ToList();
+        var taken = new List<string>();
+        foreach (var (m, keys) in parts)
+            if (live.Values.ByMod.TryGetValue(m, out var have))
+                taken.AddRange(keys.Keys.Where(have.ContainsKey).Select(k => mod is null ? $"{m}:{k}" : k));
+        var names = parts.SelectMany(kv => kv.Value.Keys.Select(k => mod is null ? $"{kv.Key}:{k}" : k)).ToList();
+        if (taken.Count > 0)
+        {
+            if (existed is null && live.Values.IsEmpty)
+            {
+                _live.Remove(live.Ref.Entity.Id.Value);  // made for this claim only
+                Unfollow(live);
+            }
+            return new InstanceClaimResult(live.Ref, r.Id, mod ?? "", taken, false,
+                $"the item already has {string.Join(", ", taken)}: remove {(taken.Count == 1 ? "it" : "them")} first");
+        }
+        foreach (var (m, keys) in parts)
+        {
+            if (!live.Values.ByMod.TryGetValue(m, out var mine))
+                live.Values.ByMod[m] = mine = new SortedDictionary<string, InstanceSlot>(StringComparer.Ordinal);
+            foreach (var (k, slot) in keys) mine[k] = slot;
+            r.Values.ByMod.Remove(m);
+        }
+        if (r.Values.IsEmpty) h.Records.Remove(r);
+        var detail = $"claimed by {by}: record {r.Id} of {h.Describe} slot {r.Slot} ({(r.Aside ? "set aside" : "waiting")})";
+        SavesRuntime.Log(LogLevel.Info, $"Kiln.Saves: instance data {string.Join(", ", names)} {detail} onto {live.Ref}");
+        if (Events.HasSubscribers<InstanceDataRestoredEvent>())
+            foreach (var (m, keys) in parts)
+                foreach (var k in keys.Keys)
+                    Post(new InstanceDataRestoredEvent(live.Ref, m, k, InstanceMatch.Claimed, detail));
+        return new InstanceClaimResult(live.Ref, r.Id, mod ?? "", names, true, null);
+    }
+
+    /// <summary>Drops the values of <paramref name="mod"/> (null: every mod) from a parked record; the record goes once it
+    /// holds nothing. What was dropped, per mod; empty when the record is not parked (any more).</summary>
+    internal IReadOnlyList<(string Mod, IReadOnlyList<string> Keys)> DiscardRecord(HolderEntry h, SavedRecord r, string? mod, string by)
+    {
+        if (!IsParked(h, r, mod)) return [];
+        var gone = new InstanceValues();
+        foreach (var (m, keys) in r.Values.ByMod.Where(kv => kv.Value.Count > 0 && (mod is null || kv.Key == mod)).ToList())
+        {
+            gone.ByMod[m] = keys;
+            r.Values.ByMod.Remove(m);
+        }
+        if (r.Values.IsEmpty) h.Records.Remove(r);
+        Lost(gone, r.Fields.Item, ItemInstanceRef.None, InstanceLossReason.Discarded,
+            $"discarded by {by}: record {r.Id} of {h.Describe} slot {r.Slot} ({(r.Aside ? "set aside" : "waiting")})");
+        return gone.Parts.ToList();
     }
 
     private static string NewRecordId() => Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(8));
@@ -622,6 +713,64 @@ internal sealed class InstanceStore
         Lost(live.Values, live.Fields.Item, live.Ref, InstanceLossReason.Destroyed, $"the item is gone (last in {live.Holder.Name ?? live.Place.Holder.ToString()} slot {live.Place.FlatSlot})");
     }
 
+    // ----------------------------------------------------------------------------------------- the passes ----
+
+    // The store's own work runs in passes: a tick's bookkeeping, a match of one holder's records, the staging of a save.
+    // A pass keeps lists of its own while it runs (the outcomes of a match, the items of a save), and its events used to
+    // go out in the middle of it. A handler may claim or discard a parked record (InstanceData.Claim, Discard): that
+    // changed records the pass was still going to act on (a claim was overwritten by the attach planned before it; a
+    // record claimed during staging was in neither half of the save), and broke loops over the records. So the events of
+    // a pass wait until the outermost pass is finished, and then go out in order: a handler finds the store as the pass
+    // left it. What it changes then belongs to the next pass (for a save: the next save).
+    private int _passes;
+    private bool _draining;
+    private readonly Queue<Action> _afterPass = new();
+    private int _cleared;  // counts Clear(): a handler that closed the world emptied the queue under the loop below
+
+    private void BeginPass() => _passes++;
+
+    private void EndPass()
+    {
+        if (--_passes > 0 || _draining) return;
+        Drain();
+    }
+
+    // One queue, delivered in order by one loop. A handler may start a pass of its own (touching an item matches its
+    // holder) or claim and discard: those events join the end of the queue and go out when the ones already waiting
+    // have, from this loop, never from inside the handler. (Delivered from inside, they overtook the ones waiting, and a
+    // chain of them ran into the event bus's nesting limit.)
+    private void Drain()
+    {
+        _draining = true;
+        try
+        {
+            while (_afterPass.TryPeek(out var post))
+            {
+                var cleared = _cleared;
+                post();
+                if (cleared == _cleared) _afterPass.Dequeue();  // else the queue is another one by now
+            }
+        }
+        catch (Exception e)
+        {
+            // The bus isolates handlers, so this is the bus itself refusing (nested too deep in a caller's own event).
+            // The event stays first in line for the next pass's end; nothing behind it is lost.
+            SavesRuntime.Log(LogLevel.Warn, $"Kiln.Saves: {_afterPass.Count} item data event(s) wait for the next step: {e.Message}");
+        }
+        finally
+        {
+            _draining = false;
+        }
+    }
+
+    // Always through the queue: an event posted outside a pass (a discard) must not overtake ones that still wait
+    // because the bus refused them at the end of an earlier pass.
+    private void Post<T>(T ev) where T : KilnEvent
+    {
+        _afterPass.Enqueue(() => Events.Post(ev));
+        if (_passes == 0 && !_draining) Drain();
+    }
+
     // ------------------------------------------------------------------------------------------- the tick ----
 
     /// <summary>A world load: holders are looked for from now on (world holders for <see cref="MatchWindowSteps"/>).</summary>
@@ -637,6 +786,19 @@ internal sealed class InstanceStore
     /// <summary>Tick thread, about once a second: players who left or joined, world holders that streamed in, the end of
     /// the match window.</summary>
     public void Tick()
+    {
+        BeginPass();
+        try
+        {
+            TickPass();
+        }
+        finally
+        {
+            EndPass();
+        }
+    }
+
+    private void TickPass()
     {
         if (_world is not { } w) return;
         try
@@ -911,6 +1073,19 @@ internal sealed class InstanceStore
     /// <summary>Runs the matcher over a holder that was just found and acts on its decisions.</summary>
     private bool RunMatch(IInstanceWorld w, HolderEntry h, IReadOnlyList<InstanceItem> items)
     {
+        BeginPass();
+        try
+        {
+            return RunMatchPass(w, h, items);
+        }
+        finally
+        {
+            EndPass();
+        }
+    }
+
+    private bool RunMatchPass(IInstanceWorld w, HolderEntry h, IReadOnlyList<InstanceItem> items)
+    {
         h.Matched = true;
         var recs = h.Records.ToArray();
         var input = recs.Select(r => new MatchRecord(r.Slot, r.Fields.Stable, r.Seen, r.Aside, r.OnlyTrusted, r.Alt.Count > 0 ? r.Alt : null)).ToArray();
@@ -1003,14 +1178,14 @@ internal sealed class InstanceStore
         if (!Events.HasSubscribers<InstanceDataRestoredEvent>()) return;
         foreach (var (mod, keys) in live.Values.Parts)
             foreach (var k in keys)
-                Events.Post(new InstanceDataRestoredEvent(item.Ref, mod, k, match, reason));
+                Post(new InstanceDataRestoredEvent(item.Ref, mod, k, match, reason));
     }
 
     private void Parked(HolderEntry h, SavedRecord r, InstanceParkReason reason)
     {
         if (!Events.HasSubscribers<InstanceDataParkedEvent>()) return;
         foreach (var (mod, keys) in r.Values.Parts)
-            Events.Post(new InstanceDataParkedEvent(h.Describe, h.Key.Kind == HolderKind.Player ? h.Key.Character : default, r.Slot, r.Fields.Item, mod, keys, reason, r.Reason));
+            Post(new InstanceDataParkedEvent(h.Describe, h.Key.Kind == HolderKind.Player ? h.Key.Character : default, r.Slot, r.Fields.Item, mod, keys, reason, r.Reason));
     }
 
     private void Lost(InstanceValues values, ItemId item, ItemInstanceRef last, InstanceLossReason reason, string detail)
@@ -1019,7 +1194,7 @@ internal sealed class InstanceStore
             $"Kiln.Saves: instance data of {item} ({string.Join(", ", values.Parts.Select(p => p.Mod))}) {reason}: {detail}");
         if (!Events.HasSubscribers<InstanceDataLostEvent>()) return;
         foreach (var (mod, keys) in values.Parts)
-            Events.Post(new InstanceDataLostEvent(item, last, mod, keys, reason, detail));
+            Post(new InstanceDataLostEvent(item, last, mod, keys, reason, detail));
     }
 
     private void Note(string id, LogLevel level, string text)
@@ -1185,6 +1360,7 @@ internal sealed class InstanceStore
     {
         // Item reads can synchronously announce moves back to this store. Share the same identity cache with them.
         _stagingHolders = new();
+        BeginPass();
         try
         {
             return StageSnapshot(gen, json, settled);
@@ -1192,6 +1368,7 @@ internal sealed class InstanceStore
         finally
         {
             _stagingHolders = null;
+            EndPass();  // what staging found out (an item gone) is told now, with the save's bytes already made
         }
     }
 
@@ -1566,7 +1743,7 @@ internal sealed class InstanceStore
                 var keys = r.Values.ByMod[mod];
                 r.Values.ByMod.Remove(mod);
                 if (Events.HasSubscribers<InstanceDataLostEvent>())
-                    Events.Post(new InstanceDataLostEvent(r.Fields.Item, ItemInstanceRef.None, mod, keys.Keys.ToList(), InstanceLossReason.Capped,
+                    Post(new InstanceDataLostEvent(r.Fields.Item, ItemInstanceRef.None, mod, keys.Keys.ToList(), InstanceLossReason.Capped,
                         $"{h.Describe} has more than {MaxRecordsPerHolderPerMod} records of {mod}: the oldest waiting or set-aside ones go"));
                 if (r.Values.IsEmpty) h.Records.Remove(r);
             }
@@ -1608,7 +1785,7 @@ internal sealed class InstanceStore
                 {
                     if (!r.Values.ByMod.TryGetValue(mod, out var keys) || keys.Count == 0) continue;
                     if (!Wanted(h.Key, h.Bound, EntityId.None)) continue;
-                    section.Add($"  {(r.Aside ? "set aside" : "waiting  ")} {h.Describe}{(h.IsBound ? $" (entity {h.Bound})" : "")} slot {r.Slot} item {r.Fields.Item}: " +
+                    section.Add($"  {(r.Aside ? "set aside" : "waiting  ")} record {r.Id} {h.Describe}{(h.IsBound ? $" (entity {h.Bound})" : "")} slot {r.Slot} item {r.Fields.Item}: " +
                                 $"{(r.Reason.Length > 0 ? r.Reason : "not matched yet")}" +
                                 $"{(h.Missed > 0 ? $"; holder missed {h.Missed} session(s)" : "")}{(r.Missed > 0 ? $"; missed {r.Missed} session(s)" : "")} [{string.Join(", ", keys.Keys)}]");
                 }

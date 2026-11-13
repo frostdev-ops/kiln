@@ -1,0 +1,9 @@
+{
+  "id": "event-filter-test",
+  "name": "Event filter lab test",
+  "version": "0.1.0",
+  "apiVersion": "0.2",
+  "entryAssembly": "EventFilterTest.dll",
+  "side": "server",
+  "advanced": true
+}

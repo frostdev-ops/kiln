@@ -96,7 +96,11 @@ internal static unsafe class HooksNative
     public static Table* Require(string api)
     {
         var t = T;
-        if (t == null) throw new NotSupportedException($"{api}: kiln.hooks is unavailable on this build");
+        if (t == null)
+        {
+            HooksCaps.Rows.Ensure();
+            throw ServiceCaps.Unavailable(HooksCaps.Service, $"{api}: kiln.hooks is unavailable on this build");
+        }
         return t;
     }
 

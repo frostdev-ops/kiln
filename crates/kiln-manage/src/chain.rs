@@ -119,6 +119,23 @@ pub(crate) fn lines(text: &str) -> Vec<IniLine<'_>> {
     out
 }
 
+/// The value of a text line of the game's shared `dinput8-chain.ini` as the proxy reads it (dinput8.cpp
+/// `shared_chain_value`, EMF's shared spec `docs/modding/dinput8-chain.md`): a comment after a space or tab (" ;" "\t;"
+/// " #" "\t#") is cut, then "key = value" counts by its value, then double quotes around the name are dropped. Kiln's
+/// own INI files (`kiln/chain.ini`, `chain/once.ini`) keep the stricter rules of `dll_sections`.
+pub(crate) fn shared_chain_value(line: &str) -> &str {
+    let b = line.as_bytes();
+    let cut = (0..b.len().saturating_sub(1))
+        .find(|&i| matches!(b[i], b' ' | b'\t') && matches!(b[i + 1], b';' | b'#'))
+        .unwrap_or(b.len());
+    let line = &line[..cut];
+    let value = line.split_once('=').map_or(line, |(_, v)| v).trim_matches([' ', '\t']);
+    match value.strip_prefix('"').and_then(|v| v.strip_suffix('"')) {
+        Some(inner) => inner,
+        None => value,
+    }
+}
+
 /// '/' read as '\'. Absolute: a drive letter + '\' (Z:\, C:\) or UNC (\\server\...); anything else is relative to
 /// `<game>/kiln/`.
 pub fn game_path(p: &str) -> (String, bool) {
@@ -723,6 +740,26 @@ pub fn write_once(game_dir: &Path, plan: &ProfilePlan) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn shared_chain_values_follow_the_proxy() {
+        // the same lines as native/proxy/tests/chain_test.cpp
+        for (line, want) in [
+            ("\"quoted.dll\"", "quoted.dll"),
+            ("named.dll ; a comment", "named.dll"),
+            ("tabbed.dll\t# a comment", "tabbed.dll"),
+            ("key = \"keyed.dll\" ; a comment", "keyed.dll"),
+            ("plain.dll", "plain.dll"),
+            ("\"mods\\with space\\x.dll\"", "mods\\with space\\x.dll"),
+            ("odd #1.dll", "odd"),
+            ("x.dll;c", "x.dll;c"),
+            ("\"\"", ""),
+            ("\"", "\""),
+            ("key =", ""),
+        ] {
+            assert_eq!(shared_chain_value(line), want, "{line:?}");
+        }
+    }
 
     #[test]
     fn rewrites_keep_the_other_section() {

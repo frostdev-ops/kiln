@@ -1,1 +1,55 @@
 #nullable enable
+Kiln.InstanceClaimResult
+Kiln.InstanceClaimResult.<Clone>$() -> Kiln.InstanceClaimResult!
+Kiln.InstanceClaimResult.Equals(Kiln.InstanceClaimResult? other) -> bool
+Kiln.InstanceClaimResult.Item.get -> Kiln.ItemInstanceRef
+Kiln.InstanceClaimResult.Keys.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Kiln.InstanceClaimResult.Mod.get -> string!
+Kiln.InstanceClaimResult.Ok.get -> bool
+Kiln.InstanceClaimResult.Reason.get -> string?
+Kiln.InstanceClaimResult.RecordId.get -> string!
+Kiln.InstanceLossReason.Discarded = 4 -> Kiln.InstanceLossReason
+Kiln.InstanceMatch.Claimed = 2 -> Kiln.InstanceMatch
+Kiln.ParkedInstance<T>.RecordId.get -> string!
+override Kiln.InstanceClaimResult.Equals(object? obj) -> bool
+override Kiln.InstanceClaimResult.GetHashCode() -> int
+override Kiln.InstanceClaimResult.ToString() -> string!
+static Kiln.InstanceClaimResult.operator !=(Kiln.InstanceClaimResult? left, Kiln.InstanceClaimResult? right) -> bool
+static Kiln.InstanceClaimResult.operator ==(Kiln.InstanceClaimResult? left, Kiln.InstanceClaimResult? right) -> bool
+static Kiln.InstanceData.Claim<T>(Kiln.ParkedInstance<T!>! parked, Kiln.ItemInstanceRef item) -> Kiln.InstanceClaimResult!
+static Kiln.InstanceData.Discard<T>(Kiln.ParkedInstance<T!>! parked) -> bool
+Kiln.InstanceDataSyncedEvent
+Kiln.InstanceDataSyncedEvent.Change.get -> Kiln.InstanceSyncChange
+Kiln.InstanceDataSyncedEvent.Item.get -> Kiln.SyncedItem!
+Kiln.InstanceDataSyncedEvent.Key.get -> string!
+Kiln.InstanceDataSyncedEvent.Mod.get -> string!
+Kiln.InstanceKey<T>.Sync.get -> Kiln.InstanceSync
+Kiln.InstanceKeyOptions.NearbyRadius.get -> double
+Kiln.InstanceKeyOptions.NearbyRadius.init -> void
+Kiln.InstanceKeyOptions.Sync.get -> Kiln.InstanceSync
+Kiln.InstanceKeyOptions.Sync.init -> void
+Kiln.InstanceSync
+Kiln.InstanceSync.Holder = 1 -> Kiln.InstanceSync
+Kiln.InstanceSync.Nearby = 2 -> Kiln.InstanceSync
+Kiln.InstanceSync.None = 0 -> Kiln.InstanceSync
+Kiln.InstanceSyncChange
+Kiln.InstanceSyncChange.Gone = 3 -> Kiln.InstanceSyncChange
+Kiln.InstanceSyncChange.Moved = 2 -> Kiln.InstanceSyncChange
+Kiln.InstanceSyncChange.Removed = 1 -> Kiln.InstanceSyncChange
+Kiln.InstanceSyncChange.Set = 0 -> Kiln.InstanceSyncChange
+Kiln.SyncedItem
+Kiln.SyncedItem.Entity.get -> Kiln.EntityId
+Kiln.SyncedItem.FlatSlot.get -> int
+Kiln.SyncedItem.Has<T>(Kiln.InstanceKey<T!>! key) -> bool
+Kiln.SyncedItem.Holder.get -> Kiln.EntityId
+Kiln.SyncedItem.Item.get -> Kiln.ItemId
+Kiln.SyncedItem.Json(string! mod, string! key) -> string?
+Kiln.SyncedItem.Keys.get -> System.Collections.Generic.IReadOnlyList<(string! Mod, string! Key)>!
+Kiln.SyncedItem.Own.get -> bool
+Kiln.SyncedItem.TryGet<T>(Kiln.InstanceKey<T!>! key, out T? value) -> bool
+override Kiln.InstanceDataSyncedEvent.ToString() -> string!
+override Kiln.SyncedItem.ToString() -> string!
+static Kiln.InstanceData.Synced() -> System.Collections.Generic.IReadOnlyList<Kiln.SyncedItem!>!
+static Kiln.InstanceData.Synced(Kiln.EntityId item) -> Kiln.SyncedItem?
+static Kiln.InstanceData.Synced<T>(Kiln.EntityId item, Kiln.InstanceKey<T!>! key) -> T?
+Kiln.SaveResult.Ok.get -> bool

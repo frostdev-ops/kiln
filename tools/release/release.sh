@@ -217,6 +217,33 @@ export CARGO_ENCODED_RUSTFLAGS="--remap-path-prefix=$work=/build/work"$'\x1f'"--
 # Launcher build.rs rejects official builds without valid values; approval/live-provider proof remains manual.
 export KILN_NEXUS_ENABLED KILN_NEXUS_OAUTH_CLIENT_ID KILN_NEXUS_OAUTH_REDIRECT_URI
 export ContinuousIntegrationBuild=true DOTNET_CLI_TELEMETRY_OPTOUT=1 DOTNET_NOLOGO=1 NO_STRIP=${NO_STRIP:-true}
+# Rust: one toolchain for everything this machine builds (the Windows cross-builds; with --host-build the Linux files
+# too): the version the Linux build image has (linux-build/Dockerfile, RUST_VERSION). rustup's `stable` can move while
+# a release builds: 0.2.0-dev.26's first build stopped with "not applicable to the 'stable' toolchain" when it did. A
+# version number cannot move. KILN_RELEASE_RUST names another version for a trial build.
+pin_rust() {
+  local target=$1 want
+  want=${KILN_RELEASE_RUST:-$(sed -n 's/^ARG RUST_VERSION=//p' "$here/linux-build/Dockerfile")}
+  [[ $want =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] \
+    || die "no Rust version to build with: '$want' (ARG RUST_VERSION in tools/release/linux-build/Dockerfile, or KILN_RELEASE_RUST)"
+  if command -v rustup >/dev/null 2>&1; then
+    rustup run "$want" rustc --version >/dev/null 2>&1 \
+      || die "Rust $want is not installed here: rustup toolchain install $want --profile minimal --target $target"
+    rustup target list --toolchain "$want" --installed 2>/dev/null | grep -qx "$target" \
+      || die "Rust $want has no $target target here: rustup target add --toolchain $want $target"
+    export RUSTUP_TOOLCHAIN=$want
+  else
+    [[ $(rustc --version 2>/dev/null) == "rustc $want "* ]] \
+      || die "rustc here is '$(rustc --version 2>&1 | head -1)', but the release builds with Rust $want (install rustup, or that version)"
+    # Without rustup nothing lists the installed targets: ask rustc where that target's library would be, and look.
+    local lib
+    lib=$(rustc --print target-libdir --target "$target" 2>/dev/null) || lib=
+    [[ -n $lib ]] && compgen -G "$lib/libstd-*.rlib" >/dev/null \
+      || die "rustc $want here has no $target library (looked in '${lib:-nowhere: rustc does not know the target}'): install that target for it, or use rustup (rustup toolchain install $want --profile minimal --target $target)"
+  fi
+  note "Rust $want for the files built on this machine (the Linux build image has the same)"
+}
+pin_rust x86_64-pc-windows-msvc
 cache=${KILN_RELEASE_CACHE:-$HOME/.cache/kiln-release}
 mkdir -p "$cache"
 # pinned downloads (each script checks its hash): .NET for the runtime, netcoredbg for the vsix; reused when cached
@@ -226,6 +253,9 @@ seed() { # name, destination, candidates...
   if [[ -f $cache/$name ]]; then mkdir -p "$(dirname "$dest")" && cp "$cache/$name" "$dest"; fi
 }
 seed dotnet-runtime-win-x64.zip "$src/.cache/dotnet-win-x64/runtime.zip" "$repo/.cache/dotnet-win-x64/runtime.zip"
+# the Python the Windows launcher ships for the cook tools (tools/package/fetch-python.sh checks its sha256)
+pyv=$(sed -n 's/^VERSION=\(.*\)$/\1/p' "$src/tools/package/fetch-python.sh")
+seed "python-$pyv-embed-amd64.zip" "$src/.cache/python-win-x64/python.zip" "$repo/.cache/python-win-x64/python.zip"
 nc=$(sed -n 's/^const VERSION = "\(.*\)";/\1/p' "$src/tools/vscode/scripts/fetch-netcoredbg.mjs")
 seed "netcoredbg-$nc-win64.zip" "$KILN_OUT/vscode/netcoredbg/$nc/netcoredbg-win64.zip" "$repo"/.out/*/netcoredbg/"$nc"/netcoredbg-win64.zip
 signing=0
@@ -252,7 +282,7 @@ else
       --mount "$src" --mount "$work" --ro "$here" \
       --env KILN_GIT --env SOURCE_DATE_EPOCH --env KILN_OUT --env CARGO_TARGET_DIR --env KILN_SDK_VERSION --env CARGO_ENCODED_RUSTFLAGS \
       --env KILN_NEXUS_ENABLED --env KILN_NEXUS_OAUTH_CLIENT_ID --env KILN_NEXUS_OAUTH_REDIRECT_URI \
-      --env KILN_RELEASE_BUILD --env ContinuousIntegrationBuild --env NO_STRIP -- "$@"
+      --env KILN_RELEASE_BUILD --env KILN_COOK_HELPERS --env ContinuousIntegrationBuild --env NO_STRIP -- "$@"
   }
   step "Linux build image (Ubuntu 22.04, glibc $glibc_max)"
   image=$("$here/linux-build/image.sh" 2>>"$log") || { tail -40 "$log" >&2; die "the Linux build image did not build"; }
@@ -265,6 +295,19 @@ fi
 step "dependencies (bun, npm)"
 (cd "$src/launcher" && quiet low bun install --frozen-lockfile)
 (cd "$src/tools/vscode" && quiet low npm ci --no-audit --no-fund)
+# The cook tools ship inside kiln and the launcher (kiln_manage::cooktools: crates/kiln-manage/build.rs embeds them,
+# and soundcook's native helper for the target, from KILN_COOK_HELPERS; a release build stops without it). The Linux
+# helper is built where the other Linux files are (their glibc), the Windows one with clang-cl and xwin like the
+# native services. The Python the Windows launcher brings is fetched and verified here, before anything is built on it.
+step "the cook tools' helper (Linux, Windows) and the pinned Python"
+export KILN_COOK_HELPERS=$work/cook-helpers
+rm -rf "$KILN_COOK_HELPERS" && mkdir -p "$KILN_COOK_HELPERS"
+(cd "$src" && quiet linux bash tools/soundcook/native/build.sh)
+cp "$KILN_OUT/soundcook/bin/kiln-soundcook" "$KILN_COOK_HELPERS/kiln-soundcook"
+(cd "$src" && quiet low bash tools/soundcook/native/build.sh --windows)
+cp "$KILN_OUT/soundcook/win/bin/kiln-soundcook.exe" "$KILN_COOK_HELPERS/kiln-soundcook.exe"
+sign_pe "$KILN_COOK_HELPERS/kiln-soundcook.exe"
+if ((!skip_windows)); then quiet "$src/tools/package/fetch-python.sh"; fi
 step "kilnctl and kiln (Linux, Windows)"
 (cd "$src" && quiet linux cargo build --release --locked -p kilnctl -p kiln-cli)
 win=x86_64-pc-windows-msvc
@@ -305,6 +348,8 @@ ew_status=$(git -C "$ew_src" -c core.fsmonitor=false status --porcelain --untrac
   || die "cannot verify Enshwick's source for notices: $ew_src"
 [[ -z $ew_status ]] || die "Enshwick's source changed since the loader build: $ew_src"
 nuget_args+=(--enshwick-src "$ew_src")
+# the Windows launcher's Python, when this release builds the Windows files
+if ((!skip_windows)); then nuget_args+=(--python-root "$src/.cache/python-win-x64/root"); fi
 python3 "$lib/notices.py" --src "$src" --out "$notices" --version "$version" --dotnet-root "$src/.cache/dotnet-win-x64/root" \
   "${nuget_args[@]}" | tee -a "$log"
 if [[ -f $stage/eml/kiln/plugins/kiln-eml.dll ]]; then

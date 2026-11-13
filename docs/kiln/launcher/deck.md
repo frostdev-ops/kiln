@@ -98,16 +98,42 @@ an in-progress Hold action. A disabled focused control returns focus to the curr
 ## Screens
 | Screen | What | Buttons |
 |---|---|---|
-| Home | the game's name, how many mods are on over every kind ("12 mods on, 15 off"; a profile other than "My mods" is named after it), the Play arch, Kiln's state (Kiln version, "not installed", "update ready", "Game not found"), the last boot in one line ("Booted, no errors", "Booted, 1 failed", "Booted, 2 errors", safe idle, no mods) | A on the arch: Play / Install / Find game; Install Kiln, Update Kiln, Pick folder, One Steam setting (to Help) as the state needs; X play once (without mods, vanilla) |
+| Home | the game's name, how many mods are on over every kind ("12 mods on, 15 off"; a profile other than "My mods" is named after it), the Play arch, Kiln's state (Kiln version, "not installed", "update ready", "Game not found"), the last boot in one line ("Booted, no errors", "Booted, 1 failed", "Booted, 2 errors", safe idle, no mods); "ShroudForge: mods did not load" when ShroudForge's startup pass failed at the last start (`engine_status` `startupFailed`) | A on the arch: Play / Install / Find game; Install Kiln, Update Kiln, Pick folder, One Steam setting (to Help) as the state needs; "ShroudForge: why, and what to do" opens the whole text (what happened, the mods left out, what to change) in a dialog the right stick scrolls; X play once (without mods, vanilla) |
 | Mods | every mod of every kind (the desktop's list, `shell/mods.ts`): the Library's, the loaded profile's, and the mods found in the game folder ("Game folder" with their state); a flame per mod, the count over every kind | A on/off (a mod the profile lacks goes in, on); on a game-folder mod A does its fix (load that kind's game-folder mods, or add it); X remove (confirm; out of the list, its files out of the Library). No profile picker: profiles are in Settings |
 | Add mods | the mods the library recognises in Downloads (`deck_browse`: `library_detect` on zips, 7z and rar files, DLLs and mod folders), newest first, "On" when it is on already; other folders and Places (Downloads, Home, Desktop, SD card, USB drives) | A on a mod: `library_add` (import, switch it on in the loaded profile or "My mods", write profile.json); A on a modpack zip: its consent dialog, then `modpack_install`; A on a folder opens it; X up; Y places; B back up |
 | Catalog (enabled builds only) | Enshrouded's mods on Nexus Mods ([catalog.md](catalog.md)), Kiln mods first: a row per mod with its author, version, endorsements and state (Installed, Update, EMF/native/DLL); more rows with More. A mod's page: summary, what it needs, Installed or Update ready | A on a mod: its page; there A on Add (premium: downloads, adds to the active profile) or Update, or Open on Nexus Mods (free accounts download on the site); X what is shown (Kiln mods, All Enshrouded, Installed); Y the order (most endorsed, recently updated, name). After an add: OK, Undo, Get <mod it needs>. A Mod Manager Download link shows the same dialog on any screen. Account sign-in uses OAuth in desktop Settings; this tab is hidden in dev.20 |
 | Kiln | the runtime in the game: version, when, files, runs on | Install, Update to the newest bundle, Hold to uninstall (1.2 s, the Deck's stand-in for the typed word); the running step and the outcome |
+| Editor | the save editor ([its own section](#the-save-editor)): the newest character opens; Equipment, Backpack, Skills, Knowledge; Characters, Backups, Discard, Save at the top | A the focused control; X Save; Y the part's own (Move, −1 level); L2 / R2 the previous / next part; B back out of the inspector or a move, else Home |
 | Help | the Steam launch option for Valve's Proton (state: needed, set, not needed), how to add the launcher to Steam, the controls | D-pad walks the blocks, right stick scrolls |
 | Settings | Desktop UI (now), Start in (Auto / Deck mode / Desktop), Button glyphs, Fullscreen (Desktop Mode only), Launcher updates (check, install, restart; the Nexus Mods build instead: New versions, Nexus Mods, A opens the Kiln page there, no update check), Profile (the loaded one; A opens the list: load one, or No profile), Notes about mod folders (On/Off, the desktop's "Show notes about mod folders"), Mod notes (how many the last activation said; A opens them: [app.md](app.md) "Notices about mod folders"), Data folder (its path and size; A browses to a folder with `deck_browse`, "Use this folder", then the move or "use this one" in the Deck's dialogs, as on the desktop, [app.md](app.md) "The data folder"), Quit; the last line shows the version, what the detection saw and the controller | A |
 
 Text input is avoided everywhere. Where Steam needs typing (launch options), Help says Steam + X opens the keyboard.
-Notices are a short title and buttons.
+Notices are a short title and buttons. An error is a line at the top that goes after six seconds, with up to four lines of its text. One that needs more (a backend error that names several paths) opens as a dialog instead since dev.27: all its text, scrolled with the right stick, closed with A on OK or B; before, it ran off the screen's lower edge. A dialog never grows past the screen: its body scrolls. The six seconds count only for an error that the bar has drawn and that fits it: one waiting behind the two the bar shows gets its turn first, and one folded into the earlier notices stays there until the player closes them.
+
+### The save editor
+`/deck/editor` (`src/editor/deck/DeckEditor.jsx`, lazy: its item data is about 2 MB). One session with the desktop page
+(`src/editor/kiln/session.js`): changes stay when you leave the tab, the Quit dialog names them, opening another
+character with changes asks first. A character without changes is read again when the game has written its save
+meanwhile (on coming back to the tab, and when the game quits); with changes, Save refuses and offers "Read again". A
+save with items no installed mod defines shows what it holds and takes no change. The desktop's own views run in a
+Deck env (`src/editor/kiln/env.jsx`), so a rule fixed in one UI is fixed in both:
+
+- **Slots**: focus picks a slot and the inspector beside it follows; A goes into the inspector (an empty slot: the
+  catalog for it); B comes back to the slot; Y picks the item up to move it, A puts it down, B cancels.
+- **Numbers** (amount, level, gem level, durability, water, XP, the point total): A on the value opens the number pad:
+  digits with the D-pad and A (the first replaces the value), X deletes, Y is OK, quick values (the game's stack, the
+  65535 a slot holds, Full). The pad also takes a keyboard's digits. − and + beside the value nudge by one (±10 for amounts).
+- **Choices** (the gem): a list, A picks. Rarity and upgrades are the inspector's diamonds.
+- **Catalog**: categories down the left, rarity and tier filters, the item grid; A picks an item and focus goes to Add
+  (the amount is one up). The search field takes Steam's keyboard (Steam + X), as Help says for Steam's own fields;
+  nothing needs typing.
+- **Skill tree**: a transparent button over each node; the D-pad walks the nodes, the camera follows, the panel shows
+  the focused node; A +1 level, Y −1.
+- **Knowledge**: A ticks a row; Remove at the top right. Its search field takes Steam's keyboard; "Above level" is
+  set on the number pad.
+- **Backups**: the save's backups, newest first; A asks, then restores (the save before it is kept as a backup).
+- The Deck makes the editor's game art from the installed game when the tab opens (`GameArtAuto only="editor"`), never
+  the admin map's.
 
 ### The Steam rule
 The launcher never writes Steam's files: no `shortcuts.vdf`, no `localconfig.vdf`, no launch options. Help gives the
@@ -138,6 +164,14 @@ steps instead:
   throttle; the folder browser on temp folders (zips, unpacked mods, a folder holding a mod, junk, Places, XDG).
 - `bun x playwright test tests/catalog.spec.ts` (Deck part): the Catalog tab with the pad, X and Y, a mod's page, Add,
   the added dialog with Undo and Get, a free account's Open on Nexus Mods, an nxm link's dialog.
+- `bun x playwright test tests/editor-deck.spec.ts` (1280×800, mock mode, the mock's synthetic saves
+  `src/api/mockEditor.ts`): the Editor tab with the pad alone: an amount on the number pad, duplicate, remove, move,
+  Save; the catalog (category, a search typed as Steam's keyboard types, pick, amount, add); equipment, a gem, durability;
+  the skill tree; knowledge and its level filter; backups and restore; leaving and coming back; Quit; another
+  character; read-only saves.
+- `bun x playwright test tests/editor.spec.ts` (the desktop page, the same mock saves): the session kept across pages,
+  another character asking first, backups and the one backup a save makes, a read-only save taking no change, a save
+  the game wrote since it was read (refused with changes here, read again without).
 - `bun run test:smoke` (`tests/deck.spec.ts`, 1280×800, mock mode): the UI choice (Game Mode env, `--deck`,
   `--desktop`, the setting), spatial focus, every screen reachable and left with B, Start menu, View, keyboard, the
   browser Gamepad API with a fake pad, touch, Play, adding from Downloads, browsing Places and folders, the modpack
@@ -173,12 +207,12 @@ steps instead:
 - No real Steam Deck has run it: the checklist below is for the first one.
 - The modpack offer after a server refused you (`kiln://last-server`) shows only in the desktop UI; a modpack zip in
   Downloads works in Deck mode.
-- Not in Deck mode: mod editing beyond on/off/remove (order, saving a profile under a new name, configs), saves and backups, logs,
-  servers and admin, rollback, "switch from ShroudForge" (typed), runtime bundle import, the save editor. Settings has
-  "Desktop UI" for those.
-- The game-art extraction (`GameArtAuto`) does not run in Deck mode (only the save editor and the admin map use it).
+- Not in Deck mode: mod editing beyond on/off/remove (order, saving a profile under a new name, configs), world saves and
+  their backups, logs, servers and admin, rollback, "switch from ShroudForge" (typed), runtime bundle import, opening a
+  save file by path in the editor. Settings has "Desktop UI" for those.
+- The game-art extraction runs in Deck mode only for the save editor, when its tab opens.
 - No on-screen keyboard of our own: no screen needs typing. The Catalog has no text search in Deck mode (X and Y
-  filter and sort). In an enabled build, Nexus account sign-in uses OAuth in desktop Settings; dev.20, dev.21 and dev.22 have neither Catalog nor account controls.
+  filter and sort); the save editor's search fields take Steam's keyboard, and its numbers have a number pad. In an enabled build, Nexus account sign-in uses OAuth in desktop Settings; dev.20, dev.21 and dev.22 have neither Catalog nor account controls.
 - Rumble, gyro and the trackpads are not used. Steam's virtual controller sends the Deck's buttons; with Steam
   Input off, the Deck's own `hid-steam` device works the same.
 - WebKitGTK inside gamescope drew fine here (below). If a Deck shows a blank window, the launcher starts again
@@ -224,4 +258,9 @@ launcher knows which UI to show, so it is the desktop's dialog on the Deck too: 
 14. After the game: Home's "Last boot" line, does it say "Booted" and whether anything failed?
 15. Settings: "Desktop UI" switches to the mouse UI; desktop Settings, "Open Deck mode" comes back.
 16. Settings, Quit: does it close cleanly back to Steam?
-17. Anything too small to read, hard to reach, or confusing?
+17. Editor (R1 to it): your newest character opens. Move over the backpack: does the panel on the right follow? A on a
+    stack, then A on its amount: does the number pad come up, and does 200 (2, 0, 0, then Y) set it? X saves: "Saved"?
+    In the game, is the stack 200? (Close the game before saving; the editor refuses while it runs.)
+18. Editor, an empty slot: A opens the catalog. Steam + X: does the keyboard type into the search? A on an item, A again:
+    is it added?
+19. Anything too small to read, hard to reach, or confusing?

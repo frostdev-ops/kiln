@@ -12,12 +12,13 @@ internal static unsafe class RulesNative
     // KilnRulesPlayer.flags
     public const uint FlyAnywhere = 0x01, BuildOutsideBases = 0x02, IgnoreNoBuildZones = 0x04, IgnoreEnemies = 0x08,
         IgnoreShroud = 0x10, IgnoreBasePermissions = 0x20, ShroudFreeze = 0x40, GlideUnlimited = 0x80, GlideBoost = 0x100,
-        FreeCrafting = 0x200, KeepConsumables = 0x400, CharacterFlight = 0x800, FlightBaseOnly = 0x1000, GlideSteer = 0x2000;
+        FreeCrafting = 0x200, KeepConsumables = 0x400, CharacterFlight = 0x800, FlightBaseOnly = 0x1000, GlideSteer = 0x2000,
+        NoClip = 0x4000;  // since 0.2.0-dev.27
 
     // KilnRulesStatus.hooks
     public const uint HookFly = 0x01, HookCursor = 0x02, HookCosts = 0x04, HookDig = 0x08, HookZone = 0x10, HookShroud = 0x20,
         HookGlide = 0x40, HookMap = 0x80, HookCraft = 0x100, HookCraftUi = 0x200, HookConsume = 0x400, HookConsumeBuff = 0x800, HookFlight = 0x1000,
-        HookGlideSteer = 0x2000;
+        HookGlideSteer = 0x2000, HookNoClip = 0x4000;
 
     // map_reveal modes
     public const uint MapDefault = 0, MapRadius = 1, MapWhole = 2;
@@ -98,6 +99,36 @@ internal static unsafe class RulesNative
         public delegate* unmanaged[Cdecl]<Creative*, int> GetCreative;
     }
 
+    /// <summary>KilnRulesNoClip: what the NoClip hook did for one entity (since 0.2.0-dev.27).</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    public struct NoClipState
+    {
+        public uint Size;
+        public uint Active;
+        public ulong Skipped;
+        public ulong Total;
+        public ulong Faults;
+    }
+
+    /// <summary>The table with the function added in 0.2.0-dev.27 (an older kiln.rules has no such table).</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    public struct NoClipTable
+    {
+        public CreativeTable V2;
+        public delegate* unmanaged[Cdecl]<uint, NoClipState*, int> GetNoClip;
+    }
+
+    private static NoClipTable* _n;
+    public static NoClipTable* N => _n != null ? _n : (_n = Services.Get<NoClipTable>(Service, Version));
+
+    /// <summary>What the NoClip hook did for <paramref name="entity"/> (0: the totals); false without the hook.</summary>
+    public static bool NoClipOf(uint entity, out NoClipState state)
+    {
+        state = new NoClipState { Size = (uint)sizeof(NoClipState) };
+        if (N == null) return false;
+        fixed (NoClipState* p = &state) return N->GetNoClip(entity, p) == 0;
+    }
+
     private static CreativeTable* _c;
     public static CreativeTable* C => _c != null ? _c : (_c = Services.Get<CreativeTable>(Service, Version));
     public static bool HasCreative => C != null;
@@ -166,11 +197,15 @@ internal readonly record struct RulesNativePart(uint Flags, float BuildCost, flo
     private const uint FlightFlags = RulesNative.CharacterFlight | RulesNative.FlightBaseOnly;
     public RulesNativePart WithoutFlight => this with { Flags = Flags & ~FlightFlags };
 
-    /// <summary>Rules the player's game predicts (the glide, character flight): held back from a game without Kiln's rules
-    /// channel, which would fight the server every step.</summary>
-    public bool HasPredicted => HasGlide || (Flags & FlightFlags) != 0;
+    /// <summary>Without NoClip: for a game that has not confirmed its collision hook (its prediction would collide
+    /// while the server's character does not).</summary>
+    public RulesNativePart WithoutNoClip => this with { Flags = Flags & ~RulesNative.NoClip };
 
-    public RulesNativePart WithoutPredicted => WithoutGlide with { Flags = Flags & ~(GlideFlags | FlightFlags) };
+    /// <summary>Rules the player's game predicts (the glide, character flight, NoClip): held back from a game without
+    /// Kiln's rules channel, which would fight the server every step.</summary>
+    public bool HasPredicted => HasGlide || (Flags & (FlightFlags | RulesNative.NoClip)) != 0;
+
+    public RulesNativePart WithoutPredicted => WithoutGlide with { Flags = Flags & ~(GlideFlags | FlightFlags | RulesNative.NoClip) };
 
     // The generated record formatter would recursively format the computed WithoutGlide property.
     public override string ToString() =>

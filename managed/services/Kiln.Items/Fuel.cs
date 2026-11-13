@@ -28,6 +28,7 @@ public static unsafe partial class Items
         /// <summary>The water <paramref name="container"/> holds (an item entity, a barrel, a well), or null when it
         /// holds none.</summary>
         [RequiresCapability(Caps.Fuel)]
+        [TickThreadOnly]
         public static FuelLevel? Read(EntityId container)
         {
             Services.RequireTickThread("Items.Fuel.Read");
@@ -44,34 +45,40 @@ public static unsafe partial class Items
 
         /// <summary>Sets <paramref name="container"/>'s water to <paramref name="units"/> (clamped to 0..max).</summary>
         [RequiresCapability(Caps.Fuel)]
+        [TickThreadOnly]
         public static Task<FuelResult> Set(EntityId container, int units, bool dryRun = false) =>
             Submit(container, ItemsNative.FuelSet, units, ItemId.None, dryRun);
 
         /// <summary>Adds <paramref name="units"/> (negative: takes) to <paramref name="container"/>'s water.</summary>
         [RequiresCapability(Caps.Fuel)]
+        [TickThreadOnly]
         public static Task<FuelResult> Add(EntityId container, int units, bool dryRun = false) =>
             Submit(container, ItemsNative.FuelAdd, units, ItemId.None, dryRun);
 
         /// <summary>Fills <paramref name="container"/> to its max.</summary>
         [RequiresCapability(Caps.Fuel)]
+        [TickThreadOnly]
         public static Task<FuelResult> Fill(EntityId container, bool dryRun = false) =>
             Submit(container, ItemsNative.FuelFill, 0, ItemId.None, dryRun);
 
         /// <summary>Fills every water container in <paramref name="holder"/>'s inventories (a player's backpack, action
         /// bars and equipment, a chest), only those of <paramref name="item"/> when given.</summary>
         [RequiresCapability(Caps.Fuel)]
+        [TickThreadOnly]
         public static Task<FuelResult> FillAll(EntityId holder, ItemId item = default, bool dryRun = false) =>
             Submit(holder, ItemsNative.FuelFill | ItemsNative.FuelInventories, 0, item, dryRun);
 
         /// <summary>Sets every water container in <paramref name="holder"/>'s inventories to <paramref name="units"/>
         /// (each clamped to its max), only those of <paramref name="item"/> when given.</summary>
         [RequiresCapability(Caps.Fuel)]
+        [TickThreadOnly]
         public static Task<FuelResult> SetAll(EntityId holder, int units, ItemId item = default, bool dryRun = false) =>
             Submit(holder, ItemsNative.FuelSet | ItemsNative.FuelInventories, units, item, dryRun);
 
         /// <summary>Fills every water container of the given items in <paramref name="holder"/>'s inventories, one
         /// request per item (an empty list: every container). The result adds up the requests.</summary>
         [RequiresCapability(Caps.Fuel)]
+        [TickThreadOnly]
         public static Task<FuelResult> FillAll(EntityId holder, IEnumerable<ItemId> items, bool dryRun = false) =>
             FuelSequence.FillEach(holder, items.Distinct().ToList(), dryRun);
 
@@ -85,6 +92,7 @@ public static unsafe partial class Items
         /// <remarks>It does not end when the entity goes away. A player's entity id is reused by the next player who
         /// joins, so dispose it when the player leaves (Kiln.Rules' <c>Water</c> rule does that for you).</remarks>
         [RequiresCapability(Caps.Fuel)]
+        [TickThreadOnly]
         public static FuelKeep Refill(EntityId entity, FuelRefill policy, ItemId item = default, bool inventories = true)
         {
             ArgumentNullException.ThrowIfNull(policy);
@@ -114,6 +122,8 @@ public static unsafe partial class Items
                     : Failure("Items.Fuel.Refill", rc);
             }
             keep.Attach(handle, key);
+            // a tracked write of a container this refill covers is written over every step: kiln.world asks who did it
+            ComponentKeepers.Add(FuelKeepers.Keeper);
             var mod = ModContext.CurrentMod;
             keep.Origin = mod?.Info.Id ?? "kiln";
             if (mod != null)
@@ -127,6 +137,7 @@ public static unsafe partial class Items
 
         /// <summary>Keeps water containers full (<see cref="Refill"/> with <see cref="FuelRefill.Full"/>).</summary>
         [RequiresCapability(Caps.Fuel)]
+        [TickThreadOnly]
         public static FuelKeep KeepFull(EntityId entity, ItemId item = default, bool inventories = true) =>
             Refill(entity, FuelRefill.Full, item, inventories);
 
@@ -265,7 +276,9 @@ public static unsafe partial class Items
     {
         var t = V2;
         if (t == null)
-            throw new NotSupportedException(T == null ? "kiln.items is unavailable" : $"{api}: this Kiln runtime's kiln.items has no water functions (update Kiln)");
+            throw T == null
+                ? ServiceCaps.Unavailable(Caps.Service, "kiln.items is unavailable")
+                : ServiceCaps.Unavailable(Caps.Fuel, $"{api}: this Kiln runtime's kiln.items has no water functions (update Kiln)");
         return t;
     }
 }
@@ -292,9 +305,12 @@ public readonly record struct FuelChange(EntityId Container, ItemId Item, SlotId
 /// change (<see cref="Changed"/> 0); <see cref="ItemsStatus.SlotChanged"/> when the entity holds no water;
 /// <see cref="ItemsStatus.NoInventory"/> when a holder has no inventory.</summary>
 public sealed record FuelResult(ItemsStatus Status, EntityId Entity, ItemId Item, int Matched, int Changed,
-    IReadOnlyList<FuelChange> Changes, string Message, int Steps, bool DryRun)
+    IReadOnlyList<FuelChange> Changes, string Message, int Steps, bool DryRun) : IKilnResult
 {
     public bool Ok => Status == ItemsStatus.Done;
+
+    // IKilnResult's reason is null when the change was made; the record's Message says why otherwise (since 0.2.0-dev.27)
+    string? IKilnResult.Reason => Ok ? null : Message;
 
     internal static FuelResult Fail(ItemsStatus s, EntityId e, ItemId item, string why) =>
         new(s, e, item, 0, 0, Array.Empty<FuelChange>(), why, 0, false);
@@ -373,7 +389,25 @@ public sealed class FuelKeep : IDisposable
     {
         _handle = handle;
         _key = key;
+        Id = handle;
+        Session = Lifecycle.ServerSession;
     }
+
+    /// <summary>kiln.items' number for it (kiln.log's "refill N"), also after it ended.</summary>
+    internal ulong Id { get; private set; }
+
+    /// <summary>The server world it was set in (Lifecycle.ServerSession). That world's closing ends it natively
+    /// (kiln.items' drop_world) whether or not the handle is disposed: in another session it is no policy of the
+    /// running world.</summary>
+    internal long Session { get; private set; }
+
+    /// <summary>Set and not disposed, in the server world that runs now.</summary>
+    internal bool Current => Active && Session == Lifecycle.ServerSession;
+
+    /// <summary>"kiln.items' water refill 1 (keep full) of the inventories of 1, set by kiln" (WorldWriteResult.WrittenOverBy).</summary>
+    internal string Describe(string? itemName = null) =>
+        $"kiln.items' water refill {Id} ({Policy}) of {(Inventories ? $"the inventories of {Entity}" : Entity.ToString())}" +
+        (Item.IsNone ? "" : $", {itemName ?? $"item 0x{Item.Value:x8}"} only") + $", set by {Origin}";
 
     public EntityId Entity { get; }
     public ItemId Item { get; }
@@ -393,6 +427,7 @@ public sealed class FuelKeep : IDisposable
     internal void Raise(FuelChange[] changes)
     {
         if (!Active) return;
+        FuelKeepers.Note(this, changes, Lifecycle.ServerSession, ServiceTick.Step, id => Items.Get(id)?.Name);
         Interlocked.Add(ref _units, changes.Sum(c => (long)Math.Max(0, c.After - c.Before)));
         try
         {
@@ -411,8 +446,114 @@ public sealed class FuelKeep : IDisposable
         if (h == 0) return;
         Items.Fuel.End(h);
         Items.Fuel.Forget(_key);
+        FuelKeepers.Forget(Id);  // its reports name it no more, and hold nothing of it or its handlers
         Detach?.Invoke();
         Detach = null;
+    }
+}
+
+/// <summary>kiln.world's question about a tracked write of <c>Fuel</c> that did not hold (Kiln.Api's ComponentKeepers):
+/// which refill wrote over it? Answered only from what a refill reported changing: a refill writes every container it
+/// covers back to its level each step, after the game's programs (native/services/items/items.cpp, run_fuel_jobs;
+/// kiln_items is registered before kiln_world_writes, so in the step after a write the refill runs first and the check
+/// sees what it left), and reports each container it changed once per Pre (on_refill, <see cref="FuelKeep.Raise"/>). A
+/// refill is named only when its report for the container arrived in the same Pre as the write's answer (kiln-items
+/// delivers its Pre before kiln-world: the report of the step the write was checked in, never one of the step it was
+/// applied in, which came a Pre earlier), starts from exactly the units the write left, left exactly the units the
+/// container holds now (what the check found), and the refill was set in the running server world and is not disposed.
+/// Otherwise nothing is named: a refill that covers the container but did not write (one capped below the value, one of a
+/// world that closed, one whose change came before the write) never is. A report keeps the refill's number and name, not
+/// the refill: a disposed refill's reports are dropped and nothing of it or its handlers stays here. Only the policies
+/// set through <see cref="Items.Fuel.Refill"/> report here; a native plugin's fuel_keep does not.</summary>
+internal static class FuelKeepers
+{
+    internal static readonly ComponentKeepers.Keeper Keeper = Who;
+
+    /// <summary>Fuel's current units, <c>dataStorage[0]</c>, within the component (docs/re/items.md section 12).</summary>
+    internal const int UnitsOffset = 8;
+
+    /// <summary>The newest reports kept per container.</summary>
+    private const int PerContainer = 4;
+
+    /// <summary>One change a refill reported: the refill by its number, its name and the server world it was set in.</summary>
+    internal readonly record struct Report(ulong Keep, string Name, long KeepSession, int Before, int After, long Session, ulong Step);
+
+    private static readonly object Gate = new();
+    private static readonly Dictionary<EntityId, List<Report>> Last = new();
+    private static long _session = -1;
+
+    /// <summary>A refill's report (tick thread, Pre): what it changed, stamped with the server world and the service step
+    /// it arrived in.</summary>
+    internal static void Note(FuelKeep keep, IReadOnlyList<FuelChange> changes, long session, ulong step, Func<ItemId, string?>? name = null)
+    {
+        var text = keep.Describe(keep.Item.IsNone ? null : name?.Invoke(keep.Item));
+        lock (Gate)
+        {
+            if (session != _session)
+            {
+                Last.Clear();  // another server world: its entity ids are new
+                _session = session;
+            }
+            foreach (var c in changes)
+            {
+                if (c.Before == c.After) continue;
+                if (!Last.TryGetValue(c.Container, out var list)) Last[c.Container] = list = [];
+                list.Add(new Report(keep.Id, text, keep.Session, c.Before, c.After, session, step));
+                if (list.Count > PerContainer) list.RemoveAt(0);
+            }
+            // only the last two steps matter: drop the rest so the map stays as small as the refills' reach
+            if (Last.Count > 4096)
+                foreach (var stale in Last.Where(e => e.Value[^1].Step + 2 < step).Select(e => e.Key).ToList()) Last.Remove(stale);
+        }
+    }
+
+    /// <summary>A disposed refill: its reports go.</summary>
+    internal static void Forget(ulong keep)
+    {
+        lock (Gate)
+            foreach (var (container, list) in Last.ToList())
+                if (list.RemoveAll(r => r.Keep == keep) > 0 && list.Count == 0) Last.Remove(container);
+    }
+
+    /// <summary>Tests: how many reports of the refill numbered <paramref name="keep"/> are kept.</summary>
+    internal static int Reports(ulong keep)
+    {
+        lock (Gate) return Last.Values.Sum(list => list.Count(r => r.Keep == keep));
+    }
+
+    /// <summary>Tests: forget every report.</summary>
+    internal static void Reset()
+    {
+        lock (Gate)
+        {
+            Last.Clear();
+            _session = -1;
+        }
+    }
+
+    private static string? Who(EntityId entity, string component, int offset, ReadOnlyMemory<byte> written) =>
+        component == "Fuel" ? Attribute(entity, offset, written.Span, Items.Fuel.Read(entity)?.Units, Lifecycle.ServerSession, ServiceTick.Step) : null;
+
+    /// <summary>The refill that wrote over the units a tracked write left in <paramref name="container"/>, which now holds
+    /// <paramref name="now"/> units (null: not known), or null when that cannot be shown (see the class).</summary>
+    internal static string? Attribute(EntityId container, int offset, ReadOnlySpan<byte> written, int? now, long session, ulong step)
+    {
+        if (now is null || step == 0 || offset < 0 || offset > UnitsOffset || offset + written.Length < UnitsOffset + 4) return null;  // the units are not in the write
+        var units = BitConverter.ToInt32(written[(UnitsOffset - offset)..]);
+        Report[] reports;
+        lock (Gate)
+        {
+            if (session != _session || !Last.TryGetValue(container, out var list)) return null;
+            reports = [.. list];
+        }
+        for (var i = reports.Length - 1; i >= 0; i--)
+        {
+            var r = reports[i];
+            if (r.Session != session || r.KeepSession != session || r.Step != step) continue;  // not this world, or not this Pre's report
+            if (r.Before != units || r.After != now) continue;  // not from the value the write left, or not what the check found
+            return r.Name;
+        }
+        return null;
     }
 }
 

@@ -159,6 +159,19 @@
     </ItemGroup>
   </Target>
 
+  <!-- "writes" in the output's kiln.mod.json: the component types the mod's code passes to World.Write<T> and
+       World.Update<T> (Kiln.World), by their game names, so kiln.world gives its write program access to them when the
+       server starts (docs/kiln/modding/manifest.md, "writes"). Names the project's own manifest lists stay.
+       KilnWrites=false turns it off. Warning KILN030: a call whose type the build cannot resolve; error KILN031. -->
+  <UsingTask TaskName="Kiln.Sdk.KilnWrites" AssemblyFile="$(_KilnTasksDir)Kiln.Sdk.Tasks.dll" Condition="'$(KilnRepoMode)' != 'true'" />
+  <UsingTask TaskName="Kiln.Sdk.KilnWrites" AssemblyFile="$(_KilnTasksDir)Kiln.Sdk.Tasks.dll" TaskFactory="TaskHostFactory" Condition="'$(KilnRepoMode)' == 'true'" />
+  <Target Name="KilnWrites" AfterTargets="KilnManifest" Condition="'$(KilnManifest)' != 'false' and '$(KilnWrites)' != 'false'">
+    <ItemGroup>
+      <_KilnWritesGame Include="@(ReferencePath->WithMetadataValue('Filename','Kiln.Game'))" />
+    </ItemGroup>
+    <KilnWrites AssemblyPath="$(TargetPath)" GameReference="@(_KilnWritesGame->'%(FullPath)')" ManifestPath="$(OutDir)kiln.mod.json" />
+  </Target>
+
   <!-- The files of the mod folder: the output folder without what kiln/host provides or the loader ignores. -->
   <Target Name="_KilnModFiles" DependsOnTargets="KilnManifest">
     <ItemGroup>

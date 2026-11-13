@@ -31,7 +31,7 @@ public sealed class QuestsSampleMod : Mod
         });
     }
 
-    private static int LogsOf(Player? p) => p is null ? 0 : Items.Read(p.Entity)?.Count(new ItemId(Items.Lookup("Material_T1_Wood_Logs")?.Id.Value ?? 0)) ?? 0;
+    private static int LogsOf(Player? p) => p is null || !Items.Available ? 0 : Items.Read(p.Entity)?.Count(new ItemId(Items.Lookup("Material_T1_Wood_Logs")?.Id.Value ?? 0)) ?? 0;
 
     [Subscribe]
     private void OnState(QuestStateChangedEvent e)

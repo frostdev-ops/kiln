@@ -1,0 +1,9 @@
+{
+  "id": "menu-many-test",
+  "name": "Many menu entries (test)",
+  "version": "0.1.0",
+  "apiVersion": "0.2",
+  "entryAssembly": "MenuManyTest.dll",
+  "side": "client",
+  "description": "Adds as many entries to the pause menu as its setting says (8 at first, 0 to 24), for the guided checks menu.rows-quit and menu.scroll. Change the number under Mods, this mod, and open the pause menu again."
+}

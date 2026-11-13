@@ -6,7 +6,6 @@ use crate::out::{self, CliError};
 use crate::tools;
 use anyhow::Result;
 use std::path::PathBuf;
-use std::process::Command;
 
 #[derive(clap::Args)]
 pub struct SkeletonArgs {
@@ -29,10 +28,10 @@ pub fn run(a: SkeletonArgs, json: bool) -> Result<i32> {
     if !matches!(a.body.as_str(), "male" | "female" | "none") {
         return Err(CliError::usage(format!("--body {}: male, female or none", a.body)).into());
     }
-    let repo = tools::need_repo("kiln skeleton")?;
+    let cook = tools::cook_tools()?;
     let game = a.game.or_else(tools::client_dir).ok_or_else(|| CliError::new("not_found", "the skeleton is read from your installed game; none found (--game or KILN_GAME)"))?;
-    let mut cmd = Command::new(tools::python()?);
-    cmd.arg(repo.join("tools/modelcook/modelcook.py")).arg("--game").arg(&game).arg("skeleton").arg(&a.out).arg("--body").arg(&a.body);
+    let mut cmd = cook.script_command("tools/modelcook/modelcook.py");
+    cmd.arg("--game").arg(&game).arg("skeleton").arg(&a.out).arg("--body").arg(&a.body);
     let ok = tools::run_passthrough(&mut cmd, json)?.success();
     if json {
         out::print_json(&serde_json::json!({"ok": ok, "file": a.out}));

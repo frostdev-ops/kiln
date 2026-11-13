@@ -1,1 +1,4 @@
 #nullable enable
+Kiln.CommandResult.Reason.get -> string?
+static Kiln.Chat.TellIfOnline(Kiln.PlayerRef player, string! text) -> bool
+static Kiln.ChatPlayer.explicit operator Kiln.PlayerRef(Kiln.ChatPlayer! player) -> Kiln.PlayerRef

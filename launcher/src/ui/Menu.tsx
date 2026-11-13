@@ -4,6 +4,7 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { IconButton, type ButtonSize, type ButtonVariant } from "./Button";
+import { COVERED } from "./Modal";
 
 export interface MenuItem {
   label: ReactNode;
@@ -38,12 +39,15 @@ export function Menu({ label, icon, items, align = "right", variant, size }: { l
     document.addEventListener("mousedown", close);
     document.addEventListener("keydown", esc);
     window.addEventListener("resize", gone);
+    // a dialog that opens over the page takes a menu left open there with it (ui/Modal.tsx useCoverPage)
+    window.addEventListener(COVERED, gone);
     window.addEventListener("scroll", scrolled, true);
     list.current?.querySelector<HTMLElement>(".k-menu-item")?.focus();
     return () => {
       document.removeEventListener("mousedown", close);
       document.removeEventListener("keydown", esc);
       window.removeEventListener("resize", gone);
+      window.removeEventListener(COVERED, gone);
       window.removeEventListener("scroll", scrolled, true);
     };
   }, [open]);

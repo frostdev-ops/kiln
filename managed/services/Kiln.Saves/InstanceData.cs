@@ -21,15 +21,42 @@ public enum Persist
     Session = 2,
 }
 
+/// <summary>Which players get the values of an <see cref="InstanceKey{T}"/> on their own game, where a mod's client side
+/// reads them (<see cref="InstanceData.Synced()"/>). Kiln sends them over a channel of its own (<c>kiln:instance</c>) to
+/// players who run Kiln with a mod that reads synced values; a player without Kiln, or with an older Kiln, gets nothing
+/// and notices nothing. Since 0.2.0-dev.27.</summary>
+public enum InstanceSync
+{
+    /// <summary>Nobody: the values stay on the server (the default).</summary>
+    None = 0,
+
+    /// <summary>The player whose inventory holds the item (backpack, action bar, worn). An item in a chest is nobody's.</summary>
+    Holder = 1,
+
+    /// <summary>The holder, and every player within <see cref="InstanceKeyOptions.NearbyRadius"/> of the item's holder
+    /// (another player, a chest, a station, an NPC).</summary>
+    Nearby = 2,
+}
+
 /// <summary>Options of an <see cref="InstanceKey{T}"/>.</summary>
 public sealed record InstanceKeyOptions
 {
+    internal const double DefaultNearbyRadius = 32, MinNearbyRadius = 1, MaxNearbyRadius = 256;
+
     /// <summary>Where the values are kept (default <see cref="Kiln.Persist.World"/>).</summary>
     public Persist Persist { get; init; } = Persist.World;
 
     /// <summary>The item types that may carry this key; null: any item with an item entity (gear, tools, cans). An item
     /// of another type throws <see cref="ArgumentException"/>.</summary>
     public IReadOnlyList<ItemId>? Items { get; init; }
+
+    /// <summary>Which players get the values on their own game (default <see cref="InstanceSync.None"/>: nobody). A value
+    /// is never sent to a player this does not name. Since 0.2.0-dev.27.</summary>
+    public InstanceSync Sync { get; init; } = InstanceSync.None;
+
+    /// <summary>For <see cref="InstanceSync.Nearby"/>: how far from the item's holder a player still gets the values, in
+    /// metres (1 to 256, default 32). Since 0.2.0-dev.27.</summary>
+    public double NearbyRadius { get; init; } = DefaultNearbyRadius;
 }
 
 /// <summary>A typed key of instance data: one kind of value a mod keeps on single items (this sword's kill count, this
@@ -50,6 +77,9 @@ public sealed class InstanceKey<T> where T : class, new()
 
     /// <summary>Where its values are kept.</summary>
     public Persist Persist => Info.Persist;
+
+    /// <summary>Which players get its values on their own game. Since 0.2.0-dev.27.</summary>
+    public InstanceSync Sync => Info.Sync;
 
     /// <summary><c>"mod:name"</c>.</summary>
     public override string ToString() => $"{Mod}:{Name}";
@@ -82,7 +112,7 @@ public sealed class InstanceKey<T> where T : class, new()
 /// kiln.spawn's holder inspection/search/metadata, and the world's data open. When it is off the calls throw <see cref="KilnUnavailableException"/>; declaring a key needs
 /// nothing.</para>
 /// </remarks>
-public static class InstanceData
+public static partial class InstanceData
 {
     internal const string Capability = InstanceStore.Capability;
     internal const string CarriedCapability = "saves.instance_data.carried";
@@ -91,15 +121,17 @@ public static class InstanceData
                                           "data that travels with a character between worlds is not available yet";
 
     /// <summary>Declares a key of the calling mod. Call it once, from a static field of your mod's class or from
-    /// <c>OnLoad</c>; the same name again returns the same key.</summary>
+    /// <c>OnLoad</c>; the same name again returns the same key. On a game client too (since 0.2.0-dev.27): the client
+    /// side of a mod declares the key the same way, with the same <see cref="InstanceKeyOptions.Sync"/>, and reads the
+    /// server's values with it (<see cref="Synced{T}(EntityId, InstanceKey{T})"/>).</summary>
     /// <param name="name">Unique within the mod, at most 200 characters.</param>
-    /// <param name="options">Where values are kept, and which item types may carry them.</param>
-    /// <exception cref="ArgumentException">An empty or too long name, an unknown <see cref="Kiln.Persist"/>, an empty
+    /// <param name="options">Where values are kept, which item types may carry them, and which players get them.</param>
+    /// <exception cref="ArgumentException">An empty or too long name, an unknown <see cref="Kiln.Persist"/> or
+    /// <see cref="InstanceSync"/>, a <see cref="InstanceKeyOptions.NearbyRadius"/> outside 1 to 256, an empty
     /// <see cref="InstanceKeyOptions.Items"/>, or a name the mod declared before with another type or other options.</exception>
     /// <exception cref="KilnUnavailableException"><see cref="Kiln.Persist.Carried"/>: not available in this release
     /// (<c>saves.instance_data.carried</c>).</exception>
     /// <exception cref="InvalidOperationException">Not on the tick thread, or not from a mod's code.</exception>
-    [ServerOnly]
     [TickThreadOnly]
     public static InstanceKey<T> Key<T>(string name, InstanceKeyOptions? options = null) where T : class, new()
     {
@@ -107,6 +139,9 @@ public static class InstanceData
         WorldStore.CheckKey(name);
         options ??= new InstanceKeyOptions();
         if (!Enum.IsDefined(options.Persist)) throw new ArgumentException($"unknown Persist {(int)options.Persist}", nameof(options));
+        if (!Enum.IsDefined(options.Sync)) throw new ArgumentException($"unknown InstanceSync {(int)options.Sync}", nameof(options));
+        if (!(options.NearbyRadius >= InstanceKeyOptions.MinNearbyRadius && options.NearbyRadius <= InstanceKeyOptions.MaxNearbyRadius))
+            throw new ArgumentException($"NearbyRadius {options.NearbyRadius} is outside {InstanceKeyOptions.MinNearbyRadius} to {InstanceKeyOptions.MaxNearbyRadius} metres", nameof(options));
         if (options.Items is { Count: 0 }) throw new ArgumentException("Items lists no item type; give at least one, or null for any item", nameof(options));
         if (options.Persist == Persist.Carried)
             throw new KilnUnavailableException(CarriedCapability, CarriedReason);
@@ -114,6 +149,7 @@ public static class InstanceData
             "InstanceData.Key must be called from a mod's code (OnLoad, its handlers, or a static field of the mod's class read there)");
         var key = SavesRuntime.Store.Instances.Declare<T>(mod, name, options);
         InstanceCommand.Ensure();
+        if (options.Sync != InstanceSync.None) InstanceSyncRuntime.EnsureStarted();  // the channel opens with the first key that travels
         return key;
     }
 
@@ -151,12 +187,87 @@ public static class InstanceData
             if (h is not null && r is not null)
                 list.Add(new ParkedInstance<T>(h.Describe, h.Key.Kind == HolderKind.Player ? h.Key.Character : default, r.Slot, r.Fields.Item,
                     r.Aside ? ParkedState.SetAside : ParkedState.Waiting, r.Reason.Length > 0 ? r.Reason : "not matched yet",
-                    Math.Max(r.Missed, h.Missed), value));
+                    Math.Max(r.Missed, h.Missed), value) { Entry = h, Record = r, Key = key.Info, RecordId = r.Id });
             else if (pending is not null)
                 list.Add(new ParkedInstance<T>($"character {pending.Holder.Character}", pending.Holder.Character, pending.Place.FlatSlot, pending.Fields.Item,
-                    ParkedState.Waiting, "gone from the player's inventory: destroyed, or the player is leaving (decided within a few seconds)", 0, value));
+                    ParkedState.Waiting, "gone from the player's inventory: destroyed, or the player is leaving (decided within a few seconds)", 0, value)
+                    { Key = key.Info, RecordId = pending.RecordId });
         }
         return list;
+    }
+
+    /// <summary>Puts a parked record of the key's mod on <paramref name="item"/>: every value the mod has in that record (all
+    /// its keys, not only this one) moves to the item, as if the record had been matched to it, and the record no longer
+    /// waits. Meant for records set aside because Kiln could not tell which of two identical items they belong to
+    /// (<see cref="ParkedState.SetAside"/>); a waiting record can be claimed too. Other mods' values in the same record stay
+    /// parked. The item may be of another item type than the record's (the key's <see cref="InstanceKeyOptions.Items"/>
+    /// still applies). Posts <see cref="InstanceDataRestoredEvent"/> (<see cref="InstanceMatch.Claimed"/>) for each key.
+    /// It may be called from a handler of the store's own events: those are delivered when the matching or the save that
+    /// raised them is finished, so a claim made from a handler of a save's event is in the next save, not in that one
+    /// (until then the record is still parked on disk). Since 0.2.0-dev.27.</summary>
+    /// <returns><see cref="InstanceClaimResult.Ok"/> false, nothing moved, when the item already has a value of one of those
+    /// keys (remove it first).</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="parked"/> is null.</exception>
+    /// <exception cref="ArgumentException">The record is no longer parked (claimed, discarded, matched or dropped since
+    /// <see cref="Parked{T}"/>), it is an item still being decided (a player leaving), or the item is a none, stamp-less or
+    /// stale ref or of a type the key does not allow.</exception>
+    /// <exception cref="KilnUnavailableException"><c>saves.instance_data</c> is off.</exception>
+    /// <exception cref="InvalidOperationException">Not on the tick thread, or the key's mod has unloaded.</exception>
+    [ServerOnly]
+    [TickThreadOnly]
+    [RequiresCapability(InstanceStore.Capability)]
+    public static InstanceClaimResult Claim<T>(ParkedInstance<T> parked, ItemInstanceRef item) where T : class, new()
+    {
+        ArgumentNullException.ThrowIfNull(parked);
+        var (store, h, r, info) = Resolve(parked, "InstanceData.Claim");
+        return store.ClaimRecord(h, r, info.ModId, item, info, info.ModId);
+    }
+
+    /// <summary>Drops a parked record of the key's mod: every value the mod has in that record goes (other mods' values stay
+    /// parked). Posts <see cref="InstanceDataLostEvent"/> (<see cref="InstanceLossReason.Discarded"/>). Since
+    /// 0.2.0-dev.27.</summary>
+    /// <returns>False when the record is no longer parked (claimed, discarded, matched or dropped since
+    /// <see cref="Parked{T}"/>).</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="parked"/> is null.</exception>
+    /// <exception cref="ArgumentException">An item still being decided (a player leaving): it is no saved record yet.</exception>
+    /// <exception cref="KilnUnavailableException"><c>saves.instance_data</c> is off.</exception>
+    /// <exception cref="InvalidOperationException">Not on the tick thread, or the key's mod has unloaded.</exception>
+    [ServerOnly]
+    [TickThreadOnly]
+    [RequiresCapability(InstanceStore.Capability)]
+    public static bool Discard<T>(ParkedInstance<T> parked) where T : class, new()
+    {
+        ArgumentNullException.ThrowIfNull(parked);
+        if (parked.Key is null) throw new ArgumentException("not a record of InstanceData.Parked", nameof(parked));
+        var store = Use("InstanceData.Discard", parked.Key);
+        if (parked.Record is null || parked.Entry is null)
+            throw new ArgumentException("this item is still being decided (destroyed, or its player is leaving): it is no saved record yet", nameof(parked));
+        return store.DiscardRecord(parked.Entry, parked.Record, parked.Key.ModId, parked.Key.ModId).Count > 0;
+    }
+
+    private static (InstanceStore, HolderEntry, SavedRecord, InstanceKeyInfo) Resolve<T>(ParkedInstance<T> parked, string api) where T : class
+    {
+        if (parked.Key is null) throw new ArgumentException("not a record of InstanceData.Parked", nameof(parked));
+        var store = Use(api, parked.Key);
+        if (parked.Record is null || parked.Entry is null)
+            throw new ArgumentException("this item is still being decided (destroyed, or its player is leaving): it is no saved record yet", nameof(parked));
+        if (!store.IsParked(parked.Entry, parked.Record, parked.Key.ModId))
+            throw new ArgumentException($"record {parked.RecordId} is no longer parked: it was claimed, discarded, matched or dropped", nameof(parked));
+        return (store, parked.Entry, parked.Record, parked.Key);
+    }
+
+    internal static InstanceStore Use(string api, InstanceKeyInfo info)
+    {
+        Services.RequireTickThread(api);
+        if (!SavesRuntime.Ensure()) throw new KilnUnavailableException(Capability, "kiln.saves is not loaded");
+        var store = SavesRuntime.Store.Instances;
+        store.RequireWorld();
+        if (!SavesRuntime.WorldDataReady)
+            throw new KilnUnavailableException(Capability, InstanceCapabilities.WaitingText);
+        if (!store.IsDeclared(info))
+            throw new InvalidOperationException($"instance key {info.ModId}:{info.Name} belongs to a mod instance that has unloaded; declare it again");
+        SavesRuntime.Store.EnsureOpen();
+        return store;
     }
 
     internal static InstanceStore Use<T>(string api, InstanceKey<T> key) where T : class, new()
@@ -175,6 +286,45 @@ public static class InstanceData
     }
 }
 
+/// <summary>The answer to <see cref="InstanceData.Claim{T}"/>: whether the mod's values of a parked record are on the item
+/// now. Since 0.2.0-dev.27.</summary>
+[ServerOnly]
+public sealed record InstanceClaimResult : IKilnResult
+{
+    internal InstanceClaimResult(ItemInstanceRef item, string record, string mod, IReadOnlyList<string> keys, bool ok, string? reason)
+    {
+        Item = item;
+        RecordId = record;
+        Mod = mod;
+        Keys = keys;
+        Ok = ok;
+        Reason = ok ? null : reason;
+    }
+
+    /// <summary>The item the values were to go on.</summary>
+    public ItemInstanceRef Item { get; }
+
+    /// <summary>The record's id.</summary>
+    public string RecordId { get; }
+
+    /// <summary>The mod whose values moved ("" for every mod: <c>/instances claim</c>).</summary>
+    public string Mod { get; }
+
+    /// <summary>The keys that moved (or, when not <see cref="Ok"/>, the keys the item already has).</summary>
+    public IReadOnlyList<string> Keys { get; }
+
+    /// <summary>True when the values are on the item and the record no longer holds them.</summary>
+    public bool Ok { get; }
+
+    /// <summary>Why not; null when <see cref="Ok"/>.</summary>
+    public string? Reason { get; }
+
+    /// <summary>The result in one line, for a log.</summary>
+    public override string ToString() => Ok
+        ? $"claimed record {RecordId} ({string.Join(", ", Keys)}) onto {Item}"
+        : $"record {RecordId} not claimed onto {Item}: {Reason}";
+}
+
 /// <summary>Whether a <see cref="ParkedInstance{T}"/> still waits for its item or is set aside.</summary>
 public enum ParkedState
 {
@@ -189,6 +339,11 @@ public enum ParkedState
 /// <typeparam name="T">The key's type.</typeparam>
 public sealed class ParkedInstance<T> where T : class
 {
+    // what Claim and Discard act on: the saved record and its holder (null for an item still being decided), and the key
+    internal HolderEntry? Entry;
+    internal SavedRecord? Record;
+    internal InstanceKeyInfo? Key;
+
     internal ParkedInstance(string holder, CharacterKey character, int flatSlot, ItemId item, ParkedState state, string reason, int sessionsMissed, T? value)
     {
         Holder = holder;
@@ -224,6 +379,9 @@ public sealed class ParkedInstance<T> where T : class
 
     /// <summary>A copy of the value; null when it does not read as <typeparamref name="T"/>.</summary>
     public T? Value { get; }
+
+    /// <summary>The saved record's id (what <c>/instances</c> lists and <c>/instances claim</c> takes). Since 0.2.0-dev.27.</summary>
+    public string RecordId { get; internal init; } = "";
 
     /// <summary>The record in one line, for a log: state, item type, holder, slot and reason.</summary>
     public override string ToString() => $"{State} {Item} in {Holder} slot {FlatSlot}: {Reason}";
@@ -367,6 +525,10 @@ public enum InstanceMatch
 
     /// <summary>In another slot of the same holder: the one item that fits.</summary>
     Moved = 1,
+
+    /// <summary>A mod or an admin put a parked record on this item (<see cref="InstanceData.Claim{T}"/>, <c>/instances
+    /// claim</c>). Since 0.2.0-dev.27.</summary>
+    Claimed = 2,
 }
 
 /// <summary>Why a record waits.</summary>
@@ -397,6 +559,10 @@ public enum InstanceLossReason
 
     /// <summary>The holder had more than 256 records of the mod: the oldest waiting or set-aside ones were dropped.</summary>
     Capped = 3,
+
+    /// <summary>A mod or an admin dropped a parked record (<see cref="InstanceData.Discard{T}"/>, <c>/instances discard</c>).
+    /// Since 0.2.0-dev.27.</summary>
+    Discarded = 4,
 }
 
 /// <summary>A saved record found its item again after a load or a join: the value is on the item now. One event per key.

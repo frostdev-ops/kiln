@@ -28,11 +28,12 @@ public sealed class MaterialSampleMod : Mod
             Emissive = new EmissiveBlock { Map = "textures/runes.png", Color = "#7fd4ff", Strength = 8 },
         });
         Log.Info($"MaterialSample: frost_steel-code is {code.Guid}, {code.Status}");
-        Content.OnReady(_ =>
-        {
-            foreach (var name in new[] { "frost_steel", "frost_grip", "ember_sword.blade", "ember_sword.grip" })
-                Log.Info(Blocks.Find(name) is MaterialBlockHandle h ? $"MaterialSample: {name} is {h.Guid}, {h.Status}" : $"MaterialSample: {name} is not defined: run build-assets.sh before deploying");
-        });
+        if (Content.Available)
+            Content.OnReady(_ =>
+            {
+                foreach (var name in new[] { "frost_steel", "frost_grip", "ember_sword.blade", "ember_sword.grip" })
+                    Log.Info(Blocks.Find(name) is MaterialBlockHandle h ? $"MaterialSample: {name} is {h.Guid}, {h.Status}" : $"MaterialSample: {name} is not defined: run build-assets.sh before deploying");
+            });
         if (Client.Available && Client.IsClient)
             KeyBindings.Register("materialsample.sparks", "Ctrl+9", () => Client.Post(Sparks), "MaterialSample: sparks that take their look from a material");
     }

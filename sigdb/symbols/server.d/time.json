@@ -71,6 +71,22 @@
         {"scope": {"symbol": "time/WeatherUpdateLayers", "size": 1280}, "pattern": "49 83 C4 {time/weather.layer_stride:d8} 48 FF C1 49 81 C6"}
       ]
     },
+    "@time.weather_start": {
+      "comment": "WeatherUpdateLayers' roll ends in the game's start of a phenomenon: (ws, WeatherSystemResource*, now, layer, u8 choice, Optional<Time>* overrideDuration); choice is relative to the layer's phenomenonIndexRange, choice == count is the layer's nothingPhenomenon. The game's own state configurations (SetPhenomenon, 0xa22f50) call it the same way with an override duration. Server 26430253 0xa22830 (docs/re/time.md, Choosing the weather)",
+      "find": [
+        {"scope": {"symbol": "time/WeatherUpdateLayers", "size": 1280}, "pattern": "4C 8B 4C 24 ?? 48 8D 44 24 ?? 48 89 44 24 28 4C 8B C3 48 8B D7 44 88 5C 24 20 49 8B CF C6 44 24 ?? 00 E8 {time/WeatherStartPhenomenon:rel32}"}
+      ]
+    },
+    "@time.weather_table": {
+      "comment": "the resource layout the start function reads: layers and phenomenons (BlobArrays of WeatherSystemResource), the stride of a WeatherSystemLayerResource and of a WeatherSystemPhenomenonResource, the layer's phenomenonIndexRange {start, count} and its nothingPhenomenon, and the layer state's current-phenomenon field (written as the choice)",
+      "find": [
+        {"scope": {"symbol": "time/WeatherStartPhenomenon", "size": 256}, "pattern": "48 8D 42 {time/weather.res_layers:d8} 48 63 08"},
+        {"scope": {"symbol": "time/WeatherStartPhenomenon", "size": 256}, "pattern": "4D 69 F4 {time/weather.res_layer_stride:d32} 43 3A 54 16 {time/weather.res_layer_count:d8} 75 ?? 49 8D 76 {time/weather.res_layer_nothing:d8}"},
+        {"scope": {"symbol": "time/WeatherStartPhenomenon", "size": 256}, "pattern": "49 63 4B {time/weather.res_phenomena:d8} 49 8D 43 ?? 44 0F B6 FA 47 02 7C 16 {time/weather.res_layer_first:d8}"},
+        {"scope": {"symbol": "time/WeatherStartPhenomenon", "size": 256}, "pattern": "48 69 F0 {time/weather.res_phenomenon_stride:d32} 48 03 F1"},
+        {"scope": {"symbol": "time/WeatherStartPhenomenon", "size": 256}, "pattern": "4B 89 54 E9 {time/weather.layer_phenomenon:d8}"}
+      ]
+    },
     "time/WeatherRemoveInstance": {
       "find": [
         {"pattern": "85 D2 0F 84 ?? ?? ?? ?? 89 54 24 10 53 57 48 83"}
@@ -114,6 +130,14 @@
     "time/weather.layer_stride": {"min_votes": 1},
     "time/weather.layer_cur": {"min_votes": 1},
     "time/weather.layer_prev": {"min_votes": 2},
+    "time/weather.res_layers": {"min_votes": 1},
+    "time/weather.res_phenomena": {"min_votes": 1},
+    "time/weather.res_layer_stride": {"min_votes": 1},
+    "time/weather.res_phenomenon_stride": {"min_votes": 1},
+    "time/weather.res_layer_first": {"min_votes": 1},
+    "time/weather.res_layer_count": {"min_votes": 1},
+    "time/weather.res_layer_nothing": {"min_votes": 1},
+    "time/weather.layer_phenomenon": {"min_votes": 1},
     "time/gs.daytime_synced": {"min_votes": 1},
     "time/gs.server_game": {"min_votes": 1},
     "time/sg.daytime": {"min_votes": 1}
@@ -122,6 +146,7 @@
     "time.read": {"symbols": ["time/SetTimeOfDay", "time/GetGameTime", "time/GameTimeToTod", "@time.daytime_fields", "@time.daytime_update"], "constants": ["time/daytime.anchor_ecs", "time/daytime.anchor_game", "time/daytime.counter", "time/daytime.tod", "time/daytime.day_start", "time/daytime.night_start", "time/daytime.day_length", "time/daytime.night_length", "time/daytime.scale", "time/daytime.is_day"]},
     "time.set": {"symbols": ["time/SetTimeOfDay", "time/TodToGameTime", "time/GetGameTime"], "constants": ["time/daytime.anchor_ecs", "time/daytime.anchor_game", "time/daytime.counter", "time/daytime.day_length", "time/daytime.night_length"]},
     "time.weather": {"symbols": ["time/WeatherUpdate", "time/WeatherRemoveInstance", "@time.weather_update", "@time.weather_layers"], "constants": ["time/weather.mode", "time/weather.layers", "time/weather.layer_count", "time/weather.layer_stride", "time/weather.layer_cur", "time/weather.layer_prev"]},
+    "time.weather_choose": {"symbols": ["time/WeatherUpdate", "time/WeatherUpdateLayers", "time/WeatherRemoveInstance", "time/WeatherStartPhenomenon", "@time.weather_update", "@time.weather_layers", "@time.weather_start", "@time.weather_table"], "constants": ["time/weather.mode", "time/weather.layers", "time/weather.layer_count", "time/weather.layer_stride", "time/weather.layer_cur", "time/weather.layer_prev", "time/weather.res_layers", "time/weather.res_phenomena", "time/weather.res_layer_stride", "time/weather.res_phenomenon_stride", "time/weather.res_layer_first", "time/weather.res_layer_count", "time/weather.res_layer_nothing", "time/weather.layer_phenomenon"]},
     "time.scale": {"symbols": ["time/SetTimeScale", "time/GetGameTime"], "constants": ["time/daytime.counter", "time/daytime.scale"]},
     "time.sync_probe": {"symbols": ["time/SendServerInfo", "@time.server_info", "time/ServerGameDaytimeSync", "time/DaytimeSyncIfChanged"], "constants": ["time/gs.daytime_synced", "time/gs.server_game", "time/sg.daytime"]}
   }

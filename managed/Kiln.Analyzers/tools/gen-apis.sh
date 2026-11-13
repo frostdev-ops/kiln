@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Regenerates managed/Kiln.Analyzers/src/Kiln.Analyzers/KilnApis.g.cs (the analyzers' tick-thread, advanced and
-# service tables) from Kiln's managed sources with tools/ApiScan (Roslyn). Run after changing Kiln.Api, Kiln.Testing
+# Regenerates managed/Kiln.Analyzers/src/Kiln.Analyzers/KilnApis.g.cs (the analyzers' tick-thread, advanced,
+# completed-task, capability-guard and service tables) from Kiln's managed sources with tools/ApiScan (Roslyn). Run after changing Kiln.Api, Kiln.Testing
 # or a service, and commit the result:
 #   KILN_OUT=<build dir> managed/Kiln.Analyzers/tools/gen-apis.sh
 set -euo pipefail

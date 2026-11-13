@@ -319,6 +319,7 @@ internal static class VfxStartup
         {
             VfxRelay.Start();
             ScreenRelay.Start();
+            VfxCaps.Rows.Ensure();
             ServiceTick.Add("kiln vfx names", VfxNames.Drain);
             unsafe
             {

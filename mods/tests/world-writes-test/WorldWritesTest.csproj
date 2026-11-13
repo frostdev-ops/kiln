@@ -1,0 +1,16 @@
+<Project>
+  <!-- Lab test of kiln.world's tracked writes (World.Write, World.Update, World.WriteField, World.WriteAt), player-free
+       but for a spawned player character that carries a can (CarriedPart.cs),
+       three boots: PASS / FAIL lines in kiln.log. Built with Kiln.Sdk, so the build adds the component types the code
+       writes to "writes" in the output's kiln.mod.json; the project's own manifest lists what the code names as strings.
+       docs/kiln/services/world.md "Tracked writes". -->
+  <Import Project="../../../managed/Kiln.Sdk/Sdk/Sdk.props" />
+  <PropertyGroup>
+    <AssemblyName>WorldWritesTest</AssemblyName>
+    <KilnModId>world-writes-test</KilnModId>
+    <Version>0.1.0</Version>
+    <KilnServices>World;Items;Spawn;Client;Game;Testing;Rules;Saves;Players</KilnServices>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+  <Import Project="../../../managed/Kiln.Sdk/Sdk/Sdk.targets" />
+</Project>

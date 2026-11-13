@@ -154,7 +154,41 @@ void Notch(ItemInstanceRef sword) => sword.Get(_notches).Count++;   // the live 
 session, `InstanceData.Parked(key)` the records waiting for their item or set aside, with the reason. Three events
 report what happens to stored data: `InstanceDataRestoredEvent` (back on its item after a load or a join: `Exact` or
 `Moved`), `InstanceDataParkedEvent` (waiting: the holder is not loaded, or the player left) and `InstanceDataLostEvent`
-(`Destroyed`, `Unmatched`, `Ambiguous`). Admins list everything with `/instances [player|entity]`.
+(`Destroyed`, `Unmatched`, `Ambiguous`). Admins list everything with `/instances [player|entity]`. A record set aside
+(or still waiting) can be put on an item by the mod that owns it, `InstanceData.Claim(parked, item)`, or dropped,
+`InstanceData.Discard(parked)` (dev.27); an admin does it with `/instances claim <record> <player|holder> <flat slot>`
+and `/instances discard <record>`.
+
+### Showing a value in the player's game (dev.27)
+A value stays on the server unless its key says who may see it. `Sync = InstanceSync.Holder` sends it to the player who
+holds the item, `InstanceSync.Nearby` also to every player within `NearbyRadius` metres of the item's holder (another
+player, a chest). The mod then runs on both sides (`"side": "both"`): the same `InstanceData.Key` line declares the key
+on the server and in the game, and the game reads the server's copies.
+
+```csharp
+_notches = InstanceData.Key<Notches>("notches", new InstanceKeyOptions { Sync = InstanceSync.Holder });
+
+[Subscribe]   // in the player's game: a copy arrived, changed, moved or went
+private void OnSynced(InstanceDataSyncedEvent e)
+{
+    if (e.Mod == Context.Info.Id && e.Change == InstanceSyncChange.Set && e.Item.TryGet(_notches, out var n))
+        Hud.Toast($"{n.Count} notch(es) on the item in slot {e.Item.FlatSlot}");
+}
+```
+`InstanceData.Synced()` lists every item this game has copies for, `Synced(entity)` and `Synced(entity, key)` read one
+(any thread, so a UI frame may call them). A copy says which item it is by the server's ids: the item entity, the holder,
+the flat slot, the item type, and `Own` (this game's player holds it). Kiln keeps the copies current through `Set`,
+edits of the live object, `Remove`, moves, gifts, chests, losses and claims, and sends a joining player the whole set.
+A player without Kiln, with an older Kiln, or without a mod that reads synced values gets nothing and notices
+nothing; a value never goes to a player its key does not name. An update lost on the network is made good (the game
+acknowledges what it takes, and starts over with the whole set after a loss). Limits (64 KB per value, 96 KB per
+update with the rest following a quarter of a second later, 4,096 items per game), the wire format and what is proven are in
+[services/saves.md](../services/saves.md#on-players-games-dev27). The sample `mods/samples/ItemData` shows its notch
+count this way.
+
+**What a mod cannot do with it yet:** draw into the game's own item tooltip. The detail view of an item is not
+reachable from a mod (the hook points are mapped in `docs/re/game-ui.md` and in the design, but not built), so a mod
+shows a synced value in a screen of its own, a HUD line or a notice.
 
 ### Which API
 | The thing | API |
@@ -168,7 +202,7 @@ report what happens to stored data: `InstanceDataRestoredEvent` (back on its ite
 template-and-position identity once bound a tag to the wrong sword after a restart (dev.20). Use `InstanceData` for
 items.
 
-`Persist` says where a value is kept. `Persist.World` (the default) keeps the value on this world's save, the item in a
+`Sync` says which players get a value on their game (above); `Persist` says where a value is kept. `Persist.World` (the default) keeps the value on this world's save, the item in a
 player's inventory included. `Persist.Session` keeps it until the server stops. **`Persist.Carried` is not in this
 release:** data that travels with a character between worlds is not available yet, and declaring such a key throws
 `KilnUnavailableException("saves.instance_data.carried")` saying so.
@@ -183,7 +217,8 @@ level, perks, gem, dye) and the holder's whole list of items. After a load or a 
   other record (`Exact` in its slot, `Moved` elsewhere);
 - when that is not certain (two identical items in a holder that changed, a holder found twice within its radius, a
   record without the holder's list), every record concerned is **set aside**: reported (`Ambiguous`), listed by
-  `Parked` and `/instances`, kept, and never attached by itself, not in a later session either;
+  `Parked` and `/instances`, kept, and never attached by itself, not in a later session either (a mod claims or
+  discards it: `InstanceData.Claim` / `Discard`);
 - a record whose item is not there waits, and is dropped after 3 sessions (`Unmatched`). A player's records wait for
   the character's next join.
 
@@ -220,8 +255,10 @@ Everything about items in a backpack, on the action bar or worn is in the checks
 ### Affixes
 An item's perks are not stored on the item: an instance holds only how many perks it has and how many are unlocked,
 and which perks those are comes from its item type, so two instances of one item can never have different perks. Rolled
-affixes therefore need item data plus a modifier engine that applies them (planned, large); a fixed set of perks can
-already be its own item variant.
+affixes are therefore item data plus an engine that applies them, and since dev.27 Kiln has both:
+[affixes.md](affixes.md) (`Affixes.Define`, pools, `pool.Roll(item)`; the rolls are item data of Kiln's own, they act
+while the item is worn or in hand, and they go to the games of players near the item). A fixed set of perks can still
+be its own item variant.
 
 Enshwick (MIT) built the same idea first: at its
 [alpha.13 commit](https://github.com/enshwick/enshwick/blob/945a1b8f0c9d1971679d9f3bc3dcecc127a5bcad/crates/internal/loader/src/item_data.rs)
@@ -250,6 +287,17 @@ Join a server that runs `instances-test`, open the check list (Ctrl+Shift+F5) an
 | `instances.restart.before` / `.after` | leave, the server restarts, rejoin | each value in its slot |
 | `instances.elsewhere.before` / `.after` | play the character in a world without Kiln, move one sword, swap the identical two, come back | the moved one found (`Moved`); the identical two set aside; never another's value |
 | `instances.rejoin-ids` | run it right after a rejoin | nothing: logs each item entity id beside its flat slot (does a player's inventory load in slot order, as a chest's does?) |
+
+**The sync (dev.27), `mods/tests/instance-sync-test`** (side `both`: the same mod in your game and on the server, or in
+a world you host). Its client side shows every change of a copy as a notice and reports it back, so the check asserts
+in code what your game holds. None of them has run yet.
+
+| Check | You do | The check asserts |
+|---|---|---|
+| `instances.synced` | nothing: a sword is put into your backpack | your game has the channel; it reported `held = 7`, then `held = 8` after an edit without `Set`; the key without `Sync` never arrived; no start over in the next 12 seconds (the server hears your game's acknowledgements); hosted: `InstanceData.Synced` reads 8. You confirm the two notices |
+| `instances.synced-moves` | drag the sword to another slot, into a chest, back out | your game reported the move with the slot the server reads, then the copy gone, then the value again |
+| `instances.synced-rejoin` (joined) | leave through the menu, join again, run it | your game reported the value for the new item entity without anything being set |
+| `instances.synced-nearby` (two players) | stand near the other player, then walk away | the other game reported `seen = 21` as another holder's item and never got `held`; gone once out of range |
 
 ## What was checked, and how
 

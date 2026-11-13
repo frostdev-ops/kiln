@@ -9,6 +9,11 @@
     <NoWarn>$(NoWarn);CS1591;CA2255</NoWarn>
   </PropertyGroup>
   <ItemGroup>
+    <InternalsVisibleTo Include="Kiln.Contract.Tests" />
+    <!-- Abilities.Attributes.Add posts CombatChangedEvent through Combat.Changed (one event for one kind of value) -->
+    <InternalsVisibleTo Include="Kiln.Abilities" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="../../Kiln.Api/Kiln.Api.csproj" Private="false" />
   </ItemGroup>
 </Project>

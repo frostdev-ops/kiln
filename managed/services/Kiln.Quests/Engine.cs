@@ -41,6 +41,10 @@ public sealed class QuestRecord
     /// <summary>Rewards still to pay (the player was offline when an admin completed it).</summary>
     public bool RewardsPending { get; set; }
 
+    /// <summary>Steps entered (not saved): a step's end that finds it changed knows its run was moved meanwhile.</summary>
+    [JsonIgnore]
+    internal int Moves { get; set; }
+
     public static string CounterKey(string step, int objective) => $"{step}#{objective}";
 }
 
@@ -89,6 +93,7 @@ public static partial class Quests
     }
 
     /// <summary>The place a step found: on the ground, outside every base. Null until it is found. Tick thread.</summary>
+    [TickThreadOnly]
     public static WorldPosition? PlaceOf(string quest, string step)
     {
         Game.AssertTickThread();
@@ -96,6 +101,7 @@ public static partial class Quests
     }
 
     /// <summary>The creatures a step's <c>spawn</c> holds in the world for a holder now. Tick thread.</summary>
+    [TickThreadOnly]
     public static IReadOnlyList<EntityId> SpawnedBy(string quest, string step, QuestHolder holder)
     {
         Game.AssertTickThread();
@@ -103,6 +109,7 @@ public static partial class Quests
     }
 
     /// <summary>A step's <c>spawn</c> used up its retries: the game kept removing them (kiln.log has the error). Tick thread.</summary>
+    [TickThreadOnly]
     public static bool SpawnGaveUp(string quest, string step, QuestHolder holder)
     {
         Game.AssertTickThread();
@@ -116,6 +123,7 @@ public static partial class Quests
     public static (ulong Requests, ulong Written) WaypointCounters => QuestMarkers.Counters;
 
     /// <summary>Evaluates a condition the way the engine does. Tick thread.</summary>
+    [TickThreadOnly]
     public static bool Evaluate(QuestCondition condition, QuestContext context)
     {
         Game.AssertTickThread();
@@ -348,6 +356,7 @@ public static partial class Quests
 
     /// <summary>Reads quests/*.json of every loaded mod again and keeps what code defined. States stay: a quest whose
     /// step is gone continues at the step of the same place. Tick thread. Returns the number of quests from files.</summary>
+    [TickThreadOnly]
     public static int Reload()
     {
         Game.AssertTickThread();
@@ -434,13 +443,14 @@ public static partial class Quests
         if (!ready) return;
         foreach (var q in autos)
         {
+            // a refusal (a QuestStartedEvent handler canceled it) leaves the quest unstarted: the next pass asks again
             if (q.Scope == QuestScope.World)
             {
-                if (CanStart(q, QuestHolder.World)) StartOne(q, QuestHolder.World, false);
+                if (CanStart(q, QuestHolder.World)) _ = StartOne(q, QuestHolder.World, false);
                 continue;
             }
             foreach (var h in Online())
-                if (CanStart(q, h)) StartOne(q, h, false);
+                if (CanStart(q, h)) _ = StartOne(q, h, false);
         }
     }
 
@@ -507,6 +517,7 @@ public static partial class Quests
     // ----------------------------------------------------------------------------------------- reading state -------
 
     /// <summary>A holder's status in a quest. Tick thread.</summary>
+    [TickThreadOnly]
     public static QuestStatus StatusOf(string quest, QuestHolder holder)
     {
         Game.AssertTickThread();
@@ -521,6 +532,7 @@ public static partial class Quests
 
     /// <summary>A quest can be started now: never started, or done and repeatable, or failed and retryable, and its
     /// requirements hold. Tick thread.</summary>
+    [TickThreadOnly]
     public static bool CanStart(string quest, QuestHolder holder)
     {
         Game.AssertTickThread();
@@ -549,6 +561,7 @@ public static partial class Quests
     }
 
     /// <summary>A holder's standing in a quest (null when never started). Tick thread.</summary>
+    [TickThreadOnly]
     public static QuestProgress? Progress(string quest, QuestHolder holder)
     {
         Game.AssertTickThread();
@@ -564,6 +577,7 @@ public static partial class Quests
     }
 
     /// <summary>Every quest a holder has a record of, world quests included. Tick thread.</summary>
+    [TickThreadOnly]
     public static IReadOnlyList<QuestProgress> ProgressOf(QuestHolder holder)
     {
         Game.AssertTickThread();
@@ -574,9 +588,11 @@ public static partial class Quests
     }
 
     /// <summary>Every quest a player in game has a record of (<see cref="ProgressOf(QuestHolder)"/>).</summary>
+    [TickThreadOnly]
     public static IReadOnlyList<QuestProgress> ProgressOf(EntityId player) => ProgressOf(QuestHolder.Of(player));
 
     /// <summary>The tracked quest an old save holds. The game tracks quests itself now, in the character's save. For Kiln.Admin's state op, until it drops the field.</summary>
+    [TickThreadOnly]
     public static string? TrackedBy(QuestHolder holder)
     {
         Game.AssertTickThread();
@@ -589,6 +605,7 @@ public static partial class Quests
 
     /// <summary>Starts a quest for a holder (a party quest also for players near them who can start it). Refused when
     /// it cannot start, unless <paramref name="force"/>. Tick thread.</summary>
+    [TickThreadOnly]
     public static QuestResult Start(string quest, QuestHolder holder, bool force = false)
     {
         Game.AssertTickThread();
@@ -601,7 +618,7 @@ public static partial class Quests
         var r = StartOne(q, h, force);
         if (r.Ok && q.Scope == QuestScope.Party)
             foreach (var o in QuestObjectives.PartyOf(h, q.PartyRadius))
-                if (CanStart(q, o)) StartOne(q, o, force);
+                if (CanStart(q, o)) _ = StartOne(q, o, force);  // a member it is refused for stays out; the holder's start stands
         return r;
     }
 
@@ -632,6 +649,7 @@ public static partial class Quests
 
     private static void EnterStep(QuestDefinition q, QuestHolder h, QuestRecord rec, QuestStep step)
     {
+        rec.Moves++;
         rec.StepId = step.Id;
         rec.StepIndex = q.Steps.IndexOf(step);
         rec.StepOrigin = null;
@@ -656,22 +674,30 @@ public static partial class Quests
         // Asked again by the next poll: only objectives that are a state of the world can be full at once, and those are polled.
         if (q.Journal == QuestJournalMode.Native && !SyntheticInput.IsSynthetic(h) && step.Objectives.Any(o => o.IsLevel) &&
             Environment.TickCount64 - rec.EnteredAt < MinimumStepMs) return;
-        FinishStep(q, h, rec, step);
+        _ = FinishStep(q, h, rec, step);  // canceled by a QuestStepEvent handler: the step stays, the next change asks again
     }
 
     private static QuestResult FinishStep(QuestDefinition q, QuestHolder h, QuestRecord rec, QuestStep step)
     {
         var index = q.Steps.IndexOf(step);
         var next = index + 1 < q.Steps.Count ? q.Steps[index + 1] : null;
+        var moves = rec.Moves;
         if (Events.HasSubscribers<QuestStepEvent>() && Events.Post(new QuestStepEvent(q, h, step, next)) is { Canceled: true } ev)
             return QuestResult.No($"canceled by {ev.CanceledBy ?? "a handler"}", QuestStatus.Active);
+        if (Moved(q, h, rec, step, moves)) return new QuestResult(true, "", StatusOf(q, h));
+        // the last step: the completion is asked for before anything of the step's end runs, so a completion a handler
+        // refuses gives nothing (the step stays, and its onDone runs once, with the completion that is let through)
+        if (next is null && CompletionRefused(q, h, rec.Status) is { } refused) return refused;
+        if (Moved(q, h, rec, step, moves)) return new QuestResult(true, "", StatusOf(q, h));
         _transitions++;
         QuestsInternals.Info($"{h.Key} {q.FullId}: step {step.Id} done");
         QuestPlaces.LeaveStep(q, h, step);
         if (step.OnDone.Count > 0) _ = QuestActions.RunAll(step.OnDone, new QuestActionContext(h, q, EntityId.None, q.ModId), "onDone", true);
         var book = BookOf(h);
         book.Revision++;
-        if (next is null) return CompleteOne(q, h, rec, false);
+        // an action completed, failed, reset, restarted or moved the quest: that is where it stands, nothing more runs
+        if (Moved(q, h, rec, step, moves)) return new QuestResult(true, "", StatusOf(q, h));
+        if (next is null) return CompleteOne(q, h, rec, false, asked: true);
         EnterStep(q, h, rec, next);
         Changed(q, h, QuestStatus.Active, rec);
         return new QuestResult(true, "", QuestStatus.Active);
@@ -680,6 +706,7 @@ public static partial class Quests
     /// <summary>Finishes a holder's current step: objectives that are still open are refused unless they are talk or
     /// custom (a conversation or code finishes those) or <paramref name="force"/>; a deliver objective takes its items
     /// now and is refused without them. <paramref name="step"/>: the step that must be current. Tick thread; completes on it.</summary>
+    [TickThreadOnly]
     public static async Task<QuestResult> Advance(string quest, QuestHolder holder, string? step = null, bool force = false)
     {
         Game.AssertTickThread();
@@ -712,6 +739,7 @@ public static partial class Quests
     }
 
     /// <summary>Completes a quest for a holder now (rewards paid; past the remaining steps). Tick thread.</summary>
+    [TickThreadOnly]
     public static QuestResult Complete(string quest, QuestHolder holder)
     {
         Game.AssertTickThread();
@@ -725,11 +753,11 @@ public static partial class Quests
         return CompleteOne(q, o, rec, true);
     }
 
-    private static QuestResult CompleteOne(QuestDefinition q, QuestHolder h, QuestRecord rec, bool forced)
+    // asked: FinishStep posted QuestCompletedEvent already (before the last step's onDone)
+    private static QuestResult CompleteOne(QuestDefinition q, QuestHolder h, QuestRecord rec, bool forced, bool asked = false)
     {
         var old = rec.Status;
-        if (Events.HasSubscribers<QuestCompletedEvent>() && Events.Post(new QuestCompletedEvent(q, h)) is { Canceled: true } ev)
-            return QuestResult.No($"canceled by {ev.CanceledBy ?? "a handler"}", old);
+        if (!asked && CompletionRefused(q, h, old) is { } refused) return refused;
         rec.Status = QuestStatus.Done;
         rec.StepId = null;
         rec.FinishedAt = Now;
@@ -744,6 +772,18 @@ public static partial class Quests
         Changed(q, h, old, rec);
         return new QuestResult(true, "", QuestStatus.Done);
     }
+
+    // The run a step's end works on is no longer the one it was asked for: a handler or an action completed, failed,
+    // reset or restarted the quest, or put it at a step (the same one too). Completion and its rewards then happened (or
+    // not) there, at most once a run.
+    private static bool Moved(QuestDefinition q, QuestHolder h, QuestRecord rec, QuestStep step, int moves) =>
+        !ReferenceEquals(Record(q, h), rec) || rec.Status != QuestStatus.Active || rec.StepId != step.Id || rec.Moves != moves;
+
+    /// <summary>The completion refused by a <see cref="QuestCompletedEvent"/> handler, or null when it goes on.</summary>
+    private static QuestResult? CompletionRefused(QuestDefinition q, QuestHolder h, QuestStatus status) =>
+        Events.HasSubscribers<QuestCompletedEvent>() && Events.Post(new QuestCompletedEvent(q, h)) is { Canceled: true } ev
+            ? QuestResult.No($"canceled by {ev.CanceledBy ?? "a handler"}", status)
+            : null;
 
     private static void PayRewards(QuestDefinition q, QuestHolder h, QuestRecord rec)
     {
@@ -766,6 +806,7 @@ public static partial class Quests
     }
 
     /// <summary>Fails an active quest for a holder. Tick thread.</summary>
+    [TickThreadOnly]
     public static QuestResult Fail(string quest, QuestHolder holder, string reason = "")
     {
         Game.AssertTickThread();
@@ -789,6 +830,7 @@ public static partial class Quests
     }
 
     /// <summary>A player gives up a quest: back to available (when it may be retried), else failed.</summary>
+    [TickThreadOnly]
     public static QuestResult Abandon(string quest, QuestHolder holder)
     {
         Game.AssertTickThread();
@@ -801,6 +843,7 @@ public static partial class Quests
     }
 
     /// <summary>Forgets a holder's record of a quest (as if never started). Knowledge the quest granted stays. Tick thread.</summary>
+    [TickThreadOnly]
     public static QuestResult Reset(string quest, QuestHolder holder)
     {
         Game.AssertTickThread();
@@ -820,6 +863,7 @@ public static partial class Quests
 
     /// <summary>Puts a holder at a step: active there with the step's counters at 0 (an admin's tool: no rewards, no
     /// hooks of skipped steps). Tick thread.</summary>
+    [TickThreadOnly]
     public static QuestResult SetStep(string quest, QuestHolder holder, string step)
     {
         Game.AssertTickThread();
@@ -845,6 +889,7 @@ public static partial class Quests
 
     /// <summary>Adds to every open custom objective with this signal: the holder's quests (and party's, and world quests);
     /// with no holder every player in game and the world. Tick thread.</summary>
+    [TickThreadOnly]
     public static void Signal(string name, QuestHolder? holder = null, int amount = 1)
     {
         Game.AssertTickThread();
@@ -946,6 +991,7 @@ internal static class QuestsStartup
     {
         try
         {
+            QuestsCaps.Rows.Ensure();
             Quests.EnsureStarted();
             var n = 0;
             foreach (var m in Mods.All)

@@ -471,8 +471,10 @@ if (Ecs.Get<Ecs.NpcCommon>(entity) is { } npc)
     Log.Info($"mode {npc.movementMode}, last step {npc.history[npc.historyIndex].movement.x}");  // an enum, an array element
 foreach (var e in Ecs.All<Ecs.Health>()) { /* ... */ }
 ```
-`EcsAccessTests.DocExample` compiles the same code. A struct is a copy: change it, and nothing in the game changes
-(typed writes are dev.27 work).
+`EcsAccessTests.DocExample` compiles the same code. A struct is a copy: change it, and nothing in the game changes.
+To change the game's component, hand the type to Kiln.World (since 0.2.0-dev.27): `World.Update<Ecs.Fuel>(entity,
+(ref Ecs.Fuel f) => f.Values[0] = 3200)` or `World.Write(entity, value)`, which go through the game's write tracking
+and run the same first-use check ([services/world.md](services/world.md#tracked-writes)).
 
 ### 4.4 Attribute components
 A component whose base chain runs through `keen::ecs::AttributeComponent` and that has a `dataStorage` static array
@@ -691,7 +693,7 @@ game update can take away while the type stays: a wrapper's implicit conversions
 and an attribute component's `Values` (`get_Values`); a wrapper that gains a field, or a `dataStorage` of another
 element type, is refused before load (§3.7). Not covered, and not checked before load:
 - reflection by string (`typeof(Ecs.Lamp).GetField("glow")`) and `dynamic`;
-- raw offsets and sizes (`World.TryWrite(e, "Lamp", 8, …)`, `Unsafe.Add` from a field's address, `sizeof` folded into
+- raw offsets and sizes (`World.WriteAt(e, "Lamp", 8, …)`, `World.WriteRaw`, `Unsafe.Add` from a field's address, `sizeof` folded into
   the mod's own arithmetic) and reinterpreting casts (`MemoryMarshal.Cast`, `MemoryMarshal.Read<MyOwnStruct>`) over a
   generated type's bytes;
 - any other generated member a later generator version adds without listing it in the table (§3.6); the hand-written

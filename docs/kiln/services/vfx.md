@@ -118,3 +118,17 @@ something the game draws next to it. Remove the setting afterwards.
 | Ctrl+Shift+3 | Parameters, then a loop stopped immediately | A blue explosion; 3 s later a flame for 3 s, gone at once | `PASS case 3b: …` |
 | Ctrl+4 | An effect built from `blocks/vfx.json` | Red squares fly up and fade | `PASS case 4: red_burst plays` |
 | Ctrl+Shift+4 | The same effect on a game module | Tells a data fault from a shader fault when Ctrl+4 shows nothing | `PASS case 4b: …` |
+
+## The contract (dev.27)
+
+Kiln.Vfx follows [the API contract](../modding/contract.md) as far as it applies: its calls never throw for a missing capability (they return
+`VfxHandle.None`), so no member carries `[RequiresCapability]`.
+
+- **Capabilities.** In the game client: `kiln.vfx` and `vfx.play` (and `kiln.screen` for screen effects). On the server
+  side: `vfx.relay` (managed, session, refreshed every 25 steps) says what `Vfx.Available` says there: available while
+  a Kiln client with the `kiln:vfx` channel is connected (or this host's own client can play), pending while nobody
+  listens, unavailable without the channel (`needs kiln.net`), `wrong-side` in a client that only joined.
+  `screen.relay` is the same for `ScreenEffects.Available`, where an open `kiln:screen` channel is enough.
+- **Threads.** `State`, `IsPlaying`, `Info`, `Status`, `StatusJson` and `ScreenEffects.IsPlaying` / `Status` are
+  `[AnyThread]`. The play, stop and set calls carry no thread attribute: any thread in the game client, the tick
+  thread on the server side (the relay).

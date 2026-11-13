@@ -15,7 +15,7 @@ When updating dev.19 C# code, an item's `Loot.Tables` entries are now `DropPlace
 selects UI blocks. Consult `kiln new --list` for the installed template's options. Clone templates remain useful only when
 blocks do not express the required field.
 
-**Weapon moves (dev.26+, in development; no player has seen a move):** `WeaponBlock.Moves` (`WeaponMoves`): `Primary`
+**Weapon moves (dev.26+; no player has seen a move):** `WeaponBlock.Moves` (`WeaponMoves`): `Primary`
 and `Heavy` take one `MoveBlock` or a chain (`[first, second]`); `HeavyAir`, `DodgeAttack`, `JumpAttack`, `PlungeAttack`,
 `Block`, `Parry`, `Special`, `Execution`, `SneakAttack` one each. A `MoveBlock` has `Animation` (a mod state or a game
 state by name, a GUID or a `0x` id; a list for several state events), `Like` (the sequence it starts from), `HitAt` and

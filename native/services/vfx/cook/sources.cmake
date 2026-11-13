@@ -15,6 +15,7 @@ set(KILN_VFX_COOK_SOURCES
     ${KILN_VFX_COOK_DIR}/material.cpp
     ${KILN_VFX_COOK_DIR}/pack.cpp
     ${KILN_VFX_COOK_DIR}/fingerprint.cpp
+    ${KILN_VFX_COOK_DIR}/carry.cpp
     ${KILN_VFX_THIRD_PARTY}/bc7enc/bc7enc.cpp
     ${KILN_VFX_THIRD_PARTY}/bc7enc/rgbcx.cpp)
 # A rebuild when a committed module changes; third-party code stays quiet.

@@ -33,6 +33,37 @@ public sealed class CreatureStateEvent : KilnEvent
 }
 
 /// <summary>
+/// A mod changed one creature through Kiln.Creatures: a <see cref="CreatureRef"/> value (level, faction, scale, home,
+/// a resistance, loot, features), its AI switch, phase or held target, an AI override (<see cref="AiAccess.Set(string, string)"/>),
+/// or a reset of them. Posted on the tick thread right after the change took. Observe only. Built only while someone
+/// subscribes. The game's own changes of a creature raise nothing here: see <see cref="CreatureStateEvent"/> and
+/// <see cref="CreatureTargetEvent"/> for those. Since 0.2.0-dev.27.
+/// </summary>
+public sealed class CreatureChangedEvent : KilnEvent
+{
+    internal CreatureChangedEvent(EntityId entity, string what, string origin)
+    {
+        Entity = entity;
+        What = what;
+        Origin = origin;
+    }
+
+    /// <summary>The creature.</summary>
+    public EntityId Entity { get; }
+
+    /// <summary>What was changed: the value's name as <see cref="CreatureRef"/> has it (<c>Level</c>, <c>Faction</c>,
+    /// <c>Home</c>, ...), <c>AiEnabled</c>, <c>Phase</c>, <c>Target</c>, <c>Ai.&lt;Component&gt;.&lt;path&gt;</c> for an AI
+    /// override, <c>Reset</c> or <c>Ai.Reset</c> when layers were dropped.</summary>
+    public string What { get; }
+
+    /// <summary>The id of the mod that made the change ("" outside mod code).</summary>
+    public string Origin { get; }
+
+    /// <summary>The creature, what changed and who did it, for a log line.</summary>
+    public override string ToString() => $"creature {Entity}: {What} changed by {(Origin.Length > 0 ? Origin : "kiln")}";
+}
+
+/// <summary>
 /// An active enemy AI's target changed (SelectedTargets[0]): <see cref="Target"/> is the new one (None = lost),
 /// <see cref="Previous"/> the old one. Observe only. Checked every other step (about 80 ms) for creatures whose AI ran
 /// in the last two minutes; fires on the tick thread in Pre.

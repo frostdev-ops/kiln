@@ -85,8 +85,11 @@ public static unsafe partial class Abilities
         0x89, 0xae, 0xc4, 0x1f, 0xf4, 0x58, 0x48, 0xc1]);
 
     /// <summary>The service runs on this build.</summary>
+    [AnyThread]
     public static bool Available => AbilitiesNative.T != null;
 
+    /// <summary>kiln.abilities' state and counters, or null when it is not loaded. Any thread.</summary>
+    [AnyThread]
     public static AbilitiesStatus? Status
     {
         get
@@ -107,6 +110,7 @@ public static unsafe partial class Abilities
     // ---------------------------------------------------------------------------------------------- instances -------
 
     /// <summary>A live instance by impact id (null when it does not exist). Tick thread.</summary>
+    [TickThreadOnly]
     public static ImpactInstance? Instance(uint impactId)
     {
         Game.AssertTickThread();
@@ -155,6 +159,7 @@ public static unsafe partial class Abilities
     /// <summary>Spawns an impact template (a projectile, explosion or zone that has an Impact component) at
     /// <paramref name="position"/> and binds it to a caster: its program runs with the template's configs plus
     /// <see cref="ImpactOptions.Configs"/>. Returns the entity (it never reaches the save). Tick thread.</summary>
+    [TickThreadOnly]
     public static Task<EntityId> RunImpact(string template, WorldPosition position, ImpactOptions? options = null)
     {
         var info = Spawn.Lookup(template) ?? throw new SpawnException($"unknown template '{template}'", AbilitiesNative.NotFound);
@@ -162,6 +167,7 @@ public static unsafe partial class Abilities
     }
 
     /// <inheritdoc cref="RunImpact(string, WorldPosition, ImpactOptions?)"/>
+    [TickThreadOnly]
     public static Task<EntityId> RunImpact(Guid template, WorldPosition position, ImpactOptions? options = null)
     {
         try
@@ -188,6 +194,7 @@ public static unsafe partial class Abilities
     /// <summary>Runs a program (a game's or one Kiln registered) on the game's generic impact entity at
     /// <paramref name="position"/>: the entity gets an Impact component for <paramref name="program"/> (its GUID).
     /// Tick thread.</summary>
+    [TickThreadOnly]
     public static Task<EntityId> RunProgram(Guid program, WorldPosition position, ImpactOptions? options = null)
     {
         try
@@ -313,6 +320,7 @@ public static unsafe partial class Abilities
         };
 
         /// <summary>The current value, or null when the entity has no such attribute.</summary>
+        [TickThreadOnly]
         public static int? Get(EntityId entity, AbilityResource resource)
         {
             Game.AssertTickThread();
@@ -324,6 +332,7 @@ public static unsafe partial class Abilities
         }
 
         /// <summary>The maximum, or null when unknown.</summary>
+        [TickThreadOnly]
         public static int? Max(EntityId entity, AbilityResource resource)
         {
             Game.AssertTickThread();
@@ -335,17 +344,26 @@ public static unsafe partial class Abilities
         }
 
         /// <summary>Adds <paramref name="delta"/> (negative to spend) through the game's attribute code. False when the
-        /// entity has no such attribute.</summary>
+        /// entity has no such attribute. A change posts <see cref="CombatChangedEvent"/> (<c>Attribute.Mana</c>, ...), as
+        /// Kiln.Combat's attribute writes do.</summary>
+        [TickThreadOnly]
         public static bool Add(EntityId entity, AbilityResource resource, int delta)
         {
             Game.AssertTickThread();
             var t = AbilitiesNative.T;
             if (t == null) return false;
             var (c, a, _) = Ids(resource);
-            return t->AttrAdd(entity.Value, c, a, delta) == AbilitiesNative.Ok;
+            // the value before, read only while someone listens for the change
+            int before = 0, after = 0;
+            var watched = Events.HasSubscribers<CombatChangedEvent>() && t->AttrGet(entity.Value, c, a, &before) == AbilitiesNative.Ok;
+            if (t->AttrAdd(entity.Value, c, a, delta) != AbilitiesNative.Ok) return false;
+            if (watched && t->AttrGet(entity.Value, c, a, &after) == AbilitiesNative.Ok && after != before)
+                Combat.Changed(entity, "Attribute." + resource, before, after);
+            return true;
         }
 
         /// <summary>Any attribute by component and attribute id (e.g. "Mana", 0x6aa2574e).</summary>
+        [TickThreadOnly]
         public static int? Get(EntityId entity, string component, uint attribute)
         {
             Game.AssertTickThread();
@@ -390,6 +408,8 @@ public static unsafe partial class Abilities
         /// <remarks>Requires the tick thread and its calling mod context (OnLoad or a Kiln callback). An advanced mod
         /// on an unattributed background thread is also refused; post the registration through Context.Scheduler.</remarks>
         [AdvancedApi]
+        [TickThreadOnly]
+        [RequiresCapability(AbilitiesCaps.Service)]
         public static uint Register(byte[] blob, out bool waiting)
         {
             AbilitiesGate.RequireAdvanced("Abilities.Programs.Register");
@@ -400,6 +420,8 @@ public static unsafe partial class Abilities
         /// <remarks>Requires the tick thread and its calling mod context, as the other overload does. Post work from
         /// an unattributed background thread through Context.Scheduler, even for an advanced mod.</remarks>
         [AdvancedApi]
+        [TickThreadOnly]
+        [RequiresCapability(AbilitiesCaps.Service)]
         public static uint Register(byte[] blob)
         {
             AbilitiesGate.RequireAdvanced("Abilities.Programs.Register");
@@ -426,6 +448,8 @@ public static unsafe partial class Abilities
         }
 
         /// <summary>Lists kiln.assets' ImpactProgram resources again and registers the new ones. Tick thread.</summary>
+        [TickThreadOnly]
+        [RequiresCapability(AbilitiesCaps.Service)]
         public static int Refresh()
         {
             Game.AssertTickThread();
@@ -439,6 +463,7 @@ public static unsafe partial class Abilities
 
     /// <summary>The actor's current action sequence: (sequence id = FNV-1a of the ActorSequenceResource GUID, trigger
     /// time in ECS nanoseconds, call index), or null when it has no Actor. Sequence id 0 = none. Tick thread.</summary>
+    [TickThreadOnly]
     public static (uint Sequence, long TriggerTime, int CallIndex)? SequenceOf(EntityId actor)
     {
         Game.AssertTickThread();
@@ -459,16 +484,23 @@ public static unsafe partial class Abilities
     /// ActorSequenceResource the game has, and, with an error in the log, when the sequence has an event that consumes the used item
     /// (every potion and food): there is no used item here, and the game would read one that is not there and take the server down. A copy
     /// of the sequence with <c>consume</c> off plays. Tick thread.</summary>
+    [TickThreadOnly]
+    [RequiresCapability(AbilitiesCaps.Service)]
+    [RequiresCapability(AbilitiesCaps.Sequences)]
     public static bool PlaySequence(EntityId actor, Guid sequence, bool abortCurrent = true) =>
         PlaySequence(actor, sequence, abortCurrent ? SequenceOptions.Default : SequenceOptions.Queue);
 
     /// <summary>Starts an existing action sequence with explicit options (see the other overload). Tick thread.</summary>
+    [TickThreadOnly]
+    [RequiresCapability(AbilitiesCaps.Service)]
+    [RequiresCapability(AbilitiesCaps.Sequences)]
     public static bool PlaySequence(EntityId actor, Guid sequence, SequenceOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
         Game.AssertTickThread();
         var t = AbilitiesNative.Require("Abilities.PlaySequence");
-        if (t->Header.Size < (uint)sizeof(AbilitiesNative.Table)) throw new NotSupportedException("PlaySequence needs a newer kiln.abilities");
+        if (t->Header.Size < (uint)sizeof(AbilitiesNative.Table))
+            throw new KilnUnavailableException(AbilitiesCaps.Service, "PlaySequence needs a newer kiln.abilities");
         if (SequenceGuard.ConsumingEvent(sequence) is { } consuming)
         {
             ModLog.Error($"PlaySequence: sequence {sequence} not played: its event ({consuming}) consumes the used item, and PlaySequence has none: the game would read an item that is not there and take the server down. Turn the event's consume off on a copy of the sequence");
@@ -478,14 +510,20 @@ public static unsafe partial class Abilities
         var rc = t->SequencePlay(actor.Value, IdOf(sequence), trigger | (options.HoldInputs ? AbilitiesNative.SequenceHold : 0));
         if (rc == AbilitiesNative.InvalidArgument && options.HoldInputs)  // an older kiln.abilities: no hold flag
             rc = t->SequencePlay(actor.Value, IdOf(sequence), trigger);
-        if (rc == AbilitiesNative.Unavailable) throw new NotSupportedException("PlaySequence is unavailable on this build");
+        if (rc == AbilitiesNative.Unavailable)
+        {
+            AbilitiesCaps.Ensure();
+            throw ServiceCaps.Unavailable(AbilitiesCaps.Sequences, "PlaySequence is unavailable on this build");
+        }
         return rc == AbilitiesNative.Ok;
     }
 
     /// <summary>FNV-1a of a GUID's bytes (program, sequence, skill ids).</summary>
+    [AnyThread]
     public static uint IdOf(Guid guid) => AbilitiesNative.Fnv(guid.ToByteArray());
 
     /// <summary>FNV-1a of a name (native hashes: "ApplyDamage" 0xb04d0e7a, "mymod.Chill").</summary>
+    [AnyThread]
     public static uint HashOf(string name) => AbilitiesNative.Fnv(name);
 }
 

@@ -201,6 +201,8 @@ public static class FieldAccess
     // ---- kiln.gamedata entries ----
 
     /// <summary>Sets a field as the calling mod. Returns how many leaves changed (a field below <c>All</c> fans out).</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.gamedata")]
     public static int Set<T>(this GameDataEntry entry, Field<T> field, FieldValue<T> value)
     {
         Require(Name(entry.Section), field.Section, field.Path);
@@ -214,6 +216,8 @@ public static class FieldAccess
         throw new InvalidOperationException($"{field.Path} is read-only");
 
     /// <summary>The current value.</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.gamedata")]
     public static T Get<T>(this GameDataEntry entry, Field<T> field)
     {
         Require(Name(entry.Section), field.Section, field.Path);
@@ -221,6 +225,8 @@ public static class FieldAccess
     }
 
     /// <inheritdoc cref="Get{T}(GameDataEntry, Field{T})"/>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.gamedata")]
     public static T Get<T>(this GameDataEntry entry, ReadOnlyField<T> field)
     {
         Require(Name(entry.Section), field.Section, field.Path);
@@ -228,6 +234,8 @@ public static class FieldAccess
     }
 
     /// <summary>The game's original value.</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.gamedata")]
     public static T Original<T>(this GameDataEntry entry, Field<T> field)
     {
         Require(Name(entry.Section), field.Section, field.Path);
@@ -235,6 +243,8 @@ public static class FieldAccess
     }
 
     /// <summary>Takes the calling mod's layers of the field (and below) off. False when it had none.</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.gamedata")]
     public static bool Reset<T>(this GameDataEntry entry, Field<T> field)
     {
         Require(Name(entry.Section), field.Section, field.Path);
@@ -264,6 +274,8 @@ public static class FieldAccess
     }
 
     /// <inheritdoc cref="Set{T}(GameDataEntry, Field{T}, FieldValue{T})"/>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.content")]
     public static int Set<T>(this ContentEntry entry, Field<T> field, FieldValue<T> value)
     {
         Require(Name(entry.Kind), field.Section, field.Path);
@@ -298,6 +310,8 @@ public static class FieldAccess
         throw new InvalidOperationException($"{field.Path} is read-only");
 
     /// <inheritdoc cref="Get{T}(GameDataEntry, Field{T})"/>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.content")]
     public static T Get<T>(this ContentEntry entry, Field<T> field)
     {
         Require(Name(entry.Kind), field.Section, field.Path);
@@ -305,6 +319,8 @@ public static class FieldAccess
     }
 
     /// <inheritdoc cref="Get{T}(GameDataEntry, Field{T})"/>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.content")]
     public static T Get<T>(this ContentEntry entry, ReadOnlyField<T> field)
     {
         Require(Name(entry.Kind), field.Section, field.Path);
@@ -312,6 +328,8 @@ public static class FieldAccess
     }
 
     /// <inheritdoc cref="Original{T}(GameDataEntry, Field{T})"/>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.content")]
     public static T Original<T>(this ContentEntry entry, Field<T> field)
     {
         Require(Name(entry.Kind), field.Section, field.Path);
@@ -319,6 +337,8 @@ public static class FieldAccess
     }
 
     /// <inheritdoc cref="Reset{T}(GameDataEntry, Field{T})"/>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.content")]
     public static bool Reset<T>(this ContentEntry entry, Field<T> field)
     {
         Require(Name(entry.Kind), field.Section, field.Path);

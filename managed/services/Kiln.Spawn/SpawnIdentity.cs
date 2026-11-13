@@ -8,6 +8,7 @@ internal static class SpawnStartup
 {
     static SpawnStartup()
     {
+        Spawn.Rows.Ensure();  // the capability rows, also when no mod has used Spawn yet
         // Lab switch (mods/tests/instances-test shows its checks fail without the entity sources).
         if (Environment.GetEnvironmentVariable("KILN_LAB_NO_ENTITY_SOURCES") == "1")
         {

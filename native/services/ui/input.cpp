@@ -9,12 +9,18 @@
 //    move freely; ImGui draws the cursor.
 //  - subscribe_window_input (kiln_ui.h v5): the window's key, button and focus-loss records go to native subscribers
 //    as received, before any of the above decides what the game gets.
+//  - The middle and side buttons and the wheel go to the key subscribers that ask for them (subscribe_key_ex with
+//    KILN_UI_KEYS_MOUSE, kiln_ui.h v7; Kiln.Ui does), as key presses (mouse_press.h): once per physical input although
+//    the window gets each one as a raw record and as a message, a notch per WHEEL_DELTA. A press such a subscriber takes
+//    is kept from the game like a bound key (its raw record and its message); releases always pass. Over a Kiln panel
+//    the middle button and the wheel stay the panel's. Without such a subscriber none of this runs.
 #include <windows.h>
 #include <windowsx.h>
 
 #include <algorithm>
 #include <atomic>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <deque>
 #include <memory>
@@ -24,6 +30,7 @@
 
 #include "backends/imgui_impl_win32.h"
 #include "imgui.h"
+#include "mouse_press.h"
 #include "safetyhook.hpp"
 #include "ui.h"
 #include "raw_input_source.h"
@@ -33,6 +40,13 @@ extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg
 
 namespace kui {
 namespace {
+
+static_assert(mouse::kVkMiddle == VK_MBUTTON && mouse::kVkX1 == VK_XBUTTON1 && mouse::kVkX2 == VK_XBUTTON2 &&
+                  mouse::kVkWheelUp == KILN_UI_VK_WHEEL_UP && mouse::kVkWheelDown == KILN_UI_VK_WHEEL_DOWN &&
+                  mouse::kVkWheelLeft == KILN_UI_VK_WHEEL_LEFT && mouse::kVkWheelRight == KILN_UI_VK_WHEEL_RIGHT &&
+                  mouse::kNotch == WHEEL_DELTA,
+              "mouse_press.h's codes are kiln_ui.h's and Windows'");
+static_assert(WM_MOUSEHWHEEL <= WM_MOUSELAST, "is_mouse_msg covers the horizontal wheel");
 
 struct Msg {
     HWND hwnd;
@@ -64,8 +78,44 @@ std::atomic<uint64_t> g_n_move{0}, g_n_raw{0}, g_n_raw_abs{0}, g_n_buttons{0};
 uint64_t g_last_legacy_move = 0, g_last_stats = 0;
 // Raw mouse buttons stand in for WM_xBUTTON* only until the window has delivered one of those: with both, every
 // click would reach ImGui twice (a Button would toggle twice; the game may drain WM_INPUT ahead of the legacy messages).
-bool g_legacy_buttons_seen = false;
+// The raw wheel likewise stands in for WM_MOUSEWHEEL only until one came (before, a Kiln screen scrolled twice a notch).
+bool g_legacy_buttons_seen = false, g_legacy_wheel_seen = false;
 float g_vx = -1, g_vy = -1;
+
+// The middle and side buttons and the wheel as key presses (mouse_press.h). Window thread.
+mouse::Twins g_twins;            // a raw record or a message that led, for its twin from the other source
+mouse::Notches g_notches;        // the part of a wheel notch turned so far
+bool g_notches_captured = false; // the notches above were turned while Kiln captured input
+bool g_mixed_record_said = false, g_twin_time_said = false;
+
+// The game reads raw input through its own import of user32!GetRawInputData, in its window procedure (no
+// GetRawInputBuffer: docs/re/client-render.md). Kiln's import slot hook (input_install_iat) takes the flags of the
+// presses a key subscriber took out of the record the game reads, while the window procedure hands that WM_INPUT on:
+// motion and the other buttons stay. Null: the slot was not found (the record then reaches the game whole).
+using GetRawInputDataFn = UINT(WINAPI*)(HRAWINPUT, UINT, LPVOID, PUINT, UINT);
+GetRawInputDataFn g_game_raw_read = nullptr;
+bool g_game_raw_read_hooked = false;
+struct RawEdit {
+    HRAWINPUT handle = nullptr;
+    USHORT flags = 0;  // RI_MOUSE_* to take out (a wheel flag takes usButtonData too)
+};
+thread_local RawEdit t_raw_edit;  // the window thread, around the call down the chain only
+
+// Any WM_INPUT read of the record being handed on loses the taken flags; every other read is untouched (the size query
+// too: the record keeps its size).
+UINT WINAPI hk_get_raw_input_data(HRAWINPUT h, UINT cmd, LPVOID data, PUINT size, UINT header) {
+    const UINT n = g_game_raw_read(h, cmd, data, size, header);
+    const RawEdit e = t_raw_edit;
+    if (e.flags && h == e.handle && cmd == RID_INPUT && data && header == sizeof(RAWINPUTHEADER) &&
+        n != static_cast<UINT>(-1) && n >= sizeof(RAWINPUTHEADER) + sizeof(RAWMOUSE)) {
+        auto* ri = static_cast<RAWINPUT*>(data);
+        if (ri->header.dwType == RIM_TYPEMOUSE) {
+            ri->data.mouse.usButtonFlags = static_cast<USHORT>(ri->data.mouse.usButtonFlags & ~e.flags);
+            if (e.flags & (RI_MOUSE_WHEEL | RI_MOUSE_HWHEEL)) ri->data.mouse.usButtonData = 0;
+        }
+    }
+    return n;
+}
 
 using SetCursorPosFn = BOOL(WINAPI*)(int, int);
 using ClipCursorFn = BOOL(WINAPI*)(const RECT*);
@@ -97,10 +147,11 @@ bool is_key_msg(UINT m) {
            m == WM_UNICHAR;
 }
 
-// One key transition: menu key + subscribers. true = keep it from the game.
-bool on_key(uint32_t vk, uint32_t scan, bool down) {
+// One key transition: menu key + subscribers. true = keep it from the game. A mouse button (mouse_press.h) never
+// repeats (a press while it is down means its release was lost) and is not a key for take_pressed_key.
+bool on_key(uint32_t vk, uint32_t scan, bool down, bool from_mouse = false) {
     if (vk == 0 || vk > 255) return false;
-    const bool repeat = down && g_down[vk].load();
+    const bool repeat = down && !from_mouse && g_down[vk].load();
     g_down[vk].store(down);
     KilnUiKey k{};
     k.size = sizeof(k);
@@ -111,17 +162,136 @@ bool on_key(uint32_t vk, uint32_t scan, bool down) {
     k.repeat = repeat ? 1 : 0;
     k.text_input = g_text_input.load() ? 1 : 0;
     k.captured = capturing() ? 1 : 0;
-    if (down && !repeat) {
+    if (down && !repeat && !from_mouse) {
         g_pressed_mods.store(k.mods);
         g_pressed_vk.store(vk);
     }
-    const bool consumed = dispatch_key(k);
+    const bool consumed = dispatch_key(k, from_mouse);
     if (!down) {
         g_consumed[vk] = false;
         return false;  // releases always reach the game
     }
     g_consumed[vk] = consumed;
     return consumed;
+}
+
+// What waiting twins cover of this input (also after the last mouse subscriber left: their decisions stand).
+mouse::Twins::Follow follow_twin(mouse::Source s, uint32_t kind, int32_t delta, uint32_t time) {
+    if (!g_twins.waiting()) return {};
+    const auto f = g_twins.follow(s, kind, delta, time);
+    if (f.matched && f.apart_ms && !g_twin_time_said) {
+        g_twin_time_said = true;
+        logf(KILN_LOG_INFO, "ui: a mouse input's raw record and window message carried message times %d ms apart; Kiln "
+             "paired them (it pairs within %u ms). If a mouse key binding still counts a press twice, send this line "
+             "(said once)", f.apart_ms, mouse::kTolMs);
+    }
+    return f;
+}
+
+// A middle or side button transition from one source: dispatched once per physical transition, whichever of its raw
+// record and its message comes first (mouse_press.h Twins), to the key subscribers that take mouse presses
+// (KILN_UI_KEYS_MOUSE, keys.cpp). true = keep this press from the game. No such subscriber: nothing happens.
+bool mouse_button(mouse::Source s, uint32_t vk, bool down) {
+    const uint32_t kind = mouse::button_kind(vk, down);
+    const auto time = static_cast<uint32_t>(GetMessageTime());
+    if (const auto twin = follow_twin(s, kind, 0, time); twin.matched) return twin.kept;
+    if (!keys_mouse_wanted()) return false;
+    const bool kept = on_key(vk, 0, down, true);
+    g_twins.lead(s, kind, 0, time, kept);
+    return kept;
+}
+
+// One wheel turn from one source: a press per notch it completes, with the modifiers held now (mouse_press.h).
+// true = keep this turn from the game: a notch a subscriber took, or a part of a notch a subscriber would keep (asked as a
+// repeat of the notch's press, so the answer is today's, never a decision carried from an earlier notch). While Kiln
+// captures input the notches come with captured 1 (the Keys page's capture) and the screen scrolls. Only key subscribers
+// with KILN_UI_KEYS_MOUSE get them; with none, nothing happens (a waiting twin's decision still stands).
+bool mouse_wheel(mouse::Source s, int axis, int32_t delta) {
+    if (delta == 0) return false;
+    const uint32_t kind = mouse::wheel_kind(axis, delta);
+    const auto time = static_cast<uint32_t>(GetMessageTime());
+    // twins cover it, wholly or in part (a merged WM_MOUSEWHEEL, a record of two notches): only the rest is new input
+    const auto twin = follow_twin(s, kind, delta, time);
+    if (twin.matched) delta = twin.rest;
+    if (delta == 0 || !keys_mouse_wanted()) return twin.kept;
+    const bool cap = capturing();
+    if (cap != g_notches_captured) {  // a notch begun in a Kiln screen does not end in play, nor the other way
+        g_notches.clear();
+        g_notches_captured = cap;
+    }
+    const int n = g_notches.add(axis, delta);
+    KilnUiKey k{};
+    k.size = sizeof(k);
+    k.vk = mouse::wheel_vk(axis, delta);
+    k.mods = current_mods();
+    k.down = 1;
+    k.text_input = g_text_input.load() ? 1 : 0;
+    k.captured = cap ? 1 : 0;
+    bool kept = false;
+    if (n == 0) {
+        k.repeat = 1;  // a part of a notch: not a press; a subscriber that would take the notch keeps it from the game
+        kept = dispatch_key(k, true);
+    }
+    for (int i = 0; i < std::min(std::abs(n), mouse::kMaxNotchesPerTurn); ++i) kept = dispatch_key(k, true) || kept;
+    g_twins.lead(s, kind, delta, time, kept);
+    return kept || twin.kept;
+}
+
+// Mouse presses run at all: a key subscriber takes them, or a decision waits for its twin.
+bool mouse_presses_wanted() { return keys_mouse_wanted() || g_twins.waiting() != 0; }
+
+constexpr USHORT kRawButtonFlags = RI_MOUSE_LEFT_BUTTON_DOWN | RI_MOUSE_LEFT_BUTTON_UP | RI_MOUSE_RIGHT_BUTTON_DOWN |
+                                   RI_MOUSE_RIGHT_BUTTON_UP | RI_MOUSE_MIDDLE_BUTTON_DOWN | RI_MOUSE_MIDDLE_BUTTON_UP |
+                                   RI_MOUSE_BUTTON_4_DOWN | RI_MOUSE_BUTTON_4_UP | RI_MOUSE_BUTTON_5_DOWN |
+                                   RI_MOUSE_BUTTON_5_UP | RI_MOUSE_WHEEL | RI_MOUSE_HWHEEL;
+
+// The presses a raw mouse record carries (middle and side buttons, presses before releases, and the wheel), dispatched.
+// Returns the record's flags whose presses Kiln keeps from the game. Over a Kiln panel the middle button's press and the
+// wheel are the panel's: no press.
+USHORT raw_mouse_presses(const RAWMOUSE& ms, bool over_panel) {
+    static constexpr struct {
+        uint32_t vk;
+        USHORT down, up;
+    } kButtons[] = {{VK_MBUTTON, RI_MOUSE_MIDDLE_BUTTON_DOWN, RI_MOUSE_MIDDLE_BUTTON_UP},
+                    {VK_XBUTTON1, RI_MOUSE_BUTTON_4_DOWN, RI_MOUSE_BUTTON_4_UP},
+                    {VK_XBUTTON2, RI_MOUSE_BUTTON_5_DOWN, RI_MOUSE_BUTTON_5_UP}};
+    const USHORT f = ms.usButtonFlags;
+    USHORT kept = 0;
+    for (const auto& b : kButtons)
+        if ((f & b.down) && !(over_panel && b.vk == VK_MBUTTON) && mouse_button(mouse::Source::Raw, b.vk, true)) kept |= b.down;
+    for (const auto& b : kButtons)
+        if (f & b.up) mouse_button(mouse::Source::Raw, b.vk, false);
+    // usButtonData holds one wheel's delta: a record turns one wheel
+    const int32_t delta = static_cast<SHORT>(ms.usButtonData);
+    if (!over_panel && (f & RI_MOUSE_WHEEL)) {
+        if (mouse_wheel(mouse::Source::Raw, 0, delta)) kept |= RI_MOUSE_WHEEL;
+    } else if (!over_panel && (f & RI_MOUSE_HWHEEL)) {
+        if (mouse_wheel(mouse::Source::Raw, 1, delta)) kept |= RI_MOUSE_HWHEEL;
+    }
+    return kept;
+}
+
+// The presses a mouse message carries (middle and side buttons, the wheel), dispatched. true = a press Kiln keeps from
+// the game. Over a Kiln panel the middle button and the wheel are the panel's: no press.
+bool message_mouse_presses(UINT m, WPARAM w, bool over_panel) {
+    using mouse::Source;
+    switch (m) {
+        case WM_MBUTTONDOWN:
+        case WM_MBUTTONDBLCLK: return !over_panel && mouse_button(Source::Message, VK_MBUTTON, true);
+        case WM_MBUTTONUP: mouse_button(Source::Message, VK_MBUTTON, false); return false;
+        case WM_XBUTTONDOWN:
+        case WM_XBUTTONDBLCLK:
+        case WM_XBUTTONUP: {
+            const bool down = m != WM_XBUTTONUP;
+            bool kept = false;
+            if (GET_XBUTTON_WPARAM(w) & XBUTTON1) kept = mouse_button(Source::Message, VK_XBUTTON1, down) || kept;
+            if (GET_XBUTTON_WPARAM(w) & XBUTTON2) kept = mouse_button(Source::Message, VK_XBUTTON2, down) || kept;
+            return down && kept;
+        }
+        case WM_MOUSEWHEEL: return !over_panel && mouse_wheel(Source::Message, 0, GET_WHEEL_DELTA_WPARAM(w));
+        case WM_MOUSEHWHEEL: return !over_panel && mouse_wheel(Source::Message, 1, GET_WHEEL_DELTA_WPARAM(w));
+        default: return false;
+    }
 }
 
 // Releases can go to the newly focused window. Forget local repeat/consumption state without inventing key messages
@@ -132,6 +302,8 @@ void forget_keys() {
         g_consumed[vk] = false;
     }
     g_pressed_vk.store(0, std::memory_order_relaxed);
+    g_twins.clear();
+    g_notches.clear();
 }
 
 // A Kiln panel next to a game screen (set_hover_capture) has the mouse over it: its clicks and wheel are Kiln's.
@@ -313,6 +485,11 @@ LRESULT CALLBACK wndproc(HWND h, UINT m, WPARAM w, LPARAM l) {
                     return 0;
                 } else if (ri->header.dwType == RIM_TYPEMOUSE && cap) {
                     const RAWMOUSE& ms = ri->data.mouse;
+                    // middle and side buttons and wheel notches go to the key subscribers with captured 1 (the Keys
+                    // page takes one for a binding); a notch taken there does not scroll the screen too
+                    const USHORT taken = (ms.usButtonFlags & kRawButtonFlags) && mouse_presses_wanted()
+                                             ? raw_mouse_presses(ms, false) & (RI_MOUSE_WHEEL | RI_MOUSE_HWHEEL)
+                                             : 0;
                     // a release the game saw the press of (e.g. the click that opened a Kiln screen) still reaches
                     // it, like key releases: nothing stays held
                     constexpr USHORT kUp = RI_MOUSE_LEFT_BUTTON_UP | RI_MOUSE_RIGHT_BUTTON_UP | RI_MOUSE_MIDDLE_BUTTON_UP |
@@ -324,12 +501,43 @@ LRESULT CALLBACK wndproc(HWND h, UINT m, WPARAM w, LPARAM l) {
                     if (ms.usFlags & MOUSE_MOVE_ABSOLUTE) g_n_raw_abs.fetch_add(1, std::memory_order_relaxed);
                     const WPARAM pw = static_cast<WPARAM>(static_cast<uint32_t>(ms.lLastX)) |
                                       (static_cast<WPARAM>(static_cast<uint32_t>(ms.lLastY)) << 32);
-                    const LPARAM pl = static_cast<LPARAM>(ms.usFlags) | (static_cast<LPARAM>(ms.usButtonFlags) << 16) |
+                    const LPARAM pl = static_cast<LPARAM>(ms.usFlags) |
+                                      (static_cast<LPARAM>(static_cast<USHORT>(ms.usButtonFlags & ~taken)) << 16) |
                                       (static_cast<LPARAM>(static_cast<uint16_t>(ms.usButtonData)) << 32);
                     enqueue(h, kRawMouseMsg, pw, pl);
                     if (release_only) break;
                     DefWindowProcW(h, m, w, l);
                     return 0;
+                } else if (ri->header.dwType == RIM_TYPEMOUSE && (ri->data.mouse.usButtonFlags & kRawButtonFlags) &&
+                           mouse_presses_wanted()) {
+                    // play: middle and side buttons and wheel notches as key presses. A record holding only presses a
+                    // subscriber took is kept from the game whole, as a key's; one that also holds motion or another
+                    // button's or the wheel's input reaches the game with only the taken flags taken out (the import hook)
+                    const RAWMOUSE& ms = ri->data.mouse;
+                    const USHORT kept = raw_mouse_presses(ms, hover_capture());
+                    // a kept press's own release in the same record (a very fast click) needs no game either
+                    constexpr USHORT kPresses = RI_MOUSE_MIDDLE_BUTTON_DOWN | RI_MOUSE_BUTTON_4_DOWN | RI_MOUSE_BUTTON_5_DOWN;
+                    const USHORT own = kept | static_cast<USHORT>((kept & kPresses) << 1);  // each *_UP is its *_DOWN << 1
+                    if (kept) {
+                        const bool moved = ms.lLastX != 0 || ms.lLastY != 0 || (ms.usFlags & MOUSE_MOVE_ABSOLUTE);
+                        if (!moved && !(ms.usButtonFlags & kRawButtonFlags & ~own)) {
+                            DefWindowProcW(h, m, w, l);  // lets the system clean up the raw input
+                            return 0;
+                        }
+                        if (g_game_raw_read_hooked) {
+                            const RawEdit outer = t_raw_edit;
+                            t_raw_edit = {reinterpret_cast<HRAWINPUT>(l), own};
+                            const LRESULT r = CallWindowProcW(g_chain.below, h, m, w, l);
+                            t_raw_edit = outer;
+                            return r;
+                        }
+                        if (!g_mixed_record_said) {
+                            g_mixed_record_said = true;
+                            logf(KILN_LOG_INFO, "ui: a raw mouse record held a press a key binding took and other input "
+                                 "(flags 0x%x): with no GetRawInputData import of the game to edit, it reached the game "
+                                 "whole (said once)", ms.usButtonFlags);
+                        }
+                    }
                 }
             }
             break;
@@ -394,8 +602,12 @@ LRESULT CALLBACK wndproc(HWND h, UINT m, WPARAM w, LPARAM l) {
                 if (fed) feed_button_message(m, w, l);
                 if (m == WM_MOUSEMOVE) g_n_move.fetch_add(1, std::memory_order_relaxed);
                 else if (m != WM_MOUSELEAVE && m != WM_NCMOUSEMOVE) g_n_buttons.fetch_add(1, std::memory_order_relaxed);
-                enqueue(h, m, w, l);
+                // middle and side buttons and wheel notches as key presses (once with their raw records)
+                const bool kept = m != WM_MOUSEMOVE && mouse_presses_wanted() && message_mouse_presses(m, w, !cap && hover_capture());
+                const bool wheel = m == WM_MOUSEWHEEL || m == WM_MOUSEHWHEEL;
+                if (!(cap && kept && wheel)) enqueue(h, m, w, l);  // a notch the Keys page took does not scroll it too
                 if (cap && !is_button_up(m)) return 0;  // releases reach the game (see WM_INPUT)
+                if (kept) return (m == WM_XBUTTONDOWN || m == WM_XBUTTONDBLCLK) ? TRUE : 0;  // a key binding took it
                 // presses and the wheel over a Kiln panel are Kiln's; releases always reach the game (no stuck drag)
                 if ((m == WM_LBUTTONDOWN || m == WM_RBUTTONDOWN || m == WM_MBUTTONDOWN || m == WM_LBUTTONDBLCLK ||
                      m == WM_RBUTTONDBLCLK || m == WM_MOUSEWHEEL || m == WM_MOUSEHWHEEL) && hover_capture())
@@ -591,8 +803,16 @@ void input_install_iat() {
     void* b = patch_iat(exe, "USER32.dll", "ClipCursor", reinterpret_cast<void*>(&hk_clip_cursor));
     if (a) g_real_set_cursor_pos = reinterpret_cast<SetCursorPosFn>(a);
     if (b) g_real_clip_cursor = reinterpret_cast<ClipCursorFn>(b);
-    logf(a && b ? KILN_LOG_INFO : KILN_LOG_WARN, "ui: cursor import slots: SetCursorPos %s, ClipCursor %s", a ? "hooked" : "not found",
-         b ? "hooked" : "not found");
+    // the raw-input read: set before the slot points at the hook (the window thread may call it at once)
+    if (!g_game_raw_read)
+        g_game_raw_read = reinterpret_cast<GetRawInputDataFn>(GetProcAddress(GetModuleHandleW(L"user32.dll"), "GetRawInputData"));
+    void* c = g_game_raw_read ? patch_iat(exe, "USER32.dll", "GetRawInputData", reinterpret_cast<void*>(&hk_get_raw_input_data)) : nullptr;
+    if (c) {
+        g_game_raw_read = reinterpret_cast<GetRawInputDataFn>(c);
+        g_game_raw_read_hooked = true;
+    }
+    logf(a && b ? KILN_LOG_INFO : KILN_LOG_WARN, "ui: cursor import slots: SetCursorPos %s, ClipCursor %s; GetRawInputData %s",
+         a ? "hooked" : "not found", b ? "hooked" : "not found", c ? "hooked (a taken mouse press leaves the record the game reads)" : "not found");
 }
 
 namespace {
@@ -679,6 +899,13 @@ void input_replay() {
                 logf(KILN_LOG_INFO, "ui: the game window delivers mouse button messages; raw buttons ignored");
                 break;
             }
+    if (!g_legacy_wheel_seen)
+        for (const auto& m : q)
+            if (m.msg == WM_MOUSEWHEEL) {
+                g_legacy_wheel_seen = true;
+                logf(KILN_LOG_INFO, "ui: the game window delivers wheel messages; the raw wheel ignored");
+                break;
+            }
     for (const auto& m : q) {
         if (m.msg == WM_MOUSEMOVE) g_last_legacy_move = t;
         if (m.msg != kRawMouseMsg) {
@@ -721,7 +948,7 @@ void input_replay() {
             if (buttons & RI_MOUSE_MIDDLE_BUTTON_DOWN) io.AddMouseButtonEvent(2, true);
             if (buttons & RI_MOUSE_MIDDLE_BUTTON_UP) io.AddMouseButtonEvent(2, false);
         }
-        if (buttons & RI_MOUSE_WHEEL) io.AddMouseWheelEvent(0, static_cast<float>(data) / WHEEL_DELTA);
+        if ((buttons & RI_MOUSE_WHEEL) && !g_legacy_wheel_seen) io.AddMouseWheelEvent(0, static_cast<float>(data) / WHEEL_DELTA);
     }
     if (capturing()) feed_pad(io);
     // one line per capture, 2 s in: which input reaches the overlay (was every 2 s while open)
@@ -823,7 +1050,8 @@ void key_name(uint32_t vk, char* out, size_t cap) {
                  {VK_DIVIDE, "NumpadDivide"}, {VK_LSHIFT, "LeftShift"}, {VK_RSHIFT, "RightShift"},
                  {VK_LCONTROL, "LeftCtrl"}, {VK_RCONTROL, "RightCtrl"}, {VK_LMENU, "LeftAlt"}, {VK_RMENU, "RightAlt"},
                  {VK_SHIFT, "Shift"}, {VK_CONTROL, "Ctrl"}, {VK_MENU, "Alt"}, {VK_XBUTTON1, "Mouse4"}, {VK_XBUTTON2, "Mouse5"},
-                 {VK_MBUTTON, "MouseMiddle"}};
+                 {VK_MBUTTON, "MouseMiddle"}, {KILN_UI_VK_WHEEL_UP, "WheelUp"}, {KILN_UI_VK_WHEEL_DOWN, "WheelDown"},
+                 {KILN_UI_VK_WHEEL_LEFT, "WheelLeft"}, {KILN_UI_VK_WHEEL_RIGHT, "WheelRight"}};
     for (const auto& n : names)
         if (n.vk == vk) {
             std::snprintf(out, cap, "%s", n.name);

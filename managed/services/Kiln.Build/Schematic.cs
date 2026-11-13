@@ -50,9 +50,13 @@ public sealed class PasteOptions
 
 /// <summary>What a paste did.</summary>
 public sealed record PasteResult(CellBox Box, BuildResult Cells, int PropsPlaced, int PropsFailed, int PropsCleared, long JournalId,
-    IReadOnlyList<EntityId> Props)
+    IReadOnlyList<EntityId> Props) : IKilnResult
 {
     public bool Ok => !Cells.Refused && PropsFailed == 0;
+
+    /// <summary>Why the paste is not ok: the cells' refusal (<see cref="BuildResult.Reason"/>), else how many props
+    /// could not be placed; null when <see cref="Ok"/>. Since 0.2.0-dev.27.</summary>
+    public string? Reason => Ok ? null : Cells.Refused ? Cells.Reason : $"{PropsFailed} of {PropsPlaced + PropsFailed} props could not be placed";
 }
 
 /// <summary>Capture settings.</summary>
@@ -299,6 +303,8 @@ public sealed class Schematic
 
     /// <summary>Captures the cells of <paramref name="box"/> and the props in it (tiles must be loaded; see
     /// <see cref="CaptureAsync"/>).</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.build")]
     public static Schematic Capture(CellBox box, CaptureOptions? options = null)
     {
         var o = options ?? new CaptureOptions();
@@ -330,6 +336,8 @@ public sealed class Schematic
     }
 
     /// <summary>Loads the tiles under the box, then <see cref="Capture"/>s.</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.build")]
     public static async Task<Schematic> CaptureAsync(CellBox box, CaptureOptions? options = null)
     {
         var o = options ?? new CaptureOptions();
@@ -339,6 +347,8 @@ public sealed class Schematic
 
     /// <summary>The cell box a paste at <paramref name="at"/> covers (the anchor cell lands on the cell of
     /// <paramref name="at"/>).</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.build")]
     public CellBox TargetBox(WorldPosition at, int rotation = 0, CellPos offset = default)
     {
         var s = Rotated(rotation);
@@ -348,6 +358,8 @@ public sealed class Schematic
 
     /// <summary>Pastes at <paramref name="at"/> (the anchor cell lands on its cell), turned and offset as asked. One
     /// journal entry (cells and props) for <see cref="Build.Undo"/>.</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.build")]
     public async Task<PasteResult> Paste(WorldPosition at, PasteOptions? options = null)
     {
         var o = options ?? new PasteOptions();
@@ -358,6 +370,8 @@ public sealed class Schematic
 
     /// <summary>Pastes with the low corner at a cell (no rotation is applied here: rotate first with
     /// <see cref="Rotated"/>).</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.build")]
     public async Task<PasteResult> PasteAt(CellPos corner, PasteOptions? options = null)
     {
         var o = options ?? new PasteOptions();

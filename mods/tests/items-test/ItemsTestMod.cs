@@ -7,8 +7,9 @@ namespace ItemsTest;
 /// <summary>
 /// kiln.items lab test (no player connected): finds a container in the copied world, reads it, gives a stack, reads
 /// back, takes it back out slot by slot, reads again (net zero); gives one piece of gear with a level and rarity and
-/// removes it again; checks the refusals (unknown item, not enough, no inventory, dry run, wrong slot). Every check
-/// logs one PASS or FAIL line; the container ends exactly as it started.
+/// removes it again; checks the refusals (unknown item, not enough, no inventory, dry run, wrong slot); equips and unequips
+/// on a spawned player character (EquipTest.cs). Every check logs one PASS or FAIL line; the container ends exactly as it
+/// started.
 /// </summary>
 public sealed partial class ItemsTestMod : Mod
 {
@@ -112,6 +113,12 @@ public sealed partial class ItemsTestMod : Mod
         Check(!chest.IsNone, $"chose container {chest} ({candidates.Count} candidates with >= 3 free slots)");
         if (chest.IsNone) return;
         var second = candidates.Where(c => c.E != chest).Select(c => c.E).FirstOrDefault();
+        if (File.Exists(Path.Combine(Context.DataDirectory, "equip-only")))
+        {
+            // kiln/data/items-test/equip-only: the equip checks alone (v5), on a spawned player character
+            await RunEquip(chest);
+            return;
+        }
         if (ProbePresent())
         {
             // shroudlink's probe mod keeps wood out of every quick stack, which would change the checks below: this run is
@@ -210,6 +217,9 @@ public sealed partial class ItemsTestMod : Mod
         await RunV3(chest, second, wood, sword);
         final = Items.Read(chest)!;
         Check(Snapshot(final) == original, $"container {chest} still ends as it started after the v3 checks: {Describe(final)}");
+
+        // ---- 6c. kiln.items v5: equip and unequip on a spawned player character ----
+        await RunEquip(chest);
 
         // ---- 7. opt-in: leave items in the container for a save + restart (kiln/data/items-test/persist.request) ----
         if (File.Exists(Path.Combine(Context.DataDirectory, "persist.request")) && sword is { IsGear: true })

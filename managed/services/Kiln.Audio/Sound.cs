@@ -137,8 +137,9 @@ public sealed record AudioStatus(
 /// </remarks>
 public static unsafe class Sound
 {
-    /// <summary>Client: kiln.audio runs and the game's sound system is captured. Server: at least one Kiln client has
-    /// the relay channel (otherwise nobody would hear anything).</summary>
+    /// <summary>Client: kiln.audio runs and the game's sound system is captured (capabilities <c>kiln.audio</c>,
+    /// <c>audio.play</c>). Server: at least one Kiln client has the relay channel (otherwise nobody would hear
+    /// anything; capability <c>audio.relay</c>, which <see cref="Capabilities.Why"/> explains).</summary>
     public static bool Available => AudioCore.ServerSide ? AudioRelay.HasListeners : AudioCore.LocalAvailable;
 
     /// <summary>A sound without a position (UI style). <paramref name="scene"/> null: the cue's cooked default
@@ -211,6 +212,7 @@ public static unsafe class Sound
     }
 
     /// <summary>Changes a playing sound's volume (0..1), optionally fading.</summary>
+    [AnyThread]
     public static void SetVolume(SoundHandle h, float volume, TimeSpan fade = default)
     {
         var t = AudioNative.T;
@@ -219,6 +221,7 @@ public static unsafe class Sound
     }
 
     /// <summary>Moves a playing sound (ends following an entity).</summary>
+    [AnyThread]
     public static void SetPosition(SoundHandle h, WorldPosition at)
     {
         var t = AudioNative.T;
@@ -229,9 +232,11 @@ public static unsafe class Sound
 
     /// <summary>True while the sound is queued or playing (false once a one-shot ended, after <see cref="Stop"/>, for
     /// unknown handles, and for server handles).</summary>
+    [AnyThread]
     public static bool IsPlaying(SoundHandle h) => State(h) is SoundState.Pending or SoundState.Playing;
 
     /// <summary>The handle's state (client).</summary>
+    [AnyThread]
     public static SoundState State(SoundHandle h)
     {
         var t = AudioNative.T;
@@ -240,6 +245,7 @@ public static unsafe class Sound
     }
 
     /// <summary>Details of a handle (client), null when unknown.</summary>
+    [AnyThread]
     public static SoundInfo? Info(SoundHandle h)
     {
         var t = AudioNative.T;
@@ -285,6 +291,7 @@ public static unsafe class Sound
     }
 
     /// <summary>What a mod's cook says about a cue (null: not a cooked cue of a loaded mod, e.g. vanilla).</summary>
+    [AnyThread]
     public static CueInfo? Describe(SoundId cue)
     {
         if (CookIndex.Cue(cue.Cue) is null) CookIndex.ScanLoadedMods();
@@ -292,6 +299,7 @@ public static unsafe class Sound
     }
 
     /// <summary>kiln.audio's state (client), null on a server or unsupported build.</summary>
+    [AnyThread]
     public static AudioStatus? Status
     {
         get
@@ -311,6 +319,7 @@ public static unsafe class Sound
     }
 
     /// <summary>Diagnostics as JSON (status, recent handles, the game's own SoundStart threads).</summary>
+    [AnyThread]
     public static string StatusJson()
     {
         var t = AudioNative.T;

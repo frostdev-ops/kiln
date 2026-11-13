@@ -39,6 +39,17 @@ public sealed class MyMod : Mod
 - Producing an event lazily: an event class's static constructor runs when the first handler subscribes to that class
   (`PlayerJoinedEvent` starts its pump that way). Build events only when `HasSubscribers<T>()`.
 - Per-handler timing: `EventSubscription.Stats` (calls, total/avg/max ms, faults).
+- **Filters (dev.27):** `Events.On<T>(handler, EventFilter.ForEntity(doll))` (or `ForEntities(...)`, or
+  `new EventFilter { Entities = ... }`) runs the handler only for events about those entities. The event type says which
+  entities it is about by implementing `IEntityEvent.Involves(entity)`; an entity filter on a type that does not throws
+  `ArgumentException`. Kiln.Combat's events do (a hit: target, part hit, attacker, source; a death: victim, killer,
+  source; ...): a filter on a creature gets the hits it takes and the hits it deals (its attack on a player has the
+  player as `Target`), so a handler that wants only the first tests `e.Target`. A service that holds work for its handlers asks the bus for the union of their filters: kiln.combat
+  holds only the hits that name a watched entity, every other hit applies at once (one handler without a filter, also a
+  `KilnEvent` catch-all, holds every hit again) ([services/combat.md](services/combat.md)). `EventSubscription.Filter`
+  says what a subscription has. `[Subscribe]` methods take no filter: subscribe with `Events.On` for one. Filters by
+  template or component are not there: a handler checks those itself. Tests: `Kiln.Api.Tests/EventFilterTests.cs`; lab
+  `mods/tests/event-filter-test` (BetterDummies' case).
 
 ## The service tick (internal)
 `ServiceTick` (Events*.cs) gives Kiln's services one tick without a mod of their own: event pumps, the config and
@@ -56,6 +67,8 @@ Requested host change: call `ServiceTick.Run(tick)` at the start of `HostRuntime
 | `CommandExecutedEvent` | Kiln.Chat | after a command ran, failed to parse, failed or was canceled | - | - (`Result`, `ElapsedMs`) |
 | `PlayerJoinedEvent` / `PlayerLeftEvent` | Kiln.Players | start of the step after kiln.players saw it (same moment as `Players.Joined/Left`); players already in game when you subscribe raise nothing | - | - |
 | `TimeSetEvent` | Kiln.Time | right after `Time.Set` (any mod; `By` = mod id); not for in-game changes | - | - |
+| `TimeSpeedChangedEvent` | Kiln.Time | right after `Time.SetSpeed` / `SetCycle` changed the held clock speed (`Before`, `After`, `By`); a change made inside its own dispatch waits for the next step | - | - |
+| `ImpactVariableChangedEvent` | Kiln.Abilities | right after `ImpactInstance.Write` (or `Set`) changed a live instance's variable; a change made inside its own dispatch waits for the next step and is dropped if the instance has ended by then | - | - |
 | `DayStartedEvent` / `NightStartedEvent` | Kiln.Time | the day/night phase flipped (also by a set or sleeping); sampled every 12 steps while someone listens | - | - |
 | `SettingChangedEvent` | Kiln.Settings | after `Settings.Set/Reset/ResetAll` changed a value (`By` = mod), or within ~1 s for changes outside Kiln (`By` = "game", polled on the settings revision while someone listens) | - | - |
 | `EntitySpawnedEvent` | Kiln.Spawn | right after `Spawn.Entity/Group/Item` created an entity (not the game's own spawns) | - | - |
@@ -63,6 +76,11 @@ Requested host change: call `ServiceTick.Run(tick)` at the start of `HostRuntime
 | `ItemsGivenEvent` / `ItemsTakenEvent` (base `ItemsTransactionEvent`) | Kiln.Items | when a Kiln.Items give/take completes with something moved (not dry runs), before the caller's task continues | - | - |
 | `WaterRefilledEvent` | Kiln.Items | Pre, at most once per step and refill policy (`Items.Fuel.Refill`), with every container it gave water back since the last one | - | - |
 | `InventoryTransferEvent` | Kiln.Items | Pre of the step after the game's quick stack or move all ran (a player's R key, a Quick Stack Station, `Items.QuickStack` / `MoveAll`), except dry-run moves, while a handler subscribes: `Kind`, `From`, `To`, `Player`, `ByMod`, `Canceled`, `Moved`, `Kept`. Nothing is hooked until someone subscribes or adds an `Items.Transfers` rule | - (it ran; use `Items.Transfers` rules, [modding/inventory.md](modding/inventory.md)) | - |
+| `PlayerProgressionChangedEvent` | Kiln.Players | when a Kiln progression request completed that changed a player's experience or skill points (`What`, `Before`, `After`, `Request`, `Origin`), before the caller's task continues; only what the request changed, and only while the player it was made for is still there | - | - |
+| `PlayerKickedEvent` | Kiln.Players | after the login failure of `Players.Kick`, `Network.Kick`, a ban or a login refusal went out (or the connection left on the refusal first) | - | - |
+| `PlayerBannedEvent` / `PlayerUnbannedEvent` | Kiln.Players | right after `Bans.Add` / `Bans.Remove` (also `/ban`, `/unban`); not when a ban runs out | - | - |
+| `PlayerLoginEvent` | Kiln.Players (posted by Kiln.Network) | once per connection, when it first names its player (Kiln.Network's server tick, about once a second); not for a banned player | refuse the connection: Kiln's REJECT with `Reason` (a Kiln client shows it), then the game's login failure | `Reason` |
+| `BuffRemovedEvent` | Kiln.Abilities | when an `Abilities.RemoveBuff` took a buff off (the game's removeBuff said so), before the caller's task continues; not for buffs that run out or that the game's programs remove | - | - |
 | `PlayerRulesChangedEvent` | Kiln.Rules | when a player's combined rules change (a rule set applied, updated or ended; an area entered or left; a duration ran out) | - | - |
 | `ConfigChangedEvent` | Kiln.Api | a config's values changed while running (file edit or `ConfigFile.Set`), after the new values are in place | - | - |
 | `PermissionsChangedEvent` | Kiln.Permissions | permissions.json reloaded/edited or the server's user groups changed | - | - |

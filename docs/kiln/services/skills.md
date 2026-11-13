@@ -70,7 +70,9 @@ through kiln.gamedata's `skills` section on the new node's `0x` id. Its registry
   index map 261 of 1024, id list 261 of 512".
 - **Dedicated server:** managed mods load after the world has read its tree, so put game-tree nodes in
   `skills/*.json`. A definition from code is cached (`kiln/data/skills/defined/<mod>.json`) and is in from the next
-  start, as long as the mod is in the load order.
+  start, as long as the mod is in the load order. A mod built with Kiln.Sdk has its `GameTree.Define` nodes at the
+  first start: the build bakes them into `skills/<mod>.generated.json`, and a node the code defines again as baked is
+  left in the tree ([../modding/baked.md](../modding/baked.md)).
 - **Client:** mods load in the main menu, so code definitions are in time for every world. One build serves every
   world of the process (the hosted server world and the client world must agree). Definitions that change while a
   world holds the tree wait for the next world (`status.pending`).
@@ -478,3 +480,17 @@ with "skills-test done: N PASS, 0 FAIL". Admin password:
 
 ### Afterwards (game closed)
 Stop the lab, restore the save backup (the whole LOCAL folder, `backup/` included), and `tools/client/client.sh undeploy --real`.
+
+## The contract (dev.27)
+
+Kiln.Skills follows [the API contract](../modding/contract.md).
+
+- **Capabilities.** `kiln.skills` and its server-side sigdb features `skills.functions`, `skills.login_guard`,
+  `skills.shadow`, `skills.tree_load` (lowered by Kiln.Skills when the service is not loaded). Kiln's own talent trees
+  (`Skills`) are managed and need no capability; nodes in the game's tree (`GameTree.Define`, `DefineJson`, `Dump`,
+  `Resource`) carry `[RequiresCapability("kiln.skills")]` and throw `KilnUnavailableException` naming it (a
+  `NotSupportedException`, as before).
+- **Results.** `TalentResult` implements `IKilnResult`: through the interface `Reason` is null when `Ok`; the record's
+  own `Reason` keeps its text (empty when ok), as before.
+- **Threads.** `[TickThreadOnly]` on the calls that read or change a holder's state.
+- **Events.** `TalentUnlockingEvent` (cancelable) and `TalentChangedEvent` cover every write.

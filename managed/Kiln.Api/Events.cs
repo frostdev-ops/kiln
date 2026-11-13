@@ -118,8 +118,9 @@ public readonly record struct EventHandlerStats(long Calls, double TotalMs, doub
 public sealed class EventSubscription : IDisposable
 {
     internal EventSubscription(Type type, Delegate handler, EventPriority priority, bool receiveCanceled, ModContext? mod,
-        long order)
+        long order, EventFilter? filter = null)
     {
+        Filter = filter;
         Type = type;
         Handler = handler;
         Priority = priority;
@@ -133,6 +134,10 @@ public sealed class EventSubscription : IDisposable
     public Type Type { get; }
     public EventPriority Priority { get; }
     public bool ReceiveCanceled { get; }
+
+    /// <summary>What this handler receives (<see cref="Events.On{T}(Action{T}, EventFilter, EventPriority, bool)"/>); null:
+    /// every event of its type. Since 0.2.0-dev.27.</summary>
+    public EventFilter? Filter { get; }
 
     /// <summary>Id of the mod that subscribed ("kiln" for Kiln's own code).</summary>
     public string Owner { get; }
@@ -172,7 +177,7 @@ public sealed record EventHandlerInfo(string Event, string Owner, string Handler
 /// throws <see cref="MaxFaults"/> times is removed.</para>
 /// <para>Dispatch works on a snapshot: a handler may post other events (up to <see cref="MaxDepth"/> levels deep),
 /// subscribe (the new handler sees the next post, not the current one) or unsubscribe (takes effect at once: a removed
-/// handler later in the current dispatch does not run). <see cref="On{T}"/>, <see cref="Register"/> and
+/// handler later in the current dispatch does not run). <see cref="On{T}(Action{T}, EventPriority, bool)"/>, <see cref="Register"/> and
 /// <c>Dispose</c> work from any thread; <see cref="HasSubscribers{T}"/> is lock-free and costs two memory reads.</para>
 /// </remarks>
 public static class Events
@@ -208,6 +213,54 @@ public static class Events
         ArgumentNullException.ThrowIfNull(handler);
         return Add(typeof(T), handler, priority, receiveCanceled, e => handler((T)e), null);
     }
+
+    /// <summary>Subscribes <paramref name="handler"/> to the events of <typeparamref name="T"/> that pass
+    /// <paramref name="filter"/>: with <see cref="EventFilter.Entities"/>, only events about one of those entities
+    /// (<see cref="IEntityEvent"/>). A service that holds something for its handlers (kiln.combat holds every hit while
+    /// a handler wants hits) holds only what some handler's filter lets through, so watching one entity does not slow
+    /// the rest of the world. Since 0.2.0-dev.27.</summary>
+    /// <exception cref="ArgumentNullException"><paramref name="handler"/> or <paramref name="filter"/> is null.</exception>
+    /// <exception cref="ArgumentException">An entity filter on events that do not say which entities they are about
+    /// (<typeparamref name="T"/> is not an <see cref="IEntityEvent"/>), or an entity filter with no entity.</exception>
+    [AnyThread]
+    public static EventSubscription On<T>(Action<T> handler, EventFilter filter, EventPriority priority = EventPriority.Normal,
+        bool receiveCanceled = false) where T : KilnEvent
+    {
+        ArgumentNullException.ThrowIfNull(handler);
+        ArgumentNullException.ThrowIfNull(filter);
+        if (filter.Entities is { } entities)
+        {
+            if (!typeof(IEntityEvent).IsAssignableFrom(typeof(T)))
+                throw new ArgumentException($"{typeof(T).Name} does not say which entities it is about (it is no IEntityEvent): an entity filter cannot apply", nameof(filter));
+            if (entities.Count == 0) throw new ArgumentException("an entity filter names no entity", nameof(filter));
+        }
+        return Add(typeof(T), handler, priority, receiveCanceled, e => handler((T)e), null, filter);
+    }
+
+    /// <summary>The entities the handlers of <paramref name="type"/> filter for, for a service that holds work for them
+    /// (kiln.combat's hit hold): null when any handler takes every event of the type (no entity filter), else the union of
+    /// their entity filters. Any thread; computed on demand (cache it by <see cref="Version"/>).</summary>
+    internal static IReadOnlySet<EntityId>? EntityFilterUnion(Type type)
+    {
+        HashSet<EntityId>? union = null;
+        foreach (var sub in HandlersFor(type))
+        {
+            if (!sub.Active) continue;
+            if (sub.Filter?.Entities is not { } set) return null;
+            (union ??= []).UnionWith(set);
+        }
+        return union ?? (IReadOnlySet<EntityId>)new HashSet<EntityId>();
+    }
+
+    /// <summary>Changes whenever a subscription is added or removed (wraps around). Any thread.</summary>
+    internal static int Version => Volatile.Read(ref _version);
+
+    /// <summary>Raised when a subscription was added, on the subscribing thread, before <c>On</c> returns and outside the
+    /// bus's lock: a service that holds work for subscribers (<see cref="EntityWatch"/>) widens what it holds at once.</summary>
+    internal static event Action? SubscriptionAdded;
+
+    /// <summary>As <see cref="SubscriptionAdded"/>, with the event type subscribed to (<see cref="ServiceUse"/>).</summary>
+    internal static event Action<Type>? SubscriptionTypeAdded;
 
     /// <summary>Subscribes every <see cref="SubscribeAttribute"/> method of <paramref name="target"/> (instance and
     /// static methods of its type; pass a <see cref="Type"/> for its static methods only). Kiln calls this for each
@@ -290,6 +343,7 @@ public static class Events
             foreach (var sub in handlers)
             {
                 if (!sub.Active) continue;
+                if (sub.Filter is { } filter && !filter.Passes(ev)) continue;
                 var wasCanceled = cancelable is { Canceled: true };
                 if (wasCanceled && !sub.ReceiveCanceled) continue;
                 var mod = sub.Mod;
@@ -479,7 +533,7 @@ public static class Events
     }
 
     private static EventSubscription Add(Type type, Delegate handler, EventPriority priority, bool receiveCanceled,
-        Action<object> invoke, object? target)
+        Action<object> invoke, object? target, EventFilter? filter = null)
     {
         if (!typeof(KilnEvent).IsAssignableFrom(type)) throw new ArgumentException($"{type} is not a KilnEvent");
         var mod = ModContext.CurrentMod;
@@ -487,7 +541,7 @@ public static class Events
         EventSubscription sub;
         lock (Lock)
         {
-            sub = new EventSubscription(type, handler, priority, receiveCanceled, mod, ++_order)
+            sub = new EventSubscription(type, handler, priority, receiveCanceled, mod, ++_order, filter)
             {
                 Invoke = invoke,
                 Target = target,
@@ -503,6 +557,15 @@ public static class Events
             if (!mod.Alive) RemoveAll(mod);
         }
         StartProducers(type);
+        try
+        {
+            SubscriptionAdded?.Invoke();
+            SubscriptionTypeAdded?.Invoke(type);
+        }
+        catch (Exception e)
+        {
+            Backend.Current.Log(0, LogLevel.Warn, $"events: a service could not follow the new subscription to {type.Name}: {e.Message}");
+        }
         return sub;
     }
 

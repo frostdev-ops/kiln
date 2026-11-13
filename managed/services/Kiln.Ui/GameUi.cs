@@ -204,6 +204,7 @@ public sealed class ScreenChangedEvent(GameScreen previous, GameScreen current) 
 public static unsafe partial class Ui
 {
 /// <summary>The game's screens (client): <c>Ui.Screens.Current</c>, <c>Ui.Screens.Changed</c>.</summary>
+[ClientOnly]
 public static class Screens
 {
     private static StrongBox<GameScreen> _current = new(GameScreen.None);  // replaced whole: readers never see a torn value
@@ -212,6 +213,7 @@ public static class Screens
     private static readonly OwnedList<Action<GameScreen>> TickHandlers = new();
 
     /// <summary>The screen kiln.ui reads from the game's UI (any thread). <see cref="GameScreen.None"/> when not available.</summary>
+    [AnyThread]
     public static GameScreen Current
     {
         get
@@ -356,6 +358,7 @@ public sealed class MenuEntry : IDisposable
     public Action OnClick { get; set; }
 
     /// <summary>The label (any thread; per language).</summary>
+    [AnyThread]
     public UiText Text
     {
         get => _text;
@@ -396,6 +399,7 @@ public sealed class MenuEntry : IDisposable
 public static unsafe partial class Ui
 {
 /// <summary>Entries in the game's own menus (Forge: adding buttons in ScreenEvent.Init): <c>Ui.Menus.Add</c>.</summary>
+[ClientOnly]
 public static class Menus
 {
     private static readonly object Lock = new();
@@ -406,7 +410,10 @@ public static class Menus
 
     /// <summary>Adds an entry to the main menu or the pause menu. Lower <paramref name="order"/> first; Kiln's own
     /// "Mods" entry has order 1000. Owned by the calling mod. Returns null when this menu is not available (dedicated
-    /// server, unsupported build).</summary>
+    /// server, unsupported build). The game's menus do not scroll by themselves. By default (the player's Kiln setting
+    /// <c>modEntries</c>: Auto, Few, Always, Never) the pause menu draws every entry where Kiln can make it scroll,
+    /// and a menu that cannot scroll draws mods' entries only while it has at most 3 of them; an entry that is not
+    /// drawn is chosen from Kiln's Mods page ("Menu entries") instead, and <c>OnClick</c> runs the same way.</summary>
     public static MenuEntry? Add(MenuLocation where, UiText text, Action onClick, int order = 0)
     {
         ArgumentNullException.ThrowIfNull(text);
@@ -460,6 +467,14 @@ public static class Menus
         MenuEntry[] mine;
         lock (Lock) mine = Entries.Values.Where(e => ReferenceEquals(e.Owner, mod)).ToArray();
         foreach (var e in mine) Remove(e);
+    }
+
+    /// <summary>The name of the mod that added the entry with this handle; "Kiln" for Kiln's own, null for an entry not
+    /// added through here (a native plugin's).</summary>
+    internal static string? OwnerName(ulong handle)
+    {
+        lock (Lock)
+            return Entries.TryGetValue(handle, out var e) ? e.Owner?.Info.Name ?? "Kiln" : null;
     }
 
     internal static void LanguageChanged()

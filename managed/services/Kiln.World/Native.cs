@@ -92,6 +92,13 @@ internal static unsafe class WorldNative
     private static Table* _table;
     private static bool _looked;
 
+    /// <summary>Forgets a remembered miss, so the next use looks for the table again (ServiceCaps.WhenFound: the refresh
+    /// found it after all).</summary>
+    internal static void LookAgain()
+    {
+        if (_table == null) _looked = false;
+    }
+
     /// <summary>The table, or null when kiln.world is unavailable on this build.</summary>
     public static Table* T
     {
@@ -102,6 +109,13 @@ internal static unsafe class WorldNative
             _looked = true;
             return _table;
         }
+    }
+
+    /// <summary>Tests and the test kit: ask for the table again (a first ask can come before a fake table is published).</summary>
+    internal static void Reset()
+    {
+        _table = null;
+        _looked = false;
     }
 
     public static Table* Require(string api)

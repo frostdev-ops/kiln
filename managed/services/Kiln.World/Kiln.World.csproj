@@ -10,5 +10,12 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../../Kiln.Api/Kiln.Api.csproj" Private="false" />
+    <!-- Kiln.Game hands its first-use layout check to World.Write/Update (WorldWrites.LayoutWhyNot). -->
+    <InternalsVisibleTo Include="Kiln.Game" />
+    <InternalsVisibleTo Include="Kiln.TestKit" />
+    <InternalsVisibleTo Include="Kiln.World.Tests" />
+    <InternalsVisibleTo Include="Kiln.TestKit.Tests" />
+    <!-- the contract tests: the rows' names -->
+    <InternalsVisibleTo Include="Kiln.Contract.Tests" />
   </ItemGroup>
 </Project>

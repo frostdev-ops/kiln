@@ -287,6 +287,30 @@ uint8_t unit_byte(float v) { return static_cast<uint8_t>(std::lround(std::clamp(
 
 }  // namespace
 
+MaterialPlan material_plan(const MaterialDef& d) {
+    // material_maps below, without its pixels: keep the two in step (test_carry.cpp checks them against real builds)
+    MaterialPlan p;
+    const auto input = [&](const std::string& rel) {
+        if (!rel.empty() && std::find(p.inputs.begin(), p.inputs.end(), rel) == p.inputs.end()) p.inputs.push_back(rel);
+    };
+    if (d.has_emissive) {
+        input(d.emissive_map);
+        p.maps.push_back({kPbrEmissiveMap, "emissive", kFormatBc7Srgb});
+    }
+    input(d.albedo);
+    p.maps.push_back({kPbrAlbedoMap, "albedo", kFormatBc7Srgb});
+    input(d.normal);
+    p.maps.push_back({kPbrNormalMap, "normal", kFormatBc5Unorm});
+    if (!d.params.empty()) {
+        input(d.params);
+    } else {
+        input(d.metallic_roughness);
+        input(d.occlusion);
+    }
+    p.maps.push_back({kPbrParamsMap, "material", d.reflectance_from_params ? kFormatBc7Unorm : kFormatBc1Unorm});
+    return p;
+}
+
 bool material_maps(const MaterialDef& d, const ImageLoader& load, const TextureCache& cache, std::vector<MaterialMap>* out, std::string* field, std::string* why) {
     auto read = [&](const std::string& rel, const char* name, RawImage* img) {
         if (load(rel, img, why)) return true;

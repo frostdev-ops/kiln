@@ -45,7 +45,7 @@ evidence is separate from the older observations below; neither is a client rend
 | Entry point | Both patch the exe's entry. | Compatible by design. Whoever patches second saves the first patch as "original" and jumps to it (LIFO). Kiln's proxy installs its gate after its chain. When kiln-shroudforge hosts SF there is only one gate (Kiln's), and SF's preparation runs inside Kiln's `on_ready`. |
 | Double start | SF's `dbghelp.dll` starts SF on Windows (and under Wine with `dbghelp=n`). | kiln-shroudforge looks for a module exporting `ShroudforgeStop` in the process and **steps aside** ("self-hosted"). |
 | Code hooks | SF: none on KFC4 builds (a legacy profile names six). Kiln: many. | No double hooks. Where SF has hooks, they go through `kiln.hooks` ("Engine hooks through `kiln.hooks`" below), so another DLL's jump on one of them no longer turns SF's native runtime off. |
-| Main menu | SF's native runtime (`kfc-runtime.dll`, hosted or SF's own) rewrites the game's two Settings calls in the main menu to enter its own function, which calls the entry renderer itself: for a "ShroudForge" row while SF's Modloader window is there (never under Kiln's bundled runtime), then for the Settings entry. Kiln draws its menu entries (**Mods**, mods' entries) before the Settings entry and knew that entry by the renderer's return address, so with SF's native runtime in the process the main menu had none of Kiln's entries (a real client, 2026-11-11; the pause menu and the menu key in a world were not affected). | kiln.ui also takes a renderer call from outside the game's image whose stack has one of the two Settings return addresses above it (`native/services/ui/menu_site.h`; 0x4a8 bytes up in Kiln's build of the 1.7.9 runtime, looked for within 4 KiB), draws its entries before the first such call of a UI frame, and says once in `kiln.log` through which module the entry is drawn. Host-tested logic only; not yet seen in a client. |
+| Main menu | SF's native runtime (`kfc-runtime.dll`, hosted or SF's own) rewrites the game's two Settings calls in the main menu to enter its own function, which calls the entry renderer itself: for a "ShroudForge" row while SF's Modloader window is there (never under Kiln's bundled runtime), then for the Settings entry. Kiln draws its menu entries (**Mods**, mods' entries) before the Settings entry and knew that entry by the renderer's return address, so with SF's native runtime in the process the main menu had none of Kiln's entries (a real client, 2026-11-11; the pause menu and the menu key in a world were not affected). | kiln.ui also takes a renderer call from outside the game's image whose stack has one of the two Settings return addresses above it (`native/services/ui/menu_site.h`; 0x4a8 bytes up in Kiln's build of the 1.7.9 runtime, looked for within 4 KiB), draws its entries before the first such call of a UI frame, and says once in `kiln.log` through which module the entry is drawn. Host-tested logic only; not yet seen in a client. Until dev.27 it could not run at all: SF writes the two calls in `KfcRuntimeInitialize`, in Kiln's early step and so before the signature scan, and the scan's difference check (`pe::only_hook_differences`) knew inline jumps only. The two changed operands sent the whole scan to the live code, where the captures of `ui/MainMenuEntry` disagree (two point at SF's relay, the others at the function), so `ui.main_menu` and `ui.menu_page` were off in every client start that hosted SF, bundled or installed (players' reports of 10 and 13 Nov 2026: `sigdb: scanning the live code (file/live differences are not recognised inline hooks...)`, `symbol ui/MainMenuEntry unresolved: captures disagree`). dev.27 knows the form: an `E8` whose opcode is in place, that calls into the image in the file and to readable memory outside it in the live code. The scan then reads the file's bytes, and `sigdb` names such a place `call redirected to <module>`. Host tests on the client exe's own bytes (`native/core/tests/test-sigdisk.sh --client`); guided check `menu.mods-with-shroudforge`. |
 | Shared game state | SF writes ECS components, resources and named services (e.g. `ecs::GameSettings`) from its own thread, with claims and readback. Kiln services write some of the same (e.g. `kiln.settings`). | Last writer wins, as with any two mods. SF restores its baselines when a mod switches off. Documented for players. The lab shows SF's guarded write confirmed next to Kiln's services. |
 | Tick | SF: its own 16 ms update loop. Kiln: the server-world tick. | Kept separate. Hosted SF uses a serial native/Lua worker and a separate filesystem-only writer thread for the heartbeat, `shroudforge.json` and the `[sf]` log mirror, so slow file I/O no longer blocks its updates. The heartbeat records the last update turn, not writer activity. Runtime work in the loop (the native status read every 2 s) can still delay it; this is not a guarantee of gameplay or input parity. |
 | UI / input | SF's windows require a separate installed `shroudforge.exe`, absent from Kiln's bundled runtime. Mod keybinds (`shroudforge.input.is_keybind_down`/`was_keybind_pressed`) get their key state from the same exe, started by the runtime as a hidden `--keyboard-input` child that reports keys over a pipe. | Client only. The bundled runtime (fork `112d939`) has an optional host key feed: Kiln passes it the game window's own key, button and focus records (kiln.ui v5), and the runtime starts no helper (section 5.6). Without the feed (an installed upstream SF, an older bundle, kiln.ui off, safe idle, `KILN_SF_KEY_FEED=off`, or SF's `shroudforge.exe` installed: the helper then keeps the key state) the runtime starts the installed `shroudforge.exe --keyboard-input` itself, and with no SF installed mod keybinds never fire (`Keyboard shortcuts unavailable`). `kiln/state/shroudforge.json` `keys` says which (`kiln`, `waiting` until Kiln's plugin step, `helper`, `none`) and why. Kiln's existing Mods screen edits SF switches/settings without a helper. Installed helpers still start and respect module switches. Only when no hosted Modloader helper runs does Kiln own the auto-reset public toggle event and F9/configured keyboard fallback. Self-hosted SF is untouched. |
@@ -460,6 +460,71 @@ install without ShroudForge, `keys` says `kiln`, kiln.log has `key state from Ki
 `service kiln.ui v5 published`, `key state from Kiln:`, and no `Keyboard shortcuts unavailable`; a held shortcut
 lets go after Alt+Tab; one tap is one action (a toggle does not toggle twice); a key Kiln's menu or a Kiln binding
 takes (Insert, a bound key) still reaches SF's shortcut state; Print Screen bound as a shortcut fires once.
+
+### 5.7 ShroudForge's own loader under Wine and Proton
+
+A self-hosted ShroudForge (its own `dbghelp.dll` loaded through `WINEDLLOVERRIDES=dbghelp=n,b`) is upstream's code,
+not the fork's. Upstream 1.7.9 publishes its startup pass with its reader still open on `<exe>.kfc_resources`
+(`KFCCursor::new` in kfc-base's `container/reader.rs` opens it for the session's lifetime; `commit_assets` calls
+`transaction::commit`, whose `replace` removes the target and renames the staged file onto its path). Windows deletes
+the open file at once and the rename succeeds. Under Wine and Proton the removal returns success but the name stays
+until the last handle closes, so the rename is refused with "Access denied (os error 5)", the recovery in `commit` is
+refused the same way, and the abort in the session's `Drop` (still before the reader closes) a third time. ShroudForge's log then has
+`Failed to abort typed asset transaction error=... (os error 5)`, `pregame phase failed: ... (os error 5)`,
+`Asset mods failed; saved baseline restored` and, per mod, `startup-asset-apply-required: the early startup transaction
+did not publish this asset configuration`. The game data is put back (the reader is closed by then), the game starts,
+and every startup mod (capability `patch`, and the EML packages ShroudForge runs) is missing. Because a failed pass is
+not "prepared", this repeats at every start. The fork closes the reader before publishing (`03b4950`, section 5.0), and
+upstream's 1.8.0 branch does the same with this cause in its comment.
+
+Evidence (player report 327, 13 Nov 2026, a client under Proton with ShroudForge 1.7.9 next to Kiln 0.2.0-dev.25): the three log lines above with `os error 5`, `kiln/state/shroudforge.json` `mode: self-hosted`. The
+two publication modules were run as they are on made-up files under Proton Experimental's and GE-Proton11-11's Wine
+(both 11.0), with a second handle on the resource file as the session has it: upstream 1.7.9 fails in `commit` and in
+the abort with os error 5 and recovers once the handle is closed; with the handle closed first, upstream's and the
+fork's `commit` both publish. The two calls of `replace` alone, under Proton Experimental: `remove_file` of the open
+target returns success and the file still exists, `rename` onto it is refused with os error 5, and after the handle is
+closed the file is gone and the rename succeeds. Not run: the player's mod (it carries Lua), and a game with upstream's
+own loader.
+
+What Kiln does about it (it cannot fix the other loader's process, and it never moves a loader the player installed):
+`crates/kiln-manage/src/sf_startup.rs` reads ShroudForge's own record of the pass (`<paths.state>/state.json`
+`assets`). The record names no process, so it counts only when it belongs to Kiln's last start (`kiln/state/boot.json`):
+written no more than two minutes before that start began (ShroudForge's own loader holds the game's entry point for its
+pass, and Kiln boots at that entry point), and run by something at that start: kiln-shroudforge's
+`kiln/state/shroudforge.json` says `hosted` or `self-hosted` and was written in that start (its `pid` and `updated`
+against boot.json's `pid` and `started`; under Proton the pid repeats, so the time decides), or ShroudForge's own loader
+is installed and wrote the record after the adapter's last word. A start that skips Kiln's plugins ("Play once: without
+mods") leaves both files as the start before it left them, and nothing is said about it.
+
+**Where this rule is wrong (known limits, from the review of dev.27).** It ties the record to a start by times and by
+the game's process id, because ShroudForge's record names neither. So the notice can be missing after a start that
+crashed before Kiln wrote its boot record (a failure of that start is then taken for an older one), and after the
+machine's clock was set back during a start (a record more than two minutes "before" the start is taken for stale);
+and it can show an old failure again after the clock was set back between two starts, or when two game installs share
+one state folder. None of this touches what the game loads: it is the notice only. The cure is a launch identity that
+Kiln's core writes before any plugin runs and that the adapter and the record are matched against; that is a change in
+the core's boot and is not in this release.
+
+A `failed` record of the last start becomes
+
+- a sentence on ShroudForge's row of the launcher's engine list, whoever ran the pass and whatever other loaders' files
+  are in the game (`engine_status` `startupFailed`, `sf_startup::EngineNotes`, shown as a warning), and a pointer on the
+  EML row while ShroudForge runs the EML mods: who ran the pass, ShroudForge's own words, the switched-on packages that
+  need the pass on this side, what to change;
+- on the Deck, a line on Home ("ShroudForge mods did not load") and a button to the whole text in a dialog the right
+  stick scrolls, and
+- the support report's finding `sf-startup-failed` with the record's line under "The last start" (ShroudForge's words
+  are redacted whole before they are put on one line and cut).
+
+For this fault (Wine or Proton, `os error 5`, a ShroudForge build without the fix, Kiln's own ShroudForge with the fix
+installed) the sentence names the cure: take `dbghelp` and `winmm` out of `WINEDLLOVERRIDES` in the game's Steam launch
+options and keep `dinput8=n,b`; Kiln then hosts its own ShroudForge for the profile's ShroudForge mods. When Kiln hosted
+the player's installed 1.7.9 ("Use my installed ShroudForge"), which runs the same code, the cure is that setting. A
+build has the fix when its `version.json` names 1.8.0 or later, or Kiln's fork (`host: kiln`, `build: kiln.<commit>`;
+the fork calls itself 1.7.9 too) other than the two pins Kiln shipped before `03b4950` (`kiln.e4c6535`,
+`kiln.3586804`). A version that is not `major.minor.patch` gets no cure. The in-game Mods page reads the same record
+and ShroudForge's per-mod errors while the game runs ([ui.md](ui.md)); what was missing is the launcher and the report,
+which the player sees once the game is closed.
 
 ## 6. What other agents need to do (detect, launcher)
 

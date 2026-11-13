@@ -104,10 +104,38 @@ Backstab, KillingBlow, Healing, ...), `DamageTypes`, `Reaction`, `Origin`, `IsPl
 **Timing cost of hurt/heal handlers.** Game hits are produced and applied inside the same sim step on worker threads,
 where mod code cannot run. While anything subscribes to `EntityHurtEvent` or `EntityHealEvent`, kiln.combat therefore
 holds every entity hit for one step: it applies about 41 ms later than vanilla on a dedicated server (one step on a
-listen server). Without subscribers hits are untouched. `AsGameHit` sends a Kiln hit through the same hold (it is
+listen server). Without subscribers hits are untouched. **With entity filters (dev.27)** only the hits that name a
+watched entity wait: when every hurt, heal and knockback handler subscribed with `Events.On<T>(handler,
+EventFilter.ForEntity(...))`, kiln.combat holds a hit only if its target, root target, source or root source is one of
+the watched entities, and every other hit applies at once, untouched (`hold_filter`, appended to the table; capability
+`combat.hold_filter`; one handler without a filter holds every hit again). A hit is about an entity when it is the hit's
+target, the part hit, its attacker or its source: the hold and the events take these four from one place
+(`hold_filter.h` `hit_entities`), so a held hit is always one a filtered handler is given. A watched creature's own
+attacks are about it too: they come with the player it hit as `Target` and the creature as `Attacker` (the first
+guided check in a real game, 13 Nov 2026, got three of those before the player had swung). A handler that wants only
+the hits the creature takes tests `e.Target == creature` (or `e.Part` for a weak spot). Kiln's own hits name the same
+four: `DamageOptions.Source` is the `Source` of the hurt and knockback events `Combat.Damage` posts in the call, as it is
+of the held record (until dev.27 the events in the call named the attacker there). A handler without a filter sees that
+too: a mod that asks `e.Source == player` to find the attacker of a `Combat.Damage` hit should ask `e.Attacker`. Lab (`mods/tests/event-filter-test`, one
+watched doll): `a hit on another creature applies ... and is not held: hits held 0 -> 0`, `a hit on the doll ... is held
+for the watcher: hits held 0 -> 1`, `control: with a handler without a filter the other creature's hit is held too`,
+`a hit the doll deals is held and reported to the doll's handler, Target the other creature`, `a Kiln hit with a source
+reaches a handler filtered on the source, in the call and held alike`; and the game's own hits, a spawned player
+character's sword swing on eight watched Vukahs round it and their attacks on it (lab 2026-11-13, server 26430253):
+`the game's melee hit names the Vukah it landed on as Target (and the character as Attacker): target 2568 part 2568
+source 2550`, `a watched Vukah's own attack names the character as Target and the Vukah as Attacker: target 2550 part
+2550 attacker 2564 source 2564 ... origin Game` (25 PASS). `AsGameHit` sends a Kiln hit through the same hold (it is
 reported like a game hit, not inside the call). Hits on one swing/projectile that the engine would merge (same
-target and impact) are reported once; the decision applies to all of them. Repeat hits of an impact that already hit
-the target (which the engine skips) are not reported (`CombatStatus.RepeatHits`).
+target and impact) are reported once; the decision applies to all of them. An entity filter holds such a group whole:
+when it names any record of a (root target, impact) group, every record of it waits, so a swing on a watched weak spot
+also holds the record the same swing made on the creature's body, and the engine merges them into the strongest as it
+would without a filter (held record by record, the body's record applied alone and the weak spot's was then skipped as
+a repeat: no event, and the smaller damage). The lab cannot aim a swing at a weak spot and Kiln's own hits always have
+the target as their root target, so `native/services/combat/tests/hold_test.cpp` is the proof of this. Repeat hits of an impact that already hit
+the target (which the engine skips) are not reported (`CombatStatus.RepeatHits`). A target in god mode
+(`SetInvulnerable`) is the exception: kiln.combat drops the hit before the game records that the impact touched it, so a
+swing that stays on it is reported again in each step (lab: one sword swing, impact `0x01000002`, four hurt events in
+steps 462 to 465 on an invulnerable Vukah, one event on the same Vukah out of god mode); count by `ImpactId` there.
 
 **Knockback, falls and regeneration.** A knockback event comes from the same one-step hold as the hurt
 event (subscribing to `EntityKnockbackEvent` alone turns the hold on). Fall damage never was a hit: the game's
@@ -244,3 +272,33 @@ with the game's resource when `KILN_GAME_DIR` and `KILN_SERVER_EXE` are set): `n
 3. Lose health and wait: `EntityHealEvent` `Cause Regeneration` with small amounts; canceled: no regeneration on the
    HUD. Drink a healing potion / eat: which `Cause` arrives (Hit, Attribute, Regeneration through a buff)? Canceled
    Attribute heal: the health goes back down a step later (visible flicker).
+
+## The contract (dev.27)
+
+`Combat` and `Attributes` follow [the API contract](../modding/contract.md). Server side only (`[ServerOnly]`).
+
+- **Capabilities.** `kiln.combat` and its sigdb features (`combat.actor_states`, `attr_heals`, `deaths`, `falls`,
+  `health`, `hits`, `regen`), lowered by Kiln.Combat at its start when the service is not loaded; `combat.hold_filter`
+  (static) and `combat.attributes` (session: the attribute functions and the game's attribute resource), both reported
+  at Kiln.Combat's start, the first service tick, before a mod calls anything.
+- **Errors.** Without the service every call throws `KilnUnavailableException` naming `kiln.combat` (a
+  `NotSupportedException`, as before); `Attributes` by attribute id on an older kiln.combat names `combat.attributes`.
+  **Not changed:** a refusal of the native call (`SetHealth`, `Heal`, `Damage` on an entity without health, no world)
+  keeps its `InvalidOperationException`, and `Attributes.Set`/`Add` by `GameAttribute` before the attribute resource
+  is read keep theirs: a `catch (InvalidOperationException)` written before would not catch the new type.
+- **Results.** `HitResult` implements `IKilnResult`: `Ok` is `Applied`; `Reason` says why a hit was dropped or is
+  still pending.
+- **Events.** `CombatChangedEvent` (new) for the writes that had none: `SetHealth` (`Health`), `SetInvulnerable`
+  (`Invulnerable`, only when the entity's god mode changed, not while another mod still holds it) and the attribute
+  writes (`Attribute.Stamina`, ...), with the value before and after; only when the value changed, and a write made
+  by a handler while the event is dispatched is posted at the next step ([contract](../modding/contract.md#3-change-events)).
+  A mod's unload that ends god mode it held posts `Invulnerable` 1 -> 0 with that mod as `Origin`.
+  `Abilities.Attributes.Add` posts the same event. Hits and heals keep `EntityHurtEvent` and `EntityHealEvent`.
+- **Listener.** Kiln.Combat starts at the first service tick for its rows; its hit listener (with which kiln.combat
+  holds hits a step for handlers) starts at the first use, as before: a call into `Combat`, or a subscription to one of
+  its events. A handler of every event (`KilnEvent`) is not a use.
+- **Threads.** `[TickThreadOnly]` on every call that touches an entity; `Available`, `HitsAvailable`, `Status`,
+  `Attributes.Available` and `Attributes.Ids` are `[AnyThread]`.
+- Tested offline (`managed/tests/Kiln.Contract.Tests/Group7ContractTests.cs`): rows, exceptions, attributes,
+  `HitResult` as a kiln result, and the writes with subscribers on a fake kiln.combat table. No lab run in dev.27 has
+  watched `CombatChangedEvent` against a real kiln.combat.

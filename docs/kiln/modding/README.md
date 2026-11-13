@@ -7,6 +7,7 @@ generated [../status.generated.md](../status.generated.md); what has no API yet 
 | Page | What |
 |---|---|
 | [mdk.md](mdk.md) | The MDK: `dotnet new kiln-mod`, Kiln.Sdk, build, deploy, pack, local NuGet feed |
+| [baked.md](baked.md) | Definitions baked at build: quests, game-tree nodes, VFX and materials a mod defines in code, there at the first start |
 | [manifest.md](manifest.md) | `kiln.mod.json` v2: fields, version ranges, dependencies, load order, exports, sides |
 | [lifecycle.md](lifecycle.md) | Mod and server lifecycle events, the `Mods` API, inter-mod messages, hot reload |
 | [testing.md](testing.md) | Kiln.Testing: `[KilnTest]` methods that run inside the server |
@@ -15,7 +16,8 @@ generated [../status.generated.md](../status.generated.md); what has no API yet 
 | [contract.md](contract.md) | The API contract: the one error rule, identity types (`EntityRef`, `PlayerRef`, `ItemId`), thread attributes |
 | [../services/caps.md](../services/caps.md) | Asking what works: `Capabilities.Is/Get/Why/All`, why a capability is off; the manifest's `features` rules (manifest.md, "Asking what works") |
 | [limits.md](limits.md) | What a mod cannot do yet: each gap, what stands in the way, the release it is planned for |
-| [blocks.md](blocks.md) | Building blocks: effects, statuses, spells, abilities, perks, talents, bodies, loot and UI; what they compile to, client requirements and errors. Start here to make something |
+| [blocks.md](blocks.md) | Building blocks: effects, statuses, spells, abilities, perks, talents, bodies, loot, affixes and UI; what they compile to, client requirements and errors. Start here to make something |
+| [affixes.md](affixes.md) | Affixes: rolled modifiers on one item ("+5 Strength", "+10% Move Speed"), as affix kinds and pools, which are blocks (`Blocks.Define`, `affixes` and `affixPools` in `blocks/*.json`, or `Affixes.Define`); kept with the item, applied while it is worn or in hand, shown in players' games (dev.27) |
 | [inventory.md](inventory.md) | Moving items between inventories keeping their state (a stack, quick stack, move all), container names, transfer rules and events (ported from shroudlink), and why gear data lasts only a session |
 | [item-blocks.md](item-blocks.md) | Items, weapons, wands, armor, stations, loot tables and recipes as blocks: no base items, no GUIDs; a weapon's own moves and held models with moving parts |
 | [world-blocks.md](world-blocks.md) | Props, crafting props, stations, containers with default loot and lids, doors, colliders and building materials |
@@ -31,6 +33,7 @@ generated [../status.generated.md](../status.generated.md); what has no API yet 
 | [shaders.md](shaders.md) | Particle shaders (advanced): your own HLSL hooks for a particle, linked into Kiln's sprite; `kiln-vfxcook shader` |
 | [screen-effects.md](screen-effects.md) | Full-screen effects: colour grading, tint, vignette, fades and flashes, on a status, an effect or from code |
 | [models.md](models.md) | Weapons and creature bodies from glTF, rigid or skinned: tools/modelcook, cook.json model steps |
+| [cooking.md](cooking.md) | Cooking: the files a mod makes from each player's game (models, animations, sounds, Impact programs), who cooks and when (the launcher, `kiln cook`, a server), and why only what this PC cooked is loaded |
 | [materials.md](materials.md) | New surfaces for models from PNGs and numbers, on the game's own shaders: no base to name, or made from a glTF's materials |
 | [animations.md](animations.md) | Clips, skeletons and state-machine graphs from glTF: tools/animcook, cook.json animation steps, clips reworked from other clips (`from`); states of a mod's own in the player's animation graph (`assets/player-states.json`) |
 | [quests.md](quests.md) | Quest chains, conversations and NPCs: QuestBlock/DialogueBlock, quests/*.json, Quests.Define, rewards and client requirements |
@@ -72,14 +75,23 @@ first). `mods/samples/build.sh` builds the loader samples (`SampleLib`, `SampleC
 | `SampleFaulty` | the fault policy: throws every 25 steps while `kiln/data/sample-faulty/fault` exists; a `missing-member` file makes it fail at load like a mod built for a newer Kiln |
 | `resolver/*` | manifest-only fixtures: missing dependency, cycle, a dependent of a cycle, version mismatch, incompatible, client-only, feature, API, bad manifest |
 | `HookSample` | `advanced` mods (kiln.hooks): a detour that counts calls of the game's `GetComponent`, a mid hook reading a register, a reversible byte patch, a mod-shipped symbol fragment |
+| `EngineRoom` | The advanced tier's managed side in one admin command: `/engine systems` and `/engine profile` list and measure the game's systems (`GameSystems`), `/engine watch <system>` counts one system's runs through `GameSystems.Hook` (callbacks on the game's worker threads), `/engine stack <item> <count>` changes one field of an item's resource as a claim (`ReflectedResources.FindByField`, `Set`), `/engine claims` and `/engine undo` show and give back claims (`Overrides.Active`, `Claim`, `RestoreAll`); what to do when a game update renames something |
 | `WorldPrograms` | an ECS program declared in `kiln.programs.json` and bound with `EcsPrograms.Bind`, emitting and reading a game event |
+| `LightsOut` | tracked world writes: `/lights off` puts out every lantern, torch and candle with `World.Update<Ecs.ServerToggleState>`, and a restart keeps them out; the build fills `"writes"` |
 | `Claims` | kiln.gameplay: protected areas where only their owners build, dig, open containers, loot or craft |
 | `Schematics` | kiln.build: `/build` admin commands (selection, capture, paste with rotation, shapes, props, undo) and outposts placed once per world |
 | `RulesSample` | Kiln.Rules: `/flight` for 60 s of the building fly mode, no stamina drain inside bases, a half-cost building weekend from a config switch |
 | `NetSample` | Kiln.Network: F9 on a client pings the server over `netsample:main`; the server answers and announces Kiln clients |
 | `BigStacks` | a server config (x4 stack sizes, at most 9999) that Kiln clients get through the content sync |
 | `NewItems` | kiln.content's new items and recipes from code and a data pack, plus a perk and a buff of its own (kiln.gamedata clones) |
-| `ItemData` | `InstanceData`: `/notch` cuts a notch into the weapon or tool in your hand and the count stays with that one item through moves, saves and restarts; `/notches` lists them |
+| `AffixSword` | Affix blocks: a sword that rolls one of three affixes defined in `blocks/affixes.json` (`/affix-sword`); the bonus acts while it is in hand; `/affixes` lists what the held item carries; in the player's game a notice shows the roll |
+| `ItemData` | `InstanceData`: `/notch` cuts a notch into the weapon or tool in your hand and the count stays with that one item through moves, saves and restarts; `/notches` lists them. Side `both` since dev.27: the key has `Sync = InstanceSync.Holder`, so the holder's game gets the count and shows it as a notice |
+| `SavedData` | The three places a mod keeps what must outlast a restart: a guestbook with the world (`WorldData`), a visit count per player by Steam id (`PlayerData`), a label on the chest next to you (`EntityData`, the chest found with `Nearby`), and a permission node of the mod's own (`Permissions.Register`). `/visits`, `/guestbook`, `/label`, `/labels`. Tested offline in `Kiln.TestKit.Tests` (`SampleModsTests`) |
+| `AdminTools` | This release's player calls, each used as the contract asks: `/strike` warns, then `Players.Kick`, then `Bans.Add` for a day (the capability asked first, the result read), `/pardon`, `/strikes`; `/scout` turns Kiln's NoClip switch (`NoClip.Set`) for an admin and `PlayerNoClipEndedEvent` says why it ended |
+| `CalmBell` | An interaction offer of a mod's own and a game setting changed for a while: `/bell` puts down a barrel with `Offers.SpawnWithOffer`; a player who uses it halves `enemyDamageFactor` for ten minutes through `Settings.TrySet`, and the server's own value is put back, also when the mod unloads |
+| `QuietServer` | `Pacing`: a handler on the server loop's wait that lets an empty dedicated server wait 200 ms between passes instead of 40 ms, and leaves the game's pace alone once a player is online; what a pacing handler may and may not do |
+| `Loadouts` | Kiln's equip and unequip: `/loadout save <name>` keeps which kind of gear a player wears in each slot (`Items.Equipped`, `PlayerData`; item types, not the single pieces, and no stacks), `/loadout wear <name>` puts gear of those kinds on again from the backpack with `Items.Equip`, `/loadout check <name>` asks about each slot as a dry run, `/loadout off <slot>` is `Items.Unequip`. The capabilities are asked first and a "not available" exception still becomes a sentence, each refusal is read and passed on, the backpack is read again before every equip, and a `PlayerRef` makes sure that after an await it is still the same player |
+| `SkyControl` | Choosing the weather: `/sky` lists the weather layers (`Time.Weather`: what runs, what is held, what each layer can run), `/sky rain 10m` is `Time.SetWeather` for a while, `/sky clear` holds a clear sky, `/sky release` gives the weather back (`Time.ReleaseWeather`); what a hold is and when it ends |
 | `SpellTweaks` | a kiln.gamedata data pack: Fireball I's cost, timing and explosion, and the double jump's stamina cost |
 | `TypedFields` | a sword, a spell and a projectile changed through typed paths from your game's catalog, and a projectile clone; `Refused/`: a wrong string path the analyzer stops |
 | `CreatureTweaks` | a data pack: Vukahs notice players from further away, and a new `Kiln_Elite_Vukah` template that replaces a share of natural spawns |
@@ -117,8 +129,9 @@ first). `mods/samples/build.sh` builds the loader samples (`SampleLib`, `SampleC
 | `MenuButtons` | Kiln.Ui game UI: entries in the main and pause menus opening a screen, a crafting info panel, a subcategory and tab in the crafting menu |
 | `RenderSample` | render events: an FPS counter, a compass and waypoint markers in the world |
 
-Templates: `kiln new --list` shows all 24 with their options. Block templates: `kiln-spell`, `kiln-item-blocks`,
+Templates: `kiln new --list` shows all 31 with their options. Block templates: `kiln-spell`, `kiln-item-blocks`,
 `kiln-ability-blocks`, `kiln-creature-blocks`, `kiln-world-blocks`, `kiln-npc`, `kiln-quest`, `kiln-body`, `kiln-vfx`,
-`kiln-cosmetic` and `kiln-building-material`. The others: `kiln-mod`, `kiln-test`, `kiln-unit-test`, `kiln-datapack`,
-`kiln-items`, `kiln-ability`, `kiln-creature`, `kiln-talents`, `kiln-ui`, `kiln-model`, `kiln-sound`, `kiln-native`
-and `kiln-service` (a service inside the Kiln repository). See [mdk.md](mdk.md).
+`kiln-cosmetic`, `kiln-building-material` and `kiln-screen-effect`. Code templates for one topic each: `kiln-events`,
+`kiln-saved-data`, `kiln-rules`, `kiln-network`, and for the advanced tier `kiln-hooks`, `kiln-shader` and `kiln-world-program`. The others: `kiln-mod`, `kiln-test`, `kiln-unit-test`,
+`kiln-datapack`, `kiln-items`, `kiln-ability`, `kiln-creature`, `kiln-talents`, `kiln-ui`, `kiln-model`, `kiln-sound`,
+`kiln-native` and `kiln-service` (a service inside the Kiln repository). See [mdk.md](mdk.md).

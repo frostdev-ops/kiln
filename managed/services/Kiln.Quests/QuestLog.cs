@@ -62,6 +62,7 @@ public static partial class Quests
 {
     /// <summary>A player's quests, vanilla and Kiln (tick thread). Vanilla quests need kiln.knowledge; on a build without it
     /// the list has only Kiln quests.</summary>
+    [TickThreadOnly]
     public static QuestLog Of(EntityId player)
     {
         Game.AssertTickThread();
@@ -72,6 +73,7 @@ public static partial class Quests
         return new QuestLog(player, list);
     }
 
+    [TickThreadOnly]
     public static QuestLog Of(Player player) => Of(player.Entity);
 
     /// <summary>A vanilla quest's state for a player as an entry (tick thread).</summary>

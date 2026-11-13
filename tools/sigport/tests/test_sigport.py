@@ -277,6 +277,27 @@ class Strategies(unittest.TestCase):
         self.assertFalse(r["ok"])
         self.assertIn("strategies disagree", r["error"])
 
+    def test_a_scope_symbol_that_fails_does_not_hide_the_stale_strategy_inside_it(self):
+        # Caller's own second strategy is stale, and so is GetThing's, which looks inside Caller: both fail, whichever
+        # the definitions name first
+        call_at = self.caller + 20
+        tail = "8B 4C 24 20 03 C1 89 44 24 20 48 83 C4 28 C3"  # 25 bytes after Caller's entry
+        get = {"find": [{"pattern": self.ENTRY}, {"scope": {"symbol": "Caller", "size": 64},
+                                                 "pattern": "E8 ?? ?? ?? ?? 8B 4C 24 20",
+                                                 "offset": self.entry - call_at + 3}]}
+        call = {"find": [{"pattern": self.CALLER}, {"pattern": tail, "offset": -22}]}
+        for order in (("Caller", "GetThing"), ("GetThing", "Caller")):
+            doc = {"symbols": {n: {"Caller": call, "GetThing": get}[n] for n in order}}
+            syms = Resolver(Image(self.exe), doc).run()[0]
+            for n in order:
+                self.assertFalse(syms[n]["ok"], (order, n, syms[n]))
+                self.assertIn("strategies disagree", syms[n]["error"])
+        # and with Caller's second strategy right, only GetThing fails
+        call["find"][1]["offset"] = -25
+        syms = Resolver(Image(self.exe), {"symbols": {"Caller": call, "GetThing": get}}).run()[0]
+        self.assertTrue(syms["Caller"]["ok"], syms["Caller"])
+        self.assertFalse(syms["GetThing"]["ok"])
+
     def test_a_second_strategy_that_matches_nowhere_or_twice_is_not_judged(self):
         self.assertTrue(self.resolve({"pattern": "0F 0B 0F 0B 0F 0B 0F 0B", "offset": -3})["ok"])
         self.assertTrue(self.resolve({"pattern": "48 83 EC 28 B8", "offset": -3})["ok"])  # both fillers start so

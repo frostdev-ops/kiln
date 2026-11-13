@@ -165,7 +165,7 @@ public sealed class PlayerSnapshot
 /// <see cref="Is"/> is false. <see cref="Available"/> and <see cref="Status"/> say what works; kiln.log says what
 /// did not resolve.</para>
 /// </remarks>
-public static unsafe class PlayerStates
+public static unsafe partial class PlayerStates
 {
     // ---- native mirror (kiln_playerstate.h) ----
     internal static class Native
@@ -260,7 +260,7 @@ public static unsafe class PlayerStates
             public uint Size;
             public byte Reflection, Cancel, Names, Items;
             public uint Sources;
-            public byte ClientHold, R1, R2, R3;
+            public byte ClientHold, Aim, R2, R3;
             public ulong Scans, EntitiesRead, ScanNs;
             public fixed byte Detail[160];
         }
@@ -289,6 +289,18 @@ public static unsafe class PlayerStates
             public delegate* unmanaged[Cdecl]<uint*, uint, int> ClientActionHold;
             public delegate* unmanaged[Cdecl]<HeldAction*, uint, uint*, int> ClientActionHeld;
             public delegate* unmanaged[Cdecl]<uint, uint, uint, uint, int> ClientActionDecide;
+            // since 0.2.0-dev.27: check Has()
+            public delegate* unmanaged[Cdecl]<uint, AimData*, int> Aim;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct AimData
+        {
+            public uint Size, World;
+            public long X, Y, Z;
+            public float Qx, Qy, Qz, Qw;
+            public float Distance, FovY;
+            public long ServerTime;
         }
 
         /// <summary>The native table has the function at this field (a kiln-players.dll of an older release has fewer).</summary>
@@ -302,6 +314,16 @@ public static unsafe class PlayerStates
     private static Native.Table* _table;
     private static bool _looked;
 
+    /// <summary>Forgets a remembered miss, so the next use looks for the table again (ServiceCaps.WhenFound: the refresh
+    /// found it after all).</summary>
+    internal static void LookAgain()
+    {
+        if (_table == null) _looked = false;
+    }
+
+    /// <summary>The table is here (the rows; no lookup after the first).</summary>
+    internal static bool TableHere => T != null;
+
     internal static Native.Table* T
     {
         get
@@ -309,7 +331,8 @@ public static unsafe class PlayerStates
             if (_table != null || _looked) return _table;
             _looked = true;
             if (sizeof(Native.Snapshot) != 544 || sizeof(Native.ClientAction) != 64 || sizeof(Native.ItemInfo) != 288 || sizeof(Native.Equipment) != 408 ||
-                sizeof(Native.Buff) != 40 || sizeof(Native.Status) != 200 || sizeof(Native.SourceInfo) != 216 || sizeof(Native.HeldAction) != 184)
+                sizeof(Native.Buff) != 40 || sizeof(Native.Status) != 200 || sizeof(Native.SourceInfo) != 216 || sizeof(Native.HeldAction) != 184 ||
+                sizeof(Native.AimData) != 64)
                 return null;  // layout drift between this assembly and the header: refuse rather than misread
             _table = Services.Get<Native.Table>("kiln.playerstate", 1);
             return _table;
@@ -889,6 +912,13 @@ public sealed partial record Player
 
     /// <summary>The buffs on the player. Server world only. World's thread.</summary>
     public IReadOnlyList<PlayerBuff> Buffs => PlayerStates.BuffsOf(Entity);
+
+    /// <summary>Where the player's camera is and where it looks (<see cref="PlayerStates.AimOf"/>); null before the
+    /// player's client sent a camera. World's thread.</summary>
+    /// <exception cref="KilnUnavailableException"><c>players.aim</c> is off.</exception>
+    [TickThreadOnly]
+    [RequiresCapability(PlayerAim.Capability)]
+    public PlayerAim? Aim => PlayerStates.AimOf(Entity);
 
     /// <summary>The action the player runs now: null when none. World's thread.</summary>
     public PlayerAction? CurrentAction => Snapshot()?.Action;

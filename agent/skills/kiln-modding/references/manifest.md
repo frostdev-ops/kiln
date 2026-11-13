@@ -24,9 +24,13 @@ the project folder is validated and copied. JSON with `//` comments and trailing
   "entryType": "MyMod.MyModClass",   // default: the only public Mod subclass
   "exports": ["MyMod.Api.dll"],      // assemblies dependents compile against
   "advanced": false,
-  "tests": { "autoRun": true, "timeoutSeconds": 20 }
+  "tests": { "autoRun": true, "timeoutSeconds": 20 },
+  "writes": ["Fuel"]         // dev.27+: component types written with World.Write/Update/WriteField/WriteAt (max 64)
 }
 ```
+`writes`: Kiln.Sdk adds the types your code passes to `World.Write` / `World.Update`; list by hand what `WriteField` and
+`WriteAt` name as a string. Read when the server starts (a hot-loaded change counts from the next start). A list Kiln
+cannot read loads the mod with a warning and refuses only its tracked writes.
 
 ## Clients
 | `clients` | A joining player needs | Use for |

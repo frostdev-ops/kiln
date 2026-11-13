@@ -147,8 +147,13 @@ internal static unsafe class AbilitiesNative
 
     public static Table* T => _t != null ? _t : _t = Services.Get<Table>(Name, Version);
 
-    public static Table* Require(string api) =>
-        T != null ? T : throw new NotSupportedException($"{api}: kiln.abilities is not available on this build");
+    public static Table* Require(string api)
+    {
+        var t = T;
+        if (t != null) return t;
+        AbilitiesCaps.Ensure();
+        throw ServiceCaps.Unavailable(AbilitiesCaps.Service, $"{api}: kiln.abilities is not available on this build");
+    }
 
     public static string Describe(int rc) => rc switch
     {

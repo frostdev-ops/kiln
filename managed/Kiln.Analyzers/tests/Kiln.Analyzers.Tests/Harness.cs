@@ -27,7 +27,7 @@ internal static class Harness
         var tpa = ((string)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES")!).Split(Path.PathSeparator);
         var refs = tpa.Where(p => Path.GetFileName(p).StartsWith("System.") || Path.GetFileName(p) is "mscorlib.dll" or "netstandard.dll")
             .Select(p => (MetadataReference)MetadataReference.CreateFromFile(p)).ToList();
-        foreach (var asm in new[] { "Kiln.Api", "Kiln.Testing", "Kiln.Chat", "Kiln.Players", "Kiln.Combat", "Kiln.Hooks", "Kiln.World", "Kiln.Spawn", "Kiln.Blocks", "Kiln.Vfx", "Kiln.Ui", "Kiln.Content", "Kiln.Items" })
+        foreach (var asm in new[] { "Kiln.Api", "Kiln.Testing", "Kiln.Chat", "Kiln.Players", "Kiln.Combat", "Kiln.Hooks", "Kiln.World", "Kiln.Spawn", "Kiln.Blocks", "Kiln.Vfx", "Kiln.Ui", "Kiln.Content", "Kiln.Items", "Kiln.Rules", "Kiln.Time" })
             refs.Add(MetadataReference.CreateFromFile(Path.Combine(AppContext.BaseDirectory, asm + ".dll")));
         return refs.ToImmutableArray();
     }
@@ -83,12 +83,32 @@ internal static class Harness
         Assert.True(diags.Select(d => d.Id).SequenceEqual(ids),
             $"expected [{string.Join(", ", ids)}], got:\n{string.Join("\n", diags.Select(d => $"{d.Id} {d.Location.GetLineSpan().StartLinePosition} '{d.At()}': {d.GetMessage()}"))}");
 
-    /// <summary>Applies the first code action <paramref name="fix"/> offers for the first diagnostic and returns the new
-    /// source (after the workspace's simplifier and formatter).</summary>
+    /// <summary>Applies the code action <paramref name="fix"/> offers for the first diagnostic (the first one, or number
+    /// <paramref name="action"/>) and returns the new source (after the workspace's simplifier and formatter); null when
+    /// it offers no such action.</summary>
     public static async Task<string?> Fix(DiagnosticAnalyzer analyzer, CodeFixProvider fix, string source,
-        IDictionary<string, string>? properties = null)
+        IDictionary<string, string>? properties = null, int action = 0)
     {
-        using var ws = new AdhocWorkspace();
+        var (actions, did, ws) = await Actions(analyzer, fix, source, properties);
+        using var workspace = ws;
+        if (actions.Count <= action) return null;
+        var ops = await actions[action].GetOperationsAsync(CancellationToken.None);
+        var changed = ops.OfType<ApplyChangesOperation>().Single().ChangedSolution.GetDocument(did)!;
+        return (await changed.GetTextAsync()).ToString().Replace("\r\n", "\n");
+    }
+
+    /// <summary>The titles of the code actions <paramref name="fix"/> offers for the first diagnostic.</summary>
+    public static async Task<IReadOnlyList<string>> Titles(DiagnosticAnalyzer analyzer, CodeFixProvider fix, string source)
+    {
+        var (actions, _, ws) = await Actions(analyzer, fix, source, null);
+        using var workspace = ws;
+        return actions.Select(a => a.Title).ToList();
+    }
+
+    private static async Task<(List<CodeAction> Actions, DocumentId Document, AdhocWorkspace Workspace)> Actions(DiagnosticAnalyzer analyzer,
+        CodeFixProvider fix, string source, IDictionary<string, string>? properties)
+    {
+        var ws = new AdhocWorkspace();
         var pid = ProjectId.CreateNewId();
         var sol = ws.CurrentSolution
             .AddProject(ProjectInfo.Create(pid, VersionStamp.Create(), "TestMod", "TestMod", LanguageNames.CSharp,
@@ -105,10 +125,7 @@ internal static class Harness
         Assert.NotNull(d);
         var actions = new List<CodeAction>();
         await fix.RegisterCodeFixesAsync(new CodeFixContext(doc, d!, (a, _) => actions.Add(a), CancellationToken.None));
-        if (actions.Count == 0) return null;
-        var ops = await actions[0].GetOperationsAsync(CancellationToken.None);
-        var changed = ops.OfType<ApplyChangesOperation>().Single().ChangedSolution.GetDocument(did)!;
-        return (await changed.GetTextAsync()).ToString().Replace("\r\n", "\n");
+        return (actions, did, ws);
     }
 
     private sealed class Text(string path, string text, bool Catalog = false) : AdditionalText

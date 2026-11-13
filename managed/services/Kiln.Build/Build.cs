@@ -19,30 +19,60 @@ namespace Kiln;
 /// refuse to touch player bases unless <see cref="BuildFlags.InBases"/>. The game itself saves terrain only inside
 /// bases; Kiln adds the chunks it edits to the game's save (unless <see cref="BuildFlags.Transient"/>).
 /// </remarks>
+[ServerOnly]
 public static partial class Build
 {
     private static unsafe BuildNative.Table* T => BuildNative.T;
 
-    /// <summary>True when kiln.build runs on this game build.</summary>
+    /// <summary>True when kiln.build runs on this game build (capability <c>kiln.build</c>).</summary>
+    [AnyThread]
     public static unsafe bool Available => T != null;
+
+    /// <summary>The capability names Kiln.Build answers for.</summary>
+    internal static class Caps
+    {
+        /// <summary>The native table is here (the core's row).</summary>
+        public const string Service = "kiln.build";
+
+        /// <summary>The sigdb features kiln.build serves.</summary>
+        public static readonly string[] Features = ["build.read", "build.write", "build.persist", "build.items", "build.zones"];
+    }
+
+    // Kiln.Build in the capability registry: reported at the service's first use, fixed from then on. It has no row of
+    // its own (it only lowers its sigdb features when kiln.build is missing, which the core's row says from the start),
+    // so it does not start at the first service tick.
+    internal static readonly ServiceCapRows Rows = new(Caps.Service, ReportCapabilities);
+
+    private static void ReportCapabilities()
+    {
+        if (Available) return;
+        ServiceCaps.LowerFeatures(Caps.Service, Caps.Features);
+    }
+
+    private static KilnUnavailableException Unavailable()
+    {
+        Rows.Ensure();
+        return ServiceCaps.Unavailable(Caps.Service, "kiln.build is unavailable on this game build");
+    }
 
     internal static string Caller => ModContext.CurrentMod?.Info.Id ?? "kiln";
 
     private static void Ensure(string api)
     {
-        if (!Available) throw new NotSupportedException("kiln.build is unavailable on this game build");
+        if (!Available) throw Unavailable();
         Services.RequireTickThread(api);
     }
 
     private static unsafe BuildNative.Table* Require(string api)
     {
         var t = T;
-        if (t == null) throw new NotSupportedException("kiln.build is unavailable on this game build");
+        if (t == null) throw Unavailable();
         Services.RequireTickThread(api);
         return t;
     }
 
     /// <summary>kiln.build's state (any thread). Null when unavailable.</summary>
+    [AnyThread]
     public static unsafe BuildStatus? Status
     {
         get
@@ -61,6 +91,8 @@ public static partial class Build
     private static VoxelGrid? _grid;
 
     /// <summary>The voxel grid's geometry (tick thread; null before the world runs).</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.build")]
     public static unsafe VoxelGrid? Grid
     {
         get
@@ -80,6 +112,8 @@ public static partial class Build
     // ---- coordinates ----
 
     /// <summary>The cell that contains a world position.</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.build")]
     public static CellPos CellOf(WorldPosition p)
     {
         var g = G;
@@ -88,6 +122,8 @@ public static partial class Build
     }
 
     /// <summary>World position of a cell's low corner.</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.build")]
     public static WorldPosition CornerOf(CellPos c)
     {
         var g = G;
@@ -95,6 +131,8 @@ public static partial class Build
     }
 
     /// <summary>World position of a cell's centre.</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.build")]
     public static WorldPosition CenterOf(CellPos c)
     {
         var g = G;
@@ -103,9 +141,13 @@ public static partial class Build
     }
 
     /// <summary>The cells covering the box between two world positions.</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.build")]
     public static CellBox BoxBetween(WorldPosition a, WorldPosition b) => CellBox.FromCorners(CellOf(a), CellOf(b));
 
     /// <summary>The cells covering <paramref name="center"/> ± half extents (metres).</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.build")]
     public static CellBox BoxAround(WorldPosition center, double halfX, double halfY, double halfZ) =>
         BoxBetween(new(center.X - halfX, center.Y - halfY, center.Z - halfZ), new(center.X + halfX, center.Y + halfY, center.Z + halfZ));
 
@@ -113,6 +155,8 @@ public static partial class Build
 
     /// <summary>Whether every voxel tile under the box is loaded. Asks the game for the missing ones (they arrive within
     /// a few seconds), so polling this each step loads the area.</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.build")]
     public static unsafe bool IsLoaded(CellBox box)
     {
         var t = Require("Build.IsLoaded");
@@ -124,6 +168,8 @@ public static partial class Build
 
     /// <summary>Waits (on the tick thread) until the tiles under the box are loaded. False after the timeout. Mod code
     /// waits on its mod's scheduler, Kiln's own code (such as the <c>/build</c> command) on Kiln's service tick.</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.build")]
     public static async Task<bool> Load(CellBox box, TimeSpan? timeout = null)
     {
         var mod = ModContext.CurrentMod;
@@ -166,10 +212,14 @@ public static partial class Build
     // ---- cells ----
 
     /// <summary>Reads the cells of a box (x fastest). Throws <see cref="BuildException"/> when a tile is not loaded.</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.build")]
     public static Voxel[] Read(CellBox box) =>
         TryRead(box, out var cells) ? cells : throw new BuildException($"voxel tiles under {box} are not loaded yet", BuildNative.Unavailable);
 
     /// <summary>Reads the cells of a box; false (cells still filled from what is loaded) when a tile is missing.</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.build")]
     public static unsafe bool TryRead(CellBox box, out Voxel[] cells)
     {
         var t = Require("Build.Read");
@@ -189,6 +239,8 @@ public static partial class Build
     }
 
     /// <summary>Loads the tiles, then reads.</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.build")]
     public static async Task<Voxel[]> ReadAsync(CellBox box, TimeSpan? timeout = null)
     {
         if (!await Load(box, timeout)) throw new BuildException($"voxel tiles under {box} did not load", BuildNative.Unavailable);
@@ -196,11 +248,15 @@ public static partial class Build
     }
 
     /// <summary>One cell.</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.build")]
     public static Voxel ReadCell(CellPos c) => Read(new CellBox(c.X, c.Y, c.Z, 1, 1, 1))[0];
 
     /// <summary>Writes exact cells (x fastest) through the game's block writer. Tiles must be loaded
     /// (<see cref="WriteAsync"/> waits for them). <paramref name="mask"/>: optional, same layout, false = keep the
     /// world's cell.</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.build")]
     public static BuildResult Write(CellBox box, ReadOnlySpan<Voxel> cells, BuildOptions? options = null, ReadOnlySpan<bool> mask = default)
     {
         Ensure("Build.Write");
@@ -213,6 +269,8 @@ public static partial class Build
     }
 
     /// <summary>Loads the tiles, then <see cref="Write"/>s.</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.build")]
     public static async Task<BuildResult> WriteAsync(CellBox box, Voxel[] cells, BuildOptions? options = null, bool[]? mask = null)
     {
         var o = options ?? BuildOptions.Default;
@@ -223,27 +281,39 @@ public static partial class Build
     // ---- shapes ----
 
     /// <summary>Removes terrain and blocks inside the shape (a smooth one-cell edge).</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.build")]
     public static Task<BuildResult> Dig(BuildShape shape, BuildOptions? options = null) =>
         RunShape(ShapeOp.Dig, shape, 0, 0, double.NaN, 0, 0, options);
 
     /// <summary>Fills the shape with <paramref name="material"/> (a voxel material id, e.g. from <see cref="MaterialOf"/>).</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.build")]
     public static Task<BuildResult> Add(BuildShape shape, byte material, BuildOptions? options = null) =>
         RunShape(ShapeOp.Add, shape, material, 0, double.NaN, 0, 0, options);
 
     /// <summary>Levels the shape's footprint to <paramref name="levelY"/> metres: solid below (each column's own
     /// material, or <paramref name="material"/>), air above, within the shape's height.</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.build")]
     public static Task<BuildResult> Flatten(BuildShape shape, double levelY, byte material = 0, BuildOptions? options = null) =>
         RunShape(ShapeOp.Flatten, shape, material, 0, levelY, 0, 0, options);
 
     /// <summary>Blurs the surface inside the shape (<paramref name="strength"/> 0..1 per pass, 1..8 passes).</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.build")]
     public static Task<BuildResult> Smooth(BuildShape shape, float strength = 0.5f, int passes = 2, BuildOptions? options = null) =>
         RunShape(ShapeOp.Smooth, shape, 0, 0, double.NaN, strength, passes, options);
 
     /// <summary>Gives every non-air cell inside <paramref name="material"/>, keeping its fill.</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.build")]
     public static Task<BuildResult> Paint(BuildShape shape, byte material, BuildOptions? options = null) =>
         RunShape(ShapeOp.Paint, shape, material, 0, double.NaN, 0, 0, options);
 
     /// <summary>Cells of material <paramref name="from"/> inside become <paramref name="to"/>.</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.build")]
     public static Task<BuildResult> Replace(BuildShape shape, byte from, byte to, BuildOptions? options = null) =>
         RunShape(ShapeOp.Replace, shape, to, from, double.NaN, 0, 0, options);
 
@@ -268,6 +338,8 @@ public static partial class Build
     }
 
     /// <summary>The cells a shape edit touches.</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.build")]
     public static unsafe CellBox ShapeBox(ShapeOp op, BuildShape shape, double levelY = double.NaN)
     {
         var t = Require("Build.ShapeBox");
@@ -410,6 +482,8 @@ public static partial class Build
     /// UsedItem). <paramref name="template"/>: a template name ("Prop_Storage_24_T1_Box"), GUID text, or the debug
     /// name of the item that places it. <paramref name="itemId"/>: what dismantling gives back (0 = the item that
     /// places the template, when known; <see cref="uint.MaxValue"/> = none).</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.build")]
     public static EntityId PlaceProp(string template, WorldPosition position, Quaternion? rotation = null, uint itemId = 0,
         BuildOptions? options = null)
     {
@@ -419,6 +493,8 @@ public static partial class Build
             : PlacePropCore(Guid.Empty, template, position, rotation ?? Quaternion.Identity, itemId, options ?? BuildOptions.Default, null);
     }
 
+    [TickThreadOnly]
+    [RequiresCapability("kiln.build")]
     public static EntityId PlaceProp(Guid template, WorldPosition position, Quaternion? rotation = null, uint itemId = 0,
         BuildOptions? options = null) =>
         PlacePropCore(template, null, position, rotation ?? Quaternion.Identity, itemId, options ?? BuildOptions.Default, null);
@@ -469,6 +545,8 @@ public static partial class Build
 
     /// <summary>Removes a prop (any static entity; never creatures, villagers or players). False when it does not
     /// exist.</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.build")]
     public static bool RemoveProp(EntityId entity, BuildOptions? options = null)
     {
         Ensure("Build.RemoveProp");
@@ -494,6 +572,8 @@ public static partial class Build
     }
 
     /// <summary>The prop's template, transform and UsedItem; null when it does not exist.</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.build")]
     public static unsafe PlacedProp? Prop(EntityId entity)
     {
         var t = Require("Build.Prop");
@@ -504,6 +584,8 @@ public static partial class Build
 
     /// <summary>Props whose position lies in the box between <paramref name="min"/> and <paramref name="max"/>,
     /// nearest to its centre first. Child entities (lights, offers) come with their parent and are not listed.</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.build")]
     public static unsafe IReadOnlyList<PlacedProp> Props(WorldPosition min, WorldPosition max, PropFilter filter = PropFilter.Placed)
     {
         var t = Require("Build.Props");
@@ -531,6 +613,8 @@ public static partial class Build
     }
 
     /// <summary>Props inside a cell box (positions within its world-space bounds).</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.build")]
     public static IReadOnlyList<PlacedProp> Props(CellBox box, PropFilter filter = PropFilter.Placed) =>
         Props(CornerOf(box.Min), CornerOf(box.End), filter);
 
@@ -541,6 +625,8 @@ public static partial class Build
     // ---- bases, items, regions ----
 
     /// <summary>Player bases (the game's base build zones, rebuilt every step).</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.build")]
     public static unsafe IReadOnlyList<PlayerBase> Bases
     {
         get
@@ -575,6 +661,8 @@ public static partial class Build
 
     /// <summary>Adds a box to Kiln's save regions: the game then saves every terrain change there, players' digging
     /// included (as inside a base). Kiln's own edits are kept by default.</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.build")]
     public static unsafe void Keep(CellBox box)
     {
         var t = Require("Build.Keep");
@@ -586,6 +674,8 @@ public static partial class Build
 
     /// <summary>Forgets the save regions inside a box: their terrain reverts at the next restart unless a base covers
     /// it. Returns the 16 m chunks released.</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.build")]
     public static unsafe long Release(CellBox box)
     {
         var t = Require("Build.Release");

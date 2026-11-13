@@ -16,13 +16,25 @@ public enum KeyMods
     Alt = 4,
 }
 
-/// <summary>A key with modifiers, written like "F8", "Ctrl+K", "Shift+Alt+F2", "Insert", "Numpad5", "Backquote".</summary>
+/// <summary>A key with modifiers, written like "F8", "Ctrl+K", "Shift+Alt+F2", "Insert", "Numpad5", "Backquote", or a mouse
+/// input (since 0.2.0-dev.27): "Mouse4", "Mouse5", "MouseMiddle" (the side and middle buttons), "WheelUp", "WheelDown",
+/// "WheelLeft", "WheelRight" (one press per notch of the wheel), with modifiers too: "Ctrl+WheelUp", "Shift+Mouse4". The
+/// left and right buttons cannot be bound: Kiln's screens need them. <see cref="VirtualKey"/> is the Windows virtual-key
+/// code; the mouse buttons have theirs (0x04 middle, 0x05 Mouse4, 0x06 Mouse5), and the wheel, which has none, uses 0x100
+/// (up), 0x101 (down), 0x102 (left), 0x103 (right), above every key. keybinds.json stores the names, not the codes. A
+/// Kiln older than 0.2.0-dev.27 does not know the mouse names (<see cref="TryParse"/> says false there).</summary>
 public readonly record struct KeyChord(uint VirtualKey, KeyMods Mods)
 {
     public static readonly KeyChord None = default;
     public bool IsNone => VirtualKey == 0;
 
     private static readonly Dictionary<string, uint> Names = BuildNames();
+
+    // Names of the left and right mouse buttons: known, so that the refusal can say why.
+    private static readonly HashSet<string> Clicks = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "Mouse1", "Mouse2", "LeftClick", "RightClick", "MouseLeft", "MouseRight", "LeftMouse", "RightMouse", "LButton", "RButton",
+    };
 
     private static Dictionary<string, uint> BuildNames()
     {
@@ -41,6 +53,8 @@ public readonly record struct KeyChord(uint VirtualKey, KeyMods Mods)
         for (var c = 'A'; c <= 'Z'; c++) d[c.ToString()] = c;
         for (var c = '0'; c <= '9'; c++) d[c.ToString()] = c;
         for (uint i = 0; i <= 9; i++) d[$"Numpad{i}"] = 0x60 + i;
+        foreach (var (name, vk) in MouseKeys.Names) d[name] = vk;
+        d["Mouse3"] = MouseKeys.Middle;
         return d;
     }
 
@@ -68,7 +82,15 @@ public readonly record struct KeyChord(uint VirtualKey, KeyMods Mods)
     }
 
     public static KeyChord Parse(string text) =>
-        TryParse(text, out var c) ? c : throw new FormatException($"unknown key '{text}' (examples: F8, Ctrl+K, Shift+Insert, Numpad5)");
+        TryParse(text, out var c) ? c : throw new FormatException(ParseError(text));
+
+    /// <summary>Why <paramref name="text"/> is not a key (the message <see cref="Parse"/> throws).</summary>
+    internal static string ParseError(string? text) =>
+        text is not null && text.Split('+', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries).Any(Clicks.Contains)
+            ? $"'{text}': the left and right mouse buttons cannot be bound (Kiln's screens need them); Mouse4, Mouse5, " +
+              "MouseMiddle, WheelUp and WheelDown can, with Ctrl, Shift or Alt"
+            : $"unknown key '{text}' (examples: F8, Ctrl+K, Shift+Insert, Numpad5, Ctrl+WheelUp, Shift+Mouse4; the left and " +
+              "right mouse buttons cannot be bound)";
 
     public override string ToString()
     {
@@ -77,8 +99,34 @@ public readonly record struct KeyChord(uint VirtualKey, KeyMods Mods)
         if ((Mods & KeyMods.Ctrl) != 0) s += "Ctrl+";
         if ((Mods & KeyMods.Shift) != 0) s += "Shift+";
         if ((Mods & KeyMods.Alt) != 0) s += "Alt+";
-        return s + UiNative.KeyName(VirtualKey);
+        return s + (MouseKeys.Name(VirtualKey) ?? UiNative.KeyName(VirtualKey));
     }
+}
+
+/// <summary>The mouse inputs a <see cref="KeyChord"/> can name, and their codes (kiln_ui.h: KILN_UI_VK_WHEEL_*). Named here,
+/// not by kiln.ui, so that keybinds.json gets the same names whatever native table answers.</summary>
+internal static class MouseKeys
+{
+    public const uint Middle = 0x04, Mouse4 = 0x05, Mouse5 = 0x06;
+    public const uint WheelUp = 0x100, WheelDown = 0x101, WheelLeft = 0x102, WheelRight = 0x103;
+
+    public static readonly (string Name, uint Vk)[] Names =
+    [
+        ("MouseMiddle", Middle), ("Mouse4", Mouse4), ("Mouse5", Mouse5),
+        ("WheelUp", WheelUp), ("WheelDown", WheelDown), ("WheelLeft", WheelLeft), ("WheelRight", WheelRight),
+    ];
+
+    public static string? Name(uint vk)
+    {
+        foreach (var (name, code) in Names)
+            if (code == vk) return name;
+        return null;
+    }
+
+    public static bool IsWheel(uint vk) => vk is >= WheelUp and <= WheelRight;
+
+    /// <summary>The middle or a side button (only the mouse gives Kiln.Ui these codes).</summary>
+    public static bool IsButton(uint vk) => vk is Middle or Mouse4 or Mouse5;
 }
 
 /// <summary>One registered key binding (Forge: a KeyMapping).</summary>
@@ -110,25 +158,28 @@ public sealed class KeyBinding : IDisposable
     /// to act on the client / server world.</summary>
     public Action? OnPress { get; set; }
 
-    /// <summary>Runs on key release.</summary>
+    /// <summary>Runs on key release. A wheel notch has no release: it never runs for a binding on the wheel.</summary>
     public Action? OnRelease { get; set; }
 
     /// <summary>Keep the key from the game when it matches (default true).</summary>
     public bool Consume { get; set; } = true;
 
     /// <summary>Also fire while the Kiln menu is open (default false). Bindings always fire while a mod's own window
-    /// has the input, unless a text field has the keyboard.</summary>
+    /// has the input, unless a text field has the keyboard. A binding on the mouse (a button or the wheel) never fires
+    /// while a Kiln screen has the input: the wheel scrolls the screen, the buttons are the screen's.</summary>
     public bool WhileCapturing { get; set; }
 
     /// <summary>A key that types something (a letter, digit, punctuation or Space, without Ctrl or Alt) fires only during play or
     /// while a Kiln screen is open, because the game's own text fields (chat, a rename, the main menu's name and password
     /// boxes) don't tell Kiln they have the keyboard. True: fire on every game screen too. Function keys and chords with
-    /// Ctrl or Alt always do.</summary>
+    /// Ctrl or Alt always do. The wheel without Ctrl or Alt counts as such a key (the game's screens scroll with it); the
+    /// mouse buttons always fire.</summary>
     public bool OnGameScreens { get; set; }
 
     public bool Enabled { get; set; } = true;
 
-    /// <summary>Held right now (Forge: isDown()).</summary>
+    /// <summary>Held right now (Forge: isDown()). Never true for a binding on the wheel (a notch is a press without a
+    /// hold).</summary>
     public bool IsDown { get; internal set; }
 
     /// <summary>Presses since the last call (Forge: consumeClick()); counts even without <see cref="OnPress"/>.</summary>
@@ -144,6 +195,7 @@ public sealed class KeyBinding : IDisposable
 }
 
 /// <summary>Key bindings: register, remap, persist (<c>&lt;configDir&gt;/keybinds.json</c>: kiln/config or the profile's configDir).</summary>
+[ClientOnly]
 public static class KeyBindings
 {
     private static readonly object Lock = new();
@@ -183,11 +235,14 @@ public static class KeyBindings
 
     public static KeyBinding? Find(string id) => All.FirstOrDefault(b => b.Id == id);
 
-    /// <summary>Sets the key of <paramref name="id"/> and saves keybinds.json. "None" unbinds.</summary>
+    /// <summary>Sets the key of <paramref name="id"/> and saves keybinds.json. "None" unbinds. False for an unknown
+    /// key, and for the wheel on the Kiln menu's key (it would close the menu while you scroll it); the mouse buttons
+    /// can open the menu.</summary>
     public static bool Rebind(string id, string key) => KeyChord.TryParse(key, out var c) && Rebind(id, c);
 
     public static bool Rebind(string id, KeyChord key)
     {
+        if (id == MenuId && MouseKeys.IsWheel(key.VirtualKey)) return false;
         Load();
         var b = Find(id);
         lock (Lock) _saved[id] = key.ToString();
@@ -211,7 +266,9 @@ public static class KeyBindings
         get
         {
             Load();
-            lock (Lock) return _saved.TryGetValue(MenuId, out var s) && KeyChord.TryParse(s, out var c) && !c.IsNone ? c : MenuDefault;
+            lock (Lock)
+                return _saved.TryGetValue(MenuId, out var s) && KeyChord.TryParse(s, out var c) && !c.IsNone &&
+                       !MouseKeys.IsWheel(c.VirtualKey) ? c : MenuDefault;
         }
     }
 
@@ -281,7 +338,7 @@ public static class KeyBindings
             lock (Lock) copy = new Dictionary<string, string>(_saved);
             var o = new JsonObject
             {
-                ["comment"] = "Kiln key bindings: id -> key (F8, Ctrl+K, None). Edited by the Kiln menu (Keys).",
+                ["comment"] = "Kiln key bindings: id -> key (F8, Ctrl+K, Shift+Mouse4, Ctrl+WheelUp, None). Edited by the Kiln menu (Keys).",
                 ["bindings"] = new JsonObject(copy.OrderBy(kv => kv.Key).Select(kv => KeyValuePair.Create(kv.Key, (JsonNode?)kv.Value))),
             };
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);

@@ -1,0 +1,10 @@
+{
+  "id": "quiet-server",
+  "name": "Quiet server sample",
+  "version": "0.1.0",
+  "apiVersion": "0.2",
+  "license": "MIT",
+  "entryAssembly": "QuietServer.dll",
+  "side": "server",
+  "description": "An empty dedicated server waits longer between its passes and uses less CPU; with a player online the game's own pace is untouched. /quiet shows what it does."
+}

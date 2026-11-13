@@ -23,6 +23,7 @@ internal static unsafe class AbilitiesDispatch
     public static void Ensure()
     {
         if (Volatile.Read(ref _installed) == 1) return;
+        AbilitiesCaps.Ensure();
         var t = AbilitiesNative.T;
         if (t == null) return;
         if (Interlocked.Exchange(ref _installed, 1) == 1) return;

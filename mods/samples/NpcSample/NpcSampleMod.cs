@@ -18,7 +18,7 @@ public sealed class NpcSampleMod : Mod
     {
         if (!c.Source.Player.IsNone) return c.Source.Player;
         // the console folder (kiln/control/console) has no player: the first in game
-        foreach (var p in Players.All) return p.Entity;
+        if (Players.Available) foreach (var p in Players.All) return p.Entity;
         return EntityId.None;
     }
 
@@ -32,13 +32,25 @@ public sealed class NpcSampleMod : Mod
             c.Reply("no player in game");
             return;
         }
+        // unlocking him is kiln.knowledge's, moving him kiln.creatures', and making him needs a running world (spawn.world)
+        if (!Knowledge.Available || !Creatures.Available || !Capabilities.Is("spawn.world"))
+        {
+            c.Reply("this server cannot bring Tobin: kiln.knowledge, kiln.creatures or a running world is missing");
+            return;
+        }
         var unlock = NativeQuests.KnowledgeId(Id, "tobin_met");
         if (unlock is null)
         {
             c.Reply("the native build has no npcsample data: see kiln.log (\"knowledge: native:\")");
             return;
         }
-        await Knowledge.World.Grant(unlock.Value);
+        // a refusal is a result: the world can say no (its knowledge is not loaded yet, say)
+        var granted = await Knowledge.World.Grant(unlock.Value);
+        if (!granted.Ok)
+        {
+            c.Reply($"Tobin could not be unlocked: {granted.Reason}");
+            return;
+        }
         for (var i = 0; i < 5; i++) await Context.Scheduler.NextTick();  // the NPC registry follows the knowledge in the next step
         var spot = new WorldPosition(at.X + 3, at.Y, at.Z + 1);
         var v = Villagers.Find(Tobin);
@@ -59,7 +71,8 @@ public sealed class NpcSampleMod : Mod
         var player = PlayerOf(c);
         var v = Villagers.Find(Tobin);
         var quest = player.IsNone ? "no player" : Quests.StatusOf($"{Id}:tobin_kindling", QuestHolder.Of(player)).ToString();
-        return $"Tobin: {(v is null ? "not in the world" : v.ToString())}; unlocked {Knowledge.FindNpc("Kiln_NpcSample_Tobin")?.Unlocked}; quest {quest}";
+        var unlocked = Knowledge.Available ? Knowledge.FindNpc("Kiln_NpcSample_Tobin")?.Unlocked : null;
+        return $"Tobin: {(v is null ? "not in the world" : v.ToString())}; unlocked {unlocked}; quest {quest}";
     }
 
     [Command("npcsample follow", Description = "Tobin follows you (Villagers.Follow)", Permission = CommandPermission.Admin)]
@@ -76,7 +89,7 @@ public sealed class NpcSampleMod : Mod
     private string Stay()
     {
         var v = Villagers.Find(Tobin);
-        if (v is null) return "no Tobin";
+        if (v is null || !Creatures.Available) return "no Tobin";
         v.Stay();
         return $"{v} stays";
     }
@@ -84,6 +97,7 @@ public sealed class NpcSampleMod : Mod
     [Command("npcsample twigs", Description = "gives you 3 Twigs (what the quest asks for)", Permission = CommandPermission.Admin)]
     private async Task Twigs(CommandContext c)
     {
+        if (!Items.Available) throw new CommandException("items cannot be given on this server (kiln.items is missing)");
         var player = PlayerOf(c);
         if (player.IsNone)
         {
@@ -97,6 +111,7 @@ public sealed class NpcSampleMod : Mod
     [Command("npcsample whistle", Description = "gives you Tobin's Whistle (the quest's reward: his summon tool)", Permission = CommandPermission.Admin)]
     private async Task Whistle(CommandContext c)
     {
+        if (!Items.Available) throw new CommandException("items cannot be given on this server (kiln.items is missing)");
         var player = PlayerOf(c);
         if (player.IsNone)
         {

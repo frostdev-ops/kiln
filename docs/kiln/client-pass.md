@@ -11,10 +11,12 @@ The pass covers the lines of the status page that wait for a game test: the 18 r
 dev.22 and dev.21 client checklists (11 items each), and two lines new in 0.2.0-dev.26 (the achievement guard, and
 Kiln's unload when the game quits). `mods/tests/client-pass/rows.json` maps each line to its checks.
 
-> **Status.** The pack builds and its mapping is tested offline. **None of its checks has run in a real game yet**, and
-> the check runner itself has run only on dedicated lab servers (see `modding/testing.md`, "Guided checks"). The first
-> pass is also the first test of the pack: a check whose scene does not appear (a creature that is not spawned, an item
-> that is not given) shows a failed assertion; answer fail and say what you saw.
+> **Status.** The pack builds and its mapping is tested offline. The check runner and its list ran in a real game for
+> the first time on 13 Nov 2026 (a hosting game, test builds of 0.2.0-dev.27), which found and fixed two things in the
+> runner (the list did not notice the game entering a world; Run is now first in its row) and one in a check (it used
+> a spawned creature before it had its health). **Most checks have still not run in a real game.** A check whose scene
+> does not appear (a creature that is not spawned, an item that is not given) shows a failed assertion; answer fail and
+> say what you saw. A verdict counts only with its assertions: a pass beside a failed assertion is not a pass.
 
 ## The mods to load
 
@@ -42,6 +44,7 @@ assets built first: their descriptions say so).
 | `npcsample` | `mods/samples/NpcSample` | an NPC and a quest in the game's UI |
 | `rules-sample` | `mods/samples/RulesSample` | `/flight` |
 | `world-programs` | `mods/samples/WorldPrograms` | a world program with a player |
+| `menu-many-test` | `mods/tests/menu-many-test` | many pause-menu entries (`menu.rows-quit`, `menu.scroll`); its setting `Entries` (0 to 24) takes a new number without a restart |
 | `weapon-moves-test` | `mods/tests/weapon-moves-test` (run `build-assets.py` first) | moves and held models with moving parts (`blocks.moves-*`, `blocks.held-animated`); `blocks.held-animated-two-players` needs a joined dedicated server |
 | `cosmetic-sample` | `mods/samples/CosmeticSample` | session 2 only: the hood and the cape |
 
@@ -68,7 +71,9 @@ marked swords, swapped by hand, the game closed without the menu, then rejoin.
 | Ctrl+Shift+F7 | fail, then type one line and press Enter (Escape records the fail without a note) |
 | Ctrl+Shift+F8 | skip |
 
-Rebind them in the Kiln menu, Keys. The current instruction stays on the HUD line with the list closed, so you can play
+The list has a switch, "Only the N check(s) new in Kiln <version>": it hides every check that did not come with the
+running version (most of the list), and "Run these N" then runs the shown ones in order. Rebind the keys in the Kiln
+menu, Keys. The current instruction stays on the HUD line with the list closed, so you can play
 the check. "Run" starts one check, "Run all" runs them in order; Stop ends a check without an entry. In the main menu
 nothing runs: checks that ask about the main menu or the launcher are answered once you are in the world.
 
@@ -84,7 +89,7 @@ that session's first check.
 
 | Session | World and mods | Before you start | Checks |
 |---|---|---|---|
-| 1 | hosted world of your own (not your main character's world if you mind given items and spawned Vukahs); content profile | the launcher steps of checks 101 to 105 (they say what); main menu: MODS | 101-138 (37): launcher, menus and hooks, drawing, VFX, shaders, blocks, creature AI, models, gameplay with a player, creative mode; last: `core.unload-quit` part 1, then quit with Esc, Quit |
+| 1 | hosted world of your own (not your main character's world if you mind given items and spawned Vukahs); content profile | the launcher steps of checks 101 to 105 (they say what); main menu: MODS; for the two NoClip checks, `"allowNoClip": true` in the world's `kiln/config/rules.json` (the checks say so when it is missing) | 101-141 (40): launcher, menus and hooks, drawing, VFX, shaders, blocks, creature AI, models, gameplay with a player, creative mode, a mod's equip and unequip, the weather a mod chose; 150-151 (dev.27): NoClip through the ground and off inside it, NoClip ending on a teleport; last: `core.unload-quit` part 1, then quit with Esc, Quit |
 | 2 | the same world, hosted again after the restart; content profile plus `cosmetic-sample`; an overlay that hooks the graphics on (ReShade, vkBasalt or MangoHud) | switch the overlay on | 201-204: the overlay, what session 1 placed, the hood and the cape; last: `core.unload-quit` part 2, then Alt+F4 at the main menu |
 | 3 | hosted; frameworks profile, first start with its EML mods | add the frameworks' mods; XHL-Core's Load after Kiln and ShroudForge on; drop shroudlink's singleplayer zip | first: `core.unload-quit` part 3; 301-313 (13): EML first start, Remove refused while running, each framework, EMF portraits and chat, XHL loaded late |
 | 4 | hosted; the frameworks profile saved under a second name with XHL-Core's late load off | after session 3: Remove the EML mod and add its archive again; switch the mod with its own files off and on; save the profile under a second name, change the switch, load it | 401-404: Remove after closing, `nothing changed`, kept mod files, the profile's own rules |

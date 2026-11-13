@@ -87,7 +87,7 @@ public sealed class MyTests
 - Results: kiln.log lines `PASS` / `FAIL` / `SKIP` tagged `[mod:<id>]`, and `kiln/logs/tests/<id>.json`
   (`passed`, `failed`, `skipped`, `results[]` with `outcome`, `message`, `stack`).
 
-## Offline unit tests (Kiln.TestKit, dev.26+, in development)
+## Offline unit tests (Kiln.TestKit, dev.26+)
 Runs a mod under `dotnet test` with no game: Kiln.Host's real loader, a tick thread of its own, console commands, fake
 players and saved data. Needs the dev.26 MDK (package `Kiln.TestKit`, same version as `Kiln.Sdk`). Page:
 `docs/kiln/modding/unit-tests.md`.
@@ -105,16 +105,21 @@ var n = kiln.Run(() => Players.Count);          // Kiln API only through Run/As:
 ```
 - `public sealed class ModKilnTests : KilnTestSuite<MyMod.MyModMod>;` (namespace `Kiln.TestKit.Xunit`) runs every
   `[KilnTest]` as an xunit test, in the in-game runner's order.
-- Real offline: loading, lifecycle, events, scheduler, configs, commands, permissions, messages, locales, the fault policy.
-  Faked: players, `WorldData`/`PlayerData`, `EntityData` on player entities only. Everything else (spawn, items, combat,
-  content, chat's native side, network, rendering, hooks) reports itself unavailable, and a test that asked for one is
+- Real offline: loading, lifecycle, events, scheduler, configs, commands, permissions, messages, locales, the fault policy;
+  dev.27+ also the quests and talent trees your mod defines, on fake players. Faked: players, `WorldData`/`PlayerData`,
+  `EntityData`. dev.27+ recording fakes the test reads back: spawning (`kiln.Spawned`, `AddTemplate` first), chat
+  (`player.Say`, `player.Chat`), items (`kiln.Items.AddItem` first, `player.Inventory`), combat (`kiln.Combat.SetHealth`,
+  `kiln.Combat.Hit`), the day clock (`kiln.Time`) and a world of entities and components with tracked writes
+  (`kiln.Entities`). The rest (weather, equip, moves between inventories, item instances, content, abilities, network,
+  rendering, hooks, the game's journal and skill tree) reports itself unavailable, and a test that asked for one is
   skipped with its name; `AllowUnavailable` lets a suite run anyway. `kiln.Capabilities.Override(name, available)`.
+  The page's table "What is real offline" lists each row.
 - Gaps: a service that caches "no table" (`Kiln.Ui` render, `kiln.net` at the first channel) is asked once per process, so
   a later test can pass where it should be skipped: read the service's `Available` in the test. No client/server pair.
   One harness per process. A blocked test is stopped by the watchdog (Linux tested, Windows not).
 - Offline green is not a server or client check: run `kiln test` on a test server as well.
 
-## Guided client checks (`[ClientCheck]`, dev.26+, in development)
+## Guided client checks (`[ClientCheck]`, dev.26+)
 For what only a player can judge. Nothing of the runner has run in a real client yet. Page: `docs/kiln/modding/testing.md`.
 ```csharp
 public override void OnLoad() => ClientChecks.Register(this);      // Kiln.Testing
@@ -136,8 +141,8 @@ public async Task Frost_flash(CheckContext c)
 - Check sets to copy (dev.26+, none run by a player yet): item data (`mods/tests/instances-test/ClientChecks.cs`, area
   "Item data"), player states (`mods/samples/PlayerStates`, area "Player animations"), weapon moves and held models
   (`mods/tests/weapon-moves-test`, `blocks.moves-*`, `blocks.held-animated*`).
-- Offline (`Kiln.TestKit`) item data, player states and weapon moves are unavailable: `kiln.items`, `kiln.playeranim` and
-  `kiln.gamedata` have no fakes. Test them on a test server.
+- Offline (`Kiln.TestKit`) item data, player states and weapon moves are unavailable (the items fake has no item
+  instances; `kiln.playeranim` and `kiln.gamedata` have no fakes). Test them on a test server.
 
 ## Reading the logs
 `kiln logs [-f] [--mod ID] [--level E] [-n N]`, or:

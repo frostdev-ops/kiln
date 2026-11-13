@@ -352,7 +352,14 @@ struct EncodedChain {
     Bytes data;
     std::vector<StreamRange> ranges;
     size_t tail_start = 0;  // where the first level no range starts at begins
+    std::string cache_key;  // the TextureCache key it is kept under (chain_cache_key); empty for a chain no cache saw
 };
+inline constexpr const char* kEncoderVersion = "bc7-1";  // part of every texture cache key, and of the carry-over index
+// The TextureCache key of a chain: the pixels' hash, the size, the format and the encoder's version.
+std::string chain_cache_key(const ContentHash& pixels, uint32_t w, uint32_t h, uint8_t format);
+// The chain encode_chain gives for the pixels whose key is `key`, from the cache alone (no pixels): false when the cache has no entry of the
+// chain's size under that key (then the pixels have to be encoded, as encode_chain does).
+bool chain_from_cache(const std::string& key, uint32_t w, uint32_t h, uint8_t format, const TextureCache& cache, EncodedChain* out);
 struct MaterialMap {
     uint32_t slot = 0;  // kPbr*Map
     const char* what = "";
@@ -363,6 +370,20 @@ using ImageLoader = std::function<bool(const std::string& rel, RawImage* out, st
 // The maps of a material, built from what it names and from constants for what it doesn't: the game's shader reads albedo, normal and params unconditionally.
 // false: *field is the field at fault and *why what is wrong with it.
 bool material_maps(const MaterialDef& d, const ImageLoader& load, const TextureCache& cache, std::vector<MaterialMap>* out, std::string* field, std::string* why);
+// What material_maps reads and makes for a definition, without reading a pixel: the files it opens in the order it opens them (each once),
+// and each map's slot, name and format in its order. The carry-over index is checked against this.
+struct MaterialPlan {
+    std::vector<std::string> inputs;
+    struct Map {
+        uint32_t slot;
+        const char* what;
+        uint8_t format;
+    };
+    std::vector<Map> maps;
+};
+MaterialPlan material_plan(const MaterialDef& d);
+// The rule every path a block names must pass before a file is opened: relative, inside the mod's folder (pack.cpp).
+bool safe_relative_path(const std::string& rel);
 struct BuiltMaterial {
     Guid guid;
     Bytes resource;
@@ -461,6 +482,51 @@ struct BuiltMaterialBlock {
     uint64_t definition = 0;
     bool replaces = false;  // built under a game material's GUID, served as an override
 };
+// What one material block was built from and into (kiln-vfx's boot build records it): its definition (the hash of its block's JSON,
+// as BuiltMaterialBlock.definition), every file it read with the hash of that file's bytes, and what the build gave that a report or the
+// budget reads. A later cook of the same mod, block name and definition whose files still have those bytes gets exactly this from
+// material_maps and build_material (they are deterministic in those inputs), so it can take it without decoding a texture.
+struct MaterialRecord {
+    std::string mod, name;
+    uint64_t definition = 0;
+    std::vector<std::pair<std::string, ContentHash>> files;  // the path the block names (relative to the mod's folder) -> its bytes' hash
+    Guid guid;
+    uint8_t render_flags = 0;
+    uint32_t block_flags = 0;
+    uint32_t textures = 0;
+    std::vector<ContentHash> chains;  // each map's encoded chain: the budget counts streamed textures by it
+    // For a later start (kiln-vfx's carry-over index, carry.cpp): the definition itself, and each map as material_maps made it, by the
+    // key its chain has in the texture cache.
+    std::string definition_text;
+    struct Map {
+        uint32_t slot = 0;
+        std::string what;
+        uint32_t width = 0, height = 0;
+        uint8_t format = 0;
+        std::string key;
+    };
+    std::vector<Map> maps;
+    uint32_t age = 0;  // starts since it was last built or carried (the index drops old ones)
+};
+
+// ---- the carry-over index (kiln-vfx: <data>/vfx/cache/index.json, carry.cpp) ----------------------------------------------------
+// The material records of the last starts, so that a start whose mods did not change takes each material's maps from the texture cache
+// instead of decoding its textures. The header says what made them: an index of another format, another Kiln build, encoder, game build
+// or side is not used at all. Each record is used only after its files hash the same (pack.cpp), and only when the cache holds its chains.
+constexpr uint32_t kCarryIndexFormat = 1;
+constexpr size_t kCarryIndexMaxBytes = 16u << 20, kCarryIndexMaxRecords = 4096;
+constexpr uint32_t kCarryIndexMaxAge = 8;  // a record no start used in this many starts is dropped
+struct CarryHeader {
+    std::string kiln;  // Kiln's version and build stamp
+    std::string game;  // the game exe's SHA-256
+    std::string side;  // client | server
+};
+std::string carry_index_json(const CarryHeader& header, const std::vector<MaterialRecord>& records);
+// false (and *why) for anything that is not a well-formed index of this header; then *out is empty.
+bool read_carry_index(const std::string& text, const CarryHeader& header, std::vector<MaterialRecord>* out, std::string* why);
+// The index to write after a start: this start's records, then the earlier index's records of blocks this start did not have, a start
+// older; none older than kCarryIndexMaxAge, at most kCarryIndexMaxRecords (this start's first).
+std::vector<MaterialRecord> carry_merge(const std::vector<MaterialRecord>& now, const std::vector<MaterialRecord>& before);
 struct CookOptions {
     GameCounts game;
     Capacity capacity;
@@ -471,6 +537,20 @@ struct CookOptions {
     bool skip_vfx = false, skip_materials = false;          // what the fingerprint turned off
     bool skip_shaders = false;                              // kiln/config/vfx.json "shaders": false: mods' own modules fall back to Kiln's sprite
     std::set<std::string> skip_shader_mods;                 // "skipShaderMods": the same for these mods only
+    // Called before each mod's VFX block or material is built (kiln-vfx's boot: progress.json's detail). mod: its id,
+    // nth/mods: which of the mods, kind: "VFX" or "material", done/total: the blocks of that mod. Empty: nothing.
+    std::function<void(const std::string& mod, size_t nth, size_t mods, const char* kind, const std::string& name, size_t done, size_t total)> progress;
+    // Each material built from its textures, as it was built (the boot build keeps them). Empty: nothing.
+    std::function<void(const MaterialRecord&)> record_material;
+    // A record for this mod, block and definition, or null (define_json asks the boot build's). With one whose every file still has the
+    // recorded bytes, the material is not built again: what it gives is taken from the record, and its textures are not served in the
+    // result (CookResult.materials_reused counts it). Everything else (parsing, warnings, budget, report) runs as for a built one.
+    std::function<const MaterialRecord*(const std::string& mod, const std::string& name, uint64_t definition)> known_material;
+    // A record of an earlier start (kiln-vfx's carry-over index) for this mod, block and definition text, or null. With one whose every
+    // file still has the recorded bytes and whose every chain the texture cache still holds, the material's maps are taken from the cache
+    // without decoding or hashing a pixel, and the material is built from them as always (CookResult.materials_carried counts it). Anything
+    // missing: built in full as without a record (carry_notes says why).
+    std::function<const MaterialRecord*(const std::string& mod, const std::string& name, const std::string& definition)> carried_material;
 };
 struct CookResult {
     std::vector<ServedBlob> blobs;
@@ -482,6 +562,9 @@ struct CookResult {
     uint32_t mods_with_vfx = 0;
     uint32_t mod_modules = 0;                // mods' own particle modules served
     uint32_t used_vfx = 0, used_meshes = 0, used_sounds = 0, used_curves = 0, used_materials = 0, used_streamed_textures = 0;
+    uint32_t materials_built = 0, materials_reused = 0;  // built from their textures; taken from a MaterialRecord
+    uint32_t materials_carried = 0;                      // maps from the texture cache by a carried MaterialRecord
+    std::vector<std::string> carry_notes;                // why a material with a carried record was built in full
     uint64_t used_mesh_bytes = 0;
     GameCounts game;
     Capacity capacity;

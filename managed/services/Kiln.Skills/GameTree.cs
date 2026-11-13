@@ -98,6 +98,20 @@ internal static unsafe class SkillsNative
     private static Table* _t;
     private static bool _looked;
 
+    /// <summary>Forgets a remembered miss, so the next use looks for the table again (ServiceCaps.WhenFound: the refresh
+    /// found it after all).</summary>
+    internal static void LookAgain()
+    {
+        if (_t == null) _looked = false;
+    }
+
+    /// <summary>Tests: a fake kiln.skills table (null: none, as offline). Kiln never calls this.</summary>
+    internal static void UseForTests(Table* table)
+    {
+        _t = table;
+        _looked = true;
+    }
+
     public static Table* T
     {
         get
@@ -286,13 +300,46 @@ public sealed class GameNodesRefundedEvent : KilnEvent
 /// the next world it enters (define them in OnLoad: mods load in the main menu, before any world); on a dedicated
 /// server the world reads its tree before managed mods load, so put the nodes into the mod folder's
 /// <c>skills/*.json</c> (<c>"gameTree": {"nodes": [...]}</c>, read natively at boot) — a code definition is cached and in
-/// from the next start.</summary>
+/// from the next start, unless the mod is built with Kiln.Sdk, whose build bakes what the code defines into
+/// <c>skills/&lt;mod&gt;.generated.json</c> (docs/kiln/modding/baked.md).</summary>
 public static unsafe partial class GameTree
 {
-    public static bool Available => SkillsNative.T != null;
+    /// <summary>True when kiln.skills is loaded on this game build (capability <c>kiln.skills</c>), or while Kiln.Sdk's
+    /// build bakes a mod's definitions (docs/kiln/modding/baked.md).</summary>
+    [AnyThread]
+    public static bool Available => SkillsNative.T != null || Baking;
 
-    private static SkillsNative.Table* Need() =>
-        SkillsNative.T is var t && t != null ? t : throw new NotSupportedException("kiln.skills is unavailable");
+    /// <summary>The capability names Kiln.Skills answers for.</summary>
+    internal static class Caps
+    {
+        /// <summary>The native table is here (the core's row).</summary>
+        public const string Service = "kiln.skills";
+
+        /// <summary>The sigdb features kiln.skills serves on the server side.</summary>
+        public static readonly string[] Features = ["skills.functions", "skills.login_guard", "skills.shadow", "skills.tree_load"];
+    }
+
+    // Kiln.Skills in the capability registry: reported at the service's start (SkillsStartup, the first service tick),
+    // fixed from then on.
+    internal static readonly ServiceCapRows Rows = new(Caps.Service, ReportCapabilities);
+
+    private static int _lookAgainRegistered;
+
+    private static void ReportCapabilities()
+    {
+        // kiln.skills' wrapper remembers a miss: forgotten when the refresh finds the table (docs/kiln/services/caps.md)
+        if (Interlocked.Exchange(ref _lookAgainRegistered, 1) == 0) ServiceCaps.WhenFound(Caps.Service, SkillsNative.LookAgain);
+        if (SkillsNative.T != null) return;
+        ServiceCaps.LowerFeatures(Caps.Service, Caps.Features);
+    }
+
+    private static SkillsNative.Table* Need()
+    {
+        var t = SkillsNative.T;
+        if (t != null) return t;
+        Rows.Ensure();
+        throw ServiceCaps.Unavailable(Caps.Service, "kiln.skills is unavailable");
+    }
 
     public static GameTreeStatus? Status
     {
@@ -313,6 +360,7 @@ public static unsafe partial class GameTree
 
     /// <summary>Defines (or redefines) nodes as the calling mod's. Returns kiln.skills' report per node (state
     /// "defined" / "redefined" / "pending" / "error"). Any thread.</summary>
+    [RequiresCapability("kiln.skills")]
     public static IReadOnlyList<GameNodeInfo> Define(params GameNodeDefinition[] nodes)
     {
         var mod = SkillsInternals.CurrentMod;
@@ -322,16 +370,21 @@ public static unsafe partial class GameTree
     }
 
     /// <summary>Defines nodes from JSON (one node object, an array, or {"nodes": [...]}), as in skills/*.json.</summary>
+    [RequiresCapability("kiln.skills")]
     public static IReadOnlyList<GameNodeInfo> DefineJson(string json) => DefineJson(json, SkillsInternals.CurrentMod);
 
     private static IReadOnlyList<GameNodeInfo> DefineJson(string json, ModContext? mod)
     {
+        if (SkillsNative.T == null && Baking) return Record(json, mod);
         var t = Need();
         if (mod is not null && !json.Contains("\"mod\"", StringComparison.Ordinal) && JsonNode.Parse(json) is JsonObject o && o.ContainsKey("nodes"))
         {
             o["mod"] = mod.Info.Id;
             json = o.ToJsonString();
         }
+        var kept = new List<GameNodeInfo>();
+        json = Unbaked(json, mod, kept);
+        if (kept.Count > 0 && NodesOf(json).Nodes.Count == 0) return kept;
         var owner = mod is null ? 0UL : OwnerOf(mod);
         var bytes = Encoding.UTF8.GetBytes(json);
         string report;
@@ -352,6 +405,7 @@ public static unsafe partial class GameTree
                     mod?.Info.Id ?? "", "code", n?["state"]?.GetValue<string>() ?? "error", -1, -1, err));
                 if (err is not null) SkillsInternals.Warn($"game-tree node {n?["name"]}: {err}");
             }
+        list.AddRange(kept);
         return list;
     }
 
@@ -384,6 +438,8 @@ public static unsafe partial class GameTree
 
     /// <summary>The server world's tree as the game holds it (JSON: nodes by index through the game's own lookup, map
     /// counts). <paramref name="addedOnly"/>: Kiln's nodes only. Tick thread.</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.skills")]
     public static string Dump(bool addedOnly = false)
     {
         Game.AssertTickThread();
@@ -394,6 +450,8 @@ public static unsafe partial class GameTree
     }
 
     /// <summary>Runs steps with the game's own skill functions on a scratch node list (no player). Tick thread.</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.skills")]
     [System.Diagnostics.CodeAnalysis.Experimental("KILNX001", UrlFormat = "https://github.com/frostdev-ops/kiln/blob/main/docs/kiln/modding/analyzers.md#kilnx001")]
     [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
     public static IReadOnlyList<GameTreeSimResult> Simulate(params (GameTreeSimOp Op, uint Node)[] steps)
@@ -414,6 +472,7 @@ public static unsafe partial class GameTree
     /// <summary>The resource kiln.skills serves (or would serve now): <paramref name="which"/> 0 = expanded, 1 = the
     /// game's own, 2 = the copy path without additions (round-trip test). <paramref name="check"/> = the round-trip
     /// report (every game node, link and sub-array compared with the game's).</summary>
+    [RequiresCapability("kiln.skills")]
     public static byte[] Resource(int which, out string check)
     {
         var t = Need();

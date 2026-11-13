@@ -72,7 +72,8 @@ public readonly record struct DayTimeState(
 /// own sync and are saved with the world. Reads work from any thread; changes must be made on the tick thread
 /// (mod code normally runs there).
 /// </summary>
-public static unsafe class Time
+[ServerOnly]
+public static unsafe partial class Time
 {
     private const int Ok = 0, InvalidArgument = 1, Unavailable = 3, WrongThread = 4;
 
@@ -80,7 +81,7 @@ public static unsafe class Time
     private struct NativeState
     {
         public uint Size;
-        public byte IsDay, WeatherAvailable, R0, R1;
+        public byte IsDay, WeatherAvailable, WeatherChoiceReady, R1;
         public double Hours, HoursField, DayStartHours, NightStartHours, DayLengthS, NightLengthS;
         public float TimeScale;
         public uint ChangeCounter;
@@ -113,33 +114,41 @@ public static unsafe class Time
     private static Table* _table;
     private static Table* T => _table != null ? _table : (_table = Services.Get<Table>("kiln.time", 1));
 
-    /// <summary>True when the native service is loaded and usable on this game build.</summary>
+    /// <summary>True when the native service is loaded and usable on this game build (capability <c>kiln.time</c>).</summary>
+    [AnyThread]
     public static bool Available => T != null;
 
     /// <summary>True once the server world exists and its clock can be read.</summary>
+    [AnyThread]
     public static bool Ready => TryGetState(out _);
 
     /// <summary>Time of day in hours, 0..24 (e.g. 13.5 = 13:30). Setting it calls <see cref="Set(double, TimeSetMode)"/>
-    /// in <see cref="TimeSetMode.Forward"/> mode.</summary>
+    /// in <see cref="TimeSetMode.Forward"/> mode (tick thread).</summary>
+    [RequiresCapability(TimeCaps.Service)]
     public static double OfDay
     {
+        [AnyThread]
         get => State.Hours;
+        [TickThreadOnly]
         set => Set(value);
     }
 
-    /// <summary>The current clock state. Throws when the service or the world is not available.</summary>
+    /// <summary>The current clock state. Throws when the service or the world is not available. Any thread.</summary>
+    [AnyThread]
+    [RequiresCapability(TimeCaps.Service)]
     public static DayTimeState State
     {
         get
         {
-            if (T == null) throw new NotSupportedException("kiln.time is unavailable on this game build");
+            if (T == null) throw TimeCaps.Off(TimeCaps.Service, "kiln.time is unavailable on this game build");
             NativeState s;
             Check(T->Get(&s), "Time.State");
             return Convert(in s);
         }
     }
 
-    /// <summary>Like <see cref="State"/>, without throwing.</summary>
+    /// <summary>Like <see cref="State"/>, without throwing. Any thread.</summary>
+    [AnyThread]
     public static bool TryGetState(out DayTimeState state)
     {
         state = default;
@@ -150,14 +159,30 @@ public static unsafe class Time
         return true;
     }
 
+    // kiln.time's own flag (any thread): weather_set would take a request now. Not the layers (a tick-thread read).
+    internal static bool WeatherChoiceReadyNow()
+    {
+        if (T == null) return false;
+        NativeState s;
+        return T->Get(&s) == Ok && s.WeatherChoiceReady != 0;
+    }
+
+    [AnyThread]
+    [RequiresCapability(TimeCaps.Service)]
     public static bool IsDay => State.IsDay;
+    [AnyThread]
+    [RequiresCapability(TimeCaps.Service)]
     public static TimeSpan DayLength => State.DayLength;
+    [AnyThread]
+    [RequiresCapability(TimeCaps.Service)]
     public static TimeSpan NightLength => State.NightLength;
 
     /// <summary>Sets the time of day (hours; wrapped into 0..24). Tick thread only.</summary>
+    [TickThreadOnly]
+    [RequiresCapability(TimeCaps.Service)]
     public static void Set(double hours, TimeSetMode mode = TimeSetMode.Forward)
     {
-        if (T == null) throw new NotSupportedException("kiln.time is unavailable on this game build");
+        if (T == null) throw TimeCaps.Off(TimeCaps.Service, "kiln.time is unavailable on this game build");
         if (!double.IsFinite(hours)) throw new ArgumentOutOfRangeException(nameof(hours));
         Services.RequireTickThread("Time.Set");
         var watched = Events.HasSubscribers<TimeSetEvent>();
@@ -167,10 +192,14 @@ public static unsafe class Time
     }
 
     /// <summary>Sets the time of day from a clock time (e.g. <c>TimeSpan.FromHours(7.5)</c> = 07:30).</summary>
+    [TickThreadOnly]
+    [RequiresCapability(TimeCaps.Service)]
     public static void Set(TimeSpan timeOfDay, TimeSetMode mode = TimeSetMode.Forward) => Set(timeOfDay.TotalHours, mode);
 
     /// <summary>Sets the time from text: "7", "7.5", "07:30", "19:45", "7:30pm", "noon", "midnight", "dawn", "dusk".
     /// Throws <see cref="FormatException"/> on anything else.</summary>
+    [TickThreadOnly]
+    [RequiresCapability(TimeCaps.Service)]
     public static void Set(string text, TimeSetMode mode = TimeSetMode.Forward)
     {
         if (!TryParse(text, out var hours)) throw new FormatException($"not a time of day: '{text}'");
@@ -179,18 +208,51 @@ public static unsafe class Time
 
     /// <summary>Ends all weather and lets every weather layer pick a new phenomenon on the server's next weather
     /// update (in the same frame). Clients follow through the game's weather sync. Tick thread only.</summary>
+    [TickThreadOnly]
+    [RequiresCapability(TimeCaps.Service)]
     public static void ResetWeather()
     {
-        if (T == null) throw new NotSupportedException("kiln.time is unavailable on this game build");
+        if (T == null) throw TimeCaps.Off(TimeCaps.Service, "kiln.time is unavailable on this game build");
         Services.RequireTickThread("Time.ResetWeather");
         Check(T->ResetWeather(), "Time.ResetWeather");
     }
 
-    /// <summary>True when this build can hold the clock's speed (<see cref="SetSpeed"/>, <see cref="SetCycle"/>).</summary>
+    /// <summary>True when this build can hold the clock's speed (<see cref="SetSpeed"/>, <see cref="SetCycle"/>;
+    /// capability <c>time.speed</c>).</summary>
+    [AnyThread]
     public static bool CanSetSpeed => HasScale && T2->TimeScaleHold() > -1.5f;
+
+    /// <summary>The server world's clock is there: kiln.time holds the speed on it only (it binds the clock at that
+    /// world's first step). A client in its menu, or a server before its world runs, has none: <see cref="SetSpeed"/>
+    /// then throws <see cref="InvalidOperationException"/>, and <c>time.speed</c> is pending.</summary>
+    internal static bool ServerClock => TryGetState(out _) && ServerWorldThere();
+
+    private static bool ServerWorldThere()
+    {
+        var w = ReflectedValue.World;
+        return w != null && w->ServerWorld != null && w->ServerWorld() != 0;
+    }
+
+    // Why time.speed is off (with CanSetSpeed false): no kiln.time, an older one, or a build where it cannot hold it.
+    internal static CapabilityReason SpeedOffReason(out string text)
+    {
+        if (T == null)
+        {
+            text = "kiln.time is not loaded";
+            return CapabilityReason.ServiceMissing;
+        }
+        if (!HasScale)
+        {
+            text = "kiln.time cannot hold the clock's speed (an older Kiln)";
+            return CapabilityReason.ServiceOlder;
+        }
+        text = "kiln.time cannot hold the clock's speed on this game build (see kiln.log)";
+        return CapabilityReason.SymbolMissing;
+    }
 
     /// <summary>The clock speed Kiln holds (0 = stopped, 1 = the game's normal speed), or null when the game decides
     /// (1, faster while players sleep).</summary>
+    [AnyThread]
     public static double? HeldSpeed
     {
         get
@@ -203,16 +265,30 @@ public static unsafe class Time
 
     /// <summary>Holds the day/night clock at a speed: 0 stops it (sleeping doesn't move it either), 1 is the game's
     /// normal speed, more runs it faster (at most 1000). Null gives the speed back to the game. Clients follow through
-    /// the game's own daytime sync. Session state: it ends when the world closes or the server restarts. Tick thread.</summary>
+    /// the game's own daytime sync. Session state: it ends when the world closes or the server restarts. A change posts
+    /// <see cref="TimeSpeedChangedEvent"/>. Tick thread.</summary>
+    [TickThreadOnly]
+    [RequiresCapability(TimeCaps.Speed)]
     public static void SetSpeed(double? speed)
     {
-        if (!HasScale) throw new NotSupportedException("kiln.time cannot hold the clock's speed (an older Kiln)");
+        if (!HasScale) throw TimeCaps.Off(TimeCaps.Speed, "kiln.time cannot hold the clock's speed (an older Kiln)");
         if (speed is { } v && (!double.IsFinite(v) || v < 0 || v > 1000)) throw new ArgumentOutOfRangeException(nameof(speed), "0..1000");
         Services.RequireTickThread("Time.SetSpeed");
+        var watched = Events.HasSubscribers<TimeSpeedChangedEvent>();
+        var before = watched ? HeldSpeed : null;
         Check(T2->SetTimeScale(speed is { } x ? (float)x : -1f), "Time.SetSpeed");
+        if (!watched) return;
+        var after = HeldSpeed;
+        if (after == before) return;
+        var by = ModContext.CurrentMod?.Info.Id ?? "kiln";
+        SpeedNotices.Post(by, new TimeSpeedChangedEvent(before, after, by));
     }
 
+    // One key per mod: a handler that sets the speed again waits for the next step.
+    internal static readonly ChangeNotices<TimeSpeedChangedEvent, string> SpeedNotices = new("kiln.time");
+
     /// <summary>The day and night cycle as the held speed shows it.</summary>
+    [AnyThread]
     public static TimeCycle Cycle => HeldSpeed switch
     {
         null => TimeCycle.Normal,
@@ -234,6 +310,8 @@ public static unsafe class Time
 
     /// <summary>Normal (the game's), Stopped (the sun stands still) or Fast (a whole day and night in about 90 s).
     /// Tick thread.</summary>
+    [TickThreadOnly]
+    [RequiresCapability(TimeCaps.Speed)]
     public static void SetCycle(TimeCycle cycle)
     {
         switch (cycle)

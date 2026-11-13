@@ -68,6 +68,24 @@ kiln.ui subclasses the window (`SetWindowLongPtrW(GWLP_WNDPROC)`, re-applied if 
 - Keys: from `WM_INPUT` (RAWKEYBOARD; falls back to WM_KEYDOWN if no raw keyboard ever arrives) → the Kiln menu key
   (default Insert) → key subscribers (Kiln.Ui key bindings). A consumed key's `WM_INPUT` press and its legacy
   messages are kept from the game.
+- Mouse presses (0.2.0-dev.27): the middle and side buttons and each wheel notch go the same way, as `KilnUiKey`s
+  (`KILN_UI_VK_WHEEL_*` for the wheel), to the key subscribers that ask for them (`subscribe_key_ex`,
+  `KILN_UI_KEYS_MOUSE`, kiln.ui v7; without one nothing of this runs). The window gets each from `WM_INPUT` (RAWMOUSE flags, `usButtonData`) and as a
+  message (`WM_XBUTTON*`, `WM_MBUTTON*`, `WM_MOUSEWHEEL`, `WM_MOUSEHWHEEL`); whichever comes first is dispatched and
+  the other, its twin (same input and direction at the closest message time within 50 ms, wheel deltas reconciled),
+  follows its decision (`native/services/ui/mouse_press.h`). Wine 11.0 stamps a record and its message with one time
+  (`server/queue.c` `queue_mouse_message`: `raw_msg.time = time` and `alloc_hardware_message(..., time, ...)`), and
+  merges a queued WM_MOUSEWHEEL with the next at the same cursor position across the WM_INPUT records between them
+  (`merge_mousewheel`, `find_mouse_message` skips WM_INPUT; the merged message takes the later turn's time): two
+  records then one +240 message, which the reconciliation counts as the two notches it is.
+  A taken press is kept from the game in both forms: a record holding only it is kept whole; one with motion or other
+  buttons is handed on and kiln.ui's hook on the game's `GetRawInputData` import slot (`input_install_iat`, with the
+  cursor slots) takes the taken flags out of what the game reads. The game imports no `GetRawInputBuffer`; a module
+  that reads raw input through its own import gets the record unedited. Windows' message times count in system ticks
+  (10 to 16 ms), so a pair split across a tick boundary may be a tick apart; not seen in this game yet: kiln.log says
+  once when a pair matched only through the 50 ms tolerance.
+  Which of the two forms the game's camera zoom reads was not looked up: both are kept, so either way it does not see
+  a taken notch. Not verified in a real game yet (guided check `ui.mouse-bindings`).
 - Capture (Kiln menu open, or an interactive Kiln window): `WM_INPUT`, key presses, characters and mouse messages
   are kept from the game (`DefWindowProc` for raw input so the system frees it); key releases always pass (nothing
   stays held); Alt+F4 passes. The game's `SetCursorPos` calls are ignored and `ClipCursor` is lifted (the game's last

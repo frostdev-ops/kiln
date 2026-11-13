@@ -52,6 +52,7 @@ public sealed class TerrainSampleMod : Mod
     // c.Fail does), not a reply: the log line and the console's result then say it didn't happen.
     private static async Task Put(CommandContext c, WorldPosition given, string block, double radius, bool inside)
     {
+        if (!Build.Available) throw new CommandException("the ground cannot be changed on this server (kiln.build is missing)");
         WorldPosition aim;
         if (given != default)
             aim = given;

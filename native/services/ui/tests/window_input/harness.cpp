@@ -12,10 +12,19 @@
 //     captures input (menu open, the wheel) and for a key a Kiln binding consumes, and those records still arrive;
 //   - one focus loss (WM_ACTIVATEAPP 0 and WM_KILLFOCUS) gives one record;
 //   - unsubscribe stops delivery, waits for a call in flight on the window thread, works from inside the callback;
-//     a faulting subscriber is removed and the others go on.
+//     a faulting subscriber is removed and the others go on;
+//   - the middle and side buttons and the wheel as key presses (mouse_press.h, since 0.2.0-dev.27): a raw record and
+//     the message of the same notch or click give ONE press, in either order; a high-resolution wheel's small deltas
+//     add up to one press per notch; a chord a key subscriber takes is kept from the game (record and message), one it
+//     does not take passes; while Kiln captures input the press comes with captured 1 and the game gets nothing; over a
+//     Kiln panel the wheel is the panel's; the left and right buttons are never presses; take_pressed_key stays
+//     keyboard only; key_name names them; only subscribe_key_ex(KILN_UI_KEYS_MOUSE) subscribers get mouse presses
+//     (keys.cpp, linked here): a subscribe_key subscriber gets none and cannot take one, and with no mouse subscriber
+//     the mouse reaches the game untouched.
 // Lines: "PASS ...", "FAIL ...". Exit code 0 = no FAIL.
 #include <windows.h>
 
+#include <algorithm>
 #include <atomic>
 #include <cstdarg>
 #include <cstdio>
@@ -57,14 +66,18 @@ KilnHandle next_handle() {
     static std::atomic<KilnHandle> h{1};
     return h++;
 }
-// Kiln's own key handling (the menu key, bindings, the wheel): what reaches it, and one key it consumes.
+// Kiln's own key handling (the menu key, bindings, the wheel): what reaches it, and one key it consumes (with these
+// modifiers only, unless g_consume_mods is ~0u). The real key subscribers (keys.cpp: subscribe_key, subscribe_key_ex)
+// get it after, as in ui.cpp.
 std::vector<std::string> g_kiln_keys;
-uint32_t g_consume_vk = 0;
-bool dispatch_key(const KilnUiKey& k) {
-    char b[64];
-    std::snprintf(b, sizeof b, "vk=%u scan=%x down=%u repeat=%u captured=%u", k.vk, k.scan, k.down, k.repeat, k.captured);
+uint32_t g_consume_vk = 0, g_consume_mods = ~0u;
+bool dispatch_key(const KilnUiKey& k, bool mouse) {
+    char b[96];
+    std::snprintf(b, sizeof b, "vk=%u scan=%x mods=%u down=%u repeat=%u captured=%u", k.vk, k.scan, k.mods, k.down, k.repeat,
+                  k.captured);
     g_kiln_keys.push_back(b);
-    return k.down && k.vk == g_consume_vk;
+    const bool subscribers = keys_dispatch(k, mouse);
+    return subscribers || (k.down && k.vk == g_consume_vk && (g_consume_mods == ~0u || k.mods == g_consume_mods));
 }
 }  // namespace kui
 
@@ -101,7 +114,8 @@ LRESULT CALLBACK game_proc(HWND h, UINT m, WPARAM w, LPARAM l) {
                 if (ri->header.dwType == RIM_TYPEKEYBOARD)
                     std::snprintf(b, sizeof b, "00ff keyboard %x %x %x", ri->data.keyboard.MakeCode, ri->data.keyboard.Flags, ri->data.keyboard.VKey);
                 else
-                    std::snprintf(b, sizeof b, "00ff mouse %x %ld %ld", ri->data.mouse.usButtonFlags, ri->data.mouse.lLastX, ri->data.mouse.lLastY);
+                    std::snprintf(b, sizeof b, "00ff mouse %x %ld %ld %d", ri->data.mouse.usButtonFlags, ri->data.mouse.lLastX,
+                                  ri->data.mouse.lLastY, static_cast<SHORT>(ri->data.mouse.usButtonData));
             }
         }
         g_game.push_back(b);
@@ -651,6 +665,510 @@ void lifetime() {
     check(kui::input_feed_subscribe(1, nullptr, nullptr, &h3) == KILN_ERR_INVALID_ARGUMENT, "no fn: INVALID_ARGUMENT");
 }
 
+// ---- the middle and side buttons and the wheel as key presses (mouse_press.h) ----
+size_t count_prefix(const std::vector<std::string>& v, const std::string& prefix) {
+    size_t n = 0;
+    for (const auto& x : v) n += x.rfind(prefix, 0) == 0;
+    return n;
+}
+size_t count_if_has(const std::vector<std::string>& v, const std::string& part) {
+    size_t n = 0;
+    for (const auto& x : v) n += x.find(part) != std::string::npos;
+    return n;
+}
+// Posted, then taken from the queue and dispatched as a game's message loop does: the message carries its own message
+// time (GetMessageTime), unlike a sent one, which carries the time of the last message taken.
+void post_pump(UINT m, WPARAM w, LPARAM l) {
+    PostMessageW(g_win, m, w, l);
+    MSG msg;
+    while (PeekMessageW(&msg, g_win, 0, 0, PM_REMOVE)) DispatchMessageW(&msg);
+}
+// Kiln's key lines for one vk and transition ("vk=256 ... down=1"), presses only: a part of a wheel notch is asked as a
+// repeat (would a subscriber keep the notch?), which `parts` counts.
+size_t presses(const Run& r, uint32_t vk, bool down = true, bool repeat = false) {
+    size_t n = 0;
+    char want[32];
+    std::snprintf(want, sizeof want, "down=%u repeat=%u", down ? 1u : 0u, repeat ? 1u : 0u);
+    for (const auto& x : r.kiln) {
+        unsigned v = 0;
+        if (std::sscanf(x.c_str(), "vk=%u", &v) == 1 && v == vk && x.find(want) != std::string::npos) ++n;
+    }
+    return n;
+}
+size_t parts(const Run& r, uint32_t vk) { return presses(r, vk, true, true); }
+size_t all_presses(const Run& r) { return r.kiln.size() - count_if_has(r.kiln, "repeat=1"); }
+// The modifiers the window thread reads (GetKeyState): Ctrl and Shift held or not.
+void hold(bool ctrl, bool shift = false) {
+    BYTE ks[256] = {};
+    GetKeyboardState(ks);
+    ks[VK_CONTROL] = ks[VK_LCONTROL] = ctrl ? 0x80 : 0;
+    ks[VK_SHIFT] = ks[VK_LSHIFT] = shift ? 0x80 : 0;
+    SetKeyboardState(ks);
+}
+// The window forgets pending twins and notches with the focus (as after alt-tab): each case starts clean.
+void fresh() {
+    send(WM_KILLFOCUS, 0, 0);
+    send(WM_SETFOCUS, 0, 0);
+}
+WPARAM wheel_w(int delta) { return MAKEWPARAM(0, static_cast<WORD>(static_cast<SHORT>(delta))); }
+void raw_wheel(int delta, USHORT more = 0, LONG dx = 0, LONG dy = 0) {
+    send(WM_INPUT, RIM_INPUT, raw_mouse(RI_MOUSE_WHEEL | more, dx, dy, static_cast<USHORT>(static_cast<SHORT>(delta))));
+}
+void msg_wheel(int delta) { send(WM_MOUSEWHEEL, wheel_w(delta), MAKELPARAM(10, 10)); }
+std::string game_text(const Run& r) { return join(r.game); }
+bool game_has_raw_wheel(const Run& r) {
+    for (const auto& x : r.game) {
+        unsigned flags = 0;
+        if (std::sscanf(x.c_str(), "00ff mouse %x", &flags) == 1 && (flags & (RI_MOUSE_WHEEL | RI_MOUSE_HWHEEL))) return true;
+    }
+    return false;
+}
+
+void mouse_wheel_presses() {
+    fresh();
+    Run r = run([] { raw_wheel(120); msg_wheel(120); }, nullptr);
+    check(presses(r, KILN_UI_VK_WHEEL_UP) == 1 && r.kiln.size() == 1,
+          "wheel: a raw record and the WM_MOUSEWHEEL of the same notch give ONE press (WheelUp):%s", join(r.kiln).c_str());
+    check(r.kiln.size() == 1 && r.kiln[0].find("mods=0 down=1 repeat=0 captured=0") != std::string::npos,
+          "wheel: the notch is a press without modifiers, no repeat, not captured: %s", r.kiln.empty() ? "" : r.kiln[0].c_str());
+    check(game_has_raw_wheel(r) && contains(r.game, "020a "), "wheel: no key subscriber took it: the game got both:%s",
+          game_text(r).c_str());
+    r = run([] { msg_wheel(-120); raw_wheel(-120); }, nullptr);
+    check(presses(r, KILN_UI_VK_WHEEL_DOWN) == 1 && r.kiln.size() == 1,
+          "wheel: the message before its raw record also gives ONE press (WheelDown):%s", join(r.kiln).c_str());
+    r = run([] { raw_wheel(120); raw_wheel(120); msg_wheel(120); msg_wheel(120); }, nullptr);
+    check(presses(r, KILN_UI_VK_WHEEL_UP) == 2 && r.kiln.size() == 2,
+          "wheel: two raw records drained ahead of their two messages give two presses:%s", join(r.kiln).c_str());
+    fresh();
+    r = run([] { raw_wheel(120); raw_wheel(120); raw_wheel(120); }, nullptr);
+    check(presses(r, KILN_UI_VK_WHEEL_UP) == 3, "wheel: raw records without messages: a press each (%zu)", presses(r, KILN_UI_VK_WHEEL_UP));
+    fresh();
+    r = run([] { msg_wheel(120); msg_wheel(120); }, nullptr);
+    check(presses(r, KILN_UI_VK_WHEEL_UP) == 2, "wheel: messages without raw records: a press each (%zu)", presses(r, KILN_UI_VK_WHEEL_UP));
+    fresh();
+    r = run([] {
+        send(WM_INPUT, RIM_INPUT, raw_mouse(RI_MOUSE_HWHEEL, 0, 0, 120));
+        send(WM_MOUSEHWHEEL, wheel_w(120), 0);
+        send(WM_MOUSEHWHEEL, wheel_w(-120), 0);
+        send(WM_INPUT, RIM_INPUT, raw_mouse(RI_MOUSE_HWHEEL, 0, 0, static_cast<USHORT>(-120)));
+    }, nullptr);
+    check(presses(r, KILN_UI_VK_WHEEL_RIGHT) == 1 && presses(r, KILN_UI_VK_WHEEL_LEFT) == 1 && r.kiln.size() == 2,
+          "wheel: the horizontal wheel the same way (WheelRight, WheelLeft once each):%s", join(r.kiln).c_str());
+    fresh();
+    r = run([] { raw_wheel(240); msg_wheel(240); }, nullptr);
+    check(presses(r, KILN_UI_VK_WHEEL_UP) == 2, "wheel: a turn of two notches in one record gives two presses (%zu)",
+          presses(r, KILN_UI_VK_WHEEL_UP));
+    // Wine merges a queued WM_MOUSEWHEEL with the next one at the same cursor position, across the WM_INPUT records
+    // between them (server/queue.c merge_mousewheel): two turns come as two records, then one +240 message. Posted
+    // messages are not merged, so the harness delivers what Wine delivers after the merge.
+    fresh();
+    r = run([] { raw_wheel(120); raw_wheel(120); msg_wheel(240); }, nullptr);
+    check(presses(r, KILN_UI_VK_WHEEL_UP) == 2 && all_presses(r) == 2,
+          "wheel: two records and one merged +240 message give two presses, not four:%s", join(r.kiln).c_str());
+    r = run([] { raw_wheel(-240); msg_wheel(-120); msg_wheel(-120); }, nullptr);
+    check(presses(r, KILN_UI_VK_WHEEL_DOWN) == 2 && all_presses(r) == 2,
+          "wheel: one -240 record and two -120 messages give two presses:%s", join(r.kiln).c_str());
+    // A record and its message one Windows tick apart in message time (posted, so the message carries its own time)
+    fresh();
+    r = run([] {
+        post_pump(WM_NULL, 0, 0);
+        raw_wheel(120);  // carries the WM_NULL's time
+        Sleep(20);
+        post_pump(WM_MOUSEWHEEL, wheel_w(120), 0);
+    }, nullptr);
+    check(presses(r, KILN_UI_VK_WHEEL_UP) == 1, "wheel: a record and its message 20 ms apart in message time give ONE press (%zu)",
+          presses(r, KILN_UI_VK_WHEEL_UP));
+}
+
+void mouse_wheel_small_deltas() {
+    fresh();
+    Run r = run([] {
+        for (int i = 0; i < 3; ++i) { raw_wheel(30); msg_wheel(30); }
+    }, nullptr);
+    check(all_presses(r) == 0 && parts(r, KILN_UI_VK_WHEEL_UP) == 3,
+          "high-resolution wheel: three quarters of a notch give no press yet, each asked once as a part (repeat 1):%s",
+          join(r.kiln).c_str());
+    r = run([] { raw_wheel(30); msg_wheel(30); }, nullptr);
+    check(presses(r, KILN_UI_VK_WHEEL_UP) == 1 && r.kiln.size() == 1, "high-resolution wheel: the fourth quarter gives ONE press:%s",
+          join(r.kiln).c_str());
+    r = run([] {
+        raw_wheel(60); msg_wheel(60);       // half a notch up...
+        raw_wheel(-60); msg_wheel(-60);     // ...then down: a new notch begins
+        raw_wheel(-60); msg_wheel(-60);
+    }, nullptr);
+    check(presses(r, KILN_UI_VK_WHEEL_DOWN) == 1 && all_presses(r) == 1,
+          "high-resolution wheel: a turn the other way starts a new notch (one WheelDown, no WheelUp):%s", join(r.kiln).c_str());
+}
+
+void mouse_wheel_bound() {
+    fresh();
+    kui::g_consume_vk = KILN_UI_VK_WHEEL_UP;  // a binding on Ctrl+WheelUp
+    kui::g_consume_mods = KILN_UI_MOD_CTRL;
+    hold(true);
+    Run r = run([] { raw_wheel(120); msg_wheel(120); }, nullptr);
+    check(presses(r, KILN_UI_VK_WHEEL_UP) == 1 && r.kiln.size() == 1 && r.kiln[0].find("mods=1 ") != std::string::npos,
+          "bound Ctrl+WheelUp: one press with Ctrl:%s", join(r.kiln).c_str());
+    check(!game_has_raw_wheel(r) && !contains(r.game, "020a "),
+          "bound Ctrl+WheelUp: kept from the game, raw record and message (the camera does not zoom):%s", game_text(r).c_str());
+    r = run([] { msg_wheel(120); raw_wheel(120); }, nullptr);
+    check(r.kiln.size() == 1 && !game_has_raw_wheel(r) && !contains(r.game, "020a "),
+          "bound Ctrl+WheelUp, message first: one press, both kept from the game:%s", game_text(r).c_str());
+    hold(false);
+    r = run([] { raw_wheel(120); msg_wheel(120); }, nullptr);
+    check(presses(r, KILN_UI_VK_WHEEL_UP) == 1 && game_has_raw_wheel(r) && contains(r.game, "020a "),
+          "the same wheel without Ctrl: one press no binding takes; the game gets both (the camera zooms):%s", game_text(r).c_str());
+    hold(true);
+    r = run([] { raw_wheel(-120); msg_wheel(-120); }, nullptr);
+    check(presses(r, KILN_UI_VK_WHEEL_DOWN) == 1 && game_has_raw_wheel(r) && contains(r.game, "020a "),
+          "Ctrl+WheelDown, not bound: passes to the game:%s", game_text(r).c_str());
+    // A taken press in a record with other input: the game reads the record with only the taken flags (and the wheel's
+    // delta) taken out, through its own GetRawInputData import (input_install_iat hooked it).
+    r = run([] { raw_wheel(120, 0, 5, -3); msg_wheel(120); }, nullptr);
+    check(r.kiln.size() == 1 && r.game == std::vector<std::string>{"00ff mouse 0 5 -3 0"},
+          "bound notch in a record with motion: the game gets the motion, without the notch:%s", game_text(r).c_str());
+    r = run([] { raw_wheel(120, RI_MOUSE_LEFT_BUTTON_UP); msg_wheel(120); }, nullptr);
+    check(r.kiln.size() == 1 && r.game == std::vector<std::string>{"00ff mouse 2 0 0 0"},
+          "bound notch in a record with another button's release: the game gets the release, without the notch:%s",
+          game_text(r).c_str());
+    r = run([] { raw_wheel(120, RI_MOUSE_RIGHT_BUTTON_DOWN | RI_MOUSE_BUTTON_5_UP, -7, 4); msg_wheel(120); }, nullptr);
+    check(r.kiln.size() == 2 && r.game == std::vector<std::string>{"00ff mouse 204 -7 4 0"},
+          "...with a right press, a Mouse5 release and motion: all three stay, only the notch goes:%s", game_text(r).c_str());
+    // Wine's merged message of two taken notches is kept as its two records are.
+    fresh();
+    r = run([] { raw_wheel(120); raw_wheel(120); msg_wheel(240); }, nullptr);
+    check(presses(r, KILN_UI_VK_WHEEL_UP) == 2 && r.game.empty(),
+          "bound Ctrl+WheelUp, two records and one merged +240 message: two presses, none reaches the game:%s",
+          game_text(r).c_str());
+    // A high-resolution wheel on a bound chord: each part of a notch is asked (repeat 1) and kept like the notch.
+    fresh();
+    kui::g_consume_vk = KILN_UI_VK_WHEEL_DOWN;
+    r = run([] {
+        for (int i = 0; i < 8; ++i) { raw_wheel(-30); msg_wheel(-30); }
+    }, nullptr);
+    size_t to_game = count_prefix(r.game, "00ff ") + count_prefix(r.game, "020a ");
+    check(presses(r, KILN_UI_VK_WHEEL_DOWN) == 2 && parts(r, KILN_UI_VK_WHEEL_DOWN) == 6 && to_game == 0,
+          "bound Ctrl+WheelDown, high resolution: two presses, six parts asked; none of the 16 messages reaches the game "
+          "(%zu)", to_game);
+    // The binding gone: the very next part is asked again and passes
+    kui::g_consume_vk = 0;
+    r = run([] {
+        for (int i = 0; i < 4; ++i) { raw_wheel(-30); msg_wheel(-30); }
+    }, nullptr);
+    to_game = count_prefix(r.game, "00ff ") + count_prefix(r.game, "020a ");
+    check(presses(r, KILN_UI_VK_WHEEL_DOWN) == 1 && to_game == 8, "unbound again: every part reaches the game at once (%zu of 8)",
+          to_game);
+    // Review finding 3: Ctrl+WheelUp taken once, then the binding gone, then a high-resolution wheel going back and forth
+    // with Ctrl (each turn the other way starts a new notch, none completes): nothing may stay kept.
+    fresh();
+    kui::g_consume_vk = KILN_UI_VK_WHEEL_UP;
+    run([] { raw_wheel(120); msg_wheel(120); }, nullptr);
+    kui::g_consume_vk = 0;
+    r = run([] {
+        for (int i = 0; i < 50; ++i) { raw_wheel(30); msg_wheel(30); raw_wheel(-30); msg_wheel(-30); }
+    }, nullptr);
+    check(r.game.size() == 200 && all_presses(r) == 0,
+          "the binding gone, 100 parts back and forth with Ctrl: all 200 reach the game, no press (%zu reached it)", r.game.size());
+    // Review finding 2: a twin carries the same message time. A raw record whose message never came, taken at one time,
+    // and an unbound message 150 ms of message time later are two inputs: the second is dispatched and reaches the game.
+    fresh();
+    kui::g_consume_vk = KILN_UI_VK_WHEEL_UP;
+    r = run([] {
+        post_pump(WM_NULL, 0, 0);  // this thread's message time: now
+        hold(true);
+        raw_wheel(120);  // taken by Ctrl+WheelUp; its message never comes
+        hold(false);
+        Sleep(150);
+        post_pump(WM_MOUSEWHEEL, wheel_w(120), 0);  // another turn, without Ctrl
+    }, nullptr);
+    check(presses(r, KILN_UI_VK_WHEEL_UP) == 2 && r.game == std::vector<std::string>{"020a 780000 0"},
+          "a message 150 ms after a lone taken record is not its twin: two presses, the unbound one reaches the game:%s%s",
+          join(r.kiln).c_str(), game_text(r).c_str());
+    hold(false);
+    kui::g_consume_mods = ~0u;
+}
+
+// Without the GetRawInputData hook (the game's import not found): a record with a taken press and other input reaches the
+// game whole, so its other input is never lost; its message is still kept. A record with only the press is kept whole.
+void mouse_mixed_without_hook() {
+    fresh();
+    kui::g_consume_vk = KILN_UI_VK_WHEEL_UP;
+    kui::g_consume_mods = KILN_UI_MOD_CTRL;
+    hold(true);
+    Run r = run([] { raw_wheel(120, 0, 5, -3); msg_wheel(120); }, nullptr);
+    check(r.kiln.size() == 1 && r.game == std::vector<std::string>{"00ff mouse 400 5 -3 120"},
+          "no import to edit: a taken notch with motion reaches the game whole (motion kept), its message is kept:%s",
+          game_text(r).c_str());
+    r = run([] { raw_wheel(120); msg_wheel(120); }, nullptr);
+    check(r.kiln.size() == 1 && r.game.empty(), "no import to edit: a record with only the taken notch is still kept:%s",
+          game_text(r).c_str());
+    hold(false);
+    kui::g_consume_vk = 0;
+    kui::g_consume_mods = ~0u;
+}
+
+void mouse_buttons() {
+    fresh();
+    Run r = run([] {
+        send(WM_INPUT, RIM_INPUT, raw_mouse(RI_MOUSE_BUTTON_4_DOWN));
+        send(WM_XBUTTONDOWN, MAKEWPARAM(MK_XBUTTON1, XBUTTON1), 0);
+        send(WM_INPUT, RIM_INPUT, raw_mouse(RI_MOUSE_BUTTON_4_UP));
+        send(WM_XBUTTONUP, MAKEWPARAM(0, XBUTTON1), 0);
+    }, nullptr);
+    check(presses(r, VK_XBUTTON1, true) == 1 && presses(r, VK_XBUTTON1, false) == 1 && r.kiln.size() == 2,
+          "Mouse4 from raw input and WM_XBUTTONDOWN: ONE press and ONE release:%s", join(r.kiln).c_str());
+    check(r.game.size() == 4, "Mouse4, not bound: the game gets all four (%zu):%s", r.game.size(), game_text(r).c_str());
+    r = run([] {
+        send(WM_XBUTTONDOWN, MAKEWPARAM(MK_XBUTTON2, XBUTTON2), 0);
+        send(WM_INPUT, RIM_INPUT, raw_mouse(RI_MOUSE_BUTTON_5_DOWN));
+        send(WM_XBUTTONUP, MAKEWPARAM(0, XBUTTON2), 0);
+        send(WM_INPUT, RIM_INPUT, raw_mouse(RI_MOUSE_BUTTON_5_UP));
+    }, nullptr);
+    check(presses(r, VK_XBUTTON2, true) == 1 && presses(r, VK_XBUTTON2, false) == 1 && r.kiln.size() == 2,
+          "Mouse5, message before raw: ONE press and ONE release:%s", join(r.kiln).c_str());
+    r = run([] {
+        send(WM_INPUT, RIM_INPUT, raw_mouse(RI_MOUSE_MIDDLE_BUTTON_DOWN));
+        send(WM_MBUTTONDOWN, MK_MBUTTON, 0);
+        send(WM_INPUT, RIM_INPUT, raw_mouse(RI_MOUSE_MIDDLE_BUTTON_UP));
+        send(WM_MBUTTONUP, 0, 0);
+        send(WM_XBUTTONDBLCLK, MAKEWPARAM(MK_XBUTTON1, XBUTTON1), 0);  // a double click is a press, not a repeat
+        send(WM_INPUT, RIM_INPUT, raw_mouse(RI_MOUSE_BUTTON_4_DOWN));
+        send(WM_XBUTTONUP, MAKEWPARAM(0, XBUTTON1), 0);
+        send(WM_INPUT, RIM_INPUT, raw_mouse(RI_MOUSE_BUTTON_4_UP));
+    }, nullptr);
+    check(presses(r, VK_MBUTTON, true) == 1 && presses(r, VK_MBUTTON, false) == 1 && presses(r, VK_XBUTTON1, true) == 1 &&
+              r.kiln.size() == 4 && !contains(r.kiln, "vk=5 scan=0 mods=0 down=1 repeat=1"),
+          "MouseMiddle once each way; a double click of Mouse4 one press:%s", join(r.kiln).c_str());
+    r = run([] {
+        send(WM_INPUT, RIM_INPUT, raw_mouse(RI_MOUSE_LEFT_BUTTON_DOWN));
+        send(WM_LBUTTONDOWN, MK_LBUTTON, 0);
+        send(WM_INPUT, RIM_INPUT, raw_mouse(RI_MOUSE_RIGHT_BUTTON_DOWN | RI_MOUSE_LEFT_BUTTON_UP));
+        send(WM_LBUTTONUP, 0, 0);
+        send(WM_RBUTTONDOWN, MK_RBUTTON, 0);
+        send(WM_RBUTTONUP, 0, 0);
+        send(WM_INPUT, RIM_INPUT, raw_mouse(RI_MOUSE_RIGHT_BUTTON_UP));
+    }, nullptr);
+    check(r.kiln.empty() && r.game.size() == 7, "left and right clicks are never key presses (%zu) and all reach the game",
+          r.kiln.size());
+
+    // Shift+Mouse4 bound
+    fresh();
+    kui::g_consume_vk = VK_XBUTTON1;
+    kui::g_consume_mods = KILN_UI_MOD_SHIFT;
+    hold(false, true);
+    r = run([] {
+        send(WM_INPUT, RIM_INPUT, raw_mouse(RI_MOUSE_BUTTON_4_DOWN));
+        send(WM_XBUTTONDOWN, MAKEWPARAM(MK_XBUTTON1 | MK_SHIFT, XBUTTON1), 0);
+        send(WM_INPUT, RIM_INPUT, raw_mouse(RI_MOUSE_BUTTON_4_UP));
+        send(WM_XBUTTONUP, MAKEWPARAM(MK_SHIFT, XBUTTON1), 0);
+    }, nullptr);
+    check(presses(r, VK_XBUTTON1, true) == 1 && r.kiln.size() == 2 && r.kiln[0].find("mods=2 ") != std::string::npos,
+          "bound Shift+Mouse4: one press with Shift, one release:%s", join(r.kiln).c_str());
+    check(r.game == std::vector<std::string>{"00ff mouse 80 0 0 0", "020c 10004 0"},
+          "bound Shift+Mouse4: the game gets neither press, both releases:%s", game_text(r).c_str());
+    r = run([] {
+        send(WM_XBUTTONDOWN, MAKEWPARAM(MK_XBUTTON1 | MK_SHIFT, XBUTTON1), 0);
+        send(WM_INPUT, RIM_INPUT, raw_mouse(RI_MOUSE_BUTTON_4_DOWN | RI_MOUSE_BUTTON_4_UP));  // a fast click in one record
+        send(WM_XBUTTONUP, MAKEWPARAM(MK_SHIFT, XBUTTON1), 0);
+    }, nullptr);
+    check(presses(r, VK_XBUTTON1, true) == 1 && r.game == std::vector<std::string>{"020c 10004 0"},
+          "bound Shift+Mouse4, message first and a press with its release in one record: one press, the game gets "
+          "the release message only:%s", game_text(r).c_str());
+    hold(false);
+    r = run([] {
+        send(WM_INPUT, RIM_INPUT, raw_mouse(RI_MOUSE_BUTTON_4_DOWN));
+        send(WM_XBUTTONDOWN, MAKEWPARAM(MK_XBUTTON1, XBUTTON1), 0);
+        send(WM_INPUT, RIM_INPUT, raw_mouse(RI_MOUSE_BUTTON_4_UP));
+        send(WM_XBUTTONUP, MAKEWPARAM(0, XBUTTON1), 0);
+    }, nullptr);
+    check(presses(r, VK_XBUTTON1, true) == 1 && r.game.size() == 4, "Mouse4 without Shift: not taken, the game gets all four:%s",
+          game_text(r).c_str());
+    uint32_t mods = 0;
+    kui::input_take_pressed(&mods);
+    hold(false, true);
+    send(WM_INPUT, RIM_INPUT, raw_mouse(RI_MOUSE_BUTTON_4_DOWN));
+    send(WM_INPUT, RIM_INPUT, raw_mouse(RI_MOUSE_BUTTON_4_UP));
+    send(WM_INPUT, RIM_INPUT, raw_mouse(RI_MOUSE_WHEEL, 0, 0, 120));
+    check(kui::input_take_pressed(&mods) == 0, "take_pressed_key stays keyboard only (no mouse button, no notch)");
+    hold(false);
+    kui::g_consume_vk = 0;
+    kui::g_consume_mods = ~0u;
+}
+
+void mouse_captured() {
+    fresh();
+    kui::g_menu_open = true;  // a Kiln screen has the input
+    Run r = run([] {
+        raw_wheel(120);
+        msg_wheel(120);
+        send(WM_INPUT, RIM_INPUT, raw_mouse(RI_MOUSE_BUTTON_4_DOWN));
+        send(WM_XBUTTONDOWN, MAKEWPARAM(MK_XBUTTON1, XBUTTON1), 0);
+        send(WM_INPUT, RIM_INPUT, raw_mouse(RI_MOUSE_BUTTON_4_UP));
+        send(WM_XBUTTONUP, MAKEWPARAM(0, XBUTTON1), 0);
+    }, nullptr);
+    check(presses(r, KILN_UI_VK_WHEEL_UP) == 1 && presses(r, VK_XBUTTON1) == 1 && r.kiln.size() == 3 &&
+              count_prefix(r.kiln, "vk=") == static_cast<size_t>(std::count_if(r.kiln.begin(), r.kiln.end(), [](const std::string& x) {
+                  return x.find("captured=1") != std::string::npos;
+              })),
+          "Kiln captures input: one notch and one click, each once, with captured 1 (bindings do not fire on it; the Keys "
+          "page takes it):%s", join(r.kiln).c_str());
+    check(!game_has_raw_wheel(r) && !contains(r.game, "020a ") && !contains(r.game, "020b ") &&
+              r.game == std::vector<std::string>{"00ff mouse 80 0 0 0", "020c 10000 0"},
+          "Kiln captures input: the game gets no notch and no press, only the releases:%s", game_text(r).c_str());
+    kui::g_menu_open = false;
+
+    // a Kiln panel next to a game screen has the mouse over it: the wheel is the panel's, no press
+    fresh();
+    kui::g_hover_panels = 1;
+    kui::g_want_mouse = true;
+    kui::g_demand = 1;
+    r = run([] { raw_wheel(120); msg_wheel(120); }, nullptr);
+    check(r.kiln.empty() && r.game.empty(), "over a Kiln panel the wheel is the panel's: no press, not the game's:%s",
+          join(r.kiln).c_str());
+    kui::g_hover_panels = 0;
+    kui::g_want_mouse = false;
+    kui::g_demand = 0;
+}
+
+// ---- who gets mouse presses: subscribe_key (keyboard only, as before) and subscribe_key_ex(KILN_UI_KEYS_MOUSE) ----
+struct KeyLog {
+    std::vector<std::string> lines;
+    uint32_t take_vk = 0;   // the press this subscriber takes
+    bool take_all = false;  // a plugin that takes every press it gets
+};
+bool KILN_CALL key_collect(const KilnUiKey* k, void* user) {
+    auto* log = static_cast<KeyLog*>(user);
+    char b[48];
+    std::snprintf(b, sizeof b, "vk=%u down=%u", k->vk, k->down);
+    log->lines.push_back(b);
+    return log->take_all || (k->down && k->vk == log->take_vk);
+}
+bool has_code_above_ff_or_button(const std::vector<std::string>& lines) {
+    for (const auto& x : lines) {
+        unsigned vk = 0;
+        if (std::sscanf(x.c_str(), "vk=%u", &vk) == 1 && (vk > 0xFF || vk == VK_MBUTTON || vk == VK_XBUTTON1 || vk == VK_XBUTTON2))
+            return true;
+    }
+    return false;
+}
+void play_mouse_all() {
+    raw_wheel(120);
+    msg_wheel(120);
+    raw_wheel(-120);
+    msg_wheel(-120);
+    send(WM_INPUT, RIM_INPUT, raw_mouse(RI_MOUSE_BUTTON_4_DOWN));
+    send(WM_XBUTTONDOWN, MAKEWPARAM(MK_XBUTTON1, XBUTTON1), 0);
+    send(WM_INPUT, RIM_INPUT, raw_mouse(RI_MOUSE_BUTTON_4_UP));
+    send(WM_XBUTTONUP, MAKEWPARAM(0, XBUTTON1), 0);
+    send(WM_INPUT, RIM_INPUT, raw_mouse(RI_MOUSE_MIDDLE_BUTTON_DOWN));
+    send(WM_MBUTTONDOWN, MK_MBUTTON, 0);
+    send(WM_INPUT, RIM_INPUT, raw_mouse(RI_MOUSE_MIDDLE_BUTTON_UP));
+    send(WM_MBUTTONUP, 0, 0);
+}
+struct Leaving {
+    KilnHandle handle = 0;
+    int calls = 0;
+    KilnResult left = -1;
+};
+bool KILN_CALL take_and_leave(const KilnUiKey* k, void* user) {
+    auto* l = static_cast<Leaving*>(user);
+    ++l->calls;
+    if (k->vk == VK_XBUTTON1 && k->down) {
+        l->left = kui::keys_unsubscribe(l->handle);
+        return true;
+    }
+    return false;
+}
+void mouse_subscribers() {
+    fresh();
+    // A plugin built before 0.2.0-dev.27 (subscribe_key) that takes every press it gets: alone, it changes nothing for
+    // the mouse, and Kiln makes no mouse press at all.
+    KeyLog old_plugin;
+    old_plugin.take_all = true;
+    KilnHandle old_h = 0, new_h = 0;
+    check(kui::keys_subscribe(11, &key_collect, &old_plugin, 0, &old_h) == KILN_OK, "a subscribe_key subscriber");
+    Run r = run(&play_mouse_all, nullptr);
+    check(old_plugin.lines.empty(), "subscribe_key: no mouse press, no wheel code (%zu calls)", old_plugin.lines.size());
+    check(r.kiln.empty(), "no KILN_UI_KEYS_MOUSE subscriber: no mouse press is made at all (%zu)", r.kiln.size());
+    check(r.game.size() == 12 && count_prefix(r.game, "020a ") == 2 && game_has_raw_wheel(r),
+          "...and the game gets every record and message untouched (%zu of 12):%s", r.game.size(), game_text(r).c_str());
+    r = run([] {
+        send(WM_INPUT, RIM_INPUT, raw_key(0x43, RI_KEY_MAKE, VK_F9));
+        send(WM_INPUT, RIM_INPUT, raw_key(0x43, RI_KEY_BREAK, VK_F9));
+    }, nullptr);
+    check(old_plugin.lines == std::vector<std::string>{"vk=120 down=1", "vk=120 down=0"} && r.game.size() == 1,
+          "subscribe_key still gets keyboard keys and still takes the press it wants:%s", join(old_plugin.lines).c_str());
+
+    // Kiln.Ui's way: subscribe_key_ex with KILN_UI_KEYS_MOUSE, next to the old plugin in the same process.
+    KeyLog bindings;
+    bindings.take_vk = KILN_UI_VK_WHEEL_UP;  // a binding on WheelUp
+    check(kui::keys_subscribe(12, &key_collect, &bindings, KILN_UI_KEYS_MOUSE, &new_h) == KILN_OK,
+          "a subscribe_key_ex(KILN_UI_KEYS_MOUSE) subscriber");
+    old_plugin.lines.clear();
+    r = run(&play_mouse_all, nullptr);
+    check(old_plugin.lines.empty(), "the subscribe_key subscriber still gets no mouse press (%zu calls), so it cannot take one",
+          old_plugin.lines.size());
+    check(!has_code_above_ff_or_button(old_plugin.lines), "...no wheel code and no button code reached it");
+    check(bindings.lines == std::vector<std::string>{"vk=256 down=1", "vk=257 down=1", "vk=5 down=1", "vk=5 down=0", "vk=4 down=1",
+                                                     "vk=4 down=0"},
+          "the KILN_UI_KEYS_MOUSE subscriber gets each notch and click once:%s", join(bindings.lines).c_str());
+    check(r.game.size() == 10 && count_prefix(r.game, "020a ") == 1 && count_prefix(r.game, "00ff mouse 400 ") == 1,
+          "the notch it took is kept from the game (record and message), the rest passes (%zu of 12):%s", r.game.size(),
+          game_text(r).c_str());
+    bindings.lines.clear();
+    old_plugin.take_all = false;
+    send(WM_INPUT, RIM_INPUT, raw_key(0x43, RI_KEY_MAKE, VK_F9));
+    send(WM_INPUT, RIM_INPUT, raw_key(0x43, RI_KEY_BREAK, VK_F9));
+    check(bindings.lines.size() == 2 && old_plugin.lines.size() == 2, "a keyboard key reaches both");
+    KeyLog bad;
+    KilnHandle bad_h = 0;
+    check(kui::keys_subscribe(13, &key_collect, &bad, 2, &bad_h) == KILN_ERR_INVALID_ARGUMENT &&
+              kui::keys_subscribe(13, &key_collect, &bad, KILN_UI_KEYS_MOUSE | 0x80000000u, &bad_h) == KILN_ERR_INVALID_ARGUMENT &&
+              kui::keys_subscribe(13, nullptr, &bad, KILN_UI_KEYS_MOUSE, &bad_h) == KILN_ERR_INVALID_ARGUMENT,
+          "subscribe_key_ex refuses flags it does not know and a missing callback");
+
+    // The last KILN_UI_KEYS_MOUSE subscriber gone: the mouse passes untouched again.
+    check(kui::keys_unsubscribe(new_h) == KILN_OK && kui::keys_unsubscribe(new_h) == KILN_ERR_NOT_FOUND,
+          "unsubscribe, once");
+    fresh();
+    r = run([] { raw_wheel(120); msg_wheel(120); }, nullptr);
+    check(r.kiln.empty() && r.game.size() == 2, "no KILN_UI_KEYS_MOUSE subscriber left: no press, the game gets both (%zu)",
+          r.game.size());
+
+    // Review finding 5: the only mouse subscriber takes a raw Mouse4 press and leaves inside its callback. The press's
+    // message comes after: the decision still stands, so the game gets neither form of the press.
+    static Leaving leaving;
+    leaving = {};
+    check(kui::keys_subscribe(14, &take_and_leave, &leaving, KILN_UI_KEYS_MOUSE, &leaving.handle) == KILN_OK,
+          "a sole mouse subscriber that leaves when it takes Mouse4");
+    r = run([] {
+        send(WM_INPUT, RIM_INPUT, raw_mouse(RI_MOUSE_BUTTON_4_DOWN));
+        send(WM_XBUTTONDOWN, MAKEWPARAM(MK_XBUTTON1, XBUTTON1), 0);
+        send(WM_INPUT, RIM_INPUT, raw_mouse(RI_MOUSE_BUTTON_4_UP));
+        send(WM_XBUTTONUP, MAKEWPARAM(0, XBUTTON1), 0);
+        raw_wheel(120);
+        msg_wheel(120);
+    }, nullptr);
+    check(leaving.calls == 1 && leaving.left == KILN_OK, "it took the press and unsubscribed inside its callback (%d calls, %d)",
+          leaving.calls, leaving.left);
+    check(r.game == std::vector<std::string>{"00ff mouse 80 0 0 0", "020c 10000 0", "00ff mouse 400 0 0 120", "020a 780000 a000a"},
+          "the press's message is kept as its record was; the releases and a later notch reach the game:%s", game_text(r).c_str());
+    kui::keys_unsubscribe(old_h);
+}
+
+void mouse_key_names() {
+    const struct {
+        uint32_t vk;
+        const char* name;
+    } names[] = {{VK_MBUTTON, "MouseMiddle"}, {VK_XBUTTON1, "Mouse4"}, {VK_XBUTTON2, "Mouse5"},
+                 {KILN_UI_VK_WHEEL_UP, "WheelUp"}, {KILN_UI_VK_WHEEL_DOWN, "WheelDown"},
+                 {KILN_UI_VK_WHEEL_LEFT, "WheelLeft"}, {KILN_UI_VK_WHEEL_RIGHT, "WheelRight"}};
+    for (const auto& n : names) {
+        char b[32];
+        kui::key_name(n.vk, b, sizeof b);
+        check(std::strcmp(b, n.name) == 0, "key_name(0x%x) = %s (%s)", n.vk, n.name, b);
+    }
+}
+
 }  // namespace
 
 int main() {
@@ -698,6 +1216,25 @@ int main() {
     recursive_unsubscribe();
     delivery_mutation();
     raw_boundaries();
+
+    const RAWINPUTDEVICE mouse{1, 2, 0, nullptr};  // the game registers raw mouse input too
+    check(RegisterRawInputDevices(&mouse, 1, sizeof mouse), "raw mouse registered");
+    // Kiln.Ui's key subscriber asks for mouse presses (subscribe_key_ex, KILN_UI_KEYS_MOUSE); its bindings are played by
+    // dispatch_key's consume rule above.
+    KeyLog kiln_ui;
+    KilnHandle kiln_ui_h = 0;
+    check(kui::keys_subscribe(10, &key_collect, &kiln_ui, KILN_UI_KEYS_MOUSE, &kiln_ui_h) == KILN_OK,
+          "Kiln.Ui's key subscriber, with KILN_UI_KEYS_MOUSE");
+    mouse_mixed_without_hook();
+    kui::input_install_iat();  // as at the game's start: the game's import slots, GetRawInputData among them
+    mouse_wheel_presses();
+    mouse_wheel_small_deltas();
+    mouse_wheel_bound();
+    mouse_buttons();
+    mouse_captured();
+    kui::keys_unsubscribe(kiln_ui_h);
+    mouse_subscribers();
+    mouse_key_names();
 
     std::printf("%s: %d checks, %d failed\n", g_fails ? "FAIL" : "PASS", g_checks, g_fails);
     return g_fails ? 1 : 0;

@@ -13,6 +13,7 @@ internal static partial class KilnApis
         "M:Kiln.Abilities.Attributes.Get(Kiln.EntityId,Kiln.AbilityResource)", // Abilities.Attributes.Get(EntityId, AbilityResource): Game.AssertTickThread
         "M:Kiln.Abilities.Attributes.Get(Kiln.EntityId,System.String,System.UInt32)", // Abilities.Attributes.Get(EntityId, string, uint): Game.AssertTickThread
         "M:Kiln.Abilities.Attributes.Max(Kiln.EntityId,Kiln.AbilityResource)", // Abilities.Attributes.Max(EntityId, AbilityResource): Game.AssertTickThread
+        "M:Kiln.Abilities.BuffsOf(Kiln.EntityId)", // Abilities.BuffsOf(EntityId): Game.AssertTickThread
         "M:Kiln.Abilities.Cast(Kiln.EntityId,System.String,Kiln.CastOrigin)", // Abilities.Cast(EntityId, string, CastOrigin): via AbilityRegistry.CastNow(EntityId, string, CastOrigin)
         "M:Kiln.Abilities.Instance(System.UInt32)", // Abilities.Instance(uint): Game.AssertTickThread
         "M:Kiln.Abilities.Natives.Register(System.String,System.Int32,Kiln.NativeHandler)", // Abilities.Natives.Register(string, int, NativeHandler): Game.AssertTickThread
@@ -23,12 +24,27 @@ internal static partial class KilnApis
         "M:Kiln.Abilities.Programs.Refresh", // Abilities.Programs.Refresh(): Game.AssertTickThread
         "M:Kiln.Abilities.Programs.Register(System.Byte[])", // Abilities.Programs.Register(byte[]): via Abilities.Programs.RegisterCore(byte[], out bool)
         "M:Kiln.Abilities.Programs.Register(System.Byte[],System.Boolean@)", // Abilities.Programs.Register(byte[], out bool): via Abilities.Programs.RegisterCore(byte[], out bool)
+        "M:Kiln.Abilities.RemoveBuff(Kiln.EntityId,System.Guid)", // Abilities.RemoveBuff(EntityId, Guid): via Abilities.Remove(EntityId, Guid, uint)
+        "M:Kiln.Abilities.RemoveBuff(Kiln.EntityId,System.UInt32)", // Abilities.RemoveBuff(EntityId, uint): via Abilities.Remove(EntityId, Guid, uint)
         "M:Kiln.Abilities.RunImpact(System.Guid,Kiln.WorldPosition,Kiln.ImpactOptions)", // Abilities.RunImpact(Guid, WorldPosition, ImpactOptions?): Game.AssertTickThread
         "M:Kiln.Abilities.RunImpact(System.String,Kiln.WorldPosition,Kiln.ImpactOptions)", // Abilities.RunImpact(string, WorldPosition, ImpactOptions?): via Abilities.RunImpact(Guid, WorldPosition, ImpactOptions?)
         "M:Kiln.Abilities.RunProgram(System.Guid,Kiln.WorldPosition,Kiln.ImpactOptions)", // Abilities.RunProgram(Guid, WorldPosition, ImpactOptions?): Game.AssertTickThread
         "M:Kiln.Abilities.SequenceOf(Kiln.EntityId)", // Abilities.SequenceOf(EntityId): Game.AssertTickThread
         "M:Kiln.AbilityCast.Impact(System.String,System.Nullable{Kiln.WorldPosition},Kiln.ImpactConfigs)", // AbilityCast.Impact(string, WorldPosition?, ImpactConfigs?): via Abilities.RunImpact(string, WorldPosition, ImpactOptions?)
         "M:Kiln.AbilityCast.PlaySequence(System.Guid,System.Boolean)", // AbilityCast.PlaySequence(Guid, bool): via Abilities.PlaySequence(EntityId, Guid, bool)
+        "M:Kiln.AffixPoolHandle.Roll(Kiln.ItemInstanceRef,System.Random,System.Boolean)", // AffixPoolHandle.Roll(ItemInstanceRef, Random?, bool): via Affixes.Roll(ItemInstanceRef, AffixPoolHandle, Random?, bool)
+        "M:Kiln.Affixes.Active(Kiln.EntityId)", // Affixes.Active(EntityId): Services.RequireTickThread
+        "M:Kiln.Affixes.Add(Kiln.ItemInstanceRef,System.String,System.Int32,System.Nullable{System.Double},System.Random)", // Affixes.Add(ItemInstanceRef, string, int, double?, Random?): via AffixRuntime.Guarded<T>(string, Func<InstanceKey<AffixData>, T>)
+        "M:Kiln.Affixes.Clear(Kiln.ItemInstanceRef)", // Affixes.Clear(ItemInstanceRef): via AffixRuntime.Guarded<T>(string, Func<InstanceKey<AffixData>, T>)
+        "M:Kiln.Affixes.Define(System.String,Kiln.AffixBlock)", // Affixes.Define(string, AffixBlock): via AffixRuntime.CallerMod(string)
+        "M:Kiln.Affixes.DefinePool(System.String,Kiln.AffixPoolBlock)", // Affixes.DefinePool(string, AffixPoolBlock): via AffixRuntime.CallerMod(string)
+        "M:Kiln.Affixes.LabTrack(Kiln.EntityId,System.Boolean)", // Affixes.LabTrack(EntityId, bool): Services.RequireTickThread
+        "M:Kiln.Affixes.Load(System.String)", // Affixes.Load(string): via AffixRuntime.CallerMod(string)
+        "M:Kiln.Affixes.Of(Kiln.ItemInstanceRef)", // Affixes.Of(ItemInstanceRef): via AffixRuntime.Guarded<T>(string, Func<InstanceKey<AffixData>, T>)
+        "M:Kiln.Affixes.Remove(Kiln.ItemInstanceRef,System.String)", // Affixes.Remove(ItemInstanceRef, string): via AffixRuntime.Guarded<T>(string, Func<InstanceKey<AffixData>, T>)
+        "M:Kiln.Affixes.Roll(Kiln.ItemInstanceRef,Kiln.AffixPoolHandle,System.Random,System.Boolean)", // Affixes.Roll(ItemInstanceRef, AffixPoolHandle, Random?, bool): via AffixRuntime.Guarded<T>(string, Func<InstanceKey<AffixData>, T>)
+        "M:Kiln.Affixes.Set(Kiln.ItemInstanceRef,System.Collections.Generic.IReadOnlyList{Kiln.RolledAffix})", // Affixes.Set(ItemInstanceRef, IReadOnlyList<RolledAffix>): via AffixRuntime.Guarded<T>(string, Func<InstanceKey<AffixData>, T>)
+        "M:Kiln.Affixes.StatOf(Kiln.EntityId,Kiln.Stat)", // Affixes.StatOf(EntityId, Stat): Services.RequireTickThread
         "M:Kiln.AiAccess.Get(System.String)", // AiAccess.Get(string): via AiAccess.Get(string, out bool)
         "M:Kiln.AiAccess.Get(System.String,System.Boolean@)", // AiAccess.Get(string, out bool): via Creatures.Tick(string)
         "M:Kiln.AiAccess.GetNumber(System.String)", // AiAccess.GetNumber(string): via AiAccess.Get(string)
@@ -58,6 +74,9 @@ internal static partial class KilnApis
         "M:Kiln.Attributes.Set(Kiln.EntityId,System.UInt32,System.Int32)", // Attributes.Set(EntityId, uint, int): via Attributes.Write(string, EntityId, uint, int, bool)
         "M:Kiln.Attributes.TryAdd(Kiln.EntityId,Kiln.GameAttribute,System.Int32,Kiln.AttributeReading@)", // Attributes.TryAdd(EntityId, GameAttribute, int, out AttributeReading): via Attributes.TryWrite(EntityId, GameAttribute, int, bool, out AttributeReading)
         "M:Kiln.Attributes.TrySet(Kiln.EntityId,Kiln.GameAttribute,System.Int32,Kiln.AttributeReading@)", // Attributes.TrySet(EntityId, GameAttribute, int, out AttributeReading): via Attributes.TryWrite(EntityId, GameAttribute, int, bool, out AttributeReading)
+        "M:Kiln.Bans.Add(Kiln.PlayerRef,System.String,System.Nullable{System.TimeSpan})", // Bans.Add(PlayerRef, string, TimeSpan?): Game.AssertTickThread
+        "M:Kiln.Bans.Add(System.UInt64,System.String,System.Nullable{System.TimeSpan})", // Bans.Add(ulong, string, TimeSpan?): Game.AssertTickThread
+        "M:Kiln.Bans.Remove(System.UInt64)", // Bans.Remove(ulong): Game.AssertTickThread
         "M:Kiln.Boss.KilledBy(Kiln.Player)", // Boss.KilledBy(Player): via ProgressFact.Holds(EntityId)
         "M:Kiln.Boss.get_Killed", // Boss.Killed.get: via ProgressFact.Holds(EntityId)
         "M:Kiln.Build.Add(Kiln.BuildShape,System.Byte,Kiln.BuildOptions)", // Build.Add(BuildShape, byte, BuildOptions?): via Build.RunShape(ShapeOp, BuildShape, byte, byte, double, float, int, BuildOptions?)
@@ -117,6 +136,7 @@ internal static partial class KilnApis
         "M:Kiln.Chat.Diagnostics.LastLine", // Chat.Diagnostics.LastLine(): Services.RequireTickThread
         "M:Kiln.Chat.Say(Kiln.EntityId,System.String,Kiln.EntityId)", // Chat.Say(EntityId, string, EntityId): Services.RequireTickThread
         "M:Kiln.Chat.Tell(Kiln.EntityId,System.String)", // Chat.Tell(EntityId, string): Services.RequireTickThread
+        "M:Kiln.Chat.TellIfOnline(Kiln.PlayerRef,System.String)", // Chat.TellIfOnline(PlayerRef, string): Services.RequireTickThread
         "M:Kiln.Combat.Damage(Kiln.EntityId,System.Int32,Kiln.EntityId,Kiln.DamageOptions)", // Combat.Damage(EntityId, int, EntityId, DamageOptions?): via Combat.Hit(EntityId, int, EntityId, DamageOptions, bool)
         "M:Kiln.Combat.GetHealth(Kiln.EntityId)", // Combat.GetHealth(EntityId): via Combat.TryGetHealth(EntityId, out Health)
         "M:Kiln.Combat.Heal(Kiln.EntityId,System.Int32)", // Combat.Heal(EntityId, int): Services.RequireTickThread
@@ -256,6 +276,7 @@ internal static partial class KilnApis
         "M:Kiln.EntityData.get_Waiting", // EntityData.Waiting.get: via EntityData.Keys(EntityId, string, bool)
         "M:Kiln.EntityRef.Of(Kiln.EntityId)", // EntityRef.Of(EntityId): Game.AssertTickThread
         "M:Kiln.EntityRef.get_IsAlive", // EntityRef.IsAlive.get: Game.AssertTickThread
+        "M:Kiln.EntitySet.Refresh", // EntitySet.Refresh(): via EntitySet.Table()
         "M:Kiln.Events.Post``1(``0)", // Events.Post<T>(T): Game.AssertTickThread
         "M:Kiln.Factions.Between(Kiln.EntityId,Kiln.EntityId)", // Factions.Between(EntityId, EntityId): via Factions.RequireTick(string)
         "M:Kiln.Factions.Relate(Kiln.Faction,Kiln.Faction,Kiln.Relation,System.Boolean)", // Factions.Relate(Faction, Faction, Relation, bool): via Factions.Set(Faction, Faction, Relation)
@@ -331,6 +352,8 @@ internal static partial class KilnApis
         "M:Kiln.Gameplay.WatchTeleports(Kiln.EntityId,System.Boolean)", // Gameplay.WatchTeleports(EntityId, bool): Services.RequireTickThread
         "M:Kiln.Gameplay.WorkshopRecipes(System.UInt32)", // Gameplay.WorkshopRecipes(uint): Services.RequireTickThread
         "M:Kiln.InstanceData.All``1(Kiln.InstanceKey{``0})", // InstanceData.All<T>(InstanceKey<T>): via InstanceData.Use<T>(string, InstanceKey<T>)
+        "M:Kiln.InstanceData.Claim``1(Kiln.ParkedInstance{``0},Kiln.ItemInstanceRef)", // InstanceData.Claim<T>(ParkedInstance<T>, ItemInstanceRef): via InstanceData.Resolve<T>(ParkedInstance<T>, string)
+        "M:Kiln.InstanceData.Discard``1(Kiln.ParkedInstance{``0})", // InstanceData.Discard<T>(ParkedInstance<T>): via InstanceData.Use(string, InstanceKeyInfo)
         "M:Kiln.InstanceData.Key``1(System.String,Kiln.InstanceKeyOptions)", // InstanceData.Key<T>(string, InstanceKeyOptions?): Services.RequireTickThread
         "M:Kiln.InstanceData.Parked``1(Kiln.InstanceKey{``0})", // InstanceData.Parked<T>(InstanceKey<T>): via InstanceData.Use<T>(string, InstanceKey<T>)
         "M:Kiln.ItemInstanceDataExtensions.Get``1(Kiln.ItemInstanceRef,Kiln.InstanceKey{``0})", // ItemInstanceDataExtensions.Get<T>(ItemInstanceRef, InstanceKey<T>): via InstanceData.Use<T>(string, InstanceKey<T>)
@@ -340,7 +363,8 @@ internal static partial class KilnApis
         "M:Kiln.ItemInstanceDataExtensions.TryGet``1(Kiln.ItemInstanceRef,Kiln.InstanceKey{``0},``0@)", // ItemInstanceDataExtensions.TryGet<T>(ItemInstanceRef, InstanceKey<T>, out T?): via InstanceData.Use<T>(string, InstanceKey<T>)
         "M:Kiln.ItemInstanceExtensions.Location(Kiln.ItemInstanceRef)", // ItemInstanceExtensions.Location(ItemInstanceRef): Services.RequireTickThread
         "M:Kiln.ItemInstanceRef.get_IsAlive", // ItemInstanceRef.IsAlive.get: via EntityRef.IsAlive.get
-        "M:Kiln.Items.ContainerName(Kiln.EntityId)", // Items.ContainerName(EntityId): via Items.Require3(string)
+        "M:Kiln.Items.ContainerName(Kiln.EntityId)", // Items.ContainerName(EntityId): via Items.Require3(string, string)
+        "M:Kiln.Items.Equip(Kiln.EntityId,Kiln.SlotId,System.Nullable{Kiln.EquipmentSlot},Kiln.EquipOptions,Kiln.EntityId)", // Items.Equip(EntityId, SlotId, EquipmentSlot?, EquipOptions, EntityId): Services.RequireTickThread
         "M:Kiln.Items.Equipped(Kiln.EntityId,Kiln.EquipmentSlot)", // Items.Equipped(EntityId, EquipmentSlot): Services.RequireTickThread
         "M:Kiln.Items.FindInventories(Kiln.InventoryKinds)", // Items.FindInventories(InventoryKinds): via Items.Require(string)
         "M:Kiln.Items.Fuel.Add(Kiln.EntityId,System.Int32,System.Boolean)", // Items.Fuel.Add(EntityId, int, bool): via Items.Fuel.Submit(EntityId, uint, int, ItemId, bool, int)
@@ -364,6 +388,7 @@ internal static partial class KilnApis
         "M:Kiln.Items.Read(Kiln.EntityId)", // Items.Read(EntityId): via Items.Require(string)
         "M:Kiln.Items.Take(Kiln.EntityId,Kiln.ItemId,System.Int32,System.Nullable{Kiln.SlotId},System.Boolean,System.Nullable{Kiln.EntityId},System.Boolean)", // Items.Take(EntityId, ItemId, int, SlotId?, bool, EntityId?, bool): via Items.Submit(bool, ItemsNative.Request, string)
         "M:Kiln.Items.TakeSlot(Kiln.EntityId,Kiln.InventorySlot,System.Boolean)", // Items.TakeSlot(EntityId, InventorySlot, bool): via Items.Take(EntityId, ItemId, int, SlotId?, bool, EntityId?, bool)
+        "M:Kiln.Items.Unequip(Kiln.EntityId,Kiln.EquipmentSlot,Kiln.EquipOptions)", // Items.Unequip(EntityId, EquipmentSlot, EquipOptions): Services.RequireTickThread
         "M:Kiln.Journal.Find(System.String)", // Journal.Find(string): via Journal.Find(uint)
         "M:Kiln.Journal.Find(System.UInt32)", // Journal.Find(uint): via Journal.Quests()
         "M:Kiln.Journal.Quests", // Journal.Quests(): Services.RequireTickThread
@@ -403,6 +428,9 @@ internal static partial class KilnApis
         "M:Kiln.Nearby.Within(System.Collections.Generic.IEnumerable{Kiln.EntityId},Kiln.EntityId,System.Double)", // Nearby.Within(IEnumerable<EntityId>, EntityId, double): via Nearby.Validate(WorldPosition, double)
         "M:Kiln.Nearby.Within(System.Collections.Generic.IEnumerable{Kiln.EntityId},Kiln.WorldPosition,System.Double)", // Nearby.Within(IEnumerable<EntityId>, WorldPosition, double): via Nearby.Filter(IEnumerable<EntityId>, WorldPosition, double, EntityId)
         "M:Kiln.NetChannel.SendNear``1(Kiln.WorldPosition,System.Double,``0,Kiln.NetPeer)", // NetChannel.SendNear<T>(WorldPosition, double, T, NetPeer?): Services.RequireTickThread
+        "M:Kiln.Network.Kick(Kiln.NetPeer,System.String)", // Network.Kick(NetPeer, string): Game.AssertTickThread
+        "M:Kiln.NoClip.Of(Kiln.EntityId)", // NoClip.Of(EntityId): Game.AssertTickThread
+        "M:Kiln.NoClip.Set(Kiln.EntityId,System.Boolean)", // NoClip.Set(EntityId, bool): Game.AssertTickThread
         "M:Kiln.NpcView.InPhase(System.String)", // NpcView.InPhase(string): via CreatureRef.Phase.get
         "M:Kiln.NpcView.get_Health", // NpcView.Health.get: via NpcView.Info.get
         "M:Kiln.NpcView.get_HealthFraction", // NpcView.HealthFraction.get: via NpcView.HealthMax.get
@@ -429,6 +457,7 @@ internal static partial class KilnApis
         "M:Kiln.Permissions.SetGroup(System.String,System.Nullable{System.Boolean},System.Collections.Generic.IEnumerable{System.String})", // Permissions.SetGroup(string, bool?, IEnumerable<string>?): via PermissionStore.Edit(Action<PermissionModel>, string)
         "M:Kiln.Permissions.SetGroupNode(System.String,System.String,System.Nullable{System.Boolean})", // Permissions.SetGroupNode(string, string, bool?): via PermissionStore.Edit(Action<PermissionModel>, string)
         "M:Kiln.Permissions.SetPlayerNode(System.UInt64,System.String,System.Nullable{System.Boolean},System.String)", // Permissions.SetPlayerNode(ulong, string, bool?, string?): via PermissionStore.Edit(Action<PermissionModel>, string)
+        "M:Kiln.Player.get_Aim", // Player.Aim.get: via PlayerStates.AimOf(EntityId)
         "M:Kiln.PlayerData.Contains(System.UInt64,System.String)", // PlayerData.Contains(ulong, string): via PlayerData.Bundle(ulong, string)
         "M:Kiln.PlayerData.Get``1(System.UInt64,System.String)", // PlayerData.Get<T>(ulong, string): via PlayerData.Bundle(ulong, string)
         "M:Kiln.PlayerData.Keys(System.UInt64)", // PlayerData.Keys(ulong): via PlayerData.Bundle(ulong, string)
@@ -440,8 +469,10 @@ internal static partial class KilnApis
         "M:Kiln.PlayerRef.Of(Kiln.EntityId)", // PlayerRef.Of(EntityId): Game.AssertTickThread
         "M:Kiln.PlayerRef.Resolve", // PlayerRef.Resolve(): Game.AssertTickThread
         "M:Kiln.PlayerRef.get_IsOnline", // PlayerRef.IsOnline.get: via EntityRef.IsAlive.get
+        "M:Kiln.PlayerStates.AimOf(Kiln.EntityId)", // PlayerStates.AimOf(EntityId): Game.AssertTickThread
         "M:Kiln.Players.Diagnostics.ProbePosition(Kiln.EntityId)", // Players.Diagnostics.ProbePosition(EntityId): Services.RequireTickThread
         "M:Kiln.Players.Diagnostics.RawSlot(System.Int32)", // Players.Diagnostics.RawSlot(int): Services.RequireTickThread
+        "M:Kiln.Players.Kick(Kiln.PlayerRef,System.String)", // Players.Kick(PlayerRef, string): Game.AssertTickThread
         "M:Kiln.ProgressFact.Holds(Kiln.EntityId)", // ProgressFact.Holds(EntityId): Services.RequireTickThread
         "M:Kiln.ProgressFact.Holds(Kiln.Player)", // ProgressFact.Holds(Player): via ProgressFact.Holds(EntityId)
         "M:Kiln.Progression.Diagnostics.ExperienceForLevel(System.Int32)", // Progression.Diagnostics.ExperienceForLevel(int): Services.RequireTickThread
@@ -489,7 +520,7 @@ internal static partial class KilnApis
         "M:Kiln.ReflectedValue.set_Item(System.String,System.Object)", // ReflectedValue.this[string].set: via ReflectedValue.Span()
         "M:Kiln.RuleSet.Update(Kiln.PlayerRules)", // RuleSet.Update(PlayerRules): Game.AssertTickThread
         "M:Kiln.Rules.Apply(Kiln.EntityId,Kiln.PlayerRules,System.Nullable{System.TimeSpan},System.String)", // Rules.Apply(EntityId, PlayerRules, TimeSpan?, string?): via Rules.Apply(RuleScope, PlayerRules, TimeSpan?, string?)
-        "M:Kiln.Rules.Apply(Kiln.RuleScope,Kiln.PlayerRules,System.Nullable{System.TimeSpan},System.String)", // Rules.Apply(RuleScope, PlayerRules, TimeSpan?, string?): Game.AssertTickThread
+        "M:Kiln.Rules.Apply(Kiln.RuleScope,Kiln.PlayerRules,System.Nullable{System.TimeSpan},System.String)", // Rules.Apply(RuleScope, PlayerRules, TimeSpan?, string?): via Rules.Apply(RuleScope, PlayerRules, TimeSpan?, string?, Action<RuleSet>?)
         "M:Kiln.Rules.Of(Kiln.EntityId)", // Rules.Of(EntityId): Game.AssertTickThread
         "M:Kiln.Rules.Simulate(Kiln.EntityId,System.Boolean)", // Rules.Simulate(EntityId, bool): Game.AssertTickThread
         "M:Kiln.Schematic.Capture(Kiln.CellBox,Kiln.CaptureOptions)", // Schematic.Capture(CellBox, CaptureOptions?): via Build.CornerOf(CellPos)
@@ -537,6 +568,7 @@ internal static partial class KilnApis
         "M:Kiln.Sound.Stop(Kiln.SoundHandle,System.TimeSpan)", // Sound.Stop(SoundHandle, TimeSpan): via AudioRelay.Stop(SoundHandle, TimeSpan)
         "M:Kiln.Spawn.CleanupTracked(System.String,System.String)", // Spawn.CleanupTracked(string?, string?): via Spawn.Require(string)
         "M:Kiln.Spawn.Destroy(Kiln.EntityId)", // Spawn.Destroy(EntityId): via Spawn.Require(string)
+        "M:Kiln.Spawn.DestroyIfAlive(Kiln.EntityRef)", // Spawn.DestroyIfAlive(EntityRef): via Spawn.Require(string)
         "M:Kiln.Spawn.Entity(System.Guid,Kiln.WorldPosition,System.Single,Kiln.SpawnOptions)", // Spawn.Entity(Guid, WorldPosition, float, SpawnOptions?): via Spawn.Run(Func<EntityId>)
         "M:Kiln.Spawn.Entity(System.String,Kiln.WorldPosition,System.Single,Kiln.SpawnOptions)", // Spawn.Entity(string, WorldPosition, float, SpawnOptions?): via Spawn.Run(Func<EntityId>)
         "M:Kiln.Spawn.Exists(Kiln.EntityId)", // Spawn.Exists(EntityId): via Spawn.Inspect(EntityId)
@@ -546,6 +578,9 @@ internal static partial class KilnApis
         "M:Kiln.Spawn.Inspect(Kiln.EntityId)", // Spawn.Inspect(EntityId): via Spawn.Require(string)
         "M:Kiln.Spawn.Item(System.UInt32,System.Int32,Kiln.WorldPosition,System.Int32,Kiln.SpawnOptions)", // Spawn.Item(uint, int, WorldPosition, int, SpawnOptions?): via Spawn.Run(Func<EntityId>)
         "M:Kiln.Spawn.Refresh", // Spawn.Refresh(): via Spawn.Require(string)
+        "M:Kiln.Spawn.TryEntity(System.Guid,Kiln.WorldPosition,System.Single,Kiln.SpawnOptions)", // Spawn.TryEntity(Guid, WorldPosition, float, SpawnOptions?): via Spawn.RequireTickThread(string)
+        "M:Kiln.Spawn.TryEntity(System.String,Kiln.WorldPosition,System.Single,Kiln.SpawnOptions)", // Spawn.TryEntity(string, WorldPosition, float, SpawnOptions?): via Spawn.RequireTickThread(string)
+        "M:Kiln.Spawn.TryItem(Kiln.ItemId,System.Int32,Kiln.WorldPosition,System.Int32,Kiln.SpawnOptions)", // Spawn.TryItem(ItemId, int, WorldPosition, int, SpawnOptions?): via Spawn.RequireTickThread(string)
         "M:Kiln.Spawn.get_EntityCount", // Spawn.EntityCount.get: via Spawn.FindCore(Guid, string?, WorldPosition?, double, int, out int)
         "M:Kiln.Spire.TopReachedBy(Kiln.Player)", // Spire.TopReachedBy(Player): via ProgressFact.Holds(EntityId)
         "M:Kiln.Spire.UnlockedFor(Kiln.Player)", // Spire.UnlockedFor(Player): via ProgressFact.Holds(EntityId)
@@ -556,12 +591,17 @@ internal static partial class KilnApis
         "M:Kiln.Teleport.To(Kiln.EntityId,Kiln.WorldPosition,Kiln.TeleportOptions)", // Teleport.To(EntityId, WorldPosition, TeleportOptions?): via Teleport.Start(EntityId, WorldPosition, EntityId, TeleportOptions)
         "M:Kiln.Teleport.ToEntity(Kiln.EntityId,Kiln.EntityId,System.Double,Kiln.TeleportOptions)", // Teleport.ToEntity(EntityId, EntityId, double, TeleportOptions?): Services.RequireTickThread
         "M:Kiln.Teleport.ToSpawnPoint(Kiln.EntityId,Kiln.EntityId,Kiln.TeleportOptions)", // Teleport.ToSpawnPoint(EntityId, EntityId, TeleportOptions?): via Teleport.Start(EntityId, WorldPosition, EntityId, TeleportOptions)
+        "M:Kiln.Time.ReleaseWeather(System.Nullable{System.Int32},System.Boolean)", // Time.ReleaseWeather(int?, bool): Services.RequireTickThread
         "M:Kiln.Time.ResetWeather", // Time.ResetWeather(): Services.RequireTickThread
         "M:Kiln.Time.Set(System.Double,Kiln.TimeSetMode)", // Time.Set(double, TimeSetMode): Services.RequireTickThread
         "M:Kiln.Time.Set(System.String,Kiln.TimeSetMode)", // Time.Set(string, TimeSetMode): via Time.Set(double, TimeSetMode)
         "M:Kiln.Time.Set(System.TimeSpan,Kiln.TimeSetMode)", // Time.Set(TimeSpan, TimeSetMode): via Time.Set(double, TimeSetMode)
         "M:Kiln.Time.SetCycle(Kiln.TimeCycle)", // Time.SetCycle(TimeCycle): via Time.SetSpeed(double?)
         "M:Kiln.Time.SetSpeed(System.Nullable{System.Double})", // Time.SetSpeed(double?): Services.RequireTickThread
+        "M:Kiln.Time.SetWeather(Kiln.WeatherPhenomenon,System.Nullable{System.TimeSpan})", // Time.SetWeather(WeatherPhenomenon, TimeSpan?): Services.RequireTickThread
+        "M:Kiln.Time.SetWeather(System.String,System.Nullable{System.TimeSpan},System.Nullable{System.Int32})", // Time.SetWeather(string, TimeSpan?, int?): Services.RequireTickThread
+        "M:Kiln.Time.get_Weather", // Time.Weather.get: Services.RequireTickThread
+        "M:Kiln.Time.get_WeatherPhenomena", // Time.WeatherPhenomena.get: Services.RequireTickThread
         "M:Kiln.Time.set_OfDay(System.Double)", // Time.OfDay.set: via Time.Set(double, TimeSetMode)
         "M:Kiln.Vfx.PlayAt(Kiln.VfxId,Kiln.WorldPosition,System.Nullable{System.Numerics.Quaternion},System.Single,Kiln.VfxParams,System.Nullable{System.TimeSpan},System.Single)", // Vfx.PlayAt(VfxId, WorldPosition, Quaternion?, float, VfxParams?, TimeSpan?, float): via VfxRelay.Play(byte, Guid, WorldPosition, Quaternion?, float, EntityId, Slot, Offset, long, VfxParams?, float, EntityId)
         "M:Kiln.Vfx.PlayFor(Kiln.EntityId,Kiln.VfxId,Kiln.WorldPosition,Kiln.VfxParams,System.Nullable{System.TimeSpan})", // Vfx.PlayFor(EntityId, VfxId, WorldPosition, VfxParams?, TimeSpan?): via VfxRelay.Play(byte, Guid, WorldPosition, Quaternion?, float, EntityId, Slot, Offset, long, VfxParams?, float, EntityId)
@@ -583,11 +623,20 @@ internal static partial class KilnApis
         "M:Kiln.World.Find(System.String)", // World.Find(string): via World.Tick(string)
         "M:Kiln.World.Has(Kiln.EntityId,System.String)", // World.Has(EntityId, string): via World.Tick(string)
         "M:Kiln.World.Position(Kiln.EntityId)", // World.Position(EntityId): via World.TryGetPosition(EntityId, out WorldPosition)
+        "M:Kiln.World.Query(System.Collections.Generic.IEnumerable{System.String},System.Collections.Generic.IEnumerable{System.String})", // World.Query(IEnumerable<string>, IEnumerable<string>?): via EntitySet.Refresh()
+        "M:Kiln.World.Query(System.String[])", // World.Query(params string[]): via World.Query(IEnumerable<string>, IEnumerable<string>?)
+        "M:Kiln.World.Query``1", // World.Query<T>(): via World.Query(IEnumerable<string>, IEnumerable<string>?)
+        "M:Kiln.World.Query``2", // World.Query<T1, T2>(): via World.Query(IEnumerable<string>, IEnumerable<string>?)
         "M:Kiln.World.ReadBytes(Kiln.EntityId,System.String)", // World.ReadBytes(EntityId, string): via World.Tick(string)
         "M:Kiln.World.Transform(Kiln.EntityId)", // World.Transform(EntityId): via World.Tick(string)
         "M:Kiln.World.TryGetPosition(Kiln.EntityId,Kiln.WorldPosition@)", // World.TryGetPosition(EntityId, out WorldPosition): via World.Tick(string)
         "M:Kiln.World.TryRead``1(Kiln.EntityId,System.String,``0@)", // World.TryRead<T>(EntityId, string, out T): via World.Tick(string)
-        "M:Kiln.World.TryWrite``1(Kiln.EntityId,System.String,System.Int32,``0)", // World.TryWrite<T>(EntityId, string, int, T): via World.Tick(string)
+        "M:Kiln.World.TryWrite``1(Kiln.EntityId,System.String,System.Int32,``0)", // World.TryWrite<T>(EntityId, string, int, T): via World.WriteRaw<T>(EntityId, string, int, T)
+        "M:Kiln.World.Update``1(Kiln.EntityId,Kiln.WorldChange{``0})", // World.Update<T>(EntityId, WorldChange<T>): via WorldWrites.Use(string, EntityId)
+        "M:Kiln.World.WriteAt``1(Kiln.EntityId,System.String,System.Int32,``0)", // World.WriteAt<T>(EntityId, string, int, T): via WorldWrites.Use(string, EntityId)
+        "M:Kiln.World.WriteField(Kiln.EntityId,System.String,System.String,System.Object)", // World.WriteField(EntityId, string, string, object?): via WorldWrites.Use(string, EntityId)
+        "M:Kiln.World.WriteRaw``1(Kiln.EntityId,System.String,System.Int32,``0)", // World.WriteRaw<T>(EntityId, string, int, T): via World.Tick(string)
+        "M:Kiln.World.Write``1(Kiln.EntityId,``0)", // World.Write<T>(EntityId, T): via WorldWrites.Use(string, EntityId)
         "M:Kiln.World.get_EntityCount", // World.EntityCount.get: via World.Tick(string)
         "M:Kiln.WorldData.Contains(System.String)", // WorldData.Contains(string): via WorldData.Bundle(string)
         "M:Kiln.WorldData.Get``1(System.String)", // WorldData.Get<T>(string): via WorldData.Bundle(string)
@@ -655,6 +704,68 @@ internal static partial class KilnApis
         "M:Kiln.Spawn.Entity(System.String,Kiln.WorldPosition,System.Single,Kiln.SpawnOptions)", // Spawn.Entity(string, WorldPosition, float, SpawnOptions?)
         "M:Kiln.Spawn.Group(System.String,Kiln.WorldPosition,System.Int32,System.Double,Kiln.SpawnOptions)", // Spawn.Group(string, WorldPosition, int, double, SpawnOptions?)
         "M:Kiln.Spawn.Item(System.UInt32,System.Int32,Kiln.WorldPosition,System.Int32,Kiln.SpawnOptions)", // Spawn.Item(uint, int, WorldPosition, int, SpawnOptions?)
+    };
+
+    /// <summary>Public static bool properties that answer Capabilities.Is for capability rows (KILN121): "documentation
+    /// id=row,row". From the getter (Capabilities.Is(row), a helper around it, another guard) or the summary's
+    /// "(capability &lt;c&gt;row&lt;/c&gt;)".</summary>
+    internal static readonly string[] CapabilityGuards =
+    {
+        "P:Kiln.Abilities.Available=kiln.abilities", // AbilitiesNative.T != null: Services.Get("kiln.abilities")
+        "P:Kiln.Assets.Available=kiln.assets", // T != null: Services.Get("kiln.assets")
+        "P:Kiln.Blocks.Available=kiln.assets,kiln.gamedata", // via Kiln.Assets.Available; via Kiln.Content.GameDataAvailable
+        "P:Kiln.Build.Available=kiln.build", // T != null: Services.Get("kiln.build")
+        "P:Kiln.Chat.Available=kiln.chat", // T != null: Services.Get("kiln.chat")
+        "P:Kiln.Client.Available=kiln.client", // T != null: Services.Get("kiln.client")
+        "P:Kiln.Client.IsClientThread=kiln.client", // T != null: Services.Get("kiln.client")
+        "P:Kiln.Combat.Available=kiln.combat", // CombatNative.T != null: Services.Get("kiln.combat")
+        "P:Kiln.Combat.HitsAvailable=kiln.combat", // CombatNative.T != null: Services.Get("kiln.combat")
+        "P:Kiln.Content.Available=kiln.content", // T != null: Services.Get("kiln.content")
+        "P:Kiln.Content.GameDataAvailable=kiln.gamedata", // GD != null: Services.Get("kiln.gamedata")
+        "P:Kiln.Content.StackGuard=kiln.content", // returns false first when the table of kiln.content is null
+        "P:Kiln.Creatures.Available=kiln.creatures", // CreaturesNative.T != null: Services.Get("kiln.creatures")
+        "P:Kiln.EcsPrograms.Available=kiln.world", // Table != null: Services.Get("kiln.world")
+        "P:Kiln.EcsPrograms.SupportsOtherWrites=kiln.world", // Table != null: Services.Get("kiln.world")
+        "P:Kiln.EntityData.Available=kiln.saves,kiln.spawn", // via Kiln.Saves.Available; via Kiln.SpawnLink.Available
+        "P:Kiln.Example.Available=kiln.example", // T != null: Services.Get("kiln.example")
+        "P:Kiln.GameSystems.Available=kiln.types", // t != null: Services.Get("kiln.types")
+        "P:Kiln.GameTypes.Available=kiln.types", // table != null: Services.Get("kiln.types")
+        "P:Kiln.Gameplay.Available=kiln.gameplay", // GameplayNative.T != null: Services.Get("kiln.gameplay")
+        "P:Kiln.Hooks.Available=kiln.hooks", // HooksNative.T != null: Services.Get("kiln.hooks")
+        "P:Kiln.Items.Available=kiln.items", // Can("kiln.items")
+        "P:Kiln.Items.ContainerNamesAvailable=items.names", // Can("items.names")
+        "P:Kiln.Items.Fuel.Available=items.fuel", // Can("items.fuel")
+        "P:Kiln.Items.GearOptionsAvailable=items.pide_options,kiln.items", // Can("items.pide_options"); via Kiln.Items.Available
+        "P:Kiln.Items.MovesAvailable=items.move", // Can("items.move")
+        "P:Kiln.Items.ResultPeekAvailable=kiln.items", // ResultTable != null: Services.Get("kiln.items")
+        "P:Kiln.Items.Transfers.Available=items.transfer", // Can("items.transfer")
+        "P:Kiln.Knowledge.Available=kiln.knowledge", // KnowledgeNative.T != null: Services.Get("kiln.knowledge")
+        "P:Kiln.NoClip.Available=rules.noclip", // Is("rules.noclip")
+        "P:Kiln.PlayerAnimStates.Available=kiln.playeranim", // T != null: Services.Get("kiln.playeranim")
+        "P:Kiln.PlayerCharacters.Available=kiln.characters", // T != null: Services.Get("kiln.characters")
+        "P:Kiln.PlayerStates.Available=kiln.playerstate", // returns false first when the table of kiln.playerstate is null
+        "P:Kiln.Players.Available=kiln.players", // T != null: Services.Get("kiln.players")
+        "P:Kiln.Progression.Available=kiln.progression", // T != null: Services.Get("kiln.progression")
+        "P:Kiln.ReflectedResources.Available=kiln.assets,kiln.types", // via Kiln.GameTypes.Available; via Kiln.ResourceStore.Available
+        "P:Kiln.Render.Available=kiln.ui", // via Kiln.UiNative.Available
+        "P:Kiln.Rules.Available=kiln.rules", // RulesNative.T != null: Services.Get("kiln.rules")
+        "P:Kiln.Saves.Available=kiln.saves", // SavesNative.T != null: Services.Get("kiln.saves")
+        "P:Kiln.Settings.Available=kiln.settings", // T != null: Services.Get("kiln.settings")
+        "P:Kiln.Settings.Ready=kiln.settings", // T != null: Services.Get("kiln.settings")
+        "P:Kiln.Spawn.Available=kiln.spawn", // T != null: Services.Get("kiln.spawn")
+        "P:Kiln.Spawn.WorldRunning=kiln.spawn", // T != null: Services.Get("kiln.spawn")
+        "P:Kiln.Teleport.Available=kiln.world", // WorldNative.T != null: Services.Get("kiln.world")
+        "P:Kiln.Time.Available=kiln.time", // T != null: Services.Get("kiln.time")
+        "P:Kiln.Time.CanSetSpeed=kiln.time", // via Kiln.Time.HasScale
+        "P:Kiln.Time.WeatherChoiceAvailable=kiln.time,time.weather_choose", // T3 != null: Services.Get("kiln.time"); Is("time.weather_choose")
+        "P:Kiln.Ui.Available=kiln.ui", // via Kiln.UiNative.Available
+        "P:Kiln.Ui.Crafting.MenuAvailable=kiln.craftmenu", // UiNative.Craft != null: Services.Get("kiln.craftmenu")
+        "P:Kiln.UiWheel.Available=kiln.ui", // UiNative.T2 != null: Services.Get("kiln.ui")
+        "P:Kiln.UiWheel.IsAnyOpen=kiln.ui", // t != null: Services.Get("kiln.ui")
+        "P:Kiln.Villagers.Available=kiln.creatures", // t != null: Services.Get("kiln.creatures")
+        "P:Kiln.World.Available=kiln.world", // WorldNative.T != null: Services.Get("kiln.world")
+        "P:Kiln.World.SupportsTrackedWrites=world.tracked_writes", // Is("world.tracked_writes")
+        "P:Kiln.WorldProgress.Available=kiln.knowledge", // via Kiln.Knowledge.Available
     };
 
     /// <summary>Kiln's managed services: assembly Kiln.&lt;name&gt;, referenced through KilnServices (KILN108).</summary>

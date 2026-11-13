@@ -468,7 +468,8 @@ class RecipeRun(unittest.TestCase):
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        self.dir = Path(self.tmp.name)
+        self.dir = Path(self.tmp.name) / "assets"  # a recipe is in its mod's assets folder: the cook writes to assets/cooked only
+        self.dir.mkdir()
         make_golem.write(self.dir / "golem.glb")
         self.r = self.dir / "cook.json"
 

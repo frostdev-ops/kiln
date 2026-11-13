@@ -379,6 +379,7 @@ public static class ConfigSync
     /// first synced number (it must run, be read-only and stay out of the file), then leaves (the local value must
     /// come back). Raises the config's change events (source Server) like a real sync.
     /// </summary>
+    [TickThreadOnly]
     public static string CheckRoundTrip(ConfigFile file)
     {
         Game.AssertTickThread();

@@ -20,7 +20,8 @@ namespace Kiln;
 /// </remarks>
 public static unsafe class Voiceover
 {
-    /// <summary>Client: the voice-over feature resolved on this build. Server: a Kiln client has the relay channel.</summary>
+    /// <summary>Client: the voice-over feature resolved on this build (capability <c>audio.voiceover</c>). Server: a
+    /// Kiln client has the relay channel (capability <c>audio.relay</c>).</summary>
     public static bool Available => AudioCore.ServerSide ? AudioRelay.HasListeners : HasFeature(AudioNative.HasVoiceover);
 
     /// <summary>Client: narration (the lore queue) resolved on this build.</summary>
@@ -102,9 +103,11 @@ public static unsafe class Voiceover
     }
 
     /// <summary>True while the line is queued or playing (<see cref="Sound.IsPlaying"/>).</summary>
+    [AnyThread]
     public static bool IsPlaying(SoundHandle h) => Sound.IsPlaying(h);
 
     /// <summary>What a mod's cook says about a line (languages, subtitles), null when not a cooked line of a loaded mod.</summary>
+    [AnyThread]
     public static VoiceoverInfo? Describe(VoiceoverId line)
     {
         if (CookIndex.Voiceover(line.Value) is null) CookIndex.ScanLoadedMods();

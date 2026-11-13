@@ -40,7 +40,8 @@ CleanupResult r = Spawn.CleanupTracked(tag: "admin");         // destroy them (a
 
 - `Spawn.Entity` / `Item` / `Group` return tasks that are already complete: the engine creates the entity at once.
   Failures fault the task: `SpawnException` (unknown template, bad position, engine refused; `Code` = native result)
-  or `NotSupportedException` (service unavailable, world not running yet). Calling from another thread throws
+  or `KilnUnavailableException` (service unavailable, world not running yet; it names the capability and is a
+  `NotSupportedException`, so an older `catch` still works). Calling from another thread throws
   `InvalidOperationException` at once. Nothing is kept per mod, so a mod unload leaves no callbacks behind.
 - Positions are exact: there is no ground snapping. Use a point on the ground (a player's position, an entity's).
 - Yaw rotates about +Y (up): quaternion `(0, sin(yaw/2), 0, cos(yaw/2))`.
@@ -51,7 +52,7 @@ CleanupResult r = Spawn.CleanupTracked(tag: "admin");         // destroy them (a
   `new SpawnComponent(hash, bytes)` (hash = FNV-1a-32 of `"keen::ecs::<Name>"`). At most 64, one value per component;
   the size must equal the engine's (else `SpawnException`, the game logs the expected size). A component Kiln sets
   itself (CurrentTransform, OverrideLevel, DoNotSave) takes your value instead; SpawnTime is refused unless `NoTrack`.
-  Check `Spawn.SupportsComponents` (older kiln.spawn: `NotSupportedException`). Native: `KilnSpawnRequest.components` /
+  Check `Spawn.SupportsComponents` (older kiln.spawn: `KilnUnavailableException` naming `spawn.components`). Native: `KilnSpawnRequest.components` /
   `component_count` (appended in v1; read when `size` covers them) and `capabilities()` bit
   `KILN_SPAWN_CAP_COMPONENTS`. Lab (abilities-test): `Vukah 2542 spawned with Faction 11 from a spawn component (read
   11)`, `a 2-byte Faction component is refused by the engine (code 7)`. kiln.abilities builds its impacts on it.
@@ -59,10 +60,39 @@ CleanupResult r = Spawn.CleanupTracked(tag: "admin");         // destroy them (a
   entities vanish at the next restart. `Expires`: the template has a LifeTime.
 - `Spawn.EntityCount`: entities in the server world now.
 
+## The contract (dev.27)
+
+Kiln.Spawn follows [the API contract](../modding/contract.md). Server side only (`[ServerOnly]`: a dedicated server, or
+a game client while it hosts a world).
+
+| Capability | Kind | What it says |
+|---|---|---|
+| `kiln.spawn` | the core's row | the service is here (`Spawn.Available`). It does not load without `spawn.create` |
+| `spawn.create`, `spawn.destroy`, `spawn.entities`, `spawn.templates` | sigdb features | creating entities, `Destroy`, the entity scan (`Find`, `FindByName`, `EntityCount`), the game's own template list. Kiln.Spawn lowers them when kiln.spawn is not loaded |
+| `spawn.components` | managed, static | this kiln.spawn takes `SpawnOptions.Components` (`Spawn.SupportsComponents`) |
+| `spawn.world` | managed, session | the server world runs (`Spawn.WorldRunning`): pending while its save loads and after a hosted world closed; refreshed every 25 steps |
+
+- **Errors.** A capability that is off throws `KilnUnavailableException` naming it (`[RequiresCapability]` on each
+  member says which); it derives from `NotSupportedException`, which is what these members threw before. A bad
+  argument throws `ArgumentException`. `Spawn.TryEntity` and `Spawn.TryItem` report the engine's refusal as a
+  `SpawnResult` (`Ok` false, `Reason`, `Code`) where `Entity` and `Item` throw `SpawnException`; for them an unknown
+  template or an invalid request is an `ArgumentException`, by the rule. `Group` has no result shape.
+- **Identity.** `SpawnResult.Entity` is an `EntityRef` (the id and its serial; serial 0 when no entity source could
+  stamp the new entity at once). `Spawn.DestroyIfAlive(EntityRef)` destroys only the entity the ref was captured from
+  and answers false for a stale one (a name of its own, not an overload of `Destroy`, so `var d = Spawn.Destroy;`
+  compiles as it did in dev.26); `Spawn.TryItem` takes an `ItemId`.
+- **Threads.** The world calls are `[TickThreadOnly]`; `Lookup`, `Template`, `Templates`, `Tracked`, `WorldKey`,
+  `WorldRunning`, `SupportsComponents` and `Available` are `[AnyThread]` (the native functions are thread-safe).
+- **Events.** Every write already posts one: `EntitySpawnedEvent`, `EntityDestroyedEvent`.
+
+Tested offline in `managed/tests/Kiln.Contract.Tests/SpawnContractTests.cs` (rows, exceptions, attributes); not run
+on a server in dev.27: `TryEntity`, `TryItem` and `DestroyIfAlive` call the same native functions as `Entity`,
+`Item` and `Destroy`.
+
 ## Behaviour on a dedicated server (lab-verified, no player connected)
 
 - The server steps its world while it still loads the save (about 11 s); `Spawn.WorldRunning` turns true at the game's
-  `Switching state from LoadEcsScene to Run`. Spawns before that fail (`NotSupportedException`).
+  `Switching state from LoadEcsScene to Run`. Spawns before that fail (`KilnUnavailableException` naming `spawn.world`).
 - With no player near, spawned creatures stand still and pickups do not fall: the area is not simulated. They were not
   culled within the test window.
 - A creature spawns with child entities (weak spots, VFX links) parented to it; `Destroy` removes those as well.

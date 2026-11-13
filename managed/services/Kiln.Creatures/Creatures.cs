@@ -18,14 +18,17 @@ namespace Kiln;
 /// <para>Vanilla clients see the results through the game's own replication (health, level, faction, transforms, AI
 /// state, attacks). The server marks the components Kiln writes as changed so they replicate like game writes.</para>
 /// </remarks>
+[ServerOnly]
 public static unsafe partial class Creatures
 {
     static Creatures() => EnsureListener();
 
-    /// <summary>True when kiln.creatures is loaded on this build.</summary>
+    /// <summary>True when kiln.creatures is loaded on this build (capability <c>kiln.creatures</c>).</summary>
+    [AnyThread]
     public static bool Available => CreaturesNative.T != null;
 
     /// <summary>What works on this build (null when unavailable). Any thread.</summary>
+    [AnyThread]
     public static CreaturesStatus? Status
     {
         get
@@ -108,6 +111,7 @@ public static unsafe partial class Creatures
 
     /// <summary>Creatures (enemy AI, villagers and animals of the catalog) within <paramref name="radius"/> metres of
     /// <paramref name="center"/>, nearest first. Tick thread.</summary>
+    [TickThreadOnly]
     public static IReadOnlyList<EntityId> Near(WorldPosition center, double radius, CreatureKind? kind = null)
     {
         Services.RequireTickThread("Creatures.Near");
@@ -127,6 +131,7 @@ public static unsafe partial class Creatures
 
     /// <summary>The JSON field list of a template component ("Enemy01BehaviorState", "Aggro", "EnemyScaling", ...)
     /// from the game's reflection: what <see cref="CreatureRef.Ai"/> accepts. Any thread.</summary>
+    [RequiresCapability("kiln.creatures")]
     public static string AiFields(string component = "Enemy01BehaviorState")
     {
         var t = CreaturesNative.Require("Creatures.AiFields");
@@ -142,6 +147,8 @@ public static unsafe partial class Creatures
 
     /// <summary>Rebuilds private AI copies from the shared template data (all entities, or one) and re-applies the
     /// overrides; Kiln.Creatures does this itself after a content (template data) change. Tick thread.</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.creatures")]
     public static int RefreshCopies(EntityId entity = default)
     {
         var t = Tick("Creatures.RefreshCopies");
@@ -197,6 +204,7 @@ public static unsafe partial class Creatures
         CreatureVariants.Retire(mod);
         try { Guarding.Retire(mod); } catch (Exception) { }
         try { Arsenals.Retire(mod); } catch (Exception) { }
+        ForgetHolds(mod.Owner);
         var t = CreaturesNative.T;
         if (t != null) t->ReleaseOwner(mod.Owner);
     }
@@ -208,6 +216,80 @@ public static unsafe partial class Creatures
         return t;
     }
 
+    // One key per value of one creature changed by one mod: a handler that writes again waits for the next step.
+    internal static readonly ChangeNotices<CreatureChangedEvent, (EntityId, string, string)> Notices = new("kiln.creatures");
+
+    /// <summary>Posts <see cref="CreatureChangedEvent"/> for a change the calling mod made on one creature. Built only
+    /// while someone subscribes; a write made while one is being dispatched posts at the next step
+    /// (<see cref="ChangeNotices{TEvent,TKey}"/>).</summary>
+    internal static void Changed(EntityId entity, string what)
+    {
+        if (!Events.HasSubscribers<CreatureChangedEvent>()) return;
+        var origin = ModContext.CurrentMod?.Info.Id ?? "";
+        Notices.Post((entity, what, origin), new CreatureChangedEvent(entity, what, origin), entity);
+    }
+
+    // ------------------------------------------------------------------------------------------------- holds ----
+
+    /// <summary>What an owner holds on a creature besides value and AI layers. Native releases these without saying
+    /// whether there was one, so they are recorded here: <see cref="CreatureRef.Reset"/> drops them, and a Reset that
+    /// dropped one changed the creature.</summary>
+    [Flags]
+    internal enum Hold : byte
+    {
+        Target = 1,
+        Attack = 2,
+        Ready = 4,
+        AiOff = 8,
+    }
+
+    private static readonly Dictionary<(ulong Owner, uint Entity), (Hold Flags, long TargetUntil)> Holds = new();
+
+    /// <summary>The owner placed (<paramref name="on"/>) or let go of a hold. For a target, <paramref name="seconds"/> is
+    /// how long it is held.</summary>
+    internal static void Held(OwnerKey owner, EntityId entity, Hold hold, bool on, double seconds = 0)
+    {
+        var key = (owner.Native, entity.Value);
+        lock (Holds)
+        {
+            // a creature holds one preferred target, the newest owner's (native replaces the holder): the others no longer have it
+            if (hold == Hold.Target && on)
+                foreach (var other in Holds.Keys.Where(k => k.Entity == entity.Value && k.Owner != owner.Native).ToList())
+                {
+                    var o = Holds[other];
+                    var left = o.Flags & ~Hold.Target;
+                    if (left == 0) Holds.Remove(other);
+                    else Holds[other] = (left, o.TargetUntil);
+                }
+            Holds.TryGetValue(key, out var h);
+            var flags = on ? h.Flags | hold : h.Flags & ~hold;
+            var until = hold == Hold.Target && on ? Environment.TickCount64 + (long)(Math.Max(seconds, 0) * 1000) : h.TargetUntil;
+            if (flags == 0) Holds.Remove(key);
+            else Holds[key] = (flags, until);
+        }
+    }
+
+    /// <summary>Forgets the owner's holds on the creature and returns those still in effect (a target held for seconds
+    /// that have passed is not).</summary>
+    internal static Hold DropHolds(OwnerKey owner, EntityId entity)
+    {
+        lock (Holds)
+        {
+            if (!Holds.Remove((owner.Native, entity.Value), out var h)) return 0;
+            return h.TargetUntil < Environment.TickCount64 ? h.Flags & ~Hold.Target : h.Flags;
+        }
+    }
+
+    /// <summary>The owner is released (native drops all of its holds).</summary>
+    internal static void ForgetHolds(ulong owner)
+    {
+        lock (Holds)
+            foreach (var k in Holds.Keys.Where(k => k.Owner == owner).ToList())
+                Holds.Remove(k);
+    }
+
+    // "Unavailable" from a per-creature call stays a plain NotSupportedException: it means "this entity lacks that
+    // component" as often as "this build cannot do it", so it names no capability.
     internal static void Check(int rc, string what)
     {
         if (rc == CreaturesNative.Ok) return;

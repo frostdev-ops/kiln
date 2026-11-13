@@ -234,6 +234,11 @@ returns the same text; `buf` may be null to ask for the length. Offsets and RVAs
 
 ## Limits and failures
 
+From C#: without kiln.hooks every call of `Hooks`, `Memory`, `Symbols` and `Constants` throws
+`KilnUnavailableException` naming `kiln.hooks` (a `NotSupportedException`, as before); the members carry
+`[RequiresCapability("kiln.hooks")]`. The advanced gate (`"advanced": true`) is checked first and still throws
+`InvalidOperationException`.
+
 | What | Limit |
 |---|---|
 | Hooked addresses | 512 (`stats().targets_cap`) |

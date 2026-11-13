@@ -826,4 +826,35 @@ public sealed class CapabilitiesTests : KilnTest
         public void Log(ulong owner, LogLevel level, string text) { }
         public nint Service(string name, uint minVersion) => 0;
     }
+
+    [Fact]
+    public unsafe void A_service_published_late_takes_back_the_features_lowered_for_it_at_the_refresh()
+    {
+        using var caps = Native();
+        caps.Core("kiln.late", CapabilityState.Unavailable, CapabilityReason.ServiceMissing, "kiln-late.dll is not loaded yet", "core");
+        caps.Core("late.feature", CapabilityState.Available);  // sigdb resolved it; no service serves it yet
+        var found = 0;
+        ServiceCaps.WhenFound("kiln.late", () => found++);
+        ServiceCaps.LowerFeatures("kiln.late", "late.feature");
+        Assert.False(Capabilities.Is("late.feature"));
+        Step(25);
+        Assert.False(Capabilities.Is("late.feature"));  // still missing: nothing changes
+        Assert.Equal(0, found);
+        var table = (ServiceHeader*)NativeMemory.AllocZeroed((nuint)sizeof(ServiceHeader));
+        try
+        {
+            *table = new ServiceHeader { Size = (uint)sizeof(ServiceHeader), Version = 1 };
+            using var late = new FakeServiceRegistration(Backend.Tables, "kiln.late", (nint)table);
+            caps.Core("kiln.late", CapabilityState.Available, text: "v1", source: "core");
+            Step(25);  // the refresh comes once in 25 steps
+            Assert.True(Capabilities.Is("late.feature"), Capabilities.Why("late.feature"));
+            Assert.Equal(1, found);
+            Step(25);
+            Assert.Equal(1, found);  // found once
+        }
+        finally
+        {
+            NativeMemory.Free(table);
+        }
+    }
 }

@@ -20,5 +20,7 @@
     <InternalsVisibleTo Include="Kiln.Content" />
     <InternalsVisibleTo Include="Kiln.Ui" />
     <InternalsVisibleTo Include="NetTest" />
+    <!-- the contract tests: the rows' names -->
+    <InternalsVisibleTo Include="Kiln.Contract.Tests" />
   </ItemGroup>
 </Project>

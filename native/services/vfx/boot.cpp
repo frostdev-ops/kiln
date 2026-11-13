@@ -20,8 +20,16 @@
 #include <vector>
 
 #include "boot.h"
+#if __has_include("kiln_build.h")
+#include "kiln_build.h"  // KILN_BUILD: the build stamp ("+20261113.2e75c1f"), empty without it
+#endif
+#ifndef KILN_BUILD
+#define KILN_BUILD ""
+#endif
+#include "services/kiln_progress.h"
 #include "cook/vfxcook.h"
 #include "core.h"
+#include "generated.h"
 #include "services/kiln_assets.h"
 #include "services/kiln_profile.h"
 
@@ -78,6 +86,9 @@ std::map<std::pair<std::string, kvb::Guid>, uint64_t> g_reskin_defs;  // what wa
 std::map<std::string, KilnOwner> g_reskin_owners;
 std::atomic<bool> g_reskin_watch{false};
 std::set<kvb::Guid> g_game_materials;  // original KFC keys only: resource_put accepts unknown overrides before binding
+// Every material the boot build built, by mod and block: define_json takes a block of the same definition whose files still have the same
+// bytes from here instead of decoding its textures again (kvb::MaterialRecord). Written once in on_ready, read under g_mu.
+std::map<std::pair<std::string, std::string>, kvb::MaterialRecord> g_material_records;
 kvb::GameCounts g_game;
 std::atomic<bool> g_off{false};           // the late check failed
 std::atomic<bool> g_late_done{true};      // nothing to check until something was built
@@ -155,6 +166,136 @@ kvb::TextureCache disk_cache() {
     return c;
 }
 
+// An open handle, closed on scope exit.
+struct OwnedHandle {
+    HANDLE h = INVALID_HANDLE_VALUE;
+    explicit OwnedHandle(HANDLE x) : h(x) {}
+    OwnedHandle(const OwnedHandle&) = delete;
+    OwnedHandle& operator=(const OwnedHandle&) = delete;
+    ~OwnedHandle() {
+        if (h != INVALID_HANDLE_VALUE) CloseHandle(h);
+    }
+    bool ok() const { return h != INVALID_HANDLE_VALUE; }
+};
+
+HANDLE open_for_read(const fs::path& p, bool folder) {
+    return CreateFileW(p.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
+                       folder ? FILE_FLAG_BACKUP_SEMANTICS : FILE_ATTRIBUTE_NORMAL, nullptr);
+}
+
+// Where an opened handle really is (links and junctions resolved); empty when it cannot be told.
+std::wstring final_path(HANDLE h) {
+    std::wstring out(512, L'\0');
+    for (int attempt = 0; attempt < 2; ++attempt) {
+        const DWORD n = GetFinalPathNameByHandleW(h, out.data(), static_cast<DWORD>(out.size()), FILE_NAME_NORMALIZED | VOLUME_NAME_DOS);
+        if (n == 0) return {};
+        if (n < out.size()) {
+            out.resize(n);
+            return out;
+        }
+        out.resize(n + 1);
+    }
+    return {};
+}
+
+// A link, junction or other reparse point on the way from the mod's folder down to `p` (the folders below the mod's and `p`).
+bool reparse_on_the_way(const fs::path& mod, const fs::path& p) {
+    const fs::path rel = p.lexically_relative(mod);  // the path as built from the mod's folder: no link is followed here
+    if (rel.empty()) return true;
+    fs::path at = mod;
+    for (const fs::path& part : rel) {
+        if (part == L"..") return true;
+        at /= part;
+        const DWORD a = GetFileAttributesW(at.c_str());
+        if (a == INVALID_FILE_ATTRIBUTES || (a & FILE_ATTRIBUTE_REPARSE_POINT)) return true;
+    }
+    return false;
+}
+
+// The JSON files of one of the mod's folders, with the limits of generated.h: blocks/ (the author's data files) and
+// blocks/generated/ (what Kiln.Sdk baked from the mod's code). The folder and each file are opened first; what was opened
+// is then checked (its final path lies inside the mod's folder, and nothing on the way is a link or reparse point), so a
+// link, junction or path swapped anywhere from the mod's folder down cannot lead out; the file is read from that handle,
+// its size first. The listing stops at the limits. What is refused is a kiln.log line, and is left out.
+// Under Wine (the Linux server and Proton): Wine resolves no link in a handle's final path, and marks a link to a folder as a
+// reparse point but a link to a file as a plain file (lab, GE-Proton). So there a link to a folder is refused (on blocks
+// itself too), a link to a file is not told from a file: it is read, within the same size, count and depth limits.
+void add_limited(const fs::path& mod, const std::wstring& root, const fs::path& folder, const char* prefix,
+                 const kvx_generated::Limits& lim, kvb::ModInput* m) {
+    std::error_code ec;
+    if (!fs::is_directory(folder, ec)) return;
+    {
+        OwnedHandle dh(open_for_read(folder, true));
+        if (!dh.ok()) return;
+        if (!kvx_generated::path_inside(root, final_path(dh.h)) || reparse_on_the_way(mod, folder)) {
+            KV_W("vfx: %s: %s/ is a link or reparse point, or leads outside the mod's folder: not read", m->id.c_str(), prefix);
+            return;
+        }
+    }
+    std::vector<fs::path> files;
+    size_t entries = 0;
+    bool over = false;
+    for (auto it = fs::directory_iterator(folder, ec); !ec && it != fs::directory_iterator(); it.increment(ec)) {
+        if (++entries > lim.entries) {
+            over = true;
+            break;
+        }
+        if (it->path().extension() != L".json") continue;
+        files.push_back(it->path());
+        if (files.size() > lim.files) {
+            over = true;
+            break;
+        }
+    }
+    if (over) {
+        KV_W("vfx: %s: %s/ has more than %zu JSON files (or more than %zu entries): none of it is read", m->id.c_str(), prefix,
+             lim.files, lim.entries);
+        return;
+    }
+    std::sort(files.begin(), files.end());
+    size_t n = 0;
+    uint64_t total = 0;
+    for (const fs::path& f : files) {
+        const std::string name = to_utf8(f.filename());
+        OwnedHandle fh(open_for_read(f, false));
+        if (!fh.ok()) continue;
+        if (!kvx_generated::path_inside(root, final_path(fh.h)) || reparse_on_the_way(mod, f)) {
+            KV_W("vfx: %s: %s/%s: not read: a link or reparse point, or it leads outside the mod's folder", m->id.c_str(), prefix, name.c_str());
+            continue;
+        }
+        LARGE_INTEGER size{};
+        if (!GetFileSizeEx(fh.h, &size) || size.QuadPart < 0) continue;
+        const uint64_t bytes = static_cast<uint64_t>(size.QuadPart);
+        if (const char* why = kvx_generated::refusal(lim, n, bytes, total)) {
+            KV_W("vfx: %s: %s/%s: not read: %s (%llu bytes; limits: %zu files, %llu bytes each, %llu in all)", m->id.c_str(), prefix,
+                 name.c_str(), why, static_cast<unsigned long long>(bytes), lim.files, static_cast<unsigned long long>(lim.file_bytes),
+                 static_cast<unsigned long long>(lim.total_bytes));
+            continue;
+        }
+        std::string text(static_cast<size_t>(bytes), '\0');
+        uint64_t got = 0;
+        while (got < bytes) {
+            DWORD part = 0;
+            const DWORD want = static_cast<DWORD>(bytes - got < (1u << 20) ? bytes - got : (1u << 20));
+            if (!ReadFile(fh.h, text.data() + got, want, &part, nullptr) || part == 0) break;
+            got += part;
+        }
+        char extra = 0;
+        DWORD more = 0;
+        if (got != bytes || (ReadFile(fh.h, &extra, 1, &more, nullptr) && more != 0)) {
+            KV_W("vfx: %s: %s/%s: not read: it changed while it was read", m->id.c_str(), prefix, name.c_str());
+            continue;
+        }
+        if (!kvx_generated::depth_ok(text, lim.depth)) {
+            KV_W("vfx: %s: %s/%s: not read: nested deeper than %d", m->id.c_str(), prefix, name.c_str(), lim.depth);
+            continue;
+        }
+        ++n;
+        total += bytes;
+        m->documents.emplace_back(std::string(prefix) + "/" + name, std::move(text));
+    }
+}
+
 // One mod's folder -> its input. false: nothing to do here.
 bool read_mod(const std::string& dir, const fs::path& pending_root, kvb::ModInput* m) {
     const fs::path d = to_path(dir);
@@ -171,6 +312,7 @@ bool read_mod(const std::string& dir, const fs::path& pending_root, kvb::ModInpu
     m->side = j.value("side", "server");
     m->clients = j.value("clients", m->side == "server" ? "none" : "mod");
     m->advanced = j.contains("advanced") && j["advanced"].is_boolean() && j["advanced"].get<bool>();
+    // Kiln's own data (what it kept from code at an earlier start): read as before
     auto add_folder = [&](const fs::path& folder, const char* prefix) {
         std::vector<fs::path> files;
         std::error_code e2;
@@ -179,7 +321,19 @@ bool read_mod(const std::string& dir, const fs::path& pending_root, kvb::ModInpu
         std::sort(files.begin(), files.end());
         for (const fs::path& f : files) m->documents.emplace_back(std::string(prefix) + "/" + to_utf8(f.filename()), read_text(f));
     };
-    add_folder(d / L"blocks", "blocks");
+    // the mod's own folder: its data files, then what Kiln.Sdk baked from its code (before what Kiln kept from code at an
+    // earlier start, so a block of the same name in both is the mod's: the cook keeps the first), each with limits
+    std::wstring root;
+    {
+        OwnedHandle rh(open_for_read(d, true));
+        if (rh.ok()) root = final_path(rh.h);
+    }
+    if (root.empty()) {
+        KV_W("vfx: %s: the mod's folder cannot be opened to check where its files are: its blocks are not read", m->id.c_str());
+    } else {
+        add_limited(d, root, d / L"blocks", "blocks", kvx_generated::kBlocks, m);
+        add_limited(d, root, d / L"blocks" / L"generated", "blocks/generated", kvx_generated::kGenerated, m);
+    }
     add_folder(pending_root / to_path(m->id), "pending");
     return !m->documents.empty();
 }
@@ -295,6 +449,55 @@ kvb::GameCounts counts_from_game() {
         return {};
     }
     return kvb::game_counts_from(bundles);
+}
+
+// What made the carry-over index: Kiln's version with its build stamp (a new Kiln never takes an old index), the game exe and the side.
+// An empty game: not known, no index.
+kvb::CarryHeader carry_header(const KilnApi* api) {
+    kvb::CarryHeader h;
+    const KilnStr v = api->version();
+    h.kiln = std::string(v.ptr ? v.ptr : "", v.len) + KILN_BUILD;
+    KilnBuildInfo bi{};
+    bi.size = sizeof bi;
+    if (api->build_info(&bi) == KILN_OK && bi.exe_sha256[0]) {
+        h.game = std::string(bi.exe_sha256, strnlen(bi.exe_sha256, sizeof bi.exe_sha256));
+        h.side = bi.side == KILN_SIDE_CLIENT ? "client" : "server";
+    }
+    return h;
+}
+
+// The index file, read only up to kvb::kCarryIndexMaxBytes: its size is checked before anything is read, and the read is of that size.
+enum class IndexFile { ok, none, too_large, unreadable };
+IndexFile read_index_file(const fs::path& file, std::string* out) {
+    std::error_code ec;
+    if (!fs::exists(file, ec)) return IndexFile::none;
+    const auto size = fs::file_size(file, ec);
+    if (ec) return IndexFile::unreadable;
+    if (size > kvb::kCarryIndexMaxBytes) return IndexFile::too_large;
+    std::ifstream f(file, std::ios::binary);
+    if (!f) return IndexFile::unreadable;
+    out->resize(static_cast<size_t>(size));
+    f.read(out->data(), static_cast<std::streamsize>(size));
+    out->resize(static_cast<size_t>(f.gcount()));  // a file that shrank meanwhile: what was there (the reader decides)
+    return IndexFile::ok;
+}
+
+// Atomically, under a name of this process's own (a client and a server sharing a data folder each write whole files; the last one stays,
+// and a record either of them reads is checked before it is used).
+void write_carry_index(const fs::path& file, const std::string& text) {
+    std::error_code ec;
+    fs::create_directories(file.parent_path(), ec);
+    const fs::path tmp = file.parent_path() / to_path("index." + std::to_string(GetCurrentProcessId()) + ".tmp");
+    {
+        std::ofstream f(tmp, std::ios::binary | std::ios::trunc);
+        f.write(text.data(), static_cast<std::streamsize>(text.size()));
+        if (!f) {
+            f.close();
+            fs::remove(tmp, ec);
+            return;
+        }
+    }
+    if (!MoveFileExW(tmp.c_str(), file.c_str(), MOVEFILE_REPLACE_EXISTING)) fs::remove(tmp, ec);
 }
 
 void set_status(const char* state, const std::string& detail, const kvb::CookResult* r) {
@@ -522,8 +725,99 @@ void build_on_ready(const KilnApi* api, KilnOwner self) {
         shader_switches(&opt);
         const char* fingerprint = diff.empty() && material_diff.empty() ? "ok" : "changed";
         const std::string fingerprint_detail = diff.empty() ? material_diff : diff;
+        // progress.json: this runs in on_ready, kiln-core's step "plugins"; the detail says which mod's block is built
+        // (kiln.progress v2; nothing with an older core, and kiln-core writes it at most every 250 ms)
+        const auto* progress = static_cast<const KilnProgressApi*>(api->service(KilnStr{KILN_PROGRESS_SERVICE, sizeof(KILN_PROGRESS_SERVICE) - 1}, 1));
+        if (progress && progress->header.size >= offsetof(KilnProgressApi, step) + sizeof(void*) && progress->step)
+            opt.progress = [progress](const std::string& mod, size_t nth, size_t of, const char* kind, const std::string& name, size_t done, size_t total) {
+                try {  // a progress line is worth nothing next to the build: out of memory here costs the line only
+                const std::string which = of > 1 ? " (mod " + std::to_string(nth) + " of " + std::to_string(of) + ")" : "";
+                const std::string count = " (" + std::to_string(done + 1) + " of " + std::to_string(total) + ")";
+                // a material taken from the last start's build is not "built": the detail says what really happens
+                const std::string detail = std::string_view(kind).starts_with("material as")
+                                               ? "kiln-vfx: " + mod + which + ": materials as the last start built them: " + name + count
+                                               : "kiln-vfx: building the materials and VFX of " + mod + which + ": " + kind + " " + name + count;
+                progress->step(KilnStr{"plugins", 7}, KilnStr{nullptr, 0}, KilnStr{detail.data(), detail.size()}, 0, 0);
+                } catch (...) {
+                }
+            };
+        std::vector<kvb::MaterialRecord> records;
+        bool records_whole = true;  // a record lost (out of memory): the index is not rewritten from this start
+        opt.record_material = [&records, &records_whole](const kvb::MaterialRecord& rec) {
+            try {
+                records.push_back(rec);
+            } catch (...) {
+                records_whole = false;
+            }
+        };
+        // The carry-over index of the last starts (kvb::MaterialRecord, carry.cpp): a material whose definition and files did not change
+        // takes its maps from the texture cache without decoding a texture. Only beside a texture cache. The index is a hint: whatever goes
+        // wrong in reading, parsing, using or writing it costs the index and nothing else (never this function's catch below, which would
+        // give up every material and VFX).
+        std::vector<kvb::MaterialRecord> carried;
+        std::map<std::pair<std::string, std::string>, size_t> carried_at;
+        fs::path index_file;
+        kvb::CarryHeader header;
+        bool use_index = false;
+        try {
+            index_file = to_path(api_path(KILN_PATH_DATA)) / L"vfx" / L"cache" / L"index.json";
+            header = carry_header(api);
+            use_index = opt.cache.get && !header.game.empty();
+            std::string text, why;
+            if (use_index) {
+                switch (read_index_file(index_file, &text)) {
+                    case IndexFile::none:
+                        KV_D("vfx: no carry-over index yet (%s): every material is built from its textures", to_utf8(index_file).c_str());
+                        break;
+                    case IndexFile::too_large:
+                        KV_I("vfx: the carry-over index is not used (larger than %zu MiB): every material is built from its textures, and the index is written again",
+                             kvb::kCarryIndexMaxBytes >> 20);
+                        break;
+                    case IndexFile::unreadable:
+                        KV_I("vfx: the carry-over index is not used (it cannot be read): every material is built from its textures, and the index is written again");
+                        break;
+                    case IndexFile::ok:
+                        if (!kvb::read_carry_index(text, header, &carried, &why)) {
+                            KV_I("vfx: the carry-over index is not used (%s): every material is built from its textures, and the index is written again", why.c_str());
+                        } else {
+                            for (size_t i = 0; i < carried.size(); ++i) carried_at[{carried[i].mod, carried[i].name}] = i;
+                            opt.carried_material = [&carried, &carried_at](const std::string& mod, const std::string& name,
+                                                                            const std::string& def) -> const kvb::MaterialRecord* {
+                                const auto it = carried_at.find({mod, name});
+                                return it != carried_at.end() && carried[it->second].definition_text == def ? &carried[it->second] : nullptr;
+                            };
+                        }
+                        break;
+                }
+            }
+        } catch (...) {
+            carried.clear();
+            carried_at.clear();
+            opt.carried_material = nullptr;
+            KV_I("vfx: the carry-over index is not used (it could not be read): every material is built from its textures");
+        }
         const uint64_t t0 = GetTickCount64();
         const kvb::CookResult r = kvb::cook_mods(mods, opt);
+        if (r.materials_carried || r.materials_built) {
+            KV_I("vfx: %u material(s) taken as the last start built them, %u built from their textures, in %llu ms", r.materials_carried, r.materials_built,
+                 static_cast<unsigned long long>(GetTickCount64() - t0));
+            if (opt.carried_material)
+                for (const std::string& n : r.carry_notes) KV_D("vfx: built again: %s", n.c_str());
+        }
+        if (use_index && records_whole) {
+            try {
+                write_carry_index(index_file, kvb::carry_index_json(header, kvb::carry_merge(records, carried)));
+            } catch (...) {
+                KV_W("vfx: the carry-over index could not be written: the next start builds every material from its textures");
+            }
+        }
+        {
+            std::lock_guard lk(g_mu);
+            for (kvb::MaterialRecord& rec : records) {
+                const auto key = std::make_pair(rec.mod, rec.name);
+                g_material_records[key] = std::move(rec);
+            }
+        }
         for (const std::string& e : r.errors) KV_E("vfx: %s", e.c_str());
         for (const std::string& e : r.refused_mods) KV_E("vfx: %s", e.c_str());
         for (const std::string& w : r.warnings) KV_W("vfx: %s", w.c_str());
@@ -749,7 +1043,17 @@ KilnResult build_define_json(KilnOwner owner, KilnStr json, char* report, size_t
             opt.read_file = &read_all;
             opt.cache = disk_cache();
             opt.game_has_blob = game_has_blob;
+            // A material the boot build built from the same definition and the same file bytes is not built again (kvb::MaterialRecord):
+            // the report is the same, without decoding its textures. The copy is taken under g_mu, the cook runs without it.
+            opt.known_material = [copy = kvb::MaterialRecord{}](const std::string& mod, const std::string& name, uint64_t definition) mutable -> const kvb::MaterialRecord* {
+                std::lock_guard lk(g_mu);
+                const auto it = g_material_records.find({mod, name});
+                if (it == g_material_records.end() || it->second.definition != definition) return nullptr;
+                copy = it->second;
+                return &copy;
+            };
             const kvb::CookResult r = kvb::cook_mods({m}, opt);
+            if (r.materials_reused) KV_D("vfx: %s: %u material(s) as the boot build made them (same definition and files)", m.id.c_str(), r.materials_reused);
             result = kvb::report_json(r);
             if (!r.errors.empty() || !r.refused_mods.empty()) rc = KILN_ERR_INVALID_ARGUMENT;
             const fs::path pending = to_path(api_path(KILN_PATH_DATA)) / L"vfx" / L"pending" / to_path(m.id);

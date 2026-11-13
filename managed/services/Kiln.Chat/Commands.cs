@@ -346,6 +346,7 @@ public sealed class CommandContext
     }
 
     /// <summary>Sends a line back to the source (a player gets it in chat).</summary>
+    [TickThreadOnly]
     public void Reply(string text)
     {
         foreach (var line in Chat.Lines("", text))
@@ -361,6 +362,9 @@ public sealed class CommandContext
 
     /// <summary>Ends the command with an error message: a refusal ("only a player in the world can do this") or a
     /// failure. The source is told, the log line says it, and the result is not ok; a reply alone counts as success.</summary>
+    /// <remarks>It never returns: the mark tells the compiler and Kiln's analyzers (KILN121 takes
+    /// <c>if (!X.Available) c.Fail(...)</c> as the check before what follows).</remarks>
+    [System.Diagnostics.CodeAnalysis.DoesNotReturn]
     public void Fail(string message) => throw new CommandException(message);
 
     /// <summary>A <see cref="CommandException"/> with the usage line appended.</summary>
@@ -384,8 +388,9 @@ public sealed class CommandContext
     }
 }
 
-/// <summary>Outcome of <see cref="Commands.Execute"/>.</summary>
-public sealed class CommandResult
+/// <summary>Outcome of <see cref="Commands.Execute"/>. An <see cref="IKilnResult"/>: <see cref="Ok"/> false with
+/// <see cref="Reason"/> when the command did not run to its end.</summary>
+public sealed class CommandResult : IKilnResult
 {
     internal CommandResult(string name, bool found, bool denied, bool ok, string? error, IReadOnlyList<string> output,
         bool keepLine)
@@ -418,6 +423,11 @@ public sealed class CommandResult
     public bool ParseError { get; internal init; }
 
     public string? Error { get; }
+
+    /// <summary>Why the command did not run to its end (<see cref="Error"/>: unknown, denied, canceled, a bad
+    /// argument, or the handler's own failure); null when <see cref="Ok"/>. Since 0.2.0-dev.27.</summary>
+    public string? Reason => Ok ? null : Error;
+
     public IReadOnlyList<string> Output { get; }
     internal bool KeepLine { get; }
 
@@ -872,6 +882,7 @@ public static class Commands
 
     /// <summary>Runs a command line ("time set 7" or "/time set 7") as <paramref name="source"/>. Tick thread only.
     /// Never throws for a bad line or a failing handler: the result says what happened.</summary>
+    [TickThreadOnly]
     public static CommandResult Execute(CommandSource source, string line)
     {
         ArgumentNullException.ThrowIfNull(source);

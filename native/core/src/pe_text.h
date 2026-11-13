@@ -222,11 +222,42 @@ struct CodeView {
     intptr_t delta() const { return static_cast<intptr_t>(live - reinterpret_cast<uintptr_t>(scan)); }
 };
 
+// The first bytes of a relay as hookers write them: an absolute jump through the next eight bytes, a near jump, or
+// `mov rax, imm64; jmp rax`. `p` holds at least 14 bytes.
+inline bool relay_shape(const uint8_t* p) {
+    return (p[0] == 0xFF && p[1] == 0x25 && p[2] == 0 && p[3] == 0 && p[4] == 0 && p[5] == 0) || p[0] == 0xE9 ||
+           (p[0] == 0x48 && p[1] == 0xB8 && p[10] == 0xFF && p[11] == 0xE0);
+}
+
+// A redirected call at offset `start` of the code: an `E8 rel32` whose opcode is in place in both copies, that calls
+// into the code section in the file and to outside the image in the live code. `call_lands`, when given, is asked
+// whether the new target is a place such a call is sent to (sigdb: a relay or a loaded module). The byte before a
+// call cannot be checked for being an instruction boundary here, so an E8 inside another instruction's immediate
+// passes when its four bytes read as such a pair of targets; the tests on both targets are what keeps that rare.
+inline bool redirected_call_at(const uint8_t* file, const uint8_t* live, size_t size, size_t start, uintptr_t live_text,
+                               uintptr_t image_base, size_t image_size, bool (*call_lands)(uintptr_t) = nullptr) {
+    if (start >= size || size - start < 5 || file[start] != 0xE8 || live[start] != 0xE8) return false;
+    int32_t was, now;
+    std::memcpy(&was, file + start + 1, 4);
+    std::memcpy(&now, live + start + 1, 4);
+    if (was == now) return false;
+    const uintptr_t next = live_text + start + 5;
+    const uintptr_t from = next + static_cast<intptr_t>(was), to = next + static_cast<intptr_t>(now);
+    const bool in_code = from >= live_text && from - live_text < size;
+    const bool outside = to < image_base || to - image_base >= image_size;
+    return in_code && outside && (!call_lands || call_lands(to));
+}
+
 // A small byte difference is not proof that a replacement exe is the loaded build. Accept only differences
-// covered by a familiar inline jump to outside the image (plus the hooker's instruction-padding NOPs).
+// covered by a familiar inline jump to outside the image (plus the hooker's instruction-padding NOPs), or by a
+// redirected call (above). ShroudForge's native runtime sends the main menu's two Settings calls to a relay next to
+// the image this way, before Kiln's scan; while the form was unknown, every client start that hosted ShroudForge
+// scanned the live code, the captures of ui/MainMenuEntry disagreed and the main menu had none of Kiln's entries
+// (players' reports of 10 and 13 Nov 2026).
 // Unrecognised patches conservatively select the live scan, even below the 1% budget.
 inline bool only_hook_differences(const uint8_t* file, const uint8_t* live, size_t size,
-                                  uintptr_t live_text, uintptr_t image_base, size_t image_size) {
+                                  uintptr_t live_text, uintptr_t image_base, size_t image_size,
+                                  bool (*call_lands)(uintptr_t) = nullptr) {
     auto outside = [&](uintptr_t a) { return a < image_base || a - image_base >= image_size; };
     for (size_t i = 0; i < size;) {
         if (file[i] == live[i]) { ++i; continue; }
@@ -236,6 +267,13 @@ inline bool only_hook_differences(const uint8_t* file, const uint8_t* live, size
             const size_t left = size - start;
             size_t width = 0;
             uintptr_t target = 0;
+            if (i - start >= 1 && i - start <= 4 &&
+                redirected_call_at(file, live, size, start, live_text, image_base, image_size, call_lands)) {
+                // a call whose operand alone changed: no padding belongs to it
+                i = start + 5;
+                covered = true;
+                break;
+            }
             if (left >= 5 && p[0] == 0xE9) {
                 int32_t d;
                 std::memcpy(&d, p + 1, 4);
@@ -250,7 +288,9 @@ inline bool only_hook_differences(const uint8_t* file, const uint8_t* live, size
             }
             if (!width || !outside(target)) continue;
             size_t end = start + width;
-            for (size_t pad = 0; pad < 13 && end < size && live[end] == 0x90; ++pad) ++end;
+            // the NOPs a hook fills the rest of the instructions it replaced with: up to 20, what Greeneye Loader
+            // writes behind its 12-byte jump (a hook of at most 32 bytes); the others stay well below that
+            for (size_t pad = 0; pad < 20 && end < size && live[end] == 0x90; ++pad) ++end;
             if (i < end) { i = end; covered = true; break; }
         }
         if (!covered) return false;

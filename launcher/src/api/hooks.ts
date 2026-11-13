@@ -114,6 +114,17 @@ export function useLaunchState(g: GameId | null | undefined) {
  *  starting, or runs and Kiln has not booted yet): null when nothing, or the sentence for the launch status. */
 export const usePreStart = (g: GameId | null | undefined, on: boolean) =>
   useQuery({ queryKey: ["launch_prestart", g ?? ""] as const, queryFn: () => api.launchPrestart(g!), enabled: !!g && on, refetchInterval: 1500 });
+/** What the start is doing (`launch_progress`), every second while `on` (a start of this launcher is pending or under
+ *  way, or the game runs) and the answer is not final; a game event refetches it (invalidateGame). It keeps polling
+ *  while the window is hidden or unfocused: the game takes the display exactly then. With nothing to show while the
+ *  game runs (a start from Steam with a runtime that writes no progress.json) every 5 s; once final, not at all. */
+export const useStartTimeline = (g: GameId | null | undefined, on: boolean, running = false) =>
+  useQuery({ queryKey: ["launch_progress", g ?? ""] as const, queryFn: () => api.launchProgress(g!), enabled: !!g && on, refetchIntervalInBackground: true,
+    refetchInterval: (q) => {
+      const d = q.state.data;
+      if (d && ["ready", "idle", "failed", "ended", "legacy"].includes(d.phase)) return false;
+      return d === null && running ? 5000 : 1000;
+    } });
 export const useProfiles = () => useQuery({ queryKey: qk.profiles, queryFn: api.profileList });
 export const useProfile = (p: ProfileId | null | undefined) => useQuery({ queryKey: qk.profile(p ?? ""), queryFn: () => api.profileGet(p!), enabled: !!p });
 export const useActiveProfile = (g: GameId | null | undefined) =>
@@ -167,7 +178,8 @@ export const useRuntimeChanges = create<RuntimeChanges>((set, get) => ({
 /** Refetches everything about a game (after install, activation, launch). */
 export function invalidateGame(qc: QueryClient, g: GameId) {
   // the game list too: an install's id changes once Kiln is installed (path hash -> receipt id)
-  for (const k of [qk.games, qk.gameStatus(g), qk.launchState(g), qk.runtimeStatus(g), qk.active(g), qk.pending(g), qk.profiles, qk.backups(g)])
+  // (cook_plan: which mods need a cook follows the profile in the game and the game's build)
+  for (const k of [qk.games, qk.gameStatus(g), qk.launchState(g), qk.runtimeStatus(g), qk.active(g), qk.pending(g), qk.profiles, qk.backups(g), ["cook_plan", g], ["launch_progress", g]])
     qc.invalidateQueries({ queryKey: k });
 }
 
@@ -179,6 +191,12 @@ export function useBackendEvents() {
     let live = true;
     const add = (p: Promise<() => void>) => p.then((f) => (live ? offs.push(f) : f()));
     add(api.onKilnEvent("kiln://game", (e) => {
+      // the running game wrote progress.json: the start is looked at again, also when the window had stopped following
+      // it (a decision such as No Kiln is then re-checked against what Kiln says); nothing else is refetched
+      if (e.kind === "progress") {
+        void qc.fetchQuery({ queryKey: ["launch_progress", e.gameId], queryFn: () => api.launchProgress(e.gameId), staleTime: 0 }).catch(() => {});
+        return;
+      }
       if (e.status) qc.setQueryData(qk.gameStatus(e.gameId), e.status);
       invalidateGame(qc, e.gameId);
     }));

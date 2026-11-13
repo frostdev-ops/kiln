@@ -20,6 +20,7 @@ internal static class InstanceCapabilities
     private static readonly object Gate = new();
     private static (CapabilityState State, CapabilityReason Reason, string Text)? _shown;
     private static bool _carriedShown, _warned;
+    private static long _shownEpoch = -1, _carriedEpoch = -1;  // the registry binding a row was reported under
 
     /// <summary>The row as InstanceData.Use decides it now; null when it cannot be told on this thread right now (the
     /// row stays as it was).</summary>
@@ -84,8 +85,10 @@ internal static class InstanceCapabilities
             if (now is not { } row) return;
             lock (Gate)
             {
-                if (_shown == row) return;
+                var epoch = Capabilities.CurrentBinding.Epoch;
+                if (_shown == row && _shownEpoch == epoch) return;
                 _shown = row;  // also when the report is refused: once, not every pump
+                _shownEpoch = epoch;
                 Report(Name, row.State, row.Reason, row.Text);
             }
         }
@@ -101,16 +104,20 @@ internal static class InstanceCapabilities
     {
         lock (Gate)
         {
-            if (_carriedShown) return;
+            var epoch = Capabilities.CurrentBinding.Epoch;
+            if (_carriedShown && _carriedEpoch == epoch) return;
             _carriedShown = true;
+            _carriedEpoch = epoch;
             Report(Carried, CapabilityState.Unavailable, CapabilityReason.Policy, InstanceData.CarriedReason);
         }
+        InstanceSyncRuntime.ReportCapability();  // saves.instance_data.sync, with the other static row (dev.27)
     }
 
     /// <summary>The test kit's session end: the next session reports its row again, whatever it is.</summary>
     internal static void Forget()
     {
         lock (Gate) _shown = null;
+        InstanceSyncRuntime.EndSession();
     }
 
     private static void Report(string name, CapabilityState state, CapabilityReason reason, string text)

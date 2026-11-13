@@ -28,7 +28,7 @@ var steel = Blocks.Define("frost_steel", new MaterialBlock
 });
 ```
 
-**Use the data file for anything a model names.** The game lists the textures of every material once at start, before mod code runs. So a block in `blocks/*.json` is there at once, and one from C# is kept and is there from the next start: `handle.Status` says which, and a toast tells you. Until then a model that names it doesn't draw.
+**Use the data file for anything a model names.** The game lists the textures of every material once at start, before mod code runs. So a block in `blocks/*.json` is there at once, and one from C# is kept and is there from the next start: `handle.Status` says which, and a toast tells you. A mod built with Kiln.Sdk has its C# materials at the first start too: the build bakes them into `blocks/generated/<mod>.json` ([baked.md](baked.md)). Until then a model that names it doesn't draw.
 
 A mod with a material needs `"clients": "mod"`: every player has to have the textures. `kiln lint` says so (KL211).
 
@@ -70,7 +70,7 @@ A kind says what the surface is, and where the other fields start from. A field 
 | `shader` | Reserved for surface shaders. Naming one is an error for now | |
 | `was` | The old name after a rename: the id stays | |
 
-PNGs are relative to your mod's folder, a power of two on both sides, 4 to 4096. What's missing is a small constant texture Kiln makes, shared by every material that needs the same one. Textures are compressed the first time and cached in `kiln/data/vfx/cache`: BC7 for colour, BC5 for normals, BC1 for the rest.
+PNGs are relative to your mod's folder, a power of two on both sides, 4 to 4096. What's missing is a small constant texture Kiln makes, shared by every material that needs the same one. Textures are compressed the first time and cached in `kiln/data/vfx/cache`: BC7 for colour, BC5 for normals, BC1 for the rest. Since 0.2.0-dev.27 `kiln/data/vfx/cache/index.json` also remembers which cached textures each material was made of: a later start whose material definition and PNGs are byte for byte the same takes them from the cache without decoding a PNG (kiln.log: "vfx: N material(s) taken as the last start built them, M built from their textures"). A changed PNG or definition, a new Kiln or game build, or a cache entry that is gone builds that material as before. Deleting the folder is always safe. The index is only a hint, checked against this start's files; the cache folder itself, like the cooked files, is trusted as part of the player's own data and is no barrier against code running under the player's account.
 
 A mistake names the block and the field: `frost-fx: blocks/m.json: materials.steel.roughness: 2 is more than 1`. A wrong block registers nothing, and the file's other blocks still load. Schema: `schema/kiln-vfx.schema.json`.
 
@@ -88,6 +88,8 @@ Rigid and skinned models work the same way. The model needs no `base`. The step 
 { "op": "model", "gltf": "src/ember_sword.gltf", "guid": "<a fixed GUID>", "mode": "new", "stem": "ember_sword", "materials": "gltf" }
 ```
 It writes `blocks/<stem>.materials.json`, with blocks named `<stem>.<glTF material>`, and any PNGs embedded in the glTF to `<out>/materials/<stem>/`. A PNG beside the glTF stays where it is, and has to be inside the mod. Copy a block into your own file and name it in `materialMap` when you want to change it.
+
+That blocks file is the one thing a model's cook writes outside `assets/cooked`. It is made from your glTF alone (no game data), so it is the same bytes on a server and in every player's game, and a cook only writes it when it differs. Ship it with the mod (cook before you pack): then a cook changes nothing of your mod on any machine ([models.md](models.md), "What a cook writes").
 
 | glTF | Block |
 |---|---|

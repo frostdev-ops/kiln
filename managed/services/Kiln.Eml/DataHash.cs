@@ -9,6 +9,7 @@ namespace Kiln;
 /// Hashes game data uses and EML mods compute (EML <c>hasher.fnv1a32/crc32/crc64</c>). Strings hash as UTF-8.
 /// Check values for "123456789": FNV-1a 32 = 0xBB86B11C, CRC-32 = 0xCBF43926, CRC-64/ECMA-182 = 0x6C40DF5F0B497347.
 /// </summary>
+[AnyThread]
 public static class DataHash
 {
     /// <summary>FNV-1a, 32 bit (offset basis 0x811C9DC5, prime 0x01000193).</summary>

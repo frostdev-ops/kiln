@@ -9,8 +9,11 @@
   <ItemGroup>
     <InternalsVisibleTo Include="Kiln.Host" />
     <InternalsVisibleTo Include="Kiln.Host.Tests" />
+    <InternalsVisibleTo Include="Kiln.Contract.Tests" />
     <InternalsVisibleTo Include="Kiln.Network.Tests" />
     <InternalsVisibleTo Include="Kiln.Blocks.Tests" />
+    <InternalsVisibleTo Include="Kiln.World.Tests" />
+    <InternalsVisibleTo Include="Kiln.Items.Tests" />
     <InternalsVisibleTo Include="Kiln.TestKit" />
     <!-- Kiln's own service assemblies (managed/services/*) use the native service access in Services/. -->
     <InternalsVisibleTo Include="Kiln.World" />

@@ -54,11 +54,71 @@ public sealed partial class ClientPassMod
         "with their state and reasons, with search and a filter for mods that need attention. Leave it with Back. Did the " +
         "page open with the mods listed, and did leaving bring you back to the main menu?");
 
+    [ClientCheck("menu.mods-with-shroudforge", "MODS is in the main menu while Kiln runs ShroudForge", Area = "Menus and hooks",
+        Since = Dev27, Tags = [Visual], Order = 109)]
+    public Task MenuModsWithShroudForge(CheckContext c) => Outside(c,
+        "With a ShroudForge mod switched on in this profile (the one of frameworks.shroudforge), before you hosted this " +
+        "world: was MODS in the game's main menu, above Settings, and did it open the page? Before 0.2.0-dev.27 the main " +
+        "menu had no MODS entry in such a start. If ShroudForge's own install is in the game folder too: switch on \"Use " +
+        "my installed ShroudForge\" in the launcher's Settings, start the game again and look once more (ShroudForge may " +
+        "add a row of its own next to it), then switch it off again. Was MODS in the main menu each time?");
+
+    [ClientCheck("menu.sf-waiting-for", "A waiting ShroudForge mod says what it waits for", Area = "Menus and hooks",
+        Since = Dev27, Tags = [Visual], Order = 145)]
+    public Task MenuSfWaitingFor(CheckContext c) => Outside(c,
+        "With SF Unlimited Flight switched on in this profile (its Upward Gliding setting on, the default), in this world " +
+        "you host: stand on the ground, open the pause menu, then Mods, and pick SF Unlimited Flight under ShroudForge. Its " +
+        "state says Waiting, and under WHAT IT WAITS FOR the page says it waits for you to glide (\"You to glide. It changes " +
+        "the glider only while you are gliding...\"). Did the page say what the mod waits for in those plain words, not " +
+        "only Waiting?");
+
     [ClientCheck("menu.kiln-menu", "Kiln's menu opens and draws", Area = "Menus and hooks", Since = Dev21,
         Tags = [Visual], Order = 107)]
     public Task MenuKilnMenu(CheckContext c) => Outside(c,
         "Open Kiln's menu now (the Kiln entry in the pause menu) and go through two of its pages, then close it. Did it open, " +
         "draw every page without broken text or boxes, and close again with the game still answering?");
+
+    [ClientCheck("menu.config-apply", "A mod's settings keep the applied values, and a slider takes a typed value",
+        Area = "Menus and hooks", Since = Dev27, Tags = [Visual], Order = 144)]
+    public Task MenuConfigApply(CheckContext c) => Outside(c,
+        "Open the pause menu, then Mods, and a mod with settings (or Kiln settings). Change a switch and a slider and " +
+        "press Apply: does the table keep the new values (before 0.2.0-dev.27 it showed the old ones until the page was " +
+        "opened again)? Beside each slider there is a number field: type a value of the range into one. Did the slider " +
+        "follow, and after Apply, closing the menu and opening the page again, is that value still there?");
+
+    [ClientCheck("menu.rows-quit", "Quit stays on the screen with many mods' menu entries (the rule Few)", Area = "Menus and hooks",
+        Since = Dev27, Tags = [Visual], Order = 148)]
+    public Task MenuRowsLeaveQuitOnScreen(CheckContext c) => Outside(c,
+        "Play this one on a 1920x1080 screen, with mods that add more than 3 entries to the pause menu: the test mod " +
+        "mods/tests/menu-many-test adds 8 (its own setting Entries, 0 to 24, under Mods, takes a new number at once). In Kiln " +
+        "settings set menus-client modEntries to Few and Apply. Open the pause menu: does it show Kiln's Mods entry but " +
+        "none of the mods' entries, and are Quit and Return to Main Menu on the screen? Open Mods: under Menu entries every " +
+        "one of those entries is listed; press Open on one: does the Kiln menu close and the entry do what it does in the " +
+        "menu? Then set modEntries to Always, Apply, and open the pause menu again: how many entries could there be before " +
+        "Quit left the screen (say the number in your note)? Set it back to Auto. Was Quit on the screen with Few, and did " +
+        "the Mods page reach every entry?");
+
+    [ClientCheck("menu.scroll", "The pause menu scrolls when mods' entries do not fit (experiment)", Area = "Menus and hooks",
+        Since = Dev27, Tags = [Visual], Order = 149)]
+    public Task MenuScroll(CheckContext c) => Outside(c,
+        "An experiment: Kiln wraps the pause menu in the game's own scroll view once it has more than 3 mods' entries. It " +
+        "may end the game once; then send kiln/logs/kiln.log and kiln/state/menu-scroll.off. Setup: modEntries Auto (the " +
+        "default), mods/tests/menu-many-test with Entries 20 (more than fit), any resolution (say which). kiln.log should " +
+        "say \"ui: the pause menu can scroll (experiment)\" at start. 1) Open the pause menu: does the list reach from " +
+        "the top of the menu down to near the bottom of the screen (not a third of it), with every entry there, and " +
+        "kiln.log say \"ui: the pause menu scrolls: ...\" with a scroll view almost as tall as the column? 2) The " +
+        "scrollbar at the list's right: does it look like the game's other list scrollbars (a track and a thumb about as " +
+        "long as the visible part of the list), not a plain white bar? 3) Turn the mouse wheel over it: does the list " +
+        "scroll and the thumb move, with entries clipped at the menu's edges? 4) With the arrow keys go down past the last " +
+        "visible entry to Quit, then back up to Resume: does the list follow the highlighted entry each way, so it stays " +
+        "visible? kiln.log says \"ui: the pause menu's scroll view moved: offset ...\" the first times it moves. 5) " +
+        "Scroll with the wheel, then press an arrow key: the view stays where the wheel put it until the highlight moves, " +
+        "then follows it. 6) The same as 4) with a gamepad (d-pad, then the stick), down to Quit and back. 7) Return to " +
+        "Main Menu and back into the world: does it still work? 8) Set menu-many-test's Entries to 2 (3 or fewer mods' " +
+        "entries in all): is it exactly as before 0.2.0-dev.27 (no scroll view, centred as the game draws it)? Send " +
+        "screenshots of 1), 4) at Quit and 8), and every kiln.log line starting with \"ui: the pause menu\" or " +
+        "\"ui: the scrolling pause menu\". Did it fill the column, look like the game's scrollbars, and follow the keys " +
+        "and the pad to Quit and back?");
 
     [ClientCheck("boot.proxy", "The game started with Kiln's proxy", Area = "Menus and hooks", Since = Dev21, Order = 108)]
     public async Task BootProxy(CheckContext c)
@@ -448,6 +508,131 @@ public sealed partial class ClientPassMod
         await c.Verdict();
     }
 
+    [ClientCheck("rules.noclip", "NoClip: through the ground, and safely off inside it", Area = "Creative mode", Since = Dev27,
+        Needs = ClientCheckNeeds.Hosted, Order = 150)]
+    public async Task RulesNoClip(CheckContext c)
+    {
+        if (!await NeedPlayer(c) || !await NeedNoClip(c)) return;
+        var ended = new List<PlayerNoClipEndedEvent>();
+        var sub = Events.On<PlayerNoClipEndedEvent>(e => { if (e.Player == c.Player) ended.Add(e); });
+        c.OnEnd(() =>
+        {
+            sub.Dispose();
+            NoClip.Set(c.Player, false);
+        });
+        var on = NoClip.Set(c.Player, true);
+        if (!c.Expect(on.Ok, "NoClip turned on for you", on.Message))
+        {
+            c.Instruct($"NoClip could not be turned on: {on.Message} Press fail, with that line as the note.");
+            await c.Verdict();
+            return;
+        }
+        c.Instruct("NoClip is on and you lift off. Fly with the movement keys; jump climbs, sneak sinks, sprint is faster. " +
+                   "Sink into the ground until you are well inside it, fly through a wall or a rock, and stop INSIDE the " +
+                   "ground. Then type /noclip in chat to turn it off.");
+        var active = await c.Until(() => NoClip.Of(c.Player).Active, TimeSpan.FromSeconds(20), "the server skips your character's collision");
+        c.Expect(active, "the server's world moves your character without collision", NoClip.Of(c.Player).ToString());
+        var off = await c.Until(() => ended.Count > 0, TimeSpan.FromMinutes(5), "you turned NoClip off");
+        if (off)
+        {
+            c.Expect(ended[0].Reason == NoClipEnd.RuleEnded, "it ended because it was turned off", ended[0].ToString());
+            c.Expect(ended[0].RestoredTo is not null, "it was turned off inside something, and Kiln put you back at your last free position",
+                ended[0].ToString());
+        }
+        await c.Ticks(60);
+        c.Expect(!NoClip.Of(c.Player).Active, "collision is back on the server", NoClip.Of(c.Player).ToString());
+        var feet = await c.Until(() => OnItsFeet(c.Player), TimeSpan.FromSeconds(30), "your character is out of NoClip's flight, on the ground");
+        c.Expect(feet, "the server's character is out of NoClip's flight and stands on the ground", Locomotion(c.Player));
+        c.Instruct("Four things, all must be yes to pass. While NoClip was on, did you pass through the ground and the wall " +
+                   "smoothly, without being pulled back? When you turned it off inside the ground, were you put back in " +
+                   "open space near where you went in? Are you now standing or landing normally, not inside the ground " +
+                   "and not falling under the world? Walk, run and jump: do you move with the usual animations, not " +
+                   "floating or frozen in one pose? (In the fail note, say which one was not so, and what the camera did " +
+                   "inside the ground.)");
+        await c.Verdict();
+    }
+
+    [ClientCheck("rules.noclip-teleport", "NoClip ends on a teleport", Area = "Creative mode", Since = Dev27,
+        Needs = ClientCheckNeeds.Hosted, Order = 151)]
+    public async Task RulesNoClipTeleport(CheckContext c)
+    {
+        if (!await NeedPlayer(c) || !await NeedNoClip(c)) return;
+        var ended = new List<PlayerNoClipEndedEvent>();
+        var sub = Events.On<PlayerNoClipEndedEvent>(e => { if (e.Player == c.Player) ended.Add(e); });
+        c.OnEnd(() =>
+        {
+            sub.Dispose();
+            NoClip.Set(c.Player, false);
+        });
+        var on = NoClip.Set(c.Player, true);
+        if (!c.Expect(on.Ok, "NoClip turned on for you", on.Message))
+        {
+            c.Instruct($"NoClip could not be turned on: {on.Message} Press fail, with that line as the note.");
+            await c.Verdict();
+            return;
+        }
+        c.Instruct("NoClip is on. Open the map and fast travel to any Flame Altar (or sleep in a bed, or use a teleport of " +
+                   "your own).");
+        var tripped = await c.Until(() => ended.Count > 0, TimeSpan.FromMinutes(5), "you teleported");
+        if (tripped) c.Expect(ended[0].Reason == NoClipEnd.Teleport, "it ended because of the teleport", ended[0].ToString());
+        await c.Ticks(60);
+        c.Expect(!Rules.Of(c.Player).NoClip && !NoClip.Of(c.Player).Active, "NoClip is off after the teleport", NoClip.Of(c.Player).ToString());
+        // a teleport moves the character's records in the game's tables; until 0.2.0-dev.27's fix the flight's state
+        // stayed behind there (collision back, no walking, no animation)
+        var feet = await c.Until(() => OnItsFeet(c.Player), TimeSpan.FromSeconds(30), "your character is out of NoClip's flight, on the ground");
+        c.Expect(feet, "the server's character is out of NoClip's flight and stands on the ground", Locomotion(c.Player));
+        c.Instruct("Did you arrive standing on the ground with normal collision, and did a chat line say that NoClip ended " +
+                   "because you were teleported? Now walk, run and jump: do you move with the usual animations, not " +
+                   "floating or frozen in one pose? All must be yes to pass.");
+        await c.Verdict();
+    }
+
+    // The server's character after NoClip: its locomotion state (DynamicLocomotion.state; 11 is the flight NoClip flies
+    // in, which the game keeps until something ends it) and whether it stands on something.
+    private static bool OnItsFeet(EntityId p)
+    {
+        try
+        {
+            return World.ReadBytes(p, "DynamicLocomotion") is { Length: > 0x59 } b && b[0x59] != 11 && PlayerStates.Is(p, PlayerStateId.Grounded);
+        }
+        catch (KilnUnavailableException)
+        {
+            return false;
+        }
+    }
+
+    private static string Locomotion(EntityId p)
+    {
+        try
+        {
+            var state = World.ReadBytes(p, "DynamicLocomotion") is { Length: > 0x59 } b ? b[0x59].ToString() : "unreadable";
+            return $"locomotion state {state} (11: NoClip's flight), grounded {PlayerStates.Is(p, PlayerStateId.Grounded)}";
+        }
+        catch (KilnUnavailableException e)
+        {
+            return e.Message;
+        }
+    }
+
+    // NoClip's checks need the hooks on this game build and the world's rules.json allowing it.
+    private static async Task<bool> NeedNoClip(CheckContext c)
+    {
+        if (!NoClip.Available)
+        {
+            c.Expect(false, "NoClip works on this game build (rules.noclip)", Capabilities.Why(NoClip.Capability));
+            c.Instruct($"NoClip does not work in this game: {Capabilities.Why(NoClip.Capability)} Press skip (or fail, if this " +
+                       "is a game build Kiln supports and the Creative Mode mod is not installed).");
+            await c.Verdict();
+            return false;
+        }
+        if (Rules.Policy.AllowNoClip) return true;
+        c.Instruct("NoClip is switched off in this world's rules. Open kiln/config/rules.json in the folder of the game (or " +
+                   "of the server), set \"allowNoClip\": true and save: Kiln rereads the file within a second. Then start " +
+                   "this check again. Press skip now.");
+        await c.Verdict();
+        return false;
+    }
+
     [ClientCheck("time.set", "Time of day set by a mod", Area = "Gameplay", Since = Dev21,
         Tags = [Visual], Needs = ClientCheckNeeds.Hosted, Order = 136)]
     public async Task TimeSet(CheckContext c)
@@ -478,6 +663,59 @@ public sealed partial class ClientPassMod
         await c.Verdict();
     }
 
+    [ClientCheck("abilities.remove-buff", "A buff taken off by a mod", Area = "Gameplay", Since = Dev27,
+        Tags = [Visual], Needs = ClientCheckNeeds.Hosted, Order = 139)]
+    public async Task AbilitiesRemoveBuff(CheckContext c)
+    {
+        if (!await NeedPlayer(c)) return;
+        // the heal-over-time potion's buff: an icon in the buff row while it lasts
+        var hot = new Guid("be0e7626-e95f-4a14-844a-2af52501698e");
+        c.Expect(Capabilities.Is("abilities.buffs"), "abilities.buffs is available", Capabilities.Why("abilities.buffs"));
+        await Abilities.ApplyBuff(c.Player, hot, TimeSpan.FromSeconds(120), c.Player);
+        c.OnEnd(() => { if (Capabilities.Is("abilities.buffs")) _ = Abilities.RemoveBuff(c.Player, hot); });
+        await c.Until(() => Abilities.BuffsOf(c.Player).Any(b => b.Is(hot)), TimeSpan.FromSeconds(5), "the buff is on the player");
+        c.Instruct("The check gave you the healing potion's buff for 2 minutes: its icon is in the buff row of your HUD. Look " +
+                   "at it now. The check takes the buff off in 10 seconds through Abilities.RemoveBuff; watch the icon.");
+        await c.Ticks(240);
+        var r = await Abilities.RemoveBuff(c.Player, hot);
+        c.Expect(r.Ok, "RemoveBuff says the game removed it", r.ToString());
+        // the game answers at once and clears the slot a step later
+        await c.Until(() => !Abilities.BuffsOf(c.Player).Any(b => b.Is(hot)), TimeSpan.FromSeconds(5), "the buff is no longer in the player's buff slots");
+        c.Instruct("Did the buff's icon appear in your HUD, and did it go away when the check took the buff off (about 10 " +
+                   "seconds later), with no other buff touched?");
+        await c.Verdict();
+    }
+
+    [ClientCheck("players.aim", "Where the player looks: Player.Aim follows the camera", Area = "Gameplay", Since = Dev27,
+        Needs = ClientCheckNeeds.Hosted, Order = 140)]
+    public async Task PlayersAim(CheckContext c)
+    {
+        if (!await NeedPlayer(c)) return;
+        c.Expect(Capabilities.Is("players.aim"), "players.aim is available", Capabilities.Why("players.aim"));
+        PlayerAim? Aim() { try { return PlayerStates.AimOf(c.Player); } catch (KilnUnavailableException) { return null; } }
+        var first = Aim();
+        var body = World.Position(c.Player);
+        c.Expect(first is not null, "the player's client has sent a camera", first?.ToString());
+        if (first is not null && body is { } b)
+            c.Expect(first.Origin.DistanceTo(b) < 15, "the camera is near the character (third person)",
+                $"{first.Origin.DistanceTo(b):0.0} m from the character, distance setting {first.Distance:0.0}");
+        c.Instruct("Step 1 of 3: look straight down at your feet with the camera.");
+        if (await c.Until(() => Aim() is { PitchDegrees: < -45 }, TimeSpan.FromSeconds(60), "Aim's pitch went below -45 (looking down)"))
+            c.Expect(true, "Aim's pitch went below -45 (looking down)", $"{Aim()?.PitchDegrees:0} degrees");
+        c.Instruct("Step 2 of 3: Kiln saw you look down. Now look up at the sky.");
+        if (await c.Until(() => Aim() is { PitchDegrees: > 30 }, TimeSpan.FromSeconds(60), "Aim's pitch went above 30 (looking up)"))
+            c.Expect(true, "Aim's pitch went above 30 (looking up)", $"{Aim()?.PitchDegrees:0} degrees");
+        var yaw0 = Aim()?.YawDegrees ?? 0;
+        c.Instruct("Step 3 of 3: Kiln saw you look up. Now turn the camera half a turn (180 degrees) left or right.");
+        if (await c.Until(() => Aim() is { } a && Math.Abs(((a.YawDegrees - yaw0 + 540) % 360) - 180) > 150, TimeSpan.FromSeconds(60),
+                "Aim's yaw turned by more than 150 degrees"))
+            c.Expect(true, "Aim's yaw turned by more than 150 degrees", $"{yaw0:0} -> {Aim()?.YawDegrees:0} degrees");
+        var last = Aim();
+        c.Instruct($"Kiln read your camera as yaw {last?.YawDegrees:0} and pitch {last?.PitchDegrees:0} degrees. Did each step's " +
+                   "text move on right after you moved the camera that way, and not before?");
+        await c.Verdict();
+    }
+
     [ClientCheck("world.programs", "A world program with a player in the world", Area = "Gameplay", Since = Dev21,
         Needs = ClientCheckNeeds.Hosted, Order = 138)]
     public async Task WorldProgramsCheck(CheckContext c)
@@ -486,6 +724,219 @@ public sealed partial class ClientPassMod
         c.Instruct("The world programs sample runs a program in this hosted world that sends itself an event. Open " +
                    "kiln/logs/kiln.log in the game folder and search for \"world program event echoed\". Is that line there " +
                    "for this start, with no error from world-programs after it?");
+        await c.Verdict();
+    }
+
+    // ---- equip and unequip by a mod (Items.Equip / Items.Unequip, dev.27): the server's game equips, the player sees ----
+    private const string Hat = "Armor_T1_Mage_Wizard_DPS_Helmet";  // Alchemist Apprentice Hat: shows on the head
+
+    [ClientCheck("items.equip", "A mod puts a hat on the character, and it comes off by hand", Area = "Gameplay",
+        Since = Dev27, Tags = [Visual], Order = 141)]
+    public async Task ItemsEquip(CheckContext c)
+    {
+        if (!await NeedPlayer(c)) return;
+        if (!c.Expect(Capabilities.Is("items.equip"), "items.equip is available", Capabilities.Why("items.equip"))) return;
+        await GiveGame(c, Hat);
+        await c.Ticks(4);
+        var hat = Items.Lookup(Hat);
+        var slot = hat is null ? null : Items.Read(c.Player)?.Slots.FirstOrDefault(s => s.Item == hat.Id && !s.IsEquipped);
+        if (!c.Expect(slot is not null, "the hat lies in the inventory, not worn")) return;
+        var r = await Items.Equip(c.Player, slot!.Slot, EquipmentSlot.ArmourHead);
+        c.Expect(r.Ok, "Items.Equip put it on the head", r.ToString());
+        await c.Ticks(8);
+        c.Expect(Items.Equipped(c.Player, EquipmentSlot.ArmourHead).Item == hat!.Id, "the server's head slot holds the hat");
+        c.Instruct("The check put an Alchemist Apprentice Hat on your character's head through the game's own equip (what " +
+                   "was on the head before went into your backpack). Look at your character: does it wear the hat? Open " +
+                   "the inventory: is the hat in the head slot of the equipment, and does the preview show it? Then take it " +
+                   "off by hand (drag it into the backpack) and put it on again by hand. Did all of that work as usual?");
+        await c.Verdict();
+    }
+
+    [ClientCheck("items.unequip", "A mod takes the hat off the character", Area = "Gameplay", Since = Dev27,
+        Tags = [Visual], Order = 142)]
+    public async Task ItemsUnequip(CheckContext c)
+    {
+        if (!await NeedPlayer(c)) return;
+        if (!c.Expect(Capabilities.Is("items.equip"), "items.equip is available", Capabilities.Why("items.equip"))) return;
+        var hat = Items.Lookup(Hat);
+        if (hat is not null && Items.Equipped(c.Player, EquipmentSlot.ArmourHead).Item != hat.Id &&
+            Items.Read(c.Player)?.Slots.FirstOrDefault(s => s.Item == hat.Id && !s.IsEquipped) is { } loose)
+            await Items.Equip(c.Player, loose.Slot, EquipmentSlot.ArmourHead);
+        await c.Ticks(8);
+        var r = await Items.Unequip(c.Player, EquipmentSlot.ArmourHead);
+        c.Expect(r.Ok, "Items.Unequip took the head slot off", r.ToString());
+        await c.Ticks(8);
+        c.Expect(Items.Equipped(c.Player, EquipmentSlot.ArmourHead).IsNone, "the server's head slot is empty");
+        c.Instruct("The check took the hat (or whatever your character wore on the head) off through the game's own " +
+                   "unequip: it went into a free slot of your backpack. Is the head bare on your character and empty in " +
+                   "the equipment screen, and is the hat in the backpack? Can you put it on again by hand?");
+        await c.Verdict();
+    }
+
+    // ---- the weather a mod chose (Time.SetWeather, dev.27): the server's game starts it, the player's game shows it ----
+    [ClientCheck("time.weather", "A mod chooses the weather", Area = "Gameplay", Since = Dev27, Tags = [Visual], Order = 143)]
+    public async Task TimeWeather(CheckContext c)
+    {
+        if (!await NeedPlayer(c)) return;
+        if (!c.Expect(Capabilities.Is("time.weather_choose") && Time.WeatherChoiceAvailable, "the weather can be chosen",
+                Capabilities.Why("time.weather_choose"))) return;
+        c.OnEnd(async () => await Time.ReleaseWeather(now: true));
+        var none = await Time.SetWeather("none", layer: 0);
+        c.Expect(none.Ok, "no clouds on the clouds layer, held", none.ToString());
+        c.Instruct("Step 1 of 2: the check took the clouds away (the game's \"nothing\" on its clouds layer, held). Look at " +
+                   "the sky for half a minute: do the clouds thin out and go? Then press pass or fail for step 1 and 2 " +
+                   "together after step 2 below.");
+        await c.Ticks(30 * 25);
+        var overcast = await Time.SetWeather("clouds_overcast", layer: 0);
+        var rain = await Time.SetWeather("rain", TimeSpan.FromMinutes(10));
+        c.Expect(overcast.Ok && rain.Ok, "overcast held, rain in every region for ten game minutes", $"{overcast}; {rain}");
+        c.Instruct("Step 2: the check made the sky overcast and started rain in every region of the world (each rain is a " +
+                   "cloud at a random place in its region, so it may be far from you). Within a minute, does the sky turn " +
+                   "overcast? If rain reaches you, does it look like the game's own? Did the clouds go away in step 1? When " +
+                   "the check ends, the weather goes back to the game.");
+        await c.Verdict();
+    }
+    [ClientCheck("boot.progress-file", "Kiln says what a start is doing, step by step, until the main menu", Area = "Core",
+        Since = Dev27, Tags = [Visual], Order = 152)]
+    public async Task BootProgressFile(CheckContext c)
+    {
+        // kiln/state/progress.json of this start (kiln-core writes it; schema/state-progress.schema.json): it must have
+        // reached ready (the main menu drew with every mod loaded, before this world), with a plan, every step ended,
+        // and the steps' tookMs adding up to atMs.
+        var file = Path.Combine(KilnFolder(), "state", "progress.json");
+        System.Text.Json.Nodes.JsonObject? doc = null;
+        try { doc = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(file)) as System.Text.Json.Nodes.JsonObject; }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.Text.Json.JsonException) { c.Expect(false, "kiln/state/progress.json is readable", e.Message); }
+        if (doc != null)
+        {
+            c.Expect((int?)doc["pid"] == Environment.ProcessId, "the file is this start's", $"pid {doc["pid"]}, this game {Environment.ProcessId}");
+            c.Expect((string?)doc["state"] == "ready", "state ready", $"{doc["state"]} (why: {doc["why"]})");
+            var plan = doc["plan"] as System.Text.Json.Nodes.JsonArray ?? [];
+            var steps = doc["steps"] as System.Text.Json.Nodes.JsonArray ?? [];
+            c.Expect(plan.Count > 0 && plan[0]?.ToString() == "start" && plan[^1]?.ToString() == "game", "a plan from start to game", string.Join(", ", plan));
+            var ids = steps.Select(s => (string?)s?["id"] ?? "").ToList();
+            c.Expect(ids.SequenceEqual(plan.Select(p => p?.ToString() ?? "").Take(ids.Count)), "the steps follow the plan, none left out", string.Join(", ", ids));
+            c.Expect(steps.All(s => s?["tookMs"] != null), "every step ended (tookMs)", string.Join(", ", steps.Where(s => s?["tookMs"] == null).Select(s => (string?)s?["id"])));
+            var sum = steps.Sum(s => (long?)s?["tookMs"] ?? 0);
+            var at = (long?)doc["atMs"] ?? -1;
+            c.Expect(sum == at, "the steps' tookMs add up to atMs", $"sum {sum} ms, atMs {at} ms");
+            var lines = steps.Select(s =>
+            {
+                var parts = (s?["parts"] as System.Text.Json.Nodes.JsonArray ?? []).Select(p => $"{p?["label"]} {(long?)p?["tookMs"] / 1000.0:F1} s");
+                var count = s?["total"] != null ? $" ({s["done"]} of {s["total"]})" : "";
+                var list = string.Join(", ", parts);
+                return $"{(long?)s?["tookMs"] / 1000.0:F1} s  {s?["label"]}{count}{(list.Length > 0 ? " [" + list + "]" : "")}";
+            });
+            c.Instruct($"This start took {at / 1000.0:F1} s from Kiln's first moment to a usable main menu. What Kiln wrote " +
+                       "it did, step by step: " + string.Join("; ", lines) + ". Does that list make sense for what you saw " +
+                       "(the long steps where you waited), and did the launcher's progress bar show the same steps while " +
+                       "the game started?");
+        }
+        await c.Verdict();
+    }
+
+    // ---- key bindings on the mouse (GitHub issue 29, dev.27): the check binds three chords of its own while it runs ----
+    [ClientCheck("ui.mouse-bindings", "Key bindings on the mouse wheel and the side buttons", Area = "Menus and hooks",
+        Since = Dev27, Tags = [Visual], Needs = ClientCheckNeeds.Hosted, Order = 153)]
+    public async Task UiMouseBindings(CheckContext c)
+    {
+        if (!await NeedPlayer(c)) return;
+        if (!c.Expect(KeyChord.TryParse("Ctrl+WheelUp", out _), "this Kiln knows mouse key names (0.2.0-dev.27 or later)"))
+        {
+            c.Instruct("This Kiln does not know key bindings on the mouse yet (0.2.0-dev.27 adds them). Press fail.");
+            await c.Verdict();
+            return;
+        }
+        KeyBinding Bind(string id, string key)
+        {
+            var b = KeyBindings.Register("client-pass." + id, key, null, $"guided check ui.mouse-bindings: {key}", "Client pass");
+            if (b.Key != b.Default) KeyBindings.Reset(b.Id);  // rebound in the Keys page by an earlier run
+            return b;
+        }
+        var zoomIn = Bind("mouse-ctrl-wheel-up", "Ctrl+WheelUp");
+        var zoomOut = Bind("mouse-ctrl-wheel-down", "Ctrl+WheelDown");
+        var back = Bind("mouse-shift-mouse4", "Shift+Mouse4");
+        c.OnEnd(() =>
+        {
+            if (back.Key != back.Default) KeyBindings.Reset(back.Id);  // step 4 rebinds it
+            zoomIn.Dispose();
+            zoomOut.Dispose();
+            back.Dispose();
+        });
+        int up = 0, down = 0, side = 0;
+        void Count()
+        {
+            up += zoomIn.TakePresses();
+            down += zoomOut.TakePresses();
+            side += back.TakePresses();
+        }
+        string Counts() => $"Kiln has counted: Ctrl+WheelUp {up}, Ctrl+WheelDown {down}, Shift+Mouse4 {side}.";
+
+        // 1) one press per notch and per click
+        const string step1 = "Step 1 of 4. This check binds three keys of its own while it runs: Ctrl+WheelUp, Ctrl+WheelDown " +
+                             "and Shift+Mouse4 (the back button on the side of the mouse). Close this list (Ctrl+Shift+F5) and, " +
+                             "in play: hold Ctrl and turn the wheel up exactly 3 notches, slowly, counting the clicks you feel; " +
+                             "then hold Ctrl and turn it down 3 notches; then hold Shift and press Mouse4 twice. Watch the " +
+                             "camera while you turn the wheel with Ctrl held, and move the mouse while you turn it: the " +
+                             "camera turns with the mouse as usual, only its zoom must stay. ";
+        var shown = "";
+        var done = await c.Until(() =>
+        {
+            Count();
+            var text = step1 + Counts();
+            if (text != shown) c.Instruct(shown = text);
+            return up >= 3 && down >= 3 && side >= 2;
+        }, TimeSpan.FromMinutes(5), "you turned the wheel 3 notches each way with Ctrl and pressed Shift+Mouse4 twice");
+        await c.Delay(TimeSpan.FromSeconds(2));  // a press a notch gave twice would come right after
+        Count();
+        if (done)
+            c.Expect(up == 3 && down == 3 && side == 2, "one press per notch and per click: 3, 3 and 2",
+                $"Ctrl+WheelUp {up}, Ctrl+WheelDown {down}, Shift+Mouse4 {side} (more than you turned: say so in the note)");
+
+        // 2) the wheel without Ctrl is the game's
+        var (up2, down2) = (up, down);
+        var side2 = side;
+        c.Instruct("Step 2 of 4. Now turn the wheel WITHOUT Ctrl, a few notches each way: the camera should zoom in and out " +
+                   "as it always does (the check's bindings must not count it). Then press Shift+Mouse4 once to go on. " + Counts());
+        await c.Until(() =>
+        {
+            Count();
+            return side > side2;
+        }, TimeSpan.FromMinutes(3), "you pressed Shift+Mouse4 to go on");
+        c.Expect(up == up2 && down == down2, "the wheel without Ctrl fired none of the check's bindings",
+            $"Ctrl+WheelUp {up - up2}, Ctrl+WheelDown {down - down2} more");
+
+        // 3) a Kiln screen has the mouse: the wheel scrolls it and fires no binding
+        (up2, down2, side2) = (up, down, side);
+        const string step3 = "Step 3 of 4. Open this list (Ctrl+Shift+F5) and, with the pointer over it, hold Ctrl and turn the " +
+                             "wheel a few notches each way, and press Shift+Mouse4 once: the list scrolls (when it is longer " +
+                             "than its window) and none of the counts below may change while the list is open; this step " +
+                             "must not end then. Then close the list and press Shift+Mouse4 to go on. ";
+        shown = "";
+        await c.Until(() =>
+        {
+            Count();
+            var text = step3 + Counts();
+            if (text != shown) c.Instruct(shown = text);
+            return side > side2;
+        }, TimeSpan.FromMinutes(3), "you pressed Shift+Mouse4 to go on");
+        c.Expect(up == up2 && down == down2, "Ctrl+wheel over Kiln's list fired no binding",
+            $"Ctrl+WheelUp {up - up2}, Ctrl+WheelDown {down - down2} more");
+
+        // 4) the Keys page shows the names and takes a mouse press as the new key
+        c.Instruct("Step 4 of 4. Open Kiln's menu (Insert), go to Keys and find the group \"Client pass\": its three lines " +
+                   "show Ctrl+WheelUp, Ctrl+WheelDown and Shift+Mouse4. Click the key of the Shift+Mouse4 line, then hold " +
+                   "Alt and turn the wheel down one notch: the line shows Alt+WheelDown. Close the menu (the check puts the " +
+                   "keys back when it ends). " + Counts() + " Four answers, all must be yes to pass: in step 1, did the " +
+                   "counts match the notches you turned and the presses you made, with the camera's zoom NOT moving while " +
+                   "Ctrl was held, and the camera still turning smoothly with the mouse as you turned the wheel? In step " +
+                   "2, did the camera zoom as usual? In step 3, did no count change and the step not end while the list " +
+                   "was open? In step 4, did the Keys page show the names " +
+                   "and take Alt+WheelDown? (If Mouse4 does something in your game's controls, say whether it happened " +
+                   "with Shift held: it should not have.)");
+        var altWheelDown = KeyChord.Parse("Alt+WheelDown");
+        await c.Until(() => back.Key == altWheelDown, TimeSpan.FromMinutes(3), "the Keys page took Alt+WheelDown for Shift+Mouse4's line");
+        c.Expect(back.Key == altWheelDown, "the Keys page set the line to Alt+WheelDown", back.Key.ToString());
         await c.Verdict();
     }
 }

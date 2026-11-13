@@ -1,0 +1,57 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The API contract in every managed service (docs/kiln/modding/contract.md): capability rows, the one error rule,
+       side and thread attributes. Conformance rules that hold for every adopted service (ConformanceTests.cs, the
+       list is Adopted.cs) and one file of tests per service. No game, no native tables: what a service does with a
+       working table is tested where its fake table lives (Kiln.TestKit.Tests, the service's own test project). -->
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <OutputType>Exe</OutputType>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit.v3" Version="3.1.0" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+    <!-- OldCallShapesTests compiles code written against dev.26 against the services as they are now -->
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.14.0" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../Kiln.Api/Kiln.Api.csproj" />
+    <ProjectReference Include="../../services/Kiln.Spawn/Kiln.Spawn.csproj" />
+    <ProjectReference Include="../../services/Kiln.Example/Kiln.Example.csproj" />
+    <ProjectReference Include="../../services/Kiln.Assets/Kiln.Assets.csproj" />
+    <ProjectReference Include="../../services/Kiln.Client/Kiln.Client.csproj" />
+    <ProjectReference Include="../../services/Kiln.Settings/Kiln.Settings.csproj" />
+    <ProjectReference Include="../../services/Kiln.Permissions/Kiln.Permissions.csproj" />
+    <ProjectReference Include="../../services/Kiln.Chat/Kiln.Chat.csproj" />
+    <ProjectReference Include="../../services/Kiln.Hooks/Kiln.Hooks.csproj" />
+    <ProjectReference Include="../../services/Kiln.Eml/Kiln.Eml.csproj" />
+    <ProjectReference Include="../../services/Kiln.Audio/Kiln.Audio.csproj" />
+    <ProjectReference Include="../../services/Kiln.Vfx/Kiln.Vfx.csproj" />
+    <ProjectReference Include="../../services/Kiln.Gameplay/Kiln.Gameplay.csproj" />
+    <ProjectReference Include="../../services/Kiln.Build/Kiln.Build.csproj" />
+    <ProjectReference Include="../../services/Kiln.Skills/Kiln.Skills.csproj" />
+    <ProjectReference Include="../../services/Kiln.Content/Kiln.Content.csproj" />
+    <ProjectReference Include="../../services/Kiln.Creatures/Kiln.Creatures.csproj" />
+    <ProjectReference Include="../../services/Kiln.Ui/Kiln.Ui.csproj" />
+    <ProjectReference Include="../../services/Kiln.Quests/Kiln.Quests.csproj" />
+    <ProjectReference Include="../../services/Kiln.Combat/Kiln.Combat.csproj" />
+    <ProjectReference Include="../../services/Kiln.Abilities/Kiln.Abilities.csproj" />
+    <ProjectReference Include="../../services/Kiln.Time/Kiln.Time.csproj" />
+    <ProjectReference Include="../../services/Kiln.Items/Kiln.Items.csproj" />
+    <ProjectReference Include="../../services/Kiln.Players/Kiln.Players.csproj" />
+    <ProjectReference Include="../../services/Kiln.Network/Kiln.Network.csproj" />
+    <ProjectReference Include="../../services/Kiln.Saves/Kiln.Saves.csproj" />
+    <ProjectReference Include="../../services/Kiln.Rules/Kiln.Rules.csproj" />
+    <ProjectReference Include="../../services/Kiln.World/Kiln.World.csproj" />
+    <ProjectReference Include="../../services/Kiln.Blocks/Kiln.Blocks.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- The analyzers' tick-thread table, generated from the services' code: the attributes are checked against it. -->
+    <None Include="../../Kiln.Analyzers/src/Kiln.Analyzers/KilnApis.g.cs" Link="KilnApis.g.cs" CopyToOutputDirectory="PreserveNewest" />
+    <!-- The services' released API (dev.26): an old method group must not gain an overload (OldCallShapesTests). -->
+    <None Include="../../services/**/PublicAPI.Shipped.txt" LinkBase="shipped" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

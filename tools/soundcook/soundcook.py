@@ -66,7 +66,7 @@ def _dispatch(a, doc, extra):
             print(f"soundcook: steps of tool {tool!r}: no runner known here", file=sys.stderr)
             rc = 1
             continue
-        cmd = [sys.executable, str(script), "--game", str(a.game)] + (["--exe", a.exe] if a.exe else []) + \
+        cmd = [sys.executable] + (["-I"] if sys.flags.isolated else []) + [str(script), "--game", str(a.game)] + (["--exe", a.exe] if a.exe else []) + \
               ["recipe", a.recipe, "--no-dispatch"] + extra
         print(f"soundcook: {tool} steps -> {' '.join(cmd[1:])}", file=sys.stderr)
         rc = subprocess.run(cmd).returncode or rc
@@ -75,6 +75,7 @@ def _dispatch(a, doc, extra):
 
 def cmd_recipe(a):
     doc = recipe.load(a.recipe)
+    recipe.out_dir(a.recipe, doc)  # before anything is read or written: a cook writes into the mod's assets/cooked only
     if a.check:
         need = recipe.needs_cook(a.recipe)
         rc = 0

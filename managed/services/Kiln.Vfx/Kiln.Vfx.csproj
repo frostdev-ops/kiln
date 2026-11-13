@@ -13,6 +13,9 @@
   <ItemGroup>
     <!-- Kiln.Blocks defines VfxBlocks through the service's table. -->
     <InternalsVisibleTo Include="Kiln.Blocks" />
+    <!-- Kiln.Sdk's bake (managed/Kiln.Sdk/bake) takes the VFX and materials a mod's code defines at build: VfxBake.cs. -->
+    <InternalsVisibleTo Include="Kiln.Sdk.Bake" />
+    <InternalsVisibleTo Include="Kiln.Sdk.Tests" />
     <ProjectReference Include="../../Kiln.Api/Kiln.Api.csproj" Private="false" />
     <ProjectReference Include="../Kiln.Client/Kiln.Client.csproj" Private="false" />
     <ProjectReference Include="../Kiln.Network/Kiln.Network.csproj" Private="false" />

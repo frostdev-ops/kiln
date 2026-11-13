@@ -71,8 +71,9 @@ We haven't tried Kiln on any specific rented host yet. If you do, please tell us
 The Kiln Launcher can do this too: its **Servers** page finds Steam's server, installs Kiln, starts and stops it, and
 has admin pages.
 
-Honest note: Kiln's server side has been tested under Wine on Linux, not yet on a real Windows PC. It should behave
-the same. If it doesn't, please report it.
+Honest note: Kiln's own tests of the server side run under Wine on Linux, not on a real Windows PC. A player has run
+0.2.0-dev.26 on Windows Server 2022 with Windows 11 games and reports that it works (GitHub issue 23). If something
+behaves differently for you, please report it.
 
 ## Your own Linux server
 
@@ -133,6 +134,24 @@ Open `kiln/logs/kiln.log` after the server has started.
 
 On Linux, `kilnctl status myserver` shows the same build line.
 
+### What a slow start is doing
+
+Since 0.2.0-dev.27 Kiln keeps `kiln/state/progress.json` up to date while the server starts: the step it is in, what
+it works on and how far it got, and what every finished step took. It is rewritten whole a few times a second at most,
+so reading it never disturbs the server, and it stops changing when the start is over: `state` is then `ready` (the
+world runs with the mods loaded), `idle` (safe idle; `why` says why) or `failed` (`why`). A file whose `pid` is not
+the running server's is from an earlier start.
+
+```sh
+cd /path/to/server
+jq -r '"\(.state) after \(.atMs / 1000) s"' kiln/state/progress.json
+jq -r '.steps[] | "\(.id)\t\(.tookMs // "running")\t\(.label)\(if .detail then ": " + .detail else "" end)\(if .total then " (\(.done) of \(.total))" else "" end)"' kiln/state/progress.json
+watch -n 1 cat kiln/state/progress.json   # without jq
+```
+
+The step that has no `tookMs` is the one running; its `detail` names the service, plugin, mod or block being worked
+on. The fields are in [launcher/contracts.md](launcher/contracts.md) (`schema/state-progress.schema.json`).
+
 Asking for help: `kilnctl report myserver` (or the Kiln Launcher's Logs page, "Save report...") writes one zip with
 these logs, Kiln's state files and a summary that names the usual causes; names, paths and addresses are replaced
 ([launcher/support-report.md](launcher/support-report.md)).
@@ -175,21 +194,55 @@ machine; a mod archive doesn't carry them. A mod with player animation states ne
 without them the server refuses those states, and then refuses every player whose game has them. Cook it on the server:
 
 ```
-KILN_REPO=<a Kiln source checkout> kiln cook <server folder>/kiln/mods/<mod> --game <server folder>
+kiln cook <server folder>/kiln/mods/<mod> --game <server folder>
 ```
 
-You need Python 3.14 (or an older Python 3 with the `zstandard` package) and the Kiln source (the cook tools are its
-`tools/` folder), so this works on your own server, not on a rented one with only FTP. The cook makes what the server uses
+`kiln` is the command line tool in a release's `sdk/` folder (`kiln` for Linux, `kiln.exe` for Windows). It carries the
+cook tools itself and unpacks them on first use into Kiln's data folder (`cooktools/`): no Kiln source is needed. What it
+needs from the machine is Python 3.10 or newer (`python3`). Python 3.14 reads the game's archives by itself; an older
+one uses the system's zstd library (libzstd, which nearly every Linux has) or the `zstandard` package, and `kiln cook`
+says in one sentence what is missing. On Windows, set `KILN_PYTHON` to a `python.exe`, or cook with the launcher, which
+brings its own Python. So this works on your own server, not on a rented one with only FTP. A developer's checkout
+still wins when `KILN_REPO` names one. The cook makes what the server uses
 (animations, skeletons, graphs, templates) and skips what only a player's game draws (models), one line each:
-`step 5 model moves_blade_anim: skipped on a dedicated server: only a game client draws it`. It marks those models in the
-mod's `assets/assets.json` as `"side": "client"`, so the server starts without a warning for each missing model file.
-Cook again after every game update.
+`step 5 model moves_blade_anim: skipped on a dedicated server: only a game client draws it`. Cook again after every game
+update.
 
-No Python on the server? Cook the mod on a PC with the game, then copy the mod folder with its `assets/cooked` folder and
-`assets/assets.json` to the server. That works when the PC's game and the server run the same Enshrouded update (after a
-game update, update both, then cook again; `game.version` in `assets/cooked/cook-report.json` names the build a cook read).
-The cooked animations are byte for byte the same from either side's files; only the cook report differs. The copied folder
-also holds the models, which the server loads and doesn't use.
+**What the server's own cook made, and what it did not.** The cook records what it wrote in the server's
+`kiln/state/cook-receipts`, and Kiln compares every cooked file it loads with those receipts
+([modding/cooking.md](modding/cooking.md)). A cooked file no receipt lists (copied from your PC, from a download, or
+cooked by Kiln 0.2.0-dev.26 or older) is loaded with a warning by default (`… cooked files loaded that were not cooked
+on this machine …`); with `"cooked": "local"` in `kiln/kiln.json` it is not loaded. You do not have to do anything after
+updating Kiln: the server keeps running as before. You should run the `kiln cook` line above once more for each mod with
+a recipe all the same: it writes the receipts for what is there (it cooks each recipe that has none), the warnings go,
+and a later release of Kiln will not load cooked files without one. `"cooked": "any"` loads every cooked file without a
+word (development servers).
+
+**A cooked mod is the same mod on the server and in a player's game.** Everything the cook makes from the game goes into
+the mod's `assets/cooked` folder, and that folder does not count as the mod: the hash the server advertises for the mod,
+the hash a modpack names and the one a player's game compares all leave it out (the mod's identity,
+[launcher/contracts.md](launcher/contracts.md) 5.11). Nothing else in the mod's folder changes: the server reads the
+shipped `assets/assets.json` as it is and skips a model's entries by what they are, with one line in `kiln/logs/kiln.log`:
+`assets: …/kiln/mods/<mod>: icons 0 (4 entries for clients only, skipped on this server), …`. So the launcher no longer
+lists a cooked mod as missing or changed after a join, and a modpack built from the server's folder (which leaves
+`assets/cooked` out) is the mod your players have, cooked or not.
+
+Cooked with 0.2.0-dev.26? That version's cook wrote `"side": "client"` on the models' entries of the server's
+`assets/assets.json`, which made the server's copy another file than the players'. The server notes it at its start
+(`… model entries in assets/assets.json carry a "side": "client" mark …`). Run the same `kiln cook` command again: it sees
+the old cook's report in `assets/cooked`, cooks again and takes the marks out, and nothing else of the file changes.
+When the mod's manifest was written by the cook itself (as `kiln build` does), the file is then the shipped one again,
+byte for byte. If its author formatted it by hand, the old cook already rewrote the whole file: copy the mod's own
+`assets/assets.json` over it (or install the mod again) and cook once more. The cook takes a mark out only with that
+old report as its evidence: without it (the `assets/cooked` folder was deleted, or the mod itself ships the mark) the
+mark stays, the cook says so, and putting the mod's own `assets/assets.json` back is the way. Build the server's modpack again afterwards: a pack built by dev.26
+from a cooked folder carries the cooked files and the old hash, and the launcher refuses it.
+
+No Python on the server? Cook the mod on a PC with the game, then copy the mod folder with its `assets/cooked` folder to
+the server. That works when the PC's game and the server run the same Enshrouded update (after a game update, update
+both, then cook again; `game.version` in `assets/cooked/cook-report.json` names the build a cook read). The cooked
+animations are byte for byte the same from either side's files. The copied folder also holds the models; the server skips
+them like the ones it did not cook.
 
 What players need depends on the mod. Its `kiln.mod.json` says it in `clients`:
 

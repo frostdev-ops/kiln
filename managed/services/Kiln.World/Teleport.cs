@@ -42,9 +42,15 @@ public enum TeleportFlags
 
 /// <summary>Outcome of one teleport.</summary>
 public sealed record TeleportResult(TeleportStatus Status, EntityId Entity, WorldPosition Position, WorldPosition Target,
-    double Distance, TeleportFlags Flags, int Steps, string Reason)
+    double Distance, TeleportFlags Flags, int Steps, string Reason) : IKilnResult
 {
     public bool Moved => Status == TeleportStatus.Moved;
+
+    /// <summary>The entity was moved: <see cref="Moved"/> (the contract's name for it).</summary>
+    public bool Ok => Moved;
+
+    // IKilnResult's reason is null when the entity was moved; this record's own Reason keeps its text.
+    string? IKilnResult.Reason => Moved ? null : Reason;
     public override string ToString() => Moved
         ? $"moved {Entity} to {Position} ({Distance:F2} m from {Target}, {Steps} steps{(Flags != 0 ? ", " + Flags : "")})"
         : $"{Entity} not moved: {Reason}";
@@ -57,6 +63,7 @@ public sealed record TeleportResult(TeleportStatus Status, EntityId Entity, Worl
 /// </summary>
 /// <remarks>Refused (a Failed result, no exception): props/chests/altars (no TeleportCount), dead entities, an entity
 /// with a teleport already in flight. Enemies moved far from every player are removed by the game shortly after.</remarks>
+[ServerOnly]
 public static unsafe class Teleport
 {
     private sealed class Pending
@@ -76,16 +83,19 @@ public static unsafe class Teleport
     public static bool Available => WorldNative.T != null && World.Status.Teleport;
 
     /// <summary>Teleports <paramref name="entity"/> to <paramref name="target"/> (metres).</summary>
+    [TickThreadOnly]
     public static Task<TeleportResult> To(EntityId entity, WorldPosition target, TeleportOptions? options = null) =>
         Start(entity, target, EntityId.None, options ?? TeleportOptions.Default);
 
     /// <summary>Teleports <paramref name="entity"/> onto a landing pad of a spawn point (an entity with
     /// PlayerSpawnPoint: flame altar, spire), as when respawning there.</summary>
+    [TickThreadOnly]
     public static Task<TeleportResult> ToSpawnPoint(EntityId entity, EntityId spawnPoint, TeleportOptions? options = null) =>
         Start(entity, default, spawnPoint, options ?? TeleportOptions.Default);
 
     /// <summary>Teleports <paramref name="entity"/> next to <paramref name="target"/> (e.g. a player to another player):
     /// <paramref name="offset"/> metres beside it along +X, with the ground search on unless options say otherwise.</summary>
+    [TickThreadOnly]
     public static Task<TeleportResult> ToEntity(EntityId entity, EntityId target, double offset = 1.5,
         TeleportOptions? options = null)
     {

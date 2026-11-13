@@ -12,6 +12,12 @@ bool idle() { return test_idle; }
 bool flame_creative() { return test_idle; }
 }
 
+// noclip.cpp is not part of this test (noclip_hook_test.cpp runs it with these hooks)
+namespace kiln_rules_noclip {
+int ticks = 0;
+void tick() { ++ticks; }
+}
+
 namespace {
 int failures = 0, entities = 0, flags = 0;
 void check(bool ok, const char* why) { std::printf("%s %s\n", ok ? "PASS" : "FAIL", why); failures += !ok; }
@@ -80,6 +86,12 @@ int main() {
     e = 5000; c.rax = flight_math::kBuildingFlying;
     f::state_body(c);
     check(c.rax == flight_math::kBuildingFlying, "a building spark is untouched");
+    // an entity WITH the rule, in a BuildingFlying state Kiln did not start: left alone too, and not taken over
+    e = 6; set_rule(6, &rule); dyn[0x59] = flight_math::kBuildingFlying; c.rax = flight_math::kBuildingFlying;
+    actor[0] = true; input[1] = uint64_t{1} << 55; f::mover_pre(reinterpret_cast<uint8_t*>(it));  // grounded and sinking: Kiln's own flight would land
+    f::state_body(c);
+    check(c.rax == flight_math::kBuildingFlying && !f::flown_recently(6, dyn), "a flight Kiln did not start is not landed, ended or adopted, rule or not");
+    set_rule(6, nullptr); actor[0] = false; e = 5000;
     set_rule(e, &rule); f::note_flying(e, dyn); set_rule(e, nullptr);
     f::state_body(c);
     check(c.rax == flight_math::kFalling, "a simulated character falls after revocation too");
@@ -87,6 +99,64 @@ int main() {
     check(!f::flown_recently(e, other_dyn), "a reused non-player id does not borrow an old object's flight ownership");
     f::reset();
     check(!f::flight_possible() && !f::flown_recently(e, dyn), "world reset forgets flight ownership and restores the fast path");
+    // a world that starts while a flight runs in another one (a host's prediction beside its server world)
+    set_rule(e, &rule); f::note_flying(e, dyn); f::note_flying(3, dyn);
+    f::world(KILN_WORLD_STARTED, KILN_WORLD_PREDICTION, 1, true);
+    check(f::flown_recently(e, dyn) && f::flown_recently(3, dyn) && f::flight_possible(),
+          "a world that starts leaves the flights of a running world Kiln's");
+    dyn[0x59] = flight_math::kBuildingFlying; c.rax = flight_math::kBuildingFlying; set_rule(e, nullptr);
+    f::state_body(c);
+    check(c.rax == flight_math::kFalling, "and such a flight still ends when its rule goes");
+    f::note_flying(e, dyn); f::note_flying(3, dyn);
+    f::world(KILN_WORLD_STOPPING, KILN_WORLD_SERVER, 1, true);
+    check(!f::flown_recently(e, dyn) && !f::flown_recently(3, dyn) && !f::flight_possible(), "a world that stops forgets flight ownership");
+    // where the core does not see world stops, a start may replace a world nobody saw stop: everything is forgotten
+    f::note_flying(e, dyn); f::note_flying(3, dyn);
+    f::world(KILN_WORLD_STARTED, KILN_WORLD_PREDICTION, 1, false);
+    check(f::flown_recently(e, dyn) && f::flown_recently(3, dyn),
+          "without seen stops, the first world of its kind still replaces nothing: a host's server flight stays Kiln's when its prediction starts");
+    f::world(KILN_WORLD_STARTED, KILN_WORLD_CLIENT, 2, false);
+    check(f::flown_recently(e, dyn), "the client's own world holds no characters: its start forgets nothing");
+    f::world(KILN_WORLD_STARTED, KILN_WORLD_SERVER, 2, false);
+    check(!f::flown_recently(e, dyn) && !f::flown_recently(3, dyn) && !f::flight_possible(),
+          "without seen stops, a second world of its kind forgets flight ownership (no old flight meets a new character)");
+    // ...and the prediction world of that same new session, starting after its server world, forgets nothing more
+    f::note_flying(e, dyn); f::note_flying(3, dyn);
+    f::world(KILN_WORLD_STARTED, KILN_WORLD_PREDICTION, 2, false);
+    check(f::flown_recently(e, dyn) && f::flown_recently(3, dyn) && f::flight_possible(),
+          "without seen stops, a host's second prediction world keeps the flights its new server world started");
+    f::world(KILN_WORLD_STARTED, KILN_WORLD_PREDICTION, 3, false);
+    check(!f::flown_recently(e, dyn) && !f::flown_recently(3, dyn),
+          "without seen stops, a prediction world with no server start before it (a joined game after hosting) forgets them");
+    f::note_flying(e, dyn); f::note_flying(3, dyn);
+    f::world(KILN_WORLD_STOPPING, KILN_WORLD_CLIENT, 1, true);
+    check(f::flown_recently(e, dyn) && f::flown_recently(3, dyn), "the client's own world stopping forgets no flight");
+    f::world(KILN_WORLD_STOPPING, KILN_WORLD_PREDICTION, 1, true);
+    check(!f::flown_recently(e, dyn) && !f::flown_recently(3, dyn), "a world with characters stopping forgets them");
+    dyn[0x59] = flight_math::kFalling; c.rax = flight_math::kFalling;
+    // the game moves a character's records when a component is added or taken away (every teleport adds the Teleport
+    // component and takes it away again, docs/re/creatures.md 1.4): Kiln's flight follows the record
+    {
+        alignas(16) uint8_t moved[128]{}, again[128]{};
+        e = 3; set_rule(3, &rule); actor[0] = false;
+        f::state_body(c); dyn[0x59] = static_cast<uint8_t>(c.rax);
+        std::memcpy(moved, dyn, sizeof moved); std::memset(dyn, 0, sizeof dyn);
+        frame[1] = moved; it[1] = moved;
+        c.rax = flight_math::kBuildingFlying; f::state_body(c);
+        check(c.rax == flight_math::kBuildingFlying && f::flown_recently(3, moved),
+              "character flight goes on after a teleport moved the character's records");
+        actor[0] = true; input[1] = uint64_t{1} << 55; f::mover_pre(reinterpret_cast<uint8_t*>(it));
+        c.rax = flight_math::kBuildingFlying; f::state_body(c);
+        check(c.rax == flight_math::kWalking && !f::flown_recently(3, moved), "and it lands there as before (grounded, sinking)");
+        moved[0x59] = flight_math::kFalling; actor[0] = false; input[1] = 0;
+        c.rax = flight_math::kFalling; f::state_body(c); moved[0x59] = static_cast<uint8_t>(c.rax);  // off again
+        std::memcpy(again, moved, sizeof again); std::memset(moved, 0, sizeof moved);
+        frame[1] = again; it[1] = again;
+        set_rule(3, nullptr); c.rax = flight_math::kBuildingFlying; f::state_body(c);
+        check(c.rax == flight_math::kFalling && !f::flown_recently(3, again), "a flight whose record moved ends with its rule: it falls");
+        frame[1] = dyn; it[1] = dyn;
+        f::reset(); dyn[0x59] = flight_math::kFalling; c.rax = flight_math::kFalling;
+    }
 
     KilnApi api{}; api.service = &service; api.feature = &feature;
     KilnClientApi client{}; client.state = &client_state;
@@ -94,10 +164,20 @@ int main() {
     store(g_local, &rule); e = 3; c.rax = flight_math::kFalling; dyn[0x59] = flight_math::kFalling;
     f::refresh(); f::state_body(c);
     check(c.rax == flight_math::kBuildingFlying, "a joined client's local player predicts its flight");
+    const int ticks = kiln_rules_noclip::ticks;
+    f::client_pre(nullptr, nullptr);
+    check(kiln_rules_noclip::ticks == ticks + 1, "a joined client's tick ages NoClip's activity");
     session = KILN_SESSION_HOST; f::refresh(); c.rax = flight_math::kFalling;
     f::state_body(c);
     check(c.rax == flight_math::kFalling, "a host never regrants revoked server flight from stale local rules");
-    session = KILN_SESSION_REMOTE; f::refresh(); f::reset();
+    const int host_ticks = kiln_rules_noclip::ticks;
+    f::client_pre(nullptr, nullptr);
+    check(kiln_rules_noclip::ticks == host_ticks, "a host's client tick does not age it (its server tick does)");
+    session = KILN_SESSION_REMOTE; f::refresh();
+    check(f::g_local_player != 0, "a joined client caches its local player");
+    f::world(KILN_WORLD_STARTED, KILN_WORLD_PREDICTION, 1, true);
+    check(f::g_local_player == 0, "a world that starts drops the cached local identity immediately");
+    f::refresh(); f::reset();
     check(f::g_local_player == 0, "world reset drops the cached local identity immediately");
     set_rule(e, &rule);
     kiln_rules_creative::test_idle = true;

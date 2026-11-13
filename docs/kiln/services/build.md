@@ -248,3 +248,19 @@ the base 780 m away, visible at once after the teleport, gone after undo). 4 and
 - Building blocks are written as cells; the game's own blueprint path (item shape + inventory) is not called.
 - At most 4096 cells per axis and 4 M cells per call; schematics up to 4 M cells.
 - Large areas evict other voxel tiles from the server's cache (the game reloads what it needs near players).
+
+## The contract (dev.27)
+
+Kiln.Build follows [the API contract](../modding/contract.md). Server side only (`[ServerOnly]` on `Build`).
+
+- **Capabilities.** `kiln.build` and its sigdb features `build.read`, `build.write`, `build.persist`, `build.items`,
+  `build.zones` (lowered by Kiln.Build when the service is not loaded). Every member that needs the service carries
+  `[RequiresCapability("kiln.build")]` and throws `KilnUnavailableException` naming it (a `NotSupportedException`, as
+  before).
+- **Results.** `BuildResult`, `PasteResult` and `PlaceOnceResult` implement `IKilnResult`. `BuildResult.Ok` is
+  `!Refused` and `Reason` puts `Refusal` in words (the zone or base altar id included); `PasteResult.Reason` is the
+  cells' refusal or the count of props that could not be placed; `PlaceOnceResult.Ok` is `Placed || AlreadyPlaced`.
+  `UndoResult` stays a count (an undo with nothing to undo is null, as before).
+- **Threads.** `[TickThreadOnly]` on everything that touches the world; `Build.Status` and `Available` are
+  `[AnyThread]`.
+- **Events.** Every edit already posts `BuildEditingEvent` (cancelable) and `BuildEditEvent`.

@@ -33,7 +33,7 @@ The same as data, in `blocks/*.json` (the schema gives the editor completion and
 Start with `kiln new spell` (template `kiln-spell`), or read `mods/samples/FrostboltBlock`. Set `<KilnServices>Blocks</KilnServices>` in the project. Items, weapons, armor and
 stations: [item-blocks.md](item-blocks.md). Props, forges and racks of your own: [world-blocks.md](world-blocks.md). Creatures, their bodies, animations,
 AI and behaviour, and NPCs: [npc-blocks.md](npc-blocks.md). Quests and conversations: [quests.md](quests.md#quests-as-blocks).
-Windows, HUD lines and keys: [ui-blocks.md](ui-blocks.md).
+Windows, HUD lines and keys: [ui-blocks.md](ui-blocks.md). Rolled modifiers on one item ("+5 Strength" on this sword), affix kinds and pools: [affixes.md](affixes.md).
 
 These pages describe the implemented API. A compile, lowered-resource readback or dedicated-server test does not
 prove client drawing, animation, input or the player's interaction. Those checks remain on the feature's client checklist.
@@ -164,7 +164,7 @@ Blocks.Define("ember-arts", new TalentTreeBlock
 });
 Blocks.Define("ember-ward", new TalentBlock { Name = "Ember Ward", MaxLevel = 3, Modifies = { [Stat.Strength] = 1 }, Game = new GameTreePlace { From = ["0x8efcc472"], Offset = [170, -40] } });
 ```
-A tree goes on Kiln's own screen ([skills.md](../services/skills.md), part B): `Points`, `Menu`, `Key`, `Respec`; nodes without `Column` and `Row` are laid out from what leads where. A node's tooltip is its name, level and cost, and its `Description`, or what its `Modifies` say. The node names are what saves keep. A talent with `Game` is a node of the game's own tree (part A): its screen draws it and its skill points pay for it. Past the game's room it is a shadow node. A dedicated server reads its tree before mods load, so a node defined in code or a data file is in from the next start. Both need `clients: mod`. Names in `Requires`, `Unlocks` and `Keeps` are block references, so code and JSON can
+A tree goes on Kiln's own screen ([skills.md](../services/skills.md), part B): `Points`, `Menu`, `Key`, `Respec`; nodes without `Column` and `Row` are laid out from what leads where. A node's tooltip is its name, level and cost, and its `Description`, or what its `Modifies` say. The node names are what saves keep. A talent with `Game` is a node of the game's own tree (part A): its screen draws it and its skill points pay for it. Past the game's room it is a shadow node. A dedicated server reads its tree before mods load, so a node defined in code or a data file is in from the next start (Kiln.Sdk's bake cannot help here: a talent block needs the game to load, [baked.md](baked.md); `GameTree.Define` nodes are baked). Both need `clients: mod`. Names in `Requires`, `Unlocks` and `Keeps` are block references, so code and JSON can
 share them. Keep the tree, node and ability names stable: saves use them. `Skills.Unlock`, `Lock` and `Respec`
 exercise the server rules; a client still has to confirm the screen, key binding and learned talent presentation.
 
@@ -194,6 +194,19 @@ Blocks.Define("scrapper", new CreatureBlock { Body = Bodies.Vukah, Drops = scrap
 Creature drops are additional to the game's own drops. The world's Loot Amount setting does not scale this table.
 Loose pickups from `Drop` are not saved. A `RecipeBlock` can be defined on its own in `recipes`, as well as on an
 item or station. See [item-blocks.md](item-blocks.md) for loot tables, recipe inputs and outputs.
+
+## Affixes
+`AffixBlock` is one kind of rolled modifier on an item ("+3 Strength (of the Bear)"): a `Stat`, `Tiers` with the range
+each rolls in, `Stacks` and `Group`. `AffixPoolBlock` says which `Items` roll which `Affixes`, and how many (`Min`,
+`Max`). In JSON they are the `affixes` and `affixPools` sections. The pool's handle rolls onto one item:
+```csharp
+Blocks.Define("bear", new AffixBlock { Name = "of the Bear", Stat = Stat.Strength, Tiers = [new AffixTier { Min = 2, Max = 4 }] });
+var blades = Blocks.Define("blades", new AffixPoolBlock { Items = [GameItems.Weapon_T1_1H_SwordEpic_01], Affixes = [new AffixEntry { Affix = "bear" }] });
+blades.Roll(sword);   // this one sword now carries "+3 Strength (of the Bear)"
+```
+An affix's id is `"mod:name"`, which rolled items keep: no GUID, no `Was`, and a name of lower-case letters, digits, `-`
+and `_` that no other block of the mod has. They ask nothing of players' games. `Affixes.Define`, `DefinePool` and
+`Affixes.Load` are the same registration. See [affixes.md](affixes.md).
 
 ## UI blocks
 `WindowBlock`, `HudLineBlock` and `KeyBindingBlock` also have JSON forms: `windows`, `hudLines` and `keyBindings`.
@@ -236,7 +249,7 @@ var burst = Blocks.Define("frost_burst", new VfxBlock
 ```
 Every field is in [the builder's guide](../services/vfx-cook.md#the-definition). PNGs go in the mod's `vfx/` folder.
 
-**A block in a data file is there from the first start. One from code is there from the next**, because the game lists its VFX once, before mod code runs. Until then what names it shows nothing, `handle.Status` says `Pending`, and the log and a toast say so. The definition is kept in `kiln/data/vfx/pending/<mod>/` and built at the next start. That file stays until deleted, even if the mod stops defining the block.
+**A block in a data file is there from the first start. One from code is there from the next**, because the game lists its VFX once, before mod code runs. Built with Kiln.Sdk, a mod has its code's VFX at the first start too: the build bakes them into `blocks/generated/<mod>.json` ([baked.md](baked.md)). Until then what names it shows nothing, `handle.Status` says `Pending`, and the log and a toast say so. The definition is kept in `kiln/data/vfx/pending/<mod>/` and built at the next start. That file stays until deleted, even if the mod stops defining the block.
 
 Attach one with a `Vfx` field. It takes what `Define` returned or a block's name, `"other-mod:name"`, or `"game:<name>"` for one of the game's (`VfxRef.Game(...)` in C#). A game name is a template that carries the VFX, a sequence that plays it, or a GUID. Kiln picks the route:
 
@@ -276,7 +289,7 @@ The build works it out from the blocks, the lowest level that works. `KilnClient
 
 | The mod's blocks contain | `clients` |
 |---|---|
-| Effects only, triggers | `none` |
+| Effects only, triggers, affixes and affix pools | `none` |
 | New items, spells, statuses, perks, abilities | `kiln`: Kiln clients get the definitions from the server. Vanilla clients cannot join |
 | A cue, a PNG icon, a model or a VFX of the mod's own, a key, talents | `mod`: every player needs the mod. Kiln clients without it are refused |
 | A game VFX by name, on any of these | No more than the block needs |
@@ -296,6 +309,8 @@ Spells and item blocks set their item's fields, statuses their buff's, projectil
 ## Ids and renames
 Ids come from the mod id and the block's name: `UUIDv5(<mod>:<kind>:<name>)`. Never write a GUID, and keep the names, because saves hold the ids.
 
+An affix's and an affix pool's id is `"mod:name"` itself, as rolled items keep it: they have no `Was`, so keep their names.
+
 To rename a block, keep the oldest name in `Was`: `Blocks.Define("frostlance", new SpellBlock { Was = "frostbolt", ... })`. Nothing in a save notices.
 
 A rename without `Was` makes a new item, and what the world holds of the old one stays as `[Missing: mod:item]`, so nothing is lost. Kiln logs a warning naming the old block, and `kiln blocks list` shows it.
@@ -308,6 +323,22 @@ A rename without `Was` makes a new item, and what the world holds of the old one
 | Editor and `kiln lint` | The schema, KL201 and KL202 for `clients`, KL314 for names, `E_UNCONNECTED` for hand-written Impact programs |
 | Load | `BlockError` with the block and the field: `block spell bad, cast.manaCost: -1 is less than 0`. A wrong block makes nothing, and the file's other blocks still load. A VFX's fields are checked on a server too; a client's builder also checks what needs its PNGs |
 | Content ready | What the game could not take, by name: `block status x, onApply[0].applies: the game has no status "0xdeadbeef"` |
+
+## The contract (dev.27)
+
+Kiln.Blocks follows [the API contract](contract.md). It has no native table of its own.
+
+- **Capabilities.** `blocks.weapon_moves` and `blocks.animated_held` (at the first item block's compile),
+  `blocks.affixes` and `blocks.affixes.effects` (the affix session): rows from Kiln.Blocks' first use, so a manifest's
+  `features` cannot require them; reported again after a registry reset. `Factions` needs `kiln.npcai`.
+- **Errors.** `Factions.Relate`, `Reset`, `Fights`, `Friends` and `Between` throw `KilnUnavailableException` naming
+  `kiln.npcai` without it (a `NotSupportedException`, as before, same sentence); `Factions.Get` answers `Game` without
+  it. A per-call "unavailable" from kiln.npcai keeps its plain `NotSupportedException`.
+- **Threads.** `[TickThreadOnly]` also on `Factions.Relate`, `Reset`, `Between` and `AiStats.SummonsOf`, which check it.
+- **Overloads.** `Blocks.Define` has two typed affix overloads since dev.27 (`AffixBlock`, `AffixPoolBlock`): with
+  nine in dev.26, `var d = Blocks.Define;` and `Define(null)` were ambiguous already, and no dev.26 argument converts to
+  the new types, so no dev.26 call changes (`OldCallShapesTests` lists it as accepted).
+- Tested offline: `managed/tests/Kiln.Contract.Tests/BlocksContractTests.cs` and the conformance rules.
 
 ## Seeing what a block became
 ```

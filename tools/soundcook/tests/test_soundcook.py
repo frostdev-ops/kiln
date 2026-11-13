@@ -261,6 +261,43 @@ class RecipeTests(unittest.TestCase):
     def run_recipe(self, native=NATIVE, **kw):
         return recipe.run(self.path, None, native, log=lambda m: None, **kw)
 
+    def test_out_is_the_mods_cooked_folder(self):
+        """A cook writes into the mod's assets/cooked folder only: another "out" is refused with what to change, and nothing is written."""
+        for out in ("built", "../cooked", ".", "cooked/../../audio"):
+            path = _mod(self.root, BASIC_STEPS, {"out": out}, sources=False)
+            before = sorted(str(f) for f in self.root.rglob("*"))
+            with self.assertRaises(recipe.RecipeError, msg=out) as e:
+                recipe.run(path, None, NATIVE, log=lambda m: None, update_manifest=True)
+            self.assertIn("outside the mod's assets/cooked folder", str(e.exception))
+            self.assertIn('"out": "cooked"', str(e.exception))
+            with self.assertRaises(recipe.RecipeError):
+                recipe.needs_cook(path)
+            self.assertEqual(sorted(str(f) for f in self.root.rglob("*")), before)
+        # a step's name that would lead out of the folder, and another manifest than the mod's: refused, nothing written
+        for extra, steps in (({}, [dict(BASIC_STEPS[0], name="../../../escaped")]), ({"manifest": "../elsewhere.json"}, BASIC_STEPS)):
+            path = _mod(self.root, steps, extra)
+            before = sorted(str(f) for f in self.root.rglob("*"))
+            with self.assertRaises(recipe.RecipeError):
+                recipe.run(path, None, NATIVE, log=lambda m: None, update_manifest=True)
+            self.assertEqual(sorted(str(f) for f in self.root.rglob("*")), before)
+        self.assertEqual(recipe.out_dir(_mod(self.root, BASIC_STEPS, {"out": "cooked/snd"}, sources=False), {"out": "cooked/snd"}),
+                         (self.root / "assets/cooked/snd").resolve())
+        # the report is a file of the cook like its outputs: a link in its place is refused before anything is written, and the file it
+        # points to is left alone
+        path = _mod(self.root, BASIC_STEPS)
+        victim = self.root.parent / "victim.json"
+        victim.write_text("theirs")
+        report = self.root / "assets" / "cooked" / recipe.report_name(json.loads(path.read_text()))
+        report.parent.mkdir(parents=True, exist_ok=True)
+        if report.exists() or report.is_symlink():
+            report.unlink()
+        report.symlink_to(victim)
+        before = sorted(str(f) for f in self.root.rglob("*"))
+        with self.assertRaises(recipe.RecipeError) as e:
+            recipe.run(path, None, NATIVE, log=lambda m: None, update_manifest=True)
+        self.assertIn("is a link", str(e.exception))
+        self.assertEqual((victim.read_text(), sorted(str(f) for f in self.root.rglob("*"))), ("theirs", before))
+
     def test_cook_outputs_manifest_index(self):
         self.assertTrue(recipe.needs_cook(self.path))
         r = self.run_recipe(update_manifest=True, cross_check=True)

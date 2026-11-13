@@ -46,6 +46,28 @@ e.Visible = false;       // hide for now; e.Text = "…" relabels; e.Dispose() r
 - Another loader may route the game's Settings entry through its own code (ShroudForge's native runtime does in the
   main menu, also when Kiln hosts it). The entries are drawn before that entry all the same, and `kiln.log` says once
   through which module it is drawn (`ui: the main menu's Settings entry is drawn through ...`).
+- The game's menus do not scroll: every entry before Settings pushes the game's own entries down, and with enough of
+  them Quit leaves the screen. So the player's Kiln setting `modEntries` (`kiln/config/menus-client.json`, on the
+  Mods page under **Kiln settings**) decides when mods' entries are drawn: `Auto` (the default: every one in the pause
+  menu where it scrolls, below; otherwise as `Few`), `Few` (a menu draws them while it has at most 3 visible ones, else
+  none of them), `Always` (every one, as before 0.2.0-dev.27) or `Never`.
+- **The pause menu scrolls (an experiment, feature `ui.menu_scroll`).** With more than 3 mods' entries kiln.ui wraps
+  the pause menu's column in the game's own scroll view (the one the credits use: mouse wheel, clipping, following the
+  keyboard and gamepad focus); with fewer it draws the menu exactly as the game does. Begin and end sit at the
+  column's own open and close in the game's builder (`native/services/ui/menu_scroll.h`). A crash guard writes
+  `kiln/state/menu-scroll.trying` before the first scrolled frame of a start and removes it once the scrolled menu has
+  drawn 48 frames in that process (a wrong nesting would have ended the game by then; quitting afterwards is fine); a
+  start that finds it (or cannot read it) keeps scrolling off (`kiln/state/menu-scroll.off`, naming the Kiln version
+  and game build, written before the marker goes; another version or build tries once more; delete the file to try
+  again) and tells the player with a toast. A fault in Kiln's own calls closes what it opened, in order, and turns
+  scrolling off; when even that fails the game ends on purpose with a kiln.log line, rather than a moment later in its
+  own menu code. kiln.log says when it is on (`ui: the pause menu can scroll`, `ui: the pause menu scrolls: ...`
+  with the sizes it saw) and when it switched itself off and why. The main menu does not scroll. Kiln's
+  own **Mods** entry is always drawn. Every mod's entry of the menu the player can open where they are (the main
+  menu, or the pause menu in a world) is listed on the Mods page under **Menu entries**; choosing one there closes the
+  Kiln menu and runs the entry's `onClick` exactly as the menu would (on the UI thread after the next frame). Nothing
+  changes for a mod: `Ui.Menus.Add` returns the entry as before, whether a menu draws it or not. The 3 is a guess
+  (no row height is known for a 1080p screen); the guided client check `MenuRowsLeaveQuitOnScreen` asks for it.
 
 ### Which screen is open
 ```csharp
@@ -221,13 +243,43 @@ var b = KeyBindings.Register("mymod.toggle", "F8", () => w.Toggle(), "Toggle my 
 b.OnRelease = …;  b.IsDown;  b.TakePresses();  b.Consume = false;  b.WhileCapturing = true;
 ```
 - Keys are written like `F8`, `Ctrl+K`, `Shift+Alt+F2`, `Insert`, `Numpad5`, `Backquote`, `None`.
+- **The mouse** (0.2.0-dev.27): `Mouse4`, `Mouse5` (the side buttons), `MouseMiddle` (also `Mouse3`), `WheelUp`,
+  `WheelDown`, `WheelLeft`, `WheelRight`, with Ctrl, Shift and Alt as for keys: `Ctrl+WheelUp`, `Shift+Mouse4`.
+  - The wheel gives one press per notch (a high-resolution wheel's smaller steps add up to a notch; turning the other
+    way starts a new one). A notch has no release: `OnRelease` never runs for it and `IsDown` stays false. The buttons
+    are pressed, held and released like keys.
+  - The left and right buttons cannot be bound: Kiln's screens need them. `KeyChord.Parse("Ctrl+LeftClick")` (and
+    `Mouse1`, `Mouse2`, `RightClick`) throws a `FormatException` that says so; `TryParse` answers false.
+  - A binding that takes a press keeps it from the game as for a key: `Ctrl+WheelUp` bound by a mod does not also zoom
+    the game's camera, and the wheel without Ctrl still does. A press no binding takes reaches the game untouched. A
+    high-resolution wheel's smaller steps are asked as they come (not presses) and kept like the notch they belong to.
+    A raw record that also carries motion or another button's input reaches the game with only the taken press taken
+    out (kiln.ui edits what the game's own `GetRawInputData` import reads); motion and the other buttons stay.
+  - While a Kiln screen or the Kiln menu has the mouse, no mouse binding fires, `WhileCapturing` or not: the wheel
+    scrolls the screen and the buttons are the screen's (a button's release still ends a hold that began in play). The
+    Keys page still takes them as a binding's new key.
+  - The wheel without Ctrl or Alt fires only during play or while a Kiln screen is open, like a key that types (the
+    game's own screens scroll with it); `OnGameScreens = true` fires it everywhere. The buttons always fire.
+  - `KeyChord.VirtualKey`: the buttons keep their Windows virtual keys (`0x04` middle, `0x05` Mouse4, `0x06` Mouse5); the
+    wheel has none and uses `0x100` up, `0x101` down, `0x102` left, `0x103` right (above every key code,
+    `KILN_UI_VK_WHEEL_*` in `kiln_ui.h`). keybinds.json stores the names, never the codes.
+  - A Kiln older than 0.2.0-dev.27 does not know these names: there `KeyBindings.Register("x", "Ctrl+WheelUp", …)`
+    throws. A mod that should still load there can test `KeyChord.TryParse("Ctrl+WheelUp", out _)` first. A keybinds.json
+    line an older Kiln cannot read leaves that binding on its default and stays in the file.
+  - The Kiln menu's own key can be a mouse button but not the wheel (it would close the menu as you scroll it).
+  - The mouse needs the kiln-ui.dll of the same release (kiln.ui v7). Next to an older kiln-ui.dll, which only a hand-mixed
+    install has, the names still parse and `Register` works, but mouse bindings never fire and the Keys page takes keys
+    only; kiln.log says so once ("this kiln-ui.dll is older than Kiln.Ui").
 - The player's choice is kept in `kiln/config/keybinds.json` (`{"bindings": {"mymod.toggle": "F9"}}`). The Kiln menu's
-  **Keys** tab remaps keys by press: click the key, press the new one; a second click cancels. Escape cancels too and
-  closes the menu (kiln.ui closes it before Kiln.Ui sees the key). A pending "press a key" ends when the menu closes or
-  another section shows: a key pressed in play is never taken for it, and reopening the menu shows the key unchanged.
+  **Keys** tab remaps keys by press: click the key, press the new one (a key, the middle or a side mouse button, or a
+  notch of the wheel, with the modifiers held); a second click cancels. Left and right click keep working the page.
+  Escape cancels too and closes the menu (kiln.ui closes it before Kiln.Ui sees the key). A pending "press a key" ends
+  when the menu closes or another section shows: a key pressed in play is never taken for it, and reopening the menu
+  shows the key unchanged.
 - Handlers run on the game's main thread (the window thread) when the key goes down, but not while a Kiln text field
   has focus, and not while a Kiln screen has the input unless `WhileCapturing` is set.
-- A matching binding keeps the key from the game (`Consume`, default true), including its raw-input press.
+- A matching binding keeps the key from the game (`Consume`, default true), including its raw-input press (for the
+  mouse: the raw record and the window message, each press counted once although the game's window gets both).
 - **A key that types** (a letter, digit, punctuation or Space, without Ctrl or Alt) fires only during play or while a Kiln screen is open. The
   game's own text fields (chat, a rename, the main menu's boxes) don't tell Kiln they have the keyboard, so a tree bound to K used to open inside
   chat and take the rest of the line. `b.OnGameScreens = true` fires it on every game screen too. Function keys and Ctrl/Alt chords always
@@ -257,6 +309,9 @@ of key hints. Tab / Shift+Tab or LB / RB switch sections; arrows or the d-pad mo
     about it, the engine, the folder; for Kiln mods also the load order, what it needs, its status lines
     (`StatusLines`) and its settings inline: the page generated from its config schema (`ConfigScreens.cs`; server
     configs are read-only while connected) and the pages it registered with `Ui.AddConfigPage(modId, ui => …)`.
+    On the generated page a number with a `[Range]` is a slider with a number field beside it, where a value is typed;
+    edits are marked and saved with Apply, and the table shows the applied values at once, also while the game is
+    paused and the save waits for the next tick.
     ShroudForge mods have an enabled switch and settings from `extended.mod.json`, grouped and conditionally enabled,
     with live/restart hints, typed options, text lengths and declared action buttons. An action is sent only while
     ShroudForge's runtime runs the mod in this game (its `state.json` lists it active), and only one request of Kiln's
@@ -358,6 +413,24 @@ How the game side works, and what still has to be checked on a real client: [doc
 `tools/ui-preview/` renders the page to PNGs on Linux without the game (its README).
 
 ## C (native plugins)
+Key callbacks: `subscribe_key` gets keyboard keys only, as it always did, so a plugin built against an older `kiln_ui.h`
+gets exactly what it got before (no mouse press, no new code, and it can never take a mouse press). Version 7
+(0.2.0-dev.27; check `header.size >= offsetof(KilnUiApi, subscribe_key_ex) + sizeof(void*)`) appends
+`subscribe_key_ex(owner, fn, user, flags, &handle)`: flags 0 is `subscribe_key`; `KILN_UI_KEYS_MOUSE` adds the middle
+and side mouse buttons (`vk` `VK_MBUTTON`, `VK_XBUTTON1`, `VK_XBUTTON2`, a press and a release, `scan` 0) and one press
+per wheel notch (`vk` `KILN_UI_VK_WHEEL_UP` / `DOWN` / `LEFT` / `RIGHT`, 0x100 to 0x103; never a release), with the
+modifiers held then, once each although the window gets each as a raw record and as a message
+(`native/services/ui/mouse_press.h` pairs them: the same input and direction at the closest message time within 50 ms,
+wheel deltas reconciled, so a WM_MOUSEWHEEL that Wine merged from two turns covers both records); any other bit is
+`KILN_ERR_INVALID_ARGUMENT`. A high-resolution wheel's delta that completes no notch comes as `repeat` 1, not a press:
+return true to keep it from the game as you would the notch. Returning true keeps the press from the game: its message,
+and its raw record (whole when it holds only the press; otherwise the game reads it without the taken flags, through
+kiln.ui's hook on the game's `GetRawInputData` import; without that hook such a record reaches the game whole). Only a
+subscriber that got a press can take it; releases always pass.
+While Kiln captures input they come with `captured` 1. Left and right clicks never come. With no `KILN_UI_KEYS_MOUSE`
+subscriber the mouse costs nothing and reaches the game untouched. Kiln.Ui subscribes this way; kiln-emf and kiln-set
+stay on `subscribe_key`. `set_menu_key` takes the buttons, not the wheel; `take_pressed_key` stays keyboard only.
+
 `kiln_ui.h` (later additions, check `header.size`): `screen`, `subscribe_screen`, `subscribe_ui_tick`,
 `menu_add` / `menu_set` (`KILN_UI_MENU_MAIN` / `PAUSE`), `push_style` / `pop_style`, `image_*`, `combo`,
 `input_multiline`, `set_hover_capture`, and work at present under the overlay: `subscribe_pre_overlay`, `set_pre_overlay_demand`,
@@ -393,7 +466,14 @@ of the same loss gives none until the window regains the focus or gives a key or
 subscription, so a new subscriber does not rearm an existing one). A key or click
 usually arrives both raw and as a message, in the order the window received them; nothing is merged. Characters,
 mouse motion and the wheel are not delivered. Remove it with `unsubscribe`, which waits for a call in flight (from
-inside another kiln.ui callback it may answer `KILN_ERR_WRONG_THREAD` instead); a faulting `fn` is removed. Colours,
+inside another kiln.ui callback it may answer `KILN_ERR_WRONG_THREAD` instead); a faulting `fn` is removed. Version 6
+(0.2.0-dev.27; check `header.version >= 6` and `header.size >= offsetof(KilnUiApi, menu_activate) + sizeof(void*)`)
+appends the mods' entries in the game's menus: `menu_shown(KILN_UI_MENU_SHOW_FEW / ALWAYS / NEVER / AUTO)` (which of them the
+menus draw; ALWAYS until a caller sets it; Kiln's own Mods entry always; the rule is `native/services/ui/menu_rows.h`), `menu_entries(out, capacity)`
+(every entry mods added with `menu_add`, as `KilnUiMenuEntry`: `size, menu, entry, text, text_len, flags, order,
+drawn`; set `out[0].size` first; returns the count) and `menu_activate(entry)` (does what choosing it in its menu
+does: `fn` after the next UI frame; refused for an entry its mod hid or one of the other menu) and `menu_scroll()`
+(`KILN_UI_SCROLL_*`: whether the pause menu scrolls in this process, and why not). Colours,
 vars and keys are Kiln's own numbers (stable across ImGui updates). The plain ImGui
 slots live in `native/services/ui/draw_slots.h`, shared with the preview shim. `kiln.ui.tick` (the UI frame as a tick; Kiln.Host loads the mods with it) and
 `kiln.craftmenu` (tabs, subcategories, which workshop the menu builds; implemented by kiln.content) are separate
@@ -408,6 +488,8 @@ tables in the same header.
   is too bright there.
 - Work under the overlay (kiln.screen) is called only while it says it has something to do; otherwise the present reads one counter.
 - No wheel open: the wheel costs one atomic read per frame and per input message.
+- A middle or side button or wheel message (and its raw record) looks for its twin among at most 32 waiting presses,
+  only while a key subscriber takes mouse presses (Kiln.Ui does); motion and the left and right buttons cost nothing new.
 - No `subscribe_window_input` subscriber: one relaxed atomic read per window message. With one, a record per key,
   button or focus message, handed over on the window thread. `is_item_clicked` costs nothing unless a
   window asks. With a wheel open it is one more ImGui window with a few shapes.
@@ -420,3 +502,19 @@ tables in the same header.
   early step (`kiln.progress`, [eml.md](eml.md#what-you-see-while-it-runs)).
 - The game-UI hooks cost one check per UI frame and per menu-entry call (a return-address compare); entries draw only
   while their menu is open. `KILN_NO_MENU_LOAD=1` keeps the mods' load at the first world step.
+
+## The contract (dev.27)
+
+Kiln.Ui follows [the API contract](modding/contract.md) as far as it applies. It is a game-client service: `Ui` (with
+`Ui.Screens`, `Ui.Menus`, `Ui.Crafting`), `Hud`, `Render`, `KeyBindings`, `UiDraw`, `RenderDraw` and `WorldDraw` are
+`[ClientOnly]`; on a dedicated server their calls draw nothing and answer null or false, as before.
+
+- **Capabilities.** `kiln.ui`, `kiln.render` and the client's sigdb features (`ui.screens`, `ui.main_menu`,
+  `ui.menu_page`, `ui.menu_page_sound`, `ui.system_menu`, `ui.crafting`, `ui.error_popup`, `ui.language`,
+  `render.camera`), lowered by Kiln.Ui when their service is not loaded. No member throws for a missing capability, so
+  none carries `[RequiresCapability]`; the `Available` properties answer as before.
+- **Threads.** `UiDraw` is `[RenderThread]` (it exists only inside a draw callback). `Ui.Screens.Current`,
+  `Render.Camera`, `Hud.Toast`, `HudLine.Text`, `UiWindow.Open`, `MenuEntry.Text` and `StatusLines.Set` are
+  `[AnyThread]`, as their docs said.
+- **Events.** `Ui.Screens.Changed` (the game's UI thread, at once) and `ScreenChangedEvent` (the bus, tick thread, one
+  step later) are two deliveries of one native callback, not two sources; both stay.

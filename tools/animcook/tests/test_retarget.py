@@ -206,7 +206,8 @@ class Recipe(Base):
     """A rig of other names and 1.5 times the size, cooked onto the golem's own skeleton through a recipe."""
 
     def setUp(self):
-        self.mod = Path(tempfile.mkdtemp(dir=self.dir))
+        self.mod = Path(tempfile.mkdtemp(dir=self.dir)) / "assets"  # a recipe is in its mod's assets folder: the cook writes to assets/cooked only
+        self.mod.mkdir()
         (self.mod / "golem.glb").write_bytes(self.glb.read_bytes())
         doc, blob = make_golem.build()
         for n in doc["nodes"]:

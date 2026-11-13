@@ -86,6 +86,73 @@ PlayerRef p2 = (PlayerRef)talentHolder;            // also from a TalentHolder (
 - Works on a test server, with simulated players (game-log replay, where the handle is 0 and the join step alone
   separates sessions). Not run with a real player: the handle generations of real joins are unchecked.
 
+## Kick and ban (dev.27)
+```csharp
+KickResult r = await Players.Kick((PlayerRef)player, "Be nice.");     // server, tick thread
+BanEntry b = Bans.Add((PlayerRef)player, "Griefing", TimeSpan.FromDays(7));  // by Steam id; kicks within a second if in game
+Bans.Add(76561190000000000, "Cheating");                              // someone who is not here
+Bans.Remove(76561190000000000);                                       // unban (by Steam id or account id)
+foreach (var e in Bans.All) Log.Info($"{e.SteamId} {e.Name}: {e.Reason} until {e.Until}");
+[Subscribe] void OnLogin(PlayerLoginEvent e) { if (!Allowed(e.SteamId)) { e.Reason = "Whitelist only."; e.Cancel(); } }
+```
+| Member | What |
+|---|---|
+| `Players.Kick(PlayerRef, reason)` | `Task<KickResult>` (`IKilnResult`): a Kiln client gets the reason (its overlay shows it) and 1.5 s later the game's login failure; a vanilla client the login failure at once (the game's Generic error, 5). `Ok` false: the player is not in game, or the game's kick call failed. `PlayerKickedEvent` follows. A kick is not a ban |
+| `Network.Kick(NetPeer, reason)` (Kiln.Network) | the same for a connection, also before its player exists (from `NetClientHandshakeEvent`) |
+| `Bans.Add(PlayerRef / steamId, reason, duration?)`, `Bans.Remove(id)`, `Bans.All`, `Bans.Find(id)` | Kiln's ban list, apart from the game's own: `kiln/data/kiln-players/bans.json` (the server's Kiln data, for every world it runs). An entry names a Steam id and, for a player banned while online, the game's account id (`Player.AccountId`); a connection that names either is refused. `PlayerBannedEvent`, `PlayerUnbannedEvent` |
+| `PlayerLoginEvent` (cancelable) | once per connection, when it first names its player (account id or Steam id): `Name`, `SteamId`, `AccountId`, `Entity`, `HasKiln`, `Reason`. Cancel refuses it the way a ban does. Not posted for a banned player |
+| `/kick <player> [reason]`, `/ban <player\|steamid> [30m\|12h\|7d] [reason]`, `/unban <id>`, `/bans` | Kiln's admin commands (level Admin, nodes `kiln.command.kick`, `.ban`, `.unban`, `.bans`) |
+
+How it works: Kiln.Network (which references Kiln.Players) fills the kick at its start and checks every connection on
+its server tick (about once a second): once a connection names an account id (the player record's, `kiln.net`) or a
+Steam id (Kiln.Players), a ban or a `PlayerLoginEvent` refusal sends Kiln's REJECT and the game's login failure through
+the same path as the refusal of clients without Kiln ([../network.md](../network.md)). A vanilla client that proves
+nothing is held at the gate while that happens; a Kiln client is not held and may stand in the world for a second or
+two before it is refused. Capabilities `players.kick` and `players.bans` (reported by Kiln.Network: they need kiln.net,
+the sigdb feature `net.kick` and a process that serves clients). Errors: a none player, an empty reason or one over
+200 characters, a ban without a Steam id or with a duration that is not positive throw `ArgumentException`; off throws
+`KilnUnavailableException`; a broken `bans.json` is left alone, logged, and refuses new entries until it is fixed.
+
+Tested: `managed/tests/Kiln.Players.Tests/PlayerAdminTests.cs` (the list on disk, the error rule, the kick seam),
+`managed/tests/Kiln.Network.Tests/PlayerGateTests.cs` (a banned account refused once it is named, a login handler's
+refusal, REJECT then the login failure for a Kiln client, the Generic login error, the event); a lab with
+`mods/tests/kick-test` and `tools/nettest/kicktest.py` (fake clients: a Kiln client gets the REJECT with the reason and
+is dropped after 1.5 s, one without Kiln at once; `/ban`, `/bans`, `/unban` through the console folder and
+`bans.json`). Lab peers have no player record, so a ban and the login event have not refused a real connection yet.
+Not run with a real player: whether the login failure takes a player who is already in the world out of it (the game
+was seen to obey it only during the join, [../../re/network.md](../../re/network.md)), and what the game's dialog says
+for the Generic error. Guided checks `kick-test/players.kick`, `players.kick.after`, `players.ban`, `players.ban.after`.
+
+## The contract (dev.27)
+
+Kiln.Players follows [the API contract](../modding/contract.md). `Players` and `Progression` are `[ServerOnly]`.
+
+- **Capabilities.** `kiln.players`, `kiln.progression`, `kiln.playerstate` (the core's rows) and the sigdb features
+  each serves, lowered at Kiln.Players' start (the first service tick) when that table is missing;
+  `players.positions` (managed, session: `Players.PositionOf` works now, pending without a server world);
+  `players.aim` (reported with them); `players.kick` and `players.bans` are Kiln.Network's rows (above).
+- **Errors.** Without kiln.players the reads (`All`, `Connected`, `Count`, `Find`, `FindBySteamId`, `IsPlayer`,
+  `PositionOf`, `Joined`, `Left`) throw `KilnUnavailableException` naming `kiln.players`; `PositionOf` without
+  positions names `players.positions`; `Progression`'s calls name `kiln.progression`. All three are
+  `NotSupportedException`s, as before, with the same sentences. **Not changed:** a kiln.players table that answers
+  "unavailable" (no source on this build) keeps a plain `NotSupportedException`.
+- **Results.** `ProgressionResult` implements `IKilnResult` (`Reason` null when `Ok`; the record's own `Reason` keeps
+  its text). `KickResult` already did.
+- **Identity.** `Players.FindPerson(PlayerRef)` finds a person's current session (a slot's entity id goes to the next
+  player who joins, so an id kept from an earlier step can name someone else); `person.Progression` and the other
+  `Player` members then act on that session.
+- **Events.** `PlayerProgressionChangedEvent` (new) for a Kiln progression request that changed experience
+  (`Experience`) or skill points (`SkillPoints`), posted when the request completes, before the caller's task
+  continues, only for what the request itself changed (from the value read right before it applied, plus what it
+  granted or the value it set: the game's own gains in the two steps until completion are not in it), and only while
+  the player it was made for is still there (another player in the same slot gets nothing); levels and nodes keep
+  `PlayerLevelChangedEvent` and `PlayerSkillsChangedEvent`. Through the contract's
+  change notices ([contract](../modding/contract.md#3-change-events)).
+- **Threads.** The reads of `Players` and `Progression.Get`/`Status` are `[AnyThread]` (kiln.players answers from the
+  last step's snapshot); `FindPerson`, `UnlockedNodes` and the lab diagnostics that read game memory are
+  `[TickThreadOnly]`.
+- Tested offline: `managed/tests/Kiln.Contract.Tests/PlayersContractTests.cs` and the conformance rules.
+
 ## C (native plugins)
 
 ```c

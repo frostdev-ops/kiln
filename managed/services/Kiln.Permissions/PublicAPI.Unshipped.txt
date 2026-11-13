@@ -1,1 +1,3 @@
 #nullable enable
+static Kiln.PermissionSubject.ForPerson(Kiln.PlayerRef player) -> Kiln.PermissionSubject
+static Kiln.Permissions.PersonHas(Kiln.PlayerRef player, string! node) -> bool

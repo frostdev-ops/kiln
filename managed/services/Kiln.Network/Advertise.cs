@@ -258,14 +258,17 @@ internal static partial class NetAdvertise
             string hash;
             try
             {
-                var tree = DirHash.Signature(c.Dir);
+                // a Kiln mod is advertised by its identity: its files without what the cook made on this machine (assets/cooked),
+                // so a server's cooked folder and a player's give the same hash; other kinds' folders are all theirs
+                var mod = c.Kind == "kiln";
+                var tree = DirHash.Signature(c.Dir, mod);
                 lock (HashCache)
                     if (HashCache.TryGetValue(c.Dir, out var cached) && cached.Sig == tree)
                     {
                         list.Add(new NetRequiredMod(c.Id, c.Version, cached.Hash, c.Kind, c.Name));
                         continue;
                     }
-                hash = DirHash.Compute(c.Dir);
+                hash = mod ? DirHash.ModIdentity(c.Dir) : DirHash.Compute(c.Dir);
                 lock (HashCache) HashCache[c.Dir] = (tree, hash);
             }
             catch (Exception e) when (e is DirHashException or IOException or UnauthorizedAccessException)

@@ -114,6 +114,22 @@ public sealed class CommandsTests : KilnTest
     }
 
     [Fact]
+    public void A_command_result_is_a_kiln_result()
+    {
+        var mod = NewMod("res");
+        As(mod, () => Commands.Register("fine", c => c.Reply("done"), CommandPermission.Everyone));
+        IKilnResult ran = Run("fine");
+        Assert.True(ran.Ok);
+        Assert.Null(ran.Reason);
+        var unknown = Run("nope");
+        IKilnResult refused = unknown;
+        Assert.False(refused.Ok);
+        Assert.NotNull(unknown.Error);
+        Assert.Equal(unknown.Error, refused.Reason);
+        Assert.Equal(unknown.Error, unknown.Reason);
+    }
+
+    [Fact]
     public void Builder_tree_parses_typed_arguments()
     {
         var got = new List<string>();

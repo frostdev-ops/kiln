@@ -268,6 +268,9 @@ internal static partial class Compiler
             d.Icon = BlockIcons.ItemIcon(ctx, icon, $"{path}.icon", owner);
         }
         if (v.Dropped is { } dropped) d.Refs["iconModel"] = "item:" + ctx.ItemName(dropped, $"{path}.dropped");
+        // A model of the mod's own lies on the ground as itself, unless Dropped names another; an "item:" model or Like takes
+        // the other item's ground model with its look (the bundle copies iconModel).
+        else if (v.Model is { } own && Guid.TryParse(own, out _)) d.Refs["iconModel"] = own;
         if (v.Tint is { } t)
         {
             if (!IsColour(t)) throw new BlockError(ctx.Block, $"{path}.tint", $"\"{t}\" is not a colour: #rrggbb");

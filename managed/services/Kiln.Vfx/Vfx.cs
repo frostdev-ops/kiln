@@ -219,8 +219,9 @@ public static unsafe class Vfx
     /// <summary>As a lifetime: runs until <see cref="Stop"/>.</summary>
     public static readonly TimeSpan UntilStopped = Timeout.InfiniteTimeSpan;
 
-    /// <summary>Client: kiln.vfx can reach the game on this build. Server: a Kiln client has the relay channel (otherwise nobody would see
-    /// anything). False: calls return <see cref="VfxHandle.None"/> or relay to nobody.</summary>
+    /// <summary>Client: kiln.vfx can reach the game on this build (capabilities <c>kiln.vfx</c>, <c>vfx.play</c>). Server: a Kiln client
+    /// has the relay channel (otherwise nobody would see anything; capability <c>vfx.relay</c>, which <see cref="Capabilities.Why"/>
+    /// explains). False: calls return <see cref="VfxHandle.None"/> or relay to nobody.</summary>
     public static bool Available => VfxCore.ServerSide ? VfxRelay.HasListeners : VfxCore.LocalAvailable;
 
     /// <summary>Plays <paramref name="vfx"/> at <paramref name="at"/>. Server: relayed to Kiln clients within
@@ -316,6 +317,7 @@ public static unsafe class Vfx
     }
 
     /// <summary>The handle's state (client).</summary>
+    [AnyThread]
     public static VfxState State(VfxHandle h)
     {
         var t = VfxNative.T;
@@ -325,9 +327,11 @@ public static unsafe class Vfx
 
     /// <summary>True while the VFX is queued or held by the FxController (false once it ended, after <see cref="Stop"/>, for unknown handles
     /// and for server handles).</summary>
+    [AnyThread]
     public static bool IsPlaying(VfxHandle h) => State(h) is VfxState.Pending or VfxState.Playing;
 
     /// <summary>Details of a handle (client), null when unknown.</summary>
+    [AnyThread]
     public static VfxInfo? Info(VfxHandle h)
     {
         var t = VfxNative.T;
@@ -361,6 +365,7 @@ public static unsafe class Vfx
     }
 
     /// <summary>kiln.vfx's and the relay's state.</summary>
+    [AnyThread]
     public static VfxStatus Status()
     {
         VfxStartup.Ensure();
@@ -375,6 +380,7 @@ public static unsafe class Vfx
     }
 
     /// <summary>Diagnostics as JSON (status and recent handles, client).</summary>
+    [AnyThread]
     public static string StatusJson()
     {
         var t = VfxNative.T;

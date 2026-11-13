@@ -2,12 +2,16 @@
 // shapes: one SVG, panned by dragging and zoomed by the wheel round the pointer. Click a node for +1 level, right-click
 // for −1. Nodes keep the game's skill icons (content); links and rings are lines in the glazes. Points in use, the
 // total the player types (it is not in the save) and the tree checks (src/treecheck.js) sit over the tree.
+// On the Deck (env.jsx) each node has a transparent button over it (SVG elements cannot be clicked by the Deck's A):
+// the D-pad walks the nodes, the camera follows the focused one, A raises its level, Y lowers it, and the panel that
+// hover opens on the desktop follows focus.
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '../../ui';
 import { skills, nomeDe, descricaoDe, ATRIBUTOS, atributosDaArvore } from '../src/gamedata.js';
 import { ui, tex } from '../src/ui.js';
 import { totalKey as totalKeyOf, checkTree } from '../src/treecheck.js';
 import { t } from '../src/i18n.js';
+import { useDeckActions, useEditorEnv } from './env.jsx';
 
 const ST = ui.skilltree;
 const C = 4000;
@@ -25,6 +29,7 @@ for (const [a, b] of skills.links) { adj.get(a)?.add(b); adj.get(b)?.add(a); }
 const BASE_ATTR = 10;
 
 export default function Skills({ model, setModel }) {
+  const env = useEditorEnv();
   const levels = useMemo(() => new Map(model.skills.map((s) => [s.id, s.level])), [model.skills]);
   const active = (id) => byId.get(id)?.type === 'Root' || (levels.get(id) || 0) > 0;
   const stateOf = (n) => (active(n.id) ? 'on' : [...adj.get(n.id)].some(active) ? 'reach' : 'off');
@@ -37,10 +42,14 @@ export default function Skills({ model, setModel }) {
   const [editTotal, setEditTotal] = useState(false);
   const [draft, setDraft] = useState('');
   useEffect(() => { setTotal(readTotal()); }, [totalKey]);
-  const saveTotal = () => {
-    const v = Math.max(0, Math.floor(Number(draft)) || 0);
+  const saveTotal = (typed = draft) => {
+    const v = Math.max(0, Math.floor(Number(typed)) || 0);
     try { localStorage.setItem(totalKey, String(v)); } catch { /* no storage: this session only */ }
     setTotal(v); setEditTotal(false);
+  };
+  const askTotal = (from) => {
+    if (env.deck) env.askNumber({ title: t('Total de pontos'), value: from, min: 0, max: 999, onDone: (n) => saveTotal(String(n)) });
+    else { setDraft(String(from)); setEditTotal(true); }
   };
   const { daArvore } = atributosDaArvore(model.skills);
   const { problems } = checkTree(model);
@@ -65,14 +74,16 @@ export default function Skills({ model, setModel }) {
     const measure = () => {
       const w = el.clientWidth || 1000, h = el.clientHeight || 600;
       setSize({ w, h });
-      setView((v) => v ?? { x: C, y: C, z: fit(w, h) });
+      setView((v) => v ?? { x: C, y: C, z: fit(w, h) * (env.deck ? 2.4 : 1) });
     };
     measure();
     const ro = new ResizeObserver(measure);
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
-  const v = view ?? { x: C, y: C, z: fit(size.w, size.h) };
+  // the Deck starts closer in: the camera follows the focused node
+  const start = () => (env.deck ? { x: C, y: C, z: fit(size.w, size.h) * 2.4 } : { x: C, y: C, z: fit(size.w, size.h) });
+  const v = view ?? start();
   const zMin = fit(size.w, size.h) * 0.45, zMax = fit(size.w, size.h) * 8;
   const zoomAt = (f, cx = size.w / 2, cy = size.h / 2) => setView((o) => {
     const p = o ?? v;
@@ -107,6 +118,11 @@ export default function Skills({ model, setModel }) {
     return () => window.removeEventListener('pointerup', up);
   }, []);
   const [hover, setHover] = useState(null);
+  // the Deck: the focused node is the one Y lowers, and the camera centres on it
+  const follow = (n) => { setHover(n); setView((o) => ({ ...(o ?? v), x: n.x, y: n.y })); };
+  useDeckActions(env.deck ? [
+    { button: 'y', label: t('−1 nível'), disabled: !hover || hover.type === 'Root' || !(levels.get(hover.id) > 0), run: () => { if (hover && hover.type !== 'Root') setLevel(hover.id, (levels.get(hover.id) || 0) - 1); } },
+  ] : null);
 
   const linkKind = (a, b) => (active(a) && active(b) ? 'on' : active(a) || active(b) ? 'reach' : 'off');
   const links = useMemo(() => {
@@ -117,7 +133,7 @@ export default function Skills({ model, setModel }) {
   const showText = v.z > 0.3;
 
   return (
-    <div className="ke-tree" ref={box} onPointerDown={down} onPointerMove={move}>
+    <div className={'ke-tree' + (env.deck ? ' deck' : '')} ref={box} onPointerDown={down} onPointerMove={move}>
       <svg className="ke-tree-svg" viewBox={vb} preserveAspectRatio="xMidYMid meet" aria-label={t('Árvore de habilidades')} role="img">
         <defs>
           <radialGradient id="ke-hearth"><stop offset="0" stopColor="rgba(255,110,40,.16)" /><stop offset="1" stopColor="rgba(255,110,40,0)" /></radialGradient>
@@ -171,8 +187,8 @@ export default function Skills({ model, setModel }) {
         <div>
           <span className="k-label">{t('Disponível')}</span>
           {total === null
-            ? <button type="button" className="k-link" onClick={() => { setDraft(String(used)); setEditTotal(true); }}>{t('informar total…')}</button>
-            : <button type="button" className={'ke-tree-avail k-num' + (total - used < 0 ? ' neg' : '')} title={t('Clique para mudar o total')} onClick={() => { setDraft(String(total)); setEditTotal(true); }}>{total - used}</button>}
+            ? <button type="button" className="k-link" onClick={() => askTotal(used)}>{t('informar total…')}</button>
+            : <button type="button" className={'ke-tree-avail k-num' + (total - used < 0 ? ' neg' : '')} title={t('Clique para mudar o total')} onClick={() => askTotal(total)}>{total - used}</button>}
         </div>
         {editTotal && (
           <div className="ke-tree-total">
@@ -180,7 +196,7 @@ export default function Skills({ model, setModel }) {
             <span className="k-row" style={{ gap: 6, flexWrap: 'nowrap' }}>
               <input className="k-input k-input-mono" style={{ width: 90 }} autoFocus type="number" value={draft} onChange={(e) => setDraft(e.target.value)}
                 onKeyDown={(e) => { if (e.key === 'Enter') saveTotal(); if (e.key === 'Escape') setEditTotal(false); }} aria-label={t('Total de pontos')} />
-              <Button size="s" onClick={saveTotal}>OK</Button>
+              <Button size="s" onClick={() => saveTotal()}>OK</Button>
             </span>
           </div>
         )}
@@ -195,15 +211,31 @@ export default function Skills({ model, setModel }) {
       <div className="ke-tree-zoom" onPointerDown={(e) => e.stopPropagation()}>
         <button type="button" onClick={() => zoomAt(1.25)} aria-label={t('Aproximar')}>+</button>
         <button type="button" onClick={() => zoomAt(0.8)} aria-label={t('Afastar')}>−</button>
-        <button type="button" className="k-sc" onClick={() => setView({ x: C, y: C, z: fit(size.w, size.h) })}>{t('Centro')}</button>
+        <button type="button" className="k-sc" onClick={() => setView(start())}>{t('Centro')}</button>
       </div>
+
+      {env.deck && (
+        <div className="ke-tree-keys">
+          {nodes.map((n) => {
+            const r = Math.max(14, (R[n.type] ?? 30) * v.z * 1.2);
+            const lv = levels.get(n.id) || 0;
+            return (
+              <button key={n.id} type="button" className="ke-tree-key" data-deck-id={`node-${n.id}`}
+                data-deck-a={n.type === 'Root' ? '-' : lv >= (n.maxLevel || 1) ? '-' : t('+1 nível')}
+                aria-label={`${nomeDe(n, '')}${n.type !== 'Root' ? `: ${lv}/${n.maxLevel || 1}` : ''}`}
+                style={{ left: (n.x - v.x) * v.z + size.w / 2 - r, top: (n.y - v.y) * v.z + size.h / 2 - r, width: 2 * r, height: 2 * r }}
+                onFocus={() => follow(n)} onClick={() => { if (n.type !== 'Root') setLevel(n.id, lv + 1); }} />
+            );
+          })}
+        </div>
+      )}
 
       {hover && (
         <div className="ke-tree-tip">
           <span className="k-sc" style={{ color: classOf(hover) }}>{t(hover.class)}{hover.type !== 'Root' ? ` · ${t('custo {n}', { n: hover.cost })}` : ''}{hover.maxLevel ? ` · ${t('máx {n}', { n: hover.maxLevel })}` : ''}</span>
           <strong className="ke-tree-tip-name">{nomeDe(hover, '')}</strong>
           {descricaoDe(hover) && <span className="ke-tree-tip-desc">{descricaoDe(hover).replace(/%k/g, '?')}</span>}
-          {hover.type !== 'Root' && <span className="ke-note">{t('Clique: +1 nível · Botão direito: −1')}</span>}
+          {hover.type !== 'Root' && <span className="ke-note">{env.deck ? t('A: +1 nível · Y: −1') : t('Clique: +1 nível · Botão direito: −1')}</span>}
         </div>
       )}
     </div>

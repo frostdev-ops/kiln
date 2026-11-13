@@ -167,6 +167,11 @@ std::string patched_by(uintptr_t a) {
     return b;
 }
 
+// Where a redirected call may go (pe::redirected_call_at): into a loaded module, or to a relay as hookers write them.
+bool call_lands(uintptr_t to) {
+    return readable(to, 14) && (!module_at(to).empty() || pe::relay_shape(reinterpret_cast<const uint8_t*>(to)));
+}
+
 // Applies the file's fixups to its mapped copy; false if the view can't be written (no C++ objects here: SEH).
 bool relocate_guarded(uint8_t* text, size_t size, const pe::FileText* ft, uint64_t base, size_t* fixups) {
     __try {
@@ -214,7 +219,7 @@ void init_code() {
         g_code.runs.clear();
         return fallback(b);
     }
-    if (!pe::only_hook_differences(text, img.text, size, live, img.base, img.size)) {
+    if (!pe::only_hook_differences(text, img.text, size, live, img.base, img.size, call_lands)) {
         g_code.runs.clear();
         return fallback("file/live differences are not recognised inline hooks; the exe may have changed on disk");
     }
@@ -361,6 +366,7 @@ public:
         captures_.clear();
         matched_.clear();
         state_.clear();
+        conflicted_.clear();
         spans_.clear();
         prescan_.clear();
 
@@ -441,10 +447,26 @@ public:
             r.live_diff = d;
             // Attribute from the symbol's entry when it is patched there (the usual hook), else from the first
             // differing byte.
-            const uintptr_t at = (name[0] != '@' && first_diff(static_cast<uintptr_t>(r.value), 5))
-                                     ? static_cast<uintptr_t>(r.value)
-                                     : d;
+            uintptr_t at = (name[0] != '@' && first_diff(static_cast<uintptr_t>(r.value), 5))
+                               ? static_cast<uintptr_t>(r.value)
+                               : d;
             r.live_by = patched_by(at);
+            // A redirected call (pe::only_hook_differences): the opcode is in place and the first differing byte is
+            // in its operand, so the bytes there decode as nothing. Record the call itself and say where it goes.
+            // The call is the one the difference check accepted (an E8 among the unchanged operand bytes before `d`
+            // is not it: its two targets do not read as a redirected call).
+            if (at == d && cv.disk) {
+                const auto* live = reinterpret_cast<const uint8_t*>(cv.live);
+                for (uintptr_t back = 1; back <= 4 && d - cv.live >= back; ++back) {
+                    const size_t start = static_cast<size_t>(d - cv.live - back);
+                    if (!pe::redirected_call_at(cv.scan, live, cv.size, start, cv.live, image().base, image().size, call_lands))
+                        continue;
+                    const std::string by = patched_by(d - back);
+                    if (by.rfind("jmp to ", 0) == 0) r.live_by = "call redirected to " + by.substr(7);
+                    at = d - back;
+                    break;
+                }
+            }
             if (readable(at, sizeof r.live_bytes)) {
                 std::memcpy(r.live_bytes, reinterpret_cast<const void*>(at), sizeof r.live_bytes);
                 r.live_at = at;
@@ -639,6 +661,7 @@ private:
     std::map<std::string, std::pair<uintptr_t, size_t>> spans_;  // strategy tag -> live address + length matched
     std::map<std::string, std::vector<const uint8_t*>> prescan_;  // unscoped strategy tag -> hits (during resolve)
     std::map<std::string, int> state_;  // 0 unseen/retry, 2 done (resolved or final-failed)
+    std::set<std::string> conflicted_;  // symbols whose own pattern and a capture named two addresses: failed for good
     double ms_ = 0;
 
     bool address_of(const std::string& name, int64_t* out) const {
@@ -751,6 +774,10 @@ private:
         bool progress = false;
         for (auto& [name, vs] : votes) {
             Resolved& r = symbols_[name];
+            // A disagreement is final. This runs once per pass and once more at the end: a later run used to find the
+            // symbol "not resolved" and take the capture after all, which turned a failed cross-check into a pass
+            // on the capture's address.
+            if (conflicted_.count(name)) continue;
             const bool agree = std::all_of(vs.begin(), vs.end(), [&](const Vote& v) { return v.value == vs[0].value; });
             if (!agree) {
                 r.ok = false;
@@ -762,6 +789,7 @@ private:
                     r.ok = false;
                     r.error = "pattern and captures disagree (" + hex(r.value - image().base) + " vs " +
                               hex(vs[0].value - image().base) + ")";
+                    conflicted_.insert(name);
                 }
                 continue;
             }

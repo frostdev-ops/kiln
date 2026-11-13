@@ -109,6 +109,7 @@ internal static unsafe class UiEngine
         Ui.Screens.Start();
         RefusalNotice.Start();
         ShroudForgeMenu.Start();
+        GameMenuEntries.Start();  // Kiln's setting for mods' entries in the game's menus (kiln.ui v6)
         Recount();
         Log(LogLevel.Info, $"Kiln.Ui ready; Kiln menu on {KeyBindings.MenuKey}; game UI {(UiNative.HasGameUi && Ui.Screens.Available ? "on" : "off")}, " +
                            $"crafting menu extension {(UiNative.Craft != null ? "on" : "off")}, " +
@@ -561,8 +562,13 @@ internal static unsafe class UiEngine
             if (k.Vk is 0x10 or 0x11 or 0x12 or 0xA0 or 0xA1 or 0xA2 or 0xA3 or 0xA4 or 0xA5) return true;  // wait for a non-modifier
             _remapping = null;
             if (k.Vk == 0x1B) return true;  // Escape cancels
-            KeyBindings.Rebind(id, new KeyChord(k.Vk, mods));
-            Hud.Toast($"{id}: {new KeyChord(k.Vk, mods)}", ToastKind.Success, 2.5);
+            // a key, or (since 0.2.0-dev.27) the middle or a side button or a wheel notch; never the left or right click
+            var chord = new KeyChord(k.Vk, mods);
+            if (KeyBindings.Rebind(id, chord) || id != KeyBindings.MenuId)
+                Hud.Toast($"{id}: {chord}", ToastKind.Success, 2.5);
+            else
+                Hud.Toast($"The Kiln menu's key can't be on the wheel ({chord}): it would close the menu as you scroll it",
+                    ToastKind.Warning, 4);
             return true;
         }
         if (k.TextInput != 0) return false;
@@ -577,6 +583,10 @@ internal static unsafe class UiEngine
             }
         }
         var consumed = false;
+        var wheel = MouseKeys.IsWheel(k.Vk);
+        // a Kiln screen has the mouse (the Keys page had its chance above): the wheel scrolls it, and no mouse press fires
+        // a binding there; a button's release still ends a hold that began in play
+        if ((wheel || MouseKeys.IsButton(k.Vk)) && k.Captured != 0 && down) return false;
         foreach (var b in KeyBindings.All)
         {
             if (!b.Enabled || b.Disposed || b.Key.IsNone || b.Key.VirtualKey != k.Vk) continue;
@@ -591,19 +601,24 @@ internal static unsafe class UiEngine
             // bindings keep working while a mod's own window has the input (its toggle key must close it); only the
             // Kiln menu takes the keys for itself
             if (k.Captured != 0 && !b.WhileCapturing && Ui.MenuOpen) continue;
-            if (k.Captured == 0 && !b.OnGameScreens && TypesText(k.Vk, mods) && !KeysAreForPlay()) continue;
+            if (k.Captured == 0 && !b.OnGameScreens && ForPlay(k.Vk, mods) && !KeysAreForPlay()) continue;
             if (k.Repeat != 0)
             {
                 consumed |= b.Consume;
                 continue;
             }
-            b.IsDown = true;
+            b.IsDown = !wheel;  // a notch has no release
             Interlocked.Increment(ref b._presses);
             if (b.OnPress is { } p) UiModCalls.Invoke(b.Owner, static a => a(), p, $"key {b.Id}");
             consumed |= b.Consume;
         }
         return consumed;
     }
+
+    /// <summary>The binding fires only during play or while a Kiln screen is open (unless <see cref="KeyBinding.OnGameScreens"/>):
+    /// a key that types, or the wheel without Ctrl or Alt (the game's own screens scroll with it).</summary>
+    internal static bool ForPlay(uint vk, KeyMods mods) =>
+        TypesText(vk, mods) || (MouseKeys.IsWheel(vk) && (mods & (KeyMods.Ctrl | KeyMods.Alt)) == 0);
 
     /// <summary>The key would type a character in a text field (Shift still types).</summary>
     internal static bool TypesText(uint vk, KeyMods mods)
@@ -817,7 +832,11 @@ internal static unsafe class UiEngine
         var now = Environment.TickCount64;
         if (now - _keysDrawnAtMs > 250) _remapping = null;
         _keysDrawnAtMs = now;
-        ui.TextDisabled("Click a key, then press the new one. Click it again to cancel; Escape cancels and closes the menu. Saved to kiln/config/keybinds.json.");
+        ui.TextDisabled(UiNative.MouseKeysAvailable
+            ? "Click a key, then press the new one: a key, the middle or a side mouse button, or a turn of the wheel, " +
+              "with Ctrl, Shift or Alt if you like (left and right click can't be bound). Click it again to cancel; " +
+              "Escape cancels and closes the menu. Saved to kiln/config/keybinds.json."
+            : "Click a key, then press the new one. Click it again to cancel; Escape cancels and closes the menu. Saved to kiln/config/keybinds.json.");
         if (!ui.BeginTable("kiln.keys", "Action", "Key", "Default", "")) return;
         void Line(string id, string what, KeyChord key, KeyChord def)
         {
@@ -902,5 +921,9 @@ internal sealed class OwnedList<T> where T : Delegate
 /// <summary>Started by Kiln's service autostart (or the first use).</summary>
 internal static class UiStartup
 {
-    static UiStartup() => UiEngine.EnsureStarted();
+    static UiStartup()
+    {
+        UiCaps.Rows.Ensure();
+        UiEngine.EnsureStarted();
+    }
 }

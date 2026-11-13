@@ -35,7 +35,9 @@ ch.SendTo(player, msg); ch.SendTo(peer, msg); ch.SendToAll(msg, except: peer); c
 ## Peers and events
 - `Network.Peers` (server): every connected machine, Kiln or not. `NetPeer`: `Name`, `Player` (entity), `AccountId`,
   `State` (Connecting / Ready / Vanilla / Rejected / Closed), `KilnVersion`, `Mods`, `Properties`, `Warnings`,
-  `RoundTrip`, counters. `Network.PeerOf(entity)`.
+  `RoundTrip`, counters. `Network.PeerOf(entity)`. `Network.Kick(peer, reason)` (dev.27): refuses a connection, the
+  same way the gate refuses a client without Kiln; for players, `Players.Kick` and Kiln's ban list
+  ([services/players.md](services/players.md#kick-and-ban-dev27)), checked on the server tick with `PlayerLoginEvent`.
 - `Network.Server` (client): the server connection; `Network.ServerHasKiln`.
 - Server events (event bus, tick thread):
   - `NetClientHandshakeEvent` (cancelable): a Kiln client's HELLO arrived. Fields: `Missing`, `Extra`, and `Refuse`,
@@ -171,6 +173,25 @@ crash them that way. A mod that adds items should state `clients`, and then the 
 **Not proven yet.** The real-client hold, refusal, let-in and the two hooks have not run: client launches are on hold.
 Lab results and "Client checks" are in docs/re/network.md.
 
+## The contract (dev.27)
+
+Kiln.Network follows [the API contract](modding/contract.md).
+
+- **Capabilities.** `kiln.net` (the core's row) and its sigdb features (`net.client_guard`, `net.gate`, `net.kick`,
+  `net.players`, `net.transport`, `net.withhold`), lowered at Kiln.Network's start (the first service tick) when
+  kiln.net is missing; `players.kick` and `players.bans` (managed, PlayerGate, at the same start).
+- **Errors.** Nothing throws for a missing transport (channels open, sends return false, peer lists are empty);
+  `Network.Kick` throws `KilnUnavailableException` naming `players.kick` (dev.27).
+- **Sides and threads.** `[ServerOnly]`: `Peers`, `PeerOf`, `Kick`, `ServerId`, `ServerName`, `Advertised`,
+  `RefreshRequired`, `NetChannel.SendTo(EntityId, ...)`, `SendToAll`, `SendNear`. `[ClientOnly]`: `Server`,
+  `ServerHasKiln`, `ServerAdvert`, the four client events, `NetChannel.SendToServer` (also `[AnyThread]`, as the
+  remarks say). `[TickThreadOnly]` where the code checks it: `NetChannel.SendNear`, `ConfigSync.CheckRoundTrip`.
+  **Not marked:** the server's other sends, which the remarks ask for on the tick thread but which do not check it: a
+  mark would give code that works today a new analyzer warning.
+- **Results and events.** No result record here (`KickResult` is Kiln.Players'); Kiln.Network writes no world state,
+  so it has no change event of its own.
+- Tested offline: `managed/tests/Kiln.Contract.Tests/NetworkContractTests.cs` and the conformance rules.
+
 ## Limits
 - Game frames are zero-padded to 4 bytes; Kiln trims the padding in fragments and JSON messages.
 - Frames up to kiln.net's `max_frame` (8000 bytes, under the game's 8192 per message on channel 12). Bigger messages
@@ -215,7 +236,10 @@ A server tells joining players what they need and where to get it; the launcher 
 `clients: "mod"` (default from `side`: `server` -> none, else mod), not switched off with `.disabled`, not failed; plus
 `kiln/native/<id>/native.json` folders with `clients: "mod"` (default from side: client -> mod). Each one with the kdh1
 of its folder (`DirHash`, the C# port of `schema/fixtures/dirhash/dirhash.py`; NFC through the OS's
-`NormalizeString` because the host runs with invariant globalization). Hashes are computed on the thread pool, cached
+`NormalizeString` because the host runs with invariant globalization). A Kiln mod is advertised by its identity
+(`DirHash.ModIdentity`, launcher/contracts.md 5.11): its kdh1 without what a cook left in `assets/cooked`, so a mod
+cooked on the server (no models, a report that names the server's files) has the hash of the same mod cooked in a
+player's game. Hashes are computed on the thread pool, cached
 by each folder's tree signature, refreshed when the mod list changes and every 60 s; `Pending` until the first pass.
 The launcher's `kiln_manage::modpack::required` computes the same list offline (lab parity test).
 
@@ -243,8 +267,9 @@ previous entries as history (newest first, at most 20). Written on the thread po
   is what the server refused for. Under the default policy that's only mods that state `clients: "mod"`; required[]
   can hold more (a `side: both` mod whose `clients` only defaults to `"mod"` is in the modpack, but no reason to refuse).
   A REJECT without details falls back to the rule below.
-- `missing[]` otherwise: required ids this client lacks or has with another kdh1, from its loaded mods and
-  `state/native.json`.
+- `missing[]` otherwise: required ids this client lacks or has with another hash, from its loaded mods and
+  `state/native.json`. A Kiln mod is compared by its identity, as the server advertises it: its cook outputs
+  (`assets/cooked`) do not count, on either side.
 
 ## Wire format (one kiln.net frame each)
 `'K' 'N' 0x01 type`, then:
@@ -298,8 +323,9 @@ Each UDP source address is one fake client (peer `0x8000000n`, "lab-n"). The sui
   within a second. One that never acks gets it at the deadline. The server's log order is checked: registered, spawned, kept
   back, state sent, acked, cleared;
 - server modpack properties (`advert`): WELCOME/REJECT props, the 0.1 REJECT decoder on new frames, the advertised
-  kdh1 against the Python reference over the lab's mod folders, the dirhash fixtures hashed by the C# port under Wine
-  (control `dirhash`), modpack in network.json, `advertise: false`.
+  hash (a Kiln mod's identity) against the Python reference over the lab's mod folders, the dirhash fixtures hashed by
+  the C# port under Wine (controls `dirhash` and `modhash`: kdh1 and a mod's identity), modpack in network.json,
+  `advertise: false`.
 
 The net-test mod also checks at load (`advert.*`, `lastserver.history` PASS lines in kiln.log): REJECT with properties
 through the 0.1 decoder, zero padding, a 300-mod required list truncated under 7 KB, and the last-server.json history.

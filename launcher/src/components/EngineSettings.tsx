@@ -9,6 +9,7 @@ import type { EngineSettings, Json, ModKind, ProfileId, SchemaSnapshot, Snapshot
 import { KIND_NAME } from "../api/kinds";
 import { useActiveProfile, useGameStatus } from "../api/hooks";
 import { Banner, Button, EmptyState, Field, Modal, SchemaForm, Skeleton, TextArea, TextInput, Toggle, errorText, toast } from "../ui";
+import { OwnFolderRow, useOwnFolders } from "./OwnFolders";
 
 type Obj = Record<string, Json>;
 const isObj = (v: unknown): v is Obj => !!v && typeof v === "object" && !Array.isArray(v);
@@ -116,6 +117,8 @@ export function EngineSettingsForm({ kind, id, profileId, gameId }: { kind: ModK
   const active = useActiveProfile(gameId);
   const key = engineSettingsKey(kind, id, profileId, gameId);
   const q = useQuery({ queryKey: key, queryFn: () => api.engineSettingsGet(kind, id, profileId, gameId) });
+  // the player's own folder that serves this entry: it can be handed to Kiln here too
+  const own = useOwnFolders(q.data?.ownFolder ? profileId : null, gameId).data?.find((f) => f.kind === kind && f.id === id);
   const set = useMutation({
     mutationFn: ({ k, v }: { k: string; v: Json }) => api.engineSettingsSet(kind, id, profileId, gameId, k, v),
     onSuccess: (d) => qc.setQueryData(key, d),
@@ -131,6 +134,7 @@ export function EngineSettingsForm({ kind, id, profileId, gameId }: { kind: ModK
     <div className="k-stack" style={{ gap: 14 }} data-engine-settings={`${kind}/${id}`}>
       {blocked && groups.length > 0 && <Banner tone="info" title={blocked} />}
       {s.ownFolder && <span className="k-hint" data-own-folder="">This is your own folder, not a copy Kiln placed: Kiln changes only the setting you change here.</span>}
+      {s.ownFolder && own && gameId && <OwnFolderRow compact folder={own} profileId={profileId} gameId={gameId} />}
       {s.file && <span className="k-hint k-mono k-ellipsis" title={s.file}>{s.format}: {s.file}</span>}
       {!groups.length ? <EmptyState title={s.note ? s.note.charAt(0).toUpperCase() + s.note.slice(1) + "." : "No settings."} /> : groups.map((g) => (
         <div key={g.title ?? "_"} className="k-stack" style={{ gap: 6 }}>

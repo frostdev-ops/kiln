@@ -53,8 +53,12 @@ public enum HitReaction : ushort
 }
 
 /// <summary>Common fields of a hit that is about to apply (<see cref="EntityHurtEvent"/>, <see cref="EntityHealEvent"/>).</summary>
-public abstract class PendingHitEvent : CancelableEvent
+public abstract class PendingHitEvent : CancelableEvent, IEntityEvent
 {
+    /// <summary>For event filters (<see cref="EventFilter"/>): the target, the part hit, the attacker or the source, the
+    /// four entities kiln.combat's hold also tests (a hit an entity deals is about it too). Since 0.2.0-dev.27.</summary>
+    public bool Involves(EntityId entity) => !entity.IsNone && (Target == entity || Part == entity || Attacker == entity || Source == entity);
+
     private int _amount;
 
     internal PendingHitEvent(in CombatNative.Event e)
@@ -78,10 +82,13 @@ public abstract class PendingHitEvent : CancelableEvent
         Step = e.Step;
     }
 
-    internal PendingHitEvent(EntityId target, EntityId attacker, int amount, int healthBefore, int healthMax, bool isPlayer)
+    // Kiln's own hit (Combat.Damage, Kill, Heal), posted inside the call: the entities kiln.combat's record of it names
+    // (t_damage: target and root target the target, root source the attacker, source the given one or else the attacker)
+    internal PendingHitEvent(EntityId target, EntityId attacker, EntityId source, int amount, int healthBefore, int healthMax, bool isPlayer)
     {
         Target = Part = target;
-        Attacker = Source = attacker;
+        Attacker = attacker;
+        Source = source.IsNone ? attacker : source;
         _amount = OriginalAmount = amount;
         HealthBefore = healthBefore;
         HealthMax = healthMax;
@@ -142,8 +149,8 @@ public sealed class EntityHurtEvent : PendingHitEvent
 {
     internal EntityHurtEvent(in CombatNative.Event e) : base(e) => Lethal = e.Lethal != 0;
 
-    internal EntityHurtEvent(EntityId target, EntityId attacker, int amount, int healthBefore, int healthMax, bool isPlayer)
-        : base(target, attacker, amount, healthBefore, healthMax, isPlayer) =>
+    internal EntityHurtEvent(EntityId target, EntityId attacker, EntityId source, int amount, int healthBefore, int healthMax, bool isPlayer)
+        : base(target, attacker, source, amount, healthBefore, healthMax, isPlayer) =>
         Lethal = healthBefore > 0 && amount >= healthBefore;
 
     /// <summary>The original amount would kill the target (cancel or lower it to keep the target alive).</summary>
@@ -174,7 +181,7 @@ public sealed class EntityHealEvent : PendingHitEvent
     internal EntityHealEvent(in CombatNative.Event e) : base(e) => Cause = (HealCause)e.Cause;
 
     internal EntityHealEvent(EntityId target, int amount, int healthBefore, int healthMax, bool isPlayer)
-        : base(target, EntityId.None, amount, healthBefore, healthMax, isPlayer) => Cause = HealCause.Kiln;
+        : base(target, EntityId.None, EntityId.None, amount, healthBefore, healthMax, isPlayer) => Cause = HealCause.Kiln;
 
     public HealCause Cause { get; }
 }
@@ -186,8 +193,11 @@ public sealed class EntityHealEvent : PendingHitEvent
 /// writable.</summary>
 /// <remarks>How far a strength pushes is up to the target's own logic (enemies turn it into an impulse, players into
 /// a stagger); without a player near, creatures are not simulated and do not move.</remarks>
-public sealed class EntityKnockbackEvent : CancelableEvent
+public sealed class EntityKnockbackEvent : CancelableEvent, IEntityEvent
 {
+    /// <summary>For event filters (<see cref="EventFilter"/>): the target, the part hit, the attacker or the source. Since 0.2.0-dev.27.</summary>
+    public bool Involves(EntityId entity) => !entity.IsNone && (Target == entity || Part == entity || Attacker == entity || Source == entity);
+
     private int _strength;
 
     internal EntityKnockbackEvent(in CombatNative.Event e)
@@ -208,10 +218,11 @@ public sealed class EntityKnockbackEvent : CancelableEvent
         Id = e.Id;
     }
 
-    internal EntityKnockbackEvent(EntityId target, EntityId attacker, int strength, HitReaction reaction, bool isPlayer)
+    internal EntityKnockbackEvent(EntityId target, EntityId attacker, EntityId source, int strength, HitReaction reaction, bool isPlayer)
     {
         Target = Part = target;
-        Attacker = Source = attacker;
+        Attacker = attacker;
+        Source = source.IsNone ? attacker : source;
         _strength = OriginalStrength = strength;
         Reaction = OriginalReaction = reaction;
         Origin = CombatOrigin.Kiln;
@@ -258,8 +269,11 @@ public sealed class EntityKnockbackEvent : CancelableEvent
 /// Cancel: no damage and no hard-landing stagger. <see cref="Damage"/> is writable (0 = cancel).</summary>
 /// <remarks>Entities in god mode (<see cref="Combat.SetInvulnerable"/>) arrive canceled. The game computes the damage
 /// as a fraction of max health from the fall height between the entity's own start and lethal distances.</remarks>
-public sealed class EntityFallEvent : CancelableEvent
+public sealed class EntityFallEvent : CancelableEvent, IEntityEvent
 {
+    /// <summary>For event filters (<see cref="EventFilter"/>): the entity that fell. Since 0.2.0-dev.27.</summary>
+    public bool Involves(EntityId entity) => !entity.IsNone && (Entity == entity);
+
     private int _damage;
 
     internal EntityFallEvent(in CombatNative.Event e)
@@ -301,8 +315,11 @@ public sealed class EntityFallEvent : CancelableEvent
 
 /// <summary>A hit changed an entity's health (after the fact; observe only). One event per entity whose Health
 /// changed: a hit on a weakspot that propagates to its creature reports the creature.</summary>
-public sealed class EntityDamagedEvent : KilnEvent
+public sealed class EntityDamagedEvent : KilnEvent, IEntityEvent
 {
+    /// <summary>For event filters (<see cref="EventFilter"/>): the target, the attacker or the source. Since 0.2.0-dev.27.</summary>
+    public bool Involves(EntityId entity) => !entity.IsNone && (Target == entity || Attacker == entity || Source == entity);
+
     internal EntityDamagedEvent(in CombatNative.Event e)
     {
         Target = new EntityId(e.Target);
@@ -346,8 +363,11 @@ public sealed class EntityDamagedEvent : KilnEvent
 /// Pre after the game's death program ran. To keep something alive, cancel the lethal <see cref="EntityHurtEvent"/>
 /// (<see cref="EntityHurtEvent.Lethal"/>) or use <see cref="Combat.SetInvulnerable"/>: by the time a death is reported
 /// the game has already marked the actor dead and other programs (XP, quests, loot) consume the same event.</summary>
-public sealed class EntityDeathEvent : KilnEvent
+public sealed class EntityDeathEvent : KilnEvent, IEntityEvent
 {
+    /// <summary>For event filters (<see cref="EventFilter"/>): the victim, the killer or the source. Since 0.2.0-dev.27.</summary>
+    public bool Involves(EntityId entity) => !entity.IsNone && (Victim == entity || Killer == entity || Source == entity);
+
     internal EntityDeathEvent(in CombatNative.Event e)
     {
         Victim = new EntityId(e.Target);
@@ -380,8 +400,11 @@ public sealed class EntityDeathEvent : KilnEvent
 
 /// <summary>A dead player is alive again (Forge: PlayerRespawnEvent): respawned at a flame altar / bed or revived by
 /// another player. Detected when the game clears the player's dead state (its Health is back above 0).</summary>
-public sealed class PlayerRespawnEvent : KilnEvent
+public sealed class PlayerRespawnEvent : KilnEvent, IEntityEvent
 {
+    /// <summary>For event filters (<see cref="EventFilter"/>): the player. Since 0.2.0-dev.27.</summary>
+    public bool Involves(EntityId entity) => !entity.IsNone && (Player == entity);
+
     internal PlayerRespawnEvent(in CombatNative.Event e)
     {
         Player = new EntityId(e.Target);
@@ -406,8 +429,11 @@ public sealed class PlayerRespawnEvent : KilnEvent
 /// appeared, so the game has filled it.</summary>
 /// <remarks>The game spawns loot from the creature's death sequence, which only runs near a player: a creature killed
 /// where no player is has no loot (and no game EntityDiedEvent) until one comes near.</remarks>
-public sealed class EntityDropsEvent : CancelableEvent
+public sealed class EntityDropsEvent : CancelableEvent, IEntityEvent
 {
+    /// <summary>For event filters (<see cref="EventFilter"/>): the victim, the container or the killer. Since 0.2.0-dev.27.</summary>
+    public bool Involves(EntityId entity) => !entity.IsNone && (Victim == entity || Container == entity || Killer == entity);
+
     internal EntityDropsEvent(in CombatNative.Event e)
     {
         Victim = new EntityId(e.Target);

@@ -14,6 +14,8 @@ A mod's blocks: spells, weapons, wands, armor, items, stations, statuses, effect
 |---|---|---|---|
 | `$schema` | string |  |  |
 | `abilities` | object |  | What a character casts that is no staff's: on a key, a chat command, an item, or from code. |
+| `affixPools` | object |  | Affix pools: which items roll which affixes, and how many. Code rolls one onto an item (AffixPoolHandle.Roll); its entries name affixes of this mod's code or blocks files, in either order. |
+| `affixes` | object |  | Affix kinds: rolled modifiers on one item ("+5 Strength" on this sword), a stat with tiers and the range each rolls in. A pool rolls them onto an item, and Kiln applies them while it is worn or in hand. Server; asks nothing of players' games. Rolled items keep the id "mod:name", the same as Affixes.Define gives. |
 | `ais` | object |  | AI tunings. |
 | `animations` | object |  | Animations: clips of a glTF, cooked when the mod builds. |
 | `armor` | object |  | Things worn: made exactly as their recipe tooltip shows. |
@@ -100,6 +102,56 @@ Cast on a key, a chat command, an item, or from code. It pays its costs, keeps i
 A rule's action: setPhase, attack, custom, { "effect": ..., "on": "target" \| "self" }, flee, backOff, play, immune, pause, enableFeature, disableFeature, heal, summon, cast, { "apply": ..., "on": ... }, or one of the game's { "type": ... }.
 
 Type: object
+
+## affix
+
+One kind of rolled modifier on an item (AffixBlock): its stat, and its tiers with the range each rolls in. A roll picks a tier, then a value in its range, and that value is what the one item carries.
+
+| Key | Type | Required | Notes |
+|---|---|---|---|
+| `group` | string |  | Affixes of one group never roll onto one item together ("prefix", "element"). min length 1 max length 64 |
+| `name` | string | yes | What players read: "of the Bear", "Fleet". Kept with every roll. min length 1 max length 64 |
+| `stacks` | boolean |  | Two worn items with it add up (true, the default), or only the highest value counts (false). |
+| `stat` | string | yes | The stat it changes while its item is worn or in hand: a stat's key ("strength", "move-speed"), or a GUID for another attribute of the game (a share). |
+| `tiers` | array of [affixTier](#affixtier) | yes | Its tiers, the weakest first: tier 1 is the first. At least one tier with a weight above 0 has minItemLevel 0. min items 1 max items 16 |
+
+## affixEntry
+
+One affix a pool can give.
+
+| Key | Type | Required | Notes |
+|---|---|---|---|
+| `affix` | string | yes | An affix of this mod by its name (defined in code or in any blocks file of the mod), or "other-mod:name". min length 1 |
+| `weight` | number |  | How likely it is to come up, among the pool's (default 1). min 0 |
+
+## affixName
+
+An affix's or a pool's name, stricter than other blocks': rolled items keep "mod:name", so keep it.
+
+Type: string
+
+## affixPool
+
+Which items roll which affixes, and how many (AffixPoolBlock). A roll picks min to max different affixes by weight, never two of one group.
+
+| Key | Type | Required | Notes |
+|---|---|---|---|
+| `affixes` | array of [affixEntry](#affixentry) | yes | What can come up. min items 1 max items 256 |
+| `items` | array of [itemRef](#itemref) |  | The item types that roll from it: game items, or items of this mod by their block name. Left out: any item with an item entity of its own (gear, tools). min items 1 |
+| `max` | integer |  | How many at most (default 1): at least min. min 0 max 8 |
+| `min` | integer |  | How many different affixes a roll gives at least (default 1). A pool whose entries can never give that many (entries with a weight above 0, one per group) is refused. min 0 max 8 |
+
+## affixTier
+
+One tier of an affix: the range a roll of this tier takes its value from.
+
+| Key | Type | Required | Notes |
+|---|---|---|---|
+| `max` | number | yes | The highest value: at least min, and of the same sign. min -1000000 max 1000000 |
+| `min` | number | yes | The lowest value: whole points for a whole-number stat (strength: 3), a share for the others (move-speed: 0.05 is 5 %). Negative values make a curse. Never 0, at most 1000000 either way. min -1000000 max 1000000 |
+| `minItemLevel` | integer |  | The item level from which this tier can roll (default 0: any). min 0 |
+| `step` | number |  | The grid a rolled value lies on. Default: 1 for a whole-number stat, 0.01 (one percent) for a share. |
+| `weight` | number |  | How likely a roll takes this tier, among the tiers the item's level allows (default 1). min 0 |
 
 ## ai
 

@@ -342,10 +342,59 @@ static void real_exe(const std::string& exe, const std::string& side, const std:
     CHECK(runs.size() <= on_disk.size() && differing <= 5 * on_disk.size(),
           "%s: diff runs find the %zu hooks (%zu runs, %zu bytes)", side.c_str(), on_disk.size(), runs.size(),
           differing);
+    if (side != "client") return;
+    // ShroudForge's native runtime sends the main menu's two Settings calls to a relay next to the image, before
+    // Kiln's scan (players' reports of 10 and 13 Nov 2026). On this exe's own bytes: both are calls to one function
+    // in the image, and with only their operands changed the difference check keeps the disk scan.
+    std::vector<uint8_t> sf = text;
+    const uintptr_t l_text = live_base + ft.text_rva, relay = live_base + ft.size_of_image + 0x10000;
+    size_t sites = 0;
+    int64_t entry = 0;
+    bool one_entry = true;
+    for (const char* name : {"ui/MainMenuSettingsA", "ui/MainMenuSettingsB"}) {
+        const auto it = on_disk.find(name);
+        if (it == on_disk.end()) continue;
+        const size_t ret = it->second - mem.live;  // the symbol is the call's return address
+        if (ret < 5 || ret > sf.size() || sf[ret - 5] != 0xE8) continue;
+        int32_t was = 0;
+        std::memcpy(&was, &sf[ret - 4], 4);
+        const int64_t target = static_cast<int64_t>(ret) + was;
+        if (!sites) entry = target;
+        one_entry = one_entry && target == entry;
+        const int32_t now = static_cast<int32_t>(static_cast<int64_t>(relay) - static_cast<int64_t>(l_text + ret));
+        std::memcpy(&sf[ret - 4], &now, 4);
+        ++sites;
+    }
+    CHECK(sites == 2 && one_entry && entry > 0 && static_cast<size_t>(entry) < text.size(),
+          "client: the main menu's two Settings calls are on the file and call one function in the image (%zu found)", sites);
+    CHECK(pe::only_hook_differences(text.data(), sf.data(), text.size(), l_text, live_base, ft.size_of_image),
+          "client: with both Settings calls sent to a relay outside the image, the disk scan stays");
+    sf[sf.size() / 2] ^= 1;
+    CHECK(!pe::only_hook_differences(text.data(), sf.data(), text.size(), l_text, live_base, ft.size_of_image),
+          "client: another changed byte beside the redirected calls still selects the live scan");
+}
+
+// A hook is a jump out of the image and the NOPs behind it. Greeneye Loader's is the longest: a 12-byte jump and up
+// to 20 NOPs (Find hooks 12 to 18 bytes). One NOP more than that is a change nobody explains: the live scan.
+static void padded_hooks() {
+    const uintptr_t base = 0x140000000, l_text = base + 0x1000, out = 0x7ff600000000;
+    std::vector<uint8_t> file(96);
+    for (size_t i = 0; i < file.size(); ++i) file[i] = static_cast<uint8_t>(0x40 + i % 16);  // no 0x90 among them
+    auto hooked = [&](size_t nops) {
+        std::vector<uint8_t> live = file;
+        live[8] = 0x48, live[9] = 0xB8, live[18] = 0xFF, live[19] = 0xE0;  // mov rax, imm64; jmp rax
+        std::memcpy(&live[10], &out, 8);
+        std::fill(live.begin() + 20, live.begin() + 20 + nops, 0x90);
+        return pe::only_hook_differences(file.data(), live.data(), file.size(), l_text, base, 0x10000);
+    };
+    CHECK(hooked(0) && hooked(6) && hooked(13), "a 12-byte jump with up to 13 NOPs is a hook");
+    CHECK(hooked(20), "a 12-byte jump with 20 NOPs (Greeneye Loader's longest hook) is a hook");
+    CHECK(!hooked(21), "21 NOPs behind a jump are more than any hook writes: the live scan");
 }
 
 int main(int argc, char** argv) {
     synthetic();
+    padded_hooks();
     hostile_pe();
     std::filesystem::path sigdb_dir = std::filesystem::path(__FILE__).parent_path() / "../../../sigdb/symbols";
     for (int i = 1; i + 1 < argc; i += 2) {

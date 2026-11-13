@@ -537,8 +537,11 @@ public sealed record QuestProgress(QuestDefinition Quest, QuestHolder Holder, Qu
 }
 
 /// <summary>The answer to a quest change. Refusals are not exceptions: <see cref="Reason"/> says why.</summary>
-public sealed record QuestResult(bool Ok, string Reason, QuestStatus Status)
+public sealed record QuestResult(bool Ok, string Reason, QuestStatus Status) : IKilnResult
 {
+    // IKilnResult's reason is null when the action happened; this record's own Reason keeps its text ("" then).
+    string? IKilnResult.Reason => Ok ? null : Reason;
+
     internal static QuestResult No(string why, QuestStatus status = QuestStatus.Locked) => new(false, why, status);
     public override string ToString() => Ok ? $"ok ({Status})" : $"refused: {Reason}";
 }

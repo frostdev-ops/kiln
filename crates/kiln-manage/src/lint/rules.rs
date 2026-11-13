@@ -1808,13 +1808,21 @@ fn blocks(out: &mut Out, m: &LMod, code: &Code, cat: Option<&Catalog>) {
         ("lootTables", "loot table"), ("recipes", "recipe"),
         ("quests", "quest"), ("dialogues", "dialogue"),
         ("windows", "window"), ("hudLines", "HUD line"), ("keyBindings", "key binding"),
+        ("affixes", "affix"), ("affixPools", "affix pool"),
     ];
     let mut known: HashMap<String, (&'static str, String, Span)> = HashMap::new();
     for f in &files {
         for &(key, kind) in SECTIONS {
             for b in f.root.as_ref().and_then(|r| r.get(key)).and_then(Node::as_object).into_iter().flatten() {
-                if let Some((_, file, first)) = known.get(&b.key) {
-                    out.push(Diagnostic::new(&f.display, codes::DUPLICATE_NAME, b.key_span, &format!("block \"{}\" is defined twice in this mod (the later one replaces the earlier)", b.key)).with_related(file, *first, "first here"));
+                if let Some((other, file, first)) = known.get(&b.key) {
+                    // an affix or an affix pool shares its name with no other kind of block: Kiln.Blocks refuses that, it does not replace
+                    let affix = |k: &str| matches!(k, "affix" | "affix pool");
+                    let message = if *other != kind && (affix(other) || affix(kind)) {
+                        format!("block \"{}\" is defined twice in this mod, as {} {other} and as {} {kind}: an affix or an affix pool shares its name with no other block of its mod, so Kiln.Blocks keeps the one it compiles first and refuses the other", b.key, a_or_an(other), a_or_an(kind))
+                    } else {
+                        format!("block \"{}\" is defined twice in this mod (the later one replaces the earlier)", b.key)
+                    };
+                    out.push(Diagnostic::new(&f.display, codes::DUPLICATE_NAME, b.key_span, &message).with_related(file, *first, "first here"));
                 } else {
                     known.insert(b.key.clone(), (kind, f.display.clone(), b.key_span));
                 }
@@ -1846,6 +1854,8 @@ fn blocks(out: &mut Out, m: &LMod, code: &Code, cat: Option<&Catalog>) {
             "onInteract" => (&["interaction"], "an interaction", &[]),
             "vfx" => (&["vfx"], "a VFX", &[]),
             "screen" => (&["screen effect"], "a screen effect", &[]),
+            // an affix pool's entry
+            "affix" => (&["affix"], "an affix", &[]),
             _ => return None,
         })
     }
@@ -1969,6 +1979,14 @@ fn blocks(out: &mut Out, m: &LMod, code: &Code, cat: Option<&Catalog>) {
             }
             for look in r.get("wornLooks").and_then(Node::as_object).into_iter().flatten() {
                 items(&look.value, "look", &mut item_names);
+            }
+            // the item types an affix pool rolls on
+            for pool in r.get("affixPools").and_then(Node::as_object).into_iter().flatten() {
+                for it in pool.value.get("items").and_then(Node::as_array).into_iter().flatten() {
+                    if let Some(text) = it.as_str() {
+                        item_names.push((text.to_string(), it.span));
+                    }
+                }
             }
         }
         for (name, kinds, what, span) in names {

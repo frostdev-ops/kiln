@@ -78,7 +78,7 @@ def _dispatch(a, doc, extra):
             print(f"animcook: steps of tool {tool!r}: no runner found", file=sys.stderr)
             rc = 1
             continue
-        cmd = [sys.executable, str(script), "--game", str(a.game)] + (["--exe", a.exe] if a.exe else []) + ["recipe", a.recipe, "--no-dispatch"] + extra
+        cmd = [sys.executable] + (["-I"] if sys.flags.isolated else []) + [str(script), "--game", str(a.game)] + (["--exe", a.exe] if a.exe else []) + ["recipe", a.recipe, "--no-dispatch"] + extra
         rc = subprocess.run(cmd).returncode or rc
     return rc
 
@@ -154,7 +154,7 @@ def _recipe_player_states(a, doc):
     mod = rep["states"][0]["mod"] if rep["states"] else None
     side = {"format": 1, "mod": mod, "states": {e["name"]: {k2: e[k2] for k2 in ("guid", "id", "kind", "machine", "like", "status", "reason")}
                                               for e in rep["states"]}}
-    out = Path(a.recipe).parent / doc.get("out", "cooked")
+    out = recipe.out_dir(a.recipe, doc)
     out.mkdir(parents=True, exist_ok=True)
     (out / PS.FILE_NAME).write_text(json.dumps(side, indent=1) + "\n")
     bad = rep["errors"] or rep["graph"] == "off" or any(e["status"] == "refused" for e in rep["states"])
@@ -163,6 +163,7 @@ def _recipe_player_states(a, doc):
 
 def cmd_recipe(a):
     doc = recipe.load(a.recipe)
+    recipe.out_dir(a.recipe, doc)  # before anything is read or written: a cook writes into the mod's assets/cooked only
     others = [] if a.no_dispatch else recipe.other_tools(doc)
     if a.check:
         need = recipe.needs_cook(a.recipe)

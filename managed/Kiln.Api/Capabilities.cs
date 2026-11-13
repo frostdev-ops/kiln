@@ -160,6 +160,7 @@ public static unsafe class Capabilities
         public readonly IKilnBackend Backend = backend;
         public readonly long Epoch = epoch;
         public CapsTable* Table;        // null: no kiln.caps in this process; rows are kept in memory
+        public bool HasTable => Table != null;
         public ulong Owner;             // Kiln's own owner for reports and the subscription
         public bool Subscribed;
         // Services.Get<T>'s bookkeeping (Services.cs): names a table satisfied, (name, cause) pairs it recorded, and the
@@ -194,7 +195,7 @@ public static unsafe class Capabilities
         ArgumentNullException.ThrowIfNull(name);
         var s = Current();
         if (s.Rows.TryGetValue(name, out var row)) return row.State == CapabilityState.Available;
-        return s.Binding.Table == null && s.Binding.Backend.HasFeature(name);
+        return s.Binding.Table == null && s.Binding.Backend.HasFeature(name) && ServiceCaps.LoweredClaim(name) is null;
     }
 
     /// <summary>The row of <paramref name="name"/>. A name with no row gives
@@ -207,7 +208,7 @@ public static unsafe class Capabilities
         var s = Current();
         if (s.Rows.TryGetValue(name, out var row)) return row;
         if (s.Binding.Table == null && s.Binding.Backend.HasFeature(name))
-            return new Capability(name, CapabilityState.Available, CapabilityReason.None, "", "backend");
+            return ServiceCaps.LoweredClaim(name) ?? new Capability(name, CapabilityState.Available, CapabilityReason.None, "", "backend");
         return NoRow(name);
     }
 

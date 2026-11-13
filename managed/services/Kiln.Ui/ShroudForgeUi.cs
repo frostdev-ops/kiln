@@ -570,10 +570,59 @@ internal static class ShroudForgeUi
                 : JsonNode.DeepEquals(a, b);
     }
 
+    /// <summary>What a ShroudForge mod that says "waiting" waits for, in plain words, or null when it does not wait. The
+    /// mod's own words (its effect report, or ShroudForge's reason) are in <see cref="CatalogMod.Reason"/>: a mod that
+    /// changes the world waits for a world this game hosts, SF Unlimited Flight also whenever the player is not gliding,
+    /// so a player who opens the menu between flights always sees it waiting (player report, Nexus, 13 Nov 2026).</summary>
+    internal static string? WaitingFor(CatalogMod m)
+    {
+        if (m.Engine != "shroudforge" || m.Word != "waiting" || m.Reason is not { } why) return null;
+        // ShroudForge's own reason (ModCatalog's SfRefine: "ShroudForge: " + its error): the word it starts with
+        const string sf = "ShroudForge: ";
+        if (why.StartsWith(sf, StringComparison.Ordinal))
+        {
+            var err = why[sf.Length..];
+            if (err.StartsWith("restart-required", StringComparison.Ordinal))
+                return "The next game start: ShroudForge loads this mod's changed configuration only when the game starts again.";
+            if (err.StartsWith("dependency-blocked", StringComparison.Ordinal))
+                return "A mod it needs: ShroudForge starts it once that mod runs (the reason above names it).";
+            return null;
+        }
+        // the mod's own report (SfRefine: "ShroudForge Lua is active; reported effect: waiting. " + its detail): whole
+        // phrases the mod reports, never a word somewhere inside another one
+        const string effect = "ShroudForge Lua is active; reported effect: waiting. ";
+        if (!why.StartsWith(effect, StringComparison.Ordinal)) return null;
+        var detail = why[effect.Length..].Trim();
+        switch (detail)
+        {
+            case "Waiting for typed ECS access and the authoritative write scope":
+                return "Write access to the game world. ShroudForge gives it once a world this game hosts is running: your single-player " +
+                       "world, or a co-op world you host. In someone else's world or on a dedicated server it may never come; there the " +
+                       "mod has to run on the host's game or on the server.";
+            case "Waiting for an authoritative world":
+                return "A world: it starts working once you are in a world this game hosts, not in the main menu.";
+            case "Player query is pending":
+                return "Your character in the world.";
+        }
+        // ShroudForge's override tracker summary (track_runtime_overrides.lua `summary`): "<message> | writes=N | <reason>
+        // | ...", nested once more for SF Unlimited Flight's steering. Gliding is what it waits for only when every reason
+        // in it is that one.
+        var reasons = detail.Split(" | ").Skip(1).Where(p => !p.StartsWith("writes=", StringComparison.Ordinal)).ToArray();
+        if (reasons.Length > 0 && reasons.All(r => r == "Glider settings: Player is not actively using a glider"))
+            return "You to glide. It changes the glider only while you are gliding, so between flights (and whenever this menu is " +
+                   "open) it says waiting. That is normal: it applies when you take off.";
+        return "Something the mod needs is not there yet; its own words are under STATE above.";
+    }
+
     /// <summary>The ShroudForge part of a mod's details: its switch, its settings by group, its buttons.</summary>
     public static void Draw(UiDraw ui, CatalogMod m, float s, float k, Action<UiDraw, string, float> label)
     {
         if (m.Folder is not { } folder) return;
+        if (WaitingFor(m) is { } waits)
+        {
+            label(ui, "WHAT IT WAITS FOR", s);
+            using (ui.PushColor(UiColorSlot.Text, GameColors.Text)) ui.TextWrapped(waits);
+        }
         var now = Current(folder, out var error);
         var p = now.Package;
         label(ui, "SWITCH AND SETTINGS", s);

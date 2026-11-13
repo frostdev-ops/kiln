@@ -20,6 +20,7 @@
 //! | [`engines`] | every mod engine Kiln knows: proxy names, markers, Library detection of their mods, loaders |
 //! | [`proc`] | process list (Linux /proc, Windows Toolhelp) |
 //! | [`launch`] | steam:// URIs, the launch flow |
+//! | [`start_progress`] | what a start is doing (`kiln/state/progress.json` and the launcher's own steps), the history of starts, the time left |
 //! | [`winpath`] | host <-> game path translation (Z:, copy mode) |
 //! | [`bundle`] | runtime bundles (`kiln-runtime.json`) |
 //! | [`install`] | install / upgrade / uninstall / rollback, receipts (`.install.json`) |
@@ -50,6 +51,8 @@
 //! | [`server`] | dedicated server instances, settings, SteamCMD, run, backups, remote |
 //! | [`admin`] | KAP/1 protocol, admin client, file bridge, SSH tunnel, endpoint discovery |
 //! | [`modpack`] | server modpacks: build, publish, inspect, download, install |
+//! | [`cook`] | cooking a mod folder with them, what "needs a cook" means, the record per game (`cooktools`) |
+//! | [`cooktools`] | the cook tools this build carries (`cooktools`): unpack, the Python to run them, the command |
 //! | [`gameart`] | game art from the installed client's KFC4 data (save editor icons, UI, fonts) |
 //! | [`catalog`] | local game-data catalogs (items, templates, ...) for the linter, VS Code, Kiln.GameIds |
 //! | [`lint`] | `kiln lint`: mod files against schema/*.schema.json, ids, references, manifest consistency, licences |
@@ -65,6 +68,7 @@ pub mod filecache;
 pub mod hash;
 pub mod hostenv;
 pub mod launch;
+pub mod start_progress;
 pub mod paths;
 pub mod data_folder;
 pub mod data_folder_move;
@@ -92,6 +96,8 @@ pub mod engine_mods;
 pub mod found;
 pub mod own_loaders;
 pub mod shroudforge;
+pub mod sf_startup;
+pub(crate) mod sf_paths;
 pub mod resolver;
 pub mod semver;
 
@@ -111,6 +117,11 @@ pub mod server;
 pub mod wine;
 
 // game art (feature `gameart`)
+#[cfg(feature = "cooktools")]
+pub mod cook;
+#[cfg(feature = "cooktools")]
+pub mod cooktools;
+
 #[cfg(feature = "gameart")]
 pub mod gameart;
 

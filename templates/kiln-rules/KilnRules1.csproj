@@ -1,0 +1,19 @@
+<Project Sdk="Kiln.Sdk/KILN_SDK_VERSION">
+  <!-- Player rules: Rules.Apply for everyone or one player, for a time; what a rule set is; NoClip. Docs: docs/kiln/services/rules.md.
+       Build: the output folder is the mod folder (KilnRules1.dll + generated kiln.mod.json).
+         dotnet build -t:KilnDeploy -p:KilnServer=<server folder> [-p:KilnReload=true]   copy into <server>/kiln/mods/<id>
+         dotnet build -t:KilnPack                                                       <id>-<version>.zip
+       Every property is documented in Kiln.Sdk's Sdk/Kiln.Mod.targets and docs/kiln/modding/mdk.md. -->
+  <PropertyGroup>
+    <KilnModId>kiln-mod-id</KilnModId>
+    <KilnModName>KilnRules1</KilnModName>
+    <Version>0.1.0</Version>
+    <Description>KilnRules1, a Kiln mod.</Description>
+    <!-- <PackageLicenseExpression>MIT</PackageLicenseExpression>   the licence others may use it under (kiln.mod.json "license") -->
+    <!-- Kiln service assemblies this mod uses (they ship with Kiln, never with the mod). -->
+    <KilnServices>Rules;Players;Chat</KilnServices>
+<!--#if (hasServer)-->
+    <KilnServer>KILN_SERVER</KilnServer>
+<!--#endif-->
+  </PropertyGroup>
+</Project>

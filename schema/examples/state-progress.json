@@ -1,0 +1,23 @@
+{
+ "format": 1,
+ "pid": 392,
+ "kiln": "0.2.0-dev.27+20261113.2e75c1f",
+ "side": "client",
+ "started": "2026-11-13T17:28:19.975Z",
+ "atMs": 21300,
+ "state": "booting",
+ "plan": ["start", "native-early", "early-plugins", "signatures", "services", "plugins", "native", "dotnet", "mods", "content", "game"],
+ "steps": [
+  { "id": "start", "label": "Reading Kiln's settings and the profile", "ms": 0, "tookMs": 110 },
+  { "id": "native-early", "label": "Waiting for other loaders' code scans", "ms": 110, "tookMs": 560 },
+  { "id": "early-plugins", "label": "Running the early plugins", "done": 4, "total": 4, "ms": 670, "tookMs": 6863,
+    "parts": [ { "label": "ShroudForge", "tookMs": 6818 } ] },
+  { "id": "signatures", "label": "Finding the game's functions", "ms": 7533, "tookMs": 255 },
+  { "id": "services", "label": "Starting Kiln's services", "done": 31, "total": 31, "ms": 7788, "tookMs": 258 },
+  { "id": "plugins", "label": "Getting Kiln's services and plugins ready",
+    "detail": "kiln-vfx: building the materials and VFX of kiln-equipment: material thunderhead.copper_wire (57 of 120)",
+    "done": 30, "total": 42, "ms": 8046,
+    "parts": [ { "label": "kiln-assets: getting ready", "tookMs": 1990 } ] }
+ ],
+ "why": null
+}

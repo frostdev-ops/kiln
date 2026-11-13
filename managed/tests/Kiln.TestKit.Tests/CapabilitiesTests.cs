@@ -10,15 +10,15 @@ public sealed class CapabilitiesTests
     public void AnUnfakedServiceIsUnavailableByItsOwnCodeAndItsRowSaysOffline()
     {
         using var kiln = new KilnHarness();
-        Assert.False(Items.Available);
-        Assert.False(Chat.Available);
-        Assert.False(kiln.Capabilities.Is("kiln.items"));
-        var row = Assert.Single(kiln.Capabilities.All, r => r.Name == "kiln.items");
+        Assert.False(Settings.Available);
+        Assert.False(Gameplay.Available);
+        Assert.False(kiln.Capabilities.Is("kiln.settings"));
+        var row = Assert.Single(kiln.Capabilities.All, r => r.Name == "kiln.settings");
         Assert.False(row.Available);
-        Assert.Equal("kiln.items is unavailable (offline): " + KitBackend.NoFakeText + ".", kiln.Capabilities.Why("kiln.items"));
-        Assert.Equal(CapReason.Offline, KitBackend.Instance.Capabilities.Get("kiln.items").Reason);
-        Assert.Equal("testkit", KitBackend.Instance.Capabilities.Get("kiln.items").Source);
-        Assert.Contains(KitBackend.Instance.Asked.Since(0), a => a is { Kind: AskKind.Service, Name: "kiln.items" });
+        Assert.Equal("kiln.settings is unavailable (offline): " + KitBackend.NoFakeText + ".", kiln.Capabilities.Why("kiln.settings"));
+        Assert.Equal(CapReason.Offline, KitBackend.Instance.Capabilities.Get("kiln.settings").Reason);
+        Assert.Equal("testkit", KitBackend.Instance.Capabilities.Get("kiln.settings").Source);
+        Assert.Contains(KitBackend.Instance.Asked.Since(0), a => a is { Kind: AskKind.Service, Name: "kiln.settings" });
     }
 
     [Theory]
@@ -67,10 +67,10 @@ public sealed class CapabilitiesTests
     public void SwitchingOnAnUnfakedServiceThrows()
     {
         using var kiln = new KilnHarness();
-        var e = Assert.Throws<InvalidOperationException>(() => kiln.Capabilities.Override("kiln.combat", true));
+        var e = Assert.Throws<InvalidOperationException>(() => kiln.Capabilities.Override("kiln.abilities", true));
         Assert.Contains("the test kit has no fake of this service", e.Message);
-        Assert.False(kiln.Capabilities.Is("kiln.combat"));
-        kiln.Capabilities.Override("kiln.combat", false);  // off is always allowed
+        Assert.False(kiln.Capabilities.Is("kiln.abilities"));
+        kiln.Capabilities.Override("kiln.abilities", false);  // off is always allowed
         Assert.Throws<ArgumentException>(() => kiln.Capabilities.Override("no spaces", true));
     }
 

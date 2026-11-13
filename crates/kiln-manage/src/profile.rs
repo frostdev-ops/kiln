@@ -589,7 +589,7 @@ pub fn runtime_build(dirs: &DataDirs, receipt: &crate::install::InstallReceipt) 
 }
 
 /// Kiln.Mods.ApiVersion of this Kiln (managed/Kiln.Api/Mods.cs; a test keeps them equal).
-pub const KILN_API: &str = "0.2.1";
+pub const KILN_API: &str = "0.2.2";
 pub const META: &str = "meta.json";
 
 use crate::library::LibraryRef;
@@ -748,6 +748,7 @@ pub fn create(dirs: &DataDirs, name: &str, copy_from: Option<&str>) -> Result<Pr
     if name.is_empty() || name.chars().count() > 128 {
         return Err(Error::invalid("a profile needs a name of at most 128 characters"));
     }
+    let _one = one_at_a_time();
     let base = id_from_name(name);
     let mut id = base.clone();
     let mut n = 2;
@@ -757,12 +758,14 @@ pub fn create(dirs: &DataDirs, name: &str, copy_from: Option<&str>) -> Result<Pr
         n += 1;
     }
     let now = now_rfc3339();
+    // `created` tells this profile from a deleted one with the same id (save): to the millisecond
+    let created = created_now();
     let src = copy_from.map(|s| get(dirs, s)).transpose()?;
     let p = Profile {
         format: 1,
         id: id.clone(),
         name: name.to_string(),
-        created: now.clone(),
+        created,
         updated: now,
         generation: 1,
         notes: src.as_ref().map(|s| s.notes.clone()).unwrap_or_default(),
@@ -788,16 +791,43 @@ pub fn create(dirs: &DataDirs, name: &str, copy_from: Option<&str>) -> Result<Pr
     Ok(p)
 }
 
-/// Saves meta.json (generation + 1). Conflict when `profile.generation` is not the stored generation.
+/// `2026-11-13T16:20:53.123Z`: when a profile was made, to the millisecond (RFC 3339 like every other time here).
+fn created_now() -> String {
+    let ms = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.subsec_millis()).unwrap_or(0);
+    let secs = now_rfc3339();
+    format!("{}.{ms:03}Z", secs.trim_end_matches('Z'))
+}
+
+/// A save reads, compares and writes a profile, and a delete or a create changes which profile an id names: one at a
+/// time in this process, so a save that read a profile before it was deleted and made again never writes after that.
+/// Two processes on one data folder (two launchers, or a launcher and kilnctl) are not ordered by this.
+fn one_at_a_time() -> std::sync::MutexGuard<'static, ()> {
+    static ONE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    ONE.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// Saves meta.json (generation + 1). Conflict when `profile.generation` is not the stored generation, or `created` is not
+/// the stored profile's (it was deleted and made again under its id).
 pub fn save(dirs: &DataDirs, profile: &Profile) -> Result<Profile> {
     check_profile(profile)?;
+    let _one = one_at_a_time();
     let stored = get(dirs, &profile.id)?;
+    // another profile under the same id: the one this save was made from was deleted and made again meanwhile (its
+    // generation may well be the same), so nothing of it is written over the new one
+    if stored.created != profile.created {
+        return Err(Error::new(
+            ErrorCode::Conflict,
+            format!("profile {} was deleted and made again meanwhile; this change was for the deleted one, reload it", profile.id),
+        ));
+    }
     if stored.generation != profile.generation {
         return Err(Error::new(
             ErrorCode::Conflict,
             format!("profile {} changed meanwhile (generation {} on disk, {} here); reload it", profile.id, stored.generation, profile.generation),
         ));
     }
+    #[cfg(test)]
+    save_pause(&dirs.root);
     let mut p = profile.clone();
     p.generation = next_generation(p.generation)?;
     p.created = stored.created;
@@ -808,6 +838,7 @@ pub fn save(dirs: &DataDirs, profile: &Profile) -> Result<Profile> {
 
 /// Moves the profile folder to `<data>/backups/profiles/<id>-<ts>/`.
 pub fn delete(dirs: &DataDirs, id: &str) -> Result<()> {
+    let _one = one_at_a_time();
     get(dirs, id)?;
     let to = dirs.backups().join("profiles").join(format!("{id}-{}", ts_compact(crate::util::now_unix())));
     std::fs::create_dir_all(to.parent().expect("parent")).map_err(io_at(&to, "creating"))?;
@@ -1317,11 +1348,19 @@ fn sync_copies(dirs: &DataDirs, profile: &Profile, install: &GameInstall, warnin
                         continue;
                     }
                 }
+                let _cook = match hold_copy(k, &e.path(), &name) {
+                    Ok(held) => held,
+                    Err(why) => {
+                        warnings.push(format!("{}:{name}: kept the unused profile copy at {}: {}", k.as_str(), e.path().display(), why.message));
+                        continue;
+                    }
+                };
                 let _ = std::fs::remove_dir_all(e.path());
             }
         }
         for (m, dst) in wanted {
             let src = crate::library::path_of(dirs, &lref(k, m))?;
+            let mut _cook = None;
             if k == ModKind::Plugin {
                 let file = src.file_name().map(|f| f.to_owned()).unwrap_or_default();
                 let target = dst.join(&file);
@@ -1332,6 +1371,10 @@ fn sync_copies(dirs: &DataDirs, profile: &Profile, install: &GameInstall, warnin
                 std::fs::create_dir_all(&dst).map_err(io_at(&dst, "creating"))?;
                 std::fs::copy(&src, &target).map_err(io_at(&target, "copying to"))?;
                 if crate::hash::sha256_file(&target)?.0 != m.hash {
+                    if crate::hash::sha256_file(&src).is_ok_and(|(h, _)| h != m.hash) {
+                        // the player changed the Library's DLL: which mod, and the way to take it over
+                        return Err(crate::library::changed_error(&lref(k, m), src.parent().unwrap_or(&src)));
+                    }
                     return Err(Error::new(ErrorCode::HashMismatch, format!("{}: the copy does not match {}", target.display(), m.hash)));
                 }
             } else {
@@ -1346,14 +1389,20 @@ fn sync_copies(dirs: &DataDirs, profile: &Profile, install: &GameInstall, warnin
                         Err(e) => return Err(io_at(&dst, "checking")(e)),
                     }
                 } else {
-                    if dst.is_dir() && crate::hash::dirhash(&dst).is_ok_and(|h| h == m.hash) {
+                    // a Kiln mod's copy the player cooked (assets/cooked) is still that mod: kept with its cooked files
+                    if dst.is_dir() && crate::hash::of_mod(k, &dst).is_ok_and(|h| h == m.hash) {
                         continue;
                     }
+                    _cook = hold_copy(k, &dst, &m.id)?;
                     let _ = std::fs::remove_dir_all(&dst);
                 }
                 crate::util::copy_tree(&src, &dst)?;
-                let h = crate::hash::dirhash(&dst)?;
+                let h = crate::hash::of_mod(k, &dst)?;
                 if h != m.hash {
+                    if crate::hash::of_mod(k, &src).is_ok_and(|s| s != m.hash) {
+                        // the player changed the files in the Library folder: which mod, and the way to take it over
+                        return Err(crate::library::changed_error(&lref(k, m), &src));
+                    }
                     return Err(Error::new(ErrorCode::HashMismatch, format!("{}: the copy has {h}, the library entry {}", dst.display(), m.hash)));
                 }
             }
@@ -1361,6 +1410,17 @@ fn sync_copies(dirs: &DataDirs, profile: &Profile, install: &GameInstall, warnin
         }
     }
     Ok(copied)
+}
+
+/// A Kiln mod's copy in the game is the folder its cook writes (and sets aside, and puts back): it is replaced or
+/// removed only with that cook's lock held ([`crate::state::lock_cook_folder`]), refused (Busy) while a cook of it runs.
+/// None: not a Kiln mod's copy, or not there.
+fn hold_copy(k: ModKind, dst: &Path, id: &str) -> Result<Option<crate::state::HeldLock>> {
+    if k != ModKind::Kiln || std::fs::symlink_metadata(dst).is_err() {
+        return Ok(None);
+    }
+    crate::state::lock_cook_folder(dst, std::time::Duration::ZERO, &|| false,
+        &format!("Kiln is cooking {id} in this game: wait until that is done, then try again.")).map(Some)
 }
 
 /// Copy mode: the game-side config folder (`<game>/kiln/profiles/<pid>/config`, where Kiln writes) back into
@@ -1541,6 +1601,9 @@ fn next_generation(generation: u64) -> Result<u64> {
 pub fn activate(dirs: &DataDirs, profile_id: &str, install: &GameInstall) -> Result<Activation> {
     refuse_running(install)?;
     ensure_kiln(install)?;
+    // Kiln entries an older Kiln recorded with their cook outputs in the hash move to their identity first, with the
+    // profiles that list them: this activation then writes the game's profile file with the new entry
+    crate::library::migrate_identities(dirs)?;
     let profile = get(dirs, profile_id)?;
     check_profile(&profile)?;
     let prev = read_game_profile(&install.path).ok().flatten().map(|f| f.generation).unwrap_or(0);
@@ -1729,7 +1792,7 @@ pub fn deactivate_report(dirs: &DataDirs, install: &GameInstall) -> Result<crate
 /// The own loaders installed now and what they mean for the active profile file (checked again on every call: the
 /// player may have added or removed a loader since the activation).
 fn own_loader_notes(install: &GameInstall, file: &ProfileFile) -> Vec<crate::own_loaders::OwnLoaderNote> {
-    let view = crate::own_loaders::ProfileView::of_file(file);
+    let view = crate::own_loaders::ProfileView::of_file(file).with_file_sources(file, &install.path);
     crate::own_loaders::notes(&install.path, &crate::own_loaders::find(&install.path, Some(&view)), Some(&view))
 }
 
@@ -1773,9 +1836,56 @@ pub fn fingerprint(profile: &Profile) -> String {
     crate::hash::fingerprint(entries)
 }
 
+/// Tests: what `save` runs between reading the stored profile and writing it (the window a delete could fall into).
+#[cfg(test)]
+static SAVE_PAUSE: std::sync::Mutex<Option<std::sync::Arc<dyn Fn(&Path) + Send + Sync>>> = std::sync::Mutex::new(None);
+
+#[cfg(test)]
+fn save_pause(root: &Path) {
+    let f = SAVE_PAUSE.lock().unwrap().clone();
+    if let Some(f) = f { f(root); }
+}
+
 #[cfg(test)]
 mod review_tests {
     use super::*;
+
+    /// A save that read the profile before another worker deleted it and made it again (same id, same generation)
+    /// never writes after that: the delete and the create wait for the save, so the save lands on the old profile,
+    /// which is then deleted, and the new one is untouched.
+    #[test]
+    fn a_save_that_began_before_a_delete_never_writes_over_the_profile_made_again() {
+        let root = std::env::temp_dir().join(format!("km-profile-race-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let dirs = DataDirs::at(root.join("data"));
+        let mut old = create(&dirs, "My mods", None).unwrap();
+        old.notes = "written by the save that began first".into();
+        let (go, went) = std::sync::mpsc::channel::<()>();
+        let worker = {
+            let dirs = dirs.clone();
+            std::thread::spawn(move || {
+                went.recv().unwrap();
+                delete(&dirs, "my-mods").unwrap();
+                std::thread::sleep(std::time::Duration::from_millis(3));
+                create(&dirs, "My mods", None).unwrap()
+            })
+        };
+        let ours = dirs.root.clone();
+        *SAVE_PAUSE.lock().unwrap() = Some(std::sync::Arc::new(move |root: &Path| {
+            if root != ours { return; }
+            let _ = go.send(());
+            // the other worker gets every chance to delete and make the profile again inside this window
+            std::thread::sleep(std::time::Duration::from_millis(150));
+        }));
+        let saved = save(&dirs, &old);
+        *SAVE_PAUSE.lock().unwrap() = None;
+        let made = worker.join().unwrap();
+        assert!(saved.is_ok(), "the save came first and wrote the profile it read: {saved:?}");
+        let now = get(&dirs, "my-mods").unwrap();
+        assert_eq!(now.created, made.created);
+        assert_eq!(now.notes, "", "the profile made again is untouched by the earlier save");
+        let _ = std::fs::remove_dir_all(&root);
+    }
 
     #[test]
     fn shared_engine_files_are_guarded_against_both_game_executables() {

@@ -18,7 +18,7 @@
 | Spawning a named NPC the world hasn't unlocked | the game destroys it within seconds | `place`, grant its unlock, or a `test_Townsfolk_*` villager |
 | Reordering options, or renaming quests, steps or nodes, in native dialogue | ids change; saves drop what they held | keep names; add options at the end |
 | A journal quest with no `name`, a step with no `text` or `title`, `roster` with no `clone` | KL312; that mod gets none of the game's UI, and its quests run with chat lines | fix what lint reports. Any `if` is fine: what one knowledge check can't say is about a second behind |
-| Code-defined game-tree nodes on a dedicated server | not in the tree until the next start | `skills/*.json` |
+| Code-defined game-tree nodes on a dedicated server, before dev.27 | not in the tree until the next start | `skills/*.json`; dev.27+ the build bakes them |
 | Comments or trailing commas in `assets/cook.json` | the cook fails (KL002, KL003) | plain JSON |
 | A voice-over with an empty language slot | silence for players with that voice language | `"fallback": "en"`, if that's what you want |
 | A Release build under the debugger | breakpoints never bind | deploy a Debug build |
@@ -42,7 +42,7 @@
 | Mistake | Result | Use instead |
 |---|---|---|
 | Take then give to move gear | makes a new item entity, losing instance state | `Items.Move` |
-| Treating gear `EntityData` as saved item payload | no stable positional identity; data is session-only | check `IsPersistent`; persistent item data/affixes are not supplied |
+| Treating gear `EntityData` as saved item payload | no stable positional identity; data is session-only | `InstanceData` (dev.26+), `Affixes` (dev.27+) |
 | Registering an ECS scheduler declaration in ordinary `OnLoad` | world registration has already closed | ship `kiln.programs.json`, then `EcsPrograms.Bind` in `OnLoad` |
 | Calling game services from an ECS worker callback | wrong thread and undeclared access | declared context access, or post tick work |
 | A UI block `command` intended for a joined server | runs only in this game's command registry | `castAbility` / `applyEffect` with the mod on the server |
@@ -61,20 +61,20 @@
 | A native transfer handler that counts or logs every call | dry-run moves call it too (`KILN_TRANSFER_DRY_RUN`) | skip side effects when the flag is set |
 | File or folder names that end in a dot or a space in a mod zip | the launcher refuses the zip: Windows would turn them into other names | rename them |
 
-## dev.26+ additions (in development; not seen by a player)
+## dev.26+ additions (not seen by a player)
 
 | Mistake | Result | Use instead |
 |---|---|---|
 | A managed service's capability (`items.moves`) in the manifest's `features` | refused: the service registers its row only after manifests are checked | sigdb features and `kiln.<service>` only; `Capabilities.Is(name)` at run time for the rest |
-| Trusting `[RequiresCapability]` to guard a call | it is documentation; the member's own code throws `KilnUnavailableException` | `Capabilities.Is` / `Why` before the call |
+| Trusting `[RequiresCapability]` to guard a call | it checks nothing at run time; the member's own code throws `KilnUnavailableException` | `Capabilities.Is` / `Why` before the call (dev.27+: KILN121 says where) |
 | Taking `EntityRef.IsAlive` as "the same entity" for a world entity loaded from the save | no `SpawnTime`, serial 0: `IsAlive` only says the id exists | check `HasSerial` |
 | `EntityRef.Of` / `PlayerRef.Of` in `OnLoad` | the identity sources start at the first tick: unavailable | `ServerStartedEvent` or later |
 | `x == EntityRef.None` | false for a none id with a serial (record equality) | `x.IsNone` |
-| Catching only `KilnUnavailableException` | older services still throw their own exception for an off capability | catch `NotSupportedException` too (it derives from it) |
+| Catching only `KilnUnavailableException` on a dev.26 runtime | dev.26 services still threw their own exception for an off capability | catch `NotSupportedException` (its base) when the mod must run on dev.26 |
 | `Mods.ApiVersion` to learn the running Kiln's API | it is the value your mod was built with | `Mods.RuntimeApiVersion` |
 | Calling `Rules.Simulate`, `QuestInput`, `GameTree.Lab*` and other lab helpers | `KILNX001` build error; they may change without notice | test kit or a lab mod with `KILNX001` in `NoWarn` |
 | `OriginalCode`, `Keep`, `Arsenals.JobHandler`, `Is.Job`/`Act.Job`, `Abilities.Programs.Register`, `NativeCall.Bytes` without `"advanced": true` | `InvalidOperationException` | `"advanced": true`, or a typed service call |
-| Writing a `Kiln.Ecs` struct you read and expecting the game to change | it is a copy | `World.TryWrite` (raw, not saved) until typed writes (dev.27) |
+| Writing a `Kiln.Ecs` struct you read and expecting the game to change | it is a copy | `World.Write` / `World.Update` (dev.27+) |
 | An enum value of `Kiln.Ecs` used only as a constant | folded into a number: a renumbering after a game update is not caught at load | check `Ecs.Supports<T>()` for the type that holds it |
 | A test that passes under `dotnet test` taken as proof for the server | most native services are unavailable offline; cached lookups can hide that | `kiln test` on a test server too |
 | Relying on `SteamGuard` for `/questadmin` or rewards paid at a later join | not covered | a throwaway character; experimental, never run in a real client |
@@ -88,3 +88,28 @@
 | A move's `animation` by name on a build without `anim.player_states` | the move keeps its `like` state; the name is reported by block and slot | check the report; a GUID or `0x` id needs no lookup |
 | `blocks.weapon_moves` or `items.*` in a manifest's `features` | refused: the rows appear after manifests are checked | `Capabilities.Is` at run time |
 | Moving Kiln's data folder, then building a native mod | CMake keeps the old SDK path | delete the project's `build` folder once |
+
+## dev.27+ additions (test servers; not seen by a player)
+
+| Mistake | Result | Use instead |
+|---|---|---|
+| Not reading a Kiln result (`Items.Equip`, `NoClip.Set`) | KILN120; a refusal goes unnoticed | check `result.Ok`, pass `Reason` on; `_ = ...` to drop it on purpose |
+| A `[RequiresCapability]` member with nothing asking first | KILN121; `KilnUnavailableException` at run time on a build without it | `Capabilities.Is(row)` or the service's guard property in the same method, or `catch (KilnUnavailableException)` |
+| The capability check in a helper of your own | KILN121 still warns: the helper is not followed | check where the call is, catch at the command, or mark the caller `[RequiresCapability]` |
+| Writing the same value again inside the handler of its change event and expecting a nested event | the event for that write arrives at the start of the next step | read the state after the step, or do the follow-up outside the handler |
+| `World.TryWrite` for a change that must be saved | obsolete (`World.WriteRaw`): the game neither saves nor sends it | `World.Write` / `Update` / `WriteField`, the type listed under `"writes"` |
+| Taking a tracked write's call as done | it runs in the next sim step and can answer `Dropped` | read the result; ask again next step |
+| `World.WriteField` / `WriteAt` without listing the component under `"writes"` | `NotDeclared`: the build adds only the types passed to `World.Write` / `Update` | list it in kiln.mod.json by hand |
+| Writing a container's `Fuel` (a watering can) while a water refill covers it (`Items.Fuel.KeepFull`, a `Water` rule, Creative's rule set) | the refill writes over it one step later: `Kept` false, `WrittenOverBy` names the refill | end or narrow the refill first, or change the water through `Items.Fuel` |
+| `EventFilter.ForEntity(creature)` on hit events taken as "hits on the creature" | the creature's own attacks come too (it is the `Attacker`) | test `e.Target == creature` in the handler |
+| `Events.On<T>(handler, default)` | does not compile: the argument can be a priority or a filter | `EventPriority.Normal`, or leave it out |
+| Casting a ray from `PlayerStates.AimOf(p).Origin` as the character's eyes | it is the camera, behind the character | fine for "what the player looks at"; for the character use its position |
+| A mouse key name (`Mouse4`, `Ctrl+WheelUp`) as the only default for a mod that must load on an older Kiln | `KeyBindings.Register` throws there (`KeyChord.Parse` does not know the name before dev.27) | check `KeyChord.TryParse` first and fall back to a keyboard key |
+| Relying on a `Ui.Menus.Add` entry being drawn in the main menu | with more than 3 mods' entries a menu that cannot scroll leaves them to Kiln's Mods page | make the entry's action reachable another way too (a command, a key) |
+| Shipping `assets/cooked` in a mod | no receipt on the player's PC: a warning now, refused in a later release | ship the recipe and the sources; the launcher cooks on Play |
+| A recipe step that names a source file the mod does not ship (a glTF kept outside the mod folder, in a folder the pack leaves out, or only on your PC) | your own cook works, so it looks done; on every other PC the launcher's cook fails at each Play, takes its time again at the next one, and the models or clips of that step are missing | keep every file a recipe names inside the mod (`assets/src/...`); before a release unpack the `kiln pack` zip into an empty folder and run `kiln cook <that folder> --game <game>`: a recipe is complete only when it cooks from the zip alone |
+| Changing a baked definition in code without rebuilding the mod | the baked file wins at every start; kiln.log warns | rebuild (or `KilnBake=false`) |
+| Expecting an affix on an item to act when the item lies in the backpack | affixes act while the item is in hand or worn | equip it; `AffixesAppliedEvent` says what a wearer holds |
+| `NoClip.Set` on a server that did not allow it | refused with a reason | `"allowNoClip": true` in `kiln/config/rules.json`; read the result |
+| Expecting NoClip to last through a death or a teleport | it ends (`PlayerNoClipEndedEvent`, `Death` / `Teleport`) and stays off | ask again: `NoClip.Set(player, true)` or `Update` on your rule set |
+| Code definitions (quests, game-tree nodes, VFX) that depend on settings, other mods or the game's data, with baking on | the build bakes what the code defined under the test kit, and that file wins at start | `KilnBake=false` for such a mod |

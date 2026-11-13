@@ -102,6 +102,7 @@ std::mutex g_extra_mu;  // protects extra identities as well as their snapshots 
 std::atomic<uint32_t> g_extra_hint[kExtra]{};
 std::atomic<uint32_t> g_flags_seen{0};
 std::atomic<uint32_t> g_flight_slots{0};
+std::atomic<uint32_t> g_noclip_slots{0};  // NoClip's exact live count, as character flight's
 
 constexpr float kMaxGlideSink = 10.0f;
 constexpr float kMaxGlideAccel = 100.0f;
@@ -143,9 +144,13 @@ void store(Slot& s, const KilnRulesPlayer* r) {
     std::lock_guard lock(s.mu);
     const bool was_flight = (s.value.flags & KILN_RULES_CHARACTER_FLIGHT) != 0;
     const bool now_flight = (d.flags & KILN_RULES_CHARACTER_FLIGHT) != 0;
+    const bool was_noclip = (s.value.flags & KILN_RULES_NOCLIP) != 0;
+    const bool now_noclip = (d.flags & KILN_RULES_NOCLIP) != 0;
     if (now_flight && !was_flight) g_flight_slots.fetch_add(1, std::memory_order_relaxed);
+    if (now_noclip && !was_noclip) g_noclip_slots.fetch_add(1, std::memory_order_relaxed);
     s.value = d;
     if (was_flight && !now_flight) g_flight_slots.fetch_sub(1, std::memory_order_relaxed);
+    if (was_noclip && !now_noclip) g_noclip_slots.fetch_sub(1, std::memory_order_relaxed);
 }
 
 bool load(const Slot& s, KilnRulesPlayer* out) {
@@ -1186,6 +1191,7 @@ void resolve_build_programs() {
 
 void KILN_CALL on_pre(const KilnTickInfo* t, void*) {
     kiln_rules_flight::refresh();
+    kiln_rules_noclip::tick();
     resolve_build_programs();
     if (g_client_guards && t && t->step % 30 == 0) refresh_player_from_server();
 }
@@ -1203,7 +1209,12 @@ void clear_all() {
 void arm_payments();
 
 void KILN_CALL on_world(const KilnWorldEvent* ev, void*) {
-    if (ev->event == KILN_WORLD_STARTED || ev->event == KILN_WORLD_STOPPING) kiln_rules_flight::reset();
+    // ownership ends with a world that stops, not with one that starts (unless stops are not seen on this build)
+    KilnSessionInfo session{};
+    session.size = sizeof session;
+    const bool stops_seen = g_api && g_api->session && g_api->session(&session) == KILN_OK && session.lifecycle != 0;
+    kiln_rules_flight::world(ev->event, ev->kind, ev->session, stops_seen);
+    if (ev->event == KILN_WORLD_STOPPING) kiln_rules_noclip::reset();
     if (ev->kind == KILN_WORLD_CLIENT && ev->event == KILN_WORLD_STOPPING) store(g_local, nullptr);
     if (ev->event == KILN_WORLD_STARTED) arm_payments();
     if (ev->kind == KILN_WORLD_CLIENT && (ev->event == KILN_WORLD_STARTED || ev->event == KILN_WORLD_STOPPING))
@@ -1311,7 +1322,7 @@ void fill_status(KilnRulesStatus* out) {
 
 const KilnRulesApi kTable = {
     {sizeof(KilnRulesApi), KILN_RULES_VERSION}, &t_set, &t_clear, &t_get, &t_set_local, &t_status,
-    &kiln_rules_creative::map_reveal, &kiln_rules_creative::creative_status,
+    &kiln_rules_creative::map_reveal, &kiln_rules_creative::creative_status, &kiln_rules_noclip::state,
 };
 
 // ============================================================================================= boot ============
@@ -1501,6 +1512,7 @@ void arm_payments() {
         }
     }();
     g_hooks |= kiln_rules_flight::install(g_api, g_owner, off);  // character flight yields to Creative Mode too
+    g_hooks |= kiln_rules_noclip::install(g_api, g_owner, (g_hooks & KILN_RULES_HOOK_FLIGHT) != 0, off);
     if (off.empty()) return;
     std::lock_guard lock(g_detail_mu);
     g_detail = g_detail == "every hook installed" ? "off on this build: " + off : g_detail + ", " + off;
@@ -1539,7 +1551,13 @@ bool may_have_rules(uint32_t entity) {
     return false;
 }
 uint32_t flags_seen() {
-    const auto flags = g_flags_seen.load(std::memory_order_relaxed) & ~KILN_RULES_CHARACTER_FLIGHT;
-    return flags | (g_flight_slots.load(std::memory_order_relaxed) ? KILN_RULES_CHARACTER_FLIGHT : 0);
+    const auto flags = g_flags_seen.load(std::memory_order_relaxed) & ~(KILN_RULES_CHARACTER_FLIGHT | KILN_RULES_NOCLIP);
+    return flags | (g_flight_slots.load(std::memory_order_relaxed) ? KILN_RULES_CHARACTER_FLIGHT : 0) |
+           (g_noclip_slots.load(std::memory_order_relaxed) ? KILN_RULES_NOCLIP : 0);
+}
+int extra_slot(uint32_t entity) {
+    for (int i = 0; entity && i < kExtra; ++i)
+        if (g_extra_hint[i].load(std::memory_order_relaxed) == entity) return i;
+    return -1;
 }
 }  // namespace kiln_rules_bridge

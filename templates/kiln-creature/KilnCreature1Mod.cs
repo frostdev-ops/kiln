@@ -14,9 +14,10 @@ public sealed class KilnCreature1Mod : Mod
     {
         _command = Commands.Register("kiln-mod-id", Spawn1, CommandPermission.Admin, usage: "[clear]",
             description: $"spawn one {Template} 8 m away (clear: remove them)");
-        if (!Content.GameDataAvailable)
+        // Content.OnReady needs kiln.content, the pack's data kiln.gamedata: two services, so two questions.
+        if (!Content.Available || !Content.GameDataAvailable)
         {
-            Log.Warn("kiln.gamedata is not available on this build: the creature pack does nothing");
+            Log.Warn("kiln.content or kiln.gamedata is not available on this build: the creature pack does nothing");
             return;
         }
         Content.OnReady(_ =>
@@ -38,6 +39,8 @@ public sealed class KilnCreature1Mod : Mod
             _spawned.Clear();
             return;
         }
+        // From the console the first player in the game stands in, and only kiln.players knows who that is.
+        if (c.Source.Player.IsNone && !Players.Available) throw new CommandException("no player to spawn it next to (kiln.players is missing)");
         var who = !c.Source.Player.IsNone ? c.Source.Player : Players.All.FirstOrDefault()?.Entity ?? EntityId.None;
         if (who.IsNone || World.Position(who) is not { } p) throw new CommandException("no player to spawn it next to");
         _ = SpawnAsync(p with { X = p.X + 8 });

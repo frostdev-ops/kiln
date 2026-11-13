@@ -1619,7 +1619,7 @@ fn check_library(target: &DataDirs, source: &DataDirs, warnings: &mut Vec<String
             let r = crate::library::LibraryRef { kind: e.kind, id: e.id.clone(), version: v.version.clone(), hash: v.hash.clone() };
             let hash_of = |d: &DataDirs| -> Option<String> {
                 let p = crate::library::path_of(d, &r).ok()?;
-                if e.kind == crate::manifest::ModKind::Plugin { sha256_of(&p) } else { crate::hash::dirhash(&p).ok() }
+                if e.kind == crate::manifest::ModKind::Plugin { sha256_of(&p) } else { crate::hash::of_mod(e.kind, &p).ok() }
             };
             let got = hash_of(target);
             if got.as_deref() == Some(v.hash.as_str()) {

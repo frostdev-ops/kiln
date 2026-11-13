@@ -81,8 +81,11 @@ public readonly record struct UnlockedSkillNode(uint Id, int Level, int MaxLevel
 /// GiveSkillPoints: points given. Unlock/Lock: 1. Respec: nodes reset.</param>
 public sealed record ProgressionResult(
     ulong Request, ProgressionOp Op, EntityId Entity, bool Ok, string Status, int Applied, int Steps,
-    ProgressionSnapshot? Before, ProgressionSnapshot? After, string Reason)
+    ProgressionSnapshot? Before, ProgressionSnapshot? After, string Reason) : IKilnResult
 {
+    // IKilnResult's reason is null when the change was made; this record's own Reason keeps its text.
+    string? IKilnResult.Reason => Ok ? null : Reason;
+
     public override string ToString() => Ok ? $"{Op} ok ({Applied}){(Reason.Length > 0 ? ": " + Reason : "")}" : $"{Op} failed: {Reason}";
 }
 
@@ -111,6 +114,7 @@ public sealed class PlayerProgression
     public uint ExperienceNeeded => Read()?.ExperienceNeeded ?? 0;
     /// <summary>Unspent skill points.</summary>
     public int SkillPoints => Read()?.SkillPoints ?? 0;
+    [TickThreadOnly]
     public IReadOnlyList<UnlockedSkillNode> UnlockedNodes => Progression.UnlockedNodes(Entity);
 
     /// <summary>Sets the level (1..cap) like the game's admin command: experience into the level 0.</summary>
@@ -140,6 +144,7 @@ public sealed partial record Player
 }
 
 /// <summary>Level, experience, skill tree and skill points of the players in game (kiln.progression).</summary>
+[ServerOnly]
 public static unsafe class Progression
 {
     // ---- native mirror (kiln_progression.h) ----
@@ -260,6 +265,13 @@ public static unsafe class Progression
     private static Table* _table;
     private static bool _looked;
 
+    /// <summary>Forgets a remembered miss, so the next use looks for the table again (ServiceCaps.WhenFound: the refresh
+    /// found it after all).</summary>
+    internal static void LookAgain()
+    {
+        if (_table == null) _looked = false;
+    }
+
     private static Table* T
     {
         get
@@ -275,13 +287,20 @@ public static unsafe class Progression
         }
     }
 
+    // a KilnUnavailableException is a NotSupportedException: a catch written before dev.27 still catches it
     private static Table* Require(string api) =>
-        T != null ? T : throw new NotSupportedException($"Progression.{api}: kiln.progression is unavailable on this server");
+        T != null ? T : throw PlayersCaps.Off(PlayersCaps.Progression, $"Progression.{api}: kiln.progression is unavailable on this server");
 
-    /// <summary>True when any part of kiln.progression works on this build (see <see cref="Status"/>).</summary>
+    /// <summary>The table is here (the rows; no lookup after the first).</summary>
+    internal static bool TableHere => T != null;
+
+    /// <summary>True when any part of kiln.progression works on this build (see <see cref="Status"/>; capability
+    /// <c>kiln.progression</c>).</summary>
+    [AnyThread]
     public static bool Available => T != null;
 
     /// <summary>What works and the counters; null when kiln.progression is not loaded.</summary>
+    [AnyThread]
     public static ProgressionStatus? Status
     {
         get
@@ -298,6 +317,8 @@ public static unsafe class Progression
 
     /// <summary>A player's progression, or null when the entity is not a player in game. Tick thread: live; other
     /// threads: the last snapshot.</summary>
+    [AnyThread]
+    [RequiresCapability(PlayersCaps.Progression)]
     public static ProgressionSnapshot? Get(EntityId entity)
     {
         var t = Require(nameof(Get));
@@ -310,6 +331,8 @@ public static unsafe class Progression
     }
 
     /// <summary>The nodes a player has unlocked (tick thread). Empty when the entity is not a player in game.</summary>
+    [TickThreadOnly]
+    [RequiresCapability(PlayersCaps.Progression)]
     public static IReadOnlyList<UnlockedSkillNode> UnlockedNodes(EntityId entity)
     {
         var t = Require(nameof(UnlockedNodes));
@@ -329,6 +352,7 @@ public static unsafe class Progression
     private static IReadOnlyList<SkillNode>? _tree;
 
     /// <summary>The game's skill tree (empty before the server world's first step).</summary>
+    [RequiresCapability(PlayersCaps.Progression)]
     public static IReadOnlyList<SkillNode> Tree
     {
         get
@@ -373,30 +397,38 @@ public static unsafe class Progression
         return uint.TryParse(s, Hex, null, out var h) ? FindNode(h) : null;
     }
 
+    [RequiresCapability(PlayersCaps.Progression)]
     public static Task<ProgressionResult> SetLevel(EntityId entity, int level) =>
         Submit(ProgressionOp.SetLevel, entity, level < 1 ? 0u : (uint)level, 0, 0, 0);
 
+    [RequiresCapability(PlayersCaps.Progression)]
     public static Task<ProgressionResult> AddExperience(EntityId entity, uint amount, ExperienceSource source = ExperienceSource.None,
         bool sendEvent = true) =>
         Submit(ProgressionOp.AddExperience, entity, amount, 0, sendEvent ? 0 : FlagNoEvent, (uint)source);
 
+    [RequiresCapability(PlayersCaps.Progression)]
     public static Task<ProgressionResult> SetExperience(EntityId entity, uint experience) =>
         Submit(ProgressionOp.SetExperience, entity, experience, 0, 0, 0);
 
+    [RequiresCapability(PlayersCaps.Progression)]
     public static Task<ProgressionResult> GiveSkillPoints(EntityId entity, int points) =>
         Submit(ProgressionOp.GiveSkillPoints, entity, points < 1 ? 0u : (uint)points, 0, 0, 0);
 
+    [RequiresCapability(PlayersCaps.Progression)]
     public static Task<ProgressionResult> Unlock(EntityId entity, uint node, bool force = false) =>
         Submit(ProgressionOp.Unlock, entity, 0, node, force ? FlagForce : 0, 0);
 
+    [RequiresCapability(PlayersCaps.Progression)]
     public static Task<ProgressionResult> Lock(EntityId entity, uint node, bool force = false) =>
         Submit(ProgressionOp.Lock, entity, 0, node, force ? FlagForce : 0, 0);
 
+    [RequiresCapability(PlayersCaps.Progression)]
     public static Task<ProgressionResult> Respec(EntityId entity) => Submit(ProgressionOp.Respec, entity, 0, 0, 0, 0);
 
     // ---- requests ----
     private static readonly object Lock_ = new();
-    private static readonly Dictionary<ulong, (TaskCompletionSource<ProgressionResult> Tcs, ProgressionOp Op, EntityId Entity)> Waiting = new();
+    // Serial: the player's identity at the request (null: no source could say), so the change event names no one else
+    private static readonly Dictionary<ulong, (TaskCompletionSource<ProgressionResult> Tcs, ProgressionOp Op, EntityId Entity, string Origin, ulong? Serial)> Waiting = new();
     private static IDisposable? _pump;
 
     /// <summary>Queues a request. Argument errors throw (<see cref="ArgumentException"/>); a player who is not in game
@@ -426,7 +458,7 @@ public static unsafe class Progression
         var tcs = new TaskCompletionSource<ProgressionResult>(TaskCreationOptions.None);  // continuations: tick thread
         lock (Lock_)
         {
-            Waiting[id] = (tcs, op, entity);
+            Waiting[id] = (tcs, op, entity, ModContext.CurrentMod?.Info.Id ?? "", ProgressionChanges.IdentityOf(entity));
             _pump ??= ServiceTick.Add("kiln.progression results", Pump);
         }
         return tcs.Task;
@@ -436,21 +468,23 @@ public static unsafe class Progression
     {
         var t = T;
         if (t == null) return;
-        List<(ulong, TaskCompletionSource<ProgressionResult>, ProgressionOp, EntityId)> due;
+        List<(ulong, TaskCompletionSource<ProgressionResult>, ProgressionOp, EntityId, string, ulong?)> due;
         lock (Lock_)
         {
             if (Waiting.Count == 0) return;
-            due = [.. Waiting.Select(kv => (kv.Key, kv.Value.Tcs, kv.Value.Op, kv.Value.Entity))];
+            due = [.. Waiting.Select(kv => (kv.Key, kv.Value.Tcs, kv.Value.Op, kv.Value.Entity, kv.Value.Origin, kv.Value.Serial))];
         }
-        foreach (var (id, tcs, op, entity) in due)
+        foreach (var (id, tcs, op, entity, origin, serial) in due)
         {
             NativeResult r = default;
             r.Size = (uint)sizeof(NativeResult);
             if (t->Result(id, &r) != Ok) continue;
             lock (Lock_) Waiting.Remove(id);
-            tcs.TrySetResult(new ProgressionResult(id, op, entity, r.Status == Ok, Code(r.Status), (int)r.Applied,
+            var result = new ProgressionResult(id, op, entity, r.Status == Ok, Code(r.Status), (int)r.Applied,
                 (int)r.Steps, r.Before.Size != 0 ? Convert(&r.Before) : null, r.After.Size != 0 ? Convert(&r.After) : null,
-                Text(r.Reason, 160)));
+                Text(r.Reason, 160));
+            ProgressionChanges.Completed(result, origin, serial);  // before the caller's task continues
+            tcs.TrySetResult(result);
         }
     }
 
@@ -493,6 +527,7 @@ public static unsafe class Progression
 
         /// <summary>The game's own experience table: what <paramref name="level"/> needs for the next level, and the
         /// level cap. Tick thread.</summary>
+        [TickThreadOnly]
         public static (uint Needed, int Cap) ExperienceForLevel(int level)
         {
             var t = Require(nameof(ExperienceForLevel));
@@ -513,6 +548,7 @@ public static unsafe class Progression
         /// 3 values) or Level (true, 2 values) component laid out as the game initialises one: writes
         /// <paramref name="setValue"/> into attribute <paramref name="setId"/> (0: none) and re-runs the formulas. Tick
         /// thread.</summary>
+        [TickThreadOnly]
         public static AttrProbe ProbeAttributes(bool level, uint[] storage, uint setId = 0, uint setValue = 0)
         {
             ArgumentNullException.ThrowIfNull(storage);
@@ -547,6 +583,7 @@ public static unsafe class Progression
         /// on a scratch UnlockedSkillNodes that starts empty: no player needed. Tick thread.</summary>
         [System.Diagnostics.CodeAnalysis.Experimental("KILNX001", UrlFormat = "https://github.com/frostdev-ops/kiln/blob/main/docs/kiln/modding/analyzers.md#kilnx001")]
         [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
+        [TickThreadOnly]
         public static IReadOnlyList<SimResult> Simulate(IReadOnlyList<(SimOp Op, uint Node)> steps)
         {
             ArgumentNullException.ThrowIfNull(steps);
@@ -593,7 +630,7 @@ public static unsafe class Progression
         switch (rc)
         {
             case Ok: return;
-            case Unavailable: throw new NotSupportedException($"Progression.{api}: unavailable on this build");
+            case Unavailable: throw PlayersCaps.Off(PlayersCaps.Progression, $"Progression.{api}: unavailable on this build");
             case WrongThread: throw new InvalidOperationException($"Progression.{api}: call it on the tick thread");
             default: throw new InvalidOperationException($"Progression.{api}: kiln.progression returned {rc}");
         }

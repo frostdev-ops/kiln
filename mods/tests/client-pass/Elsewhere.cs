@@ -59,6 +59,96 @@ public sealed partial class ClientPassMod
         "On Windows, where dev.19 took over nxm:// links from Vortex, with this launcher (Nexus off) installed: press Mod " +
         "Manager Download on a Nexus mod page. Does Vortex open the link, not Kiln?");
 
+    [ClientCheck("windows.cook", "The launcher's own Python cooks a mod on Windows", Area = "Launcher", Since = Dev27,
+        Tags = [Windows, Launcher], Order = 916)]
+    public Task WindowsCook(CheckContext c) => Outside(c,
+        "On Windows, with no Python installed (or without touching the one you have): install the WeaponMoves sample " +
+        "through the launcher and press Play. The launcher cooks it (\"Cooking Weapon Moves\") with the Python in its " +
+        "own folder, the game starts and the moves animate. Then use Cook again, press Play and cancel the cook: no " +
+        "python.exe is left in the Task Manager. Did the cook work, and did Cancel leave nothing running?");
+
+    [ClientCheck("editor.keeps-changes", "The save editor keeps your changes and asks before it drops them", Area = "Launcher",
+        Since = Dev27, Tags = [Launcher], Order = 409)]
+    public Task EditorKeepsChanges(CheckContext c) => Outside(c,
+        "In the launcher's window on the desktop, with the game closed: open Editor (the newest character opens, with " +
+        "icons). Change an amount, go to Settings and back: it still says Not saved. Press Z (or Discard): it asks " +
+        "\"Discard the changes?\" first. Change an amount again and pick another character from the name: it asks " +
+        "first. Did the change stay, and did it ask both times?");
+
+    [ClientCheck("editor.save-one-backup", "Saving in the save editor makes one backup", Area = "Launcher", Since = Dev27,
+        Tags = [Launcher], Order = 410)]
+    public Task EditorSaveOneBackup(CheckContext c) => Outside(c,
+        "In the save editor with the game closed: change an amount and press Save. It says Saved. Open Backups: exactly " +
+        "one new \"Kiln backup\" is at the top, and the game's own backups are named as the game's. In the game, is the " +
+        "amount what you set? Was there one new backup, not two?");
+
+    [ClientCheck("editor.save-the-game-wrote", "The save editor does not overwrite a save the game wrote meanwhile",
+        Area = "Launcher", Since = Dev27, Tags = [Launcher], Order = 411)]
+    public Task EditorSaveTheGameWrote(CheckContext c) => Outside(c,
+        "Open the save editor and change nothing; play, let the game save, quit: within a few seconds the editor shows the " +
+        "character as the game left it. Then change an amount in the editor, play and let the game save again, quit, and " +
+        "press Save in the editor: it refuses and offers \"Read again\". Did it read by itself the first time and refuse " +
+        "the second time?");
+
+    [ClientCheck("editor.add-item-typing", "Typing in the save editor's Add item search", Area = "Launcher", Since = Dev27,
+        Tags = [Launcher], Order = 412)]
+    public Task EditorAddItemTyping(CheckContext c) => Outside(c,
+        "In the save editor, Add item: type a search quickly. Do the letters appear as you type, with the list following " +
+        "(the list itself may take as long as before)?");
+
+    [ClientCheck("launcher.add-7z-rar", "Add mods takes a 7z and a rar", Area = "Launcher", Since = Dev27,
+        Tags = [Launcher], Order = 418)]
+    public Task LauncherAdd7zRar(CheckContext c) => Outside(c,
+        "In the launcher's window: press Add mods above the list. Does the file dialog show .7z and .rar files next to " +
+        ".zip and .dll? Pick a mod packed as .7z: it is in the list, on. Then drop a mod packed as .rar on the window (on " +
+        "Windows this needs WinRAR, 7-Zip or the tar.exe Windows has; without one the toast says to extract it first). Did " +
+        "both come in?");
+
+    [ClientCheck("launcher.select-many", "Selecting several mods: switch them and remove them at once", Area = "Launcher",
+        Since = Dev27, Tags = [Launcher], Order = 430)]
+    public Task LauncherSelectMany(CheckContext c) => Outside(c,
+        "In the launcher with the game closed: tick the box of one mod in the list, Shift+click another a few rows down: " +
+        "the rows between are selected too and the bar says how many. Press Switch off, then Undo in the toast: they are " +
+        "back as they were. Select three mods you can add again later and press Remove…: one question lists all three; " +
+        "press Remove 3. Are all three gone from the list, and does Play start the game without them? On a Steam Deck: L2 " +
+        "on a mod selects it, R2 shows what to do with the selected ones. Did it all work, and was the question readable?");
+
+    [ClientCheck("launcher.all-on-off-new-profile", "All on, All off, and a new profile from a drop", Area = "Launcher",
+        Since = Dev27, Tags = [Launcher], Order = 419)]
+    public Task LauncherAllOnOffNewProfile(CheckContext c) => Outside(c,
+        "In the launcher with the game closed: pick one kind in Kind above the list and press \"Shown off (N)\": N mods " +
+        "go off, the others stay as they were; press Undo in the toast: they are back. Then in Settings, Profiles load " +
+        "\"No profile\", drop a mod on the window, press \"Add to a profile\", then \"New profile…\", give a name and press " +
+        "\"Make and add\"; press \"Load it\" in the toast. Is the new profile loaded with the mod on, and did Play start " +
+        "the game with it?");
+
+    [ClientCheck("launcher.library-changed", "A mod edited in its own folder: Changed on disk, and Use the changed files",
+        Area = "Launcher", Since = Dev27, Tags = [Launcher], Order = 427)]
+    public Task LauncherLibraryChanged(CheckContext c) => Outside(c,
+        "With the game closed, an EML mod on in the main list (an XHL mod is a good one): its menu, Open folder; change " +
+        "the \"name\" in its mod.json and save it. Go to Settings and back: its row says \"Changed on disk\" with " +
+        "\"Use the changed files\". In Settings, Profiles, load \"No profile\", then load your profile again: the error " +
+        "names the mod (\"... was changed in its folder\", not \"library hash mismatch\") and offers Use the changed " +
+        "files; press it. Is the profile loaded then, does the list show the new name, and does Play start the game " +
+        "with the mod?");
+
+    [ClientCheck("launcher.profile-again", "A profile deleted and made again under the same name takes a switch",
+        Area = "Launcher", Since = Dev27, Tags = [Launcher], Order = 428)]
+    public Task LauncherProfileAgain(CheckContext c) => Outside(c,
+        "In Settings, Profiles: load another profile, delete your usual one, then Save current as... with the deleted " +
+        "one's name and Load it. On the main screen switch a mod off and on. Does it switch without \"changed meanwhile " +
+        "(generation ... on disk, ... here)\", and does the profile hold only its own mods?");
+
+    [ClientCheck("launcher.start-progress", "Play shows what the start is doing, and the second start says how long it takes",
+        Area = "Launcher", Since = Dev27, Tags = [Launcher], Order = 429)]
+    public Task LauncherStartProgress(CheckContext c) => Outside(c,
+        "With the game closed, press Play on the main screen and watch the launcher until the game's main menu: a bar, " +
+        "the step it is on (cooking a mod, Steam, Kiln's services with what it works on), and \"First start with these " +
+        "mods on this PC: Kiln is timing it\"; \"Running\" only once the main menu is there. Quit the game, press Play " +
+        "again: now it says \"About ... left\" and counts down. Note the time it said right after Play and time how " +
+        "long it really took to the main menu. Did the first start name its steps and say it is timing them, did the " +
+        "second show a time left, and how close was it (said and real, in seconds)?");
+
     // ---- a Steam Deck ----
 
     [ClientCheck("deck.no-kiln", "\"No Kiln\" in the launcher on a Steam Deck", Area = "Steam Deck", Since = Dev16,
@@ -74,6 +164,39 @@ public sealed partial class ClientPassMod
         "On a Steam Deck in game mode, with the controller only: open a dialog in the launcher and close it with B, move " +
         "focus over every button of the Play page and Settings (focus never gets lost, also on disabled buttons), scroll a " +
         "long text, and hold to uninstall a mod but let go early (it stops). Did each of these work?");
+
+    [ClientCheck("deck.cook-again", "Cook again on the Steam Deck", Area = "Steam Deck", Since = Dev27,
+        Tags = [SteamDeck, Launcher], Order = 929)]
+    public Task DeckCookAgain(CheckContext c) => Outside(c,
+        "On a Steam Deck, in the launcher's Mods screen: move to the WeaponMoves mod and press Y (Cook again). The row " +
+        "says Cooking while it runs, then a message says \"Weapon Moves cooked\". Did it?");
+
+    [ClientCheck("deck.editor-items", "The save editor on the Steam Deck: items with the controller alone", Area = "Steam Deck",
+        Since = Dev27, Tags = [SteamDeck, Launcher], Order = 923)]
+    public Task DeckEditorItems(CheckContext c) => Outside(c,
+        "On a Steam Deck, the game closed: R1 to Editor. Your character is there and the panel on the right follows the " +
+        "D-pad over the backpack. A on a stack, A on its amount, 2, 0, 0, then Y: it says 200. A on an empty slot, Steam + " +
+        "X: the keyboard types into the search; A on an item, A again: it is added. X saves. In the game, is the stack " +
+        "200 and the added item there? Was anything too small to read or hard to reach?");
+
+    [ClientCheck("deck.editor-skills-knowledge", "The save editor on the Steam Deck: skills and knowledge", Area = "Steam Deck",
+        Since = Dev27, Tags = [SteamDeck, Launcher], Order = 924)]
+    public Task DeckEditorSkillsKnowledge(CheckContext c) => Outside(c,
+        "On a Steam Deck in the Editor tab: L2/R2 to Skills. The camera follows the D-pad, A raises a node and Y lowers " +
+        "it. Then Knowledge: A on \"Above level\", 3, 0, Y: the list is shorter. Did both work with the controller alone?");
+
+    [ClientCheck("deck.editor-backups-quit", "The save editor on the Steam Deck: backups, and Quit names unsaved changes",
+        Area = "Steam Deck", Since = Dev27, Tags = [SteamDeck, Launcher], Order = 925)]
+    public Task DeckEditorBackupsQuit(CheckContext c) => Outside(c,
+        "On a Steam Deck in the Editor tab: Backups, A on one, then Restore: the character is read again. Then change an " +
+        "amount and press Start, Quit: the dialog names the unsaved changes. Did the restore read the character again, " +
+        "and did Quit name the changes?");
+
+    [ClientCheck("deck.tabs-fast", "L1 and R1 pressed fast on the Steam Deck", Area = "Steam Deck", Since = Dev27,
+        Tags = [SteamDeck, Launcher], Order = 926)]
+    public Task DeckTabsFast(CheckContext c) => Outside(c,
+        "On a Steam Deck, from Home: press R1 several times fast, counting. Do you land on the tab you counted to (before " +
+        "0.2.0-dev.27 fast presses were skipped)?");
 
     // ---- another host ----
 
@@ -93,6 +216,26 @@ public sealed partial class ClientPassMod
     public Task ServerPackRented(CheckContext c) => Outside(c,
         "Upload kiln-server-<version>.zip to a rented Enshrouded host as its page says, with one server mod, start the " +
         "server and join it. Did the server start with Kiln (its log names Kiln) and could you join and see the mod act?");
+
+    [ClientCheck("emf.mods-check", "An EMF server's mod check on join", Area = "Other frameworks", Since = Dev27,
+        Tags = [OtherHost], Order = 934)]
+    public Task EmfModsCheck(CheckContext c) => Outside(c,
+        "Join a server that runs EMF 0.6.8 with [net] mods_check=refuse and at least one mod with a channel, with the same " +
+        "EMF mods in your own game. After 90 seconds you are still connected, and kiln.log has \"EMF mods check: against " +
+        "the server's mods: same mods\". Then, with the server on mods_check=warn and one of its \"side\": \"both\" mods " +
+        "missing in your game: one note at the top of the screen names the mod and ends \"Install the same versions in " +
+        "the Kiln launcher.\", in at most three rows. Did you stay connected, and did the note show as described?");
+
+    [ClientCheck("launcher.own-eml-folder-under-sf", "The launcher names an EML mod in your own folder that ShroudForge has off",
+        Area = "Launcher", Since = Dev27, Tags = [Visual], Order = 935)]
+    public Task LauncherOwnEmlFolderUnderSf(CheckContext c) => Outside(c,
+        "In a profile with a ShroudForge mod on and Auto Loot Plus on: put Auto Loot Plus by hand into the game's mods " +
+        "folder as well (its mods/auto-loot-plus folder from the mod's zip, without extended.mod.json), press Play and " +
+        "close the game at the main menu. On the Play page, the EML line under the engines says Auto Loot Plus runs from " +
+        "your own folder and that ShroudForge has it switched off, with where to switch it on (Kiln's in-game menu, Mods, " +
+        "ShroudForge, or ShroudForge's own Modloader); it does not say to activate the profile again to copy it. Switch it " +
+        "on in the in-game menu, start the game again and look once more: is the switched-off part gone? Then remove the " +
+        "folder you added. Did the line say this both times?");
 
     [ClientCheck("launcher.linked-home", "An EML mod on a host where /home links to /var/home", Area = "Launcher",
         Since = Dev21, Tags = [OtherHost], Order = 933)]

@@ -19,6 +19,9 @@ struct Seen {
     boot: Option<SystemTime>,
     mods: Option<SystemTime>,
     native: Option<SystemTime>,
+    /// progress.json (what the start is doing): a change while the game runs is looked at, so a start that reached
+    /// `ready` is kept in the start times even when no window asks (commands::launch::progress_round).
+    progress: Option<SystemTime>,
 }
 
 fn mtime(p: &Path) -> Option<SystemTime> {
@@ -247,10 +250,13 @@ pub fn start(app: AppHandle) {
                         boot: mtime(&g.path.join(gp::BOOT_JSON)),
                         mods: mtime(&g.path.join(gp::MODS_JSON)),
                         native: mtime(&g.path.join(gp::NATIVE_JSON)),
+                        progress: mtime(&g.path.join(kiln_manage::start_progress::PROGRESS_JSON)),
                     };
                     if now.pid.is_none() {
                         follow_profile(&app, g, &mut profiles);
                     }
+                    // a start this launcher tracks keeps to its deadlines whatever a window does
+                    crate::commands::launch::prune(&g.id, now.pid.is_some());
                     let Some(before) = seen.insert(g.id.clone(), now.clone()) else { continue };
                     if before == now {
                         continue;
@@ -271,6 +277,15 @@ pub fn start(app: AppHandle) {
                     }
                     if before.native != now.native && now.native.is_some() {
                         emit_game(&app, &g.id, GameEventKind::Native, now.pid);
+                    }
+                    let progressed = (before.progress != now.progress && now.pid.is_some()) || (before.pid.is_some() && now.pid.is_none());
+                    if progressed && let Ok(d) = crate::state::dirs() {
+                        let _ = crate::commands::launch::progress_round(&d, g);
+                    }
+                    // fresh runtime progress always reaches the window (it may have stopped following: No Kiln)
+                    // (no status with it: at most one a second, and the window only looks at the start again)
+                    if before.progress != now.progress && now.pid.is_some() {
+                        let _ = app.emit(events::GAME, GameEvent { game_id: g.id.clone(), kind: GameEventKind::Progress, pid: now.pid, status: None });
                     }
                 }
                 drop(writing);

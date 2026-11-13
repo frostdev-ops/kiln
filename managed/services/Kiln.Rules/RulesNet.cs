@@ -6,7 +6,8 @@
 // Messages (channel v4; additions never change the version, which must match exactly): 0 RulesMsg to the client
 // (dev.24 appends the glider steering limit; an older client reads the fields it knows, NetChannel ignores the rest),
 // 1 FlightCapability to the server, 2 ClientHooks to the server (since dev.24: the predicted hooks this game has; an
-// older server has no handler for it and drops it unread).
+// older server has no handler for it and drops it unread; dev.27 adds the NoClip hook's bit, which an older server
+// ignores and an older game never sets).
 namespace Kiln;
 
 internal static unsafe class RulesNet
@@ -21,12 +22,19 @@ internal static unsafe class RulesNet
     private static readonly HashSet<NetPeer> FlightPeers = new();
     private static bool? _flightSent;
 
-    /// <summary>The client's own kiln.rules hooks its prediction applies (KILN_RULES_HOOK_* bits; since dev.24 the
-    /// server reads only <see cref="RulesNative.HookGlideSteer"/>).</summary>
+    /// <summary>The client's own kiln.rules hooks its prediction applies (KILN_RULES_HOOK_* bits; the server reads
+    /// <see cref="RulesNative.HookGlideSteer"/> and, since dev.27, <see cref="RulesNative.HookNoClip"/>).</summary>
     internal readonly record struct ClientHooks(uint Hooks);
-    private const uint PredictedHooks = RulesNative.HookGlideSteer;
+    private const uint PredictedHooks = RulesNative.HookGlideSteer | RulesNative.HookNoClip;
     private static readonly HashSet<NetPeer> SteerPeers = new();
+    private static readonly HashSet<NetPeer> NoClipPeers = new();  // since dev.27: games that confirmed the collision hook
     private static uint? _hooksSent;
+    private static uint _clientHooks;  // this game's hooks as ClientFlight last read them (client tick)
+
+    internal static bool NoClipReady(NetPeer? peer)
+    {
+        lock (Lock) return peer is { State: NetPeerState.Ready } && NoClipPeers.Contains(peer);
+    }
 
     internal static bool SteerReady(NetPeer? peer)
     {
@@ -39,6 +47,8 @@ internal static unsafe class RulesNet
         {
             if ((hooks & RulesNative.HookGlideSteer) != 0 && peer.State == NetPeerState.Ready) SteerPeers.Add(peer);
             else SteerPeers.Remove(peer);
+            if ((hooks & RulesNative.HookNoClip) != 0 && peer.State == NetPeerState.Ready) NoClipPeers.Add(peer);
+            else NoClipPeers.Remove(peer);
         }
         RulesRuntime.Dirty();
     }
@@ -50,10 +60,11 @@ internal static unsafe class RulesNet
     {
         try
         {
-            // once per connection: the steering hook is installed at boot or never (reading the status costs a lock per slot)
-            if (_hooksSent is not null || Client.IsHosting) return;
-            var hooks = RulesNative.Hooks & PredictedHooks;
-            if (_channel?.SendToServer(new ClientHooks(hooks)) == true) _hooksSent = hooks;
+            // Sent when it changes: the steering hook is installed at boot or never, NoClip's with character flight's at
+            // the first world. ClientFlight read the status this tick already (it costs a lock per slot).
+            if (Client.IsHosting) return;
+            var hooks = _clientHooks & PredictedHooks;
+            if (_hooksSent != hooks && _channel?.SendToServer(new ClientHooks(hooks)) == true) _hooksSent = hooks;
         }
         catch (Exception) { } // no client world or channel yet; retry next client tick
     }
@@ -78,7 +89,8 @@ internal static unsafe class RulesNet
         try
         {
             if (Client.IsHosting) return;
-            var enabled = (RulesNative.Hooks & RulesNative.HookFlight) != 0 && !CreativeFlame.Running;
+            _clientHooks = RulesNative.Hooks;
+            var enabled = (_clientHooks & RulesNative.HookFlight) != 0 && !CreativeFlame.Running;
             if (_flightSent != enabled && _channel?.SendToServer(new FlightCapability(enabled)) == true) _flightSent = enabled;
         }
         catch (Exception) { } // no client world or channel yet; retry next client tick
@@ -134,7 +146,7 @@ internal static unsafe class RulesNet
                 Network.Disconnected += _ => { _flightSent = null; _hooksSent = null; SetLocal(RulesNativePart.Default); };
                 Network.ServerReady += _ => { _flightSent = null; _hooksSent = null; };
                 Events.On<NetPeerLeftEvent>(e => { FlightCapabilityOf(e.Peer, false); ClientHooksOf(e.Peer, 0); });
-                Events.On<ServerStoppingEvent>(_ => { lock (Lock) { FlightPeers.Clear(); SteerPeers.Clear(); } });
+                Events.On<ServerStoppingEvent>(_ => { lock (Lock) { FlightPeers.Clear(); SteerPeers.Clear(); NoClipPeers.Clear(); } });
                 Client.Tick += ClientFlight;
                 Client.Tick += ClientPredicts;
             }
@@ -181,7 +193,8 @@ internal static unsafe class RulesNet
                 ((part.Flags & RulesNative.GlideBoost) != 0
                     ? $", boost {part.GlideThrust} m/s² to {part.GlideMaxSpeed} m/s, lift {part.GlideLift}, climb {part.GlideClimb} m/s"
                     : "") +
-                ((part.Flags & RulesNative.GlideSteer) != 0 ? $", glider steering up to {part.GlideSteerLimit}°" : ""));
+                ((part.Flags & RulesNative.GlideSteer) != 0 ? $", glider steering up to {part.GlideSteerLimit}°" : "") +
+                ((part.Flags & RulesNative.NoClip) != 0 ? ", NoClip" : ""));
         }
     }
 
@@ -207,6 +220,7 @@ internal static class RulesStartup
 {
     static RulesStartup()
     {
+        RulesCaps.Rows.Ensure();  // the rules.* features lowered when kiln.rules is missing (never throws)
         try
         {
             RulesNet.Start();
@@ -228,10 +242,11 @@ internal static class RulesStartup
         try
         {
             Creative.RegisterCommand();
+            NoClip.RegisterCommand();
         }
         catch (Exception e) when (e is FileNotFoundException or FileLoadException or TypeLoadException or InvalidOperationException)
         {
-            RulesRuntime.Log(LogLevel.Warn, $"/creative is not available: {e.Message}");
+            RulesRuntime.Log(LogLevel.Warn, $"/creative and /noclip are not available: {e.Message}");
         }
     }
 }

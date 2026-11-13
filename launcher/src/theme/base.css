@@ -27,6 +27,11 @@ p { margin: 0; }
 ::-webkit-scrollbar-thumb:hover { background-color: rgba(255, 190, 140, .3); }
 ::-webkit-scrollbar-track, ::-webkit-scrollbar-corner { background: transparent; }
 * { scrollbar-color: rgba(255, 190, 140, .18) transparent; scrollbar-width: thin; }
+/* WebKitGTK paints thin (overlay) scrollbars after everything else: under a dialog the page's scrollbars are hidden,
+   or the mods list's showed across a confirmation (ui/Modal.tsx useCoverPage). The dialogs themselves are outside
+   these roots (portals), so their own scrollbars stay. */
+html[data-covered] .k-app *, html[data-covered] [data-deck-screen] * { scrollbar-width: none !important; }
+html[data-covered] .k-app ::-webkit-scrollbar, html[data-covered] [data-deck-screen] ::-webkit-scrollbar { display: none; }
 
 /* ---------------------------------------------------------------- frame */
 /* --fire: the flicker (shell/Stage.tsx sets it about 11 times a second on the two elements that use it, .k-title and
@@ -128,6 +133,40 @@ p { margin: 0; }
 .k-hero-facts > div:last-child dd { overflow: hidden; text-overflow: ellipsis; }
 .k-hero-facts > div:last-child dd > .k-link { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
 .k-hero-task { max-width: 460px; }
+/* a start that says what it does (shell/StartProgress.tsx): the step's line, the bar, the time left, the steps. The bar is
+   a slim channel of molten ember in a dark well; counted by steps (no number yet) it is gold and quieter */
+.k-hero-start { flex: 1 1 0; min-height: 0; }
+.k-start { display: flex; flex-direction: column; gap: 9px; min-height: 0; flex: 1 1 0; }
+.k-start-line { overflow: hidden; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.k-start-bar { position: relative; height: 10px; border-radius: 5px; overflow: hidden; max-width: 640px;
+  background: linear-gradient(rgba(10, 6, 4, .9), rgba(24, 14, 9, .85)); box-shadow: inset 0 0 0 1px var(--k-line), inset 0 2px 4px rgba(0, 0, 0, .6); }
+.k-start-bar > i { position: absolute; inset: 0 auto 0 0; border-radius: 5px; transition: width .9s var(--k-out);
+  background: linear-gradient(90deg, var(--k-ember-700), var(--k-ember-500) 60%, var(--k-ember-300)); box-shadow: 0 0 12px rgba(255, 120, 40, .55); }
+.k-start-bar.by-steps > i { background: linear-gradient(90deg, var(--k-gold-600), var(--k-gold-400)); box-shadow: 0 0 10px rgba(249, 199, 79, .35); }
+.k-start-left { margin: 0; font-size: 18px; color: var(--k-text-0); }
+.k-start-basis { color: var(--k-text-2); font-size: 16px; }
+.k-start-steps { list-style: none; margin: 2px 0 0; padding: 6px 4px; flex: 1 1 0; min-height: 0; max-width: 640px; overflow-y: auto; scrollbar-width: thin;
+  border-radius: var(--k-radius-m); background: linear-gradient(rgba(14, 9, 7, .72), rgba(10, 7, 5, .64)); box-shadow: inset 0 0 0 1px var(--k-line); }
+.k-start-step { display: grid; grid-template-columns: 18px minmax(0, 1fr) auto; align-items: center; gap: 0 8px; min-height: 26px; padding: 0 8px; font-size: 16px; color: var(--k-text-2); }
+.k-start-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.k-start-time { font-size: 14.5px; color: var(--k-text-2); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.k-start-dot { width: 8px; height: 8px; border-radius: 50%; justify-self: center; border: 1.5px solid var(--k-text-3); }
+.k-start-step.is-done { color: var(--k-text-1); }
+.k-start-step.is-done .k-start-dot { border-color: var(--k-ember-600); background: var(--k-ember-600); }
+.k-start-step.is-running { color: var(--k-head); }
+.k-start-step.is-running .k-start-dot { border-color: var(--k-ember-400); background: var(--k-ember-400); box-shadow: 0 0 8px rgba(255, 143, 69, .8); animation: k-start-pulse 1.4s ease-in-out infinite; }
+.k-start-step.is-running .k-start-time { color: var(--k-text-1); }
+@keyframes k-start-pulse { 50% { opacity: .45; } }
+@media (prefers-reduced-motion: reduce) { .k-start-step.is-running .k-start-dot { animation: none; } .k-start-bar > i { transition: none; } }
+/* short windows: the bar and one line (the steps are the bar's text for a screen reader) */
+@media (max-height: 700px) {
+  .k-start-steps { display: none; }
+  .k-start { flex: 0 0 auto; gap: 7px; }
+  .k-hero-start { flex: 0 0 auto; }
+  .k-start-line { -webkit-line-clamp: 1; font-size: 19px; }
+  .k-start-left { font-size: 16px; }
+}
+.k-head-start { max-width: 360px; overflow: hidden; text-overflow: ellipsis; }
 /* above the title: the display face's line box reaches up over the last banner and would take its clicks */
 .k-hero-banner { position: relative; z-index: 2; margin-bottom: 4px; }
 /* the main list (pages/mods/MainList.tsx): a dark well over the wall; it takes the column's free height and scrolls */
@@ -139,7 +178,24 @@ p { margin: 0; }
 .k-mods-kind { width: auto; height: 32px; font-size: 15px; flex: none; }
 .k-mods-list { list-style: none; margin: 0; padding: 4px 0; flex: 1 1 0; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin;
   scrollbar-color: var(--k-line-strong) transparent; }
-.k-mod { display: grid; grid-template-columns: 36px minmax(0, 1fr) 104px 74px 30px; align-items: center; gap: 0 8px; min-height: 42px; padding: 2px 8px 2px 6px; }
+.k-mod { display: grid; grid-template-columns: 22px 36px minmax(0, 1fr) 104px 74px 30px; align-items: center; gap: 0 8px; min-height: 42px; padding: 2px 8px 2px 4px; }
+/* the selection box: seen on hover and on focus, always once a row is selected (.k-mods.selecting) */
+.k-mod-check { width: 20px; height: 20px; padding: 0; border: 1.6px solid var(--k-text-3); border-radius: 4px; background: transparent; color: var(--k-ink, #1a0f08);
+  display: grid; place-items: center; cursor: pointer; opacity: 0; transition: opacity .12s; }
+.k-mod:hover .k-mod-check, .k-mod:focus-within .k-mod-check, .k-mods.selecting .k-mod-check { opacity: 1; }
+.k-mod-check:focus-visible { outline: 2px solid var(--k-gold-400); outline-offset: 2px; }
+.k-mod-check[aria-checked="true"] { background: var(--k-gold-400); border-color: var(--k-gold-400); }
+.k-mod-check svg { width: 14px; height: 14px; }
+.k-mod.picked { background: rgba(255, 190, 90, .08); }
+/* while rows are selected: their actions, above the list */
+.k-mods-selbar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; padding: 6px 12px 6px 10px; border-bottom: 1px solid var(--k-line);
+  background: rgba(255, 190, 90, .06); }
+.k-mods-selbar .k-link { font-size: 16.5px; white-space: nowrap; }
+.k-mods-selbar-count { font-family: var(--k-font-label); font-weight: 500; color: var(--k-gold-300); white-space: nowrap; }
+.k-mods-selbar .k-hint { font-size: 14.5px; }
+.k-remove-list { max-height: 240px; overflow-y: auto; margin: 8px 0 0; padding: 0 0 0 18px; text-align: left; }
+.k-remove-list li { margin: 2px 0; }
+.k-remove-list .k-muted { font-size: 14.5px; }
 .k-mod:hover { background: rgba(255, 150, 80, .05); }
 .k-mod.first-found { margin-top: 6px; border-top: 1px solid var(--k-line); padding-top: 8px; }
 .k-mod-text { display: flex; flex-direction: column; min-width: 0; gap: 0; }

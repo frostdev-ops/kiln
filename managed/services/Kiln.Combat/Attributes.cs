@@ -50,7 +50,8 @@ public readonly record struct AttributeReading(uint Id, GameAttribute Kind, int 
 /// (<see cref="Ids"/>: resolved from the game's attribute resource, not built in). Reading works on creatures and
 /// players alike; <see cref="Set(EntityId, GameAttribute, int)"/> and <see cref="Add(EntityId, GameAttribute, int)"/>
 /// clamp to the pair's minimum and maximum and go through the game's attribute code (its formulas re-run, and its
-/// own programs copy the values into what players are sent). A write is silent: no hit, no event.
+/// own programs copy the values into what players are sent). A write is silent in game (no hit); on Kiln's bus it posts
+/// <see cref="CombatChangedEvent"/> when the value changed.
 /// Tick thread only (except <see cref="Ids"/>).
 /// </summary>
 /// <remarks>The ids are also accepted as numbers (the game's attribute hash), which is how EMF's attribute_get and
@@ -61,15 +62,20 @@ public readonly record struct AttributeReading(uint Id, GameAttribute Kind, int 
 /// adds the run-time ids, an explicit clamp, body heat and oxygen, and the pair's bounds.</para>
 /// Player persistence is unverified: a write is not marked written for saving (Kiln's only mark-written path, kiln.world's,
 /// needs an ECS program's write record), the same as <see cref="Combat.SetHealth"/> (docs/re/combat.md "Attributes").</remarks>
+[ServerOnly]
 public static unsafe class Attributes
 {
-    /// <summary>True when the attribute functions work on this build and a world has started.</summary>
+    /// <summary>True when the attribute functions work on this build and a world has started (capability
+    /// <c>combat.attributes</c>).</summary>
+    [AnyThread]
     public static bool Available => Ids(GameAttribute.Stamina) is not null;
 
     /// <summary>The game's ids of a pair, or null before the first server world runs or when this build has no
     /// attribute resource Kiln understands.</summary>
+    [AnyThread]
     public static AttributeIds? Ids(GameAttribute attribute)
     {
+        Combat.Used();
         var t = CombatNative.V2;
         if (t == null) return null;
         CombatNative.AttributeIds ids = default;
@@ -90,8 +96,10 @@ public static unsafe class Attributes
     /// <summary>Any attribute of the five components by its id (current, minimum, maximum, recharge...), with its pair's
     /// current value and bounds; null when the entity lacks it. An id Kiln does not know throws.</summary>
     [TickThreadOnly]
+    [RequiresCapability(CombatCaps.Attributes)]
     public static AttributeReading? Get(EntityId entity, uint attributeId)
     {
+        Combat.Used();
         var t = CombatNative.RequireV2("Attributes.Get");
         Services.RequireTickThread("Attributes.Get");
         CombatNative.AttributeValue v = default;
@@ -114,10 +122,12 @@ public static unsafe class Attributes
 
     /// <summary>Set by the game's attribute id of a pair's current value (see <see cref="Ids"/>).</summary>
     [TickThreadOnly]
+    [RequiresCapability(CombatCaps.Attributes)]
     public static int Set(EntityId entity, uint attributeId, int value) => Write("Attributes.Set", entity, attributeId, value, add: false).Current;
 
     /// <summary>Add by the game's attribute id of a pair's current value.</summary>
     [TickThreadOnly]
+    [RequiresCapability(CombatCaps.Attributes)]
     public static int Add(EntityId entity, uint attributeId, int delta) => Write("Attributes.Add", entity, attributeId, delta, add: true).Current;
 
     /// <summary>Like <see cref="Set(EntityId, GameAttribute, int)"/>, false instead of throwing when the entity lacks the
@@ -139,12 +149,30 @@ public static unsafe class Attributes
         var t = CombatNative.V2;  // an older runtime without the attribute functions: unavailable, so false (not a throw)
         var ids = t == null ? null : Ids(attribute);
         if (ids is null) return false;
+        var before = Before(t, entity, ids.Value.CurrentId);
         CombatNative.AttributeValue v = default;
         v.Size = (uint)sizeof(CombatNative.AttributeValue);
         var rc = add ? t->AttributeAdd(entity.Value, ids.Value.CurrentId, value, &v) : t->AttributeSet(entity.Value, ids.Value.CurrentId, value, &v);
         if (rc != CombatNative.Ok) return false;
         result = Reading(v);
+        Posted(entity, result, before);
         return true;
+    }
+
+    // The current value before a write, read only while someone listens for CombatChangedEvent.
+    private static int? Before(CombatNative.TableV2* t, EntityId entity, uint attributeId)
+    {
+        if (!Events.HasSubscribers<CombatChangedEvent>()) return null;
+        CombatNative.AttributeValue v = default;
+        v.Size = (uint)sizeof(CombatNative.AttributeValue);
+        return t->AttributeGet(entity.Value, attributeId, &v) == CombatNative.Ok ? v.Current : null;
+    }
+
+    private static void Posted(EntityId entity, in AttributeReading after, int? before)
+    {
+        if (before is not { } b || b == after.Current) return;
+        var name = Enum.IsDefined(after.Kind) ? after.Kind.ToString() : $"0x{after.CurrentId:X8}";
+        Combat.Changed(entity, "Attribute." + name, b, after.Current);
     }
 
     private static AttributeReading Write(string api, EntityId entity, GameAttribute attribute, int value, bool add)
@@ -155,13 +183,17 @@ public static unsafe class Attributes
 
     private static AttributeReading Write(string api, EntityId entity, uint attributeId, int value, bool add)
     {
+        Combat.Used();
         var t = CombatNative.RequireV2(api);
         Services.RequireTickThread(api);
+        var before = Before(t, entity, attributeId);
         CombatNative.AttributeValue v = default;
         v.Size = (uint)sizeof(CombatNative.AttributeValue);
         var rc = add ? t->AttributeAdd(entity.Value, attributeId, value, &v) : t->AttributeSet(entity.Value, attributeId, value, &v);
         if (rc != CombatNative.Ok) throw new InvalidOperationException($"{api}({entity}, 0x{attributeId:X8}): {CombatNative.DescribeAttribute(rc)}");
-        return Reading(v);
+        var reading = Reading(v);
+        Posted(entity, reading, before);
+        return reading;
     }
 
     private static AttributeReading Reading(in CombatNative.AttributeValue v) =>

@@ -90,6 +90,94 @@ reflection, **[data]** the game's UI data, **[sf]** ShroudForge's shipped implem
 - Text lifetime: the game passes loca strings and frame-allocator strings; the UI may keep the pointer until the frame
   renders **[hyp]**, so Kiln interns labels for the process.
 
+### Layout and scrolling (client 26430625, static only, nothing of it run)
+Asked for a scrolling main and pause menu (2026-11-13: many rows before Settings push Quit off a 1080p screen). RVAs
+of 5d9ef2f1. Helper: `kx.py` (copied from the NoClip research) over the exe as a file.
+- **No cursor.** An entry is a frame of the game's retained layout tree, not a row at a cursor: SystemMenuEntry
+  `0xcb47f0` opens a child frame of the current parent (`0xa3cbd0(&frame, 0)`; the frame handle at `+8`), sizes it
+  (`0x11cf360(frame, {1.0, 0})`: full width, height from content), registers it for navigation (`0xa41fb0(UiApp,
+  frame)`), asks for hover/focus (`0xa4d2d0`, `0xa471b0`), draws the label (`0xd0d3b0`) and closes the frame
+  (`0xa40080`). Positions are computed by the layouter from the tree, so neither the row height nor the list's top is
+  a number the entry code reads. **[dis]**
+- **The pause menu's tree** (builder around `0xcd60f9`): a frame "systemMenuContent" (`0xa3cf70`, hash
+  0xca8fd50ed1226434), inside it "menuLayouter" (`0xa3cb10`, hash 0x84a61178ec189a93; a value 25 or 40 picked by the byte at
+  `rbp+0xb60`, use not traced; `0xa47740` with {0xe6000000, 1.0}), inside that a column frame (`0xa3c790`) whose width is the UI scale
+  (`0xd46090(UiApp, 1.4, 0.8)`) times 300 units, then the entries: Resume (`call 0xcb47f0` at `0xcd63ab`), Settings
+  (`0xcd6546`, the site Kiln draws before), and the rest down to Quit. **[dis]**
+- **The game's own scroll view exists:** `keen::GameUiScrollingLayout`. Begin **`0xa3e020(layout*, u8 dl, state*,
+  r9, params*)`**: `layout` is the caller's storage (at least 0x470 bytes: an outer frame at `+8`, a content frame at
+  `+0x38`, the copied parameters from `+0x58`), `params` a `GameUiScrollingLayoutParameterData` (0x184 bytes copied;
+  fields named in the reflection strings: enableScrollbar, forceScrollbar, doScissorWhenScrolling,
+  useAutoScrolling, scrollingHotKeyMask, showScrollHint, scrollbarAlignment, scrollBar), `state` a per-call-site block
+  from the UI's hash-keyed state store (`0x11a06e0(store, hash, size, ctor, 1)`; the credits use hash
+  0xeb56c10a5766ad62, size 4). It names the outer frame "GameUiScrollingLayout" and, vertically, moves the content
+  frame by the scroll offset (`0x11cf380(content, {0, offset})`). End **`0xa40160(layout*)`** (85 callers). The
+  credits (`0xb81ecc` … `0xb82a3e`) and the recipe info panel ("infoScroller", `0xbb5f66`) use it; the parameter
+  block is built by `0xa3eeb0` (defaults) and `0xa3df20` plus the scrollbar look copied from the UI bundle
+  (`UiApp+0xc8` at `+0xfa84…+0xfb04`). Frame state `keen::UiFrameScrollState` {scrollOffset, scrollAreaSize}.
+  **[dis] [refl]**
+- **Settled for the experiment (2026-11-13, static):**
+  - Layout nodes: `+0x6c` alignment (u16, `0x11ced70`), `+0x90` size (two floats, `0x11cf360`; 0 = fixed or from
+    content, 1.0 = the parent's), `+0xb8` stack kind (1 `0x11ceff0`, 2 `0x11cf380`: the column's kind, entries one
+    below the other) with its spacing at `+0xc0`, `+0x114` the rectangle x, y, w, h (`0x11b67d0` returns it). A frame
+    builder holds its node at `+8`. **[dis]**
+  - The column: `0xa3c790(&col, 0)` (a stack of kind 2, no spacing) at `0xcd620a`, fixed width (`0x11ceea0`, 300 ×
+    scale), size {0, 1.0} (as tall as its parent), alignment 0x201, then a flexible spacer (`0xb2a8e0(col, {1, 1})`),
+    the navigation scope (`0xa3f790(rbp+0x7b0)`), Resume … Quit, a fixed and a flexible spacer, the build number,
+    the scope's end (`0xa419d0`), and the column's end `0xa40080(&col)` at `0xcd6bbe`. Between `0xcd620f` and
+    `0xcd6bbe` no jump leaves and none comes in from outside, and there is no `ret`: every call that opens the column
+    closes it. So the column's height is bounded (its parent's), and the flexible spacers centre the entries; with too
+    many entries they overflow the column. **[dis]**
+  - `GameUiScrollingLayoutParameterData` fields (reflection records at `0x1b17930…0x1b17d20`: name, type, offset):
+    borderColor 0x0, scrollHintTexture 0x8, padding 0x18, scrollbarAlignment 0x28, showScrollHint 0x2a,
+    enableScrollbar 0x2b, useNavigation 0x2c, stealCapture 0x2d, doScissorWhenScrolling 0x2e, centerChildren 0x2f,
+    enableDrag 0x30, forceScrollbar 0x31, useGlobalFocus 0x32, useFillerSeperatorLineDistance 0x33, consumeInput 0x34,
+    useAutoScrolling 0x35, isDefaultRightStickTarget 0x36, fillerSeperatorLineDistance 0x38, spacing 0x3c,
+    scrollingHotKeyMask 0x40, mouseDragInputMask 0x41, scrollBar 0x44 (GameUiScrollbarParameterData); 0x104 bytes
+    (what begin copies). Defaults from `0xa3eeb0`: enableScrollbar, stealCapture, doScissorWhenScrolling, enableDrag,
+    consumeInput and useAutoScrolling on; useNavigation, centerChildren, forceScrollbar off; scrollingHotKeyMask 1.
+    The credits change enableScrollbar and consumeInput (a byte of theirs) and turn centerChildren on. **[refl] [dis]**
+  - Begin's `r8` is a 4-byte state block on a node from the state store (`0x11a06e0(node, hash, 4, 0xa3b900 (a no-op
+    constructor), 1)`; when `0x11bad80(block)` says it is new the credits zero it); `r9` is 0 in the callers read;
+    `dl` is 1 in 41 of the callers, including the credits and the recipe info, both vertical lists. With `dl` 1 the
+    content frame is a stack of kind 1, so callers open their own vertical stack inside it (the credits do). After
+    begin the credits call `0xd4e3e0(layout)` and pass its float to `0xa518a0(layout, f)`. **[dis]**
+- **First try in the client (2026-11-13, 3440x1440, owner):** the menu drew, no crash, the wheel scrolls; but the view
+  was a third of the column (log: column 1020, view 311, entries 1522), its scrollbar a plain white bar, and the view
+  did not follow the highlight (the arrow keys reach Quit out of sight). Causes, by reading:
+  - **Height.** `_spacer_` (`0xb2a8e0` flexible {1, 1}, `0xb2a810` fixed) creates its node with `0x11bf2e0(builder's
+    node, 0, 0)`: a child of the column's node itself, not of the current frame (`0xa3c790` and the entries use
+    `0x11c4c60` on the UI context's current parent). So the builder's two flexible spacers and one fixed spacer stay
+    children of the column next to Kiln's view; three flexible children of relative height 1 shared the free height:
+    (1020 - 87) / 3 = 311. Node fields: `+0x78/+0x7c` fixed size, `+0x90/+0x94` relative size (`0x11cf360`,
+    `0x11ceea0` fixed width, `0x11cee20` fixed height), `+0x6c` / `+0x6e` alignments. Kiln now gives the view the
+    relative height 1000. **[dis]** (the weight rule itself, that relative heights share the free space in proportion,
+    is inferred from 311 = 933 / 3) **[rt]**
+  - **Scrollbar.** Every list caller fills the scrollbar block (GameUiScrollbarParameterData, params `+0x44`, 0xc0
+    bytes) after `ScrollbarParamsInit 0xa3df20`: `+0x44` ← 32 bytes of the UI config at `+0xfa84`, `+0x24` ← 32 at
+    `+0xfac4`, `+0x4` ← 8 at `+0xfb04`, `+0x7c` = 1, `+0x80/+0x84/+0x88` = 24, `+0x8c` = 20, `+0x90` = 1 (the credits
+    `0xb81d89…0xb81e35` and the recipe info `0xbb5dcd…0xbb5e90` identically). Kiln copied only `0xa3eeb0`'s defaults,
+    whose bar has no textures. **[dis]**
+  - **Focus.** ScrollLayoutEnd `0xa40160`: without useNavigation (`+0x2c`) it looks the focused frame up in the
+    builder's own scope, or with useGlobalFocus (`+0x32`) in the UI's global one (`[ctx+0x10]+0x44`, `0x11b3670`),
+    checks that it lies inside the content (`0x11babf0`), takes its rectangle, and when the focused id differs from the
+    one it saw last and useAutoScrolling (`+0x35`) is on, scrolls it into view (`0xa403ec…0xa403fa`). The pause menu's
+    entries take the global focus (its navigation scope `0xa3f790` is opened inside Kiln's content), so the default
+    (useGlobalFocus off) never found them. The game's focus-navigated lists set useGlobalFocus 1 and add 0x18 to
+    scrollingHotKeyMask (`scrollerContentLayouter` `0xbefa33`, `itemGridScroller` `0xbbe35c`, …); Kiln does the same.
+    A wheel scroll moves the offset without changing the focused id, so the follow does not fight it. **[dis]**
+  - The begin's state block holds a float the end reads as the offset (`0xa403b5`); Kiln logs it the first times it
+    moves.
+- **Still a guess** (one look in the game settles it): that the view weight takes nearly the whole free height (the weight rule), that the
+  scrollbar block filled like the lists' draws the game's bar, and that useGlobalFocus makes the view follow the
+  entries' focus for the keys and the pad (the end code says so; nothing has run). Settled by the first try: `dl` 1
+  scrolls vertically, the wheel scrolls, the inner stack sizes to its entries. Kiln's experiment (`native/services/ui/menu_scroll.cpp`) does exactly what the credits do,
+  in the column, and logs the sizes it saw.
+- **Cost and risk:** the game's layout asserts are fatal (`0xcb4c38`: "SmallDynamicArray is out of elements", then
+  `0x8a0d90`): a wrong nesting ends the game on the first scrolled frame, which no run-time check can rule out before
+  it. Kiln's crash guard limits that to one start per Kiln version and game build. A game update moves every one of
+  these functions (each is a sigdb symbol of feature `ui.menu_scroll`).
+
 ### What Kiln does (native injection, shipped)
 - One inline hook on each renderer. When the call comes from the **Settings** entry's call site (return address =
   `ui/MainMenuSettingsA` / `B`, both layout branches; `ui/SystemMenuSettings`), Kiln first calls the original renderer

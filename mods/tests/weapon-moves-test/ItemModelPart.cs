@@ -26,6 +26,9 @@ public sealed partial class WeaponMovesTestMod
             var now = item.GetRef(field);
             var want = _wrong && h.Block == "held-sword" ? Guid.Empty : RigidBlade;
             Check(now == want, $"{h.Block}: {field} is the look's rigid model {RigidBlade}, a model of this mod ({(HeldCooked ? "cooked here" : "not cooked here")}): {now}");
+            // dev.27: a look with a model of its own and no Dropped lies on the ground as that model, not as its starter
+            var ground = item.GetRef("iconModel");
+            Check(ground == want, $"{h.Block}: lies on the ground as the look's own model (iconModel, no Dropped): {ground}; the starter {h.Starter}'s is {Content.Items.Get(h.Starter)?.GetRef("iconModel")}");
         }
         Probe("probe-unknown-model", Unknown);
         Probe("probe-not-loaded-model", NotLoaded);

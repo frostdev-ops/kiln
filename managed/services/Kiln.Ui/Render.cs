@@ -289,6 +289,7 @@ public enum MarkerShape
 
 /// <summary>Immediate-mode drawing in pixels (origin top left, y down) for a <see cref="RenderFrameEvent"/> handler. Drawn
 /// under every Kiln window, screen, HUD line and toast, over the game's picture. Only valid during the handler.</summary>
+[ClientOnly]
 public sealed unsafe class RenderDraw
 {
     internal RenderDraw() { }
@@ -402,6 +403,7 @@ public sealed unsafe class RenderDraw
 
 /// <summary>Drawing at world positions (metres) with the frame's camera. Nothing is drawn while the camera is not valid,
 /// and points behind the camera are skipped (lines and boxes are cut at the near plane).</summary>
+[ClientOnly]
 public sealed class WorldDraw
 {
     private readonly RenderFrameEvent _frame;
@@ -577,6 +579,7 @@ public sealed class WorldDraw
 }
 
 /// <summary>Render events, the game's camera and frame diagnostics (client).</summary>
+[ClientOnly]
 public static class Render
 {
     /// <summary>Render events and drawing work in this process (a game client with Kiln's overlay).</summary>
@@ -587,6 +590,7 @@ public static class Render
 
     /// <summary>The latest camera. Any thread; inside a <see cref="RenderFrameEvent"/> use its <c>Camera</c>, which is the
     /// same for the whole frame.</summary>
+    [AnyThread]
     public static RenderCamera Camera => new(RenderNative.ReadCamera());
 
     private static double _budgetMs = 2.0;

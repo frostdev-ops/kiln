@@ -13,7 +13,9 @@ public sealed class CreatureAiMod : Mod
         // even where a species rule would not).
         void Relate()
         {
-            if (Factions.Available) Factions.Relate(Faction.Vukah, Faction.Scavenger, Relation.Hostile);
+            // Factions.Available says more than the row (the service also found the game's checks on this build); the
+            // row is asked beside it because that is what Relate is marked with.
+            if (Factions.Available && Capabilities.Is("kiln.npcai")) Factions.Relate(Faction.Vukah, Faction.Scavenger, Relation.Hostile);
             else Log.Warn("Faction relations are unavailable on this game build.");
         }
         Events.On<ServerStartedEvent>(_ => Relate());
@@ -42,7 +44,7 @@ public sealed class CreatureAiMod : Mod
             {
                 Faction = Faction.PlayerAlly, Sight = 35,
                 Relations = new Dictionary<Faction, Relation> { [Faction.Vukah] = Relation.Hostile },
-                SenseFilter = (npc, other) => Creatures.Of(other).Level >= 5,
+                SenseFilter = (npc, other) => Creatures.Available && Creatures.Of(other).Level >= 5,
                 Roam = new RoamBlock { Min = 4, Max = 12, FromHome = 25 },
             },
             Behaviour = Behaviours.VukahMelee with

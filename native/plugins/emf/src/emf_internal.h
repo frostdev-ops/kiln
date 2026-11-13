@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// kiln-emf: loads unmodified EMF (Enshrouded Modding Framework 0.6.0, API v27, MIT) mods on Kiln. Shared state.
+// kiln-emf: loads unmodified EMF (Enshrouded Modding Framework 0.6.8, API v40, MIT) mods on Kiln. Shared state.
 //
 // Layout of the plugin:
 //   plugin.cpp    kiln_plugin_main / on_ready: step aside when the real EMF runs, discover, order and load the mods,
@@ -16,6 +16,8 @@
 //   api_components.cpp v23 change_component (a kiln.world program) and v25 E prompts (offers)
 //   api_windows.cpp v24 mod windows and v26 pictures through kiln.ui (client); refused on a dedicated server
 //   api_wheel.cpp v10 radial wheel through kiln.ui's wheel (client); refused on a dedicated server
+//   api_v40.cpp   v28-v40: world_to_screen through kiln.render; the functions Kiln does not carry yet answer their
+//                 documented failure (chat_tell_ex / chat_broadcast_ex are in api_game.cpp)
 //   v26_model.*   the v22-v26 logic without the game (host tests: tests/run.sh)
 //   seh.cpp       structured-exception guards around every call into a mod
 // Docs: docs/kiln/emf.md (users), docs/re/emf-compat.md (how each function maps onto Kiln).
@@ -56,7 +58,7 @@ namespace kemf {
 
 constexpr const char* kPluginId = "kiln-emf";
 constexpr const char* kPluginVersion = "0.1.0";
-constexpr uint32_t kEmfApiVersion = EMF_API_VERSION;  // 27
+constexpr uint32_t kEmfApiVersion = EMF_API_VERSION;  // 40
 
 // ---------------------------------------------------------------------------------------------- core handles ----
 extern const KilnApi* g_api;
@@ -216,12 +218,14 @@ void fill_windows(EmfApi* t);     // api_windows.cpp (v24, v26; it also fills th
 void fill_wheel(EmfApi* t);       // api_wheel.cpp (v10)
 void fill_attributes(EmfApi* t);  // api_attributes.cpp (v18)
 void fill_net(EmfApi* t);  // api_net.cpp (v27, EMF's wire protocol over the game's chat)
+void fill_v40(EmfApi* t);  // api_v40.cpp (v28-v40, without the two chat functions of api_game.cpp)
 void net_on_ready();
 void net_server_pre();
 void net_after_step(EmfWorld* w, uint8_t kind);
 void net_world_stopping(uint8_t kind);
 void net_world_started(uint8_t kind);
 void net_shutdown();
+void core_note(std::string_view text);  // api_game.cpp: a note of kiln-emf itself on the player's screen (any thread)
 void portraits_on_ready();  // offline generation through the separate GPL kiln-eml component (drawing on a worker)
 // image_load("portrait:<key>"): true when the picture is not being drawn (any more). While it is, the thread that started the
 // drawing waits (for 120 s all calls together); any other thread gets false at once (image_load then returns a pending handle).

@@ -41,7 +41,8 @@ public static unsafe class ScreenEffects
     private static readonly HashSet<ModContext> Watched = new(ReferenceEqualityComparer.Instance);
     private static int _warnedOff;
 
-    /// <summary>A play here would show (client), or the relay is open (server).</summary>
+    /// <summary>A play here would show (client; capability <c>kiln.screen</c>), or the relay is open (server; capability
+    /// <c>screen.relay</c>).</summary>
     public static bool Available => VfxCore.ServerSide ? ScreenRelay.Open : LocalAvailable;
 
     internal static bool LocalAvailable
@@ -111,6 +112,7 @@ public static unsafe class ScreenEffects
     }
 
     /// <summary>Client: it still shows, fading out included. Server: it has not been stopped and its length has not run out.</summary>
+    [AnyThread]
     public static bool IsPlaying(ScreenHandle h)
     {
         if (h.IsNone) return false;
@@ -119,6 +121,7 @@ public static unsafe class ScreenEffects
         return t != null && t->IsPlaying(h.Value) == 1;
     }
 
+    [AnyThread]
     public static ScreenStatus Status()
     {
         VfxStartup.Ensure();

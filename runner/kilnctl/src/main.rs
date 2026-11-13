@@ -296,8 +296,11 @@ enum LibraryCmd {
         #[arg(required = true)]
         paths: Vec<PathBuf>,
     },
-    /// List the library (optionally one kind: kiln, native, plugin, emf)
+    /// List the library (optionally one kind: kiln, native, plugin, emf); "(changed on disk)" marks an entry whose
+    /// files were changed in its folder since its import
     List { kind: Option<String> },
+    /// Use the changed files of an entry edited in its Library folder: kind:id[@version] (the newest by default)
+    TakeOver { entry: String },
 }
 
 #[derive(Subcommand)]
@@ -476,6 +479,7 @@ fn dispatch(cmd: Cmd) -> anyhow::Result<i32> {
             return match cmd {
                 LibraryCmd::Import { paths } => profiles::import(paths),
                 LibraryCmd::List { kind } => profiles::list(kind),
+                LibraryCmd::TakeOver { entry } => profiles::take_over(&entry),
             };
         }
         Cmd::Profile { cmd } => {
@@ -569,7 +573,7 @@ mod data_use_tests {
     #[test]
     fn commands_hold_the_lock_as_long_as_they_use_the_data_root() {
         for args in [
-            &["profile", "create", "p"][..], &["profile", "show", "p"], &["library", "list"], &["library", "import", "x.zip"],
+            &["profile", "create", "p"][..], &["profile", "show", "p"], &["library", "list"], &["library", "import", "x.zip"], &["library", "take-over", "eml:x"],
             &["client", "status"], &["deploy", "s", "--bundle", "k.zip"], &["bundle", "install", "k.zip", "--dir", "/g"],
             &["bundle", "uninstall", "--dir", "/g"], &["backup", "s"], &["report"],
         ] {

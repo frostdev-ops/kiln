@@ -13,9 +13,8 @@ public sealed class ParityTests
     private static ModHandle Load(KilnHarness kiln) => kiln.LoadFolder(TestMods.Folder("TkParity"));
 
     /// <summary>A mod that registers a command asks for kiln.chat (Kiln.Chat subscribes to players' chat lines for it),
-    /// which the kit does not fake. The commands tests run their lines through Commands.Execute, never through chat, so
-    /// kiln.chat is allowed; kiln.net is not.</summary>
-    public static readonly string[] Allowed = ["kiln.chat"];
+    /// which the kit fakes since 0.2.0-dev.27: nothing needs allowing; kiln.net stays unavailable.</summary>
+    public static readonly string[] Allowed = [];
 
     public static readonly (string Name, TestOutcome Outcome)[] Offline =
     [
@@ -47,15 +46,15 @@ public sealed class ParityTests
     }
 
     [Fact]
-    public void WithoutTheAllowanceTheCommandsTestsAreSkippedForKilnChat()
+    public void TheCommandsTestsNeedNoAllowanceForKilnChat()
     {
         List<KilnTestResult> r;
         using (var session = new KilnTestSession(Load))
             r = session.RunAll(typeof(TkParityMod));
         foreach (var c in r.Where(x => x.Name.StartsWith("CommandsParity.", StringComparison.Ordinal)))
         {
-            Assert.Equal(TestOutcome.Skip, c.Outcome);
-            Assert.Equal("needs kiln.chat, which the test kit does not fake; the body passed", c.Message);
+            Assert.Equal(TestOutcome.Pass, c.Outcome);
+            Assert.Empty(c.Unavailable);
         }
     }
 

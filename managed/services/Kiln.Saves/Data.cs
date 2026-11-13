@@ -23,6 +23,8 @@ public static class WorldData
 {
     /// <summary>The object stored under <paramref name="key"/>, created with <c>new T()</c> if there is none.</summary>
     /// <exception cref="InvalidDataException">The stored JSON does not read as <typeparamref name="T"/> (it is kept).</exception>
+    [RequiresCapability("kiln.saves")]
+    [TickThreadOnly]
     public static T Get<T>(string key) where T : class, new()
     {
         var (store, mod, b) = Bundle("WorldData.Get");
@@ -31,6 +33,8 @@ public static class WorldData
         return store.GetOrCreate<T>(s, mod, b.Scope, key, create: true);
     }
 
+    [RequiresCapability("kiln.saves")]
+    [TickThreadOnly]
     public static bool TryGet<T>(string key, [NotNullWhen(true)] out T? value) where T : class
     {
         var (store, mod, b) = Bundle("WorldData.TryGet");
@@ -41,6 +45,8 @@ public static class WorldData
     }
 
     /// <summary>Stores <paramref name="value"/> under <paramref name="key"/> (replacing what was there).</summary>
+    [RequiresCapability("kiln.saves")]
+    [TickThreadOnly]
     public static void Set<T>(string key, T value) where T : class
     {
         ArgumentNullException.ThrowIfNull(value);
@@ -49,15 +55,21 @@ public static class WorldData
     }
 
     /// <summary>Removes a key (from the next save on).</summary>
+    [RequiresCapability("kiln.saves")]
+    [TickThreadOnly]
     public static bool Remove(string key)
     {
         var (_, _, b) = Bundle("WorldData.Remove");
         return b.Keys.Remove(WorldStore.CheckKey(key));
     }
 
+    [RequiresCapability("kiln.saves")]
+    [TickThreadOnly]
     public static bool Contains(string key) => Bundle("WorldData.Contains").b.Keys.ContainsKey(WorldStore.CheckKey(key));
 
     /// <summary>The calling mod's keys.</summary>
+    [RequiresCapability("kiln.saves")]
+    [TickThreadOnly]
     public static IReadOnlyList<string> Keys => Bundle("WorldData.Keys").b.Keys.Keys.ToList();
 
     /// <summary>The world these keys belong to (null before a new world's first save).</summary>
@@ -68,7 +80,7 @@ public static class WorldData
 
     private static (WorldStore store, ModContext mod, WorldStore.Bundle b) Bundle(string api)
     {
-        if (!SavesRuntime.Ensure()) throw new NotSupportedException("kiln.saves is unavailable");
+        if (!SavesRuntime.Ensure()) throw SavesCaps.Off(SavesCaps.Service, "kiln.saves is unavailable");
         var mod = WorldStore.CallerMod(api);
         var store = SavesRuntime.Store;
         return (store, mod, store.GetBundle("world/" + mod.Info.Id, mod));
@@ -84,6 +96,8 @@ public static class WorldData
 /// entity uses this store (by the player's Steam id).</remarks>
 public static class PlayerData
 {
+    [RequiresCapability("kiln.saves")]
+    [TickThreadOnly]
     public static T Get<T>(ulong steamId, string key) where T : class, new()
     {
         var (store, mod, b) = Bundle(steamId, "PlayerData.Get");
@@ -92,6 +106,8 @@ public static class PlayerData
         return store.GetOrCreate<T>(s, mod, b.Scope, key, create: true);
     }
 
+    [RequiresCapability("kiln.saves")]
+    [TickThreadOnly]
     public static bool TryGet<T>(ulong steamId, string key, [NotNullWhen(true)] out T? value) where T : class
     {
         var (store, mod, b) = Bundle(steamId, "PlayerData.TryGet");
@@ -101,6 +117,8 @@ public static class PlayerData
         return true;
     }
 
+    [RequiresCapability("kiln.saves")]
+    [TickThreadOnly]
     public static void Set<T>(ulong steamId, string key, T value) where T : class
     {
         ArgumentNullException.ThrowIfNull(value);
@@ -108,18 +126,26 @@ public static class PlayerData
         b.Keys[WorldStore.CheckKey(key)] = new WorldStore.Slot { Value = value, Type = typeof(T) };
     }
 
+    [RequiresCapability("kiln.saves")]
+    [TickThreadOnly]
     public static bool Remove(ulong steamId, string key) => Bundle(steamId, "PlayerData.Remove").b.Keys.Remove(WorldStore.CheckKey(key));
 
+    [RequiresCapability("kiln.saves")]
+    [TickThreadOnly]
     public static bool Contains(ulong steamId, string key) => Bundle(steamId, "PlayerData.Contains").b.Keys.ContainsKey(WorldStore.CheckKey(key));
 
+    [RequiresCapability("kiln.saves")]
+    [TickThreadOnly]
     public static IReadOnlyList<string> Keys(ulong steamId) => Bundle(steamId, "PlayerData.Keys").b.Keys.Keys.ToList();
 
     /// <summary>Steam ids the calling mod has data for in this world.</summary>
+    [RequiresCapability("kiln.saves")]
+    [TickThreadOnly]
     public static IReadOnlyList<ulong> Players
     {
         get
         {
-            if (!SavesRuntime.Ensure()) throw new NotSupportedException("kiln.saves is unavailable");
+            if (!SavesRuntime.Ensure()) throw SavesCaps.Off(SavesCaps.Service, "kiln.saves is unavailable");
             var mod = WorldStore.CallerMod("PlayerData.Players");
             SavesRuntime.Store.EnsureOpen();
             var suffix = "/" + mod.Info.Id;
@@ -131,7 +157,7 @@ public static class PlayerData
 
     internal static (WorldStore store, ModContext mod, WorldStore.Bundle b) Bundle(ulong steamId, string api)
     {
-        if (!SavesRuntime.Ensure()) throw new NotSupportedException("kiln.saves is unavailable");
+        if (!SavesRuntime.Ensure()) throw SavesCaps.Off(SavesCaps.Service, "kiln.saves is unavailable");
         if (steamId == 0) throw new ArgumentException("a Steam id is required", nameof(steamId));
         var mod = WorldStore.CallerMod(api);
         var store = SavesRuntime.Store;
@@ -153,13 +179,18 @@ public static class PlayerData
 /// (<see cref="IsPersistent"/>).</para>
 /// <para>Player entities (ids 1..1023) map to <see cref="PlayerData"/> under the player's Steam id: the data follows the
 /// player, not the slot.</para>
-/// <para>Tick thread, from mod code. Needs kiln.spawn for entity lookups (<see cref="Available"/>).</para>
+/// <para>Tick thread, from mod code. Needs kiln.spawn for entity lookups (<see cref="Available"/>), except for a player:
+/// any other entity throws <see cref="KilnUnavailableException"/> naming <c>kiln.spawn</c> without it (a
+/// <see cref="NotSupportedException"/>, as before), which is why the members are not marked with it.</para>
 /// </remarks>
 public static class EntityData
 {
-    /// <summary>True when kiln.saves and kiln.spawn are both available.</summary>
-    public static bool Available => SavesRuntime.Ensure() && SpawnLink.Available;
+    /// <summary>True when kiln.saves and kiln.spawn are both available: every entity's data works. A player's data needs
+    /// only kiln.saves (<see cref="Saves.Available"/>).</summary>
+    public static bool Available => Saves.Available && SpawnLink.Available;
 
+    [RequiresCapability("kiln.saves")]
+    [TickThreadOnly]
     public static T Get<T>(EntityId entity, string key) where T : class, new()
     {
         if (entity.IsPlayer) return PlayerData.Get<T>(SteamOfEntity(entity), key);
@@ -169,6 +200,8 @@ public static class EntityData
         return store.GetOrCreate<T>(s, mod, "entity/" + mod.Info.Id, key, create: true);
     }
 
+    [RequiresCapability("kiln.saves")]
+    [TickThreadOnly]
     public static bool TryGet<T>(EntityId entity, string key, [NotNullWhen(true)] out T? value) where T : class
     {
         if (entity.IsPlayer) return PlayerData.TryGet(SteamOfEntity(entity), key, out value);
@@ -179,6 +212,8 @@ public static class EntityData
         return true;
     }
 
+    [RequiresCapability("kiln.saves")]
+    [TickThreadOnly]
     public static void Set<T>(EntityId entity, string key, T value) where T : class
     {
         ArgumentNullException.ThrowIfNull(value);
@@ -191,6 +226,8 @@ public static class EntityData
         keys![WorldStore.CheckKey(key)] = new WorldStore.Slot { Value = value, Type = typeof(T) };
     }
 
+    [RequiresCapability("kiln.saves")]
+    [TickThreadOnly]
     public static bool Remove(EntityId entity, string key)
     {
         if (entity.IsPlayer) return PlayerData.Remove(SteamOfEntity(entity), key);
@@ -198,6 +235,8 @@ public static class EntityData
         return keys != null && keys.Remove(WorldStore.CheckKey(key));
     }
 
+    [RequiresCapability("kiln.saves")]
+    [TickThreadOnly]
     public static bool Has(EntityId entity, string key)
     {
         if (entity.IsPlayer) return PlayerData.Contains(SteamOfEntity(entity), key);
@@ -206,6 +245,8 @@ public static class EntityData
     }
 
     /// <summary>Removes everything the calling mod attached to the entity.</summary>
+    [RequiresCapability("kiln.saves")]
+    [TickThreadOnly]
     public static bool Clear(EntityId entity)
     {
         var (_, mod, _) = Keys(entity, "EntityData.Clear", create: false);
@@ -224,6 +265,7 @@ public static class EntityData
     }
 
     /// <summary>Live entities the calling mod has attachments on.</summary>
+    [TickThreadOnly]
     public static IReadOnlyList<EntityId> Entities
     {
         get
@@ -235,6 +277,7 @@ public static class EntityData
     }
 
     /// <summary>Loaded attachments of the calling mod still waiting for their entity (diagnostics).</summary>
+    [TickThreadOnly]
     public static int Waiting
     {
         get
@@ -250,7 +293,7 @@ public static class EntityData
 
     private static (WorldStore store, ModContext mod, SortedDictionary<string, WorldStore.Slot>? keys) Keys(EntityId e, string api, bool create)
     {
-        if (!SavesRuntime.Ensure()) throw new NotSupportedException("kiln.saves is unavailable");
+        if (!SavesRuntime.Ensure()) throw SavesCaps.Off(SavesCaps.Service, "kiln.saves is unavailable");
         var mod = WorldStore.CallerMod(api);
         var store = SavesRuntime.Store;
         store.EnsureOpen();

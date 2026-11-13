@@ -109,6 +109,19 @@ ojson parse_relaxed(const std::string& text) {
     return ojson::parse(s, nullptr, false, /*ignore_comments=*/true);
 }
 
+bool safe_relative_path(const std::string& rel) { return safe_rel(rel); }
+
+// The cache name under which a full build binds one of a material's maps to the chain it made: from everything that makes that map's pixels
+// (the encoder, the definition text, the map's place, slot and format, and every input file of the material with the hash of its bytes, in
+// material_plan's order). A carry looks it up from this start's definition and this start's hashes of the files, so a record of the index
+// cannot point a material at chains another input made; the entry is a cache entry like a chain (its own checksum, rebuilt when wrong).
+std::string bind_key(const std::string& definition, size_t index, uint32_t slot, uint8_t format, const std::vector<std::pair<std::string, ContentHash>>& files) {
+    std::string s = std::string("kiln-vfx material map\n") + kEncoderVersion + "\n" + definition + "\n" + std::to_string(index) + " " + std::to_string(slot) + " " +
+                    std::to_string(format) + "\n";
+    for (const auto& [rel, hash] : files) s += rel + '\0' + content_hash_text(hash) + "\n";
+    return "bind-" + content_hash_text(content_hash(s.data(), s.size()));
+}
+
 CookResult cook_mods(const std::vector<ModInput>& mods, const CookOptions& opt) {
     CookResult out;
     out.game = opt.game;
@@ -131,7 +144,9 @@ CookResult cook_mods(const std::vector<ModInput>& mods, const CookOptions& opt) 
     std::set<std::string> seen_mods;
     std::set<Guid> counted_meshes;
 
+    size_t nth = 0;
     for (const ModInput& mod : mods) {
+        ++nth;
         if (!seen_mods.insert(mod.id).second) {
             out.warnings.push_back("mod " + mod.id + ": listed twice, the second is ignored");
             continue;
@@ -147,6 +162,7 @@ CookResult cook_mods(const std::vector<ModInput>& mods, const CookOptions& opt) 
         struct MaterialBlock {
             MaterialDef def;
             uint64_t definition = 0;
+            std::string definition_text;
         };
         std::vector<MaterialBlock> material_blocks;
         std::map<std::string, const MaterialDef*> material_named;
@@ -181,7 +197,8 @@ CookResult cook_mods(const std::vector<ModInput>& mods, const CookOptions& opt) 
                             diag.errors.push_back(where + (b.def.replaces ? ": another block of this mod replaces the same game material" : ": \"was\" names the id of another block"));
                             continue;
                         }
-                        b.definition = fnv64(it.value().dump());
+                        b.definition_text = it.value().dump();
+                        b.definition = fnv64(b.definition_text);
                         material_blocks.push_back(std::move(b));
                     }
                 }
@@ -323,7 +340,14 @@ CookResult cook_mods(const std::vector<ModInput>& mods, const CookOptions& opt) 
         std::vector<std::string> vfx_names;
         BudgetNeed need;
         std::vector<std::string> used_meshes, used_textures;
+        size_t built_n = 0;
+        const size_t built_total = blocks.size() + material_blocks.size();
+        const auto say = [&](const char* kind, const std::string& name) {
+            if (opt.progress) opt.progress(mod.id, nth, mods.size(), kind, name, built_n, built_total);
+            ++built_n;
+        };
         for (const Block& b : blocks) {
+            say("VFX", b.def.name);
             bool bad = false;
             // It has said which material isn't there.
             if (std::any_of(b.def.particles.begin(), b.def.particles.end(), [&](const ParticleDef& p) { return !p.material.empty() && !material_named.count(p.material); })) continue;
@@ -399,10 +423,15 @@ CookResult cook_mods(const std::vector<ModInput>& mods, const CookOptions& opt) 
             BuiltMaterial built;
             std::vector<MaterialMap> maps;
             BuiltMaterialBlock info;
+            std::vector<ContentHash> reused_chains;  // taken from a MaterialRecord: no maps, these hashes
+            bool reused = false;
         };
         std::vector<MaterialBuilt> built_materials;
         std::map<std::string, RawImage> decoded;
+        std::map<std::string, ContentHash> file_hash;  // the bytes of each file read, by the path a block names
+        std::vector<std::string>* reading = nullptr;   // the files the material being built reads (record_material)
         const ImageLoader load_image = [&](const std::string& rel, RawImage* image, std::string* why) {
+            if (reading) reading->push_back(rel);
             const auto got = decoded.find(rel);
             if (got != decoded.end()) {
                 *image = got->second;
@@ -417,29 +446,173 @@ CookResult cook_mods(const std::vector<ModInput>& mods, const CookOptions& opt) 
                 *why = "can't read it (" + *why + ")";
                 return false;
             }
+            if (opt.record_material) file_hash[rel] = content_hash(png.data(), png.size());
             if (!decode_png(png, kMaxMaterialTextureSide, image, why)) return false;
             decoded[rel] = *image;
             return true;
         };
+        // A record of the boot build for this block, whose every file still has the recorded bytes (read and hashed here: an edited, missing
+        // or unreadable file is a miss, and the block is built from its textures as before).
+        const auto reusable = [&](const MaterialBlock& b) -> const MaterialRecord* {
+            if (!opt.known_material) return nullptr;
+            const MaterialRecord* r = opt.known_material(mod.id, b.def.name, b.definition);
+            if (!r || r->mod != mod.id || r->name != b.def.name || r->definition != b.definition) return nullptr;
+            for (const auto& [rel, hash] : r->files) {
+                Bytes png;
+                std::string ignored;
+                if (!safe_rel(rel) || !read(mod.dir + "/" + rel, &png, &ignored) || !(content_hash(png.data(), png.size()) == hash)) return nullptr;
+            }
+            return r;
+        };
+        // A carried record (an earlier start's index; a hint, never trusted): used only when it is exactly what this definition makes in this
+        // start (the files material_plan says it opens, in that order, each with the recorded bytes now; the maps material_plan says it makes,
+        // in that order, slot, name and format) and the texture cache holds every one of its chains. The maps are collected aside and handed
+        // over only when all of them came from the cache: anything less and nothing of the record is kept (the material builds in full, as
+        // without the index). Null: build in full (*note says why). Any failure here, out of memory included, is a miss.
+        const auto carried = [&](const MaterialBlock& b, std::vector<MaterialMap>* maps, std::string* note) -> const MaterialRecord* {
+            if (!opt.carried_material) return nullptr;
+            try {
+                const MaterialRecord* r = opt.carried_material(mod.id, b.def.name, b.definition_text);
+                if (!r) {
+                    *note = "not built at an earlier start (or its definition changed)";
+                    return nullptr;
+                }
+                if (r->mod != mod.id || r->name != b.def.name || r->definition_text != b.definition_text) {
+                    *note = "its record is for another definition";
+                    return nullptr;
+                }
+                const MaterialPlan plan = material_plan(b.def);
+                bool same = r->files.size() == plan.inputs.size() && r->maps.size() == plan.maps.size();
+                for (size_t i = 0; same && i < plan.inputs.size(); ++i) same = r->files[i].first == plan.inputs[i] && safe_rel(plan.inputs[i]);
+                for (size_t i = 0; same && i < plan.maps.size(); ++i)
+                    same = r->maps[i].slot == plan.maps[i].slot && r->maps[i].what == plan.maps[i].what && r->maps[i].format == plan.maps[i].format;
+                if (!same) {
+                    *note = "its record does not match what the definition reads and makes";
+                    return nullptr;
+                }
+                for (const auto& [rel, hash] : r->files) {
+                    Bytes png;
+                    std::string ignored;
+                    if (!read(mod.dir + "/" + rel, &png, &ignored)) {
+                        *note = rel + " cannot be read";
+                        return nullptr;
+                    }
+                    if (!(content_hash(png.data(), png.size()) == hash)) {
+                        *note = rel + " changed";
+                        return nullptr;
+                    }
+                }
+                std::vector<MaterialMap> got;
+                for (size_t i = 0; i < r->maps.size(); ++i) {
+                    const MaterialRecord::Map& rm = r->maps[i];
+                    // The record's key is only a claim: the binding a full build of these very inputs left in the cache must name it.
+                    // It is looked up under a name made from this start's definition and file bytes, never from the record.
+                    Bytes bound;
+                    if (!opt.cache.get || !opt.cache.get(bind_key(b.definition_text, i, plan.maps[i].slot, plan.maps[i].format, r->files), &bound) ||
+                        std::string(bound.begin(), bound.end()) != rm.key) {
+                        *note = "no build of these inputs made its " + rm.what + " map from what the record names";
+                        return nullptr;
+                    }
+                    MaterialMap map;
+                    if (!chain_from_cache(rm.key, rm.width, rm.height, rm.format, opt.cache, &map.chain)) {
+                        *note = "the texture cache no longer holds its " + rm.what + " map";
+                        return nullptr;
+                    }
+                    map.slot = plan.maps[i].slot;
+                    map.what = plan.maps[i].what;  // the plan's own, not the record's
+                    got.push_back(std::move(map));
+                }
+                *maps = std::move(got);
+                return r;
+            } catch (...) {
+                note->clear();  // nothing allocated on this path: the failure may be the allocator's (the note is then left out)
+                return nullptr;
+            }
+        };
         for (const MaterialBlock& b : material_blocks) {
             MaterialBuilt m;
-            std::string field, why;
-            if (!material_maps(b.def, load_image, opt.cache, &m.maps, &field, &why)) {
-                diag.errors.push_back(b.def.where + "." + field + ": " + why);
-                continue;
+            std::string field, why, note;
+            const MaterialRecord* from_cache = opt.known_material ? nullptr : carried(b, &m.maps, &note);
+            if (!from_cache && opt.carried_material && !note.empty()) try {  // a note for the debug log: losing it costs nothing else
+                out.carry_notes.push_back(mod.id + ": material " + b.def.name + ": " + note);
+            } catch (...) {
             }
-            if (!build_material(b.def, mod.id, m.maps, &m.built, &why)) {
-                diag.errors.push_back(b.def.where + ": " + why);
-                continue;
+            say(from_cache ? "material as the last start built it:" : "material", b.def.name);
+            if (from_cache) {
+                if (!build_material(b.def, mod.id, m.maps, &m.built, &why)) {
+                    diag.errors.push_back(b.def.where + ": " + why);
+                    continue;
+                }
+                ++out.materials_carried;
+                for (const MaterialMap& map : m.maps) m.reused_chains.push_back(content_hash(map.chain.data.data(), map.chain.data.size()));
+                if (opt.record_material) try {  // a record is a hint for later: losing it (out of memory) costs only that
+                    MaterialRecord rec = *from_cache;
+                    rec.guid = m.built.guid;
+                    rec.render_flags = m.built.render_flags;
+                    rec.block_flags = m.built.block_flags;
+                    rec.textures = static_cast<uint32_t>(m.maps.size());
+                    rec.chains = m.reused_chains;
+                    rec.definition = b.definition;  // the index keeps the text; define_json's records go by this hash
+                    opt.record_material(rec);       // its files and maps as carried
+                } catch (...) {
+                }
+            } else if (const MaterialRecord* r = reusable(b)) {
+                // the same definition and the same file bytes as a build already done: what material_maps and build_material gave then
+                m.reused = true;
+                m.built.guid = r->guid;
+                m.built.render_flags = r->render_flags;
+                m.built.block_flags = r->block_flags;
+                m.reused_chains = r->chains;
+                ++out.materials_reused;
+            } else {
+                std::vector<std::string> files;
+                reading = opt.record_material ? &files : nullptr;
+                const bool maps_ok = material_maps(b.def, load_image, opt.cache, &m.maps, &field, &why);
+                reading = nullptr;
+                if (!maps_ok) {
+                    diag.errors.push_back(b.def.where + "." + field + ": " + why);
+                    continue;
+                }
+                if (!build_material(b.def, mod.id, m.maps, &m.built, &why)) {
+                    diag.errors.push_back(b.def.where + ": " + why);
+                    continue;
+                }
+                ++out.materials_built;
+                for (const MaterialMap& map : m.maps) m.reused_chains.push_back(content_hash(map.chain.data.data(), map.chain.data.size()));
+                if (opt.record_material) try {
+                    MaterialRecord rec;
+                    rec.mod = mod.id;
+                    rec.name = b.def.name;
+                    rec.definition = b.definition;
+                    for (const std::string& rel : files)
+                        if (std::none_of(rec.files.begin(), rec.files.end(), [&](const auto& f) { return f.first == rel; })) rec.files.emplace_back(rel, file_hash.at(rel));
+                    rec.guid = m.built.guid;
+                    rec.render_flags = m.built.render_flags;
+                    rec.block_flags = m.built.block_flags;
+                    rec.textures = static_cast<uint32_t>(m.maps.size());
+                    rec.chains = m.reused_chains;
+                    rec.definition_text = b.definition_text;
+                    for (const MaterialMap& map : m.maps)
+                        rec.maps.push_back({map.slot, map.what, map.chain.width, map.chain.height, map.chain.format, map.chain.cache_key});
+                    // the binding of this build's inputs to each chain, beside the chains (see bind_key): what a later start's carry checks
+                    if (opt.cache.put)
+                        for (size_t i = 0; i < m.maps.size(); ++i)
+                            if (!m.maps[i].chain.cache_key.empty()) {
+                                const std::string& key = m.maps[i].chain.cache_key;
+                                opt.cache.put(bind_key(b.definition_text, i, m.maps[i].slot, m.maps[i].chain.format, rec.files), Bytes(key.begin(), key.end()));
+                            }
+                    opt.record_material(rec);
+                } catch (...) {
+                }
             }
             if (!b.def.replaces) ++need.materials;  // a replacement takes the game material's own slot
-            for (const MaterialMap& map : m.maps) need.streamed_textures.insert(content_hash_text(content_hash(map.chain.data.data(), map.chain.data.size())));
+            for (const ContentHash& chain : m.reused_chains) need.streamed_textures.insert(content_hash_text(chain));
             m.info.mod = mod.id;
             m.info.name = b.def.name;
             m.info.guid = m.built.guid;
             m.info.render_flags = m.built.render_flags;
             m.info.block_flags = m.built.block_flags;
-            m.info.textures = static_cast<uint32_t>(m.maps.size());
+            m.info.textures = m.reused ? static_cast<uint32_t>(m.reused_chains.size()) : static_cast<uint32_t>(m.maps.size());
             m.info.definition = b.definition;
             m.info.replaces = b.def.replaces.has_value();
             built_materials.push_back(std::move(m));
@@ -473,7 +646,8 @@ CookResult cook_mods(const std::vector<ModInput>& mods, const CookOptions& opt) 
             if (m.info.replaces && shared.resources.count(m.built.guid))
                 diag.warnings.push_back(mod.id + ": material " + m.info.name + ": another mod earlier in the load order replaces " + guid_text(m.built.guid) +
                                         " already: that one draws (this one stands by, and draws if that mod unloads)");
-            add_resource(out, shared, m.built.guid, kTypeMaterial, std::move(m.built.resource), mod.id + " material " + m.info.name, m.info.replaces, mod.id);
+            if (m.reused) shared.resources.insert(m.built.guid);  // nothing to serve: the build it was taken from served it
+            else add_resource(out, shared, m.built.guid, kTypeMaterial, std::move(m.built.resource), mod.id + " material " + m.info.name, m.info.replaces, mod.id);
             out.materials.push_back(std::move(m.info));
         }
         if (built_vfx.empty()) {

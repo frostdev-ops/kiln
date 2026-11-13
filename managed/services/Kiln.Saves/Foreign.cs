@@ -66,9 +66,16 @@ internal static unsafe class SpawnLink
             {
                 _t = Services.Get<Table>("kiln.spawn", 1);
                 _looked = true;
+                if (_t == null) ServiceCaps.NoteMissing("kiln.spawn");  // looked for again at the refresh
             }
             return _t;
         }
+    }
+
+    /// <summary>Forgets a remembered miss (ServiceCaps.WhenFound: the refresh found the table after all).</summary>
+    internal static void LookAgain()
+    {
+        if (_t == null) _looked = false;
     }
 
     public static bool Available => T != null;
@@ -96,6 +103,21 @@ internal static unsafe class SpawnLink
         if (rc != 0) throw new InvalidOperationException($"kiln.spawn could not inspect entity {e} (rc {rc})");
         Guid? g = s.HasTemplate != 0 ? new Guid(new ReadOnlySpan<byte>(s.Template, 16)) : null;
         return new Ent(e, g, g is { } x ? Template(x).name : null, new WorldPosition(s.Position.X, s.Position.Y, s.Position.Z), s.Yaw);
+    }
+
+    /// <summary>Tick thread. Where the entity stands now (dev.27, instance data sync's "nearby"); null when it does not
+    /// exist, has no transform, or kiln.spawn could not tell: never a guess. kiln.spawn fills position and rotation only
+    /// from a transform it read, and a transform's rotation is a unit quaternion, never all zero.</summary>
+    public static WorldPosition? PositionOf(EntityId e)
+    {
+        var t = T;
+        if (t == null || t->EntityInfo == null || e.IsNone) return null;
+        var s = new Snapshot { Size = (uint)sizeof(Snapshot) };
+        if (t->EntityInfo(e.Value, &s) != 0) return null;
+        if (s.Rotation[0] == 0 && s.Rotation[1] == 0 && s.Rotation[2] == 0 && s.Rotation[3] == 0) return null;
+        return double.IsFinite(s.Position.X) && double.IsFinite(s.Position.Y) && double.IsFinite(s.Position.Z)
+            ? new WorldPosition(s.Position.X, s.Position.Y, s.Position.Z)
+            : null;
     }
 
     /// <summary>Tick thread. Entities of the template within radius of the point, nearest first.</summary>
@@ -182,9 +204,16 @@ internal static unsafe class PlayersLink
             {
                 _t = Services.Get<Table>("kiln.players", 1);
                 _looked = true;
+                if (_t == null) ServiceCaps.NoteMissing("kiln.players");  // looked for again at the refresh
             }
             return _t;
         }
+    }
+
+    /// <summary>Forgets a remembered miss (ServiceCaps.WhenFound: the refresh found the table after all).</summary>
+    internal static void LookAgain()
+    {
+        if (_t == null) _looked = false;
     }
 
     /// <summary>SteamID64 of the player who has this entity (0: none / unknown / kiln.players unavailable).</summary>

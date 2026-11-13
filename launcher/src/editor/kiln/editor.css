@@ -3,6 +3,10 @@
 
 .ke { gap: 14px; }
 .ke-body { flex: 1; min-height: 0; display: flex; }
+/* a read-only save (session.readOnly): what it holds shows, the controls that would change it are dimmed (a change is not
+   taken: session.setModel) */
+.ke-readonly .ke-form dd, .ke-readonly .ke-insp-foot .k-btn, .ke-readonly .ke-facts .ke-step, .ke-readonly .ke-know-bar .k-btn-danger,
+.ke-readonly .ke-group-head .k-btn, .ke-readonly .ke-empty .k-btn { opacity: .45; pointer-events: none; }
 .ke-split { flex: 1; min-width: 0; min-height: 0; display: flex; }
 .ke-main { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 14px; padding: 2px 28px 16px 0; overflow: auto; }
 .ke-group { display: flex; flex-direction: column; gap: 8px; min-height: 0; flex: none; }
@@ -37,6 +41,8 @@
 .ke-slot.dim { opacity: .5; }
 
 /* ---------------------------------------------------------------- the inspector */
+/* its wrapper only tracks focus (the Deck: B goes back to the slot) */
+.ke-insp-wrap { display: contents; }
 .ke-insp { flex: none; width: 430px; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 16px; padding: 4px 6px 18px 28px; box-shadow: inset 1px 0 0 var(--k-line); }
 .ke-insp-head { display: flex; gap: 16px; align-items: center; }
 .ke-insp-icon { flex: none; display: grid; place-items: center; width: 84px; height: 84px; border-radius: 12px;

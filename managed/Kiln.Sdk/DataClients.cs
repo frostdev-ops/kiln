@@ -27,6 +27,8 @@ internal static class DataClients
         ["effects"] = None, ["abilities"] = None, ["triggers"] = None, ["screenEffects"] = None,
         ["materialTweaks"] = None, ["strengths"] = None, ["surfaces"] = None, ["lootTables"] = None,
         ["creatures"] = None, ["bodies"] = None, ["animations"] = None, ["ais"] = None, ["behaviours"] = None, ["attacks"] = None, ["rules"] = None,
+        // affix kinds and pools: Kiln's own on the server; the rolls reach Kiln clients as item data, and vanilla clients need nothing
+        ["affixes"] = None, ["affixPools"] = None,
         // built by every player's game from the mod's own files
         ["vfx"] = Mod, ["windows"] = Mod, ["hudLines"] = Mod, ["keyBindings"] = Mod, ["sounds"] = Mod, ["materials"] = Mod, ["talents"] = Mod, ["talentTrees"] = Mod, ["buildingMaterials"] = Mod, ["blueprints"] = Mod, ["npcs"] = Mod, ["terrainMaterials"] = Mod,
         // the game's own journal and NPC menu, built from the mod's files at start

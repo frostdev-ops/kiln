@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// From matenm/emf-enshrouded v0.6.0, src/core/net/net_peers.h.
+// From matenm/emf-enshrouded v0.6.8, src/core/net/net_peers.h.
 // Copyright (c) 2026 EMF contributors. See licenses/EMF-LICENSE.txt.
 #pragma once
 // Mod messages (API v27): lines back into messages per peer and direction, the server's peers, rate limits. Pure

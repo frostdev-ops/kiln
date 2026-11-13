@@ -5,11 +5,11 @@ saved with the world (it survives a restart). Evidence and offsets: [docs/re/tim
 
 | Layer | File |
 |---|---|
-| C table | `native/core/abi/services/kiln_time.h` (`kiln.time` v1) |
+| C table | `native/core/abi/services/kiln_time.h` (`kiln.time` v2: v1 + the clock's speed + choosing the weather) |
 | Native | `native/services/time/time.cpp` -> `kiln/services/kiln-time.dll` |
-| Symbols | `sigdb/symbols/server.d/time.json` (features `time.read`, `time.set`, `time.weather`, `time.scale`, `time.sync_probe`) |
+| Symbols | `sigdb/symbols/server.d/time.json` (features `time.read`, `time.set`, `time.weather`, `time.weather_choose`, `time.scale`, `time.sync_probe`) |
 | Managed | `managed/services/Kiln.Time` -> `kiln/host/Kiln.Time.dll` (static class `Kiln.Time`) |
-| Test | `mods/tests/chat-test`, `mods/tests/creative-test` (the clock's speed) (PASS/FAIL lines in `kiln/logs/kiln.log`) |
+| Test | `mods/tests/chat-test` (`WeatherTest.cs`: choosing the weather), `mods/tests/creative-test` (the clock's speed) (PASS/FAIL lines in `kiln/logs/kiln.log`); `managed/tests/Kiln.Time.Tests` (offline); `native/services/time/test-time.sh` (host) |
 
 ## C#
 ```csharp
@@ -56,6 +56,58 @@ if (Time.CanSetSpeed)                     // feature time.scale on this build
 - Session state: it ends when the world closes or a new world starts, including when the old world's stop event was missed (the save keeps the time of day, not the speed). Failed speed changes preserve the previous hold.
 - `/creative cycle normal|stopped|fast` and the creative menu use it (docs/kiln/services/rules.md "Creative menu").
 
+### Choosing the weather (since 0.2.0-dev.27)
+The server's weather is a few layers (9 on game build 26430253): layer 0 is the clouds over the whole world, each of
+the others a region (rain, or snowy rain in the cold one), with "nothing" between its phenomena. When a layer's time is
+up the game rolls its next phenomenon by its table's weights. Kiln reads that table from the game's data and starts a
+phenomenon through the game's own start of one (what its own weather states do), so the game picks its place in the
+region, runs its fade-in and fade-out, and tells every player's game. Capability `time.weather_choose` (sigdb feature);
+evidence: [docs/re/time.md](../../re/time.md), "Choosing the weather".
+
+```csharp
+IReadOnlyList<WeatherPhenomenon> all = Time.WeatherPhenomena;     // the game's table: clouds_few .. rain, rain_snow
+foreach (WeatherLayer l in Time.Weather) Log.Info(l.ToString());  // "layer 0: clouds_overcast, next roll in 88 s"
+await Time.SetWeather("rain", TimeSpan.FromMinutes(10));           // every region's rain, ten game minutes
+await Time.SetWeather("clouds_overcast", layer: 0);              // held: Kiln picks it at each of the game's rolls
+await Time.SetWeather("none");                                    // nothing on every layer: a clear sky (held)
+WeatherResult r = await Time.ReleaseWeather(now: true);           // the game's weather again, rolled at once
+Events.On<WeatherChangedEvent>(e => Log.Info(e.ToString()));      // the game's rolls and Kiln's changes
+```
+
+| Member | Side, thread | What |
+|---|---|---|
+| `Time.WeatherPhenomena` | `[ServerOnly][TickThreadOnly]` | the game's table: `Index`, `Name` (the game's debug name), `Guid`, `Layer` (-1: in no layer's roll, the game's debug entries), `Effect`, `Probability`, `MinDuration`, `MaxDuration`; empty until the weather ran once |
+| `Time.Weather` | `[ServerOnly][TickThreadOnly]` | every layer: `Current` (a layer's "nothing" when nothing runs, null right after a reset), `Remaining` (game time to its next roll), `Held`, `HeldPhenomenon`, `Choices` |
+| `Time.SetWeather(name, duration = null, layer = null)` | `[ServerOnly][TickThreadOnly]` | starts the phenomenon of that name on every layer that has one (or on `layer`); `"none"` is the layer's nothing. `duration`: that long (game time) until the game rolls the layer again, then the game's weather; null: held until released |
+| `Time.SetWeather(WeatherPhenomenon, duration = null)` | same | one phenomenon on its own layer |
+| `Time.ReleaseWeather(layer = null, now = false)` | same | Kiln's holds end; with `now` the layer's phenomenon ends and the game rolls at once, without it the running one finishes its time first |
+| `WeatherResult` (`IKilnResult`) | value | `Ok`, `Reason`, `Layers` (as they are when it completes) |
+| `WeatherChangedEvent` | `[ServerOnly]`, tick thread | `Layer`, `Before`, `After`, `ByKiln` (Kiln's choice, a held roll, or the game's roll a release with `now` or a reset asked for), `Held`; one event per change, in order (kiln.time records each where it happens: A then B then A in one update is two events; a restart of the running phenomenon, a new instance, is one with `Before` equal to `After`); read once a step from the first subscription on; kiln.time keeps the newest 512 changes, so after more than 512 between two steps the oldest are not reported (kiln.log says so, once) |
+| `Time.WeatherChoiceAvailable`, `Time.MaxWeatherDuration` (30 days) | any | readiness is kiln.time's own flag, not a read of the layers |
+
+- The one error rule: a request the game did not run is a result with `Ok == false` and a reason (the server world
+  closed, its weather did not update for 10 s, the game's call faulted, or the queue has no room for all its layers:
+  256 layer requests wait at most, and a request that does not fit is refused whole, nothing of it queued); a bad
+  argument throws `ArgumentException` (an
+  unknown name, a phenomenon in no layer's roll, a layer that is not there, a duration not between 1 s and 30 days); a
+  capability that is off throws `KilnUnavailableException("time.weather_choose")` (an older Kiln, a game build whose
+  weather table is not known, or the weather has not run yet in this world).
+- It runs in the server's next weather update (the same frame as the next sim step, after it); the task completes in
+  the step after. A mod that unloads meanwhile: the request still runs (kiln.time holds it under Kiln's own owner), the
+  events report it, and only the mod's task is never completed.
+- Weather is timed on the day/night clock (game time): a held clock speed (`Time.SetSpeed`) speeds it up too.
+- A duration is the time until the game rolls the layer again; the phenomenon's fade-out follows while the next one
+  fades in (the game rolls when a run starts to fade, so Kiln adds the phenomenon's despawn fade to the game's override).
+- **Restart: it does not survive, by design of the game.** After a restart the layers run what the game rolls anew
+  (lab: a two-hour snowy rain Kiln left before an autosave and a stop was "nothing" with 373 s to its next roll after
+  the load; the load also restarts the game clock in its first cycle, docs/re/time.md "Persistence"). A hold is Kiln's
+  and ends with the process too. Kiln does not restore either: a mod that wants its weather after a restart sets it
+  again once the world runs.
+- A rain is a cloud at a random place in its region, of a random size, drifting: choosing it does not put it over a
+  player. Where it is is the game's; Kiln does not move it.
+- The game's debug phenomena (`debug_rain`, `debug_blizzard`, `debug_dragon` on 26430253) lie in no layer's range and
+  are not offered: the game never runs them, and what they do in a region was not tried.
+
 ## C (native plugins)
 ```c
 const KilnTimeApi* t = api->service(KilnStr{"kiln.time", 9}, 1);   // in on_ready; NULL = unavailable
@@ -64,9 +116,24 @@ if (t && t->header.size >= offsetof(KilnTimeApi, set_time_scale)) {
     t->set_time_of_day(13.5, KILN_TIME_SET_FORWARD);              // tick thread
     t->reset_weather();                                         // tick thread
 }
-if (t && t->header.size >= sizeof(KilnTimeApi) && t->set_time_scale && t->time_scale_hold && t->time_scale_hold() > -1.5f)
+if (t && t->header.size >= offsetof(KilnTimeApi, weather_table) && t->set_time_scale && t->time_scale_hold &&
+    t->time_scale_hold() > -1.5f)
     t->set_time_scale(0.0f);                                      // tick thread: stop the clock; -1 gives it back
+if (t && t->header.size >= sizeof(KilnTimeApi)) {                 // v2: the weather (tick thread)
+    KilnTimeWeatherLayer layers[16]; uint32_t n = 0;
+    t->weather_layers(layers, 16, sizeof layers[0], &n);           // current, held, next_ns, now_ns per layer
+    KilnTimeWeatherRequest r = { sizeof r, 0, 1, 4, 600000000000ll };  // layer 1, table index 4, ten game minutes
+    t->weather_set(owner, &r, on_done, user, NULL);                // on_done(const KilnTimeWeatherResult*, user): next Pre
+}
 ```
+`weather_table` lists the game's phenomena (`KilnTimeWeatherPhenomenon`); a request's `phenomenon` must lie in the layer's
+range (`first .. first + count - 1`) or be `KILN_TIME_WEATHER_NOTHING`; `KILN_TIME_WEATHER_HOLD` holds it,
+`KILN_TIME_WEATHER_RELEASE` (+ `KILN_TIME_WEATHER_NOW`) hands a layer back. `weather_set` returns
+`KILN_ERR_BUFFER_TOO_SMALL` when 256 requests wait (nothing queued); a request for several layers checks `weather_room()`
+first (only the tick thread adds, so the room it saw is still there). `weather_change_seq()` and
+`weather_changes(after_seq, ...)` give each change of a layer in order (`KilnTimeWeatherChange`: before and after, the
+instances, `by_kiln`, `held`; the newest 512 are kept). `KilnTimeState.weather_choice_ready` says, on any thread, whether
+`weather_set` takes a request now.
 Errors: `KILN_ERR_UNAVAILABLE` (no world yet / build lacks it), `KILN_ERR_WRONG_THREAD`, `KILN_ERR_INVALID_ARGUMENT`
 (non-finite scale, scale above 1000, NaN time, unknown mode).
 
@@ -80,6 +147,7 @@ Errors: `KILN_ERR_UNAVAILABLE` (no world yet / build lacks it), `KILN_ERR_WRONG_
    within a second, without a reconnect.
 2. `/kt-time 6 game` then `Time.ResetWeather()`: clouds/rain disappear and new weather arrives later.
 3. Stop and start the server: the time is where it was at the last save (autosave every 30 s, and on shutdown).
+4. The weather a mod chose: the guided check `time.weather` (mods/tests/client-pass, session 1).
 
 ## In a game client (hosted worlds)
 - kiln.time binds the **server world's** `g38_daytime::Daytime` and `WeatherSystem` singletons at the first step of
@@ -90,3 +158,23 @@ Errors: `KILN_ERR_UNAVAILABLE` (no world yet / build lacks it), `KILN_ERR_WRONG_
   layer layout is the same). Only a WeatherSystem of mode 0 that is the server world's own singleton is used.
 - When the game closes the server world, the Daytime, WeatherSystem, GameServer and a pending sync check are released;
   the next session binds its own.
+
+## The contract (dev.27)
+
+`Time` follows [the API contract](../modding/contract.md). Server side (`[ServerOnly]`).
+
+- **Capabilities.** `kiln.time` and its sigdb features (`time.read`, `set`, `scale`, `sync_probe`, `weather`,
+  `weather_choose`), lowered when the service is not loaded; `time.speed` (managed, session: pending until the server
+  world's clock is there, available then; the clock's speed can be
+  held). Reported at Kiln.Time's start, the first service tick (`TimeStartup`).
+- **Errors.** Without the service `State`, `Set`, `ResetWeather` (and the properties that read `State`) throw
+  `KilnUnavailableException` naming `kiln.time`; `SetSpeed` and `SetCycle` on a kiln.time without the scale functions
+  name `time.speed` (both `NotSupportedException`s, as before). **Not changed:** the native "unavailable" (no server
+  world yet) keeps its `InvalidOperationException`.
+- **Threads.** Reads are `[AnyThread]` (`State`, `TryGetState`, `Ready`, `IsDay`, `DayLength`, `NightLength`,
+  `CanSetSpeed`, `HeldSpeed`, `Cycle`, the `OfDay` getter); changes are `[TickThreadOnly]` (`Set`, `ResetWeather`,
+  `SetSpeed`, `SetCycle`, the `OfDay` setter). The weather calls carry their own attributes (dev.27's weather choice).
+- **Events.** `TimeSetEvent` for `Set`, `WeatherChangedEvent` for every weather change, `TimeSpeedChangedEvent` (new)
+  for `SetSpeed` and `SetCycle` when the held speed changed (`Before`, `After`: null = the game decides; `By`), through
+  the contract's change notices ([contract](../modding/contract.md#3-change-events)).
+- Tested offline: `managed/tests/Kiln.Contract.Tests/Group9ContractTests.cs` and the conformance rules.

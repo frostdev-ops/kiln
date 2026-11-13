@@ -740,15 +740,36 @@ struct List {
     }
 };
 
+// dinput8-chain.ini only (EMF's shared spec, docs/modding/dinput8-chain.md in matenm/emf-enshrouded, read as EMF's
+// src/loader/chain_list.h does): a comment may follow the name after a space or tab (" ;" "\t;" " #" "\t#"), and
+// the name may stand in double quotes. The comment goes first, then "key =", then the quotes. Kiln's own files keep
+// kini.py's rules, where such a line is not an entry.
+wchar_t* shared_chain_value(wchar_t* line) {
+    for (wchar_t* p = line; *p; ++p)
+        if ((p[0] == L' ' || p[0] == L'\t') && (p[1] == L';' || p[1] == L'#')) {
+            *p = 0;
+            break;
+        }
+    wchar_t* v = value_of(line);
+    wchar_t* e = v + wlen(v);
+    while (e > v && (e[-1] == L' ' || e[-1] == L'\t')) *--e = 0;
+    if (e - v >= 2 && v[0] == L'"' && e[-1] == L'"') {
+        e[-1] = 0;
+        ++v;
+    }
+    return v;
+}
+
 // One section-based DLL list file. `wanted` maps a section name to a list (nullptr: ignored); lines before any
 // section go to `first`. One DLL per line, "key = value" counts by its value, only values ending in .dll, ';' '#'
-// '//' comments. Same rules as schema/fixtures/ini/kini.py (dll_entries).
+// '//' comments. Same rules as schema/fixtures/ini/kini.py (dll_entries); `shared` (dinput8-chain.ini) adds the
+// shared spec's comment after a name and quoted names (shared_chain_value).
 struct Section {
     const wchar_t* name;
     List* list;
     bool seen = false;  // the file has this section's header
 };
-void read_dll_list(const wchar_t* file, List* first, Section* sections, size_t nsections) {
+void read_dll_list(const wchar_t* file, List* first, Section* sections, size_t nsections, bool shared = false) {
     DWORD error = 0;
     wchar_t* text = read_text(file, &error);
     if (!text) {
@@ -767,7 +788,7 @@ void read_dll_list(const wchar_t* file, List* first, Section* sections, size_t n
             return;
         }
         if (!current) return;  // other sections belong to other tools
-        wchar_t* v = value_of(line);
+        wchar_t* v = shared ? shared_chain_value(line) : value_of(line);
         if (*v && ends_with_i(v, L".dll")) current->push(v);
     });
 }
@@ -937,7 +958,7 @@ void load_chain(bool profile_once, bool skip) {
     // [EMF]: the DLLs EMF 0.5's installer renamed (only EMF's loader read them). One list with [Chain], in file
     // order, as EMF's own reader takes them; a DLL that EMF's chained loader also starts is loaded once by Windows.
     Section emf_sections[] = {{L"chain", &emf}, {L"emf", &emf}};
-    read_dll_list(file, &emf, emf_sections, 2);
+    read_dll_list(file, &emf, emf_sections, 2, true);
     const uint32_t late_n = late.count < kMaxPerList ? late.count : kMaxPerList;  // [late] has no overflow report
     const uint32_t total = chain.count + emf.count + profile.count;  // [late] adds no entries of its own
     if (total == 0) return;

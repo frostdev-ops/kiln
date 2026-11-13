@@ -48,9 +48,20 @@ catch (KilnUnavailableException e) when (e.Capability == "identity.entities")
 `Knowledge` already behaves this way: game reasons come back as `KnowledgeResult.Ok = false`, unknown ids and bad
 arguments throw (`managed/services/Kiln.Quests/Knowledge.cs`, the remarks on `Knowledge`, lines 194-197).
 
-`IKilnResult` (`bool Ok`, `string? Reason`) is the common shape of such results. The services' result records
-implement it from dev.27 on; in this release none does yet, and other services may still throw their own exception
-types for an unavailable capability.
+What a capability row and a mark promise. A session row (`time.speed`, `combat.attributes`, `players.positions`, ...)
+is refreshed every 25 steps, so around a world change (a world loading, a hosted world closing) it can be up to a
+second behind; a call checks again when it runs, so trust the call's answer over a row read just before. A row folds in
+what it waits for (`time.speed` stays pending while no server world's clock is there, which Kiln finds through
+kiln.world), and a member's `[RequiresCapability]` mark names the row it checks, not every service behind that row. The mark says the member can
+throw `KilnUnavailableException` for that row, not that every path does: an id parsed from text, a name already cached
+or a player's own data can still work without it. The exception's message is for people, not code: a dev.26 catch
+filtered on the old text (`e.Message == "kiln.saves is unavailable"`) no longer matches; filter on `e.Capability`.
+
+`IKilnResult` (`bool Ok`, `string? Reason`) is the common shape of such results. From dev.27 the result records of the
+services that took up the contract implement it (`SpawnResult`, `BuildResult`, `PasteResult`, `PlaceOnceResult`,
+`TalentResult`, `CommandResult`, `QuestResult`, `ConversationResult`, `KnowledgeResult`, ...); through the interface
+`Reason` is null when `Ok`. Services not adopted yet may still throw their own exception types for an unavailable
+capability.
 
 ## 2. Identity: EntityRef, ItemInstanceRef, PlayerRef, ItemId
 
@@ -122,3 +133,48 @@ or leaving gives an offline ref. On a server where kiln.players is unavailable, 
 `PlayerRef.Resolve()` on a non-none ref throw `KilnUnavailableException("identity.players")`, and a player slot's
 `EntityRef` throws `identity.entities`. `None.IsAlive` and `PlayerRef.None.IsOnline` return false in every case.
 Services adopt these types as their packages land; until then they still use `EntityId` and their own player types.
+
+## 3. Change events
+
+Every write Kiln makes for a mod posts a bus event (`ContentChangedEvent`, `CreatureChangedEvent`, `SettingChangedEvent`,
+`EntitySpawnedEvent`, ...), on the tick thread, right after the write took, and only when it changed something: a
+data-pack document whose every section was refused, a reset of a layer the mod did not have or of a creature that is
+gone posts nothing. A write made while an event of the same kind is being dispatched (a handler of it, or a catch-all
+`Events.On<KilnEvent>` handler, writes again) is not posted inside that dispatch: its event waits, under the same rule.
+So a handler that writes in answer to the event sees its own write once a step at most, never recursively, and a mod
+written before the event existed keeps working (no `Events.MaxDepth` exception, no faulted handler). What a waiting
+event is promised:
+
+- **When.** At the start of the next step, before anything else of that step runs (Kiln's own service handlers, queued
+  events, every mod's tick), one per changed value (the newest write wins). Every event that waited when the step
+  began goes out in that step; a write made during that delivery waits for the step after, whichever kind of event
+  it is and whichever kind went out first. The order in which services or mods subscribed does not change this.
+- **Never an older value after a newer one.** A write posted inline (no dispatch of its kind running) replaces the
+  event still waiting for the same value: the inline event says what the value is now, and the older one is not
+  announced after it.
+- **Nothing is dropped for want of room.** The waiting set holds one event per value written during a dispatch in one
+  step, and is emptied at the next.
+- **Identity, not only an id.** An event about an entity (`CreatureChangedEvent`, `CombatChangedEvent`) keeps the
+  entity's spawn serial from the moment of the write and goes out only while that entity is still there: if it is gone,
+  or its id now names another entity, the event is dropped instead of naming the wrong one (the entity's end is its own
+  news). The same holds for an impact instance (`ImpactVariableChangedEvent`). Without an entity source to ask (no
+  Kiln.Spawn on that side) Kiln cannot tell, and the event goes out as written.
+- **At a stop.** When the server stops or a client's hosted world closes, the events that wait go out before the mods
+  unload, as the step they were waiting for, and once more after they unloaded (what an unloading mod wrote, for the
+  mods that stay). A write made by those last rounds' handlers is not announced (no step follows); Kiln logs how many.
+  Nothing is left waiting for a step after the world closed.
+
+The events added in dev.27 post through `managed/Kiln.Api/Services/ChangeNotices.cs` (tests:
+`managed/tests/Kiln.Contract.Tests/ChangeEventTests.cs`, `managed/tests/Kiln.Host.Tests/ChangeNoticeStopTests.cs`); the
+older ones (`SettingChangedEvent`, `EntitySpawnedEvent`, `EntityDestroyedEvent`, ...) keep the inline delivery they
+always had, so nothing changes for a mod that handles them.
+
+## 4. Additive in source
+
+A mod built against an earlier release keeps loading (the binary gate, `tools/check.sh`), and its source keeps
+compiling. A new overload in a method group that shipped can break the second without the first noticing:
+`var destroy = Spawn.Destroy;` has no delegate type once `Destroy` has two overloads, and `Chat.Tell(default, "hi")`
+turns ambiguous. So a new shape that takes an identity type gets a name of its own (`Spawn.DestroyIfAlive(EntityRef)`,
+`Chat.TellIfOnline(PlayerRef, text)`, `Permissions.PersonHas(PlayerRef, node)`, `PermissionSubject.ForPerson(PlayerRef)`)
+instead of an overload. `managed/tests/Kiln.Contract.Tests/OldCallShapesTests.cs` compiles call shapes of dev.26 against
+the services as they are and refuses a new overload in a method group of the services' `PublicAPI.Shipped.txt`.

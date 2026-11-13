@@ -27,6 +27,7 @@ from pathlib import Path
 
 from .util import guid_bytes, guid_text
 
+_zstandard = None
 try:
     from compression import zstd as _zstd  # Python 3.14+
 except ImportError:  # pragma: no cover
@@ -38,13 +39,90 @@ except ImportError:  # pragma: no cover
 
 MAGIC = b"KFC4"
 
+_ZSTD_UNKNOWN = 0xFFFFFFFFFFFFFFFF      # ZSTD_CONTENTSIZE_UNKNOWN
+_ZSTD_NOT_A_FRAME = 0xFFFFFFFFFFFFFFFE  # ZSTD_CONTENTSIZE_ERROR
+_ZSTD_MAX_OUT = 1 << 30                 # no resource of the game is near this; a broken size field must not allocate more
+_libzstd = None                         # None: not looked for yet; False: looked for, not there
+
+
+def _system_libzstd():
+    """The system's libzstd through ctypes, or False: for a Python older than 3.14 without the zstandard package
+    (most Linux installs have the library itself, because the system's own tools use it)."""
+    global _libzstd
+    if _libzstd is None:
+        _libzstd = False
+        try:
+            import ctypes
+            import ctypes.util
+        except ImportError:  # pragma: no cover
+            return _libzstd
+        found = ctypes.util.find_library("zstd")
+        for name in ([found] if found else []) + ["libzstd.so.1", "libzstd.so", "libzstd.1.dylib", "libzstd.dylib", "libzstd.dll", "zstd.dll"]:
+            try:
+                lib = ctypes.CDLL(name)
+                lib.ZSTD_getFrameContentSize.restype = ctypes.c_ulonglong
+                lib.ZSTD_getFrameContentSize.argtypes = [ctypes.c_char_p, ctypes.c_size_t]
+                lib.ZSTD_decompress.restype = ctypes.c_size_t
+                lib.ZSTD_decompress.argtypes = [ctypes.c_char_p, ctypes.c_size_t, ctypes.c_char_p, ctypes.c_size_t]
+                lib.ZSTD_isError.restype = ctypes.c_uint
+                lib.ZSTD_isError.argtypes = [ctypes.c_size_t]
+                lib.ZSTD_findFrameCompressedSize.restype = ctypes.c_size_t
+                lib.ZSTD_findFrameCompressedSize.argtypes = [ctypes.c_char_p, ctypes.c_size_t]
+            except (OSError, AttributeError):
+                continue
+            _libzstd = lib
+            break
+    return _libzstd
+
+
+def _libzstd_decompress(lib, data, size_hint):
+    """Every frame of `data`, one after the other (the standard library's decompress does the same). A frame that
+    does not say its size gets what is left of the hint, or 64 MiB; all frames together stay under _ZSTD_MAX_OUT."""
+    import ctypes
+    data = bytes(data)
+    parts, total, at = [], 0, 0
+    while at < len(data) or not parts:
+        frame = data[at:]
+        used = lib.ZSTD_findFrameCompressedSize(frame, len(frame))
+        if lib.ZSTD_isError(used) or used == 0:
+            raise RuntimeError("zstd: not a zstd frame" if not parts else "zstd: bytes after the last frame are no frame")
+        frame = frame[:used]
+        size = lib.ZSTD_getFrameContentSize(frame, len(frame))
+        if size == _ZSTD_NOT_A_FRAME:
+            raise RuntimeError("zstd: not a zstd frame")
+        if size == _ZSTD_UNKNOWN:
+            size = max(size_hint - total, 0) or (64 << 20)
+        if total + size > _ZSTD_MAX_OUT:
+            raise RuntimeError(f"zstd: the data says {total + size} bytes, more than any game resource holds")
+        out = ctypes.create_string_buffer(max(size, 1))
+        n = lib.ZSTD_decompress(out, size, frame, len(frame))
+        if lib.ZSTD_isError(n):
+            raise RuntimeError("zstd: the data does not decompress (damaged, or larger than expected)")
+        parts.append(out.raw[:n])
+        total += n
+        at += used
+    return parts[0] if len(parts) == 1 else b"".join(parts)
+
+
+def zstd_backend():
+    """Which zstd decoder this Python has: "stdlib" (3.14+), "zstandard" (the package), "libzstd" (the system's
+    library through ctypes), or None."""
+    if _zstd is not None:
+        return "stdlib"
+    if _zstandard is not None:
+        return "zstandard"
+    return "libzstd" if _system_libzstd() else None
+
 
 def zstd_decompress(data, size_hint=0):
     if _zstd is not None:
         return _zstd.decompress(data)
     if _zstandard is not None:  # pragma: no cover
         return _zstandard.ZstdDecompressor().decompress(data, max_output_size=size_hint or (64 << 20))
-    raise RuntimeError("no zstd decoder: use Python 3.14+ (compression.zstd) or install 'zstandard'")
+    lib = _system_libzstd()
+    if lib:
+        return _libzstd_decompress(lib, data, size_hint)
+    raise RuntimeError("no zstd decoder: use Python 3.14 or newer, or install the 'zstandard' package or the system's zstd library (libzstd)")
 
 
 class ResourceKey(tuple):
@@ -98,7 +176,9 @@ class ContentHash(tuple):
 
 
 class Kfc:
-    def __init__(self, path, chunk_cache=6):
+    def __init__(self, path, chunk_cache=6, stem=None, resources=None):
+        """`path`: the index file, or a folder holding one `*.kfc`. `stem` and `resources` name the other files when
+        the index is not `<stem>.kfc` beside them (see `unpatched`): `<stem>_NNN.dat`, and the resources file."""
         p = Path(path).expanduser()
         if p.is_dir():
             cands = sorted(p.glob("*.kfc"))
@@ -106,7 +186,8 @@ class Kfc:
                 raise FileNotFoundError(f"no .kfc in {p}")
             p = cands[0]
         self.path = p
-        self.stem = p.with_suffix("")
+        self.stem = Path(stem) if stem is not None else p.with_suffix("")
+        self._resources = Path(resources) if resources is not None else Path(str(self.stem) + ".kfc_resources")
         self.b = p.read_bytes()
         if self.b[:4] != MAGIC:
             raise ValueError(f"{p}: magic {self.b[:4]!r}, expected {MAGIC!r}")
@@ -115,6 +196,25 @@ class Kfc:
         self._chunks_cache = OrderedDict()
         self._chunk_cache_max = chunk_cache
         self._dat_files = {}
+
+    @classmethod
+    def unpatched(cls, path, chunk_cache=6):
+        """The game's own archive in a folder whose archive a mod loader patched, or None when it is as the game
+        shipped it. EML rewrites `<name>.kfc` and `<name>.kfc_resources` for its mods and keeps the originals beside
+        them as `<name>.kfc.bak` and `<name>.kfc_resources.bak`; the `.dat` files only grow, so the originals' entries
+        still read. Anything that states a fact about the game's data (a rule that holds for every game material)
+        has to read this one: in the patched archive a mod's resources stand where the game's were."""
+        p = Path(path).expanduser()
+        if p.is_dir():
+            cands = sorted(p.glob("*.kfc"))
+            if not cands:
+                return None
+            p = cands[0]
+        stem = p.with_suffix("")
+        index, resources = Path(str(p) + ".bak"), Path(str(stem) + ".kfc_resources.bak")
+        if not (index.is_file() and resources.is_file()):
+            return None
+        return cls(index, chunk_cache=chunk_cache, stem=stem, resources=resources)
 
     # ---- header ----
     def _loc(self, at):
@@ -203,7 +303,7 @@ class Kfc:
             self._chunks_cache.move_to_end(i)
             return c
         if self._res_file is None:
-            self._res_file = open(str(self.stem) + ".kfc_resources", "rb")
+            self._res_file = open(self._resources, "rb")
         foff, stored, packed, doff, dsize = self.chunks[i]
         self._res_file.seek(foff)
         data = zstd_decompress(self._res_file.read(packed), dsize)

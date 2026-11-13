@@ -223,7 +223,7 @@ fn shroudforge_loader_hosted_or_own_takes_eml_mods_into_its_folder() {
         "{:?}", rep.own_loaders);
     // Kiln hosting ShroudForge for this profile (no SF proxy): ShroudForge owns startup and writes the EML mods of its folder
     std::fs::remove_file(game.join("dbghelp.dll")).unwrap();
-    let view = own_loaders::ProfileView { mods: vec![(ModKind::ShroudForge, "x".into(), true)], dropins_shroudforge: false };
+    let view = own_loaders::ProfileView { mods: vec![(ModKind::ShroudForge, "x".into(), true)], dropins_shroudforge: false, ..Default::default() };
     put(&game, "kiln/plugins/kiln-shroudforge.dll", b"x");
     put(&game, "kiln/plugins/shroudforge/shroudforge-runtime.dll", b"x");
     let l = own_loaders::find(&game, Some(&view));

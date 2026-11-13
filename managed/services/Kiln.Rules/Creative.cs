@@ -9,6 +9,7 @@ namespace Kiln;
 /// <c>&lt;configDir&gt;/rules/creative.json</c>) applied as a Kiln rule set for the session. It ends with
 /// <see cref="Set"/> off, when the player leaves, or when the world closes. Tick thread.
 /// </summary>
+[ServerOnly]
 public static class Creative
 {
     /// <summary>The preset's name.</summary>
@@ -27,6 +28,7 @@ public static class Creative
 
     /// <summary>Turns creative mode on or off for <paramref name="player"/>. On is refused (Ok false, with why) for a
     /// player whose game has no Kiln with the rules channel: flight and building need it. The player is told in chat.</summary>
+    [TickThreadOnly]
     public static CreativeResult Set(EntityId player, bool on)
     {
         Game.AssertTickThread();
@@ -80,6 +82,7 @@ public static class Creative
     /// <summary>Sets how <paramref name="player"/>'s character flies in creative mode (<see cref="PlayerRules.CharacterFlight"/>
     /// on their creative rule set). Refused unless they are in creative mode; the server's <c>rules.json</c>
     /// (<c>allowCharacterFlight</c>, off by default) and the build's hooks decide whether it takes effect.</summary>
+    [TickThreadOnly]
     public static CreativeResult SetFlight(EntityId player, CharacterFlightMode mode)
     {
         Game.AssertTickThread();
@@ -261,4 +264,8 @@ public static class Creative
 /// <param name="Ok">False when it was refused (Message says why).</param>
 /// <param name="On">Whether the player is in creative mode now.</param>
 /// <param name="Message">One line for the one who asked.</param>
-public sealed record CreativeResult(bool Ok, bool On, string Message);
+public sealed record CreativeResult(bool Ok, bool On, string Message) : IKilnResult
+{
+    // IKilnResult's reason is null when it was done; the message says what happened either way.
+    string? IKilnResult.Reason => Ok ? null : Message;
+}

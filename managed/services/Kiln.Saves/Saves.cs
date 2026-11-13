@@ -152,8 +152,14 @@ public sealed class WorldLoadedEvent : KilnEvent
 }
 
 /// <summary>The outcome of <see cref="Saves.Request"/>.</summary>
-public sealed record SaveResult(bool Success, SaveReason Reason, uint Revision, TimeSpan Duration, string? Error)
+public sealed record SaveResult(bool Success, SaveReason Reason, uint Revision, TimeSpan Duration, string? Error) : IKilnResult
 {
+    /// <summary>The save was written: <see cref="Success"/> (the contract's name for it).</summary>
+    public bool Ok => Success;
+
+    // IKilnResult's reason is null when the save was written; this record's own Reason is what asked for the save.
+    string? IKilnResult.Reason => Success ? null : Error ?? "not saved";
+
     public override string ToString() => Success ? $"saved revision {Revision} in {Duration.TotalMilliseconds:F0} ms" : $"not saved: {Error}";
 }
 
@@ -219,7 +225,7 @@ public sealed record BackupInfo(
 public static class Saves
 {
     /// <summary>True when the native service is loaded on this build.</summary>
-    public static bool Available => SavesRuntime.Ensure();
+    public static unsafe bool Available => SavesNative.T != null && SavesRuntime.Ensure();
 
     /// <summary>The runtime restages WorldData after the request's final simulation and before the game's pending snapshot.
     /// Inventory journals need this as well as observation of native inventory commits.</summary>
@@ -267,11 +273,13 @@ public static class Saves
     /// <summary>Asks the game to save the world now (its own save, the one the 30 s timer makes). Completes on the tick
     /// thread when a save that started after this call is written (or failed: the game refuses while the world is not
     /// running; the request is dropped after 60 s). Call from mod code.</summary>
+    [RequiresCapability("kiln.saves")]
     public static Task<SaveResult> Request() => SavesRuntime.Request(SaveReason.Request);
 
     /// <summary>Saves the world now and then copies the world file and the matching Kiln sidecar generation to
     /// <c>kiln/backups/&lt;UTC stamp&gt;-&lt;name&gt;/</c>. The copy is made on the tick thread right after the
     /// write, before the game can start another save, so it is consistent. Call from mod code.</summary>
+    [RequiresCapability("kiln.saves")]
     public static Task<BackupInfo> Backup(string name) => SavesRuntime.Backup(name);
 
     /// <summary>Backups in <c>kiln/backups</c>, oldest first.</summary>
@@ -281,6 +289,7 @@ public static class Saves
     /// for the next server start: kiln.saves applies it before the game opens its save (the files it replaces are kept
     /// in <c>kiln/backups/_before-restore-&lt;stamp&gt;</c>). Stop the server afterwards (it saves on the way out: that
     /// is fine, the restore replaces it). Returns the backup that will be restored.</summary>
+    [RequiresCapability("kiln.saves")]
     public static BackupInfo RestoreOnNextStart(string name) => SavesBackups.StageRestore(name);
 
     /// <summary>Cancels a staged restore; false if none was staged.</summary>

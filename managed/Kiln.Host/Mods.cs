@@ -288,7 +288,10 @@ internal sealed class ModManager : IModsBackend, IDisposable
             }
             candidates.Add(d);
         }
-        var loaded = LoadSet(candidates);
+        _reportStart = true;
+        List<string> loaded;
+        try { loaded = LoadSet(candidates); }
+        finally { _reportStart = false; }
         foreach (var d in clashes) SetRecord(d, ModState.Skipped, $"the profile lists {d.Manifest!.Id} too (the profile wins over kiln/mods)");
         foreach (var r in _records)  // say why a dependency is "missing" when the profile switched it off
             if (r.State == ModState.Failed && r.Error is { } err)
@@ -300,6 +303,21 @@ internal sealed class ModManager : IModsBackend, IDisposable
         var skipped = _records.Count(r => r.State == ModState.Skipped);
         _host.Log(failed > 0 ? LogLevel.Warn : LogLevel.Info,
             $"mods: {loaded.Count} loaded, {failed} failed, {skipped} skipped; load order: {(loaded.Count > 0 ? string.Join(", ", loaded) : "-")}");
+        ReportContent(loaded);
+    }
+
+    // progress.json while LoadAll runs (StartProgress: kiln.progress v2): step "mods" counts the mods up to its total.
+    private bool _reportStart;
+
+    /// <summary>After the first load: step "content" while the mods' data files (blocks/) are compiled. Kiln.Blocks counts
+    /// them and ends the step; with no loaded mod that has a blocks/ folder there is nothing to apply, and step "game"
+    /// follows at once.</summary>
+    private void ReportContent(List<string> loaded)
+    {
+        var withBlocks = loaded.Select(Find).Where(m => m is not null && Directory.Exists(System.IO.Path.Combine(m.Directory, "blocks")))
+            .Select(m => m!.Id).ToList();
+        StartProgress.Step("content", "", withBlocks.Count > 0 ? $"the blocks of {string.Join(", ", withBlocks)}" : "");
+        if (withBlocks.Count == 0) StartProgress.Step("game", StartProgress.GameLabel(_options.Side == ManifestSide.Client));
     }
 
     public LoadedMod? Find(string id) => _byId.GetValueOrDefault(id);
@@ -358,9 +376,14 @@ internal sealed class ModManager : IModsBackend, IDisposable
             else _host.Log(LogLevel.Error, $"mod {r.Candidate} not loaded: {reason}");
         }
         var loaded = new List<string>();
+        var position = 0UL;
+        var count = (ulong)result.Order.Count;
+        if (_reportStart) StartProgress.Step("mods", "Loading the mods", "", 0, count);
         foreach (var c in result.Order)
         {
             var m = c.Manifest!;
+            if (_reportStart) StartProgress.Step("mods", "", m.Id, position, count);
+            position++;
             var failedDep = m.Dependencies.FirstOrDefault(d => !d.Optional && d.Id != Manifest.KilnId && !_byId.ContainsKey(d.Id));
             if (failedDep is not null)
             {
@@ -386,6 +409,7 @@ internal sealed class ModManager : IModsBackend, IDisposable
                                      (m.HasCode ? "" : " (data only: no entryAssembly)") +
                                      (shared.Count > 0 ? $" (after {string.Join(", ", shared.Order(StringComparer.Ordinal))})" : ""));
         }
+        if (_reportStart) StartProgress.Step("mods", "", "", count, count);
         PublishSnapshot();
         return loaded;
     }
@@ -605,10 +629,13 @@ internal sealed class ModManager : IModsBackend, IDisposable
         return weak;
     }
 
-    /// <summary>Unloads everything, dependents first (server shutdown).</summary>
+    /// <summary>Unloads everything, dependents first (server shutdown). The change events that wait for the next step go
+    /// out first: that step never comes for these mods (docs/kiln/modding/contract.md, "Change events").</summary>
     public void UnloadAll(string reason)
     {
+        ChangeNoticeQueue.FlushFinal(reason);
         for (var i = _mods.Count - 1; i >= 0; i--) UnloadOne(_mods[i], ModState.Unloaded, reason);
+        ChangeNoticeQueue.FlushFinal(reason);  // what the unloads' writes left waiting: no step follows for it either
         UnloadCaches.Clear(_host.Log);
         PublishSnapshot();
     }
@@ -719,6 +746,7 @@ internal sealed class ModManager : IModsBackend, IDisposable
     public List<string> StopHosting(string reason)
     {
         if (!Hosting) return [];
+        ChangeNoticeQueue.FlushFinal(reason);  // what waits for the next step: the server mods see no next step
         Hosting = false;
         var sw = Stopwatch.StartNew();
         var unloaded = new List<string>();
@@ -745,6 +773,7 @@ internal sealed class ModManager : IModsBackend, IDisposable
             }
         }
         PublishSnapshot();
+        ChangeNoticeQueue.FlushFinal(reason);  // what the unloads' writes left waiting: the hosted world has no next step
         if (unloaded.Count > 0 || _options.HostedServerMods)
             _host.Log(LogLevel.Info, $"hosting: the hosted world ended ({reason}): {unloaded.Count} mod(s) unloaded in " +
                                      $"{sw.Elapsed.TotalMilliseconds:F1} ms{(unloaded.Count > 0 ? ": " + string.Join(", ", unloaded) : "")}");

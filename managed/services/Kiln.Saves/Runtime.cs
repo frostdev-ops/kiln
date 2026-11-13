@@ -38,12 +38,22 @@ internal static unsafe class SavesRuntime
             // per-world configs (Kiln.Api's WorldConfig) keep their files in this world's sidecar folder, and follow it
             WorldConfigs.DirectoryProvider = OpenWorldDirectory;
             Ensure();
+            SavesCaps.Rows.Ensure();
         }
         catch
         {
             // never fail a type load; Ensure is retried on first use
             _state = 0;
         }
+    }
+
+    /// <summary>The refresh found kiln.saves after all: the next use starts Kiln.Saves (ServiceCaps.WhenFound).</summary>
+    internal static void LookAgain()
+    {
+        SavesNative.LookAgain();
+        lock (Gate)
+            if (_state == 2)
+                _state = 0;
     }
 
     internal static bool Ensure()
@@ -246,7 +256,7 @@ internal static unsafe class SavesRuntime
     // ---- requests ----
     internal static Task<SaveResult> Request(SaveReason reason)
     {
-        if (!Ensure()) throw new NotSupportedException("kiln.saves is unavailable");
+        if (!Ensure()) throw SavesCaps.Off(SavesCaps.Service, "kiln.saves is unavailable");
         var p = Enqueue(reason, out var error);
         if (p == null) return Task.FromResult(new SaveResult(false, reason, 0, TimeSpan.Zero, error));
         p.Save = new TaskCompletionSource<SaveResult>();
@@ -255,7 +265,7 @@ internal static unsafe class SavesRuntime
 
     internal static Task<BackupInfo> Backup(string name)
     {
-        if (!Ensure()) throw new NotSupportedException("kiln.saves is unavailable");
+        if (!Ensure()) throw SavesCaps.Off(SavesCaps.Service, "kiln.saves is unavailable");
         SavesBackups.CheckName(name);
         var p = Enqueue(SaveReason.Backup, out var error);
         if (p == null) return Task.FromException<BackupInfo>(new InvalidOperationException($"backup '{name}' not started: {error}"));

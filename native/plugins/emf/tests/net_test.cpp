@@ -2,10 +2,12 @@
 // Production API/engine bridges against fake Kiln services and an upstream EMF ClientLink wire peer.
 #include "emf_internal.h"
 #include "net_bridge.h"
+#include "net/mods_check_service.h"
 #include "net/net_link.h"
 #include "net/net_service.h"
 #include <algorithm>
 #include <array>
+#include <cstdarg>
 #include <cstdio>
 #include <stdexcept>
 #include <thread>
@@ -20,6 +22,7 @@ static int checks = 0, failures = 0;
             std::printf("FAIL %d: %s\n", __LINE__, #x);                                                                \
         }                                                                                                              \
     } while (0)
+static std::vector<std::string> notes, logged;
 namespace kemf {
 const KilnApi *g_api = nullptr;
 KilnOwner g_owner = 1;
@@ -31,7 +34,15 @@ static Mod mod, other;
 static Mod *caller = &mod;
 Mod *caller_mod(const void *) { return caller; }
 Mod *mod_of_address(const void *) { return caller; }
-void logf(int, const char *, ...) {}
+void logf(int, const char *fmt, ...) {
+    char line[2048];
+    va_list ap;
+    va_start(ap, fmt);
+    std::vsnprintf(line, sizeof line, fmt, ap);
+    va_end(ap);
+    if (logged.size() < 4096)
+        logged.emplace_back(line);
+}
 void mod_logf(const Mod *, int, const char *, ...) {}
 void refuse(const Mod *, const char *, const char *, bool) {}
 void account(Mod *, uint64_t) {}
@@ -65,8 +76,14 @@ static bool correct_thread = true;
 bool on_thread_of(EmfWorld *) { return correct_thread; }
 static EmfWorld *ws = reinterpret_cast<EmfWorld *>(0x1000);
 static EmfWorld *wc = reinterpret_cast<EmfWorld *>(0x2000);
+static bool no_server_world = false; // a joined game: the server world is in another process
 uint8_t world_kind_of(EmfWorld *w) { return w == ws ? EMF_WORLD_SERVER : w == wc ? EMF_WORLD_CLIENT : 0xff; }
-EmfWorld *world_of_kind(uint32_t k) { return k == EMF_WORLD_SERVER ? ws : k == EMF_WORLD_CLIENT ? wc : nullptr; }
+EmfWorld *world_of_kind(uint32_t k) {
+    return k == EMF_WORLD_SERVER ? (no_server_world ? nullptr : ws) : k == EMF_WORLD_CLIENT ? wc : nullptr;
+}
+std::vector<std::unique_ptr<Mod>> g_mods;
+std::mutex g_mods_mutex;
+void core_note(std::string_view text) { notes.emplace_back(text); }
 bool commands_is_admin(uint32_t p, uint64_t a) { return p == 7 && a == 123; }
 } // namespace kemf
 using namespace kemf;
@@ -412,6 +429,9 @@ static void remote_wire() {
     net_server_pre();
     now += 5001;
     net_server_pre();
+    CHECK(server_lines.empty()); // EMF 0.6.8: the first beacon comes 10 s after the connection, not 5
+    now += 5000;
+    net_server_pre();
     CHECK(!server_lines.empty());
     CHECK(server_lines[0].starts_with("#!emf1 S "));
     for (const auto &l : server_lines) {
@@ -526,19 +546,476 @@ static void backpressure_is_per_recipient() {
     net_world_stopping(EMF_WORLD_SERVER);
     net_world_started(EMF_WORLD_SERVER);
 }
+// ---------------------------------------------------------------- the mod check on join (EMF 0.6.3, emf/mods) ----
+static void listed(const char *id, const char *version, const char *side, uint32_t status) {
+    auto m = std::make_unique<Mod>();
+    m->id = id;
+    m->version = version;
+    m->side = side;
+    m->status = status;
+    g_mods.push_back(std::move(m));
+}
+static void kiln_mods() {
+    g_mods.clear();
+    listed("shared", "1.0.0", "both", EMF_MOD_LOADED);
+    listed("srv", "1.2.0", "server", EMF_MOD_SCRIPT);       // a Lua mod handed to the script host runs too
+    listed("off", "1.0.0", "both", EMF_MOD_DISABLED);       // not running: not in the list
+    listed("Bad Id", "1.0.0", "both", EMF_MOD_LOADED);      // an id the list cannot carry is left out
+    listed("shared", "9.9.9", "both", EMF_MOD_LOADED);      // the first of a repeated id counts
+    listed("plain", "0.1.0", "", EMF_MOD_LOADED);
+}
+static size_t logged_with(std::string_view part) {
+    return static_cast<size_t>(std::count_if(logged.begin(), logged.end(),
+                                             [&](const std::string &l) { return l.find(part) != std::string::npos; }));
+}
+// Kiln hosts the world; an unmodified EMF 0.6.8 game (EMF's own ClientLink) joins and sends its list.
+static void mods_check_as_server() {
+    session = KILN_SESSION_REMOTE;
+    server_lines.clear();
+    logged.clear();
+    captured_server();
+    kiln_mods();
+    wire::ClientLinkDeps d;
+    d.channels = [] { return std::map<std::string, uint32_t>{{"test/up", 3}, {"emf/mods", 1}}; };
+    d.self_account = [] { return std::optional<uint64_t>(123); };
+    d.enabled = [] { return true; };
+    std::vector<std::pair<std::string, std::string>> answers;
+    d.on_message = [&](const std::string &channel, uint32_t, const std::string &bytes) { answers.push_back({channel, bytes}); };
+    d.emf_version = "0.6.8";
+    d.api = 40;
+    wire::ClientLink peer(std::move(d));
+    const auto to_peer = [&] {
+        for (const auto &l : server_lines)
+            CHECK(peer.on_chat_line(l, 123));
+        server_lines.clear();
+    };
+    net_server_pre();
+    now += 10001;
+    net_server_pre();
+    CHECK(!server_lines.empty() && server_lines[0].starts_with("#!emf1 S "));
+    to_peer();
+    for (const auto &l : peer.take_lines(64))
+        inject(l);
+    net_server_pre();
+    to_peer();
+    CHECK(peer.welcomed());
+    CHECK(api.net_peer(ws, 7, "emf/mods") == 1); // the game has the core's channel, and so does this server
+    {
+        // the core's channel is the core's: with a game that has it, a mod can still neither take it nor send on it
+        auto core = channel("emf/mods");
+        CHECK(!api.net_channel(&core));
+        ContextScope c(&mod, ws, true);
+        CHECK(!api.net_to_player(ws, 7, "emf/mods", "x", 1));
+        CHECK(api.net_to_players(ws, "emf/mods", "x", 1) == 0);
+        CHECK(api.net_to_player(ws, 7, "test/down", "x", 1) == false); // (the game did not say it has test/down)
+    }
+    net_server_pre();
+    CHECK(server_lines.empty());
+    // Kiln's own tick sends nothing here: this process has the server world
+    now += 1000;
+    net_after_step(wc, EMF_WORLD_CLIENT);
+    CHECK(net_client_take(64).empty());
+
+    std::string why;
+    const std::vector<emf::core::ModEntry> theirs{
+        {'e', "emf", "0.6.8"}, {'b', "shared", "1.0.0"}, {'b', "extra", "3.0.0"}, {'l', "hud", "2.0.0"}};
+    CHECK(peer.send("emf/mods", 1, emf::core::encode_mods(theirs), &why));
+    for (const auto &l : peer.take_lines(64))
+        inject(l);
+    CHECK(answers.empty());
+    net_after_step(ws, EMF_WORLD_SERVER); // the handler: the difference is logged, Kiln's list goes back
+    net_server_pre();
+    to_peer();
+    CHECK(answers.size() == 1 && answers[0].first == "emf/mods");
+    const auto list = answers.empty() ? std::nullopt : emf::core::decode_mods(answers[0].second, &why);
+    CHECK(list && list->size() == 4);
+    if (list && list->size() == 4) {
+        CHECK((*list)[0].kind == 'e' && (*list)[0].id == "emf" && (*list)[0].version == "0.6.8-kiln");
+        CHECK((*list)[1].kind == 'b' && (*list)[1].id == "shared" && (*list)[1].version == "1.0.0");
+        CHECK((*list)[2].kind == 's' && (*list)[2].id == "srv" && (*list)[2].version == "1.2.0");
+        CHECK((*list)[3].kind == 'u' && (*list)[3].id == "plain");
+    }
+    CHECK(logged_with("mods check: player 0x000000000000007b (entity 7, EMF 0.6.8): extra: b extra 3.0.0") == 1);
+
+    // a list without an EMF entry is no list: logged once, no answer
+    CHECK(peer.send("emf/mods", 1, emf::core::encode_mods({{'b', "shared", "1.0.0"}}), &why));
+    for (const auto &l : peer.take_lines(64))
+        inject(l);
+    net_after_step(ws, EMF_WORLD_SERVER);
+    net_server_pre();
+    to_peer();
+    CHECK(answers.size() == 1 && logged_with("was not taken: no EMF entry") == 1);
+
+    // a player who left before the handler ran is not answered (the list is dropped with the connection)
+    CHECK(peer.send("emf/mods", 1, emf::core::encode_mods(theirs), &why));
+    for (const auto &l : peer.take_lines(64))
+        inject(l);
+    person.account = 999;
+    net_after_step(ws, EMF_WORLD_SERVER);
+    person.account = 123;
+    net_server_pre();
+    to_peer();
+    CHECK(answers.size() == 1);
+    g_mods.clear();
+    net_world_stopping(EMF_WORLD_SERVER);
+    net_world_started(EMF_WORLD_SERVER);
+}
+// Kiln joined a server that runs EMF 0.6.8: EMF's own NetService stands for it, with the core's emf/mods channel as
+// EMF's core sets it up. Also the greeting that comes while the game does not know its own account yet (EMF 0.6.2).
+static void mods_check_as_client() {
+    session = KILN_SESSION_REMOTE;
+    no_server_world = true;
+    notes.clear();
+    logged.clear();
+    kiln_mods();
+    net_world_stopping(EMF_WORLD_CLIENT); // a fresh service: no welcome of an earlier test
+    net_world_started(EMF_WORLD_CLIENT);
+    std::vector<std::string> to_client, lists;
+    std::vector<std::function<void(EmfWorld *)>> jobs;
+    wire::NetDeps sd;
+    sd.hosted = [](uint32_t *p) {
+        *p = 0;
+        return false;
+    };
+    sd.post = [&](uint8_t, std::function<void(EmfWorld *)> fn) { jobs.push_back(std::move(fn)); };
+    sd.now_ms = [] { return now; };
+    sd.log = [](const std::string &) {};
+    sd.connection_of = [](uint32_t e) {
+        return e == 7 ? std::make_optional(std::make_pair(uint32_t{71}, uint64_t{123})) : std::nullopt;
+    };
+    sd.entity_of = [](uint64_t a) { return a == 123 ? 7u : 0u; };
+    sd.is_admin = [](uint64_t) { return false; };
+    wire::NetService srv(std::move(sd));
+    srv.set_core_greets([] { return true; }); // the server has mods its players must match
+    wire::ServerEnv env;
+    env.send = [&](uint32_t, uint64_t, const std::string &l) {
+        to_client.push_back(l);
+        return true;
+    };
+    env.send_lines = [&](uint32_t, uint64_t, const std::vector<std::string> &ls) {
+        to_client.insert(to_client.end(), ls.begin(), ls.end());
+        return true;
+    };
+    env.room = [] { return size_t{1000}; };
+    env.is_local = [](uint32_t, uint64_t) { return false; };
+    env.emf_version = "0.6.8";
+    env.api = 40;
+    srv.enable_server(std::move(env));
+    const std::vector<emf::core::ModEntry> server_mods{
+        {'e', "emf", "0.6.8"}, {'c', "pack", "1.0.0"}, {'b', "shared", "1.0.0"}, {'b', "needed", "2.0.0"}, {'s', "herald", "1.0.0"}};
+    wire::ChannelDef c;
+    c.name = emf::core::kModsChannel;
+    c.version = emf::core::kModsChannelVersion;
+    c.flags = wire::kToServer | wire::kToPlayers;
+    c.max_size = emf::core::kMaxModListBytes;
+    c.per_10s = 5;
+    c.on_server = [&](EmfWorld *, const wire::NetFrom &f, const std::string &data) {
+        lists.push_back(data);
+        std::string w;
+        CHECK(srv.to_player("emf", f.player, emf::core::kModsChannel, emf::core::encode_mods(server_mods), &w));
+    };
+    std::string why;
+    CHECK(srv.add_channel("emf", c, &why));
+    const auto to_kiln = [&](uint64_t speaker = 123) {
+        for (const auto &l : to_client)
+            CHECK(net_client_line(l, speaker));
+        to_client.clear();
+    };
+    const auto to_server = [&] {
+        const auto lines = net_client_take(64);
+        for (const auto &l : lines)
+            srv.server_line(71, 123, l);
+        for (auto &j : jobs)
+            j(ws);
+        jobs.clear();
+        return lines.size();
+    };
+    const auto tick = [&] {
+        now += 1000;
+        net_after_step(wc, EMF_WORLD_CLIENT);
+    };
+    const auto set_account = [&](uint64_t a) { std::memcpy(infos.data() + 6 * 0xA0 + 8, &a, 8); };
+
+    // The greeting comes while the game is still loading and does not know its own account: held, then answered.
+    srv.server_tick({{71, 123}});
+    now += 10001;
+    srv.server_tick({{71, 123}});
+    CHECK(to_client.size() == 1 && to_client[0].find(wire::kBeaconText) != std::string::npos);
+    set_account(0);
+    to_kiln();
+    CHECK(net_client_take(64).empty());   // taken (never shown), not answered yet: a forged greeting could be it
+    net_world_started(EMF_WORLD_CLIENT);  // the client world appears on the same connection: the held greeting stays
+    CHECK(net_client_take(64).empty());
+    tick();
+    CHECK(to_server() == 0 && lists.empty()); // no welcome yet: no list is sent
+    set_account(123);
+    CHECK(to_server() == 1);              // the hello, once the game knows who it is
+    CHECK(!to_client.empty());            // the server's welcome
+    to_kiln();
+    CHECK(api.net_peer(nullptr, 0, "emf/mods") == 1);
+    CHECK(api.net_peer(nullptr, 0, "test/up") == 0); // the server has only the core's channel
+
+    // The list goes once; the server answers with its own; the player is told once what is missing.
+    tick();
+    CHECK(to_server() >= 1 && lists.size() == 1);
+    const auto mine = lists.empty() ? std::nullopt : emf::core::decode_mods(lists[0], &why);
+    CHECK(mine && mine->size() == 4);
+    if (mine && mine->size() == 4) {
+        CHECK((*mine)[0].kind == 'e' && (*mine)[0].id == "emf" && (*mine)[0].version == "0.6.8-kiln");
+        CHECK((*mine)[1].kind == 'b' && (*mine)[1].id == "shared" && (*mine)[1].version == "1.0.0");
+        CHECK((*mine)[2].kind == 's' && (*mine)[2].id == "srv");
+        CHECK((*mine)[3].kind == 'u' && (*mine)[3].id == "plain");
+    }
+    CHECK(!to_client.empty());
+    to_kiln();
+    CHECK(notes.empty());                 // the handler runs after the client world's step
+    net_after_step(wc, EMF_WORLD_CLIENT);
+    CHECK(notes.size() == 1);
+    if (!notes.empty()) {
+        CHECK(notes[0].starts_with("Missing mods for this server (items from them can be lost): pack 1.0.0 (you: none), "
+                                   "needed 2.0.0 (you: none)."));
+        CHECK(notes[0].ends_with("Install the same versions in the Kiln launcher.") &&
+              notes[0].find("EMF.exe") == std::string::npos);
+    }
+    CHECK(logged_with("mods check: against the server's mods: missing: c pack 1.0.0 (none), b needed 2.0.0 (none)") == 1);
+    for (int i = 0; i < 40; ++i) {        // answered: nothing more is sent in this session
+        tick();
+        CHECK(to_server() == 0);
+    }
+    CHECK(lists.size() == 1 && notes.size() == 1);
+
+    // A greeting held while the account was unknown, spoken as another player, is never answered.
+    net_world_stopping(EMF_WORLD_CLIENT);
+    net_world_started(EMF_WORLD_CLIENT);
+    set_account(0);
+    const auto forged = wire::encode_line(wire::split_message('S', 0, "emf/net", 1, "fake", nullptr)[0]);
+    CHECK(net_client_line(forged, 999));
+    set_account(123);
+    CHECK(net_client_take(64).empty());
+    tick();
+    CHECK(to_server() == 0 && lists.size() == 1); // and no welcome means no list
+
+    // A new session on a new connection: greeted again, the list goes again, the note may show again.
+    srv.server_tick({});
+    srv.server_tick({{71, 123}});
+    now += 10001;
+    srv.server_tick({{71, 123}});
+    CHECK(to_client.size() == 1);
+    to_kiln();
+    CHECK(to_server() == 1);
+    to_kiln();
+    tick();
+    CHECK(to_server() >= 1 && lists.size() == 2);
+    to_kiln();
+    net_after_step(wc, EMF_WORLD_CLIENT);
+    CHECK(notes.size() == 2);
+
+    // A server whose list this game matches: no note.
+    net_world_stopping(EMF_WORLD_CLIENT);
+    net_world_started(EMF_WORLD_CLIENT);
+    listed("needed", "2.0.0", "both", EMF_MOD_LOADED);
+    listed("pack", "1.0.0", "both", EMF_MOD_LOADED); // same id and version: the kind of the game's own entry is not compared
+    srv.server_tick({});
+    srv.server_tick({{71, 123}});
+    now += 10001;
+    srv.server_tick({{71, 123}});
+    to_kiln();
+    CHECK(to_server() == 1);
+    to_kiln();
+    tick();
+    CHECK(to_server() >= 1 && lists.size() == 3);
+    to_kiln();
+    net_after_step(wc, EMF_WORLD_CLIENT);
+    CHECK(notes.size() == 2 && logged_with("mods check: against the server's mods: same mods") == 1);
+
+    g_mods.clear();
+    no_server_world = false;
+    net_world_stopping(EMF_WORLD_CLIENT);
+    net_world_started(EMF_WORLD_CLIENT);
+}
 static int flushed = 0, added = 0, sent = 0;
 static bool pool_full = false;
 static void game_flush(uint8_t *) { ++flushed; }
-static uint8_t *game_send(uint8_t *out, uint8_t *, uint8_t kind, const NetText *, uint32_t, uint32_t) {
+static std::vector<std::string> sent_lines; // what the game was handed to send as typed chat
+static uint8_t *game_send(uint8_t *out, uint8_t *, uint8_t kind, const NetText *text, uint32_t, uint32_t) {
     CHECK(kind == 0);
     ++sent;
     out[0] = pool_full ? 2 : 0;
+    if (!pool_full && text && text->ptr)
+        sent_lines.emplace_back(text->ptr, text->len);
     return out;
 }
 static uint8_t *game_add(uint8_t *out, uint8_t *, uint8_t, const NetText *, uint32_t, uint32_t, uint32_t, uint64_t,
                          const void *) {
     ++added;
     return out;
+}
+// The greeting of a joined server, through the production receive and send wrappers (the game's own calls), across
+// the client world's start and stop. See net_client_stop in api_net_client.cpp for when marked lines are taken.
+static void greeting_while_loading() {
+    session = KILN_SESSION_REMOTE;
+    no_server_world = true;
+    const auto set_account = [&](uint64_t a) { std::memcpy(infos.data() + 6 * 0xA0 + 8, &a, 8); };
+    const auto greeting = wire::encode_line(wire::split_message('S', 0, "emf/net", 1, wire::kBeaconText, nullptr)[0]);
+    const NetText beacon{greeting.data(), greeting.size()};
+    const auto hellos = [] {
+        return std::count_if(sent_lines.begin(), sent_lines.end(),
+                             [](const std::string &l) { return l.starts_with("#!emf1 H "); });
+    };
+    uint8_t out[16]{};
+    const auto connection = [&](std::array<uint8_t, 0x110> &gc, uint8_t *sys) {
+        std::memcpy(gc.data() + 0xF8, &sys, sizeof sys);
+    };
+    NetClientDetours hooks{};
+    const auto game_start = [&] { // the hooks as they are when the game starts: on, no connection known
+        net_world_stopping(EMF_WORLD_CLIENT);
+        hooks = net_client_test_install(game_flush, game_send, game_add);
+        sent_lines.clear();
+        added = 0;
+        set_account(0);
+    };
+
+    // 1. The first join of a game run. The greeting comes while the game loads and does not know its account; then its
+    //    client world starts; then the account is known.
+    game_start();
+    std::array<uint8_t, 0x110> gc1{};
+    uint8_t sys1[16]{};
+    connection(gc1, sys1);
+    hooks.flush(gc1.data());                              // the GameClient pumps while the game loads
+    hooks.add(out, sys1, 0, &beacon, 0, 0, 71, 123, nullptr);
+    CHECK(added == 0);                                    // taken: never in the game's chat
+    hooks.flush(gc1.data());
+    CHECK(hellos() == 0);                                 // held, not answered: the account is not known
+    net_world_started(EMF_WORLD_CLIENT);                  // the game finished loading: the same GameClient
+    hooks.flush(gc1.data());
+    CHECK(hellos() == 0);
+    set_account(123);
+    hooks.flush(gc1.data());
+    CHECK(hellos() == 1);                                 // the held greeting is answered, although a world began since
+    hooks.flush(gc1.data());
+    CHECK(hellos() == 1);                                 // once
+
+    // 2. The player leaves and joins another server in the same game run. Between the stop and the next client world's
+    //    start nothing is taken: a greeting that comes then stays the game's own line and is not answered. The
+    //    server's second greeting, after the world's start, is held until the account is known and then answered.
+    net_world_stopping(EMF_WORLD_CLIENT);
+    std::array<uint8_t, 0x110> gc2{};
+    uint8_t sys2[16]{};
+    connection(gc2, sys2);
+    sent_lines.clear();
+    added = 0;
+    set_account(0);
+    hooks.flush(gc2.data());
+    hooks.add(out, sys2, 0, &beacon, 0, 0, 71, 123, nullptr);
+    CHECK(added == 1);                                    // not taken before the client world starts
+    net_world_started(EMF_WORLD_CLIENT);
+    hooks.flush(gc2.data());
+    CHECK(hellos() == 0);                                 // and not answered later either
+    hooks.add(out, sys2, 0, &beacon, 0, 0, 71, 123, nullptr);
+    CHECK(added == 1);                                    // the second greeting: taken, held (no account yet)
+    hooks.flush(gc2.data());
+    CHECK(hellos() == 0);
+    set_account(123);
+    hooks.flush(gc2.data());
+    CHECK(hellos() == 1);
+
+    // 3. A first join again. The server's second greeting arrives after the world started and the account is known,
+    //    before the game's next flush: its answer is not thrown away by the new world's reset (done at the start).
+    game_start();
+    std::array<uint8_t, 0x110> gc3{};
+    uint8_t sys3[16]{};
+    connection(gc3, sys3);
+    hooks.flush(gc3.data());
+    hooks.add(out, sys3, 0, &beacon, 0, 0, 71, 123, nullptr); // the first greeting: held
+    net_world_started(EMF_WORLD_CLIENT);
+    set_account(123);
+    hooks.add(out, sys3, 0, &beacon, 0, 0, 71, 123, nullptr); // the second one, answered at once (a hello waits)
+    CHECK(added == 0 && hellos() == 0);
+    hooks.flush(gc3.data());
+    CHECK(hellos() == 1);
+    hooks.flush(gc3.data());
+    CHECK(hellos() == 1);
+
+    // 4. A greeting held for one GameClient is not answered through another one.
+    game_start();
+    std::array<uint8_t, 0x110> gc4{}, gc5{};
+    uint8_t sys4[16]{}, sys5[16]{};
+    connection(gc4, sys4);
+    connection(gc5, sys5);
+    hooks.flush(gc4.data());
+    hooks.add(out, sys4, 0, &beacon, 0, 0, 71, 123, nullptr);
+    CHECK(added == 0);                                    // taken and held through the first GameClient
+    hooks.flush(gc5.data());                              // another GameClient: a new connection
+    net_world_started(EMF_WORLD_CLIENT);
+    set_account(123);
+    hooks.flush(gc5.data());
+    CHECK(hellos() == 0);
+
+    // 5. What the stopped connection still does after its world stopped is never taken for the next connection, however
+    //    late it comes and even when the next GameClient has the same address: its flush is not pumped and its
+    //    server's greeting is neither taken nor held, so nothing is said to the next server (it may be a vanilla one).
+    net_world_stopping(EMF_WORLD_CLIENT);
+    sent_lines.clear();
+    added = 0;
+    set_account(0);
+    hooks.flush(gc5.data());                              // the old GameClient, still flushing
+    hooks.add(out, sys5, 0, &beacon, 0, 0, 71, 123, nullptr);
+    CHECK(added == 1);                                    // left to the stopped game's chat: not this adapter's line
+    now += 60000;                                         // no time makes it this adapter's line
+    hooks.flush(gc5.data());
+    hooks.add(out, sys5, 0, &beacon, 0, 0, 71, 123, nullptr);
+    CHECK(added == 2);
+    hooks.flush(gc5.data());                              // the next connection's GameClient, at the same address
+    net_world_started(EMF_WORLD_CLIENT);
+    set_account(123);
+    hooks.flush(gc5.data());
+    hooks.flush(gc5.data());
+    CHECK(hellos() == 0 && sent_lines.empty());           // no greeting came on this connection: nothing is said
+
+    // 6. A world stop ends sending for the stopped session: a hello that waited is never sent after it.
+    hooks.add(out, sys5, 0, &beacon, 0, 0, 71, 123, nullptr); // answered: a hello waits for the next flush
+    CHECK(added == 2 && sent_lines.empty());
+    {
+        auto waiting = net_client_take(4);                // it does wait (looked at and put back)
+        CHECK(waiting.size() == 1 && waiting[0].starts_with("#!emf1 H "));
+        net_client_put_back(std::move(waiting));
+    }
+    net_world_stopping(EMF_WORLD_CLIENT);
+    hooks.flush(gc5.data());
+    CHECK(sent_lines.empty());
+    net_world_started(EMF_WORLD_CLIENT);
+    hooks.flush(gc5.data());
+    hooks.flush(gc5.data());
+    CHECK(sent_lines.empty());
+
+    // 7. A host: a message its server world sends to its own game right after the client world started is not lost at
+    //    the GameClient's first flush (the first GameClient since a stop replaces no connection).
+    net_world_stopping(EMF_WORLD_CLIENT);
+    no_server_world = false;
+    session = KILN_SESSION_HOST;
+    net_world_started(EMF_WORLD_CLIENT);
+    got_client.clear();
+    {
+        ContextScope c(&mod, ws, true);
+        CHECK(api.net_to_player(ws, 7, "test/down", "early", 5));
+    }
+    hooks.flush(gc5.data());                              // the first flush of this world
+    net_after_step(wc, EMF_WORLD_CLIENT);
+    CHECK(got_client.size() == 1 && got_client[0].bytes == "early");
+    // ... while another GameClient replacing an established one does drop what was queued for the old connection
+    {
+        ContextScope c(&mod, ws, true);
+        CHECK(api.net_to_player(ws, 7, "test/down", "old", 3));
+    }
+    hooks.flush(gc4.data());
+    net_after_step(wc, EMF_WORLD_CLIENT);
+    CHECK(got_client.size() == 1);
+
+    net_world_stopping(EMF_WORLD_CLIENT);
+    net_world_started(EMF_WORLD_CLIENT);
+    session = KILN_SESSION_REMOTE; // as the next test found it
+    flushed = added = sent = 0;    // and it counts from zero
+    sent_lines.clear();
 }
 static void client_hooks() {
     auto hooks = net_client_test_install(game_flush, game_send, game_add);
@@ -599,6 +1076,9 @@ int main() {
     loopback();
     remote_wire();
     backpressure_is_per_recipient();
+    mods_check_as_server();
+    mods_check_as_client();
+    greeting_while_loading();
     client_hooks();
     session = KILN_SESSION_HOST;
     CHECK(api.net_to_server("test/up", "queued", 6));
@@ -624,6 +1104,6 @@ int main() {
     net_after_step(ws, EMF_WORLD_SERVER);
     CHECK(got_server.size() == before);
     CHECK(!api.net_to_server("test/up", "x", 1));
-    std::printf("EMF v27 network: %d checks, %d failures\n", checks, failures);
+    std::printf("EMF network (v27 messages, mods check): %d checks, %d failures\n", checks, failures);
     return failures ? 1 : 0;
 }

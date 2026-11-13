@@ -25,13 +25,21 @@ internal static unsafe class RulesRuntime
         public Task? Teleporting;
         public DateTime? GraceUntil;
         public int GroundedChecks;
+        // NoClip
+        public NoClipTrack? Clip;     // made when the player's rules first carry NoClip
+        public bool ClipGrace;        // the landing grace running now was started by a NoClip move back
+        public uint Handle;           // the player's connection (Player.Handle): another one with this entity id is another player
     }
 
     private static readonly object Gate = new();
     private static readonly List<RuleSet> SetsList = new();
     private static readonly Dictionary<EntityId, PlayerState> PlayersByEntity = new();
     private static readonly HashSet<EntityId> Characters = new();  // player characters with no client (lab tests)
+    // NoClip requests a death or a teleport used up, per player: the rule sets (id, version) that asked then. A set asks
+    // anew when it is updated or applied again.
+    private static readonly Dictionary<EntityId, HashSet<(long Id, int Version)>> Spent = new();
     private static bool _dirty, _started;
+    private static int _retiring;  // inside Leave: its rule sets end without resolving (the caller resolves, or the next tick)
     private static ulong _step;
     private static ModConfig<RulesPolicy>? _config;
     private static RulesLimits _limits = RulesLimits.Default;
@@ -127,13 +135,24 @@ internal static unsafe class RulesRuntime
 
     public static void Remove(RuleSet set)
     {
-        lock (Gate) SetsList.Remove(set);
+        lock (Gate)
+        {
+            SetsList.Remove(set);
+            foreach (var spent in Spent.Values) spent.RemoveWhere(k => k.Id == set.Id);
+        }
         Log(LogLevel.Info, $"ended {set}");
         Dirty();
-        if (Game.IsTickThread) Resolve();
+        if (Game.IsTickThread && _retiring == 0) Resolve();
     }
 
     public static void Dirty() => _dirty = true;
+
+    // A rule set's rules changed (RuleSet.Update): they count at once, as a new set's do.
+    public static void Changed(RuleSet set)
+    {
+        Dirty();
+        if (set.Active && _started && Game.IsTickThread) Resolve();
+    }
 
     // A server world closes (shutdown, or a game's hosted session ends): its players and their own rule sets go with it.
     // A game client may host another world next, where entity ids start over.
@@ -145,9 +164,11 @@ internal static unsafe class RulesRuntime
             theirs = SetsList.Where(r => r.Scope.Player is not null).ToList();
             PlayersByEntity.Clear();
             Characters.Clear();
+            Spent.Clear();
         }
         foreach (var r in theirs) r.Dispose();
         Creative.Forget();
+        Kiln.NoClip.Forget();
         RulesNet.SetLocal(RulesNativePart.Default);
         Log(LogLevel.Info, $"world closing: {theirs.Count} player rule set(s) ended");
     }
@@ -189,7 +210,11 @@ internal static unsafe class RulesRuntime
     {
         List<(RuleSet?, PlayerRules)> matching;
         lock (Gate)
-            matching = SetsList.Where(s => s.Active && s.Scope.Covers(player, at)).Select(s => ((RuleSet?)s, s.Rules)).ToList();
+        {
+            Spent.TryGetValue(player, out var spent);
+            matching = SetsList.Where(s => s.Active && s.Scope.Covers(player, at))
+                .Select(s => ((RuleSet?)s, NoClipMath.WithoutSpent(s.Rules, s.Id, s.Version, spent))).ToList();
+        }
         var rules = RulesCrafting.Supported(RulesMath.Combine(player, matching, _limits));
         if (rules.CharacterFlight != CharacterFlightMode.BuildingArea) return rules;
         try
@@ -258,6 +283,7 @@ internal static unsafe class RulesRuntime
             try
             {
                 if (_step % VitalsEverySteps == 0) Vitals(s);
+                NoClipStep(s);
                 Flight(s);
                 if (s.Effective.Native.HasPredicted) PushNative(s);  // a client that becomes ready gets its glide and flight rules
                 SyncClient(s);
@@ -288,13 +314,24 @@ internal static unsafe class RulesRuntime
     private static void ResolveAll()
     {
         _dirty = false;
-        var list = new List<(EntityId Entity, string Name, WorldPosition? At)>();
+        var list = new List<(EntityId Entity, string Name, WorldPosition? At, uint Handle)>();
         if (Players.Available)
-            foreach (var p in Players.All) list.Add((p.Entity, p.Name, p.Position));
+            foreach (var p in Players.All) list.Add((p.Entity, p.Name, p.Position, p.Handle));
         lock (Gate)
             foreach (var c in Characters)
-                if (World.Position(c) is { } at) list.Add((c, $"character {c}", at));
+                if (World.Position(c) is { } at) list.Add((c, $"character {c}", at, 0));
+        // An entity id goes to the next player who joins. When that happens between two looks here, the one who left
+        // was never seen as absent: their rule sets and state would pass to the newcomer. The connection tells them apart.
+        foreach (var p in list)
+        {
+            PlayerState? old;
+            lock (Gate) PlayersByEntity.TryGetValue(p.Entity, out old);
+            if (old is null) continue;
+            if (Replaced(old.Handle, p.Handle)) Leave(old);
+            else if (p.Handle != 0) old.Handle = p.Handle;  // 0 is "not known yet": the same player, now known
+        }
         var present = new HashSet<EntityId>();
+        var ended = new List<PlayerState>();
         foreach (var p in list)
         {
             present.Add(p.Entity);
@@ -305,7 +342,7 @@ internal static unsafe class RulesRuntime
                 if (!PlayersByEntity.TryGetValue(p.Entity, out s!))
                 {
                     if (eff.IsDefault) continue;  // nothing to track
-                    PlayersByEntity[p.Entity] = s = new PlayerState(p.Entity);
+                    PlayersByEntity[p.Entity] = s = new PlayerState(p.Entity) { Handle = p.Handle };
                 }
             }
             if (s.Effective.SameAs(eff))
@@ -316,17 +353,30 @@ internal static unsafe class RulesRuntime
             var before = s.Effective;
             s.Effective = eff;
             Apply(s, before);
+            if (s.Clip is not null) ended.Add(s);
             if (Events.HasSubscribers<PlayerRulesChangedEvent>()) Events.Post(new PlayerRulesChangedEvent(before, eff));
             Log(LogLevel.Info, $"player {p.Name} ({p.Entity}): {eff}" + (eff.Denied.Count > 0 ? $" (rules.json denies {string.Join(", ", eff.Denied)})" : ""));
         }
         List<PlayerState> gone;
         lock (Gate) gone = PlayersByEntity.Values.Where(s => !present.Contains(s.Entity)).ToList();
         foreach (var s in gone) Leave(s);
+        // "NoClip ended" goes out last, when every player's rules are applied: a handler may change rules again
+        // (which resolves again, from a finished state).
+        foreach (var s in ended) FlushNoClipEnded(s);
     }
+
+    /// <summary>Whether a player seen with connection <paramref name="now"/> is another one than the one seen with
+    /// <paramref name="was"/> under the same entity id. 0 means the connection is not known (yet): never a reason to
+    /// take a player's rules away.</summary>
+    internal static bool Replaced(uint was, uint now) => was != 0 && now != 0 && was != now;
 
     private static void Apply(PlayerState s, EffectiveRules before)
     {
         var eff = s.Effective;
+        // NoClip starting and ending: the tracker hears first, then the native hooks. Starting, collision is still on
+        // (where the character is now is free); ending inside something, collision stays off while it is moved (Held).
+        if (!before.NoClip && eff.NoClip) NoClipEntering(s);
+        else if (before.NoClip && !eff.NoClip) NoClipLeaving(s);
         // the native hooks
         PushNative(s);
         // invulnerability (Kiln.Combat holds it for Kiln; a landing grace keeps it on)
@@ -342,9 +392,10 @@ internal static unsafe class RulesRuntime
     // on the player's screen every step.
     private static void PushNative(PlayerState s)
     {
-        var part = s.Effective.Native;
+        var part = Held(s);
         if (part.HasPredicted && !PredictsRules(ClientOf(s.Entity))) part = part.WithoutPredicted;
         if (!CanPredictFlight(s.Entity)) part = part.WithoutFlight;
+        if ((part.Flags & RulesNative.NoClip) != 0 && !CanPredictNoClip(s.Entity)) part = part.WithoutNoClip;
         var steer = (part.Flags & RulesNative.GlideSteer) != 0;
         if (steer && !CanPredictSteer(s.Entity)) part = part.WithoutSteer;
         if (steer && s.SteerSaid != ((part.Flags & RulesNative.GlideSteer) != 0))
@@ -363,6 +414,13 @@ internal static unsafe class RulesRuntime
         s.Native = part;
     }
 
+    // What the hooks get: the player's rules, with NoClip kept on while its character is being moved back into open space.
+    private static RulesNativePart Held(PlayerState s)
+    {
+        var part = s.Effective.Native;
+        return s.Clip is { Restoring: true } ? part with { Flags = part.Flags | RulesNative.NoClip } : part;
+    }
+
     private static bool PredictsRules(RulesClient c) => c is RulesClient.Host or RulesClient.Kiln or RulesClient.Simulated;
 
     internal static bool CanPredictFlight(EntityId player) => ClientOf(player) is RulesClient.Host or RulesClient.Simulated ||
@@ -373,13 +431,31 @@ internal static unsafe class RulesRuntime
     internal static bool CanPredictSteer(EntityId player) => ClientOf(player) is RulesClient.Host or RulesClient.Simulated ||
         Network.Available && RulesNet.SteerReady(Network.PeerOf(player));
 
+    // NoClip moves the character in the player's game too: on a dedicated server only for a game that flies (the flight
+    // capability) and confirmed its collision hook (kiln:rules message 2). A game without it would collide in its
+    // prediction while the server's character does not, and be corrected every step.
+    internal static bool CanPredictNoClip(EntityId player) => CanPredictFlight(player) &&
+        (ClientOf(player) is RulesClient.Host or RulesClient.Simulated || Network.Available && RulesNet.NoClipReady(Network.PeerOf(player)));
+
     private static void Leave(PlayerState s)
     {
         lock (Gate) PlayersByEntity.Remove(s.Entity);
         List<RuleSet> theirs;
         lock (Gate) theirs = SetsList.Where(r => r.Scope.Player == s.Entity).ToList();
-        foreach (var r in theirs) r.Dispose();
+        // Ending a rule set resolves at once, and here that would make a state for whoever has this entity id now and
+        // apply their rules, which the lines below would then clear again. The sets end quietly; the caller resolves.
+        _retiring++;
+        try
+        {
+            foreach (var r in theirs) r.Dispose();
+        }
+        finally
+        {
+            _retiring--;
+        }
+        s.Clip = null;
         if (RulesNative.T is var t && t != null) t->Set(s.Entity.Value, null);
+        lock (Gate) Spent.Remove(s.Entity);
         foreach (var k in s.Water) k.Dispose();
         s.Water.Clear();
         SetInvulnerable(s, false);
@@ -404,8 +480,9 @@ internal static unsafe class RulesRuntime
 
     private static void SyncClient(PlayerState s)
     {
-        var part = s.Effective.Native;
+        var part = Held(s);
         if (!CanPredictFlight(s.Entity)) part = part.WithoutFlight;
+        if ((part.Flags & RulesNative.NoClip) != 0 && !CanPredictNoClip(s.Entity)) part = part.WithoutNoClip;
         if ((part.Flags & RulesNative.GlideSteer) != 0 && !CanPredictSteer(s.Entity)) part = part.WithoutSteer;
         if (s.ClientSent && part == s.Client) return;
         bool host;
@@ -474,6 +551,110 @@ internal static unsafe class RulesRuntime
         }
     }
 
+    // ---------------------------------------------------------------------------------------- NoClip -------
+
+    // Each player's NoClip is a NoClipTrack (NoClipTrack.cs has the rules of it): it hears when the rules start and stop
+    // carrying NoClip (Apply), steps once a tick here, and tells what to do: use up the requests after a death or a
+    // teleport, tell the hooks once the character is back in open space, report that it ended.
+    private sealed class TrackWorld(EntityId entity) : INoClipWorld
+    {
+        public WorldPosition? Position => World.Position(entity);
+        public NoClipSpace Space(WorldPosition at) => NoClipMath.Space(at, ReadVoxel);
+        public ulong Cells(WorldPosition at) => NoClipMath.Cells(at, ReadVoxel);
+        public NoClipSpace Torso(WorldPosition at) => NoClipMath.Torso(at, ReadVoxel);
+        public byte? Teleports => World.ReadBytes(entity, "TeleportCount") is { Length: > 0 } b ? b[0] : null;
+        public bool Dead => Combat.Available && Combat.GetHealth(entity) is { Dead: true };
+        public bool InWorld(WorldPosition at) => RulesRuntime.InWorld(at);
+        public Task<TeleportResult> Teleport(WorldPosition to) => Kiln.Teleport.To(entity, to, new TeleportOptions { FindGround = false });
+        public DateTime Now => DateTime.UtcNow;
+    }
+
+    private static void NoClipEntering(PlayerState s)
+    {
+        (s.Clip ??= new NoClipTrack(new TrackWorld(s.Entity))).Entering();
+        if (!s.ClipGrace) return;
+        // the landing grace of an earlier move back: NoClip never lands, so it would last its whole minute
+        s.ClipGrace = false;
+        s.GraceUntil = null;
+        SetInvulnerable(s, s.Effective.Invulnerable);
+    }
+
+    private static void NoClipStep(PlayerState s)
+    {
+        if (s.Clip is not { } clip) return;
+        var r = clip.Step();
+        if (r.Problem is { } why) Log(LogLevel.Warn, $"player {s.Entity}: NoClip ended inside something; {why}");
+        if (r.Trip is { } trip)
+        {
+            // the requests are used up, and resolving reaches the tracker's Leaving
+            SpendNoClip(s.Entity, r.Before, trip);
+            Resolve();
+        }
+        if (r.Released || r.Held) PushNative(s);  // collision is back, or off again, from the next step
+        FlushNoClipEnded(s);
+    }
+
+    // The rules stopped carrying NoClip. When a death or a teleport did it and the step had not seen it yet (an area the
+    // teleport left is resolved first), the requests are used up here.
+    private static void NoClipLeaving(PlayerState s)
+    {
+        if (s.Clip is not { } clip) return;
+        if (clip.Leaving(out var before) is { } reason) SpendNoClip(s.Entity, before, reason);
+    }
+
+    // A death or a teleport uses up the request of every rule set that asks for NoClip where the character was before
+    // (a teleport out of an area must use up that area's request too) or is now.
+    private static void SpendNoClip(EntityId player, WorldPosition? before, NoClipEnd reason)
+    {
+        var now = World.Position(player);
+        lock (Gate)
+        {
+            if (!Spent.TryGetValue(player, out var spent)) Spent[player] = spent = new();
+            foreach (var set in SetsList)
+                if (set.Active && set.Rules.NoClip == true && (set.Scope.Covers(player, before) || set.Scope.Covers(player, now)))
+                    spent.Add((set.Id, set.Version));
+        }
+        Log(LogLevel.Info, $"player {player}: NoClip ends ({reason})");
+        Dirty();
+    }
+
+    // Reports what the tracker finished, after the player's rules and hooks are in their new state.
+    private static void FlushNoClipEnded(PlayerState s)
+    {
+        if (s.Clip is not { } clip) return;
+        while (clip.TakeEnded(out var reason, out var restoredTo))
+        {
+            if (restoredTo is not null && !s.Effective.NoClip)
+            {
+                // it may be in the air there: Flight() keeps it safe until it stands (as after a carried flight)
+                s.GraceUntil = DateTime.UtcNow.AddSeconds(LandingGraceSeconds);
+                s.GroundedChecks = 0;
+                s.ClipGrace = true;
+            }
+            Kiln.NoClip.Ended(s.Entity, reason, restoredTo);
+        }
+    }
+
+    private static Voxel? ReadVoxel(WorldPosition p)
+    {
+        try
+        {
+            return Build.Available && Build.TryRead(Build.BoxAround(p, 0.01, 0.01, 0.01), out var cells) && cells.Length > 0 ? cells[0] : null;
+        }
+        catch (Exception)
+        {
+            return null;  // not loaded
+        }
+    }
+
+    /// <summary>NoClip for <paramref name="player"/> as the runtime holds it: the last free position and whether the
+    /// character is being moved back to it.</summary>
+    internal static (WorldPosition? LastFree, bool Restoring) NoClipOf(EntityId player)
+    {
+        lock (Gate)
+            return PlayersByEntity.TryGetValue(player, out var s) && s.Clip is { } clip ? (clip.LastFree, clip.Restoring) : (null, false);
+    }
+
     // ---------------------------------------------------------------------------------------- flight -------
 
     // The game's building fly mode puts the player's input into a spark entity (PlayerState.buildingSparkEntityId) and
@@ -527,6 +708,7 @@ internal static unsafe class RulesRuntime
             if (s.GroundedChecks >= 12 || DateTime.UtcNow >= s.GraceUntil)
             {
                 s.GraceUntil = null;
+                s.ClipGrace = false;
                 SetInvulnerable(s, s.Effective.Invulnerable);
             }
             else

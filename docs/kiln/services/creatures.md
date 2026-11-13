@@ -593,3 +593,34 @@ Vanilla Enshrouded client (no Kiln) joined to a lab as Admin; commands through c
   `NaturalSpawnEvent.Replaced`. Kiln.Creatures uses it for spawn rules whose variant has another base template (or a
   clone); day/night-gated ones are switched in the table when day turns to night. Nothing changes while no rule exists.
 - kiln.content: a waiting `"creatures"` section starts Kiln.Creatures by itself (data-only mods).
+
+## The contract (dev.27)
+
+Kiln.Creatures follows [the API contract](../modding/contract.md). Server side only (`[ServerOnly]` on `Creatures`, `Arsenals`, `Villagers`,
+`CreatureVariants`).
+
+- **Capabilities.** `kiln.creatures` and its sigdb features (`creatures.ai`, `arsenal_writer`, `arsenals`, `attacks`,
+  `commands`, `ready`, `reflection`, `rules`, `slots`, `table`), lowered by Kiln.Creatures when the service is not
+  loaded.
+- **Errors.** Without the service every call throws `KilnUnavailableException` naming `kiln.creatures` (a
+  `NotSupportedException`, as before); so do `Arsenals` and the NPC commands on an older kiln.creatures. An arsenal
+  the build cannot define names `creatures.arsenals`, an attack override it cannot install `creatures.attacks`.
+  **Not changed:** a per-creature call the native side answers "unavailable" keeps throwing a plain
+  `NotSupportedException` ("the entity lacks that component, or this build/world does not support it"): that is as
+  often a refusal about one creature as a missing capability, so it names none. A result shape for the
+  `CreatureRef` setters is not in this release.
+- **Events.** `CreatureChangedEvent` (new) is posted for every change a mod makes on a creature: a `CreatureRef`
+  value (`Level`, `Faction`, `Scale`, `Home`, resistances, loot, features), `AiEnabled`, `Phase`, the held target, an
+  AI override (`Ai.<Component>.<path>`), `Reset` and `Ai.Reset` (these two only when something was dropped or the AI
+  came back on: nothing for a creature that is gone or one the mod had not changed; `Reset` also counts what the mod
+  held: a target, an attack override, a readiness hold, its AI switch). A write made by a handler while
+  the event is being dispatched is posted at the start of the next step, once per value, and only if that creature is
+  still there (not when its id names another entity by then): such a handler cannot loop
+  ([contract](../modding/contract.md#3-change-events)). The game's own changes keep `CreatureStateEvent` and
+  `CreatureTargetEvent`. Commands (`Command.Attack`, `Guard`, ...) and `AttackControl` raise nothing of their own:
+  the game answers them with state and target changes.
+- **Threads.** `[TickThreadOnly]` on everything that touches a creature; `Creatures.Status` and `Available` are
+  `[AnyThread]`.
+- Tested offline: rows, exceptions, attributes, the service's start (`ServiceStartTests`), and the writes with
+  subscribers on a fake kiln.creatures table (`ChangeEventTests`). Against a real kiln.creatures no lab run in dev.27
+  has watched the event.

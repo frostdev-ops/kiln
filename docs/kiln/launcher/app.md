@@ -95,7 +95,35 @@ text is about Kiln's own kind it says "Kiln mods".
   typed confirmations. Refused while the game runs.
 - **Above the list**: Filter (words in the name or id) and Kind (when more than one kind is present), shown with more
   than six rows; Notes (N) when the last activation said something about mod folders (below); Load order, Engines,
-  Catalog (Nexus builds), Add mods (the file dialog; the drop anywhere and the Catalog stay). With no mod at all the list says how to add one. The list scrolls inside the page.
+  Catalog (Nexus builds), Add mods (the file dialog: zip, 7z, rar and DLL files, `shell/modFiles.ts`; folders are
+  dropped; on Linux one glob per extension in every letter case, `*.[zZ][iI][pP]`, since its dialogs match
+  case-sensitively; the drop anywhere and the Catalog stay). "All on (N)" and "All off (N)" (or "Shown on/off" while the filter
+  or Kind narrows the list) switch every row shown whose own switch would change, N of them, as one profile save;
+  game-folder rows have no switch and are left out (the button's title and the toast say how many and why), and the
+  toast's Undo puts back what they changed, leaving every mod changed since on any page (`bulkPlan`, `applyBulk`,
+  `revertBulk` in `shell/mods.ts`; the record in `shell/useMods.ts`, fed by the shared save queue's watchers in
+  `pages/profiles/useProfileEdit.ts`). The Undo runs on the list as it is when pressed
+  and says it cannot when another profile is loaded, a save still runs, or the profile changed elsewhere (the
+  backend's generation is read first). With no mod at all the list says how to add one. The list scrolls inside the page.
+- **Several mods at once** (`shell/selection.ts`): a box at the start of every row (seen on hover and focus, always
+  once a row is selected); Shift+click selects the run from the last clicked row, Ctrl+A every row shown (the filter and
+  Kind applied: the set All on / All off acts on), Escape none, Space or Enter on a box toggles it (Shift+Space: a
+  range); these act only on keys pressed on the list itself, never on ones from a row's menu, a dialog or the filter.
+  The selection belongs to one loaded profile of one game (its id and `created`) and is kept outside the list, so a
+  start's progress bar or another page gives it back; a Load or "No profile" of the game ends it at once, and a list
+  that finds another profile loaded drops it; it
+  never holds a row the list does not show: a filter or Kind change lets go of what it hides and the bar says "N not
+  shown any more left the selection". The bar above the list: "N selected", Switch on and Switch off (All on / All off's
+  plan, save and Undo over the selected rows; the titles say what they skip and why), Remove… and Clear. Remove… (off
+  while the game runs; a game-folder mod Kiln did not place is skipped, the title says so): one confirmation naming
+  every mod (a long list scrolls) and, per mod, the other profiles that list it (library_users of every version, read
+  in parallel, the single Remove's wording); with "Type a mod's name to remove it" on, the word is their number. Then
+  one profile save takes them all out of the loaded profile (nothing is removed when it fails), and each version goes
+  with `library_remove` past exactly the users the confirmation showed (not `library_remove_many`, which takes only a
+  force flag); a refusal (a running server that uses it, a locked file) leaves that mod in the Library and out of the
+  list's profile, the others go, and one notice names what was left and why. The Deck: L2 selects or unselects the
+  focused row (its name gets a check), R2 "N selected" opens Switch on, Switch off, Remove… and Clear; Remove asks once
+  with the names (focus on Cancel).
 - **Profiles are a background feature**: one profile is always loaded per game. `useEnsureProfile` calls
   `profile_ensure_default` once per start for a game with Kiln and no loaded profile: "My mods" when there is none at
   all, or the one the launcher remembers for the game (a reinstall of Kiln); a player who chose "No profile" in
@@ -118,7 +146,8 @@ time, so the launcher raises each sentence once per game (`shell/notices.ts`):
   at a later activation. While a sentence is open, a later activation adds no second copy of it (`openLines`). A
   failed report is not retried: the sentence comes again later. The memory is in the data folder
   (`installs/<id>.notices-seen.json`: hashes only, at most 512, the longest unsaid go first), so it survives a
-  restart and moves with the data folder. A new or changed sentence still comes. What does come stays until closed
+  restart and moves with the data folder. Two launchers on one data folder share it through a lock file next to it
+  (dev.27), so one's closed notices are not shown again by the other. A new or changed sentence still comes. What does come stays until closed
   ("Some mod folders were kept" with its paths and recovery steps, "Mod settings kept", "Notes on your mods"). A backend
   that cannot answer (an older one) gets the old behaviour: all of them.
 - **Notes (N)** above the main list (`components/FolderNotes.tsx`) opens what the last activation said, in three
@@ -134,10 +163,137 @@ time, so the launcher raises each sentence once per game (`shell/notices.ts`):
   that stays as a dialog (it scrolls); an error in its bar shows all of its text.
 
 Where a player's own folder comes from: a mod already in ShroudForge's (or EML's) mods folder before Kiln, added with
-"Add it" in the list, is served by that folder from then on (Kiln never takes over a folder it did not place; it
-places no second copy, since ShroudForge drops a package whose id it finds twice). Its ShroudForge settings are
-editable in the launcher all the same (engines.md "Settings"); the settings dialog says "This is your own folder, not
-a copy Kiln placed: Kiln changes only the setting you change here."
+"Add it" in the list, is served by that folder from then on (Kiln never takes over a folder it did not place by
+itself; it places no second copy, since ShroudForge drops a package whose id it finds twice). Its ShroudForge settings
+are editable in the launcher all the same (engines.md "Settings"); the settings dialog says "This is your own folder,
+not a copy Kiln placed: Kiln changes only the setting you change here."
+
+**"Let Kiln manage this folder"** (dev.27, `components/OwnFolders.tsx`, `engine_own_folders` / `engine_adopt_folder`)
+hands such a ShroudForge folder to Kiln, on the player's click only. It is offered where the own-folder note is: in the
+Notes dialog under "Your own mod folders" (the folder's path, the mod and version, and the button), and in the mod's
+settings beside the own-folder line. When the folder's files are not exactly the mod's as the Library has them, the
+reason stands in place of the button and names the first file that differs ("Kiln cannot take this folder over:
+src/mod.lua is not the mod's file (its content differs). …"). The button is off while the game runs. It opens a
+confirmation that says what changes: "Kiln will update, switch and remove this folder with the mod from now on", the
+three things that means (switched with the profile, replaced at an update with the setting values carried over, removed
+when Kiln takes its mods out of the game unless it then holds values of the player's), the new folder name when Kiln
+renames it, and that nothing in the folder is changed now except one small file. After "Let Kiln manage it" the
+launcher writes the mods to the game again (`profile_activate`), so the folder is switched as the profile says and the
+notes no longer name it; a refusal by the backend (the folder changed since the list was read) is shown as it is. The
+Deck's Settings shows the notes without the button.
+
+## Cooking mods
+
+A mod with a cook recipe (`assets/cook.json`, `impact/cook.json`, or looks and sounds declared in its blocks) has files
+that are made on each PC from that PC's game: models, animations, sounds, Impact programs. They are never shipped, and
+the game loads only the ones a cook on this PC made ([../modding/cooking.md](../modding/cooking.md)). The launcher makes
+them (dev.27, `shell/cook.ts`, `cook_plan` / `cook_run`, `kiln_manage::cook`):
+
+- **Before the game starts.** Play (desktop and Deck: the shared `usePlayControl`) runs `cook_run` before `launch_play`
+  for a start with the profile. The cook first writes the active profile again when it changed since its activation
+  (kilnctl, another window), so it cooks the mods the start then loads, and ends at once when nothing needs a cook. A mod
+  needs a cook when it was never cooked for this game (it was installed, or switched on), when it was updated (its
+  identity changed), when the game was updated (cooked files are made from the game's data; Steam's build id tells,
+  else the game's data file), when its last cook failed, or when a file its last cook made is gone or is not the bytes
+  that cook made (its receipt in `kiln/state/cook-receipts` says). That rule is one function, `cook::needs_cook`; the
+  record it reads is the game's `kiln/state/cooked.json`. A vanilla start and "play once" do not cook.
+- **From nothing, and nothing lost.** A mod that needs a cook gets its `assets/cooked` moved aside (to
+  `assets/.kiln-cooked-prev-<hex>/cooked`) and every recipe run, also one whose own check calls it up to date (that check
+  reads the mod's files, never the game). The same cook puts it back, with the receipts and the mod's own files it
+  remembered, when the cook does not end well (a missing source, a cancel, a tool that fails). A set-aside an earlier
+  cook left (its putting back failed, or it was stopped) is never read for anything else: when `assets/cooked` is
+  missing, the newest one's plain `cooked` folder becomes `assets/cooked` again (without receipts: the next cook that
+  ends well writes them), and every set-aside of the mod is deleted only after a cook of it that ended well. A mod whose
+  cooked files no receipt lists (an older Kiln's cook) is due too.
+- **What the player sees.** "Cooking <mod>" (or "Cooking N mods"), then the task with "Cooking <mod> (i of n)" and each
+  line the tools print, then "Starting" as before. Nothing is said when nothing needs a cook.
+- **Never stuck.** Each tool runs within limits: 30 minutes for one recipe, 10 minutes without a line, 2 minutes for a
+  check. One that passes a limit is stopped with every process it started (its process group; on Windows its job), its
+  mod is reported as not cooked, and the next mod and the start go on. The task's Cancel stops the tool that runs the
+  same way; the game then starts with what was cooked. A tool's very long lines are cut and only the end of what it said
+  is kept.
+- **One at a time.** A cook holds the game's lock (`kiln/state/cook.lock`) for its whole run, and a start with mods holds
+  it, and the lock of each mod folder it loads, until Steam was asked: the game never starts while a cook writes its mods
+  (also one cooked for another game that loads the same Library entry), and a start that finds a cook running waits a
+  moment, then says so. "Cook again" is refused while the game runs and in the two minutes after a start through the
+  launcher (Steam may still be starting the game). Two cooks of one folder (two games that load one Library entry,
+  `kiln cook` beside the launcher) wait for each other, and a Library entry another game loads is not cooked while that
+  game runs or was just started (the mod is reported as not cooked: "… loads this mod's folder too …"). A cook stops
+  when the game is started from Steam meanwhile.
+- **A failed cook stops nothing.** The other mods are cooked and the game starts. One notice stays until closed:
+  "<mod> was not cooked", each such mod's name with the tools' own last lines (a missing input after a game update, a
+  glTF the cook refuses), how many others were cooked, and that a mod that could not be cooked keeps running on the
+  files it has (those of its last cook, or none if it was never cooked here). On the Deck the notice is the dialog that holds long text and closes
+  with B. When no tool can run at all (Linux without Python 3.10 or newer, or without a zstd decoder), every due mod
+  gets the one sentence that says what to install. The failed mod is tried again at the next start.
+- **"Cook again"** in a mod's menu (the main list's "More for <mod>", for a Kiln mod that is on and has something to
+  cook; on the Deck's Mods screen: Y on that mod's row) cooks that one mod whatever its record says, and answers "<mod>
+  cooked" or the same notice.
+- **Where the files go.** Into `assets/cooked` of the folder the game loads the mod from (the Library entry where the
+  game reads the Library through Z:, else Kiln's copy in the game), and nowhere else (the cook tools refuse any other
+  place), so the mod keeps its identity: the next activation keeps the copy, and a server sees the same mod. The tools
+  record each file in the game's receipts; kiln.assets warns about (default `"warn"`) or refuses (`"local"`) a cooked
+  file they do not list ([../modding/cooking.md](../modding/cooking.md)).
+- The tools are the ones `kiln cook` runs, carried by the launcher and unpacked once under `<data>/cooktools`
+  (releasing.md, "The cook tools and the bundled Python"). On Windows the bundle's own Python runs them; the player's
+  Python, if any, is never used.
+
+Not cooked by the launcher: drop-in folders (`kiln/mods`, not in the profile; `kiln cook <folder> --game <game>`), and a
+local server's mods (a server sync copies a mod without `assets/cooked`; `kiln cook <server>/kiln/mods/<mod> --game
+<server>`, dedicated-servers.md).
+
+## What a start is doing
+From Play to the game's main menu the launcher shows one bar for the whole start, the step it is on, and how long it
+still takes (0.2.0-dev.27; `kiln_manage::start_progress`, commands `launch_begin` and `launch_progress`).
+
+- **The steps.** First the launcher's own: `cook` (the mods that need a cook, one after the other: the mod's name and
+  the tool's current line), `profile` (the active profile checked or written again, the save backup), `steam` (Steam
+  asked to start the game, until the game's process exists). Then the steps Kiln itself reports from inside the game
+  in `<game>/kiln/state/progress.json` (written by kiln-core: Kiln's settings, native mods, the early plugins such as
+  ShroudForge, finding the game's functions, Kiln's services, plugins, native mods, .NET, the mods, their content,
+  and the game's own loading), up to the main menu. A progress.json is shown only when it belongs to the running
+  game (the rule of boot.json: written after the process started).
+- **What the window shows.** On Play, in place of the boot stages and the mod list: the step's line ("Starting Kiln's
+  services: kiln-vfx, building 85 materials (13 of 31)"), the bar, the time left, and every step with what it took,
+  the one running, and what the ones to come usually take. Below 700 px of height only the bar and the line show. In
+  the top bar (on other pages) and under the Play button: the time left (or the percentage) and the step; the Deck's
+  Home shows the line, the bar and the time left. The bar is a `progressbar` whose text is the step and the time
+  left; the line is a `status`. "Running" comes only when the main menu is there, not when Kiln's boot ends. While
+  kiln-eml prepares the game data, its own progress is the line of the early plugins.
+- **Where the time left comes from.** This PC's own earlier starts, in `<data>/state/start-times.json` (the last 10
+  starts per game install that reached the main menu, with every step's time, each mod's cook time keyed by the mod
+  and its identity). A step's usual time is the median of the last up to 5 starts with the same Kiln and the same
+  mods; else of the last up to 5 starts of the game install, scaled by the number of things the step works through. A
+  running step that counts (13 of 31) also has its own pace; with starts of other mods or another Kiln the larger of
+  the two counts. The number is rounded ("about 40 s", to 5 s above 20 s, "a few seconds" below 5 s) and says on hover
+  which starts it comes from.
+- **The first start.** While any step still to come has no earlier start to go by (the first start with these mods
+  on this PC, a mod cooked for the first time), no number is shown: "First start with these mods on this PC: Kiln is
+  timing it", and the bar counts steps (gold) instead of time (ember).
+- **Slower than usual.** A step at 1.5 times its usual time says "taking longer than usual (usually 19 s)", and the
+  time left stays at what the steps after it take until it ends. The bar never moves back, and it is full only at the
+  main menu.
+- **Not progress.** Safe idle (with Kiln's reason), Kiln failing to go on, the game ending, "No Kiln" (Steam did not
+  load Kiln's proxy), a vanilla start and Steam updating the game are said as before, without a bar. No word from Kiln
+  for 60 s (120 s inside the early plugins) is "No word from Kiln" with its sentence (a game waiting at its menu for
+  its mods says so), without a bar or a countdown, and the mod list is back. A Play that ends before the game exists
+  (refused before Steam was asked) ends the start, and the page is as it was before Play. When Steam has taken the
+  start and the game's process does not exist a minute later (a first start under Proton makes its prefix first),
+  the bar stops counting and says "Steam is still preparing the game: this can take minutes the first time"; after
+  5 minutes the window offers Play again (the launcher before 0.2.0-dev.27 did after 2), and the launcher keeps the
+  start's own timings until the game appears (it goes on as one start), Play is pressed again, or 30 minutes pass. The window keeps following a start while it is hidden or in the background (the game has the display then);
+  the launcher's watcher keeps a start that reached the main menu even when no window asks. A game with a Kiln runtime older than
+  0.2.0-dev.27 writes no progress.json: after the launcher's own steps the line says "Waiting for Kiln to boot" until
+  its boot.json, then "Running" as before, and nothing is kept.
+- **The history.** Starts are kept by the runtime's own version (progress.json's `kiln`, with its build stamp). A
+  start of the launcher looks them up for its whole length by what its install's version identifies: the one runtime
+  version kept under it, or the install's version itself when it carries a build stamp; when it identifies two builds,
+  the start uses the other basis throughout (never a change of basis when progress.json appears). A file of a newer format, or one that cannot be
+  read, is left as it is: no estimates, and one line in launcher.log. Times beyond a day in progress.json or the
+  history make the file unreadable, never a crash. `start-times.json` is written under its own lock
+  (`state/start-times.lock`) whenever a start reaches the main menu (the launcher's watcher keeps it even when no window asks), and goes with the data folder when
+  it moves (on Windows not from the default folder, whose `state` is the system's: the history starts again there).
+  Deleting it loses only the estimates; the next start is timed again.
 
 ## The first run and dropping a mod
 For a player who wants one mod: install the launcher, it finds the game and offers Install Kiln, drop the mod on the
@@ -160,7 +316,14 @@ window, Play. The mod is in the list on Play, switched on.
   with Install Kiln (the dropped files are added once the install is done). With profiles but none active in the game
   the drop goes to the profile the launcher remembers for it (after an uninstall and a reinstall of Kiln: that profile
   is loaded again, "Your mod list is loaded again."); with none remembered (the player chose "No profile") the toast says
-  "Added <name>, switched off" with "Add to a profile" (`library_add_to_profile`). Modpack zips open the consent dialog (`ModpackDropOffer`: tick the box, then
+  "Added <name>, switched off" with "Add to a profile": "Add to which profile?" lists every profile and "New profile…"
+  (a name, then `profile_create` of an empty profile and `library_add_to_profile` into it); the toast after it has
+  "Load it" (`profile_activate` in this game) when the picked profile is not the loaded one, and Undo. The dialog keeps
+  the drop until the add worked (a profile made by "New profile…" whose add failed is listed, to pick again). One
+  activation per game at a time (`api/oneActivation.ts`, inside `profileActivate`, `profileDeactivate`,
+  `profileEnsureDefault`, `libraryAddToProfile` and `launchPlay`): another one while it runs is refused with "Kiln is
+  still loading a profile in this game". A drop takes a
+  zip, 7z or rar (`library::archive_kind`), a folder or a DLL. Modpack zips open the consent dialog (`ModpackDropOffer`: tick the box, then
   `modpack_install` with `{path}`). A drop on a DropZone (Runtime's bundle row) or while a dialog is
   open is not the window's; a covered or busy DropZone takes no drops. Overlapping identical drops run once; other
   window drops run in order. Settings "Switch new mods on" off: ordinary mods are only imported (in the list, off);

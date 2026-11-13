@@ -59,6 +59,51 @@ public sealed class ImpactEndedEvent : KilnEvent
     public ulong Step { get; }
 }
 
+/// <summary>
+/// A mod changed a variable of a live Impact instance (<see cref="ImpactInstance.Write"/>, <see cref="ImpactInstance.Set"/>
+/// and the typed setters). Posted on the tick thread right after the write took, and only when the bytes changed; a write
+/// made while this event is being dispatched (a handler that writes again) is posted at the start of the next step instead,
+/// once per instance and variable (the newest wins), and only if that instance is still the one written (an ended
+/// instance's id can name another). Observe only. Built only while someone subscribes. Since 0.2.0-dev.27.
+/// </summary>
+[ServerOnly]
+public sealed class ImpactVariableChangedEvent : KilnEvent, IEntityEvent
+{
+    internal ImpactVariableChangedEvent(uint impactId, uint programId, EntityId self, string variable, string origin)
+    {
+        ImpactId = impactId;
+        ProgramId = programId;
+        Self = self;
+        Variable = variable;
+        Origin = origin;
+    }
+
+    /// <summary>The instance's id (<see cref="ImpactInstance.ImpactId"/>).</summary>
+    public uint ImpactId { get; }
+
+    /// <summary>Its program.</summary>
+    public uint ProgramId { get; }
+
+    /// <summary>Its self entity.</summary>
+    public EntityId Self { get; }
+
+    /// <summary>The variable's name.</summary>
+    public string Variable { get; }
+
+    /// <summary>The id of the mod that made the change ("" when Kiln made it for no mod).</summary>
+    public string Origin { get; }
+
+    /// <summary>The instance, to read the value now.</summary>
+    public ImpactInstance Instance => new(ImpactId);
+
+    /// <summary>Whether the event is about <paramref name="entity"/> (the instance's self).</summary>
+    public bool Involves(EntityId entity) => !entity.IsNone && entity == Self;
+
+    /// <summary>The change and who made it, for a log line.</summary>
+    public override string ToString() =>
+        $"impact {ImpactId} (program 0x{ProgramId:x8}, self {Self}): {Variable} by {(Origin.Length > 0 ? Origin : "kiln")}";
+}
+
 /// <summary>A vanilla native ran inside a program (observe only; posted in the next Pre). Kiln observes applyDamage,
 /// applyBuff and spawnEntity (the typed subclasses) and any native passed to <see cref="Abilities.Natives.Observe"/>.
 /// To change or cancel a call use <see cref="Abilities.Natives.Wrap"/> (job thread) or <see cref="Abilities.OnDamage"/>.
@@ -189,4 +234,28 @@ public sealed class AbilityCastedEvent : KilnEvent
     internal AbilityCastedEvent(AbilityCast cast, AbilityCost paid) { Cast = cast; Paid = paid; }
     public AbilityCast Cast { get; }
     public AbilityCost Paid { get; }
+}
+
+/// <summary>A buff was taken off an entity through <see cref="Abilities.RemoveBuff(EntityId, Guid)"/>: the game's
+/// removeBuff said it removed it. Posted on the tick thread when the removal's result is known, before the caller's task
+/// completes, only while the event has subscribers. Not posted for buffs that run out or that the game's own programs
+/// remove. Observe only (it already happened).</summary>
+[ServerOnly]
+public sealed class BuffRemovedEvent : KilnEvent
+{
+    internal BuffRemovedEvent(EntityId target, uint buff, string? mod)
+    {
+        Target = target;
+        Buff = buff;
+        Mod = mod;
+    }
+
+    /// <summary>The entity the buff was on.</summary>
+    public EntityId Target { get; }
+
+    /// <summary>The buff's id (FNV-1a of its GUID).</summary>
+    public uint Buff { get; }
+
+    /// <summary>The id of the mod that removed it; null when Kiln did, outside any mod.</summary>
+    public string? Mod { get; }
 }

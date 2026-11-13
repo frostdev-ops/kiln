@@ -11,6 +11,7 @@
     <KilnAnalyzers Condition="'$(KilnAnalyzers)' == ''">true</KilnAnalyzers>
     <!-- .editorconfig (how the compiler sees build properties) cuts a value at ';' (a comment): pass a comma list. -->
     <KilnServicesList>$(KilnServices.Replace(';', ',').Replace(' ', ''))</KilnServicesList>
+    <KilnFeaturesList>$(KilnFeatures.Replace(';', ',').Replace(' ', ''))</KilnFeaturesList>
   </PropertyGroup>
 
   <ItemGroup Condition="'$(KilnAnalyzers)' == 'true' and '$(KilnRepoMode)' != 'true'">
@@ -30,6 +31,8 @@
     <CompilerVisibleProperty Include="KilnAdvanced" />
     <CompilerVisibleProperty Include="KilnSide" />
     <CompilerVisibleProperty Include="KilnClients" />
+    <!-- the rows the mod requires, comma-separated as KilnServicesList (KILN121: Kiln does not load the mod when one is off) -->
+    <CompilerVisibleProperty Include="KilnFeaturesList" />
     <AdditionalFiles Include="$(MSBuildProjectDirectory)/blocks/*.json" />
     <!-- the sound cook recipe: its cue names are sounds a SoundRef may name (KILN111) -->
     <AdditionalFiles Include="$(MSBuildProjectDirectory)/assets/cook.json" Condition="Exists('$(MSBuildProjectDirectory)/assets/cook.json')" />

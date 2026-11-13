@@ -242,3 +242,12 @@ Stand in your base when you spawn in: that is the case that failed. Offline host
 To play it again: `echo 'questadmin reset <character> quests-sample:ember_errand' > $C/x.cmd`: the journal entry and its markers go, the auto quest starts again within a second.
 
 A player without the mod: refused when joining a server that runs it (`clients: "mod"`). A `"journal": "chat"` mod, optional: join without Kiln: `[Quest] ...` chat lines, `/quests`, `/talk`, `/talk <n>`, `/talk end`, no journal.
+
+## The contract (dev.27)
+
+The quest engine is managed and needs no capability of its own (`Quests.Available` is true); a quest that asks for
+knowledge, the journal or dialogue needs `kiln.knowledge` ([knowledge.md](knowledge.md)). `QuestResult` and
+`ConversationResult` implement `IKilnResult` ([the API contract](../modding/contract.md)): a refusal is `Ok = false` with the reason, as it always was;
+through the interface `Reason` is null when `Ok` (the records' own `Reason` is "" then). The engine's calls are
+`[TickThreadOnly]`. Quest changes already post their events (`QuestStartedEvent`, `QuestStepEvent`, `QuestCompletedEvent` and the others
+in `EngineEvents.cs`).

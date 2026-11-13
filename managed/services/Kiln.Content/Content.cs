@@ -43,13 +43,36 @@ public static unsafe partial class Content
         }
     }
 
-    static Content() => _ = T;
+    // The service's start (ServiceTick.AutoStart runs this at the first service tick): the table, then the rows.
+    static Content()
+    {
+        _ = T;
+        ContentCaps.Rows.Ensure();
+    }
 
-    /// <summary>The native service is loaded.</summary>
+    /// <summary>The native service is loaded (capability <c>kiln.content</c>).</summary>
     public static bool Available => T != null;
 
-    /// <summary>The registries are loaded and the data packs applied.</summary>
+    /// <summary>The registries are loaded and the data packs applied: the question for the row <c>content.ready</c>, true
+    /// only when <c>kiln.content</c> is here.</summary>
+    [AnyThread]
     public static bool Ready => Status()?.Ready == true;
+
+    // One key per field (or document) one mod wrote: a handler that writes again waits for the next step. A field's key is
+    // what was written, not how: a Set and a Reset of one field by one mod are one key, so the newer replaces the older.
+    // A document and a revert (no entry) keep the kind of change apart.
+    internal static readonly ChangeNotices<ContentChangedEvent, (ContentChange, ContentKind?, uint, string, string)> Notices =
+        new("kiln.content");
+
+    /// <summary>Posts <see cref="ContentChangedEvent"/> for a change made from code that took. Built only while someone
+    /// subscribes; a write made while one is being dispatched posts at the next step (<see cref="ChangeNotices{TEvent,TKey}"/>).</summary>
+    internal static void Changed(ContentChange change, ContentEntry? entry, string path)
+    {
+        if (!Events.HasSubscribers<ContentChangedEvent>()) return;
+        var origin = ModContext.CurrentMod?.Info.Id ?? "";
+        Notices.Post((entry is null ? change : ContentChange.Set, entry?.Kind, entry?.Id ?? 0, path, origin),
+            new ContentChangedEvent(change, entry?.Kind, entry?.Id ?? 0, entry?.Name ?? "", path, origin));
+    }
 
     /// <summary>Items (<c>keen::ItemInfo</c>): id = ItemId, name = debug name (<c>Material_T1_Wood_Logs</c>).</summary>
     public static ContentRegistry Items { get; } = new(ContentKind.Items);
@@ -76,7 +99,7 @@ public static unsafe partial class Content
     public static ContentStatus? Status()
     {
         var t = T;
-        if (t == null) return null;
+        if (t == null || t->GetStatus == null) return null;  // no status function: a test's partial table
         ContentNative.Status s = default;
         s.Size = (uint)sizeof(ContentNative.Status);
         if (t->GetStatus(&s) != ContentNative.Ok) return null;
@@ -91,6 +114,8 @@ public static unsafe partial class Content
     /// after the data packs, and after each data-pack reload. If the world has already loaded, it runs at the next
     /// tick. Code changes made there are owned by the mod and come off when it unloads. Dropped when the mod unloads.
     /// </summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.content")]
     public static void OnReady(Action<ContentReadyEvent> handler)
     {
         ArgumentNullException.ThrowIfNull(handler);
@@ -117,6 +142,8 @@ public static unsafe partial class Content
     // ------------------------------------------------------------------------------------------- data packs ----
 
     /// <summary>Applies a data-pack document (the <c>content/*.json</c> format) as the calling mod's layers.</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.content")]
     public static ContentReport Apply(string json, string? source = null) =>
         ApplyAs(Owner(), json, source ?? $"mod {ModContext.CurrentMod!.Info.Id}");
 
@@ -143,10 +170,16 @@ public static unsafe partial class Content
             System.Buffers.ArrayPool<byte>.Shared.Return(buf);
         }
         if (rc != ContentNative.Ok && rc != ContentNative.InvalidArgument) throw Failure("Content.Apply", rc);
-        return ParseReport(text, rc == ContentNative.InvalidArgument ? "not a data-pack document (JSON object)" : null);
+        var report = ParseReport(text, rc == ContentNative.InvalidArgument ? "not a data-pack document (JSON object)" : null,
+            cut: len >= cap);
+        // native says Ok also for a document whose every section was refused: an event only when something changed
+        if (rc == ContentNative.Ok && report.Applied > 0) Changed(ContentChange.Applied, null, src);
+        return report;
     }
 
     /// <summary>Applies a JSON file (relative paths: from the calling mod's folder).</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.content")]
     public static ContentReport ApplyFile(string path)
     {
         var mod = ModContext.CurrentMod ?? throw new InvalidOperationException("Content.ApplyFile must be called from mod code");
@@ -156,13 +189,19 @@ public static unsafe partial class Content
 
     /// <summary>Takes every layer of the calling mod off (data packs of its folder stay; they follow the mod's load
     /// state). Returns how many fields were put back. Also happens automatically when the mod unloads.</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.content")]
     public static int Revert()
     {
         var t = Require("Content.Revert");
-        return (int)t->RevertOwner(Owner());
+        var n = (int)t->RevertOwner(Owner());
+        if (n > 0) Changed(ContentChange.Reverted, null, "");
+        return n;
     }
 
     /// <summary>Re-reads every mod's <c>content/*.json</c> now.</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.content")]
     public static void ReloadPacks()
     {
         var t = Require("Content.ReloadPacks");
@@ -172,6 +211,8 @@ public static unsafe partial class Content
 
     /// <summary>The last data-pack application as JSON: <c>{generation, packs:[{file, applied, errors, warnings}],
     /// skipped, conflicts:[...]}</c>.</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.content")]
     public static string PackReport()
     {
         var t = Require("Content.PackReport");
@@ -181,6 +222,8 @@ public static unsafe partial class Content
     /// <summary>Writes every registry (schema, entries with their non-zero fields, recipe lists, drop stacks, what
     /// changed and its original) as JSON. Default: <c>kiln/data/content/dump.json</c>. Returns the path. Takes about a
     /// second for the whole item registry (the server step waits).</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.content")]
     public static string Dump(string? path = null)
     {
         var t = Require("Content.Dump");
@@ -197,6 +240,7 @@ public static unsafe partial class Content
     /// "Deleted N items from stack" check). kiln.content switches it on by itself as soon as a max stack size is raised,
     /// so taking the raise back (unload, reload) does not delete items; it stays on until the server restarts.
     /// </summary>
+    [RequiresCapability("kiln.content")]
     public static bool StackGuard
     {
         get
@@ -207,7 +251,7 @@ public static unsafe partial class Content
             t->StackGuard(-1, &on);
             return on != 0;
         }
-        set
+        [TickThreadOnly] set
         {
             var t = Require("Content.StackGuard");
             byte on = 0;
@@ -230,7 +274,7 @@ public static unsafe partial class Content
     {
         Services.RequireTickThread(api);
         var t = T;
-        if (t == null) throw new NotSupportedException("kiln.content is not available on this server");
+        if (t == null) throw ContentCaps.Off(ContentCaps.Service, "kiln.content is not available on this server");
         return t;
     }
 
@@ -345,7 +389,9 @@ public static unsafe partial class Content
         if (Events.HasSubscribers<ContentReadyEvent>()) Events.Post(ev);
     }
 
-    private static ContentReport ParseReport(string text, string? fallbackError)
+    // cut: native wrote only the first cap - 1 bytes of a longer report. The document was applied all the same, so its
+    // count is read from the start of the text ("applied" is the report's first key), and the report says it was cut.
+    private static ContentReport ParseReport(string text, string? fallbackError, bool cut = false)
     {
         var errors = new List<string>();
         var warnings = new List<string>();
@@ -366,10 +412,35 @@ public static unsafe partial class Content
         }
         catch (JsonException)
         {
-            errors.Add("the report could not be read");
+            if (cut) applied = LeadingApplied(text);
+            errors.Add(cut ? "the report could not be read (longer than 2 MiB, cut)" : "the report could not be read");
         }
         if (fallbackError != null && errors.Count == 0) errors.Add(fallbackError);
         return new ContentReport(applied, errors, warnings, conflicts);
+    }
+
+    // The top-level "applied" of a report cut short, read as far as the text goes; 0 when it is not there.
+    private static int LeadingApplied(string text)
+    {
+        var reader = new Utf8JsonReader(System.Text.Encoding.UTF8.GetBytes(text), isFinalBlock: false, state: default);
+        try
+        {
+            if (!reader.Read() || reader.TokenType != JsonTokenType.StartObject) return 0;
+            while (reader.Read())
+            {
+                if (reader.TokenType == JsonTokenType.EndObject && reader.CurrentDepth == 0) return 0;
+                if (reader.TokenType != JsonTokenType.PropertyName || reader.CurrentDepth != 1) continue;
+                var name = reader.ValueTextEquals("applied"u8);
+                if (!reader.Read()) return 0;
+                if (name) return reader.TokenType == JsonTokenType.Number && reader.TryGetInt32(out var n) ? n : 0;
+                if (reader.TokenType is JsonTokenType.StartObject or JsonTokenType.StartArray && !reader.TrySkip()) return 0;
+            }
+        }
+        catch (JsonException)
+        {
+            // not a report at all
+        }
+        return 0;
     }
 }
 
@@ -385,6 +456,8 @@ public sealed unsafe class ContentRegistry : IReadOnlyList<ContentEntry>
     public ContentKind Kind { get; }
 
     /// <summary>Entries in the registry (0 until <see cref="Content.Ready"/>).</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.content")]
     public int Count
     {
         get
@@ -394,6 +467,8 @@ public sealed unsafe class ContentRegistry : IReadOnlyList<ContentEntry>
         }
     }
 
+    [TickThreadOnly]
+    [RequiresCapability("kiln.content")]
     public ContentEntry this[int index]
     {
         get
@@ -408,6 +483,8 @@ public sealed unsafe class ContentRegistry : IReadOnlyList<ContentEntry>
     }
 
     /// <summary>The entry for a name, id or GUID, or null.</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.content")]
     public ContentEntry? Get(string key)
     {
         var t = Content.Require("ContentRegistry.Get");
@@ -418,11 +495,17 @@ public sealed unsafe class ContentRegistry : IReadOnlyList<ContentEntry>
         return rc == ContentNative.Ok ? new ContentEntry(this, e) : null;
     }
 
+    [TickThreadOnly]
+    [RequiresCapability("kiln.content")]
     public ContentEntry? Get(uint id) => Get("0x" + id.ToString("x8"));
 
+    [TickThreadOnly]
+    [RequiresCapability("kiln.content")]
     public ContentEntry? Get(ItemId item) => Get(item.Value);
 
     /// <summary>Every field of the registry's struct, from the game's reflection.</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.content")]
     public IReadOnlyList<ContentField> Fields
     {
         get
@@ -457,12 +540,16 @@ public sealed unsafe class ContentRegistry : IReadOnlyList<ContentEntry>
     }
 
     /// <summary>The field with this path (ignoring case), or null.</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.content")]
     public ContentField? Field(string path)
     {
         _ = Fields;
         return _byPath != null && _byPath.TryGetValue(path, out var f) ? f : null;
     }
 
+    [TickThreadOnly]
+    [RequiresCapability("kiln.content")]
     public IEnumerator<ContentEntry> GetEnumerator()
     {
         var n = Count;
@@ -500,30 +587,48 @@ public sealed unsafe class ContentEntry
     // ---- values ----
 
     /// <summary>The current value of a field (drops: <c>"[3].countMin"</c> addresses stack 3).</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.content")]
     public ContentValue Get(string path) => Read(path, original: false);
 
     /// <summary>The game's original value of a field (before any mod changed it).</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.content")]
     public ContentValue Original(string path) => Read(path, original: true);
 
+    [TickThreadOnly]
+    [RequiresCapability("kiln.content")]
     public double GetNumber(string path) => Get(path).AsDouble;
 
     /// <summary>Sets a field as the calling mod (a layer over the original; reverted when the mod unloads). Integers
     /// are rounded and range-checked against the field's type; times are seconds.</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.content")]
     public void Set(string path, double value) =>
         Write(path, new ContentNative.Value { Type = (uint)ContentValueType.Float, F = value, I = (long)value });
 
+    [TickThreadOnly]
+    [RequiresCapability("kiln.content")]
     public void Set(string path, long value) =>
         Write(path, new ContentNative.Value { Type = (uint)ContentValueType.Int, I = value, F = value });
 
+    [TickThreadOnly]
+    [RequiresCapability("kiln.content")]
     public void Set(string path, int value) => Set(path, (long)value);
 
+    [TickThreadOnly]
+    [RequiresCapability("kiln.content")]
     public void Set(string path, bool value) =>
         Write(path, new ContentNative.Value { Type = (uint)ContentValueType.Bool, I = value ? 1 : 0, F = value ? 1 : 0 });
 
+    [TickThreadOnly]
+    [RequiresCapability("kiln.content")]
     public void Set(string path, TimeSpan value) =>
         Write(path, new ContentNative.Value { Type = (uint)ContentValueType.Time, F = value.TotalSeconds, I = value.Ticks * 100 });
 
     /// <summary>Sets an enum field by name (<c>"Epic"</c>), a flag set by names (<c>"A,B"</c>), or a number in text.</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.content")]
     public void Set(string path, string value)
     {
         var f = _registry.Field(PathOf(path)) ?? throw new KeyNotFoundException($"{Kind} has no field {path}");
@@ -543,12 +648,15 @@ public sealed unsafe class ContentEntry
     }
 
     /// <summary>Takes the calling mod's layer of a field off. False when the mod had none.</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.content")]
     public bool Reset(string path)
     {
         var t = Content.Require("ContentEntry.Reset");
         var owner = Content.Owner();
         using var p = new ContentNative.Utf8(path);
         var rc = t->Reset(owner, (uint)Kind, Id, p.Str);
+        if (rc == ContentNative.Ok) Content.Changed(ContentChange.Reset, this, path);
         return rc == ContentNative.Ok;
     }
 
@@ -565,20 +673,26 @@ public sealed unsafe class ContentEntry
     /// <paramref name="allowGameItem"/> (the opt-in).
     /// </summary>
     /// <exception cref="ArgumentException">Nothing was applied (the message lists the problems).</exception>
+    [TickThreadOnly]
+    [RequiresCapability("content.references")]
     public IReadOnlyList<string> SetRef(string key, string value, bool allowGameItem = false) =>
         SetRefJson(key, System.Text.Json.JsonSerializer.Serialize(value), allowGameItem);
 
     /// <summary>Items: sets perk slots (up to 5: a perk GUID, <c>item:&lt;name&gt;</c> = that item's perk in the same
     /// slot, <c>none</c>, null = keep the slot); the perk ids follow the game data.</summary>
+    [TickThreadOnly]
+    [RequiresCapability("content.references")]
     public IReadOnlyList<string> SetPerks(IReadOnlyList<string?> perks, bool allowGameItem = false) =>
         SetRefJson("perks", System.Text.Json.JsonSerializer.Serialize(perks), allowGameItem);
 
     /// <summary><see cref="SetRef(string, string, bool)"/> with any JSON value (the data-pack form). Returns the problems of
     /// parts that were skipped.</summary>
+    [TickThreadOnly]
+    [RequiresCapability("content.references")]
     public IReadOnlyList<string> SetRefJson(string key, string valueJson, bool allowGameItem = false)
     {
         var t = Content.Require("ContentEntry.SetRef");
-        if (!ContentNative.Has(t, 4) || t->SetRef == null) throw new NotSupportedException("kiln.content has no reference support (v4)");
+        if (!ContentNative.Has(t, 4) || t->SetRef == null) throw ContentCaps.Off(ContentCaps.References, "kiln.content has no reference support (v4)");
         var owner = Content.Owner();
         const int cap = 8192;
         var buf = stackalloc byte[cap];
@@ -596,15 +710,20 @@ public sealed unsafe class ContentEntry
         catch (JsonException) { }
         if (rc == ContentNative.InvalidArgument) throw new ArgumentException($"{Name}.{key}: {string.Join("; ", problems)}");
         if (rc != ContentNative.Ok) throw Content.Failure($"{Name}.{key}", rc);
+        Content.Changed(ContentChange.Set, this, key);
         return problems;
     }
 
     /// <summary>The GUID a reference field holds now (<see cref="Guid.Empty"/> = none).</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.content")]
     public Guid GetRef(string path) => Get(path).Guid;
 
     // ---- typed shortcuts ----
 
     /// <summary>Items: the max stack size (<c>maxStackSize</c>, 1..65535).</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.content")]
     public int MaxStack
     {
         get => (int)Get("maxStackSize").Integer;
@@ -612,6 +731,8 @@ public sealed unsafe class ContentEntry
     }
 
     /// <summary>Recipes: the crafting duration (<c>craftingDuration</c>; used by timed stations such as kilns).</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.content")]
     public TimeSpan CraftingDuration
     {
         get => TimeSpan.FromSeconds(Get("craftingDuration").Number);
@@ -621,22 +742,34 @@ public sealed unsafe class ContentEntry
     // ---- recipe lists, drop stacks ----
 
     /// <summary>Recipes: the ingredients as the game sees them now.</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.content")]
     public IReadOnlyList<RecipeStack> Inputs => ReadStacks(ContentNative.Inputs).Select(s => new RecipeStack(new ItemId(s.Item), (int)s.Count, s.Category)).ToList();
 
     /// <summary>Recipes: the results.</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.content")]
     public IReadOnlyList<RecipeStack> Outputs => ReadStacks(ContentNative.Outputs).Select(s => new RecipeStack(new ItemId(s.Item), (int)s.Count, s.Category)).ToList();
 
     /// <summary>Recipes: replaces the ingredients (1..32; a category input keeps its category id).</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.content")]
     public void SetInputs(IEnumerable<RecipeStack> stacks) => WriteRecipe(ContentNative.Inputs, stacks);
 
     /// <summary>Recipes: replaces the results (1..32).</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.content")]
     public void SetOutputs(IEnumerable<RecipeStack> stacks) => WriteRecipe(ContentNative.Outputs, stacks);
 
     /// <summary>Drops: every stack of the table, depth first over its groups.</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.content")]
     public IReadOnlyList<DropStack> Stacks => ReadStacks(ContentNative.DropStacks)
         .Select(s => new DropStack(new ItemId(s.Item), (int)s.Count, (int)s.CountMax, s.Chance, s.Weight, (int)s.Group)).ToList();
 
     /// <summary>Drops: changes counts / chances / weights of the table's stacks (same stacks, same order, same items).</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.content")]
     public void SetStacks(IEnumerable<DropStack> stacks)
     {
         var t = Content.Require("ContentEntry.SetStacks");
@@ -649,6 +782,7 @@ public sealed unsafe class ContentEntry
         int rc;
         fixed (ContentNative.Stack* p = list) rc = t->SetStacks(owner, (uint)Kind, Id, ContentNative.DropStacks, p, (uint)list.Length);
         if (rc != ContentNative.Ok) throw Content.Failure("ContentEntry.SetStacks", rc);
+        Content.Changed(ContentChange.Set, this, "stacks");
     }
 
     // ---- internals ----
@@ -690,6 +824,7 @@ public sealed unsafe class ContentEntry
             var hint = f == null ? "no such field" : !f.Writable ? "read-only" : $"{f.TypeName}, {f.Bytes * 8}-bit";
             throw Content.Failure($"{Name}.{path} ({hint})", rc);
         }
+        Content.Changed(ContentChange.Set, this, path);
     }
 
     private ContentNative.Stack[] ReadStacks(uint which)
@@ -717,5 +852,6 @@ public sealed unsafe class ContentEntry
         int rc;
         fixed (ContentNative.Stack* p = list) rc = t->SetStacks(owner, (uint)Kind, Id, which, p, (uint)list.Length);
         if (rc != ContentNative.Ok) throw Content.Failure($"{Name}.{(which == 0 ? "inputs" : "outputs")}", rc);
+        Content.Changed(ContentChange.Set, this, which == 0 ? "inputs" : "outputs");
     }
 }

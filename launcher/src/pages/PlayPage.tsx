@@ -18,6 +18,7 @@ import { detectGames, useDetect, useEnsureProfile, useInstallPrompt, useKilnInst
 import { clock, usePlayControl, type PlayControl } from "../shell/play";
 import { isDefaultProfile, useMods } from "../shell/useMods";
 import { MainList } from "./mods/MainList";
+import { StartProgress } from "../shell/StartPanel";
 import { ArchText, Banner, Button, Cones, Field, KeyValue, Modal, PathPicker, TaskProgress, errorText, toast } from "../ui";
 
 /** Windows (WebView2): path examples in Windows form. */
@@ -129,8 +130,11 @@ function PlayFor({ game, ctl }: { game: GameInstall; ctl: PlayControl }) {
   else say = mods.count.text;
   const kiln = rt?.receipt?.runtime.version ?? boot?.kiln ?? null;
   const on = mods.count.on;
-  const runLine = prep && !fresh ? prep.message : v.phase === "vanilla" ? "Started without Kiln." : ctl.kilnMissing ? "Running without Kiln: Steam did not load it this start." : !fresh ? "The game is running. No Kiln boot record for this start." : boot?.profile?.mode === "no-mods" ? `Running with Kiln ${boot?.kiln} and no mods.`
-    : v.label === "Safe idle" ? `Kiln is in safe idle: ${boot?.safeIdle ?? "mods stay off"}.` : `Running with Kiln ${kiln ?? ""}${mods.profile ? ` and ${on} mod${on === 1 ? "" : "s"}` : ""}.`;
+  // a start the runtime ended in safe idle or could not go on with says so, boot.json or not (progress.json's `why`)
+  const runLine = v.label === "No word from Kiln" ? v.detail ?? "" : prep && !fresh ? prep.message
+    : v.label === "Kiln stopped" ? `Kiln could not go on: ${ctl.lastTimeline?.why ?? "see kiln.log on the Logs page"}.`
+    : v.label === "Safe idle" && !fresh ? `Kiln is in safe idle: ${ctl.lastTimeline?.why ?? "mods stay off"}.` : v.phase === "vanilla" ? "Started without Kiln." : ctl.kilnMissing ? "Running without Kiln: Steam did not load it this start." : !fresh ? "The game is running. No Kiln boot record for this start." : boot?.profile?.mode === "no-mods" ? `Running with Kiln ${boot?.kiln} and no mods.`
+    : v.label === "Safe idle" ? `Kiln is in safe idle: ${boot?.safeIdle ?? ctl.lastTimeline?.why ?? "mods stay off"}.` : `Running with Kiln ${kiln ?? ""}${mods.profile ? ` and ${on} mod${on === 1 ? "" : "s"}` : ""}.`;
   const stages = ["Steam", "Game", "Kiln", "Mods"];
   const starting = ctl.starting;
   const stageAt = !ctl.running ? 0 : !fresh ? 1 : 3;
@@ -166,7 +170,11 @@ function PlayFor({ game, ctl }: { game: GameInstall; ctl: PlayControl }) {
         </div>
         <Banners game={game} ctl={ctl} pending={pending.data ?? null} onOffer={() => setOfferOpen(true)} boot={fresh ? boot : null} />
         <h1 className="k-hero-name"><span className="k-title static">Enshrouded</span></h1>
-        {starting ? (
+        {ctl.timeline ? (
+          <div className="k-hero-state k-hero-start" key="progress">
+            <StartProgress t={ctl.timeline} prep={prep} />
+          </div>
+        ) : starting ? (
           <div className="k-hero-state" key="start">
             <p className="k-hero-say" role="status">{prep ? prep.message : "Waiting for Kiln to boot."}</p>
             <ol className="k-boot" aria-label="Boot stages">
@@ -202,7 +210,7 @@ function PlayFor({ game, ctl }: { game: GameInstall; ctl: PlayControl }) {
             )}
           </div>
         )}
-        {showList && <MainList game={game} mods={mods} running={ctl.running} />}
+        {showList && !ctl.timeline && <MainList game={game} mods={mods} running={ctl.running} />}
         <dl className="k-hero-facts">
           <div>
             <dt>Kiln{kilnNote && <> · <button type="button" className={`k-link k-tone-${kilnNote.tone}`} title={kilnNote.title} onClick={() => nav("/runtime")}>{kilnNote.text}</button></>}</dt>

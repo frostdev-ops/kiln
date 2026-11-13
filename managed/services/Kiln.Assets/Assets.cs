@@ -47,13 +47,22 @@ public readonly record struct BlobEntry(ContentHash Hash, BlobKind Kind, string 
 /// <summary>The UI state of a registered icon (see <see cref="Assets.IconStateOf"/>).</summary>
 public enum IconState { None = 0, Pending = 1, Served = 2, Failed = 3 }
 
-public static unsafe class Assets
+/// <summary>Mod resources, overrides, icons and retextures (<c>kiln.assets</c>). Every member may be called from any
+/// thread (the native functions copy what they are given); the ones that register something must be called from mod
+/// code, which owns the registration.</summary>
+/// <remarks>Capabilities (<see cref="Capabilities"/>): <c>kiln.assets</c> (the service is here), the sigdb features
+/// <c>assets.resources</c> (resources), <c>assets.content</c> (content blobs) and <c>assets.ui_icons</c> (icons, game
+/// client), and <c>assets.textures</c> (texture overrides, game client). A member that needs one that is off throws
+/// <see cref="KilnUnavailableException"/> naming it (a <see cref="NotSupportedException"/>, as before).</remarks>
+[AnyThread]
+public static unsafe partial class Assets
 {
     private static AssetsNative.Table* _table;
     private static AssetsNative.Table* T =>
         _table != null ? _table : (_table = Services.Get<AssetsNative.Table>(AssetsNative.Service, AssetsNative.Version));
 
-    /// <summary>True when kiln.assets is loaded and its hooks are on (a verified build or policy "any").</summary>
+    /// <summary>True when kiln.assets is loaded and its hooks are on (a verified build or policy "any"; capability
+    /// <c>kiln.assets</c>).</summary>
     public static bool Available => T != null;
 
     /// <summary>FNV-1a-32 of a reflection type name, e.g. "keen::UiTextureResource".</summary>
@@ -90,16 +99,24 @@ public static unsafe class Assets
     }
 
     private static AssetsNative.Table* Require()
-        => T != null ? T : throw new NotSupportedException("kiln.assets is unavailable on this build");
+    {
+        var t = T;
+        if (t != null) return t;
+        Rows.Ensure();
+        throw ServiceCaps.Unavailable(Caps.Service, "kiln.assets is unavailable on this build");
+    }
 
-    private static void Check(int rc, string op)
+    // `capability`: what an "unavailable" answer of this call means (the feature is off, or this is the wrong side).
+    private static void Check(int rc, string op, string capability)
     {
         switch (rc)
         {
             case AssetsNative.Ok: return;
             case AssetsNative.InvalidArgument: throw new ArgumentException($"{op}: invalid argument");
             case AssetsNative.NotFound: throw new KeyNotFoundException($"{op}: not found");
-            case AssetsNative.Unavailable: throw new NotSupportedException($"{op}: unavailable on this build/side");
+            case AssetsNative.Unavailable:
+                Rows.Ensure();
+                throw ServiceCaps.Unavailable(capability, $"{op}: unavailable on this build/side");
             default: throw new InvalidOperationException($"{op}: error {rc}");
         }
     }
@@ -117,17 +134,21 @@ public static unsafe class Assets
     /// that texture's format and size. Icons in assets/assets.json apply before the UI builds; a game item's icon
     /// registered later shows once the UI loads that texture again (the next start at the latest).
     /// </summary>
+    [ClientOnly]
+    [RequiresCapability(Caps.Icons)]
     public static void RegisterIcon(Guid itemGuid, byte[] png)
     {
         var t = Require();
         var owner = Owner();
         byte* g = stackalloc byte[16];
         WriteGuid(itemGuid, g);
-        fixed (byte* p = png) Check(t->IconRegisterPng(owner, g, p, (nuint)png.Length), "RegisterIcon");
+        fixed (byte* p = png) Check(t->IconRegisterPng(owner, g, p, (nuint)png.Length), "RegisterIcon", Caps.Icons);
     }
 
     /// <summary>Register an icon from a PNG file (absolute, or relative to &lt;game&gt;/kiln). Client only; see
     /// <see cref="RegisterIcon(Guid, byte[])"/>.</summary>
+    [ClientOnly]
+    [RequiresCapability(Caps.Icons)]
     public static void RegisterIcon(Guid itemGuid, string pngPath)
     {
         var t = Require();
@@ -137,10 +158,11 @@ public static unsafe class Assets
         var u = new AssetsNative.Utf8(pngPath);
         int rc = AssetsNative.Unavailable;
         u.With(s => rc = t->IconRegisterFile(owner, g, s));
-        Check(rc, "RegisterIcon");
+        Check(rc, "RegisterIcon", Caps.Icons);
     }
 
     /// <summary>Remove this mod's icon for a GUID.</summary>
+    [RequiresCapability(Caps.Service)]
     public static void RemoveIcon(Guid itemGuid)
     {
         var t = Require();
@@ -177,6 +199,7 @@ public static unsafe class Assets
 
     /// <summary>Serve `bytes` for `key`. mode: null = either, true = must be new, false = must override a game resource.</summary>
     /// <exception cref="ArgumentException">`key` is the player's animation graph (see <see cref="Override"/>).</exception>
+    [RequiresCapability(Caps.Resources)]
     public static void Register(AssetKey key, byte[] bytes, bool? mustBeNew = null)
     {
         RefusePlayerGraph(key, "Register");
@@ -184,7 +207,7 @@ public static unsafe class Assets
         var owner = Owner();
         uint flags = mustBeNew == true ? AssetsNative.PutNew : mustBeNew == false ? AssetsNative.PutOverride : 0;
         var k = MakeKey(key);
-        fixed (byte* p = bytes) Check(t->ResourcePut(owner, &k, p, (nuint)bytes.Length, flags), "Register");
+        fixed (byte* p = bytes) Check(t->ResourcePut(owner, &k, p, (nuint)bytes.Length, flags), "Register", Caps.Resources);
     }
 
     /// <summary>Serves a new resource as a given owner (Kiln.Blocks: a generated Impact program).</summary>
@@ -192,7 +215,7 @@ public static unsafe class Assets
     {
         var t = Require();
         var k = MakeKey(key);
-        fixed (byte* p = bytes) Check(t->ResourcePut(owner, &k, p, (nuint)bytes.Length, 0), "Register");
+        fixed (byte* p = bytes) Check(t->ResourcePut(owner, &k, p, (nuint)bytes.Length, 0), "Register", Caps.Resources);
     }
 
     /// <summary>Registers a PNG file as the icon texture with this GUID, as a given owner (Kiln.Blocks: a status's or a perk's icon). The native result: 0 = taken.</summary>
@@ -214,6 +237,7 @@ public static unsafe class Assets
     /// and replacing a running player's graph can end the server. Add player animation states in assets/player-states.json
     /// instead.</remarks>
     /// <exception cref="ArgumentException">`key` is the player's animation graph. Nothing is put.</exception>
+    [RequiresCapability(Caps.Resources)]
     public static void Override(AssetKey key, byte[] bytes)
     {
         RefusePlayerGraph(key, "Override");
@@ -221,6 +245,7 @@ public static unsafe class Assets
     }
 
     /// <summary>Remove this mod's resource / override for a key.</summary>
+    [RequiresCapability(Caps.Service)]
     public static void RemoveResource(AssetKey key)
     {
         var t = Require();
@@ -229,6 +254,7 @@ public static unsafe class Assets
     }
 
     /// <summary>The bytes the game gets for `key` now (an override if any, else the game's own), or null if absent.</summary>
+    [RequiresCapability(Caps.Resources)]
     public static byte[]? ReadResource(AssetKey key)
     {
         var t = Require();
@@ -239,7 +265,7 @@ public static unsafe class Assets
         var buf = new byte[n];
         fixed (byte* p = buf) rc = t->ResourceRead(&k, p, n, &n);
         if (rc == AssetsNative.NotFound) return null;
-        Check(rc, "ReadResource");
+        Check(rc, "ReadResource", Caps.Resources);
         return buf;
     }
 
@@ -254,13 +280,14 @@ public static unsafe class Assets
     }
 
     /// <summary>Every key of a type (the game's plus new ones).</summary>
+    [RequiresCapability(Caps.Resources)]
     public static AssetKey[] ListResources(uint type)
     {
         var t = Require();
         nuint n = 0;
         t->ResourceList(type, null, 0, &n);
         var raw = new AssetsNative.Key[n];
-        fixed (AssetsNative.Key* p = raw) Check(t->ResourceList(type, p, n, &n), "ListResources");
+        fixed (AssetsNative.Key* p = raw) Check(t->ResourceList(type, p, n, &n), "ListResources", Caps.Resources);
         var outv = new AssetKey[n];
         for (nuint i = 0; i < n; i++)
         {
@@ -287,27 +314,30 @@ public static unsafe class Assets
     }
 
     /// <summary>Add a new blob; the returned hash goes into a resource's content reference.</summary>
+    [RequiresCapability(Caps.Content)]
     public static ContentHash AddBlob(byte[] bytes)
     {
         var t = Require();
         var owner = Owner();
         AssetsNative.ContentHash h;
-        fixed (byte* p = bytes) Check(t->BlobAdd(owner, p, (nuint)bytes.Length, &h), "AddBlob");
+        fixed (byte* p = bytes) Check(t->BlobAdd(owner, p, (nuint)bytes.Length, &h), "AddBlob", Caps.Content);
         var hash = new ContentHash(h.Size, h.H0, h.H1, h.H2);
         RecordBlob(owner, ModContext.CurrentMod!.Info.Id, hash, BlobKind.Added);
         return hash;
     }
 
     /// <summary>Serve `bytes` instead of the game's blob `hash` (bytes.Length must equal hash.Size).</summary>
+    [RequiresCapability(Caps.Content)]
     public static void OverrideBlob(ContentHash hash, byte[] bytes)
     {
         var t = Require();
         var owner = Owner();
         var h = new AssetsNative.ContentHash { Size = hash.Size, H0 = hash.H0, H1 = hash.H1, H2 = hash.H2 };
-        fixed (byte* p = bytes) Check(t->BlobOverride(owner, &h, p, (nuint)bytes.Length), "OverrideBlob");
+        fixed (byte* p = bytes) Check(t->BlobOverride(owner, &h, p, (nuint)bytes.Length), "OverrideBlob", Caps.Content);
         RecordBlob(owner, ModContext.CurrentMod!.Info.Id, hash, BlobKind.Override);
     }
 
+    [RequiresCapability(Caps.Service)]
     public static void RemoveBlob(ContentHash hash)
     {
         var t = Require();
@@ -337,16 +367,19 @@ public static unsafe class Assets
 
     // ---- textures (client) --------------------------------------------------------------------------------------
     /// <summary>Override a texture resource's pixels with a PNG, encoded to the texture's own format. Client only.</summary>
+    [ClientOnly]
+    [RequiresCapability(Caps.Textures)]
     public static void OverrideTexture(AssetKey key, byte[] png)
     {
         var t = Require();
         var owner = Owner();
         var k = MakeKey(key);
-        fixed (byte* p = png) Check(t->TextureOverridePng(owner, &k, p, (nuint)png.Length), "OverrideTexture");
+        fixed (byte* p = png) Check(t->TextureOverridePng(owner, &k, p, (nuint)png.Length), "OverrideTexture", Caps.Textures);
     }
 
     // ---- tools --------------------------------------------------------------------------------------------------
     /// <summary>Write resources / blobs to &lt;game&gt;/kiln/data/assets/dump/. See the guide for the spec grammar.</summary>
+    [RequiresCapability(Caps.Service)]
     public static string Dump(string spec)
     {
         var t = Require();
@@ -363,6 +396,7 @@ public static unsafe class Assets
     }
 
     /// <summary>Register every entry of a mod folder's assets/assets.json under this mod.</summary>
+    [RequiresCapability(Caps.Service)]
     public static string LoadManifest(string modDirectory)
     {
         var t = Require();

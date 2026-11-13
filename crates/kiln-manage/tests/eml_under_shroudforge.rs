@@ -473,7 +473,9 @@ fn the_launcher_tells_switched_off_other_side_and_unreadable_eml_mods_apart() {
     let notes = own_loaders::notes(&s.game, &own_loaders::find(&s.game, Some(&view)), Some(&view));
     let eml = notes.iter().find(|n| n.loader.kind == ModKind::Eml).unwrap();
     assert_eq!((eml.off.clone(), eml.other_side.clone(), eml.unreadable.clone()),
-        (vec!["more-gliders".to_string()], vec!["server-tweaks".to_string()], vec!["schema-two".to_string()]), "{eml:?}");
+        (vec!["more-gliders".to_string()], vec!["server-tweaks".to_string(), "hand-server".into()], vec!["schema-two".to_string(), "hand-bad".into()]), "{eml:?}");
+    // the player's own folders keep their reasons there too (review of 13 Nov 2026): one ShroudForge takes, one it refuses
+    assert_eq!((eml.own.clone(), eml.own_off.clone()), (vec!["hand-server".to_string()], Vec::<String>::new()), "{eml:?}");
     let sentence = |id: &str| eml.text.split(". ").find(|s| s.contains(&format!("({id}"))).unwrap_or_else(|| panic!("{id}: {}", eml.text)).to_string();
     assert!(sentence("more-gliders").contains("activate the profile again to switch them on"), "{}", eml.text);
     assert!(sentence("server-tweaks").contains("server only") && !sentence("server-tweaks").contains("activate"), "{}", eml.text);

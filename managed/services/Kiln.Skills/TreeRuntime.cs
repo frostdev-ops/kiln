@@ -28,8 +28,11 @@ public readonly record struct TalentPointsInfo(int Total, int Spent, int Availab
 }
 
 /// <summary>The answer of an unlock / lock / respec / grant.</summary>
-public sealed record TalentResult(bool Ok, string Reason, int Level, TalentPointsInfo Points)
+public sealed record TalentResult(bool Ok, string Reason, int Level, TalentPointsInfo Points) : IKilnResult
 {
+    // IKilnResult's reason is null when the action happened; this record's own Reason keeps its text ("" then).
+    string? IKilnResult.Reason => Ok ? null : Reason;
+
     internal static TalentResult No(string why, int level = 0, TalentPointsInfo points = default) => new(false, why, level, points);
     public override string ToString() => Ok ? $"ok (level {Level}, points {Points})" : $"refused: {Reason}";
 }
@@ -377,12 +380,14 @@ public static partial class Skills
     }
 
     /// <summary>A character's state in a tree (live object; the player need not be online). Tick thread.</summary>
+    [TickThreadOnly]
     public static TalentTreeState State(string tree, TalentHolder holder)
     {
         Game.AssertTickThread();
         return StateOf(Need(tree), holder);
     }
 
+    [TickThreadOnly]
     public static TalentTreeState State(string tree, EntityId player) => State(tree, HolderOf(player));
 
     internal static TalentPointsInfo PointsOf(Entry e, TalentHolder h, TalentTreeState s)
@@ -416,6 +421,7 @@ public static partial class Skills
         }
     }
 
+    [TickThreadOnly]
     public static TalentPointsInfo Points(string tree, TalentHolder holder)
     {
         Game.AssertTickThread();
@@ -424,6 +430,7 @@ public static partial class Skills
     }
 
     /// <summary>The level of a node for a character (0 = locked). Tick thread.</summary>
+    [TickThreadOnly]
     public static int LevelOf(string tree, string node, TalentHolder holder)
     {
         Game.AssertTickThread();
@@ -431,12 +438,14 @@ public static partial class Skills
     }
 
     /// <summary>True when the player has the node (level 1 or more). Tick thread.</summary>
+    [TickThreadOnly]
     public static bool Has(EntityId player, string tree, string node) => LevelOf(tree, node, HolderOf(player)) > 0;
 
     // ------------------------------------------------------------------------------------------- changes ----------
 
     /// <summary>Takes a node (one more level). Checks: requirements, tier, level, points, then
     /// <see cref="TalentUnlockingEvent"/>. Tick thread.</summary>
+    [TickThreadOnly]
     public static TalentResult Unlock(string tree, string node, TalentHolder holder, bool force = false)
     {
         Game.AssertTickThread();
@@ -472,10 +481,12 @@ public static partial class Skills
         return new TalentResult(true, "", level + 1, PointsOf(e, holder, s));
     }
 
+    [TickThreadOnly]
     public static TalentResult Unlock(EntityId player, string tree, string node) => Unlock(tree, node, HolderOf(player));
 
     /// <summary>Gives one level back (the points return). Refused when another taken node needs it, or a tier would
     /// fall short. Tick thread.</summary>
+    [TickThreadOnly]
     public static TalentResult Lock(string tree, string node, TalentHolder holder, bool force = false)
     {
         Game.AssertTickThread();
@@ -510,6 +521,7 @@ public static partial class Skills
     }
 
     /// <summary>Gives every point of the tree back (free). Tick thread.</summary>
+    [TickThreadOnly]
     public static TalentResult Respec(string tree, TalentHolder holder, bool force = false)
     {
         Game.AssertTickThread();
@@ -526,6 +538,7 @@ public static partial class Skills
     }
 
     /// <summary>Gives points of the tree's own (any points source; negative takes back). Tick thread.</summary>
+    [TickThreadOnly]
     public static TalentPointsInfo Grant(string tree, TalentHolder holder, int points)
     {
         Game.AssertTickThread();
@@ -538,6 +551,7 @@ public static partial class Skills
         return p;
     }
 
+    [TickThreadOnly]
     public static TalentPointsInfo Grant(string tree, EntityId player, int points) => Grant(tree, HolderOf(player), points);
 
     private static void Changed(Entry e, TalentHolder h, TalentChangeKind kind, TalentNode n, int oldLevel, int newLevel)
@@ -732,6 +746,7 @@ public static partial class Skills
     }
 
     /// <summary>The effects running for a player now (diagnostics): tree/node -> level and effect entities.</summary>
+    [TickThreadOnly]
     public static IReadOnlyList<(string Tree, string Node, int Level, IReadOnlyList<EntityId> Entities)> ActiveEffects(EntityId player)
     {
         Game.AssertTickThread();
@@ -742,6 +757,7 @@ public static partial class Skills
     }
 
     /// <summary>Applies the player's state now (instead of at the next maintenance pass). Tick thread.</summary>
+    [TickThreadOnly]
     public static void Refresh(string tree, TalentHolder holder)
     {
         Game.AssertTickThread();

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// From matenm/emf-enshrouded v0.6.0, src/core/net/net_link.h.
+// From matenm/emf-enshrouded v0.6.8, src/core/net/net_link.h.
 // Copyright (c) 2026 EMF contributors. See licenses/EMF-LICENSE.txt.
 #pragma once
 // Mod messages (API v27): the chat transport between a player's game and the server, without the game. Two ends of
@@ -57,9 +57,16 @@ std::string hello_text(const HelloInfo& h);
 std::optional<HelloInfo> parse_hello_text(std::string_view text);
 
 // ---- the server's end ----
+// The beacon's words after its marker and fields: what a player whose game has no EMF reads in the chat (at most
+// twice). An EMF game takes the line by its type and never reads them.
+inline constexpr const char* kBeaconText =
+    "This server runs EMF mods. Get EMF to see their windows; you can play without it.";
+
 struct ServerLinkDeps {
     // the channels this server has (name -> version); none: no beacon is sent
     std::function<std::map<std::string, uint32_t>()> channels;
+    // whether new connections get a beacon (empty: when `channels` is not empty)
+    std::function<bool()> greets;
     // one marked line for the player on (handle, account); false: it could not be queued
     std::function<bool(uint32_t handle, uint64_t account, const std::string& line)> send;
     // a message's (or welcome's) lines for the player on (handle, account), all or none; when set it is used for them
@@ -81,10 +88,10 @@ struct ServerLinkDeps {
     uint32_t build = 0;
     bool greet = true;  // [net] greet: send the beacon (a server without it never gets a hello)
     // The first beacon this long after a connection appears (a line sent while the game still loads is lost), then
-    // again this often until the game says hello, at most this many times (a game without EMF shows each one).
-    uint64_t beacon_delay_ms = 5000;
-    uint64_t beacon_retry_ms = 15000;
-    uint32_t beacon_tries = 4;
+    // again this often until the game says hello, at most this many times (a game without EMF shows each one: twice).
+    uint64_t beacon_delay_ms = 10000;
+    uint64_t beacon_retry_ms = 35000;
+    uint32_t beacon_tries = 2;
 };
 
 // A player on a connection, as the server's records name it.
@@ -186,15 +193,25 @@ public:
     size_t waiting();
     bool welcomed();
     uint32_t server_version(const std::string& channel);  // 0: no welcome or no such channel
-    // The server's world is gone (or a new one begins): no welcome, nothing waiting.
-    void reset();
+    // The server's world is gone (or a new one begins): no welcome, nothing waiting. `keep_held_beacon`: a beacon held
+    // while this game did not know its own account stays (a new client world on the same connection: the game still
+    // loads); a new connection drops it (logged).
+    void reset(bool keep_held_beacon = false);
 
 private:
+    // The server's beacon, spoken as this player: a new conversation, this game's hello queued. Under m_; the log line.
+    std::string beacon_locked(bool& down);
+    // A beacon that came before this game knew its own account is answered now that it does (when spoken as this
+    // player). take_lines and waiting call it.
+    void answer_held();
+
     ClientLinkDeps d_;
     std::mutex m_;
     enum class State { Idle, HelloSent, Welcomed } state_ = State::Idle;
     bool told_foreign_ = false;  // a line not spoken as this player was logged
     bool told_no_self_ = false;  // a line before the game knew its own account was logged
+    // the speaker of a beacon that came before the game knew its own account (still loading): answered once it does
+    std::optional<uint64_t> held_beacon_;
     std::map<std::string, uint32_t> server_channels_;
     Reassembly in_;
     uint32_t out_seq_ = 0;

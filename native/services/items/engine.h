@@ -82,6 +82,9 @@ using SlotTransferFn = Result12*(__fastcall*)(Result12* out, void* tx, uint64_t 
 // `move_all` hook points. Both run on the game's transaction `tx`.
 using QuickStackFn = Result12*(__fastcall*)(Result12* out, void* tx, uint32_t to, uint32_t from, void* feedback);
 using MoveAllFn = Result12*(__fastcall*)(Result12* out, void* tx, uint32_t from, uint32_t to, uint32_t mode, uint8_t flag);
+// The game's equip and unequip (v5, docs/re/items.md section 16): (out, tx, InventorySlotId, keen::EquipmentSlot). The
+// player is the running program's current entity (ProgramContext + 8), not an argument.
+using EquipFn = Result12*(__fastcall*)(Result12* out, void* tx, uint64_t slot, uint8_t equipment_slot);
 
 // ---- what the service resolved at boot ----
 struct Engine {
@@ -112,6 +115,8 @@ struct Engine {
     uintptr_t area_deposit = 0;        // feature items.transfer: only checked, never called or hooked
     uintptr_t set_string = 0;          // feature items.names
     uintptr_t add_component = 0;       // feature items.names (lab only: the rename handler's AddComponent)
+    EquipFn equip_item = nullptr;      // feature items.equip (v5)
+    EquipFn unequip_item = nullptr;
 
     int64_t world_storage = 0;      // world -> entity storage
     int64_t tx_size = 0;            // InventoryTx bytes (result flags + 8, rounded to 16)
@@ -141,6 +146,7 @@ struct Engine {
     bool transfer_ok = false; // feature items.transfer: the quick-stack / move-all hooks can be installed
     bool names_ok = false;    // feature items.names: container names
     bool instances_ok = false;  // feature items.instances: stamps, locations, records (v4)
+    bool equip_ok = false;      // feature items.equip: the game's equip / unequip resolved (v5; also needs kiln.world)
 };
 extern Engine E;
 // After resolve(): blank the game functions a feature that is off must never call. items.move off drops the slot transfer

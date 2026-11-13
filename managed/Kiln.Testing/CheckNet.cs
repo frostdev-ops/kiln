@@ -233,6 +233,22 @@ internal sealed class CheckNet
     /// goes with the request.</summary>
     public void Start(ViewItem item)
     {
+        lock (_lock)
+        {
+            // the server takes one start at a time from this client: while one is on its way (sent and not ended) or
+            // its throwaway question is open, this one waits its turn in the queue instead of being dropped
+            if (_pending is not null || _asking is not null)
+            {
+                _all.Enqueue(item);
+                _runningAll = true;
+                return;
+            }
+        }
+        Begin(item);
+    }
+
+    private void Begin(ViewItem item)
+    {
         if (item.Cheats)
         {
             lock (_lock)
@@ -267,8 +283,18 @@ internal sealed class CheckNet
         }
         finally
         {
-            // A thrown or refused send has no server outcome to release this hold.
-            if (!sent) ReleaseHold();
+            // A thrown or refused send has no server outcome to release this hold, and none that would call for the
+            // next queued check: the queue ends here, and the message says how many were not started.
+            if (!sent)
+            {
+                ReleaseHold();
+                lock (_lock)
+                {
+                    if (_all.Count > 0) _message = $"the check start could not be sent; {_all.Count} queued check(s) were not started";
+                    _all.Clear();
+                    _runningAll = false;
+                }
+            }
         }
     }
 
@@ -281,15 +307,22 @@ internal sealed class CheckNet
         catch (Exception e) { _env.Write(LogLevel.Warn, $"checks: ending the joined guard hold threw {e.GetType().Name}"); }
     }
 
-    public void StartAll()
+    public void StartAll() => StartThese(_catalog?.Checks ?? []);
+
+    /// <summary>Starts these server checks one after the other, in this order: the server takes one start at a time
+    /// from a joined client, so each goes out when the one before it has finished, was refused or was declined. A
+    /// list asked for while checks still wait is added behind them, as the hosted runner queues its requests.</summary>
+    public void StartThese(IReadOnlyList<ViewItem> items)
     {
+        bool idle;
         lock (_lock)
         {
-            _all.Clear();
-            foreach (var i in _catalog?.Checks ?? []) _all.Enqueue(i);
+            // all of them wait first, then the first goes out: a start that cannot be sent ends the whole list at once
+            foreach (var i in items) _all.Enqueue(i);
             _runningAll = _all.Count > 0;
+            idle = _pending is null && _asking is null;
         }
-        Next();
+        if (idle) Next();
     }
 
     private void Next()
@@ -297,9 +330,12 @@ internal sealed class CheckNet
         ViewItem? next = null;
         lock (_lock)
         {
+            // one at a time: while a start is on its way or its question is open, nothing leaves the queue (a state the
+            // server sends about another check than the pending one must not take the next one out and lose it)
+            if (_pending is not null || _asking is not null) return;
             if (_runningAll && !_all.TryDequeue(out next)) _runningAll = false;
         }
-        if (next is not null) Start(next);
+        if (next is not null) Begin(next);
     }
 
     public void Answer(AnswerKind kind, string? note = null)

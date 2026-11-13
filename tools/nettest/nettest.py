@@ -312,7 +312,8 @@ def named_mods(details):
 
 
 def lab_required(lab):
-    """What the server should advertise: kiln/mods/* with clients "mod" (default from side), kdh1 by the reference."""
+    """What the server should advertise: kiln/mods/* with clients "mod" (default from side), each by its identity (kdh1 without
+    what a cook left in assets/cooked) by the reference."""
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "schema", "fixtures", "dirhash"))
     import dirhash
     out = []
@@ -325,7 +326,7 @@ def lab_required(lab):
         m = json.load(open(mf))
         clients = m.get("clients") or ("none" if m.get("side", "server") == "server" else "mod")
         if clients == "mod":
-            out.append({"id": m["id"], "version": m["version"], "hash": dirhash.kdh1(d)})
+            out.append({"id": m["id"], "version": m["version"], "hash": dirhash.mod_identity(d)})
     return sorted(out, key=lambda x: x["id"])
 
 
@@ -646,13 +647,21 @@ class Suite:
                 shutil.copytree(os.path.join(fx, "cases"), dst, symlinks=True)
                 for name in os.listdir(os.path.join(fx, "cases")):  # git drops empty folders; the fixture needs them
                     os.makedirs(os.path.join(dst, name), exist_ok=True)
-                expected = json.load(open(os.path.join(fx, "expected.json")))["cases"]
+                fixtures = json.load(open(os.path.join(fx, "expected.json")))
+                expected = fixtures["cases"]
                 bad = []
                 for name, h in sorted(expected.items()):
                     r = self.control(ctl, f"dirhash dirhash/{name}")
                     if r != f"control:{h}":
                         bad.append(f"{name}: {r}")
                 self.check("advert.dirhash-fixtures-csharp", not bad, f"{len(expected)} cases" + ("; " + "; ".join(bad) if bad else ""))
+                # a mod's identity (a Kiln mod's cook outputs left out) over the same folders
+                bad = []
+                for name, h in sorted(fixtures["identity"].items()):
+                    r = self.control(ctl, f"modhash dirhash/{name}")
+                    if r != f"control:{h}":
+                        bad.append(f"{name}: {r}")
+                self.check("advert.identity-fixtures-csharp", not bad, f"{len(fixtures['identity'])} cases" + ("; " + "; ".join(bad) if bad else ""))
             # REJECT with properties; the 0.1 decoder (reason + details) still reads it
             self.control(ctl, "policy refuse")
             j = Client(self.port, "adv-rej", self.verbose)

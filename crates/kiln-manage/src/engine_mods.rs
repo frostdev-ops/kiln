@@ -259,6 +259,18 @@ fn library_id_for(dirs: &DataDirs, kind: ModKind, manifest_id: &str) -> String {
     unreachable!()
 }
 
+/// The Library version of an engine mod whose manifest gives `version` (empty: none).
+pub(crate) fn engine_version(version: &str) -> String {
+    if let Ok(parsed) = crate::semver::SemVersion::parse(version) {
+        parsed.to_string()
+    } else if version.is_empty() {
+        "0.0.0".to_string()
+    } else {
+        // A digit-only slug such as "001" is not a valid SemVer prerelease identifier by itself.
+        crate::library::fallback_version(version)
+    }
+}
+
 /// The importer of every engine kind: the folder (or the lone mod DLL, wrapped into a folder with the manifest its
 /// engine needs) goes into `library/<kind>/<id>/<version>+<hash8>/`. The id is a Kiln id made from the manifest's
 /// ([`library_id_for`]); the manifest's own id stays in the import record (`manifestId`).
@@ -322,14 +334,7 @@ pub fn import_engine_mod(ctx: &mut ImportCtx) -> Result<()> {
     let xhl_folder = (kind == ModKind::Xhl).then(|| manifest_id.clone());
     let id = library_id_for(ctx.dirs, kind, &manifest_id);
     let manifest_id = (manifest_id != id).then_some(manifest_id);
-    let version = if let Ok(parsed) = crate::semver::SemVersion::parse(&version) {
-        parsed.to_string()
-    } else if version.is_empty() {
-        "0.0.0".to_string()
-    } else {
-        // A digit-only slug such as "001" is not a valid SemVer prerelease identifier by itself.
-        crate::library::fallback_version(&version)
-    };
+    let version = engine_version(&version);
     let staging = ctx.dirs.library();
     std::fs::create_dir_all(&staging).map_err(io_at(&staging, "creating"))?;
     let tmp = crate::library::TempDir::new(&staging, "import")?;
@@ -643,6 +648,13 @@ fn save_placements(game: &Path, entries: &[Placement]) -> Result<()> {
     crate::util::rename_replace(&staged, &file)
 }
 
+/// A temporary file of a marker write of Kiln's, at the top of a folder: `<marker>.tmp` ([`crate::util::write_atomic`],
+/// what a write that failed before its rename left) or `.<marker>.<hex>.kiln-tmp` ([`crate::util::write_atomic_exclusive`]).
+/// Never the player's: not part of a folder's inventory, and [`adopt`] clears it.
+fn marker_temp(rel: &str) -> bool {
+    !rel.contains('/') && (rel == format!("{MARKER}.tmp") || (rel.starts_with(&format!(".{MARKER}.")) && rel.ends_with(".kiln-tmp")))
+}
+
 fn placement_files(root: &Path, kind: ModKind) -> Result<std::collections::BTreeMap<String, String>> {
     fn walk(root: &Path, dir: &Path, kind: ModKind, out: &mut std::collections::BTreeMap<String, String>) -> Result<()> {
         refuse_symlink_path(root, dir)?;
@@ -652,7 +664,7 @@ fn placement_files(root: &Path, kind: ModKind) -> Result<std::collections::BTree
             refuse_symlink_path(root, &path)?;
             let rel = path.strip_prefix(root).expect("tree child").to_str()
                 .ok_or_else(|| Error::invalid("non-Unicode placed mod path"))?.replace('\\', "/");
-            if rel == MARKER { continue; }
+            if rel == MARKER || marker_temp(&rel) { continue; }
             if entry.file_type()?.is_dir() {
                 // Keep empty and newly added directories in the ownership inventory too.
                 out.insert(format!("{rel}/"), String::new());
@@ -1131,7 +1143,7 @@ fn copy_in_with(roots: Roots, src: &Path, dst: &Path, m: &Marker, kept: &[(Strin
             .ok_or_else(|| Error::invalid("native settings must be under the package's mods folder"))?
     } else { src };
     if crate::hash::dirhash(package)? != m.hash {
-        return Err(Error::new(ErrorCode::HashMismatch, format!("{}: library hash mismatch", package.display())));
+        return Err(crate::library::changed_error(&crate::library::LibraryRef { kind: m.kind, id: m.id.clone(), version: m.version.clone(), hash: m.hash.clone() }, package));
     }
     let source_hash = crate::hash::dirhash(src)?;
     let parent = dst.parent().ok_or_else(|| Error::invalid("no mod parent"))?;
@@ -1411,8 +1423,303 @@ fn switch_copy(game: &Path, receipts: &mut [Placement], dst: &Path, enabled: boo
     Ok(())
 }
 
+// ---- a player's own folder handed to Kiln ----
+
+/// A player's own ShroudForge folder that serves a profile entry ([`PlaceReport::own`]), and whether Kiln can take it
+/// over ([`adopt`]). Kiln never does that by itself.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OwnFolder {
+    pub kind: ModKind,
+    pub id: String,
+    pub version: String,
+    /// The player's folder in the game.
+    pub path: PathBuf,
+    /// The folder Kiln's copies of this mod have, `<mods>/<id>`, when the player's is called something else: taking it
+    /// over renames it (ShroudForge finds a package by the id in its mod.json, not by its folder's name).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rename_to: Option<PathBuf>,
+    /// None: its files are the Library entry's, and Kiln can take it over. Else why not, in a sentence that names the
+    /// first file that differs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refusal: Option<String>,
+}
+
+/// What [`adopt`] did.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Adopted {
+    pub kind: ModKind,
+    pub id: String,
+    pub version: String,
+    /// The folder, Kiln's placement now.
+    pub path: PathBuf,
+    /// The folder's path before, when it was renamed to `path`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub renamed_from: Option<PathBuf>,
+    /// The folder was Kiln's already: nothing was changed.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub already: bool,
+    /// The settings whose values differ from the mod's own: they are the player's and stay as they are.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub settings_kept: Vec<String>,
+}
+
+/// What serves a ShroudForge profile entry in the game, as far as [`adopt`] cares.
+enum Own {
+    /// Nothing of the player's: no folder is there (or only Kiln's copy would be).
+    Nothing,
+    /// The entry's folder is Kiln's placement already.
+    Kilns(PathBuf),
+    Folder(OwnPlan),
+}
+
+/// A player's folder and what taking it over takes.
+struct OwnPlan {
+    /// The player's folder, and Kiln's name for it (the same, or the folder is renamed).
+    own: PathBuf,
+    dst: PathBuf,
+    src: PathBuf,
+    want: Marker,
+    /// The Library entry's inventory ([`placement_files`]): the receipt's.
+    listed: std::collections::BTreeMap<String, String>,
+    /// Why Kiln does not take it over; None: its files are the Library entry's.
+    refusal: Option<String>,
+    /// Settings whose values are the player's.
+    kept: Vec<String>,
+}
+
+/// The sentence a refused folder gets: what differs, then the rule.
+fn not_the_mods(m: &crate::profile::ProfileMod, what: impl std::fmt::Display) -> String {
+    format!("Kiln cannot take this folder over: {what}. It takes a folder over only when every file in it is the file of \
+        {} {} in your Library (the values of your settings may differ).", m.id, m.version)
+}
+
+/// extended.mod.json without what is the player's to change: the switch and each setting's value (a setting written
+/// as its bare value keeps the kind of that value). Everything else in it is the mod's.
+fn sf_extension_shape(mut doc: serde_json::Value) -> serde_json::Value {
+    use serde_json::Value as V;
+    let Some(obj) = doc.as_object_mut() else { return doc };
+    obj.remove("enabled");
+    if let Some(settings) = obj.get_mut("settings").and_then(V::as_object_mut) {
+        for v in settings.values_mut() {
+            match v.as_object_mut().filter(|o| o.contains_key("value")) {
+                Some(o) => { o.remove("value"); }
+                None => *v = V::String(match v { V::Null => "null", V::Bool(_) => "bool", V::Number(_) => "number", V::String(_) => "string",
+                    V::Array(_) => "list", V::Object(_) => "object" }.into()),
+            }
+        }
+    }
+    doc
+}
+
+/// Compares a player's folder with the Library entry it would be a copy of: -> (the entry's inventory, why the folder
+/// is not that entry, the settings whose values differ). Byte for byte, with two exceptions that are the player's:
+/// the switch and the setting values in extended.mod.json (and the `targets` ShroudForge's own menu adds with its
+/// default, [`extension_hash_untargeted`]). The marker file does not count.
+#[allow(clippy::type_complexity)]
+fn own_differs(game_dir: &Path, src: &Path, own: &Path, m: &crate::profile::ProfileMod)
+               -> Result<(std::collections::BTreeMap<String, String>, Option<String>, Vec<String>)> {
+    const EXT: &str = "extended.mod.json";
+    let kind = ModKind::ShroudForge;
+    let listed = placement_files(src, kind)?;
+    let refused = |what: String| Ok((listed.clone(), Some(not_the_mods(m, what)), Vec::new()));
+    if let Err(e) = refuse_symlink_path(game_dir, own) { return refused(format!("{} (a link is never Kiln's to manage)", e.message)); }
+    if !std::fs::symlink_metadata(own).is_ok_and(|x| x.is_dir()) { return refused(format!("{} is not a folder", own.display())); }
+    // what is in the folder: a link, a special file or a settings file that is no JSON stops here, named
+    let now = match placement_files(own, kind) {
+        Ok(now) => now,
+        Err(e) if matches!(e.code, ErrorCode::Refused | ErrorCode::InvalidArgument | ErrorCode::Parse) => return refused(reason_at(own, e.message)),
+        Err(e) => return Err(e),
+    };
+    let names: std::collections::BTreeSet<&String> = listed.keys().chain(now.keys()).collect();
+    for rel in names {
+        let what = match (listed.get(rel), now.get(rel)) {
+            (Some(a), Some(b)) if a == b => continue,
+            (Some(a), Some(_)) if rel == EXT && extension_hash_untargeted(own, &own.join(EXT), kind).as_ref() == Some(a) => continue,
+            (Some(_), Some(_)) if rel == EXT => format!("{rel} differs from the mod's in more than its switch and your setting values"),
+            (Some(_), Some(_)) => format!("{rel} is not the mod's file (its content differs)"),
+            (Some(_), None) if rel.ends_with('/') => format!("the mod's folder {} is missing", rel.trim_end_matches('/')),
+            (Some(_), None) => format!("the mod's file {rel} is missing"),
+            (None, _) if rel.ends_with('/') => format!("the folder {} is not part of the mod", rel.trim_end_matches('/')),
+            (None, _) => format!("{rel} is not one of the mod's files"),
+        };
+        return refused(what);
+    }
+    // The inventory leaves the whole `settings` object out of that file's hash (values are the player's). Here the
+    // rest of each setting has to be the mod's too: a description, range or list of choices edited by hand would be
+    // replaced at the mod's next update without a word.
+    let (Some(theirs), Some(mut mine)) = (read_json_checked(library_root(src), &src.join(EXT))?, read_json_checked(game_dir, &own.join(EXT))?) else {
+        return refused(format!("{EXT} cannot be read"));
+    };
+    if theirs.get("targets").is_none() && extension_hash_untargeted(own, &own.join(EXT), kind).is_some()
+        && let Some(o) = mine.as_object_mut() {
+        o.remove("targets");
+    }
+    if sf_extension_shape(theirs) != sf_extension_shape(mine) {
+        return refused(format!("{EXT} differs from the mod's in more than its switch and your setting values (a setting's description, range or choices, or a setting that is not the mod's)"));
+    }
+    // ShroudForge has to be able to read it, or Kiln could never switch it
+    let (lib, sf) = match (crate::shroudforge::read_mod(src), crate::shroudforge::read_mod(own)) {
+        (Ok(lib), Ok(sf)) => (lib, sf),
+        (Err(e), _) | (_, Err(e)) => return refused(format!("ShroudForge cannot read the package ({})", e.message)),
+    };
+    let kept = sf.settings.iter().filter(|s| lib.settings.iter().find(|l| l.key == s.key).is_some_and(|l| l.value != s.value))
+        .map(|s| s.key.clone()).collect();
+    Ok((listed, None, kept))
+}
+
+/// What serves the ShroudForge entry `m` in `game_dir` and what [`adopt`] would do with it. Errors are the hard
+/// refusals placing has too (a link on the way to the Library entry or the mods folder, a Library entry that changed
+/// on disk, a copy of Kiln's own whose files changed); what is wrong with a player's folder is its `refusal`.
+fn own_plan(dirs: &DataDirs, game_dir: &Path, receipts: &[Placement], m: &crate::profile::ProfileMod) -> Result<Own> {
+    let kind = ModKind::ShroudForge;
+    // path_of validates id, version and hash before any destination is joined or touched.
+    let src = crate::library::path_of(dirs, &crate::library::LibraryRef { kind, id: m.id.clone(), version: m.version.clone(), hash: m.hash.clone() })?;
+    refuse_symlink_path(&dirs.root, &src)?;
+    let root = crate::shroudforge::mods_dir(game_dir);
+    refuse_symlink_path(game_dir, &root)?;
+    let dst = root.join(&m.id);
+    if owned(game_dir, receipts, &dst, kind, &m.id)?.is_some() { return Ok(Own::Kilns(dst)); }
+    // the folders that hold this package, by the id ShroudForge knows it by
+    let package = sf_package_id(&src);
+    let mut holders: Vec<PathBuf> = std::fs::read_dir(&root).into_iter().flatten().flatten().map(|e| e.path())
+        .filter(|p| p.is_dir() && package.is_some() && sf_package_id(p) == package).collect();
+    holders.sort();
+    // (one folder under two spellings where names ignore case, as on Windows, is one folder)
+    let same = |a: &Path, b: &Path| a == b || std::fs::canonicalize(a).is_ok_and(|a| std::fs::canonicalize(b).is_ok_and(|b| a == b));
+    let there = std::fs::symlink_metadata(&dst).is_ok();
+    let dst_holds = holders.iter().any(|p| same(p, &dst));
+    let want = Marker { format: 1, kind, id: m.id.clone(), version: m.version.clone(), hash: m.hash.clone() };
+    let refused = |own: PathBuf, refusal: String| Ok(Own::Folder(OwnPlan { own, dst: dst.clone(), src: src.clone(), want: want.clone(),
+        listed: Default::default(), refusal: Some(refusal), kept: Vec::new() }));
+    if holders.len() > 1 {
+        let all: Vec<String> = holders.iter().map(|p| p.display().to_string()).collect();
+        return refused(if dst_holds { dst.clone() } else { holders[0].clone() }, format!("Kiln cannot take this folder over: more than one of your folders \
+            holds this mod's package ({}). ShroudForge leaves out a package it finds twice: keep one of them first.", all.join(", ")));
+    }
+    let own = match (there, holders.first()) {
+        (false, None) => return Ok(Own::Nothing),
+        // the folder with the name Kiln's copies have: it holds the package, or nothing else does (then its files say what it is)
+        (true, None) => dst.clone(),
+        (true, Some(_)) if dst_holds => dst.clone(),
+        // the package is in a folder of another name, and the name Kiln's copies have is taken by something else
+        (true, Some(holder)) => return refused(holder.clone(), format!("Kiln cannot take this folder over: Kiln's copies of this mod are called {}, and \
+            another folder of yours has that name ({}) and holds something else. Rename or move that folder first.", m.id, dst.display())),
+        (false, Some(holder)) => holder.clone(),
+    };
+    if crate::hash::dirhash(&src)? != m.hash {
+        return Err(crate::library::changed_error(&crate::library::LibraryRef { kind, id: m.id.clone(), version: m.version.clone(), hash: m.hash.clone() }, &src));
+    }
+    let (listed, refusal, kept) = own_differs(game_dir, &src, &own, m)?;
+    Ok(Own::Folder(OwnPlan { own, dst, src, want, listed, refusal, kept }))
+}
+
+/// The player's own ShroudForge folders that serve entries of `profile` in `game_dir`, each with whether Kiln can take
+/// it over ([`adopt`]). Reads only: nothing is written, no lock file is made. An entry Kiln cannot look at (its Library
+/// entry is gone, a link is in the way) is left out; [`place`] reports those.
+pub fn own_folders(dirs: &DataDirs, profile: &crate::profile::Profile, game_dir: &Path) -> Result<Vec<OwnFolder>> {
+    let receipts = placements(game_dir)?;
+    let mut out = Vec::new();
+    for m in profile.mods.list(ModKind::ShroudForge) {
+        if let Ok(Own::Folder(p)) = own_plan(dirs, game_dir, &receipts, m) {
+            out.push(OwnFolder { kind: ModKind::ShroudForge, id: m.id.clone(), version: m.version.clone(), rename_to: (p.own != p.dst).then(|| p.dst.clone()),
+                path: p.own, refusal: p.refusal });
+        }
+    }
+    Ok(out)
+}
+
+/// "Let Kiln manage this folder": makes the player's own ShroudForge folder that serves the profile entry `id` Kiln's
+/// placement, as if [`place`] had copied it there. Only on the player's explicit request, and only when its files are
+/// byte for byte the Library entry's ([`own_differs`]; a difference in the switch and in the player's setting values is
+/// fine and stays): anything else is refused (`Refused`) with the first file that differs.
+///
+/// Nothing in the folder is rewritten. It gets the marker file, the name Kiln's copies have (`<mods>/<id>`) when it had
+/// another, and a receipt that lists the Library entry's files, so the setting values in it stay the player's as in any
+/// placed copy. From then on activation switches it, updates it to the profile's version (carrying the values) and
+/// removes it with the mod, as [`place`] and [`unplace`] do for a copy Kiln placed. A folder that is Kiln's already is
+/// left as it is (`already`).
+///
+/// Order: the name, the marker, then the receipt, and only the receipt makes the folder Kiln's ([`owned`]). A stop
+/// before the receipt leaves a folder with a marker and no receipt, which Kiln reads as the player's own (markers never
+/// grant ownership), and this can run again. A receipt that cannot be written takes the marker and the name back.
+pub fn adopt(dirs: &DataDirs, profile: &crate::profile::Profile, game_dir: &Path, kind: ModKind, id: &str) -> Result<Adopted> {
+    if kind != ModKind::ShroudForge {
+        return Err(Error::new(ErrorCode::Unsupported, format!("Kiln takes over ShroudForge folders only, not {} folders", kind.label())));
+    }
+    let m = profile.mods.list(kind).iter().find(|m| m.id == id)
+        .ok_or_else(|| Error::not_found(format!("{} mod {id} is not in profile {}", kind.as_str(), profile.id)))?;
+    let _lock = engine_lock(game_dir, &game_dir.join("kiln/state"))?;
+    let mut receipts = placements(game_dir)?;
+    let done = |path: PathBuf, renamed_from: Option<PathBuf>, already: bool, settings_kept: Vec<String>|
+        Adopted { kind, id: m.id.clone(), version: m.version.clone(), path, renamed_from, already, settings_kept };
+    let plan = match own_plan(dirs, game_dir, &receipts, m)? {
+        Own::Kilns(path) => return Ok(done(path, None, true, Vec::new())),
+        Own::Nothing => return Err(Error::not_found(format!("no folder of yours holds {}:{id} in {}: there is nothing to take over",
+            kind.as_str(), crate::shroudforge::mods_dir(game_dir).display()))),
+        Own::Folder(plan) => plan,
+    };
+    if let Some(why) = plan.refusal {
+        return Err(Error::new(ErrorCode::Refused, format!("{}: {why}", plan.own.display())));
+    }
+    // The file a copy Kiln places from this version holds for the folder's switch: what cleanup compares with
+    // ([`unplace`]). A folder with values of the player's differs from it, and is kept then as a placed copy would be.
+    let switch = crate::shroudforge::read_mod(&plan.own)?.enabled;
+    let extension = crate::shroudforge::extension_with_switch(&plan.src, switch)?;
+    let (own, dst) = (&plan.own, &plan.dst);
+    let renamed = own != dst;
+    refuse_symlink_path(game_dir, &dst.join(MARKER))?;
+    if renamed { adopt_step(AdoptStep::Rename, || std::fs::rename(own, dst).map_err(io_at(own, "renaming")))?; }
+    let marker_file = dst.join(MARKER);
+    let before = std::fs::read(&marker_file).ok();
+    // takes back what was done to the folder: the marker as it was (or none), then the name
+    let undo = |error: Error| -> Error {
+        let marker = match &before {
+            Some(bytes) => crate::util::write_atomic(&marker_file, bytes),
+            None => match std::fs::remove_file(&marker_file) {
+                Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(io_at(&marker_file, "removing")(e)),
+                _ => Ok(()),
+            },
+        };
+        let name = if renamed { std::fs::rename(dst, own).map_err(io_at(dst, "renaming back")) } else { Ok(()) };
+        match marker.and(name) {
+            Ok(()) => error,
+            // still the player's folder (no receipt names it); say what is left in it
+            Err(left) => Error::new(error.code, format!("{}; the folder could not be put back as it was ({}): it is still your own, at {}",
+                error.message, left.message, if dst.exists() { dst.display() } else { own.display() })),
+        }
+    };
+    // What an earlier try's failed marker write left is Kiln's, not the player's: it goes. The marker is written through a
+    // temporary file of a name no file there has, removed when the write fails, so a failure leaves nothing to block the
+    // next try.
+    for e in std::fs::read_dir(dst).map_err(io_at(dst, "reading"))?.flatten() {
+        if e.file_name().to_str().is_some_and(marker_temp) && e.file_type().is_ok_and(|t| t.is_file() || t.is_symlink()) {
+            let _ = std::fs::remove_file(e.path());
+        }
+    }
+    let marker_json = serde_json::to_string_pretty(&plan.want).map(|t| t + "\n").map_err(|e| Error::new(ErrorCode::Internal, e.to_string()))?;
+    if let Err(e) = adopt_step(AdoptStep::Marker, || crate::util::write_atomic_exclusive(&marker_file, marker_json.as_bytes())) { return Err(undo(e)); }
+    // The receipt lists the Library copy only: the switch and the setting values in the folder remain the player's.
+    let receipt = Placement { path: dst.clone(), marker: plan.want.clone(), files: plan.listed.clone(), extension: Some(extension), game_folder: false };
+    if let Err(e) = adopt_step(AdoptStep::Receipt, || put_placement(game_dir, &mut receipts, &receipt)) { return Err(undo(e)); }
+    Ok(done(dst.clone(), renamed.then(|| own.clone()), false, plan.kept))
+}
+
+/// The steps of [`adopt`] that change something, in order. A test stops before one as a crash would: it unwinds from
+/// there, and nothing is taken back.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AdoptStep { Rename, Marker, Receipt }
+
+fn adopt_step<T>(step: AdoptStep, run: impl FnOnce() -> Result<T>) -> Result<T> {
+    #[cfg(test)]
+    if tests::STOP_ADOPT_BEFORE.with(|s| s.get()) == Some(step) { panic!("adopt stopped before {step:?}"); }
+    let _ = step;
+    run()
+}
+
 /// The `id` a mod's own manifest names (`mod.json`, for EML, EMF, Greeneye, Flame and Shroudtopia 1.0), as written.
-fn manifest_id_raw(dir: &Path) -> Option<String> {
+pub(crate) fn manifest_id_raw(dir: &Path) -> Option<String> {
     let file = dir.join("mod.json");
     if std::fs::metadata(&file).ok()?.len() > 1024 * 1024 { return None; }
     read_json(&file)?.get("id")?.as_str().map(str::to_owned)
@@ -1422,7 +1729,7 @@ fn manifest_id_raw(dir: &Path) -> Option<String> {
 /// Kiln's copies of this kind: the player installed it there. Real EML stops the game on a duplicate id, so Kiln places
 /// no second copy beside it, whatever its folder is called; Copy mode names it only under the core's folder name rule
 /// (profile::render falls back to the copy under kiln/profiles/).
-fn same_mod_elsewhere(root: &Path, kind: ModKind, src: &Path, dst: &Path) -> Option<PathBuf> {
+pub(crate) fn same_mod_elsewhere(root: &Path, kind: ModKind, src: &Path, dst: &Path) -> Option<PathBuf> {
     let id = manifest_id_raw(src)?;
     std::fs::read_dir(root).ok()?.flatten().map(|e| e.path())
         .filter(|p| p != dst && p.is_dir() && !marker(p).is_some_and(|m| m.kind == kind))
@@ -1446,7 +1753,7 @@ fn same_mod_elsewhere(root: &Path, kind: ModKind, src: &Path, dst: &Path) -> Opt
 /// the setting values in it are the player's afterwards, carried to the next version as a ShroudForge mod's are, and a
 /// copy holding them is kept (switched off) rather than removed. The profile is the switch, as for ShroudForge mods.
 pub fn place(dirs: &DataDirs, profile: &crate::profile::Profile, game_dir: &Path) -> Result<PlaceReport> {
-    let view = crate::own_loaders::ProfileView::of_profile(profile);
+    let view = crate::own_loaders::ProfileView::of_profile(profile).with_library(dirs, profile);
     let loaders = crate::own_loaders::find(game_dir, Some(&view));
     let mut rep = place_with(dirs, profile, game_dir, &loaders)?;
     rep.own_loaders = crate::own_loaders::notes(game_dir, &loaders, Some(&view));
@@ -3048,6 +3355,10 @@ pub struct EngineStatus {
     pub effects: Option<crate::shroudforge::SfEffects>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prerequisite: Option<HostPrerequisite>,
+    /// ShroudForge's startup pass failed at the last start ([`crate::sf_startup::EngineNotes`]): on the `shroudforge`
+    /// row whoever ran it, on the `eml` row as a pointer while ShroudForge runs the EML mods.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub startup_failed: Option<crate::sf_startup::SfStartupNote>,
 }
 
 /// The state file name of a kind's plugin.
@@ -3070,14 +3381,16 @@ pub fn state_file(kind: ModKind) -> Option<&'static str> {
 /// Every engine plugin's state in `<game>/kiln/state/` (EMF, EML, ShroudForge, Greeneye, Flame, Shroudtopia, SET,
 /// Enshwick, shroudlink, Ember).
 pub fn status(game_dir: &Path) -> Vec<EngineStatus> {
-    let view = crate::profile::read_game_profile(game_dir).ok().flatten().map(|f| crate::own_loaders::ProfileView::of_file(&f));
-    let notes = crate::own_loaders::notes(game_dir, &crate::own_loaders::find(game_dir, view.as_ref()), view.as_ref());
+    let view = crate::profile::read_game_profile(game_dir).ok().flatten().map(|f| crate::own_loaders::ProfileView::of_file(&f).with_file_sources(&f, game_dir));
+    let loaders = crate::own_loaders::find(game_dir, view.as_ref());
+    let notes = crate::own_loaders::notes(game_dir, &loaders, view.as_ref());
+    let sf_startup = crate::sf_startup::EngineNotes::read(game_dir, &loaders);
     ModKind::ALL
         .into_iter()
         .filter_map(|k| {
             if k == ModKind::Xhl {
                 return Some(EngineStatus { kind: k, plugin: String::new(), state: None, error: None,
-                    file: String::new(), own_loader: None, effects: None, prerequisite: Some(xhl_host(game_dir)) });
+                    file: String::new(), own_loader: None, effects: None, prerequisite: Some(xhl_host(game_dir)), startup_failed: None });
             }
             let f = game_dir.join("kiln").join("state").join(state_file(k)?);
             let (state, error) = match read_json_checked(game_dir, &f) {
@@ -3103,6 +3416,7 @@ pub fn status(game_dir: &Path) -> Vec<EngineStatus> {
                 own_loader: notes.iter().find(|n| n.loader.kind == k).cloned(),
                 effects,
                 prerequisite: None,
+                startup_failed: sf_startup.of(k),
             })
         })
         .collect()
@@ -3155,6 +3469,156 @@ mod tests {
         pub(super) static FAIL_RENAME_IN: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
         /// The next [`save_placements`] on this thread fails.
         pub(super) static FAIL_SAVE_PLACEMENTS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+        /// [`adopt`] on this thread stops before this step, as a crash would (a panic: nothing is taken back).
+        pub(super) static STOP_ADOPT_BEFORE: std::cell::Cell<Option<AdoptStep>> = const { std::cell::Cell::new(None) };
+    }
+
+    /// A ShroudForge package `id` with one setting, as a mod author ships it.
+    fn sf_package(dir: &Path, id: &str, version: &str) {
+        std::fs::create_dir_all(dir.join("data")).unwrap();
+        std::fs::write(dir.join("mod.json"), format!(r#"{{"$schema":"https://bonsaibauer.github.io/shroudforge/schemas/mod.schema.json","schemaVersion":1,"id":"{id}","name":"{id}","version":"{version}","capabilities":["patch"]}}"#)).unwrap();
+        std::fs::write(dir.join("extended.mod.json"), "{\n  \"schemaVersion\": 1,\n  \"enabled\": true,\n  \"settings\": {\n    \"stack\": { \"value\": 100, \"label\": \"Stack size\", \"min\": 1, \"max\": 999 }\n  }\n}\n").unwrap();
+        std::fs::write(dir.join("data/patch.json"), format!("{{ \"v\": \"{version}\" }}")).unwrap();
+    }
+
+    /// A Library with the package, a profile that has it on, and the player's own folder `folder` in the game's mods
+    /// folder: a copy of the package as the player extracted it.
+    fn own_sf_setup(tmp: &Path, folder: &str) -> (DataDirs, PathBuf, crate::profile::Profile, PathBuf) {
+        let dirs = DataDirs::at(tmp.join("data"));
+        let game = tmp.join("game");
+        let src = tmp.join("src/BigStacks");
+        sf_package(&src, "BigStacks", "1.0.0");
+        let r = crate::library::import(&dirs, &[src.clone()], &mut crate::task::NoProgress).unwrap();
+        let r = r.imported.iter().chain(&r.existing).find(|x| x.kind == ModKind::ShroudForge).cloned().unwrap();
+        assert_eq!(r.id, "bigstacks");
+        let mut p = crate::profile::create(&dirs, "p", None).unwrap();
+        p.mods.shroudforge = vec![crate::profile::ProfileMod { id: r.id, version: r.version, hash: r.hash, enabled: true }];
+        let own = game.join("mods").join(folder);
+        crate::util::copy_tree(&src, &own).unwrap();
+        (dirs, game, p, own)
+    }
+
+    /// Every file under `dir` with its bytes (the marker too).
+    fn tree(dir: &Path) -> std::collections::BTreeMap<String, Vec<u8>> {
+        fn walk(root: &Path, dir: &Path, out: &mut std::collections::BTreeMap<String, Vec<u8>>) {
+            for e in std::fs::read_dir(dir).unwrap().flatten() {
+                let p = e.path();
+                if p.is_dir() { walk(root, &p, out) } else { out.insert(p.strip_prefix(root).unwrap().to_string_lossy().replace('\\', "/"), std::fs::read(&p).unwrap()); }
+            }
+        }
+        let mut out = Default::default();
+        walk(dir, dir, &mut out);
+        out
+    }
+
+    /// A crash at each point of [`adopt`] leaves a folder Kiln reads as the player's own: never a half-owned one that an
+    /// activation or a cleanup then switches or deletes. Running it again finishes.
+    #[test]
+    fn a_stop_at_any_point_of_adopt_leaves_the_players_folder_the_players() {
+        for (step, folder) in [(AdoptStep::Rename, "Big Stacks"), (AdoptStep::Marker, "Big Stacks"), (AdoptStep::Receipt, "Big Stacks"),
+                               (AdoptStep::Marker, "bigstacks"), (AdoptStep::Receipt, "bigstacks")] {
+            let tmp = crate::library::TempDir::new(&std::env::temp_dir(), "adopt-stop").unwrap();
+            let (dirs, game, mut p, own) = own_sf_setup(tmp.path(), folder);
+            // the player's values: what a wrong cleanup would lose
+            crate::shroudforge::set_setting(&own, "stack", &serde_json::json!(250)).unwrap();
+            let before = tree(&own);
+            STOP_ADOPT_BEFORE.with(|s| s.set(Some(step)));
+            let stopped = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| adopt(&dirs, &p, &game, ModKind::ShroudForge, "bigstacks")));
+            STOP_ADOPT_BEFORE.with(|s| s.set(None));
+            assert!(stopped.is_err(), "{step:?}: the stop was reached");
+            // where the folder is now: renamed already unless the stop came before that
+            let now = if step == AdoptStep::Rename { own.clone() } else { game.join("mods/bigstacks") };
+            assert!(now.is_dir(), "{step:?} {folder}");
+            let mut files = tree(&now);
+            let marked = files.remove(MARKER).is_some();
+            assert_eq!(marked, step == AdoptStep::Receipt, "{step:?}: the marker is written right before the receipt");
+            assert_eq!(files, before, "{step:?}: nothing else in the folder changed");
+            assert!(placements(&game).unwrap().is_empty(), "{step:?}: no receipt, so it is not Kiln's");
+            // the next start: the profile with the mod on, then off, then a cleanup. The folder is the player's in all three
+            for on in [true, false] {
+                p.mods.shroudforge[0].enabled = on;
+                let rep = place(&dirs, &p, &game).unwrap();
+                assert_eq!(rep.own, ["shroudforge:bigstacks"], "{step:?} on={on}: {rep:?}");
+                assert!(rep.placed.is_empty() && rep.switched.is_empty() && rep.removed.is_empty() && rep.retained.is_empty(), "{step:?}: {rep:?}");
+            }
+            let cleaned = unplace(&dirs, &game).unwrap();
+            assert!(cleaned.removed.is_empty() && cleaned.retained.is_empty(), "{step:?}: {cleaned:?}");
+            let mut files = tree(&now);
+            files.remove(MARKER);
+            assert_eq!(files, before, "{step:?}: untouched by activation and cleanup");
+            // and the player's request, again, finishes it
+            p.mods.shroudforge[0].enabled = true;
+            let done = adopt(&dirs, &p, &game, ModKind::ShroudForge, "bigstacks").unwrap();
+            assert_eq!((done.path.clone(), done.already, done.settings_kept.clone()), (game.join("mods/bigstacks"), false, vec!["stack".to_string()]), "{step:?}");
+            assert_eq!(owned(&game, &placements(&game).unwrap(), &done.path, ModKind::ShroudForge, "bigstacks").unwrap().unwrap().player, Vec::<String>::new());
+        }
+    }
+
+    /// A receipt that cannot be written: the marker and the name are taken back, and the folder is as it was.
+    #[test]
+    fn a_failed_receipt_write_takes_the_marker_and_the_name_back() {
+        for folder in ["Big Stacks", "bigstacks"] {
+            let tmp = crate::library::TempDir::new(&std::env::temp_dir(), "adopt-fail").unwrap();
+            let (dirs, game, p, own) = own_sf_setup(tmp.path(), folder);
+            let before = tree(&own);
+            FAIL_SAVE_PLACEMENTS.with(|f| f.set(true));
+            let e = adopt(&dirs, &p, &game, ModKind::ShroudForge, "bigstacks").unwrap_err();
+            assert!(e.message.contains("injected receipt write failure"), "{e}");
+            assert_eq!(tree(&own), before, "{folder}: as it was, no marker");
+            assert_eq!(game.join("mods/bigstacks").exists(), folder == "bigstacks");
+            assert!(placements(&game).unwrap().is_empty());
+            assert_eq!(place(&dirs, &p, &game).unwrap().own, ["shroudforge:bigstacks"]);
+            // a marker that was in the folder before (a stop of an earlier try, an archive that shipped one) comes back as it was
+            std::fs::write(own.join(MARKER), b"{ \"stale\": true }").unwrap();
+            FAIL_SAVE_PLACEMENTS.with(|f| f.set(true));
+            adopt(&dirs, &p, &game, ModKind::ShroudForge, "bigstacks").unwrap_err();
+            assert_eq!(std::fs::read(own.join(MARKER)).unwrap(), b"{ \"stale\": true }");
+        }
+    }
+
+    /// A marker write that failed before its rename (a full disk, a flush error) left its temporary file in the player's
+    /// folder. That file is Kiln's: the next try does not take it for a file of the player's (which would refuse the folder
+    /// as "not the mod's"), clears it, and finishes. A write that fails now leaves nothing behind.
+    #[test]
+    fn a_failed_marker_write_does_not_block_the_next_try() {
+        for folder in ["Big Stacks", "bigstacks"] {
+            let tmp = crate::library::TempDir::new(&std::env::temp_dir(), "adopt-marker").unwrap();
+            let (dirs, game, p, own) = own_sf_setup(tmp.path(), folder);
+            // what the writes of earlier Kilns and of this one leave when they fail before the rename
+            std::fs::write(own.join(format!("{MARKER}.tmp")), b"{ \"format\": 1, \"kind\": \"sh").unwrap();
+            std::fs::write(own.join(format!(".{MARKER}.00112233aabbccdd.kiln-tmp")), b"").unwrap();
+            let rows = own_folders(&dirs, &p, &game).unwrap();
+            assert_eq!(rows.iter().map(|r| r.refusal.clone()).collect::<Vec<_>>(), [None], "{folder}: {rows:?}");
+            // a write that fails now (the marker's name is taken by a folder): nothing of it is left
+            let dst = game.join("mods/bigstacks");
+            if folder == "bigstacks" {
+                std::fs::create_dir_all(dst.join(MARKER).join("in the way")).unwrap();
+                adopt(&dirs, &p, &game, ModKind::ShroudForge, "bigstacks").unwrap_err();
+                assert!(std::fs::read_dir(&dst).unwrap().flatten().all(|e| !e.file_name().to_string_lossy().ends_with(".kiln-tmp")), "no temporary file left");
+                assert!(placements(&game).unwrap().is_empty());
+                std::fs::remove_dir_all(dst.join(MARKER)).unwrap();
+            }
+            let done = adopt(&dirs, &p, &game, ModKind::ShroudForge, "bigstacks").unwrap();
+            assert_eq!((done.path.clone(), done.already), (dst.clone(), false), "{folder}");
+            let left: Vec<String> = std::fs::read_dir(&dst).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).filter(|n| n.contains(MARKER)).collect();
+            assert_eq!(left, [MARKER.to_string()], "{folder}: the marker only, its temporary files are gone");
+            assert!(owned(&game, &placements(&game).unwrap(), &done.path, ModKind::ShroudForge, "bigstacks").unwrap().is_some());
+        }
+    }
+
+    /// The receipt's proof for a cleanup is the file Kiln would have written, so the player's values keep the folder.
+    #[test]
+    fn extension_with_switch_is_what_set_enabled_writes() {
+        let tmp = crate::library::TempDir::new(&std::env::temp_dir(), "adopt-ext").unwrap();
+        for on in [true, false] {
+            let dir = tmp.path().join(format!("p-{on}"));
+            sf_package(&dir, "BigStacks", "1.0.0");
+            let said = crate::shroudforge::extension_with_switch(&dir, on).unwrap();
+            let before = std::fs::read_to_string(dir.join("extended.mod.json")).unwrap();
+            assert_eq!(said == before, on, "nothing is written, and the shipped switch is on");
+            crate::shroudforge::set_enabled(&dir, on).unwrap();
+            assert_eq!(std::fs::read_to_string(dir.join("extended.mod.json")).unwrap(), said);
+        }
     }
 
     /// Greeneye mods of a test Library, by id and version (a stand-in DLL whose bytes differ per version).

@@ -108,6 +108,49 @@ def build_kfc(dirpath, resources, contents, chunk_size=64):
     return ckeys
 
 
+class ZstdBackendTests(unittest.TestCase):
+    """A Python older than 3.14 without the zstandard package reads the game's archives through the system's
+    libzstd (ctypes): the path a player's Linux machine takes."""
+
+    def test_a_backend_is_named(self):
+        from kfc import archive
+        self.assertIn(archive.zstd_backend(), ("stdlib", "zstandard", "libzstd"))
+
+    @unittest.skipIf(zstd is None, "needs Python 3.14 compression.zstd to make the frames")
+    def test_the_system_library_decompresses_what_the_stdlib_does(self):
+        from kfc import archive
+        lib = archive._system_libzstd()
+        if not lib:
+            self.skipTest("no libzstd on this machine")
+        for raw in (b"", b"a", b"blob zero" * 1000, bytes(range(256)) * 300):
+            self.assertEqual(archive._libzstd_decompress(lib, zstd.compress(raw), 0), raw)
+        # a frame without its content size (a streamed one): the hint, or the default, bounds the output
+        streamed = zstd.ZstdCompressor().compress(b"x" * 5000, zstd.ZstdCompressor.FLUSH_FRAME)
+        self.assertEqual(archive._libzstd_decompress(lib, streamed, 5000), b"x" * 5000)
+        # several frames one after the other, as the standard library reads them; with a streamed one among them
+        two = zstd.compress(b"first") + zstd.compress(b"second")
+        self.assertEqual(archive._libzstd_decompress(lib, two, 0), zstd.decompress(two))
+        self.assertEqual(archive._libzstd_decompress(lib, two, 11), b"firstsecond")
+        self.assertEqual(archive._libzstd_decompress(lib, two + streamed, 0), b"firstsecond" + b"x" * 5000)
+        with self.assertRaises(RuntimeError):
+            archive._libzstd_decompress(lib, zstd.compress(b"first") + b"trailing junk", 0)
+        with self.assertRaises(RuntimeError):
+            archive._libzstd_decompress(lib, b"not a frame at all", 0)
+        with self.assertRaises(RuntimeError):
+            archive._libzstd_decompress(lib, zstd.compress(b"y" * 4000)[:-8], 0)
+
+    def test_without_any_decoder_the_error_says_what_to_install(self):
+        from kfc import archive
+        saved = archive._zstd, archive._zstandard, archive._libzstd
+        archive._zstd, archive._zstandard, archive._libzstd = None, None, False
+        try:
+            self.assertIsNone(archive.zstd_backend())
+            with self.assertRaisesRegex(RuntimeError, "libzstd"):
+                archive.zstd_decompress(b"x")
+        finally:
+            archive._zstd, archive._zstandard, archive._libzstd = saved
+
+
 @unittest.skipIf(zstd is None, "needs Python 3.14 compression.zstd")
 class ArchiveTests(unittest.TestCase):
     def setUp(self):
@@ -148,6 +191,37 @@ class ArchiveTests(unittest.TestCase):
         for h, c in zip(self.hashes, self.contents):
             self.assertEqual(self.k.read_content(h), c)
             self.assertEqual(self.k.read_content(str(h)), c)  # text form round trip
+
+    def test_unpatched_reads_the_archive_a_mod_loader_kept_aside(self):
+        d = Path(self.tmp.name)
+        self.assertIsNone(Kfc.unpatched(d), "no backup beside it: the archive is the game's own")
+        self.assertIsNone(Kfc.unpatched(d / "test.kfc"))
+        # A mod loader patches the archive the way EML does: the originals stay beside it as .bak, and the installed
+        # index and resources now hold a mod's resource in place of the game's.
+        (d / "test.kfc").rename(d / "test.kfc.bak")
+        (d / "test.kfc_resources").rename(d / "test.kfc_resources.bak")
+        dats = {f.name: f.read_bytes() for f in d.glob("test_*.dat")}
+        patched = list(self.res)
+        patched[1] = (patched[1][0], patched[1][1], 0, b"a mod's material, another shape" * 9)
+        build_kfc(d, patched, self.contents)
+        for name, data in dats.items():  # the .dat files only grow: the game's contents are still where they were
+            self.assertEqual((d / name).read_bytes()[:len(data)], data)
+        installed, own = Kfc(d), Kfc.unpatched(d)
+        self.addCleanup(installed.close)
+        self.addCleanup(own.close)
+        key = ResourceKey(*self.res[1][:3])
+        self.assertEqual(installed.read(key), patched[1][3])
+        self.assertEqual(own.read(key), self.res[1][3], "the game's own resource, from the files kept aside")
+        self.assertEqual(own.path.name, "test.kfc.bak")
+        for g, th, part, data in self.res:
+            self.assertEqual(own.read(ResourceKey(g, th, part)), data)
+        for h, c in zip(self.hashes, self.contents):
+            self.assertEqual(own.read_content(h), c)  # contents come from the same .dat files
+        self.assertEqual(Kfc.unpatched(d / "test.kfc").read(key), self.res[1][3])
+        # half a backup is no backup
+        (d / "test.kfc_resources.bak").unlink()
+        self.assertIsNone(Kfc.unpatched(d))
+        self.assertIsNone(Kfc.unpatched(d / "nothing-here"))
         self.assertEqual(self.k.content_location(self.hashes[1])["container"], 1)
 
 

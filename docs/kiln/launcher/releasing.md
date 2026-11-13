@@ -281,7 +281,15 @@ cannot be inspected or exceeds the nesting limit (32). Source, Windows and updat
   disk. A shell in it: `tools/release/linux-build/run.sh --mount "$PWD" -- bash`.
 - **The image:** `tools/release/linux-build/Dockerfile`: `ubuntu:22.04` pinned by digest, Tauri's Linux packages
   from the fixed `APT_SNAPSHOT` timestamp ([Ubuntu snapshot service](https://snapshot.ubuntu.com/)),
-  Rust (rustup-init checked by sha256, one pinned toolchain) and bun (checked by sha256), at the host's versions.
+  Rust (rustup-init checked by sha256, one pinned toolchain) and bun (checked by sha256, at the host's version).
+  The image's `RUST_VERSION` is the release's Rust version: release.sh reads it and builds everything the host builds
+  (the Windows files; with `--host-build` the Linux files too) with that same toolchain, by setting
+  `RUSTUP_TOOLCHAIN`. It stops before building anything when the host has no such toolchain or it lacks the
+  `x86_64-pc-windows-msvc` target, and prints the `rustup` command that installs it. On a machine without rustup the
+  distribution's `rustc` must be exactly that version and have that target's standard library (release.sh asks
+  `rustc --print target-libdir` and looks for `libstd` there), or it stops the same way. (rustup's `stable` moved during
+  0.2.0-dev.26's first build and stopped it halfway; a version number cannot move.) `KILN_RELEASE_RUST=<x.y.z>`
+  builds the host's files with another version, for a trial build.
   `tools/release/linux-build/image.sh` prints its tag, `kiln-linux-build:<first 12 hex of the Dockerfile's sha256>`,
   and builds it when missing (a few minutes; release.sh does this itself). Editing the Dockerfile makes a new tag.
   A release records and uses one immutable image ID for all its Linux commands, on `linux/amd64`; old images are
@@ -290,7 +298,9 @@ cannot be inspected or exceeds the nesting limit (32). Source, Windows and updat
     WebKitGTK shipped in the AppImage. `image.sh --rebuild` disables the layer cache but keeps the pinned snapshot;
     it does not fetch newer apt packages. These pins fix the image inputs, not byte-for-byte reproducibility of an
     entire release (Tauri's downloaded bundling tools and persistent caches are separate inputs).
-  - **Raise Rust or bun:** change `RUST_VERSION` (or `RUSTUP_VERSION` + `RUSTUP_SHA256`, from
+  - **Raise Rust or bun:** change `RUST_VERSION` and install that toolchain on the host
+    (`rustup toolchain install <v> --profile minimal --target x86_64-pc-windows-msvc`); for rustup itself
+    `RUSTUP_VERSION` + `RUSTUP_SHA256` (from
     `https://static.rust-lang.org/rustup/archive/<v>/x86_64-unknown-linux-gnu/rustup-init.sha256`), or `BUN_VERSION`
     + `BUN_SHA256` (the release's `SHASUMS256.txt`). **Move the base** (a newer `ubuntu:22.04` build):
     `docker pull ubuntu:22.04 && docker inspect --format '{{index .RepoDigests 0}}' ubuntu:22.04` and put the digest in
@@ -316,6 +326,41 @@ cannot be inspected or exceeds the nesting limit (32). Source, Windows and updat
   archive packages, with package signature verification enabled. The startup environment is not the build image.
   release.sh runs it for `ubuntu22` for both distributions as separate checks. Rendering is Mesa's llvmpipe, named with `GALLIUM_DRIVER` (with no
   GPU, the Mesa of 2024-01 tries zink, which fails, and its Xvfb and GL clients crash: a container artefact).
+
+## The cook tools and the bundled Python
+
+A mod with a cook recipe is cooked on each machine from that machine's game files, by Python tools
+(`tools/{animcook,impact,kfc,modelcook,soundcook}`). Nothing of them is a separate download:
+
+- **The tools are inside `kiln`, `kiln.exe` and the launcher.** `crates/kiln-manage/build.rs` embeds their sources and
+  data files (no tests, labs, samples or C sources) when the `cooktools` feature is on (`full` has it, and kiln-cli
+  asks for it). At first use they are unpacked into `<data folder>/cooktools/<hash of the copy>/`
+  (`kiln_manage::cooktools`). A release build (`KILN_RELEASE_BUILD=1`) stops when a tool is missing.
+- **soundcook's helper** (`kiln-soundcook`: decoding OGG, MP3 and FLAC, resampling) is embedded the same way, per
+  target, from the folder `KILN_COOK_HELPERS` names. release.sh builds it for Linux in the build container (so it
+  needs the same glibc as the other Linux files) and for Windows with clang-cl and xwin, signs the Windows one when
+  signing is on, and sets the variable for every cargo build. A release build stops without it.
+- **Python on Windows: the launcher brings its own.** `tools/package/fetch-python.sh` holds the pin: python.org's
+  embeddable package for Windows x64, one version, by sha256. release.sh seeds it from `.cache/python-win-x64/` when
+  it is there, else the script downloads it; a file with another hash stops the release and nothing of it is kept.
+  `tools/launcher/build-windows.sh` puts the unpacked package into the bundle as `python/` (`--python DIR|none`
+  overrides; a release build refuses `none`). The launcher runs `python/python.exe` from its own folder: nothing is
+  installed, and a Python the player has is neither used nor changed. Its licence ships in `python/LICENSE.txt` and
+  in THIRD-PARTY-NOTICES.txt.
+- **Python on Linux: the system's `python3`**, 3.10 or newer. Python 3.14 reads the game's zstd archives by itself;
+  an older one uses the system's libzstd through ctypes, or the `zstandard` package. `cooktools::locate` asks a
+  candidate for both before it uses it, and its error says in one sentence what to install.
+- `kiln` on Windows (the SDK's `kiln.exe`, for modders and server operators) has no Python of its own: it takes
+  `KILN_PYTHON`, a `python\python.exe` beside itself, then `python3` or `python` on `PATH`.
+
+**To raise the pinned Python:** take the new version and the SHA-256 of "Windows embeddable package (64-bit)" from that
+release's page on python.org, put both into `tools/package/fetch-python.sh` (`VERSION`, `SHA256`), run the script once
+(it downloads, verifies, unpacks and checks that the package has `_zstd.pyd`: the cook tools need 3.14 or newer here),
+then `python3 -m unittest tools/release/test_cooktools.py`. The release's check "kiln cooks a made-up game with the
+cook tools it carries" runs the Linux `kiln` of the release folder with no checkout.
+
+**Not checked by any test here:** the bundled Python actually cooking on Windows (the release's Wine checks run
+`kiln.exe --version` and the launcher's `--selftest` only).
 
 ## Steps
 One-time setup (frostdev.io):

@@ -260,6 +260,7 @@ public static class NativeQuests
     /// <summary>Writes a holder's knowledge again from the engine's records: every quest, what differs. Tick thread. The engine
     /// does this after every change, at a join and every 2 s; call it after changing a save by hand. <paramref name="quiet"/>: this is
     /// the holder's progress coming back, not news: the game's journal notifies for none of it.</summary>
+    [TickThreadOnly]
     public static void Resync(QuestHolder holder, bool quiet = false)
     {
         Game.AssertTickThread();
@@ -270,6 +271,7 @@ public static class NativeQuests
 
     /// <summary>What the game's knowledge should hold for a holder in a quest, as the engine sees it now. Tick thread. For tools and tests:
     /// it needs no player.</summary>
+    [TickThreadOnly]
     public static IReadOnlyList<NativeWanted> Wanted(string fullQuestId, QuestHolder holder)
     {
         Game.AssertTickThread();
@@ -379,6 +381,7 @@ public static class NativeQuests
 
     /// <summary>What the engine says now of a line's computed knowledge, for a holder (<see cref="NativeModInfo.Computed"/>). Tick
     /// thread. For tools and tests: it needs no player; a gate or a heard line counts as not known.</summary>
+    [TickThreadOnly]
     public static bool Holds(NativeComputed c, QuestHolder holder)
     {
         Game.AssertTickThread();
@@ -606,9 +609,10 @@ public static class NativeQuests
     {
         try
         {
-            await Knowledge.World.Grant(unlock).OnTick();
-            QuestsInternals.Info($"native: NPC {n.FullId}: its unlock 0x{unlock:x8} granted for this world");
-            PlaceWhenUnlocked(n);
+            var granted = await Knowledge.World.Grant(unlock).OnTick();
+            if (granted.Ok) QuestsInternals.Info($"native: NPC {n.FullId}: its unlock 0x{unlock:x8} granted for this world");
+            else QuestsInternals.Warn($"native: NPC {n.FullId}: its unlock 0x{unlock:x8} was not granted ({granted.Reason}); placing it once the roster says it is unlocked");
+            PlaceWhenUnlocked(n);  // waits for the roster either way, and places it after 300 steps without it
         }
         catch (Exception ex) when (ex is not OutOfMemoryException)
         {

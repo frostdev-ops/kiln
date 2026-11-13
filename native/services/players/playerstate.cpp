@@ -280,6 +280,8 @@ struct Fields {
     Field b_food, b_buff, b_debuff, b_rested, b_terrain, bn_life, bn_end, bn_level;
     // ActorInput
     Field ctx_used_slot, ctx_used_item;
+    // PlayerInput.fromClient.camera (keen::ecs::ClientCamera)
+    Field cam_pos, cam_rot, cam_dist, cam_fov;
     // game data
     Field item_category, item_ammo, item_slot, item_buff, item_name, buff_slot, sub_name;
 };
@@ -474,6 +476,12 @@ void resolve_all() {
     collect_client_actions("fromClient");
     collect_client_actions("fromAdminClient");
     for (size_t i = 0; i < g_client_actions.size(); ++i) g_client_action_versions[i] = static_cast<int32_t>(g_client_actions[i].version);
+    const auto cam = [](const char* p) { return field_of("keen::ecs::PlayerInput", p); };
+    L.cam_pos = cam("fromClient.camera.position");
+    L.cam_rot = cam("fromClient.camera.orientation");
+    L.cam_dist = cam("fromClient.camera.distance");
+    L.cam_fov = cam("fromClient.camera.fovY");
+    if (L.cam_pos.width != 24 || L.cam_rot.width != 16) L.cam_pos = L.cam_rot = Field{};  // not the layout aim() reads
     L.ctx_used_slot = field_of("keen::ecs::ActorInput", "triggerContext.usedItem.slotId");
     L.ctx_used_item = field_of("keen::ecs::ActorInput", "triggerContext.usedItem.itemId");
     L.item_category = field_of("keen::ItemInfo", "category");
@@ -748,6 +756,7 @@ KilnResult KILN_CALL t_status(KilnPlayerStateStatus* out) {
     out->items = g_items;
     out->sources = g_resolved;
     out->client_hold = g_hold_ok;
+    out->aim = (L.cam_pos && L.cam_rot) ? 1 : 0;
     out->scans = g_scans.load();
     out->entities_read = g_entities.load();
     std::snprintf(out->detail, sizeof out->detail, "%s", g_detail.c_str());
@@ -1376,6 +1385,40 @@ KilnEntity KILN_CALL t_local_player() {
     return g_client->state(&s) == KILN_OK ? s.local_player : 0;
 }
 
+KilnResult KILN_CALL t_aim(KilnEntity e, KilnPlayerAim* out) {
+    if (!out || out->size < sizeof *out) return KILN_ERR_INVALID_ARGUMENT;
+    ensure();
+    if (!L.cam_pos || !L.cam_rot) return KILN_ERR_UNAVAILABLE;
+    const Worlds w = worlds_here();
+    uintptr_t world = w.server;
+    uint32_t which = KILN_PLAYERSTATE_SERVER;
+    if (!world && w.prediction && e == w.local) {
+        world = w.prediction;
+        which = KILN_PLAYERSTATE_PREDICTION;
+    }
+    if (!world) return w.any() ? KILN_ERR_NOT_FOUND : KILN_ERR_WRONG_THREAD;
+    const uint8_t* pi = comp_of(world, C_PINPUT, e);
+    if (!pi) return KILN_ERR_NOT_FOUND;
+    const uint32_t size = out->size;
+    std::memset(out, 0, sizeof *out);
+    out->size = size;
+    out->world = which;
+    float q[4] = {};
+    if (!seh_copy(pi + L.cam_pos.off, out->position, sizeof out->position) || !seh_copy(pi + L.cam_rot.off, q, sizeof q))
+        return KILN_ERR_INTERNAL;
+    const float len2 = q[0] * q[0] + q[1] * q[1] + q[2] * q[2] + q[3] * q[3];
+    if (!(len2 > 0.25f && len2 < 4.0f)) return KILN_ERR_NOT_FOUND;  // zeros, or not a rotation
+    // A player entity starts with the camera at the world's origin, unrotated (lab: a spawned 1_Player): no client has
+    // sent one yet. No real camera sits exactly at (0, 0, 0).
+    if (out->position[0] == 0 && out->position[1] == 0 && out->position[2] == 0) return KILN_ERR_NOT_FOUND;
+    std::memcpy(out->orientation, q, sizeof q);
+    if (L.cam_dist) seh_copy(pi + L.cam_dist.off, &out->distance, 4);
+    if (L.cam_fov) seh_copy(pi + L.cam_fov.off, &out->fov_y, 4);
+    out->server_time = ecs_now(world);
+    return KILN_OK;
+}
+
+static_assert(sizeof(KilnPlayerAim) == 64);
 static_assert(sizeof(KilnPlayerSnapshot) == 544 && sizeof(KilnPlayerClientAction) == 64 && sizeof(KilnPlayerItemInfo) == 288 && sizeof(KilnPlayerEquipment) == 408 &&
               sizeof(KilnPlayerBuff) == 40 && sizeof(KilnPlayerStateStatus) == 200 && sizeof(KilnPlayerSourceInfo) == 216 &&
               sizeof(KilnPlayerHeldAction) == 184);
@@ -1401,6 +1444,7 @@ const KilnPlayerStateApi kTable = {
     &t_client_action_hold,
     &t_client_action_held,
     &t_client_action_decide,
+    &t_aim,  // since 0.2.0-dev.27
 };
 
 template <class Fn>

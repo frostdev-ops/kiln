@@ -150,7 +150,7 @@ A line whose condition is false, or whose text is empty, is **not on the screen 
 
 | Field | Means |
 |---|---|
-| `key` | required; the default: `F8`, `Ctrl+K`, `Shift+Alt+F2`, `Numpad5`, or `None` to bind it once the player chooses |
+| `key` | required; the default: `F8`, `Ctrl+K`, `Shift+Alt+F2`, `Numpad5`, a mouse input (dev.27+: `Shift+Mouse4`, `Ctrl+WheelUp`, [ui.md](../ui.md#key-bindings)), or `None` to bind it once the player chooses |
 | `description`, `category` | what the Keys tab says; the group (default: the mod's name) |
 | `does` | required; an action |
 | `onGameScreens`, `whileCapturing` | as `KeyBinding`: a key that types fires in play only, unless true; also fire while the Kiln menu is open |

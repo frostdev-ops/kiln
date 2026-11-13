@@ -6,6 +6,7 @@ import { invoke as tauriInvoke } from "@tauri-apps/api/core";
 import { listen as tauriListen } from "@tauri-apps/api/event";
 import { canFallBack, noteFallback } from "./fallback";
 import { loadMock } from "./mockLoad";
+import { oneActivation, profileSwitched } from "./oneActivation";
 
 // ---------------------------------------------------------------- plumbing
 
@@ -377,6 +378,12 @@ export interface OwnLoaderNote {
   copied: string[];
   /** Ids not in that folder: they do not load while the loader runs. */
   notCopied: string[];
+  /** Ids a folder of the player's own serves (in the loader's folder, not Kiln's copy). */
+  own?: string[];
+  /** Of those, the ones the hosted ShroudForge has switched off: activation does not change them. */
+  ownOff?: string[];
+  /** Ids whose folder of the player's own the loader that reads it refuses (the text says why and what to do). */
+  ownRefused?: string[];
   /** "EML's own loader (dbghelp.dll) is installed: it runs the EML mods in mods/; Kiln copied this profile's 3 EML mod(s) into mods/ for it." */
   text: string;
 }
@@ -437,7 +444,16 @@ export interface LibraryVersion {
    *  the Library id is its Kiln-id slug). Engine plugins report their state rows under this id. */
   manifestId: string | null;
   manifest: Json | null;
+  /** Its files were changed in its folder since Kiln imported them (a player edited its mod.json): Play refuses it as
+   *  it is until libraryTakeOver makes the changed files the mod's entry. Absent: not changed. */
+  changed?: boolean;
 }
+/** library_take_over (kiln_manage::library::TakenOver): the entry as it was, the entry its changed files are now
+ *  (`from` again when nothing was changed), the mod's name as its manifest gives it now, and a note when the folder
+ *  changed again meanwhile. */
+export interface TakenOver { from: LibraryRef; to: LibraryRef; name: string;
+  /** The folder changed again while it was taken over: the newer files stayed in it (it reads as changed again). */
+  note?: string | null }
 export interface LibraryEntry {
   kind: ModKind;
   id: string;
@@ -722,6 +738,57 @@ export interface PreStart {
   quietMs: number;
   /** The sentence for the launch status ("Preparing the game data for EML mods: 12.3 GiB of 48.6 GiB. ..."). */
   message: string;
+}
+/** One step of a start (`launch_progress`, kiln_manage::start_progress): the launcher's own (`cook`, `profile`,
+ *  `steam`) or the runtime's (kiln/state/progress.json). Times in milliseconds since the start began. */
+export interface StartStep {
+  id: string;
+  label: string;
+  detail?: string | null;
+  done?: number | null;
+  total?: number | null;
+  /** When it began (null: not yet). */
+  ms?: number | null;
+  tookMs?: number | null;
+  /** What it usually takes on this PC (null: no basis yet). */
+  usualMs?: number | null;
+  state: "done" | "running" | "next" | "skipped";
+  launcher: boolean;
+}
+export interface StartEstimate {
+  /** null: a step still to come has no basis (no number is shown; the bar counts steps). */
+  leftMs: number | null;
+  /** How many earlier starts the number comes from. */
+  starts: number;
+  /** From starts with the same Kiln and the same mods. */
+  same: boolean;
+  /** The running step has taken 1.5 times its usual time. */
+  slow: { id: string; usualMs: number } | null;
+  /** 0..1, below 1 until ready. */
+  fraction: number;
+  byTime: boolean;
+  stepsDone: number;
+  stepsPlanned: number;
+  usual: (number | null)[];
+}
+export type StartPhase = "launcher" | "waiting" | "booting" | "loading" | "ready" | "idle" | "failed" | "quiet" | "ended" | "legacy";
+/** What a start is doing, from Play to the main menu (`launch_progress`). */
+export interface StartTimeline {
+  phase: StartPhase;
+  /** idle and failed: the runtime's sentence. */
+  why?: string | null;
+  kiln?: string | null;
+  started: string;
+  atMs: number;
+  /** Milliseconds since progress.json was written (null: none of this start). */
+  quietMs?: number | null;
+  steps: StartStep[];
+  running?: number | null;
+  estimate: StartEstimate;
+  /** The launcher's own steps are in it. */
+  launcher: boolean;
+  /** Steam was asked a minute ago or more and the game's process does not exist yet: no number. */
+  steamSlow?: boolean;
 }
 export interface RequiredMod {
   id: string;
@@ -1129,8 +1196,11 @@ export const profileDelete = (profileId: ProfileId) => call<null>("profile_delet
 /** `gameId`: the game the preview is for (its kiln.json `mods.hosted`); null: Kiln's default. */
 export const profileResolve = (profileId: ProfileId, side: RunSide, gameId: GameId | null = null) =>
   call<ResolvePreview>("profile_resolve", { profileId, side, gameId });
-export const profileActivate = (profileId: ProfileId, gameId: GameId) => call<Activation>("profile_activate", { profileId, gameId });
-export const profileDeactivate = (gameId: GameId) => call<PlacementCleanup>("profile_deactivate", { gameId });
+/** One activation per game at a time (./oneActivation.ts): a second one while the first runs is refused (`busy`). */
+export const profileActivate = (profileId: ProfileId, gameId: GameId) =>
+  oneActivation(gameId, () => call<Activation>("profile_activate", { profileId, gameId })).then((r) => { profileSwitched(gameId); return r; });
+export const profileDeactivate = (gameId: GameId) =>
+  oneActivation(gameId, () => call<PlacementCleanup>("profile_deactivate", { gameId })).then((r) => { profileSwitched(gameId); return r; });
 export const profileActive = (gameId: GameId) => call<Activation | null>("profile_active", { gameId });
 /** The activations of re-applies the window has not shown yet (after a profile edit, a change outside the launcher, the
  *  watcher's start-up pass); each is returned once. Taken when `kiln://activation` arrives and once at start. */
@@ -1150,7 +1220,7 @@ export const noticesShown = (gameId: GameId, lines: string[]) => call<null>("not
 export const profileRevert = (profileId: ProfileId, changes: ProfileChange[]) => call<Profile>("profile_revert", { profileId, changes });
 /** The active profile's activation; with no profile at all, makes "My mods" and activates it; null when profiles exist
  *  but none is active in this game. */
-export const profileEnsureDefault = (gameId: GameId) => call<Activation | null>("profile_ensure_default", { gameId });
+export const profileEnsureDefault = (gameId: GameId) => oneActivation(gameId, () => call<Activation | null>("profile_ensure_default", { gameId }));
 
 // engines.rs: other engines' mods (docs/kiln/engines.md)
 /** kiln_manage::engine_mods::EngineSettings. `format` "extended.mod.json" (ShroudForge: JSON Schema with x-kiln-* hints),
@@ -1190,6 +1260,21 @@ export interface EngineStatus {
   effects?: SfEffects | null;
   /** External-host presence only, not a successful runtime/gameplay report. */
   prerequisite?: { available: boolean; text: string } | null;
+  /** ShroudForge's startup pass failed at the last start (sf_startup.rs): on the shroudforge row whoever ran it, on the
+   *  eml row as a pointer while ShroudForge runs the EML mods. */
+  startupFailed?: SfStartupNote | null;
+}
+/** ShroudForge's own record of a failed startup pass: the mods it writes into the game data did not load. `text` is the
+ *  sentence for the row (no full stop): what happened, which mods, what to change (`cure`). */
+export interface SfStartupNote {
+  error: string;
+  at?: string;
+  ownLoader: boolean;
+  version?: string;
+  build?: string;
+  mods: string[];
+  cure?: string;
+  text: string;
 }
 /** Shared `.kfc.bak`; `patched` means the `.kfc` differs, not that EML owns it. */
 export interface EmlBackup {
@@ -1204,6 +1289,39 @@ export const engineSettingsGet = (kind: ModKind, id: string, profileId: ProfileI
 export const engineSettingsSet = (kind: ModKind, id: string, profileId: ProfileId, gameId: GameId | null, key: string, value: Json) =>
   call<EngineSettings>("engine_settings_set", { kind, id, profileId, gameId, key, value });
 export const engineStatus = (gameId: GameId) => call<EngineStatus[]>("engine_status", { gameId });
+/** A player's own ShroudForge folder that serves a profile entry (engine_mods::OwnFolder): Kiln neither switches,
+ *  updates nor removes it until the player hands it over (engineAdoptFolder). */
+export interface OwnFolder {
+  kind: ModKind;
+  id: string;
+  version: string;
+  /** The player's folder in the game. */
+  path: string;
+  /** The folder Kiln's copies of this mod have, when the player's is called something else: taking it over renames it. */
+  renameTo?: string | null;
+  /** Absent: its files are the Library entry's, and Kiln can take it over. Else why not, naming the first file that differs. */
+  refusal?: string | null;
+}
+/** What engineAdoptFolder did (engine_mods::Adopted). */
+export interface Adopted {
+  kind: ModKind;
+  id: string;
+  version: string;
+  /** The folder, Kiln's placement now. */
+  path: string;
+  renamedFrom?: string | null;
+  /** It was Kiln's already: nothing changed. */
+  already?: boolean;
+  /** Settings whose values are the player's: they stay as they are. */
+  settingsKept?: string[];
+}
+/** The profile's ShroudForge entries the player's own folders serve in this game; empty unless the profile is the one
+ *  the game uses. Reads only. */
+export const engineOwnFolders = (profileId: ProfileId, gameId: GameId) => call<OwnFolder[]>("engine_own_folders", { profileId, gameId });
+/** "Let Kiln manage this folder": only on the player's request. Refuses (`refused`) with the first file that differs
+ *  from the Library entry's, while the game runs (`game_running`) and for a profile the game does not use (`conflict`). */
+export const engineAdoptFolder = (kind: ModKind, id: string, profileId: ProfileId, gameId: GameId) =>
+  call<Adopted>("engine_adopt_folder", { kind, id, profileId, gameId });
 export const emlBackup = (gameId: GameId) => call<EmlBackup[]>("eml_backup", { gameId });
 /** Legacy command: refuses direct shared-backup restores; updated Kiln's archive writer verifies ownership on launch. */
 export const emlRestore = (gameId: GameId) => call<string[]>("eml_restore", { gameId });
@@ -1313,6 +1431,53 @@ export const foundScan = (gameId: GameId, profileId: ProfileId) => call<FoundRep
 /** Task result: AddReport (`import.skipped` says why the Library refused it). */
 export const foundAdd = (gameId: GameId, profileId: ProfileId, path: string) => call<TaskId>("found_add", { gameId, profileId, path });
 
+// ---- cooking mods (kiln_manage::cook) ----
+/** Why a mod is cooked before the game starts (cook::needs_cook; "filesGone": a file its last cook made is gone or was
+ *  changed, by the cook's receipt in the game). */
+export type CookReason = "notCooked" | "modChanged" | "gameChanged" | "lastFailed" | "filesGone" | "asked";
+/** The last cook of a mod for a game (`<game>/kiln/state/cooked.json`). */
+export interface CookedMod {
+  identity: string;
+  gameBuild: string;
+  at: string;
+  ok: boolean;
+  files?: boolean;
+  /** A failed cook: the last lines the tools said. */
+  error?: string | null;
+}
+/** A mod of the game's profile that has something to cook. */
+export interface CookJob {
+  id: string;
+  name: string;
+  /** The folder the game loads the mod from: where its `assets/cooked` is made. */
+  folder: string;
+  identity: string;
+  /** Absent: cooked for this game build, nothing to do. */
+  reason?: CookReason | null;
+  last?: CookedMod | null;
+}
+/** How one mod's cook ended. */
+export interface ModCook {
+  id: string;
+  name: string;
+  reason: CookReason;
+  ok: boolean;
+  /** Not cooked: the tools' last lines, or the one sentence that says why no tool ran. */
+  error?: string | null;
+}
+export interface CookRun {
+  mods: ModCook[];
+  /** The active profile written again before the cook (it changed since its activation): its notices, as Play's. */
+  activation?: Activation | null;
+}
+/** The mods of the game's profile with something to cook, each with whether it needs a cook now. Reads only. */
+export const cookPlan = (gameId: GameId) => call<CookJob[]>("cook_plan", { gameId });
+/** A task (result CookRun): applies the active profile when it changed, then cooks the mods that need it (each from
+ *  nothing), or with `modId` that one mod whatever its record says. Holds the game's lock (no start meanwhile); its
+ *  Cancel stops the tool that runs. Refuses while the game runs ("Cook again" also right after a start). A mod's
+ *  failed cook is in the result, never the task's error. */
+export const cookRun = (gameId: GameId, modId: string | null = null) => call<TaskId>("cook_run", { gameId, modId });
+
 // library.rs
 export const libraryList = (kind: ModKind | null = null) => call<LibraryEntry[]>("library_list", { kind });
 export const libraryDetect = (path: string) => call<Detected>("library_detect", { path });
@@ -1324,7 +1489,7 @@ export const libraryAdd = (gameId: GameId, paths: string[]) => call<TaskId>("lib
 /** Puts library versions into the profile the player picked (after an add that said `libraryOnly`); the result is
  *  library_add's with an empty `import`, so Undo is profile_revert. */
 export const libraryAddToProfile = (gameId: GameId, profileId: ProfileId, entries: LibraryRef[]) =>
-  call<AddReport>("library_add_to_profile", { gameId, profileId, entries });
+  oneActivation(gameId, () => call<AddReport>("library_add_to_profile", { gameId, profileId, entries }));
 /** Rejects with game_running while a game runs, or a server whose profile file points into the library, even with force (it may be reading the mod).
  *  `shown`: the libraryUsers answer a confirmation named. Removal goes past exactly those; any other user is a conflict, whatever `force` says. */
 export const libraryRemove = (entry: LibraryRef, force = false, shown?: string[]) => call<null>("library_remove", { entry, force, shown: shown ?? null });
@@ -1337,6 +1502,10 @@ export const libraryUnused = () => call<LibraryRef[]>("library_unused");
 /** What library_remove refuses (conflict) over without force: profile ids, and "<profile> (active in <game>)" /
  *  "(play-once in <game>)" for each game whose profile file points at the version. */
 export const libraryUsers = (entry: LibraryRef) => call<string[]>("library_users", { entry });
+/** "Use the changed files": a Library entry the player changed in its folder becomes the mod's new entry, every profile
+ *  that listed it lists that one, and the games where such a profile is active get it written again. Rejects with
+ *  game_running while a game, or a server that may read the entry, runs. */
+export const libraryTakeOver = (entry: LibraryRef) => call<TakenOver>("library_take_over", { entry });
 /** One entry (with profileId: checked against the profile's other mods), or a whole profile (entry null). */
 export const libraryLint = (entry: LibraryRef | null, profileId: ProfileId | null = null) => call<LintReport>("library_lint", { entry, profileId });
 
@@ -1358,9 +1527,16 @@ export const configKilnSet = (gameId: GameId, path: string, value: Json) => call
 export const configKilnReset = (gameId: GameId, path: string) => call<ConfigDocument>("config_kiln_reset", { gameId, path });
 
 // launch.rs
-export const launchPlay = (gameId: GameId, request: LaunchRequest) => call<LaunchResult>("launch_play", { gameId, request });
+/** Through the activation guard (./oneActivation.ts): the start applies the active profile again (refresh_active). */
+export const launchPlay = (gameId: GameId, request: LaunchRequest) => oneActivation(gameId, () => call<LaunchResult>("launch_play", { gameId, request }));
 export const launchState = (gameId: GameId) => call<BootState>("launch_state", { gameId });
 export const launchPrestart = (gameId: GameId) => call<PreStart | null>("launch_prestart", { gameId });
+/** Play was pressed (before the cook): the launcher times the start's own steps from now. */
+export const launchBegin = (gameId: GameId, mode: LaunchMode) => call<void>("launch_begin", { gameId, mode });
+/** What the start is doing now (null: nothing to show). */
+export const launchProgress = (gameId: GameId) => call<StartTimeline | null>("launch_progress", { gameId });
+/** Play ended before the game existed: the start the launcher was timing is over. */
+export const launchEnd = (gameId: GameId) => call<void>("launch_end", { gameId });
 
 // logs.rs
 export const logsList = (target: LogTarget) => call<LogFile[]>("logs_list", { target });
@@ -1646,9 +1822,9 @@ export const COMMANDS = [
   "runtime_list", "runtime_import", "runtime_status", "runtime_install", "runtime_uninstall", "runtime_rollback", "runtime_classify",
   "profile_list", "profile_get", "profile_create", "profile_save", "profile_delete", "profile_resolve", "profile_activate",
   "profile_deactivate", "profile_active", "activation_notices", "notices_unseen", "notices_shown",
-  "library_list", "library_detect", "library_import", "library_remove", "library_remove_many", "library_unused", "library_users", "library_lint",
+  "library_list", "library_detect", "library_import", "library_remove", "library_remove_many", "library_unused", "library_users", "library_lint", "library_take_over",
   "config_list", "config_read", "config_set", "config_write", "config_reset", "config_native_state", "config_native_set",
-  "launch_play", "launch_state", "launch_prestart",
+  "launch_play", "launch_state", "launch_prestart", "launch_begin", "launch_progress", "launch_end",
   "logs_list", "logs_read", "logs_follow", "logs_unfollow", "logs_crash_reports",
   "saves_list", "saves_backups", "saves_backup", "saves_restore", "saves_delete",
   "editor_list_saves", "editor_file_info", "editor_read_file", "editor_zstd_decompress", "editor_zstd_compress",
@@ -1667,9 +1843,10 @@ export const COMMANDS = [
   "library_add", "library_add_to_profile", "profile_revert", "profile_ensure_default",
   "deck_browse", "deck_gamepad", "deck_fullscreen", "deck_quit",
   "nexus_account", "nexus_sign_in", "nexus_sign_out", "nexus_search", "nexus_mod", "nexus_installed", "nexus_download", "nexus_links", "nexus_link_install", "nexus_link_dismiss", "nexus_handler_status", "nexus_handler_set",
-  "engine_settings_get", "engine_settings_set", "engine_status", "eml_backup", "eml_restore",
+  "engine_settings_get", "engine_settings_set", "engine_status", "engine_own_folders", "engine_adopt_folder", "eml_backup", "eml_restore",
   "chain_view", "chain_set_late",
   "found_scan", "found_add",
+  "cook_plan", "cook_run",
   "report_save", "report_summary",
   "data_folder_get", "data_folder_size", "data_folder_check", "data_folder_move", "data_folder_use", "data_folder_reset",
   "data_folder_notice_ack", "data_folder_restart",
@@ -1681,7 +1858,7 @@ export type CommandName = (typeof COMMANDS)[number];
 
 export interface KilnEvents {
   "kiln://task": Task;
-  "kiln://game": { gameId: GameId; kind: "started" | "stopped" | "boot" | "mods" | "native" | "status"; pid: number | null; status: GameStatus | null };
+  "kiln://game": { gameId: GameId; kind: "started" | "stopped" | "boot" | "mods" | "native" | "status" | "progress"; pid: number | null; status: GameStatus | null };
   "kiln://log": { subscription: string; target: LogTarget; file: string; lines: string[]; next: number };
   "kiln://last-server": { gameId: GameId; lastServer: LastServer };
   "kiln://server": { serverId: ServerId; status: ServerStatus };

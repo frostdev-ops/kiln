@@ -41,7 +41,7 @@ public sealed class CreatureBlocksMod : Mod
             Body = Bodies.Vukah,
             Behaviour = Behaviours.VukahMelee with
             {
-                Rules = [new RuleBlock { Name = "rally", Every = 1, Cooldown = 20, When = [Is.HealthBelow(0.5)], Do = [Act.Custom(npc => Combat.Heal(npc.Entity, npc.HealthMax / 4))] }],
+                Rules = [new RuleBlock { Name = "rally", Every = 1, Cooldown = 20, When = [Is.HealthBelow(0.5)], Do = [Act.Custom(npc => { if (Combat.Available) Combat.Heal(npc.Entity, npc.HealthMax / 4); })] }],
             },
             Stats = new CreatureStats { Level = 15 },
         });

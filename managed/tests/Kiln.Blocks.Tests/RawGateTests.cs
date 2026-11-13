@@ -39,8 +39,10 @@ public sealed class RawGateTests
     public void ArsenalsJobHandlerIsForAdvancedModsOnly()
     {
         As(Plain, () => AssertGated("Arsenals.JobHandler", "plain-mod", () => Arsenals.JobHandler(7, 0)));
-        var e = Assert.Throws<NotSupportedException>(() => As(Coremod, () => Arsenals.JobHandler(7, 0)));
+        // unavailable names the capability since dev.27; it is still a NotSupportedException
+        NotSupportedException e = Assert.Throws<KilnUnavailableException>(() => As(Coremod, () => Arsenals.JobHandler(7, 0)));
         Assert.Contains("kiln.creatures is not available", e.Message);
+        Assert.Equal("kiln.creatures", ((KilnUnavailableException)e).Capability);
         var outside = Assert.Throws<InvalidOperationException>(() => As(null, () => Arsenals.JobHandler(7, 0)));
         Assert.Equal("Arsenals.JobHandler must be called from a mod (on the tick thread or in OnLoad)", outside.Message);
     }

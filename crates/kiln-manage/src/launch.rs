@@ -130,11 +130,18 @@ pub fn wait_started(install: &GameInstall, timeout: Duration, poll: Duration) ->
 /// install's running exe (Windows reuses pids quickly: a pid that is merely alive may be another program now). Under
 /// Wine/Proton the pid in the file is the game's Windows pid, which the host cannot see, so the times decide alone.
 pub fn boot_is_current(install: &GameInstall, boot: &BootJson) -> bool {
+    state_file_is_current(install, crate::paths::game::BOOT_JSON, boot.pid)
+}
+
+/// The rule of [`boot_is_current`] for any state file the game's process writes with its `pid` (`rel`: relative to the
+/// game folder; `kiln/state/progress.json` is judged by it too): this install's game runs, the file was written after
+/// that process started, and on Windows the pid is the running exe's.
+pub fn state_file_is_current(install: &GameInstall, rel: &str, pid: u32) -> bool {
     let Ok(Some(p)) = crate::proc::find_game(install) else { return false };
-    if cfg!(windows) && p.pid != boot.pid {
+    if cfg!(windows) && p.pid != pid {
         return false;
     }
-    let written = std::fs::metadata(install.path.join(crate::paths::game::BOOT_JSON)).and_then(|m| m.modified()).ok();
+    let written = std::fs::metadata(install.path.join(rel)).and_then(|m| m.modified()).ok();
     written_after_start(written, crate::proc::start_time(p.pid))
 }
 
@@ -175,6 +182,28 @@ fn last_launch_path(dirs: &DataDirs, install: &GameInstall) -> std::path::PathBu
     dirs.installs().join(format!("{}.launch.json", install.id))
 }
 
+/// The Kiln mods of a game's profile file that are on, each with the folder the game loads it from (a Library entry the
+/// game reads through Z:, an absolute path, or Kiln's copy under `<game>/kiln`). A path that cannot be mapped to this
+/// machine is left out.
+pub fn kiln_folders<'a>(install: &GameInstall, file: &'a crate::profile::ProfileFile) -> Vec<(&'a crate::profile::FolderMod, std::path::PathBuf)> {
+    file.mods.kiln.iter().filter(|m| m.enabled).filter_map(|m| {
+        let folder = if crate::winpath::is_absolute_game_path(&m.path) || m.path.starts_with('/') {
+            crate::winpath::to_host(&m.path, install).ok()?
+        } else {
+            install.path.join(crate::paths::game::KILN).join(m.path.replace('\\', "/"))
+        };
+        Some((m, folder))
+    }).collect()
+}
+
+/// Whether this game was started through Kiln less than `within` ago (the time its [`LastLaunch`] was written): Steam may
+/// still be starting it, and the game reads the mods' files as it does ([`crate::cook`] refuses a cook then).
+pub fn started_within(dirs: &DataDirs, install: &GameInstall, within: std::time::Duration) -> bool {
+    std::fs::metadata(last_launch_path(dirs, install)).and_then(|m| m.modified()).ok()
+        .and_then(|t| std::time::SystemTime::now().duration_since(t).ok())
+        .is_some_and(|age| age < within)
+}
+
 pub fn last_launch(dirs: &DataDirs, install: &GameInstall) -> Result<Option<LastLaunch>> {
     crate::util::read_json(&last_launch_path(dirs, install))
 }
@@ -193,7 +222,8 @@ fn dropin_fingerprint(install: &GameInstall) -> String {
             kind: "kiln".into(),
             id,
             version,
-            hash: crate::hash::dirhash(&p).unwrap_or_default(),
+            // a drop-in Kiln mod's identity: cooking it does not make another mod set (no save backup for a cook)
+            hash: crate::hash::mod_identity(&p).unwrap_or_default(),
         });
     }
     crate::hash::fingerprint(entries)
@@ -224,14 +254,35 @@ pub fn play_with(dirs: &DataDirs, install: &GameInstall, request: &LaunchRequest
     if install.kind != crate::game::GameKind::Client {
         return Err(Error::invalid("launch_play starts the game client; servers start through server_start"));
     }
+    // A start with mods holds the game's lock until Steam was asked (state::lock_game): no cook writes a mod's files
+    // meanwhile (one that runs now is waited for a moment, then the start is refused with a sentence that says so),
+    // and a cook asked for right after is refused while the game starts (cook::AFTER_START).
+    let _cooks = if matches!(request.mode, LaunchMode::Profile | LaunchMode::Once) {
+        crate::state::lock_game(&install.path, std::time::Duration::from_secs(5), &|| false)?
+    } else { None };
     // the active profile as it is now: a profile changed since its activation (kilnctl, the profile pages) is
     // written again, or the game would load the mods of the old profile.json
     let activation = if request.mode == LaunchMode::Profile {
         crate::profile::refresh_active(dirs, install).map_err(|e| {
+            // a mod changed in its Library folder says what it is and what to do by itself (library::changed_error):
+            // "the active profile changed" in front of it would name the wrong thing
+            if e.detail.as_ref().is_some_and(|d| d.get("libraryChanged").is_some()) {
+                return e;
+            }
             let msg = format!("the active profile changed and cannot be applied: {}", e.message);
             Error { message: msg, ..e }
         })?
     } else { None };
+    // and the lock of each mod folder it loads, until Steam was asked: a Library entry another game loads too may be in
+    // that game's cook right now (its own game lock is another). A cook of such a folder refuses while a game that
+    // loads it runs or was just started (cook::cook_due).
+    // (a start with another profile for once takes them in `start`, once that profile's file is written)
+    let _folders = if request.mode == LaunchMode::Profile {
+        match crate::profile::read_game_profile(&install.path)? {
+            Some(file) => hold_folders(install, &file)?,
+            None => Vec::new(),
+        }
+    } else { Vec::new() };
     // what the re-apply kept in the game folder is the player's to see, also when the start then fails
     let mut r = start(dirs, install, request, saves, opener).map_err(|e| match &activation {
         Some(a) => with_activation(e, a),
@@ -239,6 +290,20 @@ pub fn play_with(dirs: &DataDirs, install: &GameInstall, request: &LaunchRequest
     })?;
     r.activation = activation;
     Ok(r)
+}
+
+/// The cook lock of each Kiln mod folder `file` makes the game load ([`crate::state::lock_cook_folder`]), waited for a
+/// moment: Busy while a cook of one of them runs.
+fn hold_folders(install: &GameInstall, file: &crate::profile::ProfileFile) -> Result<Vec<crate::state::HeldLock>> {
+    let mut held = Vec::new();
+    for (m, folder) in kiln_folders(install, file) {
+        if !folder.join("assets").is_dir() {
+            continue;
+        }
+        held.push(crate::state::lock_cook_folder(&folder, std::time::Duration::from_secs(5), &|| false,
+            &format!("Kiln is cooking {} (for another game that loads the same folder): wait until that is done, then start again.", m.id))?);
+    }
+    Ok(held)
 }
 
 /// An error of a start after the active profile was written again: the activation travels in `detail.activation`.
@@ -259,6 +324,9 @@ fn start(dirs: &DataDirs, install: &GameInstall, request: &LaunchRequest, saves:
     let fingerprint = launch_fingerprint(dirs, install, request)?;
     // 1. the files the proxy reads at this start
     let now = crate::util::now_unix();
+    // a start with another profile for once: the lock of each mod folder that profile loads, until Steam was asked (as
+    // play_with holds them for the active profile)
+    let mut _once_folders = Vec::new();
     let nonce = match request.mode {
         LaunchMode::Profile => {
             crate::playonce::clear(&install.path)?; // a stale flag must not change Steam's Play-button start
@@ -270,7 +338,12 @@ fn start(dirs: &DataDirs, install: &GameInstall, request: &LaunchRequest, saves:
                 LaunchMode::NoMods => crate::playonce::PlayOnceMode::NoMods,
                 _ => {
                     let pid = request.profile_id.as_deref().ok_or_else(|| Error::invalid("launch mode once needs a profileId"))?;
-                    crate::profile::write_once(dirs, pid, install)?;
+                    let file = crate::profile::write_once(dirs, pid, install)?;
+                    // before the flag below: without it no start reads that file. A flag an earlier request left would
+                    // now name the file just written: it goes with this refusal
+                    _once_folders = hold_folders(install, &file).inspect_err(|_| {
+                        let _ = crate::playonce::clear(&install.path);
+                    })?;
                     crate::playonce::PlayOnceMode::Profile
                 }
             };

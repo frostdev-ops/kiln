@@ -8,6 +8,7 @@
 //   advanced:    a member that reaches an advanced gate: HooksGate.RequireAdvanced (Kiln.Hooks: hooks, symbols, raw
 //                memory), AbilitiesGate.RequireAdvanced/Require/NotAdvanced (Kiln.Abilities: program blobs, raw call
 //                bytes) or CreaturesGate.RequireAdvanced (Kiln.Creatures: job-thread rule handlers).
+//   guards:      public static bool properties whose getter always asks a capability row (CapabilityGuards.cs, KILN121).
 // Usage: ApiScan --repo <kiln repo> --stage <dir with the built Kiln dlls> --refs <Microsoft.NETCore.App.Ref ref dir>
 //                --out <KilnApis.g.cs>
 using System.Text;
@@ -48,6 +49,8 @@ const string implicitUsings = "global using System; global using System.Collecti
 var tick = new SortedDictionary<string, string>(StringComparer.Ordinal);
 var advanced = new SortedDictionary<string, string>(StringComparer.Ordinal);
 var completed = new SortedDictionary<string, string>(StringComparer.Ordinal);
+var guardFacts = new Dictionary<string, ApiScanGuards.Guard>(StringComparer.Ordinal);
+var publicGuards = new HashSet<string>(StringComparer.Ordinal);
 var errors = 0;
 
 // Two passes: the second sees the first's completed-task members of other assemblies (Kiln.Creatures awaits Kiln.Spawn).
@@ -104,6 +107,12 @@ foreach (var (name, dir) in projects)
                     m = (model.GetDeclaredSymbol(idx) as IPropertySymbol)?.GetMethod;
                     body = ib;
                     break;
+            }
+            if (pass == 0 && node is PropertyDeclarationSyntax gpd && ApiScanGuards.Read(model, gpd) is { } guard &&
+                model.GetDeclaredSymbol(gpd) is { GetMethod: { } getter } gp && gp.GetDocumentationCommentId() is { } gid)
+            {
+                guardFacts[gid] = guard;
+                if (IsPublicApi(getter)) publicGuards.Add(gid);
             }
             if (m is null || body is null) continue;
             var facts0 = Get(m);
@@ -210,6 +219,15 @@ sb.AppendLine("    {");
 foreach (var (id, why) in completed) sb.AppendLine($"        \"{id}\", // {why}");
 sb.AppendLine("    };");
 sb.AppendLine();
+var guards = ApiScanGuards.Resolve(guardFacts).Where(g => publicGuards.Contains(g.Key)).ToList();
+sb.AppendLine("    /// <summary>Public static bool properties that answer Capabilities.Is for capability rows (KILN121): \"documentation");
+sb.AppendLine("    /// id=row,row\". From the getter (Capabilities.Is(row), a helper around it, another guard) or the summary's");
+sb.AppendLine("    /// \"(capability &lt;c&gt;row&lt;/c&gt;)\".</summary>");
+sb.AppendLine("    internal static readonly string[] CapabilityGuards =");
+sb.AppendLine("    {");
+foreach (var (id, (rows, why)) in guards) sb.AppendLine($"        \"{id}={string.Join(",", rows)}\", // {why}");
+sb.AppendLine("    };");
+sb.AppendLine();
 sb.AppendLine("    /// <summary>Kiln's managed services: assembly Kiln.&lt;name&gt;, referenced through KilnServices (KILN108).</summary>");
 sb.AppendLine("    internal static readonly string[] Services =");
 sb.AppendLine("    {");
@@ -222,7 +240,7 @@ if (errors > 0)
     return 1;
 }
 File.WriteAllText(outFile, sb.ToString().Replace("\r\n", "\n"));
-Console.WriteLine($"apiscan: {tick.Count} tick-thread, {advanced.Count} advanced, {completed.Count} completed-task members, {services.Count} services -> {outFile}" +
+Console.WriteLine($"apiscan: {tick.Count} tick-thread, {advanced.Count} advanced, {completed.Count} completed-task members, {guards.Count} capability guards, {services.Count} services -> {outFile}" +
                   (errors > 0 ? $" ({errors} compile errors while scanning)" : ""));
 return 0;
 

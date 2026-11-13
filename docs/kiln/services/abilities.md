@@ -11,7 +11,7 @@ registration of new Impact programs, and playing the game's action sequences on 
 | Native | `native/services/abilities/` → `kiln/services/kiln-abilities.dll` |
 | Symbols | `sigdb/symbols/server.d/abilities.json` (features `abilities.natives`, `.programs`, `.instances`, `.attributes`, `.sequences`); resolves unchanged on the client (no `client.d` overlay needed) |
 | Managed | `managed/services/Kiln.Abilities/` → `kiln/host/Kiln.Abilities.dll` (static class `Kiln.Abilities` + events) |
-| Test | `mods/tests/abilities-test/` (73 PASS, player-free; on a client, or with `kiln/data/abilities-test/session-only`, it only registers the `/abt` session commands) |
+| Test | `mods/tests/abilities-test/` (83 PASS and one known FAIL, the bow shot, which `PlaySequence` refuses because its event consumes the used item; player-free; on a client, or with `kiln/data/abilities-test/session-only`, it only registers the `/abt` session commands) |
 | Sample | `mods/samples/FireNova/` (side both: a keybind ability + a per-cast tweak of the game's Fireball) |
 
 ## What the game does (one paragraph)
@@ -175,8 +175,9 @@ destroyed before the first run). Keys: a variable alias or debug name of the pro
     (replicated) until each gate has passed, each loop body plays once, then gives them back. Evidence:
     docs/re/abilities.md §9. Lab, a player-template entity (`1_Player`): `the Greet emote plays on the player
     character for 92 steps (3.83 s) ... (NetworkActor.triggerType 22)`, `a melee attack ... plays on the player for 41
-    steps`, `Fireball cast: 5 steps without the hold, 46 with it (replicated states seen 0x40000e000000)`, `a bow shot:
-    4 steps without the hold, 18 with it`.
+    steps`, `Fireball cast: 5 steps without the hold, 46 with it (replicated states seen 0x40000e000000)`. (A bow shot
+    played the same way, `4 steps without the hold, 18 with it`, until Kiln began to refuse sequences that consume the
+    used item: `PlaySequence` gives the game none, and the lab now checks the refusal.)
   - C: `sequence_play(entity, id, trigger | 0x10000)` holds (the flag is a Kiln extension; older services answer
     `INVALID_ARGUMENT` and the managed API retries without it).
   - **In a vanilla client joined to a lab, the player's own character:** the Greet and Dance emotes (`queue`, trigger 22) animate on the player's own screen
@@ -195,6 +196,28 @@ destroyed before the first run). Keys: a variable alias or debug name of the pro
   buff (`ApplyBuffEvent.buffTypeOverride`, BuffType configs); the collection itself lists only ids. Lab: `ApplyBuff ran
   the game's applyBuff ... result 1` and `the buff's own program (e34f34e4, 0x97faba7b) started on buff entity 2558
   (root 2543)`; that buff did not heal a Vukah (it probably heals players only: client checklist).
+- `RemoveBuff(target, buffGuid)` and `RemoveBuff(target, buffId)` (dev.27): `Task<BuffRemoveResult>` through the game's
+  own removeBuff native, run by a second Kiln program (`6b696c6e-6275-4666-8000-000000000002`:
+  removeBuff(WasRemoved, Buff, Target), Done = 1, then up to 30 steps of waiting, DSELF). Kiln reads `Done` and
+  `WasRemoved` from the live program instance at each step and destroys the helper entity once it has them, so the
+  answer does not ride the native event queue (which drops events when it is full); a helper nobody read ends
+  itself. The answer arrives about two steps after the call. `Ok` is the game's own `wasRemoved`: false, with a
+  reason, when the entity did not have the buff, when the game refused the helper entity, when the helper went away
+  before it was read, when the server world closed meanwhile (the task still completes: a hosted session that ends
+  leaves nothing waiting), or, after 120 steps, when the program never answered. On success
+  `BuffRemovedEvent(Target, Buff, Mod)` is posted first. The id overload passes 16 bytes with
+  that id's FNV-1a (the game hashes buff references and reads nothing else), so a `GameBuffs.Ids` constant or a listed
+  `EntityBuff.Id` works. The game answers at once, but clears the BuffContainer slot and destroys the buff entity one
+  step after the answer: read `BuffsOf` a step later to see it gone. ApplyBuff of a buff the entity already has keeps
+  one entry and one buff entity (it renews it; a 6 s buff renewed by a 60 s ApplyBuff showed 5.7 s left, so the
+  renewal does not take the new duration), so there is never a second stack to remove: one removeBuff takes the buff
+  off. Server, tick thread; a none or absent target throws `ArgumentException`, capability `abilities.buffs` off throws
+  `KilnUnavailableException`. Lab (abilities-test): `RemoveBuff: the game's removeBuff says removed ... (2 steps)`,
+  `at the answer the slot still held 1; slot and buff entity gone 1 step(s) later`, `RemoveBuff of a buff the entity
+  does not have: the game answers not removed`, `on a 1_Player entity: listed 1, removed buff 0x339519bd ...`.
+- `BuffsOf(entity)` (dev.27): every buff on a player, creature or NPC (`EntityBuff(Id, Slot, Remaining, Level)`), read
+  from the entity's BuffContainer by kiln.players (the same read as `PlayerStates.BuffsOf`, which stays). Server only:
+  a joined client has no BuffContainer and gets an empty list. Capability `abilities.buff_list`.
 - `SequenceOf(actor)` (current sequence id/time/call), `SequenceStartedEvent` / `SequenceEndedEvent` (polled every
   step over the actors kiln.world finds, list refreshed every 50 steps; only while subscribed).
 - `Attributes.Get/Max/Add(entity, Health|Mana|Stamina|SpecialAbility)`: the attribute slots through the game's
@@ -378,3 +401,30 @@ chat) and impactsample.
 5. A Kiln-spawned `Explosion_Player_Spell_Fireball_1` next to an enemy near the player (`/abt near`): damage, burn,
    kill credit to the root player.
 6. impact-asm's ImpactSample: chain_explosion credited to the player, heal_over_time, signal_projectile.
+
+## The contract (dev.27)
+
+Kiln.Abilities follows [the API contract](../modding/contract.md). Server side (`[ServerOnly]` on the buff calls and
+events, as dev.27's buff work set them).
+
+- **Capabilities.** `kiln.abilities` and its sigdb features (`abilities.attributes`, `instances`, `natives`,
+  `programs`, `sequences`), lowered when the service is not loaded; `abilities.buffs` and `abilities.buff_list`. All
+  of them are reported at Kiln.Abilities' start, the first service tick (`AbilitiesStartup`), before a mod calls
+  anything; `abilities.buffs` is refreshed every 25 steps and before each buff call.
+- **Errors.** Without the service a call throws `KilnUnavailableException` naming `kiln.abilities` (a
+  `NotSupportedException`, as before); `PlaySequence` on a build without sequences names `abilities.sequences`.
+  Refusals of the native calls (`Natives.Register`, `Observe`, `Wrap`, config overrides) keep their
+  `InvalidOperationException`.
+- **Results.** `CastResult` implements `IKilnResult` (`BuffRemoveResult` already did).
+- **Threads.** `[TickThreadOnly]` on the calls that touch the world or the game's registries (`RunImpact`,
+  `RunProgram`, `Instance`, `SequenceOf`, `PlaySequence`, `ApplyBuff`, `Cast`, `OnDamage`, `Attributes`,
+  `Programs.Register`/`Refresh`, `Natives.Register`/`Wrap`, `AbilityCast.Impact`/`PlaySequence`); `Available`,
+  `Status`, `IdOf`, `HashOf` are `[AnyThread]`.
+- **Events.** `Abilities.Attributes.Add` posts Kiln.Combat's `CombatChangedEvent` (`Attribute.Mana`, `Attribute.Stamina`,
+  `Attribute.Health`, `Attribute.SpecialAbility`) when the value changed, as Kiln.Combat's attribute writes do;
+  `ImpactInstance.Write` (and `Set`, the typed setters) posts `ImpactVariableChangedEvent` (new: `ImpactId`,
+  `ProgramId`, `Self`, `Variable`, `Origin`) when the bytes changed. A write made by a handler while the event is
+  dispatched waits for the next step, and an impact change that waited goes out only while the instance is the one
+  written ([contract](../modding/contract.md#3-change-events)).
+- **Not done in dev.27:** `PlaySequence` keeps its `bool`.
+- Tested offline: `managed/tests/Kiln.Contract.Tests/Group8ContractTests.cs` and the conformance rules.
