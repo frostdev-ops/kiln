@@ -58,7 +58,7 @@ void logf(int, const char* fmt, ...) {
     g_log.push_back(b);
 }
 uint64_t now_ms() { return GetTickCount64(); }
-bool dispatch_key(const KilnUiKey&) { return false; }  // no Kiln key bindings here
+bool dispatch_key(const KilnUiKey&, bool) { return false; }  // no Kiln key bindings here
 // subscribe_window_input's registry (input.cpp); nothing subscribes here
 thread_local CallbackLifetime* t_callback = nullptr;
 void set_error(const char* fmt, ...) {
