@@ -3,6 +3,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { useToasts } from "../ui";
+import { useCoverPage } from "../ui/Modal";
 import type { ToastItem } from "../ui/Toast";
 import { candidates, focusEl, focusFirst, focusable } from "./focus";
 import { useLayer, type DeckAction } from "./layers";
@@ -188,6 +189,7 @@ export function useReturnFocus(opener: RefObject<HTMLElement | null>) {
 
 /** The veil a dialog sits on, drawn above the screen (outside it: the screen goes inert under a dialog). */
 export function Overlay({ name, children }: { name?: string; children: ReactNode }) {
+  useCoverPage(true);
   const host = document.querySelector(".deck-overlays") ?? document.body;
   return createPortal(<div className="deck-veil" data-deck-dialog={name}>{children}</div>, host);
 }

@@ -27,6 +27,11 @@ p { margin: 0; }
 ::-webkit-scrollbar-thumb:hover { background-color: rgba(255, 190, 140, .3); }
 ::-webkit-scrollbar-track, ::-webkit-scrollbar-corner { background: transparent; }
 * { scrollbar-color: rgba(255, 190, 140, .18) transparent; scrollbar-width: thin; }
+/* WebKitGTK paints thin (overlay) scrollbars after everything else: under a dialog the page's scrollbars are hidden,
+   or the mods list's showed across a confirmation (ui/Modal.tsx useCoverPage). The dialogs themselves are outside
+   these roots (portals), so their own scrollbars stay. */
+html[data-covered] .k-app *, html[data-covered] [data-deck-screen] * { scrollbar-width: none !important; }
+html[data-covered] .k-app ::-webkit-scrollbar, html[data-covered] [data-deck-screen] ::-webkit-scrollbar { display: none; }
 
 /* ---------------------------------------------------------------- frame */
 /* --fire: the flicker (shell/Stage.tsx sets it about 11 times a second on the two elements that use it, .k-title and

@@ -24,11 +24,28 @@ export interface ModalProps {
 
 const FOCUSABLE = 'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
+let covering = 0;
+/** While a dialog covers the page, `<html data-covered>` is set (counted: dialogs can open over dialogs). WebKitGTK
+ *  paints the page's thin overlay scrollbars after everything else, so the mods list's scrollbar was drawn across a
+ *  confirmation (the owner's report of 13 Nov 2026); theme/base.css hides the page's scrollbars while it is set. */
+export function useCoverPage(open: boolean) {
+  useEffect(() => {
+    if (!open) return;
+    covering++;
+    document.documentElement.setAttribute("data-covered", "");
+    return () => {
+      covering = Math.max(0, covering - 1);
+      if (covering === 0) document.documentElement.removeAttribute("data-covered");
+    };
+  }, [open]);
+}
+
 export function Modal({ open, onClose, title, children, footer, width, locked, arch }: ModalProps) {
   const box = useRef<HTMLDivElement>(null);
   const titleId = useId();
   const close = useRef(onClose);
   close.current = onClose;
+  useCoverPage(open);
   useEffect(() => {
     if (!open) return;
     const before = document.activeElement as HTMLElement | null;
