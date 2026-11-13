@@ -52,6 +52,12 @@ std::optional<std::vector<Entry>> list_dir(const std::filesystem::path& dir) {
         if (fd.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) k = Entry::Link;
         else if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) k = name_kind(dir / n) == NameKind::Link ? Entry::Link : Entry::Dir;
         out.push_back({n, k});
+        // One folder alone may hold more than the whole scan takes: stop listing there (the scan counts one entry
+        // too many and reports the cut), so neither the time nor the memory of a listing is the mod's to choose.
+        if (out.size() > kScanBudget) {
+            FindClose(ff);
+            return out;
+        }
     } while (FindNextFileW(ff, &fd));
     const bool done = GetLastError() == ERROR_NO_MORE_FILES;
     FindClose(ff);
