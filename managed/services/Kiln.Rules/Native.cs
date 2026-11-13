@@ -121,6 +121,24 @@ internal static unsafe class RulesNative
     private static NoClipTable* _n;
     public static NoClipTable* N => _n != null ? _n : (_n = Services.Get<NoClipTable>(Service, Version));
 
+    /// <summary>The table with player_left (since 0.2.0-dev.27, after noclip; an older kiln.rules has no such table).</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    public struct LeftTable
+    {
+        public NoClipTable V3;
+        public delegate* unmanaged[Cdecl]<uint, int> PlayerLeft;
+    }
+
+    private static LeftTable* _l;
+
+    /// <summary>Tells the hooks that player <paramref name="entity"/> left (or its entity id now belongs to another
+    /// connection): the flight Kiln owned of its character goes. Nothing without that function.</summary>
+    public static void PlayerLeft(uint entity)
+    {
+        if (_l == null) _l = Services.Get<LeftTable>(Service, Version);
+        if (_l != null) _l->PlayerLeft(entity);
+    }
+
     /// <summary>What the NoClip hook did for <paramref name="entity"/> (0: the totals); false without the hook.</summary>
     public static bool NoClipOf(uint entity, out NoClipState state)
     {

@@ -206,6 +206,10 @@ typedef struct KilnRulesApi {
     /* since 0.2.0-dev.27 (check header.size): what the NoClip hook did for `entity` (a player or one of the other player
      * characters `set` accepts; 0 = the totals only). KILN_ERR_UNAVAILABLE when the hook is off on this build or side. */
     KilnResult(KILN_CALL* noclip)(KilnEntity entity, KilnRulesNoClip* out);
+    /* since 0.2.0-dev.27 (check header.size): server world. Player `entity` (or one of the other player characters `set`
+     * accepts) left, or another player's connection took its entity id: what the hooks knew of its character (the
+     * flight Kiln owns) goes, so whoever gets the id next starts with nothing. Clear its rules with set(NULL) too. */
+    KilnResult(KILN_CALL* player_left)(KilnEntity entity);
 } KilnRulesApi;
 
 #ifdef __cplusplus
