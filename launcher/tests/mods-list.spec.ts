@@ -191,6 +191,36 @@ test("Undo of All off says it cannot when the profile changed elsewhere since", 
   expect(now.mods.native.filter((m) => m.enabled)).toEqual([]);
 });
 
+// final review B2: an edit made on another page (Native and DLLs edits the profile through the shared save queue, not
+// the list's switches) while the action's save is still running is the player's choice too: Undo leaves it
+test("Undo of All off leaves a mod switched on another page while the save ran", async ({ page }) => {
+  await desktop(page);
+  await expect(say(page)).toHaveText(/^12 mods on, 15 off\./, { timeout: 10_000 });
+  await page.getByRole("combobox", { name: "Kind" }).selectOption({ label: "Native" });
+  const on = (await profileMods(page)).native.filter((m) => m.enabled).map((m) => m.id);
+  expect(on).toContain("fps-unlock");
+  type Plan = { __kilnMock: { planCommand: (c: string, p: unknown) => void } };
+  await page.evaluate(() => (window as unknown as Plan).__kilnMock.planCommand("profile_save", { delay: 2500 }));
+  await page.locator(".k-hero .k-mods-bar").getByRole("button", { name: /^Shown off \(\d+\)$/ }).click();
+  const done = page.locator(".k-toast").filter({ hasText: /^Switched \d+ mods off/ });
+  await expect(done).toBeVisible({ timeout: 5000 });
+  // the save is still running: on Native and DLLs, FPS Unlock on and off again by hand
+  await page.evaluate(() => { location.hash = "#/mods/native"; });
+  const fps = page.locator("main#main").getByRole("button", { name: "Light FPS Unlock" });
+  await expect(fps).toHaveAttribute("aria-pressed", "false", { timeout: 5000 });
+  await fps.click();
+  await expect(fps).toHaveAttribute("aria-pressed", "true");
+  await fps.click();
+  await expect(fps).toHaveAttribute("aria-pressed", "false");
+  await page.evaluate(() => { location.hash = "#/"; });
+  await expect.poll(async () => (await profileMods(page)).native.filter((m) => m.enabled).length, { timeout: 10_000 }).toBe(0);
+  await page.waitForTimeout(300);
+  await done.getByRole("button", { name: "Undo" }).click();
+  await expect(page.locator(".k-toast").filter({ hasText: "Undo kept later changes" })).toContainText("1 mod was switched since.");
+  await expect.poll(async () => (await profileMods(page)).native.filter((m) => m.enabled).map((m) => m.id).sort())
+    .toEqual(on.filter((id) => id !== "fps-unlock").sort());
+});
+
 test("removing a mod is one click with a plain confirmation", async ({ page }) => {
   await desktop(page);
   await row(page, "Night Sky").getByRole("button", { name: "More for Night Sky" }).click({ timeout: 10_000 });

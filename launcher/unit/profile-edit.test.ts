@@ -24,3 +24,14 @@ test("a profile deleted and made again under the same id is taken, whatever its 
   const again = profile("2026-11-13T07:20:00Z", 3, ["renamed-mod"]);
   expect(adopts(old, again)).toBe(true);
 });
+
+// final review B2: the bulk Undo learns of every edit through the queue; an edit is described by the mods it changes
+test("changedMods names every mod an edit adds, removes or changes, and none it leaves", async () => {
+  const { changedMods } = await import("../src/pages/profiles/useProfileEdit");
+  const a = profile("2026-11-01T10:00:00Z", 3, ["x", "y", "z"]);
+  const b: Profile = JSON.parse(JSON.stringify(a));
+  b.mods.eml = b.mods.eml.filter((m) => m.id !== "z").map((m) => (m.id === "x" ? { ...m, enabled: false } : m));
+  b.mods.native = [{ id: "fps", version: "1.0.0", hash: "kdh1:fps", enabled: true }];
+  expect([...changedMods(a, b)].sort()).toEqual(["eml/x", "eml/z", "native/fps"]);
+  expect(changedMods(a, JSON.parse(JSON.stringify(a))).size).toBe(0);
+});
