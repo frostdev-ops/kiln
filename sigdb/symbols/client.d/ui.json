@@ -245,6 +245,20 @@
           "pattern": "48 8B 4C 24 ?? 44 0F 29 84 24 ?? ?? 00 00 E8 {ui/UiNodeRect:rel32} F3 0F 10 2D"
         }
       ]
+    },
+    "@ui/InfoScroller.scrollbar": {
+      "find": [
+        {
+          "pattern": "E8 {ui/ScrollParamsInit:rel32} 48 8D 8D ?? ?? 00 00 E8 {ui/ScrollbarParamsInit:rel32} 48 8B 0D ?? ?? ?? ?? 4C 8D 0D ?? ?? ?? ?? C6 85 ?? ?? 00 00 01 48 BA 72 52 AE 78 DA E0 20 26 41 B8 04 00 00 00 C7 44 24 20 01 00 00 00 48 8B 81 ?? ?? ?? ?? 0F 10 80 {ui/cfg.scrollbar_a:d32} 0F 11 85 ?? ?? 00 00 0F 10 88 ?? ?? ?? ?? 0F 11 8D ?? ?? 00 00 48 8B 81 ?? ?? ?? ?? 0F 10 80 {ui/cfg.scrollbar_b:d32} 0F 11 85 ?? ?? 00 00 0F 10 88 ?? ?? ?? ?? C7 85 ?? ?? 00 00 00 00 C0 41 C7 85 ?? ?? 00 00 00 00 C0 41 0F 11 8D ?? ?? 00 00 C7 85 ?? ?? 00 00 00 00 C0 41 C7 85 ?? ?? 00 00 00 00 A0 41 48 8B 81 ?? ?? ?? ?? 48 8B 88 {ui/cfg.scrollbar_c:d32}"
+        }
+      ]
+    },
+    "@ui/Credits.scrollbar": {
+      "find": [
+        {
+          "pattern": "E8 {ui/ScrollbarParamsInit:rel32} 48 8B 0D ?? ?? ?? ?? 45 33 C9 C6 85 ?? ?? 00 00 01 4D 8B C6 B2 01 48 8B 81 ?? ?? ?? ?? 0F 10 80 {ui/cfg.scrollbar_a:d32} 0F 11 85 ?? ?? 00 00 0F 10 88 ?? ?? ?? ?? 0F 11 8D ?? ?? 00 00 48 8B 81 ?? ?? ?? ?? 0F 10 80 {ui/cfg.scrollbar_b:d32} 0F 11 85 ?? ?? 00 00 0F 10 88 ?? ?? ?? ?? C7 85 ?? ?? 00 00 00 00 C0 41 C7 85 ?? ?? 00 00 00 00 C0 41 0F 11 8D ?? ?? 00 00 C7 85 ?? ?? 00 00 00 00 C0 41 C7 85 ?? ?? 00 00 00 00 A0 41 48 8B 81 ?? ?? ?? ?? 48 8B 88 {ui/cfg.scrollbar_c:d32}"
+        }
+      ]
     }
   },
   "constants": {
@@ -321,6 +335,15 @@
       "min_votes": 2
     },
     "ui/sysmenu.column_node": {
+      "min_votes": 2
+    },
+    "ui/cfg.scrollbar_a": {
+      "min_votes": 2
+    },
+    "ui/cfg.scrollbar_b": {
+      "min_votes": 2
+    },
+    "ui/cfg.scrollbar_c": {
       "min_votes": 2
     }
   },
@@ -434,11 +457,17 @@
         "ui/ScrollParamsInit",
         "ui/UiFrameState",
         "ui/UiStateNop",
-        "ui/UiStateIsNew"
+        "ui/UiStateIsNew",
+        "ui/ScrollbarParamsInit",
+        "ui/UiApp"
       ],
       "constants": [
         "ui/sysmenu.column",
-        "ui/sysmenu.column_node"
+        "ui/sysmenu.column_node",
+        "ui/ui.config",
+        "ui/cfg.scrollbar_a",
+        "ui/cfg.scrollbar_b",
+        "ui/cfg.scrollbar_c"
       ]
     }
   }
