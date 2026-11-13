@@ -39,6 +39,44 @@ uint32_t api_size_for(uint32_t version) {
     }
 }
 
+std::vector<std::string> note_rows(std::string_view text, float max_width, size_t max_rows,
+                                   const std::function<float(std::string_view)>& width) {
+    std::vector<std::string> rows;
+    if (max_rows == 0) return rows;
+    std::string row;
+    bool cut = false;
+    size_t i = 0;
+    while (i < text.size()) {
+        while (i < text.size() && text[i] == ' ') ++i;
+        size_t j = i;
+        while (j < text.size() && text[j] != ' ') ++j;
+        if (j == i) break;
+        const std::string_view word = text.substr(i, j - i);
+        const std::string joined = row.empty() ? std::string(word) : row + " " + std::string(word);
+        if (row.empty() || width(joined) <= max_width) {
+            row = joined;
+        } else if (rows.size() + 1 < max_rows) {
+            rows.push_back(std::move(row));
+            row = std::string(word);
+        } else {
+            cut = true;
+            break;
+        }
+        i = j;
+    }
+    if (cut) {
+        // make room for the dots: drop words from the end of the last row until it fits with them (one word stays)
+        while (width(row + " ...") > max_width) {
+            const size_t sp = row.rfind(' ');
+            if (sp == std::string::npos) break;
+            row.resize(sp);
+        }
+        row += " ...";
+    }
+    if (!row.empty()) rows.push_back(std::move(row));
+    return rows;
+}
+
 // ============================================================================================= v22 =============
 bool is_progression_attribute(uint32_t id) {
     return id == EMF_ATTR_XP_PENDING || id == EMF_ATTR_XP || id == EMF_ATTR_XP_REQUIRED || id == EMF_ATTR_LEVEL;

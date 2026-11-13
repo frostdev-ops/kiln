@@ -597,6 +597,11 @@ void net_world_stopping(uint8_t kind) {
     if (g_running)
         g_net = make_service();
     net_client_clear();
+    // The next server may greet this game while it still loads, before its client world starts (EMF greets 10 s and
+    // 45 s after the connection appears): the hooks take marked lines again from here on. The first pump of the next
+    // GameClient resets the fresh service once more; nothing of the stopped world is left to send.
+    if (g_running && g_client_on)
+        net_client_rearm();
 }
 void net_world_started(uint8_t kind) {
     if (kind >= g_epoch.size())
@@ -648,10 +653,10 @@ void net_client_put_back(std::vector<std::string> lines) {
     if (s)
         s->client_put_back(std::move(lines));
 }
-void net_client_reset() {
+void net_client_reset(bool keep_held_greeting) {
     auto s = service();
     if (s)
-        s->client_reset();
+        s->client_reset(keep_held_greeting);
     std::lock_guard lock(g_mutex);
     ++g_epoch[EMF_WORLD_CLIENT];
     g_pending.erase(

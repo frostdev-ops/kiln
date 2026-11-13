@@ -118,6 +118,11 @@ static_assert(kWheelV10Size == 56 && sizeof(EmfWheel) == 56 && offsetof(EmfWheel
 
 // The table size a mod built against API `version` checks (api->size >= this); 0 for an unknown version.
 uint32_t api_size_for(uint32_t version);
+
+// An on-screen note as rows that fit `max_width` (broken at spaces, measured by `width`), at most `max_rows`: what
+// does not fit the last row is cut and the row ends with "...". A word wider than a row stays whole on its own row.
+std::vector<std::string> note_rows(std::string_view text, float max_width, size_t max_rows,
+                                   const std::function<float(std::string_view)>& width);
 // Saturate manifest requirements so a huge future version cannot wrap into a supported version.
 uint32_t api_requirement(uint64_t version);
 

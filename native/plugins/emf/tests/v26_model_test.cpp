@@ -27,6 +27,25 @@ static uint32_t fnv(const char* s) {
     return h;
 }
 
+static void test_note_rows() {
+    // every character is 10 wide: a row of at most 20 characters
+    const auto w = [](std::string_view t) { return static_cast<float>(t.size()) * 10.f; };
+    CHECK((note_rows("short", 200, 3, w) == std::vector<std::string>{"short"}));
+    CHECK((note_rows("", 200, 3, w).empty()));
+    CHECK((note_rows("   ", 200, 3, w).empty()));
+    CHECK((note_rows("one two three four five six", 200, 3, w) ==
+           std::vector<std::string>{"one two three four", "five six"}));
+    // more than three rows: the last row is cut at a word and says so
+    const auto rows = note_rows("aaaa bbbb cccc dddd eeee ffff gggg hhhh iiii jjjj kkkk llll mmmm nnnn oooo pppp", 200, 3, w);
+    CHECK(rows.size() == 3 && rows[0] == "aaaa bbbb cccc dddd" && rows[1] == "eeee ffff gggg hhhh" && rows[2] == "iiii jjjj kkkk ...");
+    for (const auto& r : rows) CHECK(w(r) <= 200);
+    // a word wider than a row stays whole (it is not split inside a UTF-8 character)
+    CHECK((note_rows("tiny averyveryverylongwordthatdoesnotfit end", 200, 3, w) ==
+           std::vector<std::string>{"tiny", "averyveryverylongwordthatdoesnotfit", "end"}));
+    CHECK((note_rows("a b", 200, 0, w).empty()));
+    CHECK((note_rows("one two three", 50, 1, w) == std::vector<std::string>{"one ..."}));
+}
+
 static void test_table() {
     CHECK(api_requirement((uint64_t{1} << 32) + 27) > EMF_API_VERSION);
     CHECK(api_requirement(UINT64_MAX) > EMF_API_VERSION);
@@ -513,6 +532,7 @@ int main() {
     test_offer_failures();
     test_queue_lifecycle();
     test_table();
+    test_note_rows();
     test_level();
     test_windows();
     test_images();

@@ -34,6 +34,8 @@ NetAddFn g_add = nullptr;
 std::atomic<bool> g_ready{false};  // the hooks and the send function are in place
 std::atomic<bool> g_active{false};
 std::atomic<uint8_t *> g_system{nullptr}, g_game_client{nullptr};
+// A client world began: the next pump of the same GameClient starts a new session without dropping a held greeting.
+std::atomic<bool> g_new_world{false};
 std::recursive_mutex g_client_dispatch;
 #ifndef KEMF_NET_CLIENT_TEST
 // Never revoked while the process runs (a game thread may be inside the chain); a RawHook's destructor leaves the link.
@@ -64,8 +66,15 @@ void pump(uint8_t *gc) {
     uint8_t *sys = nullptr;
     if (!seh_copy(&sys, gc + 0xF8, sizeof sys) || !sys)
         return;
-    if (g_game_client.exchange(gc) != gc)
-        net_client_reset();
+    // A new GameClient is a new connection: nothing of the last one stays. A new client world on the same GameClient
+    // (the game finished loading) is a new session on the same connection: the last server's welcome and lines go, but
+    // a greeting held while the game did not know its own account stays, as in EMF's core.
+    const bool new_connection = g_game_client.exchange(gc) != gc;
+    const bool new_world = g_new_world.exchange(false);
+    if (new_connection)
+        net_client_reset(false);
+    else if (new_world)
+        net_client_reset(true);
     g_system = sys;
     auto lines = net_client_take(4);
     for (size_t i = 0; i < lines.size(); ++i) {
@@ -135,13 +144,20 @@ void net_client_clear() {
 void net_client_stop() {
     std::lock_guard dispatch(g_client_dispatch);
     g_active = false;
+    g_new_world = false;
     net_client_clear();
 }
+// A client world began. The GameClient the hooks know stays known: the game may have pumped it while it loaded, and a
+// greeting that came then (held, or already answered with a hello) belongs to this same connection.
 void net_client_resume() {
     std::lock_guard dispatch(g_client_dispatch);
-    net_client_clear();
+    g_new_world = true;
     g_active = g_ready.load();
 }
+// After a world's stop was drained and its state dropped: take marked lines again, so that the next connection's
+// greeting is taken (never shown) while that game still loads, before its client world starts. Only an atomic store:
+// the caller may hold the adapter's lock.
+void net_client_rearm() { g_active = g_ready.load(); }
 
 #ifndef KEMF_NET_CLIENT_TEST
 bool net_client_install() {

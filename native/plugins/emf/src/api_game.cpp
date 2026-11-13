@@ -11,6 +11,7 @@
 #include <map>
 
 #include "emf_internal.h"
+#include "v26_model.h"
 
 namespace kemf {
 
@@ -1009,7 +1010,8 @@ void update_demand() {
 void KILN_CALL hud_frame(const KilnUiFrame* f, void*) {
     std::lock_guard lock(g_hud_mutex);
     const uint64_t now = now_ms();
-    while (!g_notes.empty() && g_notes.front().until < now) g_notes.pop_front();
+    // every expired note goes, not only leading ones: notes do not all stay equally long (core_note's stay longer)
+    std::erase_if(g_notes, [now](const Note& n) { return n.until < now; });
     const float lh = 20.0f * (f->dpi_scale > 0 ? f->dpi_scale : 1.0f);
     float y[3] = {f->height * 0.25f, f->height - 40.0f * (f->dpi_scale > 0 ? f->dpi_scale : 1.0f), f->height - 40.0f * (f->dpi_scale > 0 ? f->dpi_scale : 1.0f)};
     // bottom places grow upwards: count lines first
@@ -1025,12 +1027,18 @@ void KILN_CALL hud_frame(const KilnUiFrame* f, void*) {
         S.ui->draw_text(x, y[p], l.rgba ? l.rgba : 0xFFFFFFE6u, 0, kstr(l.text));
         y[p] += lh;
     }
+    // a note is at most three rows that fit the screen (EMF: "an on-screen note has 3 rows"), each centred
+    const auto text_width = [](std::string_view t) {
+        float w = 0, h = 0;
+        S.ui->text_size(kstr(t), 0, &w, &h);
+        return w;
+    };
     float ny = 60.0f;
     for (const auto& n : g_notes) {
-        float w = 0, h = 0;
-        S.ui->text_size(kstr(n.text), 0, &w, &h);
-        S.ui->draw_text((f->width - w) * 0.5f, ny, 0xFFE9A0FFu, 0, kstr(n.text));
-        ny += lh;
+        for (const auto& row : v26::note_rows(n.text, f->width * 0.8f, 3, text_width)) {
+            S.ui->draw_text((f->width - text_width(row)) * 0.5f, ny, 0xFFE9A0FFu, 0, kstr(row));
+            ny += lh;
+        }
     }
     if (g_hud.empty() && g_notes.empty() && !windows_want_frame()) S.ui->set_demand(0);
 }

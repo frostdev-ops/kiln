@@ -14,7 +14,8 @@ void net_client_clear();
 bool net_client_line(std::string_view line, uint64_t speaker);
 std::vector<std::string> net_client_take(size_t count);
 void net_client_put_back(std::vector<std::string> lines);
-void net_client_reset();
+void net_client_reset(bool keep_held_greeting = false);
+void net_client_rearm();
 
 #ifdef KEMF_NET_CLIENT_TEST
 // The production detours, with only their three engine functions replaced.
