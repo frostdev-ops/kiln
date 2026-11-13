@@ -597,11 +597,6 @@ void net_world_stopping(uint8_t kind) {
     if (g_running)
         g_net = make_service();
     net_client_clear();
-    // The next server may greet this game while it still loads, before its client world starts (EMF greets 10 s and
-    // 45 s after the connection appears): after a quiet moment the hooks take marked lines again. The first pump then
-    // resets the fresh service once more; nothing of the stopped world is left to send.
-    if (g_running && g_client_on)
-        net_client_rearm();
 }
 void net_world_started(uint8_t kind) {
     if (kind >= g_epoch.size())

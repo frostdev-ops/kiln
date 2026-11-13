@@ -13,17 +13,22 @@ The greeting (EMF 0.6.8's timing and text): a server with a mod channel greets e
 appears and once more 35 s later, with a chat line a game without EMF or Kiln shows ("This server runs EMF mods. Get
 EMF to see their windows; you can play without it."). A greeting that reaches a game still loading, before it knows
 its own account, is held and answered once it does (EMF 0.6.2; Kiln dropped it before), unless it was typed by
-another player. On a Kiln game the greeting is taken while the game loads, also on a later join in the same game run;
-the client world's start keeps a held greeting (the same connection). For 3 s after a world stops the game's chat
-calls are left alone: what the stopped connection still does is not taken for the next one, and no server greets a
-new connection that early.
+another player.
+
+When a Kiln game takes marked lines (the greeting among them):
+- from the game's start, so a greeting that comes while the first joined game still loads is taken and held;
+- from each client world's start on. The world's start keeps a held greeting: it is the same connection;
+- never between a world's stop and the next client world's start. What a stopped connection still sends is never
+  taken for the next one (the adapter has no identity of a connection from the game to tell them apart). On a join
+  after the first one in a game run, a greeting that comes before the client world starts therefore stays an ordinary
+  chat line and is not answered; the server's second greeting, 35 s later, is answered when the world has started by then.
 
 ## The mod check on join (EMF 0.6.3)
 
 EMF's core channel `emf/mods`, with EMF's own code (`native/plugins/emf/src/net/mods_check*.h`):
 
 - **A Kiln game that joined a server** sends the list of its running EMF mods when the server has the channel, one
-  exchange per session (while no answer comes it is sent again every 5 s, six times at most): `e emf 0.6.8-kiln`, then one line per mod, `kind id version`, the kind from the mod's `mod.json`
+  exchange per session (while no answer comes it is sent again every 5 s: six sends at most, the first and five more): `e emf 0.6.8-kiln`, then one line per mod, `kind id version`, the kind from the mod's `mod.json`
   `side` (`b` both, `s` server, `l` client, `u` none). The server answers with its list. When the game lacks a mod
   the server's players must have (the server's `c` content and `b` mods, by id and version), the player gets one
   note per session ("Missing mods for this server ...: ... Install the same versions in the Kiln launcher.") and

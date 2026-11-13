@@ -91,16 +91,18 @@ def main():
     install()
     if install_only:
         return 0
-    started = False
-    if not no_start:
+    if no_start:
+        return check()
+    try:  # armed before the launch: whatever happens from here on, the lab this tool started is stopped again
         sh(REPO / "tools/lab/lab.sh", "stop", lab)
-        sh(REPO / "tools/lab/lab.sh", "start", lab)
-        started = True
-    try:
+        LOG.unlink(missing_ok=True)  # only this run's lines count (with --no-start the caller answers for the log)
+        r = sh(REPO / "tools/lab/lab.sh", "start", lab)
+        if r.returncode != 0:
+            print(f"the lab did not start (lab.sh start {lab}: exit {r.returncode}): {(r.stdout + r.stderr).strip()}")
+            return 1
         return check()
     finally:
-        if started:
-            sh(REPO / "tools/lab/lab.sh", "stop", lab)
+        sh(REPO / "tools/lab/lab.sh", "stop", lab)
 
 
 def check():
@@ -205,7 +207,9 @@ def report(results, mods, tail, log, ok_probe, ok_check):
         ok, ev = results.get(mid, (None, mods.get(mid, {}).get("reason", "")))
         miss = sorted(fn for fn, who in unsup.items() if mid in who)
         print(f"{mid:14} {st_:9} {('PASS' if ok else 'FAIL') if ok is not None else '-':5}  {ev}{'  [not supported: ' + ', '.join(miss) + ']' if miss else ''}")
-    faults = [m["id"] for m in status["mods"] if m.get("faults")]
+    # the status file is written every few seconds: a fault after its last write is in the log already (seh.cpp guarded)
+    faults = sorted({m["id"] for m in status["mods"] if m.get("faults")} |
+                    set(re.findall(r"\[emf:([^\]]+)\] .* faulted \(exception 0x", log)))
     print(f"faulted callbacks: {faults or 'none'}; probe {'ran' if ok_probe else 'TIMED OUT'}, check {'ran' if ok_check else 'TIMED OUT'}")
     return faults
 

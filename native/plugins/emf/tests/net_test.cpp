@@ -850,8 +850,8 @@ static uint8_t *game_add(uint8_t *out, uint8_t *, uint8_t, const NetText *, uint
     ++added;
     return out;
 }
-// The greeting of a server the game is still loading into, through the production receive and send wrappers (the
-// game's own calls), with one GameClient before and after its client world starts.
+// The greeting of a joined server, through the production receive and send wrappers (the game's own calls), across
+// the client world's start and stop. See net_client_stop in api_net_client.cpp for when marked lines are taken.
 static void greeting_while_loading() {
     session = KILN_SESSION_REMOTE;
     no_server_world = true;
@@ -862,27 +862,26 @@ static void greeting_while_loading() {
         return std::count_if(sent_lines.begin(), sent_lines.end(),
                              [](const std::string &l) { return l.starts_with("#!emf1 H "); });
     };
-    auto hooks = net_client_test_install(game_flush, game_send, game_add);
     uint8_t out[16]{};
     const auto connection = [&](std::array<uint8_t, 0x110> &gc, uint8_t *sys) {
         std::memcpy(gc.data() + 0xF8, &sys, sizeof sys);
     };
-    const auto leave = [&] { // the world stops; the next connection comes later than the quiet moment after a stop
+    NetClientDetours hooks{};
+    const auto game_start = [&] { // the hooks as they are when the game starts: on, no connection known
         net_world_stopping(EMF_WORLD_CLIENT);
-        now += 3001;
+        hooks = net_client_test_install(game_flush, game_send, game_add);
         sent_lines.clear();
         added = 0;
+        set_account(0);
     };
 
-    // 1. The first join of a game run: the hooks were on from the start. The greeting comes while the game loads and
-    //    does not know its account; then its client world starts; then the account is known.
+    // 1. The first join of a game run. The greeting comes while the game loads and does not know its account; then its
+    //    client world starts; then the account is known.
+    game_start();
     std::array<uint8_t, 0x110> gc1{};
     uint8_t sys1[16]{};
     connection(gc1, sys1);
-    sent_lines.clear();
-    added = 0;
-    set_account(0);
-    hooks.flush(gc1.data());                              // the new GameClient pumps: a new connection
+    hooks.flush(gc1.data());                              // the GameClient pumps while the game loads
     hooks.add(out, sys1, 0, &beacon, 0, 0, 71, 123, nullptr);
     CHECK(added == 0);                                    // taken: never in the game's chat
     hooks.flush(gc1.data());
@@ -896,28 +895,36 @@ static void greeting_while_loading() {
     hooks.flush(gc1.data());
     CHECK(hellos() == 1);                                 // once
 
-    // 2. The player leaves and joins another server in the same game run: its greeting comes before the next client
-    //    world starts, and is taken and held as the first one was.
-    leave();
+    // 2. The player leaves and joins another server in the same game run. Between the stop and the next client world's
+    //    start nothing is taken: a greeting that comes then stays the game's own line and is not answered. The
+    //    server's second greeting, after the world's start, is held until the account is known and then answered.
+    net_world_stopping(EMF_WORLD_CLIENT);
     std::array<uint8_t, 0x110> gc2{};
     uint8_t sys2[16]{};
     connection(gc2, sys2);
+    sent_lines.clear();
+    added = 0;
     set_account(0);
     hooks.flush(gc2.data());
     hooks.add(out, sys2, 0, &beacon, 0, 0, 71, 123, nullptr);
-    CHECK(added == 0);                                    // not shown as a "#!emf1 ..." chat line while loading
+    CHECK(added == 1);                                    // not taken before the client world starts
     net_world_started(EMF_WORLD_CLIENT);
+    hooks.flush(gc2.data());
+    CHECK(hellos() == 0);                                 // and not answered later either
+    hooks.add(out, sys2, 0, &beacon, 0, 0, 71, 123, nullptr);
+    CHECK(added == 1);                                    // the second greeting: taken, held (no account yet)
+    hooks.flush(gc2.data());
+    CHECK(hellos() == 0);
     set_account(123);
     hooks.flush(gc2.data());
     CHECK(hellos() == 1);
 
-    // 3. The server's second greeting arrives after the world started and the account is known, before the game's next
-    //    flush: its answer is not thrown away by the new world's reset (that reset is done at the world's start).
-    leave();
+    // 3. A first join again. The server's second greeting arrives after the world started and the account is known,
+    //    before the game's next flush: its answer is not thrown away by the new world's reset (done at the start).
+    game_start();
     std::array<uint8_t, 0x110> gc3{};
     uint8_t sys3[16]{};
     connection(gc3, sys3);
-    set_account(0);
     hooks.flush(gc3.data());
     hooks.add(out, sys3, 0, &beacon, 0, 0, 71, 123, nullptr); // the first greeting: held
     net_world_started(EMF_WORLD_CLIENT);
@@ -929,13 +936,12 @@ static void greeting_while_loading() {
     hooks.flush(gc3.data());
     CHECK(hellos() == 1);
 
-    // 4. A greeting held for one connection is not answered on the next one (another GameClient).
-    leave();
+    // 4. A greeting held for one GameClient is not answered through another one.
+    game_start();
     std::array<uint8_t, 0x110> gc4{}, gc5{};
     uint8_t sys4[16]{}, sys5[16]{};
     connection(gc4, sys4);
     connection(gc5, sys5);
-    set_account(0);
     hooks.flush(gc4.data());
     hooks.add(out, sys4, 0, &beacon, 0, 0, 71, 123, nullptr);
     hooks.flush(gc5.data());                              // another GameClient: a new connection
@@ -944,9 +950,9 @@ static void greeting_while_loading() {
     hooks.flush(gc5.data());
     CHECK(hellos() == 0);
 
-    // 5. What the stopped connection still does right after the stop is not taken for the next connection, even when
-    //    the next GameClient has the same address: its late flush is not pumped and its server's late greeting is
-    //    neither taken nor held, so nothing of it is answered to the next server (which may be a vanilla one).
+    // 5. What the stopped connection still does after its world stopped is never taken for the next connection, however
+    //    late it comes and even when the next GameClient has the same address: its flush is not pumped and its
+    //    server's greeting is neither taken nor held, so nothing is said to the next server (it may be a vanilla one).
     net_world_stopping(EMF_WORLD_CLIENT);
     sent_lines.clear();
     added = 0;
@@ -954,7 +960,10 @@ static void greeting_while_loading() {
     hooks.flush(gc5.data());                              // the old GameClient, still flushing
     hooks.add(out, sys5, 0, &beacon, 0, 0, 71, 123, nullptr);
     CHECK(added == 1);                                    // left to the stopped game's chat: not this adapter's line
-    now += 3001;
+    now += 60000;                                         // no time makes it this adapter's line
+    hooks.flush(gc5.data());
+    hooks.add(out, sys5, 0, &beacon, 0, 0, 71, 123, nullptr);
+    CHECK(added == 2);
     hooks.flush(gc5.data());                              // the next connection's GameClient, at the same address
     net_world_started(EMF_WORLD_CLIENT);
     set_account(123);
@@ -962,21 +971,44 @@ static void greeting_while_loading() {
     hooks.flush(gc5.data());
     CHECK(hellos() == 0 && sent_lines.empty());           // no greeting came on this connection: nothing is said
 
-    // 6. A world stop ends sending for the stopped session: a hello that waited is not sent after it, neither in the
-    //    quiet moment nor later.
+    // 6. A world stop ends sending for the stopped session: a hello that waited is never sent after it.
     hooks.add(out, sys5, 0, &beacon, 0, 0, 71, 123, nullptr); // answered: a hello waits for the next flush
-    CHECK(added == 1 && sent_lines.empty());
+    CHECK(added == 2 && sent_lines.empty());
     net_world_stopping(EMF_WORLD_CLIENT);
-    hooks.flush(gc5.data());
-    CHECK(sent_lines.empty());
-    now += 3001;
     hooks.flush(gc5.data());
     CHECK(sent_lines.empty());
     net_world_started(EMF_WORLD_CLIENT);
     hooks.flush(gc5.data());
+    hooks.flush(gc5.data());
     CHECK(sent_lines.empty());
+
+    // 7. A host: a message its server world sends to its own game right after the client world started is not lost at
+    //    the GameClient's first flush (the first GameClient since a stop replaces no connection).
+    net_world_stopping(EMF_WORLD_CLIENT);
     no_server_world = false;
-    flushed = added = sent = 0; // the next test counts from zero
+    session = KILN_SESSION_HOST;
+    net_world_started(EMF_WORLD_CLIENT);
+    got_client.clear();
+    {
+        ContextScope c(&mod, ws, true);
+        CHECK(api.net_to_player(ws, 7, "test/down", "early", 5));
+    }
+    hooks.flush(gc5.data());                              // the first flush of this world
+    net_after_step(wc, EMF_WORLD_CLIENT);
+    CHECK(got_client.size() == 1 && got_client[0].bytes == "early");
+    // ... while another GameClient replacing an established one does drop what was queued for the old connection
+    {
+        ContextScope c(&mod, ws, true);
+        CHECK(api.net_to_player(ws, 7, "test/down", "old", 3));
+    }
+    hooks.flush(gc4.data());
+    net_after_step(wc, EMF_WORLD_CLIENT);
+    CHECK(got_client.size() == 1);
+
+    net_world_stopping(EMF_WORLD_CLIENT);
+    net_world_started(EMF_WORLD_CLIENT);
+    session = KILN_SESSION_REMOTE; // as the next test found it
+    flushed = added = sent = 0;    // and it counts from zero
     sent_lines.clear();
 }
 static void client_hooks() {
