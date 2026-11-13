@@ -224,12 +224,93 @@ public sealed class ResultTests
             }
             """;
         var check = await Fix(A, new ResultCodeFix(), source);
-        Assert.Contains("var r = await Items.Equip(p, default);", check);
-        Assert.Contains("if (!r.Ok)", check);
-        Assert.Contains("Log.Warn(\"Items.Equip refused: \" + r.Reason);", check);
+        Assert.Equal("""
+            public sealed class M : Mod
+            {
+                public async Task Run(EntityId p)
+                {
+                    var r = await Items.Equip(p, default);
+                    if (!r.Ok)
+                    {
+                        Log.Warn("Items.Equip refused: " + r.Reason);
+                    }
+                    Log.Info("next");
+                }
+            }
+            """, check);
         var drop = await Fix(A, new ResultCodeFix(), source, action: 1);
-        Assert.Contains("_ = await Items.Equip(p, default);", drop);
-        Assert.DoesNotContain("var r", drop);
+        Assert.Equal("""
+            public sealed class M : Mod
+            {
+                public async Task Run(EntityId p)
+                {
+                    _ = await Items.Equip(p, default);
+                    Log.Info("next");
+                }
+            }
+            """, drop);
+    }
+
+    [Fact]
+    public async Task A_local_written_again_is_checked_not_dropped()
+    {
+        // Codex whole-changeset review: dropping the declaration left `r = ...` without its local (CS0103)
+        const string source = """
+            public sealed class M : Mod
+            {
+                public void Run(EntityId p)
+                {
+                    var r = NoClip.Set(p, true);
+                    r = NoClip.Set(p, false);
+                }
+            }
+            """;
+        Assert.Equal(new[] { "Check the result" }, await Titles(A, new ResultCodeFix(), source));
+        var check = await Fix(A, new ResultCodeFix(), source);
+        Assert.Equal("""
+            public sealed class M : Mod
+            {
+                public void Run(EntityId p)
+                {
+                    var r = NoClip.Set(p, true);
+                    if (!r.Ok)
+                    {
+                        Log.Warn("NoClip.Set refused: " + r.Reason);
+                    }
+                    r = NoClip.Set(p, false);
+                }
+            }
+            """, check);
+        Compile(check!);
+        // written in a lambda or a local function: the same
+        Assert.Equal(new[] { "Check the result" }, await Titles(A, new ResultCodeFix(), """
+            public sealed class M : Mod
+            {
+                public void Run(EntityId p)
+                {
+                    var r = NoClip.Set(p, true);
+                    Action later = () => r = NoClip.Set(p, false);
+                    void Again() => r = NoClip.Set(p, true);
+                }
+            }
+            """));
+    }
+
+    [Fact]
+    public async Task No_fix_for_a_declaration_with_several_variables()
+    {
+        const string source = """
+            public sealed class M : Mod
+            {
+                public void Run(EntityId p)
+                {
+                    IKilnResult a = NoClip.Set(p, true), b = NoClip.Set(p, false);
+                }
+            }
+            """;
+        Ids(await Run(A, source), "KILN120", "KILN120");
+        Assert.Empty(await Titles(A, new ResultCodeFix(), source));
+        Assert.Null(await Fix(A, new ResultCodeFix(), source));
     }
 
     [Fact]
