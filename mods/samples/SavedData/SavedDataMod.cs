@@ -137,7 +137,9 @@ public sealed class SavedDataMod : Mod
         foreach (var entity in EntityData.Entities)
         {
             if (!EntityData.TryGet<Label>(entity, LabelKey, out var label)) continue;
-            c.Reply($"  \"{label.Text}\" by {label.By} at {World.Position(entity)?.ToString() ?? "?"}");
+            // where it stands is kiln.world's to say: without it the label is still listed, with "?" for the place
+            var at = World.Available ? World.Position(entity)?.ToString() : null;
+            c.Reply($"  \"{label.Text}\" by {label.By} at {at ?? "?"}");
             n++;
         }
         c.Reply($"{n} label(s)");

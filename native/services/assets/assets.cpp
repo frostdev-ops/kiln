@@ -386,7 +386,9 @@ KilnResult load_manifest(KilnOwner owner, const std::string& mod_dir, std::strin
             for (auto& [off, bb] : patches) {
                 HashK h = content_hash_of(bb.data(), bb.size());
                 op_blob_add(owner, bb.data(), bb.size(), nullptr);
-                if (off + 16 <= bytes.size()) std::memcpy(bytes.data() + off, &h, 16);
+                // off comes from the mod's manifest, and a negative number there is a huge one here: the room is
+                // asked of the resource's size, never of off + 16 (which wraps, and wrote before the buffer)
+                if (off <= bytes.size() && bytes.size() - off >= 16) std::memcpy(bytes.data() + off, &h, 16);
                 else fail("patch offset past resource end");
             }
             KilnAssetKey k{};
