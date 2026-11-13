@@ -274,13 +274,18 @@ still takes (0.2.0-dev.27; `kiln_manage::start_progress`, commands `launch_begin
   load Kiln's proxy), a vanilla start and Steam updating the game are said as before, without a bar. No word from Kiln
   for 60 s (120 s inside the early plugins) is "No word from Kiln" with its sentence (a game waiting at its menu for
   its mods says so), without a bar or a countdown, and the mod list is back. A Play that ends before the game exists
-  (refused, or Steam took it and no game came within 5 minutes) ends the start, and the page is as it was before
-  Play. The window keeps following a start while it is hidden or in the background (the game has the display then);
+  (refused before Steam was asked) ends the start, and the page is as it was before Play. When Steam has taken the
+  start and the game's process does not exist a minute later (a first start under Proton makes its prefix first),
+  the bar stops counting and says "Steam is still preparing the game: this can take minutes the first time"; after
+  5 minutes the window offers Play again (the launcher before 0.2.0-dev.27 did after 2), and the launcher keeps the
+  start's own timings until the game appears (it goes on as one start), Play is pressed again, or 30 minutes pass. The window keeps following a start while it is hidden or in the background (the game has the display then);
   the launcher's watcher keeps a start that reached the main menu even when no window asks. A game with a Kiln runtime older than
   0.2.0-dev.27 writes no progress.json: after the launcher's own steps the line says "Waiting for Kiln to boot" until
   its boot.json, then "Running" as before, and nothing is kept.
-- **The history.** Starts are kept and looked up by the runtime's own version (progress.json's `kiln`, with its build
-  stamp; before progress.json, found through the install's version). A file of a newer format, or one that cannot be
+- **The history.** Starts are kept by the runtime's own version (progress.json's `kiln`, with its build stamp). A
+  start of the launcher looks them up for its whole length by what its install's version identifies: the one runtime
+  version kept under it, or the install's version itself when it carries a build stamp; when it identifies two builds,
+  the start uses the other basis throughout (never a change of basis when progress.json appears). A file of a newer format, or one that cannot be
   read, is left as it is: no estimates, and one line in launcher.log. Times beyond a day in progress.json or the
   history make the file unreadable, never a crash. `start-times.json` is written under its own lock
   (`state/start-times.lock`) whenever a start reaches the main menu (the launcher's watcher keeps it even when no window asks), and goes with the data folder when

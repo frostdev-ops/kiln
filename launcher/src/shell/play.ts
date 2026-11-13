@@ -74,11 +74,15 @@ export function usePlayControl(): PlayControl {
   const launching = useIsMutating({ mutationKey: ["launch_play"] });
   // a start Steam was asked for and no game came: over when the backend gives it up too (start_progress STEAM_WAIT_MS)
   const pending = at !== undefined && !running && now - at < STEAM_WAIT_MS;
-  const following = !!game && (running || launching > 0 || pending);
-  const tlq = useStartTimeline(id, following, running);
-  // an answer of a start that is not followed any more (refused, given up, the game gone) is not shown
-  const tl = following ? tlq.data ?? null : null;
   const state = playState(game ? s : null, launchState.data, sameRun ? { at, mode: memo.mode[id], seen: memo.since[id] } : {}, now, !!game && status.isLoading);
+  // the window's own final decisions end the following too: a vanilla game, No Kiln (with no word from Kiln so far)
+  const known = qc.getQueryData<StartTimeline | null>(["launch_progress", id]) ?? null;
+  const heard = !!known && ["booting", "loading", "quiet", "ready", "idle", "failed"].includes(known.phase);
+  const decided = running && (state.view.phase === "vanilla" || (state.kilnMissing && !heard));
+  const following = !!game && !decided && (running || launching > 0 || pending);
+  const tlq = useStartTimeline(id, following, running);
+  // an answer of a start that is not followed any more (refused, given up, decided, the game gone) is not shown
+  const tl = following ? tlq.data ?? null : null;
   // the runtime says what it does (progress.json): Kiln is loaded, and "Running" waits for the main menu (ready)
   const spoke = !!tl && ["booting", "loading", "quiet", "ready", "idle", "failed"].includes(tl.phase);
   const kilnMissing = state.kilnMissing && !spoke;
@@ -98,25 +102,27 @@ export function usePlayControl(): PlayControl {
     mutationKey: ["launch_play"],
     // Mods with a cook recipe are cooked first when they need it (a start with mods only). A cook never stops the
     // start: what could not be cooked is said in a notice, and the game starts all the same.
-    mutationFn: async (req: api.LaunchRequest) => {
+    // the game travels with the request: TanStack gives a pending mutation the options of the latest render, so a
+    // closure's game id may be another game's by the time the request ends (another one selected meanwhile)
+    mutationFn: async ({ gameId, req }: { gameId: string; req: api.LaunchRequest }) => {
       // the start is timed from here: its own steps (cook, profile, Steam), then what the game's Kiln says
-      await api.launchBegin(id, req.mode).catch(() => {});
-      void qc.invalidateQueries({ queryKey: ["launch_progress", id] });
-      if (req.mode === "profile") await cookBeforePlay(id, (jobs) => toast.info(jobs.length === 1 ? `Cooking ${jobs[0].name}` : `Cooking ${jobs.length} mods`, "Making their models, animations and sounds from your game, then the game starts."));
-      return api.launchPlay(id, req);
+      await api.launchBegin(gameId, req.mode).catch(() => {});
+      void qc.invalidateQueries({ queryKey: ["launch_progress", gameId] });
+      if (req.mode === "profile") await cookBeforePlay(gameId, (jobs) => toast.info(jobs.length === 1 ? `Cooking ${jobs[0].name}` : `Cooking ${jobs.length} mods`, "Making their models, animations and sounds from your game, then the game starts."));
+      return api.launchPlay(gameId, req);
     },
-    onSuccess: (r) => {
-      useLaunchMemo.setState((m) => ({ at: { ...m.at, [id]: playNow() }, mode: { ...m.mode, [id]: r.mode } }));
-      invalidateGame(qc, id);
+    onSuccess: (r, { gameId }) => {
+      useLaunchMemo.setState((m) => ({ at: { ...m.at, [gameId]: playNow() }, mode: { ...m.mode, [gameId]: r.mode } }));
+      invalidateGame(qc, gameId);
       toast.ok(r.mode === "vanilla" ? "Starting vanilla" : r.mode === "no-mods" ? "Starting without mods" : "Starting", r.backup ? "Saves backed up first." : "Through Steam.");
       notifyActivation(r.activation);
     },
     // the re-apply before the start may have kept copies even when the start then failed; a mod changed in its Library
     // folder is named, with "Use the changed files" and Play again
-    onError: (e, req) => {
+    onError: (e, vars) => {
       // Play ended before the game existed: the start the launcher was timing is over (the window as before Play)
-      void api.launchEnd(id).catch(() => {}).then(() => qc.invalidateQueries({ queryKey: ["launch_progress", id] }));
-      notifyActivationOf(e); if (!notifyLibraryChanged(qc, e, () => launch.mutate(req))) toast.error(e);
+      void api.launchEnd(vars.gameId).catch(() => {}).then(() => qc.invalidateQueries({ queryKey: ["launch_progress", vars.gameId] }));
+      notifyActivationOf(e); if (!notifyLibraryChanged(qc, e, () => launch.mutate(vars))) toast.error(e);
     },
   });
 
@@ -163,7 +169,7 @@ export function usePlayControl(): PlayControl {
     timeline: progress,
     lastTimeline: tl,
     profileName: activeProfile?.name ?? null,
-    play: (mode, profileId) => launch.mutate({ mode, profileId: profileId ?? null }),
+    play: (mode, profileId) => launch.mutate({ gameId: id, req: { mode, profileId: profileId ?? null } }),
   };
 }
 

@@ -787,6 +787,8 @@ export interface StartTimeline {
   estimate: StartEstimate;
   /** The launcher's own steps are in it. */
   launcher: boolean;
+  /** Steam was asked a minute ago or more and the game's process does not exist yet: no number. */
+  steamSlow?: boolean;
 }
 export interface RequiredMod {
   id: string;

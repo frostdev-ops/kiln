@@ -6,7 +6,8 @@
 // Off until a test turns it on (`__kilnMock.scriptStart`): a plain mock start has no progress.json (a 0.2.0-dev.26
 // runtime), as every older spec expects.
 import type { StartEstimate, StartPhase, StartStep, StartTimeline } from "./commands";
-import { STEAM_WAIT_MS } from "../shell/startProgress";
+/** start_progress STEAM_SLOW_MS (tests: `window.__kilnSteamSlowMs`). */
+const STEAM_SLOW_MS: number = (globalThis as { __kilnSteamSlowMs?: number }).__kilnSteamSlowMs ?? 60_000;
 
 interface Part { key: string; ms: number }
 export interface KeptStep { id: string; ms: number; total?: number | null; parts?: Part[] }
@@ -148,8 +149,7 @@ interface Current { began: number; script: StartScript; mode: string; kept: bool
 let script: StartScript | null = null;
 const current: Record<string, Current | undefined> = {};
 const history: Record<string, KeptStart[]> = {};
-/** Starts that ended without a game (Steam took them, no process came): the fake game's entry goes too. */
-export const ended = new Set<string>();
+
 
 /** Tests: plays `s` at the next Play (null: off, the plain mock start without progress.json). */
 export function setStartScript(s: StartScript | null) { script = s; }
@@ -196,6 +196,7 @@ export function mockProgress(gameId: string, nowMs = Date.now()): StartTimeline 
   const shown: StartStep[] = [];
   const plan = [...(c.mode === "profile" ? ["cook"] : []), "profile", "steam"];
   let state = "launcher";
+  let steamSlow = false;
   // the launcher's steps
   let at = 0;
   if (c.mode === "profile") {
@@ -215,12 +216,8 @@ export function mockProgress(gameId: string, nowMs = Date.now()): StartTimeline 
   }
   for (const [id, ms] of [["profile", s.profileMs], ["steam", s.steamMs]] as const) {
     const took = at + ms <= t && !(id === "steam" && s.noProcess) ? ms : null;
-    if (id === "steam" && s.noProcess && (nowMs - c.began) - at * s.scale >= STEAM_WAIT_MS) {
-      // Steam was asked and no game came: the start is over (start_progress STEAM_WAIT_MS)
-      delete current[gameId];
-      ended.add(gameId);
-      return { ...finishShape(), phase: "ended" };
-    }
+    // Steam was asked a while ago and no game exists yet (start_progress STEAM_SLOW_MS): no number, the start goes on
+    if (id === "steam" && took === null && (nowMs - c.began) - at * s.scale >= STEAM_SLOW_MS) steamSlow = true;
     steps.push({ id, ms: at, tookMs: took, keys: [], parts: [], partMs: at });
     shown.push({ id, label: LABELS[id], ms: at, tookMs: took, state: "done", launcher: true });
     if (took === null) return finish();
@@ -249,14 +246,10 @@ export function mockProgress(gameId: string, nowMs = Date.now()): StartTimeline 
   if (state !== "idle" && t >= endAt(s) && !s.quietAt) state = "ready";
   return finish();
 
-  function finishShape(): StartTimeline {
-    return { phase: "ended", kiln: KILN, started: new Date(c!.began).toISOString(), atMs: Math.round(t), steps: [], running: null, launcher: true,
-      estimate: { leftMs: null, starts: 0, same: false, slow: null, fraction: 0, byTime: false, stepsDone: 0, stepsPlanned: 0, usual: [] } };
-  }
-
   function finish(): StartTimeline {
     const ready = state === "ready";
     const est = estimate(plan, steps, Math.round(t), h, KILN, s.fingerprint, ready);
+    const slowSteam = () => { if (steamSlow) { est.leftMs = null; est.byTime = false; est.slow = null; est.fraction = Math.min(0.99, est.stepsDone / Math.max(1, est.stepsPlanned)); } };
     if (plan.every((p) => ["cook", "profile", "steam"].includes(p))) {
       // before the runtime speaks: its plan is the last start's, else unknown (the contract's 11 steps counted, no number)
       const last = h[h.length - 1];
@@ -269,6 +262,7 @@ export function mockProgress(gameId: string, nowMs = Date.now()): StartTimeline 
         est.leftMs = null; est.byTime = false; est.fraction = Math.min(0.99, est.stepsDone / est.stepsPlanned);
       }
     }
+    slowSteam();
     const lastBegun = Math.max(-1, ...steps.map((x) => plan.indexOf(x.id)));
     const out: StartStep[] = plan.map((id, k) => {
       const have = shown.find((x) => x.id === id);
@@ -291,7 +285,7 @@ export function mockProgress(gameId: string, nowMs = Date.now()): StartTimeline 
     }
     return {
       phase, why: phase === "idle" ? s.idle?.why ?? null : null, kiln: KILN, started: new Date(c!.began).toISOString(), atMs: Math.round(t),
-      quietMs: t >= bootAt(s) && !s.dev26 ? (silent ? 61_000 : 0) : null, steps: out, running: running_, estimate: est, launcher: true,
+      quietMs: t >= bootAt(s) && !s.dev26 ? (silent ? 61_000 : 0) : null, steps: out, running: running_, estimate: est, launcher: true, steamSlow,
     };
   }
 }
