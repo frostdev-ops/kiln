@@ -382,6 +382,8 @@ export interface OwnLoaderNote {
   own?: string[];
   /** Of those, the ones the hosted ShroudForge has switched off: activation does not change them. */
   ownOff?: string[];
+  /** Ids whose folder of the player's own the loader that reads it refuses (the text says why and what to do). */
+  ownRefused?: string[];
   /** "EML's own loader (dbghelp.dll) is installed: it runs the EML mods in mods/; Kiln copied this profile's 3 EML mod(s) into mods/ for it." */
   text: string;
 }

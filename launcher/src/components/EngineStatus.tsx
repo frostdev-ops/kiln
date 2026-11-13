@@ -120,7 +120,7 @@ export function EngineRow({ s }: { s: EngineStatus }) {
       )}
       {/* The engine's own loader is in the game: what that means for the active profile's mods (own_loaders.rs). */}
       {s.ownLoader && (
-        <span className={s.ownLoader.notCopied.length || s.ownLoader.ownOff?.length ? "k-hint k-tone-warn" : "k-hint"} data-own-loader={s.ownLoader.file} style={{ flexBasis: "100%" }}>
+        <span className={s.ownLoader.notCopied.length || s.ownLoader.ownOff?.length || s.ownLoader.ownRefused?.length ? "k-hint k-tone-warn" : "k-hint"} data-own-loader={s.ownLoader.file} style={{ flexBasis: "100%" }}>
           {s.ownLoader.text}.
         </span>
       )}
