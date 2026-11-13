@@ -21,6 +21,10 @@ internal static class BlockJson
 
     private static readonly JsonDocumentOptions Doc = new() { CommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true };
 
+    // The limits of a mod's own blocks/ folder, as in native/services/vfx/generated.h.
+    internal const int MaxEntries = 4096, MaxFiles = 256, MaxFileBytes = 16 << 20;
+    internal const long MaxTotalBytes = 64L << 20;
+
     private static readonly (string Section, Func<ModBlocks, string, JsonElement, BlockHandle> Make)[] Kinds =
     [
         ("statuses", Make<StatusBlock>), ("effects", Make<EffectBlock>), ("spells", Make<SpellBlock>), ("weapons", Make<WeaponBlock>), ("vfx", MakeVfx), ("materials", MakeMaterial), ("screenEffects", Make<ScreenEffectBlock>), ("sounds", Make<SoundBlock>), .. WorldJson.Kinds, .. ItemJson.Kinds, .. AbilityJson.Kinds, .. FurnitureJson.Kinds, .. NpcJson.Kinds, .. QuestBlockJson.Kinds, .. UiJson.Kinds,
@@ -56,12 +60,54 @@ internal static class BlockJson
         if (!Directory.Exists(dir)) return;
         var docs = data.Docs;
         var entries = data.Entries;
-        foreach (var file in Directory.GetFiles(dir, "*.json").OrderBy(x => x, StringComparer.Ordinal))
+        // A mod's folder is input from the internet. The bounds are the ones kiln.vfx's boot reader has for the same
+        // files (native/services/vfx/generated.h), so both sides refuse the same folders: the listing stops at
+        // MaxEntries (never the whole listing of a folder with millions of names), at most MaxFiles JSON files of
+        // MaxFileBytes each and MaxTotalBytes in all, and no file that is reached through a link or lies outside the
+        // mod's folder (BakedFiles.Read). Nesting is bounded by the JSON reader itself (64).
+        var names = new List<string>();
+        try
         {
-            var rel = $"blocks/{Path.GetFileName(file)}";
+            var seen = 0;
+            foreach (var path in Directory.EnumerateFileSystemEntries(dir))
+            {
+                if (++seen > MaxEntries)
+                {
+                    Fail(mod, $"blocks/ holds more than {MaxEntries} entries: none of its block files are read");
+                    return;
+                }
+                if (path.EndsWith(".json", StringComparison.OrdinalIgnoreCase)) names.Add(Path.GetFileName(path));
+            }
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+        {
+            Fail(mod, $"blocks/ could not be listed: {e.Message}");
+            return;
+        }
+        if (names.Count > MaxFiles)
+        {
+            Fail(mod, $"blocks/ holds {names.Count} JSON files, more than {MaxFiles}: none are read");
+            return;
+        }
+        long total = 0;
+        foreach (var fileName in names.OrderBy(x => x, StringComparer.Ordinal))
+        {
+            var rel = $"blocks/{fileName}";
             try
             {
-                var doc = JsonDocument.Parse(File.ReadAllText(file), Doc);
+                var text = BakedFiles.Read(directory, rel, MaxFileBytes);
+                if (text is null)
+                {
+                    Fail(mod, $"{rel} is not read: it is larger than {MaxFileBytes >> 20} MiB, reached through a link, or could not be opened");
+                    continue;
+                }
+                total += text.Length;
+                if (total > MaxTotalBytes)
+                {
+                    Fail(mod, $"{rel} and the files after it are not read: blocks/ holds more than {MaxTotalBytes >> 20} MiB of block files");
+                    break;
+                }
+                var doc = JsonDocument.Parse(text, Doc);
                 docs.Add(doc);
                 foreach (var p in doc.RootElement.EnumerateObject())
                 {

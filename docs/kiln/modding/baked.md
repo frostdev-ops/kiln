@@ -81,6 +81,10 @@ them.
 | `blocks/generated/` (baked) | 1024 | 16 | 4 MiB | 16 MiB | 64 |
 | `blocks/` (the author's data files) | 4096 | 256 | 16 MiB | 64 MiB | 64 |
 
+- **Both readers:** the limits of `blocks/` hold for kiln.vfx's reader at boot and for Kiln.Blocks' managed reader of
+  the same files (`BlockJson.Read`), which also reads no file that is reached through a link or lies outside the mod's
+  folder. The managed reader checks a path for links and then opens it, so on every system a file swapped between the
+  two could still be read; it stays under the size limits.
 - **Why these numbers:** real block files are a few KiB and a handful per mod; the repository's largest is 6 KiB, and its
   most in one mod is 6. The author's limits are generous so no real mod meets them, and use the same size and depth
   kiln.quests' start-up build takes for the same files.
