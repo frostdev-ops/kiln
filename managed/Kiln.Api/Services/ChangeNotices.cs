@@ -27,7 +27,9 @@ internal abstract class ChangeNoticeQueue
     }
 
     /// <summary>The start of a service tick (tick thread): every notice that waited goes out. All queues are taken first,
-    /// then delivered, so a write made in any of their handlers waits for the next tick, whichever queue comes first.</summary>
+    /// then delivered, so a write made in any of their handlers waits for the next tick, whichever queue comes first. A
+    /// taken notice whose key a handler of an earlier queue wrote again (inline, so its event already said the newer value)
+    /// is not delivered after it.</summary>
     internal static void FlushAll()
     {
         var queues = Volatile.Read(ref _queues);
@@ -139,6 +141,10 @@ internal sealed class ChangeNotices<TEvent, TKey>(string owner) : ChangeNoticeQu
     private readonly object _gate = new();
     private int _dispatching;                           // tick thread only: an event of this kind is being dispatched
     private Dictionary<TKey, Notice> _waiting = new(); // under _gate
+    private Dictionary<TKey, Notice>? _due;            // taken by FlushAll, not delivered yet (under _gate)
+
+    /// <summary>An event of this kind is being dispatched now (tick thread): a write made now is a handler's answer to it.</summary>
+    internal bool Dispatching => _dispatching > 0;
 
     /// <summary>Events waiting for the next step (tests).</summary>
     internal int Waiting
@@ -171,11 +177,20 @@ internal sealed class ChangeNotices<TEvent, TKey>(string owner) : ChangeNoticeQu
         Dispatch(key, ev, subject);
     }
 
+    /// <summary>Drops the event of <paramref name="key"/> that waits (or that this step's flush took and has not sent): a
+    /// newer write of the same thing, posted through another kind of event (an unban after a ban), replaces it.</summary>
+    internal void Withdraw(TKey key) => Supersede(key);
+
     // An inline write of a key: an older event of that key still waiting would announce an older value later, after this
-    // newer one. It goes; this event says what the value is now.
+    // newer one. It goes, also when this step's flush already took it (a handler of an earlier queue wrote the key):
+    // this event says what the value is now.
     private void Supersede(TKey key)
     {
-        lock (_gate) _waiting.Remove(key);
+        lock (_gate)
+        {
+            _waiting.Remove(key);
+            _due?.Remove(key);
+        }
     }
 
     /// <summary>As <see cref="Post"/>, for an event about something that is not an entity and whose id can name another
@@ -263,17 +278,30 @@ internal sealed class ChangeNotices<TEvent, TKey>(string owner) : ChangeNoticeQu
         lock (_gate)
         {
             if (_waiting.Count == 0) return null;
-            var due = _waiting;
+            _due = _waiting;
             _waiting = new Dictionary<TKey, Notice>();
-            return due;
+            return _due.Keys.ToArray();
         }
     }
 
     private protected override void Deliver(object batch)
     {
-        // a write in their handlers waits for the next step again
-        foreach (var (key, w) in (Dictionary<TKey, Notice>)batch)
-            if (StillThere(in w)) Dispatch(key, w.Event, w.Subject, w.Check);
+        // a write in their handlers waits for the next step again; a key written inline since the take is not sent
+        try
+        {
+            foreach (var key in (TKey[])batch)
+            {
+                Notice w;
+                lock (_gate)
+                    if (_due is null || !_due.Remove(key, out w))
+                        continue;
+                if (StillThere(in w)) Dispatch(key, w.Event, w.Subject, w.Check);
+            }
+        }
+        finally
+        {
+            lock (_gate) _due = null;
+        }
     }
 
     private protected override int Discard()

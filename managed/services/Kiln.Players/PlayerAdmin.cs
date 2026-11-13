@@ -91,7 +91,10 @@ public sealed class PlayerKickedEvent : KilnEvent
     public bool Banned { get; }
 }
 
-/// <summary>An entry was added to Kiln's ban list (<see cref="Bans.Add(PlayerRef, string, TimeSpan?)"/>). Tick thread.</summary>
+/// <summary>An entry was added to Kiln's ban list (<see cref="Bans.Add(PlayerRef, string, TimeSpan?)"/>). Tick thread,
+/// right after the list was written. A ban made while this event is being dispatched (a handler that bans again) is
+/// posted at the start of the next step instead, once per entry; banning the same again there (ids, name, reason, mod,
+/// length) changes nothing and posts nothing (since 0.2.0-dev.27; before, it recursed).</summary>
 [ServerOnly]
 public sealed class PlayerBannedEvent : KilnEvent
 {
@@ -101,7 +104,9 @@ public sealed class PlayerBannedEvent : KilnEvent
     public BanEntry Ban { get; }
 }
 
-/// <summary>An entry left Kiln's ban list (<see cref="Bans.Remove"/>; not when one runs out). Tick thread.</summary>
+/// <summary>An entry left Kiln's ban list (<see cref="Bans.Remove"/>; not when one runs out). Tick thread, right after
+/// the list was written; an unban made while this event is being dispatched is posted at the start of the next step
+/// (since 0.2.0-dev.27).</summary>
 [ServerOnly]
 public sealed class PlayerUnbannedEvent : KilnEvent
 {
@@ -331,6 +336,12 @@ internal static class PlayerAdmin
 
     internal static string Who() => ModContext.CurrentMod?.Info.Id ?? "console";
 
+    // The ban list's change events, through the contract's change notices: inline after the write, and a ban or unban made
+    // while one is being dispatched (a handler answering it) waits for the next step instead of recursing. One key per
+    // entry (its Steam id and account id), in both: a ban or an unban withdraws the other's older event of that entry.
+    internal static readonly ChangeNotices<PlayerBannedEvent, (ulong, ulong)> BanNotices = new("kiln.players");
+    internal static readonly ChangeNotices<PlayerUnbannedEvent, (ulong, ulong)> UnbanNotices = new("kiln.players");
+
     internal static BanEntry AddBan(ulong steamId, ulong accountId, string name, string reason, TimeSpan? duration)
     {
         CheckReason(reason);
@@ -338,16 +349,24 @@ internal static class PlayerAdmin
         RequireBans();
         var now = DateTimeOffset.UtcNow;
         var entry = new BanEntry(steamId, accountId, name, reason, Who(), now, duration is { } t ? now + t : null);
+        // a handler of the ban that bans the same again (ids, name, reason, mod and length): nothing changes, so nothing is
+        // written or posted (it would be again at every step)
+        if (BanNotices.Dispatching && Store.Same(entry, now) is { } held) return held;
         Store.Put(entry, now);
-        if (Events.HasSubscribers<PlayerBannedEvent>()) Events.Post(new PlayerBannedEvent(entry));
+        UnbanNotices.Withdraw((entry.SteamId, entry.AccountId));  // an unban of it still waiting is older than this ban
+        if (Events.HasSubscribers<PlayerBannedEvent>())
+            BanNotices.Post((entry.SteamId, entry.AccountId), new PlayerBannedEvent(entry));
         return entry;
     }
 
     internal static bool RemoveBan(ulong id, string by)
     {
         var gone = Store.Remove(id, DateTimeOffset.UtcNow);
-        if (gone.Count > 0 && Events.HasSubscribers<PlayerUnbannedEvent>())
-            foreach (var e in gone) Events.Post(new PlayerUnbannedEvent(e, by));
+        foreach (var e in gone)
+        {
+            BanNotices.Withdraw((e.SteamId, e.AccountId));  // a ban of it still waiting is older than this unban
+            if (Events.HasSubscribers<PlayerUnbannedEvent>()) UnbanNotices.Post((e.SteamId, e.AccountId), new PlayerUnbannedEvent(e, by));
+        }
         return gone.Count > 0;
     }
 }
@@ -416,6 +435,18 @@ internal sealed class BanStore(string path)
         lock (_lock)
             foreach (var b in Load())
                 if (b.IsActive(now) && b.Matches(steamId, accountId)) return b;
+        return null;
+    }
+
+    /// <summary>The entry in force that says the same as <paramref name="entry"/> (ids, name, reason, mod and length),
+    /// or null.</summary>
+    public BanEntry? Same(BanEntry entry, DateTimeOffset now)
+    {
+        lock (_lock)
+            foreach (var b in Load())
+                if (b.IsActive(now) && b.SteamId == entry.SteamId && b.AccountId == entry.AccountId && b.Name == entry.Name &&
+                    b.Reason == entry.Reason && b.By == entry.By && b.Until - b.Since == entry.Until - entry.Since)
+                    return b;
         return null;
     }
 

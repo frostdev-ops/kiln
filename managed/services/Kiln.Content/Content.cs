@@ -58,7 +58,9 @@ public static unsafe partial class Content
     [AnyThread]
     public static bool Ready => Status()?.Ready == true;
 
-    // One key per change of one field (or document) by one mod: a handler that writes again waits for the next step.
+    // One key per field (or document) one mod wrote: a handler that writes again waits for the next step. A field's key is
+    // what was written, not how: a Set and a Reset of one field by one mod are one key, so the newer replaces the older.
+    // A document and a revert (no entry) keep the kind of change apart.
     internal static readonly ChangeNotices<ContentChangedEvent, (ContentChange, ContentKind?, uint, string, string)> Notices =
         new("kiln.content");
 
@@ -68,7 +70,7 @@ public static unsafe partial class Content
     {
         if (!Events.HasSubscribers<ContentChangedEvent>()) return;
         var origin = ModContext.CurrentMod?.Info.Id ?? "";
-        Notices.Post((change, entry?.Kind, entry?.Id ?? 0, path, origin),
+        Notices.Post((entry is null ? change : ContentChange.Set, entry?.Kind, entry?.Id ?? 0, path, origin),
             new ContentChangedEvent(change, entry?.Kind, entry?.Id ?? 0, entry?.Name ?? "", path, origin));
     }
 

@@ -189,6 +189,44 @@ public sealed class ChangeNoticesTests : ContractTest
         public int Value { get; } = value;
     }
 
+    private sealed class OtherValued(int key, int value) : KilnEvent
+    {
+        public int Key { get; } = key;
+        public int Value { get; } = value;
+    }
+
+    /// <summary>One flush takes every queue before it delivers any: a handler of one queue's event that writes a key of
+    /// another queue whose older notice was taken already announces the new value inline, and the older one is not
+    /// announced after it, in either order of the queues.</summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void A_taken_notice_whose_key_was_written_again_in_the_flush_is_not_announced_after_the_newer(bool writerFirst)
+    {
+        var writer = new ChangeNotices<Valued, int>("test-writer");
+        var written = new ChangeNotices<OtherValued, int>("test-written");
+        var seen = new List<int>();
+        using var a = Events.On<Valued>(_ => written.Post(5, new OtherValued(5, 2)));  // the other queue is not dispatching: inline
+        using var b = Events.On<OtherValued>(e => seen.Add(e.Value));
+        Backend.TickThread = false;  // a write off the tick thread waits for the next step: both queues wait, in this order
+        if (writerFirst)
+        {
+            writer.Post(1, new Valued(1, 0));
+            written.Post(5, new OtherValued(5, 1));
+        }
+        else
+        {
+            written.Post(5, new OtherValued(5, 1));
+            writer.Post(1, new Valued(1, 0));
+        }
+        Backend.TickThread = true;
+        Step();
+        Assert.Equal(writerFirst ? [2] : [1, 2], seen);  // the last value announced is the value now
+        Assert.Equal(0, written.Waiting);
+        Step();
+        Assert.Equal(writerFirst ? [2] : [1, 2], seen);
+    }
+
     [Fact]
     public void What_waited_goes_out_in_one_step_and_what_its_handlers_write_waits_whichever_queue_comes_first()
     {
@@ -445,6 +483,29 @@ public sealed unsafe class ContentChangeTests : FakeTableTest
         Assert.Equal("writer", e.Origin);
         Assert.Single(seen.Where(x => x.Change == ContentChange.Reset));
         Assert.True(onTick);
+    }
+
+    /// <summary>The key is what was written (the field of the mod), not the kind of write: a handler's Set that waits is
+    /// replaced by the same mod's later Reset of that field, and is not announced after it.</summary>
+    [Fact]
+    public void A_waiting_set_is_replaced_by_a_later_reset_of_the_same_field()
+    {
+        var seen = new List<ContentChange>();
+        var first = true;
+        using var sub = Events.On<ContentChangedEvent>(e =>
+        {
+            seen.Add(e.Change);
+            if (!first) return;
+            first = false;
+            _entry.Set("maxStackSize", 30);  // during the dispatch: waits
+        });
+        _entry.Set("maxStackSize", 20);
+        Assert.Equal(1, Content.Notices.Waiting);
+        _resetRc = 0;
+        Assert.True(_entry.Reset("maxStackSize"));  // inline: the field is back to the game's value now
+        Step();
+        Assert.Equal([ContentChange.Set, ContentChange.Reset], seen);  // the handler's Set is not announced after it
+        Assert.Equal(0, Content.Notices.Waiting);
     }
 
     [Fact]

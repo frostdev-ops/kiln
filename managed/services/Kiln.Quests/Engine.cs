@@ -41,6 +41,10 @@ public sealed class QuestRecord
     /// <summary>Rewards still to pay (the player was offline when an admin completed it).</summary>
     public bool RewardsPending { get; set; }
 
+    /// <summary>Steps entered (not saved): a step's end that finds it changed knows its run was moved meanwhile.</summary>
+    [JsonIgnore]
+    internal int Moves { get; set; }
+
     public static string CounterKey(string step, int objective) => $"{step}#{objective}";
 }
 
@@ -645,6 +649,7 @@ public static partial class Quests
 
     private static void EnterStep(QuestDefinition q, QuestHolder h, QuestRecord rec, QuestStep step)
     {
+        rec.Moves++;
         rec.StepId = step.Id;
         rec.StepIndex = q.Steps.IndexOf(step);
         rec.StepOrigin = null;
@@ -676,17 +681,22 @@ public static partial class Quests
     {
         var index = q.Steps.IndexOf(step);
         var next = index + 1 < q.Steps.Count ? q.Steps[index + 1] : null;
+        var moves = rec.Moves;
         if (Events.HasSubscribers<QuestStepEvent>() && Events.Post(new QuestStepEvent(q, h, step, next)) is { Canceled: true } ev)
             return QuestResult.No($"canceled by {ev.CanceledBy ?? "a handler"}", QuestStatus.Active);
+        if (Moved(q, h, rec, step, moves)) return new QuestResult(true, "", StatusOf(q, h));
         // the last step: the completion is asked for before anything of the step's end runs, so a completion a handler
         // refuses gives nothing (the step stays, and its onDone runs once, with the completion that is let through)
         if (next is null && CompletionRefused(q, h, rec.Status) is { } refused) return refused;
+        if (Moved(q, h, rec, step, moves)) return new QuestResult(true, "", StatusOf(q, h));
         _transitions++;
         QuestsInternals.Info($"{h.Key} {q.FullId}: step {step.Id} done");
         QuestPlaces.LeaveStep(q, h, step);
         if (step.OnDone.Count > 0) _ = QuestActions.RunAll(step.OnDone, new QuestActionContext(h, q, EntityId.None, q.ModId), "onDone", true);
         var book = BookOf(h);
         book.Revision++;
+        // an action completed, failed, reset, restarted or moved the quest: that is where it stands, nothing more runs
+        if (Moved(q, h, rec, step, moves)) return new QuestResult(true, "", StatusOf(q, h));
         if (next is null) return CompleteOne(q, h, rec, false, asked: true);
         EnterStep(q, h, rec, next);
         Changed(q, h, QuestStatus.Active, rec);
@@ -762,6 +772,12 @@ public static partial class Quests
         Changed(q, h, old, rec);
         return new QuestResult(true, "", QuestStatus.Done);
     }
+
+    // The run a step's end works on is no longer the one it was asked for: a handler or an action completed, failed,
+    // reset or restarted the quest, or put it at a step (the same one too). Completion and its rewards then happened (or
+    // not) there, at most once a run.
+    private static bool Moved(QuestDefinition q, QuestHolder h, QuestRecord rec, QuestStep step, int moves) =>
+        !ReferenceEquals(Record(q, h), rec) || rec.Status != QuestStatus.Active || rec.StepId != step.Id || rec.Moves != moves;
 
     /// <summary>The completion refused by a <see cref="QuestCompletedEvent"/> handler, or null when it goes on.</summary>
     private static QuestResult? CompletionRefused(QuestDefinition q, QuestHolder h, QuestStatus status) =>

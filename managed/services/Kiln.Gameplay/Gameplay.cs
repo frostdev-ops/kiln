@@ -118,7 +118,7 @@ public static unsafe partial class Gameplay
 
     /// <summary>True when the native service is loaded on this game build (capability <c>kiln.gameplay</c>).</summary>
     [AnyThread]
-    public static bool Available => GameplayNative.T != null;
+    public static bool Available => Used(GameplayNative.T != null);
 
     /// <summary>Makes sure the native service delivers events to the bus. Safe to call often.</summary>
     public static bool Enable() => EnsureListener();
@@ -134,6 +134,7 @@ public static unsafe partial class Gameplay
     {
         get
         {
+            Used();
             var t = GameplayNative.T;
             if (t == null) return null;
             GameplayNative.Status s = default;
@@ -186,7 +187,11 @@ public static unsafe partial class Gameplay
     /// <summary>Zones registered through this assembly.</summary>
     public static IReadOnlyList<ZoneHandle> Zones
     {
-        get { lock (Gate) return ZonesById.Values.ToArray(); }
+        get
+        {
+            Used();
+            lock (Gate) return ZonesById.Values.ToArray();
+        }
     }
 
     /// <summary>Would <paramref name="action"/> by <paramref name="player"/> at <paramref name="position"/> be denied
@@ -362,7 +367,7 @@ public static unsafe partial class Gameplay
 
     /// <summary>True when the entity lifecycle events work on this build (capability <c>gameplay.entity_events</c>).</summary>
     [AnyThread]
-    public static bool EntityEventsAvailable => GameplayNative.EntityFilter(GameplayNative.T) != null && Status is { EntityHooks: true };
+    public static bool EntityEventsAvailable => Used(GameplayNative.EntityFilter(GameplayNative.T) != null) && Status is { EntityHooks: true };
 
     // Once per step (tick): tell the native hooks which categories to record.
     private static void SyncEntityFilter()
@@ -466,6 +471,21 @@ public static unsafe partial class Gameplay
     }
 
     // ------------------------------------------------------------------------------------------- dispatcher ----
+
+    /// <summary>A call into Kiln.Gameplay by a mod is a use (its first one started the listener in dev.26): every public
+    /// entry asks this (through <see cref="Require"/> where it has one). After the first service tick loaded the assembly
+    /// for its rows, it is what starts the listener for a mod that calls Gameplay or Offers and has only a catch-all
+    /// handler. One field read once listening; Kiln's own reads (the rows, the service tick) do not count.</summary>
+    internal static void Used()
+    {
+        if (Volatile.Read(ref _listening) == 0 && ServiceUse.ByMod) EnsureListener();
+    }
+
+    private static bool Used(bool value)
+    {
+        Used();
+        return value;
+    }
 
     internal static bool EnsureListener()
     {
@@ -717,6 +737,7 @@ public static unsafe partial class Gameplay
 
     private static GameplayNative.Table* Require()
     {
+        Used();
         var t = GameplayNative.T;
         if (t == null)
         {

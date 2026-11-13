@@ -109,7 +109,14 @@ public static class Offers
     internal static IOfferWorld World { get => _world ??= new NativeOfferWorld(); set => _world = value; }
 
     /// <summary>True when offers work on this server (kiln.gameplay's component_change and kiln.world).</summary>
-    public static bool Available => World.Available;
+    public static bool Available
+    {
+        get
+        {
+            Gameplay.Used();
+            return World.Available;
+        }
+    }
 
     /// <summary>
     /// Puts an offer on <paramref name="entity"/>: players near it see a prompt; <paramref name="handler"/> runs (tick
@@ -130,6 +137,7 @@ public static class Offers
     public static bool TryAdd(EntityId entity, string? text, uint verb, Action<OfferAccepted> handler, out string reason,
         OfferOptions? options = null)
     {
+        Gameplay.Used();
         Services.RequireTickThread("Offers.Add");
         ArgumentNullException.ThrowIfNull(handler);
         var spec = SpecOf(text, verb, options);
@@ -143,6 +151,7 @@ public static class Offers
     public static async Task<EntityId> SpawnWithOffer(string template, WorldPosition position, string? text, uint verb,
         Action<OfferAccepted> handler, OfferOptions? options = null, SpawnOptions? spawn = null)
     {
+        Gameplay.Used();
         ArgumentNullException.ThrowIfNull(handler);
         var spec = SpecOf(text, verb, options);  // a bad text throws before anything is spawned
         var owner = ModContext.CurrentMod;       // the offer is the caller's, whatever runs the continuation
@@ -157,6 +166,7 @@ public static class Offers
     /// or two). False when the calling mod has no offer there. Tick thread.</summary>
     public static bool Remove(EntityId entity)
     {
+        Gameplay.Used();
         Services.RequireTickThread("Offers.Remove");
         return RemoveAs(entity.Value, ModContext.CurrentMod);
     }
@@ -167,6 +177,7 @@ public static class Offers
     /// <summary>Where the calling mod's offer on <paramref name="entity"/> stands.</summary>
     public static OfferStatus Status(EntityId entity)
     {
+        Gameplay.Used();
         var owner = ModContext.CurrentMod;
         if (!Entries.TryGetValue(entity.Value, out var e) || !ReferenceEquals(e.Owner, owner) || e.Lost)
             return OfferStatus.None;
@@ -175,15 +186,19 @@ public static class Offers
     }
 
     /// <summary>The offers of every mod: entity, owner mod id ("kiln" for none), verb id, accepts (for admin tools).</summary>
-    public static IReadOnlyList<(EntityId Entity, string Owner, uint Verb, long Accepts)> List() =>
-        Entries.Values.Where(e => !e.Removing && !e.Lost)
+    public static IReadOnlyList<(EntityId Entity, string Owner, uint Verb, long Accepts)> List()
+    {
+        Gameplay.Used();
+        return Entries.Values.Where(e => !e.Removing && !e.Lost)
             .Select(e => (new EntityId(e.Entity), ModInvoke.Name(e.Owner), e.Spec.Verb, e.Accepts)).ToList();
+    }
 
     // ------------------------------------------------------------------------------------------- internals ----
 
     /// <summary>The prompt-word id <see cref="Add"/> uses for a custom text (EMF's: FNV-1a-32 of "emf.verb:" + text, UTF-8). Any thread.</summary>
     public static uint CustomVerbId(string text)
     {
+        Gameplay.Used();
         var h = 2166136261u;
         foreach (var b in Encoding.UTF8.GetBytes("emf.verb:" + text)) h = (h ^ b) * 16777619u;
         return h;

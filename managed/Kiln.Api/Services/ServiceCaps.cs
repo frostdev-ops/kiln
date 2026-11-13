@@ -379,8 +379,15 @@ internal sealed class ServiceCapRows
         }
     }
 
+    // a rows report is running on this thread: the service's own reads, no mod's use of it (ServiceUse.ByMod)
+    [ThreadStatic] private static int _reporting;
+
+    /// <summary>A rows report runs on this thread now (its reads are the service's own, not a mod's use).</summary>
+    internal static bool Reporting => _reporting != 0;
+
     private void Run()
     {
+        _reporting++;
         try
         {
             report();
@@ -388,6 +395,10 @@ internal sealed class ServiceCapRows
         catch (Exception e)
         {
             Warn(e);
+        }
+        finally
+        {
+            _reporting--;
         }
     }
 

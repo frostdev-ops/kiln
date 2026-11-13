@@ -92,6 +92,27 @@ internal sealed class IsolatedKiln
         g.Invoke(null, [handler, .. g.GetParameters().Skip(1).Select(p => p.DefaultValue)]);
     }
 
+    private object? _mod;
+
+    /// <summary>Runs <paramref name="call"/> as a mod's code runs: with a mod context of this copy current on the thread
+    /// (ModContext.CurrentMod).</summary>
+    public object? AsMod(Func<object?> call)
+    {
+        _mod ??= Type("Kiln.HostAccess").GetMethod("CreateContext", All)!.Invoke(null,
+            [Activator.CreateInstance(Type("Kiln.ModInfo"), "caller", "Caller", "1.0.0", "."), 90UL, "."]);
+        var current = Type("Kiln.ModContext").GetField("CurrentMod", All)!;
+        var before = current.GetValue(null);
+        current.SetValue(null, _mod);
+        try
+        {
+            return call();
+        }
+        finally
+        {
+            current.SetValue(null, before);
+        }
+    }
+
     /// <summary>The type names of the events the handlers of <see cref="Subscribe"/> were given (they do nothing else).</summary>
     public static readonly List<string> Seen = [];
 
@@ -244,6 +265,7 @@ public sealed unsafe class GameplayStartTests
         void* user, ulong* handle)
     {
         _subscribes++;
+        _gameplayFn = (nint)fn;
         *handle = 1;
         return 0;
     }
@@ -275,11 +297,13 @@ public sealed unsafe class GameplayStartTests
     }
 
     private static int _listeners;
+    private static nint _combatFn, _gameplayFn;  // the listeners the services gave the fake tables
 
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
     private static int FakeSetListener(delegate* unmanaged[Cdecl]<CombatNative.Event*, uint, void*, uint> fn, void* user)
     {
         _listeners++;
+        _combatFn = (nint)fn;
         return 0;
     }
 
@@ -405,5 +429,57 @@ public sealed unsafe class GameplayStartTests
         kiln.Serve("kiln.combat", (nint)CombatV3());
         for (var i = 0; i < 25; i++) kiln.Step();
         Assert.Equal(1, _listeners);
+    }
+
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static int FakeCombatStatus(CombatNative.Status* s) => 3;  // unavailable: no status
+
+    /// <summary>A dev.26 mod with only a catch-all handler that calls Kiln.Combat: its first call starts the listener (as
+    /// the call loaded the assembly in dev.26), and the next native event reaches the handler. The rows' own reads at
+    /// the service tick (Attributes.Available every 25 steps) are no use.</summary>
+    [Fact]
+    public void A_catch_all_handler_and_one_plain_call_into_combat_get_the_next_native_event()
+    {
+        _listeners = 0;
+        var t = CombatV3();
+        t->V2.V1.GetStatus = &FakeCombatStatus;
+        var kiln = new IsolatedKiln(["Kiln.Combat"]);
+        kiln.Serve("kiln.combat", (nint)t);
+        kiln.Step();
+        kiln.Subscribe(kiln.Type("Kiln.KilnEvent"));
+        for (var i = 0; i < 30; i++) kiln.Step();  // the rows' refresh reads Kiln.Combat: not a use
+        Assert.Equal(0, _listeners);
+        var combat = kiln.Services["Kiln.Combat"].GetType("Kiln.Combat", throwOnError: true)!;
+        kiln.AsMod(() => combat.GetProperty("Available")!.GetValue(null));  // one plain call by a mod
+        Assert.Equal(1, _listeners);
+        lock (IsolatedKiln.Seen) IsolatedKiln.Seen.Clear();
+        var died = new CombatNative.Event { Size = (uint)sizeof(CombatNative.Event), Kind = CombatNative.Died, Target = 300 };
+        ((delegate* unmanaged[Cdecl]<CombatNative.Event*, uint, void*, uint>)_combatFn)(&died, 1, null);
+        lock (IsolatedKiln.Seen) Assert.Contains("EntityDeathEvent", IsolatedKiln.Seen);
+    }
+
+    /// <summary>Kiln.Gameplay the same way: a mod's plain call starts the listener its catch-all handler alone does not,
+    /// and the next native event reaches the handler.</summary>
+    [Fact]
+    public void A_catch_all_handler_and_one_plain_call_into_gameplay_get_the_next_native_event()
+    {
+        _subscribes = 0;
+        var t = (GameplayNative.Table*)NativeMemory.AllocZeroed((nuint)sizeof(GameplayNative.Table));
+        t->Header = new ServiceHeader { Size = (uint)sizeof(GameplayNative.Table), Version = 1 };
+        t->Subscribe = &FakeSubscribe;
+        t->Status = &FakeStatus;
+        var kiln = new IsolatedKiln(["Kiln.Gameplay"]);
+        kiln.Serve("kiln.gameplay", (nint)t);
+        kiln.Step();
+        kiln.Subscribe(kiln.Type("Kiln.KilnEvent"));
+        for (var i = 0; i < 30; i++) kiln.Step();
+        Assert.Equal(0, _subscribes);
+        var gameplay = kiln.Services["Kiln.Gameplay"].GetType("Kiln.Gameplay", throwOnError: true)!;
+        kiln.AsMod(() => gameplay.GetProperty("Available")!.GetValue(null));
+        Assert.Equal(1, _subscribes);
+        lock (IsolatedKiln.Seen) IsolatedKiln.Seen.Clear();
+        var craft = new GameplayNative.Event { Size = (uint)sizeof(GameplayNative.Event), Kind = GameplayNative.Craft, Actor = 1, Target = 300 };
+        ((delegate* unmanaged[Cdecl]<GameplayNative.Event*, void*, uint>)_gameplayFn)(&craft, null);
+        lock (IsolatedKiln.Seen) Assert.Contains("CraftEvent", IsolatedKiln.Seen);
     }
 }

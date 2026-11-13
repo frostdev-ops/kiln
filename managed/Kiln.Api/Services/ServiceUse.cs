@@ -31,6 +31,12 @@ internal static class ServiceUse
                 waiter.Added(s.Type);
     }
 
+    /// <summary>Whether a call into a service now is a mod's use of it (dev.26: a mod's first call loaded the service,
+    /// whose module initializer started it): a mod's code runs on this thread, and neither the first service tick's start
+    /// nor a capability rows report (the service's own reads) is running. A service's public entries ask it while their
+    /// listener is not running yet (Combat.Used, Gameplay.Used): one field read each once it runs.</summary>
+    internal static bool ByMod => ModContext.CurrentMod is not null && !ServiceTick.StartingServices && !ServiceCapRows.Reporting;
+
     // A start that found no table yet (start false) is not used up: it runs again once the refresh finds the table.
     private static void Activate(string table, Func<bool> start)
     {
