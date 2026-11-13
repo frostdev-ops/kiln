@@ -84,6 +84,12 @@ internal static class CheckScreen
                         "skip" => ("SKIP", Amber),
                         _ => ("----", Dim),
                     };
+                    // Run comes first in its row: after a long title it was beyond the window's right edge
+                    if (i.Refusal is null && v.Current is null && v.Session is "hosted" or "joined" or "server")
+                    {
+                        if (ui.SmallButton("Run")) act(new UiAction(UiActionKind.Run, i));
+                        ui.SameLine();
+                    }
                     ui.Text(color, tag);
                     ui.SameLine();
                     ui.Text(i.Title);
@@ -91,11 +97,6 @@ internal static class CheckScreen
                     ui.TextDisabled($"{i.Mod}/{i.Id}" + (i.Tags.Count > 0 ? "  [" + string.Join(", ", i.Tags) + "]" : "") +
                                     (i.Needs != "any" ? $"  needs {i.Needs}" : ""));
                     if (i.Refusal is { } r) ui.TextWrapped("    refused: " + r);
-                    else if (v.Current is null && v.Session is "hosted" or "joined" or "server")
-                    {
-                        ui.SameLine();
-                        if (ui.SmallButton("Run")) act(new UiAction(UiActionKind.Run, i));
-                    }
                     if (i.Verdict is "fail" or "skip" && i.Note is { Length: > 0 } note) ui.TextDisabled("    note: " + note);
                 }
             }
