@@ -242,8 +242,9 @@ int main() {
         b.at(20000);
         CHECK(b.written.size() == n && b.w.done());
     }
-    // ---- a client: ready when the menu drew and the mods are loaded; nothing after ready; tookMs add up to atMs ----
+    // ---- a client: ready once the menu drew and "game" began, in whichever order; nothing after ready; tookMs add up to atMs ----
     {
+        // the menu's mark before the mods end, and while content runs: remembered, not ready until "game" begins
         Bench b;
         walk_boot(b);
         b.w.step("mods", "Waiting for the game to load the mods");
@@ -253,17 +254,29 @@ int main() {
         b.now += 6000;
         b.w.step("mods", "Loading the mods", "kiln-equipment", 0, 4);
         b.now += 500;
-        b.w.mark(Mark::menu);  // the menu drew while the mods load (an older start order): not ready yet
+        b.w.mark(Mark::menu);  // the menu drew while the mods load
         b.at(b.now);
         CHECK(b.last()["state"] == "loading");
         b.now += 100;
         b.w.step("mods", {}, {}, 4, 4);
         b.now += 50;
-        CHECK(b.w.step("content", {}, "kiln-equipment: materials thunderhead.copper_wire", 120, 198) == Result::ok);
-        // the menu was drawn before: past "mods", the start is ready at once
+        CHECK(b.w.step("content", {}, "kiln-equipment: materials thunderhead.copper_wire", 0, 198) == Result::ok);
+        b.at(b.now);
+        CHECK(b.last()["state"] == "loading" && b.last()["steps"].back()["id"] == "content");  // the blocks are still applied
+        b.w.mark(Mark::menu);  // again, during content
+        for (uint64_t i = 1; i <= 198; ++i) {
+            b.now += 100;
+            CHECK(b.w.step("content", {}, "block", i, 198) == Result::ok);  // never refused: the file is not over
+        }
+        b.at(b.now);
+        CHECK(b.last()["state"] == "loading");
+        b.now += 10;
+        CHECK(b.w.step("game", "The game is loading its main menu") == Result::ok);
         b.at(b.now);
         auto d = b.last();
-        CHECK(d["state"] == "ready");
+        CHECK(d["state"] == "ready" && d["steps"].back()["id"] == "game" && d["steps"].back()["tookMs"] == 0);
+        const auto& content = d["steps"][d["steps"].size() - 2];
+        CHECK(content["id"] == "content" && content["tookMs"] == 19810 && content["done"] == 198);  // content's whole duration
         uint64_t sum = 0;
         for (const auto& s : d["steps"]) sum += s["tookMs"].get<uint64_t>();
         CHECK(sum == d["atMs"].get<uint64_t>());
@@ -271,6 +284,36 @@ int main() {
         const size_t n = b.written.size();
         b.at(b.now + 10000);
         CHECK(b.written.size() == n);
+    }
+    {
+        // zero blocks: content ends at once, game begins, the menu comes after
+        Bench b;
+        walk_boot(b);
+        b.w.step("mods");
+        b.w.loading();
+        b.w.step("mods", {}, {}, 0, 0);
+        b.w.step("content");
+        b.w.step("game");
+        b.at(b.now);
+        CHECK(b.last()["state"] == "loading");
+        b.now += 900;
+        b.w.mark(Mark::menu);
+        b.at(b.now);
+        CHECK(b.last()["state"] == "ready" && b.last()["steps"].back()["tookMs"] == 900);
+    }
+    {
+        // the mark before the boot is even complete (not possible in the game, but the order must not matter)
+        Bench b;
+        walk_boot(b);
+        b.w.mark(Mark::menu);
+        b.w.step("mods");
+        b.w.loading();
+        b.w.step("content");
+        b.at(b.now);
+        CHECK(b.last()["state"] == "loading");
+        b.w.step("game");
+        b.at(b.now);
+        CHECK(b.last()["state"] == "ready");
     }
     {
         // the usual order: content, game, then the menu
@@ -305,6 +348,21 @@ int main() {
         b.w.mark(Mark::server_started);
         b.at(b.now + 1);
         CHECK(b.last()["state"] == "ready");
+        // ServerStarted before the blocks are applied (Entry.cs marks it before the service tick that runs them): remembered
+        Bench sb(kClientPlan, "server");
+        walk_boot(sb);
+        sb.w.step("mods");
+        sb.w.loading();
+        sb.w.step("mods", {}, {}, 2, 2);
+        sb.w.mark(Mark::server_started);
+        sb.w.step("content", {}, {}, 0, 40);
+        sb.at(sb.now);
+        CHECK(sb.last()["state"] == "loading");
+        sb.now += 3000;
+        CHECK(sb.w.step("content", {}, {}, 40, 40) == Result::ok);
+        sb.w.step("game", "The server is starting its world");
+        sb.at(sb.now);
+        CHECK(sb.last()["state"] == "ready" && sb.last()["steps"][sb.last()["steps"].size() - 2]["tookMs"] == 3000);
         // a server without .NET: the world's first step
         Bench nb({"start", "native-early", "early-plugins", "signatures", "services", "plugins", "native", "game"}, "server");
         nb.w.first("start", 0);
@@ -313,6 +371,28 @@ int main() {
         nb.w.mark(Mark::world_started);
         nb.at(10);
         CHECK(nb.last()["state"] == "ready");
+    }
+    // ---- a plan with steps the start does not have (kiln.json's side section switched .NET off after the plan): the core's
+    // skip_to takes them out, and the start ends in ready rather than loading for ever ----
+    {
+        Bench b;
+        b.w.first("start", 0);
+        for (const char* id : {"native-early", "early-plugins", "signatures", "services", "plugins", "native"}) b.w.step(id);
+        CHECK(b.w.step("game") == Result::refused);  // dotnet is next
+        std::vector<std::string> dropped;
+        CHECK(b.w.skip_to("game", "The game is loading its main menu", {}, &dropped) == Result::ok);
+        CHECK((dropped == std::vector<std::string>{"dotnet", "mods", "content"}));
+        b.w.loading();
+        b.w.mark(Mark::menu);
+        b.at(1);
+        auto d = b.last();
+        CHECK(d["state"] == "ready" && d["plan"].size() == 8 && d["plan"].back() == "game" && d["steps"].size() == 8);
+        CHECK(b.w.skip_to("start", {}, {}, nullptr) == Result::over);
+    }
+    {
+        Bench b;
+        walk_boot(b);
+        CHECK(b.w.skip_to("native", {}, {}, nullptr) == Result::refused);  // never back
     }
     // ---- parts: from 500 ms, at most 16 a step ----
     {

@@ -408,10 +408,15 @@ CookResult cook_mods(const std::vector<ModInput>& mods, const CookOptions& opt) 
             BuiltMaterial built;
             std::vector<MaterialMap> maps;
             BuiltMaterialBlock info;
+            std::vector<ContentHash> reused_chains;  // taken from a MaterialRecord: no maps, these hashes
+            bool reused = false;
         };
         std::vector<MaterialBuilt> built_materials;
         std::map<std::string, RawImage> decoded;
+        std::map<std::string, ContentHash> file_hash;  // the bytes of each file read, by the path a block names
+        std::vector<std::string>* reading = nullptr;   // the files the material being built reads (record_material)
         const ImageLoader load_image = [&](const std::string& rel, RawImage* image, std::string* why) {
+            if (reading) reading->push_back(rel);
             const auto got = decoded.find(rel);
             if (got != decoded.end()) {
                 *image = got->second;
@@ -426,30 +431,74 @@ CookResult cook_mods(const std::vector<ModInput>& mods, const CookOptions& opt) 
                 *why = "can't read it (" + *why + ")";
                 return false;
             }
+            if (opt.record_material) file_hash[rel] = content_hash(png.data(), png.size());
             if (!decode_png(png, kMaxMaterialTextureSide, image, why)) return false;
             decoded[rel] = *image;
             return true;
+        };
+        // A record of the boot build for this block, whose every file still has the recorded bytes (read and hashed here: an edited, missing
+        // or unreadable file is a miss, and the block is built from its textures as before).
+        const auto reusable = [&](const MaterialBlock& b) -> const MaterialRecord* {
+            if (!opt.known_material) return nullptr;
+            const MaterialRecord* r = opt.known_material(mod.id, b.def.name, b.definition);
+            if (!r || r->mod != mod.id || r->name != b.def.name || r->definition != b.definition) return nullptr;
+            for (const auto& [rel, hash] : r->files) {
+                Bytes png;
+                std::string ignored;
+                if (!safe_rel(rel) || !read(mod.dir + "/" + rel, &png, &ignored) || !(content_hash(png.data(), png.size()) == hash)) return nullptr;
+            }
+            return r;
         };
         for (const MaterialBlock& b : material_blocks) {
             say("material", b.def.name);
             MaterialBuilt m;
             std::string field, why;
-            if (!material_maps(b.def, load_image, opt.cache, &m.maps, &field, &why)) {
-                diag.errors.push_back(b.def.where + "." + field + ": " + why);
-                continue;
-            }
-            if (!build_material(b.def, mod.id, m.maps, &m.built, &why)) {
-                diag.errors.push_back(b.def.where + ": " + why);
-                continue;
+            if (const MaterialRecord* r = reusable(b)) {
+                // the same definition and the same file bytes as a build already done: what material_maps and build_material gave then
+                m.reused = true;
+                m.built.guid = r->guid;
+                m.built.render_flags = r->render_flags;
+                m.built.block_flags = r->block_flags;
+                m.reused_chains = r->chains;
+                ++out.materials_reused;
+            } else {
+                std::vector<std::string> files;
+                reading = opt.record_material ? &files : nullptr;
+                const bool maps_ok = material_maps(b.def, load_image, opt.cache, &m.maps, &field, &why);
+                reading = nullptr;
+                if (!maps_ok) {
+                    diag.errors.push_back(b.def.where + "." + field + ": " + why);
+                    continue;
+                }
+                if (!build_material(b.def, mod.id, m.maps, &m.built, &why)) {
+                    diag.errors.push_back(b.def.where + ": " + why);
+                    continue;
+                }
+                ++out.materials_built;
+                for (const MaterialMap& map : m.maps) m.reused_chains.push_back(content_hash(map.chain.data.data(), map.chain.data.size()));
+                if (opt.record_material) {
+                    MaterialRecord rec;
+                    rec.mod = mod.id;
+                    rec.name = b.def.name;
+                    rec.definition = b.definition;
+                    for (const std::string& rel : files)
+                        if (std::none_of(rec.files.begin(), rec.files.end(), [&](const auto& f) { return f.first == rel; })) rec.files.emplace_back(rel, file_hash.at(rel));
+                    rec.guid = m.built.guid;
+                    rec.render_flags = m.built.render_flags;
+                    rec.block_flags = m.built.block_flags;
+                    rec.textures = static_cast<uint32_t>(m.maps.size());
+                    rec.chains = m.reused_chains;
+                    opt.record_material(rec);
+                }
             }
             if (!b.def.replaces) ++need.materials;  // a replacement takes the game material's own slot
-            for (const MaterialMap& map : m.maps) need.streamed_textures.insert(content_hash_text(content_hash(map.chain.data.data(), map.chain.data.size())));
+            for (const ContentHash& chain : m.reused_chains) need.streamed_textures.insert(content_hash_text(chain));
             m.info.mod = mod.id;
             m.info.name = b.def.name;
             m.info.guid = m.built.guid;
             m.info.render_flags = m.built.render_flags;
             m.info.block_flags = m.built.block_flags;
-            m.info.textures = static_cast<uint32_t>(m.maps.size());
+            m.info.textures = m.reused ? static_cast<uint32_t>(m.reused_chains.size()) : static_cast<uint32_t>(m.maps.size());
             m.info.definition = b.definition;
             m.info.replaces = b.def.replaces.has_value();
             built_materials.push_back(std::move(m));
@@ -483,7 +532,8 @@ CookResult cook_mods(const std::vector<ModInput>& mods, const CookOptions& opt) 
             if (m.info.replaces && shared.resources.count(m.built.guid))
                 diag.warnings.push_back(mod.id + ": material " + m.info.name + ": another mod earlier in the load order replaces " + guid_text(m.built.guid) +
                                         " already: that one draws (this one stands by, and draws if that mod unloads)");
-            add_resource(out, shared, m.built.guid, kTypeMaterial, std::move(m.built.resource), mod.id + " material " + m.info.name, m.info.replaces, mod.id);
+            if (m.reused) shared.resources.insert(m.built.guid);  // nothing to serve: the build it was taken from served it
+            else add_resource(out, shared, m.built.guid, kTypeMaterial, std::move(m.built.resource), mod.id + " material " + m.info.name, m.info.replaces, mod.id);
             out.materials.push_back(std::move(m.info));
         }
         if (built_vfx.empty()) {

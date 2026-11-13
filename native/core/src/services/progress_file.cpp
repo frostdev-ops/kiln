@@ -70,6 +70,21 @@ bool step(std::string_view id, std::string_view label, std::string_view detail, 
     }
 }
 
+void step_or_skip(std::string_view id, std::string_view label, std::string_view detail) {
+    auto* w = writer();
+    if (!w) return;
+    try {
+        if (w->step(id, label, detail) == progress_file::Result::ok) return;
+        std::vector<std::string> dropped;
+        if (w->skip_to(id, label, detail, &dropped) != progress_file::Result::ok) return;
+        std::string list;
+        for (const auto& d : dropped) list += (list.empty() ? "" : ", ") + d;
+        KLOG_W("state: progress.json: this start has no step %s after all; taken out of its plan (a Kiln bug: the plan was made "
+               "from other settings)", list.c_str());
+    } catch (...) {
+    }
+}
+
 void part(std::string_view label, uint64_t took_ms) {
     if (auto* w = writer()) try {
             w->part(label, took_ms);

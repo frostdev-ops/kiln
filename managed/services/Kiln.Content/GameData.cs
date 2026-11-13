@@ -102,6 +102,8 @@ internal static class GameDataSectionStarter
         {
             var t = Type.GetType("Kiln.BlocksStartup, Kiln.Blocks");
             if (t != null) RuntimeHelpers.RunClassConstructor(t.TypeHandle);
+            // progress.json: nothing will apply the blocks/ folders, so the step "content" Kiln.Host began is over
+            else if (StartProgress.Step("content") == StartProgress.Ok) StartProgress.Step("game", StartProgress.GameLabel(Kiln.Client.IsClient));
             Backend.Current.Log(0, t != null ? LogLevel.Info : LogLevel.Warn, t != null
                 ? "Kiln.Content: started Kiln.Blocks for a mod's blocks/ folder"
                 : "Kiln.Content: a mod has a blocks/ folder and Kiln.Blocks is not installed");

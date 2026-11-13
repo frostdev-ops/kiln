@@ -89,9 +89,10 @@ is not written again after `ready`, `idle` or `failed`. boot.json is unchanged.
 | `content` | Kiln.Blocks compiles the loaded mods' `blocks/*.json` (materials are checked against kiln-vfx's boot build); none: it ends at once | `<mod>: <section> <block>`; data blocks |
 | `game` | Kiln is done; the game goes on loading | - |
 
-`ready`: a client when kiln-ui sees the main menu's builder run (or the first in-game frame) and Kiln.Host has loaded
-the mods; a server at Kiln.Host's ServerStarted (what `kilnctl run --wait` waits for), or without .NET the server
-world's first step. A step begins when the one before it ends, so in a final state the steps' `tookMs` add up to
+`ready`: once step `game` has begun (the mods are loaded and their content applied) and the side's signal has come,
+in whichever order (a signal that comes first is remembered): a client's when kiln-ui sees the main menu's builder run
+(or the first in-game frame); a server's at Kiln.Host's ServerStarted (what `kilnctl run --wait` waits for), or
+without .NET the server world's first step. A step begins when the one before it ends, so in a final state the steps' `tookMs` add up to
 `atMs`.
 
 Shared definitions (ids, semver, kdh1, game paths): `schema/common.schema.json`. Validate every example with

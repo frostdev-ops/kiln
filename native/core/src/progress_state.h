@@ -22,6 +22,9 @@ bool begun();
 // The running step or the next one of the plan (Model::step); false when refused or over.
 bool step(std::string_view id, std::string_view label = {}, std::string_view detail = {}, uint64_t done = 0,
           uint64_t total = 0);
+// step(), and when the plan has steps before `id` this start never began (a plan made from other settings than the
+// ones that applied: a Kiln bug), those are taken out of the plan with a warning in kiln.log, and `id` begins.
+void step_or_skip(std::string_view id, std::string_view label = {}, std::string_view detail = {});
 void part(std::string_view label, uint64_t took_ms);  // kept from 500 ms
 void loading();                                       // boot is complete
 void mark(uint32_t what);                             // KILN_PROGRESS_MARK_* and the core's own world_started (3)

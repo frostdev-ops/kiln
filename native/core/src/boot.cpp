@@ -450,8 +450,9 @@ void boot() {
     }
     // Server or client: its own definitions, build records and kiln.json section.
     const uint32_t side = image().side;
-    progress_state::begin(kiln_build, side_name(side), f.started_ms, started_utc, start_plan());
     apply_side(side);
+    // after apply_side: kiln.json's side section may switch .NET (clr) off or on, and the plan follows what applies
+    progress_state::begin(kiln_build, side_name(side), f.started_ms, started_utc, start_plan());
     std::string note;
     const bool verified = build_verified(side, image().sha256, &note);
     f.verified = verified;
@@ -539,11 +540,11 @@ void boot() {
         progress_state::failed(f.clr_error);
     } else {
         if (config().clr)
-            progress_state::step("mods", "Waiting for the game to load the mods",
-                                 side == KILN_SIDE_CLIENT ? "they load in the game's first menu frame"
-                                                          : "they load at the server world's first step");
+            progress_state::step_or_skip("mods", "Waiting for the game to load the mods",
+                                         side == KILN_SIDE_CLIENT ? "they load in the game's first menu frame"
+                                                                  : "they load at the server world's first step");
         else
-            progress_state::step("game", game_label(side));
+            progress_state::step_or_skip("game", game_label(side));
         progress_state::loading();
     }
 }
