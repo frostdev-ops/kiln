@@ -100,6 +100,11 @@ std::atomic<KilnCombatListenerFn> g_listener{nullptr};
 std::atomic<void*> g_listener_user{nullptr};
 std::atomic<uint32_t> g_interest{0};
 std::atomic<bool> g_holding{false};
+// The listener's return sets the whole mask each step, and it worked that mask out before a handler added on another
+// thread existed. What widen_interest added since the listener was called is kept here and put back in when the
+// return is taken (both under this lock), or holding went off again right after Events.On had returned.
+std::mutex g_interest_mu;
+uint32_t g_widened = 0;
 static_assert(kHoldOffsets[0] == HitOffsets::target && kHoldOffsets[1] == HitOffsets::root_target &&
               kHoldOffsets[2] == HitOffsets::source && kHoldOffsets[3] == HitOffsets::root_source);
 HoldFilter g_hold_filter;  // g_mu: the entities the handlers watch (hold_filter, since 0.2.0-dev.27); off: hold every hit
@@ -1044,6 +1049,10 @@ void on_pre_impl(const KilnTickInfo* tick) {
     // Deliver. Every step, so the listener can change its interest.
     uint32_t next = interest;
     if (fn) {
+        {
+            std::lock_guard lock(g_interest_mu);
+            g_widened = 0;  // what was added before this call is in the listener's own answer
+        }
         if (!seh_call_listener(fn, events.data(), static_cast<uint32_t>(events.size()), g_listener_user.load(), &next)) {
             LOGE("the combat listener faulted; removed (held hits go back unchanged)");
             g_listener.store(nullptr);
@@ -1165,11 +1174,18 @@ void on_pre_impl(const KilnTickInfo* tick) {
         }
         g_release.push_back(held[i]);
     }
-    const uint32_t old = g_interest.exchange(next);
-    const bool hold = (next & (KILN_COMBAT_MASK(KILN_COMBAT_HURT) | KILN_COMBAT_MASK(KILN_COMBAT_HEAL) |
-                               KILN_COMBAT_MASK(KILN_COMBAT_KNOCKBACK))) != 0 &&
-                      g_hits_ok && g_listener.load();
-    if (g_holding.exchange(hold) != hold)
+    uint32_t old;
+    bool hold, hold_changed;
+    {
+        std::lock_guard lock(g_interest_mu);
+        if (g_listener.load()) next |= g_widened;  // a handler added while the listener ran
+        old = g_interest.exchange(next);
+        hold = (next & (KILN_COMBAT_MASK(KILN_COMBAT_HURT) | KILN_COMBAT_MASK(KILN_COMBAT_HEAL) |
+                        KILN_COMBAT_MASK(KILN_COMBAT_KNOCKBACK))) != 0 &&
+               g_hits_ok && g_listener.load();
+        hold_changed = g_holding.exchange(hold) != hold;
+    }
+    if (hold_changed)
         LOGI("%s entity hits for the listener (interest 0x%x)", hold ? "holding" : "no longer holding", next);
     else if (old != next)
         LOGI("listener interest 0x%x", next);
@@ -1749,13 +1765,20 @@ KilnResult t_status(KilnCombatStatus* out) {
 // held by the widened filter and then let go unannounced, because its kind was not in the mask yet.
 void widen_interest(uint32_t mask) {
     if (!mask || !g_listener.load()) return;
-    const uint32_t old = g_interest.fetch_or(mask);
-    const uint32_t next = old | mask;
+    uint32_t old, next;
+    bool began = false;
+    {
+        std::lock_guard lock(g_interest_mu);
+        g_widened |= mask;
+        old = g_interest.fetch_or(mask);
+        next = old | mask;
+        const bool hold = (next & (KILN_COMBAT_MASK(KILN_COMBAT_HURT) | KILN_COMBAT_MASK(KILN_COMBAT_HEAL) |
+                                   KILN_COMBAT_MASK(KILN_COMBAT_KNOCKBACK))) != 0 &&
+                          g_hits_ok;
+        if (hold) began = !g_holding.exchange(true);
+    }
     if (next == old) return;
-    const bool hold = (next & (KILN_COMBAT_MASK(KILN_COMBAT_HURT) | KILN_COMBAT_MASK(KILN_COMBAT_HEAL) |
-                               KILN_COMBAT_MASK(KILN_COMBAT_KNOCKBACK))) != 0 &&
-                      g_hits_ok;
-    if (hold && !g_holding.exchange(true)) LOGI("holding entity hits for the listener (interest 0x%x, a handler was added)", next);
+    if (began) LOGI("holding entity hits for the listener (interest 0x%x, a handler was added)", next);
     else LOGI("listener interest 0x%x (a handler was added)", next);
 }
 
