@@ -134,6 +134,19 @@ public sealed class PermissionsTests : KilnTest
     }
 
     [Fact]
+    public void A_player_ref_is_asked_by_steam_id_also_after_its_session()
+    {
+        Rules("""{ "players": { "76561190000000012": { "name": "Gus", "groups": [], "nodes": ["t.fly"] } } }""");
+        Permissions.Register("t.fly", PermissionLevel.Admin);
+        // the session entity is stale (slot 3 belongs to someone else by now): the Steam id still decides
+        var gus = new PlayerRef(Gus, Guid.NewGuid(), new EntityRef(new EntityId(3), 41));
+        Assert.True(Permissions.Has(gus, "t.fly"));
+        Assert.False(Permissions.Has(new PlayerRef(Steve, Guid.Empty, EntityRef.None), "t.fly"));
+        Assert.Equal(Permissions.Has(PermissionSubject.ForSteamId(Gus), "t.fly"), Permissions.Has(gus, "t.fly"));
+        Assert.Throws<ArgumentException>(() => Permissions.Has(PlayerRef.None, "t.fly"));
+    }
+
+    [Fact]
     public void Broken_file_keeps_the_rules()
     {
         Permissions.SetPlayerNode(Gus, "t.x", true);

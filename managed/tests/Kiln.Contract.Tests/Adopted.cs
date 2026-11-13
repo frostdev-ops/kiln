@@ -12,6 +12,11 @@ internal static class Adopted
     internal static readonly Type[] Anchors =
     [
         typeof(Spawn),
+        typeof(Example),
+        typeof(Assets),
+        typeof(Client),
+        typeof(Settings),
+        typeof(Permissions),
     ];
 
     internal static IEnumerable<Assembly> Assemblies => Anchors.Select(t => t.Assembly).Distinct();

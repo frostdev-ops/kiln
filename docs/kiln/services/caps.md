@@ -121,6 +121,10 @@ refreshed on the service tick. When a service's table is missing, the service lo
 | `spawn.components` | managed, static | Kiln.Spawn | this kiln.spawn takes `SpawnOptions.Components` (`service-older` otherwise) |
 | `spawn.world` | managed, session | Kiln.Spawn, every 25 steps | the server world runs, so entities can be created and the tracked list cleaned up (`Spawn.WorldRunning`); pending while the save loads and after a hosted world closed; unavailable without kiln.spawn |
 | `spawn.create`, `spawn.destroy`, `spawn.entities`, `spawn.templates` | sigdb features | core; Kiln.Spawn lowers them when kiln.spawn is not loaded | creating entities, `Spawn.Destroy`, the entity scan, the game's template list |
+| `settings.ready` | managed, session | Kiln.Settings, every 25 steps | the live game settings were found (`Settings.Ready`): pending until the end of the server's first world step; unavailable without kiln.settings. The members still throw `InvalidOperationException` before that, as they always did |
+| `settings.live`, `settings.world`, `settings.resend`, `settings.daytime` | sigdb features | core; Kiln.Settings lowers them when kiln.settings is not loaded | the live settings, the world's own values, the resend to players, the day/night clock |
+| `assets.textures` | managed, static | Kiln.Assets | texture overrides (`Assets.OverrideTexture`): kiln.assets is here and this is a game client (`wrong-side` on a server) |
+| `assets.resources`, `assets.content`, `assets.ui_icons` | sigdb features | core; Kiln.Assets lowers them when kiln.assets is not loaded | resources, content blobs, item icons (game client) |
 
 ## Rules
 - Each owner holds at most one report per name. A reader sees the worst report for the name: unavailable beats

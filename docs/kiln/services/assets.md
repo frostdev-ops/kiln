@@ -25,8 +25,11 @@ resources live only while the mod is loaded and come off cleanly. Evidence and t
 - **Content blob**: supply new blob bytes, or override a vanilla blob, that a resource references (both sides).
 - **Dump**: write a resource's or blob's bytes to `kiln/data/assets/dump/` (for tooling, e.g. the models cooker).
 
-Sides: icons and textures are **client only** (a dedicated server never draws; the calls return
-`NotSupportedException` there). Resources and content blobs work on **both** sides — the server loads templates and
+Sides: icons and textures are **client only** (`[ClientOnly]`; a dedicated server never draws; the calls throw
+`KilnUnavailableException` there, naming `assets.ui_icons` or `assets.textures`; it is a `NotSupportedException`, as
+before). Each member carries `[RequiresCapability]` with the row it needs: `kiln.assets`, `assets.resources`,
+`assets.content`, `assets.ui_icons` or `assets.textures` ([caps.md](caps.md)); every member is `[AnyThread]`.
+Resources and content blobs work on **both** sides — the server loads templates and
 item data too. The server's game data has no `keen::RenderModel`, so meshes only show on the client.
 
 ## Mod layout: `assets/assets.json`

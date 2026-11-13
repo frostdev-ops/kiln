@@ -80,8 +80,15 @@ available is generated from a boot's `capabilities.json`: [../status.generated.m
 
 ## Managed rules
 - Public API as static classes in namespace `Kiln` (e.g. `Kiln.Teleport`), no pointers in public signatures.
-- `Services.Get<T>(name, version)` gives the native table (null = unavailable: throw `NotSupportedException` or
-  return a failed result; expose `Available`). `Services.RequireTickThread(api)` for game-state calls.
+- `Services.Get<T>(name, version)` gives the native table (null = unavailable: throw `KilnUnavailableException`
+  naming the capability, `ServiceCaps.Unavailable("kiln.<svc>", ...)`; expose `Available`).
+  `Services.RequireTickThread(api)` for game-state calls.
+- The contract ([../modding/contract.md](../modding/contract.md)), as `Kiln.Example` and `Kiln.Spawn` show it: rows
+  for what can be off beyond the table itself (`ServiceCapRows` with `ServiceCaps.Static` / `Session`, reported at the
+  service's first use), `[RequiresCapability]` on the members that throw for one, `[ServerOnly]` / `[ClientOnly]` and
+  `[TickThreadOnly]` / `[AnyThread]` on every member that has a side or a thread, the game's refusal as a result
+  record that implements `IKilnResult`, a bus event for every write. `managed/tests/Kiln.Contract.Tests` checks the
+  rules that can be checked by reflection: add the service to `Adopted.cs`.
 - Async work: return `Task`/`Task<T>` completed on the tick thread. Anything that holds a mod's delegates or
   continuations must be dropped when that mod unloads: get the caller with `ModContext.CurrentMod` and subscribe to its
   `Retiring` event.

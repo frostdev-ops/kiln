@@ -59,8 +59,14 @@ var st = Settings.Status;                             // Ready, Revision, Resend
 
 - Everything except `Available`, `Ready`, `Status` and `Revision` runs on the tick thread (mods are called there).
 - Exceptions: `ArgumentException` (value refused; the message says why), `KeyNotFoundException` (no such setting),
-  `InvalidOperationException` (not ready yet / wrong thread), `NotSupportedException` (service unavailable on this
-  build), `IOException` from `Save`.
+  `InvalidOperationException` (not ready yet / wrong thread), `KilnUnavailableException` naming `kiln.settings`
+  (service unavailable on this build; a `NotSupportedException`, as before), `IOException` from `Save`.
+- The contract (dev.27, [contract.md](../modding/contract.md)): server side only (`[ServerOnly]`). Capability rows
+  `kiln.settings` and `settings.ready` (session: pending until the live settings are found at the end of the server's
+  first world step; the same as `Ready`); without the service Kiln.Settings lowers the sigdb features `settings.live`,
+  `settings.world`, `settings.resend` and `settings.daytime`. A call before the settings are ready keeps throwing
+  `InvalidOperationException`: a `catch` written for it would not catch `KilnUnavailableException`. `TrySet` already
+  gives the reason of a refused value; there is no result record. Every change posts `SettingChangedEvent`.
 - Values are JSON-friendly, as `enshrouded_server.json` has them: factors `double` (rounded to 6 decimals), whole
   numbers and durations `long` (nanoseconds), options `string`, switches `bool`. `Set` also takes a `JsonElement`.
 - `Revision` goes up on every change kiln.settings sees, including one made in the game's admin menu (logged as

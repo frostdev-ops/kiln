@@ -66,6 +66,22 @@ public readonly record struct PermissionSubject
     public static PermissionSubject ForPlayer(EntityId entity) =>
         new() { Kind = PermissionSubjectKind.Player, Name = $"player {entity}", Entity = entity };
 
+    /// <summary>A person by <see cref="PlayerRef"/>, online or not. Asked by Steam id, so a ref of an earlier session
+    /// never borrows the rights of whoever has that entity slot now. A ref without a Steam id counts as its session
+    /// entity only while that session lasts (<see cref="PlayerRef.IsOnline"/>, tick thread); after it the subject is a
+    /// player nobody knows, who has what every player has by default and nothing more. Since 0.2.0-dev.27.</summary>
+    /// <exception cref="ArgumentException"><paramref name="player"/> is <see cref="PlayerRef.None"/>.</exception>
+    /// <exception cref="KilnUnavailableException">The ref has no Steam id and no service can say whether its session
+    /// lasts (<c>identity.entities</c>).</exception>
+    public static PermissionSubject ForPlayer(PlayerRef player)
+    {
+        if (player.IsNone) throw new ArgumentException("PlayerRef.None names nobody", nameof(player));
+        if (player.SteamId != 0) return ForSteamId(player.SteamId);
+        return player.IsOnline
+            ? ForPlayer(player.Entity.Id)
+            : new() { Kind = PermissionSubjectKind.Player, Name = "player (left)" };
+    }
+
     /// <summary>A player by SteamID64, online or not (the dashboard, tests). Without <paramref name="gameRights"/>
     /// the rights of the online player with that id are used, if any.</summary>
     public static PermissionSubject ForSteamId(ulong steamId, string? name = null, PlayerPermissions? gameRights = null,
@@ -134,6 +150,7 @@ public static class Permissions
     /// permissions.json says nothing. Owned by the calling mod (gone when it unloads). Registering a node again
     /// (same owner) replaces it. Any thread.
     /// </summary>
+    [AnyThread]
     public static PermissionNode Register(string node, PermissionLevel defaultLevel = PermissionLevel.Admin, string? description = null)
     {
         var n = PermissionRules.Normalize(node) ?? throw new ArgumentException($"invalid permission node '{node}' (letters, digits, _ - separated by dots)", nameof(node));
@@ -179,6 +196,7 @@ public static class Permissions
     }
 
     /// <summary>Whether <paramref name="subject"/> has <paramref name="node"/>.</summary>
+    [AnyThread]
     public static bool Has(PermissionSubject subject, string node) => Explain(subject, node).Allowed;
 
     /// <summary>Whether an online player has <paramref name="node"/>.</summary>
@@ -187,7 +205,14 @@ public static class Permissions
     /// <summary>Whether the online player with this entity has <paramref name="node"/>.</summary>
     public static bool Has(EntityId player, string node) => Has(PermissionSubject.ForPlayer(player), node);
 
+    /// <summary>Whether this person has <paramref name="node"/>, online or not
+    /// (<see cref="PermissionSubject.ForPlayer(PlayerRef)"/>: asked by Steam id, so a ref of an earlier session never
+    /// answers for the player who has that entity slot now). Since 0.2.0-dev.27.</summary>
+    /// <exception cref="ArgumentException"><paramref name="player"/> is <see cref="PlayerRef.None"/>, or the node is invalid.</exception>
+    public static bool Has(PlayerRef player, string node) => Has(PermissionSubject.ForPlayer(player), node);
+
     /// <summary>The decision with the rule that made it (for "/perm check" and the dashboard).</summary>
+    [AnyThread]
     public static PermissionDecision Explain(PermissionSubject subject, string node)
     {
         var n = PermissionRules.Normalize(node) ?? throw new ArgumentException($"invalid permission node '{node}'", nameof(node));
@@ -231,10 +256,12 @@ public static class Permissions
     // ---- editing (tick thread; written to permissions.json) ----
 
     /// <summary>Grants (true), denies (false) or clears (null) a node for one player.</summary>
+    [TickThreadOnly]
     public static void SetPlayerNode(ulong steamId, string node, bool? allow, string? name = null) =>
         PermissionStore.Edit(m => m.PlayerOf(steamId, name).SetRule(Pattern(node), allow), $"player {steamId}: {node} = {Show(allow)}");
 
     /// <summary>Puts a player into a Kiln group (created when missing).</summary>
+    [TickThreadOnly]
     public static void AddPlayerToGroup(ulong steamId, string group, string? name = null) =>
         PermissionStore.Edit(m =>
         {
@@ -243,6 +270,7 @@ public static class Permissions
             if (!p.Groups.Contains(group, StringComparer.OrdinalIgnoreCase)) p.Groups.Add(group);
         }, $"player {steamId}: + group {group}");
 
+    [TickThreadOnly]
     public static void RemovePlayerFromGroup(ulong steamId, string group) =>
         PermissionStore.Edit(m =>
         {
@@ -250,10 +278,12 @@ public static class Permissions
         }, $"player {steamId}: - group {group}");
 
     /// <summary>Grants, denies or clears a node for a Kiln group (created when missing).</summary>
+    [TickThreadOnly]
     public static void SetGroupNode(string group, string node, bool? allow) =>
         PermissionStore.Edit(m => m.GroupOf(group).SetRule(Pattern(node), allow), $"group {group}: {node} = {Show(allow)}");
 
     /// <summary>Creates or changes a Kiln group: admin flag and inherited groups (null = unchanged).</summary>
+    [TickThreadOnly]
     public static void SetGroup(string group, bool? admin = null, IEnumerable<string>? inherits = null) =>
         PermissionStore.Edit(m =>
         {
@@ -263,6 +293,7 @@ public static class Permissions
         }, $"group {group}");
 
     /// <summary>Removes a Kiln group (and players' memberships of it).</summary>
+    [TickThreadOnly]
     public static void RemoveGroup(string group) =>
         PermissionStore.Edit(m =>
         {
@@ -272,6 +303,7 @@ public static class Permissions
         }, $"- group {group}");
 
     /// <summary>Maps a server user group (enshrouded_server.json name) to Kiln groups (empty: no mapping).</summary>
+    [TickThreadOnly]
     public static void MapUserGroup(string userGroup, IEnumerable<string> groups) =>
         PermissionStore.Edit(m =>
         {

@@ -18,6 +18,11 @@
   <ItemGroup>
     <ProjectReference Include="../../Kiln.Api/Kiln.Api.csproj" />
     <ProjectReference Include="../../services/Kiln.Spawn/Kiln.Spawn.csproj" />
+    <ProjectReference Include="../../services/Kiln.Example/Kiln.Example.csproj" />
+    <ProjectReference Include="../../services/Kiln.Assets/Kiln.Assets.csproj" />
+    <ProjectReference Include="../../services/Kiln.Client/Kiln.Client.csproj" />
+    <ProjectReference Include="../../services/Kiln.Settings/Kiln.Settings.csproj" />
+    <ProjectReference Include="../../services/Kiln.Permissions/Kiln.Permissions.csproj" />
   </ItemGroup>
   <ItemGroup>
     <!-- The analyzers' tick-thread table, generated from the services' code: the attributes are checked against it. -->

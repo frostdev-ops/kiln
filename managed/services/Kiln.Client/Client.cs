@@ -89,6 +89,7 @@ public static unsafe class Client
     private static readonly SynchronizationContext Sync = new ClientSynchronizationContext();
 
     /// <summary>True when the kiln.client service is there (any Kiln with hooks enabled).</summary>
+    [AnyThread]
     public static bool Available => T != null;
 
     private static NativeState Read()
@@ -99,41 +100,53 @@ public static unsafe class Client
     }
 
     /// <summary>True in the game client (enshrouded.exe), false on a dedicated server.</summary>
+    [AnyThread]
     public static bool IsClient => Read().Side == SideClient;
 
     /// <summary>True on a dedicated server (enshrouded_server.exe).</summary>
+    [AnyThread]
     public static bool IsDedicatedServer => !IsClient;
 
     /// <summary>What runs right now. Any thread; the value can change at the next frame.</summary>
+    [AnyThread]
     public static ClientState State => (ClientState)Read().Session;
 
     /// <summary>This client hosts the world (single player or co-op host).</summary>
+    [AnyThread]
     public static bool IsHosting => State == ClientState.Hosting;
 
     /// <summary>This client joined a world hosted elsewhere.</summary>
+    [AnyThread]
     public static bool IsRemote => State == ClientState.Remote;
 
     /// <summary>In game (hosting or joined).</summary>
+    [AnyThread]
     public static bool InGame => State is ClientState.Hosting or ClientState.Remote;
 
     /// <summary>The local player's entity, <see cref="EntityId.None"/> in the menu, while loading, before the player
     /// spawned, or on a server. On a host the id is the same in the client and the server world (EMF: ids are shared
     /// by replication), so it works with server-side services there.</summary>
+    [AnyThread]
     public static EntityId LocalPlayer => new(Read().LocalPlayer);
 
     /// <summary>Whether <see cref="LocalPlayer"/> can be known on this game build.</summary>
+    [AnyThread]
     public static bool HasLocalPlayer => (Read().Flags & FlagLocalPlayer) != 0;
 
     /// <summary>Client worlds since the game started (one per hosted or joined game).</summary>
+    [AnyThread]
     public static uint ClientWorldSession => Read().ClientSession;
 
     /// <summary>Server worlds since the game started (one per hosted game).</summary>
+    [AnyThread]
     public static uint ServerWorldSession => Read().ServerSession;
 
     /// <summary>Client-world steps since the game started.</summary>
+    [AnyThread]
     public static ulong ClientWorldSteps => Read().ClientSteps;
 
     /// <summary>True on the thread that steps the client world (the game's main thread).</summary>
+    [AnyThread]
     public static bool IsClientThread => T != null && T->OnClientThread() != 0;
 
     /// <summary>
@@ -168,6 +181,7 @@ public static unsafe class Client
 
     /// <summary>Runs <paramref name="work"/> on the game's main thread before the client world's next step. Thread-safe.
     /// Work of a mod that unloads first is dropped; on a server (or in the menu, until a world runs) it waits.</summary>
+    [AnyThread]
     public static void Post(Action work)
     {
         ArgumentNullException.ThrowIfNull(work);
@@ -182,6 +196,7 @@ public static unsafe class Client
     }
 
     /// <summary><c>await Client.NextTick()</c> continues on the main thread at the next client-world step.</summary>
+    [AnyThread]
     public static NextTickAwaitable NextTick() => default;
 
     public readonly struct NextTickAwaitable
