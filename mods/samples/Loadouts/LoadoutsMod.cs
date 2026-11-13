@@ -7,12 +7,14 @@
 // A loadout keeps item types, not the single pieces: a sword's level, or what a mod stored on that one sword, is not
 // part of it, and any sword of the type will do. Stacks (arrows, bait) are left out.
 // What to take from it:
-//   - ask every capability a command needs before anything is changed, and say which one is off;
+//   - ask every capability a command needs before anything is changed, and say which one is off. A row can lag a
+//     moment behind its service, and a service can refuse for a reason that has no row, so the command also turns
+//     the "not available" exception into a sentence;
 //   - an equip is a task that ends when the game ran it, a step or two later. A refusal is a result with a reason (the
 //     item does not fit the slot, the backpack is full, the player died), not an exception;
 //   - after every await the world may have moved on: the player can have left, and their entity id then names
 //     whoever joins next. Keep a PlayerRef, which knows the session, and ask it before the next read, call or reply;
-//   - read the backpack right before each call, because every equip moves items.
+//   - read the backpack right before each equip, because every equip moves items.
 using Kiln;
 
 namespace Loadouts;
@@ -30,7 +32,8 @@ public sealed class LoadoutsMod : Mod
     private const int MaxSets = 8, MaxName = 24;
     // Capability rows (the /caps command lists them). Reading what a player wears needs the game's item instances,
     // changing it needs Kiln's equip, and telling one session of a player from the next needs the two identity rows.
-    // Each is off on a game build Kiln does not know it for; equip is also off on a game that is in its menu.
+    // The item rows are off on a game build Kiln does not know them for, and equip also on a game that is in its
+    // menu; the identity rows say that a service answers for players and entities at all.
     private const string Gear = "items.instances", Backpack = "items.read", Equip = "items.equip";
     private const string Sessions = "identity.players", Entities = "identity.entities";
     private static readonly string[] ToRead = [Gear], ToChange = [Gear, Backpack, Equip, Sessions, Entities];
@@ -43,22 +46,33 @@ public sealed class LoadoutsMod : Mod
     {
         if (!c.Source.IsPlayer) throw new CommandException("only a player wears things");
         if (string.IsNullOrWhiteSpace(name)) throw new CommandException(Usage);
-        switch (action.ToLowerInvariant())
+        try
         {
-            case "save":
-                c.Reply(Save(c, name));
-                break;
-            case "wear":
-                await Wear(c, name, EquipOptions.None);
-                break;
-            case "check":
-                await Wear(c, name, EquipOptions.DryRun);
-                break;
-            case "off":
-                await Off(c, name);
-                break;
-            default:
-                throw new CommandException(Usage);
+            switch (action.ToLowerInvariant())
+            {
+                case "save":
+                    c.Reply(Save(c, name));
+                    break;
+                case "wear":
+                    await Wear(c, name, EquipOptions.None);
+                    break;
+                case "check":
+                    await Wear(c, name, EquipOptions.DryRun);
+                    break;
+                case "off":
+                    await Off(c, name);
+                    break;
+                default:
+                    throw new CommandException(Usage);
+            }
+        }
+        catch (Exception e) when (e is KilnUnavailableException or NotSupportedException)
+        {
+            // The rows were on when they were asked. A row is brought up to date about once a second, and a call can
+            // need more than its row says (the game's type reflection, a world that can be read): the call then throws
+            // what the contract names for "not available", and the player gets a sentence, not a stack trace. Wear
+            // and Off come here only in a step in which they know the player is still the one who asked.
+            throw new CommandException($"this server cannot do that right now: {e.Message}");
         }
     }
 
@@ -162,7 +176,17 @@ public sealed class LoadoutsMod : Mod
 
     // True when the session a command came from has ended. When the server can no longer tell (the row went off),
     // that counts as ended: better to stop than to act on whoever has the id now.
-    private static bool Left(PlayerRef who) => !Capabilities.Is(Entities) || !who.IsOnline;
+    private static bool Left(PlayerRef who)
+    {
+        try
+        {
+            return !Capabilities.Is(Entities) || !who.IsOnline;
+        }
+        catch (KilnUnavailableException)
+        {
+            return true;
+        }
+    }
 
     private static Wardrobe Mine(CommandContext c)
     {
