@@ -141,6 +141,19 @@ test.describe("controls", () => {
     // no wrap past the last tab
     await pad(page, "rb");
     expect(await screen(page)).toBe("settings");
+    // presses that come faster than a tab is drawn all count (the Editor tab draws a whole inventory on the way)
+    const burst = (button: string, times: number) => page.evaluate(([b, n]) => {
+      const emit = (window as unknown as { __kilnMock: { emit: (n: string, v: unknown) => void } }).__kilnMock.emit;
+      for (let i = 0; i < n; i++) for (const pressed of [true, false]) emit("kiln://gamepad", { kind: "button", button: b, pressed, repeat: false, device: "event9" });
+    }, [button, times] as const);
+    await burst("lb", 7);
+    await expect.poll(() => screen(page)).toBe("home");
+    await burst("rb", 5);
+    await expect.poll(() => screen(page)).toBe("editor");
+    await burst("lb", 2);
+    await expect.poll(() => screen(page)).toBe("catalog");
+    await burst("rb", 4);
+    await expect.poll(() => screen(page)).toBe("settings");
     for (const n of names.slice(1)) {
       await page.goto(`/?deck=steamdeck#/deck/${n === "add" ? "add" : n}`);
       await expect.poll(() => screen(page)).toBe(n);

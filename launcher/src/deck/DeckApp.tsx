@@ -139,13 +139,25 @@ export default function DeckApp() {
   const tab = tabOf(loc.pathname, tabs);
   const tabRef = useRef(tab);
   tabRef.current = tab;
+  // the tab L1/R1 has asked for and the router has not shown yet: the next press counts from it, so a tab that takes
+  // long to draw (the save editor's inventory) does not swallow a press. Forgotten once shown, or after a moment (a
+  // route that sends the player elsewhere).
+  const asked = useRef<{ tab: number; at: number } | null>(null);
+  if (asked.current?.tab === tab) asked.current = null;
   useEffect(() => { document.title = `${tabs[tab].label} · Kiln`; }, [tab, tabs]);
 
   const goTab = (i: number) => { if (i >= 0 && i < tabs.length && i !== tabRef.current) nav(tabs[i].to); };
+  const stepTab = (d: number) => {
+    const from = asked.current && performance.now() - asked.current.at < 1500 ? asked.current.tab : tabRef.current;
+    const i = from + d;
+    if (i < 0 || i >= tabs.length) return;
+    asked.current = { tab: i, at: performance.now() };
+    nav(tabs[i].to);
+  };
   const back = () => {
     const top = topLayer();
     if (top?.back) top.back();
-    else if (!top?.modal && tabRef.current !== 0) nav("/deck");
+    else if (!top?.modal && tabRef.current !== 0) { asked.current = null; nav("/deck"); }
   };
   const runAction = (b: Press["button"]): boolean => {
     const act = topLayer()?.actions.find((a) => a.button === b);
@@ -173,7 +185,7 @@ export default function DeckApp() {
         return;
       }
       case "b": back(); return;
-      case "lb": case "rb": if (!top?.modal) goTab(tabRef.current + (p.button === "rb" ? 1 : -1)); return;
+      case "lb": case "rb": if (!top?.modal) stepTab(p.button === "rb" ? 1 : -1); return;
       case "start": if (!runAction("start") && !top?.modal) setMenu(true); return;
       case "select": if (!runAction("select") && !top?.modal) nav("/deck/help"); return;
       default: runAction(p.button);
