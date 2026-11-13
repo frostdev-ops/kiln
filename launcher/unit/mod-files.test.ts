@@ -16,11 +16,15 @@ test("the dialog offers every archive kind the Library unpacks, and DLLs", () =>
   expect(modFileFilters(true)).toEqual([{ name: "Mods", extensions: MOD_FILE_EXTENSIONS }]);
 });
 
-// review finding 5: GTK and the desktop portal match `*.7z` case-sensitively, so `MOD.7Z` stayed hidden on Linux
-test("on Linux the dialog also lists the upper-case patterns; Windows and macOS get each extension once", () => {
+// review findings 5 and B3: Linux's dialogs (GTK, the desktop portal) match `*.<ext>` case-sensitively, so MOD.7Z and
+// then NightOwl.Zip or mod.Rar stayed hidden; a class per letter takes every case (GTK 3 and 4 checked by hand)
+test("on Linux each extension is one glob that takes every letter case; Windows and macOS get the plain extensions", () => {
   const linux = modFileFilters(false)[0].extensions;
-  for (const e of ["zip", "7z", "rar", "dll"]) expect(linux).toEqual(expect.arrayContaining([e, e.toUpperCase()]));
-  expect(new Set(linux).size).toBe(linux.length);
-  const win = modFileFilters(true)[0].extensions;
-  expect(win.map((e) => e.toLowerCase())).toEqual(["zip", "7z", "rar", "dll"]);
+  expect(linux).toEqual(["[zZ][iI][pP]", "7[zZ]", "[rR][aA][rR]", "[dD][lL][lL]"]);
+  // the glob "*.<ext>" as rfd builds it, read as GTK reads it (character classes, no case folding)
+  const re = linux.map((e) => new RegExp(`^.*\\.${e}$`));
+  const shown = (name: string) => re.some((r) => r.test(name));
+  for (const n of ["NightOwl.Zip", "a.zip", "B.ZIP", "mod.Rar", "x.rAR", "c.7Z", "d.7z", "Plug.Dll"]) expect(shown(n)).toBe(true);
+  for (const n of ["notes.txt", "a.zipx", "zip"]) expect(shown(n)).toBe(false);
+  expect(modFileFilters(true)[0].extensions).toEqual(["zip", "7z", "rar", "dll"]);
 });

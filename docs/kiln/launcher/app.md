@@ -96,12 +96,13 @@ text is about Kiln's own kind it says "Kiln mods".
 - **Above the list**: Filter (words in the name or id) and Kind (when more than one kind is present), shown with more
   than six rows; Notes (N) when the last activation said something about mod folders (below); Load order, Engines,
   Catalog (Nexus builds), Add mods (the file dialog: zip, 7z, rar and DLL files, `shell/modFiles.ts`; folders are
-  dropped; on Linux the upper-case patterns too, its dialogs match case-sensitively; the drop anywhere and the
-  Catalog stay). "All on (N)" and "All off (N)" (or "Shown on/off" while the filter
+  dropped; on Linux one glob per extension in every letter case, `*.[zZ][iI][pP]`, since its dialogs match
+  case-sensitively; the drop anywhere and the Catalog stay). "All on (N)" and "All off (N)" (or "Shown on/off" while the filter
   or Kind narrows the list) switch every row shown whose own switch would change, N of them, as one profile save;
   game-folder rows have no switch and are left out (the button's title and the toast say how many and why), and the
-  toast's Undo puts back what they changed, leaving every mod switched in the list since (`bulkPlan`, `applyBulk`,
-  `revertBulk` in `shell/mods.ts`; the record in `shell/useMods.ts`). The Undo runs on the list as it is when pressed
+  toast's Undo puts back what they changed, leaving every mod changed since on any page (`bulkPlan`, `applyBulk`,
+  `revertBulk` in `shell/mods.ts`; the record in `shell/useMods.ts`, fed by the shared save queue's watchers in
+  `pages/profiles/useProfileEdit.ts`). The Undo runs on the list as it is when pressed
   and says it cannot when another profile is loaded, a save still runs, or the profile changed elsewhere (the
   backend's generation is read first). With no mod at all the list says how to add one. The list scrolls inside the page.
 - **Profiles are a background feature**: one profile is always loaded per game. `useEnsureProfile` calls
@@ -247,8 +248,9 @@ window, Play. The mod is in the list on Play, switched on.
   (a name, then `profile_create` of an empty profile and `library_add_to_profile` into it); the toast after it has
   "Load it" (`profile_activate` in this game) when the picked profile is not the loaded one, and Undo. The dialog keeps
   the drop until the add worked (a profile made by "New profile…" whose add failed is listed, to pick again). One
-  activation per game at a time (`api/oneActivation.ts`, inside `profileActivate`/`profileDeactivate`): another one
-  while it runs is refused with "Kiln is still loading a profile in this game". A drop takes a
+  activation per game at a time (`api/oneActivation.ts`, inside `profileActivate`, `profileDeactivate`,
+  `profileEnsureDefault`, `libraryAddToProfile` and `launchPlay`): another one while it runs is refused with "Kiln is
+  still loading a profile in this game". A drop takes a
   zip, 7z or rar (`library::archive_kind`), a folder or a DLL. Modpack zips open the consent dialog (`ModpackDropOffer`: tick the box, then
   `modpack_install` with `{path}`). A drop on a DropZone (Runtime's bundle row) or while a dialog is
   open is not the window's; a covered or busy DropZone takes no drops. Overlapping identical drops run once; other
