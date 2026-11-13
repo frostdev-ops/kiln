@@ -323,10 +323,16 @@ function BarToast({ t, onMeasured, onClick }: { t: ToastItem; onMeasured: (id: n
   const title = useRef<HTMLSpanElement>(null);
   const detail = useRef<HTMLSpanElement>(null);
   const err = t.kind === "err";
+  // what was last told to the toaster: the same answer is not told again (telling it on every render is a state update
+  // in each commit, and under load those nested until React stopped them: "Maximum update depth exceeded")
+  const told = useRef<Fit | null>(null);
   const measure = () => {
     if (!err) return;
     const over = (el: HTMLElement | null) => !!el && el.scrollHeight > el.clientHeight + 1;
-    onMeasured(t.id, over(title.current) ? "title" : over(detail.current) ? "detail" : "fits");
+    const fit: Fit = over(title.current) ? "title" : over(detail.current) ? "detail" : "fits";
+    if (fit === told.current) return;
+    told.current = fit;
+    onMeasured(t.id, fit);
   };
   useLayoutEffect(measure);
   useEffect(() => {
