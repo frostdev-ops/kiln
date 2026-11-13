@@ -917,12 +917,13 @@ impl SetAside {
         }
     }
 
-    /// The cook did not end well: this run puts back what it set aside (the receipts, the mod's own files as they were,
-    /// the cooked files); what the failed cook made goes. Every part is tried, whatever became of the others, and what
-    /// only this run's memory holds (the receipts and the mod's own files) goes back first: when the cooked folder
-    /// cannot be put back (a sharing violation, a permission), those are right already and the set-aside stays where
-    /// it is. Nothing is written through a link: a temporary file gets a new name of its own, and a file of the mod
-    /// that is reached through a link is left alone. Err is the first thing that went wrong.
+    /// The cook did not end well: this run puts back what it set aside (the cooked files, the receipts, the mod's own
+    /// files as they were); what the failed cook made goes. Every part is tried, whatever became of the others: when
+    /// the cooked folder cannot be put back (a sharing violation, a permission), the receipts and the mod's own files,
+    /// which only this run's memory holds, still go back, and the set-aside stays where it is. The cooked folder
+    /// comes first because removing the failed cook's outputs frees the space the other writes may need (a cook that
+    /// failed on a full disk). Nothing is written through a link: a temporary file gets a new name of its own, and a
+    /// file of the mod that is reached through a link is left alone. Err is the first thing that went wrong.
     fn restore(&self, dir: &Path, game: Option<&Path>) -> Result<()> {
         let cooked = dir.join("assets").join("cooked");
         crate::engine_mods::refuse_symlink_path(dir, &cooked)?;
@@ -932,6 +933,7 @@ impl SetAside {
                 first = Some(e);
             }
         };
+        note(self.put_back_tree(&cooked));
         if let Some(game) = game {
             for (file, _) in receipts_of(game, dir) {
                 let _ = std::fs::remove_file(file);
@@ -957,7 +959,6 @@ impl SetAside {
                 _ => {}
             }
         }
-        note(self.put_back_tree(&cooked));
         match first {
             Some(e) => Err(e),
             None => Ok(()),
