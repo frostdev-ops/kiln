@@ -2,9 +2,9 @@
 // Guided client checks for tracked writes: what only a player in the real game can confirm, that a change made with
 // World.Update reaches the player's own screen through the game's replication. The lab proves the save half
 // (WorldWritesTestMod.cs) and, on a spawned player character, that the game keeps a tracked write of a carried can's Fuel
-// and that a water refill on the character writes it back (CarriedPart.cs); a lab has no client and no screen.
+// and that a water refill on the character writes it back (CarriedPart.cs); a lab has no client and no screen. The rejoin
+// checks' plan and matching are plain functions in RejoinPlan.cs (tested in managed/tests/Kiln.World.Tests).
 // Docs: docs/kiln/services/world.md, "Client checklist".
-using System.Text.Json;
 using Kiln;
 using Kiln.Testing;
 using static Kiln.Testing.ClientCheckTags;
@@ -16,8 +16,20 @@ public sealed partial class WorldWritesTestMod
     private const string Area = "World writes", Since = "0.2.0-dev.27";
     private const int RejoinUnits = 23 * Items.Fuel.UnitsPerCharge;  // 23 of 100 charges
 
+    // The rejoin checks' mark on the can they give: instance data only they set, kept with the world's record of the
+    // character (Persist.World), read back to find that can and no other.
+    private sealed class CanMark
+    {
+        public string Plan { get; set; } = "";
+    }
+
+    private InstanceKey<CanMark>? _canMark;
+    private readonly Guid _load = Guid.NewGuid();  // this load of the mod: a hosted world loads it anew each time it opens
+
     private void RegisterClientChecks()
     {
+        try { _canMark = InstanceData.Key<CanMark>("rejoin-can"); }
+        catch (Exception e) when (e is InvalidOperationException or ArgumentException or KilnUnavailableException) { Info($"no instance data key for the rejoin checks: {e.Message}"); }
         var n = ClientChecks.Register(this);
         Info($"{n} guided client check(s) registered");
     }
@@ -40,9 +52,6 @@ public sealed partial class WorldWritesTestMod
                    "this check again; answer skip now.");
         return false;
     }
-
-    private static int FlatSlot(CheckContext c, EntityId item) =>
-        Items.Read(c.Player)?.Slots.ToList().FindIndex(s => s.ItemEntity == item) ?? -1;
 
     /// <summary>Gives a can into the player's backpack; <paramref name="takeBack"/>: the check takes it back when it ends.</summary>
     private async Task<EntityId> GiveCan(CheckContext c, bool takeBack = true)
@@ -88,24 +97,51 @@ public sealed partial class WorldWritesTestMod
 
     // ------------------------------------------------------------------ across a leave to the menu and back ----
     // Two checks: the world closes when the player leaves to the menu, and with it this mod and a running check, so the
-    // second half is a check of its own. The can is the first one's and stays in the backpack until the second ends.
+    // second half is a check of its own. The first half gives a can and marks it with instance data (CanMark) that only it
+    // sets; its plan (RejoinPlan.cs) is one file per world and character and names the session it ran in. The second half
+    // judges only in another session, finds the can by the mark alone, and takes nothing when no item or more than one
+    // carries it. A first half whose second half never runs leaves the can in the backpack (the player's to keep or throw
+    // away) and its plan: the next first half in that world with that character uses the same can again.
 
-    private sealed record RejoinPlan(uint Item, int Flat, int Units, string When);
+    private string PlanFile(string world, string character) => Path.Combine(Context.DataDirectory, "rejoin", RejoinPlan.FileName(world, character));
 
-    private string RejoinFile => Path.Combine(Context.DataDirectory, "rejoin-can.json");
-
-    private RejoinPlan? LoadRejoin()
+    private RejoinPlan? LoadPlan(string world, string character)
     {
-        try { return File.Exists(RejoinFile) ? JsonSerializer.Deserialize<RejoinPlan>(File.ReadAllText(RejoinFile)) : null; }
-        catch (Exception e) when (e is IOException or JsonException) { return null; }
+        try { return RejoinPlan.Parse(File.Exists(PlanFile(world, character)) ? File.ReadAllText(PlanFile(world, character)) : null); }
+        catch (IOException) { return null; }
     }
 
-    /// <summary>The can a plan names: the item in its flat slot, else (the backpack was sorted) a can holding the plan's water.</summary>
-    private static EntityId PlannedCan(CheckContext c, RejoinPlan plan)
+    private static string? CharacterOf(EntityId player) =>
+        CharacterData.KeyOf(player) is { IsNone: false } k ? $"{k.Account:x}-{k.Id:N}" : null;
+
+    private string SessionOf(EntityId player) =>
+        Players.Find(player) is { } p ? Rejoin.Session(_load, p.Handle, p.JoinedStep) : Rejoin.Session(_load, 0, 0);
+
+    /// <summary>The cans the player carries, each with its mark (null: none).</summary>
+    private List<(InventorySlot Slot, string? Mark)> CarriedCans(CheckContext c)
     {
-        var slots = Items.Read(c.Player)?.Slots ?? [];
-        if (plan.Flat >= 0 && plan.Flat < slots.Count && slots[plan.Flat] is { ItemEntity.IsNone: false } s && s.Item.Value == plan.Item) return s.ItemEntity;
-        return slots.FirstOrDefault(x => x.Item.Value == plan.Item && !x.ItemEntity.IsNone && FuelUnits(x.ItemEntity) == plan.Units)?.ItemEntity ?? EntityId.None;
+        var can = Items.Lookup(Can)!.Id;
+        return Items.Read(c.Player)?.Slots.Where(s => s.Item == can && !s.ItemEntity.IsNone)
+            .Select(s => (s, !s.Ref.IsNone && s.Ref.TryGet(_canMark!, out var m) ? m.Plan : (string?)null)).ToList() ?? [];
+    }
+
+    /// <summary>The one carried can with <paramref name="mark"/>, or none and why.</summary>
+    private (InventorySlot? Slot, string? Why) MarkedCan(CheckContext c, string mark)
+    {
+        var cans = CarriedCans(c);
+        var (i, why) = Rejoin.Marked(cans.Select(x => x.Mark).ToList(), mark);
+        return i < 0 ? (null, why) : (cans[i].Slot, null);
+    }
+
+    /// <summary>The world and character a plan is for, and that the mark can be read; false with the reason otherwise.</summary>
+    private bool RejoinPossible(CheckContext c, out string world, out string character)
+    {
+        world = Saves.WorldId ?? "";
+        character = CharacterOf(c.Player) ?? "";
+        return c.Expect(_canMark is not null && Capabilities.Is("saves.instance_data"), "the can can be marked as this check's (instance data)",
+                   Capabilities.Why("saves.instance_data")) &&
+               c.Expect(world.Length > 0, "the world has an id (it was saved at least once)", world.Length > 0 ? world : "none yet: play a minute or leave and come back once") &&
+               c.Expect(character.Length > 0, "your character is known (kiln.saves)", character.Length > 0 ? character : "unknown");
     }
 
     [ClientCheck("world.tracked-water-rejoin", "A tracked write is still there after you leave and come back (1 of 2): a can at 23",
@@ -113,25 +149,42 @@ public sealed partial class WorldWritesTestMod
     public async Task TrackedWaterRejoin(CheckContext c)
     {
         if (!HasPlayer(c) || !c.Expect(World.SupportsTrackedWrites, "world.tracked_writes is available", Capabilities.Why(World.TrackedWritesCapability)) ||
-            !NoWaterRule(c))
+            !NoWaterRule(c) || !RejoinPossible(c, out var world, out var character))
         {
             await c.Verdict();
             return;
         }
-        // its own can: the one an earlier run left in the backpack, else a new one; it stays there across the leave
-        var can = LoadRejoin() is { } earlier ? PlannedCan(c, earlier) : EntityId.None;
-        if (can.IsNone) can = await GiveCan(c, takeBack: false);
-        else c.Expect(true, "the can of an earlier run of this check is still in your backpack", $"item entity {can}");
-        if (can.IsNone) { await c.Verdict(); return; }
-        var r = await World.Update<Ecs.Fuel>(can, (ref Ecs.Fuel f) => f.Values[0] = RejoinUnits);
-        c.Expect(r.Ok && r.Kept != false && FuelUnits(can) == RejoinUnits, "the can was set to 23 charges with a tracked write, and the game left it there", r.ToString());
-        Directory.CreateDirectory(Context.DataDirectory);
-        var plan = new RejoinPlan(Items.Lookup(Can)!.Id.Value, FlatSlot(c, can), RejoinUnits, DateTime.UtcNow.ToString("O"));
-        File.WriteAllText(RejoinFile, JsonSerializer.Serialize(plan));
-        c.Log.Info($"{Me}: check {c.Id}: {r}; the can {can} in flat slot {plan.Flat}");
+        // the can of an earlier first half in this world with this character, found by its mark; else a new one, marked
+        var earlier = LoadPlan(world, character);
+        var (slot, why) = earlier is null ? (null, "no earlier run") : MarkedCan(c, earlier.Mark);
+        var mark = earlier?.Mark ?? "";
+        if (slot is not null) c.Expect(true, "the can an earlier run gave you is still in your backpack (by its mark)", $"item entity {slot.ItemEntity}");
+        else
+        {
+            if (earlier is not null) c.Log.Info($"{Me}: check {c.Id}: the earlier run's can is not found ({why}); a new one is given");
+            var can = await GiveCan(c, takeBack: false);
+            slot = can.IsNone ? null : Items.Read(c.Player)?.Slots.FirstOrDefault(s => s.ItemEntity == can);
+            mark = Guid.NewGuid().ToString("N");
+            if (slot is { Ref.IsNone: false }) slot.Ref.Set(_canMark!, new CanMark { Plan = mark });
+            var marked = slot is not null && MarkedCan(c, mark).Slot?.ItemEntity == can;
+            if (!c.Expect(marked, "the can carries this check's mark", slot is null ? "no can" : slot.Ref.IsNone ? "the can has no instance (items.instances)" : "read back"))
+            {
+                if (slot is not null) await Items.TakeSlot(c.Player, slot);  // the can this run just gave, by its entity: not kept unmarked
+                await c.Verdict();
+                return;
+            }
+        }
+        if (slot is null) { await c.Verdict(); return; }
+        var r = await World.Update<Ecs.Fuel>(slot.ItemEntity, (ref Ecs.Fuel f) => f.Values[0] = RejoinUnits);
+        c.Expect(r.Ok && r.Kept != false && FuelUnits(slot.ItemEntity) == RejoinUnits, "the can was set to 23 charges with a tracked write, and the game left it there", r.ToString());
+        var plan = new RejoinPlan(mark, world, character, SessionOf(c.Player), RejoinUnits, DateTime.UtcNow.ToString("O"));
+        Directory.CreateDirectory(Path.GetDirectoryName(PlanFile(world, character))!);
+        File.WriteAllText(PlanFile(world, character), plan.ToJson());
+        c.Log.Info($"{Me}: check {c.Id}: {r}; the can {slot.ItemEntity}, mark {mark}, plan {PlanFile(world, character)}");
         c.Instruct("A watering can in your backpack was set to 23 of 100 by the server. Look at it, then answer: pass if it shows 23. " +
-                   "After that leave to the main menu, come back into the same world and run \"world.tracked-water-rejoin-after\": the can " +
-                   "stays in your backpack until then.");
+                   "After that leave to the main menu, come back into the same world with the same character and run " +
+                   "\"world.tracked-water-rejoin-after\", which takes the can back. If you never run it, the can stays in your backpack " +
+                   "(yours to keep or throw away) and the next run of this check uses it again.");
         await c.Verdict();
     }
 
@@ -139,27 +192,46 @@ public sealed partial class WorldWritesTestMod
         Area = Area, Since = Since, Tags = [Visual], Order = 21)]
     public async Task TrackedWaterRejoinAfter(CheckContext c)
     {
-        if (!HasPlayer(c)) { await c.Verdict(); return; }
-        if (LoadRejoin() is not { } plan)
+        if (!HasPlayer(c) || !RejoinPossible(c, out var world, out var character)) { await c.Verdict(); return; }
+        var plan = LoadPlan(world, character);
+        var state = Rejoin.Judge(plan, world, character, SessionOf(c.Player));
+        if (state != RejoinState.Ready)
         {
-            c.Expect(false, "world.tracked-water-rejoin ran first (it leaves a can at 23 in your backpack)");
+            c.Expect(false, state == RejoinState.SameSession
+                    ? "you left to the main menu (or left the server) and came back since the first part"
+                    : "world.tracked-water-rejoin ran first in this world with this character", state.ToString());
+            c.Instruct(state == RejoinState.SameSession
+                ? "Leave to the main menu and come back into this world first, then run this check again. Nothing was taken; answer skip now."
+                : "Run \"world.tracked-water-rejoin\" first (in this world, with this character). Nothing was taken; answer skip now.");
             await c.Verdict();
             return;
         }
         NoWaterRule(c);  // a water rule on now has already filled the can again: the number below says so
-        var can = PlannedCan(c, plan);
-        c.Expect(!can.IsNone, "the can is in your backpack again", can.IsNone ? $"no can in flat slot {plan.Flat} and none at {plan.Units} units" : $"item entity {can}, flat slot {FlatSlot(c, can)}");
-        if (!can.IsNone)
+        var (slot, why) = MarkedCan(c, plan!.Mark);
+        if (slot is null)
         {
-            c.Expect(FuelUnits(can) == plan.Units, "the server holds 23 charges on it after the rejoin", $"{FuelUnits(can)} units ({plan.Units} written {plan.When})");
-            c.OnEnd(async () =>
-            {
-                await TakeBack(c, can);
-                File.Delete(RejoinFile);
-            });
+            c.Expect(false, "the can the first part gave you is in your backpack again (found by its mark)", $"{why}: nothing is taken");
+            c.Instruct("Kiln did not find the first part's can by its mark, so nothing was taken from your backpack and the plan is kept. " +
+                       "If you see the can the first part set to 23, pass if it still shows 23, fail with the number you see; otherwise skip.");
+            await c.Verdict();
+            return;
         }
+        c.Expect(true, "the can the first part gave you is in your backpack again (found by its mark)", $"item entity {slot.ItemEntity}");
+        c.Expect(FuelUnits(slot.ItemEntity) == plan.Units, "the server holds 23 charges on it after the rejoin", $"{FuelUnits(slot.ItemEntity)} units ({plan.Units} written {plan.When})");
+        c.OnEnd(async () =>
+        {
+            // the mark again, at the end: exactly one item with it, or nothing is taken and the plan stays
+            var (now, whyNot) = MarkedCan(c, plan.Mark);
+            if (now is null)
+            {
+                c.Log.Info($"{Me}: check {c.Id}: nothing taken back ({whyNot}); the plan stays");
+                return;
+            }
+            await Items.TakeSlot(c.Player, now);
+            File.Delete(PlanFile(world, character));
+        });
         c.Instruct("Look at the watering can in your backpack that the first part set to 23 of 100. Pass if it still shows 23; fail with " +
-                   "the number you see. The can is taken back when you answer.");
+                   "the number you see. That can (and only that one) is taken back when you answer.");
         await c.Verdict();
     }
 }

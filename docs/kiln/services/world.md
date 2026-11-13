@@ -104,7 +104,10 @@ using var sub = Events.On<ComponentWrittenEvent>(e => Log.Info($"{e.Component} o
   or a player's `Water` rule: the Creative menu's rule set has one) puts every container it covers back to its level
   every step, after the game's programs, so a tracked write of such a container's `Fuel` lasts one step. The answer
   then names the refill instead of the game: `Kept == false` and `WrittenOverBy` = `"kiln.items' water refill 1 (keep
-  full) of the inventories of 1, set by kiln"` (the number is kiln.log's `refill 1: ...`). End the refill (dispose its
+  full) of the inventories of 1, set by kiln"` (the number is kiln.log's `refill 1: ...`). A refill is named only from
+  its own report of the step the write was checked in, changing exactly the units the write left, and only while it is
+  set in the running server world: one that covers the container but did not write (a refill capped below the value,
+  one of a world that has closed) is never named, and when that cannot be shown `WrittenOverBy` is null. End the refill (dispose its
   `FuelKeep`; for a `Water` rule, end the rule set that carries it) or narrow it to other items before the write, or
   change the water through the refill's own policy. Without a refill on it, a can a player carries keeps a tracked
   write like any other (lab, a spawned player character: [Tests](#tests-lab)). Only refills set through
@@ -289,10 +292,14 @@ Tick thread (Pre/Post) or inside your program: `component(e, hash, &size)`, `exi
 - `ToEntity(player, otherPlayer)` lands next to the other player; `ToSpawnPoint(player, altar)` on a landing pad.
 - Tracked writes (guided checks of `mods/tests/world-writes-test`, since 0.2.0-dev.27; a lab has no screen):
   `world.tracked-water`: a can in your backpack is set from full to half by `World.Update<Ecs.Fuel>` while you look
-  at it, and shows half without your touching it; `world.tracked-water-rejoin` gives a can of its own, sets it to 23
-  of 100 and leaves it in the backpack, you note 23, leave to the menu and come back, and
-  `world.tracked-water-rejoin-after` finds the same can (by its slot) at 23 on the server and asks whether it shows 23,
-  then takes it back. Run them with no water rule on your player (Creative off): they refuse to start while one is.
+  at it, and shows half without your touching it; `world.tracked-water-rejoin` gives a can of its own, marks it with
+  instance data only it sets, sets it to 23 of 100 and leaves it in the backpack, you note 23, leave to the menu and
+  come back, and `world.tracked-water-rejoin-after` finds that can by its mark alone (none or two marked: it takes
+  nothing and says so), checks 23 on the server, asks whether it shows 23, then takes back that can and no other. The
+  first half's plan is one file per world and character and names the session it ran in; the second half refuses to
+  judge in the same session ("leave to the menu and come back first"). Never run, the second half leaves the can in the
+  backpack (the player's) and the plan; the next first half there reuses that can. Run them with no water rule on your
+  player (Creative off): they refuse to start while one is.
   Until these pass, "players see a tracked write" is unproven.
   First try in a real game (13 Nov 2026, a hosting game, 0.2.0-dev.27 test build): `world.tracked-water` did not
   pass; the write to half answered `Written: Fuel of <entity> (9 game writers, written over by the game one step

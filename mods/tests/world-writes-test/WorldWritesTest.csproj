@@ -9,7 +9,7 @@
     <AssemblyName>WorldWritesTest</AssemblyName>
     <KilnModId>world-writes-test</KilnModId>
     <Version>0.1.0</Version>
-    <KilnServices>World;Items;Spawn;Client;Game;Testing;Rules</KilnServices>
+    <KilnServices>World;Items;Spawn;Client;Game;Testing;Rules;Saves;Players</KilnServices>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
   <Import Project="../../../managed/Kiln.Sdk/Sdk/Sdk.targets" />
