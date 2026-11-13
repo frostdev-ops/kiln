@@ -47,6 +47,9 @@
 .deck-editor .ke-know-row { min-height: 2.75rem; font-size: 1.125rem; scroll-margin: .5rem; }
 .deck-editor .ke-know-bar .k-input, .deck-editor .ke-know-bar .k-seg button { font-size: 1.125rem; min-height: 2.75rem; }
 .deck-editor .k-check { transform: scale(1.35); }
+/* the level filter: a button that opens the number pad, in the look of the desktop's field */
+.deck-editor button.ke-know-above { flex: none; min-height: 2.75rem; gap: .625rem; font: inherit; font-size: 1.125rem; color: var(--k-text-0); cursor: pointer; }
+.deck-editor button.ke-know-above .k-label { font-size: 1.0625rem; }
 /* the tree: the camera follows focus, nothing may scroll the box itself */
 .deck-editor .ke-tree { overflow: clip; margin-bottom: .5rem; }
 .ke-tree-keys { position: absolute; inset: 0; overflow: clip; pointer-events: none; }

@@ -146,12 +146,13 @@ export default {
     });
     const data = await sv2c.build({ header: s.save.header, blocks }, compress);
     await sv2c.parse(data, decompress, []); // valida hashes e estrutura
-    const backupDir = await invoke('backup_file', { path });
+    // Kiln: write_save copies the save (and the game's own backups) to the editor's backups before it writes; a
+    // backup_file call here made a second, identical copy of each
     await invoke('write_save', { path, data: Array.from(data) });
     const fresh = await load(path);
     sessions.set(path, fresh);
     const { modified } = await invoke('file_info', { path });
-    return { backupDir, model: publicModel(path, modified, fresh) };
+    return { model: publicModel(path, modified, fresh) };
   },
   gameRunning: () => invoke('game_running'),
   listBackups: (target) => invoke('list_backups', { target }),

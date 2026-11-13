@@ -1,6 +1,6 @@
 // The desktop save editor (/editor) in mock mode with the mock's synthetic saves (src/api/mockEditor.ts): the session
-// kept when the page is left, another character asking before it drops changes, the backups' words, a read-only save,
-// and a save the game wrote after it was read.
+// kept when the page is left, another character asking before it drops changes, the backups' words and the one backup a
+// save makes, a read-only save, and a save the game wrote after it was read (with and without changes here).
 import { expect, test, type Page } from "@playwright/test";
 
 const SHOTS = process.env.KILN_DECK_SHOTS;
@@ -11,6 +11,13 @@ async function open(page: Page) {
   await expect(page.locator(".k-page-title")).toContainText("Aldric", { timeout: 15000 });
 }
 const say = (page: Page) => page.locator(".ke .k-page-sub");
+/** The game writes a save file: it gets another mock save's bytes and the time of now. */
+const gameWrote = (page: Page, file: string, from: string) => page.evaluate(([a, b]) =>
+  (window as unknown as { __kilnMockEditor: { gameWrote: (f: string, from: string) => Promise<void> } }).__kilnMockEditor.gameWrote(a, b), [file, from] as const);
+const game = (page: Page, on: boolean) => page.evaluate((start) => {
+  const m = (window as unknown as { __kilnMock: { startOutside: (s: number) => void; stopGame: () => void } }).__kilnMock;
+  if (start) m.startOutside(5); else m.stopGame();
+}, on);
 
 test("changes survive leaving the page; another character asks first; Discard drops them", async ({ page }) => {
   await open(page);
@@ -58,8 +65,14 @@ test("a save with an item no table knows is read-only: Save stays off and the pa
   await expect(page.locator(".k-page-title")).toContainText("Mordred");
   await expect(say(page)).toContainText("This save can only be read: Save is off.");
   await expect(page.getByText("Unknown items in this save")).toBeVisible();
-  await page.locator(".ke-grid .ke-slot.full").first().click();
-  await page.locator('.ke-insp [aria-label="+1"]').first().click();
+  // what it holds shows; a change is not taken (the controls are dimmed, the keyboard still reaches them)
+  const first = page.locator(".ke-grid .ke-slot.full").first();
+  await first.click();
+  await expect(first).toContainText("120");
+  await page.locator('.ke-insp [aria-label="+1"]').first().focus();
+  await page.keyboard.press("Enter");
+  await expect(first).toContainText("120");
+  await expect(page.locator(".ke")).not.toContainText("Not saved");
   await expect(page.getByRole("button", { name: "Save" })).toBeDisabled();
   // Cedric cannot be read at all: the reason is in English
   await page.locator(".ke-who-btn").click();
@@ -78,4 +91,31 @@ test("a save the game wrote after the editor read it is not overwritten", async 
   await page.getByRole("button", { name: "Read again" }).click();
   await expect(say(page)).toContainText("Level 25");
   await expect(page.getByText("The game wrote this save after the editor read it.")).toHaveCount(0);
+});
+
+test("a save makes one Kiln backup of the save before it", async ({ page }) => {
+  await open(page);
+  await page.locator(".ke-grid .ke-slot.full").first().click();
+  await page.locator('.ke-insp [aria-label="+1"]').first().click();
+  await page.getByRole("button", { name: "Save" }).click();
+  await expect(say(page)).toContainText("Level 25");
+  await page.getByRole("button", { name: "Backups" }).click();
+  const dlg = page.getByRole("dialog", { name: "Backups for Aldric" });
+  await expect(dlg.locator(".ke-bk-row > .k-sc")).toHaveText(["Kiln backup", "Game's copy", "Game's copy"]);
+});
+
+test("an open character without changes is read again once the game has written its save", async ({ page }) => {
+  await open(page);
+  // away from the page, the game writes character0.ksd (the mock gives it Brienne's bytes): back on the page it is read again
+  await page.goto("/#/settings");
+  await gameWrote(page, "character0.ksd", "character1.ksd");
+  await page.goto("/#/editor");
+  await expect(page.locator(".k-page-title")).toContainText("Brienne");
+  await expect(say(page)).toContainText("Level 3");
+  // with the page open: the game runs, writes the save and quits
+  await game(page, true);
+  await expect(say(page)).toContainText("The game is open", { timeout: 8000 });
+  await gameWrote(page, "character0.ksd", "character2.ksd");
+  await game(page, false);
+  await expect(page.locator(".k-page-title")).toContainText("Mordred", { timeout: 8000 });
 });

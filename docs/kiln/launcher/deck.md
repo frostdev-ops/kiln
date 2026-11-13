@@ -113,8 +113,10 @@ Notices are a short title and buttons. An error is a line at the top that goes a
 ### The save editor
 `/deck/editor` (`src/editor/deck/DeckEditor.jsx`, lazy: its item data is about 2 MB). One session with the desktop page
 (`src/editor/kiln/session.js`): changes stay when you leave the tab, the Quit dialog names them, opening another
-character with changes asks first. The desktop's own views run in a Deck env (`src/editor/kiln/env.jsx`), so a rule
-fixed in one UI is fixed in both:
+character with changes asks first. A character without changes is read again when the game has written its save
+meanwhile (on coming back to the tab, and when the game quits); with changes, Save refuses and offers "Read again". A
+save with items no installed mod defines shows what it holds and takes no change. The desktop's own views run in a
+Deck env (`src/editor/kiln/env.jsx`), so a rule fixed in one UI is fixed in both:
 
 - **Slots**: focus picks a slot and the inspector beside it follows; A goes into the inspector (an empty slot: the
   catalog for it); B comes back to the slot; Y picks the item up to move it, A puts it down, B cancels.
@@ -127,7 +129,8 @@ fixed in one UI is fixed in both:
   nothing needs typing.
 - **Skill tree**: a transparent button over each node; the D-pad walks the nodes, the camera follows, the panel shows
   the focused node; A +1 level, Y −1.
-- **Knowledge**: A ticks a row; Remove at the top right. Its search field takes Steam's keyboard.
+- **Knowledge**: A ticks a row; Remove at the top right. Its search field takes Steam's keyboard; "Above level" is
+  set on the number pad.
 - **Backups**: the save's backups, newest first; A asks, then restores (the save before it is kept as a backup).
 - The Deck makes the editor's game art from the installed game when the tab opens (`GameArtAuto only="editor"`), never
   the admin map's.
@@ -164,7 +167,11 @@ steps instead:
 - `bun x playwright test tests/editor-deck.spec.ts` (1280×800, mock mode, the mock's synthetic saves
   `src/api/mockEditor.ts`): the Editor tab with the pad alone: an amount on the number pad, duplicate, remove, move,
   Save; the catalog (category, a search typed as Steam's keyboard types, pick, amount, add); equipment, a gem, durability;
-  the skill tree; knowledge; backups and restore; leaving and coming back; Quit; another character; read-only saves.
+  the skill tree; knowledge and its level filter; backups and restore; leaving and coming back; Quit; another
+  character; read-only saves.
+- `bun x playwright test tests/editor.spec.ts` (the desktop page, the same mock saves): the session kept across pages,
+  another character asking first, backups and the one backup a save makes, a read-only save taking no change, a save
+  the game wrote since it was read (refused with changes here, read again without).
 - `bun run test:smoke` (`tests/deck.spec.ts`, 1280×800, mock mode): the UI choice (Game Mode env, `--deck`,
   `--desktop`, the setting), spatial focus, every screen reachable and left with B, Start menu, View, keyboard, the
   browser Gamepad API with a fake pad, touch, Play, adding from Downloads, browsing Places and folders, the modpack

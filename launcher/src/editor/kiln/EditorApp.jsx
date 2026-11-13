@@ -7,7 +7,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Banner, Button, Modal, Tabs, toast } from '../../ui';
 import { api } from '../src/platform.js';
 import { t, dataHora, definirIdioma, assinarIdioma } from '../src/i18n.js';
-import { canSave, discard, openSave, restoreBackup, saveModel, setModel, setStatus, startSession, useSession } from './session.js';
+import { canSave, discard, openSave, readOnly, restoreBackup, saveModel, setModel, setStatus, startSession, useSession } from './session.js';
 import Equipment from './Equipment.jsx';
 import Inventory from './Inventory.jsx';
 import Skills from './Skills.jsx';
@@ -70,7 +70,7 @@ export default function EditorApp() {
   const file = model?.path?.split(/[\\/]/).pop();
   const edit = model && !model.readOnly;
   // the game wrote the save after it was read: Read again is the way on (status from session.saveModel)
-  const stale = status?.tone === 'err' && model && status.text === t('O jogo gravou este save depois que o editor o leu. Leia de novo para editar a versão atual (as mudanças daqui se perdem).');
+  const stale = !!(status?.again && model);
 
   return (
     <div className="k-page k-page-fill ke">
@@ -99,7 +99,7 @@ export default function EditorApp() {
         <>
           <Tabs aria-label={t('Partes do save')} value={tab} onChange={setTab}
             items={TABS.map(([id, label]) => ({ id, label: t(label), count: id === 'know' ? model.knowledge?.length : undefined }))} />
-          <div className="ke-body" key={model.path}>
+          <div className={'ke-body' + (readOnly(model) ? ' ke-readonly' : '')} key={model.path}>
             {tab === 'char' && <Equipment model={model} setModel={setModel} />}
             {tab === 'inv' && <Inventory model={model} setModel={setModel} />}
             {tab === 'skills' && <Skills model={model} setModel={setModel} />}

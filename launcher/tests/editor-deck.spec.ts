@@ -263,6 +263,19 @@ test.describe("the save editor in Deck mode", () => {
     const count = page.locator('[data-deck-id="ed-tab-know"] .dke-count');
     await expect(count).toHaveText("2000");
     await expect.poll(() => focused(page)).toBe("know-search");
+    // the level filter on the number pad (no keyboard needed): above level 30 the list is shorter
+    const rows = page.locator(".ke-know-body .ke-know-row");
+    const all = await rows.count();
+    await walk(page, "right", "know-above", 3);
+    await pad(page, "a");
+    await typeNumber(page, "30");
+    await expect(page.locator('[data-deck-id="know-above"]')).toContainText("30");
+    await expect.poll(() => rows.count()).toBeLessThan(all);
+    await pad(page, "a");
+    await walk(page, "down", "pad-preset-0", 6);
+    await pad(page, "a");
+    await expect(page.locator('[data-deck-id="know-above"]')).toContainText("all");
+    await walk(page, "left", "know-search", 3);
     await walk(page, "down", /^know-\d+$/, 4);
     await pad(page, "a");
     await expect(page.locator(".ke-know-row.on")).toHaveCount(1);

@@ -3,7 +3,8 @@
 // save or from the game. Four characters: Aldric (worn gear, a full inventory and backpack, skills, 2,000 knowledge
 // entries), Brienne (a new character: two worn pieces), Mordred (a stack of an item no table knows: read-only) and
 // Cedric (a character block the editor cannot read). Writing, the editor's backups (one per write, as
-// kiln_manage::saves::editor::write_save makes) and restoring work on the memory copies.
+// kiln_manage::saves::editor::write_save makes) and restoring work on the memory copies. Tests let "the game" write a
+// save through window.__kilnMockEditor.gameWrote.
 //   ?editor=none     no saves (the editor's empty state)
 //   ?editor=fixture  the local fixture instead (launcher/assets-local/fixtures/editor/: copies of your own saves, never
 //                    committed; the development fallback this mock had before)
@@ -226,6 +227,10 @@ export function editorMockHandlers(reject: Reject, gameRunning: () => boolean): 
     return dir;
   };
   const sv2c = (b: Uint8Array) => b.length >= 0x30 && String.fromCharCode(...b.slice(0, 4)) === "SV2C";
+  // tests: the game writes a save the editor has open (`file` gets the bytes of `from`, and the time of now)
+  if (typeof window !== "undefined") (window as unknown as { __kilnMockEditor?: unknown }).__kilnMockEditor = {
+    gameWrote: async (name: string, from: string) => { await prepare(); files.set(`${DIR}/${name}`, { bytes: file(`${DIR}/${from}`).bytes, modified: Date.now() }); },
+  };
   return {
     editor_list_saves: async () => {
       if (mode === "fixture") return (await fixture())?.saves ?? [];

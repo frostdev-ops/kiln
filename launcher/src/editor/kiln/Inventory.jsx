@@ -119,7 +119,7 @@ export default function Inventory({ model, setModel }) {
         </section>
         <p className="ke-note">{env.deck ? t('A muda o item · Y move · A num espaço vazio adiciona') : t('Arraste para mover · duplo clique em espaço vazio para adicionar · Delete remove · Ctrl+D duplica')}</p>
       </div>
-      <div ref={insp} className="ke-insp-wrap" onFocus={() => setInPanel(true)} onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setInPanel(false); }}>
+      <div ref={insp} className="ke-insp-wrap" onFocus={env.deck ? () => setInPanel(true) : undefined} onBlur={env.deck ? (e) => { if (!e.currentTarget.contains(e.relatedTarget)) setInPanel(false); } : undefined}>
       <Inspector entry={entry} onChange={(e) => change([[sel, e]])}
         onRemove={() => { remove(); if (env.deck) requestAnimationFrame(() => slotEl(sel)?.focus()); }} onDuplicate={firstFree !== null ? duplicate : null}
         empty={sel === null ? (

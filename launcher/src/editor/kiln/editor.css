@@ -3,6 +3,10 @@
 
 .ke { gap: 14px; }
 .ke-body { flex: 1; min-height: 0; display: flex; }
+/* a read-only save (session.readOnly): what it holds shows, the controls that would change it are dimmed (a change is not
+   taken: session.setModel) */
+.ke-readonly .ke-form dd, .ke-readonly .ke-insp-foot .k-btn, .ke-readonly .ke-facts .ke-step, .ke-readonly .ke-know-bar .k-btn-danger,
+.ke-readonly .ke-group-head .k-btn, .ke-readonly .ke-empty .k-btn { opacity: .45; pointer-events: none; }
 .ke-split { flex: 1; min-width: 0; min-height: 0; display: flex; }
 .ke-main { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 14px; padding: 2px 28px 16px 0; overflow: auto; }
 .ke-group { display: flex; flex-direction: column; gap: 8px; min-height: 0; flex: none; }

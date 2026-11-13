@@ -6,6 +6,13 @@ import { itemIcon, rarityColor, rarityOf, RARITY_PT } from '../src/ui.js';
 import { t } from '../src/i18n.js';
 import { useEditorEnv } from './env.jsx';
 
+/** A neutral square: an item with no icon (an unknown item, a mod item without one) and, through art.js, a game icon
+ *  that does not load. */
+export const PLACEHOLDER = 'data:image/svg+xml,' + encodeURIComponent(
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect x="4" y="4" width="56" height="56" rx="8" fill="#2a2421" stroke="#4d413a" stroke-width="2"/><path d="M22 42l8-10 6 7 4-5 6 8z" fill="#6b5e55"/><circle cx="26" cy="24" r="4" fill="#6b5e55"/></svg>');
+/** The item's icon, or the neutral square when it has none. */
+export const iconOf = (itemId) => itemIcon(itemId) || PLACEHOLDER;
+
 /** "T3" from the item's debug name, or null. */
 export const tierOf = (itemId) => {
   const m = /_T(\d)/.exec(items[itemId]?.debug || '');
@@ -24,9 +31,10 @@ export const rarityWord = (r) => t(RARITY_PT[r] || RARITY_PT[0]);
 
 /**
  * One slot: a dark well, the item's icon, its count (stacks) or level, a durability line, and its rarity as a glaze
- * line along the bottom. `n`: a small number in the corner (action bar keys).
+ * line along the bottom. `n`: a small number in the corner (action bar keys). `lazy`: the icon loads when the slot
+ * is scrolled to (the catalog's long grid).
  */
-export function Slot({ entry, selected, onClick, onDoubleClick, drag, drop, n, size, title, dim, onFocus, deckId, deckA, label }) {
+export function Slot({ entry, selected, onClick, onDoubleClick, drag, drop, n, size, title, dim, onFocus, deckId, deckA, label, lazy }) {
   const it = entry && items[entry.itemId];
   const r = entry ? rarityOf(entry) : 0;
   const dur = entry?.durability !== undefined && entry.maxDurability ? entry.durability / entry.maxDurability : null;
@@ -36,7 +44,7 @@ export function Slot({ entry, selected, onClick, onDoubleClick, drag, drop, n, s
       style={{ ...(size ? { '--s': `${size}px` } : null), ...(r > 0 ? { '--r': rarityColor(r) } : null) }}
       onClick={onClick} onDoubleClick={onDoubleClick} onFocus={onFocus} title={name} aria-pressed={selected || undefined} aria-label={label}
       data-deck-id={deckId} data-deck-a={deckA} {...(drag || {})}>
-      {entry && <img src={itemIcon(entry.itemId)} alt="" draggable={false} />}
+      {entry && <img src={iconOf(entry.itemId)} alt="" draggable={false} loading={lazy ? 'lazy' : undefined} decoding={lazy ? 'async' : undefined} />}
       {n !== undefined && <span className="ke-slot-n">{n}</span>}
       {entry && it?.maxStack > 1 && <span className="ke-slot-count">{entry.count}</span>}
       {entry && !(it?.maxStack > 1) && entry.level !== undefined && <span className="ke-slot-count lv">{entry.level}</span>}

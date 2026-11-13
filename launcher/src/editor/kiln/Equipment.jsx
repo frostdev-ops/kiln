@@ -85,7 +85,7 @@ export default function Equipment({ model, setModel }) {
           ))}
         </div>
       </div>
-      <div ref={insp} className="ke-insp-wrap" onFocus={() => setInPanel(true)} onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setInPanel(false); }}>
+      <div ref={insp} className="ke-insp-wrap" onFocus={env.deck ? () => setInPanel(true) : undefined} onBlur={env.deck ? (e) => { if (!e.currentTarget.contains(e.relatedTarget)) setInPanel(false); } : undefined}>
       <Inspector entry={entry} caption={t(SLOTS[sel] ?? 'Espaço {n}', { n: sel })} warn={warn} onChange={update}
         onRemove={entry ? () => { remove(entry); if (env.deck) requestAnimationFrame(() => slotEl(sel)?.focus()); } : null}
         empty={<div className="ke-empty"><span className="ke-empty-word">{t('Vazio')}</span><span className="ke-note">{t('Espaço vazio. Vista a peça no jogo; aqui dá para editar ou tirar as peças vestidas.')}</span></div>} />

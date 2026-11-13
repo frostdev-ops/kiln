@@ -4,10 +4,10 @@
 import React from 'react';
 import { Button } from '../../ui';
 import { items, itemName, skills, skillName } from '../src/gamedata.js';
-import { itemIcon, rarityOf, rarityColor } from '../src/ui.js';
+import { rarityOf, rarityColor } from '../src/ui.js';
 import { atributosDe, melhoriasDe, temEstatisticas, armaduraDe, danoDe } from '../src/itemstats.js';
 import { t, localeAtual } from '../src/i18n.js';
-import { Meter, RarityPick, Row, Stepper, UpgradePick, categoryWord, rarityWord, tierOf } from './parts.jsx';
+import { Meter, RarityPick, Row, Stepper, UpgradePick, categoryWord, iconOf, rarityWord, tierOf } from './parts.jsx';
 import { aboveStack, amountLimit, MAX_AMOUNT } from './amounts.js';
 import { useEditorEnv } from './env.jsx';
 
@@ -60,7 +60,7 @@ function ItemForm({ entry, onChange, onRemove, onDuplicate }) {
   return (
     <>
       <header className="ke-insp-head">
-        <span className="ke-insp-icon" style={{ '--r': rarityColor(r) }}><img src={itemIcon(entry.itemId)} alt="" /></span>
+        <span className="ke-insp-icon" style={{ '--r': rarityColor(r) }}><img src={iconOf(entry.itemId)} alt="" /></span>
         <div className="ke-insp-titles">
           {r > 0 && <span className="k-sc ke-insp-rar" style={{ color: rarityColor(r) }}>{rarityWord(r)}</span>}
           <h2 className="ke-insp-name">{itemName(entry.itemId)}</h2>

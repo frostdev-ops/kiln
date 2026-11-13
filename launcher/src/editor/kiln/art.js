@@ -7,10 +7,7 @@ import { assetsPresent, IS_TAURI, ASSET_BASE } from '../src/platform.js';
 import { mergeModded } from '../src/gamedata.js';
 import { useAssetsStatus, useExtractTask } from '../../components/GameArt';
 import { reopenIfClean } from './session.js';
-
-// a neutral square for a missing game icon or texture
-export const PLACEHOLDER = 'data:image/svg+xml,' + encodeURIComponent(
-  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect x="4" y="4" width="56" height="56" rx="8" fill="#2a2421" stroke="#4d413a" stroke-width="2"/><path d="M22 42l8-10 6 7 4-5 6 8z" fill="#6b5e55"/><circle cx="26" cy="24" r="4" fill="#6b5e55"/></svg>');
+import { PLACEHOLDER } from './parts.jsx';
 
 async function loadOverlay(version) {
   if (!version) return null;

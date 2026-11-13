@@ -15,7 +15,7 @@ import { api } from '../src/platform.js';
 import { t, dataHora } from '../src/i18n.js';
 import { EditorEnv } from '../kiln/env.jsx';
 import { useEditorArt } from '../kiln/art.js';
-import { canSave, discard, openSave, restoreBackup, saveModel, setModel, startSession, useSession } from '../kiln/session.js';
+import { canSave, discard, openSave, readOnly, restoreBackup, saveModel, setModel, startSession, useSession } from '../kiln/session.js';
 import { BACKUP_KIND, TABS, backupName, sayOf } from '../kiln/EditorApp.jsx';
 import Equipment from '../kiln/Equipment.jsx';
 import Inventory from '../kiln/Inventory.jsx';
@@ -23,8 +23,6 @@ import Skills from '../kiln/Skills.jsx';
 import Knowledge from '../kiln/Knowledge.jsx';
 import '../kiln/editor.css';
 import './deck-editor.css';
-
-const STALE = 'O jogo gravou este save depois que o editor o leu. Leia de novo para editar a versão atual (as mudanças daqui se perdem).';
 
 export default function DeckEditor() {
   const root = useRef(null);
@@ -84,7 +82,7 @@ export default function DeckEditor() {
     ...(edit ? [{ button: 'lt', label: word(at - 1), run: () => go(-1) }, { button: 'rt', label: word(at + 1), run: () => go(1) }] : []),
   ];
   const back = edit && view?.back ? view.back : null;
-  const stale = status?.text === t(STALE);
+  const stale = !!(status?.again && model);
 
   return (
     <EditorEnv.Provider value={env}>
@@ -122,7 +120,7 @@ export default function DeckEditor() {
             </nav>
           )}
           {edit && art.ready && (
-            <div className="ke ke-body dke-body" key={`${model.path}:${art.gen}`}>
+            <div className={'ke ke-body dke-body' + (readOnly(model) ? ' ke-readonly' : '')} key={`${model.path}:${art.gen}`}>
               {tab === 'char' && <Equipment model={model} setModel={setModel} />}
               {tab === 'inv' && <Inventory model={model} setModel={setModel} />}
               {tab === 'skills' && <Skills model={model} setModel={setModel} />}
@@ -195,7 +193,7 @@ export function NumberPad({ title, value, min = 0, max = 65535, presets = [], on
   const ok = Number.isInteger(n) && n >= min && n <= max;
   const okRef = useRef(ok);
   okRef.current = ok;
-  const type = (d) => { const next = fresh.current || cur.current === '0' ? d : cur.current + d; if (next.length <= 6) setText(next); };
+  const type = (d) => { const next = fresh.current || cur.current === '0' ? d : cur.current + d; if (next.length <= String(max).length) setText(next); };
   const del = () => setText(cur.current.slice(0, -1));
   const done = (v = n) => { onClose(); onDone(Math.max(min, Math.min(max, v))); };
   useEffect(() => {
