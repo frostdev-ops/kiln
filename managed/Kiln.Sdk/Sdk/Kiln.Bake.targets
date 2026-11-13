@@ -38,6 +38,10 @@
     <_KilnBakeStamp>$(IntermediateOutputPath)kiln.bake.stamp</_KilnBakeStamp>
   </PropertyGroup>
 
+  <!-- the clean-up by marker (Kiln.Sdk.Tasks, as KilnManifest) -->
+  <UsingTask TaskName="Kiln.Sdk.KilnBakeClean" AssemblyFile="$(_KilnTasksDir)Kiln.Sdk.Tasks.dll" Condition="'$(KilnRepoMode)' != 'true'" />
+  <UsingTask TaskName="Kiln.Sdk.KilnBakeClean" AssemblyFile="$(_KilnTasksDir)Kiln.Sdk.Tasks.dll" TaskFactory="TaskHostFactory" Condition="'$(KilnRepoMode)' == 'true'" />
+
   <ItemGroup Condition="'$(KilnRepoMode)' == 'true' and '$(_KilnBakeNow)' == 'true'">
     <!-- built first; nothing of it (or of what it references) is the mod's: no reference, no copy, no transitive references -->
     <ProjectReference Include="$(KilnRepoRoot)managed/Kiln.Sdk/bake/Kiln.Sdk.Bake.csproj" ReferenceOutputAssembly="false" Private="false" ExcludeAssets="all" />
@@ -83,6 +87,9 @@
           ContinueOnError="true" StandardOutputImportance="high">
       <Output TaskParameter="ExitCode" PropertyName="_KilnBakeExit" />
     </Exec>
+    <!-- a crash or a process ended at the deadline cleans nothing itself: nothing of an earlier bake may win at start -->
+    <KilnBakeClean Condition="'$(_KilnBakeExit)' != '0'" Folder="$(OutDir)" ModId="$(KilnResolvedModId)" Reason="the bake failed" />
+    <Delete Condition="'$(_KilnBakeExit)' != '0'" Files="$(_KilnBakeList)" />
     <Error Condition="'$(_KilnBakeExit)' != '0'" Code="KILN032"
            Text="KilnBake: the bake of $(KilnResolvedModId) failed or did not end (exit code $(_KilnBakeExit); the lines above say why). Set KilnBake=false to build without it (docs/kiln/modding/baked.md)" />
     <Touch Files="$(_KilnBakeStamp)" AlwaysCreate="true" />
@@ -91,15 +98,13 @@
     </ItemGroup>
   </Target>
 
-  <!-- Turned off (KilnBake=false): what the last bake left in the output folder goes, so it does not win at start over what
-       the code defines now. The author's own files are not in the list. -->
-  <Target Name="_KilnBakeOff" AfterTargets="KilnManifest" Condition="'$(KilnBake)' != 'true' and '$(DesignTimeBuild)' != 'true' and Exists('$(_KilnBakeList)')">
-    <ReadLinesFromFile File="$(_KilnBakeList)">
-      <Output TaskParameter="Lines" ItemName="_KilnBakeOld" />
-    </ReadLinesFromFile>
-    <Delete Files="@(_KilnBakeOld->'$(OutDir)%(Identity)')" />
+  <!-- Turned off (KilnBake=false): what a bake left in the output folder goes, so it does not win at start over what the code
+       defines now. By the files' marker, not the bookkeeping: an author's file at a path an earlier bake wrote stays, and
+       nothing is left when the bookkeeping is gone. Only when one of the three folders is there. -->
+  <Target Name="_KilnBakeOff" AfterTargets="KilnManifest"
+          Condition="'$(KilnBake)' != 'true' and '$(DesignTimeBuild)' != 'true' and (Exists('$(OutDir)quests/generated') or Exists('$(OutDir)skills') or Exists('$(OutDir)blocks/generated') or Exists('$(_KilnBakeList)'))">
+    <KilnBakeClean Folder="$(OutDir)" ModId="$(KilnResolvedModId)" Reason="KilnBake is off" />
     <Delete Files="$(_KilnBakeList);$(_KilnBakeStamp)" />
-    <Message Importance="high" Condition="'@(_KilnBakeOld)' != ''" Text="KilnBake is off: removed what the last bake wrote: @(_KilnBakeOld)" />
   </Target>
 
   <!-- KilnDeploy copies the output folder over the deployed one: a baked file the output folder no longer has must not stay

@@ -100,6 +100,8 @@ public sealed unsafe class BakeReviewTests
             var (code, output, took) = RunProcess(dir, 5, wait: 60);
             Assert.True(code == 4, $"exit {code} after {took}: {output}");
             Assert.Contains("error KILN032: the bake did not end within 5 s", output);
+            Assert.False(File.Exists(Path.Combine(dir, Baker.QuestsFile("stuck-test"))));  // nothing of an earlier bake is left
+            Assert.Contains("removed what an earlier bake wrote: quests/generated/stuck-test.json", output);
             Assert.True(took < TimeSpan.FromSeconds(45), $"took {took}");
         }
         finally
@@ -324,6 +326,7 @@ public sealed class BakeTargetsTests
                     <IntermediateOutputPath>{Obj}</IntermediateOutputPath>
                     <KilnResolvedModId>stub</KilnResolvedModId>
                     <KilnSdkVersion>0.0.0-test</KilnSdkVersion>
+                    <_KilnTasksDir>{AppContext.BaseDirectory}</_KilnTasksDir>
                   </PropertyGroup>
                   <Import Project="{Targets}" />
                   <Target Name="KilnDeploy" />
@@ -355,7 +358,8 @@ public sealed class BakeTargetsTests
     {
         using var s = new Stub();
         Directory.CreateDirectory(Path.Combine(s.Out, "quests", "generated"));
-        File.WriteAllText(Path.Combine(s.Out, "quests", "generated", "stub.json"), "{}");
+        File.WriteAllText(Path.Combine(s.Out, "quests", "generated", "stub.json"),
+            new JsonObject { ["format"] = 1, ["comment"] = Baker.Comment, ["quests"] = new JsonObject() }.ToJsonString());
         File.WriteAllText(Path.Combine(s.Out, "quests", "generated", "authors.json"), "{}");
         File.WriteAllLines(Path.Combine(s.Obj, "kiln.bake.files"), ["quests/generated/stub.json"]);
         var (code, output) = s.MsBuild("-t:_KilnBakeOff", "-p:KilnBake=false");

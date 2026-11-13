@@ -21,6 +21,8 @@
   <ItemGroup>
     <!-- the bake and, through it, Kiln.TestKit, Kiln.Host and every service beside them (as in kiln/host) -->
     <ProjectReference Include="../../Kiln.Sdk/bake/Kiln.Sdk.Bake.csproj" />
+    <!-- Kiln.Sdk.Tasks: BakedOutputs (the clean-up by marker); the stub projects run its KilnBakeClean task -->
+    <ProjectReference Include="../../Kiln.Sdk/Kiln.Sdk.csproj" />
     <!-- built with the bake step, never referenced: bake-test.txt names its output folder -->
     <KilnBakeMod Include="../../../mods/tests/bake-test/BakeTest.csproj" />
     <ProjectReference Include="@(KilnBakeMod)" ReferenceOutputAssembly="false" />

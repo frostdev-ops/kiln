@@ -40,12 +40,14 @@ the files into the output folder, so `KilnDeploy` and `KilnPack` ship them.
   - the file is named for another mod id (left from a rename).
 
   `KilnDeploy` also removes the three files from the deployed folder before it copies, so one the output folder no
-  longer has does not stay on the server.
+  longer has does not stay on the server. What goes is told by the file's own marker, not by a list, so an author's file
+  now at a path an earlier bake wrote stays, and nothing is left when the build's bookkeeping is gone.
 - **A mod that does not load without the game** is not baked. A build line says so (`Kiln.Sdk.Bake: <id>: not baked:
   ...`). That is a limit of the bake, not a fault of the mod, and the build goes on.
 - **Warning `KILN030`:** a node whose icon cannot be baked, or an error the mod logs while it is baked.
 - **Error `KILN032`:** a bake that crashes, or does not end within `KilnBakeTimeoutSeconds` (an `OnLoad` that never
-  returns). The bake process is ended, nothing of an earlier bake is left, and the build fails, naming `KilnBake=false`.
+  returns). The bake process is ended, and the build fails, naming `KilnBake=false`. Nothing of an earlier bake is left:
+  the process removes it at its own deadline, and the build removes it again by marker after any failure.
   A thread the mod leaves running does not keep the bake alive: the process ends when the bake is done.
 - **It bakes again** when the mod, its data files, the SDK, `KilnBakeSteps` or `KilnBakeTimeoutSeconds` change, or a
   file the last bake wrote is gone from the output folder.
@@ -71,12 +73,28 @@ The rule in all three cases: **the baked file is part of the mod and wins at sta
 the build, rebuild the mod to bring the file up to date. A mod whose definitions depend on settings, other mods or the
 game's data should set `KilnBake=false`.
 
-kiln.vfx reads a mod's `blocks/generated/*.json` with limits, because anyone with the mod can fill that folder:
-- no link or reparse point, neither the folder nor a file, since it could point outside the mod;
-- at most 16 files, 4 MiB each and 16 MiB in all;
-- JSON nested at most 64 deep.
+A mod's folder is input from the internet, so kiln.vfx reads its JSON with limits. Nothing is allocated or parsed past
+them.
 
-What it refuses is logged and left out.
+| Folder | Entries looked at | JSON files | Each | In all | Nesting |
+|---|---|---|---|---|---|
+| `blocks/generated/` (baked) | 1024 | 16 | 4 MiB | 16 MiB | 64 |
+| `blocks/` (the author's data files) | 4096 | 256 | 16 MiB | 64 MiB | 64 |
+
+- **Why these numbers:** real block files are a few KiB and a handful per mod; the repository's largest is 6 KiB, and its
+  most in one mod is 6. The author's limits are generous so no real mod meets them, and use the same size and depth
+  kiln.quests' start-up build takes for the same files.
+- **Too many files:** the folder listing stops there and none of that folder is read.
+- **Links:** each folder and file is opened first, then checked: its final path must lie inside the mod's folder, and
+  nothing on the way down from the mod's folder may be a link or reparse point. Only then is it read, from that handle.
+  So a link, a junction (on `blocks` itself too) or a path swapped between the check and the read cannot lead out.
+- **Under Wine** (the Linux server, Proton): Wine resolves no link in a handle's final path. It marks a link to a folder
+  as a reparse point, so that link is refused, on `blocks` itself too. A link to a file looks like a plain file there, so
+  it is read, within the same size, count and depth limits. Lab, GE-Proton: `mods/tests/bake-test/fixtures/make-limit-probes.sh`.
+- **Kiln's managed side:** it reads a baked file only to compare it (the warnings above), with the same bounds: at most
+  4 MiB, no link on the way, nothing outside the mod's folder.
+
+Each refusal is a line in kiln.log (`vfx: <id>: blocks/<file>: not read: ...`), and the file is left out.
 
 ## What is not baked
 - **A mod that does not load without the game.** The harness has no game, and a block that lowers onto kiln.assets or

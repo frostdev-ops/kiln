@@ -25,6 +25,8 @@
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="Kiln.Sdk.Tests" />
+    <!-- the bounded read of a baked file, as the game reads them -->
+    <Compile Include="../../Kiln.Api/BakedFiles.cs" Link="Shared/BakedFiles.cs" />
   </ItemGroup>
   <!-- Repository mode: a fixed folder the mods' target can name, laid out as a kiln folder (kiln/host), so whatever a service
        writes beside its own folder stays under sdk-bake. -->

@@ -42,11 +42,11 @@ internal static partial class VfxNative
     {
         var names = new HashSet<string>(StringComparer.Ordinal);
         if (modDirectory.Length == 0) return names;
-        var file = Path.Combine(modDirectory, "blocks", "generated", mod + ".json");
         try
         {
-            if (!File.Exists(file) ||
-                JsonNode.Parse(File.ReadAllText(file), documentOptions: new JsonDocumentOptions { CommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true }) is not JsonObject o ||
+            // bounded as kiln.vfx's boot reader bounds it: at most 4 MiB, no link on the way, nothing outside the mod's folder
+            if (BakedFiles.Read(modDirectory, Path.Combine("blocks", "generated", mod + ".json")) is not { } text ||
+                JsonNode.Parse(text, documentOptions: new JsonDocumentOptions { CommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true }) is not JsonObject o ||
                 (string?)o["comment"] != BakedComment) return names;
             foreach (var section in new[] { "vfx", "materials" })
                 if (o[section] is JsonObject blocks)

@@ -108,11 +108,11 @@ internal static class NativeExport
     /// a file the author wrote included: that one is theirs, as before.</summary>
     internal static JsonObject? BakedFile(string modDirectory, string mod)
     {
-        var file = Path.Combine(modDirectory, "quests", "generated", mod + ".json");
         try
         {
-            if (!File.Exists(file)) return null;
-            return JsonNode.Parse(File.ReadAllText(file)) is JsonObject o && (string?)o["comment"] == BakedComment ? o : null;
+            // bounded: at most 4 MiB, no link on the way, nothing outside the mod's folder (BakedFiles)
+            if (BakedFiles.Read(modDirectory, Path.Combine("quests", "generated", mod + ".json")) is not { } text) return null;
+            return JsonNode.Parse(text) is JsonObject o && (string?)o["comment"] == BakedComment ? o : null;
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or JsonException or InvalidOperationException)
         {

@@ -59,8 +59,11 @@ namespace Kiln.Sdk.Bake
         {
             using var watchdog = new Timer(_ =>
             {
+                // nothing of an earlier bake may stay behind a bake that did not end (it would win at start)
+                var removed = CleanQuietly(folder, options);
                 Console.WriteLine($"{origin}: error KILN032: the bake did not end within {deadline.TotalSeconds:0} s (an OnLoad or a step that does not " +
-                                  "return?): stopped. Set KilnBake=false to build without it, or KilnBakeTimeoutSeconds for more time");
+                                  "return?): stopped" + (removed.Count > 0 ? $"; removed what an earlier bake wrote: {string.Join(", ", removed)}" : "") +
+                                  ". Set KilnBake=false to build without it, or KilnBakeTimeoutSeconds for more time");
                 Console.Out.Flush();
                 Environment.Exit(4);
             }, null, deadline, Timeout.InfiniteTimeSpan);
@@ -71,17 +74,9 @@ namespace Kiln.Sdk.Bake
             }
             catch (Exception e)
             {
-                var removed = new BakeResult();
-                try
-                {
-                    if (Baker.ModIdOf(folder) is { } id) Baker.Clean(Path.GetFullPath(folder), id, removed, options);
-                }
-                catch (Exception e2) when (e2 is IOException or UnauthorizedAccessException or InvalidDataException or System.Text.Json.JsonException)
-                {
-                    // the error below is what counts
-                }
+                var removed = CleanQuietly(folder, options);
                 Console.WriteLine($"{origin}: error KILN032: the bake failed ({e.GetType().Name}: {e.Message.ReplaceLineEndings(" ")})" +
-                                  (removed.Removed.Count > 0 ? $"; removed what an earlier bake wrote: {string.Join(", ", removed.Removed)}" : "") +
+                                  (removed.Count > 0 ? $"; removed what an earlier bake wrote: {string.Join(", ", removed)}" : "") +
                                   ". Set KilnBake=false to build without it");
                 return 1;
             }
@@ -99,6 +94,21 @@ namespace Kiln.Sdk.Bake
                 File.WriteAllLines(list, Baker.Outputs(result));
             }
             return 0;
+        }
+
+        /// <summary>What an earlier bake wrote, removed (the author's files stay); what was removed. Never throws.</summary>
+        private static List<string> CleanQuietly(string folder, BakeOptions options)
+        {
+            var removed = new BakeResult();
+            try
+            {
+                if (Baker.ModIdOf(folder) is { } id) Baker.Clean(Path.GetFullPath(folder), id, removed, options);
+            }
+            catch (Exception)
+            {
+                // the error the caller prints is what counts; KilnBake's clean-up task tries again
+            }
+            return removed.Removed;
         }
     }
 }

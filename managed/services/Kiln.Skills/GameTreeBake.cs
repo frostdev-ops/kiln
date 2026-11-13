@@ -114,10 +114,11 @@ public static unsafe partial class GameTree
     internal static Dictionary<string, JsonObject> BakedFile(string modDirectory, string mod)
     {
         var map = new Dictionary<string, JsonObject>(StringComparer.OrdinalIgnoreCase);
-        var file = Path.Combine(modDirectory, "skills", BakedFileName(mod));
         try
         {
-            if (!File.Exists(file) || JsonNode.Parse(File.ReadAllText(file)) is not JsonObject o || (string?)o["comment"] != BakedComment) return map;
+            // bounded: at most 4 MiB, no link on the way, nothing outside the mod's folder (BakedFiles)
+            if (BakedFiles.Read(modDirectory, Path.Combine("skills", BakedFileName(mod))) is not { } text ||
+                JsonNode.Parse(text) is not JsonObject o || (string?)o["comment"] != BakedComment) return map;
             if (o["gameTree"]?["nodes"] is JsonArray a)
                 foreach (var n in a.OfType<JsonObject>())
                     if (Guid.TryParse(n["guid"]?.GetValue<string>(), out var g)) map[g.ToString()] = n;

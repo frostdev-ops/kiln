@@ -25,6 +25,8 @@
     <Compile Include="../Kiln.Host/Manifest.cs" Link="Shared/Manifest.cs" />
     <Compile Include="../Kiln.Host/SemVer.cs" Link="Shared/SemVer.cs" />
     <Compile Include="../Kiln.Host/KilnBuild.cs" Link="Shared/KilnBuild.cs" />
+    <!-- KilnBakeClean reads baked files as the game does (bounded) -->
+    <Compile Include="../Kiln.Api/BakedFiles.cs" Link="Shared/BakedFiles.cs" />
     <PackageReference Include="Microsoft.Build.Utilities.Core" Version="17.14.28" PrivateAssets="all" ExcludeAssets="runtime" />
     <PackageReference Include="Microsoft.Build.Framework" Version="17.14.28" PrivateAssets="all" ExcludeAssets="runtime" />
     <None Include="Sdk/*.props;Sdk/*.targets" Exclude="Sdk/Kiln.Version.props" Pack="true" PackagePath="Sdk/" />

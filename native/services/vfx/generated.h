@@ -1,27 +1,38 @@
 // SPDX-License-Identifier: MIT
-// blocks/generated/*.json: what Kiln.Sdk baked from a mod's code (docs/kiln/modding/baked.md), read by kiln.vfx at boot beside the
-// mod's blocks/*.json. A folder anyone with the mod can fill, so the boot reads it with limits, before anything is
-// allocated or parsed: no link or reparse point (the folder or a file: it could point outside the mod), at most 16 files,
-// 4 MiB each and 16 MiB in all, JSON nested at most 64 deep. Plain functions: the host test runs them
-// (native/services/vfx/tests/test_generated.cpp).
+// The limits kiln.vfx reads a mod's JSON with at boot: its data files (blocks/*.json) and what Kiln.Sdk baked from its code
+// (blocks/generated/*.json, docs/kiln/modding/baked.md). A mod's folder is input from the internet, so nothing is allocated
+// or parsed past these: how many entries a folder listing looks at, how many JSON files, bytes per file and in all, and how
+// deep the JSON nests. What leads out of the mod's folder is refused as well: the boot reader opens a folder or a file first
+// and then checks the final path of what it opened (path_inside), so a link, junction or path swapped anywhere from the
+// mod's folder down cannot lead out. Plain functions: the host test runs them (native/services/vfx/tests/test_generated.cpp).
 #pragma once
 #include <cstddef>
 #include <cstdint>
+#include <cwctype>
 #include <string_view>
 
 namespace kvx_generated {
 
-constexpr size_t kMaxFiles = 16;
-constexpr uint64_t kMaxFileBytes = 4ull << 20;
-constexpr uint64_t kMaxTotalBytes = 16ull << 20;
-constexpr int kMaxDepth = 64;
+struct Limits {
+    size_t entries;        // folder entries looked at (any kind): the listing stops there and nothing of it is read
+    size_t files;          // JSON files: more and nothing of the folder is read
+    uint64_t file_bytes;   // one file
+    uint64_t total_bytes;  // all of the folder's files read
+    int depth;             // arrays and objects nested
+};
+
+// blocks/generated: written by the SDK, a few KiB; room for any build of it.
+constexpr Limits kGenerated{1024, 16, 4ull << 20, 16ull << 20, 64};
+// blocks/*.json, the author's: real block files are a few KiB and a handful (the repository's largest is 6 KiB, its most in
+// one mod 6). Generous so no real mod meets them; the same per-file size and depth kiln.quests' start-up build takes for the
+// same files (questpack.h kMaxBlockFile, kMaxBlockDepth).
+constexpr Limits kBlocks{4096, 256, 16ull << 20, 64ull << 20, 64};
 
 // Why one more file is not read (nullptr: it is read). files: files read so far; total: their bytes.
-inline const char* refusal(bool link, size_t files, uint64_t size, uint64_t total) {
-    if (link) return "a link or reparse point (it could point outside the mod)";
-    if (files >= kMaxFiles) return "more than 16 files";
-    if (size > kMaxFileBytes) return "over 4 MiB";
-    if (total + size > kMaxTotalBytes) return "over 16 MiB with the files before it";
+inline const char* refusal(const Limits& l, size_t files, uint64_t size, uint64_t total) {
+    if (files >= l.files) return "more files than the limit";
+    if (size > l.file_bytes) return "over the size limit for one file";
+    if (total + size > l.total_bytes) return "over the size limit with the files before it";
     return nullptr;
 }
 
@@ -52,6 +63,26 @@ inline bool depth_ok(std::string_view s, int max) {
             --depth;
         }
     }
+    return true;
+}
+
+// Whether `path` lies below `root` (both final paths of opened handles, \\?\ form): case-insensitive, on a separator
+// boundary ("...\mods\a" does not hold "...\mods\ab\x"), '/' taken as '\'. Empty: never.
+inline bool path_inside(std::wstring_view root, std::wstring_view path) {
+    while (!root.empty() && (root.back() == L'\\' || root.back() == L'/')) root.remove_suffix(1);
+    if (root.empty() || path.size() <= root.size() + 1) return false;
+    auto same = [](wchar_t a, wchar_t b) {
+        if (a == L'/') a = L'\\';
+        if (b == L'/') b = L'\\';
+        return std::towlower(static_cast<wint_t>(a)) == std::towlower(static_cast<wint_t>(b));
+    };
+    for (size_t i = 0; i < root.size(); ++i)
+        if (!same(root[i], path[i])) return false;
+    if (path[root.size()] != L'\\' && path[root.size()] != L'/') return false;
+    for (size_t i = root.size() + 1; i + 1 < path.size(); ++i)  // no ".." step back out
+        if (path[i] == L'.' && path[i + 1] == L'.' && (path[i - 1] == L'\\' || path[i - 1] == L'/') &&
+            (i + 2 == path.size() || path[i + 2] == L'\\' || path[i + 2] == L'/'))
+            return false;
     return true;
 }
 

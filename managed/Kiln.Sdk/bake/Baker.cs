@@ -147,7 +147,7 @@ internal static class Baker
             foreach (var file in Directory.GetFiles(dir, pattern).Order(StringComparer.Ordinal))
             {
                 var relative = Path.GetRelativePath(folder, file);
-                if (string.Equals(relative, mine, StringComparison.Ordinal) || !IsBaked(file)) continue;
+                if (string.Equals(relative, mine, StringComparison.Ordinal) || !IsBaked(folder, relative)) continue;
                 if (!options.DryRun) File.Delete(file);
                 result.Removed.Add(relative.Replace('\\', '/'));
             }
@@ -231,7 +231,7 @@ internal static class Baker
         var file = Path.Combine(folder, relative);
         var shown = relative.Replace('\\', '/');
         var exists = File.Exists(file);
-        var ours = exists && IsBaked(file);
+        var ours = exists && IsBaked(folder, relative);
         if (exists && !ours)
         {
             if (doc is not null) result.Notes.Add($"{shown} is the mod's own file: left as it is, so its {what} are not baked");
@@ -245,7 +245,7 @@ internal static class Baker
             return;
         }
         var text = doc.ToJsonString(Pretty) + "\n";
-        if (ours && File.ReadAllText(file) == text)
+        if (ours && BakedFiles.Read(folder, relative) == text)
         {
             result.Unchanged.Add(shown);
             return;
@@ -260,16 +260,20 @@ internal static class Baker
         result.Written.Add(shown);
     }
 
-    /// <summary>A file the bake wrote (its comment says so).</summary>
-    internal static bool IsBaked(string file)
+    /// <summary>A file the bake wrote (its comment says so), read as every reader of baked files reads them (BakedFiles: at
+    /// most 4 MiB, no link from the mod's folder down). A file that is not is the author's: never overwritten or removed.</summary>
+    internal static bool IsBaked(string folder, string relative)
     {
         try
         {
-            return JsonNode.Parse(File.ReadAllText(file), documentOptions: Relaxed) is JsonObject o && (string?)o["comment"] == Comment;
+            return BakedFiles.Read(folder, relative) is { } text && JsonNode.Parse(text, documentOptions: Relaxed) is JsonObject o && (string?)o["comment"] == Comment;
         }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException or JsonException or InvalidOperationException)
+        catch (Exception e) when (e is JsonException or InvalidOperationException)
         {
             return false;
         }
     }
+
+    /// <summary>The same for one file, the file itself checked (not the folders above it).</summary>
+    internal static bool IsBaked(string file) => IsBaked(Path.GetDirectoryName(Path.GetFullPath(file))!, Path.GetFileName(file));
 }
