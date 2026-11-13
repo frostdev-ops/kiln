@@ -18,21 +18,35 @@ Back to the tick thread: `Context.Scheduler.Post(action)` or `await Context.Sche
 `Game.IsTickThread` / `Game.AssertTickThread()`. On a client in the main menu there is no world: `Scheduler.Post`
 work waits for the first world step.
 
-## The API contract (dev.26+; not seen by a player)
-These need a dev.26 runtime and MDK. Page: `docs/kiln/modding/contract.md`. dev.27+ (in development): every service
-follows it, see [New in dev.27+](#new-in-dev27-in-development-not-released).
+## The API contract (dev.26+; every service dev.27+)
+Page: `docs/kiln/modding/contract.md`.
+```csharp
+if (!Capabilities.Is("items.equip")) { c.Reply(Capabilities.Why("items.equip")); return; }   // or catch KilnUnavailableException
+var r = await Items.Equip(player, from, EquipmentSlot.Ring1);
+if (!r.Ok) c.Reply($"not equipped: {r.Reason}");                                              // the game refused
+```
 - **One error rule.** The game refused: a result with `Ok = false` and `Reason` (`IKilnResult`). A bad argument:
   `ArgumentException`. A capability that is off: `KilnUnavailableException` (`Capability`, `Reason`; a
-  `NotSupportedException`). Few results implement `IKilnResult` yet (`PlayerAnimDefineResult`), and older services still
-  throw their own exception types: catch `NotSupportedException`.
+  `NotSupportedException`; message `"<row> is not available: ..."`: filter on `Capability`, not the text). dev.27+
+  results include `HitResult`, `CastResult`, `FuelResult`, `QuestResult`, `ConversationResult`, `ProgressionResult`,
+  `CreativeResult`, `SaveResult`, `TeleportResult` and every new call's. On dev.26 most services still threw their own
+  exception types: catch `NotSupportedException` there.
+- **A change Kiln makes has an event** (dev.27+ also `CombatChangedEvent`, `TimeSpeedChangedEvent`,
+  `ImpactVariableChangedEvent`, `PlayerProgressionChangedEvent`). A change made inside the handler of its own event is
+  announced at the start of the next step, never recursively.
 - **Capabilities.** `Capabilities.Is(name)`, `Get(name)` (`Capability`: `State`, `Reason`, `ReasonText`, `Source`,
   `SessionDependent`, `IsAvailable`), `Why(name)` (one sentence to log), `All`; any thread. `CapabilityChangedEvent`
   on the tick thread. `Game.HasFeature(name)` asks the same table. Names: every sigdb feature, `kiln.<service>`,
-  `identity.entities`, `identity.players`, `items.*`, `saves.instance_data`, `anim.player_states`, `blocks.weapon_moves`.
-  A row a managed service registers exists only after its first use (Kiln.Items: the first tick; item blocks: the
-  first compile), so name only sigdb features, `kiln.<service>` and `anim.player_states` in a manifest's `features`;
-  check the rest with `Capabilities.Is` at run time. `[RequiresCapability(name)]` marks members of Kiln.Items, item data,
-  Kiln.PlayerAnim and the move blocks; it is documentation: the member's own code throws, nothing checks the attribute.
+  `identity.entities`, `identity.players`, `items.*`, `saves.instance_data`, `anim.player_states`, `blocks.weapon_moves`;
+  dev.27+ `rules.noclip`, `abilities.buffs`, `abilities.buff_list`, `players.aim`, `players.kick`, `players.bans`,
+  `items.equip`, `blocks.affixes`, `saves.instance_data.sync`, `world.tracked_writes`, `time.weather_choose`,
+  `ui.menu_scroll`. dev.27+ rows exist from the first tick; session rows are pending until a server world runs. A
+  manifest's `features` is checked before the managed services start: name only sigdb features, `kiln.<service>` and
+  `anim.player_states` there; check the rest with `Capabilities.Is` at run time.
+- **`[RequiresCapability(name)]`** marks a member that throws `KilnUnavailableException` for that row. The attribute
+  checks nothing at run time; dev.27+ the analyzer KILN121 reads it ([devkit.md](devkit.md#analyzers-in-every-kilnsdk-build)).
+- **For a person or a living thing** (dev.27+): `Spawn.DestroyIfAlive(EntityRef)`, `Chat.TellIfOnline(PlayerRef, text)`,
+  `Permissions.PersonHas(PlayerRef, node)`, `PermissionSubject.ForPerson`, `Players.FindPerson(PlayerRef)`.
 - **Identity.** `EntityRef(EntityId Id, ulong Serial)`: `EntityRef.Of(id)`, `IsAlive`, `HasSerial`, `IsNone`;
   converts implicitly to `EntityId`. `PlayerRef(ulong SteamId, Guid CharacterId, EntityRef Entity)`: `PlayerRef.Of(entity)`,
   `Resolve()`, `IsOnline`, `IsSamePerson(other)`; explicit conversions from `Player`, `TalentHolder`, `QuestHolder`,
@@ -43,78 +57,11 @@ follows it, see [New in dev.27+](#new-in-dev27-in-development-not-released).
   `IsAlive` only says the id exists. Test `IsNone`, not `== None`. Refs ran on a test server; player refs with
   simulated players only.
 - **Side and thread markers:** `[ServerOnly]`, `[ClientOnly]`, `[AnyThread]`, `[RenderThread]`, `[WorkerThread]`
-  beside `[TickThreadOnly]`. Markers only; few members carry them yet.
-- **API version:** `Mods.RuntimeApiVersion` is the running Kiln's mod API. `Mods.ApiVersion` is obsolete: a const,
-  copied into your mod at build time. Release builds carry their full version (`0.2.0-dev.26`).
+  beside `[TickThreadOnly]`. Markers, read by the analyzers; dev.27+ the services' members carry them.
+- **API version:** `Mods.RuntimeApiVersion` is the running Kiln's mod API (0.2.2 on dev.27). `Mods.ApiVersion` is
+  obsolete: a const, copied into your mod at build time. Release builds carry their full version (`0.2.0-dev.27`).
 - **`[Experimental]` ids:** `KILNX001` lab and test members (hidden; a build error unless the project adds it to
   `NoWarn`), `KILNX002` API not yet proven in a real client. Neither is covered by the additive-API promise.
-
-## New in dev.27+ (in development; not released)
-These need a dev.27 runtime and MDK (mod API 0.2.2; additive). Proven on test servers with stand-ins for players, never
-in a player's game. Pages are in the repository's `docs/kiln/`.
-- **The contract in every service.** A call whose capability is off throws `KilnUnavailableException` naming the row
-  (still a `NotSupportedException`). Rows exist from the first tick; session rows are pending until a server world runs.
-  Results are `IKilnResult` (`Ok`, `Reason`): `HitResult`, `CastResult`, `FuelResult`, `QuestResult`,
-  `ConversationResult`, `ProgressionResult`, `CreativeResult`, `SaveResult`, `TeleportResult`. A change Kiln makes has
-  an event (`CombatChangedEvent`, `TimeSpeedChangedEvent`, `ImpactVariableChangedEvent`,
-  `PlayerProgressionChangedEvent`); a change made inside the handler of its own event arrives at the start of the next
-  step, never recursively. Members carry `[RequiresCapability]`, `[ServerOnly]`, `[TickThreadOnly]`, `[AnyThread]`.
-  For a person or a living thing: `Spawn.DestroyIfAlive`, `Chat.TellIfOnline`, `Permissions.PersonHas`,
-  `PermissionSubject.ForPerson`, `Players.FindPerson(PlayerRef)`. `modding/contract.md`.
-- **Analyzers.** KILN120: a Kiln result nobody reads (check `result.Ok`, or `_ = ...`). KILN121: a
-  `[RequiresCapability("row")]` member used with no `Capabilities.Is("row")`, no guard property of the service
-  (`Items.Available`, `Combat.Available`) and no `catch` of `KilnUnavailableException` around it. A check inside a helper
-  of your own is not followed: check in the method that calls, catch there, or mark the caller `[RequiresCapability]`.
-  `modding/analyzers.md`.
-- **One call no longer compiles:** `Events.On<T>(handler, default)`; write `EventPriority.Normal` or leave it out.
-- **Event filters.** `Events.On<T>(handler, EventFilter.ForEntity(entity))` (or `ForEntities`) for events that name
-  their entities (`IEntityEvent`: the combat events). A filtered hit handler no longer has every hit held for it.
-- **NoClip.** `PlayerRules.NoClip`; `NoClip.Set(player, on)` (result: `Ok`, `On`, `Reason`), `NoClip.Of(player)`
-  (`On`, `Active`, `LastFree`, `Restoring`), `NoClip.Available`, capability `rules.noclip`, `PlayerNoClipEndedEvent`
-  (`RuleEnded`, `Death`, `Teleport`; `RestoredTo`). A death or a teleport ends it. Off on a server until
-  `"allowNoClip": true` in `kiln/config/rules.json`. `RuleSet.Update` counts at once. Nothing of it ran in a real game.
-- **Buffs.** `Abilities.RemoveBuff(target, buff)` (the game's answer: `Ok` false when the entity had no such buff),
-  `BuffRemovedEvent`, `Abilities.BuffsOf(entity)` (`EntityBuff`; server only, a joined client gets an empty list).
-  Capabilities `abilities.buffs`, `abilities.buff_list`.
-- **Players.** `PlayerStates.AimOf(player)` (`PlayerAim`: `Origin`, `Direction`, `At(metres)`; the camera, not the
-  character). `Players.Kick(player, reason)`, `Network.Kick(peer, reason)`, `PlayerKickedEvent`. `Bans` (`Add`, `Remove`,
-  `Find`, `All`; by player or Steam id, optional duration), `PlayerBannedEvent`, `PlayerUnbannedEvent`.
-  `PlayerLoginEvent`: cancel it with a `Reason` to refuse a player.
-- **Items.** `Items.Equip(player, from, slot)`, `Items.Unequip(player, slot)` (`EquipResult`, `EquipOptions.DryRun`,
-  `EquipChangedEvent`; capability `items.equip`). A mod item with its own model lies on the ground as that model
-  (`Dropped` names another).
-- **Item data in players' games.** `InstanceData.Claim(parked, item)`, `InstanceData.Discard(parked)`. A key with
-  `Sync = InstanceSync.Holder` or `Nearby`, declared on the mod's client side too, is read there with
-  `InstanceData.Synced` or `InstanceDataSyncedEvent`. `modding/inventory.md`.
-- **Affixes.** Define kinds and pools as blocks: `Blocks.Define("bear", new AffixBlock { Name, Stat, Tiers })`,
-  `Blocks.Define("blades", new AffixPoolBlock { Items, Affixes })`, or the `affixes` and `affixPools` sections of
-  `blocks/*.json`. Roll and edit with `Affixes` (`Roll`, `Add`, `Set`, `Remove`, `Clear`, `Of`, `Active(wearer)`, `Find`,
-  `FindPool`; on a client `Synced`); ids are `"mod:name"`; `AffixesChangedEvent`, `AffixesAppliedEvent`. They act while
-  the item is in hand or worn. 8 per item, a
-  value at most 1,000,000 either way. Not yet: flat damage on a hit, lines in the game's tooltip, rolls on a drop or a
-  craft. `modding/affixes.md`; sample `AffixSword`.
-- **World.** `World.Write`, `World.Update`, `World.WriteField`, `World.WriteAt`: tracked writes the game saves, run in the
-  next sim step, with a result that says what became of them (`Dropped`: ask again next step). List the component types
-  under `"writes"` in kiln.mod.json (Kiln.Sdk adds the ones your code writes). Capability `world.tracked_writes`,
-  `ComponentWrittenEvent`. Server worlds only. `World.TryWrite` is obsolete: `World.WriteRaw` (not saved, not sent).
-  `World.Query` gives entity sets.
-- **Weather.** `Time.SetWeather("rain", TimeSpan.FromMinutes(10))`, `Time.ReleaseWeather()`, `Time.Weather`,
-  `Time.WeatherPhenomena`, `WeatherChangedEvent` (`ByKiln`). Capability `time.weather_choose`. A hold does not outlast a
-  restart.
-- **Baked definitions.** Kiln.Sdk writes quests (with NPCs and dialogues), `GameTree.Define` nodes, VFX and materials
-  defined in code into the mod at build, so they exist at the first start. `KilnBake=false` turns it off. Not baked yet:
-  statuses, effects, items, spells, talent blocks. A baked file wins over changed code until the mod is rebuilt.
-  `modding/baked.md`.
-- **Cooked files.** Every cook records what it wrote (`kiln/state/cook-receipts`). A cooked file no receipt lists was
-  shipped or copied in: it loads with a warning by default (`"cooked": "warn"` in kiln.json; `"local"` refuses, `"any"`
-  asks nothing) and a later release will refuse it. Ship recipes and sources, never `assets/cooked`. The launcher cooks
-  on Play; `kiln cook --force` cooks everything again. `modding/cooking.md`.
-- **Tests without the game.** Kiln.TestKit fakes spawning, chat, items, combat, time and a world (`kiln.Spawned`,
-  `player.Chat`, `player.Say`, `player.Inventory`, `kiln.Combat.Hit`, `kiln.Time`, `kiln.Entities`); quests and talent
-  trees run on fake players. Weather, equip and moves between inventories say offline. `modding/unit-tests.md`.
-- **Samples:** `SavedData`, `AdminTools`, `CalmBell`, `QuietServer`, `Loadouts`, `SkyControl`, `AffixSword`, `ItemData`,
-  `EngineRoom` (advanced). **Templates:** `kiln-events`, `kiln-saved-data`, `kiln-rules`, `kiln-network`,
-  `kiln-screen-effect`, and advanced `kiln-hooks`, `kiln-shader`, `kiln-world-program`.
 
 ## The mod
 ```csharp
@@ -159,6 +106,11 @@ dependents reference it with `Private="false"`. Reloading a provider reloads its
 var sub = Events.On<CommandExecutedEvent>(e => { });   // sub.Dispose() to stop
 Events.Post(new MyEvent());        // tick thread; Events.Enqueue(ev) from any thread
 ```
+dev.27+ filters: `Events.On<EntityHurtEvent>(OnHit, EventFilter.ForEntity(dummy))` (or `ForEntities`) delivers only the
+events about those entities; it works for every `IEntityEvent` (the combat events, `ComponentWrittenEvent`). A hit is
+about an entity as its target, the part hit, its attacker or its source, so a creature's filter also gets the hits it
+deals: test `e.Target == creature` for the hits it takes. A filtered hit handler no longer has every hit in the world
+held for it. `Events.On<T>(handler, default)` no longer compiles (priority or filter?): write `EventPriority.Normal`.
 Priorities `Highest, High, Normal, Low, Lowest, Monitor`. `CancelableEvent.Cancel()`, `ResultEvent` (`Allow`,
 `Deny`). Build your own events only when `Events.HasSubscribers<T>()`. Each service page lists its events with
 thread, cancel meaning and writable fields: read it before relying on one. Some player-facing events are built but not yet
@@ -207,19 +159,49 @@ built in. Console: `kiln/control/console/*.cmd`.
 `PlayerLevelChangedEvent`, `PlayerSkillsChangedEvent`. Changes return `Task<ProgressionResult>`; game refusals come
 back as `Ok = false`, not exceptions. Level cap 50. New nodes and trees: [talents](quests-talents-sounds.md).
 
+**Admin (dev.27+; test connections only, no real player's game).** `await Players.Kick(playerRef, reason)` /
+`Network.Kick(peer, reason)` → `KickResult`; `PlayerKickedEvent`. `Bans.Add(playerRef | steamId, reason, duration?)`,
+`Bans.Remove(id)`, `Bans.Find(id)`, `Bans.All` (Kiln's own list, `kiln/data/kiln-players/bans.json`, enforced at
+login); `PlayerBannedEvent`, `PlayerUnbannedEvent`. Capabilities `players.kick`, `players.bans`. `PlayerLoginEvent`
+comes once per connection when it names its player (`Name`, `SteamId`, `HasKiln`): set `Reason` and `Cancel()` to
+refuse it. A player with Kiln reads the reason; one without gets the game's own "could not join".
+
 Player state (any of 350 states from the game's own enums, `docs/kiln/modding/player-states.md`): `player.Is(PlayerStateId.Soaked)`, `player.IsGliding`, `IsSwimming`, `IsAttacking`..., `player.Snapshot()` (`Health`, `Mana`, `Stamina`, `ShroudTimeLeft`, `Action`, `Active`), `player.Equipment`, `player.Buffs`. Live on the tick thread. Events: `PlayerStateChangedEvent` (any state), `PlayerActionEvent` (any action sequence, `Cancel` stops it), `PlayerConsumeEvent` (`e.Item == GameItems.Food_...`, `Cancel`: item stays), `PlayerConsumedEvent`, `PlayerClientActionEvent` (any client command), `PlayerJumpEvent`, `PlayerGlideEvent`, `PlayerEquipmentChangedEvent`, `PlayerHotbarChangedEvent`. Check the dated wiki status for player-facing verification.
+dev.27+: `PlayerStates.AimOf(player)` → `PlayerAim?` (`Origin`, `Direction`, `At(metres)`; null before the player's game
+sent a camera; capability `players.aim`). It is the camera, behind the character: a "what does the player look at"
+ray starts at `Origin`.
+
+## Player rules and NoClip (Kiln.Rules)
+`Rules.Apply(player | RuleScope, new PlayerRules { ... }, duration)` → a `RuleSet` (`Update(rules)`, dispose to end);
+`Rules.Of(player)` reads what counts now (dev.27+ also right after `Update`). Rules of several sets combine; a player's
+`Water` rule refills containers every step (see tracked writes below).
+dev.27+ **NoClip** (one real game: switched on and off; death, teleport and other players' view not tried):
+`PlayerRules.NoClip = true` in a rule set, or Kiln's own switch `NoClip.Set(player, on)` → `NoClipResult` (`Ok`, `On`,
+`Reason`). `NoClip.Of(player)` (`On`, `Active`, `LastFree`, `Restoring`), `NoClip.Available`, capability
+`rules.noclip`. The character flies through terrain, blocks and props, with no other grant (no invulnerability). Off on
+every server until its `kiln/config/rules.json` has `"allowNoClip": true` (refused with a reason); the player's game needs
+Kiln dev.27. A death or a teleport ends it, and it must be asked for again; `PlayerNoClipEndedEvent` (`Reason`:
+`RuleEnded`, `Death`, `Teleport`; `RestoredTo` when Kiln moved the character back to open space first). Does nothing
+while the Creative Mode mod flies the character.
 
 ## Items, spawn, world, time, settings, combat
 - Items: `Items.Lookup(name)`, `Items.Search`, `await Items.Give(target, id, n, gear, options)`,
-  `Items.Read(inventory)`, `await Items.Take(...)`, `Items.FindInventories(kinds)`.
+  `Items.Read(inventory)`, `await Items.Take(...)`, `Items.FindInventories(kinds)`. dev.27+ equip, in
+  [Inventory transfers](#inventory-transfers-dev20). A mod item with a model of its own lies on the ground as that model
+  (`ItemBlock.Dropped` names another); before dev.27 it took its base item's ground model.
 - Spawn: `Spawn.Lookup(template)`, `await Spawn.Entity(template, pos, yaw, options)`, `Spawn.Item`,
   `Spawn.Group`, `Spawn.Inspect`, `Spawn.Destroy`, `Spawn.Tracked`, `Spawn.CleanupTracked(tag)`. Check
   `Spawn.WorldRunning` first. dev.20+: `SpawnOptions.Components` takes up to 64 `SpawnComponent.Of(name, bytes/value)`
   entries applied with the spawn, before its first tick; check `Spawn.SupportsComponents`. Exact reflected sizes are
   required, and `SpawnTime` needs `SpawnFlags.NoTrack`. This is distinct from queued component changes later.
-- World: positions are `WorldPosition` in metres; teleport and entity reads.
+- World: positions are `WorldPosition` in metres; teleport and entity reads; dev.27+ `World.Query` gives entity sets.
+  Writes: [below](#tracked-world-writes-dev27).
 - Time: `Time.State`, `Time.Set("19:45")`, `Time.ResetWeather()`. Set the time only after the world runs
-  (`ServerStartedEvent`), or the save load overwrites it.
+  (`ServerStartedEvent`), or the save load overwrites it. dev.27+ weather: `await Time.SetWeather("rain",
+  TimeSpan.FromMinutes(10))` → `WeatherResult` (by name, on every layer that has it, or `layer:`; no duration holds it
+  until `Time.ReleaseWeather()`; `"none"` is a clear sky). `Time.Weather` (layers: what runs, what Kiln holds),
+  `Time.WeatherPhenomena` (the names), `WeatherChangedEvent` (`ByKiln` tells Kiln's from the game's own rolls).
+  Capability `time.weather_choose`. A hold does not outlast a restart.
 - Settings: `Settings.Get(name)`, `Settings.Set(name, value)`, `TrySet`, `Settings.All`.
 - Combat (dev.20+): `Attributes.Get(entity, GameAttribute.Stamina)` and `Set` / `Add` (also Mana, BodyHeat, Oxygen);
   check `Available`/read results. These use the game attribute path, on the tick thread.
@@ -247,6 +229,11 @@ dev.21+: a native `transfer_listen` handler (kiln.items) also runs on a dry-run 
 `KILN_TRANSFER_DRY_RUN` in `ev->flags`. Keep and cancel as usual; count, log and change nothing outside the transfer.
 Wiki: [inventory](https://frostdev.io/kiln/wiki/inventory).
 
+dev.27+ **equip:** `await Items.Equip(player, fromSlot, EquipmentSlot.Ring1)` puts an item from the backpack on (no slot:
+the item's own), `await Items.Unequip(player, slot)` takes one off into a free backpack slot. The game's own equip runs
+on the server with all its checks; `EquipResult` says what moved where or why not. `EquipOptions.DryRun` asks without
+changing anything; `EquipChangedEvent` follows each change. Capability `items.equip`. Sample `Loadouts`.
+
 ## Persistent data
 `WorldData.Get<T>(key)` (live object: change it in place; saved with the world), `PlayerData.Get<T>(steamId, key)`,
 `EntityData.Get<T>(entity, key)` / `Set`. Tick thread. JSON via System.Text.Json. Keys are per mod. Kept across hot
@@ -271,8 +258,32 @@ sword.Get(_kills).Count++;                          //   InventorySlot.Ref, give
   Identical items swapped where Kiln did not see it (another world, an offline edit) trade their data.
 - `Persist.Carried` throws `KilnUnavailableException("saves.instance_data.carried")`: not in this release. Plain stacks
   have no item entity. 256 records per holder per mod, 64 KB per value, waiting records dropped after 3 sessions.
-- Chests proven on a test server; backpack, action bar and worn items wait for the guided client pass. Affixes: dev.27+
-  (`Affixes`, below); before that none (perks come from the item type). Page: `docs/kiln/modding/inventory.md` "Data on one item"; sample `mods/samples/ItemData`.
+- dev.27+: `InstanceData.Claim(parked, item)` puts a set-aside value on an item you name, `InstanceData.Discard(parked)`
+  drops it (also from a handler of the item data events; admins: `/instances claim|discard`).
+- dev.27+ **values in players' games:** `new InstanceKeyOptions { Sync = InstanceSync.Holder }` (or `Nearby`, with
+  `NearbyRadius`); declare the same key on the mod's client side (`"side": "both"`) and read it there with
+  `InstanceData.Synced(item, key)` or `InstanceDataSyncedEvent` (capability `saves.instance_data.sync`). A value never
+  goes to a player the key does not name; a player without Kiln dev.27 gets nothing.
+- Chests proven on a test server; backpack, action bar and worn items wait for the guided client pass. Page:
+  `docs/kiln/modding/inventory.md` "Data on one item"; sample `mods/samples/ItemData`.
+
+**Affixes (dev.27+; Kiln.Blocks):** bonuses rolled onto one item. Define kinds and pools as blocks (JSON sections
+`affixes` and `affixPools` in `blocks/*.json`, or in `OnLoad`):
+```csharp
+Blocks.Define("bear", new AffixBlock { Name = "of the Bear", Stat = Stat.Strength,
+    Tiers = [new AffixTier { Min = 2, Max = 4 }] });
+var blades = Blocks.Define("blades", new AffixPoolBlock { Items = ["Weapon_T1_1H_SwordEpic_01"],
+    Affixes = [new AffixEntry { Affix = "bear" }] });
+var r = blades.Roll(Items.Held(player));             // later, on one item (ItemInstanceRef); AffixResult: Ok, Reason, Affixes
+```
+- `Affixes.Roll(item, pool)`, `Add`, `Set`, `Remove`, `Clear`, `Of(item)`, `Active(wearer)`, `Find`, `FindPool`; on a
+  client `Affixes.Synced(item)`. Ids are `"mod:name"`. `AffixesChangedEvent`, `AffixesAppliedEvent`. Capability
+  `blocks.affixes`. All 39 game stats.
+- They act while the item is in hand or worn, never in the backpack. At most 8 rolls per item act; a value is at most
+  1,000,000 either way. A pool that can never reach its `Min` is refused at definition. An affix or pool cannot share its
+  name with another kind of block in its mod (`BlockError`).
+- Not yet: flat damage on a hit, a share of a pool, lines in the game's own tooltip, rolls by themselves on a drop or a
+  craft. Page `docs/kiln/modding/affixes.md`; sample `AffixSword`.
 
 ## Content and game data
 ```csharp
@@ -308,10 +319,37 @@ foreach (var e in Ecs.All<Ecs.Health>()) { }                  // also Ecs.Get<T>
 - Each type is checked against the running game at first use. A mismatch reads as nothing (false, null, empty) with
   one warning: never a partial read. Kiln also stamps the mod (`kiln.gametypes.json`) and refuses it by name at load
   when a type it uses changed; an enum constant the compiler folds into a number is not stamped.
-- Reads only: a struct is a copy. Writes stay `World.TryWrite` (raw, not saved) until dev.27.
+- Reads only: a struct is a copy. Write with [tracked world writes](#tracked-world-writes-dev27) (dev.27+).
 - `Kiln.GameTypes.Components` and the nine old structs are obsolete (`Use Kiln.Ecs.`) and still work.
 - Server lab: typed reads equal raw bytes for 118 components; the rest and the client side are unproven.
   Page: `docs/kiln/typegen.md` §4.
+
+## Tracked world writes (dev.27+)
+Kiln.World with `Game` in `KilnServices`. Server worlds only (a dedicated server or a hosting game). Page:
+`docs/kiln/services/world.md`.
+```csharp
+var r = await World.Update<Ecs.Fuel>(can, (ref Ecs.Fuel f) => f.Values[0] = f.Values[1]);   // next sim step
+if (!r.Ok) Log.Warn(r.ToString());                     // NotDeclared, NoComponent, Dropped (ask again next step), ...
+else if (r.Kept == false) Log.Warn($"written over by {r.WrittenOverBy ?? "the game or another mod"}");
+```
+- `World.Write<T>(entity, value)`, `World.Update<T>(entity, change)` (the only way to change an attribute's values:
+  Health, Stamina, Fuel), `World.WriteField(entity, "Component", "path", value)`, `World.WriteAt(entity, "Component",
+  offset, value)` → `Task<WorldWriteResult>`. They go through the game's write tracking: saved with the world, sent to
+  players where the game tracks the type (`SaveTracked`, `ReplicationTracked`). The `Update` callback runs inside the
+  game's step: touch only the value. Capability `world.tracked_writes` (`World.SupportsTrackedWrites`);
+  `ComponentWrittenEvent` follows a change.
+- List each written component type under `"writes"` in kiln.mod.json. Kiln.Sdk adds the types your code passes to
+  `World.Write`/`Update`; list by hand what `WriteField`/`WriteAt` name as a string (warning KILN030: a type the build
+  could not resolve). Unlisted: `NotDeclared`. `World.WriteInfo(component)` says whether you can write it and which
+  game programs write it too. 512 writes run per step; all mods share 91 component types.
+- A write goes to the entity its id named at the call, never to a later one in the same slot. One for an entity without
+  a spawn time (loaded from the save, an item entity) that would wait behind a full step answers `Dropped`.
+- A type the game also writes every step can be written over one step later: `Kept` false. `WrittenOverBy` names the
+  Kiln policy that did it: a water refill (`Items.Fuel.Refill`, `Items.Fuel.KeepFull`, or a player's `Water` rule, such
+  as the Creative menu's rule set) keeps a container's `Fuel` at its level. End or narrow that refill before you write
+  `Fuel`, or change the water through `Items.Fuel`. Null with `Kept` false: a game program or another mod.
+- `World.TryWrite` is obsolete: `World.WriteRaw`, a raw store the game neither saves nor sends, only for inputs the game
+  reads in the coming step (`PlayerInput`).
 
 ## Creatures
 `Creatures.Template(name)`, `Creatures.Of(entity)` → `CreatureRef` (`Level`, `Faction`, `Scale`, `Resistance[kind]`,
@@ -327,6 +365,10 @@ CastTime, Targeting, OnCast = async cast => { await cast.Impact(template, pos, c
 `Abilities.HoldPrograms(ids)`), `await Abilities.RunImpact(...)`, `Abilities.PlaySequence(actor, guid)`,
 `await Abilities.ApplyBuff(target, buffGuid, duration, caster)`, `Abilities.Attributes.Get/Add`,
 `Abilities.Natives.Register(name, argc, call => ...)` for Impact programs.
+dev.27+: `await Abilities.RemoveBuff(target, buffGuid | GameBuffs.Ids.X)` → `BuffRemoveResult` (the game's own removeBuff;
+`Ok` false with a reason when the entity did not have it), then `BuffRemovedEvent`. `Abilities.BuffsOf(entity)` →
+`EntityBuff` (`Id`, `Slot`, `Remaining`, `Level`); the game keeps buffs on the server, so a joined client gets an empty
+list. Capabilities `abilities.buffs` (pending while no server world runs), `abilities.buff_list`.
 dev.26+ (not seen by a player): a mod's own **player animation states** come from `assets/player-states.json`
 (`{"format": 1, "states": {"my-slash": {"clip": "my_slash", "like": "Attack_Sword_Shield_01"}}}`), merged into the
 player's graph at boot, never hot-reloaded; the mod needs `"side": "both"`, `"clients": "mod"` and its cook on the server.
@@ -359,6 +401,9 @@ Key names: `F8`, `Ctrl+K`, `Shift+Alt+F2`, `Numpad5`, `None`; dev.27+ also the m
 `WheelUp`, `WheelDown`, `WheelLeft`, `WheelRight` with modifiers (`Ctrl+WheelUp`, `Shift+Mouse4`; one press per notch, a
 notch has no release). Left and right click cannot be bound (`Parse` throws, `TryParse` is false, as it is for every
 mouse name on a Kiln before dev.27). A taken press is kept from the game (Ctrl+WheelUp does not zoom the camera).
+dev.27+: with many entries the pause menu scrolls (`ui.menu_scroll`); where a menu cannot scroll (the main menu) and
+more than 3 mods add entries, theirs are listed on Kiln's Mods page instead, where `OnClick` runs the same way (the
+player's `modEntries` setting decides). Don't assume your entry is drawn in the game's menu.
 `Ui.Available` is false on a dedicated server. dev.20+: `WindowBlock`, `HudLineBlock`, `KeyBindingBlock` and the equivalent
 JSON sections bind config and safe `game.*` values without draw code: [blocks.md](blocks.md#ui-as-data).
 dev.20+: `StatusLines.Add(() => cachedText)` / `Set("state", text)` report mod status when asked, including on servers.
@@ -381,6 +426,10 @@ must not ship in a mod.
 ## Assets
 `assets/assets.json` entries `icon`, `texture`, `resource`, `blob`; loaded at boot. Icons and textures are client
 only. Models and sounds: sources + `assets/cook.json`, cooked on the player's machine with `kiln cook`.
+dev.27+: the launcher cooks a mod with a recipe on Play, and each cook records what it wrote
+(`<game>/kiln/state/cook-receipts`). A cooked file no receipt lists (shipped in a mod, copied in) loads with a warning
+(`"cooked": "warn"` in `kiln/kiln.json`, the default); `"local"` refuses it, `"any"` asks nothing (development). A mod's
+assets are read from its own folder only. Page: `docs/kiln/modding/cooking.md`.
 
 ## Network
 ```csharp

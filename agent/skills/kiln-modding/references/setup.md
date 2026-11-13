@@ -2,7 +2,7 @@
 
 Wiki: [dev kit](https://frostdev.io/kiln/wiki/dev-kit), [your first mod](https://frostdev.io/kiln/wiki/first-mod).
 
-`Kiln.Api`, `Kiln.Sdk` and `Kiln.Templates` share the full MDK pack version: `0.2.0-dev.24` for this release, or a unique
+`Kiln.Api`, `Kiln.Sdk` and `Kiln.Templates` share the full MDK pack version: `0.2.0-dev.27` for this release, or a unique
 `0.2.0-dev.local.<date>.<time>` for a local pack. `0.2.0` is only the source's base version. These packages use a local feed,
 not nuget.org: pass the MDK feed as `--feed` or `$KILN_FEED`. Use the actual pack version when editing a project by hand.
 
@@ -26,6 +26,11 @@ dotnet new kiln-mod -n MyMod --feed <feed> --server <server folder> --tests --se
 | `talents` | a talent tree | both, mod |
 | `native` | a C++ mod | both |
 | `test` | a test mod; `target=<mod>` | server, none |
+| `spell`, `vfx`, `body` | a spell, an effect, a creature with its own body, from blocks | both; `clients` as the blocks need (KILN112) |
+| `unit-test` | an xunit project on `Kiln.TestKit` (dev.26+) | |
+| dev.27+: `events`, `saved-data`, `rules` (NoClip too), `network` | one topic each | server, none; `network` both, mod |
+| dev.27+: `screen-effect` | screen effects as blocks | both; `clients` as the blocks need |
+| dev.27+ advanced: `hooks`, `shader`, `world-program` | a game-function detour, shader hooks, a program in the game's scheduler | `hooks`, `shader` advanced; `shader` both, mod |
 
 **dev.20+ block templates:** `item-blocks`, `world-blocks`, `creature-blocks`, `npc`, `cosmetic`,
 `building-material`, `ability-blocks`, `quest`; `ui --set blocks=true` selects UI as data. Use `kiln new --list` from the
@@ -41,7 +46,7 @@ launcher window yet.
 
 The project file:
 ```xml
-<Project Sdk="Kiln.Sdk/0.2.0-dev.24">
+<Project Sdk="Kiln.Sdk/0.2.0-dev.27">
   <PropertyGroup>
     <KilnModId>my-mod</KilnModId>
     <Version>1.0.0</Version>
@@ -59,24 +64,26 @@ The project file:
 | `KilnModId` | lower-case `AssemblyName` | `id` |
 | `KilnModName`, `Version` | `AssemblyName`, 1.0.0 | `name`, `version` |
 | `Authors`, `Description`, `PackageLicenseExpression`, `PackageProjectUrl` | | `authors`, `description`, `license`, `url` |
-| `KilnApiVersion` | the SDK's (0.2.1) | `apiVersion` |
+| `KilnApiVersion` | the SDK's (0.2.2) | `apiVersion` |
 | `KilnSide` | server | `side` |
 | `KilnClients` | from the side: server none, else mod | `clients` |
 | `KilnEntryType` | the only public `Mod` subclass | `entryType` |
 | `KilnAdvanced` | false | `advanced` |
-| `KilnFeatures`, `KilnExports` | | `features`, `exports` |
+| `KilnFeatures`, `KilnExports` | | `features`, `exports` (KILN121 counts `KilnFeatures` as asked) |
 | `KilnTestsAutoRun`, `KilnTestTimeoutSeconds` | | `tests` |
 
 Not in the manifest:
 | Property | Does |
 |---|---|
-| `KilnServices` | services to reference: Abilities, Assets, Audio, Build, Chat, Client, Combat, Content, Creatures, Gameplay, Items, Network, Permissions, Players, Quests, Saves, Settings, Skills, Spawn, Time, Ui, World; and `Testing` |
+| `KilnServices` | services to reference: Abilities, Assets, Audio, Blocks, Build, Chat, Client, Combat, Content, Creatures, Gameplay, Hooks, Items, Network, Permissions, PlayerAnim, Players, Quests, Rules, Saves, Settings, Skills, Spawn, Time, Ui, Vfx, World; `Game` (`Kiln.Ecs` types); and `Testing` |
 | `KilnServer`, `KilnModsDir` | deploy target |
 | `KilnReload` | KilnDeploy also reloads the mod |
 | `KilnModFolders` | data folders copied into the mod; includes `blocks`, content, assets, skills, quests, icons, Impact and audio sources; inspect the installed SDK for the full list |
 | `KilnPackExclude` | left out of the zip; default `assets/cooked/**` |
 | `KilnAnalyzers` | false: no KILN1xx |
 | `KilnGameIds`, `KilnCatalog` | game-id constants |
+| `KilnBake` | dev.27+: false turns off baking code-defined quests, game-tree nodes, VFX and materials into the mod (on when `KilnServices` names Quests, Skills, Blocks or Vfx); `KilnBakeSteps`, `KilnBakeTimeoutSeconds`. `docs/kiln/modding/baked.md` |
+| `KilnWrites` | dev.27+: false stops the build adding `World.Write`/`Update` types to `"writes"` |
 
 Items: `KilnDependency` (`Version`, `Optional`), `KilnLoadBefore`, `KilnLoadAfter`, `KilnIncompatible` (`Version`).
 

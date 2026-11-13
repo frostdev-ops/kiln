@@ -9,7 +9,7 @@ Wiki: [dev kit](https://frostdev.io/kiln/wiki/dev-kit), [kiln](https://frostdev.
 |---|---|
 | `kiln new --list`, `kiln new <template> <Name> [--server S] [--feed F] [--set opt=value]` | a project; `tests=true`, `impact=true`, `target=<mod>` |
 | `kiln build [-c CONFIG] [--no-cook] [-- args]` | cooks if needed, builds; C# or native |
-| `kiln cook [--check] [--game DIR]` | every `cook.json`; `--check` exits 1 when one is needed |
+| `kiln cook [PATH] [--check] [--force] [--game DIR]` | every `cook.json`; `--check` exits 1 when one is needed; `--force` cooks every recipe (after a game update). dev.27+: writes cook receipts into the game it read; the tools ship with `kiln` (no `KILN_REPO` or checkout), Python 3.10+ needed. A server: `kiln cook <server>/kiln/mods/<mod> --game <server>` |
 | `kiln deploy [--server S] [--reload]` | copies into the server; hot reloads |
 | `kiln pack` | `<id>-<version>.zip`, no cooked files |
 | `kiln run [--server S] [--stop\|--restart\|--status] [--wait N]` | starts a launcher or kilnctl server; follows the log until up |
@@ -41,8 +41,11 @@ KL6xx licences. Findings can carry `fixes`.
 | KILN110 (error) | bad or duplicate block name | rename it |
 | KILN111 | a name that is no block, or the wrong kind; only info for a game-style name (`Weapon_T1_...`) your local catalog lacks (dev.21+). Names from `content/*.json` and `ItemDefinition` count | define it, or use the handle `Blocks.Define` returned |
 | KILN112 (error) | `clients` too low for the mod's blocks | raise `clients` (`kiln` or `mod`) |
+| KILN120 (dev.27+) | a Kiln result (`IKilnResult`, or a task of one) nobody reads | check `result.Ok` and pass `Reason` on, or `_ = ...` on purpose (both are code fixes) |
+| KILN121 (dev.27+) | a `[RequiresCapability("row")]` member used with no `Capabilities.Is("row")`, no guard property of the service (`NoClip.Available`, `World.SupportsTrackedWrites`, `Time.WeatherChoiceAvailable`) and no `catch` of `KilnUnavailableException` in the same member | check or catch there, or mark the caller `[RequiresCapability]`; a check inside your own helper or a field is not followed |
 
-KILN001-004 are manifest checks. KILN190: no catalog, so no game-id constants. Configure in `.editorconfig`
+KILN001-004 are manifest checks. Build steps: KILN020/021 the layout stamp (`Game`); dev.27+ KILN030 a warning of the
+`"writes"` step or the bake, KILN031 an unreadable input, KILN032 a bake that failed or timed out (names `KilnBake=false`). KILN190: no catalog, so no game-id constants. Configure in `.editorconfig`
 (`dotnet_diagnostic.KILN105.severity`). Don't suppress one without saying why.
 
 ## Catalogs and game ids
