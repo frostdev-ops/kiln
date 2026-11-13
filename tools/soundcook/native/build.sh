@@ -18,7 +18,9 @@ if [[ ${1:-} == --windows ]]; then
 fi
 cc=${CC:-cc}
 mkdir -p "$out/bin" "$out/obj"
-common=(-O2 -ffp-contract=off -fno-fast-math -I"$here/src" -I"$tp")
+# -ffile-prefix-map: the decoders' asserts name their source file (__FILE__); without it the helper, and kiln and the
+# launcher that carry it, would hold the build machine's path (the release scan refuses a home path)
+common=(-O2 -ffp-contract=off -fno-fast-math -ffile-prefix-map="$root"=. -I"$here/src" -I"$tp")
 "$cc" "${common[@]}" -std=c11 -Wall -Wextra -c "$here/src/soundcook.c" -o "$out/obj/soundcook.o"
 "$cc" "${common[@]}" -std=c11 -Wall -Wextra -c "$here/src/qoa_frameless.c" -o "$out/obj/qoa_frameless.o"
 "$cc" "${common[@]}" -w -c "$here/src/decoders.c" -o "$out/obj/decoders.o"

@@ -153,7 +153,7 @@ check_server_pack() {
 # soundcook's helper is in the copy, runs, and needs no newer glibc than the other Linux files.
 check_cook_shipped() {
   local d=$ck/cook
-  rm -rf "$d" && mkdir -p "$d/data" "$d/out" || return
+  rm -rf "$d" && mkdir -p "$d/data" "$d/out" "$d/glibc" || return
   python3 "$src/tools/modelcook/tests/fakegame.py" "$d/client" --side client --mod "$d/mod" --kiln-out "$d/out" || return
   # KILN_OUT: the made-up game's exe is no PE file; its type table is the cache fakegame.py wrote there
   env -u KILN_REPO -u KILN_GAME -u KILN_PYTHON KILN_DATA_DIR="$d/data" KILN_OUT="$d/out" "$out/sdk/kiln" cook "$d/mod" --game "$d/client" || return
