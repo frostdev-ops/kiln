@@ -196,8 +196,10 @@ the live process (read-only gdb), the program table, Ghidra decompiles. **[rt] [
 - **Who writes the camera:** `0x3af340` (chunk `0x3af43e`) fills `ClientPlayerInput.camera` from the 3C camera object:
   position and orientation from `0xe98ea0`, distance `+0x14a4`, fovY `+0x20c4`, aspect `+0x20b8`, near/far
   `+0x20bc`/`+0x20c0`. `0xe98ea0` builds the transform as pivot (`+0x1468` WorldPosition) + the offset `+0x148c` rotated
-  by the camera's three quaternions (`+0x14b0`, `+0x14c0`, `+0x14d0`) − distance × forward, each term converted float →
-  int64 separately. The pivot comes from `0xec4f60` (camera update, unclamped dt from the step's ns): blended camera pose
+  by the camera basis (`+0x14b0`, `+0x14c0`, `+0x14d0` float4 rows), with negative angle rotations
+  `+0x1498/+0x149c/+0x14a0` about rows 1/0/2, − distance × forward, each term converted float → int64 separately.
+  Corrected 2026-11 (dev.28 RE) [static]: those rows are not three quaternions; see [client-render.md](client-render.md)
+  for the input/render split and the separately verified rendered-FOV path. The pivot comes from `0xec4f60` (camera update, unclamped dt from the step's ns): blended camera pose
   (`0xe85b20`, per component, int64 deltas through float) + a direction × `+0x68` − direction × `+0x217c`; the pose from
   the camera modes (`0xec0b90` → `0xe76340`). `player_camera_transform` (`0x2b7900`) adds the camera shake (`0xec02e0`;
   a glider wobble while `DynamicNetworkLocomotion.state` is 4) to the render camera, not to `ClientPlayerInput`.
@@ -222,7 +224,7 @@ the live process (read-only gdb), the program table, Ghidra decompiles. **[rt] [
     (1 km margin) or with non-finite orientation/lens logs once at W: the camera, the player (from the health-bar
     program or, on a host, the server world), the orientation and lens, the last frame times (the time between two
     camera writes) and the session's longest, then the camera object's `+0x50` target, `+0x68`, `+0x6c`, the pivot
-    `+0x1468`, the floats `+0x1480..+0x14dc` (offset, distance, the three quaternions) and `+0x217c`. A camera more
+    `+0x1468`, the floats `+0x1480..+0x14dc` (offset, angles, distance, orientation basis rows) and `+0x217c`. A camera more
     than 1 km from the player for 120 frames, after it was once near, logs the same once at I.
   The camera's own view stays wrong: they keep the game running and name the source; the overflow itself is the
   game's. A better fix once the source is known: put a camera more than a few km from the player back on it.

@@ -301,7 +301,9 @@ refused. This checks the final level on the server, including requests with no e
 - **The mover dispatch** in `locomotion_execution` (`0x1dcf90` `[0x43d6d0]`, jump tables at `0x1dd98c` / `0x1dd9bc`)
   **[dis]**: Walking `0x1d4370`/`0x1d4870`, Sliding `0x1d3260`, Falling `0x1d12a0`, HangGliding `0x1d2320` (the glide
   step), Swimming `0x1d3900`, Diving `0x1d0d70`, **BuildingFlying `0x1d09d0`**; Flying (3), the hook and climbing states
-  have no mover of their own. Then the common step `0x1d16c0`.
+  have no case in that dispatch. **Corrected 2026-11 (dev.28 RE, S26430253 `f0d824be…`, C26430625
+  `5d9ef2f1…`) [static] [lab]:** the following common step `0x1d16c0` / C `0x431e20` **is the Flying mover**
+  for actors with Flying/DynamicFlying; lack of a switch case is not lack of movement. See [mounts.md](mounts.md).
 - **The state decision** `LocoNextState` `0x1c5180` `[0x4259a0]`, called from the state program `0x1e0240` (`0x1e043a`
   `[0x440b7a]`; result written to `+0x59` at `0x1e047a`) **[dis]**: **if the state is BuildingFlying it stays
   BuildingFlying**, before any other test; then ladder 8, wall 7, hooks 5/6, an actor-state flag 0x27 → Flying 3, …

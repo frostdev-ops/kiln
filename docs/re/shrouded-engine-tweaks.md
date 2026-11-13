@@ -136,7 +136,7 @@ picked; 5-s corner hint at every start); `(!)` in the toolbar at the worst statu
 | Tick/lifecycle | `Tick.add(fn(dt))`, `registerForEvent(onInit, onUpdate, onDraw, onOverlayOpen, onOverlayClose, onWorldEnter, onWorldLeave, onShutdown)`, `reload()` |
 | Keys | `Keys.on(key, fn)`, `Keys.hotkey(id, label, fn)`, `Keys.input(id, label, fn(down))` (aliases `registerHotkey`, `registerInput`) |
 | Draw/ImGui | `Draw.add(fn)`, `Overlay.isOpen()`, `ImGui.Begin/End/BeginChild/EndChild/CollapsingHeader/SetNextWindowPos/Size/Text/TextColored/Separator/SameLine/Spacing/Button/Checkbox/SliderFloat/SliderInt/InputFloat/InputInt/InputText/IsItemHovered/SetTooltip`, `ImGuiCond`, `ImGuiWindowFlags` |
-| Admin | `Admin.setTime(h)`, `teleport(x,y,z[,exact])`, `setLevel(n)`, `setFlameLevel(n)`, `spawn(template[,count[,level]])`, `give(item[,count[,level[,rarity]]])`, `settings()`, `changeSettings{...}`, `send(command, fields)` (raw admin commands) |
+| Admin | `Admin.setTime(h)`, `teleport(x,y,z[,exact])`, `setLevel(n)`, `setFlameLevel(n)`, `spawn(template[,count[,level]])`, `give(item[,count[,level[,rarity]]])`, `settings()`, `changeSettings{...}`, `send(command, fields)` (hosted-world reflected input/actions, **not remote RPC**; see dev.28 correction below) |
 | Mods/files | `GetMod(name)`, `GetVersion()`, `GetGameBuild()`, `require(name)` (mod folder, cycle-checked), `io.open`/`io.lines` (own folder only), `json.encode/decode`, `print`; sandbox: no `debug`, `os.execute`, `loadfile`, bytecode refused; `mod.json` `{requires, builds}` |
 
 ## 3. How SET finds game internals (and whether it holds on the current builds)
@@ -181,7 +181,7 @@ checks. A wired API or a tested view-model does not prove a window rendered or a
 | GameOptions machine/user/dump | no client-options API (`Kiln.Settings` is world settings) | deferred: client object/slot offsets and behaviour need a client |
 | Admin time, teleport, spawn, give, level, settings | typed Time, World, Spawn, Items, PlayerProgression and Settings APIs | wired; player operations need a joined player |
 | Mother Flame level | `WorldProgress.SetFlameLevel/LimitsAt`, kiln-set `Admin.setFlameLevel` | server write/restart lab checked; client fog/placement unchecked |
-| Admin.send | typed services cover individual commands | missing; raw command format deferred |
+| Admin.send | typed services cover individual commands | missing hosted input/action-counter adapter, not a missing generic network-message API; current-build before-consumer validation remains open |
 | Console files and reload | `kiln/control/set/*.lua`, `kilnctl`, mod reload | implemented |
 | SET Lua mods and proxy coexistence | kiln-set, proxy chain, runtime detector | implemented subject to sandbox/system restrictions; dedicated-server support added by Kiln |
 
@@ -224,3 +224,20 @@ Kiln's services and `kiln.types`. Mods load from `<game>/shrouded_engine_tweaks/
 own runtime is detected, kiln-set steps aside; detection also conservatively refuses non-system power proxies and
 checks modules loaded after startup. The API coverage table and what
 remains are in docs/kiln/set.md.
+
+
+## Dev.28 source-level semantics correction (server 26430253 / client 26430625 baseline)
+
+Baseline exes S `f0d824be…`, C `5d9ef2f1…`; source: dossier chapter 13a / tooling REPORT. **[source]**, not new
+binary or runtime evidence: upstream SET source/API at `b4d4b4f272253883104463e224fc6802163729b9` describes
+Admin.send as a bounded reflected PlayerInput **action/counter** mechanism before `admin_player` or
+`inventory_actions`. It is hosted-world-only, coalesces next-tick requests (last wins except merged settings), owns
+versionData and rejects user-supplied versionData. It is **not** arbitrary remote RPC or generic session-message
+serialization. The hosted before-consumer seam, authority and side effects still need current-build validation in
+Kiln; typed service helpers do not establish raw send parity.
+
+GameOptions changes are temporary/unsaved and restored when a mod stops; persistence is not a missing parity
+requirement. Reflected type names and older root/slot leads above do not prove current live roots, lifetime, apply
+behavior or safe thread. ImGui Debug means metrics/debug/style **windows**, not Status or the Debug logs checkbox.
+These source corrections claim **no new game RVA, layout, prototype or signature**. Tooling chapter 12's debugger,
+publishing and update designs have no new engine facts to import here.

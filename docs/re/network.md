@@ -134,11 +134,13 @@ Marks: **[dump]** read from a crash dump, **[log]** real logs, **[dis]** read in
 
 ### The crash
 - **Where** **[dump] [dis]**: the client's CreateEntity reader `0x961b90` (server copy `0x5fd6e0`, shared code) looks the
-  message's template GUID up in the template map (`storage+0x745810`). A miss leaves `r14` = 0. It then calls
+  message's template GUID up in the template map (`R+0x745810`, registry `R=*(W+0xe179c0)`; dev.28 layout
+  clarification). A miss leaves `r14` = 0. It then calls
   `0x987910` without a test, which reads `[r14+0x28]`, `TemplateInfo`'s component bitset: `ACCESS_VIOLATION` reading 0x28.
-- **The message** **[dis]**: `u32 (tick?)`, `u32 entity`, `u32 parent`, `GUID`, `u8`, `u16 length`, data; first word
-  `(sequence << 3) | type`, type 2 = create, 3 = update. Written at one site only, `0x62c886` in `0x62c2e0`
-  (a search for `shl eax,3 .. or eax,2` over `.text` has this one hit).
+- **The message** (corrected 2026-11, dev.28 RE [static] [lab]): `u32 (serverTick << 3)|kind`, **`u32 seq`**,
+  `u32 entity`; create then has `u32 parent`, `GUID[16]`, `u8 0`, `u16 length`, payload. Kind 2=create, 3=update.
+  The first word is **tick, not sequence**; the following u32 is the acked message sequence. Written at `0x62c886`
+  in `0x62c2e0`; see the current replication section below for updates, baselines and destroy lists.
 - **Which entity** **[dump] [log]**: `xmm6` still holds the GUID at the fault, the reader's frame holds the entity.
   | Dump | GUID | What it is | Entity | Lab log |
   |---|---|---|---|---|
@@ -174,8 +176,10 @@ Marks: **[dump]** read from a crash dump, **[log]** real logs, **[dis]** read in
   the message. So the REJECT sent before a refusal does nothing there.
 
 ### Withholding **[dis]**
-- A player's replication object: `[world+0x15fd2a8] + slot*0x125850 + 8`. Its first byte is the slot: `0x67d3e1` compares it with
-  `entity - 1` to give the player's own entity priority 0x20d.
+- Corrected 2026-11 (dev.28 RE [static] [lab]): objects are indexed by **machine index `peer & 0x7f`**, not
+  player slot: `obj=*(world+0x15fd2a8)+machine*0x125850`. Object `+4` is player slot; **client context `obj+8`**
+  starts with that slot, and prediction context is `obj+0x92c18`. `0x67d3e1` compares the context's slot with
+  `entity-1` to give the player's own entity priority 0x20d. See current layouts below.
 - Entities go out through a heap at `+0x8f0` (entries 0x1c: entity, last tick, entered tick, u16 priority, position), read per tick
   by `0x62b3c0`, which queues candidates for the writer `0x62c2e0`.
 - `0x6691a0(storage, player, state, entity, options)` is the only push (the other references to `+0x8f0`..`+0x910` are init,
@@ -214,7 +218,7 @@ Marks: **[dump]** read from a crash dump, **[log]** real logs, **[dis]** read in
 | Later updates | the update reader `0x962260` looks the entity up first and returns empty on a miss (`0x96235e`). Discarded before `processMessage`, so its `Entity %,u not found` line doesn't fill the log |
 | Children | dropped too, by parent id, grandchildren included. A child that arrives before its parent is dropped stays, without a parent; the game's priority heap doesn't promise parents first, so it already has to allow that. Not run |
 | A destroy | `0x9a2a10` looks the id up first and returns on a miss |
-| Acks | per tick, not per entity. The server counts the entity as sent and doesn't resend. That's why a late template is held on the server rather than retried here |
+| Acks | Corrected dev.28 [static] [lab]: acks name **message sequence numbers**, separate from the header tick. The server records per-peer state/baselines; a dropped create does not request the missing template. Hold late templates on the server rather than relying on this guard to retry |
 | Ids in components | as for a withheld entity: the client already handles ids it doesn't have. Not audited one by one |
 
 ### What can still point at a withheld entity **[dis]**, not run
@@ -278,3 +282,192 @@ Lab with no `labPort`, real client through `play-once` mode vanilla unless noted
    like per-player communication privacy (32 players, voice/text). Assumed not to gate game channels.
 3. Vanilla peers (a Kiln client on a vanilla server, a vanilla client on a Kiln server), `requireKiln`, and the
    vanilla timeout; reason 5 ("Generic") as a less misleading `kickReason`.
+
+
+## Replication pipeline (dev.28; server 26430253 / client 26430625)
+
+S `f0d824be…`, C `5d9ef2f1…`; C send-side addresses are the hosted server copies. Source: dev.28 dossier chapters
+11/15, replication REPORT/VERIFY: 24 confirmed, six confirmed with corrections, no refuted claims. Corrections to
+maxMsg width, Merge, StateIndex, state trailers and GUID hashing are included here. `[seen]` is coordinator-run
+sessions 2 (hosted) and 4 (joined); no new game run is implied.
+
+### Frame, jobs and ownership [static] [lab] [seen]
+
+Server frame: ServerReceive → simulation → **WaitWorldJobs** → apply queued acks/reset empty machines →
+RelevanceDriver (wait) → SendStep/Prepare (wait for per-player/channel writer jobs) → RunBatches (wait for send
+callbacks). QueueReader, EntityWriter, Snapshot, DeltaWriter and SendCallback run on world job threads, after sim
+jobs finish, with the tick thread waiting. Different players/channels are concurrent. Hooks may read the quiet world
+and modify only their own per-(machine,channel) buffers/snapshot; no tick-only API or shared mutable pool without
+synchronization. Client receive/store/decode/process/merge/apply all ran on the client's main thread; hosted server
+world had its separate GameServer thread.
+
+| Signature name / Win64 contract | Server | Client | Evidence |
+|---|---|---|---|
+| `repl/SendStep`: `void(GameServer*)` | `0x7bb770` | `0xe5f330` | [static] [lab] |
+| `repl/Prepare`: `void(Batches*,World*,const Items*,u8 alsoPrediction)` | `0x62b390` | `0x98f500` | [lab] |
+| `repl/PrepareInner`: same, Items by-value pair | `0x62bc80` | `0x98fdf0` | [static] |
+| `repl/QueueReader`: `void(World*,Ctx*,u8 machine,u64 maxMsg,u8 pred)` | `0x62b3c0` | `0x98f530` | [static], width corrected |
+| `repl/EntityWriter`: `bool(WriterOut*,const WriterArgs*)` | `0x62c2e0` | `0x990450` | [lab] |
+| `repl/Snapshot`: `StateRef*(out,SnapArgs*)` | `0x622d50` | `0x986ec0` | [static] [lab] |
+| `repl/SnapshotReturn`: post-call site, RAX=&StateRef | `0x62c530` | `0x9906a0` | [static] |
+| `repl/TemplateState`: `StateRef*(out,TArgs*)` | `0x6237a0` | `0x987910` | [lab] |
+| `repl/StateIndex`: `void(u8 index[0x7d0],const State*,Registry*)` | `0x64bbd0` | `0x9afd40` | [lab]; **zero output first** |
+| `repl/DeltaWriter`: `bool(BitWriter*,Registry*,snap,base,u8 templateFlag,const State** baseRef,u8 pred)` | `0x6214a0` | `0x985610` | [lab] |
+| `repl/GenericDelta`: `bool(u8*out,u64*outLen,u64 cap,const u8*snap,const u8*base,u64 size)` | `0x549530` | `0x889a40` | [static] [lab via decode] |
+| `repl/Decode`: `StateRef*(out,Alloc*,const Slice*,base,u8 pred,Registry*,u32 tick,void* zero)` | `0x6002e0` | `0x9646d0` | [lab] |
+| `repl/RunBatches`: `void(World*,Batches*,void(*cb)(CbPair*),void* user)` | `0x64dad0` | `0x9b1c40` | [static] |
+| `repl/SendCallback`: `void(CbPair* {GameServer*,Batch*})` | `0x7adb70` | `0xe51e90` | [lab] |
+| `repl/RecordSent`: `void(World*,const MsgEntry*,u64 machine,u8 pred)` | `0x64d620` | `0x9b1790` | [lab] |
+| `repl/AckReceive`: `void(World*,u8 machine,const Slice*,u8 pred)` | `0x6620f0` | `0x9c6140` | [lab] |
+| `repl/AckProcess`: `void(World*,u8 machine)` | `0x677080` | `0x9db190` | [lab] |
+| `repl/AckContext`: `void(Ctx*,const U32List*)` | `0x677500` | `0x9db610` | [static] [lab] |
+| `repl/EcsReset`: `void(World*,u64 machine,const Slice* ids,u8 pred)` | `0x689920` | `0x9ed780` | [lab] [seen] |
+| `repl/ResetMachine`: `void(World*,u8 machine)` | `0x686af0` | `0x9eab50` | [lab] |
+| `repl/RelevanceDriver` / `RelevanceStep`: `void(World*)` / `void(Ctx*,World*)` | `0x6c8c10` / `0x676e40` | `0xa2c360` / `0x9daf50` | [lab] |
+| `repl/MarkReplication` | `0x66f2c0` | `0x9d33d0` | [static] [lab via tracked writes] |
+
+Items = `{Item12* ptr,u64 count}`; Item12 = `{u8 machine,u8 slot,u16 pad,u32 max4,u32 max5}`. The maxima from
+S `0xa01ba0` are **message-size limits**, not bandwidth. Zero-extend the u32 into QueueReader's u64 argument.
+Batch 24 B: MsgEntry* `+0`, count `+8`, machine `+0x10`, pred `+0x11`, sent u32 `+0x14`. MsgEntry 32 B: type byte,
+seq u32, data pointer, size u64, trailer pointer. Entry type 4 means entity payload; 5 destroy list; 0/2 frame/handshake.
+Do not confuse these with header kinds.
+
+World W: Storage `W+0xe179c0`, registry `R=*Storage=W+0x928`, server tick u32 `W+0xe17e9c`, replicated player-slot
+mask u16 `W+0x15d3c90` (Storage `+0x7bc2d0`). Objects pointer/count `W+0x15fd2a8/+0x15fd2b0`: **17 objects,
+stride 0x125850, indexed by machine**, object active `+0`, slot `+4`, client context `+8`, prediction `+0x92c18`.
+This slot mask is not the scheduler live-player mask `storage+0x7ddc0a`. [static] [lab]
+
+Context: slot `+0`, handshake-acked `+1`, handshake seq u32 `+4`, message list `+0x10`, to-write ring `+0x48`,
+entity state map `+0x858`, priority heap `+0x8f0`, sent-message map `+0x70918`, state pool `+0x8da20`, unchanged
+counter `+0x8db78`, next seq `+0x8db9c`, newly relevant entries `+0x8dba0` (stride 0x14, count u16 `+0x92ba0`).
+PerPlayerState 0x20 B: created/acked `+0`, flags `+1` (8=in heap), enqueue tick `+4`, versions `+8/+0xc`, baseline
+A/B pointers `+0x10/+0x18`. Before handshake ack only the type-2 handshake is emitted every 60 ticks. [static] [lab]
+
+Entity Record: id `+0x10`, parent `+0x14`, archetype `+0x18`, chunk `+0x20`, TemplateInfo `+0x28`, chunk index
+`+0x30`, whole-set row u16 `+0x36`, **network row** u16 `+0x38`. Network-row table Storage `+0xb0`, stride 80 B.
+Registry `R+0x745810` template map uses GUID's first u32 **as hash input**, masks by cap-1 then linear probes with
+full-GUID compares; it is not the final slot. Registry replication-bit mask `+0x190` had 98 components, versioned
+mask `+0x1e0` 112; codec slots `+0x118` had five custom-coded components. These are lab counts, not array widths.
+
+### Writer state and borrowed memory [static] [lab]
+
+WriterArgs is **0x48 B**, callback-local: stream** `+0`, World* `+8`, Storage* `+0x10`, WriterEntry*
+`+0x18` (`{u32 entity,u8 kind}`), Ctx* `+0x20`, zero u64 `+0x28`, maxMsg u64 `+0x30` (0=unlimited), tick u32
+`+0x38`, seq u32 `+0x3c`, player slot byte `+0x40`, pred byte `+0x41`. Kind 0=create/template baseline;
+1=acked A; 2=newest B/A/template. QueueReader chooses kind 1 when `(tick+entity)&3==0`, else 2 for updates.
+WriterOut `{Record*,State*,u8 skipped}`: false=entity absent; true/skipped=1 means unchanged or too large (only
+unchanged increments `ctx+0x8db78`); true/skipped=0 appends a message. Call original once, then inspect output.
+The resulting snapshot becomes a baseline only after ack. Scratch `temp=1` snapshots are sent but not retained.
+
+SnapArgs: `{Alloc* playerPool=ctx+0x8da20,Holder* temp,Registry*,Storage*,u32 tick,Record*,u8 pred}`;
+TArgs `{Holder*,Registry*,TemplateInfo*,u8 pred}`. StateRef `{State*,u8 temp}`. For direct TemplateState/Decode,
+use a caller-owned Alloc object: vtable `+8 alloc(self,u64 size,u64 align,u64 flags,u64 tag)`, `+0x10 free(self,p,0)`.
+Do not take a player's pool outside its jobs. Holder `{Alloc*,blocks[4],u8 n,pad[7]}` is zeroed/one-call-only;
+a fifth allocation is fatal. Free nonreturned tracked blocks and later the returned state through that Alloc.
+Decode owns its new state, borrows baseline, returns null on failure; empty payload copies baseline. StateIndex
+**must be zeroed before each call**: sparse decoding ORs mask bits and leaves absent entries unchanged.
+
+### Channel sets, tracked writes and wire format [static] [lab]
+
+Snapshot **client channel**: entity network row `Record+0x38`, filtered by `usage&7`; **prediction**: archetype mask
+minus registry `+0x140`, filtered by `usage&0x38`. Template defaults use a **different** rule: client `usage&0x10 &&
+usage&1`, prediction `!no_prediction`. The can sent ItemState, NetworkFuel, **UsedItem** on client channel;
+prediction also sent Fuel, FuelSetup, OwnerRelationship. The 98 replication-bit components are not the whole wire set.
+
+WriteOther → WriteMark S `0x66f170` → MarkReplication marks an entity when slot mask!=0 and type has its replication
+bit. The **client channel** re-snapshots only when the entity version moves; a sent component without that bit can
+be stale. Prediction compares the **current world tick** every tick, so this staleness warning is client-channel-only.
+Tracked Fuel writes yielded derived NetworkFuel updates. A byte-neutral write_other touch through a valid declared
+replication-bit carrier produced **10 touches → 40 re-snapshots on four fake players**, zero without. It changes no
+component bytes. Four carriers covered all 2819 entities in that lab, not necessarily every future archetype.
+
+Entity header: `u32 (tick<<3)|kind; u32 seq; u32 entity`. Create kind 2: parent u32, GUID[16], byte 0; update kind 3:
+baseline u32 (bit 31=acked A), GUID only when baseline=0. Then u16 length/payload. Tick is server tick; seq is what
+acks name. Client stale rejection uses last tick for `entity&0x1ff`. [lab] 30/30 captured payloads parsed exactly.
+
+Payload LSB-first: three present flags; removed/added/changed counts 6/6/8 bits; 10-bit component indices,
+added/changed version-present bit plus optional u8 version; changed adds u16 `(size<<1)|isDelta`. Byte-align, then
+raw/custom/generic-XOR-delta blobs. Generic delta encodes unchanged and changed run counts (`0xff` extensions),
+XOR bytes; if not smaller than raw, sends raw.
+
+State blob: `{u16 size,u16 dataComponentCount,u32 tick}`, list of u16 indices (optional u8 version), then **whole
+component set** (not just fields carrying bytes): fewer than 40 uses `u8 0,u8 count,u16[count]`; 40..640 uses
+`u8 1,80-byte mask`; then per-type-aligned data. StateIndex zeroed 0x7d0 B: u16 data offsets `+0x280` from state+8,
+whole-set mask `+0x780`. The older small-list-only description was incomplete (VERIFY claim 13).
+
+Destroy header kind 4: tick/kind, seq, `u8 nA,u8 nB`, then u32 ids. A=destroyed, B=left relevance; client reasons
+0/2 respectively. Writer S `0x61e9d0` / C `0x982b40` reads context destroy set `+0x92bb0`, flags `+0x92be8`,
+up to 127 ids/message and ten messages/frame. [lab] Chest take-out produced lists on both channels; [seen] joined
+session counted 473 reason-0 / 5508 reason-2 destroys, relevance bursts confirming B. Ack format:
+`u8 0,u32 firstSeq`, then delta byte 1..254, `0xff n` consecutive, or `0x00 u32` explicit. EcsReset makes the next
+message a create. Full message/codec listings stay in chapter 11.
+
+### Client apply paths: channel 4 is not Merge [static] [seen]
+
+| Function / contract | S copy | C |
+|---|---|---|
+| ClientStore: `void(World*,const Slice*,u8 pred)` | `0x662960` | `0x9c69b0` |
+| CreateReader / UpdateReader | `0x5fd6e0` / `0x5fddb0` | `0x961b90` / `0x962260` |
+| StoreState: `bool(Alloc*,StateTable*,u32 entity,State*)` | `0x5fcd90` | `0x961240` |
+| ProcessMessages: `void(World*)`, **both loops** | `0x678db0` | `0x9dcec0` |
+| ProcessClientMessage: `void(World*,ClientRecord* {u32* msg,u64})` | `0x6776e0` | `0x9db7f0` |
+| ApplyClientState: `bool(Storage*,Record*,const State*)` | `0x6c17f0` | `0xa24f40` |
+| ProcessPredictionMessage: `void(PredStorage*,ClientRecord*)` | `0x6785c0` | `0x9dc6d0` |
+| Merge: `void(Alloc*,Registry*,MergedState** retained,u32 tick,const State* incoming)` | `0x61a2c0` | `0x97e430` |
+| ApplyMap / ApplyEntity | `0x6c4790` / `0x62f260` | `0xa27ee0` / `0x9933d0` |
+| StateAt | `0x64f470` | `0x9b35e0` |
+| createEntityWithId | — | `0x987e50` |
+| DestroyEntity: `bool(Storage*,u32 entity,u8 mode,u8 skipReplication)`: 0/1 in AL only, upper RAX unspecified; mode 2 = unload (no removed bit, event kind 1, players' destroy-list B; compares S `0x63e95d`/`0x63ea82`/`0x63eb1a`/`0x63ec6f`), other = real destroy (removed bit, event kind 2, list A); skipReplication non-zero skips queuing the id into every player's destroy sets (S `0x63ea90` `test r15b,r15b`, C `0x9a2c00`) (corrected from u64: `mov al,1` S `0x63ede8` / C `0x9a2f58`, `xor al,al` S `0x63edec` / C `0x9a2f5c`, no later RAX write) [static] | `0x63e8a0` | `0x9a2a10` |
+
+ClientStore decodes immediately using template/prior baseline and StoreState retains up to **32 states/entity**
+(oldest freed via Alloc). Bucket map `W+0x15f5788`, stride 0x58, client records `+8`, prediction `+0x30`.
+First packet initializes client tick to **received tick+10**, not ten ticks behind. VERIFY corrected that earlier
+inference. [seen] Joined session measured client tick 1–6 ahead of newest received server tick (median 3), with
+join/respawn spikes: client messages applied in the first reached step after arrival, not a ten-tick playout buffer.
+
+- Channel 4: ProcessMessages → **ProcessClientMessage** → createEntityWithId/StateIndex for creates,
+  StateAt/**ApplyClientState** for updates, DestroyEntity for destroy lists. Session 4: 12288 creates + 219714 updates
+  = 232002 channel-4 decodes; ApplyClientState also ran for some creates. No channel-4 Merge path.
+- Channel 5: ProcessPredictionMessage → **Merge** into prediction map `+0x7df588` (0x28 B entries) → ApplyMap →
+  ApplyEntity. ApplyMap forwards its input **+0x140**; Merge's third arg is a retained-state **pointer-to-pointer**,
+  not a state value. Session 2 Merge counts tracked channel-5 decodes. Interpolation was not decoded in this research.
+
+Ids are u32 server ids, preserved by client creation. Bit-31 ids are **world-group**, not a client-local range:
+`group=(id>>20)&0x7ff`, `index=id&0x3ffff`. Two appeared on the real prediction channel; pure client-created id
+allocation is still open. Prediction carried a small control/touch-related set; observations do not identify every
+member or establish a distance-only policy.
+
+[seen] The host's own client **does use the session replication pipeline**, as machine 0: hosted SendCallback and
+ClientStore totals matched across shutdown boundaries (136137 sent / 136133 received channel-4 messages). It does
+not bypass replication by directly reading server-world components. Dedicated machine 0 has no player and receives
+none. Snapshot filters/baselines therefore also matter to the host; channel-12 routing is a separate transport choice.
+
+### Schema and receive sites (chapter 15) [static] [lab] [seen]
+
+`repl/SchemaEncode` S `0x9a8180` / C `0x11f6420`: `void(BitCursor*,const void* msg,const Schema*)`;
+SchemaDecode S `0x9a77e0` / C `0x11f5be0`: `bool(void* out,BitCursor*,const Schema*)`.
+BitCursor 0x30 B: parent u64 `+0=0`, data pointer `+8`, capacityBits `+0x10`, positionBits `+0x18`, zero u64 `+0x20`,
+error byte `+0x28`; size rounds `(positionBits+31)/32*4`. Schema fields are **0x40 B**, not 0x20: name `+0`, type
+u32 `+8`, element parameter `+0xc`, shape `+0x10`, data offset `+0x18`, present flag/array count offset `+0x20`,
+fixed count u64 `+0x28`, nested schema `+0x38`. BanListUpdate has bans/changeCounter/totalBanCount; its fixed struct
+is 0x4c10 B with inline arrays, no decode heap. Field types 9..0xb remain unconfirmed; no fabricated full schema codec.
+
+Dispatch/free sites (machine, player respectively):
+- S dispatch `0x7bdc54/0x7be252`, free `0x7be0e4/0x7be74d`;
+- hosted C dispatch `0xe61757/0xe61cd6`, free `0xe61827/0xe621a5`;
+- client C ClientReceive `0x874ed0`, dispatch `0x874f7e/0x875704`, free `0x875641/0x875acd`.
+At dispatch RAX=channel. Server read result `rbp-0x80` (data `rbp-0x68`, size `rbp-0x60`), client `rbp-0x30`
+(data `rbp-0x18`, size `rbp-0x10`). Server machine peer handle `[rdi]`, player handle EDI. Free-site jump is the
+natural drop path, but **drop/rewrite was not exercised**; only observation hooks were run. [static] [lab] [seen]
+
+Current loop channel membership agrees with the earlier tables; 17 is read elsewhere, 14 has no socket. Session 4
+saw all 53510 ch4/5 ack messages on server dispatch and **no ch12** dispatch on either side: Kiln drained it first.
+Item-id coverage is **67 sites in 26 components [refl] [lab registry]**, not the earlier 16-site subset; include
+UsedItem and prediction-channel components (full census in chapter 15, not copied here). Vanilla tolerance of
+remapped ids remains untested.
+
+Scratch signatures: SnapshotReturn is an **ordinary address symbol** with scoped pattern/offset, not
+`@repl.snapshot_call` (capture-only probes cannot yield hook addresses). Updated checks: server 67/67, client 72/72;
+old server `d7baa768…` 65/67 (ProcessMessages/ApplyEntity moved). Full proposals, loopback evidence (10004 NetworkFuel
+byte comparisons, 0 mismatches; identical creates with/without observe hooks), hook contracts and sidecar designs
+stay in chapters 11/15. No new sidecar/filter/API implementation is implied by these notes.

@@ -71,8 +71,11 @@ lore note's title is `entryName`), `ecs::Location`, `ecs::MapMarkerUnlockRequire
   (+0x6c) = 40 x 40 (`509feadb…`); the other four are 1 x 1 menu/character scenes. `resetPlayersOutOfBounds.worldMax`
   is `{10240, 2560, 10240}` m in 32.32 fixed point (43980465111040 = 10240 << 32): a 10,240 m world of 256 m chunks.
   `playableAreas[]` lists the big dungeons' boxes with their `mapMarkerId`.
-- `keen::SceneEntityChunkResource` (140 B): parts 0..1599 are the world's chunks (part = z * 40 + x, 256 m; all 1,616,195
-  regular-chunk entities lie inside their chunk), part 1600 the
+- `keen::SceneEntityChunkResource` (140 B): parts 0..1599 are the world's chunks (part = z * 40 + x, 256 m;
+  1,616,195 regular-chunk entities). Corrected 2026-11 (dev.28 RE terrain, server 26430253 `f0d824be…` / client
+  26430625 `5d9ef2f1…`) **[data]**: 17 placements are 0.0000305–0.0002441 m below a lower chunk boundary;
+  “all inside” was too strict. Use quantization tolerance, not reassigning their parts (dossier chapter 19f).
+  Part 1600 is the
   global chunk (1,300 entities, 618 templates: every map marker, area labels, teleporters). 1,617,495 entities in all.
   - `templates: BlobArray<TemplateReference>` +0 (16-byte GUIDs), `templatesDoNotSave` +8, `hasPersistentData` +0x10,
     `entities: BlobArray<SceneEntityChunkSpawnEntry>` +0x18, `chunkPersistenceInfo` +0x20, `spawnData` +0x34.
@@ -120,3 +123,125 @@ runtime side (the language slot, `LanguageId` values).
 - Lore categories: The map data splits lore into 13 journal categories (`journal_lore_category_*` textures exist); the
   link from a `LoreReading` to its journal category was not looked for (`JournalRegistryResource`).
 - Whether the investigation (search area) markers' radius is the `triggerRanges` spawn value or a component field.
+
+## 7. Runtime markers, waypoints and compass (dev.28; server 26430253 / client 26430625)
+
+S `f0d824be…`, C `5d9ef2f1…`. Source: dev.28 dossier chapter 04, markers REPORT/NOTES/VERIFY and client sessions
+1/2/4/5. VERIFY: 24 confirmed, two corrected (marker lookup identity and null-GUID hashing), incorporated below.
+The offline census above was independently confirmed; it is not a server component/relevance guarantee.
+
+### Three different pin paths [static] [refl] [lab]
+
+- **World marker:** template MapMarker (40 B), markerId LocaTagReference GUID `+0`, type GUID `+0x10`, dungeonId
+  u32 `+0x20`, inBigDungeon bool `+0x24`. A server-spawned shipped HintMarker existed, but live server MapMarker
+  storage was absent even after an explicit extra-component override. Client reconstruction from a known template
+  is distinct from component replication.
+- **Waypoint:** PlayerWaypoint 32 B, enabled bool `+0`, signed 32.32 XYZ `+8`. WaypointAction 32 B, position `+0`,
+  enable `+0x18`, isPing `+0x19`, version `+0x1c`. Program `player_waypoint_selection` S `0xd64f0` / C `0x2ea550`
+  reads PlayerInput, writes waypoint/consumed input and emits UiPingEvent. Client `player_waypoints_ui=0x314000`
+  copies position/enabled to player UI record `+0x50/+0x68`; records at UiPlayData `+0x4642c0`, count `+0x4642c8`,
+  stride 0x240. This is one waypoint per player, not the many-pin collection.
+- **Custom pins:** client MapMarkerRegistry, copied by `custom_map_markers_ui=0x3087f0` when generation `+0x38`
+  changes. Head accessor `0xe8ecb0` returns registry `+0x80`; generation getter `0xe8ecc0`. Nodes: position `+0`,
+  color `+0x18`, type `+0x1c`, inline text[128] `+0x20`, length byte `+0xa0`, handle `+0xa8`, next `+0xb8`.
+  Decoder `0xdecf20` rebuilds 0xa8-byte save records; exact save-file ownership/mutation ABI remains unqualified.
+
+Late live registry bits [lab]: MapMarker/BossHealthBar neither saved nor replicated; PlayerWaypoint/BossDisplay
+replicated, not saved; CustomPlayerString saved and replicated. These are not delivery or relevance observations.
+
+### Client ECS-to-UI copy and storage [static], capacities also [seen]
+
+`replicate_map_markers_for_ui` C `0x3161b0` is **not a network sender**. Dedicated descriptor has null update.
+It is CHUNKED, flags `0x201`, requires MapMarker+RenderTransform, optionally reads CustomPlayerString, visibility,
+NetworkLevel, SpawnTime, TriggerShape, UsedItem; template reads EntityTagContainer/LocaTagComponent; reads string
+system/other entity strings and writes G38UiPlayData. Hidden visibility is skipped; absent visibility defaults to
+Visible 2. Visibility component 24 B: enum `+0` (Hidden 0 / Hint 1 / Visible 2 / Completed 3), Time `+8`, u16 counter
+`+0x10`. Runtime unlock requirements hold three 12-byte KnowledgeQueryData records.
+
+`clear_map_markers_for_ui=0x304470` clears the three per-step lists, **not** the custom cache:
+
+| Header relative to G38UiPlayData | List | Refresh |
+|---|---|---|
+| `+0x36ea00` | normal | per step |
+| `+0x396a28` | custom-pin cache | generation change |
+| `+0x3bea50` | label/type | per step |
+| `+0x3e6a78` | special/type | per step |
+
+Each header `{data,count,capacity,grow,allocator}` is 40 B; **data=header+0x28**, inline 1024×0xa0 payload.
+Capacity stores C `0x83761d/3d/5d/7d` set 1024, not EMF's 0x4000 corruption-screen ceiling. Grow callback
+`0x840d40` → `0x86b070` refuses because allocator `+0x20=0`. `MapEntry* append(MapList*)` C `0x302970` returns null
+when full, increments count on success, and does not zero every byte. Mod-owned appends must initialize the whole
+entry and synchronize after completed client jobs, not in a render callback/parallel copier.
+
+MapEntry 0xa0 B: entity u32 `+0`, opaque second key `+4`, **marker loca ID** u32 `+8`, signed 32.32 XYZ
+`+0x10/+0x18/+0x20`, range floats `+0x28/+0x2c`, typeId u32 `+0x30`, visibility byte `+0x34`, LocaTagComponent
+hash `+0x38`, visibility lastChange/SpawnTime `+0x40`, grouping byte `+0x48`, text ptr/u64 length/hash
+`+0x50/+0x58/+0x60`, separate custom-pin text view/hash `+0x68/+0x70/+0x78`, color byte `+0x80`, custom handle
+`+0x84` with presence `+0x88`, level `+0x8c/+0x90`, dungeon `+0x94/+0x98`.
+
+Corrected by VERIFY [static]: `+8` is FNV-1a-32 of **MapMarker.markerId**, not a generic tag. markerId/type GUID
+hashing uses unsigned bytes in Windows GUID order, **except null GUID→0** (not FNV32(zero16)=`0x69691905`).
+A present LocaTagComponent GUID has no null special case; absent component→0. String hashes instead sign-extend
+**each byte** (MOVSX) into wrapping u64 FNV, seed `0xcbf29ce484222325`, multiplier `0x100000001b3`.
+UTF-8 `c3 a9` yields `0x080d7307b4cc3001`, unlike unsigned FNV. Text views are borrowed; neither removal nor a
+guessed frame delay establishes that native UI has finished reading their bytes.
+
+Custom cache is reset and fully rebuilt on each generation change; entries above 1024 drop silently. [seen, session 1]
+Counts were normal/label/special 833/6/1; custom 0→528 on opening map→529 after adding a pin. Initial zero was lazy
+cache state, not an empty save. [seen, session 2] Local append produced a copied icon and yellow diamond, removed
+within 3 s after stopping injection; no hover-name tooltip. Existing Render world label stayed world-locked.
+
+### Compass, projection and names [static] [refl]
+
+`void doHudCompass(const void* buildInput)` C `0xbe34c0`, sole caller `0xbe510f` in `0xbe4f40`, does not draw all
+map entries. Selected-marker loop calls `const MapEntry* lookup(u32 markerLocaId)` C `0xd3cbf0`, searching normal/
+special/label lists by **entry+8**; ID 0 returns null. It also requires that ID in a selected-u32 set whose producer
+is not mapped, skips horizontal distance<40 m and keeps at most 16 bearings. Thus the ID-0 injection is unreachable
+through native compass; moving it farther is not a meaningful test. Player waypoints use a separate player loop.
+
+`bool worldToUi(UiState*,out16*,view,projection,const float point[3],const Margins*)` C `0xa52450`, caller
+`0xcf23be`: state viewport pointer `+0x10`, view/projection at UiPlayData `+0x1d20/+0x1d60`. Output x/y floats
+`+0/+4`, visible/clamped bytes `+8/+9`, angle float `+0xc`; margins four floats plus enabled byte `+0x10` (20 B).
+Point is float XYZ, not fixed-point. MapCanvasDraw C `0xd7c690` is `void(UiScope*,const void* view)`; full ownership/
+clip ABI is unqualified. FogSample S `0xa484b0` / C `0x1222180` returns out80 from `(out,fogQuery,const s64 XYZ[3])`:
+**Shroud weights, not map exploration**. showAboveFogOfWar is type `+0x40`; explored-mask reader remains unmapped.
+
+Boss programs `boss_display` S `0x891c0` / C `0x277310`, `boss_health_bar_display` S `0xc13c0` / C `0x2d5420`,
+all `void(ProgramContext*)`. BossDisplay 16 B: queryId `+0`, entityId `+4`, visible/engaged `+8/+9`, locaId `+0xc`;
+BossHealthBar 20 B: loca GUID `+0`, distance float `+0x10`. Client health copier `0x30bd70` assigns health-row `+8`
+name only for selected visible boss. Boss name is recomputed each program run. Cached widget draw `0xb6d5b0` uses
+0x300-byte entries/count byte `+0xc000`; entry renderer `0xba7230` consumes text view `+0x1a0/+0x1a8/+0x1b0`.
+CustomPlayerString is **u64 ID**, not text pointer; lookup C `0xe8ecd0` returns status/ptr/len at `+0/+8/+0x10`
+(status 0 hit, 0x1f miss). These paths do not establish arbitrary NPC rename or text synchronization to vanilla.
+
+### Vanilla results and bounds [seen], remaining distinctions
+
+Session 4: actual server-written waypoint appeared as a vanilla compass diamond at 304–321 m. Exact component
+readback matched; restoration was not logged, and the map well/root icon was ambiguous. The three server program
+hooks also ran [lab], waypoint/boss selection on workers, boss-health on world thread; never assume arbitrary program
+detours own Pre/Post or fabricate their contexts.
+
+Session 5: **new** shipped HintMarker_Castle (`a0e7c47e-4c75-4653-88c8-92a7e1da275a`) at (3800,905,1100)
+produced a new vanilla red crossed-swords camp icon and destroy removed it. No waypoint was written; nearest shipped
+marker was 154.59 m away. Basic known-template map appearance/removal is proved; global range, all-peer/per-player
+control and spawned-marker compass inclusion are not. Unknown cloned templates still require client data.
+
+[data] Dedicated archives contain **zero** MapMarkerRegistryResource/UiTextureResource assets; the client has
+49 type rows, 43 non-null icon images (six fast-travel). Do not bootstrap server icon metadata by traversing nonexistent
+server UI resources. Full scratch signatures, catalog, explicit-world entity-incarnation watcher and protocol designs
+remain in dossier chapter 04; no native persistent-pin API is implied here.
+
+### World-aware anchor identity (same dev.28 builds) [static] [lab] [refl]
+
+GetComponent S `0x64ed50` / C `0x9b2ec0` takes **World**, not Storage; copy CurrentTransform 56 B on server or
+RenderTransform 176 B first pose on client in the owning world's completed Post. The public server-bound wrapper
+is not a joined-client reader. CreateEntity S `0x623ce0` / C `0x987e50` reconstructs as
+`u32(Storage*,u32 requestedId,const SpawnRequest*,const void* mask)`: zero id allocates, nonzero requests exact id;
+return zero refuses. Observer hooks forward opaque request/mask unchanged, not fabricate spawn calls.
+Dedicated probe destroyed/recreated **the same id without SpawnTime**, proving that field is not a unique incarnation.
+
+Client network-create call C **`0x961d07`** reaches template helper `0x987910`, not the canonical immediate-create
+path in the bounded traced graph. At this MID, entity/parent are u32 `[RBP+0x3cb0]/[RBP+0x3cc0]`; read-only
+observation must coexist with the unknown-template guard, including skipped creates. A watcher relying only on
+canonical CreateEntity can miss this reuse. Runtime client watcher coverage was not proved; lifecycle reuse and
+serial/handle designs are in chapter 04, not an engine-owned generation-field claim.
