@@ -370,6 +370,20 @@ using ImageLoader = std::function<bool(const std::string& rel, RawImage* out, st
 // The maps of a material, built from what it names and from constants for what it doesn't: the game's shader reads albedo, normal and params unconditionally.
 // false: *field is the field at fault and *why what is wrong with it.
 bool material_maps(const MaterialDef& d, const ImageLoader& load, const TextureCache& cache, std::vector<MaterialMap>* out, std::string* field, std::string* why);
+// What material_maps reads and makes for a definition, without reading a pixel: the files it opens in the order it opens them (each once),
+// and each map's slot, name and format in its order. The carry-over index is checked against this.
+struct MaterialPlan {
+    std::vector<std::string> inputs;
+    struct Map {
+        uint32_t slot;
+        const char* what;
+        uint8_t format;
+    };
+    std::vector<Map> maps;
+};
+MaterialPlan material_plan(const MaterialDef& d);
+// The rule every path a block names must pass before a file is opened: relative, inside the mod's folder (pack.cpp).
+bool safe_relative_path(const std::string& rel);
 struct BuiltMaterial {
     Guid guid;
     Bytes resource;
