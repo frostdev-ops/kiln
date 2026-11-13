@@ -127,6 +127,13 @@ class ZstdBackendTests(unittest.TestCase):
         # a frame without its content size (a streamed one): the hint, or the default, bounds the output
         streamed = zstd.ZstdCompressor().compress(b"x" * 5000, zstd.ZstdCompressor.FLUSH_FRAME)
         self.assertEqual(archive._libzstd_decompress(lib, streamed, 5000), b"x" * 5000)
+        # several frames one after the other, as the standard library reads them; with a streamed one among them
+        two = zstd.compress(b"first") + zstd.compress(b"second")
+        self.assertEqual(archive._libzstd_decompress(lib, two, 0), zstd.decompress(two))
+        self.assertEqual(archive._libzstd_decompress(lib, two, 11), b"firstsecond")
+        self.assertEqual(archive._libzstd_decompress(lib, two + streamed, 0), b"firstsecond" + b"x" * 5000)
+        with self.assertRaises(RuntimeError):
+            archive._libzstd_decompress(lib, zstd.compress(b"first") + b"trailing junk", 0)
         with self.assertRaises(RuntimeError):
             archive._libzstd_decompress(lib, b"not a frame at all", 0)
         with self.assertRaises(RuntimeError):
