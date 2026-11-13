@@ -21,7 +21,7 @@ import { MOD_FILE_FILTERS, MOD_FILE_WORDS } from "../../shell/modFiles";
 import { bulkPlan, filterRows, kindsOf, type ModRow } from "../../shell/mods";
 import { notifyAdd } from "../../shell/notices";
 import { NOT_REMOVABLE, removable, removeMany, removeMod, useRemoveCheck, useRemoveMany, withoutRows, type RemoveTarget } from "../../shell/removeMod";
-import { NONE, all as selectAll, keepShown, pick as pickSelected, range as selectRange, setSelection, selectionOf, toggle as toggleSelected, useSelection } from "../../shell/selection";
+import { NONE, all as selectAll, keepShown, ownerOf, pick as pickSelected, range as selectRange, setSelection, selectionOf, toggle as toggleSelected, useOwnedSelection } from "../../shell/selection";
 import type { useMods } from "../../shell/useMods";
 import { withDropin } from "../profiles/dropins";
 import { Badge, Button, ConfirmDanger, FlameToggle, Menu, Modal, Select, WellInput, pickPaths, runTask, toast, type MenuItem } from "../../ui";
@@ -92,26 +92,31 @@ export function MainList({ game, mods, running }: { game: GameInstall; mods: Mod
   };
   const setAll = (on: boolean) => switchRows(shown, on);
 
-  // ---- the selection (shell/selection.ts): kept per game, so a hidden list (a start's bar) gets it back ----
-  const sel = useSelection((st) => st.byGame[game.id] ?? NONE);
-  const selNote = useSelection((st) => st.note[game.id] ?? null);
+  // ---- the selection (shell/selection.ts): one loaded profile's in one game, kept outside the list, so a hidden list
+  // (a start's bar) gets it back; another profile loaded meanwhile (or one made again under the same id) has none ----
+  const owner = ownerOf(pid, mods.profile);
+  const { sel, note: selNote } = useOwnedSelection(game.id, owner);
   const order = shown.map((r) => r.key);
   const orderKey = order.join("\n");
   useEffect(() => {
-    if (mods.loading || !mods.rows.length) return; // not read yet: nothing is let go
-    const { sel: kept, dropped } = keepShown(selectionOf(game.id), orderKey ? orderKey.split("\n") : []);
-    if (dropped) setSelection(game.id, kept, kept.keys.length ? `${dropped} not shown any more left the selection` : null);
-  }, [orderKey, mods.loading, mods.rows.length, game.id]);
+    if (mods.loading || !mods.rows.length || owner === null) return; // not read yet: nothing is let go
+    const { sel: kept, dropped } = keepShown(selectionOf(game.id, owner), orderKey ? orderKey.split("\n") : []);
+    if (dropped) setSelection(game.id, owner, kept, kept.keys.length ? `${dropped} not shown any more left the selection` : null);
+  }, [orderKey, mods.loading, mods.rows.length, game.id, owner]);
   const picked = pickSelected(sel, shown);
   const selecting = picked.length > 0;
-  const choose = (key: string, shift: boolean) => setSelection(game.id, shift ? selectRange(sel, key, order) : toggleSelected(sel, key));
-  const clearSel = () => setSelection(game.id, NONE);
+  const choose = (key: string, shift: boolean) => setSelection(game.id, owner, shift ? selectRange(sel, key, order) : toggleSelected(sel, key));
+  const clearSel = () => setSelection(game.id, owner, NONE);
+  // the list's own shortcuts: only for a key pressed on the list itself (its rows and their controls), never for one
+  // that bubbles here through React from a portalled menu or dialog, nor in the filter or another field; an event they
+  // do not handle goes on untouched
+  const listEl = useRef<HTMLUListElement>(null);
   const keys = (e: KeyboardEvent) => {
-    if (document.querySelector('[role="dialog"][aria-modal="true"]')) return;
     const t = e.target as HTMLElement;
-    const text = /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || t.isContentEditable;
-    if ((e.ctrlKey || e.metaKey) && (e.key === "a" || e.key === "A") && !text && order.length) { e.preventDefault(); setSelection(game.id, selectAll(order)); }
-    else if (e.key === "Escape" && selecting) { e.preventDefault(); e.stopPropagation(); clearSel(); }
+    if (!listEl.current?.contains(t) || t.closest('[role="menu"], [role="dialog"]')) return;
+    if (/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || t.isContentEditable) return;
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && (e.key === "a" || e.key === "A") && order.length) { e.preventDefault(); setSelection(game.id, owner, selectAll(order)); }
+    else if (e.key === "Escape" && !e.ctrlKey && !e.metaKey && !e.altKey && selecting) { e.preventDefault(); clearSel(); }
   };
   const selOn = bulkPlan(picked, true);
   const selOff = bulkPlan(picked, false);
@@ -242,7 +247,7 @@ export function MainList({ game, mods, running }: { game: GameInstall; mods: Mod
           <p className="k-hint">Drop its {MOD_FILE_WORDS} anywhere on this window: Kiln, native, EMF, EML, ShroudForge, SET and the other loaders' mods all go here.{nexus ? " Or find one in the Catalog." : ""} It is on at the next Play.</p>
         </div>
       ) : (
-        <ul className="k-mods-list" aria-label="Mods">
+        <ul ref={listEl} className="k-mods-list" aria-label="Mods">
           {shown.map((r, i) => (
             <li key={r.key} className={"k-mod" + (r.on ? " on" : "") + (r.found ? " found" : "") + (i === foundStart && i > 0 ? " first-found" : "") + (sel.keys.includes(r.key) ? " picked" : "")} data-kind={r.kind ?? undefined}>
               <button type="button" role="checkbox" className="k-mod-check" aria-checked={sel.keys.includes(r.key)} aria-label={`Select ${r.name}`}

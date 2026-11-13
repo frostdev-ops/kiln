@@ -6,7 +6,7 @@ import { invoke as tauriInvoke } from "@tauri-apps/api/core";
 import { listen as tauriListen } from "@tauri-apps/api/event";
 import { canFallBack, noteFallback } from "./fallback";
 import { loadMock } from "./mockLoad";
-import { oneActivation } from "./oneActivation";
+import { oneActivation, profileSwitched } from "./oneActivation";
 
 // ---------------------------------------------------------------- plumbing
 
@@ -1196,8 +1196,9 @@ export const profileResolve = (profileId: ProfileId, side: RunSide, gameId: Game
   call<ResolvePreview>("profile_resolve", { profileId, side, gameId });
 /** One activation per game at a time (./oneActivation.ts): a second one while the first runs is refused (`busy`). */
 export const profileActivate = (profileId: ProfileId, gameId: GameId) =>
-  oneActivation(gameId, () => call<Activation>("profile_activate", { profileId, gameId }));
-export const profileDeactivate = (gameId: GameId) => oneActivation(gameId, () => call<PlacementCleanup>("profile_deactivate", { gameId }));
+  oneActivation(gameId, () => call<Activation>("profile_activate", { profileId, gameId })).then((r) => { profileSwitched(gameId); return r; });
+export const profileDeactivate = (gameId: GameId) =>
+  oneActivation(gameId, () => call<PlacementCleanup>("profile_deactivate", { gameId })).then((r) => { profileSwitched(gameId); return r; });
 export const profileActive = (gameId: GameId) => call<Activation | null>("profile_active", { gameId });
 /** The activations of re-applies the window has not shown yet (after a profile edit, a change outside the launcher, the
  *  watcher's start-up pass); each is returned once. Taken when `kiln://activation` arrives and once at start. */

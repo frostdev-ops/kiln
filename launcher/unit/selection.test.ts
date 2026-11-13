@@ -39,3 +39,30 @@ test("the selected rows come in the order shown", () => {
   const rows = order.map((key) => ({ key }));
   expect(pick({ keys: ["d", "a"], anchor: "d" }, rows).map((r) => r.key)).toEqual(["a", "d"]);
 });
+
+// review of 9aeffac9, P2: the selection belongs to one loaded profile of one game (its id and `created`)
+test("a selection is read only by the profile it was made in; one made again under the same id has none", async () => {
+  const { ownerOf, selectionOf, setSelection } = await import("../src/shell/selection");
+  const a = ownerOf("ember-run", { id: "ember-run", created: "2026-11-01T10:00:00Z" });
+  setSelection("g", a, { keys: ["kiln/x"], anchor: "kiln/x" });
+  expect(selectionOf("g", a).keys).toEqual(["kiln/x"]);
+  expect(selectionOf("g", ownerOf("vanilla-plus", { id: "vanilla-plus", created: "2026-10-01T10:00:00Z" })).keys).toEqual([]);
+  expect(selectionOf("g", ownerOf("ember-run", { id: "ember-run", created: "2026-11-13T09:00:00Z" })).keys).toEqual([]);
+  expect(selectionOf("g", ownerOf(null, null)).keys).toEqual([]);
+  // the profile is still being read: nothing shown, and nothing written
+  expect(ownerOf("ember-run", null)).toBeNull();
+  expect(selectionOf("g", null).keys).toEqual([]);
+  setSelection("g", null, { keys: ["kiln/y"], anchor: null });
+  expect(selectionOf("g", a).keys).toEqual(["kiln/x"]);
+});
+
+test("a Load or No profile of the game ends its selection, list open or not", async () => {
+  const { ownerOf, selectionOf, setSelection } = await import("../src/shell/selection");
+  const { profileSwitched } = await import("../src/api/oneActivation");
+  const a = ownerOf("ember-run", { id: "ember-run", created: "2026-11-01T10:00:00Z" });
+  setSelection("g2", a, { keys: ["kiln/x"], anchor: null });
+  setSelection("g3", a, { keys: ["kiln/x"], anchor: null });
+  profileSwitched("g2");
+  expect(selectionOf("g2", a).keys).toEqual([]);
+  expect(selectionOf("g3", a).keys).toEqual(["kiln/x"]);
+});

@@ -3,7 +3,9 @@
 // (a start's progress bar, another page) and comes back with it. It never holds a row the list does not show: a filter
 // or Kind change lets go of the rows it hides, and the bar says how many (a selection the player cannot see is not
 // acted on). Pure functions below; the store at the end.
+import { useEffect } from "react";
 import { create } from "zustand";
+import { onProfileSwitch } from "../api/oneActivation";
 
 export interface Selection {
   /** Selected row keys, in the order they were selected. */
@@ -47,11 +49,40 @@ export function pick<T extends { key: string }>(s: Selection, rows: T[]): T[] {
   return rows.filter((r) => s.keys.includes(r.key));
 }
 
-/** Per game: the selection, and the last "N left the selection" line the bar shows (cleared by the next change). */
-interface Store { byGame: Record<string, Selection>; note: Record<string, string | null> }
-export const useSelection = create<Store>(() => ({ byGame: {}, note: {} }));
-
-export const selectionOf = (game: string): Selection => useSelection.getState().byGame[game] ?? NONE;
-export function setSelection(game: string, sel: Selection, note: string | null = null) {
-  useSelection.setState((st) => ({ byGame: { ...st.byGame, [game]: sel }, note: { ...st.note, [game]: note } }));
+/** Whose selection it is: one loaded profile of one game, by its id and `created` (a profile deleted and made again
+ *  under the same id is another one). "none": no profile is loaded; null: not known yet (the profile is being read),
+ *  when nothing is shown and nothing is dropped. */
+export function ownerOf(profileId: string | null, profile: { id: string; created: string } | null): string | null {
+  if (!profileId) return "none";
+  return profile && profile.id === profileId ? `${profile.id}\n${profile.created}` : null;
 }
+
+/** Per game: the selection, whose it is, and the last "N left the selection" line the bar shows (cleared by the next
+ *  change). A read for another owner gets nothing; useOwnedSelection drops it then, and a Load or "No profile" of the
+ *  game drops it at once (onProfileSwitch), whether or not the list is open. */
+interface Kept { owner: string; sel: Selection; note: string | null }
+export const useSelection = create<{ byGame: Record<string, Kept> }>(() => ({ byGame: {} }));
+
+export function selectionOf(game: string, owner: string | null): Selection {
+  const k = useSelection.getState().byGame[game];
+  return k && owner !== null && k.owner === owner ? k.sel : NONE;
+}
+export function setSelection(game: string, owner: string | null, sel: Selection, note: string | null = null) {
+  if (owner === null) return;
+  useSelection.setState((st) => ({ byGame: { ...st.byGame, [game]: { owner, sel, note } } }));
+}
+export function dropSelection(game: string) {
+  if (!useSelection.getState().byGame[game]) return;
+  useSelection.setState((st) => { const byGame = { ...st.byGame }; delete byGame[game]; return { byGame }; });
+}
+
+/** The selection of `owner` in `game` and its note; another owner's is dropped as soon as the owner is known. */
+export function useOwnedSelection(game: string, owner: string | null): { sel: Selection; note: string | null } {
+  const k = useSelection((st) => st.byGame[game]);
+  const mine = !!k && owner !== null && k.owner === owner;
+  useEffect(() => { if (k && owner !== null && k.owner !== owner) dropSelection(game); }, [k, owner, game]);
+  return { sel: mine ? k.sel : NONE, note: mine ? k.note : null };
+}
+
+// a Load (profile_activate) or "No profile" (profile_deactivate) of a game ends its selection, list open or not
+onProfileSwitch((game) => dropSelection(game));

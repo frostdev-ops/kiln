@@ -15,7 +15,7 @@ import { useEnsureProfile } from "../../shell/firstRun";
 import { bulkPlan, type ModRow } from "../../shell/mods";
 import { notifyAdd } from "../../shell/notices";
 import { NOT_REMOVABLE, removable, removeMany, removeMod, useRemoveCheck, useRemoveMany, withoutRows, type RemoveTarget } from "../../shell/removeMod";
-import { NONE, pick as pickSelected, setSelection, toggle as toggleSelected, useSelection } from "../../shell/selection";
+import { NONE, ownerOf, pick as pickSelected, setSelection, toggle as toggleSelected, useOwnedSelection } from "../../shell/selection";
 import { useMods } from "../../shell/useMods";
 import { withDropin } from "../../pages/profiles/dropins";
 import { runTask, toast } from "../../ui";
@@ -70,7 +70,8 @@ export default function Mods() {
   // the selection (shell/selection.ts, the same one the desktop list keeps): L2 selects the focused row, R2 opens what
   // can be done with the selected ones
   const gid = game?.id ?? "";
-  const sel = useSelection((st) => st.byGame[gid] ?? NONE);
+  const owner = ownerOf(mods.profileId, mods.profile);
+  const { sel } = useOwnedSelection(gid, owner);
   const picked = pickSelected(sel, mods.rows);
   const [selMenu, setSelMenu] = useState(false);
   const [removingMany, setRemovingMany] = useState<ModRow[] | null>(null);
@@ -97,7 +98,7 @@ export default function Mods() {
   const actions: DeckAction[] = [];
   if (focus && gid) {
     const f = focus;
-    actions.push({ button: "lt", label: sel.keys.includes(f.key) ? "Unselect" : "Select", run: () => setSelection(gid, toggleSelected(sel, f.key)) });
+    actions.push({ button: "lt", label: sel.keys.includes(f.key) ? "Unselect" : "Select", run: () => setSelection(gid, owner, toggleSelected(sel, f.key)) });
   }
   if (picked.length) actions.push({ button: "rt", label: `${picked.length} selected`, run: () => setSelMenu(true) });
   if (focus && !focus.found && loaded) actions.push({ button: "x", label: "Remove", run: () => setRemoving({ row: focus, version: null }), disabled: running });
@@ -157,7 +158,7 @@ export default function Mods() {
               disabled={!loaded || !selOff.change.length} onClick={() => switchPicked(false)} />
             <Row id="sel-remove" title="Remove…" sub={running ? "Close the game first" : `${toRemove.length} of ${picked.length}${picked.length > toRemove.length ? ` · ${picked.length - toRemove.length} skipped: ${NOT_REMOVABLE}` : ""}`} a="Remove"
               disabled={running || !toRemove.length} onClick={() => { setSelMenu(false); setRemovingMany(toRemove); }} />
-            <Row id="sel-clear" title="Clear" sub={`Unselect all ${picked.length}`} a="Clear" onClick={() => { setSelection(gid, NONE); setSelMenu(false); }} />
+            <Row id="sel-clear" title="Clear" sub={`Unselect all ${picked.length}`} a="Clear" onClick={() => { setSelection(gid, owner, NONE); setSelMenu(false); }} />
           </div>
         </Dialog>
       )}
@@ -171,7 +172,7 @@ export default function Mods() {
               setFocus(null);
               try {
                 const r = await removeMany(qc, rows, many.users, async () => { mods.edit.update((p) => withoutRows(p, rows)); return mods.edit.flush(); });
-                setSelection(gid, NONE);
+                setSelection(gid, owner, NONE);
                 if (!r.left.length) toast.ok(`Removed ${r.removed.length} mod${r.removed.length === 1 ? "" : "s"}`);
                 else toast.info(r.removed.length ? `Removed ${r.removed.length}, ${r.left.length} left` : "Nothing removed",
                   `${r.left.map((l) => `${l.name}: ${l.why}`).join(" ")} ${r.left.length === 1 ? "It is" : "They are"} out of your list and still in the Library.`, { ms: 0 });
