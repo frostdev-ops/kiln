@@ -96,6 +96,23 @@ public sealed partial class ClientPassMod
         "In the save editor, Add item: type a search quickly. Do the letters appear as you type, with the list following " +
         "(the list itself may take as long as before)?");
 
+    [ClientCheck("launcher.add-7z-rar", "Add mods takes a 7z and a rar", Area = "Launcher", Since = Dev27,
+        Tags = [Launcher], Order = 418)]
+    public Task LauncherAdd7zRar(CheckContext c) => Outside(c,
+        "In the launcher's window: press Add mods above the list. Does the file dialog show .7z and .rar files next to " +
+        ".zip and .dll? Pick a mod packed as .7z: it is in the list, on. Then drop a mod packed as .rar on the window (on " +
+        "Windows this needs WinRAR, 7-Zip or the tar.exe Windows has; without one the toast says to extract it first). Did " +
+        "both come in?");
+
+    [ClientCheck("launcher.all-on-off-new-profile", "All on, All off, and a new profile from a drop", Area = "Launcher",
+        Since = Dev27, Tags = [Launcher], Order = 419)]
+    public Task LauncherAllOnOffNewProfile(CheckContext c) => Outside(c,
+        "In the launcher with the game closed: pick one kind in Kind above the list and press \"Shown off (N)\": N mods " +
+        "go off, the others stay as they were; press Undo in the toast: they are back. Then in Settings, Profiles load " +
+        "\"No profile\", drop a mod on the window, press \"Add to a profile\", then \"New profile…\", give a name and press " +
+        "\"Make and add\"; press \"Load it\" in the toast. Is the new profile loaded with the mod on, and did Play start " +
+        "the game with it?");
+
     // ---- a Steam Deck ----
 
     [ClientCheck("deck.no-kiln", "\"No Kiln\" in the launcher on a Steam Deck", Area = "Steam Deck", Since = Dev16,
