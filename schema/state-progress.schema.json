@@ -15,7 +15,7 @@
     "atMs": { "type": "integer", "minimum": 0, "description": "Milliseconds since started when this file was written; in a final state (ready, idle, failed), when that state began, so that the steps' tookMs add up to it." },
     "state": {
       "enum": ["booting", "loading", "ready", "idle", "failed"],
-      "description": "booting: inside Kiln's boot. loading: the boot is complete and the game goes on loading (managed mods load in its first frames on a client). ready: a client's main menu (or first world frame) has drawn with every mod loaded; a server's world runs with the mods loaded (Kiln.Host's ServerStarted; without .NET the server world's first step). idle: safe idle, Kiln hooked nothing (why). failed: Kiln could not go on (why): the boot threw, or the .NET host did not start."
+      "description": "booting: inside Kiln's boot. loading: the boot is complete and the game goes on loading (managed mods load in its first frames on a client). ready: step game has begun (the mods are loaded and their content applied) and the side's signal has come, in either order: a client's main menu (or first world frame) has drawn; a server's world runs (Kiln.Host's ServerStarted; without .NET the server world's first step). idle: safe idle, Kiln hooked nothing (why). failed: Kiln could not go on (why): the boot threw, or the .NET host did not start."
     },
     "plan": {
       "type": "array",

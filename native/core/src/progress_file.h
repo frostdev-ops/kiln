@@ -217,14 +217,12 @@ public:
         return Result::ok;
     }
 
-    // Is the start usable? The side's signal has come, Kiln's boot is complete, and Kiln.Host has loaded the mods
-    // (the running step is past "mods"; a start without .NET has no such step).
+    // Is the start usable? Kiln's boot is complete, Kiln's part is over (the plan's last step, "game", has begun: the mods
+    // are loaded and their content applied), and the side's signal has come, before or after that (a signal that comes
+    // early is remembered).
     bool ready_due() const {
-        if (state_ != State::loading) return false;
-        const bool signal = who_.side == "client" ? menu_ : index_of("dotnet") >= 0 ? server_started_ : world_started_;
-        if (!signal) return false;
-        const int mods = index_of("mods");
-        return mods < 0 || (!steps_.empty() && index_of(steps_.back().id) > mods);
+        if (state_ != State::loading || steps_.empty() || plan_.empty() || steps_.back().id != plan_.back()) return false;
+        return who_.side == "client" ? menu_ : index_of("dotnet") >= 0 ? server_started_ : world_started_;
     }
 
     // The JSON of the file as it stands at `now` (a final state: as it stood when it ended, so that the steps' tookMs
