@@ -9,5 +9,7 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../../Kiln.Api/Kiln.Api.csproj" Private="false" />
+    <!-- The weather (Weather.cs): name resolution, records from native ones, the result rule, tested offline. -->
+    <InternalsVisibleTo Include="Kiln.Time.Tests" />
   </ItemGroup>
 </Project>

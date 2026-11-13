@@ -489,6 +489,83 @@ on an item entity stays session-only. Limits:
 - Affixes (rolled modifiers and an engine that applies them) are still not built.
 Guide: `docs/kiln/modding/inventory.md`, "Data on one item"; service: `docs/kiln/services/saves.md`.
 
+## 16. Equip and unequip (server 26430253, exe `f0d824be…`; client 26430625) **[dis] [cap] [rt]**
+What a player's equip runs, read from the exe (capstone, recursive descent: `.pdata` splits these functions into
+chained pieces, so a linear `.pdata` dump stops early):
+- `equipment_actions` (descriptor `0x1356ac0`, update `0x1472c0`, flags `0x210`: host only, not predicted): read
+  `PlayerInput`; write `Equipment`, `ServerConsumedPlayerInput`; sys-read `BalancingRegistry`, `ItemRegistry`,
+  `RecipeRegistry`, `AttributeRegistry`; sys-write `KnowledgeTriggerQueue`; other-template `ShroudForge`; other-write
+  `Inventory`, `InventoryEmptyState`, `InventorySetup`, `ItemState`, `Level`, `OwnerRelationship`, `SlotSelection`,
+  `WeaponGemSlot`; events-out `GemCraftingEvent`, `InventoryFull`. Per player it calls `0x144950` (the equip action) and
+  `0x144bb0` (the weapon-gem action).
+- `0x144950`, the whole change-equipment handler: `if (PlayerInput+0x1d0 == consumed+0x78) return` (the action's version
+  against `consumedChangeEquipmentAction`); a setup block (section 3) with flags `0x04`, the context, `ItemRegistry`
+  (`+0x10`), `BalancingRegistry` (`+0x18`), no `AttributeRegistry` (`+0x20` = 0), the seven accessors, no `Fuel`, no
+  PickupEvent, `InventoryFull`'s sender (`+0xA8`), no knowledge queue, operator = the current entity; `InventoryTxCtor`,
+  `InventoryTxInit`; `type = PlayerInput+0x1d5` (`ChangeEquipmentAction.type`): 0 calls equip `0x1b4e70`, 1 calls
+  unequip `0x1b9b80`, both `(Result12* out, tx, u64 PlayerInput+0x1c8 (inventorySlotId), u8 PlayerInput+0x1d4
+  (equipmentSlot))`; `out.error == 0` commits, anything else rolls back; then the consumed version is stored whatever
+  happened. Nothing else: the `Equipment` component (visuals, impact masks) is not written here.
+- equip `0x1b4e70` (client `0x4152d0`): the player is **the program's current entity** (`0x65b870(ctx)` = `ctx+8` index
+  into `job+0x830`, sigdb `world/CurrentEntityId`), not an argument and not the transaction's operator. getItemStack
+  `0x1b61c0` (its error: 0x11 / 0x15); ItemRegistryFind (none: 0x15); the player's `SlotSelection` (`0x179ef0`) and
+  `InventorySetup` (`0x179d70`), either missing: 0x1f; a slot of 24 or more takes the item's own slot (`0x937910`);
+  `0x936c30(slot)` must equal `ItemInfo+0x104` (EquipmentSlotType), else 0x11; then moveStack `0x1b4550` into the slot
+  `0x936d80(slot, SlotSelection)` names, `0x1b28f0` for the selection, and for a backpack the move all `0x1b3fb0` of the
+  old backpack's contents (the two calls `0x1b5457`, `0x1b548a`). Errors: 0 ok, 0x11 refused, 0x15 no item, 0x1f no
+  equipment / no inventory / no free slot.
+- unequip `0x1b9b80` (client `0x419740`): the same current entity; a slot of 24 or more is looked up by the slot id it
+  holds; the stack in the equipment slot (getItemStack); a free slot in a Generic (4) link of the player's inventory
+  (`0x1b5a50`: the first slot with count 0, none: 0x11, and with tx flag `0x04` an `InventoryFull` event to the player);
+  moveStack there. Same error codes.
+- `0x936c30` (EquipmentSlot -> EquipmentSlotType): Vanity_* and Armour_* -> Armour_Head .. Armour_Feet (13-17), Ring0/1
+  -> Armour_Ring (37), RangedWeapon -> RangeWeapon (5), Shield 18, Arrow 6, Spell 7, FishingBait 8, the four materials
+  9-12, HookShot 34, Glider 35, Backpack 38; 24 and up: 0.
+- `0x936d80` (EquipmentSlot -> its `SlotSelection.equipment` slot id): 0-16 in order, 17-20 (the materials) a static
+  "none", 21-23 at +0x88/+0x90/+0x98. So `SlotSelection.equipment` holds 20 slots: 0-16, HookShot, Glider, Backpack.
+
+Callers of equip: `0x144aea` (the handler above), `0x41338`, `0x427fb`, `0xaeb4d`, `0xb6885`, `0xbedeb`, `0x1482bd`
+(`swap_equipment_set_actions`); of unequip: `0x144ac9`, `0xb68a5`. Not traced.
+
+**What Kiln does (kiln.items v5, `native/services/items/equip.cpp`).** Because equip and unequip read the player from the
+running program's current entity, they cannot run inside the system program `kiln_items` (no current entity there).
+kiln.items registers a second program through kiln.world, `kiln_items_equip`: an entity program (read `PlayerInput`,
+so it iterates the player characters) with kiln_items' singletons, other-write accessors and event senders. For a player
+with a waiting request it builds the setup block as `0x144950` does and calls the same function, commits on 0 and rolls
+back otherwise. The client's `changeEquipmentAction` and `ServerConsumedPlayerInput` are never touched. Program order: the
+game's `equipment_actions` runs first in a step, kiln_items_equip after it (kiln.world registers after the game's
+programs), so a player's own equip and a mod's in the same step both happen, the player's first.
+
+The other route, writing `PlayerInput.fromClient.changeEquipmentAction` right after `players/InputApply` (proven with a
+spawned character, docs/re/player-state.md), was not taken: with a joined client the next input copy brings back the
+client's last action with its own version, which then differs from the consumed version Kiln's write left, so the game
+would run the client's old equip again, or skip a later client action whose version equals Kiln's; avoiding that needs
+both the input bytes and the consumed version restored after `equipment_actions` and before the next copy, and
+`NetworkConsumedPlayerInput` would still show the client Kiln's version for a step. The refusal would also be invisible
+(the handler drops `out.error`).
+
+Signatures: `items/EquipItem`, `items/UnequipItem` (prologue patterns) and `@items/EquipAction.calls` (the handler's two
+calls as rel32 captures: a second vote for both, and the proof they are what a player's equip runs); feature
+`items.equip`. Both resolve on server 26430253 and client 26430625 (offline, `tools/sigport/sigdb_check.py`).
+
+Lab (`dev27-reach2`, a copy of a real world, server 26430253, no client; a spawned `1_Player` character, which has
+`PlayerInput`, so kiln.world iterates it; `mods/tests/items-test` `EquipTest.cs`, 30 PASS, 0 FAIL; the whole items-test
+119 PASS, 0 FAIL) **[rt]**:
+```
+program kiln_items_equip registered as #824 (T0 R1 W0 S4 OT0 O7 EI0 EO2, iterator 120 bytes, flags 0x10)
+program kiln_items_equip runs: accessors verified against the world's component map (player 2542)
+equip ticket 6: unequip player 2542 slot 10 -> status 0 (game error 0x00), item 0x79442800 pide 2552, from 2550:0 to 2544:0
+PASS unequip: PlayerEquipmentChangedEvent Ring0 -> none [Ring0:Ring_T3_Ring_of_Light->(none)]
+equip ticket 8: equip player 2542 slot 10 -> status 0 (game error 0x00), item 0x4623bcb0 pide 2553, from 2544:1 to 2550:0, replaced 0x79442800
+PASS equip into the item's own slot: equip Done player 2542 slot Ring1 item 0x79442800 2544:1 -> 2550:1 (slot Ring1)
+equip ticket 11: equip player 2542 slot 11 -> status 7 (game error 0x11), item 0x4c0d3e02 pide 2554, from 2546:1: the item does not fit that equipment slot: the game refused it
+equip ticket 18: unequip player 2542 slot 10 -> status 2 (game error 0x11), item 0x4623bcb0 pide 2553, from 2550:0: no free slot in the player's backpack (error 0x11)
+```
+Seen there: the equipment slots are fixed slots of an Equipment link (`2550:0` is Ring0, `2550:1` Ring1); the moves are in
+the inventory before the commit, but `SlotSelection.equipment` of a slot that was empty is written only at the commit
+(between the call and the commit it still reads 0), so kiln.items reads the target slot from the inventory and the chosen
+equipment slot from the committed selection. A dry run therefore cannot say which slot an item would pick for itself.
+
 ## 9. Open questions
 - Players (no client in the lab): popup and PickupEvent with `0x01`, knowledge unlocks through the queue, the
   backpack-priority setting (the game's own handlers add `0x20` when `PlayerInput+0x5b0` bit 11 is set; kiln.items does

@@ -22,6 +22,7 @@
 #include "boot.h"
 #include "cook/vfxcook.h"
 #include "core.h"
+#include "generated.h"
 #include "services/kiln_assets.h"
 #include "services/kiln_profile.h"
 
@@ -155,6 +156,136 @@ kvb::TextureCache disk_cache() {
     return c;
 }
 
+// An open handle, closed on scope exit.
+struct OwnedHandle {
+    HANDLE h = INVALID_HANDLE_VALUE;
+    explicit OwnedHandle(HANDLE x) : h(x) {}
+    OwnedHandle(const OwnedHandle&) = delete;
+    OwnedHandle& operator=(const OwnedHandle&) = delete;
+    ~OwnedHandle() {
+        if (h != INVALID_HANDLE_VALUE) CloseHandle(h);
+    }
+    bool ok() const { return h != INVALID_HANDLE_VALUE; }
+};
+
+HANDLE open_for_read(const fs::path& p, bool folder) {
+    return CreateFileW(p.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
+                       folder ? FILE_FLAG_BACKUP_SEMANTICS : FILE_ATTRIBUTE_NORMAL, nullptr);
+}
+
+// Where an opened handle really is (links and junctions resolved); empty when it cannot be told.
+std::wstring final_path(HANDLE h) {
+    std::wstring out(512, L'\0');
+    for (int attempt = 0; attempt < 2; ++attempt) {
+        const DWORD n = GetFinalPathNameByHandleW(h, out.data(), static_cast<DWORD>(out.size()), FILE_NAME_NORMALIZED | VOLUME_NAME_DOS);
+        if (n == 0) return {};
+        if (n < out.size()) {
+            out.resize(n);
+            return out;
+        }
+        out.resize(n + 1);
+    }
+    return {};
+}
+
+// A link, junction or other reparse point on the way from the mod's folder down to `p` (the folders below the mod's and `p`).
+bool reparse_on_the_way(const fs::path& mod, const fs::path& p) {
+    const fs::path rel = p.lexically_relative(mod);  // the path as built from the mod's folder: no link is followed here
+    if (rel.empty()) return true;
+    fs::path at = mod;
+    for (const fs::path& part : rel) {
+        if (part == L"..") return true;
+        at /= part;
+        const DWORD a = GetFileAttributesW(at.c_str());
+        if (a == INVALID_FILE_ATTRIBUTES || (a & FILE_ATTRIBUTE_REPARSE_POINT)) return true;
+    }
+    return false;
+}
+
+// The JSON files of one of the mod's folders, with the limits of generated.h: blocks/ (the author's data files) and
+// blocks/generated/ (what Kiln.Sdk baked from the mod's code). The folder and each file are opened first; what was opened
+// is then checked (its final path lies inside the mod's folder, and nothing on the way is a link or reparse point), so a
+// link, junction or path swapped anywhere from the mod's folder down cannot lead out; the file is read from that handle,
+// its size first. The listing stops at the limits. What is refused is a kiln.log line, and is left out.
+// Under Wine (the Linux server and Proton): Wine resolves no link in a handle's final path, and marks a link to a folder as a
+// reparse point but a link to a file as a plain file (lab, GE-Proton). So there a link to a folder is refused (on blocks
+// itself too), a link to a file is not told from a file: it is read, within the same size, count and depth limits.
+void add_limited(const fs::path& mod, const std::wstring& root, const fs::path& folder, const char* prefix,
+                 const kvx_generated::Limits& lim, kvb::ModInput* m) {
+    std::error_code ec;
+    if (!fs::is_directory(folder, ec)) return;
+    {
+        OwnedHandle dh(open_for_read(folder, true));
+        if (!dh.ok()) return;
+        if (!kvx_generated::path_inside(root, final_path(dh.h)) || reparse_on_the_way(mod, folder)) {
+            KV_W("vfx: %s: %s/ is a link or reparse point, or leads outside the mod's folder: not read", m->id.c_str(), prefix);
+            return;
+        }
+    }
+    std::vector<fs::path> files;
+    size_t entries = 0;
+    bool over = false;
+    for (auto it = fs::directory_iterator(folder, ec); !ec && it != fs::directory_iterator(); it.increment(ec)) {
+        if (++entries > lim.entries) {
+            over = true;
+            break;
+        }
+        if (it->path().extension() != L".json") continue;
+        files.push_back(it->path());
+        if (files.size() > lim.files) {
+            over = true;
+            break;
+        }
+    }
+    if (over) {
+        KV_W("vfx: %s: %s/ has more than %zu JSON files (or more than %zu entries): none of it is read", m->id.c_str(), prefix,
+             lim.files, lim.entries);
+        return;
+    }
+    std::sort(files.begin(), files.end());
+    size_t n = 0;
+    uint64_t total = 0;
+    for (const fs::path& f : files) {
+        const std::string name = to_utf8(f.filename());
+        OwnedHandle fh(open_for_read(f, false));
+        if (!fh.ok()) continue;
+        if (!kvx_generated::path_inside(root, final_path(fh.h)) || reparse_on_the_way(mod, f)) {
+            KV_W("vfx: %s: %s/%s: not read: a link or reparse point, or it leads outside the mod's folder", m->id.c_str(), prefix, name.c_str());
+            continue;
+        }
+        LARGE_INTEGER size{};
+        if (!GetFileSizeEx(fh.h, &size) || size.QuadPart < 0) continue;
+        const uint64_t bytes = static_cast<uint64_t>(size.QuadPart);
+        if (const char* why = kvx_generated::refusal(lim, n, bytes, total)) {
+            KV_W("vfx: %s: %s/%s: not read: %s (%llu bytes; limits: %zu files, %llu bytes each, %llu in all)", m->id.c_str(), prefix,
+                 name.c_str(), why, static_cast<unsigned long long>(bytes), lim.files, static_cast<unsigned long long>(lim.file_bytes),
+                 static_cast<unsigned long long>(lim.total_bytes));
+            continue;
+        }
+        std::string text(static_cast<size_t>(bytes), '\0');
+        uint64_t got = 0;
+        while (got < bytes) {
+            DWORD part = 0;
+            const DWORD want = static_cast<DWORD>(bytes - got < (1u << 20) ? bytes - got : (1u << 20));
+            if (!ReadFile(fh.h, text.data() + got, want, &part, nullptr) || part == 0) break;
+            got += part;
+        }
+        char extra = 0;
+        DWORD more = 0;
+        if (got != bytes || (ReadFile(fh.h, &extra, 1, &more, nullptr) && more != 0)) {
+            KV_W("vfx: %s: %s/%s: not read: it changed while it was read", m->id.c_str(), prefix, name.c_str());
+            continue;
+        }
+        if (!kvx_generated::depth_ok(text, lim.depth)) {
+            KV_W("vfx: %s: %s/%s: not read: nested deeper than %d", m->id.c_str(), prefix, name.c_str(), lim.depth);
+            continue;
+        }
+        ++n;
+        total += bytes;
+        m->documents.emplace_back(std::string(prefix) + "/" + name, std::move(text));
+    }
+}
+
 // One mod's folder -> its input. false: nothing to do here.
 bool read_mod(const std::string& dir, const fs::path& pending_root, kvb::ModInput* m) {
     const fs::path d = to_path(dir);
@@ -171,6 +302,7 @@ bool read_mod(const std::string& dir, const fs::path& pending_root, kvb::ModInpu
     m->side = j.value("side", "server");
     m->clients = j.value("clients", m->side == "server" ? "none" : "mod");
     m->advanced = j.contains("advanced") && j["advanced"].is_boolean() && j["advanced"].get<bool>();
+    // Kiln's own data (what it kept from code at an earlier start): read as before
     auto add_folder = [&](const fs::path& folder, const char* prefix) {
         std::vector<fs::path> files;
         std::error_code e2;
@@ -179,7 +311,19 @@ bool read_mod(const std::string& dir, const fs::path& pending_root, kvb::ModInpu
         std::sort(files.begin(), files.end());
         for (const fs::path& f : files) m->documents.emplace_back(std::string(prefix) + "/" + to_utf8(f.filename()), read_text(f));
     };
-    add_folder(d / L"blocks", "blocks");
+    // the mod's own folder: its data files, then what Kiln.Sdk baked from its code (before what Kiln kept from code at an
+    // earlier start, so a block of the same name in both is the mod's: the cook keeps the first), each with limits
+    std::wstring root;
+    {
+        OwnedHandle rh(open_for_read(d, true));
+        if (rh.ok()) root = final_path(rh.h);
+    }
+    if (root.empty()) {
+        KV_W("vfx: %s: the mod's folder cannot be opened to check where its files are: its blocks are not read", m->id.c_str());
+    } else {
+        add_limited(d, root, d / L"blocks", "blocks", kvx_generated::kBlocks, m);
+        add_limited(d, root, d / L"blocks" / L"generated", "blocks/generated", kvx_generated::kGenerated, m);
+    }
     add_folder(pending_root / to_path(m->id), "pending");
     return !m->documents.empty();
 }

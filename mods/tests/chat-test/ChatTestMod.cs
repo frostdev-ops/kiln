@@ -7,12 +7,12 @@ namespace ChatTest;
 /// Checks kiln.time and kiln.chat on a lab server and prints PASS/FAIL lines.
 /// 1. Command registry unit checks (no game state).
 /// 2. Time: read, set forward, check the game wrote it, set with the game's function, parse, restore, sync evidence,
-///    weather re-roll.
+///    weather re-roll; choosing the weather (WeatherTest.cs).
 /// 3. Chat without a client: server lines with nobody connected, then lines injected as if a player typed them:
 ///    passed on (lands in the server's chat inbox), cancelled by a handler, commands run and consumed.
 /// Also registers /kt-time (admin) and /kt-say so a joined player can try them (client checklist).
 /// </summary>
-public sealed class ChatTestMod : Mod
+public sealed partial class ChatTestMod : Mod
 {
     private int _pass, _fail;
     private readonly List<ChatMessage> _seen = new();
@@ -169,8 +169,17 @@ public sealed class ChatTestMod : Mod
             Log.Info($"chat-test: world {(_running ? "running" : "assumed running")} after {waited} steps");
             for (var i = 0; i < 250 && !(Time.Available && Time.Ready && Chat.Status.SendReady); i++) await Ticks(1);
             await Ticks(10);
+            if (File.Exists(Path.Combine(Context.DataDirectory, "weather-only")))
+            {
+                // <data>/weather-only: the weather checks alone (WeatherTest.cs); with weather.arm the run ends by leaving a
+                // timed phenomenon and a hold for a restart, which the next run checks
+                await WeatherChecks();
+                Log.Info($"chat-test: {_pass} passed, {_fail} failed");
+                return;
+            }
             await PersistCheck();
             await TimeChecks();
+            await WeatherChecks();
             await ChatChecks();
         }
         catch (Exception e)
