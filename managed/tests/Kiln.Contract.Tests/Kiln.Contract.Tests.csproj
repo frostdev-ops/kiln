@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The API contract in every managed service (docs/kiln/modding/contract.md): capability rows, the one error rule,
+       side and thread attributes. Conformance rules that hold for every adopted service (ConformanceTests.cs, the
+       list is Adopted.cs) and one file of tests per service. No game, no native tables: what a service does with a
+       working table is tested where its fake table lives (Kiln.TestKit.Tests, the service's own test project). -->
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <OutputType>Exe</OutputType>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit.v3" Version="3.1.0" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../Kiln.Api/Kiln.Api.csproj" />
+    <ProjectReference Include="../../services/Kiln.Spawn/Kiln.Spawn.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- The analyzers' tick-thread table, generated from the services' code: the attributes are checked against it. -->
+    <None Include="../../Kiln.Analyzers/src/Kiln.Analyzers/KilnApis.g.cs" Link="KilnApis.g.cs" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

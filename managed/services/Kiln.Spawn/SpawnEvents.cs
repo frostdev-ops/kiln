@@ -51,7 +51,7 @@ public sealed class EntitySpawnedEvent : KilnEvent
     public override string ToString() => $"spawned {Kind} {Entity} ({TemplateName ?? Template?.ToString() ?? $"item 0x{ItemId:x8} x{Amount}"}) at {Position} by {Origin}";
 }
 
-/// <summary>Kiln.Spawn destroyed an entity: <see cref="Spawn.Destroy"/> (<see cref="Reason"/> "destroy") or
+/// <summary>Kiln.Spawn destroyed an entity: <see cref="Spawn.Destroy(EntityId)"/> (<see cref="Reason"/> "destroy") or
 /// <see cref="Spawn.CleanupTracked"/> ("cleanup"). Posted on the tick thread after it is gone. Not cancelable.</summary>
 public sealed class EntityDestroyedEvent : KilnEvent
 {

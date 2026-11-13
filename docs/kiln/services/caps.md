@@ -110,6 +110,18 @@ naming one of them is refused, with the advice to check `Capabilities.Is` at run
 
 They exist only once their service has started, after the manifests were checked: check `Capabilities.Is` at run time.
 
+## Rows added in dev.27 (the contract in every service)
+One table for the services that took up the contract in dev.27. A managed row is reported at its service's first use
+(for a service with an autostart: at the first service tick) and again after the registry was reset; a session row is
+refreshed on the service tick. When a service's table is missing, the service lowers the sigdb features it serves, so
+`Capabilities.Why` names the missing service and not a feature that resolved for nobody.
+
+| Row | Kind | Reported by | What it says |
+|---|---|---|---|
+| `spawn.components` | managed, static | Kiln.Spawn | this kiln.spawn takes `SpawnOptions.Components` (`service-older` otherwise) |
+| `spawn.world` | managed, session | Kiln.Spawn, every 25 steps | the server world runs, so entities can be created and the tracked list cleaned up (`Spawn.WorldRunning`); pending while the save loads and after a hosted world closed; unavailable without kiln.spawn |
+| `spawn.create`, `spawn.destroy`, `spawn.entities`, `spawn.templates` | sigdb features | core; Kiln.Spawn lowers them when kiln.spawn is not loaded | creating entities, `Spawn.Destroy`, the entity scan, the game's template list |
+
 ## Rules
 - Each owner holds at most one report per name. A reader sees the worst report for the name: unavailable beats
   pending, pending beats available. So a service can say a feature is off although its symbols resolved (its hook
