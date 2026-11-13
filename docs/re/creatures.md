@@ -1052,8 +1052,8 @@ Later native safety prototype [lab]: active Vukah swing, pre-death skip retained
 outgoing/root and queued post-retirement hits denied, then existing Spawn.Destroy removed actor in same safe Pre;
 no later death event/victim loss. ApplyHit S `0x190fb0` / C `0x3efd10` has native propagate-byte early-return seam;
 DestroyEntity S `0x63e8a0` / C `0x9a2a10` takes Storage*, entity, mode 1, skip 0 through existing service;
-only its low-byte result is used here. Pet/marker chapters declare u8 return while [network.md](network.md) records
-u64; the full returned width is not resolved by these callers. **AI-off alone was not this protection.**
+only its low-byte result is used here. It returns a bool in AL (0/1, upper RAX unspecified) on both exes; see
+[network.md](network.md) [static]. **AI-off alone was not this protection.**
 Dossier's Downed retires combat body/keeps a virtual recovery
 anchor; Revive creates a new protected generation. Those lifecycle choices are not claims of a native corpse-revive
 mechanic or completed service. Full root-provenance/retirement design stays in chapter 19d.
