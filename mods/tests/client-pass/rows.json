@@ -57,6 +57,7 @@
     { "section": "New in 0.2.0-dev.26", "key": "A weapon's own moves: its chain, its heavy and block, when the blow lands",
       "checks": ["weapon-moves-test/blocks.moves-chain", "weapon-moves-test/blocks.moves-hit-timing", "weapon-moves-test/blocks.moves-heavy-block", "weapon-moves-test/blocks.moves-vanilla-unchanged"] },
     { "section": "New in 0.2.0-dev.26", "key": "A held model with moving parts", "checks": ["weapon-moves-test/blocks.held-animated", "weapon-moves-test/blocks.held-animated-two-players"] },
-    { "section": "New in 0.2.0-dev.27", "key": "Equip and unequip by a mod", "checks": ["items.equip", "items.unequip"] }
+    { "section": "New in 0.2.0-dev.27", "key": "Equip and unequip by a mod", "checks": ["items.equip", "items.unequip"] },
+    { "section": "New in 0.2.0-dev.27", "key": "The weather a mod chose", "checks": ["time.weather"] }
   ]
 }

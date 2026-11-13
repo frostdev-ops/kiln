@@ -558,12 +558,17 @@ internal static partial class KilnApis
         "M:Kiln.Teleport.To(Kiln.EntityId,Kiln.WorldPosition,Kiln.TeleportOptions)", // Teleport.To(EntityId, WorldPosition, TeleportOptions?): via Teleport.Start(EntityId, WorldPosition, EntityId, TeleportOptions)
         "M:Kiln.Teleport.ToEntity(Kiln.EntityId,Kiln.EntityId,System.Double,Kiln.TeleportOptions)", // Teleport.ToEntity(EntityId, EntityId, double, TeleportOptions?): Services.RequireTickThread
         "M:Kiln.Teleport.ToSpawnPoint(Kiln.EntityId,Kiln.EntityId,Kiln.TeleportOptions)", // Teleport.ToSpawnPoint(EntityId, EntityId, TeleportOptions?): via Teleport.Start(EntityId, WorldPosition, EntityId, TeleportOptions)
+        "M:Kiln.Time.ReleaseWeather(System.Nullable{System.Int32},System.Boolean)", // Time.ReleaseWeather(int?, bool): Services.RequireTickThread
         "M:Kiln.Time.ResetWeather", // Time.ResetWeather(): Services.RequireTickThread
         "M:Kiln.Time.Set(System.Double,Kiln.TimeSetMode)", // Time.Set(double, TimeSetMode): Services.RequireTickThread
         "M:Kiln.Time.Set(System.String,Kiln.TimeSetMode)", // Time.Set(string, TimeSetMode): via Time.Set(double, TimeSetMode)
         "M:Kiln.Time.Set(System.TimeSpan,Kiln.TimeSetMode)", // Time.Set(TimeSpan, TimeSetMode): via Time.Set(double, TimeSetMode)
         "M:Kiln.Time.SetCycle(Kiln.TimeCycle)", // Time.SetCycle(TimeCycle): via Time.SetSpeed(double?)
         "M:Kiln.Time.SetSpeed(System.Nullable{System.Double})", // Time.SetSpeed(double?): Services.RequireTickThread
+        "M:Kiln.Time.SetWeather(Kiln.WeatherPhenomenon,System.Nullable{System.TimeSpan})", // Time.SetWeather(WeatherPhenomenon, TimeSpan?): Services.RequireTickThread
+        "M:Kiln.Time.SetWeather(System.String,System.Nullable{System.TimeSpan},System.Nullable{System.Int32})", // Time.SetWeather(string, TimeSpan?, int?): Services.RequireTickThread
+        "M:Kiln.Time.get_Weather", // Time.Weather.get: Services.RequireTickThread
+        "M:Kiln.Time.get_WeatherPhenomena", // Time.WeatherPhenomena.get: Services.RequireTickThread
         "M:Kiln.Time.set_OfDay(System.Double)", // Time.OfDay.set: via Time.Set(double, TimeSetMode)
         "M:Kiln.Vfx.PlayAt(Kiln.VfxId,Kiln.WorldPosition,System.Nullable{System.Numerics.Quaternion},System.Single,Kiln.VfxParams,System.Nullable{System.TimeSpan},System.Single)", // Vfx.PlayAt(VfxId, WorldPosition, Quaternion?, float, VfxParams?, TimeSpan?, float): via VfxRelay.Play(byte, Guid, WorldPosition, Quaternion?, float, EntityId, Slot, Offset, long, VfxParams?, float, EntityId)
         "M:Kiln.Vfx.PlayFor(Kiln.EntityId,Kiln.VfxId,Kiln.WorldPosition,Kiln.VfxParams,System.Nullable{System.TimeSpan})", // Vfx.PlayFor(EntityId, VfxId, WorldPosition, VfxParams?, TimeSpan?): via VfxRelay.Play(byte, Guid, WorldPosition, Quaternion?, float, EntityId, Slot, Offset, long, VfxParams?, float, EntityId)

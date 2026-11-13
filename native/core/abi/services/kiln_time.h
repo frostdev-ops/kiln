@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: MIT
- * kiln.time v1: time of day on the server world (g38_daytime::Daytime) and a weather re-roll (WeatherSystem).
+ * kiln.time v2: time of day on the server world (g38_daytime::Daytime), a weather re-roll (WeatherSystem), and (v2, since
+ * 0.2.0-dev.27) the weather table, each layer's current phenomenon and choosing one.
  *
  * The server owns the day/night clock: a change made here is replicated to every client by the game itself (the
  * GameServer's ServerInfo message carries the Daytime anchor whenever its change counter moves) and is saved with the
@@ -13,7 +14,7 @@ extern "C" {
 #endif
 
 #define KILN_TIME_SERVICE "kiln.time"
-#define KILN_TIME_VERSION 1u
+#define KILN_TIME_VERSION 2u  /* v2 (0.2.0-dev.27): weather_table, weather_layers, weather_set; check header.size */
 
 /* set_time_of_day modes */
 enum {
@@ -46,6 +47,100 @@ typedef struct KilnTimeState {
     uint32_t weather_layers;     /* weather layer count (0 = unknown) */
 } KilnTimeState;
 
+/* ---------------------------------------------------------------------------------------------- weather ------ */
+
+/* since 0.2.0-dev.27 (feature time.weather_choose; KILN_ERR_UNAVAILABLE without it, and until the server's weather has
+ * run once after the world started).
+ *
+ * The weather is the game's WeatherSystem: a few layers (9 on 26430253), each running one phenomenon at a time from its
+ * range of the game's WeatherSystemResource (clouds over the whole world in layer 0, rain or snowy rain over one region
+ * in each of the others, "nothing" in between). When a layer's time is up the game rolls the next phenomenon by the
+ * table's weights and its duration between the phenomenon's min and max (game time: the day/night clock, so a faster
+ * clock speeds the weather too). Choosing one calls the game's own start of a phenomenon for that layer, the way the
+ * game's own weather state configurations do (SetPhenomenon): the layer's instances end, the chosen one starts with the
+ * game's random position, size and drift inside the layer's region, and the game replicates it to every client.
+ *
+ * Persistence: none. After a restart the layers run what the game rolls anew (lab: a two-hour phenomenon left before an
+ * autosave was gone after the load; the load also restarts the game clock in its first cycle). A hold
+ * (KILN_TIME_WEATHER_HOLD) is Kiln's and ends with the process. */
+
+/* KilnTimeWeatherRequest.flags */
+enum {
+    KILN_TIME_WEATHER_HOLD = 0x01u,    /* set: every time the game rolls this layer again, Kiln starts the same choice
+                                          (each run lasts the phenomenon's own duration) until a release */
+    KILN_TIME_WEATHER_RELEASE = 0x02u, /* hand the layer back: the hold ends; `phenomenon` and `duration_ns` unused */
+    KILN_TIME_WEATHER_NOW = 0x04u,     /* with RELEASE: the layer's phenomenon ends and the game rolls a new one in the
+                                          same update; without it the running one finishes its time first */
+};
+
+#define KILN_TIME_WEATHER_NOTHING (-1) /* KilnTimeWeatherRequest.phenomenon: the layer's own "nothing" */
+
+typedef struct KilnTimeWeatherPhenomenon {
+    uint32_t size;            /* sizeof(KilnTimeWeatherPhenomenon) */
+    uint16_t index;           /* index in the game's phenomenon table (WeatherSystemResource.phenomenons) */
+    uint8_t layer;            /* the layer whose range holds it; 0xFF: no layer rolls it (the game's debug entries) */
+    uint8_t effect;           /* keen::WeatherPhenomenonEffect: 0 none, 1 rain, 2 blizzard */
+    uint8_t guid[16];
+    float probability;        /* its weight in its layer's roll */
+    uint32_t flags;           /* keen::WeatherSystemPhenomenonResourceFlags bits */
+    int64_t duration_min_ns;  /* game time */
+    int64_t duration_max_ns;
+    char name[64];            /* the game's debugName ("clouds_few", "rain", ...), UTF-8, NUL-terminated */
+} KilnTimeWeatherPhenomenon;
+
+typedef struct KilnTimeWeatherLayer {
+    uint32_t size;            /* sizeof(KilnTimeWeatherLayer) */
+    uint8_t index;
+    uint8_t first;            /* the layer's range in the table: first .. first + count - 1 */
+    uint8_t count;
+    uint8_t held;             /* 1: Kiln holds a choice on this layer */
+    uint8_t restrict_mask;    /* the region mask the layer is limited to (0xFF none) */
+    uint8_t exclude_mask;     /* the region mask it avoids (0xFF none) */
+    uint8_t reserved[2];
+    uint8_t guid[16];
+    float nothing_probability;/* the weight of "nothing" in its roll */
+    int32_t current;          /* the phenomenon running: a table index, KILN_TIME_WEATHER_NOTHING, or -2 (none yet) */
+    int32_t held_phenomenon;  /* the held choice (table index or NOTHING); -2 when not held */
+    uint32_t instance;        /* the running instance's handle (0: none, e.g. "nothing") */
+    uint32_t kiln_changes;    /* +1 each time Kiln started or ended something on this layer */
+    uint32_t reserved2;
+    int64_t next_ns;          /* game time of the layer's next roll */
+    int64_t now_ns;           /* the weather clock at the last weather update */
+} KilnTimeWeatherLayer;
+
+typedef struct KilnTimeWeatherRequest {
+    uint32_t size;            /* sizeof(KilnTimeWeatherRequest) */
+    uint32_t flags;           /* KILN_TIME_WEATHER_* */
+    uint32_t layer;
+    int32_t phenomenon;       /* a table index inside the layer's range, or KILN_TIME_WEATHER_NOTHING */
+    int64_t duration_ns;      /* 0: the phenomenon's own duration (rolled by the game); > 0: the layer is rolled again
+                                 this long after the start (game time; its fade-out follows): Kiln passes it plus the
+                                 phenomenon's despawn fade as the override the game's own state configurations use */
+} KilnTimeWeatherRequest;
+
+/* KilnTimeWeatherResult.status */
+enum {
+    KILN_TIME_WEATHER_DONE = 0,        /* the game started it (or released it); `current` says what runs now */
+    KILN_TIME_WEATHER_DROPPED = 1,     /* not run: the server world closed, or its weather did not update for 10 s */
+    KILN_TIME_WEATHER_FAILED = 2,      /* the game's call faulted (choice is then off until a restart) */
+};
+
+typedef struct KilnTimeWeatherResult {
+    uint32_t size;
+    int32_t status;           /* KILN_TIME_WEATHER_* status */
+    uint64_t ticket;
+    uint32_t layer;
+    uint32_t flags;           /* the request's */
+    int32_t current;          /* as KilnTimeWeatherLayer.current, right after */
+    uint32_t instance;
+    int64_t next_ns;          /* the layer's next roll (game time) */
+    int64_t now_ns;           /* the weather clock when it ran */
+    char message[128];        /* why, for anything but DONE */
+} KilnTimeWeatherResult;
+
+/* Tick thread, Pre of the step after the weather update that ran it. */
+typedef void(KILN_CALL* KilnTimeWeatherDoneFn)(const KilnTimeWeatherResult* result, void* user);
+
 typedef struct KilnTimeApi {
     KilnServiceHeader header; /* { sizeof(KilnTimeApi), KILN_TIME_VERSION } */
     /* Current state. Any thread (reads only). KILN_ERR_UNAVAILABLE until the world has been created. */
@@ -63,6 +158,23 @@ typedef struct KilnTimeApi {
     KilnResult(KILN_CALL* set_time_scale)(float scale);
     /* The speed Kiln holds; -1 when the game decides; -2 when this build cannot hold it. Any thread. */
     float(KILN_CALL* time_scale_hold)(void);
+
+    /* ---- v2, since 0.2.0-dev.27: choosing the weather (see "weather"; check header.size) ---- */
+
+    /* The game's phenomenon table, `capacity` records of `item_size` bytes (at least the v2 size; the stride).
+     * *out_count = the table's size (more than capacity: the first `capacity` are written and KILN_ERR_BUFFER_TOO_SMALL
+     * is returned). Tick thread. */
+    KilnResult(KILN_CALL* weather_table)(KilnTimeWeatherPhenomenon* out, uint32_t capacity, uint32_t item_size,
+                                         uint32_t* out_count);
+    /* Every layer's state, as weather_table writes records. Tick thread. */
+    KilnResult(KILN_CALL* weather_layers)(KilnTimeWeatherLayer* out, uint32_t capacity, uint32_t item_size,
+                                          uint32_t* out_count);
+    /* Queues a choice or a release for one layer; it runs in the server's next weather update (the same frame, after the
+     * sim step) and `done` (optional) runs in the next Pre. KILN_ERR_INVALID_ARGUMENT: a layer or phenomenon outside
+     * the table (a phenomenon must lie in the layer's range), a negative duration, unknown flags; KILN_ERR_UNAVAILABLE:
+     * no feature time.weather_choose, or the weather has not run yet; KILN_ERR_WRONG_THREAD off the tick thread. */
+    KilnResult(KILN_CALL* weather_set)(KilnOwner owner, const KilnTimeWeatherRequest* request, KilnTimeWeatherDoneFn done,
+                                       void* user, uint64_t* out_ticket);
 } KilnTimeApi;
 
 #ifdef __cplusplus

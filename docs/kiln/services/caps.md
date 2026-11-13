@@ -89,6 +89,7 @@ Case-sensitive, 1 to 96 bytes of `[A-Za-z0-9._/-]`:
 ## Rows added in dev.27
 | Row | Kind | Reported by | What it says |
 |---|---|---|---|
+| `time.weather_choose` | sigdb feature | core; Kiln.Time's members throw `KilnUnavailableException` naming it when its table is older than v2 | the weather table, each layer's phenomenon, choosing one (`Time.WeatherPhenomena`, `Time.Weather`, `Time.SetWeather`, `Time.ReleaseWeather`, `WeatherChangedEvent`); `time.weather` stays the reset (`Time.ResetWeather`) |
 | `items.equip` | sigdb feature | core; Kiln.Items lowers it at its start when its table is older than v5 or kiln.items cannot run equip (no kiln.world, the program refused), and later when the program breaks | equip and unequip through the game's own functions (`Items.Equip`, `Items.Unequip`); a manifest can require it like the other sigdb features |
 
 What a manifest's `features` can require of these: the sigdb features (`items.fuel`, `items.move`, `items.names`,

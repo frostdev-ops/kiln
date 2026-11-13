@@ -534,4 +534,28 @@ public sealed partial class ClientPassMod
                    "the equipment screen, and is the hat in the backpack? Can you put it on again by hand?");
         await c.Verdict();
     }
+
+    // ---- the weather a mod chose (Time.SetWeather, dev.27): the server's game starts it, the player's game shows it ----
+    [ClientCheck("time.weather", "A mod chooses the weather", Area = "Gameplay", Since = Dev27, Tags = [Visual], Order = 141)]
+    public async Task TimeWeather(CheckContext c)
+    {
+        if (!await NeedPlayer(c)) return;
+        if (!c.Expect(Capabilities.Is("time.weather_choose") && Time.WeatherChoiceAvailable, "the weather can be chosen",
+                Capabilities.Why("time.weather_choose"))) return;
+        c.OnEnd(async () => await Time.ReleaseWeather(now: true));
+        var none = await Time.SetWeather("none", layer: 0);
+        c.Expect(none.Ok, "no clouds on the clouds layer, held", none.ToString());
+        c.Instruct("Step 1 of 2: the check took the clouds away (the game's \"nothing\" on its clouds layer, held). Look at " +
+                   "the sky for half a minute: do the clouds thin out and go? Then press pass or fail for step 1 and 2 " +
+                   "together after step 2 below.");
+        await c.Ticks(30 * 25);
+        var overcast = await Time.SetWeather("clouds_overcast", layer: 0);
+        var rain = await Time.SetWeather("rain", TimeSpan.FromMinutes(10));
+        c.Expect(overcast.Ok && rain.Ok, "overcast held, rain in every region for ten game minutes", $"{overcast}; {rain}");
+        c.Instruct("Step 2: the check made the sky overcast and started rain in every region of the world (each rain is a " +
+                   "cloud at a random place in its region, so it may be far from you). Within a minute, does the sky turn " +
+                   "overcast? If rain reaches you, does it look like the game's own? Did the clouds go away in step 1? When " +
+                   "the check ends, the weather goes back to the game.");
+        await c.Verdict();
+    }
 }

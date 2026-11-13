@@ -72,7 +72,7 @@ public readonly record struct DayTimeState(
 /// own sync and are saved with the world. Reads work from any thread; changes must be made on the tick thread
 /// (mod code normally runs there).
 /// </summary>
-public static unsafe class Time
+public static unsafe partial class Time
 {
     private const int Ok = 0, InvalidArgument = 1, Unavailable = 3, WrongThread = 4;
 
