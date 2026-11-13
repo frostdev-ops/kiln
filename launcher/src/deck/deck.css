@@ -231,3 +231,10 @@
 @media (prefers-reduced-motion: reduce) {
   .deck *, .deck *::after { animation: none !important; transition: none !important; }
 }
+
+/* a start that says what it does (Home): its line, the bar, the time left */
+.deck-start { display: flex; flex-direction: column; gap: .55rem; }
+.deck-start-line { font-size: 1.375rem; color: var(--k-head); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.deck-start-bar { height: 12px; border-radius: 6px; max-width: none; }
+.deck-start-left { font-size: 1.2rem; }
+.deck-start-basis { color: var(--k-text-2); font-size: 1rem; }

@@ -102,19 +102,163 @@ pub async fn launch_play(app: AppHandle, game_id: String, request: LaunchRequest
     let r = blocking(move || {
         let g = crate::state::game(&id)?;
         crate::state::refuse_running(&g)?;
-        if dry_run() {
+        // the start's own steps: the profile is checked now, Steam is asked when the opener runs
+        track(&id, |t| t.begin("profile", now_ms()));
+        let asked = |uri: &str, open: &dyn Fn(&str) -> Result<(), Error>| {
+            track(&id, |t| {
+                t.begin("steam", now_ms());
+                t.asked = true;
+            });
+            open(uri)
+        };
+        let dirs = dirs()?;
+        let r = if dry_run() {
             // tests against game copies: write the play-once files, back up, but never open steam:// (that would
             // start the real game through Steam)
-            return kiln_manage::launch::play_with(&dirs()?, &g, &request, None, &|uri| {
-                eprintln!("KILN_LAUNCH_DRY_RUN: not opening {uri}");
+            kiln_manage::launch::play_with(&dirs, &g, &request, None, &|uri| asked(uri, &|u| {
+                eprintln!("KILN_LAUNCH_DRY_RUN: not opening {u}");
                 Ok(())
-            });
+            }))
+        } else {
+            kiln_manage::launch::play_with(&dirs, &g, &request, None, &|uri| asked(uri, &kiln_manage::launch::desktop_open))
+        };
+        match &r {
+            // the start's mod set, as the launch record has it
+            Ok(_) => {
+                let fp = kiln_manage::launch::last_launch(&dirs, &g).ok().flatten().map(|l| l.fingerprint);
+                track(&id, |t| t.fingerprint = fp.or(t.fingerprint.take()));
+            }
+            Err(_) => forget(&id),
         }
-        kiln_manage::launch::play(&dirs()?, &g, &request)
+        r
     })
     .await?;
     crate::watch::emit_status(&app, &game_id);
     Ok(r)
+}
+
+// ---------------------------------------------------------------- what a start is doing (kiln_manage::start_progress)
+
+/// The starts this launcher makes, per game: its own steps, timed here (Play, the cook, the profile, Steam).
+static STARTS: std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<String, kiln_manage::start_progress::LauncherStart>>> =
+    std::sync::LazyLock::new(Default::default);
+
+/// A start that never got its game going is forgotten after this long.
+const FORGET_UNSEEN_MS: i64 = 15 * 60_000;
+
+pub(crate) fn now_ms() -> i64 {
+    kiln_manage::start_progress::unix_ms(std::time::SystemTime::now())
+}
+
+/// Changes the record of `game_id`'s start, when there is one.
+pub(crate) fn track(game_id: &str, f: impl FnOnce(&mut kiln_manage::start_progress::LauncherStart)) {
+    if let Some(t) = STARTS.lock().unwrap_or_else(|e| e.into_inner()).get_mut(game_id) {
+        f(t);
+    }
+}
+
+pub(crate) fn forget(game_id: &str) {
+    STARTS.lock().unwrap_or_else(|e| e.into_inner()).remove(game_id);
+}
+
+/// The Kiln runtime in the game (its install receipt's version).
+fn runtime_version(g: &kiln_manage::game::GameInstall) -> Option<String> {
+    kiln_manage::install::read_receipt(&g.path).ok().flatten().map(|r| r.runtime.version)
+}
+
+/// `launch_begin`: Play was pressed (before the cook): the start's own steps are timed from now. `mode` as
+/// launch_play's; a start with the active profile cooks first (its `cook` step, with the mods due as Play's plan says).
+/// A vanilla start has no Kiln and nothing to show.
+#[tauri::command]
+pub async fn launch_begin(game_id: String, mode: kiln_manage::launch::LaunchMode) -> Result<(), Error> {
+    blocking(move || {
+        use kiln_manage::launch::LaunchMode;
+        if mode == LaunchMode::Vanilla {
+            forget(&game_id);
+            return Ok(());
+        }
+        let g = crate::state::game(&game_id)?;
+        let at = now_ms();
+        let cook = (mode == LaunchMode::Profile).then(|| {
+            kiln_manage::cook::plan(&g).unwrap_or_default().into_iter().filter(|j| j.reason.is_some())
+                .map(|j| kiln_manage::start_progress::cook_key(&j.id, &j.identity)).collect()
+        });
+        let request = LaunchRequest { mode, profile_id: None, skip_backup: true };
+        let fp = if mode == LaunchMode::Once { None } else { kiln_manage::launch::launch_fingerprint(&dirs()?, &g, &request).ok() };
+        let t = kiln_manage::start_progress::LauncherStart::new(at, cook, runtime_version(&g), fp);
+        STARTS.lock().unwrap_or_else(|e| e.into_inner()).insert(game_id, t);
+        Ok(())
+    })
+    .await
+}
+
+/// One look at a game's start: the timeline (None: nothing to show, no start of this launcher and no progress.json of
+/// the running game), and the start kept in the history once it reached `ready`. The watcher calls it when
+/// progress.json changes, `launch_progress` when the window asks.
+pub(crate) fn progress_round(dirs: &kiln_manage::paths::DataDirs, g: &kiln_manage::game::GameInstall) -> Option<kiln_manage::start_progress::Timeline> {
+    use kiln_manage::start_progress as sp;
+    let side = sp::game_side(g);
+    let now = now_ms();
+    let mut starts = STARTS.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(t) = starts.get_mut(&g.id) {
+        if side.running && t.asked {
+            t.seen = true;
+        }
+        if !t.seen && now - t.began > FORGET_UNSEEN_MS {
+            starts.remove(&g.id);
+        }
+    }
+    let launcher = starts.get(&g.id).cloned();
+    drop(starts);
+    // a progress.json of another start than this launcher's (Steam's Play while this one waited): its own timeline
+    let launcher = launcher.filter(|l| side.progress.as_ref().and_then(|p| sp::parse_ms(&p.started)).is_none_or(|s| s >= l.began));
+    let history = sp::history_of(dirs, &g.id);
+    let kiln = launcher.as_ref().and_then(|l| l.kiln.clone()).or_else(|| runtime_version(g));
+    let fingerprint = launcher.as_ref().and_then(|l| l.fingerprint.clone()).or_else(|| {
+        let req = LaunchRequest { mode: kiln_manage::launch::LaunchMode::Profile, profile_id: None, skip_backup: true };
+        side.progress.as_ref().and_then(|_| kiln_manage::launch::launch_fingerprint(dirs, g, &req).ok())
+    });
+    let tl = sp::timeline(&sp::Inputs {
+        launcher: launcher.as_ref(),
+        progress: side.progress.as_ref(),
+        written: side.written,
+        process: side.process,
+        running: side.running,
+        boot: side.boot,
+        now,
+        history: &history,
+        kiln: kiln.as_deref(),
+        fingerprint: fingerprint.as_deref(),
+    })?;
+    if tl.phase == sp::Phase::Ready
+        && let Some(p) = side.progress.as_ref()
+        && !launcher.as_ref().is_some_and(|l| l.kept)
+    {
+        let kiln = kiln.clone().or_else(|| p.kiln.clone()).unwrap_or_default();
+        if let Some(k) = sp::kept_from(&tl, p, &kiln, fingerprint.as_deref().unwrap_or_default(), now, launcher.as_ref()) {
+            match sp::keep(dirs, &g.id, k) {
+                Ok(_) => track(&g.id, |t| t.kept = true),
+                Err(e) => eprintln!("start times: {e}"),
+            }
+        }
+    }
+    if tl.phase == sp::Phase::Ended || (!side.running && launcher.as_ref().is_some_and(|l| l.kept)) {
+        forget(&g.id);
+    }
+    Some(tl)
+}
+
+/// `launch_progress`: what the start of the game is doing now, as one timeline (`kiln_manage::start_progress::Timeline`:
+/// the launcher's own steps, then progress.json's, the running step, the time left from this PC's earlier starts), or
+/// null when there is none to show (the window shows the game's state as before). A runtime without progress.json
+/// (0.2.0-dev.26) says `legacy` once its boot.json is there. Polled by the window every second while a start runs.
+#[tauri::command]
+pub async fn launch_progress(game_id: String) -> Result<Option<kiln_manage::start_progress::Timeline>, Error> {
+    blocking(move || {
+        let g = crate::state::game(&game_id)?;
+        Ok(progress_round(&dirs()?, &g))
+    })
+    .await
 }
 
 /// `launch_prestart`: what kiln-eml is doing before the game's window exists (a first start that fingerprints the game's data

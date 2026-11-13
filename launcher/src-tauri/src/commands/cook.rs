@@ -51,13 +51,23 @@ pub async fn cook_run(app: AppHandle, game_id: String, mod_id: Option<String>) -
         let locate = Locate::from_process(None, Some(dirs.root.join("cooktools")), python);
         // the task's progress takes the tools' lines, and its Cancel stops the tool that runs (with what it started)
         let p = std::cell::RefCell::new(p);
-        let run: CookRun = cook::cook_due(&dirs, &g, mod_id.as_deref(), &locate, &mut |i, n, job, line| {
+        // Play's cook is the start's first step (launch_begin): each mod's time is its own (start_progress)
+        let play = mod_id.is_none();
+        let run = cook::cook_due(&dirs, &g, mod_id.as_deref(), &locate, &mut |i, n, job, line| {
+            if play {
+                let key = kiln_manage::start_progress::cook_key(&job.id, &job.identity);
+                super::launch::track(&g.id, |t| t.cook_event(super::launch::now_ms(), i, n, &key, &job.name, line));
+            }
             let said = match line {
                 None => format!("Cooking {} ({} of {n})", job.name, i + 1),
                 Some(l) => format!("{}: {l}", job.name),
             };
             p.borrow_mut().report(Some(i as f32 / n.max(1) as f32), &said);
-        }, &|| p.borrow().canceled())?;
+        }, &|| p.borrow().canceled());
+        if play {
+            super::launch::track(&g.id, |t| t.cook_done(super::launch::now_ms()));
+        }
+        let run: CookRun = run?;
         if !run.mods.is_empty() {
             p.borrow_mut().report(Some(1.0), &match run.failed().count() {
                 0 => format!("{} cooked", run.mods.len()),

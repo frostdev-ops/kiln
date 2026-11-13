@@ -270,6 +270,15 @@ test("the first run's Play states fit 1024×640", async ({ page }) => {
   await myModsReady(page);
   await fits("ready");
   await shot(page, "5b-ready-1024x640", 2800);
+  // the first start of the game: the bar, the step and "Kiln is timing it" in place of the list (src/api/mockProgress.ts)
+  await page.evaluate(() => (window as unknown as { __kilnMock: { scriptStart: (o: unknown) => void } }).__kilnMock.scriptStart({ scale: 0.05 }));
+  await mouth(page).click();
+  await expect(page.getByRole("progressbar", { name: "Starting the game" })).toBeVisible();
+  await fits("starting");
+  await shot(page, "6b-starting-1024x640");
+  await expect(page.locator(".k-head-state")).toHaveText(/^Running/, { timeout: 20_000 });
+  await fits("running");
+  await page.evaluate(() => (window as unknown as { __kilnMock: { stopGame: () => void } }).__kilnMock.stopGame());
 });
 
 test("a drop says what was left out and why; Details lists everything", async ({ page }) => {
