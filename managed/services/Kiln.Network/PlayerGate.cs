@@ -14,6 +14,9 @@ internal static class PlayerGate
     /// <summary>How long a Kiln client gets to read the REJECT before the login failure (as the vanilla refusal).</summary>
     internal static readonly TimeSpan KilnClientGrace = TimeSpan.FromSeconds(1.5);
 
+    /// <summary>How long the gate waits after the game's kick call failed before it refuses that connection again.</summary>
+    internal static readonly TimeSpan RetryAfterFailure = TimeSpan.FromSeconds(5);
+
     private static int _started;
 
     internal static void Start()
@@ -121,6 +124,16 @@ internal static class PlayerGate
             }
         }
         k.Done.TrySetResult(result);
+        if (ok) return;
+        // The game's kick call failed and the connection stays. This request is over (its task says why), but the
+        // connection must not count as "being refused" for good: that kept a banned player in the game, since the gate
+        // skips a connection with a refusal on its way, and gave every later Kick the same failed task. The refusal is
+        // taken off: another Kick tries at once, and the gate (a ban) tries again after a pause, for as long as it takes.
+        p.Kick = null;
+        p.KickFailures++;
+        p.KickRetryAt = DateTime.UtcNow + RetryAfterFailure;
+        if (p.KickFailures == 1 || p.KickFailures % 12 == 0)
+            NetEngine.Log(LogLevel.Warn, $"{p.Name} (0x{p.Id:x}) could not be kicked (rc {rc}, {p.KickFailures} time(s)); a ban is tried again every {RetryAfterFailure.TotalSeconds:0} s");
     }
 
     // ------------------------------------------------------------------------------------------------ gate ------
@@ -130,6 +143,7 @@ internal static class PlayerGate
     internal static void Check(NetPeer p)
     {
         if (p.Kick is not null || p.IsServer) return;
+        if (p.KickRetryAt is { } retry && DateTime.UtcNow < retry) return;  // the game's kick call just failed for it
         var steam = SteamIdOf(p);
         var account = p.AccountId;
         if (steam == 0 && account == 0) return;  // not named yet
