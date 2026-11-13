@@ -240,8 +240,10 @@ window, Play. The mod is in the list on Play, switched on.
   with Install Kiln (the dropped files are added once the install is done). With profiles but none active in the game
   the drop goes to the profile the launcher remembers for it (after an uninstall and a reinstall of Kiln: that profile
   is loaded again, "Your mod list is loaded again."); with none remembered (the player chose "No profile") the toast says
-  "Added <name>, switched off" with "Add to a profile" (`library_add_to_profile`). A drop takes a zip, 7z or rar
-  (`library::archive_kind`), a folder or a DLL. Modpack zips open the consent dialog (`ModpackDropOffer`: tick the box, then
+  "Added <name>, switched off" with "Add to a profile": "Add to which profile?" lists every profile and "New profile…"
+  (a name, then `profile_create` of an empty profile and `library_add_to_profile` into it); the toast after it has
+  "Load it" (`profile_activate` in this game) when the picked profile is not the loaded one, and Undo. A drop takes a
+  zip, 7z or rar (`library::archive_kind`), a folder or a DLL. Modpack zips open the consent dialog (`ModpackDropOffer`: tick the box, then
   `modpack_install` with `{path}`). A drop on a DropZone (Runtime's bundle row) or while a dialog is
   open is not the window's; a covered or busy DropZone takes no drops. Overlapping identical drops run once; other
   window drops run in order. Settings "Switch new mods on" off: ordinary mods are only imported (in the list, off);
