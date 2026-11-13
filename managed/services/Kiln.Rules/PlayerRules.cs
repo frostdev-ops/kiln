@@ -18,6 +18,8 @@ namespace Kiln;
 /// <item><see cref="Water"/>: the most generous wins (the fastest rate; the items of every rule set).</item>
 /// <item><see cref="GlideBoost"/>, <see cref="GlideSteer"/>: the most generous wins (each value separately).</item>
 /// <item><see cref="CharacterFlight"/>: an explicit <see cref="CharacterFlightMode.Off"/> wins, then the widest mode.</item>
+/// <item><see cref="NoClip"/>: a switch like the others (an explicit false wins), and each rule set's request is used up
+/// by a death or a teleport of the player (see the member).</item>
 /// </list>
 /// The same object reads from and writes to JSON (camelCase): a preset in <c>kiln/config/rules/&lt;name&gt;.json</c> is
 /// one of these.
@@ -142,6 +144,17 @@ public sealed record PlayerRules
     /// <c>rules.json</c> sets <c>allowCharacterFlight</c>; denied where the build has no flight hooks.</summary>
     public CharacterFlightMode? CharacterFlight { get; init; }
 
+    /// <summary>The character moves through terrain, blocks and props: it flies as with <see cref="CharacterFlight"/>
+    /// (at once, from the ground and from water too; jump climbs, sneak sinks, sprint is faster) and the game's
+    /// collision step is skipped for it while it does. It needs Kiln in the player's game with the same hook (the
+    /// movement is predicted there), and it is off on every server until its <c>rules.json</c> sets
+    /// <c>allowNoClip</c>; denied where the build has no collision hook (<see cref="Kiln.NoClip.Available"/>).
+    /// <para>A death or a teleport of the player ends it: collision is back, and this rule set's request counts as used
+    /// until the set is updated or applied again (<see cref="Kiln.NoClip.Set"/> does that for Kiln's own switch). When it
+    /// ends inside something solid, Kiln first puts the character back at the last place where it was free
+    /// (<see cref="Kiln.NoClip.Of"/>, <see cref="PlayerNoClipEndedEvent"/>).</para></summary>
+    public bool? NoClip { get; init; }
+
     // ---- water ----
 
     /// <summary>The player's water containers get water back (Kiln.Items' refill policies).</summary>
@@ -203,6 +216,7 @@ public sealed record PlayerRules
         GlideBoost = other.GlideBoost ?? GlideBoost, GlideSteer = other.GlideSteer ?? GlideSteer,
         Water = other.Water ?? Water,
         CharacterFlight = other.CharacterFlight ?? CharacterFlight,
+        NoClip = other.NoClip ?? NoClip,
     };
 
     /// <summary>Out-of-range values, by member name; empty when the rules are fine.</summary>
@@ -364,6 +378,10 @@ public sealed record EffectiveRules
     public GlideSteerRule? GlideSteer { get; init; }
     public WaterRule? Water { get; init; }
     public CharacterFlightMode CharacterFlight { get; init; }
+
+    /// <summary>The character flies without collision (<see cref="PlayerRules.NoClip"/>). False again after a death or
+    /// a teleport, until a rule set asks anew.</summary>
+    public bool NoClip { get; init; }
     // Authored by the server from real altar bounds, then sent as the same flight bit to prediction. The actor's
     // IsNearBuildingZone is unsuitable: BuildOutsideBases can force it, and the client does not query server bases.
     internal bool FlightAreaAllowed { get; init; }
@@ -381,7 +399,7 @@ public sealed record EffectiveRules
                              !IgnoreBasePermissions && !KeepBuildsOutsideBases && BuildCost == 1 && BuildRefund == 1 && !FreeCrafting && !KeepConsumables && DigDamage == 1 &&
                              !Invulnerable && !NoFallDamage && MinHealth == 0 && MinStamina == 0 && MinMana == 0 && !FreezeShroudTimer &&
                              MinShroudTime == 0 && !UnlimitedGliding && GlideSink == 1 && GlideBoost is null && GlideSteer is null && Water is null &&
-                             CharacterFlight == CharacterFlightMode.Off;
+                             CharacterFlight == CharacterFlightMode.Off && !NoClip;
 
     internal RulesNativePart Native => new(
         (FlyAnywhere ? RulesNative.FlyAnywhere : 0) | (BuildOutsideBases ? RulesNative.BuildOutsideBases : 0) |
@@ -391,7 +409,7 @@ public sealed record EffectiveRules
         (GlideBoost is not null ? RulesNative.GlideBoost : 0) | (GlideSteer is not null ? RulesNative.GlideSteer : 0) |
         (FreeCrafting ? RulesNative.FreeCrafting : 0) | (KeepConsumables ? RulesNative.KeepConsumables : 0) |
         (CharacterFlight == CharacterFlightMode.Unlimited || CharacterFlight == CharacterFlightMode.BuildingArea && FlightAreaAllowed
-            ? RulesNative.CharacterFlight : 0),
+            ? RulesNative.CharacterFlight : 0) | (NoClip ? RulesNative.NoClip : 0),
         (float)BuildCost, (float)BuildRefund, (float)DigDamage, (float)MinShroudTime, (float)GlideSink,
         (float)(GlideBoost?.Thrust ?? 0), (float)(GlideBoost?.MaxSpeed ?? 0), (float)(GlideBoost?.Lift ?? 0),
         (float)(GlideBoost?.Coast ?? 0), (float)(GlideBoost?.Climb ?? 0), (float)(GlideSteer?.MaxClimbAngle ?? 0));
@@ -429,6 +447,7 @@ public sealed record EffectiveRules
         if (Water is { } w) parts.Add("water: " + w);
         if (CharacterFlight != CharacterFlightMode.Off)
             parts.Add(CharacterFlight == CharacterFlightMode.BuildingArea ? "character flight (building areas)" : "character flight");
+        if (NoClip) parts.Add("NoClip");
         return string.Join(", ", parts);
     }
 }
@@ -495,6 +514,7 @@ internal static class RulesMath
             GlideSteer = Steer(sets.Select(s => s.Rules.GlideSteer)),
             Water = Water(sets.Select(s => s.Rules.Water)),
             CharacterFlight = Flight(sets.Select(s => s.Rules.CharacterFlight)),
+            NoClip = Switch(r => r.NoClip),
             From = sets.Where(s => s.Set is not null).Select(s => s.Set!).ToArray(),
         };
         return limits.Hold(e);
@@ -569,7 +589,7 @@ internal sealed record RulesLimits(bool AllowFlyAnywhere = true, bool AllowBuild
     double MaxHealthFloor = 1, double MaxManaFloor = 1, bool AllowWater = true, bool AllowFreezeShroudTimer = true,
     double MaxShroudFloor = 1, bool AllowUnlimitedGliding = true, bool AllowGlideBoost = true, double MaxGlideSpeed = 60,
     bool AllowNoFallDamage = true, bool AllowFreeCrafting = true, bool AllowKeepConsumables = true, bool AllowCharacterFlight = false,
-    bool AllowGlideSteer = true, double MaxGlideSteerAngle = GlideSteerRule.AngleLimit)
+    bool AllowGlideSteer = true, double MaxGlideSteerAngle = GlideSteerRule.AngleLimit, bool AllowNoClip = false)
 {
     public static readonly RulesLimits Default = new();
 
@@ -620,6 +640,7 @@ internal sealed record RulesLimits(bool AllowFlyAnywhere = true, bool AllowBuild
             Water = AllowWater ? e.Water : null,
             CharacterFlight = e.CharacterFlight != CharacterFlightMode.Off && Cap(true, AllowCharacterFlight, "characterFlight")
                 ? e.CharacterFlight : CharacterFlightMode.Off,
+            NoClip = Cap(e.NoClip, AllowNoClip, "noClip"),
         };
         if (e.Water is not null && !AllowWater) denied.Add("water");
         r = r with { KeepBuildsOutsideBases = r.KeepBuildsOutsideBases && r.BuildOutsideBases };

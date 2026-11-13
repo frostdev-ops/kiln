@@ -9,9 +9,9 @@
   "verified": true,
   "note": "runtime-verified in labs on this exe, 2026-11-11, Kiln 0.2.0-dev+20261112.68988ae, policy any, standard lab save copied fresh for each group, one group per boot (or per run of boots): the running core resolved sigdb 447/447 symbols (355 defined, 92 captured), 542/542 constants (493 defined, 49 captured) and 146/146 features, each to the same value as the offline resolve (compared per name from sigdb-report.json); base world 24/0, players 30/0, chat+time 50/0, hooks 17/0, content 33/0, newcontent 24/0; api 74/0; settings 70/0; items 95/0 (kiln.items self-test on); combat 203/0 (watch-all); spawn 57/0 over 3 boots; gameplay 48/0; creatures 63/0; assets 17/0; rules 53/0; pacing 21/0; types 32/0 + types-peer 8/0; progression 45/0 (no player); net 168/0 with nettest 95 PASS, 0 FAIL; quests 188/0 over 3 boots; skills 124/0 over 2 boots; characters 53/0 over 3 boots; gamedata 71/0 over 2 boots (reload, restart); saves 54/0 over 8 boots (SIGINT, kill -9 x3, restore, game backup); build 79/0 over 4 boots; placeholder 34/0 over 4 boots (kill -9). Failing, so their names stay static: abilities 70/3, 70/3, 71/2 over three runs (the bow shot is refused by the core's PlaySequence guard every time, the Greet emote ran 73/66/79 steps of the 80 the test wants, the staff cast 38/35 then passed, the PC under heavy load); npcai 25/6 twice (force ready unavailable on four spawned creatures, the peacekeeper's relations not applied). Not run: emf (its probe needs third-party EMF mods). Levels: lab 1093 names in 24 services, static 42 (abilities, npcai, emf). With this record under verified-only: build verified, SimStep hooked, every server service loaded (27; audio, screen, ui and vfx skipped as client-only), 0 error lines.",
   "declared": {
-    "symbols": 452,
-    "constants": 549,
-    "features": 147
+    "symbols": 456,
+    "constants": 553,
+    "features": 148
   },
   "features": {
     "abilities.attributes": true,
@@ -120,6 +120,7 @@
     "rules.glide_steer": true,
     "rules.glide_stick": true,
     "rules.glide_view": true,
+    "rules.noclip": true,
     "rules.shroud": true,
     "rules.storage": true,
     "rules.zone": true,
@@ -404,6 +405,8 @@
     "rules/QuatRotate": "0x3ba80",
     "rules/RecipePaid": "0x19a28c",
     "rules/RecipePayAlt": "0x19a9b0",
+    "rules/ResolveActorCollider": "0x95890",
+    "rules/ResolveActorColliderOff": "0x97b19",
     "rules/ShroudDrain": "0xc1f35",
     "rules/StepDelta": "0x660d50",
     "rules/TerrainDamage": "0x22c970",
@@ -825,6 +828,8 @@
     "quests/reg.world_version": "0xc0",
     "quests/static.expected_flags": "0x8",
     "quests/static.type": "0x7",
+    "rules/collider.enabled": "0x5",
+    "rules/collider.results_set": "0x50",
     "rules/cursor.actor": "0xf8",
     "rules/flight.actor": "0x68",
     "rules/flight.dynloco": "0xf8",
@@ -854,6 +859,8 @@
     "rules/loco.dynloco": "0x90",
     "rules/loco.player_input": "0x50",
     "rules/loco.state": "0x59",
+    "rules/resolve.collider": "0xc0",
+    "rules/resolve.dynloco": "0x90",
     "rules/rot.actor_input": "0xd8",
     "rules/rot.ctx": "0x1670",
     "rules/rot.move_z": "0x194",
@@ -2023,7 +2030,7 @@
     "rules": {
       "level": "lab",
       "date": "2026-11-12",
-      "evidence": "lab dev25-waveend, policy any, 1 boot, Kiln 0.2.0-dev, 2026-11-12: rules-test 53/0 (boot rules) (passed/failed); the core resolved the same values as the offline resolve",
+      "evidence": "lab dev27-noclip, policy any, 2 boots, Kiln 0.2.0-dev, 2026-11-12: rules-test 53/0 (boot rules); noclip-test 34/0 (boot noclip) (passed/failed); the core resolved the same values as the offline resolve",
       "symbols": {
         "@rules/FlightGravity.actor": "lab",
         "@rules/FlightMover.actor": "lab",
@@ -2039,6 +2046,8 @@
         "@rules/Input.stick": "lab",
         "@rules/Input.trigger": "lab",
         "@rules/Loco.input": "lab",
+        "@rules/ResolveActorCollider.dynloco": "lab",
+        "@rules/ResolveActorCollider.off": "lab",
         "@rules/ShroudDrain.attr": "lab",
         "@rules/ShroudDrain.delta": "lab",
         "@rules/ShroudDrain.state": "lab",
@@ -2064,6 +2073,8 @@
         "rules/QuatRotate": "lab",
         "rules/RecipePaid": "lab",
         "rules/RecipePayAlt": "lab",
+        "rules/ResolveActorCollider": "lab",
+        "rules/ResolveActorColliderOff": "lab",
         "rules/ShroudDrain": "lab",
         "rules/StepDelta": "lab",
         "rules/TerrainDamage": "lab",
@@ -2071,6 +2082,8 @@
         "rules/ZoneFlag": "lab"
       },
       "constants": {
+        "rules/collider.enabled": "lab",
+        "rules/collider.results_set": "lab",
         "rules/cursor.actor": "lab",
         "rules/flight.actor": "lab",
         "rules/flight.dynloco": "lab",
@@ -2100,6 +2113,8 @@
         "rules/loco.dynloco": "lab",
         "rules/loco.player_input": "lab",
         "rules/loco.state": "lab",
+        "rules/resolve.collider": "lab",
+        "rules/resolve.dynloco": "lab",
         "rules/rot.actor_input": "lab",
         "rules/rot.ctx": "lab",
         "rules/rot.move_z": "lab",
@@ -2119,6 +2134,7 @@
         "rules.glide_steer": "lab",
         "rules.glide_stick": "lab",
         "rules.glide_view": "lab",
+        "rules.noclip": "lab",
         "rules.shroud": "lab",
         "rules.storage": "lab",
         "rules.zone": "lab"

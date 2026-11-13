@@ -9,11 +9,11 @@ belong to this service, so they work wherever a world runs (a dedicated server, 
 | Layer | Where |
 |---|---|
 | C table | `native/core/abi/services/kiln_rules.h` (`kiln.rules` v1) |
-| Native | `native/services/rules/` → `kiln/services/kiln-rules.dll` (hooks: flight gate, building zone, build cursor, costs, mining, Shroud timer, glider, glider steering) |
-| Symbols | `sigdb/symbols/server.d/rules.json` (features `rules.fly`, `rules.zone`, `rules.cursor`, `rules.costs`, `rules.storage`, `rules.dig`, `rules.shroud`, `rules.glide`, `rules.glide_stick`, `rules.glide_view`, `rules.glide_steer`); `client.d/rules.json` extends it with the client guards |
-| Managed | `managed/services/Kiln.Rules/` → `kiln/host/Kiln.Rules.dll` (`Rules`, `PlayerRules`, `RuleScope`, `RuleSet`) |
+| Native | `native/services/rules/` → `kiln/services/kiln-rules.dll` (hooks: flight gate, building zone, build cursor, costs, mining, Shroud timer, glider, glider steering, character flight, NoClip) |
+| Symbols | `sigdb/symbols/server.d/rules.json` (features `rules.fly`, `rules.zone`, `rules.cursor`, `rules.costs`, `rules.storage`, `rules.dig`, `rules.shroud`, `rules.glide`, `rules.glide_stick`, `rules.glide_view`, `rules.glide_steer`, `rules.flight`, `rules.noclip`); `client.d/rules.json` extends it with the client guards |
+| Managed | `managed/services/Kiln.Rules/` → `kiln/host/Kiln.Rules.dll` (`Rules`, `PlayerRules`, `RuleScope`, `RuleSet`, `Creative`, `NoClip`) |
 | Uses | Kiln.Items (water refill policies), Kiln.Abilities (vitals), Kiln.Combat (invulnerability), Kiln.World (moving the character), Kiln.Build (keeping builds), Kiln.Network (the client's half) |
-| Tests | `managed/tests/Kiln.Rules.Tests` (how rules combine), `mods/tests/rules-test` (lab) |
+| Tests | `managed/tests/Kiln.Rules.Tests` (how rules combine), `mods/tests/rules-test`, `mods/tests/creative-test` and `mods/tests/noclip-test` (labs), `native/services/rules/test-rules.sh` (the hooks, without a game) |
 | Evidence | `docs/re/rules.md` |
 
 ## Using it
@@ -80,6 +80,8 @@ Every member is optional (null: no opinion).
 | `GlideBoost` | `GlideBoostRule` | gliding like a plane: S pitches up, W pitches down (the mouse stays free), climbing trades speed for height and diving height for speed, holding sprint pushes along the path: `Thrust` (m/s², 15), `MaxSpeed` (m/s, 35), `Lift` (m/s² up, 0), `Coast` (m/s² of slow-down after letting go, 8), `Climb` (the highest climb rate, m/s, 15; 0 never climbs). With `GlideSteer` in effect: no path, sprint speeds the glider up along its nose ("Gliding") | server + client |
 | `GlideSteer` | `GlideSteerRule` | the glider's own nose follows the movement keys: S raises it (up to `MaxClimbAngle` degrees above level, 85; 0 = level at most), a centred stick holds the pitch, W dives as in the game. Only for a player whose game confirms it steers too; others glide as before | server + client |
 | `Water` | `WaterRule` | the player's water containers refilled: `WaterRule.KeepFull(items)`, `WaterRule.Rate(chargesPerSecond, items)`; no items = every container | server |
+| `CharacterFlight` | `Off`, `Unlimited`, `BuildingArea` | the character itself flies (see "Character flight"); only when the server's rules.json allows it | server + client |
+| `NoClip` | switch | the character flies through terrain, blocks and props (see "NoClip"); only when the server's rules.json allows it, and only for a player whose game confirmed the hook | server + client |
 
 **How rule sets combine** (several mods, scopes and times at once):
 - switches: `true` from any rule set grants, an explicit `false` from any rule set denies, and a denial wins (an arena
@@ -88,13 +90,18 @@ Every member is optional (null: no opinion).
 - floors take the highest;
 - `GlideBoost` takes the most generous of each value (the server's `maxGlideSpeed` holds `MaxSpeed` and `Climb`);
 - `GlideSteer` takes the largest `MaxClimbAngle` (the server's `maxGlideSteerAngle` holds it);
+- `CharacterFlight`: an explicit `Off` wins, then the widest mode;
+- `NoClip` is a switch, with one addition: a death or a teleport of the player uses up the request of every rule set
+  that asked then. Such a set asks anew when it is updated (`Update`, also with the rules it already has) or applied
+  again; an explicit `false` is never used up;
 - water takes the fastest rate and the items of every rule set (one rule set without items means every container);
 - then the server's limits (`<configDir>/rules.json`) hold: a switch it denies is off for everyone (`EffectiveRules.Denied`
   names it), multipliers and floors are clamped.
 
 **Ownership.** A rule set belongs to the mod that applied it and ends when that mod unloads. A rule set for one player
 (`RuleScope.ForPlayer`, `.Only(player)`) also ends when that player leaves: a player's entity id is reused by the next
-player who joins. `Update(rules)` changes it in place; `Dispose()` ends it; `Expires` ends it by itself. Rules are
+player who joins. `Update(rules)` changes it in place, and since dev.27 the change counts at once (`Rules.Of` can be
+read right after, as after `Apply`); `Dispose()` ends it; `Expires` ends it by itself. Rules are
 session state: nothing is saved, so a restart starts from the game's rules.
 
 **Scopes.** `RuleScope.ForPlayer(e)`, `RuleScope.Everyone`, `RuleScope.Sphere(center, r)`, `RuleScope.Box(min, max)`,
@@ -103,7 +110,7 @@ positions four times a second.
 
 ### Other API
 - `Rules.Status()`: which hooks are installed on this build and side (`Flight`, `BuildingZone`, `Placement`, `Costs`,
-  `Mining`, `ShroudTimer`, `Gliding`, `GlideSteer`), with counters (`FlyAllowed`, `ZoneForced`, `CursorCleared`, `CostsScaled`,
+  `Mining`, `ShroudTimer`, `Gliding`, `GlideSteer`, `CharacterFlight`, `NoClip`), with counters (`FlyAllowed`, `ZoneForced`, `CursorCleared`, `CostsScaled`,
   `RefundsScaled`, `DigsScaled`, `ShroudHeld`, `GlideChanged`, `GlideSteered`, `Faults`) and `Detail`.
 - `Rules.ClientOf(player)`: `Host`, `Kiln` (a Kiln game with the rules channel: flight and placement work),
   `KilnWithoutRules`, `Vanilla`, `Pending`, `Unknown`. Server-side rules apply whatever the client; flight and placement
@@ -114,6 +121,9 @@ positions four times a second.
 - **Creative mode** is this service's too: `Creative.Set(player, on)` → `CreativeResult(Ok, On, Message)`,
   `Creative.IsOn`, `Creative.Players`, `Creative.Status()`, and the `/creative` command (docs/kiln/commands.md). It is
   the `creative` preset as one Kiln-owned rule set per player; it ends with off, a leave, or the world closing.
+- **NoClip** has its own switch here: `NoClip.Set(player, on)` → `NoClipResult(Ok, On, Reason, Message)`,
+  `NoClip.Of(player)` → `NoClipState`, `NoClip.Available`, `PlayerNoClipEndedEvent`, and the `/noclip` command (see
+  "NoClip" below).
 - `PlayerRulesChangedEvent` (tick thread): `Before`, `After`. `PlayerRules.FromJson` / `ToJson`, `With`, `Problems()`.
 
 ### As data
@@ -139,7 +149,8 @@ could name a preset too (an item that applies one while held, a quest reward of 
 `allowInvulnerable`, `allowWater`, `minBuildCost`, `maxDigDamage`, `maxHealthFloor`, `maxStaminaFloor`, `maxManaFloor`,
 `allowFreezeShroudTimer`, `maxShroudFloor`, `allowUnlimitedGliding`, `allowGlideBoost`, `maxGlideSpeed` (60 m/s),
 `allowGlideSteer` (true), `maxGlideSteerAngle` (0..85 degrees, 85),
-`allowNoFallDamage`, `allowFreeCrafting`, `allowKeepConsumables`.
+`allowNoFallDamage`, `allowFreeCrafting`, `allowKeepConsumables`, `allowCharacterFlight` (**false** by default),
+`allowNoClip` (**false** by default: a tool for admins and for debugging).
 Edits apply within a second.
 
 ## Creative menu
@@ -407,6 +418,104 @@ Not proven yet (manual test): what other players see (the player's animation gra
 `locomotion_animation` takes its default branch for this state), how well the owner's prediction agrees on a real
 connection, and the camera.
 
+## NoClip
+`PlayerRules.NoClip` (JSON `"noClip": true`) lets a player's character move through terrain, building blocks and
+props: for looking inside a dungeon wall, getting into a sealed room, or checking what is under the ground. It is a
+rule of its own, separate from creative mode and from character flight. **Off on every server** until its `rules.json`
+sets `"allowNoClip": true`. It grants nothing else: no invulnerability, and the Shroud, water (the breath meter) and
+enemies act on the character as always.
+
+```csharp
+var r = NoClip.Set(player, true);          // Kiln's own switch for the player; /noclip uses it
+if (!r.Ok) Log.Info(r.Message);            // rules.json, the player's game, or another rule set said no
+NoClipState s = NoClip.Of(player);         // On, Active, StepsSkipped, LastFree, Restoring
+Events.On<PlayerNoClipEndedEvent>(e => Log.Info($"{e.Player}: {e.Reason}, put back at {e.RestoredTo}"));
+using var set = Rules.Apply(player, new PlayerRules { NoClip = true });   // or as part of a mod's own rule set
+```
+- `NoClip.Available` (the capability `rules.noclip`): this game build has the collision hook and character flight's
+  hooks. `NoClip.Set(player, true)` throws `KilnUnavailableException` without it; `Capabilities.Why("rules.noclip")`
+  says why (a build without the signatures, character flight's hooks off, or the Creative Mode mod running: it flies the
+  character itself, and Kiln's flight steps aside for it).
+- `NoClip.Set` refuses (`Ok` false, `Reason` `policy`, `client` or `denied`) when the server's rules.json does not
+  allow it, when the player's game has no Kiln or has not confirmed the hook, or when another rule set says
+  `NoClip = false` for the player. Turning it off never throws.
+- `/noclip` (toggles for the one who runs it), `/noclip on|off [player]`, `/noclip status`: Kiln's command, permission
+  node `kiln.command.noclip`, level Admin (a hosted world's host and the console have it).
+
+**How it plays.** The moment it is on, the character lifts off, also from the ground and from water, and flies as in
+character flight: the movement keys steer, **jump** climbs, **sneak** sinks, **sprint** is faster (8 m/s up or down,
+x2.5 with sprint), and it hovers with no input. Nothing stops it: it goes through the ground, walls, blocks and props.
+It never lands, because without collision there is no ground. Water does not end it.
+
+**What ends it, and what then.**
+- The switch or the rule set going off, or the server's limits changing. If the character is in open space, collision
+  simply returns and it falls or stands as the game decides. If it is inside something, Kiln first moves it back to the
+  **last free position** (the last place where the cells at its knees, waist and head were empty; at first, where
+  NoClip was turned on: collision was on there, so that place counts as free even with matter at knee height beside
+  the character, as on a slope or a step, for as long as its cells stay what they were; a character whose waist or
+  head was in matter at that moment gets no such word) and only then lets collision return; `NoClipState.Restoring` is true meanwhile (normally two
+  or three steps), and `PlayerNoClipEndedEvent.RestoredTo` says where it was put. Collision never returns while a
+  living character is inside something. Having arrived is not enough: the place is asked again, and only open space
+  ends the wait. A move that fails is tried again every second (never two moves at once). A move that lands where
+  something has been built meanwhile is not repeated, and when there is no place to move the character to (NoClip
+  began outside the world's bounds) nothing is moved: in both cases it keeps flying without collision, with a warning
+  in kiln.log, until that place is free again or the player flies out into open space. A death during
+  the wait ends it (the game moves the body), and so does a teleport by the game or a mod (fast travel): the
+  character stays where that put it, the event's `Reason` is `Teleport`, and Kiln never pulls it back, also not
+  with a move that was already on its way. A move back cannot be called off once it is asked for: if the player
+  flew out and got collision back before it landed, and it then lands where something was built meanwhile,
+  collision goes off again until the character is free (no second event).
+  After a move back the character is kept safe until it stands on the ground (as after a carried flight),
+  since the free position can be in the air; turning NoClip on again ends that protection. This order
+  matters: the game does not push a character out of solid ground. In a lab a character whose rule ended 7 m inside
+  rock fell straight through the world, while one whose feet were about 1 m under the surface was lifted out by the
+  game itself.
+- **Death** and any **teleport** of the player (fast travel, a bed, a command, a mod's `Teleport.To`): collision is
+  back, the player is told why in chat, and NoClip stays off until it is asked for again (`/noclip`, `NoClip.Set`, or
+  a mod updating its rule set). The event's `Reason` is `Death` or `Teleport`. The character is never moved back
+  after a teleport: it stays where the game put it. A rule set for an area that the teleport left has its request
+  used up as well. One case keeps collision off after a teleport: a mod that teleports the character into solid
+  matter (its waist or head in terrain or blocks; standing on a slope is not that). Collision waits there until
+  the character is out of it, and the event comes then.
+- The player leaving, the world closing, the mod that applied the rule set unloading: rule sets end as always.
+- Opening the glider, a ladder or a wall climb end the flight, and collision with it, while the rule stays on: when the
+  character is free of them it lifts off again.
+- A fault in Kiln's own hook body: that step runs with the game's collision (counted in `KilnRulesNoClip.faults`).
+  Nothing is ever left switched off in the game's data, so a removed hook or an unloaded Kiln means collision.
+
+**The player's game.** The character's movement is predicted in the player's own game, so NoClip is applied only for a
+player whose game runs Kiln with the same hook: the game says so on the `kiln:rules` channel (message 2, the hook
+bit; an older Kiln never sets it), and until then the rule is held back for that player on the server too. A hosting
+game is both worlds in one process. A vanilla game never gets it.
+
+How it works (kiln.rules `noclip.cpp`, feature `rules.noclip`, hook bit `KILN_RULES_HOOK_NOCLIP`, rule flag
+`KILN_RULES_NOCLIP`; docs/re/rules.md section 8): the game moves a character in two steps, first position += velocity,
+then a collision step that sweeps the character's collider through the world and corrects the position. That step reads
+a switch of the game's own first, `MovementCollider.isEnabled`: off, it clears the collision results and returns. One
+hook on the step, in the server world and in the player's prediction, holds that switch off for the length of the call
+for a character that is in Kiln's flight and whose rules carry NoClip, and puts it back before returning, also when
+the call ends with a fault passing through. The flight is character flight's three hooks with NoClip's differences
+(`flight_math.h`). Only a flying character is touched: one that could not fly would fall through the world. And only a
+flight Kiln started: a character that another mod put into the flying state is left alone by all four hooks. The
+feature `rules.noclip` is on only where the game's code is the code this was written for: the step's first test, the
+branch it takes with the switch off, and that branch's target byte for byte (unset the results, return).
+`KilnRulesApi.noclip(entity, &state)` gives what the hook did.
+
+A lab (`mods/tests/noclip-test`, a spawned player character on a fresh world, `allowNoClip` on; 34 PASS, 0 FAIL):
+`NoClip: collision step rva 0x95890`, `standing on the ground it takes off at once: state 11, active True`, `holding
+sneak it sinks through the ground into solid rock: y -5.71 … feet m2/255 waist m2/255 head m2/255`, `the last free
+position stayed at the surface: -0.20 m from the ground`, `the rule set ended inside the rock: … Restoring = True`,
+`NoClip ended inside something; the character is back at its last free position`, `collision is back and it stands on
+the ground, not under it`, `a teleport ends it: … Teleport; the rules no longer carry it though two rule sets still
+ask`, `updating the mod's rule set asks anew: on again`, `death ends it`. What a lab cannot stage (a move back that
+fails, NoClip asked again during a move, a teleport out of a rule's area before the rules are resolved, a character
+that leaves) is in `managed/tests/Kiln.Rules.Tests/NoClipTrackTests.cs`, with a world the test controls.
+
+Not proven yet (the guided client pass, check `rules.noclip`): everything a real game shows. The same decision in the
+player's prediction on a real connection (hosted single-player under Proton first, then a dedicated server); what the
+camera does inside terrain; what other players see; that a player who disconnects inside the ground is placed safely
+by the game at the next login (the game's own Unstuck in the menu frees a character in any case).
+
 ## The flight
 The game's fly mode puts the player's input into a flying spark and leaves the character sitting where it was
 (docs/re/rules.md 1). Any teleport of the player ends the mode, so the character can't be carried along during the
@@ -549,6 +658,10 @@ Not rules: two guards against a broken game camera, in kiln-rules because it alr
 - Crafting costs, pouring costs (beyond refilling) and health/stamina/mana regeneration rates are not rules yet (hook
   points: docs/re/rules.md).
 - A hit still ends a glide (the game's own check on the glide's hit events), as does landing or water.
+- NoClip judges open space from the voxels (terrain and building blocks) at the character's knees, waist and head.
+  Props are not voxels: ended inside a prop, the game's own collision decides (it pushes a character out of small
+  overlaps). A place whose voxels the server has not loaded counts as not free.
+- NoClip does not work while the Creative Mode mod runs (Kiln's flight steps aside for that mod's own).
 - A client predicts its own costs and stamina: it may show a short dip that the server's rules undo.
 - Building outside a base also depends on the game's undo record for that player (docs/re/rules.md 2.2).
 - The foundations work (program wraps, typed hooks, the shared marked-write path) will replace the four native hooks

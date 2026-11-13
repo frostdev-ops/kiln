@@ -13,6 +13,7 @@ internal static partial class KilnApis
         "M:Kiln.Abilities.Attributes.Get(Kiln.EntityId,Kiln.AbilityResource)", // Abilities.Attributes.Get(EntityId, AbilityResource): Game.AssertTickThread
         "M:Kiln.Abilities.Attributes.Get(Kiln.EntityId,System.String,System.UInt32)", // Abilities.Attributes.Get(EntityId, string, uint): Game.AssertTickThread
         "M:Kiln.Abilities.Attributes.Max(Kiln.EntityId,Kiln.AbilityResource)", // Abilities.Attributes.Max(EntityId, AbilityResource): Game.AssertTickThread
+        "M:Kiln.Abilities.BuffsOf(Kiln.EntityId)", // Abilities.BuffsOf(EntityId): Game.AssertTickThread
         "M:Kiln.Abilities.Cast(Kiln.EntityId,System.String,Kiln.CastOrigin)", // Abilities.Cast(EntityId, string, CastOrigin): via AbilityRegistry.CastNow(EntityId, string, CastOrigin)
         "M:Kiln.Abilities.Instance(System.UInt32)", // Abilities.Instance(uint): Game.AssertTickThread
         "M:Kiln.Abilities.Natives.Register(System.String,System.Int32,Kiln.NativeHandler)", // Abilities.Natives.Register(string, int, NativeHandler): Game.AssertTickThread
@@ -411,6 +412,8 @@ internal static partial class KilnApis
         "M:Kiln.Nearby.Within(System.Collections.Generic.IEnumerable{Kiln.EntityId},Kiln.WorldPosition,System.Double)", // Nearby.Within(IEnumerable<EntityId>, WorldPosition, double): via Nearby.Filter(IEnumerable<EntityId>, WorldPosition, double, EntityId)
         "M:Kiln.NetChannel.SendNear``1(Kiln.WorldPosition,System.Double,``0,Kiln.NetPeer)", // NetChannel.SendNear<T>(WorldPosition, double, T, NetPeer?): Services.RequireTickThread
         "M:Kiln.Network.Kick(Kiln.NetPeer,System.String)", // Network.Kick(NetPeer, string): Game.AssertTickThread
+        "M:Kiln.NoClip.Of(Kiln.EntityId)", // NoClip.Of(EntityId): Game.AssertTickThread
+        "M:Kiln.NoClip.Set(Kiln.EntityId,System.Boolean)", // NoClip.Set(EntityId, bool): Game.AssertTickThread
         "M:Kiln.NpcView.InPhase(System.String)", // NpcView.InPhase(string): via CreatureRef.Phase.get
         "M:Kiln.NpcView.get_Health", // NpcView.Health.get: via NpcView.Info.get
         "M:Kiln.NpcView.get_HealthFraction", // NpcView.HealthFraction.get: via NpcView.HealthMax.get

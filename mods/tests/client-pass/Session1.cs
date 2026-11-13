@@ -448,6 +448,96 @@ public sealed partial class ClientPassMod
         await c.Verdict();
     }
 
+    [ClientCheck("rules.noclip", "NoClip: through the ground, and safely off inside it", Area = "Creative mode", Since = Dev27,
+        Needs = ClientCheckNeeds.Hosted, Order = 150)]
+    public async Task RulesNoClip(CheckContext c)
+    {
+        if (!await NeedPlayer(c) || !await NeedNoClip(c)) return;
+        var ended = new List<PlayerNoClipEndedEvent>();
+        var sub = Events.On<PlayerNoClipEndedEvent>(e => { if (e.Player == c.Player) ended.Add(e); });
+        c.OnEnd(() =>
+        {
+            sub.Dispose();
+            NoClip.Set(c.Player, false);
+        });
+        var on = NoClip.Set(c.Player, true);
+        if (!c.Expect(on.Ok, "NoClip turned on for you", on.Message))
+        {
+            c.Instruct($"NoClip could not be turned on: {on.Message} Press fail, with that line as the note.");
+            await c.Verdict();
+            return;
+        }
+        c.Instruct("NoClip is on and you lift off. Fly with the movement keys; jump climbs, sneak sinks, sprint is faster. " +
+                   "Sink into the ground until you are well inside it, fly through a wall or a rock, and stop INSIDE the " +
+                   "ground. Then type /noclip in chat to turn it off.");
+        var active = await c.Until(() => NoClip.Of(c.Player).Active, TimeSpan.FromSeconds(20), "the server skips your character's collision");
+        c.Expect(active, "the server's world moves your character without collision", NoClip.Of(c.Player).ToString());
+        var off = await c.Until(() => ended.Count > 0, TimeSpan.FromMinutes(5), "you turned NoClip off");
+        if (off)
+        {
+            c.Expect(ended[0].Reason == NoClipEnd.RuleEnded, "it ended because it was turned off", ended[0].ToString());
+            c.Expect(ended[0].RestoredTo is not null, "it was turned off inside something, and Kiln put you back at your last free position",
+                ended[0].ToString());
+        }
+        await c.Ticks(60);
+        c.Expect(!NoClip.Of(c.Player).Active, "collision is back on the server", NoClip.Of(c.Player).ToString());
+        c.Instruct("Three things, all must be yes to pass. While NoClip was on, did you pass through the ground and the wall " +
+                   "smoothly, without being pulled back? When you turned it off inside the ground, were you put back in " +
+                   "open space near where you went in? Are you now standing or landing normally, not inside the ground " +
+                   "and not falling under the world? (In the fail note, say which one was not so, and what the camera did " +
+                   "inside the ground.)");
+        await c.Verdict();
+    }
+
+    [ClientCheck("rules.noclip-teleport", "NoClip ends on a teleport", Area = "Creative mode", Since = Dev27,
+        Needs = ClientCheckNeeds.Hosted, Order = 151)]
+    public async Task RulesNoClipTeleport(CheckContext c)
+    {
+        if (!await NeedPlayer(c) || !await NeedNoClip(c)) return;
+        var ended = new List<PlayerNoClipEndedEvent>();
+        var sub = Events.On<PlayerNoClipEndedEvent>(e => { if (e.Player == c.Player) ended.Add(e); });
+        c.OnEnd(() =>
+        {
+            sub.Dispose();
+            NoClip.Set(c.Player, false);
+        });
+        var on = NoClip.Set(c.Player, true);
+        if (!c.Expect(on.Ok, "NoClip turned on for you", on.Message))
+        {
+            c.Instruct($"NoClip could not be turned on: {on.Message} Press fail, with that line as the note.");
+            await c.Verdict();
+            return;
+        }
+        c.Instruct("NoClip is on. Open the map and fast travel to any Flame Altar (or sleep in a bed, or use a teleport of " +
+                   "your own).");
+        var tripped = await c.Until(() => ended.Count > 0, TimeSpan.FromMinutes(5), "you teleported");
+        if (tripped) c.Expect(ended[0].Reason == NoClipEnd.Teleport, "it ended because of the teleport", ended[0].ToString());
+        await c.Ticks(60);
+        c.Expect(!Rules.Of(c.Player).NoClip && !NoClip.Of(c.Player).Active, "NoClip is off after the teleport", NoClip.Of(c.Player).ToString());
+        c.Instruct("Did you arrive standing on the ground with normal collision, and did a chat line say that NoClip ended " +
+                   "because you were teleported?");
+        await c.Verdict();
+    }
+
+    // NoClip's checks need the hooks on this game build and the world's rules.json allowing it.
+    private static async Task<bool> NeedNoClip(CheckContext c)
+    {
+        if (!NoClip.Available)
+        {
+            c.Expect(false, "NoClip works on this game build (rules.noclip)", Capabilities.Why(NoClip.Capability));
+            c.Instruct($"NoClip does not work in this game: {Capabilities.Why(NoClip.Capability)} Press skip (or fail, if this " +
+                       "is a game build Kiln supports and the Creative Mode mod is not installed).");
+            await c.Verdict();
+            return false;
+        }
+        if (Rules.Policy.AllowNoClip) return true;
+        c.Instruct("NoClip is switched off in this world's rules. Open kiln/config/rules.json in the folder of the game (or " +
+                   "of the server), set \"allowNoClip\": true and save: Kiln rereads the file within a second. Then start " +
+                   "this check again. Press skip now.");
+        await c.Verdict();
+        return false;
+    }
+
     [ClientCheck("time.set", "Time of day set by a mod", Area = "Gameplay", Since = Dev21,
         Tags = [Visual], Needs = ClientCheckNeeds.Hosted, Order = 136)]
     public async Task TimeSet(CheckContext c)

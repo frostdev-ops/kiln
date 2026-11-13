@@ -7,7 +7,7 @@ namespace Kiln;
 // ammunition; food, drinks, potions and bandages) remove nothing for an actor with KEEP_CONSUMABLES. KeepConsumables
 // needs at least one of the two hooks (the status says which). No managed event mints items. Where the hook is
 // not installed (unknown build, an older kiln.rules) the rule stays off and is listed in Denied, as before. The same
-// holds for character flight and glider steering (their hooks, this server's build).
+// holds for character flight, glider steering and NoClip (their hooks, this server's build).
 internal static class RulesCrafting
 {
     /// <summary>Free crafts and kept consumables so far (kiln.rules' counters; 0 without them).</summary>
@@ -22,14 +22,17 @@ internal static class RulesCrafting
         var noKeep = rules.KeepConsumables && (hooks & (RulesNative.HookConsume | RulesNative.HookConsumeBuff)) == 0;
         var noFly = rules.CharacterFlight != CharacterFlightMode.Off && (hooks & RulesNative.HookFlight) == 0;
         var noSteer = rules.GlideSteer is not null && (hooks & RulesNative.HookGlideSteer) == 0;
-        if (!noCraft && !noKeep && !noFly && !noSteer) return rules;
+        var noClip = rules.NoClip && (hooks & RulesNative.HookNoClip) == 0;
+        if (!noCraft && !noKeep && !noFly && !noSteer && !noClip) return rules;
         var denied = rules.Denied.ToList();
         if (noCraft) denied.Add("freeCraftingUnavailable");
         if (noKeep) denied.Add("keepConsumablesUnavailable");
         if (noFly) denied.Add("characterFlightUnavailable");
         if (noSteer) denied.Add("glideSteerUnavailable");  // GlideBoost then flies as before
+        if (noClip) denied.Add("noClipUnavailable");
         return rules with
         {
+            NoClip = rules.NoClip && !noClip,
             FreeCrafting = rules.FreeCrafting && !noCraft, KeepConsumables = rules.KeepConsumables && !noKeep,
             CharacterFlight = noFly ? CharacterFlightMode.Off : rules.CharacterFlight, GlideSteer = noSteer ? null : rules.GlideSteer,
             Denied = denied,
