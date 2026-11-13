@@ -71,8 +71,11 @@ lore note's title is `entryName`), `ecs::Location`, `ecs::MapMarkerUnlockRequire
   (+0x6c) = 40 x 40 (`509feadb…`); the other four are 1 x 1 menu/character scenes. `resetPlayersOutOfBounds.worldMax`
   is `{10240, 2560, 10240}` m in 32.32 fixed point (43980465111040 = 10240 << 32): a 10,240 m world of 256 m chunks.
   `playableAreas[]` lists the big dungeons' boxes with their `mapMarkerId`.
-- `keen::SceneEntityChunkResource` (140 B): parts 0..1599 are the world's chunks (part = z * 40 + x, 256 m; all 1,616,195
-  regular-chunk entities lie inside their chunk), part 1600 the
+- `keen::SceneEntityChunkResource` (140 B): parts 0..1599 are the world's chunks (part = z * 40 + x, 256 m;
+  1,616,195 regular-chunk entities). Corrected 2026-11 (dev.28 RE terrain, server 26430253 `f0d824be…` / client
+  26430625 `5d9ef2f1…`) **[data]**: 17 placements are 0.0000305–0.0002441 m below a lower chunk boundary;
+  “all inside” was too strict. Use quantization tolerance, not reassigning their parts (dossier chapter 19f).
+  Part 1600 is the
   global chunk (1,300 entities, 618 templates: every map marker, area labels, teleporters). 1,617,495 entities in all.
   - `templates: BlobArray<TemplateReference>` +0 (16-byte GUIDs), `templatesDoNotSave` +8, `hasPersistentData` +0x10,
     `entities: BlobArray<SceneEntityChunkSpawnEntry>` +0x18, `chunkPersistenceInfo` +0x20, `spawnData` +0x34.

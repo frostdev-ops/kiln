@@ -194,6 +194,27 @@ references (configs, `ApplyBuffEvent.buffTypeOverride`, `onTimeout.followUp`).
 - Client (hosted, 26430625): the client world's BuffRegistry swapped the same way; the buff list drew the clone's name
   from the replicated id **[rt]**.
 
+#### Buff capacity recheck (dev.28; server 26430253 / client 26430625)
+
+S `f0d824be…`, C `5d9ef2f1…`; dossier chapter 17.2 and caps VERIFY claims 3–4 confirmed.
+The earlier 256-clone log above is historical. **[source]** Current `gamedata_clones.cpp` reserves **1024 clones**
+(`kBuffRoom`), not an engine 10-bit index or per-entity buff limit. GetBuffType S `0x933700` / C `0xe8c5c0`
+(`caps.buff.lookup` scratch guard, also resolves on old svn 1273043) consumes u32 ids/map indices and 0xb8-byte
+records, collection at registry `+0x20`; id 0 is null. The `index==count` off-by-one acceptance remains, so generated
+maps must never emit it. **[static]**
+
+**[refl]** Collection header 32 B: entry/key/value BlobArrays `+0/+8/+0x10`, buff records `+0x18`; BlobArray is
+`{i32 selfRelative,u32 count}`. BuffType fields: id `+0`, isSaved `+0x4a`, configurations `+0x60`, uiValues `+0x70`,
+onCreate `+0x78`, whileApplied `+0x80`, onTimeout `+0x88`. BuffNetworkData is 24 B: Time `+0`, endOfLife `+8`,
+**u32 BuffTypeId `+0x10`**, level `+0x14`; the wire identity is not a 1024-slot index. **[data]** Both archives contain
+274 vanilla buffs / 512 initial buckets.
+
+**[lab]** 1025 definitions yielded **1024 registrations and one safe refusal**, total 1298 records; 1024 real
+GetBuffType self-checks returned clone records. No raised-quota run or large client-sync test was done. Mirror growth
+is constrained by allocation, u32 counts/indices and **signed-i32 self-relative reach**, not just record count.
+Published immutable headers/maps are retained for readers; a one-header byte estimate does not bound repeated
+publication memory. The quota is Kiln policy; do not claim an arbitrary new cap or reclaimed live records.
+
 **Tooling note** **[rt]**: clang-cl's `__try` covers calls, not plain loads in the guarded block: a scan that read a
 junk map header's arrays directly (`map_copy`) faulted the tick despite its `__try`. Kiln now checks both ends of a
 candidate map's arrays with `rd()` (a guarded copy through a call) before walking it.
