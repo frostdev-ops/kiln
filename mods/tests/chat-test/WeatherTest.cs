@@ -56,6 +56,7 @@ public sealed partial class ChatTestMod
             await TimedAndBack();
             await HoldAndRelease();
             await NoneEverywhere();
+            await OrderAndQueue();
             WeatherRefusals();
         }
         finally
@@ -102,12 +103,23 @@ public sealed partial class ChatTestMod
         var r = await Time.SetWeather("rain", layer: i);
         var l = LayerOf(i);
         Check("weather.hold.set", r.Ok && l.Current?.Name == "rain" && l.Held && l.HeldPhenomenon?.Name == "rain", $"{r}");
-        // wait out the first run (2 to 6 game minutes: 6 to 18 s at 20x) and one more of the game's rolls
+        // wait out the first run (2 to 6 game minutes: 6 to 18 s at 20x): the roll shows as the time left jumping up (a
+        // new run's own duration; it need not be longer than the first one's) and as a restart event of the held rain
         var firstEnds = l.Remaining;
-        var rolled = await WaitFor(() => LayerOf(i).Remaining > firstEnds + TimeSpan.FromSeconds(5) || LayerOf(i).Current?.Name != "rain", 25 * 40);
+        var last = firstEnds;
+        _weatherEvents.Clear();
+        var rolled = await WaitFor(() =>
+        {
+            var now = LayerOf(i);
+            var up = now.Remaining > last + TimeSpan.FromSeconds(5);
+            last = now.Remaining;
+            return up || now.Current?.Name != "rain";
+        }, 25 * 40);
+        await Ticks(2);
         var again = LayerOf(i);
-        Check("weather.hold.kept", rolled && again.Current?.Name == "rain" && again.Held,
-            $"the game's roll came ({firstEnds.TotalSeconds:0} s left before) and Kiln kept rain: {again}");
+        var restart = _weatherEvents.FirstOrDefault(e => e.Layer == i && e.ByKiln && e.Held && e.Before?.Name == "rain" && e.After?.Name == "rain");
+        Check("weather.hold.kept", rolled && again.Current?.Name == "rain" && again.Held && restart != null,
+            $"the game's roll came ({firstEnds.TotalSeconds:0} s left before) and Kiln kept rain: {again}; event: {restart?.ToString() ?? "none"}");
         _weatherEvents.Clear();
         var rel = await Time.ReleaseWeather(i, now: true);
         await Ticks(2);
@@ -125,6 +137,61 @@ public sealed partial class ChatTestMod
         var back = await Time.ReleaseWeather(now: true);
         await Ticks(2);
         Check("weather.release.all", back.Ok && Time.Weather.All(l => !l.Held), $"{back}");
+    }
+
+    // Every change is one event in order, a restart included; a request that does not fit the queue is a refused result
+    // with nothing of it queued; readiness answers off the tick thread.
+    private async Task OrderAndQueue()
+    {
+        Check("weather.ready.anythread", await Task.Run(() => Time.WeatherChoiceAvailable), "Time.WeatherChoiceAvailable read on a worker thread");
+        var choices = Time.Weather[0].Choices.Where(p => !p.IsNothing).Select(p => p.Name).Distinct().ToList();
+        if (choices.Count < 2)
+        {
+            Check("weather.event.order", false, $"layer 0 has fewer than two phenomena: {string.Join(", ", choices)}");
+            return;
+        }
+        var (a, b) = (choices[0], choices[1]);
+        var start = await Time.SetWeather(a, TimeSpan.FromMinutes(10), layer: 0);
+        await Ticks(2);
+        _weatherEvents.Clear();
+        var both = await Task.WhenAll(Time.SetWeather(b, TimeSpan.FromMinutes(10), layer: 0), Time.SetWeather(a, TimeSpan.FromMinutes(10), layer: 0));
+        await Ticks(2);
+        var mine = _weatherEvents.Where(e => e.Layer == 0 && e.ByKiln).ToList();
+        Check("weather.event.order", start.Ok && both.All(r => r.Ok) && mine.Count == 2 && mine[0].Before?.Name == a && mine[0].After?.Name == b &&
+                                     mine[1].Before?.Name == b && mine[1].After?.Name == a,
+            $"{a}, then {b} and {a} again in one step: [{string.Join("; ", mine)}]");
+        _weatherEvents.Clear();
+        var again = await Time.SetWeather(a, TimeSpan.FromMinutes(10), layer: 0);
+        await Ticks(2);
+        var restart = _weatherEvents.Where(e => e.Layer == 0 && e.ByKiln).ToList();
+        Check("weather.event.restart", again.Ok && restart.Count == 1 && restart[0].Before?.Name == a && restart[0].After?.Name == a,
+            $"{a} started again while it runs (a new instance): [{string.Join("; ", restart)}]");
+
+        // "none" on every layer, again and again in one step: what fits runs, the next is a refused result, nothing half done
+        var layers = Time.Weather.Count;
+        var accepted = new List<Task<WeatherResult>>();
+        WeatherResult? refused = null;
+        Exception? thrown = null;
+        try
+        {
+            for (var i = 0; i < 300 / layers + 2 && refused == null; i++)
+            {
+                var t = Time.SetWeather("none", TimeSpan.FromMinutes(10));
+                if (t.IsCompleted && !t.Result.Ok) refused = t.Result;
+                else accepted.Add(t);
+            }
+        }
+        catch (Exception e)
+        {
+            thrown = e;
+        }
+        var results = await Task.WhenAll(accepted);
+        Check("weather.queue.full", thrown == null && refused is { Ok: false } && refused.Reason!.Contains("nothing of it was queued") &&
+                                    accepted.Count == 256 / layers && results.All(r => r.Ok),
+            $"{accepted.Count} requests of {layers} layers ran, then: {refused?.Reason ?? thrown?.Message ?? "no refusal"}");
+        var back = await Time.ReleaseWeather(now: true);
+        await Ticks(2);
+        Check("weather.queue.after", back.Ok && Time.Weather.All(l => !l.Held), $"released after the full queue: {back}");
     }
 
     private void WeatherRefusals()

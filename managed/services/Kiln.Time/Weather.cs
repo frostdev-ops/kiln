@@ -75,8 +75,11 @@ public sealed record WeatherResult(bool Ok, string? Reason, IReadOnlyList<Weathe
 }
 
 /// <summary>What runs on a weather layer changed: the game rolled the next phenomenon, or Kiln started or released one.
-/// From the first subscription on Kiln reads the layers once a step (a few bytes per layer) and posts this on the tick
-/// thread while a handler subscribes; nothing is read before. Not cancelable (it already happened). Capability <c>time.weather_choose</c>.</summary>
+/// One event per change, in the order they happened (kiln.time records each where it is made, so A then B then A on one
+/// layer within one weather update is two events), including a restart of the same phenomenon (<see cref="Before"/> and
+/// <see cref="After"/> equal: a new instance). From the first subscription on Kiln reads the changes once a step and
+/// posts them on the tick thread while a handler subscribes; nothing is read before. Not cancelable (it already
+/// happened). Capability <c>time.weather_choose</c>.</summary>
 [ServerOnly]
 public sealed class WeatherChangedEvent : KilnEvent
 {
@@ -100,8 +103,8 @@ public sealed class WeatherChangedEvent : KilnEvent
     /// <summary>What runs now.</summary>
     public WeatherPhenomenon? After { get; }
 
-    /// <summary>Kiln started or ended something on this layer since the last read (a mod's choice, a release, or a held
-    /// roll); false for the game's own roll.</summary>
+    /// <summary>Kiln made this change: a mod's choice, a held roll, or the game's roll that a release with <c>now</c> or
+    /// <see cref="Time.ResetWeather"/> asked for; false for the game's own roll.</summary>
     public bool ByKiln { get; }
 
     /// <summary>Kiln holds a choice on the layer now.</summary>
@@ -168,19 +171,33 @@ public static unsafe partial class Time
     }
 
     [StructLayout(LayoutKind.Sequential)]
+    internal struct NativeChange
+    {
+        public uint Size;
+        public byte Layer, ByKiln, Held, R0;
+        public ulong Seq;
+        public int Before, After;
+        public uint InstanceBefore, InstanceAfter;
+        public long NowNs;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
     private struct TableV3
     {
         public TableV2 V2;
         public delegate* unmanaged[Cdecl]<NativePhenomenon*, uint, uint, uint*, int> WeatherTable;
         public delegate* unmanaged[Cdecl]<NativeLayer*, uint, uint, uint*, int> WeatherLayers;
         public delegate* unmanaged[Cdecl]<ulong, NativeWeatherRequest*, delegate* unmanaged[Cdecl]<NativeWeatherResult*, void*, void>, void*, ulong*, int> WeatherSet;
+        public delegate* unmanaged[Cdecl]<uint> WeatherRoom;
+        public delegate* unmanaged[Cdecl]<ulong> WeatherChangeSeq;
+        public delegate* unmanaged[Cdecl]<ulong, NativeChange*, uint, uint, uint*, int> WeatherChanges;
     }
 
     private static TableV3* T3 => T != null && T->Header.Size >= (uint)sizeof(TableV3) ? (TableV3*)T : null;
 
     /// <summary>True when the weather can be chosen right now: capability <c>time.weather_choose</c>, and the server's
-    /// weather ran at least once in this world.</summary>
-    public static bool WeatherChoiceAvailable => T3 != null && Capabilities.Is(WeatherCapability) && ReadLayers() is { Length: > 0 };
+    /// weather ran at least once in this world. Any thread (kiln.time's own flag, not a read of the game's layers).</summary>
+    public static bool WeatherChoiceAvailable => T3 != null && Capabilities.Is(WeatherCapability) && WeatherChoiceReadyNow();
 
     /// <summary>The game's weather table (the server's <c>WeatherSystemResource</c>): every phenomenon with its name, layer,
     /// effect, weight and durations, read from the game's data, not a list of Kiln's. Empty until the server's weather
@@ -410,6 +427,46 @@ public static unsafe partial class Time
         return rc == Ok ? buf.Take((int)n).ToArray() : [];
     }
 
+    // A request in flight, held by Kiln.Time itself (owner 0): it runs and its layers change whether or not the mod that
+    // asked is still loaded. A retired asker's task is dropped, never completed: its continuations are the unloaded
+    // mod's code. WeatherChangedEvent does not depend on it (WeatherWatch reads kiln.time's ordered changes).
+    /// <summary>The newest change kiln.time recorded (0: none, or no kiln.time). Any thread.</summary>
+    internal static ulong WeatherChangeSeq() => T3 is var t && t != null ? t->WeatherChangeSeq() : 0;
+
+    /// <summary>The changes after <paramref name="after"/>, oldest first. Any thread.</summary>
+    internal static NativeChange[] ReadWeatherChanges(ulong after)
+    {
+        var t = T3;
+        if (t == null) return [];
+        var buf = new NativeChange[32];
+        while (true)
+        {
+            uint n = 0;
+            int rc;
+            fixed (NativeChange* p = buf) rc = t->WeatherChanges(after, p, (uint)buf.Length, (uint)sizeof(NativeChange), &n);
+            if (rc == BufferTooSmall && n > buf.Length && n <= 4096)
+            {
+                buf = new NativeChange[n];
+                continue;
+            }
+            return rc == Ok ? buf.Take((int)n).ToArray() : [];
+        }
+    }
+
+    /// <summary>One event per recorded change, in order (pure: the unit tests build the records by hand).</summary>
+    internal static IReadOnlyList<WeatherChangedEvent> EventsOf(IReadOnlyList<NativeChange> changes, IReadOnlyList<WeatherPhenomenon> table,
+        NativeLayer[] layers)
+    {
+        var list = new List<WeatherChangedEvent>(changes.Count);
+        foreach (var c in changes)
+        {
+            var at = Array.FindIndex(layers, x => x.Index == c.Layer);
+            var l = at >= 0 ? layers[at] : new NativeLayer { Index = c.Layer };
+            list.Add(new WeatherChangedEvent(c.Layer, PhenomenonOf(table, l, c.Before), PhenomenonOf(table, l, c.After), c.ByKiln != 0, c.Held != 0));
+        }
+        return list;
+    }
+
     private sealed class PendingWeather(TaskCompletionSource<WeatherResult> tcs, ModContext? mod, int[] layers)
     {
         public readonly TaskCompletionSource<WeatherResult> Tcs = tcs;
@@ -417,25 +474,75 @@ public static unsafe partial class Time
         public readonly int[] Layers = layers;
         public int Waiting = layers.Length;
         public string? Reason;
+        public bool Retired;
     }
 
     private static readonly object WeatherGate = new();
     private static readonly Dictionary<long, PendingWeather> WeatherInFlight = new();
+    private static readonly HashSet<ModContext> WeatherWatched = new();
     private static long _nextWeather;
+
+    internal const int WeatherQueueSize = 256;
+
+    /// <summary>A request that does not fit the queue now, as a result (the capability is there): null when it fits.
+    /// Nothing of it is queued, so no layer changes.</summary>
+    internal static WeatherResult? QueueRefusal(uint room, int needed, Func<IReadOnlyList<WeatherLayer>> layersNow) =>
+        room >= needed ? null
+        : new WeatherResult(false, $"{WeatherQueueSize - room} weather requests are waiting and this one needs room for {needed}: try again in a step " +
+                                   "(nothing of it was queued)", layersNow());
+
+    internal static long TrackWeather(TaskCompletionSource<WeatherResult> tcs, ModContext? mod, int[] layers)
+    {
+        lock (WeatherGate)
+        {
+            var key = ++_nextWeather;
+            WeatherInFlight[key] = new PendingWeather(tcs, mod, layers);
+            if (mod != null && WeatherWatched.Add(mod)) mod.Retiring += () => RetireWeather(mod);
+            return key;
+        }
+    }
+
+    private static void RetireWeather(ModContext mod)
+    {
+        lock (WeatherGate) WeatherWatched.Remove(mod);
+        RetireWeatherWhere(m => m == mod);
+    }
+
+    internal static void RetireWeatherWhere(Func<ModContext?, bool> which)
+    {
+        lock (WeatherGate)
+            foreach (var p in WeatherInFlight.Values)
+                if (which(p.Mod)) p.Retired = true;
+    }
+
+    /// <summary>One layer's result (tick thread): the last one completes the asking mod's task, unless it retired.</summary>
+    internal static void CompleteWeather(long key, bool ok, string? reason, Func<IReadOnlyList<WeatherLayer>> layersNow)
+    {
+        PendingWeather? p;
+        lock (WeatherGate)
+        {
+            if (!WeatherInFlight.TryGetValue(key, out p)) return;
+            if (!ok && p.Reason == null) p.Reason = reason;
+            if (--p.Waiting > 0) return;
+            WeatherInFlight.Remove(key);
+        }
+        if (p.Retired) return;
+        var mine = layersNow().Where(l => p.Layers.Contains(l.Index)).ToList();
+        p.Tcs.TrySetResult(new WeatherResult(p.Reason == null, p.Reason, mine));
+    }
+
+    private static IReadOnlyList<WeatherLayer> LayersNow() => BuildLayers(ReadTable(), ReadLayers());
 
     private static Task<WeatherResult> Submit((int Layer, int Index, TimeSpan? Duration)[] picks, uint flags, string api)
     {
         var t = T3!;
         var mod = ModContext.CurrentMod;
         if (mod is { Alive: false }) throw new InvalidOperationException("the mod is unloading");
+        // room for the whole request first: only the tick thread adds to kiln.time's queue, so what fits now still fits
+        if (QueueRefusal(t->WeatherRoom(), picks.Length, LayersNow) is { } full) return Task.FromResult(full);
         var tcs = new TaskCompletionSource<WeatherResult>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var pending = new PendingWeather(tcs, mod, picks.Select(p => p.Layer).ToArray());
-        long key;
-        lock (WeatherGate)
-        {
-            key = ++_nextWeather;
-            WeatherInFlight[key] = pending;
-        }
+        var key = TrackWeather(tcs, mod, picks.Select(p => p.Layer).ToArray());
+        var pending = WeatherInFlight[key];
         var submitted = 0;
         foreach (var (layer, index, duration) in picks)
         {
@@ -449,7 +556,8 @@ public static unsafe partial class Time
                 DurationNs = duration is { } d ? d.Ticks * 100 : 0,
             };
             ulong ticket = 0;
-            var rc = t->WeatherSet(Services.CallerOwner, &r, &OnWeatherDone, (void*)key, &ticket);
+            // owner 0: Kiln's own, so releasing the asking mod's owner drops nothing that is already queued
+            var rc = t->WeatherSet(0, &r, &OnWeatherDone, (void*)key, &ticket);
             if (rc == Ok)
             {
                 submitted++;
@@ -459,8 +567,17 @@ public static unsafe partial class Time
             {
                 pending.Waiting -= picks.Length - submitted;
                 if (submitted == 0) WeatherInFlight.Remove(key);
+                else if (rc == BufferTooSmall) pending.Reason ??= $"layers {string.Join(", ", picks.Skip(submitted).Select(x => x.Layer))} were not queued (the queue filled); " +
+                                                                  $"layers {string.Join(", ", picks.Take(submitted).Select(x => x.Layer))} ran";
             }
-            if (rc == InvalidArgument) throw new ArgumentException($"{api}: kiln.time refused layer {layer}, phenomenon {index}");
+            if (rc == BufferTooSmall)
+            {
+                // cannot happen after the room check (only this thread adds); if it does, say exactly what ran
+                if (submitted == 0) return Task.FromResult(QueueRefusal(0, picks.Length, LayersNow)!);
+                return tcs.Task;
+            }
+            if (rc == InvalidArgument) throw new ArgumentException($"{api}: kiln.time refused layer {layer}, phenomenon {index}" +
+                                                                  (submitted > 0 ? $" (layers {string.Join(", ", picks.Take(submitted).Select(x => x.Layer))} were queued before it)" : ""));
             throw new KilnUnavailableException(WeatherCapability, $"kiln.time refused it (error {rc}): the server's weather is not available");
         }
         return tcs.Task;
@@ -471,24 +588,14 @@ public static unsafe partial class Time
     {
         try
         {
-            PendingWeather? p;
-            bool last;
-            lock (WeatherGate)
+            string? reason = null;
+            if (r->Status != 0)
             {
-                if (!WeatherInFlight.TryGetValue((long)user, out p)) return;
-                if (r->Status != 0 && p.Reason == null)
-                {
-                    var len = 0;
-                    while (len < 128 && r->Message[len] != 0) len++;
-                    p.Reason = $"layer {r->Layer}: {System.Text.Encoding.UTF8.GetString(r->Message, len)}";
-                }
-                last = --p.Waiting <= 0;
-                if (last) WeatherInFlight.Remove((long)user);
+                var len = 0;
+                while (len < 128 && r->Message[len] != 0) len++;
+                reason = $"layer {r->Layer}: {System.Text.Encoding.UTF8.GetString(r->Message, len)}";
             }
-            if (!last) return;
-            var all = BuildLayers(ReadTable(), ReadLayers());
-            var mine = all.Where(l => p.Layers.Contains(l.Index)).ToList();
-            p.Tcs.TrySetResult(new WeatherResult(p.Reason == null, p.Reason, mine));
+            CompleteWeather((long)user, r->Status == 0, reason, LayersNow);
         }
         catch
         {
@@ -497,41 +604,32 @@ public static unsafe partial class Time
     }
 }
 
-// The layers once a step from the first subscription on (one native read of a few layers; nothing before): a change is
-// posted while WeatherChangedEvent has subscribers. The state at the subscription is the baseline, so a change made in
-// the same step as the subscription is reported.
+// kiln.time's ordered weather changes, drained once a step from the first subscription on (nothing before): each is one
+// WeatherChangedEvent, in the order the changes happened, A then B then A on one layer in one update included, and a
+// restart of the same phenomenon (a new instance). The newest seq at the subscription is the baseline, so a change
+// made in the same step as the subscription is reported.
 internal static class WeatherWatch
 {
     private static readonly object Lock = new();
     private static IDisposable? _tick;
-    private static Dictionary<int, (int Current, uint KilnChanges)>? _last;
+    private static ulong _seq;
 
     public static void Start()
     {
         lock (Lock)
         {
             if (_tick != null) return;
-            _last = Snapshot(Time.ReadLayers());
+            _seq = Time.WeatherChangeSeq();
             _tick = ServiceTick.Add("kiln.time weather", Poll);
         }
     }
 
-    private static Dictionary<int, (int Current, uint KilnChanges)>? Snapshot(Time.NativeLayer[] layers) =>
-        layers.Length == 0 ? null : layers.ToDictionary(l => (int)l.Index, l => (l.Current, l.KilnChanges));
-
     private static void Poll(in TickInfo tick)
     {
-        var layers = Time.ReadLayers();
-        var before = _last;
-        _last = Snapshot(layers);
-        if (before == null || layers.Length == 0 || !Events.HasSubscribers<WeatherChangedEvent>()) return;
-        IReadOnlyList<WeatherPhenomenon>? table = null;
-        foreach (var l in layers)
-        {
-            if (!before.TryGetValue(l.Index, out var was) || was.Current == l.Current) continue;
-            table ??= Time.ReadTable();
-            Events.Post(new WeatherChangedEvent(l.Index, Time.PhenomenonOf(table, l, was.Current), Time.PhenomenonOf(table, l, l.Current),
-                was.KilnChanges != l.KilnChanges, l.Held != 0));
-        }
+        var changes = Time.ReadWeatherChanges(_seq);
+        if (changes.Length == 0) return;
+        _seq = changes[^1].Seq;
+        if (!Events.HasSubscribers<WeatherChangedEvent>()) return;
+        foreach (var e in Time.EventsOf(changes, Time.ReadTable(), Time.ReadLayers())) Events.Post(e);
     }
 }

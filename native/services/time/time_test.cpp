@@ -57,8 +57,58 @@ void weather_tests() {
                   sizeof(KilnTimeWeatherRequest) == 24 && sizeof(KilnTimeWeatherResult) == 176,
                   "the v2 records keep their sizes (Kiln.Time mirrors them)");
     static_assert(offsetof(KilnTimeApi, weather_table) == offsetof(KilnTimeApi, time_scale_hold) + sizeof(void*) &&
-                  sizeof(KilnTimeApi) == offsetof(KilnTimeApi, weather_set) + sizeof(void*),
+                  offsetof(KilnTimeApi, weather_room) == offsetof(KilnTimeApi, weather_set) + sizeof(void*) &&
+                  sizeof(KilnTimeApi) == offsetof(KilnTimeApi, weather_changes) + sizeof(void*),
                   "v2 appends after time_scale_hold");
+    static_assert(sizeof(KilnTimeWeatherChange) == 40 && offsetof(KilnTimeWeatherChange, seq) == 8 &&
+                  offsetof(KilnTimeWeatherChange, now_ns) == 32, "the change record Kiln.Time mirrors");
+    static_assert(offsetof(KilnTimeState, weather_choice_ready) == 6 && offsetof(KilnTimeState, hours) == 8,
+                  "weather_choice_ready takes a reserved byte: the state keeps its layout");
+
+    // The queue: a full one takes nothing and says so (a refusal for now, not "unavailable"); its room is exact.
+    {
+        WeatherQueue<int> q;
+        check(q.room() == 256, "an empty queue has room for 256");
+        int pushed = 0;
+        while (q.push(pushed) == KILN_OK) ++pushed;
+        check(pushed == 256 && q.room() == 0, "256 requests fit");
+        check(q.push(1) == KILN_ERR_BUFFER_TOO_SMALL, "the 257th is refused as a full queue (KILN_ERR_BUFFER_TOO_SMALL)");
+        check(q.take().size() == 256 && q.room() == 256, "the weather update takes them all");
+        q.push(1); q.push(2); q.push(3);
+        std::vector<int> old;
+        q.expire([](int x) { return x != 2; }, &old);
+        check(old.size() == 2 && q.room() == 255, "expired requests leave the queue, the rest stay");
+    }
+
+    // The changes, in order: A, B, A on one layer in one update are two changes; a restart (another instance) is one.
+    {
+        WeatherChanges c;
+        check(!c.note(1, 2, 10, false, false, 100), "the first look at a layer only remembers it");
+        check(!c.note(1, 2, 10, false, false, 110), "no change, no record");
+        check(c.note(1, 3, 11, true, true, 120) && c.note(1, 2, 12, true, false, 120), "A then B then A: two records");
+        check(c.note(1, 2, 13, false, false, 130), "the same phenomenon with a new instance (a restart) is a change");
+        c.resync(1, -1, 0);
+        check(!c.note(1, -1, 0, false, false, 131), "a layer Kiln emptied, taken as seen: no record of its own");
+        check(c.note(1, 4, 14, true, false, 140), "the roll after it is the change");
+        check(c.last_seq() == 4, "four changes, numbered in order");
+        KilnTimeWeatherChange out[8]{};
+        uint32_t n = 0;
+        check(c.read(0, out, 8, sizeof out[0], &n) == KILN_OK && n == 4, "all four read back");
+        check(out[0].seq == 1 && out[0].before == 2 && out[0].after == 3 && out[0].by_kiln == 1 && out[0].held == 1 &&
+              out[1].before == 3 && out[1].after == 2 && out[1].held == 0, "first B (held, Kiln's), then A again");
+        check(out[2].before == 2 && out[2].after == 2 && out[2].instance_before == 12 && out[2].instance_after == 13 &&
+              out[2].by_kiln == 0, "the restart keeps its instances");
+        check(out[3].before == -1 && out[3].after == 4 && out[3].now_ns == 140, "after an emptied layer, the roll");
+        check(c.read(2, out, 1, sizeof out[0], &n) == KILN_ERR_BUFFER_TOO_SMALL && n == 2 && out[0].seq == 3,
+              "after a seq, oldest first; a short buffer says how many there are");
+        check(c.read(0, out, 8, sizeof out[0] - 1, &n) == KILN_ERR_INVALID_ARGUMENT, "a record size below the v2 record is refused");
+        c.forget();
+        check(!c.note(1, 3, 20, false, false, 200) && c.last_seq() == 4, "a new world's first look only remembers");
+        for (int i = 0; i < 600; ++i) c.note(0, i % 2, static_cast<uint32_t>(i), false, false, i);
+        check(c.read(0, out, 1, sizeof out[0], &n) == KILN_ERR_BUFFER_TOO_SMALL && n == WeatherChanges::kKeep &&
+              out[0].seq == c.last_seq() - WeatherChanges::kKeep + 1, "the newest 512 are kept: a slow reader sees a gap");
+        check(!c.note(64, 1, 1, false, false, 0), "no layer past the table");
+    }
     uint8_t c = 0;
     check(weather_choice(5, 5, 1, &c) && c == 0, "a phenomenon in the layer's range is its offset in the range");
     check(weather_choice(-1, 5, 1, &c) && c == 1, "nothing is the range's count");

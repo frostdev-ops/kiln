@@ -30,6 +30,95 @@ public sealed unsafe class WeatherTests
 
     private static readonly Time.NativeLayer[] Layers = [Layer(0, 0, 2, 0), Layer(1, 2, 1, -1), Layer(2, 3, 1, -1), Layer(3, 5, 1, 5)];
 
+    private static Time.NativeChange Change(ulong seq, byte layer, int before, int after, uint ib, uint ia, bool kiln = false, bool held = false) =>
+        new() { Size = (uint)sizeof(Time.NativeChange), Seq = seq, Layer = layer, Before = before, After = after, InstanceBefore = ib,
+                InstanceAfter = ia, ByKiln = (byte)(kiln ? 1 : 0), Held = (byte)(held ? 1 : 0) };
+
+    [Fact]
+    public void TheMirrorsKeepTheNativeLayouts()
+    {
+        Assert.Equal(40, sizeof(Time.NativeChange));
+        var state = typeof(Time).GetNestedType("NativeState", System.Reflection.BindingFlags.NonPublic)!;
+        Assert.Equal(6, (int)System.Runtime.InteropServices.Marshal.OffsetOf(state, "WeatherChoiceReady"));
+        Assert.Equal(8, (int)System.Runtime.InteropServices.Marshal.OffsetOf(state, "Hours"));
+    }
+
+    [Fact]
+    public void EveryRecordedChangeIsOneEventInOrder()
+    {
+        // overcast, rain (Kiln's, held), overcast again within one weather update, then the game restarts overcast
+        var changes = new[]
+        {
+            Change(7, 0, 1, 0, 10, 11, kiln: true, held: true),
+            Change(8, 0, 0, 1, 11, 12, kiln: true),
+            Change(9, 0, 1, 1, 12, 13),
+            Change(10, 1, -1, 2, 0, 20),
+            Change(11, 3, 5, -2, 30, 0, kiln: true),
+        };
+        var events = Time.EventsOf(changes, Table, Layers);
+        Assert.Equal(5, events.Count);
+        Assert.Equal(("clouds_overcast", "clouds_few", true, true), (events[0].Before!.Name, events[0].After!.Name, events[0].ByKiln, events[0].Held));
+        Assert.Equal(("clouds_few", "clouds_overcast", true, false), (events[1].Before!.Name, events[1].After!.Name, events[1].ByKiln, events[1].Held));
+        Assert.Equal(("clouds_overcast", "clouds_overcast", false), (events[2].Before!.Name, events[2].After!.Name, events[2].ByKiln));
+        Assert.Equal((WeatherPhenomenon.NothingName, "rain", 1), (events[3].Before!.Name, events[3].After!.Name, events[3].Layer));
+        Assert.Null(events[4].After);  // emptied (reset): nothing set until the game rolls
+        Assert.Equal(3, events[4].Layer);
+        // a layer the reader did not see: still an event, its "nothing" without a weight
+        var lone = Time.EventsOf([Change(12, 9, -1, -1, 0, 0)], Table, Layers);
+        Assert.Equal(9, Assert.Single(lone).Layer);
+    }
+
+    [Fact]
+    public void AFullQueueIsARefusedResultAndNothingIsQueued()
+    {
+        var calls = 0;
+        IReadOnlyList<WeatherLayer> Now()
+        {
+            calls++;
+            return Time.BuildLayers(Table, Layers);
+        }
+        Assert.Null(Time.QueueRefusal(9, 9, Now));
+        Assert.Equal(0, calls);
+        var r = Time.QueueRefusal(3, 9, Now)!;
+        IKilnResult k = r;
+        Assert.False(k.Ok);
+        Assert.Contains("253 weather requests are waiting", r.Reason);
+        Assert.Contains("nothing of it was queued", r.Reason);
+        Assert.Equal(4, r.Layers.Count);
+    }
+
+    [Fact]
+    public void ARetiredAskersTaskIsDroppedAndTheRequestStillEnds()
+    {
+        IReadOnlyList<WeatherLayer> Now() => Time.BuildLayers(Table, Layers);
+        var gone = new TaskCompletionSource<WeatherResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var a = Time.TrackWeather(gone, null, [0, 1]);
+        Time.RetireWeatherWhere(m => m is null);
+        var stays = new TaskCompletionSource<WeatherResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var b = Time.TrackWeather(stays, null, [1, 3]);
+        Time.CompleteWeather(a, true, null, Now);
+        Time.CompleteWeather(a, true, null, Now);
+        Assert.False(gone.Task.IsCompleted);   // both layers ran; the unloaded asker's code is never resumed
+        Time.CompleteWeather(b, false, "layer 1: the server world closed", Now);
+        Assert.False(stays.Task.IsCompleted);  // one layer still to come
+        Time.CompleteWeather(b, true, null, Now);
+        Assert.True(stays.Task.IsCompletedSuccessfully);
+        Assert.False(stays.Task.Result.Ok);
+        Assert.Equal("layer 1: the server world closed", stays.Task.Result.Reason);
+        Assert.Equal([1, 3], stays.Task.Result.Layers.Select(l => l.Index));
+        Time.CompleteWeather(b, true, null, Now);  // a key that ended: nothing
+    }
+
+    [Fact]
+    public void ReadinessAnswersOnAnyThread()
+    {
+        // kiln.time's own flag, not the layers' tick-thread read: off the tick thread it answers, it does not throw
+        using var kiln = new KilnHarness();
+        var off = Task.Run(() => Time.WeatherChoiceAvailable).GetAwaiter().GetResult();
+        Assert.False(off);  // no kiln.time here
+        Assert.False(Time.WeatherChoiceReadyNow());
+    }
+
     [Fact]
     public void ANameMeansEveryLayerThatHasIt()
     {

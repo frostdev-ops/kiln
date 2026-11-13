@@ -82,16 +82,19 @@ Events.On<WeatherChangedEvent>(e => Log.Info(e.ToString()));      // the game's 
 | `Time.SetWeather(WeatherPhenomenon, duration = null)` | same | one phenomenon on its own layer |
 | `Time.ReleaseWeather(layer = null, now = false)` | same | Kiln's holds end; with `now` the layer's phenomenon ends and the game rolls at once, without it the running one finishes its time first |
 | `WeatherResult` (`IKilnResult`) | value | `Ok`, `Reason`, `Layers` (as they are when it completes) |
-| `WeatherChangedEvent` | `[ServerOnly]`, tick thread | `Layer`, `Before`, `After`, `ByKiln` (Kiln started or ended something there), `Held`; read once a step from the first subscription on |
-| `Time.WeatherChoiceAvailable`, `Time.MaxWeatherDuration` (30 days) | any | |
+| `WeatherChangedEvent` | `[ServerOnly]`, tick thread | `Layer`, `Before`, `After`, `ByKiln` (Kiln's choice, a held roll, or the game's roll a release with `now` or a reset asked for), `Held`; one event per change, in order (kiln.time records each where it happens: A then B then A in one update is two events; a restart of the running phenomenon, a new instance, is one with `Before` equal to `After`); read once a step from the first subscription on |
+| `Time.WeatherChoiceAvailable`, `Time.MaxWeatherDuration` (30 days) | any | readiness is kiln.time's own flag, not a read of the layers |
 
 - The one error rule: a request the game did not run is a result with `Ok == false` and a reason (the server world
-  closed, its weather did not update for 10 s, the game's call faulted); a bad argument throws `ArgumentException` (an
+  closed, its weather did not update for 10 s, the game's call faulted, or the queue has no room for all its layers:
+  256 layer requests wait at most, and a request that does not fit is refused whole, nothing of it queued); a bad
+  argument throws `ArgumentException` (an
   unknown name, a phenomenon in no layer's roll, a layer that is not there, a duration not between 1 s and 30 days); a
   capability that is off throws `KilnUnavailableException("time.weather_choose")` (an older Kiln, a game build whose
   weather table is not known, or the weather has not run yet in this world).
 - It runs in the server's next weather update (the same frame as the next sim step, after it); the task completes in
-  the step after.
+  the step after. A mod that unloads meanwhile: the request still runs (kiln.time holds it under Kiln's own owner), the
+  events report it, and only the mod's task is never completed.
 - Weather is timed on the day/night clock (game time): a held clock speed (`Time.SetSpeed`) speeds it up too.
 - A duration is the time until the game rolls the layer again; the phenomenon's fade-out follows while the next one
   fades in (the game rolls when a run starts to fade, so Kiln adds the phenomenon's despawn fade to the game's override).
@@ -125,7 +128,12 @@ if (t && t->header.size >= sizeof(KilnTimeApi)) {                 // v2: the wea
 ```
 `weather_table` lists the game's phenomena (`KilnTimeWeatherPhenomenon`); a request's `phenomenon` must lie in the layer's
 range (`first .. first + count - 1`) or be `KILN_TIME_WEATHER_NOTHING`; `KILN_TIME_WEATHER_HOLD` holds it,
-`KILN_TIME_WEATHER_RELEASE` (+ `KILN_TIME_WEATHER_NOW`) hands a layer back.
+`KILN_TIME_WEATHER_RELEASE` (+ `KILN_TIME_WEATHER_NOW`) hands a layer back. `weather_set` returns
+`KILN_ERR_BUFFER_TOO_SMALL` when 256 requests wait (nothing queued); a request for several layers checks `weather_room()`
+first (only the tick thread adds, so the room it saw is still there). `weather_change_seq()` and
+`weather_changes(after_seq, ...)` give each change of a layer in order (`KilnTimeWeatherChange`: before and after, the
+instances, `by_kiln`, `held`; the newest 512 are kept). `KilnTimeState.weather_choice_ready` says, on any thread, whether
+`weather_set` takes a request now.
 Errors: `KILN_ERR_UNAVAILABLE` (no world yet / build lacks it), `KILN_ERR_WRONG_THREAD`, `KILN_ERR_INVALID_ARGUMENT`
 (non-finite scale, scale above 1000, NaN time, unknown mode).
 

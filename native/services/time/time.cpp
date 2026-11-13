@@ -199,6 +199,124 @@ bool weather_request_flags_ok(uint32_t flags, int64_t duration) {
     return !(flags & KILN_TIME_WEATHER_NOW);
 }
 
+constexpr uint32_t kWeatherQueueMax = 256;
+
+// The ordered changes of what each layer runs (KilnTimeWeatherChange, WeatherChangedEvent). The weather update looks at
+// the layers before, between and after Kiln's requests and the game's roll; each difference from what it saw last is
+// one record, so A then B then A in one update is two changes, and a restart (the same phenomenon, another instance)
+// is one. Any thread (one lock; the update and the tick thread never hold it while calling the game).
+class WeatherChanges {
+public:
+    static constexpr int32_t kUnseen = INT32_MIN;
+    static constexpr size_t kKeep = 512;
+
+    // A layer as it is now. The first look at a layer (or after forget) only remembers it. True: a change was recorded.
+    bool note(uint32_t layer, int32_t phen, uint32_t instance, bool by_kiln, bool held, int64_t now) {
+        if (layer >= kMaxWeatherLayers) return false;
+        std::lock_guard lock(mu_);
+        Seen& was = seen_[layer];
+        const bool first = was.phen == kUnseen;
+        const Seen before = was;
+        was = {phen, instance};
+        if (first || (before.phen == phen && before.instance == instance)) return false;
+        KilnTimeWeatherChange c{};
+        c.size = sizeof c;
+        c.layer = static_cast<uint8_t>(layer);
+        c.by_kiln = by_kiln ? 1 : 0;
+        c.held = held ? 1 : 0;
+        c.seq = ++seq_;
+        c.before = before.phen;
+        c.after = phen;
+        c.instance_before = before.instance;
+        c.instance_after = instance;
+        c.now_ns = now;
+        ring_.push_back(c);
+        if (ring_.size() > kKeep) ring_.erase(ring_.begin(), ring_.begin() + static_cast<std::ptrdiff_t>(ring_.size() - kKeep));
+        return true;
+    }
+
+    // Takes the layer's state as seen without a record (Kiln emptied it and the game rolls it next: that roll is the change).
+    void resync(uint32_t layer, int32_t phen, uint32_t instance) {
+        if (layer >= kMaxWeatherLayers) return;
+        std::lock_guard lock(mu_);
+        if (seen_[layer].phen != kUnseen) seen_[layer] = {phen, instance};
+    }
+
+    // The world closed: the next world's first look only remembers.
+    void forget() {
+        std::lock_guard lock(mu_);
+        for (Seen& x : seen_) x = {};
+    }
+
+    uint64_t last_seq() {
+        std::lock_guard lock(mu_);
+        return seq_;
+    }
+
+    KilnResult read(uint64_t after, KilnTimeWeatherChange* out, uint32_t cap, uint32_t item_size, uint32_t* count) {
+        if (count) *count = 0;
+        if (!count || (cap && !out) || item_size < sizeof(KilnTimeWeatherChange)) return KILN_ERR_INVALID_ARGUMENT;
+        std::lock_guard lock(mu_);
+        uint32_t n = 0;
+        for (const KilnTimeWeatherChange& c : ring_) {
+            if (c.seq <= after) continue;
+            if (n < cap) std::memcpy(reinterpret_cast<uint8_t*>(out) + static_cast<size_t>(n) * item_size, &c, sizeof c);
+            ++n;
+        }
+        *count = n;
+        return n > cap ? KILN_ERR_BUFFER_TOO_SMALL : KILN_OK;
+    }
+
+private:
+    struct Seen {
+        int32_t phen = kUnseen;
+        uint32_t instance = 0;
+    };
+    std::mutex mu_;
+    Seen seen_[kMaxWeatherLayers];
+    std::vector<KilnTimeWeatherChange> ring_;
+    uint64_t seq_ = 0;
+};
+
+// The queue of weather_set requests: at most kWeatherQueueMax; a full queue takes nothing (a refusal for now).
+template <class Op>
+class WeatherQueue {
+public:
+    KilnResult push(const Op& op) {
+        std::lock_guard lock(mu_);
+        if (ops_.size() >= kWeatherQueueMax) return KILN_ERR_BUFFER_TOO_SMALL;
+        ops_.push_back(op);
+        return KILN_OK;
+    }
+    uint32_t room() {
+        std::lock_guard lock(mu_);
+        return static_cast<uint32_t>(kWeatherQueueMax - ops_.size());
+    }
+    std::vector<Op> take() {
+        std::vector<Op> v;
+        std::lock_guard lock(mu_);
+        v.swap(ops_);
+        return v;
+    }
+    // Pre: the ones waiting longer than `older` end (out); the rest stay.
+    template <class F>
+    void expire(F&& too_old, std::vector<Op>* out) {
+        std::lock_guard lock(mu_);
+        for (auto it = ops_.begin(); it != ops_.end();) {
+            if (!too_old(*it)) {
+                ++it;
+                continue;
+            }
+            out->push_back(*it);
+            it = ops_.erase(it);
+        }
+    }
+
+private:
+    std::mutex mu_;
+    std::vector<Op> ops_;
+};
+
 #ifndef KILN_TIME_HOST_TEST
 
 const KilnApi* g_api = nullptr;
@@ -452,9 +570,49 @@ struct WeatherOp {
     KilnTimeWeatherDoneFn done;
     void* user;
 };
-std::mutex g_wmu;  // the two lists; never held while calling the game or a callback
-std::vector<WeatherOp> g_wops;
+std::mutex g_wmu;  // the finished list; never held while calling the game or a callback
+WeatherQueue<WeatherOp> g_wq;
 std::vector<std::pair<KilnTimeWeatherResult, WeatherOp>> g_wdone;
+WeatherChanges g_changes;
+std::atomic<bool> g_kiln_next[kMaxWeatherLayers];  // the game's next roll of the layer is Kiln's doing (release now, reset)
+std::atomic<bool> g_resync[kMaxWeatherLayers];     // Kiln emptied the layer outside the update: take it as seen
+
+// Each layer's phenomenon and instance now (the weather update, or the tick thread outside it). Plain data only (SEH).
+bool read_layer_states(uint8_t* ws, uint8_t* res, int32_t* phen, uint32_t* inst, uint32_t* count) {
+    __try {
+        const uint64_t layers_p = at<uint64_t>(ws, W.layers), n = at<uint64_t>(ws, W.count);
+        *count = 0;
+        for (uint32_t i = 0; layers_p && i < n && i < kMaxWeatherLayers; ++i) {
+            KilnTimeWeatherLayer tl{};
+            if (!weather_fill_layer(res, WT, i, &tl)) break;
+            uint8_t* L = reinterpret_cast<uint8_t*>(layers_p) + static_cast<uint64_t>(i) * W.stride;
+            phen[i] = weather_current(at<uint64_t>(L, WT.layer_phenomenon), tl.first, tl.count);
+            inst[i] = at<uint32_t>(L, W.cur);
+            *count = i + 1;
+        }
+        return true;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+
+// Records what changed since the last look. only < 0: every layer; else that one. kiln: Kiln's change; with
+// kiln_next the layers whose next roll is Kiln's doing count as Kiln's (the game's roll after a release now or a reset).
+void note_layers(uint8_t* ws, uint8_t* res, int64_t now, int only, bool kiln, bool kiln_next) {
+    if (!g_can_choose) return;
+    int32_t phen[kMaxWeatherLayers];
+    uint32_t inst[kMaxWeatherLayers], n = 0;
+    if (!read_layer_states(ws, res, phen, inst, &n)) return;
+    for (uint32_t i = 0; i < n; ++i) {
+        if (only >= 0 && static_cast<uint32_t>(only) != i) continue;
+        if (g_resync[i].exchange(false)) {
+            g_changes.resync(i, phen[i], inst[i]);
+            continue;
+        }
+        const bool by_kiln = kiln || (kiln_next && g_kiln_next[i].load());
+        if (g_changes.note(i, phen[i], inst[i], by_kiln, g_hold[i].load() != kNoHold, now) && kiln_next) g_kiln_next[i].store(false);
+    }
+}
 
 void clear_holds() {
     for (auto& h : g_hold) h.store(kNoHold);
@@ -562,11 +720,8 @@ int roll_held(uint8_t* ws, uint8_t* res, int64_t now) {
 }
 
 void weather_before_roll(uint8_t* ws, uint8_t* res, int64_t now) {
-    std::vector<WeatherOp> ops;
-    {
-        std::lock_guard lock(g_wmu);
-        ops.swap(g_wops);
-    }
+    note_layers(ws, res, now, -1, false, false);  // what changed outside the update (the game's weather states)
+    std::vector<WeatherOp> ops = g_wq.take();
     for (const WeatherOp& op : ops) {
         KilnTimeWeatherResult r = weather_result_of(op, KILN_TIME_WEATHER_DONE);
         char log[160] = "";
@@ -583,6 +738,13 @@ void weather_before_roll(uint8_t* ws, uint8_t* res, int64_t now) {
             logf(KILN_LOG_INFO, "time: weather layer %u: %s; now runs %d (instance %u), next roll at game time %lld ns "
                  "(clock %lld ns)", op.r.layer, log, r.current, r.instance, static_cast<long long>(r.next_ns),
                  static_cast<long long>(now));
+            const bool now_roll = (op.r.flags & KILN_TIME_WEATHER_RELEASE) && (op.r.flags & KILN_TIME_WEATHER_NOW);
+            if (now_roll && op.r.layer < kMaxWeatherLayers) {
+                // the layer is empty until the game rolls it later in this update: that roll is the change, and Kiln's
+                g_resync[op.r.layer].store(true);
+                g_kiln_next[op.r.layer].store(true);
+            }
+            note_layers(ws, res, now, static_cast<int>(op.r.layer), true, false);
         }
         std::lock_guard lock(g_wmu);
         g_wdone.emplace_back(r, op);
@@ -594,6 +756,7 @@ void weather_before_roll(uint8_t* ws, uint8_t* res, int64_t now) {
         clear_holds();
         logf(KILN_LOG_ERROR, "time: a held weather roll faulted; holds dropped, choosing the weather is off until a restart");
     } else if (rolled > 0) {
+        note_layers(ws, res, now, -1, true, false);
         g_held_rolls.fetch_add(static_cast<uint64_t>(rolled));
         logf(KILN_LOG_INFO, "time: %d held weather layer(s) rolled with Kiln's choice at game time %lld ns", rolled,
              static_cast<long long>(now));
@@ -605,6 +768,9 @@ void __fastcall hk_weather_layers(uint8_t* ws, uint8_t* res, int64_t now, void* 
         g_res.store(res, std::memory_order_relaxed);
         g_weather_now.store(now, std::memory_order_relaxed);
         weather_before_roll(ws, res, now);
+        g_layers_hook.call<void>(ws, res, now, params);
+        note_layers(ws, res, now, -1, false, true);  // the game's roll (Kiln's when a release now or a reset asked for it)
+        return;
     }
     g_layers_hook.call<void>(ws, res, now, params);
 }
@@ -703,13 +869,18 @@ KilnResult KILN_CALL weather_set(KilnOwner owner, const KilnTimeWeatherRequest* 
     op.submitted = g_step.load();
     op.done = done;
     op.user = user;
-    {
-        std::lock_guard lock(g_wmu);
-        if (g_wops.size() >= 256) return KILN_ERR_UNAVAILABLE;
-        g_wops.push_back(op);
-    }
+    if (g_wq.push(op) != KILN_OK) return KILN_ERR_BUFFER_TOO_SMALL;  // a refusal for now: nothing was queued
     if (out_ticket) *out_ticket = op.ticket;
     return KILN_OK;
+}
+
+uint32_t KILN_CALL weather_room() { return g_wq.room(); }
+
+uint64_t KILN_CALL weather_change_seq() { return g_changes.last_seq(); }
+
+KilnResult KILN_CALL weather_changes(uint64_t after, KilnTimeWeatherChange* out, uint32_t capacity, uint32_t item_size,
+                                     uint32_t* out_count) {
+    return g_changes.read(after, out, capacity, item_size, out_count);
 }
 
 bool guarded_weather_done(KilnTimeWeatherDoneFn fn, const KilnTimeWeatherResult* r, void* user) {
@@ -725,17 +896,14 @@ bool guarded_weather_done(KilnTimeWeatherDoneFn fn, const KilnTimeWeatherResult*
 void weather_pre(uint64_t step) {
     g_step.store(step);
     std::vector<std::pair<KilnTimeWeatherResult, WeatherOp>> done;
+    std::vector<WeatherOp> old;
+    g_wq.expire([step](const WeatherOp& op) { return step > op.submitted + kWeatherTimeoutSteps; }, &old);
     {
         std::lock_guard lock(g_wmu);
-        for (auto it = g_wops.begin(); it != g_wops.end();) {
-            if (step <= it->submitted + kWeatherTimeoutSteps) {
-                ++it;
-                continue;
-            }
-            KilnTimeWeatherResult r = weather_result_of(*it, KILN_TIME_WEATHER_DROPPED);
+        for (const WeatherOp& op : old) {
+            KilnTimeWeatherResult r = weather_result_of(op, KILN_TIME_WEATHER_DROPPED);
             std::snprintf(r.message, sizeof r.message, "the server's weather did not update for 10 s");
-            g_wdone.emplace_back(r, *it);
-            it = g_wops.erase(it);
+            g_wdone.emplace_back(r, op);
         }
         done.swap(g_wdone);
     }
@@ -749,13 +917,16 @@ void weather_pre(uint64_t step) {
 void weather_world_closed() {
     g_res.store(nullptr);
     clear_holds();
+    g_changes.forget();
+    for (auto& x : g_kiln_next) x.store(false);
+    for (auto& x : g_resync) x.store(false);
+    const std::vector<WeatherOp> left = g_wq.take();
     std::lock_guard lock(g_wmu);
-    for (const WeatherOp& op : g_wops) {
+    for (const WeatherOp& op : left) {
         KilnTimeWeatherResult r = weather_result_of(op, KILN_TIME_WEATHER_DROPPED);
         std::snprintf(r.message, sizeof r.message, "the server world closed");
         g_wdone.emplace_back(r, op);
     }
-    g_wops.clear();
 }
 
 // ---- table ----
@@ -784,6 +955,7 @@ KilnResult KILN_CALL get(KilnTimeState* out) {
     s.synced_counter = g_synced.load();
     uint8_t* ws = g_ws.load();
     s.weather_available = (g_can_weather && ws) ? 1 : 0;
+    s.weather_choice_ready = (g_can_choose && !g_choose_broken.load() && g_ws.load() && g_res.load()) ? 1 : 0;
     uint64_t layers = 0;
     if (ws) g_read_u64(ws + W.count, &layers);
     s.weather_layers = static_cast<uint32_t>(layers);
@@ -886,7 +1058,11 @@ KilnResult KILN_CALL reset_weather() {
         if (cur && g_call_remove(ws, cur)) ++removed;
         at<uint32_t>(L, W.cur) = 0;
         at<int64_t>(L, 0) = 0;  // nextPhenomenonTime: the next weather update re-rolls this layer
-        if (i < kMaxWeatherLayers) g_kiln_changes[i].fetch_add(1);  // WeatherChangedEvent: Kiln's change
+        if (i < kMaxWeatherLayers) {
+            g_kiln_changes[i].fetch_add(1);
+            g_resync[i].store(true);     // emptied here, outside the update: not a change of its own
+            g_kiln_next[i].store(true);  // the game's roll in the next update is (WeatherChangedEvent: by Kiln)
+        }
         logf(KILN_LOG_DEBUG, "time: weather layer %llu: next %lld, current 0x%x, previous 0x%x -> re-roll",
              static_cast<unsigned long long>(i), static_cast<long long>(next), cur, prev);
     }
@@ -982,7 +1158,8 @@ void KILN_CALL on_pre(const KilnTickInfo* tick, void*) {
 }
 
 const KilnTimeApi kTable = {{sizeof(KilnTimeApi), KILN_TIME_VERSION}, &get, &set_time_of_day, &reset_weather,
-                            &set_time_scale, &time_scale_hold, &weather_table, &weather_layers, &weather_set};
+                            &set_time_scale, &time_scale_hold, &weather_table, &weather_layers, &weather_set,
+                            &weather_room, &weather_change_seq, &weather_changes};
 
 bool sym(const char* name, uintptr_t* out) {
     return g_api->symbol(KilnStr{name, std::strlen(name)}, out) == KILN_OK;

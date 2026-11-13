@@ -14,7 +14,8 @@ extern "C" {
 #endif
 
 #define KILN_TIME_SERVICE "kiln.time"
-#define KILN_TIME_VERSION 2u  /* v2 (0.2.0-dev.27): weather_table, weather_layers, weather_set; check header.size */
+#define KILN_TIME_VERSION 2u  /* v2 (0.2.0-dev.27): weather_table, weather_layers, weather_set, weather_room, weather_change_seq,
+                                 weather_changes; check header.size */
 
 /* set_time_of_day modes */
 enum {
@@ -30,7 +31,9 @@ typedef struct KilnTimeState {
     uint32_t size;               /* sizeof(KilnTimeState) of the service that filled it */
     uint8_t is_day;              /* day phase (day_start <= time < night_start), as of the last sim step */
     uint8_t weather_available;   /* reset_weather can work (the server WeatherSystem was seen) */
-    uint8_t reserved[2];
+    uint8_t weather_choice_ready;/* v2: weather_set would take a request now (feature time.weather_choose, not switched
+                                    off, and the server's weather has updated in this world); any thread, as get */
+    uint8_t reserved;
     double hours;                /* time of day 0..24 at the current game clock (exact; reflects a set at once) */
     double hours_field;          /* the Daytime time-of-day field, written by the game once per sim step */
     double day_start_hours;      /* start of the day phase (6.0 by default) */
@@ -141,6 +144,24 @@ typedef struct KilnTimeWeatherResult {
 /* Tick thread, Pre of the step after the weather update that ran it. */
 typedef void(KILN_CALL* KilnTimeWeatherDoneFn)(const KilnTimeWeatherResult* result, void* user);
 
+/* One change of what a layer runs, in the order it happened: a phenomenon started (by Kiln's choice, a held roll, or the
+ * game's own roll or state), a restart of the same phenomenon (another instance), or a layer emptied. Kiln records them
+ * where they happen: before, between and after Kiln's requests and the game's roll in each weather update. A release
+ * that has the game roll now, and reset_weather, are recorded as the game's roll they cause, marked by_kiln. */
+typedef struct KilnTimeWeatherChange {
+    uint32_t size;            /* sizeof(KilnTimeWeatherChange) */
+    uint8_t layer;
+    uint8_t by_kiln;          /* 1: Kiln's choice, held roll, release now or reset caused it; 0: the game's own */
+    uint8_t held;             /* 1: Kiln holds the layer right after it */
+    uint8_t reserved;
+    uint64_t seq;             /* 1, 2, ... in the order the changes happened (all layers) */
+    int32_t before;           /* as KilnTimeWeatherLayer.current, before the change */
+    int32_t after;            /* ... and right after it */
+    uint32_t instance_before; /* the instances (equal phenomena with other instances: a restart) */
+    uint32_t instance_after;
+    int64_t now_ns;           /* the weather clock when it happened */
+} KilnTimeWeatherChange;
+
 typedef struct KilnTimeApi {
     KilnServiceHeader header; /* { sizeof(KilnTimeApi), KILN_TIME_VERSION } */
     /* Current state. Any thread (reads only). KILN_ERR_UNAVAILABLE until the world has been created. */
@@ -172,9 +193,21 @@ typedef struct KilnTimeApi {
     /* Queues a choice or a release for one layer; it runs in the server's next weather update (the same frame, after the
      * sim step) and `done` (optional) runs in the next Pre. KILN_ERR_INVALID_ARGUMENT: a layer or phenomenon outside
      * the table (a phenomenon must lie in the layer's range), a negative duration, unknown flags; KILN_ERR_UNAVAILABLE:
-     * no feature time.weather_choose, or the weather has not run yet; KILN_ERR_WRONG_THREAD off the tick thread. */
+     * no feature time.weather_choose, or the weather has not run yet; KILN_ERR_WRONG_THREAD off the tick thread;
+     * KILN_ERR_BUFFER_TOO_SMALL: 256 requests are waiting (a refusal for now; nothing was queued). A request for several
+     * layers checks weather_room first: only the tick thread adds to the queue, so the room it saw is still there. */
     KilnResult(KILN_CALL* weather_set)(KilnOwner owner, const KilnTimeWeatherRequest* request, KilnTimeWeatherDoneFn done,
                                        void* user, uint64_t* out_ticket);
+    /* How many more requests weather_set takes now (0..256). Any thread. */
+    uint32_t(KILN_CALL* weather_room)(void);
+    /* The seq of the newest KilnTimeWeatherChange (0: none yet). Any thread. */
+    uint64_t(KILN_CALL* weather_change_seq)(void);
+    /* The changes after `after_seq`, oldest first, `capacity` records of `item_size` bytes (at least
+     * sizeof(KilnTimeWeatherChange)). *out_count = how many there are (more than capacity: the first `capacity` are
+     * written, KILN_ERR_BUFFER_TOO_SMALL). The newest 512 are kept: a reader that falls further behind sees a gap in seq.
+     * Any thread. */
+    KilnResult(KILN_CALL* weather_changes)(uint64_t after_seq, KilnTimeWeatherChange* out, uint32_t capacity,
+                                           uint32_t item_size, uint32_t* out_count);
 } KilnTimeApi;
 
 #ifdef __cplusplus
