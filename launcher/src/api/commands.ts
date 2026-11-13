@@ -1168,7 +1168,7 @@ export const noticesShown = (gameId: GameId, lines: string[]) => call<null>("not
 export const profileRevert = (profileId: ProfileId, changes: ProfileChange[]) => call<Profile>("profile_revert", { profileId, changes });
 /** The active profile's activation; with no profile at all, makes "My mods" and activates it; null when profiles exist
  *  but none is active in this game. */
-export const profileEnsureDefault = (gameId: GameId) => call<Activation | null>("profile_ensure_default", { gameId });
+export const profileEnsureDefault = (gameId: GameId) => oneActivation(gameId, () => call<Activation | null>("profile_ensure_default", { gameId }));
 
 // engines.rs: other engines' mods (docs/kiln/engines.md)
 /** kiln_manage::engine_mods::EngineSettings. `format` "extended.mod.json" (ShroudForge: JSON Schema with x-kiln-* hints),
@@ -1437,7 +1437,7 @@ export const libraryAdd = (gameId: GameId, paths: string[]) => call<TaskId>("lib
 /** Puts library versions into the profile the player picked (after an add that said `libraryOnly`); the result is
  *  library_add's with an empty `import`, so Undo is profile_revert. */
 export const libraryAddToProfile = (gameId: GameId, profileId: ProfileId, entries: LibraryRef[]) =>
-  call<AddReport>("library_add_to_profile", { gameId, profileId, entries });
+  oneActivation(gameId, () => call<AddReport>("library_add_to_profile", { gameId, profileId, entries }));
 /** Rejects with game_running while a game runs, or a server whose profile file points into the library, even with force (it may be reading the mod).
  *  `shown`: the libraryUsers answer a confirmation named. Removal goes past exactly those; any other user is a conflict, whatever `force` says. */
 export const libraryRemove = (entry: LibraryRef, force = false, shown?: string[]) => call<null>("library_remove", { entry, force, shown: shown ?? null });
@@ -1475,7 +1475,8 @@ export const configKilnSet = (gameId: GameId, path: string, value: Json) => call
 export const configKilnReset = (gameId: GameId, path: string) => call<ConfigDocument>("config_kiln_reset", { gameId, path });
 
 // launch.rs
-export const launchPlay = (gameId: GameId, request: LaunchRequest) => call<LaunchResult>("launch_play", { gameId, request });
+/** Through the activation guard (./oneActivation.ts): the start applies the active profile again (refresh_active). */
+export const launchPlay = (gameId: GameId, request: LaunchRequest) => oneActivation(gameId, () => call<LaunchResult>("launch_play", { gameId, request }));
 export const launchState = (gameId: GameId) => call<BootState>("launch_state", { gameId });
 export const launchPrestart = (gameId: GameId) => call<PreStart | null>("launch_prestart", { gameId });
 

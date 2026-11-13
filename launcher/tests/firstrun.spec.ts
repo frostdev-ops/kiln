@@ -374,3 +374,29 @@ test("Make and add that fails after the profile was made keeps the drop, says so
   const p = await page.evaluate(async () => (await import("/src/api/commands.ts")).profileGet("night-run"));
   expect(Object.values(p.mods).flat().map((m) => [m.id, m.enabled])).toEqual([["night-owl", true]]);
 });
+
+// final review B1: Play re-applies the active profile before the start (launch_play's refresh_active): it goes through
+// the same one-activation guard, both ways
+test("Play while a profile is still loading is refused with the same sentence, and a Load while Play starts too", async ({ page }) => {
+  await start(page, null, "/settings");
+  const vanilla = page.getByRole("region", { name: "Profiles" }).getByRole("listitem").filter({ hasText: "Vanilla plus" });
+  await vanilla.getByRole("button", { name: "Load" }).click(); // the mock takes 1.5 s
+  const play = await page.evaluate(async () => {
+    const api = await import("/src/api/commands.ts");
+    try { await api.launchPlay("client-steam", { mode: "profile" }); return "started"; } catch (e) { return (e as { message: string }).message; }
+  });
+  expect(play).toBe("Kiln is still loading a profile in this game. Try again when that is done.");
+  await expect(vanilla).toContainText("Loaded", { timeout: 5000 });
+  // the other way: a Load while Play's start runs
+  await page.evaluate(() => (window as unknown as PlanMock).__kilnMock.planCommand("launch_play", { delay: 1500 }));
+  const load = await page.evaluate(async () => {
+    const api = await import("/src/api/commands.ts");
+    const starting = api.launchPlay("client-steam", { mode: "profile" });
+    let r: string;
+    try { await api.profileActivate("ember-run", "client-steam"); r = "loaded"; } catch (e) { r = (e as { message: string }).message; }
+    await starting.catch(() => {});
+    return r;
+  });
+  expect(load).toBe("Kiln is still loading a profile in this game. Try again when that is done.");
+  await expect.poll(async () => (await page.evaluate(async () => (await import("/src/api/commands.ts")).profileActive("client-steam")))?.profileId).toBe("vanilla-plus");
+});
