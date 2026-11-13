@@ -7,8 +7,10 @@
 # A build on a rolling distro needs its brand-new glibc (2.44 on the build machine in 2026-11) and fails everywhere else.
 #
 # The image is tagged kiln-linux-build:<first 12 hex of this file's sha256> (tools/release/linux-build/image.sh), so an
-# edit here makes a new image. Keep the versions in step with the host's (there is no rust-toolchain file): Rust is
-# the host's stable, bun the host's bun (2026-11-06: 1.99.1, 1.4.2). Advance APT_SNAPSHOT deliberately for security
+# edit here makes a new image. RUST_VERSION below is the release's Rust version: release.sh reads it from this file
+# and builds the Windows files on the host with the same toolchain (RUSTUP_TOOLCHAIN), so it is raised here and
+# nowhere else (the host needs that toolchain with the x86_64-pc-windows-msvc target; release.sh says how when it is
+# missing). bun is the host's bun (2026-11-06: 1.4.2). Advance APT_SNAPSHOT deliberately for security
 # updates (especially WebKitGTK); rebuilding an unchanged Dockerfile uses the same archive snapshot.
 
 # ubuntu:22.04 (jammy), pinned by the digest of its multi-arch index (2026-10-25 build)

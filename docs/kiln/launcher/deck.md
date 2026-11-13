@@ -107,7 +107,7 @@ an in-progress Hold action. A disabled focused control returns focus to the curr
 | Settings | Desktop UI (now), Start in (Auto / Deck mode / Desktop), Button glyphs, Fullscreen (Desktop Mode only), Launcher updates (check, install, restart; the Nexus Mods build instead: New versions, Nexus Mods, A opens the Kiln page there, no update check), Profile (the loaded one; A opens the list: load one, or No profile), Notes about mod folders (On/Off, the desktop's "Show notes about mod folders"), Mod notes (how many the last activation said; A opens them: [app.md](app.md) "Notices about mod folders"), Data folder (its path and size; A browses to a folder with `deck_browse`, "Use this folder", then the move or "use this one" in the Deck's dialogs, as on the desktop, [app.md](app.md) "The data folder"), Quit; the last line shows the version, what the detection saw and the controller | A |
 
 Text input is avoided everywhere. Where Steam needs typing (launch options), Help says Steam + X opens the keyboard.
-Notices are a short title and buttons.
+Notices are a short title and buttons. An error is a line at the top that goes after six seconds, with up to four lines of its text. One that needs more (a backend error that names several paths) opens as a dialog instead since dev.27: all its text, scrolled with the right stick, closed with A on OK or B; before, it ran off the screen's lower edge. A dialog never grows past the screen: its body scrolls.
 
 ### The Steam rule
 The launcher never writes Steam's files: no `shortcuts.vdf`, no `localconfig.vdf`, no launch options. Help gives the

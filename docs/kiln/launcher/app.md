@@ -118,7 +118,8 @@ time, so the launcher raises each sentence once per game (`shell/notices.ts`):
   at a later activation. While a sentence is open, a later activation adds no second copy of it (`openLines`). A
   failed report is not retried: the sentence comes again later. The memory is in the data folder
   (`installs/<id>.notices-seen.json`: hashes only, at most 512, the longest unsaid go first), so it survives a
-  restart and moves with the data folder. A new or changed sentence still comes. What does come stays until closed
+  restart and moves with the data folder. Two launchers on one data folder share it through a lock file next to it
+  (dev.27), so one's closed notices are not shown again by the other. A new or changed sentence still comes. What does come stays until closed
   ("Some mod folders were kept" with its paths and recovery steps, "Mod settings kept", "Notes on your mods"). A backend
   that cannot answer (an older one) gets the old behaviour: all of them.
 - **Notes (N)** above the main list (`components/FolderNotes.tsx`) opens what the last activation said, in three

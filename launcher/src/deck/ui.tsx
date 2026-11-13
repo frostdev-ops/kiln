@@ -1,8 +1,9 @@
 // Deck UI pieces: big focusable buttons and rows, the screen frame, dialogs (a layer each), hold-to-confirm, and the
 // toasts (top centre, a short title only; a notice that stays until closed is a dialog). Every control is a real <button>: A clicks it, a tap clicks it.
-import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { useToasts } from "../ui";
+import type { ToastItem } from "../ui/Toast";
 import { candidates, focusEl, focusFirst, focusable } from "./focus";
 import { useLayer, type DeckAction } from "./layers";
 
@@ -250,39 +251,83 @@ export function HoldButton({ children, onConfirm, disabled, id }: { children: Re
  *  fold of older ones) is a dialog instead, one at a time with all its text: the right stick scrolls it, A on OK or B
  *  closes it, so a pad alone can read and dismiss it. One dialog stays open while notices follow each other, so focus
  *  goes back where it was when the first came. An error folded into the earlier notices goes after 6 s on its own.
- *  A notice counts as seen (its `onClosed`) only when the player closes it: A on OK, or B. */
+ *  A notice counts as seen (its `onClosed`) only when the player closes it: A on OK, or B.
+ *  An error whose text does not fit the bar (three lines of title, four of detail) is such a dialog too: in the bar it
+ *  ran off the screen's lower edge, with nothing to scroll it and six seconds to read it. As a dialog it stays until
+ *  closed, also when it is folded into the earlier notices meanwhile. */
 export function DeckToaster() {
   const { items, dismiss, close } = useToasts();
+  // errors too long for the bar, by toast id, with the part that did not fit (BarToast measures; an id is never used twice)
+  const [long, setLong] = useState<ReadonlyMap<number, "title" | "detail">>(() => new Map());
+  const tooLong = (id: number, part: "title" | "detail") => setLong((prev) => (prev.has(id) ? prev : new Map(prev).set(id, part)));
   useEffect(() => {
-    const errs = items.flatMap((t) => (t.folded ? t.folded.filter((f) => f.kind === "err") : t.kind === "err" ? [t] : []));
+    // forget the ones that are gone (one folded into the earlier notices is still here)
+    const here = new Set(items.flatMap((t) => [t.id, ...(t.folded ?? []).map((f) => f.id)]));
+    setLong((prev) => ([...prev.keys()].every((id) => here.has(id)) ? prev : new Map([...prev].filter(([id]) => here.has(id)))));
+  }, [items]);
+  useEffect(() => {
+    const errs = items.flatMap((t) => (t.folded ? t.folded : [t])).filter((t) => t.kind === "err" && !t.folded && !long.has(t.id));
     if (!errs.length) return;
     const t = setTimeout(() => errs.forEach((e) => dismiss(e.id)), 6000);
     return () => clearTimeout(t);
-  }, [items, dismiss]);
-  const lasting = (t: (typeof items)[number]) => !!t.folded || (!!t.persistent && t.kind !== "err");
+  }, [items, dismiss, long]);
+  const lasting = (t: (typeof items)[number]) => !!t.folded || (!!t.persistent && t.kind !== "err") || long.has(t.id);
   const notice = items.find(lasting);
   const bar = items.filter((t) => !lasting(t));
   const times = notice && (notice.count ?? 1) > 1 ? ` (${notice.count} times)` : "";
+  // a long error whose title is the long text: the dialog's heading stays short, and the text is in the body, which scrolls
+  const titled = notice && long.get(notice.id) === "title";
   return (
     <>
       {bar.length > 0 && (
         <div className="deck-toasts" aria-live="polite">
-          {bar.slice(-2).map((t) => (
-            <div key={t.id} className={`deck-toast ${t.kind}`} role={t.kind === "err" ? "alert" : "status"} onClick={() => close(t.id)}>
-              <span className="deck-toast-title">{t.title}</span>
-              {t.kind === "err" && t.detail && <span className="deck-toast-detail">{t.detail}</span>}
-            </div>
-          ))}
+          {bar.slice(-2).map((t) => <BarToast key={t.id} t={t} onTooLong={tooLong} onClick={() => close(t.id)} />)}
         </div>
       )}
       {notice && (
-        <Dialog name="notice" title={typeof notice.title === "string" ? notice.title + times : <>{notice.title}{times}</>}
+        <Dialog name="notice"
+          title={titled ? "Something went wrong" + times : typeof notice.title === "string" ? notice.title + times : <>{notice.title}{times}</>}
           onClose={() => close(notice.id)} backLabel="Close"
           buttons={<DeckButton primary onClick={() => close(notice.id)}>OK</DeckButton>}>
-          {notice.detail && <div className="deck-scroll" data-deck-notice="" style={{ overflowWrap: "anywhere" }}>{notice.detail}</div>}
+          {(titled || notice.detail) && (
+            <div className="deck-scroll" data-deck-notice="" data-kind={notice.kind} style={{ overflowWrap: "anywhere" }}>
+              {titled && <div>{notice.title}</div>}
+              {notice.detail}
+            </div>
+          )}
         </Dialog>
       )}
     </>
+  );
+}
+
+/** One toast of the bar. An error's title gets three lines and its detail four (deck.css); when either needs more,
+ *  the toaster is told before the frame is painted and shows the error as a dialog instead. The text sits in an inner
+ *  element that is watched for growing later (a detail that is a component of its own can change without this one
+ *  rendering again). */
+function BarToast({ t, onTooLong, onClick }: { t: ToastItem; onTooLong: (id: number, part: "title" | "detail") => void; onClick: () => void }) {
+  const title = useRef<HTMLSpanElement>(null);
+  const detail = useRef<HTMLSpanElement>(null);
+  const err = t.kind === "err";
+  const measure = () => {
+    if (!err) return;
+    const over = (el: HTMLElement | null) => !!el && el.scrollHeight > el.clientHeight + 1;
+    if (over(title.current)) onTooLong(t.id, "title");
+    else if (over(detail.current)) onTooLong(t.id, "detail");
+  };
+  useLayoutEffect(measure);
+  useEffect(() => {
+    if (!err || typeof ResizeObserver === "undefined") return;
+    const watch = new ResizeObserver(measure);
+    for (const el of [title.current, detail.current]) if (el?.firstElementChild) watch.observe(el.firstElementChild);
+    return () => watch.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [err, t.id]);
+  return (
+    <div className={`deck-toast ${t.kind}`} role={err ? "alert" : "status"} onClick={onClick}>
+      <span ref={title} className="deck-toast-title"><span>{t.title}</span></span>
+      {err && t.detail && <span ref={detail} className="deck-toast-detail"><span>{t.detail}</span></span>}
+    </div>
   );
 }
 
