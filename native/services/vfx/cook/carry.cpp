@@ -147,24 +147,26 @@ bool only(const json& o, std::initializer_list<const char*> keys) {
     return true;
 }
 
-bool read_record(const json& o, MaterialRecord* r) {
-    if (!o.is_object() || !only(o, {"mod", "name", "definition", "age", "files", "maps", "check"})) return false;
+// Why a record is refused: null when it is taken.
+const char* read_record(const json& o, MaterialRecord* r) {
+    if (!o.is_object() || !only(o, {"mod", "name", "definition", "age", "files", "maps", "check"})) return "a record of the wrong shape";
     std::string check;
-    if (!str(o, "check", 64, &check)) return false;
+    if (!str(o, "check", 64, &check)) return "a record of the wrong shape";
     json bare = o;
     bare.erase("check");
-    if (record_check(bare) != check) return false;
+    if (record_check(bare) != check) return "a record whose checksum does not match";
+    const char* const shape = "a record of the wrong shape";
     uint64_t age = 0;
     if (!str(o, "mod", kMaxName, &r->mod) || !str(o, "name", kMaxName, &r->name) || !str(o, "definition", kMaxDefinition, &r->definition_text) ||
         !num(o, "age", kCarryIndexMaxAge, &age))
-        return false;
+        return shape;
     r->age = static_cast<uint32_t>(age);
     const json& files = o["files"];
     const json& maps = o["maps"];
-    if (!files.is_array() || files.size() > kMaxFiles || !maps.is_array() || maps.empty() || maps.size() > kMaxMaps) return false;
+    if (!files.is_array() || files.size() > kMaxFiles || !maps.is_array() || maps.empty() || maps.size() > kMaxMaps) return shape;
     for (const json& f : files) {
         ContentHash h;
-        if (!f.is_array() || f.size() != 2 || !f[0].is_string() || !f[1].is_string() || !parse_hash(f[1].get<std::string>(), &h)) return false;
+        if (!f.is_array() || f.size() != 2 || !f[0].is_string() || !f[1].is_string() || !parse_hash(f[1].get<std::string>(), &h)) return shape;
         r->files.emplace_back(f[0].get<std::string>(), h);
     }
     for (const json& m : maps) {
@@ -172,14 +174,14 @@ bool read_record(const json& o, MaterialRecord* r) {
         uint64_t slot = 0, w = 0, h = 0, fmt = 0;
         if (!m.is_object() || !only(m, {"slot", "what", "width", "height", "format", "key"}) || !num(m, "slot", 64, &slot) || !str(m, "what", 16, &map.what) ||
             !num(m, "width", 1u << 15, &w) || !num(m, "height", 1u << 15, &h) || !num(m, "format", 255, &fmt) || !str(m, "key", kMaxKey, &map.key))
-            return false;
+            return shape;
         map.slot = static_cast<uint32_t>(slot);
         map.width = static_cast<uint32_t>(w);
         map.height = static_cast<uint32_t>(h);
         map.format = static_cast<uint8_t>(fmt);
         r->maps.push_back(std::move(map));
     }
-    return record_ok(*r);
+    return record_ok(*r) ? nullptr : "a record with a path or key the rules refuse";
 }
 
 }  // namespace
@@ -230,7 +232,7 @@ bool read_carry_index(const std::string& text, const CarryHeader& header, std::v
         std::set<std::pair<std::string, std::string>> seen;
         for (const json& o : list) {
             MaterialRecord r;
-            if (!read_record(o, &r)) return *why = "a record that does not check out", false;
+            if (const char* refused = read_record(o, &r)) return *why = refused, false;
             if (!seen.insert({r.mod, r.name}).second) return *why = "a material twice", false;
             records.push_back(std::move(r));
         }

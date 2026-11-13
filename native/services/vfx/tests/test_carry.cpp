@@ -13,11 +13,27 @@
 #include <filesystem>
 #include <fstream>
 #include <map>
+#include <set>
+#include <atomic>
 #include <new>
 #include <string>
 #include <vector>
 
 #include "../cook/vfxcook.h"
+
+// Every operator new fails while armed: the lookup arms it before it throws, the progress callback (the first thing after the carry decision)
+// disarms it, so whatever the failure path allocates fails too.
+static std::atomic<bool> g_fail_alloc{false};
+void* operator new(std::size_t n) {
+    if (g_fail_alloc.load(std::memory_order_relaxed)) throw std::bad_alloc();
+    if (void* p = std::malloc(n ? n : 1)) return p;
+    throw std::bad_alloc();
+}
+void* operator new[](std::size_t n) { return ::operator new(n); }
+void operator delete(void* p) noexcept { std::free(p); }
+void operator delete[](void* p) noexcept { std::free(p); }
+void operator delete(void* p, std::size_t) noexcept { std::free(p); }
+void operator delete[](void* p, std::size_t) noexcept { std::free(p); }
 
 namespace fs = std::filesystem;
 using Clock = std::chrono::steady_clock;
@@ -92,6 +108,7 @@ struct Start {
     double ms = 0;
 };
 static bool g_throw_in_lookup = false;  // the index's lookup throws (out of memory while using it)
+
 static Start start(const kvb::ModInput& mod, const fs::path& cache, const std::string* index_in, const kvb::CarryHeader& header = kHeader) {
     Start s;
     kvb::CookOptions opt;
@@ -101,11 +118,15 @@ static Start start(const kvb::ModInput& mod, const fs::path& cache, const std::s
     std::vector<kvb::MaterialRecord> records, carried;
     std::map<std::pair<std::string, std::string>, size_t> at;
     opt.record_material = [&records](const kvb::MaterialRecord& r) { records.push_back(r); };
+    opt.progress = [](const std::string&, size_t, size_t, const char*, const std::string&, size_t, size_t) { g_fail_alloc = false; };
     if (index_in) {
         if (kvb::read_carry_index(*index_in, header, &carried, &s.index_why)) {
             for (size_t i = 0; i < carried.size(); ++i) at[{carried[i].mod, carried[i].name}] = i;
             opt.carried_material = [&](const std::string& m, const std::string& n, const std::string& def) -> const kvb::MaterialRecord* {
-                if (g_throw_in_lookup) throw std::bad_alloc();
+                if (g_throw_in_lookup) {
+                    g_fail_alloc = true;  // and the handler's own allocations fail as well
+                    throw std::bad_alloc();
+                }
                 const auto it = at.find({m, n});
                 return it != at.end() && carried[it->second].definition_text == def ? &carried[it->second] : nullptr;
             };
@@ -256,12 +277,67 @@ static kvb::MaterialRecord& rec(std::vector<kvb::MaterialRecord>& rs, const char
     return *std::find_if(rs.begin(), rs.end(), [&](const auto& r) { return r.name == name; });
 }
 
-// A start with `index` against one without it: the same output. Returns whether it was (counted by the caller).
-static bool same_as_without(const kvb::ModInput& mod, const fs::path& cache, const std::string& index) {
+// The index a start with `input` must write: what a start without any index writes (this start's records), and after them, as intended
+// history, every record of the input the reader accepted whose material this start did not have, one start older (dropped past
+// kCarryIndexMaxAge), the youngest first. An input the reader refused leaves no history.
+static std::string expected_index(const Start& without, const std::string& input) {
+    std::vector<kvb::MaterialRecord> now = records_of(without.index_out), before, history;
+    std::string why;
+    if (!kvb::read_carry_index(input, kHeader, &before, &why)) before.clear();
+    std::stable_sort(before.begin(), before.end(), [](const auto& a, const auto& b) { return a.age < b.age; });
+    for (const auto& r : before) {
+        if (r.age + 1 > kvb::kCarryIndexMaxAge || std::any_of(now.begin(), now.end(), [&](const auto& n) { return n.mod == r.mod && n.name == r.name; })) continue;
+        history.push_back(r);
+        history.back().age = r.age + 1;
+    }
+    now.insert(now.end(), history.begin(), history.end());
+    return kvb::carry_index_json(kHeader, now);
+}
+
+// Which check decided about an index (the reader's reason, else the cook's notes), for the counts.
+static std::string decided_by(const Start& with) {
+    if (!with.index_why.empty()) return "reader: " + with.index_why;
+    std::set<std::string> seen;
+    for (const std::string& n : with.r.carry_notes) {
+        if (n.find("not built at an earlier start") != std::string::npos) seen.insert("cook: no record for the definition");
+        else if (n.find("does not match what the definition") != std::string::npos) seen.insert("cook: the plan");
+        else if (n.find(" changed") != std::string::npos || n.find("cannot be read") != std::string::npos) seen.insert("cook: the files' bytes");
+        else if (n.find("no build of these inputs") != std::string::npos) seen.insert("cook: the binding");
+        else if (n.find("no longer holds") != std::string::npos) seen.insert("cook: the cache");
+        else seen.insert("cook: other");
+    }
+    if (seen.empty()) return with.r.materials_carried ? "taken as it is" : "nothing to take";
+    std::string out;
+    for (const auto& x : seen) out += (out.empty() ? "" : " + ") + x;
+    return out;
+}
+
+// A start with `index` against one without it: the same output, and the index written back is expected_index's. Returns whether it was.
+static bool same_as_without(const kvb::ModInput& mod, const fs::path& cache, const std::string& index, std::string* decided = nullptr) {
     const Start with = start(mod, cache, &index);
     const Start without = start(mod, cache, nullptr);
     std::string where;
-    return same_output(with.r, without.r, &where);
+    if (decided) *decided = decided_by(with);
+    return same_output(with.r, without.r, &where) && with.index_out == expected_index(without, index);
+}
+
+// The valid index's JSON with each record's checksum written again (as carry.cpp's record_check: the record without "check", sorted keys).
+static std::string resigned(ojson index) {
+    if (index.is_object() && index.contains("materials") && index["materials"].is_array())
+        for (auto& r : index["materials"]) {
+            if (!r.is_object()) continue;
+            nlohmann::json bare = nlohmann::json::parse(r.dump());
+            bare.erase("check");
+            const std::string text = bare.dump();
+            r["check"] = kvb::content_hash_text(kvb::content_hash(text.data(), text.size()));
+        }
+    return index.dump();
+}
+
+static ojson& record_json(ojson& index, const char* name) {
+    for (auto& r : index["materials"])
+        if (r["name"] == name) return r;
+    return index["materials"][0];
 }
 
 static void review_cases(const fs::path& root) {
@@ -357,44 +433,48 @@ static void review_cases(const fs::path& root) {
         one[0].definition_text = "{\"comment\":\"" + std::string(70 << 10, 'x') + "\"}";
         CHECK(kvb::read_carry_index(kvb::carry_index_json(kHeader, one), kHeader, &out, &why) && out.size() == 3);
     }
-    // 4. keys and paths that would leave their folders, 5. a file list that does not cover the inputs, 6. metadata that disagrees:
-    //    whether the reader refuses them or this start's plan does, the output is that of no index
-    struct Hostile {
-        const char* what;
-        void (*change)(std::vector<kvb::MaterialRecord>&);
-    };
-    const Hostile hostile[] = {
-        {"a key ../outside", [](auto& rs) { rec(rs, "m1").maps[0].key = "../outside"; }},
-        {"an absolute key", [](auto& rs) { rec(rs, "m1").maps[0].key = "/etc/passwd"; }},
-        {"a key of another size", [](auto& rs) { auto& m = rec(rs, "m1").maps[0]; m.width *= 2; }},
-        {"a file path ../x.png", [](auto& rs) { rec(rs, "m1").files[0].first = "../x.png"; }},
-        {"an absolute file path", [](auto& rs) { rec(rs, "m1").files[0].first = "/tmp/a.png"; }},
-        {"files [] (the PNG is still named)", [](auto& rs) { rec(rs, "m1").files.clear(); }},
-        {"another file in the list", [](auto& rs) { rec(rs, "m1").files[0].first = "tex/b.png"; }},
-        {"format 146 -> 145 (key to match)", [](auto& rs) {
-             auto& m = rec(rs, "m1").maps[1];
-             const auto cut = m.key.rfind("-f");
-             m.format = 145;
-             m.key = m.key.substr(0, cut) + "-f145-" + kvb::kEncoderVersion;
-         }},
-        {"two maps swapped", [](auto& rs) { std::swap(rec(rs, "m2").maps[0], rec(rs, "m2").maps[1]); }},
-        {"a slot changed", [](auto& rs) { rec(rs, "m2").maps[0].slot += 1; }},
-        {"a map left out", [](auto& rs) { rec(rs, "m2").maps.pop_back(); }},
-        {"another material's maps", [](auto& rs) { rec(rs, "m1").maps = rec(rs, "m3").maps; }},
-    };
-    for (const auto& h : hostile) {
-        std::vector<kvb::MaterialRecord> rs = records_of(index);
-        h.change(rs);
-        const std::string text = kvb::carry_index_json(kHeader, rs);  // a consistent record of its own (its checksum written for it)
-        const bool same = same_as_without(mod, cache, text);
-        std::printf("%-58s output %s\n", h.what, same ? "== without the index" : "DIFFERS");
-        CHECK(same);
-    }
+    // 4. keys and paths that would leave their folders, 5. a file list that does not cover the inputs, 6. metadata that disagrees: each
+    //    written straight into the index's JSON with the record's checksum written again (no writer in between), so that the check meant
+    //    for it is the one that refuses it
     {
+        const ojson valid = ojson::parse(index);
+        struct Hostile {
+            const char* what;
+            void (*change)(ojson&);
+        };
+        const Hostile hostile[] = {
+            {"a key ../outside", [](ojson& j) { record_json(j, "m1")["maps"][0]["key"] = "../outside"; }},
+            {"an absolute key", [](ojson& j) { record_json(j, "m1")["maps"][0]["key"] = "/etc/passwd"; }},
+            {"a key of another size (width doubled)", [](ojson& j) { auto& m = record_json(j, "m1")["maps"][0]; m["width"] = m["width"].get<uint32_t>() * 2; }},
+            {"a file path ../x.png", [](ojson& j) { record_json(j, "m1")["files"][0][0] = "../x.png"; }},
+            {"an absolute file path", [](ojson& j) { record_json(j, "m1")["files"][0][0] = "/tmp/a.png"; }},
+            {"files [] (the PNG is still named)", [](ojson& j) { record_json(j, "m1")["files"] = ojson::array(); }},
+            {"another file in the list", [](ojson& j) { record_json(j, "m1")["files"][0][0] = "tex/b.png"; }},
+            {"format 146 -> 145 (key to match)", [](ojson& j) {
+                 auto& m = record_json(j, "m1")["maps"][1];
+                 std::string key = m["key"];
+                 m["format"] = 145;
+                 m["key"] = key.substr(0, key.rfind("-f")) + "-f145-" + kvb::kEncoderVersion;
+             }},
+            {"two maps swapped", [](ojson& j) { auto& m = record_json(j, "m2")["maps"]; std::swap(m[0], m[1]); }},
+            {"a slot changed", [](ojson& j) { auto& m = record_json(j, "m2")["maps"][0]; m["slot"] = m["slot"].get<uint32_t>() + 1; }},
+            {"a map left out", [](ojson& j) { record_json(j, "m2")["maps"].erase(record_json(j, "m2")["maps"].size() - 1); }},
+            {"another material's maps", [](ojson& j) { record_json(j, "m1")["maps"] = record_json(j, "m3")["maps"]; }},
+            {"another material's key, same size", [](ojson& j) { record_json(j, "m1")["maps"][2]["key"] = record_json(j, "m3")["maps"][2]["key"]; }},
+        };
+        for (const auto& h : hostile) {
+            ojson j = valid;
+            h.change(j);
+            std::string decided;
+            const bool same = same_as_without(mod, cache, resigned(j), &decided);
+            std::printf("%-58s output %s; decided by %s\n", h.what, same ? "== without the index" : "DIFFERS", decided.c_str());
+            CHECK(same);
+            CHECK(decided.find("checksum") == std::string::npos && decided != "taken as it is");  // a deeper check refused it
+        }
         // 5 with the PNG gone: no index gives the missing-PNG error, and so does the index with files []
-        std::vector<kvb::MaterialRecord> rs = records_of(index);
-        rec(rs, "m1").files.clear();
-        const std::string text = kvb::carry_index_json(kHeader, rs);
+        ojson j = valid;
+        record_json(j, "m1")["files"] = ojson::array();
+        const std::string text = resigned(j);
         const fs::path moved = root / "a.png.moved";
         fs::rename(dir / "tex/a.png", moved);
         const Start with = start(mod, cache, &text);
@@ -402,6 +482,20 @@ static void review_cases(const fs::path& root) {
         std::string where;
         CHECK(same_output(with.r, without.r, &where) && !with.r.errors.empty());
         fs::rename(moved, dir / "tex/a.png");
+    }
+    // 3 (review): the history an index keeps is written back as intended: a record of a material this start does not have stays, a start older
+    {
+        std::vector<kvb::MaterialRecord> rs = records_of(index);
+        kvb::MaterialRecord gone = rs[0];
+        gone.name = "gone";
+        gone.age = 2;
+        rs.push_back(gone);
+        const std::string input = kvb::carry_index_json(kHeader, rs);
+        const Start with = start(mod, cache, &input);
+        const auto out = records_of(with.index_out);
+        const auto g = std::find_if(out.begin(), out.end(), [](const auto& r) { return r.name == "gone"; });
+        CHECK(out.size() == 5 && g != out.end() && g->age == 3);
+        CHECK(same_as_without(mod, cache, input));
     }
     // the property test: single mutations of the valid index, each compared with no index
     {
@@ -464,10 +558,29 @@ static void review_cases(const fs::path& root) {
         std::reverse(reordered["materials"].begin(), reordered["materials"].end());
         mutated.push_back(reordered.dump());
         mutated.push_back(index.substr(0, index.size() - 3));
-        size_t same = 0;
-        for (const std::string& m : mutated) same += same_as_without(mod, cache, m) ? 1 : 0;
-        std::printf("mutations of the valid index: %zu, each the output of no index: %zu\n", mutated.size(), same);
-        CHECK(same == mutated.size() && mutated.size() > 300);
+        size_t same = 0, runs = 0;
+        std::map<std::string, size_t> by[2];  // [0] the mutation as it is, [1] with its records' checksums written again
+        for (const std::string& m : mutated)
+            for (int resign = 0; resign < 2; ++resign) {
+                std::string text = m;
+                if (resign) {
+                    const ojson j = ojson::parse(m, nullptr, false);
+                    if (j.is_discarded()) continue;
+                    text = resigned(j);
+                }
+                std::string decided;
+                same += same_as_without(mod, cache, text, &decided) ? 1 : 0;
+                ++runs;
+                ++by[resign][decided];
+            }
+        std::printf("mutations of the valid index: %zu, run as they are and with their checksums written again: %zu runs, each the output (and "
+                    "the index written back) of no index: %zu\n",
+                    mutated.size(), runs, same);
+        for (int resign = 0; resign < 2; ++resign) {
+            std::printf("  %s:\n", resign ? "checksums written again" : "as they are");
+            for (const auto& [k, n] : by[resign]) std::printf("    %4zu  %s\n", n, k.c_str());
+        }
+        CHECK(same == runs && mutated.size() > 300);
     }
 }
 
