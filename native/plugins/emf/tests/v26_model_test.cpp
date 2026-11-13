@@ -27,15 +27,49 @@ static uint32_t fnv(const char* s) {
     return h;
 }
 
+static void test_note_rows() {
+    // every character is 10 wide: a row of at most 20 characters
+    const auto w = [](std::string_view t) { return static_cast<float>(t.size()) * 10.f; };
+    CHECK((note_rows("short", 200, 3, w) == std::vector<std::string>{"short"}));
+    CHECK((note_rows("", 200, 3, w).empty()));
+    CHECK((note_rows("   ", 200, 3, w).empty()));
+    CHECK((note_rows("one two three four five six", 200, 3, w) ==
+           std::vector<std::string>{"one two three four", "five six"}));
+    // more than three rows: the last row is cut at a word and says so
+    const auto rows = note_rows("aaaa bbbb cccc dddd eeee ffff gggg hhhh iiii jjjj kkkk llll mmmm nnnn oooo pppp", 200, 3, w);
+    CHECK(rows.size() == 3 && rows[0] == "aaaa bbbb cccc dddd" && rows[1] == "eeee ffff gggg hhhh" && rows[2] == "iiii jjjj kkkk ...");
+    for (const auto& r : rows) CHECK(w(r) <= 200);
+    // a word wider than a row stays whole (it is not split inside a UTF-8 character)
+    CHECK((note_rows("tiny averyveryverylongwordthatdoesnotfit end", 200, 3, w) ==
+           std::vector<std::string>{"tiny", "averyveryverylongwordthatdoesnotfit", "end"}));
+    CHECK((note_rows("a b", 200, 0, w).empty()));
+    // the row with the dots fits too: words go until it does, down to the dots alone
+    CHECK((note_rows("one two three", 80, 1, w) == std::vector<std::string>{"one ..."}));
+    CHECK((note_rows("one two three", 50, 1, w) == std::vector<std::string>{"..."}));
+    CHECK((note_rows("one two three", 10, 1, w) == std::vector<std::string>{"..."}));
+    CHECK((note_rows("one two three four five", 110, 2, w) == std::vector<std::string>{"one two", "three ..."}));
+    // line breaks and tabs are spaces: a note cannot make more rows than it is given
+    CHECK((note_rows("a\nb\r\nc\td", 200, 3, w) == std::vector<std::string>{"a b c d"}));
+    CHECK((note_rows("aaaaaaaaaa\nbbbbbbbbbb\ncccccccccc\ndddddddddd", 120, 3, w) ==
+           std::vector<std::string>{"aaaaaaaaaa", "bbbbbbbbbb", "..."}));
+}
+
 static void test_table() {
     CHECK(api_requirement((uint64_t{1} << 32) + 27) > EMF_API_VERSION);
     CHECK(api_requirement(UINT64_MAX) > EMF_API_VERSION);
     CHECK(api_requirement(0)==1 && api_requirement(26)==26);
     CHECK(api_size_for(21) == 592);
     CHECK(api_size_for(26) == 688);
-    CHECK(api_size_for(27) == sizeof(EmfApi));
-    CHECK(api_size_for(28) == 0);
-    CHECK(EMF_API_VERSION == 27);
+    CHECK(api_size_for(27) == 728);
+    // v28-v40 (EMF 0.6.3 to 0.6.8): EMF's own sizes, each a whole number of slots after the one before
+    const uint32_t sizes[] = {736, 752, 776, 808, 864, 920, 952, 992, 1000, 1016, 1040, 1064, 1088};
+    for (uint32_t v = 28; v <= 40; ++v) CHECK(api_size_for(v) == sizes[v - 28]);
+    CHECK(api_size_for(40) == sizeof(EmfApi));
+    CHECK(api_size_for(41) == 0);
+    CHECK(EMF_API_VERSION == 40);
+    // the "emf" gate of mod.json (mods.cpp refuses a requirement above the table's version)
+    CHECK(api_requirement(40) <= EMF_API_VERSION && api_requirement(41) > EMF_API_VERSION);
+    CHECK(kRemoveBuildingV36Size == 144 && kPathQueryV37Size == 52 && kEnemyOrderV39Size == 120 && kMoveOrderV40Size == 128);
     // the hashes are kiln.world's component_hash: FNV-1a of "keen::ecs::<Name>"
     CHECK(fnv("keen::ecs::ScaleComponent") == kScaleComponent);
     CHECK(fnv("keen::ecs::InteractionPause") == kInteractionPause);
@@ -506,6 +540,7 @@ int main() {
     test_offer_failures();
     test_queue_lifecycle();
     test_table();
+    test_note_rows();
     test_level();
     test_windows();
     test_images();

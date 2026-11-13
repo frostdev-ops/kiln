@@ -10,8 +10,9 @@ internal static class BakedFiles
     public const int MaxBytes = 4 << 20;
 
     /// <summary>The text of <paramref name="relative"/> under <paramref name="modDirectory"/>, or null: missing, outside the
-    /// folder, a link or reparse point on the way, more than <see cref="MaxBytes"/>, or changed while it was read.</summary>
-    public static string? Read(string modDirectory, string relative)
+    /// folder, a link or reparse point on the way, more than <paramref name="maxBytes"/> (<see cref="MaxBytes"/> for a baked
+    /// file; a mod's own data files have a limit of their own), or changed while it was read.</summary>
+    public static string? Read(string modDirectory, string relative, int maxBytes = MaxBytes)
     {
         try
         {
@@ -27,7 +28,7 @@ internal static class BakedFiles
                 if (!info.Exists || info.LinkTarget is not null || (info.Attributes & FileAttributes.ReparsePoint) != 0) return null;
             }
             using var f = new FileStream(full, FileMode.Open, FileAccess.Read, FileShare.Read, 1);
-            if (f.Length > MaxBytes) return null;
+            if (f.Length > maxBytes) return null;
             var buf = new byte[f.Length];
             var n = 0;
             while (n < buf.Length)

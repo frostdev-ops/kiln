@@ -35,5 +35,7 @@
     <ProjectReference Include="../Kiln.Ui/Kiln.Ui.csproj" Private="false" />
     <ProjectReference Include="../Kiln.Chat/Kiln.Chat.csproj" Private="false" />
     <ProjectReference Include="../Kiln.PlayerAnim/Kiln.PlayerAnim.csproj" Private="false" />
+    <!-- Affixes keep an item's rolls as item data (InstanceData) and read the server's copies in a player's game. -->
+    <ProjectReference Include="../Kiln.Saves/Kiln.Saves.csproj" Private="false" />
   </ItemGroup>
 </Project>

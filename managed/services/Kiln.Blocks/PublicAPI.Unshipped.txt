@@ -1,1 +1,199 @@
 #nullable enable
+Kiln.ActiveAffix
+Kiln.ActiveAffix.<Clone>$() -> Kiln.ActiveAffix!
+Kiln.ActiveAffix.ActiveAffix(string! Affix, string! Stat, double Value, Kiln.EntityId Item) -> void
+Kiln.ActiveAffix.Affix.get -> string!
+Kiln.ActiveAffix.Affix.init -> void
+Kiln.ActiveAffix.Deconstruct(out string! Affix, out string! Stat, out double Value, out Kiln.EntityId Item) -> void
+Kiln.ActiveAffix.Equals(Kiln.ActiveAffix? other) -> bool
+Kiln.ActiveAffix.Item.get -> Kiln.EntityId
+Kiln.ActiveAffix.Item.init -> void
+Kiln.ActiveAffix.Stat.get -> string!
+Kiln.ActiveAffix.Stat.init -> void
+Kiln.ActiveAffix.Value.get -> double
+Kiln.ActiveAffix.Value.init -> void
+Kiln.AffixBlock
+Kiln.AffixBlock.<Clone>$() -> Kiln.AffixBlock!
+Kiln.AffixBlock.AffixBlock() -> void
+Kiln.AffixBlock.Equals(Kiln.AffixBlock? other) -> bool
+Kiln.AffixBlock.Group.get -> string?
+Kiln.AffixBlock.Group.init -> void
+Kiln.AffixBlock.Name.get -> string!
+Kiln.AffixBlock.Name.init -> void
+Kiln.AffixBlock.Stacks.get -> bool
+Kiln.AffixBlock.Stacks.init -> void
+Kiln.AffixBlock.Stat.get -> Kiln.Stat!
+Kiln.AffixBlock.Stat.init -> void
+Kiln.AffixBlock.Tiers.get -> System.Collections.Generic.IReadOnlyList<Kiln.AffixTier!>!
+Kiln.AffixBlock.Tiers.init -> void
+Kiln.AffixEntry
+Kiln.AffixEntry.<Clone>$() -> Kiln.AffixEntry!
+Kiln.AffixEntry.Affix.get -> string!
+Kiln.AffixEntry.Affix.init -> void
+Kiln.AffixEntry.AffixEntry() -> void
+Kiln.AffixEntry.Equals(Kiln.AffixEntry? other) -> bool
+Kiln.AffixEntry.Weight.get -> double
+Kiln.AffixEntry.Weight.init -> void
+Kiln.AffixFile
+Kiln.AffixFile.<Clone>$() -> Kiln.AffixFile!
+Kiln.AffixFile.AffixFile(System.Collections.Generic.IReadOnlyList<Kiln.AffixHandle!>! Affixes, System.Collections.Generic.IReadOnlyList<Kiln.AffixPoolHandle!>! Pools) -> void
+Kiln.AffixFile.Affixes.get -> System.Collections.Generic.IReadOnlyList<Kiln.AffixHandle!>!
+Kiln.AffixFile.Affixes.init -> void
+Kiln.AffixFile.Deconstruct(out System.Collections.Generic.IReadOnlyList<Kiln.AffixHandle!>! Affixes, out System.Collections.Generic.IReadOnlyList<Kiln.AffixPoolHandle!>! Pools) -> void
+Kiln.AffixFile.Equals(Kiln.AffixFile? other) -> bool
+Kiln.AffixFile.Pools.get -> System.Collections.Generic.IReadOnlyList<Kiln.AffixPoolHandle!>!
+Kiln.AffixFile.Pools.init -> void
+Kiln.AffixHandle
+Kiln.AffixHandle.Block.get -> Kiln.AffixBlock!
+Kiln.AffixHandle.Id.get -> string!
+Kiln.AffixHandle.Mod.get -> string!
+Kiln.AffixHandle.Name.get -> string!
+Kiln.AffixPoolBlock
+Kiln.AffixPoolBlock.<Clone>$() -> Kiln.AffixPoolBlock!
+Kiln.AffixPoolBlock.AffixPoolBlock() -> void
+Kiln.AffixPoolBlock.Affixes.get -> System.Collections.Generic.IReadOnlyList<Kiln.AffixEntry!>!
+Kiln.AffixPoolBlock.Affixes.init -> void
+Kiln.AffixPoolBlock.Equals(Kiln.AffixPoolBlock? other) -> bool
+Kiln.AffixPoolBlock.Items.get -> System.Collections.Generic.IReadOnlyList<Kiln.ItemRef>?
+Kiln.AffixPoolBlock.Items.init -> void
+Kiln.AffixPoolBlock.Max.get -> int
+Kiln.AffixPoolBlock.Max.init -> void
+Kiln.AffixPoolBlock.Min.get -> int
+Kiln.AffixPoolBlock.Min.init -> void
+Kiln.AffixPoolHandle
+Kiln.AffixPoolHandle.Block.get -> Kiln.AffixPoolBlock!
+Kiln.AffixPoolHandle.Id.get -> string!
+Kiln.AffixPoolHandle.Mod.get -> string!
+Kiln.AffixPoolHandle.Name.get -> string!
+Kiln.AffixPoolHandle.Roll(Kiln.ItemInstanceRef item, System.Random? random = null, bool replace = false) -> Kiln.AffixResult!
+Kiln.AffixResult
+Kiln.AffixResult.<Clone>$() -> Kiln.AffixResult!
+Kiln.AffixResult.Affixes.get -> System.Collections.Generic.IReadOnlyList<Kiln.RolledAffix!>!
+Kiln.AffixResult.Equals(Kiln.AffixResult? other) -> bool
+Kiln.AffixResult.Item.get -> Kiln.ItemInstanceRef
+Kiln.AffixResult.Ok.get -> bool
+Kiln.AffixResult.Reason.get -> string?
+Kiln.AffixTier
+Kiln.AffixTier.<Clone>$() -> Kiln.AffixTier!
+Kiln.AffixTier.AffixTier() -> void
+Kiln.AffixTier.Equals(Kiln.AffixTier? other) -> bool
+Kiln.AffixTier.Max.get -> double
+Kiln.AffixTier.Max.init -> void
+Kiln.AffixTier.Min.get -> double
+Kiln.AffixTier.Min.init -> void
+Kiln.AffixTier.MinItemLevel.get -> int
+Kiln.AffixTier.MinItemLevel.init -> void
+Kiln.AffixTier.Step.get -> double?
+Kiln.AffixTier.Step.init -> void
+Kiln.AffixTier.Weight.get -> double
+Kiln.AffixTier.Weight.init -> void
+Kiln.Affixes
+Kiln.AffixesAppliedEvent
+Kiln.AffixesAppliedEvent.Before.get -> System.Collections.Generic.IReadOnlyList<Kiln.ActiveAffix!>!
+Kiln.AffixesAppliedEvent.Now.get -> System.Collections.Generic.IReadOnlyList<Kiln.ActiveAffix!>!
+Kiln.AffixesAppliedEvent.Wearer.get -> Kiln.EntityId
+Kiln.AffixesChangedEvent
+Kiln.AffixesChangedEvent.Before.get -> System.Collections.Generic.IReadOnlyList<Kiln.RolledAffix!>!
+Kiln.AffixesChangedEvent.Item.get -> Kiln.ItemInstanceRef
+Kiln.AffixesChangedEvent.Now.get -> System.Collections.Generic.IReadOnlyList<Kiln.RolledAffix!>!
+Kiln.RolledAffix
+Kiln.RolledAffix.<Clone>$() -> Kiln.RolledAffix!
+Kiln.RolledAffix.Affix.get -> string!
+Kiln.RolledAffix.Affix.init -> void
+Kiln.RolledAffix.Deconstruct(out string! Affix, out string! Name, out string! Stat, out int Tier, out double Value) -> void
+Kiln.RolledAffix.Equals(Kiln.RolledAffix? other) -> bool
+Kiln.RolledAffix.Name.get -> string!
+Kiln.RolledAffix.Name.init -> void
+Kiln.RolledAffix.RolledAffix(string! Affix, string! Name, string! Stat, int Tier, double Value) -> void
+Kiln.RolledAffix.Stat.get -> string!
+Kiln.RolledAffix.Stat.init -> void
+Kiln.RolledAffix.Text.get -> string!
+Kiln.RolledAffix.Tier.get -> int
+Kiln.RolledAffix.Tier.init -> void
+Kiln.RolledAffix.Value.get -> double
+Kiln.RolledAffix.Value.init -> void
+Kiln.RolledAffix.ValueText.get -> string!
+Kiln.SyncedAffixes
+Kiln.SyncedAffixes.<Clone>$() -> Kiln.SyncedAffixes!
+Kiln.SyncedAffixes.Affixes.get -> System.Collections.Generic.IReadOnlyList<Kiln.RolledAffix!>!
+Kiln.SyncedAffixes.Affixes.init -> void
+Kiln.SyncedAffixes.Deconstruct(out Kiln.EntityId Item, out Kiln.ItemId ItemType, out Kiln.EntityId Holder, out int FlatSlot, out bool Own, out System.Collections.Generic.IReadOnlyList<Kiln.RolledAffix!>! Affixes) -> void
+Kiln.SyncedAffixes.Equals(Kiln.SyncedAffixes? other) -> bool
+Kiln.SyncedAffixes.FlatSlot.get -> int
+Kiln.SyncedAffixes.FlatSlot.init -> void
+Kiln.SyncedAffixes.Holder.get -> Kiln.EntityId
+Kiln.SyncedAffixes.Holder.init -> void
+Kiln.SyncedAffixes.Item.get -> Kiln.EntityId
+Kiln.SyncedAffixes.Item.init -> void
+Kiln.SyncedAffixes.ItemType.get -> Kiln.ItemId
+Kiln.SyncedAffixes.ItemType.init -> void
+Kiln.SyncedAffixes.Own.get -> bool
+Kiln.SyncedAffixes.Own.init -> void
+Kiln.SyncedAffixes.SyncedAffixes(Kiln.EntityId Item, Kiln.ItemId ItemType, Kiln.EntityId Holder, int FlatSlot, bool Own, System.Collections.Generic.IReadOnlyList<Kiln.RolledAffix!>! Affixes) -> void
+[KILNX001]static Kiln.Affixes.LabStatus.get -> string!
+[KILNX001]static Kiln.Affixes.LabTrack(Kiln.EntityId wearer, bool on = true) -> void
+const Kiln.Affixes.DataKey = "affixes" -> string!
+const Kiln.Affixes.DataMod = "kiln-affixes" -> string!
+const Kiln.Affixes.MaxPerItem = 8 -> int
+override Kiln.ActiveAffix.Equals(object? obj) -> bool
+override Kiln.ActiveAffix.GetHashCode() -> int
+override Kiln.ActiveAffix.ToString() -> string!
+override Kiln.AffixBlock.Equals(object? obj) -> bool
+override Kiln.AffixBlock.GetHashCode() -> int
+override Kiln.AffixBlock.ToString() -> string!
+override Kiln.AffixEntry.Equals(object? obj) -> bool
+override Kiln.AffixEntry.GetHashCode() -> int
+override Kiln.AffixEntry.ToString() -> string!
+override Kiln.AffixFile.Equals(object? obj) -> bool
+override Kiln.AffixFile.GetHashCode() -> int
+override Kiln.AffixFile.ToString() -> string!
+override Kiln.AffixHandle.ToString() -> string!
+override Kiln.AffixPoolBlock.Equals(object? obj) -> bool
+override Kiln.AffixPoolBlock.GetHashCode() -> int
+override Kiln.AffixPoolBlock.ToString() -> string!
+override Kiln.AffixPoolHandle.ToString() -> string!
+override Kiln.AffixResult.Equals(object? obj) -> bool
+override Kiln.AffixResult.GetHashCode() -> int
+override Kiln.AffixResult.ToString() -> string!
+override Kiln.AffixTier.Equals(object? obj) -> bool
+override Kiln.AffixTier.GetHashCode() -> int
+override Kiln.AffixTier.ToString() -> string!
+override Kiln.RolledAffix.Equals(object? obj) -> bool
+override Kiln.RolledAffix.GetHashCode() -> int
+override Kiln.RolledAffix.ToString() -> string!
+override Kiln.SyncedAffixes.Equals(object? obj) -> bool
+override Kiln.SyncedAffixes.GetHashCode() -> int
+override Kiln.SyncedAffixes.ToString() -> string!
+static Kiln.ActiveAffix.operator !=(Kiln.ActiveAffix? left, Kiln.ActiveAffix? right) -> bool
+static Kiln.ActiveAffix.operator ==(Kiln.ActiveAffix? left, Kiln.ActiveAffix? right) -> bool
+static Kiln.AffixBlock.operator !=(Kiln.AffixBlock? left, Kiln.AffixBlock? right) -> bool
+static Kiln.AffixBlock.operator ==(Kiln.AffixBlock? left, Kiln.AffixBlock? right) -> bool
+static Kiln.AffixEntry.operator !=(Kiln.AffixEntry? left, Kiln.AffixEntry? right) -> bool
+static Kiln.AffixEntry.operator ==(Kiln.AffixEntry? left, Kiln.AffixEntry? right) -> bool
+static Kiln.AffixFile.operator !=(Kiln.AffixFile? left, Kiln.AffixFile? right) -> bool
+static Kiln.AffixFile.operator ==(Kiln.AffixFile? left, Kiln.AffixFile? right) -> bool
+static Kiln.AffixPoolBlock.operator !=(Kiln.AffixPoolBlock? left, Kiln.AffixPoolBlock? right) -> bool
+static Kiln.AffixPoolBlock.operator ==(Kiln.AffixPoolBlock? left, Kiln.AffixPoolBlock? right) -> bool
+static Kiln.AffixResult.operator !=(Kiln.AffixResult? left, Kiln.AffixResult? right) -> bool
+static Kiln.AffixResult.operator ==(Kiln.AffixResult? left, Kiln.AffixResult? right) -> bool
+static Kiln.AffixTier.operator !=(Kiln.AffixTier? left, Kiln.AffixTier? right) -> bool
+static Kiln.AffixTier.operator ==(Kiln.AffixTier? left, Kiln.AffixTier? right) -> bool
+static Kiln.Affixes.Active(Kiln.EntityId wearer) -> System.Collections.Generic.IReadOnlyList<Kiln.ActiveAffix!>!
+static Kiln.Affixes.Add(Kiln.ItemInstanceRef item, string! affix, int tier = 1, double? value = null, System.Random? random = null) -> Kiln.AffixResult!
+static Kiln.Affixes.Clear(Kiln.ItemInstanceRef item) -> bool
+static Kiln.Affixes.Define(string! name, Kiln.AffixBlock! block) -> Kiln.AffixHandle!
+static Kiln.Affixes.DefinePool(string! name, Kiln.AffixPoolBlock! block) -> Kiln.AffixPoolHandle!
+static Kiln.Affixes.Find(string! affix) -> Kiln.AffixHandle?
+static Kiln.Affixes.FindPool(string! pool) -> Kiln.AffixPoolHandle?
+static Kiln.Affixes.Load(string! json) -> Kiln.AffixFile!
+static Kiln.Affixes.Of(Kiln.ItemInstanceRef item) -> System.Collections.Generic.IReadOnlyList<Kiln.RolledAffix!>!
+static Kiln.Affixes.Remove(Kiln.ItemInstanceRef item, string! affix) -> bool
+static Kiln.Affixes.Roll(Kiln.ItemInstanceRef item, Kiln.AffixPoolHandle! pool, System.Random? random = null, bool replace = false) -> Kiln.AffixResult!
+static Kiln.Affixes.Set(Kiln.ItemInstanceRef item, System.Collections.Generic.IReadOnlyList<Kiln.RolledAffix!>! affixes) -> Kiln.AffixResult!
+static Kiln.Affixes.StatOf(Kiln.EntityId entity, Kiln.Stat! stat) -> System.Threading.Tasks.Task<double?>!
+static Kiln.Affixes.Synced(Kiln.EntityId item) -> System.Collections.Generic.IReadOnlyList<Kiln.RolledAffix!>?
+static Kiln.Affixes.SyncedItems() -> System.Collections.Generic.IReadOnlyList<Kiln.SyncedAffixes!>!
+static Kiln.RolledAffix.operator !=(Kiln.RolledAffix? left, Kiln.RolledAffix? right) -> bool
+static Kiln.RolledAffix.operator ==(Kiln.RolledAffix? left, Kiln.RolledAffix? right) -> bool
+static Kiln.SyncedAffixes.operator !=(Kiln.SyncedAffixes? left, Kiln.SyncedAffixes? right) -> bool
+static Kiln.SyncedAffixes.operator ==(Kiln.SyncedAffixes? left, Kiln.SyncedAffixes? right) -> bool

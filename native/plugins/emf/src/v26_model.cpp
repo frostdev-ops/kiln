@@ -22,8 +22,61 @@ uint32_t api_size_for(uint32_t version) {
         case 25: return kApiV25Size;
         case 26: return kApiV26Size;
         case 27: return kApiV27Size;
+        case 28: return kApiV28Size;
+        case 29: return kApiV29Size;
+        case 30: return kApiV30Size;
+        case 31: return kApiV31Size;
+        case 32: return kApiV32Size;
+        case 33: return kApiV33Size;
+        case 34: return kApiV34Size;
+        case 35: return kApiV35Size;
+        case 36: return kApiV36Size;
+        case 37: return kApiV37Size;
+        case 38: return kApiV38Size;
+        case 39: return kApiV39Size;
+        case 40: return kApiV40Size;
         default: return 0;
     }
+}
+
+std::vector<std::string> note_rows(std::string_view text, float max_width, size_t max_rows,
+                                   const std::function<float(std::string_view)>& width) {
+    std::vector<std::string> rows;
+    if (max_rows == 0) return rows;
+    // a line break, a tab or any other control character separates words as a space does: the rows are ours to make
+    const auto is_gap = [](char c) { return static_cast<unsigned char>(c) <= ' '; };
+    std::string row;
+    bool cut = false;
+    size_t i = 0;
+    while (i < text.size()) {
+        while (i < text.size() && is_gap(text[i])) ++i;
+        size_t j = i;
+        while (j < text.size() && !is_gap(text[j])) ++j;
+        if (j == i) break;
+        const std::string_view word = text.substr(i, j - i);
+        const std::string joined = row.empty() ? std::string(word) : row + " " + std::string(word);
+        if (row.empty() || width(joined) <= max_width) {
+            row = joined;
+        } else if (rows.size() + 1 < max_rows) {
+            rows.push_back(std::move(row));
+            row = std::string(word);
+        } else {
+            cut = true;
+            break;
+        }
+        i = j;
+    }
+    if (cut) {
+        // the last row ends with the dots and still fits: words go from its end until it does, all of them if need be
+        // (the dots alone are the least a cut note shows, even on a screen narrower than they are)
+        while (!row.empty() && width(row + " ...") > max_width) {
+            const size_t sp = row.rfind(' ');
+            row.resize(sp == std::string::npos ? 0 : sp);
+        }
+        row = row.empty() ? "..." : row + " ...";
+    }
+    if (!row.empty()) rows.push_back(std::move(row));
+    return rows;
 }
 
 // ============================================================================================= v22 =============

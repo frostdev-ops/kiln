@@ -2,7 +2,7 @@
   "id": "emf_net_probe",
   "name": "EMF v27 network lab probe",
   "version": "0.1.0",
-  "emf": 27,
+  "emf": 40,
   "side": "server",
   "dll": "emf_net_probe.dll"
 }

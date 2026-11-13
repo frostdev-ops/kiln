@@ -64,7 +64,12 @@ void pump(uint8_t *gc) {
     uint8_t *sys = nullptr;
     if (!seh_copy(&sys, gc + 0xF8, sizeof sys) || !sys)
         return;
-    if (g_game_client.exchange(gc) != gc)
+    // Another GameClient than the one the link talked through is a new connection: nothing of the last one stays (its
+    // welcome, its lines, a held greeting, the callbacks queued for it). The first GameClient since the game's start
+    // or since a world stop replaces nothing: the link is fresh (no marked line is taken before g_system is set here),
+    // and callbacks already queued for the client world that just began must stay.
+    uint8_t *const before = g_game_client.exchange(gc);
+    if (before && before != gc)
         net_client_reset();
     g_system = sys;
     auto lines = net_client_take(4);
@@ -132,14 +137,28 @@ void net_client_clear() {
     g_system = nullptr;
     g_game_client = nullptr;
 }
+// When the hooks take marked lines (g_active):
+//  - from the game's start: nothing of an earlier connection can exist yet, so a greeting that comes while the first
+//    joined game still loads is taken (and held until the game knows its own account);
+//  - never between a world's stop and the next client world's start: what the stopped connection's GameClient still
+//    flushes and what its server still sends must not be taken for the next connection, and without an identity of the
+//    connection from the engine nothing here could tell the two apart (the next GameClient may have the same address).
+//    A greeting that comes in that time stays in the game's chat and is not answered; the server greets once more;
+//  - from each client world's start on.
 void net_client_stop() {
     std::lock_guard dispatch(g_client_dispatch);
     g_active = false;
     net_client_clear();
 }
+// A client world began. When the hooks know a GameClient, the game pumped it while it loaded (the first join of a game
+// run): this is the same connection, and a new session on it. As in EMF's core, the last welcome and the lines waiting
+// to be sent go, but a greeting held while the game did not know its own account stays. Done here, under the hooks'
+// lock, not at the next pump: a second greeting that arrives between this and the next pump is answered, and a reset
+// after it would throw that answer away.
 void net_client_resume() {
     std::lock_guard dispatch(g_client_dispatch);
-    net_client_clear();
+    if (g_game_client.load())
+        net_client_new_world();
     g_active = g_ready.load();
 }
 

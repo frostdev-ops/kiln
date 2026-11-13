@@ -1,5 +1,5 @@
 /* This file is EMF's public C API header, copied unchanged (below the line) from EMF (Enshrouded Modding Framework)
- * 0.6.0, sdk/include/emf/emf_api.h, for kiln-emf.dll (native/plugins/emf), which builds an EmfApi v27 table on Kiln's
+ * 0.6.8, sdk/include/emf/emf_api.h, for kiln-emf.dll (native/plugins/emf), which builds an EmfApi v40 table on Kiln's
  * services so unmodified EMF mods load on Kiln. Also in licenses/EMF-LICENSE.txt.
  *
  * MIT License
@@ -24,7 +24,7 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  * SOFTWARE.
  * ------------------------------------------------------------------------------------------------------------------ */
-/* EMF (Enshrouded Modding Framework) C API, version 27 (see EMF_API_VERSION).
+/* EMF (Enshrouded Modding Framework) C API, version 40 (see EMF_API_VERSION).
  *
  * A mod is a DLL in <game>/emf/mods/ that exports:
  *     extern "C" __declspec(dllexport) bool emf_mod_load(const EmfApi* api);
@@ -52,7 +52,7 @@
 extern "C" {
 #endif
 
-#define EMF_API_VERSION 27
+#define EMF_API_VERSION 40
 
 /* World kinds (the byte at the entity storage + 8: world+0xE15DC8 on build 1273043, world+0xE179C8 on 1283531). */
 #define EMF_WORLD_SERVER 0
@@ -447,6 +447,399 @@ typedef struct EmfNetChannel {
     EmfNetCallback on_player;  /* a player's game's client world thread, after its step */
     void* user;
 } EmfNetChannel;
+
+/* v28 on_player: who joined, left or died on the server world (the host's game or a dedicated server) */
+#define EMF_PLAYER_JOINED 1u /* in the world and ready to play (the host's own player at once), once per arrival; 1 s
+                                after a world's load event everyone there (the host first, then by entity id) */
+#define EMF_PLAYER_LEFT   2u /* gone from the world; back as another entity: left, then joined. None when the world
+                                itself ends */
+#define EMF_PLAYER_DIED   3u /* a joined player died */
+typedef struct EmfPlayerEvent {
+    uint32_t size;     /* sizeof(EmfPlayerEvent) of the core */
+    uint32_t kind;     /* EMF_PLAYER_* */
+    uint64_t account;  /* the player's account (as player_account and the command sender give it) */
+    uint32_t player;   /* their entity in the server world (left: the one they had) */
+    uint32_t killer;   /* died: the root source of the last hit on them within 10 s (not themselves), else 0 */
+    uint8_t host;      /* 1 = the host's own player */
+    uint8_t pad[7];
+    char name[64];     /* their chat name (UTF-8), "" where players' chat is off or it is not known */
+} EmfPlayerEvent;
+typedef void (*EmfPlayerCallback)(EmfWorld* world, const EmfPlayerEvent* e, void* user);
+
+/* v31 hits: one landing hit on an entity, as the server world applies it (the game's applyHitToEntity and HitEvent) */
+typedef struct EmfHit {
+    uint32_t size;            /* sizeof(EmfHit) of the core */
+    uint32_t attacker;        /* the root source: the shooter of an arrow, the caster of a spell; 0 = none */
+    uint32_t source;          /* the direct source: a projectile, a trap, the attacker itself */
+    uint32_t target;          /* the actor hit (the part's owner, else the entity hit) */
+    uint32_t part;            /* the entity hit; == target for most hits */
+    int32_t amount;           /* health damage: > 0 damage, < 0 healing. Before the hit: writable */
+    int32_t stamina;          /* stamina damage of a blocked hit (a blocked or parried hit never changes health: its
+                                 amount is 0). Before the hit: writable */
+    uint32_t flags;           /* the game's hit flags: EMF_HIT_* */
+    uint16_t damage_types;    /* bit per type: 0 cut, 1 pierce, 2 blunt, 3 fire, 4 ice, 5 shroud, 6 lightning, 8 poison,
+                                 9 wood, 10 stone, 11 metal, 12 explosion */
+    uint8_t attacks;          /* the attack's kinds, a bit per kind: 1 melee, 2 ranged, 4 magic, 8 tool, 16 other,
+                                 32 area, 64 skill shot (the game's mask: most hits have one bit; 0 = none, as a
+                                 damage() hit) */
+    uint8_t kind;             /* EMF_HIT_KIND_*: 0 an entity hit; 1 fall, 2 shroud, 3 cold, 4 drowning (no attacker,
+                                 source, flags but EMF_HIT_INSTANT, types or attack kind; target = part) */
+    uint32_t weapon_category; /* the game's WeaponCategoryId hash, 0 = none */
+    uint32_t weapon_item;     /* the weapon's item id, 0 = none or not known */
+    uint32_t program;         /* the impact program (the attack, skill or spell) */
+    uint32_t impact;          /* the swing or projectile: hits of one share it */
+    uint16_t reaction;        /* the game's HitReactionType (0 none, 2 light ...). Before the hit: writable */
+    uint8_t target_faction;
+    uint8_t from_mod;         /* 1 = a damage() hit */
+    int32_t health_before;    /* the target's health before the hit, -1 = not known */
+    int32_t health_after;     /* after the hit: at delivery; before the hit: what it will be as the hit stands; -1 */
+    float position[3];        /* where it hit, metres */
+    uint8_t cancel;           /* before the hit: 1 = drop it silently (no damage, number, reaction, aggro or credit) */
+    uint8_t pad[3];
+} EmfHit;
+#define EMF_HIT_BLOCKED 0x1u
+#define EMF_HIT_PARRIED 0x2u
+#define EMF_HIT_CRIT 0x8u
+#define EMF_HIT_BACKSTAB 0x20u
+#define EMF_HIT_WEAKSPOT 0x40u
+#define EMF_HIT_KILLED 0x2000u   /* after the hit only: the killing blow (kinds 1-4: it left no health) */
+#define EMF_HIT_HEALING 0x4000u
+#define EMF_HIT_TERRAIN 0x8000u  /* the game's terrain and building hits: never passed to mods */
+#define EMF_HIT_BUILDING 0x10000u
+#define EMF_HIT_INSTANT 0x01000000u /* kinds 2 and 4: the game set health to 0 at once (deadly shroud; a creature out
+                                       of air) */
+#define EMF_HIT_KIND_HIT 0u      /* a landing entity hit */
+#define EMF_HIT_KIND_FALL 1u     /* fall damage, once per landing */
+#define EMF_HIT_KIND_SHROUD 2u   /* shroud damage, every server step while the shroud timer is out */
+#define EMF_HIT_KIND_COLD 3u     /* cold damage, every server step while body heat is 0 */
+#define EMF_HIT_KIND_DROWNING 4u /* drowning, every server step while oxygen is 0 */
+#define EMF_HIT_KINDS_ALL 0x1Fu  /* EmfHitRule.kinds: a bit per kind (1 << kind) */
+/* A rule the core applies to every landing hit before the hit callbacks, without calling the mod. */
+#define EMF_HIT_PLAYERS 0xFFFFFFF1u   /* attacker / target: any player */
+#define EMF_HIT_CREATURES 0xFFFFFFF2u /* any creature (not a player, has health) */
+#define EMF_HIT_OBJECTS 0xFFFFFFF3u   /* any placed object (Destructible) */
+/* v32 buffs: the game's own buffs and debuffs (potions, food, Wet, Poisoned, auras, terrain debuffs) */
+#define EMF_BUFF_FOOD 0u    /* EmfBuffType.slot / EmfBuff.slot: the slot group */
+#define EMF_BUFF_BUFF 1u
+#define EMF_BUFF_DEBUFF 2u
+#define EMF_BUFF_RESTED 3u
+#define EMF_BUFF_TERRAIN 4u
+#define EMF_BUFF_HIDDEN 0x01u           /* EmfBuffType.flags: not shown in the game's UI */
+#define EMF_BUFF_SAVED 0x02u            /* kept in the world save (potions, Wet, food); combat buffs are not */
+#define EMF_BUFF_DESPAWN_ON_DEATH 0x04u /* ends when its target dies (EMF does not check that a target is alive) */
+#define EMF_BUFF_FOOD_POISON 0x08u
+#define EMF_BUFF_SHOW_AS_TAG 0x10u      /* shown as a tag on an enemy's health bar */
+#define EMF_BUFF_APPLIED 1u             /* EmfBuffEvent.kind */
+#define EMF_BUFF_REFRESHED 2u           /* its timer started again (given again, a reset-time type) */
+#define EMF_BUFF_REMOVED 3u             /* cleansed (EmfBuffEvent.cleansed) or ended */
+#define EMF_BUFF_REFUSED 4u             /* a buff_apply / buff_remove that did not happen: EmfBuffEvent.why */
+typedef struct EmfBuffType {
+    uint32_t size;            /* sizeof(EmfBuffType) of the core */
+    uint32_t id;              /* the buff type id (stable: store ids, not indexes) */
+    uint8_t slot;             /* EMF_BUFF_FOOD .. EMF_BUFF_TERRAIN */
+    uint8_t apply_type;       /* given again: 0 refused, 1 its timer starts again, 2 and 3 replaced by a new one */
+    uint16_t faction_exclude; /* a bit per faction the type is never given to (bit 7 = players) */
+    uint32_t flags;           /* EMF_BUFF_HIDDEN ... */
+    int64_t default_ns;       /* its default time, nanoseconds */
+    uint32_t follow_up;       /* the type given when this one ends (Soaked -> Wet), 0 = none */
+    uint32_t name_tag;        /* the game's text tags of its name and description (0 = none): buff_text */
+    uint32_t desc_tag;
+    uint32_t pad;
+} EmfBuffType;
+typedef struct EmfBuff {      /* one active buff of an entity */
+    uint32_t size;            /* sizeof(EmfBuff) of the core */
+    uint32_t type;            /* its type id */
+    uint32_t entity;          /* the buff's own entity */
+    uint8_t slot;             /* EMF_BUFF_FOOD .. EMF_BUFF_TERRAIN */
+    uint8_t index;            /* its place in that slot group */
+    uint8_t cleansed;         /* 1: being removed (gone after the next step) */
+    uint8_t pad;
+    uint32_t level;           /* from its source's level, 0 = none */
+    uint32_t pad2;
+    int64_t total_ns;         /* its whole time, -1 = not known yet (the step it was given) */
+    int64_t remaining_ns;     /* the time left, -1 = not known yet */
+} EmfBuff;
+typedef struct EmfBuffEvent {
+    uint32_t size;            /* sizeof(EmfBuffEvent) of the core */
+    uint32_t kind;            /* EMF_BUFF_APPLIED, _REFRESHED, _REMOVED, _REFUSED */
+    uint32_t target;          /* the entity that has (had) the buff */
+    uint32_t type;
+    uint32_t buff_entity;     /* the buff's own entity, 0 when refused */
+    uint8_t slot;
+    uint8_t cleansed;         /* REMOVED: 1 cleansed (always for buff_remove; the game's own cleanses when seen) */
+    uint8_t replaced;         /* REMOVED: 1 when a new buff of this type took its place in the same step (given
+                                 again: a replace type); it comes before that APPLIED */
+    uint8_t pad;
+    int64_t total_ns;         /* -1 = not known (yet) */
+    int64_t remaining_ns;
+    const char* why;          /* REFUSED: why (valid during the callback); else NULL */
+} EmfBuffEvent;
+typedef void (*EmfBuffCallback)(EmfWorld* world, const EmfBuffEvent* ev, void* user);
+
+/* v33 markers: drawn by EMF on a player's game, over the 3D view and on the game's world map; a server sends them to
+ * players' games with marker_send (players need EMF). Positions in world metres: x east, y up, z north. */
+#define EMF_MARKER_WORLD 0x01u      /* EmfMarker.flags: drawn over the 3D view */
+#define EMF_MARKER_GAME_MAP 0x02u   /* on the game's map screen (EMF draws it there, with its text; with game_icon the
+                                       game's own icon of that type instead of the shape) */
+#define EMF_MARKER_EDGE_ARROW 0x04u /* off screen or behind: an arrow at the screen's edge */
+#define EMF_MARKER_DISTANCE 0x08u   /* the distance under the text ("42 m") */
+#define EMF_MARKER_MINIMAP 0x10u    /* v35: a canvas's EMF_CANVAS_MARKERS command draws it (a minimap) */
+#define EMF_MARKER_DIAMOND 0u       /* EmfMarker.shape, drawn when there is no icon */
+#define EMF_MARKER_CIRCLE 1u
+#define EMF_MARKER_SQUARE 2u
+#define EMF_MARKER_NONE 3u          /* text only */
+typedef struct EmfMarker {
+    uint32_t size;      /* sizeof(EmfMarker) */
+    uint32_t entity;    /* follow this entity (its position in the player's game; 0 = the fixed position x, y, z) */
+    const char* id;     /* 1-48 of A-Z a-z 0-9 _ . - : , per mod: set again = update */
+    double x, y, z;     /* the position (with entity: where it is drawn until the game knows the entity) */
+    const char* text;   /* the label, UTF-8, may be NULL; cut at 64 bytes */
+    float height;       /* metres above the position or the entity's origin */
+    float max_distance; /* fades out toward it and is hidden beyond it (metres from the player); 0 = no limit */
+    uint32_t rgba;      /* 0xRRGGBBAA of the shape (the icon's tint); 0 = the HUD's accent colour */
+    uint32_t icon;      /* a picture from image_load (v26) instead of the shape, 0 = the shape; local markers only */
+    uint32_t flags;     /* EMF_MARKER_WORLD ... */
+    uint8_t shape;      /* EMF_MARKER_DIAMOND ... */
+    uint8_t pad[3];
+    uint32_t game_icon; /* EMF_MARKER_GAME_MAP: a game map icon type (marker_types) drawn by the game, 0 = EMF's shape */
+    uint32_t pad2;
+} EmfMarker;
+#define EMF_MAP_TYPE_FAST_TRAVEL 0x01u /* EmfMapMarkerType.flags: a fast travel destination (shrines, altars) */
+#define EMF_MAP_TYPE_CUSTOM 0x02u      /* one of the types players place themselves */
+/* v34 the map screen's mouse, map actions, the ground under a spot */
+#define EMF_MAP_SHIFT 1u /* EmfMapClick.mods */
+#define EMF_MAP_CTRL 2u
+#define EMF_MAP_ALT 4u
+typedef struct EmfMapClick {
+    uint32_t size;   /* sizeof(EmfMapClick) of the core */
+    uint32_t button; /* 0 left, 1 right */
+    uint32_t mods;   /* EMF_MAP_SHIFT ... held with it */
+    uint32_t pad;
+    double x, z;     /* the spot, world metres */
+} EmfMapClick;
+typedef void (*EmfMapClickCallback)(const EmfMapClick* click, void* user);
+/* A map action a player did (on the server world's thread). */
+typedef struct EmfMapDone {
+    uint32_t size;      /* sizeof(EmfMapDone) of the core */
+    uint32_t player;    /* their entity in the server world */
+    uint8_t admin;      /* 1 = the host's own game, or an account in [chat] admins (everyone=1 too) */
+    uint8_t pad[7];
+    double x, z;        /* the spot, world metres, inside the world */
+    const char* action; /* the action's id; valid during the callback */
+} EmfMapDone;
+typedef void (*EmfMapActionCallback)(EmfWorld* world, const EmfMapDone* done, void* user);
+#define EMF_GROUND_OK 0u         /* EmfGround.status: y is the ground */
+#define EMF_GROUND_NOT_LOADED 1u /* nobody is near the spot: hop_y is a height over it where a player may be teleported
+                                    (the game loads the place around them); ask again once they are there */
+#define EMF_GROUND_FAILED 2u     /* why says why */
+#define EMF_FOG_NONE 0u          /* EmfGround.fog: the shroud a player standing there would be in */
+#define EMF_FOG_TEMPORARY 1u     /* shroud the players removed */
+#define EMF_FOG_DANGEROUS 2u     /* the shroud: its timer runs */
+#define EMF_FOG_DEATH 3u         /* deeper shroud than this world's progress allows: a player there dies */
+#define EMF_FOG_UNKNOWN 255u     /* not read (this game build, or it did not load in time) */
+typedef struct EmfGround {
+    uint32_t size;   /* sizeof(EmfGround) of the core */
+    uint32_t status; /* EMF_GROUND_* */
+    double x, y, z;  /* the spot; y: the ground (EMF_GROUND_OK), else 0 */
+    double hop_y;    /* EMF_GROUND_NOT_LOADED: see above; else 0 */
+    const char* why; /* not OK: why, in plain English ("" when OK); valid during the callback */
+    uint32_t fog;    /* OK: EMF_FOG_* at the spot (1 and 2 m over the ground, and 3 m around): the worst */
+    float deadly;    /* OK: the share of deadly shroud there, 0..1 (EMF_FOG_DEATH from 0.25) */
+    /* From EMF 0.6.8 (check size covers water_y): OK and 1 when the spot is under water at least 1 m deep; water_y is
+     * the water's surface (y stays the ground under it; fog is read at the surface). */
+    uint32_t water;
+    uint32_t pad;
+    double water_y;
+} EmfGround;
+/* The ground under a spot, once: on the server world's thread. */
+typedef void (*EmfGroundCallback)(EmfWorld* world, const EmfGround* ground, void* user);
+typedef struct EmfMapMarkerType {
+    uint32_t size;   /* sizeof(EmfMapMarkerType) of the core */
+    uint32_t id;     /* for EmfMarker.game_icon */
+    uint32_t flags;  /* EMF_MAP_TYPE_* */
+    uint32_t pad;
+    char name[48];   /* the game's internal name, NUL-terminated */
+} EmfMapMarkerType;
+
+/* v35 a minimap's parts: the player's view, the game's own map markers, canvases (drawing panels a mod owns). These
+ * four structs keep their layout in later versions (arrays of them are passed without an element size): what grows
+ * comes as new functions. */
+#define EMF_VIEW_CAMERA 1u /* EmfPlayerView.flags: camera_yaw_deg is set (a frame of the 3D view was seen) */
+typedef struct EmfPlayerView {
+    uint32_t size;        /* sizeof(EmfPlayerView) of the core */
+    uint32_t flags;       /* EMF_VIEW_CAMERA */
+    double x, y, z;       /* the local player, world metres */
+    float heading_deg;    /* where the player faces: 0 north (+z), 90 east (+x), 0..360 */
+    float camera_yaw_deg; /* where the camera looks, the same way */
+    float world_size;     /* the map's width and height in metres (10240 on Embervale) */
+    float pad;
+} EmfPlayerView;
+#define EMF_GAME_MARKER_SHOWN 1u /* EmfGameMarker.flags: the game's map shows it */
+typedef struct EmfGameMarker {
+    uint32_t size;  /* sizeof(EmfGameMarker) of the core */
+    uint32_t type;  /* the game's map icon type (EmfMarker.game_icon's numbers) */
+    uint32_t flags; /* EMF_GAME_MARKER_SHOWN */
+    uint32_t pad;
+    double x, y, z;
+} EmfGameMarker;
+#define EMF_CANVAS_TOP_LEFT 0u /* EmfCanvas.corner */
+#define EMF_CANVAS_TOP_RIGHT 1u
+#define EMF_CANVAS_BOTTOM_LEFT 2u
+#define EMF_CANVAS_BOTTOM_RIGHT 3u
+#define EMF_CANVAS_RECT 0u /* EmfCanvas.shape */
+#define EMF_CANVAS_CIRCLE 1u
+typedef struct EmfCanvas {
+    uint32_t size;   /* sizeof(EmfCanvas) */
+    uint8_t corner;  /* EMF_CANVAS_TOP_LEFT ...: x, y are measured from it, inward */
+    uint8_t shape;   /* EMF_CANVAS_RECT or EMF_CANVAS_CIRCLE: everything is clipped to the rectangle; with a circle the
+                        FOG cells and MARKERS stay inside it (the game's map and shapes do not: paint the corners) */
+    uint8_t hidden;  /* 1: kept, not drawn */
+    uint8_t pad;
+    float x, y, w, h; /* units of a 1080-pixel-high screen; w, h 8..1080 */
+} EmfCanvas;
+/* A canvas's drawing, in canvas units (0, 0 its top left .. w, h). rgba 0xRRGGBBAA. */
+#define EMF_CANVAS_RECT_CMD 1u /* a[0..3] x, y, w, h; a[4] line width (0 = filled) */
+#define EMF_CANVAS_CIRCLE_CMD 2u /* a[0..2] cx, cy, r; a[3] line width (0 = filled) */
+#define EMF_CANVAS_LINE 3u /* a[0..3] x1, y1, x2, y2; a[4] width */
+#define EMF_CANVAS_TRI 4u /* a[0..5] three points, filled */
+#define EMF_CANVAS_TEXT 5u /* a[0..1] x, y (its centre); a[2] size (units); s the text (UTF-8) */
+#define EMF_CANVAS_IMAGE 6u /* `image` a picture from image_load (v26); a[0..3] x, y, w, h; a[4..7] u0, v0, u1, v1; a[8] turn (degrees); rgba the tint */
+#define EMF_CANVAS_FOG 7u /* the fog of war: a[0..1] the world x, z at the canvas centre, a[2] metres per unit; rgba the unexplored colour */
+#define EMF_CANVAS_MARKERS 8u /* the markers flagged EMF_MARKER_MINIMAP: a[0..1] the world x, z at the centre, a[2] metres per unit */
+#define EMF_CANVAS_MAP 9u /* the game's own map (north up): a[0..1] the world x, z at the centre, a[2] metres per unit */
+typedef struct EmfCanvasCmd {
+    uint8_t kind; /* EMF_CANVAS_RECT_CMD ... */
+    uint8_t pad[3];
+    uint32_t rgba;
+    uint32_t image; /* IMAGE: a picture from image_load (v26); else 0 */
+    uint32_t pad2;
+    float a[10];
+    const char* s; /* TEXT: the text; else NULL */
+} EmfCanvasCmd;
+
+/* v36 remove_building: a placed object removed the way a player's pick-up does */
+#define EMF_REFUND_NONE 0u      /* nothing back */
+#define EMF_REFUND_DROP 1u      /* the item as a loose pickup at the object */
+#define EMF_REFUND_PLAYER 2u    /* into `player`'s inventory; a drop at the object when it does not fit */
+#define EMF_REMOVE_FORCE 0x01u  /* remove it even when it holds items (they drop at its spot); never a Flame Altar */
+typedef struct EmfRemoveBuilding {
+    uint32_t size;     /* sizeof(EmfRemoveBuilding) */
+    uint32_t entity;
+    uint32_t refund;   /* EMF_REFUND_* */
+    uint32_t player;   /* EMF_REFUND_PLAYER: who gets the item */
+    uint32_t flags;    /* EMF_REMOVE_* */
+    uint32_t refunded; /* out: the item id given back (0: none) */
+    char why[120];     /* out: why it was refused ("" when removed) */
+} EmfRemoveBuilding;
+
+/* v37 path_find: a path on the game's own path grid (it knows terrain, buildings, placed objects and doors) */
+#define EMF_PATH_WALK 0x0001u        /* the game's PathMoveType bits */
+#define EMF_PATH_JUMP_UP 0x0004u
+#define EMF_PATH_JUMP_DOWN 0x0008u
+#define EMF_PATH_JUMP_ACROSS 0x0010u
+#define EMF_PATH_OPEN_DOOR 0x0020u
+#define EMF_PATH_SWIM 0x0040u
+#define EMF_PATH_FOUND 1u     /* a path: see `reaches` (with `closest` it may end at the nearest reachable point) */
+#define EMF_PATH_NO_PATH 2u
+#define EMF_PATH_TOO_LONG 3u  /* the search ran out of nodes (raise max_nodes, or ask for a nearer point) */
+#define EMF_PATH_NO_START 4u  /* no path grid at `from` (not loaded: too far from players, or inside something) */
+#define EMF_PATH_NO_TARGET 5u
+#define EMF_PATH_NO_MEMORY 6u
+#define EMF_PATH_CANCELLED 7u /* path_cancel, the owner went, or the session ended */
+#define EMF_PATH_OTHER 8u     /* the game gave another answer, or none in time */
+/* v38 doors: door_state's answer, with flags */
+#define EMF_DOOR_NONE 0u    /* not a door (no ServerToggleState and DirectionalInteraction), or not the server world */
+#define EMF_DOOR_CLOSED 1u
+#define EMF_DOOR_OPEN 2u
+#define EMF_DOOR_LOCKED 0x10u /* flag: EMF holds it locked (no E prompt for anyone; kept with the world) */
+#define EMF_DOOR_LOGIC 0x20u  /* flag: a switch drives it (the logic system owns its state): EMF does not touch it */
+/* v39 enemy orders: a creature with an enemy AI sent at any entity for a while (a player, a creature, a door, a gate,
+ * a placed object). While it holds, the target is its pick with its target switches off and an alarmed entry in its
+ * aggro list, and an enemy at rest is put in its fight state: it walks up and attacks (seen: a Vukah walked 30 m to a
+ * door). The game's hits on a placed door do 0: `damage` adds to each of the enemy's hits on the target (a hit rule;
+ * seen: one hit with 200 broke a wooden door). Nothing is saved. */
+#define EMF_ORDER_ALLIES 0x1u /* the creature may be a player's ally (a tamed beast, faction PlayerAlly) */
+typedef struct EmfEnemyOrder {
+    uint32_t size;    /* sizeof(EmfEnemyOrder) */
+    uint32_t enemy;   /* the creature that attacks (it has DynamicAggro and SelectedTargets); never a player */
+    uint32_t target;  /* any entity with a position */
+    uint32_t flags;   /* EMF_ORDER_* */
+    float seconds;    /* how long; 0 = until the target is gone or dead, the enemy is gone, or it is cancelled */
+    int32_t damage;   /* > 0: added to each of the enemy's hits on the target (0..100000) */
+    char why[96];     /* refused: why (NUL-terminated) */
+} EmfEnemyOrder;
+typedef struct EmfPathQuery {
+    uint32_t size;        /* sizeof(EmfPathQuery) */
+    uint32_t owner;       /* an entity the query belongs to (the game needs one); 0 = the first player */
+    float from[3];        /* metres */
+    float to[3];
+    uint16_t moves;       /* EMF_PATH_*; 0 = walk */
+    uint8_t max_jump_up;  /* metres; 0 = no limit (the game's rule) */
+    uint8_t max_jump_down;
+    float width;          /* the room the unit needs, metres (0 = the game's default) */
+    float height;
+    uint8_t closest;      /* 1 = fall back to the closest reachable point (the game's march does this) */
+    uint8_t pad[3];
+    uint32_t max_nodes;   /* 0 = 2000; at most 20000 (the game's own default is 500) */
+} EmfPathQuery;
+typedef struct EmfPathPoint {
+    float x, y, z;
+    uint32_t move; /* how it is reached: 0 walk, 2 jump up, 3 jump down, 4 jump across, 5 a door */
+} EmfPathPoint;
+typedef struct EmfPathResult {
+    uint32_t size;    /* sizeof(EmfPathResult) */
+    uint32_t status;  /* EMF_PATH_FOUND ... */
+    uint8_t reaches;  /* 1: the last point is at `to` (within 1.5 m across and 3 m up or down) */
+    uint8_t pad[3];
+    uint32_t count;   /* points (at most 512) */
+    float length;     /* metres from `from` along the points */
+} EmfPathResult;
+typedef void (*EmfPathCallback)(EmfWorld* world, uint32_t id, const EmfPathResult* result, const EmfPathPoint* points,
+                                void* user);
+/* v40 move orders: a creature with the enemy AI (an enemy or a tamed beast) walked to points through the game's own
+ * guard order on a hidden waypoint EMF puts at each point in turn. It walks the game's way (its path, its jumps when its
+ * kind can jump) and may fight on the way; EMF_MOVE_PEACEFUL makes it ignore players. Afterwards it guards whom it
+ * guarded before (a tamed beast: its owner); any other creature that arrived lives there (its home is the last point).
+ * Nothing is saved. */
+#define EMF_MOVE_ALLIES 0x1u   /* the creature may be a player's ally (a tamed beast, faction PlayerAlly) */
+#define EMF_MOVE_PEACEFUL 0x2u /* its fights against players are cleared on the way */
+#define EMF_MOVE_ARRIVED 0u    /* EmfMoveCallback status: at the last point */
+#define EMF_MOVE_STUCK 1u      /* no metre of progress for 15 s while not fighting (a wall, no path, the game gave up) */
+#define EMF_MOVE_TIMEOUT 2u    /* its seconds ran out */
+#define EMF_MOVE_GONE 3u       /* the creature died or went (or became a player's ally without EMF_MOVE_ALLIES) */
+#define EMF_MOVE_CANCELLED 4u  /* enemy_move_cancel, a new move or enemy order on it, the world closing (world NULL) */
+typedef struct EmfMoveOrder {
+    uint32_t size;               /* sizeof(EmfMoveOrder) */
+    uint32_t enemy;              /* the creature (it has DynamicEnemy01BehaviorState); never a player or a boss */
+    uint32_t flags;              /* EMF_MOVE_* */
+    uint32_t count;              /* points: 1..16 */
+    const EmfPathPoint* points;  /* walked in order; x, y, z are read (move is ignored); path_find's points fit
+                                    (thin a longer path to 16) */
+    float arrive;                /* a point is reached within this many metres across (and that + 2 up or down), or
+                                    within the creature's guard distance + 1 m once it guards the waypoint (it stops
+                                    about 3 m short); 0 = 2; 0.5..50 */
+    float seconds;               /* 0 = no time limit (it still ends stuck); at most 3600 */
+    char why[96];                /* refused: why (NUL-terminated) */
+} EmfMoveOrder;
+typedef void (*EmfMoveCallback)(EmfWorld* world, uint32_t id, uint32_t status, void* user);
+
+typedef struct EmfHitRule {
+    uint32_t size;             /* sizeof(EmfHitRule) */
+    uint32_t attacker;         /* 0 = anyone, an entity, or EMF_HIT_PLAYERS / _CREATURES / _OBJECTS */
+    uint32_t target;           /* the same; an entity matches the actor hit or the part hit */
+    uint32_t flags_all;        /* the hit has all these EMF_HIT_* flags (EMF_HIT_CRIT: crits only) */
+    uint16_t damage_types_any; /* the hit has one of these damage types (EmfHit.damage_types bits); 0 = any */
+    uint8_t attacks;           /* the hit has one of these attack kinds (EmfHit.attacks bits); 0 = any */
+    uint8_t cancel;            /* 1 = cancel the hit */
+    float scale;               /* amount (and a blocked hit's stamina) *= scale; 1 = unchanged */
+    int32_t add;               /* then amount += add */
+    int32_t min_health;        /* > 0: the target keeps at least this much health (1 = cannot die from hits) */
+    uint8_t healing;           /* 0 = match damage hits only, 1 = healing hits only */
+    uint8_t kinds;             /* the kinds it is about, a bit each (1 << EMF_HIT_KIND_*); 0 = entity hits only */
+    uint8_t pad[2];
+} EmfHitRule;
+typedef void (*EmfHitBeforeCallback)(EmfWorld* world, EmfHit* hit, void* user);
+typedef void (*EmfHitCallback)(EmfWorld* world, const EmfHit* hit, void* user);
 
 /* v13 mod_info: what the loader found */
 #define EMF_MOD_LOADED 0u
@@ -986,7 +1379,222 @@ typedef struct EmfApi {
     /* The channel version a player's game has (server: world, player), or the server's (a player's game: NULL, 0); 0 =
      * none. */
     uint32_t (*net_peer)(EmfWorld* world, uint32_t player, const char* channel);
+
+    /* ---- v28: player events (EmfPlayerEvent above; reference.md "v28") ---- */
+    /* `cb` for each player who joins, leaves or dies on the server world (the host's game or a dedicated server; its
+     * thread, after its step). False for a null cb. "Died" needs the call before the first world starts (the game's
+     * events are wired then, as on_event's); later only joined and left come (logged). Any thread. */
+    bool (*on_player)(EmfPlayerCallback cb, void* user);
+
+    /* ---- v29: the game's item names and language (the game exe only: the dedicated server has no text) ---- */
+    /* The item's name as the game shows it, in the player's language. flags 0: for EMF's screens (windows, wheels, HUD
+     * lines, the console), English where they cannot draw the language's script (Japanese, Korean, Chinese, Thai);
+     * EMF_ITEM_NAME_GAME_TEXT: the player's language always (for the game's own chat). Copies at most size-1 bytes and a
+     * NUL into buf (UTF-8, markup removed); returns the name's full length in bytes, 0 when there is none (the dedicated
+     * server, before the game's text is known, an item without a name, an unknown item): use the debug name then. Any
+     * thread but the render thread. */
+    uint32_t (*item_name)(EmfWorld* world, uint32_t item_id, uint32_t flags, char* buf, uint32_t size);
+    /* The language the game shows text in: a keen::LanguageId (1 En_Us, 3 De_De, 11 Ja_Jp, ...; a language without a
+     * table reports En_Us), 0 on the dedicated server or before the game's text is known. code_out (may be NULL) gets
+     * "en_us", "de_de", ... ("" for 0). */
+    uint32_t (*game_language)(char* code_out, uint32_t size);
+
+    /* ---- v30: character names and chat lines without a speaker ---- */
+    /* The player's character name (the one the game's Social tab shows), UTF-8, cut to size-1 bytes and NUL-terminated.
+     * It may already be there at the join (from the character's last visit to this world) or come when the player's game
+     * sends it, a few seconds later, and it can change during a session: read it when you need it, never cache it. It is
+     * display text a player's game set, not an identity: key data by the account. A player's grave carries the name too.
+     * False (buf = "") when it is not known, for an entity without one, or on a client world. Server world (a game you
+     * host or the dedicated server; players' chat need not be on); same thread rules as get_component. */
+    bool (*player_character_name)(EmfWorld* world, uint32_t player, char* buf, uint32_t size);
+    /* chat_tell with flags: EMF_CHAT_SYSTEM shows the line without a speaker's name (the game's session-info line, as for
+     * a player joining), still only to that player, also on a server with text chat off; a prefix in the text ("[Raid] ")
+     * is the only label there is. 0: chat_tell. Other bits: refused (logged). Players without EMF see it the same way. */
+    bool (*chat_tell_ex)(EmfWorld* world, uint32_t player, const char* text, uint32_t flags);
+    /* chat_broadcast with flags, as chat_tell_ex. */
+    bool (*chat_broadcast_ex)(const char* text, uint32_t flags);
+
+    /* ---- v31: hits (EmfHit, EmfHitRule; server world only: the host's game or the dedicated server) ---- */
+    /* `cb` after the server world's step, on its thread, once for each hit the server applied to an entity, from the
+     * game's HitEvent: the final numbers, EMF_HIT_KILLED on the killing blow, health_after = the entity's health then
+     * (health_before -1). Not for terrain or building hits; a joined player's game sees none. Works on any game build
+     * where on_event works. False for a null cb or 16 already (logged). */
+    bool (*on_hit)(EmfHitCallback cb, void* user);
+    /* `cb` inline for each landing entity hit on the server world, after the rules and before the game applies it:
+     * change amount, stamina, reaction or cancel. It runs on the game's impact thread inside the world's step: be fast,
+     * change only the hit, read only the hit's entities (their Health, Stamina, Mana); no spawn, kill or component
+     * writes; damage() only queues. Once per hit, also for a target of several parts. A faulting callback is switched
+     * off. False when the hook is not available on this game build, for a null cb or 16 already (logged). */
+    bool (*on_hit_before)(EmfHitBeforeCallback cb, void* user);
+    /* A rule the core applies to every landing entity hit before the on_hit_before callbacks, in id order, without
+     * calling the mod (EmfHitRule; emf::hit_rule() in C++ fills the defaults). Its id, or 0 when refused (logged: a bad
+     * rule, 64 rules already, the hook not available on this game build). Any thread; it counts from the next hit. */
+    uint32_t (*hit_rule_add)(const EmfHitRule* rule);
+    bool (*hit_rule_remove)(uint32_t id);  /* false: no rule with that id */
+
+    /* ---- v32: buffs (EmfBuffType, EmfBuff, EmfBuffEvent) ---- */
+    /* The game's buff types in `world` (any world kind): the number there is; fills `out` up to `cap` (out may be
+     * NULL to count). 0 when the world's buff registry cannot be read. Where no program runs (on_tick, commands). */
+    uint32_t (*buff_types)(EmfWorld* world, EmfBuffType* out, uint32_t cap);
+    bool (*buff_type)(EmfWorld* world, uint32_t id, EmfBuffType* out);  /* false: no such type */
+    /* A type's name (which 0) or description (which 1) in the player's language, NUL-terminated (cut to fit). The
+     * game's text: the game only, not the dedicated server (false there, for no text or a 0 tag). Not on the render
+     * thread. */
+    bool (*buff_text)(uint32_t id, uint32_t which, char* buf, uint32_t cap);
+    /* An entity's active buffs on any world (server or client: they are replicated), in slot order: the number there
+     * is; fills `out` up to `cap`. Where no program runs. */
+    uint32_t (*buffs_of)(EmfWorld* world, uint32_t entity, EmfBuff* out, uint32_t cap);
+    /* Gives `target` a buff on the server world (the host's game or the dedicated server) through the game's own buff
+     * code in the next step: its slot, giving again (timer, replace or refused), faction exclusions, effects, HUD icon,
+     * saving. duration_ns 0 = the type's default; source 0 = the target (damage over time scales from the source's
+     * stats: give a creature as source); item: an item type id (find_item; not an item entity), 0 = none (food types
+     * take their stats and time from the eaten item); an unknown item id is refused.
+     * `done` (may be NULL) after that step on the server world's thread: APPLIED or REFUSED with why. False when
+     * refused at once (logged): not the server world, an unknown type, 64 waiting, not available on this game build. */
+    bool (*buff_apply)(EmfWorld* world, uint32_t target, uint32_t type, int64_t duration_ns, uint32_t source,
+                       uint32_t item, EmfBuffCallback done, void* user);
+    /* Removes `target`'s buff of that type the game's way (cleansed: its effects stop, it is gone after the next
+     * step). `done` as buff_apply: REMOVED, or REFUSED ("not there"). */
+    bool (*buff_remove)(EmfWorld* world, uint32_t target, uint32_t type, EmfBuffCallback done, void* user);
+    /* `cb` after each server step on its thread for every change of a player's buffs, whoever made it: APPLIED,
+     * REFRESHED, REMOVED (not REFUSED). From a comparison with the step before (the first sight of a player says
+     * nothing). False for a null cb or 16 already. */
+    bool (*on_buff)(EmfBuffCallback cb, void* user);
+
+    /* ---- v33: markers (EmfMarker, EmfMapMarkerType) ---- */
+    /* Sets (or updates) the calling mod's marker `m->id` on this game: over the 3D view (EMF_MARKER_WORLD) and/or on
+     * the game's world map (EMF_MARKER_GAME_MAP). Any thread. False (logged once per kind) for a bad id or numbers,
+     * the mod's 257th marker or the game's 1025th, or where no game draws (the dedicated server). */
+    bool (*marker_set)(const EmfMarker* m);
+    bool (*marker_remove)(const char* id);  /* false: the mod has no such marker */
+    uint32_t (*marker_clear)(void);         /* the mod's own markers on this game; how many were removed */
+    /* The game's map icon types for EmfMarker.game_icon that this world's own map entries used so far (id only: the
+     * name is empty): the number there is; fills `out` up to `cap` (may be NULL to count). 0 before the map list was
+     * seen, on the dedicated server, or where the game's list cannot be read. */
+    uint32_t (*marker_types)(EmfMapMarkerType* out, uint32_t cap);
+    /* A world point in display pixels with the camera of the newest frame: false when it is behind the camera or no
+     * frame is known yet (a menu, a loading screen, the dedicated server). Any thread. */
+    bool (*world_to_screen)(double x, double y, double z, float* px, float* py);
+    /* Server (the host's game or the dedicated server): sends markers to one player's game (player = their entity in
+     * the server world) or to every player (0), as if that game's mod had set them; a followed entity's position is
+     * refreshed while it is too far for that game to know. How many players it went to (players without EMF get
+     * nothing). At most 256 per call. */
+    uint32_t (*marker_send)(uint32_t player, const EmfMarker* m, uint32_t count);
+    uint32_t (*marker_unsend)(uint32_t player, const char* id);  /* removes a sent marker from that game (0 = all) */
+
+    /* ---- v34: the map screen's mouse, map actions, the ground (EmfMapClick) ---- */
+    /* The world x, z under the mouse while the game's map is open: false when it is not, or the mouse is off the map. */
+    bool (*map_cursor)(double* x, double* z);
+    /* `cb` for each click on the map screen of this game (the game gets it too), on the game window's thread (its
+     * window procedure: keep it short, do not call the game). False for a null
+     * cb or 16 already. */
+    bool (*on_map_click)(EmfMapClickCallback cb, void* user);
+    /* Server end (the host's game or the dedicated server): a map action players do by holding Shift and the left mouse
+     * button on their map for hold_ms (0 = 1000; a ring fills at the mouse; the game does not get that click). EMF on
+     * each player's game does the gesture and sends the spot; `cb` gets the player and x, z on the server world's
+     * thread. Players need EMF on their game. An id again replaces it; a null cb removes the caller's action with that id
+     * (false: it had none). False: a bad id (1-48 of A-Z a-z 0-9 _ . - :), 16 actions already, or no mod messages on
+     * this build. */
+    bool (*map_action)(const char* id, const char* label, uint32_t hold_ms, EmfMapActionCallback cb, void* user);
+    /* Server world: the ground under (x, z), found with the game's voxel ray after the next steps (the place may need
+     * loading: up to a few seconds); `cb` once with the answer. False when refused at once: not the server world, x, z
+     * outside the world, 64 waiting, or not available on this game build. */
+    bool (*ground_at)(EmfWorld* world, double x, double z, EmfGroundCallback cb, void* user);
+
+    /* ---- v35: a minimap's parts (EmfPlayerView, EmfGameMarker, EmfCanvas) ---- */
+    /* The local player's position, heading and camera yaw, and the map's size: false on the dedicated server, at the
+     * main menu and before the player is known. Set out->size to sizeof(EmfPlayerView) first. Any thread. */
+    bool (*player_view)(EmfPlayerView* out);
+    /* The fog of war at (x, z) on this game's map: 0 unexplored .. 1 explored. False without it (the dedicated server,
+     * before a world, or the first moment after a mod asks: EMF reads it while a canvas exists or a mod asked in the
+     * last 10 s). Any thread (a copy refreshed twice a second). */
+    bool (*fog_at)(double x, double z, float* explored);
+    /* The game's own map markers in this game's world (altars, shrines, places found), as its map list had them last:
+     * how many there are; fills `out` up to `cap` (may be NULL to count). At most 512. */
+    uint32_t (*map_markers)(EmfGameMarker* out, uint32_t cap);
+    /* A canvas: a drawing panel of the calling mod, drawn by EMF's overlay over the game's HUD (hidden where the
+     * markers hide: the map, menus, the console). An id again changes it; a NULL c removes it. False: a bad id (1-48 of
+     * A-Z a-z 0-9 _ . - :), bad numbers, or 32 canvases already. */
+    bool (*canvas_set)(const char* id, const EmfCanvas* c);
+    /* Its drawing, replacing the last list (EMF keeps it and draws it every frame). At most 2048 commands (more are
+     * left out); bad numbers leave a command out. False for an unknown canvas. Any thread. */
+    bool (*canvas_draw)(const char* id, const EmfCanvasCmd* cmds, uint32_t count);
+
+    /* ---- v36: removing a placed object like a pick-up ---- */
+    /* Removes req->entity, an object a player placed (it has a UsedItem), with the same engine call as destroy, and
+     * gives its item back the way the game's pick-up does: {UsedItem item, 1}, only when placing that item used it up.
+     * req->refund: EMF_REFUND_NONE, _DROP (a loose pickup at the object) or _PLAYER (put_items to req->player; when
+     * nothing fit, a drop at the object). Refused, nothing changed, req->why says why (and the log): a player, a Flame
+     * Altar (even with force: use destroy if you mean it), an object no player placed (use destroy), one holding
+     * items in its own or linked inventories unless EMF_REMOVE_FORCE (the items drop at its spot), a refund player who is not
+     * a player, unknown refund or flags. Like destroy it plays no pick-up sound and sends no BuildingPickUpEvent.
+     * req->refunded gets the item id given back (0: none; with _PLAYER the inventory's answer comes after the step).
+     * Same calling rules as destroy (SERVER world, inside a world callback on it). */
+    bool (*remove_building)(EmfWorld* world, EmfRemoveBuilding* req);
+
+    /* ---- v37: paths on the game's own path grid ---- */
+    /* Asks the game for a path from q->from to q->to (it moves nothing). The answer comes once, after a server step
+     * or more: cb(world, id, result, points, user) on the server world's thread (components, spawn allowed there);
+     * points is valid during the call only. Check result->reaches: with q->closest the game also answers FOUND for a
+     * path that ends at the nearest reachable point (its own march does that and stops at walls). Returns the query
+     * id, or 0 (logged) when refused: not the server world (joined games have no path grid), bad numbers, from and to
+     * more than 200 m apart (the game does not search farther), no owner (q->owner 0 and no player), 32 queries of
+     * EMF already open, or the feature is off on this game build. The grid exists where the world is loaded (near
+     * players); a query elsewhere ends NO_START, NO_TARGET or OTHER (no answer in 10 s). Each query is a search in the
+     * game's own jobs, shared with every walking creature: do not ask again every step (the game's own enemies ask
+     * at most every 0.5 s). Any thread. */
+    uint32_t (*path_find)(EmfWorld* world, const EmfPathQuery* q, EmfPathCallback cb, void* user);
+    /* Ends a query: its callback still comes, with EMF_PATH_CANCELLED. False for an unknown or answered id. */
+    bool (*path_cancel)(uint32_t id);
+
+    /* ---- v38: doors and gates ---- */
+    /* A door's state: EMF_DOOR_NONE (not a door, or not the server world), _CLOSED or _OPEN, with the flags
+     * EMF_DOOR_LOCKED and EMF_DOOR_LOGIC. A door is an entity with ServerToggleState and DirectionalInteraction (player
+     * doors and gates). Inside a world callback on the server world (host or dedicated server). */
+    uint32_t (*door_state)(EmfWorld* world, uint32_t entity);
+    /* Opens (open 1) or closes (open 0) it at the next server step: players see it swing, the game's collider and path
+     * grid follow (enemies' paths change). side: 0 = the game's default (back), 1 front, 2 back. False (logged) when
+     * refused: not the server world, not a door, a switch drives it (EMF_DOOR_LOGIC: the logic system owns it), it is
+     * already so, a bad side, or the feature is off on this game build. No open/close sound is played. Same calling
+     * rule as door_state. */
+    bool (*door_set)(EmfWorld* world, uint32_t entity, uint32_t open, uint32_t side);
+    /* Locks (1) or unlocks (0) it from the next step: no E prompt for any player while locked (EMF keeps it so each
+     * step), and the door keeps its state (a player's toggle already under way when the lock came is undone). EMF
+     * keeps the lock with the world (from 0.6.8: by the door's place, in emf\config\emf_doors\<slot>.txt): after a
+     * load the door at that place is locked again. door_set still works on a locked door and changes the state it
+     * keeps. Same rules. */
+    bool (*door_lock)(EmfWorld* world, uint32_t entity, uint32_t locked);
+
+    /* ---- v39: enemy orders (EmfEnemyOrder) ---- */
+    /* Sends order->enemy at order->target: written at once and after every server step until it ends (its time, the
+     * target gone or dead, the enemy gone, cancelled, a new order on the same enemy, the world closing); then the game
+     * picks for it again. Returns the order's id (from 1), or 0 with order->why: not a server world or not inside a
+     * world callback on it, an enemy without an enemy AI, a player, a player's ally without EMF_ORDER_ALLIES, no such
+     * target, a dead target, bad numbers, more than 256 orders, damage while hits are off on this game build. */
+    uint32_t (*enemy_order)(EmfWorld* world, EmfEnemyOrder* order);
+    /* Ends an order (at once inside a server world callback, else at the next step). False: no such order. */
+    bool (*enemy_order_cancel)(uint32_t id);
+    /* What `enemy` goes for now (its pick: SelectedTargets slot 0), 0 = nothing (or not a creature). */
+    uint32_t (*enemy_target)(EmfWorld* world, uint32_t enemy);
+
+    /* ---- v40: move orders (EmfMoveOrder) ---- */
+    /* Walks order->enemy to its points (see EMF_MOVE_*). Returns the move's id (from 1), or 0 with order->why: not a
+     * server world or not inside a world callback on it, not a creature with the enemy AI, a player, a boss, a player's
+     * ally without EMF_MOVE_ALLIES, bad points or numbers, more than 256 moves, no waypoint (spawning is off on this
+     * game build). Once it holds, a move or enemy order already on the creature ends (cancelled). cb (may be NULL) is
+     * called once when the move ends, after the move is gone (it may start another): after a server step on the server
+     * world's thread; inside enemy_move_cancel, or inside the enemy_move or enemy_order that replaced it; or with
+     * world NULL when the world closes. */
+    uint32_t (*enemy_move)(EmfWorld* world, EmfMoveOrder* order, EmfMoveCallback cb, void* user);
+    /* Ends a move (its callback gets EMF_MOVE_CANCELLED): at once inside a world callback on the server world, else
+     * at the next step. False: no such move. */
+    bool (*enemy_move_cancel)(uint32_t id);
+    /* The id of `enemy`'s move, 0 = it is not moving. */
+    uint32_t (*enemy_moving)(EmfWorld* world, uint32_t enemy);
 } EmfApi;
+
+#define EMF_ITEM_NAME_GAME_TEXT 1u /* v29 item_name: the player's language even where EMF's screens cannot draw it */
+#define EMF_CHAT_SYSTEM 1u         /* v30 chat_tell_ex / chat_broadcast_ex: a line without a speaker's name */
 
 typedef bool (*EmfModLoadFn)(const EmfApi* api);
 

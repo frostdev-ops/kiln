@@ -1,0 +1,10 @@
+{
+  "id": "affix-test",
+  "name": "Affix lab test",
+  "version": "0.1.0",
+  "apiVersion": "0.2",
+  "license": "MIT",
+  "entryAssembly": "AffixTest.dll",
+  "side": "server",
+  "description": "PASS/FAIL lines in kiln.log, player-free: an affix per stat on a sword in a player-template entity's hand, each proven by the game's attribute value before, while and after; stacking, items that leave, a wearer that goes, rolls, and after a restart the rolls back on their item. Guided checks for a real player (area Affixes)."
+}
