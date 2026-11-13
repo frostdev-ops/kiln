@@ -290,28 +290,84 @@ internal static class BlocksStartup
                 var old = Blocks.AllMods.FirstOrDefault(b => b.Id == m.Id);
                 if (old != null && (old.DataLoaded || old.Data != null || old.OwnedByMod)) BlockJson.Unloaded(old);
             }
-        var due = new List<(ModEntry Entry, ModBlocks Blocks)>();
-        foreach (var m in Mods.All)
-        {
-            if (!m.IsLoaded || m.Directory.Length == 0 || Done.Contains(m.Id) || !Directory.Exists(Path.Combine(m.Directory, "blocks"))) continue;
-            Done.Add(m.Id);
-            var mod = Blocks.ModFor(m.Id, () => BlocksBridge.ServiceOwner($"blocks:{m.Id}"));
-            if (mod.Owner == 0) mod.Owner = BlocksBridge.ServiceOwner($"blocks:{m.Id}");
-            due.Add((m, mod));
-        }
+        CompileLoaded();
+    }
+
+    private static bool Due(ModEntry m) =>
+        m.IsLoaded && m.Directory.Length > 0 && !Done.Contains(m.Id) && Directory.Exists(Path.Combine(m.Directory, "blocks"));
+
+    /// <summary>Compiles the data files of every loaded mod not done yet, one mod after the other: marked done, then compiled (a mod whose
+    /// files throw stops the pass there, as it always did). progress.json's step "content" counts the blocks; the count is read from the
+    /// files on the side (<see cref="CountDataBlocks"/>), so that counting changes nothing of what is compiled, marked done or logged.</summary>
+    internal static void CompileLoaded()
+    {
+        var due = Mods.All.Where(Due).ToList();
         if (due.Count == 0) return;
-        // progress.json, step "content": every data block of this pass counted (the first pass after the mods load is
-        // the start's; a later one, a reload, finds the file's life over and reports nothing)
-        foreach (var (m, mod) in due)
-            if (!mod.DataLoaded) BlockJson.Read(mod, m.Directory);
-        var total = (ulong)due.Sum(d => d.Blocks.DataLoaded ? 0 : d.Blocks.Data?.Entries.Count ?? 0);
+        // the first pass after the mods load is the start's; a later one (a reload) finds the file's life over and reports nothing
+        var total = 0UL;
+        foreach (var m in due) total += CountDataBlocks(m.Directory);
         var done = 0UL;
-        foreach (var (m, mod) in due)
+        try
         {
-            var n = BlockJson.LoadMod(mod, m.Directory, (section, name) => StartProgress.Step("content", "", $"{m.Id}: {section} {name}", done++, total));
-            BlocksBridge.Log(LogLevel.Info, $"blocks: {m.Id}: {n} block(s) from blocks/*.json, {mod.Errors.Count} error(s)");
+            foreach (var m in Mods.All)
+            {
+                if (!Due(m)) continue;
+                Done.Add(m.Id);
+                var mod = Blocks.ModFor(m.Id, () => BlocksBridge.ServiceOwner($"blocks:{m.Id}"));
+                if (mod.Owner == 0) mod.Owner = BlocksBridge.ServiceOwner($"blocks:{m.Id}");
+                var n = BlockJson.LoadMod(mod, m.Directory, (section, name) =>
+                {
+                    total = Math.Max(total, done + 1);  // a count that came out short never runs backwards
+                    StartProgress.Step("content", "", $"{m.Id}: {section} {name}", done++, total);
+                });
+                BlocksBridge.Log(LogLevel.Info, $"blocks: {m.Id}: {n} block(s) from blocks/*.json, {mod.Errors.Count} error(s)");
+            }
         }
-        if (StartProgress.Step("content", "", "", total, total) == StartProgress.Ok)
-            StartProgress.Step("game", StartProgress.GameLabel(BlocksBridge.IsClient));
+        finally
+        {
+            // also when a mod's files threw: the pass is over either way, and the start must not wait for it
+            if (StartProgress.Step("content", "", "", done, Math.Max(total, done)) == StartProgress.Ok)
+                StartProgress.Step("game", StartProgress.GameLabel(BlocksBridge.IsClient));
+        }
+    }
+
+    /// <summary>How many blocks a mod's blocks/*.json hold, for the count only: the same files and bounds as <see cref="BlockJson.Read"/>,
+    /// no side effect, no log line. A file it cannot read or that has another shape counts 0 (the compile says what is wrong with it).</summary>
+    internal static ulong CountDataBlocks(string directory)
+    {
+        try
+        {
+            var dir = Path.Combine(directory, "blocks");
+            var names = new List<string>();
+            var seen = 0;
+            foreach (var path in Directory.EnumerateFileSystemEntries(dir))
+            {
+                if (++seen > BlockJson.MaxEntries) return 0;
+                if (path.EndsWith(".json", StringComparison.OrdinalIgnoreCase)) names.Add(Path.GetFileName(path));
+            }
+            if (names.Count > BlockJson.MaxFiles) return 0;
+            ulong n = 0;
+            long bytes = 0;
+            foreach (var name in names)
+            {
+                try
+                {
+                    var text = BakedFiles.Read(directory, $"blocks/{name}", BlockJson.MaxFileBytes);
+                    if (text is null) continue;
+                    if ((bytes += text.Length) > BlockJson.MaxTotalBytes) break;
+                    using var doc = JsonDocument.Parse(text, new JsonDocumentOptions { CommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true });
+                    if (doc.RootElement.ValueKind != JsonValueKind.Object) continue;
+                    foreach (var p in doc.RootElement.EnumerateObject())
+                        if (p.Name is not ("format" or "comment" or "$schema") && p.Value.ValueKind == JsonValueKind.Object)
+                            foreach (var _ in p.Value.EnumerateObject()) n++;
+                }
+                catch (Exception e) when (e is not OutOfMemoryException) { }
+            }
+            return n;
+        }
+        catch (Exception e) when (e is not OutOfMemoryException)
+        {
+            return 0;
+        }
     }
 }
