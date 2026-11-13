@@ -525,7 +525,7 @@ CookResult cook_mods(const std::vector<ModInput>& mods, const CookOptions& opt) 
                 *maps = std::move(got);
                 return r;
             } catch (...) {
-                *note = "its record could not be used";
+                note->clear();  // nothing allocated on this path: the failure may be the allocator's (the note is then left out)
                 return nullptr;
             }
         };
@@ -533,7 +533,10 @@ CookResult cook_mods(const std::vector<ModInput>& mods, const CookOptions& opt) 
             MaterialBuilt m;
             std::string field, why, note;
             const MaterialRecord* from_cache = opt.known_material ? nullptr : carried(b, &m.maps, &note);
-            if (!from_cache && opt.carried_material) out.carry_notes.push_back(mod.id + ": material " + b.def.name + ": " + note);
+            if (!from_cache && opt.carried_material && !note.empty()) try {  // a note for the debug log: losing it costs nothing else
+                out.carry_notes.push_back(mod.id + ": material " + b.def.name + ": " + note);
+            } catch (...) {
+            }
             say(from_cache ? "material as the last start built it:" : "material", b.def.name);
             if (from_cache) {
                 if (!build_material(b.def, mod.id, m.maps, &m.built, &why)) {

@@ -730,6 +730,7 @@ void build_on_ready(const KilnApi* api, KilnOwner self) {
         const auto* progress = static_cast<const KilnProgressApi*>(api->service(KilnStr{KILN_PROGRESS_SERVICE, sizeof(KILN_PROGRESS_SERVICE) - 1}, 1));
         if (progress && progress->header.size >= offsetof(KilnProgressApi, step) + sizeof(void*) && progress->step)
             opt.progress = [progress](const std::string& mod, size_t nth, size_t of, const char* kind, const std::string& name, size_t done, size_t total) {
+                try {  // a progress line is worth nothing next to the build: out of memory here costs the line only
                 const std::string which = of > 1 ? " (mod " + std::to_string(nth) + " of " + std::to_string(of) + ")" : "";
                 const std::string count = " (" + std::to_string(done + 1) + " of " + std::to_string(total) + ")";
                 // a material taken from the last start's build is not "built": the detail says what really happens
@@ -737,6 +738,8 @@ void build_on_ready(const KilnApi* api, KilnOwner self) {
                                                ? "kiln-vfx: " + mod + which + ": materials as the last start built them: " + name + count
                                                : "kiln-vfx: building the materials and VFX of " + mod + which + ": " + kind + " " + name + count;
                 progress->step(KilnStr{"plugins", 7}, KilnStr{nullptr, 0}, KilnStr{detail.data(), detail.size()}, 0, 0);
+                } catch (...) {
+                }
             };
         std::vector<kvb::MaterialRecord> records;
         bool records_whole = true;  // a record lost (out of memory): the index is not rewritten from this start
