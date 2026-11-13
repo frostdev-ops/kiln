@@ -63,7 +63,7 @@ public sealed record EventFilter
 /// held for the handlers). Every subscription that is added leads to a push before <c>Events.On</c> returns, on the
 /// subscribing thread, also when the entities stay the same: from then on the service holds that subscriber's events
 /// too, and the push is where a service passes on what else the new handler needs (kiln.combat: the kinds of event it
-/// wants). A removed one only narrows the set, which waits for the next <see cref="Refresh"/> (the service calls it
+/// wants). A removed one only narrows the set, which waits for the next <see cref="Refresh()"/> (the service calls it
 /// once a step, and nothing is pushed then unless the entities changed).</summary>
 internal sealed class EntityWatch : IDisposable
 {
