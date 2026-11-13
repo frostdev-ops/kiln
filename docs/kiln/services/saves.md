@@ -383,7 +383,9 @@ public sealed class Swords : Mod   // kiln.mod.json: "side": "both"
   (gone, unless the key is `Nearby`), a destroyed item, a claimed record, a player walking into or out of range, a mod
   that unloads (its keys go, so its values go from players' games). A player who joins, or joins again, gets the whole
   set, starting with a reset of what the game held. Values of a mod that is not loaded on the server are sent to
-  nobody: its key is what says who may see them.
+  nobody: its key is what says who may see them. The passes run on the server's steps: while the server does not step
+  (an autosave on a loaded machine has held it for nine seconds), nothing goes, and the difference goes at the first
+  pass after.
 - **Nothing lost on the way.** kiln.net can take an update and drop it later (a frame it cannot hand to the game within
   two seconds), so an update counts only once the player's game acknowledges it. Every update names the one before it;
   a game takes an update only right after the one it names, and otherwise tells the server it lost one. The server then
@@ -439,7 +441,7 @@ it is not waiting for, and a loss before the game's last reset. (`seq`, `prev` a
 after the dev.27 review.)
 
 **What is proven where.** The passes, the limits and the client's store are proven offline with the real store and a
-fake game (`InstanceSyncTests`, 38 tests: every update goes through the real encoder and decoder into a real client
+fake game (`InstanceSyncTests`, 43 tests: every update goes through the real encoder and decoder into a real client
 store per player, and the acknowledgements come back the same way; they include an NPC that walks away, updates the
 network took and lost, 2,048 items gone and 59 long key names removed at once over an 8 KB channel, 4,097 items for a
 game that keeps 4,096, a game that acknowledges nothing, acknowledgements a hostile game makes up, a game that reports a
