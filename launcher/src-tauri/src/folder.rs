@@ -163,9 +163,41 @@ pub fn current() -> Arc<Folder> {
     if let Some(f) = w.as_ref() {
         return f.clone();
     }
-    let f = Arc::new(Folder::open(DataEnv::from_process()));
+    let f = Arc::new(Folder::open(process_env()));
     *w = Some(f.clone());
     f
+}
+
+/// The environment the process's folder is found from.
+#[cfg(not(test))]
+fn process_env() -> DataEnv {
+    DataEnv::from_process()
+}
+
+/// In a test run, never the process environment: a test that writes through the process's folder without setting one
+/// ([`replace`]: `launcher_log` from a task, the watcher's profile round) would write into the launcher data of whoever
+/// runs `cargo test` (their `logs/launcher.log` collected such lines). A scratch folder of this run instead, under
+/// TMPDIR, made fresh: every variable that could name a data, state or config folder points into it.
+#[cfg(test)]
+fn process_env() -> DataEnv {
+    static ROOT: std::sync::LazyLock<std::path::PathBuf> = std::sync::LazyLock::new(|| {
+        let t = std::env::temp_dir().join(format!("kiln-launcher-tests-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&t);
+        let _ = std::fs::create_dir_all(&t);
+        t
+    });
+    let t = &*ROOT;
+    DataEnv {
+        windows: cfg!(windows),
+        kiln_data_dir: Some(t.join("data").into()),
+        local_app_data: Some(t.join("local").into()),
+        xdg_data_home: Some(t.join("xdg").into()),
+        home: Some(t.join("home").into()),
+        user_profile: Some(t.join("home").into()),
+        xdg_state_home: Some(t.join("state").into()),
+        app_data: Some(t.join("roaming").into()),
+        xdg_config_home: Some(t.join("config").into()),
+    }
 }
 
 /// The data folder without opening it (no lock, nothing created): for `--selftest`'s report.
@@ -198,5 +230,32 @@ impl Drop for TestGuard {
     fn drop(&mut self) {
         *CURRENT.write().unwrap_or_else(|e| e.into_inner()) = None;
         self.0.take();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A test that writes through the process's data folder without setting one ([`replace`]) never reaches the
+    /// launcher data of the user who runs the tests: the folder is a scratch folder of this test run (under TMPDIR),
+    /// whatever HOME, XDG_DATA_HOME or KILN_DATA_DIR say. Only paths are compared: the real folder is never looked into.
+    #[test]
+    fn a_test_run_never_writes_into_the_real_data_folder() {
+        let _g = test_serial();
+        let f = current();
+        let root = f.located().expect("a folder").dirs.root.clone();
+        let real = DataEnv::from_process();
+        assert!(root.starts_with(std::env::temp_dir()), "{} is not this run's scratch folder", root.display());
+        if let Ok(d) = real.default_root() {
+            assert!(!root.starts_with(&d) && !d.starts_with(&root), "{} is the default data root {}", root.display(), d.display());
+        }
+        if let Some(k) = real.kiln_data_dir.as_ref().filter(|k| !k.is_empty()) {
+            assert_ne!(root.as_os_str(), k.as_os_str());
+        }
+        let line = format!("the test run's own log {}", std::process::id());
+        crate::commands::app::launcher_log("test", &line);
+        let log = std::fs::read_to_string(root.join("logs").join("launcher.log")).expect("the line went into the scratch folder");
+        assert!(log.contains(&format!("test: {line}")), "{log}");
     }
 }
