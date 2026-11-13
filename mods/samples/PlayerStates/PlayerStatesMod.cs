@@ -42,7 +42,8 @@ public sealed class PlayerStatesMod : Mod
         var cast = new GameDataClone { Guid = CastCopy, Name = $"{ModId}.cast", Base = CastOf };
         cast.Fields["events[SetAnimationOverlayEvent#1].overlayName"] = PlayerAnimStates.GuidOf(ModId, "cast").ToString();
         Define(cast);
-        Content.OnReady(_ => PutMoves());
+        // the copies go into the game's data through kiln.content and kiln.gamedata: without them the sword keeps the game's moves
+        if (Content.Available && Content.GameDataAvailable) Content.OnReady(_ => PutMoves());
         var n = ClientChecks.Register(this);
         foreach (var s in new[] { "swing", "heavy", "guard", "cast" })
         {
@@ -54,6 +55,11 @@ public sealed class PlayerStatesMod : Mod
 
     private void Define(GameDataClone c)
     {
+        if (!Capabilities.Is("gamedata.template_clones"))
+        {
+            Log.Warn($"sequence {c.Name}: no copies on this build ({Capabilities.Why("gamedata.template_clones")})");
+            return;
+        }
         try
         {
             var d = Content.Sequences.Define(c);

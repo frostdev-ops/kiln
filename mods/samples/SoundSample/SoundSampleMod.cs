@@ -63,7 +63,8 @@ public sealed class SoundSampleMod : Mod
               "narration_intro: de slot empty (fallback null: silence, like the game)");
         Check(narration.GetProperty("durations10ms")[0].GetInt32() > 0, "narration_intro: en duration set (lore queue timing)");
 
-        if (Assets.Available)
+        // kiln.assets can be here with its resource hooks off: reading a resource asks for assets.resources itself
+        if (Assets.Available && Capabilities.Is("assets.resources"))
         {
             foreach (var p in root.GetProperty("voiceovers").EnumerateObject())
             {

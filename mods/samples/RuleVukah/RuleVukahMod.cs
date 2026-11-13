@@ -14,6 +14,12 @@ public sealed class RuleVukahMod : Mod
     public override void OnLoad()
     {
         CreatureAdminCommands.Register();
+        // Arsenals are the game's own data, written by kiln.creatures on a build it knows: without that there is nothing to extend.
+        if (!Capabilities.Is("creatures.arsenals"))
+        {
+            Log.Warn($"rule-vukah: arsenals cannot be changed here ({Capabilities.Why("creatures.arsenals")})");
+            return;
+        }
 
         // Every Vukah, through the game's own arsenal.
         Arsenals.Extend("Enemy_Vukah_Melee", new ArsenalSpec
@@ -32,7 +38,7 @@ public sealed class RuleVukahMod : Mod
                         Act.Custom(npc =>
                         {
                             Log.Info($"rule-vukah: {npc.Entity} rallies at {npc.HealthFraction:P0}, target {npc.Target}");
-                            Combat.Heal(npc.Entity, npc.HealthMax / 4);
+                            if (Combat.Available) Combat.Heal(npc.Entity, npc.HealthMax / 4);
                         }),
                     ],
                 },

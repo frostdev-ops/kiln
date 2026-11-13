@@ -19,6 +19,10 @@ public sealed class Notches
 
 public sealed class ItemDataMod : Mod
 {
+    // Capability rows (the /caps command lists them): the data is Kiln.Saves' item data, which needs a world with items,
+    // and "the item in your hand" is Kiln.Items' item instances. A game client that only joins a server has neither.
+    private const string Data = "saves.instance_data", InHand = "items.instances";
+
     private InstanceKey<Notches> _notches = null!;
 
     public override void OnLoad()
@@ -47,6 +51,7 @@ public sealed class ItemDataMod : Mod
     private string Notch(CommandContext c)
     {
         if (!c.Source.IsPlayer) throw new CommandException("only a player has a hand");
+        if (!Capabilities.Is(Data) || !Capabilities.Is(InHand)) throw new CommandException(NotHere(Data, InHand));
         // The item in hand as one particular item. None: an empty hand, or a plain stack (wood, arrows), which has no
         // item of its own to keep data on.
         var held = Items.Held(c.Source.Player);
@@ -60,6 +65,7 @@ public sealed class ItemDataMod : Mod
     [Command("notches", Description = "every notched item, and the records waiting for theirs", Permission = CommandPermission.Admin)]
     private void List(CommandContext c)
     {
+        if (!Capabilities.Is(Data) || !Capabilities.Is(InHand)) throw new CommandException(NotHere(Data, InHand));
         var all = InstanceData.All(_notches);
         c.Reply($"{all.Count} notched item(s) in this session");
         foreach (var (item, n) in all)
@@ -76,6 +82,7 @@ public sealed class ItemDataMod : Mod
     private string Claim(CommandContext c, string record)
     {
         if (!c.Source.IsPlayer) throw new CommandException("only a player has a hand");
+        if (!Capabilities.Is(Data) || !Capabilities.Is(InHand)) throw new CommandException(NotHere(Data, InHand));
         var held = Items.Held(c.Source.Player);
         if (held.IsNone) throw new CommandException("hold the weapon or tool the notches belong to");
         var parked = InstanceData.Parked(_notches).FirstOrDefault(p => p.RecordId == record)
@@ -87,6 +94,7 @@ public sealed class ItemDataMod : Mod
     [Command("notch-drop", Description = "drops a parked notch record (its id from /notches)", Permission = CommandPermission.Admin)]
     private string Drop(CommandContext c, string record)
     {
+        if (!Capabilities.Is(Data)) throw new CommandException(NotHere(Data));
         var parked = InstanceData.Parked(_notches).FirstOrDefault(p => p.RecordId == record)
                      ?? throw new CommandException($"no parked notch record {record} (see /notches)");
         return InstanceData.Discard(parked) ? "dropped" : "it was no longer parked";
@@ -111,4 +119,8 @@ public sealed class ItemDataMod : Mod
     {
         if (e.Mod == Context.Info.Id) Log.Info($"item-data: lost on {e.Item} ({e.Reason}): {e.Detail}");
     }
+
+    // A command's answer when a row it needs is off: the first such row, and why.
+    private static string NotHere(params string[] rows) =>
+        rows.FirstOrDefault(row => !Capabilities.Is(row)) is { } off ? $"not on this server ({off} is off: {Capabilities.Why(off)})" : "not on this server right now";
 }

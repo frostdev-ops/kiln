@@ -14,18 +14,26 @@ public sealed class TypedFieldsMod : Mod
 
     public override void OnLoad()
     {
-        // a clone of a projectile that flies longer and bursts bigger, with typed values instead of a string list
-        Content.Templates.Define(new GameDataClone
+        // the changes are kiln.content's (the items) and kiln.gamedata's (templates, config values)
+        if (!Content.Available || !Content.GameDataAvailable)
         {
-            Guid = LongBolt,
-            Name = "Typed_Long_Bolt",
-            Base = GameTemplates.Projectile_Player_Staff_IceBolt_1,
-            Values =
+            Log.Warn("typed fields: kiln.content or kiln.gamedata is not available on this build: nothing is changed");
+            return;
+        }
+        // a clone of a projectile that flies longer and bursts bigger, with typed values instead of a string list
+        // (a copy of a game entry is a capability of its own: gamedata.template_clones)
+        if (Capabilities.Is("gamedata.template_clones"))
+            Content.Templates.Define(new GameDataClone
             {
-                { GameFields.Templates.LifeTime.LifeTime, TimeSpan.FromSeconds(8) },
-                { GameFields.Templates.ImpactConfiguration.ConfigValues.SpawnTemplate, GameTemplates.Explosion_Player_Spell_IceBolt_1 },
-            },
-        });
+                Guid = LongBolt,
+                Name = "Typed_Long_Bolt",
+                Base = GameTemplates.Projectile_Player_Staff_IceBolt_1,
+                Values =
+                {
+                    { GameFields.Templates.LifeTime.LifeTime, TimeSpan.FromSeconds(8) },
+                    { GameFields.Templates.ImpactConfiguration.ConfigValues.SpawnTemplate, GameTemplates.Explosion_Player_Spell_IceBolt_1 },
+                },
+            });
 
         Content.OnReady(_ =>
         {

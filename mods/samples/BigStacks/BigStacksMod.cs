@@ -37,7 +37,7 @@ public sealed class BigStacksMod : Mod
     [Subscribe]
     private void OnConfigChanged(ConfigChangedEvent e)
     {
-        if (e.ModId != Context.Info.Id || !Content.Ready) return;
+        if (e.ModId != Context.Info.Id || !Content.Available || !Content.Ready) return;
         Content.Revert();
         Apply();
     }

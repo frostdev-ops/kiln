@@ -42,7 +42,7 @@ public sealed class CreatureAiMod : Mod
             {
                 Faction = Faction.PlayerAlly, Sight = 35,
                 Relations = new Dictionary<Faction, Relation> { [Faction.Vukah] = Relation.Hostile },
-                SenseFilter = (npc, other) => Creatures.Of(other).Level >= 5,
+                SenseFilter = (npc, other) => Creatures.Available && Creatures.Of(other).Level >= 5,
                 Roam = new RoamBlock { Min = 4, Max = 12, FromHome = 25 },
             },
             Behaviour = Behaviours.VukahMelee with

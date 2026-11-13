@@ -263,7 +263,7 @@ public sealed class NewItemsMod : Mod
     private async Task GiveKit(Player p)
     {
         var key = p.SteamId != 0 ? p.SteamId.ToString() : p.Name;
-        if (_kits.Contains(key)) return;
+        if (_kits.Contains(key) || !Items.Available) return;
         await Context.Scheduler.NextTick();
         var edge = await Items.Give(p.Entity, new ItemId(NewContent.IdOf(FrostEdge)), 1, options: GiveOptions.Notify);
         var shards = await Items.Give(p.Entity, new ItemId(NewContent.IdOf(FrostShard)), 3, options: GiveOptions.Notify);
