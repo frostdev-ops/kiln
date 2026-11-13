@@ -71,8 +71,9 @@ We haven't tried Kiln on any specific rented host yet. If you do, please tell us
 The Kiln Launcher can do this too: its **Servers** page finds Steam's server, installs Kiln, starts and stops it, and
 has admin pages.
 
-Honest note: Kiln's server side has been tested under Wine on Linux, not yet on a real Windows PC. It should behave
-the same. If it doesn't, please report it.
+Honest note: Kiln's own tests of the server side run under Wine on Linux, not on a real Windows PC. A player has run
+0.2.0-dev.26 on Windows Server 2022 with Windows 11 games and reports that it works (GitHub issue 23). If something
+behaves differently for you, please report it.
 
 ## Your own Linux server
 
