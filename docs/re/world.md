@@ -234,7 +234,9 @@ was seen (ids grow at every spawn in the lab) **[hyp]**.
 | A type one of the game's programs derives every step (`NetworkFuel` from `Fuel` by `fuel_network`) | Kiln's write is written over in the next step and the answer says so (`Kept == false`): nothing is lost silently | lab, below [rt] |
 | Every other type with writers of the game | the write lands last in its step and is marked; whether it stays is answered per write (`Kept`), not known beforehand | the rule above [dec]; per write [rt] |
 | A type without the save bit | not saved, whatever the write | the mark [dis]; lab below |
-| Replication to a player's screen | not proven here: a lab has no client. The replication mark is taken on the same path as the game's own writes [dis] | guided checks `world-writes-test/world.tracked-water`, `world.tracked-water-rejoin` |
+| `Fuel` of a can a player character carries (in its backpack) | kept like any other: none of the 9 game writers writes it back on the server; `fuel_network` copies it to `NetworkFuel` | lab, a spawned `1_Player` with no client, below [rt] |
+| A container a kiln.items water refill covers (`Items.Fuel.Refill`, `KeepFull`, a player's `Water` rule) | written back to its level one step later by Kiln's own `kiln_items` (`#823`, registered before `kiln_world_writes` `#831`, so it runs first in each step and refills in the step after the write); the answer names the refill (`WrittenOverBy`) | lab, below [rt]; native/services/items/items.cpp `run_fuel_jobs` [src] |
+| Replication to a player's screen | not proven here: a lab has no client. The replication mark is taken on the same path as the game's own writes [dis] | guided checks `world-writes-test/world.tracked-water`, `world.tracked-water-rejoin` (and `-after`) |
 
 ### What the save does with it (lab) **[rt]**
 The save mark (`0x66f360`) works per entity: it compare-exchanges a stamp in the entity's slot of its chunk and puts
@@ -309,8 +311,35 @@ INFO ServerToggleState.lastChange, written tracked with the same component: read
   PASS an entity with a SpawnTime (2083, ServerToggleState) waited behind a full step and its generation still matched right before the write: Unchanged: ServerToggleState of 2083 (28 game writers, marked for the save); in 2 step(s)
   ```
 
+### A carried can, and the first real-game try (13 Nov 2026) **[rt]**
+In the owner's hosting game (test build 6) `world.tracked-water` answered, three times, `Unchanged` for the fill and
+`Written: Fuel of <can> (9 game writers, written over by the game one step later, marked for the save)` for the write
+to half. The game did not write it back: the owner's Creative menu entry had applied Kiln's `creative` rule set to the
+player (kiln.log 15:01:31, `kiln.rules: applied #1 kiln 'creative' ... "water": { "chargesPerSecond": "Infinity" }`,
+`refill 1: entity 1 (its inventories) item 0x00000000, keep full`; ended 15:14:08, after both failing runs; the
+13:24 run of the earlier session ran after the same entry at 13:22). Kiln.Rules' `Water` rule
+(`managed/services/Kiln.Rules/RulesRuntime.cs`, `Water`) calls `Items.Fuel.Refill(player, FuelRefill.Full)`, and
+kiln.items' program refills every can in the player's inventories every step (`run_fuel_jobs`). The old answer said
+"by the game" for any write that did not hold. Lab `dev27-carriedwrite` (standard save, no client), a spawned
+`1_Player` with a can given into its backpack, the unfixed build:
+```
+PASS carried, no refill: none of the game's 9 Fuel writers wrote the carried can back: fill Written: Fuel of 2554 (9 game writers, kept, marked for the save); half Written: Fuel of 2554 (9 game writers, kept, marked for the save); three steps later Fuel 3200, NetworkFuel 3200
+refill 4: entity 2544 (its inventories) item 0x00000000, keep full (owner 52)
+INFO carried, refill on: fill Unchanged: Fuel of 2554 (9 game writers, marked for the save); half Written: Fuel of 2554 (9 game writers, written over by the game one step later, marked for the save); three steps later Fuel 6400; the refill's own reports for the can: [3200->6400]
+PASS carried, the refill ended: the write is kept again: Written: Fuel of 2554 (9 game writers, kept, marked for the save); three steps later Fuel 1600
+```
+The owner's two answers, word for word, with the refill on; the write kept with it off. Since the fix the answer names
+the refill (`WrittenOverBy`); the same lab, rebuilt, three boots 35, 9 and 11 PASS, 0 FAIL:
+```
+PASS carried, refill on: the answer names the refill that wrote over it: WrittenOverBy "kiln.items' water refill 4 (keep full) of the inventories of 2544, set by world-writes-test"
+```
+What a lab cannot show: that a real
+client's character behaves as the spawned one (client prediction of inventory moves, `inventory_actions` flags
+`0x200`, docs/re/player-state.md) and what the player's screen shows: the guided checks, run with Creative off.
+
 ### Still open
-- A player's screen: whether and when a tracked write shows there. Guided checks, above.
+- A player's screen: whether and when a tracked write shows there. Guided checks, above (run them with no water
+  rule on the player: the checks now refuse to start while one is).
 - A client host: the write program is HOST_ONLY in the server world of a hosting game, as kiln.items' is; no run yet.
   `World.Update`'s callback may then run on a game worker thread.
 - Which fields each type's save record holds (seen: `ServerToggleState` keeps `state`, not `lastChange`).

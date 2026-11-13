@@ -111,9 +111,21 @@ public sealed record WorldWriteResult : IKilnResult
     public IReadOnlyList<string> GameWriters { get; internal init; } = [];
 
     /// <summary>For a component the game writes too: whether the written bytes were still there one step later, after the
-    /// game's programs ran once more. False: one of <see cref="GameWriters"/> wrote over it (a value the game derives
-    /// every step cannot be set this way). Null: not checked (no game writer, nothing written, or the world closed).</summary>
+    /// game's programs ran once more. False: something wrote over it in that step. <see cref="WrittenOverBy"/> names it
+    /// when it is a policy of Kiln's (a water refill); otherwise it was one of <see cref="GameWriters"/> (a value the
+    /// game derives every step cannot be set this way) or a program of another mod or plugin. Null: not checked (no
+    /// game writer, nothing written, or the world closed).</summary>
     public bool? Kept { get; internal init; }
+
+    /// <summary>For a write that was not <see cref="Kept"/>: the policy of Kiln's that wrote over it, as a phrase that
+    /// names it (<c>"kiln.items' water refill 1 (keep full) of the inventories of 1, set by kiln"</c>). Such a policy
+    /// writes the component again every step, after the game's programs: a water refill (<c>Items.Fuel.Refill</c>,
+    /// <c>Items.Fuel.KeepFull</c>, or a player's <c>Water</c> rule; the Creative menu's rule set has one) keeps every
+    /// container it covers at its level, so a tracked write of their <c>Fuel</c> lasts one step. End that policy (or
+    /// narrow it to other items) before the write, or change the water through it. Null when the write was kept, was
+    /// not checked, or no policy of Kiln's covers the entity (then one of the game's programs most likely wrote over
+    /// it). Since 0.2.0-dev.27.</summary>
+    public string? WrittenOverBy { get; internal init; }
 
     /// <summary>Whether the game's write tracking records a change of this component type for the save (the game's own
     /// per-type bit); null when this build does not tell. True: the write marked the entity, and the next save writes
@@ -146,14 +158,17 @@ public sealed record WorldWriteResult : IKilnResult
     /// <summary>The same bytes afterwards.</summary>
     public ReadOnlyMemory<byte> After { get; internal init; }
 
-    /// <summary><c>"Written: Fuel of 1042 (9 game writers, kept, marked for the save)"</c>, <c>"NotDeclared: Fuel of 1042: ..."</c>.</summary>
+    /// <summary><c>"Written: Fuel of 1042 (9 game writers, kept, marked for the save)"</c>, <c>"NotDeclared: Fuel of 1042: ..."</c>,
+    /// <c>"Written: Fuel of 1042 (9 game writers, written over one step later by kiln.items' water refill 1 (keep full) of
+    /// the inventories of 1, set by kiln, marked for the save)"</c>.</summary>
     public override string ToString()
     {
         var text = new StringBuilder().Append(Status).Append(": ").Append(Component).Append(" of ").Append(Entity);
         if (!Ok) return text.Append(": ").Append(Reason).ToString();
         var notes = new List<string>();
         if (GameWriterCount > 0) notes.Add($"{GameWriterCount} game writer{(GameWriterCount == 1 ? "" : "s")}");
-        if (Kept is { } kept) notes.Add(kept ? "kept" : "written over by the game one step later");
+        if (Kept is { } kept)
+            notes.Add(kept ? "kept" : WrittenOverBy is { } by ? $"written over one step later by {by}" : "written over one step later");
         if (SaveTracked is { } saved) notes.Add(saved ? "marked for the save" : "a type the save does not track");
         return notes.Count == 0 ? text.ToString() : text.Append(" (").AppendJoin(", ", notes).Append(')').ToString();
     }
@@ -573,6 +588,11 @@ internal static unsafe class WorldWrites
         };
     }
 
+    /// <summary>A write that was not kept, with the policy of Kiln's that wrote over it when one covers the entity
+    /// (kiln.items' water refills: ComponentKeepers). Tick thread, as the answer is.</summary>
+    internal static WorldWriteResult WrittenOver(WorldWriteResult result) =>
+        result.Kept == false && ComponentKeepers.Who(result.Entity, result.Component) is { } by ? result with { WrittenOverBy = by } : result;
+
     private static Pending? Forget(long cookie)
     {
         lock (Gate)
@@ -648,6 +668,7 @@ internal static unsafe class WorldWrites
                     Reason = result.Status == WorldWriteStatus.NotDeclared && info.State != WorldWriteState.ListRefused ? info.Reason ?? result.Reason : result.Reason,
                 };
             }
+            result = WrittenOver(result);
             if (p.ChangeError is { } error) p.Mod?.Log.Error($"World.Update<{p.Component}>: the change threw, nothing was written: {error}");
             if (result.Changed && Events.HasSubscribers<ComponentWrittenEvent>())
                 Events.Enqueue(new ComponentWrittenEvent(result, p.Mod?.Info.Id));
