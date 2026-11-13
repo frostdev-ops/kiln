@@ -56,6 +56,12 @@
     { "section": "New in 0.2.0-dev.26", "key": "Data that stays with one item (a player's inventory)", "checks": ["instances-test/instances.held-moves", "instances-test/instances.twins-swap", "instances-test/instances.equip", "instances-test/instances.held-equipped", "instances-test/instances.trash", "instances-test/instances.craft", "instances-test/instances.tombstone", "instances-test/instances.gift", "instances-test/instances.leave.before", "instances-test/instances.leave.after", "instances-test/instances.move-leave.before", "instances-test/instances.move-leave.after", "instances-test/instances.crash-swap.before", "instances-test/instances.crash-swap.after", "instances-test/instances.shutdown.before", "instances-test/instances.shutdown.after", "instances-test/instances.restart.before", "instances-test/instances.restart.after", "instances-test/instances.elsewhere.before", "instances-test/instances.elsewhere.after", "instances-test/instances.rejoin-ids"] },
     { "section": "New in 0.2.0-dev.26", "key": "A weapon's own moves: its chain, its heavy and block, when the blow lands",
       "checks": ["weapon-moves-test/blocks.moves-chain", "weapon-moves-test/blocks.moves-hit-timing", "weapon-moves-test/blocks.moves-heavy-block", "weapon-moves-test/blocks.moves-vanilla-unchanged"] },
-    { "section": "New in 0.2.0-dev.26", "key": "A held model with moving parts", "checks": ["weapon-moves-test/blocks.held-animated", "weapon-moves-test/blocks.held-animated-two-players"] }
+    { "section": "New in 0.2.0-dev.26", "key": "A held model with moving parts", "checks": ["weapon-moves-test/blocks.held-animated", "weapon-moves-test/blocks.held-animated-two-players"] },
+
+    { "section": "New in 0.2.0-dev.27", "key": "A mod takes a buff off a player: the icon goes", "checks": ["abilities.remove-buff"] },
+    { "section": "New in 0.2.0-dev.27", "key": "Player.Aim follows the player's camera", "checks": ["players.aim"] },
+    { "section": "New in 0.2.0-dev.27", "key": "Kick and ban a joined player", "checks": ["kick-test/players.kick", "kick-test/players.kick.after", "kick-test/players.ban", "kick-test/players.ban.after"] },
+    { "section": "New in 0.2.0-dev.27", "key": "An item with a model of its own lies on the ground as that model", "checks": ["weapon-moves-test/blocks.dropped-own-model"] },
+    { "section": "New in 0.2.0-dev.27", "key": "Event filters: one watched creature's hits, the others untouched", "checks": ["event-filter-test/events.filter-hits"] }
   ]
 }

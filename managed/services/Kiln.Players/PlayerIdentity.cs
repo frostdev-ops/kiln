@@ -215,6 +215,7 @@ internal static class PlayersStartup
         try
         {
             PlayerIdentity.Install();
+            PlayerAim.ReportCapability();
             Backend.Current.Log(0, LogLevel.Info,
                 $"kiln.players: identity.players and the players' entity source supplied (kiln.players {(SafeAvailable() ? "available" : "unavailable")})");
         }

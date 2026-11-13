@@ -1,1 +1,20 @@
 #nullable enable
+Kiln.InstanceClaimResult
+Kiln.InstanceClaimResult.<Clone>$() -> Kiln.InstanceClaimResult!
+Kiln.InstanceClaimResult.Equals(Kiln.InstanceClaimResult? other) -> bool
+Kiln.InstanceClaimResult.Item.get -> Kiln.ItemInstanceRef
+Kiln.InstanceClaimResult.Keys.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Kiln.InstanceClaimResult.Mod.get -> string!
+Kiln.InstanceClaimResult.Ok.get -> bool
+Kiln.InstanceClaimResult.Reason.get -> string?
+Kiln.InstanceClaimResult.RecordId.get -> string!
+Kiln.InstanceLossReason.Discarded = 4 -> Kiln.InstanceLossReason
+Kiln.InstanceMatch.Claimed = 2 -> Kiln.InstanceMatch
+Kiln.ParkedInstance<T>.RecordId.get -> string!
+override Kiln.InstanceClaimResult.Equals(object? obj) -> bool
+override Kiln.InstanceClaimResult.GetHashCode() -> int
+override Kiln.InstanceClaimResult.ToString() -> string!
+static Kiln.InstanceClaimResult.operator !=(Kiln.InstanceClaimResult? left, Kiln.InstanceClaimResult? right) -> bool
+static Kiln.InstanceClaimResult.operator ==(Kiln.InstanceClaimResult? left, Kiln.InstanceClaimResult? right) -> bool
+static Kiln.InstanceData.Claim<T>(Kiln.ParkedInstance<T!>! parked, Kiln.ItemInstanceRef item) -> Kiln.InstanceClaimResult!
+static Kiln.InstanceData.Discard<T>(Kiln.ParkedInstance<T!>! parked) -> bool

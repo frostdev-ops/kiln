@@ -154,7 +154,10 @@ void Notch(ItemInstanceRef sword) => sword.Get(_notches).Count++;   // the live 
 session, `InstanceData.Parked(key)` the records waiting for their item or set aside, with the reason. Three events
 report what happens to stored data: `InstanceDataRestoredEvent` (back on its item after a load or a join: `Exact` or
 `Moved`), `InstanceDataParkedEvent` (waiting: the holder is not loaded, or the player left) and `InstanceDataLostEvent`
-(`Destroyed`, `Unmatched`, `Ambiguous`). Admins list everything with `/instances [player|entity]`.
+(`Destroyed`, `Unmatched`, `Ambiguous`). Admins list everything with `/instances [player|entity]`. A record set aside
+(or still waiting) can be put on an item by the mod that owns it, `InstanceData.Claim(parked, item)`, or dropped,
+`InstanceData.Discard(parked)` (dev.27); an admin does it with `/instances claim <record> <player|holder> <flat slot>`
+and `/instances discard <record>`.
 
 ### Which API
 | The thing | API |
@@ -183,7 +186,8 @@ level, perks, gem, dye) and the holder's whole list of items. After a load or a 
   other record (`Exact` in its slot, `Moved` elsewhere);
 - when that is not certain (two identical items in a holder that changed, a holder found twice within its radius, a
   record without the holder's list), every record concerned is **set aside**: reported (`Ambiguous`), listed by
-  `Parked` and `/instances`, kept, and never attached by itself, not in a later session either;
+  `Parked` and `/instances`, kept, and never attached by itself, not in a later session either (a mod claims or
+  discards it: `InstanceData.Claim` / `Discard`);
 - a record whose item is not there waits, and is dropped after 3 sessions (`Unmatched`). A player's records wait for
   the character's next join.
 

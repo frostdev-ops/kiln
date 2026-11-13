@@ -146,9 +146,8 @@ public abstract class TalentEffect
 
     /// <summary>A buff (a game buff's or a kiln.gamedata buff clone's GUID) kept on the player: applied for
     /// <paramref name="refreshSeconds"/> + 5 s and renewed every <paramref name="refreshSeconds"/>, so it ends within
-    /// that time after a lock: this effect does not take the buff off early. (The game's Impact native
-    /// <c>removeBuff</c> exists and Kiln.Blocks' generated programs call it, but this code path only applies and renews
-    /// the buff, and there is no public <c>Abilities.RemoveBuff</c> yet.)</summary>
+    /// that time after a lock: this effect does not take the buff off early. To take it off at once, add a
+    /// <see cref="Callback"/> effect whose remove callback calls <see cref="Abilities.RemoveBuff(EntityId, Guid)"/>.</summary>
     public static TalentEffect Buff(Guid buff, double refreshSeconds = 30) => new BuffEffect(buff, null, refreshSeconds);
     /// <summary>A buff by name: a buff clone's name ("MyMod_Frost") or "0x&lt;buff id&gt;", resolved through
     /// kiln.gamedata when it is applied.</summary>

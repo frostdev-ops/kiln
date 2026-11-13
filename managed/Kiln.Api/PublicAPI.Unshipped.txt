@@ -1,1 +1,19 @@
 #nullable enable
+Kiln.EventFilter
+Kiln.EventFilter.<Clone>$() -> Kiln.EventFilter!
+Kiln.EventFilter.Entities.get -> System.Collections.Generic.IReadOnlySet<Kiln.EntityId>?
+Kiln.EventFilter.Entities.init -> void
+Kiln.EventFilter.Equals(Kiln.EventFilter? other) -> bool
+Kiln.EventFilter.EventFilter() -> void
+Kiln.EventFilter.Passes(Kiln.KilnEvent! ev) -> bool
+Kiln.EventSubscription.Filter.get -> Kiln.EventFilter?
+Kiln.IEntityEvent
+Kiln.IEntityEvent.Involves(Kiln.EntityId entity) -> bool
+override Kiln.EventFilter.Equals(object? obj) -> bool
+override Kiln.EventFilter.GetHashCode() -> int
+override Kiln.EventFilter.ToString() -> string!
+static Kiln.EventFilter.ForEntities(System.Collections.Generic.IEnumerable<Kiln.EntityId>! entities) -> Kiln.EventFilter!
+static Kiln.EventFilter.ForEntity(Kiln.EntityId entity) -> Kiln.EventFilter!
+static Kiln.EventFilter.operator !=(Kiln.EventFilter? left, Kiln.EventFilter? right) -> bool
+static Kiln.EventFilter.operator ==(Kiln.EventFilter? left, Kiln.EventFilter? right) -> bool
+static Kiln.Events.On<T>(System.Action<T!>! handler, Kiln.EventFilter! filter, Kiln.EventPriority priority = Kiln.EventPriority.Normal, bool receiveCanceled = false) -> Kiln.EventSubscription!

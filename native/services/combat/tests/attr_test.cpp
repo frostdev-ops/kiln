@@ -47,7 +47,8 @@ static_assert(offsetof(KilnCombatApi, attribute_ids) == 88);
 static_assert(offsetof(KilnCombatApi, attribute_get) == 96);
 static_assert(offsetof(KilnCombatApi, attribute_set) == 104);
 static_assert(offsetof(KilnCombatApi, attribute_add) == 112);
-static_assert(sizeof(KilnCombatApi) == 120);
+static_assert(offsetof(KilnCombatApi, hold_filter) == 120);  // since 0.2.0-dev.27, appended
+static_assert(sizeof(KilnCombatApi) == 128);
 // the v1 structs did not move
 static_assert(sizeof(KilnHealth) == 16);
 static_assert(sizeof(KilnDamageRequest) == 32);

@@ -27,7 +27,9 @@ public sealed record Announce(string Text) : INetMessage<Announce>
 /// <summary>
 /// Kiln.Network in one mod that runs on both sides (side "both"):
 ///  - server: answers Ping with Pong and tells every Kiln client when another one joins;
-///  - client: F9 sends a Ping; the Pong's round trip is shown as a toast (Kiln.Ui); announcements too.
+///  - client: F9 sends a Ping; the Pong's round trip is shown as a toast (Kiln.Ui); announcements too;
+///  - server: a whitelist when kiln/data/netsample/whitelist.txt exists (one SteamID64 per line): PlayerLoginEvent
+///    refuses everyone else (Kiln's ban list and Players.Kick work the same way; /ban and /kick are Kiln's).
 /// The channel's messages are registered in the same order on both sides (ids 0, 1, 2).
 /// </summary>
 public sealed class NetSampleMod : Mod
@@ -65,6 +67,19 @@ public sealed class NetSampleMod : Mod
             }, "Ping the server");
         }
         Log.Info($"netsample: channel {_ch} open ({(Ui.Available ? "client: F9 pings" : "server")})");
+    }
+
+    // The whitelist, read at each login so an edit counts at once. No file: everyone may join.
+    [Subscribe]
+    private void OnLogin(PlayerLoginEvent e)
+    {
+        var path = Path.Combine(Context.DataDirectory, "whitelist.txt");
+        if (!File.Exists(path)) return;
+        var allowed = File.ReadAllLines(path).Select(l => l.Trim()).Where(l => l.Length > 0 && !l.StartsWith('#')).ToHashSet();
+        if (e.SteamId != 0 && allowed.Contains(e.SteamId.ToString())) return;
+        e.Reason = "This server is whitelisted.";
+        e.Cancel();
+        Log.Info($"whitelist: refused {e.Name} (Steam {e.SteamId}, account {e.AccountId})");
     }
 
     [Subscribe]

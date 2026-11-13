@@ -318,6 +318,27 @@ public static unsafe class Combat
         if (t == null) return;
         if (Interlocked.Exchange(ref _listening, 1) != 0) return;
         t->SetListener(&OnEvents, null);
+        ReportHoldFilterRow();
+    }
+
+    /// <summary>combat.hold_filter: kiln.combat holds only the hits a handler's entity filter lets through (a table with
+    /// hold_filter, since 0.2.0-dev.27). Without it a filtered handler still gets only its entities' hits, but every hit
+    /// of the world waits a step.</summary>
+    internal const string HoldFilterCapability = "combat.hold_filter";
+
+    private static void ReportHoldFilterRow()
+    {
+        try
+        {
+            if (CombatNative.V3 != null) Capabilities.Report(HoldFilterCapability, CapabilityState.Available);
+            else
+                Capabilities.Report(HoldFilterCapability, CapabilityState.Unavailable, CapabilityReason.ServiceOlder,
+                    "this kiln-combat.dll has no hold filter (update Kiln): filtered handlers still get only their entities' hits, but every hit waits a step");
+        }
+        catch (Exception e) when (e is ArgumentException or InvalidOperationException)
+        {
+            Backend.Current.Log(0, LogLevel.Warn, $"Kiln.Combat: {HoldFilterCapability} was not reported: {e.Message}");
+        }
     }
 
     private static void Watch(ModContext? mod)
@@ -355,6 +376,31 @@ public static unsafe class Combat
         return m;
     }
 
+    // ---- the entity filter of held hits (since 0.2.0-dev.27): kiln.combat holds only the hits a handler's filter lets
+    // through (Events.On<T>(handler, EventFilter)); one handler without a filter holds every hit, as before.
+    private static readonly EntityWatch HitWatch =
+        new([typeof(EntityHurtEvent), typeof(EntityHealEvent), typeof(EntityKnockbackEvent)], PushHoldFilter);
+    private static bool _noFilterSaid;
+
+    // The watched entities for the native side (empty: every hit). EntityWatch calls it when a handler was added (on
+    // the subscribing thread, before Events.On returns: a hit on its entity later in the same step is already held) and
+    // once a step for what was removed. kiln.combat takes the list under its own lock, from any thread.
+    private static bool PushHoldFilter(uint[] ids)
+    {
+        var t = CombatNative.V3;
+        if (t == null)
+        {
+            if (ids.Length > 0 && !_noFilterSaid)
+            {
+                _noFilterSaid = true;
+                Backend.Current.Log(0, LogLevel.Info, "Kiln.Combat: this kiln-combat.dll has no hold filter: every hit is held while a handler wants hits");
+            }
+            return true;  // nothing to tell it: it holds every hit
+        }
+        if (ids.Length > 4096) ids = [];  // more than the native filter takes: hold every hit
+        fixed (uint* p = ids) return t->HoldFilter(p, (uint)ids.Length) == CombatNative.Ok;
+    }
+
     private static bool _sizeWarned;
     private static readonly HashSet<ulong> CanceledHits = new();
 
@@ -377,6 +423,7 @@ public static unsafe class Combat
             CanceledHits.Clear();
             for (uint i = 0; i < count; ++i) Dispatch(ref events[i]);
             CompleteHits();
+            HitWatch.Refresh();
             return Interest();
         }
         catch (Exception e)

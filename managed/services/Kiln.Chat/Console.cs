@@ -46,6 +46,7 @@ internal static class ConsoleControl
     static ConsoleControl()
     {
         ServiceTick.Add("kiln console", OnTick);
+        AdminCommands.Register();  // /kick, /ban, /unban, /bans (dev.27)
     }
 
     public static string Directory => Path.Combine(KilnPaths.Control, "console");

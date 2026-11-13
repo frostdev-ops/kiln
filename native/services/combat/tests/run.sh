@@ -21,3 +21,7 @@ fi
 g++ -std=c++20 -O1 -g -Wall -Wextra -fsanitize=address,undefined \
     -I"$here/../../../core/abi" -I"$here/../../../plugins/emf/include" "$here/attr_test.cpp" -o "$out/attr-test"
 "$out/attr-test"
+# the entity pre-test of held hits (since 0.2.0-dev.27)
+g++ -std=c++20 -O1 -g -Wall -Wextra -fsanitize=address,undefined \
+    -I"$here/../../../core/abi" "$here/hold_test.cpp" -o "$out/hold-test"
+"$out/hold-test"

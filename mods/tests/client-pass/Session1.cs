@@ -478,6 +478,59 @@ public sealed partial class ClientPassMod
         await c.Verdict();
     }
 
+    [ClientCheck("abilities.remove-buff", "A buff taken off by a mod", Area = "Gameplay", Since = Dev27,
+        Tags = [Visual], Needs = ClientCheckNeeds.Hosted, Order = 139)]
+    public async Task AbilitiesRemoveBuff(CheckContext c)
+    {
+        if (!await NeedPlayer(c)) return;
+        // the heal-over-time potion's buff: an icon in the buff row while it lasts
+        var hot = new Guid("be0e7626-e95f-4a14-844a-2af52501698e");
+        c.Expect(Capabilities.Is("abilities.buffs"), "abilities.buffs is available", Capabilities.Why("abilities.buffs"));
+        await Abilities.ApplyBuff(c.Player, hot, TimeSpan.FromSeconds(120), c.Player);
+        c.OnEnd(() => { if (Capabilities.Is("abilities.buffs")) _ = Abilities.RemoveBuff(c.Player, hot); });
+        await c.Until(() => Abilities.BuffsOf(c.Player).Any(b => b.Is(hot)), TimeSpan.FromSeconds(5), "the buff is on the player");
+        c.Instruct("The check gave you the healing potion's buff for 2 minutes: its icon is in the buff row of your HUD. Look " +
+                   "at it now. The check takes the buff off in 10 seconds through Abilities.RemoveBuff; watch the icon.");
+        await c.Ticks(240);
+        var r = await Abilities.RemoveBuff(c.Player, hot);
+        c.Expect(r.Ok, "RemoveBuff says the game removed it", r.ToString());
+        // the game answers at once and clears the slot a step later
+        await c.Until(() => !Abilities.BuffsOf(c.Player).Any(b => b.Is(hot)), TimeSpan.FromSeconds(5), "the buff is no longer in the player's buff slots");
+        c.Instruct("Did the buff's icon appear in your HUD, and did it go away when the check took the buff off (about 10 " +
+                   "seconds later), with no other buff touched?");
+        await c.Verdict();
+    }
+
+    [ClientCheck("players.aim", "Where the player looks: Player.Aim follows the camera", Area = "Gameplay", Since = Dev27,
+        Needs = ClientCheckNeeds.Hosted, Order = 140)]
+    public async Task PlayersAim(CheckContext c)
+    {
+        if (!await NeedPlayer(c)) return;
+        c.Expect(Capabilities.Is("players.aim"), "players.aim is available", Capabilities.Why("players.aim"));
+        PlayerAim? Aim() { try { return PlayerStates.AimOf(c.Player); } catch (KilnUnavailableException) { return null; } }
+        var first = Aim();
+        var body = World.Position(c.Player);
+        c.Expect(first is not null, "the player's client has sent a camera", first?.ToString());
+        if (first is not null && body is { } b)
+            c.Expect(first.Origin.DistanceTo(b) < 15, "the camera is near the character (third person)",
+                $"{first.Origin.DistanceTo(b):0.0} m from the character, distance setting {first.Distance:0.0}");
+        c.Instruct("Step 1 of 3: look straight down at your feet with the camera.");
+        if (await c.Until(() => Aim() is { PitchDegrees: < -45 }, TimeSpan.FromSeconds(60), "Aim's pitch went below -45 (looking down)"))
+            c.Expect(true, "Aim's pitch went below -45 (looking down)", $"{Aim()?.PitchDegrees:0} degrees");
+        c.Instruct("Step 2 of 3: Kiln saw you look down. Now look up at the sky.");
+        if (await c.Until(() => Aim() is { PitchDegrees: > 30 }, TimeSpan.FromSeconds(60), "Aim's pitch went above 30 (looking up)"))
+            c.Expect(true, "Aim's pitch went above 30 (looking up)", $"{Aim()?.PitchDegrees:0} degrees");
+        var yaw0 = Aim()?.YawDegrees ?? 0;
+        c.Instruct("Step 3 of 3: Kiln saw you look up. Now turn the camera half a turn (180 degrees) left or right.");
+        if (await c.Until(() => Aim() is { } a && Math.Abs(((a.YawDegrees - yaw0 + 540) % 360) - 180) > 150, TimeSpan.FromSeconds(60),
+                "Aim's yaw turned by more than 150 degrees"))
+            c.Expect(true, "Aim's yaw turned by more than 150 degrees", $"{yaw0:0} -> {Aim()?.YawDegrees:0} degrees");
+        var last = Aim();
+        c.Instruct($"Kiln read your camera as yaw {last?.YawDegrees:0} and pitch {last?.PitchDegrees:0} degrees. Did each step's " +
+                   "text move on right after you moved the camera that way, and not before?");
+        await c.Verdict();
+    }
+
     [ClientCheck("world.programs", "A world program with a player in the world", Area = "Gameplay", Since = Dev21,
         Needs = ClientCheckNeeds.Hosted, Order = 138)]
     public async Task WorldProgramsCheck(CheckContext c)

@@ -49,7 +49,29 @@ public sealed class ItemDataMod : Mod
         // Records not on an item now: waiting for their holder (a chest not loaded yet, a player who left) or set aside
         // because Kiln could not be sure which item they belong to.
         foreach (var p in InstanceData.Parked(_notches))
-            c.Reply($"  {p.State}: {p.Item} in {p.Holder} slot {p.FlatSlot}: {p.Value?.Count} ({p.Reason})");
+            c.Reply($"  {p.State} {p.RecordId}: {p.Item} in {p.Holder} slot {p.FlatSlot}: {p.Value?.Count} ({p.Reason})");
+    }
+
+    // A set-aside record is never attached by itself: Kiln could not tell which of two identical items it belongs to. The
+    // player who knows takes the item in hand and says which record is its own.
+    [Command("notch-claim", Description = "puts a set-aside notch record (its id from /notches) on the item in your hand")]
+    private string Claim(CommandContext c, string record)
+    {
+        if (!c.Source.IsPlayer) throw new CommandException("only a player has a hand");
+        var held = Items.Held(c.Source.Player);
+        if (held.IsNone) throw new CommandException("hold the weapon or tool the notches belong to");
+        var parked = InstanceData.Parked(_notches).FirstOrDefault(p => p.RecordId == record)
+                     ?? throw new CommandException($"no parked notch record {record} (see /notches)");
+        var r = InstanceData.Claim(parked, held);
+        return r.Ok ? $"the {parked.Value?.Count} notch(es) are on this item now" : $"not claimed: {r.Reason}";
+    }
+
+    [Command("notch-drop", Description = "drops a parked notch record (its id from /notches)", Permission = CommandPermission.Admin)]
+    private string Drop(CommandContext c, string record)
+    {
+        var parked = InstanceData.Parked(_notches).FirstOrDefault(p => p.RecordId == record)
+                     ?? throw new CommandException($"no parked notch record {record} (see /notches)");
+        return InstanceData.Discard(parked) ? "dropped" : "it was no longer parked";
     }
 
     // The three things that happen to stored data, as events.
