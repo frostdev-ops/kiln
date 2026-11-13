@@ -39,6 +39,8 @@ public sealed class KilnCreature1Mod : Mod
             _spawned.Clear();
             return;
         }
+        // From the console the first player in the game stands in, and only kiln.players knows who that is.
+        if (c.Source.Player.IsNone && !Players.Available) throw new CommandException("no player to spawn it next to (kiln.players is missing)");
         var who = !c.Source.Player.IsNone ? c.Source.Player : Players.All.FirstOrDefault()?.Entity ?? EntityId.None;
         if (who.IsNone || World.Position(who) is not { } p) throw new CommandException("no player to spawn it next to");
         _ = SpawnAsync(p with { X = p.X + 8 });

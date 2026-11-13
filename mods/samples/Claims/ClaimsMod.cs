@@ -181,11 +181,14 @@ public sealed class ClaimsMod : Mod
             return;
         }
         if (!ctx.Source.IsAdmin) throw new CommandException("only admins can change claims");
+        // who is where, and whose Steam id: kiln.players answers both
+        if (!Players.Available) throw new CommandException("claims cannot be changed on this server (kiln.players is missing)");
         switch (sub)
         {
             case "here":
             {
                 if (!ctx.Source.IsPlayer) throw new CommandException("run it in game, where the claim should be");
+                if (!Capabilities.Is("players.positions")) throw new CommandException(Capabilities.Why("players.positions"));
                 var name = ctx.Arg(1);
                 var radius = ctx.Args.Count > 2 ? ctx.Double(2) : 32;
                 var pos = Players.PositionOf(ctx.Source.Player) ?? throw new CommandException("your position is unknown");
