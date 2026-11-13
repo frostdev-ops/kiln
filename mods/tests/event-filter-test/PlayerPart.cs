@@ -30,15 +30,16 @@ public sealed partial class EventFilterTestMod
     }
 
     // a player character standing on the ground, ready for gameplay (as weapon-moves-test makes one)
-    private async Task<EntityId> Character(WorldPosition near)
+    private async Task<EntityId> Character(WorldPosition near, List<EntityId> made, List<EntityId> gods)
     {
         try { await Build.Load(Build.BoxAround(near, 8, 128, 8)); } catch (Exception e) when (e is InvalidOperationException or TimeoutException) { Info($"loading the terrain there: {e.Message}"); }
         var at = near with { Y = (GroundY(near) ?? near.Y) + 1.0 };
         var p = await Spawn.Entity("1_Player", at, 0, new SpawnOptions { Tag = "event-filter-test", Flags = SpawnFlags.Transient });
-        _spawned.Add(p);
+        if (!p.IsNone) made.Add(p);
         if (!Check(!p.IsNone && World.Has(p, "PlayerInput"), $"a player character {p} at {at}")) return EntityId.None;
         for (var i = 0; i < 50 && Combat.GetHealth(p) is null; i++) await Steps(1);
         Combat.SetInvulnerable(p);
+        gods.Add(p);
         World.WriteRaw(p, "PlayerInput", PlayerInputReady, (byte)1);
         foreach (var r in Symbols.FindAll("48 89 5C 24 08 57 48 83 EC 30 F3 0F 10 15 ?? ?? ?? ?? 0F 57 C0 F3 49 0F 2A 00 48 8B C2 48 8B F9 48 8D 54 24 20 48 8B C8 49 8B D8"))
             _detours.Add(Hooks.Detour(r, _ => 1));  // "the terrain at the character is loaded"
@@ -57,10 +58,32 @@ public sealed partial class EventFilterTestMod
         await Steps(1);
     }
 
-    /// <summary>7. The game's own hits: a player character's sword swings on watched Vukahs, and their attacks on it.</summary>
+    /// <summary>7. The game's own hits: a player character's sword swings on watched Vukahs, and their attacks on it.
+    /// However it ends, the terrain detours come out, every god-mode hold it took is released, and then what it spawned
+    /// is destroyed (kiln.combat keeps a hold by entity id until it is released: a destroyed entity's id, reused, would
+    /// stay invulnerable).</summary>
     private async Task GameHits(WorldPosition anchor)
     {
-        var p = await Character(anchor with { X = anchor.X + 40, Z = anchor.Z + 20 });
+        var made = new List<EntityId>();
+        var gods = new List<EntityId>();
+        try
+        {
+            await GameHitsIn(anchor, made, gods);
+        }
+        finally
+        {
+            foreach (var h in _detours) try { h.Remove(); } catch (Exception e) { Info($"a detour did not come out: {e.Message}"); }
+            _detours.Clear();
+            foreach (var e in gods) try { Combat.SetInvulnerable(e, false); } catch (Exception x) { Info($"god mode of {e}: {x.Message}"); }
+            if (gods.Count > 0)
+                Check(gods.All(e => !Combat.IsInvulnerable(e)), $"every god-mode hold of this part is released before its entity is destroyed ({gods.Count})");
+            foreach (var e in made) try { if (Spawn.Exists(e)) Spawn.Destroy(e); } catch (Exception x) { Info($"destroying {e}: {x.Message}"); }
+        }
+    }
+
+    private async Task GameHitsIn(WorldPosition anchor, List<EntityId> made, List<EntityId> gods)
+    {
+        var p = await Character(anchor with { X = anchor.X + 40, Z = anchor.Z + 20 }, made, gods);
         if (p.IsNone) return;
         var give = await Items.Give(p, GameSword, 1);
         await Steps(10);
@@ -78,11 +101,15 @@ public sealed partial class EventFilterTestMod
             var a = i * Math.PI / 4;
             var v = await Spawn.Entity("Enemy_Vukah_Melee", new WorldPosition(c.X + 1.6 * Math.Sin(a), c.Y, c.Z + 1.6 * Math.Cos(a)), (float)(i * 45 + 180),
                 new SpawnOptions { Tag = "event-filter-test", Flags = SpawnFlags.Transient });
-            _spawned.Add(v);
+            made.Add(v);
             ring.Add(v);
         }
         for (var i = 0; i < 20 && ring.Any(v => Combat.GetHealth(v) is null); i++) await Steps(1);
-        foreach (var v in ring) Combat.SetInvulnerable(v);
+        foreach (var v in ring)
+        {
+            Combat.SetInvulnerable(v);
+            gods.Add(v);
+        }
         var onRing = new List<EntityHurtEvent>();
         var byCharacter = new List<EntityHurtEvent>();
         using var a1 = Events.On<EntityHurtEvent>(e => { onRing.Add(e); if (onRing.Count <= 30) Info($"a hit about a watched Vukah: {Shape(e)}"); },
@@ -128,8 +155,5 @@ public sealed partial class EventFilterTestMod
         Info($"out of god mode: {plain.Count} hurt event(s) from {plain.Select(e => e.ImpactId).Distinct().Count()} impact(s) of the character's swings " +
              $"[{string.Join("; ", plain.Select(e => $"target {e.Target} impact 0x{e.ImpactId:x8} step {e.Step}"))}]; " +
              $"in god mode: {mine.Count} from {mine.Select(e => e.ImpactId).Distinct().Count()} [{string.Join("; ", mine.Select(e => $"target {e.Target} impact 0x{e.ImpactId:x8} step {e.Step}"))}]");
-        foreach (var v in ring) if (Spawn.Exists(v)) Spawn.Destroy(v);
-        foreach (var h in _detours) h.Remove();
-        _detours.Clear();
     }
 }
