@@ -100,6 +100,15 @@ using var sub = Events.On<ComponentWrittenEvent>(e => Log.Info($"{e.Component} o
   stays. With some, Kiln's write is the last of its step, and from the next step on those programs see it and may
   change it: `Kept` says whether the bytes were still there one step later. `Kept == false` on a value the game
   derives every step (`NetworkFuel` from `Fuel`) means: write the source instead.
+- **A water refill writes over `Fuel`.** A refill policy of kiln.items (`Items.Fuel.Refill`, `Items.Fuel.KeepFull`,
+  or a player's `Water` rule: the Creative menu's rule set has one) puts every container it covers back to its level
+  every step, after the game's programs, so a tracked write of such a container's `Fuel` lasts one step. The answer
+  then names the refill instead of the game: `Kept == false` and `WrittenOverBy` = `"kiln.items' water refill 1 (keep
+  full) of the inventories of 1, set by kiln"` (the number is kiln.log's `refill 1: ...`). End the refill (dispose its
+  `FuelKeep`; for a `Water` rule, end the rule set that carries it) or narrow it to other items before the write, or
+  change the water through the refill's own policy. Without a refill on it, a can a player carries keeps a tracked
+  write like any other (lab, a spawned player character: [Tests](#tests-lab)). Only refills set through
+  `Items.Fuel.Refill` are known to the answer; a native plugin's own `fuel_keep` is not named.
 - **`SaveTracked`, `ReplicationTracked`.** Whether the game's write tracking records a change of that type for the
   save and for replication: the game's own per-type bits, 40 and 91 of its 687 component types on this build (null
   where a build does not tell). `SaveTracked == true`: the write marked the entity and the next save writes it.
@@ -243,7 +252,9 @@ Tick thread (Pre/Post) or inside your program: `component(e, hash, &size)`, `exi
 - `mods/tests/world-writes-test` (tracked writes; a lab made with `--save` from a world with a base; start it three
   times, stopping after each `READY restart`): boot 1 the build's table of all 687 component types, every refusal, a
   tracked `Fuel` write with the game's formulas and its mirror program, the event, a value the game derives
-  (`NetworkFuel`, `Kept == false`), a type with no game writer; boot 2 a tracked and a raw write of `Fuel`, `UsedItem`
+  (`NetworkFuel`, `Kept == false`), a type with no game writer, a can a spawned player character carries (kept with
+  no refill on the character; written back one step later with `Items.Fuel.KeepFull` on it, the answer naming the
+  refill; kept again once the refill ends: `CarriedPart.cs`); boot 2 a tracked and a raw write of `Fuel`, `UsedItem`
   and `ServerToggleState.state` on twin entities a save has already written, and of `ScaleComponent`; boot 3 reads
   them. Lab `dev27-world`: 27, 9 and 11 PASS, 0 FAIL:
   ```
@@ -278,14 +289,19 @@ Tick thread (Pre/Post) or inside your program: `component(e, hash, &size)`, `exi
 - `ToEntity(player, otherPlayer)` lands next to the other player; `ToSpawnPoint(player, altar)` on a landing pad.
 - Tracked writes (guided checks of `mods/tests/world-writes-test`, since 0.2.0-dev.27; a lab has no screen):
   `world.tracked-water`: a can in your backpack is set from full to half by `World.Update<Ecs.Fuel>` while you look
-  at it, and shows half without your touching it; `world.tracked-water-rejoin`: a can set to 23 of 100 shows 23
-  before you leave to the menu and after you come back. Until these pass, "players see a tracked write" is unproven.
-  First try in a real game (13 Nov 2026, a hosting game, 0.2.0-dev.27 test build): `world.tracked-water` did NOT
-  pass. The write to half answered `Written: Fuel of <entity> (9 game writers, written over by the game one step
-  later, marked for the save)`, `Kept` false: with the can in the player's backpack one of the game's own programs
-  wrote `Fuel` back in the next step. Which one, and what it derives the value from there, is not known yet (the
-  lab's can, on a server with no player, keeps the write). `world.tracked-water-rejoin` was not run.
-
+  at it, and shows half without your touching it; `world.tracked-water-rejoin` gives a can of its own, sets it to 23
+  of 100 and leaves it in the backpack, you note 23, leave to the menu and come back, and
+  `world.tracked-water-rejoin-after` finds the same can (by its slot) at 23 on the server and asks whether it shows 23,
+  then takes it back. Run them with no water rule on your player (Creative off): they refuse to start while one is.
+  Until these pass, "players see a tracked write" is unproven.
+  First try in a real game (13 Nov 2026, a hosting game, 0.2.0-dev.27 test build): `world.tracked-water` did not
+  pass; the write to half answered `Written: Fuel of <entity> (9 game writers, written over by the game one step
+  later, marked for the save)`. Not the game: the owner had Creative on, whose `Water` rule keeps every can the player
+  carries full through a kiln.items refill (kiln.log `refill 1: entity 1 (its inventories) ... keep full`), and the
+  answer then blamed any write that did not hold on the game. The lab reproduced both answers word for word on a
+  spawned player character with a refill on it, and the write kept with none ([docs/re/world.md](../../re/world.md));
+  the answer now names the refill (`WrittenOverBy`). `world.tracked-water-rejoin` could not run: it needed a can the
+  first check takes back.
 
 ## Tracked writes for native services (v3)
 The table's last five entries, appended in v3 (check `header.size` and `capabilities() & KILN_WORLD_CAP_TRACKED_WRITES`):

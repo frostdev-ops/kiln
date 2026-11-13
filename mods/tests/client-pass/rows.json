@@ -64,7 +64,7 @@
     { "section": "New in 0.2.0-dev.27", "key": "Event filters: one watched creature's hits, the others untouched", "checks": ["event-filter-test/events.filter-hits"] },
     { "section": "New in 0.2.0-dev.27", "key": "Equip and unequip by a mod", "checks": ["items.equip", "items.unequip"] },
     { "section": "New in 0.2.0-dev.27", "key": "The weather a mod chose", "checks": ["time.weather"] },
-    { "section": "New in 0.2.0-dev.27", "key": "A tracked world write reaches your screen and is still there after you leave and come back", "checks": ["world-writes-test/world.tracked-water", "world-writes-test/world.tracked-water-rejoin"] },
+    { "section": "New in 0.2.0-dev.27", "key": "A tracked world write reaches your screen and is still there after you leave and come back", "checks": ["world-writes-test/world.tracked-water", "world-writes-test/world.tracked-water-rejoin", "world-writes-test/world.tracked-water-rejoin-after"] },
     { "section": "New in 0.2.0-dev.27", "key": "EMF mods built since EMF 0.6.3 run again, and an EMF server's mod check is answered", "checks": ["emf.current-mods", "emf.mods-check"] },
     { "section": "New in 0.2.0-dev.27", "key": "The launcher cooks mods with a recipe, and cooked files without a receipt are named", "checks": ["cook.on-play", "cook.changed-file", "cook.cancel", "cook.foreign-file", "windows.cook", "deck.cook-again"] },
     { "section": "New in 0.2.0-dev.27", "key": "MODS is in the main menu while Kiln runs ShroudForge", "checks": ["menu.mods-with-shroudforge"] },

@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 // kiln.world's tracked writes on a dedicated server with no player. Boot 1: what the build says about every component
 // type (a table in the mod's data folder), the refusals, a tracked write of an attribute (Fuel) and of a plain
-// component, the change event, the check against the game's own writers; baseline values left for a save.
+// component, the change event, the check against the game's own writers, a can a spawned player character carries
+// (CarriedPart.cs); baseline values left for a save.
 // Boot 2: on entities a save has already written, a tracked write on one and a raw write on its twin.
 // Boot 3: the tracked values are there, and the log says what the raw ones did. Stop and start the lab after each
 // "READY restart".
@@ -174,6 +175,10 @@ public sealed partial class WorldWritesTestMod : Mod
                     $"an entity with a SpawnTime ({spawned}, {listed}) waited behind a full step and its generation still matched right before the write: {waits.Result}; in {waits.Result.Steps} step(s)");
             }
         }
+
+        // a can a player character carries, with and without a water refill on the character (CarriedPart.cs)
+        try { await Carried(chest); }
+        catch (Exception e) { Check(false, $"carried: the part threw: {e}"); }
 
         // baseline for the restart check: entities a save has written, values a save writes
         await World.Update<Ecs.Fuel>(can.Item, (ref Ecs.Fuel f) => f.Values[0] = 6400);
