@@ -48,8 +48,16 @@ internal sealed class Manifest
     [
         "$schema", "id", "name", "version", "authors", "author", "description", "license", "url", "apiVersion", "side",
         "clients", "dependencies", "loadBefore", "loadAfter", "incompatible", "features", "entryAssembly", "entryType", "exports",
-        "advanced", "tests", "kilnBuild",
+        "advanced", "tests", "kilnBuild", "writes",
     ];
+
+    /// <summary>A component's short name, as kiln.world takes it in <c>"writes"</c>.</summary>
+    private static readonly Regex ComponentName = new(@"\A[A-Za-z0-9_]{1,120}\z", RegexOptions.CultureInvariant);
+
+    /// <summary>The most entries <c>"writes"</c> may hold, a repeated name counted each time (kiln.world: boot_programs.h,
+    /// kBootWrites; the schema's maxItems). The same rule in the same order as the native reader
+    /// (native/services/world/tests/parity.json holds the cases both readers are tested on).</summary>
+    public const int MaxWrites = 64;
 
     public required string Id { get; init; }
     public required string Name { get; init; }
@@ -83,6 +91,15 @@ internal sealed class Manifest
 
     /// <summary>The Kiln build the mod was compiled against (<c>"kilnBuild"</c>, written by Kiln.Sdk); null when unknown.</summary>
     public KilnBuild? BuiltWith { get; init; }
+
+    /// <summary>The component types the mod writes through kiln.world's tracked path (<c>"writes"</c>: short names such as
+    /// <c>Fuel</c>; Kiln.Sdk adds the types the mod's code passes to <c>World.Write</c> and <c>World.Update</c>). The
+    /// native world service reads the list when the server starts and gives its write program access to them.</summary>
+    public IReadOnlyList<string> Writes { get; init; } = [];
+
+    /// <summary>Why <c>"writes"</c> was not read (it is then empty and the mod's tracked writes are refused); null when it was
+    /// read or absent. The mod loads either way, with a warning.</summary>
+    public string? WritesError { get; init; }
 
     /// <summary>Non-fatal findings (unknown keys, odd values).</summary>
     public IReadOnlyList<string> Warnings { get; init; } = [];
@@ -156,6 +173,12 @@ internal sealed class Manifest
                 if (!IsDllName(x))
                     throw Bad($"exports: '{x}' must be a .dll file name in the mod folder");
 
+            // As kiln.world reads it at boot (boot_programs.h parse_boot_writes). A list it cannot take never costs the
+            // mod its loading: before tracked writes "writes" was a key nobody read, and a mod that loaded then loads now.
+            var (writes, writesError) = ParseWrites(root);
+            if (writesError is not null)
+                warnings.Add($"\"writes\" is not read, so this mod's tracked writes are refused (the mod loads): {writesError}");
+
             var loadBefore = Ids(root, "loadBefore");
             var loadAfter = Ids(root, "loadAfter");
             if (loadBefore.Contains(id) || loadAfter.Contains(id)) throw Bad("loadBefore/loadAfter must not name the mod itself");
@@ -205,6 +228,8 @@ internal sealed class Manifest
                 Advanced = advanced,
                 Tests = ParseTests(root),
                 BuiltWith = builtWith,
+                Writes = writes,
+                WritesError = writesError,
                 Warnings = warnings,
             };
         }
@@ -231,6 +256,25 @@ internal sealed class Manifest
         if (!root.TryGetProperty(key, out var v) || v.ValueKind == JsonValueKind.Null) return null;
         if (v.ValueKind != JsonValueKind.String) throw Bad($"'{key}' must be a string");
         return v.GetString();
+    }
+
+    /// <summary>"writes": a list (null is none), at most 64 entries as written, each a component's short name; a repeated
+    /// name is then read once. Anything else: no names and the reason (the same rule and order as boot_programs.h
+    /// parse_boot_writes; native/services/world/tests/parity.json holds the cases both are tested on).</summary>
+    internal static (IReadOnlyList<string> Writes, string? Error) ParseWrites(JsonElement root)
+    {
+        if (!root.TryGetProperty("writes", out var v)) return ([], null);
+        if (v.ValueKind != JsonValueKind.Array) return ([], $"it must be a list of at most {MaxWrites} component names, not {v.ValueKind.ToString().ToLowerInvariant()}");
+        if (v.GetArrayLength() > MaxWrites) return ([], $"it lists {v.GetArrayLength()} entries; {MaxWrites} at most (a repeated name counts each time)");
+        var names = new List<string>();
+        foreach (var e in v.EnumerateArray())
+        {
+            var name = e.ValueKind == JsonValueKind.String ? e.GetString()! : null;
+            if (name is null || !ComponentName.IsMatch(name))
+                return ([], $"'{(name ?? e.GetRawText()).ReplaceLineEndings("\\n")}' is not a component's short name (letters, digits and _, such as Fuel or CurrentTransform)");
+            names.Add(name);
+        }
+        return ([.. names.Distinct(StringComparer.Ordinal)], null);
     }
 
     private static List<string> Strings(JsonElement root, string key, bool allowSingle = false)

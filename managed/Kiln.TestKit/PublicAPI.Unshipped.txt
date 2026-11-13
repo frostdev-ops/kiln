@@ -1,1 +1,47 @@
 #nullable enable
+Kiln.TestKit.FakeGameWriter<T>
+Kiln.TestKit.FakeWorld
+Kiln.TestKit.FakeWorld.All.get -> System.Collections.Generic.IReadOnlyList<Kiln.EntityId>!
+Kiln.TestKit.FakeWorld.Create() -> Kiln.EntityId
+Kiln.TestKit.FakeWorld.Create(Kiln.WorldPosition position) -> Kiln.EntityId
+Kiln.TestKit.FakeWorld.Destroy(Kiln.EntityId entity) -> bool
+Kiln.TestKit.FakeWorld.Exists(Kiln.EntityId entity) -> bool
+Kiln.TestKit.FakeWorld.GameWrites<T>(string! program, Kiln.TestKit.FakeGameWriter<T>? each = null) -> System.IDisposable!
+Kiln.TestKit.FakeWorld.Get<T>(Kiln.EntityId entity) -> T
+Kiln.TestKit.FakeWorld.GetBytes(Kiln.EntityId entity, string! component) -> byte[]?
+Kiln.TestKit.FakeWorld.Remove<T>(Kiln.EntityId entity) -> bool
+Kiln.TestKit.FakeWorld.Set<T>(Kiln.EntityId entity, T value) -> Kiln.TestKit.FakeWorld!
+Kiln.TestKit.FakeWorld.SetBytes(Kiln.EntityId entity, string! component, System.ReadOnlySpan<byte> bytes) -> Kiln.TestKit.FakeWorld!
+Kiln.TestKit.FakeWorld.SetPosition(Kiln.EntityId entity, Kiln.WorldPosition position) -> void
+Kiln.TestKit.FakeWorld.Track(string! component, bool save, bool replication) -> void
+Kiln.TestKit.FakeWorld.TryGet<T>(Kiln.EntityId entity, out T value) -> bool
+Kiln.TestKit.FakeWorld.Writes.get -> System.Collections.Generic.IReadOnlyList<Kiln.TestKit.FakeWorldWrite!>!
+Kiln.TestKit.FakeWorldWrite
+Kiln.TestKit.FakeWorldWrite.<Clone>$() -> Kiln.TestKit.FakeWorldWrite!
+Kiln.TestKit.FakeWorldWrite.After.get -> byte[]!
+Kiln.TestKit.FakeWorldWrite.After.init -> void
+Kiln.TestKit.FakeWorldWrite.Before.get -> byte[]!
+Kiln.TestKit.FakeWorldWrite.Before.init -> void
+Kiln.TestKit.FakeWorldWrite.Component.get -> string!
+Kiln.TestKit.FakeWorldWrite.Component.init -> void
+Kiln.TestKit.FakeWorldWrite.Deconstruct(out ulong Step, out string? ModId, out Kiln.EntityId Entity, out string! Component, out int Offset, out Kiln.WorldWriteStatus Status, out byte[]! Before, out byte[]! After) -> void
+Kiln.TestKit.FakeWorldWrite.Entity.get -> Kiln.EntityId
+Kiln.TestKit.FakeWorldWrite.Entity.init -> void
+Kiln.TestKit.FakeWorldWrite.Equals(Kiln.TestKit.FakeWorldWrite? other) -> bool
+Kiln.TestKit.FakeWorldWrite.FakeWorldWrite(ulong Step, string? ModId, Kiln.EntityId Entity, string! Component, int Offset, Kiln.WorldWriteStatus Status, byte[]! Before, byte[]! After) -> void
+Kiln.TestKit.FakeWorldWrite.ModId.get -> string?
+Kiln.TestKit.FakeWorldWrite.ModId.init -> void
+Kiln.TestKit.FakeWorldWrite.Offset.get -> int
+Kiln.TestKit.FakeWorldWrite.Offset.init -> void
+Kiln.TestKit.FakeWorldWrite.Status.get -> Kiln.WorldWriteStatus
+Kiln.TestKit.FakeWorldWrite.Status.init -> void
+Kiln.TestKit.FakeWorldWrite.Step.get -> ulong
+Kiln.TestKit.FakeWorldWrite.Step.init -> void
+Kiln.TestKit.KilnHarness.Entities.get -> Kiln.TestKit.FakeWorld!
+Kiln.TestKit.ModManifest.Writes(params string![]! components) -> Kiln.TestKit.ModManifest!
+override Kiln.TestKit.FakeWorldWrite.Equals(object? obj) -> bool
+override Kiln.TestKit.FakeWorldWrite.GetHashCode() -> int
+override Kiln.TestKit.FakeWorldWrite.ToString() -> string!
+static Kiln.TestKit.FakeWorldWrite.operator !=(Kiln.TestKit.FakeWorldWrite? left, Kiln.TestKit.FakeWorldWrite? right) -> bool
+static Kiln.TestKit.FakeWorldWrite.operator ==(Kiln.TestKit.FakeWorldWrite? left, Kiln.TestKit.FakeWorldWrite? right) -> bool
+virtual Kiln.TestKit.FakeGameWriter<T>.Invoke(Kiln.EntityId entity, ref T value) -> void

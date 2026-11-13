@@ -3,8 +3,10 @@
 // "every entity with component X" by walking the world's entity map and testing each entity's archetype bitset.
 // Map and record layouts: docs/re/world.md ("Entity map").
 #include <bit>
+#include <functional>
 #include <cmath>
 
+#include "transform_layout.h"
 #include "world_internal.h"
 
 namespace kw {
@@ -57,6 +59,18 @@ bool map_find_u16(uintptr_t map, uint32_t key, uint16_t* value) {
     return false;
 }
 
+void map_each_u16(uintptr_t map, const std::function<void(uint32_t key, uint16_t value)>& fn) {
+    if (!map || !L.map.ok()) return;
+    const uint64_t cap = rd<uint64_t>(map + L.map.cap);
+    if (cap == 0 || (cap & (cap - 1)) || cap > (1u << 20)) return;
+    const uintptr_t bits = rd<uintptr_t>(map + L.map.bits);
+    const uintptr_t keys = rd<uintptr_t>(map + L.map.keys);
+    const uintptr_t values = rd<uintptr_t>(map + L.map.values);
+    if (!bits || !keys || !values) return;
+    for (uint64_t i = 0; i < cap; ++i)
+        if ((rd<uint64_t>(bits + (i >> 6) * 8) >> (i & 63)) & 1) fn(rd<uint32_t>(keys + i * 4), rd<uint16_t>(values + i * 2));
+}
+
 int64_t m_to_fixed(double m) { return static_cast<int64_t>(std::llround(m * 4294967296.0)); }
 
 bool may_touch_world() { return t_in_program || g_api->on_tick_thread(); }
@@ -85,15 +99,7 @@ KilnResult transform(KilnEntity entity, KilnTransform* out) {
     if (!g_world.load()) return KILN_ERR_UNAVAILABLE;
     uint32_t size = 0;
     const auto* p = static_cast<const uint8_t*>(component(entity, kCurrentTransform, &size));
-    if (!p || size < 52) return KILN_ERR_NOT_FOUND;
-    // keen::WorldTransform: i64 x, y, z (32.32 fixed) @0, quaternion @0x18, scale float3 @0x28.
-    out->position = {fixed_to_m(rd<int64_t>(reinterpret_cast<uintptr_t>(p))),
-                     fixed_to_m(rd<int64_t>(reinterpret_cast<uintptr_t>(p) + 8)),
-                     fixed_to_m(rd<int64_t>(reinterpret_cast<uintptr_t>(p) + 16))};
-    std::memcpy(out->rotation, p + 0x18, 16);
-    std::memcpy(out->scale, p + 0x28, 12);
-    out->reserved = 0;
-    return KILN_OK;
+    return transform_decode(p, size, out) ? KILN_OK : KILN_ERR_NOT_FOUND;  // transform_layout.h
 }
 
 KilnResult position(KilnEntity entity, KilnVec3* out) {

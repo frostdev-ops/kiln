@@ -1,0 +1,23 @@
+<Project>
+  <!-- tk-world: a small mod whose world code (typed reads, entity sets, tracked writes, the change event) runs offline on
+       the kit's fake world exactly as it runs in a server (Kiln.TestKit.Tests' EntitiesTests). A plain Kiln mod built with
+       Kiln.Sdk (repository mode), no reference to the test kit; the build fills "writes" in its kiln.mod.json from the
+       types it passes to World.Write and World.Update, and the tests load that built folder. -->
+  <Import Project="../../../../Kiln.Sdk/Sdk/Sdk.props" />
+  <PropertyGroup>
+    <KilnModId>tk-world</KilnModId>
+    <KilnModName>Test kit world mod</KilnModName>
+    <Version>0.1.0</Version>
+    <KilnSide>server</KilnSide>
+    <KilnServices>World;Chat;Game</KilnServices>
+    <KilnGameIds>None</KilnGameIds>
+  </PropertyGroup>
+  <Import Project="../../../../Kiln.Sdk/Sdk/Sdk.targets" />
+  <!-- In repository mode the services' own project references land in the output; kiln/host has them, and the loader
+       takes its own, so the mod folder leaves every Kiln.* out (as TkParity does). -->
+  <Target Name="_TkWorldSharedOut" AfterTargets="_KilnModFiles">
+    <ItemGroup>
+      <_KilnModFile Remove="$(OutDir)Kiln.*" />
+    </ItemGroup>
+  </Target>
+</Project>
