@@ -22,7 +22,7 @@ Unchanged: `data/*`, `shared/*` except `character.mjs`, and every `src/` file no
 | `src/App.jsx` | `TABS` without `srv`; no Servidor/Jogadores render, no "Configurar servidor…" menu entry; the 2560×1440 stage fits the editor's own box (ResizeObserver) instead of the window |
 | `src/platform.js` | rewritten: `api` is always `tauri-api.js`; `ASSET_BASE` is the launcher's `kiln-asset` protocol (`kiln-asset://localhost/editor/`, Windows `http://kiln-asset.localhost/editor/`), `/assets-local/editor/` in the browser dev server; `registerFonts` runs once; new `assetsPresent()` |
 | `src/tauri-api.js` | its `invoke` names map to the launcher's `editor_*` commands through `launcher/src/api/commands.ts` (errors wrapped into `Error`); the Guardian server-copy code is removed; `browseSave` uses the launcher's dialog helper; gameart: a save the strict read rejects is read again accepting any item id (stacks of mods that are gone), with a read-only note (saving still refuses unknown ids) |
-| `src/gamedata.js` | gameart: `mergeModded(overlay, version)` merges the items of Kiln mods (the launcher's `modded/items.json`) into `items`/extras (copies of the base item's entry with their own name, rarity, stack, icon; icon overrides of vanilla items; undoable); `itemName` of an id with no entry: "Unknown item (0x…)"; `newEntry` gives a new item its own rarity from `items.json` (the one the catalog shows), not the `maxUpgrades` of the instance `item-extras.json` was read from (rolled loot: Ring of Frost, a Legendary item, was added as Rare) |
+| `src/gamedata.js` | amounts: `newEntry` bounds a stacking item's amount by what the save holds (65535), not by the vanilla stack size (a mod may have raised it; `kiln/amounts.js`). gameart: `mergeModded(overlay, version)` merges the items of Kiln mods (the launcher's `modded/items.json`) into `items`/extras (copies of the base item's entry with their own name, rarity, stack, icon; icon overrides of vanilla items; undoable); `itemName` of an id with no entry: "Unknown item (0x…)"; `newEntry` gives a new item its own rarity from `items.json` (the one the catalog shows), not the `maxUpgrades` of the instance `item-extras.json` was read from (rolled loot: Ring of Frost, a Legendary item, was added as Rare) |
 | `src/itemstats.js` | gameart: `copiarEstatisticas(de, para)`: a mod item uses its base item's attribute lines |
 | `src/ui.js` | gameart: `itemIcon` uses an entry's own `icon` (mod items) when it has one |
 | `src/Catalog.jsx` | gameart: the item list is built when the catalog opens (mod items merge after the module loads) |
@@ -36,10 +36,12 @@ overlay loaded and merged before a save is read, remounts when the art or the ov
 `kiln-editor.css`, this file, and `kiln/`: the editor's UI in the launcher's look (Hearth), which replaced upstream's
 in-game frame on 2026-11-05. `kiln/EditorApp.jsx` (page head, character switch, Save, Backups, tabs, keys),
 `Equipment.jsx`, `Inventory.jsx`, `Skills.jsx`, `Knowledge.jsx`, `Catalog.jsx` (add an item), `Inspector.jsx` (one
-item), `parts.jsx`, `editor.css`. They call upstream's data and save code unchanged (`src/platform.js`,
+item), `parts.jsx`, `amounts.js` (how many of an item a slot may hold), `editor.css`. They call upstream's data and save code unchanged (`src/platform.js`,
 `src/tauri-api.js`, `src/gamedata.js`, `src/itemstats.js`, `src/treecheck.js`, `src/i18n.js`, `shared/*`) and keep
 its rules (equipment mask order, socket bytes, level includes upgrades, the tree checks before a write). Game art
-appears only as item and skill icons. One rule differs: the level warning compares the base level (level minus
+appears only as item and skill icons. Two rules differ: an amount may go above the item's stack size, up to the
+65535 the save holds, with a note (a mod may have raised stack sizes, which the editor cannot know; upstream stopped
+at the vanilla stack). And the level warning compares the base level (level minus
 upgrades) with the item's maxLevel, as the game writes a level-10 hat with 5 upgrades as level 15. The UI is English
 (`definirIdioma('en')`); Kiln's strings are at the end of `src/i18n/en.json`.
 

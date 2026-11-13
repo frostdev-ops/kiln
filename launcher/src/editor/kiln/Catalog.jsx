@@ -7,6 +7,7 @@ import { items, newEntry, itemName } from '../src/gamedata.js';
 import { itemIcon, rarityColor } from '../src/ui.js';
 import { t, localeAtual } from '../src/i18n.js';
 import { Slot, Stepper, categoryWord, rarityWord, tierOf } from './parts.jsx';
+import { aboveStack, amountLimit } from './amounts.js';
 
 const BASE_RARITY = { Common: 1, Uncommon: 2, Rare: 3, Epic: 4, Legendary: 5 };
 const isArmor = (it) => it.category === 'Equipment' && /^Armour_(Head|UpperBody|Arms|LowerBody|Feet)$/.test(it.slot || '');
@@ -103,7 +104,10 @@ function CatalogBody({ target, onAdd, onClose, level }) {
             <span className="ke-insp-kind">{[categoryWord(pick.category), pick.tier && t('Tier {n}', { n: pick.tier })].filter(Boolean).join(' · ')}</span>
             {pick.maxStack > 1 && (
               <label className="ke-cat-qty"><span className="k-label">{t('Quantidade')}</span>
-                <Stepper value={qty} min={1} max={pick.maxStack} big={10} label={t('Quantidade')} onChange={setQty} /></label>
+                <Stepper value={qty} min={1} max={amountLimit(pick.maxStack)} big={10} label={t('Quantidade')} onChange={setQty} /></label>
+            )}
+            {aboveStack(pick.maxStack, qty) && (
+              <span className="ke-note warn">{t('acima da pilha do jogo ({n}): para mundos com um mod que aumenta as pilhas', { n: pick.maxStack })}</span>
             )}
             <span className="ke-note">{target === null ? t('Destino: inventário cheio') : t('Destino: espaço {n}', { n: target + 1 })}</span>
             <span className="k-spacer" />
