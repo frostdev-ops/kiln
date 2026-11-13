@@ -239,12 +239,16 @@ fn probe(program: &Path, root: &Path) -> Option<((u32, u32), Option<String>)> {
 }
 
 /// [`probe`] within `limit`: run as a cook's short step (`cook::run_step`), so a candidate that hangs is stopped with
-/// every process it started, and is no Python.
+/// every process it started, and is no Python, whatever it printed before it hung (a wrapper that answers and then
+/// never ends would hang every cook step the same way).
 fn probe_within(program: &Path, root: &Path, limit: std::time::Duration) -> Option<((u32, u32), Option<String>)> {
     let mut cmd = crate::hostenv::command(program);
     // -I: the current folder is not on the module path (a mod's folder is where `kiln cook` is usually run)
     cmd.arg("-I").arg("-c").arg(PROBE).arg(root.join("tools/kfc"));
-    let (_, out, _) = crate::cook::run_step(quiet(&mut cmd), Some(limit), &|| false).ok()?;
+    let (end, out, _) = crate::cook::run_step(quiet(&mut cmd), Some(limit), &|| false).ok()?;
+    if end.was_stopped() {
+        return None;
+    }
     parse_probe(&out)
 }
 
@@ -598,6 +602,9 @@ mod tests {
         let t = std::time::Instant::now();
         assert_eq!(probe_within(&p, &bin, std::time::Duration::from_secs(1)), None);
         assert!(t.elapsed() < std::time::Duration::from_secs(30), "{:?}", t.elapsed());
+        // one that answers as a Python does and then never ends is none either
+        std::fs::write(&p, "#!/bin/sh\necho 'kiln-python 3 14 stdlib'\nsleep 600\n").unwrap();
+        assert_eq!(probe_within(&p, &bin, std::time::Duration::from_secs(1)), None);
         std::fs::write(&p, "#!/bin/sh\necho 'kiln-python 3 14 stdlib'\n").unwrap();
         assert_eq!(probe_within(&p, &bin, std::time::Duration::from_secs(30)), Some(((3, 14), Some("stdlib".into()))));
         let _ = std::fs::remove_dir_all(&bin);

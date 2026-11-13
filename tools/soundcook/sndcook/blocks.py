@@ -173,6 +173,9 @@ def write(mod_dir, check=False, mod=None):
     if changed and not check:
         # through a temporary file renamed over it (cookpaths.write): a cook stopped halfway, or a launcher that died, never
         # leaves the author's recipe cut; the bytes are the ones a text write made (the platform's line ends)
+        # nor through an assets folder that is a link: the temporary file and the rename would land where it leads
+        if os.path.islink(path.parent):
+            raise BlocksError(f"{path.parent} is a link. A cook writes into the mod's own folders only, never through a link")
         try:
             CP.write(path, (json.dumps(out, indent=2) + "\n").replace("\n", os.linesep).encode())
         except CP.Refused as e:

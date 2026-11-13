@@ -682,6 +682,13 @@ fn a_damaged_entry_at_the_identity_is_not_replaced_under_a_running_game() {
     assert_eq!(std::fs::read(at.join("assets/cooked/a.bin")).unwrap(), b"what the running game loads", "nothing was removed under the game");
     assert!(legacy.is_dir());
     assert_eq!(profile::get(&dirs, &p.id).unwrap().mods.kiln[0].hash, old, "the profile still lists the entry that is there");
+    // nor under a cook of it, whatever runs: the cook holds the lock of the entry's folder, has its last good files set
+    // aside in it and is why the entry reads as changed
+    let cook = kiln_manage::state::lock_cook_folder(&at, std::time::Duration::ZERO, &|| false, "x").unwrap();
+    assert!(library::migrate_identities_with(&dirs, &mut running_in(&t.0.join("elsewhere"))).unwrap().is_empty());
+    assert_eq!(std::fs::read(at.join("assets/cooked/a.bin")).unwrap(), b"what the running game loads", "nothing was removed under the cook");
+    assert!(legacy.is_dir());
+    drop(cook);
     // the game ended: the next run moves it
     let moved = library::migrate_identities_with(&dirs, &mut running_in(&t.0.join("elsewhere"))).unwrap();
     assert_eq!(moved.len(), 1);

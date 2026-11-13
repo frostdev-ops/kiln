@@ -391,6 +391,13 @@ pub(crate) struct Ended {
     stopped: Option<String>,
 }
 
+impl Ended {
+    /// Kiln stopped it (its time limit, a cancel): it did not end by itself.
+    pub(crate) fn was_stopped(&self) -> bool {
+        self.stopped.is_some()
+    }
+}
+
 fn minutes(d: Duration) -> String {
     let s = d.as_secs();
     if s >= 120 { format!("{} minutes", s / 60) } else { format!("{s} seconds") }
@@ -816,12 +823,24 @@ thread_local! {
     static FAIL_RESTORE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
-fn own_files(dir: &Path) -> Vec<PathBuf> {
+fn own_files(dir: &Path) -> std::io::Result<Vec<PathBuf>> {
     let mut v = vec![dir.join("assets/assets.json"), dir.join("assets/cook.json")];
-    v.extend(std::fs::read_dir(dir.join("blocks")).into_iter().flatten().flatten().map(|e| e.path())
-        .filter(|p| p.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.ends_with(".materials.json"))));
+    // no blocks folder: none of those. A folder that cannot be listed is an error: a file missed here would count as
+    // made by the cook, and a failed cook's putting back would remove it
+    match std::fs::read_dir(dir.join("blocks")) {
+        Ok(rd) => {
+            for e in rd {
+                let p = e?.path();
+                if p.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.ends_with(".materials.json")) {
+                    v.push(p);
+                }
+            }
+        }
+        Err(e) if matches!(e.kind(), std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory) => {}
+        Err(e) => return Err(e),
+    }
     v.sort();
-    v
+    Ok(v)
 }
 
 /// The set-asides earlier runs left in `dir`'s assets folder, newest first (whatever they hold, links too). None when
@@ -896,10 +915,13 @@ fn set_aside(dir: &Path, game: Option<&Path>) -> Result<SetAside> {
     let cooked = assets.join("cooked");
     crate::engine_mods::refuse_symlink_path(dir, &cooked)?;
     // "not there" is remembered as absent (put back as absent); a file that is there and cannot be read stops the cook
-    // before anything moved: remembered as absent, a failed cook's putting back would delete it
+    // before anything moved: remembered as absent, a failed cook's putting back would delete it. Absent is what the
+    // system says is not there, or what is there and is no file (a folder of that name, a link: a putting back leaves
+    // both alone); a question that fails is no answer, and stops the cook as well
     let read = |f: &Path| match std::fs::read(f) {
         Ok(b) => Ok(Some(b)),
-        Err(_) if !f.is_file() => Ok(None),
+        Err(e) if matches!(e.kind(), std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory) => Ok(None),
+        Err(_) if std::fs::symlink_metadata(f).is_ok_and(|m| !m.is_file()) => Ok(None),
         Err(e) => Err(crate::util::io_at(f, "reading")(e)),
     };
     let mut receipts = Vec::new();
@@ -909,7 +931,8 @@ fn set_aside(dir: &Path, game: Option<&Path>) -> Result<SetAside> {
             receipts.push((f, b, at));
         }
     }
-    let own = own_files(dir).into_iter().map(|f| read(&f).map(|b| (f, b))).collect::<Result<Vec<_>>>()?;
+    let own = own_files(dir).map_err(crate::util::io_at(&dir.join("blocks"), "listing"))?
+        .into_iter().map(|f| read(&f).map(|b| (f, b))).collect::<Result<Vec<_>>>()?;
     let prev = match std::fs::symlink_metadata(&cooked) {
         Ok(m) if m.is_dir() => {
             let hex: String = crate::util::random_bytes::<6>()?.iter().map(|b| format!("{b:02x}")).collect();
@@ -969,10 +992,16 @@ impl SetAside {
             }
         }
         let before: Vec<&PathBuf> = self.own.iter().map(|(f, _)| f).collect();
-        for f in own_files(dir) {
-            if !before.contains(&&f) && crate::engine_mods::refuse_symlink_path(dir, &f).is_ok() {
-                let _ = std::fs::remove_file(&f); // made by the failed cook
+        match own_files(dir) {
+            Ok(now) => {
+                for f in now {
+                    if !before.contains(&&f) && crate::engine_mods::refuse_symlink_path(dir, &f).is_ok() {
+                        let _ = std::fs::remove_file(&f); // made by the failed cook
+                    }
+                }
             }
+            // what the failed cook made there cannot be told from the rest: nothing is removed, and the error says so
+            Err(e) => note(Err(crate::util::io_at(&dir.join("blocks"), "listing")(e))),
         }
         for (file, bytes) in &self.own {
             if let Err(e) = crate::engine_mods::refuse_symlink_path(dir, file) {
@@ -1428,16 +1457,19 @@ pub fn cook_due(dirs: &crate::paths::DataDirs, install: &GameInstall, only: Opti
     Ok(run)
 }
 
-/// Another game this launcher knows that loads `folder` (its profile file names it: a Library entry two installs read
-/// in Z mode) and runs, or was started through Kiln in the last [`AFTER_START`]: a cook of the folder would write the
-/// files it reads. -> the sentence that says so.
+/// Another game this launcher knows that loads `folder` (its profile file names it, or the file of a start with
+/// another profile for once: a Library entry two installs read in Z mode) and runs, or was started through Kiln in the
+/// last [`AFTER_START`]: a cook of the folder would write the files it reads. -> the sentence that says so.
 fn used_elsewhere(dirs: &crate::paths::DataDirs, install: &GameInstall, folder: &Path) -> Option<String> {
     for other in crate::game::known(dirs).ok()? {
         if other.id == install.id || same_folder(&other.path, &install.path) {
             continue;
         }
-        let Some(file) = crate::profile::read_game_profile(&other.path).ok().flatten() else { continue };
-        if !crate::launch::kiln_folders(&other, &file).iter().any(|(_, f)| same_folder(f, folder)) {
+        // either file may be the one that game's start read (a file for once that is left over only widens the refusal)
+        let loads = [crate::paths::game::PROFILE, crate::paths::game::PROFILE_ONCE].into_iter()
+            .filter_map(|rel| crate::util::read_json::<crate::profile::ProfileFile>(&other.path.join(rel)).ok().flatten())
+            .any(|file| file.format <= 1 && crate::launch::kiln_folders(&other, &file).iter().any(|(_, f)| same_folder(f, folder)));
+        if !loads {
             continue;
         }
         let running = crate::proc::find_game(&other).ok().flatten().is_some();
@@ -1911,6 +1943,41 @@ mod tests {
         std::fs::write(&manifest, b"{ \"made\": true }").unwrap();
         kept.restore(&folder, Some(&game)).unwrap();
         assert!(!manifest.exists());
+    }
+
+    /// A folder the set-aside cannot look into is no empty folder: a blocks folder that cannot be listed stops the cook
+    /// before anything is moved (a file missed there would count as made by the cook, and the putting back of a failed
+    /// cook would remove it), and a putting back that cannot list it removes nothing there and says so.
+    #[cfg(unix)]
+    #[test]
+    fn a_blocks_folder_that_cannot_be_listed_stops_the_cook_and_loses_nothing() {
+        use std::os::unix::fs::PermissionsExt;
+        // SAFETY: a plain geteuid(2).
+        if unsafe { libc::geteuid() } == 0 {
+            eprintln!("skipped: root lists a folder of mode 000");
+            return;
+        }
+        let d = crate::library::TempDir::new(&std::env::temp_dir(), "cook-unlisted").unwrap();
+        let (game, folder) = cooked_mod(d.path());
+        let blocks = folder.join("blocks");
+        std::fs::create_dir_all(&blocks).unwrap();
+        std::fs::write(blocks.join("a.materials.json"), b"{ \"authored\": true }").unwrap();
+        let mode = |m: u32| std::fs::set_permissions(&blocks, std::fs::Permissions::from_mode(m)).unwrap();
+        mode(0o000);
+        let e = set_aside(&folder, Some(&game)).err().expect("a blocks folder that cannot be listed stops the set-aside");
+        mode(0o755);
+        assert!(e.message.contains("blocks"), "{}", e.message);
+        assert!(left_over(&folder).is_empty() && folder.join("assets/cooked/a.bin").is_file(), "nothing was moved");
+        // a failed cook's putting back, while the folder cannot be listed: the author's file and the one the cook made stay
+        let kept = set_aside(&folder, Some(&game)).unwrap();
+        std::fs::write(blocks.join("b.materials.json"), b"{}").unwrap();
+        mode(0o000);
+        let back = kept.restore(&folder, Some(&game));
+        mode(0o755);
+        assert!(back.is_err_and(|e| e.message.contains("blocks")));
+        assert_eq!(std::fs::read(blocks.join("a.materials.json")).unwrap(), b"{ \"authored\": true }");
+        assert!(blocks.join("b.materials.json").is_file());
+        assert!(folder.join("assets/cooked/a.bin").is_file(), "the cooked files are back all the same");
     }
 
     /// A cook that writes a receipt again with the same bytes (the same files, within the second its time is given in)

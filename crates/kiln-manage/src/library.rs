@@ -1180,6 +1180,15 @@ pub fn migrate_identities_with(dirs: &DataDirs, find: &mut dyn FnMut(&Path, &str
             if std::fs::symlink_metadata(&to).is_ok() && Guard::read(dirs, &mut *find)?.refuse_while_running(dirs, &at).is_err() {
                 continue;
             }
+            // nor under a cook of it (a game that loads the Library entry itself cooks in it: the cook has set its last
+            // good files aside there and changes the recipe, which is why it reads as changed right now): held until the
+            // verified copy is in place; a cook that runs now leaves both entries to a later run
+            let _cook = if std::fs::symlink_metadata(&to).is_ok() {
+                match crate::state::lock_cook_folder(&to, std::time::Duration::ZERO, &|| false, "a cook of this Library entry runs") {
+                    Ok(held) => Some(held),
+                    Err(_) => continue,
+                }
+            } else { None };
             let tmp = TempDir::new(&dirs.library(), "migrate")?;
             let work = tmp.path().join("m");
             copy_kiln_mod_tree(&folder, &work)?;

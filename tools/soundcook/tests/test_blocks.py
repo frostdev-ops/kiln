@@ -177,6 +177,17 @@ class Blocks(unittest.TestCase):
             with self.assertRaises(SB.BlocksError):
                 SB.write(d)
             self.assertEqual(theirs.read_text(), '{"format": 1, "steps": []}')
+        # nor through an assets folder that is a link: the recipe behind it is somebody else's
+        with tempfile.TemporaryDirectory() as t:
+            d = mod(t, {"hum": {"clips": ["audio/a.wav"]}})
+            elsewhere = Path(t) / "elsewhere"
+            elsewhere.mkdir()
+            (elsewhere / "cook.json").write_text('{"format": 1, "steps": []}')
+            (d / "assets").symlink_to(elsewhere, target_is_directory=True)
+            with self.assertRaisesRegex(SB.BlocksError, "is a link"):
+                SB.write(d)
+            self.assertEqual((elsewhere / "cook.json").read_text(), '{"format": 1, "steps": []}')
+            self.assertEqual([p.name for p in elsewhere.iterdir()], ["cook.json"])
 
 
 if __name__ == "__main__":

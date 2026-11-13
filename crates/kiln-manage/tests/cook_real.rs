@@ -257,6 +257,32 @@ fn the_launchers_cook_makes_a_profiles_mods_from_the_game_with_the_tools_this_bu
     let sword_run = run.mods.iter().find(|m| m.id == "fake-sword").unwrap();
     assert!(!sword_run.ok && sword_run.error.as_deref().is_some_and(|e| e.contains("loads this mod's folder too and was just started")), "{:?}", run.mods);
 
+    // The same for a start with another profile for once. A third game whose own profile has no mods is started for once
+    // with the profile that has the sword: that start waits for a cook of the folder too, and while it starts the folder
+    // is not cooked for another game (its profile file does not name the folder; the file of the start for once does).
+    let none = profile::create(&dirs, "none", None).unwrap();
+    let z3 = {
+        let g = root.join("client-z3");
+        std::fs::create_dir_all(g.join("kiln")).unwrap();
+        std::fs::write(g.join("enshrouded.exe"), b"MZ").unwrap();
+        let i = GameInstall { id: "g-client-z3".into(), path: g, prefix: Some(pfx.clone()), build_id: Some("101".into()), ..inst.clone() };
+        kiln_manage::game::write_record(&dirs, &i, None).unwrap();
+        profile::activate(&dirs, &none.id, &i).unwrap();
+        i
+    };
+    assert!(cook::plan(&z3).unwrap().iter().all(|j| j.id != "fake-sword"), "its own profile does not load the sword");
+    let once = kiln_manage::launch::LaunchRequest { mode: kiln_manage::launch::LaunchMode::Once, profile_id: Some(p.id.clone()), skip_backup: true };
+    let held = kiln_manage::state::lock_cook_folder(&shared, std::time::Duration::ZERO, &|| false, "x").unwrap();
+    let e = kiln_manage::launch::play_with(&dirs, &z3, &once, Some(&[]), &opener).unwrap_err();
+    assert_eq!(e.code, ErrorCode::Busy, "a start for once waits for the cook of a folder it loads: {e}");
+    assert!(!z3.path.join("kiln/play-once.ini").exists(), "no flag: nothing reads the file of a start that did not happen");
+    drop(held);
+    std::fs::remove_file(dirs.installs().join(format!("{}.launch.json", z2.id))).unwrap(); // the second game's start is long ago
+    kiln_manage::launch::play_with(&dirs, &z3, &once, Some(&[]), &opener).unwrap();
+    let run = cook::cook_due(&dirs, &z1, None, &locate, &mut |_, _, _, _| {}, &|| false).unwrap();
+    let sword_run = run.mods.iter().find(|m| m.id == "fake-sword").unwrap();
+    assert!(!sword_run.ok && sword_run.error.as_deref().is_some_and(|e| e.contains("client-z3") && e.contains("was just started")), "{:?}", run.mods);
+
     // one unpacked copy of the tools served every cook
     let copies: Vec<PathBuf> = std::fs::read_dir(root.join("data/cooktools")).unwrap().flatten().map(|e| e.path()).filter(|p| p.is_dir()).collect();
     assert_eq!(copies.len(), 1, "{copies:?}");
