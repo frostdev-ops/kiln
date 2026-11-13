@@ -125,7 +125,9 @@ public sealed unsafe class AssetsRowTruthTests : FakeTableTest
         t->TextureOverridePng = &FakeTexture;
         Serve("kiln.assets", t, typeof(Assets), "_table");
         Swap(typeof(ModsBackend), "<Current>k__BackingField", new OnSide(side));
-        StartRows(typeof(Assets).Assembly);
+        // Refresh, not Ensure: the first read of Assets' table field above may have run its static constructor, which
+        // reports the rows before the table was served (when no earlier test in this process touched Assets)
+        Assets.Rows.Refresh();
     }
 
     private static void OverrideTexture() => Assets.OverrideTexture(new AssetKey(Guid.NewGuid(), AssetKey.UiTextureType), [1, 2, 3]);
@@ -156,7 +158,7 @@ public sealed unsafe class AssetsRowTruthTests : FakeTableTest
     public void Textures_are_available_on_a_client_with_both_hooks_and_then_the_call_works()
     {
         UseTable(ModSide.Client, resources: true, content: true);
-        Assert.True(Capabilities.Is("assets.textures"));
+        Assert.True(Capabilities.Is("assets.textures"), Capabilities.Why("assets.textures"));
         OverrideTexture();
     }
 

@@ -1095,6 +1095,7 @@ internal static class NetworkStartup
 {
     static NetworkStartup()
     {
+        NetworkCaps.Rows.Ensure();  // the net.* features lowered when kiln.net is missing (docs/kiln/services/caps.md)
         NetEngine.EnsureStarted();
         PlayerGate.Start();  // Players.Kick, the ban list, PlayerLoginEvent (docs/kiln/services/players.md)
         ConfigSync.Start();  // docs/kiln/sync.md

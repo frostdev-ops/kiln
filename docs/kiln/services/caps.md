@@ -163,6 +163,7 @@ for a service the core does not have again, so a table published late is found.
 | `time.read`, `time.set`, `time.scale`, `time.sync_probe`, `time.weather`, `time.weather_choose` | sigdb features | core; Kiln.Time lowers them when kiln.time is not loaded | what kiln.time serves |
 | `players.positions` | managed, session | Kiln.Players, at its start (the first service tick) and every 25 steps | `Players.PositionOf` works now: kiln.players reads positions in a running server world (pending without one, `faulted` when the world runs and it still cannot; unavailable without kiln.players) |
 | `players.records`, `players.admin`, `players.singleton_map`; `players.progression`, `players.skills`, `players.skill_knowledge`, `players.progression_events`; `players.reflection`, `players.action_cancel`, `players.sequence_names`, `players.client_action_hold` | sigdb features | core; Kiln.Players lowers them at its start when kiln.players, kiln.progression or kiln.playerstate (in that order) is not loaded | |
+| `net.client_guard`, `net.gate`, `net.kick`, `net.players`, `net.transport`, `net.withhold` | sigdb features | core; Kiln.Network lowers them at its start when kiln.net is not loaded | |
 | `items.pide_options` | sigdb feature | core; Kiln.Items lowers it with its other rows when kiln.items is not loaded (dev.27; before, it kept the core's verdict) | `Gear.Unlocked`, `Gear.GemSlot` at creation |
 
 ## Rules
