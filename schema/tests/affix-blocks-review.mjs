@@ -31,6 +31,7 @@ check({ affixes: { bear: { ...bear, stat: "strenght" } } }, false);
 check({ affixes: { bear: { ...bear, tiers: [] } } }, false);
 check({ affixes: { bear: { ...bear, tiers: Array(17).fill({ min: 1, max: 2 }) } } }, false);
 check({ affixes: { bear: { ...bear, tiers: [{ min: 0, max: 2 }] } } }, false);
+check({ affixes: { bear: { ...bear, tiers: [{ min: 1, max: 2e6 }] } } }, false);                                              // beyond what any affix value is
 check({ affixes: { bear: { ...bear, tiers: [{ min: 1, max: 2, step: 0 }] } } }, false);
 check({ affixes: { bear: { ...bear, tiers: [{ min: 1, max: 2, weight: -1 }] } } }, false);
 check({ affixes: { bear: { ...bear, tiers: [{ min: 1, max: 2, wieght: 2 }] } } }, false);

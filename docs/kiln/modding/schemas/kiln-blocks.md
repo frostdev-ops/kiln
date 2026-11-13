@@ -147,8 +147,8 @@ One tier of an affix: the range a roll of this tier takes its value from.
 
 | Key | Type | Required | Notes |
 |---|---|---|---|
-| `max` | number | yes | The highest value: at least min, and of the same sign. |
-| `min` | number | yes | The lowest value: whole points for a whole-number stat (strength: 3), a share for the others (move-speed: 0.05 is 5 %). Negative values make a curse. Never 0. |
+| `max` | number | yes | The highest value: at least min, and of the same sign. min -1000000 max 1000000 |
+| `min` | number | yes | The lowest value: whole points for a whole-number stat (strength: 3), a share for the others (move-speed: 0.05 is 5 %). Negative values make a curse. Never 0, at most 1000000 either way. min -1000000 max 1000000 |
 | `minItemLevel` | integer |  | The item level from which this tier can roll (default 0: any). min 0 |
 | `step` | number |  | The grid a rolled value lies on. Default: 1 for a whole-number stat, 0.01 (one percent) for a share. |
 | `weight` | number |  | How likely a roll takes this tier, among the tiers the item's level allows (default 1). min 0 |

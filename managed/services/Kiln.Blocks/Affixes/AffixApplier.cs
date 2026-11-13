@@ -224,6 +224,26 @@ internal static partial class AffixRuntime
     /// <summary>Times kiln.log was told a wearer gets no new change while one of its own could not be ended, and that no
     /// one does while too many could not (the tests read them).</summary>
     internal static int BlockedNotes, CapNotes;
+
+    /// <summary>Items whose stored rolls the pass could not take as they are (a shape that is not rolls, more than
+    /// <see cref="Affixes.MaxPerItem"/>, a value beyond what its affix rolls, an exception), each said once; and how many
+    /// lines that made (tests).</summary>
+    private static readonly HashSet<string> NotedItemData = new(StringComparer.Ordinal);
+    internal static int ItemNotes;
+
+    /// <summary>The strongest value an affix's tiers roll: a stored value of its stat beyond it (a save edited by hand, a bug)
+    /// never acts. A value of the opposite sign within it does (Affixes.Set may give one).</summary>
+    internal static double Strongest(AffixBlock block) => block.Tiers.Max(t => Math.Max(Math.Abs(t.Min), Math.Abs(t.Max)));
+
+    // one log line per item and kind of trouble, never one per pass
+    private static void NoteItem(ItemInstanceRef item, string kind, string what)
+    {
+        bool first;
+        lock (Gate) first = NotedItemData.Add($"{item}|{kind}");
+        if (!first) return;
+        ItemNotes++;
+        Backend.Current.Log(0, LogLevel.Warn, $"affixes: item {item}: {what}");
+    }
     private static readonly HashSet<string> NotedStats = new(StringComparer.Ordinal);
     private static (CapabilityState, CapabilityReason, string)? _shownRolls, _shownEffects;
     private static long _shownEpoch = -1;  // the registry binding the shown rows were reported under
@@ -387,21 +407,37 @@ internal static partial class AffixRuntime
         foreach (var item in game.Acting(wearer))
         {
             if (!affixed.TryGetValue(item.Entity.Id.Value, out var found) || found.Ref != item) continue;
-            foreach (var roll in found.Rolls)
+            try
             {
-                if (FindAffix(roll.Affix) is not { } def || !double.IsFinite(roll.Value)) continue;  // its mod is not loaded: it waits
-                if (StatOfRoll(roll, def) is not { } stat)
+                foreach (var roll in found.Rolls)
                 {
-                    bool first;
-                    lock (Gate) first = NotedStats.Add($"{roll.Affix}|{roll.Stat}");
-                    if (first) Backend.Current.Log(0, LogLevel.Warn, $"affixes: a roll of {roll.Affix} names the stat \"{roll.Stat}\", which the affix does not use any more and Kiln does not know: it does nothing");
-                    continue;
+                    if (FindAffix(roll.Affix) is not { } def || !double.IsFinite(roll.Value)) continue;  // its mod is not loaded: it waits
+                    // beyond what the affix rolls (for the stat it rolls now; a roll of an affix defined again with another stat
+                    // keeps that stat, and the new tiers say nothing of it: then the bound of every affix value) it never acts
+                    var bound = def.Block.Stat.Key == roll.Stat ? Strongest(def.Block) : MaxValue;
+                    if (Math.Abs(roll.Value) > bound)
+                    {
+                        NoteItem(item, "value:" + roll.Affix, $"its roll of {roll.Affix} has the value {roll.Value}, beyond the strongest {(bound == MaxValue ? "affix value" : "value the affix rolls")} ({bound}): it does not act");
+                        continue;
+                    }
+                    if (StatOfRoll(roll, def) is not { } stat)
+                    {
+                        bool first;
+                        lock (Gate) first = NotedStats.Add($"{roll.Affix}|{roll.Stat}");
+                        if (first) Backend.Current.Log(0, LogLevel.Warn, $"affixes: a roll of {roll.Affix} names the stat \"{roll.Stat}\", which the affix does not use any more and Kiln does not know: it does nothing");
+                        continue;
+                    }
+                    var value = stat.Whole ? Math.Round(roll.Value) : roll.Value;
+                    if (value == 0) continue;
+                    if (def.Block.Stacks) want[new Slot(def.Id, stat.Key, item.Entity.Id.Value)] = (stat, value);
+                    else if (!want.TryGetValue(new Slot(def.Id, stat.Key, 0), out var have) || Math.Abs(value) > Math.Abs(have.Item2))
+                        want[new Slot(def.Id, stat.Key, 0)] = (stat, value);
                 }
-                var value = stat.Whole ? Math.Round(roll.Value) : roll.Value;
-                if (value == 0) continue;
-                if (def.Block.Stacks) want[new Slot(def.Id, stat.Key, item.Entity.Id.Value)] = (stat, value);
-                else if (!want.TryGetValue(new Slot(def.Id, stat.Key, 0), out var have) || Math.Abs(value) > Math.Abs(have.Item2))
-                    want[new Slot(def.Id, stat.Key, 0)] = (stat, value);
+            }
+            catch (Exception e)
+            {
+                // one item's trouble costs that item, never the pass (nobody's bonus would be taken off any more)
+                NoteItem(item, "exception", $"its rolls could not be applied ({e.GetType().Name}: {e.Message}); the rest of the pass goes on");
             }
         }
         return want;
@@ -410,10 +446,35 @@ internal static partial class AffixRuntime
     private static void Pass()
     {
         if (!ProgramsReady()) return;
+        Pass(Real, Affixed());
+    }
+
+    /// <summary>Every item with rolls, as the pass takes them. Stored data is not trusted: what of an item's data does not
+    /// read as rolls is left out (<see cref="AffixDataConverter"/>), at most <see cref="Affixes.MaxPerItem"/> act (the first,
+    /// in stored order), and an exception costs that item; each is said once per item.</summary>
+    internal static Dictionary<uint, (ItemInstanceRef Ref, IReadOnlyList<RolledAffix> Rolls)> Affixed()
+    {
         var affixed = new Dictionary<uint, (ItemInstanceRef, IReadOnlyList<RolledAffix>)>();
         foreach (var (item, data) in InstanceData.All(Key))
-            if (data.Rolls.Count > 0) affixed[item.Entity.Id.Value] = (item, ToRolled(data));
-        Pass(Real, affixed);
+        {
+            try
+            {
+                if (data.Problem is { } problem) NoteItem(item, "shape", $"its stored affix data is not all rolls ({problem}): those are left out, the rest acts, and the data is kept as it is");
+                if (data.Rolls.Count == 0) continue;
+                var rolls = ToRolled(data);
+                if (rolls.Count > Affixes.MaxPerItem)
+                {
+                    NoteItem(item, "count", $"it carries {rolls.Count} rolls, more than {Affixes.MaxPerItem}: the first {Affixes.MaxPerItem} act");
+                    rolls = rolls.Take(Affixes.MaxPerItem).ToList();
+                }
+                affixed[item.Entity.Id.Value] = (item, rolls);
+            }
+            catch (Exception e)
+            {
+                NoteItem(item, "exception", $"its rolls could not be read ({e.GetType().Name}: {e.Message}); the rest of the pass goes on");
+            }
+        }
+        return affixed;
     }
 
     /// <summary>One pass: makes what is held on every wearer equal to what the wearer's acting items say. A stat change
@@ -590,7 +651,9 @@ internal static partial class AffixRuntime
             Defs.Clear();
             Pools.Clear();
             NotedStats.Clear();
+            NotedItemData.Clear();
         }
+        ItemNotes = 0;
         // the same definitions as blocks (one registry): a test's mod ids come back in the next test
         foreach (var mod in Blocks.AllMods)
             foreach (var (name, handle) in mod.Handles)

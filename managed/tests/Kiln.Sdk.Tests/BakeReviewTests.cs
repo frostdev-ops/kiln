@@ -312,7 +312,7 @@ public sealed class BakeTargetsTests
         public string Out => Path.Combine(Dir, "out") + "/";
         public string Obj => Path.Combine(Dir, "obj") + "/";
 
-        public Stub()
+        public Stub(string items = "")
         {
             Directory.CreateDirectory(Out);
             Directory.CreateDirectory(Obj);
@@ -328,6 +328,7 @@ public sealed class BakeTargetsTests
                     <KilnSdkVersion>0.0.0-test</KilnSdkVersion>
                     <_KilnTasksDir>{AppContext.BaseDirectory}</_KilnTasksDir>
                   </PropertyGroup>
+                  {items}
                   <Import Project="{Targets}" />
                   <Target Name="KilnDeploy" />
                 </Project>
@@ -406,6 +407,25 @@ public sealed class BakeTargetsTests
         Assert.Equal(at, File.GetLastWriteTimeUtc(config));  // the same settings: untouched, so not a reason to bake
         Assert.Equal(0, s.MsBuild("-t:_KilnBakeConfig", "-p:KilnBakeSteps=30").Code);
         Assert.NotEqual(first, File.ReadAllText(config));  // a KilnBake input: changed settings bake again
+    }
+
+    [Fact]
+    public void EveryFileCopiedToTheOutputIsAnInputOfTheBake()
+    {
+        // a JSON file OnLoad reads, copied with PreserveNewest or Always, as None or Content: changed, it bakes again
+        using var s = new Stub("""
+            <ItemGroup>
+              <None Include="kept.json" CopyToOutputDirectory="PreserveNewest" />
+              <None Include="always.json" CopyToOutputDirectory="Always" />
+              <Content Include="content.json" CopyToOutputDirectory="PreserveNewest" />
+              <Content Include="content-always.json" CopyToOutputDirectory="Always" />
+              <None Include="not-copied.json" />
+            </ItemGroup>
+            """);
+        var (code, output) = s.MsBuild("-t:_KilnBakeInputs", "-getItem:_KilnBakeInput");
+        Assert.True(code == 0, output);
+        foreach (var f in new[] { "kept.json", "always.json", "content.json", "content-always.json" }) Assert.Contains(f, output);
+        Assert.DoesNotContain("not-copied.json", output);
     }
 
     [Fact]

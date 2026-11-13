@@ -165,7 +165,8 @@ public sealed record AffixResult : IKilnResult
 }
 
 /// <summary>An item's affixes changed through <see cref="Kiln.Affixes"/> (a roll, an add, a set, a removal). Server, tick
-/// thread, one event per successful call.</summary>
+/// thread, one event per successful call, right after it; a call made by a handler of this event is announced at the
+/// start of the next step instead (one per item), so a handler that writes again never recurses.</summary>
 [ServerOnly]
 public sealed class AffixesChangedEvent : KilnEvent
 {

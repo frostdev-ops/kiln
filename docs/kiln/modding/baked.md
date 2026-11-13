@@ -50,8 +50,9 @@ the files into the output folder, so `KilnDeploy` and `KilnPack` ship them.
   returns). The bake process is ended, and the build fails, naming `KilnBake=false`. Nothing of an earlier bake is left:
   the process removes it at its own deadline, and the build removes it again by marker after any failure.
   A thread the mod leaves running does not keep the bake alive: the process ends when the bake is done.
-- **It bakes again** when the mod, its data files, the SDK, `KilnBakeSteps` or `KilnBakeTimeoutSeconds` change, or a
-  file the last bake wrote is gone from the output folder.
+- **It bakes again** when the mod, its data files (every `None` or `Content` item copied to the output, `PreserveNewest`
+  or `Always`), the SDK, `KilnBakeSteps` or `KilnBakeTimeoutSeconds` change, or a file the last bake wrote is gone from
+  the output folder.
 - **An IDE's design-time build never bakes**, so it never runs the mod's code.
 - **The mod's code runs with invariant globalization**, as Kiln.Host does in the game. The files are the same on every
   build machine, and the same definitions in another order give the same file.
@@ -109,6 +110,8 @@ Each refusal is a line in kiln.log (`vfx: <id>: blocks/<file>: not read: ...`), 
 - **A node whose `IconFile` lies outside the mod's folder.** That path is the build machine's, not the mod's. A path inside
   the folder is baked relative to it, as kiln.skills reads a mod file's paths. A relative path in a definition from code
   is the kiln folder's, as kiln.skills reads code definitions, and is resolved there first.
+- **A baked file over 4 MiB** (what every reader of baked files takes): it is not written, an earlier bake's goes, and the
+  build warns; those definitions are there from the next start.
 - **A client-only mod** (`"side": "client"`): the harness is a server.
 - **A mod whose required dependency is not there**, since the harness loads this mod only. **Definitions made after the
   first steps:** raise `KilnBakeSteps`.

@@ -240,6 +240,53 @@ public sealed class BakeUnitTests
     }
 
     [Fact]
+    public void ABlocksFileWithAnUpperCaseExtensionIsADataFileAsTheReaderTakesIt()
+    {
+        // Kiln.Blocks reads blocks/fx.JSON on every system; the bake leaves out its VFX on every system too
+        var dir = Directory.CreateTempSubdirectory("kiln-mod-").FullName;
+        try
+        {
+            Directory.CreateDirectory(Path.Combine(dir, "blocks"));
+            File.WriteAllText(Path.Combine(dir, "blocks", "fx.JSON"), """{ "vfx": { "upper": {} } }""");
+            File.WriteAllText(Path.Combine(dir, "blocks", "notes.txt"), """{ "vfx": { "text": {} } }""");
+            Assert.Equal(["vfx/upper"], Baker.DataBlockNames(dir));
+        }
+        finally
+        {
+            Directory.Delete(dir, true);
+        }
+    }
+
+    [Fact]
+    public void ABakedFileOverTheReadersLimitIsNotWrittenAndAnEarlierOneGoes()
+    {
+        var dir = Directory.CreateTempSubdirectory("kiln-mod-").FullName;
+        try
+        {
+            var relative = Baker.VfxFile("big");
+            var file = Path.Combine(dir, relative);
+            JsonObject Doc(int pad) => new() { ["format"] = 1, ["comment"] = Baker.Comment, ["vfx"] = new JsonObject { ["spark"] = new string('x', pad) } };
+            var first = new BakeResult();
+            Baker.Put(dir, relative, Doc(16), "VFX and materials", first, new BakeOptions());
+            Assert.True(Baker.IsBaked(file));                                   // an earlier bake's, within the limit
+            var result = new BakeResult();
+            Baker.Put(dir, relative, Doc(BakedFiles.MaxBytes), "VFX and materials", result, new BakeOptions());
+            Assert.False(File.Exists(file));                                   // not written over the limit, and the earlier one goes
+            Assert.Equal([relative.Replace('\\', '/')], result.Removed);
+            Assert.Contains(result.Warnings, w => w.Contains("more than the 4 MiB"));
+            var again = new BakeResult();
+            Baker.Put(dir, relative, Doc(BakedFiles.MaxBytes), "VFX and materials", again, new BakeOptions());
+            Assert.False(File.Exists(file));
+            Assert.Empty(again.Removed);
+            Assert.Single(again.Warnings);
+        }
+        finally
+        {
+            Directory.Delete(dir, true);
+        }
+    }
+
+    [Fact]
     public void TheModsOwnFilesAreLeftAloneAndStaleBakedFilesGo()
     {
         var dir = Directory.CreateTempSubdirectory("kiln-mod-").FullName;
