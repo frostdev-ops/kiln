@@ -180,6 +180,9 @@ bool read_mod(const std::string& dir, const fs::path& pending_root, kvb::ModInpu
         for (const fs::path& f : files) m->documents.emplace_back(std::string(prefix) + "/" + to_utf8(f.filename()), read_text(f));
     };
     add_folder(d / L"blocks", "blocks");
+    // what the mod's code defines, baked into the mod at build by Kiln.Sdk (docs/kiln/modding/baked.md): after its data files, before
+    // what Kiln kept from code at an earlier start, so a block of the same name in both is the mod's (the cook keeps the first)
+    add_folder(d / L"blocks" / L"generated", "generated");
     add_folder(pending_root / to_path(m->id), "pending");
     return !m->documents.empty();
 }

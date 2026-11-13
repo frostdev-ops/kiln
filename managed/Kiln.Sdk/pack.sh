@@ -4,7 +4,8 @@
 #                   Kiln.Game (the generated game types, from the newest dump; needs python3)
 #   Kiln.Sdk        MSBuild SDK: <Project Sdk="Kiln.Sdk/<version>">, kiln.mod.json, KilnDeploy, KilnPack, and the
 #                   Roslyn analyzers (Kiln.Analyzers, KILN1xx) + game-id generator (Kiln.GameIds) in analyzers/dotnet/cs,
-#                   and the native SDK in native/ (KilnPlugin.cmake, the ABI headers, the Linux toolchain)
+#                   and the native SDK in native/ (KilnPlugin.cmake, the ABI headers, the Linux toolchain), and the
+#                   bake in bake/ (KilnBake: definitions baked at build, docs/kiln/modding/baked.md)
 #   Kiln.Templates  dotnet new kiln-mod, kiln-items, kiln-native, ... (templates/kiln-*)
 #   Kiln.TestKit    mod tests under dotnet test (docs/kiln/modding/unit-tests.md)
 # A service that fails to build is left out of Kiln.Api (warning), like tools/deploy-server.sh does.
@@ -67,7 +68,15 @@ if [[ -f $gameids ]]; then
 fi
 pack() { dotnet pack "$1" -c Release -o "$feed" --artifacts-path "$out/dotnet" -v q -nologo -p:KilnSdkVersion="$version" "${@:2}" >/dev/null; }
 pack "$repo/managed/Kiln.Sdk/packages/Kiln.Api.Ref.csproj" -p:KilnStage="$stage"
-pack "$repo/managed/Kiln.Sdk/Kiln.Sdk.csproj" -p:KilnAnalyzersStage="$analyzers"
+# The bake (Sdk/Kiln.Bake.targets, docs/kiln/modding/baked.md): Kiln.Sdk.Bake with what it needs that Kiln.Api's kiln/lib does not
+# carry (Kiln.Host, Kiln.TestKit, their dependencies), in the package's bake/; at build time the target puts kiln/lib beside it.
+bake=$out/bake-stage
+rm -rf "$bake" && mkdir -p "$bake/bake"
+dotnet build "$repo/managed/Kiln.Sdk/bake/Kiln.Sdk.Bake.csproj" -c Release -o "$bake/all" --artifacts-path "$out/dotnet" -v q -nologo \
+  -p:KilnBakeNoCopy=true -p:KilnPackNoWarn='CS1591%3BCS1573' >/dev/null
+for f in "$bake"/all/*.dll; do [[ -f $stage/$(basename "$f") ]] || cp "$f" "$bake/bake/"; done
+cp "$bake/all/Kiln.Sdk.Bake.runtimeconfig.json" "$bake/bake/"
+pack "$repo/managed/Kiln.Sdk/Kiln.Sdk.csproj" -p:KilnAnalyzersStage="$analyzers" -p:KilnBakeStage="$bake/bake"
 # Kiln.TestKit (mod tests under dotnet test): built into a stage of its own, never $stage (Kiln.Api.Ref.csproj packs every
 # Kiln.*.dll there); the package takes Kiln.TestKit.dll and Kiln.Host.dll from it, the rest from Kiln.Api of this version.
 tkstage=$out/testkit-stage

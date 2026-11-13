@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Kiln.Sdk's tests: the bake (managed/Kiln.Sdk/bake, docs/kiln/modding/baked.md): its recorders in Kiln.Quests, Kiln.Skills and
+       Kiln.Vfx, the files it writes, and mods/tests/bake-test built with it, whose baked files are compared with what its code
+       defines when it runs. -->
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <OutputType>Exe</OutputType>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+    <!-- not Kiln.Sdk.*: the tests use the bake's own namespace -->
+    <RootNamespace>Kiln.SdkTests</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit.v3" Version="3.1.0" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- the bake and, through it, Kiln.TestKit, Kiln.Host and every service beside them (as in kiln/host) -->
+    <ProjectReference Include="../../Kiln.Sdk/bake/Kiln.Sdk.Bake.csproj" />
+    <!-- built with the bake step, never referenced: bake-test.txt names its output folder -->
+    <KilnBakeMod Include="../../../mods/tests/bake-test/BakeTest.csproj" />
+    <ProjectReference Include="@(KilnBakeMod)" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+  <Target Name="WriteBakeModPath" AfterTargets="Build">
+    <MSBuild Projects="@(KilnBakeMod)" Targets="GetTargetPath" Properties="Configuration=$(Configuration)">
+      <Output TaskParameter="TargetOutputs" ItemName="_KilnBakeModTarget" />
+    </MSBuild>
+    <WriteLinesToFile File="$(OutDir)bake-test.txt" Lines="@(_KilnBakeModTarget->'%(FullPath)')" Overwrite="true" WriteOnlyWhenDifferent="true" />
+  </Target>
+</Project>

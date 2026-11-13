@@ -1,0 +1,18 @@
+<Project>
+  <!-- Definitions baked at build (docs/kiln/modding/baked.md): a mod that defines in C#, computed in a loop, two quests, a game-tree
+       node and a VFX, built with Kiln.Sdk's KilnBake. The build writes quests/generated/bake-test.json, skills/bake-test.generated.json
+       and blocks/generated/bake-test.json into the output folder; Kiln.Sdk.Tests compares them with what the code defines, and a
+       lab started with an empty kiln/data folder logs "bake-test: PASS|FAIL" lines: each is the game's at the first start
+       (managed/tests/Kiln.Sdk.Tests, docs/kiln/modding/baked.md "Checked"). -->
+  <Import Project="../../../managed/Kiln.Sdk/Sdk/Sdk.props" />
+  <PropertyGroup>
+    <KilnModId>bake-test</KilnModId>
+    <KilnModName>Baked definitions lab test</KilnModName>
+    <Version>0.1.0</Version>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <KilnServices>Quests;Skills;Blocks;Vfx;Ui</KilnServices>
+    <KilnSide>both</KilnSide>
+    <KilnClients>mod</KilnClients>
+  </PropertyGroup>
+  <Import Project="../../../managed/Kiln.Sdk/Sdk/Sdk.targets" />
+</Project>

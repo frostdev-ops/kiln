@@ -19,7 +19,7 @@
     <NoWarn>$(NoWarn);NU5100;NU5128</NoWarn>
     <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
     <GenerateDependencyFile>false</GenerateDependencyFile>
-    <DefaultItemExcludes>$(DefaultItemExcludes);packages/**;Sdk/**;native/**</DefaultItemExcludes>
+    <DefaultItemExcludes>$(DefaultItemExcludes);packages/**;Sdk/**;native/**;bake/**</DefaultItemExcludes>
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="../Kiln.Host/Manifest.cs" Link="Shared/Manifest.cs" />
@@ -44,6 +44,11 @@
     <None Include="$(KilnAnalyzersStage)/Kiln.Analyzers.CodeFixes.dll" Pack="true" PackagePath="analyzers/dotnet/cs/" Visible="false" />
     <None Include="$(KilnAnalyzersStage)/Kiln.GameIds.dll" Condition="Exists('$(KilnAnalyzersStage)/Kiln.GameIds.dll')"
           Pack="true" PackagePath="analyzers/dotnet/cs/" Visible="false" />
+  </ItemGroup>
+  <!-- The bake (bake/ in the package; pack.sh builds it into KilnBakeStage): Kiln.Sdk.Bake, Kiln.Host, Kiln.TestKit and their
+       dependencies, run by Sdk/Kiln.Bake.targets beside Kiln.Api's kiln/lib (docs/kiln/modding/baked.md). -->
+  <ItemGroup Condition="'$(KilnBakeStage)' != ''">
+    <None Include="$(KilnBakeStage)/*" Pack="true" PackagePath="bake/" Visible="false" />
   </ItemGroup>
   <!-- The native SDK (native/ in the package; KILN_SDK_DIR for kiln_plugin, docs/kiln/modding/mdk.md "Native mods"):
        KilnPlugin.cmake, the C ABI headers and the real Linux toolchain. The repository's native/cmake/clang-cl-xwin.cmake

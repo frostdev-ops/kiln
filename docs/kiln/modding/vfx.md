@@ -43,7 +43,7 @@ var burst = Blocks.Define("frost_burst", new VfxBlock
     Light = new LightBlock { Color = "#7fd4ff", Radius = 6f, Brightness = 4f, Lifetime = 0.6f, FadeOut = 0.5f },
 });
 ```
-- **Prefer data.** A block in a file is there from the first start. The game lists its VFX once, so one from code is there from the next.
+- **Data or a build with Kiln.Sdk.** A block in a file is there from the first start. The game lists its VFX once, so one from code is there from the next, unless the mod is built with Kiln.Sdk: its build bakes the code's VFX into `blocks/generated/<mod>.json`, read at the first start ([baked.md](baked.md)).
 - **Every field:** [schemas/kiln-vfx.md](schemas/kiln-vfx.md).
 - **A burst or a rate.** A particle block needs one. `burst` throws them once; `rate` keeps going until the effect stops, unless you give it a `duration`.
 - **Curves** (`size`, `alpha`) are a number, `{"linear": [start, end]}`, a list, or `{"keys": [[t, value], ...]}`. **Colours** are one, a list, or keys.
