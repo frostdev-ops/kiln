@@ -22,6 +22,7 @@
     <ProjectReference Include="../../../managed/services/Kiln.Hooks/Kiln.Hooks.csproj" Private="false" ExcludeAssets="runtime" />
     <ProjectReference Include="../../../managed/services/Kiln.Items/Kiln.Items.csproj" Private="false" ExcludeAssets="runtime" />
     <ProjectReference Include="../../../managed/services/Kiln.Players/Kiln.Players.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="../../../managed/services/Kiln.Creatures/Kiln.Creatures.csproj" Private="false" ExcludeAssets="runtime" />
     <None Include="kiln.mod.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

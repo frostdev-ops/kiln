@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cstdio>
 #include <cstring>
+#include <vector>
 
 #include "../hold_filter.h"
 #include "services/kiln_combat.h"
@@ -22,11 +23,12 @@ static int g_fail = 0;
 
 struct Rec {
     uint8_t b[0x200] = {};
-    Rec(uint32_t target, uint32_t root_target, uint32_t source, uint32_t root_source) {
+    Rec(uint32_t target, uint32_t root_target, uint32_t source, uint32_t root_source, uint32_t impact = 0) {
         std::memcpy(b + 0x94, &target, 4);       // HitOffsets::target
         std::memcpy(b + 0xA0, &root_target, 4);  // root_target
         std::memcpy(b + 0xA4, &source, 4);       // source
         std::memcpy(b + 0x90, &root_source, 4);  // root_source
+        std::memcpy(b + 0xD4, &impact, 4);       // impact_id
     }
 };
 
@@ -114,6 +116,31 @@ int main() {
         CHECK(d.wants(kShapes[0].rec.b) && d.wants(kShapes[1].rec.b) && d.wants(kShapes[2].rec.b));
         CHECK(hit_entities(kShapes[2].rec.b).target == kPlayer && hit_entities(kShapes[2].rec.b).attacker == kDoll);
         CHECK(!d.wants(kShapes[7].rec.b) && !d.wants(kShapes[8].rec.b));
+    }
+
+    // One impact's merge group is held whole (Codex review, dev.27): a handler watches only a weak spot W of creature R;
+    // the swing makes a record on W (root R, 10 damage) and one on R itself (5 damage), same impact. Held record by
+    // record, the body record would apply at once and the held weak-spot record be skipped as a repeat of an impact that
+    // already hit R: no event, and 5 damage instead of the group's 10. Held as a group, the conclusion merges it as
+    // without a filter.
+    {
+        constexpr uint32_t kW = 17889, kR = 17887, kSwingImpact = 0x01000002, kOtherImpact = 0x01000003;
+        const Rec onW(kW, kR, kSwing, kPlayer, kSwingImpact), onR(kR, kR, kSwing, kPlayer, kSwingImpact),
+            again(kR, kR, kSwing, kPlayer, kOtherImpact), elsewhere(kOther, kOther, kSwing, kPlayer, kSwingImpact);
+        HoldFilter w;
+        w.set(&kW, 1);
+        CHECK(w.wants(onW.b) && !w.wants(onR.b));  // the records alone: only the weak spot's names W
+        CHECK(hit_group(onW.b) == hit_group(onR.b) && hit_group(onR.b) != hit_group(again.b) &&
+              hit_group(onR.b) != hit_group(elsewhere.b));
+        const std::vector<const uint8_t*> step = {onR.b, elsewhere.b, onW.b, again.b};
+        const std::vector<bool> held = w.hold(step);
+        CHECK(held.size() == 4);
+        CHECK(held[0] && held[2]);    // the whole group of the swing on R, the body's record too
+        CHECK(!held[1] && !held[3]);  // another impact on R and the same impact on another creature apply at once
+        HoldFilter off;               // no filter: every record, as before
+        const std::vector<bool> all = off.hold(step);
+        CHECK(all.size() == 4 && all[0] && all[1] && all[2] && all[3]);
+        CHECK(w.hold({}).empty());
     }
 
     // the table grew at its end only: v2's last function, then hold_filter

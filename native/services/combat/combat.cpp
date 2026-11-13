@@ -106,7 +106,8 @@ std::atomic<bool> g_holding{false};
 std::mutex g_interest_mu;
 uint32_t g_widened = 0;
 static_assert(kHitTarget == HitOffsets::target && kHitRootTarget == HitOffsets::root_target &&
-              kHitSource == HitOffsets::source && kHitRootSource == HitOffsets::root_source);
+              kHitSource == HitOffsets::source && kHitRootSource == HitOffsets::root_source &&
+              kHitImpact == HitOffsets::impact_id);
 HoldFilter g_hold_filter;  // g_mu: the entities the handlers watch (hold_filter, since 0.2.0-dev.27); off: hold every hit
 std::atomic<uint64_t> c_unheld{0};  // hits the filter let through without holding (logged with the filter)
 
@@ -281,13 +282,24 @@ void before_conclusion(void* sys) {
         uint8_t* data = nullptr;
         uint64_t count = 0;
         if (read_list(sys, &data, &count) && count) {
-            uint64_t kept = 0;
+            // the step's entity hits first: the filter holds whole merge groups (hold_filter.h HoldFilter::hold)
+            std::vector<uint8_t> kinds;
+            std::vector<const uint8_t*> hits;
+            kinds.reserve(count);
             for (uint64_t i = 0; i < count; ++i) {
-                uint8_t* rec = data + i * H.size;
                 uint8_t kind = 0xFF;
-                if (!read_u8(rec + H.kind, &kind)) break;
-                if (kind == 0 && !g_hold_filter.wants(rec)) c_unheld.fetch_add(1, std::memory_order_relaxed);
-                else if (kind == 0) {  // entity hit: hold it for the listener
+                if (!read_u8(data + i * H.size + H.kind, &kind)) break;  // unreadable: the rest is dropped, as before
+                kinds.push_back(kind);
+                if (kind == 0) hits.push_back(data + i * H.size);
+            }
+            const std::vector<bool> hold = g_hold_filter.hold(hits);
+            uint64_t kept = 0;
+            size_t next_hit = 0;
+            for (uint64_t i = 0; i < kinds.size(); ++i) {
+                uint8_t* rec = data + i * H.size;
+                if (kinds[i] == 0 && !hold[next_hit++]) {
+                    c_unheld.fetch_add(1, std::memory_order_relaxed);
+                } else if (kinds[i] == 0) {  // entity hit: hold it for the listener
                     Held h{g_next_id++, step, 0, {}};
                     if (copy_bytes(h.rec.b, rec, static_cast<size_t>(H.size))) {
                         g_held_new.push_back(h);
