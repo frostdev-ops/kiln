@@ -678,13 +678,16 @@ public static partial class Quests
         var next = index + 1 < q.Steps.Count ? q.Steps[index + 1] : null;
         if (Events.HasSubscribers<QuestStepEvent>() && Events.Post(new QuestStepEvent(q, h, step, next)) is { Canceled: true } ev)
             return QuestResult.No($"canceled by {ev.CanceledBy ?? "a handler"}", QuestStatus.Active);
+        // the last step: the completion is asked for before anything of the step's end runs, so a completion a handler
+        // refuses gives nothing (the step stays, and its onDone runs once, with the completion that is let through)
+        if (next is null && CompletionRefused(q, h, rec.Status) is { } refused) return refused;
         _transitions++;
         QuestsInternals.Info($"{h.Key} {q.FullId}: step {step.Id} done");
         QuestPlaces.LeaveStep(q, h, step);
         if (step.OnDone.Count > 0) _ = QuestActions.RunAll(step.OnDone, new QuestActionContext(h, q, EntityId.None, q.ModId), "onDone", true);
         var book = BookOf(h);
         book.Revision++;
-        if (next is null) return CompleteOne(q, h, rec, false);
+        if (next is null) return CompleteOne(q, h, rec, false, asked: true);
         EnterStep(q, h, rec, next);
         Changed(q, h, QuestStatus.Active, rec);
         return new QuestResult(true, "", QuestStatus.Active);
@@ -740,11 +743,11 @@ public static partial class Quests
         return CompleteOne(q, o, rec, true);
     }
 
-    private static QuestResult CompleteOne(QuestDefinition q, QuestHolder h, QuestRecord rec, bool forced)
+    // asked: FinishStep posted QuestCompletedEvent already (before the last step's onDone)
+    private static QuestResult CompleteOne(QuestDefinition q, QuestHolder h, QuestRecord rec, bool forced, bool asked = false)
     {
         var old = rec.Status;
-        if (Events.HasSubscribers<QuestCompletedEvent>() && Events.Post(new QuestCompletedEvent(q, h)) is { Canceled: true } ev)
-            return QuestResult.No($"canceled by {ev.CanceledBy ?? "a handler"}", old);
+        if (!asked && CompletionRefused(q, h, old) is { } refused) return refused;
         rec.Status = QuestStatus.Done;
         rec.StepId = null;
         rec.FinishedAt = Now;
@@ -759,6 +762,12 @@ public static partial class Quests
         Changed(q, h, old, rec);
         return new QuestResult(true, "", QuestStatus.Done);
     }
+
+    /// <summary>The completion refused by a <see cref="QuestCompletedEvent"/> handler, or null when it goes on.</summary>
+    private static QuestResult? CompletionRefused(QuestDefinition q, QuestHolder h, QuestStatus status) =>
+        Events.HasSubscribers<QuestCompletedEvent>() && Events.Post(new QuestCompletedEvent(q, h)) is { Canceled: true } ev
+            ? QuestResult.No($"canceled by {ev.CanceledBy ?? "a handler"}", status)
+            : null;
 
     private static void PayRewards(QuestDefinition q, QuestHolder h, QuestRecord rec)
     {

@@ -159,3 +159,37 @@ public sealed unsafe class HookRowTests : FakeTableTest
         Assert.True(Capabilities.Is("quests.journal"));
     }
 }
+
+/// <summary>A quest's completion that a handler refuses gives nothing; the one let through gives once.</summary>
+public sealed class QuestCompletionTests : ContractTest
+{
+    [Fact]
+    public async Task A_cancelled_completion_gives_nothing_twice_and_the_completion_let_through_gives_once()
+    {
+        var gives = 0;
+        var id = "cancel-test-" + Guid.NewGuid().ToString("N")[..8];
+        Quests.Define(new QuestDefinition
+        {
+            Id = id,
+            Scope = QuestScope.World,
+            Steps =
+            {
+                new QuestStep
+                {
+                    Id = "last",
+                    Objectives = { new QuestObjective { Kind = QuestObjectiveKind.Custom } },
+                    OnDone = { QuestAction.Code(_ => { gives++; return Task.CompletedTask; }) },
+                },
+            },
+        });
+        Assert.True(Quests.Start(id, QuestHolder.World).Ok);
+        var cancel = true;
+        using var sub = Events.On<QuestCompletedEvent>(e => { if (cancel) e.Cancel(); });
+        Assert.False((await Quests.Advance(id, QuestHolder.World, force: true)).Ok);
+        Assert.False((await Quests.Advance(id, QuestHolder.World, force: true)).Ok);
+        Assert.Equal(0, gives);
+        cancel = false;
+        Assert.True((await Quests.Advance(id, QuestHolder.World, force: true)).Ok);
+        Assert.Equal(1, gives);
+    }
+}

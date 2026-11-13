@@ -252,6 +252,15 @@ public static unsafe partial class Creatures
         var key = (owner.Native, entity.Value);
         lock (Holds)
         {
+            // a creature holds one preferred target, the newest owner's (native replaces the holder): the others no longer have it
+            if (hold == Hold.Target && on)
+                foreach (var other in Holds.Keys.Where(k => k.Entity == entity.Value && k.Owner != owner.Native).ToList())
+                {
+                    var o = Holds[other];
+                    var left = o.Flags & ~Hold.Target;
+                    if (left == 0) Holds.Remove(other);
+                    else Holds[other] = (left, o.TargetUntil);
+                }
             Holds.TryGetValue(key, out var h);
             var flags = on ? h.Flags | hold : h.Flags & ~hold;
             var until = hold == Hold.Target && on ? Environment.TickCount64 + (long)(Math.Max(seconds, 0) * 1000) : h.TargetUntil;

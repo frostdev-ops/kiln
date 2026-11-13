@@ -56,4 +56,20 @@ public sealed class ChangeNoticeStopTests : ModsFixture
         Assert.Equal([1, 2], _seen);
         Assert.Equal(0, _notices.Waiting);
     }
+
+    [Fact]
+    public void What_a_mod_s_unload_writes_and_a_handler_answers_is_not_left_for_a_step_that_never_comes()
+    {
+        InstallHello();
+        var host = new FakeHost();
+        using var mods = NewManager(host);
+        mods.LoadAll();
+        var hello = Assert.Single(mods.Mods);
+        // the mod's unload writes (inline: nothing is dispatched then); a handler that outlives it writes again (it waits)
+        hello.ModContext.Retiring += () => _notices.Post(1, new Changed(1));
+        using var sub = Watch();
+        mods.UnloadAll("server stopping");
+        Assert.Equal([1, 2], _seen);           // 2, written during the unload's dispatch, went out before the stop ended
+        Assert.Equal(0, _notices.Waiting);     // 3, written in that last round, is not left for a later tick
+    }
 }

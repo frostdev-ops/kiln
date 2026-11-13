@@ -178,6 +178,61 @@ public sealed class ChangeNoticesTests : ContractTest
         Assert.Equal([1, 2], seen);
     }
 
+    private sealed class Other(int key) : KilnEvent
+    {
+        public int Key { get; } = key;
+    }
+
+    private sealed class Valued(int key, int value) : KilnEvent
+    {
+        public int Key { get; } = key;
+        public int Value { get; } = value;
+    }
+
+    [Fact]
+    public void What_waited_goes_out_in_one_step_and_what_its_handlers_write_waits_whichever_queue_comes_first()
+    {
+        var others = new ChangeNotices<Other, int>("test-other");
+        var seen = new List<(string, int, ulong)>();
+        using var a = Events.On<Changed>(e =>
+        {
+            seen.Add(("a", e.Key, ServiceTick.Step));
+            if (e.Key == 1) Write(2);                          // waits in the first queue
+            if (e.Key == 2) others.Post(10, new Other(10));    // the other queue, not dispatching: inline
+        });
+        using var b = Events.On<Other>(e =>
+        {
+            seen.Add(("b", e.Key, ServiceTick.Step));
+            if (e.Key is 10 or 20) others.Post(e.Key + 1, new Other(e.Key + 1));  // waits in the second queue
+        });
+        Write(1);                        // the first queue waits first: it is first on the list
+        others.Post(20, new Other(20));  // the second queue waits too, after it
+        Step();  // step 1: 21 and 2 go out; 2's handler posts 10 inline, whose handler writes 11: 11 waits for step 2
+        Assert.Contains(("b", 21, 1UL), seen);
+        Assert.Contains(("a", 2, 1UL), seen);
+        Assert.Contains(("b", 10, 1UL), seen);
+        Assert.DoesNotContain(seen, x => x.Item2 == 11 && x.Item3 == 1);
+        Step();
+        Assert.Contains(("b", 11, 2UL), seen);
+    }
+
+    [Fact]
+    public void A_newer_write_of_a_key_replaces_its_older_waiting_event()
+    {
+        var notices = new ChangeNotices<Valued, int>("test-valued");
+        var seen = new List<int>();
+        using var sub = Events.On<Valued>(e =>
+        {
+            seen.Add(e.Value);
+            if (e.Value == 0) notices.Post(5, new Valued(5, 1));  // during the dispatch: waits
+        });
+        notices.Post(5, new Valued(5, 0));
+        notices.Post(5, new Valued(5, 2));  // after it, inline: the value now is 2
+        Step();
+        Assert.Equal([0, 2], seen);         // 1, older than what was announced last, never comes after it
+        Assert.Equal(0, notices.Waiting);
+    }
+
     private sealed class Serials : IEntitySerialSource
     {
         public readonly Dictionary<EntityId, ulong> Alive = new();
@@ -592,6 +647,21 @@ public sealed unsafe class CreatureChangeTests : FakeTableTest
         seen.Clear();
         Assert.Equal(0, _creature.Reset());
         Assert.Empty(seen);
+    }
+
+    [Fact]
+    public void A_target_another_mod_took_over_is_not_the_first_mod_s_to_reset()
+    {
+        var seen = new List<string>();
+        using var sub = Events.On<CreatureChangedEvent>(e => seen.Add(e.What));
+        _creature.PreferTarget(new EntityId(6000), seconds: 60);  // the writer mod holds the target
+        var other = HostAccess.CreateContext(new ModInfo("other", "Other", "1.0.0", "."), 78, ".");
+        HostAccess.Current = other;
+        Creatures.Of(new EntityId(5000)).PreferTarget(new EntityId(6001), seconds: 60);  // kiln.creatures keeps this one only
+        HostAccess.Current = Mod;
+        seen.Clear();
+        Assert.Equal(0, _creature.Reset());
+        Assert.Empty(seen);  // the writer held nothing any more: its Reset changed nothing
     }
 
     private sealed class Serials : IEntitySerialSource

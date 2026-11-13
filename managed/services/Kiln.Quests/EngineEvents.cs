@@ -49,8 +49,9 @@ public sealed class QuestStepEvent : QuestCancelableEvent
     public override string ToString() => $"{Holder} finishes {Quest.FullId}.{StepId}";
 }
 
-/// <summary>A quest is about to complete (its last step is done; before the rewards). Cancel: it stays active at its
-/// last step.</summary>
+/// <summary>A quest is about to complete (its last step's objectives are done; before that step's <c>onDone</c> actions
+/// and the rewards). Cancel: it stays active at its last step, and nothing of the step's end runs (since 0.2.0-dev.27:
+/// before, the step's <c>onDone</c> ran first and ran again at the next completion).</summary>
 public sealed class QuestCompletedEvent : QuestCancelableEvent
 {
     internal QuestCompletedEvent(QuestDefinition quest, QuestHolder holder) : base(quest, holder)

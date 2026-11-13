@@ -137,8 +137,12 @@ written before the event existed keeps working (no `Events.MaxDepth` exception, 
 event is promised:
 
 - **When.** At the start of the next step, before anything else of that step runs (Kiln's own service handlers, queued
-  events, every mod's tick), one per changed value (the newest write wins). A write made during that delivery waits
-  for the step after. The order in which services or mods subscribed does not change this.
+  events, every mod's tick), one per changed value (the newest write wins). Every event that waited when the step
+  began goes out in that step; a write made during that delivery waits for the step after, whichever kind of event
+  it is and whichever kind went out first. The order in which services or mods subscribed does not change this.
+- **Never an older value after a newer one.** A write posted inline (no dispatch of its kind running) replaces the
+  event still waiting for the same value: the inline event says what the value is now, and the older one is not
+  announced after it.
 - **Nothing is dropped for want of room.** The waiting set holds one event per value written during a dispatch in one
   step, and is emptied at the next.
 - **Identity, not only an id.** An event about an entity (`CreatureChangedEvent`, `CombatChangedEvent`) keeps the
@@ -147,8 +151,9 @@ event is promised:
   news). The same holds for an impact instance (`ImpactVariableChangedEvent`). Without an entity source to ask (no
   Kiln.Spawn on that side) Kiln cannot tell, and the event goes out as written.
 - **At a stop.** When the server stops or a client's hosted world closes, the events that wait go out before the mods
-  unload, as the step they were waiting for. A write made by that last round's handlers is not announced (no step
-  follows); Kiln logs how many.
+  unload, as the step they were waiting for, and once more after they unloaded (what an unloading mod wrote, for the
+  mods that stay). A write made by those last rounds' handlers is not announced (no step follows); Kiln logs how many.
+  Nothing is left waiting for a step after the world closed.
 
 The events added in dev.27 post through `managed/Kiln.Api/Services/ChangeNotices.cs` (tests:
 `managed/tests/Kiln.Contract.Tests/ChangeEventTests.cs`, `managed/tests/Kiln.Host.Tests/ChangeNoticeStopTests.cs`); the

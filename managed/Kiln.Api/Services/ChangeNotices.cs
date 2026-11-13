@@ -26,11 +26,16 @@ internal abstract class ChangeNoticeQueue
         }
     }
 
-    /// <summary>The start of a service tick (tick thread): every notice that waited goes out. A write made in their
-    /// handlers waits for the next tick.</summary>
+    /// <summary>The start of a service tick (tick thread): every notice that waited goes out. All queues are taken first,
+    /// then delivered, so a write made in any of their handlers waits for the next tick, whichever queue comes first.</summary>
     internal static void FlushAll()
     {
-        foreach (var q in Volatile.Read(ref _queues)) q.Flush();
+        var queues = Volatile.Read(ref _queues);
+        var due = new object?[queues.Length];
+        for (var i = 0; i < queues.Length; i++) due[i] = queues[i].TakeDue();
+        for (var i = 0; i < queues.Length; i++)
+            if (due[i] is { } batch)
+                queues[i].Deliver(batch);
     }
 
     /// <summary>
@@ -85,7 +90,11 @@ internal abstract class ChangeNoticeQueue
         }
     }
 
-    private protected abstract void Flush();
+    /// <summary>Takes what waits (null: nothing); the queue is empty after it.</summary>
+    private protected abstract object? TakeDue();
+
+    /// <summary>Delivers what <see cref="TakeDue"/> took.</summary>
+    private protected abstract void Deliver(object batch);
 
     private protected abstract int Discard();
 }
@@ -158,7 +167,15 @@ internal sealed class ChangeNotices<TEvent, TKey>(string owner) : ChangeNoticeQu
             Wait(key, Capture(ev, subject));
             return;
         }
+        Supersede(key);
         Dispatch(key, ev, subject);
+    }
+
+    // An inline write of a key: an older event of that key still waiting would announce an older value later, after this
+    // newer one. It goes; this event says what the value is now.
+    private void Supersede(TKey key)
+    {
+        lock (_gate) _waiting.Remove(key);
     }
 
     /// <summary>As <see cref="Post"/>, for an event about something that is not an entity and whose id can name another
@@ -171,6 +188,7 @@ internal sealed class ChangeNotices<TEvent, TKey>(string owner) : ChangeNoticeQu
             Wait(key, new Notice(ev, default, Identity.Checked, 0, stillThere));
             return;
         }
+        Supersede(key);
         Dispatch(key, ev, default, stillThere);
     }
 
@@ -240,17 +258,21 @@ internal sealed class ChangeNotices<TEvent, TKey>(string owner) : ChangeNoticeQu
         List();
     }
 
-    private protected override void Flush()
+    private protected override object? TakeDue()
     {
-        Dictionary<TKey, Notice> due;
         lock (_gate)
         {
-            if (_waiting.Count == 0) return;
-            due = _waiting;
+            if (_waiting.Count == 0) return null;
+            var due = _waiting;
             _waiting = new Dictionary<TKey, Notice>();
+            return due;
         }
+    }
+
+    private protected override void Deliver(object batch)
+    {
         // a write in their handlers waits for the next step again
-        foreach (var (key, w) in due)
+        foreach (var (key, w) in (Dictionary<TKey, Notice>)batch)
             if (StillThere(in w)) Dispatch(key, w.Event, w.Subject, w.Check);
     }
 

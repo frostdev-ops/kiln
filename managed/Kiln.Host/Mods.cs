@@ -611,6 +611,7 @@ internal sealed class ModManager : IModsBackend, IDisposable
     {
         ChangeNoticeQueue.FlushFinal(reason);
         for (var i = _mods.Count - 1; i >= 0; i--) UnloadOne(_mods[i], ModState.Unloaded, reason);
+        ChangeNoticeQueue.FlushFinal(reason);  // what the unloads' writes left waiting: no step follows for it either
         UnloadCaches.Clear(_host.Log);
         PublishSnapshot();
     }
@@ -748,6 +749,7 @@ internal sealed class ModManager : IModsBackend, IDisposable
             }
         }
         PublishSnapshot();
+        ChangeNoticeQueue.FlushFinal(reason);  // what the unloads' writes left waiting: the hosted world has no next step
         if (unloaded.Count > 0 || _options.HostedServerMods)
             _host.Log(LogLevel.Info, $"hosting: the hosted world ended ({reason}): {unloaded.Count} mod(s) unloaded in " +
                                      $"{sw.Elapsed.TotalMilliseconds:F1} ms{(unloaded.Count > 0 ? ": " + string.Join(", ", unloaded) : "")}");
