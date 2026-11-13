@@ -561,6 +561,7 @@ internal static unsafe class RulesRuntime
         public WorldPosition? Position => World.Position(entity);
         public NoClipSpace Space(WorldPosition at) => NoClipMath.Space(at, ReadVoxel);
         public ulong Cells(WorldPosition at) => NoClipMath.Cells(at, ReadVoxel);
+        public NoClipSpace Torso(WorldPosition at) => NoClipMath.Torso(at, ReadVoxel);
         public byte? Teleports => World.ReadBytes(entity, "TeleportCount") is { Length: > 0 } b ? b[0] : null;
         public bool Dead => Combat.Available && Combat.GetHealth(entity) is { Dead: true };
         public bool InWorld(WorldPosition at) => RulesRuntime.InWorld(at);
@@ -589,7 +590,7 @@ internal static unsafe class RulesRuntime
             SpendNoClip(s.Entity, clip.LastSeen, trip);
             Resolve();
         }
-        if (r.Released) PushNative(s);  // collision is back from the next step
+        if (r.Released || r.Held) PushNative(s);  // collision is back, or off again, from the next step
         FlushNoClipEnded(s);
     }
 

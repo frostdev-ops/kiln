@@ -452,8 +452,8 @@ It never lands, because without collision there is no ground. Water does not end
   simply returns and it falls or stands as the game decides. If it is inside something, Kiln first moves it back to the
   **last free position** (the last place where the cells at its knees, waist and head were empty; at first, where
   NoClip was turned on: collision was on there, so that place counts as free even with matter at knee height beside
-  the character, as on a slope or a step, for as long as its cells stay what they were) and only then lets collision
-  return; `NoClipState.Restoring` is true meanwhile (normally two
+  the character, as on a slope or a step, for as long as its cells stay what they were; a character whose waist or
+  head was in matter at that moment gets no such word) and only then lets collision return; `NoClipState.Restoring` is true meanwhile (normally two
   or three steps), and `PlayerNoClipEndedEvent.RestoredTo` says where it was put. Collision never returns while a
   living character is inside something. Having arrived is not enough: the place is asked again, and only open space
   ends the wait. A move that fails is tried again every second (never two moves at once). A move that lands where
@@ -461,7 +461,10 @@ It never lands, because without collision there is no ground. Water does not end
   began outside the world's bounds) nothing is moved: in both cases it keeps flying without collision, with a warning
   in kiln.log, until that place is free again or the player flies out into open space. A death during
   the wait ends it (the game moves the body), and so does a teleport by the game or a mod (fast travel): the
-  character stays where that put it, the event's `Reason` is `Teleport`, and Kiln never pulls it back.
+  character stays where that put it, the event's `Reason` is `Teleport`, and Kiln never pulls it back, also not
+  with a move that was already on its way. A move back cannot be called off once it is asked for: if the player
+  flew out and got collision back before it landed, and it then lands where something was built meanwhile,
+  collision goes off again until the character is free (no second event).
   After a move back the character is kept safe until it stands on the ground (as after a carried flight),
   since the free position can be in the air; turning NoClip on again ends that protection. This order
   matters: the game does not push a character out of solid ground. In a lab a character whose rule ended 7 m inside
@@ -471,7 +474,9 @@ It never lands, because without collision there is no ground. Water does not end
   back, the player is told why in chat, and NoClip stays off until it is asked for again (`/noclip`, `NoClip.Set`, or
   a mod updating its rule set). The event's `Reason` is `Death` or `Teleport`. The character is never moved back
   after a teleport: it stays where the game put it. A rule set for an area that the teleport left has its request
-  used up as well.
+  used up as well. One case keeps collision off after a teleport: a mod that teleports the character into solid
+  matter (its waist or head in terrain or blocks; standing on a slope is not that). Collision waits there until
+  the character is out of it, and the event comes then.
 - The player leaving, the world closing, the mod that applied the rule set unloading: rule sets end as always.
 - Opening the glider, a ladder or a wall climb end the flight, and collision with it, while the rule stays on: when the
   character is free of them it lifts off again.

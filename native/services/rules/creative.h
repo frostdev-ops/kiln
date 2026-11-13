@@ -38,7 +38,8 @@ KilnResult KILN_CALL creative_status(KilnRulesCreative* out);
 
 namespace kiln_rules_flight {
 void reset();                // forget local identity and flight ownership before ids/objects can be reused
-void world(uint32_t event);  // KILN_WORLD_*: a stop resets; a start drops only the cached local identity
+// KILN_WORLD_*: a stop resets; a start drops only the cached local identity where world stops are seen, else everything
+void world(uint32_t event, bool stops_seen);
 void refresh();
 // Character flight's three hooks (flight.cpp; feature rules.flight), nothing while Creative Mode runs. Returns
 // KILN_RULES_HOOK_FLIGHT or 0 (`off` says why). Called with the creative hooks, at the first world.

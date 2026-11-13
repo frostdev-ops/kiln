@@ -107,6 +107,17 @@ public static class NoClip
             if (own is null) Sets[player] = own = Rules.Apply(player, new PlayerRules { NoClip = true }, label: Label);
             else own.Update(own.Rules);  // asks anew after a death or a teleport
         }
+        catch
+        {
+            // Applying makes the rule set before it resolves, and resolving runs other code (handlers, services). If
+            // that threw, a set may be active that this switch does not hold: nothing could turn it off. Nothing of
+            // the switch stays on after a failure.
+            Sets.Remove(player);
+            own?.Dispose();
+            foreach (var left in RulesRuntime.Sets())
+                if (left.Active && left.Owner == "kiln" && left.Label == Label && left.Scope.Player == player) left.Dispose();
+            throw;
+        }
         finally
         {
             ModContext.CurrentMod = outer;
@@ -329,6 +340,19 @@ internal static class NoClipMath
     {
         var unknown = false;
         foreach (var dy in Body)
+        {
+            if (voxel(at with { Y = at.Y + dy }) is not { } v) unknown = true;
+            else if (!v.IsAir) return NoClipSpace.Inside;
+        }
+        return unknown ? NoClipSpace.Unknown : NoClipSpace.Free;
+    }
+
+    /// <summary><see cref="Space"/> for the waist and the head alone (<see cref="Body"/> without its lowest). Free: a
+    /// character can be standing at <paramref name="at"/>, whatever is at its knees. Inside: it is in matter there.</summary>
+    public static NoClipSpace Torso(WorldPosition at, Func<WorldPosition, Voxel?> voxel)
+    {
+        var unknown = false;
+        foreach (var dy in Body.AsSpan(1))
         {
             if (voxel(at with { Y = at.Y + dy }) is not { } v) unknown = true;
             else if (!v.IsAir) return NoClipSpace.Inside;

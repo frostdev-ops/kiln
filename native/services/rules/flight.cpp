@@ -270,9 +270,15 @@ void forget_local() { g_local_player.store(0); }
 // flights yet, and another world may be running with characters in Kiln's flight (a host's server world when its
 // prediction starts): only the cached local identity is dropped then. Dropping ownership at a start orphaned those
 // flights: still flying, and no longer Kiln's to land or to end.
-void world(uint32_t event) {
+// That holds where stops are seen (`stops_seen`: the core's hook on the game's world destroy is in; KilnSessionInfo.
+// lifecycle). Where they are not, a world that starts may be replacing one whose stop nobody saw, and ownership from
+// that one must not meet a new character at an old address: then a start forgets everything, as it always did.
+void world(uint32_t event, bool stops_seen) {
     if (event == KILN_WORLD_STOPPING) reset();
-    else if (event == KILN_WORLD_STARTED) forget_local();
+    else if (event == KILN_WORLD_STARTED) {
+        if (stops_seen) forget_local();
+        else reset();
+    }
 }
 
 void reset() {
