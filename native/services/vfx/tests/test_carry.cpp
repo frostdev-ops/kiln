@@ -13,6 +13,7 @@
 #include <filesystem>
 #include <fstream>
 #include <map>
+#include <new>
 #include <string>
 #include <vector>
 
@@ -90,6 +91,7 @@ struct Start {
     std::string index_why;
     double ms = 0;
 };
+static bool g_throw_in_lookup = false;  // the index's lookup throws (out of memory while using it)
 static Start start(const kvb::ModInput& mod, const fs::path& cache, const std::string* index_in, const kvb::CarryHeader& header = kHeader) {
     Start s;
     kvb::CookOptions opt;
@@ -103,6 +105,7 @@ static Start start(const kvb::ModInput& mod, const fs::path& cache, const std::s
         if (kvb::read_carry_index(*index_in, header, &carried, &s.index_why)) {
             for (size_t i = 0; i < carried.size(); ++i) at[{carried[i].mod, carried[i].name}] = i;
             opt.carried_material = [&](const std::string& m, const std::string& n, const std::string& def) -> const kvb::MaterialRecord* {
+                if (g_throw_in_lookup) throw std::bad_alloc();
                 const auto it = at.find({m, n});
                 return it != at.end() && carried[it->second].definition_text == def ? &carried[it->second] : nullptr;
             };
@@ -226,6 +229,248 @@ static int owners_shape(const fs::path& mod_dir, const fs::path& cache) {
     return failures ? 1 : 0;
 }
 
+// ---- the review's cases (the index is a hint: any index gives what no index gives) ----
+static void write_mod(const fs::path& dir, ojson* mats) {
+    fs::create_directories(dir / "blocks");
+    fs::create_directories(dir / "tex");
+    write_png(dir / "tex/a.png", 64, 64, 1);
+    write_png(dir / "tex/b.png", 32, 32, 2);
+    write_png(dir / "tex/c.png", 64, 64, 3);
+    write_png(dir / "tex/d.png", 16, 16, 4);
+    *mats = ojson::object();
+    (*mats)["m1"] = kvb::parse_relaxed(R"({"albedo": "tex/a.png", "roughness": 0.5})");
+    (*mats)["m2"] = kvb::parse_relaxed(R"({"albedo": "tex/b.png", "normal": {"map": "tex/a.png", "strength": 2}, "metallic": 1})");
+    (*mats)["m3"] = kvb::parse_relaxed(R"({"tint": "#336699"})");
+    (*mats)["m4"] = kvb::parse_relaxed(R"({"albedo": "tex/c.png", "normal": {"map": "tex/d.png"}, "emissive": {"map": "tex/c.png", "color": "#ffffff", "strength": 2}, "kind": "emissive", "metallicRoughness": "tex/b.png", "occlusion": "tex/d.png"})");
+    write_blocks(dir, *mats);
+}
+
+static std::vector<kvb::MaterialRecord> records_of(const std::string& index) {
+    std::vector<kvb::MaterialRecord> r;
+    std::string why;
+    CHECK(kvb::read_carry_index(index, kHeader, &r, &why));
+    return r;
+}
+
+static kvb::MaterialRecord& rec(std::vector<kvb::MaterialRecord>& rs, const char* name) {
+    return *std::find_if(rs.begin(), rs.end(), [&](const auto& r) { return r.name == name; });
+}
+
+// A start with `index` against one without it: the same output. Returns whether it was (counted by the caller).
+static bool same_as_without(const kvb::ModInput& mod, const fs::path& cache, const std::string& index) {
+    const Start with = start(mod, cache, &index);
+    const Start without = start(mod, cache, nullptr);
+    std::string where;
+    return same_output(with.r, without.r, &where);
+}
+
+static void review_cases(const fs::path& root) {
+    const fs::path dir = root / "review", cache = root / "review-cache";
+    ojson mats;
+    write_mod(dir, &mats);
+    const kvb::ModInput mod = read_mod("review-mod", dir);
+    const std::string index = start(mod, cache, nullptr).index_out;
+    {
+        // material_plan names exactly what a real build read and made, for every material of the case
+        std::vector<kvb::MaterialRecord> rs = records_of(index);
+        CHECK(rs.size() == 4);
+        for (const auto& r : rs) {
+            kvb::Diagnostics d;
+            kvb::MaterialDef def;
+            CHECK(kvb::parse_material(kvb::parse_relaxed(r.definition_text), r.name, "", &def, &d));
+            const kvb::MaterialPlan plan = kvb::material_plan(def);
+            CHECK(plan.inputs.size() == r.files.size() && plan.maps.size() == r.maps.size());
+            for (size_t i = 0; i < std::min(plan.inputs.size(), r.files.size()); ++i) CHECK(plan.inputs[i] == r.files[i].first);
+            for (size_t i = 0; i < std::min(plan.maps.size(), r.maps.size()); ++i)
+                CHECK(plan.maps[i].slot == r.maps[i].slot && r.maps[i].what == plan.maps[i].what && plan.maps[i].format == r.maps[i].format);
+        }
+        CHECK(rec(rs, "m4").maps.size() == 4);
+    }
+    // 1. a cache miss at each map position of a four-map material: built in full, the same as without the index, and the index written back
+    //    the same as a start without the index writes
+    for (size_t pos = 0; pos < 4; ++pos) {
+        std::vector<kvb::MaterialRecord> rs = records_of(index);
+        const fs::path entry = cache / (rec(rs, "m4").maps[pos].key + ".tex");
+        fs::remove(entry);
+        const Start with = start(mod, cache, &index);
+        fs::remove(entry);
+        const Start without = start(mod, cache, nullptr);
+        std::string where;
+        const bool same = same_output(with.r, without.r, &where);
+        std::printf("%-58s carried %u, built %u, output %s, index written back %s\n", ("m4's map " + std::to_string(pos) + " gone from the cache").c_str(),
+                    with.r.materials_carried, with.r.materials_built, same ? "== without the index" : ("DIFFERS: " + where).c_str(),
+                    with.index_out == without.index_out ? "== without the index" : "DIFFERS");
+        CHECK(same && with.r.materials_carried == 3 && with.r.materials_built == 1);
+        CHECK(with.index_out == without.index_out);
+        CHECK(rec(rs = records_of(with.index_out), "m4").maps.size() == 4);
+    }
+    // 2. using the index throws (out of memory): every material built in full, the same output
+    g_throw_in_lookup = true;
+    {
+        const Start with = start(mod, cache, &index);
+        g_throw_in_lookup = false;
+        const Start without = start(mod, cache, nullptr);
+        std::string where;
+        CHECK(same_output(with.r, without.r, &where) && with.r.materials_carried == 0 && with.r.materials_built == 4);
+        std::printf("%-58s carried %u, built %u\n", "using the index throws", with.r.materials_carried, with.r.materials_built);
+    }
+    g_throw_in_lookup = false;
+    {
+        std::vector<kvb::MaterialRecord> out;
+        std::string why;
+        CHECK(!kvb::read_carry_index(std::string(kvb::kCarryIndexMaxBytes + 1, ' '), kHeader, &out, &why) && out.empty());
+    }
+    // 3. bounded parsing: a worst-case file of the limit's size
+    {
+        std::string huge = "{\"materials\":[{";
+        for (size_t i = 0; huge.size() < kvb::kCarryIndexMaxBytes - 32; ++i) huge += "\"k" + std::to_string(i) + "\":0,";
+        huge += "\"z\":0}]}";
+        std::vector<kvb::MaterialRecord> out;
+        std::string why;
+        auto a = Clock::now();
+        CHECK(!kvb::read_carry_index(huge, kHeader, &out, &why));
+        const double members = ms(Clock::now() - a);
+        std::string deep(kvb::kCarryIndexMaxBytes / 2, '[');
+        a = Clock::now();
+        CHECK(!kvb::read_carry_index(deep, kHeader, &out, &why));
+        const double depth = ms(Clock::now() - a);
+        // the largest index the writer makes: records with 60 KiB definitions up to the byte budget
+        std::vector<kvb::MaterialRecord> big = records_of(index);
+        std::vector<kvb::MaterialRecord> many;
+        for (int i = 0; i < 300; ++i) {
+            kvb::MaterialRecord r = big[0];
+            r.name = "n" + std::to_string(i);
+            r.definition_text = "{\"comment\":\"" + std::string(60 << 10, 'x') + "\"}";
+            many.push_back(r);
+        }
+        const std::string full = kvb::carry_index_json(kHeader, many);
+        a = Clock::now();
+        const bool ok = kvb::read_carry_index(full, kHeader, &out, &why);
+        const double valid = ms(Clock::now() - a);
+        std::printf("bounded parsing: 16 MiB of one object's members refused in %.0f ms, 8 MiB of nesting in %.0f ms; the largest index the writer "
+                    "makes (%zu bytes, %zu of 300 records of 60 KiB) read in %.0f ms\n",
+                    members, depth, full.size(), out.size(), valid);
+        CHECK(ok && full.size() <= kvb::kCarryIndexMaxBytes && out.size() > 200 && out.size() < 300);
+        CHECK(members < 2000 && depth < 2000 && valid < 5000);
+        // 7. one definition over the reader's limit: left out, the rest readable
+        std::vector<kvb::MaterialRecord> one = records_of(index);
+        one[0].definition_text = "{\"comment\":\"" + std::string(70 << 10, 'x') + "\"}";
+        CHECK(kvb::read_carry_index(kvb::carry_index_json(kHeader, one), kHeader, &out, &why) && out.size() == 3);
+    }
+    // 4. keys and paths that would leave their folders, 5. a file list that does not cover the inputs, 6. metadata that disagrees:
+    //    whether the reader refuses them or this start's plan does, the output is that of no index
+    struct Hostile {
+        const char* what;
+        void (*change)(std::vector<kvb::MaterialRecord>&);
+    };
+    const Hostile hostile[] = {
+        {"a key ../outside", [](auto& rs) { rec(rs, "m1").maps[0].key = "../outside"; }},
+        {"an absolute key", [](auto& rs) { rec(rs, "m1").maps[0].key = "/etc/passwd"; }},
+        {"a key of another size", [](auto& rs) { auto& m = rec(rs, "m1").maps[0]; m.width *= 2; }},
+        {"a file path ../x.png", [](auto& rs) { rec(rs, "m1").files[0].first = "../x.png"; }},
+        {"an absolute file path", [](auto& rs) { rec(rs, "m1").files[0].first = "/tmp/a.png"; }},
+        {"files [] (the PNG is still named)", [](auto& rs) { rec(rs, "m1").files.clear(); }},
+        {"another file in the list", [](auto& rs) { rec(rs, "m1").files[0].first = "tex/b.png"; }},
+        {"format 146 -> 145 (key to match)", [](auto& rs) {
+             auto& m = rec(rs, "m1").maps[1];
+             const auto cut = m.key.rfind("-f");
+             m.format = 145;
+             m.key = m.key.substr(0, cut) + "-f145-" + kvb::kEncoderVersion;
+         }},
+        {"two maps swapped", [](auto& rs) { std::swap(rec(rs, "m2").maps[0], rec(rs, "m2").maps[1]); }},
+        {"a slot changed", [](auto& rs) { rec(rs, "m2").maps[0].slot += 1; }},
+        {"a map left out", [](auto& rs) { rec(rs, "m2").maps.pop_back(); }},
+        {"another material's maps", [](auto& rs) { rec(rs, "m1").maps = rec(rs, "m3").maps; }},
+    };
+    for (const auto& h : hostile) {
+        std::vector<kvb::MaterialRecord> rs = records_of(index);
+        h.change(rs);
+        const std::string text = kvb::carry_index_json(kHeader, rs);  // a consistent record of its own (its checksum written for it)
+        const bool same = same_as_without(mod, cache, text);
+        std::printf("%-58s output %s\n", h.what, same ? "== without the index" : "DIFFERS");
+        CHECK(same);
+    }
+    {
+        // 5 with the PNG gone: no index gives the missing-PNG error, and so does the index with files []
+        std::vector<kvb::MaterialRecord> rs = records_of(index);
+        rec(rs, "m1").files.clear();
+        const std::string text = kvb::carry_index_json(kHeader, rs);
+        const fs::path moved = root / "a.png.moved";
+        fs::rename(dir / "tex/a.png", moved);
+        const Start with = start(mod, cache, &text);
+        const Start without = start(mod, cache, nullptr);
+        std::string where;
+        CHECK(same_output(with.r, without.r, &where) && !with.r.errors.empty());
+        fs::rename(moved, dir / "tex/a.png");
+    }
+    // the property test: single mutations of the valid index, each compared with no index
+    {
+        const ojson valid = ojson::parse(index);
+        std::vector<std::string> mutated;
+        const auto variants = [](const ojson& v) {
+            std::vector<ojson> out = {ojson(), ojson(""), ojson::array(), ojson::object(), ojson(7), ojson(-1), ojson(1.5)};
+            if (v.is_string()) out.push_back(v.get<std::string>() + "x");
+            if (v.is_number_unsigned()) out.push_back(v.get<uint64_t>() + 1);
+            return out;
+        };
+        for (auto it = valid.begin(); it != valid.end(); ++it) {
+            ojson a = valid;
+            a.erase(it.key());
+            mutated.push_back(a.dump());
+            for (const ojson& v : variants(it.value())) {
+                ojson b = valid;
+                b[it.key()] = v;
+                mutated.push_back(b.dump());
+            }
+        }
+        const auto& list = valid["materials"];
+        for (size_t i = 0; i < list.size(); ++i) {
+            for (auto it = list[i].begin(); it != list[i].end(); ++it) {
+                ojson a = valid;
+                a["materials"][i].erase(it.key());
+                mutated.push_back(a.dump());
+                for (const ojson& v : variants(it.value())) {
+                    ojson b = valid;
+                    b["materials"][i][it.key()] = v;
+                    mutated.push_back(b.dump());
+                }
+                if (it.value().is_array())
+                    for (size_t k = 0; k < it.value().size(); ++k) {
+                        ojson c = valid;
+                        c["materials"][i][it.key()].erase(k);
+                        mutated.push_back(c.dump());
+                        const ojson& e = it.value()[k];
+                        if (e.is_object())
+                            for (auto f = e.begin(); f != e.end(); ++f)
+                                for (const ojson& v : variants(f.value())) {
+                                    ojson d = valid;
+                                    d["materials"][i][it.key()][k][f.key()] = v;
+                                    mutated.push_back(d.dump());
+                                }
+                        if (e.is_array())
+                            for (size_t q = 0; q < e.size(); ++q)
+                                for (const ojson& v : variants(e[q])) {
+                                    ojson d = valid;
+                                    d["materials"][i][it.key()][k][q] = v;
+                                    mutated.push_back(d.dump());
+                                }
+                    }
+            }
+            ojson dup = valid;
+            dup["materials"].push_back(list[i]);
+            mutated.push_back(dup.dump());
+        }
+        ojson reordered = valid;
+        std::reverse(reordered["materials"].begin(), reordered["materials"].end());
+        mutated.push_back(reordered.dump());
+        mutated.push_back(index.substr(0, index.size() - 3));
+        size_t same = 0;
+        for (const std::string& m : mutated) same += same_as_without(mod, cache, m) ? 1 : 0;
+        std::printf("mutations of the valid index: %zu, each the output of no index: %zu\n", mutated.size(), same);
+        CHECK(same == mutated.size() && mutated.size() > 300);
+    }
+}
+
 int main(int argc, char** argv) {
     std::setvbuf(stdout, nullptr, _IOLBF, 0);
     const char* tmp = std::getenv("TMPDIR");
@@ -321,6 +566,8 @@ int main(int argc, char** argv) {
     // a file a carried record names, gone: that material in full, today's error if it is needed
     fs::remove(dir / "tex/b.png");
     case_("a PNG gone (m2 and m5 read it: today's errors)", mod, cache, &after_update, 2, 0);
+
+    review_cases(root);
 
     fs::remove_all(root);
     if (failures) {

@@ -466,6 +466,22 @@ kvb::CarryHeader carry_header(const KilnApi* api) {
     return h;
 }
 
+// The index file, read only up to kvb::kCarryIndexMaxBytes: its size is checked before anything is read, and the read is of that size.
+enum class IndexFile { ok, none, too_large, unreadable };
+IndexFile read_index_file(const fs::path& file, std::string* out) {
+    std::error_code ec;
+    if (!fs::exists(file, ec)) return IndexFile::none;
+    const auto size = fs::file_size(file, ec);
+    if (ec) return IndexFile::unreadable;
+    if (size > kvb::kCarryIndexMaxBytes) return IndexFile::too_large;
+    std::ifstream f(file, std::ios::binary);
+    if (!f) return IndexFile::unreadable;
+    out->resize(static_cast<size_t>(size));
+    f.read(out->data(), static_cast<std::streamsize>(size));
+    out->resize(static_cast<size_t>(f.gcount()));  // a file that shrank meanwhile: what was there (the reader decides)
+    return IndexFile::ok;
+}
+
 // Atomically, under a name of this process's own (a client and a server sharing a data folder each write whole files; the last one stays,
 // and a record either of them reads is checked before it is used).
 void write_carry_index(const fs::path& file, const std::string& text) {
@@ -723,27 +739,59 @@ void build_on_ready(const KilnApi* api, KilnOwner self) {
                 progress->step(KilnStr{"plugins", 7}, KilnStr{nullptr, 0}, KilnStr{detail.data(), detail.size()}, 0, 0);
             };
         std::vector<kvb::MaterialRecord> records;
-        opt.record_material = [&records](const kvb::MaterialRecord& rec) { records.push_back(rec); };
+        bool records_whole = true;  // a record lost (out of memory): the index is not rewritten from this start
+        opt.record_material = [&records, &records_whole](const kvb::MaterialRecord& rec) {
+            try {
+                records.push_back(rec);
+            } catch (...) {
+                records_whole = false;
+            }
+        };
         // The carry-over index of the last starts (kvb::MaterialRecord, carry.cpp): a material whose definition and files did not change
-        // takes its maps from the texture cache without decoding a texture. Only beside a texture cache.
-        const fs::path index_file = to_path(api_path(KILN_PATH_DATA)) / L"vfx" / L"cache" / L"index.json";
-        const kvb::CarryHeader header = carry_header(api);
+        // takes its maps from the texture cache without decoding a texture. Only beside a texture cache. The index is a hint: whatever goes
+        // wrong in reading, parsing, using or writing it costs the index and nothing else (never this function's catch below, which would
+        // give up every material and VFX).
         std::vector<kvb::MaterialRecord> carried;
         std::map<std::pair<std::string, std::string>, size_t> carried_at;
-        if (opt.cache.get && !header.game.empty()) {
-            std::error_code ec;
-            std::string why;
-            if (!fs::exists(index_file, ec)) {
-                KV_D("vfx: no carry-over index yet (%s): every material is built from its textures", to_utf8(index_file).c_str());
-            } else if (!kvb::read_carry_index(read_text(index_file), header, &carried, &why)) {
-                KV_I("vfx: the carry-over index is not used (%s): every material is built from its textures, and the index is written again", why.c_str());
-            } else {
-                for (size_t i = 0; i < carried.size(); ++i) carried_at[{carried[i].mod, carried[i].name}] = i;
-                opt.carried_material = [&carried, &carried_at](const std::string& mod, const std::string& name, const std::string& def) -> const kvb::MaterialRecord* {
-                    const auto it = carried_at.find({mod, name});
-                    return it != carried_at.end() && carried[it->second].definition_text == def ? &carried[it->second] : nullptr;
-                };
+        fs::path index_file;
+        kvb::CarryHeader header;
+        bool use_index = false;
+        try {
+            index_file = to_path(api_path(KILN_PATH_DATA)) / L"vfx" / L"cache" / L"index.json";
+            header = carry_header(api);
+            use_index = opt.cache.get && !header.game.empty();
+            std::string text, why;
+            if (use_index) {
+                switch (read_index_file(index_file, &text)) {
+                    case IndexFile::none:
+                        KV_D("vfx: no carry-over index yet (%s): every material is built from its textures", to_utf8(index_file).c_str());
+                        break;
+                    case IndexFile::too_large:
+                        KV_I("vfx: the carry-over index is not used (larger than %zu MiB): every material is built from its textures, and the index is written again",
+                             kvb::kCarryIndexMaxBytes >> 20);
+                        break;
+                    case IndexFile::unreadable:
+                        KV_I("vfx: the carry-over index is not used (it cannot be read): every material is built from its textures, and the index is written again");
+                        break;
+                    case IndexFile::ok:
+                        if (!kvb::read_carry_index(text, header, &carried, &why)) {
+                            KV_I("vfx: the carry-over index is not used (%s): every material is built from its textures, and the index is written again", why.c_str());
+                        } else {
+                            for (size_t i = 0; i < carried.size(); ++i) carried_at[{carried[i].mod, carried[i].name}] = i;
+                            opt.carried_material = [&carried, &carried_at](const std::string& mod, const std::string& name,
+                                                                            const std::string& def) -> const kvb::MaterialRecord* {
+                                const auto it = carried_at.find({mod, name});
+                                return it != carried_at.end() && carried[it->second].definition_text == def ? &carried[it->second] : nullptr;
+                            };
+                        }
+                        break;
+                }
             }
+        } catch (...) {
+            carried.clear();
+            carried_at.clear();
+            opt.carried_material = nullptr;
+            KV_I("vfx: the carry-over index is not used (it could not be read): every material is built from its textures");
         }
         const uint64_t t0 = GetTickCount64();
         const kvb::CookResult r = kvb::cook_mods(mods, opt);
@@ -753,7 +801,13 @@ void build_on_ready(const KilnApi* api, KilnOwner self) {
             if (opt.carried_material)
                 for (const std::string& n : r.carry_notes) KV_D("vfx: built again: %s", n.c_str());
         }
-        if (opt.cache.get && !header.game.empty()) write_carry_index(index_file, kvb::carry_index_json(header, kvb::carry_merge(records, carried)));
+        if (use_index && records_whole) {
+            try {
+                write_carry_index(index_file, kvb::carry_index_json(header, kvb::carry_merge(records, carried)));
+            } catch (...) {
+                KV_W("vfx: the carry-over index could not be written: the next start builds every material from its textures");
+            }
+        }
         {
             std::lock_guard lk(g_mu);
             for (kvb::MaterialRecord& rec : records) {
