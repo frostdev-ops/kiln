@@ -471,6 +471,9 @@ struct CookOptions {
     bool skip_vfx = false, skip_materials = false;          // what the fingerprint turned off
     bool skip_shaders = false;                              // kiln/config/vfx.json "shaders": false: mods' own modules fall back to Kiln's sprite
     std::set<std::string> skip_shader_mods;                 // "skipShaderMods": the same for these mods only
+    // Called before each mod's VFX block or material is built (kiln-vfx's boot: progress.json's detail). mod: its id,
+    // nth/mods: which of the mods, kind: "VFX" or "material", done/total: the blocks of that mod. Empty: nothing.
+    std::function<void(const std::string& mod, size_t nth, size_t mods, const char* kind, const std::string& name, size_t done, size_t total)> progress;
 };
 struct CookResult {
     std::vector<ServedBlob> blobs;

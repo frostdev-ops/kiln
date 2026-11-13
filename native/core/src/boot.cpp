@@ -21,6 +21,7 @@
 #include "foreign_scan.h"
 #include "nlohmann/json.hpp"
 #include "profile.h"
+#include "progress_state.h"
 #include "sigdb.h"
 #include "tick.h"
 #include "services/hooks_internal.h"
@@ -397,12 +398,35 @@ void arm_unload() {
            policy.says.c_str(), n);
 }
 
+// ---- progress.json (progress_state.h): what this start is doing, for the launcher ----
+// Every step this start goes through, known once kiln.json is read: Kiln's boot, then (with .NET) the managed mods and
+// their content, then the game's own loading. contracts.md, schema/state-progress.schema.json.
+std::vector<std::string> start_plan() {
+    std::vector<std::string> plan = {"start", "native-early", "early-plugins", "signatures", "services", "plugins", "native"};
+    if (config().clr) plan.insert(plan.end(), {"dotnet", "mods", "content"});
+    plan.push_back("game");
+    return plan;
+}
+
+// The side before the image is parsed (it could not be): the exe's name, as image.cpp's fallback reads it.
+const char* side_by_name() {
+    std::wstring n = paths().exe.filename().wstring();
+    CharLowerBuffW(n.data(), static_cast<DWORD>(n.size()));
+    return n.find(L"server") != std::wstring::npos ? "server" : "client";
+}
+
+const char* game_label(uint32_t side) {
+    return side == KILN_SIDE_CLIENT ? "The game is loading its main menu" : "The server is starting its world";
+}
+
 void boot() {
     snapshot_entry();  // before anything loads a DLL
     init_paths();
     BootFacts f;
     f.started_ms = now_ms();
     f.started = utc_now();
+    const std::string started_utc = progress_state::utc_now_ms();
+    const std::string kiln_build = std::string(kVersion) + KILN_BUILD;
     log::start();
     KLOG_I("Kiln %.*s%s starting (pid %lu)", static_cast<int>(kVersion.size()), kVersion.data(), KILN_BUILD, GetCurrentProcessId());
     log_proxy();
@@ -412,6 +436,7 @@ void boot() {
     if (profile::state().mode == KILN_PROFILE_INVALID)
         f.errors.push_back("profile " + profile::state().file + " is invalid (" + profile::state().error + "): no mods loaded");
     if (!init_image()) {
+        progress_state::begin(kiln_build, side_by_name(), f.started_ms, started_utc, start_plan());
         KLOG_E("cannot parse the game image; staying idle");
         f.safe_idle = "the game image cannot be parsed";
         f.errors.push_back(f.safe_idle);
@@ -420,26 +445,35 @@ void boot() {
         write_boot_json(f);
         caps::core_rows(false, false, f.safe_idle);
         caps::boot_complete();
+        progress_state::idle(f.safe_idle);
         return;
     }
     // Server or client: its own definitions, build records and kiln.json section.
     const uint32_t side = image().side;
+    progress_state::begin(kiln_build, side_name(side), f.started_ms, started_utc, start_plan());
     apply_side(side);
     std::string note;
     const bool verified = build_verified(side, image().sha256, &note);
     f.verified = verified;
     // Native mods: discovered and resolved now; phase early runs before anything is hooked (also in safe idle).
+    progress_state::step("native-early");
     compat::apply_early();  // rules that switch a listed mod off: before anything reads the profile
     native_mods::discover(verified);
     native_mods::run_early();
     // Another loader that looks for game functions by their bytes on its own thread (shroudlink's client addon) gets to
     // finish looking before Kiln hooks anything: a Kiln hook over a prologue would hide that function from it.
-    if (verified || config().policy_any) foreign::wait_for_scanners(g_boot_info.addon_log_size);
+    if (verified || config().policy_any) {
+        progress_state::step("native-early", "Waiting for other loaders' code scans");
+        foreign::wait_for_scanners(g_boot_info.addon_log_size);
+        if (foreign::waits().empty()) progress_state::step("native-early", "Loading early native mods");  // none to wait for
+    }
     // kiln.hooks for early plugins that hook game code (kiln-shroudforge's native runtime does it while it initialises);
     // taken away again below when this start is safe idle.
     const bool early_hooks = (verified || config().policy_any) && hooks::serve_early();
+    progress_state::step("early-plugins");
     early_plugins::run();  // kiln/plugins/kiln-*.dll exporting kiln_plugin_early (EML's pre-game patching)
 
+    progress_state::step("signatures");
     const auto definitions = paths().sigdb / to_wide(std::string(side_name(side)) + ".json");  // + <side>.d/*.json
     const bool resolved = sigdb::load_and_resolve(definitions);
     if (resolved) sigdb::write_report(paths().logs / L"sigdb-report.json");
@@ -457,6 +491,7 @@ void boot() {
                verified ? "" : " (policy any)", side == KILN_SIDE_CLIENT ? " [client]" : "");
     }
 
+    progress_state::step("services");
     if (hooks) {
         if (!tick::install()) KLOG_W("tick hook unavailable");
         uintptr_t add_listener = 0;
@@ -473,14 +508,17 @@ void boot() {
     for (const auto& feature : sigdb::failed_features()) KLOG_W("feature %s unavailable on this build", feature.c_str());
 
     if (hooks) load_plugins();  // kiln/services/*.dll, then plugins (profile-aware), then on_ready
+    else progress_state::step("plugins");
     if (hooks) arm_unload();    // on_unload at the process's exit call
     for (const auto& p : plugin_records())
         if (std::string_view(p.status) == "failed") f.errors.push_back("plugin " + p.file + ": " + p.error);
+    progress_state::step("native");
     native_mods::run_boot();
     native_mods::arm_world(hooks);
     const auto native = native_mods::summary();
     if (native.failed) f.errors.push_back(std::to_string(native.failed) + " native mod(s) failed (state/native.json)");
     if (config().clr) {
+        progress_state::step("dotnet", {}, "Kiln.Host");
         f.clr_tried = true;
         f.clr_started = clr::boot(api());
         if (!f.clr_started) f.clr_error = "the .NET host did not start (kiln.log, [clr] lines)";
@@ -492,6 +530,22 @@ void boot() {
     hooks::boot_complete();  // state/hooks.json + the foreign-hook check (kiln.hooks v2)
     compat::boot_done();
     KLOG_I("boot complete; handing control to the game");
+    // progress.json: safe idle ends the file here; so does a .NET host that did not start (no managed mod will load);
+    // otherwise the game goes on loading, and Kiln.Host (mods, content), kiln-ui (the main menu) or the server's start
+    // say what comes next.
+    if (!hooks) {
+        progress_state::idle(f.safe_idle);
+    } else if (f.clr_tried && !f.clr_started) {
+        progress_state::failed(f.clr_error);
+    } else {
+        if (config().clr)
+            progress_state::step("mods", "Waiting for the game to load the mods",
+                                 side == KILN_SIDE_CLIENT ? "they load in the game's first menu frame"
+                                                          : "they load at the server world's first step");
+        else
+            progress_state::step("game", game_label(side));
+        progress_state::loading();
+    }
 }
 
 }  // namespace
@@ -509,10 +563,12 @@ extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_boot(const KilnBootInfo* info) 
     } catch (const std::exception& e) {
         kiln::log::writef(KILN_LOG_ERROR, "kiln", "boot failed: %s", e.what());
         kiln::caps::boot_complete();  // capabilities.json says what there is
+        kiln::progress_state::failed(std::string("Kiln's boot failed: ") + e.what());
         return KILN_ERR_INTERNAL;
     } catch (...) {
         kiln::log::writef(KILN_LOG_ERROR, "kiln", "boot failed");
         kiln::caps::boot_complete();
+        kiln::progress_state::failed("Kiln's boot failed (kiln.log)");
         return KILN_ERR_INTERNAL;
     }
     return KILN_OK;

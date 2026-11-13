@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// kiln.progress v1 (abi/services/kiln_progress.h): a small window with a line of text and a progress bar for work that
+// kiln.progress v2 (abi/services/kiln_progress.h). v1: a small window with a line of text and a progress bar for work that
 // runs before the game's own window exists (kiln-eml's game-data phase can take minutes the first time).
 //
 // Plain Win32, no dependency. The window lives on a thread of its own with its own message loop, so the caller never
@@ -25,6 +25,7 @@
 #include "../log.h"
 #include "../progress.h"
 #include "../progress_model.h"
+#include "../progress_state.h"
 #include "service.h"
 
 namespace kiln::progress {
@@ -359,6 +360,7 @@ std::string_view sv(KilnStr s) { return s.ptr && s.len ? std::string_view(s.ptr,
 
 uint64_t KILN_CALL p_begin(KilnStr title) {
     try {
+        progress_state::window_text(sv(title));  // progress.json: the early-plugins step's detail
         return ui().begin(sv(title));
     } catch (...) {
         return 0;  // a progress window must never take the start down
@@ -367,6 +369,7 @@ uint64_t KILN_CALL p_begin(KilnStr title) {
 
 void KILN_CALL p_update(uint64_t task, KilnStr text, uint64_t done, uint64_t total) {
     try {
+        if (task) progress_state::window_text(sv(text));
         ui().update(task, sv(text), done, total);
     } catch (...) {
     }
@@ -379,7 +382,10 @@ void KILN_CALL p_end(uint64_t task) {
     }
 }
 
-const KilnProgressApi kTable = {{sizeof(KilnProgressApi), KILN_PROGRESS_VERSION}, &p_begin, &p_update, &p_end};
+// v2 appends step and mark: progress.json (services/progress_file.cpp)
+const KilnProgressApi kTable = {{sizeof(KilnProgressApi), KILN_PROGRESS_VERSION}, &p_begin, &p_update, &p_end,
+                                &progress_state::api_step, &progress_state::api_mark};
+static_assert(sizeof(KilnProgressApi) == 48 && offsetof(KilnProgressApi, step) == 32, "kiln.progress v1 layout must not move");
 
 }  // namespace
 
