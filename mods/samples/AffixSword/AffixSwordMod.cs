@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
-// Affixes (docs/kiln/modding/affixes.md): a sword that rolls one of three affixes.
+// Affixes (docs/kiln/modding/affixes.md): a sword that rolls one of three affixes. The affixes and the pool are blocks
+// in blocks/affixes.json; the code only rolls.
 //
 //   /affix-sword     puts the sword into your backpack with one rolled affix: "+3 Strength (of the Bear)",
 //                    "+10% Move Speed (Fleet)" or "+17% Resist Fire (Ember Ward)"
@@ -16,17 +17,18 @@ namespace AffixSword;
 public sealed class AffixSwordMod : Mod
 {
     private const string Sword = "Weapon_T1_1H_SwordEpic_01";
-    private AffixPoolHandle _blades = null!;
+
+    // The affixes and the pool are blocks in blocks/affixes.json, which Kiln reads by itself a few steps after the mod
+    // loaded. The same in C#, in OnLoad (Affixes.Define and Affixes.DefinePool are the same calls):
+    //   Blocks.Define("bear", new AffixBlock { Name = "of the Bear", Stat = Stat.Strength,
+    //       Tiers = [new AffixTier { Min = 2, Max = 4 }, new AffixTier { Min = 5, Max = 8, Weight = 0.5, MinItemLevel = 20 }] });
+    //   var blades = Blocks.Define("blades", new AffixPoolBlock { Items = [Sword], Affixes = [new AffixEntry { Affix = "bear" }, ...] });
+    private static AffixPoolHandle Blades =>
+        Affixes.FindPool("blades") ?? throw new CommandException("the affixes are not defined (yet): see kiln.log for blocks/affixes.json");
 
     public override void OnLoad()
     {
-        // The affixes and the pool are data (affixes.json beside the DLL). The same in C#:
-        //   Affixes.Define("bear", new AffixBlock { Name = "of the Bear", Stat = Stat.Strength,
-        //       Tiers = [new AffixTier { Min = 2, Max = 4 }, new AffixTier { Min = 5, Max = 8, Weight = 0.5, MinItemLevel = 20 }] });
-        //   Affixes.DefinePool("blades", new AffixPoolBlock { Items = [Sword], Affixes = [new AffixEntry { Affix = "bear" }, ...] });
-        var file = Affixes.Load(File.ReadAllText(Path.Combine(Context.Info.Directory, "affixes.json")));
-        _blades = file.Pools.Single(p => p.Name == "blades");
-        Log.Info($"affix-sword: {file.Affixes.Count} affixes and pool {_blades.Id} defined");
+        Log.Info("affix-sword: the affixes and the pool \"blades\" come from blocks/affixes.json");
         // In a player's game: asking once for the server's copies opens the channel they arrive on.
         if (Client.IsClient && Capabilities.Is("saves.instance_data.sync")) Affixes.SyncedItems();
     }
@@ -35,10 +37,11 @@ public sealed class AffixSwordMod : Mod
     private async Task Give(CommandContext c)
     {
         if (!c.Source.IsPlayer) throw new CommandException("only a player has a backpack");
+        var blades = Blades;
         var given = await Items.Give(c.Source.Player, Sword, 1, options: GiveOptions.Notify | GiveOptions.NoMerge);
         var sword = given.Changes.FirstOrDefault(x => !x.Ref.IsNone).Ref;   // this one sword, not "a sword"
         if (sword.IsNone) throw new CommandException($"the sword did not fit: {given.Status}");
-        var rolled = _blades.Roll(sword);
+        var rolled = blades.Roll(sword);
         c.Reply(rolled.Ok ? $"your sword rolled {rolled.Affixes[0].Text}; take it in hand" : $"not rolled: {rolled.Reason}");
     }
 
@@ -59,7 +62,7 @@ public sealed class AffixSwordMod : Mod
         if (!c.Source.IsPlayer) throw new CommandException("only a player has a hand");
         var held = Items.Held(c.Source.Player);
         if (held.IsNone) throw new CommandException("hold the sword");
-        var rolled = _blades.Roll(held, replace: true);
+        var rolled = Blades.Roll(held, replace: true);
         return rolled.Ok ? $"rolled {string.Join(", ", rolled.Affixes.Select(a => a.Text))}" : $"not rolled: {rolled.Reason}";   // e.g. the pool is not for this item
     }
 

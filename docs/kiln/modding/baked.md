@@ -11,6 +11,7 @@ defines into the mod. The first start then has it too, on the server and on ever
 | Nodes in the game's skill tree | `GameTree.Define` / `GameTree.DefineJson` | `skills/<id>.generated.json` (`"gameTree"`) | kiln.skills ([../services/skills.md](../services/skills.md), part A) |
 | VFX and materials | `Blocks.Define(name, VfxBlock)` / `MaterialBlock` | `blocks/generated/<id>.json` | kiln.vfx ([vfx.md](vfx.md), [materials.md](materials.md)) |
 | World programs | nothing to bake: they are declared in `kiln.programs.json`, which the SDK already copies | | kiln.world ([ecs-programs.md](ecs-programs.md)) |
+| Affix kinds and pools | nothing to bake: they are Kiln's own, not the game's, and defined when the mod loads (`Blocks.Define`, `Affixes.Define`, `blocks/*.json`) | | Kiln.Blocks ([affixes.md](affixes.md)) |
 
 `<id>` is the mod's id. Each file's `"comment"` says the build wrote it, and Kiln goes by that comment.
 

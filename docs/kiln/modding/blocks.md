@@ -33,7 +33,7 @@ The same as data, in `blocks/*.json` (the schema gives the editor completion and
 Start with `kiln new spell` (template `kiln-spell`), or read `mods/samples/FrostboltBlock`. Set `<KilnServices>Blocks</KilnServices>` in the project. Items, weapons, armor and
 stations: [item-blocks.md](item-blocks.md). Props, forges and racks of your own: [world-blocks.md](world-blocks.md). Creatures, their bodies, animations,
 AI and behaviour, and NPCs: [npc-blocks.md](npc-blocks.md). Quests and conversations: [quests.md](quests.md#quests-as-blocks).
-Windows, HUD lines and keys: [ui-blocks.md](ui-blocks.md). Rolled modifiers on one item ("+5 Strength" on this sword): [affixes.md](affixes.md).
+Windows, HUD lines and keys: [ui-blocks.md](ui-blocks.md). Rolled modifiers on one item ("+5 Strength" on this sword), affix kinds and pools: [affixes.md](affixes.md).
 
 These pages describe the implemented API. A compile, lowered-resource readback or dedicated-server test does not
 prove client drawing, animation, input or the player's interaction. Those checks remain on the feature's client checklist.
@@ -195,6 +195,19 @@ Creature drops are additional to the game's own drops. The world's Loot Amount s
 Loose pickups from `Drop` are not saved. A `RecipeBlock` can be defined on its own in `recipes`, as well as on an
 item or station. See [item-blocks.md](item-blocks.md) for loot tables, recipe inputs and outputs.
 
+## Affixes
+`AffixBlock` is one kind of rolled modifier on an item ("+3 Strength (of the Bear)"): a `Stat`, `Tiers` with the range
+each rolls in, `Stacks` and `Group`. `AffixPoolBlock` says which `Items` roll which `Affixes`, and how many (`Min`,
+`Max`). In JSON they are the `affixes` and `affixPools` sections. The pool's handle rolls onto one item:
+```csharp
+Blocks.Define("bear", new AffixBlock { Name = "of the Bear", Stat = Stat.Strength, Tiers = [new AffixTier { Min = 2, Max = 4 }] });
+var blades = Blocks.Define("blades", new AffixPoolBlock { Items = [GameItems.Weapon_T1_1H_SwordEpic_01], Affixes = [new AffixEntry { Affix = "bear" }] });
+blades.Roll(sword);   // this one sword now carries "+3 Strength (of the Bear)"
+```
+An affix's id is `"mod:name"`, which rolled items keep: no GUID, no `Was`, and a name of lower-case letters, digits, `-`
+and `_` that no other block of the mod has. They ask nothing of players' games. `Affixes.Define`, `DefinePool` and
+`Affixes.Load` are the same registration. See [affixes.md](affixes.md).
+
 ## UI blocks
 `WindowBlock`, `HudLineBlock` and `KeyBindingBlock` also have JSON forms: `windows`, `hudLines` and `keyBindings`.
 They bind to this mod's config and the supported read-only `game.*` values; buttons and keys use `UiAction`.
@@ -276,7 +289,7 @@ The build works it out from the blocks, the lowest level that works. `KilnClient
 
 | The mod's blocks contain | `clients` |
 |---|---|
-| Effects only, triggers | `none` |
+| Effects only, triggers, affixes and affix pools | `none` |
 | New items, spells, statuses, perks, abilities | `kiln`: Kiln clients get the definitions from the server. Vanilla clients cannot join |
 | A cue, a PNG icon, a model or a VFX of the mod's own, a key, talents | `mod`: every player needs the mod. Kiln clients without it are refused |
 | A game VFX by name, on any of these | No more than the block needs |
@@ -295,6 +308,8 @@ Spells and item blocks set their item's fields, statuses their buff's, projectil
 
 ## Ids and renames
 Ids come from the mod id and the block's name: `UUIDv5(<mod>:<kind>:<name>)`. Never write a GUID, and keep the names, because saves hold the ids.
+
+An affix's and an affix pool's id is `"mod:name"` itself, as rolled items keep it: they have no `Was`, so keep their names.
 
 To rename a block, keep the oldest name in `Was`: `Blocks.Define("frostlance", new SpellBlock { Was = "frostbolt", ... })`. Nothing in a save notices.
 
