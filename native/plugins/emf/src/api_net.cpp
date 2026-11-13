@@ -1,7 +1,14 @@
 // SPDX-License-Identifier: MIT
-// EMF v27 adapter. The protocol/channel implementation in net/ is upstream EMF 0.6.0 (MIT).
+// EMF v27 adapter. The protocol/channel implementation in net/ is upstream EMF 0.6.8 (MIT).
 // Only the game-facing dependencies live here. Remote messages use EMF's exact #!emf1 chat wire, so a peer need
 // not have Kiln. Callbacks are bounded, guarded and delivered only on the destination world's Post thread.
+//
+// The mod check on join (EMF 0.6.3, the core channel emf/mods; net/mods_check*.h are EMF's): a joined game sends the
+// list of its EMF mods once per session to a server that has the channel, the server logs the differences and answers
+// with its own list, and the game tells its player once when it lacks a mod the server's players must have. An EMF
+// server set to refuse (mods_check=refuse) kicks a game that sends no list, so a Kiln client has to answer.
+// Not here yet: a Kiln server greets players only when one of its mods has a channel (the core's channel alone does
+// not make it greet), it never refuses a join, and the list has no content mods (the EML content kiln-eml applies).
 #include <intrin.h>
 #include <algorithm>
 #include <array>
@@ -12,6 +19,7 @@
 
 #include "emf_internal.h"
 #include "net_bridge.h"
+#include "net/mods_check_service.h"
 #include "net/net_service.h"
 
 namespace kemf {
@@ -47,6 +55,11 @@ std::atomic<uintptr_t> g_game_server{0};
 int64_t g_server_chat = -1, g_reader_pending = -1, g_reader_stride = -1;
 constexpr size_t kMaxCallbacks = 1024, kMaxOut = 4096, kPerPlayerOut = 256;
 constexpr uint64_t kExpireMs = 30000;
+// What this end calls itself in a hello and in its mod list: the EMF version whose table it serves, marked as Kiln's.
+constexpr const char *kEmfVersionHere = "0.6.8-kiln";
+std::unique_ptr<emf::core::ModsCheck> g_mods_check; // made in net_on_ready, never freed (the channel's handlers use it)
+std::atomic<uint32_t> g_client_session{0};          // +1 per client world: the list is sent and the note shown again
+std::atomic<uint64_t> g_mods_tick_at{0};
 
 uintptr_t KILN_CALL observe_receive(KilnHookCall *call, void *) {
     if (call && call->arg_count)
@@ -151,6 +164,80 @@ bool enqueue(uint64_t serial, uint32_t handle, uint64_t account, const std::vect
     return true;
 }
 
+std::shared_ptr<wire::NetService> service();
+// This game's list for the mod check: EMF itself first, then every EMF mod that runs here (loaded, or a script handed
+// to the Lua host) by its mod.json side. An id or version the list cannot carry is left out, as EMF does.
+std::vector<emf::core::ModEntry> mods_list() {
+    std::vector<emf::core::ModEntry> out{{'e', "emf", kEmfVersionHere}};
+    std::set<std::string> seen{"emf"};
+    std::lock_guard lock(g_mods_mutex);
+    for (const auto &m : g_mods) {
+        if (m->status != EMF_MOD_LOADED && m->status != EMF_MOD_SCRIPT)
+            continue;
+        if (!emf::core::valid_list_id(m->id) || !emf::core::valid_list_version(m->version) || !seen.insert(m->id).second)
+            continue;
+        const char kind = m->side == "both" ? 'b' : m->side == "server" ? 's' : m->side == "client" ? 'l' : 'u';
+        out.push_back({kind, m->id, m->version});
+    }
+    return out;
+}
+// EMF's note ends by naming EMF's own manager; a Kiln player installs mods in Kiln.
+std::string note_for_kiln(std::string note) {
+    const std::string_view theirs = "Install the same versions with EMF.exe.";
+    if (const size_t at = note.rfind(theirs); at != std::string::npos)
+        note.replace(at, theirs.size(), "Install the same versions in the Kiln launcher.");
+    return note;
+}
+emf::core::ModsCheck::Deps mods_check_deps() {
+    emf::core::ModsCheck::Deps d;
+    d.mine = mods_list;
+    d.joined = [] { return world_of_kind(EMF_WORLD_SERVER) == nullptr; }; // no server world here: someone else's
+    d.server_version = [] {
+        auto s = service();
+        return s ? s->peer(0, emf::core::kModsChannel) : 0u;
+    };
+    d.client_session = [] { return g_client_session.load(); };
+    d.to_server = [](const std::string &data) {
+        std::string why;
+        auto s = service();
+        return s && s->to_server("emf", emf::core::kModsChannel, data, &why);
+    };
+    d.to_player = [](uint32_t id, const std::string &data) {
+        std::string why;
+        auto s = service();
+        return s && s->to_player("emf", id, emf::core::kModsChannel, data, &why);
+    };
+    d.notify = [](const std::string &note) { core_note(note_for_kiln(note)); };
+    d.log = [](const std::string &l) { logf(KILN_LOG_INFO, "EMF %s", l.c_str()); };
+    d.has_peer = [](uint32_t id) {
+        auto s = service();
+        return s && s->peer(id, emf::core::kModsChannel) != 0;
+    };
+    return d;
+}
+// The core's own channel. Its handlers run where a mod's do: after the destination world's step, on its thread.
+wire::ChannelDef mods_channel() {
+    wire::ChannelDef c;
+    c.name = emf::core::kModsChannel;
+    c.version = emf::core::kModsChannelVersion;
+    c.flags = wire::kToServer | wire::kToPlayers;
+    c.max_size = emf::core::kMaxModListBytes;
+    c.per_10s = 5;
+    c.on_server = [](EmfWorld *, const wire::NetFrom &f, const std::string &data) {
+        if (f.local || !g_mods_check)
+            return;
+        // As for a mod's handler: the player may have left, or the connection been reused, since this was queued.
+        const auto p = player(f.player);
+        if (p && p->account == f.account)
+            g_mods_check->on_server_message(f.player, f.account, data);
+    };
+    c.on_player = [](EmfWorld *, const wire::NetFrom &f, const std::string &data) {
+        if (!f.local && g_mods_check)
+            g_mods_check->on_player_message(data);
+    };
+    return c;
+}
+
 std::shared_ptr<wire::NetService> make_service() {
     const uint64_t serial = ++g_serial;
     wire::NetDeps d;
@@ -180,9 +267,14 @@ std::shared_ptr<wire::NetService> make_service() {
         return false;
     };
     auto s = std::make_shared<wire::NetService>(std::move(d));
+    // A game's new hello, or its leaving, ends the list it sent before (set before the server end is enabled).
+    s->set_peer_watch([](uint64_t account, bool) {
+        if (g_mods_check)
+            g_mods_check->forget(account);
+    });
     if (g_server_on) {
         wire::ServerEnv e;
-        e.emf_version = "kiln-api27";
+        e.emf_version = kEmfVersionHere;
         e.api = EMF_API_VERSION;
         e.greet = g_greet;
         e.send = [serial](uint32_t h, uint64_t a, const std::string &l) { return enqueue(serial, h, a, {l}); };
@@ -203,10 +295,15 @@ std::shared_ptr<wire::NetService> make_service() {
     }
     if (g_client_on) {
         wire::ClientEnv e;
-        e.emf_version = "kiln-api27";
+        e.emf_version = kEmfVersionHere;
         e.api = EMF_API_VERSION;
         e.self_account = self_account;
         s->enable_client(std::move(e));
+    }
+    if (g_mods_check) {
+        std::string why;
+        if (!s->add_channel("emf", mods_channel(), &why))
+            logf(KILN_LOG_WARN, "EMF mods check: off (%s)", why.c_str());
     }
     for (const auto &r : g_channels) {
         std::string why;
@@ -395,13 +492,15 @@ void net_on_ready() {
                       S.chat->subscribe(g_owner, &on_line, nullptr, &g_chat_sub) == KILN_OK;
     }
     g_client_on = g_enabled && g_side == KILN_SIDE_CLIENT && net_client_install();
+    if (!g_mods_check)
+        g_mods_check = std::make_unique<emf::core::ModsCheck>(mods_check_deps());
     {
         std::lock_guard lock(g_mutex);
         g_running = true;
         g_stopping.fill(false);
         g_net = make_service();
     }
-    logf(KILN_LOG_INFO, "EMF v27 mod messages: loopback on; chat server %s, client %s (official #!emf1 wire)",
+    logf(KILN_LOG_INFO, "EMF mod messages (v27): loopback on; chat server %s, client %s (official #!emf1 wire); mods check on join: on",
          g_server_on && g_greet ? "on" : "off", g_client_on ? "on" : "off");
 }
 void net_server_pre() {
@@ -473,6 +572,14 @@ void net_after_step(EmfWorld *w, uint8_t kind) {
         }
         j.fn(w);
     }
+    // A joined game, once a second: its mod list goes to a server that has emf/mods (once per session, see ModsCheck).
+    if (kind == EMF_WORLD_CLIENT && g_mods_check) {
+        const uint64_t t = now_ms();
+        if (t - g_mods_tick_at.load() >= 1000) {
+            g_mods_tick_at = t;
+            g_mods_check->client_tick();
+        }
+    }
 }
 void net_world_stopping(uint8_t kind) {
     if (kind >= g_epoch.size() || kind == EMF_WORLD_PREDICTION)
@@ -501,6 +608,8 @@ void net_world_started(uint8_t kind) {
         g_stopping[kind] = false;
         resume = g_running && g_client_on && kind == EMF_WORLD_CLIENT;
     }
+    if (kind == EMF_WORLD_CLIENT)
+        ++g_client_session; // a new session: the mod list is sent again, and its note may show again
     if (resume)
         net_client_resume();
 }

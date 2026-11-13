@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// From matenm/emf-enshrouded v0.6.0, src/core/net/net_service.h.
+// From matenm/emf-enshrouded v0.6.8, src/core/net/net_service.h.
 // Copyright (c) 2026 EMF contributors. See licenses/EMF-LICENSE.txt.
 #pragma once
 // Mod messages (API v27): the channels mods register and the delivery of their messages. Loopback in a game this
@@ -71,13 +71,21 @@ struct ServerEnv {
     std::string emf_version;
     uint32_t api = 0, build = 0;
     bool greet = true;
-    uint64_t beacon_delay_ms = 5000;  // ServerLinkDeps: the first beacon after a connection appears
+    uint64_t beacon_delay_ms = 10000;  // ServerLinkDeps: the first beacon after a connection appears
 };
 struct ClientEnv {
     std::function<std::optional<uint64_t>()> self_account;  // empty or nullopt: the first beacon's speaker
     std::string emf_version;
     uint32_t api = 0, build = 0;
 };
+
+// Whether a server with these channels greets new connections: a mod's channel, yes; only the core's own (emf/...),
+// when `core_needs` (the mod check: the server has mods its players must match).
+inline bool greets_for(const std::map<std::string, uint32_t>& channels, bool core_needs) {
+    for (const auto& [name, version] : channels)
+        if (name.rfind("emf/", 0) != 0) return true;
+    return core_needs && !channels.empty();
+}
 
 class NetService {
 public:
@@ -94,6 +102,8 @@ public:
     uint32_t to_players(const std::string& owner, const std::string& channel, const std::string& data);
     // The channel version `player`'s game has (server side), or the server's (player 0, a player's game); 0 = none.
     uint32_t peer(uint32_t player, const std::string& channel);
+    // This process hosts the server world with a local player (its entity there).
+    bool hosted(uint32_t* local_player) const { return d_.hosted && d_.hosted(local_player); }
 
     // ---- the chat transport ----
     void enable_server(ServerEnv env);
@@ -107,13 +117,20 @@ public:
     bool client_line(std::string_view text, uint64_t speaker);
     std::vector<std::string> client_take(size_t max);
     void client_put_back(std::vector<std::string> lines);
-    void client_reset();
+    void client_reset(bool keep_held_beacon = false);  // ClientLink::reset
     bool server_on() const { return server_ != nullptr; }
     bool client_on() const { return client_ != nullptr; }
     // This game's channels with their versions (what hello and welcome say).
     std::map<std::string, uint32_t> channel_versions();
+    // The core's own channels alone make the server greet only while this says yes (greets_for).
+    void set_core_greets(std::function<bool()> f) { core_greets_ = std::move(f); }
+    // The server end: called (the receive loop's thread, no lock held) when a player's game said hello (joined) and when
+    // that peer is gone (its connection left, or a hello came on another connection). Set before enable_server.
+    void set_peer_watch(std::function<void(uint64_t account, bool joined)> f) { peer_watch_ = std::move(f); }
 
 private:
+    std::function<bool()> core_greets_;  // set_core_greets
+    std::function<void(uint64_t, bool)> peer_watch_;  // set_peer_watch
     struct Channel {
         ChannelDef def;
         std::string owner;

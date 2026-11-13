@@ -1087,6 +1087,18 @@ void api_notify(const char* fmt, ...) {
 
 }  // namespace
 
+// A note of kiln-emf itself, not of a mod (the mod check's warning to the player). Any thread. It stays longer than a
+// mod's note: it is one long sentence, shown once per session.
+void core_note(std::string_view text) {
+    logf(KILN_LOG_INFO, "[note] %.*s", static_cast<int>(text.size()), text.data());
+    if (!S.ui) return;
+    std::lock_guard lock(g_hud_mutex);
+    g_notes.push_back({std::string(text), now_ms() + 10000});
+    while (g_notes.size() > 5) g_notes.pop_front();
+    ensure_frame();
+    update_demand();
+}
+
 void hud_on_ready() {}
 
 uint32_t spawn_for(Mod* m, EmfWorld* w, const uint8_t guid[16], double x, double y, double z, const char* fn) {

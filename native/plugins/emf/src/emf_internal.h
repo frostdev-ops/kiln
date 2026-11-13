@@ -225,6 +225,7 @@ void net_after_step(EmfWorld* w, uint8_t kind);
 void net_world_stopping(uint8_t kind);
 void net_world_started(uint8_t kind);
 void net_shutdown();
+void core_note(std::string_view text);  // api_game.cpp: a note of kiln-emf itself on the player's screen (any thread)
 void portraits_on_ready();  // offline generation through the separate GPL kiln-eml component (drawing on a worker)
 // image_load("portrait:<key>"): true when the picture is not being drawn (any more). While it is, the thread that started the
 // drawing waits (for 120 s all calls together); any other thread gets false at once (image_load then returns a pending handle).
