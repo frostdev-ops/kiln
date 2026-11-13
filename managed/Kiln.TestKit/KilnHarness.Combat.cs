@@ -104,9 +104,11 @@ public sealed class FakeHit
 /// (<see cref="Hit"/>), applies at the start of the next step, as the engine concludes hits in the step after they were
 /// dealt; while a mod has a handler for <c>EntityHurtEvent</c> or <c>EntityHealEvent</c>, the game's hits are held one
 /// step for it (the handler can change the amount or cancel, as on a server) and apply at the start of the step after.
-/// The damage and the death (health below 1, the killing blow's attacker) reach mods at the next step. <c>SetHealth</c>
-/// to 0 kills without a killer; god mode drops damage hits and keeps 1 health on a set; <c>Heal</c> adds up to the
-/// maximum.</para>
+/// The damage and the death (health below 1, the killing blow's attacker) reach mods at the next step: a death is what the
+/// game's death check finds then, so an entity healed back before it lives. <c>SetHealth</c> to 0 kills without a
+/// killer; god mode drops damage hits and keeps 1 health on a set; <c>Heal</c> adds up to the maximum. A mod that unloads
+/// takes its hits not yet concluded along (a hit already held for the handlers still applies). A player's health is a
+/// component of that player's entity: the next player in the slot has none until the test gives it.</para>
 /// <para><b>Not modelled</b> (offline): the game's attributes (<c>combat.attributes</c>), the hold filter, fall damage,
 /// regeneration, attribute heals, knockback, loot drops, the game's own damage formulas, armour, hit reactions and kill
 /// credit or XP.</para>

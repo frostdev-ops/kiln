@@ -155,9 +155,26 @@ internal sealed class TimeFake
     public TimeFake(KilnHarness harness)
     {
         _harness = harness;
+        ForgetLastDayOrNight();
         // a new world's clock: the first morning, as the game's start of a world (day 0 at 06:00 would be the start of the day phase)
         _gameNs = 0;
         _hoursField = HoursAt(0);
+    }
+
+    // Kiln.Time watches day and night across its polls in a static (TimeEvents._wasDay): a new harness is a new world, so
+    // the last harness's day or night is forgotten (reflection: the field is private to Kiln.Time; a Kiln.Time without it
+    // has nothing to forget).
+    private static void ForgetLastDayOrNight()
+    {
+        try
+        {
+            typeof(Time).Assembly.GetType("Kiln.TimeEvents")?.GetField("_wasDay", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)
+                ?.SetValue(null, null);
+        }
+        catch (Exception e) when (e is ArgumentException or FieldAccessException or System.Reflection.TargetException)
+        {
+            // a watch of another shape: nothing to forget
+        }
     }
 
     /// <summary>The server's GameSettings dayTimeDuration and nightTimeDuration (the game's defaults: 30 and 12 minutes).</summary>

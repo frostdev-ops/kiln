@@ -107,6 +107,7 @@ public sealed partial class KilnHarness : IDisposable
             };
             TaskScheduler.UnobservedTaskException += _unobserved;
             _tick = new TickThread($"kiln-testkit tick {_serial}", _options.CallTimeout);
+            StartServicesOnce();  // KilnHarness.Fakes.cs: the process's first service tick, at a budget of its own
             _tick.Invoke(() =>
             {
                 BootServiceTick();

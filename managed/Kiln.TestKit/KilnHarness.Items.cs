@@ -169,7 +169,9 @@ public sealed class FakeInventory
 /// task completes then, as the game's runs in the service's program and answers in the next step: a give tops up stacks
 /// first, then fills empty slots, gear one per slot with an item entity of its own (its level within the item's range,
 /// its rarity); what does not fit is never created (Partial, or NoRoom with all-or-nothing); a take is all or nothing
-/// and destroys gear's item entity; a dry run changes nothing.</para>
+/// and destroys gear's item entity; a dry run changes nothing. A mod that unloads before its request ran leaves it to run
+/// (Kiln.Items cancels only the answer, as kiln.items does). Give and take need the service's program, which runs from the
+/// first step (<c>items.program</c>; switched off, they are refused).</para>
 /// <para><b>Not modelled</b> (they report offline): water (<c>items.fuel</c>), moves between inventories
 /// (<c>items.move</c>: the v3 table is not there), container names, transfer hooks, item instances, equip and unequip,
 /// recipe results, upgrades and gem slots at creation; the game's player inventory layout (action bars, equipment, the

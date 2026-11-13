@@ -403,10 +403,12 @@ internal static unsafe class SpawnTable
         try
         {
             if (Fake is not { } f || f.WorldKey is not { } key) return FakeTables.Unavailable;
+            // spawn.cpp t_world_key: the text and its terminator
             var bytes = Encoding.UTF8.GetBytes(key);
             if (outLen != null) *outLen = (nuint)bytes.Length;
-            if (buffer == null || capacity < (nuint)bytes.Length) return FakeTables.BufferTooSmall;
+            if (buffer == null || capacity < (nuint)bytes.Length + 1) return FakeTables.BufferTooSmall;
             for (var i = 0; i < bytes.Length; i++) buffer[i] = bytes[i];
+            buffer[bytes.Length] = 0;
             return FakeTables.Ok;
         }
         catch

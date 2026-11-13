@@ -19,6 +19,7 @@ internal static unsafe class ItemsAbi
     public const uint Level = 0x01, Rarity = 0x02, ExactSlot = 0x04, AllOrNothing = 0x08, Notify = 0x10, NoMerge = 0x20,
         DryRun = 0x40, Recipe = 0x80, Unlock = 0x100, GemSlot = 0x200;
     public const uint KnownFlags = 0x3FF;
+    public const int ProgramNone = 0, ProgramPending = 1, ProgramActive = 2, ProgramRunning = 3, ProgramBroken = 4;
 
     // KilnItemsResult.status
     public const int Done = 0, Partial = 1, NoRoom = 2, NotEnough = 3, NoInventory = 4, UnknownItem = 5, SlotChanged = 6, Refused = 7,
@@ -172,7 +173,7 @@ internal static unsafe class ItemsTable
         {
             if (ticket != null) *ticket = 0;
             if (request == null || request->Size < (uint)sizeof(ItemsAbi.Request)) return FakeTables.InvalidArgument;
-            if (Fake is not { } f || FakeTables.Off(ItemsFake.TransactionFeature)) return FakeTables.Unavailable;
+            if (Fake is not { } f) return FakeTables.Unavailable;
             if (!FakeTables.OnTickThread) return FakeTables.WrongThread;
             return f.Submit(take, owner, *request, (nint)done, (nint)user, ticket);
         }
@@ -231,7 +232,7 @@ internal static unsafe class ItemsTable
     {
         try
         {
-            if (count == null || (out_ == null && capacity > 0)) return FakeTables.InvalidArgument;
+            if (count == null || (out_ == null && capacity > 0) || (flags & ~0xFu) != 0) return FakeTables.InvalidArgument;
             *count = 0;
             if (Fake is not { } f || FakeTables.Off(ItemsFake.ReadFeature)) return FakeTables.Unavailable;
             if (!FakeTables.OnTickThread) return FakeTables.WrongThread;
@@ -315,7 +316,7 @@ internal static unsafe class ItemsTable
     {
         try
         {
-            if (out_ == null) return FakeTables.InvalidArgument;
+            if (out_ == null || out_->Size < (uint)sizeof(ItemsAbi.Status)) return FakeTables.InvalidArgument;
             var s = new ItemsAbi.Status { Size = (uint)sizeof(ItemsAbi.Status) };
             if (Fake is { } f) f.Fill(ref s);
             else SpawnAbi.CopyText("no server runs in this process now (the test kit's harness is gone)", s.Detail, ItemsAbi.MessageMax);
@@ -332,6 +333,35 @@ internal static unsafe class ItemsTable
 /// <summary>An item the fake <c>kiln.items</c> registry has (the test added it: the kit does not know the game's).</summary>
 internal sealed record FakeItem(uint Id, Guid Guid, string Name, int MaxStack, ItemCategory Category, ItemRarity Rarity, bool Gear, int LevelMin,
     int LevelMax, nint NameUtf8, int NameLength);
+
+/// <summary>Item names as UTF-8 for <c>KilnItemInfo.name</c>, which the header promises stay valid for the process: each
+/// distinct name is allocated once per process and never freed (a test run keeps a few dozen bytes per name it used).</summary>
+internal static unsafe class ItemNames
+{
+    private static readonly object Lock = new();
+    private static readonly Dictionary<string, (nint Ptr, int Length)> Interned = new(StringComparer.Ordinal);
+
+    public static (nint Ptr, int Length) Of(string name)
+    {
+        lock (Lock)
+        {
+            if (Interned.TryGetValue(name, out var have)) return have;
+            var bytes = Encoding.UTF8.GetBytes(name);
+            var p = (byte*)NativeMemory.Alloc((nuint)Math.Max(bytes.Length, 1));  // process lifetime, never freed
+            bytes.CopyTo(new Span<byte>(p, bytes.Length));
+            return Interned[name] = ((nint)p, bytes.Length);
+        }
+    }
+
+    /// <summary>The bytes kept now (the names and their lengths).</summary>
+    public static long Bytes
+    {
+        get
+        {
+            lock (Lock) return Interned.Values.Sum(v => (long)Math.Max(v.Length, 1));
+        }
+    }
+}
 
 /// <summary>One harness's kiln.items: the item registry the test made, an inventory per fake player and per container,
 /// and the give and take requests mods made, run at the start of the next step.</summary>
@@ -376,7 +406,8 @@ internal sealed unsafe class ItemsFake
         public required bool Take;
         public required ulong Ticket, Owner, Step;
         public required ItemsAbi.Request Request;
-        public required nint Done, User;
+        public required nint User;
+        public required nint Done;  // 0 once canceled: the transaction still runs, nobody is told
         public required string? Mod;
     }
 
@@ -427,8 +458,7 @@ internal sealed unsafe class ItemsFake
         ResetCatalogCache();
         lock (_lock)
         {
-            foreach (var item in _items) NativeMemory.Free((void*)item.NameUtf8);
-            _items.Clear();
+            _items.Clear();  // the names stay: KilnItemInfo.name is valid for the process (ItemNames)
             _catalog = [];
         }
     }
@@ -465,10 +495,8 @@ internal sealed unsafe class ItemsFake
                 if (i.Id == id) throw new ArgumentException($"the game has item {id:x8} already ({i.Name})", nameof(guid));
                 if (i.Name == name) throw new ArgumentException($"the game has an item {name} already", nameof(name));
             }
-            var bytes = Encoding.UTF8.GetBytes(name);
-            var utf8 = (byte*)NativeMemory.Alloc((nuint)Math.Max(bytes.Length, 1));
-            bytes.CopyTo(new Span<byte>(utf8, bytes.Length));
-            var item = new FakeItem(id, guid, name, gear ? 1 : maxStack, category, rarity, gear, levelMin, levelMax, (nint)utf8, bytes.Length);
+            var (utf8, length) = ItemNames.Of(name);
+            var item = new FakeItem(id, guid, name, gear ? 1 : maxStack, category, rarity, gear, levelMin, levelMax, utf8, length);
             _items.Add(item);
             _catalog = [.. _items.OrderBy(i => i.Name, StringComparer.Ordinal)];
             return item;
@@ -554,14 +582,14 @@ internal sealed unsafe class ItemsFake
     {
         var found = new List<uint>();
         foreach (var p in _harness.PlayersFake?.Present ?? [])
-            if (p.InGame && (flags & ItemsAbi.FindPlayers) != 0) OfPlayer(p);
+            if (p.InGame && ((flags & ItemsAbi.FindPlayers) != 0 || (flags & 7u) == 0)) OfPlayer(p);
         lock (_lock)
         {
             foreach (var (e, inv) in _inventories.OrderBy(kv => kv.Key))
             {
                 if (Of(e) is null) continue;
                 var kind = inv.IsPlayer ? ItemsAbi.FindPlayers : ItemsAbi.FindContainers;
-                if ((flags & kind) == 0) continue;
+                if ((flags & 7u) != 0 && (flags & kind) == 0) continue;  // no kind bit: every kind
                 if ((flags & ItemsAbi.FindNonEmpty) != 0 && inv.Slots.All(s => s.Count == 0)) continue;
                 found.Add(e);
             }
@@ -617,30 +645,62 @@ internal sealed unsafe class ItemsFake
 
     public int Submit(bool take, ulong owner, ItemsAbi.Request request, nint done, nint user, ulong* ticket)
     {
-        if ((request.Flags & ~ItemsAbi.KnownFlags) != 0 || request.Count is 0 or > 100000) return FakeTables.InvalidArgument;
-        if (!take && (request.Flags & ItemsAbi.Level) != 0 && request.Level is 0 or > 255) return FakeTables.InvalidArgument;
-        if (!take && (request.Flags & ItemsAbi.Rarity) != 0 && request.Rarity > 4) return FakeTables.InvalidArgument;
+        // items.cpp submit(), in its order
+        if (request.Entity == 0 || request.Item == 0 || request.Count is 0 or > 100000) return FakeTables.InvalidArgument;
+        var allowed = take ? ItemsAbi.ExactSlot | ItemsAbi.DryRun
+            : ItemsAbi.Level | ItemsAbi.Rarity | ItemsAbi.AllOrNothing | ItemsAbi.Notify | ItemsAbi.NoMerge | ItemsAbi.DryRun | ItemsAbi.Recipe |
+              ItemsAbi.Unlock | ItemsAbi.GemSlot;
+        if ((request.Flags & ~allowed) != 0) return FakeTables.InvalidArgument;
+        if ((request.Flags & (ItemsAbi.Unlock | ItemsAbi.GemSlot)) != 0 && (request.Flags & ItemsAbi.Recipe) != 0) return FakeTables.InvalidArgument;
+        if ((request.Flags & ItemsAbi.Unlock) != 0 ? request.Unlock is not (>= 1 and <= 5 or 255) : request.Unlock != 0) return FakeTables.InvalidArgument;
         // upgrades and gem slots need feature items.pide_options, which the kit does not model
-        if (!take && (request.Flags & (ItemsAbi.Unlock | ItemsAbi.GemSlot)) != 0) return FakeTables.Unavailable;
+        if ((request.Flags & (ItemsAbi.Unlock | ItemsAbi.GemSlot)) != 0) return FakeTables.Unavailable;
+        if ((request.Flags & ItemsAbi.Recipe) != 0 && ((request.Flags & (ItemsAbi.Level | ItemsAbi.Rarity)) != 0 || request.Slot != 0)) return FakeTables.InvalidArgument;
+        if ((request.Flags & ItemsAbi.Rarity) != 0 && request.Rarity > 4) return FakeTables.InvalidArgument;
+        if ((request.Flags & ItemsAbi.Level) != 0 && request.Level is 0 or > 255) return FakeTables.InvalidArgument;
+        if (request.Slot != 0 && ((request.Slot >> 40) != 0 || ((request.Slot >> 32) & 0xFF) > 7 || (uint)request.Slot == 0)) return FakeTables.InvalidArgument;
+        if ((request.Flags & ItemsAbi.ExactSlot) != 0 && request.Slot == 0) return FakeTables.InvalidArgument;
+        if (FakeTables.Off(TransactionFeature) || Program is ItemsAbi.ProgramNone or ItemsAbi.ProgramBroken) return FakeTables.Unavailable;
         var job = new Job
         {
             Take = take, Ticket = (ulong)Interlocked.Increment(ref _tickets), Owner = owner, Step = _harness.CurrentStep, Request = request,
             Done = done, User = user, Mod = HostAccess.Current?.Info.Id,
         };
-        lock (_lock) _pending.Add(job);
+        lock (_lock)
+        {
+            if (_pending.Count >= MaxPending) return FakeTables.Unavailable;
+            _pending.Add(job);
+        }
         if (ticket != null) *ticket = job.Ticket;
         return FakeTables.Ok;
     }
 
+    // A cancel drops the callback, not the transaction (items.cpp t_cancel and t_cancel_owner erase g_callbacks only):
+    // the request still runs at the next step, and nobody is told.
     public bool Cancel(ulong ticket)
     {
-        lock (_lock) return _pending.RemoveAll(j => j.Ticket == ticket) > 0;
+        lock (_lock)
+        {
+            var job = _pending.FirstOrDefault(j => j.Ticket == ticket && j.Done != 0);
+            if (job is null) return false;
+            job.Done = 0;
+            return true;
+        }
     }
 
     public void CancelOwner(ulong owner)
     {
-        lock (_lock) _pending.RemoveAll(j => j.Owner == owner);
+        lock (_lock)
+            foreach (var job in _pending.Where(j => j.Owner == owner)) job.Done = 0;
     }
+
+    private const int MaxPending = 1024;  // items.cpp kMaxPending
+
+    /// <summary>KILN_ITEMS_PROGRAM_*: pending until the server world stepped, then running; none when switched off.</summary>
+    public int Program =>
+        FakeTables.Off(ProgramFeature) ? ItemsAbi.ProgramNone
+        : _harness.State is HarnessState.Created ? ItemsAbi.ProgramPending
+        : ItemsAbi.ProgramRunning;
 
     public IReadOnlyList<FakeItemsCall> Calls
     {
@@ -657,7 +717,7 @@ internal sealed unsafe class ItemsFake
             s.Transactions = FakeTables.Off(TransactionFeature) ? (byte)0 : (byte)1;
             s.Read = FakeTables.Off(ReadFeature) ? (byte)0 : (byte)1;
             s.Catalog = 1;
-            s.Program = FakeTables.Off(ProgramFeature) ? (byte)0 : (byte)1;
+            s.Program = (byte)Program;
             s.Pending = (uint)_pending.Count;
             s.Items = (uint)_items.Count;
             s.Committed = _committed;
@@ -687,7 +747,7 @@ internal sealed unsafe class ItemsFake
             };
             var changes = new List<ItemsAbi.Change>();
             string message;
-            if (FakeTables.Off(TransactionFeature))
+            if (FakeTables.Off(TransactionFeature) || Program != ItemsAbi.ProgramRunning)
             {
                 r.Status = ItemsAbi.StatusUnavailable;
                 message = "give/take were switched off since the request was accepted; nothing changed";

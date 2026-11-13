@@ -224,7 +224,9 @@ internal static unsafe class ChatTable
     {
         try
         {
-            if (Fake is not { } f || FakeTables.Off(ChatFake.ReceiveFeature)) return FakeTables.Unavailable;
+            // chat.cpp inject(): a text, and the send side (the line goes through Kiln's own queue)
+            if (text.Ptr == null || text.Len == 0) return FakeTables.InvalidArgument;
+            if (Fake is not { } f || FakeTables.Off(ChatFake.SendFeature)) return FakeTables.Unavailable;
             f.Queue(connection, text.ToString());
             return FakeTables.Ok;
         }
@@ -345,6 +347,7 @@ internal sealed unsafe class ChatFake
             _incoming.Clear();
         }
         var connected = Connected();
+        var hooked = FakeTables.Active(ChatAbi.Service) is not null && !FakeTables.Off(ReceiveFeature);
         foreach (var (connection, text) in lines)
         {
             var sender = connected.FirstOrDefault(p => p.Handle == connection);
@@ -360,7 +363,8 @@ internal sealed unsafe class ChatFake
                     Sender = sender is null ? new ChatAbi.Player { Size = (uint)sizeof(ChatAbi.Player), Connection = connection } : Native(sender),
                     Text = new NativeStr { Ptr = t, Len = (nuint)bytes.Length },
                 };
-                consumed = ChatTable.Deliver(&m);
+                // the receive hook hands lines to subscribers; with it (or kiln.chat) off the game's chat takes them alone
+                consumed = hooked && ChatTable.Deliver(&m);
             }
             lock (_lock)
             {

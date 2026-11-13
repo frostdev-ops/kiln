@@ -289,10 +289,12 @@ internal static unsafe class CombatTable
     {
         try
         {
-            if (out_ == null) return FakeTables.InvalidArgument;
-            var s = new CombatAbi.Status { Size = (uint)sizeof(CombatAbi.Status) };
+            // a caller built before the fall/regen fields passes the shorter size and gets the fields it knows (t_status)
+            if (out_ == null || out_->Size < (uint)Marshal.OffsetOf<CombatAbi.Status>(nameof(CombatAbi.Status.Falls))) return FakeTables.InvalidArgument;
+            var size = Math.Min(out_->Size, (uint)sizeof(CombatAbi.Status));
+            var s = new CombatAbi.Status { Size = size };
             Fake?.Fill(ref s);  // else nothing works: no server world runs
-            *out_ = s;
+            Buffer.MemoryCopy(&s, out_, size, size);
             return FakeTables.Ok;
         }
         catch
@@ -317,7 +319,10 @@ internal sealed unsafe class CombatFake
     internal sealed class Hp
     {
         public int Current, Max;
-        public bool Dead;
+        public FakePlayer? Player;  // a player's health is a component of that player's entity: it ends with the player
+
+        /// <summary>Dead as the game's death check leaves it: below 1 health.</summary>
+        public bool Dead => Current < 1;
     }
 
     internal sealed class Hit
@@ -331,7 +336,7 @@ internal sealed unsafe class CombatFake
         public uint State = CombatAbi.Queued;
         public ulong Settled;
         public int Before = -1, After = -1;
-        public bool Killing, Modified;
+        public bool Killing, Modified, WasHeld;
     }
 
     private static long _ids;  // per process: hit and event ids never repeat
@@ -345,6 +350,9 @@ internal sealed unsafe class CombatFake
     private readonly List<Hit> _queue = [];  // applies at the start of the next step
     private readonly List<Hit> _fresh = [];  // the game's hits of the last step, to be held for the listener or applied
     private readonly List<CombatAbi.Event> _events = [];  // for the next listener call
+    // health that fell below 1 since the last step, with the killing blow's: the death check decides at the next step
+    private readonly Dictionary<uint, (uint Attacker, uint Source, byte Origin)> _dying = [];
+    private readonly HashSet<uint> _reported = [];  // dead and reported; forgotten once alive again
     private uint _interest;
     private ulong _seen, _held, _released, _canceled, _modified, _kiln, _godBlocked, _deaths, _delivered;
 
@@ -354,15 +362,20 @@ internal sealed unsafe class CombatFake
 
     private EntitiesFake? World => _harness.EntitiesFake;
 
-    private bool IsPlayer(uint entity) => _harness.PlayersFake?.Present.Any(p => p.InGame && p.Entity.Value == entity) == true;
+    private bool IsPlayer(uint entity) => PlayerAt(entity) is not null;
+
+    private FakePlayer? PlayerAt(uint entity) => _harness.PlayersFake?.Present.FirstOrDefault(p => p.InGame && p.Entity.Value == entity);
 
     private Hp? Of(uint entity)
     {
         lock (_lock)
         {
             if (!_health.TryGetValue(entity, out var hp)) return null;
-            if (World?.Exists(entity) == true) return hp;
-            _health.Remove(entity);  // the entity is gone, and its Health with it
+            var player = PlayerAt(entity);
+            if (World?.Exists(entity) == true && (hp.Player is null ? player is null : ReferenceEquals(hp.Player, player))) return hp;
+            _health.Remove(entity);  // the entity is gone (or its player: the next one in the slot is another entity), and its Health with it
+            _dying.Remove(entity);
+            _reported.Remove(entity);
             return null;
         }
     }
@@ -377,10 +390,16 @@ internal sealed unsafe class CombatFake
     public void Give(uint entity, int current, int max)
     {
         if (World?.Exists(entity) != true) throw new ArgumentException($"entity {entity} is not in the fake world (make it, or join a fake player)", nameof(entity));
-        lock (_lock) _health[entity] = new Hp { Current = Math.Clamp(current, 0, max), Max = max, Dead = current < 1 };
+        lock (_lock)
+        {
+            _health[entity] = new Hp { Current = Math.Clamp(current, 0, max), Max = max, Player = PlayerAt(entity) };
+            _dying.Remove(entity);
+            if (current < 1) _reported.Add(entity);  // dead as the game has it: nothing to report
+            else _reported.Remove(entity);
+        }
     }
 
-    public Hp? HealthOf(uint entity) => Of(entity) is { } hp ? new Hp { Current = hp.Current, Max = hp.Max, Dead = hp.Dead } : null;
+    public Hp? HealthOf(uint entity) => Of(entity) is { } hp ? new Hp { Current = hp.Current, Max = hp.Max } : null;
 
     public ulong GameHit(uint target, int amount, uint attacker, uint source)
     {
@@ -401,7 +420,8 @@ internal sealed unsafe class CombatFake
             if (!hp.Dead) throw new InvalidOperationException($"entity {player} is not dead");
             var before = hp.Current;
             hp.Current = Math.Clamp(health, 1, hp.Max);
-            hp.Dead = false;
+            _dying.Remove(player);
+            _reported.Remove(player);
             _events.Add(NewEvent(CombatAbi.Respawned, player, 0, 0, 0, before, hp.Current, hp.Max, CombatAbi.OriginOther));
         }
     }
@@ -434,12 +454,10 @@ internal sealed unsafe class CombatFake
         if (Of(entity) is not { } hp) return FakeTables.NotFound;
         lock (_lock)
         {
-            var floor = IsGod(entity) ? 1 : 0;  // god mode keeps 1
-            var before = hp.Current;
+            var floor = IsGod(entity) ? Math.Min(1, hp.Max) : 0;  // god mode keeps 1
             hp.Current = Math.Clamp(value, floor, hp.Max);
             applied = hp.Current;
-            if (before > 0 && hp.Current < 1) Die(entity, hp, 0, 0, CombatAbi.OriginOther);  // 0 kills on the next step, without a killer
-            else if (hp.Current >= 1) hp.Dead = false;
+            if (hp.Current < 1) _dying.TryAdd(entity, (0, 0, CombatAbi.OriginOther));  // the death check at the next step, without a killer
         }
         return FakeTables.Ok;
     }
@@ -451,9 +469,8 @@ internal sealed unsafe class CombatFake
         if (Of(entity) is not { } hp) return FakeTables.NotFound;
         lock (_lock)
         {
-            added = Math.Max(0, Math.Min(amount, hp.Max - hp.Current));
+            added = (int)Math.Max(0, Math.Min((long)amount, (long)hp.Max - hp.Current));
             hp.Current += added;
-            if (hp.Current >= 1) hp.Dead = false;
         }
         return FakeTables.Ok;
     }
@@ -525,12 +542,15 @@ internal sealed unsafe class CombatFake
         {
             foreach (var (e, owners) in _god.ToList())
                 if (owners.Remove(owner) && owners.Count == 0) _god.Remove(e);
-            foreach (var h in _queue.Where(h => h.Owner == owner && owner != 0).ToList())
-            {
-                _queue.Remove(h);
-                h.State = CombatAbi.Dropped;
-                h.Settled = _harness.CurrentStep;
-            }
+            // the owner's requests the engine has not concluded or held yet (t_release_owner erases them from g_requests); a
+            // hit that was held for the listener is the engine's by now and applies
+            foreach (var list in new[] { _queue, _fresh })
+                foreach (var h in list.Where(h => h.Owner == owner && owner != 0 && h.Origin == CombatAbi.OriginKiln && !h.WasHeld).ToList())
+                {
+                    list.Remove(h);
+                    h.State = CombatAbi.Dropped;
+                    h.Settled = _harness.CurrentStep;
+                }
         }
     }
 
@@ -571,6 +591,7 @@ internal sealed unsafe class CombatFake
             _fresh.Clear();
         }
         foreach (var h in apply) Conclude(h, step);
+        DeathCheck();
         var batch = new List<CombatAbi.Event>();
         lock (_lock)
         {
@@ -579,10 +600,11 @@ internal sealed unsafe class CombatFake
             foreach (var h in held)
             {
                 h.State = CombatAbi.Held;
+                h.WasHeld = true;
                 _held++;
                 var hp = Of(h.Target);
                 var heal = h.Amount < 0;
-                var amount = (h.Flags & CombatAbi.Kill) != 0 ? hp?.Current ?? 0 : Math.Abs(h.Amount);
+                var amount = (h.Flags & CombatAbi.Kill) != 0 ? hp?.Current ?? 0 : (int)Math.Min(Math.Abs((long)h.Amount), int.MaxValue);
                 var e = NewEvent(heal ? CombatAbi.Heal : CombatAbi.Hurt, h.Target, h.Attacker, h.Source, amount, hp?.Current ?? -1, -1,
                     hp?.Max ?? -1, h.Origin, h.Id);
                 e.Lethal = !heal && hp is not null && amount >= hp.Current ? (byte)1 : (byte)0;
@@ -641,7 +663,7 @@ internal sealed unsafe class CombatFake
             }
             var amount = (h.Flags & CombatAbi.Kill) != 0 && !h.Modified ? hp.Current : h.Amount;
             h.Before = hp.Current;
-            hp.Current = Math.Clamp(hp.Current - amount, 0, hp.Max);
+            hp.Current = (int)Math.Clamp((long)hp.Current - amount, 0, hp.Max);
             h.After = hp.Current;
             h.Killing = h.Before > 0 && h.After <= 0;
             h.State = CombatAbi.Applied;
@@ -650,17 +672,26 @@ internal sealed unsafe class CombatFake
             e.HitFlags = (h.Killing ? CombatAbi.HitFlagKillingBlow : 0) | (amount < 0 ? CombatAbi.HitFlagHealing : 0);
             e.Reaction = h.Reaction;
             _events.Add(e);
-            if (h.Killing) Die(h.Target, hp, h.Attacker, h.Source, h.Origin);
-            else if (hp.Current >= 1) hp.Dead = false;
+            if (h.Killing) _dying[h.Target] = (h.Attacker, h.Source, h.Origin);  // the killing blow's credit
         }
     }
 
-    // The game's death check marks it dead: reported at the next listener call.
-    private void Die(uint entity, Hp hp, uint attacker, uint source, byte origin)
+    // The game's death check, once a step: an entity whose health fell below 1 and is still below 1 now died (with the
+    // killing blow's credit when a hit did it); one healed back before the check survived. An entity is reported once
+    // until it is alive again.
+    private void DeathCheck()
     {
-        hp.Dead = true;
-        _deaths++;
-        _events.Add(NewEvent(CombatAbi.Died, entity, attacker, source, 0, -1, hp.Current, hp.Max, origin));
+        lock (_lock)
+        {
+            foreach (var e in _reported.Where(e => Of(e) is not { Dead: true }).ToList()) _reported.Remove(e);
+            foreach (var (entity, kill) in _dying.ToList())
+            {
+                _dying.Remove(entity);
+                if (Of(entity) is not { Dead: true } hp || !_reported.Add(entity)) continue;
+                _deaths++;
+                _events.Add(NewEvent(CombatAbi.Died, entity, kill.Attacker, kill.Source, 0, -1, hp.Current, hp.Max, kill.Origin));
+            }
+        }
     }
 
     private CombatAbi.Event NewEvent(uint kind, uint target, uint attacker, uint source, int amount, int before, int after, int max, byte origin, ulong id = 0)

@@ -221,7 +221,8 @@ false)`; the fake then answers as the native service does without it. The table 
   of the fake world one. `Items.Give` and `Take` run as one transaction at the start of the next step and their task
   completes then: a give tops up stacks first, then fills empty slots, gear one per slot with an item entity of its own;
   what does not fit is never created (`Partial`, or `NoRoom`, also with `AllOrNothing`); a take is all or nothing and
-  destroys gear's item entity; a dry run changes nothing. `Read`, `FindInventories`, `Lookup` and `All` read the fake.
+  destroys gear's item entity; a dry run changes nothing; a mod that unloads leaves its queued requests to run, unanswered,
+  as kiln.items does. `Read`, `FindInventories`, `Lookup` and `All` read the fake.
   `player.Inventory.Count("…")`, `.Slots`, `.Put(item, n)` and `.Clear()` are the test's view and hand;
   `kiln.Items.Calls` lists every give and take with what became of it. Not modelled, and offline: water, moves between
   inventories, container names, transfer hooks, item instances, equip and unequip, recipe results, upgrades and gem
@@ -233,7 +234,8 @@ false)`; the fake then answers as the native service does without it. The table 
   attacker)` is a hit of the game: while a mod handles `EntityHurtEvent` or `EntityHealEvent`, it is held one step for
   the handlers (they may change the amount or cancel it, as on a server) and applies at the start of the step after;
   with no such handler it applies at the next step. `EntityDamagedEvent` and `EntityDeathEvent` (health below 1, the
-  killing blow's attacker) follow at the next step; `SetHealth` to 0 kills without a killer, god mode drops damage
+  killing blow's attacker) follow at the next step, as the game's death check finds it (healed back before then, the
+  entity lives; a player's health ends with that player); `SetHealth` to 0 kills without a killer, god mode drops damage
   and keeps 1 on a set, `Heal` adds up to the maximum, `kiln.Combat.Respawn(player, 150)` brings a dead player back
   (`PlayerRespawnEvent`). `kiln.Combat.Health(e)` and `kiln.Combat.Hits` are the test's view. Not modelled, and
   offline: the game's attributes (`combat.attributes`), the hold filter, fall damage, regeneration, attribute heals,
@@ -424,7 +426,11 @@ the tree).
 For dev.27, the recording fakes: `SpawnFakeTests.cs` (6), `ChatFakeTests.cs` (4), `ItemsFakeTests.cs` (5),
 `CombatFakeTests.cs` (4) and `TimeFakeTests.cs` (4) run `tk-fakes` (`mods/TkFakes`) against each fake: what it
 models, the refusals, a test switching it off, the next harness starting clean, and its structs against the service's
-own mirrors (sizes; the headers are mirrored by hand, not checked field for field). `ProgressEnginesTests.cs` (3) runs
+own mirrors (sizes; the headers are mirrored by hand, not checked field for field). `FakesReviewTests.cs` (14) pins
+where a review found a fake answering otherwise than the native service (`native/services/<service>/`) does for the
+same call: a short status record, item names for the process, a cancel that keeps the transaction, a released owner's
+hits, the death check, a player's health per session, switched-off chat, the items program, the kind mask, a new
+world's day, a healing hit at the maximum, the world key's terminator. `ProgressEnginesTests.cs` (3) runs
 `tk-progress` (a quest and a talent tree in code) on the fake players and saves. `SampleFakesTests.cs` (4) runs
 Kiln's samples with their real logic: CreatureTweaks spawns and clears its Elite Vukah, AdminTools warns a player in
 chat, SavedData labels the chest next to a player, SkillTreeSample's tree is unlocked for a player. Not run: any of it
