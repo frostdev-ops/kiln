@@ -143,6 +143,43 @@ internal static class BlockJson
         }
     }
 
+    /// <summary>How many blocks <see cref="Read"/> would make an entry for in a mod's blocks/*.json, for progress.json's count only: the same
+    /// files, order, bounds and sections (<see cref="Kinds"/>), no side effect, no log line. A file it cannot read or that has another
+    /// shape counts 0; any failure of the whole, out of memory included, is the caller's to catch (BlocksStartup: no total).</summary>
+    internal static ulong CountEntries(string directory)
+    {
+        var dir = Path.Combine(directory, "blocks");
+        if (!Directory.Exists(dir)) return 0;
+        var names = new List<string>();
+        var seen = 0;
+        foreach (var path in Directory.EnumerateFileSystemEntries(dir))
+        {
+            if (++seen > MaxEntries) return 0;
+            if (path.EndsWith(".json", StringComparison.OrdinalIgnoreCase)) names.Add(Path.GetFileName(path));
+        }
+        if (names.Count > MaxFiles) return 0;
+        ulong n = 0;
+        long total = 0;
+        foreach (var fileName in names.OrderBy(x => x, StringComparer.Ordinal))
+        {
+            try
+            {
+                var text = BakedFiles.Read(directory, $"blocks/{fileName}", MaxFileBytes);
+                if (text is null) continue;
+                if ((total += text.Length) > MaxTotalBytes) break;
+                using var doc = JsonDocument.Parse(text, Doc);
+                if (doc.RootElement.ValueKind != JsonValueKind.Object) continue;
+                foreach (var p in doc.RootElement.EnumerateObject())
+                    if (p.Value.ValueKind == JsonValueKind.Object && Kinds.Any(k => k.Section == p.Name))
+                        foreach (var _ in p.Value.EnumerateObject()) n++;
+            }
+            catch (Exception e) when (e is JsonException or IOException or UnauthorizedAccessException)
+            {
+            }
+        }
+        return n;
+    }
+
     /// <summary>Compiles a mod's blocks/*.json: what <see cref="Read"/> read, or reads it now. Returns how many blocks it defined. Any thread that may touch content (the tick thread).</summary>
     public static int LoadMod(ModBlocks mod, string directory, Action<string, string>? each = null)
     {
@@ -296,17 +333,41 @@ internal static class BlocksStartup
     private static bool Due(ModEntry m) =>
         m.IsLoaded && m.Directory.Length > 0 && !Done.Contains(m.Id) && Directory.Exists(Path.Combine(m.Directory, "blocks"));
 
+    // progress.json's step "content" for the start: the blocks of every mod due at the first pass, counted once (best effort), and
+    // carried over the passes until every one of those mods was attempted (a mod whose files throw stops a pass, and the mods after
+    // it compile at the next one). Then "game" begins. Tick thread only.
+    private static bool _counted, _finished;
+    private static ulong _done, _total;  // _total 0: no count (unknown)
+
+    /// <summary>The count of one mod's data blocks; a test replaces it.</summary>
+    internal static Func<ModEntry, ulong> Counter = CountFor;
+
+    private static ulong CountFor(ModEntry m)
+    {
+        // read already (its code named its data files): the cached entries give it for nothing
+        var cached = Blocks.AllMods.FirstOrDefault(b => b.Id == m.Id);
+        if (cached is { DataLoaded: false, Data: { } data }) return (ulong)data.Entries.Count;
+        return BlockJson.CountEntries(m.Directory);
+    }
+
     /// <summary>Compiles the data files of every loaded mod not done yet, one mod after the other: marked done, then compiled (a mod whose
-    /// files throw stops the pass there, as it always did). progress.json's step "content" counts the blocks; the count is read from the
-    /// files on the side (<see cref="CountDataBlocks"/>), so that counting changes nothing of what is compiled, marked done or logged.</summary>
+    /// files throw stops the pass there, as it always did). Reporting can never come before or prevent a compile: the count is best
+    /// effort under every failure (then the step has no total).</summary>
     internal static void CompileLoaded()
     {
-        var due = Mods.All.Where(Due).ToList();
-        if (due.Count == 0) return;
-        // the first pass after the mods load is the start's; a later one (a reload) finds the file's life over and reports nothing
-        var total = 0UL;
-        foreach (var m in due) total += CountDataBlocks(m.Directory);
-        var done = 0UL;
+        if (!Mods.All.Any(Due)) return;
+        if (!_counted)
+        {
+            _counted = true;
+            try
+            {
+                foreach (var m in Mods.All.Where(Due).ToList()) _total += Counter(m);
+            }
+            catch
+            {
+                _total = 0;  // out of memory or anything else: no total, and the compile goes on
+            }
+        }
         try
         {
             foreach (var m in Mods.All)
@@ -315,59 +376,41 @@ internal static class BlocksStartup
                 Done.Add(m.Id);
                 var mod = Blocks.ModFor(m.Id, () => BlocksBridge.ServiceOwner($"blocks:{m.Id}"));
                 if (mod.Owner == 0) mod.Owner = BlocksBridge.ServiceOwner($"blocks:{m.Id}");
-                var n = BlockJson.LoadMod(mod, m.Directory, (section, name) =>
-                {
-                    total = Math.Max(total, done + 1);  // a count that came out short never runs backwards
-                    StartProgress.Step("content", "", $"{m.Id}: {section} {name}", done++, total);
-                });
+                var n = BlockJson.LoadMod(mod, m.Directory, (section, name) => Report($"{m.Id}: {section} {name}"));
                 BlocksBridge.Log(LogLevel.Info, $"blocks: {m.Id}: {n} block(s) from blocks/*.json, {mod.Errors.Count} error(s)");
             }
         }
         finally
         {
-            // also when a mod's files threw: the pass is over either way, and the start must not wait for it
-            if (StartProgress.Step("content", "", "", done, Math.Max(total, done)) == StartProgress.Ok)
-                StartProgress.Step("game", StartProgress.GameLabel(BlocksBridge.IsClient));
+            // every mod of the start attempted (none due any more): the content step is over, "game" begins
+            if (!_finished && !Mods.All.Any(Due))
+            {
+                _finished = true;
+                if (StartProgress.Step("content", "", "", _done, _total == 0 ? 0 : Math.Max(_total, _done)) == StartProgress.Ok)
+                    StartProgress.Step("game", StartProgress.GameLabel(BlocksBridge.IsClient));
+            }
         }
     }
 
-    /// <summary>How many blocks a mod's blocks/*.json hold, for the count only: the same files and bounds as <see cref="BlockJson.Read"/>,
-    /// no side effect, no log line. A file it cannot read or that has another shape counts 0 (the compile says what is wrong with it).</summary>
-    internal static ulong CountDataBlocks(string directory)
+    private static void Report(string detail)
     {
+        if (_finished) return;
         try
         {
-            var dir = Path.Combine(directory, "blocks");
-            var names = new List<string>();
-            var seen = 0;
-            foreach (var path in Directory.EnumerateFileSystemEntries(dir))
+            if (_total == 0)
             {
-                if (++seen > BlockJson.MaxEntries) return 0;
-                if (path.EndsWith(".json", StringComparison.OrdinalIgnoreCase)) names.Add(Path.GetFileName(path));
+                _done++;
+                StartProgress.Step("content", "", detail);
+                return;
             }
-            if (names.Count > BlockJson.MaxFiles) return 0;
-            ulong n = 0;
-            long bytes = 0;
-            foreach (var name in names)
-            {
-                try
-                {
-                    var text = BakedFiles.Read(directory, $"blocks/{name}", BlockJson.MaxFileBytes);
-                    if (text is null) continue;
-                    if ((bytes += text.Length) > BlockJson.MaxTotalBytes) break;
-                    using var doc = JsonDocument.Parse(text, new JsonDocumentOptions { CommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true });
-                    if (doc.RootElement.ValueKind != JsonValueKind.Object) continue;
-                    foreach (var p in doc.RootElement.EnumerateObject())
-                        if (p.Name is not ("format" or "comment" or "$schema") && p.Value.ValueKind == JsonValueKind.Object)
-                            foreach (var _ in p.Value.EnumerateObject()) n++;
-                }
-                catch (Exception e) when (e is not OutOfMemoryException) { }
-            }
-            return n;
+            _total = Math.Max(_total, _done + 1);  // a count that came out short never runs backwards
+            StartProgress.Step("content", "", detail, _done++, _total);
         }
-        catch (Exception e) when (e is not OutOfMemoryException)
+        catch
         {
-            return 0;
         }
     }
+
+    /// <summary>A test starts the process's start again.</summary>
+    internal static void ResetStartForTests() => (_counted, _finished, _done, _total) = (false, false, 0, 0);
 }
