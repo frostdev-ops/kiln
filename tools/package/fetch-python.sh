@@ -8,7 +8,9 @@
 # tools/launcher/build-windows.sh puts into the bundle as python/). A cached zip with the pinned sha256 is used as is:
 # nothing is downloaded. --check only verifies (exit 1 when the zip is missing or wrong, or root/ is not from it);
 # --refresh unpacks root/ again; --print-root prints root/'s path on success and nothing else on stdout.
-# The pin: https://www.python.org/downloads/release/python-31410/, "Windows embeddable package (64-bit)". The cook
+# The pin: https://www.python.org/downloads/release/python-31410/, "Windows embeddable package (64-bit)",
+# 12,619,664 bytes (downloaded and compared on 2026-11-12; a flat package with _zstd.pyd and _ctypes.pyd, and every
+# module the cook tools import is in it or in its python314.zip, except the optional capstone and zstandard). The cook
 # tools need 3.14 or newer here: its standard library reads zstd (compression.zstd, _zstd.pyd), which the game's
 # archives use; the unpacked package is checked for it. To raise the pin: take VERSION and SHA256 from the release's
 # page on python.org, run this script once (it downloads and verifies), then tools/release/test_cooktools.py.
