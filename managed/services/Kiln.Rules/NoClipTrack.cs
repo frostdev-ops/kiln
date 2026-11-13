@@ -54,9 +54,12 @@ internal readonly record struct NoClipStepResult(NoClipEnd? Trip = null, bool Re
 /// target is not enough: the place is asked again.
 /// <para>A teleport by the game or a mod is never undone: the character stays where that put it, and no move back is
 /// started or repeated afterwards. If that place is known to be inside something, collision waits there too.</para>
-/// <para>A move back cannot be called off once asked for. It may land after the hold ended (the player flew out and
-/// was released): if it then lands inside something (built over meanwhile), collision goes off again, quietly, until
-/// the character is free.</para>
+/// <para>A move back cannot be called off once asked for, and the teleport service answers every move (within 15
+/// seconds at worst, normally two or three steps). So while one is out, nothing ends but by death: the hold waits
+/// for the answer, and where the move landed is looked at with collision still off. The game's teleport counter is
+/// not read anew while a move is out either: the answer tells whether it was Kiln's move or someone else's teleport
+/// that counted. Only a death ends a hold with a move still out; if that move then lands the respawned character
+/// inside something, collision goes off again, quietly, until the character is free.</para>
 /// <para>Open space is judged from the cells at the character's body, with one exception. Where the character stood
 /// when NoClip began, collision was on: that place is free whatever its knee cell says (on a slope or a step there
 /// is matter at knee height beside the character), for as long as its cells stay what they were and the character is
@@ -77,8 +80,9 @@ internal sealed class NoClipTrack(INoClipWorld world)
 
     private enum Settled { Nothing, Landed, Foreign, Failed }
 
-    private byte? _teleports;                      // the game's counter as last accounted for
+    private byte? _teleports;                      // the game's counter as last accounted for; frozen while a move is out
     private NoClipEnd? _trip;                      // a death or teleport reported by Step, for the Leaving that follows
+    private bool _told;                            // the runtime was told of the teleport the counter still shows (Leaving, in a hold)
     // The move back that was asked for and has not answered yet. It outlives the hold (a death ends the hold, the
     // move may still land): no second one is started on top of it.
     private Task<TeleportResult>? _move;
@@ -120,7 +124,11 @@ internal sealed class NoClipTrack(INoClipWorld world)
         var at = world.Position;
         LastFree = LastSeen = at;
         _vouched = at is { } p && world.Torso(p) == NoClipSpace.Free ? (p, world.Cells(p)) : null;
-        if (_move is null) _teleports = world.Teleports;  // with a move still out, its landing settles the counter
+        if (_move is null)  // with a move still out, its answer settles the counter
+        {
+            _teleports = world.Teleports;
+            _told = false;
+        }
     }
 
     /// <summary>The rules stop carrying NoClip. Call it before the hooks hear of it; when <see cref="Restoring"/> is true
@@ -135,18 +143,30 @@ internal sealed class NoClipTrack(INoClipWorld world)
         On = false;
         var dead = world.Dead;
         var teleported = _move is null && world.Teleports != _teleports;
-        // Asked again during a hold and ended again before a step ran: the hold that is running finishes it (Step).
-        // A death or a teleport in between is still told, for the requests; the hold's step sees the teleport itself.
-        if (Restoring) return dead ? NoClipEnd.Death : teleported ? NoClipEnd.Teleport : null;
+        if (Restoring)
+        {
+            // Asked again during a hold and ended again before a step ran: the hold that is running finishes it
+            // (Step). A death or a teleport in between is still told, once, for the requests; the hold's step sees
+            // the teleport itself (the counter is not taken here).
+            if (dead) return NoClipEnd.Death;
+            if (!teleported || _told) return null;
+            _told = true;
+            return NoClipEnd.Teleport;
+        }
         var told = _trip is not null;
         var reason = _trip ?? (dead ? NoClipEnd.Death : teleported ? NoClipEnd.Teleport : NoClipEnd.RuleEnded);
         _trip = null;
         var tell = !told && reason != NoClipEnd.RuleEnded ? reason : (NoClipEnd?)null;
-        _teleports = world.Teleports;
-        if (world.Position is { } at)
+        if (_move is null)  // never while a move is out: its answer is judged against the count from before it
         {
-            // Inside something, collision waits, with or without a place to move the character to.
-            if (reason == NoClipEnd.RuleEnded && !Free(at))
+            _teleports = world.Teleports;
+            _told = false;
+        }
+        if (reason != NoClipEnd.Death && world.Position is { } at)
+        {
+            // A move of an earlier hold has not answered yet: nothing ends before it has. Inside something, collision
+            // waits, with or without a place to move the character to.
+            if (_move is not null || (reason == NoClipEnd.RuleEnded && !Free(at)))
             {
                 Hold(NoClipEnd.RuleEnded, LastFree is { } free && world.InWorld(free) ? free : null);
                 return tell;
@@ -173,14 +193,15 @@ internal sealed class NoClipTrack(INoClipWorld world)
         if (Restoring) return StepHold(settled, problem);
         if (!On)
         {
-            // A move of a hold that is over landed now (the character was free elsewhere and collision came back).
-            // Inside something there, collision goes off again until the character is free.
+            // Only a death ends things with a move still out. If that move lands the character (respawned by now)
+            // inside something, collision goes off again until it is free.
             if (settled == Settled.Landed && !world.Dead && world.Position is { } late && !Free(late))
             {
                 Hold(NoClipEnd.RuleEnded, null, quiet: true);
                 return new(Held: true, Problem: $"a move back landed late at {_moveTarget}, inside something there (built over meanwhile); " +
                                                 "collision is off again until the character is in open space");
             }
+            if (_move is null) _vouched = null;  // nothing is left that the starting place could speak for
             return default;
         }
         if (world.Dead) return new(Trip: _trip = NoClipEnd.Death);
@@ -189,7 +210,9 @@ internal sealed class NoClipTrack(INoClipWorld world)
         if (_move is null && count != _teleports)
         {
             _teleports = count;
-            return new(Trip: _trip = NoClipEnd.Teleport);
+            // Told already (through Leaving, during a hold) means NoClip was asked anew after that teleport: nothing ends.
+            if (!_told) return new(Trip: _trip = NoClipEnd.Teleport);
+            _told = false;
         }
         // While a move of Kiln's own is out, a counter that moved is its landing or someone else's teleport: told
         // apart when it answers. Until then the place is not taken for one the character flew to.
@@ -213,9 +236,11 @@ internal sealed class NoClipTrack(INoClipWorld world)
         return false;
     }
 
-    // The move that was out has answered. Landed: the character is where Kiln sent it. Foreign: the game's counter
-    // moved and the character is somewhere else, so it was someone else's teleport that counted (the game reports any
-    // counter change as "moved"). Failed: nothing moved; `problem` says why.
+    // The move that was out has answered. Landed: the character is where Kiln sent it (within ArrivedWithin: with
+    // collision off it flies on from there, a step's worth before this is read). Foreign: the game's counter moved and
+    // the character is somewhere else, so it was someone else's teleport that counted (the game reports any counter
+    // change as "moved"). Failed: nothing moved; `problem` says why. The counter is compared with what it was before the
+    // move: nothing reads it anew while a move is out.
     private Settled Settle(out string? problem)
     {
         problem = null;
@@ -224,6 +249,7 @@ internal sealed class NoClipTrack(INoClipWorld world)
         var before = _teleports;
         var now = world.Teleports;
         _teleports = now;
+        _told = false;
         var moved = move.IsCompletedSuccessfully && move.Result.Moved;
         var at = world.Position;
         if (moved && at is { } p && Distance(p, _moveTarget) <= ArrivedWithin)
@@ -247,22 +273,29 @@ internal sealed class NoClipTrack(INoClipWorld world)
             Release(dead ? NoClipEnd.Death : _holdReason, null);
             return new(Released: true);
         }
+        NoClipEnd? trip = null;
         if (settled == Settled.Foreign || (_move is null && world.Teleports != _teleports))
         {
             // Someone else teleported it (fast travel during a retry): it is where that put it and is never pulled
-            // back from there. No move is started or repeated; the hold ends as a teleport.
+            // back from there. No move is started or repeated; the hold ends as a teleport. The runtime hears of it
+            // once, for the requests of a rule set that asked again during the hold.
             _teleports = world.Teleports;
             _target = null;
             _landed = null;
             _holdReason = NoClipEnd.Teleport;
             problem = null;
+            if (!_told) trip = NoClipEnd.Teleport;
+            _told = false;
         }
+        // A move that is out answers first: it cannot be called off, and where it lands is looked at with collision
+        // still off.
+        if (_move is not null) return new(Trip: trip);
         // Open space ends the hold: by the move, or by itself (the player flew out). After a teleport, so does any
         // place where the character is not in matter up to the waist or the head (see Leaving).
         if (Free(at) || (_holdReason == NoClipEnd.Teleport && world.Torso(at) != NoClipSpace.Inside))
         {
             Release(_holdReason, _holdReason == NoClipEnd.RuleEnded && _landed is { } l && Distance(at, l) <= ArrivedWithin ? l : null);
-            return new(Released: true);
+            return new(Trip: trip, Released: true);
         }
         // Still inside something: collision stays off. A move that landed where it was sent and left the character
         // inside (something was built there meanwhile, or the place is not loaded yet) is not repeated: the same move
@@ -272,8 +305,8 @@ internal sealed class NoClipTrack(INoClipWorld world)
             problem ??= $"move {Attempts} landed at {_target}, but the character is inside something there (it is not moved there again)";
             _target = null;
         }
-        if (_move is null && _target is not null && world.Now >= _retryAt) StartMove();
-        return new(Problem: problem is null ? null : problem + "; collision stays off until the character is in open space");
+        if (_target is not null && world.Now >= _retryAt) StartMove();
+        return new(Trip: trip, Problem: problem is null ? null : problem + "; collision stays off until the character is in open space");
     }
 
     private void Hold(NoClipEnd reason, WorldPosition? target, bool quiet = false)
@@ -316,14 +349,20 @@ internal sealed class NoClipTrack(INoClipWorld world)
     {
         var quiet = _quiet;
         EndHold();
-        if (quiet) LastFree = LastSeen = null;
-        else Finish(reason, restoredTo);
+        if (!quiet) Finish(reason, restoredTo);
+        else
+        {
+            LastFree = LastSeen = null;
+            if (_move is null) _vouched = null;
+        }
     }
 
     private void Finish(NoClipEnd reason, WorldPosition? restoredTo)
     {
         LastFree = LastSeen = null;
-        _vouched = null;
+        // With a move still out (a death ended things), the starting place keeps its word until that move has landed:
+        // it may land the character exactly there.
+        if (_move is null) _vouched = null;
         _ended.Enqueue((reason, restoredTo));
     }
 

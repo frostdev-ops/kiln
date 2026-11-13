@@ -1213,7 +1213,7 @@ void KILN_CALL on_world(const KilnWorldEvent* ev, void*) {
     KilnSessionInfo session{};
     session.size = sizeof session;
     const bool stops_seen = g_api && g_api->session && g_api->session(&session) == KILN_OK && session.lifecycle != 0;
-    kiln_rules_flight::world(ev->event, stops_seen);
+    kiln_rules_flight::world(ev->event, ev->kind, ev->session, stops_seen);
     if (ev->event == KILN_WORLD_STOPPING) kiln_rules_noclip::reset();
     if (ev->kind == KILN_WORLD_CLIENT && ev->event == KILN_WORLD_STOPPING) store(g_local, nullptr);
     if (ev->event == KILN_WORLD_STARTED) arm_payments();

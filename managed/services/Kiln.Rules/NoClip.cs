@@ -99,6 +99,8 @@ public static class NoClip
         if (!Turning.TryAdd(player, false))
             return new(true, RulesRuntime.Fresh(player).NoClip, null, $"NoClip is being turned on for {name}.");
         var offAsked = false;
+        // what is there before, so a failure below takes back exactly what it added
+        var before = own is null ? RulesRuntime.Sets().Select(x => x.Id).ToHashSet() : null;
         // Kiln's rule set, whoever asked: it outlives the mod or tool that turned it on
         var outer = ModContext.CurrentMod;
         ModContext.CurrentMod = null;
@@ -113,9 +115,11 @@ public static class NoClip
             // that threw, a set may be active that this switch does not hold: nothing could turn it off. Nothing of
             // the switch stays on after a failure.
             Sets.Remove(player);
-            own?.Dispose();
-            foreach (var left in RulesRuntime.Sets())
-                if (left.Active && left.Owner == "kiln" && left.Label == Label && left.Scope.Player == player) left.Dispose();
+            Quietly(own);
+            if (before is not null)
+                foreach (var left in RulesRuntime.Sets())
+                    if (!before.Contains(left.Id) && left.Active && left.Owner == "kiln" && left.Label == Label && left.Scope.Player == player)
+                        Quietly(left);
             throw;
         }
         finally
@@ -138,6 +142,18 @@ public static class NoClip
         }
         Tell(player, "NoClip is on: you fly through terrain and walls. Jump climbs, sneak sinks, sprint is faster. It ends when you die or teleport; /noclip off ends it.");
         return new(true, true, null, $"NoClip on for {name}.");
+    }
+
+    // Ends a rule set during the cleanup after a failure: the failure that is already on its way out is the one to report.
+    private static void Quietly(RuleSet? set)
+    {
+        try
+        {
+            set?.Dispose();
+        }
+        catch (Exception)
+        {
+        }
     }
 
     /// <summary>How NoClip stands for <paramref name="player"/> now. Never throws for a missing capability: without
