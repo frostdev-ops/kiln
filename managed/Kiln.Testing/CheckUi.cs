@@ -5,12 +5,15 @@ namespace Kiln.Testing;
 internal enum UiActionKind
 {
     Run,
+    /// <summary>Several checks, in the order given (the list's "Run these N").</summary>
+    RunThese,
     RunAll,
     Answer,
     Refresh,
 }
 
-internal sealed record UiAction(UiActionKind Kind, ViewItem? Item = null, AnswerKind Answer = AnswerKind.Pass, string? Note = null);
+internal sealed record UiAction(UiActionKind Kind, ViewItem? Item = null, AnswerKind Answer = AnswerKind.Pass, string? Note = null,
+    IReadOnlyList<ViewItem>? Items = null);
 
 /// <summary>The screen's own state (render thread only): the note being typed after fail.</summary>
 internal sealed class ScreenState
@@ -59,10 +62,11 @@ internal static class CheckScreen
             var runnable = v.Session is "hosted" or "joined" or "server";
             if (s.OnlyNew && NewCount(v) > 0)
             {
-                // only what the list shows, in its order: each is queued as if its own Run had been pressed
+                // only what the list shows, in its order, as one request: hosted, each is queued as if its own Run had been
+                // pressed; joined, the client sends them one after the other (the server takes one start at a time)
                 var these = Shown(v, true).Where(i => i.Refusal is null).ToList();
                 if (runnable && these.Count > 0 && ui.Button($"Run these {these.Count}"))
-                    foreach (var i in these) act(new UiAction(UiActionKind.Run, i));
+                    act(new UiAction(UiActionKind.RunThese, Items: these));
             }
             else if (runnable && ui.Button("Run all")) act(new UiAction(UiActionKind.RunAll));
             if (v.Session == "joined")
@@ -74,7 +78,7 @@ internal static class CheckScreen
         if (v.Queued > 0) ui.TextDisabled($"{v.Queued} more queued");
         ui.Separator();
         // a release's pass is about the checks that came with it: one switch hides the rest (most of a long list)
-        if (NewCount(v) is > 0 and var fresh) ui.Checkbox($"Only the {fresh} check(s) new in Kiln {v.Kiln}", ref s.OnlyNew);
+        if (NewCount(v) is > 0 and var fresh) ui.Checkbox($"Only the {fresh} check(s) new in Kiln {Release(v.Kiln)}", ref s.OnlyNew);
 
         if (ui.BeginChild("kiln.checks.list"))
         {
@@ -116,12 +120,17 @@ internal static class CheckScreen
     }
 
     /// <summary>How many of the list's checks came with the running Kiln version (0 when the version is not known).</summary>
-    internal static int NewCount(RunnerView v) => v.Kiln is { Length: > 0 } k ? v.Items.Count(i => i.Since == k) : 0;
+    internal static int NewCount(RunnerView v) => Release(v.Kiln) is { Length: > 0 } k ? v.Items.Count(i => i.Since == k) : 0;
+
+    /// <summary>A version without its build stamp ("0.2.0-dev.27+20261113.791e8b2" is "0.2.0-dev.27"): a check's
+    /// <c>Since</c> names a release, and a test build of that release runs the same checks.</summary>
+    internal static string? Release(string? version) =>
+        version is null ? null : version.IndexOf('+') is >= 0 and var plus ? version[..plus] : version;
 
     /// <summary>The checks the list shows: all of them, or with <paramref name="onlyNew"/> the ones that came with the
     /// running Kiln version; all of them again when there is none of those (the switch is not offered then).</summary>
     internal static IReadOnlyList<ViewItem> Shown(RunnerView v, bool onlyNew) =>
-        onlyNew && NewCount(v) > 0 ? v.Items.Where(i => i.Since == v.Kiln).ToList() : v.Items;
+        onlyNew && NewCount(v) > 0 && Release(v.Kiln) is { } k ? v.Items.Where(i => i.Since == k).ToList() : v.Items;
 
     private static void DrawCurrent(UiDraw ui, ViewCurrent c, ScreenState s, Action<UiAction> act, DateTime now)
     {
@@ -289,6 +298,7 @@ internal static class CheckUiHost
         switch (a.Kind)
         {
             case UiActionKind.Run when a.Item is { } item: net.Start(item); break;
+            case UiActionKind.RunThese when a.Items is { } items: net.StartThese(items); break;
             case UiActionKind.RunAll: net.StartAll(); break;
             case UiActionKind.Answer: net.Answer(a.Answer, a.Note); break;
             case UiActionKind.Refresh: net.RequestCatalog(); break;
@@ -311,6 +321,9 @@ internal static class CheckUiHost
             {
                 case UiActionKind.Run when a.Item is { } item:
                     runner.Request(new StartRequest(item.Mod, item.Id, CheckOrigin.Local));
+                    break;
+                case UiActionKind.RunThese when a.Items is { } items:
+                    foreach (var i in items) runner.Request(new StartRequest(i.Mod, i.Id, CheckOrigin.Local));
                     break;
                 case UiActionKind.RunAll:
                     runner.RequestAll(null, CheckOrigin.Local);

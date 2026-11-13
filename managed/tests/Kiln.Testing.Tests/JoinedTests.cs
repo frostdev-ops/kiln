@@ -75,6 +75,50 @@ public sealed class JoinedTests
         Assert.Single(sent.OfType<NetStart>());
     }
 
+    /// <summary>"Run these N" on a joined client: the server takes one start at a time, so the client sends each when
+    /// the one before it ended (finished, refused or declined), in the list's order, and drops none. Before this the
+    /// button pressed Run once per row, and every start after the first was dropped while the first was pending.</summary>
+    [Fact]
+    public void Run_these_sends_each_check_in_order_one_at_a_time()
+    {
+        using var h = new Harness();
+        var sent = new List<object>();
+        var tick = new Queue<Action>();
+        var net = new CheckNet(h.Runner, h.Env, null!, m => { sent.Add(m); return true; });
+        ViewItem[] these = [Item(false) with { Id = "t.a" }, Item(false) with { Id = "t.b" }, Item(false) with { Id = "t.c" }];
+        CheckUiHost.ActJoined(new UiAction(UiActionKind.RunThese, Items: these), net, tick.Enqueue);
+        Assert.Empty(sent);
+        tick.Dequeue()();
+        string[] Started() => sent.OfType<NetStart>().Select(m => m.Id).ToArray();
+        Assert.Equal(["t.a"], Started());
+        Assert.Equal(2, net.View(h.Runner.View).Queued);
+        net.OnState(new NetState { Kind = "finished", Mod = "cct", Id = "t.a" });
+        Assert.Equal(["t.a", "t.b"], Started());
+        net.OnState(new NetState { Kind = "refused", Mod = "cct", Id = "t.b", Message = "no" });
+        Assert.Equal(["t.a", "t.b", "t.c"], Started());
+        Assert.Equal(0, net.View(h.Runner.View).Queued);
+        net.OnState(new NetState { Kind = "declined", Mod = "cct", Id = "t.c" });
+        Assert.Equal(3, Started().Length);
+        Assert.Equal(h.Guard!.Holds, h.Guard.Releases);
+    }
+
+    /// <summary>A list asked for while one start is still pending (sent, the server has not answered): nothing of it is
+    /// dropped, it goes on when the pending one ends.</summary>
+    [Fact]
+    public void A_list_asked_for_while_a_start_is_pending_waits_for_it()
+    {
+        using var h = new Harness();
+        var sent = new List<object>();
+        var net = new CheckNet(h.Runner, h.Env, null!, m => { sent.Add(m); return true; });
+        net.Start(Item(false) with { Id = "t.first" });
+        net.StartThese([Item(false) with { Id = "t.a" }, Item(false) with { Id = "t.b" }]);
+        Assert.Equal(["t.first"], sent.OfType<NetStart>().Select(m => m.Id));
+        Assert.Equal(2, net.View(h.Runner.View).Queued);
+        net.OnState(new NetState { Kind = "finished", Mod = "cct", Id = "t.first" });
+        net.OnState(new NetState { Kind = "finished", Mod = "cct", Id = "t.a" });
+        Assert.Equal(["t.first", "t.a", "t.b"], sent.OfType<NetStart>().Select(m => m.Id));
+    }
+
     internal static ViewItem Item(bool cheats) => new("cct", cheats ? "t.cheats" : "t.pass", "Check", "Basics",
         cheats ? [ClientCheckTags.Cheats] : [], "joined", null, null, null, null, cheats);
 }

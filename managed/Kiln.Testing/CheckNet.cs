@@ -281,15 +281,22 @@ internal sealed class CheckNet
         catch (Exception e) { _env.Write(LogLevel.Warn, $"checks: ending the joined guard hold threw {e.GetType().Name}"); }
     }
 
-    public void StartAll()
+    public void StartAll() => StartThese(_catalog?.Checks ?? []);
+
+    /// <summary>Starts these server checks one after the other, in this order: the server takes one start at a time
+    /// from a joined client, so each goes out when the one before it has finished, was refused or was declined.</summary>
+    public void StartThese(IReadOnlyList<ViewItem> items)
     {
+        bool asking;
         lock (_lock)
         {
             _all.Clear();
-            foreach (var i in _catalog?.Checks ?? []) _all.Enqueue(i);
+            foreach (var i in items) _all.Enqueue(i);
             _runningAll = _all.Count > 0;
+            asking = _asking is not null;
         }
-        Next();
+        // one is under way (or its throwaway question is open): the queue goes on when that one ends
+        if (_pending is null && !asking) Next();
     }
 
     private void Next()
