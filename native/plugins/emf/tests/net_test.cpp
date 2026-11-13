@@ -944,6 +944,7 @@ static void greeting_while_loading() {
     connection(gc5, sys5);
     hooks.flush(gc4.data());
     hooks.add(out, sys4, 0, &beacon, 0, 0, 71, 123, nullptr);
+    CHECK(added == 0);                                    // taken and held through the first GameClient
     hooks.flush(gc5.data());                              // another GameClient: a new connection
     net_world_started(EMF_WORLD_CLIENT);
     set_account(123);
@@ -974,6 +975,11 @@ static void greeting_while_loading() {
     // 6. A world stop ends sending for the stopped session: a hello that waited is never sent after it.
     hooks.add(out, sys5, 0, &beacon, 0, 0, 71, 123, nullptr); // answered: a hello waits for the next flush
     CHECK(added == 2 && sent_lines.empty());
+    {
+        auto waiting = net_client_take(4);                // it does wait (looked at and put back)
+        CHECK(waiting.size() == 1 && waiting[0].starts_with("#!emf1 H "));
+        net_client_put_back(std::move(waiting));
+    }
     net_world_stopping(EMF_WORLD_CLIENT);
     hooks.flush(gc5.data());
     CHECK(sent_lines.empty());

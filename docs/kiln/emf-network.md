@@ -18,10 +18,15 @@ another player.
 When a Kiln game takes marked lines (the greeting among them):
 - from the game's start, so a greeting that comes while the first joined game still loads is taken and held;
 - from each client world's start on. The world's start keeps a held greeting: it is the same connection;
-- never between a world's stop and the next client world's start. What a stopped connection still sends is never
-  taken for the next one (the adapter has no identity of a connection from the game to tell them apart). On a join
-  after the first one in a game run, a greeting that comes before the client world starts therefore stays an ordinary
-  chat line and is not answered; the server's second greeting, 35 s later, is answered when the world has started by then.
+- never between a world's stop and the next client world's start: in that time nothing of a stopped connection is
+  taken. On a join after the first one in a game run, a greeting that comes before the client world starts therefore
+  stays an ordinary chat line and is not answered; the server's second greeting, 35 s later, is answered when the
+  world has started by then.
+
+After a client world's start lines are taken from the game's first chat flush on. A connection is known by the game's
+client object alone, as in EMF itself: the adapter has no other identity of it, so it could not tell an old
+connection that still delivered lines while a new world runs from the new one. Where the game reports no world stops
+(an unverified build), the hooks stay on from the start.
 
 ## The mod check on join (EMF 0.6.3)
 
