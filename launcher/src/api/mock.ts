@@ -17,7 +17,7 @@ import { deckMockHandlers } from "../deck/mockDeck";
 import { nexusMockHandlers, NEXUS_MOCK_ENABLED } from "./mockNexus";
 import { chainMockHandlers } from "./mockChain";
 import { dataFolderBlocks, dataFolderMockHandlers, mockDataDir, mockPickFolder } from "./mockDataFolder";
-import { ended as endedStarts, bootJsonAt, clearStartHistory, mockBegin, mockProgress, mockStartEnded, ownerScript, processAt, scriptedStart, setStartScript, type StartScript } from "./mockProgress";
+import { bootJsonAt, clearStartHistory, mockBegin, mockProgress, mockStartEnded, ownerScript, processAt, scriptedStart, setStartScript, type StartScript } from "./mockProgress";
 import bootExample from "../../../schema/examples/state-boot.json";
 import modsExample from "../../../schema/examples/state-mods.json";
 import nativeExample from "../../../schema/examples/state-native.json";
@@ -499,7 +499,8 @@ function emitGame(gameId: string, kind: "started" | "stopped" | "boot" | "mods" 
 
 function launch(gameId: string, req: LaunchRequest): LaunchResult {
   const g = gameOf(gameId);
-  if (running[gameId]) reject("game_running", "The game is already running.");
+  // a scripted start Steam never made a game for (noProcess) is no game: Play again replaces it
+  if (running[gameId] && running[gameId]!.from !== Infinity) reject("game_running", "The game is already running.");
   if (req.mode === "once" && !req.profileId) reject("invalid_argument", "Pick a profile to play once.");
   const st = runtime[gameId];
   if (!st?.installed && req.mode !== "vanilla") reject("unsupported", "Kiln is not installed in this game.");
@@ -1180,8 +1181,6 @@ const handlers: Record<string, Handler> = {
   launch_progress: (a) => {
     const g = S(a.gameId);
     const t = mockProgress(g);
-    // Steam took the start and no game came (a script's noProcess): the fake game's pending entry goes with it
-    if (endedStarts.delete(g) && running[g]?.from === Infinity) running[g] = null;
     // Steam did not load Kiln's proxy: no boot.json ever, so the backend's answer stays "waiting"
     if (t && noProxy && t.phase === "legacy") t.phase = "waiting";
     return t;

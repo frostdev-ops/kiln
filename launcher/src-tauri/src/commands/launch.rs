@@ -209,7 +209,11 @@ pub(crate) fn progress_round(dirs: &kiln_manage::paths::DataDirs, g: &kiln_manag
         // a Play that ended before Steam was asked (its cook ended and no launch_play came: the window went away or
         // gave up) is over after a moment; one that never got further at all, after FORGET_UNSEEN_MS
         let stalled = t.waiting_since().is_some_and(|w| now.saturating_sub(t.began).saturating_sub(w as i64) > STALLED_MS);
-        if stalled || (!t.seen && now - t.began > FORGET_UNSEEN_MS) {
+        // Steam took it and no game came: kept (a first Proton start prepares its prefix for minutes) until the game
+        // appears, Play is pressed again (launch_begin replaces it), or STEAM_FORGET_MS
+        let steam_gone = t.asked && !t.seen && t.steps.iter().find(|s| s.id == "steam")
+            .is_some_and(|s| now.saturating_sub(t.began).saturating_sub(s.ms as i64) > sp::STEAM_FORGET_MS as i64);
+        if stalled || steam_gone || (!t.asked && !t.seen && now - t.began > FORGET_UNSEEN_MS) {
             starts.remove(&g.id);
         }
     }

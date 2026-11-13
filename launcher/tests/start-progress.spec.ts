@@ -76,11 +76,10 @@ test("first start: the steps are named and Kiln says it is timing them; then the
   await expect(left(page)).toHaveText(/^About (\d+ min )?\d+ s left\. From your last start with these mods\.$/);
   await expect(left(page)).toHaveAttribute("title", "From your last start with these mods");
   const a = seconds(await left(page).innerText());
-  await page.waitForTimeout(1600);
-  await shot(page, "second-start-play-1280x800");
-  const b = seconds(await left(page).innerText());
   expect(a, "about 147 s at Play").toBeGreaterThan(120);
-  expect(b, "it counts down").toBeLessThan(a);
+  // it counts down (eventually: no fixed count in a fixed time on a loaded machine)
+  await expect.poll(async () => seconds(await left(page).innerText()), { timeout: 20_000 }).toBeLessThan(a);
+  await shot(page, "second-start-play-1280x800");
   await expect(bar(page)).toHaveAttribute("aria-valuetext", /^\d+ percent, about .* left: Cooking/);
   // the pill on another page: the step and the time left
   await page.evaluate(() => { location.hash = "#/settings"; });
@@ -209,6 +208,12 @@ test("No Kiln wins over the timeline: the proxy never loads, the start says so a
   await expect(bar(page)).toHaveCount(0);
   await expect(page.locator(".k-mods")).toBeVisible();
   await expect(page.getByText("Running without Kiln: Steam did not load it this start.")).toBeVisible();
+  // No Kiln is the window's own final word: the start is no longer polled (none at all over four seconds; a loaded
+  // machine can only make fewer calls)
+  await page.waitForTimeout(1500);
+  const n = await progressCalls(page);
+  await page.waitForTimeout(4000);
+  expect(await progressCalls(page) - n, "no poll after No Kiln").toBe(0);
   await page.evaluate(() => (window as unknown as Calls).__kilnMock.setNoProxy(false));
   await mock(page).stop();
 });
@@ -236,8 +241,8 @@ test("the start keeps being followed while the window is hidden (the game has th
     document.dispatchEvent(new Event("visibilitychange"));
   });
   const before = await progressCalls(page);
-  await page.waitForTimeout(3500);
-  expect(await progressCalls(page) - before, "polled while hidden").toBeGreaterThanOrEqual(2);
+  // polled while hidden: eventually two more calls (no fixed count in a fixed time)
+  await expect.poll(async () => await progressCalls(page) - before, { timeout: 20_000, message: "polled while hidden" }).toBeGreaterThanOrEqual(2);
   await page.evaluate(() => {
     Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "visible" });
     Object.defineProperty(document, "hidden", { configurable: true, get: () => false });
@@ -316,4 +321,65 @@ test("a long detail stays inside its line at 1024×640 and on the Deck, and the 
   await expect(page.getByTestId("deck-state")).toHaveText(/^Running/, { timeout: 30_000 });
   await expect.poll(focused).toBe("mouth");
   await mock(page).stop();
+});
+
+test("a game that comes long after Steam was asked is one start: Steam is said to be preparing, then the timings go on", async ({ page }) => {
+  test.setTimeout(90_000);
+  await page.addInitScript(() => {
+    (window as unknown as { __kilnSteamWaitMs: number; __kilnSteamSlowMs: number }).__kilnSteamWaitMs = 3000;
+    (window as unknown as { __kilnSteamSlowMs: number }).__kilnSteamSlowMs = 800;
+  });
+  await open(page);
+  await mock(page).forget();
+  // Steam takes 300 s (6 s here) before the game's process exists, as a first Proton start that makes its prefix
+  await mock(page).script({ scale: 0.02, steamMs: 300_000 });
+  await mouth(page).click();
+  await expect(left(page)).toHaveText("Steam is still preparing the game: this can take minutes the first time.", { timeout: 15_000 });
+  // the window gives the wait up and offers Play, as the launcher did before (after 2 minutes then); the start is kept
+  await expect(mouth(page)).toHaveAccessibleName(/^Play /, { timeout: 15_000 });
+  // the game comes: the same start goes on with its cook and Steam times, to the main menu
+  await expect(page.locator(".k-head-state")).toHaveText(/^Running/, { timeout: 30_000 });
+  await mock(page).stop();
+  await mock(page).script({ scale: 0.02, steamMs: 300_000 });
+  await mouth(page).click();
+  await expect(left(page)).toHaveText(/^About .* left\./, { timeout: 10_000 });
+  await expect(page.getByRole("list", { name: "Steps of the start" }).getByRole("listitem").filter({ hasText: "Starting the game through Steam" })).toContainText("usually 5 min");
+  await expect(page.locator(".k-head-state")).toHaveText(/^Running/, { timeout: 30_000 });
+  await mock(page).stop();
+});
+
+test("a failed Play of one install never ends another install's start", async ({ page }) => {
+  test.setTimeout(90_000);
+  await open(page);
+  // a second client, without Kiln (Play vanilla only)
+  await page.evaluate(async () => {
+    await (await import("/src/api/commands.ts")).gameAdd("/games/Other/Enshrouded");
+    // a game event refetches the game list (invalidateGame)
+    (window as unknown as { __kilnMock: { emit: (n: string, p: unknown) => void } }).__kilnMock.emit("kiln://game", { gameId: "client-steam", kind: "status" });
+  });
+  const pick = page.getByRole("combobox", { name: "Game" });
+  await expect(pick.locator("option")).toHaveCount(2);
+  const values = await pick.locator("option").evaluateAll((os) => os.map((o) => (o as HTMLOptionElement).value));
+  const steam = "client-steam";
+  const other = values.find((v) => v !== steam);
+  expect(values).toContain(steam);
+  // B: a start that waits on Steam for a long while
+  await pick.selectOption(steam!);
+  await mock(page).script({ scale: 0.05, noProcess: true });
+  await mouth(page).click();
+  await expect(bar(page)).toBeVisible();
+  await expect(page.locator(".k-start-line")).toHaveText("Starting the game through Steam", { timeout: 15_000 });
+  // A: Play vanilla, whose request fails after a moment; B is selected again while it is pending
+  await pick.selectOption(other!);
+  await page.evaluate(() => (window as unknown as Calls).__kilnMock.planCommand("launch_play", { delay: 1500, error: { code: "refused", message: "Steam refused the other start." } }));
+  await page.getByRole("button", { name: "Play vanilla" }).click();
+  await page.getByRole("dialog", { name: "Play vanilla once" }).getByRole("button", { name: "Play vanilla" }).click();
+  await pick.selectOption(steam!);
+  await expect(page.locator(".k-toast").filter({ hasText: "Steam refused the other start." })).toBeVisible({ timeout: 10_000 });
+  // B's start is still followed: its bar and its Steam step
+  await page.waitForTimeout(1500);
+  await expect(bar(page)).toBeVisible();
+  await expect(page.locator(".k-start-line")).toHaveText("Starting the game through Steam");
+  const ended = await page.evaluate(() => (window as unknown as Calls).__kilnMock.calls().filter((c) => c === "launch_end").length);
+  expect(ended).toBe(1);
 });

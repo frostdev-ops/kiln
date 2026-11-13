@@ -85,7 +85,11 @@ export function startWords(t: StartTimeline, fraction: number, prep?: PreStart |
   const first = e.leftMs === null;
   let left: string;
   let short: string;
-  if (first) {
+  if (t.steamSlow) {
+    // Steam took the start a minute ago and the game's process does not exist yet: no number, and why
+    left = "Steam is still preparing the game: this can take minutes the first time.";
+    short = "Steam is preparing";
+  } else if (first) {
     left = `First start with these mods on this PC: Kiln is timing it. ${stepOf}.`;
     short = stepOf.toLowerCase();
   } else if (e.slow) {

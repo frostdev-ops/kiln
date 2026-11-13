@@ -571,7 +571,7 @@ fn the_bar_never_moves_back_between_two_looks() {
     let look = |pr: &Progress, at: u64, steady: Option<&mut Steady>| {
         let mut tl = timeline(&Inputs { progress: Some(pr), written: Some(t0 + at as i64), running: true, now: t0 + at as i64, history: std::slice::from_ref(&rec),
             kiln: Some("k"), fingerprint: Some("mine"), ..Default::default() }).unwrap();
-        if let Some(s) = steady { s.apply(&mut tl); }
+        if let Some(s) = steady { s.apply("client-steam", &mut tl); }
         tl.estimate.fraction
     };
     let a = p(vec![st("start", 0, Some(10_000), None)], 10_000);
@@ -710,7 +710,84 @@ fn a_play_that_ends_before_the_game_exists_ends_the_start() {
     l.begin("steam", BASE + 5_000);
     l.asked = true;
     assert_eq!(l.waiting_since(), None, "Steam was asked: the Steam wait decides");
-    let at = |t: i64| timeline(&Inputs { launcher: Some(&l), now: BASE + t, ..Default::default() }).unwrap().phase;
-    assert_eq!(at(5_000 + STEAM_WAIT_MS as i64 - 1), Phase::Launcher);
-    assert_eq!(at(5_000 + STEAM_WAIT_MS as i64), Phase::Ended, "no game came");
+    // Steam slow (a first Proton start prepares its prefix): no number and the sentence, but the start goes on
+    let at = |t: i64| timeline(&Inputs { launcher: Some(&l), now: BASE + t, ..Default::default() }).unwrap();
+    assert!(!at(5_000 + STEAM_SLOW_MS as i64 - 1).steam_slow);
+    let slow = at(5_000 + STEAM_SLOW_MS as i64);
+    assert!(slow.steam_slow && slow.estimate.left_ms.is_none());
+    let late = at(5_000 + 6 * 60_000);
+    assert_eq!((late.phase, late.steam_slow), (Phase::Launcher, true), "six minutes on: still the same start, not ended");
 }
+
+/// Review round 3, P2: a first start under Proton whose game process comes six minutes after Steam was asked goes on
+/// as one start: the launcher's timings are kept, and the start is kept with them once it is ready.
+#[test]
+fn a_game_that_comes_six_minutes_after_steam_was_asked_is_one_start() {
+    let root = std::env::temp_dir().join(format!("kiln-start-late-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    let dirs = DataDirs::at(&root);
+    let mut l = LauncherStart::new(BASE, None, Some(KILN.into()), Some(FP.into()));
+    l.begin("profile", BASE);
+    l.begin("steam", BASE + 1_000);
+    l.asked = true;
+    let late = BASE + 1_000 + 6 * 60_000;
+    let mut steady = Steady::default();
+    let mut p = Owner::start().progress(Owner::start().end()).unwrap();
+    p.started = fmt_ms(late + 100);
+    let side = GameSide { progress: Some(p.clone()), written: Some(late + 62_000), process: Some(late), running: true, boot: true };
+    l.seen = true;
+    let r = round(&dirs, "client-steam", Some(&l), &side, Some(KILN), Some(FP), late + 62_000, &mut steady);
+    let tl = r.timeline.unwrap();
+    assert_eq!(tl.phase, Phase::Ready);
+    assert_eq!(r.kept, Some(Kept::Kept));
+    let k = history_of(&dirs, "client-steam");
+    assert_eq!(k[0].step("steam").map(|s| s.ms), Some(6 * 60_000), "Steam's six minutes are the start's own");
+    assert_eq!(k[0].steps.iter().filter(|s| LAUNCHER_STEPS.contains(&s.id.as_str())).count(), 2, "profile and steam kept");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// Review round 3, P3: a receipt version that does not identify one build (kept starts of two builds under it) gives
+/// no same-version basis for the whole start, also once progress.json names one of the two: the basis never changes
+/// mid-start. A receipt with a build stamp (the owner's real case) identifies its build from the first start on.
+#[test]
+fn an_ambiguous_receipt_gives_no_same_version_basis_and_never_a_jump() {
+    let rec = |kiln: &str, ms: u64| KeptStart { kiln: kiln.into(), runtime: Some("0.2.0-dev".into()), fingerprint: FP.into(), finished: String::new(),
+        started: String::new(), steps: vec![KeptStep { id: "profile".into(), ms: 1_000, total: None, parts: vec![] }, KeptStep { id: "steam".into(), ms: 5_000, total: None, parts: vec![] },
+            KeptStep { id: "start".into(), ms, total: None, parts: vec![] }] };
+    let h = vec![rec("0.2.0-dev.27+a", 20_000), rec("0.2.0-dev.27+b", 100_000)];
+    assert_eq!(receipt_identity("0.2.0-dev", &h), None, "two builds under one receipt");
+    assert_eq!(receipt_identity("0.2.0-dev", &h[..1]), Some("0.2.0-dev.27+a".into()), "one build: it");
+    assert_eq!(receipt_identity("0.2.0-dev", &[]), None, "no stamp, nothing kept");
+    let mut l = LauncherStart::new(BASE, None, Some("0.2.0-dev".into()), Some(FP.into()));
+    l.begin("profile", BASE);
+    l.begin("steam", BASE + 1_000);
+    l.asked = true;
+    let before = timeline(&Inputs { launcher: Some(&l), now: BASE + 3_000, history: &h, kiln: Some("0.2.0-dev"), fingerprint: Some(FP), ..Default::default() }).unwrap();
+    let p = Progress { format: 1, pid: 1, kiln: Some("0.2.0-dev.27+a".into()), side: None, started: fmt_ms(BASE + 6_100), at_ms: 500, state: "booting".into(),
+        plan: vec!["start".into()], steps: vec![ProgressStep { id: "start".into(), label: "x".into(), detail: None, done: None, total: None, ms: 0, took_ms: None, parts: vec![] }], why: None };
+    let after = timeline(&Inputs { launcher: Some(&l), progress: Some(&p), written: Some(BASE + 6_600), process: Some(BASE + 6_000), running: true, now: BASE + 6_600,
+        history: &h, kiln: Some("0.2.0-dev"), fingerprint: Some(FP), ..Default::default() }).unwrap();
+    assert!(!before.estimate.same && !after.estimate.same, "no same-version basis before or after progress.json");
+    assert_eq!(before.estimate.usual[2], after.estimate.usual[2], "the same basis throughout: {:?} {:?}", before.estimate.usual, after.estimate.usual);
+    // the owner's receipt carries the build stamp, as its progress.json's kiln does
+    let owner = "0.2.0-dev.27+20261113.791e8b2";
+    assert_eq!(receipt_identity(owner, &[]), Some(owner.into()));
+    let mine = KeptStart { kiln: owner.into(), runtime: Some(owner.into()), ..rec(owner, 20_000) };
+    assert_eq!(receipt_identity(owner, std::slice::from_ref(&mine)), Some(owner.into()));
+    let l2 = LauncherStart::new(BASE, None, Some(owner.into()), Some(FP.into()));
+    let t = timeline(&Inputs { launcher: Some(&l2), now: BASE + 100, history: std::slice::from_ref(&mine), kiln: Some(owner), fingerprint: Some(FP), ..Default::default() }).unwrap();
+    assert!(t.estimate.same, "the second start of the owner's build: same version from Play on");
+}
+
+/// Review round 3, P4: two installs whose starts began in the same millisecond keep their own highest point.
+#[test]
+fn two_installs_never_share_a_bar() {
+    let mk = |f: f64| { let mut t = timeline(&Inputs { launcher: Some(&LauncherStart::new(BASE, None, None, None)), now: BASE + 1, ..Default::default() }).unwrap(); t.estimate.fraction = f; t };
+    let mut steady = Steady::default();
+    let mut a = mk(0.99);
+    steady.apply("client-a", &mut a);
+    let mut b = mk(0.10);
+    steady.apply("client-b", &mut b);
+    assert_eq!((a.estimate.fraction, b.estimate.fraction), (0.99, 0.10));
+}
+

@@ -31,8 +31,15 @@ pub const BASIS: usize = 5;
 pub const QUIET_MS: u64 = 60_000;
 /// The same inside `early-plugins`, where kiln-eml's eml.json is the finer source.
 pub const QUIET_EARLY_MS: u64 = 120_000;
-/// Steam was asked this long ago and no game process came: the start is over.
+/// Steam was asked this long ago and no game process exists yet: the timeline stops counting and says Steam is still
+/// preparing the game (a first start under Proton makes its prefix first, which can take minutes).
+pub const STEAM_SLOW_MS: u64 = 60_000;
+/// The window follows a start Steam took without a game for this long, then shows Play again (the launcher before
+/// dev.27 did so after 2 minutes); the start stays tracked meanwhile.
 pub const STEAM_WAIT_MS: u64 = 5 * 60_000;
+/// A start Steam took and no game came for this long is forgotten (its launcher timings go): no Proton setup takes
+/// half an hour, and a Play pressed again before that starts a new one anyway.
+pub const STEAM_FORGET_MS: u64 = 30 * 60_000;
 /// A running step that has taken this many times its usual time is "taking longer than usual" (as a fraction: 3/2).
 pub const SLOW: (u64, u64) = (3, 2);
 
@@ -252,14 +259,28 @@ impl KeptStart {
     }
 }
 
-/// The version a start is looked up by: progress.json's `kiln` once the game wrote it; before that, the `kiln` of the
-/// newest kept start made with the same installed runtime (the receipt's version); without one, the receipt's version.
+/// The version a start is looked up by: progress.json's `kiln` for a start the game began by itself (Steam's Play);
+/// for a start of this launcher, its receipt's identity ([`receipt_identity`]) for the whole start, so the basis of its
+/// estimate never changes when progress.json appears.
 pub fn version_identity(progress_kiln: Option<&str>, receipt: Option<&str>, history: &[KeptStart]) -> Option<String> {
-    if let Some(k) = progress_kiln {
-        return Some(k.to_string());
+    match progress_kiln {
+        Some(k) => Some(k.to_string()),
+        None => receipt_identity(receipt?, history),
     }
-    let r = receipt?;
-    Some(history.iter().rev().find(|s| s.runtime.as_deref() == Some(r)).map_or_else(|| r.to_string(), |s| s.kiln.clone()))
+}
+
+/// What an install receipt's version identifies: the one runtime version (progress.json's `kiln`) every kept start
+/// under it ran; with no kept start under it, the receipt itself when it carries a build stamp
+/// (`0.2.0-dev.27+20261113.791e8b2`, as the release builds' receipts and their progress.json both say). None when it
+/// does not identify one build: kept starts of two builds under it, or no stamp and nothing kept (no same-version
+/// basis then: the estimate comes from the other basis, or there is none).
+pub fn receipt_identity(receipt: &str, history: &[KeptStart]) -> Option<String> {
+    let kilns: std::collections::BTreeSet<&str> = history.iter().filter(|s| s.runtime.as_deref() == Some(receipt)).map(|s| s.kiln.as_str()).collect();
+    match kilns.len() {
+        1 => kilns.into_iter().next().map(str::to_string),
+        0 => receipt.contains('+').then(|| receipt.to_string()),
+        _ => None,
+    }
 }
 
 /// `<data>/state/start-times.json` (format 1): per game install id, its last [`KEEP`] finished starts, oldest first.
@@ -814,6 +835,10 @@ pub struct Timeline {
     pub estimate: Estimate,
     /// The launcher's own steps are in it (the launcher started the game).
     pub launcher: bool,
+    /// Steam was asked [`STEAM_SLOW_MS`] ago or more and no game process exists yet: no number, the window says Steam
+    /// is still preparing the game.
+    #[serde(default)]
+    pub steam_slow: bool,
 }
 
 /// What [`timeline`] is made from (times are unix milliseconds).
@@ -855,8 +880,12 @@ pub fn timeline(i: &Inputs) -> Option<Timeline> {
     let p_started = p.and_then(|p| parse_ms(&p.started));
     let t0 = l.map(|l| l.began).or(p_started)?;
     let now = i.now.saturating_sub(t0).max(0) as u64;
-    // one identity for storing and looking up: progress.json's `kiln` (before it, found through the receipt's version)
-    let kiln = version_identity(p.and_then(|p| p.kiln.as_deref()), i.kiln, i.history);
+    // the identity the history is looked up by: for a start of this launcher the receipt's, fixed for the whole start
+    // (no change of basis when progress.json appears); for one the game began by itself progress.json's
+    let kiln = match l {
+        Some(l) => i.kiln.or(l.kiln.as_deref()).and_then(|r| receipt_identity(r, i.history)),
+        None => version_identity(p.and_then(|p| p.kiln.as_deref()), i.kiln, i.history),
+    };
     // the launcher's steps
     let mut steps: Vec<StepNow> = Vec::new();
     let mut shown: Vec<TimelineStep> = Vec::new();
@@ -930,6 +959,14 @@ pub fn timeline(i: &Inputs) -> Option<Timeline> {
         };
         out.push(t);
     }
+    let steam_slow = !i.running && p.is_none()
+        && out.iter().any(|s| s.id == "steam" && s.state == StepState::Running && s.ms.is_some_and(|m| now.saturating_sub(m) >= STEAM_SLOW_MS));
+    if steam_slow {
+        est.left_ms = None;
+        est.by_time = false;
+        est.slow = None;
+        est.fraction = (est.steps_done as f64 / est.steps_planned.max(1) as f64).min(0.99);
+    }
     let running = out.iter().position(|s| s.state == StepState::Running);
     let quiet_ms = p.and(i.written).map(|w| i.now.saturating_sub(w).max(0) as u64);
     let in_early = running.is_some_and(|r| out[r].id == "early-plugins");
@@ -944,8 +981,6 @@ pub fn timeline(i: &Inputs) -> Option<Timeline> {
             _ => Phase::Booting,
         },
         None if l.is_some_and(|l| l.seen) && !i.running => Phase::Ended,
-        // Steam was asked and no game came: the start is over (the window goes back to Play)
-        None if !i.running && l.is_some_and(|l| l.asked && l.steps.iter().find(|s| s.id == "steam").is_some_and(|s| now.saturating_sub(s.ms) >= STEAM_WAIT_MS)) => Phase::Ended,
         None if i.running && i.boot => Phase::Legacy,
         None if i.running => Phase::Waiting,
         None => Phase::Launcher,
@@ -961,6 +996,7 @@ pub fn timeline(i: &Inputs) -> Option<Timeline> {
         running,
         estimate: est,
         launcher: l.is_some(),
+        steam_slow,
     })
 }
 
@@ -970,7 +1006,8 @@ pub fn kept_from(t: &Timeline, progress: &Progress, receipt: Option<&str>, finge
     if t.phase != Phase::Ready {
         return None;
     }
-    let kiln = t.kiln.clone().or_else(|| receipt.map(str::to_string)).unwrap_or_default();
+    // stored under the runtime's own string (the lookup may have gone by the receipt's identity)
+    let kiln = progress.kiln.clone().or_else(|| t.kiln.clone()).or_else(|| receipt.map(str::to_string)).unwrap_or_default();
     let steps = t.steps.iter().filter(|s| s.ms.is_some()).map(|s| {
         let parts = if s.launcher {
             launcher.and_then(|l| l.steps.iter().find(|x| x.id == s.id)).map(|x| x.parts.iter().filter(|p| p.ms > 0).cloned().collect()).unwrap_or_default()
@@ -983,7 +1020,7 @@ pub fn kept_from(t: &Timeline, progress: &Progress, receipt: Option<&str>, finge
     Some(KeptStart { kiln, runtime: receipt.map(str::to_string), fingerprint: fingerprint.into(), finished: fmt_ms(finished), started: progress.started.clone(), steps })
 }
 
-/// The bar's highest point per start (by `Timeline::started`), kept by the launcher: the bar never moves back between
+/// The bar's highest point per start (by install and `Timeline::started`), kept by the launcher: the bar never moves back between
 /// two looks, whoever looks (the Play page, the pill, the Deck, a second window).
 #[derive(Debug, Default)]
 pub struct Steady {
@@ -991,11 +1028,13 @@ pub struct Steady {
 }
 
 impl Steady {
-    pub fn apply(&mut self, t: &mut Timeline) {
-        if self.max.len() > 16 && !self.max.contains_key(&t.started) {
+    /// Keeps the highest point of `install_id`'s start `t` (two installs never share one, even at the same millisecond).
+    pub fn apply(&mut self, install_id: &str, t: &mut Timeline) {
+        let key = format!("{install_id}\n{}", t.started);
+        if self.max.len() > 16 && !self.max.contains_key(&key) {
             self.max.clear();
         }
-        let m = self.max.entry(t.started.clone()).or_insert(0.0);
+        let m = self.max.entry(key).or_insert(0.0);
         if t.estimate.fraction >= *m {
             *m = t.estimate.fraction;
         } else {
@@ -1031,7 +1070,7 @@ pub fn round(dirs: &DataDirs, install_id: &str, launcher: Option<&LauncherStart>
     }) else {
         return Round { timeline: None, kept: None };
     };
-    steady.apply(&mut tl);
+    steady.apply(install_id, &mut tl);
     let mut kept = None;
     if tl.phase == Phase::Ready
         && let Some(p) = side.progress.as_ref()
