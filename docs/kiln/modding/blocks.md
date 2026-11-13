@@ -33,7 +33,7 @@ The same as data, in `blocks/*.json` (the schema gives the editor completion and
 Start with `kiln new spell` (template `kiln-spell`), or read `mods/samples/FrostboltBlock`. Set `<KilnServices>Blocks</KilnServices>` in the project. Items, weapons, armor and
 stations: [item-blocks.md](item-blocks.md). Props, forges and racks of your own: [world-blocks.md](world-blocks.md). Creatures, their bodies, animations,
 AI and behaviour, and NPCs: [npc-blocks.md](npc-blocks.md). Quests and conversations: [quests.md](quests.md#quests-as-blocks).
-Windows, HUD lines and keys: [ui-blocks.md](ui-blocks.md).
+Windows, HUD lines and keys: [ui-blocks.md](ui-blocks.md). Rolled modifiers on one item ("+5 Strength" on this sword): [affixes.md](affixes.md).
 
 These pages describe the implemented API. A compile, lowered-resource readback or dedicated-server test does not
 prove client drawing, animation, input or the player's interaction. Those checks remain on the feature's client checklist.

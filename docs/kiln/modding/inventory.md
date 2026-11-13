@@ -254,8 +254,10 @@ Everything about items in a backpack, on the action bar or worn is in the checks
 ### Affixes
 An item's perks are not stored on the item: an instance holds only how many perks it has and how many are unlocked,
 and which perks those are comes from its item type, so two instances of one item can never have different perks. Rolled
-affixes therefore need item data plus a modifier engine that applies them (planned, large); a fixed set of perks can
-already be its own item variant.
+affixes are therefore item data plus an engine that applies them, and since dev.27 Kiln has both:
+[affixes.md](affixes.md) (`Affixes.Define`, pools, `pool.Roll(item)`; the rolls are item data of Kiln's own, they act
+while the item is worn or in hand, and they go to the games of players near the item). A fixed set of perks can still
+be its own item variant.
 
 Enshwick (MIT) built the same idea first: at its
 [alpha.13 commit](https://github.com/enshwick/enshwick/blob/945a1b8f0c9d1971679d9f3bc3dcecc127a5bcad/crates/internal/loader/src/item_data.rs)
