@@ -1,12 +1,13 @@
 // The save editor as a launcher page (Hearth): the character's name (a button: other saves), one live sentence, Save
-// and Backups; tabs for Equipment, Inventory, Skills and Knowledge. Reading, checking and writing saves are upstream's
-// (src/tauri-api.js through src/platform.js, src/treecheck.js); this file replaces upstream's in-game frame (src/App.jsx).
+// and Backups; tabs for Equipment, Inventory, Skills and Knowledge. The session (the saves, the open character, save,
+// discard, restore) is session.js, shared with the Deck screen (../deck/DeckEditor.jsx); this file replaces upstream's
+// in-game frame (src/App.jsx).
 // Keys: Ctrl+S save, Z discard, B backups, Q/E previous/next tab (not while typing).
 import React, { useEffect, useRef, useState } from 'react';
 import { Banner, Button, Modal, Tabs, toast } from '../../ui';
 import { api } from '../src/platform.js';
-import { checkTree, pointsUsed } from '../src/treecheck.js';
 import { t, dataHora, definirIdioma, assinarIdioma } from '../src/i18n.js';
+import { canSave, discard, openSave, restoreBackup, saveModel, setModel, setStatus, startSession, useSession } from './session.js';
 import Equipment from './Equipment.jsx';
 import Inventory from './Inventory.jsx';
 import Skills from './Skills.jsx';
@@ -15,61 +16,43 @@ import Knowledge from './Knowledge.jsx';
 // the launcher is English; item and skill names follow (the game ships both)
 definirIdioma('en');
 
-const TABS = [['char', 'Equipamento'], ['inv', 'Mochila'], ['skills', 'Habilidades'], ['know', 'Conhecimento']];
-const clone = (o) => JSON.parse(JSON.stringify(o));
+export const TABS = [['char', 'Equipamento'], ['inv', 'Mochila'], ['skills', 'Habilidades'], ['know', 'Conhecimento']];
+
+/** The page's one live sentence (the Deck screen says the same). */
+export function sayOf(s) {
+  const { model, saves, running, dirty } = s;
+  return !model
+    ? (saves === null ? t('Procurando saves…') : saves.length ? t('Escolha um personagem.') : t('Nenhum save de personagem encontrado.'))
+    : model.readOnly ? t('Este save não pôde ser interpretado para edição.')
+      : model.error ? t('Este save só pode ser lido: Salvar fica desligado.')
+      : running ? t('O jogo está aberto: feche-o para salvar.')
+        : dirty ? t('Mudanças não salvas. O editor faz um backup antes de gravar.')
+          : t('Nível {n}. O editor faz um backup antes de gravar.', { n: model.level });
+}
 
 export default function EditorApp() {
-  const [saves, setSaves] = useState(null);
-  const [model, setModel] = useState(null);
-  const [orig, setOrig] = useState(null);
+  const s = useSession();
+  const { saves, model, status, running, saving, dirty } = s;
   const [tab, setTab] = useState('inv');
-  const [status, setStatus] = useState(null);
-  const [running, setRunning] = useState(false);
   const [backups, setBackups] = useState(false);
   const [pick, setPick] = useState(false);
-  const [saving, setSaving] = useState(false);
+  // a character to open once the player agrees to drop the changes
+  const [ask, setAsk] = useState(null);
   const [, redraw] = useState(0);
   useEffect(() => assinarIdioma(() => redraw((n) => n + 1)), []);
+  useEffect(() => startSession(), []);
 
-  const refresh = () => api.listSaves().then((l) => { setSaves(l); return l; });
-  const open = async (file) => {
-    try {
-      const m = await api.openSave(file);
-      setModel(m); setOrig(clone(m)); setPick(false);
-      setStatus(m.error ? { tone: 'warn', text: t('Somente leitura: {erro}', { erro: m.error }) } : null);
-    } catch (e) { setStatus({ tone: 'err', text: e.message }); }
+  const open = (path) => {
+    setPick(false);
+    if (dirty && path !== model?.path) setAsk(path);
+    else if (path !== model?.path || !dirty) openSave(path);
   };
-  useEffect(() => {
-    refresh().then((l) => { const best = [...l].filter((s) => !s.error).sort((a, b) => b.modified - a.modified)[0]; if (best) open(best.path); })
-      .catch((e) => { setSaves([]); setStatus({ tone: 'err', text: e.message }); });
-    const timer = setInterval(() => api.gameRunning().then(setRunning).catch(() => {}), 3000);
-    api.gameRunning().then(setRunning).catch(() => {});
-    return () => clearInterval(timer);
-  }, []);
-
-  const dirty = !!(model && orig && JSON.stringify(model) !== JSON.stringify(orig));
-  const locked = running;
-  const canSave = dirty && !locked && !model?.readOnly && !saving;
   const save = async () => {
-    if (!canSave) return;
-    // a tree the game finds invalid is refunded whole on load: refuse before writing
-    if (JSON.stringify(model.skills) !== JSON.stringify(orig.skills)) {
-      const { problems, used, total } = checkTree(model);
-      if (total === null && used > pointsUsed(orig.skills)) {
-        problems.push(t('Você aumentou os pontos em uso ({antes} → {depois}). Informe o total de pontos na aba Habilidades para o editor conferir; acima do total, o jogo zera a árvore.', { antes: pointsUsed(orig.skills), depois: used }));
-      }
-      if (problems.length) { setTab('skills'); setStatus({ tone: 'err', text: t('Não gravado. {problemas}', { problemas: problems.join(' · ') }) }); return; }
-    }
-    setSaving(true);
-    try {
-      const { backupDir, model: m } = await api.writeSave(model.path, model);
-      setModel(m); setOrig(clone(m)); setStatus(null);
-      toast.ok(t('Salvo'), t('Backup em {pasta}', { pasta: backupDir }));
-      refresh();
-    } catch (e) { setStatus({ tone: 'err', text: e.message }); }
-    setSaving(false);
+    const r = await saveModel();
+    if (r === 'saved') toast.ok(t('Salvo'), t('O save de antes está em Backups.'));
+    if (r === 'skills') setTab('skills');
   };
-  const discard = () => { if (dirty) { setModel(clone(orig)); setStatus(null); } };
+  const ok = canSave(s);
   useEffect(() => {
     const k = (e) => {
       if (e.ctrlKey && e.key.toLowerCase() === 's') { e.preventDefault(); save(); return; }
@@ -85,13 +68,9 @@ export default function EditorApp() {
   });
 
   const file = model?.path?.split(/[\\/]/).pop();
-  const say = !model
-    ? (saves === null ? t('Procurando saves…') : saves.length ? t('Escolha um personagem.') : t('Nenhum save de personagem encontrado.'))
-    : model.readOnly ? t('Este save não pôde ser interpretado para edição.')
-      : running ? t('O jogo está aberto: feche-o para salvar.')
-        : dirty ? t('Mudanças não salvas. O editor faz um backup antes de gravar.')
-          : t('Nível {n}. O editor faz um backup antes de gravar.', { n: model.level });
   const edit = model && !model.readOnly;
+  // the game wrote the save after it was read: Read again is the way on (status from session.saveModel)
+  const stale = status?.tone === 'err' && model && status.text === t('O jogo gravou este save depois que o editor o leu. Leia de novo para editar a versão atual (as mudanças daqui se perdem).');
 
   return (
     <div className="k-page k-page-fill ke">
@@ -101,15 +80,21 @@ export default function EditorApp() {
             <SaveSwitch model={model} saves={saves} open={pick} setOpen={setPick} onOpen={open} />
             {file && <span className="k-page-meta"><span className="k-mono k-muted">{file}</span>{dirty && <span className="k-sc" style={{ color: 'var(--k-gold-400)' }}>{t('Não salvo')}</span>}</span>}
           </div>
-          <p className="k-page-sub">{say}</p>
+          <p className="k-page-sub">{sayOf(s)}</p>
         </div>
         <div className="k-page-actions">
           {dirty && <Button variant="ghost" onClick={discard} title="Z">{t('Descartar')}</Button>}
           <Button disabled={!model} onClick={() => setBackups(true)} title="B">{t('Backups')}</Button>
-          <Button variant="primary" disabled={!canSave} loading={saving} onClick={save} title={locked ? t('Jogo aberto: feche para salvar') : 'Ctrl+S'}>{t('Salvar')}</Button>
+          <Button variant="primary" disabled={!ok} loading={saving} onClick={save} title={running ? t('Jogo aberto: feche para salvar') : 'Ctrl+S'}>{t('Salvar')}</Button>
         </div>
       </header>
-      {status && <Banner tone={status.tone} title={status.tone === 'err' ? t('Erro') : t('Atenção')} actions={<button type="button" className="k-link" onClick={() => setStatus(null)}>{t('Fechar')}</button>}>{status.text}</Banner>}
+      {status && (
+        <Banner tone={status.tone} title={status.tone === 'err' ? t('Erro') : t('Atenção')}
+          actions={<>
+            {stale && <button type="button" className="k-link" onClick={() => openSave(model.path)}>{t('Ler de novo')}</button>}
+            <button type="button" className="k-link" onClick={() => setStatus(null)}>{t('Fechar')}</button>
+          </>}>{status.text}</Banner>
+      )}
       {edit && (
         <>
           <Tabs aria-label={t('Partes do save')} value={tab} onChange={setTab}
@@ -122,7 +107,13 @@ export default function EditorApp() {
           </div>
         </>
       )}
-      {backups && model && <Backups model={model} onClose={() => setBackups(false)} onRestored={() => open(model.path)} />}
+      {backups && model && <Backups model={model} dirty={dirty} onClose={() => setBackups(false)} />}
+      {ask && (
+        <Modal open onClose={() => setAsk(null)} title={t('Descartar as mudanças?')} width={520}
+          footer={<><Button variant="ghost" onClick={() => setAsk(null)}>{t('Cancelar')}</Button><Button variant="danger" onClick={() => { const p = ask; setAsk(null); openSave(p); }}>{t('Descartar e abrir')}</Button></>}>
+          <p>{t('As mudanças em {nome} ainda não foram salvas.', { nome: model?.name ?? '' })}</p>
+        </Modal>
+      )}
     </div>
   );
 }
@@ -164,38 +155,41 @@ function SaveSwitch({ model, saves, open, setOpen, onOpen }) {
   );
 }
 
-const KIND = { jogo: 'Automático do jogo', pasta: 'Pasta de backups' };
+/** Upstream named the kinds jogo / pasta; the launcher's commands say game / folder. */
+export const BACKUP_KIND = { game: 'Cópia do jogo', jogo: 'Cópia do jogo', folder: 'Backup do Kiln', pasta: 'Backup do Kiln' };
+/** A backup's name in a list: the game's copy number, or the time a Kiln backup was made. */
+export const backupName = (b) => (b.kind === 'game' || b.kind === 'jogo' ? b.label : t('antes de gravar'));
 
 /** The save's backups (the game's last ten and the editor's copies): restore one, with a second click to confirm. */
-function Backups({ model, onClose, onRestored }) {
+function Backups({ model, dirty, onClose }) {
   const [list, setList] = useState(null);
   const [err, setErr] = useState(null);
   const [confirm, setConfirm] = useState(null);
   useEffect(() => { api.listBackups(model.path).then(setList).catch((e) => { setList([]); setErr(e.message); }); }, []);
   const restore = async (b) => {
     try {
-      await api.restoreBackup(b.path, model.path);
-      toast.ok(t('Restaurado'), t('{arquivo} ({quando}). O save anterior foi guardado como backup.', { arquivo: b.label, quando: dataHora(b.modified) }));
-      setConfirm(null); onRestored(); onClose();
+      await restoreBackup(b);
+      toast.ok(t('Restaurado'), t('{arquivo} ({quando}). O save anterior foi guardado como backup.', { arquivo: backupName(b), quando: dataHora(b.modified) }));
+      setConfirm(null); onClose();
     } catch (e) { setErr(e.message); setConfirm(null); }
   };
   return (
     <Modal open onClose={onClose} title={t('Backups de {nome}', { nome: model.name })} width={720}
       footer={<><Button variant="ghost" onClick={() => api.openBackups()}>{t('Abrir pasta')}</Button><Button onClick={onClose}>{t('Fechar')}</Button></>}>
-      <p className="k-hint">{t('O jogo guarda os 10 últimos salvamentos automaticamente; o editor também copia o save antes de cada gravação.')}</p>
+      <p className="k-hint">{t('O jogo guarda os 10 últimos salvamentos automaticamente; o editor também copia o save antes de cada gravação.')}{dirty ? ` ${t('Restaurar descarta as mudanças não salvas.')}` : ''}</p>
       {err && <Banner tone="err" title={t('Erro')}>{err}</Banner>}
       <div className="ke-bk">
         {list === null && <span className="ke-note">{t('Procurando backups…')}</span>}
         {list?.length === 0 && !err && <span className="ke-note">{t('Nenhum backup encontrado para este save.')}</span>}
         {list?.map((b) => (
           <div key={b.path} className="ke-bk-row">
-            <span className="k-sc k-muted">{t(KIND[b.kind] || b.kind)}</span>
+            <span className="k-sc k-muted">{t(BACKUP_KIND[b.kind] || b.kind)}</span>
             <span className="k-num">{dataHora(b.modified)}</span>
-            <span className="k-mono k-ellipsis" title={b.path}>{b.label}</span>
+            <span className="k-mono k-ellipsis" title={b.path}>{backupName(b)}</span>
             {confirm === b.path ? (
               <span className="k-row" style={{ gap: 6, justifyContent: 'flex-end' }}>
                 <Button size="s" variant="ghost" onClick={() => setConfirm(null)}>{t('Cancelar')}</Button>
-                <Button size="s" variant="danger" onClick={() => restore(b)}>{t('Confirmar')}</Button>
+                <Button size="s" variant="danger" onClick={() => restore(b)}>{t('Restaurar')}</Button>
               </span>
             ) : (
               <span style={{ textAlign: 'right' }}><Button size="s" onClick={() => setConfirm(b.path)} disabled={!!confirm}>{t('Restaurar')}</Button></span>
