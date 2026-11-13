@@ -219,10 +219,10 @@ public static partial class Abilities
         if (target.IsNone) throw new ArgumentException("no target", nameof(target));
         AbilitiesCaps.Require(AbilitiesCaps.Buffs);
         var at = World.Position(target) ?? throw new ArgumentException($"entity {target} is not in the world (no position)", nameof(target));
-        HookWorldClose();
+        HookWorld();
         // Asked for while the server world closes (a handler of the stop, a mod's OnUnload): the world is still there
         // and would take the helper, but no step runs any more to read its answer. A result, not a task that never ends.
-        if (RemovalsClosed) return Task.FromResult(new BuffRemoveResult(target, id, false, ClosingText));
+        if (!Admits(RemovalsClosed, Lifecycle.Phase)) return Task.FromResult(new BuffRemoveResult(target, id, false, ClosingText));
         EnsureRemoveProgram();
         EntityId e;
         try
@@ -244,7 +244,6 @@ public static partial class Abilities
             Impact = e, Target = target, Buff = id, Since = _removalStep, Mod = ModContext.CurrentMod,
             Done = new TaskCompletionSource<BuffRemoveResult>(TaskCreationOptions.RunContinuationsAsynchronously),
         };
-        _removalTick ??= ServiceTick.Add("kiln.abilities removals", static (in TickInfo t) => PollRemovals());
         lock (Removals)
         {
             if (!_closed)
@@ -261,7 +260,9 @@ public static partial class Abilities
 
     // Kiln's own subscription (not the calling mod's, which would end with that mod): when the server world closes, no
     // step polls any more (a client is back in its menu), so the waiting removals end here.
-    private static void HookWorldClose()
+    // The step that polls is set up with it, before anything can fail: it is also what opens removals again in the
+    // next session (a first removal whose helper the game refused used to leave only the closing half behind).
+    private static void HookWorld()
     {
         if (Interlocked.Exchange(ref _closeHooked, 1) == 1) return;
         var outer = ModContext.CurrentMod;
@@ -269,12 +270,18 @@ public static partial class Abilities
         try
         {
             Events.On<ServerStoppingEvent>(_ => CloseRemovals());
+            _removalTick ??= ServiceTick.Add("kiln.abilities removals", static (in TickInfo t) => PollRemovals());
         }
         finally
         {
             ModContext.CurrentMod = outer;
         }
     }
+
+    /// <summary>Whether a removal may start. Not while the world closes: Kiln's own handler of the stop says so
+    /// (<paramref name="closed"/>), and so does the server's phase, which also covers the first removal ever asked for
+    /// from inside a handler of that same stop (Kiln's handler is added too late to be called for it).</summary>
+    internal static bool Admits(bool closed, ServerPhase phase) => !closed && phase != ServerPhase.Stopping;
 
     /// <summary>The server world closes: every waiting removal ends, not removed, with that reason.</summary>
     internal static void CloseRemovals()

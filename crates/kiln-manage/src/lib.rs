@@ -50,6 +50,7 @@
 //! | [`server`] | dedicated server instances, settings, SteamCMD, run, backups, remote |
 //! | [`admin`] | KAP/1 protocol, admin client, file bridge, SSH tunnel, endpoint discovery |
 //! | [`modpack`] | server modpacks: build, publish, inspect, download, install |
+//! | [`cooktools`] | the cook tools this build carries (`cooktools`): unpack, the Python to run them, the command |
 //! | [`gameart`] | game art from the installed client's KFC4 data (save editor icons, UI, fonts) |
 //! | [`catalog`] | local game-data catalogs (items, templates, ...) for the linter, VS Code, Kiln.GameIds |
 //! | [`lint`] | `kiln lint`: mod files against schema/*.schema.json, ids, references, manifest consistency, licences |
@@ -112,6 +113,9 @@ pub mod server;
 pub mod wine;
 
 // game art (feature `gameart`)
+#[cfg(feature = "cooktools")]
+pub mod cooktools;
+
 #[cfg(feature = "gameart")]
 pub mod gameart;
 

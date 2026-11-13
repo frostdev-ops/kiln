@@ -148,6 +148,26 @@ check_server_pack() {
   echo "systemd units: OK"
 }
 
+# kiln carries the cook tools: with no checkout (a release build knows none) it unpacks its own copy and cooks a
+# made-up game (tools/modelcook/tests/fakegame.py: nothing of the real game) with this machine's python3. Also:
+# soundcook's helper is in the copy, runs, and needs no newer glibc than the other Linux files.
+check_cook_shipped() {
+  local d=$ck/cook
+  rm -rf "$d" && mkdir -p "$d/data" "$d/out" || return
+  python3 "$src/tools/modelcook/tests/fakegame.py" "$d/client" --side client --mod "$d/mod" --kiln-out "$d/out" || return
+  # KILN_OUT: the made-up game's exe is no PE file; its type table is the cache fakegame.py wrote there
+  env -u KILN_REPO -u KILN_GAME -u KILN_PYTHON KILN_DATA_DIR="$d/data" KILN_OUT="$d/out" "$out/sdk/kiln" cook "$d/mod" --game "$d/client" || return
+  [[ -d $d/mod/assets/cooked ]] || { echo "no assets/cooked after the cook"; return 1; }
+  local copy helper
+  copy=$(find "$d/data/cooktools" -mindepth 1 -maxdepth 1 -type d | head -1)
+  [[ -f $copy/tools/modelcook/modelcook.py && -f $copy/.complete ]] || { echo "the tools were not unpacked under $d/data/cooktools"; return 1; }
+  [[ ! -e $copy/tools/modelcook/tests ]] || { echo "the shipped tools hold tests"; return 1; }
+  helper=$copy/bin/kiln-soundcook
+  [[ -x $helper ]] || { echo "soundcook's helper is not in the shipped copy"; return 1; }
+  python3 "$lib/release.py" glibc "$copy/bin" --max "${glibc_max:-2.35}" --tmp "$d/glibc" || return
+  env -u KILN_REPO -u KILN_GAME -u KILN_PYTHON KILN_DATA_DIR="$d/data" KILN_OUT="$d/out" "$out/sdk/kiln" cook "$d/mod" --game "$d/client" --check
+}
+
 check_cli_versions() {
   local a b
   a=$("$out/runtime/kilnctl" --version) || return
@@ -236,6 +256,7 @@ run_checks() {
   check "the runtime manifest lists every plugin DLL (native/plugins/*, kiln-eml, ShroudForge runtime, Enshwick loader), default on both sides" \
     python3 -I "$lib/plugins.py" check --src "$src" "$out/runtime/kiln-runtime-$version.zip"
   check "kilnctl and kiln --version (Linux)" check_cli_versions
+  check "kiln cooks a made-up game with the cook tools it carries (no checkout), soundcook's helper included" check_cook_shipped
   check "server pack: only the server components, the runtime's files, rebuilt byte-identically; systemd units" \
     check_server_pack
   # every Linux ELF (the AppImage's own files, the deb's, the rpm's, kilnctl, kiln) must run on glibc $glibc_max: the

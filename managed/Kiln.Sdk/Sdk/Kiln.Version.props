@@ -6,6 +6,6 @@
        templates/*/.template.config/template.json default to the base, and pack.sh writes the full version into the packed ones. -->
   <PropertyGroup>
     <KilnSdkVersion>0.2.0</KilnSdkVersion>
-    <KilnModApiVersion>0.2.1</KilnModApiVersion>
+    <KilnModApiVersion>0.2.2</KilnModApiVersion>
   </PropertyGroup>
 </Project>
