@@ -248,7 +248,7 @@ const char* state_name(uint8_t s) {
 }
 
 // Which mods' entries the menus draw (menu_rows.h; KILN_UI_MENU_SHOW_*, set by Kiln.Ui from Kiln's setting).
-std::atomic<uint32_t> g_shown{menu_rows::show_few};
+std::atomic<uint32_t> g_shown{menu_rows::kNativeDefault};  // ALWAYS until Kiln.Ui (which lists them) says otherwise
 
 bool is_builtin(const Entry& e) { return e.handle && (e.handle == g_builtin[0] || e.handle == g_builtin[1]); }
 bool visible(const Entry& e) { return !(e.flags & KILN_UI_ENTRY_HIDDEN) && e.text && !e.text->empty(); }
@@ -681,10 +681,17 @@ uint32_t game_menu_entries(KilnUiMenuEntry* out, uint32_t capacity) {
 }
 
 KilnResult game_menu_activate(KilnHandle entry) {
+    uint8_t state = 0;
+    {
+        std::lock_guard lk(g_screen_mu);
+        state = g_screen.ui_state;
+    }
     {
         std::lock_guard lk(g_mu);
-        const bool known = std::any_of(g_entries.begin(), g_entries.end(), [&](const Entry& e) { return e.handle == entry; });
-        if (!entry || !known || entry == g_builtin[0] || entry == g_builtin[1]) return KILN_ERR_NOT_FOUND;
+        const auto it = std::find_if(g_entries.begin(), g_entries.end(), [&](const Entry& e) { return e.handle == entry; });
+        if (!entry || it == g_entries.end() || is_builtin(*it)) return KILN_ERR_NOT_FOUND;
+        // only what a click could do now: an entry its mod shows, of the menu the player can open in this state
+        if (!menu_rows::can_activate(it->menu, it->flags, state)) return KILN_ERR_UNAVAILABLE;
     }
     activated(entry);  // delivered after the next UI frame, as a click in the menu is
     return KILN_OK;

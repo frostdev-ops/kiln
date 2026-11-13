@@ -777,15 +777,19 @@ typedef struct KilnUiApi {
      * ============================================================================================================== */
 
     /* ---- mods' entries in the game's menus (the menus do not scroll: too many rows push Quit off the screen) ----
-     * menu_shown: KILN_UI_MENU_SHOW_* (Kiln.Ui sets it from Kiln's setting "modEntries" in kiln/config/menus.json; FEW
-     *   until then). FEW: a menu draws its mods' entries while it has at most 3 visible ones, else none of them. Kiln's
-     *   own Mods entry is drawn whatever the mode. Any thread; the next frame follows it. Unknown values are FEW.
+     * menu_shown: KILN_UI_MENU_SHOW_* (Kiln.Ui sets it from Kiln's setting "modEntries" in
+     *   kiln/config/menus-client.json; ALWAYS until a caller sets it: only a caller that lists the entries elsewhere may
+     *   choose FEW or NEVER). FEW: a menu draws its mods' entries while it has at most 3 visible ones, else none of
+     *   them. Kiln's own Mods entry is drawn whatever the mode. Any thread; the next frame follows it. Unknown values
+     *   are FEW.
      * menu_entries: the entries mods added (menu_add), every menu, in drawing order (menu, then order); copies up to
      *   `capacity` into out (out[0].size must be sizeof(KilnUiMenuEntry), else nothing is copied) and returns how many
      *   there are. Any thread.
      * menu_activate: does what choosing the entry in its menu does: fn(entry, user) runs on the UI thread after the
-     *   next UI frame. Also for an entry its menu does not draw now. KILN_ERR_NOT_FOUND: no such entry (or Kiln's own
-     *   Mods entry, which opens the Kiln menu itself). Any thread. */
+     *   next UI frame. Also for an entry its menu does not draw now (menu_shown's mode). KILN_ERR_NOT_FOUND: no such
+     *   entry (or Kiln's own Mods entry, which opens the Kiln menu itself). KILN_ERR_UNAVAILABLE: its mod hid it
+     *   (KILN_UI_ENTRY_HIDDEN), or it is an entry of the other menu (a main-menu entry is chosen in the main menu, a
+     *   pause-menu entry in a world). Any thread. */
     void(KILN_CALL* menu_shown)(uint32_t mode);
     uint32_t(KILN_CALL* menu_entries)(KilnUiMenuEntry* out, uint32_t capacity);
     KilnResult(KILN_CALL* menu_activate)(KilnHandle entry);

@@ -25,6 +25,26 @@ inline constexpr uint32_t show_few = 0;     // KILN_UI_MENU_SHOW_FEW
 inline constexpr uint32_t show_always = 1;  // KILN_UI_MENU_SHOW_ALWAYS
 inline constexpr uint32_t show_never = 2;   // KILN_UI_MENU_SHOW_NEVER
 
+// What kiln.ui draws until a managed side that lists the entries on its Mods page (Kiln.Ui with kiln.ui v6) says
+// otherwise through menu_shown: every row, as every release before 0.2.0-dev.27 did. A Kiln.Ui without the list (or
+// none) must never lose a mod's row it has no other way to reach.
+inline constexpr uint32_t kNativeDefault = show_always;
+
+// The game's UI states a menu can be open in (KilnUiScreen.ui_state, keen::UiState): the main menu in PreGame, the
+// pause menu in Play.
+inline constexpr uint8_t kStatePreGame = 2, kStatePlay = 7;
+inline constexpr uint32_t kMenuMain = 1, kMenuPause = 2;  // KILN_UI_MENU_MAIN / PAUSE
+inline constexpr uint32_t kHidden = 1;                     // KILN_UI_ENTRY_HIDDEN
+
+// May menu_activate run an entry of `menu` with `flags` now, the game's UI being in `ui_state`? Only an entry its mod
+// shows, and only one of the menu the player can open in that state: what a click in that menu could do.
+constexpr bool can_activate(uint32_t menu, uint32_t flags, uint8_t ui_state) {
+    if (flags & kHidden) return false;
+    if (menu == kMenuMain) return ui_state == kStatePreGame;
+    if (menu == kMenuPause) return ui_state == kStatePlay;
+    return false;
+}
+
 // Does a menu with `mods_rows` mods' rows (visible ones: a row its mod hid is not counted) draw them? An unknown mode
 // is FEW.
 constexpr bool draws_mods(uint32_t mode, size_t mods_rows) {

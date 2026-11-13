@@ -18,6 +18,7 @@ public sealed unsafe class GameMenuEntriesTests : IDisposable
     private readonly UiDraw _ui = new();
     private UiNative.Table6* _t6;
     private static readonly List<ulong> Activated = [];
+    private static readonly List<bool> MenuOpenAtActivation = [];
     private static readonly List<uint> Modes = [];
 
     public GameMenuEntriesTests()
@@ -29,7 +30,11 @@ public sealed unsafe class GameMenuEntriesTests : IDisposable
         _ui.Frame.DpiScale = 1;
         _ui.Frame.Width = 1920;
         _ui.Frame.Height = 1080;
-        lock (Activated) Activated.Clear();
+        lock (Activated)
+        {
+            Activated.Clear();
+            MenuOpenAtActivation.Clear();
+        }
         lock (Modes) Modes.Clear();
     }
 
@@ -44,7 +49,11 @@ public sealed unsafe class GameMenuEntriesTests : IDisposable
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
     private static int Activate(ulong h)
     {
-        lock (Activated) Activated.Add(h);
+        lock (Activated)
+        {
+            Activated.Add(h);
+            MenuOpenAtActivation.Add(FakeUiTable.MenuOpen);
+        }
         return h == 0 ? 3 : 0;
     }
 
@@ -147,7 +156,7 @@ public sealed unsafe class GameMenuEntriesTests : IDisposable
         var page = new ModManagerPage
         {
             Source = () => new CatalogSnapshot { Version = 1 },
-            MenuSource = () => [Row(41, "Teleport home"), Row(42, "Talents")],
+            MenuSource = () => [Row(41, "Teleport##home"), Row(42, "Talents")],
             Filter = EngineFilter.Menus,
         };
         _ui.Frame.Number++;
@@ -158,10 +167,18 @@ public sealed unsafe class GameMenuEntriesTests : IDisposable
             Assert.Contains(FakeUiTable.Texts, t => t.Contains("2 of them are not in the game's menu now", StringComparison.Ordinal));
             Assert.Contains("Some mod   ·   not in the game's menu now", FakeUiTable.Texts);
         }
-        FakeUiTable.Click = "Talents";
+        // a mod's label is shown as text, "##" and all (review of 2f39dd13: as a button label it was blank)
+        lock (FakeUiTable.Texts) Assert.Contains("Teleport##home", FakeUiTable.Texts);
+        FakeUiTable.Click = "Open";  // the first row's button
         _ui.Frame.Number++;
         page.Draw(_ui, new PageRect(0, 0, 1800, 900), 1);
-        lock (Activated) Assert.Equal([42ul], Activated);
+        lock (Activated)
+        {
+            Assert.Equal([41ul], Activated);
+            // the Kiln menu was closed before the entry was handed over (review of 2f39dd13): an action that opens a Kiln
+            // view of its own is not closed again by the page
+            Assert.Equal([false], MenuOpenAtActivation);
+        }
         Assert.False(FakeUiTable.MenuOpen);
     }
 

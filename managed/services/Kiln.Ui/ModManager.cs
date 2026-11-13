@@ -751,12 +751,17 @@ internal sealed class ModManagerPage
                 foreach (var row in _menuRows)
                 {
                     using var id = ui.Id("menu." + row.Handle);
-                    if (ui.Button(row.Text + "##open", 0, 40 * s) && GameMenuEntries.Activate(row.Handle))
+                    // the button has a fixed label: a mod's text goes beside it as text ("##" in it is ImGui's id syntax)
+                    if (ui.Button("Open", 0, 40 * s))
                     {
-                        // the entry acts after the next game UI frame, as from the game's menu: get out of its way
+                        // out of the entry's way first: its action runs after the next game UI frame and may open a Kiln
+                        // view of its own, which a close after it would shut again
                         Ui.MenuOpen = false;
                         if (Backed) GamePageHost.Leave();
+                        if (!GameMenuEntries.Activate(row.Handle)) Hud.Toast($"\"{row.Text}\" is not available here now.", ToastKind.Warning);
                     }
+                    ui.SameLine();
+                    ui.Text(row.Text);
                     ui.SameLine();
                     using (ui.PushColor(UiColorSlot.Text, GameColors.Muted))
                         ui.Text((row.Mod ?? "a Kiln plugin") + (row.Drawn ? "" : "   ·   not in the game's menu now"));

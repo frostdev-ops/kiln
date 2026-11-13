@@ -57,6 +57,9 @@ internal static unsafe class GameMenuEntries
     {
         if (UiNative.T6 == null || UiNative.T6->MenuShown == null) return;
         if (Interlocked.Exchange(ref _started, 1) != 0) return;
+        // kiln.ui draws every entry until told otherwise (an older Kiln.Ui has no list to reach hidden ones); this one
+        // lists them, so the default (Few) applies from now, and the saved setting once the config is registered
+        Apply();
         if (Game.IsTickThread) Register();
         else
         {
@@ -149,7 +152,8 @@ internal static unsafe class GameMenuEntries
         return notDrawn == 0 ? how : $"{how} {notDrawn} of them {(notDrawn == 1 ? "is" : "are")} not in the game's menu now; choose {(notDrawn == 1 ? "it" : "them")} here.";
     }
 
-    /// <summary>Does what choosing the entry in its menu does: its action runs after the next UI frame.</summary>
+    /// <summary>Does what choosing the entry in its menu does: its action runs after the next UI frame. False when kiln.ui
+    /// refuses it (gone, hidden by its mod, or an entry of the other menu).</summary>
     internal static bool Activate(ulong handle)
     {
         var t = UiNative.T6;
