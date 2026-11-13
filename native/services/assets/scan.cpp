@@ -48,6 +48,21 @@ bool scan_tree(const std::filesystem::path& root, const ListFn& list, const IdFn
     return true;
 }
 
+CookedIds scan_load_order(const std::vector<std::filesystem::path>& mod_dirs, const ListFn& list, const IdFn& id, const AttrFn& attr,
+                          size_t budget) {
+    CookedIds out;
+    for (const auto& mod : mod_dirs) {
+        const auto root = mod / "assets" / "cooked";
+        if (attr(root) != NameKind::Plain) continue;
+        std::string why;
+        if (!scan_tree(root, list, id, budget, &out.ids, &why)) {
+            out.complete = false;
+            out.cut.push_back(utf8(mod) + ": " + why);
+        }
+    }
+    return out;
+}
+
 AliasVerdict alias_verdict(bool named_cooked, bool in_cooked_ids, bool ids_complete, CookedPolicy policy) {
     if (named_cooked) return AliasVerdict::Ok;
     if (in_cooked_ids) return AliasVerdict::Alias;

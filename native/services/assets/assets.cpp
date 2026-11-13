@@ -259,7 +259,9 @@ KilnResult load_manifest(KilnOwner owner, const std::string& mod_dir, std::strin
             dirs = g_loaded_dirs;
         }
         dirs.push_back(mod_dir);
-        for (const auto& d : dirs) add_cooked_ids(fs::path(widen(d)), &*own_ids);
+        std::vector<fs::path> paths;
+        for (const auto& d : dirs) paths.push_back(fs::path(widen(d)));
+        own_ids = cooked_ids_of(paths);
         for (const auto& c : own_ids->cut) LOGW("assets: a cooked folder could not be scanned whole (%s)", c.c_str());
         cooked_ids = &*own_ids;
     }
@@ -541,11 +543,10 @@ void load_profile_manifests() {
     // Every mod folder in the load order: kiln.profile when present, else the legacy kiln/mods drop-ins.
     const KilnProfileApi* prof = static_cast<const KilnProfileApi*>(g_api->service(KilnStr{"kiln.profile", 12}, 1));
     int loaded = 0;
-    std::vector<std::string> order;  // collected first: every mod's cooked files are known before any manifest is read
-    auto one = [&](const std::string& dir) {
-        std::error_code ec;
-        if (fs::exists(fs::path(widen(dir)) / L"assets" / L"assets.json", ec)) order.push_back(dir);
-    };
+    // collected first: the cooked files of every enabled mod (with an assets.json or not: another mod's manifest can
+    // reach a data-only mod's cooked folder) are known before any manifest is read
+    std::vector<std::string> order;
+    auto one = [&](const std::string& dir) { order.push_back(dir); };
     bool used_profile = false;
     bool scan_dropins = true;  // legacy / no profile: scan kiln/mods
     if (prof && prof->header.size >= sizeof(KilnProfileApi)) {
@@ -566,8 +567,9 @@ void load_profile_manifests() {
             if (it->is_directory(ec) && !fs::exists(it->path() / L".disabled", ec)) one(narrow(it->path().wstring()));
     }
     const CookTrust trust = read_cook_trust();  // read once for every mod of the load order
-    CookedIds cooked_ids;
-    for (const auto& dir : order) add_cooked_ids(fs::path(widen(dir)), &cooked_ids);
+    std::vector<fs::path> paths;
+    for (const auto& dir : order) paths.push_back(fs::path(widen(dir)));
+    const CookedIds cooked_ids = cooked_ids_of(paths);
     for (const auto& c : cooked_ids.cut)
         LOGW("assets: a cooked folder could not be scanned whole (%s): a file a manifest names outside its own assets/cooked cannot be shown "
              "to be no other name for a cooked file, so under \"cooked\": \"local\" none is loaded, and under \"warn\" each is named", c.c_str());
@@ -576,6 +578,8 @@ void load_profile_manifests() {
         g_loaded_dirs = order;
     }
     for (const auto& dir : order) {
+        std::error_code ec;
+        if (!fs::exists(fs::path(widen(dir)) / L"assets" / L"assets.json", ec)) continue;
         KilnOwner o = g_api->owner_create(KilnStr{dir.c_str(), dir.size()});
         std::string rep;
         if (load_manifest(o, dir, &rep, &trust, &cooked_ids) == KILN_OK) ++loaded;

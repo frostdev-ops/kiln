@@ -35,6 +35,10 @@ struct Entry {
 using ListFn = std::function<std::optional<std::vector<Entry>>(const std::filesystem::path&)>;
 using IdFn = std::function<std::optional<FileId>(const std::filesystem::path&)>;
 
+// What a path is, by its name (no link followed): missing, a link or junction, or a plain file or folder.
+enum class NameKind { Missing, Link, Plain };
+using AttrFn = std::function<NameKind(const std::filesystem::path&)>;
+
 // Most entries one cooked folder's scan looks at; past it the scan is cut (and the set not complete).
 constexpr size_t kScanBudget = 200000;
 
@@ -44,6 +48,13 @@ constexpr size_t kScanBudget = 200000;
 // which.
 bool scan_tree(const std::filesystem::path& root, const ListFn& list, const IdFn& id, size_t budget, FileIds* ids, std::string* why);
 
+// The identities of the cooked files of every mod of a load order: `mod_dirs` is every enabled mod, with or without an
+// assets/assets.json (a data-only mod's cooked folder is reachable from another mod's manifest all the same). A mod
+// with no plain assets/cooked (none, or a link there: nothing of it is the mod's) adds nothing; a scan that is cut makes
+// the set not complete and says why in `cut`.
+CookedIds scan_load_order(const std::vector<std::filesystem::path>& mod_dirs, const ListFn& list, const IdFn& id, const AttrFn& attr,
+                          size_t budget = kScanBudget);
+
 // What may become of a file a manifest names, by what is known of its identity: Ok, Alias (a cooked file of a mod of the
 // load order under a name outside the reader's own assets/cooked: refused under every policy), Unproven (the cooked
 // folders were not all scanned, so it cannot be shown to be no such alias: refused under "local"), UnprovenWarn (the
@@ -51,9 +62,6 @@ bool scan_tree(const std::filesystem::path& root, const ListFn& list, const IdFn
 enum class AliasVerdict { Ok, Alias, Unproven, UnprovenWarn };
 AliasVerdict alias_verdict(bool named_cooked, bool in_cooked_ids, bool ids_complete, CookedPolicy policy);
 
-// What a path is, by its name (no link followed): missing, a link or junction, or a plain file or folder.
-enum class NameKind { Missing, Link, Plain };
-using AttrFn = std::function<NameKind(const std::filesystem::path&)>;
 
 // The by-name check of a file a manifest names: `base` (the mod's assets folder) itself and every component of `rel`
 // below it are plain (not a link or junction, by name), and are there. false with `why` otherwise.

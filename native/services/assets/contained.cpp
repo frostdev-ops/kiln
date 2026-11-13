@@ -81,15 +81,8 @@ std::wstring final_path_of(const std::filesystem::path& dir) {
 
 }  // namespace
 
-void add_cooked_ids(const std::filesystem::path& mod_dir, CookedIds* ids) {
-    const std::filesystem::path root = mod_dir / L"assets" / L"cooked";
-    // no cooked folder: no files; a link in its place: nothing of it is the mod's, and a read through it is refused
-    if (name_kind(root) != NameKind::Plain) return;
-    std::string why;
-    if (!scan_tree(root, list_dir, id_by_name, kScanBudget, &ids->ids, &why)) {
-        ids->complete = false;
-        ids->cut.push_back(narrow(mod_dir.wstring()) + ": " + why);
-    }
+CookedIds cooked_ids_of(const std::vector<std::filesystem::path>& mod_dirs) {
+    return scan_load_order(mod_dirs, list_dir, id_by_name, name_kind);
 }
 
 bool read_contained(const std::filesystem::path& base, const std::filesystem::path& file, std::vector<uint8_t>* out, std::string* why,

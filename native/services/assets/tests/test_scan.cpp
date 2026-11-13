@@ -114,6 +114,23 @@ int main(int argc, char** argv) {
     fs::create_directory_symlink(root / "elsewhere", linked_mod / "assets");
     CHECK(!names_plain(linked_mod / "assets", "x.bin", kind_posix, &why) && why.find("assets folder is a link") != std::string::npos);
 
+    // the load order's scan covers every enabled mod, with or without an assets.json: mod A is data-only (no
+    // assets/assets.json) with an unreceipted assets/cooked/payload.bin; mod B names assets/loose.bin, a link to A's
+    // file (a plain file under Wine). B's loose.bin is an alias, refused under every policy
+    const fs::path a = root / "mod-data-only", b = root / "mod-loose";
+    put(a / "kiln.mod.json", "{}");
+    put(a / "assets" / "cooked" / "payload.bin", "unreceipted, in a mod without a manifest");
+    put(b / "assets" / "assets.json", "{ \"format\": 1, \"entries\": [ { \"kind\": \"blob\", \"file\": \"loose.bin\" } ] }");
+    fs::create_symlink(a / "assets" / "cooked" / "payload.bin", b / "assets" / "loose.bin");
+    const CookedIds order = scan_load_order({a, b}, list_posix, id_posix, kind_posix);
+    CHECK(order.complete && order.ids.count(*id_posix(b / "assets" / "loose.bin")) == 1);
+    CHECK(alias_verdict(named_in_cooked("loose.bin"), order.ids.count(*id_posix(b / "assets" / "loose.bin")) != 0, order.complete,
+                        CookedPolicy::Local) == AliasVerdict::Alias);
+    // a mod whose cooked folder is a link adds nothing (a read through it is refused by name)
+    fs::create_directories(root / "mod-linked-cooked" / "assets");
+    fs::create_directory_symlink(a / "assets" / "cooked", root / "mod-linked-cooked" / "assets" / "cooked");
+    CHECK(scan_load_order({root / "mod-linked-cooked"}, list_posix, id_posix, kind_posix).ids.empty());
+
     CHECK(named_in_cooked("cooked/x.bin") && named_in_cooked("Cooked/sub/x.bin") && !named_in_cooked("cooked") && !named_in_cooked("x/cooked/y"));
 
     fs::remove_all(root);

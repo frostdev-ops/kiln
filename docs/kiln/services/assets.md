@@ -63,8 +63,8 @@ subfolders are allowed; absolute paths and `..` are rejected.
   links to folders; on Windows the final paths too: the assets folder's inside the mod folder's, the opened file's
   inside the assets folder's) makes the entry an error, as does a file whose identity (volume, file index) is that of a
   cooked file of any mod of the load order while its name is not under the mod's own `assets/cooked` (a Unix link to a
-  file is a plain file under Wine). The cooked folders are scanned whole (an explicit stack, no link followed, at most
-  200000 entries each); a scan that is cut is named in kiln.log, and then a file outside its own `assets/cooked` is
+  file is a plain file under Wine). The cooked folders of every enabled mod of the load order, with an `assets.json` or
+  not, are scanned whole (an explicit stack, no link followed, at most 200000 entries each); a scan that is cut is named in kiln.log, and then a file outside its own `assets/cooked` is
   refused under `"local"` and named under `"warn"`. The bytes come from the handle that was checked.
 - **A file in `assets/cooked`** (a `patch` blob too) is compared with the cook receipts of this game
   (`<game>/kiln/state/cook-receipts/*.json`, written by the cook tools when Kiln runs them:

@@ -11,10 +11,9 @@
 
 namespace ka {
 
-// Adds the identities of the files below `mod_dir`/assets/cooked to `ids` (scan_tree, no link followed). A scan that is
-// cut (a folder that cannot be listed, a file whose identity cannot be read, too many entries) marks `ids` not complete
-// and says why in `ids->cut`.
-void add_cooked_ids(const std::filesystem::path& mod_dir, CookedIds* ids);
+// The identities of the cooked files of every mod of the load order (scan_load_order with Windows queries: every enabled
+// mod, with or without an assets/assets.json).
+CookedIds cooked_ids_of(const std::vector<std::filesystem::path>& mod_dirs);
 
 // Reads `file` (base / a manifest's path, already free of "..") when it physically is a file of `base` (the mod's
 // assets folder): `base` itself and every folder and the file below it are no link or junction, by name (Wine reports

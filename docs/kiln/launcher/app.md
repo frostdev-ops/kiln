@@ -169,13 +169,14 @@ them (dev.27, `shell/cook.ts`, `cook_plan` / `cook_run`, `kiln_manage::cook`):
   else the game's data file), when its last cook failed, or when a file its last cook made is gone or is not the bytes
   that cook made (its receipt in `kiln/state/cook-receipts` says). That rule is one function, `cook::needs_cook`; the
   record it reads is the game's `kiln/state/cooked.json`. A vanilla start and "play once" do not cook.
-- **From nothing, and nothing lost.** A mod that needs a cook gets its `assets/cooked` and its receipts set aside and every
-  recipe run, also one whose own check calls it up to date (that check reads the mod's files, never the game). When the
-  cook ends well what was set aside goes; when it does not (a missing source, a cancel, a tool that fails) the mod gets
-  back the files and receipts of its last cook, and the mod's own files as they were. The set-aside is on disk: when
-  putting it back fails too, it stays, and the next cook puts it back before anything else (or does not start, and
-  names the folder). A mod whose cooked files no
-  receipt lists (an older Kiln's cook) is due too.
+- **From nothing, and nothing lost.** A mod that needs a cook gets its `assets/cooked` moved aside (to
+  `assets/.kiln-cooked-prev-<hex>/cooked`) and every recipe run, also one whose own check calls it up to date (that check
+  reads the mod's files, never the game). The same cook puts it back, with the receipts and the mod's own files it
+  remembered, when the cook does not end well (a missing source, a cancel, a tool that fails). A set-aside an earlier
+  cook left (its putting back failed, or it was stopped) is never read for anything else: when `assets/cooked` is
+  missing, the newest one's plain `cooked` folder becomes `assets/cooked` again (without receipts: the next cook that
+  ends well writes them), and every set-aside of the mod is deleted only after a cook of it that ended well. A mod whose
+  cooked files no receipt lists (an older Kiln's cook) is due too.
 - **What the player sees.** "Cooking <mod>" (or "Cooking N mods"), then the task with "Cooking <mod> (i of n)" and each
   line the tools print, then "Starting" as before. Nothing is said when nothing needs a cook.
 - **Never stuck.** Each tool runs within limits: 30 minutes for one recipe, 10 minutes without a line, 2 minutes for a
