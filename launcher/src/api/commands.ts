@@ -377,6 +377,9 @@ export interface OwnLoaderNote {
   copied: string[];
   /** Ids not in that folder: they do not load while the loader runs. */
   notCopied: string[];
+  /** ShroudForge's startup pass failed at its last start (sf_startup.rs; on a ShroudForge loader's notes only): the
+   * mods it writes into the game data did not load. `text` says what happened and what to change; this marks the line. */
+  startupFailed?: { error: string; at?: string; ownLoader: boolean; version?: string; mods: string[]; cure?: string };
   /** "EML's own loader (dbghelp.dll) is installed: it runs the EML mods in mods/; Kiln copied this profile's 3 EML mod(s) into mods/ for it." */
   text: string;
 }

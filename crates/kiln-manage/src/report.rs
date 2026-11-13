@@ -487,7 +487,7 @@ pub enum Level {
 pub struct Finding {
     /// Stable name: `not-installed`, `proxy-not-kiln`, `files-missing`, `files-changed`, `not-loaded`,
     /// `proton-override`, `unknown-build`, `safe-idle`, `own-loader`, `loader-in-folder`, `unlisted-mods`,
-    /// `mod-failed`, `hosted-mods`, `hosted-off`, `crash`, `profile-invalid`, `newer-mods`, `no-game`.
+    /// `mod-failed`, `hosted-mods`, `hosted-off`, `crash`, `profile-invalid`, `newer-mods`, `no-game`, `sf-startup-failed`.
     pub id: String,
     pub level: Level,
     pub text: String,
@@ -1248,6 +1248,13 @@ pub fn build(input: &ReportInput) -> Report {
     }
     if !any_engine {
         let _ = writeln!(ls, "  (no engine plugin wrote a state file)");
+    }
+    // ShroudForge's own record of its startup pass (sf_startup.rs): a failed pass leaves out every mod it writes into
+    // the game data, and only ShroudForge's own log said so (player report 327)
+    let under_wine = install.as_ref().map(|i| i.platform != Platform::Windows).unwrap_or(cfg!(not(windows)));
+    if let Some(f) = crate::sf_startup::failure(&game, under_wine) {
+        let _ = writeln!(ls, "ShroudForge's record of its startup pass (state.json \"assets\"): {}", f.line());
+        cx.find("sf-startup-failed", Level::Problem, format!("{}.", f.text()));
     }
     let aside: Vec<ModKind> = engines.iter().filter(|e| e.state.as_ref().is_some_and(stood_aside)).map(|e| e.kind).collect();
     // a plugin that says it did not stand aside, in a state file of the last start (boot.json's time or later)

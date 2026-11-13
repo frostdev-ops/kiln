@@ -714,6 +714,61 @@ fn writes_a_zip() {
     assert!(out.file_name().unwrap().to_string_lossy().starts_with("kiln-report-20"));
 }
 
+// ---------------------------------------------------------------- ShroudForge's own startup pass
+
+/// A game folder where ShroudForge's own loader 1.7.9 runs next to Kiln (kiln-shroudforge stood aside) and one
+/// made-up startup mod is switched on.
+fn sf_own_loader(name: &str) -> Fx {
+    let f = Fx::healthy(name);
+    f.w("dbghelp.dll", crate::pe::build_test_dll(&[], b"EML_LOG_FILE_PATH shroudforge"));
+    f.w("shroudforge/shroudforge-runtime.dll", b"runtime");
+    f.w("shroudforge/version.json", br#"{"version":"1.7.9"}"#);
+    // Kiln's own ShroudForge, which would run the mods if ShroudForge's own loader did not start itself
+    f.w("kiln/plugins/kiln-shroudforge.dll", b"adapter");
+    f.w("kiln/plugins/shroudforge/shroudforge-runtime.dll", b"runtime");
+    f.w("kiln/state/shroudforge.json", br#"{"format":1,"mode":"self-hosted","pid":412,"side":"client","source":"installed","updated":1794308400,
+        "reason":"ShroudForge's own bootstrap runs (Z:\\var\\home\\frostling\\Enshrouded\\winmm.dll)"}"#);
+    f.w("mods/bone-caller/mod.json", br#"{"id":"bone-caller","name":"Bone Caller","version":"1.0.0","capabilities":["patch","runtime"]}"#);
+    f.w("mods/bone-caller/extended.mod.json", br#"{"schemaVersion":1,"enabled":true,"targets":["client"],"settings":{}}"#);
+    f.w("mods/bone-caller/src/mod.lua", "return {}");
+    f.w("mods/sky-lamp/mod.json", br#"{"id":"sky-lamp","name":"Sky Lamp","version":"1.0.0","capabilities":["runtime"]}"#);
+    f.w("mods/sky-lamp/extended.mod.json", br#"{"schemaVersion":1,"enabled":true,"targets":["client"],"settings":{}}"#);
+    f.w("mods/sky-lamp/src/mod.lua", "return {}");
+    f
+}
+
+/// Player report 327 (13 Nov 2026, a client under Proton): ShroudForge's own loader 1.7.9 ran next to Kiln, could not
+/// write its startup mods into the game data ("pregame phase failed: ... (os error 5)", its fault under Wine and
+/// Proton) and started the game without them. The launcher showed the mod as on and the report had no word of it: the
+/// player had to find ShroudForge's own log. ShroudForge's record of the pass (`shroudforge/state.json` "assets") is
+/// now a finding that names the mods and what to change.
+#[test]
+fn shroudforges_own_failed_startup_pass_is_a_finding() {
+    let f = sf_own_loader("sf-pass");
+    let mut i = f.input();
+    i.install = Some(f.install(Platform::Proton));
+    // an applied pass is nothing to find
+    f.w("shroudforge/state.json", br#"{"schemaVersion":1,"assets":{"schemaVersion":1,"status":"applied","phase":"startup","target":"enshrouded",
+        "completedAt":1794308414,"fingerprint":"f","mods":[{"id":"bone-caller","version":"1.0.0"}]}}"#);
+    assert!(!ids(&build(&i)).contains(&"sf-startup-failed"));
+    // ShroudForge quotes the system's message, in the system's language
+    f.w("shroudforge/state.json", r#"{"schemaVersion":1,"assets":{"schemaVersion":1,"status":"failed","phase":"startup","target":"enshrouded",
+        "completedAt":1794308414,"error":"pregame phase failed: Accès refusé. (os error 5)"}}"#);
+    let r = build(&i);
+    let s = finding(&r, "sf-startup-failed");
+    assert_eq!(s.level, Level::Problem);
+    assert!(s.text.starts_with("ShroudForge 1.7.9's own loader could not write"), "{}", s.text);
+    assert!(s.text.contains("pregame phase failed: Accès refusé. (os error 5)"), "ShroudForge's own words: {}", s.text);
+    assert!(s.text.contains("2026-11-10T11:00:14Z"), "when: {}", s.text);
+    assert!(s.text.contains("(bone-caller)") && !s.text.contains("sky-lamp"), "only the mods that need the pass: {}", s.text);
+    assert!(s.text.contains("WINEDLLOVERRIDES") && s.text.contains("dbghelp") && s.text.contains("dinput8=n,b"), "the cure: {}", s.text);
+    assert!(r.summary.contains("ShroudForge's record") && r.summary.contains("failed"), "{}", r.summary);
+    // on Windows the same record is said without the Wine cure
+    let w = build(&f.input());
+    let s = finding(&w, "sf-startup-failed");
+    assert!(s.text.contains("(os error 5)") && !s.text.contains("WINEDLLOVERRIDES"), "{}", s.text);
+}
+
 #[test]
 fn print_fixture_summary() {
     // `cargo test -p kiln-manage report::tests::print_fixture_summary -- --nocapture` shows a fixture's summary.txt

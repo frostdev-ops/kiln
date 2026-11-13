@@ -52,6 +52,13 @@ Notes:
 - **Steam Deck / Linux:** when Kiln hosts ShroudForge you need no extra `WINEDLLOVERRIDES` beyond Kiln's own
   (`dinput8=n,b`). Its switches/settings use the game's existing Kiln overlay, so they do not depend on gamescope
   presenting a separate WebView window. Actual Deck rendering and controller navigation still need client testing.
+  - If your launch options still have `dbghelp=n,b` and `winmm=n,b` from a ShroudForge installation, ShroudForge's own
+    loader starts itself and Kiln stays out of its way. ShroudForge 1.7.9's own loader cannot write startup mods (the
+    ones that change game data) into the game files under Wine or Proton: its log says `pregame phase failed: ...
+    (os error 5)` and it marks those mods as failed, at every start. The ShroudForge that comes with Kiln does not have
+    this fault. Take `dbghelp=n,b` and `winmm=n,b` out of the launch options and keep `dinput8=n,b`: Kiln then runs the
+    ShroudForge mods of your profile itself. From 0.2.0-dev.27 the launcher's engine list and the support report say
+    this when it happens ([shroudforge-compat.md](shroudforge-compat.md#57-shroudforges-own-loader-under-wine-and-proton)).
 - **Updates:** the bundled runtime updates with Kiln. While Kiln hosts your installed copy, ShroudForge does not update
   itself at game start, so its updater cannot replace Kiln's `dinput8.dll`. To update your own ShroudForge, run its
   updater (`shroudforge/shroudforge.exe`) with the game closed. If it puts its own `dinput8.dll` back, reinstall Kiln

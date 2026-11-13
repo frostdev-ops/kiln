@@ -461,6 +461,47 @@ install without ShroudForge, `keys` says `kiln`, kiln.log has `key state from Ki
 lets go after Alt+Tab; one tap is one action (a toggle does not toggle twice); a key Kiln's menu or a Kiln binding
 takes (Insert, a bound key) still reaches SF's shortcut state; Print Screen bound as a shortcut fires once.
 
+### 5.7 ShroudForge's own loader under Wine and Proton
+
+A self-hosted ShroudForge (its own `dbghelp.dll` loaded through `WINEDLLOVERRIDES=dbghelp=n,b`) is upstream's code,
+not the fork's. Upstream 1.7.9 publishes its startup pass with its reader still open on `<exe>.kfc_resources`
+(`KFCCursor::new` in kfc-base's `container/reader.rs` opens it for the session's lifetime; `commit_assets` calls
+`transaction::commit`, whose `replace` removes the target and renames the staged file onto its path). Windows deletes
+the open file at once and the rename succeeds. Under Wine and Proton the removal returns success but the name stays
+until the last handle closes, so the rename is refused with "Access denied (os error 5)", the recovery in `commit` is
+refused the same way, and the abort in the session's `Drop` (still before the reader closes) a third time. ShroudForge's log then has
+`Failed to abort typed asset transaction error=... (os error 5)`, `pregame phase failed: ... (os error 5)`,
+`Asset mods failed; saved baseline restored` and, per mod, `startup-asset-apply-required: the early startup transaction
+did not publish this asset configuration`. The game data is put back (the reader is closed by then), the game starts,
+and every startup mod (capability `patch`, and the EML packages ShroudForge runs) is missing. Because a failed pass is
+not "prepared", this repeats at every start. The fork closes the reader before publishing (`03b4950`, section 5.0), and
+upstream's 1.8.0 branch does the same with this cause in its comment.
+
+Evidence (player report 327, 13 Nov 2026, a client under Proton with ShroudForge 1.7.9 next to Kiln 0.2.0-dev.25): the three log lines above with `os error 5`, `kiln/state/shroudforge.json` `mode: self-hosted`. The
+two publication modules were run as they are on made-up files under Proton Experimental's and GE-Proton11-11's Wine
+(both 11.0), with a second handle on the resource file as the session has it: upstream 1.7.9 fails in `commit` and in
+the abort with os error 5 and recovers once the handle is closed; with the handle closed first, upstream's and the
+fork's `commit` both publish. The two calls of `replace` alone, under Proton Experimental: `remove_file` of the open
+target returns success and the file still exists, `rename` onto it is refused with os error 5, and after the handle is
+closed the file is gone and the rename succeeds. Not run: the player's mod (it carries Lua), and a game with upstream's
+own loader.
+
+What Kiln does about it (it cannot fix the other loader's process, and it never moves a loader the player installed):
+`crates/kiln-manage/src/sf_startup.rs` reads ShroudForge's own record of the pass (`<paths.state>/state.json`
+`assets`). A `failed` record of the last start becomes
+
+- a sentence on ShroudForge's line of the launcher's engine list (`own_loaders::notes`, `OwnLoaderNote.startupFailed`,
+  shown as a warning) and a pointer on the EML line of the same loader: who ran the pass, ShroudForge's own words, the
+  switched-on packages that need the pass on this side, and
+- the support report's finding `sf-startup-failed` with the record's line under "The last start".
+
+For this fault (Wine or Proton, `os error 5`, a ShroudForge before 1.8.0, Kiln's own ShroudForge installed) the sentence
+names the cure: take `dbghelp` and `winmm` out of `WINEDLLOVERRIDES` in the game's Steam launch options and keep
+`dinput8=n,b`; Kiln then hosts its own ShroudForge for the profile's ShroudForge mods. When Kiln hosted the player's
+installed 1.7.9 ("Use my installed ShroudForge"), which runs the same code, the cure is that setting. The in-game Mods
+page reads the same record and ShroudForge's per-mod errors while the game runs ([ui.md](ui.md)); what was missing is
+the launcher and the report, which the player sees once the game is closed.
+
 ## 6. What other agents need to do (detect, launcher)
 
 - **Installer** (agent `detect`, `install.rs`): when ShroudForge is installed, install "next to ShroudForge" by default.
