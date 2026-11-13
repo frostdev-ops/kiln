@@ -427,7 +427,7 @@ public sealed class FuelKeep : IDisposable
     internal void Raise(FuelChange[] changes)
     {
         if (!Active) return;
-        FuelKeepers.Note(this, changes, Lifecycle.ServerSession, ServiceTick.Step);
+        FuelKeepers.Note(this, changes, Lifecycle.ServerSession, ServiceTick.Step, id => Items.Get(id)?.Name);
         Interlocked.Add(ref _units, changes.Sum(c => (long)Math.Max(0, c.After - c.Before)));
         try
         {
@@ -446,6 +446,7 @@ public sealed class FuelKeep : IDisposable
         if (h == 0) return;
         Items.Fuel.End(h);
         Items.Fuel.Forget(_key);
+        FuelKeepers.Forget(Id);  // its reports name it no more, and hold nothing of it or its handlers
         Detach?.Invoke();
         Detach = null;
     }
@@ -456,11 +457,14 @@ public sealed class FuelKeep : IDisposable
 /// covers back to its level each step, after the game's programs (native/services/items/items.cpp, run_fuel_jobs;
 /// kiln_items is registered before kiln_world_writes, so in the step after a write the refill runs first and the check
 /// sees what it left), and reports each container it changed once per Pre (on_refill, <see cref="FuelKeep.Raise"/>). A
-/// refill is named only when its report for the container arrived in this Pre or the one before (the step the write was
-/// checked in), starts from exactly the units the write left, changes them, and the refill is still set in the running
-/// server world. Otherwise nothing is named: a refill that covers the container but did not write (one capped below the
-/// value, one of a world that closed) never is. Only the policies set through <see cref="Items.Fuel.Refill"/> report
-/// here; a native plugin's fuel_keep does not.</summary>
+/// refill is named only when its report for the container arrived in the same Pre as the write's answer (kiln-items
+/// delivers its Pre before kiln-world: the report of the step the write was checked in, never one of the step it was
+/// applied in, which came a Pre earlier), starts from exactly the units the write left, left exactly the units the
+/// container holds now (what the check found), and the refill was set in the running server world and is not disposed.
+/// Otherwise nothing is named: a refill that covers the container but did not write (one capped below the value, one of a
+/// world that closed, one whose change came before the write) never is. A report keeps the refill's number and name, not
+/// the refill: a disposed refill's reports are dropped and nothing of it or its handlers stays here. Only the policies
+/// set through <see cref="Items.Fuel.Refill"/> report here; a native plugin's fuel_keep does not.</summary>
 internal static class FuelKeepers
 {
     internal static readonly ComponentKeepers.Keeper Keeper = Who;
@@ -471,7 +475,8 @@ internal static class FuelKeepers
     /// <summary>The newest reports kept per container.</summary>
     private const int PerContainer = 4;
 
-    internal readonly record struct Report(FuelKeep Keep, int Before, int After, long Session, ulong Step);
+    /// <summary>One change a refill reported: the refill by its number, its name and the server world it was set in.</summary>
+    internal readonly record struct Report(ulong Keep, string Name, long KeepSession, int Before, int After, long Session, ulong Step);
 
     private static readonly object Gate = new();
     private static readonly Dictionary<EntityId, List<Report>> Last = new();
@@ -479,8 +484,9 @@ internal static class FuelKeepers
 
     /// <summary>A refill's report (tick thread, Pre): what it changed, stamped with the server world and the service step
     /// it arrived in.</summary>
-    internal static void Note(FuelKeep keep, IReadOnlyList<FuelChange> changes, long session, ulong step)
+    internal static void Note(FuelKeep keep, IReadOnlyList<FuelChange> changes, long session, ulong step, Func<ItemId, string?>? name = null)
     {
+        var text = keep.Describe(keep.Item.IsNone ? null : name?.Invoke(keep.Item));
         lock (Gate)
         {
             if (session != _session)
@@ -492,13 +498,27 @@ internal static class FuelKeepers
             {
                 if (c.Before == c.After) continue;
                 if (!Last.TryGetValue(c.Container, out var list)) Last[c.Container] = list = [];
-                list.Add(new Report(keep, c.Before, c.After, session, step));
+                list.Add(new Report(keep.Id, text, keep.Session, c.Before, c.After, session, step));
                 if (list.Count > PerContainer) list.RemoveAt(0);
             }
             // only the last two steps matter: drop the rest so the map stays as small as the refills' reach
             if (Last.Count > 4096)
                 foreach (var stale in Last.Where(e => e.Value[^1].Step + 2 < step).Select(e => e.Key).ToList()) Last.Remove(stale);
         }
+    }
+
+    /// <summary>A disposed refill: its reports go.</summary>
+    internal static void Forget(ulong keep)
+    {
+        lock (Gate)
+            foreach (var (container, list) in Last.ToList())
+                if (list.RemoveAll(r => r.Keep == keep) > 0 && list.Count == 0) Last.Remove(container);
+    }
+
+    /// <summary>Tests: how many reports of the refill numbered <paramref name="keep"/> are kept.</summary>
+    internal static int Reports(ulong keep)
+    {
+        lock (Gate) return Last.Values.Sum(list => list.Count(r => r.Keep == keep));
     }
 
     /// <summary>Tests: forget every report.</summary>
@@ -512,14 +532,13 @@ internal static class FuelKeepers
     }
 
     private static string? Who(EntityId entity, string component, int offset, ReadOnlyMemory<byte> written) =>
-        component == "Fuel" ? Attribute(entity, offset, written.Span, Lifecycle.ServerSession, ServiceTick.Step, id => Items.Get(id)?.Name) : null;
+        component == "Fuel" ? Attribute(entity, offset, written.Span, Items.Fuel.Read(entity)?.Units, Lifecycle.ServerSession, ServiceTick.Step) : null;
 
-    /// <summary>The refill that wrote over the units a tracked write left in <paramref name="container"/>, or null when
-    /// that cannot be shown (see the class).</summary>
-    internal static string? Attribute(EntityId container, int offset, ReadOnlySpan<byte> written, long session, ulong step,
-        Func<ItemId, string?>? name = null)
+    /// <summary>The refill that wrote over the units a tracked write left in <paramref name="container"/>, which now holds
+    /// <paramref name="now"/> units (null: not known), or null when that cannot be shown (see the class).</summary>
+    internal static string? Attribute(EntityId container, int offset, ReadOnlySpan<byte> written, int? now, long session, ulong step)
     {
-        if (step == 0 || offset < 0 || offset > UnitsOffset || offset + written.Length < UnitsOffset + 4) return null;  // the units are not in the write
+        if (now is null || step == 0 || offset < 0 || offset > UnitsOffset || offset + written.Length < UnitsOffset + 4) return null;  // the units are not in the write
         var units = BitConverter.ToInt32(written[(UnitsOffset - offset)..]);
         Report[] reports;
         lock (Gate)
@@ -530,9 +549,9 @@ internal static class FuelKeepers
         for (var i = reports.Length - 1; i >= 0; i--)
         {
             var r = reports[i];
-            if (r.Session != session || r.Step + 1 < step || r.Step > step) continue;  // not this Pre or the one before
-            if (r.Before != units || !r.Keep.Current) continue;
-            return r.Keep.Describe(r.Keep.Item.IsNone ? null : name?.Invoke(r.Keep.Item));
+            if (r.Session != session || r.KeepSession != session || r.Step != step) continue;  // not this world, or not this Pre's report
+            if (r.Before != units || r.After != now) continue;  // not from the value the write left, or not what the check found
+            return r.Name;
         }
         return null;
     }

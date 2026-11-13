@@ -105,8 +105,8 @@ using var sub = Events.On<ComponentWrittenEvent>(e => Log.Info($"{e.Component} o
   every step, after the game's programs, so a tracked write of such a container's `Fuel` lasts one step. The answer
   then names the refill instead of the game: `Kept == false` and `WrittenOverBy` = `"kiln.items' water refill 1 (keep
   full) of the inventories of 1, set by kiln"` (the number is kiln.log's `refill 1: ...`). A refill is named only from
-  its own report of the step the write was checked in, changing exactly the units the write left, and only while it is
-  set in the running server world: one that covers the container but did not write (a refill capped below the value,
+  its own report of the step the write was checked in (not of the step it was applied in), changing exactly the units
+  the write left into the units the check found, and only while it is set in the running server world and not disposed: one that covers the container but did not write (a refill capped below the value,
   one of a world that has closed) is never named, and when that cannot be shown `WrittenOverBy` is null. End the refill (dispose its
   `FuelKeep`; for a `Water` rule, end the rule set that carries it) or narrow it to other items before the write, or
   change the water through the refill's own policy. Without a refill on it, a can a player carries keeps a tracked
