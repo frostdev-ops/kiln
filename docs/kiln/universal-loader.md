@@ -42,7 +42,8 @@ Creative Mode's loader has no public source. Its facts come from the static note
    0.5.x. EMF 0.5 also builds EML content mods (a separate GPL-3.0 `emf_content.dll`), reads ModLoader Proxy's
    `chainloader.ini`, and writes the DLLs it renamed into a new `[EMF]` section of `dinput8-chain.ini`. Kiln's proxy
    reads only `[Chain]` and the lines before any section, so with kiln-emf in place of EMF's loader, the DLLs in
-   `[EMF]` stop loading. Details in section 2.1.
+   `[EMF]` stop loading. Details in section 2.1. (Since done: the proxy reads `[EMF]` too, always; see
+   [engines.md](engines.md), "Proxy".)
 4. **ShroudForge on GitHub is 1.8.0-dev** (`bonsaibauer/shroudforge`, releases `v1.8.0-dev.*` on 6 and 7 Nov). The
    local copy in `~/Work/kiln-shroudforge` is 1.7.7. The SF agent should diff 1.8 before freezing its API table.
 5. **`powrprof.dll` is the most contested proxy name.** SET, Enshwick, Ember, Shared XP and Creative Mode's server

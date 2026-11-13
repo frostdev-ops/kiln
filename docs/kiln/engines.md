@@ -59,7 +59,10 @@ Kiln owns only `dinput8.dll`.
 
 ## Proxy
 
-The proxy reads `dinput8-chain.ini` `[Chain]` and `[EMF]` (the DLLs EMF 0.5's installer renamed) in file order. Both
+The proxy reads `dinput8-chain.ini` `[Chain]` and `[EMF]` (the DLLs EMF 0.5's installer renamed) in file order. A
+comment may follow a name after a space or tab (`mymod.dll ; my mod`, also `#`), and a name may stand in double quotes,
+as EMF's shared spec for the file says (`docs/modding/dinput8-chain.md` in matenm/emf-enshrouded); Kiln's own
+`kiln\chain.ini` keeps its stricter rules ([contracts](launcher/contracts.md) 5.3). Both sections
 use EMF's rules: relative paths inside the game folder only (including the final target of directory links), at most
 256 entries across both sections, dedupe by canonical path. Files above 256 KiB are ignored. One overflow entry is
 reported as refused; further entries are discarded. EMF's loader is accepted by its exports even without its marker,

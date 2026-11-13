@@ -5,6 +5,7 @@
 #include <fstream>
 #include <iterator>
 #include <string>
+#include <vector>
 #include "../dinput8.cpp"
 
 static unsigned checks = 0;
@@ -71,6 +72,45 @@ int main(int argc, char** argv) {
         std::ofstream(game / L"kiln" / L"chain.ini") << "[chain]\n";
         log = start();
         CHECK(log.find(hint) == std::string::npos);
+    }
+    // EMF's shared dinput8-chain.ini spec: a quoted name and a comment after a name count there; Kiln's own files
+    // keep kini.py's rules.
+    {
+        const auto game = root / L"shared-spec";
+        fs::create_directories(game / L"kiln");
+        const auto file = game / L"dinput8-chain.ini";
+        const char* text =
+            "[Chain]\r\n\"quoted.dll\"\r\nnamed.dll ; a comment\r\ntabbed.dll\t# a comment\r\n"
+            "key = \"keyed.dll\" ; a comment\r\nplain.dll\r\n\"mods\\with space\\x.dll\"\r\n; off.dll\r\nodd #1.dll\r\n";
+        auto read = [&](bool shared, std::vector<std::wstring>* out) {
+            std::ofstream(file, std::ios::binary) << text;
+            List list{};
+            Section sections[] = {{L"chain", &list}};
+            read_dll_list(file.c_str(), &list, sections, 1, shared);
+            out->clear();
+            for (uint32_t i = 0; i < list.count; ++i) out->emplace_back(list.items[i]);
+        };
+        std::vector<std::wstring> got;
+        read(true, &got);
+        const std::vector<std::wstring> shared = {L"quoted.dll", L"named.dll", L"tabbed.dll", L"keyed.dll", L"plain.dll",
+                                                  L"mods\\with space\\x.dll"};
+        CHECK(got == shared);
+        read(false, &got);
+        CHECK((got == std::vector<std::wstring>{L"plain.dll", L"odd #1.dll"}));
+        // The proxy's own read of the game's dinput8-chain.ini takes them: proxy.log names each (missing here).
+        lstrcpynW(g_game, game.c_str(), kPath);
+        lstrcpynW(g_kiln, (game / L"kiln").c_str(), kPath);
+        std::ofstream(file, std::ios::binary) << "[Chain]\r\n\"ghost-a.dll\"\r\nghost-b.dll ; not here\r\n";
+        open_log();
+        load_chain(false, false);
+        CloseHandle(g_log);
+        g_log = INVALID_HANDLE_VALUE;
+        std::ifstream in(game / L"kiln" / L"logs" / L"proxy.log", std::ios::binary);
+        const std::string log((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        std::printf("shared spec: %s", log.c_str());
+        CHECK(log.find("ghost-a.dll") != std::string::npos);
+        CHECK(log.find("ghost-b.dll") != std::string::npos);
+        CHECK(log.find("not here") == std::string::npos);
     }
     std::printf("proxy chain: %u checks passed\n", checks);
     return 0;
