@@ -30,12 +30,12 @@ target_include_directories(kiln-emf PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/include
                                             "${CMAKE_SOURCE_DIR}/services/players")  # kiln_progression.h
 
 # The conformance probe (an EMF mod, mods/tests/emf-test/probe): bin/emf-test/emf_probe.dll, for labs only
-# (tools/emf/lab-check.sh installs it into <game>/emf/mods/emf_probe/). Built against EMF's header alone.
+# (tools/emf/lab-check.py installs it into <game>/emf/mods/emf_probe/). Built against EMF's header alone.
 add_library(emf-probe SHARED "${CMAKE_SOURCE_DIR}/../mods/tests/emf-test/probe/emf_probe.cpp")
 target_include_directories(emf-probe PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/include")
 set_target_properties(emf-probe PROPERTIES OUTPUT_NAME emf_probe RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin/emf-test")
 
-# v27 conformance probe: lab only, never packaged as a player mod.
+# Mod messages conformance probe (mods/tests/emf-net-test): lab only, never packaged as a player mod.
 add_library(emf-net-probe SHARED "${CMAKE_SOURCE_DIR}/../mods/tests/emf-net-test/probe.cpp")
 target_include_directories(emf-net-probe PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/include")
 set_target_properties(emf-net-probe PROPERTIES OUTPUT_NAME emf_net_probe RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin/emf-test")

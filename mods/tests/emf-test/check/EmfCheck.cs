@@ -44,10 +44,16 @@ public sealed class EmfCheckMod : Mod
         var state = JsonNode.Parse(File.ReadAllText(Path.Combine(kiln, "state", "emf.json")))!;
         var mods = state["mods"]!.AsArray().ToDictionary(m => (string)m!["id"]!, m => m!);
         string Status(string id) => mods.TryGetValue(id, out var m) ? (string)m["status"]! : "absent";
-        Check((bool)state["steppedAside"]! == false && (int)state["emfApi"]! == 27, "state/emf.json: kiln-emf runs, EmfApi v27");
+        Check((bool)state["steppedAside"]! == false && (int)state["emfApi"]! == 40, "state/emf.json: kiln-emf runs, EmfApi v40");
+        // EMF's own mods are checked where the lab has them (a lab with the probes alone has none)
         foreach (var id in new[] { "big_stacks", "herald", "server-admin", "sleep", "teleports" })
-            Check(Status(id) == "loaded", $"state/emf.json: {id} loaded ({Status(id)})");
-        Check(Status("clock") == "rejected", $"state/emf.json: clock (side client) is not loaded on a server ({Status("clock")})");
+        {
+            if (Status(id) == "absent") Log.Info($"SKIP state/emf.json: {id} is not installed in this lab");
+            else Check(Status(id) == "loaded", $"state/emf.json: {id} loaded ({Status(id)})");
+        }
+        if (Status("clock") == "absent") Log.Info("SKIP state/emf.json: clock is not installed in this lab");
+        else Check(Status("clock") == "rejected", $"state/emf.json: clock (side client) is not loaded on a server ({Status("clock")})");
+        Check(Status("emf_probe") == "loaded", $"state/emf.json: emf_probe (built for EmfApi v40) loaded ({Status("emf_probe")})");
 
         // big_stacks through Kiln's registry: every stackable item x4, at most 9999 (its defaults)
         if (Status("big_stacks") == "loaded")

@@ -1,18 +1,20 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
-"""kiln-emf lab check: installs the probe (an EMF mod) and the Kiln-side cross-check into a lab that runs kiln-emf and
-the EMF mods, starts the lab, drives server-admin's file protocol and emf/commands.txt, and prints one row per EMF mod
+"""kiln-emf lab check: installs the two probes (EMF mods) and the Kiln-side cross-check into a lab that runs kiln-emf
+(with or without EMF's own mods), starts the lab, drives server-admin's file protocol and emf/commands.txt, and prints one row per EMF mod
 (loads / works / evidence) from kiln.log, then stops the lab.
 
     KILN_OUT=<build dir> tools/emf/lab-check.py emf          # lab name (tools/lab/lab.sh)
-    tools/emf/lab-check.py emf --no-start                            # the lab already runs
+    tools/emf/lab-check.py emf --install-only                        # only put the probes and the check mod in place
+    tools/emf/lab-check.py emf --no-start                            # the lab already runs (started by a wave's labstart)
 
 Needs: kiln-emf deployed (tools/deploy-server.sh), the EMF mods in <lab>/emf/mods/ (switched on in
 <lab>/kiln/config/emf/<id>.ini), native targets emf-probe and the check mod built:
-    native/build.sh kiln-emf emf-probe
+    native/build.sh kiln-emf emf-probe emf-net-probe
     dotnet build mods/tests/emf-test/check -c Release -o $KILN_OUT/mods/emf-check --artifacts-path $KILN_OUT/dotnet
 Player-free: things only a joined player can show are in docs/kiln/emf.md ("client checklist").
 """
+import filecmp
 import json
 import os
 import re
@@ -25,6 +27,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[2]
 lab = sys.argv[1] if len(sys.argv) > 1 else "emf"
 no_start = "--no-start" in sys.argv
+install_only = "--install-only" in sys.argv
 L = Path.home() / "srv/enshrouded/labs" / lab
 OUT = Path(os.environ.get("KILN_OUT", REPO / ".out/emf"))
 LOG = L / "kiln/logs/kiln.log"
@@ -34,15 +37,26 @@ def sh(*a):
     return subprocess.run([str(x) for x in a], capture_output=True, text=True)
 
 
+def put(src, folder):
+    """Copies src into folder unless the same file is there: a running server has its DLLs mapped."""
+    dst = folder / Path(src).name
+    if not (dst.exists() and filecmp.cmp(src, dst, shallow=False)):
+        shutil.copy2(src, dst)
+
+
 def install():
     probe = L / "emf/mods/emf_probe"
     probe.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(OUT / "cmake/bin/emf-test/emf_probe.dll", probe)
-    shutil.copy2(REPO / "mods/tests/emf-test/probe/mod.json", probe)
+    put(OUT / "cmake/bin/emf-test/emf_probe.dll", probe)
+    put(REPO / "mods/tests/emf-test/probe/mod.json", probe)
+    net = L / "emf/mods/emf_net_probe"
+    net.mkdir(parents=True, exist_ok=True)
+    put(OUT / "cmake/bin/emf-test/emf_net_probe.dll", net)
+    put(REPO / "mods/tests/emf-net-test/mod.json", net)
     check = L / "kiln/mods/emf-check"
     check.mkdir(parents=True, exist_ok=True)
     for f in ("EmfCheck.dll", "kiln.mod.json"):
-        shutil.copy2(OUT / "mods/emf-check" / f, check)
+        put(OUT / "mods/emf-check" / f, check)
 
 
 def wait_for(pattern, timeout):
@@ -75,6 +89,8 @@ def commands(lines):
 
 def main():
     install()
+    if install_only:
+        return 0
     started = False
     if not no_start:
         sh(REPO / "tools/lab/lab.sh", "stop", lab)
@@ -83,7 +99,23 @@ def main():
     ok_probe = wait_for(r"emf-probe done", 300)
     ok_check = wait_for(r"emf-check done", 120)
     results = {}
-    # server-admin's own protocol
+    status = json.loads((L / "kiln/state/emf.json").read_text())
+    mods = {m["id"]: m for m in status["mods"]}
+    if "server-admin" in mods:
+        server_admin(results)
+    mark = LOG.stat().st_size
+    commands(["players", "herald.say lab-check line", "sleep.status", "tp.list", "tp.pos #1 100 200 300", "lua.status",
+              "qs.list", "raids.status", "loot.status", "champion.where", "emf.mods"])
+    tail = LOG.read_text(errors="replace")[mark:]
+    log = LOG.read_text(errors="replace")
+    report(results, mods, tail, log, ok_probe, ok_check)
+    if started:
+        sh(REPO / "tools/lab/lab.sh", "stop", lab)
+    return 0 if ok_probe and ok_check and all(r[0] for r in results.values()) else 1
+
+
+def server_admin(results):
+    """server-admin's own file protocol (a lab that has that mod)."""
     st = json.loads((L / "shroudforge/runtime/admin/engine/state.json").read_text())
     cur = next(s["value"] for s in st["settings"] if s["key"] == "experienceCombatFactor")
     ping = admin("ping")
@@ -95,17 +127,17 @@ def main():
     bad = admin("settings.set", key="experienceCombatFactor", value=9, expected=cur)
     save = admin("save")
     results["server-admin"] = (
-        ping.get("ok") and ping["data"].get("api") == 27 and items.get("ok") and items["data"]["count"] > 4000 and sset.get("ok")
+        ping.get("ok") and ping["data"].get("api") == 40 and items.get("ok") and items["data"]["count"] > 4000 and sset.get("ok")
         and sres.get("ok") and not bad.get("ok") and save.get("ok"),
         f"ping api {ping['data'].get('api')}; items {items['data'].get('count')} (wood max stack {wood[0]['maxStack'] if wood else '?'}); "
         f"settings.set {new} {'ok' if sset.get('ok') else 'FAIL'} (read back {sset['data'].get('value')}), reset {'ok' if sres.get('ok') else 'FAIL'}, "
         f"out of range refused {'yes' if not bad.get('ok') else 'NO'}; save {'acknowledged by on_save' if save.get('ok') else 'FAIL'}; "
         f"{len(st['settings'])} world settings published")
-    mark = LOG.stat().st_size
-    commands(["players", "herald.say lab-check line", "sleep.status", "tp.list", "tp.pos #1 100 200 300", "lua.status",
-              "qs.list", "raids.status", "loot.status", "champion.where", "emf.mods"])
-    tail = LOG.read_text(errors="replace")[mark:]
-    log = LOG.read_text(errors="replace")
+
+
+def report(results, mods, tail, log, ok_probe, ok_check):
+    """One row per EMF mod of the lab. A check of a mod the lab does not have is left out: a lab with the probes alone
+    (or with a few mods built from EMF's source) is a lab too."""
 
     def has(rx, text=log):
         return re.search(rx, text, re.M) is not None
@@ -115,7 +147,6 @@ def main():
         return m.group(1) if m else None
 
     status = json.loads((L / "kiln/state/emf.json").read_text())
-    mods = {m["id"]: m for m in status["mods"]}
     cmds = {c["name"]: c for c in status.get("commands", [])}
     raised = grab(r"\[emf:big_stacks\] raised the stack size of (\d+) item")
     formula = has(r"PASS Kiln\.Content: \d+ items raised by the formula")
@@ -140,15 +171,21 @@ def main():
                       "ready; its program registered (needs a player to act)")
     for m in ("beastmaster", "bounty", "champion", "grave", "handover", "kill_counter", "life_skills", "necromancer"):
         results[m] = (has(rf"\[emf:{m}\] running \(main\.lua\)"), "run by the lua mod")
+    results["minimap"] = (mods.get("minimap", {}).get("status") == "rejected", "side client: not loaded on a dedicated server (client checklist)")
+    for m in [m for m in results if m not in mods and m != "server-admin"]:
+        del results[m]  # not in this lab
     probe = grab(r"emf-probe done: (\d+ PASS, \d+ FAIL)")
     results["emf_probe"] = (probe is not None and probe.endswith(" 0 FAIL"), f"conformance probe: {probe}")
-    # EMF 0.5 mods (built against EmfApi v26): the v27 table is a superset, so they load
+    net = grab(r"EMF v40 lab probe done: (\d+ PASS, \d+ FAIL)")
+    if "emf_net_probe" in mods:
+        results["emf_net_probe"] = (net is not None and net.endswith(" 0 FAIL"), f"mod messages probe: {net}")
+    # EMF's other shipped mods: the v40 table is a superset of every earlier one, so mods built for an older EMF load too
     for m, rx in (("blessings", r"\[emf:blessings\] "), ("event_log", r"\[emf:event_log\] "), ("guid_dump", r"\[emf:guid_dump\] "),
                   ("model_probe", r"\[emf:model_probe\] "), ("model_survey", r"\[emf:model_survey\] "),
                   ("npc_explorer", r"\[emf:npc_explorer\] "), ("sample_mod", r"\[emf:sample_mod\] "),
                   ("sim_rate", r"\[emf:sim_rate\] "), ("write_test", r"\[emf:write_test\] ")):
         if m in mods:
-            results[m] = (mods[m]["status"] == "loaded" and has(rx), "built for EmfApi v26, loaded on v27; " + (mods[m].get("reason") or "ready"))
+            results[m] = (mods[m]["status"] == "loaded" and has(rx), "loaded on the v40 table; " + (mods[m].get("reason") or "ready"))
     chk = grab(r"emf-check done: (\d+ PASS, \d+ FAIL)")
     results["(emf-check)"] = (chk is not None and chk.endswith(" 0 FAIL"), f"Kiln-side cross-check: {chk}")
 
@@ -161,9 +198,6 @@ def main():
         print(f"{mid:14} {st_:9} {('PASS' if ok else 'FAIL') if ok is not None else '-':5}  {ev}{'  [not supported: ' + ', '.join(miss) + ']' if miss else ''}")
     faults = [m["id"] for m in status["mods"] if m.get("faults")]
     print(f"faulted callbacks: {faults or 'none'}; probe {'ran' if ok_probe else 'TIMED OUT'}, check {'ran' if ok_check else 'TIMED OUT'}")
-    if started:
-        sh(REPO / "tools/lab/lab.sh", "stop", lab)
-    return 0 if all(r[0] for r in results.values()) else 1
 
 
 sys.exit(main())
