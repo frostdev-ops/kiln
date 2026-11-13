@@ -219,17 +219,22 @@ class Strategies(unittest.TestCase):
     ENTRY = "48 89 5C 24 08 57 48 83 EC 20 48 8D B9"
     BODY = "8B 47 10 48 8B 5C 24 30 48 83 C4 20 5F C3"  # 17 bytes after the entry
 
+    CALLER = "48 83 EC 28 48 8B 0D ?? ?? ?? ?? B8 2A 00 00 00 89 44 24 20 E8"  # the call's operand follows
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.exe = Path(self.tmp.name) / "game.exe"
-        funcs = [(filler(1), True), (target(0xE15DC0, 0x20, field_disp8=0x10), True), (filler(2), True)]
-        self.entry = build_pe(self.exe, funcs)[1]
+        funcs = [(filler(1), True), (target(0xE15DC0, 0x20, field_disp8=0x10), True), (filler(2), True),
+                 (caller(1), True)]
+        rvas = build_pe(self.exe, funcs)
+        self.entry, self.caller = rvas[1], rvas[3]
 
     def tearDown(self):
         self.tmp.cleanup()
 
-    def resolve(self, second):
+    def resolve(self, second, more=None):
         doc = {"symbols": {"GetThing": {"find": [{"pattern": self.ENTRY}, second]}}}
+        doc["symbols"].update(more or {})
         return Resolver(Image(self.exe), doc).run()[0]["GetThing"]
 
     def test_both_strategies_name_the_entry(self):
@@ -253,6 +258,24 @@ class Strategies(unittest.TestCase):
         self.assertIn("strategies disagree", r["error"])
         self.assertIn(f"{self.entry:#x}", r["error"])
         self.assertIn(f"{self.entry + 3:#x}", r["error"])
+
+    def test_a_capture_that_agrees_does_not_bring_the_symbol_back(self):
+        # the call in Caller votes for the entry, as the first strategy does: the stale second one still fails it
+        more = {"Caller": {"find": [{"pattern": self.CALLER + " {GetThing:rel32}"}]}}
+        self.assertTrue(self.resolve({"pattern": self.BODY, "offset": -17}, more)["ok"])
+        r = self.resolve({"pattern": self.BODY, "offset": -14}, more)
+        self.assertFalse(r["ok"])
+        self.assertIn("strategies disagree", r["error"])
+
+    def test_a_scoped_second_strategy_is_judged_whatever_the_order_of_the_definitions(self):
+        # GetThing's second strategy looks inside Caller, which the definitions name after it
+        call_at = self.caller + 20
+        scoped = {"scope": {"symbol": "Caller", "size": 64}, "pattern": "E8 ?? ?? ?? ?? 8B 4C 24 20"}
+        more = {"Caller": {"find": [{"pattern": self.CALLER}]}}
+        self.assertTrue(self.resolve({**scoped, "offset": self.entry - call_at}, more)["ok"])
+        r = self.resolve({**scoped, "offset": self.entry - call_at + 3}, more)
+        self.assertFalse(r["ok"])
+        self.assertIn("strategies disagree", r["error"])
 
     def test_a_second_strategy_that_matches_nowhere_or_twice_is_not_judged(self):
         self.assertTrue(self.resolve({"pattern": "0F 0B 0F 0B 0F 0B 0F 0B", "offset": -3})["ok"])

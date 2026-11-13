@@ -558,6 +558,10 @@ void input_hook_xinput() {
     again.store(true);
     while (again.load() && !hooked.load()) {
         if (busy.test_and_set()) return;
+        if (hooked.load()) {  // made by another thread between this loop's look and the flag: never made twice
+            busy.clear();
+            return;
+        }
         again.store(false);
         for (const wchar_t* dll : {L"xinput1_4.dll", L"xinput1_3.dll", L"xinput9_1_0.dll"}) {
             HMODULE m = GetModuleHandleW(dll);

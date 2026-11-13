@@ -2,7 +2,8 @@
 // ui-load-hook-test.exe: kiln.ui's hook on LoadLibraryExW (load_hook.h, the lines ui.cpp runs) in a Windows process
 // under Wine: no game, no display. Run by native/services/ui/tests/test-load-hook-wine.sh; the libraries it loads are
 // fixture.cpp's, beside this exe. Checks:
-//   - the hook goes in, with the original known before the first call can reach the detour;
+//   - the hook goes in and the original is known (that it is published before the hook is enabled is the order of
+//     the lines in load_hook::install; nothing here runs a load in between);
 //   - a load gives its module and its "loaded" call runs on the loading thread;
 //   - a load that fails gives null and the caller's last error, and no "loaded" call;
 //   - a load in progress does not hold up another thread's call (GitHub PR 27): one thread's load sits in a DllMain
@@ -16,6 +17,7 @@
 
 #include <atomic>
 #include <cstdio>
+#include <cwchar>
 #include <string>
 #include <thread>
 #include <vector>
@@ -52,9 +54,18 @@ int main() {
     const std::wstring plain = beside(L"ui-load-hook-plain.dll");
     const std::wstring blocker = beside(L"ui-load-hook-blocker.dll");
     const std::wstring nested = beside(L"ui-load-hook-nested.dll");
-    HANDLE in = CreateEventW(nullptr, TRUE, FALSE, L"Local\\kiln-load-hook-in");
-    HANDLE release = CreateEventW(nullptr, TRUE, FALSE, L"Local\\kiln-load-hook-release");
-    check(in && release, "the test's two events exist");
+    // The blocker library's two events belong to this run: another run of the test in the same session must not find
+    // them (an event already set would let the blocker pass at once, and the check below would prove nothing).
+    wchar_t run[64], name[128];
+    std::swprintf(run, 64, L"%lu-%llu", GetCurrentProcessId(), GetTickCount64());
+    SetEnvironmentVariableW(L"KILN_LOAD_HOOK_RUN", run);
+    std::swprintf(name, 128, L"Local\\kiln-load-hook-in-%ls", run);
+    HANDLE in = CreateEventW(nullptr, TRUE, FALSE, name);
+    const bool in_new = in && GetLastError() != ERROR_ALREADY_EXISTS;
+    std::swprintf(name, 128, L"Local\\kiln-load-hook-release-%ls", run);
+    HANDLE release = CreateEventW(nullptr, TRUE, FALSE, name);
+    const bool release_new = release && GetLastError() != ERROR_ALREADY_EXISTS;
+    check(in_new && release_new, "the run's two events are new");
 
     check(load_hook::install([] {
               ++g_loaded_calls;
@@ -87,10 +98,12 @@ int main() {
     // ---- a load in progress does not hold up another thread's call ----
     HMODULE blocked = nullptr;
     std::atomic<DWORD> blocked_ms{0};
+    std::atomic<bool> first_done{false};
     std::thread first([&] {
         const ULONGLONG t = GetTickCount64();
         blocked = LoadLibraryExW(blocker.c_str(), nullptr, 0);  // its DllMain waits for `release`, 5 s at most
         blocked_ms = static_cast<DWORD>(GetTickCount64() - t);
+        first_done = true;
     });
     check(WaitForSingleObject(in, 20000) == WAIT_OBJECT_0, "the first thread's load is inside the library's DllMain");
     // a call that needs no loader lock (it fails on its argument), from a second thread: this one
@@ -99,11 +112,14 @@ int main() {
     none = LoadLibraryExW(nullptr, nullptr, 0);
     error = GetLastError();
     const DWORD second_ms = static_cast<DWORD>(GetTickCount64() - t);
+    Sleep(200);  // a DllMain that does not wait is long done by now
+    const bool still_loading = !first_done;
     SetEvent(release);
     first.join();
     std::printf("INFO the second thread's call took %lu ms, the first thread's load %lu ms\n", second_ms, blocked_ms.load());
     check(!none && error == ERROR_INVALID_PARAMETER, "the second thread's call gave its own result");
     check(second_ms < 2000, "the second thread's call returned while the first load was in progress");
+    check(still_loading, "the first load was still in its DllMain then (the library did wait for the test)");
     check(blocked != nullptr && blocked_ms < 4500, "the first load ended when the test let it (not by its 5 s limit)");
 
     // ---- a load from inside a DllMain ----

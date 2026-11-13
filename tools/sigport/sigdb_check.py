@@ -105,9 +105,6 @@ class Resolver:
                 self.capture(holes, hits[0], tag)
                 if not probe:
                     r = {"ok": True, "rva": hits[0] + f.get("offset", 0), "source": tag}
-                    other = self.disagreeing(name, defn, i, r["rva"])
-                    if other:
-                        r = {"ok": False, "error": other}
                     break
             if probe:
                 r = {"ok": unique == len(defn["find"]), "source": f"{unique}/{len(defn['find'])} strategies matched"}
@@ -116,28 +113,26 @@ class Resolver:
         self.state[name] = 2
         return r["ok"]
 
-    def disagreeing(self, name, defn, taken, rva):
+    def disagreeing(self, name, defn, rva):
         """One rule more than the core has. The core takes the first strategy that matches once and looks no further;
-        here every later strategy that matches once must name the same address, else the symbol fails. A later
-        strategy is the one in use when the first cannot match (another engine's hook on the function's first bytes
-        while the core scans live code), so a stale offset in it would show only there, as a hook in the wrong place:
-        a pattern anchored in a function's body keeps matching when a game update changes the length of the code
-        before it. No captures are taken from a later strategy, as in the core. A scoped one is judged only when its
-        scope symbol is resolved already (no resolving from here: the order of the resolve stays the core's)."""
+        here every strategy of a resolved symbol that matches once must name the symbol's address, else the symbol
+        fails. A later strategy is the one in use when the first cannot match (another engine's hook on the function's
+        first bytes while the core scans live code), so a stale offset in it would show only there, as a hook in the
+        wrong place: a pattern anchored in a function's body keeps matching when a game update changes the length of
+        the code before it. run() asks this last, when every symbol and capture is settled: a scoped strategy is then
+        judged whatever the order of the definitions, and no capture brings a failed symbol back. Nothing is captured
+        or resolved from here."""
         for j, f in enumerate(defn["find"]):
-            if j <= taken:
-                continue
             lo, hi = self.text_lo, self.text_hi
             if "scope" in f:
-                s = f["scope"]["symbol"]
-                if self.state.get(s) != 2 or not self.symbols[s].get("ok"):
+                scope = self.symbols.get(f["scope"]["symbol"], {})
+                if not scope.get("ok"):
                     continue
-                lo = self.symbols[s]["rva"]
+                lo = scope["rva"]
                 hi = min(self.text_hi, lo + f["scope"]["size"])
             hits = self.scan(parse(f["pattern"])[0], lo, hi)
             if len(hits) == 1 and hits[0] + f.get("offset", 0) != rva:
-                return (f"strategies disagree: {name}.find[{taken}] gives {rva:#x}, "
-                        f"find[{j}] gives {hits[0] + f.get('offset', 0):#x}")
+                return f"strategies disagree: {name} is {rva:#x}, {name}.find[{j}] gives {hits[0] + f.get('offset', 0):#x}"
         return ""
 
     def run(self):
@@ -172,6 +167,13 @@ class Resolver:
             elif not r.get("ok"):
                 r = {"ok": True, "rva": votes[0][0], "source": "captured by " + votes[0][1]}
             self.symbols[name] = r
+        for name, defn in self.doc["symbols"].items():  # the rule the core does not have, last (see disagreeing)
+            r = self.symbols.get(name, {})
+            if name.startswith("@") or not r.get("ok") or len(defn["find"]) < 2:
+                continue
+            error = self.disagreeing(name, defn, r["rva"])
+            if error:
+                self.symbols[name] = {"ok": False, "error": error}
         consts = {}
         defs = dict(self.doc.get("constants", {}))
         for name in self.const_votes:
