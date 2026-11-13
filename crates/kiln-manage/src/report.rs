@@ -760,16 +760,16 @@ fn stood_aside(state: &serde_json::Value) -> bool {
 
 /// kiln-eml stood aside for ShroudForge while Kiln hosted it, not for EML's own loader (docs/kiln/eml.md, "ShroudForge
 /// asset mods and EML mods together"): ShroudForge is the one writer of the game data in such a start and runs the EML
-/// packages that are switched on in its mods folder. `sf_hosted_pid`: Some when kiln/state/shroudforge.json says
-/// `hosted`, with that file's pid. Both files must be of one start (the same pid, when both name one), and kiln-eml's
-/// `aside` must be the reason Kiln's ShroudForge plugin gives it (it starts with the engine's name; the reason for
-/// EML's own loader names the loader's DLL). A player's report of 13 Nov 2026 read "EML's own loader runs in the game"
-/// in a start that had no such loader.
-fn eml_under_hosted_shroudforge(kind: ModKind, state: &serde_json::Value, sf_hosted_pid: Option<Option<u64>>) -> bool {
-    let Some(sf_pid) = sf_hosted_pid else { return false };
-    let pid = state.get("pid").and_then(|v| v.as_u64());
+/// packages that are switched on in its mods folder. `sf_hosted_pid`: the pid of kiln/state/shroudforge.json when it
+/// says `hosted` and is of the last start. kiln-eml's file must name the same pid (two files of different starts, or
+/// one without a pid, prove nothing about one start: an older start's pair must not hide EML's own loader in a later
+/// one), and its `aside` must be the reason Kiln's ShroudForge plugin gives it (it starts with the engine's name; the
+/// reason for EML's own loader names the loader's DLL). A player's report of 13 Nov 2026 read "EML's own loader runs
+/// in the game" in a start that had no such loader.
+fn eml_under_hosted_shroudforge(kind: ModKind, state: &serde_json::Value, sf_hosted_pid: Option<u64>) -> bool {
     kind == ModKind::Eml
-        && (sf_pid.is_none() || pid.is_none() || sf_pid == pid)
+        && sf_hosted_pid.is_some()
+        && state.get("pid").and_then(|v| v.as_u64()) == sf_hosted_pid
         && jstr(state.get("aside")).is_some_and(|a| a.starts_with("ShroudForge "))
 }
 
@@ -1231,10 +1231,13 @@ pub fn build(input: &ReportInput) -> Report {
             cx.find("native-loader", Level::Warning, format!("The profile's {}.", crate::profile::native_loader_warning(id, *engine, file)));
         }
     }
-    // Kiln hosted ShroudForge in the start its state file is of (the pid, to match kiln-eml's file of the same start)
+    // Kiln hosted ShroudForge in the start its state file is of: that file's pid, when it is the last start's (the
+    // process boot.json names, when there is one). Without a pid the file is of no known start.
+    let boot_pid = boot.as_ref().map(|b| u64::from(b.pid));
     let sf_hosted_pid = engines.iter().filter(|e| e.kind == ModKind::ShroudForge).filter_map(|e| e.state.as_ref())
         .find(|st| jstr(st.get("mode")).as_deref() == Some("hosted"))
-        .map(|st| st.get("pid").and_then(|v| v.as_u64()));
+        .and_then(|st| st.get("pid").and_then(|v| v.as_u64()))
+        .filter(|pid| boot_pid.is_none_or(|b| b == *pid));
     let _ = writeln!(ls, "Engines:");
     let mut any_engine = false;
     for e in &engines {
@@ -1298,7 +1301,6 @@ pub fn build(input: &ReportInput) -> Report {
     // a plugin that says it did not stand aside, in a state file of the last start (boot.json's time or later)
     // of the last start: the process boot.json names (kiln-greeneye writes its pid; it writes before boot.json, so the
     // times say nothing). A state file without a pid (an older plugin) is not taken as this start's.
-    let boot_pid = boot.as_ref().map(|b| u64::from(b.pid));
     let ran: Vec<ModKind> = engines.iter().filter(|e| e.state.as_ref().is_some_and(|st| {
         st.get("steppedAside").and_then(|v| v.as_bool()) == Some(false)
             && boot_pid.is_some() && st.get("pid").and_then(|v| v.as_u64()) == boot_pid

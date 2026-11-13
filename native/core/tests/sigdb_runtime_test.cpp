@@ -323,6 +323,45 @@ static void diff_budget() {
     call(file, 995, in_image); call(live, 995, relay);
     CHECK(pe::only_hook_differences(file.data(), live.data(), live.size(), text, base, 0x2000),
           "runtime: a redirected call in the final five bytes is read to the end and no further");
+    // A call in the file that went to the image but not to its code (data behind the section) is no call to judge by.
+    call(file, 400, base + 0x1800); call(live, 400, relay);
+    CHECK(!pe::only_hook_differences(file.data(), live.data(), live.size(), text, base, 0x2000),
+          "runtime: bytes after an E8 that pointed into the image but not into its code are not a redirected call");
+    call(file, 400, in_image);
+    // An E8 inside another instruction's immediate (review of 6a78171d): mov rax, imm64 with other imm64 bytes. Its four
+    // bytes read as a call from the code to outside the image; what stands at that place decides.
+    const std::array<uint8_t, 10> mov_was{0x48, 0xB8, 0xE8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+    const std::array<uint8_t, 10> mov_now{0x48, 0xB8, 0xE8, 0xF9, 0xEF, 0x03, 0x00, 0x00, 0x00, 0x00};
+    std::memcpy(file.data() + 500, mov_was.data(), 10);
+    std::memcpy(live.data() + 500, mov_now.data(), 10);
+    CHECK(!pe::only_hook_differences(file.data(), live.data(), live.size(), text, base, 0x2000,
+                                     [](uintptr_t to) { return to == 0x100000 + 0x40000; }),
+          "runtime: an E8 in an immediate whose bytes point at no relay and no module is not a redirected call");
+    std::memcpy(live.data() + 500, mov_was.data(), 10);
+    const std::array<uint8_t, 14> abs_jump{0xFF, 0x25, 0, 0, 0, 0, 1, 2, 3, 4, 5, 6, 7, 8};
+    const std::array<uint8_t, 14> near_jump{0xE9, 1, 2, 3, 4};
+    const std::array<uint8_t, 14> mov_jump{0x48, 0xB8, 1, 2, 3, 4, 5, 6, 7, 8, 0xFF, 0xE0};
+    const std::array<uint8_t, 14> plain{0x48, 0x89, 0x5C, 0x24, 0x08, 0x57, 0x48, 0x83, 0xEC, 0x20};
+    const std::array<uint8_t, 14> rip_jump{0xFF, 0x25, 0x10, 0, 0, 0};
+    CHECK(pe::relay_shape(abs_jump.data()) && pe::relay_shape(near_jump.data()) && pe::relay_shape(mov_jump.data()) &&
+              !pe::relay_shape(plain.data()) && !pe::relay_shape(rip_jump.data()),
+          "runtime: a relay is an absolute, a near or a register jump, nothing else");
+    // The call's opcode among bytes that hold another E8 (review of 6a78171d): E8 E8 00 00 00 -> E8 E8 00 03 00. The
+    // first differing byte is the call's fourth; the E8 at its second byte is an operand byte, not the call.
+    std::array<uint8_t, 64> f2{}, l2{};
+    f2.fill(0xCC);
+    const std::array<uint8_t, 7> c_was{0xE8, 0xE8, 0x00, 0x00, 0x00, 0x84, 0xC0}, c_now{0xE8, 0xE8, 0x00, 0x03, 0x00, 0x84, 0xC0};
+    std::memcpy(f2.data() + 8, c_was.data(), 7);
+    l2 = f2;
+    std::memcpy(l2.data() + 8, c_now.data(), 7);
+    CHECK(pe::redirected_call_at(f2.data(), l2.data(), 0x400, 8, text, base, 0x2000) &&
+              !pe::redirected_call_at(f2.data(), l2.data(), 0x400, 9, text, base, 0x2000) &&
+              !pe::redirected_call_at(f2.data(), l2.data(), 0x400, 10, text, base, 0x2000),
+          "runtime: the redirected call is the E8 whose targets read as one, not an E8 among its operand bytes");
+    CHECK(!pe::redirected_call_at(f2.data(), f2.data(), 0x400, 8, text, base, 0x2000) &&
+              !pe::redirected_call_at(f2.data(), l2.data(), 12, 8, text, base, 0x2000) &&
+              !pe::redirected_call_at(f2.data(), l2.data(), 64, 64, text, base, 0x2000),
+          "runtime: an unchanged call, a call cut off by the end and a place past the end are none");
     sigdb::Pattern p;
     std::string err;
     sigdb::parse_pattern("E8 {back:rel32}", p, err);

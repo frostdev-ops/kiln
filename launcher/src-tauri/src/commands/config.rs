@@ -55,7 +55,12 @@ pub async fn config_set(target: ConfigTarget, file: String, path: String, value:
 
 #[tauri::command]
 pub async fn config_write(target: ConfigTarget, file: String, text: String) -> Result<ConfigDocument, Error> {
-    blocking(move || config::write(&config_dir(&target)?, &file, &text)).await
+    blocking(move || {
+        let doc = config::write(&config_dir(&target)?, &file, &text)?;
+        log_setting(&config_line(&target, &file, None, "written as a whole (the file editor)"));
+        Ok(doc)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -89,7 +94,7 @@ pub async fn config_native_set(target: ConfigTarget, mod_id: String, enabled: Op
             }
         }
         config::write_native_state(&dir, &st)?;
-        log_setting(&format!("{}: native mod {id} {}", target_name(&target), match enabled {
+        log_setting(&format!("{}: native mod {} {}", target_name(&target), one_line(&id), match enabled {
             Some(true) => "switched on",
             Some(false) => "switched off",
             None => "back to the profile's switch",
@@ -110,19 +115,30 @@ fn log_setting(line: &str) {
     crate::commands::app::launcher_log("settings", line);
 }
 
+/// A name as one piece of a log line: a key of a config file without a schema, a file name and a mod's id are what
+/// the caller sent, and a line break in one would start a line of its own in the log (review of 6a78171d). Control
+/// characters become spaces, and a long name is cut.
+fn one_line(s: &str) -> String {
+    let mut out: String = s.chars().take(120).map(|c| if c.is_control() { ' ' } else { c }).collect();
+    if s.chars().count() > 120 {
+        out.push_str("...");
+    }
+    out
+}
+
 fn target_name(target: &ConfigTarget) -> String {
     match target {
-        ConfigTarget::Profile(id) => format!("profile {id}"),
-        ConfigTarget::Game(id) => format!("game {id}"),
-        ConfigTarget::Server(id) => format!("server {id}"),
+        ConfigTarget::Profile(id) => format!("profile {}", one_line(id)),
+        ConfigTarget::Game(id) => format!("game {}", one_line(id)),
+        ConfigTarget::Server(id) => format!("server {}", one_line(id)),
     }
 }
 
 /// `profile test: mods/sky.json: weather.hold changed` (never the value).
 pub fn config_line(target: &ConfigTarget, file: &str, key: Option<&str>, what: &str) -> String {
     match key {
-        Some(k) => format!("{}: {file}: {k} {what}", target_name(target)),
-        None => format!("{}: {file}: every setting {what}", target_name(target)),
+        Some(k) => format!("{}: {}: {} {what}", target_name(target), one_line(file), one_line(k)),
+        None => format!("{}: {}: every setting {what}", target_name(target), one_line(file)),
     }
 }
 
@@ -135,7 +151,7 @@ pub fn kiln_setting_line(game_id: &str, key: &str, value: Option<&serde_json::Va
         Some(serde_json::Value::String(s)) if s.len() <= 32 && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') => format!("= {s}"),
         Some(_) => "changed".to_string(),
     };
-    format!("kiln.json of {game_id}: {key} {v}")
+    format!("kiln.json of {}: {} {v}", one_line(game_id), one_line(key))
 }
 
 // ---------------------------------------------------------------- kiln.json
@@ -226,5 +242,12 @@ mod setting_line_tests {
         let t = ConfigTarget::Profile("test".into());
         assert_eq!(config_line(&t, "mods/sky.json", Some("server.password"), "changed"), "profile test: mods/sky.json: server.password changed");
         assert_eq!(config_line(&ConfigTarget::Game("g".into()), "a.json", None, "back to its default"), "game g: a.json: every setting back to its default");
+        // a key, a file name or an id with a line break stays on its line (review of 6a78171d)
+        let forged = "x\n2026-11-13T00:00:00Z settings: forged";
+        for line in [config_line(&ConfigTarget::Profile(forged.into()), forged, Some(forged), "changed"),
+            config_line(&t, forged, None, "changed"), kiln_setting_line(forged, forged, Some(&json!(true)))] {
+            assert!(!line.contains('\n') && line.contains("x 2026-11-13T00:00:00Z settings: forged"), "{line}");
+        }
+        assert_eq!(one_line(&"k".repeat(300)).chars().count(), 123);
     }
 }
