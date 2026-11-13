@@ -1719,7 +1719,7 @@ fn adopt_step<T>(step: AdoptStep, run: impl FnOnce() -> Result<T>) -> Result<T> 
 }
 
 /// The `id` a mod's own manifest names (`mod.json`, for EML, EMF, Greeneye, Flame and Shroudtopia 1.0), as written.
-fn manifest_id_raw(dir: &Path) -> Option<String> {
+pub(crate) fn manifest_id_raw(dir: &Path) -> Option<String> {
     let file = dir.join("mod.json");
     if std::fs::metadata(&file).ok()?.len() > 1024 * 1024 { return None; }
     read_json(&file)?.get("id")?.as_str().map(str::to_owned)
@@ -1729,7 +1729,7 @@ fn manifest_id_raw(dir: &Path) -> Option<String> {
 /// Kiln's copies of this kind: the player installed it there. Real EML stops the game on a duplicate id, so Kiln places
 /// no second copy beside it, whatever its folder is called; Copy mode names it only under the core's folder name rule
 /// (profile::render falls back to the copy under kiln/profiles/).
-fn same_mod_elsewhere(root: &Path, kind: ModKind, src: &Path, dst: &Path) -> Option<PathBuf> {
+pub(crate) fn same_mod_elsewhere(root: &Path, kind: ModKind, src: &Path, dst: &Path) -> Option<PathBuf> {
     let id = manifest_id_raw(src)?;
     std::fs::read_dir(root).ok()?.flatten().map(|e| e.path())
         .filter(|p| p != dst && p.is_dir() && !marker(p).is_some_and(|m| m.kind == kind))
@@ -1753,7 +1753,7 @@ fn same_mod_elsewhere(root: &Path, kind: ModKind, src: &Path, dst: &Path) -> Opt
 /// the setting values in it are the player's afterwards, carried to the next version as a ShroudForge mod's are, and a
 /// copy holding them is kept (switched off) rather than removed. The profile is the switch, as for ShroudForge mods.
 pub fn place(dirs: &DataDirs, profile: &crate::profile::Profile, game_dir: &Path) -> Result<PlaceReport> {
-    let view = crate::own_loaders::ProfileView::of_profile(profile);
+    let view = crate::own_loaders::ProfileView::of_profile(profile).with_library(dirs, profile);
     let loaders = crate::own_loaders::find(game_dir, Some(&view));
     let mut rep = place_with(dirs, profile, game_dir, &loaders)?;
     rep.own_loaders = crate::own_loaders::notes(game_dir, &loaders, Some(&view));
@@ -3381,7 +3381,7 @@ pub fn state_file(kind: ModKind) -> Option<&'static str> {
 /// Every engine plugin's state in `<game>/kiln/state/` (EMF, EML, ShroudForge, Greeneye, Flame, Shroudtopia, SET,
 /// Enshwick, shroudlink, Ember).
 pub fn status(game_dir: &Path) -> Vec<EngineStatus> {
-    let view = crate::profile::read_game_profile(game_dir).ok().flatten().map(|f| crate::own_loaders::ProfileView::of_file(&f));
+    let view = crate::profile::read_game_profile(game_dir).ok().flatten().map(|f| crate::own_loaders::ProfileView::of_file(&f).with_file_sources(&f, game_dir));
     let loaders = crate::own_loaders::find(game_dir, view.as_ref());
     let notes = crate::own_loaders::notes(game_dir, &loaders, view.as_ref());
     let sf_startup = crate::sf_startup::EngineNotes::read(game_dir, &loaders);

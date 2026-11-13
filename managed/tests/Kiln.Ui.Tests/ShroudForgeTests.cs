@@ -381,11 +381,14 @@ public sealed class ShroudForgeLargeFileTests : IDisposable
     /// (mods/sf-unlimited-flight/src/mod.lua in ShroudForge).</summary>
     [Theory]
     [InlineData("Native glider controls | writes=0 | Glider settings: Player is not actively using a glider", "You to glide.")]
+    [InlineData("Native glider controls | writes=0 | Glider settings: Player is not actively using a glider | writes=0 | Glider settings: Player is not actively using a glider", "You to glide.")]
     [InlineData("Waiting for an authoritative world", "A world:")]
     [InlineData("Waiting for typed ECS access and the authoritative write scope", "Write access to the game world.")]
-    [InlineData("SF Unlimited Flight loaded. Waiting for typed engine access", "Write access to the game world.")]
     [InlineData("Player query is pending", "Your character in the world.")]
     [InlineData("something a mod says", "Something the mod needs")]
+    // review: a phrase inside other words is not the mod's reason
+    [InlineData("Write scope granted; Player query is pending", "Something the mod needs")]
+    [InlineData("Native glider controls | writes=0 | Glider stamina: no attribute | Glider settings: Player is not actively using a glider", "Something the mod needs")]
     public void A_waiting_shroudforge_mod_says_what_it_waits_for(string detail, string start)
     {
         var m = new CatalogMod { Engine = "shroudforge", Id = "sf-unlimited-flight", Name = "SF Unlimited Flight", Word = "waiting",
@@ -393,6 +396,9 @@ public sealed class ShroudForgeLargeFileTests : IDisposable
         Assert.StartsWith(start, ShroudForgeUi.WaitingFor(m));
         Assert.StartsWith("The next game start", ShroudForgeUi.WaitingFor(m with { Reason = "ShroudForge: restart-required: changed" }));
         Assert.StartsWith("A mod it needs", ShroudForgeUi.WaitingFor(m with { Reason = "ShroudForge: dependency-blocked: other" }));
+        // review: the word ShroudForge's reason starts with decides, not one inside it
+        Assert.StartsWith("A mod it needs", ShroudForgeUi.WaitingFor(m with { Reason = "ShroudForge: dependency-blocked: restart-required-helper" }));
+        Assert.Null(ShroudForgeUi.WaitingFor(m with { Reason = "ShroudForge: something-else: restart-required" }));
         // nothing to say for a mod that does not wait, or for another engine's waiting mod
         Assert.Null(ShroudForgeUi.WaitingFor(m with { Word = "write-confirmed", State = ModRunState.Loaded }));
         Assert.Null(ShroudForgeUi.WaitingFor(m with { Engine = "emf" }));

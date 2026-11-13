@@ -576,26 +576,42 @@ internal static class ShroudForgeUi
     /// so a player who opens the menu between flights always sees it waiting (player report, Nexus, 13 Nov 2026).</summary>
     internal static string? WaitingFor(CatalogMod m)
     {
-        if (m.Engine != "shroudforge" || m.Word != "waiting") return null;
-        var why = m.Reason ?? "";
-        bool Has(string t) => why.Contains(t, StringComparison.OrdinalIgnoreCase);
-        if (Has("restart-required"))
-            return "The next game start: ShroudForge loads this mod's changed configuration only when the game starts again.";
-        if (Has("dependency-blocked"))
-            return "A mod it needs: ShroudForge starts it once that mod runs (the reason above names it).";
-        if (Has("write scope") || Has("typed ECS access") || Has("typed engine access") || Has("writable live component context"))
-            return "Write access to the game world. ShroudForge gives it once a world this game hosts is running: your single-player " +
-                   "world, or a co-op world you host. In someone else's world or on a dedicated server it may never come; there the " +
-                   "mod has to run on the host's game or on the server.";
-        if (Has("authoritative world") || Has("waiting for the game world"))
-            return "A world: it starts working once you are in a world this game hosts, not in the main menu.";
-        if (Has("not actively using a glider"))
+        if (m.Engine != "shroudforge" || m.Word != "waiting" || m.Reason is not { } why) return null;
+        // ShroudForge's own reason (ModCatalog's SfRefine: "ShroudForge: " + its error): the word it starts with
+        const string sf = "ShroudForge: ";
+        if (why.StartsWith(sf, StringComparison.Ordinal))
+        {
+            var err = why[sf.Length..];
+            if (err.StartsWith("restart-required", StringComparison.Ordinal))
+                return "The next game start: ShroudForge loads this mod's changed configuration only when the game starts again.";
+            if (err.StartsWith("dependency-blocked", StringComparison.Ordinal))
+                return "A mod it needs: ShroudForge starts it once that mod runs (the reason above names it).";
+            return null;
+        }
+        // the mod's own report (SfRefine: "ShroudForge Lua is active; reported effect: waiting. " + its detail): whole
+        // phrases the mod reports, never a word somewhere inside another one
+        const string effect = "ShroudForge Lua is active; reported effect: waiting. ";
+        if (!why.StartsWith(effect, StringComparison.Ordinal)) return null;
+        var detail = why[effect.Length..].Trim();
+        switch (detail)
+        {
+            case "Waiting for typed ECS access and the authoritative write scope":
+                return "Write access to the game world. ShroudForge gives it once a world this game hosts is running: your single-player " +
+                       "world, or a co-op world you host. In someone else's world or on a dedicated server it may never come; there the " +
+                       "mod has to run on the host's game or on the server.";
+            case "Waiting for an authoritative world":
+                return "A world: it starts working once you are in a world this game hosts, not in the main menu.";
+            case "Player query is pending":
+                return "Your character in the world.";
+        }
+        // ShroudForge's override tracker summary (track_runtime_overrides.lua `summary`): "<message> | writes=N | <reason>
+        // | ...", nested once more for SF Unlimited Flight's steering. Gliding is what it waits for only when every reason
+        // in it is that one.
+        var reasons = detail.Split(" | ").Skip(1).Where(p => !p.StartsWith("writes=", StringComparison.Ordinal)).ToArray();
+        if (reasons.Length > 0 && reasons.All(r => r == "Glider settings: Player is not actively using a glider"))
             return "You to glide. It changes the glider only while you are gliding, so between flights (and whenever this menu is " +
                    "open) it says waiting. That is normal: it applies when you take off.";
-        if (Has("Player query is pending") || Has("No live player"))
-            return "Your character in the world.";
-        return "Something the mod needs that is not there yet; its own words are under STATE above. ShroudForge mods that change " +
-               "the world wait for a world this game hosts (your single-player world, or a co-op world you host).";
+        return "Something the mod needs is not there yet; its own words are under STATE above.";
     }
 
     /// <summary>The ShroudForge part of a mod's details: its switch, its settings by group, its buttons.</summary>
