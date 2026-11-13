@@ -113,7 +113,11 @@ naming one of them is refused, with the advice to check `Capabilities.Is` at run
 | `blocks.affixes.effects` | managed, session | Kiln.Blocks, with the row above | worn and held affixes change stats, and `Affixes.StatOf` reads one: needs `blocks.affixes`, `abilities.programs`, `abilities.natives`, `items.instances`, kiln.assets, kiln.spawn with `spawn.destroy` (a stat change ends when its entity is destroyed: none starts without it), and a server world whose Impact program registry has taken Kiln's four affix programs (pending without a world, and until it has) |
 | `saves.instance_data.sync` | managed, static | Kiln.Saves, at its start | item data on players' games (`InstanceKeyOptions.Sync`, `InstanceData.Synced`): the channel `kiln:instance` can open in this process, which needs kiln.net (`service-missing`, or kiln.net's own reason, without it). On a server it says the values are sent; in a game that they can be received |
 
-They exist only once their service has started, after the manifests were checked: check `Capabilities.Is` at run time.
+| `world.tracked_writes` | managed, session | Kiln.World, at the first use of a tracked write or of `World.SupportsTrackedWrites`, then every 25 steps | `World.Write`, `World.Update`, `World.WriteField`, `World.WriteAt` work: kiln.world v3 with the game's tracked write path (`world.programs`, `world.read_other`, `world.names`, and `items.fuel`'s symbols; `symbol-missing` naming the first that is off, `service-older` for a kiln.world without v3). Pending while the write program waits for a server world; `faulted` when the game did not take the program or one of the game's calls faulted. Available with the note "no loaded mod lists a component" when nothing is listed: every write then answers `NotDeclared` |
+| `world.component_bits` | sigdb feature | core | the game's per-component save and replication bits can be read (`WorldWriteResult.SaveTracked`, `.ReplicationTracked`, `World.WriteInfo`); off: those answers are null, the writes work the same |
+
+They exist only once their service has started, after the manifests were checked: check `Capabilities.Is` at run time
+(`world.component_bits` is a sigdb feature and can be named in a manifest's `features`).
 
 ## Rules
 - Each owner holds at most one report per name. A reader sees the worst report for the name: unavailable beats

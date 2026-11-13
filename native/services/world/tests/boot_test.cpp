@@ -4,7 +4,9 @@
 #include "services/kiln_world.h"
 #include "services/kiln_types.h"
 static_assert(offsetof(KilnWorldApi,status)==184 && offsetof(KilnWorldApi,write_other)==192);
-static_assert(sizeof(KilnWorldApi)==240 && offsetof(KilnTypesApi,system_hook)==168 && sizeof(KilnTypesApi)==184);
+// v3 appended the tracked-write entries (tests/writes_test.cpp pins each): the v2 table is its first 240 bytes.
+static_assert(offsetof(KilnWorldApi,write_submit)==240 && sizeof(KilnWorldApi)==280);
+static_assert(offsetof(KilnTypesApi,system_hook)==168 && sizeof(KilnTypesApi)==184);
 using namespace kw;
 int main() {
     int checks = 0;

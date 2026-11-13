@@ -43,6 +43,7 @@ public sealed partial class KilnHarness
     partial void StartFakes()
     {
         SavesReset.BetweenHarnesses();
+        StartEntities();
         StartPlayers();
         WorldFake = new WorldFake(this, _options.WorldId);
         _host.Log(LogLevel.Info, $"testkit: world {WorldFake.Id} revision {WorldFake.Revision} ({(WorldFake.Revision == 0 ? "never saved" : "saved before")}), " +
@@ -52,12 +53,14 @@ public sealed partial class KilnHarness
     partial void EndFakes()
     {
         EndPlayers();
+        EndEntities();
     }
 
     /// <summary>The native services' Pre, before Kiln's: the save cycle, then the players' scan, then the saves pump.</summary>
     partial void FakesBeforeStep(ulong step)
     {
         if (_stopping) return;
+        EntitiesFake?.BeforeStep(step);  // the world's own step: the writes of the last step, then their answers
         WorldFake?.BeforeStep(step, _started);
         if (PlayersFake?.Scan(step) is { } left) WorldFake?.PlayersLeft(left);
         WorldFake?.AfterScan();

@@ -77,9 +77,21 @@ static int32_t draw(const uint8_t *in, size_t n, char *out, size_t cap, size_t *
     drawing = false;
     return 0;
 }
+// The worker says "nothing is drawing" and wakes every waiter (portraits_test_join among them) before it runs the loader
+// of the image handles (portraits_when_drawn), so that the loader finds its pictures drawn. For this test a job is over
+// only when its loader has run too: otherwise a job's loader could still be on its way while the next job starts, and
+// be counted for it. The renderer is called once per job (calls), so every job is over when the two counts agree.
+static std::atomic<int> loaded{0};
+static void loaders_done() {
+    const auto until = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+    while (loaded < calls && std::chrono::steady_clock::now() < until)
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    CHECK(loaded == calls); // the loader ran once for every job, never twice
+}
 static void ready() {
     portraits_on_ready();
     portraits_test_join();
+    loaders_done();
 }
 static void write(const std::filesystem::path &p, const std::string &text) {
     std::filesystem::create_directories(p.parent_path());
@@ -133,6 +145,7 @@ int main(int argc, char **argv) {
     write(P.emf / "mods/not-selected/mod.json", manifest().dump());
     write(P.game / "enshrouded.kfc", "baseline");
     portraits_test_export(draw);
+    portraits_when_drawn([] { ++loaded; }); // for the whole test: see loaders_done
     g_side = KILN_SIDE_SERVER;
     ready();
     CHECK(calls == 0);
@@ -291,8 +304,7 @@ int main(int argc, char **argv) {
     other.join();
     CHECK(!tick_thread_answer && drawing); // another thread is told "not yet", at once
     CHECK(portraits_drawing("BeastMaster.Wolf") && !portraits_drawing("other.key")); // never waits
-    static std::atomic<int> drawn_calls{0};
-    portraits_when_drawn([] { drawn_calls++; });
+    CHECK(loaded == 22); // every earlier job's loader has run, this job's has not
     std::thread release([] {
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
         hold = false;
@@ -303,24 +315,32 @@ int main(int argc, char **argv) {
     portraits_test_join();
     CHECK(calls == 23);
     CHECK(portraits_wait("beastmaster.wolf")); // nothing is drawing any more
-    CHECK(drawn_calls == 1 && !portraits_drawing("beastmaster.wolf")); // the image handles' loader ran once, after drawing
-    portraits_when_drawn(nullptr);
+    loaders_done();
+    CHECK(loaded == 23 && !portraits_drawing("beastmaster.wolf")); // the image handles' loader ran once for it, after drawing
     // a renderer that hangs: the wait is bounded, and later calls do not wait again
     std::filesystem::remove_all(cache / "beastmaster.wolf");
     portraits_test_wait_ms(150);
     hold = true;
+    const auto began = std::chrono::steady_clock::now(); // before the job starts: its deadline is 150 ms after its start
     portraits_on_ready();
     for (int i = 0; i < 400 && !drawing; ++i)
         std::this_thread::sleep_for(std::chrono::milliseconds(5));
-    const auto began = std::chrono::steady_clock::now();
+    CHECK(drawing);
     CHECK(!portraits_wait("beastmaster.wolf"));
-    CHECK(std::chrono::steady_clock::now() - began >= std::chrono::milliseconds(100));
+    // it gave up at the job's deadline, never earlier (however late this thread got here on a busy machine)
+    CHECK(std::chrono::steady_clock::now() - began >= std::chrono::milliseconds(150));
+    // A later call does not wait again: the one deadline is over. Were it to start a wait of its own it would be as
+    // long as the setting says now, a minute, and not the 10 s this allows a call that returns at once on a busy machine.
+    portraits_test_wait_ms(60000);
     const auto again = std::chrono::steady_clock::now();
     CHECK(!portraits_wait("beastmaster.wolf"));
-    CHECK(std::chrono::steady_clock::now() - again < std::chrono::milliseconds(50));
+    CHECK(std::chrono::steady_clock::now() - again < std::chrono::seconds(10));
     hold = false;
     portraits_test_join();
     CHECK(portraits_wait("beastmaster.wolf"));
+    loaders_done();
+    CHECK(loaded == 24);
+    portraits_when_drawn(nullptr);
     std::filesystem::remove_all(root);
     std::printf("EMF portrait planner: %d checks, %d failures\n", checks.load(), failures.load());
     return failures ? 1 : 0;

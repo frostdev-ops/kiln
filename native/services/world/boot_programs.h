@@ -84,6 +84,23 @@ inline std::vector<BootProgram> parse_boot_programs(std::string_view text) {
     }
     return out;
 }
+// A manifest's "writes": the component types the mod writes through kiln.world's tracked path (kiln.mod.json;
+// Kiln.Sdk fills it from the mod's code). Absent: none. Anything but a list of at most 64 component names throws,
+// and the mod then has no tracked writes.
+constexpr size_t kBootWrites = 64;
+inline std::vector<std::string> parse_boot_writes(const nlohmann::json& manifest) {
+    std::vector<std::string> out;
+    if (!manifest.is_object() || !manifest.contains("writes")) return out;
+    const auto& list = manifest["writes"];
+    if (!list.is_array() || list.size() > kBootWrites) throw std::runtime_error("\"writes\" must be a list of at most 64 component names");
+    std::set<std::string> unique;
+    for (const auto& name : list) {
+        if (!name.is_string() || !boot_name(name.get<std::string>()))
+            throw std::runtime_error("\"writes\" holds an entry that is not a component name (letters, digits, _)");
+        if (unique.insert(name.get<std::string>()).second) out.push_back(name.get<std::string>());
+    }
+    return out;
+}
 // Profile entries win even when disabled; duplicate drop-in IDs are ambiguous and reserve nothing.
 struct BootCandidate { std::string id; bool enabled = true, profile = false, server = true; size_t token = 0; };
 inline std::vector<size_t> select_boot_candidates(const std::vector<BootCandidate>& input, bool dropins) {

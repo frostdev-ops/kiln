@@ -307,3 +307,15 @@ internal sealed class LiveGameTypes : ILiveTypes
         public IReadOnlyList<(string Name, long Value)> Values => t.EnumValues;
     }
 }
+
+/// <summary>Hands the first-use check to Kiln.World's typed writes (World.Write, World.Update), which see a generated
+/// type only as an <see cref="IGameComponent{TSelf}"/>. A module initializer runs before any member of a
+/// generated type does, so the check is in place before the first typed write names one.</summary>
+internal static class EcsWorldWrites
+{
+#pragma warning disable CA2255  // a library's module initializer: the hook must be set before a generated type is first used
+    [ModuleInitializer]
+#pragma warning restore CA2255
+    internal static void Init() => WorldWrites.LayoutWhyNot = static (type, qualifiedName) =>
+        EcsSupport.Usable(type, qualifiedName) ? null : EcsSupport.WhyNot(type, qualifiedName);
+}

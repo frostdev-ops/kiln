@@ -3,6 +3,7 @@
 #include "../programs.cpp"
 #include <cstdio>
 #include <cstdlib>
+#include <map>
 #include <thread>
 namespace kw {
 int marks=0;
@@ -18,8 +19,18 @@ thread_local bool t_in_program=false;
 void logf(int,const char*,...) {}
 uint32_t fnv1a(std::string_view value,uint32_t hash) { for (unsigned char c:value) hash=(hash^c)*16777619u;return hash; }
 uint32_t component_hash(std::string_view value) { return fnv1a(value); }
-bool map_find_u16(uintptr_t,uint32_t,uint16_t*) { return false; }
+std::map<uint32_t,uint16_t> known_components;  // component hash -> the engine's type index
+bool map_find_u16(uintptr_t,uint32_t key,uint16_t* value) {
+    const auto at=known_components.find(key);
+    if (at==known_components.end()) return false;
+    if (value) *value=at->second;
+    return true;
+}
 void teleport_in_program(KilnProgramCtx*) {}
+void writes_before_world(uintptr_t) {}
+void writes_after_world() {}
+uint32_t writes_capability() { return KILN_WORLD_CAP_TRACKED_WRITES; }
+std::vector<std::string> pruned_names;
 bool seh_each(KilnProgramEachFn f,KilnProgramCtx* ctx,uint64_t* iter,KilnEntity e,void* user,unsigned long*) { f(ctx,iter,e,user);return true; }
 bool seh_update(KilnProgramUpdateFn f,KilnProgramCtx* ctx,void* user,unsigned long*) { f(ctx,user);return true; }
 bool seh_register_program(RegisterProgramFn,uintptr_t,const EngineDesc*,bool*,unsigned long*) { return false; }
@@ -99,6 +110,38 @@ int main() {
     t_in_program=false;t_prog=nullptr;t_context=nullptr;t_iterator=nullptr;
     check(current_entity(good)==0 && command_buffer(good)==nullptr,"helpers reject a context after callback return");
     g_programs.clear();g_by_slot[0]=nullptr;
+
+    // The write program is registered without the names the world does not know; every other program is refused whole.
+    check((program_capabilities()&KILN_WORLD_CAP_TRACKED_WRITES)!=0,"the capability word carries tracked writes");
+    static uintptr_t fake_world[4]{};
+    static uintptr_t fake_registry[64]{};
+    fake_world[0]=reinterpret_cast<uintptr_t>(fake_registry);
+    L.world_storage=0;L.reg_components=8;L.reg_templates=16;
+    g_registered_once=false;
+    const KilnStr other[]={kstr("Health"),kstr("NoSuchComponent"),kstr("Fuel"),kstr("AlsoMissing")};
+    KilnProgramDesc declared{};
+    declared.size=sizeof declared;declared.flags=KILN_PROGRAM_SYSTEM|KILN_PROGRAM_HOST_ONLY;declared.name=kstr("kiln_test_writes");
+    declared.update=[](KilnProgramCtx*,void*) {};
+    declared.other_write=KilnNames{other,4,0};
+    KilnHandle writes=0;
+    check(register_program(g_owner,&declared,&writes,false)==KILN_OK && writes==1,"a program with four other-write names is accepted");
+    program_set_prune(writes,[](std::string_view name) {pruned_names.emplace_back(name);});
+    known_components={{fnv1a("Health",fnv1a("keen::ecs::")),20},{fnv1a("Fuel",fnv1a("keen::ecs::")),10}};
+    Program* made=g_programs[0];
+    prune_unknown(*made,reinterpret_cast<uintptr_t>(fake_world));
+    check(pruned_names==std::vector<std::string>({"NoSuchComponent","AlsoMissing"}),"the names the world lacks are reported");
+    check(made->lists[L_OWRITE].names==std::vector<std::string>({"Health","Fuel"}) && made->desc.other_write.n==2 &&
+          made->desc.other_write.p==made->lists[L_OWRITE].refs.data(),"and leave the descriptor the engine will read");
+    check(program_slot(writes,KILN_SLOT_OTHER_WRITE,kstr("Fuel"))==1 && program_slot(writes,KILN_SLOT_OTHER_WRITE,kstr("Health"))==2 &&
+          program_slot(writes,KILN_SLOT_OTHER_WRITE,kstr("NoSuchComponent"))==-1 && made->O==2 && made->iter_size==24,
+          "slots are laid out again for the names that stay (name order)");
+    std::string why;
+    check(validate(*made,reinterpret_cast<uintptr_t>(fake_world),why),"what is left validates against the world's maps");
+    pruned_names.clear();
+    prune_unknown(*made,reinterpret_cast<uintptr_t>(fake_world));
+    check(pruned_names.empty() && made->desc.other_write.n==2,"a second world prunes nothing more");
+    g_programs.clear();g_by_slot[0]=nullptr;
+    delete made;  // the service never frees a program (the engine keeps its descriptor); the test has no engine
     std::printf("world program boundaries: %s %d checks, %d failures\n",failures?"FAIL":"PASS",checks,failures);
     return failures?1:0;
 }
