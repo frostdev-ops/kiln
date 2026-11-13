@@ -90,6 +90,43 @@ reflection, **[data]** the game's UI data, **[sf]** ShroudForge's shipped implem
 - Text lifetime: the game passes loca strings and frame-allocator strings; the UI may keep the pointer until the frame
   renders **[hyp]**, so Kiln interns labels for the process.
 
+### Layout and scrolling (client 26430625, static only, nothing of it run)
+Asked for a scrolling main and pause menu (2026-11-13: many rows before Settings push Quit off a 1080p screen). RVAs
+of 5d9ef2f1. Helper: `kx.py` (copied from the NoClip research) over the exe as a file.
+- **No cursor.** An entry is a frame of the game's retained layout tree, not a row at a cursor: SystemMenuEntry
+  `0xcb47f0` opens a child frame of the current parent (`0xa3cbd0(&frame, 0)`; the frame handle at `+8`), sizes it
+  (`0x11cf360(frame, {1.0, 0})`: full width, height from content), registers it for navigation (`0xa41fb0(UiApp,
+  frame)`), asks for hover/focus (`0xa4d2d0`, `0xa471b0`), draws the label (`0xd0d3b0`) and closes the frame
+  (`0xa40080`). Positions are computed by the layouter from the tree, so neither the row height nor the list's top is
+  a number the entry code reads. **[dis]**
+- **The pause menu's tree** (builder around `0xcd60f9`): a frame "systemMenuContent" (`0xa3cf70`, hash
+  0xca8fd50ed1226434), inside it "menuLayouter" (`0xa3cb10`, hash 0x84a61178ec189a93; a value 25 or 40 picked by the byte at
+  `rbp+0xb60`, use not traced; `0xa47740` with {0xe6000000, 1.0}), inside that a column frame (`0xa3c790`) whose width is the UI scale
+  (`0xd46090(UiApp, 1.4, 0.8)`) times 300 units, then the entries: Resume (`call 0xcb47f0` at `0xcd63ab`), Settings
+  (`0xcd6546`, the site Kiln draws before), and the rest down to Quit. **[dis]**
+- **The game's own scroll view exists:** `keen::GameUiScrollingLayout`. Begin **`0xa3e020(layout*, u8 dl, state*,
+  r9, params*)`**: `layout` is the caller's storage (at least 0x470 bytes: an outer frame at `+8`, a content frame at
+  `+0x38`, the copied parameters from `+0x58`), `params` a `GameUiScrollingLayoutParameterData` (0x184 bytes copied;
+  fields named in the reflection strings: enableScrollbar, forceScrollbar, doScissorWhenScrolling,
+  useAutoScrolling, scrollingHotKeyMask, showScrollHint, scrollbarAlignment, scrollBar), `state` a per-call-site block
+  from the UI's hash-keyed state store (`0x11a06e0(store, hash, size, ctor, 1)`; the credits use hash
+  0xeb56c10a5766ad62, size 4). It names the outer frame "GameUiScrollingLayout" and, vertically, moves the content
+  frame by the scroll offset (`0x11cf380(content, {0, offset})`). End **`0xa40160(layout*)`** (85 callers). The
+  credits (`0xb81ecc` … `0xb82a3e`) and the recipe info panel ("infoScroller", `0xbb5f66`) use it; the parameter
+  block is built by `0xa3eeb0` (defaults) and `0xa3df20` plus the scrollbar look copied from the UI bundle
+  (`UiApp+0xc8` at `+0xfa84…+0xfb04`). Frame state `keen::UiFrameScrollState` {scrollOffset, scrollAreaSize}.
+  **[dis] [refl]**
+- **Not found statically:** what bounds the menu column's height (a scroll view needs a parent of fixed height; the
+  column may grow with its content), how the scroll view follows the gamepad/keyboard focus (useAutoScrolling is the
+  candidate), and the meaning of `dl` (1 in every caller looked at) and `r9`.
+- **Cost of a scrolling menu** (route "the game's scroll view"): Kiln's renderer hooks already see the first entry
+  (Resume / Play) and the last (Quit) by their return addresses; Kiln would begin a GameUiScrollingLayout before the
+  first and end it after the last, with its own storage, state block and a parameter block built as the credits build
+  theirs. About 2 days of further static work (the parameter block, the column's height, the focus) and several client
+  sessions; risk: the game's layout asserts are fatal (`0xcb4c38`: "SmallDynamicArray is out of elements", then
+  `0x8a0d90`), so a wrong nesting ends the game on the first frame, and no run-time check before the first frame can
+  rule that out. A game update moves every one of these functions (each needs a signature).
+
 ### What Kiln does (native injection, shipped)
 - One inline hook on each renderer. When the call comes from the **Settings** entry's call site (return address =
   `ui/MainMenuSettingsA` / `B`, both layout branches; `ui/SystemMenuSettings`), Kiln first calls the original renderer
