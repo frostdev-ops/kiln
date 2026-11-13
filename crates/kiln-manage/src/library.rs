@@ -1109,6 +1109,31 @@ pub struct MigratedEntry {
     pub to: String,
 }
 
+/// `<library>/kiln-moved.json`: every move [`migrate_identities`] made, kept, so a reference made before a move (a
+/// server's list of mods, a page the launcher still shows) finds the entry it became at any later call ([`moved_to`]).
+fn moved_file(dirs: &DataDirs) -> PathBuf {
+    dirs.library().join("kiln-moved.json")
+}
+
+/// The moves [`migrate_identities`] made so far, oldest first (none when nothing was moved, or the file cannot be read).
+pub fn moved(dirs: &DataDirs) -> Vec<MigratedEntry> {
+    crate::util::read_json::<Vec<MigratedEntry>>(&moved_file(dirs)).ok().flatten().unwrap_or_default()
+}
+
+/// A reference by the hash a Kiln entry had before [`migrate_identities`] moved it: the reference it became (followed
+/// through every move); any other reference as it is.
+pub fn moved_to(dirs: &DataDirs, r: &LibraryRef) -> LibraryRef {
+    let all = moved(dirs);
+    let mut cur = r.clone();
+    for _ in 0..=all.len() {
+        match all.iter().find(|m| cur.kind == ModKind::Kiln && m.id == cur.id && m.version == cur.version && m.from == cur.hash) {
+            Some(m) => cur.hash = m.to.clone(),
+            None => break,
+        }
+    }
+    cur
+}
+
 /// Kiln entries imported before 0.2.0-dev.27 from a folder that held cook outputs are recorded under the kdh1 of the
 /// whole folder, `assets/cooked` included. Every check compares a Kiln mod by its identity now, so such an entry would
 /// read as changed: an activation in copy mode would copy it again and fail, a server sync would be refused.
@@ -1117,9 +1142,13 @@ pub struct MigratedEntry {
 /// one: nothing changed since), then moved to its identity: a copy at `<version>+<hash8 of the identity>` with its
 /// record, every profile that lists the old hash listing the new one, and the old entry removed once nothing uses it
 /// (a game's profile file may still name its path until that game's next activation: then it stays until the next
-/// run). The files come along as they are, cook outputs too: they are what the entry ran with. An entry whose files
-/// changed since its import is left alone, as before. Each step can be repeated: a stop between two leaves both
-/// entries, and the next run goes on. -> the entries moved by this run.
+/// run). Its cook outputs are left out of the copy, as an import leaves them out: nothing proves this PC made them
+/// (cooked files are made on each PC by its own cook, docs/kiln/modding/cooking.md), and the launcher cooks the mod
+/// before the next start. An entry at the identity that is there already is used only when its files are that
+/// identity; one whose files changed is replaced by the verified copy, and the old entry is removed only after that.
+/// An entry whose files changed since its import is left alone, as before. Each step can be repeated: a stop between
+/// two leaves both entries, and the next run goes on. Every move is kept in `kiln-moved.json` ([`moved_to`]).
+/// -> the entries moved by this run.
 pub fn migrate_identities(dirs: &DataDirs) -> Result<Vec<MigratedEntry>> {
     let mut moved = Vec::new();
     for (folder, rec) in records(dirs, ModKind::Kiln) {
@@ -1132,18 +1161,30 @@ pub fn migrate_identities(dirs: &DataDirs) -> Result<Vec<MigratedEntry>> {
         }
         let old = LibraryRef { kind: ModKind::Kiln, id: rec.id.clone(), version: rec.version.clone(), hash: rec.hash.clone() };
         let to = dirs.library_entry(ModKind::Kiln, &rec.id, &rec.version, &identity)?;
-        // 1. the entry at its identity (the same mod imported without cook outputs may be there already)
-        let there = to.is_dir() && crate::util::read_json::<ImportRecord>(&record_path(&to)).ok().flatten().is_some_and(|r| r.hash == identity);
+        // 1. the entry at its identity (the same mod imported without cook outputs may be there already): used only when
+        // its record and its files are that identity, else made again from the entry verified above
+        let there = to.is_dir() && crate::util::read_json::<ImportRecord>(&record_path(&to)).ok().flatten().is_some_and(|r| r.hash == identity)
+            && crate::hash::mod_identity(&to).ok().as_deref() == Some(identity.as_str());
         if !there {
             let tmp = TempDir::new(&dirs.library(), "migrate")?;
             let work = tmp.path().join("m");
-            crate::util::copy_tree(&folder, &work)?;
+            copy_kiln_mod_tree(&folder, &work)?;
             if crate::hash::mod_identity(&work)? != identity {
                 return Err(Error::new(ErrorCode::HashMismatch, format!("{}: changed while it was moved to its new hash", folder.display())));
             }
-            let _ = std::fs::remove_dir_all(&to); // a half move without its record
+            // a half move without its record, or an entry whose files are not its identity
+            if std::fs::symlink_metadata(&to).is_ok() {
+                std::fs::remove_dir_all(&to).map_err(io(&to, "replacing"))?;
+            }
             std::fs::rename(&work, &to).map_err(io(&to, "moving into the library"))?;
             crate::util::write_json_atomic(&record_path(&to), &ImportRecord { hash: identity.clone(), ..rec.clone() })?;
+        }
+        // the move is kept before anything points at the new entry: a reference made before it finds that entry later
+        let entry = MigratedEntry { id: old.id.clone(), version: old.version.clone(), from: old.hash.clone(), to: identity.clone() };
+        let mut all = self::moved(dirs);
+        if !all.contains(&entry) {
+            all.push(entry.clone());
+            crate::util::write_json_atomic(&moved_file(dirs), &all)?;
         }
         // 2. the profiles that list the old hash
         for summary in crate::profile::list(dirs)? {
@@ -1159,7 +1200,7 @@ pub fn migrate_identities(dirs: &DataDirs) -> Result<Vec<MigratedEntry>> {
         }
         // 3. the old entry, unless something still reads it (a running game, a game's profile file naming its path)
         let _ = remove(dirs, &old, false);
-        moved.push(MigratedEntry { id: old.id, version: old.version, from: old.hash, to: identity });
+        moved.push(entry);
     }
     Ok(moved)
 }

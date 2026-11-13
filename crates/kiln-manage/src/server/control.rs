@@ -282,12 +282,9 @@ fn op(c: &Option<crate::admin::client::AdminClient>, name: &str, key: &str, valu
 /// marker); hand-placed folders stay. A folder of the same id without a marker is a conflict (left alone, reported).
 pub fn sync(dirs: &DataDirs, instance: &ServerInstance, mods: &[LibraryRef], progress: &mut dyn Progress) -> Result<Vec<ServerMod>> {
     // Kiln entries an older Kiln recorded with their cook outputs in the hash move to their identity first; a caller
-    // that still names one by its old hash means the entry it became
-    let moved = crate::library::migrate_identities(dirs)?;
-    let renamed: Vec<LibraryRef> = mods.iter().map(|r| match moved.iter().find(|m| r.kind == ModKind::Kiln && m.id == r.id && m.version == r.version && m.from == r.hash) {
-        Some(m) => LibraryRef { hash: m.to.clone(), ..r.clone() },
-        None => r.clone(),
-    }).collect();
+    // that still names one by its old hash means the entry it became, whichever call moved it (library::moved_to)
+    crate::library::migrate_identities(dirs)?;
+    let renamed: Vec<LibraryRef> = mods.iter().map(|r| crate::library::moved_to(dirs, r)).collect();
     let mods = renamed.as_slice();
     let server = instance.local_dir()?.to_path_buf();
     let _lock = server_library_lock(&server)?;
@@ -390,7 +387,9 @@ pub fn sync(dirs: &DataDirs, instance: &ServerInstance, mods: &[LibraryRef], pro
         }
         let staging = crate::library::TempDir::new(&dst_root, "kiln-sync")?;
         let tmp = staging.path().join("new");
-        crate::library::copy_mod_tree(&src, &tmp)?;
+        // a Kiln mod without its cook outputs: the server's are made by a cook on the server (kiln cook --game <server>),
+        // and kiln.assets there loads only what such a cook made (docs/kiln/modding/cooking.md)
+        if r.kind == ModKind::Kiln { crate::library::copy_kiln_mod_tree(&src, &tmp)?; } else { crate::library::copy_mod_tree(&src, &tmp)?; }
         if crate::hash::of_mod(r.kind, &tmp)? != r.hash {
             let _ = std::fs::remove_dir_all(&tmp);
             return Err(Error::new(ErrorCode::HashMismatch, "library mod changed while copying"));

@@ -560,7 +560,9 @@ fn a_dev26_entry_recorded_with_its_cook_outputs_moves_to_its_identity() {
     let new_ref = LibraryRef { hash: identity.clone(), ..old_ref.clone() };
     let moved = library::path_of(&dirs, &new_ref).unwrap();
     assert!(moved.ends_with(format!("1.0.0+{}", &identity[5..13])));
-    assert_eq!(std::fs::read(moved.join("assets/cooked/clip.bin")).unwrap(), b"cooked by the importer, with dev.26", "its files came along as they were");
+    assert!(moved.join("kiln.mod.json").is_file() && !moved.join("assets/cooked").exists(),
+        "its files came along, its cook outputs did not: nothing proves this PC made them, the launcher cooks the mod");
+    assert_eq!(library::moved_to(&dirs, &old_ref), new_ref, "the move is kept");
     assert_eq!(library::record(&dirs, &new_ref).unwrap().hash, identity);
     assert!(!legacy.exists() && library::record(&dirs, &old_ref).is_err(), "the old entry is gone once nothing uses it");
     assert!(changed.is_dir(), "an entry that changed since its import stays where it was");
@@ -588,14 +590,58 @@ fn a_dev26_entry_recorded_with_its_cook_outputs_moves_to_its_identity() {
         kiln_manage::util::copy_tree(&k2, &legacy2).unwrap();
         kiln_manage::util::write_json_atomic(&legacy2.with_file_name(format!("2.0.0+{}.json", &old2[5..13])),
             &serde_json::json!({ "format": 1, "kind": "kiln", "id": "shields", "version": "2.0.0", "hash": old2, "imported": "2026-11-12T10:00:00Z", "size": 64 })).unwrap();
-        let want = [new_ref.clone(), LibraryRef { kind: ModKind::Kiln, id: "shields".into(), version: "2.0.0".into(), hash: old2.clone() }];
+        // blades by the hash it had before the activation above moved it (a list made before that call), shields by its
+        // old hash too: both are the entries they became
+        let want = [old_ref.clone(), LibraryRef { kind: ModKind::Kiln, id: "shields".into(), version: "2.0.0".into(), hash: old2.clone() }];
         let listed = control::sync(&dirs, &inst, &want, &mut NoProgress).unwrap();
         for id in ["blades", "shields"] {
             assert!(server.join("kiln/mods").join(id).join("kiln.mod.json").is_file(), "{id}: {listed:?}");
         }
         assert_eq!(hash::mod_identity(&server.join("kiln/mods/shields")).unwrap(), identity2);
+        assert_eq!(hash::mod_identity(&server.join("kiln/mods/blades")).unwrap(), identity);
+        assert!(!server.join("kiln/mods/shields/assets/cooked").exists(), "a server's copy carries no cooked file: the server's cook makes them");
         assert!(!legacy2.exists());
+        // and again, later, by the old hashes: still the same entries, nothing copied again
+        let again = control::sync(&dirs, &inst, &want, &mut NoProgress).unwrap();
+        assert_eq!(again.len(), listed.len());
     }
+}
+
+/// A Kiln entry at the identity a legacy entry moves to is used only when its files are that identity. One whose files
+/// were changed on disk is made again from the legacy entry, verified first; the legacy entry goes only after that, so the
+/// verified copy is never the one lost.
+#[test]
+fn a_damaged_entry_at_the_identity_is_replaced_by_the_verified_one_before_the_old_goes() {
+    let t = tmp("legacy-damaged");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let k = kiln_mod(&t.0, "blades", "1.0.0", "");
+    put(&k, "assets/cooked/clip.bin", b"cooked by the importer, with dev.26");
+    std::fs::remove_file(k.join(".kiln-source.json")).unwrap();
+    let (old, identity) = (hash::dirhash(&k).unwrap(), hash::mod_identity(&k).unwrap());
+    let record = |hash: &str| serde_json::json!({ "format": 1, "kind": "kiln", "id": "blades", "version": "1.0.0", "hash": hash, "imported": "2026-11-12T10:00:00Z", "size": 64 });
+    let legacy = dirs.library_entry(ModKind::Kiln, "blades", "1.0.0", &old).unwrap();
+    kiln_manage::util::copy_tree(&k, &legacy).unwrap();
+    kiln_manage::util::write_json_atomic(&legacy.with_file_name(format!("1.0.0+{}.json", &old[5..13])), &record(&old)).unwrap();
+    // the entry at the identity: its record says the identity, its payload was edited on disk since
+    let at = dirs.library_entry(ModKind::Kiln, "blades", "1.0.0", &identity).unwrap();
+    kiln_manage::util::copy_tree(&k, &at).unwrap();
+    std::fs::remove_dir_all(at.join("assets/cooked")).unwrap();
+    kiln_manage::util::write_json_atomic(&at.with_file_name(format!("1.0.0+{}.json", &identity[5..13])), &record(&identity)).unwrap();
+    put(&at, "M.dll", b"not the mod's payload");
+    assert_ne!(hash::mod_identity(&at).unwrap(), identity);
+    let old_ref = LibraryRef { kind: ModKind::Kiln, id: "blades".into(), version: "1.0.0".into(), hash: old.clone() };
+    let mut p = profile::create(&dirs, "p", None).unwrap();
+    p.mods.kiln.push(pm(&old_ref, true));
+    let p = profile::save(&dirs, &p).unwrap();
+
+    let moved = library::migrate_identities(&dirs).unwrap();
+    assert_eq!(moved.iter().map(|m| (m.from.as_str(), m.to.as_str())).collect::<Vec<_>>(), [(old.as_str(), identity.as_str())]);
+    assert_eq!(hash::mod_identity(&at).unwrap(), identity, "the damaged entry was made again from the verified one");
+    assert_ne!(std::fs::read(at.join("M.dll")).unwrap(), b"not the mod's payload");
+    assert_eq!(profile::get(&dirs, &p.id).unwrap().mods.kiln[0].hash, identity);
+    assert!(!legacy.exists(), "the old entry went after the new one was right");
+    let new_ref = LibraryRef { hash: identity.clone(), ..old_ref };
+    assert_eq!(library::path_of(&dirs, &new_ref).unwrap(), at);
 }
 
 /// The launcher's cook (kiln_manage::cook): which mods of the game's profile need a cook, one after the other, a

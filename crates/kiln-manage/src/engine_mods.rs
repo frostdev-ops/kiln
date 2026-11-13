@@ -643,6 +643,13 @@ fn save_placements(game: &Path, entries: &[Placement]) -> Result<()> {
     crate::util::rename_replace(&staged, &file)
 }
 
+/// A temporary file of a marker write of Kiln's, at the top of a folder: `<marker>.tmp` ([`crate::util::write_atomic`],
+/// what a write that failed before its rename left) or `.<marker>.<hex>.kiln-tmp` ([`crate::util::write_atomic_exclusive`]).
+/// Never the player's: not part of a folder's inventory, and [`adopt`] clears it.
+fn marker_temp(rel: &str) -> bool {
+    !rel.contains('/') && (rel == format!("{MARKER}.tmp") || (rel.starts_with(&format!(".{MARKER}.")) && rel.ends_with(".kiln-tmp")))
+}
+
 fn placement_files(root: &Path, kind: ModKind) -> Result<std::collections::BTreeMap<String, String>> {
     fn walk(root: &Path, dir: &Path, kind: ModKind, out: &mut std::collections::BTreeMap<String, String>) -> Result<()> {
         refuse_symlink_path(root, dir)?;
@@ -652,7 +659,7 @@ fn placement_files(root: &Path, kind: ModKind) -> Result<std::collections::BTree
             refuse_symlink_path(root, &path)?;
             let rel = path.strip_prefix(root).expect("tree child").to_str()
                 .ok_or_else(|| Error::invalid("non-Unicode placed mod path"))?.replace('\\', "/");
-            if rel == MARKER { continue; }
+            if rel == MARKER || marker_temp(&rel) { continue; }
             if entry.file_type()?.is_dir() {
                 // Keep empty and newly added directories in the ownership inventory too.
                 out.insert(format!("{rel}/"), String::new());
@@ -1678,7 +1685,16 @@ pub fn adopt(dirs: &DataDirs, profile: &crate::profile::Profile, game_dir: &Path
                 error.message, left.message, if dst.exists() { dst.display() } else { own.display() })),
         }
     };
-    if let Err(e) = adopt_step(AdoptStep::Marker, || crate::util::write_json_atomic(&marker_file, &plan.want)) { return Err(undo(e)); }
+    // What an earlier try's failed marker write left is Kiln's, not the player's: it goes. The marker is written through a
+    // temporary file of a name no file there has, removed when the write fails, so a failure leaves nothing to block the
+    // next try.
+    for e in std::fs::read_dir(dst).map_err(io_at(dst, "reading"))?.flatten() {
+        if e.file_name().to_str().is_some_and(marker_temp) && e.file_type().is_ok_and(|t| t.is_file() || t.is_symlink()) {
+            let _ = std::fs::remove_file(e.path());
+        }
+    }
+    let marker_json = serde_json::to_string_pretty(&plan.want).map(|t| t + "\n").map_err(|e| Error::new(ErrorCode::Internal, e.to_string()))?;
+    if let Err(e) = adopt_step(AdoptStep::Marker, || crate::util::write_atomic_exclusive(&marker_file, marker_json.as_bytes())) { return Err(undo(e)); }
     // The receipt lists the Library copy only: the switch and the setting values in the folder remain the player's.
     let receipt = Placement { path: dst.clone(), marker: plan.want.clone(), files: plan.listed.clone(), extension: Some(extension), game_folder: false };
     if let Err(e) = adopt_step(AdoptStep::Receipt, || put_placement(game_dir, &mut receipts, &receipt)) { return Err(undo(e)); }
@@ -3545,6 +3561,36 @@ mod tests {
             FAIL_SAVE_PLACEMENTS.with(|f| f.set(true));
             adopt(&dirs, &p, &game, ModKind::ShroudForge, "bigstacks").unwrap_err();
             assert_eq!(std::fs::read(own.join(MARKER)).unwrap(), b"{ \"stale\": true }");
+        }
+    }
+
+    /// A marker write that failed before its rename (a full disk, a flush error) left its temporary file in the player's
+    /// folder. That file is Kiln's: the next try does not take it for a file of the player's (which would refuse the folder
+    /// as "not the mod's"), clears it, and finishes. A write that fails now leaves nothing behind.
+    #[test]
+    fn a_failed_marker_write_does_not_block_the_next_try() {
+        for folder in ["Big Stacks", "bigstacks"] {
+            let tmp = crate::library::TempDir::new(&std::env::temp_dir(), "adopt-marker").unwrap();
+            let (dirs, game, p, own) = own_sf_setup(tmp.path(), folder);
+            // what the writes of earlier Kilns and of this one leave when they fail before the rename
+            std::fs::write(own.join(format!("{MARKER}.tmp")), b"{ \"format\": 1, \"kind\": \"sh").unwrap();
+            std::fs::write(own.join(format!(".{MARKER}.00112233aabbccdd.kiln-tmp")), b"").unwrap();
+            let rows = own_folders(&dirs, &p, &game).unwrap();
+            assert_eq!(rows.iter().map(|r| r.refusal.clone()).collect::<Vec<_>>(), [None], "{folder}: {rows:?}");
+            // a write that fails now (the marker's name is taken by a folder): nothing of it is left
+            let dst = game.join("mods/bigstacks");
+            if folder == "bigstacks" {
+                std::fs::create_dir_all(dst.join(MARKER).join("in the way")).unwrap();
+                adopt(&dirs, &p, &game, ModKind::ShroudForge, "bigstacks").unwrap_err();
+                assert!(std::fs::read_dir(&dst).unwrap().flatten().all(|e| !e.file_name().to_string_lossy().ends_with(".kiln-tmp")), "no temporary file left");
+                assert!(placements(&game).unwrap().is_empty());
+                std::fs::remove_dir_all(dst.join(MARKER)).unwrap();
+            }
+            let done = adopt(&dirs, &p, &game, ModKind::ShroudForge, "bigstacks").unwrap();
+            assert_eq!((done.path.clone(), done.already), (dst.clone(), false), "{folder}");
+            let left: Vec<String> = std::fs::read_dir(&dst).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).filter(|n| n.contains(MARKER)).collect();
+            assert_eq!(left, [MARKER.to_string()], "{folder}: the marker only, its temporary files are gone");
+            assert!(owned(&game, &placements(&game).unwrap(), &done.path, ModKind::ShroudForge, "bigstacks").unwrap().is_some());
         }
     }
 
