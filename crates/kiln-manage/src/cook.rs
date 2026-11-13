@@ -382,7 +382,7 @@ mod windows_job {
 
 /// How a tool's run ended ([`run_tool`]).
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct Ended {
+pub(crate) struct Ended {
     /// It exited with 0.
     ok: bool,
     /// Its exit code (None: stopped by a signal, or by Kiln).
@@ -474,7 +474,7 @@ fn run_tool(cmd: &mut Command, limit: Option<Duration>, quiet: Option<Duration>,
 
 /// [`run_tool`] for a short step whose output is read after it ended: (how it ended, stdout, stderr), each output at
 /// most [`TEXT_KEPT`] bytes.
-fn run_step(cmd: &mut Command, limit: Option<Duration>, stop: &dyn Fn() -> bool) -> std::io::Result<(Ended, String, String)> {
+pub(crate) fn run_step(cmd: &mut Command, limit: Option<Duration>, stop: &dyn Fn() -> bool) -> std::io::Result<(Ended, String, String)> {
     let (mut out, mut err) = (Tail::default(), Tail::default());
     let end = run_tool(cmd, limit, None, stop, &mut |is_err, line| if is_err { err.push(line) } else { out.push(line) })?;
     Ok((end, out.text(), err.text()))
@@ -558,6 +558,13 @@ pub fn cook_folder(tools: &CookTools, dir: &Path, opts: &CookOptions, on_line: &
 /// own lines): `kiln cook` prints them where the tool did.
 pub fn cook_folder_watched(tools: &CookTools, dir: &Path, opts: &CookOptions, on_line: &mut dyn FnMut(bool, &str), stop: &dyn Fn() -> bool)
                            -> std::result::Result<CookReport, CookStop> {
+    cook_folder_held(tools, dir, opts, on_line, stop, &|| None)
+}
+
+/// [`cook_folder_watched`] that asks `refuse()` again once the folder's lock is held (the wait for it can be long): Some
+/// (why) ends the cook there, before anything is set aside (`busy`).
+fn cook_folder_held(tools: &CookTools, dir: &Path, opts: &CookOptions, on_line: &mut dyn FnMut(bool, &str), stop: &dyn Fn() -> bool,
+                    refuse: &dyn Fn() -> Option<String>) -> std::result::Result<CookReport, CookStop> {
     let fail = |code: &'static str, message: String| CookStop { code, message };
     // one cook of a folder at a time
     let _lock = if opts.check {
@@ -574,6 +581,9 @@ pub fn cook_folder_watched(tools: &CookTools, dir: &Path, opts: &CookOptions, on
         };
         Some(held.map_err(|e| fail(if e.code == ErrorCode::Canceled { "canceled" } else { "busy" }, e.message))?)
     };
+    if let Some(why) = refuse() {
+        return Err(fail("busy", why));
+    }
     if opts.check {
         return cook_steps(tools, dir, opts, on_line, stop);
     }
@@ -792,7 +802,9 @@ fn cook_steps(tools: &CookTools, dir: &Path, opts: &CookOptions, on_line: &mut d
 /// and the mod's own files a cook may write, as they were. Only this run puts them back ([`SetAside::restore`]).
 struct SetAside {
     prev: Option<PathBuf>,
-    receipts: Vec<(PathBuf, Vec<u8>)>,
+    /// Each receipt with its bytes and its write time: a cook writes a receipt anew (a new file renamed over it), and one
+    /// written again with the same bytes (the same files, in the same second) is still this cook's.
+    receipts: Vec<(PathBuf, Vec<u8>, Option<std::time::SystemTime>)>,
     own: Vec<(PathBuf, Option<Vec<u8>>)>,
 }
 
@@ -883,8 +895,21 @@ fn set_aside(dir: &Path, game: Option<&Path>) -> Result<SetAside> {
     let assets = dir.join("assets");
     let cooked = assets.join("cooked");
     crate::engine_mods::refuse_symlink_path(dir, &cooked)?;
-    let receipts = game.map(|g| receipts_of(g, dir).into_iter().filter_map(|(f, _)| std::fs::read(&f).ok().map(|b| (f, b))).collect()).unwrap_or_default();
-    let own = own_files(dir).into_iter().map(|f| { let b = std::fs::read(&f).ok(); (f, b) }).collect();
+    // "not there" is remembered as absent (put back as absent); a file that is there and cannot be read stops the cook
+    // before anything moved: remembered as absent, a failed cook's putting back would delete it
+    let read = |f: &Path| match std::fs::read(f) {
+        Ok(b) => Ok(Some(b)),
+        Err(_) if !f.is_file() => Ok(None),
+        Err(e) => Err(crate::util::io_at(f, "reading")(e)),
+    };
+    let mut receipts = Vec::new();
+    for (f, _) in game.map(|g| receipts_of(g, dir)).unwrap_or_default() {
+        if let Some(b) = read(&f)? {
+            let at = std::fs::symlink_metadata(&f).and_then(|m| m.modified()).ok();
+            receipts.push((f, b, at));
+        }
+    }
+    let own = own_files(dir).into_iter().map(|f| read(&f).map(|b| (f, b))).collect::<Result<Vec<_>>>()?;
     let prev = match std::fs::symlink_metadata(&cooked) {
         Ok(m) if m.is_dir() => {
             let hex: String = crate::util::random_bytes::<6>()?.iter().map(|b| format!("{b:02x}")).collect();
@@ -906,12 +931,13 @@ fn set_aside(dir: &Path, game: Option<&Path>) -> Result<SetAside> {
 }
 
 impl SetAside {
-    /// The cook ended well: the receipts it did not write again (their bytes are as they were) name files it did not
-    /// make, and go. Its set-aside goes with the others ([`remove_left_overs`]).
+    /// The cook ended well: the receipts it did not write again (their bytes and their write time are as they were) name
+    /// files it did not make, and go. Its set-aside goes with the others ([`remove_left_overs`]).
     fn drop_stale_receipts(&self, dir: &Path, game: Option<&Path>) {
         let Some(game) = game else { return };
         for (file, _) in receipts_of(game, dir) {
-            if self.receipts.iter().any(|(f, b)| *f == file && std::fs::read(&file).ok().as_deref() == Some(b.as_slice())) {
+            let at = std::fs::symlink_metadata(&file).and_then(|m| m.modified()).ok();
+            if self.receipts.iter().any(|(f, b, t)| *f == file && t.is_some() && *t == at && std::fs::read(&file).ok().as_deref() == Some(b.as_slice())) {
                 let _ = std::fs::remove_file(&file);
             }
         }
@@ -938,7 +964,7 @@ impl SetAside {
             for (file, _) in receipts_of(game, dir) {
                 let _ = std::fs::remove_file(file);
             }
-            for (file, bytes) in &self.receipts {
+            for (file, bytes, _) in &self.receipts {
                 note(crate::util::write_atomic_exclusive(file, bytes));
             }
         }
@@ -1328,7 +1354,7 @@ pub const AFTER_START: Duration = Duration::from_secs(120);
 
 /// The launcher's cook, whole. Under the game's lock ([`crate::state::lock_game`]: no start of this game and no other
 /// cook of it meanwhile; a start waits for the lock a moment, then says why it cannot start), refused while the game
-/// runs, and "Cook again" also while the game was just started ([`AFTER_START`]: Play's own cook comes before its start):
+/// runs or was just started ([`AFTER_START`]: Play's own cook comes before its start; Play goes on without it):
 ///
 /// 1. the active profile is written again when it changed since its activation ([`crate::profile::refresh_active`]),
 ///    so the mods cooked are the ones the start then loads;
@@ -1349,7 +1375,8 @@ pub fn cook_due(dirs: &crate::paths::DataDirs, install: &GameInstall, only: Opti
     refuse_running(crate::proc::find_game(install)?.is_some())?;
     let _game = crate::state::lock_game(&install.path, Duration::from_secs(10), stop)?;
     refuse_running(crate::proc::find_game(install)?.is_some())?;
-    if only.is_some() && crate::launch::started_within(dirs, install, AFTER_START) {
+    // Play's cook too: a second launcher (or a second press) while Steam still starts the game would write its files
+    if crate::launch::started_within(dirs, install, AFTER_START) {
         return Err(Error::new(ErrorCode::GameRunning, "The game was just started: a cook now would write the files it is reading. Cook again once it runs no more."));
     }
     let activation = crate::profile::refresh_active(dirs, install)?;
@@ -1387,7 +1414,8 @@ pub fn cook_due(dirs: &crate::paths::DataDirs, install: &GameInstall, only: Opti
                     line(&format!("kiln: {why}"));
                     return (false, why);
                 }
-                match cook_folder_watched(t, &job.folder, &opts, &mut |_, l| line(l), &halt) {
+                // asked again once the folder's lock is held: that game may have started while this cook waited for it
+                match cook_folder_held(t, &job.folder, &opts, &mut |_, l| line(l), &halt, &|| used_elsewhere(dirs, install, &job.folder)) {
                     Ok(r) => (r.ok, r.text),
                     Err(e) => (false, e.message),
                 }
@@ -1849,6 +1877,92 @@ mod tests {
         let _ = cook_folder_watched(&fake_tools(&d.path().join("t"), "/bin/false"), &folder, &clean, &mut |_, _| {}, &|| false).unwrap();
         assert_eq!(std::fs::read(folder.join("assets/cooked/a.bin")).unwrap(), b"newest");
         assert!(left.iter().all(|l| l.join("cooked/a.bin").is_file()));
+    }
+
+    /// A file of the mod's own that is there but cannot be read (a permission, a sharing violation) stops a clean cook
+    /// before anything is moved, with an error that names it: remembered as absent, the putting back of a failed cook
+    /// would delete it. A file that is not there is remembered as absent, as before.
+    #[cfg(unix)]
+    #[test]
+    fn an_own_file_that_cannot_be_read_stops_the_cook_before_anything_moves() {
+        use std::os::unix::fs::PermissionsExt;
+        // SAFETY: a plain geteuid(2).
+        if unsafe { libc::geteuid() } == 0 {
+            eprintln!("skipped: root reads a file of mode 000");
+            return;
+        }
+        let d = crate::library::TempDir::new(&std::env::temp_dir(), "cook-unreadable").unwrap();
+        let (game, folder) = cooked_mod(d.path());
+        let manifest = folder.join("assets/assets.json");
+        std::fs::set_permissions(&manifest, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let e = set_aside(&folder, Some(&game)).err().expect("an unreadable file of the mod stops the set-aside");
+        assert!(e.message.contains("assets.json"), "{}", e.message);
+        assert!(left_over(&folder).is_empty() && folder.join("assets/cooked/a.bin").is_file(), "nothing was moved");
+        // the whole cook: it fails with that error, and the file is still there
+        let opts = CookOptions { game: Some(game.clone()), force: true, clean: true, ..CookOptions::default() };
+        let stop = cook_folder_watched(&fake_tools(&d.path().join("t"), "/bin/false"), &folder, &opts, &mut |_, _| {}, &|| false).unwrap_err();
+        assert!(stop.code == "io" && stop.message.contains("assets.json"), "{stop:?}");
+        std::fs::set_permissions(&manifest, std::fs::Permissions::from_mode(0o644)).unwrap();
+        assert_eq!(std::fs::read(&manifest).unwrap(), b"{ \"shipped\": true }");
+        assert_eq!(check_receipts(&game, &folder), (1, true));
+        // a file that is not there is remembered as absent: a failed cook that made it removes it again
+        std::fs::remove_file(&manifest).unwrap();
+        let kept = set_aside(&folder, Some(&game)).unwrap();
+        std::fs::write(&manifest, b"{ \"made\": true }").unwrap();
+        kept.restore(&folder, Some(&game)).unwrap();
+        assert!(!manifest.exists());
+    }
+
+    /// A cook that writes a receipt again with the same bytes (the same files, within the second its time is given in)
+    /// keeps it: only a receipt it did not write goes after a cook that ended well.
+    #[cfg(unix)]
+    #[test]
+    fn a_receipt_written_again_with_the_same_bytes_is_kept() {
+        let d = crate::library::TempDir::new(&std::env::temp_dir(), "cook-samereceipt").unwrap();
+        let (game, folder) = cooked_mod(d.path());
+        let (file, _) = receipts_of(&game, &folder).remove(0);
+        let bytes = std::fs::read(&file).unwrap();
+        let kept = set_aside(&folder, Some(&game)).unwrap();
+        // the cook: the same files again, its receipt written anew (a new file renamed over it), byte for byte the same
+        std::fs::rename(kept.prev.as_ref().unwrap().join("cooked"), folder.join("assets/cooked")).unwrap();
+        std::thread::sleep(Duration::from_millis(20));
+        let tmp = file.with_extension("tmp");
+        std::fs::write(&tmp, &bytes).unwrap();
+        std::fs::rename(&tmp, &file).unwrap();
+        kept.drop_stale_receipts(&folder, Some(&game));
+        assert_eq!(check_receipts(&game, &folder), (1, true), "the receipt the cook wrote is there");
+        // one it did not write goes
+        let kept = set_aside(&folder, Some(&game)).unwrap();
+        kept.drop_stale_receipts(&folder, Some(&game));
+        assert!(receipts_of(&game, &folder).is_empty());
+    }
+
+    /// What may refuse a cook of a folder (another game that loads it was started) is asked again once the folder's
+    /// lock is held, after the wait for it: a refusal then ends the cook before anything is set aside.
+    #[cfg(unix)]
+    #[test]
+    fn a_cook_that_waited_for_its_folder_asks_again_before_it_writes() {
+        let d = crate::library::TempDir::new(&std::env::temp_dir(), "cook-recheck").unwrap();
+        let (game, folder) = cooked_mod(d.path());
+        let opts = CookOptions { game: Some(game.clone()), force: true, clean: true, ..CookOptions::default() };
+        let held = crate::state::lock_cook_folder(&folder, Duration::ZERO, &|| false, "busy").unwrap();
+        let asked = std::sync::Mutex::new(None::<Instant>);
+        let start = Instant::now();
+        let r = std::thread::scope(|s| {
+            let cook = s.spawn(|| cook_folder_held(&fake_tools(&d.path().join("t"), "/bin/true"), &folder, &opts, &mut |_, _| {}, &|| false, &|| {
+                *asked.lock().unwrap() = Some(Instant::now());
+                Some("the game in elsewhere loads this mod's folder too and was just started".into())
+            }));
+            std::thread::sleep(Duration::from_millis(500));
+            drop(held);
+            cook.join().unwrap()
+        });
+        let e = r.unwrap_err();
+        assert_eq!(e.code, "busy");
+        assert!(e.message.contains("just started"), "{}", e.message);
+        assert!(asked.lock().unwrap().is_some_and(|at| at.duration_since(start) >= Duration::from_millis(500)), "asked once the lock was free");
+        assert!(left_over(&folder).is_empty() && folder.join("assets/cooked/a.bin").is_file(), "nothing was set aside");
+        assert_eq!(check_receipts(&game, &folder), (1, true));
     }
 
     /// Two cooks of one folder: the second waits for the first, says so, and can be stopped while it waits.

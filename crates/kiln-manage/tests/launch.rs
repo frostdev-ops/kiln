@@ -100,5 +100,11 @@ fn a_start_with_mods_never_overlaps_a_cook_of_the_game() {
     assert_eq!(opened.borrow().len(), 2);
     // a start was just made: "Cook again" is refused for a while (kiln_manage::cook::AFTER_START)
     assert!(launch::started_within(&dirs, &inst, std::time::Duration::from_secs(120)));
+    // and so is Play's own cook (a second launcher, a second press): Play goes on without it
+    #[cfg(feature = "cooktools")]
+    for only in [None, Some("blades")] {
+        let e = kiln_manage::cook::cook_due(&dirs, &inst, only, &kiln_manage::cooktools::Locate::default(), &mut |_, _, _, _| {}, &|| false).unwrap_err();
+        assert_eq!(e.code, kiln_manage::ErrorCode::GameRunning, "{only:?}: {e}");
+    }
     let _ = std::fs::remove_dir_all(&root);
 }

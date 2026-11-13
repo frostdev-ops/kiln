@@ -1148,8 +1148,17 @@ pub fn moved_to(dirs: &DataDirs, r: &LibraryRef) -> LibraryRef {
 /// identity; one whose files changed is replaced by the verified copy, and the old entry is removed only after that.
 /// An entry whose files changed since its import is left alone, as before. Each step can be repeated: a stop between
 /// two leaves both entries, and the next run goes on. Every move is kept in `kiln-moved.json` ([`moved_to`]).
+/// A damaged entry at the identity is not replaced while a game or server that may read it runs: both entries stay as
+/// they are, and a later run goes on.
 /// -> the entries moved by this run.
 pub fn migrate_identities(dirs: &DataDirs) -> Result<Vec<MigratedEntry>> {
+    let mut finder = crate::proc::Finder::default();
+    migrate_identities_with(dirs, &mut |dir, exe| finder.find(dir, exe))
+}
+
+/// [`migrate_identities`] with the process lookup given (`find(game folder, exe name)`), for tests.
+pub fn migrate_identities_with(dirs: &DataDirs, find: &mut dyn FnMut(&Path, &str) -> Result<Option<crate::proc::ProcessInfo>>)
+                               -> Result<Vec<MigratedEntry>> {
     let mut moved = Vec::new();
     for (folder, rec) in records(dirs, ModKind::Kiln) {
         if rec.kind != ModKind::Kiln || dirs.library_entry(ModKind::Kiln, &rec.id, &rec.version, &rec.hash).ok().as_deref() != Some(folder.as_path()) {
@@ -1166,6 +1175,11 @@ pub fn migrate_identities(dirs: &DataDirs) -> Result<Vec<MigratedEntry>> {
         let there = to.is_dir() && crate::util::read_json::<ImportRecord>(&record_path(&to)).ok().flatten().is_some_and(|r| r.hash == identity)
             && crate::hash::mod_identity(&to).ok().as_deref() == Some(identity.as_str());
         if !there {
+            // what is there is replaced below: never under a game or server that may be reading it
+            let at = LibraryRef { hash: identity.clone(), ..old.clone() };
+            if std::fs::symlink_metadata(&to).is_ok() && Guard::read(dirs, &mut *find)?.refuse_while_running(dirs, &at).is_err() {
+                continue;
+            }
             let tmp = TempDir::new(&dirs.library(), "migrate")?;
             let work = tmp.path().join("m");
             copy_kiln_mod_tree(&folder, &work)?;
@@ -1199,7 +1213,7 @@ pub fn migrate_identities(dirs: &DataDirs) -> Result<Vec<MigratedEntry>> {
             }
         }
         // 3. the old entry, unless something still reads it (a running game, a game's profile file naming its path)
-        let _ = remove(dirs, &old, false);
+        let _ = remove_with(dirs, &old, false, &mut *find);
         moved.push(entry);
     }
     Ok(moved)
