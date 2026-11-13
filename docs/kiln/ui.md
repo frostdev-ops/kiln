@@ -46,6 +46,15 @@ e.Visible = false;       // hide for now; e.Text = "…" relabels; e.Dispose() r
 - Another loader may route the game's Settings entry through its own code (ShroudForge's native runtime does in the
   main menu, also when Kiln hosts it). The entries are drawn before that entry all the same, and `kiln.log` says once
   through which module it is drawn (`ui: the main menu's Settings entry is drawn through ...`).
+- The game's menus do not scroll: every entry before Settings pushes the game's own entries down, and with enough of
+  them Quit leaves the screen. So the player's Kiln setting `modEntries` (`kiln/config/menus-client.json`, on the
+  Mods page under **Kiln settings**) decides when mods' entries are drawn: `Few` (the default: a menu draws them while
+  it has at most 3 visible ones, else none of them), `Always` (every one, as before 0.2.0-dev.27) or `Never`. Kiln's
+  own **Mods** entry is always drawn. Every mod's entry of the menu the player can open where they are (the main
+  menu, or the pause menu in a world) is listed on the Mods page under **Menu entries**; choosing one there closes the
+  Kiln menu and runs the entry's `onClick` exactly as the menu would (on the UI thread after the next frame). Nothing
+  changes for a mod: `Ui.Menus.Add` returns the entry as before, whether a menu draws it or not. The 3 is a guess
+  (no row height is known for a 1080p screen); the guided client check `MenuRowsLeaveQuitOnScreen` asks for it.
 
 ### Which screen is open
 ```csharp
@@ -396,7 +405,13 @@ of the same loss gives none until the window regains the focus or gives a key or
 subscription, so a new subscriber does not rearm an existing one). A key or click
 usually arrives both raw and as a message, in the order the window received them; nothing is merged. Characters,
 mouse motion and the wheel are not delivered. Remove it with `unsubscribe`, which waits for a call in flight (from
-inside another kiln.ui callback it may answer `KILN_ERR_WRONG_THREAD` instead); a faulting `fn` is removed. Colours,
+inside another kiln.ui callback it may answer `KILN_ERR_WRONG_THREAD` instead); a faulting `fn` is removed. Version 6
+(0.2.0-dev.27; check `header.version >= 6` and `header.size >= offsetof(KilnUiApi, menu_activate) + sizeof(void*)`)
+appends the mods' entries in the game's menus: `menu_shown(KILN_UI_MENU_SHOW_FEW / ALWAYS / NEVER)` (which of them the
+menus draw; Kiln's own Mods entry always; the rule is `native/services/ui/menu_rows.h`), `menu_entries(out, capacity)`
+(every entry mods added with `menu_add`, as `KilnUiMenuEntry`: `size, menu, entry, text, text_len, flags, order,
+drawn`; set `out[0].size` first; returns the count) and `menu_activate(entry)` (does what choosing it in its menu
+does: `fn` after the next UI frame). Colours,
 vars and keys are Kiln's own numbers (stable across ImGui updates). The plain ImGui
 slots live in `native/services/ui/draw_slots.h`, shared with the preview shim. `kiln.ui.tick` (the UI frame as a tick; Kiln.Host loads the mods with it) and
 `kiln.craftmenu` (tabs, subcategories, which workshop the menu builds; implemented by kiln.content) are separate

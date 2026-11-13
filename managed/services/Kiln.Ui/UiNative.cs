@@ -222,6 +222,30 @@ internal static unsafe class UiNative
         public delegate* unmanaged[Cdecl]<void> PopFont;
     }
 
+    /// <summary>KilnUiMenuEntry (kiln_ui.h v6): one entry a mod added to the game's menus.</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    public struct MenuEntryInfo
+    {
+        public uint Size, Menu;
+        public ulong Entry;
+        public byte* Text;
+        public uint TextLength, Flags;
+        public int Order;
+        public uint Drawn;
+    }
+
+    /// <summary>The whole kiln.ui v6 table: <see cref="Table4"/>, the window input records (v5, not used here), then the
+    /// mods' entries in the game's menus.</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    public struct Table6
+    {
+        public Table4 Base;
+        public void* SubscribeWindowInput;
+        public delegate* unmanaged[Cdecl]<uint, void> MenuShown;
+        public delegate* unmanaged[Cdecl]<MenuEntryInfo*, uint, uint> MenuEntries;
+        public delegate* unmanaged[Cdecl]<ulong, int> MenuActivate;
+    }
+
     /// <summary>KilnCraftMenuApi (kiln_ui.h): kiln.content's crafting-menu extension point.</summary>
     [StructLayout(LayoutKind.Sequential)]
     public struct CraftMenuTable
@@ -277,6 +301,11 @@ internal static unsafe class UiNative
     /// <summary>The v4 table (the main-menu page, the font choice), or null on an older kiln.ui.</summary>
     public static Table4* T4 => _table4 != null ? _table4 : (_table4 = Services.Get<Table4>("kiln.ui", 4));
 
+    /// <summary>The v6 table (mods' entries in the game's menus), or null on an older kiln.ui.</summary>
+    public static Table6* T6 => _table6 != null ? _table6 : (_table6 = Services.Get<Table6>("kiln.ui", 6));
+
+    private static Table6* _table6;
+
     /// <summary>Forgets the cached tables (tests swap the backend).</summary>
     internal static void ResetForTests()
     {
@@ -284,6 +313,7 @@ internal static unsafe class UiNative
         _table2 = null;
         _table3 = null;
         _table4 = null;
+        _table6 = null;
     }
 
     public static bool Available => T != null;

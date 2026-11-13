@@ -77,6 +77,18 @@ public sealed partial class ClientPassMod
         "opened again)? Beside each slider there is a number field: type a value of the range into one. Did the slider " +
         "follow, and after Apply, closing the menu and opening the page again, is that value still there?");
 
+    [ClientCheck("menu.rows-quit", "Quit stays on the screen with many mods' menu entries", Area = "Menus and hooks",
+        Since = Dev27, Tags = [Visual], Order = 148)]
+    public Task MenuRowsLeaveQuitOnScreen(CheckContext c) => Outside(c,
+        "Play this one on a 1920x1080 screen, with mods that add more than 3 entries to the pause menu (for example the " +
+        "MenuButtons sample, ui-test and audio-test from mods/, which add one each, plus SET tools with a SET mod). Open " +
+        "the pause menu: does it show Kiln's Mods entry but none of the mods' entries, and are Quit and Return to Main Menu " +
+        "on the screen? Open Mods: under Menu entries every one of those entries is listed; choose one: does the Kiln menu " +
+        "close and the entry do what it does in the menu? Then, in Kiln settings, set menus-client modEntries to Always, " +
+        "Apply, and open the pause menu again: are the mods' entries back (and how many could there be before Quit left the " +
+        "screen; say the number in your note)? Set it back to Few. Was Quit on the screen with Few, and did the Mods page " +
+        "reach every entry?");
+
     [ClientCheck("boot.proxy", "The game started with Kiln's proxy", Area = "Menus and hooks", Since = Dev21, Order = 108)]
     public async Task BootProxy(CheckContext c)
     {

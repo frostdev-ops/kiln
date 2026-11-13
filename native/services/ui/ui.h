@@ -116,6 +116,9 @@ KilnResult game_subscribe_tick(KilnOwner owner, KilnUiTickFn fn, void* user, Kil
 KilnResult game_subscribe_frame_tick(KilnOwner owner, KilnUiFrameTickFn fn, void* user, KilnHandle* out);
 KilnResult game_menu_add(KilnOwner owner, uint32_t menu, int32_t order, KilnStr text, KilnUiMenuFn fn, void* user, KilnHandle* out);
 KilnResult game_menu_set(KilnHandle entry, KilnStr text, uint32_t flags);
+void game_menu_shown(uint32_t mode);                                     // KILN_UI_MENU_SHOW_* (menu_rows.h)
+uint32_t game_menu_entries(KilnUiMenuEntry* out, uint32_t capacity);   // mods' entries (not Kiln's Mods entry)
+KilnResult game_menu_activate(KilnHandle entry);                         // as if chosen in its menu
 bool game_unsubscribe(KilnHandle h);
 void game_status_line(char* out, size_t cap);
 
