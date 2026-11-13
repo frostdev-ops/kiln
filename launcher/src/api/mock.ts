@@ -61,7 +61,11 @@ export const MOCK_DISTRIBUTION: Distribution = typeof location !== "undefined" &
 /** Every URL app_open_url was asked to open (tests: `__kilnMock.opened()`). */
 const openedUrls: string[] = [];
 /** Deterministic IPC delays/failures for browser regressions; each plan is consumed by one call. */
-interface CommandPlan { delay?: number; error?: KilnError; result?: unknown }
+/** `gate`: the call waits until a test opens that gate (`__kilnMock.openGate(name)`), for an order that must not
+ *  depend on timing. */
+interface CommandPlan { delay?: number; gate?: string; error?: KilnError; result?: unknown }
+const gates = new Map<string, { open: boolean; waiters: (() => void)[] }>();
+const gateOf = (name: string) => { let g = gates.get(name); if (!g) { g = { open: false, waiters: [] }; gates.set(name, g); } return g; };
 const commandPlans: Record<string, CommandPlan[]> = typeof window === "undefined" ? {} :
   (window as unknown as { __kilnMockPlans?: Record<string, CommandPlan[]> }).__kilnMockPlans ?? {};
 const commandCalls: string[] = [];
@@ -1581,6 +1585,7 @@ export async function mockInvoke<T>(cmd: string, args: Record<string, unknown>):
   commandCalls.push(cmd);
   const plan = commandPlans[cmd]?.shift();
   if (plan?.delay) await new Promise((r) => setTimeout(r, plan.delay));
+  if (plan?.gate) { const g = gateOf(plan.gate); if (!g.open) await new Promise<void>((r) => g.waiters.push(r)); }
   if (plan?.error) throw plan.error;
   if (plan && Object.hasOwn(plan, "result")) return clone(plan.result) as T;
   await new Promise((r) => setTimeout(r, 30)); // async like IPC
@@ -1613,6 +1618,7 @@ export function mockEmit(name: string, payload: unknown): void {
 if (typeof window !== "undefined") (window as unknown as { __kilnMock?: unknown }).__kilnMock = { stopGame: mockStopGame, emit: mockEmit, setLastServer: mockSetLastServer,
   calls: () => [...commandCalls],
   planCommand: (cmd: string, plan: CommandPlan) => { (commandPlans[cmd] ??= []).push(plan); },
+  openGate: (name: string) => { const g = gateOf(name); g.open = true; g.waiters.splice(0).forEach((w) => w()); },
   planActivation: (report: Pick<Activation, "retained" | "keptFiles" | "warnings">) => { activationPlan = report; },
   planAddNotices: (lines: string[]) => { addNotices.push(...lines); },
   setSfOwnFolder: (id: string, own = true) => { if (own) sfOwn.add(id); else sfOwn.delete(id); },

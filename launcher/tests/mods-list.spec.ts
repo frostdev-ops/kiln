@@ -192,33 +192,55 @@ test("Undo of All off says it cannot when the profile changed elsewhere since", 
 });
 
 // final review B2: an edit made on another page (Native and DLLs edits the profile through the shared save queue, not
-// the list's switches) while the action's save is still running is the player's choice too: Undo leaves it
+// the list's switches) while the action's save is still running is the player's choice too: Undo leaves it. No fixed
+// waits: the action's save is held at a gate until both switches are queued, then the test waits for the queue to be
+// idle and for the list to be back; every toast's text is recorded as it appears (they come and go on their own).
 test("Undo of All off leaves a mod switched on another page while the save ran", async ({ page }) => {
+  await page.addInitScript(() => {
+    const w = window as unknown as { __toasts: string[] };
+    w.__toasts = [];
+    new MutationObserver(() => {
+      for (const el of document.querySelectorAll(".k-toast")) { const x = el.textContent ?? ""; if (!w.__toasts.includes(x)) w.__toasts.push(x); }
+    }).observe(document, { subtree: true, childList: true, characterData: true });
+  });
+  if (process.env.KILN_THROTTLE) await (await page.context().newCDPSession(page)).send("Emulation.setCPUThrottlingRate", { rate: Number(process.env.KILN_THROTTLE) });
+  type Mock = { __kilnMock: { planCommand: (c: string, p: unknown) => void; openGate: (g: string) => void } };
+  const toasts = () => page.evaluate(() => (window as unknown as { __toasts: string[] }).__toasts);
+  const queue = () => page.evaluate(async () => (await import("/src/pages/profiles/useProfileEdit.ts")).profileQueueState("ember-run"));
   await desktop(page);
   await expect(say(page)).toHaveText(/^12 mods on, 15 off\./, { timeout: 10_000 });
   await page.getByRole("combobox", { name: "Kind" }).selectOption({ label: "Native" });
   const on = (await profileMods(page)).native.filter((m) => m.enabled).map((m) => m.id);
   expect(on).toContain("fps-unlock");
-  type Plan = { __kilnMock: { planCommand: (c: string, p: unknown) => void } };
-  await page.evaluate(() => (window as unknown as Plan).__kilnMock.planCommand("profile_save", { delay: 2500 }));
+  await page.evaluate(() => (window as unknown as Mock).__kilnMock.planCommand("profile_save", { gate: "bulk-save" }));
   await page.locator(".k-hero .k-mods-bar").getByRole("button", { name: /^Shown off \(\d+\)$/ }).click();
   const done = page.locator(".k-toast").filter({ hasText: /^Switched \d+ mods off/ });
   await expect(done).toBeVisible({ timeout: 5000 });
-  // the save is still running: on Native and DLLs, FPS Unlock on and off again by hand
+  expect((await queue()).idle).toBe(false); // the action's save is held
+  // on Native and DLLs, FPS Unlock on and off again by hand, both while that save is held
   await page.evaluate(() => { location.hash = "#/mods/native"; });
   const fps = page.locator("main#main").getByRole("button", { name: "Light FPS Unlock" });
-  await expect(fps).toHaveAttribute("aria-pressed", "false", { timeout: 5000 });
+  await expect(fps).toHaveAttribute("aria-pressed", "false", { timeout: 10_000 });
   await fps.click();
   await expect(fps).toHaveAttribute("aria-pressed", "true");
   await fps.click();
   await expect(fps).toHaveAttribute("aria-pressed", "false");
+  expect((await queue()).idle).toBe(false);
+  await page.evaluate(() => (window as unknown as Mock).__kilnMock.openGate("bulk-save"));
+  // every save done: the queue is idle and holds what the backend has
+  await expect.poll(async () => {
+    const q = await queue();
+    return q.idle && q.generation === (await api<{ generation: number }>(page, "profileGet", "ember-run")).generation;
+  }, { timeout: 15_000 }).toBe(true);
+  expect((await profileMods(page)).native.filter((m) => m.enabled)).toEqual([]);
+  // back on Play, the list is there again (the Undo acts through it)
   await page.evaluate(() => { location.hash = "#/"; });
-  await expect.poll(async () => (await profileMods(page)).native.filter((m) => m.enabled).length, { timeout: 10_000 }).toBe(0);
-  await page.waitForTimeout(300);
+  await expect(row(page, "FPS Unlock").getByRole("switch", { name: "FPS Unlock" })).toHaveAttribute("aria-checked", "false", { timeout: 15_000 });
   await done.getByRole("button", { name: "Undo" }).click();
-  await expect(page.locator(".k-toast").filter({ hasText: "Undo kept later changes" })).toContainText("1 mod was switched since.");
-  await expect.poll(async () => (await profileMods(page)).native.filter((m) => m.enabled).map((m) => m.id).sort())
+  // the end state: FPS Unlock stays off, the other native mods are back on
+  await expect.poll(async () => (await profileMods(page)).native.filter((m) => m.enabled).map((m) => m.id).sort(), { timeout: 15_000 })
     .toEqual(on.filter((id) => id !== "fps-unlock").sort());
+  await expect.poll(toasts).toContain("Undo kept later changes1 mod was switched since.");
 });
 
 test("removing a mod is one click with a plain confirmation", async ({ page }) => {

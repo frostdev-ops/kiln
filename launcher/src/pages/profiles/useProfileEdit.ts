@@ -22,7 +22,9 @@ export type Edit = (p: Profile) => void;
 const clone = (p: Profile): Profile => JSON.parse(JSON.stringify(p));
 
 /** One save queue per profile, shared by every tab and the layout that edit it. */
-interface Q { server: Profile | null; queue: Edit[]; busy: boolean; listeners: Set<(busy: boolean) => void>; waiters: ((saved: boolean) => void)[] }
+interface Q { server: Profile | null; queue: Edit[]; busy: boolean; listeners: Set<(busy: boolean) => void>; waiters: ((saved: boolean) => void)[];
+  /** The copy show() put in the query cache last (the held profile plus the edits still waiting). */
+  shown?: Profile }
 const queues = new Map<string, Q>();
 const queueOf = (id: string): Q => {
   let q = queues.get(id);
@@ -91,6 +93,9 @@ export function useProfileEdit(id: string) {
   // adopt what the backend says whenever nothing is queued or in flight (an optimistic copy never has a newer generation)
   useEffect(() => {
     if (q.data && !st.busy && st.queue.length === 0 && adopts(st.server, q.data)) adopt(id, st, q.data);
+    // edits still waiting: a fetch made meanwhile (a page that mounts while a save runs) brings the backend's copy
+    // without them; the UI keeps showing the profile as it will be
+    else if (q.data && (st.busy || st.queue.length) && q.data !== st.shown) show();
   }, [q.data, st, id]);
 
   const setBusy = (b: boolean) => { st.busy = b; st.listeners.forEach((f) => f(b)); };
@@ -98,6 +103,7 @@ export function useProfileEdit(id: string) {
     if (!st.server) return;
     const v = clone(st.server);
     for (const e of st.queue) e(v);
+    st.shown = v;
     qc.setQueryData(key, v);
   };
 
