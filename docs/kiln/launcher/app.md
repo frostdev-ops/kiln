@@ -108,7 +108,10 @@ text is about Kiln's own kind it says "Kiln mods".
 - **Several mods at once** (`shell/selection.ts`): a box at the start of every row (seen on hover and focus, always
   once a row is selected); Shift+click selects the run from the last clicked row, Ctrl+A every row shown (the filter and
   Kind applied: the set All on / All off acts on), Escape none, Space or Enter on a box toggles it (Shift+Space: a
-  range). The selection is kept per game outside the list, so a start's progress bar or another page gives it back; it
+  range); these act only on keys pressed on the list itself, never on ones from a row's menu, a dialog or the filter.
+  The selection belongs to one loaded profile of one game (its id and `created`) and is kept outside the list, so a
+  start's progress bar or another page gives it back; a Load or "No profile" of the game ends it at once, and a list
+  that finds another profile loaded drops it; it
   never holds a row the list does not show: a filter or Kind change lets go of what it hides and the bar says "N not
   shown any more left the selection". The bar above the list: "N selected", Switch on and Switch off (All on / All off's
   plan, save and Undo over the selected rows; the titles say what they skip and why), Remove… and Clear. Remove… (off

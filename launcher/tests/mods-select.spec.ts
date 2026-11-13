@@ -212,3 +212,97 @@ test("the Deck: L2 selects the focused mod, R2 opens what to do with the selecte
   for (const id of ["big-stacks", "more-hotbars", "new-items"]) expect(lib).not.toContain(id);
   await expect(page.locator('.deck-hint[data-hint="rt"]')).toHaveCount(0);
 });
+
+// review of 9aeffac9, P2: the selection belongs to one loaded profile of one game
+test("a selection made in one profile is gone once another is loaded; Switch off acts on the new one only", async ({ page }) => {
+  await desktop(page);
+  await kind(page, "Kiln");
+  await box(page, "Big Stacks").click();
+  await box(page, "New Items").click();
+  await expect(selbar(page)).toContainText("2 selected");
+  await page.evaluate(() => { location.hash = "#/settings"; });
+  const sec = page.getByRole("region", { name: "Profiles" });
+  await sec.getByRole("listitem").filter({ hasText: "Vanilla plus" }).getByRole("button", { name: "Load" }).click();
+  await expect(sec.getByRole("listitem").filter({ hasText: "Vanilla plus" })).toContainText("Loaded", { timeout: 10_000 });
+  await page.evaluate(() => { location.hash = "#/"; });
+  await expect(page.locator(".k-hero .k-hero-say")).toHaveText(/^4 mods on/, { timeout: 10_000 });
+  await expect.poll(() => checked(page)).toEqual([]);
+  await expect(selbar(page)).toHaveCount(0);
+  const before = (await api<{ mods: Mods }>(page, "profileGet", "vanilla-plus")).mods;
+  await box(page, "Weather Plus").click();
+  await expect(selbar(page)).toContainText("1 selected");
+  await selbar(page).getByRole("button", { name: "Switch off" }).click();
+  await expect(page.locator(".k-toast").filter({ hasText: "Switched 1 mod off" })).toBeVisible();
+  await expect.poll(async () => (await api<{ mods: Mods }>(page, "profileGet", "vanilla-plus")).mods.kiln)
+    .toEqual(before.kiln.map((m) => (m.id === "weather-plus" ? { ...m, enabled: false } : m)));
+  // back to Ember run: what was selected there before is not there any more either
+  await page.evaluate(async () => (await import("/src/api/commands.ts")).profileActivate("ember-run", "client-steam"));
+  await expect(page.locator(".k-hero .k-hero-say")).toHaveText(/mods on/, { timeout: 10_000 });
+  await expect(box(page, "Big Stacks")).toBeVisible();
+  await expect.poll(() => checked(page)).toEqual([]);
+});
+
+test("the Deck's selection ends when another profile is loaded", async ({ page }) => {
+  const pad = async (button: string) => {
+    for (const pressed of [true, false]) await page.evaluate(([b, p]) => (window as unknown as Mock).__kilnMock.emit("kiln://gamepad", { kind: "button", button: b, pressed: p, repeat: false, device: "event9" }), [button, pressed] as const);
+  };
+  await page.goto("/?deck=steamdeck#/deck/mods");
+  await expect(page.getByText(/12 mods on, 15 off/)).toBeVisible({ timeout: 10_000 });
+  const r = page.locator('[data-deck-id="mod-kiln-new-items"]');
+  await r.focus();
+  await pad("lt");
+  await expect(r).toHaveAttribute("aria-label", /, selected$/);
+  await expect(page.locator('.deck-hint[data-hint="rt"]')).toContainText("1 selected");
+  await page.evaluate(async () => (await import("/src/api/commands.ts")).profileActivate("vanilla-plus", "client-steam"));
+  await expect(page.getByText(/^4 mods on/)).toBeVisible({ timeout: 10_000 });
+  await expect(page.locator('[data-deck-id="mod-kiln-new-items"]')).not.toHaveAttribute("aria-label", /, selected$/);
+  await expect(page.locator('.deck-hint[data-hint="rt"]')).toHaveCount(0);
+});
+
+// review of 9aeffac9, P2: the list's shortcuts act only on keys pressed on the list itself
+test("Escape and Ctrl+A in an open row menu, the filter or a dialog leave the selection alone; on the list they still work", async ({ page }) => {
+  await desktop(page);
+  await kind(page, "Kiln");
+  await box(page, "Big Stacks").click();
+  await expect.poll(() => checked(page)).toEqual(["Big Stacks"]);
+  const menu = page.getByRole("menu");
+  const more = row(page, "New Items").getByRole("button", { name: "More for New Items" });
+  // a row's menu (portalled to the page): Escape closes it, the selection stays
+  await more.click();
+  await expect(menu).toBeVisible();
+  await menu.getByRole("menuitem").first().focus();
+  await page.keyboard.press("Escape");
+  await expect(menu).toHaveCount(0);
+  await expect.poll(() => checked(page)).toEqual(["Big Stacks"]);
+  // Ctrl+A, Space and Enter... in the menu: not the list's
+  await more.click();
+  await expect(menu).toBeVisible();
+  await menu.getByRole("menuitem").first().focus();
+  await page.keyboard.press("Control+a");
+  await expect.poll(() => checked(page)).toEqual(["Big Stacks"]);
+  await page.keyboard.press("Escape");
+  await expect(menu).toHaveCount(0);
+  // the filter: Ctrl+A selects its text, Space types, Escape is the field's
+  const filter = page.locator(".k-hero").getByLabel("Filter");
+  await filter.focus();
+  await page.keyboard.press("Control+a");
+  await page.keyboard.press("Space");
+  await page.keyboard.press("Escape");
+  await expect.poll(() => checked(page)).toEqual(["Big Stacks"]);
+  await filter.fill("");
+  // a dialog: Escape closes it, the selection stays; Ctrl+A in its field is the field's
+  await selbar(page).getByRole("button", { name: "Remove…" }).click();
+  const dlg = page.getByRole("dialog", { name: "Remove 1 mod?" });
+  await expect(dlg).toBeVisible();
+  await page.keyboard.press("Control+a");
+  await page.keyboard.press("Escape");
+  await expect(dlg).toHaveCount(0);
+  await expect.poll(() => checked(page)).toEqual(["Big Stacks"]);
+  // on the list itself: Ctrl+A every row shown, Escape none
+  await box(page, "Big Stacks").focus();
+  await page.keyboard.press("Control+a");
+  const n = await list(page).getByRole("checkbox").count();
+  await expect.poll(async () => (await checked(page)).length).toBe(n);
+  await page.keyboard.press("Escape");
+  await expect.poll(() => checked(page)).toEqual([]);
+});

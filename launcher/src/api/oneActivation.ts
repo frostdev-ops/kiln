@@ -25,3 +25,14 @@ export function oneActivation<T>(gameId: string, run: () => Promise<T>): Promise
   p.then(done, done);
   return p;
 }
+
+/** Told after a profile was loaded or unloaded in a game (profile_activate, profile_deactivate succeeded): what
+ *  belongs to the profile that was loaded before (the mods list's selection) ends there. */
+const switched = new Set<(gameId: string) => void>();
+export function onProfileSwitch(f: (gameId: string) => void): () => void {
+  switched.add(f);
+  return () => { switched.delete(f); };
+}
+export function profileSwitched(gameId: string): void {
+  switched.forEach((f) => f(gameId));
+}
