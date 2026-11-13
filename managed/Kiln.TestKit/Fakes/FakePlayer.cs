@@ -149,6 +149,23 @@ public sealed class FakePlayer
     /// (<see cref="KilnHarness.Chat"/> has the details).</summary>
     public IReadOnlyList<FakeChatLine> Chat => _owner.Harness.ChatFake?.ShownTo(this) ?? [];
 
+    /// <summary>This player's inventory in the fake kiln.items (<see cref="HarnessItems"/>): made at its first use while the
+    /// player is in game; a player who left takes it along.</summary>
+    /// <exception cref="InvalidOperationException">The player is not in game.</exception>
+    public FakeInventory Inventory
+    {
+        get
+        {
+            var harness = _owner.Harness;
+            return harness.Run(() =>
+            {
+                if (!InGame) throw new InvalidOperationException($"{Name} is not in game: an inventory is there from the step after the join until the leave");
+                var fake = harness.ItemsFake ?? throw new InvalidOperationException("the harness has no items yet");
+                return new FakeInventory(harness, fake.OfPlayer(this));
+            });
+        }
+    }
+
     /// <summary>The player types <paramref name="text"/> in chat (a command line starts with <see cref="Commands.Prefix"/>).
     /// It reaches Kiln.Chat at the start of the next step: <see cref="global::Kiln.Chat.Received"/> handlers,
     /// <see cref="ChatMessageEvent"/> and, for a command line, the command as this player; a line nobody consumed is shown

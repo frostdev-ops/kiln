@@ -40,6 +40,9 @@ internal static class FakeTables
         Session(SpawnFake.WorldRow, false, SpawnFake.NoServer);
         KitBackend.Instance.RegisterTable(ChatAbi.Service, ChatTable.Create());
         Features(ChatFake.Features);
+        KitBackend.Instance.RegisterTable(ItemsAbi.Service, ItemsTable.Create());
+        Features(ItemsFake.Features);
+        foreach (var row in ItemsFake.OfflineRows) Offline(row, "kiln.items' fake in the test kit has the v1 table only (give, take, read, the catalog)");
     }
 
     /// <summary>Game features a fake models: available rows of the kit's, which a test can switch off.</summary>

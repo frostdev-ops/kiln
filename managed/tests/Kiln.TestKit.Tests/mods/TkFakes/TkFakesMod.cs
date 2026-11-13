@@ -83,12 +83,44 @@ public sealed class TkFakesMod : Mod
         Commands.Register("tkf-broadcast", ctx => ctx.Reply($"broadcast to {Chat.Broadcast(ctx.ArgText)}"));
         Commands.Register("tkf-say", ctx => ctx.Reply($"say: {Chat.Say(ctx.Source.Player, ctx.ArgText)}"));
         Commands.Register("tkf-chatters", ctx => ctx.Reply($"chatters: {string.Join(",", Chat.Players.Select(p => $"{p.Name}/{p.Entity.Value}/{p.Permissions}"))}"));
+        // items: give and take log their result when the transaction ran (the next step); read and find answer at once
+        Commands.Register("tkf-give", ctx => _ = Logged("give", Items.Give(Who(ctx), ctx.Args[1], int.Parse(ctx.Args[2], CultureInfo.InvariantCulture),
+            ctx.Count > 3 && ctx.Args[3] == "gear" ? new Gear { Level = 7, Rarity = ItemRarity.Rare } : null,
+            ctx.Count > 3 ? ctx.Args[3] switch { "all" => GiveOptions.AllOrNothing, "dry" => GiveOptions.DryRun, "nomerge" => GiveOptions.NoMerge, _ => GiveOptions.None } : GiveOptions.None)));
+        Commands.Register("tkf-take", ctx =>
+        {
+            var item = Items.Lookup(ctx.Args[1]) ?? throw new CommandException($"no item {ctx.Args[1]}");
+            _ = Logged("take", Items.Take(Who(ctx), item.Id, int.Parse(ctx.Args[2], CultureInfo.InvariantCulture)));
+        });
+        Commands.Register("tkf-read", ctx =>
+        {
+            var inv = Items.Read(Who(ctx));
+            ctx.Reply(inv is null ? "read: none" : $"read: {inv.Slots.Count} slots: " +
+                string.Join("; ", inv.Slots.Where(s => !s.IsEmpty).Select(s => $"{Items.Get(s.Item)?.Name} x{s.Count}{(s.IsGear ? $" gear L{s.Level} {s.Rarity}" : "")}")));
+        });
+        Commands.Register("tkf-chests", ctx => ctx.Reply($"chests: {string.Join(",", Items.FindInventories(InventoryKinds.Containers).Select(e => e.Value))}; " +
+            $"players: {string.Join(",", Items.FindInventories(InventoryKinds.Players).Select(e => e.Value))}"));
         Commands.Register("tkf-cleanup", ctx =>
         {
             var r = Spawn.CleanupTracked(ctx.Count > 0 ? ctx.Args[0] : null);
             ctx.Reply($"cleanup: {r.Destroyed} destroyed {r.Missing} missing {r.Kept} kept");
         });
     }
+
+    private static EntityId Who(CommandContext ctx) =>
+        ctx.Args[0] == "me" ? ctx.Source.Player : new EntityId(uint.Parse(ctx.Args[0], CultureInfo.InvariantCulture));
+
+    private async Task Logged(string what, Task<ItemsResult> transaction)
+    {
+        var r = await transaction;
+        Log.Info($"{what} done: {r.Status} {r.Done}/{r.Requested} changes {r.Changes.Count} steps {r.Steps} dry {r.DryRun}: {r.Message}");
+    }
+
+    [Subscribe]
+    private void OnGiven(ItemsGivenEvent e) => Log.Info($"event given: {e.Result.Done} x {Items.Get(e.Result.Item)?.Name} to {e.Result.Entity.Value} by {e.Origin}");
+
+    [Subscribe]
+    private void OnTaken(ItemsTakenEvent e) => Log.Info($"event taken: {e.Result.Done} x {Items.Get(e.Result.Item)?.Name} from {e.Result.Entity.Value} by {e.Origin}");
 
     [Subscribe]
     private void OnChat(ChatMessageEvent e)

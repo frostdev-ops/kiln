@@ -3,6 +3,7 @@
   <ItemGroup>
     <ProjectReference Include="$(KilnManaged)services/Kiln.Spawn/Kiln.Spawn.csproj" Private="false" ExcludeAssets="runtime" />
     <ProjectReference Include="$(KilnManaged)services/Kiln.Chat/Kiln.Chat.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="$(KilnManaged)services/Kiln.Items/Kiln.Items.csproj" Private="false" ExcludeAssets="runtime" />
     <ProjectReference Include="$(KilnManaged)services/Kiln.Players/Kiln.Players.csproj" Private="false" ExcludeAssets="runtime" />
     <ProjectReference Include="$(KilnManaged)services/Kiln.Permissions/Kiln.Permissions.csproj" Private="false" ExcludeAssets="runtime" />
     <None Include="TkFakes.kiln.mod.json" CopyToOutputDirectory="PreserveNewest" />

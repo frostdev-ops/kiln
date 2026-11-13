@@ -10,6 +10,7 @@ public sealed partial class KilnHarness
         StartSpawn();
         SpawnFake.Starting();
         StartChat();
+        StartItems();
     }
 
     /// <summary>The native services' Pre, after the players' scan: what each fake's game does at the start of a step.</summary>
@@ -17,11 +18,13 @@ public sealed partial class KilnHarness
     {
         SpawnFake?.BeforeStep();
         ChatFake?.BeforeStep(step);
+        ItemsFake?.BeforeStep(step);
     }
 
     /// <summary>The harness ends, before the players and the world go.</summary>
     private void EndRecordingFakes()
     {
         SpawnFake.Ended();
+        ItemsFake?.Ended();
     }
 }

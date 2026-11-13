@@ -11,8 +11,34 @@ Kiln.TestKit.FakeChatMessage.Player.get -> Kiln.TestKit.FakePlayer?
 Kiln.TestKit.FakeChatMessage.Step.get -> ulong
 Kiln.TestKit.FakeChatMessage.Text.get -> string!
 Kiln.TestKit.FakeGameWriter<T>
+Kiln.TestKit.FakeInventory
+Kiln.TestKit.FakeInventory.Clear() -> void
+Kiln.TestKit.FakeInventory.Count(Kiln.ItemId item) -> int
+Kiln.TestKit.FakeInventory.Count(string! name) -> int
+Kiln.TestKit.FakeInventory.Owner.get -> Kiln.EntityId
+Kiln.TestKit.FakeInventory.Put(Kiln.ItemId item, int count = 1) -> int
+Kiln.TestKit.FakeInventory.Slots.get -> System.Collections.Generic.IReadOnlyList<Kiln.TestKit.FakeSlot!>!
+Kiln.TestKit.FakeItemsCall
+Kiln.TestKit.FakeItemsCall.Done.get -> int
+Kiln.TestKit.FakeItemsCall.DryRun.get -> bool
+Kiln.TestKit.FakeItemsCall.Entity.get -> Kiln.EntityId
+Kiln.TestKit.FakeItemsCall.IsTake.get -> bool
+Kiln.TestKit.FakeItemsCall.Item.get -> Kiln.ItemId
+Kiln.TestKit.FakeItemsCall.ModId.get -> string?
+Kiln.TestKit.FakeItemsCall.Requested.get -> int
+Kiln.TestKit.FakeItemsCall.Status.get -> Kiln.ItemsStatus
+Kiln.TestKit.FakeItemsCall.Step.get -> ulong
 Kiln.TestKit.FakePlayer.Chat.get -> System.Collections.Generic.IReadOnlyList<Kiln.TestKit.FakeChatLine!>!
+Kiln.TestKit.FakePlayer.Inventory.get -> Kiln.TestKit.FakeInventory!
 Kiln.TestKit.FakePlayer.Say(string! text) -> void
+Kiln.TestKit.FakeSlot
+Kiln.TestKit.FakeSlot.Count.get -> int
+Kiln.TestKit.FakeSlot.IsEmpty.get -> bool
+Kiln.TestKit.FakeSlot.Item.get -> Kiln.ItemId
+Kiln.TestKit.FakeSlot.ItemEntity.get -> Kiln.EntityId
+Kiln.TestKit.FakeSlot.Level.get -> int
+Kiln.TestKit.FakeSlot.Rarity.get -> Kiln.ItemRarity?
+Kiln.TestKit.FakeSlot.Slot.get -> Kiln.SlotId
 Kiln.TestKit.FakeSpawnCall
 Kiln.TestKit.FakeSpawnCall.Code.get -> int
 Kiln.TestKit.FakeSpawnCall.Entity.get -> Kiln.EntityId
@@ -83,6 +109,14 @@ Kiln.TestKit.FakeWorldWrite.Step.init -> void
 Kiln.TestKit.HarnessChat
 Kiln.TestKit.HarnessChat.Sent.get -> System.Collections.Generic.IReadOnlyList<Kiln.TestKit.FakeChatLine!>!
 Kiln.TestKit.HarnessChat.Typed.get -> System.Collections.Generic.IReadOnlyList<Kiln.TestKit.FakeChatMessage!>!
+Kiln.TestKit.HarnessItems
+Kiln.TestKit.HarnessItems.AddContainer(Kiln.EntityId entity, int inventories = 1) -> Kiln.TestKit.FakeInventory!
+Kiln.TestKit.HarnessItems.AddItem(string! name, int maxStack, Kiln.ItemCategory category = Kiln.ItemCategory.Materials, bool gear = false, Kiln.ItemRarity rarity = Kiln.ItemRarity.Common, int levelMin = 0, int levelMax = 0, System.Guid id = default(System.Guid)) -> Kiln.ItemId
+Kiln.TestKit.HarnessItems.Calls.get -> System.Collections.Generic.IReadOnlyList<Kiln.TestKit.FakeItemsCall!>!
+Kiln.TestKit.HarnessItems.IdOf(string! name) -> Kiln.ItemId
+Kiln.TestKit.HarnessItems.Of(Kiln.EntityId entity) -> Kiln.TestKit.FakeInventory?
+Kiln.TestKit.HarnessItems.PlayerInventories.get -> int
+Kiln.TestKit.HarnessItems.PlayerInventories.set -> void
 Kiln.TestKit.HarnessSpawn
 Kiln.TestKit.HarnessSpawn.AddTemplate(string! name, Kiln.TemplateKind kind = Kiln.TemplateKind.Creature, string! displayName = "", System.Guid id = default(System.Guid)) -> System.Guid
 Kiln.TestKit.HarnessSpawn.All.get -> System.Collections.Generic.IReadOnlyList<Kiln.TestKit.FakeSpawned!>!
@@ -90,11 +124,15 @@ Kiln.TestKit.HarnessSpawn.Calls.get -> System.Collections.Generic.IReadOnlyList<
 Kiln.TestKit.HarnessSpawn.Of(string! template) -> System.Collections.Generic.IReadOnlyList<Kiln.TestKit.FakeSpawned!>!
 Kiln.TestKit.KilnHarness.Chat.get -> Kiln.TestKit.HarnessChat!
 Kiln.TestKit.KilnHarness.Entities.get -> Kiln.TestKit.FakeWorld!
+Kiln.TestKit.KilnHarness.Items.get -> Kiln.TestKit.HarnessItems!
 Kiln.TestKit.KilnHarness.Spawned.get -> Kiln.TestKit.HarnessSpawn!
 Kiln.TestKit.ModManifest.Writes(params string![]! components) -> Kiln.TestKit.ModManifest!
 const Kiln.TestKit.HarnessSpawn.PickupTemplate = "Base_LootPickup_Generic_Gravity" -> string!
 override Kiln.TestKit.FakeChatLine.ToString() -> string!
 override Kiln.TestKit.FakeChatMessage.ToString() -> string!
+override Kiln.TestKit.FakeInventory.ToString() -> string!
+override Kiln.TestKit.FakeItemsCall.ToString() -> string!
+override Kiln.TestKit.FakeSlot.ToString() -> string!
 override Kiln.TestKit.FakeSpawnCall.ToString() -> string!
 override Kiln.TestKit.FakeSpawned.ToString() -> string!
 override Kiln.TestKit.FakeWorldWrite.Equals(object? obj) -> bool

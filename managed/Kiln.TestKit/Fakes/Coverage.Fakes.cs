@@ -44,6 +44,15 @@ public static partial class Coverage
             "started, per player (FakePlayer.Chat, KilnHarness.Chat). Offline: the game's inbox (Chat.Diagnostics.LastLine), " +
             "enableTextChat, the account hash and connection state of a chat player",
             ChatAbi.Service, ChatFake.SendFeature, ChatFake.ReceiveFeature, ChatFake.PlayersFeature);
+        Row("Items", CoverageKind.RecordingFake,
+            "Kiln.Items' own code on the kit's kiln.items (the v1 table): the items are the ones the test adds " +
+            "(KilnHarness.Items.AddItem, with their stack size), an inventory per fake player in game (FakePlayer.Inventory, 5 generic " +
+            "8-slot inventories unless the test says) and per container entity (AddContainer); Give and Take run as one transaction " +
+            "at the start of the next step (stacks topped up first, gear one per slot with an item entity, Partial or NoRoom when it " +
+            "does not fit, take all or nothing, dry runs), ItemsGivenEvent and ItemsTakenEvent are Kiln.Items'; Read, FindInventories " +
+            "and the catalog read the fake; KilnHarness.Items.Calls records each. Offline: water, moves, container names, transfer " +
+            "hooks, item instances, equip, recipe results, upgrades and gem slots, the game's player inventory layout",
+            [ItemsAbi.Service, .. ItemsFake.Features, .. ItemsFake.OfflineRows]);
         Row("kiln.net", CoverageKind.Unavailable,
             "no fake: a true pair is a client hosting its world (a kiln.client fake, a client-side harness, a client tick) and " +
             "shares one channel registry, so no handshake refusal could be tested; Kiln.Network reports itself unavailable",

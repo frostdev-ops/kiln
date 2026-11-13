@@ -65,4 +65,31 @@ public sealed class SampleFakesTests
         Assert.DoesNotContain(bo.Chat, l => l.Text.Contains("again", StringComparison.Ordinal));
         Assert.Contains("Bo (76561198000000502): 2 strike(s), last: again", Said(kiln.RunCommand(admin, "strikes")));
     }
+
+    [Fact]
+    public void SavedDataLabelsTheChestNextToAPlayer()
+    {
+        using var kiln = new KilnHarness();
+        kiln.LoadFolder(TestMods.Folder("SavedData"));
+        var admin = kiln.Players.Join("Ada", AdaSteam, PlayerPermissions.KickBan, position: new WorldPosition(50, 0, 50));
+        var bo = kiln.Players.Join("Bo", BoSteam, position: new WorldPosition(10, 0, 10));
+        kiln.Step(2);
+        Assert.Contains("no chest within", Said(kiln.RunCommand(bo, "label mine")));
+        // a chest of the fake world with an inventory: what Items.FindInventories finds, and EntityData keeps data on
+        var chest = kiln.Entities.Create(new WorldPosition(11, 0, 10));
+        kiln.Items.AddContainer(chest, inventories: 3);
+        kiln.Items.AddContainer(kiln.Entities.Create(new WorldPosition(200, 0, 200)));  // out of reach
+        Assert.Equal("labelled: \"mine\" (until the server stops: the game does not save this container)", Said(kiln.RunCommand(bo, "label mine")));
+        var labels = Said(kiln.RunCommand(admin, "labels"));
+        Assert.Contains("\"mine\" by Bo at (11", labels);
+        Assert.Contains("1 label(s)", labels);
+        // another player near the same chest may not relabel it (an admin may: saved-data.relabel)
+        var cy = kiln.Players.Join("Cy", 76561198000000503, position: new WorldPosition(10, 0, 11));
+        kiln.Step();
+        Assert.Contains("Bo labelled this chest \"mine\"", Said(kiln.RunCommand(cy, "label ours")));
+        // the chest is gone: so is its label (Kiln.Saves looks for gone entities once a second of real time)
+        kiln.Entities.Destroy(chest);
+        kiln.StepUntil(() => Said(kiln.RunCommand(admin, "labels")).Contains("0 label(s)", StringComparison.Ordinal), maxSteps: 200,
+            pace: TimeSpan.FromMilliseconds(20));
+    }
 }
