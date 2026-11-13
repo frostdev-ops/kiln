@@ -137,23 +137,36 @@ export function PickProfile() {
   const [busy, setBusy] = useState(false);
   const close = () => { usePickProfile.setState({ pending: null }); setNaming(false); setName(""); };
   const list = profiles.data ?? [];
-  const pick = async (id: string) => {
-    if (!pending) return;
+  /** Adds the drop to profile `id`; the dialog (and the drop it holds) stays until that worked. */
+  const add = async (id: string): Promise<boolean> => {
+    if (!pending) return false;
     const p = pending;
-    close();
     try {
       const r = await api.libraryAddToProfile(p.game.id, id, p.entries);
+      close();
       p.onAdded(r, p.game);
-    } catch (e) { toast.error(e, "Not added"); }
+      return true;
+    } catch (e) { toast.error(e, "Not added"); return false; }
+  };
+  const pick = async (id: string) => {
+    if (busy) return;
+    setBusy(true);
+    try { await add(id); } finally { setBusy(false); }
   };
   const create = async () => {
     if (!pending || !name.trim() || busy) return;
     setBusy(true);
     try {
-      const made = await api.profileCreate(name.trim(), null);
-      void qc.invalidateQueries({ queryKey: qk.profiles });
-      await pick(made.id);
-    } catch (e) { toast.error(e, "No profile made"); } finally { setBusy(false); }
+      let made: api.Profile;
+      try { made = await api.profileCreate(name.trim(), null); } catch (e) { toast.error(e, "No profile made"); return; }
+      await qc.invalidateQueries({ queryKey: qk.profiles });
+      if (!(await add(made.id))) {
+        // the profile exists, the mods are in the Library: back to the list, where it is now, to try again
+        setNaming(false);
+        setName("");
+        toast.info(`${made.name} was made, without ${pending.label}`, `${pending.label} is in your Library. Pick ${made.name} here to add it again, or switch it on in the list.`);
+      }
+    } finally { setBusy(false); }
   };
   return (
     <Modal open={!!pending} onClose={close} locked={busy} title="Add to which profile?" width={440}
@@ -169,7 +182,7 @@ export function PickProfile() {
         <div className="k-stack">
           <span className="k-hint">{pending.label} is in your list, off. It loads once it is on in the profile you play.</span>
           {profiles.isLoading ? null : list.map((p) => (
-            <button key={p.id} type="button" className="k-menu-item" onClick={() => void pick(p.id)}>
+            <button key={p.id} type="button" className="k-menu-item" disabled={busy} onClick={() => void pick(p.id)}>
               <span>{p.name}</span>
               {pending.game && p.active.includes(pending.game.id) && <span className="k-muted"> loaded</span>}
             </button>
