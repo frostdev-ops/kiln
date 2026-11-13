@@ -37,6 +37,10 @@ pub const STEAM_SLOW_MS: u64 = 60_000;
 /// The window follows a start Steam took without a game for this long, then shows Play again (the launcher before
 /// dev.27 did so after 2 minutes); the start stays tracked meanwhile.
 pub const STEAM_WAIT_MS: u64 = 5 * 60_000;
+/// A launcher step ended and no next one began for this long (the cook ended and no launch_play came): the start is over.
+pub const STALLED_MS: u64 = 30_000;
+/// A start that never got as far as asking Steam is forgotten after this long (a cook can take minutes).
+pub const FORGET_UNASKED_MS: u64 = 15 * 60_000;
 /// A start Steam took and no game came for this long is forgotten (its launcher timings go): no Proton setup takes
 /// half an hour, and a Play pressed again before that starts a new one anyway.
 pub const STEAM_FORGET_MS: u64 = 30 * 60_000;
@@ -475,6 +479,30 @@ impl LauncherStart {
         self.steps.last().map(|s| s.ms.saturating_add(s.took_ms.unwrap_or(0)))
     }
 
+    /// Whether this start is still tracked at `now` (unix ms), with `running` whether the game's process runs now; it
+    /// marks the process as this start's (`seen`) only when it is. The deadlines are checked first, so a process that
+    /// comes after them is never taken for this start:
+    /// - Steam was asked and no game came for [`STEAM_FORGET_MS`];
+    /// - a launcher step ended and no next one began for [`STALLED_MS`] (the cook ended, no launch_play came);
+    /// - Steam was never asked for [`FORGET_UNASKED_MS`].
+    ///
+    /// The launcher's watcher calls it every round for every game, whatever the window does.
+    pub fn keep_tracking(&mut self, running: bool, now: i64) -> bool {
+        let since = |ms: u64| now.saturating_sub(self.began).saturating_sub(ms as i64);
+        if !self.seen {
+            let steam_gone = self.asked && self.steps.iter().find(|s| s.id == "steam").is_some_and(|s| since(s.ms) > STEAM_FORGET_MS as i64);
+            let stalled = self.waiting_since().is_some_and(|w| since(w) > STALLED_MS as i64);
+            let unasked = !self.asked && since(0) > FORGET_UNASKED_MS as i64;
+            if steam_gone || stalled || unasked {
+                return false;
+            }
+        }
+        if running && self.asked {
+            self.seen = true;
+        }
+        true
+    }
+
     pub fn running(&self) -> Option<&LauncherStep> {
         self.steps.last().filter(|s| s.took_ms.is_none())
     }
@@ -883,7 +911,15 @@ pub fn timeline(i: &Inputs) -> Option<Timeline> {
     // the identity the history is looked up by: for a start of this launcher the receipt's, fixed for the whole start
     // (no change of basis when progress.json appears); for one the game began by itself progress.json's
     let kiln = match l {
-        Some(l) => i.kiln.or(l.kiln.as_deref()).and_then(|r| receipt_identity(r, i.history)),
+        Some(l) => {
+            let captured = i.kiln.or(l.kiln.as_deref()).and_then(|r| receipt_identity(r, i.history));
+            match (captured, p.and_then(|p| p.kiln.as_deref())) {
+                // the runtime changed since Play (installed during the Steam wait): the runtime's own version, so no
+                // same-version basis of the old build survives
+                (Some(c), Some(k)) if c != k => Some(k.to_string()),
+                (c, _) => c,
+            }
+        }
         None => version_identity(p.and_then(|p| p.kiln.as_deref()), i.kiln, i.history),
     };
     // the launcher's steps

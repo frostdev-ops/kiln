@@ -3,7 +3,7 @@
 // number comes from on hover), and, where there is room, every step: the done ones with what they took, the running
 // one, the ones to come with what they usually take. shell/startProgress.ts has the words.
 import type { PreStart, StartTimeline } from "../api/commands";
-import { startWords, steadyFraction, stepTime } from "./startProgress";
+import { startWords, stepTime } from "./startProgress";
 
 export function StartBar({ t, words, className = "k-start-bar" }: { t: StartTimeline; words: ReturnType<typeof startWords>; className?: string }) {
   return (
@@ -15,7 +15,7 @@ export function StartBar({ t, words, className = "k-start-bar" }: { t: StartTime
 }
 
 export function StartProgress({ t, prep }: { t: StartTimeline; prep?: PreStart | null }) {
-  const words = startWords(t, steadyFraction(t), prep);
+  const words = startWords(t, prep);
   const steps = t.steps.filter((s) => s.state !== "skipped");
   return (
     <div className="k-start" data-testid="start-progress">

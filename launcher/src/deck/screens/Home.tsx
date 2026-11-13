@@ -13,7 +13,7 @@ import { useGame, useGameStatus, useLaunchState, usePoll, useRuntimeChanges } fr
 import { engineStatusKey } from "../../components/EngineStatus";
 import { errorText } from "../../ui";
 import { clock, usePlayControl } from "../../shell/play";
-import { startWords, steadyFraction } from "../../shell/startProgress";
+import { startWords } from "../../shell/startProgress";
 import { StartBar } from "../../shell/StartPanel";
 import { detectGames, useDetect, useEnsureProfile, useKilnInstall } from "../../shell/firstRun";
 import { isDefaultProfile, useMods } from "../../shell/useMods";
@@ -65,7 +65,7 @@ export default function Home() {
   // a start that says what it does: the step and the time left under the mouth's word, the bar and the step's line in
   // the text column
   const t = ctl.timeline;
-  const tw = t ? startWords(t, steadyFraction(t)) : null;
+  const tw = t ? startWords(t) : null;
   if (tw) sub = tw.first ? tw.stepOf : tw.short;
   // the fire: the mouth stands on Home, at this heat (Fire.tsx)
   deckFire.heat = heat as typeof deckFire.heat;

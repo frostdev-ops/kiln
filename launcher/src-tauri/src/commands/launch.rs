@@ -143,13 +143,18 @@ pub async fn launch_play(app: AppHandle, game_id: String, request: LaunchRequest
 static STARTS: std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<String, kiln_manage::start_progress::LauncherStart>>> =
     std::sync::LazyLock::new(Default::default);
 
-/// A start that never got its game going is forgotten after this long.
-const FORGET_UNSEEN_MS: i64 = 15 * 60_000;
-/// A start whose launcher step ended with no next one (no launch_play after the cook) is over after this long.
-const STALLED_MS: i64 = 30_000;
 
 pub(crate) fn now_ms() -> i64 {
     kiln_manage::start_progress::unix_ms(std::time::SystemTime::now())
+}
+
+/// The watcher's round for one game: a start this launcher tracks is kept or given up by its deadlines
+/// (LauncherStart::keep_tracking) whatever the window does; `running`: the game's process runs now.
+pub(crate) fn prune(game_id: &str, running: bool) {
+    let mut starts = STARTS.lock().unwrap_or_else(|e| e.into_inner());
+    if starts.get_mut(game_id).is_some_and(|t| !t.keep_tracking(running, now_ms())) {
+        starts.remove(game_id);
+    }
 }
 
 /// Changes the record of `game_id`'s start, when there is one.
@@ -202,20 +207,9 @@ pub(crate) fn progress_round(dirs: &kiln_manage::paths::DataDirs, g: &kiln_manag
     let side = sp::game_side(g);
     let now = now_ms();
     let mut starts = STARTS.lock().unwrap_or_else(|e| e.into_inner());
-    if let Some(t) = starts.get_mut(&g.id) {
-        if side.running && t.asked {
-            t.seen = true;
-        }
-        // a Play that ended before Steam was asked (its cook ended and no launch_play came: the window went away or
-        // gave up) is over after a moment; one that never got further at all, after FORGET_UNSEEN_MS
-        let stalled = t.waiting_since().is_some_and(|w| now.saturating_sub(t.began).saturating_sub(w as i64) > STALLED_MS);
-        // Steam took it and no game came: kept (a first Proton start prepares its prefix for minutes) until the game
-        // appears, Play is pressed again (launch_begin replaces it), or STEAM_FORGET_MS
-        let steam_gone = t.asked && !t.seen && t.steps.iter().find(|s| s.id == "steam")
-            .is_some_and(|s| now.saturating_sub(t.began).saturating_sub(s.ms as i64) > sp::STEAM_FORGET_MS as i64);
-        if stalled || steam_gone || (!t.asked && !t.seen && now - t.began > FORGET_UNSEEN_MS) {
-            starts.remove(&g.id);
-        }
+    // the deadlines first, then the process is this start's (LauncherStart::keep_tracking)
+    if starts.get_mut(&g.id).is_some_and(|t| !t.keep_tracking(side.running, now)) {
+        starts.remove(&g.id);
     }
     let launcher = starts.get(&g.id).cloned();
     drop(starts);

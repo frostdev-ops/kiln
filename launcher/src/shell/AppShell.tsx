@@ -20,7 +20,7 @@ import { NxmListener } from "./catalogInstall";
 import { InstallKilnModal, detectGames, useAutoDetect, useDetect, useInstallPrompt, useKilnInstall } from "./firstRun";
 import { clock, usePlayControl, type PlayControl } from "./play";
 import { Stage, stageInput, type Heat } from "./Stage";
-import { startWords, steadyFraction } from "./startProgress";
+import { startWords } from "./startProgress";
 
 const reduced = () => typeof window !== "undefined" && !!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
 
@@ -59,7 +59,7 @@ function Header({ isPlay, ctl }: { isPlay: boolean; ctl: PlayControl }) {
   const v = ctl.view;
   // a start that says what it does: its step, and the time left (else how far, in percent)
   const t = ctl.timeline;
-  const tw = t ? startWords(t, steadyFraction(t)) : null;
+  const tw = t ? startWords(t) : null;
   const stepNow = t?.running != null ? t.steps[t.running].label : "Starting";
   const word = t && tw ? `${tw.first ? `${tw.pct}%` : tw.short} · ${stepNow}` : ctl.starting ? "Starting" : v.phase === "running" || v.phase === "vanilla"
     ? `${v.label}${ctl.elapsed !== null ? ` ${clock(ctl.elapsed)}` : ""}`
@@ -116,7 +116,7 @@ function Mouth({ isPlay, ctl }: { isPlay: boolean; ctl: PlayControl }) {
     word = "Install"; sub = "Kiln goes into the game folder"; heat = "idle"; aria = "Install Kiln";
     act = kiln.shroudforge ? () => nav("/runtime") : () => useInstallPrompt.getState().show();
   } else if (ctl.timeline) {
-    const tw = startWords(ctl.timeline, steadyFraction(ctl.timeline));
+    const tw = startWords(ctl.timeline);
     word = "Starting"; sub = tw.first ? tw.stepOf : tw.short; heat = "flare"; act = null; aria = `Starting: ${tw.line}. ${tw.left}`;
   } else if (ctl.starting) {
     word = "Starting"; sub = "Waiting for Kiln"; heat = "flare"; act = null; aria = "Starting";

@@ -232,9 +232,11 @@ test("Play refused before Steam was asked: the start is over and the page is as 
 test("the start keeps being followed while the window is hidden (the game has the display)", async ({ page }) => {
   test.setTimeout(60_000);
   await open(page);
-  await mock(page).script({ scale: 0.1 });
+  // a start that waits on Steam with no game: no backend event comes, so only the background poll can call
+  await mock(page).script({ scale: 0.05, noProcess: true });
   await mouth(page).click();
-  await expect(bar(page)).toBeVisible();
+  await expect(page.locator(".k-start-line")).toHaveText("Starting the game through Steam", { timeout: 15_000 });
+  await page.waitForTimeout(1000); // the launch's own refetches are over
   await page.evaluate(() => {
     Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "hidden" });
     Object.defineProperty(document, "hidden", { configurable: true, get: () => true });
@@ -248,8 +250,6 @@ test("the start keeps being followed while the window is hidden (the game has th
     Object.defineProperty(document, "hidden", { configurable: true, get: () => false });
     document.dispatchEvent(new Event("visibilitychange"));
   });
-  await expect(page.locator(".k-head-state")).toHaveText(/^Running/, { timeout: 30_000 });
-  await mock(page).stop();
 });
 
 test("no word from Kiln for 60 s is its own state: no bar, no countdown, the mods list back", async ({ page }) => {
@@ -382,4 +382,22 @@ test("a failed Play of one install never ends another install's start", async ({
   await expect(page.locator(".k-start-line")).toHaveText("Starting the game through Steam");
   const ended = await page.evaluate(() => (window as unknown as Calls).__kilnMock.calls().filter((c) => c === "launch_end").length);
   expect(ended).toBe(1);
+});
+
+test("Kiln speaking late overrides No Kiln: a chained DLL held the boot back for over a minute", async ({ page }) => {
+  test.setTimeout(90_000);
+  type Speak = { __kilnMock: { speak: () => void } };
+  await open(page);
+  // no progress.json and no boot.json for a long while: the window decides No Kiln and stops following
+  await mock(page).script({ scale: 0.2, dev26: true });
+  await page.evaluate(() => (window as unknown as Calls).__kilnMock.setNoProxy(true));
+  await page.getByRole("button", { name: "Without mods" }).click();
+  await expect(page.locator(".k-head-state")).toHaveText(/^No Kiln/, { timeout: 30_000 });
+  // then Kiln writes its first progress.json: the watcher's event reaches the window, which follows the start again
+  await page.evaluate(() => (window as unknown as Speak).__kilnMock.speak());
+  await expect(bar(page)).toBeVisible({ timeout: 10_000 });
+  await expect(page.locator(".k-head-state")).not.toHaveText(/^No Kiln/);
+  await expect(mouth(page)).toHaveAccessibleName(/^Starting: /);
+  await page.evaluate(() => (window as unknown as Calls).__kilnMock.setNoProxy(false));
+  await mock(page).stop();
 });

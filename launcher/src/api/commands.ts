@@ -1858,7 +1858,7 @@ export type CommandName = (typeof COMMANDS)[number];
 
 export interface KilnEvents {
   "kiln://task": Task;
-  "kiln://game": { gameId: GameId; kind: "started" | "stopped" | "boot" | "mods" | "native" | "status"; pid: number | null; status: GameStatus | null };
+  "kiln://game": { gameId: GameId; kind: "started" | "stopped" | "boot" | "mods" | "native" | "status" | "progress"; pid: number | null; status: GameStatus | null };
   "kiln://log": { subscription: string; target: LogTarget; file: string; lines: string[]; next: number };
   "kiln://last-server": { gameId: GameId; lastServer: LastServer };
   "kiln://server": { serverId: ServerId; status: ServerStatus };

@@ -17,7 +17,7 @@ import { deckMockHandlers } from "../deck/mockDeck";
 import { nexusMockHandlers, NEXUS_MOCK_ENABLED } from "./mockNexus";
 import { chainMockHandlers } from "./mockChain";
 import { dataFolderBlocks, dataFolderMockHandlers, mockDataDir, mockPickFolder } from "./mockDataFolder";
-import { bootJsonAt, clearStartHistory, mockBegin, mockProgress, mockStartEnded, ownerScript, processAt, scriptedStart, setStartScript, type StartScript } from "./mockProgress";
+import { mockSpeak, bootJsonAt, clearStartHistory, mockBegin, mockProgress, mockStartEnded, ownerScript, processAt, scriptedStart, setStartScript, type StartScript } from "./mockProgress";
 import bootExample from "../../../schema/examples/state-boot.json";
 import modsExample from "../../../schema/examples/state-mods.json";
 import nativeExample from "../../../schema/examples/state-native.json";
@@ -1679,6 +1679,8 @@ if (typeof window !== "undefined") (window as unknown as { __kilnMock?: unknown 
   setPreStart: (p: PreStart | null) => { preStart = p; },
   /** The next Play plays the owner's start of 13 Nov (mockProgress.ts), compressed and changed by `o`; null: off. */
   scriptStart: (o: Partial<StartScript> | null) => setStartScript(o ? ownerScript(o) : null),
+  /** The running game's Kiln writes its first progress.json now (after a slow chained DLL): the watcher's event. */
+  speak: (gameId = "client-steam") => { mockSpeak(gameId); mockEmit("kiln://game", { gameId, kind: "progress", pid: running[gameId]?.pid ?? null, status: null }); },
   /** Forgets the earlier starts: the next one is a first start. */
   clearStartHistory: (gameId = "client-steam") => clearStartHistory(gameId),
   setNoProxy: (on: boolean, gameId = "client-steam") => { noProxy = on; emitGame(gameId, "status"); },
