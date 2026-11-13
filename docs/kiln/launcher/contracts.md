@@ -76,7 +76,7 @@ Root: `$KILN_DATA_DIR`, else the folder the pointer `data-folder.json` in the de
 | Path | What |
 |---|---|
 | `settings.json` | launcher settings (`LauncherSettings`, section 9) |
-| `library/<kind>/<id>/<version>+<hash8>/` | immutable library entries; kind `kiln`, `native`, `plugin`, `emf`, or another engine's (`eml`, `shroudforge`, `set`, `greeneye`, `flame`, `shroudtopia`, `enshwick`, `shroudlink`, `ember`), see 5.1; hash8 = the first 8 hex chars of the folder's kdh1 (of the DLL's sha256 for a plugin, whose folder holds the one DLL) |
+| `library/<kind>/<id>/<version>+<hash8>/` | immutable library entries; kind `kiln`, `native`, `plugin`, `emf`, or another engine's (`eml`, `shroudforge`, `set`, `greeneye`, `flame`, `shroudtopia`, `enshwick`, `shroudlink`, `ember`), see 5.1; hash8 = the first 8 hex chars of the folder's hash: its kdh1, for a Kiln mod its identity (5.11: kdh1 without what a cook left in `assets/cooked`, so an entry cooked in place is still the entry that was imported); of the DLL's sha256 for a plugin, whose folder holds the one DLL |
 | `library/<kind>/<id>/<version>+<hash8>.json` | import record next to the folder: `{format, kind, id, version, hash, imported, source:{type,from}, size, name?, side?, clients?, file?, manifestId?}`. `manifestId` (dev.22): an engine mod whose own manifest id is no Kiln id (`Hoarders Helper`, `antisocialian's tweaks`) is filed under a Kiln id made from it (`hoarders-helper`) and keeps its own id here; the files in the folder are the author's, byte for byte, because the engine plugin reads that manifest and reports its state rows (`kiln/state/<engine>.json`) under it. Rows that carry a `path` match their profile entry by it; the mod manager (`ModCatalog`) also matches a row by the slug of its id. Two manifest ids with one slug get a short hash added to the second one's id |
 | `profiles/<pid>/meta.json` | the profile definition (`kiln_manage::profile::Profile`; dev.21 adds `late`: native mod ids whose dllmain DLLs go to chain.ini `[late]`, left out when empty; dev.22 adds `dropinsEngines: true`: `dropins` names the engine kinds too, profiles.md "Drop-in folders") |
 | `profiles/<pid>/config/` | the profile's mod configs (its `configDir`), with `.schema/`, `native.json` and the player's `compat-rules.json` |
@@ -690,8 +690,13 @@ from `<data>/runtime/`.
 ### 5.8 Modpacks: `kiln-modpack.json`, network.json, handshake properties
 Zip layout: `kiln-modpack.json` + `kiln/<id>/…`, `native/<id>/…`, `emf/<id>/…`, `plugin/<file>.dll`; deterministic.
 `kiln-modpack.json`: `format`, `name`, `version` (free text), `created`, `server{id,name}`, `kiln` (range players
-need), `mods[]` (`{kind, id, version, name, path, hash, clients, side}`; `hash` = the folder's kdh1, a plugin's sha256).
-Contents: the server's mods with `clients: "mod"`. Other engines' mods ride along as `<kind>/<id>/…` (`eml/`,
+need), `mods[]` (`{kind, id, version, name, path, hash, clients, side}`; `hash` = the folder's kdh1, a Kiln mod's
+identity (5.11), a plugin's sha256).
+Contents: the server's mods with `clients: "mod"`. A Kiln mod's cook outputs (`assets/cooked/`) are left out (dev.27): they
+are made from the server's game files, differ on every player's machine, and each player's own cook makes them; the
+mod's hash does not count them, so a pack built from a cooked server folder names the hash the server advertises and a
+player's cooked folder has. `verify` refuses a pack whose Kiln mod carries files under `assets/cooked/` (no hash covers
+them; a pack built by 0.2.0-dev.26 or older from a cooked folder is one: build it again). Other engines' mods ride along as `<kind>/<id>/…` (`eml/`,
 `shroudforge/`, `flame/` …) with their kdh1, taken from each engine's server folder (`engine_mods::server_root`) when
 their `clients` is `mod` (stated in their `mod.json`, else the kind's default: `eml`, `shroudforge`, `flame`). A player's
 install imports them into the library under their kind and lists them in the profile "Server: <name>".
@@ -706,7 +711,8 @@ Server (`kiln/config/network.json`, Kiln.Network) adds:
 `serverId` (default: generated once into `kiln/data/kiln-network/server-id`), `serverName` (default: the
 enshrouded_server.json name), `modpack{url, sha256, name, version}`, `advertise` (default true). REJECT and WELCOME
 gain trailing properties: server id/name, Kiln version, modpack, `required[]` (`{id, version, hash, kind}` of the
-`clients: "mod"` mods; `kind` is absent for `kiln`, else `native` or an engine kind such as `eml` or `flame`: other
+`clients: "mod"` mods; `hash` is the folder's kdh1, for a Kiln mod its identity (5.11), so a mod cooked on the server and
+in a player's game is one mod; `kind` is absent for `kiln`, else `native` or an engine kind such as `eml` or `flame`: other
 engines' mods are advertised so the launcher can tell the player, while the HELLO check covers Kiln mods only), truncated so the frame stays <= 7 KB (`kiln.required.more` = how many were left out); old
 clients still decode them. Property keys (`kiln.server.*`, `kiln.modpack.*`, `kiln.required[.n]`, `.count`, `.more`,
 `.pending`): docs/kiln/network.md "Server modpacks".
@@ -775,6 +781,32 @@ kdh1 of a folder:
 (directory entries ignored, symlink entries refused; `kiln_manage::hash::dirhash_records`).
 Reference: `schema/fixtures/dirhash/dirhash.py` (`--check`); cases and expected hashes in `schema/fixtures/dirhash/`;
 Rust: `kiln_manage::hash::dirhash` (tested against the same fixtures).
+
+**A mod's identity (dev.27)** is the kdh1 of the files that are the mod. kdh1 itself is unchanged; what changed is
+which files count for a Kiln mod:
+- A **Kiln mod** is a folder with a regular file named `kiln.mod.json` directly in it. Its **cook outputs**, the folder
+  `assets/cooked` directly in it with everything below, are not walked: a cook (`kiln cook`) makes them on each machine
+  from that machine's game files, so a dedicated server's differ from a player's (a server makes no models, each cook
+  report names its own paths), and they are never shipped. The identity of a cooked mod is the kdh1 of the same mod
+  without `assets/cooked`.
+- Names are compared as kdh1 writes them (NFC, no case folding): `Assets/Cooked`, a file named `assets/cooked`, a
+  `cooked` folder anywhere else and an `assets/cooked` below another folder all count. A link named `assets/cooked` is
+  refused like any other; links inside the folder are not looked at.
+- Every other folder (a native mod, another loader's mod, a folder without `kiln.mod.json`) has its plain kdh1 as its
+  identity: its files are all its own, whatever they are called.
+- For a zip's entries: when the mod's entries hold `kiln.mod.json` at its top, the entries below `assets/cooked/` do not
+  count (`hash::mod_identity_records`); a modpack does not carry them at all (5.8).
+
+Everything that names a Kiln mod by a hash uses its identity: what a server advertises (`required[].hash`), what the
+game compares at a join (`last-server.json` `missing`), a modpack's `mods[].hash`, the library (`<version>+<hash8>`,
+the import record) and a profile's entries, the copy-mode copies under `kiln/profiles/` (a copy the player cooked is
+kept), a server sync, and the mod-set fingerprint of drop-in mods. Before dev.27 these used the plain kdh1, so a cooked
+mod read as changed. The cook keeps its side of the rule: everything it makes from the game goes into `assets/cooked/`
+(a recipe whose `out` is elsewhere is refused), and outside it a cook writes only what follows from the mod's own files,
+the same bytes on every machine, and only when they differ (docs/kiln/modding/models.md, "What a cook writes").
+Reference: `dirhash.py --mod DIR`, `mod_identity`; `expected.json` holds `cases` (kdh1) and `identity` for every case;
+Rust: `hash::mod_identity`, `hash::of_mod(kind, dir)`; C#: `DirHash.ModIdentity` (`managed/tests/Kiln.Network.Tests/DirHashTests.cs`
+runs the same fixtures).
 
 kms1 of a profile: `sha256( for each enabled entry of every kind, sorted by (kind, id) bytewise:
 kind "\0" id "\0" version "\0" hash "\n" )` as `"kms1:" + hex` (`kiln_manage::hash::fingerprint`). A launch whose
@@ -937,8 +969,8 @@ Section 5.7. Long-running: `runtime_install` etc. return a task id; progress thr
    `kiln://last-server`.
 2. The consent modal: server name/id, missing mods, URL, size, "runs code on your PC". https only unless
    the settings allow http. Nothing downloads before the user says yes.
-3. `modpack_install` (task): download -> zip sha256 (from last-server.json) -> `kiln-modpack.json` -> each mod's kdh1 ->
-   library import -> profile `Server: <name>` (bound server) -> save backup (reason `modpack`) -> activate -> the UI
+3. `modpack_install` (task): download -> zip sha256 (from last-server.json) -> `kiln-modpack.json` -> each mod's hash
+   (kdh1; a Kiln mod's identity) -> library import -> profile `Server: <name>` (bound server) -> save backup (reason `modpack`) -> activate -> the UI
    offers Launch.
 
 ### Server mods
@@ -963,7 +995,7 @@ files.
 - semver: `parse.json` (`cases[{text, expect{ok, major, minor, patch, pre, build, text}}]`), `ranges.json`
   (`cases[{range, version, satisfies}]`, `invalid[{range, ok:false}]`), `order.json` (`ordered[]`, `equal[[a,b]]`),
   `api.json` (`cases[{api, current, satisfies}]`).
-- INI and kdh1 fixtures: sections 5.2, 5.3, 5.11 (Python references).
+- INI and kdh1 fixtures (kdh1 and a mod's identity): sections 5.2, 5.3, 5.11 (Python references).
 - KAP: `schema/fixtures/kap/handshake.json`.
 
 ## 9. Tauri commands

@@ -193,7 +193,8 @@ fn dropin_fingerprint(install: &GameInstall) -> String {
             kind: "kiln".into(),
             id,
             version,
-            hash: crate::hash::dirhash(&p).unwrap_or_default(),
+            // a drop-in Kiln mod's identity: cooking it does not make another mod set (no save backup for a cook)
+            hash: crate::hash::mod_identity(&p).unwrap_or_default(),
         });
     }
     crate::hash::fingerprint(entries)

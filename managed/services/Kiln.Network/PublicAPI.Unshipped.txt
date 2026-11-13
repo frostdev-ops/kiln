@@ -1,1 +1,2 @@
 #nullable enable
+static Kiln.DirHash.ModIdentity(string! root) -> string!

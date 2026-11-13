@@ -1346,13 +1346,14 @@ fn sync_copies(dirs: &DataDirs, profile: &Profile, install: &GameInstall, warnin
                         Err(e) => return Err(io_at(&dst, "checking")(e)),
                     }
                 } else {
-                    if dst.is_dir() && crate::hash::dirhash(&dst).is_ok_and(|h| h == m.hash) {
+                    // a Kiln mod's copy the player cooked (assets/cooked) is still that mod: kept with its cooked files
+                    if dst.is_dir() && crate::hash::of_mod(k, &dst).is_ok_and(|h| h == m.hash) {
                         continue;
                     }
                     let _ = std::fs::remove_dir_all(&dst);
                 }
                 crate::util::copy_tree(&src, &dst)?;
-                let h = crate::hash::dirhash(&dst)?;
+                let h = crate::hash::of_mod(k, &dst)?;
                 if h != m.hash {
                     return Err(Error::new(ErrorCode::HashMismatch, format!("{}: the copy has {h}, the library entry {}", dst.display(), m.hash)));
                 }

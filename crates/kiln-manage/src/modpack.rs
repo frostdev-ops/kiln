@@ -222,11 +222,12 @@ pub fn client_mods(server_dir: &Path) -> Result<Vec<ClientMod>> {
     Ok(out)
 }
 
-/// What the server advertises (kdh1 of each client mod's folder).
+/// What the server advertises: each client mod's hash (`hash::of_mod`: a Kiln mod's identity, its files without what
+/// the cook made in `assets/cooked`; the kdh1 of any other kind's folder).
 pub fn required(server_dir: &Path) -> Result<Vec<RequiredMod>> {
     client_mods(server_dir)?
         .into_iter()
-        .map(|m| Ok(RequiredMod { hash: crate::hash::dirhash(&m.dir)?, id: m.id, version: m.version, kind: Some(m.kind), unknown_kind: None, name: m.name }))
+        .map(|m| Ok(RequiredMod { hash: crate::hash::of_mod(m.kind, &m.dir)?, id: m.id, version: m.version, kind: Some(m.kind), unknown_kind: None, name: m.name }))
         .collect()
 }
 
@@ -279,9 +280,11 @@ pub fn server_identity(server_dir: &Path) -> Result<ModpackServer> {
 }
 
 #[cfg_attr(not(feature = "zip"), allow(dead_code))]
-/// Zip-relative file list of a mod folder with kdh1's rules (dot entries skipped, symlinks refused), sorted.
-fn mod_files(dir: &Path) -> Result<Vec<(String, PathBuf)>> {
-    fn walk(dir: &Path, rel: &str, out: &mut Vec<(String, PathBuf)>) -> Result<()> {
+/// Zip-relative file list of a mod folder with kdh1's rules (dot entries skipped, symlinks refused), sorted: the files
+/// its hash counts. A Kiln mod's cook outputs (`assets/cooked`) are left out: they are made from the server's game
+/// files, differ on a player's machine and are never shipped; each player's own cook makes them.
+fn mod_files(kind: ModKind, dir: &Path) -> Result<Vec<(String, PathBuf)>> {
+    fn walk(dir: &Path, rel: &str, out: &mut Vec<(String, PathBuf)>, skip_cooked: bool) -> Result<()> {
         for e in std::fs::read_dir(dir).map_err(crate::util::io_at(dir, "reading"))? {
             let e = e?;
             let name = e.file_name();
@@ -295,7 +298,10 @@ fn mod_files(dir: &Path) -> Result<Vec<(String, PathBuf)>> {
             if ft.is_symlink() {
                 return Err(err(ErrorCode::Refused, format!("{}: symlinks are not packed", e.path().display())));
             } else if ft.is_dir() {
-                walk(&e.path(), &r, out)?;
+                if skip_cooked && r == crate::hash::COOKED {
+                    continue;
+                }
+                walk(&e.path(), &r, out, skip_cooked)?;
             } else if ft.is_file() {
                 out.push((r, e.path()));
             } else {
@@ -305,7 +311,7 @@ fn mod_files(dir: &Path) -> Result<Vec<(String, PathBuf)>> {
         Ok(())
     }
     let mut out = Vec::new();
-    walk(dir, "", &mut out)?;
+    walk(dir, "", &mut out, kind == ModKind::Kiln && crate::hash::is_kiln_mod(dir))?;
     out.sort_by(|a, b| a.0.as_bytes().cmp(b.0.as_bytes()));
     Ok(out)
 }
@@ -336,7 +342,7 @@ pub fn build(server_dir: &Path, out_dir: &Path, name: &str, version: &str, progr
             return Err(err(ErrorCode::Canceled, "canceled"));
         }
         progress.report(Some(i as f32 / mods.len() as f32 * 0.5), &format!("hashing {}", m.id));
-        let files = mod_files(&m.dir)?;
+        let files = mod_files(m.kind, &m.dir)?;
         for (rel, p) in &files {
             if let Ok(t) = std::fs::metadata(p).and_then(|md| md.modified()) {
                 newest = newest.max(crate::util::unix(t));
@@ -349,7 +355,7 @@ pub fn build(server_dir: &Path, out_dir: &Path, name: &str, version: &str, progr
             version: m.version.clone(),
             name: m.name.clone(),
             path: zip_path(m.kind, &m.id),
-            hash: crate::hash::dirhash(&m.dir)?,
+            hash: crate::hash::of_mod(m.kind, &m.dir)?,
             clients: Some(Clients::Mod),
             side: Some(m.side),
         });
@@ -587,8 +593,10 @@ fn valid_rel(p: &str) -> bool {
     crate::bundle::safe_rel_path(p).is_ok()
 }
 
-/// sha256 of the zip (when given), kiln-modpack.json (format, mods unique, paths `<kind>/<id>`), every mod's kdh1
-/// over its entries; refuses symlink entries, paths outside the listed folders, and absolute or `..` paths.
+/// sha256 of the zip (when given), kiln-modpack.json (format, mods unique, paths `<kind>/<id>`), every mod's hash
+/// over its entries (kdh1; a Kiln mod's identity); refuses symlink entries, paths outside the listed folders, absolute
+/// or `..` paths, and a Kiln mod that carries cook outputs (`assets/cooked/`: no hash covers them, and they are made
+/// on each machine).
 #[cfg(feature = "zip")]
 pub fn verify(zip_file: &Path, sha256: Option<&str>) -> Result<ModpackManifest> {
     use std::io::Read;
@@ -629,6 +637,8 @@ pub fn verify(zip_file: &Path, sha256: Option<&str>) -> Result<ModpackManifest> 
     let mut expanded = 0u64;
     let mut paths = std::collections::HashSet::new();
     let mut records: std::collections::BTreeMap<String, Vec<crate::hash::Record>> = Default::default();
+    // Kiln mods with an entry below assets/cooked/ (the first one each)
+    let mut cooked: std::collections::BTreeMap<String, String> = Default::default();
     for i in 0..a.len() {
         let mut e = a.by_index(i).map_err(zerr)?;
         let name = e.name().map_err(zerr)?.to_string();
@@ -663,14 +673,24 @@ pub fn verify(zip_file: &Path, sha256: Option<&str>) -> Result<ModpackManifest> 
         }
         let sha = crate::hash::hex(sha2::Digest::finalize(h).as_slice());
         let rel = if owner.kind == ModKind::Plugin { String::new() } else { name[owner.path.len() + 1..].to_string() };
+        if owner.kind == ModKind::Kiln && crate::hash::key_of(&rel).as_deref().is_some_and(crate::hash::is_cooked_key) {
+            cooked.entry(owner.id.clone()).or_insert_with(|| name.clone());
+        }
         records.entry(owner.path.clone()).or_default().push(crate::hash::Record { path: if rel.is_empty() { name.clone() } else { rel }, size, sha256: sha });
     }
     for m in &manifest.mods {
         let rs = records.remove(&m.path).unwrap_or_default();
+        // A Kiln mod's cook outputs are no part of it and of no hash. A pack built before 0.2.0-dev.27 from a cooked
+        // folder carries them (and names the hash of the folder with them): refused with what to do, not as a bad hash.
+        if m.kind == ModKind::Kiln && rs.iter().any(|r| crate::hash::key_of(&r.path).as_deref() == Some(crate::hash::MOD_MANIFEST))
+            && let Some(entry) = cooked.get(&m.id) {
+            return Err(err(ErrorCode::Refused, format!(
+                "this modpack carries cooked files of {} ({entry}): they are made on each machine from its own game and are not part of a modpack.                  It was built by an older Kiln: the server's operator has to build it again with Kiln 0.2.0-dev.27 or newer.", m.id)));
+        }
         let have = if m.kind == ModKind::Plugin {
             rs.first().map(|r| r.sha256.clone()).unwrap_or_default()
         } else {
-            crate::hash::dirhash_records(rs)?
+            crate::hash::of_mod_records(m.kind, rs)?
         };
         if have != m.hash {
             return Err(err(ErrorCode::HashMismatch, format!("mod {} in the modpack hashes to {have}, its manifest says {}", m.id, m.hash)));
@@ -714,7 +734,7 @@ pub fn extract(zip_file: &Path, manifest: &ModpackManifest, staging: &Path) -> R
     let mut out = Vec::new();
     for m in &manifest.mods {
         let p = staging.join(&m.path);
-        let have = if m.kind == ModKind::Plugin { crate::hash::sha256_file(&p)?.0 } else { crate::hash::dirhash(&p)? };
+        let have = if m.kind == ModKind::Plugin { crate::hash::sha256_file(&p)?.0 } else { crate::hash::of_mod(m.kind, &p)? };
         if have != m.hash {
             return Err(err(ErrorCode::HashMismatch, format!("mod {} unpacked to {have}, expected {}", m.id, m.hash)));
         }
@@ -919,6 +939,105 @@ mod tests {
         for d in [s, out, st] {
             let _ = std::fs::remove_dir_all(d);
         }
+    }
+
+    /// What a cook leaves in a Kiln mod's folder: the shipped manifest names the cooked files, the cook writes them and
+    /// its report into assets/cooked. A server's cook makes no models and its report names the server's files.
+    fn cook(mod_dir: &Path, side: &str) {
+        let a = mod_dir.join("assets");
+        std::fs::create_dir_all(a.join("cooked/impact")).unwrap();
+        std::fs::write(a.join("cooked/clip_wave.bin"), b"clip").unwrap();
+        std::fs::write(a.join("cooked/impact/heal.bin"), b"program").unwrap();
+        if side == "client" {
+            std::fs::write(a.join("cooked/sign.bin"), b"model").unwrap();
+            std::fs::write(a.join("cooked/sign.blob"), b"render data").unwrap();
+        }
+        std::fs::write(a.join("cooked/cook-report.json"), format!(r#"{{ "game": {{ "kfc": "/games/{side}/enshrouded.kfc", "side": "{side}" }} }}"#)).unwrap();
+    }
+
+    fn zip_names(file: &Path) -> Vec<String> {
+        let mut a = zip::ZipArchive::new(std::fs::File::open(file).unwrap()).unwrap();
+        (0..a.len()).map(|i| a.by_index(i).unwrap().name().unwrap().to_string()).collect()
+    }
+
+    /// A copy of `file` with one more entry.
+    fn zip_with(file: &Path, to: &Path, name: &str, data: &[u8]) {
+        use std::io::Write;
+        let mut src = zip::ZipArchive::new(std::fs::File::open(file).unwrap()).unwrap();
+        let mut w = zip::ZipWriter::new(std::fs::File::create(to).unwrap());
+        for i in 0..src.len() {
+            let e = src.by_index(i).unwrap();
+            w.raw_copy_file(e).unwrap();
+        }
+        w.start_file(name, zip::write::SimpleFileOptions::default()).unwrap();
+        w.write_all(data).unwrap();
+        w.finish().unwrap();
+    }
+
+    #[test]
+    fn a_cooked_mod_is_packed_without_its_cook_outputs_and_is_the_mod_the_server_advertises() {
+        let s = server();
+        let out = temp("cooked-out");
+        let m = s.join("kiln/mods/isle-icons");
+        std::fs::create_dir_all(m.join("assets")).unwrap();
+        std::fs::write(m.join("assets/cook.json"), br#"{ "format": 1, "out": "cooked", "steps": [] }"#).unwrap();
+        std::fs::write(m.join("assets/assets.json"), br#"{ "format": 1, "entries": [ { "kind": "blob", "file": "cooked/sign.blob" } ] }"#).unwrap();
+        let shipped = crate::hash::dirhash(&m).unwrap();
+        cook(&m, "server");
+        // a native mod's folder is all its own: a folder named assets/cooked there is packed and counted
+        let n = s.join("kiln/native/fps");
+        std::fs::create_dir_all(n.join("assets/cooked")).unwrap();
+        std::fs::write(n.join("assets/cooked/table.bin"), b"its own data").unwrap();
+        assert_ne!(crate::hash::dirhash(&m).unwrap(), shipped, "the cook changed the folder");
+        let req = required(&s).unwrap();
+        assert_eq!((req[0].id.as_str(), req[0].hash.as_str()), ("isle-icons", shipped.as_str()), "advertised: the mod without its cook outputs");
+        assert_eq!(req[1].hash, crate::hash::dirhash(&n).unwrap());
+
+        let built = build(&s, &out, "Ember Isles", "4", &mut crate::task::NoProgress).unwrap();
+        let names = zip_names(&built.file);
+        assert!(names.iter().any(|n| n == "kiln/isle-icons/assets/assets.json") && names.iter().any(|n| n == "kiln/isle-icons/assets/cook.json"), "{names:?}");
+        assert!(!names.iter().any(|n| n.starts_with("kiln/isle-icons/assets/cooked")), "no cook output is packed: {names:?}");
+        assert!(names.iter().any(|n| n == "native/fps/assets/cooked/table.bin"), "{names:?}");
+        let man = verify(&built.file, Some(&built.sha256)).unwrap();
+        assert_eq!(man.mods[0].hash, shipped);
+        check_against(&man, &req).unwrap();
+
+        // what a player gets from the pack, cooked on the player's machine (other files, another report), is that mod
+        let st = temp("cooked-staging");
+        let paths = extract(&built.file, &man, &st).unwrap();
+        assert!(!paths[0].join("assets/cooked").exists());
+        assert_eq!(crate::hash::dirhash(&paths[0]).unwrap(), shipped);
+        cook(&paths[0], "client");
+        assert_ne!(crate::hash::dirhash(&paths[0]).unwrap(), crate::hash::dirhash(&m).unwrap(), "the two cooked folders differ");
+        assert_eq!(crate::hash::of_mod(ModKind::Kiln, &paths[0]).unwrap(), req[0].hash);
+        // and a pack built from the player's cooked copy would be the same pack entry
+        assert_eq!(mod_files(ModKind::Kiln, &paths[0]).unwrap().iter().map(|f| f.0.clone()).collect::<Vec<_>>(),
+            mod_files(ModKind::Kiln, &m).unwrap().iter().map(|f| f.0.clone()).collect::<Vec<_>>());
+        // the same build again after the server cooked again (a newer report): the same zip
+        std::fs::write(m.join("assets/cooked/cook-report.json"), b"{ \"again\": true }").unwrap();
+        let again = build(&s, &out, "Ember Isles", "4", &mut crate::task::NoProgress).unwrap();
+        assert_eq!(again.manifest.mods, built.manifest.mods);
+        for d in [s, out, st] {
+            let _ = std::fs::remove_dir_all(d);
+        }
+    }
+
+    #[test]
+    fn verify_refuses_a_pack_that_carries_a_kiln_mods_cook_outputs() {
+        let s = server();
+        let out = temp("cooked-refuse");
+        let built = build(&s, &out, "P", "1", &mut crate::task::NoProgress).unwrap();
+        let old = out.join("old.zip");
+        zip_with(&built.file, &old, "kiln/isle-icons/assets/cooked/clip_wave.bin", b"clip");
+        let e = verify(&old, None).unwrap_err();
+        assert_eq!(e.code, ErrorCode::Refused, "{e}");
+        assert!(e.message.contains("cooked files of isle-icons") && e.message.contains("build it again"), "{}", e.message);
+        // the same entry in a native mod is one of its files: a changed folder, so the hash says no
+        let native = out.join("native.zip");
+        zip_with(&built.file, &native, "native/fps/assets/cooked/table.bin", b"x");
+        assert_eq!(verify(&native, None).unwrap_err().code, ErrorCode::HashMismatch);
+        let _ = std::fs::remove_dir_all(s);
+        let _ = std::fs::remove_dir_all(out);
     }
 
     #[test]

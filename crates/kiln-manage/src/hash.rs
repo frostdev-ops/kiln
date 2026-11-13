@@ -8,6 +8,12 @@
 //! 3. Sort by the UTF-8 bytes.
 //! 4. `h = sha256( for each file: path "\0" size-decimal "\0" sha256hex(content) "\n" )`; result `"kdh1:" + hex(h)`.
 //!
+//! A mod's identity is the kdh1 of the files that are the mod ([`mod_identity`]). A Kiln mod (a folder with a regular
+//! file `kiln.mod.json` directly in it) does not count its cook outputs, the folder `assets/cooked` directly in it: the
+//! cook makes them on each machine from that machine's game, so a server's and a player's differ. Names are compared
+//! as kdh1 writes them (NFC, no case folding). Every other folder's identity is its kdh1. The library, a profile's
+//! entries, a modpack and what a server advertises all name a Kiln mod by its identity ([`of_mod`]).
+//!
 //! kms1, the mod-set fingerprint of a profile: `sha256( for each enabled entry sorted by (kind, id):
 //! kind "\0" id "\0" version "\0" hash "\n" )` as `"kms1:" + hex`.
 
@@ -20,6 +26,10 @@ use unicode_normalization::UnicodeNormalization;
 
 pub const KDH1_PREFIX: &str = "kdh1:";
 pub const KMS1_PREFIX: &str = "kms1:";
+/// The manifest that makes a folder a Kiln mod.
+pub const MOD_MANIFEST: &str = "kiln.mod.json";
+/// A Kiln mod's cook outputs, as a kdh1 path: made on each machine from that machine's game, never part of the mod.
+pub const COOKED: &str = "assets/cooked";
 
 pub fn hex(bytes: &[u8]) -> String {
     const DIGITS: &[u8; 16] = b"0123456789abcdef";
@@ -70,17 +80,40 @@ fn bad(message: String) -> Error {
     Error::new(ErrorCode::Refused, message)
 }
 
+/// The kdh1 key of a path (components NFC, joined with "/"); None for a path kdh1 skips (a dot entry, or empty).
+pub fn key_of(path: &str) -> Option<String> {
+    let parts: Vec<&str> = path.split('/').filter(|p| !p.is_empty()).collect();
+    if parts.is_empty() || parts.iter().any(|p| p.starts_with('.')) {
+        return None;
+    }
+    Some(parts.iter().map(|p| p.nfc().collect::<String>()).collect::<Vec<_>>().join("/"))
+}
+
+/// Whether a kdh1 key names a file below a Kiln mod's cook outputs folder.
+pub fn is_cooked_key(key: &str) -> bool {
+    key.strip_prefix(COOKED).is_some_and(|rest| rest.starts_with('/'))
+}
+
+fn keyed(records: impl IntoIterator<Item = Record>) -> Vec<(Vec<u8>, Record)> {
+    records.into_iter().filter_map(|r| key_of(&r.path).map(|k| (k.into_bytes(), r))).collect()
+}
+
 /// kdh1 from records (also for a zip's entries): applies the dot-skip, NFC, the duplicate check and the sort.
 pub fn dirhash_records(records: impl IntoIterator<Item = Record>) -> Result<String> {
-    let mut items: Vec<(Vec<u8>, Record)> = Vec::new();
-    for r in records {
-        let parts: Vec<&str> = r.path.split('/').filter(|p| !p.is_empty()).collect();
-        if parts.is_empty() || parts.iter().any(|p| p.starts_with('.')) {
-            continue;
-        }
-        let key: String = parts.iter().map(|p| p.nfc().collect::<String>()).collect::<Vec<_>>().join("/");
-        items.push((key.into_bytes(), r));
+    hash_keyed(keyed(records))
+}
+
+/// A mod's identity from records (a zip's entries): kdh1, without the files below `assets/cooked/` when the records
+/// hold a `kiln.mod.json` at the top (a Kiln mod).
+pub fn mod_identity_records(records: impl IntoIterator<Item = Record>) -> Result<String> {
+    let mut items = keyed(records);
+    if items.iter().any(|(k, _)| k == MOD_MANIFEST.as_bytes()) {
+        items.retain(|(k, _)| !std::str::from_utf8(k).is_ok_and(is_cooked_key));
     }
+    hash_keyed(items)
+}
+
+fn hash_keyed(mut items: Vec<(Vec<u8>, Record)>) -> Result<String> {
     items.sort_by(|a, b| a.0.cmp(&b.0));
     if let Some(w) = items.windows(2).find(|w| w[0].0 == w[1].0) {
         return Err(bad(format!("two files are the same path after NFC normalization: {}", String::from_utf8_lossy(&w[0].0))));
@@ -102,17 +135,51 @@ pub fn dirhash(root: &Path) -> Result<String> {
     dirhash_records(dir_records(root)?)
 }
 
+/// A mod's identity: the kdh1 of the files that are the mod. A Kiln mod's `assets/cooked` folder is not walked (its
+/// files are not read, and a link inside it is not looked at; a link named `assets/cooked` is refused like any other).
+pub fn mod_identity(root: &Path) -> Result<String> {
+    dirhash_records(mod_records(root)?)
+}
+
+/// The hash a mod folder of `kind` is known by: a Kiln mod's identity, the plain kdh1 of any other kind's folder
+/// (another loader's files are all its own). Plugins are single DLLs with a sha256 and never come here.
+pub fn of_mod(kind: crate::manifest::ModKind, root: &Path) -> Result<String> {
+    if kind == crate::manifest::ModKind::Kiln { mod_identity(root) } else { dirhash(root) }
+}
+
+/// [`of_mod`] for a zip's entries of one mod.
+pub fn of_mod_records(kind: crate::manifest::ModKind, records: impl IntoIterator<Item = Record>) -> Result<String> {
+    if kind == crate::manifest::ModKind::Kiln { mod_identity_records(records) } else { dirhash_records(records) }
+}
+
+/// A regular file named `kiln.mod.json` (exactly, as the folder lists it) directly in the folder.
+pub fn is_kiln_mod(root: &Path) -> bool {
+    fs::read_dir(root).into_iter().flatten().flatten().any(|e| {
+        e.file_name().to_str().is_some_and(|n| n.nfc().collect::<String>() == MOD_MANIFEST)
+            && fs::symlink_metadata(e.path()).is_ok_and(|m| m.file_type().is_file() && !is_reparse_point(&m))
+    })
+}
+
 /// The files kdh1 counts in a folder on disk (dot entries skipped), with their sizes and hashes.
 pub(crate) fn dir_records(root: &Path) -> Result<Vec<Record>> {
+    records_of(root, false)
+}
+
+/// The files a mod's identity counts: [`dir_records`] without a Kiln mod's cook outputs.
+pub(crate) fn mod_records(root: &Path) -> Result<Vec<Record>> {
+    records_of(root, true)
+}
+
+fn records_of(root: &Path, mod_files: bool) -> Result<Vec<Record>> {
     if !fs::metadata(root)?.is_dir() {
         return Err(Error::invalid(format!("{}: not a folder", root.display())));
     }
     let mut records = Vec::new();
-    walk(root, "", &mut records)?;
+    walk(root, "", &mut records, mod_files && is_kiln_mod(root))?;
     Ok(records)
 }
 
-fn walk(dir: &Path, prefix: &str, out: &mut Vec<Record>) -> Result<()> {
+fn walk(dir: &Path, prefix: &str, out: &mut Vec<Record>, skip_cooked: bool) -> Result<()> {
     for entry in fs::read_dir(dir)? {
         let entry = entry?;
         let name = entry.file_name();
@@ -128,7 +195,10 @@ fn walk(dir: &Path, prefix: &str, out: &mut Vec<Record>) -> Result<()> {
         if ft.is_symlink() || is_reparse_point(&meta) {
             return Err(bad(format!("{}: symlinks are not allowed in a mod folder", entry.path().display())));
         } else if ft.is_dir() {
-            walk(&entry.path(), &rel, out)?;
+            if skip_cooked && key_of(&rel).as_deref() == Some(COOKED) {
+                continue;
+            }
+            walk(&entry.path(), &rel, out, skip_cooked)?;
         } else if ft.is_file() {
             let (sha256, size) = sha256_file(&entry.path())?;
             out.push(Record { path: rel, size, sha256 });
@@ -192,6 +262,24 @@ mod tests {
         let b = dirhash_records([r("caf\u{e9}"), r("a/x"), r("b")]).unwrap();
         assert_eq!(a, b);
         assert!(dirhash_records([r("caf\u{e9}"), r("cafe\u{301}")]).is_err());
+    }
+
+    #[test]
+    fn a_kiln_mods_records_leave_out_its_cook_outputs() {
+        let r = |p: &str| Record { path: p.into(), size: 1, sha256: "00".into() };
+        let shipped = [r("kiln.mod.json"), r("assets/assets.json"), r("Mod.dll")];
+        let cooked = [r("kiln.mod.json"), r("assets/assets.json"), r("Mod.dll"), r("assets/cooked/a.bin"), r("assets/cooked/impact/b.bin")];
+        assert_eq!(mod_identity_records(cooked.clone()).unwrap(), dirhash_records(shipped.clone()).unwrap());
+        assert_ne!(dirhash_records(cooked.clone()).unwrap(), dirhash_records(shipped).unwrap());
+        // no kiln.mod.json at the top: every file counts; so do the names elsewhere and in another case
+        let other = [r("mod.json"), r("assets/cooked/a.bin"), r("inner/kiln.mod.json")];
+        assert_eq!(mod_identity_records(other.clone()).unwrap(), dirhash_records(other).unwrap());
+        let names = [r("kiln.mod.json"), r("assets/cooked"), r("assets/cooked.txt"), r("Assets/Cooked/a.bin"), r("data/assets/cooked/a.bin")];
+        assert_eq!(mod_identity_records(names.clone()).unwrap(), dirhash_records(names).unwrap());
+        assert!(is_cooked_key("assets/cooked/a") && !is_cooked_key("assets/cooked") && !is_cooked_key("assets/cookedx/a"));
+        // a kind that is not a Kiln mod keeps plain kdh1 even with that manifest in it
+        assert_eq!(of_mod_records(crate::manifest::ModKind::Eml, cooked.clone()).unwrap(), dirhash_records(cooked.clone()).unwrap());
+        assert_eq!(of_mod_records(crate::manifest::ModKind::Kiln, cooked.clone()).unwrap(), mod_identity_records(cooked).unwrap());
     }
 
     #[test]

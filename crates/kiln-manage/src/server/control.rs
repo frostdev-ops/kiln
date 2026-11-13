@@ -377,13 +377,13 @@ pub fn sync(dirs: &DataDirs, instance: &ServerInstance, mods: &[LibraryRef], pro
         }
         let src = crate::library::path_of(dirs, r)?;
         crate::engine_mods::refuse_symlink_path(&dirs.root, &src)?;
-        if crate::hash::dirhash(&src)? != r.hash {
+        if crate::hash::of_mod(r.kind, &src)? != r.hash {
             return Err(Error::new(ErrorCode::HashMismatch, format!("library entry {} {} changed on disk", r.id, r.version)));
         }
         let staging = crate::library::TempDir::new(&dst_root, "kiln-sync")?;
         let tmp = staging.path().join("new");
         crate::library::copy_mod_tree(&src, &tmp)?;
-        if crate::hash::dirhash(&tmp)? != r.hash {
+        if crate::hash::of_mod(r.kind, &tmp)? != r.hash {
             let _ = std::fs::remove_dir_all(&tmp);
             return Err(Error::new(ErrorCode::HashMismatch, "library mod changed while copying"));
         }

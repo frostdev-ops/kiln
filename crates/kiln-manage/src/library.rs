@@ -1037,7 +1037,8 @@ fn recorded_hash(folder: &Path, rec: &ImportRecord) -> Result<String> {
         let file = rec.file.as_deref().ok_or_else(|| Error::invalid("a library plugin record must name its DLL"))?;
         Ok(crate::hash::sha256_file(&plugin_file(folder, file)?)?.0)
     } else {
-        crate::hash::dirhash(folder)
+        // a Kiln mod's identity: an entry the player cooked in place is still the entry that was imported
+        crate::hash::of_mod(rec.kind, folder)
     }
 }
 
@@ -1120,8 +1121,9 @@ fn import_item(dirs: &DataDirs, d: &Detected, src: &Path, from: &ImportSource, r
             let tmp = TempDir::new(&staging_parent, "import")?;
             let work = tmp.path().join("m");
             let size = copy_mod_tree(src, &work)?;
-            let hash = crate::hash::dirhash(&work)?;
-            let source_hash = crate::hash::dirhash(src)?;
+            // a Kiln mod is known by its identity: what a cook left in assets/cooked comes along and does not count
+            let hash = crate::hash::of_mod(kind, &work)?;
+            let source_hash = crate::hash::of_mod(kind, src)?;
             if hash != source_hash {
                 return Err(Error::new(ErrorCode::HashMismatch, format!("{}: changed while it was imported", src.display())));
             }

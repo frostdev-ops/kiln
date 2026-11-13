@@ -61,11 +61,76 @@ fn kdh1_matches_the_fixtures() {
     let dir = repo().join("schema/fixtures/dirhash");
     let expected: serde_json::Value = serde_json::from_str(&read("schema/fixtures/dirhash/expected.json")).unwrap();
     let cases = expected["cases"].as_object().unwrap();
-    assert!(cases.len() >= 7);
+    assert!(cases.len() >= 14);
     for (name, want) in cases {
         let got = hash::dirhash(&dir.join("cases").join(name)).unwrap();
         assert_eq!(&got, want.as_str().unwrap(), "case {name}");
     }
+}
+
+/// A mod's identity (kdh1 without a Kiln mod's cook outputs) against the same fixtures: on disk, and from records as
+/// a modpack's entries are hashed.
+#[test]
+fn mod_identity_matches_the_fixtures() {
+    let dir = repo().join("schema/fixtures/dirhash");
+    let expected: serde_json::Value = serde_json::from_str(&read("schema/fixtures/dirhash/expected.json")).unwrap();
+    let (cases, identity) = (expected["cases"].as_object().unwrap(), expected["identity"].as_object().unwrap());
+    assert_eq!(cases.keys().collect::<Vec<_>>(), identity.keys().collect::<Vec<_>>());
+    fn records(root: &std::path::Path, dir: &std::path::Path, out: &mut Vec<hash::Record>) {
+        for e in std::fs::read_dir(dir).unwrap().flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                records(root, &p, out);
+            } else {
+                let (sha256, size) = hash::sha256_file(&p).unwrap();
+                out.push(hash::Record { path: p.strip_prefix(root).unwrap().to_string_lossy().replace('\\', "/"), size, sha256 });
+            }
+        }
+    }
+    for (name, want) in identity {
+        let case = dir.join("cases").join(name);
+        assert_eq!(&hash::mod_identity(&case).unwrap(), want.as_str().unwrap(), "case {name}");
+        assert_eq!(&hash::of_mod(manifest::ModKind::Kiln, &case).unwrap(), want.as_str().unwrap(), "case {name}");
+        assert_eq!(hash::of_mod(manifest::ModKind::Native, &case).unwrap(), cases[name].as_str().unwrap(), "case {name}: another kind's folder is all its own");
+        let mut rs = Vec::new();
+        records(&case, &case, &mut rs);
+        assert_eq!(&hash::mod_identity_records(rs.clone()).unwrap(), want.as_str().unwrap(), "case {name} from records");
+        assert_eq!(hash::dirhash_records(rs).unwrap(), cases[name].as_str().unwrap(), "case {name} from records");
+    }
+    // the cases the rule exists for
+    let of = |m: &str, n: &str| expected[m][n].as_str().unwrap().to_string();
+    assert_eq!(of("identity", "mod-cooked"), of("cases", "mod"), "a mod with cooked files is the same mod without them");
+    assert_ne!(of("identity", "mod-cooked"), of("cases", "mod-cooked"));
+    for n in ["cooked-not-a-mod", "cooked-manifest-folder", "mod-cooked-case", "mod-cooked-file"] {
+        assert_eq!(of("identity", n), of("cases", n), "{n}: everything counts");
+    }
+    assert_ne!(of("identity", "mod-cooked-names"), of("cases", "mod-cooked-names"));
+}
+
+#[cfg(unix)]
+#[test]
+fn mod_identity_does_not_walk_the_cooked_folder_but_refuses_a_link_in_its_place() {
+    let tmp = std::env::temp_dir().join(format!("kdh1-mod-test-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&tmp);
+    let m = tmp.join("m");
+    std::fs::create_dir_all(m.join("assets/cooked")).unwrap();
+    std::fs::write(m.join("kiln.mod.json"), b"{}").unwrap();
+    std::fs::write(m.join("assets/cooked/a.bin"), b"a").unwrap();
+    let plain = hash::mod_identity(&m).unwrap();
+    std::os::unix::fs::symlink("a.bin", m.join("assets/cooked/link.bin")).unwrap();
+    assert_eq!(hash::dirhash(&m).unwrap_err().code, ErrorCode::Refused);
+    assert_eq!(hash::mod_identity(&m).unwrap(), plain);
+    std::fs::remove_dir_all(m.join("assets/cooked")).unwrap();
+    std::os::unix::fs::symlink(&tmp, m.join("assets/cooked")).unwrap();
+    assert_eq!(hash::mod_identity(&m).unwrap_err().code, ErrorCode::Refused);
+    // a link named kiln.mod.json is no manifest (and a link below the root is refused anyway)
+    std::fs::remove_file(m.join("assets/cooked")).unwrap();
+    std::fs::remove_file(m.join("kiln.mod.json")).unwrap();
+    std::fs::write(tmp.join("real.json"), b"{}").unwrap();
+    std::os::unix::fs::symlink(tmp.join("real.json"), m.join("kiln.mod.json")).unwrap();
+    assert!(!hash::is_kiln_mod(&m));
+    assert_eq!(hash::mod_identity(&m).unwrap_err().code, ErrorCode::Refused);
+    let _ = std::fs::remove_dir_all(&tmp);
 }
 
 #[cfg(unix)]

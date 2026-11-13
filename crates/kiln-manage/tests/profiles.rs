@@ -105,6 +105,15 @@ fn import_is_content_addressed_and_immutable() {
     let nr = refs(&r, ModKind::Kiln, "new-items");
     assert_eq!(nr.hash, hash::dirhash(&k).unwrap(), "the library hash is the source folder's kdh1 (dot entries skipped)");
     let folder = library::path_of(&dirs, &nr).unwrap();
+    // a Kiln mod is known by its identity: the same mod with what a cook left in assets/cooked is the same entry
+    put(&k, "assets/cooked/model.bin", b"made from this machine's game");
+    put(&k, "assets/cooked/cook-report.json", b"{}");
+    assert_ne!(hash::dirhash(&k).unwrap(), nr.hash);
+    assert_eq!(hash::mod_identity(&k).unwrap(), nr.hash);
+    let cooked = library::import(&dirs, std::slice::from_ref(&k), &mut NoProgress).unwrap();
+    assert_eq!((cooked.imported.len(), cooked.existing.len()), (0, 1), "{cooked:?}");
+    assert_eq!(refs(&cooked, ModKind::Kiln, "new-items"), nr);
+    std::fs::remove_dir_all(k.join("assets")).unwrap();
     assert!(folder.ends_with(format!("library/kiln/new-items/1.0.0+{}", &nr.hash[5..13])));
     assert!(!folder.join(".kiln-source.json").exists());
     assert!(folder.with_extension("").with_file_name(format!("1.0.0+{}.json", &nr.hash[5..13])).exists());
@@ -315,6 +324,16 @@ fn activation_writes_profile_json_chain_and_native_state() {
     put(&game, &format!("kiln/profiles/{}/config/new-items.json", p.id), b"{ \"x\": 1 }");
     assert_eq!(profile::activate(&dirs, &p.id, &inst).unwrap().copied, 0, "unchanged copies are kept");
     assert!(dirs.profile(&p.id).join("config/new-items.json").exists());
+    // the player cooks the copy the game loads (kiln cook): it is still that mod, and its cooked files stay
+    put(&copy, "assets/cooked/model.bin", b"made from this machine's game");
+    put(&copy, "assets/cooked/cook-report.json", b"{}");
+    assert_ne!(hash::dirhash(&copy).unwrap(), refs(&r, ModKind::Kiln, "new-items").hash);
+    assert_eq!(profile::activate(&dirs, &p.id, &inst).unwrap().copied, 0, "a cooked copy is kept");
+    assert_eq!(std::fs::read(copy.join("assets/cooked/model.bin")).unwrap(), b"made from this machine's game");
+    // a changed shipped file is still replaced (with what the cook made for the old files)
+    put(&copy, "M.dll", b"changed in the game folder");
+    assert_eq!(profile::activate(&dirs, &p.id, &inst).unwrap().copied, 1);
+    assert_eq!(hash::dirhash(&copy).unwrap(), refs(&r, ModKind::Kiln, "new-items").hash);
     // deactivate: the legacy layout, a backup of profile.json, [chain] kept
     profile::deactivate(&dirs, &inst).unwrap();
     assert!(profile::read_game_profile(&game).unwrap().is_none());
