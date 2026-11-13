@@ -19,10 +19,104 @@ using System.Text.RegularExpressions;
 
 namespace Kiln;
 
-/// <summary>The rolls of one item, as they are stored and sent.</summary>
+/// <summary>The rolls of one item, as they are stored and sent. Stored data is not trusted (a save edited by hand,
+/// another version's bytes): <see cref="AffixDataConverter"/> reads every shape, keeps what reads as rolls and says what
+/// did not (<see cref="Problem"/>), and writes a value it read back exactly as it was.</summary>
+[JsonConverter(typeof(AffixDataConverter))]
 internal sealed class AffixData
 {
     public List<AffixRoll> Rolls { get; set; } = [];
+
+    /// <summary>What of the stored JSON did not read as rolls, said once per item by the pass; null: all of it did.</summary>
+    public string? Problem { get; set; }
+
+    /// <summary>The stored JSON this value was read from: written back as it is (a save keeps the bytes it found).</summary>
+    public string? Raw { get; set; }
+}
+
+/// <summary>{ "Rolls": [ { "Id", "Name", "Stat", "Tier", "Value" } ] }, read leniently: a value that is not an object,
+/// Rolls that are null or not a list, an entry that is null or not an object, without an id, a second entry of one id,
+/// or a field of another type: the entry (or the whole value) is left out and named in <see cref="AffixData.Problem"/>.
+/// Never throws for a shape. Writes what Kiln wrote before this reader existed, byte for byte.</summary>
+internal sealed class AffixDataConverter : JsonConverter<AffixData>
+{
+    public override AffixData Read(ref Utf8JsonReader r, Type t, JsonSerializerOptions o)
+    {
+        using var doc = JsonDocument.ParseValue(ref r);
+        var root = doc.RootElement;
+        var data = new AffixData { Raw = root.GetRawText() };
+        var problems = new List<string>();
+        if (root.ValueKind != JsonValueKind.Object) problems.Add($"the value is {Shape(root)}, not an object with Rolls");
+        else if (!root.TryGetProperty("Rolls", out var rolls) || rolls.ValueKind != JsonValueKind.Array) problems.Add($"Rolls is {(rolls.ValueKind == JsonValueKind.Undefined ? "missing" : Shape(rolls))}, not a list");
+        else
+        {
+            var n = 0;
+            foreach (var e in rolls.EnumerateArray())
+            {
+                n++;
+                if (e.ValueKind != JsonValueKind.Object) { problems.Add($"roll {n} is {Shape(e)}"); continue; }
+                if (!Text(e, "Id", out var id) || string.IsNullOrEmpty(id)) { problems.Add($"roll {n} has no id"); continue; }
+                if (data.Rolls.Any(x => x.Id == id)) { problems.Add($"{id} is there twice (the first counts)"); continue; }
+                if (!Text(e, "Name", out var name) || !Text(e, "Stat", out var stat) || !Number(e, "Tier", out var tier) || tier != Math.Floor(tier) || Math.Abs(tier) > int.MaxValue
+                    || !e.TryGetProperty("Value", out var v) || v.ValueKind != JsonValueKind.Number || !v.TryGetDouble(out var value) || !double.IsFinite(value))
+                {
+                    problems.Add($"roll {n} ({id}) has a field that is not what a roll holds");
+                    continue;
+                }
+                data.Rolls.Add(new AffixRoll { Id = id, Name = name ?? "", Stat = stat ?? "", Tier = (int)tier, Value = value });
+            }
+        }
+        data.Problem = problems.Count == 0 ? null : string.Join("; ", problems);
+        return data;
+    }
+
+    // a string field, or none (null in the result); false: one of another type
+    private static bool Text(JsonElement e, string name, out string? text)
+    {
+        text = null;
+        if (!e.TryGetProperty(name, out var p) || p.ValueKind == JsonValueKind.Null) return true;
+        if (p.ValueKind != JsonValueKind.String) return false;
+        text = p.GetString();
+        return true;
+    }
+
+    // a number field, or none (0); false: one of another type
+    private static bool Number(JsonElement e, string name, out double number)
+    {
+        number = 0;
+        if (!e.TryGetProperty(name, out var p)) return true;
+        return p.ValueKind == JsonValueKind.Number && p.TryGetDouble(out number);
+    }
+
+    private static string Shape(JsonElement e) => e.ValueKind switch
+    {
+        JsonValueKind.Array => "a list", JsonValueKind.String => "a string", JsonValueKind.Number => "a number", JsonValueKind.Object => "an object", _ => e.GetRawText(),
+    };
+
+    public override void Write(Utf8JsonWriter w, AffixData v, JsonSerializerOptions o)
+    {
+        if (v.Raw is { } raw)
+        {
+            w.WriteRawValue(raw, skipInputValidation: true);
+            return;
+        }
+        // what the serializer wrote for AffixData before this converter: PascalCase, these five fields in this order
+        w.WriteStartObject();
+        w.WritePropertyName("Rolls");
+        w.WriteStartArray();
+        foreach (var a in v.Rolls)
+        {
+            w.WriteStartObject();
+            w.WriteString("Id", a.Id);
+            w.WriteString("Name", a.Name);
+            w.WriteString("Stat", a.Stat);
+            w.WriteNumber("Tier", a.Tier);
+            w.WriteNumber("Value", a.Value);
+            w.WriteEndObject();
+        }
+        w.WriteEndArray();
+        w.WriteEndObject();
+    }
 }
 
 internal sealed class AffixRoll
@@ -168,6 +262,7 @@ internal static partial class AffixRuntime
             var t = block.Tiers[i] ?? throw new BlockError(what, $"tiers[{i}]", "a tier is missing");
             var at = $"tiers[{i}]";
             if (!double.IsFinite(t.Min) || !double.IsFinite(t.Max)) throw new BlockError(what, at, "min and max are numbers");
+            if (Math.Abs(t.Min) > MaxValue || Math.Abs(t.Max) > MaxValue) throw new BlockError(what, at, $"{t.Min} to {t.Max}: a value is at most {MaxValue:0} either way");
             if (t.Min == 0 || t.Max == 0 || Math.Sign(t.Min) != Math.Sign(t.Max)) throw new BlockError(what, at, $"{t.Min} to {t.Max}: a range never holds 0 (0 changes nothing) and keeps one sign");
             if (t.Max < t.Min) throw new BlockError(what, $"{at}.max", $"{t.Max} is less than min {t.Min}");
             if (block.Stat.Whole && (t.Min != Math.Floor(t.Min) || t.Max != Math.Floor(t.Max))) throw new BlockError(what, at, $"{block.Stat.Key} takes whole numbers");
@@ -317,6 +412,9 @@ internal static partial class AffixRuntime
         }
     }
 
+    /// <summary>The <see cref="AffixesChangedEvent"/>s of affix writes, one per item while one is being dispatched.</summary>
+    internal static readonly ChangeNotices<AffixesChangedEvent, ItemInstanceRef> ChangedNotices = new("kiln.blocks affixes");
+
     /// <summary>Takes the item's rolls off in item data: false when the store had nothing to take (the item changed since it
     /// was read). A seam: the offline tests make the store refuse.</summary>
     internal static Func<ItemInstanceRef, InstanceKey<AffixData>, bool> RemoveData = static (item, key) => item.Remove(key);
@@ -327,7 +425,9 @@ internal static partial class AffixRuntime
         if (now.Count == 0 && !RemoveData(item, key)) return new AffixResult(item, before, "the item's affixes were not taken off: its item data had none any more");
         if (now.Count > 0) item.Set(key, new AffixData { Rolls = now.Select(a => new AffixRoll { Id = a.Affix, Name = a.Name, Stat = a.Stat, Tier = a.Tier, Value = a.Value }).ToList() });
         _dirty = true;  // what is worn may act differently now: the next step's pass sees it
-        if (Events.HasSubscribers<AffixesChangedEvent>()) Events.Post(new AffixesChangedEvent(item, before, now));
+        // through the change-notice queue: a handler that writes the item again (Affixes.Set(e.Item, e.Now)) gets its own
+        // event at the next step, never recursively (docs/kiln/modding/contract.md, "Change events")
+        if (Events.HasSubscribers<AffixesChangedEvent>()) ChangedNotices.Post(item, new AffixesChangedEvent(item, before, now), item.Entity.Id);
         return new AffixResult(item, now, null);
     }
 
@@ -442,9 +542,14 @@ internal static partial class AffixRuntime
         return Write(item, key, before, rolled);
     }
 
+    /// <summary>The most an affix value is, either way: whole points or a share. Far beyond any of the game's stats, and well
+    /// inside what the stat program's float holds (a stored 1e100 would be infinity there).</summary>
+    internal const double MaxValue = 1_000_000;
+
     private static void CheckValue(double value, bool whole, string name)
     {
         if (!double.IsFinite(value) || value == 0) throw new ArgumentException($"{value} is no affix value: a number that is not 0", name);
+        if (Math.Abs(value) > MaxValue) throw new ArgumentException($"{value}: an affix value is at most {MaxValue:0} either way", name);
         if (whole && value != Math.Floor(value)) throw new ArgumentException($"{value}: this stat takes whole numbers", name);
     }
 
@@ -455,6 +560,7 @@ internal static partial class AffixRuntime
         if (item.IsNone) throw new ArgumentException("no item (ItemInstanceRef.None)", nameof(item));
         var v = value ?? RollValue(def.Block.Tiers[tier - 1], def.Block.Stat, rng);
         CheckValue(v, def.Block.Stat.Whole, nameof(value));
+        if (Math.Abs(v) > Strongest(def.Block)) throw new ArgumentException($"{v} is beyond the strongest value affix {id} rolls ({Strongest(def.Block)}): such a roll would not act", nameof(value));
         var before = Read(item, key);
         if (before.Any(a => a.Affix == id)) return new AffixResult(item, before, $"the item already has {id}");
         if (def.Block.Group is { } g && before.FirstOrDefault(a => FindAffix(a.Affix)?.Block.Group == g) is { } same)

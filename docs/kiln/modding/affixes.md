@@ -92,7 +92,9 @@ or not whole for a whole-number stat throw `ArgumentException`; a capability tha
 
 Events (server, tick thread): `AffixesChangedEvent` (`Item`, `Before`, `Now`) for every successful roll, add, set and
 removal; `AffixesAppliedEvent` (`Wearer`, `Before`, `Now`) when what Kiln holds on a player changed. Under them,
-Kiln.Saves' `InstanceDataChangedEvent` fires as for any item data.
+Kiln.Saves' `InstanceDataChangedEvent` fires as for any item data. A change made by a handler of `AffixesChangedEvent`
+(`Affixes.Set(e.Item, e.Now)`) is announced at the start of the next step, one event per item, never inside the
+handler: such a handler cannot loop ([contract.md](contract.md#3-change-events)).
 
 | Capability | Means |
 |---|---|
@@ -107,6 +109,13 @@ they stay with that one item through moves, saves, `kill -9` and restarts by the
 [services/saves.md](../services/saves.md), with those rules' limits: two identical swords with different rolls that were
 swapped where Kiln did not watch are set aside, not guessed (`/instances` lists them; `/instances claim` puts a
 record on an item). A mod that is not loaded leaves its affixes on their items; they do nothing until it is back.
+
+Stored rolls are not trusted (a save edited by hand, another version's data): the pass takes what reads as a roll and
+leaves the rest out, saying so once per item in kiln.log, and the item's data is kept exactly as it was. A value that
+is not a list of rolls, a roll that is not an object or has no id, the second roll of one id, and a field of the wrong
+type are left out; at most 8 rolls of one item act, the first ones; a roll's value acts only up to the strongest value
+its affix rolls (for a roll of another stat than the affix's now, up to 1,000,000), so a stored `1e100` does nothing.
+One item's trouble never stops the pass for anybody else.
 
 ## How they act
 
@@ -202,7 +211,8 @@ show in the game's own bars and numbers.
 
 ## Limits
 
-- 8 affixes on one item; 16 tiers per affix; 256 entries per pool.
+- 8 affixes on one item; 16 tiers per affix; 256 entries per pool. A value is at most 1,000,000 either way (a tier,
+  `Affixes.Set`, `Affixes.Add`), and `Affixes.Add` refuses one beyond the strongest its affix rolls.
 - The pass runs every 10 steps and at once after an affix call: a change of what is worn acts within half a second on a
   dedicated server, not in the same step.
 - If Kiln's managed side stops while the server keeps running, the stat changes it held stay until the server

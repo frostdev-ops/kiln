@@ -128,9 +128,9 @@ internal static class BlockJson
                     }
                     foreach (var b in p.Value.EnumerateObject())
                     {
-                        var (name, value, make) = (b.Name, b.Value, kind.Make);
+                        var (name, value, make, section) = (b.Name, b.Value, kind.Make, p.Name);
                         BlockHandle? done = null;
-                        Func<BlockHandle> compile = () => done ??= make(mod, name, value);
+                        Func<BlockHandle> compile = () => done ??= CompileOne(mod, section, name, value, make);
                         mod.Pending[name] = compile;
                         entries.Add((rel, p.Name, name, compile));
                     }
@@ -172,6 +172,11 @@ internal static class BlockJson
             {
                 Fail(mod, $"{file}: {section}.{name}: {e.Message}");
             }
+            catch (Exception e) when (e is not OutOfMemoryException)
+            {
+                // anything else of this one block is its error too: the mod's other blocks and files still load
+                Fail(mod, $"{file}: {section}.{name}: {e.GetType().Name}: {e.Message}");
+            }
             finally
             {
                 mod.Compiling.Remove(name);
@@ -179,6 +184,21 @@ internal static class BlockJson
             }
         }
         return n;
+    }
+
+    /// <summary>One block's compile, also when code names it first. The compilers say what is wrong with BlockError (and
+    /// the exceptions LoadMod names); an exception of a kind nobody foresaw (a NullReferenceException of a field left
+    /// null) becomes that block's BlockError, never the end of the mod's other blocks and files.</summary>
+    private static BlockHandle CompileOne(ModBlocks mod, string section, string name, JsonElement value, Func<ModBlocks, string, JsonElement, BlockHandle> make)
+    {
+        try
+        {
+            return make(mod, name, value);
+        }
+        catch (Exception e) when (e is not (JsonException or ArgumentException or NotSupportedException or InvalidOperationException or KeyNotFoundException or OutOfMemoryException))
+        {
+            throw new BlockError($"{section}.{name}", null, $"could not be compiled: {e.GetType().Name}: {e.Message}");
+        }
     }
 
     /// <summary>Drop cached data of the old lifetime. A revoked mod owner must never be reused by the next data pass.

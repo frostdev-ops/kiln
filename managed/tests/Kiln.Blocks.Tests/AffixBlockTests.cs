@@ -400,6 +400,136 @@ namespace Kiln
             Assert.Empty(As(() => Affixes.Of(sword)));
             Assert.Single(changes);
         }
+
+        // ---- final review: stored data is not trusted, writes in a handler, one block's surprise ----
+
+        /// <summary>Puts <paramref name="json"/> on the item as its stored rolls, as a save edited by hand would bring it.</summary>
+        private void StoreRaw(ItemInstanceRef item, string json)
+        {
+            Assert.True(As(() => Affixes.Set(item, [new RolledAffix("sword-mod:bear", "of the Bear", "strength", 1, 1)])).Ok);   // the key's slot is there
+            var info = Store.Instances.KeyOf(Affixes.DataMod, Affixes.DataKey)!;
+            var slot = InstanceStore.SlotOf(Store.Instances.Lookup(item, info, create: false)!, info, create: false)!;
+            (slot.Value, slot.Type, slot.Json) = (null, null, json);
+        }
+
+        /// <summary>The server's pass as it runs: the items and their rolls read from item data (AffixRuntime.Affixed).</summary>
+        private void ServerPass() => AffixRuntime.Pass(_game, As(AffixRuntime.Affixed));
+
+        [Fact]
+        public void OneItemsStoredRollsOfAnyShapeCostOnlyThatItemAndThePassGoesOn()
+        {
+            var good = Give(3, Sword, worn: true);
+            As(() => Affixes.Add(good, "bear", 1, 3));
+            var shapes = new[]
+            {
+                """{"Rolls":null}""", """{"Rolls":5}""", """[1,2]""", """{"Other":1}""",
+                """{"Rolls":[null,5,"x",{"Name":"no id"},{"Id":""},{"Id":"sword-mod:keen","Value":"much"}]}""",
+            };
+            var bad = shapes.Select((json, i) => { var r = Give(10 + i, Ring, worn: true); StoreRaw(r, json); return r; }).ToList();
+            // what reads as rolls of a mixed item acts: the first of two "bear" counts, the rest is left out
+            var mixed = Give(20, Ring, worn: true);
+            StoreRaw(mixed, """{"Rolls":[7,{"Id":"sword-mod:bear","Name":"of the Bear","Stat":"strength","Tier":1,"Value":2},{"Id":"sword-mod:bear","Name":"of the Bear","Stat":"strength","Tier":1,"Value":3}],"Extra":true}""");
+            ServerPass();
+            Assert.Equal(3 + 2, _game.Sum(_hero, Stat.Strength));
+            Assert.Equal(bad.Count + 1, AffixRuntime.ItemNotes);               // one line per item
+            ServerPass();
+            ServerPass();
+            Assert.Equal(bad.Count + 1, AffixRuntime.ItemNotes);               // not one per pass
+            TakeOff(good);
+            ServerPass();
+            Assert.Equal(2, _game.Sum(_hero, Stat.Strength));                    // the pass still takes bonuses off
+            Assert.Equal(["sword-mod:bear"], As(() => Affixes.Of(mixed)).Select(a => a.Affix));
+            Assert.All(bad, b => Assert.Empty(As(() => Affixes.Of(b))));
+            // the stored bytes are kept as they were found
+            _h.Save(1);
+            var saved = string.Concat(_h.Scopes(1).Select(scope => _h.Bundle(1, scope)?.ToJsonString()));   // the player's items are in the player's scope
+            Assert.All(shapes, json => Assert.Contains(JsonNode.Parse(json)?.ToJsonString() ?? "null", saved));
+            Assert.Contains("\"Extra\":true", saved);
+        }
+
+        [Fact]
+        public void AnItemActsWithAtMostEightRollsTheFirstInStoredOrder()
+        {
+            for (var i = 0; i < 10; i++) Define($"m{i}", new AffixBlock { Name = $"M{i}", Stat = Stat.Strength, Tiers = [new AffixTier { Min = 1, Max = 1 }] });
+            var ring = Give(4, Ring, worn: true);
+            StoreRaw(ring, "{\"Rolls\":[" + string.Join(",", Enumerable.Range(0, 10).Select(i => $$"""{"Id":"sword-mod:m{{i}}","Name":"M{{i}}","Stat":"strength","Tier":1,"Value":1}""")) + "]}");
+            ServerPass();
+            Assert.Equal(Affixes.MaxPerItem, _game.Sum(_hero, Stat.Strength));
+            Assert.Equal(Enumerable.Range(0, 8).Select(i => $"sword-mod:m{i}").Order(), As(() => Affixes.Active(_hero)).Select(a => a.Affix).Order());
+            ServerPass();
+            Assert.Equal(1, AffixRuntime.ItemNotes);
+        }
+
+        [Fact]
+        public void AStoredValueBeyondWhatItsAffixRollsNeverActs()
+        {
+            // bear rolls 1 to 8: a stored 9, or 1e100 (infinity as the stat program's float), does nothing; -8 to 8 acts
+            var a = Give(3, Sword, worn: true);
+            var b = Give(4, Sword, worn: true);
+            var c = Give(5, Ring, worn: true);
+            StoreRaw(a, """{"Rolls":[{"Id":"sword-mod:bear","Name":"of the Bear","Stat":"strength","Tier":2,"Value":1e100}]}""");
+            StoreRaw(b, """{"Rolls":[{"Id":"sword-mod:bear","Name":"of the Bear","Stat":"strength","Tier":2,"Value":9}]}""");
+            StoreRaw(c, """{"Rolls":[{"Id":"sword-mod:bear","Name":"of the Bear","Stat":"strength","Tier":2,"Value":8},{"Id":"sword-mod:keen","Name":"Keen","Stat":"crit-chance","Tier":1,"Value":0.5}]}""");
+            // a roll of another stat than bear's now (bear defined again since): bear's tiers say nothing of it, the bound of
+            // every affix value does (1,000,000); 7 acts, 2e6 does not
+            var d = Give(8, Ring, worn: true);
+            var e = Give(9, Ring, worn: true);
+            StoreRaw(d, """{"Rolls":[{"Id":"sword-mod:bear","Name":"of the Bear","Stat":"max-health","Tier":1,"Value":7}]}""");
+            StoreRaw(e, """{"Rolls":[{"Id":"sword-mod:bear","Name":"of the Bear","Stat":"max-health","Tier":1,"Value":2e6}]}""");
+            ServerPass();
+            Assert.Equal(8, _game.Sum(_hero, Stat.Strength));
+            Assert.Equal(0, _game.Sum(_hero, Stat.CritChance));                 // keen rolls up to 0.05
+            Assert.Equal(7, _game.Sum(_hero, Stat.MaxHealth));
+            Assert.Equal(4, AffixRuntime.ItemNotes);
+            // the calls refuse such values where they are given
+            Assert.Throws<ArgumentException>(() => As(() => Affixes.Add(Give(6, Ring, false), "bear", 2, 9)));
+            Assert.Throws<ArgumentException>(() => As(() => Affixes.Set(Give(7, Ring, false), [new RolledAffix("other-mod:x", "X", "strength", 1, 2e6)])));
+            Assert.Equal("tiers[0]", Assert.Throws<BlockError>(() => Define("huge", new AffixBlock { Name = "Huge", Stat = Stat.Strength, Tiers = [new AffixTier { Min = 1, Max = 2e6 }] })).Field);
+        }
+
+        [Fact]
+        public void AHandlerThatWritesTheItemAgainGetsOneEventPerChangeAndNoException()
+        {
+            var sword = Give(3, Sword, worn: false);
+            var seen = new List<AffixesChangedEvent>();
+            var sub = Events.On<AffixesChangedEvent>(e =>
+            {
+                seen.Add(e);
+                As(() => Affixes.Set(e.Item, e.Now));                            // writes the item again
+            });
+            try
+            {
+                Assert.True(As(() => Affixes.Add(sword, "bear", 1, 2)).Ok);
+                Assert.Single(seen);                                             // the change, at once
+                Assert.Equal(1, AffixRuntime.ChangedNotices.Waiting);            // the handler's own write: at the next step
+                ChangeNoticeQueue.FlushAll();
+                Assert.Equal(2, seen.Count);                                     // one event for that write
+                Assert.Equal(1, AffixRuntime.ChangedNotices.Waiting);            // and its handler's write waits again
+                Assert.Equal(seen[0].Now, seen[1].Now);
+            }
+            finally
+            {
+                sub.Dispose();
+                ChangeNoticeQueue.FlushAll();                                    // what waits goes to nobody
+            }
+            Assert.Equal(0, AffixRuntime.ChangedNotices.Waiting);
+        }
+
+        [Fact]
+        public void ABlockWhoseCompileThrowsWhatNobodyForesawCostsOnlyItself()
+        {
+            var (code, mod, folder) = ModWithFiles("surprise-mod",
+                ("a.json", """{ "effects": { "zap": { "area": { "radius": 1, "effects": null } }, "fine": { "heal": 1 } } }"""),
+                ("b.json", """{ "affixes": { "later": { "name": "Later", "stat": "strength", "tiers": [ { "min": 1, "max": 2 } ] } } }"""));
+            // code that names it gets that block's BlockError, not the exception itself
+            var named = Assert.Throws<BlockError>(() => TestMods.As(code, () => TheBlocks.Define("uses", new EffectBlock { Then = ["zap"] })));
+            Assert.Contains("could not be compiled", named.Message);
+            Assert.Equal(2, DataPass(mod, folder));                            // fine and later: the file's other block and the next file
+            var error = Assert.Single(mod.Errors, e => e.Contains("zap"));
+            Assert.StartsWith("blocks/a.json: ", error);
+            Assert.NotNull(TheBlocks.Find("fine", "surprise-mod"));
+            Assert.NotNull(Affixes.Find("surprise-mod:later"));
+        }
     }
 }
 

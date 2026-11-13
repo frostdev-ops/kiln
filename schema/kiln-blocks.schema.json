@@ -4152,8 +4152,8 @@
       "required": ["min", "max"],
       "description": "One tier of an affix: the range a roll of this tier takes its value from.",
       "properties": {
-        "min": { "type": "number", "not": { "const": 0 }, "x-kiln-message": "never 0: a value of 0 changes nothing", "description": "The lowest value: whole points for a whole-number stat (strength: 3), a share for the others (move-speed: 0.05 is 5 %). Negative values make a curse. Never 0." },
-        "max": { "type": "number", "not": { "const": 0 }, "x-kiln-message": "never 0: a value of 0 changes nothing", "description": "The highest value: at least min, and of the same sign." },
+        "min": { "type": "number", "minimum": -1000000, "maximum": 1000000, "not": { "const": 0 }, "x-kiln-message": "never 0: a value of 0 changes nothing", "description": "The lowest value: whole points for a whole-number stat (strength: 3), a share for the others (move-speed: 0.05 is 5 %). Negative values make a curse. Never 0, at most 1000000 either way." },
+        "max": { "type": "number", "minimum": -1000000, "maximum": 1000000, "not": { "const": 0 }, "x-kiln-message": "never 0: a value of 0 changes nothing", "description": "The highest value: at least min, and of the same sign." },
         "step": { "type": "number", "exclusiveMinimum": 0, "description": "The grid a rolled value lies on. Default: 1 for a whole-number stat, 0.01 (one percent) for a share." },
         "weight": { "type": "number", "minimum": 0, "description": "How likely a roll takes this tier, among the tiers the item's level allows (default 1)." },
         "minItemLevel": { "type": "integer", "minimum": 0, "description": "The item level from which this tier can roll (default 0: any)." }
