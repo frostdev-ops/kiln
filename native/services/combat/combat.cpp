@@ -105,8 +105,8 @@ std::atomic<bool> g_holding{false};
 // return is taken (both under this lock), or holding went off again right after Events.On had returned.
 std::mutex g_interest_mu;
 uint32_t g_widened = 0;
-static_assert(kHoldOffsets[0] == HitOffsets::target && kHoldOffsets[1] == HitOffsets::root_target &&
-              kHoldOffsets[2] == HitOffsets::source && kHoldOffsets[3] == HitOffsets::root_source);
+static_assert(kHitTarget == HitOffsets::target && kHitRootTarget == HitOffsets::root_target &&
+              kHitSource == HitOffsets::source && kHitRootSource == HitOffsets::root_source);
 HoldFilter g_hold_filter;  // g_mu: the entities the handlers watch (hold_filter, since 0.2.0-dev.27); off: hold every hit
 std::atomic<uint64_t> c_unheld{0};  // hits the filter let through without holding (logged with the filter)
 
@@ -238,12 +238,12 @@ KilnCombatEvent blank(uint32_t kind) {
 }
 
 void fill_from_hit(KilnCombatEvent& ev, const uint8_t* r) {
-    const uint32_t target = get<uint32_t>(r, HitOffsets::target);
-    const uint32_t root = get<uint32_t>(r, HitOffsets::root_target);
-    ev.target = root ? root : target;
-    ev.part = target;
-    ev.attacker = get<uint32_t>(r, HitOffsets::root_source);
-    ev.source = get<uint32_t>(r, HitOffsets::source);
+    // the four entities the hold filter tests (hold_filter.h): a held hit's event names the watched entity
+    const HitEntities e = hit_entities(r);
+    ev.target = e.target;
+    ev.part = e.part;
+    ev.attacker = e.attacker;
+    ev.source = e.source;
     ev.hit_flags = get<uint32_t>(r, H.flags);
     ev.damage_types = get<uint16_t>(r, HitOffsets::damage_types);
     ev.reaction = get<uint16_t>(r, HitOffsets::reaction);

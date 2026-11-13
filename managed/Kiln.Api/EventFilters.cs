@@ -30,7 +30,10 @@ public sealed record EventFilter
         init => _entities = value?.ToFrozenSet();
     }
 
-    /// <summary>Events about <paramref name="entity"/> only.</summary>
+    /// <summary>Events about <paramref name="entity"/> only: every event that names it (<see cref="IEntityEvent.Involves"/>).
+    /// For a hit that is the hits it takes and the hits it deals: a creature's own attack on a player comes with the
+    /// player as <c>Target</c> and the creature as <c>Attacker</c>. A handler that wants only the hits the entity takes
+    /// tests <c>e.Target == entity</c> (or <c>e.Part</c> for a weak spot of it).</summary>
     /// <exception cref="ArgumentException"><paramref name="entity"/> is none.</exception>
     public static EventFilter ForEntity(EntityId entity) => ForEntities([entity]);
 

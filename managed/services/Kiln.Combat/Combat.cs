@@ -295,7 +295,7 @@ public static unsafe class Combat
         if (kill) amount = Math.Max(1, h.Current);
         if (!o.AsGameHit && Events.HasSubscribers<EntityHurtEvent>())
         {
-            var ev = Events.Post(new EntityHurtEvent(target, attacker, amount, h.Current, h.Max, IsPlayerId(target)));
+            var ev = Events.Post(new EntityHurtEvent(target, attacker, o.Source, amount, h.Current, h.Max, IsPlayerId(target)));
             if (ev.Canceled) return Task.FromResult(new HitResult(HitState.Dropped, target, amount, h.Current, h.Current, false, 0));
             if (ev.Amount != amount) kill = false;  // a handler changed a kill into plain damage
             amount = ev.Amount;
@@ -303,7 +303,7 @@ public static unsafe class Combat
         }
         if (!o.AsGameHit && (o.PushBack != 0 || o.Reaction != HitReaction.None) && Events.HasSubscribers<EntityKnockbackEvent>())
         {
-            var kb = Events.Post(new EntityKnockbackEvent(target, attacker, o.PushBack, o.Reaction, IsPlayerId(target)));
+            var kb = Events.Post(new EntityKnockbackEvent(target, attacker, o.Source, o.PushBack, o.Reaction, IsPlayerId(target)));
             o = kb.Canceled
                 ? o with { PushBack = 0, Reaction = HitReaction.None }
                 : o with { PushBack = (byte)kb.Strength, Reaction = kb.Reaction };
