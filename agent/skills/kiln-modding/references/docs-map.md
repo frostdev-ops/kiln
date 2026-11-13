@@ -58,7 +58,7 @@ dev.26+ (pages in the repository's `docs/kiln/`):
 
 dev.26+ samples: ItemData, PlayerStates, WeaponMoves.
 
-dev.27+ (in development; pages in the repository's `docs/kiln/`):
+dev.27+ (pages in the repository's `docs/kiln/`):
 
 | Question | Page |
 |---|---|
@@ -66,10 +66,22 @@ dev.27+ (in development; pages in the repository's `docs/kiln/`):
 | What Kiln.Sdk bakes into a mod at build, and what not | `modding/baked.md` |
 | Cook recipes, receipts, the `cooked` rule | `modding/cooking.md` |
 | KILN120 (a result nobody reads), KILN121 (a capability nobody asked) | `modding/analyzers.md` |
-| NoClip, buffs taken off, a player's aim, kick and ban, equip, weather, tracked writes | the release notes `release-notes/0.2.0-dev.27.md` name each page |
+| The one contract, results, change events | `modding/contract.md`; capability rows: `services/caps.md` |
+| NoClip and player rules | `services/rules.md` |
+| Taking a buff off, listing buffs | `services/abilities.md` |
+| A player's aim | `services/player-state.md` |
+| Kick, ban, the login event | `services/players.md`, `network.md` |
+| Event filters, which events name entities | `events.md`, `services/combat.md` |
+| Equip and unequip; item data in players' games, `Claim`/`Discard` | `services/items.md`, `modding/inventory.md`, `services/saves.md` |
+| Weather | `services/time.md` |
+| Tracked world writes, `"writes"`, `WrittenOverBy` | `services/world.md`, `modding/manifest.md` |
+| Mouse key bindings, the scrolling pause menu | `ui.md` |
 | The test kit's fakes (spawn, chat, items, combat, time, world) | `modding/unit-tests.md` |
+| What a mod cannot do yet | `modding/limits.md` |
 
-dev.27+ samples: SavedData, AdminTools, CalmBell, QuietServer, Loadouts, SkyControl, AffixSword, EngineRoom.
+dev.27+ samples: SavedData, AdminTools, CalmBell, QuietServer, Loadouts, SkyControl, AffixSword, EngineRoom (advanced).
+dev.27+ templates (`kiln new <name>` or `dotnet new kiln-<name>`): `events`, `saved-data`, `rules`, `network`,
+`screen-effect`, and advanced `hooks`, `shader`, `world-program`.
 
 Sample mods: Hello, SampleLib, SampleConsumer, SampleTests, BigStacks, NewItems, SpellTweaks, CreatureTweaks, EliteVukah, FireNova,
 ImpactSample, AssetSample, ModelSample, SoundSample, VfxSample, SkillTreeSample, quests-sample, NpcSample, Schematics, MenuButtons, UiSample,

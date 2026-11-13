@@ -8,7 +8,7 @@ https://frostdev.io/kiln/wiki/status.
 
 ## Writing one
 - Scaffold: `kiln new vfx MyFx`. Bigger example: `mods/samples/VfxSample`.
-- A `vfx` section in `blocks/*.json`, or `Blocks.Define("name", new VfxBlock { ... })` with `KilnServices` `Blocks`. Prefer data: a block in a file is there from the first start, and one from code from the next, because the game lists VFX once.
+- A `vfx` section in `blocks/*.json`, or `Blocks.Define("name", new VfxBlock { ... })` with `KilnServices` `Blocks`. Prefer data: a block in a file is there from the first start, and one from code from the next, because the game lists VFX once (dev.27+: Kiln.Sdk bakes code-defined VFX into the mod at build, so they are there from the first start too).
 - A particle block needs `burst` or `rate`. Textures are PNGs in `vfx/`, power of two, 4 to 2048.
 - Attach with a `Vfx` field on an effect, area, on-hit, cast, projectile or status: a block's name, `"other-mod:name"`, `"game:<name>"` or a GUID. From code: `Vfx.PlayAt`, `Vfx.PlayOn`, `Vfx.Stop`.
 

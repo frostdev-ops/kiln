@@ -29,7 +29,7 @@ Both ways need `"side": "both"`, `"clients": "mod"`. Comments allowed, trailing 
                  "icon": "icons/kindle.png", "effects": [ { "attribute": "Intelligence", "amount": 1 } ] } ] } ] }
 ```
 - `gameTree`: drawn by the game, paid with its points. Put nodes in the file: on a dedicated server `GameTree.Define` counts from the
-  next start. `maxLevel` 0 to 7. Nodes past the game's caps are kept by Kiln (up to 4096), outside the character save.
+  next start (dev.27+: Kiln.Sdk bakes them into the mod at build, so they count from the first). `maxLevel` 0 to 7. Nodes past the game's caps are kept by Kiln (up to 4096), outside the character save.
 - `trees`: Kiln's own screen. Points: `{"start", "perLevel"}`, `{"share": 0.5}`, `TalentPoints.Custom`. `col`/`row` 0 to 31, levels to
   99. `requires`, `requireAll`, `pointsSpent`, `level`.
 - Effects: `{"attribute", "amount"}`, `{"gameNode": "0x…"}`, `{"program", "configs"}`, `{"buff", "refresh"}`, `{"ability"}`,
@@ -88,7 +88,8 @@ Use `QuestBlock` / `DialogueBlock` or `quests` / `dialogues` inside `blocks/*.js
   overflow lands at the player's feet. A world quest pays every player present from one loot roll.
 - Blocks use the game's UI: `side: both`, `clients: mod`. For vanilla clients, keep `quests/*.json` with chat/non-native flags.
 - JSON blocks enter native journal data at the first start. C# definitions are written to the native sidecar for the next
-  start; ship the generated `quests/generated/<mod>.json` for first-start UI. Restart server and clients after changes.
+  start; dev.27+ Kiln.Sdk bakes them into `quests/generated/<mod>.json` at build (`docs/kiln/modding/baked.md`), and that
+  file wins at start until you rebuild. Restart server and clients after changes.
 - The block form has no top-level `knowledge`, option `set`, `toast` or `waypoint` action. Unknown keys fail. Native appearance,
   party scope and dialogue interaction still need the client checks listed on the wiki; server lowering is not visual proof.
 
