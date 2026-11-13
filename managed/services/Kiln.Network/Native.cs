@@ -184,7 +184,7 @@ internal static unsafe class NetNative
         fixed (ulong* o = &result) return T->LabSelftest(op, a, b, o);
     }
 
-    /// <summary>The same with a template GUID as <paramref name="b"/>'s companion (SelftestCreate).</summary>
+    /// <summary>The same for the operation that takes a template GUID with its two numbers (SelftestCreate).</summary>
     public static int LabSelftestCreate(Guid template, uint entity, uint parent, out ulong result)
     {
         var g = template.ToByteArray();

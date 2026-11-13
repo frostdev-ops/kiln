@@ -316,6 +316,16 @@
           "pattern": "E8 ?? ?? ?? ?? 48 8B 44 24 48 48 81 88 {world/actor.state:d32} 80 00 00 00 48 8B 4C 24 70 48 85 C9"
         }
       ]
+    },
+    "@world/WriteMark.bits": {
+      "find": [
+        {
+          "pattern": "4C 8B 07 8B C5 48 C1 E8 06 8B CD 49 8B 94 C0 {world/registry.replicated:d32} 48 D3 EA F6 C2 01"
+        },
+        {
+          "pattern": "48 8B 07 48 8B D5 48 C1 EA 06 48 8B CD 48 8B 94 D0 {world/registry.saved:d32} 48 D3 EA F6 C2 01"
+        }
+      ]
     }
   },
   "constants": {
@@ -509,6 +519,16 @@
     "world.dead_check": {
       "constants": [
         "world/actor.state"
+      ]
+    },
+    "world.component_bits": {
+      "symbols": [
+        "@world/WriteMark.bits"
+      ],
+      "constants": [
+        "world/registry.replicated",
+        "world/registry.saved",
+        "world/registry.components"
       ]
     }
   }

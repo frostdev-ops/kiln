@@ -311,5 +311,6 @@
   "Árvore de habilidades": "Skill tree",
   "Armadura": "Armour",
   "Aparência": "Appearance",
-  "Buscar por nome…": "Search by name…"
+  "Buscar por nome…": "Search by name…",
+  "acima da pilha do jogo ({n}): para mundos com um mod que aumenta as pilhas": "more than the game's stack of {n}: for worlds with a mod that raises stack sizes"
 }

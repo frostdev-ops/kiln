@@ -1,0 +1,10 @@
+{
+  "id": "engine-room",
+  "name": "Engine room sample",
+  "version": "0.1.0",
+  "apiVersion": "0.2",
+  "license": "MIT",
+  "entryAssembly": "EngineRoom.dll",
+  "side": "server",
+  "description": "An admin's look at what the game runs: /engine systems lists the game's systems, /engine profile measures them, /engine watch counts one system's runs, /engine stack changes one item's stack size with a way back. Shows GameSystems, ReflectedResources and Overrides."
+}

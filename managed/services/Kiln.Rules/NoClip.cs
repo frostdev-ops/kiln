@@ -132,7 +132,7 @@ public static class NoClip
         if (!RulesRuntime.Fresh(player).NoClip)
         {
             Sets.Remove(player);
-            own.Dispose();
+            own?.Dispose();
             return new(false, false, "denied", $"NoClip stays off for {name}: another rule set turns it off for them.");
         }
         Tell(player, "NoClip is on: you fly through terrain and walls. Jump climbs, sneak sinks, sprint is faster. It ends when you die or teleport; /noclip off ends it.");

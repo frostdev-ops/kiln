@@ -86,6 +86,7 @@ bool resolve() {
     fn.job_tracker = reinterpret_cast<JobTrackerFn>(sym("items/JobTracker"));
     fn.job_write_flag = reinterpret_cast<JobWriteFlagFn>(sym("items/JobWriteFlag"));
     F.write_other = fn.write_other && fn.job_tracker && fn.job_write_flag;
+    writes_resolve();
     fn.emit_event = reinterpret_cast<EmitEventFn>(sym("gameplay/EmitEvent"));
     fn.job_program_id = reinterpret_cast<JobProgramIdFn>(sym("gameplay/JobProgramId"));
     fn.job_event_buffer = reinterpret_cast<JobEventBufferFn>(sym("gameplay/JobEventBuffer"));
@@ -201,6 +202,7 @@ void KILN_CALL on_pre(const KilnTickInfo* tick, void*) {
     if (live) programs_after_first_step(g_world.load());
     programs_reap_owners();
     teleport_pre(tick);
+    writes_pre(tick);
     selftest_pre(tick);
 }
 
@@ -292,6 +294,11 @@ const KilnWorldApi kTable = {
     &program_capabilities,
     &program_events,
     &program_emit,
+    &write_submit,
+    &write_cancel,
+    &write_info,
+    &write_status,
+    &write_declare,
 };
 
 }  // namespace
@@ -305,7 +312,7 @@ extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api,
     if (info->size >= offsetof(KilnPluginInfo, on_ready) + sizeof(info->on_ready))
         info->on_ready = [](void*) { boot_programs_init(); };
     info->id = KilnStr{KILN_WORLD_SERVICE, sizeof(KILN_WORLD_SERVICE) - 1};
-    info->version = KilnStr{"2", 1};
+    info->version = KilnStr{"3", 1};
     resolve();
     const bool hooked = programs_init();
     if (!hooked) F.programs = F.teleport = false;
@@ -323,10 +330,10 @@ extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api,
         F.teleport = false;
     }
     KW_I("kiln.world: programs %s, entities %s, find %s, names %s (singletons %s, events %s), queue %s, "
-         "write %s, read_other %s, teleport %s, dead check %s",
+         "write %s, read_other %s, teleport %s, dead check %s, tracked writes %s",
          F.programs ? "on" : "off", F.entities ? "on" : "off", F.find ? "on" : "off", F.names ? "on" : "off",
          F.singletons ? "on" : "off", F.events ? "on" : "off", F.queue ? "on" : "off", F.write ? "on" : "off",
-         F.read_other ? "on" : "off", F.teleport ? "on" : "off", F.dead ? "on" : "off");
+         F.read_other ? "on" : "off", F.teleport ? "on" : "off", F.dead ? "on" : "off", writes_available() ? "on" : "off");
     if (!F.entities && !F.programs) return KILN_ERR_UNAVAILABLE;  // nothing works on this build
     return api->register_service(owner, KilnStr{KILN_WORLD_SERVICE, sizeof(KILN_WORLD_SERVICE) - 1}, &kTable);
 }

@@ -98,4 +98,44 @@ public sealed class SampleModsTests
         Assert.Contains("offers are not available", Said(kiln.RunCommand(admin, "bell")));
         Assert.Contains("not active", Said(kiln.RunCommand(admin, "quiet")));
     }
+
+    [Fact]
+    public void LoadoutsAndSkyControlSayWhatAServerCannotDo()
+    {
+        using var kiln = new KilnHarness();
+        kiln.LoadFolder(TestMods.Folder("Loadouts"));
+        kiln.LoadFolder(TestMods.Folder("SkyControl"));
+        var admin = kiln.Players.Join("Ada", AdaSteam, PlayerPermissions.KickBan);
+        kiln.Step();
+        // with no game there are no items to read and no weather to choose: each command says so and changes nothing
+        Assert.Contains("only a player", Said(kiln.RunCommand("loadout save town")));
+        Assert.Contains("items.instances is off", Said(kiln.RunCommand(admin, "loadout save town")));
+        Assert.Contains("items.instances is off", Said(kiln.RunCommand(admin, "loadout wear town")));
+        Assert.Contains("items.instances is off", Said(kiln.RunCommand(admin, "loadout off Ring0")));
+        Assert.Contains("no slot Hat", Said(kiln.RunCommand(admin, "loadout off Hat")));
+        Assert.Contains("no slot 99", Said(kiln.RunCommand(admin, "loadout off 99")));
+        Assert.Contains("time.weather_choose is off", Said(kiln.RunCommand(admin, "sky")));
+        Assert.Contains("time.weather_choose is off", Said(kiln.RunCommand(admin, "sky rain 10m")));
+    }
+
+    [Fact]
+    public void EngineRoomSaysWhatIsNotThereWithNoGame()
+    {
+        using var kiln = new KilnHarness();
+        kiln.LoadFolder(TestMods.Folder("EngineRoom"));
+        var admin = kiln.Players.Join("Ada", AdaSteam, PlayerPermissions.KickBan);
+        var bo = kiln.Players.Join("Bo", BoSteam);
+        kiln.Step();
+        Assert.False(kiln.RunCommand(bo, "engine claims").Ok);  // a command for admins
+        // with no game there are no systems and no resources: each part says so
+        Assert.Contains("are not known here", Said(kiln.RunCommand(admin, "engine systems")));
+        Assert.Contains("nothing is watched", Said(kiln.RunCommand(admin, "engine watch")));
+        Assert.Contains("not known on this build", Said(kiln.RunCommand(admin, "engine profile")));
+        Assert.Contains("not known on this build", Said(kiln.RunCommand(admin, "engine watch stamina")));
+        Assert.Contains("cannot be read here", Said(kiln.RunCommand(admin, "engine stack Weapon_T1_1H_SwordEpic_01 5")));
+        Assert.Contains("systems [word]", Said(kiln.RunCommand(admin, "engine nonsense")));
+        // the claim list works without the game: nothing is held, and giving back nothing is no error
+        Assert.Contains("0 claim(s) in force", Said(kiln.RunCommand(admin, "engine claims")));
+        Assert.Contains("0 claim(s) given back", Said(kiln.RunCommand(admin, "engine undo")));
+    }
 }

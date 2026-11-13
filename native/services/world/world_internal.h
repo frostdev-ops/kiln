@@ -8,9 +8,11 @@
 #include <mutex>
 #include <string>
 #include <string_view>
+#include <functional>
 #include <vector>
 
 #include "kiln_api.h"
+#include "services/kiln_types.h"
 #include "services/kiln_world.h"
 
 namespace kw {
@@ -152,6 +154,8 @@ inline uintptr_t storage_of(uintptr_t world) { return world + static_cast<uintpt
 
 // Keen hash map lookups (u32 keys used as-is: components, singletons, events). Bounded; return false when absent.
 bool map_find_u16(uintptr_t map, uint32_t key, uint16_t* value);
+// Every key of such a map with its value, in slot order (the server thread, inside a world's setup).
+void map_each_u16(uintptr_t map, const std::function<void(uint32_t key, uint16_t value)>& fn);
 
 // ---- guarded calls (seh.cpp; no C++ objects with destructors in those frames) ----
 bool seh_each(KilnProgramEachFn fn, KilnProgramCtx* ctx, uint64_t* iter, KilnEntity e, void* user, unsigned long* code);
@@ -194,6 +198,33 @@ uint32_t KILN_CALL program_capabilities();
 KilnResult KILN_CALL program_events(KilnProgramCtx* ctx, KilnStr name, KilnProgramEventFn callback, void* user);
 KilnResult KILN_CALL program_emit(KilnProgramCtx* ctx, KilnStr name, const void* data, uint32_t size);
 bool seh_copy(void* out, const void* source, size_t size);
+const KilnTypesApi* program_types();  // kiln.types, or null
+// A program that asked for it is registered without the other-write names the world does not know (each reported to
+// `removed`), instead of being refused whole. Before the first server world registers.
+using ProgramPrunedFn = void (*)(std::string_view name);
+void program_set_prune(KilnHandle program, ProgramPrunedFn removed);
+
+// ---- writes.cpp: tracked writes (kiln.world v3) ----
+bool writes_available();
+void writes_resolve();
+std::vector<std::string> writes_declare(const std::string& who, const std::vector<std::string>& names);  // refused names
+void writes_world_changing();               // a new server world, before g_world names it
+void writes_refuse_list(const std::string& mod, const std::string& why);  // boot: the mod's "writes" was not read
+void writes_before_world(uintptr_t world);  // server thread, before Kiln's programs register into a new server world
+void writes_after_world();                  // after they registered
+void writes_pre(const KilnTickInfo* tick);  // tick thread, Pre
+uint32_t writes_capability();
+KilnResult KILN_CALL write_submit(KilnOwner owner, const KilnWorldWriteRequest* request, uint64_t* out_ticket);
+KilnResult KILN_CALL write_cancel(uint64_t ticket);
+KilnResult KILN_CALL write_info(KilnStr mod_id, uint32_t component, KilnWorldWriteInfo* out);
+KilnResult KILN_CALL write_status(KilnWorldWriteStatus* out);
+KilnResult KILN_CALL write_declare(KilnOwner owner, KilnStr who, const KilnStr* names, uint32_t count);
+bool seh_read_other(Slice* out, void* storage, void* accessor, uint32_t entity, unsigned long* code);
+bool seh_write_other(Slice* out, void* storage, ProgramCtx* ctx, uint64_t accessor, uint32_t entity, unsigned long* code);
+bool seh_attr_changed(void (*fn)(void*, void*), void* component, void* registry, unsigned long* code);
+bool seh_write_change(KilnWorldChangeFn fn, uint32_t entity, void* data, uint32_t size, void* user, bool* accepted,
+                      unsigned long* code);
+bool seh_write_cb(KilnWorldWriteFn fn, const KilnWorldWriteResult* result, void* user, unsigned long* code);
 
 // ---- entities.cpp ----
 bool may_touch_world();  // tick thread or inside a program
