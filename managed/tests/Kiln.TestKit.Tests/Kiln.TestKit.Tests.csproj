@@ -57,6 +57,7 @@
     <TkSample Include="../../../mods/samples/QuietServer/QuietServer.csproj" />
     <TkSample Include="../../../mods/samples/Loadouts/Loadouts.csproj" />
     <TkSample Include="../../../mods/samples/SkyControl/SkyControl.csproj" />
+    <TkSample Include="../../../mods/samples/EngineRoom/EngineRoom.csproj" />
     <ProjectReference Include="@(TkSample)" ReferenceOutputAssembly="false" />
     <TkSample Include="../../../mods/samples/SampleTests/SampleTests.csproj" />
     <ProjectReference Include="../../../mods/samples/SampleTests/SampleTests.csproj" />
