@@ -726,7 +726,7 @@ internal static partial class KilnApis
         "P:Kiln.Creatures.Available=kiln.creatures", // CreaturesNative.T != null: Services.Get("kiln.creatures")
         "P:Kiln.EcsPrograms.Available=kiln.world", // Table != null: Services.Get("kiln.world")
         "P:Kiln.EcsPrograms.SupportsOtherWrites=kiln.world", // Table != null: Services.Get("kiln.world")
-        "P:Kiln.EntityData.Available=kiln.spawn", // via Kiln.SpawnLink.Available
+        "P:Kiln.EntityData.Available=kiln.saves,kiln.spawn", // via Kiln.Saves.Available; via Kiln.SpawnLink.Available
         "P:Kiln.Example.Available=kiln.example", // T != null: Services.Get("kiln.example")
         "P:Kiln.GameSystems.Available=kiln.types", // t != null: Services.Get("kiln.types")
         "P:Kiln.GameTypes.Available=kiln.types", // table != null: Services.Get("kiln.types")
@@ -749,6 +749,7 @@ internal static partial class KilnApis
         "P:Kiln.ReflectedResources.Available=kiln.assets,kiln.types", // via Kiln.GameTypes.Available; via Kiln.ResourceStore.Available
         "P:Kiln.Render.Available=kiln.ui", // via Kiln.UiNative.Available
         "P:Kiln.Rules.Available=kiln.rules", // RulesNative.T != null: Services.Get("kiln.rules")
+        "P:Kiln.Saves.Available=kiln.saves", // SavesNative.T != null: Services.Get("kiln.saves")
         "P:Kiln.Settings.Available=kiln.settings", // T != null: Services.Get("kiln.settings")
         "P:Kiln.Settings.Ready=kiln.settings", // T != null: Services.Get("kiln.settings")
         "P:Kiln.Spawn.Available=kiln.spawn", // T != null: Services.Get("kiln.spawn")
