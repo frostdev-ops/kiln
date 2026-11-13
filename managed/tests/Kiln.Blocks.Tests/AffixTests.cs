@@ -4,6 +4,7 @@
 // worn and held items say, against a fake of the game (who wears what; stat changes started and ended). That a stat
 // change moves the game's attribute is the lab's part (mods/tests/affix-test).
 #define AFFIX_TEARDOWN
+#define AFFIX_IDENTITY
 using Xunit;
 using static Kiln.InstanceHarness;
 
@@ -12,28 +13,32 @@ namespace Kiln;
 [Collection("instance data")]
 public sealed class AffixTests : IDisposable
 {
+    /// <summary>A stat change running in the fake game: whom its program aims at (the bare id, as the real program's
+    /// target), the session it was started for, and its entity's spawn stamp.</summary>
+    private sealed record Run(EntityId Wearer, ulong Session, Stat Stat, double Value, ulong Serial);
+
     private sealed class FakeGame : AffixRuntime.IAffixGame
     {
         public readonly List<EntityId> In = [];
         public readonly Dictionary<uint, List<ItemInstanceRef>> Bags = new(), Worn = new();
-        public readonly Dictionary<uint, (EntityId Wearer, Stat Stat, double Value)> Running = new();
+        public readonly Dictionary<uint, Run> Running = new();
+
+        /// <summary>The session of the player who has an id now (1 unless set): a player who leaves and one who gets the
+        /// same entity id have different ones.</summary>
+        public readonly Dictionary<uint, ulong> Sessions = new();
+
+        /// <summary>Entities that are no stat change of Kiln's: an id the game gave to something else.</summary>
+        public readonly Dictionary<uint, ulong> Others = new();
+
         public readonly List<string> Log = [];
+
+        /// <summary>A revert that took a value from a session other than the one it was added to.</summary>
+        public readonly List<string> RevertHits = [];
+
         public bool Refuse;
+        public int EndCalls, DestroyedOthers;
         private uint _next = 90_000;
-
-        public IReadOnlyList<EntityId> Wearers() => In;
-        public IReadOnlyList<ItemInstanceRef>? Carried(EntityId wearer) => Bags.GetValueOrDefault(wearer.Value);
-        public IReadOnlyList<ItemInstanceRef> Acting(EntityId wearer) => Worn.GetValueOrDefault(wearer.Value) ?? [];
-        public bool Exists(EntityId helper) => Running.ContainsKey(helper.Value);
-
-        public EntityId? Start(EntityId wearer, Stat stat, double value)
-        {
-            if (Refuse) return null;
-            var e = new EntityId(_next++);
-            Running[e.Value] = (wearer, stat, value);
-            Log.Add($"start {stat.Key} {value} on {wearer}");
-            return e;
-        }
+        private ulong _serial = 7_000;
 
         /// <summary>kiln.spawn's destruction is on (false: a stat change could not be ended here).</summary>
         public bool Ends = true;
@@ -41,33 +46,67 @@ public sealed class AffixTests : IDisposable
         /// <summary>Ending fails now (kiln.spawn refuses the destruction): the entity stays, and its value still counts.</summary>
         public bool EndFails;
 
-#if AFFIX_TEARDOWN
-        public bool CanEnd => Ends;
+        public ulong SessionOf(EntityId e) => Sessions.GetValueOrDefault(e.Value, 1UL);
 
-        public bool End(EntityId helper)
+        public IReadOnlyList<ItemInstanceRef>? Carried(EntityId wearer) => Bags.GetValueOrDefault(wearer.Value);
+        public IReadOnlyList<ItemInstanceRef> Acting(EntityId wearer) => Worn.GetValueOrDefault(wearer.Value) ?? [];
+
+        private EntityId Begin(EntityId wearer, ulong session, Stat stat, double value, out ulong serial)
         {
-            if ((EndFails || !Ends) && Running.ContainsKey(helper.Value))
+            var e = new EntityId(_next++);
+            serial = _serial++;
+            Running[e.Value] = new Run(wearer, session, stat, value, serial);
+            Log.Add($"start {stat.Key} {value} on {wearer}");
+            return e;
+        }
+
+        /// <summary>Destroys whatever has the id now: a stat change runs its revert on whoever has its target id now.</summary>
+        private bool Destroy(EntityId id)
+        {
+            EndCalls++;
+            if ((EndFails || !Ends) && (Running.ContainsKey(id.Value) || Others.ContainsKey(id.Value)))
             {
                 Log.Add("end failed");
                 return false;
             }
-            if (Running.Remove(helper.Value, out var r)) Log.Add($"end {r.Stat.Key} {r.Value} on {r.Wearer}");
+            if (Running.Remove(id.Value, out var r))
+            {
+                if (In.Contains(r.Wearer) && SessionOf(r.Wearer) != r.Session)
+                    RevertHits.Add($"{r.Stat.Key} {r.Value} of session {r.Session} taken from {r.Wearer} session {SessionOf(r.Wearer)}");
+                Log.Add($"end {r.Stat.Key} {r.Value} on {r.Wearer}");
+            }
+            else if (Others.Remove(id.Value)) DestroyedOthers++;
             return true;
         }
-#else
-        public void End(EntityId helper)
+
+#if AFFIX_IDENTITY
+        public IReadOnlyList<EntityRef> Wearers() => In.Select(e => new EntityRef(e, SessionOf(e))).ToList();
+        public bool IsAlive(EntityRef e) => In.Contains(e.Id) && SessionOf(e.Id) == e.Serial;
+        public bool Exists(EntityId id) => In.Contains(id) || Running.ContainsKey(id.Value) || Others.ContainsKey(id.Value);
+        public bool IsHelper(EntityRef h) => Running.TryGetValue(h.Id.Value, out var r) && r.Serial == h.Serial;
+        public bool CanEnd => Ends;
+
+        public EntityRef? Start(EntityRef wearer, Stat stat, double value)
         {
-            if ((EndFails || !Ends) && Running.ContainsKey(helper.Value))
-            {
-                Log.Add("end failed");
-                return;
-            }
-            if (Running.Remove(helper.Value, out var r)) Log.Add($"end {r.Stat.Key} {r.Value} on {r.Wearer}");
+            if (Refuse) return null;
+            var e = Begin(wearer.Id, wearer.Serial, stat, value, out var serial);
+            return new EntityRef(e, serial);
         }
+
+        public bool End(EntityRef helper) => Destroy(helper.Id);
+#else
+        public IReadOnlyList<EntityId> Wearers() => In;
+        public bool Exists(EntityId helper) => Running.ContainsKey(helper.Value) || Others.ContainsKey(helper.Value);
+        public bool CanEnd => Ends;
+
+        public EntityId? Start(EntityId wearer, Stat stat, double value) => Refuse ? null : Begin(wearer, SessionOf(wearer), stat, value, out _);
+
+        public bool End(EntityId helper) => Destroy(helper);
 #endif
 
-        /// <summary>What the game would add up to on a wearer for a stat.</summary>
-        public double Sum(EntityId wearer, Stat stat) => Running.Values.Where(r => r.Wearer == wearer && ReferenceEquals(r.Stat, stat)).Sum(r => r.Value);
+        /// <summary>What the game would add up to for a stat on the session that has the id now.</summary>
+        public double Sum(EntityId wearer, Stat stat) =>
+            Running.Values.Where(r => r.Wearer == wearer && r.Session == SessionOf(wearer) && ReferenceEquals(r.Stat, stat)).Sum(r => r.Value);
     }
 
     private static readonly InstanceFields Sword = Rec.Of(Rec.Sword, level: 7), Ring = Rec.Of(Rec.Ring, level: 2);
@@ -128,6 +167,12 @@ public sealed class AffixTests : IDisposable
     }
 
     private void TakeOff(ItemInstanceRef r) => _game.Worn.GetValueOrDefault(_hero.Value)?.Remove(r);
+
+    /// <summary>Passes until <paramref name="done"/> holds (a retry that backs off comes within 64 passes).</summary>
+    private void PassUntil(Func<bool> done, int max = 80)
+    {
+        for (var i = 0; i < max && !done(); i++) Pass();
+    }
 
     // ---- definitions ----
 
@@ -480,8 +525,8 @@ public sealed class AffixTests : IDisposable
         Pass();
         Pass();
         Assert.Equal(3, _game.Sum(_hero, Stat.Strength));
-        _game.EndFails = false;                                             // the next try works
-        Pass();
+        _game.EndFails = false;                                             // a later try works (they come less often each time)
+        PassUntil(() => _game.Running.Count == 0);
         Assert.Equal(0, _game.Sum(_hero, Stat.Strength));
         Assert.Empty(_game.Running);
         Assert.Empty(As(() => Affixes.Active(_hero)));
@@ -494,9 +539,9 @@ public sealed class AffixTests : IDisposable
         Pass();
         Assert.Equal(3, _game.Sum(_hero, Stat.Strength));
         _game.EndFails = false;
-        Pass();
-        Pass();
+        PassUntil(() => _game.Sum(_hero, Stat.Strength) == 6);
         Assert.Equal(6, _game.Sum(_hero, Stat.Strength));
+        Assert.Single(_game.Running);
 
         // the wearer leaves while its change cannot end: it is still tried, until it is gone
         _game.EndFails = true;
@@ -504,7 +549,7 @@ public sealed class AffixTests : IDisposable
         Pass();
         Assert.Single(_game.Running);
         _game.EndFails = false;
-        Pass();
+        PassUntil(() => _game.Running.Count == 0);
         Assert.Empty(_game.Running);
     }
 
@@ -589,5 +634,154 @@ public sealed class AffixTests : IDisposable
         Assert.False(grouped.Ok);
         Assert.Contains("share a group", grouped.Reason);
         Assert.Empty(As(() => Affixes.Of(plain)));
+    }
+
+    // ---- confirm review of b24463a4: a wearer with a stuck change, bounded cleanup, sessions and stamps ----
+
+    [Fact]
+    public void AWearerWithAChangeThatCouldNotEndGetsNoNewOneWhateverItPutsOn()
+    {
+        var first = Give(3, Sword, worn: true);
+        As(() => Affixes.Add(first, "bear", 1, 3));
+        Pass();
+        _game.EndFails = true;                                              // kiln.spawn keeps refusing, though destruction is on
+        TakeOff(first);
+        Pass();
+        for (var i = 0; i < 6; i++)                                         // distinct stacking items, one after another
+        {
+            var ring = Give(10 + i, Ring, worn: true);
+            As(() => Affixes.Add(ring, "bear", 1, 2));
+            Pass();
+            TakeOff(ring);
+            Pass();
+        }
+        var last = Give(20, Ring, worn: true);
+        As(() => Affixes.Add(last, "bear", 1, 2));
+        Pass();
+        Assert.Equal(3, _game.Sum(_hero, Stat.Strength));                   // only the change that could not end: no new bonus
+        Assert.Single(_game.Running);
+#if AFFIX_IDENTITY
+        Assert.Equal(1, AffixRuntime.BlockedNotes);                         // said once in kiln.log
+#endif
+        _game.EndFails = false;                                             // the cleanup works: then the worn ring acts
+        PassUntil(() => _game.Sum(_hero, Stat.Strength) == 2);
+        Assert.Equal(2, _game.Sum(_hero, Stat.Strength));
+        Assert.Single(_game.Running);
+    }
+
+    [Fact]
+    public void TheRetriesOfAChangeThatCouldNotEndBackOff()
+    {
+        var first = Give(3, Sword, worn: true);
+        As(() => Affixes.Add(first, "bear", 1, 3));
+        Pass();
+        _game.EndFails = true;
+        TakeOff(first);
+        for (var i = 0; i < 200; i++)                                       // 200 passes, a new item worn at each
+        {
+            var ring = Give(100 + i, Ring, worn: true);
+            As(() => Affixes.Add(ring, "bear", 1, 2));
+            Pass();
+            TakeOff(ring);
+        }
+        Assert.True(_game.Running.Count <= 1, $"{_game.Running.Count} stat changes running");
+        Assert.True(_game.EndCalls <= 12, $"{_game.EndCalls} tries to end in 200 passes");   // after 2, 4, ... 64 passes
+    }
+
+    [Fact]
+    public void TooManyChangesThatCouldNotEndStopNewOnesForEveryone()
+    {
+        var wearers = new List<EntityId>();
+        for (var k = 0; k < 70; k++)
+        {
+            var w = new EntityId(500 + (uint)k);
+            var item = _h.World.Give(_hero, 200 + k, Ring);
+            As(() => Affixes.Add(item, "bear", 1, 1));
+            _game.In.Add(w);
+            _game.Bags[w.Value] = [item];
+            _game.Worn[w.Value] = [item];
+            wearers.Add(w);
+        }
+        Pass();
+        Assert.Equal(70, _game.Running.Count);
+        _game.EndFails = true;
+        foreach (var w in wearers) _game.Worn[w.Value] = [];               // all take theirs off; none can be ended
+        Pass();
+        var late = new EntityId(900);
+        var latest = _h.World.Give(_hero, 300, Ring);
+        As(() => Affixes.Add(latest, "bear", 1, 4));
+        _game.In.Add(late);
+        _game.Bags[late.Value] = [latest];
+        _game.Worn[late.Value] = [latest];
+        Pass();
+        Pass();
+        Assert.Equal(0, _game.Sum(late, Stat.Strength));                    // 70 could not end: nobody gets a new one
+        Assert.Equal(70, _game.Running.Count);
+#if AFFIX_IDENTITY
+        Assert.Equal(1, AffixRuntime.CapNotes);                             // one error line
+#endif
+        _game.EndFails = false;
+        PassUntil(() => _game.Sum(late, Stat.Strength) == 4);
+        Assert.Equal(4, _game.Sum(late, Stat.Strength));
+        Assert.Single(_game.Running);
+    }
+
+    [Fact]
+    public void AChangeOfAWearerWhoLeftNeverReachesWhoeverHasItsIdNow()
+    {
+        var ring = Give(4, Ring, worn: true);
+        As(() => Affixes.Add(ring, "keen", 1, 0.05));                       // does not stack
+        Pass();
+        Assert.Equal(0.05, _game.Sum(_hero, Stat.CritChance), 6);
+        _game.EndFails = true;
+        // the player leaves, and before the next pass another one gets the same entity id, wearing the same affix and value
+        _game.Sessions[_hero.Value] = 2;
+        var theirs = _h.World.Give(_hero, 5, Ring);
+        As(() => Affixes.Add(theirs, "keen", 1, 0.05));
+        _game.Bags[_hero.Value] = [theirs];
+        _game.Worn[_hero.Value] = [theirs];
+        Pass();
+        Assert.Equal(0.05, _game.Sum(_hero, Stat.CritChance), 6);           // the newcomer's own change acts on the newcomer
+        Assert.Contains(_game.Running.Values, r => r.Session == 2);
+        _game.EndFails = false;
+        for (var i = 0; i < 100; i++) Pass();
+        Assert.Empty(_game.RevertHits);                                     // the first one's change never took its value from the newcomer
+        Assert.Contains(_game.Running.Values, r => r.Session == 1);         // it waits while the id is the newcomer's
+        _game.In.Clear();                                                   // the newcomer leaves too: the id is free
+        PassUntil(() => _game.Running.Count == 0);
+        Assert.Empty(_game.Running);
+        Assert.Empty(_game.RevertHits);
+    }
+
+    [Fact]
+    public void AnIdTheGameGaveToSomethingElseIsNeverTakenForAStatChange()
+    {
+        var sword = Give(3, Sword, worn: true);
+        As(() => Affixes.Add(sword, "bear", 1, 3));
+        Pass();
+        var helper = Assert.Single(_game.Running.Keys);
+        _game.EndFails = true;
+        TakeOff(sword);
+        Pass();                                                             // it could not be ended
+        _game.Running.Remove(helper);                                       // then the game ended it by itself,
+        _game.Others[helper] = 777;                                         // and an unrelated entity got its id
+        _game.EndFails = false;
+        for (var i = 0; i < 100; i++) Pass();
+        Assert.Equal(0, _game.DestroyedOthers);
+        Assert.Empty(As(() => Affixes.Active(_hero)));
+
+        Wear(sword);                                                        // a held change whose id goes to something else
+        Pass();
+        var second = Assert.Single(_game.Running.Keys);
+        _game.Running.Remove(second);
+        _game.Others[second] = 778;
+        Pass();
+        Assert.Equal(0, _game.DestroyedOthers);
+        Assert.Equal(3, _game.Sum(_hero, Stat.Strength));                   // counted as ended by the game: started again, once
+        Assert.Single(_game.Running);
+        TakeOff(sword);
+        Pass();
+        Assert.Equal(0, _game.DestroyedOthers);
+        Assert.Empty(_game.Running);
     }
 }

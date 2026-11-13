@@ -100,12 +100,13 @@ ones that are no longer wanted and starts the missing ones. That one rule is all
 | the item is taken in hand, or put on | its affixes act within half a second |
 | it is put away, taken off, moved to a chest, given to another player, trashed, used in a recipe | they stop within half a second; for the other player they start once it is worn |
 | the player dies | whatever is still worn or in hand after the respawn acts; what went to the tombstone does not. If the game ended a stat change with the death, Kiln finds it gone at the next pass and starts it again (once) |
-| the player leaves, or crashes | Kiln ends what it held; nothing is saved on the character, so nothing can stay behind |
+| the player leaves, or crashes | Kiln ends what it held; nothing is saved on the character, so nothing can stay behind. A wearer is a session (the player's session stamp, not the bare entity id): if another player gets the same entity id before Kiln's next pass, the newcomer gets changes of its own, and the one who left keeps none of theirs on the newcomer (a change of the one who left is not ended while the id is the newcomer's, as ending it would take its value from the newcomer; it ends once the id is free) |
 | the server restarts, the player joins again | the rolls come back with the item (item data); the pass applies them as for any worn item |
 | the affix's value changes (`Set`, an upgrade) | the old change ends and the new one starts, never both |
 | the affix is defined again with another stat | rolls made before keep the stat they name (`RolledAffix.Stat`, which is what players' games show: "+3 Strength" stays Strength); new rolls take the new stat. A roll whose stat Kiln cannot name any more (a mod's own attribute the affix no longer uses) does nothing |
 | the affix's mod unloads | its changes end at the next pass |
-| a stat change cannot be ended (kiln.spawn refuses to destroy its entity) | it is kept, and tried again at every pass, also after the player left; no second change takes its place meanwhile (one wanted again as it is is taken back), so a bonus is never held twice. `Affixes.Active` lists it while it acts |
+| a stat change cannot be ended (kiln.spawn refuses to destroy its entity) | it is kept and tried again after 2, 4, 8 ... passes (at most 64 apart), also after the player left. While a player has one, that player gets no new stat change at all (one wanted again exactly as it is is taken back), said once in kiln.log; while 64 are kept on the server, nobody gets a new one (one error line). So a bonus is never held twice and the cleanup stays bounded. `Affixes.Active` lists such a change while it acts |
+| the game ends a stat change's entity, or gives its id to another entity | Kiln checks each change by its entity's spawn stamp and template: one that is gone, or whose id is something else's now, counts as ended by the game (started again if still wanted). Kiln never destroys an entity that is not the change it started |
 
 **Stacking.** Two acting items with the same affix add up: +3 and +5 Strength are +8. An affix with `Stacks = false`
 counts once, with the highest value among the acting items (once per stat, when rolls made before a redefinition name
@@ -186,18 +187,24 @@ show in the game's own bars and numbers.
   dedicated server, not in the same step.
 - If Kiln's managed side stops while the server keeps running, the stat changes it held stay until the server
   restarts (they are never saved, so a restart always clears them). The same holds for a change kiln.spawn keeps
-  refusing to end: it is retried at every pass, and a restart clears it.
+  refusing to end: it is retried (less often each time), and a restart clears it; meanwhile its player gets no new
+  bonus, and at 64 such changes on the server nobody does.
+- A stat change whose entity has no spawn stamp is ended at once and never runs (Kiln could not tell it apart later);
+  on 26430253 every one has one (they are kiln.spawn entities with a SpawnTime).
 - An NPC or a creature that holds an item gets nothing: the pass looks at players.
 
 ## What was checked
 
-Offline (`managed/tests/Kiln.Blocks.Tests/AffixTests.cs`, 17 tests on Kiln.Saves' real item-data store and a fake
+Offline (`managed/tests/Kiln.Blocks.Tests/AffixTests.cs`, 22 tests on Kiln.Saves' real item-data store and a fake
 game): every refusal of a definition by field, the data file, rolls in range and repeatable, groups, item level, the
 rules and the argument errors, the stored JSON and its way back after a restart, and the pass: carried against worn,
 stacking, a changed roll, an item gone, a wearer gone, a stat change the game ended, an inventory that cannot be read;
 a stat change that cannot be ended (kept, retried, never doubled on a re-equip or a changed roll, retried after the
 wearer left), nothing started without `spawn.destroy`, a roll that keeps its stat after its affix is defined again, a
-pool that can never give its minimum and a roll that cannot reach it now.
+pool that can never give its minimum and a roll that cannot reach it now; a wearer with a stuck change getting no new
+one whatever it puts on, retries that back off (8 tries in 200 passes), 70 stuck changes stopping new ones for
+everyone, a player who leaves and one who gets the same entity id before the next pass (neither's change reaches the
+other), and a change whose id the game gave to an unrelated entity (never destroyed).
 
 Lab `dev27-affix` (server 26430253, a copy of a real world, no player; `mods/tests/affix-test`, two boots, 89 checks
 on the first and 9 on the second, all passing on 2026-11-12): the capability rows (`spawn.destroy` among them); a

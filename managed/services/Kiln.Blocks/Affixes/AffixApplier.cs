@@ -16,11 +16,13 @@ internal static partial class AffixRuntime
     ];
 
     /// <summary>What the pass needs from the game, behind one interface, so the pass is tested without one
-    /// (managed/tests/Kiln.Blocks.Tests/AffixTests.cs).</summary>
+    /// (managed/tests/Kiln.Blocks.Tests/AffixTests.cs). Wearers and stat changes are stamped entities (<see cref="EntityRef"/>):
+    /// an id the game gives to another player or entity later is never taken for the one Kiln knew.</summary>
     internal interface IAffixGame
     {
-        /// <summary>Everyone whose worn and held items count: the players in game (and a lab's stand-ins).</summary>
-        IReadOnlyList<EntityId> Wearers();
+        /// <summary>Everyone whose worn and held items count, each as the session it is now: the players in game (their
+        /// session stamp) and a lab's stand-ins (their spawn stamp).</summary>
+        IReadOnlyList<EntityRef> Wearers();
 
         /// <summary>Every item entity in the wearer's inventories; null when the inventory cannot be read now.</summary>
         IReadOnlyList<ItemInstanceRef>? Carried(EntityId wearer);
@@ -28,31 +30,40 @@ internal static partial class AffixRuntime
         /// <summary>The items that act: in an acting equipment slot, or in hand.</summary>
         IReadOnlyList<ItemInstanceRef> Acting(EntityId wearer);
 
-        /// <summary>Whether a stat change's entity still exists.</summary>
-        bool Exists(EntityId helper);
+        /// <summary>Whether the id still belongs to the session (or spawn) the ref was stamped with.</summary>
+        bool IsAlive(EntityRef entity);
+
+        /// <summary>Whether any entity has this id now.</summary>
+        bool Exists(EntityId id);
+
+        /// <summary>Whether the entity is still the stat change Kiln started: the same id and spawn stamp, and Kiln's Impact
+        /// entity template. False once the game ended it, also when its id belongs to another entity now.</summary>
+        bool IsHelper(EntityRef helper);
 
         /// <summary>Whether a stat change can be ended at all here (kiln.spawn's entity destruction is on). Nothing starts
         /// without it: a change that cannot end would stay on the player.</summary>
         bool CanEnd { get; }
 
-        /// <summary>Starts a stat change on the wearer; null when it could not start now.</summary>
-        EntityId? Start(EntityId wearer, Stat stat, double value);
+        /// <summary>Starts a stat change on the wearer; its entity, stamped. Null when it could not start now, or when its
+        /// entity has no spawn stamp (then it is ended at once: a change Kiln could not tell apart later must not run).</summary>
+        EntityRef? Start(EntityRef wearer, Stat stat, double value);
 
-        /// <summary>Ends a stat change: the game takes the value back. True when its entity is gone (now, or it was gone
-        /// already); false when it could not be ended, and still acts.</summary>
-        bool End(EntityId helper);
+        /// <summary>Ends a stat change the pass checked is still Kiln's (<see cref="IsHelper"/>): the game takes the value
+        /// back. False when it could not be ended, and still acts.</summary>
+        bool End(EntityRef helper);
     }
 
     /// <summary>The running game: Kiln.Players, Kiln.Items, Kiln.World, Kiln.Abilities, Kiln.Spawn.</summary>
     private sealed class RealGame : IAffixGame
     {
-        public IReadOnlyList<EntityId> Wearers()
+        public IReadOnlyList<EntityRef> Wearers()
         {
-            var list = new List<EntityId>();
+            var list = new List<EntityRef>();
             if (Players.Available)
                 foreach (var p in Players.All)
-                    if (p.InGame && !p.Entity.IsNone) list.Add(p.Entity);
-            foreach (var e in LabWearers) list.Add(new EntityId(e));
+                    if (p.InGame && !p.Entity.IsNone) list.Add(((PlayerRef)p).Entity);
+            foreach (var e in LabWearers)
+                if (Stamp(new EntityId(e)) is { IsNone: false } r) list.Add(r);
             return list;
         }
 
@@ -71,21 +82,27 @@ internal static partial class AffixRuntime
             return list;
         }
 
-        public bool Exists(EntityId helper) => World.Exists(helper);
+        public bool IsAlive(EntityRef entity) => entity.IsAlive;  // KilnUnavailableException: the pass tries again
+
+        public bool Exists(EntityId id) => World.Exists(id);
+
+        public bool IsHelper(EntityRef helper) =>
+            helper.HasSerial && helper.IsAlive && Spawn.Inspect(helper.Id) is { Template: { } t } && t == Abilities.GenericImpactTemplate;
 
         public bool CanEnd => Spawn.Available && Capabilities.Get(DestroyCapability).State == CapabilityState.Available;
 
-        public EntityId? Start(EntityId wearer, Stat stat, double value)
+        public EntityRef? Start(EntityRef wearer, Stat stat, double value)
         {
-            if (World.Position(wearer) is not { } at) return null;  // not in the world yet: the next pass tries again
+            if (World.Position(wearer.Id) is not { } at) return null;  // not in the world yet: the next pass tries again
+            EntityId helper;
             try
             {
-                return Abilities.RunProgram(stat.Whole ? _modWhole : _modShare, at, new ImpactOptions
+                helper = Abilities.RunProgram(stat.Whole ? _modWhole : _modShare, at, new ImpactOptions
                 {
                     Tag = "kiln-affix",
                     Configs = new ImpactConfigs
                     {
-                        [CfgTarget] = wearer,
+                        [CfgTarget] = wearer.Id,
                         [CfgAttr] = stat.Attribute.ToByteArray(),
                         [CfgOp] = new[] { (byte)(stat.Subtract ? 1 : 0) },
                         [CfgValue] = stat.Whole ? (int)value : (float)value,
@@ -97,20 +114,44 @@ internal static partial class AffixRuntime
                 Warn($"a stat change for {wearer} could not start: {e.Message}");
                 return null;
             }
+            var stamped = Stamp(helper);
+            if (stamped.HasSerial) return stamped;
+            // Kiln could not tell this entity apart from a later one with its id: it must not run. Its id is surely its own now.
+            try
+            {
+                Spawn.Destroy(helper);
+            }
+            catch (Exception e) when (e is InvalidOperationException or ArgumentException or NotSupportedException or SpawnException)
+            {
+                Backend.Current.Log(0, LogLevel.Error, $"affixes: a stat change ({helper}) without a spawn stamp could not be ended: {e.Message}");
+            }
+            Warn($"a stat change's entity {helper} has no spawn stamp on this build: no stat change starts");
+            return null;
         }
 
-        public bool End(EntityId helper)
+        public bool End(EntityRef helper)
         {
             try
             {
-                if (!World.Exists(helper)) return true;
-                Spawn.Destroy(helper);  // true: destroyed now; false: not found, so gone already. Either way it acts no more
+                Spawn.Destroy(helper.Id);  // true: destroyed now; false: not found, so gone already. Either way it acts no more
                 return true;
             }
             catch (Exception e) when (e is InvalidOperationException or ArgumentException or NotSupportedException or SpawnException)
             {
-                Warn($"a stat change could not be ended ({helper}): {e.Message}; it is tried again at every pass");
+                Warn($"a stat change could not be ended ({helper}): {e.Message}; it is tried again, less often each time");
                 return false;
+            }
+        }
+
+        private static EntityRef Stamp(EntityId e)
+        {
+            try
+            {
+                return EntityRef.Of(e);
+            }
+            catch (KilnUnavailableException)
+            {
+                return EntityRef.None;
             }
         }
     }
@@ -120,13 +161,34 @@ internal static partial class AffixRuntime
     /// <summary>The sigdb feature the stat changes' teardown needs: kiln.spawn's entity destruction.</summary>
     internal const string DestroyCapability = "spawn.destroy";
 
+    /// <summary>Stat changes that could not be ended, over all wearers and wearers gone: at this many, no new stat change
+    /// starts for anyone (one error line in kiln.log).</summary>
+    internal const int MaxStuck = 64;
+
+    /// <summary>A change that could not be ended is tried again after 2, 4, 8 ... passes, at most this many apart.</summary>
+    internal const int MaxRetryPasses = 64;
+
     private sealed class Applied
     {
         public required string Affix;
         public required Stat Stat;
         public required double Value;
         public required uint Item;
-        public required EntityId Helper;
+
+        /// <summary>The session it acts on: its program's target is this id, so it must never end while the id belongs to
+        /// another session (the revert would take the value from that one).</summary>
+        public required EntityRef Wearer;
+
+        /// <summary>Its entity as Kiln started it (id and spawn stamp).</summary>
+        public required EntityRef Helper;
+
+        /// <summary>Failed or deferred ends so far, and the pass from which it is tried again.</summary>
+        public int Tries;
+
+        public ulong NextTry;
+
+        /// <summary>Deferred because its wearer's id is another session's now.</summary>
+        public bool WaitsForId;
     }
 
     /// <summary>One stat change Kiln wants on a wearer: per affix and stat (a roll acts by the stat it names), and per item
@@ -137,22 +199,31 @@ internal static partial class AffixRuntime
     {
         public readonly Dictionary<Slot, Applied> Held = new();
 
-        /// <summary>Stat changes that are no longer wanted but could not be ended: they still act. Each pass tries again;
-        /// none of their slots gets another change until they are gone (one that is wanted again as it is is taken back).</summary>
+        /// <summary>Stat changes that are no longer wanted but could not be ended: they still act. They are tried again,
+        /// less often each time; while there is one, the wearer gets no new change (one that is wanted again as it is is
+        /// taken back).</summary>
         public readonly Dictionary<Slot, Applied> Stuck = new();
+
+        public bool Noted;
     }
 
-    private static readonly Dictionary<uint, Wearer> Wearers = new();
+    /// <summary>Wearers by session: a player who leaves and one who gets the same entity id are two wearers.</summary>
+    private static readonly Dictionary<EntityRef, Wearer> Wearers = new();
 
-    /// <summary>Stuck stat changes of wearers who are gone: still tried at every pass, until their entity is gone.</summary>
+    /// <summary>Stat changes of wearers who are gone, not ended yet: tried again until their entity is gone, never while
+    /// their wearer's id is another session's.</summary>
     private static readonly List<Applied> Orphans = [];
 
     private static readonly HashSet<uint> LabWearers = new();
     private static readonly Dictionary<uint, (TaskCompletionSource<double?> Done, bool Whole, ulong Until)> Probes = new();
     private static volatile bool _dirty;
-    private static ulong _step, _passes, _started_, _ended, _restarted, _failedEnds;
+    private static ulong _step, _passes, _started_, _ended, _restarted, _failedEnds, _endTries;
     private static Guid _modWhole, _modShare, _probeWhole, _probeShare;
-    private static bool _programsBuilt, _warned, _noEndNoted;
+    private static bool _programsBuilt, _warned, _noEndNoted, _capNoted;
+
+    /// <summary>Times kiln.log was told a wearer gets no new change while one of its own could not be ended, and that no
+    /// one does while too many could not (the tests read them).</summary>
+    internal static int BlockedNotes, CapNotes;
     private static readonly HashSet<string> NotedStats = new(StringComparer.Ordinal);
     private static (CapabilityState, CapabilityReason, string)? _shownRolls, _shownEffects;
 
@@ -345,24 +416,30 @@ internal static partial class AffixRuntime
     }
 
     /// <summary>One pass: makes what is held on every wearer equal to what the wearer's acting items say. A stat change
-    /// starts only where one can be ended (<see cref="IAffixGame.CanEnd"/>); one that could not be ended is kept and tried
-    /// again at every pass, and its slot gets no second change meanwhile, so a bonus never stays twice.</summary>
+    /// starts only where one can be ended (<see cref="IAffixGame.CanEnd"/>). One that could not be ended is kept and tried
+    /// again, less often each time; while a wearer has one, that wearer gets no new change, and while
+    /// <see cref="MaxStuck"/> are kept nobody does, so a bonus never stays twice and the cleanup stays bounded. A wearer is
+    /// a session: a change is never ended while its wearer's id is another session's, nor taken for another session's.</summary>
     internal static void Pass(IAffixGame game, Dictionary<uint, (ItemInstanceRef Ref, IReadOnlyList<RolledAffix> Rolls)> affixed)
     {
         _passes++;
-        // stuck changes of wearers who are gone: tried again until their entity is gone
-        Orphans.RemoveAll(a => End(game, a));
         var wearers = game.Wearers();
-        // someone who is gone holds nothing: the changes end (their revert finds no entity, and does nothing)
-        foreach (var id in Wearers.Keys.Where(id => wearers.All(w => w.Value != id)).ToArray())
+        var present = new HashSet<EntityRef>(wearers);
+        // a session that is over holds nothing: its changes end (their revert finds no entity and does nothing), never while
+        // its id is another session's (the revert would take the value from that one): they wait as orphans
+        foreach (var who in Wearers.Keys.Where(k => !present.Contains(k)).ToArray())
         {
-            var gone = Wearers[id];
-            Wearers.Remove(id);
+            var gone = Wearers[who];
+            Wearers.Remove(who);
             var before = Snapshot(gone);
             foreach (var a in gone.Held.Values.Concat(gone.Stuck.Values))
-                if (!End(game, a)) Orphans.Add(a);
-            Announce(new EntityId(id), before, []);
+            {
+                a.NextTry = _passes;
+                Orphans.Add(a);
+            }
+            Announce(who.Id, before, []);
         }
+        Orphans.RemoveAll(a => Settle(game, a, orphan: true));
         var canEnd = game.CanEnd;
         if (!canEnd && !_noEndNoted)
         {
@@ -371,21 +448,21 @@ internal static partial class AffixRuntime
         }
         foreach (var wearer in wearers)
         {
-            var want = Desired(game, wearer, affixed);
-            Wearers.TryGetValue(wearer.Value, out var state);
+            var want = Desired(game, wearer.Id, affixed);
+            Wearers.TryGetValue(wearer, out var state);
             if (want.Count == 0 && state is null) continue;
-            state ??= Wearers[wearer.Value] = new Wearer();
+            state ??= Wearers[wearer] = new Wearer();
             var before = Snapshot(state);
             var changed = false;
             foreach (var (at, a) in state.Stuck.ToArray())
             {
-                if (want.TryGetValue(at, out var w) && w.Value == a.Value && ReferenceEquals(w.Stat, a.Stat) && game.Exists(a.Helper))
+                if (want.TryGetValue(at, out var w) && w.Value == a.Value && ReferenceEquals(w.Stat, a.Stat) && game.IsHelper(a.Helper))
                 {
-                    state.Stuck.Remove(at);  // wanted again as it is: it acts, so it is held again (never a second one)
+                    state.Stuck.Remove(at);  // wanted again as it is and still Kiln's: it acts, so it is held again (never a second one)
                     state.Held[at] = a;
                     changed = true;
                 }
-                else if (End(game, a))
+                else if (Settle(game, a, orphan: false))
                 {
                     state.Stuck.Remove(at);
                     changed = true;
@@ -393,9 +470,10 @@ internal static partial class AffixRuntime
             }
             foreach (var (at, a) in state.Held.ToArray())
             {
-                if (!game.Exists(a.Helper))
+                if (!game.IsHelper(a.Helper))
                 {
-                    // the game ended the entity (and with it ran the revert): if it is still wanted it starts again below
+                    // the game ended the entity (and with it ran the revert), or its id is another entity's now: Kiln has
+                    // nothing of its own there to end; if it is still wanted it starts again below
                     state.Held.Remove(at);
                     _restarted++;
                     changed = true;
@@ -403,22 +481,90 @@ internal static partial class AffixRuntime
                 }
                 if (want.TryGetValue(at, out var w) && w.Value == a.Value && ReferenceEquals(w.Stat, a.Stat)) continue;
                 state.Held.Remove(at);
-                if (!End(game, a)) state.Stuck[at] = a;  // it still acts: kept, tried again, and nothing new takes its slot
+                a.NextTry = _passes;
+                if (!Settle(game, a, orphan: false)) state.Stuck[at] = a;  // it still acts: kept, tried again
                 changed = true;
             }
-            if (canEnd)
+            if (want.Keys.Any(k => !state.Held.ContainsKey(k)) && Admits(canEnd, state, wearer))
                 foreach (var (at, w) in want)
                 {
-                    if (state.Held.ContainsKey(at) || state.Stuck.ContainsKey(at)) continue;
+                    if (state.Held.ContainsKey(at)) continue;
                     if (game.Start(wearer, w.Stat, w.Value) is not { } helper) continue;
                     _started_++;
-                    state.Held[at] = new Applied { Affix = at.Affix, Stat = w.Stat, Value = w.Value, Item = at.Item, Helper = helper };
+                    state.Held[at] = new Applied { Affix = at.Affix, Stat = w.Stat, Value = w.Value, Item = at.Item, Wearer = wearer, Helper = helper };
                     changed = true;
                 }
+            if (state.Stuck.Count == 0) state.Noted = false;
             var now = Snapshot(state);
-            if (state.Held.Count == 0 && state.Stuck.Count == 0) Wearers.Remove(wearer.Value);
-            if (changed && !before.SequenceEqual(now)) Announce(wearer, before, now);
+            if (state.Held.Count == 0 && state.Stuck.Count == 0) Wearers.Remove(wearer);
+            if (changed && !before.SequenceEqual(now)) Announce(wearer.Id, before, now);
         }
+    }
+
+    /// <summary>Whether a new stat change may start on <paramref name="wearer"/>: one can be ended here, none of the
+    /// wearer's own is stuck (a new one would add to what still acts), and fewer than <see cref="MaxStuck"/> are stuck in
+    /// all. Says once in kiln.log why not.</summary>
+    private static bool Admits(bool canEnd, Wearer state, EntityRef wearer)
+    {
+        if (!canEnd) return false;
+        if (state.Stuck.Count > 0)
+        {
+            if (!state.Noted)
+            {
+                state.Noted = true;
+                BlockedNotes++;
+                Backend.Current.Log(0, LogLevel.Warn, $"affixes: {wearer} gets no new stat change until the {state.Stuck.Count} Kiln could not end are gone " +
+                                                      "(they still act; Kiln keeps trying)");
+            }
+            return false;
+        }
+        var stuck = StuckCount();
+        if (stuck >= MaxStuck)
+        {
+            if (!_capNoted)
+            {
+                _capNoted = true;
+                CapNotes++;
+                Backend.Current.Log(0, LogLevel.Error, $"affixes: {stuck} stat changes could not be ended: no new stat change starts for anyone until " +
+                                                       $"fewer than {MaxStuck} are left (Kiln keeps trying; a restart of the server clears them)");
+            }
+            return false;
+        }
+        _capNoted = false;
+        return true;
+    }
+
+    private static int StuckCount() => Wearers.Values.Sum(w => w.Stuck.Count) + Orphans.Count;
+
+    /// <summary>Ends a change that is no longer wanted, when its turn has come. True: it acts no more (ended now, or the
+    /// game ended it, or its id is another entity's now: then there is nothing of Kiln's to end). False: it is kept and
+    /// tried again later, after 2, 4, ... passes; an orphan also waits while its wearer's id is another session's.</summary>
+    private static bool Settle(IAffixGame game, Applied a, bool orphan)
+    {
+        if (_passes < a.NextTry) return false;
+        if (!game.IsHelper(a.Helper)) return true;
+        if (orphan && game.Exists(a.Wearer.Id) && !game.IsAlive(a.Wearer))
+        {
+            a.WaitsForId = true;
+            Defer(a);
+            return false;
+        }
+        a.WaitsForId = false;
+        _endTries++;
+        if (game.End(a.Helper))
+        {
+            _ended++;
+            return true;
+        }
+        _failedEnds++;
+        Defer(a);
+        return false;
+    }
+
+    private static void Defer(Applied a)
+    {
+        a.Tries++;
+        a.NextTry = _passes + (ulong)Math.Min(1 << Math.Min(a.Tries, 10), MaxRetryPasses);
     }
 
     /// <summary>What acts on the wearer: what Kiln holds, and what it could not end yet.</summary>
@@ -430,18 +576,6 @@ internal static partial class AffixRuntime
     {
         Backend.Current.Log(0, LogLevel.Debug, $"affixes: {wearer} now holds {(now.Count == 0 ? "nothing" : string.Join(", ", now.Select(a => $"{a.Affix} {a.Stat} {a.Value}")))}");
         if (Events.HasSubscribers<AffixesAppliedEvent>()) Events.Post(new AffixesAppliedEvent(wearer, before, now));
-    }
-
-    /// <summary>Ends one stat change; false when it still acts.</summary>
-    private static bool End(IAffixGame game, Applied a)
-    {
-        if (game.End(a.Helper))
-        {
-            _ended++;
-            return true;
-        }
-        _failedEnds++;
-        return false;
     }
 
     /// <summary>The tests' reset: nothing is held, defined or counted.</summary>
@@ -456,11 +590,15 @@ internal static partial class AffixRuntime
             Pools.Clear();
             NotedStats.Clear();
         }
-        _passes = _started_ = _ended = _restarted = _failedEnds = 0;
-        _noEndNoted = false;
+        _passes = _started_ = _ended = _restarted = _failedEnds = _endTries = 0;
+        _noEndNoted = _capNoted = false;
+        BlockedNotes = CapNotes = 0;
     }
 
-    internal static IReadOnlyList<ActiveAffix> ActiveOf(EntityId wearer) => Wearers.TryGetValue(wearer.Value, out var w) ? Snapshot(w) : [];
+    /// <summary>What acts on the entity's current session (an earlier session with the same id is gone from the list at the
+    /// next pass).</summary>
+    internal static IReadOnlyList<ActiveAffix> ActiveOf(EntityId wearer) =>
+        Wearers.Where(w => w.Key.Id == wearer).OrderByDescending(w => w.Key.Serial).Select(w => Snapshot(w.Value)).FirstOrDefault() ?? [];
 
     internal static void LabTrack(EntityId wearer, bool on)
     {
@@ -475,8 +613,8 @@ internal static partial class AffixRuntime
         int defs, pools;
         lock (Gate) (defs, pools) = (Defs.Count, Pools.Count);
         return $"affixes: {defs} affix(es), {pools} pool(s) defined; {_passes} pass(es), {Wearers.Count} wearer(s) with {Wearers.Values.Sum(w => w.Held.Count)} stat change(s) held; " +
-               $"{_started_} started, {_ended} ended, {_failedEnds} end(s) failed and retried, {Wearers.Values.Sum(w => w.Stuck.Count) + Orphans.Count} not ended yet; " +
-               $"{_restarted} found ended by the game";
+               $"{_started_} started, {_ended} ended, {_failedEnds} end(s) failed and retried ({_endTries} tries), {StuckCount()} not ended yet " +
+               $"({Orphans.Count(a => a.WaitsForId)} waiting for their wearer's id to be free); {_restarted} found ended by the game";
     }
 
     // ------------------------------------------------------------------------------------------ the stat read ----
