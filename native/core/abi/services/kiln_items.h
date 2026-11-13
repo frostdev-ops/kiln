@@ -802,9 +802,13 @@ typedef struct KilnItemsApi {
 
     /* Queues an equip or unequip (see "equipment"). *out_ticket (optional) = its ticket. Refused at once with
      * KILN_ERR_INVALID_ARGUMENT (player 0, a slot that is no equipment slot, ANY with UNEQUIP, an equip without `slot`, an
-     * unequip with `slot` or `pide`, bad flags, non-zero reserved fields) or KILN_ERR_UNAVAILABLE (feature items.equip off,
-     * no kiln.world, the program refused or broken, 1024 requests waiting). Otherwise `done` runs once with the result (it
-     * may be NULL). cancel(ticket) and cancel_owner(owner) drop the callback. Any thread. */
+     * unequip with `slot` or `pide`, bad flags, non-zero reserved fields), KILN_ERR_UNAVAILABLE (feature items.equip off,
+     * no kiln.world or kiln.players, the death check cannot be made, the program refused or broken, or a game client that
+     * joined another machine's world) or KILN_ERR_BUFFER_TOO_SMALL (1024 requests are waiting: a refusal for now). Otherwise
+     * `done` runs once with the result (it may be NULL). cancel(ticket) and cancel_owner(owner) drop the callback. Any
+     * thread. A request for a player entity (1..1023) runs only for the session it was made for: the next player in the
+     * slot gets the same id, so a request whose player left comes back NO_INVENTORY. A dead player is refused (REFUSED)
+     * right before the transaction. */
     KilnResult(KILN_CALL* equip)(KilnOwner owner, const KilnItemsEquipRequest* request, KilnItemsEquipDoneFn done,
                                  void* user, uint64_t* out_ticket);
     KilnResult(KILN_CALL* equip_status)(KilnItemsEquipStatus* out); /* any thread */

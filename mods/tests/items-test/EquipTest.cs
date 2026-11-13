@@ -19,8 +19,13 @@ public sealed partial class ItemsTestMod
 
     private readonly List<PlayerEquipmentChangedEvent> _equipEvents = new();
 
+    // Every stack with its count and item entity, and which are equipped: a refusal must leave all of it as it was.
     private static string Gear(EntityId p) =>
-        Items.Read(p) is { } c ? string.Join(" ", c.Slots.Where(s => !s.IsEmpty).Select(s => $"{s.Slot}={s.Item.Value:x8}{(s.IsEquipped ? "*" : "")}")) : "unreadable";
+        Items.Read(p) is { } c
+            ? string.Join(" ", c.Slots.Where(s => !s.IsEmpty).Select(s => $"{s.Slot}={s.Item.Value:x8}x{s.Count}#{s.ItemEntity}{(s.IsEquipped ? "*" : "")}"))
+            : "unreadable";
+
+    private readonly List<EquipChangedEvent> _kilnEquips = new();
 
     private static InventorySlot? FindSlot(EntityId p, uint item, bool equipped) =>
         Items.Read(p)?.Slots.FirstOrDefault(s => s.Item.Value == item && s.IsEquipped == equipped);
@@ -53,6 +58,7 @@ public sealed partial class ItemsTestMod
         if (!World.Has(p, "PlayerInput")) return;
         PlayerStates.Diagnostics.Watch(p);  // kiln.players follows the spawned character like a joined player
         using var sub = Events.On<PlayerEquipmentChangedEvent>(e => _equipEvents.Add(e));
+        using var kiln = Events.On<EquipChangedEvent>(e => _kilnEquips.Add(e));
         try
         {
             await EquipChecks(p, chest);
@@ -87,7 +93,11 @@ public sealed partial class ItemsTestMod
         }
         Check(!ring0Before.IsNone, $"equip: Ring0 holds {ring0Before}");
         _equipEvents.Clear();
+        _kilnEquips.Clear();
         var off = await Items.Unequip(p, EquipmentSlot.Ring0);
+        await Steps(1);
+        Check(_kilnEquips.Count == 1 && _kilnEquips[0].Slot == EquipmentSlot.Ring0 && _kilnEquips[0].BeforeItem == ring0Before.Item &&
+              _kilnEquips[0].After.IsNone, $"unequip: one EquipChangedEvent [{string.Join("; ", _kilnEquips)}]");
         Check(off.Ok && off.Unequipped && off.Item == ring0Before.Item && !off.To.IsNone && off.Reason == null,
             $"unequip Ring0: {off} (item entity {off.ItemEntity}, ref {off.Ref}, game error 0x{off.GameError:x2})");
         Check(Items.Equipped(p, EquipmentSlot.Ring0).IsNone, $"unequip: Ring0 is empty now ({Items.Equipped(p, EquipmentSlot.Ring0)})");
@@ -142,15 +152,22 @@ public sealed partial class ItemsTestMod
         }
 
         // 5. a dry run changes nothing
+        await Steps(6);  // Kiln.Players' poll (every four steps) reports the change above first
         var snap = Gear(p);
+        _kilnEquips.Clear();
+        _equipEvents.Clear();
         var dry = await Items.Unequip(p, EquipmentSlot.Ring0, EquipOptions.DryRun);
-        await Steps(2);
+        await Steps(6);
         Check(dry.Ok && dry.DryRun && Gear(p) == snap && !Items.Equipped(p, EquipmentSlot.Ring0).IsNone,
             $"dry-run unequip: {dry}; nothing changed");
+        Check(_kilnEquips.Count == 0 && _equipEvents.Count == 0,
+            $"dry run: no event [{string.Join("; ", _kilnEquips)}] [{string.Join(",", _equipEvents.Select(x => $"{x.Slot}:{x.Before}->{x.Now}"))}]");
 
         // 6. refusals: each leaves the inventory exactly as it was
         var sword = FindSlot(p, SwordCraft, false) ?? FindSlot(p, SwordCraft, true);
         snap = Gear(p);
+        _kilnEquips.Clear();
+        _equipEvents.Clear();
         if (sword is not null)
         {
             var wrong = await Items.Equip(p, sword.Slot, EquipmentSlot.Ring1);
@@ -189,46 +206,94 @@ public sealed partial class ItemsTestMod
                 $"refused: unequip of an empty slot (HookShot): {nothing}");
         var absent = await Items.Unequip(new EntityId(0x7FFFFFF0), EquipmentSlot.Ring0);
         Check(!absent.Ok && absent.Status == ItemsStatus.NoInventory, $"refused: no player character with that id: {absent}");
-        await DeadCheck(p);
         await NoRoomCheck(p);
+        await Steps(6);
         Check(Gear(p) == snap, $"equip: the character ends the refusals as it started: {Gear(p)}");
+        Check(_kilnEquips.Count == 0 && !_equipEvents.Any(e => e.Player.Entity == p),
+            $"refusals: no event [{string.Join("; ", _kilnEquips)}] [{string.Join(",", _equipEvents.Select(x => $"{x.Slot}:{x.Before}->{x.Now}"))}]");
+        await SameTypeSwap(p);
+        await QueueFull();
+        await DeadCheck(p);
     }
 
-    // Kiln refuses a dead player (the game's equip has no such check). The lab sets the Dead state on the character for
-    // one call and puts the state back.
+    // Kiln refuses a dead player right before the transaction (the game's equip has no such check). Last, as the character
+    // stays dead: the game's death of the character through Kiln.Combat (setting the state bit by hand does not hold: the
+    // game's actor programs write the state again before kiln_items_equip runs).
     private async Task DeadCheck(EntityId p)
+    {
+        var hit = await Combat.Kill(p);
+        var dead = false;
+        for (var i = 0; i < 60 && !dead; i++)
+        {
+            await Steps(1);
+            dead = IsDeadNow(p);
+        }
+        if (!dead)
+        {
+            Log.Info($"INFO dead check skipped: the character did not die ({hit})");
+            return;
+        }
+        await Steps(10);
+        var snap = Gear(p);
+        _kilnEquips.Clear();
+        var r = await Items.Unequip(p, EquipmentSlot.Ring0);
+        await Steps(2);
+        Check(!r.Ok && r.Status == ItemsStatus.Refused && r.Reason == "the player is dead" && Gear(p) == snap && _kilnEquips.Count == 0,
+            $"refused: a dead player: {r} (killed by {hit}); nothing changed, no event");
+    }
+
+    private static bool IsDeadNow(EntityId p)
     {
         var actor = Reflected.Component(p, "Actor");
         var flag = GameTypes.Find("keen::actor::StateFlag")?.EnumValues.Where(v => v.Name == "Dead").Select(v => (long?)v.Value).FirstOrDefault();
-        if (actor is null || flag is null || actor.Type.Field("currentState") is not { } f)
+        if (actor is null || flag is null) return false;
+        return ((Convert.ToUInt64(actor["currentState"]) >> (int)flag.Value) & 1) != 0;
+    }
+
+    // Two rings of one item type: Kiln's event names each item entity (Kiln.Players' poll compares item types, so it may
+    // see nothing: logged, not checked).
+    private async Task SameTypeSwap(EntityId p)
+    {
+        await Items.Give(p, new ItemId(RingLight), 2, options: GiveOptions.NoMerge);
+        await Steps(4);
+        var lights = Items.Read(p)!.Slots.Where(s => s.Item.Value == RingLight && !s.IsEquipped && !s.ItemEntity.IsNone).ToList();
+        if (lights.Count < 2)
         {
-            Log.Info("INFO dead check skipped: no Actor reflection here");
+            Check(false, $"same-type swap setup: two loose Rings of Light ({Gear(p)})");
             return;
         }
-        var before = Convert.ToUInt64(actor["currentState"]);
+        var first = await Items.Equip(p, lights[0].Slot, EquipmentSlot.Ring0);
+        await Steps(6);
+        _kilnEquips.Clear();
+        _equipEvents.Clear();
+        var second = await Items.Equip(p, lights[1].Slot, EquipmentSlot.Ring0);
+        await Steps(6);
+        var ev = _kilnEquips.SingleOrDefault();
+        Check(first.Ok && second.Ok && _kilnEquips.Count == 1 && ev != null && ev.Before == first.Ref && ev.After == second.Ref &&
+              ev.BeforeItem == ev.AfterItem,
+            $"same-type swap: one EquipChangedEvent from item entity {first.ItemEntity} to {second.ItemEntity} [{string.Join("; ", _kilnEquips)}]");
+        Log.Info($"INFO same-type swap: Kiln.Players' poll posted {_equipEvents.Count(e => e.Player.Entity == p)} PlayerEquipmentChangedEvent(s) (it compares item types)");
+    }
+
+    // 1024 requests wait at most: the next is a refused result (the capability is there), not an exception.
+    private async Task QueueFull()
+    {
+        var absent = new EntityId(0x7FFFFFF0);
+        var tasks = new List<Task<EquipResult>>();
+        Exception? thrown = null;
         try
         {
-            actor["currentState"] = before | (1UL << (int)flag.Value);
-            var dead = await Items.Unequip(p, EquipmentSlot.Ring0);
-            Check(!dead.Ok && dead.Status == ItemsStatus.Refused && dead.Reason == "the player is dead",
-                $"refused: a dead player: {dead} (state bit {flag} at +{f.Offset})");
+            for (var i = 0; i < 1025; i++) tasks.Add(Items.Unequip(absent, EquipmentSlot.Ring0));
         }
-        catch (ArgumentException e)
+        catch (Exception e)
         {
-            Log.Info($"INFO dead check skipped: the state cannot be written here: {e.Message}");
+            thrown = e;
         }
-        finally
-        {
-            try
-            {
-                actor["currentState"] = before;
-            }
-            catch (ArgumentException)
-            {
-                // nothing was written above either
-            }
-        }
-        await Steps(1);
+        var last = tasks.Count == 1025 && tasks[^1].IsCompleted ? tasks[^1].Result : null;
+        Check(thrown == null && last is { Ok: false, Status: ItemsStatus.Refused } && last.Reason!.Contains("waiting"),
+            $"queue full: the 1025th request is a refused result ({last?.Reason ?? thrown?.Message})");
+        await Task.WhenAll(tasks.Take(1024));
+        Check(tasks.Take(1024).All(t => t.Result.Status == ItemsStatus.NoInventory), "queue full: the 1024 waiting ones end for the absent player");
     }
 
     // An unequip with no free backpack slot comes back NoRoom and changes nothing: fill the backpack, try, take it back.

@@ -25,7 +25,7 @@ public enum EquipOptions
 /// holds another item entity, or nothing is equipped there); <see cref="ItemsStatus.NoInventory"/> (no player character
 /// with that id in the world); <see cref="ItemsStatus.NoRoom"/> (an unequip found no free backpack slot);
 /// <see cref="ItemsStatus.Refused"/> (the game refused, <see cref="GameError"/>: the item does not fit the slot; or Kiln
-/// refused: the player is dead); <see cref="ItemsStatus.Unavailable"/> and <see cref="ItemsStatus.Dropped"/> (equip went off,
+/// refused: the player is dead right before the transaction, or 1024 requests are waiting); <see cref="ItemsStatus.Unavailable"/> and <see cref="ItemsStatus.Dropped"/> (equip went off,
 /// or the server world closed, after the call).</summary>
 /// <param name="Status">The outcome.</param>
 /// <param name="Player">The player character.</param>
@@ -83,6 +83,42 @@ public sealed record EquipResult(
         new(status, player, slot, unequip, default, default, from, default, default, default, default, message, 0, 0, dryRun);
 }
 
+/// <summary>Kiln's <see cref="Items.Equip"/> or <see cref="Items.Unequip"/> changed a player's equipment: posted once per
+/// committed change, on the tick thread when its result arrives (also when one ring replaces another of the same item, and
+/// for an equip and an unequip within a few steps). Not for a refusal or a dry run. Kiln.Players'
+/// <c>PlayerEquipmentChangedEvent</c> is the poll that also sees a player's own changes (every four steps, by item
+/// type). Not cancelable (it already happened). Capability <c>items.equip</c>.</summary>
+[ServerOnly]
+public sealed class EquipChangedEvent : KilnEvent
+{
+    internal EquipChangedEvent(EquipResult result) => Result = result;
+
+    /// <summary>The committed change.</summary>
+    public EquipResult Result { get; }
+
+    /// <summary>The player.</summary>
+    public EntityId Player => Result.Player;
+
+    /// <summary>The equipment slot; null when the game's choice could not be read back.</summary>
+    public EquipmentSlot? Slot => Result.Slot;
+
+    /// <summary>What the slot held before (an unequip: the item taken off; an equip: what it replaced, none when it was
+    /// empty).</summary>
+    public ItemInstanceRef Before => Result.Unequipped ? Result.Ref : Result.ReplacedRef;
+
+    /// <summary>What it holds now (none after an unequip).</summary>
+    public ItemInstanceRef After => Result.Unequipped ? ItemInstanceRef.None : Result.Ref;
+
+    /// <summary>The item type before (see <see cref="Before"/>).</summary>
+    public ItemId BeforeItem => Result.Unequipped ? Result.Item : Result.Replaced;
+
+    /// <summary>The item type now.</summary>
+    public ItemId AfterItem => Result.Unequipped ? default : Result.Item;
+
+    /// <summary>The change in one line, for a log.</summary>
+    public override string ToString() => $"equip changed: player {Player} {Slot?.ToString() ?? "?"}: {BeforeItem} -> {AfterItem}";
+}
+
 public static unsafe partial class Items
 {
     private static ItemsNative.TableV5* _v5;
@@ -120,7 +156,8 @@ public static unsafe partial class Items
     /// <paramref name="slot"/> is not an <see cref="EquipmentSlot"/>.</exception>
     /// <exception cref="InvalidOperationException">Not on the tick thread, or the calling mod is unloading.</exception>
     /// <exception cref="KilnUnavailableException">The capability <c>items.equip</c> is off: an older Kiln, a game build
-    /// without the game's equip, kiln.world not loaded, or equip switched off after a fault.</exception>
+    /// without the game's equip, kiln.world or kiln.players not loaded, no death check on this build, equip switched off
+    /// after a fault, or a game client that joined another machine's world.</exception>
     /// <example><code>
     /// var ring = Items.Read(player)!.Slots.First(s => s.Item == ringId);
     /// EquipResult r = await Items.Equip(player, ring.Slot, EquipmentSlot.Ring1);
@@ -136,6 +173,7 @@ public static unsafe partial class Items
         if (player.IsNone) throw new ArgumentException("no player", nameof(player));
         if (from.IsNone) throw new ArgumentException("no slot", nameof(from));
         if (slot is { } s && !Enum.IsDefined(s)) throw new ArgumentException("not an equipment slot", nameof(slot));
+        CheckOptions(options);
         var r = new ItemsNative.EquipRequest
         {
             Size = (uint)sizeof(ItemsNative.EquipRequest),
@@ -169,6 +207,7 @@ public static unsafe partial class Items
         Services.RequireTickThread("Items.Unequip");
         if (player.IsNone) throw new ArgumentException("no player", nameof(player));
         if (!Enum.IsDefined(slot)) throw new ArgumentException("not an equipment slot", nameof(slot));
+        CheckOptions(options);
         var r = new ItemsNative.EquipRequest
         {
             Size = (uint)sizeof(ItemsNative.EquipRequest),
@@ -178,6 +217,13 @@ public static unsafe partial class Items
         };
         if (options.HasFlag(EquipOptions.DryRun)) r.Flags |= ItemsNative.EquipDryRun;
         return SubmitEquip(r, slot, default, "Items.Unequip");
+    }
+
+    /// <summary>Options other than <see cref="EquipOptions.DryRun"/> are a bad argument (a bit Kiln does not know would
+    /// otherwise run a real change).</summary>
+    internal static void CheckOptions(EquipOptions options)
+    {
+        if ((options & ~EquipOptions.DryRun) != 0) throw new ArgumentException($"unknown equip options {options}", nameof(options));
     }
 
     /// <summary>The game's keen::EquipmentSlot value of an <see cref="EquipmentSlot"/> (SlotSelection.equipment order:
@@ -219,35 +265,6 @@ public static unsafe partial class Items
         return (s.Available != 0, s.Program, ItemsNative.Text(s.Detail, 160));
     }
 
-    // ---- a dead player (Actor.currentState, StateFlag.Dead): Kiln refuses, the game's equip has no such check ----
-
-    private static int _deadBit = -2;
-
-    /// <summary>True when the player's actor has the Dead state; false when alive or unreadable (no kiln.types, no
-    /// Actor).</summary>
-    internal static bool IsDead(EntityId player)
-    {
-        try
-        {
-            if (!GameTypes.Available) return false;
-            if (_deadBit == -2)
-            {
-                _deadBit = -1;
-                foreach (var (name, value) in GameTypes.Find("keen::actor::StateFlag")?.EnumValues ?? [])
-                    if (name == "Dead" && value is >= 0 and < 64) _deadBit = (int)value;
-            }
-            if (_deadBit < 0) return false;
-            var actor = Reflected.Component(player, "Actor");
-            if (actor?.Type.Field("currentState") is not { } f || f.Type.Size != 8) return false;
-            var bytes = actor.Bytes;
-            return f.Offset + 8 <= bytes.Length && ((BitConverter.ToUInt64(bytes, f.Offset) >> _deadBit) & 1) != 0;
-        }
-        catch (Exception e) when (e is ArgumentException or InvalidOperationException or NotSupportedException)
-        {
-            return false;
-        }
-    }
-
     // ---- submit and results ----
 
     private sealed class PendingEquip(TaskCompletionSource<EquipResult> tcs, ModContext? mod)
@@ -268,8 +285,6 @@ public static unsafe partial class Items
         var player = new EntityId(r.Player);
         var unequip = (r.Flags & ItemsNative.EquipUnequip) != 0;
         var dry = (r.Flags & ItemsNative.EquipDryRun) != 0;
-        if (IsDead(player))
-            return Task.FromResult(EquipResult.Fail(ItemsStatus.Refused, player, slot, unequip, from, "the player is dead", dry));
         var mod = ModContext.CurrentMod;
         if (mod is { Alive: false }) throw new InvalidOperationException("the mod is unloading");
         var tcs = new TaskCompletionSource<EquipResult>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -286,8 +301,9 @@ public static unsafe partial class Items
         if (rc != ItemsNative.Ok)
         {
             lock (EquipGate) EquipsInFlight.Remove(key);
+            if (SubmitRefusal(rc, player, slot, unequip, from, dry) is { } refused) return Task.FromResult(refused);
             if (rc == ItemsNative.InvalidArgument) throw new ArgumentException($"{api}: kiln.items refused the request's arguments");
-            throw new KilnUnavailableException(Caps.Equip, EquipStatusOf(t)?.Detail is { Length: > 0 } d ? d : "kiln.items refused it (1024 requests waiting?)");
+            throw new KilnUnavailableException(Caps.Equip, EquipStatusOf(t)?.Detail is { Length: > 0 } d ? d : $"kiln.items refused it (error {rc})");
         }
         lock (EquipGate)
         {
@@ -295,6 +311,13 @@ public static unsafe partial class Items
         }
         return tcs.Task;
     }
+
+    /// <summary>A submission the native side refused for now (the queue is full) is a result, not an exception: the
+    /// capability is there (the one error rule). Null for every other code.</summary>
+    internal static EquipResult? SubmitRefusal(int rc, EntityId player, EquipmentSlot? slot, bool unequip, SlotId from, bool dry) =>
+        rc == ItemsNative.BufferTooSmall
+            ? EquipResult.Fail(ItemsStatus.Refused, player, slot, unequip, from, "1024 equip requests are waiting: try again in a step", dry)
+            : null;
 
     private static void RetireEquips(ModContext mod)
     {
@@ -340,6 +363,8 @@ public static unsafe partial class Items
             }
             var result = ToResult(*r);
             ItemTracker.OnEquip(result);
+            if (result is { Ok: true, DryRun: false } && Events.HasSubscribers<EquipChangedEvent>())
+                Events.Post(new EquipChangedEvent(result));
             p.Tcs.TrySetResult(result);
         }
         catch

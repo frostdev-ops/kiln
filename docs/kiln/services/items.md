@@ -323,6 +323,7 @@ if (!on.Ok) Log.Info($"not equipped: {on.Reason}");                          // 
 | `Items.Equip(player, from, slot = null, options = None, itemEntity = default)` → `Task<EquipResult>` | `[ServerOnly][TickThreadOnly]` | the stack in `from` (a slot of the player's own inventories) goes into `slot`, or into the item's own slot; what the slot held comes off as the game swaps it. `itemEntity`: the item entity the slot must still hold |
 | `Items.Unequip(player, slot, options = None)` → `Task<EquipResult>` | `[ServerOnly][TickThreadOnly]` | what the slot holds goes into a free Generic (backpack) slot |
 | `EquipOptions.DryRun` | value | run the game's call and roll it back: the result says what would happen |
+| `EquipChangedEvent` (`Result`, `Player`, `Slot`, `Before`, `After`, `BeforeItem`, `AfterItem`) | `[ServerOnly]`, tick thread | once per committed change of `Equip` / `Unequip`, when its result arrives; also for two instances of one item type; none for a refusal or a dry run |
 | `EquipResult` (`IKilnResult`) | value | `Ok`, `Reason`, `Status`, `Player`, `Slot` (for the item's own slot: where it went), `Unequipped`, `Item`, `ItemEntity`, `Ref`, `From`, `To`, `Replaced`, `ReplacedEntity`, `ReplacedRef`, `ReplacedTo`, `Message`, `GameError`, `Steps`, `DryRun` |
 
 The one error rule:
@@ -330,11 +331,16 @@ The one error rule:
   holds another item entity; an unequip of an empty slot), `NoInventory` (no player character with that id in the
   world), `NoRoom` (an unequip with no free backpack slot: the game also shows the player its "inventory full" notice, as
   for their own unequip), `Refused` (the game refused: the item's EquipmentSlotType is not the slot's, `GameError` 0x11;
-  or Kiln refused: the player is dead), `Unavailable` / `Dropped` (equip went off, or the server world closed, after the
-  call);
+  or Kiln refused: the player is dead right before the transaction, or 1024 requests are waiting), `Unavailable` /
+  `Dropped` (equip went off, or the server world closed, after the call); a request whose player left before it ran comes
+  back `NoInventory` (the next player in the slot gets the same entity id: a request runs only for the session it was
+  made for);
 - **bad argument** (`ArgumentException`): player or slot none, a value outside `EquipmentSlot`;
+- **bad argument** also: option bits other than `DryRun`;
 - **capability off** (`KilnUnavailableException("items.equip")`): an older Kiln, a game build without the two functions,
-  no kiln.world, equip switched off after a fault.
+  no kiln.world or kiln.players, no death check on this build (`Actor.currentState` and `StateFlag.Dead` by the game's
+  reflection), equip switched off after a fault, or a game client with no server world (its menu, or joined to another
+  machine's world: the row is then unavailable for the session, reason `session`, and comes back when the client hosts).
 
 How it runs:
 - The game's equip takes the player from the running program's **current entity**, not from an argument, so it can only
@@ -349,11 +355,15 @@ How it runs:
   twice.
 - A refusal rolls the whole transaction back: the inventory is as it was.
 - The change reaches players through the game's own replication; equipment is not predicted by a client
-  (`equipment_actions` is host only), so a player's game shows the server's equipment. Kiln.Players'
-  `PlayerEquipmentChangedEvent` follows within four steps, as for the player's own equip; Kiln.Saves' followed items
-  see the move at once (cause `Transaction`).
-- A dead player: Kiln refuses when the call is made (`Actor.currentState` has the Dead state; the game's own equip has
-  no such check). The C table does not check it.
+  (`equipment_actions` is host only), so a player's game shows the server's equipment. `EquipChangedEvent` reports each
+  committed change of Kiln's exactly; Kiln.Players' `PlayerEquipmentChangedEvent` is the poll that also sees the
+  player's own changes (every four steps, by item type: it misses one ring replacing another of the same type, and an
+  equip and unequip between two polls). Kiln.Saves' followed items see the move at once (cause `Transaction`).
+- A dead player: refused right before the transaction, from the iterated player's `Actor` (a declared read of
+  `kiln_items_equip`; the game's own equip has no such check). The C table does the same.
+- The session: a request for a player entity (1..1023) captures the player's session at the call (kiln.players: the
+  connection handle with the slot's generation, and the step the session was first seen in game) and is checked in the
+  Pre of the step it runs in; a request runs only in a step whose Pre checked it.
 - The vanity slots take armour of the same body part (the game's table); the four building-material values of the game's
   `EquipmentSlot` are not equipment slots (`SlotSelection.equipment` has 20 entries) and are not offered.
 

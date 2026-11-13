@@ -50,3 +50,12 @@ static Kiln.EquipResult.operator !=(Kiln.EquipResult? left, Kiln.EquipResult? ri
 static Kiln.EquipResult.operator ==(Kiln.EquipResult? left, Kiln.EquipResult? right) -> bool
 static Kiln.Items.Equip(Kiln.EntityId player, Kiln.SlotId from, Kiln.EquipmentSlot? slot = null, Kiln.EquipOptions options = Kiln.EquipOptions.None, Kiln.EntityId itemEntity = default(Kiln.EntityId)) -> System.Threading.Tasks.Task<Kiln.EquipResult!>!
 static Kiln.Items.Unequip(Kiln.EntityId player, Kiln.EquipmentSlot slot, Kiln.EquipOptions options = Kiln.EquipOptions.None) -> System.Threading.Tasks.Task<Kiln.EquipResult!>!
+Kiln.EquipChangedEvent
+Kiln.EquipChangedEvent.After.get -> Kiln.ItemInstanceRef
+Kiln.EquipChangedEvent.AfterItem.get -> Kiln.ItemId
+Kiln.EquipChangedEvent.Before.get -> Kiln.ItemInstanceRef
+Kiln.EquipChangedEvent.BeforeItem.get -> Kiln.ItemId
+Kiln.EquipChangedEvent.Player.get -> Kiln.EntityId
+Kiln.EquipChangedEvent.Result.get -> Kiln.EquipResult!
+Kiln.EquipChangedEvent.Slot.get -> Kiln.EquipmentSlot?
+override Kiln.EquipChangedEvent.ToString() -> string!

@@ -172,7 +172,8 @@ public static unsafe partial class Items
     internal static (EquipVerdict Verdict, string Text) DecideEquip(uint? tableVersion, bool v5, bool available, string detail) =>
         tableVersion is not { } version ? (EquipVerdict.NoTable, "kiln.items is not loaded")
         : !v5 ? (EquipVerdict.NoV5, $"kiln.items v{version} has no equip (update Kiln)")
-        : !available ? (EquipVerdict.Off, detail.Length > 0 ? detail : "kiln.items turned equip off (see kiln.log)")
+        : !available && !detail.StartsWith(NoServerWorld, StringComparison.Ordinal)
+            ? (EquipVerdict.Off, detail.Length > 0 ? detail : "kiln.items turned equip off (see kiln.log)")
         : (EquipVerdict.On, "");
 
     // items.moves follows the kiln_items program: available while moves run, pending while it waits for a server world
@@ -191,17 +192,31 @@ public static unsafe partial class Items
         Capabilities.Report(Caps.Moves, now.Item1, now.Item2, now.Item3);
     }
 
-    // items.equip goes off for the session when kiln.items' equip program is refused by the server world or breaks
-    // (equip_status stops saying available); the row is only ever lowered.
-    private static bool _equipLowered;
+    // items.equip follows what kiln.items says every 25 steps: off for good when its program was refused or broke; off for
+    // the session on a game client that joined another machine's world (no server world here: a request would never
+    // run), and on again when this client hosts. The sigdb row is never raised above the core's verdict: an "available"
+    // report only takes back Kiln.Items' own session report.
+    private static bool _equipBroken;
+    internal const string NoServerWorld = "no server world in this process";
+    private static (CapabilityState, CapabilityReason, string) _equipSession = (CapabilityState.Available, CapabilityReason.None, "");
 
     private static void RefreshEquip()
     {
         var t = V5;
-        if (_equipLowered || t == null || !Capabilities.Is(Caps.Equip)) return;
-        if (EquipStatusOf(t) is not { Available: false } s) return;
-        _equipLowered = true;
-        Off(Caps.Equip, s.Detail, Caps.Transaction, Caps.Read);
+        if (_equipBroken || t == null || EquipStatusOf(t) is not { } s) return;
+        var remote = !s.Available && s.Detail.StartsWith(NoServerWorld, StringComparison.Ordinal);
+        if (!s.Available && !remote)
+        {
+            _equipBroken = true;
+            Off(Caps.Equip, s.Detail, Caps.Transaction, Caps.Read);
+            return;
+        }
+        (CapabilityState, CapabilityReason, string) now = remote
+            ? (CapabilityState.Unavailable, CapabilityReason.Session, s.Detail)
+            : (CapabilityState.Available, CapabilityReason.None, "");
+        if (now == _equipSession) return;
+        _equipSession = now;
+        Capabilities.Report(Caps.Equip, now.Item1, now.Item2, now.Item3);
     }
 
     private static (CapabilityState, CapabilityReason, string) Unavailable((CapabilityReason Reason, string Text) c) =>

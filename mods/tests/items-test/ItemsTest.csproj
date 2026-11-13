@@ -21,6 +21,7 @@
     <!-- Equip (EquipTest.cs): a spawned player character, followed by kiln.players for PlayerEquipmentChangedEvent. -->
     <ProjectReference Include="../../../managed/services/Kiln.Spawn/Kiln.Spawn.csproj" Private="false" ExcludeAssets="runtime" />
     <ProjectReference Include="../../../managed/services/Kiln.Players/Kiln.Players.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="../../../managed/services/Kiln.Combat/Kiln.Combat.csproj" Private="false" ExcludeAssets="runtime" />
     <None Include="kiln.mod.json" CopyToOutputDirectory="PreserveNewest" />
     <!-- Optional test fixture ($KILN_EXPECTED_ITEMS, a JSON item list), to cross-check the game's registry (skipped when absent). -->
     <None Include="$(KILN_EXPECTED_ITEMS)" Link="expected-items.json" CopyToOutputDirectory="PreserveNewest"

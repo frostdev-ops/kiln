@@ -24,6 +24,8 @@
 #include "engine.h"
 #include "equip_logic.h"
 #include "instances.h"
+#include "services/kiln_players.h"
+#include "services/kiln_types.h"
 #include "xfer.h"
 
 namespace kitems {
@@ -51,6 +53,14 @@ struct Request {
     KilnOwner owner;
     KilnItemsEquipRequest r;
     uint64_t submitted;
+    // The player's session at the submission (kiln.players: the connection handle carries the slot's generation, and
+    // the step the session was first seen in game). A player entity is slot + 1: the next player in the slot gets the
+    // same id, so a request runs only for the session it was made for. Ids from 1024 on (characters spawned by a lab)
+    // come from the engine's counter and are never reused: no session.
+    bool session = false;
+    uint32_t handle = 0;
+    uint64_t joined_step = 0;
+    uint64_t verified_step = 0;  // the Pre that checked the session; the program runs it only in that step
 };
 struct Callback {
     KilnItemsEquipDoneFn fn;
@@ -74,6 +84,72 @@ int g_sing[4] = {-1, -1, -1, -1}, g_acc[A_COUNT], g_ev[2] = {-1, -1};
 bool g_slots = false;
 uint8_t* g_tx = nullptr;  // one InventoryTx: the program is serial (other-write)
 uint32_t g_hash_input = 0;
+int g_actor_slot = -1;           // the program's read slot of the player's Actor (the death check)
+int64_t g_dead_offset = -1;      // Actor.currentState (u64 StateMask), from kiln.types
+int g_dead_bit = -1;             // keen::actor::StateFlag.Dead
+const KilnPlayersApi* g_players = nullptr;
+
+constexpr KilnEntity kLastSlotId = 1023;  // player entities are slot + 1 within the engine's reserved range
+
+bool slot_player(KilnEntity e) { return e >= 1 && e <= kLastSlotId; }
+
+// The session of a player entity (kiln.players' last scan): false when no player in game has the id.
+bool session_of(KilnEntity e, uint32_t* handle, uint64_t* joined) {
+    if (!g_players) return false;
+    KilnPlayer p{};
+    p.size = sizeof p;
+    if (g_players->get(e, &p) != KILN_OK || p.state != KILN_PLAYER_IN_GAME) return false;
+    *handle = p.handle;
+    *joined = p.joined_step;
+    return true;
+}
+
+// A game client with no server world (its menu, or joined to another machine's world): a request would never run.
+bool no_server_world_here() {
+    KilnSessionInfo si{};
+    si.size = sizeof si;
+    if (items_api()->session(&si) != KILN_OK) return false;
+    return si.side == KILN_SIDE_CLIENT && si.worlds[KILN_WORLD_SERVER] == 0;
+}
+
+// Actor.currentState and the Dead flag by the game's own reflection (kiln.types), base classes included. False: the
+// death check cannot be made, and equip stays off.
+bool resolve_death_check(char* why, size_t cap) {
+    const auto* t = static_cast<const KilnTypesApi*>(items_api()->service(KilnStr{KILN_TYPES_SERVICE, std::strlen(KILN_TYPES_SERVICE)}, 1));
+    if (!t || t->header.size < sizeof(KilnTypesApi)) return std::snprintf(why, cap, "kiln.types is not loaded"), false;
+    auto str = [](const char* s) { return KilnStr{s, std::strlen(s)}; };
+    const KilnType* actor = t->type_by_name(str("keen::ecs::Actor"));
+    for (int depth = 0; actor && depth < 8 && g_dead_offset < 0; ++depth) {
+        KilnTypeInfo ti{};
+        ti.size = sizeof ti;
+        if (t->type_info(actor, &ti) != KILN_OK) break;
+        for (uint32_t i = 0; i < ti.field_count; ++i) {
+            KilnTypeField f{};
+            if (t->type_field(actor, i, &f) == KILN_OK && f.name.len == 12 && std::memcmp(f.name.ptr, "currentState", 12) == 0) {
+                KilnTypeInfo fi{};
+                fi.size = sizeof fi;
+                if (t->type_info(f.type, &fi) == KILN_OK && fi.type_size == 8) g_dead_offset = static_cast<int64_t>(f.offset);
+                break;
+            }
+        }
+        actor = ti.inner;  // the base class (BaseActor holds currentState)
+    }
+    if (const KilnType* flag = t->type_by_name(str("keen::actor::StateFlag"))) {
+        KilnTypeInfo ti{};
+        ti.size = sizeof ti;
+        if (t->type_info(flag, &ti) == KILN_OK)
+            for (uint32_t i = 0; i < ti.field_count; ++i) {
+                KilnStr name{};
+                int64_t value = 0;
+                if (t->type_enum(flag, i, &name, &value) == KILN_OK && name.len == 4 && std::memcmp(name.ptr, "Dead", 4) == 0 &&
+                    value >= 0 && value < 64)
+                    g_dead_bit = static_cast<int>(value);
+            }
+    }
+    if (g_dead_offset < 0 || g_dead_bit < 0)
+        return std::snprintf(why, cap, "Actor.currentState or StateFlag.Dead is not in this build's reflection"), false;
+    return true;
+}
 
 uint32_t fnv(const char* s) {
     uint32_t h = 0x811c9dc5u;
@@ -102,9 +178,11 @@ bool resolve_slots() {
     for (int i = 0; i < 4; ++i) g_sing[i] = g_w->program_slot(g_handle, KILN_SLOT_SINGLETON, str(kSing[i]));
     for (int i = 0; i < A_COUNT; ++i) g_acc[i] = g_w->program_slot(g_handle, KILN_SLOT_OTHER_WRITE, str(kAccNames[i]));
     for (int i = 0; i < 2; ++i) g_ev[i] = g_w->program_slot(g_handle, KILN_SLOT_EVENT_OUT, str(kEvents[i]));
+    g_actor_slot = g_w->program_slot(g_handle, KILN_SLOT_READ, str("Actor"));
     for (int s : g_sing) if (s < 1 || s >= 64) return false;
     for (int s : g_acc) if (s < 1 || s >= 64) return false;
     for (int s : g_ev) if (s < 1 || s >= 64) return false;
+    if (g_actor_slot < 1 || g_actor_slot >= 64) return false;
     g_slots = true;
     return true;
 }
@@ -293,6 +371,17 @@ void finish(const KilnItemsEquipResult& res) {
     g_done.push_back(res);
 }
 
+// The iterated player's Actor (a declared read of the program), right before the transaction. False on a fault.
+bool dead_now(const uint64_t* it, bool* dead) {
+    __try {
+        const auto* actor = reinterpret_cast<const uint8_t*>(it[g_actor_slot]);
+        *dead = actor && ((rd<uint64_t>(actor, g_dead_offset) >> g_dead_bit) & 1u) != 0;
+        return true;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+
 // kiln.world calls this once per player character per step (each mode: `ctx` iterates that entity).
 void KILN_CALL each(KilnProgramCtx* ctx, uint64_t* it, KilnEntity player, void*) {
     if (g_pending_n.load(std::memory_order_acquire) == 0) return;
@@ -300,8 +389,9 @@ void KILN_CALL each(KilnProgramCtx* ctx, uint64_t* it, KilnEntity player, void*)
     uint32_t n = 0;
     {
         std::lock_guard lock(g_mu);
+        const uint64_t now_step = current_step();
         for (auto i = g_pending.begin(); i != g_pending.end() && n < kPerPlayerStep;) {
-            if (i->r.player == player) {
+            if (i->r.player == player && i->verified_step == now_step) {
                 batch[n++] = *i;
                 i = g_pending.erase(i);
             } else {
@@ -334,9 +424,18 @@ void KILN_CALL each(KilnProgramCtx* ctx, uint64_t* it, KilnEntity player, void*)
     }
     for (uint32_t i = 0; i < n; ++i) {
         KilnItemsEquipResult res = result_of(batch[i], step);
+        bool dead = false;
+        if (g_state.load() == KILN_ITEMS_PROGRAM_RUNNING && !dead_now(it, &dead)) {
+            broken("reading the player's Actor faulted");
+            std::snprintf(why, sizeof why, "equip is off (see kiln.log)");
+        }
         if (g_state.load() != KILN_ITEMS_PROGRAM_RUNNING) {
             res.status = KILN_ITEMS_UNAVAILABLE;
             std::snprintf(res.message, sizeof res.message, "%s", why[0] ? why : "equip is off (see kiln.log)");
+        } else if (dead) {
+            // the game's equip has no such check; a dead character's inventory is being moved to its tombstone
+            res.status = KILN_ITEMS_REFUSED;
+            std::snprintf(res.message, sizeof res.message, "the player is dead");
         } else if (!run_equip(a, player, batch[i].r, g_tx, &res, &code)) {
             abandon_tx(g_tx);
             res.status = KILN_ITEMS_UNAVAILABLE;
@@ -403,6 +502,21 @@ void equip_register(const KilnWorldApi* w) {
         LOGW("equip unavailable: kiln.world is not loaded");
         return;
     }
+    g_players = static_cast<const KilnPlayersApi*>(items_api()->service(KilnStr{KILN_PLAYERS_SERVICE, std::strlen(KILN_PLAYERS_SERVICE)}, 1));
+    if (!g_players || g_players->header.size < sizeof(KilnPlayersApi)) {
+        g_players = nullptr;
+        set_detail("equip needs kiln.players (to tell two sessions of one player slot apart): kiln.players is not loaded");
+        LOGW("equip unavailable: kiln.players is not loaded");
+        return;
+    }
+    char why[160] = "";
+    if (!resolve_death_check(why, sizeof why)) {
+        char b[160];
+        std::snprintf(b, sizeof b, "the death check cannot be made: %s", why);
+        set_detail(b);
+        LOGW("equip unavailable: %s", b);
+        return;
+    }
     g_tx = static_cast<uint8_t*>(VirtualAlloc(nullptr, static_cast<SIZE_T>(E.tx_size), MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE));
     if (!g_tx) {
         set_detail("no memory for the equip transaction");
@@ -410,7 +524,7 @@ void equip_register(const KilnWorldApi* w) {
     }
     g_hash_input = fnv("keen::ecs::PlayerInput");
     auto str = [](const char* s) { return KilnStr{s, std::strlen(s)}; };
-    std::vector<KilnStr> read{str("PlayerInput")}, sr, sw{str(kSing[3])}, ow, eo;
+    std::vector<KilnStr> read{str("Actor"), str("PlayerInput")}, sr, sw{str(kSing[3])}, ow, eo;
     for (int i = 0; i < 3; ++i) sr.push_back(str(kSing[i]));
     for (int i = 0; i < A_COUNT; ++i) ow.push_back(str(kAccNames[i]));
     for (const char* e : kEvents) eo.push_back(str(e));
@@ -457,6 +571,20 @@ void equip_pre(uintptr_t world, uint64_t step) {
                 i = g_pending.erase(i);
                 continue;
             }
+            // the session the request was made for, checked in the Pre of the step its program runs in
+            if (i->session) {
+                uint32_t handle = 0;
+                uint64_t joined = 0;
+                if (!session_of(i->r.player, &handle, &joined) || handle != i->handle || joined != i->joined_step) {
+                    KilnItemsEquipResult r = result_of(*i, step);
+                    fail(&r, KILN_ITEMS_NO_INVENTORY, "player %u's session ended (left the game); the id may be another player's now",
+                         i->r.player);
+                    ended.push_back(r);
+                    i = g_pending.erase(i);
+                    continue;
+                }
+            }
+            i->verified_step = step;
             check.emplace_back(i->ticket, i->r.player);
             ++i;
         }
@@ -541,9 +669,15 @@ KilnResult equip_submit(KilnOwner owner, const KilnItemsEquipRequest* r, KilnIte
     if (out_ticket) *out_ticket = 0;
     if (!r || r->size < sizeof(KilnItemsEquipRequest) || !equip_request_valid(*r)) return KILN_ERR_INVALID_ARGUMENT;
     const int state = g_state.load();
-    if (!E.equip_ok || !g_w || !g_tx || state == KILN_ITEMS_PROGRAM_NONE || state == KILN_ITEMS_PROGRAM_BROKEN)
+    if (!E.equip_ok || !g_w || !g_tx || !g_players || state == KILN_ITEMS_PROGRAM_NONE || state == KILN_ITEMS_PROGRAM_BROKEN ||
+        no_server_world_here())
         return KILN_ERR_UNAVAILABLE;
     Request q{};
+    if (slot_player(r->player)) {
+        // no player in game with the id: the request comes back NO_INVENTORY at the next Pre
+        q.session = true;
+        session_of(r->player, &q.handle, &q.joined_step);
+    }
     q.ticket = items_next_ticket();
     q.owner = owner;
     q.r = *r;
@@ -551,7 +685,7 @@ KilnResult equip_submit(KilnOwner owner, const KilnItemsEquipRequest* r, KilnIte
     q.submitted = current_step();
     {
         std::lock_guard lock(g_mu);
-        if (g_pending.size() >= kMaxPending) return KILN_ERR_UNAVAILABLE;
+        if (g_pending.size() >= kMaxPending) return KILN_ERR_BUFFER_TOO_SMALL;  // a refusal for now, not a missing capability
         g_pending.push_back(q);
         if (done) g_callbacks.emplace(q.ticket, Callback{done, user, owner});
         g_pending_n.store(static_cast<uint32_t>(g_pending.size()), std::memory_order_release);
@@ -566,14 +700,17 @@ KilnResult equip_status(KilnItemsEquipStatus* out) {
     out->size = sizeof *out;
     const int state = g_state.load();
     out->program = static_cast<uint8_t>(state);
-    out->available = E.equip_ok && g_w && g_tx &&
+    const bool remote = no_server_world_here();
+    out->available = E.equip_ok && g_w && g_tx && g_players && !remote &&
                      (state == KILN_ITEMS_PROGRAM_PENDING || state == KILN_ITEMS_PROGRAM_ACTIVE ||
                       state == KILN_ITEMS_PROGRAM_RUNNING);
     out->done = g_changed.load();
     out->refused = g_refused.load();
     std::lock_guard lock(g_mu);
     out->pending = static_cast<uint32_t>(g_pending.size());
-    std::snprintf(out->detail, sizeof out->detail, "%s", out->available ? "" : g_detail);
+    std::snprintf(out->detail, sizeof out->detail, "%s",
+                  out->available ? "" : remote ? "no server world in this process (a game client in its menu or joined to another machine's world): equip runs where the world runs"
+                                              : g_detail);
     return KILN_OK;
 }
 

@@ -144,6 +144,40 @@ public sealed unsafe class EquipTests
     }
 
     [Fact]
+    public void UnknownOptionBitsAreABadArgument()
+    {
+        Items.CheckOptions(EquipOptions.None);
+        Items.CheckOptions(EquipOptions.DryRun);
+        Assert.Throws<ArgumentException>(() => Items.CheckOptions((EquipOptions)2));
+        using var kiln = new KilnHarness();
+        kiln.Run(() =>
+        {
+            Assert.Throws<ArgumentException>(() => Call(() => Items.Equip(new EntityId(1), new SlotId(0x0000000100000800UL), null, (EquipOptions)4)));
+            Assert.Throws<ArgumentException>(() => Call(() => Items.Unequip(new EntityId(1), EquipmentSlot.Ring0, (EquipOptions)3)));
+        });
+    }
+
+    [Fact]
+    public void AFullQueueIsARefusalNotAMissingCapability()
+    {
+        var r = Items.SubmitRefusal(ItemsNative.BufferTooSmall, new EntityId(1), EquipmentSlot.Ring0, false, default, false);
+        Assert.NotNull(r);
+        Assert.False(r!.Ok);
+        Assert.Equal(ItemsStatus.Refused, r.Status);
+        Assert.Contains("waiting", r.Reason);
+        Assert.Null(Items.SubmitRefusal(ItemsNative.Unavailable, new EntityId(1), null, true, default, false));
+        Assert.Null(Items.SubmitRefusal(ItemsNative.InvalidArgument, new EntityId(1), null, true, default, false));
+    }
+
+    [Fact]
+    public void NoServerWorldIsASessionStateNotAnOff()
+    {
+        // a game client in its menu or joined elsewhere: the row follows the session (RefreshEquip), it is not lowered for good
+        Assert.Equal(Items.EquipVerdict.On, Items.DecideEquip(5, true, false, Items.NoServerWorld + " (a game client in its menu)").Verdict);
+        Assert.Equal(Items.EquipVerdict.Off, Items.DecideEquip(5, true, false, "the death check cannot be made: kiln.types is not loaded").Verdict);
+    }
+
+    [Fact]
     public void OffTheTickThreadThrows()
     {
         using var kiln = new KilnHarness();
