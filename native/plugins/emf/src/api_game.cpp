@@ -365,16 +365,18 @@ void send_lines(KilnEntity to, const std::vector<std::string>& lines) {
     for (const auto& l : lines) S.chat->send(to, kstr(l), nullptr);
 }
 
-bool api_chat_tell(EmfWorld* w, uint32_t player, const char* text) {
-    Mod* m = caller_mod(_ReturnAddress());
-    if (!S.chat) return unsupported(m, "chat_tell", "kiln.chat is not available"), false;
-    if (!is_server_world(w)) return refuse(m, "chat_tell", "not a server world"), false;
+// chat_tell and chat_tell_ex (v30). kiln.chat's server lines are notices: a client shows them as their text alone,
+// without a speaker's name, also on a server with text chat off. That is what EMF_CHAT_SYSTEM asks for, so flags 0
+// and EMF_CHAT_SYSTEM send the same line here (on EMF a plain chat_tell shows under the player's own name).
+bool chat_tell(Mod* m, const char* fn, EmfWorld* w, uint32_t player, const char* text) {
+    if (!S.chat) return unsupported(m, fn, "kiln.chat is not available"), false;
+    if (!is_server_world(w)) return refuse(m, fn, "not a server world"), false;
     KilnChatPlayer p{};
     p.size = sizeof p;
-    if (!player || S.chat->find_player(player, &p) != KILN_OK) return refuse(m, "chat_tell", "no such player"), false;
+    if (!player || S.chat->find_player(player, &p) != KILN_OK) return refuse(m, fn, "no such player"), false;
     auto lines = chat_lines(text ? text : "");
     for (const auto& l : lines) mod_logf(m, KILN_LOG_INFO, "[tell %u] %s", player, l.c_str());
-    if (!rate_ok(m, lines.size())) return refuse(m, "chat_tell", "more than 30 lines in 10 s"), false;
+    if (!rate_ok(m, lines.size())) return refuse(m, fn, "more than 30 lines in 10 s"), false;
     if (g_api->on_tick_thread()) {
         send_lines(player, lines);
         return true;
@@ -382,17 +384,34 @@ bool api_chat_tell(EmfWorld* w, uint32_t player, const char* text) {
     return post_tick([player, lines] { send_lines(player, lines); });
 }
 
-bool api_chat_broadcast(const char* text) {
-    Mod* m = caller_mod(_ReturnAddress());
-    if (!S.chat) return unsupported(m, "chat_broadcast", "kiln.chat is not available"), false;
+bool chat_broadcast(Mod* m, const char* fn, const char* text) {
+    if (!S.chat) return unsupported(m, fn, "kiln.chat is not available"), false;
     auto lines = chat_lines(text ? text : "");
     for (const auto& l : lines) mod_logf(m, KILN_LOG_INFO, "[broadcast] %s", l.c_str());
-    if (!rate_ok(m, lines.size())) return refuse(m, "chat_broadcast", "more than 30 lines in 10 s"), false;
+    if (!rate_ok(m, lines.size())) return refuse(m, fn, "more than 30 lines in 10 s"), false;
     if (g_api->on_tick_thread()) {
         send_lines(0, lines);
         return true;
     }
     return post_tick([lines] { send_lines(0, lines); });
+}
+
+bool api_chat_tell(EmfWorld* w, uint32_t player, const char* text) {
+    return chat_tell(caller_mod(_ReturnAddress()), "chat_tell", w, player, text);
+}
+
+bool api_chat_broadcast(const char* text) { return chat_broadcast(caller_mod(_ReturnAddress()), "chat_broadcast", text); }
+
+bool api_chat_tell_ex(EmfWorld* w, uint32_t player, const char* text, uint32_t flags) {
+    Mod* m = caller_mod(_ReturnAddress());
+    if (flags & ~EMF_CHAT_SYSTEM) return refuse(m, "chat_tell_ex", "unknown flags"), false;
+    return chat_tell(m, "chat_tell_ex", w, player, text);
+}
+
+bool api_chat_broadcast_ex(const char* text, uint32_t flags) {
+    Mod* m = caller_mod(_ReturnAddress());
+    if (flags & ~EMF_CHAT_SYSTEM) return refuse(m, "chat_broadcast_ex", "unknown flags"), false;
+    return chat_broadcast(m, "chat_broadcast_ex", text);
 }
 
 bool api_player_name(EmfWorld* w, uint32_t player, char* buf, uint32_t size) {
@@ -1099,6 +1118,8 @@ void fill_game(EmfApi* t) {
     t->damage = &api_damage;
     t->chat_tell = &api_chat_tell;
     t->chat_broadcast = &api_chat_broadcast;
+    t->chat_tell_ex = &api_chat_tell_ex;            // v30
+    t->chat_broadcast_ex = &api_chat_broadcast_ex;  // v30
     t->player_name = &api_player_name;
     t->request_save = &api_request_save;
     t->teleport = &api_teleport;

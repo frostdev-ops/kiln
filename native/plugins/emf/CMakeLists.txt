@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-# kiln-emf.dll: loads unmodified EMF mods (EMF 0.3.3 to 0.6.0, EmfApi v27) on Kiln. Deployed to <game>/kiln/plugins/.
+# kiln-emf.dll: loads unmodified EMF mods (EMF 0.3.3 to 0.6.8, EmfApi v40) on Kiln. Deployed to <game>/kiln/plugins/.
 # include/emf/emf_api.h is EMF's own header (MIT, EMF contributors; licenses/EMF-LICENSE.txt).
 kiln_plugin(emf
     src/plugin.cpp
@@ -18,6 +18,7 @@ kiln_plugin(emf
     src/api_net.cpp
     src/api_net_client.cpp
     src/api_portraits.cpp
+    src/api_v40.cpp
     src/net/net_service.cpp
     src/net/net_link.cpp
     src/net/net_line.cpp

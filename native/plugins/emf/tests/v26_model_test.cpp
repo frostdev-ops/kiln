@@ -33,9 +33,16 @@ static void test_table() {
     CHECK(api_requirement(0)==1 && api_requirement(26)==26);
     CHECK(api_size_for(21) == 592);
     CHECK(api_size_for(26) == 688);
-    CHECK(api_size_for(27) == sizeof(EmfApi));
-    CHECK(api_size_for(28) == 0);
-    CHECK(EMF_API_VERSION == 27);
+    CHECK(api_size_for(27) == 728);
+    // v28-v40 (EMF 0.6.3 to 0.6.8): EMF's own sizes, each a whole number of slots after the one before
+    const uint32_t sizes[] = {736, 752, 776, 808, 864, 920, 952, 992, 1000, 1016, 1040, 1064, 1088};
+    for (uint32_t v = 28; v <= 40; ++v) CHECK(api_size_for(v) == sizes[v - 28]);
+    CHECK(api_size_for(40) == sizeof(EmfApi));
+    CHECK(api_size_for(41) == 0);
+    CHECK(EMF_API_VERSION == 40);
+    // the "emf" gate of mod.json (mods.cpp refuses a requirement above the table's version)
+    CHECK(api_requirement(40) <= EMF_API_VERSION && api_requirement(41) > EMF_API_VERSION);
+    CHECK(kRemoveBuildingV36Size == 144 && kPathQueryV37Size == 52 && kEnemyOrderV39Size == 120 && kMoveOrderV40Size == 128);
     // the hashes are kiln.world's component_hash: FNV-1a of "keen::ecs::<Name>"
     CHECK(fnv("keen::ecs::ScaleComponent") == kScaleComponent);
     CHECK(fnv("keen::ecs::InteractionPause") == kInteractionPause);
