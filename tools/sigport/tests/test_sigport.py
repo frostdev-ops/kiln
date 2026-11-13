@@ -213,6 +213,52 @@ class SyntheticPort(unittest.TestCase):
         self.assertFalse(r["symbols"]["GetThing"]["ok_new"])
 
 
+class Strategies(unittest.TestCase):
+    """A symbol with a second strategy anchored in the function's body: the one in use when another engine has hooked
+    the function's first bytes (GitHub PR 27). The offline resolver asks more than the core: both must agree."""
+    ENTRY = "48 89 5C 24 08 57 48 83 EC 20 48 8D B9"
+    BODY = "8B 47 10 48 8B 5C 24 30 48 83 C4 20 5F C3"  # 17 bytes after the entry
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.exe = Path(self.tmp.name) / "game.exe"
+        funcs = [(filler(1), True), (target(0xE15DC0, 0x20, field_disp8=0x10), True), (filler(2), True)]
+        self.entry = build_pe(self.exe, funcs)[1]
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def resolve(self, second):
+        doc = {"symbols": {"GetThing": {"find": [{"pattern": self.ENTRY}, second]}}}
+        return Resolver(Image(self.exe), doc).run()[0]["GetThing"]
+
+    def test_both_strategies_name_the_entry(self):
+        r = self.resolve({"pattern": self.BODY, "offset": -17})
+        self.assertTrue(r["ok"], r)
+        self.assertEqual((r["rva"], r["source"]), (self.entry, "GetThing.find[0]"))
+
+    def test_a_hooked_entry_resolves_through_the_body(self):
+        raw = bytearray(self.exe.read_bytes())
+        at = 0x400 + self.entry - TEXT
+        raw[at:at + 5] = h("E9 78 56 34 12")
+        self.exe.write_bytes(bytes(raw))
+        r = self.resolve({"pattern": self.BODY, "offset": -17})
+        self.assertTrue(r["ok"], r)
+        self.assertEqual((r["rva"], r["source"]), (self.entry, "GetThing.find[1]"))
+
+    def test_a_second_strategy_with_a_stale_offset_fails_the_symbol(self):
+        # what an update that makes the code before the anchor 3 bytes longer leaves behind
+        r = self.resolve({"pattern": self.BODY, "offset": -14})
+        self.assertFalse(r["ok"])
+        self.assertIn("strategies disagree", r["error"])
+        self.assertIn(f"{self.entry:#x}", r["error"])
+        self.assertIn(f"{self.entry + 3:#x}", r["error"])
+
+    def test_a_second_strategy_that_matches_nowhere_or_twice_is_not_judged(self):
+        self.assertTrue(self.resolve({"pattern": "0F 0B 0F 0B 0F 0B 0F 0B", "offset": -3})["ok"])
+        self.assertTrue(self.resolve({"pattern": "48 83 EC 28 B8", "offset": -3})["ok"])  # both fillers start so
+
+
 class Defs(unittest.TestCase):
     def test_spans_and_edit_keep_layout(self):
         text = '{\n  "symbols": {\n    "A": {\n      "find": [\n        { "pattern": "48 {x:d32}" },\n' \

@@ -748,7 +748,7 @@ internal static class ModManagerHost
         var s = (uiScale > 0 ? uiScale : 1) * k;
         // at this scale a margin is its share of the width (48 units are less), and the content is the rest
         var fits = w * (1 - 2 * MarginShare) / ModManagerPage.MinContentUnits;
-        return Math.Min(s, Math.Max(0.7f, fits));  // 0.7: the smallest the product gets, so no display goes below it
+        return Math.Min(s, Math.Max(0.25f, fits));  // 0.25: a display of no width still gets a scale above zero
     }
 
     public static void Draw(UiDraw ui)

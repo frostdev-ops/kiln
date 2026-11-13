@@ -3,7 +3,8 @@
 """Offline twin of kiln-core's sigdb resolver (native/core/src/sigdb.cpp).
 
 Resolves sigdb/symbols/<side>.json against an executable on disk and prints symbols, constants and features, so a
-definition change can be checked against several game builds before it ships.
+definition change can be checked against several game builds before it ships. One rule more than the core: when a
+symbol has several strategies, every one that matches must name the same address (Resolver.disagreeing).
 
     python3 tools/sigport/sigdb_check.py sigdb/symbols/server.json <enshrouded_server.exe> [--json out.json]
     python3 tools/sigport/sigdb_check.py sigdb/symbols/client.json <enshrouded.exe> [--json out.json]
@@ -104,6 +105,9 @@ class Resolver:
                 self.capture(holes, hits[0], tag)
                 if not probe:
                     r = {"ok": True, "rva": hits[0] + f.get("offset", 0), "source": tag}
+                    other = self.disagreeing(name, defn, i, r["rva"])
+                    if other:
+                        r = {"ok": False, "error": other}
                     break
             if probe:
                 r = {"ok": unique == len(defn["find"]), "source": f"{unique}/{len(defn['find'])} strategies matched"}
@@ -111,6 +115,30 @@ class Resolver:
         self.symbols[name] = r
         self.state[name] = 2
         return r["ok"]
+
+    def disagreeing(self, name, defn, taken, rva):
+        """One rule more than the core has. The core takes the first strategy that matches once and looks no further;
+        here every later strategy that matches once must name the same address, else the symbol fails. A later
+        strategy is the one in use when the first cannot match (another engine's hook on the function's first bytes
+        while the core scans live code), so a stale offset in it would show only there, as a hook in the wrong place:
+        a pattern anchored in a function's body keeps matching when a game update changes the length of the code
+        before it. No captures are taken from a later strategy, as in the core. A scoped one is judged only when its
+        scope symbol is resolved already (no resolving from here: the order of the resolve stays the core's)."""
+        for j, f in enumerate(defn["find"]):
+            if j <= taken:
+                continue
+            lo, hi = self.text_lo, self.text_hi
+            if "scope" in f:
+                s = f["scope"]["symbol"]
+                if self.state.get(s) != 2 or not self.symbols[s].get("ok"):
+                    continue
+                lo = self.symbols[s]["rva"]
+                hi = min(self.text_hi, lo + f["scope"]["size"])
+            hits = self.scan(parse(f["pattern"])[0], lo, hi)
+            if len(hits) == 1 and hits[0] + f.get("offset", 0) != rva:
+                return (f"strategies disagree: {name}.find[{taken}] gives {rva:#x}, "
+                        f"find[{j}] gives {hits[0] + f.get('offset', 0):#x}")
+        return ""
 
     def run(self):
         # Like the core (sigdb.cpp): a symbol captured by a rel32 hole may be another strategy's scope, so resolve,

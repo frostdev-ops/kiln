@@ -36,7 +36,6 @@ public sealed class PageScaleTests
     [InlineData(3440, 1440, 1f, 4f / 3)]
     [InlineData(3440, 1440, 2f, 8f / 3)]
     [InlineData(3840, 2160, 1.5f, 3f)]
-    [InlineData(640, 480, 1f, 0.7f)]  // a small window: not below the smallest scale the page ever had
     public void ADisplayWithRoomForTheColumnsKeepsItsScale(float w, float h, float ui, float expected)
     {
         Assert.Equal(expected, ModManagerHost.PageScale(w, h, ui), 0.001f);
@@ -48,6 +47,8 @@ public sealed class PageScaleTests
     [InlineData(3840, 2160, 2f, 3.857f)]   // was 4: the mods column was 268 units, under its smallest
     [InlineData(2560, 1440, 3f, 2.572f)]   // was 4: the same 544 units as 4K at 300 %
     [InlineData(1920, 1080, 3f, 1.929f)]   // was 3
+    [InlineData(640, 480, 1f, 0.643f)]     // a small window, was 0.7: the mods column was 228 units
+    [InlineData(400, 720, 1f, 0.402f)]     // was 0.7: the mods column was 77 pixels below zero
     public void ADisplayWithoutRoomGetsTheLargestScaleThatFits(float w, float h, float ui, float expected)
     {
         var s = ModManagerHost.PageScale(w, h, ui);
@@ -57,7 +58,7 @@ public sealed class PageScaleTests
 
     public static TheoryData<float, float> Displays => new()
     {
-        { 1280, 720 }, { 1366, 768 }, { 1600, 900 }, { 1920, 1080 }, { 1920, 1200 }, { 2560, 1080 }, { 2560, 1440 },
+        { 400, 720 }, { 640, 480 }, { 800, 600 }, { 1024, 768 }, { 1280, 720 }, { 1366, 768 }, { 1600, 900 }, { 1920, 1080 }, { 1920, 1200 }, { 2560, 1080 }, { 2560, 1440 },
         { 2560, 1600 }, { 2880, 1800 }, { 3440, 1440 }, { 3840, 1600 }, { 3840, 2160 }, { 5120, 1440 }, { 5120, 2880 },
         { 7680, 4320 },
     };
@@ -70,7 +71,7 @@ public sealed class PageScaleTests
         for (var ui = 1f; ui <= 3.001f; ui += 0.125f)
         {
             var s = ModManagerHost.PageScale(w, h, ui);
-            Assert.InRange(s, 0.7f, ui * 3);
+            Assert.InRange(s, 0.25f, ui * 3);
             var content = Content(w, s);
             var (left, mid, right) = ModManagerPage.Columns(content, s);
             var at = $"{w}x{h} at UI scale {ui}: page scale {s}, columns {left / s:0} | {mid / s:0} | {right / s:0}";
@@ -86,4 +87,10 @@ public sealed class PageScaleTests
     {
         Assert.Equal(ModManagerHost.PageScale(1920, 1080, 1), ModManagerHost.PageScale(1920, 1080, 0));
     }
+}
+
+public sealed class PageScaleGuardTests
+{
+    [Fact]
+    public void ADisplayOfNoWidthStillGetsAScale() => Assert.Equal(0.25f, ModManagerHost.PageScale(0, 0, 1));
 }
