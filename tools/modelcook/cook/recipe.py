@@ -457,26 +457,24 @@ def run(path, k, t, exe_sha256=None, update_manifest=False, given=None):
 
     # Every file this cook writes is checked before the first one is written: a step's stem or name with ".." or a "/" in it, or a link in
     # the mod's folders, would lead out of assets/cooked. The blocks made from a glTF go to blocks/<stem>.materials.json and nowhere else.
-    for rel in files:
-        _checked(p, CP.cooked, base_dir / rel, f"the output {rel}")
-    for rel in mod_files:
-        if Path(rel).parts[:1] == (CP.BLOCKS,):
-            _checked(p, CP.blocks_file, mod_dir / rel)
-        else:
-            _checked(p, CP.cooked, mod_dir / rel, f"the output {rel}")
-    _checked(p, CP.manifest, base_dir / "assets.json")
-    (base_dir / out).mkdir(parents=True, exist_ok=True)
-    for rel, data in files.items():
-        (base_dir / rel).write_bytes(data)
+    # Each is written to the path its check returned (normalised, every component looked at), never to the one it was given.
+    outputs = {_checked(p, CP.cooked, base_dir / rel, f"the output {rel}"): data for rel, data in files.items()}
+    own_files = {}
     for rel, data in mod_files.items():
+        if Path(rel).parts[:1] == (CP.BLOCKS,):
+            own_files[_checked(p, CP.blocks_file, mod_dir / rel)] = data
+        else:
+            outputs[_checked(p, CP.cooked, mod_dir / rel, f"the output {rel}")] = data
+    mp = _checked(p, CP.manifest, base_dir / "assets.json")
+    report_file = _checked(p, CP.cooked, base_dir / out / report_name(doc), "the cook's report")
+    for f, data in outputs.items():
+        _checked(f, CP.write, data)
+    for f, data in own_files.items():
         # made from the mod's own glTF, the same bytes on every machine: written only when they differ, so a cook leaves a shipped file alone
-        f = mod_dir / rel
         if not f.is_file() or f.read_bytes() != data:
-            f.parent.mkdir(parents=True, exist_ok=True)
-            f.write_bytes(data)
+            _checked(f, CP.write, data)
 
     # the committed assets.json must name every output exactly as cooked: a client's outputs on either side
-    mp = base_dir / "assets.json"
     man = json.loads(mp.read_text()) if mp.exists() else {"format": 1, "entries": []}
     have = {(e.get("kind"), e.get("file")): e for e in man.get("entries", [])}
     want = {(e["kind"], e["file"]): e for e in entries}
@@ -485,7 +483,7 @@ def run(path, k, t, exe_sha256=None, update_manifest=False, given=None):
     # (read here, before this run's report replaces it). Without it the mark stays and the entry counts as matching: the file is the mod's.
     marked = [x for x in man.get("entries", []) if _is_marked(x, want.get((x.get("kind"), x.get("file"))))]
     try:
-        legacy = bool(marked) and _legacy_server_report(json.loads((base_dir / out / report_name(doc)).read_text()))
+        legacy = bool(marked) and _legacy_server_report(json.loads(report_file.read_text()))
     except (OSError, ValueError):
         legacy = False
     missing = [e for e in entries if (e["kind"], e["file"]) not in have]
@@ -498,9 +496,12 @@ def run(path, k, t, exe_sha256=None, update_manifest=False, given=None):
                 del x["side"]  # in place and nothing else: a file the cook wrote before the mark is the shipped one again, byte for byte
             unmarked, marked = [x["file"] for x in marked], []
         if missing or mismatched:
+            # the entries that differ are written as cooked; one that differs only by a mark the mod's author wrote keeps it (it counts
+            # as matching above, and repairing another entry is no reason to take it out)
             keep = [x for x in man.get("entries", []) if (x.get("kind"), x.get("file")) not in want]
-            man["entries"] = keep + entries
-        mp.write_text(json.dumps(man, indent=2) + "\n")
+            authored = {(x.get("kind"), x.get("file")): x for x in marked}
+            man["entries"] = keep + [authored.get((e["kind"], e["file"]), e) for e in entries]
+        _checked(mp, CP.write, (json.dumps(man, indent=2) + "\n").encode())
         missing, mismatched = [], []
 
     ok = all(r.get("ok") for r in reports) and not missing and not mismatched
@@ -514,5 +515,11 @@ def run(path, k, t, exe_sha256=None, update_manifest=False, given=None):
                          **({"legacyMarks": True} if legacy and marked else {})),
         "steps": reports,
     }
-    (base_dir / out / report_name(doc)).write_text(json.dumps(report, indent=2) + "\n")
+    report_bytes = (json.dumps(report, indent=2) + "\n").encode()
+    _checked(report_file, CP.write, report_bytes)
+    # what this cook wrote into assets/cooked, recorded in the game it read: what that game's kiln.assets loads (cookpaths.receipt)
+    try:
+        CP.receipt(CP.game_dir_of(getattr(k, "path", None)), p, "modelcook.looks" if doc.get("looks") else TOOL, {**outputs, report_file: report_bytes})
+    except (CP.Refused, OSError) as e:
+        raise RecipeError(f"{p}: the cook's receipt (what this game loads of it) could not be written: {e}") from e
     return report

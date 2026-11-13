@@ -770,15 +770,15 @@ def run(path, game=None, native=None, update_manifest=False, cross_check=False, 
 
     # 8. write. Every file is checked before the first one is written: a name with ".." or a "/" in it, or a link, would lead out of
     # assets/cooked; the manifest is the mod's assets/assets.json and no other file
+    # (each is written to the path its check returned, never to the one it was given)
     try:
-        for f in files:
-            CP.cooked(p, f, f"the output {c.rel_recipe(f)}")
-        CP.manifest(p, c.manifest)
+        outputs = {CP.cooked(p, f, f"the output {c.rel_recipe(f)}"): data for f, data in files.items()}
+        manifest_file = CP.manifest(p, c.manifest)
+        report_file = CP.cooked(p, c.out / report_name(doc), "the cook's report")
+        for f, data in outputs.items():
+            CP.write(f, data)
     except CP.Refused as e:
         raise RecipeError(f"{p}: {e}") from e
-    for f, data in files.items():
-        f.parent.mkdir(parents=True, exist_ok=True)
-        f.write_bytes(data)
 
     # the committed assets.json must name every output exactly as cooked
     man = json.loads(c.manifest.read_text()) if c.manifest.exists() else {"format": 1, "entries": []}
@@ -794,7 +794,7 @@ def run(path, game=None, native=None, update_manifest=False, cross_check=False, 
         drop = mine | {(e.get("kind"), e.get("file")) for e in stale}
         man["entries"] = [x for x in man.get("entries", []) if (x.get("kind"), x.get("file")) not in drop] + entries
         man.setdefault("format", 1)
-        c.manifest.write_text(json.dumps(man, indent=2) + "\n")
+        CP.write(manifest_file, (json.dumps(man, indent=2) + "\n").encode())
         missing, mismatched, stale = [], [], []
 
     step_reports = []
@@ -819,6 +819,12 @@ def run(path, game=None, native=None, update_manifest=False, cross_check=False, 
         "manifest": {"file": c.rel_recipe(c.manifest), "missing": missing, "mismatched": mismatched, "stale": stale},
         "steps": step_reports,
     }
-    (c.out / report_name(doc)).write_text(json.dumps(report, indent=2) + "\n")
-    report["report_file"] = str(c.out / report_name(doc))
+    report_bytes = (json.dumps(report, indent=2) + "\n").encode()
+    try:
+        CP.write(report_file, report_bytes)
+        # what this cook wrote into assets/cooked, recorded in the game it read: what that game's kiln.assets loads (cookpaths.receipt)
+        CP.receipt(game.dir if game else None, p, TOOL, {**outputs, report_file: report_bytes})
+    except (CP.Refused, OSError) as e:
+        raise RecipeError(f"{p}: the cook's report or receipt could not be written: {e}") from e
+    report["report_file"] = str(report_file)
     return report

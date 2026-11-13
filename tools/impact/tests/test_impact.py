@@ -434,6 +434,27 @@ class CookTests(unittest.TestCase):
                 with self.assertRaises(cook.RecipeError):
                     cook.needs_cook(rp)
                 self.assertEqual(sorted(str(f) for f in mod.rglob("*")), before)
+            # the report is a file of the cook like its outputs: a link in its place is refused before anything is written, and the
+            # file it points to is left alone; so is a stem that climbs out of a link in assets/cooked
+            rp.write_text(json.dumps(recipe))
+            victim = d / "victim.json"
+            victim.write_text("theirs")
+            report = mod / "assets" / "cooked" / "impact" / "cook-report.json"
+            report.unlink()
+            report.symlink_to(victim)
+            before = sorted(str(f) for f in mod.rglob("*"))
+            with self.assertRaises(cook.RecipeError) as e:
+                cook.run(rp, g, update_manifest=True)
+            self.assertIn("is a link", str(e.exception))
+            self.assertEqual((victim.read_text(), sorted(str(f) for f in mod.rglob("*"))), ("theirs", before))
+            report.unlink()
+            (d / "deep").mkdir()
+            (mod / "assets" / "cooked" / "impact" / "link").symlink_to(d / "deep", target_is_directory=True)
+            rp.write_text(json.dumps(dict(recipe, steps=[dict(recipe["steps"][0], stem="link/../escaped")])))
+            with self.assertRaises(cook.RecipeError) as e:
+                cook.run(rp, g, update_manifest=True)
+            self.assertIn("climbs out of the link", str(e.exception))
+            self.assertFalse((d / "escaped.bin").exists() or (mod / "assets" / "cooked" / "impact" / "escaped.bin").exists())
             k.close()
 
 

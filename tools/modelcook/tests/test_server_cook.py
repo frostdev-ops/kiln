@@ -281,6 +281,79 @@ class ServerCook(unittest.TestCase):
             R.run(r, self.client, self.t, update_manifest=True)
         self.assertFalse((r.parent.parent / "c.materials.json").exists())
 
+    def test_an_authored_mark_stays_when_another_entry_is_repaired(self):
+        """The author's "side": "client" marks on the models' entries, and another entry of the recipe missing from the file: the cook with
+        --update-manifest writes the missing one and leaves the marked ones as the author has them."""
+        authored = json.loads(marked_by_dev26((self.mod_client / "assets" / "assets.json").read_text()))
+        dropped = next(e for e in authored["entries"] if e["file"] == "cooked/v.bin")
+        authored["entries"].remove(dropped)
+        r = self._server_mod("mod-authored-repair")
+        mp = r.parent / "assets.json"
+        mp.write_text(json.dumps(authored, indent=2) + "\n")
+        rep = R.run(r, self.client, self.t, update_manifest=True)
+        self.assertTrue(rep["ok"])
+        after = {e["file"]: e for e in json.loads(mp.read_text())["entries"]}
+        self.assertEqual(after["cooked/v.bin"], dropped, "the missing entry is written")
+        for f in SKIPPED_FILES:
+            self.assertEqual(after[f].get("side"), "client", f"{f}: the author's mark stays")
+        self.assertFalse(R.needs_cook(r))
+
+    def test_a_link_in_the_reports_place_or_a_dotdot_after_a_link_is_refused_before_anything_is_written(self):
+        """The report is a file of the cook like its outputs: a link in its place is refused, as is a stem that climbs out of a link in
+        assets/cooked ("link/../escape" normalises to a name in assets/cooked, while the system resolves it from where the link leads)."""
+        outside = self.root / "outside-report"
+        (outside / "deep").mkdir(parents=True, exist_ok=True)
+        victim = outside / "victim.json"
+        victim.write_text("theirs")
+        for side, game in (("client", self.client), ("server", self.server)):
+            r = self._server_mod(f"mod-report-link-{side}")
+            cooked = r.parent / "cooked"
+            cooked.mkdir(exist_ok=True)
+            (cooked / "cook-report.json").symlink_to(victim)
+            before = sorted(str(f) for f in r.parent.parent.rglob("*"))
+            with self.assertRaises(R.RecipeError, msg=side) as e:
+                R.run(r, game, self.t, update_manifest=True)
+            self.assertIn("is a link", str(e.exception))
+            self.assertEqual(victim.read_text(), "theirs")
+            self.assertEqual(sorted(str(f) for f in r.parent.parent.rglob("*")), before, f"{side}: nothing written")
+            (cooked / "cook-report.json").unlink()
+            (cooked / "link").symlink_to(outside / "deep", target_is_directory=True)
+            rec = json.loads(json.dumps(self.recipe))
+            rec["steps"][1]["stem"] = "link/../escape"
+            r = F.write_mod(r.parent.parent, rec)
+            with self.assertRaises(R.RecipeError, msg=side) as e:
+                R.run(r, game, self.t, update_manifest=True)
+            self.assertIn("climbs out of the link", str(e.exception))
+            self.assertEqual(sorted(f.name for f in outside.iterdir()), ["deep", "victim.json"])
+            self.assertFalse((cooked / "escape.bin").exists())
+
+    def test_a_cook_records_what_it_wrote_in_the_game_it_read(self):
+        """The receipt (cookpaths.receipt): in <game>/kiln/state/cook-receipts, one file per mod folder and recipe, listing every file the
+        cook wrote into assets/cooked (its report too) with its SHA-256; the next cook of the recipe replaces it. A game folder without Kiln
+        gets none, and nothing is written there."""
+        import hashlib
+        for side, game in (("client", self.client), ("server", self.server)):
+            gdir = Path(game.path).parent
+            receipts = gdir / "kiln" / "state" / "cook-receipts"
+            shutil.rmtree(gdir / "kiln", ignore_errors=True)
+            r = self._server_mod(f"mod-receipt-{side}")
+            R.run(r, game, self.t, update_manifest=True)
+            self.assertFalse((gdir / "kiln").exists(), f"{side}: no Kiln there, no receipt and no folder made")
+            (gdir / "kiln").mkdir()
+            rep = R.run(r, game, self.t, update_manifest=True)
+            files = list(receipts.iterdir())
+            self.assertEqual(len(files), 1, files)
+            doc = json.loads(files[0].read_text())
+            self.assertEqual((doc["format"], doc["tool"], doc["recipe"], Path(doc["mod"])), (1, "modelcook", "assets/cook.json", r.parent.parent))
+            cooked = r.parent / "cooked"
+            on_disk = {f.relative_to(r.parent).as_posix(): hashlib.sha256(f.read_bytes()).hexdigest() for f in cooked.rglob("*") if f.is_file()}
+            self.assertEqual(doc["files"], on_disk, side)
+            self.assertIn("cooked/cook-report.json", doc["files"])
+            self.assertEqual({o["file"] for o in rep["outputs"]} | {"cooked/cook-report.json"}, set(doc["files"]))
+            R.run(r, game, self.t, update_manifest=True)
+            self.assertEqual(list(receipts.iterdir()), files, "the next cook of the recipe replaces its receipt")
+            shutil.rmtree(gdir / "kiln")
+
     def test_a_mark_on_an_entry_that_differs_otherwise_is_a_mismatch(self):
         r = self._server_mod("mod-server-mismatch")
         mp = r.parent / "assets.json"
@@ -407,6 +480,34 @@ class OutFolder(unittest.TestCase):
             (Path(d) / "via").symlink_to(mod, target_is_directory=True)
             self.assertEqual(CP.cooked(Path(d) / "via" / "assets" / "cook.json", "cooked/b.bin", "x"), Path(d) / "via/assets/cooked/b.bin")
 
+    def test_a_dotdot_climbs_out_of_no_link_and_write_replaces_a_link(self):
+        from cook import cookpaths as CP
+        with tempfile.TemporaryDirectory() as d:
+            r = self._recipe(d, None)
+            mod = r.parent.parent
+            outside = Path(d) / "outside"
+            (outside / "deep").mkdir(parents=True)
+            (mod / "assets" / "cooked" / "sub").mkdir(parents=True)
+            self.assertEqual(CP.cooked(r, "cooked/sub/../a.bin", "x"), mod / "assets/cooked/a.bin", "a '..' after a folder is fine")
+            (mod / "assets" / "cooked" / "link").symlink_to(outside / "deep", target_is_directory=True)
+            for target in ("cooked/link/../a.bin", str(mod / "assets/cooked/link/../a.bin"), "cooked/link/./../a.bin"):
+                with self.assertRaises(CP.Refused, msg=target) as e:
+                    CP.cooked(r, target, "x")
+                self.assertIn("climbs out of the link", str(e.exception))
+            with self.assertRaises(CP.Refused):
+                CP.manifest(r, "cooked/link/../../assets.json")
+            # write() goes to the path it is given through a file beside it: a link put in an output's place after the check is
+            # replaced, the file it pointed to is left as it was
+            target = CP.cooked(r, "cooked/a.bin", "x")
+            (outside / "theirs.bin").write_bytes(b"theirs")
+            target.symlink_to(outside / "theirs.bin")
+            with self.assertRaises(CP.Refused):
+                CP.write(target, b"cooked")
+            target.unlink()
+            self.assertEqual(CP.write(target, b"cooked"), target)
+            self.assertEqual((target.read_bytes(), (outside / "theirs.bin").read_bytes()), (b"cooked", b"theirs"))
+            self.assertEqual(sorted(f.name for f in target.parent.iterdir()), ["a.bin", "link", "sub"], "no temporary file is left")
+
     def test_the_command_refuses_and_writes_nothing(self):
         import subprocess
         with tempfile.TemporaryDirectory() as d:
@@ -428,6 +529,7 @@ class ServerCookCommand(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)
             F.build(root / "server", "server", kiln_out=root / "out").close()
+            (root / "server" / "kiln").mkdir()
             r = F.write_mod(root / "mod")
             env = dict(os.environ, KILN_OUT=str(root / "out"), TMPDIR=d)
             p = subprocess.run([sys.executable, str(HERE.parent / "modelcook.py"), "--game", str(root / "server"), "recipe", str(r), "--update-manifest"],
@@ -438,6 +540,11 @@ class ServerCookCommand(unittest.TestCase):
             self.assertIn("clip idle:", p.stdout)
             self.assertTrue((root / "mod/assets/cooked/clip_idle.bin").exists())
             self.assertTrue((root / "mod/assets/cooked/v.bin").exists())
+            # each tool of the recipe recorded what it wrote, in the server's receipts: modelcook and the animcook it handed its steps to
+            receipts = {json.loads(f.read_text())["tool"]: json.loads(f.read_text())["files"] for f in (root / "server/kiln/state/cook-receipts").iterdir()}
+            self.assertEqual(sorted(receipts), ["animcook", "modelcook"])
+            self.assertIn("cooked/clip_idle.bin", receipts["animcook"])
+            self.assertIn("cooked/v.bin", receipts["modelcook"])
 
 
 if __name__ == "__main__":

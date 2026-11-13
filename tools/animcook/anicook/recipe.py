@@ -435,17 +435,15 @@ class Run:
         out_dir = self.dir / self.out
         self.files[f"{self.out}/clips.json"] = json.dumps(self.side, indent=1).encode() + b"\n"
         # every file is checked before anything is made: a name with ".." or a "/" in it, or a link, would lead out of assets/cooked
+        # (each is written to the path its check returned, never to the one it was given)
         try:
-            for rel in self.files:
-                CP.cooked(self.p, self.dir / rel, f"the output {rel}")
-            CP.manifest(self.p, self.dir / "assets.json")
+            outputs = {CP.cooked(self.p, self.dir / rel, f"the output {rel}"): data for rel, data in self.files.items()}
+            mp = CP.manifest(self.p, self.dir / "assets.json")
+            report_file = CP.cooked(self.p, out_dir / report_name(self.doc), "the cook's report")
+            for f, data in outputs.items():
+                CP.write(f, data)
         except CP.Refused as e:
             raise RecipeError(f"{self.p}: {e}") from e
-        out_dir.mkdir(parents=True, exist_ok=True)
-        for rel, data in self.files.items():
-            (self.dir / rel).parent.mkdir(parents=True, exist_ok=True)
-            (self.dir / rel).write_bytes(data)
-        mp = self.dir / "assets.json"
         man = json.loads(mp.read_text()) if mp.exists() else {"format": 1, "entries": []}
         have = {(e.get("kind"), e.get("file")): e for e in man.get("entries", [])}
         missing = [e for e in self.entries if (e["kind"], e["file"]) not in have]
@@ -453,12 +451,18 @@ class Run:
         if update_manifest and (missing or mismatched):
             keys = {(e["kind"], e["file"]) for e in self.entries}
             man["entries"] = [x for x in man.get("entries", []) if (x.get("kind"), x.get("file")) not in keys] + self.entries
-            mp.write_text(json.dumps(man, indent=2) + "\n")
+            CP.write(mp, (json.dumps(man, indent=2) + "\n").encode())
             missing, mismatched = [], []
         ok = all(r.get("ok") for r in self.reports) and not missing and not mismatched
         rep = {"recipe": str(self.p), "recipe_sha256": sha256(self.p.read_bytes()), "ok": ok, "mod": self.mod, "game": game_info, "types": types_info,
                "sources": {s: sha256((self.dir / s).read_bytes()) for s in sources_of(self.doc, self.dir)},
                "outputs": [{"file": rel, "size": len(d), "sha256": sha256(d)} for rel, d in self.files.items()],
                "manifest": {"missing": missing, "mismatched": mismatched}, "steps": self.reports}
-        (out_dir / report_name(self.doc)).write_text(json.dumps(rep, indent=2) + "\n")
+        report_bytes = (json.dumps(rep, indent=2) + "\n").encode()
+        try:
+            CP.write(report_file, report_bytes)
+            # what this cook wrote into assets/cooked, recorded in the game it read: what that game's kiln.assets loads (cookpaths.receipt)
+            CP.receipt(CP.game_dir_of(getattr(self.k, "path", None)), self.p, TOOL, {**outputs, report_file: report_bytes})
+        except (CP.Refused, OSError) as e:
+            raise RecipeError(f"{self.p}: the cook's report or receipt could not be written: {e}") from e
         return rep

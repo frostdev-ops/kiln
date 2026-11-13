@@ -282,6 +282,21 @@ class RecipeTests(unittest.TestCase):
             self.assertEqual(sorted(str(f) for f in self.root.rglob("*")), before)
         self.assertEqual(recipe.out_dir(_mod(self.root, BASIC_STEPS, {"out": "cooked/snd"}, sources=False), {"out": "cooked/snd"}),
                          (self.root / "assets/cooked/snd").resolve())
+        # the report is a file of the cook like its outputs: a link in its place is refused before anything is written, and the file it
+        # points to is left alone
+        path = _mod(self.root, BASIC_STEPS)
+        victim = self.root.parent / "victim.json"
+        victim.write_text("theirs")
+        report = self.root / "assets" / "cooked" / recipe.report_name(json.loads(path.read_text()))
+        report.parent.mkdir(parents=True, exist_ok=True)
+        if report.exists() or report.is_symlink():
+            report.unlink()
+        report.symlink_to(victim)
+        before = sorted(str(f) for f in self.root.rglob("*"))
+        with self.assertRaises(recipe.RecipeError) as e:
+            recipe.run(path, None, NATIVE, log=lambda m: None, update_manifest=True)
+        self.assertIn("is a link", str(e.exception))
+        self.assertEqual((victim.read_text(), sorted(str(f) for f in self.root.rglob("*"))), ("theirs", before))
 
     def test_cook_outputs_manifest_index(self):
         self.assertTrue(recipe.needs_cook(self.path))

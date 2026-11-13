@@ -455,6 +455,18 @@ class RecipeRun(Base):
         self.assertTrue(R.Run(self.r, TYPES).run(update_manifest=True)["ok"])
         self.assertTrue((self.mod / "cooked/anim/cook-report.json").exists())
         self.assertEqual(sorted(f.name for f in self.mod.iterdir()), ["assets.json", "cook.json", "cooked", "golem.glb"])
+        # the report is a file of the cook like its outputs: a link in its place is refused before anything is written, and the file it
+        # points to is left alone
+        victim = self.mod.parent / "victim.json"
+        victim.write_text("theirs")
+        report = self.mod / "cooked/anim/cook-report.json"
+        report.unlink()
+        report.symlink_to(victim)
+        before = sorted(str(f) for f in self.mod.parent.rglob("*"))
+        with self.assertRaises(R.RecipeError) as e:
+            R.Run(self.r, TYPES).run(update_manifest=True)
+        self.assertIn("is a link", str(e.exception))
+        self.assertEqual((victim.read_text(), sorted(str(f) for f in self.mod.parent.rglob("*"))), ("theirs", before))
 
     def test_run_and_check(self):
         self.assertTrue(R.needs_cook(self.r))
