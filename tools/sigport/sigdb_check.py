@@ -167,13 +167,18 @@ class Resolver:
             elif not r.get("ok"):
                 r = {"ok": True, "rva": votes[0][0], "source": "captured by " + votes[0][1]}
             self.symbols[name] = r
-        for name, defn in self.doc["symbols"].items():  # the rule the core does not have, last (see disagreeing)
+        # The rule the core does not have, last (see disagreeing). Every symbol is judged against the addresses as
+        # resolved, and the failures are applied together: a scope symbol that fails must not take its address away
+        # from the judging of a symbol whose strategy looks inside it.
+        failed = {}
+        for name, defn in self.doc["symbols"].items():
             r = self.symbols.get(name, {})
             if name.startswith("@") or not r.get("ok") or len(defn["find"]) < 2:
                 continue
             error = self.disagreeing(name, defn, r["rva"])
             if error:
-                self.symbols[name] = {"ok": False, "error": error}
+                failed[name] = {"ok": False, "error": error}
+        self.symbols.update(failed)
         consts = {}
         defs = dict(self.doc.get("constants", {}))
         for name in self.const_votes:
