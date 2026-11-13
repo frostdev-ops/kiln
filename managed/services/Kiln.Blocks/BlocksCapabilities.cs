@@ -9,9 +9,12 @@ internal static class BlocksRows
 {
     internal static readonly ServiceCapRows Rows = new("kiln.blocks", Report);
 
+    // Factions' wrapper remembers kiln.npcai's miss: forgotten when the refresh finds the table
+    static BlocksRows() => ServiceCaps.WhenFound("kiln.npcai", AiNative.LookAgain);
+
     private static void Report()
     {
-        ServiceCaps.Probe("kiln.npcai");  // Factions needs it: its row says whether it is here
+        if (!ServiceCaps.Probe("kiln.npcai")) ServiceCaps.NoteMissing("kiln.npcai");  // Factions needs it: its row says whether it is here
         BlockCapabilities.Ensure();
         AffixRuntime.RefreshCapabilities();
     }

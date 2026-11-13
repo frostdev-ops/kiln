@@ -31,6 +31,15 @@ internal static unsafe class PlayersCaps
 
     internal static readonly ServiceCapRows Rows = new(Service, Report, everySteps: 25, refreshOnlyWithService: true);
 
+    // the three wrappers remember a miss: forgotten when the refresh finds a table (docs/kiln/services/caps.md)
+    static PlayersCaps()
+    {
+        ServiceCaps.WhenFound(Service, global::Kiln.Players.LookAgain);
+        ServiceCaps.WhenFound(Progression, global::Kiln.Progression.LookAgain);
+        ServiceCaps.WhenFound(States, PlayerStates.LookAgain);
+        ServiceCaps.WhenFound("kiln.characters", PlayerCharacters.LookAgain);
+    }
+
     private static void Report()
     {
         PlayerAim.ReportCapability();  // players.aim (kiln.playerstate's aim functions)

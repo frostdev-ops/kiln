@@ -175,6 +175,14 @@ internal static class ServiceTick
             // change events that waited for this step go out first, so whatever the rest of the step writes during a
             // dispatch waits for the next one, whatever order the handlers were added in
             ChangeNoticeQueue.FlushAll();
+            try
+            {
+                ServiceCapRows.Tick(in tick);  // a replaced registry binding, a table published late
+            }
+            catch (Exception e)
+            {
+                Backend.Current.Log(0, LogLevel.Warn, $"kiln: capability rows could not be kept in step: {e.Message}");
+            }
             Events.DrainQueued();
             foreach (var e in Volatile.Read(ref _entries))
             {

@@ -59,8 +59,16 @@ public static unsafe class PlayerCharacters
             _looked = true;
             if (sizeof(Info) != 40 || sizeof(NativeStatus) != 32) return null;
             _table = Services.Get<Table>("kiln.characters", 1);
+            if (_table == null) ServiceCaps.NoteMissing("kiln.characters");  // looked for again at the refresh
             return _table;
         }
+    }
+
+    /// <summary>Forgets a remembered miss, so the next use looks for the table again (ServiceCaps.WhenFound: the refresh
+    /// found it after all).</summary>
+    internal static void LookAgain()
+    {
+        if (_table == null) _looked = false;
     }
 
     /// <summary>True when the CharacterId can be read on this build.</summary>

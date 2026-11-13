@@ -381,16 +381,18 @@ public static unsafe class Combat
     // (CombatStartup): that is not a use, so the listener (hits held a step for handlers, hurt events a handler can
     // cancel) waits for one (ServiceUse).
     [ModuleInitializer]
-    internal static void ModuleInit() => ServiceUse.Start(typeof(Combat).Assembly, static () => EnsureListener());
+    internal static void ModuleInit() => ServiceUse.Start(typeof(Combat).Assembly, CombatNative.Name, static () => EnsureListener());
 
-    internal static void EnsureListener()
+    /// <summary>Starts the listener; false while kiln.combat's table is not there (ServiceUse then waits for it).</summary>
+    internal static bool EnsureListener()
     {
-        if (Volatile.Read(ref _listening) != 0) return;
+        if (Volatile.Read(ref _listening) != 0) return true;
         var t = CombatNative.T;
-        if (t == null) return;
-        if (Interlocked.Exchange(ref _listening, 1) != 0) return;
+        if (t == null) return false;
+        if (Interlocked.Exchange(ref _listening, 1) != 0) return true;
         t->SetListener(&OnEvents, null);
         CombatCaps.Rows.Ensure();
+        return true;
     }
 
     /// <summary>combat.hold_filter: kiln.combat holds only the hits a handler's entity filter lets through (a table with

@@ -45,6 +45,13 @@ internal static unsafe class AiNative
     private static Table* _t;
     private static bool _looked;
 
+    /// <summary>Forgets a remembered miss, so the next use looks for the table again (ServiceCaps.WhenFound: the refresh
+    /// found it after all).</summary>
+    internal static void LookAgain()
+    {
+        if (_t == null) _looked = false;
+    }
+
     /// <summary>The table, or null when kiln.npcai is not loaded (an unknown build, or a client without it).</summary>
     public static Table* T
     {

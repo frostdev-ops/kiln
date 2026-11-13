@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT
+using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Xunit;
@@ -238,5 +239,72 @@ public sealed unsafe class MissingServiceRowTests : FakeTableTest
         Backend.Tables["kiln.combat"] = (nint)NewTable();  // published late
         Step(25);
         Assert.True(Capabilities.Is("kiln.combat"), Capabilities.Why("kiln.combat"));
+    }
+}
+
+/// <summary>One rule for a table published after the first look-up and for a registry binding replaced under running
+/// services (ServiceCaps / ServiceCapRows).</summary>
+public sealed unsafe class LateTableTests : FakeTableTest
+{
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static int FakeKnowledgeStatus(KnowledgeNative.Status* s)
+    {
+        s->Knowledge = s->Changes = s->Journal = s->Npc = s->Dialogue = s->ClientInput = 1;
+        return 0;
+    }
+
+    [Fact]
+    public void A_wrapper_that_remembered_a_miss_finds_the_late_table_at_the_refresh()
+    {
+        Capabilities.ReportService("kiln.knowledge", CapabilityReason.ServiceMissing, "kiln.knowledge is not here yet");
+        Swap(typeof(KnowledgeNative), "_looked", false);
+        Swap(typeof(KnowledgeNative), "_table", Box<KnowledgeNative.Table>(null));
+        StartRows(typeof(Knowledge).Assembly);  // looks once: missing, and remembers it
+        Assert.True(KnowledgeNative.T == null);
+        var t = Alloc<KnowledgeNative.Table>();
+        t->Header = new ServiceHeader { Size = (uint)sizeof(KnowledgeNative.Table), Version = 1 };
+        t->Status = &FakeKnowledgeStatus;
+        Backend.Tables["kiln.knowledge"] = (nint)t;  // published late
+        Step(25);
+        Assert.True(KnowledgeNative.T != null, "the remembered miss was not forgotten");
+        Assert.True(Capabilities.Is("kiln.knowledge"), Capabilities.Why("kiln.knowledge"));
+    }
+
+    [Fact]
+    public void A_late_progression_table_is_found_although_the_first_tick_looked_before_it()
+    {
+        Capabilities.ReportService("kiln.progression", CapabilityReason.ServiceMissing, "kiln.progression is not here yet");
+        Swap(typeof(Progression), "_looked", false);
+        Swap(typeof(Progression), "_table", Pointer.Box(null, typeof(Progression).GetField("_table", BindingFlags.Static | BindingFlags.NonPublic)!.FieldType));
+        StartRows(typeof(Players).Assembly);    // Kiln.Players' start (the first tick) looked: missing
+        Assert.False(Progression.Available);
+        var t = (byte*)NativeMemory.AllocZeroed(4096);
+        *(ServiceHeader*)t = new ServiceHeader { Size = 4096, Version = 1 };
+        Backend.Tables["kiln.progression"] = (nint)t;
+        Step(25);
+        Assert.True(Progression.Available);
+    }
+
+    [Fact]
+    public void A_new_registry_binding_gets_every_started_service_s_rows_again()
+    {
+        StartRows(typeof(World).Assembly);
+        StartRows(typeof(Saves).Assembly);
+        Step();                                       // the services run (this fixture's first tick starts nothing)
+        ServiceTick.AutoStartEnabled = true;          // as in a game and in the test kit
+        Kiln.Backend.Current = new OfflineBackend();  // the registry is replaced under the running services
+        try
+        {
+            Assert.Equal(CapabilityReason.Unknown, Capabilities.Get("world.tracked_writes").Reason);
+            Step();
+            Assert.NotEqual(CapabilityReason.Unknown, Capabilities.Get("world.tracked_writes").Reason);
+            Assert.NotEqual(CapabilityReason.Unknown, Capabilities.Get("saves.instance_data.carried").Reason);
+            Assert.NotEqual(CapabilityReason.Unknown, Capabilities.Get("saves.instance_data").Reason);
+        }
+        finally
+        {
+            ServiceTick.AutoStartEnabled = false;
+            Kiln.Backend.Current = Backend;
+        }
     }
 }

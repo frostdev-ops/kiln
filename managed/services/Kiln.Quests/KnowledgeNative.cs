@@ -198,6 +198,13 @@ internal static unsafe class KnowledgeNative
     private static Table* _table;
     private static bool _looked;
 
+    /// <summary>Forgets a remembered miss, so the next use looks for the table again (ServiceCaps.WhenFound: the refresh
+    /// found it after all).</summary>
+    internal static void LookAgain()
+    {
+        if (_table == null) _looked = false;
+    }
+
     internal static Table* T
     {
         get

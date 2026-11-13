@@ -15,6 +15,14 @@ internal static unsafe class SavesCaps
 
     internal static readonly ServiceCapRows Rows = new(Service, Report);
 
+    // Kiln.Saves remembers a miss (its start, and its table): forgotten when the refresh finds the table
+    static SavesCaps()
+    {
+        ServiceCaps.WhenFound(Service, SavesRuntime.LookAgain);
+        ServiceCaps.WhenFound("kiln.spawn", SpawnLink.LookAgain);  // entity data's links to other services' tables
+        ServiceCaps.WhenFound("kiln.players", PlayersLink.LookAgain);
+    }
+
     private static void Report()
     {
         if (SavesNative.T == null) ServiceCaps.LowerFeatures(Service, Features);

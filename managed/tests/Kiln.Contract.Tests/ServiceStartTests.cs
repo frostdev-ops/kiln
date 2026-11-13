@@ -92,8 +92,12 @@ internal sealed class IsolatedKiln
         g.Invoke(null, [handler, .. g.GetParameters().Skip(1).Select(p => p.DefaultValue)]);
     }
 
+    /// <summary>The type names of the events the handlers of <see cref="Subscribe"/> were given (they do nothing else).</summary>
+    public static readonly List<string> Seen = [];
+
     private static void Ignore<T>(T e)
     {
+        lock (Seen) Seen.Add(e!.GetType().Name);
     }
 
     /// <summary>The names of the service tick's handlers now.</summary>
@@ -297,6 +301,109 @@ public sealed unsafe class GameplayStartTests
         kiln.Step();
         Assert.Equal(0, _listeners);
         kiln.Subscribe(kiln.Services["Kiln.Combat"].GetType("Kiln.EntityDeathEvent", throwOnError: true)!);
+        Assert.Equal(1, _listeners);
+    }
+
+    private static int _holdPushes;
+
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static int FakeHoldFilter(uint* ids, uint count, uint interest)
+    {
+        _holdPushes++;
+        return 0;
+    }
+
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static int FakeIdsOff(uint kind, CombatNative.AttributeIds* ids) => 3;  // no attribute resource read yet
+
+    private static CombatNative.TableV3* CombatV3()
+    {
+        var t = (CombatNative.TableV3*)NativeMemory.AllocZeroed((nuint)sizeof(CombatNative.TableV3));
+        t->V2.V1.Header = new ServiceHeader { Size = (uint)sizeof(CombatNative.TableV3), Version = 1 };
+        t->V2.V1.SetListener = &FakeSetListener;
+        t->V2.AttributeIdsFn = &FakeIdsOff;
+        t->HoldFilter = &FakeHoldFilter;
+        return t;
+    }
+
+    /// <summary>A mod's first subscription to a hit event starts Kiln.Combat's listener and widens what kiln.combat holds
+    /// before Events.On returns: a hit later in that step is held (as in dev.26, where the subscription started it all).</summary>
+    [Fact]
+    public void The_first_hurt_subscription_widens_the_hold_at_once()
+    {
+        _listeners = 0;
+        _holdPushes = 0;
+        var kiln = new IsolatedKiln(["Kiln.Combat"]);
+        kiln.Serve("kiln.combat", (nint)CombatV3());
+        kiln.Step();
+        Assert.Equal(0, _listeners);
+        kiln.Subscribe(kiln.Services["Kiln.Combat"].GetType("Kiln.EntityHurtEvent", throwOnError: true)!);
+        Assert.Equal(1, _listeners);
+        Assert.True(_holdPushes > 0, "the hold filter was not widened for the new subscription");
+    }
+
+    private static int _attr = 10;
+
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static int FakeAttrGet(uint e, uint component, uint attribute, int* v)
+    {
+        *v = _attr;
+        return 0;
+    }
+
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static int FakeAbilitiesStatus(AbilitiesNative.Status* s) => 0;  // here, with nothing of the world yet
+
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static int FakeAttrAdd(uint e, uint component, uint attribute, int delta)
+    {
+        _attr += delta;
+        return 0;
+    }
+
+    /// <summary>An Abilities attribute write that only a catch-all handler sees posts CombatChangedEvent without
+    /// starting Kiln.Combat's listener (a catch-all handler is no use of Kiln.Combat's events).</summary>
+    [Fact]
+    public void An_attribute_change_seen_by_a_catch_all_handler_starts_no_combat_listener()
+    {
+        _listeners = 0;
+        var abilities = (AbilitiesNative.Table*)NativeMemory.AllocZeroed((nuint)sizeof(AbilitiesNative.Table));
+        abilities->Header = new ServiceHeader { Size = (uint)sizeof(AbilitiesNative.Table), Version = 1 };
+        abilities->GetStatus = &FakeAbilitiesStatus;
+        abilities->AttrGet = &FakeAttrGet;
+        abilities->AttrAdd = &FakeAttrAdd;
+        var kiln = new IsolatedKiln(["Kiln.Combat", "Kiln.Abilities"]);
+        kiln.Serve("kiln.combat", (nint)CombatV3());
+        kiln.Serve("kiln.abilities", (nint)abilities);
+        kiln.Step();
+        kiln.Subscribe(kiln.Type("Kiln.KilnEvent"));
+        var asm = kiln.Services["Kiln.Abilities"];
+        var attributes = asm.GetType("Kiln.Abilities+Attributes", throwOnError: true)!;
+        var resource = Enum.Parse(asm.GetType("Kiln.AbilityResource", throwOnError: true)!, "Mana");
+        var entity = Activator.CreateInstance(kiln.Type("Kiln.EntityId"), 300u)!;
+        var add = attributes.GetMethod("Add", [kiln.Type("Kiln.EntityId"), resource.GetType(), typeof(int)])!;
+        lock (IsolatedKiln.Seen) IsolatedKiln.Seen.Clear();
+        Assert.True((bool)add.Invoke(null, [entity, resource, 5])!);
+        lock (IsolatedKiln.Seen) Assert.Contains("CombatChangedEvent", IsolatedKiln.Seen);  // the change was posted
+        Assert.Equal(0, _listeners);
+    }
+
+    /// <summary>A table published after the first look-up: a mod subscribed while kiln.combat was missing, so the
+    /// listener could not start; the service tick's refresh finds the table and starts it (a core says service-missing
+    /// here, as a late service would have it).</summary>
+    [Fact]
+    public void A_listener_waiting_for_a_late_table_starts_when_the_refresh_finds_it()
+    {
+        _listeners = 0;
+        var kiln = new IsolatedKiln(["Kiln.Combat"]);
+        var reason = Enum.Parse(kiln.Type("Kiln.CapabilityReason"), "ServiceMissing");
+        kiln.Type("Kiln.Capabilities").GetMethod("ReportService", BindingFlags.NonPublic | BindingFlags.Static)!
+            .Invoke(null, ["kiln.combat", reason, "kiln.combat is not here yet"]);
+        kiln.Step();
+        kiln.Subscribe(kiln.Services["Kiln.Combat"].GetType("Kiln.EntityDeathEvent", throwOnError: true)!);
+        Assert.Equal(0, _listeners);  // no table: nothing to listen to
+        kiln.Serve("kiln.combat", (nint)CombatV3());
+        for (var i = 0; i < 25; i++) kiln.Step();
         Assert.Equal(1, _listeners);
     }
 }

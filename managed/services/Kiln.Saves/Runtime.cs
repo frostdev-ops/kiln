@@ -47,6 +47,15 @@ internal static unsafe class SavesRuntime
         }
     }
 
+    /// <summary>The refresh found kiln.saves after all: the next use starts Kiln.Saves (ServiceCaps.WhenFound).</summary>
+    internal static void LookAgain()
+    {
+        SavesNative.LookAgain();
+        lock (Gate)
+            if (_state == 2)
+                _state = 0;
+    }
+
     internal static bool Ensure()
     {
         if (_state != 0) return _state == 1;

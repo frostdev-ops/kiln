@@ -16,19 +16,27 @@ internal static class ServiceUse
     /// starting the service for its rows; then at its first use: a subscription to an event type the service declares (the
     /// way a mod that only subscribes started it before: the bus runs the event type's static constructors, which ran the
     /// module initializer). Every other use of such a service calls its own start (a call into it does).</summary>
-    internal static void Start(Assembly service, Action start)
+    internal static void Start(Assembly service, string table, Func<bool> start)
     {
         if (!ServiceTick.StartingServices)
         {
-            start();
+            Activate(table, start);
             return;
         }
-        var waiter = new Waiter(service, start);
+        var waiter = new Waiter(service, () => Activate(table, start));
         Events.SubscriptionTypeAdded += waiter.Added;
         // subscriptions made before the first service tick (a mod's [Subscribe] handlers at its load)
         foreach (var s in Events.Subscriptions)
             if (s.Active)
                 waiter.Added(s.Type);
+    }
+
+    // A start that found no table yet (start false) is not used up: it runs again once the refresh finds the table.
+    private static void Activate(string table, Func<bool> start)
+    {
+        if (start()) return;
+        ServiceCaps.WhenFound(table, () => start());
+        ServiceCaps.NoteMissing(table);
     }
 
     private sealed class Waiter(Assembly service, Action start)

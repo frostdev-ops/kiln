@@ -98,6 +98,13 @@ internal static unsafe class SkillsNative
     private static Table* _t;
     private static bool _looked;
 
+    /// <summary>Forgets a remembered miss, so the next use looks for the table again (ServiceCaps.WhenFound: the refresh
+    /// found it after all).</summary>
+    internal static void LookAgain()
+    {
+        if (_t == null) _looked = false;
+    }
+
     /// <summary>Tests: a fake kiln.skills table (null: none, as offline). Kiln never calls this.</summary>
     internal static void UseForTests(Table* table)
     {
@@ -316,8 +323,12 @@ public static unsafe partial class GameTree
     // fixed from then on.
     internal static readonly ServiceCapRows Rows = new(Caps.Service, ReportCapabilities);
 
+    private static int _lookAgainRegistered;
+
     private static void ReportCapabilities()
     {
+        // kiln.skills' wrapper remembers a miss: forgotten when the refresh finds the table (docs/kiln/services/caps.md)
+        if (Interlocked.Exchange(ref _lookAgainRegistered, 1) == 0) ServiceCaps.WhenFound(Caps.Service, SkillsNative.LookAgain);
         if (SkillsNative.T != null) return;
         ServiceCaps.LowerFeatures(Caps.Service, Caps.Features);
     }

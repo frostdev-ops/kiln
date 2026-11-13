@@ -82,10 +82,92 @@ internal static class ServiceCaps
     /// own row gives the reason the features are lowered with.</summary>
     public static void LowerFeatures(string service, params string[] features)
     {
-        Probe(service);
+        if (Probe(service))
+        {
+            RunFound(service);  // the caller's wrapper remembered a miss, but the table is here now
+            return;
+        }
         var (reason, text) = Cause(CapabilityReason.ServiceMissing, $"{service} is not loaded", service);
-        foreach (var name in features) Lower(name, reason, text);
+        var lowered = new List<string>();
+        foreach (var name in features)
+            if (Lower(name, reason, text))
+                lowered.Add(name);
+        NoteMissing(service, lowered);
     }
+
+    // ---- a table published after the first look-up ----
+    // A service found missing (where a core is, or its row says service-missing: a later step can change that) is looked
+    // for again at the service tick's refresh; when its table is there, the features lowered for it are withdrawn, the
+    // actions registered for it run (a wrapper forgets the miss it remembers, a listener waiting for it starts) and every
+    // rows set reports again. Under the registry binding of the note only.
+    private static readonly Dictionary<string, (long Epoch, List<string> Lowered)> Missing = new(StringComparer.Ordinal);
+    private static readonly Dictionary<string, List<Action>> WhenFoundActions = new(StringComparer.Ordinal);
+
+    /// <summary>Notes <paramref name="service"/> as missing now (when a later step can change that), with the features
+    /// lowered for it, so the refresh looks for it again.</summary>
+    public static void NoteMissing(string service, IReadOnlyCollection<string>? lowered = null)
+    {
+        var binding = Capabilities.CurrentBinding;
+        if (!binding.HasTable && Capabilities.Get(service).Reason != CapabilityReason.ServiceMissing) return;  // no core: nothing appears later
+        lock (Gate)
+        {
+            var merged = Missing.TryGetValue(service, out var old) && old.Epoch == binding.Epoch ? old.Lowered : [];
+            foreach (var name in lowered ?? []) if (!merged.Contains(name)) merged.Add(name);
+            Missing[service] = (binding.Epoch, merged);
+        }
+    }
+
+    /// <summary>Runs <paramref name="action"/> each time the refresh finds <paramref name="service"/>'s table after it was
+    /// noted missing (a wrapper that remembers a miss forgets it; a listener that waits for the table starts).</summary>
+    public static void WhenFound(string service, Action action)
+    {
+        lock (Gate)
+        {
+            if (!WhenFoundActions.TryGetValue(service, out var list)) WhenFoundActions[service] = list = [];
+            list.Add(action);
+        }
+    }
+
+    /// <summary>The refresh (every 25 service steps): looks for every service noted missing under this binding again.
+    /// Returns whether one was found.</summary>
+    internal static bool LookAgain()
+    {
+        var epoch = Capabilities.CurrentBinding.Epoch;
+        (string Service, List<string> Lowered)[] noted;
+        lock (Gate) noted = Missing.Where(kv => kv.Value.Epoch == epoch).Select(kv => (kv.Key, kv.Value.Lowered)).ToArray();
+        var found = false;
+        foreach (var (service, lowered) in noted)
+        {
+            if (!Probe(service)) continue;  // a table now: the lookup itself takes back the service's own missing report
+            lock (Gate) Missing.Remove(service);
+            foreach (var name in lowered) Withdraw(name);
+            RunFound(service);
+            found = true;
+        }
+        return found;
+    }
+
+    private static void RunFound(string service)
+    {
+        Action[] actions;
+        lock (Gate) actions = WhenFoundActions.TryGetValue(service, out var list) ? [.. list] : [];
+        foreach (var action in actions)
+        {
+            try
+            {
+                action();
+            }
+            catch (Exception e)
+            {
+                try { Backend.Current.Log(0, LogLevel.Warn, $"{service}: found late, but a service could not take it up: {e.Message}"); }
+                catch { /* nothing left to say */ }
+            }
+        }
+    }
+
+    // Takes back a feature Kiln lowered: with kiln.caps an available report hides behind every other, so the core's own
+    // row stands again (a feature is lowered only where the core's sigdb row is).
+    private static void Withdraw(string name) => Report(name, CapabilityState.Available);
 
     // feature -> why it is off although its service is here (LowerOff), under the registry binding of then
     private static readonly Dictionary<string, (long Epoch, CapabilityReason Reason, string Text)> OffHere = new(StringComparer.Ordinal);
@@ -117,10 +199,12 @@ internal static class ServiceCaps
     /// <see cref="Capabilities.Is"/> is false for it anyway, and a row someone else claims (a test kit's backend that
     /// switches a feature on for a test) stays theirs: lowering either would hold the feature off for the rest of the
     /// process, also after the test switched it on.</summary>
-    public static void Lower(string name, CapabilityReason reason, string text)
+    public static bool Lower(string name, CapabilityReason reason, string text)
     {
         lock (Gate) Declared.Add(name);
-        if (LowersRow(Capabilities.Get(name))) Report(name, CapabilityState.Unavailable, reason, text);
+        if (!LowersRow(Capabilities.Get(name))) return false;
+        Report(name, CapabilityState.Unavailable, reason, text);
+        return true;
     }
 
     /// <summary>Whether <see cref="Lower"/> lowers a row that reads <paramref name="row"/> now: an available feature
@@ -183,19 +267,58 @@ internal static class ServiceCaps
 /// reset (the test kit starts each harness with an empty one), and kept in step on the service tick when the service
 /// has rows that follow the session. The service's static constructor makes it and calls <see cref="Ensure"/>; a member
 /// that throws <see cref="KilnUnavailableException"/> calls <see cref="Ensure"/> first, so the row it names is there.</summary>
-/// <param name="owner">The service's name for log lines and the tick's name (<c>kiln.spawn</c>).</param>
-/// <param name="report">Reports every row of the service (through <see cref="ServiceCaps"/>). Any thread; it must not
-/// touch game state.</param>
-/// <param name="everySteps">0: the rows are fixed. Otherwise <paramref name="report"/> runs again every that many
-/// steps of the service tick.</param>
-/// <param name="refreshOnlyWithService">The periodic run is skipped while <paramref name="owner"/>'s own row says the
-/// service is off: its session rows cannot change then, and a wrapper that looks a missing table up again on every read
-/// would ask the backend for it every <paramref name="everySteps"/> steps (a test kit counts that as the test needing
-/// the service).</param>
-internal sealed class ServiceCapRows(string owner, Action report, int everySteps = 0, bool refreshOnlyWithService = false)
+internal sealed class ServiceCapRows
 {
     private readonly object _gate = new();
+    private readonly string owner;
+    private readonly Action report;
+    private readonly int everySteps;
+    private readonly bool refreshOnlyWithService;
     private long _epoch = -1;
+
+    // every rows set of the process, for the service tick: a new registry binding reports every started one again
+    private static readonly object AllGate = new();
+    private static ServiceCapRows[] _all = [];
+    private static long _tickEpoch = -1;
+
+    /// <summary>Makes the rows set of one service (it reports at <see cref="Ensure"/>).</summary>
+    /// <param name="owner">The service's name for log lines and the tick's name (<c>kiln.spawn</c>).</param>
+    /// <param name="report">Reports every row of the service (through <see cref="ServiceCaps"/>). Any thread; it must not
+    /// touch game state.</param>
+    /// <param name="everySteps">0: the rows are fixed. Otherwise <paramref name="report"/> runs again every that many
+    /// steps of the service tick.</param>
+    /// <param name="refreshOnlyWithService">The periodic run is skipped while <paramref name="owner"/>'s own row says the
+    /// service is off: its session rows cannot change then, and a wrapper that looks a missing table up again on every read
+    /// would ask the backend for it every <paramref name="everySteps"/> steps (a test kit counts that as the test needing
+    /// the service).</param>
+    public ServiceCapRows(string owner, Action report, int everySteps = 0, bool refreshOnlyWithService = false)
+    {
+        this.owner = owner;
+        this.report = report;
+        this.everySteps = everySteps;
+        this.refreshOnlyWithService = refreshOnlyWithService;
+        lock (AllGate) _all = [.. _all, this];
+    }
+
+    private bool Started => Volatile.Read(ref _epoch) != -1;
+
+    /// <summary>The service tick (every step, tick thread): when the registry binding was replaced under running
+    /// services, every rows set that has reported reports again (as the services' start did; not with autostart off, in
+    /// tests that keep the registry to themselves: there a service reports again at its next use); every 25 steps the
+    /// services noted missing are looked for again (<see cref="ServiceCaps.LookAgain"/>), and when one appeared every
+    /// started rows set reports again.</summary>
+    internal static void Tick(in TickInfo tick)
+    {
+        var epoch = Capabilities.CurrentBinding.Epoch;
+        if (Interlocked.Exchange(ref _tickEpoch, epoch) != epoch && ServiceTick.AutoStartEnabled)
+            foreach (var rows in Volatile.Read(ref _all))
+                if (rows.Started)
+                    rows.Ensure();
+        if (tick.Step % 25 != 0 || !ServiceCaps.LookAgain()) return;
+        foreach (var rows in Volatile.Read(ref _all))
+            if (rows.Started)
+                rows.Refresh();
+    }
     private IDisposable? _tick;
     private bool _warned;
 

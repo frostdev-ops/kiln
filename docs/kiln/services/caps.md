@@ -136,6 +136,20 @@ kiln.knowledge's parts by its status (`quests.knowledge`, `changes`, `journal`, 
 `quests.changes` also when the game's knowledge apply faulted later, read every 25 steps). A session row's refresh asks
 for a service the core does not have again, so a table published late is found.
 
+A table published late, one rule for every service (dev.27). A service found missing while the core is there (its
+`kiln.<service>` row says `service-missing`) is looked for again at the service tick's refresh, every 25 steps. When its
+table is there: the features lowered for it are taken back (the core's sigdb row stands again), a wrapper that
+remembered the miss forgets it (its next call finds the table: Kiln.Players' players, progression, player states and
+characters, Kiln.Quests' knowledge, Kiln.Saves and its links to kiln.spawn and kiln.players, Kiln.World and its
+tracked writes, Kiln.Skills, Kiln.Blocks' factions), a listener that waited for it starts (Kiln.Combat's hit listener,
+Kiln.Gameplay's), and every started service reports its rows again. A new registry binding (a reset, the test kit's
+next harness) gets every started service's rows again at its first service tick. A service whose wrapper asks again
+on every call (Kiln.Network, Kiln.Rules) has no miss to forget and gets its lowered features back. Known limits: these
+keep what their first look-up found for the process and are not wired to the rule yet: Kiln.Hooks, Kiln.Build,
+Kiln.Content's link to kiln.assets for its programs, Kiln.Ui's craft-menu and render tables (a `Lazy`); kiln.worldtables
+merges the mods' blocks at boot, so a table published after it would have missed the merge anyway. Without a Kiln core
+(a unit test, a tool) nothing is published later and nothing is looked for.
+
 | Row | Kind | Reported by | What it says |
 |---|---|---|---|
 | `spawn.components` | managed, static | Kiln.Spawn | this kiln.spawn takes `SpawnOptions.Components` (`service-older` otherwise) |

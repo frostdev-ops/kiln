@@ -66,9 +66,16 @@ internal static unsafe class SpawnLink
             {
                 _t = Services.Get<Table>("kiln.spawn", 1);
                 _looked = true;
+                if (_t == null) ServiceCaps.NoteMissing("kiln.spawn");  // looked for again at the refresh
             }
             return _t;
         }
+    }
+
+    /// <summary>Forgets a remembered miss (ServiceCaps.WhenFound: the refresh found the table after all).</summary>
+    internal static void LookAgain()
+    {
+        if (_t == null) _looked = false;
     }
 
     public static bool Available => T != null;
@@ -197,9 +204,16 @@ internal static unsafe class PlayersLink
             {
                 _t = Services.Get<Table>("kiln.players", 1);
                 _looked = true;
+                if (_t == null) ServiceCaps.NoteMissing("kiln.players");  // looked for again at the refresh
             }
             return _t;
         }
+    }
+
+    /// <summary>Forgets a remembered miss (ServiceCaps.WhenFound: the refresh found the table after all).</summary>
+    internal static void LookAgain()
+    {
+        if (_t == null) _looked = false;
     }
 
     /// <summary>SteamID64 of the player who has this entity (0: none / unknown / kiln.players unavailable).</summary>

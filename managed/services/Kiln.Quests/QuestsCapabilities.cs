@@ -17,6 +17,9 @@ internal static unsafe class QuestsCaps
 
     internal static readonly ServiceCapRows Rows = new(Service, Report, everySteps: 25, refreshOnlyWithService: true);
 
+    // kiln.knowledge's wrapper remembers a miss: forgotten when the refresh finds the table (docs/kiln/services/caps.md)
+    static QuestsCaps() => ServiceCaps.WhenFound(Service, KnowledgeNative.LookAgain);
+
     private static void Report()
     {
         var t = KnowledgeNative.T;

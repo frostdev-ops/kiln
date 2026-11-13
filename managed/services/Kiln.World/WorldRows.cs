@@ -18,6 +18,13 @@ internal static unsafe class WorldRows
 
     internal static readonly ServiceCapRows Rows = new(Service, Report);
 
+    // kiln.world's wrappers remember a miss (the entity table, the tracked writes'): forgotten when the refresh finds it
+    static WorldRows()
+    {
+        ServiceCaps.WhenFound(Service, WorldNative.LookAgain);
+        ServiceCaps.WhenFound(Service, WorldWrites.LookAgain);
+    }
+
     private static void Report()
     {
         if (WorldNative.T == null) ServiceCaps.LowerFeatures(Service, Features);

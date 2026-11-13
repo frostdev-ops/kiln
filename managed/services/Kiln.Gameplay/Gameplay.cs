@@ -127,7 +127,7 @@ public static unsafe partial class Gameplay
     // Kiln's first service tick loads this assembly for its capability rows (GameplayStartup): that is not a use, so the
     // listener (and with it the game actions a handler can cancel) waits for one (ServiceUse).
     [ModuleInitializer]
-    internal static void ModuleInit() => ServiceUse.Start(typeof(Gameplay).Assembly, static () => EnsureListener());
+    internal static void ModuleInit() => ServiceUse.Start(typeof(Gameplay).Assembly, "kiln.gameplay", static () => EnsureListener());
 
     [AnyThread]
     public static GameplayStatus? Status
