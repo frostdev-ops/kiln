@@ -74,8 +74,60 @@ public unsafe class WorldWritesTests
         Assert.Equal("Written: Fuel of 1042", r.ToString());
         var written = Result(0, WorldWritesAbi.GameWrites | WorldWritesAbi.Checked, writers: 1);
         Assert.False(written.Kept);
-        Assert.True(written.Ok);   // the write happened; the game wrote over it afterwards
-        Assert.Contains("written over by the game one step later", written.ToString());
+        Assert.True(written.Ok);   // the write happened; something wrote over it afterwards
+        Assert.Null(written.WrittenOverBy);
+        Assert.Equal("Written: Fuel of 1042 (1 game writer, written over one step later)", written.ToString());
+    }
+
+    // The first try in a real game (13 Nov 2026): a can in the player's backpack, the Creative menu's rule set on (a water
+    // rule: kiln.items' refill of the player's inventories). The answer said "written over by the game one step later";
+    // it was Kiln's own refill. A policy of Kiln's that covers the entity is named, with nothing blamed on the game.
+    [Fact]
+    public void A_write_a_Kiln_refill_wrote_over_names_the_refill_not_the_game()
+    {
+        const string refill = "kiln.items' water refill 1 (keep full) of the inventories of 1, set by kiln";
+        ComponentKeepers.Keeper keeper = (e, component) => e == new EntityId(1042) && component == "Fuel" ? refill : null;
+        ComponentKeepers.Add(keeper);
+        try
+        {
+            var over = WorldWrites.WrittenOver(Result(0, WorldWritesAbi.GameWrites | WorldWritesAbi.BitsKnown | WorldWritesAbi.Saved |
+                                                         WorldWritesAbi.Attribute | WorldWritesAbi.Checked, writers: 9));
+            Assert.True(over is { Ok: true, Changed: true, Kept: false });
+            Assert.Equal(refill, over.WrittenOverBy);
+            Assert.Equal($"Written: Fuel of 1042 (9 game writers, written over one step later by {refill}, marked for the save)", over.ToString());
+            Assert.DoesNotContain("by the game", over.ToString());
+
+            // kept, not checked, or another component: nothing to name
+            Assert.Null(WorldWrites.WrittenOver(Result(0, WorldWritesAbi.GameWrites | WorldWritesAbi.Checked | WorldWritesAbi.Kept, writers: 9)).WrittenOverBy);
+            Assert.Null(WorldWrites.WrittenOver(Result(0, 0)).WrittenOverBy);
+            Assert.Null(WorldWrites.WrittenOver(Result(1, 0)).WrittenOverBy);
+        }
+        finally
+        {
+            ComponentKeepers.Remove(keeper);
+        }
+        Assert.Null(WorldWrites.WrittenOver(Result(0, WorldWritesAbi.GameWrites | WorldWritesAbi.Checked, writers: 9)).WrittenOverBy);
+    }
+
+    [Fact]
+    public void A_keeper_that_throws_names_nothing_and_the_next_one_answers()
+    {
+        ComponentKeepers.Keeper broken = (_, _) => throw new InvalidOperationException("not on the tick thread");
+        ComponentKeepers.Keeper other = (e, c) => c == "Fuel" ? $"a refill of {e}" : null;
+        ComponentKeepers.Add(broken);
+        ComponentKeepers.Add(other);
+        ComponentKeepers.Add(other);  // once only
+        try
+        {
+            Assert.Equal("a refill of 1042", ComponentKeepers.Who(new EntityId(1042), "Fuel"));
+            Assert.Null(ComponentKeepers.Who(new EntityId(1042), "Health"));
+        }
+        finally
+        {
+            ComponentKeepers.Remove(broken);
+            ComponentKeepers.Remove(other);
+        }
+        Assert.Null(ComponentKeepers.Who(new EntityId(1042), "Fuel"));
     }
 
     [Theory]

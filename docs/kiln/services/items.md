@@ -121,7 +121,11 @@ slow.Refilled += changes => Log.Info($"{changes.Sum(c => c.After - c.Before)} un
   (the containers it changed since the last step); `WaterRefilledEvent` is the same on the event bus. Dispose the handle
   to stop; the mod's unload and a closing server world stop it too. It does not end when the entity goes away: a
   player's entity id is reused by the next player who joins, so dispose it when the player leaves (Kiln.Rules' `Water`
-  rule does that: docs/kiln/services/rules.md). At most 256 at once.
+  rule does that: docs/kiln/services/rules.md). At most 256 at once. While a refill covers a container it wins over
+  every other change of its water, a mod's included: `Fuel.Set` is undone in the same step (the program runs the
+  refills right after the requests), and a tracked `World.Update<Ecs.Fuel>` lasts one step (its answer names the
+  refill: `WorldWriteResult.WrittenOverBy`, docs/kiln/services/world.md). End or narrow the refill before such a
+  write.
 - `FillAll(holder, IEnumerable<ItemId>)`: one fill per item, the results added up.
 - Units are the game's: what players see is `NetworkFuel`, a 16-bit copy (docs/re/items.md section 11).
 - Errors throw like `Read`: `NotSupportedException` when the runtime's kiln.items has no water functions (an older

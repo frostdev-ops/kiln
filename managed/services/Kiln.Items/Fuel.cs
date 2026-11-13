@@ -122,6 +122,8 @@ public static unsafe partial class Items
                     : Failure("Items.Fuel.Refill", rc);
             }
             keep.Attach(handle, key);
+            // a tracked write of a container this refill covers is written over every step: kiln.world asks who did it
+            ComponentKeepers.Add(FuelKeepers.Keeper);
             var mod = ModContext.CurrentMod;
             keep.Origin = mod?.Info.Id ?? "kiln";
             if (mod != null)
@@ -142,6 +144,12 @@ public static unsafe partial class Items
         internal static void Forget(long key)
         {
             lock (Gate) Keeps.Remove(key);
+        }
+
+        /// <summary>The refill policies set through <see cref="Refill"/> that are active now.</summary>
+        internal static FuelKeep[] ActiveKeeps()
+        {
+            lock (Gate) return [.. Keeps.Values.Where(k => k.Active)];
         }
 
         [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
@@ -387,7 +395,16 @@ public sealed class FuelKeep : IDisposable
     {
         _handle = handle;
         _key = key;
+        Id = handle;
     }
+
+    /// <summary>kiln.items' number for it (kiln.log's "refill N"), also after it ended.</summary>
+    internal ulong Id { get; private set; }
+
+    /// <summary>"kiln.items' water refill 1 (keep full) of the inventories of 1, set by kiln" (WorldWriteResult.WrittenOverBy).</summary>
+    internal string Describe(string? itemName = null) =>
+        $"kiln.items' water refill {Id} ({Policy}) of {(Inventories ? $"the inventories of {Entity}" : Entity.ToString())}" +
+        (Item.IsNone ? "" : $", {itemName ?? $"item 0x{Item.Value:x8}"} only") + $", set by {Origin}";
 
     public EntityId Entity { get; }
     public ItemId Item { get; }
@@ -427,6 +444,35 @@ public sealed class FuelKeep : IDisposable
         Items.Fuel.Forget(_key);
         Detach?.Invoke();
         Detach = null;
+    }
+}
+
+/// <summary>kiln.world's question about a tracked write of <c>Fuel</c> that did not hold (Kiln.Api's ComponentKeepers): does
+/// an active refill policy cover the container? A refill writes every container it covers back to its level every step,
+/// after the game's programs and after kiln.world's write of the step before (native/services/items/items.cpp,
+/// run_fuel_jobs), so the write lasts one step. Only the policies set through <see cref="Items.Fuel.Refill"/> are known
+/// here; a native plugin's fuel_keep is not.</summary>
+internal static class FuelKeepers
+{
+    internal static readonly ComponentKeepers.Keeper Keeper = Who;
+
+    private static string? Who(EntityId entity, string component) =>
+        component == "Fuel" ? Covering(Items.Fuel.ActiveKeeps(), entity, Items.Read, id => Items.Get(id)?.Name) : null;
+
+    /// <summary>The first active policy that covers <paramref name="container"/>: one on the container itself, or one on a
+    /// holder whose inventories hold it (of the policy's item, when it names one). Null when none does.</summary>
+    internal static string? Covering(IEnumerable<FuelKeep> keeps, EntityId container, Func<EntityId, InventoryContents?> read,
+        Func<ItemId, string?>? name = null)
+    {
+        foreach (var k in keeps)
+        {
+            if (!k.Active) continue;
+            var covers = k.Inventories
+                ? read(k.Entity)?.Slots.Any(s => s.ItemEntity == container && (k.Item.IsNone || s.Item == k.Item)) == true
+                : k.Entity == container;
+            if (covers) return k.Describe(k.Item.IsNone ? null : name?.Invoke(k.Item));
+        }
+        return null;
     }
 }
 
