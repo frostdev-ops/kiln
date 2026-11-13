@@ -172,6 +172,23 @@ public sealed class JoinedTests
         Assert.Equal(["t.a", "t.d"], sent.OfType<NetStart>().Select(m => m.Id));
     }
 
+    /// <summary>A terminal state the server sends about another check than the pending one does not take the next
+    /// queued check out (it was dequeued, could not be sent while the first was pending, and was gone).</summary>
+    [Fact]
+    public void A_state_about_another_check_does_not_lose_the_queued_one()
+    {
+        using var h = new Harness();
+        var sent = new List<object>();
+        var net = new CheckNet(h.Runner, h.Env, null!, m => { sent.Add(m); return true; });
+        net.Start(Item(false) with { Id = "t.a" });
+        net.Start(Item(false) with { Id = "t.b" });
+        net.OnState(new NetState { Kind = "refused", Mod = "cct", Id = "t.x", Message = "no" });
+        Assert.Equal(["t.a"], sent.OfType<NetStart>().Select(m => m.Id));
+        Assert.Equal(1, net.View(h.Runner.View).Queued);
+        net.OnState(new NetState { Kind = "finished", Mod = "cct", Id = "t.a" });
+        Assert.Equal(["t.a", "t.b"], sent.OfType<NetStart>().Select(m => m.Id));
+    }
+
     /// <summary>A cheats check in a list: its throwaway question holds the queue; no goes on to the next check, yes
     /// sends it and the next follows when it ended.</summary>
     [Theory]
