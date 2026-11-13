@@ -353,6 +353,25 @@ fn a_move_by_hard_links_leaves_the_old_copy_untouched_by_later_writes() {
     assert_eq!(located(&fx.env).dirs.root, to);
 }
 
+/// The start times (`state/start-times.json`, kiln_manage::start_progress) go with the data folder: the estimates of
+/// the next start come from the new place. (Not on Windows from the default root: its `state\` is the system's state
+/// folder and stays, tests/data_folder_windows.rs; the history then starts again, which loses only the estimates.)
+#[cfg(unix)]
+#[test]
+fn a_move_carries_the_start_times() {
+    use kiln_manage::start_progress as sp;
+    let fx = Fixture::build("start-times");
+    let start = sp::KeptStart { kiln: "0.2.0-dev.27".into(), fingerprint: "kms1:x".into(), finished: "2026-11-13T17:29:21.675Z".into(),
+        started: "2026-11-13T17:28:19.975Z".into(), steps: vec![sp::KeptStep { id: "cook".into(), ms: 79_000, total: Some(3), parts: vec![] }] };
+    assert!(sp::keep(&fx.dirs, "client-a", start.clone()).unwrap());
+    let to = fx.base.join("moved-times");
+    let r = mv(&fx, &to, &linking(), &MoveOptions::default()).unwrap();
+    assert!(r.cleanup.unwrap().done);
+    let moved = DataDirs::at(&to);
+    assert_eq!(sp::history_of(&moved, "client-a"), [start], "the history is in the new place");
+    assert!(!sp::history_path(&fx.dirs).exists(), "and its old copy went with the old folder");
+}
+
 /// A move by real copies on one volume: times and permissions kept, `nexus/` private (Unix modes).
 #[test]
 fn a_move_by_copies_keeps_times_and_permissions() {

@@ -130,11 +130,18 @@ pub fn wait_started(install: &GameInstall, timeout: Duration, poll: Duration) ->
 /// install's running exe (Windows reuses pids quickly: a pid that is merely alive may be another program now). Under
 /// Wine/Proton the pid in the file is the game's Windows pid, which the host cannot see, so the times decide alone.
 pub fn boot_is_current(install: &GameInstall, boot: &BootJson) -> bool {
+    state_file_is_current(install, crate::paths::game::BOOT_JSON, boot.pid)
+}
+
+/// The rule of [`boot_is_current`] for any state file the game's process writes with its `pid` (`rel`: relative to the
+/// game folder; `kiln/state/progress.json` is judged by it too): this install's game runs, the file was written after
+/// that process started, and on Windows the pid is the running exe's.
+pub fn state_file_is_current(install: &GameInstall, rel: &str, pid: u32) -> bool {
     let Ok(Some(p)) = crate::proc::find_game(install) else { return false };
-    if cfg!(windows) && p.pid != boot.pid {
+    if cfg!(windows) && p.pid != pid {
         return false;
     }
-    let written = std::fs::metadata(install.path.join(crate::paths::game::BOOT_JSON)).and_then(|m| m.modified()).ok();
+    let written = std::fs::metadata(install.path.join(rel)).and_then(|m| m.modified()).ok();
     written_after_start(written, crate::proc::start_time(p.pid))
 }
 

@@ -20,6 +20,7 @@
 //! | [`engines`] | every mod engine Kiln knows: proxy names, markers, Library detection of their mods, loaders |
 //! | [`proc`] | process list (Linux /proc, Windows Toolhelp) |
 //! | [`launch`] | steam:// URIs, the launch flow |
+//! | [`start_progress`] | what a start is doing (`kiln/state/progress.json` and the launcher's own steps), the history of starts, the time left |
 //! | [`winpath`] | host <-> game path translation (Z:, copy mode) |
 //! | [`bundle`] | runtime bundles (`kiln-runtime.json`) |
 //! | [`install`] | install / upgrade / uninstall / rollback, receipts (`.install.json`) |
@@ -67,6 +68,7 @@ pub mod filecache;
 pub mod hash;
 pub mod hostenv;
 pub mod launch;
+pub mod start_progress;
 pub mod paths;
 pub mod data_folder;
 pub mod data_folder_move;
