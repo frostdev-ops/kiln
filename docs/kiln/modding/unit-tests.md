@@ -114,16 +114,26 @@ Assert.Equal(2f, kiln.Entities.Get<Ecs.ScaleComponent>(can).uniformScale);
 ```
 - **The test's hand:** `Create()`, `Create(position)`, `Destroy`, `Set<T>`, `Get<T>`, `TryGet<T>`, `Remove<T>`,
   `SetBytes` / `GetBytes` (a component by name, as bytes), `SetPosition`, `All`, `Exists`. They put things into the
-  world as the game would have: no write tracking, no event. A fake player's entity stands in the world at the
-  player's position and can be given components.
-- **Tracked writes** (`World.Write`, `Update`, `WriteField`, `WriteAt`) follow kiln.world: the write runs at the
-  start of the harness's next step and its task completes in that step. A type the mod's manifest does not list
-  under `"writes"` is refused with the sentence that says what to add. The lists are read from the manifests in the
-  harness's mods folder at its first step, as kiln.world reads them when a server starts, so a mod loaded later (a
-  hot load) is refused, as in the game. A mod built with Kiln.Sdk and loaded with `LoadFolder` has the list its build
-  made; for `Load<TMod>` with a manifest of the test's own, `ModManifest.Writes("Fuel", …)` lists them.
+  world as the game would have: no write tracking, no event. With Kiln.Game beside the tests a component name it
+  does not know is refused (`ArgumentException`): an entity of the game carries no other. Where an entity stands is
+  its `CurrentTransform` component, as in the game: `Create(position)` and `SetPosition` write it, `World.Position`
+  and `World.Transform` decode it, and a store into its bytes moves the entity. A fake player's entity stands at the
+  player's position (its `CurrentTransform` follows `FakePlayer.Position`) and can be given components; they go with
+  the player, and the next player in the slot (the same entity id: slot + 1) starts with none.
+- **Tracked writes** (`World.Write`, `Update`, `WriteField`, `WriteAt`) follow kiln.world, and the kit is tested at
+  the native service's own boundaries (`native/services/world/tests/parity.json`, which the native host test reads
+  too): the write runs at the start of the harness's next step and its task completes in that step; one step runs 512
+  writes and the rest wait for the next steps; 4,096 writes not yet answered, refusals included, are the most that can
+  wait (the next answers `Dropped` at once); one step delivers 1,024 answers. A write whose entity is removed while it
+  waits never runs, also when the id comes back (a player who leaves, and the next player in the slot). A type the
+  mod's manifest does not list under `"writes"` is refused with the sentence that says what to add. The lists are read
+  from the manifests in the harness's mods folder at its first step, as kiln.world reads them when a server starts
+  (folders in name order, without `.disabled` ones, client-only mods or an id two folders share), so a mod loaded
+  later (a hot load) is refused, as in the game; a name Kiln.Game does not know is `UnknownComponent` and takes none
+  of the 92 places. A mod built with Kiln.Sdk and loaded with `LoadFolder` has the list its build made; for
+  `Load<TMod>` with a manifest of the test's own, `ModManifest.Writes("Fuel", …)` lists them.
   `ComponentWrittenEvent` is posted for a change, and `kiln.Entities.Writes` records every write that reached the
-  world, with the bytes before and after.
+  world, with the bytes before and after. `World.WriteInfo` may be asked from any thread.
 - **The game's side** is the test's to script. `kiln.Entities.GameWrites<Ecs.Fuel>("fuel_setup", (EntityId e, ref
   Ecs.Fuel f) => …)` is a program of the game that writes the type every step: tracked writes of the type then name
   it (`GameWriters`), wait one more step and say whether the value stayed (`Kept`); a writer that derives the value
@@ -249,8 +259,8 @@ time with them sees almost none pass between steps, and an `await Task.Delay(...
 | EntityData | recording fake | `kiln.saves` | on player entities: stored as PlayerData under the fake player's Steam id. On every other entity unavailable (EntityData.Available is false: it needs kiln.spawn, which is not faked before dev.27's fake world) |
 | Config (per world) | real |  | Mod.WorldConfig<T>() binds to the harness world's folder (kiln/data/worlds/<id>/config) through Kiln.Saves and differs between world ids |
 | kiln.net | unavailable | `kiln.net` | no fake: a true pair is a client hosting its world (a kiln.client fake, a client-side harness, a client tick) and shares one channel registry, so no handshake refusal could be tested; Kiln.Network reports itself unavailable |
-| World: entities and components | recording fake | `kiln.world` | Kiln.World's own code on the kit's kiln.world: KilnHarness.Entities (FakeWorld) makes entities and puts components on them, laid out by Kiln.Game's types; World.Exists, Has, TryRead, ReadBytes, Find, Query, Position and WriteRaw read and store them, a fake player's entity stands at the player's position. Unavailable: teleport, world programs (EcsPrograms: there is no scheduler), and everything behind a component (the game's programs do not run: a Health of 0 kills nobody) |
-| World: tracked writes | recording fake | `world.tracked_writes` | World.Write, Update, WriteField and WriteAt with kiln.world's rules: the write runs at the next step and answers in it (one step later for a type a fake game program writes, with Kept), a type the mod's manifest does not list under "writes" is refused with the sentence that says what to add (the lists are read at the first step, so a hot-loaded mod's are not), ComponentWrittenEvent for a change, FakeWorld.Writes records each. Not modelled: the game's attribute formulas (no clamp), which types the game saves or replicates (null unless FakeWorld.Track says), a save of the world's entities |
+| World: entities and components | recording fake | `kiln.world` | Kiln.World's own code on the kit's kiln.world: KilnHarness.Entities (FakeWorld) makes entities and puts components on them, laid out by Kiln.Game's types (a name they do not know is refused); World.Exists, Has, TryRead, ReadBytes, Find, Query, Position, Transform and WriteRaw read and store them. Where an entity stands is its CurrentTransform's bytes, as in the game; a fake player's follows the player's position, and a player's components go with the player (the next one in the slot starts with none). Unavailable: teleport, world programs (EcsPrograms: there is no scheduler), and everything behind a component (the game's programs do not run: a Health of 0 kills nobody) |
+| World: tracked writes | recording fake | `world.tracked_writes` | World.Write, Update, WriteField and WriteAt with kiln.world's rules, tested at the native service's boundaries (native/services/world/tests/parity.json): the write runs at the next step and answers in it (one step later for a type a fake game program writes, with Kept), 512 a step and the rest later, 4,096 not yet answered at most (refusals included), 1,024 answers a step; a type the mod's manifest does not list under "writes" is refused with the sentence that says what to add (the lists are read at the first step, so a hot-loaded mod's are not; a name Kiln.Game does not know takes none of the 92 places); a write whose entity is removed while it waits never runs, also when the id comes back (a player's slot); ComponentWrittenEvent for a change, FakeWorld.Writes records each; WriteInfo from any thread. Not modelled: the game's attribute formulas (no clamp), which types the game saves or replicates (null unless FakeWorld.Track says), a save of the world's entities, a second world (a hosted game's) |
 | Game types (Kiln.Ecs, Reflected, GameTypes) | recording fake | `kiln.types` | the kit's kiln.types holds the types of the Kiln.Game beside the tests (the layouts the mod was compiled against: about 1,500 structs, enums and arrays of the game's components and events), so Ecs.TryGet, Ecs.Has, Ecs.All, Reflected.Component and GameTypes.Find work on the fake world. Without a Kiln.Game in the test output the service is unavailable. Unavailable either way: game systems and their hooks (GameSystems), the profiler, the game's event streams (GameEvents), default values, alignments, and the game's other 9,500 types |
 | [KilnTest] tests | real |  | Kiln.Testing's own runner, started test by test through Kiln.Host (KilnHarness.RunTest, KilnTestSession, the xunit KilnTestSuite): same order, timeouts and results as in a server. Offline a passing body that asked for an unfaked service or a feature that is off is skipped with the names; failed bodies and timeouts remain failures with the names. A test that blocks the tick thread is stopped by the watchdog and reported as a timeout with the stack where it blocked |
 | kiln.abilities | unavailable | `kiln.abilities` | no fake: the service finds no native table, so its own Available is false and its row says offline |
@@ -317,7 +327,11 @@ Run on Linux (.NET SDK 10.0.113) for dev.26, with every package restored from a 
 - `tk-parity` (`managed/tests/Kiln.TestKit.Tests/mods/TkParity`) offline: its event and command tests passed, its
   three network tests were skipped for `kiln.net`. The same folder in a lab server: not run when this page was written.
 
-For dev.27, the fake world: `managed/tests/Kiln.TestKit.Tests/EntitiesTests.cs` (10 tests) loads `tk-world`
+For dev.27, the fake world: `managed/tests/Kiln.TestKit.Tests/EntitiesTests.cs` (10 tests) and
+`FakeWorldParityTests.cs` (12: the native limits, the kit's table field for field against
+`native/services/world/tests/abi.json`, the declaration cases, 513 writes in one step, the limit with refusals, a
+player who leaves while a write waits and the next player in the slot, CurrentTransform's bytes, WriteInfo from four
+threads while the tick thread changes the world) load `tk-world`
 (`mods/TkWorld`, a mod built with Kiln.Sdk whose build filled `"writes": ["Fuel", "ScaleComponent"]` from its code) and
 runs its world code on `kiln.Entities`: typed and reflected reads, entity sets, tracked writes with their answers and
 events, the refusals, a scripted game writer (`Kept` true and false), the lists read at the first step, a fake

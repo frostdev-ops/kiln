@@ -32,12 +32,21 @@ public sealed record FakeWorldWrite(ulong Step, string? ModId, EntityId Entity, 
 /// <remarks>
 /// <para>The methods here are the test's hand, not the game's API: <see cref="Set{T}"/> puts a component on an entity as
 /// if the game had (no write tracking, no event). Every method runs on the harness's tick thread.</para>
-/// <para><b>Tracked writes</b> follow kiln.world: a write runs at the start of the harness's next step, after the fake
-/// game programs of that step (<see cref="GameWrites{T}"/>), and its task completes in that step; for a type a fake
-/// game program writes too, one step later, with <see cref="WorldWriteResult.Kept"/>. The component types a mod may
-/// write are the <c>"writes"</c> of the manifests in the harness's mods folder at its first step, as kiln.world reads
-/// them when a server starts: a mod loaded later (a hot load) is refused, as in the game. A mod built with Kiln.Sdk has
-/// the list filled; for a mod loaded from its class, <see cref="ModManifest.Writes"/> lists them.</para>
+/// <para><b>Tracked writes</b> follow kiln.world's own rules (the boundaries are tested against the native service's
+/// numbers): a write runs at the start of the harness's next step, after the fake game programs of that step
+/// (<see cref="GameWrites{T}"/>), and its task completes in that step; for a type a fake game program writes too, one
+/// step later, with <see cref="WorldWriteResult.Kept"/>. One step runs at most 512 requests (the rest wait for the next
+/// steps) and delivers at most 1024 answers; 4096 requests not yet answered, refusals included, are the most that can
+/// wait. A request whose entity is removed while it waits never runs, also when the id comes back (a player's entity is
+/// slot + 1, and the next player in the slot gets it). The component types a mod may write are the <c>"writes"</c> of
+/// the manifests in the harness's mods folder at its first step, as kiln.world reads them when a server starts: a mod
+/// loaded later (a hot load) is refused, as in the game; a name Kiln.Game's types do not know is refused as unknown and
+/// takes none of the 92 places. A mod built with Kiln.Sdk has the list filled; for a mod loaded from its class,
+/// <see cref="ModManifest.Writes"/> lists them.</para>
+/// <para><b>Where an entity stands</b> is its <c>CurrentTransform</c> component, as in the game:
+/// <see cref="Create(WorldPosition)"/> and <see cref="SetPosition"/> write it, and a write into its bytes moves the entity.
+/// A fake player's <c>CurrentTransform</c> follows <see cref="FakePlayer.Position"/>, and a player's components go with
+/// the player: the next player in the slot starts with none.</para>
 /// <para><b>Not modelled:</b> the game's attribute formulas (a write over the maximum is not clamped), which types the
 /// game saves or replicates (<see cref="WorldWriteResult.SaveTracked"/> is null unless <see cref="Track"/> says), a save
 /// of the world's entities, world programs (<see cref="EcsPrograms"/> is unavailable: there is no scheduler), game
@@ -55,7 +64,8 @@ public sealed unsafe class FakeWorld
     /// <summary>Makes an entity with no component and no position.</summary>
     public EntityId Create() => _harness.Call(() => new EntityId(Fake.Create(null)));
 
-    /// <summary>Makes an entity that stands at <paramref name="position"/> (what <see cref="World.Position"/> answers).</summary>
+    /// <summary>Makes an entity that stands at <paramref name="position"/>: its <c>CurrentTransform</c> (identity rotation,
+    /// scale 1), which <see cref="World.Position"/> and <see cref="World.Transform"/> read.</summary>
     public EntityId Create(WorldPosition position) => _harness.Call(() => new EntityId(Fake.Create(position)));
 
     /// <summary>Takes an entity and its components out of the world. False when there is none.</summary>
@@ -67,7 +77,7 @@ public sealed unsafe class FakeWorld
     /// <summary>Whether the entity is in the world: made here, or a fake player's.</summary>
     public bool Exists(EntityId entity) => _harness.Call(() => Fake.Exists(entity.Value));
 
-    /// <summary>Moves an entity (or gives it its first position).</summary>
+    /// <summary>Moves an entity (or gives it its first position): the position in its <c>CurrentTransform</c>.</summary>
     /// <exception cref="ArgumentException">No such entity.</exception>
     public void SetPosition(EntityId entity, WorldPosition position) => _harness.Call(() => Fake.SetPosition(entity.Value, position));
 
@@ -111,7 +121,8 @@ public sealed unsafe class FakeWorld
 
     /// <summary>Puts a component on an entity by its game name, as bytes: for a component no generated type names. As
     /// <see cref="Set{T}"/>: untracked, at once.</summary>
-    /// <exception cref="ArgumentException">No such entity, an empty name or no bytes.</exception>
+    /// <exception cref="ArgumentException">No such entity, an empty name, no bytes, or a name that is no component type of
+    /// the game (when Kiln.Game's types are beside the tests: an entity of the game carries no other).</exception>
     public FakeWorld SetBytes(EntityId entity, string component, ReadOnlySpan<byte> bytes)
     {
         ArgumentException.ThrowIfNullOrEmpty(component);

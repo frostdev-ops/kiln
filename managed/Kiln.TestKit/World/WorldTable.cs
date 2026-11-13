@@ -26,6 +26,34 @@ internal static unsafe class WorldAbi
     // KILN_PROGRAM_* (KilnWorldWriteStatus.program)
     public const uint ProgramPending = 0, ProgramActive = 1;
     public const int MaxBytes = 4096, MaxComponent = 65536, MaxTypes = 92, MaxPerMod = 64, MaxPending = 4096, AttributeHeader = 8;
+    public const int PerUpdate = 512, DeliverPerPre = 1024;  // write_queue.h kWritePerUpdate, kWriteDeliverPerPre
+
+    // keen::ecs::CurrentTransform (native/services/world/transform_layout.h): i64 x, y, z in metres as 32.32 fixed point at
+    // 0, a quaternion at 0x18, a scale at 0x28; 52 bytes at least.
+    public const uint CurrentTransform = 0x027ac564u;
+    public const int TransformMinSize = 52;
+
+    public readonly record struct Decoded(WorldPosition Position, float RX, float RY, float RZ, float RW, float SX, float SY, float SZ);
+
+    public static Decoded DecodeTransform(ReadOnlySpan<byte> b) => new(
+        new WorldPosition(BitConverter.ToInt64(b) / 4294967296.0, BitConverter.ToInt64(b[8..]) / 4294967296.0, BitConverter.ToInt64(b[16..]) / 4294967296.0),
+        BitConverter.ToSingle(b[0x18..]), BitConverter.ToSingle(b[0x1C..]), BitConverter.ToSingle(b[0x20..]), BitConverter.ToSingle(b[0x24..]),
+        BitConverter.ToSingle(b[0x28..]), BitConverter.ToSingle(b[0x2C..]), BitConverter.ToSingle(b[0x30..]));
+
+    public static byte[] IdentityTransform(int size)
+    {
+        var b = new byte[size];
+        BitConverter.TryWriteBytes(b.AsSpan(0x24), 1f);   // rotation w
+        for (var i = 0; i < 3; i++) BitConverter.TryWriteBytes(b.AsSpan(0x28 + 4 * i), 1f);
+        return b;
+    }
+
+    public static void EncodePosition(Span<byte> b, WorldPosition p)
+    {
+        BitConverter.TryWriteBytes(b, (long)Math.Round(p.X * 4294967296.0));
+        BitConverter.TryWriteBytes(b[8..], (long)Math.Round(p.Y * 4294967296.0));
+        BitConverter.TryWriteBytes(b[16..], (long)Math.Round(p.Z * 4294967296.0));
+    }
 
     [StructLayout(LayoutKind.Sequential)]
     public struct Vec3
@@ -304,11 +332,17 @@ internal static unsafe class WorldTable
         if (output == null) return FakeTables.InvalidArgument;
         if (Fake is null) return FakeTables.Unavailable;
         if (OnTick is not { } w) return FakeTables.WrongThread;
-        if (w.PositionOf(entity) is not { } p) return FakeTables.NotFound;
+        // the entity's CurrentTransform, as the native service reads it (entities.cpp transform)
+        if (w.TransformOf(entity) is not { } t) return FakeTables.NotFound;
         *output = default;
-        output->Position = new WorldAbi.Vec3 { X = p.X, Y = p.Y, Z = p.Z };
-        output->Rotation[3] = 1f;
-        output->Scale[0] = output->Scale[1] = output->Scale[2] = 1f;
+        output->Position = new WorldAbi.Vec3 { X = t.Position.X, Y = t.Position.Y, Z = t.Position.Z };
+        output->Rotation[0] = t.RX;
+        output->Rotation[1] = t.RY;
+        output->Rotation[2] = t.RZ;
+        output->Rotation[3] = t.RW;
+        output->Scale[0] = t.SX;
+        output->Scale[1] = t.SY;
+        output->Scale[2] = t.SZ;
         return FakeTables.Ok;
     }
 

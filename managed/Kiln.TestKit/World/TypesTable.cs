@@ -65,6 +65,9 @@ internal static unsafe class TypesFake
 
     public static Row? Find(uint hash) => ByHash.TryGetValue(hash, out var i) ? _rows[i] : null;
 
+    /// <summary>The short names of the game's components (the dump's component list).</summary>
+    public static IEnumerable<string> ComponentNames() => _components.Select(i => _rows[i].Name);
+
     /// <summary>The type is a component of the game (the dump's component list).</summary>
     public static bool IsComponent(uint hash) => Find(hash) is { Component: true };
 
