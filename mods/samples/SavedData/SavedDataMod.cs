@@ -50,11 +50,9 @@ public sealed class SavedDataMod : Mod
     }
 
     // Each service a call needs is asked for where it is used: a server can run without any one of them, and a sample
-    // that throws from a handler or answers a command with a stack trace teaches the wrong thing.
-    private static void NeedSaves()
-    {
-        if (!Saves.Available) throw new CommandException("saved data is not available on this server (kiln.saves is missing)");
-    }
+    // that throws from a handler or answers a command with a stack trace teaches the wrong thing. The question stands
+    // in the command itself, not in a helper: Kiln's analyzers (KILN121) see a check in the member that makes the call.
+    private const string NoSaves = "saved data is not available on this server (kiln.saves is missing)";
 
     [Subscribe]
     private void OnJoined(PlayerJoinedEvent e)
@@ -86,7 +84,7 @@ public sealed class SavedDataMod : Mod
     [Command("visits", Description = "how often you were here; an admin may name another player, online or not")]
     private string Visits(CommandContext c, string? player = null)
     {
-        NeedSaves();
+        if (!Saves.Available) throw new CommandException(NoSaves);
         if (player is null)
         {
             if (!c.Source.IsPlayer || c.Source.SteamId == 0) throw new CommandException("name a player");
@@ -104,7 +102,7 @@ public sealed class SavedDataMod : Mod
     [Command("guestbook", Description = "the world's guestbook")]
     private string ShowGuestbook(CommandContext c)
     {
-        NeedSaves();
+        if (!Saves.Available) throw new CommandException(NoSaves);
         if (!WorldData.TryGet<Guestbook>(GuestbookKey, out var book)) return "the guestbook is empty";
         return $"{book.Joins} join(s) in this world ({WorldData.WorldId}); last: {string.Join(", ", book.Recent)}";
     }

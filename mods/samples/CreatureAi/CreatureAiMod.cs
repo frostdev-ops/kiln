@@ -13,7 +13,9 @@ public sealed class CreatureAiMod : Mod
         // even where a species rule would not).
         void Relate()
         {
-            if (Factions.Available) Factions.Relate(Faction.Vukah, Faction.Scavenger, Relation.Hostile);
+            // Factions.Available says more than the row (the service also found the game's checks on this build); the
+            // row is asked beside it because that is what Relate is marked with.
+            if (Factions.Available && Capabilities.Is("kiln.npcai")) Factions.Relate(Faction.Vukah, Faction.Scavenger, Relation.Hostile);
             else Log.Warn("Faction relations are unavailable on this game build.");
         }
         Events.On<ServerStartedEvent>(_ => Relate());
