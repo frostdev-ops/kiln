@@ -342,7 +342,10 @@ they share the title and the footer (`ModManagerChrome`, one look each).
   itself, with its back sound and camera. If the game leaves the page by itself (an invite), the page just goes.
   While a game error popup shows, the page steps aside and the game gets the input.
 - **Stand-alone** (`ModManagerHost`): the whole display over a dimmed game, a large title. Used for the pause menu's
-  **Mods** entry, Insert in a world, and every case where the game page is not available.
+  **Mods** entry, Insert in a world, and every case where the game page is not available. Its scale is the UI scale
+  times the display's growth (1920x1080 = 1), but never so large that the content between the margins is narrower
+  than 886 units, the Mods section's three columns at their smallest (`ModManagerHost.PageScale`,
+  `ModManagerPage.Columns`). At 300 % Windows scaling on a 3840x2160 display that is 3.86, not 6.
 
 Fallback: when a symbol of `ui.menu_page` does not resolve (another game build), the page is not where the main menu
 is (another page shows), the game faults in its page switch, or no host draws the page for about a second, the **Mods**
@@ -408,6 +411,11 @@ tables in the same header.
 - No `subscribe_window_input` subscriber: one relaxed atomic read per window message. With one, a record per key,
   button or focus message, handed over on the window thread. `is_item_clicked` costs nothing unless a
   window asks. With a wheel open it is one more ImGui window with a few shapes.
+- When `vulkan-1.dll` is not loaded yet at kiln.ui's start (the usual case), kiln.ui hooks `LoadLibraryExW` and keeps
+  the hook: after every load that gave a module it makes or repairs its Vulkan hooks and, once an XInput library is
+  there, its gamepad hook. The game's own load runs first and under no lock of Kiln's, so loads on several threads
+  never wait for each other because of Kiln, and a load that fails keeps its error (`native/services/ui/load_hook.h`;
+  `native/services/ui/tests/test-load-hook-wine.sh` runs the hook in a Windows process under Wine, no game).
 - `KILN_UI_DISABLE=1` turns the overlay off (the service is then unavailable). It also turns off the progress window of the
   early step (`kiln.progress`, [eml.md](eml.md#what-you-see-while-it-runs)).
 - The game-UI hooks cost one check per UI frame and per menu-entry call (a return-address compare); entries draw only

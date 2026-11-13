@@ -7,7 +7,8 @@
       "find": [
         {
           "pattern": "40 55 53 56 41 55 48 8D AC 24 F8 FF FD FF B8 08 01 02 00 E8 ?? ?? ?? ??"
-        }
+        },
+        { "pattern": "48 2B E0 48 89 BC 24 40 01 02 00 0F B6 DA 4C 89 A4 24 00 01 02 00", "offset": -24 }
       ]
     },
     "@SimStep.fields": {

@@ -27,6 +27,7 @@ Kiln builds on the work of the Enshrouded modding community.
 | [QOA](https://github.com/phoboslab/qoa) | Dominic Szablewski, MIT ([licence](licenses/QOA-LICENSE.txt)) | The sound encoder and decoder are ported from its reference code (`tools/soundcook/native`). |
 | [Vulkan-Headers](https://github.com/KhronosGroup/Vulkan-Headers) | The Khronos Group, Apache-2.0 or MIT ([licence](native/third_party/imgui/vulkan-headers/LICENSE.md)) | Headers for the overlay's Vulkan backend. |
 | [Grenze Gotisch](https://github.com/Omnibus-Type/Grenze-Gotisch), [Alegreya Sans and Alegreya Sans SC](https://github.com/huertatipografica/Alegreya-Sans), [Inconsolata](https://github.com/googlefonts/Inconsolata) (from [google/fonts](https://github.com/google/fonts)) | The Grenze Gotisch, Alegreya Sans and Inconsolata Project Authors, SIL OFL 1.1 ([Grenze Gotisch](launcher/src/assets/fonts/GrenzeGotisch-OFL.txt), [Alegreya Sans](launcher/src/assets/fonts/AlegreyaSans-OFL.txt), [Alegreya Sans SC](launcher/src/assets/fonts/AlegreyaSansSC-OFL.txt), [Inconsolata](launcher/src/assets/fonts/Inconsolata-OFL.txt)) | The launcher's fonts (woff2 subsets). |
+| [rifters](https://github.com/rifters) | contributor | The fix for the game hanging at its start beside other mod loaders, and second signatures for functions another loader has hooked ([pull request 27](https://github.com/frostdev-ops/kiln/pull/27)). |
 | frostdev | frostdev.io | Kiln launcher theme and design. |
 
 Enshrouded is a trademark of Keen Games GmbH. Kiln is not affiliated with or endorsed by Keen Games.

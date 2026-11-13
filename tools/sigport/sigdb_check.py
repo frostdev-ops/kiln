@@ -3,7 +3,8 @@
 """Offline twin of kiln-core's sigdb resolver (native/core/src/sigdb.cpp).
 
 Resolves sigdb/symbols/<side>.json against an executable on disk and prints symbols, constants and features, so a
-definition change can be checked against several game builds before it ships.
+definition change can be checked against several game builds before it ships. One rule more than the core: when a
+symbol has several strategies, every one that matches must name the same address (Resolver.disagreeing).
 
     python3 tools/sigport/sigdb_check.py sigdb/symbols/server.json <enshrouded_server.exe> [--json out.json]
     python3 tools/sigport/sigdb_check.py sigdb/symbols/client.json <enshrouded.exe> [--json out.json]
@@ -112,6 +113,28 @@ class Resolver:
         self.state[name] = 2
         return r["ok"]
 
+    def disagreeing(self, name, defn, rva):
+        """One rule more than the core has. The core takes the first strategy that matches once and looks no further;
+        here every strategy of a resolved symbol that matches once must name the symbol's address, else the symbol
+        fails. A later strategy is the one in use when the first cannot match (another engine's hook on the function's
+        first bytes while the core scans live code), so a stale offset in it would show only there, as a hook in the
+        wrong place: a pattern anchored in a function's body keeps matching when a game update changes the length of
+        the code before it. run() asks this last, when every symbol and capture is settled: a scoped strategy is then
+        judged whatever the order of the definitions, and no capture brings a failed symbol back. Nothing is captured
+        or resolved from here."""
+        for j, f in enumerate(defn["find"]):
+            lo, hi = self.text_lo, self.text_hi
+            if "scope" in f:
+                scope = self.symbols.get(f["scope"]["symbol"], {})
+                if not scope.get("ok"):
+                    continue
+                lo = scope["rva"]
+                hi = min(self.text_hi, lo + f["scope"]["size"])
+            hits = self.scan(parse(f["pattern"])[0], lo, hi)
+            if len(hits) == 1 and hits[0] + f.get("offset", 0) != rva:
+                return f"strategies disagree: {name} is {rva:#x}, {name}.find[{j}] gives {hits[0] + f.get('offset', 0):#x}"
+        return ""
+
     def run(self):
         # Like the core (sigdb.cpp): a symbol captured by a rel32 hole may be another strategy's scope, so resolve,
         # promote the captured symbols and retry the failed definitions until nothing new resolves.
@@ -144,6 +167,13 @@ class Resolver:
             elif not r.get("ok"):
                 r = {"ok": True, "rva": votes[0][0], "source": "captured by " + votes[0][1]}
             self.symbols[name] = r
+        for name, defn in self.doc["symbols"].items():  # the rule the core does not have, last (see disagreeing)
+            r = self.symbols.get(name, {})
+            if name.startswith("@") or not r.get("ok") or len(defn["find"]) < 2:
+                continue
+            error = self.disagreeing(name, defn, r["rva"])
+            if error:
+                self.symbols[name] = {"ok": False, "error": error}
         consts = {}
         defs = dict(self.doc.get("constants", {}))
         for name in self.const_votes:

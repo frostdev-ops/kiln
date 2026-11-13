@@ -23,7 +23,8 @@
     },
     "saves/LoadSavegameStep": {
       "find": [
-        {"pattern": "48 89 5C 24 18 48 89 7C 24 20 55 48 8B EC 48 83 EC 70 48 8B"}
+        {"pattern": "48 89 5C 24 18 48 89 7C 24 20 55 48 8B EC 48 83 EC 70 48 8B"},
+        {"pattern": "48 8B 8A 70 17 00 00 E8 ?? ?? ?? ?? 84 C0 0F 84 16 04 00 00", "offset": -24}
       ]
     },
     "@saves.load_fields": {

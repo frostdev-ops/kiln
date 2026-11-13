@@ -61,7 +61,7 @@ A name keeps its own level, so a name added after the service's run sits at `sta
 
 | Level | Means |
 |---|---|
-| `static` | The name resolved in this exe offline (`tools/sigport/sigdb_check.py`'s resolver, the core's rules: one match per strategy, captures agree, a feature's symbols and constants all resolved). Nothing ran. |
+| `static` | The name resolved in this exe offline (`tools/sigport/sigdb_check.py`'s resolver, the core's rules: one match per strategy, captures agree, a feature's symbols and constants all resolved; and one rule more: the strategies of one symbol that match all name the same address). Nothing ran. |
 | `lab` | It resolved, and in a lab boot of this exe the service that declares it loaded and every test mod of that service finished with no failure. The running core resolved the same value as the offline resolve. It does not claim each symbol was exercised: a test mod covers what its tests call, and a name no test reaches is `lab` because its service loaded and passed, not because it was called. |
 | `seen` | A guided check passed in a real game client on this exe. Defined for the format; nothing sets it yet. |
 | `unresolved` | sigdb declares the name, but it does not match in this exe. The reason is in the service's `unresolved` map. |
