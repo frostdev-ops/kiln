@@ -1035,6 +1035,27 @@ public class NoClipTrackTests
     }
 
     [Fact]
+    public void AMoveThatTimedOutBehindSomeoneElsesTeleportIsStillWatched()
+    {
+        var (t, w) = Flying();
+        w.At = Deep;
+        t.Step();
+        t.Leaving(out _);                        // move 1 to the surface is out
+        w.Count = 8;                             // someone else's teleport lands first
+        w.At = new WorldPosition(900, 60, 900);
+        w.TimeOut();                             // and the move is given up without its component taken off
+        var r = t.Step();
+        Assert.Equal(NoClipEnd.Teleport, r.Trip);
+        Assert.True(r.Released);                 // in the open where the other teleport put it
+        // the old target is built over, and the game carries the old move out after all
+        w.Kind = p => Math.Abs(p.X - 100) < 2 ? NoClipSpace.Inside : Rock(p);
+        Assert.Equal(default, t.Step());
+        w.LandLate(0);
+        Assert.True(t.Step().Held);
+        Assert.True(t.Restoring);
+    }
+
+    [Fact]
     public void AMoveThatTimedOutAndLandsDuringTheHoldIsThatMoveNotSomeoneElsesTeleport()
     {
         var (t, w) = Flying();

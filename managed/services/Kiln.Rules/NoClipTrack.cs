@@ -302,9 +302,11 @@ internal sealed class NoClipTrack(INoClipWorld world)
             _stray = null;  // the game carried a teleport out: no older one is waiting in it
             return Settled.Landed;
         }
-        if (now != before) return Settled.Foreign;
         // Given up after 10 seconds: the game may still carry it out (the component could not be taken off for sure).
-        if (move.IsCompletedSuccessfully && move.Result.Flags.HasFlag(TeleportFlags.TimedOut)) _stray = _moveTarget;
+        // Remembered whatever else happened meanwhile: with someone else's teleport in between, the counter says
+        // "foreign" below, and the move that timed out is still waiting in the game.
+        if (move.IsCompletedSuccessfully && !moved && move.Result.Flags.HasFlag(TeleportFlags.TimedOut)) _stray = _moveTarget;
+        if (now != before) return Settled.Foreign;
         _retryAt = world.Now.AddSeconds(RetrySeconds);
         problem = $"move {Attempts} to the last free position {_moveTarget} did not work (" +
                   (move.IsCompletedSuccessfully ? moved ? $"it ended at {at}" : move.Result.Reason : "it failed") + ")";
