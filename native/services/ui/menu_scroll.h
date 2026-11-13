@@ -26,6 +26,7 @@
 #pragma once
 
 #include <cmath>
+#include <cstring>
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -153,6 +154,47 @@ constexpr bool trial_step(Trial& t) {
     if (++t.frames < kTrialFrames) return false;
     t.done = true;
     return true;
+}
+
+// ---- the parameter block (keen::GameUiScrollingLayoutParameterData, 0x104 bytes; docs/re/game-ui.md) ----
+// After the game's defaults (ScrollParamsInit), what every list caller of the game sets and Kiln sets the same way:
+// the scrollbar's look from the UI config (as the credits and the recipe info panel: without it the bar is drawn
+// with the default block, a plain white bar), and for a list whose entries take the keyboard and gamepad focus, the
+// global focus (useGlobalFocus: the scroll view's end looks the focused frame up in the UI's global focus instead of
+// in its own builder's scope, and auto-scrolling brings it into view when it changes) and the scroll keys (mask 0x18).
+inline constexpr size_t kParamsSize = 0x104;
+inline constexpr size_t kUseGlobalFocus = 0x32, kHotKeyMask = 0x40, kScrollBar = 0x44, kScrollBarSize = 0xc0;
+inline constexpr uint8_t kHotKeys = 0x18;
+// in the scrollbar block (GameUiScrollbarParameterData), as both callers fill it
+inline constexpr size_t kBarFromCfgA = 0x44, kBarFromCfgB = 0x24, kBarFromCfgC = 0x4;  // 32, 32 and 8 bytes of the config
+inline constexpr size_t kBarFlagA = 0x7c, kBarFlagB = 0x90, kBarSizes = 0x80;  // flags set to 1; sizes 24, 24, 24, 20
+
+// Fills the scrollbar block `bar` (after the game's ScrollbarParamsInit) from the UI config `cfg`, then puts it and the
+// list settings into the parameter block `params` (after ScrollParamsInit). Plain bytes: the host test runs it.
+inline void style_params(uint8_t* params, uint8_t* bar, const uint8_t* cfg, size_t cfg_a, size_t cfg_b, size_t cfg_c) {
+    std::memcpy(bar + kBarFromCfgA, cfg + cfg_a, 32);
+    std::memcpy(bar + kBarFromCfgB, cfg + cfg_b, 32);
+    std::memcpy(bar + kBarFromCfgC, cfg + cfg_c, 8);
+    bar[kBarFlagA] = 1;
+    bar[kBarFlagB] = 1;
+    const float sizes[4] = {24.0f, 24.0f, 24.0f, 20.0f};
+    std::memcpy(bar + kBarSizes, sizes, sizeof sizes);
+    std::memcpy(params + kScrollBar, bar, kScrollBarSize);
+    params[kUseGlobalFocus] = 1;
+    params[kHotKeyMask] |= kHotKeys;
+}
+
+// ---- the view's height ----
+// The builder adds three spacers to the column itself (b2a8e0 / b2a810 create children of the column's node, not of the
+// current frame): two flexible ones (relative height 1) and a fixed one. With the view at relative height 1 too the
+// three flexible children shared the column's free height: a view a third of the column (2026-11-13, 3440x1440: column
+// 1020, view 311, entries 1522). Kiln gives the view a much larger relative height, so it takes nearly all of it.
+inline constexpr float kViewWeight = 1000.0f;
+
+// A view much shorter than its column while the entries do not fit: the height went wrong (a build where the
+// spacers or the sizing differ). Kiln says so and stops.
+constexpr bool view_too_short(float column_h, float view_h, float entries_h) {
+    return entries_h > view_h + 1.0f && view_h < 0.6f * column_h;
 }
 
 // ---- sanity of what the game's layout says (a frame's rectangle, UI units) ----

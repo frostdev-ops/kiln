@@ -142,9 +142,36 @@ of 5d9ef2f1. Helper: `kx.py` (copied from the NoClip research) over the exe as a
     `dl` is 1 in 41 of the callers, including the credits and the recipe info, both vertical lists. With `dl` 1 the
     content frame is a stack of kind 1, so callers open their own vertical stack inside it (the credits do). After
     begin the credits call `0xd4e3e0(layout)` and pass its float to `0xa518a0(layout, f)`. **[dis]**
-- **Still a guess** (one look in the game settles it): that `dl` 1 scrolls vertically, that useAutoScrolling follows the
-  keyboard and gamepad focus of the entries inside the view, and that a vertical stack of size {1, 0} inside the view
-  sizes to its entries. Kiln's experiment (`native/services/ui/menu_scroll.cpp`) does exactly what the credits do,
+- **First try in the client (2026-11-13, 3440x1440, owner):** the menu drew, no crash, the wheel scrolls; but the view
+  was a third of the column (log: column 1020, view 311, entries 1522), its scrollbar a plain white bar, and the view
+  did not follow the highlight (the arrow keys reach Quit out of sight). Causes, by reading:
+  - **Height.** `_spacer_` (`0xb2a8e0` flexible {1, 1}, `0xb2a810` fixed) creates its node with `0x11bf2e0(builder's
+    node, 0, 0)`: a child of the column's node itself, not of the current frame (`0xa3c790` and the entries use
+    `0x11c4c60` on the UI context's current parent). So the builder's two flexible spacers and one fixed spacer stay
+    children of the column next to Kiln's view; three flexible children of relative height 1 shared the free height:
+    (1020 - 87) / 3 = 311. Node fields: `+0x78/+0x7c` fixed size, `+0x90/+0x94` relative size (`0x11cf360`,
+    `0x11ceea0` fixed width, `0x11cee20` fixed height), `+0x6c` / `+0x6e` alignments. Kiln now gives the view the
+    relative height 1000. **[dis]** (the weight rule itself, that relative heights share the free space in proportion,
+    is inferred from 311 = 933 / 3) **[rt]**
+  - **Scrollbar.** Every list caller fills the scrollbar block (GameUiScrollbarParameterData, params `+0x44`, 0xc0
+    bytes) after `ScrollbarParamsInit 0xa3df20`: `+0x44` ← 32 bytes of the UI config at `+0xfa84`, `+0x24` ← 32 at
+    `+0xfac4`, `+0x4` ← 8 at `+0xfb04`, `+0x7c` = 1, `+0x80/+0x84/+0x88` = 24, `+0x8c` = 20, `+0x90` = 1 (the credits
+    `0xb81d89…0xb81e35` and the recipe info `0xbb5dcd…0xbb5e90` identically). Kiln copied only `0xa3eeb0`'s defaults,
+    whose bar has no textures. **[dis]**
+  - **Focus.** ScrollLayoutEnd `0xa40160`: without useNavigation (`+0x2c`) it looks the focused frame up in the
+    builder's own scope, or with useGlobalFocus (`+0x32`) in the UI's global one (`[ctx+0x10]+0x44`, `0x11b3670`),
+    checks that it lies inside the content (`0x11babf0`), takes its rectangle, and when the focused id differs from the
+    one it saw last and useAutoScrolling (`+0x35`) is on, scrolls it into view (`0xa403ec…0xa403fa`). The pause menu's
+    entries take the global focus (its navigation scope `0xa3f790` is opened inside Kiln's content), so the default
+    (useGlobalFocus off) never found them. The game's focus-navigated lists set useGlobalFocus 1 and add 0x18 to
+    scrollingHotKeyMask (`scrollerContentLayouter` `0xbefa33`, `itemGridScroller` `0xbbe35c`, …); Kiln does the same.
+    A wheel scroll moves the offset without changing the focused id, so the follow does not fight it. **[dis]**
+  - The begin's state block holds a float the end reads as the offset (`0xa403b5`); Kiln logs it the first times it
+    moves.
+- **Still a guess** (one look in the game settles it): that the view weight takes nearly the whole free height (the weight rule), that the
+  scrollbar block filled like the lists' draws the game's bar, and that useGlobalFocus makes the view follow the
+  entries' focus for the keys and the pad (the end code says so; nothing has run). Settled by the first try: `dl` 1
+  scrolls vertically, the wheel scrolls, the inner stack sizes to its entries. Kiln's experiment (`native/services/ui/menu_scroll.cpp`) does exactly what the credits do,
   in the column, and logs the sizes it saw.
 - **Cost and risk:** the game's layout asserts are fatal (`0xcb4c38`: "SmallDynamicArray is out of elements", then
   `0x8a0d90`): a wrong nesting ends the game on the first scrolled frame, which no run-time check can rule out before

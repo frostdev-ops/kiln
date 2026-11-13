@@ -2,6 +2,7 @@
 // Host test of menu_scroll.h: the pairing of the scroll view's begin and end, when the pause menu is wrapped, the crash
 // guard's marker and trial, and the rectangle sanity check.
 #include <cmath>
+#include <cstring>
 #include <cstdio>
 #include <limits>
 #include <string>
@@ -116,6 +117,28 @@ int main() {
         check(unwind_order(both, out) == 2 && out[0] == Close::inner && out[1] == Close::layout,
               "view and stack: the stack first, then the view");
     }
+
+    // ---- the parameter block: the scrollbar's look and the focus (owner's first try, 2026-11-13) ----
+    {
+        uint8_t params[kParamsSize] = {}, bar[kScrollBarSize] = {}, cfg[0x10000] = {};
+        for (size_t i = 0; i < sizeof cfg; ++i) cfg[i] = static_cast<uint8_t>(i * 7 + 3);
+        params[kHotKeyMask] = 1;  // the game's default
+        style_params(params, bar, cfg, 0xfa84, 0xfac4, 0xfb04);
+        check(std::memcmp(params + kScrollBar + kBarFromCfgA, cfg + 0xfa84, 32) == 0, "bar +0x44: 32 bytes of the config at +0xfa84");
+        check(std::memcmp(params + kScrollBar + kBarFromCfgB, cfg + 0xfac4, 32) == 0, "bar +0x24: 32 bytes at +0xfac4");
+        check(std::memcmp(params + kScrollBar + kBarFromCfgC, cfg + 0xfb04, 8) == 0, "bar +0x4: 8 bytes at +0xfb04");
+        float sizes[4];
+        std::memcpy(sizes, params + kScrollBar + kBarSizes, sizeof sizes);
+        check(sizes[0] == 24 && sizes[1] == 24 && sizes[2] == 24 && sizes[3] == 20, "bar sizes 24, 24, 24, 20");
+        check(params[kScrollBar + kBarFlagA] == 1 && params[kScrollBar + kBarFlagB] == 1, "bar flags +0x7c and +0x90");
+        check(params[kUseGlobalFocus] == 1, "the view follows the global focus");
+        check(params[kHotKeyMask] == (1 | kHotKeys), "the scroll keys added to the default mask");
+        check(kScrollBar + kScrollBarSize == kParamsSize, "the bar block ends the parameter block");
+    }
+    // ---- the view's height ----
+    check(view_too_short(1020, 311, 1522), "the owner's first try (a view a third of its column) is caught");
+    check(!view_too_short(1020, 933, 1522), "a view of nearly the column's height passes");
+    check(!view_too_short(1020, 311, 300), "entries that fit: no complaint");
 
     // ---- rectangles ----
     {

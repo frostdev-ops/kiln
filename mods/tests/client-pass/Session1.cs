@@ -103,17 +103,22 @@ public sealed partial class ClientPassMod
     public Task MenuScroll(CheckContext c) => Outside(c,
         "An experiment: Kiln wraps the pause menu in the game's own scroll view once it has more than 3 mods' entries. It " +
         "may end the game once; then send kiln/logs/kiln.log and kiln/state/menu-scroll.off. Setup: modEntries Auto (the " +
-        "default), more than 3 mods' entries in the pause menu (mods/tests/menu-many-test, as for menu.rows-quit; set its " +
-        "Entries to 20 so that they cannot fit), 1920x1080. kiln.log should say " +
-        "\"ui: the pause menu can scroll (experiment)\" at start. 1) Open the pause menu: does it draw, every entry " +
-        "there (the mods' and the game's), and kiln.log say \"ui: the pause menu scrolls: ...\" with sizes? 2) Turn the " +
-        "mouse wheel over it: does the list scroll, and do entries stop at the menu's edges (clipped, not drawn over the " +
-        "title)? 3) With the arrow keys go down to Quit and back up to Resume: does the list follow the highlighted entry? " +
-        "4) The same with a gamepad (d-pad down to Quit, up to Resume). 5) Press Return to Main Menu and come back into " +
-        "the world: does it still work? 6) Set menu-many-test's Entries to 2 (3 or fewer mods' entries in all): is it exactly as " +
-        "before 0.2.0-dev.27 (no scroll view, centred as the game draws it)? Send a screenshot of 1) and 6), and the " +
-        "lines of kiln.log starting with \"ui: the pause menu\". Did it scroll, clip and follow the keys and the pad to " +
-        "Quit and back?");
+        "default), mods/tests/menu-many-test with Entries 20 (more than fit), any resolution (say which). kiln.log should " +
+        "say \"ui: the pause menu can scroll (experiment)\" at start. 1) Open the pause menu: does the list reach from " +
+        "the top of the menu down to near the bottom of the screen (not a third of it), with every entry there, and " +
+        "kiln.log say \"ui: the pause menu scrolls: ...\" with a scroll view almost as tall as the column? 2) The " +
+        "scrollbar at the list's right: does it look like the game's other list scrollbars (a track and a thumb about as " +
+        "long as the visible part of the list), not a plain white bar? 3) Turn the mouse wheel over it: does the list " +
+        "scroll and the thumb move, with entries clipped at the menu's edges? 4) With the arrow keys go down past the last " +
+        "visible entry to Quit, then back up to Resume: does the list follow the highlighted entry each way, so it stays " +
+        "visible? kiln.log says \"ui: the pause menu's scroll view moved: offset ...\" the first times it moves. 5) " +
+        "Scroll with the wheel, then press an arrow key: the view stays where the wheel put it until the highlight moves, " +
+        "then follows it. 6) The same as 4) with a gamepad (d-pad, then the stick), down to Quit and back. 7) Return to " +
+        "Main Menu and back into the world: does it still work? 8) Set menu-many-test's Entries to 2 (3 or fewer mods' " +
+        "entries in all): is it exactly as before 0.2.0-dev.27 (no scroll view, centred as the game draws it)? Send " +
+        "screenshots of 1), 4) at Quit and 8), and every kiln.log line starting with \"ui: the pause menu\" or " +
+        "\"ui: the scrolling pause menu\". Did it fill the column, look like the game's scrollbars, and follow the keys " +
+        "and the pad to Quit and back?");
 
     [ClientCheck("boot.proxy", "The game started with Kiln's proxy", Area = "Menus and hooks", Since = Dev21, Order = 108)]
     public async Task BootProxy(CheckContext c)
