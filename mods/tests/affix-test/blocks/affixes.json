@@ -1,0 +1,11 @@
+{
+  // Affix blocks of a data file (dev.27): Kiln compiles them a few steps after the mod loaded, with no call.
+  // FileBlocks.cs rolls the pool onto a sword in a stand-in's hand and reads the strength it gives.
+  "format": 1,
+  "affixes": {
+    "file-might": { "name": "of Might", "stat": "strength", "tiers": [ { "min": 4, "max": 4 } ] }
+  },
+  "affixPools": {
+    "file-rolls": { "items": [ "Weapon_T1_1H_SwordEpic_01" ], "affixes": [ { "affix": "file-might" } ] }
+  }
+}

@@ -1,5 +1,6 @@
 {
-  // The same shapes as the C# records AffixBlock and AffixPoolBlock, read by Affixes.Load in AffixSwordMod.OnLoad.
+  // Affix blocks: the same shapes as the C# records AffixBlock and AffixPoolBlock. Kiln reads every file in the mod's
+  // blocks/ folder by itself, a few steps after the mod loaded; the code finds the pool by its name.
   "format": 1,
   "affixes": {
     // whole points: 2 to 4 Strength, and on a sword of item level 20 or more sometimes 5 to 8
@@ -12,7 +13,7 @@
     "ember-ward": { "name": "Ember Ward", "stat": "resist-fire",
                     "tiers": [ { "min": 0.10, "max": 0.25 } ] }
   },
-  "pools": {
+  "affixPools": {
     // every roll gives this sword exactly one of the three; Fleet comes up twice as often
     "blades": { "items": [ "Weapon_T1_1H_SwordEpic_01" ],
                 "affixes": [ { "affix": "bear" }, { "affix": "fleet", "weight": 2 }, { "affix": "ember-ward" } ] }

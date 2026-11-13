@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: MIT
 // The engine behind Affixes (dev.27).
 //
-// Definitions: affixes and pools by "mod:name", gone when their mod unloads (the rolls on items stay).
+// Definitions: affixes and pools by "mod:name", gone when their mod unloads (the rolls on items stay). They are blocks:
+// the block compiler registers them here (AffixCompiler.cs), whichever route defined them (Blocks.Define, blocks/*.json,
+// Affixes.Define/DefinePool/Load), so the id is "mod:name" in every route.
 // Storage: one item data key of Kiln's own (owner "kiln-affixes", key "affixes", synced to players near the item): the
 // item's rolls as { "Rolls": [ { "Id", "Name", "Stat", "Tier", "Value" } ] }.
 // Effect: a pass about twice a second derives, for every player, the stat changes of what is worn and in hand, and makes
@@ -110,10 +112,53 @@ internal static partial class AffixRuntime
         };
     }
 
-    internal static AffixHandle Define(ModContext mod, string name, AffixBlock block)
+    /// <summary>The live instance of the mod that defined something: its unload takes the mod's definitions. A data file
+    /// compiled on Kiln's own tick finds it by the mod's id; with none (a test, a mod whose blocks are reset first) the
+    /// mod's blocks' reset forgets them (<see cref="Forget"/>).</summary>
+    private static void WatchOwner(string mod)
     {
-        var what = $"affix {name}";
+        var live = ModContext.CurrentMod is { } c && c.Info.Id == mod ? c : Mods.Get(mod)?.Info is { } info ? ModContext.FindLive(info) : null;
+        if (live != null) Watch(live);
+    }
+
+    /// <summary>A mod's blocks were reset (it reloads, or unloaded): its affixes and pools go, as at its unload.</summary>
+    internal static void Forget(string mod)
+    {
+        lock (Gate)
+        {
+            foreach (var k in Defs.Where(d => d.Value.Mod == mod).Select(d => d.Key).ToArray()) Defs.Remove(k);
+            foreach (var k in Pools.Where(d => d.Value.Mod == mod).Select(d => d.Key).ToArray()) Pools.Remove(k);
+        }
+        _dirty = true;
+    }
+
+    /// <summary>An affix block compiled (Compiler.DefineAffix): it is the mod's affix by its id from now on, whichever route
+    /// defined it. The same id again replaces the earlier one.</summary>
+    internal static void Register(AffixHandle handle)
+    {
+        WatchOwner(handle.Mod);
+        lock (Gate) Defs[handle.Id] = new AffixDef(handle.Id, handle.Mod, handle, handle.Block);
+        EnsureStarted();
+        _dirty = true;
+    }
+
+    /// <summary>A pool block compiled, with its entries resolved to affix ids.</summary>
+    internal static void Register(AffixPoolHandle handle, IReadOnlyList<(string Affix, double Weight)> entries)
+    {
+        WatchOwner(handle.Mod);
+        lock (Gate) Pools[handle.Id] = new PoolDef(handle.Id, handle.Mod, handle, handle.Block, entries);
+        EnsureStarted();
+    }
+
+    /// <summary>An affix's or a pool's name: stricter than a block's, as it is half of the id rolls keep.</summary>
+    internal static void CheckName(string what, string name)
+    {
         if (name is null || !NameRule().IsMatch(name)) throw new BlockError(what, null, "a name is lower-case letters, digits, '-' and '_', at most 64, starting with a letter or digit");
+    }
+
+    /// <summary>What is wrong with an affix, by field: <see cref="BlockError"/>.</summary>
+    internal static void CheckAffix(string what, AffixBlock block)
+    {
         if (string.IsNullOrWhiteSpace(block.Name) || block.Name.Length > 64) throw new BlockError(what, "name", "the display name is 1 to 64 characters");
         if (block.Stat is null) throw new BlockError(what, "stat", "an affix changes a stat");
         if (block.Group is { } g && (g.Length == 0 || g.Length > 64)) throw new BlockError(what, "group", "a group is 1 to 64 characters");
@@ -133,55 +178,50 @@ internal static partial class AffixRuntime
         if (block.Tiers.All(t => t.Weight <= 0)) throw new BlockError(what, "tiers", "no tier has a weight above 0: nothing could roll");
         if (!block.Tiers.Any(t => t.MinItemLevel == 0 && t.Weight > 0))
             throw new BlockError(what, "tiers", "no tier with a weight above 0 rolls at every item level: give one such tier minItemLevel 0, so the affix can roll on any item of its pool");
-        var handle = new AffixHandle(mod.Info.Id, name, block);
-        Watch(mod);
-        lock (Gate) Defs[handle.Id] = new AffixDef(handle.Id, mod.Info.Id, handle, block);
-        EnsureStarted();
-        _dirty = true;
-        return handle;
     }
 
-    internal static AffixPoolHandle DefinePool(ModContext mod, string name, AffixPoolBlock block)
+    /// <summary>What is wrong with a pool, by field; its entries as affix ids with their weights. <paramref name="resolve"/>
+    /// finds an entry's affix (as written, and the field) the way the block route does: null when it is not defined.</summary>
+    internal static List<(string Affix, double Weight)> CheckPool(string what, string mod, AffixPoolBlock block, Func<string, string, AffixHandle?> resolve)
     {
-        var what = $"affix pool {name}";
-        if (name is null || !NameRule().IsMatch(name)) throw new BlockError(what, null, "a name is lower-case letters, digits, '-' and '_', at most 64, starting with a letter or digit");
         if (block.Affixes is not { Count: >= 1 and <= 256 }) throw new BlockError(what, "affixes", "a pool has 1 to 256 affixes");
         if (block.Min < 0 || block.Min > Affixes.MaxPerItem) throw new BlockError(what, "min", $"{block.Min}: 0 to {Affixes.MaxPerItem}");
         if (block.Max < block.Min || block.Max > Affixes.MaxPerItem) throw new BlockError(what, "max", $"{block.Max}: at least min ({block.Min}), at most {Affixes.MaxPerItem}");
         if (block.Items is { Count: 0 }) throw new BlockError(what, "items", "lists no item: name at least one, or leave it out for any item");
         var entries = new List<(string, double)>();
+        var groups = new List<AffixBlock>();
         for (var i = 0; i < block.Affixes.Count; i++)
         {
             var e = block.Affixes[i] ?? throw new BlockError(what, $"affixes[{i}]", "an entry is missing");
             if (string.IsNullOrWhiteSpace(e.Affix)) throw new BlockError(what, $"affixes[{i}].affix", "an entry names an affix");
-            var id = e.Affix.Contains(':') ? e.Affix : $"{mod.Info.Id}:{e.Affix}";
-            if (FindAffix(id) is null) throw new BlockError(what, $"affixes[{i}].affix", $"no affix \"{id}\" is defined (define the affixes before the pool; is the other mod loaded before this one?)");
+            var id = e.Affix.Contains(':') ? e.Affix : $"{mod}:{e.Affix}";
+            var def = resolve(e.Affix, $"affixes[{i}].affix")
+                      ?? throw new BlockError(what, $"affixes[{i}].affix", $"no affix \"{id}\" is defined (define the affixes before the pool in code, or in a blocks/*.json file of this mod; is the other mod loaded before this one?)");
             if (!double.IsFinite(e.Weight) || e.Weight < 0) throw new BlockError(what, $"affixes[{i}].weight", $"{e.Weight}: a weight is 0 or more");
-            if (entries.Any(x => x.Item1 == id)) throw new BlockError(what, $"affixes[{i}].affix", $"\"{id}\" is in the pool twice");
-            entries.Add((id, e.Weight));
+            if (entries.Any(x => x.Item1 == def.Id)) throw new BlockError(what, $"affixes[{i}].affix", $"\"{def.Id}\" is in the pool twice");
+            entries.Add((def.Id, e.Weight));
+            if (e.Weight > 0) groups.Add(def.Block);
         }
         if (entries.All(e => e.Item2 <= 0)) throw new BlockError(what, "affixes", "no entry has a weight above 0: nothing could roll");
-        var most = MostDifferent(entries.Where(e => e.Item2 > 0).Select(e => FindAffix(e.Item1)!));
+        var most = MostDifferent(groups);
         if (block.Min > most)
             throw new BlockError(what, "min", $"{block.Min}: the pool can give at most {most} different affixes (entries with a weight above 0, one per group), so a roll could never reach its minimum");
-        var handle = new AffixPoolHandle(mod.Info.Id, name, block);
-        Watch(mod);
-        lock (Gate) Pools[handle.Id] = new PoolDef(handle.Id, mod.Info.Id, handle, block, entries);
-        EnsureStarted();
-        return handle;
+        return entries;
     }
 
     /// <summary>How many different affixes one roll can give at most from these: one per group, every one without a group.</summary>
-    private static int MostDifferent(IEnumerable<AffixDef> defs)
+    private static int MostDifferent(IEnumerable<AffixBlock> defs)
     {
         var groups = new HashSet<string>(StringComparer.Ordinal);
         var n = 0;
         foreach (var d in defs)
-            if (d.Block.Group is not { } g || groups.Add(g)) n++;
+            if (d.Group is not { } g || groups.Add(g)) n++;
         return n;
     }
 
-    internal static AffixFile Load(ModContext mod, string json)
+    /// <summary><see cref="Affixes.Load"/>: the file's own format (unchanged), each affix and pool defined as a block of the
+    /// calling mod, the affixes first.</summary>
+    internal static AffixFile Load(string json)
     {
         FileModel file;
         try
@@ -193,9 +233,24 @@ internal static partial class AffixRuntime
             throw new BlockError("affix file", e.Path, e.Message);
         }
         if (file.Format != 1) throw new BlockError("affix file", "format", $"{file.Format}: this Kiln reads format 1");
-        var affixes = (file.Affixes ?? []).Select(a => Define(mod, a.Key, a.Value ?? throw new BlockError($"affix {a.Key}", null, "is null"))).ToList();
-        var pools = (file.Pools ?? []).Select(p => DefinePool(mod, p.Key, p.Value ?? throw new BlockError($"affix pool {p.Key}", null, "is null"))).ToList();
+        var affixes = (file.Affixes ?? []).Select(a => DefineAffix(a.Key, a.Value ?? throw new BlockError($"affix {a.Key}", null, "is null"))).ToList();
+        var pools = (file.Pools ?? []).Select(p => DefinePool(p.Key, p.Value ?? throw new BlockError($"affix pool {p.Key}", null, "is null"))).ToList();
         return new AffixFile(affixes, pools);
+    }
+
+    /// <summary><see cref="Affixes.Define"/>'s and <see cref="Affixes.Load"/>'s registration: the block route, with the affix
+    /// name rule said first (a name a block would take, "Bad Name", is refused as an affix's).</summary>
+    internal static AffixHandle DefineAffix(string name, AffixBlock block)
+    {
+        CheckName($"affix {name}", name);
+        return Blocks.Define(name, block);
+    }
+
+    /// <summary>The same for a pool.</summary>
+    internal static AffixPoolHandle DefinePool(string name, AffixPoolBlock block)
+    {
+        CheckName($"affix pool {name}", name);
+        return Blocks.Define(name, block);
     }
 
     // ------------------------------------------------------------------------------------------------ storage ----
@@ -262,10 +317,15 @@ internal static partial class AffixRuntime
         }
     }
 
+    /// <summary>Takes the item's rolls off in item data: false when the store had nothing to take (the item changed since it
+    /// was read). A seam: the offline tests make the store refuse.</summary>
+    internal static Func<ItemInstanceRef, InstanceKey<AffixData>, bool> RemoveData = static (item, key) => item.Remove(key);
+
     private static AffixResult Write(ItemInstanceRef item, InstanceKey<AffixData> key, IReadOnlyList<RolledAffix> before, IReadOnlyList<RolledAffix> now)
     {
-        if (now.Count == 0) item.Remove(key);
-        else item.Set(key, new AffixData { Rolls = now.Select(a => new AffixRoll { Id = a.Affix, Name = a.Name, Stat = a.Stat, Tier = a.Tier, Value = a.Value }).ToList() });
+        // nothing changed then: no event, and the caller says so (Remove and Clear answer false, the others Ok = false)
+        if (now.Count == 0 && !RemoveData(item, key)) return new AffixResult(item, before, "the item's affixes were not taken off: its item data had none any more");
+        if (now.Count > 0) item.Set(key, new AffixData { Rolls = now.Select(a => new AffixRoll { Id = a.Affix, Name = a.Name, Stat = a.Stat, Tier = a.Tier, Value = a.Value }).ToList() });
         _dirty = true;  // what is worn may act differently now: the next step's pass sees it
         if (Events.HasSubscribers<AffixesChangedEvent>()) Events.Post(new AffixesChangedEvent(item, before, now));
         return new AffixResult(item, now, null);
@@ -427,7 +487,7 @@ internal static partial class AffixRuntime
         var before = Read(item, key);
         var now = id is null ? [] : before.Where(a => a.Affix != id).ToList();
         if (now.Count == before.Count) return false;
-        Write(item, key, before, now);
-        return true;
+        // true only when something went: a write the store refused leaves the item as it was
+        return Write(item, key, before, now).Ok;
     }
 }

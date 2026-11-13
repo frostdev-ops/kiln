@@ -11,7 +11,7 @@ using static Kiln.InstanceHarness;
 namespace Kiln;
 
 [Collection("instance data")]
-public sealed class AffixTests : IDisposable
+public sealed partial class AffixTests : IDisposable
 {
     /// <summary>A stat change running in the fake game: whom its program aims at (the bare id, as the real program's
     /// target), the session it was started for, and its entity's spawn stamp.</summary>
@@ -133,6 +133,7 @@ public sealed class AffixTests : IDisposable
         AffixRuntime.LevelOf = _levelOf;
         AffixRuntime.ResetForTests();
         _h.Dispose();
+        DeleteBlockFolders();  // AffixBlockTests.cs
     }
 
     private AffixHandle Define(string name, AffixBlock block) => TestMods.As(_h.Mod, () => Affixes.Define(name, block));
