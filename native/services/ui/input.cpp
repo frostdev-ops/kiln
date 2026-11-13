@@ -25,6 +25,7 @@
 #include <deque>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <unordered_map>
 #include <vector>
 
@@ -85,9 +86,37 @@ float g_vx = -1, g_vy = -1;
 // The middle and side buttons and the wheel as key presses (mouse_press.h). Window thread.
 mouse::Twins g_twins;            // a raw record or a message that led, for its twin from the other source
 mouse::Notches g_notches;        // the part of a wheel notch turned so far
-mouse::KeptChords g_kept_chords; // per wheel direction and modifiers: its last notch was kept from the game
 bool g_notches_captured = false; // the notches above were turned while Kiln captured input
-bool g_mixed_record_said = false;
+bool g_mixed_record_said = false, g_twin_time_said = false;
+
+// The game reads raw input through its own import of user32!GetRawInputData, in its window procedure (no
+// GetRawInputBuffer: docs/re/client-render.md). Kiln's import slot hook (input_install_iat) takes the flags of the
+// presses a key subscriber took out of the record the game reads, while the window procedure hands that WM_INPUT on:
+// motion and the other buttons stay. Null: the slot was not found (the record then reaches the game whole).
+using GetRawInputDataFn = UINT(WINAPI*)(HRAWINPUT, UINT, LPVOID, PUINT, UINT);
+GetRawInputDataFn g_game_raw_read = nullptr;
+bool g_game_raw_read_hooked = false;
+struct RawEdit {
+    HRAWINPUT handle = nullptr;
+    USHORT flags = 0;  // RI_MOUSE_* to take out (a wheel flag takes usButtonData too)
+};
+thread_local RawEdit t_raw_edit;  // the window thread, around the call down the chain only
+
+// Any WM_INPUT read of the record being handed on loses the taken flags; every other read is untouched (the size query
+// too: the record keeps its size).
+UINT WINAPI hk_get_raw_input_data(HRAWINPUT h, UINT cmd, LPVOID data, PUINT size, UINT header) {
+    const UINT n = g_game_raw_read(h, cmd, data, size, header);
+    const RawEdit e = t_raw_edit;
+    if (e.flags && h == e.handle && cmd == RID_INPUT && data && header == sizeof(RAWINPUTHEADER) &&
+        n != static_cast<UINT>(-1) && n >= sizeof(RAWINPUTHEADER) + sizeof(RAWMOUSE)) {
+        auto* ri = static_cast<RAWINPUT*>(data);
+        if (ri->header.dwType == RIM_TYPEMOUSE) {
+            ri->data.mouse.usButtonFlags = static_cast<USHORT>(ri->data.mouse.usButtonFlags & ~e.flags);
+            if (e.flags & (RI_MOUSE_WHEEL | RI_MOUSE_HWHEEL)) ri->data.mouse.usButtonData = 0;
+        }
+    }
+    return n;
+}
 
 using SetCursorPosFn = BOOL(WINAPI*)(int, int);
 using ClipCursorFn = BOOL(WINAPI*)(const RECT*);
@@ -150,25 +179,41 @@ bool on_key(uint32_t vk, uint32_t scan, bool down, bool from_mouse = false) {
 // A middle or side button transition from one source: dispatched once per physical transition, whichever of its raw
 // record and its message comes first (mouse_press.h Twins), to the key subscribers that take mouse presses
 // (KILN_UI_KEYS_MOUSE, keys.cpp). true = keep this press from the game. No such subscriber: nothing happens.
+// The decision of this input's twin, when one waits (also after the last mouse subscriber left: its decision stands).
+std::optional<bool> follow_twin(mouse::Source s, uint32_t kind, int32_t delta, uint32_t time) {
+    if (!g_twins.waiting()) return std::nullopt;
+    int32_t apart_ms = 0;
+    const auto twin = g_twins.follow(s, kind, delta, time, &apart_ms);
+    if (!twin && apart_ms && !g_twin_time_said) {
+        g_twin_time_said = true;
+        logf(KILN_LOG_INFO, "ui: a mouse input came as a raw record or a window message only, or the two carried message "
+             "times %d ms apart; Kiln pairs a record with its message by their time, so if a mouse key binding counts a "
+             "press twice, send this line (said once)", apart_ms);
+    }
+    return twin;
+}
+
 bool mouse_button(mouse::Source s, uint32_t vk, bool down) {
-    if (!keys_mouse_wanted()) return false;
     const uint32_t kind = mouse::button_kind(vk, down);
     const auto time = static_cast<uint32_t>(GetMessageTime());
-    if (const auto twin = g_twins.follow(s, kind, time)) return *twin;
+    if (const auto twin = follow_twin(s, kind, 0, time)) return *twin;
+    if (!keys_mouse_wanted()) return false;
     const bool kept = on_key(vk, 0, down, true);
-    g_twins.lead(s, kind, time, kept);
+    g_twins.lead(s, kind, 0, time, kept);
     return kept;
 }
 
 // One wheel turn from one source: a press per notch it completes, with the modifiers held now (mouse_press.h).
-// true = keep this turn from the game: a notch a subscriber took, or a part of a notch of a chord whose last notch was
-// taken. While Kiln captures input the notches come with captured 1 (the Keys page's capture) and the screen scrolls.
-// Only key subscribers with KILN_UI_KEYS_MOUSE get them; with none, nothing happens.
+// true = keep this turn from the game: a notch a subscriber took, or a part of a notch a subscriber would keep (asked as a
+// repeat of the notch's press, so the answer is today's, never a decision carried from an earlier notch). While Kiln
+// captures input the notches come with captured 1 (the Keys page's capture) and the screen scrolls. Only key subscribers
+// with KILN_UI_KEYS_MOUSE get them; with none, nothing happens (a waiting twin's decision still stands).
 bool mouse_wheel(mouse::Source s, int axis, int32_t delta) {
-    if (delta == 0 || !keys_mouse_wanted()) return false;
+    if (delta == 0) return false;
     const uint32_t kind = mouse::wheel_kind(axis, delta);
     const auto time = static_cast<uint32_t>(GetMessageTime());
-    if (const auto twin = g_twins.follow(s, kind, time)) return *twin;
+    if (const auto twin = follow_twin(s, kind, delta, time)) return *twin;
+    if (!keys_mouse_wanted()) return false;
     const bool cap = capturing();
     if (cap != g_notches_captured) {  // a notch begun in a Kiln screen does not end in play, nor the other way
         g_notches.clear();
@@ -183,14 +228,17 @@ bool mouse_wheel(mouse::Source s, int axis, int32_t delta) {
     k.text_input = g_text_input.load() ? 1 : 0;
     k.captured = cap ? 1 : 0;
     bool kept = false;
-    for (int i = 0; i < std::min(std::abs(n), mouse::kMaxNotchesPerTurn); ++i) kept = dispatch_key(k, true) || kept;
-    if (!cap) {
-        if (n) g_kept_chords.set(k.vk, k.mods, kept);
-        else kept = g_kept_chords.get(k.vk, k.mods);
+    if (n == 0) {
+        k.repeat = 1;  // a part of a notch: not a press; a subscriber that would take the notch keeps it from the game
+        kept = dispatch_key(k, true);
     }
-    g_twins.lead(s, kind, time, kept);
+    for (int i = 0; i < std::min(std::abs(n), mouse::kMaxNotchesPerTurn); ++i) kept = dispatch_key(k, true) || kept;
+    g_twins.lead(s, kind, delta, time, kept);
     return kept;
 }
+
+// Mouse presses run at all: a key subscriber takes them, or a decision waits for its twin.
+bool mouse_presses_wanted() { return keys_mouse_wanted() || g_twins.waiting() != 0; }
 
 constexpr USHORT kRawButtonFlags = RI_MOUSE_LEFT_BUTTON_DOWN | RI_MOUSE_LEFT_BUTTON_UP | RI_MOUSE_RIGHT_BUTTON_DOWN |
                                    RI_MOUSE_RIGHT_BUTTON_UP | RI_MOUSE_MIDDLE_BUTTON_DOWN | RI_MOUSE_MIDDLE_BUTTON_UP |
@@ -439,7 +487,7 @@ LRESULT CALLBACK wndproc(HWND h, UINT m, WPARAM w, LPARAM l) {
                     const RAWMOUSE& ms = ri->data.mouse;
                     // middle and side buttons and wheel notches go to the key subscribers with captured 1 (the Keys
                     // page takes one for a binding); a notch taken there does not scroll the screen too
-                    const USHORT taken = (ms.usButtonFlags & kRawButtonFlags) && keys_mouse_wanted()
+                    const USHORT taken = (ms.usButtonFlags & kRawButtonFlags) && mouse_presses_wanted()
                                              ? raw_mouse_presses(ms, false) & (RI_MOUSE_WHEEL | RI_MOUSE_HWHEEL)
                                              : 0;
                     // a release the game saw the press of (e.g. the click that opened a Kiln screen) still reaches
@@ -461,23 +509,34 @@ LRESULT CALLBACK wndproc(HWND h, UINT m, WPARAM w, LPARAM l) {
                     DefWindowProcW(h, m, w, l);
                     return 0;
                 } else if (ri->header.dwType == RIM_TYPEMOUSE && (ri->data.mouse.usButtonFlags & kRawButtonFlags) &&
-                           keys_mouse_wanted()) {
-                    // play: middle and side buttons and wheel notches as key presses. A press a subscriber took is
-                    // kept from the game with its whole record (motion in it too), unless the record also holds
-                    // another button's or the wheel's input the game must get: then it passes whole (rare)
+                           mouse_presses_wanted()) {
+                    // play: middle and side buttons and wheel notches as key presses. A record holding only presses a
+                    // subscriber took is kept from the game whole, as a key's; one that also holds motion or another
+                    // button's or the wheel's input reaches the game with only the taken flags taken out (the import hook)
                     const RAWMOUSE& ms = ri->data.mouse;
                     const USHORT kept = raw_mouse_presses(ms, hover_capture());
                     // a kept press's own release in the same record (a very fast click) needs no game either
                     constexpr USHORT kPresses = RI_MOUSE_MIDDLE_BUTTON_DOWN | RI_MOUSE_BUTTON_4_DOWN | RI_MOUSE_BUTTON_5_DOWN;
                     const USHORT own = kept | static_cast<USHORT>((kept & kPresses) << 1);  // each *_UP is its *_DOWN << 1
-                    if (kept && !(ms.usButtonFlags & kRawButtonFlags & ~own)) {
-                        DefWindowProcW(h, m, w, l);  // lets the system clean up the raw input
-                        return 0;
-                    }
-                    if (kept && !g_mixed_record_said) {
-                        g_mixed_record_said = true;
-                        logf(KILN_LOG_INFO, "ui: a raw mouse record held a press a key binding took and another button's "
-                             "input (flags 0x%x): it reached the game whole (said once)", ms.usButtonFlags);
+                    if (kept) {
+                        const bool moved = ms.lLastX != 0 || ms.lLastY != 0 || (ms.usFlags & MOUSE_MOVE_ABSOLUTE);
+                        if (!moved && !(ms.usButtonFlags & kRawButtonFlags & ~own)) {
+                            DefWindowProcW(h, m, w, l);  // lets the system clean up the raw input
+                            return 0;
+                        }
+                        if (g_game_raw_read_hooked) {
+                            const RawEdit outer = t_raw_edit;
+                            t_raw_edit = {reinterpret_cast<HRAWINPUT>(l), own};
+                            const LRESULT r = CallWindowProcW(g_chain.below, h, m, w, l);
+                            t_raw_edit = outer;
+                            return r;
+                        }
+                        if (!g_mixed_record_said) {
+                            g_mixed_record_said = true;
+                            logf(KILN_LOG_INFO, "ui: a raw mouse record held a press a key binding took and other input "
+                                 "(flags 0x%x): with no GetRawInputData import of the game to edit, it reached the game "
+                                 "whole (said once)", ms.usButtonFlags);
+                        }
                     }
                 }
             }
@@ -544,7 +603,7 @@ LRESULT CALLBACK wndproc(HWND h, UINT m, WPARAM w, LPARAM l) {
                 if (m == WM_MOUSEMOVE) g_n_move.fetch_add(1, std::memory_order_relaxed);
                 else if (m != WM_MOUSELEAVE && m != WM_NCMOUSEMOVE) g_n_buttons.fetch_add(1, std::memory_order_relaxed);
                 // middle and side buttons and wheel notches as key presses (once with their raw records)
-                const bool kept = m != WM_MOUSEMOVE && keys_mouse_wanted() && message_mouse_presses(m, w, !cap && hover_capture());
+                const bool kept = m != WM_MOUSEMOVE && mouse_presses_wanted() && message_mouse_presses(m, w, !cap && hover_capture());
                 const bool wheel = m == WM_MOUSEWHEEL || m == WM_MOUSEHWHEEL;
                 if (!(cap && kept && wheel)) enqueue(h, m, w, l);  // a notch the Keys page took does not scroll it too
                 if (cap && !is_button_up(m)) return 0;  // releases reach the game (see WM_INPUT)
@@ -744,8 +803,16 @@ void input_install_iat() {
     void* b = patch_iat(exe, "USER32.dll", "ClipCursor", reinterpret_cast<void*>(&hk_clip_cursor));
     if (a) g_real_set_cursor_pos = reinterpret_cast<SetCursorPosFn>(a);
     if (b) g_real_clip_cursor = reinterpret_cast<ClipCursorFn>(b);
-    logf(a && b ? KILN_LOG_INFO : KILN_LOG_WARN, "ui: cursor import slots: SetCursorPos %s, ClipCursor %s", a ? "hooked" : "not found",
-         b ? "hooked" : "not found");
+    // the raw-input read: set before the slot points at the hook (the window thread may call it at once)
+    if (!g_game_raw_read)
+        g_game_raw_read = reinterpret_cast<GetRawInputDataFn>(GetProcAddress(GetModuleHandleW(L"user32.dll"), "GetRawInputData"));
+    void* c = g_game_raw_read ? patch_iat(exe, "USER32.dll", "GetRawInputData", reinterpret_cast<void*>(&hk_get_raw_input_data)) : nullptr;
+    if (c) {
+        g_game_raw_read = reinterpret_cast<GetRawInputDataFn>(c);
+        g_game_raw_read_hooked = true;
+    }
+    logf(a && b ? KILN_LOG_INFO : KILN_LOG_WARN, "ui: cursor import slots: SetCursorPos %s, ClipCursor %s; GetRawInputData %s",
+         a ? "hooked" : "not found", b ? "hooked" : "not found", c ? "hooked (a taken mouse press leaves the record the game reads)" : "not found");
 }
 
 namespace {

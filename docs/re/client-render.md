@@ -72,8 +72,12 @@ kiln.ui subclasses the window (`SetWindowLongPtrW(GWLP_WNDPROC)`, re-applied if 
   (`KILN_UI_VK_WHEEL_*` for the wheel), to the key subscribers that ask for them (`subscribe_key_ex`,
   `KILN_UI_KEYS_MOUSE`, kiln.ui v7; without one nothing of this runs). The window gets each from `WM_INPUT` (RAWMOUSE flags, `usButtonData`) and as a
   message (`WM_XBUTTON*`, `WM_MBUTTON*`, `WM_MOUSEWHEEL`, `WM_MOUSEHWHEEL`); whichever comes first is dispatched and
-  the other, its twin by input and message time, follows its decision (`native/services/ui/mouse_press.h`). A taken
-  press is kept from the game in both forms; a raw record that also carries another button's input passes whole.
+  the other, its twin (same input, delta and message time), follows its decision (`native/services/ui/mouse_press.h`).
+  A taken press is kept from the game in both forms: a record holding only it is kept whole; one with motion or other
+  buttons is handed on and kiln.ui's hook on the game's `GetRawInputData` import slot (`input_install_iat`, with the
+  cursor slots) takes the taken flags out of what the game reads. The game imports no `GetRawInputBuffer`; a module
+  that reads raw input through its own import gets the record unedited. That the record and its message carry the same
+  message time is Wine's and Windows' design, not yet seen in this game: kiln.log says once if a pair came apart.
   Which of the two forms the game's camera zoom reads was not looked up: both are kept, so either way it does not see
   a taken notch. Not verified in a real game yet (guided check `ui.mouse-bindings`).
 - Capture (Kiln menu open, or an interactive Kiln window): `WM_INPUT`, key presses, characters and mouse messages

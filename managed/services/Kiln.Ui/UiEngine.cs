@@ -584,8 +584,9 @@ internal static unsafe class UiEngine
         }
         var consumed = false;
         var wheel = MouseKeys.IsWheel(k.Vk);
-        // a Kiln screen has the mouse: the wheel scrolls it and fires no binding
-        if (wheel && k.Captured != 0) return false;
+        // a Kiln screen has the mouse (the Keys page had its chance above): the wheel scrolls it, and no mouse press fires
+        // a binding there; a button's release still ends a hold that began in play
+        if ((wheel || MouseKeys.IsButton(k.Vk)) && k.Captured != 0 && down) return false;
         foreach (var b in KeyBindings.All)
         {
             if (!b.Enabled || b.Disposed || b.Key.IsNone || b.Key.VirtualKey != k.Vk) continue;

@@ -111,9 +111,11 @@ typedef struct KilnUiFrame {
  * get keyboard keys only, as before, and so never see these codes nor take a mouse press. Such a callback gets the middle
  * and side mouse buttons (VK_MBUTTON 0x04, VK_XBUTTON1 0x05, VK_XBUTTON2 0x06; a press and a release, scan 0) and one
  * press per wheel notch (one per WHEEL_DELTA turned, added up from a high-resolution wheel's smaller deltas; scan 0,
- * never a release or a repeat), with the modifiers held at that moment, once each although the window gets them both as
- * raw input and as a message. Returning true keeps the press (and its raw record) from the game as for a key; releases
- * always reach it. While Kiln captures input they come with captured 1 (the Keys page takes them for a binding; the
+ * never a release), with the modifiers held at that moment, once each although the window gets them both as raw input
+ * and as a message. A smaller delta that completes no notch comes as repeat 1: not a press; return true to keep it from
+ * the game as you would the notch. Returning true keeps the press from the game as for a key: its message, and its raw
+ * record (whole when it holds nothing else; otherwise the game reads it without the taken flags, where kiln.ui could
+ * hook the game's GetRawInputData import); releases always reach it. While Kiln captures input they come with captured 1 (the Keys page takes them for a binding; the
  * wheel then scrolls Kiln's screen). The left and right buttons never come. With no such callback the mouse costs
  * nothing and reaches the game untouched. set_menu_key takes the buttons, not the wheel; take_pressed_key stays
  * keyboard only. */

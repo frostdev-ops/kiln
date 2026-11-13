@@ -280,13 +280,53 @@ public sealed class MouseBindingTests : IDisposable
         Assert.Equal((1, 1), (pressed, released));
         Assert.False(Send(0x05));  // Mouse4 alone is the game's
         Assert.False(Send(0x06, KeyMods.Shift));  // Mouse5 is not bound
-        // as a key: it fires while a mod's own window has the input, not while the Kiln menu has it
-        Assert.True(Send(0x05, KeyMods.Shift, captured: true));
-        Send(0x05, KeyMods.Shift, down: false, captured: true);
-        FakeUiTable.MenuOpen = true;
+        Assert.Equal(1, pressed);
+    }
+
+    /// <summary>Review finding 4: a mod's own screen has the input (Captured, the Kiln menu closed): a mouse button
+    /// binding fires nothing there, whatever WhileCapturing says; a release still ends a hold that began in play.</summary>
+    [Fact]
+    public void A_mouse_button_binding_fires_nothing_while_a_Kiln_screen_has_the_input()
+    {
+        var pressed = 0;
+        var released = 0;
+        var b = Register("t.side.captured", "Shift+Mouse4", () => pressed++);
+        b.OnRelease = () => released++;
+        b.WhileCapturing = true;
         Assert.False(Send(0x05, KeyMods.Shift, captured: true));
+        Assert.False(b.IsDown);
+        Assert.Equal(0, b.TakePresses());
+        Assert.False(Send(0x05, KeyMods.Shift, down: false, captured: true));
+        Assert.Equal((0, 0), (pressed, released));
+        Assert.True(Send(0x05, KeyMods.Shift));  // pressed in play...
+        Assert.True(b.IsDown);
+        Send(0x05, KeyMods.Shift, down: false, captured: true);  // ...released over a screen that opened meanwhile
+        Assert.False(b.IsDown);
+        Assert.Equal((1, 1), (pressed, released));
+        var middle = Register("t.middle.captured", "MouseMiddle", () => pressed++);
+        Assert.False(Send(0x04, captured: true));
+        Assert.Equal(1, pressed);
+        // the Keys page still takes a captured button for a binding first
+        FakeUiTable.MenuOpen = true;
+        Remapping.SetValue(null, middle.Id);
+        Assert.True(Send(0x06, KeyMods.Alt, captured: true));
+        Assert.Equal("Alt+Mouse5", middle.Key.ToString());
         FakeUiTable.MenuOpen = false;
-        Assert.Equal(2, pressed);
+    }
+
+    /// <summary>A part of a wheel notch (a high-resolution wheel) comes as a repeat: a binding that would take the notch
+    /// keeps it from the game, without a press.</summary>
+    [Fact]
+    public void A_part_of_a_notch_is_kept_by_the_binding_without_a_press()
+    {
+        var n = 0;
+        var b = Register("t.wheel.part", "Ctrl+WheelUp", () => n++);
+        Assert.True(UiEngine.Key(new UiNative.Key { Size = 20, Vk = 0x100, Mods = 1, Down = 1, Repeat = 1 }));
+        Assert.Equal(0, n);
+        Assert.Equal(0, b.TakePresses());
+        Assert.False(UiEngine.Key(new UiNative.Key { Size = 20, Vk = 0x100, Mods = 0, Down = 1, Repeat = 1 }));  // no Ctrl
+        b.Dispose();
+        Assert.False(UiEngine.Key(new UiNative.Key { Size = 20, Vk = 0x100, Mods = 1, Down = 1, Repeat = 1 }));  // binding gone
     }
 
     [Fact]
