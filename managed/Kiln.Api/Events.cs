@@ -177,7 +177,7 @@ public sealed record EventHandlerInfo(string Event, string Owner, string Handler
 /// throws <see cref="MaxFaults"/> times is removed.</para>
 /// <para>Dispatch works on a snapshot: a handler may post other events (up to <see cref="MaxDepth"/> levels deep),
 /// subscribe (the new handler sees the next post, not the current one) or unsubscribe (takes effect at once: a removed
-/// handler later in the current dispatch does not run). <see cref="On{T}"/>, <see cref="Register"/> and
+/// handler later in the current dispatch does not run). <see cref="On{T}(Action{T}, EventPriority, bool)"/>, <see cref="Register"/> and
 /// <c>Dispose</c> work from any thread; <see cref="HasSubscribers{T}"/> is lock-free and costs two memory reads.</para>
 /// </remarks>
 public static class Events

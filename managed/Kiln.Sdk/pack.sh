@@ -103,6 +103,7 @@ for t in sorted(glob.glob(os.path.join(root, "kiln-*", ".template.config", "temp
     assert json.loads(text)["symbols"]["kilnSdkVersion"]["defaultValue"] == version, t
     open(t, "w", encoding="utf-8").write(text)
 PY
-find "$tstage/templates" \( -name bin -o -name obj -o -name build \) -prune -exec rm -rf {} +
+# build outputs never ship; shaders/build is not one (a mod's built shader modules: kiln-shader carries swirl.spv there)
+find "$tstage/templates" \( -name bin -o -name obj -o \( -name build -not -path '*/shaders/build' \) \) -prune -exec rm -rf {} +
 pack "$tstage/templates/Kiln.Templates.csproj"
 echo "Kiln MDK $version -> $feed:"; ls -1 "$feed" | grep -F ".$version.nupkg"

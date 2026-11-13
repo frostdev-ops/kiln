@@ -1,0 +1,31 @@
+{
+  // A particle effect moved by this mod's own hooks (shaders/swirl.hlsl, linked into Kiln's sprite when the game starts),
+  // next to the same effect on Kiln's sprite alone. Guide: docs/kiln/modding/shaders.md.
+  "format": 1,
+  "vfx": {
+    "swirl": {
+      "particles": [
+        {
+          "rate": 60, "duration": 4, "lifetime": [2, 3], "speed": [0.2, 0.6], "spread": "sphere",
+          "shape": { "disc": 1.5 }, "drag": 0.6,
+          "size": { "keys": [[0, 0], [0.15, 0.12], [1, 0]] }, "color": ["#a0f0ff", "#4060ff"], "alpha": { "linear": [1, 0] },
+          "texture": "vfx/dot.png", "blend": "additive", "emissive": 1,
+          // the built module, and the three numbers its hooks read as c.user0: strength, scale, lift
+          "shader": { "file": "shaders/build/swirl.spv", "constants": [6, 0.8, 0.4] }
+        }
+      ],
+      "light": { "color": "#6080ff", "radius": 5, "brightness": 2, "lifetime": 4, "fadeIn": 0.3, "fadeOut": 1 }
+    },
+    "swirl_plain": {
+      // the same block without its module: what Kiln's own sprite does with it
+      "particles": [
+        {
+          "rate": 60, "duration": 4, "lifetime": [2, 3], "speed": [0.2, 0.6], "spread": "sphere",
+          "shape": { "disc": 1.5 }, "drag": 0.6,
+          "size": { "keys": [[0, 0], [0.15, 0.12], [1, 0]] }, "color": ["#a0f0ff", "#4060ff"], "alpha": { "linear": [1, 0] },
+          "texture": "vfx/dot.png", "blend": "additive", "emissive": 1
+        }
+      ]
+    }
+  }
+}
