@@ -719,6 +719,22 @@ fn the_mods_that_need_a_cook_are_cooked_one_by_one_and_a_failure_stops_nothing()
     cook::cook_mods(&inst, &jobs, Ok(()), &mut |job, _| { seen.push(job.id.clone()); (true, String::new()) }, &mut |_, _, _, _| {}, &|| false).unwrap();
     assert_eq!(seen, ["shields"]);
     assert!(cook::plan(&inst).unwrap().iter().all(|j| j.reason.is_none()));
+    // shields' cook made nothing (its record says files: false). A receipt that does list a file is checked all the same
+    // (the file gone: due), and a cooked file no receipt lists makes it due too (it would not load where the rule is on)
+    let shields_dir = cook::plan(&inst).unwrap()[1].folder.clone();
+    assert!(!cook::read_state(&game).mods["shields"].files);
+    put(&shields_dir, "assets/cooked/hat.bin", b"made from this game");
+    receipt(&game, &shields_dir, &[("cooked/hat.bin", b"made from this game")]);
+    assert_eq!(cook::plan(&inst).unwrap()[1].reason, None);
+    std::fs::remove_file(shields_dir.join("assets/cooked/hat.bin")).unwrap();
+    assert_eq!(cook::plan(&inst).unwrap()[1].reason, Some(CookReason::FilesGone), "a listed file gone, whatever the record says");
+    for f in std::fs::read_dir(cook::receipts_dir(&game)).unwrap().flatten() {
+        if cook::receipts_of(&game, &shields_dir).iter().any(|(r, _)| *r == f.path()) { std::fs::remove_file(f.path()).unwrap(); }
+    }
+    assert_eq!(cook::plan(&inst).unwrap()[1].reason, None, "no receipt, no cooked file: as its cook left it");
+    put(&shields_dir, "assets/cooked/hat.bin", b"copied in from elsewhere");
+    assert_eq!(cook::plan(&inst).unwrap()[1].reason, Some(CookReason::FilesGone), "a cooked file no receipt lists");
+    std::fs::remove_dir_all(shields_dir.join("assets/cooked")).unwrap();
 
     // the game was updated: every cooked mod is due again
     inst.build_id = Some("101".into());

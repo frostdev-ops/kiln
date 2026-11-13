@@ -82,8 +82,9 @@ tools/client/client.sh logs [n] | report [n] | check | backup-saves
   "client": { "policy": "any" } }
 ```
 A `"server"` or `"client"` section overrides the top-level keys on that side (`config.cpp: apply_side`).
-`"cooked": "local"` (the default) or `"any"`: whether kiln.assets loads a mod's cooked files only when a cook of this game
-made them (its receipts, [modding/cooking.md](modding/cooking.md)), or whoever made them (development servers); read by
+`"cooked"`: what kiln.assets does with a mod's cooked file no cook of this game made (no receipt lists it,
+[modding/cooking.md](modding/cooking.md)): `"warn"` (the default, `kCookedDefault` in `native/services/assets/cooktrust.h`)
+loads it with one warning per mod, `"local"` does not load it, `"any"` loads it (development servers); read by
 kiln.assets itself, with the same side sections.
 
 ## Symbol database per side

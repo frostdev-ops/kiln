@@ -49,18 +49,23 @@ std::string lower(std::string s) {
     return s;
 }
 
-// "cooked": "local" | "any" in `sec`; anything else is a note and keeps `cur`.
-bool read_policy(const nlohmann::json& sec, bool cur, const char* where, std::vector<std::string>* notes) {
+// "cooked": "local" | "warn" | "any" in `sec`; anything else is a note and keeps `cur`.
+CookedPolicy read_policy(const nlohmann::json& sec, CookedPolicy cur, const char* where, std::vector<std::string>* notes) {
     if (!sec.is_object() || !sec.contains("cooked")) return cur;
     const auto& v = sec["cooked"];
     const std::string s = v.is_string() ? v.get<std::string>() : "";
-    if (s == "any") return true;
-    if (s == "local") return false;
-    notes->push_back(std::string(where) + " \"cooked\" is not \"local\" or \"any\"; kept as " + (cur ? "any" : "local"));
+    if (s == "any") return CookedPolicy::Any;
+    if (s == "warn") return CookedPolicy::Warn;
+    if (s == "local") return CookedPolicy::Local;
+    notes->push_back(std::string(where) + " \"cooked\" is not \"local\", \"warn\" or \"any\"; kept as " + policy_name(cur));
     return cur;
 }
 
 }  // namespace
+
+const char* policy_name(CookedPolicy p) {
+    return p == CookedPolicy::Any ? "any" : p == CookedPolicy::Warn ? "warn" : "local";
+}
 
 std::string sha256_hex(const void* data, size_t len) {
     uint32_t h[8] = {0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19};
@@ -103,7 +108,8 @@ bool is_cooked_path(const std::string& rel) {
     return lower(first) == "cooked" && first.size() < rel.size();
 }
 
-CookTrust load_cook_trust(const std::filesystem::path& kiln_dir, const std::filesystem::path& state_dir, bool client) {
+CookTrust load_cook_trust(const std::filesystem::path& kiln_dir, const std::filesystem::path& state_dir, bool client,
+                          bool store_linked) {
     namespace fs = std::filesystem;
     CookTrust t;
     {
@@ -111,16 +117,22 @@ CookTrust load_cook_trust(const std::filesystem::path& kiln_dir, const std::file
         if (in) {
             try {
                 const auto doc = nlohmann::json::parse(in, nullptr, true, true);
-                t.any = read_policy(doc, t.any, "kiln.json", &t.notes);
+                t.policy = read_policy(doc, t.policy, "kiln.json", &t.notes);
                 const char* side = client ? "client" : "server";
-                if (doc.is_object() && doc.contains(side)) t.any = read_policy(doc[side], t.any, side, &t.notes);
+                if (doc.is_object() && doc.contains(side)) t.policy = read_policy(doc[side], t.policy, side, &t.notes);
             } catch (const std::exception& e) {
-                t.notes.push_back(std::string("kiln.json unreadable (") + e.what() + "): \"cooked\" is \"local\"");
+                t.notes.push_back(std::string("kiln.json unreadable (") + e.what() + "): \"cooked\" is \"" + policy_name(t.policy) + "\"");
             }
         }
     }
     std::error_code ec;
     const fs::path dir = state_dir / "cook-receipts";
+    // the store is <game>/kiln/state/cook-receipts itself: a link there (or at kiln/state) would let it lie elsewhere
+    if (store_linked || fs::is_symlink(state_dir, ec) || fs::is_symlink(dir, ec)) {
+        t.store_refused = true;
+        t.notes.push_back("the receipt store " + dir.string() + " is a link (or kiln/state is): no receipt is read from it");
+        return t;
+    }
     for (auto it = fs::directory_iterator(dir, ec); !ec && it != fs::directory_iterator(); it.increment(ec)) {
         const fs::path p = it->path();
         std::error_code e2;
@@ -146,8 +158,13 @@ CookTrust load_cook_trust(const std::filesystem::path& kiln_dir, const std::file
     return t;
 }
 
+CookedVerdict cooked_verdict(const CookTrust& t, const void* data, size_t len) {
+    if (t.policy == CookedPolicy::Any || t.digests.count(sha256_hex(data, len)) != 0) return CookedVerdict::Load;
+    return t.policy == CookedPolicy::Warn ? CookedVerdict::LoadUnmade : CookedVerdict::Refuse;
+}
+
 bool cooked_trusted(const CookTrust& t, const void* data, size_t len) {
-    return t.any || t.digests.count(sha256_hex(data, len)) != 0;
+    return cooked_verdict(t, data, len) != CookedVerdict::Refuse;
 }
 
 }  // namespace ka

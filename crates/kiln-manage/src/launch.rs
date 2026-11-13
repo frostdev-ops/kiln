@@ -175,6 +175,20 @@ fn last_launch_path(dirs: &DataDirs, install: &GameInstall) -> std::path::PathBu
     dirs.installs().join(format!("{}.launch.json", install.id))
 }
 
+/// The Kiln mods of a game's profile file that are on, each with the folder the game loads it from (a Library entry the
+/// game reads through Z:, an absolute path, or Kiln's copy under `<game>/kiln`). A path that cannot be mapped to this
+/// machine is left out.
+pub fn kiln_folders<'a>(install: &GameInstall, file: &'a crate::profile::ProfileFile) -> Vec<(&'a crate::profile::FolderMod, std::path::PathBuf)> {
+    file.mods.kiln.iter().filter(|m| m.enabled).filter_map(|m| {
+        let folder = if crate::winpath::is_absolute_game_path(&m.path) || m.path.starts_with('/') {
+            crate::winpath::to_host(&m.path, install).ok()?
+        } else {
+            install.path.join(crate::paths::game::KILN).join(m.path.replace('\\', "/"))
+        };
+        Some((m, folder))
+    }).collect()
+}
+
 /// Whether this game was started through Kiln less than `within` ago (the time its [`LastLaunch`] was written): Steam may
 /// still be starting it, and the game reads the mods' files as it does ([`crate::cook`] refuses a cook then).
 pub fn started_within(dirs: &DataDirs, install: &GameInstall, within: std::time::Duration) -> bool {
@@ -247,6 +261,22 @@ pub fn play_with(dirs: &DataDirs, install: &GameInstall, request: &LaunchRequest
             Error { message: msg, ..e }
         })?
     } else { None };
+    // and the lock of each mod folder it loads, until Steam was asked: a Library entry another game loads too may be in
+    // that game's cook right now (its own game lock is another). A cook of such a folder refuses while a game that
+    // loads it runs or was just started (cook::cook_due).
+    let _folders = if request.mode == LaunchMode::Profile {
+        let mut held = Vec::new();
+        if let Some(file) = crate::profile::read_game_profile(&install.path)? {
+            for (m, folder) in kiln_folders(install, &file) {
+                if !folder.join("assets").is_dir() {
+                    continue;
+                }
+                held.push(crate::state::lock_cook_folder(&folder, std::time::Duration::from_secs(5), &|| false,
+                    &format!("Kiln is cooking {} (for another game that loads the same folder): wait until that is done, then start again.", m.id))?);
+            }
+        }
+        held
+    } else { Vec::new() };
     // what the re-apply kept in the game folder is the player's to see, also when the start then fails
     let mut r = start(dirs, install, request, saves, opener).map_err(|e| match &activation {
         Some(a) => with_activation(e, a),

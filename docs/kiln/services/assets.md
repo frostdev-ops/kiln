@@ -58,13 +58,18 @@ subfolders are allowed; absolute paths and `..` are rejected.
   and in a player's game: a server's cook makes no models, and nothing has to be marked for it (dev.27; the cook of
   0.2.0-dev.26 wrote `"side": "client"` on the models' entries of the server's copy, and the server now names such a
   copy in a warning: it is another file than the players').
-- **A file in `assets/cooked`** (by its name, or by where a link leads; a `patch` blob too) loads only when a cook
-  receipt of this game lists its bytes (`<game>/kiln/state/cook-receipts/*.json`, written by the cook tools when Kiln
-  runs them: [../modding/cooking.md](../modding/cooking.md)). An entry whose file is not listed is left out (a resource
-  whose patch blob is not listed, whole), counted in the report (`…, 2 cooked files not made here`) and named in a
-  warning that says how to cook the mod. `kiln.json` `"cooked": "any"` (top level, or the side's section) loads them
-  all, with a warning at every load (development servers). The check is `cooktrust.cpp` (host test
-  `tests/test_cooktrust.cpp`, run by `tests/run.sh`).
+- **Every file is read from the mod's own `assets` folder** (`contained.cpp`): a link or junction from there down (by
+  name, which shows Wine's links to folders; on Windows the opened file's final path too) makes the entry an error, as
+  does a file whose identity (volume, file index) is that of a cooked file of any mod of the load order while its name
+  is not under the mod's own `assets/cooked` (a Unix link to a file is a plain file under Wine). The bytes come from the
+  handle that was checked.
+- **A file in `assets/cooked`** (a `patch` blob too) is compared with the cook receipts of this game
+  (`<game>/kiln/state/cook-receipts/*.json`, written by the cook tools when Kiln runs them:
+  [../modding/cooking.md](../modding/cooking.md)). One no receipt lists is handled by `kiln.json` `"cooked"`: `"warn"`
+  (the default, `kCookedDefault`) loads it and says once per mod which files and how to cook them (`…, 2 cooked files
+  not made here (loaded)`), `"local"` leaves the entry out (a resource whose patch blob is not listed, whole: `…, 2
+  cooked files not made here`), `"any"` loads it. A receipt store that is a link, or lies under one, is not read. The
+  check is `cooktrust.cpp` (host test `tests/test_cooktrust.cpp`, run by `tests/run.sh`).
 - **`guid`**: a resource GUID, in .NET `Guid` text form. The GUID bytes match `Guid.ToByteArray()` = the game's
   resource-id order = the bytes of `ItemInfo.objectId`.
 - **`type`**: a qualified reflection name (`keen::UiTextureResource`) hashed FNV-1a-32, or `"0x<hash>"`.

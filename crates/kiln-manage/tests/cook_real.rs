@@ -169,13 +169,28 @@ fn the_launchers_cook_makes_a_profiles_mods_from_the_game_with_the_tools_this_bu
     assert!(lines.iter().any(|l| l.starts_with("fake-sword: kiln: cooking ")), "{lines:#?}");
     assert_eq!(cook::cook_due(&dirs, &inst, Some("no-such-mod"), &locate, &mut |_, _, _, _| {}, &|| false).unwrap_err().code, ErrorCode::NotFound);
 
-    // Canceled while the tool runs (the task's Cancel): the tool is stopped, the mod is recorded as not cooked, and no
-    // further mod starts.
+    // "Cook again" that fails (a source of the recipe went missing): the mod keeps the files and the receipts of its last
+    // cook, which still load; it is recorded as failed and tried again at the next start.
+    let (listed, _) = cook::check_receipts(&game, &folder);
+    let blade = std::fs::read(folder.join("assets/cooked/a.bin")).unwrap();
+    std::fs::rename(folder.join("assets/src/sword.gltf"), root.join("sword.gltf.away")).unwrap();
+    let run = cook::cook_due(&dirs, &inst, Some("fake-sword"), &locate, &mut |_, _, _, _| {}, &|| false).unwrap();
+    assert!(!run.mods[0].ok && run.mods[0].error.as_deref().is_some_and(|e| e.contains("sword.gltf")), "{:?}", run.mods);
+    assert_eq!(std::fs::read(folder.join("assets/cooked/a.bin")).unwrap(), blade, "the working files stay");
+    assert_eq!(cook::check_receipts(&game, &folder), (listed, true), "and so do their receipts");
+    assert!(std::fs::read_dir(folder.join("assets")).unwrap().flatten().all(|e| !e.file_name().to_string_lossy().starts_with(".kiln-cooked-prev-")));
+    assert_eq!(cook::plan(&inst).unwrap()[0].reason, Some(CookReason::LastFailed));
+    std::fs::rename(root.join("sword.gltf.away"), folder.join("assets/src/sword.gltf")).unwrap();
+
+    // Canceled while the tool runs (the task's Cancel): the tool is stopped, the mod is recorded as not cooked, no
+    // further mod starts, and the mod keeps the files of its last cook.
     let seen = std::cell::Cell::new(0);
     let e = cook::cook_due(&dirs, &inst, Some("fake-sword"), &locate, &mut |_, _, _, line| if line.is_some() { seen.set(seen.get() + 1) }, &|| seen.get() > 0).unwrap_err();
     assert_eq!(e.code, ErrorCode::Canceled, "{e}");
     assert!(!cook::read_state(&game).mods["fake-sword"].ok);
     assert_eq!(cook::plan(&inst).unwrap()[0].reason, Some(CookReason::LastFailed));
+    assert_eq!(std::fs::read(folder.join("assets/cooked/a.bin")).unwrap(), blade);
+    assert_eq!(cook::check_receipts(&game, &folder), (listed, true));
 
     // Another cook or a start of this game holds its lock: the cook waits a moment, then says so and starts nothing.
     let held = kiln_manage::state::lock_game(&game, std::time::Duration::ZERO, &|| false).unwrap().unwrap();
@@ -207,6 +222,35 @@ fn the_launchers_cook_makes_a_profiles_mods_from_the_game_with_the_tools_this_bu
     let late_job = cook::plan(&inst).unwrap().into_iter().find(|j| j.id == "late").unwrap();
     assert_eq!(late_job.reason, None);
     assert!(late_job.folder.join("assets/cooked/cook-report.json").is_file());
+
+    // Two games that load one Library entry (Z mode: both read the Library through Z:). A start of one holds the lock
+    // of each folder it loads until Steam was asked, so a cook of that folder for the other waits; and the other's cook
+    // leaves the folder alone while the first game runs or was just started.
+    let pfx = root.join("pfx");
+    std::fs::create_dir_all(pfx.join("dosdevices")).unwrap();
+    std::os::unix::fs::symlink("/", pfx.join("dosdevices/z:")).unwrap();
+    let z = |name: &str| {
+        let g = root.join(name);
+        std::fs::create_dir_all(g.join("kiln")).unwrap();
+        std::fs::write(g.join("enshrouded.exe"), b"MZ").unwrap();
+        let i = GameInstall { id: format!("g-{name}"), path: g.clone(), prefix: Some(pfx.clone()), build_id: Some("101".into()), ..inst.clone() };
+        kiln_manage::game::write_record(&dirs, &i, None).unwrap();
+        profile::activate(&dirs, &p.id, &i).unwrap();
+        i
+    };
+    let (z1, z2) = (z("client-z1"), z("client-z2"));
+    let shared = cook::plan(&z1).unwrap().into_iter().find(|j| j.id == "fake-sword").unwrap().folder;
+    assert_eq!(cook::plan(&z2).unwrap().into_iter().find(|j| j.id == "fake-sword").unwrap().folder, shared);
+    assert!(shared.starts_with(root.join("data")), "the Library entry itself: {}", shared.display());
+    let held = kiln_manage::state::lock_cook_folder(&shared, std::time::Duration::ZERO, &|| false, "x").unwrap();
+    let start = kiln_manage::launch::LaunchRequest { mode: kiln_manage::launch::LaunchMode::Profile, profile_id: None, skip_backup: true };
+    let e = kiln_manage::launch::play_with(&dirs, &z2, &start, Some(&[]), &opener).unwrap_err();
+    assert_eq!(e.code, ErrorCode::Busy, "a start waits for the cook of a folder it loads: {e}");
+    drop(held);
+    kiln_manage::launch::play_with(&dirs, &z2, &start, Some(&[]), &opener).unwrap();
+    let run = cook::cook_due(&dirs, &z1, None, &locate, &mut |_, _, _, _| {}, &|| false).unwrap();
+    let sword_run = run.mods.iter().find(|m| m.id == "fake-sword").unwrap();
+    assert!(!sword_run.ok && sword_run.error.as_deref().is_some_and(|e| e.contains("loads this mod's folder too and was just started")), "{:?}", run.mods);
 
     // one unpacked copy of the tools served every cook
     let copies: Vec<PathBuf> = std::fs::read_dir(root.join("data/cooktools")).unwrap().flatten().map(|e| e.path()).filter(|p| p.is_dir()).collect();

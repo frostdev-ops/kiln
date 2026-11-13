@@ -169,8 +169,11 @@ them (dev.27, `shell/cook.ts`, `cook_plan` / `cook_run`, `kiln_manage::cook`):
   else the game's data file), when its last cook failed, or when a file its last cook made is gone or is not the bytes
   that cook made (its receipt in `kiln/state/cook-receipts` says). That rule is one function, `cook::needs_cook`; the
   record it reads is the game's `kiln/state/cooked.json`. A vanilla start and "play once" do not cook.
-- **From nothing.** A mod that needs a cook gets its `assets/cooked` emptied and every recipe run, also one whose own
-  check calls it up to date (that check reads the mod's files, never the game).
+- **From nothing, and nothing lost.** A mod that needs a cook gets its `assets/cooked` and its receipts set aside and every
+  recipe run, also one whose own check calls it up to date (that check reads the mod's files, never the game). When the
+  cook ends well what was set aside goes; when it does not (a missing source, a cancel, a tool that fails) the mod gets
+  back the files and receipts of its last cook, and the mod's own files as they were. A mod whose cooked files no
+  receipt lists (an older Kiln's cook) is due too.
 - **What the player sees.** "Cooking <mod>" (or "Cooking N mods"), then the task with "Cooking <mod> (i of n)" and each
   line the tools print, then "Starting" as before. Nothing is said when nothing needs a cook.
 - **Never stuck.** Each tool runs within limits: 30 minutes for one recipe, 10 minutes without a line, 2 minutes for a
@@ -179,14 +182,17 @@ them (dev.27, `shell/cook.ts`, `cook_plan` / `cook_run`, `kiln_manage::cook`):
   same way; the game then starts with what was cooked. A tool's very long lines are cut and only the end of what it said
   is kept.
 - **One at a time.** A cook holds the game's lock (`kiln/state/cook.lock`) for its whole run, and a start with mods holds
-  it until Steam was asked: the game never starts while a cook writes its mods, and a start that finds a cook running
-  waits a moment, then says so. "Cook again" is refused while the game runs and in the two minutes after a start through
-  the launcher (Steam may still be starting the game). Two cooks of one folder (two games that load one Library entry,
-  `kiln cook` beside the launcher) wait for each other. A cook stops when the game is started from Steam meanwhile.
+  it, and the lock of each mod folder it loads, until Steam was asked: the game never starts while a cook writes its mods
+  (also one cooked for another game that loads the same Library entry), and a start that finds a cook running waits a
+  moment, then says so. "Cook again" is refused while the game runs and in the two minutes after a start through the
+  launcher (Steam may still be starting the game). Two cooks of one folder (two games that load one Library entry,
+  `kiln cook` beside the launcher) wait for each other, and a Library entry another game loads is not cooked while that
+  game runs or was just started (the mod is reported as not cooked: "… loads this mod's folder too …"). A cook stops
+  when the game is started from Steam meanwhile.
 - **A failed cook stops nothing.** The other mods are cooked and the game starts. One notice stays until closed:
   "<mod> was not cooked", each such mod's name with the tools' own last lines (a missing input after a game update, a
-  glTF the cook refuses), how many others were cooked, and that a mod that is not cooked runs without the models,
-  animations and sounds it makes from the game. On the Deck the notice is the dialog that holds long text and closes
+  glTF the cook refuses), how many others were cooked, and that a mod that could not be cooked keeps running on the
+  files it has (those of its last cook, or none if it was never cooked here). On the Deck the notice is the dialog that holds long text and closes
   with B. When no tool can run at all (Linux without Python 3.10 or newer, or without a zstd decoder), every due mod
   gets the one sentence that says what to install. The failed mod is tried again at the next start.
 - **"Cook again"** in a mod's menu (the main list's "More for <mod>", for a Kiln mod that is on and has something to
@@ -195,7 +201,8 @@ them (dev.27, `shell/cook.ts`, `cook_plan` / `cook_run`, `kiln_manage::cook`):
 - **Where the files go.** Into `assets/cooked` of the folder the game loads the mod from (the Library entry where the
   game reads the Library through Z:, else Kiln's copy in the game), and nowhere else (the cook tools refuse any other
   place), so the mod keeps its identity: the next activation keeps the copy, and a server sees the same mod. The tools
-  record each file in the game's receipts; kiln.assets loads a cooked file only when they list it.
+  record each file in the game's receipts; kiln.assets warns about (default `"warn"`) or refuses (`"local"`) a cooked
+  file they do not list ([../modding/cooking.md](../modding/cooking.md)).
 - The tools are the ones `kiln cook` runs, carried by the launcher and unpacked once under `<data>/cooktools`
   (releasing.md, "The cook tools and the bundled Python"). On Windows the bundle's own Python runs them; the player's
   Python, if any, is never used.

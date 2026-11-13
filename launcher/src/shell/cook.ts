@@ -24,7 +24,8 @@ export const COOK_REASON: Record<NonNullable<CookJob["reason"]>, string> = {
 export const notCookedText = (m: ModCook) => `${m.name}:\n${m.error ?? "the cook failed without a word"}`;
 
 /** What a cook run left to tell: nothing when every mod was cooked; else one notice that stays, naming each mod that
- *  was not cooked with the tools' text. The mod runs without its cooked files (no models of its own, its own
+ *  was not cooked with the tools' text. The mod keeps the files it has (those of its last cook: a failed cook puts them
+ *  back), or runs without them when it was never cooked here (no models of its own, its own
  *  animations refused) until a cook goes through. */
 export function notifyCook(run: CookRun | null | undefined, o: { quietOk?: boolean } = {}) {
   if (!run?.mods.length) return;
@@ -35,7 +36,7 @@ export function notifyCook(run: CookRun | null | undefined, o: { quietOk?: boole
     return;
   }
   const title = failed.length === 1 ? `${failed[0].name} was not cooked` : `${failed.length} mods were not cooked`;
-  toast.info(title, `${failed.map(notCookedText).join("\n\n")}\n\n${ok ? `${ok} other mod${ok === 1 ? " was" : "s were"} cooked. ` : ""}The game starts all the same: a mod that is not cooked runs without the models, animations and sounds it makes from the game. "Cook again" in the mod's menu tries again.`, { ms: 0 });
+  toast.info(title, `${failed.map(notCookedText).join("\n\n")}\n\n${ok ? `${ok} other mod${ok === 1 ? " was" : "s were"} cooked. ` : ""}The game starts all the same, and a mod that could not be cooked keeps running on the files it has: those of its last cook, or none if it was never cooked here. "Cook again" in the mod's menu tries again.`, { ms: 0 });
 }
 
 /** Cooks what needs a cook before the game starts. Resolves when it is done, whatever happened: a cook never stops a

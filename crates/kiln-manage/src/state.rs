@@ -577,3 +577,19 @@ pub fn lock_game(game_dir: &Path, wait: std::time::Duration, canceled: &dyn Fn()
     crate::engine_mods::refuse_symlink_path(game_dir, &file)?;
     lock_file(&file, wait, canceled, "Kiln is cooking this game's mods, or starting the game: wait until that is done (the task list shows it), then try again.").map(Some)
 }
+
+/// Where a cook of a mod folder holds its lock: a file per folder (by its real path) in the system's temp folder, so
+/// `kiln cook` and the launcher, two games that load one Library entry, and a start of one game while another cooks
+/// that folder, never meet in it ([`lock_cook_folder`]).
+pub fn cook_folder_lock_path(dir: &Path) -> std::path::PathBuf {
+    use sha2::Digest;
+    let real = std::fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf());
+    let key = crate::hash::hex(&sha2::Sha256::digest(real.to_string_lossy().as_bytes())[..12]);
+    std::env::temp_dir().join("kiln-cook-locks").join(format!("{key}.lock"))
+}
+
+/// The lock of a mod folder's cook ([`cook_folder_lock_path`]): held by a cook of that folder, and by a start with
+/// mods for each folder it loads until Steam was asked ([`crate::launch::play_with`]).
+pub fn lock_cook_folder(dir: &Path, wait: std::time::Duration, canceled: &dyn Fn() -> bool, busy: &str) -> Result<HeldLock> {
+    lock_file(&cook_folder_lock_path(dir), wait, canceled, busy)
+}

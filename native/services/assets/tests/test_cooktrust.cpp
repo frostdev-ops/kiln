@@ -52,10 +52,11 @@ int main(int argc, char** argv) {
     const fs::path kiln = root / "kiln", state = kiln / "state";
     const std::string made = "a program this game's cook made", given = "a program from a download";
 
-    // no receipt at all: nothing cooked loads
+    // no receipt at all and no kiln.json: the default policy (warn): a cooked file loads, as one no cook here made
     CookTrust t = load_cook_trust(kiln, state, true);
-    CHECK(!t.any && t.receipts == 0 && t.digests.empty());
-    CHECK(!cooked_trusted(t, made.data(), made.size()));
+    CHECK(kCookedDefault == CookedPolicy::Warn && t.policy == kCookedDefault && t.receipts == 0 && t.digests.empty());
+    CHECK(cooked_verdict(t, made.data(), made.size()) == CookedVerdict::LoadUnmade);
+    CHECK(std::string(policy_name(CookedPolicy::Warn)) == "warn" && std::string(policy_name(CookedPolicy::Local)) == "local");
 
     // a receipt lists the bytes a cook made: those load, other bytes under the same name do not
     put(state / "cook-receipts" / "a.json",
@@ -67,21 +68,40 @@ int main(int argc, char** argv) {
     t = load_cook_trust(kiln, state, true);
     CHECK(t.receipts == 1 && t.digests.size() == 1);
     CHECK(t.notes.size() == 2);  // the unreadable one and the other format are said
-    CHECK(cooked_trusted(t, made.data(), made.size()));
-    CHECK(!cooked_trusted(t, given.data(), given.size()));
+    CHECK(cooked_verdict(t, made.data(), made.size()) == CookedVerdict::Load);
+    CHECK(cooked_verdict(t, given.data(), given.size()) == CookedVerdict::LoadUnmade);  // warn: loaded, and said
+
+    // "local": only what a receipt lists loads
+    put(kiln / "kiln.json", "{ \"cooked\": \"local\" }");
+    t = load_cook_trust(kiln, state, true);
+    CHECK(t.policy == CookedPolicy::Local);
+    CHECK(cooked_verdict(t, made.data(), made.size()) == CookedVerdict::Load && cooked_trusted(t, made.data(), made.size()));
+    CHECK(cooked_verdict(t, given.data(), given.size()) == CookedVerdict::Refuse && !cooked_trusted(t, given.data(), given.size()));
+    // "warn" named
+    put(kiln / "kiln.json", "{ \"cooked\": \"warn\" }");
+    CHECK(load_cook_trust(kiln, state, true).policy == CookedPolicy::Warn);
 
     // kiln.json "cooked": "any" (a development server): everything loads; the side's section wins
     put(kiln / "kiln.json", "{ \"cooked\": \"any\" }");
     t = load_cook_trust(kiln, state, false);
-    CHECK(t.any && cooked_trusted(t, given.data(), given.size()));
+    CHECK(t.policy == CookedPolicy::Any && cooked_verdict(t, given.data(), given.size()) == CookedVerdict::Load);
     put(kiln / "kiln.json", "{ \"cooked\": \"any\", \"client\": { \"cooked\": \"local\" } }");
-    CHECK(load_cook_trust(kiln, state, false).any);
-    CHECK(!load_cook_trust(kiln, state, true).any);
+    CHECK(load_cook_trust(kiln, state, false).policy == CookedPolicy::Any);
+    CHECK(load_cook_trust(kiln, state, true).policy == CookedPolicy::Local);
     put(kiln / "kiln.json", "{ \"cooked\": \"sometimes\" }");
     t = load_cook_trust(kiln, state, true);
-    CHECK(!t.any && t.notes.size() == 3);
-    put(kiln / "kiln.json", "{ // comments are fine\n \"policy\": \"any\" }");
-    CHECK(!load_cook_trust(kiln, state, true).any);
+    CHECK(t.policy == kCookedDefault && t.notes.size() == 3);
+    put(kiln / "kiln.json", "{ // comments are fine\n \"policy\": \"any\", \"cooked\": \"local\" }");
+    CHECK(load_cook_trust(kiln, state, true).policy == CookedPolicy::Local);
+
+    // a receipt store that is a link, or the caller found one by name: no receipt is read from it
+    put(kiln / "kiln.json", "{ \"cooked\": \"local\" }");
+    t = load_cook_trust(kiln, state, true, true);
+    CHECK(t.store_refused && t.receipts == 0 && cooked_verdict(t, made.data(), made.size()) == CookedVerdict::Refuse);
+    fs::rename(state / "cook-receipts", root / "elsewhere");
+    fs::create_directory_symlink(root / "elsewhere", state / "cook-receipts");
+    t = load_cook_trust(kiln, state, true);
+    CHECK(t.store_refused && t.receipts == 0 && !t.notes.empty());
 
     fs::remove_all(root);
     if (failures) {

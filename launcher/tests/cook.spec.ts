@@ -83,7 +83,7 @@ test("a mod whose cook fails is named with the tools' own text; the others are c
   if (await showAll.count()) await showAll.click();
   await expect(notice).toContainText("modelcook: input bronze_model: 9c38c7f0-fd0a-41a6-b91e-9a16287b8f59 is not in enshrouded.kfc (game update or wrong side?)");
   await expect(notice).toContainText("1 other mod was cooked.");
-  await expect(notice).toContainText("The game starts all the same");
+  await expect(notice).toContainText("The game starts all the same, and a mod that could not be cooked keeps running on the files it has");
   // the record: one cooked, one to try again at the next start
   const plan = await api<{ id: string; reason?: string; last?: { ok: boolean; error?: string } }[]>(page, "cookPlan", "client-steam");
   expect(plan.map((j) => [j.id, j.reason ?? null, j.last?.ok])).toEqual([["new-items", "lastFailed", false], ["weather-plus", null, true]]);

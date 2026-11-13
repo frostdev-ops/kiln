@@ -203,3 +203,53 @@ fn kiln_builds_cook_answers_as_it_did_before_the_move() {
     assert!(err.contains("dotnet"), "{err}");
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// Files cooked before receipts existed (a cook of Kiln 0.2.0-dev.26, or a tool run by hand) pass the recipe's own
+/// check, but no receipt of the game lists them: plain `kiln cook` cooks the recipe again and the receipts are there
+/// afterwards, so the game loads its files (the recovery the release notes give a server's operator). `--check` says so.
+#[test]
+fn kiln_cook_cooks_again_what_no_receipt_of_the_game_lists() {
+    let root = std::env::temp_dir().join(format!("kiln-cook-receipt-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(&root).unwrap();
+    let root = root.canonicalize().unwrap();
+    let sword = root.join("mods/sword");
+    let mut c = Command::new("python3");
+    c.arg(repo().join("tools/modelcook/tests/fakegame.py")).arg(root.join("client")).args(["--side", "client", "--mod"]).arg(&sword)
+        .arg("--kiln-out").arg(root.join("out"));
+    match scratch_env(&mut c, &root).output() {
+        Ok(o) if o.status.success() => {}
+        other => {
+            eprintln!("skipped: the made-up game could not be built: {other:?}");
+            let _ = std::fs::remove_dir_all(&root);
+            return;
+        }
+    }
+    let _ = std::fs::remove_file(sword.join("CMakeLists.txt"));
+    std::fs::write(sword.join("kiln.mod.json"), r#"{ "id": "sword", "version": "1.0.0", "apiVersion": "0.2", "entryAssembly": "M.dll" }"#).unwrap();
+    std::fs::create_dir_all(root.join("client/kiln")).unwrap();
+    let recipe = sword.join("assets/cook.json");
+    let r = recipe.display().to_string();
+    // cooked by hand: the tool, without Kiln asking for a receipt
+    let mut by_hand = Command::new("python3");
+    by_hand.arg("-I").arg(repo().join("tools/modelcook/modelcook.py")).arg("--game").arg(root.join("client")).arg("recipe").arg(&recipe).arg("--update-manifest");
+    let o = scratch_env(&mut by_hand, &root).env_remove("KILN_COOK_RECEIPT").output().unwrap();
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    let receipts = root.join("client/kiln/state/cook-receipts");
+    assert!(!receipts.exists(), "a tool run by hand writes no receipt");
+    let made = std::fs::read(sword.join("assets/cooked/a.bin")).unwrap();
+    // the check: needed (no receipt of this game), exit 1
+    let (code, out, _) = run(&root, &["--check"], &sword);
+    assert_eq!((code, out.trim()), (1, format!("{r}: cook needed").as_str()));
+    // plain kiln cook: cooked again, and the receipts are written
+    let (code, out, err) = run(&root, &[], &sword);
+    assert_eq!(code, 0, "{out}{err}");
+    assert!(out.starts_with(&format!("kiln: {r}: no receipt of this game lists its files: cooked again, so the game loads them\nkiln: cooking {r} (modelcook)\n")), "{out}");
+    let listed: Vec<Value> = std::fs::read_dir(&receipts).unwrap().flatten().map(|f| serde_json::from_slice(&std::fs::read(f.path()).unwrap()).unwrap()).collect();
+    assert!(listed.iter().any(|x| x["files"].get("cooked/a.bin").is_some()), "{listed:?}");
+    assert_eq!(std::fs::read(sword.join("assets/cooked/a.bin")).unwrap(), made, "the same bytes, now with their receipt");
+    // and now it is up to date
+    let (code, out, _) = run(&root, &[], &sword);
+    assert_eq!((code, out.trim()), (0, format!("{r}: up to date").as_str()));
+    let _ = std::fs::remove_dir_all(&root);
+}
