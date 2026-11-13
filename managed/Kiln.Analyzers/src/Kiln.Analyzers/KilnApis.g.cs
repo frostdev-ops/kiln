@@ -717,12 +717,15 @@ internal static partial class KilnApis
         "P:Kiln.Build.Available=kiln.build", // T != null: Services.Get("kiln.build")
         "P:Kiln.Chat.Available=kiln.chat", // T != null: Services.Get("kiln.chat")
         "P:Kiln.Client.Available=kiln.client", // T != null: Services.Get("kiln.client")
+        "P:Kiln.Client.IsClientThread=kiln.client", // T != null: Services.Get("kiln.client")
         "P:Kiln.Combat.Available=kiln.combat", // CombatNative.T != null: Services.Get("kiln.combat")
         "P:Kiln.Combat.HitsAvailable=kiln.combat", // CombatNative.T != null: Services.Get("kiln.combat")
         "P:Kiln.Content.Available=kiln.content", // T != null: Services.Get("kiln.content")
         "P:Kiln.Content.GameDataAvailable=kiln.gamedata", // GD != null: Services.Get("kiln.gamedata")
+        "P:Kiln.Content.StackGuard=kiln.content", // returns false first when the table of kiln.content is null
         "P:Kiln.Creatures.Available=kiln.creatures", // CreaturesNative.T != null: Services.Get("kiln.creatures")
         "P:Kiln.EcsPrograms.Available=kiln.world", // Table != null: Services.Get("kiln.world")
+        "P:Kiln.EcsPrograms.SupportsOtherWrites=kiln.world", // Table != null: Services.Get("kiln.world")
         "P:Kiln.EntityData.Available=kiln.spawn", // via Kiln.SpawnLink.Available
         "P:Kiln.Example.Available=kiln.example", // T != null: Services.Get("kiln.example")
         "P:Kiln.GameSystems.Available=kiln.types", // t != null: Services.Get("kiln.types")
@@ -740,6 +743,7 @@ internal static partial class KilnApis
         "P:Kiln.NoClip.Available=rules.noclip", // Is("rules.noclip")
         "P:Kiln.PlayerAnimStates.Available=kiln.playeranim", // T != null: Services.Get("kiln.playeranim")
         "P:Kiln.PlayerCharacters.Available=kiln.characters", // T != null: Services.Get("kiln.characters")
+        "P:Kiln.PlayerStates.Available=kiln.playerstate", // returns false first when the table of kiln.playerstate is null
         "P:Kiln.Players.Available=kiln.players", // T != null: Services.Get("kiln.players")
         "P:Kiln.Progression.Available=kiln.progression", // T != null: Services.Get("kiln.progression")
         "P:Kiln.ReflectedResources.Available=kiln.assets,kiln.types", // via Kiln.GameTypes.Available; via Kiln.ResourceStore.Available
@@ -748,14 +752,18 @@ internal static partial class KilnApis
         "P:Kiln.Settings.Available=kiln.settings", // T != null: Services.Get("kiln.settings")
         "P:Kiln.Settings.Ready=kiln.settings", // T != null: Services.Get("kiln.settings")
         "P:Kiln.Spawn.Available=kiln.spawn", // T != null: Services.Get("kiln.spawn")
+        "P:Kiln.Spawn.WorldRunning=kiln.spawn", // T != null: Services.Get("kiln.spawn")
         "P:Kiln.Teleport.Available=kiln.world", // WorldNative.T != null: Services.Get("kiln.world")
         "P:Kiln.Time.Available=kiln.time", // T != null: Services.Get("kiln.time")
+        "P:Kiln.Time.CanSetSpeed=kiln.time", // via Kiln.Time.HasScale
         "P:Kiln.Time.WeatherChoiceAvailable=kiln.time,time.weather_choose", // T3 != null: Services.Get("kiln.time"); Is("time.weather_choose")
         "P:Kiln.Ui.Available=kiln.ui", // via Kiln.UiNative.Available
         "P:Kiln.Ui.Crafting.MenuAvailable=kiln.craftmenu", // UiNative.Craft != null: Services.Get("kiln.craftmenu")
         "P:Kiln.UiWheel.Available=kiln.ui", // UiNative.T2 != null: Services.Get("kiln.ui")
+        "P:Kiln.UiWheel.IsAnyOpen=kiln.ui", // t != null: Services.Get("kiln.ui")
         "P:Kiln.Villagers.Available=kiln.creatures", // t != null: Services.Get("kiln.creatures")
         "P:Kiln.World.Available=kiln.world", // WorldNative.T != null: Services.Get("kiln.world")
+        "P:Kiln.World.SupportsTrackedWrites=world.tracked_writes", // Is("world.tracked_writes")
         "P:Kiln.WorldProgress.Available=kiln.knowledge", // via Kiln.Knowledge.Available
     };
 

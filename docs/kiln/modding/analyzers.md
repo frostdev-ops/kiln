@@ -83,9 +83,8 @@ Kiln.Testing and every service, then reads their sources with Roslyn (`tools/Api
 - **Advanced:** every public member that reaches `HooksGate.RequireAdvanced` (Kiln.Hooks: `Hooks.Detour/Mid`,
   `Symbols.*`, `Memory.*`, `Constants.*`). 17 members.
 - **Services:** the folders under `managed/services/` (22).
-- **Capability guards** (KILN121): the public static bool properties named `...Available` or `...Ready` that answer
-  what `Capabilities.Is("row")` answers, with their rows. See [KILN121](#kiln121), "Properties that ask the same
-  question". 46 properties.
+- **Capability guards** (KILN121): the public static bool properties that answer what `Capabilities.Is("row")`
+  answers, with their rows. See [KILN121](#kiln121), "Properties that ask the same question". 54 properties.
 
 Run the script after changing Kiln.Api, Kiln.Testing or a service:
 `KILN_OUT=… managed/Kiln.Analyzers/tools/gen-apis.sh`.
@@ -406,7 +405,8 @@ var r = await Time.SetWeather("rain");                          // KILN120 when 
 **What.** A member marked `[RequiresCapability("row")]` (on itself, on its property or event, or on a type around it)
 is called, read, set or constructed, and nothing in reach asks for the row. In reach, within the enclosing member:
 - a test that the use sits under (`if`, the `else` of a negated test, `?:`, `&&`, `while`) or that leaves before it
-  (`if (!Capabilities.Is("row")) return;`, or throw, break, continue). A test is `Capabilities.Is("row")` (the same
+  (`if (!Capabilities.Is("row")) return;`, or throw, break, continue, `throw c.Usage(...)`, a call marked
+  `[DoesNotReturn]`, or a block with such a statement: `{ Log.Warn(...); c.Fail(...); }`). A test is `Capabilities.Is("row")` (the same
   string: a literal, a `const`, or a `static readonly` string of the mod set to a constant),
   `Capabilities.Get("row").IsAvailable`, a property that asks the same question (below), a `bool` local set once from
   one, either way round (`bool off = !NoClip.Available; if (off) return;`), or a `bool` property of the mod that is
@@ -435,16 +435,19 @@ methods. This is the shape of mods/samples/Loadouts: the command catches `KilnUn
 helpers make the calls.
 
 **Properties that ask the same question.** The generated table (`KilnApis.g.cs`, `CapabilityGuards`) lists the public
-static bool properties named `...Available` or `...Ready` whose own code always asks the row: the getter is an `&&` of
-terms, and a term is `Capabilities.Is("row")`, a one-line helper around it (`Can(Caps.Fuel)`), `T != null` for the
+static bool properties, of any name, whose own code always asks the row: the getter is an `&&` of terms, and a term is
+`Capabilities.Is("row")`, a helper around it (`Can(Caps.Fuel)`; `WorldCapabilities.Is(...)`, which calls something
+first), `T != null` for the
 native table `T` of service `kiln.x` (it comes from `Services.Get<...>("kiln.x", ...)` or `Backend.Current.Service`,
 also through another table property, a method or a local: `T => BuildNative.T`; that table is there exactly when the
-core's `kiln.x` row is available), or another such property. A summary is not code: what it names makes no guard. A
+core's `kiln.x` row is available), or another such property; or the getter is a block that returns `false` when the
+table is null before it returns anything else (`{ var t = AiNative.T; if (t == null) return false; ... }`). A summary is not code: what it names makes no guard. A
 getter that asks one row on a server and another on a client (`ServerSide ? relay : local`, `Sound.Available`,
 `Vfx.Available`) always asks neither, so it is no guard. For example `NoClip.Available` (rules.noclip),
 `Time.WeatherChoiceAvailable` (time.weather_choose), `Items.Fuel.Available` (items.fuel), `Content.GameDataAvailable`
-(kiln.gamedata), `Settings.Ready` (kiln.settings). A service makes a property a guard by writing it that way: there is
-no attribute for it.
+(kiln.gamedata), `Settings.Ready` (kiln.settings), `World.SupportsTrackedWrites` (world.tracked_writes). A service makes
+a property a guard by writing it that way: there is no attribute for it. `Saves.Available` is not one: it is
+`SavesRuntime.Ensure()`, which answers from a remembered state; ask `Capabilities.Is("kiln.saves")`.
 
 **Why.** contract.md: such a member throws `KilnUnavailableException` when its row is off (a game build Kiln does not
 know, a game client in its menu, a server without the service, a hook that faulted). Uncaught in `OnLoad`, a command

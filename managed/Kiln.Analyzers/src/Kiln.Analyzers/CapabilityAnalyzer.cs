@@ -227,6 +227,9 @@ public sealed class CapabilityAnalyzer : DiagnosticAnalyzer
             return false;
         }
 
+        /// <summary>False when <paramref name="s"/> cannot complete: a jump, a throw (<c>throw c.Usage(...)</c>), a call
+        /// marked [DoesNotReturn] (<c>c.Fail(...)</c> once it is marked), a block with such a statement, an if whose
+        /// branches both leave; else what the compiler's flow analysis says (it does not read [DoesNotReturn]).</summary>
         private static bool EndReachable(StatementSyntax s, SemanticModel model)
         {
             switch (s)
@@ -237,6 +240,12 @@ public sealed class CapabilityAnalyzer : DiagnosticAnalyzer
                     return false;
                 case BlockSyntax { Statements.Count: 0 }:
                     return true;
+                case ExpressionStatementSyntax es when DoesNotReturn(es.Expression, model):
+                    return false;
+                case BlockSyntax b when b.Statements.Any(x => !EndReachable(x, model)):
+                    return false;  // what follows a statement that leaves is never reached, so the block leaves
+                case IfStatementSyntax { Else: { } other } ifs when !EndReachable(ifs.Statement, model) && !EndReachable(other.Statement, model):
+                    return false;
             }
             try
             {
@@ -247,6 +256,21 @@ public sealed class CapabilityAnalyzer : DiagnosticAnalyzer
             {
                 return true;  // not a region the compiler can analyze: assume it goes on
             }
+        }
+
+        // c.Fail("..."), await of one, or `_ = Never` where the getter is marked
+        private static bool DoesNotReturn(ExpressionSyntax e, SemanticModel model)
+        {
+            while (e is AwaitExpressionSyntax or ParenthesizedExpressionSyntax)
+                e = e is AwaitExpressionSyntax aw ? aw.Expression : ((ParenthesizedExpressionSyntax)e).Expression;
+            if (e is AssignmentExpressionSyntax { Left: IdentifierNameSyntax { Identifier.ValueText: "_" } } discard) e = discard.Right;
+            var symbol = model.GetSymbolInfo(e).Symbol;
+            if (symbol is IPropertySymbol { GetMethod: { } getter }) symbol = getter;
+            if (symbol is not IMethodSymbol m) return false;
+            foreach (var a in (m.ReducedFrom ?? m).GetAttributes())
+                if (a.AttributeClass is { Name: "DoesNotReturnAttribute" } c && c.ContainingNamespace?.ToDisplayString() == "System.Diagnostics.CodeAnalysis")
+                    return true;
+            return false;
         }
 
         private bool Catches(TryStatementSyntax ts, SemanticModel model, CancellationToken ct)

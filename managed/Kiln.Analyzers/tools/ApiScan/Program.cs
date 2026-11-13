@@ -8,7 +8,7 @@
 //   advanced:    a member that reaches an advanced gate: HooksGate.RequireAdvanced (Kiln.Hooks: hooks, symbols, raw
 //                memory), AbilitiesGate.RequireAdvanced/Require/NotAdvanced (Kiln.Abilities: program blobs, raw call
 //                bytes) or CreaturesGate.RequireAdvanced (Kiln.Creatures: job-thread rule handlers).
-//   guards:      public static bool "...Available"/"...Ready" properties that ask a capability row (CapabilityGuards.cs, KILN121).
+//   guards:      public static bool properties whose getter always asks a capability row (CapabilityGuards.cs, KILN121).
 // Usage: ApiScan --repo <kiln repo> --stage <dir with the built Kiln dlls> --refs <Microsoft.NETCore.App.Ref ref dir>
 //                --out <KilnApis.g.cs>
 using System.Text;

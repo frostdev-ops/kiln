@@ -59,6 +59,17 @@ public sealed class ApiScanSourceTests
                     public static bool OtherAvailable => _t == null || Capabilities.Is("svc.either");
                     public static bool Ready => Capabilities.Is("svc.ready");
                     public static bool Count => Capabilities.Is("svc.count");
+                    public static bool SupportsThing => SvcCaps.Is("svc.thing2");
+                    public static bool Busy => _t == null;
+                    public static bool EarlyAvailable { get { var t = T; if (t == null) return false; Touch(); return t->X > 0; } }
+                    public static bool CachedAvailable { get { if (_cached) return true; var t = T; if (t == null) return false; return true; } }
+                    private static bool _cached;
+                    private static void Touch() { }
+                }
+                internal static class SvcCaps
+                {
+                    private static void Touch() { }
+                    public static bool Is(string capability) { Touch(); return Capabilities.Is(capability); }
                 }
             }
             """, new CSharpParseOptions(LanguageVersion.Preview, DocumentationMode.Parse), cancellationToken: TestContext.Current.CancellationToken);
@@ -83,8 +94,12 @@ public sealed class ApiScanSourceTests
         Assert.False(rows.ContainsKey("SideAvailable"));           // one row on one side, another on the other: neither always
         Assert.Equal("kiln.svc", rows["DirectAvailable"]);         // T is not null; the local "on" is not followed
         Assert.False(rows.ContainsKey("OtherAvailable"));          // || asks nothing for sure
-        Assert.Equal("svc.ready", rows["Ready"]);                  // "...Ready" asks as much
-        Assert.False(rows.ContainsKey("Count"));                   // neither "...Available" nor "...Ready"
+        Assert.Equal("svc.ready", rows["Ready"]);
+        Assert.Equal("svc.count", rows["Count"]);                  // the name does not matter, the getter does
+        Assert.Equal("svc.thing2", rows["SupportsThing"]);         // a helper in another class, a call before its return
+        Assert.False(rows.ContainsKey("Busy"));                    // asks no row
+        Assert.Equal("kiln.svc", rows["EarlyAvailable"]);          // returns false first when the table is null
+        Assert.False(rows.ContainsKey("CachedAvailable"));         // answers from a cache before the check
     }
 
     [Theory]
