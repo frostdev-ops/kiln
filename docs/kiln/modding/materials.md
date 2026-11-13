@@ -70,7 +70,7 @@ A kind says what the surface is, and where the other fields start from. A field 
 | `shader` | Reserved for surface shaders. Naming one is an error for now | |
 | `was` | The old name after a rename: the id stays | |
 
-PNGs are relative to your mod's folder, a power of two on both sides, 4 to 4096. What's missing is a small constant texture Kiln makes, shared by every material that needs the same one. Textures are compressed the first time and cached in `kiln/data/vfx/cache`: BC7 for colour, BC5 for normals, BC1 for the rest.
+PNGs are relative to your mod's folder, a power of two on both sides, 4 to 4096. What's missing is a small constant texture Kiln makes, shared by every material that needs the same one. Textures are compressed the first time and cached in `kiln/data/vfx/cache`: BC7 for colour, BC5 for normals, BC1 for the rest. Since 0.2.0-dev.27 `kiln/data/vfx/cache/index.json` also remembers which cached textures each material was made of: a later start whose material definition and PNGs are byte for byte the same takes them from the cache without decoding a PNG (kiln.log: "vfx: N material(s) taken as the last start built them, M built from their textures"). A changed PNG or definition, a new Kiln or game build, or a cache entry that is gone builds that material as before. Deleting the folder is always safe.
 
 A mistake names the block and the field: `frost-fx: blocks/m.json: materials.steel.roughness: 2 is more than 1`. A wrong block registers nothing, and the file's other blocks still load. Schema: `schema/kiln-vfx.schema.json`.
 

@@ -20,6 +20,12 @@
 #include <vector>
 
 #include "boot.h"
+#if __has_include("kiln_build.h")
+#include "kiln_build.h"  // KILN_BUILD: the build stamp ("+20261113.2e75c1f"), empty without it
+#endif
+#ifndef KILN_BUILD
+#define KILN_BUILD ""
+#endif
 #include "services/kiln_progress.h"
 #include "cook/vfxcook.h"
 #include "core.h"
@@ -445,6 +451,39 @@ kvb::GameCounts counts_from_game() {
     return kvb::game_counts_from(bundles);
 }
 
+// What made the carry-over index: Kiln's version with its build stamp (a new Kiln never takes an old index), the game exe and the side.
+// An empty game: not known, no index.
+kvb::CarryHeader carry_header(const KilnApi* api) {
+    kvb::CarryHeader h;
+    const KilnStr v = api->version();
+    h.kiln = std::string(v.ptr ? v.ptr : "", v.len) + KILN_BUILD;
+    KilnBuildInfo bi{};
+    bi.size = sizeof bi;
+    if (api->build_info(&bi) == KILN_OK && bi.exe_sha256[0]) {
+        h.game = std::string(bi.exe_sha256, strnlen(bi.exe_sha256, sizeof bi.exe_sha256));
+        h.side = bi.side == KILN_SIDE_CLIENT ? "client" : "server";
+    }
+    return h;
+}
+
+// Atomically, under a name of this process's own (a client and a server sharing a data folder each write whole files; the last one stays,
+// and a record either of them reads is checked before it is used).
+void write_carry_index(const fs::path& file, const std::string& text) {
+    std::error_code ec;
+    fs::create_directories(file.parent_path(), ec);
+    const fs::path tmp = file.parent_path() / to_path("index." + std::to_string(GetCurrentProcessId()) + ".tmp");
+    {
+        std::ofstream f(tmp, std::ios::binary | std::ios::trunc);
+        f.write(text.data(), static_cast<std::streamsize>(text.size()));
+        if (!f) {
+            f.close();
+            fs::remove(tmp, ec);
+            return;
+        }
+    }
+    if (!MoveFileExW(tmp.c_str(), file.c_str(), MOVEFILE_REPLACE_EXISTING)) fs::remove(tmp, ec);
+}
+
 void set_status(const char* state, const std::string& detail, const kvb::CookResult* r) {
     ojson j = r ? kvb::report_json(*r) : ojson::object();
     j["fingerprint"] = state;
@@ -675,14 +714,46 @@ void build_on_ready(const KilnApi* api, KilnOwner self) {
         const auto* progress = static_cast<const KilnProgressApi*>(api->service(KilnStr{KILN_PROGRESS_SERVICE, sizeof(KILN_PROGRESS_SERVICE) - 1}, 1));
         if (progress && progress->header.size >= offsetof(KilnProgressApi, step) + sizeof(void*) && progress->step)
             opt.progress = [progress](const std::string& mod, size_t nth, size_t of, const char* kind, const std::string& name, size_t done, size_t total) {
-                const std::string detail = "kiln-vfx: building the materials and VFX of " + mod + (of > 1 ? " (mod " + std::to_string(nth) + " of " + std::to_string(of) + ")" : "") +
-                                           ": " + kind + " " + name + " (" + std::to_string(done + 1) + " of " + std::to_string(total) + ")";
+                const std::string which = of > 1 ? " (mod " + std::to_string(nth) + " of " + std::to_string(of) + ")" : "";
+                const std::string count = " (" + std::to_string(done + 1) + " of " + std::to_string(total) + ")";
+                // a material taken from the last start's build is not "built": the detail says what really happens
+                const std::string detail = std::string_view(kind).starts_with("material as")
+                                               ? "kiln-vfx: " + mod + which + ": materials as the last start built them: " + name + count
+                                               : "kiln-vfx: building the materials and VFX of " + mod + which + ": " + kind + " " + name + count;
                 progress->step(KilnStr{"plugins", 7}, KilnStr{nullptr, 0}, KilnStr{detail.data(), detail.size()}, 0, 0);
             };
         std::vector<kvb::MaterialRecord> records;
         opt.record_material = [&records](const kvb::MaterialRecord& rec) { records.push_back(rec); };
+        // The carry-over index of the last starts (kvb::MaterialRecord, carry.cpp): a material whose definition and files did not change
+        // takes its maps from the texture cache without decoding a texture. Only beside a texture cache.
+        const fs::path index_file = to_path(api_path(KILN_PATH_DATA)) / L"vfx" / L"cache" / L"index.json";
+        const kvb::CarryHeader header = carry_header(api);
+        std::vector<kvb::MaterialRecord> carried;
+        std::map<std::pair<std::string, std::string>, size_t> carried_at;
+        if (opt.cache.get && !header.game.empty()) {
+            std::error_code ec;
+            std::string why;
+            if (!fs::exists(index_file, ec)) {
+                KV_D("vfx: no carry-over index yet (%s): every material is built from its textures", to_utf8(index_file).c_str());
+            } else if (!kvb::read_carry_index(read_text(index_file), header, &carried, &why)) {
+                KV_I("vfx: the carry-over index is not used (%s): every material is built from its textures, and the index is written again", why.c_str());
+            } else {
+                for (size_t i = 0; i < carried.size(); ++i) carried_at[{carried[i].mod, carried[i].name}] = i;
+                opt.carried_material = [&carried, &carried_at](const std::string& mod, const std::string& name, const std::string& def) -> const kvb::MaterialRecord* {
+                    const auto it = carried_at.find({mod, name});
+                    return it != carried_at.end() && carried[it->second].definition_text == def ? &carried[it->second] : nullptr;
+                };
+            }
+        }
         const uint64_t t0 = GetTickCount64();
         const kvb::CookResult r = kvb::cook_mods(mods, opt);
+        if (r.materials_carried || r.materials_built) {
+            KV_I("vfx: %u material(s) taken as the last start built them, %u built from their textures, in %llu ms", r.materials_carried, r.materials_built,
+                 static_cast<unsigned long long>(GetTickCount64() - t0));
+            if (opt.carried_material)
+                for (const std::string& n : r.carry_notes) KV_D("vfx: built again: %s", n.c_str());
+        }
+        if (opt.cache.get && !header.game.empty()) write_carry_index(index_file, kvb::carry_index_json(header, kvb::carry_merge(records, carried)));
         {
             std::lock_guard lk(g_mu);
             for (kvb::MaterialRecord& rec : records) {

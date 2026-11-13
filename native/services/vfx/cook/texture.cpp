@@ -24,7 +24,6 @@ namespace {
 
 constexpr uint32_t kCategoryTexture = 4010512636u;              // content.category on all 145 textures vanilla VFX name
 constexpr uint8_t kTexture2D = 1;                               // keen::TextureType
-constexpr const char* kEncoderVersion = "bc7-1";                // part of the cache key
 
 struct Image {
     uint32_t w = 0, h = 0;
@@ -185,22 +184,51 @@ RawImage resize_image(const RawImage& s, uint32_t w, uint32_t h) {
     return d;
 }
 
-EncodedChain encode_chain(const RawImage& image, uint8_t format, const TextureCache& cache) {
+namespace {
+// The levels of a w x h chain of `format`: each level's size, and their total.
+std::vector<uint32_t> chain_levels(uint32_t w, uint32_t h, uint8_t format, uint64_t* total) {
     const uint32_t block = format_block_bytes(format);
+    std::vector<uint32_t> sizes;
+    *total = 0;
+    for (uint32_t lw = w, lh = h;; lw = std::max(1u, lw / 2), lh = std::max(1u, lh / 2)) {
+        sizes.push_back(level_bytes(lw, lh, block));
+        *total += sizes.back();
+        if (lw == 1 && lh == 1) break;
+    }
+    return sizes;
+}
+
+// One range per level with more than 4 KiB left to the end of the blob, each running to the end. What no range starts at is the mip tail. It holds for
+// all 13,207 images of the game's materials, as for VFX textures (docs/re/vfx.md 2.7, 5).
+void chain_ranges(EncodedChain* c, const std::vector<uint32_t>& sizes, uint64_t total) {
+    uint64_t cum = 0;
+    c->ranges.clear();
+    c->tail_start = 0;
+    for (uint32_t s : sizes) {
+        if (total - cum > 4096) {
+            c->ranges.push_back({static_cast<uint32_t>(cum), static_cast<uint32_t>(total - cum)});
+            c->tail_start = static_cast<size_t>(cum + s);
+        }
+        cum += s;
+    }
+}
+}  // namespace
+
+std::string chain_cache_key(const ContentHash& pixels, uint32_t w, uint32_t h, uint8_t format) {
+    return content_hash_text(pixels) + "-" + std::to_string(w) + "x" + std::to_string(h) + "-f" + std::to_string(format) + "-" + kEncoderVersion;
+}
+
+EncodedChain encode_chain(const RawImage& image, uint8_t format, const TextureCache& cache) {
     EncodedChain c;
     c.width = image.w;
     c.height = image.h;
     c.format = format;
-    std::vector<uint32_t> sizes;
     uint64_t total = 0;
-    for (uint32_t lw = image.w, lh = image.h;; lw = std::max(1u, lw / 2), lh = std::max(1u, lh / 2)) {
-        sizes.push_back(level_bytes(lw, lh, block));
-        total += sizes.back();
-        if (lw == 1 && lh == 1) break;
-    }
+    const std::vector<uint32_t> sizes = chain_levels(image.w, image.h, format, &total);
     c.levels = static_cast<uint32_t>(sizes.size());
     const ContentHash pixels = content_hash(image.px.data(), image.px.size());
-    const std::string key = content_hash_text(pixels) + "-" + std::to_string(image.w) + "x" + std::to_string(image.h) + "-f" + std::to_string(format) + "-" + kEncoderVersion;
+    const std::string key = chain_cache_key(pixels, image.w, image.h, format);
+    c.cache_key = key;
     if (!cache.get || !cache.get(key, &c.data) || c.data.size() != total) {
         c.data.assign(total, 0);
         Image img;
@@ -215,18 +243,25 @@ EncodedChain encode_chain(const RawImage& image, uint8_t format, const TextureCa
         }
         if (cache.put) cache.put(key, c.data);
     }
-    // One range per level with more than 4 KiB left to the end of the blob, each running to the end. What no range starts at is the mip tail. It holds for
-    // all 13,207 images of the game's materials, as for VFX textures (docs/re/vfx.md 2.7, 5).
-    uint64_t cum = 0;
-    c.tail_start = 0;
-    for (uint32_t s : sizes) {
-        if (total - cum > 4096) {
-            c.ranges.push_back({static_cast<uint32_t>(cum), static_cast<uint32_t>(total - cum)});
-            c.tail_start = static_cast<size_t>(cum + s);
-        }
-        cum += s;
-    }
+    chain_ranges(&c, sizes, total);
     return c;
+}
+
+bool chain_from_cache(const std::string& key, uint32_t w, uint32_t h, uint8_t format, const TextureCache& cache, EncodedChain* out) {
+    if (!cache.get || w < 1 || h < 1 || w > (1u << 15) || h > (1u << 15)) return false;
+    if (format != kFormatBc1Unorm && format != kFormatBc1Srgb && format != kFormatBc4Unorm && format != kFormatBc5Unorm && format != kFormatBc7Unorm && format != kFormatBc7Srgb) return false;
+    EncodedChain c;
+    c.width = w;
+    c.height = h;
+    c.format = format;
+    c.cache_key = key;
+    uint64_t total = 0;
+    const std::vector<uint32_t> sizes = chain_levels(w, h, format, &total);
+    c.levels = static_cast<uint32_t>(sizes.size());
+    if (!cache.get(key, &c.data) || c.data.size() != total) return false;
+    chain_ranges(&c, sizes, total);
+    *out = std::move(c);
+    return true;
 }
 
 bool build_texture(const Bytes& png, const std::string& mod, const std::string& rel, bool linear, const TextureCache& cache, BuiltTexture* out,
