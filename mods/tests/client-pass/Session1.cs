@@ -636,7 +636,7 @@ public sealed partial class ClientPassMod
     private const string Hat = "Armor_T1_Mage_Wizard_DPS_Helmet";  // Alchemist Apprentice Hat: shows on the head
 
     [ClientCheck("items.equip", "A mod puts a hat on the character, and it comes off by hand", Area = "Gameplay",
-        Since = Dev27, Tags = [Visual], Order = 139)]
+        Since = Dev27, Tags = [Visual], Order = 141)]
     public async Task ItemsEquip(CheckContext c)
     {
         if (!await NeedPlayer(c)) return;
@@ -658,7 +658,7 @@ public sealed partial class ClientPassMod
     }
 
     [ClientCheck("items.unequip", "A mod takes the hat off the character", Area = "Gameplay", Since = Dev27,
-        Tags = [Visual], Order = 140)]
+        Tags = [Visual], Order = 142)]
     public async Task ItemsUnequip(CheckContext c)
     {
         if (!await NeedPlayer(c)) return;
@@ -679,7 +679,7 @@ public sealed partial class ClientPassMod
     }
 
     // ---- the weather a mod chose (Time.SetWeather, dev.27): the server's game starts it, the player's game shows it ----
-    [ClientCheck("time.weather", "A mod chooses the weather", Area = "Gameplay", Since = Dev27, Tags = [Visual], Order = 141)]
+    [ClientCheck("time.weather", "A mod chooses the weather", Area = "Gameplay", Since = Dev27, Tags = [Visual], Order = 143)]
     public async Task TimeWeather(CheckContext c)
     {
         if (!await NeedPlayer(c)) return;
