@@ -87,13 +87,13 @@ const hash32 = (b: Buffer) => { xxh3!.init(); xxh3!.update(b); return parseInt(x
 export async function sv2cFile(blocks: [string, Buffer][]): Promise<Uint8Array> {
   xxh3 ??= await createXXHash3();
   const header = Buffer.alloc(0x30);
-  header.write("SV2C", 0, "latin1");
+  header.write("SV2C", 0, 4, "latin1");
   const parts = [header];
   let pos = header.length;
   const entries: { off: number; size: number; hash: number; name: Buffer }[] = [];
   for (const [name, payload] of blocks) {
     const head = Buffer.alloc(14);
-    head.write("S2BH", 0, "latin1"); // byte 9 = 0: not compressed
+    head.write("S2BH", 0, 4, "latin1"); // byte 9 = 0: not compressed
     const raw = Buffer.concat([head, payload]);
     entries.push({ off: pos, size: raw.length, hash: hash32(raw), name: Buffer.from(name, "utf8") });
     parts.push(raw);
@@ -260,7 +260,7 @@ export function editorMockHandlers(reject: Reject, gameRunning: () => boolean): 
     editor_write_save: (a) => {
       if (gameRunning()) reject("game_running", "quit Enshrouded before saving");
       const data = Uint8Array.from(a.data as number[]);
-      if (!sv2c(data)) reject("invalid", "not a save (SV2C header missing)");
+      if (!sv2c(data)) reject("invalid_argument", "not a save (SV2C header missing)");
       backupNow(String(a.path));
       files.set(String(a.path), { bytes: data, modified: Date.now() });
       return null;
