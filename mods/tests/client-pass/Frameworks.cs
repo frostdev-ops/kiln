@@ -95,6 +95,15 @@ public sealed partial class ClientPassMod
         "Kiln with no EMF installed, and kill a creature. kiln.log then has a line \"[emf:lua] lua 1.33.0 ... loaded\" and " +
         "no line with \"built for EMF API\". Did the kill counter's line show on screen, with kiln.log as described?");
 
+    [ClientCheck("foreign.autodoors-find", "Auto Doors and Find next to Kiln, installed by hand", Area = "Other frameworks",
+        Since = Dev27, Order = 315)]
+    public Task ForeignAutoDoorsFind(CheckContext c) => Outside(c,
+        "On Windows, with Auto Doors 1.1.0 (powrprof.dll and the AutoDoors folder) and Find 1.2.12 with its dbgcore.dll put " +
+        "into the game folder by hand, as their pages say. kiln.log has \"sigdb: scanning the exe file's code\", \"tick: " +
+        "SimStep hooked\" and no line \"feature tick unavailable\"; AutoDoors\\logs has \"hooks on.\". In a base: a door " +
+        "opens by itself as you walk up, and Shift+F lights the chests that hold what you type. Did the doors, Find and " +
+        "this check's own mod all work, with those lines in the logs?");
+
     [ClientCheck("dll.xhl-late", "XHL-Core loaded late, after Kiln and ShroudForge", Area = "Other frameworks", Since = Dev21,
         Order = 313)]
     public Task DllXhlLate(CheckContext c) => Outside(c,
