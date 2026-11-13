@@ -47,8 +47,8 @@ public sealed class AdminToolsMod : Mod
         switch (record.Strikes)
         {
             case 1:
-                Chat.Tell(target.Entity, $"A warning from {c.Source.Name}: {reason}");
-                c.Reply($"{target.Name}: first strike, warned");
+                var told = Chat.Available && Chat.Tell(target.Entity, $"A warning from {c.Source.Name}: {reason}");
+                c.Reply(told ? $"{target.Name}: first strike, warned" : $"{target.Name}: first strike recorded (the warning could not be sent: tell them yourself)");
                 break;
             case 2:
                 if (!Capabilities.Is(KickCapability))
@@ -119,7 +119,8 @@ public sealed class AdminToolsMod : Mod
             NoClipEnd.Teleport => "you were teleported",
             _ => "it was turned off",
         };
-        Chat.Tell(e.Player, $"Scouting is over ({why})" + (e.RestoredTo is { } at ? $": you were inside something and are back at {at}." : "."));
+        if (Chat.Available)
+            Chat.Tell(e.Player, $"Scouting is over ({why})" + (e.RestoredTo is { } at ? $": you were inside something and are back at {at}." : "."));
     }
 
     // Everyone this mod has a record for, online or not.

@@ -68,6 +68,8 @@ public sealed class SavedDataMod : Mod
         visitor.Name = e.Player.Name;
         var away = visitor.Visits > 1 ? now - visitor.LastSeenUtc : TimeSpan.Zero;
         visitor.LastSeenUtc = now;
+        // The count is kept whether or not the greeting can be sent: a server without Kiln.Chat still has a guestbook.
+        if (!Chat.Available) return;
         Chat.Tell(e.Player.Entity, visitor.Visits == 1
             ? $"Welcome, {e.Player.Name}. You are visitor number {book.Joins} of this world."
             : $"Welcome back, {e.Player.Name}: visit {visitor.Visits}, last seen {Ago(away)} ago.");

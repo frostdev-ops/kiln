@@ -50,18 +50,31 @@ public sealed class CalmBellMod : Mod
             c.Reply($"  {entity} by {owner}: used {accepts} time(s), {Offers.Status(entity)}");
     }
 
+    // What the bell says goes through chat when the server has it, and into the log either way.
+    private void Tell(EntityId player, string text)
+    {
+        Log.Info($"calm-bell: {text}");
+        if (Chat.Available) Chat.Tell(player, text);
+    }
+
+    private void Announce(string text)
+    {
+        Log.Info($"calm-bell: {text}");
+        if (Chat.Available) Chat.Broadcast(text);
+    }
+
     // Runs on the tick thread, as this mod, when a player accepts the offer.
     private void OnRung(OfferAccepted a)
     {
         if (_before is not null)
         {
-            Chat.Tell(a.Player, $"The calm is already running ({(int)Math.Ceiling((_calmUntil - DateTime.UtcNow).TotalMinutes)} minute(s) left).");
+            Tell(a.Player, $"The calm is already running ({(int)Math.Ceiling((_calmUntil - DateTime.UtcNow).TotalMinutes)} minute(s) left).");
             return;
         }
         // The settings are readable once the server has loaded its world.
         if (!Settings.Ready || !Settings.Has(Setting))
         {
-            Chat.Tell(a.Player, "The bell is silent: this server's settings cannot be changed right now.");
+            Tell(a.Player, "The bell is silent: this server's settings cannot be changed right now.");
             return;
         }
         var info = Settings.Info(Setting);
@@ -70,12 +83,12 @@ public sealed class CalmBellMod : Mod
         // TrySet says why not instead of throwing: a refusal (out of range, read only on this build) is a normal answer.
         if (!Settings.TrySet(Setting, calm, out var change, out var error) || change is null)
         {
-            Chat.Tell(a.Player, $"The bell is silent: {error}");
+            Tell(a.Player, $"The bell is silent: {error}");
             return;
         }
         _before = change.Before;
         _calmUntil = DateTime.UtcNow + CalmFor;
-        Chat.Broadcast($"{Players.Find(a.Player)?.Name ?? "Someone"} rang the calm bell: enemies hit half as hard for {CalmFor.TotalMinutes:0} minutes.");
+        Announce($"{Players.Find(a.Player)?.Name ?? "Someone"} rang the calm bell: enemies hit half as hard for {CalmFor.TotalMinutes:0} minutes.");
         Log.Info($"calm-bell: {Setting} {change.Before} -> {change.After} until {_calmUntil:HH:mm} UTC{(info.Live ? "" : " (this setting is not live: the game applies it later)")}");
     }
 
@@ -87,7 +100,7 @@ public sealed class CalmBellMod : Mod
         var error = "the settings are not ready";
         if (Settings.Ready && Settings.TrySet(Setting, before, out _, out error))
         {
-            if (say is not null) Chat.Broadcast(say);
+            if (say is not null) Announce(say);
         }
         else
         {
