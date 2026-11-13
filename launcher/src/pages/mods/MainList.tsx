@@ -4,8 +4,8 @@
 // switch. Above the list: the filter (with many mods), Notes (what the last activation said about mod folders, when it
 // said something), Load order, Engines and Add mods. It scrolls inside the page.
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { MoreHorizontal } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { Check, MoreHorizontal } from "lucide-react";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { Link } from "react-router-dom";
 import * as api from "../../api/commands";
 import type { AddReport, GameInstall, ModKind } from "../../api/commands";
@@ -20,7 +20,8 @@ import { takeOver, USE_CHANGED } from "../../shell/libraryChanged";
 import { MOD_FILE_FILTERS, MOD_FILE_WORDS } from "../../shell/modFiles";
 import { bulkPlan, filterRows, kindsOf, type ModRow } from "../../shell/mods";
 import { notifyAdd } from "../../shell/notices";
-import { removeMod, useRemoveCheck, type RemoveTarget } from "../../shell/removeMod";
+import { NOT_REMOVABLE, removable, removeMany, removeMod, useRemoveCheck, useRemoveMany, withoutRows, type RemoveTarget } from "../../shell/removeMod";
+import { NONE, all as selectAll, keepShown, pick as pickSelected, range as selectRange, setSelection, selectionOf, toggle as toggleSelected, useSelection } from "../../shell/selection";
 import type { useMods } from "../../shell/useMods";
 import { withDropin } from "../profiles/dropins";
 import { Badge, Button, ConfirmDanger, FlameToggle, Menu, Modal, Select, WellInput, pickPaths, runTask, toast, type MenuItem } from "../../ui";
@@ -76,8 +77,9 @@ export function MainList({ game, mods, running }: { game: GameInstall; mods: Mod
     liveList = me;
     return () => { if (liveList === me) liveList = null; };
   }, []);
-  const setAll = (on: boolean) => {
-    const r = mods.setAll(shown, on);
+  /** All on / All off, and the selection's Switch on / Switch off: the same plan, one save, the same Undo. */
+  const switchRows = (rows: ModRow[], on: boolean) => {
+    const r = mods.setAll(rows, on);
     if (!r?.undo) return;
     const { plan, undo } = r;
     const n = plan.change.length;
@@ -88,6 +90,42 @@ export function MainList({ game, mods, running }: { game: GameInstall; mods: Mod
       else if (res.kept) toast.info("Undo kept later changes", `${res.kept} mod${res.kept === 1 ? " was" : "s were"} switched since.`);
     } }], ms: BULK_UNDO_MS });
   };
+  const setAll = (on: boolean) => switchRows(shown, on);
+
+  // ---- the selection (shell/selection.ts): kept per game, so a hidden list (a start's bar) gets it back ----
+  const sel = useSelection((st) => st.byGame[game.id] ?? NONE);
+  const selNote = useSelection((st) => st.note[game.id] ?? null);
+  const order = shown.map((r) => r.key);
+  const orderKey = order.join("\n");
+  useEffect(() => {
+    if (mods.loading || !mods.rows.length) return; // not read yet: nothing is let go
+    const { sel: kept, dropped } = keepShown(selectionOf(game.id), orderKey ? orderKey.split("\n") : []);
+    if (dropped) setSelection(game.id, kept, kept.keys.length ? `${dropped} not shown any more left the selection` : null);
+  }, [orderKey, mods.loading, mods.rows.length, game.id]);
+  const picked = pickSelected(sel, shown);
+  const selecting = picked.length > 0;
+  const choose = (key: string, shift: boolean) => setSelection(game.id, shift ? selectRange(sel, key, order) : toggleSelected(sel, key));
+  const clearSel = () => setSelection(game.id, NONE);
+  const keys = (e: KeyboardEvent) => {
+    if (document.querySelector('[role="dialog"][aria-modal="true"]')) return;
+    const t = e.target as HTMLElement;
+    const text = /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || t.isContentEditable;
+    if ((e.ctrlKey || e.metaKey) && (e.key === "a" || e.key === "A") && !text && order.length) { e.preventDefault(); setSelection(game.id, selectAll(order)); }
+    else if (e.key === "Escape" && selecting) { e.preventDefault(); e.stopPropagation(); clearSel(); }
+  };
+  const selOn = bulkPlan(picked, true);
+  const selOff = bulkPlan(picked, false);
+  const toRemove = picked.filter(removable);
+  const skipRemove = picked.length - toRemove.length;
+  const [removing, setRemoving] = useState<ModRow[] | null>(null);
+  const check2 = useRemoveMany(removing ?? [], pid, !!removing);
+  const skipLine = (p: ReturnType<typeof bulkPlan>) => (p.left.length ? ` ${p.left.length} skipped: ${[...new Set(p.left.map((l) => l.why))].join("; ")}.` : "");
+  const selTitle = (on: boolean) => {
+    const p = on ? selOn : selOff;
+    if (!loaded) return "Load a profile in Settings to switch mods";
+    return `${p.change.length ? `Switches ${on ? "on" : "off"} ${p.change.length} of the ${picked.length} selected.` : `Every selected mod that has a switch is ${on ? "on" : "off"} already.`}${skipLine(p)}`;
+  };
+  const removeTitle = running ? "Close the game first" : `Removes ${toRemove.length} of the ${picked.length} selected.${skipRemove ? ` ${skipRemove} skipped: ${NOT_REMOVABLE}.` : ""}`;
 
   const pick = async () => {
     try {
@@ -154,7 +192,7 @@ export function MainList({ game, mods, running }: { game: GameInstall; mods: Mod
 
   const foundStart = shown.findIndex((r) => r.found);
   return (
-    <div className={"k-mods" + (mods.rows.length ? "" : " empty")}>
+    <div className={"k-mods" + (mods.rows.length ? "" : " empty") + (selecting ? " selecting" : "")} onKeyDown={keys}>
       <div className="k-mods-bar">
         {many && (
           <>
@@ -183,6 +221,16 @@ export function MainList({ game, mods, running }: { game: GameInstall; mods: Mod
         {nexus && <Link className="k-link" to="/catalog">Catalog</Link>}
         <button type="button" className="k-link" disabled={!api.isTauri()} title={api.isTauri() ? "A zip, 7z, rar or DLL of any kind (a folder: drop it on the window)" : "Needs the desktop app: drop a file instead"} onClick={() => void pick()}>Add mods</button>
       </div>
+      {selecting && (
+        <div className="k-mods-selbar" role="toolbar" aria-label="Selected mods">
+          <span className="k-mods-selbar-count" aria-live="polite">{picked.length} selected</span>
+          <button type="button" className="k-link" disabled={!loaded || !selOn.change.length} title={selTitle(true)} onClick={() => switchRows(picked, true)}>Switch on</button>
+          <button type="button" className="k-link" disabled={!loaded || !selOff.change.length} title={selTitle(false)} onClick={() => switchRows(picked, false)}>Switch off</button>
+          <button type="button" className="k-link k-tone-err" disabled={running || !toRemove.length} title={removeTitle} onClick={() => setRemoving(toRemove)}>Remove…</button>
+          <button type="button" className="k-link" onClick={clearSel} title="Esc">Clear</button>
+          {selNote && <span className="k-hint">{selNote}</span>}
+        </div>
+      )}
       {mods.error ? (
         <div className="k-mods-empty" role="alert">
           <p>Your mods are not readable.</p>
@@ -196,7 +244,13 @@ export function MainList({ game, mods, running }: { game: GameInstall; mods: Mod
       ) : (
         <ul className="k-mods-list" aria-label="Mods">
           {shown.map((r, i) => (
-            <li key={r.key} className={"k-mod" + (r.on ? " on" : "") + (r.found ? " found" : "") + (i === foundStart && i > 0 ? " first-found" : "")} data-kind={r.kind ?? undefined}>
+            <li key={r.key} className={"k-mod" + (r.on ? " on" : "") + (r.found ? " found" : "") + (i === foundStart && i > 0 ? " first-found" : "") + (sel.keys.includes(r.key) ? " picked" : "")} data-kind={r.kind ?? undefined}>
+              <button type="button" role="checkbox" className="k-mod-check" aria-checked={sel.keys.includes(r.key)} aria-label={`Select ${r.name}`}
+                title="Select (Shift+click: a range, Ctrl+A: every mod shown, Esc: none)"
+                onClick={(e) => choose(r.key, e.shiftKey)}
+                onKeyDown={(e) => { if (e.key === " " || e.key === "Enter") { e.preventDefault(); choose(r.key, e.shiftKey); } }}>
+                {sel.keys.includes(r.key) && <Check aria-hidden strokeWidth={3} />}
+              </button>
               {r.found ? <span className="k-mod-place" aria-hidden title="In the game folder" /> : (
                 <FlameToggle asSwitch on={r.on} label={r.name} disabled={!loaded} title={loaded ? undefined : "Load a profile in Settings to switch mods"} onChange={(on) => mods.toggle(r, on)} />
               )}
@@ -234,6 +288,32 @@ export function MainList({ game, mods, running }: { game: GameInstall; mods: Mod
       <Modal open={!!configs} onClose={() => setConfigs(null)} title="Configs" width={960} footer={<Button onClick={() => setConfigs(null)}>Done</Button>}>
         {configs && pid && <ConfigEditor target={{ profile: pid }} initial={configs} />}
       </Modal>
+      <ConfirmDanger open={!!removing} onClose={() => setRemoving(null)} relaxable word={String(removing?.length ?? 0)} action={`Remove ${removing?.length ?? 0}`}
+        title={removing ? `Remove ${removing.length} mod${removing.length === 1 ? "" : "s"}?` : ""} disabled={!check2.ready || running}
+        message={removing && (
+          <>
+            <span>{!check2.ready ? "Checking what uses them." : check2.error ? `Kiln could not check what else uses some of them (${check2.error}). Remove stops for a mod something uses.` : "Their files leave the Library."}</span>
+            <ul className="k-remove-list" aria-label="Mods to remove">
+              {removing.map((r) => {
+                const o = check2.others.get(r.key) ?? [];
+                return (
+                  <li key={r.key}>{r.name}{!r.lib ? <span className="k-muted"> · its files are gone already; it leaves your list</span>
+                    : o.length ? <span className="k-muted"> · {o.join(", ")} {o.length === 1 ? "lists" : "list"} it too and will show it as missing</span> : null}</li>
+                );
+              })}
+            </ul>
+          </>
+        )}
+        onConfirm={async () => {
+          const rows = removing!;
+          try {
+            const r = await removeMany(qc, rows, check2.users, async () => { mods.edit.update((p) => withoutRows(p, rows)); return mods.edit.flush(); });
+            clearSel();
+            if (!r.left.length) toast.ok(`Removed ${r.removed.length} mod${r.removed.length === 1 ? "" : "s"}`);
+            else toast.info(r.removed.length ? `Removed ${r.removed.length}, ${r.left.length} left` : `Nothing removed`,
+              `${r.left.map((l) => `${l.name}: ${l.why}`).join(" ")} ${r.left.length === 1 ? "It is" : "They are"} out of your list and still in the Library.`, { ms: 0 });
+          } catch (e) { toast.error(e); throw e; }
+        }} />
       <ConfirmDanger open={!!rm} onClose={() => setRm(null)} relaxable word={rm?.row.id ?? ""} action="Remove"
         title={rm ? `Remove ${rm.row.name}${rm.version ? ` ${rm.version}` : ""}?` : ""} message={check.message} disabled={!check.ready || check.users.isFetching}
         onConfirm={async () => {
