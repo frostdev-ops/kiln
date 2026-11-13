@@ -6,5 +6,5 @@
   "entryAssembly": "NoClipTest.dll",
   "side": "server",
   "advanced": true,
-  "description": "PASS/FAIL lines: NoClip on a dedicated server with no player. A spawned player character with the rule takes off from the ground, sinks through the terrain, comes back up, and is put back at its last free position when the rule ends inside the ground. The lab's rules.json must set allowNoClip."
+  "description": "PASS/FAIL lines: NoClip on a dedicated server with no player. A spawned player character with the rule takes off from the ground, sinks through the terrain, comes back up, and is put back at its last free position when the rule ends inside the ground; a teleport that moves its records (a second character beside it) leaves it walking. The lab's rules.json must set allowNoClip."
 }

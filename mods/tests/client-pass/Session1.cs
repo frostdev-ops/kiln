@@ -541,10 +541,13 @@ public sealed partial class ClientPassMod
         }
         await c.Ticks(60);
         c.Expect(!NoClip.Of(c.Player).Active, "collision is back on the server", NoClip.Of(c.Player).ToString());
-        c.Instruct("Three things, all must be yes to pass. While NoClip was on, did you pass through the ground and the wall " +
+        var feet = await c.Until(() => OnItsFeet(c.Player), TimeSpan.FromSeconds(30), "your character is out of NoClip's flight, on the ground");
+        c.Expect(feet, "the server's character is out of NoClip's flight and stands on the ground", Locomotion(c.Player));
+        c.Instruct("Four things, all must be yes to pass. While NoClip was on, did you pass through the ground and the wall " +
                    "smoothly, without being pulled back? When you turned it off inside the ground, were you put back in " +
                    "open space near where you went in? Are you now standing or landing normally, not inside the ground " +
-                   "and not falling under the world? (In the fail note, say which one was not so, and what the camera did " +
+                   "and not falling under the world? Walk, run and jump: do you move with the usual animations, not " +
+                   "floating or frozen in one pose? (In the fail note, say which one was not so, and what the camera did " +
                    "inside the ground.)");
         await c.Verdict();
     }
@@ -574,9 +577,41 @@ public sealed partial class ClientPassMod
         if (tripped) c.Expect(ended[0].Reason == NoClipEnd.Teleport, "it ended because of the teleport", ended[0].ToString());
         await c.Ticks(60);
         c.Expect(!Rules.Of(c.Player).NoClip && !NoClip.Of(c.Player).Active, "NoClip is off after the teleport", NoClip.Of(c.Player).ToString());
+        // a teleport moves the character's records in the game's tables; until 0.2.0-dev.27's fix the flight's state
+        // stayed behind there (collision back, no walking, no animation)
+        var feet = await c.Until(() => OnItsFeet(c.Player), TimeSpan.FromSeconds(30), "your character is out of NoClip's flight, on the ground");
+        c.Expect(feet, "the server's character is out of NoClip's flight and stands on the ground", Locomotion(c.Player));
         c.Instruct("Did you arrive standing on the ground with normal collision, and did a chat line say that NoClip ended " +
-                   "because you were teleported?");
+                   "because you were teleported? Now walk, run and jump: do you move with the usual animations, not " +
+                   "floating or frozen in one pose? All must be yes to pass.");
         await c.Verdict();
+    }
+
+    // The server's character after NoClip: its locomotion state (DynamicLocomotion.state; 11 is the flight NoClip flies
+    // in, which the game keeps until something ends it) and whether it stands on something.
+    private static bool OnItsFeet(EntityId p)
+    {
+        try
+        {
+            return World.ReadBytes(p, "DynamicLocomotion") is { Length: > 0x59 } b && b[0x59] != 11 && PlayerStates.Is(p, PlayerStateId.Grounded);
+        }
+        catch (KilnUnavailableException)
+        {
+            return false;
+        }
+    }
+
+    private static string Locomotion(EntityId p)
+    {
+        try
+        {
+            var state = World.ReadBytes(p, "DynamicLocomotion") is { Length: > 0x59 } b ? b[0x59].ToString() : "unreadable";
+            return $"locomotion state {state} (11: NoClip's flight), grounded {PlayerStates.Is(p, PlayerStateId.Grounded)}";
+        }
+        catch (KilnUnavailableException e)
+        {
+            return e.Message;
+        }
     }
 
     // NoClip's checks need the hooks on this game build and the world's rules.json allowing it.
