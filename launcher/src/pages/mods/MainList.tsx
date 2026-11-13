@@ -29,6 +29,9 @@ import { Badge, Button, ConfirmDanger, FlameToggle, Menu, Modal, Select, WellInp
 const FILTER_FROM = 6;
 
 type Mods = ReturnType<typeof useMods>;
+/** How long the toast with a bulk action's Undo stays: longer than a plain toast's 8 s, since a player may first look
+ *  at what changed (another page, the game folder notes) before deciding to undo many switches. */
+const BULK_UNDO_MS = 20_000;
 /** The mounted list (one at a time): what a bulk action's Undo acts through. */
 let liveList: { mods: Mods } | null = null;
 
@@ -83,7 +86,7 @@ export function MainList({ game, mods, running }: { game: GameInstall; mods: Mod
       const res = liveList ? await liveList.mods.undoAll(undo) : { ok: false as const, why: "the mods list is not open" };
       if (!res.ok) toast.info("Can't undo that", `${res.why[0].toUpperCase()}${res.why.slice(1)}. Switch the mods in the list instead.`);
       else if (res.kept) toast.info("Undo kept later changes", `${res.kept} mod${res.kept === 1 ? " was" : "s were"} switched since.`);
-    } }] });
+    } }], ms: BULK_UNDO_MS });
   };
 
   const pick = async () => {
