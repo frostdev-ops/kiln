@@ -17,7 +17,7 @@ import { ConfigEditor } from "../../components/ConfigEditor";
 import { cookAgain } from "../../shell/cook";
 import { useAddMods } from "../../shell/drop";
 import { MOD_FILE_FILTERS, MOD_FILE_WORDS } from "../../shell/modFiles";
-import { filterRows, kindsOf, type ModRow } from "../../shell/mods";
+import { bulkPlan, filterRows, kindsOf, type ModRow } from "../../shell/mods";
 import { notifyAdd } from "../../shell/notices";
 import { removeMod, useRemoveCheck, type RemoveTarget } from "../../shell/removeMod";
 import type { useMods } from "../../shell/useMods";
@@ -50,6 +50,28 @@ export function MainList({ game, mods, running }: { game: GameInstall; mods: Mod
   const shown = filterRows(mods.rows, many ? text : "", many ? kind : "");
   const loaded = !!mods.profile;
   const check = useRemoveCheck(rm, pid);
+
+  // All on / All off: the rows shown now (the filter narrows them), one save, Undo in the toast
+  const filtered = shown.length !== mods.rows.length;
+  const planOn = bulkPlan(shown, true);
+  const planOff = bulkPlan(shown, false);
+  const bulkTitle = (on: boolean) => {
+    const p = on ? planOn : planOff;
+    if (!loaded) return "Load a profile in Settings to switch mods";
+    const n = p.change.length;
+    const what = n ? `Switches ${on ? "on" : "off"} ${n} mod${n === 1 ? "" : "s"} of the ${shown.length}${filtered ? " the filter shows" : " in the list"}` : `Every mod ${filtered ? "the filter shows" : "in the list"} is ${on ? "on" : "off"} already`;
+    return p.left.length ? `${what}. ${p.left.length} can't be switched: ${[...new Set(p.left.map((l) => l.why))].join("; ")}.` : `${what}.`;
+  };
+  const setAll = (on: boolean) => {
+    const plan = mods.setAll(shown, on);
+    if (!plan || !plan.change.length) return;
+    const n = plan.change.length;
+    const left = plan.left.length ? `${plan.left.length} left out: ${[...new Set(plan.left.map((l) => l.why))].join("; ")}.` : undefined;
+    toast.ok(`Switched ${n} mod${n === 1 ? "" : "s"} ${on ? "on" : "off"}`, left, { actions: [{ label: "Undo", onClick: () => {
+      const kept = mods.undoAll(plan.change);
+      if (kept) toast.info("Undo kept later changes", `${kept} mod${kept === 1 ? " was" : "s were"} switched since.`);
+    } }] });
+  };
 
   const pick = async () => {
     try {
@@ -118,6 +140,16 @@ export function MainList({ game, mods, running }: { game: GameInstall; mods: Mod
               <Select aria-label="Kind" className="k-mods-kind" value={kind} onChange={(v) => setKind(v as ModKind | "")}
                 options={[{ value: "", label: "Every kind" }, ...kinds.map((k) => ({ value: k, label: KIND_SHORT[k] }))]} />
             )}
+          </>
+        )}
+        {mods.rows.length > 0 && !mods.error && (
+          <>
+            <button type="button" className="k-link" disabled={!loaded || !planOn.change.length} title={bulkTitle(true)} onClick={() => setAll(true)}>
+              {filtered ? "Shown" : "All"} on ({planOn.change.length})
+            </button>
+            <button type="button" className="k-link" disabled={!loaded || !planOff.change.length} title={bulkTitle(false)} onClick={() => setAll(false)}>
+              {filtered ? "Shown" : "All"} off ({planOff.change.length})
+            </button>
           </>
         )}
         <span className="k-spacer" />

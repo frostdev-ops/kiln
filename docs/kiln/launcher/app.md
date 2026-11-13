@@ -96,7 +96,11 @@ text is about Kiln's own kind it says "Kiln mods".
 - **Above the list**: Filter (words in the name or id) and Kind (when more than one kind is present), shown with more
   than six rows; Notes (N) when the last activation said something about mod folders (below); Load order, Engines,
   Catalog (Nexus builds), Add mods (the file dialog: zip, 7z, rar and DLL files, `shell/modFiles.ts`; folders are
-  dropped; the drop anywhere and the Catalog stay). With no mod at all the list says how to add one. The list scrolls inside the page.
+  dropped; the drop anywhere and the Catalog stay). "All on (N)" and "All off (N)" (or "Shown on/off" while the filter
+  or Kind narrows the list) switch every row shown whose own switch would change, N of them, as one profile save;
+  game-folder rows have no switch and are left out (the button's title and the toast say how many and why), and the
+  toast's Undo puts back what they changed, keeping a mod switched since (`bulkPlan`, `applyBulk`, `revertBulk` in
+  `shell/mods.ts`). With no mod at all the list says how to add one. The list scrolls inside the page.
 - **Profiles are a background feature**: one profile is always loaded per game. `useEnsureProfile` calls
   `profile_ensure_default` once per start for a game with Kiln and no loaded profile: "My mods" when there is none at
   all, or the one the launcher remembers for the game (a reinstall of Kiln); a player who chose "No profile" in
