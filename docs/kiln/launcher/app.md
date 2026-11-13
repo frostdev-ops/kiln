@@ -134,10 +134,24 @@ time, so the launcher raises each sentence once per game (`shell/notices.ts`):
   that stays as a dialog (it scrolls); an error in its bar shows all of its text.
 
 Where a player's own folder comes from: a mod already in ShroudForge's (or EML's) mods folder before Kiln, added with
-"Add it" in the list, is served by that folder from then on (Kiln never takes over a folder it did not place; it
-places no second copy, since ShroudForge drops a package whose id it finds twice). Its ShroudForge settings are
-editable in the launcher all the same (engines.md "Settings"); the settings dialog says "This is your own folder, not
-a copy Kiln placed: Kiln changes only the setting you change here."
+"Add it" in the list, is served by that folder from then on (Kiln never takes over a folder it did not place by
+itself; it places no second copy, since ShroudForge drops a package whose id it finds twice). Its ShroudForge settings
+are editable in the launcher all the same (engines.md "Settings"); the settings dialog says "This is your own folder,
+not a copy Kiln placed: Kiln changes only the setting you change here."
+
+**"Let Kiln manage this folder"** (dev.27, `components/OwnFolders.tsx`, `engine_own_folders` / `engine_adopt_folder`)
+hands such a ShroudForge folder to Kiln, on the player's click only. It is offered where the own-folder note is: in the
+Notes dialog under "Your own mod folders" (the folder's path, the mod and version, and the button), and in the mod's
+settings beside the own-folder line. When the folder's files are not exactly the mod's as the Library has them, the
+reason stands in place of the button and names the first file that differs ("Kiln cannot take this folder over:
+src/mod.lua is not the mod's file (its content differs). …"). The button is off while the game runs. It opens a
+confirmation that says what changes: "Kiln will update, switch and remove this folder with the mod from now on", the
+three things that means (switched with the profile, replaced at an update with the setting values carried over, removed
+when Kiln takes its mods out of the game unless it then holds values of the player's), the new folder name when Kiln
+renames it, and that nothing in the folder is changed now except one small file. After "Let Kiln manage it" the
+launcher writes the mods to the game again (`profile_activate`), so the folder is switched as the profile says and the
+notes no longer name it; a refusal by the backend (the folder changed since the list was read) is shown as it is. The
+Deck's Settings shows the notes without the button.
 
 ## The first run and dropping a mod
 For a player who wants one mod: install the launcher, it finds the game and offers Install Kiln, drop the mod on the

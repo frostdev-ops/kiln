@@ -1204,6 +1204,39 @@ export const engineSettingsGet = (kind: ModKind, id: string, profileId: ProfileI
 export const engineSettingsSet = (kind: ModKind, id: string, profileId: ProfileId, gameId: GameId | null, key: string, value: Json) =>
   call<EngineSettings>("engine_settings_set", { kind, id, profileId, gameId, key, value });
 export const engineStatus = (gameId: GameId) => call<EngineStatus[]>("engine_status", { gameId });
+/** A player's own ShroudForge folder that serves a profile entry (engine_mods::OwnFolder): Kiln neither switches,
+ *  updates nor removes it until the player hands it over (engineAdoptFolder). */
+export interface OwnFolder {
+  kind: ModKind;
+  id: string;
+  version: string;
+  /** The player's folder in the game. */
+  path: string;
+  /** The folder Kiln's copies of this mod have, when the player's is called something else: taking it over renames it. */
+  renameTo?: string | null;
+  /** Absent: its files are the Library entry's, and Kiln can take it over. Else why not, naming the first file that differs. */
+  refusal?: string | null;
+}
+/** What engineAdoptFolder did (engine_mods::Adopted). */
+export interface Adopted {
+  kind: ModKind;
+  id: string;
+  version: string;
+  /** The folder, Kiln's placement now. */
+  path: string;
+  renamedFrom?: string | null;
+  /** It was Kiln's already: nothing changed. */
+  already?: boolean;
+  /** Settings whose values are the player's: they stay as they are. */
+  settingsKept?: string[];
+}
+/** The profile's ShroudForge entries the player's own folders serve in this game; empty unless the profile is the one
+ *  the game uses. Reads only. */
+export const engineOwnFolders = (profileId: ProfileId, gameId: GameId) => call<OwnFolder[]>("engine_own_folders", { profileId, gameId });
+/** "Let Kiln manage this folder": only on the player's request. Refuses (`refused`) with the first file that differs
+ *  from the Library entry's, while the game runs (`game_running`) and for a profile the game does not use (`conflict`). */
+export const engineAdoptFolder = (kind: ModKind, id: string, profileId: ProfileId, gameId: GameId) =>
+  call<Adopted>("engine_adopt_folder", { kind, id, profileId, gameId });
 export const emlBackup = (gameId: GameId) => call<EmlBackup[]>("eml_backup", { gameId });
 /** Legacy command: refuses direct shared-backup restores; updated Kiln's archive writer verifies ownership on launch. */
 export const emlRestore = (gameId: GameId) => call<string[]>("eml_restore", { gameId });
@@ -1667,7 +1700,7 @@ export const COMMANDS = [
   "library_add", "library_add_to_profile", "profile_revert", "profile_ensure_default",
   "deck_browse", "deck_gamepad", "deck_fullscreen", "deck_quit",
   "nexus_account", "nexus_sign_in", "nexus_sign_out", "nexus_search", "nexus_mod", "nexus_installed", "nexus_download", "nexus_links", "nexus_link_install", "nexus_link_dismiss", "nexus_handler_status", "nexus_handler_set",
-  "engine_settings_get", "engine_settings_set", "engine_status", "eml_backup", "eml_restore",
+  "engine_settings_get", "engine_settings_set", "engine_status", "engine_own_folders", "engine_adopt_folder", "eml_backup", "eml_restore",
   "chain_view", "chain_set_late",
   "found_scan", "found_add",
   "report_save", "report_summary",

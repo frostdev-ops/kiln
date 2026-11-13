@@ -5,7 +5,7 @@
 
 use crate::state::{blocking, dirs};
 use kiln_manage::{Error, ErrorCode};
-use kiln_manage::engine_mods::{self, EmlBackup, EngineSettings, EngineStatus};
+use kiln_manage::engine_mods::{self, Adopted, EmlBackup, EngineSettings, EngineStatus, OwnFolder};
 use kiln_manage::library::LibraryRef;
 use kiln_manage::manifest::ModKind;
 use std::path::PathBuf;
@@ -118,9 +118,67 @@ pub async fn engine_settings_set(kind: ModKind, id: String, profile_id: String, 
     .await
 }
 
+/// Taking a folder over needs the same state a placement does: no game reading the folder, and the profile the game
+/// uses (its entry names the version the folder is compared with, and the next activation manages the folder).
+fn check_adopt_context(profile_id: &str, active: Option<&str>, running: Result<bool, Error>) -> Result<(), Error> {
+    if running? {
+        return Err(Error::new(ErrorCode::GameRunning, "Close the game first."));
+    }
+    if active != Some(profile_id) {
+        return Err(Error::new(ErrorCode::Conflict, "Load this profile in the selected game first: Kiln takes a folder over for the profile the game uses."));
+    }
+    Ok(())
+}
+
+/// The player's own ShroudForge folders that serve entries of the profile in the selected game, each with whether
+/// Kiln can take it over (`refusal`: why not, naming the first file that differs). Empty unless the profile is the one
+/// the game uses: only then does the game folder serve its entries. Reads only.
+#[tauri::command]
+pub async fn engine_own_folders(profile_id: String, game_id: String) -> Result<Vec<OwnFolder>, Error> {
+    blocking(move || {
+        let d = dirs()?;
+        let profile = kiln_manage::profile::get(&d, &profile_id)?;
+        let game = crate::state::game(&game_id)?;
+        let active = kiln_manage::profile::read_game_profile(&game.path)?;
+        if active.as_ref().map(|p| p.id.as_str()) != Some(profile_id.as_str()) {
+            return Ok(Vec::new());
+        }
+        engine_mods::own_folders(&d, &profile, &game.path)
+    })
+    .await
+}
+
+/// "Let Kiln manage this folder": the player's own ShroudForge folder that serves the profile entry becomes Kiln's
+/// placement (engine_mods::adopt). Only on the player's request, only when its files are the Library entry's (`refused`
+/// with the first file that differs), with the game closed and the profile loaded in it. Nothing in the folder is
+/// rewritten; the next activation switches and updates it.
+#[tauri::command]
+pub async fn engine_adopt_folder(kind: ModKind, id: String, profile_id: String, game_id: String) -> Result<Adopted, Error> {
+    blocking(move || {
+        let d = dirs()?;
+        // get validates profile_id before it is ever joined to a path; the entry must be in this profile
+        let profile = kiln_manage::profile::get(&d, &profile_id)?;
+        settings_entry(&profile, kind, &id)?;
+        let game = crate::state::game(&game_id)?;
+        let active = kiln_manage::profile::read_game_profile(&game.path)?;
+        check_adopt_context(&profile_id, active.as_ref().map(|p| p.id.as_str()), game_running(&game))?;
+        engine_mods::adopt(&d, &profile, &game.path, kind, &id)
+    })
+    .await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn taking_a_folder_over_needs_the_game_closed_and_its_profile_loaded() {
+        assert_eq!(check_adopt_context("p", Some("p"), Ok(true)).unwrap_err().code, ErrorCode::GameRunning);
+        assert_eq!(check_adopt_context("p", Some("other"), Ok(false)).unwrap_err().code, ErrorCode::Conflict);
+        assert_eq!(check_adopt_context("p", None, Ok(false)).unwrap_err().code, ErrorCode::Conflict);
+        assert!(check_adopt_context("p", Some("p"), Ok(false)).is_ok());
+        assert_eq!(check_adopt_context("p", Some("p"), Err(Error::invalid("cannot tell"))).unwrap_err().code, ErrorCode::InvalidArgument);
+    }
 
     fn profile() -> kiln_manage::profile::Profile {
         serde_json::from_value(serde_json::json!({

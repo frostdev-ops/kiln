@@ -167,6 +167,8 @@ pub const NAMES: &[&str] = &[
     "engine_settings_get",
     "engine_settings_set",
     "engine_status",
+    "engine_own_folders",
+    "engine_adopt_folder",
     "eml_backup",
     "eml_restore",
     "chain_view",

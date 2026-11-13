@@ -222,6 +222,14 @@ function fingerprint(p: Profile): string {
 /** What the next add result says it did in the profile besides adding (AddReport.notices; tests: `__kilnMock.planAddNotices`). */
 const addNotices: string[] = [];
 
+/** The player's own ShroudForge folders as engine_own_folders lists them (engine_mods::own_folders): where each is, the name Kiln would give
+ *  it, and why Kiln cannot take it over, if so. An activation says its own-folder note for each. Tests:
+ *  `__kilnMock.setOwnFolder`. */
+const ownFolders = new Map<string, { path: string; renameTo?: string; refusal?: string }>();
+/** engine_mods::own_folder's sentence for a ShroudForge entry the player's own folder serves. */
+const ownFolderNote = (id: string, path: string, on: boolean) => on
+  ? `shroudforge:${id}: the game uses your own folder ${path} for this mod; Kiln leaves it as it is and places no copy of its own.`
+  : `shroudforge:${id}: your own folder ${path} stays as it is; Kiln never switches a folder it did not place.`;
 /** What the next activation reports it kept in the game folder (tests: `__kilnMock.planActivation`), by whatever path
  *  it runs (profile_activate, the re-apply after profile_save, a reinstall's resume). */
 let activationPlan: Pick<Activation, "retained" | "keptFiles" | "warnings"> | null = null;
@@ -236,6 +244,14 @@ function activate(pid: string, gameId: string): Activation {
     copied: 0, fingerprint: fingerprint(p), activated: now(), ...activationPlan,
   };
   activationPlan = null;
+  // the player's own folders that serve ShroudForge entries: a note each, a safety note for a mod that is off
+  for (const m of p.mods.shroudforge ?? []) {
+    const own = ownFolders.get(m.id);
+    if (!own) continue;
+    const note = ownFolderNote(m.id, own.path, m.enabled);
+    a.warnings = [...(a.warnings ?? []), note];
+    if (!m.enabled) a.safetyNotes = [...(a.safetyNotes ?? []), note];
+  }
   activations[gameId] = a;
   remembered[gameId] = pid;
   return a;
@@ -965,6 +981,31 @@ const handlers: Record<string, Handler> = {
     }
     return engineSettings(kind, id, pid);
   },
+  // engine_mods::own_folders / adopt: the player's own ShroudForge folders, and "Let Kiln manage this folder"
+  engine_own_folders: (a) => {
+    const pid = S(a.profileId), p = profiles.get(pid) ?? reject("not_found", `No profile '${pid}'.`);
+    gameOf(S(a.gameId));
+    if (activations[S(a.gameId)]?.profileId !== pid) return [];
+    return (p.mods.shroudforge ?? []).flatMap((m) => {
+      const own = ownFolders.get(m.id);
+      return own ? [{ kind: "shroudforge", id: m.id, version: m.version, path: own.path, ...(own.renameTo ? { renameTo: own.renameTo } : {}), ...(own.refusal ? { refusal: own.refusal } : {}) }] : [];
+    });
+  },
+  engine_adopt_folder: (a) => {
+    const kind = a.kind as ModKind, id = S(a.id), pid = S(a.profileId), gid = S(a.gameId);
+    const p = profiles.get(pid) ?? reject("not_found", `No profile '${pid}'.`);
+    gameOf(gid);
+    if (kind !== "shroudforge") reject("unsupported", `Kiln takes over ShroudForge folders only, not ${kind} folders`);
+    const m = (p.mods.shroudforge ?? []).find((x) => x.id === id) ?? reject("not_found", `shroudforge mod ${id} is not in profile ${pid}`);
+    if (running[gid]) reject("game_running", "Close the game first.");
+    if (activations[gid]?.profileId !== pid) reject("conflict", "Load this profile in the selected game first: Kiln takes a folder over for the profile the game uses.");
+    const own = ownFolders.get(id);
+    if (!own) return { kind, id, version: m.version, path: `${gameOf(gid).path}/mods/${id}`, already: true };
+    if (own.refusal) reject("refused", `${own.path}: ${own.refusal}`);
+    ownFolders.delete(id);
+    sfOwn.delete(id);
+    return { kind, id, version: m.version, path: own.renameTo ?? own.path, ...(own.renameTo ? { renamedFrom: own.path } : {}) };
+  },
   engine_status: (a) => {
     const g = gameOf(S(a.gameId));
     const st = (k: ModKind, file: string, state: Json | null) => ({ kind: k, plugin: `kiln-${k}`, state, file: `${g.path}/kiln/state/${file}` });
@@ -1504,6 +1545,9 @@ if (typeof window !== "undefined") (window as unknown as { __kilnMock?: unknown 
   planActivation: (report: Pick<Activation, "retained" | "keptFiles" | "warnings">) => { activationPlan = report; },
   planAddNotices: (lines: string[]) => { addNotices.push(...lines); },
   setSfOwnFolder: (id: string, own = true) => { if (own) sfOwn.add(id); else sfOwn.delete(id); },
+  setOwnFolder: (id: string, own: { path: string; renameTo?: string; refusal?: string } | null) => {
+    if (own) { ownFolders.set(id, own); sfOwn.add(id); } else { ownFolders.delete(id); sfOwn.delete(id); }
+  },
   setGameFileUsers: (users: Record<string, string[]>) => { gameFileUsers = users; },
   failNextInstall: (message: string) => { failNextInstall = message; },
   setModified: (files: string[], gameId = "client-steam") => { if (runtime[gameId]) runtime[gameId] = { ...runtime[gameId], modified: files }; emitGame(gameId, "status"); },
