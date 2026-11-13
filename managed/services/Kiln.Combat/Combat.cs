@@ -382,9 +382,11 @@ public static unsafe class Combat
         new([typeof(EntityHurtEvent), typeof(EntityHealEvent), typeof(EntityKnockbackEvent)], PushHoldFilter);
     private static bool _noFilterSaid;
 
-    // The watched entities for the native side (empty: every hit). EntityWatch calls it when a handler was added (on
-    // the subscribing thread, before Events.On returns: a hit on its entity later in the same step is already held) and
-    // once a step for what was removed. kiln.combat takes the list under its own lock, from any thread.
+    // The watched entities for the native side (empty: every hit), and with them the event kinds the handlers want now.
+    // EntityWatch calls it when a handler was added (on the subscribing thread, before Events.On returns: a hit on its
+    // entity later in the same step is held and announced) and once a step for what was removed. Both go together: a
+    // widened filter without the new handler's kind held the hit and then let it go unannounced. kiln.combat takes
+    // them under its own lock, from any thread; kinds are only added here, the listener's return narrows them.
     private static bool PushHoldFilter(uint[] ids)
     {
         var t = CombatNative.V3;
@@ -398,7 +400,7 @@ public static unsafe class Combat
             return true;  // nothing to tell it: it holds every hit
         }
         if (ids.Length > 4096) ids = [];  // more than the native filter takes: hold every hit
-        fixed (uint* p = ids) return t->HoldFilter(p, (uint)ids.Length) == CombatNative.Ok;
+        fixed (uint* p = ids) return t->HoldFilter(p, (uint)ids.Length, Interest()) == CombatNative.Ok;
     }
 
     private static bool _sizeWarned;
