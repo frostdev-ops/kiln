@@ -75,6 +75,7 @@ def _dispatch(a, doc, extra):
 
 def cmd_recipe(a):
     doc = recipe.load(a.recipe)
+    recipe.out_dir(a.recipe, doc)  # before anything is read or written: a cook writes into the mod's assets/cooked only
     if a.check:
         need = recipe.needs_cook(a.recipe)
         rc = 0

@@ -1,14 +1,16 @@
 // Deck Mods: every mod of every kind (the desktop's main list, shell/mods.ts), one row each: A switches it on or off
-// (one the profile lacks goes in, on), X removes it (out of the list, its files out of the Library), and a mod found in
-// the game folder says its state, A doing its one fix. The count covers every kind. Saves right away; the game's
-// profile.json follows (applies at the next start while the game runs). Profiles are in the desktop UI's Settings.
-import { useQueryClient } from "@tanstack/react-query";
+// (one the profile lacks goes in, on), X removes it (out of the list, its files out of the Library), Y cooks a Kiln mod
+// that has something to cook again ("Cook again", shell/cook.ts), and a mod found in the game folder says its state, A
+// doing its one fix. The count covers every kind. Saves right away; the game's profile.json follows (applies at the
+// next start while the game runs). Profiles are in the desktop UI's Settings.
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import * as api from "../../api/commands";
 import type { AddReport } from "../../api/commands";
 import { qk, useGame, useGameStatus } from "../../api/hooks";
 import { KIND_SHORT } from "../../api/kinds";
+import { cookAgain } from "../../shell/cook";
 import { useEnsureProfile } from "../../shell/firstRun";
 import type { ModRow } from "../../shell/mods";
 import { notifyAdd } from "../../shell/notices";
@@ -39,6 +41,10 @@ export default function Mods() {
   }, [removing, checked]);
   const installed = !!status.data?.runtime.installed;
   const loaded = !!mods.profile;
+  // the Kiln mods the launcher cooks for this game (made from the game: models, animations, sounds): Y cooks one again
+  const cook = useQuery({ queryKey: ["cook_plan", game?.id ?? ""], queryFn: () => api.cookPlan(game!.id), enabled: !!game && installed });
+  const cookable = new Set((cook.data ?? []).map((j) => j.id));
+  const [cooking, setCooking] = useState<string | null>(null);
 
   const fix = async (r: ModRow) => {
     const f = r.found;
@@ -62,6 +68,16 @@ export default function Mods() {
 
   const actions: DeckAction[] = [];
   if (focus && !focus.found && loaded) actions.push({ button: "x", label: "Remove", run: () => setRemoving({ row: focus, version: null }), disabled: running });
+  if (game && focus && !focus.found && focus.kind === "kiln" && focus.on && cookable.has(focus.id)) {
+    const r = focus;
+    actions.push({ button: "y", label: cooking === r.key ? "Cooking" : "Cook again", disabled: running || !!cooking, run: () => {
+      setCooking(r.key);
+      void cookAgain(game.id, r.id, r.name).finally(() => {
+        setCooking(null);
+        void qc.invalidateQueries({ queryKey: ["cook_plan"] });
+      });
+    } });
+  }
 
   let say: string;
   if (!game) say = "No game yet.";
@@ -73,6 +89,7 @@ export default function Mods() {
 
   const word = (r: ModRow) => {
     if (r.found) return busy === r.key ? <Word tone="ember">Adding</Word> : <Word tone={r.found.state === "loads" ? "ok" : r.found.state === "off" ? "warn" : "idle"}>{r.note?.text ?? ""}</Word>;
+    if (cooking === r.key) return <Word tone="ember">Cooking</Word>;
     return <Word tone={r.on ? "ember" : "idle"}>{r.on ? "On" : "Off"}</Word>;
   };
   const sub = (r: ModRow) => [r.found ? "Game folder" : r.kind ? KIND_WORD[r.kind] : "", r.version, !r.found && r.note ? r.note.text : ""].filter(Boolean).join(" · ");

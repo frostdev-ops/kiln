@@ -52,8 +52,30 @@ subfolders are allowed; absolute paths and `..` are rejected.
 }
 ```
 
-- **`kind`**: `icon` | `texture` | `resource` | `blob`. On a dedicated server `icon` and `texture` entries are skipped
-  (the report counts them as "for clients only"), so a `side: both` mod's manifest is clean there.
+- **`kind`**: `icon` | `texture` | `resource` | `blob`. On a dedicated server the entries only a game client uses are
+  skipped by what they are, whether or not their files are there: `icon` and `texture` entries, a `resource` of a type a
+  server's files never hold (`keen::RenderModel`, `keen::RenderMaterialResource`, `keen::RenderTextureResource`,
+  `keen::UiTextureResource`), and a `blob` that only such resources name in `patch` (a model's render data; a blob with
+  a fixed `hash` is always kept: it replaces game content a server mod may read by that hash). The report
+  counts them (`… (4 entries for clients only, skipped on this server) …`). So the manifest is the same file on a server
+  and in a player's game: a server's cook makes no models, and nothing has to be marked for it (dev.27; the cook of
+  0.2.0-dev.26 wrote `"side": "client"` on the models' entries of the server's copy, and the server now names such a
+  copy in a warning: it is another file than the players').
+- **Every file is read from the mod's own `assets` folder** (`contained.cpp`, its portable half `scan.cpp` with the host
+  test `tests/test_scan.cpp`): a link or junction at the `assets` folder itself or below it (by name, which shows Wine's
+  links to folders; on Windows the final paths too: the assets folder's inside the mod folder's, the opened file's
+  inside the assets folder's) makes the entry an error, as does a file whose identity (volume, file index) is that of a
+  cooked file of any mod of the load order while its name is not under the mod's own `assets/cooked` (a Unix link to a
+  file is a plain file under Wine). The cooked folders of every enabled mod of the load order, with an `assets.json` or
+  not, are scanned whole (an explicit stack, no link followed, at most 200000 entries each); a scan that is cut is named in kiln.log, and then a file outside its own `assets/cooked` is
+  refused under `"local"` and named under `"warn"`. The bytes come from the handle that was checked.
+- **A file in `assets/cooked`** (a `patch` blob too) is compared with the cook receipts of this game
+  (`<game>/kiln/state/cook-receipts/*.json`, written by the cook tools when Kiln runs them:
+  [../modding/cooking.md](../modding/cooking.md)). One no receipt lists is handled by `kiln.json` `"cooked"`: `"warn"`
+  (the default, `kCookedDefault`) loads it and says once per mod which files and how to cook them (`…, 2 cooked files
+  not made here (loaded)`), `"local"` leaves the entry out (a resource whose patch blob is not listed, whole: `…, 2
+  cooked files not made here`), `"any"` loads it. A receipt store that is a link, or lies under one, is not read. The
+  check is `cooktrust.cpp` (host test `tests/test_cooktrust.cpp`, run by `tests/run.sh`).
 - **`guid`**: a resource GUID, in .NET `Guid` text form. The GUID bytes match `Guid.ToByteArray()` = the game's
   resource-id order = the bytes of `ItemInfo.objectId`.
 - **`type`**: a qualified reflection name (`keen::UiTextureResource`) hashed FNV-1a-32, or `"0x<hash>"`.
@@ -195,4 +217,4 @@ Client (icons, retextures, meshes): deploy with
 5. Open: the spiral handedness of the cube blade (the game camera stays behind the character; synthetic pointer moves
    don't rotate it), and unloading the mod in a live session.
 
-`side`: `client` on an entry skips it on a dedicated server (soundcook writes it on sounds and cues).
+`side`: `client` on an entry skips it on a dedicated server (soundcook writes it on sounds and cues, in the manifest the mod ships). A model's entries need no mark: a server skips them by their type.

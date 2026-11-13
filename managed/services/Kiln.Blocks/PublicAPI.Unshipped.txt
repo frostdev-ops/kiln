@@ -44,10 +44,7 @@ Kiln.AffixFile.Equals(Kiln.AffixFile? other) -> bool
 Kiln.AffixFile.Pools.get -> System.Collections.Generic.IReadOnlyList<Kiln.AffixPoolHandle!>!
 Kiln.AffixFile.Pools.init -> void
 Kiln.AffixHandle
-Kiln.AffixHandle.Block.get -> Kiln.AffixBlock!
 Kiln.AffixHandle.Id.get -> string!
-Kiln.AffixHandle.Mod.get -> string!
-Kiln.AffixHandle.Name.get -> string!
 Kiln.AffixPoolBlock
 Kiln.AffixPoolBlock.<Clone>$() -> Kiln.AffixPoolBlock!
 Kiln.AffixPoolBlock.AffixPoolBlock() -> void
@@ -61,10 +58,7 @@ Kiln.AffixPoolBlock.Max.init -> void
 Kiln.AffixPoolBlock.Min.get -> int
 Kiln.AffixPoolBlock.Min.init -> void
 Kiln.AffixPoolHandle
-Kiln.AffixPoolHandle.Block.get -> Kiln.AffixPoolBlock!
 Kiln.AffixPoolHandle.Id.get -> string!
-Kiln.AffixPoolHandle.Mod.get -> string!
-Kiln.AffixPoolHandle.Name.get -> string!
 Kiln.AffixPoolHandle.Roll(Kiln.ItemInstanceRef item, System.Random? random = null, bool replace = false) -> Kiln.AffixResult!
 Kiln.AffixResult
 Kiln.AffixResult.<Clone>$() -> Kiln.AffixResult!
@@ -193,6 +187,8 @@ static Kiln.Affixes.Set(Kiln.ItemInstanceRef item, System.Collections.Generic.IR
 static Kiln.Affixes.StatOf(Kiln.EntityId entity, Kiln.Stat! stat) -> System.Threading.Tasks.Task<double?>!
 static Kiln.Affixes.Synced(Kiln.EntityId item) -> System.Collections.Generic.IReadOnlyList<Kiln.RolledAffix!>?
 static Kiln.Affixes.SyncedItems() -> System.Collections.Generic.IReadOnlyList<Kiln.SyncedAffixes!>!
+static Kiln.Blocks.Define(string! name, Kiln.AffixBlock! block) -> Kiln.AffixHandle!
+static Kiln.Blocks.Define(string! name, Kiln.AffixPoolBlock! block) -> Kiln.AffixPoolHandle!
 static Kiln.RolledAffix.operator !=(Kiln.RolledAffix? left, Kiln.RolledAffix? right) -> bool
 static Kiln.RolledAffix.operator ==(Kiln.RolledAffix? left, Kiln.RolledAffix? right) -> bool
 static Kiln.SyncedAffixes.operator !=(Kiln.SyncedAffixes? left, Kiln.SyncedAffixes? right) -> bool

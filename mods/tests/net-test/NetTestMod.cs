@@ -137,6 +137,14 @@ public sealed class NetTestMod : Mod
             try { return Kiln.DirHash.Compute(Path.Combine(Context.DataDirectory, rel)); }
             catch (Exception e) { return "error " + e.Message; }
         }
+        if (parts[0] == "modhash")
+        {
+            // the same folders as a mod: its identity (a Kiln mod's assets/cooked left out)
+            var rel = parts[1];
+            if (rel.Contains("..")) return "bad path";
+            try { return Kiln.DirHash.ModIdentity(Path.Combine(Context.DataDirectory, rel)); }
+            catch (Exception e) { return "error " + e.Message; }
+        }
         var path = NetworkConfig.FilePath!;
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         var map = (File.Exists(path) ? System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(path)) as System.Text.Json.Nodes.JsonObject : null) ?? new();

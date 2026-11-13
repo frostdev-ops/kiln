@@ -213,7 +213,9 @@
       "additionalProperties": {
         "$ref": "#/$defs/keyBinding"
       }
-    }
+    },
+    "affixes": {"type": "object", "description": "Affix kinds: rolled modifiers on one item (\"+5 Strength\" on this sword), a stat with tiers and the range each rolls in. A pool rolls them onto an item, and Kiln applies them while it is worn or in hand. Server; asks nothing of players' games. Rolled items keep the id \"mod:name\", the same as Affixes.Define gives.", "propertyNames": {"$ref": "#/$defs/affixName"}, "additionalProperties": {"$ref": "#/$defs/affix"}},
+    "affixPools": {"type": "object", "description": "Affix pools: which items roll which affixes, and how many. Code rolls one onto an item (AffixPoolHandle.Roll); its entries name affixes of this mod's code or blocks files, in either order.", "propertyNames": {"$ref": "#/$defs/affixName"}, "additionalProperties": {"$ref": "#/$defs/affixPool"}}
   },
   "additionalProperties": false,
   "$defs": {
@@ -4128,6 +4130,55 @@
         "comment": {
           "type": "string"
         }
+      },
+      "additionalProperties": false
+    },
+    "affixName": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$", "x-kiln-message": "lower-case letters, digits, '-' and '_', at most 64, starting with a letter or digit", "description": "An affix's or a pool's name, stricter than other blocks': rolled items keep \"mod:name\", so keep it." },
+    "affix": {
+      "type": "object",
+      "required": ["name", "stat", "tiers"],
+      "description": "One kind of rolled modifier on an item (AffixBlock): its stat, and its tiers with the range each rolls in. A roll picks a tier, then a value in its range, and that value is what the one item carries.",
+      "properties": {
+        "name": { "type": "string", "minLength": 1, "maxLength": 64, "pattern": "\\S", "x-kiln-message": "a name players can read: 1 to 64 characters, not only spaces", "description": "What players read: \"of the Bear\", \"Fleet\". Kept with every roll." },
+        "stat": { "type": "string", "allOf": [ { "$ref": "#/$defs/status/properties/modifies/propertyNames" } ], "description": "The stat it changes while its item is worn or in hand: a stat's key (\"strength\", \"move-speed\"), or a GUID for another attribute of the game (a share)." },
+        "tiers": { "type": "array", "minItems": 1, "maxItems": 16, "items": { "$ref": "#/$defs/affixTier" }, "description": "Its tiers, the weakest first: tier 1 is the first. At least one tier with a weight above 0 has minItemLevel 0." },
+        "stacks": { "type": "boolean", "description": "Two worn items with it add up (true, the default), or only the highest value counts (false)." },
+        "group": { "type": "string", "minLength": 1, "maxLength": 64, "description": "Affixes of one group never roll onto one item together (\"prefix\", \"element\")." }
+      },
+      "additionalProperties": false
+    },
+    "affixTier": {
+      "type": "object",
+      "required": ["min", "max"],
+      "description": "One tier of an affix: the range a roll of this tier takes its value from.",
+      "properties": {
+        "min": { "type": "number", "not": { "const": 0 }, "x-kiln-message": "never 0: a value of 0 changes nothing", "description": "The lowest value: whole points for a whole-number stat (strength: 3), a share for the others (move-speed: 0.05 is 5 %). Negative values make a curse. Never 0." },
+        "max": { "type": "number", "not": { "const": 0 }, "x-kiln-message": "never 0: a value of 0 changes nothing", "description": "The highest value: at least min, and of the same sign." },
+        "step": { "type": "number", "exclusiveMinimum": 0, "description": "The grid a rolled value lies on. Default: 1 for a whole-number stat, 0.01 (one percent) for a share." },
+        "weight": { "type": "number", "minimum": 0, "description": "How likely a roll takes this tier, among the tiers the item's level allows (default 1)." },
+        "minItemLevel": { "type": "integer", "minimum": 0, "description": "The item level from which this tier can roll (default 0: any)." }
+      },
+      "additionalProperties": false
+    },
+    "affixPool": {
+      "type": "object",
+      "required": ["affixes"],
+      "description": "Which items roll which affixes, and how many (AffixPoolBlock). A roll picks min to max different affixes by weight, never two of one group.",
+      "properties": {
+        "items": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/itemRef" }, "description": "The item types that roll from it: game items, or items of this mod by their block name. Left out: any item with an item entity of its own (gear, tools)." },
+        "affixes": { "type": "array", "minItems": 1, "maxItems": 256, "items": { "$ref": "#/$defs/affixEntry" }, "description": "What can come up." },
+        "min": { "type": "integer", "minimum": 0, "maximum": 8, "description": "How many different affixes a roll gives at least (default 1). A pool whose entries can never give that many (entries with a weight above 0, one per group) is refused." },
+        "max": { "type": "integer", "minimum": 0, "maximum": 8, "description": "How many at most (default 1): at least min." }
+      },
+      "additionalProperties": false
+    },
+    "affixEntry": {
+      "type": "object",
+      "required": ["affix"],
+      "description": "One affix a pool can give.",
+      "properties": {
+        "affix": { "type": "string", "minLength": 1, "pattern": "\\S", "x-kiln-message": "an affix's name, not only spaces", "description": "An affix of this mod by its name (defined in code or in any blocks file of the mod), or \"other-mod:name\"." },
+        "weight": { "type": "number", "minimum": 0, "description": "How likely it is to come up, among the pool's (default 1)." }
       },
       "additionalProperties": false
     }

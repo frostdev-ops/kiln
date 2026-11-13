@@ -14,6 +14,7 @@ import { KIND_NAME, KIND_SHORT, KIND_TONE, SETTINGS_KINDS } from "../../api/kind
 import { EngineSettingsModal } from "../../components/EngineSettings";
 import { FolderNotesButton } from "../../components/FolderNotes";
 import { ConfigEditor } from "../../components/ConfigEditor";
+import { cookAgain } from "../../shell/cook";
 import { useAddMods } from "../../shell/drop";
 import { filterRows, kindsOf, type ModRow } from "../../shell/mods";
 import { notifyAdd } from "../../shell/notices";
@@ -40,6 +41,9 @@ export function MainList({ game, mods, running }: { game: GameInstall; mods: Mod
   const pid = mods.profileId;
   const cfg = useQuery({ queryKey: qk.configs({ profile: pid ?? "" }), queryFn: () => api.configList({ profile: pid! }), enabled: !!pid });
   const withConfig = new Set((cfg.data ?? []).map((f) => f.mod).filter(Boolean) as string[]);
+  // the mods the launcher cooks for this game (models, animations, sounds made from the game): "Cook again" in their menu
+  const cook = useQuery({ queryKey: ["cook_plan", game.id], queryFn: () => api.cookPlan(game.id) });
+  const cookable = new Map((cook.data ?? []).map((j) => [j.id, j]));
   const kinds = kindsOf(mods.rows);
   const many = mods.rows.length > FILTER_FROM;
   const shown = filterRows(mods.rows, many ? text : "", many ? kind : "");
@@ -92,6 +96,8 @@ export function MainList({ game, mods, running }: { game: GameInstall; mods: Mod
       ...sw,
       ...(r.kind && r.entry && SETTINGS_KINDS.includes(r.kind) ? [{ label: "Settings", onSelect: () => setSettings({ kind: r.kind!, id: r.id, name: r.name }) }] : []),
       ...(withConfig.has(r.id) ? [{ label: "Configs", onSelect: () => setConfigs(r.id) }] : []),
+      ...(r.kind === "kiln" && r.on && cookable.has(r.id) ? [{ label: "Cook again", disabled: running,
+        onSelect: () => void cookAgain(game.id, r.id, r.name).then(() => qc.invalidateQueries({ queryKey: ["cook_plan"] })) }] : []),
       ...versions.filter((v) => v.version !== cur).map((v) => ({ label: `Use ${v.version}`, disabled: !loaded, onSelect: () => mods.setVersion(r, v.version, v.hash) })),
       ...(folder ? [{ label: "Open folder", onSelect: () => api.appOpenPath(folder).catch((e) => toast.error(e)) }] : []),
       ...(versions.length > 1 ? versions.filter((v) => v.version !== r.entry?.version).map((v) => ({ label: `Remove ${v.version}`, danger: true, disabled: running, onSelect: () => setRm({ row: r, version: v.version }) })) : []),

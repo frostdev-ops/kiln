@@ -1219,6 +1219,39 @@ export const engineSettingsGet = (kind: ModKind, id: string, profileId: ProfileI
 export const engineSettingsSet = (kind: ModKind, id: string, profileId: ProfileId, gameId: GameId | null, key: string, value: Json) =>
   call<EngineSettings>("engine_settings_set", { kind, id, profileId, gameId, key, value });
 export const engineStatus = (gameId: GameId) => call<EngineStatus[]>("engine_status", { gameId });
+/** A player's own ShroudForge folder that serves a profile entry (engine_mods::OwnFolder): Kiln neither switches,
+ *  updates nor removes it until the player hands it over (engineAdoptFolder). */
+export interface OwnFolder {
+  kind: ModKind;
+  id: string;
+  version: string;
+  /** The player's folder in the game. */
+  path: string;
+  /** The folder Kiln's copies of this mod have, when the player's is called something else: taking it over renames it. */
+  renameTo?: string | null;
+  /** Absent: its files are the Library entry's, and Kiln can take it over. Else why not, naming the first file that differs. */
+  refusal?: string | null;
+}
+/** What engineAdoptFolder did (engine_mods::Adopted). */
+export interface Adopted {
+  kind: ModKind;
+  id: string;
+  version: string;
+  /** The folder, Kiln's placement now. */
+  path: string;
+  renamedFrom?: string | null;
+  /** It was Kiln's already: nothing changed. */
+  already?: boolean;
+  /** Settings whose values are the player's: they stay as they are. */
+  settingsKept?: string[];
+}
+/** The profile's ShroudForge entries the player's own folders serve in this game; empty unless the profile is the one
+ *  the game uses. Reads only. */
+export const engineOwnFolders = (profileId: ProfileId, gameId: GameId) => call<OwnFolder[]>("engine_own_folders", { profileId, gameId });
+/** "Let Kiln manage this folder": only on the player's request. Refuses (`refused`) with the first file that differs
+ *  from the Library entry's, while the game runs (`game_running`) and for a profile the game does not use (`conflict`). */
+export const engineAdoptFolder = (kind: ModKind, id: string, profileId: ProfileId, gameId: GameId) =>
+  call<Adopted>("engine_adopt_folder", { kind, id, profileId, gameId });
 export const emlBackup = (gameId: GameId) => call<EmlBackup[]>("eml_backup", { gameId });
 /** Legacy command: refuses direct shared-backup restores; updated Kiln's archive writer verifies ownership on launch. */
 export const emlRestore = (gameId: GameId) => call<string[]>("eml_restore", { gameId });
@@ -1327,6 +1360,53 @@ export interface FoundReport {
 export const foundScan = (gameId: GameId, profileId: ProfileId) => call<FoundReport>("found_scan", { gameId, profileId });
 /** Task result: AddReport (`import.skipped` says why the Library refused it). */
 export const foundAdd = (gameId: GameId, profileId: ProfileId, path: string) => call<TaskId>("found_add", { gameId, profileId, path });
+
+// ---- cooking mods (kiln_manage::cook) ----
+/** Why a mod is cooked before the game starts (cook::needs_cook; "filesGone": a file its last cook made is gone or was
+ *  changed, by the cook's receipt in the game). */
+export type CookReason = "notCooked" | "modChanged" | "gameChanged" | "lastFailed" | "filesGone" | "asked";
+/** The last cook of a mod for a game (`<game>/kiln/state/cooked.json`). */
+export interface CookedMod {
+  identity: string;
+  gameBuild: string;
+  at: string;
+  ok: boolean;
+  files?: boolean;
+  /** A failed cook: the last lines the tools said. */
+  error?: string | null;
+}
+/** A mod of the game's profile that has something to cook. */
+export interface CookJob {
+  id: string;
+  name: string;
+  /** The folder the game loads the mod from: where its `assets/cooked` is made. */
+  folder: string;
+  identity: string;
+  /** Absent: cooked for this game build, nothing to do. */
+  reason?: CookReason | null;
+  last?: CookedMod | null;
+}
+/** How one mod's cook ended. */
+export interface ModCook {
+  id: string;
+  name: string;
+  reason: CookReason;
+  ok: boolean;
+  /** Not cooked: the tools' last lines, or the one sentence that says why no tool ran. */
+  error?: string | null;
+}
+export interface CookRun {
+  mods: ModCook[];
+  /** The active profile written again before the cook (it changed since its activation): its notices, as Play's. */
+  activation?: Activation | null;
+}
+/** The mods of the game's profile with something to cook, each with whether it needs a cook now. Reads only. */
+export const cookPlan = (gameId: GameId) => call<CookJob[]>("cook_plan", { gameId });
+/** A task (result CookRun): applies the active profile when it changed, then cooks the mods that need it (each from
+ *  nothing), or with `modId` that one mod whatever its record says. Holds the game's lock (no start meanwhile); its
+ *  Cancel stops the tool that runs. Refuses while the game runs ("Cook again" also right after a start). A mod's
+ *  failed cook is in the result, never the task's error. */
+export const cookRun = (gameId: GameId, modId: string | null = null) => call<TaskId>("cook_run", { gameId, modId });
 
 // library.rs
 export const libraryList = (kind: ModKind | null = null) => call<LibraryEntry[]>("library_list", { kind });
@@ -1682,9 +1762,10 @@ export const COMMANDS = [
   "library_add", "library_add_to_profile", "profile_revert", "profile_ensure_default",
   "deck_browse", "deck_gamepad", "deck_fullscreen", "deck_quit",
   "nexus_account", "nexus_sign_in", "nexus_sign_out", "nexus_search", "nexus_mod", "nexus_installed", "nexus_download", "nexus_links", "nexus_link_install", "nexus_link_dismiss", "nexus_handler_status", "nexus_handler_set",
-  "engine_settings_get", "engine_settings_set", "engine_status", "eml_backup", "eml_restore",
+  "engine_settings_get", "engine_settings_set", "engine_status", "engine_own_folders", "engine_adopt_folder", "eml_backup", "eml_restore",
   "chain_view", "chain_set_late",
   "found_scan", "found_add",
+  "cook_plan", "cook_run",
   "report_save", "report_summary",
   "data_folder_get", "data_folder_size", "data_folder_check", "data_folder_move", "data_folder_use", "data_folder_reset",
   "data_folder_notice_ack", "data_folder_restart",

@@ -28,6 +28,7 @@ internal static class BlockJson
     private static readonly (string Section, Func<ModBlocks, string, JsonElement, BlockHandle> Make)[] Kinds =
     [
         ("statuses", Make<StatusBlock>), ("effects", Make<EffectBlock>), ("spells", Make<SpellBlock>), ("weapons", Make<WeaponBlock>), ("vfx", MakeVfx), ("materials", MakeMaterial), ("screenEffects", Make<ScreenEffectBlock>), ("sounds", Make<SoundBlock>), .. WorldJson.Kinds, .. ItemJson.Kinds, .. AbilityJson.Kinds, .. FurnitureJson.Kinds, .. NpcJson.Kinds, .. QuestBlockJson.Kinds, .. UiJson.Kinds,
+        ("affixes", Make<AffixBlock>), ("affixPools", Make<AffixPoolBlock>),
     ];
 
     /// <summary>One block as blocks/*.json writes it (tests).</summary>
@@ -118,6 +119,13 @@ internal static class BlockJson
                         Fail(mod, $"{rel}: \"{p.Name}\" is not a kind of block; there are {string.Join(", ", Kinds.Select(k => k.Section))}");
                         continue;
                     }
+                    // a section is an object of block name -> block; anything else costs that section, not the file's others or the later files
+                    if (p.Value.ValueKind != JsonValueKind.Object)
+                    {
+                        var shape = p.Value.ValueKind switch { JsonValueKind.Array => "a list", JsonValueKind.String => "a string", JsonValueKind.Number => "a number", _ => p.Value.GetRawText() };
+                        Fail(mod, $"{rel}: \"{p.Name}\" is {shape}, not an object of block name -> block: none of its blocks are read");
+                        continue;
+                    }
                     foreach (var b in p.Value.EnumerateObject())
                     {
                         var (name, value, make) = (b.Name, b.Value, kind.Make);
@@ -149,7 +157,7 @@ internal static class BlockJson
             try
             {
                 mod.Compiling.Add(name);
-                compile();
+                Compiler.AffixDataPass(mod, name, compile(), file);
                 n++;
             }
             catch (JsonException e)

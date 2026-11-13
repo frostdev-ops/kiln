@@ -82,9 +82,14 @@ public sealed partial class AffixTestMod : Mod
                 await EveryStat();
                 await Lifecycle();
                 await Rolls();
+                await FileBlocks();
                 await LeaveForRestart();
             }
-            else await AfterRestart();
+            else
+            {
+                await FileBlocksAfterRestart();
+                await AfterRestart();
+            }
         }
         catch (Exception e)
         {

@@ -186,15 +186,44 @@ says in one sentence what is missing. On Windows, set `KILN_PYTHON` to a `python
 brings its own Python. So this works on your own server, not on a rented one with only FTP. A developer's checkout
 still wins when `KILN_REPO` names one. The cook makes what the server uses
 (animations, skeletons, graphs, templates) and skips what only a player's game draws (models), one line each:
-`step 5 model moves_blade_anim: skipped on a dedicated server: only a game client draws it`. It marks those models in the
-mod's `assets/assets.json` as `"side": "client"`, so the server starts without a warning for each missing model file.
-Cook again after every game update.
+`step 5 model moves_blade_anim: skipped on a dedicated server: only a game client draws it`. Cook again after every game
+update.
 
-No Python on the server? Cook the mod on a PC with the game, then copy the mod folder with its `assets/cooked` folder and
-`assets/assets.json` to the server. That works when the PC's game and the server run the same Enshrouded update (after a
-game update, update both, then cook again; `game.version` in `assets/cooked/cook-report.json` names the build a cook read).
-The cooked animations are byte for byte the same from either side's files; only the cook report differs. The copied folder
-also holds the models, which the server loads and doesn't use.
+**What the server's own cook made, and what it did not.** The cook records what it wrote in the server's
+`kiln/state/cook-receipts`, and Kiln compares every cooked file it loads with those receipts
+([modding/cooking.md](modding/cooking.md)). A cooked file no receipt lists (copied from your PC, from a download, or
+cooked by Kiln 0.2.0-dev.26 or older) is loaded with a warning by default (`… cooked files loaded that were not cooked
+on this machine …`); with `"cooked": "local"` in `kiln/kiln.json` it is not loaded. You do not have to do anything after
+updating Kiln: the server keeps running as before. You should run the `kiln cook` line above once more for each mod with
+a recipe all the same: it writes the receipts for what is there (it cooks each recipe that has none), the warnings go,
+and a later release of Kiln will not load cooked files without one. `"cooked": "any"` loads every cooked file without a
+word (development servers).
+
+**A cooked mod is the same mod on the server and in a player's game.** Everything the cook makes from the game goes into
+the mod's `assets/cooked` folder, and that folder does not count as the mod: the hash the server advertises for the mod,
+the hash a modpack names and the one a player's game compares all leave it out (the mod's identity,
+[launcher/contracts.md](launcher/contracts.md) 5.11). Nothing else in the mod's folder changes: the server reads the
+shipped `assets/assets.json` as it is and skips a model's entries by what they are, with one line in `kiln/logs/kiln.log`:
+`assets: …/kiln/mods/<mod>: icons 0 (4 entries for clients only, skipped on this server), …`. So the launcher no longer
+lists a cooked mod as missing or changed after a join, and a modpack built from the server's folder (which leaves
+`assets/cooked` out) is the mod your players have, cooked or not.
+
+Cooked with 0.2.0-dev.26? That version's cook wrote `"side": "client"` on the models' entries of the server's
+`assets/assets.json`, which made the server's copy another file than the players'. The server notes it at its start
+(`… model entries in assets/assets.json carry a "side": "client" mark …`). Run the same `kiln cook` command again: it sees
+the old cook's report in `assets/cooked`, cooks again and takes the marks out, and nothing else of the file changes.
+When the mod's manifest was written by the cook itself (as `kiln build` does), the file is then the shipped one again,
+byte for byte. If its author formatted it by hand, the old cook already rewrote the whole file: copy the mod's own
+`assets/assets.json` over it (or install the mod again) and cook once more. The cook takes a mark out only with that
+old report as its evidence: without it (the `assets/cooked` folder was deleted, or the mod itself ships the mark) the
+mark stays, the cook says so, and putting the mod's own `assets/assets.json` back is the way. Build the server's modpack again afterwards: a pack built by dev.26
+from a cooked folder carries the cooked files and the old hash, and the launcher refuses it.
+
+No Python on the server? Cook the mod on a PC with the game, then copy the mod folder with its `assets/cooked` folder to
+the server. That works when the PC's game and the server run the same Enshrouded update (after a game update, update
+both, then cook again; `game.version` in `assets/cooked/cook-report.json` names the build a cook read). The cooked
+animations are byte for byte the same from either side's files. The copied folder also holds the models; the server skips
+them like the ones it did not cook.
 
 What players need depends on the mod. Its `kiln.mod.json` says it in `clients`:
 

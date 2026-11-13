@@ -488,9 +488,12 @@ no models; only a game client draws them), one line each:
 step 5 model moves_blade_anim: skipped on a dedicated server: only a game client draws it
 ```
 
-With `--update-manifest` (which `kiln cook` always passes) the skipped models' entries stay in `assets/assets.json`, marked
-`"side": "client"`, so kiln.assets skips them on the server without a warning per file. Only those entries change; the clip
-entries, which the join compares, stay as the clients have them. A resource the server's files should have and do not (a
+The cook leaves `assets/assets.json` as the mod ships it: the skipped models' entries stay in it unmarked, and kiln.assets
+on a server skips a model's entries by their type, with one line (`… entries for clients only, skipped on this server`). The
+cook of 0.2.0-dev.26 marked them `"side": "client"` in the server's copy instead, which made that copy another file than the
+clients'; a cook takes such a mark out again. So outside `assets/cooked` a mod cooked on a server is the same as one cooked
+in a player's game, and the hash a server advertises for it (its identity, which leaves `assets/cooked` out) is the one the
+player's game has ([dedicated-servers.md](../dedicated-servers.md)). A resource the server's files should have and do not (a
 game update) still stops the cook, as on a client.
 
 You can also copy the cooked files instead of cooking on the server, when the server and the clients run the same game
@@ -498,7 +501,7 @@ build: the same Enshrouded update on both (`game.version` in `cook-report.json` 
 server's and a client's files of build 1287369, the WeaponMoves and PlayerStates samples gave byte-identical clips,
 skeleton, graph, `cooked/clips.json` and `cooked/player-states.json` (neither sample has root motion or events, so those
 were not compared); only `cook-report.json` differs (the game's path, its exe and the side), and nothing at boot reads it.
-A copied client folder also holds the models; a server loads them and draws nothing with them.
+A copied client folder also holds the models; a server skips them by their type.
 
 ### From C#
 

@@ -167,6 +167,11 @@ std::string patched_by(uintptr_t a) {
     return b;
 }
 
+// Where a redirected call may go (pe::redirected_call_at): into a loaded module, or to a relay as hookers write them.
+bool call_lands(uintptr_t to) {
+    return readable(to, 14) && (!module_at(to).empty() || pe::relay_shape(reinterpret_cast<const uint8_t*>(to)));
+}
+
 // Applies the file's fixups to its mapped copy; false if the view can't be written (no C++ objects here: SEH).
 bool relocate_guarded(uint8_t* text, size_t size, const pe::FileText* ft, uint64_t base, size_t* fixups) {
     __try {
@@ -214,7 +219,7 @@ void init_code() {
         g_code.runs.clear();
         return fallback(b);
     }
-    if (!pe::only_hook_differences(text, img.text, size, live, img.base, img.size)) {
+    if (!pe::only_hook_differences(text, img.text, size, live, img.base, img.size, call_lands)) {
         g_code.runs.clear();
         return fallback("file/live differences are not recognised inline hooks; the exe may have changed on disk");
     }
@@ -442,10 +447,26 @@ public:
             r.live_diff = d;
             // Attribute from the symbol's entry when it is patched there (the usual hook), else from the first
             // differing byte.
-            const uintptr_t at = (name[0] != '@' && first_diff(static_cast<uintptr_t>(r.value), 5))
-                                     ? static_cast<uintptr_t>(r.value)
-                                     : d;
+            uintptr_t at = (name[0] != '@' && first_diff(static_cast<uintptr_t>(r.value), 5))
+                               ? static_cast<uintptr_t>(r.value)
+                               : d;
             r.live_by = patched_by(at);
+            // A redirected call (pe::only_hook_differences): the opcode is in place and the first differing byte is
+            // in its operand, so the bytes there decode as nothing. Record the call itself and say where it goes.
+            // The call is the one the difference check accepted (an E8 among the unchanged operand bytes before `d`
+            // is not it: its two targets do not read as a redirected call).
+            if (at == d && cv.disk) {
+                const auto* live = reinterpret_cast<const uint8_t*>(cv.live);
+                for (uintptr_t back = 1; back <= 4 && d - cv.live >= back; ++back) {
+                    const size_t start = static_cast<size_t>(d - cv.live - back);
+                    if (!pe::redirected_call_at(cv.scan, live, cv.size, start, cv.live, image().base, image().size, call_lands))
+                        continue;
+                    const std::string by = patched_by(d - back);
+                    if (by.rfind("jmp to ", 0) == 0) r.live_by = "call redirected to " + by.substr(7);
+                    at = d - back;
+                    break;
+                }
+            }
             if (readable(at, sizeof r.live_bytes)) {
                 std::memcpy(r.live_bytes, reinterpret_cast<const void*>(at), sizeof r.live_bytes);
                 r.live_at = at;

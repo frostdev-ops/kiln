@@ -57,6 +57,21 @@ class AnimcookOnAServer(unittest.TestCase):
         for f in ("cooked/a.bin", "cooked/b.blob", "cooked/clip_idle.bin", "cooked/v.bin"):
             self.assertTrue((assets / f).exists(), f)
 
+    def test_both_sides_leave_the_same_mod(self):
+        """A mod that ships no assets.json, cooked by both tools on each side: outside assets/cooked the two folders are the same, the
+        manifest with the models' entries too (unmarked: a server skips them by their type)."""
+        def outside_cooked(assets):
+            mod = assets.parent
+            return {f.relative_to(mod).as_posix(): f.read_bytes() for f in sorted(mod.rglob("*"))
+                    if f.is_file() and f.relative_to(mod).parts[:2] != ("assets", "cooked")}
+        (ps, server), (pc, client) = self._cook("server"), self._cook("client")
+        self.assertEqual((ps.returncode, pc.returncode), (0, 0), ps.stdout + ps.stderr + pc.stdout + pc.stderr)
+        self.assertEqual((server / "assets.json").read_bytes(), (client / "assets.json").read_bytes())
+        self.assertEqual(outside_cooked(server), outside_cooked(client))
+        files = {e["file"] for e in json.loads((server / "assets.json").read_text())["entries"]}
+        self.assertTrue({"cooked/a.bin", "cooked/a.blob", "cooked/b.bin", "cooked/clip_idle.bin", "cooked/v.bin"} <= files, files)
+        self.assertNotEqual(sorted(f.name for f in (server / "cooked").iterdir()), sorted(f.name for f in (client / "cooked").iterdir()))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -966,10 +966,22 @@ fn unpack(zip: &Path, _dest: &Path) -> Result<()> {
 /// Copies a mod folder without its dot entries (not part of its kdh1); symlinks are refused.
 pub(crate) fn copy_mod_tree(from: &Path, to: &Path) -> Result<u64> {
     crate::quick::validate_import_path(from)?;
-    copy_mod_tree_inner(from, to)
+    copy_mod_tree_inner(from, to, None, &mut false)
 }
 
-fn copy_mod_tree_inner(from: &Path, to: &Path) -> Result<u64> {
+/// [`copy_mod_tree`] for a Kiln mod on its way into the Library: its cook outputs (`assets/cooked`, with everything in
+/// it) are not copied. They are no part of the mod (no hash covers them: `hash::mod_identity`), so whatever a mod
+/// folder or archive carries there never reaches the Library: cooked files are made on this PC, by a cook. -> (bytes
+/// copied, whether the source held cook outputs that were left out). A link named `assets/cooked` is refused like any.
+pub(crate) fn copy_kiln_mod_tree(from: &Path, to: &Path) -> Result<(u64, bool)> {
+    crate::quick::validate_import_path(from)?;
+    let cooked = crate::hash::is_kiln_mod(from).then(|| crate::hash::COOKED.split('/').fold(from.to_path_buf(), |p, part| p.join(part)));
+    let mut left_out = false;
+    let size = copy_mod_tree_inner(from, to, cooked.as_deref(), &mut left_out)?;
+    Ok((size, left_out))
+}
+
+fn copy_mod_tree_inner(from: &Path, to: &Path, skip: Option<&Path>, skipped: &mut bool) -> Result<u64> {
     std::fs::create_dir_all(to).map_err(io(to, "creating"))?;
     let mut size = 0;
     for e in std::fs::read_dir(from).map_err(io(from, "reading"))? {
@@ -983,8 +995,11 @@ fn copy_mod_tree_inner(from: &Path, to: &Path) -> Result<u64> {
         let dst = to.join(&name);
         if crate::quick::import_is_link(&meta) {
             return Err(Error::new(ErrorCode::Refused, format!("{}: symlinks are not allowed in a mod folder", e.path().display())));
+        } else if ft.is_dir() && skip == Some(e.path().as_path()) {
+            // a Kiln mod's cook outputs: left out (an empty folder is nothing to tell the player about)
+            *skipped |= std::fs::read_dir(e.path()).is_ok_and(|rd| rd.flatten().any(|x| !x.file_name().to_string_lossy().starts_with('.')));
         } else if ft.is_dir() {
-            size += copy_mod_tree_inner(&e.path(), &dst)?;
+            size += copy_mod_tree_inner(&e.path(), &dst, skip, skipped)?;
         } else if ft.is_file() {
             size += std::fs::copy(e.path(), &dst).map_err(io(&dst, "copying to"))?;
         } else {
@@ -1037,7 +1052,8 @@ fn recorded_hash(folder: &Path, rec: &ImportRecord) -> Result<String> {
         let file = rec.file.as_deref().ok_or_else(|| Error::invalid("a library plugin record must name its DLL"))?;
         Ok(crate::hash::sha256_file(&plugin_file(folder, file)?)?.0)
     } else {
-        crate::hash::dirhash(folder)
+        // a Kiln mod's identity: an entry the player cooked in place is still the entry that was imported
+        crate::hash::of_mod(rec.kind, folder)
     }
 }
 
@@ -1081,6 +1097,114 @@ pub fn commit_folder(dirs: &DataDirs, prepared: &Path, rec: ImportRecord, report
     Ok(())
 }
 
+/// A Kiln entry [`migrate_identities`] moved to its identity: the hash it was recorded under, and the one it has now.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MigratedEntry {
+    pub id: String,
+    pub version: String,
+    /// The kdh1 of the whole folder, cook outputs included: what a Kiln before 0.2.0-dev.27 recorded.
+    pub from: String,
+    /// Its identity (`hash::mod_identity`).
+    pub to: String,
+}
+
+/// `<library>/kiln-moved.json`: every move [`migrate_identities`] made, kept, so a reference made before a move (a
+/// server's list of mods, a page the launcher still shows) finds the entry it became at any later call ([`moved_to`]).
+fn moved_file(dirs: &DataDirs) -> PathBuf {
+    dirs.library().join("kiln-moved.json")
+}
+
+/// The moves [`migrate_identities`] made so far, oldest first (none when nothing was moved, or the file cannot be read).
+pub fn moved(dirs: &DataDirs) -> Vec<MigratedEntry> {
+    crate::util::read_json::<Vec<MigratedEntry>>(&moved_file(dirs)).ok().flatten().unwrap_or_default()
+}
+
+/// A reference by the hash a Kiln entry had before [`migrate_identities`] moved it: the reference it became (followed
+/// through every move); any other reference as it is.
+pub fn moved_to(dirs: &DataDirs, r: &LibraryRef) -> LibraryRef {
+    let all = moved(dirs);
+    let mut cur = r.clone();
+    for _ in 0..=all.len() {
+        match all.iter().find(|m| cur.kind == ModKind::Kiln && m.id == cur.id && m.version == cur.version && m.from == cur.hash) {
+            Some(m) => cur.hash = m.to.clone(),
+            None => break,
+        }
+    }
+    cur
+}
+
+/// Kiln entries imported before 0.2.0-dev.27 from a folder that held cook outputs are recorded under the kdh1 of the
+/// whole folder, `assets/cooked` included. Every check compares a Kiln mod by its identity now, so such an entry would
+/// read as changed: an activation in copy mode would copy it again and fail, a server sync would be refused.
+///
+/// Such an entry is verified against the hash it was imported with (the kdh1 of the whole folder still is the recorded
+/// one: nothing changed since), then moved to its identity: a copy at `<version>+<hash8 of the identity>` with its
+/// record, every profile that lists the old hash listing the new one, and the old entry removed once nothing uses it
+/// (a game's profile file may still name its path until that game's next activation: then it stays until the next
+/// run). Its cook outputs are left out of the copy, as an import leaves them out: nothing proves this PC made them
+/// (cooked files are made on each PC by its own cook, docs/kiln/modding/cooking.md), and the launcher cooks the mod
+/// before the next start. An entry at the identity that is there already is used only when its files are that
+/// identity; one whose files changed is replaced by the verified copy, and the old entry is removed only after that.
+/// An entry whose files changed since its import is left alone, as before. Each step can be repeated: a stop between
+/// two leaves both entries, and the next run goes on. Every move is kept in `kiln-moved.json` ([`moved_to`]).
+/// -> the entries moved by this run.
+pub fn migrate_identities(dirs: &DataDirs) -> Result<Vec<MigratedEntry>> {
+    let mut moved = Vec::new();
+    for (folder, rec) in records(dirs, ModKind::Kiln) {
+        if rec.kind != ModKind::Kiln || dirs.library_entry(ModKind::Kiln, &rec.id, &rec.version, &rec.hash).ok().as_deref() != Some(folder.as_path()) {
+            continue;
+        }
+        let Ok(identity) = crate::hash::mod_identity(&folder) else { continue };
+        if identity == rec.hash || crate::hash::dirhash(&folder).ok().as_deref() != Some(rec.hash.as_str()) {
+            continue; // recorded by its identity already, or changed since its import
+        }
+        let old = LibraryRef { kind: ModKind::Kiln, id: rec.id.clone(), version: rec.version.clone(), hash: rec.hash.clone() };
+        let to = dirs.library_entry(ModKind::Kiln, &rec.id, &rec.version, &identity)?;
+        // 1. the entry at its identity (the same mod imported without cook outputs may be there already): used only when
+        // its record and its files are that identity, else made again from the entry verified above
+        let there = to.is_dir() && crate::util::read_json::<ImportRecord>(&record_path(&to)).ok().flatten().is_some_and(|r| r.hash == identity)
+            && crate::hash::mod_identity(&to).ok().as_deref() == Some(identity.as_str());
+        if !there {
+            let tmp = TempDir::new(&dirs.library(), "migrate")?;
+            let work = tmp.path().join("m");
+            copy_kiln_mod_tree(&folder, &work)?;
+            if crate::hash::mod_identity(&work)? != identity {
+                return Err(Error::new(ErrorCode::HashMismatch, format!("{}: changed while it was moved to its new hash", folder.display())));
+            }
+            // a half move without its record, or an entry whose files are not its identity
+            if std::fs::symlink_metadata(&to).is_ok() {
+                std::fs::remove_dir_all(&to).map_err(io(&to, "replacing"))?;
+            }
+            std::fs::rename(&work, &to).map_err(io(&to, "moving into the library"))?;
+            crate::util::write_json_atomic(&record_path(&to), &ImportRecord { hash: identity.clone(), ..rec.clone() })?;
+        }
+        // the move is kept before anything points at the new entry: a reference made before it finds that entry later
+        let entry = MigratedEntry { id: old.id.clone(), version: old.version.clone(), from: old.hash.clone(), to: identity.clone() };
+        let mut all = self::moved(dirs);
+        if !all.contains(&entry) {
+            all.push(entry.clone());
+            crate::util::write_json_atomic(&moved_file(dirs), &all)?;
+        }
+        // 2. the profiles that list the old hash
+        for summary in crate::profile::list(dirs)? {
+            let mut p = crate::profile::get(dirs, &summary.id)?;
+            let mut changed = false;
+            for m in p.mods.list_mut(ModKind::Kiln).iter_mut().filter(|m| m.id == old.id && m.version == old.version && m.hash == old.hash) {
+                m.hash = identity.clone();
+                changed = true;
+            }
+            if changed {
+                crate::profile::save(dirs, &p)?;
+            }
+        }
+        // 3. the old entry, unless something still reads it (a running game, a game's profile file naming its path)
+        let _ = remove(dirs, &old, false);
+        moved.push(entry);
+    }
+    Ok(moved)
+}
+
 fn source_of(path: &Path, kind: &str) -> ImportSource {
     ImportSource { kind: kind.into(), from: path.display().to_string() }
 }
@@ -1119,9 +1243,16 @@ fn import_item(dirs: &DataDirs, d: &Detected, src: &Path, from: &ImportSource, r
             }
             let tmp = TempDir::new(&staging_parent, "import")?;
             let work = tmp.path().join("m");
-            let size = copy_mod_tree(src, &work)?;
-            let hash = crate::hash::dirhash(&work)?;
-            let source_hash = crate::hash::dirhash(src)?;
+            // A Kiln mod is known by its identity, which leaves its cook outputs (assets/cooked) out. No hash covers
+            // them, so they are not imported either: a file there is made on this PC by a cook, never taken from a
+            // folder or an archive (a modpack that carries one is refused: modpack::verify).
+            let (size, cooked_left_out) = if kind == ModKind::Kiln { copy_kiln_mod_tree(src, &work)? } else { (copy_mod_tree(src, &work)?, false) };
+            if cooked_left_out {
+                report.note(&d.path, format!("{}: its cooked files (assets/cooked) were left out. They are made on each PC from its own game, never shipped: cook the mod on this one (kiln cook).",
+                    d.name.clone().or_else(|| d.id.clone()).unwrap_or_else(|| d.path.clone())));
+            }
+            let hash = crate::hash::of_mod(kind, &work)?;
+            let source_hash = crate::hash::of_mod(kind, src)?;
             if hash != source_hash {
                 return Err(Error::new(ErrorCode::HashMismatch, format!("{}: changed while it was imported", src.display())));
             }

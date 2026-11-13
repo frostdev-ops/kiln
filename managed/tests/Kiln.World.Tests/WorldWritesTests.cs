@@ -111,8 +111,9 @@ public unsafe class WorldWritesTests
     [Fact]
     public void A_type_of_another_layout_is_answered_before_anything_is_sent()
     {
-        // Kiln.Game sets the live layout check when it loads (another test of this process may have loaded it): the
-        // size rule is tested without it
+        // Kiln.Game's own layout check is installed for the whole process as soon as any test names a generated type
+        // (the next test does), and it says no in a test host, which is no game build. Which test runs first is not
+        // fixed, so this one takes the check out while it looks at the size rule alone, and puts it back.
         var previous = WorldWrites.LayoutWhyNot;
         try
         {

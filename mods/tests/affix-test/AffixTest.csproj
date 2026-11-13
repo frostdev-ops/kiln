@@ -26,5 +26,7 @@
     <ProjectReference Include="../../../managed/services/Kiln.Players/Kiln.Players.csproj" Private="false" ExcludeAssets="runtime" />
     <ProjectReference Include="../../../managed/Kiln.Testing/Kiln.Testing.csproj" Private="false" ExcludeAssets="runtime" />
     <None Include="kiln.mod.json" CopyToOutputDirectory="PreserveNewest" />
+    <!-- An affix and a pool as blocks of a data file (FileBlocks.cs). -->
+    <None Include="blocks/affixes.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

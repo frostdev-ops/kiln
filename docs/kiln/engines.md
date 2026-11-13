@@ -230,6 +230,34 @@ engines' mods") and 5.8.
   to a file without one). A marker alone never grants deletion or replacement rights;
   older marker-only copies and folders changed by the player are left alone. Replacement is staged beside the
   destination and rolls the previous copy back if placement fails. Activation is refused while the game runs.
+- **A player's own ShroudForge folder.** A folder in ShroudForge's mods folder that Kiln did not place and that serves a
+  profile entry (it is called `<library id>`, or its mod.json holds the entry's package id under any folder name) is
+  the player's: activation says so ("the game uses your own folder …"), places no second copy, and neither switches,
+  updates nor removes it. **"Let Kiln manage this folder"** (dev.27, `engine_mods::adopt`; the launcher's Notes dialog
+  and the mod's settings) makes such a folder Kiln's placement, on the player's request only, never by itself.
+  - *When.* Only when its files are byte for byte the Library entry's: the same inventory activation records for a
+    copy it places (`placement_files`: every file and folder, hidden ones too, by sha256). Two things in
+    `extended.mod.json` are the player's and may differ: the switch and the value of each setting (and the default
+    `targets` ShroudForge's own menu adds). Anything else is refused with the folder's path and the first thing that
+    differs, in path order: a changed, missing or added file or folder, a link, a setting whose description, range or
+    choices were edited, a setting the mod does not have, a file ShroudForge cannot read. Also refused: a second folder
+    of the player's with the same package (ShroudForge drops both), a link on the way to the folder, a Library entry
+    that changed on disk, and a copy of Kiln's own whose files changed (that one is not the player's folder).
+  - *What changes.* Nothing in the folder is rewritten. It gets the marker file, and the name `<library id>` when it
+    had another (Kiln's placements are found by that name; ShroudForge finds a package by its mod.json id). The receipt
+    lists the Library entry's files, as for a placed copy, so the setting values in the folder stay the player's: they
+    are carried to the next version, and a cleanup keeps a folder that holds them (its receipt's `extension` is the
+    file Kiln would have written for the folder's switch, not the folder's own).
+  - *Afterwards* it is a placement like any other: activation switches it as the profile says, replaces it when the
+    profile names another version, switches it off when the mod leaves the profile, and a cleanup (`unplace`: a profile
+    deactivated, Kiln uninstalled) removes it. A second request for a folder that is Kiln's already changes nothing.
+  - *Order and failure.* Under the engine lock: the name, the marker, then the receipt, and only the receipt makes the
+    folder Kiln's (`owned`). A stop before the receipt leaves a folder with a marker and no receipt, which Kiln reads as
+    the player's own (a marker alone grants nothing), and the request can be made again. A receipt that cannot be
+    written takes the marker and the name back. `engine_mods::own_folders` lists such folders with the refusal each
+    would get, without writing anything.
+  Only ShroudForge folders are offered. A player's own SET folder, and the folders the other engines' own loaders
+  read, stay the player's as before.
   Enshwick's loader also reads only `<game>/mods/`, but kiln-enshwick copies the profile's enabled entries there
   itself (with its own receipts in `kiln/data/enshwick-managed.json`), so its list names the library folder like
   the other kinds; kiln-shroudlink and kiln-ember read the library folder in place.
@@ -243,7 +271,7 @@ engines' mods") and 5.8.
   another folder name with the same package id). A setting the player changes in the launcher is their request, so
   Kiln writes that one value into their folder's `extended.mod.json` too (atomically, links refused, game closed),
   and the settings dialog says it is the player's own folder; switching, replacing and removing such a folder stay
-  refused. A folder Kiln did not place is used only when its mod.json id is the entry's package id (a player's folder
+  refused until the player hands it to Kiln ("A player's own ShroudForge folder" above). A folder Kiln did not place is used only when its mod.json id is the entry's package id (a player's folder
   named like the entry that holds another package is not it); when several of the player's folders hold the package,
   nothing is written and the settings say which folders. The write goes through a temp file of a new, random name
   created exclusively, so no file of the mod folder is ever overwritten through it. A copy of Kiln's whose library files

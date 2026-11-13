@@ -5,18 +5,21 @@ A mod says which affixes there are and which items roll them. Kiln keeps each it
 to whoever wears or holds it, and sends them to the games of players near it. New in 0.2.0-dev.27; in `Kiln.Blocks`
 (`<KilnServices>Blocks</KilnServices>`, or a reference to `Kiln.Blocks`). Sample: `mods/samples/AffixSword`.
 
+Affix kinds and pools are [blocks](blocks.md): `Blocks.Define` in C#, or the `affixes` and `affixPools` sections of a
+`blocks/*.json` file. Both are the same objects with the same ids.
+
 ```csharp
 // one kind of modifier: its stat, its tiers and the range each tier rolls in
-Affixes.Define("bear", new AffixBlock
+Blocks.Define("bear", new AffixBlock
 {
     Name = "of the Bear", Stat = Stat.Strength,
     Tiers = [new AffixTier { Min = 2, Max = 4 }, new AffixTier { Min = 5, Max = 8, Weight = 0.5, MinItemLevel = 20 }],
 });
-Affixes.Define("fleet", new AffixBlock { Name = "Fleet", Stat = Stat.MoveSpeed, Stacks = false,
+Blocks.Define("fleet", new AffixBlock { Name = "Fleet", Stat = Stat.MoveSpeed, Stacks = false,
     Tiers = [new AffixTier { Min = 0.05, Max = 0.15, Step = 0.05 }] });
 
 // which items roll which affixes, and how many
-var blades = Affixes.DefinePool("blades", new AffixPoolBlock
+AffixPoolHandle blades = Blocks.Define("blades", new AffixPoolBlock
 {
     Items = [GameItems.Weapon_T1_1H_SwordEpic_01],
     Affixes = [new AffixEntry { Affix = "bear" }, new AffixEntry { Affix = "fleet", Weight = 2 }],
@@ -25,13 +28,22 @@ var blades = Affixes.DefinePool("blades", new AffixPoolBlock
 AffixResult rolled = blades.Roll(sword);              // sword: an ItemInstanceRef (Items.Held, a give result, ...)
 if (rolled.Ok) Log.Info(rolled.Affixes[0].Text);      // "+3 Strength (of the Bear)"
 ```
-The same as data, with `Affixes.Load(File.ReadAllText(path))` in `OnLoad` (camel case, the same fields):
+The same as data, in any file of the mod's `blocks/` folder (camel case, the same fields; the schema gives completion
+and errors, `kiln lint` checks it):
 ```jsonc
+// blocks/affixes.json
 { "format": 1,
   "affixes": { "bear":  { "name": "of the Bear", "stat": "strength", "tiers": [ { "min": 2, "max": 4 }, { "min": 5, "max": 8, "weight": 0.5, "minItemLevel": 20 } ] },
                "fleet": { "name": "Fleet", "stat": "move-speed", "stacks": false, "tiers": [ { "min": 0.05, "max": 0.15, "step": 0.05 } ] } },
-  "pools": { "blades": { "items": [ "Weapon_T1_1H_SwordEpic_01" ], "affixes": [ { "affix": "bear" }, { "affix": "fleet", "weight": 2 } ] } } }
+  "affixPools": { "blades": { "items": [ "Weapon_T1_1H_SwordEpic_01" ], "affixes": [ { "affix": "bear" }, { "affix": "fleet", "weight": 2 } ] } } }
 ```
+Code rolls a pool of a data file by name: `Affixes.FindPool("blades")?.Roll(sword)` (or `Blocks.Find("blades")`, which
+gives the same `AffixPoolHandle`).
+
+**`Affixes.Define`, `Affixes.DefinePool` and `Affixes.Load` are the same thing.** `Affixes.Define("bear", block)` is
+`Blocks.Define("bear", block)`: one registration, the same handle, the same id. `Affixes.Load(json)` defines the affixes
+and pools of a file in its own format (`"affixes"` and `"pools"`) from wherever the mod keeps it; a file in `blocks/`
+needs no call.
 
 ## The shapes
 
@@ -47,9 +59,18 @@ repeat. A mistake in a block is a `BlockError` that names the block and the fiel
 an item now (an affix's mod is not loaded, an affix has no tier for the item's level, or affixes defined again share a
 group), the roll is refused with a reason that says which, and the item keeps what it had.
 
-`Affixes.Define` and `DefinePool` belong to the calling mod (call them in `OnLoad`); a pool's affixes must be defined
-before it. They are not sections of `blocks/*.json` yet and `Blocks.Define` does not take them: see
-[what is not there yet](#what-is-not-there-yet).
+## As blocks
+
+| What | How |
+|---|---|
+| Routes | `Blocks.Define(name, AffixBlock)` and `Blocks.Define(name, AffixPoolBlock)` give an `AffixHandle` and an `AffixPoolHandle`, as `Affixes.Define` and `DefinePool` do; `Blocks.Define<AffixBlock>` gives the same object. A data file's `affixes` and `affixPools` sections make the same handles. `Blocks.Find`, `Affixes.Find` and `FindPool` return the one object, whichever route made it |
+| Ids | `"mod:name"` (`AffixHandle.Id`): the string a rolled item keeps (`RolledAffix.Affix`), the same in every route and the same as before affixes were blocks. Nothing of the game is made, so there is no GUID and no `Was`: keep the names, or rolled items wait for an affix that is not there |
+| Names | lower-case letters, digits, `-` and `_`, at most 64. A name is one block of the mod: an affix or a pool takes no name another kind of block of the mod has, and the other way round (a `BlockError`). The same kind again replaces the earlier one, by any route, as every block does: a data file's replaces the code's of the same name after `OnLoad`, also when code named it first. `kiln lint` flags a name defined twice in the data files (KL305), the analyzer two `Blocks.Define` calls with one name (KILN110) |
+| References | a pool's entry names an affix of this mod, defined in code or in any data file of the mod, in either order (a data file's affix that code names is compiled there and then, as for every block), or `"other-mod:name"` of a mod loaded before |
+| When | code's in `OnLoad`; a data file's when code names it, else a few steps after the mod loaded, with the mod's other data files. Not baked: an affix is Kiln's own, not the game's, so there is nothing to have ready at the game's start |
+| Mistakes | a `BlockError` that names the block and the field (`block affix bear, tiers[0]: ...`). In a data file the same text is an error of the mod with the file's name (kiln.log, `kiln blocks list`), and the file's other blocks still load; a section that is not an object (`"affixes": []`) is one such error and costs only that section |
+| Players' games | affixes and pools ask nothing of them: `clients: none` is enough (the rolls reach Kiln games as item data) |
+| Unload, reload | the mod's affixes and pools go with it, and come back with its next `OnLoad` and data files; rolls stay on their items |
 
 ## One item's affixes (server, tick thread)
 
@@ -62,7 +83,7 @@ before it. They are not sections of `blocks/*.json` yet and `Blocks.Define` does
 | `Affixes.Remove(item, affix)` / `Clear(item)` | takes one, or all, off: true when something went |
 | `Affixes.Active(player)` | what Kiln holds on the player now: `ActiveAffix(Affix, Stat, Value, Item)` |
 | `Affixes.StatOf(entity, stat)` → `Task<double?>` | the value the game's attribute holds now, read by the game's own attribute read two or three steps later: what every modifier adds up to. For a resistance: the share of that damage still taken |
-| `Affixes.Find(id)` / `FindPool(id)` | a definition of a loaded mod, or null |
+| `Affixes.Find(id)` / `FindPool(id)` | a definition of a loaded mod, whichever route made it (the same handle as `Blocks.Find`), or null |
 
 Results follow [the contract](contract.md): a refusal by the rules is `AffixResult.Ok == false` with a `Reason` (nothing
 changed); a none or stamp-less ref, a stale ref on a write, an unknown affix, a tier it does not have, a value that is 0
@@ -146,7 +167,6 @@ positive value makes the action dearer and a negative one cheaper.
 | **Flat damage on a hit** ("+12 fire damage") | It is no attribute of the character: a hit's damage is the weapon's power times the hit's per-type factors (`DamageSetup`). Route: wrap the game's `applyDamage` (`Abilities.OnDamage`, synchronous, on the simulation's thread) and add a second typed hit, or raise the factor, when the attacker's held item carries such an affix. About 2 days with the lab proof (the hit's numbers through `ImpactDamageEvent`); the factor route needs the damage formula checked first (`docs/re/combat.md`). A game update that changes `applyDamage`'s arguments breaks it, as it would break Kiln.Combat. Today: `Stat.MeleeDamage`, `RangedDamage` and `MagicDamage` (a share of all damage of that kind) |
 | **A share of a pool** ("+5% of max stamina") | `MaxStamina`, `MaxHealth` and `MaxMana` take points. A share needs the base value read at the moment it is applied and again when it changes; half a day, and a rule for what "base" means when two such affixes meet |
 | **Effects that are not numbers** (a chance to burn on hit, a light, a sound) | Those are effects, not stat changes: an `AffixBlock.OnHit` would run an [effect block](blocks.md#effects) through the wielder's program, as a weapon block's `OnHit` does for an item type. The program exists per item type today; per item it needs the same wrap as flat damage. About 3 days |
-| **Affixes in `blocks/*.json` and `Blocks.Define`** | The records are blocks in shape, but they are defined through `Affixes.Define` and `Affixes.Load`. Making them sections of a block file means entries in the block schema (`schema/kiln-blocks.schema.json`), the SDK's data reader (`Kiln.Sdk/DataClients.cs`), `kiln lint` and the block analyzer; a day, mostly in files other packages own |
 | **Automatic rolls** (every dropped or crafted sword rolls) | A pool rolls when code says so. The game has no "item created" event; Kiln sees an item when it is read. Route: roll on first sight in a player's inventory (the pass reads it anyway), with a rule for items that should stay plain. Half a day, and a decision about which items count |
 | **The game's own tooltip** | See below |
 
@@ -206,6 +226,15 @@ one whatever it puts on, retries that back off (8 tries in 200 passes), 70 stuck
 everyone, a player who leaves and one who gets the same entity id before the next pass (neither's change reaches the
 other), and a change whose id the game gave to an unrelated entity (never destroyed).
 
+As blocks (`AffixBlockTests.cs`, 7 more tests on the same store and fake game; since then all 22 above define through
+the block route): the id is `"mod:name"` in every route, as `Affixes.Define` gave before, and an item whose rolls were
+stored before (the same bytes) acts for its affix defined by a data file, by `Blocks.Define` and by `Affixes.Define`, with
+one stat change throughout; one object whichever route made it; code and data files naming each other's affixes in
+either order, and another mod's; the same name twice replaces as in one route, another kind of block by the same name is
+refused both ways; wrong blocks in code (`BlockError` by block and field) and in a file (an error naming file, block and
+field, the file's other blocks loading, as a wrong loot table beside them costs); 100 seeded rolls of a data file's pool
+equal those of the same pool from `Affixes.DefinePool`, and their bonuses act and end the same.
+
 Lab `dev27-affix` (server 26430253, a copy of a real world, no player; `mods/tests/affix-test`, two boots, 89 checks
 on the first and 9 on the second, all passing on 2026-11-12): the capability rows (`spawn.destroy` among them); a
 pool that asks 3 of affixes that give at most 2 refused where it is defined; a roll that cannot reach its pool's
@@ -216,6 +245,13 @@ it stops; a second item in the chest slot adds up (+3 and +5 = 8) and a non-stac
 the game ended none; the item destroyed in hand and the wearer destroyed leave nothing; 90 rolls of a pool of three in
 range; after a restart the sword in the chest has its two rolls again, and moved into another stand-in's hand they act
 for that one.
+
+Lab `dev27-affixblocks` (the same server and world, 2026-11-13, after affixes became blocks, so every `Affixes.Define`
+above went through the block route): 100 checks on the first boot and 10 on the second, all passing. The new ones: an
+affix and a pool in the test mod's `blocks/affixes.json` defined with no call, with the ids `"mod:name"`, the same objects
+from `Blocks.Find` and `Affixes.Find`, a pool from `Blocks.Define` naming the file's affix, a roll of the file's pool onto a
+sword ("+4 Strength (of Might)") acting in hand (strength 0 -> 4) and ending when put away (4 -> 0), and after the restart
+the file defining both again.
 
 A lab cannot make a real player. **Not run with a player:** the equipment slots of a real character (the lab says which
 inventory slot the chest slot is, through a test switch), death and respawn, a leave and a rejoin, the bars and the

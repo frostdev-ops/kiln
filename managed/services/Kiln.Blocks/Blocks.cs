@@ -77,6 +77,16 @@ public static class Blocks
     /// <summary>Defines a dialogue as the calling mod's. The handle goes where a <see cref="DialogueDefinition"/> does (<c>new NpcBlock { Talk = handle }</c>); a block names it by its name (<c>TalkName</c>).</summary>
     public static DialogueHandle Define(string name, DialogueBlock block) => (DialogueHandle)Define<DialogueBlock>(name, block);
 
+    /// <summary>Defines an affix (a kind of rolled modifier on one item) as the calling mod's: the same registration as
+    /// <see cref="Affixes.Define"/> and a data file's "affixes" section. The handle's <see cref="AffixHandle.Id"/>,
+    /// <c>"mod:name"</c>, is what rolled items keep. It asks nothing of players' games.</summary>
+    public static AffixHandle Define(string name, AffixBlock block) => (AffixHandle)Define<AffixBlock>(name, block);
+
+    /// <summary>Defines an affix pool (which items roll which affixes) as the calling mod's: the same as
+    /// <see cref="Affixes.DefinePool"/> and a data file's "affixPools" section. Its entries name affixes of this mod's code or
+    /// data files, or another loaded mod's. The handle rolls: <see cref="AffixPoolHandle.Roll"/>.</summary>
+    public static AffixPoolHandle Define(string name, AffixPoolBlock block) => (AffixPoolHandle)Define<AffixPoolBlock>(name, block);
+
     /// <summary>A block a mod defined (its id, or null: the calling mod), or null.</summary>
     public static BlockHandle? Find(string name, string? mod = null)
     {
@@ -194,6 +204,7 @@ internal sealed class ModBlocks(string id, ulong owner)
         ReadyChecks.Clear();
         PlayerTriggers.Forget(Id);
         LootRuntime.Forget(Id);
+        AffixRuntime.Forget(Id);
         UiRuntime.Forget(Id);
         ContainerRuntime.Forget(Id);
         InteractRuntime.Forget(Id);

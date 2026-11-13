@@ -129,9 +129,10 @@ internal static partial class Compiler
             if (name.StartsWith("ui-apply.", StringComparison.OrdinalIgnoreCase)) throw new BlockError(label, "name", "ui-apply.* names are reserved for UI actions' hidden abilities");
             if (block is AbilityBlock { Was: { } was } && was.StartsWith("ui-apply.", StringComparison.OrdinalIgnoreCase)) throw new BlockError(label, "was", "ui-apply.* names are reserved for UI actions' hidden abilities");
         }
+        AffixNameFree(mod, name, block, label);
         var ctx = new BlockContext(mod, label);
         // a new item or template is drawn by the player's game; an effect alone is nothing a client sees; a VFX or material asks for more, and says so itself
-        if (block is not EffectBlock and not VfxBlock and not MaterialBlock and not AbilityBlock and not TriggerBlock and not MaterialTweakBlock and not StrengthBlock and not SurfaceBlock and not BuildingMaterialBlock and not TerrainMaterialBlock and not ScreenEffectBlock and not LootTableBlock and not INpcBlock and not IQuestBlock and not IUiBlock) ctx.Need(ClientsLevel.Kiln, null, "vanilla clients cannot show new items, spells or statuses: Kiln clients then get the definitions from the server");
+        if (block is not EffectBlock and not VfxBlock and not MaterialBlock and not AbilityBlock and not TriggerBlock and not MaterialTweakBlock and not StrengthBlock and not SurfaceBlock and not BuildingMaterialBlock and not TerrainMaterialBlock and not ScreenEffectBlock and not LootTableBlock and not INpcBlock and not IQuestBlock and not IUiBlock and not AffixBlock and not AffixPoolBlock) ctx.Need(ClientsLevel.Kiln, null, "vanilla clients cannot show new items, spells or statuses: Kiln clients then get the definitions from the server");
         var low = new Lowered(mod);
         ctx.Low = low;
         BlockHandle handle = block switch
@@ -146,6 +147,8 @@ internal static partial class Compiler
             StrengthBlock s => DefineStrength(ctx, low, name, s),
             SurfaceBlock s => DefineSurface(ctx, low, name, s),
             SoundBlock s => DefineSound(ctx, low, name, s),
+            AffixBlock a => DefineAffix(ctx, low, name, a),
+            AffixPoolBlock p => DefineAffixPool(ctx, low, name, p),
             _ => DefineItemBlock(ctx, low, name, block) ?? DefineAbilityBlock(ctx, low, name, block) ?? DefineScreenBlock(ctx, low, name, block) ?? DefineNpcBlock(ctx, low, name, block) ?? DefineQuestBlock(ctx, low, name, block) ?? DefineUiBlock(ctx, low, name, block) ?? throw new BlockError(label, null, $"{typeof(T).Name} is not a block Kiln can compile yet"),
         };
         if (block is ITweakable { Tweak.Count: > 0 } tweak) low.Tweak(label, block is StatusBlock ? "buffs" : block is PerkBlock ? "perks" : "items", handle.GameName, tweak.Tweak);
@@ -511,6 +514,8 @@ internal sealed class Lowered(ModBlocks mod)
         if (Json["window"] is JsonObject window) parts.Add($"{window["kind"]} with {(window["rows"] as JsonArray)?.Count ?? 0} row(s), drawn by players' games");
         if (Json["hudLine"] is JsonObject hud) parts.Add($"HUD line {hud["id"]}, drawn by players' games");
         if (Json["keyBinding"] is JsonObject key) parts.Add($"key {key["id"]} ({key["key"]}), bound on players' games");
+        if (Json["affix"] is JsonObject affix) parts.Add($"affix {affix["id"]} ({affix["stat"]}, {affix["tiers"]} tier(s))");
+        if (Json["affixPool"] is JsonObject affixPool) parts.Add($"affix pool {affixPool["id"]} of {(affixPool["affixes"] as JsonArray)?.Count ?? 0} affix(es)");
         return parts.Count == 0 ? "effect (compiled where it is used)" : string.Join(", ", parts);
     }
 }

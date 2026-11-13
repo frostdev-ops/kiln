@@ -8,11 +8,16 @@ launcher downloads, checks and installs it into a profile. Formats: [contracts.m
 
 ## Server admin: build and publish (`/servers/:id/modpack`)
 1. **What players need**: the server's mods with `clients: "mod"` (the same rule as Kiln.Network's advertised list:
-   `kiln/mods/*` and `kiln/native/*`, not `.disabled`, not failed), each with the kdh1 of its folder.
+   `kiln/mods/*` and `kiln/native/*`, not `.disabled`, not failed), each with the kdh1 of its folder; a Kiln mod with
+   its identity (contracts.md 5.11: what a cook left in `assets/cooked` does not count).
 2. **Build** (`server_modpack_build(serverId, name, version)`, a task): a deterministic zip in
    `<data>/modpacks/built/<serverId>/<name>-<version>.zip`: `kiln-modpack.json` first, then `<kind>/<id>/...` sorted
    bytewise, one fixed time (the newest file's), mode 0644, deflate level 6. The same mods give the same bytes and
-   sha256. Dot entries are skipped and symlinks refused (kdh1's rules). The manifest has the server's id and name (the
+   sha256. Dot entries are skipped and symlinks refused (kdh1's rules). A Kiln mod's cook outputs (`assets/cooked/`)
+   are left out (dev.27): they are made from the server's game files and never shipped, and the mod's hash does not
+   count them, so the pack's entry is the mod the server advertises and the one a player has after cooking it. A player
+   who gets a mod with a cook recipe from a pack has to cook it (`kiln cook`) for its models and animations: the
+   launcher does not cook yet. The manifest has the server's id and name (the
    id file is created in Kiln.Network's format if the server never ran), `kiln: ">=<the server's Kiln>"`, and each mod's
    kind, id, version, name, path, kdh1, clients, side. The build record goes to
    `<server>/kiln/data/kiln-network/modpack-build.json`.
@@ -40,7 +45,9 @@ launcher downloads, checks and installs it into a profile. Formats: [contracts.m
      `kiln://task`; a cached download with the right sha256 is reused;
    - `verify`: the zip's sha256, `kiln-modpack.json` (format 1, ids, paths `<kind>/<id>` or `plugin/<file>.dll`, no
      duplicates), every entry inside a listed mod, no symlink entries, no absolute or `..` paths, each mod's kdh1
-     recomputed from the zip's entries;
+     recomputed from the zip's entries (a Kiln mod's identity). A Kiln mod with entries under `assets/cooked/` is
+     refused (`refused`): no hash covers them. A pack built by 0.2.0-dev.26 or older from a cooked server folder is such
+     a pack; the message says the server's operator has to build it again;
    - when last-server.json is about this server: every mod the server requires must be in the pack with the same hash;
    - unpack into `<data>/modpacks/staging/<random>/`, kdh1 checked again on disk, `library::import`;
    - the profile bound to the server id (reused), else a new "Server: <name>", with exactly the pack's mods and

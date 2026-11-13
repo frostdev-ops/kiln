@@ -130,6 +130,36 @@ public sealed partial class ClientPassMod
         "Load after Kiln and ShroudForge off in it, loaded it and pressed Play. kiln.log should now show XHL-Core loading " +
         "early, not late. Did this start follow the loaded profile's rule?");
 
+    [ClientCheck("cook.on-play", "Play cooks a mod that has a recipe", Area = "Launcher", Since = Dev27,
+        Tags = [Launcher], Order = 405)]
+    public Task CookOnPlay(CheckContext c) => Outside(c,
+        "Before this start you installed the WeaponMoves sample through the launcher (a mod with a cook recipe and no " +
+        "cooked files) and pressed Play. The launcher said \"Cooking Weapon Moves\" and showed the cook tool's lines in " +
+        "its task, then the game started. In the game, the sample's moves animate. Did the launcher cook the mod by " +
+        "itself, and do the moves animate?");
+
+    [ClientCheck("cook.changed-file", "A changed cooked file is cooked again", Area = "Launcher", Since = Dev27,
+        Tags = [Launcher], Order = 406)]
+    public Task CookChangedFile(CheckContext c) => Outside(c,
+        "With the game closed, change one byte of a file under the WeaponMoves mod's assets/cooked in the game folder and " +
+        "press Play. The launcher cooks the mod again before the game starts, and the moves still animate. Did it?");
+
+    [ClientCheck("cook.cancel", "Cancel stops a cook, and the game still starts", Area = "Launcher", Since = Dev27,
+        Tags = [Launcher], Order = 407)]
+    public Task CookCancel(CheckContext c) => Outside(c,
+        "Use Cook again in the WeaponMoves mod's menu, then press Play and cancel the cook task while it runs. The game " +
+        "still starts, a notice says the mod was not cooked and that it keeps running on the files it has, and no " +
+        "python process of the cook is left running. Did all three hold?");
+
+    [ClientCheck("cook.foreign-file", "A cooked file that no cook of this game made", Area = "Launcher", Since = Dev27,
+        Tags = [Launcher], Order = 408)]
+    public Task CookForeignFile(CheckContext c) => Outside(c,
+        "With the game closed, copy a cooked file from another install or another mod into the WeaponMoves mod's " +
+        "assets/cooked in the game folder, and start the game from Steam directly (Play would cook the mod again). " +
+        "kiln.log names the file as not made here and it is loaded with a warning. Then set \"cooked\": \"local\" in " +
+        "kiln.json and start from Steam again: kiln.log says the file was not loaded, and what it holds is missing in " +
+        "the game. Did both starts go so? Take the file and the setting out again afterwards.");
+
     // ---- session 5: ShroudForge's own loader file in the game folder; after an uninstall and install of Kiln ----
 
     [ClientCheck("launcher.reinstall", "After uninstalling and installing Kiln, the same profile is loaded", Area = "Launcher",
