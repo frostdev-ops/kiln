@@ -25,11 +25,15 @@
     <ProjectReference Include="../../../services/Kiln.World/Kiln.World.csproj" />
     <ProjectReference Include="../../../services/Kiln.Spawn/Kiln.Spawn.csproj" />
     <ProjectReference Include="../../../services/Kiln.Blocks/Kiln.Blocks.csproj" />
+    <!-- the contract rules (KILN120, KILN121): NoClip (Kiln.Rules), weather and the clock (Kiln.Time) -->
+    <ProjectReference Include="../../../services/Kiln.Rules/Kiln.Rules.csproj" />
+    <ProjectReference Include="../../../services/Kiln.Time/Kiln.Time.csproj" />
   </ItemGroup>
   <ItemGroup>
     <!-- what the KilnManifest task works out from a mod's data files, against Kiln.Blocks' block types (DataClientsTests) -->
     <Compile Include="../../../Kiln.Sdk/DataClients.cs" Link="Shared/DataClients.cs" />
     <Compile Include="../../tools/ApiScan/ProjectSources.cs" Link="Shared/ApiScanProjectSources.cs" />
     <Compile Include="../../tools/ApiScan/CompilationErrors.cs" Link="Shared/ApiScanCompilationErrors.cs" />
+    <Compile Include="../../tools/ApiScan/CapabilityGuards.cs" Link="Shared/ApiScanCapabilityGuards.cs" />
   </ItemGroup>
 </Project>

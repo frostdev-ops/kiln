@@ -4,9 +4,10 @@ Kiln.Sdk runs Roslyn analyzers over every mod. They catch the mistakes that the 
 - a tick-thread API called from another thread;
 - a mod that never unloads cleanly;
 - a blocked game thread;
-- an API the mod has not opted into.
+- an API the mod has not opted into;
+- a refusal nobody reads, and a capability nobody asked for ([contract.md](contract.md)).
 
-The warnings appear in `dotnet build` output and live in the editor (C# Dev Kit, Rider, Visual Studio). Eight rules
+The warnings appear in `dotnet build` output and live in the editor (C# Dev Kit, Rider, Visual Studio). Ten rules
 come with code fixes.
 
 | Id | Default | What | From |
@@ -19,6 +20,8 @@ come with code fixes.
 | [KILN106](#kiln106) | warning | thread, timer, watcher, socket or subscription never released | lifecycle.md "What a mod must still release itself" |
 | [KILN107](#kiln107) | **error** | advanced API (hooks, symbols, memory) without `KilnAdvanced` | `HooksGate.RequireAdvanced` (generated table) |
 | [KILN108](#kiln108) | warning | Kiln service used but not listed in `KilnServices` | mdk.md |
+| [KILN120](#kiln120) | warning | a Kiln result (`IKilnResult`) thrown away | contract.md, "The error rule" |
+| [KILN121](#kiln121) | warning | a `[RequiresCapability]` member used with nothing that asks for its row | contract.md; the attributes and the guard table (generated) |
 | [KILN194](#kiln194) | **error** | a path string the game doesn't have | the local catalog |
 | [KILN195](#kiln195) | warning | a config name no program of the game declares | the local catalog |
 | [KILN196](#kiln196) | warning | writing an identity field or a name | the local catalog |
@@ -61,6 +64,7 @@ Categories:
 - `Kiln.Threading`: 101, 102, 105;
 - `Kiln.HotReload`: 103, 104, 106;
 - `Kiln.Manifest`: 107, 108;
+- `Kiln.Contract`: 120, 121;
 - `Kiln.GameData`: 194 to 197. These ship with the game-id generator, so `<KilnGameIds>None</KilnGameIds>` turns them off.
 
 ## Where the API facts come from
@@ -78,6 +82,9 @@ Kiln.Testing and every service, then reads their sources with Roslyn (`tools/Api
 - **Advanced:** every public member that reaches `HooksGate.RequireAdvanced` (Kiln.Hooks: `Hooks.Detour/Mid`,
   `Symbols.*`, `Memory.*`, `Constants.*`). 17 members.
 - **Services:** the folders under `managed/services/` (22).
+- **Capability guards** (KILN121): the public static bool properties named `...Available` or `...Ready` that answer
+  what `Capabilities.Is("row")` answers, with their rows. See [KILN121](#kiln121), "Properties that ask the same
+  question". 57 properties.
 
 Run the script after changing Kiln.Api, Kiln.Testing or a service:
 `KILN_OUT=… managed/Kiln.Analyzers/tools/gen-apis.sh`.
@@ -358,6 +365,106 @@ once per service per file.
 
 **Fix.** Add the service: `<KilnServices>Chat;Players</KilnServices>`.
 
+<a id="kiln120"></a>
+## KILN120: Kiln result thrown away
+**What.** The value of a call that returns an `IKilnResult` (the services' result records: `EquipResult`,
+`NoClipResult`, `WeatherResult`, `KickResult`, ...), or a `Task<T>` / `ValueTask<T>` of one, is not looked at:
+- the call is a statement: `NoClip.Set(p, true);`, `await Items.Equip(p, slot);`;
+- it is the body of an expression lambda whose delegate returns nothing: `Context.Scheduler.Post(() => NoClip.Set(p, false))`;
+- a task of a result is a statement and is not awaited: `Items.Equip(p, slot);` ("a task nobody awaits or reads");
+- it goes into a local that is never read: `var r = await Items.Equip(p, slot);`, and nothing reads `r`.
+
+The rule goes by the type (it implements `Kiln.IKilnResult`), not by method names: a result type a service takes the
+contract up for later, and a mod's own result type, are covered without a list.
+
+Not reported:
+- `_ = NoClip.Set(p, true);`, and a local named `_`: the author's word that the drop is meant;
+- the result is returned, passed on, stored in a field or property, or a member of it is read (`(await Items.Equip(...)).Ok`);
+- a local that is read anywhere in its function: a value written over before it was read is not seen.
+
+**Why.** contract.md, "The error rule": when the game refuses (the player left, the slot is full, it is already set),
+a Kiln call does not throw, it returns a result with `Ok` false and a `Reason`. A result nobody reads is a refusal
+nobody notices: the command says "done" and nothing happened.
+
+```csharp
+await Items.Equip(player, from.Slot, EquipmentSlot.Ring1);     // KILN120: the result of 'Items.Equip' is thrown away
+var r = await Time.SetWeather("rain");                          // KILN120 when nothing reads r
+```
+**Fix.** Two code fixes:
+- "Check the result": a local and `if (!result.Ok) { ... }`. Inside it, `Log.Warn($"Items.Equip refused: {result.Reason}");`
+  when a `Log` is in reach (a `Mod`'s own, or a `Logger` member of the type), else a comment. For a task it adds the
+  `await`, so it is offered in async code only. For a local it adds the `if` after the declaration.
+- "Drop it on purpose (_ =)": `_ = ...`. In an expression lambda this is the only fix: `() => _ = NoClip.Set(p, false)`.
+
+<a id="kiln121"></a>
+## KILN121: Capability not checked before the call
+**What.** A member marked `[RequiresCapability("row")]` (on itself, on its property or event, or on a type around it)
+is called, read, set or constructed, and nothing in reach asks for the row. In reach, within the enclosing member:
+- a test that the use sits under (`if`, the `else` of a negated test, `?:`, `&&`, `while`) or that leaves before it
+  (`if (!Capabilities.Is("row")) return;`, or throw, break, continue). A test is `Capabilities.Is("row")` (the same
+  string: a literal, a `const`, or a `static readonly` string of the mod set to a constant),
+  `Capabilities.Get("row").IsAvailable`, a property that asks the same question (below), a `bool` local set once from
+  one, or a property of the mod that is one (`static bool CanFly => Capabilities.Is(Fly);`); with `!`, `&&`, `||`,
+  `is true/false` and `== true/false` around it. A test with another condition counts (`if (!on && !NoClip.Available)
+  return;` in mods/samples/AdminTools: turning NoClip off never needs the row, and the author knows it);
+- a `try` whose `catch` catches `KilnUnavailableException` or a base of it (`NotSupportedException`, `SystemException`,
+  `Exception`, a bare `catch`). A `when` filter is not judged;
+- the enclosing method, accessor, local function, lambda or type marked `[RequiresCapability("row")]`: the requirement
+  is passed on, and its callers are asked instead;
+- a `[KilnTest]` or `[ClientCheck]` method: the test runner reports what it throws as the test's failure;
+- the row in the project's kiln.mod.json `features`: Kiln does not load the mod when it is off.
+
+A lambda counts the code around it (the checks ran before the delegate was made), and the call it is handed to: a
+callback given to a member that needs the row (`Content.OnReady(_ => Content.Apply(...))`) is only kept when that
+call went through. A use on an object that came from a use of the same row is not reported, the first use is
+(`var wood = Content.Items.Get(...)`, then `wood.MaxStack`; also a `foreach` over it and a pattern on it). An object
+of the member's own assembly that Kiln hands to a callback (the `npc` of `Act.Custom(npc => npc.Target)`) is Kiln's,
+so its service runs. Setting an `init` property (a block record's `Animated = ...`) is not a use: the row matters
+where the value is used.
+
+One step beyond the member: a private method or local function that is only ever called, or handed out as a method
+group (`Context.Tick.Pre += OnPre;`), at places in reach of the row is in reach itself, also through other such
+methods. This is the shape of mods/samples/Loadouts: the command catches `KilnUnavailableException`, its private
+helpers make the calls.
+
+**Properties that ask the same question.** The generated table (`KilnApis.g.cs`, `CapabilityGuards`) lists the public
+static bool properties named `...Available` or `...Ready` whose getter is (an `&&` of terms with)
+`Capabilities.Is("row")`, a one-line helper around it (`Can(Caps.Fuel)`), `T != null` for a native table `T` that comes
+from `Services.Get<...>("kiln.x", ...)` (the core's `kiln.x` row says exactly that the table is here), or another such
+property; or whose summary names the row: `(capability <c>kiln.time</c>)`, `feature <c>content.new</c>`, or the
+service in plain words ("True when kiln.knowledge is loaded"). For example `NoClip.Available` (rules.noclip),
+`Time.WeatherChoiceAvailable` (time.weather_choose), `Items.Fuel.Available` (items.fuel), `Content.GameDataAvailable`
+(kiln.gamedata), `Settings.Ready` (kiln.settings). A service makes a property a guard by writing it that way or by
+naming the row in its summary: there is no attribute for it.
+
+**Why.** contract.md: such a member throws `KilnUnavailableException` when its row is off (a game build Kiln does not
+know, a game client in its menu, a server without the service, a hook that faulted). Uncaught in `OnLoad`, a command
+or a handler, that is a mod fault.
+
+```csharp
+[Command("fly")]
+private string Fly(CommandContext c) => NoClip.Set(c.Source.Player, true).Message;   // KILN121: rules.noclip
+// in reach:
+if (!NoClip.Available) throw new CommandException("NoClip is not available on this game build");
+```
+**Fix.** Ask first, catch, or pass the requirement on. When the use is a whole statement (a call, an awaited call,
+`_ = call`, a property set), the code fix puts the statement under `if (Capabilities.Is("row")) { ... }`.
+
+**Limits.** The rule looks at one member at a time (and the private callees above), and when in doubt it says nothing:
+- **A helper that checks is not followed.** `Need("rules.noclip"); NoClip.Set(...)` warns in the method that calls
+  `NoClip.Set`. Two ways out: catch `KilnUnavailableException` at the command (or handler) and keep the helpers that
+  make the calls private, as mods/samples/Loadouts does; or mark the method that calls the gated member
+  `[RequiresCapability("rules.noclip")]`, which passes the requirement on to its callers.
+- An event handler or a callback that only runs while its service runs is not known as such (a `[Subscribe]` handler
+  of a creatures event that calls `Creatures.Of(...)`): ask anyway, it is one condition.
+- A check kept in a field or a `static readonly bool`, a `bool` local written twice, a property of another class of the
+  mod: not seen.
+- A test with another condition, a `when` filter and a lambda's surroundings count as asked: a row that goes off
+  between the check and a later callback is not seen.
+- It trusts the attributes: a marked member that does not throw is still reported, an unmarked one that throws is not.
+- A row the manifest requires is checked when the mod loads; a row that can go off in a session (items.equip when its
+  program breaks) can still throw later.
+
 <a id="kilnx001"></a>
 ## KILNX001: lab and test member
 **What.** The code calls a member Kiln keeps for its own lab and test mods: `Rules.Simulate`, `QuestInput`,
@@ -441,6 +548,7 @@ runs.
   - The thread analysis follows syntax and one level of method groups inside a type. A method that becomes
     off-thread code through another type or a stored delegate is not seen.
   - KILN106 checks that a release exists somewhere in the type, not that it runs in `OnUnload`.
+  - KILN120 and KILN121: their own sections above.
 
 <a id="kiln110"></a>
 ## KILN110: Bad or duplicate block name

@@ -84,6 +84,26 @@ public static class Descriptors
         "assemblies (compile only, never shipped) in package builds. A service that reaches the build some other " +
         "way works here and breaks the mod's build from the NuGet feed.");
 
+    private const string Contract = "Kiln.Contract";
+
+    public static readonly DiagnosticDescriptor ResultDiscarded = Rule("KILN120",
+        "Kiln result thrown away",
+        "The result of '{0}' {1}: a refusal by the game (Ok false, with a Reason) goes unnoticed; check its Ok, or drop it on purpose with '_ = ...'",
+        Contract, DiagnosticSeverity.Warning,
+        "docs/kiln/modding/contract.md, the error rule: when the game refuses (the player left, the slot is full, it is " +
+        "already set) a Kiln call does not throw, it returns a result (IKilnResult) with Ok false and a Reason. A result " +
+        "nobody reads is a refusal nobody notices. '_ = call' says the drop is meant.");
+
+    public static readonly DiagnosticDescriptor CapabilityUnchecked = Rule("KILN121",
+        "Capability not checked before the call",
+        "'{0}' needs capability {1} and throws KilnUnavailableException when it is off; ask Capabilities.Is({2}) first, or catch KilnUnavailableException",
+        Contract, DiagnosticSeverity.Warning,
+        "docs/kiln/modding/contract.md: a member marked [RequiresCapability(\"row\")] throws KilnUnavailableException " +
+        "when that row is off (a game build Kiln does not know, a client in its menu, a server without the service). " +
+        "Ask Capabilities.Is(\"row\") or the service's own ...Available property before the call, catch the exception, " +
+        "list the row in kiln.mod.json \"features\", or mark the calling method [RequiresCapability(\"row\")] to pass the " +
+        "requirement on to its callers.");
+
     private const string Blocks = "Kiln.Blocks";
 
     public static readonly DiagnosticDescriptor BlockName = Rule("KILN110",

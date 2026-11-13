@@ -36,6 +36,24 @@ public sealed class TablesTests
             @"^M:Kiln\.(Hooks|Symbols|Memory|Constants|OriginalCode|Keep|Abilities\.Programs|NativeCall|Is|Act|Arsenals)\.", id));
     }
 
+    [Theory]
+    [InlineData("P:Kiln.NoClip.Available", "rules.noclip")]                // => Capabilities.Is(Capability)
+    [InlineData("P:Kiln.Items.Fuel.Available", "items.fuel")]              // => Can(Caps.Fuel) && ...
+    [InlineData("P:Kiln.Time.WeatherChoiceAvailable", "time.weather_choose")]
+    [InlineData("P:Kiln.Time.Available", "kiln.time")]                     // => T != null, T from Services.Get("kiln.time")
+    [InlineData("P:Kiln.Content.GameDataAvailable", "kiln.gamedata")]
+    [InlineData("P:Kiln.Items.GearOptionsAvailable", "kiln.items")]        // => Available && ...
+    [InlineData("P:Kiln.NewContent.Available", "content.new")]             // its summary: "feature <c>content.new</c>"
+    [InlineData("P:Kiln.Settings.Ready", "kiln.settings")]                 // => T != null && ...
+    public void Capability_guards(string property, string row) =>
+        Assert.Contains(KilnApis.CapabilityGuards, g => g.StartsWith(property + "=", StringComparison.Ordinal) && g.Substring(property.Length + 1).Split(',').Contains(row));
+
+    [Theory]
+    [InlineData("P:Kiln.Time.Ready")]           // the world's clock, not the service
+    [InlineData("P:Kiln.Players.Count")]
+    public void Not_capability_guards(string property) =>
+        Assert.DoesNotContain(KilnApis.CapabilityGuards, g => g.StartsWith(property + "=", StringComparison.Ordinal));
+
     [Fact]
     public void Services_are_the_managed_service_folders()
     {
