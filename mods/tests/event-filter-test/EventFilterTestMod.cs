@@ -2,7 +2,9 @@
 // Event filters on a dedicated server, player-free (dev.27). BetterDummies' case: a mod watches one training doll's hits.
 // With an entity filter kiln.combat holds only the hits that name the doll; every other hit of the world applies at
 // once, as when nobody listens. Hits are Kiln's own game hits (Combat.Damage with AsGameHit: held and reported like the
-// engine's, through the same hold). Prints "event-filter-test: PASS/FAIL/INFO" lines.
+// engine's, through the same hold), then the game's own (PlayerPart.cs: a spawned player character's sword swings on
+// watched Vukahs). A hit is about the doll when the doll is its target, the part hit, its attacker or its source: the hits
+// it deals come too. Prints "event-filter-test: PASS/FAIL/INFO" lines.
 using System.Diagnostics;
 using Kiln;
 
@@ -129,6 +131,36 @@ public sealed partial class EventFilterTestMod : Mod
                 $"a handler added in the same step as the hit is served: {late.Count} event(s), hits held {held6} -> {Held}, health {o0} -> {Combat.GetHealth(other)!.Value.Current} (7 cut to 1), {r6}");
             lateSub.Dispose();
             healSub.Dispose();
+
+            // 6. a hit the doll deals: about the doll too (the owner's shape in a real game: the watched Vukah's own attack
+            // on the player came, Target the player). Held for the doll's filtered handler and reported with Target the
+            // creature it hit and Attacker the doll; a handler that wants only the hits the doll takes asks the Target.
+            var about = new List<EntityHurtEvent>();
+            var aboutSub = Events.On<EntityHurtEvent>(e => about.Add(e), EventFilter.ForEntity(doll));
+            await Steps(3);
+            var held7 = Held;
+            var r7 = await Combat.Damage(other, 5, doll, GameHit);
+            await Steps(2);
+            Check(about.Count == 1 && Held == held7 + 1 && about[0].Target == other && about[0].Attacker == doll,
+                $"a hit the doll deals is held and reported to the doll's handler, Target the other creature: hits held {held7} -> {Held}, [{string.Join("; ", about.Select(Shape))}], {r7}");
+            Info($"the guided check of the dev.27 test build wanted every reported Target to be the doll: {about.All(e => e.Target == doll)} for this hit");
+            aboutSub.Dispose();
+
+            // 6b. a Kiln hit with a source names it, posted inside Combat.Damage and through the hold (AsGameHit) alike
+            var bySource = new List<EntityHurtEvent>();
+            var sourceSub = Events.On<EntityHurtEvent>(e => bySource.Add(e), EventFilter.ForEntity(altar));
+            await Steps(3);
+            var withSource = new DamageOptions { Source = altar };
+            var r8 = await Combat.Damage(doll, 2, other, withSource);
+            var r9 = await Combat.Damage(doll, 2, other, withSource with { AsGameHit = true });
+            await Steps(2);
+            Check(bySource.Count == 2 && bySource.All(e => e.Source == altar && e.Attacker == other && e.Target == doll) &&
+                  bySource[0].Origin == CombatOrigin.Kiln && bySource[1].Origin == CombatOrigin.Kiln,
+                $"a Kiln hit with a source reaches a handler filtered on the source, in the call and held alike: [{string.Join("; ", bySource.Select(Shape))}], {r8}, {r9}");
+            sourceSub.Dispose();
+
+            // 7. the game's own hits (a player character's swing, the creatures' attacks)
+            await GameHits(a);
         }
         catch (Exception e)
         {
