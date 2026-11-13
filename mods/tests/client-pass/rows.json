@@ -75,6 +75,7 @@
     { "section": "New in 0.2.0-dev.27", "key": "The launcher names an EML mod in your own folder that ShroudForge has off", "checks": ["launcher.own-eml-folder-under-sf"] },
     { "section": "New in 0.2.0-dev.27", "key": "Many mods' menu entries no longer push Quit off the screen, and the Mods page reaches them", "checks": ["menu.rows-quit"] },
     { "section": "New in 0.2.0-dev.27", "key": "A profile deleted and made again under the same name takes a switch", "checks": ["launcher.profile-again"] },
-    { "section": "New in 0.2.0-dev.27", "key": "A mod edited in its own Library folder: Changed on disk, and Use the changed files", "checks": ["launcher.library-changed"] }
+    { "section": "New in 0.2.0-dev.27", "key": "A mod edited in its own Library folder: Changed on disk, and Use the changed files", "checks": ["launcher.library-changed"] },
+    { "section": "New in 0.2.0-dev.27", "key": "Auto Doors and Find, installed by hand, run next to Kiln, and Kiln's mods keep loading", "checks": ["foreign.autodoors-find"] }
   ]
 }
