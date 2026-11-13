@@ -10,7 +10,10 @@ public sealed class NoClipTestMod : Mod
     private const string Me = "noclip-test";
     private const int PlayerInputReady = 0x5b8;  // PlayerInput.fromClientIsReadyForGameplay
     private const int State = 0x59, Held = 936 + 8;  // DynamicLocomotion.state; PlayerInput's held input bits
+    // PlayerInput.fromClient.movementStick (float2, y forward) and fromClient.camera.orientation (x, y, z, w)
+    private const int Stick = 0x2c0, CameraRotation = 0x40;
     private int _pass, _fail;
+    private EntityId _neighbour;
 
     private void Info(string s) => Log.Info($"{Me}: INFO {s}");
     private bool Check(bool ok, string what)
@@ -46,7 +49,28 @@ public sealed class NoClipTestMod : Mod
         {
             Rules.Simulate(f, false);
             Spawn.Destroy(f);
+            if (!_neighbour.IsNone) Spawn.Destroy(_neighbour);
         }
+    }
+
+    // Holds the stick forward for `steps` steps (the camera looking along +z): how far the character got across, and in
+    // how many of those steps it was on its feet (grounded, walking or sliding). The flight's state moves a character
+    // across too, but in the air.
+    private async Task<(double Distance, int OnFoot)> Walk(EntityId f, int steps)
+    {
+        var from = World.Position(f)!.Value;
+        World.TryWrite(f, "PlayerInput", CameraRotation, System.Numerics.Quaternion.Identity);
+        World.TryWrite(f, "PlayerInput", Stick, new System.Numerics.Vector2(0, 1));
+        var onFoot = 0;
+        for (var i = 0; i < steps; i++)
+        {
+            await Steps(1);
+            if (PlayerStates.Is(f, PlayerStateId.Grounded) && Loco(f) is 0 or 1) onFoot++;
+        }
+        World.TryWrite(f, "PlayerInput", Stick, System.Numerics.Vector2.Zero);
+        await Steps(10);
+        var to = World.Position(f)!.Value;
+        return (Math.Sqrt((to.X - from.X) * (to.X - from.X) + (to.Z - from.Z) * (to.Z - from.Z)), onFoot);
     }
 
     private byte Loco(EntityId f) => World.ReadBytes(f, "DynamicLocomotion") is { Length: > State } b ? b[State] : (byte)255;
@@ -111,6 +135,12 @@ public sealed class NoClipTestMod : Mod
         if (!Check(status is { NoClip: true, CharacterFlight: true } && NoClip.Available && Capabilities.Is(NoClip.Capability),
                 "the collision hook and character flight's hooks are installed, and the capability rules.noclip says so")) return;
         if (!Check(Rules.Policy.AllowNoClip, "this lab's rules.json allows NoClip (allowNoClip)")) return;
+        // how the character moves before NoClip: what every end of NoClip must give back
+        var walk0 = await Walk(f, 40);
+        await Until(() => PlayerStates.Is(f, PlayerStateId.Grounded), 60);
+        var loco0 = Loco(f);
+        Info($"before NoClip: state {loco0}, grounded {PlayerStates.Is(f, PlayerStateId.Grounded)}, with the stick held it walks " +
+             $"{walk0.Distance:0.0} m in 40 steps, on its feet in {walk0.OnFoot} of them");
         var home = World.Position(f)!.Value with { Y = Y(f) + 0.3 };
         var ground = Y(f);
         Info($"start: {Line(f, ground)}");
@@ -211,6 +241,36 @@ public sealed class NoClipTestMod : Mod
         Check(Rules.Of(f).NoClip, "and without it the switch counts again");
         await Until(() => NoClip.Of(f).Active, 10);
 
+        // ---- 5b. a teleport that moves the character's records. The game keeps components by archetype: a second
+        // player character spawned after this one shares its tables, and the Teleport component a teleport adds and takes
+        // away moves this one's components to another place (docs/re/creatures.md 1.4). The owner's game showed it:
+        // collision came back, walking and animation did not (the flight's state stayed). Every end leaves the
+        // character as before NoClip.
+        _neighbour = await Spawn.Entity("1_Player", home with { X = home.X - 3, Y = home.Y + 1 }, 0,
+            new SpawnOptions { Tag = Me, Flags = SpawnFlags.Transient });
+        if (Check(!_neighbour.IsNone, $"another player character beside it: {_neighbour}"))
+        {
+            await Steps(20);
+            await Until(() => NoClip.Of(f).Active, 10);
+            ended.Clear();
+            await Teleport.To(f, home with { X = home.X + 3, Y = home.Y + 2 }, new TeleportOptions { FindGround = false });
+            var tripped2 = await Until(() => ended.Count > 0, 30);
+            Check(tripped2 && ended[0].Reason == NoClipEnd.Teleport && !Rules.Of(f).NoClip,
+                $"with the other character beside it, a teleport ends it too: {(ended.Count > 0 ? ended[0].ToString() : "no event")}");
+            var standing = await Until(() => PlayerStates.Is(f, PlayerStateId.Grounded) && Loco(f) != 11, 200);
+            await Steps(30);
+            Check(standing && Loco(f) is 0 or 1 && PlayerStates.Is(f, PlayerStateId.Grounded) && !NoClip.Of(f).Active,
+                $"after that teleport it is out of the flight and on its feet as before NoClip (state {loco0} then): {Line(f, ground)}");
+            var walk1 = await Walk(f, 40);
+            if (walk0.Distance > 1 && walk0.OnFoot >= 30)
+                Check(walk1.Distance > walk0.Distance / 2 && walk1.OnFoot >= 30,
+                    $"and it walks again: {walk1.Distance:0.0} m in 40 steps with the stick held, on its feet in {walk1.OnFoot} of them " +
+                    $"(before NoClip {walk0.Distance:0.0} m, {walk0.OnFoot})");
+            else Info($"the lab's stick did not walk it before NoClip either ({walk0}; after: {walk1})");
+            Check(NoClip.Set(f, true) is { Ok: true, On: true }, "NoClip.Set on asks anew after that teleport");
+            await Until(() => NoClip.Of(f).Active, 10);
+        }
+
         // ---- 6. death ends it
         await Steps(5);
         ended.Clear();
@@ -219,7 +279,7 @@ public sealed class NoClipTestMod : Mod
         var died = await Until(() => ended.Count > 0, 60);
         Check(died && ended[0].Reason == NoClipEnd.Death && !Rules.Of(f).NoClip, $"death ends it: {(ended.Count > 0 ? ended[0].ToString() : $"no event (health {Combat.GetHealth(f)})")}");
         await Steps(10);
-        Check(!NoClip.Of(f).Active, $"and the body has collision again: state {Loco(f)}");
+        Check(!NoClip.Of(f).Active && Loco(f) != 11, $"and the body has collision again and is out of the flight: state {Loco(f)}");
         Info($"end: {Line(f, ground)}; NoClip status: {status}");
     }
 

@@ -134,6 +134,29 @@ int main() {
     f::world(KILN_WORLD_STOPPING, KILN_WORLD_PREDICTION, 1, true);
     check(!f::flown_recently(e, dyn) && !f::flown_recently(3, dyn), "a world with characters stopping forgets them");
     dyn[0x59] = flight_math::kFalling; c.rax = flight_math::kFalling;
+    // the game moves a character's records when a component is added or taken away (every teleport adds the Teleport
+    // component and takes it away again, docs/re/creatures.md 1.4): Kiln's flight follows the record
+    {
+        alignas(16) uint8_t moved[128]{}, again[128]{};
+        e = 3; set_rule(3, &rule); actor[0] = false;
+        f::state_body(c); dyn[0x59] = static_cast<uint8_t>(c.rax);
+        std::memcpy(moved, dyn, sizeof moved); std::memset(dyn, 0, sizeof dyn);
+        frame[1] = moved; it[1] = moved;
+        c.rax = flight_math::kBuildingFlying; f::state_body(c);
+        check(c.rax == flight_math::kBuildingFlying && f::flown_recently(3, moved),
+              "character flight goes on after a teleport moved the character's records");
+        actor[0] = true; input[1] = uint64_t{1} << 55; f::mover_pre(reinterpret_cast<uint8_t*>(it));
+        c.rax = flight_math::kBuildingFlying; f::state_body(c);
+        check(c.rax == flight_math::kWalking && !f::flown_recently(3, moved), "and it lands there as before (grounded, sinking)");
+        moved[0x59] = flight_math::kFalling; actor[0] = false; input[1] = 0;
+        c.rax = flight_math::kFalling; f::state_body(c); moved[0x59] = static_cast<uint8_t>(c.rax);  // off again
+        std::memcpy(again, moved, sizeof again); std::memset(moved, 0, sizeof moved);
+        frame[1] = again; it[1] = again;
+        set_rule(3, nullptr); c.rax = flight_math::kBuildingFlying; f::state_body(c);
+        check(c.rax == flight_math::kFalling && !f::flown_recently(3, again), "a flight whose record moved ends with its rule: it falls");
+        frame[1] = dyn; it[1] = dyn;
+        f::reset(); dyn[0x59] = flight_math::kFalling; c.rax = flight_math::kFalling;
+    }
 
     KilnApi api{}; api.service = &service; api.feature = &feature;
     KilnClientApi client{}; client.state = &client_state;

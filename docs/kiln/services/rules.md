@@ -393,7 +393,8 @@ How it plays: jump (or walk off a ledge) and the character takes off; hold **jum
 **sprint** for speed (8 m/s up or down, x2.5 with sprint; across, the game's own movement speed). It hovers with no
 input. Sinking onto the ground lands it; touching the ground otherwise keeps flying (low hover). Opening the glider,
 water, climbing, death, the rule ending, or leaving the building zone in `BuildingArea` mode ends it in the air and the
-character falls (creative mode's invulnerability covers the landing).
+character falls (creative mode's invulnerability covers the landing). A teleport in flight (fast travel, a bed) does
+not end it: the flight goes with the character (see "NoClip", what ends it), and it still lands and ends as above.
 
 `BuildingArea` checks the server's real flame-altar bounds each tick and publishes the resulting flight bit to both
 worlds. It needs readable bases and a player position; without either it stays off. It never trusts the actor's
@@ -481,6 +482,12 @@ It never lands, because without collision there is no ground. Water does not end
   used up as well. One case keeps collision off after a teleport: a mod that teleports the character into solid
   matter (its waist or head in terrain or blocks; standing on a slope is not that). Collision waits there until
   the character is out of it, and the event comes then.
+- Whatever ended it, the character is left as it would be without NoClip: out of the flight, falling or standing as
+  the game decides, then walking, running and animating as usual. The game moves a character's data to another place
+  in memory whenever a component is added to it or taken away (every teleport adds one and takes it away the step
+  after: docs/re/creatures.md 1.4, docs/re/rules.md 8); Kiln's flight goes with the character, so a teleport or Kiln's
+  own move back ends the flight like the switch does. (The first test build of 0.2.0-dev.27 lost the flight there:
+  collision came back after a teleport, but the character kept the flight's state and could not walk or animate.)
 - The player leaving, the world closing, the mod that applied the rule set unloading: rule sets end as always.
 - Opening the glider, a ladder or a wall climb end the flight, and collision with it, while the rule stays on: when the
   character is free of them it lifts off again.
@@ -500,18 +507,27 @@ hook on the step, in the server world and in the player's prediction, holds that
 for a character that is in Kiln's flight and whose rules carry NoClip, and puts it back before returning, also when
 the call ends with a fault passing through. The flight is character flight's three hooks with NoClip's differences
 (`flight_math.h`). Only a flying character is touched: one that could not fly would fall through the world. And only a
-flight Kiln started: a character that another mod put into the flying state is left alone by all four hooks. The
+flight Kiln started: a character that another mod put into the flying state is left alone by all four hooks. Kiln
+knows its flights by the character and its locomotion record; when the game moves that record (a component added or
+taken away), a record of the same character in the flying state is the same flight, as long as Kiln has not seen
+that flight end (`flight.cpp`; `kiln.log` says so for the first few moves of a world: `character flight: entity N's
+locomotion record moved`). The
 feature `rules.noclip` is on only where the game's code is the code this was written for: the step's first test, the
 branch it takes with the switch off, and that branch's target byte for byte (unset the results, return).
 `KilnRulesApi.noclip(entity, &state)` gives what the hook did.
 
-A lab (`mods/tests/noclip-test`, a spawned player character on a fresh world, `allowNoClip` on; 34 PASS, 0 FAIL):
+A lab (`mods/tests/noclip-test`, a spawned player character on a fresh world, `allowNoClip` on; 39 PASS, 0 FAIL):
 `NoClip: collision step rva 0x95890`, `standing on the ground it takes off at once: state 11, active True`, `holding
 sneak it sinks through the ground into solid rock: y -5.71 … feet m2/255 waist m2/255 head m2/255`, `the last free
 position stayed at the surface: -0.20 m from the ground`, `the rule set ended inside the rock: … Restoring = True`,
 `NoClip ended inside something; the character is back at its last free position`, `collision is back and it stands on
 the ground, not under it`, `a teleport ends it: … Teleport; the rules no longer carry it though two rule sets still
-ask`, `updating the mod's rule set asks anew: on again`, `death ends it`. What a lab cannot stage (a move back that
+ask`, `updating the mod's rule set asks anew: on again`, then with a second player character beside it (so the
+teleport moves its records to another place: `character flight: entity 2542's locomotion record moved (0xcb775480 ->
+0xcb8b5480 ...)`) `after that teleport it is out of the flight and on its feet as before NoClip ...: state 0 grounded
+True` and `it walks again: 8.3 m in 40 steps with the stick held, on its feet in 40 of them (before NoClip 8.7 m, 40)`,
+then `death ends it` and `the body ... is out of the flight: state 0`. Without the fix of that move the same run gave
+`state 11 grounded False` and `on its feet in 0 of them` (docs/re/rules.md 8). What a lab cannot stage (a move back that
 fails, NoClip asked again during a move, a teleport out of a rule's area before the rules are resolved, a character
 that leaves) is in `managed/tests/Kiln.Rules.Tests/NoClipTrackTests.cs`, with a world the test controls.
 
