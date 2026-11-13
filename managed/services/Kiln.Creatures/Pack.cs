@@ -27,6 +27,8 @@ public static unsafe partial class Creatures
     /// <param name="sectionJson">The section's value.</param>
     /// <param name="owner">Who owns it: "pack:&lt;mod id&gt;" for data packs, a mod id, or any name.</param>
     /// <param name="source">Where it came from (file), for per-file replacement.</param>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.creatures")]
     public static CreaturesPackReport ApplyJson(string sectionJson, string owner, string source = "")
     {
         Services.RequireTickThread("Creatures.ApplyJson");

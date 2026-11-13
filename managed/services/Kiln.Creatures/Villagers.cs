@@ -55,6 +55,7 @@ public sealed class Villager
     /// <summary>Walks to <paramref name="target"/> (the game's GoToPosition). It finds its way with the path grid, which
     /// exists near players; then its normal behaviour goes on, and its home stays where it was. The game ignores this while the
     /// NPC is in state <see cref="VillagerState.Start"/>, where NPCs stay without a player. Ends a <see cref="Follow"/>.</summary>
+    [RequiresCapability("kiln.creatures")]
     public void GoTo(WorldPosition target)
     {
         Villagers.StopFollow(Entity);
@@ -62,6 +63,7 @@ public sealed class Villager
     }
 
     /// <summary>Teleports it to <paramref name="at"/> and makes that its home (the game's Reset). Ends a <see cref="Follow"/>.</summary>
+    [RequiresCapability("kiln.creatures")]
     public void Teleport(WorldPosition at, float yawDegrees = 0)
     {
         Villagers.StopFollow(Entity);
@@ -69,6 +71,7 @@ public sealed class Villager
     }
 
     /// <summary>Stays where it stands: that becomes its home. Ends a <see cref="Follow"/>.</summary>
+    [RequiresCapability("kiln.creatures")]
     public void Stay()
     {
         Villagers.StopFollow(Entity);
@@ -85,6 +88,7 @@ public sealed class Villager
 }
 
 /// <summary>Friendly NPCs (villagers, crafters, traders, recruited NPCs, clones): find them and command them.</summary>
+[ServerOnly]
 public static unsafe class Villagers
 {
     private const long PollMs = 250, AllPollMs = 1000, FollowMs = 1000;
@@ -157,7 +161,7 @@ public static unsafe class Villagers
     internal static void Send(byte type, uint npcId, WorldPosition at, float yawDegrees)
     {
         var t = CreaturesNative.Require("Villagers");
-        if (t->Header.Size < (uint)sizeof(CreaturesNative.Table)) throw new NotSupportedException("kiln.creatures has no NPC commands");
+        if (t->Header.Size < (uint)sizeof(CreaturesNative.Table)) throw CreaturesCaps.Older("kiln.creatures has no NPC commands");
         var half = yawDegrees * MathF.PI / 360f;
         var c = new CreaturesNative.NpcCommand
         {

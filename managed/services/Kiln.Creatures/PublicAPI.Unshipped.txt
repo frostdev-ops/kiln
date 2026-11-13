@@ -1,1 +1,6 @@
 #nullable enable
+Kiln.CreatureChangedEvent
+Kiln.CreatureChangedEvent.Entity.get -> Kiln.EntityId
+Kiln.CreatureChangedEvent.Origin.get -> string!
+Kiln.CreatureChangedEvent.What.get -> string!
+override Kiln.CreatureChangedEvent.ToString() -> string!

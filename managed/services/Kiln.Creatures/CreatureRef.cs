@@ -25,6 +25,8 @@ public readonly unsafe struct CreatureRef
     public bool Exists => Spawn.Inspect(Entity) is not null;
 
     /// <summary>A full snapshot, or null when the entity does not exist.</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.creatures")]
     public CreatureInfo? Inspect()
     {
         var t = Creatures.Tick("CreatureRef.Inspect");
@@ -53,6 +55,7 @@ public readonly unsafe struct CreatureRef
     /// on when the last lets go or unloads. With it off, the body, sequences and damage keep running; decisions stop, and
     /// the game also stops upkeep of the combat target (<c>SelectedTargets</c> clears). Your code drives through
     /// <c>ActorInput</c> and sequences on the tick thread. Tick thread.</summary>
+    [RequiresCapability("kiln.creatures")]
     [TickThreadOnly]
     public bool AiEnabled
     {
@@ -68,11 +71,13 @@ public readonly unsafe struct CreatureRef
             var t = Creatures.Tick("CreatureRef.AiEnabled");
             var o = Creatures.RequireOwner(_owner, "CreatureRef.AiEnabled");
             Creatures.Check(t->AiSwitch(o.Native, Entity.Value, value ? 1u : 0u), $"entity {Entity}: AI switch");
+            Creatures.Changed(Entity, "AiEnabled");
         }
     }
 
     /// <summary>The creature's phase as a rule's <see cref="Is.InPhase(string)"/> sees it: FNV-1a of the phase's GUID, 0 for
     /// none. Works on any body; the game's own phases exist only on templates with <c>EnemyPhases</c>. Tick thread.</summary>
+    [RequiresCapability("kiln.creatures")]
     [TickThreadOnly]
     public uint Phase
     {
@@ -86,20 +91,24 @@ public readonly unsafe struct CreatureRef
     }
 
     /// <summary>Sets the phase by name (see <see cref="Is.InPhase(string)"/>). Tick thread.</summary>
+    [RequiresCapability("kiln.creatures")]
     [TickThreadOnly]
     public void SetPhase(string name) => SetPhase(RuleIds.Phase(name));
 
     /// <summary>Sets the phase by GUID. Tick thread.</summary>
+    [RequiresCapability("kiln.creatures")]
     [TickThreadOnly]
     public void SetPhase(Guid phase)
     {
         var t = Creatures.Tick("CreatureRef.SetPhase");
         Creatures.Check(t->RulesPhaseSet(Entity.Value, RuleIds.Fnv(phase)), $"entity {Entity}: phase");
+        Creatures.Changed(Entity, "Phase");
     }
 
     /// <summary>Holds <paramref name="target"/> as the creature's combat target for <paramref name="seconds"/>, then the game
     /// chooses again: it sends the game's <c>AddThreatTargetEvent</c>, so the creature stays in Combat, and keeps the game's
     /// target pass from switching away. Needs no hook. Tick thread.</summary>
+    [RequiresCapability("kiln.creatures")]
     [TickThreadOnly]
     public void PreferTarget(EntityId target, double seconds = 5, float threat = 5000f)
     {
@@ -107,21 +116,28 @@ public readonly unsafe struct CreatureRef
         var o = Creatures.RequireOwner(_owner, "CreatureRef.PreferTarget");
         Command.Attack(target, threat);
         Creatures.Check(t->TargetPrefer(o.Native, Entity.Value, target.Value, (float)seconds), $"entity {Entity}: target");
+        Creatures.Changed(Entity, "Target");
     }
 
     /// <summary>Lets go of a target held with <see cref="PreferTarget"/>: the game chooses again. Tick thread.</summary>
+    [RequiresCapability("kiln.creatures")]
     [TickThreadOnly]
     public void ReleaseTarget()
     {
         var t = Creatures.Tick("CreatureRef.ReleaseTarget");
         var o = Creatures.RequireOwner(_owner, "CreatureRef.ReleaseTarget");
         Creatures.Check(t->TargetPrefer(o.Native, Entity.Value, 0, 0), $"entity {Entity}: target");
+        Creatures.Changed(Entity, "Target");
     }
 
     /// <summary>The enemy AI state (Invalid without enemy AI).</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.creatures")]
     public EnemyState State => Inspect()?.State ?? EnemyState.Invalid;
 
     /// <summary>The AI's current target (SelectedTargets[0]); None when it has none.</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.creatures")]
     public EntityId Target => Inspect()?.Target ?? EntityId.None;
 
     // ---------------------------------------------------------------------------------------------- values ----
@@ -139,6 +155,7 @@ public readonly unsafe struct CreatureRef
         var t = Creatures.Tick("CreatureRef");
         var o = Creatures.RequireOwner(_owner, what);
         Creatures.Check(t->Set(o.Native, Entity.Value, field, index, &v), $"entity {Entity}: {what}");
+        Creatures.Changed(Entity, what);
     }
 
     private void SetNumber(uint field, double value, string what, uint index = 0) =>
@@ -146,6 +163,8 @@ public readonly unsafe struct CreatureRef
 
     /// <summary>Level (1..its level max). The game's enemy_scaling re-scales health and damage from it within a step
     /// (Vukah: level 1 = 119 HP, 10 = 417, 20 = about 900).</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.creatures")]
     public int Level
     {
         get => (int)GetRaw(CreaturesNative.Level).Number;
@@ -153,6 +172,8 @@ public readonly unsafe struct CreatureRef
     }
 
     /// <summary>Faction: who it fights. <see cref="Kiln.Faction.PlayerAlly"/> makes it fight on the players' side.</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.creatures")]
     public Faction Faction
     {
         get => (Faction)(byte)GetRaw(CreaturesNative.Faction).Number;
@@ -160,6 +181,8 @@ public readonly unsafe struct CreatureRef
     }
 
     /// <summary>Uniform scale (ScaleComponent and the transform's scale).</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.creatures")]
     public float Scale
     {
         get => (float)GetRaw(CreaturesNative.Scale).Number;
@@ -167,6 +190,8 @@ public readonly unsafe struct CreatureRef
     }
 
     /// <summary>XP factor of a kill (ExperienceSource.xpMod; 1 = the template's).</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.creatures")]
     public float XpFactor
     {
         get => (float)GetRaw(CreaturesNative.Xp).Number;
@@ -174,6 +199,8 @@ public readonly unsafe struct CreatureRef
     }
 
     /// <summary>Factor on all movement speeds against the values before the first change (1 = unchanged).</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.creatures")]
     public float SpeedFactor
     {
         get => (float)GetRaw(CreaturesNative.Speed).Number;
@@ -181,6 +208,8 @@ public readonly unsafe struct CreatureRef
     }
 
     /// <summary>Damage multiplier (DamageMod_Multiplier; DamageMod = base * multiplier + adder).</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.creatures")]
     public float DamageFactor
     {
         get => (float)GetRaw(CreaturesNative.Damage).Number;
@@ -189,6 +218,8 @@ public readonly unsafe struct CreatureRef
 
     /// <summary>Where it roams around and returns to (the AI's home zone centre). Setting it moves an idle creature
     /// there over time (roaming, return home); a vanilla behaviour, not a path command.</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.creatures")]
     public WorldPosition Home
     {
         get
@@ -214,6 +245,8 @@ public readonly unsafe struct CreatureRef
     /// <summary>The arsenal (attacks and behaviour rules) its enemy AI uses. Setting it gives the entity a private
     /// EnemyArsenalReference copy: the AI looks the arsenal up by GUID every update. Only arsenals of the same skeleton
     /// family animate correctly (their attack sequences assume the skeleton).</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.creatures")]
     public Guid Arsenal
     {
         get
@@ -229,6 +262,8 @@ public readonly unsafe struct CreatureRef
 
     /// <summary>Drops everything the calling mod changed on this creature (values, AI overrides, its attack override, AI
     /// switch and held target). Returns how many values and AI overrides were dropped.</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.creatures")]
     public int Reset()
     {
         var t = Creatures.Tick("CreatureRef.Reset");
@@ -241,11 +276,14 @@ public readonly unsafe struct CreatureRef
         t->SetAttackOverride(o.Native, Entity.Value, null);
         t->AiSwitch(o.Native, Entity.Value, 1);
         t->TargetPrefer(o.Native, Entity.Value, 0, 0);
+        Creatures.Changed(Entity, "Reset");
         return (int)(a + b);
     }
 
     /// <summary>Lab only (needs <c>kiln/data/kiln.creatures/force-ready</c>): keeps the creature "ready for gameplay"
     /// so its AI leaves Spawning without a player near. It still cannot walk (no path grid without a player).</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.creatures")]
     [System.Diagnostics.CodeAnalysis.Experimental("KILNX001", UrlFormat = "https://github.com/frostdev-ops/kiln/blob/main/docs/kiln/modding/analyzers.md#kilnx001")]
     [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
     public void ForceReady(bool on = true)
@@ -270,6 +308,8 @@ public readonly unsafe struct CreatureRef
         private readonly CreatureRef _c;
         internal ResistanceAccess(CreatureRef c) => _c = c;
 
+        [TickThreadOnly]
+        [RequiresCapability("kiln.creatures")]
         public float this[DamageKind kind]
         {
             get => (float)_c.GetRaw(CreaturesNative.Resist, (uint)kind).Number;
@@ -277,6 +317,8 @@ public readonly unsafe struct CreatureRef
         }
 
         /// <summary>Drops the calling mod's change of one kind.</summary>
+        [TickThreadOnly]
+        [RequiresCapability("kiln.creatures")]
         public void Reset(DamageKind kind) => _c.ResetField(CreaturesNative.Resist, (uint)kind);
     }
 
@@ -286,6 +328,8 @@ public readonly unsafe struct CreatureRef
         internal LootAccess(CreatureRef c) => _c = c;
 
         /// <summary>RandomLoot.defaultLabels: the loot label collection its drops are rolled from.</summary>
+        [TickThreadOnly]
+        [RequiresCapability("kiln.creatures")]
         public Guid Labels
         {
             get => _c.GetRaw(CreaturesNative.LootLabels).Guid.ToGuid();
@@ -293,6 +337,8 @@ public readonly unsafe struct CreatureRef
         }
 
         /// <summary>How many loot slots are rolled (min, max).</summary>
+        [TickThreadOnly]
+        [RequiresCapability("kiln.creatures")]
         public (int Min, int Max) Slots
         {
             get
@@ -304,6 +350,8 @@ public readonly unsafe struct CreatureRef
         }
 
         /// <summary>No random loot at all.</summary>
+        [TickThreadOnly]
+        [RequiresCapability("kiln.creatures")]
         public bool Disabled
         {
             get => _c.GetRaw(CreaturesNative.LootDisabled).Number != 0;
@@ -317,16 +365,26 @@ public readonly unsafe struct CreatureRef
         internal FeatureAccess(CreatureRef c) => _c = c;
 
         /// <summary>The features this entity has on top of / against its template (per-entity masks).</summary>
+        [TickThreadOnly]
+        [RequiresCapability("kiln.creatures")]
         public EnemyFeatures Enabled => (EnemyFeatures)(uint)_c.GetRaw(CreaturesNative.FeaturesOn).Number;
+        [TickThreadOnly]
+        [RequiresCapability("kiln.creatures")]
         public EnemyFeatures Disabled => (EnemyFeatures)(uint)_c.GetRaw(CreaturesNative.FeaturesOff).Number;
 
         /// <summary>Switches features on for this entity (the calling mod's layer; layers of several mods combine).</summary>
+        [TickThreadOnly]
+        [RequiresCapability("kiln.creatures")]
         public void Enable(EnemyFeatures f) => _c.SetRaw(CreaturesNative.FeaturesOn, 0, new CreaturesNative.Value { Number = (uint)f }, "Features.Enable");
 
         /// <summary>Switches features off for this entity (e.g. FleeHome | ReturnHome: never runs home).</summary>
+        [TickThreadOnly]
+        [RequiresCapability("kiln.creatures")]
         public void Disable(EnemyFeatures f) => _c.SetRaw(CreaturesNative.FeaturesOff, 0, new CreaturesNative.Value { Number = (uint)f }, "Features.Disable");
 
         /// <summary>Drops the calling mod's feature changes.</summary>
+        [TickThreadOnly]
+        [RequiresCapability("kiln.creatures")]
         public void Reset()
         {
             _c.ResetField(CreaturesNative.FeaturesOn, 0);
@@ -340,6 +398,7 @@ public readonly unsafe struct CreatureRef
         var o = Creatures.RequireOwner(_owner, "Reset");
         uint n = 0;
         t->Reset(o.Native, Entity.Value, field, index, &n);
+        if (n > 0) Creatures.Changed(Entity, "Reset");
     }
 }
 
@@ -376,6 +435,8 @@ public readonly unsafe struct AiAccess
 
     /// <summary>Sets a field (text: numbers, true/false, enum names, flags "A|B" or "+A -B", GUIDs, seconds for
     /// keen::Time). Throws <see cref="ArgumentException"/> for unknown paths or values (kiln.log has the reason).</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.creatures")]
     public void Set(string path, string value)
     {
         var t = Creatures.Tick("Ai.Set");
@@ -388,14 +449,23 @@ public readonly unsafe struct AiAccess
         fixed (byte* b = ps.Bytes)
         fixed (byte* d = vs.Bytes)
             Creatures.Check(t->AiSet(o.Native, _e.Value, cs.Str(a), ps.Str(b), vs.Str(d)), $"entity {_e}: Ai.Set {c}.{p} = {value}");
+        Creatures.Changed(_e, $"Ai.{c}.{p}");
     }
 
+    [TickThreadOnly]
+    [RequiresCapability("kiln.creatures")]
     public void Set(string path, double value) => Set(path, value.ToString("R", CultureInfo.InvariantCulture));
+    [TickThreadOnly]
+    [RequiresCapability("kiln.creatures")]
     public void Set(string path, bool value) => Set(path, value ? "true" : "false");
 
     /// <summary>The field as this entity reads it now (its copy, else the shared template).</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.creatures")]
     public string Get(string path) => Get(path, out _);
 
+    [TickThreadOnly]
+    [RequiresCapability("kiln.creatures")]
     public string Get(string path, out bool isPrivate)
     {
         var t = Creatures.Tick("Ai.Get");
@@ -412,6 +482,8 @@ public readonly unsafe struct AiAccess
         return System.Text.Encoding.UTF8.GetString(buf, (int)len);
     }
 
+    [TickThreadOnly]
+    [RequiresCapability("kiln.creatures")]
     public double GetNumber(string path) => double.Parse(Get(path), CultureInfo.InvariantCulture);
 
     /// <summary>Several fields at once.</summary>
@@ -419,6 +491,8 @@ public readonly unsafe struct AiAccess
 
     /// <summary>Drops the calling mod's AI overrides (one path, one component, or all). The entity reads the shared
     /// template again once no override is left.</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.creatures")]
     public int Reset(string? pathOrComponent = null)
     {
         var t = Creatures.Tick("Ai.Reset");
@@ -436,6 +510,7 @@ public readonly unsafe struct AiAccess
         fixed (byte* a = cs.Bytes)
         fixed (byte* b = ps.Bytes)
             t->AiReset(o.Native, _e.Value, cs.Str(a), ps.Str(b), &n);
+        if (n > 0) Creatures.Changed(_e, "Ai.Reset");
         return (int)n;
     }
 }
@@ -464,15 +539,21 @@ public readonly unsafe struct CreatureCommands
     }
 
     /// <summary>"Attack that": adds threat on the target (AddThreatTargetEvent; the threat system picks it).</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.creatures")]
     public void Attack(EntityId target, float threat = 1000) => Send(CreaturesNative.CmdAttack, target, threat);
 
     /// <summary>Guard (follow and protect) an entity, a player for companions: the game's StartGuardingEvent (its
     /// Guard state walks to the target) kept by Kiln with <see cref="GuardOptions.Default"/> (order kept, home follows,
     /// catch-up teleport, defend and assist). The order belongs to the calling mod and ends with
     /// <see cref="StopGuarding"/>, <see cref="Stay"/>, the guard's or the target's despawn, or the mod's unload.</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.creatures")]
     public void Guard(EntityId target) => Guard(target, GuardOptions.Default);
 
     /// <summary>Guard with explicit options (<see cref="GuardOptions.EventOnly"/> = only the game's event).</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.creatures")]
     public void Guard(EntityId target, GuardOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
@@ -483,6 +564,8 @@ public readonly unsafe struct CreatureCommands
 
     /// <summary>Stop guarding (StopGuardingEvent, sent again until the game cleared it); ends Kiln's guard order (its
     /// home goes back).</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.creatures")]
     public void StopGuarding(EntityId target)
     {
         Send(CreaturesNative.CmdStopGuard, target);
@@ -491,6 +574,8 @@ public readonly unsafe struct CreatureCommands
     }
 
     /// <summary>Stay here: stops guarding whom it guards and sets its home to where it stands.</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.creatures")]
     public void Stay()
     {
         var c = new CreatureRef(_e, _owner);
@@ -503,11 +588,17 @@ public readonly unsafe struct CreatureCommands
 
     /// <summary>Move toward a position: its home zone moves there (roaming / return home walk it over). Not a
     /// direct path command: the enemy AI has none.</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.creatures")]
     public void MoveTo(WorldPosition position) => new CreatureRef(_e, _owner).Home = position;
 
     /// <summary>Restore health over <paramref name="seconds"/> (RestoreEnemyHealthEvent).</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.creatures")]
     public void Heal(float seconds = 3) => Send(CreaturesNative.CmdHeal, EntityId.None, seconds);
 
     /// <summary>A player-controlled combat target (RegisterControlledCombatTargetEvent, as companions get).</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.creatures")]
     public void ControlTarget(EntityId target) => Send(CreaturesNative.CmdControl, target);
 }

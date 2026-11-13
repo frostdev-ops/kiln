@@ -679,3 +679,28 @@ the line is the evidence to send. Internals and measurements: `docs/re/content.m
 - Recipes in the trader's barter screen and random loot rolled for a player are client checks.
 - Global loot multiplier: the world setting "Loot Amount" (`resourceDropStackAmountFactor`) is kiln.settings';
   per-table and per-item changes are here.
+
+## The contract (dev.27)
+
+Kiln.Content follows [the API contract](../modding/contract.md).
+
+- **Capabilities.** `kiln.content` and `kiln.gamedata` (the tables); the server-side sigdb features (`content.items`,
+  `content.recipes`, `content.loot`, `content.loot_new`, `content.drops`, `content.new`, `content.reflection`,
+  `content.stack_guard`; `gamedata.template_clones`, `gamedata.buff_lookup`), lowered by Kiln.Content when their
+  service is not loaded; `content.references` (managed, static: this kiln.content sets references, table v4) and
+  `content.ready` (managed, session: the registries are loaded and the packs applied, `Content.Ready`; refreshed
+  every 25 steps).
+- **Errors.** A capability that is off throws `KilnUnavailableException` naming it, where these members threw
+  `NotSupportedException` before (it still is one). Each member carries `[RequiresCapability]` with the row it
+  needs: `kiln.content`, `kiln.gamedata`, `content.new` (`NewContent`), `content.references` (`SetRef`, `SetPerks`),
+  `gamedata.template_clones` (`GameDataRegistry.Define`). Unknown fields and refused values keep
+  `KeyNotFoundException` / `ArgumentException`.
+- **Events.** `ContentChangedEvent` (new) is posted for every change made from code: `ContentEntry.Set`, `SetRef`,
+  `SetInputs` / `SetOutputs`, `SetStacks` (`Set`), `ContentEntry.Reset` (`Reset`), `Content.Apply` (`Applied`) and
+  `Content.Revert` (`Reverted`), with the entry, the path and the mod. Data packs that load without a call keep
+  reporting through `ContentReadyEvent`. Not covered yet: `GameDataEntry.Set` and `NewContent.Register` (kiln.gamedata
+  has `GameDataEvent` for its own animation events only).
+- **Threads.** `[TickThreadOnly]` on every call that reads or writes a registry (also `RecipeStack.ToString`, which
+  looks its item's name up); `Content.Ready` and `Status()` read kiln.content's own bookkeeping on any thread.
+- Tested offline: rows, exceptions, attributes and the event's shape (`Kiln.Contract.Tests`). The event's call sites
+  run only against a real kiln.content; no lab run in dev.27 has watched them.

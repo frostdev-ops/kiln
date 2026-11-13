@@ -67,6 +67,8 @@ public sealed class NpcView
     public CreatureRef Creature => Creatures.Of(Entity);
 
     /// <summary>A snapshot of the creature, taken once per call; null when it is gone.</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.creatures")]
     public CreatureInfo? Info
     {
         get
@@ -80,25 +82,39 @@ public sealed class NpcView
         }
     }
 
+    [TickThreadOnly]
+    [RequiresCapability("kiln.creatures")]
     public int Health => Info?.Health ?? 0;
+    [TickThreadOnly]
+    [RequiresCapability("kiln.creatures")]
     public int HealthMax => Info?.HealthMax ?? 0;
 
     /// <summary>Health as a fraction, 0 to 1.</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.creatures")]
     public double HealthFraction => HealthMax > 0 ? (double)Health / HealthMax : 0;
 
+    [TickThreadOnly]
+    [RequiresCapability("kiln.creatures")]
     public EnemyState State => Info?.State ?? EnemyState.Invalid;
 
     /// <summary>The combat target, default when it has none.</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.creatures")]
     public EntityId Target => Info?.Target ?? default;
 
     /// <summary>Where it stands, null when it is gone.</summary>
     public WorldPosition? Position => World.Position(Entity);
 
     /// <summary>Metres to the combat target, null without one.</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.creatures")]
     public double? TargetDistance =>
         Target.Value != 0 && World.TryGetPosition(Entity, out var a) && World.TryGetPosition(Target, out var b) ? a.DistanceTo(b) : null;
 
     /// <summary>Its phase is this one of the calling mod's.</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.creatures")]
     public bool InPhase(string name) => Creature.Phase == RuleIds.Fnv(RuleIds.Phase(name));
 }
 
@@ -547,14 +563,17 @@ public readonly unsafe struct AttackControl
     /// <summary>Whenever the creature attacks, it starts this one, past its style, range, cooldown and constraints.</summary>
     /// <exception cref="ArgumentOutOfRangeException">The arsenal the creature reads now has no attack at <paramref name="index"/>.</exception>
     /// <exception cref="NotSupportedException">The creature has no arsenal, or attack overrides are off on this build.</exception>
+    [RequiresCapability("kiln.creatures")]
     [TickThreadOnly]
     public void Force(int index) => Set(index, ~0u);
 
     /// <summary>Forces the calling mod's attack by name, in the arsenal the creature reads now.</summary>
+    [RequiresCapability("kiln.creatures")]
     [TickThreadOnly]
     public void Force(string name) => Force(RuleIds.Attack(name));
 
     /// <summary>Forces an attack by GUID, in the arsenal the creature reads now.</summary>
+    [RequiresCapability("kiln.creatures")]
     [TickThreadOnly]
     public void Force(Guid attack)
     {
@@ -564,6 +583,7 @@ public readonly unsafe struct AttackControl
     }
 
     /// <summary>The game picks with its own rules, among these indexes only (0 to 31).</summary>
+    [RequiresCapability("kiln.creatures")]
     [TickThreadOnly]
     public void Allow(params int[] indexes)
     {
@@ -578,10 +598,12 @@ public readonly unsafe struct AttackControl
     }
 
     /// <summary>The game chooses as it does without an override, and an arsenal with <see cref="ArsenalSpec.PickAttack"/> stops waiting.</summary>
+    [RequiresCapability("kiln.creatures")]
     [TickThreadOnly]
     public void Natural() => Set(-1, ~0u);
 
     /// <summary>Drops this mod's override.</summary>
+    [RequiresCapability("kiln.creatures")]
     [TickThreadOnly]
     public void Clear()
     {
@@ -610,6 +632,7 @@ public readonly unsafe struct AttackControl
 /// has, for every creature using it. Several mods on one arsenal merge. All of it is server side: a game sequence on a game body
 /// needs nothing on clients.
 /// </summary>
+[ServerOnly]
 public static unsafe class Arsenals
 {
     private static readonly List<ArsenalHandle> Handles = [];
@@ -654,6 +677,7 @@ public static unsafe class Arsenals
     /// <summary>A new arsenal of the calling mod: GUID <c>UUIDv5(&lt;mod&gt;:arsenal:&lt;name&gt;)</c>. It exists from the next step.
     /// Throws <see cref="ArgumentException"/> with the reason for a type or field the game's reflection does not have; a limit
     /// that depends on the base arsenal (32 attacks, 32 rules) shows in <see cref="Info"/>'s problems instead.</summary>
+    [RequiresCapability("creatures.arsenals")]
     [TickThreadOnly]
     public static ArsenalHandle Define(string name, ArsenalSpec spec)
     {
@@ -679,6 +703,7 @@ public static unsafe class Arsenals
 
     /// <summary>Adds to an arsenal the game has, for every creature that uses it, by its GUID. The game's own attacks and rules stay
     /// at their indexes; yours come after them.</summary>
+    [RequiresCapability("creatures.arsenals")]
     [TickThreadOnly]
     public static ArsenalHandle Extend(Guid arsenal, ArsenalSpec spec)
     {
@@ -687,6 +712,7 @@ public static unsafe class Arsenals
     }
 
     /// <summary>Adds to the arsenal a template names.</summary>
+    [RequiresCapability("creatures.arsenals")]
     [TickThreadOnly]
     public static ArsenalHandle Extend(string template, ArsenalSpec spec)
     {
@@ -724,6 +750,7 @@ public static unsafe class Arsenals
     /// exceptions: an exception escaping UnmanagedCallersOnly terminates the process. In particular, Keep and
     /// OriginalCode are gated even for advanced mods and refuse this unattributed job thread; cache their pointers,
     /// bytes or addresses during OnLoad instead of calling them in the handler.</remarks>
+    [RequiresCapability("kiln.creatures")]
     [AdvancedApi]
     [TickThreadOnly]
     public static void JobHandler(uint id, nint function, nint user = 0)
@@ -738,6 +765,7 @@ public static unsafe class Arsenals
     public static (double Milliseconds, long Pumps) PumpCost => RulePump.Cost;
 
     /// <summary>The arsenal with this GUID as the AI reads it now, or null. Tick thread.</summary>
+    [RequiresCapability("kiln.creatures")]
     [TickThreadOnly]
     public static ArsenalInfo? Info(Guid id)
     {
@@ -759,6 +787,7 @@ public static unsafe class Arsenals
     }
 
     /// <summary>Rebuilds Kiln's arsenals from the game's current data; Kiln.Creatures does this after a content change. Tick thread.</summary>
+    [RequiresCapability("kiln.creatures")]
     [TickThreadOnly]
     public static int Refresh()
     {
@@ -769,6 +798,7 @@ public static unsafe class Arsenals
     }
 
     /// <summary>Reads every arsenal of the game and writes it back through the writer in memory: how many, and how many differ. Tick thread.</summary>
+    [RequiresCapability("kiln.creatures")]
     [TickThreadOnly]
     public static (int Checked, int Bad) SelfTest()
     {
@@ -779,6 +809,7 @@ public static unsafe class Arsenals
     }
 
     /// <summary>How many times a condition slot was evaluated, and came out true. For tests and tuning.</summary>
+    [RequiresCapability("kiln.creatures")]
     public static (ulong Evaluated, ulong True) ConditionStats(RuleCondition condition)
     {
         var slot = RulePump.SlotOf(condition);
@@ -934,7 +965,7 @@ public static unsafe class Arsenals
     {
         ArgumentNullException.ThrowIfNull(spec);
         var t = Creatures.Tick("Arsenals");
-        if (t->Header.Size < (uint)sizeof(CreaturesNative.Table)) throw new NotSupportedException("Arsenals needs a newer kiln.creatures");
+        if (t->Header.Size < (uint)sizeof(CreaturesNative.Table)) throw CreaturesCaps.Older("Arsenals needs a newer kiln.creatures");
         // A new handle replaces what this owner wrote here before.
         foreach (var old in HandlesOf(id).Where(h => h.Owner.Native == owner.Native).ToList()) Remove(old);
         var h = new ArsenalHandle(id, owner, source) { PickAttack = spec.PickAttack, PickTarget = spec.PickTarget, PickEvery = spec.PickEvery };
@@ -971,14 +1002,14 @@ public static unsafe class Arsenals
             if (rc != CreaturesNative.Ok)
             {
                 var text = System.Text.Encoding.UTF8.GetString(error[..Math.Min((int)len, error.Length - 1)]);
-                if (rc == CreaturesNative.Unavailable) throw new NotSupportedException($"arsenal {id}: {text}");
+                if (rc == CreaturesNative.Unavailable) throw CreaturesCaps.Off(CreaturesCaps.Arsenals, $"arsenal {id}: {text}");
                 throw new ArgumentException($"arsenal {id}: {text}");
             }
             if (spec.PickAttack != null)
             {
                 var g = CreaturesNative.GuidBytes.From(id);
                 rc = t->AttackPickArsenal(owner.Native, &g, 1);
-                if (rc == CreaturesNative.Unavailable) throw new NotSupportedException($"arsenal {id}: attack overrides are not available on this build");
+                if (rc == CreaturesNative.Unavailable) throw CreaturesCaps.Off(CreaturesCaps.Attacks, $"arsenal {id}: attack overrides are not available on this build");
                 Creatures.Check(rc, "PickAttack");
             }
             ok = true;

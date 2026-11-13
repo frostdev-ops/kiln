@@ -209,8 +209,13 @@ internal static unsafe class CreaturesNative
     /// <summary>The table, or null when kiln.creatures is not loaded (looked up again until it is found).</summary>
     public static Table* T => _t != null ? _t : _t = Services.Get<Table>(Name, Version);
 
-    public static Table* Require(string api) =>
-        T != null ? T : throw new NotSupportedException($"{api}: kiln.creatures is not available on this server build");
+    public static Table* Require(string api)
+    {
+        var t = T;
+        if (t != null) return t;
+        CreaturesCaps.Rows.Ensure();
+        throw ServiceCaps.Unavailable(CreaturesCaps.Service, $"{api}: kiln.creatures is not available on this server build");
+    }
 
     public static string Describe(int rc) => rc switch
     {

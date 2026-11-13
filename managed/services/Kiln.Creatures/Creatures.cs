@@ -18,14 +18,17 @@ namespace Kiln;
 /// <para>Vanilla clients see the results through the game's own replication (health, level, faction, transforms, AI
 /// state, attacks). The server marks the components Kiln writes as changed so they replicate like game writes.</para>
 /// </remarks>
+[ServerOnly]
 public static unsafe partial class Creatures
 {
     static Creatures() => EnsureListener();
 
-    /// <summary>True when kiln.creatures is loaded on this build.</summary>
+    /// <summary>True when kiln.creatures is loaded on this build (capability <c>kiln.creatures</c>).</summary>
+    [AnyThread]
     public static bool Available => CreaturesNative.T != null;
 
     /// <summary>What works on this build (null when unavailable). Any thread.</summary>
+    [AnyThread]
     public static CreaturesStatus? Status
     {
         get
@@ -108,6 +111,7 @@ public static unsafe partial class Creatures
 
     /// <summary>Creatures (enemy AI, villagers and animals of the catalog) within <paramref name="radius"/> metres of
     /// <paramref name="center"/>, nearest first. Tick thread.</summary>
+    [TickThreadOnly]
     public static IReadOnlyList<EntityId> Near(WorldPosition center, double radius, CreatureKind? kind = null)
     {
         Services.RequireTickThread("Creatures.Near");
@@ -127,6 +131,7 @@ public static unsafe partial class Creatures
 
     /// <summary>The JSON field list of a template component ("Enemy01BehaviorState", "Aggro", "EnemyScaling", ...)
     /// from the game's reflection: what <see cref="CreatureRef.Ai"/> accepts. Any thread.</summary>
+    [RequiresCapability("kiln.creatures")]
     public static string AiFields(string component = "Enemy01BehaviorState")
     {
         var t = CreaturesNative.Require("Creatures.AiFields");
@@ -142,6 +147,8 @@ public static unsafe partial class Creatures
 
     /// <summary>Rebuilds private AI copies from the shared template data (all entities, or one) and re-applies the
     /// overrides; Kiln.Creatures does this itself after a content (template data) change. Tick thread.</summary>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.creatures")]
     public static int RefreshCopies(EntityId entity = default)
     {
         var t = Tick("Creatures.RefreshCopies");
@@ -208,6 +215,16 @@ public static unsafe partial class Creatures
         return t;
     }
 
+    /// <summary>Posts <see cref="CreatureChangedEvent"/> for a change the calling mod made on one creature. Built only
+    /// while someone subscribes.</summary>
+    internal static void Changed(EntityId entity, string what)
+    {
+        if (Events.HasSubscribers<CreatureChangedEvent>())
+            Events.Post(new CreatureChangedEvent(entity, what, ModContext.CurrentMod?.Info.Id ?? ""));
+    }
+
+    // "Unavailable" from a per-creature call stays a plain NotSupportedException: it means "this entity lacks that
+    // component" as often as "this build cannot do it", so it names no capability.
     internal static void Check(int rc, string what)
     {
         if (rc == CreaturesNative.Ok) return;

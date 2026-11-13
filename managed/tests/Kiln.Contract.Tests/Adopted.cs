@@ -25,6 +25,8 @@ internal static class Adopted
         typeof(Gameplay),
         typeof(Build),
         typeof(Skills),
+        typeof(Content),
+        typeof(Creatures),
     ];
 
     internal static IEnumerable<Assembly> Assemblies => Anchors.Select(t => t.Assembly).Distinct();
