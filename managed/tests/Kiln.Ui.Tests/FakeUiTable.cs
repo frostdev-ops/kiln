@@ -6,6 +6,11 @@ using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
 
+// The whole assembly runs one test class at a time. These tests share Kiln.Ui's process-wide state (the native table
+// pointer, the backend, the menu): classes outside a collection ran beside the serial ones, and now and then one called
+// through a table another had just taken away (a null function pointer, a crash of the test host, seen under load).
+[assembly: Xunit.CollectionBehavior(DisableTestParallelization = true)]
+
 namespace Kiln.FakeUi;
 
 /// <summary>Tests that swap the backend and drive Kiln.Ui's shared state (the ShroudForge settings writer, the Keys tab, the
