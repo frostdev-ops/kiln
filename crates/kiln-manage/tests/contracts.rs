@@ -61,7 +61,7 @@ fn kdh1_matches_the_fixtures() {
     let dir = repo().join("schema/fixtures/dirhash");
     let expected: serde_json::Value = serde_json::from_str(&read("schema/fixtures/dirhash/expected.json")).unwrap();
     let cases = expected["cases"].as_object().unwrap();
-    assert!(cases.len() >= 14);
+    assert!(cases.len() >= 17);
     for (name, want) in cases {
         let got = hash::dirhash(&dir.join("cases").join(name)).unwrap();
         assert_eq!(&got, want.as_str().unwrap(), "case {name}");
@@ -101,10 +101,53 @@ fn mod_identity_matches_the_fixtures() {
     let of = |m: &str, n: &str| expected[m][n].as_str().unwrap().to_string();
     assert_eq!(of("identity", "mod-cooked"), of("cases", "mod"), "a mod with cooked files is the same mod without them");
     assert_ne!(of("identity", "mod-cooked"), of("cases", "mod-cooked"));
-    for n in ["cooked-not-a-mod", "cooked-manifest-folder", "mod-cooked-case", "mod-cooked-file"] {
+    for n in ["cooked-not-a-mod", "cooked-manifest-folder", "mod-cooked-case", "mod-cooked-file", "mod-cooked-empty"] {
         assert_eq!(of("identity", n), of("cases", n), "{n}: everything counts");
     }
-    assert_ne!(of("identity", "mod-cooked-names"), of("cases", "mod-cooked-names"));
+    // a manifest that is no JSON still makes the folder a Kiln mod; a mod inside a mod keeps its own cooked folder counted
+    for n in ["mod-cooked-names", "mod-bad-manifest", "mod-nested-mod"] {
+        assert_ne!(of("identity", n), of("cases", n), "{n}");
+    }
+}
+
+/// A dot entry is skipped whatever its name is made of; only a name that counts has to be valid Unicode. The Python
+/// reference says the same of the same folder (a name of such bytes cannot be a committed fixture).
+#[cfg(unix)]
+#[test]
+fn a_hidden_entry_with_a_name_that_is_not_unicode_is_skipped_like_any_dot_entry() {
+    use std::os::unix::ffi::OsStrExt;
+    let tmp = std::env::temp_dir().join(format!("kdh1-bytes-test-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&tmp);
+    let m = tmp.join("m");
+    std::fs::create_dir_all(m.join("assets/cooked")).unwrap();
+    std::fs::write(m.join("kiln.mod.json"), b"{}").unwrap();
+    std::fs::write(m.join("a.txt"), b"a").unwrap();
+    let plain = (hash::dirhash(&m).unwrap(), hash::mod_identity(&m).unwrap());
+    let bytes = |s: &[u8]| std::ffi::OsStr::from_bytes(s).to_os_string();
+    std::fs::write(m.join(bytes(b".bad\xff")), b"hidden").unwrap();
+    std::fs::create_dir_all(m.join(bytes(b".dir\xfe"))).unwrap();
+    std::fs::write(m.join(bytes(b".dir\xfe")).join("x"), b"x").unwrap();
+    // inside the cooked folder nothing is looked at by the identity, a name of any bytes included
+    std::fs::write(m.join("assets/cooked").join(bytes(b"clip\xff.bin")), b"c").unwrap();
+    assert_eq!(hash::mod_identity(&m).unwrap(), plain.1);
+    assert_eq!(hash::dirhash(&m).unwrap_err().code, ErrorCode::Refused, "kdh1 counts that file, and its name is not Unicode");
+    std::fs::remove_file(m.join("assets/cooked").join(bytes(b"clip\xff.bin"))).unwrap();
+    assert_eq!((hash::dirhash(&m).unwrap(), hash::mod_identity(&m).unwrap()), plain);
+    // the reference, on the same folder
+    let script = repo().join("schema/fixtures/dirhash/dirhash.py");
+    if let Ok(out) = std::process::Command::new("python3").arg(&script).arg(&m).output() {
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        assert!(String::from_utf8_lossy(&out.stdout).starts_with(&plain.0), "{}", String::from_utf8_lossy(&out.stdout));
+        let out = std::process::Command::new("python3").arg(&script).arg("--mod").arg(&m).output().unwrap();
+        assert!(String::from_utf8_lossy(&out.stdout).starts_with(&plain.1), "{}", String::from_utf8_lossy(&out.stdout));
+    }
+    // a name that counts and is not Unicode is refused by both
+    std::fs::write(m.join(bytes(b"bad\xff")), b"x").unwrap();
+    assert_eq!(hash::dirhash(&m).unwrap_err().code, ErrorCode::Refused);
+    if let Ok(out) = std::process::Command::new("python3").arg(&script).arg(&m).output() {
+        assert!(!out.status.success());
+    }
+    let _ = std::fs::remove_dir_all(&tmp);
 }
 
 #[cfg(unix)]

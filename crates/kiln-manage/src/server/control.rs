@@ -281,6 +281,14 @@ fn op(c: &Option<crate::admin::client::AdminClient>, name: &str, key: &str, valu
 /// Makes `kiln/mods` + `kiln/native` hold exactly these library mods among the launcher-synced ones (folders with a
 /// marker); hand-placed folders stay. A folder of the same id without a marker is a conflict (left alone, reported).
 pub fn sync(dirs: &DataDirs, instance: &ServerInstance, mods: &[LibraryRef], progress: &mut dyn Progress) -> Result<Vec<ServerMod>> {
+    // Kiln entries an older Kiln recorded with their cook outputs in the hash move to their identity first; a caller
+    // that still names one by its old hash means the entry it became
+    let moved = crate::library::migrate_identities(dirs)?;
+    let renamed: Vec<LibraryRef> = mods.iter().map(|r| match moved.iter().find(|m| r.kind == ModKind::Kiln && m.id == r.id && m.version == r.version && m.from == r.hash) {
+        Some(m) => LibraryRef { hash: m.to.clone(), ..r.clone() },
+        None => r.clone(),
+    }).collect();
+    let mods = renamed.as_slice();
     let server = instance.local_dir()?.to_path_buf();
     let _lock = server_library_lock(&server)?;
     let mut copies = engine_copies(&server)?;

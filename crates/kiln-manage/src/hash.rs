@@ -183,12 +183,14 @@ fn walk(dir: &Path, prefix: &str, out: &mut Vec<Record>, skip_cooked: bool) -> R
     for entry in fs::read_dir(dir)? {
         let entry = entry?;
         let name = entry.file_name();
+        // a dot entry is skipped whatever its name is made of: only a name that counts has to be valid Unicode (as the
+        // Python reference and the C# port do)
+        if name.as_encoded_bytes().first() == Some(&b'.') {
+            continue;
+        }
         let Some(name) = name.to_str() else {
             return Err(bad(format!("{}: name is not valid Unicode", entry.path().display())));
         };
-        if name.starts_with('.') {
-            continue;
-        }
         let meta = fs::symlink_metadata(entry.path())?;
         let rel = if prefix.is_empty() { name.to_string() } else { format!("{prefix}/{name}") };
         let ft = meta.file_type();

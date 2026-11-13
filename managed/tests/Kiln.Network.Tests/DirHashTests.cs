@@ -37,14 +37,16 @@ public sealed class DirHashTests
     {
         var e = Expected();
         string Of(string map, string name) => e.GetProperty(map).GetProperty(name).GetString()!;
-        Assert.True(e.GetProperty("cases").EnumerateObject().Count() >= 14);
+        Assert.True(e.GetProperty("cases").EnumerateObject().Count() >= 17);
         // a mod with cooked files is the same mod without them
         Assert.Equal(Of("cases", "mod"), Of("identity", "mod-cooked"));
         Assert.NotEqual(Of("cases", "mod-cooked"), Of("identity", "mod-cooked"));
         // a folder that is not a Kiln mod, and the names elsewhere, still count
-        foreach (var n in (string[])["cooked-not-a-mod", "cooked-manifest-folder", "mod-cooked-case", "mod-cooked-file"])
+        foreach (var n in (string[])["cooked-not-a-mod", "cooked-manifest-folder", "mod-cooked-case", "mod-cooked-file", "mod-cooked-empty"])
             Assert.Equal(Of("cases", n), Of("identity", n));
-        Assert.NotEqual(Of("cases", "mod-cooked-names"), Of("identity", "mod-cooked-names"));
+        // a manifest that is no JSON still makes the folder a Kiln mod; a mod inside a mod keeps its own cooked folder counted
+        foreach (var n in (string[])["mod-cooked-names", "mod-bad-manifest", "mod-nested-mod"])
+            Assert.NotEqual(Of("cases", n), Of("identity", n));
     }
 
     private sealed class Temp : IDisposable

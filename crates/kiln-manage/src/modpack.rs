@@ -288,10 +288,10 @@ fn mod_files(kind: ModKind, dir: &Path) -> Result<Vec<(String, PathBuf)>> {
         for e in std::fs::read_dir(dir).map_err(crate::util::io_at(dir, "reading"))? {
             let e = e?;
             let name = e.file_name();
-            let name = name.to_str().ok_or_else(|| err(ErrorCode::Refused, format!("{}: name is not valid Unicode", e.path().display())))?;
-            if name.starts_with('.') {
-                continue;
+            if name.as_encoded_bytes().first() == Some(&b'.') {
+                continue; // a dot entry is not packed, whatever its name is made of (as kdh1 skips it)
             }
+            let name = name.to_str().ok_or_else(|| err(ErrorCode::Refused, format!("{}: name is not valid Unicode", e.path().display())))?;
             let nfc: String = unicode_normalization::UnicodeNormalization::nfc(name).collect();
             let r = if rel.is_empty() { nfc } else { format!("{rel}/{nfc}") };
             let ft = std::fs::symlink_metadata(e.path())?.file_type();
@@ -1013,10 +1013,13 @@ mod tests {
         // and a pack built from the player's cooked copy would be the same pack entry
         assert_eq!(mod_files(ModKind::Kiln, &paths[0]).unwrap().iter().map(|f| f.0.clone()).collect::<Vec<_>>(),
             mod_files(ModKind::Kiln, &m).unwrap().iter().map(|f| f.0.clone()).collect::<Vec<_>>());
-        // the same build again after the server cooked again (a newer report): the same zip
+        // the same build again after the server cooked again (a newer report): the same zip, byte for byte
+        let first = std::fs::read(&built.file).unwrap();
         std::fs::write(m.join("assets/cooked/cook-report.json"), b"{ \"again\": true }").unwrap();
+        std::fs::write(m.join("assets/cooked/clip_wave.bin"), b"another clip").unwrap();
         let again = build(&s, &out, "Ember Isles", "4", &mut crate::task::NoProgress).unwrap();
         assert_eq!(again.manifest.mods, built.manifest.mods);
+        assert_eq!((again.sha256.as_str(), std::fs::read(&again.file).unwrap()), (built.sha256.as_str(), first));
         for d in [s, out, st] {
             let _ = std::fs::remove_dir_all(d);
         }

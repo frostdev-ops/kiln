@@ -797,6 +797,20 @@ which files count for a Kiln mod:
 - For a zip's entries: when the mod's entries hold `kiln.mod.json` at its top, the entries below `assets/cooked/` do not
   count (`hash::mod_identity_records`); a modpack does not carry them at all (5.8).
 
+**Cook outputs do not travel.** No hash covers `assets/cooked`, so Kiln never takes a file there from anyone else: the
+Library leaves the folder out when it imports a Kiln mod from a folder or an archive (`library::copy_kiln_mod_tree`;
+the import's `notes` say so), and a modpack that carries one is refused (5.8). What is in `assets/cooked` of a Library
+entry or of a copy of it was made on this PC by a cook. The game itself does not check that: kiln.assets serves what
+the mod's manifest names, and other services read the cook's index files there, so a folder a person copies into the
+game by hand (a drop-in mod, a server's mods folder) runs with whatever `assets/cooked` it holds, as it runs with
+whatever DLL it holds.
+
+**Entries of an older Kiln.** Before dev.27 a Kiln mod imported from a cooked folder was recorded under the kdh1 of
+the whole folder. `library::migrate_identities` (run before an activation and before a server sync) verifies such an
+entry against that hash, copies it to `<version>+<hash8 of its identity>` with its record, makes every profile that
+lists the old hash list the new one, and removes the old entry once nothing uses it. Its files come along as they are.
+An entry whose files changed since its import is left as it is.
+
 Everything that names a Kiln mod by a hash uses its identity: what a server advertises (`required[].hash`), what the
 game compares at a join (`last-server.json` `missing`), a modpack's `mods[].hash`, the library (`<version>+<hash8>`,
 the import record) and a profile's entries, the copy-mode copies under `kiln/profiles/` (a copy the player cooked is

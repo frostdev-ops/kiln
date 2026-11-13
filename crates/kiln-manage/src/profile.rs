@@ -1542,6 +1542,9 @@ fn next_generation(generation: u64) -> Result<u64> {
 pub fn activate(dirs: &DataDirs, profile_id: &str, install: &GameInstall) -> Result<Activation> {
     refuse_running(install)?;
     ensure_kiln(install)?;
+    // Kiln entries an older Kiln recorded with their cook outputs in the hash move to their identity first, with the
+    // profiles that list them: this activation then writes the game's profile file with the new entry
+    crate::library::migrate_identities(dirs)?;
     let profile = get(dirs, profile_id)?;
     check_profile(&profile)?;
     let prev = read_game_profile(&install.path).ok().flatten().map(|f| f.generation).unwrap_or(0);

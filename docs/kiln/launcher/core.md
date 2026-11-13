@@ -76,8 +76,10 @@ content addressed: re-importing the same bytes reports `existing`, other bytes a
   phase `dllmain` (chain-loaded), anything else -> native mod, phase `early`; zips and folders of mods list `items`.
 - `import(dirs, paths, progress)` -> `ImportReport {imported, existing, skipped[{path, reason}]}`; dot entries are not
   copied (not part of kdh1); the copy's kdh1 must equal the source's. A Kiln mod is known by its identity
-  (contracts.md 5.11): what a cook left in its `assets/cooked` comes along and does not count, so the same mod cooked
-  and uncooked is one entry. Bare DLLs get version `0.0.0` and an id from the file name.
+  (contracts.md 5.11): its `assets/cooked` folder does not count and is not copied (a note in the report says so when
+  it held files: cooked files are made on this PC, never taken from a folder or an archive), so the same mod cooked
+  and uncooked is one entry. `migrate_identities` moves an entry an older Kiln recorded with its cooked files in the
+  hash to its identity. Bare DLLs get version `0.0.0` and an id from the file name.
 - `list(kind)`, `record(ref)`, `users(ref)` (profiles listing it), `remove(ref, force)` (`conflict` while used),
   `path_of(ref)` (a plugin: the DLL).
 

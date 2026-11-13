@@ -474,3 +474,126 @@ fn mods_built_against_a_newer_kiln_are_named() {
     let updated = KilnBuild::from_parts("0.2.0-dev+20261106.0f0a3f6", Some("2026-11-06T12:12:16Z")).unwrap();
     assert!(profile::built_for_newer(&dirs, &p, &updated).is_empty());
 }
+
+/// Review of dev.27's identity rule: a Kiln mod's cook outputs are outside its hash, so nothing a folder or an archive
+/// carries there may reach the folder the game loads. The Library leaves `assets/cooked` out at the import, whatever
+/// is in it (a payload the manifest names, a cook report that vouches for it); cooked files are made on this PC.
+#[test]
+fn shipped_cook_outputs_never_reach_the_library_or_the_folder_the_game_loads() {
+    let t = tmp("shipped-cooked");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let k = kiln_mod(&t.0, "blades", "1.0.0", "");
+    put(&k, "assets/assets.json", br#"{ "format": 1, "entries": [ { "kind": "resource", "guid": "11111111-2222-4333-8444-555555555555", "type": "keen::ImpactProgram", "part": 0, "mode": "new", "file": "cooked/p.bin" } ] }"#);
+    put(&k, "assets/cooked/p.bin", b"a program nobody cooked here");
+    put(&k, "assets/cooked/cook-report.json", br#"{ "ok": true, "outputs": [ { "file": "cooked/p.bin", "sha256": "whatever the shipper says" } ] }"#);
+    let r = library::import(&dirs, std::slice::from_ref(&k), &mut NoProgress).unwrap();
+    let e = refs(&r, ModKind::Kiln, "blades");
+    assert_eq!(e.hash, hash::mod_identity(&k).unwrap());
+    assert!(r.notes.iter().any(|n| n.text.contains("its cooked files (assets/cooked) were left out")), "{:?}", r.notes);
+    let folder = library::path_of(&dirs, &e).unwrap();
+    assert!(folder.join("assets/assets.json").is_file() && !folder.join("assets/cooked").exists(), "the mod's files, without the cooked folder");
+    // another payload under the same hash changes nothing in the Library: it never gets there
+    put(&k, "assets/cooked/p.bin", b"another program under the same hash");
+    let again = library::import(&dirs, std::slice::from_ref(&k), &mut NoProgress).unwrap();
+    assert_eq!((again.imported.len(), again.existing.len()), (0, 1));
+    assert!(!folder.join("assets/cooked").exists());
+    // a mod without cooked files gets no note
+    let plain = kiln_mod(&t.0, "plain", "1.0.0", "");
+    put(&plain, "assets/cooked/.keep", b"");
+    assert!(library::import(&dirs, &[plain], &mut NoProgress).unwrap().notes.is_empty());
+    // what the game loads: the entry itself where the game reads the Library (Z mode), and its copy in copy mode
+    let game = t.0.join("game");
+    put(&game, "enshrouded.exe", b"MZ");
+    std::fs::create_dir_all(game.join("kiln")).unwrap();
+    let inst = install_at(&game, None);
+    let mut p = profile::create(&dirs, "p", None).unwrap();
+    p.mods.kiln.push(pm(&e, true));
+    let p = profile::save(&dirs, &p).unwrap();
+    let a = profile::activate(&dirs, &p.id, &inst).unwrap();
+    assert_eq!(a.path_mode, PathMode::Copy);
+    let f = profile::read_game_profile(&game).unwrap().unwrap();
+    let loaded = game.join("kiln").join(&f.mods.kiln[0].path);
+    assert!(loaded.join("kiln.mod.json").is_file() && loaded.join("assets/assets.json").is_file());
+    assert!(!loaded.join("assets/cooked").exists(), "kiln.assets finds no file to serve for the manifest's entry");
+}
+
+/// A Kiln entry imported by 0.2.0-dev.26 from a cooked folder is recorded under the kdh1 of the whole folder. Before the
+/// fix an activation in copy mode copied it again and failed with a hash mismatch, and a server sync was refused. It is
+/// verified against its old hash and moved to its identity, with the profiles that list it.
+#[test]
+fn a_dev26_entry_recorded_with_its_cook_outputs_moves_to_its_identity() {
+    let t = tmp("legacy-cooked");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let k = kiln_mod(&t.0, "blades", "1.0.0", "");
+    put(&k, "assets/cooked/clip.bin", b"cooked by the importer, with dev.26");
+    put(&k, "assets/cooked/cook-report.json", b"{}");
+    std::fs::remove_file(k.join(".kiln-source.json")).unwrap();
+    // as dev.26 imported it: the whole folder in the Library, recorded and addressed by its kdh1
+    let (old, identity) = (hash::dirhash(&k).unwrap(), hash::mod_identity(&k).unwrap());
+    assert_ne!(old, identity);
+    let legacy = dirs.library_entry(ModKind::Kiln, "blades", "1.0.0", &old).unwrap();
+    kiln_manage::util::copy_tree(&k, &legacy).unwrap();
+    let record = |hash: &str| serde_json::json!({ "format": 1, "kind": "kiln", "id": "blades", "version": "1.0.0", "hash": hash, "imported": "2026-11-12T10:00:00Z", "size": 64 });
+    kiln_manage::util::write_json_atomic(&legacy.with_file_name(format!("1.0.0+{}.json", &old[5..13])), &record(&old)).unwrap();
+    let old_ref = LibraryRef { kind: ModKind::Kiln, id: "blades".into(), version: "1.0.0".into(), hash: old.clone() };
+    assert_eq!(library::path_of(&dirs, &old_ref).unwrap(), legacy);
+    let mut p = profile::create(&dirs, "p", None).unwrap();
+    p.mods.kiln.push(pm(&old_ref, true));
+    let p = profile::save(&dirs, &p).unwrap();
+    // another entry whose files changed since its import is not touched (it was "changed" before, and still is)
+    let changed = dirs.library_entry(ModKind::Kiln, "edited", "1.0.0", &old).unwrap();
+    kiln_manage::util::copy_tree(&k, &changed).unwrap();
+    put(&changed, "M.dll", b"edited since");
+    let mut rec = record(&old);
+    rec["id"] = "edited".into();
+    kiln_manage::util::write_json_atomic(&changed.with_file_name(format!("1.0.0+{}.json", &old[5..13])), &rec).unwrap();
+
+    // activate (copy mode): moved first, then copied and checked by the identity
+    let game = t.0.join("game");
+    put(&game, "enshrouded.exe", b"MZ");
+    std::fs::create_dir_all(game.join("kiln")).unwrap();
+    let inst = install_at(&game, None);
+    let a = profile::activate(&dirs, &p.id, &inst).unwrap();
+    assert_eq!((a.path_mode, a.copied), (PathMode::Copy, 1));
+    let p = profile::get(&dirs, &p.id).unwrap();
+    assert_eq!(p.mods.kiln[0].hash, identity, "the profile lists the entry by its identity");
+    let new_ref = LibraryRef { hash: identity.clone(), ..old_ref.clone() };
+    let moved = library::path_of(&dirs, &new_ref).unwrap();
+    assert!(moved.ends_with(format!("1.0.0+{}", &identity[5..13])));
+    assert_eq!(std::fs::read(moved.join("assets/cooked/clip.bin")).unwrap(), b"cooked by the importer, with dev.26", "its files came along as they were");
+    assert_eq!(library::record(&dirs, &new_ref).unwrap().hash, identity);
+    assert!(!legacy.exists() && library::record(&dirs, &old_ref).is_err(), "the old entry is gone once nothing uses it");
+    assert!(changed.is_dir(), "an entry that changed since its import stays where it was");
+    let f = profile::read_game_profile(&game).unwrap().unwrap();
+    assert_eq!(hash::mod_identity(&game.join("kiln").join(&f.mods.kiln[0].path)).unwrap(), identity);
+    // again: nothing left to move, the copy is kept
+    assert!(library::migrate_identities(&dirs).unwrap().is_empty());
+    assert_eq!(profile::activate(&dirs, &p.id, &inst).unwrap().copied, 0);
+
+    // a server sync that still names the entry by its old hash (a list made before the move) gets the entry it became
+    #[cfg(feature = "server")]
+    {
+        use kiln_manage::server::{control, instance::ServerInstance};
+        let server = t.0.join("server");
+        std::fs::create_dir_all(server.join("kiln")).unwrap();
+        let inst: ServerInstance = serde_json::from_value(serde_json::json!({
+            "id": "t", "name": "t", "kind": "local", "dir": server, "port": 27141, "queryPort": 27141, "wine": null,
+            "policy": "any", "source": "launcher", "remote": null })).unwrap();
+        // a second legacy entry, moved by the sync itself
+        let k2 = kiln_mod(&t.0, "shields", "2.0.0", "");
+        put(&k2, "assets/cooked/model.bin", b"cooked");
+        std::fs::remove_file(k2.join(".kiln-source.json")).unwrap();
+        let (old2, identity2) = (hash::dirhash(&k2).unwrap(), hash::mod_identity(&k2).unwrap());
+        let legacy2 = dirs.library_entry(ModKind::Kiln, "shields", "2.0.0", &old2).unwrap();
+        kiln_manage::util::copy_tree(&k2, &legacy2).unwrap();
+        kiln_manage::util::write_json_atomic(&legacy2.with_file_name(format!("2.0.0+{}.json", &old2[5..13])),
+            &serde_json::json!({ "format": 1, "kind": "kiln", "id": "shields", "version": "2.0.0", "hash": old2, "imported": "2026-11-12T10:00:00Z", "size": 64 })).unwrap();
+        let want = [new_ref.clone(), LibraryRef { kind: ModKind::Kiln, id: "shields".into(), version: "2.0.0".into(), hash: old2.clone() }];
+        let listed = control::sync(&dirs, &inst, &want, &mut NoProgress).unwrap();
+        for id in ["blades", "shields"] {
+            assert!(server.join("kiln/mods").join(id).join("kiln.mod.json").is_file(), "{id}: {listed:?}");
+        }
+        assert_eq!(hash::mod_identity(&server.join("kiln/mods/shields")).unwrap(), identity2);
+        assert!(!legacy2.exists());
+    }
+}

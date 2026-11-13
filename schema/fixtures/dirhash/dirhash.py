@@ -121,6 +121,13 @@ def relations(got):
             bad.append(f"{name}: identity must be its kdh1")
     if got["identity"].get("mod-cooked-names") == got["cases"].get("mod-cooked-names"):
         bad.append("mod-cooked-names: assets/cooked/left-out.bin must be left out")
+    # an empty cooked folder changes nothing; a manifest that is no JSON still makes the folder a Kiln mod (the rule asks for the file);
+    # a mod inside a mod: only the outer mod's own assets/cooked is left out
+    if got["identity"].get("mod-cooked-empty") != got["cases"].get("mod-cooked-empty"):
+        bad.append("mod-cooked-empty: an empty assets/cooked changes no hash")
+    for name in ("mod-bad-manifest", "mod-nested-mod"):
+        if got["identity"].get(name) == got["cases"].get(name):
+            bad.append(f"{name}: its assets/cooked must be left out")
     return bad
 
 
