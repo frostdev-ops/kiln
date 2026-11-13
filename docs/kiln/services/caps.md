@@ -86,6 +86,11 @@ Case-sensitive, 1 to 96 bytes of `[A-Za-z0-9._/-]`:
 | `blocks.weapon_moves` | managed, static | Kiln.Blocks, once, when the first item block compiles | a weapon's moves, a wand's and a staff cast's animation and `hitAt`: needs kiln.gamedata |
 | `blocks.animated_held` | managed, static | Kiln.Blocks, with the row above | a look's animated held model: needs kiln.gamedata and kiln.assets |
 
+## Rows added in dev.27
+| Row | Kind | Reported by | What it says |
+|---|---|---|---|
+| `items.equip` | sigdb feature | core; Kiln.Items lowers it at its start when its table is older than v5 or kiln.items cannot run equip (no kiln.world, the program refused), and later when the program breaks | equip and unequip through the game's own functions (`Items.Equip`, `Items.Unequip`); a manifest can require it like the other sigdb features |
+
 What a manifest's `features` can require of these: the sigdb features (`items.fuel`, `items.move`, `items.names`,
 `items.transfer`, `items.instances`) and `anim.player_states`. The manifests are checked before the managed services
 start, so for a sigdb feature the check sees the sigdb verdict only, not a later lowering by Kiln.Items: ask

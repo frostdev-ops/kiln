@@ -9,9 +9,9 @@
   "verified": true,
   "note": "runtime-verified through Steam (GE-Proton11-11), policy any, core + every service + kiln-emf + probe + ui-test + menubuttons: side client, sigdb 306/306 symbols, 434/434 constants (client.d composed), SimStep + WorldDestroy hooked, boot complete, 0 errors; main menu entries Kiln / ui-test / Mods (the Kiln sample screen opened); hosted a LOCAL world offline (saves: world loaded: slot 0x0002 (world1.ksd)): server world 60 steps/s on the GameServer thread, client and prediction worlds on the main thread, local player 1; ui-test all checks PASS (screens MainMenu/Loading/InGame/PauseMenu/Map/Crafting, menu entries chosen, crafting state), Kiln crafting tabs and subcategories shown, Insert overlay; tick cost as on ce6fdba6 (server step p50 2.5 ms, Kiln Pre 0.037 ms; client 1.2 ms); back to the menu (worlds stopping, shutdown save), clean quit (Shutdown 'Steam'). Not covered: joining a remote server, service write paths on the client. Added in dev.22 from static analysis only (resolved offline with sigdb_check.py, not yet seen running): ui.menu_page, ui.menu_page_sound, ui.error_popup (ui/PreGameCredits, ui/PreGameCreditsRet, ui/UiPlaySound and their constants). Levels (record 2, refreshed offline on 2026-11-11, no client run): lab = the names the boot above resolved, as its record listed them (199 named symbols, 434 constants, 106 features), each resolving to the same value today; every service loaded in that boot, but only ui-test ran, so lab here means loaded with Kiln's checks passing, not that the service test mods ran on the client. static = everything else, resolved offline only: the 186 @ probes (the boot's record did not list probes), the dev.22 ui names above, and every name declared since (the services audio, characters, emf-net, npcai, pacing, progression, quests, render, rules, skills, types and vfx, and new names of combat, creatures, gamedata, items, net, players, time and ui): 158 symbols, 210 constants and 70 features. sigdb now declares 543 symbols (441 defined, 102 captured), 644 constants (595 defined, 49 captured) and 176 features; all of them resolve offline on this exe.",
   "declared": {
-    "symbols": 551,
+    "symbols": 554,
     "constants": 651,
-    "features": 178
+    "features": 179
   },
   "features": {
     "abilities.attributes": true,
@@ -80,6 +80,7 @@
     "gameplay.spawn": true,
     "gameplay.terraform": true,
     "items.catalog": true,
+    "items.equip": true,
     "items.fuel": true,
     "items.instances": true,
     "items.move": true,
@@ -341,6 +342,7 @@
     "items/AttrFind": "0x123a930",
     "items/ComponentMapFind": "0x9b1db0",
     "items/CreatePide": "0x411e20",
+    "items/EquipItem": "0x4152d0",
     "items/GuidToItemId": "0x223400",
     "items/HashMapFindEntity": "0x9b4dc0",
     "items/InventoryAddItems": "0x412460",
@@ -368,6 +370,7 @@
     "items/RegisterProgram": "0x9e2e40",
     "items/SetString": "0xe6eb50",
     "items/SlotTransfer": "0x4149b0",
+    "items/UnequipItem": "0x419740",
     "items/WriteOther": "0x9b2900",
     "net/ClientGameplayReady": "0x86d9f0",
     "net/ClientReceive": "0x874ed0",
@@ -1907,6 +1910,7 @@
         "@items/AttrFind.site": "static",
         "@items/CreateEntity.next_id": "static",
         "@items/CreatePide.fields": "static",
+        "@items/EquipAction.calls": "static",
         "@items/FuelWrite.site": "static",
         "@items/GetComponent.fields": "static",
         "@items/InventoryAddItems.fields": "static",
@@ -1925,6 +1929,7 @@
         "items/AttrFind": "static",
         "items/ComponentMapFind": "lab",
         "items/CreatePide": "static",
+        "items/EquipItem": "static",
         "items/GuidToItemId": "lab",
         "items/HashMapFindEntity": "lab",
         "items/InventoryAddItems": "lab",
@@ -1952,6 +1957,7 @@
         "items/RegisterProgram": "lab",
         "items/SetString": "static",
         "items/SlotTransfer": "static",
+        "items/UnequipItem": "static",
         "items/WriteOther": "static"
       },
       "constants": {
@@ -1997,6 +2003,7 @@
       },
       "features": {
         "items.catalog": "lab",
+        "items.equip": "static",
         "items.fuel": "static",
         "items.instances": "static",
         "items.move": "static",

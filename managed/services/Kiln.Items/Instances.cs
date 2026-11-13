@@ -34,7 +34,8 @@ public readonly record struct ItemLocation(EntityId Holder, SlotId Slot, int Lin
 /// <summary>How Kiln learned that a followed item moved (<see cref="ItemMovedEvent.Cause"/>).</summary>
 public enum ItemMoveCause
 {
-    /// <summary>Kiln's own <see cref="Items.Move"/> named the item entity in its result.</summary>
+    /// <summary>Kiln's own <see cref="Items.Move"/>, <see cref="Items.Equip"/> or <see cref="Items.Unequip"/> named the item
+    /// entity in its result.</summary>
     Transaction = 0,
 
     /// <summary>The game's quick stack or move all (a player's R key, a Quick Stack Station, <see cref="Items.QuickStack"/>,
@@ -886,6 +887,20 @@ internal static unsafe class ItemTracker
         {
             foreach (var c in result.Changes)
                 if (!c.Ref.IsNone && ByRef.TryGetValue(c.Ref.Entity, out var f)) named.Add(f);
+        }
+        Reread(named, ItemMoveCause.Transaction);
+    }
+
+    /// <summary>An equip or unequip of Kiln completed (tick thread, Pre): it names the item entity it moved and the one
+    /// the equipment slot held before. Cause Transaction.</summary>
+    internal static void OnEquip(EquipResult result)
+    {
+        if (result.DryRun || !result.Ok || Count == 0) return;
+        var named = new List<Followed>();
+        lock (Gate)
+        {
+            foreach (var r in (ItemInstanceRef[])[result.Ref, result.ReplacedRef])
+                if (!r.IsNone && ByRef.TryGetValue(r.Entity, out var f)) named.Add(f);
         }
         Reread(named, ItemMoveCause.Transaction);
     }

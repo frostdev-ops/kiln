@@ -7,11 +7,11 @@ entity, and the change is replicated and saved like a vanilla one. Evidence and 
 
 | Layer | Where |
 |---|---|
-| Symbols | `sigdb/symbols/server.d/items.json` (features `items.transaction`, `items.program`, `items.read`, `items.catalog`, `items.scan`, `items.recipe`, `items.fuel`, `items.pide_options`, `items.move`, `items.transfer`, `items.names`, `items.instances`) |
-| C table | `native/core/abi/services/kiln_items.h` (`kiln.items` v4: v1 + water + moves, container names, transfer rules and events + item instances) |
+| Symbols | `sigdb/symbols/server.d/items.json` (features `items.transaction`, `items.program`, `items.read`, `items.catalog`, `items.scan`, `items.recipe`, `items.fuel`, `items.pide_options`, `items.move`, `items.transfer`, `items.names`, `items.instances`, `items.equip`) |
+| C table | `native/core/abi/services/kiln_items.h` (`kiln.items` v5: v1 + water + moves, container names, transfer rules and events + item instances + equip and unequip) |
 | Native | `native/services/items/` → `kiln/services/kiln-items.dll` |
 | Managed | `managed/services/Kiln.Items/` → `kiln/host/Kiln.Items.dll` (namespace `Kiln`, class `Items`) |
-| Test | `mods/tests/items-test/` (PASS / FAIL lines in kiln.log; v3: `MovesTest.cs`); `mods/tests/craftmatch-test/` (rarity, level, perks of made items); `mods/tests/fuel-test/` (water, three boots); `native/services/items/tests/run.sh` (host tests under Wine); `mods/tests/instances-test/` (entity refs, item instances, following items) |
+| Test | `mods/tests/items-test/` (PASS / FAIL lines in kiln.log; v3: `MovesTest.cs`; v5: `EquipTest.cs`); `managed/tests/Kiln.Items.Tests` (offline); `mods/tests/craftmatch-test/` (rarity, level, perks of made items); `mods/tests/fuel-test/` (water, three boots); `native/services/items/tests/run.sh` (host tests under Wine); `mods/tests/instances-test/` (entity refs, item instances, following items) |
 
 ## C#
 
@@ -287,9 +287,10 @@ lifecycle notes):
 - a player's single drag and drop, swap, split (half, one, a custom amount) between any two slots: the client's
   `inventoryTransferAction` without the RefillStacks / MoveAllStacks flags (`0x19f077`);
 - a move between backpack and action bar (the ToActionbar / ToBackpack flags, `0x19f15c`);
-- equip and unequip, and swapping the equipment set (`equipment_actions` `0x1472c0` → equipItem `0x1b4e70` → moveStack;
-  `swap_equipment_set_actions` `0x147ee0`), except the move all equipItem runs itself (`0x1b5457`, `0x1b548a`), which the
-  hook reports;
+- a player's own equip and unequip, and swapping the equipment set (`equipment_actions` `0x1472c0` → equipItem `0x1b4e70`
+  → moveStack; `swap_equipment_set_actions` `0x147ee0`), except the move all equipItem runs itself (`0x1b5457`,
+  `0x1b548a`), which the hook reports. Kiln's own `Items.Equip` / `Items.Unequip` name the item entities in their result
+  (cause `Transaction`);
 - a gift to another player (the Gifting flag; the same slot transfer);
 - death: the items that go to the tombstone (`player_items_loot` `0x1aa7a0`, take and put per slot);
 - the slot transfer the actor interaction code calls (`0x7ca86`);
@@ -302,6 +303,71 @@ world load (new item entities).
 copied world and no player, start, read kiln.log. Check 5 needs a restart: the first boot leaves
 `kiln/data/instances-test/boot1.done` and waits for an autosave; stop and start the lab; the second boot compares.
 `KILN_LAB_NO_ENTITY_SOURCES=1` starts the server without the entity sources (to see the identity checks fail).
+
+## Equip and unequip (v5, since 0.2.0-dev.27)
+Put an item a player has on, or take one off, through the game's own equip and unequip: the two functions its
+`equipment_actions` program runs for a player's equip action, with all their checks. Capability `items.equip` (sigdb
+feature of the same name; Kiln.Items lowers it when the table is older than v5, kiln.world is not loaded, or kiln.items
+switched equip off). Evidence: docs/re/items.md section 16.
+
+```csharp
+InventorySlot ring = Items.Read(player)!.Slots.First(s => s.Item == ringId && !s.IsEquipped);
+EquipResult on = await Items.Equip(player, ring.Slot, EquipmentSlot.Ring1);   // a named slot
+EquipResult own = await Items.Equip(player, ring.Slot);                       // the slot the item names (null)
+EquipResult off = await Items.Unequip(player, EquipmentSlot.Glider);         // into a free backpack slot
+if (!on.Ok) Log.Info($"not equipped: {on.Reason}");                          // the one error rule: IKilnResult
+```
+
+| Member | Side, thread | What |
+|---|---|---|
+| `Items.Equip(player, from, slot = null, options = None, itemEntity = default)` → `Task<EquipResult>` | `[ServerOnly][TickThreadOnly]` | the stack in `from` (a slot of the player's own inventories) goes into `slot`, or into the item's own slot; what the slot held comes off as the game swaps it. `itemEntity`: the item entity the slot must still hold |
+| `Items.Unequip(player, slot, options = None)` → `Task<EquipResult>` | `[ServerOnly][TickThreadOnly]` | what the slot holds goes into a free Generic (backpack) slot |
+| `EquipOptions.DryRun` | value | run the game's call and roll it back: the result says what would happen |
+| `EquipResult` (`IKilnResult`) | value | `Ok`, `Reason`, `Status`, `Player`, `Slot` (for the item's own slot: where it went), `Unequipped`, `Item`, `ItemEntity`, `Ref`, `From`, `To`, `Replaced`, `ReplacedEntity`, `ReplacedRef`, `ReplacedTo`, `Message`, `GameError`, `Steps`, `DryRun` |
+
+The one error rule:
+- **refused** (a result, `Ok == false`, nothing changed): `SlotChanged` (the slot is not one of the player's, is empty, or
+  holds another item entity; an unequip of an empty slot), `NoInventory` (no player character with that id in the
+  world), `NoRoom` (an unequip with no free backpack slot: the game also shows the player its "inventory full" notice, as
+  for their own unequip), `Refused` (the game refused: the item's EquipmentSlotType is not the slot's, `GameError` 0x11;
+  or Kiln refused: the player is dead), `Unavailable` / `Dropped` (equip went off, or the server world closed, after the
+  call);
+- **bad argument** (`ArgumentException`): player or slot none, a value outside `EquipmentSlot`;
+- **capability off** (`KilnUnavailableException("items.equip")`): an older Kiln, a game build without the two functions,
+  no kiln.world, equip switched off after a fault.
+
+How it runs:
+- The game's equip takes the player from the running program's **current entity**, not from an argument, so it can only
+  run in a program that iterates the player. kiln.items registers a second program through kiln.world,
+  `kiln_items_equip` (an entity program over every entity with `PlayerInput`, with kiln_items' accessors), and builds
+  the transaction there as `equipment_actions` does. Without kiln.world there is no equip.
+- A request runs in the next sim step; its task completes on the tick thread one step later. At most 4 requests of one
+  player run per step, 1024 wait at most; a request that has not run after 10 s comes back `Dropped`.
+- **With the player's own input**: the game's `equipment_actions` runs first in a step, `kiln_items_equip` later. Both
+  happen, the player's first; a request whose slot the player just emptied comes back `SlotChanged`. Kiln never writes
+  the player's input (`PlayerInput`, `ServerConsumedPlayerInput`), so no action of the player is held, skipped or run
+  twice.
+- A refusal rolls the whole transaction back: the inventory is as it was.
+- The change reaches players through the game's own replication; equipment is not predicted by a client
+  (`equipment_actions` is host only), so a player's game shows the server's equipment. Kiln.Players'
+  `PlayerEquipmentChangedEvent` follows within four steps, as for the player's own equip; Kiln.Saves' followed items
+  see the move at once (cause `Transaction`).
+- A dead player: Kiln refuses when the call is made (`Actor.currentState` has the Dead state; the game's own equip has
+  no such check). The C table does not check it.
+- The vanity slots take armour of the same body part (the game's table); the four building-material values of the game's
+  `EquipmentSlot` are not equipment slots (`SlotSelection.equipment` has 20 entries) and are not offered.
+
+C (v5, header size >= `sizeof(KilnItemsApi)` with `equip`): `equip(owner, KilnItemsEquipRequest*, done, user, &ticket)`
+(`equipment_slot` is the game's `keen::EquipmentSlot`: 0-16, 21 HookShot, 22 Glider, 23 Backpack, or
+`KILN_ITEMS_EQUIP_ANY`; flags `KILN_ITEMS_EQUIP_UNEQUIP`, `KILN_ITEMS_EQUIP_DRY_RUN`), the callback gets a
+`KilnItemsEquipResult` on the tick thread in Pre; `equip_status` says whether it runs and why not. `cancel(ticket)` and
+`cancel_owner` drop the callback.
+
+Lab: `mods/tests/items-test` (`EquipTest.cs`, on a spawned `1_Player` character; `kiln/data/items-test/equip-only` runs it
+alone): unequip, equip into a named slot, a swap, the item's own slot, a dry run, `PlayerEquipmentChangedEvent` after each,
+and every refusal above leaving the inventory as it was: 30 PASS on server 26430253 (lines in docs/re/items.md section 16).
+A dry run into the item's own slot cannot name the slot (`Slot` null): the game writes the selection only at its commit.
+What a player sees is the guided checks `items.equip` and `items.unequip` (mods/tests/client-pass, session 1).
 
 ## C (native plugins and services)
 ```c

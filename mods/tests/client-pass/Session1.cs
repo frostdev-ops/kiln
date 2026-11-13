@@ -488,4 +488,50 @@ public sealed partial class ClientPassMod
                    "for this start, with no error from world-programs after it?");
         await c.Verdict();
     }
+
+    // ---- equip and unequip by a mod (Items.Equip / Items.Unequip, dev.27): the server's game equips, the player sees ----
+    private const string Hat = "Armor_T1_Mage_Wizard_DPS_Helmet";  // Alchemist Apprentice Hat: shows on the head
+
+    [ClientCheck("items.equip", "A mod puts a hat on the character, and it comes off by hand", Area = "Gameplay",
+        Since = Dev27, Tags = [Visual], Order = 139)]
+    public async Task ItemsEquip(CheckContext c)
+    {
+        if (!await NeedPlayer(c)) return;
+        if (!c.Expect(Capabilities.Is("items.equip"), "items.equip is available", Capabilities.Why("items.equip"))) return;
+        await GiveGame(c, Hat);
+        await c.Ticks(4);
+        var hat = Items.Lookup(Hat);
+        var slot = hat is null ? null : Items.Read(c.Player)?.Slots.FirstOrDefault(s => s.Item == hat.Id && !s.IsEquipped);
+        if (!c.Expect(slot is not null, "the hat lies in the inventory, not worn")) return;
+        var r = await Items.Equip(c.Player, slot!.Slot, EquipmentSlot.ArmourHead);
+        c.Expect(r.Ok, "Items.Equip put it on the head", r.ToString());
+        await c.Ticks(8);
+        c.Expect(Items.Equipped(c.Player, EquipmentSlot.ArmourHead).Item == hat!.Id, "the server's head slot holds the hat");
+        c.Instruct("The check put an Alchemist Apprentice Hat on your character's head through the game's own equip (what " +
+                   "was on the head before went into your backpack). Look at your character: does it wear the hat? Open " +
+                   "the inventory: is the hat in the head slot of the equipment, and does the preview show it? Then take it " +
+                   "off by hand (drag it into the backpack) and put it on again by hand. Did all of that work as usual?");
+        await c.Verdict();
+    }
+
+    [ClientCheck("items.unequip", "A mod takes the hat off the character", Area = "Gameplay", Since = Dev27,
+        Tags = [Visual], Order = 140)]
+    public async Task ItemsUnequip(CheckContext c)
+    {
+        if (!await NeedPlayer(c)) return;
+        if (!c.Expect(Capabilities.Is("items.equip"), "items.equip is available", Capabilities.Why("items.equip"))) return;
+        var hat = Items.Lookup(Hat);
+        if (hat is not null && Items.Equipped(c.Player, EquipmentSlot.ArmourHead).Item != hat.Id &&
+            Items.Read(c.Player)?.Slots.FirstOrDefault(s => s.Item == hat.Id && !s.IsEquipped) is { } loose)
+            await Items.Equip(c.Player, loose.Slot, EquipmentSlot.ArmourHead);
+        await c.Ticks(8);
+        var r = await Items.Unequip(c.Player, EquipmentSlot.ArmourHead);
+        c.Expect(r.Ok, "Items.Unequip took the head slot off", r.ToString());
+        await c.Ticks(8);
+        c.Expect(Items.Equipped(c.Player, EquipmentSlot.ArmourHead).IsNone, "the server's head slot is empty");
+        c.Instruct("The check took the hat (or whatever your character wore on the head) off through the game's own " +
+                   "unequip: it went into a free slot of your backpack. Is the head bare on your character and empty in " +
+                   "the equipment screen, and is the hat in the backpack? Can you put it on again by hand?");
+        await c.Verdict();
+    }
 }

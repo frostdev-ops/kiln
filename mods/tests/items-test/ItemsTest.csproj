@@ -8,6 +8,8 @@
     <EnableDynamicLoading>true</EnableDynamicLoading>
     <GenerateRuntimeConfigurationFiles>false</GenerateRuntimeConfigurationFiles>
     <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
+    <!-- Calls Kiln's lab members ([Experimental("KILNX001")]): PlayerStates.Diagnostics.Watch. -->
+    <NoWarn>$(NoWarn);KILNX001</NoWarn>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../../../managed/Kiln.Api/Kiln.Api.csproj" Private="false" ExcludeAssets="runtime" />
@@ -16,6 +18,9 @@
     <ProjectReference Include="../../../managed/services/Kiln.Saves/Kiln.Saves.csproj" Private="false" ExcludeAssets="runtime" />
     <!-- Optional cross-check of the gear's item entity through kiln.world (skipped when that service is absent). -->
     <ProjectReference Include="../../../managed/services/Kiln.World/Kiln.World.csproj" Private="false" ExcludeAssets="runtime" />
+    <!-- Equip (EquipTest.cs): a spawned player character, followed by kiln.players for PlayerEquipmentChangedEvent. -->
+    <ProjectReference Include="../../../managed/services/Kiln.Spawn/Kiln.Spawn.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="../../../managed/services/Kiln.Players/Kiln.Players.csproj" Private="false" ExcludeAssets="runtime" />
     <None Include="kiln.mod.json" CopyToOutputDirectory="PreserveNewest" />
     <!-- Optional test fixture ($KILN_EXPECTED_ITEMS, a JSON item list), to cross-check the game's registry (skipped when absent). -->
     <None Include="$(KILN_EXPECTED_ITEMS)" Link="expected-items.json" CopyToOutputDirectory="PreserveNewest"

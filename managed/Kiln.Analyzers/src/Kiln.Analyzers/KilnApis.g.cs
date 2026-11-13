@@ -341,6 +341,7 @@ internal static partial class KilnApis
         "M:Kiln.ItemInstanceExtensions.Location(Kiln.ItemInstanceRef)", // ItemInstanceExtensions.Location(ItemInstanceRef): Services.RequireTickThread
         "M:Kiln.ItemInstanceRef.get_IsAlive", // ItemInstanceRef.IsAlive.get: via EntityRef.IsAlive.get
         "M:Kiln.Items.ContainerName(Kiln.EntityId)", // Items.ContainerName(EntityId): via Items.Require3(string)
+        "M:Kiln.Items.Equip(Kiln.EntityId,Kiln.SlotId,System.Nullable{Kiln.EquipmentSlot},Kiln.EquipOptions,Kiln.EntityId)", // Items.Equip(EntityId, SlotId, EquipmentSlot?, EquipOptions, EntityId): Services.RequireTickThread
         "M:Kiln.Items.Equipped(Kiln.EntityId,Kiln.EquipmentSlot)", // Items.Equipped(EntityId, EquipmentSlot): Services.RequireTickThread
         "M:Kiln.Items.FindInventories(Kiln.InventoryKinds)", // Items.FindInventories(InventoryKinds): via Items.Require(string)
         "M:Kiln.Items.Fuel.Add(Kiln.EntityId,System.Int32,System.Boolean)", // Items.Fuel.Add(EntityId, int, bool): via Items.Fuel.Submit(EntityId, uint, int, ItemId, bool, int)
@@ -364,6 +365,7 @@ internal static partial class KilnApis
         "M:Kiln.Items.Read(Kiln.EntityId)", // Items.Read(EntityId): via Items.Require(string)
         "M:Kiln.Items.Take(Kiln.EntityId,Kiln.ItemId,System.Int32,System.Nullable{Kiln.SlotId},System.Boolean,System.Nullable{Kiln.EntityId},System.Boolean)", // Items.Take(EntityId, ItemId, int, SlotId?, bool, EntityId?, bool): via Items.Submit(bool, ItemsNative.Request, string)
         "M:Kiln.Items.TakeSlot(Kiln.EntityId,Kiln.InventorySlot,System.Boolean)", // Items.TakeSlot(EntityId, InventorySlot, bool): via Items.Take(EntityId, ItemId, int, SlotId?, bool, EntityId?, bool)
+        "M:Kiln.Items.Unequip(Kiln.EntityId,Kiln.EquipmentSlot,Kiln.EquipOptions)", // Items.Unequip(EntityId, EquipmentSlot, EquipOptions): Services.RequireTickThread
         "M:Kiln.Journal.Find(System.String)", // Journal.Find(string): via Journal.Find(uint)
         "M:Kiln.Journal.Find(System.UInt32)", // Journal.Find(uint): via Journal.Quests()
         "M:Kiln.Journal.Quests", // Journal.Quests(): Services.RequireTickThread

@@ -26,6 +26,7 @@
 
 #include "engine.h"
 #include "completed_results.h"
+#include "equip.h"
 #include "instances.h"
 #include "moves.h"
 #include "names.h"
@@ -61,7 +62,17 @@ static_assert(sizeof(KilnItemsTransferEvent) == 32 && sizeof(KilnItemsTransferRu
               sizeof(KilnItemsTransferReport) == 48);
 // v4 appends three rows after peek_result; nothing before the v3 end moves.
 static_assert(offsetof(KilnItemsApi, peek_result) == 192 && offsetof(KilnItemsApi, read_instances) == 200 &&
-              sizeof(KilnItemsApi) == 224);
+              offsetof(KilnItemsApi, instances_status) == 216);
+// v5 (0.2.0-dev.27) appends equip and equip_status after instances_status.
+static_assert(offsetof(KilnItemsApi, equip) == 224 && offsetof(KilnItemsApi, equip_status) == 232 &&
+              sizeof(KilnItemsApi) == 240);
+static_assert(sizeof(KilnItemsEquipRequest) == 32 && offsetof(KilnItemsEquipRequest, slot) == 16 &&
+              offsetof(KilnItemsEquipRequest, pide) == 24);
+static_assert(sizeof(KilnItemsEquipResult) == 256 && offsetof(KilnItemsEquipResult, item) == 32 &&
+              offsetof(KilnItemsEquipResult, from) == 48 && offsetof(KilnItemsEquipResult, replaced_to) == 72 &&
+              offsetof(KilnItemsEquipResult, message) == 96);
+static_assert(sizeof(KilnItemsEquipStatus) == 192 && offsetof(KilnItemsEquipStatus, done) == 16 &&
+              offsetof(KilnItemsEquipStatus, detail) == 32);
 static_assert(sizeof(KilnItemsInstance) == 88 && offsetof(KilnItemsInstance, slot) == 16 &&
               offsetof(KilnItemsInstance, holder) == 24 && offsetof(KilnItemsInstance, count) == 36 &&
               offsetof(KilnItemsInstance, dye) == 60 && offsetof(KilnItemsInstance, gem) == 68);
@@ -1005,6 +1016,7 @@ void drop_world(const char* why) {
     g_registry.store(nullptr);
     names_world_closed();
     instances_world_reset();  // v4: entity ids start again in the next world: every stamp is forgotten
+    equip_world_closed();     // v5: waiting equips end as dropped
     int expected = KILN_ITEMS_PROGRAM_RUNNING;
     if (g_program.compare_exchange_strong(expected, KILN_ITEMS_PROGRAM_ACTIVE))
         set_detail("program registered, not run yet in this world");
@@ -1037,6 +1049,7 @@ void KILN_CALL on_pre(const KilnTickInfo* tick, void*) {
     poll_world_program();
     expire();
     deliver();
+    equip_pre(g_world.load() ? g_world.load() : g_api->server_world(), tick->step);  // v5
     xfer_deliver();
     selftest_pre(tick->step);
     if (!g_catalog.load(std::memory_order_relaxed) && (tick->step & 7) == 0) build_catalog();
@@ -1278,6 +1291,7 @@ KilnResult KILN_CALL t_status2(KilnItemsStatus2* out) {
 }
 
 KilnResult KILN_CALL t_cancel(uint64_t ticket) {
+    if (equip_cancel(ticket)) return KILN_OK;
     std::lock_guard lock(g_mu);
     return g_callbacks.erase(ticket) ? KILN_OK : KILN_ERR_NOT_FOUND;
 }
@@ -1294,6 +1308,7 @@ void KILN_CALL t_cancel_owner(KilnOwner owner) {
         if (before != g_keeps.size()) LOGI("owner %llu: %zu keep-full entr%s ended", static_cast<unsigned long long>(owner),
                                            before - g_keeps.size(), before - g_keeps.size() == 1 ? "y" : "ies");
     }
+    equip_cancel_owner(owner);
     // Draining a running transfer callback must not hold the request mutex: that callback may queue a request.
     xfer_end_owner(owner);
 }
@@ -1493,6 +1508,13 @@ KilnResult KILN_CALL t_instances_status(KilnItemsInstancesStatus* out) {
     return KILN_OK;
 }
 
+// ---- v5: equipment (equip.cpp) ----
+KilnResult KILN_CALL t_equip(KilnOwner owner, const KilnItemsEquipRequest* r, KilnItemsEquipDoneFn done, void* user,
+                             uint64_t* out_ticket) {
+    return equip_submit(owner, r, done, user, out_ticket);
+}
+KilnResult KILN_CALL t_equip_status(KilnItemsEquipStatus* out) { return equip_status(out); }
+
 const KilnItemsApi kTable = {
     {sizeof(KilnItemsApi), KILN_ITEMS_VERSION},
     &t_give, &t_take, &t_cancel, &t_cancel_owner, &t_read, &t_find,
@@ -1501,6 +1523,7 @@ const KilnItemsApi kTable = {
     &t_move, &t_container_name, &t_transfer_rule, &t_transfer_listen, &t_transfer_report, &t_transfer_end, &t_status2,
     &t_peek_result,
     &t_read_instances, &t_read_holder, &t_instances_status,
+    &t_equip, &t_equip_status,
 };
 
 // ============================================================================================= self-test =======
@@ -1892,21 +1915,33 @@ void resolve() {
             E.attr_level = static_cast<uint32_t>(l);
         }
     }
+    // v5 (docs/re/items.md section 16): the game's equip and unequip; they also need kiln.world (equip.cpp)
+    E.equip_ok = E.tx_ok && E.read_ok && feat("items.equip") && sym("items/EquipItem", &E.equip_item) &&
+                 sym("items/UnequipItem", &E.unequip_item);
     if (E.tx_ok) {
         g_tx = static_cast<uint8_t*>(VirtualAlloc(nullptr, static_cast<SIZE_T>(E.tx_size), MEM_COMMIT | MEM_RESERVE,
                                                   PAGE_READWRITE));
         if (!g_tx) E.tx_ok = false;
     }
     LOGI("resolved: transaction %s (tx %lld bytes), read %s, catalog %s, scan %s, own program registration %s, recipe path %s, "
-         "tracked Fuel writes %s, moves %s, transfer hooks %s, container names %s, item instances %s",
+         "tracked Fuel writes %s, moves %s, transfer hooks %s, container names %s, item instances %s, equip %s",
          E.tx_ok ? "on" : "OFF", static_cast<long long>(E.tx_size), E.read_ok ? "on" : "OFF",
          E.catalog_ok ? "on" : "OFF", E.scan_ok ? "on" : "OFF", E.program_ok ? "possible" : "OFF",
          E.recipe_apply ? "on" : "OFF", E.fuel_ok ? "on" : "OFF", E.move_ok ? "on" : "OFF", E.transfer_ok ? "possible" : "OFF",
-         E.names_ok ? "on" : "OFF", E.instances_ok ? "on" : "OFF");
+         E.names_ok ? "on" : "OFF", E.instances_ok ? "on" : "OFF", E.equip_ok ? "possible" : "OFF");
     xfer_init();  // after every symbol above: a lab switch may install the hooks right now
 }
 
+void register_main();
+
 void KILN_CALL on_ready(void*) {
+    register_main();
+    // v5: equip runs in a program of its own, an entity program over the player characters: kiln.world only
+    const auto* w = static_cast<const KilnWorldApi*>(g_api->service(KilnStr{KILN_WORLD_SERVICE, std::strlen(KILN_WORLD_SERVICE)}, 1));
+    equip_register(w && w->header.size >= sizeof(KilnWorldApi) ? w : nullptr);
+}
+
+void register_main() {
     if (!E.tx_ok) {
         set_detail("the inventory transaction is not available on this game build");
         return;
@@ -1947,6 +1982,7 @@ void items_log(int level, const char* fmt, ...) {
 const KilnApi* items_api() { return g_api; }
 KilnOwner items_owner() { return g_owner; }
 uint64_t current_step() { return g_step.load(std::memory_order_relaxed); }
+uint64_t items_next_ticket() { return g_next_ticket.fetch_add(1); }
 }  // namespace kitems
 
 extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api, KilnOwner owner, KilnPluginInfo* info) {
@@ -1954,7 +1990,7 @@ extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api,
     g_api = api;
     g_owner = owner;
     info->id = KilnStr{kName, std::strlen(kName)};
-    info->version = KilnStr{"4", 1};
+    info->version = KilnStr{"5", 1};
     info->on_ready = &on_ready;
     resolve();
     selftest_init();

@@ -39,6 +39,10 @@ public static unsafe partial class Items
         /// InstanceData need.</summary>
         public const string Instances = "items.instances";
 
+        /// <summary>sigdb: the game's equip and unequip (kiln.items v5, <see cref="Items.Equip"/>, <see cref="Items.Unequip"/>);
+        /// Kiln.Items lowers it when the table is older, kiln.world is missing, or kiln.items turned equip off.</summary>
+        public const string Equip = "items.equip";
+
         // sigdb rows the ones above need
         public const string Transaction = "items.transaction";
         public const string Read = "items.read";
@@ -72,8 +76,20 @@ public static unsafe partial class Items
         {
             var (reason, text) = Cause(CapabilityReason.ServiceMissing, "kiln.items is not loaded", Caps.Service);
             Capabilities.Report(Caps.ResultPeek, CapabilityState.Unavailable, reason, text);
-            foreach (var name in (string[])[Caps.Fuel, Caps.Move, Caps.Names, Caps.Transfer, Caps.Moves, Caps.Instances]) Lower(name, reason, text);
+            foreach (var name in (string[])[Caps.Fuel, Caps.Move, Caps.Names, Caps.Transfer, Caps.Moves, Caps.Instances, Caps.Equip]) Lower(name, reason, text);
             return;
+        }
+        // equip (v5): kiln.items decides it at its start (the symbols, kiln.world, the program's registration)
+        var v5 = V5;
+        var equip = v5 == null ? null : EquipStatusOf(v5);
+        switch (DecideEquip(t->Header.Version, v5 != null, equip?.Available ?? false, equip?.Detail ?? ""))
+        {
+            case (EquipVerdict.NoV5, var text):
+                Lower(Caps.Equip, CapabilityReason.ServiceOlder, text);
+                break;
+            case (EquipVerdict.Off, var text):
+                Off(Caps.Equip, text, Caps.Transaction, Caps.Read);
+                break;
         }
         var older = $"kiln.items v{t->Header.Version} has no {{0}} (update Kiln)";
         if (ResultTable != null) Capabilities.Report(Caps.ResultPeek, CapabilityState.Available);
@@ -105,7 +121,9 @@ public static unsafe partial class Items
             RefreshMoves();
             _capabilityTick ??= ServiceTickAccess.Add("kiln.items capabilities", step =>
             {
-                if (step % 25 == 0) RefreshMoves();
+                if (step % 25 != 0) return;
+                RefreshMoves();
+                RefreshEquip();
             });
         }
         // give, take, moves and water all run through the game's inventory transaction
@@ -135,6 +153,28 @@ public static unsafe partial class Items
         : !flagOn ? (InstancesVerdict.Off, detail.Length > 0 ? detail : "kiln.items turned item instances off (see kiln.log)")
         : (InstancesVerdict.On, "");
 
+    internal enum EquipVerdict
+    {
+        /// <summary>On: the sigdb row stands.</summary>
+        On,
+        /// <summary>No kiln.items table: lowered with the other rows.</summary>
+        NoTable,
+        /// <summary>A table without v5: lowered, service-older.</summary>
+        NoV5,
+        /// <summary>v5, but kiln.items says equip cannot run (feature off, no kiln.world, the program refused): off, with
+        /// its detail.</summary>
+        Off,
+    }
+
+    /// <summary>What <c>items.equip</c> becomes, from what kiln.items has: the table's version (null: no table), whether
+    /// it has v5, its equip status' available flag and detail. Pure, so every branch is tested without the native
+    /// table.</summary>
+    internal static (EquipVerdict Verdict, string Text) DecideEquip(uint? tableVersion, bool v5, bool available, string detail) =>
+        tableVersion is not { } version ? (EquipVerdict.NoTable, "kiln.items is not loaded")
+        : !v5 ? (EquipVerdict.NoV5, $"kiln.items v{version} has no equip (update Kiln)")
+        : !available ? (EquipVerdict.Off, detail.Length > 0 ? detail : "kiln.items turned equip off (see kiln.log)")
+        : (EquipVerdict.On, "");
+
     // items.moves follows the kiln_items program: available while moves run, pending while it waits for a server world
     // (and again after one closed), unavailable when it broke or moves are off on this build.
     private static void RefreshMoves()
@@ -149,6 +189,19 @@ public static unsafe partial class Items
         if (now == _moves) return;
         _moves = now;
         Capabilities.Report(Caps.Moves, now.Item1, now.Item2, now.Item3);
+    }
+
+    // items.equip goes off for the session when kiln.items' equip program is refused by the server world or breaks
+    // (equip_status stops saying available); the row is only ever lowered.
+    private static bool _equipLowered;
+
+    private static void RefreshEquip()
+    {
+        var t = V5;
+        if (_equipLowered || t == null || !Capabilities.Is(Caps.Equip)) return;
+        if (EquipStatusOf(t) is not { Available: false } s) return;
+        _equipLowered = true;
+        Off(Caps.Equip, s.Detail, Caps.Transaction, Caps.Read);
     }
 
     private static (CapabilityState, CapabilityReason, string) Unavailable((CapabilityReason Reason, string Text) c) =>
