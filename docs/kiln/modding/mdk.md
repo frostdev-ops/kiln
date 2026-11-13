@@ -131,6 +131,12 @@ like `kiln.example`: `native/services/weather/`, `native/core/abi/services/kiln_
 | `kiln-cosmetic` | A hat, a hair style and a beard on the game's looks, in C# and `blocks/*.json` | both, kiln | Builds and lints. How it looks needs a client |
 | `kiln-building-material` | A building material with a surface, and a terrain material, as data | both, mod | Builds and lints |
 | `kiln-ability-blocks` | A weapon perk, an ability on a key, a talent tree and a trigger, in C# and `blocks/*.json` | both, mod | Builds and lints. Keys and the tree need a client |
+| `kiln-unit-test` | An xunit project that runs a mod with no game, under `dotnet test` (Kiln.TestKit, [unit-tests.md](unit-tests.md)) | | Runs offline; not a lab mod |
+| `kiln-events` | `[Subscribe]` methods, `Events.On` with a priority, and a cancelable event of the mod's own that other mods can change | server, none | Created from the packed SDK and built; not run in a lab |
+| `kiln-saved-data` | A value for the world (`WorldData`) and one per player by Steam id (`PlayerData`), `/notes`, `/motto` | server, none | Created from the packed SDK and built; not run in a lab (the sample `SavedData` is tested offline) |
+| `kiln-rules` | Kiln.Rules: a rule for everyone, a timed rule for one player (`/fly`), NoClip through Kiln's switch (`/ghost`) | server, none | Created from the packed SDK and built; not run in a lab |
+| `kiln-network` | A network channel between the mod's server side and its client side: typed messages, a reply, a broadcast | both, mod | Created from the packed SDK and built; needs a client |
+| `kiln-screen-effect` | Screen effects as blocks: a tint while a status lasts, a flash where a spell lands | both, kiln | Created from the packed SDK and built; what the screen shows needs a client |
 
 ### Block templates
 The `-blocks` templates and `kiln-npc`, `kiln-cosmetic`, `kiln-building-material` build everything from typed blocks
