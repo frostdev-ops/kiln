@@ -370,7 +370,7 @@ public sealed class Swords : Mod   // kiln.mod.json: "side": "both"
 |---|---|
 | `None` (default) | nobody: it stays on the server |
 | `Holder` | the player whose inventory holds the item (backpack, action bar, worn). An item in a chest is nobody's |
-| `Nearby` | the holder, and every player within `NearbyRadius` metres (1 to 256, default 32) of the item's holder: another player, a chest, a station, an NPC |
+| `Nearby` | the holder, and every player within `NearbyRadius` metres (1 to 256, default 32) of the item's holder: another player, a chest, a station, an NPC. "Of the holder" is where it stands now, read from the game at every pass (an NPC that walks takes its range with it); a holder whose position cannot be read is near nobody |
 
 - **Who is never sent anything:** a player the key does not name; a player without Kiln; a player whose Kiln has no
   mod that reads synced values (the channel opens in a game when a mod there declares a key with `Sync` or calls
@@ -384,6 +384,13 @@ public sealed class Swords : Mod   // kiln.mod.json: "side": "both"
   that unloads (its keys go, so its values go from players' games). A player who joins, or joins again, gets the whole
   set, starting with a reset of what the game held. Values of a mod that is not loaded on the server are sent to
   nobody: its key is what says who may see them.
+- **Nothing lost on the way.** kiln.net can take an update and drop it later (a frame it cannot hand to the game within
+  two seconds), so an update counts only once the player's game acknowledges it. Every update names the one before it;
+  a game takes an update only right after the one it names, and otherwise tells the server it lost one. The server then
+  starts that game over (a reset with the whole set, at most once a second); an update that is not acknowledged within
+  ten seconds does the same. At most eight updates wait for their acknowledgement; while eight wait, the game gets
+  nothing new. So a lost value, removal or reset is made good within about a second when another update follows it,
+  and within ten seconds when none does.
 - **The client's copies** are read-only. `SyncedItem.Entity` is the item entity's id **on the server**, `Holder` the
   holder's, `FlatSlot` the slot as Kiln.Items numbers it there (0 to 255: backpack and action bar, 8 per page; 256 and
   up: worn gear and the other links), `Item` the item type, `Own` whether this game's player holds it. Whether the
@@ -398,28 +405,42 @@ public sealed class Swords : Mod   // kiln.mod.json: "side": "both"
 | Limit | Value | Above it |
 |---|---|---|
 | one value | 64 KB as JSON, the store's cap | `Set` throws `ArgumentException`; a live object that grew past it is sent (and saved) in its last form that fit |
-| one update to one player | 96 KB of values, 512 items, 256 values per item | the rest follows in the next updates, a quarter of a second apart: nothing is dropped. A player holding 1 MB of synced values has all of it after about 3 seconds |
-| a value against the server's `network.json` `maxMessageBytes` (default 256 KiB) | the value, its mod id and key name must fit in `maxMessageBytes` minus 4 KB | a server whose operator lowered the limit below a value's size never sends that value (warned once per item and key in kiln.log); the others go |
-| a client's copies | 4,096 items | further items are left out (warned once in the client's kiln.log) |
+| one update to one player | 96 KB encoded (everything in it: values, removals, gone items, headers), 512 items, 256 values per item | the rest follows in the next updates, a quarter of a second apart: nothing is dropped, a long list of gone items or of removed keys included. A player holding 1 MB of synced values has all of it after about 3 seconds |
+| a value against the server's `network.json` `maxMessageBytes` (default 256 KiB) | one update with that value alone (the value, its mod id and key name, and the update's headers) must fit in `maxMessageBytes` | a server whose operator lowered the limit below a value's size never sends that value (warned once per item and key in kiln.log), and takes an older copy of it off the game; the others go |
+| a client's copies | 4,096 items | the server sends no more than that to one game, the player's own items first; an item that waits goes out as soon as one of the game's leaves. A client also leaves out what goes over it (warned once in its kiln.log), which a Kiln server never sends |
+| updates waiting for a game's acknowledgement | 8 | the game gets nothing new until one is acknowledged; ten seconds without, it starts over |
 | what a client accepts in one update | version 1, 4,096 items, 65,536 gone ids, 256 values per item, 64 KB per value, mod id 128 bytes, key 800 bytes | the whole update is dropped as malformed (counted as a decode error of the channel) |
 
-**Wire** (channel `kiln:instance` v1, not required; one message each way; integers little-endian, strings and counts
-as in [network.md](../network.md)): message 0, server to client: `u8 version = 1`, `bool reset`, `gone: [u32 item
-entity]`, `items: [u32 entity, u32 item type, u32 holder, varint flat slot, values: [str mod, str key, bool has, str
-JSON if has]]` (a value without JSON is a removal). Message 1, client to server, taken from lab peers only
+**Wire** (channel `kiln:instance` v1, not required; integers little-endian, strings and counts as in
+[network.md](../network.md)): message 0, server to client: `u8 version = 1`, `bool reset`, `u32 seq` (the update's
+number, unique on the server, never 0), `u32 prev` (the number of the update sent to this game before it; 0 on a reset),
+`gone: [u32 item entity]`, `items: [u32 entity, u32 item type, u32 holder, varint flat slot, values: [str mod, str key,
+bool has, str JSON if has]]` (a value without JSON is a removal). Message 1, client to server, taken from lab peers only
 (`tools/nettest`): `u32 as, bool hasAt, 3 x f64 at`: the holder entity the peer stands for and where it stands.
+Message 2, client to server: `u32 seq, bool lost`: the game took update `seq` (and so every one before it), or, with
+`lost`, it took `seq` last and then got one that does not follow it. The server ignores an acknowledgement of an update
+it is not waiting for, and a loss before the game's last reset. (`seq`, `prev` and message 2 were added before v1 shipped,
+after the dev.27 review.)
 
 **What is proven where.** The passes, the limits and the client's store are proven offline with the real store and a
-fake game (`InstanceSyncTests`: every update goes through the real encoder and decoder into a real client store per
-player). The channel is proven on a lab server (a copy of a real world, no player, server 26430253) with fake clients
-on kiln.net's lab transport (`mods/tests/instance-sync-test`, `syncnet.py`, 35 checks and 8 after a restart, all
-passing on 2026-11-12): lab peers stand for the holders of two chests and for a player near them. The holder got a value
+fake game (`InstanceSyncTests`, 35 tests: every update goes through the real encoder and decoder into a real client
+store per player, and the acknowledgements come back the same way; they include an NPC that walks away, updates the
+network took and lost, 2,048 items gone and 59 long key names removed at once over an 8 KB channel, 4,097 items for a
+game that keeps 4,096, a game that acknowledges nothing, and acknowledgements a hostile game makes up). The channel is
+proven on a lab server (a copy of a real world, no player, server 26430253) with fake clients on kiln.net's lab
+transport (`mods/tests/instance-sync-test`, `syncnet.py`, 46 checks and 8 after a restart, all passing on 2026-11-12):
+lab peers stand for the holders of two chests and for a player near them. The holder got a value
 115 to 170 ms after `Set`, with the item's type, holder and flat slot as the server reads them; an edit without `Set`
 arrived; the key without `Sync` never did; the other chest's holder and a player far away got nothing; a player 3 m from
 the chest got the `Nearby` value and no `Holder` value, lost it when walking out of range and got it again when
 walking back; `Items.Move` took the copy from one holder's game to the other's; a removal arrived as a removal, a
-destroyed item as gone; three 40 KB values arrived whole in two updates (80,132 and 40,068 bytes); a later connection
-got the whole set after a reset; a Kiln client without the channel and a client without Kiln got nothing. After a stop
+destroyed item as gone; three 40 KB values arrived whole in two updates (80,140 and 40,076 bytes); a later connection
+got the whole set after a reset; a Kiln client without the channel and a client without Kiln got nothing. A stand-in
+NPC (a player-template entity) carrying a sword was moved 60 m (`Teleport.To`) with the sword in the same slot: the game
+3 m from its old place lost the `Nearby` copy 131 ms later and a game beside its new place got it. An update the peer
+dropped on purpose was noticed by the next one, and the server started that game over with the whole set 269 ms later;
+a peer that acknowledged nothing got 8 updates and then nothing, until the server started it over ten seconds after
+the oldest one. After a stop
 and a start the two swords had their values again and the holder's game got them in its first updates, with nothing
 set in that boot. A lab has no player with an inventory, so **a real player's inventory and a real game showing a value
 wait for the guided checks** `instances.synced`, `instances.synced-moves`, `instances.synced-rejoin` and
@@ -429,7 +450,7 @@ wait for the guided checks** `instances.synced`, `instances.synced-moves`, `inst
 Admin only, owned by "kiln" (node `kiln.command.instances`). Per mod: what is attached (item, holder, slot, keys), what
 waits and what is set aside (holder, slot, item, reason, sessions missed), and values that did not fit. A player name
 or an entity id (a holder or an item) narrows it. Without an argument, once a key with `Sync` was declared, a last line
-says what goes to players' games (games served, updates, values and bytes sent). Kiln.Saves registers it late-bound, by name, when Kiln.Chat is loaded
+says what goes to players' games (games served, updates, values and bytes sent, updates acknowledged, start-overs after a loss). Kiln.Saves registers it late-bound, by name, when Kiln.Chat is loaded
 (the first key's declaration, or the first service tick); a mod that only stores data does not load the chat library.
 
 ## Saves

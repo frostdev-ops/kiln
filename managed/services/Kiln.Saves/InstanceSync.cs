@@ -7,14 +7,24 @@
 // a loss and a player walking into or out of range are all one rule, and a value never reaches a player its key does
 // not name. A client keeps what it is sent in a store a mod reads (InstanceData.Synced, InstanceDataSyncedEvent).
 //
-//   server -> client  Update   v1: [reset] [gone: item entity ids] [items: entity, item type, holder, flat slot,
-//                              values: mod, key, JSON or "removed"]
+//   server -> client  Update   v1: [reset] [seq, prev] [gone: item entity ids] [items: entity, item type, holder,
+//                              flat slot, values: mod, key, JSON or "removed"]
 //   client -> server  LabView  lab peers only (tools/nettest): which holder entity this peer stands for, and where
+//   client -> server  Ack      v1: the last update the game took in order, or "lost": it missed one after that
 //
-// Limits: a value is at most 64 KB as JSON (the store's cap); one update carries at most 96 KB of values and 512 items,
-// and what does not fit follows in the next updates (nothing is dropped). A value larger than the server's
-// network.json maxMessageBytes allows is never sent (logged once per item and key). The client drops an update that
-// breaks these limits. Docs: docs/kiln/services/saves.md "Instance data on players' games".
+// Delivery: kiln.net can accept an update and drop it later (its retry queue gives up after two seconds), so an update
+// counts as delivered only when the game acknowledges it. Every update names the one before it (prev); a game takes an
+// update only right after the one it names, and otherwise reports the loss. A reported loss, or an update without an
+// acknowledgement after ten seconds, starts that game over: a reset with the whole set, as at the first update. At most
+// eight updates wait for their acknowledgement; the next difference waits for room.
+//
+// Limits: a value is at most 64 KB as JSON (the store's cap); one update is at most 96 KB encoded (everything in it:
+// values, removals, gone items, headers) and 512 items, and what does not fit follows in the next updates (nothing is
+// dropped). A game holds copies for at most 4,096 items: the server sends no more than that, the player's own items
+// first, and sends a waiting item once there is room. A value larger than one update to the server's network.json
+// maxMessageBytes is never sent (logged once per item and key). The client drops an update that breaks these limits.
+// The wire format was changed before v1 shipped (dev.27 review: seq, prev and Ack). Docs: docs/kiln/services/saves.md
+// "Instance data on players' games".
 using System.Text;
 
 namespace Kiln;
@@ -33,8 +43,25 @@ internal sealed class SyncUpdate
     internal const byte Version = 1;
     internal const int MaxGone = 65536, MaxItems = 4096, MaxValuesPerItem = 256, MaxModBytes = 128, MaxKeyBytes = 800;
 
-    /// <summary>Everything the client holds is void: the full set follows (the first update to a player).</summary>
+    /// <summary>The most bytes each part takes encoded (a count as a variable-length number takes at most 5), so the
+    /// server's budget covers the whole message.</summary>
+    internal const int HeaderBytes = 1 + 1 + 4 + 4 + 5 + 5, GoneBytes = 4, ItemHeaderBytes = 4 + 4 + 4 + 5 + 5;
+
+    /// <summary>The most bytes one value (or one removal: <paramref name="json"/> null) takes encoded.</summary>
+    internal static int ValueBytes(string mod, string key, string? json) =>
+        5 + Encoding.UTF8.GetByteCount(mod) + 5 + Encoding.UTF8.GetByteCount(key) + 1 + (json is null ? 0 : 5 + Encoding.UTF8.GetByteCount(json));
+
+    /// <summary>Everything the client holds is void: the full set follows (the first update to a player, and every start
+    /// over after a lost update).</summary>
     public bool Reset;
+
+    /// <summary>This update's number, unique on the server (never 0).</summary>
+    public uint Seq;
+
+    /// <summary>The number of the update the server sent this game before this one; 0 on a reset. A game takes the update
+    /// only when it took that one last.</summary>
+    public uint Prev;
+
     public readonly List<uint> Gone = [];
     public readonly List<SyncItemUpdate> Items = [];
 
@@ -42,7 +69,7 @@ internal sealed class SyncUpdate
 
     public void Encode(NetWriter w)
     {
-        w.Byte(Version).Bool(Reset).VarUInt((ulong)Gone.Count);
+        w.Byte(Version).Bool(Reset).UInt32(Seq).UInt32(Prev).VarUInt((ulong)Gone.Count);
         foreach (var e in Gone) w.UInt32(e);
         w.VarUInt((ulong)Items.Count);
         foreach (var i in Items)
@@ -61,7 +88,8 @@ internal sealed class SyncUpdate
     {
         var version = r.Byte();
         if (version != Version) throw new NetFormatException($"kiln:instance update version {version}, this game reads {Version}");
-        var u = new SyncUpdate { Reset = r.Bool() };
+        var u = new SyncUpdate { Reset = r.Bool(), Seq = r.UInt32(), Prev = r.UInt32() };
+        if (u.Seq == 0) throw new NetFormatException("kiln:instance update without a number");
         var gone = r.VarUInt();
         if (gone > MaxGone) throw new NetFormatException($"kiln:instance update names {gone} gone items (limit {MaxGone})");
         for (ulong k = 0; k < gone; k++) u.Gone.Add(r.UInt32());
@@ -96,6 +124,16 @@ internal sealed record SyncLabView(uint As, bool HasAt, WorldPosition At)
     public static SyncLabView Decode(ref NetReader r) => new(r.UInt32(), r.Bool(), r.Position3());
 }
 
+/// <summary>Client to server: the game took update <see cref="Seq"/> (and so every one before it), or, with
+/// <see cref="Lost"/>, it took <see cref="Seq"/> last and then got one that does not follow it: an update was lost
+/// between, and the game waits for the server to start it over.</summary>
+internal sealed record SyncAck(uint Seq, bool Lost)
+{
+    public void Encode(NetWriter w) => w.UInt32(Seq).Bool(Lost);
+
+    public static SyncAck Decode(ref NetReader r) => new(r.UInt32(), r.Bool());
+}
+
 /// <summary>A player's game the server may send to: who it is to the store (the entity whose inventory is "its own")
 /// and where it stands (null: not known, so nothing reaches it as "nearby").</summary>
 internal readonly record struct SyncViewer(ulong Id, EntityId Player, WorldPosition? Position, string Name);
@@ -107,23 +145,39 @@ internal interface IInstanceSyncLink
     /// <summary>The games that take updates now: connected, with the channel, and with a player in game.</summary>
     IReadOnlyList<SyncViewer> Viewers();
 
-    /// <summary>Where a player holder stands now; null when not known.</summary>
-    WorldPosition? PositionOf(EntityId player);
+    /// <summary>Where a holder entity (a player, a chest, a station, an NPC) stands now, read from the game; null when it
+    /// cannot be read (then nobody is near it).</summary>
+    WorldPosition? PositionOf(EntityId holder);
 
     /// <summary>The largest update, in bytes, the channel carries.</summary>
     int MaxUpdateBytes { get; }
 
-    /// <summary>False when it did not go out: the same difference is sent again at the next pass.</summary>
+    /// <summary>False when it did not go out: the same difference is sent again at the next pass. True means only that the
+    /// network took it: whether it arrived, the game's acknowledgement says.</summary>
     bool Send(in SyncViewer viewer, SyncUpdate update);
 }
 
-/// <summary>The server side: what each player was sent, and the pass that sends the difference. Tick thread.</summary>
-internal sealed class InstanceSyncServer(InstanceStore store, IInstanceSyncLink link)
+/// <summary>The server side: what each player was sent, and the pass that sends the difference. Tick thread (the passes,
+/// and the games' acknowledgements: kiln.net's server-side handlers run there).</summary>
+internal sealed class InstanceSyncServer(InstanceStore store, IInstanceSyncLink link, Func<long>? clock = null)
 {
-    /// <summary>Bytes of values (JSON, mod id and key name) in one update; one value always fits, whatever its size.</summary>
+    /// <summary>The most bytes one update takes encoded, everything in it; one value of the store's largest size always
+    /// fits (64 KB).</summary>
     internal const int UpdateBudgetBytes = 96 * 1024;
 
     internal const int MaxItemsPerUpdate = 512;
+
+    /// <summary>Items a game holds copies for at most: the client's own cap. The server never sends more.</summary>
+    internal const int MaxHeldItems = InstanceSyncClient.MaxItems;
+
+    /// <summary>Updates that may wait for their acknowledgement; while that many wait, a game gets nothing new.</summary>
+    internal const int MaxInFlight = 8;
+
+    /// <summary>An update without an acknowledgement this long counts as lost: the game starts over.</summary>
+    internal const long AckTimeoutMs = 10_000;
+
+    /// <summary>A game's report of a lost update starts it over at most this often (a client may be hostile).</summary>
+    internal const long LostEveryMs = 1_000;
 
     private sealed class SentItem
     {
@@ -137,13 +191,27 @@ internal sealed class InstanceSyncServer(InstanceStore store, IInstanceSyncLink 
     {
         public readonly EntityId Player = player;
         public bool Fresh = true;
+
+        /// <summary>The last update that went out to this game; the reset that started it over last (0: none yet).</summary>
+        public uint Last, ResetSeq;
+
+        /// <summary>The game said it lost an update after one of this state's: it starts over at the next pass.</summary>
+        public bool LostReported;
+
+        public long StartedOverAt = long.MinValue / 2;
+
+        /// <summary>Updates that went out and wait for the game's acknowledgement, oldest first.</summary>
+        public readonly List<(uint Seq, long At)> InFlight = [];
+
         public readonly Dictionary<uint, SentItem> Items = new();
     }
 
+    private readonly Func<long> _now = clock ?? (static () => Environment.TickCount64);
     private readonly Dictionary<ulong, ViewerState> _viewers = new();
     private readonly HashSet<string> _noted = new(StringComparer.Ordinal);
+    private uint _seq;
 
-    internal long Updates, Values, Bytes, Unsent;
+    internal long Updates, Values, Bytes, Unsent, Acked, StartOvers;
 
     internal int ViewerCount => _viewers.Count;
 
@@ -153,6 +221,37 @@ internal sealed class InstanceSyncServer(InstanceStore store, IInstanceSyncLink 
 
     /// <summary>Forgets what was sent (the channel closed, the world went): the next pass starts every viewer over.</summary>
     internal void Forget() => _viewers.Clear();
+
+    /// <summary>A game's acknowledgement (<see cref="SyncAck"/>), from connection <paramref name="viewer"/>. One that
+    /// names no update waiting for it is ignored: a late one from before a start over, or a hostile one.</summary>
+    internal void Ack(ulong viewer, SyncAck ack)
+    {
+        if (!_viewers.TryGetValue(viewer, out var state)) return;
+        if (ack.Lost)
+        {
+            // only a loss after an update of this state counts: the game took one at or after the last reset (a report from
+            // before that reset, or from a game that has not taken it, waits for the reset or for the timeout)
+            if (!state.Fresh && state.ResetSeq != 0 && !Before(ack.Seq, state.ResetSeq) && !Before(state.Last, ack.Seq)) state.LostReported = true;
+            return;
+        }
+        var i = state.InFlight.FindIndex(f => f.Seq == ack.Seq);
+        if (i < 0) return;
+        state.InFlight.RemoveRange(0, i + 1);  // it took that one, so every one before it
+        Acked++;
+    }
+
+    /// <summary>a comes before b among the server's update numbers (which wrap after 2^32).</summary>
+    private static bool Before(uint a, uint b) => (int)(a - b) < 0;
+
+    private void StartOver(ViewerState state, long now)
+    {
+        state.Fresh = true;
+        state.Items.Clear();
+        state.InFlight.Clear();
+        state.LostReported = false;
+        state.StartedOverAt = now;
+        StartOvers++;
+    }
 
     /// <summary>One pass: for every viewer, what it may see now against what it was sent. Returns the updates that went out.</summary>
     internal int Pass()
@@ -174,102 +273,134 @@ internal sealed class InstanceSyncServer(InstanceStore store, IInstanceSyncLink 
                 if (!byItem.TryGetValue(v.Item, out var list)) byItem[v.Item] = list = [];
                 list.Add(v);
             }
-        var budget = Math.Min(UpdateBudgetBytes, link.MaxUpdateBytes - 4096);
+        var budget = Math.Min(UpdateBudgetBytes, link.MaxUpdateBytes);
         var positions = new Dictionary<uint, WorldPosition?>();
+        var now = _now();
         var sent = 0;
         foreach (var viewer in viewers)
         {
             if (!_viewers.TryGetValue(viewer.Id, out var state)) _viewers[viewer.Id] = state = new ViewerState(viewer.Player);
-            var want = new SortedDictionary<uint, (LiveItem Item, List<InstanceStore.SyncedValue> Values)>();
+            if (state.LostReported && now - state.StartedOverAt >= LostEveryMs) StartOver(state, now);
+            else if (state.InFlight.Count > 0 && now - state.InFlight[0].At >= AckTimeoutMs) StartOver(state, now);
+            if (state.LostReported) continue;                    // the game takes nothing but the reset: it comes once allowed
+            if (state.InFlight.Count >= MaxInFlight) continue;  // it waits for the game to take what is under way
+            var want = new List<(uint Entity, LiveItem Item, List<InstanceStore.SyncedValue> Values, bool Own)>();
             foreach (var (item, values) in byItem)
             {
                 var holder = item.Place.Holder;
                 if (holder.IsNone) continue;  // placed nowhere: nobody's
                 List<InstanceStore.SyncedValue>? seen = null;
                 foreach (var v in values)
-                    if (holder == viewer.Player || (v.Key.Sync == InstanceSync.Nearby && Near(viewer, item, v.Key.NearbyRadius, positions)))
+                    if (holder == viewer.Player || (v.Key.Sync == InstanceSync.Nearby && Near(viewer, holder, v.Key.NearbyRadius, positions)))
                         (seen ??= []).Add(v);
-                if (seen is not null) want[item.Ref.Entity.Id.Value] = (item, seen);
+                if (seen is not null) want.Add((item.Ref.Entity.Id.Value, item, seen, holder == viewer.Player));
             }
+            // the player's own items first, so others' never crowd them out of the game's cap; then by entity
+            want.Sort(static (a, b) => a.Own != b.Own ? (a.Own ? -1 : 1) : a.Entity.CompareTo(b.Entity));
             var (update, commit) = Diff(state, want, budget);
             if (update.IsEmpty) continue;
+            if (++_seq == 0) _seq = 1;
+            update.Seq = _seq;
+            update.Prev = update.Reset ? 0 : state.Last;
             if (!link.Send(viewer, update))
             {
                 Unsent++;
                 continue;
             }
             commit();
+            state.Last = update.Seq;
+            if (update.Reset) state.ResetSeq = update.Seq;
+            state.InFlight.Add((update.Seq, now));
             sent++;
             Updates++;
         }
         return sent;
     }
 
-    private bool Near(in SyncViewer viewer, LiveItem item, double radius, Dictionary<uint, WorldPosition?> positions)
+    /// <summary>Whether the viewer stands within <paramref name="radius"/> of the holder entity as it stands now: read from
+    /// the game once per pass for each holder. A holder whose position cannot be read is near nobody.</summary>
+    private bool Near(in SyncViewer viewer, EntityId holder, double radius, Dictionary<uint, WorldPosition?> positions)
     {
         if (viewer.Position is not { } at) return false;
-        var holder = item.Place.Holder;
-        if (!positions.TryGetValue(holder.Value, out var where))
-            positions[holder.Value] = where = item.Holder.Kind switch
-            {
-                HolderKind.Player => link.PositionOf(holder),
-                HolderKind.World => item.Holder.Position,  // where it stood when the item was last placed or saved there
-                _ => null,                                  // no identity Kiln knows a position of: nobody is "near" it
-            };
+        if (!positions.TryGetValue(holder.Value, out var where)) positions[holder.Value] = where = link.PositionOf(holder);
         return where is { } p && p.DistanceTo(at) <= radius;
     }
 
     /// <summary>The update that turns what the viewer was sent into what it may see now (as far as one update holds), and
-    /// what to remember once it went out.</summary>
-    private (SyncUpdate Update, Action Commit) Diff(ViewerState state, SortedDictionary<uint, (LiveItem Item, List<InstanceStore.SyncedValue> Values)> want, int budget)
+    /// what to remember once it went out. <paramref name="budget"/> covers the whole encoded update.</summary>
+    private (SyncUpdate Update, Action Commit) Diff(ViewerState state, List<(uint Entity, LiveItem Item, List<InstanceStore.SyncedValue> Values, bool Own)> want, int budget)
     {
         var update = new SyncUpdate { Reset = state.Fresh };
         var commits = new List<Action> { () => state.Fresh = false };
-        foreach (var (entity, had) in state.Items)
-            if (!want.TryGetValue(entity, out var now) || now.Item.Ref.Entity.Serial != had.Serial)
+        var used = SyncUpdate.HeaderBytes;
+        var serialOf = new Dictionary<uint, ulong>(want.Count);
+        foreach (var w in want) serialOf[w.Entity] = w.Item.Ref.Entity.Serial;
+
+        // items the game holds that it may not see now, or whose entity id is another item now; what does not fit waits
+        var waiting = new HashSet<uint>();
+        foreach (var (entity, had) in state.Items.OrderBy(i => i.Key))
+        {
+            if (serialOf.TryGetValue(entity, out var serial) && serial == had.Serial) continue;
+            if (used + SyncUpdate.GoneBytes > budget || update.Gone.Count >= SyncUpdate.MaxGone)
             {
-                update.Gone.Add(entity);
-                commits.Add(() => state.Items.Remove(entity));
+                waiting.Add(entity);
+                continue;
             }
-        var used = 0;
+            used += SyncUpdate.GoneBytes;
+            update.Gone.Add(entity);
+            commits.Add(() => state.Items.Remove(entity));
+        }
+        // how many the game holds once the gone ones went: a new item waits while that is its cap
+        var held = state.Items.Count - update.Gone.Count;
         long values = 0;
-        foreach (var (entity, (item, list)) in want)
+        foreach (var (entity, item, list, _) in want)
         {
             if (update.Items.Count >= MaxItemsPerUpdate) break;
+            if (waiting.Contains(entity)) continue;  // the item the id stood for leaves the game first
             var had = state.Items.TryGetValue(entity, out var h) && h.Serial == item.Ref.Entity.Serial ? h : null;
+            if (had is null && held >= MaxHeldItems) continue;  // no room in the game: it follows once there is
             var op = new SyncItemUpdate { Entity = entity, Item = item.Ref.Item.Value, Holder = item.Place.Holder.Value, Slot = item.Place.FlatSlot };
-            var full = false;
-            foreach (var v in list)
-            {
-                var at = (v.Key.ModId, v.Key.Name);
-                if (had is not null && had.Values.TryGetValue(at, out var old) && old == v.Json) continue;
-                var cost = Encoding.UTF8.GetByteCount(v.Json) + Encoding.UTF8.GetByteCount(at.ModId) + Encoding.UTF8.GetByteCount(at.Name) + 8;
-                if (cost > budget)
+            var cost = SyncUpdate.ItemHeaderBytes;
+            var full = used + cost > budget;
+            var sets = 0;
+            // removals first: a value the player may not see any more leaves its game before anything new arrives
+            if (had is not null && !full)
+                foreach (var at in had.Values.Keys.OrderBy(k => k.Mod, StringComparer.Ordinal).ThenBy(k => k.Key, StringComparer.Ordinal))
                 {
-                    // larger than the channel carries (network.json maxMessageBytes was lowered): it stays on the server
-                    if (_noted.Add($"{entity}:{at.ModId}:{at.Name}"))
-                        SavesRuntime.Log(LogLevel.Warn, $"Kiln.Saves: instance data {at.ModId} key '{at.Name}' of {item.Ref} is {cost} bytes, more than one " +
-                                                        $"kiln:instance update carries here ({budget}): it is not sent to players");
-                    continue;
+                    if (list.Any(v => v.Key.ModId == at.Mod && v.Key.Name == at.Key && !TooLarge(item, v, budget))) continue;
+                    var c = SyncUpdate.ValueBytes(at.Mod, at.Key, null);
+                    if (used + cost + c > budget || op.Values.Count >= SyncUpdate.MaxValuesPerItem)
+                    {
+                        full = true;
+                        break;
+                    }
+                    cost += c;
+                    op.Values.Add((at.Mod, at.Key, null));
                 }
-                if (used + cost > budget || op.Values.Count >= SyncUpdate.MaxValuesPerItem)
+            if (!full)
+                foreach (var v in list)
                 {
-                    full = true;  // the rest follows in the next update
-                    break;
+                    var at = (v.Key.ModId, v.Key.Name);
+                    if (had is not null && had.Values.TryGetValue(at, out var old) && old == v.Json) continue;
+                    if (TooLarge(item, v, budget)) continue;  // it stays on the server (an old copy went as a removal above)
+                    var c = SyncUpdate.ValueBytes(at.ModId, at.Name, v.Json);
+                    if (used + cost + c > budget || op.Values.Count >= SyncUpdate.MaxValuesPerItem)
+                    {
+                        full = true;  // the rest follows in the next update
+                        break;
+                    }
+                    cost += c;
+                    sets++;
+                    op.Values.Add((at.ModId, at.Name, v.Json));
                 }
-                used += cost;
-                values++;
-                op.Values.Add((at.ModId, at.Name, v.Json));
-            }
-            if (had is not null)
-                foreach (var at in had.Values.Keys)
-                    if (!list.Any(v => v.Key.ModId == at.Mod && v.Key.Name == at.Key) && op.Values.Count < SyncUpdate.MaxValuesPerItem)
-                        op.Values.Add((at.Mod, at.Key, null));
             var moved = had is not null && (had.Holder != op.Holder || had.Slot != op.Slot);
             // a new item goes out only with a value: one without is nothing a client could show
-            if (op.Values.Count > 0 || moved)
+            if ((op.Values.Count > 0 || moved) && used + cost <= budget)
             {
+                used += cost;
+                values += sets;
                 update.Items.Add(op);
+                if (had is null) held++;
                 var serial = item.Ref.Entity.Serial;
                 commits.Add(() =>
                 {
@@ -298,6 +429,18 @@ internal sealed class InstanceSyncServer(InstanceStore store, IInstanceSyncLink 
             foreach (var c in commits) c();
         });
     }
+
+    /// <summary>A value that does not fit one update even alone (network.json maxMessageBytes was lowered below it): it
+    /// stays on the server, logged once per item and key.</summary>
+    private bool TooLarge(LiveItem item, InstanceStore.SyncedValue v, int budget)
+    {
+        var alone = SyncUpdate.HeaderBytes + SyncUpdate.ItemHeaderBytes + SyncUpdate.ValueBytes(v.Key.ModId, v.Key.Name, v.Json);
+        if (alone <= budget) return false;
+        if (_noted.Add($"{item.Ref.Entity.Id.Value}:{v.Key.ModId}:{v.Key.Name}"))
+            SavesRuntime.Log(LogLevel.Warn, $"Kiln.Saves: instance data {v.Key.ModId} key '{v.Key.Name}' of {item.Ref} is {alone} bytes as an update, more than one " +
+                                            $"kiln:instance update carries here ({budget}): it is not sent to players");
+        return true;
+    }
 }
 
 /// <summary>The client side: the copies this game holds. Changed where the channel's messages arrive (the main thread),
@@ -309,9 +452,10 @@ internal sealed class InstanceSyncClient
 
     private readonly object _gate = new();
     private readonly Dictionary<uint, SyncedItem> _items = new();
-    private bool _fullNoted;
+    private bool _fullNoted, _chain, _lostSaid;
+    private uint _last;
 
-    internal long UpdatesIn, ValuesIn;
+    internal long UpdatesIn, ValuesIn, Skipped;
 
     internal IReadOnlyList<SyncedItem> All()
     {
@@ -332,12 +476,28 @@ internal sealed class InstanceSyncClient
     }
 
     /// <summary>Takes an update; returns the events it makes, in order (the caller posts them on the tick thread).</summary>
-    internal List<InstanceDataSyncedEvent> Apply(SyncUpdate u)
+    internal List<InstanceDataSyncedEvent> Apply(SyncUpdate u) => Apply(u, out _);
+
+    /// <summary>Takes an update when it follows the one this game took last (or is a reset); <paramref name="ack"/> is what
+    /// to tell the server: that it was taken, or, once per gap, that one was lost before it (then it is not taken, and the
+    /// copies stay as they are until the server's reset). Null: nothing to say.</summary>
+    internal List<InstanceDataSyncedEvent> Apply(SyncUpdate u, out SyncAck? ack)
     {
         var events = new List<InstanceDataSyncedEvent>();
         lock (_gate)
         {
+            if (!u.Reset && (!_chain || u.Prev != _last))
+            {
+                Skipped++;
+                ack = _lostSaid ? null : new SyncAck(_last, Lost: true);
+                _lostSaid = true;
+                return events;
+            }
             UpdatesIn++;
+            _chain = true;
+            _lostSaid = false;
+            _last = u.Seq;
+            ack = new SyncAck(u.Seq, Lost: false);
             if (u.Reset) ClearLocked(events);
             foreach (var e in u.Gone)
                 if (_items.Remove(e, out var gone))
@@ -395,7 +555,12 @@ internal sealed class InstanceSyncClient
     internal List<InstanceDataSyncedEvent> Clear()
     {
         var events = new List<InstanceDataSyncedEvent>();
-        lock (_gate) ClearLocked(events);
+        lock (_gate)
+        {
+            ClearLocked(events);
+            _chain = _lostSaid = false;  // the next server starts with a reset
+            _last = 0;
+        }
         return events;
     }
 
@@ -416,7 +581,7 @@ internal static class InstanceSyncRuntime
     internal const string ChannelName = "kiln:instance";
     internal const string ChannelVersion = "1";
     internal const int PassEveryMs = 250;
-    private const ushort MsgUpdate = 0, MsgLabView = 1;
+    private const ushort MsgUpdate = 0, MsgLabView = 1, MsgAck = 2;
 
     private static readonly object Gate = new();
     private static bool _started, _capShown, _warned;
@@ -484,7 +649,8 @@ internal static class InstanceSyncRuntime
                 if (!Network.Available) return;
                 _channel = Network.Channel(ChannelName, ChannelVersion, required: false, maxMessageBytes: 256 * 1024)
                     .Register<SyncUpdate>(MsgUpdate, static (m, w) => m.Encode(w), static (ref NetReader r) => SyncUpdate.Decode(ref r), OnUpdate, NetDirection.ToClient)
-                    .Register<SyncLabView>(MsgLabView, static (m, w) => m.Encode(w), static (ref NetReader r) => SyncLabView.Decode(ref r), OnLabView, NetDirection.ToServer);
+                    .Register<SyncLabView>(MsgLabView, static (m, w) => m.Encode(w), static (ref NetReader r) => SyncLabView.Decode(ref r), OnLabView, NetDirection.ToServer)
+                    .Register<SyncAck>(MsgAck, static (m, w) => m.Encode(w), static (ref NetReader r) => SyncAck.Decode(ref r), OnAck, NetDirection.ToServer);
                 Network.Disconnected += OnDisconnected;
                 _server = new InstanceSyncServer(SavesRuntime.Store.Instances, new GameLink(_channel));
                 ServiceTick.Add("kiln instance sync", Tick);
@@ -532,6 +698,9 @@ internal static class InstanceSyncRuntime
                                         (m.HasAt ? $" at ({m.At.X:F1}, {m.At.Y:F1}, {m.At.Z:F1})" : ""));
     }
 
+    /// <summary>A game took an update, or lost one (server side, tick thread, as the passes).</summary>
+    private static void OnAck(SyncAck m, NetContext ctx) => _server?.Ack(ctx.Sender.Id, m);
+
     /// <summary>The real game behind the server's passes: Kiln.Network's peers, Kiln.Players' positions.</summary>
     private sealed class GameLink(NetChannel channel) : IInstanceSyncLink
     {
@@ -559,15 +728,17 @@ internal static class InstanceSyncRuntime
             return list;
         }
 
-        public WorldPosition? PositionOf(EntityId player)
+        public WorldPosition? PositionOf(EntityId holder)
         {
             try
             {
-                return Players.Available ? Players.PositionOf(player) : null;
+                // a player through kiln.players; a chest, a station, an NPC through kiln.spawn's read of its transform now
+                if (holder.IsPlayer) return Players.Available ? Players.PositionOf(holder) : null;
+                return SpawnLink.PositionOf(holder);
             }
-            catch (NotSupportedException)
+            catch (Exception e) when (e is NotSupportedException or InvalidOperationException)
             {
-                return null;  // no positions on this build: nothing is "nearby"
+                return null;  // no position to be had now: nobody is "nearby"
             }
         }
 
@@ -594,7 +765,23 @@ internal static class InstanceSyncRuntime
 
     // ---------------------------------------------------------------------------------------------- client side ----
 
-    private static void OnUpdate(SyncUpdate m, NetContext ctx) => Post(ClientStore.Apply(m));
+    private static void OnUpdate(SyncUpdate m, NetContext ctx)
+    {
+        var events = ClientStore.Apply(m, out var ack);
+        if (ack is not null)
+        {
+            try
+            {
+                // not sent (the link is busy): the server hears of it with the next one, or starts this game over
+                _channel?.SendToServer(ack);
+            }
+            catch (Exception e) when (e is InvalidOperationException or ArgumentException)
+            {
+                SavesRuntime.Log(LogLevel.Debug, $"Kiln.Saves: instance data sync: an acknowledgement was not sent: {e.Message}");
+            }
+        }
+        Post(events);
+    }
 
     private static void OnDisconnected(NetPeer server) => Post(ClientStore.Clear());
 
@@ -639,6 +826,7 @@ internal static class InstanceSyncRuntime
         if (_channel is null) return "sync: off (kiln.net is not available)";
         var s = _server;
         return $"sync: channel {ChannelName} v{ChannelVersion}, {s?.ViewerCount ?? 0} player game(s) served, {s?.Updates ?? 0} update(s), " +
-               $"{s?.Values ?? 0} value(s), {s?.Bytes ?? 0} bytes sent; {ClientStore.Count} item(s) held as a client";
+               $"{s?.Values ?? 0} value(s), {s?.Bytes ?? 0} bytes sent, {s?.Acked ?? 0} acknowledged, {s?.StartOvers ?? 0} start-over(s) after a loss; " +
+               $"{ClientStore.Count} item(s) held as a client";
     }
 }

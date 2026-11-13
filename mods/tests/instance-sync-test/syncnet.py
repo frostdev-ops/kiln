@@ -16,7 +16,9 @@ deployed:
     tools/lab/lab.sh stop dev27-affix; labstart dev27-affix
     mods/tests/instance-sync-test/syncnet.py --port 27361 --phase restart
 
-first (the default): the holder, nobody else, nearby, moves, removals, losses, sizes, a later join, clients without the channel.
+first (the default): the holder, nobody else, nearby, moves, removals, losses, sizes, a later join, clients without the channel,
+an update lost on the way (noticed by the next, and the game starts over), a game that acknowledges nothing (at most eight
+updates, then a start over after ten seconds).
 restart: after a stop and a start: the values the first phase left on two swords are back on them (the store matched
 them) and reach the holder's game in its first update, with nothing set in this boot.
 
@@ -33,19 +35,22 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 import nettest as nt  # noqa: E402
 
 CH, CTL = "kiln:instance", "instance-sync-test:ctl"
-UPDATE, LABVIEW = 0, 1          # kiln:instance v1 (InstanceSync.cs)
+UPDATE, LABVIEW, ACK = 0, 1, 2  # kiln:instance v1 (InstanceSync.cs)
 REQ, REPLY = 0, 1               # the mod's control channel, in registration order
 MOD = "instance-sync-test"
-BUDGET = 96 * 1024              # InstanceSyncServer.UpdateBudgetBytes
+BUDGET = 96 * 1024              # InstanceSyncServer.UpdateBudgetBytes: the whole encoded update
+IN_FLIGHT = 8                   # InstanceSyncServer.MaxInFlight
+ACK_TIMEOUT = 10.0              # InstanceSyncServer.AckTimeoutMs
 
 
 def decode(body):
-    """One kiln:instance update: (reset, [gone entity], [item dict])."""
+    """One kiln:instance update: (reset, seq, prev, [gone entity], [item dict])."""
     r = nt.R(body)
     version = r.u8()
     if version != 1:
         raise ValueError(f"update version {version}")
     reset = r.boolean()
+    seq, prev = r.u32(), r.u32()
     gone = [r.u32() for _ in range(r.varu())]
     items = []
     for _ in range(r.varu()):
@@ -57,7 +62,7 @@ def decode(body):
             mod, key = r.string(), r.string()
             values.append((mod, key, r.string() if r.boolean() else None))
         items.append(dict(entity=entity, item=item, holder=holder, slot=slot, values=values))
-    return reset, gone, items
+    return reset, seq, prev, gone, items
 
 
 class C(nt.Client):
@@ -66,8 +71,14 @@ class C(nt.Client):
     def __init__(self, port, name, verbose=False):
         super().__init__(port, name, verbose)
         self.items = {}      # entity -> dict(item, holder, slot, values {(mod, key): parsed JSON})
-        self.updates = []    # (time, bytes, reset, gone, items)
+        self.updates = []    # (time, bytes, reset, gone, items) of the updates taken
         self.raw = {}        # (entity, mod, key) -> the JSON text as sent
+        self.last, self.chain, self.lost_said = 0, False, False   # as Kiln's client store: the update taken last
+        self.drop = 0        # the next this many updates are lost on the way (never seen, never acknowledged)
+        self.ack = True      # False: this game acknowledges nothing
+        self.received = 0    # updates that arrived (taken or not)
+        self.skipped = 0     # updates that arrived but did not follow the one taken last
+        self.losses = []     # the "lost" reports sent: the update taken last
 
     def set_table(self, table):
         self.table = table
@@ -98,8 +109,27 @@ class C(nt.Client):
                 keep.append(m)
         self.messages = keep
 
+    def send_ack(self, seq, lost):
+        self.data(CH, ACK, nt.W().u32(seq).boolean(lost).b)
+
     def apply(self, body):
-        reset, gone, items = decode(body)
+        reset, seq, prev, gone, items = decode(body)
+        if self.drop > 0:
+            self.drop -= 1
+            return
+        self.received += 1
+        if not reset and (not self.chain or prev != self.last):
+            # an update was lost before this one: not taken; said once, then the server starts this game over
+            self.skipped += 1
+            if not self.lost_said:
+                self.lost_said = True
+                self.losses.append(self.last)
+                if self.ack:
+                    self.send_ack(self.last, True)
+            return
+        self.last, self.chain, self.lost_said = seq, True, False
+        if self.ack:
+            self.send_ack(seq, False)
         self.updates.append((time.time(), len(body), reset, gone, items))
         if reset:
             self.items.clear()
@@ -300,7 +330,7 @@ def main():
     t = p1.until(big, 8)
     sizes = [b for _, b, _, _, _ in p1.updates[n:]]
     s.check("three values of 40 KB (120 KB, more than one update's 96 KB) all arrive whole", t is not None, f"updates of {sizes} bytes")
-    s.check("over more than one update, none above the budget", len(sizes) >= 2 and all(b <= BUDGET + 2048 for b in sizes), sizes)
+    s.check("over more than one update, none above the budget (everything in an update counted)", len(sizes) >= 2 and all(b <= BUDGET for b in sizes), sizes)
     s.check("and nothing was cut", (p1.value(it[1]["Entity"], "seen") or {}).get("Text") == "b" * 40000 and p1.value(it[1]["Entity"], "seen")["Count"] == 42)
 
     # ---- a new connection of the same holder ----
@@ -312,6 +342,78 @@ def main():
     s.check("a game that joins later gets the whole set, starting with a reset", t is not None and p4.updates[0][2],
             {e: sorted(k for _, k in v["values"]) for e, v in p4.items.items()})
     s.check("still without the key that has no Sync", not p4.saw("secret"))
+
+    # ---- a holder that walks: "nearby" is where it stands now ----
+    r = p1.ctl("npc", seconds=30)
+    npc = json.loads(r["Data"]) if r and r["Ok"] else None
+    if s.check("a stand-in NPC (a player-template entity) 20 m from chest A carries a sword", bool(npc and npc["Pos"] and npc["Holder"] == npc["Npc"]), r):
+        at = npc["Pos"]
+        p8 = C(a.port, "sync-walker", a.verbose)
+        p8.join([CH, CTL])
+        p8.view(999, [at[0] + 3, at[1], at[2]])
+        p8.until(lambda: p8.received > 0)
+        p8.ctl("set", 3, "seen", 9)                   # Sync.Nearby, 10 m
+        t = p8.until(lambda: p8.value(npc["Entity"], "seen") is not None)
+        s.check("a game 3 m from the NPC gets the Nearby value of the sword it carries", t is not None, p8.items)
+        w = p8.ctl("walk", 3, seconds=30)
+        moved = json.loads(w["Data"]) if w and w["Ok"] else None
+        dist = (sum((x - y) ** 2 for x, y in zip(moved["Pos"], at)) ** 0.5) if moved and moved["Pos"] else 0
+        s.check("the NPC walks (Teleport.To 60 m on) with the sword in the same slot of its inventory",
+                bool(moved and dist > 40 and moved["Holder"] == npc["Holder"] and moved["Flat"] == npc["Flat"]), (w, round(dist, 1)))
+        t = p8.until(lambda: npc["Entity"] not in p8.items, 3)
+        s.check("the game at its old place loses the copy: where the holder stands now counts, not where it took the item",
+                t is not None, f"{p8.items.get(npc['Entity'])} after {t and round(t * 1000)} ms")
+        if moved and moved["Pos"]:
+            p8.view(999, [moved["Pos"][0] + 3, moved["Pos"][1], moved["Pos"][2]])
+            t = p8.until(lambda: p8.value(npc["Entity"], "seen") is not None)
+            s.check("a game beside where it stands now gets it", t is not None, p8.items)
+        p1.ctl("npc-gone", seconds=30)
+        p1.pump(0.5)
+        s.check("the other games got nothing of the NPC's sword (no Holder value travels to anyone: an NPC is no player)",
+                all(npc["Entity"] not in c.items for c in (p1, p2, p4)) and not any(k == "held" and i["entity"] == npc["Entity"]
+                    for c in (p1, p2, p3, p4, p8) for _, _, _, _, items in c.updates for i in items for _, k, _ in i["values"]))
+
+    # ---- an update lost on the way ----
+    p1.ctl("set", 0, "held", 50)
+    p1.until(lambda: (p1.value(it[0]["Entity"], "held") or {}).get("Count") == 50)
+    p1.drop = 1                                       # the next update is lost between the server and this game
+    resets = sum(1 for u in p1.updates if u[2])
+    p1.ctl("set", 0, "held", 51)                      # lost
+    p1.pump(0.6)
+    p1.ctl("set", 1, "held", 52)                      # arrives, but does not follow what the game took
+    t = p1.until(lambda: (p1.value(it[0]["Entity"], "held") or {}).get("Count") == 51
+                 and (p1.value(it[1]["Entity"], "held") or {}).get("Count") == 52, 6)
+    s.check("an update lost on the way is noticed by the next one, which is not taken", p1.skipped >= 1 and len(p1.losses) == 1,
+            (p1.skipped, p1.losses))
+    s.check("the server starts that game over: a reset with the whole set, the lost value in it, within a second or two",
+            t is not None and sum(1 for u in p1.updates if u[2]) == resets + 1, f"{t and round(t * 1000)} ms")
+    s.check("after the reset the game holds everything it may see again",
+            len(p1.items.get(it[1]["Entity"], {}).get("values", {})) == 2 and (p1.value(it[1]["Entity"], "seen") or {}).get("Count") == 42,
+            {e: sorted(k for _, k in v["values"]) for e, v in p1.items.items()})
+
+    # ---- a game that acknowledges nothing ----
+    p7 = C(a.port, "sync-mute", a.verbose)
+    p7.join([CH, CTL])
+    p7.ack = False
+    p7.view(B, far)                                   # the holder of chest B (sword 0 is in A again; B holds nothing of the test's)
+    p7.until(lambda: p7.received > 0)
+    r = p7.ctl("move", 0)                             # sword 0 into chest B: its values reach B's holder
+    p7.until(lambda: p7.value(it[0]["Entity"], "held") is not None, 4)
+    for n in range(60, 72):                           # twelve changes, each in its own pass
+        p7.ctl("edit", 0, "held", n)
+        p7.pump(0.35)
+    got = p7.received
+    s.check(f"a game that acknowledges nothing gets at most {IN_FLIGHT} updates, then nothing while none is acknowledged",
+            got <= IN_FLIGHT, f"{got} updates")
+    p7.ack = True
+    t = p7.until(lambda: p7.updates and p7.updates[-1][2] and (p7.value(it[0]["Entity"], "held") or {}).get("Count") == 71, ACK_TIMEOUT + 6)
+    s.check("ten seconds after its oldest update it is started over with a reset, and is current again",
+            t is not None, f"after {t and round(t, 1)} s more; {p7.items.get(it[0]['Entity'])}")
+    r = p1.ctl("move", 0)                             # sword 0 back into chest A
+    p1.until(lambda: (p1.value(it[0]["Entity"], "held") or {}).get("Count") == 71, 4)
+    p1.ctl("set", 0, "held", 40, 40000)               # what the restart phase looks for, as before these two checks
+    p1.ctl("set", 1, "held", 41, 40000)
+    p1.until(lambda: (p1.value(it[1]["Entity"], "held") or {}).get("Count") == 41, 6)
 
     # ---- games that must notice nothing ----
     p5 = C(a.port, "sync-old", a.verbose)  # a Kiln client without the channel (an older Kiln, or no mod that reads)

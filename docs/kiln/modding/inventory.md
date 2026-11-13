@@ -180,8 +180,9 @@ private void OnSynced(InstanceDataSyncedEvent e)
 the flat slot, the item type, and `Own` (this game's player holds it). Kiln keeps the copies current through `Set`,
 edits of the live object, `Remove`, moves, gifts, chests, losses and claims, and sends a joining player the whole set.
 A player without Kiln, with an older Kiln, or without a mod that reads synced values gets nothing and notices
-nothing; a value never goes to a player its key does not name. Limits (64 KB per value, 96 KB of values per update with
-the rest following a quarter of a second later), the wire format and what is proven are in
+nothing; a value never goes to a player its key does not name. An update lost on the network is made good (the game
+acknowledges what it takes, and starts over with the whole set after a loss). Limits (64 KB per value, 96 KB per
+update with the rest following a quarter of a second later, 4,096 items per game), the wire format and what is proven are in
 [services/saves.md](../services/saves.md#on-players-games-dev27). The sample `mods/samples/ItemData` shows its notch
 count this way.
 
@@ -293,7 +294,7 @@ in code what your game holds. None of them has run yet.
 
 | Check | You do | The check asserts |
 |---|---|---|
-| `instances.synced` | nothing: a sword is put into your backpack | your game has the channel; it reported `held = 7`, then `held = 8` after an edit without `Set`; the key without `Sync` never arrived; hosted: `InstanceData.Synced` reads 8. You confirm the two notices |
+| `instances.synced` | nothing: a sword is put into your backpack | your game has the channel; it reported `held = 7`, then `held = 8` after an edit without `Set`; the key without `Sync` never arrived; no start over in the next 12 seconds (the server hears your game's acknowledgements); hosted: `InstanceData.Synced` reads 8. You confirm the two notices |
 | `instances.synced-moves` | drag the sword to another slot, into a chest, back out | your game reported the move with the slot the server reads, then the copy gone, then the value again |
 | `instances.synced-rejoin` (joined) | leave through the menu, join again, run it | your game reported the value for the new item entity without anything being set |
 | `instances.synced-nearby` (two players) | stand near the other player, then walk away | the other game reported `seen = 21` as another holder's item and never got `held`; gone once out of range |

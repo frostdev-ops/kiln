@@ -30,7 +30,7 @@ public sealed partial class InstanceSyncTestMod : Mod
 {
     internal InstanceKey<Tally> Held = null!, Seen = null!, Secret = null!;
     private NetChannel _ctl = null!;
-    private EntityId _a, _b;
+    private EntityId _a, _b, _npc;
     private readonly List<ItemInstanceRef> _items = [];
 
     public override void OnLoad()
@@ -142,6 +142,20 @@ public sealed partial class InstanceSyncTestMod : Mod
                 if (!r.Succeeded) throw new InvalidOperationException($"move: {r.Status} {r.Message}");
                 return Where(m.Item);
             }
+            case "npc":
+                return await Npc();
+            case "walk":
+            {
+                // the stand-in walks 60 m (a teleport): its inventory, and the sword in it, do not move
+                var at = Spawn.Inspect(_npc)?.Position ?? throw new InvalidOperationException("the stand-in is gone");
+                var r = await Teleport.To(_npc, new WorldPosition(at.X + 60, at.Y, at.Z), new TeleportOptions { FindGround = true });
+                if (!r.Moved) throw new InvalidOperationException($"teleport: {r}");
+                return WhereNpc(m.Item);
+            }
+            case "npc-gone":
+                if (!_npc.IsNone && World.Exists(_npc)) Spawn.Destroy(_npc);
+                _npc = EntityId.None;
+                return "";
             case "destroy":
             {
                 var item = _items[m.Item];
@@ -186,6 +200,36 @@ public sealed partial class InstanceSyncTestMod : Mod
         }
         _items.Clear();
         return $"{n} item(s) of an earlier run taken";
+    }
+
+    /// <summary>A stand-in for an NPC that carries an item: a player-template entity 20 m from chest A (it has an
+    /// inventory, and a teleport moves it), with a sword in its bag: item index 3.</summary>
+    private async Task<string> Npc()
+    {
+        if (_items.Count < 3) throw new InvalidOperationException("setup first");
+        var pa = Spawn.Inspect(_a)!.Position;
+        _npc = await Spawn.Entity("1_Player", new WorldPosition(pa.X + 20, pa.Y + 0.5, pa.Z), 0, new SpawnOptions { Tag = "instance-sync-test", Flags = SpawnFlags.Transient });
+        for (var i = 0; i < 10; i++) await Context.Scheduler.NextTick();
+        var sword = Items.Lookup("Weapon_T1_1H_SwordEpic_01") ?? Items.All.First(i => i.IsGear && i.Category == ItemCategory.Weapons && i.LevelMin > 0);
+        var g = await Items.Give(_npc, sword.Id, 1, new Gear(Math.Max(1, sword.LevelMin), ItemRarity.Rare), GiveOptions.NoMerge);
+        var r = g.Changes.FirstOrDefault(c => !c.Ref.IsNone).Ref;
+        if (r.IsNone) throw new InvalidOperationException($"give to the stand-in: {g}");
+        while (_items.Count > 3) _items.RemoveAt(_items.Count - 1);
+        _items.Add(r);
+        for (var i = 0; i < 10; i++) await Context.Scheduler.NextTick();
+        return WhereNpc(3);
+    }
+
+    private string WhereNpc(int index)
+    {
+        var item = _items[index];
+        var at = item.Location();
+        var p = Spawn.Inspect(_npc)?.Position;
+        return JsonSerializer.Serialize(new
+        {
+            Entity = item.Entity.Id.Value, Item = item.Item.Value, Holder = at?.Holder.Value ?? 0, Flat = at?.FlatSlot ?? -1, Npc = _npc.Value,
+            Pos = p is { } q ? new[] { q.X, q.Y, q.Z } : null,
+        });
     }
 
     private string Where(int index)

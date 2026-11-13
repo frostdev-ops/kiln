@@ -82,6 +82,12 @@ public sealed partial class InstanceSyncTestMod
         var second = await Reported(c, c.Player, t1, x => x.Key == "held" && x.Change == "Set" && x.Count == 8);
         c.Expect(second is not null, "a change of the live object reached your game too: held = 8", second?.ToString() ?? "no report within 5 s");
         c.Expect(!_copies.Any(x => x.Player == c.Player && x.Copy.Key == "secret"), "the key without Sync never reached your game");
+        // a game whose acknowledgements do not reach the server is started over ten seconds after an update: its copy would
+        // go and come again (Gone, then Set). Twelve quiet seconds say the server hears your game's acknowledgements.
+        var t2 = DateTime.UtcNow;
+        var redo = await Reported(c, c.Player, t2, x => x.Entity == _sword.Entity.Id.Value && x.Change == "Gone", 12);
+        c.Expect(redo is null, "your game acknowledged the updates: no start over in the next 12 seconds (the copy did not go and come again)",
+            redo?.ToString() ?? "");
         if (Hosted)
         {
             // one process: the game's own copies can be read here
