@@ -177,6 +177,20 @@ public sealed class ConfigScreensTests : IDisposable
     }
 
     [Theory]
+    [InlineData(2.5, "2.5")]
+    [InlineData(250.0, "250")]
+    [InlineData(0.1, "0.1")]
+    [InlineData((double)0.1f, "0.1")]                 // a single-precision setting's value, not 0.10000000149011612
+    [InlineData(1234.5678, "1234.5678")]
+    [InlineData(0.01, "0.01")]
+    public void The_number_field_shows_the_shortest_text_of_the_value(double value, string text)
+    {
+        Assert.Equal(text, ConfigScreens.NumberText(value));
+        Assert.True(ConfigScreens.TryNumber(new ConfigEntry("a", "float", null, 1, 1, 1, 0.01, 10000, [], false, false), text, out var back));
+        Assert.Equal(value, (double)back, 6);            // and typing that text gives the value again
+    }
+
+    [Theory]
     [InlineData("float", "")]
     [InlineData("float", "-")]
     [InlineData("float", "abc")]

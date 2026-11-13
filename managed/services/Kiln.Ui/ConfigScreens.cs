@@ -205,7 +205,7 @@ internal static class ConfigScreens
                     d = Math.Round((double)s, 4);
                     Stage(f, e.Path, d);
                 }
-                NumberField(ui, f, e, typed, d.ToString("R", CultureInfo.InvariantCulture));
+                NumberField(ui, f, e, typed, NumberText(d));
                 break;
             }
             case "enum" when e.Options.Count > 0:
@@ -273,6 +273,12 @@ internal static class ConfigScreens
         if (typed is not null)
             ui.TextDisabled($"a number from {e.Min?.ToString(CultureInfo.InvariantCulture)} to {e.Max?.ToString(CultureInfo.InvariantCulture)}");
     }
+
+    /// <summary>A "float" entry's value as the number field shows it: the shortest text that gives the value back. A
+    /// value that came from a single-precision setting (0.1f is 0.10000000149011612 as a double) shows as that setting's
+    /// own shortest text ("0.1").</summary>
+    internal static string NumberText(double d) =>
+        (double)(float)d == d ? ((float)d).ToString("R", CultureInfo.InvariantCulture) : d.ToString("R", CultureInfo.InvariantCulture);
 
     /// <summary>What a text typed into a slider row's number field means: the value to stage (an int for an "int" entry,
     /// a double for a "float" one). False while it is no number of the entry's range: half typed, or outside it (the
