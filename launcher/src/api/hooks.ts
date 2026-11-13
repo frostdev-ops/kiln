@@ -191,6 +191,12 @@ export function useBackendEvents() {
     let live = true;
     const add = (p: Promise<() => void>) => p.then((f) => (live ? offs.push(f) : f()));
     add(api.onKilnEvent("kiln://game", (e) => {
+      // the running game wrote progress.json: the start is looked at again, also when the window had stopped following
+      // it (a decision such as No Kiln is then re-checked against what Kiln says); nothing else is refetched
+      if (e.kind === "progress") {
+        void qc.fetchQuery({ queryKey: ["launch_progress", e.gameId], queryFn: () => api.launchProgress(e.gameId), staleTime: 0 }).catch(() => {});
+        return;
+      }
       if (e.status) qc.setQueryData(qk.gameStatus(e.gameId), e.status);
       invalidateGame(qc, e.gameId);
     }));

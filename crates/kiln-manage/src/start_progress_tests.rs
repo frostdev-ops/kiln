@@ -791,3 +791,60 @@ fn two_installs_never_share_a_bar() {
     assert_eq!((a.estimate.fraction, b.estimate.fraction), (0.99, 0.10));
 }
 
+
+/// Last round, P3: the deadlines are checked before a process is taken for a start: a game that comes after
+/// STEAM_FORGET_MS is not this start's (its launcher timings are not attributed to it); one that comes at six minutes is.
+/// The launcher's watcher calls this every round, whatever the window does.
+#[test]
+fn the_deadline_comes_before_a_late_process_is_taken_for_the_start() {
+    let asked = || {
+        let mut l = LauncherStart::new(BASE, None, Some(KILN.into()), Some(FP.into()));
+        l.begin("profile", BASE);
+        l.begin("steam", BASE + 1_000);
+        l.asked = true;
+        l
+    };
+    let mut l = asked();
+    assert!(l.keep_tracking(false, BASE + 1_000 + 6 * 60_000));
+    assert!(l.keep_tracking(true, BASE + 1_000 + 6 * 60_000) && l.seen, "six minutes: the game is this start's");
+    assert!(l.keep_tracking(true, BASE + 1_000 + 40 * 60_000), "seen: it lives with its game");
+    let mut l = asked();
+    assert!(!l.keep_tracking(true, BASE + 1_000 + STEAM_FORGET_MS as i64 + 1), "past the deadline: not taken for it");
+    assert!(!l.seen);
+    let mut l = asked();
+    assert!(!l.keep_tracking(false, BASE + 1_000 + STEAM_FORGET_MS as i64 + 1), "pruned without a process too");
+    // a cook that ended with no launch_play after it, and a start that never asked Steam
+    let mut c = LauncherStart::new(BASE, Some(vec!["m@1".into()]), None, None);
+    c.cook_event(BASE, 0, 1, "m@1", "M", None);
+    c.cook_done(BASE + 2_000);
+    assert!(c.keep_tracking(false, BASE + 2_000 + STALLED_MS as i64));
+    assert!(!c.keep_tracking(false, BASE + 2_000 + STALLED_MS as i64 + 1));
+    let mut u = LauncherStart::new(BASE, Some(vec!["m@1".into()]), None, None);
+    assert!(u.keep_tracking(false, BASE + FORGET_UNASKED_MS as i64), "a long cook");
+    assert!(!u.keep_tracking(false, BASE + FORGET_UNASKED_MS as i64 + 1));
+}
+
+/// Last round, P2: a runtime installed during the Steam wait: the receipt captured at Play names the old build, the
+/// game's progress.json the new one: the runtime's own version is the identity, and no same-version basis of the old
+/// build survives.
+#[test]
+fn a_runtime_changed_during_the_steam_wait_drops_the_old_builds_basis() {
+    let old = "0.2.0-dev.27+20261113.f7ca807";
+    let new = "0.2.0-dev.27+20261113.791e8b2";
+    let rec = KeptStart { kiln: old.into(), runtime: Some(old.into()), fingerprint: FP.into(), finished: String::new(), started: String::new(),
+        steps: vec![KeptStep { id: "profile".into(), ms: 1_000, total: None, parts: vec![] }, KeptStep { id: "steam".into(), ms: 5_000, total: None, parts: vec![] },
+            KeptStep { id: "start".into(), ms: 20_000, total: None, parts: vec![] }] };
+    let h = std::slice::from_ref(&rec);
+    let mut l = LauncherStart::new(BASE, None, Some(old.into()), Some(FP.into()));
+    l.begin("profile", BASE);
+    l.begin("steam", BASE + 1_000);
+    l.asked = true;
+    let before = timeline(&Inputs { launcher: Some(&l), now: BASE + 3_000, history: h, kiln: Some(old), fingerprint: Some(FP), ..Default::default() }).unwrap();
+    assert!(before.estimate.same, "before progress.json: the receipt's build, as at Play");
+    let p = Progress { format: 1, pid: 1, kiln: Some(new.into()), side: None, started: fmt_ms(BASE + 6_100), at_ms: 500, state: "booting".into(),
+        plan: vec!["start".into()], steps: vec![ProgressStep { id: "start".into(), label: "x".into(), detail: None, done: None, total: None, ms: 0, took_ms: None, parts: vec![] }], why: None };
+    let after = timeline(&Inputs { launcher: Some(&l), progress: Some(&p), written: Some(BASE + 6_600), process: Some(BASE + 6_000), running: true, now: BASE + 6_600,
+        history: h, kiln: Some(old), fingerprint: Some(FP), ..Default::default() }).unwrap();
+    assert_eq!(after.kiln.as_deref(), Some(new), "the runtime's own version");
+    assert!(!after.estimate.same, "no same-version basis of the old build");
+}

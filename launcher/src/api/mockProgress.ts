@@ -149,6 +149,8 @@ interface Current { began: number; script: StartScript; mode: string; kept: bool
 let script: StartScript | null = null;
 const current: Record<string, Current | undefined> = {};
 const history: Record<string, KeptStart[]> = {};
+/** The bar's highest point per install and start, as the launcher keeps it. */
+const steadyMax = new Map<string, number>();
 
 
 /** Tests: plays `s` at the next Play (null: off, the plain mock start without progress.json). */
@@ -176,6 +178,11 @@ export function mockBegin(gameId: string, mode: string) {
 }
 /** The scripted start of `gameId` (for the fake game's process and boot.json times), if one runs. */
 export const scriptedStart = (gameId: string): { began: number; script: StartScript } | null => current[gameId] ?? null;
+/** Tests: the game's Kiln starts writing progress.json now (a chained DLL held it back): a dev26 script speaks. */
+export function mockSpeak(gameId: string) {
+  const c = current[gameId];
+  if (c) c.script = { ...c.script, dev26: false };
+}
 /** The fake game ended: the start is over. */
 export function mockStartEnded(gameId: string) { delete current[gameId]; }
 
@@ -263,6 +270,10 @@ export function mockProgress(gameId: string, nowMs = Date.now()): StartTimeline 
       }
     }
     slowSteam();
+    // the launcher keeps the bar's highest point per install and start (kiln_manage::start_progress::Steady)
+    const key = `${gameId}\n${c!.began}`;
+    est.fraction = ready ? 1 : Math.max(steadyMax.get(key) ?? 0, est.fraction);
+    steadyMax.set(key, est.fraction);
     const lastBegun = Math.max(-1, ...steps.map((x) => plan.indexOf(x.id)));
     const out: StartStep[] = plan.map((id, k) => {
       const have = shown.find((x) => x.id === id);

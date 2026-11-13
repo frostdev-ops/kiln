@@ -1342,7 +1342,7 @@ Emitted with `app.emit(name, payload)`; `launcher/src/api/commands.ts` exports `
 | Event | Payload |
 |---|---|
 | `kiln://task` | `Task` (the whole task at every change) |
-| `kiln://game` | `{gameId, kind: 'started'\|'stopped'\|'boot'\|'mods'\|'native'\|'status', pid: number\|null, status: GameStatus\|null}` |
+| `kiln://game` | `{gameId, kind: 'started'\|'stopped'\|'boot'\|'mods'\|'native'\|'status'\|'progress', pid: number\|null, status: GameStatus\|null}` (`progress`: the running game wrote `kiln/state/progress.json`, at most once a second, without a status) |
 | `kiln://log` | `{subscription, target: LogTarget, file, lines: string[], next: number}` |
 | `kiln://last-server` | `{gameId, lastServer: LastServer}` |
 | `kiln://server` | `{serverId, status: ServerStatus}` |

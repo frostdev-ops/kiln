@@ -255,6 +255,8 @@ pub fn start(app: AppHandle) {
                     if now.pid.is_none() {
                         follow_profile(&app, g, &mut profiles);
                     }
+                    // a start this launcher tracks keeps to its deadlines whatever a window does
+                    crate::commands::launch::prune(&g.id, now.pid.is_some());
                     let Some(before) = seen.insert(g.id.clone(), now.clone()) else { continue };
                     if before == now {
                         continue;
@@ -279,6 +281,11 @@ pub fn start(app: AppHandle) {
                     let progressed = (before.progress != now.progress && now.pid.is_some()) || (before.pid.is_some() && now.pid.is_none());
                     if progressed && let Ok(d) = crate::state::dirs() {
                         let _ = crate::commands::launch::progress_round(&d, g);
+                    }
+                    // fresh runtime progress always reaches the window (it may have stopped following: No Kiln)
+                    // (no status with it: at most one a second, and the window only looks at the start again)
+                    if before.progress != now.progress && now.pid.is_some() {
+                        let _ = app.emit(events::GAME, GameEvent { game_id: g.id.clone(), kind: GameEventKind::Progress, pid: now.pid, status: None });
                     }
                 }
                 drop(writing);

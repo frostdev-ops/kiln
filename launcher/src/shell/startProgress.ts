@@ -71,8 +71,10 @@ export interface StartWords {
   first: boolean;
 }
 
-/** The words for a timeline at its `fraction` (the caller keeps it from moving back). */
-export function startWords(t: StartTimeline, fraction: number, prep?: PreStart | null): StartWords {
+/** The words for a timeline. Its fraction is the launcher's, kept from moving back per install and start
+ *  (kiln_manage::start_progress::Steady): the window draws it as it comes. */
+export function startWords(t: StartTimeline, prep?: PreStart | null): StartWords {
+  const fraction = t.phase === "ready" ? 1 : t.estimate.fraction;
   const e = t.estimate;
   const running = t.running != null ? t.steps[t.running] : null;
   const pct = Math.round(Math.max(0, Math.min(1, fraction)) * 100);
@@ -106,17 +108,6 @@ export function startWords(t: StartTimeline, fraction: number, prep?: PreStart |
 }
 
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
-
-/** The bar's fraction, never moving back during one start (`key`: the start's `started`). */
-const shown = new Map<string, number>();
-export function steadyFraction(t: StartTimeline): number {
-  const f = t.phase === "ready" ? 1 : Math.min(0.99, t.estimate.fraction);
-  const was = shown.get(t.started) ?? 0;
-  const now = Math.max(was, f);
-  if (shown.size > 20) shown.clear();
-  shown.set(t.started, now);
-  return now;
-}
 
 /** What a step row says on the right: what it took, that it runs (and what it usually takes), what it usually takes. */
 export function stepTime(s: StartStep): string {

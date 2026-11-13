@@ -2,7 +2,7 @@
 // (src/api/mockProgress.ts: the owner's start of 13 Nov, the port of kiln_manage::start_progress::estimate).
 import { expect, test } from "bun:test";
 import type { StartStep, StartTimeline } from "../src/api/commands";
-import { aboutText, startWords, stepLine, steadyFraction, tookText } from "../src/shell/startProgress";
+import { aboutText, startWords, stepLine, tookText } from "../src/shell/startProgress";
 import { clearStartHistory, endAt, estimate, mockBegin, mockProgress, ownerScript, setStartScript, type KeptStart, type StepNow } from "../src/api/mockProgress";
 import shared from "../../crates/kiln-manage/tests/start-progress/estimate-cases.json";
 
@@ -47,7 +47,9 @@ test("the scripted start: the first start is timed, the second counts down from 
     clock = 1_000_000 + endAt(s);
     expect(play(0).phase).toBe("ready");
     for (const tl of firsts.slice(0, -1)) expect(tl.estimate.leftMs).toBeNull();
-    const w = startWords(firsts[30], firsts[30].estimate.fraction);
+    // the bar never moves back, also where the count of steps turns into time (the launcher's kept maximum)
+    firsts.forEach((tl, i) => { if (i) expect(tl.estimate.fraction).toBeGreaterThanOrEqual(firsts[i - 1].estimate.fraction); });
+    const w = startWords(firsts[30]);
     expect(w.left).toMatch(/^First start with these mods on this PC: Kiln is timing it\. Step 1 of 14\.$/);
     expect(w.line).toBe("Cooking BetterDummies (2 of 3): kiln, cooking assets/cook.json (modelcook)");
     // the second identical start: a number within 3 s of the truth at every second
@@ -65,18 +67,17 @@ test("the scripted start: the first start is timed, the second counts down from 
   }
 });
 
-test("a slow step says it takes longer than usual and the bar never moves back", () => {
+test("a slow step says it takes longer than usual", () => {
   const tl: StartTimeline = {
     phase: "booting", started: "2026-11-13T17:26:52.000Z", atMs: 125_000, launcher: true,
     steps: [step({ state: "running", usualMs: 18_750 })], running: 0,
     estimate: { leftMs: 32_600, starts: 1, same: true, slow: { id: "services", usualMs: 18_750 }, fraction: 0.79, byTime: true, stepsDone: 7, stepsPlanned: 14, usual: [] },
   };
-  const w = startWords(tl, steadyFraction(tl));
+  const w = startWords(tl);
   expect(w.left).toBe("Starting Kiln's services: taking longer than usual (usually 19 s). Then about 35 s.");
   expect(w.basis).toBe("From your last start with these mods");
   expect(w.valueText).toBe("79 percent, longer than usual: Starting Kiln's services");
-  expect(steadyFraction({ ...tl, estimate: { ...tl.estimate, fraction: 0.5 } })).toBe(0.79);
-  expect(steadyFraction({ ...tl, phase: "ready" })).toBe(1);
+  expect(startWords({ ...tl, phase: "ready" }).pct).toBe(100);
 });
 
 test("the mock's estimate gives what kiln_manage's gives in every shared case (no drift)", () => {
