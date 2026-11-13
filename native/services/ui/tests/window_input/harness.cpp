@@ -758,6 +758,26 @@ void mouse_wheel_presses() {
     r = run([] { raw_wheel(240); msg_wheel(240); }, nullptr);
     check(presses(r, KILN_UI_VK_WHEEL_UP) == 2, "wheel: a turn of two notches in one record gives two presses (%zu)",
           presses(r, KILN_UI_VK_WHEEL_UP));
+    // Wine merges a queued WM_MOUSEWHEEL with the next one at the same cursor position, across the WM_INPUT records
+    // between them (server/queue.c merge_mousewheel): two turns come as two records, then one +240 message. Posted
+    // messages are not merged, so the harness delivers what Wine delivers after the merge.
+    fresh();
+    r = run([] { raw_wheel(120); raw_wheel(120); msg_wheel(240); }, nullptr);
+    check(presses(r, KILN_UI_VK_WHEEL_UP) == 2 && all_presses(r) == 2,
+          "wheel: two records and one merged +240 message give two presses, not four:%s", join(r.kiln).c_str());
+    r = run([] { raw_wheel(-240); msg_wheel(-120); msg_wheel(-120); }, nullptr);
+    check(presses(r, KILN_UI_VK_WHEEL_DOWN) == 2 && all_presses(r) == 2,
+          "wheel: one -240 record and two -120 messages give two presses:%s", join(r.kiln).c_str());
+    // A record and its message one Windows tick apart in message time (posted, so the message carries its own time)
+    fresh();
+    r = run([] {
+        post_pump(WM_NULL, 0, 0);
+        raw_wheel(120);  // carries the WM_NULL's time
+        Sleep(20);
+        post_pump(WM_MOUSEWHEEL, wheel_w(120), 0);
+    }, nullptr);
+    check(presses(r, KILN_UI_VK_WHEEL_UP) == 1, "wheel: a record and its message 20 ms apart in message time give ONE press (%zu)",
+          presses(r, KILN_UI_VK_WHEEL_UP));
 }
 
 void mouse_wheel_small_deltas() {
@@ -813,6 +833,12 @@ void mouse_wheel_bound() {
     r = run([] { raw_wheel(120, RI_MOUSE_RIGHT_BUTTON_DOWN | RI_MOUSE_BUTTON_5_UP, -7, 4); msg_wheel(120); }, nullptr);
     check(r.kiln.size() == 2 && r.game == std::vector<std::string>{"00ff mouse 204 -7 4 0"},
           "...with a right press, a Mouse5 release and motion: all three stay, only the notch goes:%s", game_text(r).c_str());
+    // Wine's merged message of two taken notches is kept as its two records are.
+    fresh();
+    r = run([] { raw_wheel(120); raw_wheel(120); msg_wheel(240); }, nullptr);
+    check(presses(r, KILN_UI_VK_WHEEL_UP) == 2 && r.game.empty(),
+          "bound Ctrl+WheelUp, two records and one merged +240 message: two presses, none reaches the game:%s",
+          game_text(r).c_str());
     // A high-resolution wheel on a bound chord: each part of a notch is asked (repeat 1) and kept like the notch.
     fresh();
     kui::g_consume_vk = KILN_UI_VK_WHEEL_DOWN;
