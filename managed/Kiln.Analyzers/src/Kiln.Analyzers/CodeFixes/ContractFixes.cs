@@ -49,10 +49,12 @@ public sealed class ResultCodeFix : CodeFixProvider
             if (checkable && decl.Parent is BlockSyntax or SwitchSectionSyntax)
                 context.RegisterCodeFix(CodeAction.Create("Check the result", ct =>
                 {
-                    var test = Check(v.Identifier.WithoutTrivia(), call, model, decl.SpanStart);
+                    var test = Check(v.Identifier.WithoutTrivia(), call, model, decl.SpanStart).WithTrailingTrivia(decl.GetTrailingTrivia());
                     return Task.FromResult(context.Document.WithSyntaxRoot(root.InsertNodesAfter(decl, new[] { test })));
                 }, nameof(ResultCodeFix) + "Check"), d);
-            if (DiscardFree(model, decl.SpanStart))
+            // the declaration goes away with the drop: only when nothing else names the local (`r = ...` later, a lambda
+            // or a local function that writes it), else the fix would leave a name without its declaration
+            if (DiscardFree(model, decl.SpanStart) && !UsedElsewhere(v, model, context.CancellationToken))
                 context.RegisterCodeFix(CodeAction.Create("Drop it on purpose (_ =)", ct =>
                 {
                     var drop = ExpressionStatement(Discard(init)).WithTriviaFrom(decl).WithAdditionalAnnotations(Formatter.Annotation);
@@ -104,6 +106,17 @@ public sealed class ResultCodeFix : CodeFixProvider
 
     private static AssignmentExpressionSyntax Discard(ExpressionSyntax value) =>
         AssignmentExpression(SyntaxKind.SimpleAssignmentExpression, IdentifierName("_"), value);
+
+    // any name in the local's scope (its block, with lambdas and local functions in it) that binds to it
+    private static bool UsedElsewhere(VariableDeclaratorSyntax v, SemanticModel model, CancellationToken ct)
+    {
+        if (model.GetDeclaredSymbol(v, ct) is not ILocalSymbol local) return true;
+        var scope = v.FirstAncestorOrSelf<BlockSyntax>() ?? (SyntaxNode?)v.FirstAncestorOrSelf<SwitchSectionSyntax>() ?? v.SyntaxTree.GetRoot(ct);
+        foreach (var id in scope.DescendantNodes().OfType<IdentifierNameSyntax>())
+            if (id.Identifier.ValueText == local.Name && SymbolEqualityComparer.Default.Equals(model.GetSymbolInfo(id, ct).Symbol, local))
+                return true;
+        return false;
+    }
 
     // `_ = x` is a discard only when no parameter, local or member called _ is in reach (`_ => NoClip.Set(_, true)`)
     private static bool DiscardFree(SemanticModel model, int position) => model.LookupSymbols(position, name: "_").IsEmpty;
