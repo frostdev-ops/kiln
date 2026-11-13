@@ -120,6 +120,8 @@ public sealed class NetPeer
     internal DateTime? KickAt;
     internal PendingKick? Kick;   // server role: Players.Kick, a ban or a login refusal on its way (PlayerGate)
     internal bool LoginSeen;      // server role: PlayerLoginEvent was posted for it (or it was banned)
+    internal int KickFailures;    // server role: the game's kick call failed this often for it
+    internal DateTime? KickRetryAt;  // server role: a failed kick is not tried again by the gate before this
     internal double TokensMsgs, TokensBytes;
     internal DateTime TokensAt = DateTime.UtcNow;
     internal readonly Queue<DateTime> RecentDrops = new();
