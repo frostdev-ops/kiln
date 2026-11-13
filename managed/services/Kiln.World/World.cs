@@ -30,7 +30,7 @@ public readonly record struct WorldStatus(bool Programs, bool WorldLive, bool Te
 /// </summary>
 /// <remarks>Component names are the engine's short names without <c>keen::ecs::</c> ("CurrentTransform",
 /// "TeleportCount", "PlayerInput"). Entity ids are not stable across server restarts.</remarks>
-public static unsafe class World
+public static unsafe partial class World
 {
     private static readonly Dictionary<string, uint> Hashes = new(StringComparer.Ordinal);
     private static uint[] _findBuffer = new uint[4096];
@@ -136,11 +136,24 @@ public static unsafe class World
         return true;
     }
 
-    /// <summary>Copies <paramref name="value"/> into the entity's component at <paramref name="offset"/>. False when the entity has no such component or it doesn't fit.
-    /// Layouts depend on the game build, and the game reads these values as its own: know the field.</summary>
-    public static bool TryWrite<T>(EntityId entity, string component, int offset, T value) where T : unmanaged
+    /// <summary>Copies <paramref name="value"/> into the entity's component at <paramref name="offset"/>, as a raw store:
+    /// the game is not told. False when the entity has no such component or it doesn't fit. It keeps working as before;
+    /// what replaces it depends on what the value is: see <see cref="WriteRaw{T}"/>.</summary>
+    [Obsolete("Use World.Write, World.Update, World.WriteField or World.WriteAt: this raw store skips the game's write tracking, so the save and players may never see the change. For an input the game neither saves nor sends, use World.WriteRaw.")]
+    public static bool TryWrite<T>(EntityId entity, string component, int offset, T value) where T : unmanaged =>
+        WriteRaw(entity, component, offset, value);
+
+    /// <summary>Copies <paramref name="value"/> into the entity's component at <paramref name="offset"/> at once, as a raw
+    /// store: the game's write tracking is not told, so the save skips the change on an entity it has already written
+    /// and players may never be sent it. Right only for a value the game reads in the coming step and neither saves nor
+    /// sends (an input such as <c>PlayerInput</c> or <c>ActorInput</c> set before the step); for everything else use
+    /// <see cref="Write{T}"/>, <see cref="Update{T}"/>, <see cref="WriteField"/> or <see cref="WriteAt{T}"/>. False when
+    /// the entity has no such component or the value doesn't fit. Layouts depend on the game build. Since 0.2.0-dev.27
+    /// (the same store as <c>TryWrite</c> before it).</summary>
+    [TickThreadOnly]
+    public static bool WriteRaw<T>(EntityId entity, string component, int offset, T value) where T : unmanaged
     {
-        var t = Tick("World.TryWrite");
+        var t = Tick("World.WriteRaw");
         uint size = 0;
         var p = entity.IsNone ? null : t->Component(entity.Value, ComponentHash(component), &size);
         if (p == null || offset < 0 || (uint)offset + (uint)sizeof(T) > size) return false;

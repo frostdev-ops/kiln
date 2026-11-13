@@ -8,3 +8,7 @@ g++ -std=c++20 -O1 -g -Wall -Wextra -fsanitize=address,undefined -I"$here/../../
 g++ -std=c++20 -O1 -g -pthread -Wall -Wextra -fsanitize=address,undefined -D__fastcall= \
     -I"$here/host" -I"$here/../../../core/abi" "$here/programs_test.cpp" -o "$out/programs_test"
 "$out/programs_test"
+
+g++ -std=c++20 -O1 -g -Wall -Wextra -fsanitize=address,undefined -I"$here/../../../third_party" -I"$here/../../../core/abi" \
+    "$here/writes_test.cpp" -o "$out/writes_test"
+"$out/writes_test"

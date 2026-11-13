@@ -57,6 +57,12 @@ Writes mark the game's replication/save tracker. `otherWrite` is passed to the e
 the dependency plan. A component may appear in both other-read and other-write lists. Use `QueueAdd` and
 `QueueRemove` for changes to the component set at the end of the step.
 
+With Kiln.Game (`KilnServices` `Game`) the same four calls take a generated type and no name (since 0.2.0-dev.27):
+`context.TryGet(out Ecs.Health h)`, `context.TrySet(h)`, `context.TryGetOther(entity, out Ecs.Fuel f)` and
+`context.TrySetOther(entity, f)`. The declaration in `kiln.programs.json` is still by name, and the size check is the
+same. A mod that only wants to change a component now and then needs no program of its own: `World.Write<T>` and
+`World.Update<T>` queue the change into Kiln's write program ([../services/world.md](../services/world.md#tracked-writes)).
+
 `ReadEvents` returns copies of every event of one declared input type. Multiple types work in one program, regardless
 of declaration order. `EmitEvent` copies an exact event payload into a declared output stream and stamps `GameEvent`
 timestamps. The payload must have the game's reflected size and be smaller than 256 bytes. A full event buffer

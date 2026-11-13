@@ -27,6 +27,7 @@ the same file). v1 manifests (id, name, version, apiVersion, entryAssembly, entr
   "entryType": "MyMod.MyModClass",      // default: the only public Kiln.Mod subclass
   "exports": ["MyMod.Api.dll"],         // assemblies dependents compile against (shared at run time)
   "advanced": false,                    // opt into the advanced tier (ModInfo.Advanced)
+  "writes": ["Fuel", "ScaleComponent"], // component types the mod writes through the game's write tracking (see "writes")
   "tests": { "autoRun": true, "timeoutSeconds": 20 },  // Kiln.Testing (testing.md)
   "kilnBuild": { "version": "0.2.0-dev+20261106.0f0a3f6", "created": "2026-11-06T12:12:16Z" }  // written by the build
 }
@@ -51,6 +52,27 @@ newer than the player's Kiln; the stamp can:
 
 Order: the semantic version, then `created` when both sides have it, else the day. A runtime or mod built from a tree
 without git has no stamp, and nothing is compared before the load.
+
+## Components the mod writes (`writes`, since 0.2.0-dev.27)
+`World.Write<T>`, `World.Update<T>`, `World.WriteField` and `World.WriteAt` change a component through the game's own
+write tracking, so the save and players see the change ([../services/world.md](../services/world.md#tracked-writes)).
+They run inside one program of Kiln's in the game's scheduler, and the game fixes a program's access when the world
+starts. So the component types have to be known before that: `writes` lists them, by the game's short names (`Fuel`,
+`CurrentTransform`; letters, digits and `_`; 64 per mod at most). kiln.world reads the lists of every enabled server
+mod when the server starts.
+- **Kiln.Sdk fills it.** After the mod compiles, the build reads the built assembly and adds every generated component
+  type the code passes to `World.Write<T>` or `World.Update<T>` to `writes` in the output's kiln.mod.json (the copy
+  that is deployed and packed; the project's own file is not touched). Names the project's file lists stay.
+- **List by hand** what the code names only as a string (`World.WriteField(e, "Health", …)`, `World.WriteAt`), and
+  what the build says it cannot resolve: warning `KILN030` for a call through the mod's own generic method
+  (`Set<T>(…) => World.Write<T>(…)`) or with a type that is not a generated component.
+- **A type that is not listed is refused**, with the sentence that says what to add: the write's answer has
+  `Ok == false`, `Status == NotDeclared`. Nothing is written raw instead. A new entry takes effect at the next server
+  start, not on a hot reload.
+- A name that is no component of the running game build is left out alone (kiln.log names it, `World.WriteInfo` says
+  `UnknownComponent`); the mod's other types still work. All mods together can list 92 types: the game's limit for one
+  program. `-p:KilnWrites=false` turns the build step off (error `KILN031`: it could not read the built assembly or
+  write the manifest).
 
 Reserved ids: `kiln` (the core, usable as a dependency), `kiln.api`, `game`, `enshrouded`, `native`
 and `permissions` (they would collide with the config files `<configDir>/native.json` and `permissions.json`).

@@ -1,0 +1,15 @@
+<Project>
+  <!-- Tracked world writes: /lights off puts out every lantern, torch and candle of the world, and a restart keeps
+       them out. The build adds "ServerToggleState" to "writes" in the output's kiln.mod.json, because the code passes
+       the type to World.Update<T> (docs/kiln/services/world.md, "Tracked writes"). -->
+  <Import Project="../../../managed/Kiln.Sdk/Sdk/Sdk.props" />
+  <PropertyGroup>
+    <KilnModId>lights-out</KilnModId>
+    <KilnModName>Lights out (tracked world writes sample)</KilnModName>
+    <Version>0.1.0</Version>
+    <KilnSide>server</KilnSide>
+    <KilnServices>World;Spawn;Chat;Game</KilnServices>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+  </PropertyGroup>
+  <Import Project="../../../managed/Kiln.Sdk/Sdk/Sdk.targets" />
+</Project>

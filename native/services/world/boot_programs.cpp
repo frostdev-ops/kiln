@@ -54,7 +54,7 @@ std::string manifest_json(std::string text) {
     }
     return text;
 }
-struct Candidate { fs::path directory; BootCandidate policy; };
+struct Candidate { fs::path directory; BootCandidate policy; std::vector<std::string> writes; };
 void reserve(const Candidate& candidate) {
     const auto file = candidate.directory / L"kiln.programs.json";
     std::error_code error;
@@ -124,12 +124,21 @@ void boot_programs_init() {
             if (!item.policy.profile) item.policy.id = id;
             else if (item.policy.id != id) item.policy.enabled = false;
             item.policy.server = side == "server" || side == "both";
+            // A bad "writes" costs the mod its tracked writes, not its programs.
+            try { item.writes = parse_boot_writes(manifest); }
+            catch (const std::exception& error) { KW_W("tracked writes of %s refused: %s",id.c_str(),error.what()); }
         } catch (...) { item.policy.enabled = false; }
         policies.push_back(item.policy);
     }
     for (size_t token : select_boot_candidates(policies,dropins)) {
         try { reserve(candidates[token]); }
         catch (const std::exception& error) { KW_W("managed programs for %s refused: %s",candidates[token].policy.id.c_str(),error.what()); }
+        const auto& item = candidates[token];
+        if (item.writes.empty()) continue;
+        // The write program itself is made when the first server world registers its programs (writes.cpp).
+        for (const auto& name : writes_declare(item.policy.id,item.writes))
+            KW_W("tracked writes of %s: '%s' is not accepted (a hash clash or over the limit of names)",item.policy.id.c_str(),name.c_str());
+        KW_I("tracked writes: %s lists %u component type(s)",item.policy.id.c_str(),static_cast<unsigned>(item.writes.size()));
     }
 }
 } // namespace kw

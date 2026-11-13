@@ -48,8 +48,14 @@ internal sealed class Manifest
     [
         "$schema", "id", "name", "version", "authors", "author", "description", "license", "url", "apiVersion", "side",
         "clients", "dependencies", "loadBefore", "loadAfter", "incompatible", "features", "entryAssembly", "entryType", "exports",
-        "advanced", "tests", "kilnBuild",
+        "advanced", "tests", "kilnBuild", "writes",
     ];
+
+    /// <summary>A component's short name, as kiln.world takes it in <c>"writes"</c>.</summary>
+    private static readonly Regex ComponentName = new("^[A-Za-z0-9_]{1,120}$", RegexOptions.CultureInvariant);
+
+    /// <summary>The most names <c>"writes"</c> may hold (kiln.world: boot_programs.h, kBootWrites).</summary>
+    public const int MaxWrites = 64;
 
     public required string Id { get; init; }
     public required string Name { get; init; }
@@ -83,6 +89,11 @@ internal sealed class Manifest
 
     /// <summary>The Kiln build the mod was compiled against (<c>"kilnBuild"</c>, written by Kiln.Sdk); null when unknown.</summary>
     public KilnBuild? BuiltWith { get; init; }
+
+    /// <summary>The component types the mod writes through kiln.world's tracked path (<c>"writes"</c>: short names such as
+    /// <c>Fuel</c>; Kiln.Sdk adds the types the mod's code passes to <c>World.Write</c> and <c>World.Update</c>). The
+    /// native world service reads the list when the server starts and gives its write program access to them.</summary>
+    public IReadOnlyList<string> Writes { get; init; } = [];
 
     /// <summary>Non-fatal findings (unknown keys, odd values).</summary>
     public IReadOnlyList<string> Warnings { get; init; } = [];
@@ -156,6 +167,12 @@ internal sealed class Manifest
                 if (!IsDllName(x))
                     throw Bad($"exports: '{x}' must be a .dll file name in the mod folder");
 
+            var writes = Strings(root, "writes").Distinct(StringComparer.Ordinal).ToList();
+            if (writes.Count > MaxWrites) throw Bad($"'writes' lists {writes.Count} component types; {MaxWrites} at most");
+            foreach (var w in writes)
+                if (!ComponentName.IsMatch(w))
+                    throw Bad($"writes: '{w}' is not a component's short name (letters, digits and _, such as Fuel or CurrentTransform)");
+
             var loadBefore = Ids(root, "loadBefore");
             var loadAfter = Ids(root, "loadAfter");
             if (loadBefore.Contains(id) || loadAfter.Contains(id)) throw Bad("loadBefore/loadAfter must not name the mod itself");
@@ -205,6 +222,7 @@ internal sealed class Manifest
                 Advanced = advanced,
                 Tests = ParseTests(root),
                 BuiltWith = builtWith,
+                Writes = writes,
                 Warnings = warnings,
             };
         }

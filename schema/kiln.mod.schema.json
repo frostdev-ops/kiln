@@ -82,6 +82,13 @@
     "entryType": { "type": "string", "description": "Full name of the Kiln.Mod subclass (default: the only public one)." },
     "exports": { "type": "array", "items": { "$ref": "#/$defs/dll" }, "description": "Assemblies dependents compile against; at run time they get these copies (shared types and state)." },
     "advanced": { "type": "boolean", "default": false, "description": "Opt into the advanced tier (raw hooks, symbols, coremod-style patches); exposed as ModInfo.Advanced." },
+    "writes": {
+      "type": "array",
+      "maxItems": 64,
+      "uniqueItems": true,
+      "items": { "type": "string", "pattern": "^[A-Za-z0-9_]{1,120}$" },
+      "description": "Component types the mod writes through the game's write tracking (World.Write, World.Update, World.WriteField, World.WriteAt): short names such as Fuel. kiln.world reads the list when the server starts, because the game fixes a program's access then; a write to a type that is not listed is refused. Kiln.Sdk adds the types the mod's code passes to World.Write<T> and World.Update<T>; list by hand what the code names only as a string."
+    },
     "tests": {
       "description": "Kiln.Testing: true = autoRun.",
       "oneOf": [

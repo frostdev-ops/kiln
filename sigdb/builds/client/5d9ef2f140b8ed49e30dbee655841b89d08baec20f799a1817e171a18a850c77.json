@@ -9,9 +9,9 @@
   "verified": true,
   "note": "runtime-verified through Steam (GE-Proton11-11), policy any, core + every service + kiln-emf + probe + ui-test + menubuttons: side client, sigdb 306/306 symbols, 434/434 constants (client.d composed), SimStep + WorldDestroy hooked, boot complete, 0 errors; main menu entries Kiln / ui-test / Mods (the Kiln sample screen opened); hosted a LOCAL world offline (saves: world loaded: slot 0x0002 (world1.ksd)): server world 60 steps/s on the GameServer thread, client and prediction worlds on the main thread, local player 1; ui-test all checks PASS (screens MainMenu/Loading/InGame/PauseMenu/Map/Crafting, menu entries chosen, crafting state), Kiln crafting tabs and subcategories shown, Insert overlay; tick cost as on ce6fdba6 (server step p50 2.5 ms, Kiln Pre 0.037 ms; client 1.2 ms); back to the menu (worlds stopping, shutdown save), clean quit (Shutdown 'Steam'). Not covered: joining a remote server, service write paths on the client. Added in dev.22 from static analysis only (resolved offline with sigdb_check.py, not yet seen running): ui.menu_page, ui.menu_page_sound, ui.error_popup (ui/PreGameCredits, ui/PreGameCreditsRet, ui/UiPlaySound and their constants). Levels (record 2, refreshed offline on 2026-11-11, no client run): lab = the names the boot above resolved, as its record listed them (199 named symbols, 434 constants, 106 features), each resolving to the same value today; every service loaded in that boot, but only ui-test ran, so lab here means loaded with Kiln's checks passing, not that the service test mods ran on the client. static = everything else, resolved offline only: the 186 @ probes (the boot's record did not list probes), the dev.22 ui names above, and every name declared since (the services audio, characters, emf-net, npcai, pacing, progression, quests, render, rules, skills, types and vfx, and new names of combat, creatures, gamedata, items, net, players, time and ui): 158 symbols, 210 constants and 70 features. sigdb now declares 543 symbols (441 defined, 102 captured), 644 constants (595 defined, 49 captured) and 176 features; all of them resolve offline on this exe.",
   "declared": {
-    "symbols": 555,
-    "constants": 655,
-    "features": 179
+    "symbols": 556,
+    "constants": 657,
+    "features": 180
   },
   "features": {
     "abilities.attributes": true,
@@ -181,6 +181,7 @@
     "ui.system_menu": true,
     "vfx.guard": true,
     "vfx.play": true,
+    "world.component_bits": true,
     "world.dead_check": true,
     "world.entities": true,
     "world.find": true,
@@ -1200,6 +1201,8 @@
     "world/registry.events.count": "0xe16e0c",
     "world/registry.events.keys": "0xe16de0",
     "world/registry.events.values": "0xe16df8",
+    "world/registry.replicated": "0x190",
+    "world/registry.saved": "0x230",
     "world/registry.singletons.bits": "0x7459d8",
     "world/registry.singletons.cap": "0x7459e0",
     "world/registry.singletons.count": "0x745a24",
@@ -2871,6 +2874,7 @@
         "@world/ResolveAccess.maps": "static",
         "@world/ResolveEvents.map": "static",
         "@world/ResolveSingletons.map": "static",
+        "@world/WriteMark.bits": "static",
         "@world/death.state": "static",
         "@world/teleport.add": "static",
         "@world/teleport.remove": "static",
@@ -2932,6 +2936,8 @@
         "world/registry.events.count": "lab",
         "world/registry.events.keys": "lab",
         "world/registry.events.values": "lab",
+        "world/registry.replicated": "static",
+        "world/registry.saved": "static",
         "world/registry.singletons.bits": "lab",
         "world/registry.singletons.cap": "lab",
         "world/registry.singletons.count": "lab",
@@ -2948,6 +2954,7 @@
         "world/world.may_finalize": "lab"
       },
       "features": {
+        "world.component_bits": "static",
         "world.dead_check": "lab",
         "world.entities": "lab",
         "world.find": "lab",

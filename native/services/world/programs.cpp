@@ -53,6 +53,7 @@ struct Program {
     KilnProgramUpdateFn update = nullptr;
     void* user = nullptr;
     bool internal = false;
+    ProgramPrunedFn pruned = nullptr;  // set: unknown other-write names are dropped, not fatal (the write program)
     std::string reserved_mod, reserved_key;
     List lists[L_COUNT];
     uint64_t sread_opt = 0, swrite_opt = 0;
@@ -314,12 +315,36 @@ bool validate(Program& p, uintptr_t world, std::string& why) {
     return true;
 }
 
+// Drops the other-write names the world has no component type for, so one wrong name in one mod's list does not cost
+// every mod the program. The engine has not seen the descriptor's lists yet (it resolves names at finalize).
+void prune_unknown(Program& p, uintptr_t world) {
+    const uintptr_t map = map_base(registry_of(world), M_DYN);
+    if (!map) return;
+    List& l = p.lists[L_OWRITE];
+    std::vector<std::string> keep;
+    for (const std::string& n : l.names) {
+        if (map_find_u16(map, fnv1a(n, fnv1a("keen::ecs::")), nullptr)) {
+            keep.push_back(n);
+            continue;
+        }
+        KW_W("program %s: the world has no component '%s'; registered without it", p.name.c_str(), n.c_str());
+        p.pruned(n);
+    }
+    if (keep.size() == l.names.size()) return;
+    l.names = std::move(keep);
+    layout(p, [&](int list, size_t i) { return qualified(p.lists[list].names[i]); });
+    l.refs.clear();
+    for (auto& s : l.names) l.refs.push_back({s.data(), s.size()});
+    p.desc.other_write = NameListE{l.refs.data(), l.refs.size()};
+}
+
 void register_into(uintptr_t world) {
     std::lock_guard lock(g_mutex);
     const auto count_at = reinterpret_cast<const uint16_t*>(world + L.programs_count);
     for (Program* p : g_programs) {
         const int st = p->state.load();
         if (st == KILN_PROGRAM_REFUSED || st == KILN_PROGRAM_FAULTED) continue;
+        if (p->pruned) prune_unknown(*p, world);
         std::string why;
         if (!validate(*p, world, why)) {
             p->state.store(KILN_PROGRAM_REFUSED);
@@ -374,8 +399,10 @@ void on_world(uintptr_t world) {
         return;
     }
     g_world.store(world);
+    writes_before_world(world);  // may still hand over the write program: before registration closes
     g_registered_once.store(true);
     register_into(world);
+    writes_after_world();
 }
 
 void __fastcall hk_register_all(uintptr_t world) {
@@ -615,6 +642,10 @@ KilnResult program_info(KilnHandle h, KilnProgramInfo* out) {
     return KILN_OK;
 }
 
+void program_set_prune(KilnHandle h, ProgramPrunedFn removed) {
+    if (Program* p = by_handle(h)) p->pruned = removed;
+}
+
 uint32_t programs_registered() {
     std::lock_guard lock(g_mutex);
     return static_cast<uint32_t>(g_programs.size());
@@ -812,7 +843,7 @@ KilnResult KILN_CALL bind_program(KilnOwner owner, KilnStr mod, KilnStr key, Kil
 uint32_t KILN_CALL program_capabilities() {
     return (F.programs && F.write_other ? KILN_WORLD_CAP_WRITE_OTHER : 0) |
         (F.programs && F.events ? KILN_WORLD_CAP_MULTI_EVENTS : 0) |
-        (F.programs ? KILN_WORLD_CAP_BIND_PROGRAM : 0);
+        (F.programs ? KILN_WORLD_CAP_BIND_PROGRAM : 0) | writes_capability();
 }
 
 const KilnTypesApi* program_types() {
