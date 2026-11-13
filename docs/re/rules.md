@@ -468,9 +468,33 @@ So Kiln.Rules moves a character that is inside something back to its last free p
 again (docs/kiln/services/rules.md, "NoClip"), and counts a place as free only when the cells at 0.5, 1.0 and 1.7 m
 above the feet are empty: then the feet are less than a metre deep at most, inside the range the game lifts by itself.
 
+**A teleport moves the character's records** **[rt]**. Every teleport adds the `Teleport` component through a command
+buffer and the `teleport` program takes it away the step after (docs/re/world.md "Teleport"); each changes the
+entity's archetype, and the game copies all of its dynamic components to the other archetype's chunk (as
+docs/re/creatures.md 1.4 saw for a Vukah's dynamic state). `DynamicLocomotion` keeps its bytes, `state` 11 included, at
+another address. Kiln's flight was known by that address (`flight.cpp`), so the state hook no longer took the moved
+record for Kiln's flight, and `LocoNextState` keeps 11 first of all: the character stayed in BuildingFlying, with
+collision back (the collision hook asks the same question) and gravity on. That is what the owner saw after a fast
+travel with NoClip on (client check `rules.noclip-teleport`, 2026-11-13, hosted): collision back, no walking, no
+animation. The lab (`mods/tests/noclip-test`, server 26430253) shows the move and why it hid:
+- A character alone in its archetype goes to the Teleport archetype for a step and comes back to its old place:
+  `character flight: entity 2542's locomotion record moved (0xcb775480 -> 0xcb8a5480 ...)`, at Kiln's own move back
+  and at a teleport, each time from and to the same two addresses. Back at the old address the record was Kiln's
+  again, so the earlier labs passed.
+- With a second player character spawned after it, the archetype's slot is filled while it is away and it comes back
+  elsewhere (`0xcb775480 -> 0xcb8b5480`). Before the fix: `FAIL after that teleport it is out of the flight ...: y
+  +2.31 state 11 grounded False ... set 1` (collision results set, hovering 2.3 m up), `FAIL and it walks again: 8.5 m
+  in 40 steps with the stick held, on its feet in 0 of them` (the BuildingFlying mover carries it across in the air),
+  and the same character later died still in state 11. After: `PASS after that teleport it is out of the flight and on
+  its feet as before NoClip ...: state 0 grounded True`, `PASS and it walks again: 8.3 m ..., on its feet in 40 of
+  them (before NoClip 8.7 m, 40)`, `PASS and the body has collision again and is out of the flight: state 0`.
+So Kiln's flight follows the record: a BuildingFlying record of a character whose Kiln flight has not been seen to end
+is that flight moved (`flight.cpp`, `follow_move`).
+
 Not followed: what a client shows (the camera inside terrain, other players' view), the prediction on a real
 connection, where the game itself writes `isEnabled`, and what the stuck timer (`stuckTimer`, `stuckHeight`, the
-"emergency ground collision") does for a real player over time.
+"emergency ground collision") does for a real player over time. How a client's prediction world takes a teleport
+(the `teleport` program is host-only, descriptor flag 0x10, docs/re/player-state.md) was not traced either.
 
 ## 9. Signatures
 `sigdb/symbols/server.d/rules.json`, unique on the server and the client; `client.d/rules.json` extends it with the

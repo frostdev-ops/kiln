@@ -287,6 +287,124 @@ int main() {
     check(n::g_tick.load() == age && state_of(0).total == before_host, "a host's client tick does not age it a second time (its server tick does)");
     store(g_local, nullptr); session = KILN_SESSION_REMOTE; f::refresh(); f::reset(); n::reset();
 
+    // ---- the game moves the character's records. Components live by archetype: adding one or taking one away moves all
+    // of an entity's components to another place, and every teleport adds the Teleport component and takes it away the
+    // step after (docs/re/creatures.md 1.4). The record is copied byte for byte; another entity's may take the old place.
+    // Each case starts with no flight and at addresses Kiln has never seen.
+    alignas(16) uint8_t rec[12][128]{};
+    auto use = [&](uint8_t* r) {
+        stack[1] = r;
+        put(kDynloco, r);
+    };
+    auto move_to = [&](uint8_t* from, uint8_t* to) {
+        std::memcpy(to, from, 128);
+        std::memset(from, 0, 128);
+        use(to);
+    };
+    auto takeoff = [&] {
+        actor[0] = true; c.rax = flight_math::kWalking; f::state_body(c);
+        reinterpret_cast<uint8_t*>(stack[1])[0x59] = static_cast<uint8_t>(c.rax);
+        actor[0] = false;
+    };
+    auto clean = [&] { f::reset(); n::reset(); kiln_rules_creative::test_idle = false; };
+    e = 3; rule.flags = KILN_RULES_NOCLIP;
+
+    // a teleport while NoClip is on, which then ends it
+    clean(); set_rule(3, &rule); use(rec[0]);
+    takeoff();
+    step();
+    check(rec[0][0x59] == flight_math::kBuildingFlying && seen_enabled == 0, "moved records: NoClip flies without collision first");
+    move_to(rec[0], rec[1]);
+    c.rax = flight_math::kBuildingFlying;  // LocoNextState keeps BuildingFlying first of all
+    f::state_body(c);
+    step();
+    check(c.rax == flight_math::kBuildingFlying && seen_enabled == 0 && f::flown_recently(3, rec[1]),
+          "after a teleport moved its records, the character is still in Kiln's flight, without collision while NoClip is on");
+    move_to(rec[1], rec[2]);  // the Teleport component taken away again: another move
+    c.rax = flight_math::kBuildingFlying; f::state_body(c);
+    set_rule(3, nullptr);  // the teleport ends NoClip
+    c.rax = flight_math::kBuildingFlying; f::state_body(c);
+    check(c.rax == flight_math::kFalling, "NoClip ended by the teleport: the moved character falls (walking and animation are the game's again)");
+    rec[2][0x59] = flight_math::kFalling;
+    step();
+    check(seen_enabled == 1 && !f::flown_recently(3, rec[2]) && !f::flown_recently(3, rec[1]) && !f::flown_recently(3, rec[0]),
+          "with collision, and nothing of the flight is left");
+
+    // the move and the end in one step: the records moved and the rules no longer carry NoClip when the state hook runs
+    clean(); set_rule(3, &rule); use(rec[3]);
+    takeoff();
+    move_to(rec[3], rec[4]);
+    set_rule(3, nullptr);
+    c.rax = flight_math::kBuildingFlying; f::state_body(c);
+    check(c.rax == flight_math::kFalling, "records moved in the step that ended NoClip: it falls too");
+    rec[4][0x59] = flight_math::kFalling;
+    // a flight that is over is not Kiln's to take again: a BuildingFlying record of that player that turns up later
+    // (another mod's flight) is left alone
+    std::memcpy(rec[5], rec[4], 128); rec[5][0x59] = flight_math::kBuildingFlying; use(rec[5]);
+    c.rax = flight_math::kBuildingFlying; f::state_body(c);
+    step();
+    check(c.rax == flight_math::kBuildingFlying && seen_enabled == 1 && !f::flown_recently(3, rec[5]),
+          "after Kiln's flight ended, another BuildingFlying record of the player is not adopted");
+
+    // a host: the server's record and the prediction's, both flying; the server's moves, the prediction's stays
+    {
+        clean(); set_rule(3, &rule);
+        uint8_t* pre = rec[6];
+        void* stack2[4] = {nullptr, pre, actor, nullptr};
+        safetyhook::Context c2{};
+        c2.rbp = c2.rsp = reinterpret_cast<uintptr_t>(stack2); c2.rsi = c2.rdi = reinterpret_cast<uintptr_t>(&e);
+        use(rec[7]);
+        takeoff();
+        actor[0] = true; c2.rax = flight_math::kWalking; f::state_body(c2); pre[0x59] = static_cast<uint8_t>(c2.rax); actor[0] = false;
+        auto both = [&](int steps) {
+            for (int i = 0; i < steps; ++i) {
+                c.rax = flight_math::kBuildingFlying; f::state_body(c);
+                c2.rax = flight_math::kBuildingFlying; f::state_body(c2);
+            }
+        };
+        both(3);
+        check(f::flown_recently(3, rec[7]) && f::flown_recently(3, pre), "a host: the server's and the prediction's records both fly");
+        move_to(rec[7], rec[8]);
+        both(3);
+        check(f::flown_recently(3, rec[8]) && f::flown_recently(3, pre) && !f::flown_recently(3, rec[7]),
+              "the server's record moved: it is still Kiln's, and the prediction's record stays Kiln's beside it");
+        // the prediction pauses while the server's record moves on twice, then resumes
+        move_to(rec[8], rec[9]);
+        for (int i = 0; i < 3; ++i) { c.rax = flight_math::kBuildingFlying; f::state_body(c); }
+        move_to(rec[9], rec[10]);
+        for (int i = 0; i < 3; ++i) { c.rax = flight_math::kBuildingFlying; f::state_body(c); }
+        both(2);
+        check(f::flown_recently(3, rec[10]) && f::flown_recently(3, pre), "a paused prediction that resumes is still Kiln's");
+        set_rule(3, nullptr);
+        c.rax = flight_math::kBuildingFlying; f::state_body(c);
+        c2.rax = flight_math::kBuildingFlying; f::state_body(c2);
+        check(c.rax == flight_math::kFalling && c2.rax == flight_math::kFalling && !f::flown_recently(3, rec[10]) &&
+              !f::flown_recently(3, pre) && !f::flown_recently(3, rec[8]) && !f::flown_recently(3, rec[9]),
+              "NoClip ends: both records fall, and nothing of the flight is left");
+    }
+
+    // a lab's simulated character (an extra id) follows its record the same way
+    clean(); e = 5000; set_rule(5000, &rule); std::memset(rec[0], 0, 128); use(rec[0]);
+    takeoff();
+    move_to(rec[0], rec[11]);
+    c.rax = flight_math::kBuildingFlying; f::state_body(c);
+    step();
+    check(c.rax == flight_math::kBuildingFlying && seen_enabled == 0 && f::flown_recently(5000, rec[11]),
+          "a simulated character's moved record stays Kiln's flight");
+    set_rule(5000, nullptr);
+    c.rax = flight_math::kBuildingFlying; f::state_body(c);
+    check(c.rax == flight_math::kFalling, "and falls when its NoClip ends");
+    e = 3;
+
+    // while Creative Mode runs, Kiln adopts nothing: that mod's flight is its own
+    clean(); set_rule(3, &rule); std::memset(rec[1], 0, 128); use(rec[1]);
+    takeoff();
+    kiln_rules_creative::test_idle = true;
+    move_to(rec[1], rec[2]);
+    c.rax = flight_math::kBuildingFlying; f::state_body(c);
+    check(c.rax == flight_math::kBuildingFlying && !f::flown_recently(3, rec[2]), "while Creative Mode runs, a moved record is not taken");
+    set_rule(3, nullptr); clean(); use(dyn); dyn[0x59] = flight_math::kFalling;
+
     // install, the ways it stays out
     have = false;
     check(n::install(&api, 0, true, off) == 0 && off.find("rules.noclip") != std::string::npos && cap_state == 99,

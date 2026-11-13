@@ -90,28 +90,92 @@ struct Stats {
 // Ownership is keyed by the locomotion object as well as the entity. It does not expire with wall time: a paused
 // prediction can resume after its rule was revoked. Player ids have two ownership slots (server and prediction).
 // The bounded extra history serves simulated characters (at most 16 extra rule ids, on two worlds).
+//
+// The object moves. The game keeps an entity's components by archetype, so adding a component or taking one away
+// copies all of them to another place: every teleport adds the Teleport component and takes it away the step after
+// (docs/re/creatures.md 1.4), and other components come and go too. The record keeps its bytes, BuildingFlying included,
+// but no longer its address. So a BuildingFlying record of an entity whose Kiln flight has not been seen to end, at an
+// address that is not one of its own, is that flight's record moved: it takes the place of the entity's record seen
+// least recently (a host's other world sees its own record every step; a paused one takes its place back when it
+// resumes). Without this, a teleport left the character in the sticky BuildingFlying state with no hook to end it: no
+// walking and no animation, with collision back. Nothing is adopted while Kiln's flight steps aside for Creative Mode,
+// and an entity whose Kiln flight is over has nothing that could have moved.
 constexpr int kRecent = 64;
 std::atomic<bool> g_flew{false};
 std::atomic<uintptr_t> g_player_dyn[1024][2]{};
+std::atomic<uint64_t> g_player_seen[1024][2]{};  // g_seen when the slot's record was last seen by the state hook
 std::atomic<uint32_t> g_recent_id[kRecent]{};
 std::atomic<uintptr_t> g_recent_dyn[kRecent]{};
+std::atomic<uint64_t> g_recent_seen[kRecent]{};
 std::atomic<unsigned> g_next_recent{0};
+std::atomic<uint64_t> g_seen{0};
 std::atomic<uint32_t> g_local_player{0};  // refreshed once per client tick, never a service call per actor
+// the moves followed, and the last one, for the log (refresh() reports them once a tick)
+std::atomic<uint64_t> g_moves{0};
+std::atomic<uint32_t> g_move_entity{0};
+std::atomic<uintptr_t> g_move_from{0}, g_move_to{0};
+
+uint64_t stamp() { return g_seen.fetch_add(1, std::memory_order_relaxed) + 1; }
 
 void note_flying(uint32_t e, const void* dyn) {
     g_flew.store(true, std::memory_order_relaxed);
     const auto ptr = reinterpret_cast<uintptr_t>(dyn);
     if (e && e <= 1023) {
         auto& slots = g_player_dyn[e];
-        uintptr_t empty = 0;
-        if (slots[0].load() != ptr && !slots[0].compare_exchange_strong(empty, ptr)) slots[1].store(ptr);
+        auto& seen = g_player_seen[e];
+        int at = slots[0].load() == ptr ? 0 : slots[1].load() == ptr ? 1 : -1;
+        for (int i = 0; at < 0 && i < 2; ++i) {
+            uintptr_t empty = 0;
+            if (slots[i].compare_exchange_strong(empty, ptr)) at = i;
+        }
+        if (at < 0) {
+            at = seen[0].load() <= seen[1].load() ? 0 : 1;  // both taken: the one seen least recently
+            slots[at].store(ptr);
+        }
+        seen[at].store(stamp(), std::memory_order_relaxed);
         return;
     }
     for (int i = 0; i < kRecent; ++i)
-        if (g_recent_id[i].load() == e && g_recent_dyn[i].load() == ptr) return;
+        if (g_recent_id[i].load() == e && g_recent_dyn[i].load() == ptr) {
+            g_recent_seen[i].store(stamp(), std::memory_order_relaxed);
+            return;
+        }
     const unsigned i = g_next_recent.fetch_add(1) % kRecent;
     g_recent_dyn[i].store(ptr);
     g_recent_id[i].store(e);
+    g_recent_seen[i].store(stamp(), std::memory_order_relaxed);
+}
+
+// `dyn` is the record of a flight of `e` that Kiln has not seen end, moved there (see above): it replaces the entity's
+// record seen least recently. False when Kiln has no such flight of `e`.
+bool follow_move(uint32_t e, const void* dyn) {
+    if (!e || kiln_rules_creative::idle()) return false;
+    const auto ptr = reinterpret_cast<uintptr_t>(dyn);
+    uintptr_t from = 0;
+    if (e <= 1023) {
+        auto& slots = g_player_dyn[e];
+        auto& seen = g_player_seen[e];
+        int pick = -1;
+        for (int i = 0; i < 2; ++i)
+            if (slots[i].load() != 0 && (pick < 0 || seen[i].load() < seen[pick].load())) pick = i;
+        if (pick < 0) return false;
+        from = slots[pick].exchange(ptr);
+        seen[pick].store(stamp(), std::memory_order_relaxed);
+    } else {
+        int pick = -1;
+        for (int i = 0; i < kRecent; ++i)
+            if (g_recent_id[i].load() == e && g_recent_dyn[i].load() != 0 &&
+                (pick < 0 || g_recent_seen[i].load() < g_recent_seen[pick].load()))
+                pick = i;
+        if (pick < 0) return false;
+        from = g_recent_dyn[pick].exchange(ptr);
+        g_recent_seen[pick].store(stamp(), std::memory_order_relaxed);
+    }
+    g_move_entity.store(e, std::memory_order_relaxed);
+    g_move_from.store(from, std::memory_order_relaxed);
+    g_move_to.store(ptr, std::memory_order_relaxed);
+    g_moves.fetch_add(1, std::memory_order_relaxed);
+    return true;
 }
 
 bool flown_recently(uint32_t e, const void* dyn) {
@@ -132,6 +196,22 @@ void forget_flying(uint32_t e, const void* dyn) {
         for (int i = 0; i < kRecent; ++i)
             if (g_recent_id[i].load() == e) { ptr = reinterpret_cast<uintptr_t>(dyn); g_recent_dyn[i].compare_exchange_strong(ptr, 0); }
     }
+}
+
+// Kiln's flight of `e` is in `dyn`: a record Kiln took off with, or (`flying`: `dyn` is in BuildingFlying) the record of
+// a flight of `e` that has not ended, moved there.
+bool owned(uint32_t e, const void* dyn, bool flying) { return flown_recently(e, dyn) || (flying && follow_move(e, dyn)); }
+
+// The log hears of moves once a tick, the first few of a world only (a flight through many teleports is quiet).
+constexpr uint64_t kMovesTold = 8;
+std::atomic<uint64_t> g_moves_told{0};
+void report_moves() {
+    const uint64_t n = g_moves.load(std::memory_order_relaxed);
+    uint64_t told = g_moves_told.load(std::memory_order_relaxed);
+    if (n == told || told >= kMovesTold || !g_moves_told.compare_exchange_strong(told, n)) return;
+    logf(KILN_LOG_INFO, "character flight: entity %u's locomotion record moved (0x%llx -> 0x%llx: the game moved its components, as a "
+         "teleport does); still in Kiln's flight (%llu move(s) followed%s)", g_move_entity.load(), (unsigned long long)g_move_from.load(),
+         (unsigned long long)g_move_to.load(), (unsigned long long)n, n >= kMovesTold ? "; further ones without a line" : "");
 }
 
 bool flight_possible() {
@@ -183,14 +263,14 @@ void state_body(safetyhook::Context& c) {
     uint32_t e = 0;
     KilnRulesPlayer r{};
     const bool has = rules_for(reinterpret_cast<void*>(c.rsi), &e, &r);
-    const bool was_ours = flown_recently(e, dyn);
+    const bool was_ours = owned(e, dyn, cur == flight_math::kBuildingFlying);
     const bool enabled = has && armed(r) && !kiln_rules_creative::idle();
     if (!enabled && !(cur == flight_math::kBuildingFlying && was_ours)) return;
     float input_vy = 0.0f;
     std::memcpy(&input_vy, dyn + 4, sizeof input_vy);  // inputVelocity.y
     // A BuildingFlying state Kiln did not start (another mod's flight, a game feature) is not Kiln's to keep, to end
-    // or to count as its own: only a take-off from here makes a flight Kiln's. NoClip's collision step asks exactly
-    // that (noclip_flight below).
+    // or to count as its own: only a take-off from here makes a flight Kiln's, wherever the game moves its record
+    // afterwards (owned). NoClip's collision step asks exactly that (noclip_flight below).
     const bool ours = cur != flight_math::kBuildingFlying || was_ours;
     const uint8_t next = flight_math::next_state(cur, game, ours, enabled && flight(r), base_only(r), actor_of(actor), input_vy,
                                                  enabled && noclip(r));
@@ -261,7 +341,7 @@ bool noclip_flight(void* ctx, const uint8_t* dyn, uint32_t* entity) {
     if (kiln_rules_creative::idle() || !(kiln_rules_bridge::flags_seen() & KILN_RULES_NOCLIP)) return false;
     if (!g_entity_of || dyn[L.loco_state] != flight_math::kBuildingFlying) return false;
     KilnRulesPlayer r{};
-    return rules_for(ctx, entity, &r) && noclip(r) && flown_recently(*entity, dyn);
+    return rules_for(ctx, entity, &r) && noclip(r) && owned(*entity, dyn, true);
 }
 
 void forget_local() { g_local_player.store(0); }
@@ -303,11 +383,15 @@ void reset() {
     g_local_player.store(0);
     g_flew.store(false);
     for (auto& slots : g_player_dyn) for (auto& ptr : slots) ptr.store(0);
-    for (int i = 0; i < kRecent; ++i) { g_recent_id[i].store(0); g_recent_dyn[i].store(0); }
+    for (auto& seen : g_player_seen) for (auto& at : seen) at.store(0);
+    for (int i = 0; i < kRecent; ++i) { g_recent_id[i].store(0); g_recent_dyn[i].store(0); g_recent_seen[i].store(0); }
+    g_moves.store(0);
+    g_moves_told.store(0);
 }
 
 void refresh() {
     if (!g_api) return;
+    report_moves();
     (void)kiln_rules_creative::flame_creative();
     KilnClientState st{};
     st.size = sizeof st;
