@@ -4,11 +4,12 @@
 import React from 'react';
 import { Button } from '../../ui';
 import { items, itemName, skills, skillName } from '../src/gamedata.js';
-import { itemIcon, rarityOf, rarityColor } from '../src/ui.js';
+import { rarityOf, rarityColor } from '../src/ui.js';
 import { atributosDe, melhoriasDe, temEstatisticas, armaduraDe, danoDe } from '../src/itemstats.js';
 import { t, localeAtual } from '../src/i18n.js';
-import { Meter, RarityPick, Row, Stepper, UpgradePick, categoryWord, rarityWord, tierOf } from './parts.jsx';
-import { aboveStack, amountLimit } from './amounts.js';
+import { Meter, RarityPick, Row, Stepper, UpgradePick, categoryWord, iconOf, rarityWord, tierOf } from './parts.jsx';
+import { aboveStack, amountLimit, MAX_AMOUNT } from './amounts.js';
+import { useEditorEnv } from './env.jsx';
 
 const NO_GEM = '0000000000';
 function readSocket(hex) {
@@ -22,6 +23,9 @@ function writeSocket({ itemId, level }) {
     .map((x) => x.toString(16).padStart(2, '0')).join('');
 }
 const GEMS = Object.keys(items).filter((id) => items[id].category === 'WeaponGem').map(Number);
+const gemList = () => [...GEMS].sort((a, b) => itemName(a).localeCompare(itemName(b), localeAtual()));
+/** The number pad's quick values for a stack: the game's stack size and what the save holds. */
+const amountPresets = (maxStack) => [{ label: t('Pilha do jogo ({n})', { n: maxStack }), value: maxStack }, { label: t('Máximo ({n})', { n: MAX_AMOUNT }), value: MAX_AMOUNT }];
 
 /** The panel with nothing chosen, an empty slot, or an item. */
 export function Inspector({ entry, empty, onChange, onRemove, onDuplicate, caption, warn }) {
@@ -35,6 +39,7 @@ export function Inspector({ entry, empty, onChange, onRemove, onDuplicate, capti
 }
 
 function ItemForm({ entry, onChange, onRemove, onDuplicate }) {
+  const env = useEditorEnv();
   const it = items[entry.itemId];
   const r = rarityOf(entry);
   const set = (k, v) => onChange({ ...entry, [k]: v });
@@ -55,7 +60,7 @@ function ItemForm({ entry, onChange, onRemove, onDuplicate }) {
   return (
     <>
       <header className="ke-insp-head">
-        <span className="ke-insp-icon" style={{ '--r': rarityColor(r) }}><img src={itemIcon(entry.itemId)} alt="" /></span>
+        <span className="ke-insp-icon" style={{ '--r': rarityColor(r) }}><img src={iconOf(entry.itemId)} alt="" /></span>
         <div className="ke-insp-titles">
           {r > 0 && <span className="k-sc ke-insp-rar" style={{ color: rarityColor(r) }}>{rarityWord(r)}</span>}
           <h2 className="ke-insp-name">{itemName(entry.itemId)}</h2>
@@ -74,7 +79,8 @@ function ItemForm({ entry, onChange, onRemove, onDuplicate }) {
             <span className="ke-note warn">{t('acima da pilha do jogo ({n}): para mundos com um mod que aumenta as pilhas', { n: it.maxStack })}</span>
           )}>
             <span className="k-row" style={{ gap: 10 }}>
-              <Stepper value={entry.count} min={1} max={amountLimit(it?.maxStack, entry.count)} big={10} label={t('Quantidade')} onChange={(v) => set('count', v)} />
+              <Stepper value={entry.count} min={1} max={amountLimit(it?.maxStack, entry.count)} big={10} label={t('Quantidade')} onChange={(v) => set('count', v)}
+                presets={stack ? amountPresets(it.maxStack) : undefined} />
               {stack && <button type="button" className="k-link" onClick={() => set('count', it.maxStack)}>{t('Máx')}</button>}
             </span>
           </Row>
@@ -98,11 +104,19 @@ function ItemForm({ entry, onChange, onRemove, onDuplicate }) {
         )}
         {gem && (
           <Row label={t('Joia encaixada')} note={gem.itemId > 0 && !items[gem.itemId] && <span className="ke-note warn">{t('id {id} não está no catálogo', { id: gem.itemId })}</span>}>
-            <select className="k-select ke-select" value={gem.itemId} aria-label={t('Joia encaixada')}
-              onChange={(e) => { const id = Number(e.target.value); setGem({ itemId: id, level: id && !gem.itemId ? Math.max(1, items[id]?.minLevel || 1) : gem.level }); }}>
-              <option value={0}>{t('— sem joia —')}</option>
-              {[...GEMS].sort((a, b) => itemName(a).localeCompare(itemName(b), localeAtual())).map((id) => <option key={id} value={id}>{itemName(id)}</option>)}
-            </select>
+            {env.deck ? (
+              <button type="button" className="k-select ke-select ke-pick" data-deck-id="item-gem" data-deck-a={t('Mudar')} aria-label={`${t('Joia encaixada')}: ${gem.itemId ? itemName(gem.itemId) : t('— sem joia —')}`}
+                onClick={() => env.choose({ title: t('Joia encaixada'), value: gem.itemId, options: [{ value: 0, label: t('— sem joia —') }, ...gemList().map((id) => ({ value: id, label: itemName(id) }))],
+                  onDone: (id) => setGem({ itemId: id, level: id && !gem.itemId ? Math.max(1, items[id]?.minLevel || 1) : gem.level }) })}>
+                {gem.itemId ? itemName(gem.itemId) : t('— sem joia —')}
+              </button>
+            ) : (
+              <select className="k-select ke-select" value={gem.itemId} aria-label={t('Joia encaixada')}
+                onChange={(e) => { const id = Number(e.target.value); setGem({ itemId: id, level: id && !gem.itemId ? Math.max(1, items[id]?.minLevel || 1) : gem.level }); }}>
+                <option value={0}>{t('— sem joia —')}</option>
+                {gemList().map((id) => <option key={id} value={id}>{itemName(id)}</option>)}
+              </select>
+            )}
           </Row>
         )}
         {gem && gem.itemId > 0 && (
@@ -115,7 +129,7 @@ function ItemForm({ entry, onChange, onRemove, onDuplicate }) {
         {entry.durability !== undefined && (
           <Row label={t('Durabilidade')}>
             <span className="k-row" style={{ gap: 12, flexWrap: 'nowrap' }}>
-              <Meter value={entry.durability} max={entry.maxDurability} tone={entry.durability / entry.maxDurability < 0.25 ? 'low' : ''} onChange={(v) => set('durability', v)} />
+              <Meter label={t('Durabilidade')} value={entry.durability} max={entry.maxDurability} tone={entry.durability / entry.maxDurability < 0.25 ? 'low' : ''} onChange={(v) => set('durability', v)} />
               <button type="button" className="k-link" disabled={entry.durability >= entry.maxDurability} onClick={() => set('durability', entry.maxDurability)}>{t('Reparar')}</button>
             </span>
           </Row>
@@ -123,7 +137,7 @@ function ItemForm({ entry, onChange, onRemove, onDuplicate }) {
         {entry.liquid !== undefined && (
           <Row label={t('Água')}>
             <span className="k-row" style={{ gap: 12, flexWrap: 'nowrap' }}>
-              <Meter value={entry.liquid} max={entry.maxLiquid} tone="water" onChange={(v) => set('liquid', v)} />
+              <Meter label={t('Água')} value={entry.liquid} max={entry.maxLiquid} tone="water" onChange={(v) => set('liquid', v)} />
               <button type="button" className="k-link" disabled={entry.liquid >= entry.maxLiquid} onClick={() => set('liquid', entry.maxLiquid)}>{t('Encher')}</button>
             </span>
           </Row>
@@ -134,8 +148,8 @@ function ItemForm({ entry, onChange, onRemove, onDuplicate }) {
 
       <footer className="ke-insp-foot">
         <span className="k-row" style={{ gap: 8 }}>
-          {onDuplicate && <Button size="s" onClick={onDuplicate} title={`${t('Copia o item para o primeiro espaço livre')} (Ctrl+D)`}>{t('Duplicar')}</Button>}
-          {onRemove && <Button size="s" variant="danger" onClick={onRemove} title="Delete">{t('Remover')}</Button>}
+          {onDuplicate && <Button size="s" onClick={onDuplicate} title={`${t('Copia o item para o primeiro espaço livre')} (Ctrl+D)`} data-deck-id="item-duplicate">{t('Duplicar')}</Button>}
+          {onRemove && <Button size="s" variant="danger" onClick={onRemove} title="Delete" data-deck-id="item-remove">{t('Remover')}</Button>}
         </span>
         <span className="k-mono ke-debug" title={it?.debug}>{it?.debug}</span>
       </footer>

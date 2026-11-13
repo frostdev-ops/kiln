@@ -1,11 +1,13 @@
 // Knowledge: what the character has seen, picked up and unlocked (items, recipes). Pick entries and remove them;
 // removing a high-level material also closes the recipes that need it. Upstream: src/Conhecimento.jsx.
+// On the Deck (env.jsx) the level filter is set on the number pad; the search takes Steam's keyboard.
 import React, { useMemo, useState } from 'react';
 import { Button } from '../../ui';
 import { estadoTexto } from '../shared/knowledge.mjs';
 import map from '../data/conhecimento.json';
 import { items, nomeConhecimento } from '../src/gamedata.js';
 import { t, localeAtual } from '../src/i18n.js';
+import { useEditorEnv } from './env.jsx';
 
 const KIND = { i: 'item', r: 'receita', o: 'outro' };
 const state = (v, kind) => estadoTexto(v, kind).split('+').map((p) => t(p)).join(', ');
@@ -29,6 +31,7 @@ const naming = (info, id) => {
 };
 
 export default function Knowledge({ model, setModel }) {
+  const env = useEditorEnv();
   const [q, setQ] = useState('');
   const [above, setAbove] = useState('');
   const [kinds, setKinds] = useState('ir');
@@ -52,16 +55,23 @@ export default function Knowledge({ model, setModel }) {
   return (
     <div className="ke-know">
       <div className="ke-know-bar">
-        <input className="k-input" style={{ width: 280 }} placeholder={t('Procurar por nome ou id')} value={q} onChange={(e) => setQ(e.target.value)} aria-label={t('Procurar por nome ou id')} />
-        <label className="k-well compact" style={{ width: 168 }}><span className="k-label">{t('Acima do nível')}</span>
-          <input type="number" value={above} placeholder={t('todos')} onChange={(e) => setAbove(e.target.value)} /></label>
+        <input className="k-input" style={{ width: 280 }} data-deck-id="know-search" placeholder={t('Procurar por nome ou id')} value={q} onChange={(e) => setQ(e.target.value)} aria-label={t('Procurar por nome ou id')} />
+        {env.deck ? (
+          <button type="button" className="k-well compact ke-know-above" data-deck-id="know-above" data-deck-a={t('Mudar')}
+            onClick={() => env.askNumber({ title: t('Acima do nível'), value: Number(above) || 0, min: 0, max: 99, presets: [{ label: t('todos'), value: 0 }], onDone: (n) => setAbove(n ? String(n) : '') })}>
+            <span className="k-label">{t('Acima do nível')}</span><span className="k-mono">{above === '' ? t('todos') : above}</span>
+          </button>
+        ) : (
+          <label className="k-well compact" style={{ width: 168 }}><span className="k-label">{t('Acima do nível')}</span>
+            <input type="number" value={above} placeholder={t('todos')} onChange={(e) => setAbove(e.target.value)} /></label>
+        )}
         <span className="k-seg" role="radiogroup" aria-label={t('Mostrar')}>
           {[['ir', 'Itens e receitas'], ['i', 'Só itens'], ['r', 'Só receitas'], ['iro', 'Tudo']].map(([v, label]) => (
             <button key={v} type="button" role="radio" aria-checked={kinds === v} className={kinds === v ? 'on' : ''} onClick={() => setKinds(v)}>{t(label)}</button>
           ))}
         </span>
         <span className="k-spacer" />
-        <Button size="s" variant="danger" disabled={!sel.size} onClick={remove}>{sel.size ? t('Remover {n}', { n: sel.size }) : t('Remover')}</Button>
+        <Button size="s" variant="danger" disabled={!sel.size} onClick={remove} data-deck-id="know-remove">{sel.size ? t('Remover {n}', { n: sel.size }) : t('Remover')}</Button>
       </div>
       <div className="ke-know-table" role="table" aria-label={t('Conhecimento')}>
         <div className="ke-know-row head" role="row">
@@ -74,7 +84,7 @@ export default function Knowledge({ model, setModel }) {
         <div className="ke-know-body">
           {shown.map((k) => (
             <label key={k.id} className={'ke-know-row' + (sel.has(k.id) ? ' on' : '')} role="row">
-              <span role="cell"><input type="checkbox" className="k-check" checked={sel.has(k.id)} onChange={() => toggle(k.id)} /></span>
+              <span role="cell"><input type="checkbox" className="k-check" checked={sel.has(k.id)} onChange={() => toggle(k.id)} data-deck-id={`know-${k.id}`} aria-label={k.name ?? t('id {id}', { id: k.id })} /></span>
               <span role="cell" className={`k-sc ke-kind ${k.info?.t ?? 'o'}`}>{t(KIND[k.info?.t ?? 'o'])}</span>
               <span role="cell" className="ke-know-name">
                 {k.name ? <span className="k-ellipsis">{k.name}</span> : <span className="k-mono k-muted">{t('id {id}', { id: k.id })}</span>}

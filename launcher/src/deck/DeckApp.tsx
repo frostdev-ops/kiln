@@ -4,7 +4,7 @@
 //   D-pad / left stick: move focus (focus.ts) · A: click the focused control (hold for a HoldButton) · B: the top
 //   layer's back, else Home · X / Y: the top layer's actions · L1 / R1: tabs · Start: the menu · View: Help ·
 //   right stick: scroll.
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import * as api from "../api/commands";
 import { useAppInfo, useBackendEvents, useNexusEnabled, useSettings } from "../api/hooks";
@@ -29,12 +29,16 @@ import Help from "./screens/Help";
 import Settings from "./screens/Settings";
 import "./deck.css";
 
+// the save editor carries its item data (about 2 MB): loaded on the first visit to its tab, as on the desktop
+const DeckEditor = lazy(() => import("../editor/deck/DeckEditor"));
+
 export const TABS = [
   { to: "/deck", label: "Home" },
   { to: "/deck/mods", label: "Mods" },
   { to: "/deck/add", label: "Add mods" },
   { to: "/deck/catalog", label: "Catalog" },
   { to: "/deck/kiln", label: "Kiln" },
+  { to: "/deck/editor", label: "Editor" },
   { to: "/deck/help", label: "Help" },
   { to: "/deck/settings", label: "Settings" },
 ] as const;
@@ -135,13 +139,25 @@ export default function DeckApp() {
   const tab = tabOf(loc.pathname, tabs);
   const tabRef = useRef(tab);
   tabRef.current = tab;
+  // the tab L1/R1 has asked for and the router has not shown yet: the next press counts from it, so a tab that takes
+  // long to draw (the save editor's inventory) does not swallow a press. Forgotten once shown, or after a moment (a
+  // route that sends the player elsewhere).
+  const asked = useRef<{ tab: number; at: number } | null>(null);
+  if (asked.current?.tab === tab) asked.current = null;
   useEffect(() => { document.title = `${tabs[tab].label} · Kiln`; }, [tab, tabs]);
 
   const goTab = (i: number) => { if (i >= 0 && i < tabs.length && i !== tabRef.current) nav(tabs[i].to); };
+  const stepTab = (d: number) => {
+    const from = asked.current && performance.now() - asked.current.at < 1500 ? asked.current.tab : tabRef.current;
+    const i = from + d;
+    if (i < 0 || i >= tabs.length) return;
+    asked.current = { tab: i, at: performance.now() };
+    nav(tabs[i].to);
+  };
   const back = () => {
     const top = topLayer();
     if (top?.back) top.back();
-    else if (!top?.modal && tabRef.current !== 0) nav("/deck");
+    else if (!top?.modal && tabRef.current !== 0) { asked.current = null; nav("/deck"); }
   };
   const runAction = (b: Press["button"]): boolean => {
     const act = topLayer()?.actions.find((a) => a.button === b);
@@ -169,7 +185,7 @@ export default function DeckApp() {
         return;
       }
       case "b": back(); return;
-      case "lb": case "rb": if (!top?.modal) goTab(tabRef.current + (p.button === "rb" ? 1 : -1)); return;
+      case "lb": case "rb": if (!top?.modal) stepTab(p.button === "rb" ? 1 : -1); return;
       case "start": if (!runAction("start") && !top?.modal) setMenu(true); return;
       case "select": if (!runAction("select") && !top?.modal) nav("/deck/help"); return;
       default: runAction(p.button);
@@ -198,6 +214,7 @@ export default function DeckApp() {
           <Route path="add" element={<AddMods />} />
           <Route path="catalog" element={<NexusRoute home="/deck"><Catalog /></NexusRoute>} />
           <Route path="kiln" element={<Kiln />} />
+          <Route path="editor" element={<Suspense fallback={<p className="deck-note">Opening the save editor…</p>}><DeckEditor /></Suspense>} />
           <Route path="help" element={<Help />} />
           <Route path="settings" element={<Settings />} />
           <Route path="*" element={<Navigate to="/deck" replace />} />

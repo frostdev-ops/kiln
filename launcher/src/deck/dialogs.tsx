@@ -14,6 +14,7 @@ import { focusEl, focusFirst } from "./focus";
 import { useLayer } from "./layers";
 import { DeckButton, Dialog, Overlay, Row, Word, dialogFirst, useFirstFocus, useReturnFocus } from "./ui";
 import { kilnLabel } from "./status";
+import { usePendingEdits } from "../editor/kiln/pending";
 
 /** The profiles (Settings): A loads one; the Mods screen then shows its switches (Steam's Play button uses it too). */
 export function ProfileDialog({ game, onClose }: { game: GameInstall; onClose: () => void }) {
@@ -236,13 +237,16 @@ export function ModpackDialog({ game, path, onClose }: { game: GameInstall; path
   );
 }
 
-/** Quit the launcher. */
+/** Quit the launcher (the save editor's changes that are not saved yet are named: quitting drops them). */
 export function QuitDialog({ onClose }: { onClose: () => void }) {
+  const edits = usePendingEdits();
   return (
     <Dialog name="quit" title="Quit Kiln?" onClose={onClose}
       buttons={<>
         <DeckButton onClick={onClose}>Cancel</DeckButton>
         <DeckButton primary onClick={() => { onClose(); if (api.isTauri()) void api.deckQuit(); else toast.info("Quit"); }}>Quit</DeckButton>
-      </>} />
+      </>}>
+      {edits.dirty ? <p className="deck-note" data-testid="quit-unsaved">Your changes to {edits.name ?? "the character"} in the save editor are not saved.</p> : null}
+    </Dialog>
   );
 }

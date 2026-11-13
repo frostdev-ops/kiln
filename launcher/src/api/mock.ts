@@ -5,7 +5,7 @@
 // Commands without a mock reject with not_implemented, like the wave-0 Rust stubs.
 import type {
   Activation, AddReport, BundlePart, RunSide, AddedMod, AdminEndpoint, AppInfo, BootJson, BootState, ConfigDocument, CookJob, CookReason, CookedMod, ConfigFileInfo, ConfigTarget, CrashReport, ReportFinding, ReportSaved, Detected, Distribution,
-  EditorBackup, FoundMod, FoundReport, GameInstall, GameStatus, ImportReport, InstallReceipt, InstallResult, InstallState, Json, KilnError, LastServer, LaunchRequest, NewerKilnMod,
+  FoundMod, FoundReport, GameInstall, GameStatus, ImportReport, InstallReceipt, InstallResult, InstallState, Json, KilnError, LastServer, LaunchRequest, NewerKilnMod,
   LaunchResult, LauncherSettings, RenderInfo, LibraryEntry, LibraryRef, LogFile, LogTarget, ModKind, ModpackInstallRequest, ModpackInstallResult, ModsJson,
   NativeJson, NativePlanEntry, NativeUserState, PreStart, Profile, ProfileChange, ProfileMod, ProfileSummary, ProxyClass, Rejection, RemoveReport, ResolvePreview, RuntimeBundle, SaveBackup, SaveSlot,
   SchemaSnapshot, ServerInstance, ServerStatus, Task, TaskState,
@@ -1215,26 +1215,6 @@ const handlers: Record<string, Handler> = {
   },
   saves_delete: (a) => { backups[S(a.gameId)] = (backups[S(a.gameId)] ?? []).filter((b) => b.id !== a.backupId); return null; },
 
-  // editor: the browser has no save files (the editor shows its empty state) unless a local fixture is there
-  // (launcher/assets-local/fixtures/editor/: copies of your own saves plus their zstd blocks, never committed)
-  editor_list_saves: async () => (await editorFixture())?.saves ?? [],
-  editor_file_info: () => ({ modified: Date.now() }),
-  editor_read_file: async (a) => {
-    const r = await fetch(EDITOR_FIXTURE + S(a.path).split("/").pop());
-    if (!r.ok) reject("not_found", "No such save.");
-    return r.arrayBuffer();
-  },
-  editor_zstd_decompress: async (a) => {
-    const d = a.data as number[];
-    const key = `${d.length}:${d.slice(0, 24).map((b) => b.toString(16).padStart(2, "0")).join("")}`;
-    const b64 = (await editorFixture())?.blocks[key];
-    if (!b64) reject("unsupported", "The browser mock can only read the fixture's own blocks.");
-    return Uint8Array.from(atob(b64!), (c) => c.charCodeAt(0)).buffer;
-  },
-  editor_game_running: () => Object.values(running).some(Boolean),
-  editor_list_backups: (): EditorBackup[] => [],
-  editor_open_backups: () => null,
-
   // modpack (the refusal banner on Play); servers: the server mock handlers below override these
   modpack_pending: () => pendingLastServer(),
   server_list: () => [server],
@@ -1285,16 +1265,17 @@ Object.assign(handlers, deckMockHandlers(handlers));
 Object.assign(handlers, nexusMockHandlers(handlers, mockEmit, startTask, quickAdd));
 Object.assign(handlers, chainMockHandlers({ profiles, library, reject }));
 Object.assign(handlers, dataFolderMockHandlers(startTask, (id) => tasks.get(id)));
+// the save editor: synthetic character saves in memory, or a local fixture with ?editor=fixture (mockEditor.ts). Loaded
+// at the first editor command: its saves bring hash and buffer code no other page of the mock needs, and loading that
+// with the mock made every first page of a cold dev server slower
+let editorMock: Promise<Record<string, Handler>> | null = null;
+for (const cmd of ["editor_list_saves", "editor_file_info", "editor_read_file", "editor_zstd_decompress", "editor_game_running", "editor_backup_file",
+  "editor_write_save", "editor_list_backups", "editor_restore_backup", "editor_open_backups"]) {
+  handlers[cmd] = async (a) => (await (editorMock ??= import("./mockEditor").then((m) => m.editorMockHandlers(reject, () => Object.values(running).some(Boolean)))))[cmd](a);
+}
 
 /** The folder dialog's stand-in in a plain browser (shell/dataFolder.ts pickFolder; tests queue answers). */
 export { mockPickFolder };
-
-const EDITOR_FIXTURE = "/assets-local/fixtures/editor/";
-let editorFix: Promise<{ saves: { path: string; file: string; modified: number }[]; blocks: Record<string, string> } | null> | null = null;
-function editorFixture() {
-  editorFix ??= fetch(EDITOR_FIXTURE + "index.json").then((r) => (r.ok ? r.json() : null)).catch(() => null);
-  return editorFix;
-}
 
 /** "My mods": the profile a first-time player gets (every drop-in folder on, like kiln_manage::quick). */
 function makeDefault(): Profile {

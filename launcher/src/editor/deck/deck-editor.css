@@ -1,0 +1,84 @@
+/* The save editor on the Deck (DeckEditor.jsx): the desktop views (kiln/editor.css) at the Deck's size, in rem (1 rem =
+   16 px at 1280×800, the Deck scales it with the window), with room for the gold focus ring. Scoped to the Deck screen
+   and the dialogs it opens. */
+
+.deck-editor { gap: .75rem; }
+.kiln-editor-deck { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; gap: .75rem; }
+.dke-head { flex: none; display: flex; align-items: flex-end; justify-content: space-between; gap: 1.5rem; }
+.dke-who { min-width: 0; display: flex; flex-direction: column; gap: .25rem; }
+.dke-name { font-size: 2.75rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dke-say { font-size: 1.25rem; }
+.dke-buttons { flex: none; display: flex; gap: .75rem; }
+.dke-buttons .deck-btn, .dke-tabs .deck-btn { min-height: 3.25rem; font-size: 1.25rem; padding: 0 1.25rem; }
+.dke-status { flex: none; font-size: 1.125rem; }
+.dke-status .deck-btn { min-height: 2.75rem; font-size: 1.125rem; }
+.dke-tabs { flex: none; display: flex; gap: .5rem; }
+.dke-count { margin-left: .5rem; font-family: var(--k-font-mono); font-size: 1rem; color: var(--k-text-2); }
+.dke-body { flex: 1; min-height: 0; display: flex; gap: 0; }
+.dke-empty { display: flex; gap: 1rem; padding-top: 1rem; }
+
+/* the views */
+.deck-editor .ke-note { font-size: 1rem; }
+.deck-editor .ke-main { padding: .375rem 1.25rem 1rem .375rem; gap: .75rem; }
+.deck-editor .ke-grid { --s: 3.5rem; gap: .375rem; }
+.deck-editor .ke-grid-scroll { padding: .375rem; margin: -.375rem; scroll-padding: .5rem; }
+.deck-editor .ke-group-head { min-height: 1.75rem; }
+.deck-editor .ke-slot { --s: 3.5rem; scroll-margin: .5rem; }
+.deck-editor .ke-gear .ke-slot { --s: 3.25rem !important; }
+.deck-editor .ke-slot-count { font-size: 1rem; }
+.deck-editor .ke-insp { width: 31rem; padding: .375rem .5rem 1rem 1.5rem; gap: .875rem; }
+.deck-editor .ke-insp-name { font-size: 2rem; }
+.deck-editor .ke-insp-kind, .deck-editor .ke-form dt { font-size: 1.0625rem; }
+.deck-editor .ke-form { grid-template-columns: 7.5rem minmax(0, 1fr); gap: .625rem .875rem; }
+.deck-editor .ke-step { height: 2.75rem; }
+.deck-editor .ke-step-b { min-width: 2.75rem; font-size: 1.125rem; }
+.deck-editor button.ke-step-v { width: 6rem; padding: 0; border: 0; background: none; cursor: pointer; font-size: 1.125rem; }
+.deck-editor .ke-dia { width: 2.25rem; height: 2.5rem; }
+.deck-editor .ke-dia i { width: .875rem; height: .875rem; }
+.deck-editor .ke-dias-word { font-size: 1.0625rem; }
+.deck-editor button.ke-meter-bar { width: 12rem; height: 1rem; padding: 0; border: 0; }
+.deck-editor .ke-meter-n, .deck-editor .ke-stat-n { font-size: 1.0625rem; }
+.deck-editor .ke-pick { min-height: 2.75rem; padding: 0 .875rem; text-align: left; font-size: 1.125rem; cursor: pointer; }
+.deck-editor .k-link { font-size: 1.0625rem; }
+.deck-editor .k-btn { min-height: 2.75rem; font-size: 1.125rem; }
+.deck-editor .ke-gear-name { font-size: 1.125rem; }
+.deck-editor .ke-attrs dd { font-size: 1.5rem; }
+/* knowledge */
+.deck-editor .ke-know-row { min-height: 2.75rem; font-size: 1.125rem; scroll-margin: .5rem; }
+.deck-editor .ke-know-bar .k-input, .deck-editor .ke-know-bar .k-seg button { font-size: 1.125rem; min-height: 2.75rem; }
+.deck-editor .k-check { transform: scale(1.35); }
+/* the level filter: a button that opens the number pad, in the look of the desktop's field */
+.deck-editor button.ke-know-above { flex: none; min-height: 2.75rem; gap: .625rem; font: inherit; font-size: 1.125rem; color: var(--k-text-0); cursor: pointer; }
+.deck-editor button.ke-know-above .k-label { font-size: 1.0625rem; }
+/* the tree: the camera follows focus, nothing may scroll the box itself */
+.deck-editor .ke-tree { overflow: clip; margin-bottom: .5rem; }
+.ke-tree-keys { position: absolute; inset: 0; overflow: clip; pointer-events: none; }
+.deck-editor .ke-tree .ke-tree-key, .deck-editor .ke-tree .ke-tree-key:focus { position: absolute; z-index: 1; padding: 0; border: 0; border-radius: 50%; background: transparent; pointer-events: auto; }
+.deck-editor .ke-tree-tip { width: 24rem; }
+.deck-editor .ke-tree-tip-desc { font-size: 1.0625rem; }
+.deck-editor .ke-tree-zoom button { min-width: 2.75rem; height: 2.75rem; }
+
+/* the catalog dialog, as large as the screen allows */
+.deck-veil[data-deck-dialog="editor-catalog"] .deck-dialog { width: 77rem; max-width: calc(100% - 2rem); height: calc(100% - 2rem); padding: 1.25rem 1.75rem; gap: .75rem; }
+.deck-veil[data-deck-dialog="editor-catalog"] .deck-dialog-title { font-size: 2.25rem; }
+.deck-veil[data-deck-dialog="editor-catalog"] .deck-dialog-body { flex: 1; overflow: hidden; }
+.deck-veil[data-deck-dialog="editor-catalog"] .ke-cat { height: 100%; grid-template-columns: 13rem minmax(0, 1fr) 17rem; gap: 1.25rem; }
+.deck-veil[data-deck-dialog="editor-catalog"] .ke-cat-rail .k-sub { font-size: 1.125rem; padding: .25rem .375rem; min-height: 2.25rem; }
+.deck-veil[data-deck-dialog="editor-catalog"] .ke-cat-grid { grid-template-columns: repeat(auto-fill, 3.75rem); gap: .375rem; padding: .375rem; scroll-padding: .5rem; }
+.deck-veil[data-deck-dialog="editor-catalog"] .ke-cat-grid .ke-slot { --s: 3.75rem !important; scroll-margin: .5rem; }
+.deck-veil[data-deck-dialog="editor-catalog"] .k-input { min-height: 2.75rem; font-size: 1.125rem; }
+.deck-veil[data-deck-dialog="editor-catalog"] .k-seg button { font-size: 1rem; min-height: 2.25rem; }
+.deck-veil[data-deck-dialog="editor-catalog"] .ke-note { font-size: 1rem; }
+.deck-veil[data-deck-dialog="editor-catalog"] .ke-insp-name { font-size: 1.75rem; }
+.deck-veil[data-deck-dialog="editor-catalog"] .ke-step { height: 2.75rem; }
+.deck-veil[data-deck-dialog="editor-catalog"] .ke-step-b { min-width: 2.5rem; font-size: 1.125rem; }
+.deck-veil[data-deck-dialog="editor-catalog"] button.ke-step-v { width: 5.5rem; padding: 0; border: 0; background: none; color: var(--k-text-0); cursor: pointer; font-family: var(--k-font-mono); font-size: 1.125rem; }
+.deck-veil[data-deck-dialog="editor-catalog"] .k-btn { min-height: 2.75rem; font-size: 1.125rem; }
+
+/* the number pad */
+.dke-pad { display: flex; flex-direction: column; gap: .75rem; }
+.dke-pad-value { padding: .5rem 1rem; border-radius: .625rem; background: var(--k-well); box-shadow: inset 0 0 0 1px var(--k-line-strong); font-size: 2.5rem; text-align: right; color: var(--k-gold-300); }
+.dke-pad-keys { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .5rem; }
+.dke-key { min-height: 3.5rem !important; font-size: 1.75rem !important; }
+.dke-pad-presets { display: flex; flex-wrap: wrap; gap: .5rem; }
+.dke-pad-presets .deck-btn { flex: 1; min-height: 3rem; font-size: 1.125rem; }
