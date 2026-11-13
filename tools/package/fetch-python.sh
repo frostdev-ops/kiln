@@ -8,7 +8,9 @@
 # tools/launcher/build-windows.sh puts into the bundle as python/). A cached zip with the pinned sha256 is used as is:
 # nothing is downloaded. --check only verifies (exit 1 when the zip is missing or wrong, or root/ is not from it);
 # --refresh unpacks root/ again; --print-root prints root/'s path on success and nothing else on stdout.
-# The pin: https://www.python.org/downloads/release/python-31410/, "Windows embeddable package (64-bit)". The cook
+# The pin: https://www.python.org/downloads/release/python-31410/, "Windows embeddable package (64-bit)",
+# 12,619,664 bytes (downloaded and compared on 2026-11-12; a flat package with _zstd.pyd and _ctypes.pyd, and every
+# module the cook tools import is in it or in its python314.zip, except the optional capstone and zstandard). The cook
 # tools need 3.14 or newer here: its standard library reads zstd (compression.zstd, _zstd.pyd), which the game's
 # archives use; the unpacked package is checked for it. To raise the pin: take VERSION and SHA256 from the release's
 # page on python.org, run this script once (it downloads and verifies), then tools/release/test_cooktools.py.
@@ -46,6 +48,34 @@ whole() { # dir
   compgen -G "$d/python3*.zip" >/dev/null || { echo "python3*.zip (the standard library)"; return 1; }
   compgen -G "$d/python3*._pth" >/dev/null || { echo "python3*._pth (the path file)"; return 1; }
 }
+# the unpacked folder is the verified zip, file for file (names, sizes, CRC-32) and nothing else: a file deleted,
+# changed or added after the unpack means the folder is not what was pinned. Prints the first difference.
+same_as_zip() { # dir
+  python3 -I - "$zip" "$1" <<'PY'
+import os, sys, zipfile, zlib
+z, d = sys.argv[1], sys.argv[2]
+with zipfile.ZipFile(z) as f:
+    want = {i.filename: i for i in f.infolist() if not i.is_dir()}
+have = set()
+for base, _, files in os.walk(d):
+    for n in files:
+        have.add(os.path.relpath(os.path.join(base, n), d).replace(os.sep, "/"))
+for n in sorted(set(want) - have):
+    print(n + " is missing"); sys.exit(1)
+for n in sorted(have - set(want)):
+    print(n + " is not in the package"); sys.exit(1)
+for n, i in sorted(want.items()):
+    p = os.path.join(d, n)
+    if os.path.islink(p) or os.path.getsize(p) != i.file_size:
+        print(n + " differs"); sys.exit(1)
+    crc = 0
+    with open(p, "rb") as g:
+        for chunk in iter(lambda: g.read(1 << 20), b""):
+            crc = zlib.crc32(chunk, crc)
+    if crc != i.CRC:
+        print(n + " differs"); sys.exit(1)
+PY
+}
 
 if ! ok_zip; then
   if ((check)); then say "$zip is missing or not the pinned Python $VERSION (sha256)"; exit 1; fi
@@ -63,6 +93,12 @@ if ! ok_zip; then
   refresh=1
 fi
 [[ -d $root && -f $cache/root.from && $(cat "$cache/root.from") == "$SHA256" ]] || refresh=1
+# a folder that is no longer what the zip holds is unpacked again, or fails the check
+if ((!refresh)) && ! differs=$(same_as_zip "$root"); then
+  if ((check)); then say "$root is not the pinned package any more: $differs (run without --check to unpack it again)"; exit 1; fi
+  say "$root is not the pinned package any more ($differs): unpacking it again"
+  refresh=1
+fi
 if ((check)); then
   ((refresh)) && { say "$root is not unpacked from the pinned zip (run without --check)"; exit 1; }
   missing=$(whole "$root") || { say "$root lacks $missing"; exit 1; }
