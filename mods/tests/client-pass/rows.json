@@ -70,6 +70,7 @@
     { "section": "New in 0.2.0-dev.27", "key": "MODS is in the main menu while Kiln runs ShroudForge", "checks": ["menu.mods-with-shroudforge"] },
     { "section": "New in 0.2.0-dev.27", "key": "A mod's settings keep the applied values, and a slider takes a typed value", "checks": ["menu.config-apply"] },
     { "section": "New in 0.2.0-dev.27", "key": "The save editor keeps changes, refuses to overwrite the game's newer save, makes one backup, and works on the Steam Deck", "checks": ["editor.keeps-changes", "editor.save-one-backup", "editor.save-the-game-wrote", "editor.add-item-typing", "deck.editor-items", "deck.editor-skills-knowledge", "deck.editor-backups-quit", "deck.tabs-fast"] },
-    { "section": "New in 0.2.0-dev.27", "key": "A profile deleted and made again under the same name takes a switch", "checks": ["launcher.profile-again"] }
+    { "section": "New in 0.2.0-dev.27", "key": "A profile deleted and made again under the same name takes a switch", "checks": ["launcher.profile-again"] },
+    { "section": "New in 0.2.0-dev.27", "key": "A mod edited in its own Library folder: Changed on disk, and Use the changed files", "checks": ["launcher.library-changed"] }
   ]
 }

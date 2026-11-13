@@ -14,6 +14,7 @@ import { totalCount } from "../api/kinds";
 import { ProfileSettingsModal } from "../pages/profiles/ProfileLayout";
 import { dropinKinds, setDropins } from "../pages/profiles/dropins";
 import { forgetProfileEdits, useProfileEdit } from "../pages/profiles/useProfileEdit";
+import { notifyLibraryChanged } from "../shell/libraryChanged";
 import { notifyActivation } from "../shell/notices";
 import { Button, Card, ConfirmDanger, EmptyState, Field, Menu, Modal, Skeleton, TextInput, errorText, fmtAgo, notifyPlacementCleanup, toast } from "../ui";
 
@@ -42,7 +43,7 @@ export function ProfilesCard() {
       toast.ok(pid ? `${nameOf(pid)} is loaded` : "No profile is loaded", pid ? "The main screen's switches show it. Steam's Play button uses it too." : "The mods in the game folder load as they are.");
       notifyActivation(r);
     },
-    onError: (e, _pid, undo) => { undo?.(); toast.error(e); },
+    onError: (e, pid, undo) => { undo?.(); if (!notifyLibraryChanged(qc, e, () => load.mutate(pid))) toast.error(e); },
   });
   const blocked = !game || !installed || running || load.isPending;
   const why = !game ? "Find the game on Play first" : !installed ? "Install Kiln first" : running ? "Close the game first" : undefined;

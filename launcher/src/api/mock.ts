@@ -6,7 +6,7 @@
 import type {
   Activation, AddReport, BundlePart, RunSide, AddedMod, AdminEndpoint, AppInfo, BootJson, BootState, ConfigDocument, CookJob, CookReason, CookedMod, ConfigFileInfo, ConfigTarget, CrashReport, ReportFinding, ReportSaved, Detected, Distribution,
   FoundMod, FoundReport, GameInstall, GameStatus, ImportReport, InstallReceipt, InstallResult, InstallState, Json, KilnError, LastServer, LaunchRequest, NewerKilnMod,
-  LaunchResult, LauncherSettings, RenderInfo, LibraryEntry, LibraryRef, LogFile, LogTarget, ModKind, ModpackInstallRequest, ModpackInstallResult, ModsJson,
+  LaunchResult, LauncherSettings, RenderInfo, LibraryEntry, LibraryRef, TakenOver, LogFile, LogTarget, ModKind, ModpackInstallRequest, ModpackInstallResult, ModsJson,
   NativeJson, NativePlanEntry, NativeUserState, PreStart, Profile, ProfileChange, ProfileMod, ProfileSummary, ProxyClass, Rejection, RemoveReport, ResolvePreview, RuntimeBundle, SaveBackup, SaveSlot,
   SchemaSnapshot, ServerInstance, ServerStatus, Task, TaskState,
 } from "./commands";
@@ -492,6 +492,8 @@ function launch(gameId: string, req: LaunchRequest): LaunchResult {
   if (req.mode === "once" && !req.profileId) reject("invalid_argument", "Pick a profile to play once.");
   const st = runtime[gameId];
   if (!st?.installed && req.mode !== "vanilla") reject("unsupported", "Kiln is not installed in this game.");
+  const active = req.mode === "profile" && activations[gameId] ? profiles.get(activations[gameId]!.profileId) : undefined;
+  if (active) rejectChanged(active);
   // Play writes a changed profile again first (profile::refresh_active): a planned report stands for what that kept
   const act = req.mode === "profile" && activationPlan && activations[gameId] ? activate(activations[gameId]!.profileId, gameId) : undefined;
   const pid = ++pidSeq;
@@ -964,6 +966,7 @@ const handlers: Record<string, Handler> = {
     .map((v) => ({ kind: e.kind, id: e.id, version: v.version, hash: v.hash }))
     .filter((r) => !mockLibraryUsers(r).length)),
   library_users: (a) => mockLibraryUsers(a.entry as LibraryRef),
+  library_take_over: (a) => mockTakeOver(a.entry as LibraryRef),
   library_remove: (a) => {
     if (Object.values(running).some(Boolean)) reject("game_running", "Close Enshrouded first: the game may be reading this mod.");
     mockLibraryRemove(a.entry as LibraryRef, Array.isArray(a.shown) ? (a.shown as string[]) : !!a.force);
@@ -1324,6 +1327,50 @@ function mockLibraryUsers(r: LibraryRef): string[] {
 
 /** One version out of the library, as library_remove after its running check (conflict while a profile lists it).
  *  `force`: true past every user, a list past exactly those (library::Force::Past). */
+/** What a player changed in a Library folder (tests: `__kilnMock.editInLibrary`): the version reads as changed, and
+ *  what its manifest says now waits for library_take_over. */
+const edited = new Map<string, { name?: string; version?: string }>();
+const editKey = (kind: ModKind, id: string, hash: string) => `${kind}/${id}/${hash}`;
+
+/** A Library version whose files were changed (library::changed_error): Play refuses it, naming it, with the entry to take over. */
+function rejectChanged(p: Profile) {
+  for (const kind of MOD_KINDS) {
+    for (const m of p.mods[kind] ?? []) {
+      const e = library.find((l) => l.kind === kind && l.id === m.id);
+      const v = e?.versions.find((x) => x.hash === m.hash);
+      if (!m.enabled || !e || !v?.changed) continue;
+      reject("hash_mismatch", `the active profile changed and cannot be applied: ${e.name} was changed in its folder (${v.folder}): its files are not the ones Kiln imported, so Kiln does not load it as it is. Use the changed files (Kiln takes them over as the mod's new files), or put the old files back.`,
+        { libraryChanged: { kind, id: m.id, version: m.version, hash: m.hash }, name: e.name, folder: v.folder });
+    }
+  }
+}
+
+/** library_take_over (kiln_manage::library::take_over): the changed files become the mod's entry; profiles follow. */
+function mockTakeOver(r: LibraryRef): TakenOver {
+  if (Object.values(running).some(Boolean)) reject("game_running", "Close Enshrouded first: the game may be reading this mod.");
+  const e = library.find((l) => l.kind === r.kind && l.id === r.id) ?? reject("not_found", `${r.kind} ${r.id} ${r.version} is not in the library`);
+  const i = e.versions.findIndex((v) => v.hash === r.hash);
+  if (i < 0) reject("not_found", `${r.kind} ${r.id} ${r.version} is not in the library`);
+  const v = e.versions[i];
+  if (!v.changed) return { from: r, to: r, name: e.name };
+  const change = edited.get(editKey(r.kind, r.id, r.hash)) ?? {};
+  edited.delete(editKey(r.kind, r.id, r.hash));
+  const version = change.version ?? v.version;
+  const hash = kdh(`${r.kind}${r.id}${version}edited${v.hash}`);
+  const manifest = { ...(v.manifest as Record<string, Json>), version, ...(change.name ? { name: change.name } : {}) } as Json;
+  e.versions[i] = { ...v, version, hash, folder: `library/${r.kind}/${r.id}/${version}+${hash.slice(5, 13)}`, imported: now(), manifest, changed: undefined };
+  if (change.name) e.name = change.name;
+  const to: LibraryRef = { kind: r.kind, id: r.id, version, hash };
+  for (const [pid, p] of profiles) {
+    const list = p.mods[r.kind] ?? [];
+    if (!list.some((m) => m.id === r.id && m.hash === r.hash)) continue;
+    profiles.set(pid, { ...p, mods: { ...p.mods, [r.kind]: list.map((m) => (m.id === r.id && m.hash === r.hash ? { ...m, version, hash } : m)) },
+      generation: p.generation + 1, updated: now() });
+    reapplyWhereActive(pid);
+  }
+  return { from: r, to, name: e.name };
+}
+
 function mockLibraryRemove(r: LibraryRef, force: boolean | string[]) {
   const used = mockLibraryUsers(r);
   const past = Array.isArray(force) ? used.every((u) => force.includes(u)) : force || !used.length;
@@ -1581,6 +1628,13 @@ if (typeof window !== "undefined") (window as unknown as { __kilnMock?: unknown 
   },
   setGameFileUsers: (users: Record<string, string[]>) => { gameFileUsers = users; },
   failNextInstall: (message: string) => { failNextInstall = message; },
+  /** The player changes a mod's files in its Library folder ("Open folder", mod.json edited): its newest version. */
+  editInLibrary: (kind: ModKind, id: string, change: { name?: string; version?: string }) => {
+    const e = library.find((l) => l.kind === kind && l.id === id);
+    if (!e) throw new Error(`${kind} ${id} is not in the mock library`);
+    e.versions[0] = { ...e.versions[0], changed: true };
+    edited.set(editKey(kind, id, e.versions[0].hash), change);
+  },
   setModified: (files: string[], gameId = "client-steam") => { if (runtime[gameId]) runtime[gameId] = { ...runtime[gameId], modified: files }; emitGame(gameId, "status"); },
   startOutside: mockStartOutside, setServer: mockSetServer, opened: () => [...openedUrls],
   setPreStart: (p: PreStart | null) => { preStart = p; },

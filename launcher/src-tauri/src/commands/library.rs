@@ -5,7 +5,7 @@ use super::TaskId;
 use super::app::{spawn_task, to_value};
 use crate::state::{blocking, dirs};
 use kiln_manage::Error;
-use kiln_manage::library::{self, Detected, LibraryEntry, LibraryRef, RemoveReport};
+use kiln_manage::library::{self, Detected, LibraryEntry, LibraryRef, RemoveReport, TakenOver};
 use kiln_manage::lint::{self, LintOptions, LintReport};
 use kiln_manage::manifest::ModKind;
 use kiln_manage::quick::AddReport;
@@ -92,6 +92,30 @@ pub async fn library_remove(entry: LibraryRef, force: bool, shown: Option<Vec<St
         None => library::Force::from(force),
     };
     blocking(move || library::remove(&dirs()?, &entry, force)).await
+}
+
+/// "Use the changed files": a Library entry whose files the player changed in its folder (`LibraryVersion.changed`, or
+/// the `detail.libraryChanged` of a refused Play or activation) becomes the mod's new entry, and every profile that
+/// listed it lists that one; then the games where such a profile is active get their profile.json written again.
+/// Refuses (game_running) while a game, or a server that may read the entry, runs.
+#[tauri::command]
+pub async fn library_take_over(app: AppHandle, entry: LibraryRef) -> Result<TakenOver, Error> {
+    let (done, applied) = blocking(move || {
+        let d = dirs()?;
+        let done = library::take_over(&d, &entry)?;
+        let mut applied = Vec::new();
+        if done.to != done.from {
+            for p in kiln_manage::profile::list(&d)? {
+                let p = kiln_manage::profile::get(&d, &p.id)?;
+                if p.mods.list(done.to.kind).iter().any(|m| m.id == done.to.id && m.hash == done.to.hash) {
+                    applied.extend(super::profile::reapply_where_active(&d, &p.id));
+                }
+            }
+        }
+        Ok((done, applied))
+    }).await?;
+    super::profile::announce_applied(&app, applied);
+    Ok(done)
 }
 
 /// "Clean up": removes the versions with one look at the running processes and what lists them. Refuses (game_running)
