@@ -2,10 +2,11 @@
 // Mods' entries in the game's own menus (Ui.Menus.Add, a native plugin's menu_add) and where a player reaches them.
 // The game's menus do not scroll: every entry Kiln draws before the Settings entry pushes the game's own entries down,
 // and with enough of them Quit left a 1080p screen (a player's report, 2026-11-13). So Kiln's setting "modEntries"
-// (kiln/config/menus-client.json, shown under "Kiln settings" on the Mods page) says when kiln.ui draws them: Few (the
-// default: while a menu has at most 3), Always, Never. Kiln's own Mods entry is always drawn, and the Mods page lists
-// every mod's entry ("Menu entries"), each doing what its row in the menu does (kiln.ui v6: menu_shown, menu_entries,
-// menu_activate; native/services/ui/menu_rows.h).
+// (kiln/config/menus-client.json, shown under "Kiln settings" on the Mods page) says when kiln.ui draws them: Auto (the
+// default: every one where the pause menu scrolls, else as Few), Few (while a menu has at most 3), Always, Never.
+// Kiln's own Mods entry is always drawn, and the Mods page lists every mod's entry ("Menu entries"), each doing what its
+// row in the menu does (kiln.ui v6: menu_shown, menu_entries, menu_activate, menu_scroll; native/services/ui/menu_rows.h,
+// menu_scroll.h for the scrolling pause menu, an experiment).
 namespace Kiln;
 
 /// <summary>When the game's menus draw the entries mods added (Kiln's setting <c>modEntries</c>).</summary>
@@ -17,16 +18,19 @@ internal enum ModMenuEntries
     Always = 1,
     /// <summary>None: the Mods page's "Menu entries" list only.</summary>
     Never = 2,
+    /// <summary>Every entry where the menu scrolls (the pause menu, when kiln.ui can make it scroll), else as Few.</summary>
+    Auto = 3,
 }
 
 /// <summary>Kiln's config "menus" (client): kiln/config/menus-client.json.</summary>
 [Comment("Kiln's entries in the game's own menus (the main menu and the pause menu).")]
 internal sealed class MenuSettings
 {
-    [Comment("When the game's menus show the entries mods add to them: Few (only while a menu has at most 3 of them; " +
-             "more would push the game's own entries, such as Quit, off the screen), Always, or Never. Kiln's own Mods " +
-             "entry is always there, and every mod's entry is also on Kiln's Mods page under \"Menu entries\".")]
-    public ModMenuEntries ModEntries { get; set; } = ModMenuEntries.Few;
+    [Comment("When the game's menus show the entries mods add to them: Auto (every one in the pause menu where it can " +
+             "scroll, else as Few), Few (only while a menu has at most 3 of them; more would push the game's own entries, " +
+             "such as Quit, off the screen), Always, or Never. Kiln's own Mods entry is always there, and every mod's " +
+             "entry is also on Kiln's Mods page under \"Menu entries\".")]
+    public ModMenuEntries ModEntries { get; set; } = ModMenuEntries.Auto;
 }
 
 /// <summary>One mod's entry in a game menu, as the Mods page lists it.</summary>
@@ -45,11 +49,26 @@ internal static unsafe class GameMenuEntries
     {
         ModMenuEntries.Always => 1u,
         ModMenuEntries.Never => 2u,
+        ModMenuEntries.Auto => 3u,
         _ => 0u,
     };
 
-    /// <summary>The setting in use (Few until the config is registered).</summary>
-    internal static ModMenuEntries Mode => _config?.Value.ModEntries ?? ModMenuEntries.Few;
+    /// <summary>The setting in use (Auto until the config is registered).</summary>
+    internal static ModMenuEntries Mode => _config?.Value.ModEntries ?? ModMenuEntries.Auto;
+
+    /// <summary>KILN_UI_SCROLL_*: whether the pause menu scrolls in this game (0 when kiln.ui cannot say).</summary>
+    internal static uint ScrollStatus()
+    {
+        var t = UiNative.T6;
+        return t != null && t->MenuScroll != null ? t->MenuScroll() : 0u;
+    }
+
+    internal const uint ScrollOn = 1, ScrollOffCrashed = 2;
+
+    /// <summary>What the player is told once at start for a scroll status (pure: tests); null for nothing.</summary>
+    internal static string? StartNotice(uint status) => status == ScrollOffCrashed
+        ? "Kiln: the scrolling pause menu ended the game last time, so it stays off; Kiln's Mods page lists the mods' menu entries."
+        : null;
 
     /// <summary>Registers Kiln's config "menus" and hands its value to kiln.ui (a game client with kiln.ui v6; once).
     /// Tick thread now, else at the next service tick.</summary>
@@ -60,6 +79,11 @@ internal static unsafe class GameMenuEntries
         // kiln.ui draws every entry until told otherwise (an older Kiln.Ui has no list to reach hidden ones); this one
         // lists them, so the default (Few) applies from now, and the saved setting once the config is registered
         Apply();
+        if (StartNotice(ScrollStatus()) is { } notice)
+        {
+            try { Hud.Toast(notice, ToastKind.Warning, 10); }
+            catch (Exception e) { UiEngine.Log(LogLevel.Warn, "menu scroll notice: " + e.Message); }
+        }
         if (Game.IsTickThread) Register();
         else
         {
@@ -139,11 +163,15 @@ internal static unsafe class GameMenuEntries
     }
 
     /// <summary>What the Mods page says above the list (pure: tests).</summary>
-    internal static string Summary(ModMenuEntries mode, IReadOnlyList<GameMenuRow> rows)
+    internal static string Summary(ModMenuEntries mode, IReadOnlyList<GameMenuRow> rows, bool scrolls = false)
     {
         var notDrawn = rows.Count(r => !r.Drawn);
         var how = mode switch
         {
+            ModMenuEntries.Auto when scrolls =>
+                "The pause menu shows every one of them and scrolls when they do not fit (Kiln settings, modEntries: Auto).",
+            ModMenuEntries.Auto => "A game menu shows them while it has at most 3, so its own entries (Quit) stay on the " +
+                                   "screen (Kiln settings, modEntries: Auto; this menu does not scroll here).",
             ModMenuEntries.Always => "The game's menus show every one of them (Kiln settings, modEntries: Always).",
             ModMenuEntries.Never => "The game's menus show none of them (Kiln settings, modEntries: Never).",
             _ => "A game menu shows them while it has at most 3, so its own entries (Quit) stay on the screen " +

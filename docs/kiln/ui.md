@@ -48,8 +48,18 @@ e.Visible = false;       // hide for now; e.Text = "…" relabels; e.Dispose() r
   through which module it is drawn (`ui: the main menu's Settings entry is drawn through ...`).
 - The game's menus do not scroll: every entry before Settings pushes the game's own entries down, and with enough of
   them Quit leaves the screen. So the player's Kiln setting `modEntries` (`kiln/config/menus-client.json`, on the
-  Mods page under **Kiln settings**) decides when mods' entries are drawn: `Few` (the default: a menu draws them while
-  it has at most 3 visible ones, else none of them), `Always` (every one, as before 0.2.0-dev.27) or `Never`. Kiln's
+  Mods page under **Kiln settings**) decides when mods' entries are drawn: `Auto` (the default: every one in the pause
+  menu where it scrolls, below; otherwise as `Few`), `Few` (a menu draws them while it has at most 3 visible ones, else
+  none of them), `Always` (every one, as before 0.2.0-dev.27) or `Never`.
+- **The pause menu scrolls (an experiment, feature `ui.menu_scroll`).** With more than 3 mods' entries kiln.ui wraps
+  the pause menu's column in the game's own scroll view (the one the credits use: mouse wheel, clipping, following the
+  keyboard and gamepad focus); with fewer it draws the menu exactly as the game does. Begin and end sit at the
+  column's own open and close in the game's builder (`native/services/ui/menu_scroll.h`). A crash guard writes
+  `kiln/state/menu-scroll.trying` before the first scrolled frame of a start and removes it once a scrolled menu was
+  open for 3 seconds and closed; a start that finds it keeps scrolling off (`kiln/state/menu-scroll.off`, naming the
+  Kiln version and game build; another version or build tries once more; delete the file to try again) and tells the
+  player with a toast. kiln.log says when it is on (`ui: the pause menu can scroll`, `ui: the pause menu scrolls: ...`
+  with the sizes it saw) and when it switched itself off and why. The main menu does not scroll. Kiln's
   own **Mods** entry is always drawn. Every mod's entry of the menu the player can open where they are (the main
   menu, or the pause menu in a world) is listed on the Mods page under **Menu entries**; choosing one there closes the
   Kiln menu and runs the entry's `onClick` exactly as the menu would (on the UI thread after the next frame). Nothing
@@ -407,11 +417,12 @@ usually arrives both raw and as a message, in the order the window received them
 mouse motion and the wheel are not delivered. Remove it with `unsubscribe`, which waits for a call in flight (from
 inside another kiln.ui callback it may answer `KILN_ERR_WRONG_THREAD` instead); a faulting `fn` is removed. Version 6
 (0.2.0-dev.27; check `header.version >= 6` and `header.size >= offsetof(KilnUiApi, menu_activate) + sizeof(void*)`)
-appends the mods' entries in the game's menus: `menu_shown(KILN_UI_MENU_SHOW_FEW / ALWAYS / NEVER)` (which of them the
-menus draw; Kiln's own Mods entry always; the rule is `native/services/ui/menu_rows.h`), `menu_entries(out, capacity)`
+appends the mods' entries in the game's menus: `menu_shown(KILN_UI_MENU_SHOW_FEW / ALWAYS / NEVER / AUTO)` (which of them the
+menus draw; ALWAYS until a caller sets it; Kiln's own Mods entry always; the rule is `native/services/ui/menu_rows.h`), `menu_entries(out, capacity)`
 (every entry mods added with `menu_add`, as `KilnUiMenuEntry`: `size, menu, entry, text, text_len, flags, order,
 drawn`; set `out[0].size` first; returns the count) and `menu_activate(entry)` (does what choosing it in its menu
-does: `fn` after the next UI frame). Colours,
+does: `fn` after the next UI frame; refused for an entry its mod hid or one of the other menu) and `menu_scroll()`
+(`KILN_UI_SCROLL_*`: whether the pause menu scrolls in this process, and why not). Colours,
 vars and keys are Kiln's own numbers (stable across ImGui updates). The plain ImGui
 slots live in `native/services/ui/draw_slots.h`, shared with the preview shim. `kiln.ui.tick` (the UI frame as a tick; Kiln.Host loads the mods with it) and
 `kiln.craftmenu` (tabs, subcategories, which workshop the menu builds; implemented by kiln.content) are separate

@@ -244,6 +244,7 @@ internal static unsafe class UiNative
         public delegate* unmanaged[Cdecl]<uint, void> MenuShown;
         public delegate* unmanaged[Cdecl]<MenuEntryInfo*, uint, uint> MenuEntries;
         public delegate* unmanaged[Cdecl]<ulong, int> MenuActivate;
+        public delegate* unmanaged[Cdecl]<uint> MenuScroll;
     }
 
     /// <summary>KilnCraftMenuApi (kiln_ui.h): kiln.content's crafting-menu extension point.</summary>

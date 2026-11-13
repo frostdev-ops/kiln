@@ -264,9 +264,12 @@ std::vector<Entry> visible_of(uint32_t menu) {
     return out;
 }
 
+// Can this menu scroll in this process (menu_scroll.cpp: the pause menu only)?
+bool scrolls(uint32_t menu) { return menu == KILN_UI_MENU_PAUSE && scroll_on(); }
+
 // The entries one menu draws: Kiln's own Mods entry always, the mods' as the mode says (menu_rows.h).
 std::vector<Entry> entries_of(uint32_t menu) {
-    return menu_rows::pick(visible_of(menu), g_shown.load(std::memory_order_relaxed), is_builtin);
+    return menu_rows::pick(visible_of(menu), g_shown.load(std::memory_order_relaxed), is_builtin, scrolls(menu));
 }
 
 void activated(KilnHandle h) {
@@ -377,6 +380,7 @@ void after_frame(uintptr_t sys10) {
     ++g_frame_no;
     g_frames.store(g_frame_no, std::memory_order_relaxed);
     page_after_frame(sys10, g_frame_no);
+    scroll_after_frame(g_frame_no);  // the scrolling pause menu's crash guard (menu_scroll.cpp)
     g_ui_thread = GetCurrentThreadId();
     Raw raw{};
     const bool ok = read_state(sys10, &raw);
@@ -533,6 +537,8 @@ bool game_install() {
         g_sys_hook.install(g_api, g_owner, sys_fn, reinterpret_cast<void*>(&hk_sys_entry), "ui/SystemMenuEntry");
         L.system_menu = static_cast<bool>(g_sys_hook);
     }
+    if (L.system_menu) scroll_install(true);
+    else scroll_install(false);
     if (L.crafting) {
         g_craft_hook.install(g_api, g_owner, craft_fn, reinterpret_cast<void*>(&hk_craft), "ui/CraftingMenu");
         L.crafting = static_cast<bool>(g_craft_hook);
@@ -642,10 +648,14 @@ KilnResult game_menu_set(KilnHandle entry, KilnStr text, uint32_t flags) {
 }
 
 void game_menu_shown(uint32_t mode) {
-    const uint32_t m = mode <= menu_rows::show_never ? mode : menu_rows::show_few;
+    const uint32_t m = mode <= menu_rows::show_auto ? mode : menu_rows::show_few;
     if (g_shown.exchange(m) != m)
         logf(KILN_LOG_INFO, "ui: mods' entries in the game's menus: %s (%u at most per menu in mode few)",
-             m == menu_rows::show_always ? "always" : m == menu_rows::show_never ? "never, only on Kiln's Mods page" : "few",
+             m == menu_rows::show_always ? "always"
+             : m == menu_rows::show_never ? "never, only on Kiln's Mods page"
+             : m == menu_rows::show_auto  ? (scroll_on() ? "auto: every one in the pause menu, which scrolls; few in the main menu"
+                                                         : "auto: few (the pause menu does not scroll here)")
+                                          : "few",
              menu_rows::kFew);
 }
 
@@ -675,7 +685,7 @@ uint32_t game_menu_entries(KilnUiMenuEntry* out, uint32_t capacity) {
         o.text_len = e.text ? static_cast<uint32_t>(e.text->size()) : 0;
         o.flags = e.flags;
         o.order = e.order;
-        o.drawn = visible(e) && e.menu < 3 && menu_rows::draws_mods(mode, shown[e.menu]) ? 1u : 0u;
+        o.drawn = visible(e) && e.menu < 3 && menu_rows::draws_mods(mode, shown[e.menu], scrolls(e.menu)) ? 1u : 0u;
     }
     return static_cast<uint32_t>(mods.size());
 }
@@ -695,6 +705,16 @@ KilnResult game_menu_activate(KilnHandle entry) {
     }
     activated(entry);  // delivered after the next UI frame, as a click in the menu is
     return KILN_OK;
+}
+
+uint32_t game_menu_mode() { return g_shown.load(std::memory_order_relaxed); }
+
+size_t game_pause_mods_rows() {
+    size_t n = 0;
+    std::lock_guard lk(g_mu);
+    for (const Entry& e : g_entries)
+        if (e.menu == KILN_UI_MENU_PAUSE && !is_builtin(e) && visible(e)) ++n;
+    return n;
 }
 
 bool game_unsubscribe(KilnHandle h) {

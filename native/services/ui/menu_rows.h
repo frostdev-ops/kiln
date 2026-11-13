@@ -24,6 +24,7 @@ inline constexpr uint32_t kFew = 3;  // a guess, see above
 inline constexpr uint32_t show_few = 0;     // KILN_UI_MENU_SHOW_FEW
 inline constexpr uint32_t show_always = 1;  // KILN_UI_MENU_SHOW_ALWAYS
 inline constexpr uint32_t show_never = 2;   // KILN_UI_MENU_SHOW_NEVER
+inline constexpr uint32_t show_auto = 3;    // KILN_UI_MENU_SHOW_AUTO: every row where the menu scrolls, else FEW
 
 // What kiln.ui draws until a managed side that lists the entries on its Mods page (Kiln.Ui with kiln.ui v6) says
 // otherwise through menu_shown: every row, as every release before 0.2.0-dev.27 did. A Kiln.Ui without the list (or
@@ -45,22 +46,24 @@ constexpr bool can_activate(uint32_t menu, uint32_t flags, uint8_t ui_state) {
     return false;
 }
 
-// Does a menu with `mods_rows` mods' rows (visible ones: a row its mod hid is not counted) draw them? An unknown mode
-// is FEW.
-constexpr bool draws_mods(uint32_t mode, size_t mods_rows) {
+// Does a menu with `mods_rows` mods' rows (visible ones: a row its mod hid is not counted) draw them? `scrolls`: this
+// menu can scroll in this process (menu_scroll.h; only the pause menu, and only while the experiment is on). AUTO is
+// ALWAYS where the menu scrolls, else FEW. An unknown mode is FEW.
+constexpr bool draws_mods(uint32_t mode, size_t mods_rows, bool scrolls = false) {
     if (mode == show_always) return true;
     if (mode == show_never) return false;
+    if (mode == show_auto && scrolls) return true;
     return mods_rows <= kFew;
 }
 
 // Keeps the rows a menu draws from `rows` (the menu's visible rows, in order): Kiln's own (is_kiln) always, the mods'
 // as draws_mods says. Container: a std::vector-like sequence.
 template <typename Rows, typename IsKiln>
-Rows pick(const Rows& rows, uint32_t mode, IsKiln is_kiln) {
+Rows pick(const Rows& rows, uint32_t mode, IsKiln is_kiln, bool scrolls = false) {
     size_t mods = 0;
     for (const auto& r : rows)
         if (!is_kiln(r)) ++mods;
-    if (draws_mods(mode, mods)) return rows;
+    if (draws_mods(mode, mods, scrolls)) return rows;
     Rows out;
     for (const auto& r : rows)
         if (is_kiln(r)) out.push_back(r);

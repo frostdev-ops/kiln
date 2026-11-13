@@ -77,17 +77,33 @@ public sealed partial class ClientPassMod
         "opened again)? Beside each slider there is a number field: type a value of the range into one. Did the slider " +
         "follow, and after Apply, closing the menu and opening the page again, is that value still there?");
 
-    [ClientCheck("menu.rows-quit", "Quit stays on the screen with many mods' menu entries", Area = "Menus and hooks",
+    [ClientCheck("menu.rows-quit", "Quit stays on the screen with many mods' menu entries (the rule Few)", Area = "Menus and hooks",
         Since = Dev27, Tags = [Visual], Order = 148)]
     public Task MenuRowsLeaveQuitOnScreen(CheckContext c) => Outside(c,
         "Play this one on a 1920x1080 screen, with mods that add more than 3 entries to the pause menu (for example the " +
-        "MenuButtons sample, ui-test and audio-test from mods/, which add one each, plus SET tools with a SET mod). Open " +
-        "the pause menu: does it show Kiln's Mods entry but none of the mods' entries, and are Quit and Return to Main Menu " +
-        "on the screen? Open Mods: under Menu entries every one of those entries is listed; choose one: does the Kiln menu " +
-        "close and the entry do what it does in the menu? Then, in Kiln settings, set menus-client modEntries to Always, " +
-        "Apply, and open the pause menu again: are the mods' entries back (and how many could there be before Quit left the " +
-        "screen; say the number in your note)? Set it back to Few. Was Quit on the screen with Few, and did the Mods page " +
-        "reach every entry?");
+        "MenuButtons sample, ui-test and audio-test from mods/, which add one each, plus SET tools with a SET mod). In Kiln " +
+        "settings set menus-client modEntries to Few and Apply. Open the pause menu: does it show Kiln's Mods entry but " +
+        "none of the mods' entries, and are Quit and Return to Main Menu on the screen? Open Mods: under Menu entries every " +
+        "one of those entries is listed; press Open on one: does the Kiln menu close and the entry do what it does in the " +
+        "menu? Then set modEntries to Always, Apply, and open the pause menu again: how many entries could there be before " +
+        "Quit left the screen (say the number in your note)? Set it back to Auto. Was Quit on the screen with Few, and did " +
+        "the Mods page reach every entry?");
+
+    [ClientCheck("menu.scroll", "The pause menu scrolls when mods' entries do not fit (experiment)", Area = "Menus and hooks",
+        Since = Dev27, Tags = [Visual], Order = 149)]
+    public Task MenuScroll(CheckContext c) => Outside(c,
+        "An experiment: Kiln wraps the pause menu in the game's own scroll view once it has more than 3 mods' entries. It " +
+        "may end the game once; then send kiln/logs/kiln.log and kiln/state/menu-scroll.off. Setup: modEntries Auto (the " +
+        "default), more than 3 mods' entries in the pause menu (as for menu.rows-quit), 1920x1080. kiln.log should say " +
+        "\"ui: the pause menu can scroll (experiment)\" at start. 1) Open the pause menu: does it draw, every entry " +
+        "there (the mods' and the game's), and kiln.log say \"ui: the pause menu scrolls: ...\" with sizes? 2) Turn the " +
+        "mouse wheel over it: does the list scroll, and do entries stop at the menu's edges (clipped, not drawn over the " +
+        "title)? 3) With the arrow keys go down to Quit and back up to Resume: does the list follow the highlighted entry? " +
+        "4) The same with a gamepad (d-pad down to Quit, up to Resume). 5) Press Return to Main Menu and come back into " +
+        "the world: does it still work? 6) Remove mods until the pause menu has 3 or fewer mods' entries: is it exactly as " +
+        "before 0.2.0-dev.27 (no scroll view, centred as the game draws it)? Send a screenshot of 1) and 6), and the " +
+        "lines of kiln.log starting with \"ui: the pause menu\". Did it scroll, clip and follow the keys and the pad to " +
+        "Quit and back?");
 
     [ClientCheck("boot.proxy", "The game started with Kiln's proxy", Area = "Menus and hooks", Since = Dev21, Order = 108)]
     public async Task BootProxy(CheckContext c)

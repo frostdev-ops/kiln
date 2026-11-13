@@ -36,7 +36,7 @@ extern "C" {
 #define KILN_UI_VERSION 6u /* v2 appends is_item_clicked and the radial wheel (after add_swapchain_usage); v3 appends layout and
                               look slots for full-display screens (after wheel_active); v4 appends the main-menu page and
                               font choice (after set_scroll_here_y); v5 appends subscribe_window_input (after pop_font);
-                              v6 appends menu_shown, menu_entries, menu_activate (after subscribe_window_input):
+                              v6 appends menu_shown, menu_entries, menu_activate, menu_scroll (after subscribe_window_input):
                               check header.size */
 
 /* Colours are 0xRRGGBBAA. */
@@ -175,6 +175,16 @@ enum {
     KILN_UI_MENU_SHOW_FEW = 0,     /* a menu draws its mods' entries while it has only a few, else none (the default) */
     KILN_UI_MENU_SHOW_ALWAYS = 1,  /* every entry (as before 0.2.0-dev.27) */
     KILN_UI_MENU_SHOW_NEVER = 2,   /* none: they are reached from Kiln's Mods page */
+    KILN_UI_MENU_SHOW_AUTO = 3,    /* every entry where the menu scrolls (menu_scroll), else FEW */
+};
+
+/* menu_scroll (v6): whether the pause menu scrolls in this process (the game's own scroll view around its entries) */
+enum {
+    KILN_UI_SCROLL_UNAVAILABLE = 0,  /* not on this build (feature ui.menu_scroll off, or its hooks failed) */
+    KILN_UI_SCROLL_ON = 1,           /* the pause menu scrolls when it has more entries than fit */
+    KILN_UI_SCROLL_OFF_CRASHED = 2,  /* off: the game ended while an earlier start tried it (kiln/state/menu-scroll.off) */
+    KILN_UI_SCROLL_OFF_RECORDED = 3, /* off: it ended the game before with this Kiln version and game build */
+    KILN_UI_SCROLL_OFF_FAULTED = 4,  /* off: a check of the first frames failed in this process (kiln.log says which) */
 };
 
 /* menu_entries (v6): one entry a mod added with menu_add (not Kiln's own Mods entry). */
@@ -772,7 +782,7 @@ typedef struct KilnUiApi {
     KilnResult(KILN_CALL* subscribe_window_input)(KilnOwner owner, KilnUiWindowInputFn fn, void* user, KilnHandle* out);
 
     /* ================================================================================================================
-     * v6 (appended since 0.2.0-dev.27; check header.version >= 6 and header.size >= offsetof(KilnUiApi, menu_activate)
+     * v6 (appended since 0.2.0-dev.27; check header.version >= 6 and header.size >= offsetof(KilnUiApi, menu_scroll)
      * + sizeof(void*) before calling these).
      * ============================================================================================================== */
 
@@ -780,8 +790,8 @@ typedef struct KilnUiApi {
      * menu_shown: KILN_UI_MENU_SHOW_* (Kiln.Ui sets it from Kiln's setting "modEntries" in
      *   kiln/config/menus-client.json; ALWAYS until a caller sets it: only a caller that lists the entries elsewhere may
      *   choose FEW or NEVER). FEW: a menu draws its mods' entries while it has at most 3 visible ones, else none of
-     *   them. Kiln's own Mods entry is drawn whatever the mode. Any thread; the next frame follows it. Unknown values
-     *   are FEW.
+     *   them. AUTO: every one in the pause menu while it scrolls (menu_scroll), else FEW. Kiln's own Mods entry is
+     *   drawn whatever the mode. Any thread; the next frame follows it. Unknown values are FEW.
      * menu_entries: the entries mods added (menu_add), every menu, in drawing order (menu, then order); copies up to
      *   `capacity` into out (out[0].size must be sizeof(KilnUiMenuEntry), else nothing is copied) and returns how many
      *   there are. Any thread.
@@ -793,6 +803,8 @@ typedef struct KilnUiApi {
     void(KILN_CALL* menu_shown)(uint32_t mode);
     uint32_t(KILN_CALL* menu_entries)(KilnUiMenuEntry* out, uint32_t capacity);
     KilnResult(KILN_CALL* menu_activate)(KilnHandle entry);
+    /* menu_scroll: KILN_UI_SCROLL_* (any thread). */
+    uint32_t(KILN_CALL* menu_scroll)(void);
 } KilnUiApi;
 
 /* ====================================================================================================================

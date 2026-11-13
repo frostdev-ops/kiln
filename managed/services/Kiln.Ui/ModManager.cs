@@ -746,7 +746,8 @@ internal sealed class ModManagerPage
             if (ui.BeginChild("kiln.menus", r.Width, r.Bottom - top, UiChildFlags.NavFlattened | UiChildFlags.Padding))
             {
                 using (ui.PushColor(UiColorSlot.Text, GameColors.Muted))
-                    ui.TextWrapped(GameMenuEntries.Summary(GameMenuEntries.Mode, _menuRows));
+                    ui.TextWrapped(GameMenuEntries.Summary(GameMenuEntries.Mode, _menuRows,
+                        GameMenuEntries.Here() == MenuLocation.PauseMenu && GameMenuEntries.ScrollStatus() == GameMenuEntries.ScrollOn));
                 ui.Space(1, 10 * s);
                 foreach (var row in _menuRows)
                 {

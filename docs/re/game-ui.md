@@ -116,16 +116,40 @@ of 5d9ef2f1. Helper: `kx.py` (copied from the NoClip research) over the exe as a
   block is built by `0xa3eeb0` (defaults) and `0xa3df20` plus the scrollbar look copied from the UI bundle
   (`UiApp+0xc8` at `+0xfa84…+0xfb04`). Frame state `keen::UiFrameScrollState` {scrollOffset, scrollAreaSize}.
   **[dis] [refl]**
-- **Not found statically:** what bounds the menu column's height (a scroll view needs a parent of fixed height; the
-  column may grow with its content), how the scroll view follows the gamepad/keyboard focus (useAutoScrolling is the
-  candidate), and the meaning of `dl` (1 in every caller looked at) and `r9`.
-- **Cost of a scrolling menu** (route "the game's scroll view"): Kiln's renderer hooks already see the first entry
-  (Resume / Play) and the last (Quit) by their return addresses; Kiln would begin a GameUiScrollingLayout before the
-  first and end it after the last, with its own storage, state block and a parameter block built as the credits build
-  theirs. About 2 days of further static work (the parameter block, the column's height, the focus) and several client
-  sessions; risk: the game's layout asserts are fatal (`0xcb4c38`: "SmallDynamicArray is out of elements", then
-  `0x8a0d90`), so a wrong nesting ends the game on the first frame, and no run-time check before the first frame can
-  rule that out. A game update moves every one of these functions (each needs a signature).
+- **Settled for the experiment (2026-11-13, static):**
+  - Layout nodes: `+0x6c` alignment (u16, `0x11ced70`), `+0x90` size (two floats, `0x11cf360`; 0 = fixed or from
+    content, 1.0 = the parent's), `+0xb8` stack kind (1 `0x11ceff0`, 2 `0x11cf380`: the column's kind, entries one
+    below the other) with its spacing at `+0xc0`, `+0x114` the rectangle x, y, w, h (`0x11b67d0` returns it). A frame
+    builder holds its node at `+8`. **[dis]**
+  - The column: `0xa3c790(&col, 0)` (a stack of kind 2, no spacing) at `0xcd620a`, fixed width (`0x11ceea0`, 300 ×
+    scale), size {0, 1.0} (as tall as its parent), alignment 0x201, then a flexible spacer (`0xb2a8e0(col, {1, 1})`),
+    the navigation scope (`0xa3f790(rbp+0x7b0)`), Resume … Quit, a fixed and a flexible spacer, the build number,
+    the scope's end (`0xa419d0`), and the column's end `0xa40080(&col)` at `0xcd6bbe`. Between `0xcd620f` and
+    `0xcd6bbe` no jump leaves and none comes in from outside, and there is no `ret`: every call that opens the column
+    closes it. So the column's height is bounded (its parent's), and the flexible spacers centre the entries; with too
+    many entries they overflow the column. **[dis]**
+  - `GameUiScrollingLayoutParameterData` fields (reflection records at `0x1b17930…0x1b17d20`: name, type, offset):
+    borderColor 0x0, scrollHintTexture 0x8, padding 0x18, scrollbarAlignment 0x28, showScrollHint 0x2a,
+    enableScrollbar 0x2b, useNavigation 0x2c, stealCapture 0x2d, doScissorWhenScrolling 0x2e, centerChildren 0x2f,
+    enableDrag 0x30, forceScrollbar 0x31, useGlobalFocus 0x32, useFillerSeperatorLineDistance 0x33, consumeInput 0x34,
+    useAutoScrolling 0x35, isDefaultRightStickTarget 0x36, fillerSeperatorLineDistance 0x38, spacing 0x3c,
+    scrollingHotKeyMask 0x40, mouseDragInputMask 0x41, scrollBar 0x44 (GameUiScrollbarParameterData); 0x104 bytes
+    (what begin copies). Defaults from `0xa3eeb0`: enableScrollbar, stealCapture, doScissorWhenScrolling, enableDrag,
+    consumeInput and useAutoScrolling on; useNavigation, centerChildren, forceScrollbar off; scrollingHotKeyMask 1.
+    The credits change enableScrollbar and consumeInput (a byte of theirs) and turn centerChildren on. **[refl] [dis]**
+  - Begin's `r8` is a 4-byte state block on a node from the state store (`0x11a06e0(node, hash, 4, 0xa3b900 (a no-op
+    constructor), 1)`; when `0x11bad80(block)` says it is new the credits zero it); `r9` is 0 in the callers read;
+    `dl` is 1 in 41 of the callers, including the credits and the recipe info, both vertical lists. With `dl` 1 the
+    content frame is a stack of kind 1, so callers open their own vertical stack inside it (the credits do). After
+    begin the credits call `0xd4e3e0(layout)` and pass its float to `0xa518a0(layout, f)`. **[dis]**
+- **Still a guess** (one look in the game settles it): that `dl` 1 scrolls vertically, that useAutoScrolling follows the
+  keyboard and gamepad focus of the entries inside the view, and that a vertical stack of size {1, 0} inside the view
+  sizes to its entries. Kiln's experiment (`native/services/ui/menu_scroll.cpp`) does exactly what the credits do,
+  in the column, and logs the sizes it saw.
+- **Cost and risk:** the game's layout asserts are fatal (`0xcb4c38`: "SmallDynamicArray is out of elements", then
+  `0x8a0d90`): a wrong nesting ends the game on the first scrolled frame, which no run-time check can rule out before
+  it. Kiln's crash guard limits that to one start per Kiln version and game build. A game update moves every one of
+  these functions (each is a sigdb symbol of feature `ui.menu_scroll`).
 
 ### What Kiln does (native injection, shipped)
 - One inline hook on each renderer. When the call comes from the **Settings** entry's call site (return address =

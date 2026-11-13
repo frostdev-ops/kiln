@@ -58,7 +58,10 @@
         {
           "pattern": "48 8B C4 55 53 56 57 41 54 41 56 41 57 48 8D A8 ?? ?? FF FF 48 81 EC ?? ?? 00 00 0F 29 70 B8 48 8B FA 0F 29 78 A8 4C 8B F1 44 0F 29 40 98"
         },
-        { "pattern": "48 8D 4D 88 44 0F 29 48 88 33 D2 44 0F 29 90 78 FF FF FF 44 0F 29 98 68 FF FF FF", "offset": -46 }
+        {
+          "pattern": "48 8D 4D 88 44 0F 29 48 88 33 D2 44 0F 29 90 78 FF FF FF 44 0F 29 98 68 FF FF FF",
+          "offset": -46
+        }
       ]
     },
     "ui/MainMenuSettingsA": {
@@ -180,6 +183,68 @@
           "pattern": "80 B9 {ui/popups.error:d32} 00 48 8B F1 0F 84 ?? ?? ?? ?? 48 89 58 10 48 8D 54 24 50"
         }
       ]
+    },
+    "ui/SystemMenuColumnOpened": {
+      "find": [
+        {
+          "pattern": "48 8B 4D {ui/sysmenu.column_node:d8} 48 8D 95 ?? ?? 00 00 66 C7 85 ?? ?? 00 00 01 02 E8 {ui/UiNodeAlign:rel32} 41 0F 28 C3 48 8D 4D {ui/sysmenu.column:d8} 41 0F 14 C3 66 48 0F 7E C2 E8",
+          "offset": 25
+        }
+      ]
+    },
+    "ui/SystemMenuColumnClosing": {
+      "find": [
+        {
+          "pattern": "48 8D 8D ?? ?? 00 00 E8 ?? ?? ?? ?? 48 8D 4D {ui/sysmenu.column:d8} E8 {ui/UiFrameEnd:rel32} 40 38 7D",
+          "offset": 12
+        }
+      ]
+    },
+    "@ui/SystemMenu.column": {
+      "find": [
+        {
+          "pattern": "0F 57 C9 48 8D 4D {ui/sysmenu.column:d8} E8 {ui/UiVStack:rel32} F3 0F 10 15 ?? ?? ?? ?? F3 0F 10 0D ?? ?? ?? ?? 48 8B 0D ?? ?? ?? ?? E8 ?? ?? ?? ?? F3 0F 59 05 ?? ?? ?? ?? 48 8B 4D {ui/sysmenu.column_node:d8} 0F 28 C8 E8 ?? ?? ?? ?? 48 8B 4D ?? 0F 57 C0 41 0F 14 C3 66 48 0F 7E C2 E8 {ui/UiNodeSize:rel32}"
+        }
+      ]
+    },
+    "@ui/Credits.scroll": {
+      "find": [
+        {
+          "pattern": "48 8D 8D ?? ?? 00 00 40 88 B5 ?? ?? 00 00 E8 {ui/ScrollLayoutBegin:rel32} 48 8D 8D ?? ?? 00 00 E8 {ui/ScrollLayoutSpeed:rel32} 0F 28 C8 48 8D 8D ?? ?? 00 00 E8 {ui/ScrollLayoutSetSpeed:rel32}"
+        }
+      ]
+    },
+    "@ui/Credits.scroll_end": {
+      "find": [
+        {
+          "pattern": "E8 {ui/UiFrameEnd:rel32} 48 8D 8D F8 07 00 00 E8 {ui/ScrollLayoutEnd:rel32} 48 8D 8D D0 00 00 00 E8"
+        }
+      ]
+    },
+    "@ui/Credits.scroll_params": {
+      "find": [
+        {
+          "pattern": "E8 {ui/UiNodeRect:rel32} 48 8D 8D ?? ?? 00 00 0F 10 38 E8 {ui/ScrollParamsInit:rel32}"
+        }
+      ]
+    },
+    "@ui/Credits.scroll_state": {
+      "find": [
+        {
+          "pattern": "48 8B 4D 08 4C 8D 0D {ui/UiStateNop:rel32} 48 BA 62 AD 66 57 0A C1 56 EB C7 44 24 20 01 00 00 00 41 B8 04 00 00 00 E8 {ui/UiFrameState:rel32} 48 8B C8 4C 8B F0 E8 {ui/UiStateIsNew:rel32}"
+        }
+      ]
+    },
+    "@ui/SystemMenuEntry.rect": {
+      "find": [
+        {
+          "scope": {
+            "symbol": "ui/SystemMenuEntry",
+            "size": 1024
+          },
+          "pattern": "48 8B 4C 24 ?? 44 0F 29 84 24 ?? ?? 00 00 E8 {ui/UiNodeRect:rel32} F3 0F 10 2D"
+        }
+      ]
     }
   },
   "constants": {
@@ -251,6 +316,12 @@
     },
     "ui/popups.error": {
       "min_votes": 1
+    },
+    "ui/sysmenu.column": {
+      "min_votes": 2
+    },
+    "ui/sysmenu.column_node": {
+      "min_votes": 2
     }
   },
   "features": {
@@ -342,6 +413,32 @@
       "constants": [
         "ui/sys.popups",
         "ui/popups.error"
+      ]
+    },
+    "ui.menu_scroll": {
+      "symbols": [
+        "ui/GameUiFrame",
+        "ui/SystemMenuEntry",
+        "ui/SystemMenuSettings",
+        "ui/SystemMenuColumnOpened",
+        "ui/SystemMenuColumnClosing",
+        "ui/UiVStack",
+        "ui/UiFrameEnd",
+        "ui/UiNodeAlign",
+        "ui/UiNodeSize",
+        "ui/UiNodeRect",
+        "ui/ScrollLayoutBegin",
+        "ui/ScrollLayoutEnd",
+        "ui/ScrollLayoutSpeed",
+        "ui/ScrollLayoutSetSpeed",
+        "ui/ScrollParamsInit",
+        "ui/UiFrameState",
+        "ui/UiStateNop",
+        "ui/UiStateIsNew"
+      ],
+      "constants": [
+        "ui/sysmenu.column",
+        "ui/sysmenu.column_node"
       ]
     }
   }

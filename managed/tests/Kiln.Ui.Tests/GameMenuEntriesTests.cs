@@ -85,7 +85,10 @@ public sealed unsafe class GameMenuEntriesTests : IDisposable
         Assert.Equal(0u, GameMenuEntries.NativeMode(ModMenuEntries.Few));
         Assert.Equal(1u, GameMenuEntries.NativeMode(ModMenuEntries.Always));
         Assert.Equal(2u, GameMenuEntries.NativeMode(ModMenuEntries.Never));
-        Assert.Equal(ModMenuEntries.Few, new MenuSettings().ModEntries);
+        Assert.Equal(3u, GameMenuEntries.NativeMode(ModMenuEntries.Auto));
+        // the default: every entry where the pause menu scrolls, else the rule Few (kiln.ui decides, menu_rows.h)
+        Assert.Equal(ModMenuEntries.Auto, new MenuSettings().ModEntries);
+        Assert.Equal(ModMenuEntries.Auto, GameMenuEntries.Mode);
     }
 
     [Fact]
@@ -98,7 +101,8 @@ public sealed unsafe class GameMenuEntriesTests : IDisposable
         Assert.Equal(36, (int)Marshal.OffsetOf<UiNative.MenuEntryInfo>(nameof(UiNative.MenuEntryInfo.Drawn)));
         // menu_shown follows subscribe_window_input, which follows the v4 table
         Assert.Equal(sizeof(UiNative.Table4) + 8, (int)Marshal.OffsetOf<UiNative.Table6>(nameof(UiNative.Table6.MenuShown)));
-        Assert.Equal(sizeof(UiNative.Table4) + 4 * 8, sizeof(UiNative.Table6));
+        Assert.Equal(sizeof(UiNative.Table4) + 5 * 8, sizeof(UiNative.Table6));
+        Assert.Equal(sizeof(UiNative.Table4) + 4 * 8, (int)Marshal.OffsetOf<UiNative.Table6>(nameof(UiNative.Table6.MenuScroll)));
     }
 
     [Fact]
@@ -134,6 +138,29 @@ public sealed unsafe class GameMenuEntriesTests : IDisposable
         Assert.Contains("4 of them are not in the game's menu now", few);
         Assert.DoesNotContain("not in the game's menu", GameMenuEntries.Summary(ModMenuEntries.Always, [Row(1, "a", drawn: true)]));
         Assert.Contains("Never", GameMenuEntries.Summary(ModMenuEntries.Never, rows));
+        Assert.Contains("scrolls when they do not fit", GameMenuEntries.Summary(ModMenuEntries.Auto, [Row(1, "a", drawn: true)], scrolls: true));
+        Assert.Contains("does not scroll here", GameMenuEntries.Summary(ModMenuEntries.Auto, rows));
+    }
+
+    [Fact]
+    public void The_player_is_told_once_when_scrolling_ended_the_game_before()
+    {
+        // KILN_UI_SCROLL_*: 0 unavailable, 1 on, 2 off after a crash, 3 off on record, 4 off after a failed check
+        Assert.Contains("ended the game last time", GameMenuEntries.StartNotice(2));
+        foreach (var quiet in new uint[] { 0, 1, 3, 4 }) Assert.Null(GameMenuEntries.StartNotice(quiet));
+        Assert.Equal(0u, GameMenuEntries.ScrollStatus());  // no kiln.ui v6 here: nothing to say
+    }
+
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static uint ScrollCrashed() => 2;
+
+    [Fact]
+    public void The_scroll_status_comes_from_kiln_ui()
+    {
+        InstallV6();
+        _t6->MenuScroll = &ScrollCrashed;
+        UiNative.ResetForTests();
+        Assert.Equal(GameMenuEntries.ScrollOffCrashed, GameMenuEntries.ScrollStatus());
     }
 
     [Fact]

@@ -119,6 +119,14 @@ KilnResult game_menu_set(KilnHandle entry, KilnStr text, uint32_t flags);
 void game_menu_shown(uint32_t mode);                                     // KILN_UI_MENU_SHOW_* (menu_rows.h)
 uint32_t game_menu_entries(KilnUiMenuEntry* out, uint32_t capacity);   // mods' entries (not Kiln's Mods entry)
 KilnResult game_menu_activate(KilnHandle entry);                         // as if chosen in its menu
+uint32_t game_menu_mode();                                                 // KILN_UI_MENU_SHOW_* now
+size_t game_pause_mods_rows();                                             // visible mods' entries of the pause menu
+
+// ---- menu_scroll.cpp (the pause menu in the game's own scroll view, an experiment: menu_scroll.h) ----
+bool scroll_install(bool system_menu_hooked);  // game_install, after the SystemMenuEntry hook
+uint32_t scroll_status();                      // KILN_UI_SCROLL_*
+bool scroll_on();                              // the pause menu can scroll in this process now
+void scroll_after_frame(uint64_t frame);       // UI thread, after each UI frame: the crash guard's trial
 bool game_unsubscribe(KilnHandle h);
 void game_status_line(char* out, size_t cap);
 

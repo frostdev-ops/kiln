@@ -7,7 +7,7 @@ target_include_directories(kiln-imgui PUBLIC ${KILN_IMGUI} ${KILN_IMGUI}/vulkan-
 target_compile_definitions(kiln-imgui PUBLIC IMGUI_IMPL_VULKAN_NO_PROTOTYPES VK_NO_PROTOTYPES IMGUI_IMPL_WIN32_DISABLE_GAMEPAD)
 target_compile_options(kiln-imgui PRIVATE -w)
 
-kiln_service(ui ui.cpp vk.cpp input.cpp game.cpp menu_page.cpp style.cpp render.cpp wheel.cpp)
+kiln_service(ui ui.cpp vk.cpp input.cpp game.cpp menu_page.cpp menu_scroll.cpp style.cpp render.cpp wheel.cpp)
 target_link_libraries(kiln-ui PRIVATE kiln-imgui user32 imm32 dwmapi gdi32)
 
 # Opt-in build target, never packaged: real third-party addon against Kiln's production input and startup gate.
