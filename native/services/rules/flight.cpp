@@ -266,19 +266,23 @@ bool noclip_flight(void* ctx, const uint8_t* dyn, uint32_t* entity) {
 
 void forget_local() { g_local_player.store(0); }
 
-// A world that stops takes its characters with it: ownership (keyed by their objects) goes. A world that starts has no
-// flights yet, and another world may be running with characters in Kiln's flight (a host's server world when its
-// prediction starts): only the cached local identity is dropped then. Dropping ownership at a start orphaned those
-// flights: still flying, and no longer Kiln's to land or to end.
-// That holds where stops are seen (`stops_seen`: the core's hook on the game's world destroy is in; KilnSessionInfo.
-// lifecycle). Where they are not, a world that starts may be replacing one whose stop nobody saw, and ownership from
-// that one must not meet a new character at an old address: then a start forgets everything, as it always did.
-void world(uint32_t event, bool stops_seen) {
-    if (event == KILN_WORLD_STOPPING) reset();
-    else if (event == KILN_WORLD_STARTED) {
-        if (stops_seen) forget_local();
-        else reset();
-    }
+// Flight ownership is keyed by a character's objects, and the locomotion hooks cannot tell which world a character is
+// in. So the table is one for all worlds, and the world events decide when it is forgotten:
+// - A world with characters in it (server, prediction) stops: everything goes; its objects die with it, and on a host
+//   the worlds of a session stop together. The client's own world (camera, presentation) has no locomotion: when
+//   only that one stops, nothing is forgotten.
+// - A world starts: it has no flights yet, and another world may be running with characters in Kiln's flight (a host's
+//   server world when its prediction starts). Forgetting ownership then orphaned those flights: still flying, and no
+//   longer Kiln's to land or to end. So a start forgets nothing, with one exception: where the core does not see
+//   world stops (`stops_seen` false: KilnSessionInfo.lifecycle) and this is not the first world of its kind
+//   (`session` > 1), it may replace one whose stop nobody saw, and ownership from that one must not meet a new
+//   character at an old address.
+// The cached local identity is dropped at every event.
+void world(uint32_t event, uint32_t kind, uint32_t session, bool stops_seen) {
+    const bool has_characters = kind != KILN_WORLD_CLIENT;
+    if (event == KILN_WORLD_STOPPING && has_characters) reset();
+    else if (event == KILN_WORLD_STARTED && has_characters && !stops_seen && session > 1) reset();
+    else forget_local();
 }
 
 void reset() {
