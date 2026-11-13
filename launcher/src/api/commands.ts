@@ -1190,6 +1190,21 @@ export interface EngineStatus {
   effects?: SfEffects | null;
   /** External-host presence only, not a successful runtime/gameplay report. */
   prerequisite?: { available: boolean; text: string } | null;
+  /** ShroudForge's startup pass failed at the last start (sf_startup.rs): on the shroudforge row whoever ran it, on the
+   *  eml row as a pointer while ShroudForge runs the EML mods. */
+  startupFailed?: SfStartupNote | null;
+}
+/** ShroudForge's own record of a failed startup pass: the mods it writes into the game data did not load. `text` is the
+ *  sentence for the row (no full stop): what happened, which mods, what to change (`cure`). */
+export interface SfStartupNote {
+  error: string;
+  at?: string;
+  ownLoader: boolean;
+  version?: string;
+  build?: string;
+  mods: string[];
+  cure?: string;
+  text: string;
 }
 /** Shared `.kfc.bak`; `patched` means the `.kfc` differs, not that EML owns it. */
 export interface EmlBackup {

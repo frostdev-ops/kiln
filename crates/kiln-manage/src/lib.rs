@@ -94,6 +94,7 @@ pub mod engine_mods;
 pub mod found;
 pub mod own_loaders;
 pub mod shroudforge;
+pub mod sf_startup;
 pub mod resolver;
 pub mod semver;
 

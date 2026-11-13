@@ -83,7 +83,7 @@ fn resolve_mods(game_dir: &Path, p: &str) -> PathBuf {
     resolve_game_folder(game_dir, p).unwrap_or_else(|| game_dir.join("mods"))
 }
 
-fn resolve_game_folder(game_dir: &Path, p: &str) -> Option<PathBuf> {
+pub(crate) fn resolve_game_folder(game_dir: &Path, p: &str) -> Option<PathBuf> {
     let host = PathBuf::from(p);
     if host.is_absolute() && host.is_dir() && (cfg!(windows) || !p.starts_with("//")) {
         return Some(host);
@@ -1099,7 +1099,7 @@ pub struct SfEffects {
     pub mods: Vec<SfEffect>,
 }
 
-fn read_effect_json(game_dir: &Path, file: &Path) -> std::result::Result<Option<serde_json::Value>, String> {
+pub(crate) fn read_effect_json(game_dir: &Path, file: &Path) -> std::result::Result<Option<serde_json::Value>, String> {
     use std::io::Read;
     crate::engine_mods::refuse_symlink_path(game_dir, file).map_err(|e| e.message)?;
     match std::fs::metadata(file) {
