@@ -265,6 +265,13 @@ public static unsafe class Progression
     private static Table* _table;
     private static bool _looked;
 
+    /// <summary>Forgets a remembered miss, so the next use looks for the table again (ServiceCaps.WhenFound: the refresh
+    /// found it after all).</summary>
+    internal static void LookAgain()
+    {
+        if (_table == null) _looked = false;
+    }
+
     private static Table* T
     {
         get
@@ -420,7 +427,8 @@ public static unsafe class Progression
 
     // ---- requests ----
     private static readonly object Lock_ = new();
-    private static readonly Dictionary<ulong, (TaskCompletionSource<ProgressionResult> Tcs, ProgressionOp Op, EntityId Entity, string Origin)> Waiting = new();
+    // Serial: the player's identity at the request (null: no source could say), so the change event names no one else
+    private static readonly Dictionary<ulong, (TaskCompletionSource<ProgressionResult> Tcs, ProgressionOp Op, EntityId Entity, string Origin, ulong? Serial)> Waiting = new();
     private static IDisposable? _pump;
 
     /// <summary>Queues a request. Argument errors throw (<see cref="ArgumentException"/>); a player who is not in game
@@ -450,7 +458,7 @@ public static unsafe class Progression
         var tcs = new TaskCompletionSource<ProgressionResult>(TaskCreationOptions.None);  // continuations: tick thread
         lock (Lock_)
         {
-            Waiting[id] = (tcs, op, entity, ModContext.CurrentMod?.Info.Id ?? "");
+            Waiting[id] = (tcs, op, entity, ModContext.CurrentMod?.Info.Id ?? "", ProgressionChanges.IdentityOf(entity));
             _pump ??= ServiceTick.Add("kiln.progression results", Pump);
         }
         return tcs.Task;
@@ -460,13 +468,13 @@ public static unsafe class Progression
     {
         var t = T;
         if (t == null) return;
-        List<(ulong, TaskCompletionSource<ProgressionResult>, ProgressionOp, EntityId, string)> due;
+        List<(ulong, TaskCompletionSource<ProgressionResult>, ProgressionOp, EntityId, string, ulong?)> due;
         lock (Lock_)
         {
             if (Waiting.Count == 0) return;
-            due = [.. Waiting.Select(kv => (kv.Key, kv.Value.Tcs, kv.Value.Op, kv.Value.Entity, kv.Value.Origin))];
+            due = [.. Waiting.Select(kv => (kv.Key, kv.Value.Tcs, kv.Value.Op, kv.Value.Entity, kv.Value.Origin, kv.Value.Serial))];
         }
-        foreach (var (id, tcs, op, entity, origin) in due)
+        foreach (var (id, tcs, op, entity, origin, serial) in due)
         {
             NativeResult r = default;
             r.Size = (uint)sizeof(NativeResult);
@@ -475,7 +483,7 @@ public static unsafe class Progression
             var result = new ProgressionResult(id, op, entity, r.Status == Ok, Code(r.Status), (int)r.Applied,
                 (int)r.Steps, r.Before.Size != 0 ? Convert(&r.Before) : null, r.After.Size != 0 ? Convert(&r.After) : null,
                 Text(r.Reason, 160));
-            ProgressionChanges.Completed(result, origin);  // before the caller's task continues
+            ProgressionChanges.Completed(result, origin, serial);  // before the caller's task continues
             tcs.TrySetResult(result);
         }
     }

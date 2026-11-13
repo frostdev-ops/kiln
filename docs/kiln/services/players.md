@@ -143,7 +143,10 @@ Kiln.Players follows [the API contract](../modding/contract.md). `Players` and `
   `Player` members then act on that session.
 - **Events.** `PlayerProgressionChangedEvent` (new) for a Kiln progression request that changed experience
   (`Experience`) or skill points (`SkillPoints`), posted when the request completes, before the caller's task
-  continues; levels and nodes keep `PlayerLevelChangedEvent` and `PlayerSkillsChangedEvent`. Through the contract's
+  continues, only for what the request itself changed (from the value read right before it applied, plus what it
+  granted or the value it set: the game's own gains in the two steps until completion are not in it), and only while
+  the player it was made for is still there (another player in the same slot gets nothing); levels and nodes keep
+  `PlayerLevelChangedEvent` and `PlayerSkillsChangedEvent`. Through the contract's
   change notices ([contract](../modding/contract.md#3-change-events)).
 - **Threads.** The reads of `Players` and `Progression.Get`/`Status` are `[AnyThread]` (kiln.players answers from the
   last step's snapshot); `FindPerson`, `UnlockedNodes` and the lab diagnostics that read game memory are

@@ -48,6 +48,15 @@ catch (KilnUnavailableException e) when (e.Capability == "identity.entities")
 `Knowledge` already behaves this way: game reasons come back as `KnowledgeResult.Ok = false`, unknown ids and bad
 arguments throw (`managed/services/Kiln.Quests/Knowledge.cs`, the remarks on `Knowledge`, lines 194-197).
 
+What a capability row and a mark promise. A session row (`time.speed`, `combat.attributes`, `players.positions`, ...)
+is refreshed every 25 steps, so around a world change (a world loading, a hosted world closing) it can be up to a
+second behind; a call checks again when it runs, so trust the call's answer over a row read just before. A row folds in
+what it waits for (`time.speed` stays pending while no server world's clock is there, which Kiln finds through
+kiln.world), and a member's `[RequiresCapability]` mark names the row it checks, not every service behind that row. The mark says the member can
+throw `KilnUnavailableException` for that row, not that every path does: an id parsed from text, a name already cached
+or a player's own data can still work without it. The exception's message is for people, not code: a dev.26 catch
+filtered on the old text (`e.Message == "kiln.saves is unavailable"`) no longer matches; filter on `e.Capability`.
+
 `IKilnResult` (`bool Ok`, `string? Reason`) is the common shape of such results. From dev.27 the result records of the
 services that took up the contract implement it (`SpawnResult`, `BuildResult`, `PasteResult`, `PlaceOnceResult`,
 `TalentResult`, `CommandResult`, `QuestResult`, `ConversationResult`, `KnowledgeResult`, ...); through the interface

@@ -179,15 +179,17 @@ public static class PlayerData
 /// (<see cref="IsPersistent"/>).</para>
 /// <para>Player entities (ids 1..1023) map to <see cref="PlayerData"/> under the player's Steam id: the data follows the
 /// player, not the slot.</para>
-/// <para>Tick thread, from mod code. Needs kiln.spawn for entity lookups (<see cref="Available"/>).</para>
+/// <para>Tick thread, from mod code. Needs kiln.spawn for entity lookups (<see cref="Available"/>), except for a player:
+/// any other entity throws <see cref="KilnUnavailableException"/> naming <c>kiln.spawn</c> without it (a
+/// <see cref="NotSupportedException"/>, as before), which is why the members are not marked with it.</para>
 /// </remarks>
 public static class EntityData
 {
-    /// <summary>True when kiln.saves and kiln.spawn are both available.</summary>
-    public static bool Available => SavesRuntime.Ensure() && SpawnLink.Available;
+    /// <summary>True when kiln.saves and kiln.spawn are both available: every entity's data works. A player's data needs
+    /// only kiln.saves (<see cref="Saves.Available"/>).</summary>
+    public static bool Available => Saves.Available && SpawnLink.Available;
 
     [RequiresCapability("kiln.saves")]
-    [RequiresCapability("kiln.spawn")]
     [TickThreadOnly]
     public static T Get<T>(EntityId entity, string key) where T : class, new()
     {
@@ -199,7 +201,6 @@ public static class EntityData
     }
 
     [RequiresCapability("kiln.saves")]
-    [RequiresCapability("kiln.spawn")]
     [TickThreadOnly]
     public static bool TryGet<T>(EntityId entity, string key, [NotNullWhen(true)] out T? value) where T : class
     {
@@ -212,7 +213,6 @@ public static class EntityData
     }
 
     [RequiresCapability("kiln.saves")]
-    [RequiresCapability("kiln.spawn")]
     [TickThreadOnly]
     public static void Set<T>(EntityId entity, string key, T value) where T : class
     {
@@ -227,7 +227,6 @@ public static class EntityData
     }
 
     [RequiresCapability("kiln.saves")]
-    [RequiresCapability("kiln.spawn")]
     [TickThreadOnly]
     public static bool Remove(EntityId entity, string key)
     {
@@ -237,7 +236,6 @@ public static class EntityData
     }
 
     [RequiresCapability("kiln.saves")]
-    [RequiresCapability("kiln.spawn")]
     [TickThreadOnly]
     public static bool Has(EntityId entity, string key)
     {
@@ -248,7 +246,6 @@ public static class EntityData
 
     /// <summary>Removes everything the calling mod attached to the entity.</summary>
     [RequiresCapability("kiln.saves")]
-    [RequiresCapability("kiln.spawn")]
     [TickThreadOnly]
     public static bool Clear(EntityId entity)
     {

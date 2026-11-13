@@ -60,10 +60,12 @@ public sealed class PlayerSkillsChangedEvent : KilnEvent
 
 /// <summary>
 /// A Kiln progression request (<see cref="Progression.AddExperience"/>, <see cref="Progression.SetExperience"/>,
-/// <see cref="Progression.GiveSkillPoints"/>, and any other that moved them) changed a player's experience or skill
-/// points. Posted on the tick thread when the request completed (two steps after it was submitted, before the caller's
-/// task continues), once per value that changed: <see cref="What"/> is <c>Experience</c> (into the current level) or
-/// <c>SkillPoints</c> (the total). A level or the unlocked nodes keep <see cref="PlayerLevelChangedEvent"/> and
+/// <see cref="Progression.GiveSkillPoints"/>) changed a player's experience or skill points. Posted on the tick thread
+/// when the request completed (two steps after it was submitted, before the caller's task continues), only for what the
+/// request itself changed: <see cref="What"/> is <c>Experience</c> (into the current level; <see cref="After"/> is the
+/// value set, or the value before plus what was granted, which the game may turn into levels) or <c>SkillPoints</c> (the
+/// total; <see cref="After"/> is the total before plus what was given). The game's own changes in the same steps are
+/// not in it. Not posted when the player the request was made for is gone or another player took the slot since. A level or the unlocked nodes keep <see cref="PlayerLevelChangedEvent"/> and
 /// <see cref="PlayerSkillsChangedEvent"/>. A change made while this event is being dispatched (a handler that changes
 /// progression again) is posted at the start of the next step instead, once per player and value (the newest wins), and
 /// only while that player is still the one in the slot. Observe only. Built only while someone subscribes. Since
@@ -114,12 +116,38 @@ internal static class ProgressionChanges
     // One key per value of one player changed by one mod: a handler that changes it again waits for the next step.
     internal static readonly ChangeNotices<PlayerProgressionChangedEvent, (EntityId, string, string)> Notices = new("kiln.progression");
 
-    /// <summary>A request completed: posts what it changed of experience and skill points.</summary>
-    internal static void Completed(ProgressionResult r, string origin)
+    /// <summary>The player's spawn serial now (null: no entity source can say; the event is then posted as named).</summary>
+    internal static ulong? IdentityOf(EntityId player)
     {
-        if (!r.Ok || r.Before is not { } b || r.After is not { } a || !Events.HasSubscribers<PlayerProgressionChangedEvent>()) return;
-        if (b.Experience != a.Experience) Post(r, "Experience", b.Experience, a.Experience, origin);
-        if (b.SkillPointsTotal != a.SkillPointsTotal) Post(r, "SkillPoints", b.SkillPointsTotal, a.SkillPointsTotal, origin);
+        try
+        {
+            return IdentitySources.TryGetSerial(player, out var serial) ? serial : null;
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>A request completed: posts what the request itself changed of experience and skill points, measured
+    /// against the value it set or the amount it applied (a later snapshot can hold the game's own changes of the same
+    /// two steps). Nothing for a player who is gone or whose slot another took since the request.</summary>
+    internal static void Completed(ProgressionResult r, string origin, ulong? serial)
+    {
+        if (!r.Ok || r.Before is not { } b || !Events.HasSubscribers<PlayerProgressionChangedEvent>()) return;
+        if (serial is { } s && IdentityOf(r.Entity) != s) return;  // not the player the request was made for
+        switch (r.Op)
+        {
+            case ProgressionOp.AddExperience when r.Applied > 0:
+                Post(r, "Experience", b.Experience, b.Experience + (long)r.Applied, origin);
+                break;
+            case ProgressionOp.SetExperience when b.Experience != (uint)r.Applied:
+                Post(r, "Experience", b.Experience, (uint)r.Applied, origin);
+                break;
+            case ProgressionOp.GiveSkillPoints when r.Applied > 0:
+                Post(r, "SkillPoints", b.SkillPointsTotal, b.SkillPointsTotal + (long)r.Applied, origin);
+                break;
+        }
     }
 
     private static void Post(ProgressionResult r, string what, long before, long after, string origin) =>

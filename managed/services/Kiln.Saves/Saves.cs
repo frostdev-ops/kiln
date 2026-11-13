@@ -225,7 +225,7 @@ public sealed record BackupInfo(
 public static class Saves
 {
     /// <summary>True when the native service is loaded on this build.</summary>
-    public static bool Available => SavesRuntime.Ensure();
+    public static unsafe bool Available => SavesNative.T != null && SavesRuntime.Ensure();
 
     /// <summary>The runtime restages WorldData after the request's final simulation and before the game's pending snapshot.
     /// Inventory journals need this as well as observation of native inventory commits.</summary>
@@ -289,6 +289,7 @@ public static class Saves
     /// for the next server start: kiln.saves applies it before the game opens its save (the files it replaces are kept
     /// in <c>kiln/backups/_before-restore-&lt;stamp&gt;</c>). Stop the server afterwards (it saves on the way out: that
     /// is fine, the restore replaces it). Returns the backup that will be restored.</summary>
+    [RequiresCapability("kiln.saves")]
     public static BackupInfo RestoreOnNextStart(string name) => SavesBackups.StageRestore(name);
 
     /// <summary>Cancels a staged restore; false if none was staged.</summary>

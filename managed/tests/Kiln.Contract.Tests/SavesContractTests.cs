@@ -39,7 +39,9 @@ public sealed class SavesContractTests : ContractTest
     public void Members_carry_their_capability()
     {
         AssertRequires(Method(typeof(Saves), "Request"), "kiln.saves");
-        AssertRequires(typeof(EntityData).GetMethods().First(m => m.Name == "Set"), "kiln.saves", "kiln.spawn");
+        // for a player EntityData is PlayerData and needs no kiln.spawn: the mark names what every entity needs
+        AssertRequires(typeof(EntityData).GetMethods().First(m => m.Name == "Set"), "kiln.saves");
+        AssertRequires(typeof(Saves).GetMethods().First(m => m.Name == "RestoreOnNextStart"), "kiln.saves");
         AssertRequires(Property(typeof(WorldData), "WorldId"));  // answers null without the service
     }
 }
