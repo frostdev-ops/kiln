@@ -1340,6 +1340,10 @@ fn sync_copies(dirs: &DataDirs, profile: &Profile, install: &GameInstall, warnin
                 std::fs::create_dir_all(&dst).map_err(io_at(&dst, "creating"))?;
                 std::fs::copy(&src, &target).map_err(io_at(&target, "copying to"))?;
                 if crate::hash::sha256_file(&target)?.0 != m.hash {
+                    if crate::hash::sha256_file(&src).is_ok_and(|(h, _)| h != m.hash) {
+                        // the player changed the Library's DLL: which mod, and the way to take it over
+                        return Err(crate::library::changed_error(&lref(k, m), src.parent().unwrap_or(&src)));
+                    }
                     return Err(Error::new(ErrorCode::HashMismatch, format!("{}: the copy does not match {}", target.display(), m.hash)));
                 }
             } else {
@@ -1364,6 +1368,10 @@ fn sync_copies(dirs: &DataDirs, profile: &Profile, install: &GameInstall, warnin
                 crate::util::copy_tree(&src, &dst)?;
                 let h = crate::hash::of_mod(k, &dst)?;
                 if h != m.hash {
+                    if crate::hash::of_mod(k, &src).is_ok_and(|s| s != m.hash) {
+                        // the player changed the files in the Library folder: which mod, and the way to take it over
+                        return Err(crate::library::changed_error(&lref(k, m), &src));
+                    }
                     return Err(Error::new(ErrorCode::HashMismatch, format!("{}: the copy has {h}, the library entry {}", dst.display(), m.hash)));
                 }
             }
