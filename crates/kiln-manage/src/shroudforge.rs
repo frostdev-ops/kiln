@@ -58,18 +58,11 @@ pub fn detect(game_dir: &Path) -> Option<SfInstall> {
     })
 }
 
-/// ShroudForge's mods folder for `game_dir` (its `paths.mods` setting, relative to the game folder, else `mods`).
-/// The setting holds a Windows path when absolute; a host path is used as is when it exists.
+/// ShroudForge's mods folder for `game_dir`: its `paths.mods` setting (a Windows path, absolute or relative to the game
+/// folder), else `mods`, found as kiln-shroudforge's adapter and ShroudForge find it (`crate::sf_paths::sf_directory`,
+/// the same resolver the hosting decision uses). `<game>/mods` when this system cannot name the configured folder.
 pub fn mods_dir(game_dir: &Path) -> PathBuf {
-    let configured = std::fs::read(game_dir.join(CONFIG_FILE))
-        .ok()
-        .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
-        .and_then(|v| v.pointer("/paths/mods").and_then(|s| s.as_str()).map(str::to_owned))
-        .filter(|s| !s.trim().is_empty());
-    match configured {
-        Some(p) => resolve_mods(game_dir, p.trim()),
-        None => game_dir.join("mods"),
-    }
+    crate::sf_paths::sf_directory(game_dir, "mods", "mods").unwrap_or_else(|| game_dir.join("mods"))
 }
 
 /// `paths.mods` as a folder on this system.
@@ -79,8 +72,9 @@ pub fn mods_dir(game_dir: &Path) -> PathBuf {
 /// is in). Taken as a Linux path that is `//?/S:/...`, which cannot be created, and every mod added to a profile
 /// failed with "Read-only file system". Such a path is found again through the game folder: the two name the same
 /// folders from the point where the Windows path enters the game's path.
+#[cfg(test)]
 fn resolve_mods(game_dir: &Path, p: &str) -> PathBuf {
-    resolve_game_folder(game_dir, p).unwrap_or_else(|| game_dir.join("mods"))
+    crate::sf_paths::windows_folder(game_dir, p).unwrap_or_else(|| game_dir.join("mods"))
 }
 
 pub(crate) fn resolve_game_folder(game_dir: &Path, p: &str) -> Option<PathBuf> {

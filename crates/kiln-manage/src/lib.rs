@@ -95,6 +95,7 @@ pub mod found;
 pub mod own_loaders;
 pub mod shroudforge;
 pub mod sf_startup;
+pub(crate) mod sf_paths;
 pub mod resolver;
 pub mod semver;
 
