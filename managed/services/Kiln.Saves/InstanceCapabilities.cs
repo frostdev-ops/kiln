@@ -105,12 +105,14 @@ internal static class InstanceCapabilities
             _carriedShown = true;
             Report(Carried, CapabilityState.Unavailable, CapabilityReason.Policy, InstanceData.CarriedReason);
         }
+        InstanceSyncRuntime.ReportCapability();  // saves.instance_data.sync, with the other static row (dev.27)
     }
 
     /// <summary>The test kit's session end: the next session reports its row again, whatever it is.</summary>
     internal static void Forget()
     {
         lock (Gate) _shown = null;
+        InstanceSyncRuntime.EndSession();
     }
 
     private static void Report(string name, CapabilityState state, CapabilityReason reason, string text)

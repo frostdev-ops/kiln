@@ -107,6 +107,7 @@ naming one of them is refused, with the advice to check `Capabilities.Is` at run
 | `players.bans` | managed, static | Kiln.Network, with the row above | Kiln's ban list is enforced (`Bans`); the same needs |
 | `combat.hold_filter` | managed, static | Kiln.Combat, when its listener starts | kiln.combat holds only the hits a handler's entity filter lets through (`hold_filter`, appended in dev.27); off: filtered handlers still get only their entities' hits, but every hit waits a step |
 | `players.aim` | managed, static | Kiln.Players, at its start (the first service tick) or the first `AimOf` | `Player.Aim` / `PlayerStates.AimOf`: needs kiln.playerstate with `aim()` (dev.27) and the camera field in the game's reflection |
+| `saves.instance_data.sync` | managed, static | Kiln.Saves, at its start | item data on players' games (`InstanceKeyOptions.Sync`, `InstanceData.Synced`): the channel `kiln:instance` can open in this process, which needs kiln.net (`service-missing`, or kiln.net's own reason, without it). On a server it says the values are sent; in a game that they can be received |
 
 They exist only once their service has started, after the manifests were checked: check `Capabilities.Is` at run time.
 

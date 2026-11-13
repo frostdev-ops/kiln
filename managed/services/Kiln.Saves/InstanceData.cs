@@ -21,15 +21,42 @@ public enum Persist
     Session = 2,
 }
 
+/// <summary>Which players get the values of an <see cref="InstanceKey{T}"/> on their own game, where a mod's client side
+/// reads them (<see cref="InstanceData.Synced()"/>). Kiln sends them over a channel of its own (<c>kiln:instance</c>) to
+/// players who run Kiln with a mod that reads synced values; a player without Kiln, or with an older Kiln, gets nothing
+/// and notices nothing. Since 0.2.0-dev.27.</summary>
+public enum InstanceSync
+{
+    /// <summary>Nobody: the values stay on the server (the default).</summary>
+    None = 0,
+
+    /// <summary>The player whose inventory holds the item (backpack, action bar, worn). An item in a chest is nobody's.</summary>
+    Holder = 1,
+
+    /// <summary>The holder, and every player within <see cref="InstanceKeyOptions.NearbyRadius"/> of the item's holder
+    /// (another player, a chest, a station, an NPC).</summary>
+    Nearby = 2,
+}
+
 /// <summary>Options of an <see cref="InstanceKey{T}"/>.</summary>
 public sealed record InstanceKeyOptions
 {
+    internal const double DefaultNearbyRadius = 32, MinNearbyRadius = 1, MaxNearbyRadius = 256;
+
     /// <summary>Where the values are kept (default <see cref="Kiln.Persist.World"/>).</summary>
     public Persist Persist { get; init; } = Persist.World;
 
     /// <summary>The item types that may carry this key; null: any item with an item entity (gear, tools, cans). An item
     /// of another type throws <see cref="ArgumentException"/>.</summary>
     public IReadOnlyList<ItemId>? Items { get; init; }
+
+    /// <summary>Which players get the values on their own game (default <see cref="InstanceSync.None"/>: nobody). A value
+    /// is never sent to a player this does not name. Since 0.2.0-dev.27.</summary>
+    public InstanceSync Sync { get; init; } = InstanceSync.None;
+
+    /// <summary>For <see cref="InstanceSync.Nearby"/>: how far from the item's holder a player still gets the values, in
+    /// metres (1 to 256, default 32). Since 0.2.0-dev.27.</summary>
+    public double NearbyRadius { get; init; } = DefaultNearbyRadius;
 }
 
 /// <summary>A typed key of instance data: one kind of value a mod keeps on single items (this sword's kill count, this
@@ -50,6 +77,9 @@ public sealed class InstanceKey<T> where T : class, new()
 
     /// <summary>Where its values are kept.</summary>
     public Persist Persist => Info.Persist;
+
+    /// <summary>Which players get its values on their own game. Since 0.2.0-dev.27.</summary>
+    public InstanceSync Sync => Info.Sync;
 
     /// <summary><c>"mod:name"</c>.</summary>
     public override string ToString() => $"{Mod}:{Name}";
@@ -82,7 +112,7 @@ public sealed class InstanceKey<T> where T : class, new()
 /// kiln.spawn's holder inspection/search/metadata, and the world's data open. When it is off the calls throw <see cref="KilnUnavailableException"/>; declaring a key needs
 /// nothing.</para>
 /// </remarks>
-public static class InstanceData
+public static partial class InstanceData
 {
     internal const string Capability = InstanceStore.Capability;
     internal const string CarriedCapability = "saves.instance_data.carried";
@@ -91,15 +121,17 @@ public static class InstanceData
                                           "data that travels with a character between worlds is not available yet";
 
     /// <summary>Declares a key of the calling mod. Call it once, from a static field of your mod's class or from
-    /// <c>OnLoad</c>; the same name again returns the same key.</summary>
+    /// <c>OnLoad</c>; the same name again returns the same key. On a game client too (since 0.2.0-dev.27): the client
+    /// side of a mod declares the key the same way, with the same <see cref="InstanceKeyOptions.Sync"/>, and reads the
+    /// server's values with it (<see cref="Synced{T}(EntityId, InstanceKey{T})"/>).</summary>
     /// <param name="name">Unique within the mod, at most 200 characters.</param>
-    /// <param name="options">Where values are kept, and which item types may carry them.</param>
-    /// <exception cref="ArgumentException">An empty or too long name, an unknown <see cref="Kiln.Persist"/>, an empty
+    /// <param name="options">Where values are kept, which item types may carry them, and which players get them.</param>
+    /// <exception cref="ArgumentException">An empty or too long name, an unknown <see cref="Kiln.Persist"/> or
+    /// <see cref="InstanceSync"/>, a <see cref="InstanceKeyOptions.NearbyRadius"/> outside 1 to 256, an empty
     /// <see cref="InstanceKeyOptions.Items"/>, or a name the mod declared before with another type or other options.</exception>
     /// <exception cref="KilnUnavailableException"><see cref="Kiln.Persist.Carried"/>: not available in this release
     /// (<c>saves.instance_data.carried</c>).</exception>
     /// <exception cref="InvalidOperationException">Not on the tick thread, or not from a mod's code.</exception>
-    [ServerOnly]
     [TickThreadOnly]
     public static InstanceKey<T> Key<T>(string name, InstanceKeyOptions? options = null) where T : class, new()
     {
@@ -107,6 +139,9 @@ public static class InstanceData
         WorldStore.CheckKey(name);
         options ??= new InstanceKeyOptions();
         if (!Enum.IsDefined(options.Persist)) throw new ArgumentException($"unknown Persist {(int)options.Persist}", nameof(options));
+        if (!Enum.IsDefined(options.Sync)) throw new ArgumentException($"unknown InstanceSync {(int)options.Sync}", nameof(options));
+        if (!(options.NearbyRadius >= InstanceKeyOptions.MinNearbyRadius && options.NearbyRadius <= InstanceKeyOptions.MaxNearbyRadius))
+            throw new ArgumentException($"NearbyRadius {options.NearbyRadius} is outside {InstanceKeyOptions.MinNearbyRadius} to {InstanceKeyOptions.MaxNearbyRadius} metres", nameof(options));
         if (options.Items is { Count: 0 }) throw new ArgumentException("Items lists no item type; give at least one, or null for any item", nameof(options));
         if (options.Persist == Persist.Carried)
             throw new KilnUnavailableException(CarriedCapability, CarriedReason);
@@ -114,6 +149,7 @@ public static class InstanceData
             "InstanceData.Key must be called from a mod's code (OnLoad, its handlers, or a static field of the mod's class read there)");
         var key = SavesRuntime.Store.Instances.Declare<T>(mod, name, options);
         InstanceCommand.Ensure();
+        if (options.Sync != InstanceSync.None) InstanceSyncRuntime.EnsureStarted();  // the channel opens with the first key that travels
         return key;
     }
 

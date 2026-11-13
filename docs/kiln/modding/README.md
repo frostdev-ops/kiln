@@ -79,7 +79,7 @@ first). `mods/samples/build.sh` builds the loader samples (`SampleLib`, `SampleC
 | `NetSample` | Kiln.Network: F9 on a client pings the server over `netsample:main`; the server answers and announces Kiln clients |
 | `BigStacks` | a server config (x4 stack sizes, at most 9999) that Kiln clients get through the content sync |
 | `NewItems` | kiln.content's new items and recipes from code and a data pack, plus a perk and a buff of its own (kiln.gamedata clones) |
-| `ItemData` | `InstanceData`: `/notch` cuts a notch into the weapon or tool in your hand and the count stays with that one item through moves, saves and restarts; `/notches` lists them |
+| `ItemData` | `InstanceData`: `/notch` cuts a notch into the weapon or tool in your hand and the count stays with that one item through moves, saves and restarts; `/notches` lists them. Side `both` since dev.27: the key has `Sync = InstanceSync.Holder`, so the holder's game gets the count and shows it as a notice |
 | `SpellTweaks` | a kiln.gamedata data pack: Fireball I's cost, timing and explosion, and the double jump's stamina cost |
 | `TypedFields` | a sword, a spell and a projectile changed through typed paths from your game's catalog, and a projectile clone; `Refused/`: a wrong string path the analyzer stops |
 | `CreatureTweaks` | a data pack: Vukahs notice players from further away, and a new `Kiln_Elite_Vukah` template that replaces a share of natural spawns |

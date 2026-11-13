@@ -6,8 +6,8 @@
 | Native | `native/services/saves/` -> `kiln/services/kiln-saves.dll` |
 | Symbols | `sigdb/symbols/server.d/saves.json` (features `saves.request`, `saves.write`, `saves.load`, `saves.reasons`) |
 | Managed | `managed/services/Kiln.Saves/` -> `kiln/host/Kiln.Saves.dll` (`Saves`, `WorldData`, `PlayerData`, `CharacterData`, `EntityData`, `InstanceData`, events) |
-| Test mod | `mods/tests/saves-test/` (five boots: SIGINT, 3x kill -9, restore) |
-| Unit tests | `managed/tests/Kiln.Saves.Tests/` (instance data: `InstanceMatcherTests`, `InstanceMatcherPropertyTests`, `InstanceStoreTests`, `InstanceApiTests`) |
+| Test mod | `mods/tests/saves-test/` (five boots: SIGINT, 3x kill -9, restore); `mods/tests/instances-test/` (item data); `mods/tests/instance-sync-test/` (item data on players' games, with `syncnet.py`) |
+| Unit tests | `managed/tests/Kiln.Saves.Tests/` (instance data: `InstanceMatcherTests`, `InstanceMatcherPropertyTests`, `InstanceStoreTests`, `InstanceApiTests`, `InstanceSyncTests`) |
 | Evidence | `docs/re/saves.md` |
 
 Forge equivalents: `LevelEvent.Save` → `WorldSavingEvent`, `LevelEvent.Load` → `WorldLoadedEvent`, `SavedData` →
@@ -24,6 +24,7 @@ Forge equivalents: `LevelEvent.Save` → `WorldSavingEvent`, `LevelEvent.Load` �
 | `InstanceDataRestoredEvent` | a saved record found its item after a load or a join, or a mod or admin claimed it onto an item (one per key) | tick thread | no | `Item`, `Mod`, `Key`, `Match` (`Exact`, `Moved`, `Claimed` since dev.27), `Detail` |
 | `InstanceDataParkedEvent` | a record waits: its holder was not found this session, the player left with the item, or no item of the holder fits it (one per mod) | tick thread | no | `Holder`, `Character`, `FlatSlot`, `Item`, `Mod`, `Keys`, `Reason` (`HolderAway`, `PlayerLeft`, `NoCandidate`), `Detail` |
 | `InstanceDataLostEvent` | a record no longer goes with an item: destroyed, not found in 3 sessions, over the cap, or set aside because it was not certain (one per mod) | tick thread | no | `Item`, `LastRef`, `Mod`, `Keys`, `Reason` (`Destroyed`, `Unmatched`, `Ambiguous`, `Capped`, `Discarded` since dev.27), `Detail` |
+| `InstanceDataSyncedEvent` (dev.27) | **client:** a copy this game holds of an item's value changed: the server sent it, removed it, moved the item, or the item left this game's view (one per key) | tick thread: the main thread in a joined game; the server thread, a step later, for the host of a world | no | `Item` (`SyncedItem`), `Mod`, `Key`, `Change` (`Set`, `Removed`, `Moved`, `Gone`) |
 
 All fields are read-only. Data written to `WorldData`/`PlayerData`/`EntityData` in a `WorldSavingEvent` handler is part
 of that save's generation. Kiln.Saves starts by itself when a mod subscribes to one of these events or touches any of
@@ -64,9 +65,10 @@ public sealed class Bank : Mod
 | `PlayerData.Get<T>(steamId, key)` / `TryGet` / `Set` / `Remove` / `Contains` / `Keys(steamId)` / `Players` | per world, per Steam id, per mod; the player need not be online. All characters of the account share it: for character progress use `CharacterData` |
 | `CharacterData.Get<T>(key or entity, k)`, `CharacterData.Carried.*` | per character, per mod: this world's record of the character, and what goes with it to other worlds. [character-data.md](character-data.md) |
 | `EntityData.Get<T>(entity, key)` / `TryGet` / `Set` / `Remove` / `Has` / `Clear` / `IsPersistent` / `Entities` / `Waiting` / `Available` | lives as long as the entity (destroyed: dropped within 1 s); known, saved world templates with a position get it back after a restart. Inventory item entities are session-only here (`IsPersistent` is false for them): for data on one item use `InstanceData`. Player entities map to `PlayerData` (Steam id) |
-| `InstanceData.Key<T>(name, options)` → `InstanceKey<T>` | declares a key of the calling mod, once (a static field of the mod's class, or `OnLoad`); the same name again returns the same key, another type or other options throw `ArgumentException`. `InstanceKeyOptions { Persist = World / Carried / Session, Items }`. Declaring needs no capability. [Instance data](#instance-data-values-that-stay-with-one-item) |
+| `InstanceData.Key<T>(name, options)` → `InstanceKey<T>` | declares a key of the calling mod, once (a static field of the mod's class, or `OnLoad`); the same name again returns the same key, another type or other options throw `ArgumentException`. `InstanceKeyOptions { Persist = World / Carried / Session, Items, Sync = None / Holder / Nearby, NearbyRadius }` (`Sync` since dev.27: [which players get the value on their game](#on-players-games-dev27)). Declaring needs no capability, and since dev.27 works on a game client too. [Instance data](#instance-data-values-that-stay-with-one-item) |
 | `item.Get(key)` / `TryGet(key, out v)` / `Has(key)` / `Set(key, v)` / `Remove(key)` on an `ItemInstanceRef` | the value on that one item; `Get` gives a live object (create with `new T()`), saved with the world. `[ServerOnly]`, `[TickThreadOnly]` |
 | `InstanceData.All(key)` / `Parked(key)` | every item of this session with the key, with its value; the saved records that are not on an item now (`Waiting` or `SetAside`, with the reason and `RecordId`; the values are copies) |
+| `InstanceData.Synced()` / `Synced(entity)` / `Synced<T>(entity, key)` (dev.27) | **client:** the server's copies in this game: every `SyncedItem` (`Entity`, `Item`, `Holder`, `FlatSlot`, `Own`, `Keys`, `Has`, `TryGet<T>(key, out v)`, `Json(mod, key)`), one by the item entity's server id, or one value. `[ClientOnly]`, `[AnyThread]`, capability `saves.instance_data.sync`. [On players' games](#on-players-games-dev27) |
 | `InstanceData.Claim(parked, item)` / `Discard(parked)` (dev.27) | puts a parked record on an item the mod names, or drops it: every value of the calling mod in that record moves or goes (other mods' values in it stay parked), and the record no longer waits, also not in the next save. `Claim` → `InstanceClaimResult` (`IKilnResult`: `Ok` false when the item already has one of those keys), `InstanceDataRestoredEvent` (`Claimed`); `Discard` → bool (false: no longer parked), `InstanceDataLostEvent` (`Discarded`). A record no longer parked, an item still being decided (a player leaving), a stale item or one the key does not allow throw `ArgumentException`. Admins: `/instances claim <record> <player\|holder entity> <flat slot>`, `/instances discard <record>` (every mod's values) |
 
 Rules: tick thread, from mod code (handlers, `OnLoad`, tasks; in a hosted world, once `Saves.WorldDataReady`: see "In a game client"). Keys belong to the calling mod (`kiln.mod.json` id).
@@ -142,6 +144,7 @@ lab has no real player, so that half rests on unit tests against the fake and on
 |---|---|
 | `saves.instance_data` | `InstanceData` works: kiln.saves, kiln.items' item instances (`items.instances`), kiln.spawn's holder inspection/search/metadata, and the world's data open (`Saves.WorldDataReady`) |
 | `saves.instance_data.carried` | `Persist.Carried`: not available in this release; declaring such a key throws `KilnUnavailableException` |
+| `saves.instance_data.sync` (dev.27) | the channel `kiln:instance` can open in this process (kiln.net is there): a server sends the values of keys with `Sync`, a client receives them. Off: `InstanceData.Synced` throws `KilnUnavailableException`; a key with `Sync` still declares and works on the server, its values just stay there |
 
 Both are rows of the [capability registry](caps.md), reported by Kiln.Saves; `Capabilities.Get` and
 `kiln/state/capabilities.json` show them. `saves.instance_data` says what the calls enforce; it is decided again at
@@ -334,10 +337,99 @@ server), and the client's file changes only when the server sends the character 
 - A holder never found: kept 3 sessions, then dropped (`Unmatched`). A session without kiln.items' item instances does not
   count, nor does a session in which holder search could not answer; its records ride into the next generation unchanged.
 
+### On players' games (dev.27)
+A value stays on the server unless its key says who may see it. Then Kiln sends it to those players' games, where the
+mod's client side reads it: a tooltip line, an icon, a glow on a sword that carries a rolled bonus.
+
+```csharp
+public sealed class Notches { public int Count { get; set; } }
+
+public sealed class Swords : Mod   // kiln.mod.json: "side": "both"
+{
+    // the same line runs on the server and in the player's game
+    private static readonly InstanceKey<Notches> NotchesKey =
+        InstanceData.Key<Notches>("notches", new InstanceKeyOptions { Sync = InstanceSync.Holder });
+
+    // server: as before
+    public void Notch(ItemInstanceRef sword) => sword.Get(NotchesKey).Count++;
+
+    // client: the server's copy, when it arrives or changes
+    [Subscribe]
+    private void OnSynced(InstanceDataSyncedEvent e)
+    {
+        if (e.Mod != Context.Info.Id || e.Change != InstanceSyncChange.Set) return;
+        if (e.Item.TryGet(NotchesKey, out var n)) Hud.Toast($"{n.Count} notch(es) on the item in slot {e.Item.FlatSlot}");
+    }
+
+    // client: at any time, on any thread (a UI frame)
+    private int NotchesOf(EntityId item) => InstanceData.Synced(item, NotchesKey)?.Count ?? 0;
+}
+```
+
+| `Sync` | Who gets the value |
+|---|---|
+| `None` (default) | nobody: it stays on the server |
+| `Holder` | the player whose inventory holds the item (backpack, action bar, worn). An item in a chest is nobody's |
+| `Nearby` | the holder, and every player within `NearbyRadius` metres (1 to 256, default 32) of the item's holder: another player, a chest, a station, an NPC |
+
+- **Who is never sent anything:** a player the key does not name; a player without Kiln; a player whose Kiln has no
+  mod that reads synced values (the channel opens in a game when a mod there declares a key with `Sync` or calls
+  `InstanceData.Synced`, and the server sends only to games that have it; so declare the key, or call `Synced()` once,
+  when the mod loads). An older Kiln has no such channel. None of them sees a difference: the channel is not required,
+  nothing else about the join changes, and nothing is ever written into the game's own item data.
+- **Kept current.** About four times a second the server works out what each player may see now, compares it with what
+  it sent that player, and sends the difference. One rule covers everything: `Set`, an edit of a live object without
+  `Set`, `Remove`, a move to another slot, a gift to another player (gone for one, there for the other), a chest
+  (gone, unless the key is `Nearby`), a destroyed item, a claimed record, a player walking into or out of range, a mod
+  that unloads (its keys go, so its values go from players' games). A player who joins, or joins again, gets the whole
+  set, starting with a reset of what the game held. Values of a mod that is not loaded on the server are sent to
+  nobody: its key is what says who may see them.
+- **The client's copies** are read-only. `SyncedItem.Entity` is the item entity's id **on the server**, `Holder` the
+  holder's, `FlatSlot` the slot as Kiln.Items numbers it there (0 to 255: backpack and action bar, 8 per page; 256 and
+  up: worn gear and the other links), `Item` the item type, `Own` whether this game's player holds it. Whether the
+  game's client uses the same id for the item entity is not proven (the design's open point O3: a crash dump showed
+  equal ids), so find "the item in my slot" by `Own` and `FlatSlot`, not by an entity id read on the client.
+- **In a hosted game** the host's own game is a connection like any other: its copies arrive over the game's
+  transport, and `InstanceDataSyncedEvent` is posted on the server thread (the tick thread there) a step later.
+- **`Persist.Session` keys sync too**; they are still never saved.
+
+**Limits, and what happens above them.**
+
+| Limit | Value | Above it |
+|---|---|---|
+| one value | 64 KB as JSON, the store's cap | `Set` throws `ArgumentException`; a live object that grew past it is sent (and saved) in its last form that fit |
+| one update to one player | 96 KB of values, 512 items, 256 values per item | the rest follows in the next updates, a quarter of a second apart: nothing is dropped. A player holding 1 MB of synced values has all of it after about 3 seconds |
+| a value against the server's `network.json` `maxMessageBytes` (default 256 KiB) | the value, its mod id and key name must fit in `maxMessageBytes` minus 4 KB | a server whose operator lowered the limit below a value's size never sends that value (warned once per item and key in kiln.log); the others go |
+| a client's copies | 4,096 items | further items are left out (warned once in the client's kiln.log) |
+| what a client accepts in one update | version 1, 4,096 items, 65,536 gone ids, 256 values per item, 64 KB per value, mod id 128 bytes, key 800 bytes | the whole update is dropped as malformed (counted as a decode error of the channel) |
+
+**Wire** (channel `kiln:instance` v1, not required; one message each way; integers little-endian, strings and counts
+as in [network.md](../network.md)): message 0, server to client: `u8 version = 1`, `bool reset`, `gone: [u32 item
+entity]`, `items: [u32 entity, u32 item type, u32 holder, varint flat slot, values: [str mod, str key, bool has, str
+JSON if has]]` (a value without JSON is a removal). Message 1, client to server, taken from lab peers only
+(`tools/nettest`): `u32 as, bool hasAt, 3 x f64 at`: the holder entity the peer stands for and where it stands.
+
+**What is proven where.** The passes, the limits and the client's store are proven offline with the real store and a
+fake game (`InstanceSyncTests`: every update goes through the real encoder and decoder into a real client store per
+player). The channel is proven on a lab server (a copy of a real world, no player, server 26430253) with fake clients
+on kiln.net's lab transport (`mods/tests/instance-sync-test`, `syncnet.py`, 35 checks and 8 after a restart, all
+passing on 2026-11-12): lab peers stand for the holders of two chests and for a player near them. The holder got a value
+115 to 170 ms after `Set`, with the item's type, holder and flat slot as the server reads them; an edit without `Set`
+arrived; the key without `Sync` never did; the other chest's holder and a player far away got nothing; a player 3 m from
+the chest got the `Nearby` value and no `Holder` value, lost it when walking out of range and got it again when
+walking back; `Items.Move` took the copy from one holder's game to the other's; a removal arrived as a removal, a
+destroyed item as gone; three 40 KB values arrived whole in two updates (80,132 and 40,068 bytes); a later connection
+got the whole set after a reset; a Kiln client without the channel and a client without Kiln got nothing. After a stop
+and a start the two swords had their values again and the holder's game got them in its first updates, with nothing
+set in that boot. A lab has no player with an inventory, so **a real player's inventory and a real game showing a value
+wait for the guided checks** `instances.synced`, `instances.synced-moves`, `instances.synced-rejoin` and
+`instances.synced-nearby` of the same mod ([modding/inventory.md](../modding/inventory.md)), which have not run.
+
 ### `/instances [player|entity]`
 Admin only, owned by "kiln" (node `kiln.command.instances`). Per mod: what is attached (item, holder, slot, keys), what
 waits and what is set aside (holder, slot, item, reason, sessions missed), and values that did not fit. A player name
-or an entity id (a holder or an item) narrows it. Kiln.Saves registers it late-bound, by name, when Kiln.Chat is loaded
+or an entity id (a holder or an item) narrows it. Without an argument, once a key with `Sync` was declared, a last line
+says what goes to players' games (games served, updates, values and bytes sent). Kiln.Saves registers it late-bound, by name, when Kiln.Chat is loaded
 (the first key's declaration, or the first service tick); a mod that only stores data does not load the chat library.
 
 ## Saves

@@ -141,6 +141,7 @@ internal static class InstanceCommand
         }
         else lines = SavesRuntime.Store.Instances.Listing(entity: entity);
         foreach (var line in lines) _reply!.Invoke(context, [line]);
+        if (args.Count == 0 && InstanceSyncRuntime.Started) _reply!.Invoke(context, [InstanceSyncRuntime.Describe()]);  // what goes to players' games
     }
 
     private static Exception Usage(string text) => (Exception)Activator.CreateInstance(_commandException!, text)!;
