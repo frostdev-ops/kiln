@@ -176,9 +176,9 @@ internal static unsafe class CombatNative
     {
         var t = V2;
         if (t != null) return t;
-        throw new NotSupportedException(T == null
-            ? $"{api}: kiln.combat is not available on this server build"
-            : $"{api}: this Kiln runtime's kiln.combat has no attribute functions (update Kiln)");
+        throw T == null
+            ? CombatCaps.Off(CombatCaps.Service, $"{api}: kiln.combat is not available on this server build")
+            : CombatCaps.Off(CombatCaps.Attributes, $"{api}: this Kiln runtime's kiln.combat has no attribute functions (update Kiln)");
     }
 
     public static string DescribeAttribute(int rc) => rc switch
@@ -191,7 +191,7 @@ internal static unsafe class CombatNative
     };
 
     public static Table* Require(string api) =>
-        T != null ? T : throw new NotSupportedException($"{api}: kiln.combat is not available on this server build");
+        T != null ? T : throw CombatCaps.Off(CombatCaps.Service, $"{api}: kiln.combat is not available on this server build");
 
     public static string Describe(int rc) => rc switch
     {

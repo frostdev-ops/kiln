@@ -251,3 +251,29 @@ with the game's resource when `KILN_GAME_DIR` and `KILN_SERVER_EXE` are set): `n
 3. Lose health and wait: `EntityHealEvent` `Cause Regeneration` with small amounts; canceled: no regeneration on the
    HUD. Drink a healing potion / eat: which `Cause` arrives (Hit, Attribute, Regeneration through a buff)? Canceled
    Attribute heal: the health goes back down a step later (visible flicker).
+
+## The contract (dev.27)
+
+`Combat` and `Attributes` follow [the API contract](../modding/contract.md). Server side only (`[ServerOnly]`).
+
+- **Capabilities.** `kiln.combat` and its sigdb features (`combat.actor_states`, `attr_heals`, `deaths`, `falls`,
+  `health`, `hits`, `regen`), lowered by Kiln.Combat at its start when the service is not loaded; `combat.hold_filter`
+  (static) and `combat.attributes` (session: the attribute functions and the game's attribute resource), both reported
+  at Kiln.Combat's start, the first service tick, before a mod calls anything.
+- **Errors.** Without the service every call throws `KilnUnavailableException` naming `kiln.combat` (a
+  `NotSupportedException`, as before); `Attributes` by attribute id on an older kiln.combat names `combat.attributes`.
+  **Not changed:** a refusal of the native call (`SetHealth`, `Heal`, `Damage` on an entity without health, no world)
+  keeps its `InvalidOperationException`, and `Attributes.Set`/`Add` by `GameAttribute` before the attribute resource
+  is read keep theirs: a `catch (InvalidOperationException)` written before would not catch the new type.
+- **Results.** `HitResult` implements `IKilnResult`: `Ok` is `Applied`; `Reason` says why a hit was dropped or is
+  still pending.
+- **Events.** `CombatChangedEvent` (new) for the writes that had none: `SetHealth` (`Health`), `SetInvulnerable`
+  (`Invulnerable`, only when the entity's god mode changed, not while another mod still holds it) and the attribute
+  writes (`Attribute.Stamina`, ...), with the value before and after; only when the value changed, and a write made
+  by a handler while the event is dispatched is posted at the next step ([contract](../modding/contract.md#3-change-events)).
+  Hits and heals keep `EntityHurtEvent` and `EntityHealEvent`.
+- **Threads.** `[TickThreadOnly]` on every call that touches an entity; `Available`, `HitsAvailable`, `Status`,
+  `Attributes.Available` and `Attributes.Ids` are `[AnyThread]`.
+- Tested offline (`managed/tests/Kiln.Contract.Tests/Group7ContractTests.cs`): rows, exceptions, attributes,
+  `HitResult` as a kiln result, and the writes with subscribers on a fake kiln.combat table. No lab run in dev.27 has
+  watched `CombatChangedEvent` against a real kiln.combat.

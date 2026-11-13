@@ -37,17 +37,19 @@ public sealed class ChangeNoticesTests : ContractTest
     public void A_catch_all_handler_that_writes_again_does_not_loop_and_is_never_faulted()
     {
         var calls = 0;
+        var others = 0;
         // a mod built before the event existed: it writes on every event it sees
         using var sub = Events.On<KilnEvent>(e =>
         {
             if (e is Changed) calls++;
+            else others++;  // another event (a row that changed): the handler writes on it too
             Write(7);
         });
         Write(7);
         Assert.Equal(1, calls);              // the event, once; the handler's own write waits for the next step
         Assert.Equal(1, _notices.Waiting);
         Step(10);
-        Assert.Equal(11, calls);             // one call a step, no recursion
+        Assert.Equal(11 + others, calls);    // one call a step (and one per other event), no recursion
         Assert.True(sub.Active);
         Assert.Equal(0, sub.Stats.Faults);
         Assert.DoesNotContain(Backend.Lines, l => l.Contains("threw", StringComparison.Ordinal));
@@ -230,17 +232,19 @@ public sealed unsafe class ContentChangeTests : FakeTableTest
     public void A_catch_all_handler_that_writes_again_keeps_working()
     {
         var calls = 0;
+        var others = 0;
         var sub = Events.On<KilnEvent>(e =>
         {
             if (e is ContentChangedEvent) calls++;
+            else others++;
             _entry.MaxStack = 5;
         });
         for (var i = 0; i < Events.MaxFaults + 1; i++) _entry.MaxStack = 5;  // before: each write faulted the handler once
         Assert.True(sub.Active);
         Assert.Equal(0, sub.Stats.Faults);
-        Assert.Equal(Events.MaxFaults + 1, calls);   // one call per write; the handler's own writes wait
+        Assert.Equal(Events.MaxFaults + 1 + others, calls);   // one call per write; the handler's own writes wait
         Step(3);
-        Assert.Equal(Events.MaxFaults + 4, calls);   // and then one a step, not 32 levels deep
+        Assert.Equal(Events.MaxFaults + 4 + others, calls);   // and then one a step, not 32 levels deep
         Assert.True(sub.Active);
         sub.Dispose();
         Step();                                      // the last write's event goes out to nobody
@@ -378,18 +382,20 @@ public sealed unsafe class CreatureChangeTests : FakeTableTest
     public void A_catch_all_handler_that_writes_again_keeps_working()
     {
         var calls = 0;
+        var others = 0;
         var creature = _creature;
         var sub = Events.On<KilnEvent>(e =>
         {
             if (e is CreatureChangedEvent) calls++;
+            else others++;
             creature.Level = 5;
         });
         for (var i = 0; i < Events.MaxFaults + 1; i++) creature.Level = 5;
         Assert.True(sub.Active);
         Assert.Equal(0, sub.Stats.Faults);
-        Assert.Equal(Events.MaxFaults + 1, calls);
+        Assert.Equal(Events.MaxFaults + 1 + others, calls);
         Step(3);
-        Assert.Equal(Events.MaxFaults + 4, calls);
+        Assert.Equal(Events.MaxFaults + 4 + others, calls);
         Assert.True(sub.Active);
         sub.Dispose();
         Step();

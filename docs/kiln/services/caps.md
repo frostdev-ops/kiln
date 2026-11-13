@@ -105,7 +105,7 @@ naming one of them is refused, with the advice to check `Capabilities.Is` at run
 | `abilities.buff_list` | managed, static | Kiln.Abilities, once, at its first use | an entity's buffs read (`Abilities.BuffsOf`): needs kiln.playerstate (`service-missing` without it) and its reflection reads (`players.reflection`; `faulted` when the service is there and read nothing) |
 | `players.kick` | managed, static | Kiln.Network, at its start (the first service tick) | `Players.Kick`, `Network.Kick`: needs kiln.net, `net.kick`, `net.players` (the game's connection records, which say whose connection one is) and a process that serves clients (`wrong-side` on a client that only joins) |
 | `players.bans` | managed, static | Kiln.Network, with the row above | Kiln's ban list is enforced (`Bans`); the same needs |
-| `combat.hold_filter` | managed, static | Kiln.Combat, when its listener starts | kiln.combat holds only the hits a handler's entity filter lets through (`hold_filter`, appended in dev.27); off: filtered handlers still get only their entities' hits, but every hit waits a step |
+| `combat.hold_filter` | managed, static | Kiln.Combat, at its start (the first service tick; before dev.27's adoption: when its listener started) | kiln.combat holds only the hits a handler's entity filter lets through (`hold_filter`, appended in dev.27); off: filtered handlers still get only their entities' hits, but every hit waits a step |
 | `players.aim` | managed, static | Kiln.Players, at its start (the first service tick) or the first `AimOf` | `Player.Aim` / `PlayerStates.AimOf`: needs kiln.playerstate with `aim()` (dev.27) and the camera field in the game's reflection |
 
 They exist only once their service has started, after the manifests were checked: check `Capabilities.Is` at run time.
@@ -140,6 +140,8 @@ that needs a hook says so only while the hook is in. When a service's table is m
 | `content.ready` | managed, session | Kiln.Content, at its start and every 25 steps | the registries are loaded and the data packs applied (`Content.Ready`); unavailable without kiln.content |
 | `content.*` (eight, server side), `gamedata.template_clones`, `gamedata.buff_lookup`, `creatures.*` (ten) | sigdb features | core; Kiln.Content and Kiln.Creatures lower theirs when their service is not loaded | what kiln.content, kiln.gamedata and kiln.creatures serve |
 | `quests.*` (six), `ui.*` (eight, game client), `render.camera` | sigdb features | core; Kiln.Quests and Kiln.Ui lower theirs when kiln.knowledge, kiln.ui or kiln.render is not loaded | what kiln.knowledge, kiln.ui and kiln.render serve |
+| `combat.attributes` | managed, session | Kiln.Combat, at its start and every 25 steps | `Attributes` reads and writes the game's attributes: kiln.combat has its attribute functions (`service-older` otherwise) and the game's attribute resource was read (pending until a server world runs; pending for good on a build whose resource Kiln does not understand) |
+| `combat.actor_states`, `combat.attr_heals`, `combat.deaths`, `combat.falls`, `combat.health`, `combat.hits`, `combat.regen` | sigdb features | core; Kiln.Combat lowers them when kiln.combat is not loaded | what kiln.combat serves |
 
 ## Rules
 - Each owner holds at most one report per name. A reader sees the worst report for the name: unavailable beats

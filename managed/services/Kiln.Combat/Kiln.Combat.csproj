@@ -9,6 +9,9 @@
     <NoWarn>$(NoWarn);CS1591;CA2255</NoWarn>
   </PropertyGroup>
   <ItemGroup>
+    <InternalsVisibleTo Include="Kiln.Contract.Tests" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="../../Kiln.Api/Kiln.Api.csproj" Private="false" />
   </ItemGroup>
 </Project>
