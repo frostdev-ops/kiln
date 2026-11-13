@@ -16,6 +16,7 @@ import { updateMockHandlers } from "./mockUpdate";
 import { deckMockHandlers } from "../deck/mockDeck";
 import { nexusMockHandlers, NEXUS_MOCK_ENABLED } from "./mockNexus";
 import { chainMockHandlers } from "./mockChain";
+import { editorMockHandlers } from "./mockEditor";
 import { dataFolderBlocks, dataFolderMockHandlers, mockDataDir, mockPickFolder } from "./mockDataFolder";
 import bootExample from "../../../schema/examples/state-boot.json";
 import modsExample from "../../../schema/examples/state-mods.json";
@@ -1202,6 +1203,8 @@ Object.assign(handlers, deckMockHandlers(handlers));
 Object.assign(handlers, nexusMockHandlers(handlers, mockEmit, startTask, quickAdd));
 Object.assign(handlers, chainMockHandlers({ profiles, library, reject }));
 Object.assign(handlers, dataFolderMockHandlers(startTask, (id) => tasks.get(id)));
+// the save editor: synthetic character saves in memory (mockEditor.ts); these replace the editor_* answers above
+Object.assign(handlers, editorMockHandlers(reject, () => Object.values(running).some(Boolean)));
 
 /** The folder dialog's stand-in in a plain browser (shell/dataFolder.ts pickFolder; tests queue answers). */
 export { mockPickFolder };
