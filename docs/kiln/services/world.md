@@ -1,16 +1,18 @@
 # kiln.world
 
 The server world's ECS for other services and mods: **programs** (your own ECS system in the game's scheduler),
-**entity access** (components, positions, "who has component X") and **teleport** (the game's own fast-travel
-mechanism). Only kiln.world hooks the game's program registration; every other service registers programs through it.
+**entity access** (components, positions, "who has component X"), **tracked writes** (changes to a component that the
+game's save and replication see) and **teleport** (the game's own fast-travel mechanism). Only kiln.world hooks the
+game's program registration; every other service registers programs through it.
 
 | Layer | File |
 |---|---|
-| C table | `native/core/abi/services/kiln_world.h` (`kiln.world` v1) |
+| C table | `native/core/abi/services/kiln_world.h` (`kiln.world` v3) |
 | Native | `native/services/world/` → `kiln/services/kiln-world.dll` |
-| Symbols | `sigdb/symbols/server.d/world.json` (features `world.programs`, `world.queue`, `world.entities`, `world.find`, `world.names*`, `world.teleport`, `world.dead_check`, `world.write`, `world.read_other`) |
-| Managed | `managed/services/Kiln.World/` → `kiln/host/Kiln.World.dll` (`Kiln.World`, `Kiln.Teleport`) |
-| Test mod | `mods/tests/world-test/` |
+| Symbols | `sigdb/symbols/server.d/world.json` (features `world.programs`, `world.queue`, `world.entities`, `world.find`, `world.names*`, `world.teleport`, `world.dead_check`, `world.write`, `world.read_other`, `world.component_bits`); tracked writes also use `items.fuel`'s symbols |
+| Managed | `managed/services/Kiln.World/` → `kiln/host/Kiln.World.dll` (`Kiln.World`, `Kiln.Teleport`, `Kiln.EntitySet`) |
+| Capability | `world.tracked_writes` (managed, follows the session; [caps.md](caps.md)) |
+| Test mods | `mods/tests/world-test/`, `mods/tests/world-writes-test/` (tracked writes, three boots) |
 | Evidence | `docs/re/world.md` |
 
 Fails soft: a missing piece turns off only what needs it (logged once at boot: `kiln.world: programs on, entities on,
@@ -31,6 +33,7 @@ var pos = World.Position(villagers[0]);             // WorldPosition? in metres
 var t = World.Transform(villagers[0]);              // EntityTransform? (Position, Rotation, Scale, YawDegrees)
 bool canMove = World.Has(villagers[0], "TeleportCount");
 World.TryRead<byte>(villagers[0], "TeleportCount", out var counter);   // copy of the first sizeof(T) bytes
+EntitySet armed = World.Query(["NpcCommon", "Health"], without: ["PlayerInput"]);   // a snapshot; armed.Refresh() reads again
 int n = World.EntityCount;
 uint h = World.ComponentHash("CurrentTransform");   // 0x027ac564
 
@@ -50,6 +53,103 @@ await Teleport.ToSpawnPoint(player, flameAltar);    // a landing pad of a Player
 - When the mod unloads, its pending teleports are cancelled (the move may still happen; the task is cancelled).
 - FindGround corrects only about ±10 m vertically; otherwise the entity lands on the raw target (`RawTarget`). Enemies
   moved far from every player are despawned by the game within a second (EMF); villagers are fine.
+
+### Tracked writes
+Since 0.2.0-dev.27. `World.TryRead` hands out a copy and `World.WriteRaw` (before: `TryWrite`) stores bytes straight
+into component memory. The game is not told about such a store: its save skips the change on an entity it has already
+written, and players may never be sent it. A tracked write goes through the game's own write tracking instead, the
+path the game's programs use when they change another entity's component.
+
+```csharp
+using Kiln;                                    // KilnServices: World;Game
+
+WorldWriteResult r = await World.Update<Ecs.Fuel>(can, (ref Ecs.Fuel f) => f.Values[0] = 3200);   // read, change, write
+if (!r.Ok) Log.Warn(r.Reason);                 // "entity 1042 has no Fuel", "... add \"writes\": [\"Fuel\"] ..."
+await World.Write(prop, new Ecs.ScaleComponent { uniformScale = 1.5f });                      // the whole component
+await World.WriteField(npc, "Health", "dataStorage[0]", 40);     // one field by its path in the game's type (kiln.types)
+await World.WriteAt(e, "ServerToggleState", 0, (byte)1);         // one field by offset: the layout is yours to know
+
+WorldWriteInfo info = World.WriteInfo<Ecs.Fuel>();               // CanWrite, GameWriters, SaveTracked, Attribute
+using var sub = Events.On<ComponentWrittenEvent>(e => Log.Info($"{e.Component} of {e.Entity} changed"), EventFilter.ForEntity(can));
+```
+
+| Call | Writes | Use it for |
+|---|---|---|
+| `World.Update<T>(entity, (ref T v) => …)` | what the change leaves in the value the entity holds at that moment | part of a component; every attribute (Health, Stamina, Fuel) |
+| `World.Write<T>(entity, value)` | the whole component | a component you build from nothing |
+| `World.WriteField(entity, component, path, value)` | one scalar field, checked against the game's reflected type | no generated type at hand; a console command |
+| `World.WriteAt<T>(entity, component, offset, value)` | bytes at an offset | a field no type names; the caller knows the layout |
+| `World.WriteRaw<T>(…)` | bytes at an offset, at once, **untracked** | an input the game reads in the coming step and neither saves nor sends (`PlayerInput`, `ActorInput`) |
+
+- **When.** The write happens in the next sim step, inside Kiln's program `kiln_world_writes`, after the game's own
+  programs of that step. The task completes on the tick thread one step later; two steps later for a component the
+  game's programs write too, because the answer then says whether the value was still there after they ran again.
+- **`writes` in kiln.mod.json.** The game fixes a program's access when the world starts, so kiln.world has to know
+  the component types at boot: [`"writes": ["Fuel"]`](../modding/manifest.md#components-the-mod-writes-writes-since-020-dev27).
+  Kiln.Sdk adds the types your code passes to `Write<T>` and `Update<T>` when it builds the mod; list by hand what
+  you name as a string. A type that is not listed is refused (`Status == NotDeclared`) with the sentence that says
+  what to add, and takes effect at the next server start.
+- **The answer** (`WorldWriteResult`, an `IKilnResult`): `Ok` is true for `Written` and for `Unchanged` (the
+  component already held the value: nothing is written or marked). Everything the game or the entity says no to
+  comes back as `Ok == false` with a `Reason`: `NoComponent`, `OutOfRange`, `NotDeclared`, `Refused`, `Faulted`
+  (the change threw: nothing is written), `Dropped` (no server world), `LayoutMismatch` (the generated type is not
+  this game build's). A none entity throws `ArgumentException`; a capability that is off throws
+  `KilnUnavailableException("world.tracked_writes")`.
+- **Who else writes it.** `GameWriterCount` and `GameWriters` name the game's own programs that write the type on
+  the server, read from the running game's program table. With none, Kiln's write is the only one and the value
+  stays. With some, Kiln's write is the last of its step, and from the next step on those programs see it and may
+  change it: `Kept` says whether the bytes were still there one step later. `Kept == false` on a value the game
+  derives every step (`NetworkFuel` from `Fuel`) means: write the source instead.
+- **`SaveTracked`, `ReplicationTracked`.** Whether the game's write tracking records a change of that type for the
+  save and for replication: the game's own per-type bits, 40 and 91 of its 687 component types on this build (null
+  where a build does not tell). `SaveTracked == true`: the write marked the entity and the next save writes it.
+  `false`: no write of that type marks anything, the game's own included, so on an entity a save has already
+  written the value is gone after a restart, tracked or not (`ScaleComponent`). `ReplicationTracked == false` does
+  not mean players never see the value: the game sends many values through another component it derives from this
+  one (`Fuel` through `NetworkFuel`).
+- **Attributes** (`Attribute == true`: Health, Stamina, Mana, Fuel, Level…): after the write the game's own formulas
+  run, as after its own changes, so `After` may be clamped. The first 8 bytes of an attribute (group, values offset,
+  flags, count) are the game's: a write that would change them is `Refused`. Use `Update<T>` and change `Values`.
+- **`Update`'s callback** runs inside the game's step, on the tick thread on a dedicated server and maybe on a game
+  worker thread in a hosted game. It gets a copy: touch only the value, no Kiln or game API. Its exception becomes
+  `Faulted` and is logged for the mod.
+- **Events.** `ComponentWrittenEvent` is posted on the tick thread for every write a mod made through these calls
+  that changed bytes (not for `Unchanged`, not for a refusal), with the result; it is an `IEntityEvent`, so
+  `EventFilter.ForEntity` works. A change the game makes itself raises nothing.
+- **Which world, which entity.** A write belongs to the server world that runs when you call: one made before the
+  first world exists answers `Dropped`, and one that has not run when a hosted game opens another world answers
+  `Dropped` too. It also carries its entity's generation, the entity's `SpawnTime` (the entities the game or Kiln.Spawn
+  spawns into the world have one), read at the call and compared right before the write: another value means the id
+  names a new entity, and the answer is `NoComponent` ("is not the entity the write was asked for"). An entity without
+  a `SpawnTime` (one loaded from the save, an item given into an inventory; a player may have none) cannot be told
+  apart that way, so a write to it is
+  never kept waiting behind a full step: when the step's 512 places are taken, it answers `Dropped` at once ("has no
+  SpawnTime"; ask again in the next step). A write whose entity loses the component while it waits never runs either.
+  Ask on the tick thread between two steps (a mod's tick, a command, an event), not inside a world program's update
+  (`InvalidOperationException`). An id you keep from an earlier step can name another entity by now; check before you
+  write.
+- **Limits.** 64 entries in a mod's `writes` (a repeated name counts each time), 91 component types for all mods
+  together (one program's 92 accessors, one of which reads `SpawnTime`; a name the world does not have takes no place);
+  4,096 bytes per write (`Update` takes components up to 64 KB); 512 writes run per step, the rest wait for the next
+  steps; 4,096 writes whose answer has not been handed over yet (waiting, running, held for the check, answered, or
+  being delivered; refusals included), past that the call answers `Dropped` at once; 1,024 answers per step. The
+  server world only.
+- **A list kiln.world cannot read** (`"writes": null`, a name with a stray character, more than 64 entries) costs the
+  mod its tracked writes, not its loading: the mod loads with a warning in kiln.log, `WriteInfo` says `ListRefused`,
+  and each write answers `NotDeclared` with what is wrong with the list.
+- `World.WriteInfo("Health")` answers for any component, listed or not, once a world runs: look before you list. It
+  reads what kiln.world published for the running world, tagged with that world (the game's writers at the world's
+  setup, the save and replication bits at its first step), never the live world, so any thread may ask. While a world
+  is being set up (or none runs) `FactsKnown` is false: the counts are 0 and the flags null, never the previous
+  world's.
+
+### Entity sets
+`World.Query(with…)` and `World.Query(with, without)` give an `EntitySet`: the entities that have every component of
+one list and none of the other, read at that moment (`Query<T>()`, `Query<T1, T2>()` take generated types). A set is a
+snapshot; `Refresh()` reads it again, `Contains`, `Count` and enumeration read the snapshot. The cost is one pass over
+the world's entities for the rarest listed component, then one lookup per candidate and other component. Sets need
+`world.find` (`EntitySet.Capability`): without kiln.world, or on a build where it cannot walk the entity map, `Query`
+and `Refresh` throw `KilnUnavailableException("world.find")` (`World.Find` keeps its own behaviour).
 
 ### The admin contract (Kiln.Admin)
 | Admin op | kiln.world |
@@ -140,6 +240,34 @@ Tick thread (Pre/Post) or inside your program: `component(e, hash, &size)`, `exi
   Also a forced stuck teleport on a prop to exercise the 10 s watchdog (`PASS watchdog`).
 - Hot reload: `reload-test world-test 6` with a teleport in flight each time: 0 leaked contexts.
 - Idle: no measurable cost in tick-stats.jsonl (step and Pre p50 within noise of a run without kiln-world.dll).
+- `mods/tests/world-writes-test` (tracked writes; a lab made with `--save` from a world with a base; start it three
+  times, stopping after each `READY restart`): boot 1 the build's table of all 687 component types, every refusal, a
+  tracked `Fuel` write with the game's formulas and its mirror program, the event, a value the game derives
+  (`NetworkFuel`, `Kept == false`), a type with no game writer; boot 2 a tracked and a raw write of `Fuel`, `UsedItem`
+  and `ServerToggleState.state` on twin entities a save has already written, and of `ScaleComponent`; boot 3 reads
+  them. Lab `dev27-world`: 27, 9 and 11 PASS, 0 FAIL:
+  ```
+  PASS Fuel kept the tracked write across the save and restart: 4321 (written 4321)
+  PASS the raw Fuel control was lost: the save skipped the untracked write: 1000 (raw 3000, saved before it 1000)
+  PASS UsedItem kept the tracked write across the save and restart: 1032 0x8ec15337 (written 0x8ec15337, before 0xf1147751)
+  PASS the raw UsedItem control was lost: 1044 0x0cc076a8 (raw 0x8ec15337, saved before it 0x0cc076a8)
+  PASS ScaleComponent, which the save does not track, was not kept either way: tracked 1.25 reads 1 (before 1), raw 1.5 reads 1 (before 1)
+  PASS ServerToggleState.state kept the tracked write across the save and restart: 1175 0 (written 0, before 1)
+  PASS the raw ServerToggleState control was lost: 1177 1 (raw 0, saved before it 1)
+  INFO ServerToggleState.lastChange, written tracked with the same component: reads 0 (written 12345, before 0): the game's save record of the type does not carry this field
+  ```
+  The full log and what it shows about the save: [docs/re/world.md](../../re/world.md#tracked-writes-dev27-server-26430253-exe-f0d824be-client-26430625-exe-5d9ef2f1).
+- Offline, in a mod's own unit tests: Kiln.TestKit's fake world (`kiln.Entities`) runs the same `World` calls under
+  `dotnet test`, tracked writes with kiln.world's rules included ([../modding/unit-tests.md](../modding/unit-tests.md)).
+- Host tests without a game: `KILN_OUT=… native/services/world/tests/run.sh` (boot declarations, program boundaries,
+  tracked writes: 26 + 26 + 174 checks, under ASan: the queue's limits, world identity and the watch over waiting
+  requests' entities, the delivery that checks each callback right before it runs, the watchdog, the catalog under
+  concurrent readers, a consumer compiled against the dev.26 header on the v3 table, and the cases of
+  `tests/parity.json` and `tests/abi.json`); `managed/tests/Kiln.World.Tests` (33 tests: the native mirrors field for
+  field against `abi.json`, Kiln.Api's v2 table and Kiln.World's v1 table on a v3 and on a v2 provider, the exception
+  contract of the dev.27 members, results, the capability row, the SDK's `writes` fill on a fixture mod, Kiln.Game's
+  forwards of the moved marker interfaces). `parity.json` is also read by `Kiln.Host.Tests` (the manifest reader) and
+  `Kiln.TestKit.Tests` (the fake world), so the three agree on every boundary in it.
 
 ## Client checklist (needs a joined player)
 - `Teleport.To(player, …)` snaps the client once (no rubber-band), `TeleportCount`/`RenderTeleportCount` change, and
@@ -148,7 +276,34 @@ Tick thread (Pre/Post) or inside your program: `component(e, hash, &size)`, `exi
   in the game log with Checkpoint.
 - A dead player (respawn screen) is refused with "the entity is dead".
 - `ToEntity(player, otherPlayer)` lands next to the other player; `ToSpawnPoint(player, altar)` on a landing pad.
+- Tracked writes (guided checks of `mods/tests/world-writes-test`, since 0.2.0-dev.27; a lab has no screen):
+  `world.tracked-water`: a can in your backpack is set from full to half by `World.Update<Ecs.Fuel>` while you look
+  at it, and shows half without your touching it; `world.tracked-water-rejoin`: a can set to 23 of 100 shows 23
+  before you leave to the menu and after you come back. Until these pass, "players see a tracked write" is unproven.
 
+
+## Tracked writes for native services (v3)
+The table's last five entries, appended in v3 (check `header.size` and `capabilities() & KILN_WORLD_CAP_TRACKED_WRITES`):
+`write_submit(owner, &request, &ticket)` queues one write (bytes at an offset, or a `change` callback that edits a copy
+of the component inside the step) and answers through `callback` in a later Pre; `write_cancel(ticket)`;
+`write_info(mod_id, hash, &info)`; `write_status(&status)`; `write_declare(owner, who, names, count)` lists a native
+service's own component types (from `kiln_plugin_main` or `on_ready`: the write program is made when the first server
+world registers its programs). A mod's types come from `"writes"` in its kiln.mod.json, read at boot next to
+`kiln.programs.json`; a name the world does not know is left out of the program alone and takes none of its 91
+places (the first server world decides this, before the program is made). The program also reads `SpawnTime`
+(`other_read`), the entities' generation: `write_submit` (tick thread, between steps) reads the entity's `SpawnTime`
+and the write compares it right before writing; a request for an entity without one is answered `DROPPED` at once
+when the next update's 512 places are taken. `write_info` answers from a catalog tagged with the world it describes
+(`KILN_WORLD_INFO_NOT_READY` while the running world's is not published). A mod whose `"writes"` could not be read is
+`KILN_WORLD_WRITES_LIST_REFUSED`: it loads, every write of it is refused with the reason. A request remembers the server world it
+was made in (one of an earlier world is dropped when the next registers) and is watched while it waits: if its entity
+lacks the component at an update, it never runs. Before each result callback kiln.world asks again whether the
+request is still wanted and its owner alive, so a callback that cancels another request or unloads another owner
+stops that one's delivery. `KILN_ERR_BUFFER_TOO_SMALL` counts every request not delivered yet, refusals included.
+The program
+(`kiln_world_writes`, SYSTEM | HOST_ONLY, the listed types as `other_write`, `impact::AttributeRegistry` as an optional
+read singleton) exists only when something is listed: a server whose mods list nothing gets no extra program.
+kiln.items keeps its own program for water and moves; nothing was moved onto this one.
 
 ## Programs v2
 

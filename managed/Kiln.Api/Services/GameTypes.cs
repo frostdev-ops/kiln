@@ -593,8 +593,10 @@ public static unsafe class Reflected
 }
 
 /// <summary>A reflected struct (a component, an event copy): read and write fields by path, checked against the
-/// game's types. Paths: <c>"dataStorage[0]"</c>, <c>"transform.position.x"</c>. Writes skip the game's dirty-marking:
-/// some fields only reach players when the server next touches them.</summary>
+/// game's types. Paths: <c>"dataStorage[0]"</c>, <c>"transform.position.x"</c>. A write to a component view is a raw
+/// store that skips the game's write tracking: the save skips it on an entity it has already written and some fields
+/// only reach players when the server next touches them. <c>World.WriteField</c> (Kiln.World) is the same checked
+/// write through the game's tracking.</summary>
 public sealed unsafe class ReflectedValue
 {
     private readonly uint _entity, _hash;
@@ -698,8 +700,13 @@ public sealed unsafe class ReflectedValue
         return sb.ToString();
     }
 
-    private (GameType Type, int Offset) Resolve(string path)
+    private (GameType Type, int Offset) Resolve(string path) => ResolvePath(Type, path);
+
+    /// <summary>The type and offset of the field <paramref name="path"/> names inside <paramref name="root"/>
+    /// (Kiln.World's tracked field write uses the same walk).</summary>
+    internal static (GameType Type, int Offset) ResolvePath(GameType root, string path)
     {
+        var Type = root;
         if (string.IsNullOrEmpty(path) || path.Length > 4096) throw new ArgumentException("a field path is required", nameof(path));
         var t = Type.Resolved;
         var off = 0;

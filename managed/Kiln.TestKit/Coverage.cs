@@ -21,8 +21,8 @@ public enum CoverageKind
 public sealed record CoverageRow(string Area, CoverageKind Kind, IReadOnlyList<string> Capabilities, string Note);
 
 /// <summary>What the kit makes real, what it fakes and what is unavailable offline: the data the docs' table is made
-/// from. Each part of the kit adds its rows in its own file (<c>AddFakes</c>, <c>AddRunner</c>); every Kiln service no row
-/// names gets an Unavailable row of its own.</summary>
+/// from. Each part of the kit adds its rows in its own file (<c>AddFakes</c>, <c>AddWorld</c>, <c>AddRunner</c>); every Kiln
+/// service no row names gets an Unavailable row of its own.</summary>
 public static partial class Coverage
 {
     private static readonly Lazy<IReadOnlyList<CoverageRow>> Rows = new(Build);
@@ -32,6 +32,8 @@ public static partial class Coverage
 
     static partial void AddFakes(List<CoverageRow> rows);
 
+    static partial void AddWorld(List<CoverageRow> rows);
+
     static partial void AddRunner(List<CoverageRow> rows);
 
     private static IReadOnlyList<CoverageRow> Build()
@@ -39,6 +41,7 @@ public static partial class Coverage
         var rows = new List<CoverageRow>();
         AddCore(rows);
         AddFakes(rows);
+        AddWorld(rows);
         AddRunner(rows);
         var named = rows.SelectMany(r => r.Capabilities).ToHashSet(StringComparer.Ordinal);
         foreach (var service in ServiceNames.All.Order(StringComparer.Ordinal))

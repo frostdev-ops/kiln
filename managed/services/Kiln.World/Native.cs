@@ -104,6 +104,13 @@ internal static unsafe class WorldNative
         }
     }
 
+    /// <summary>Tests and the test kit: ask for the table again (a first ask can come before a fake table is published).</summary>
+    internal static void Reset()
+    {
+        _table = null;
+        _looked = false;
+    }
+
     public static Table* Require(string api)
     {
         var t = T;
