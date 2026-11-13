@@ -81,7 +81,7 @@ def mod_dir(recipe_path):
 
 def out_dir(recipe_path, doc, default="cooked"):
     """Where a recipe's cook writes: its "out", relative to the recipe. It is the mod's assets/cooked folder or a folder in it, or the recipe is
-    refused (the same rule in every cook tool: tools/modelcook/cook/recipe.py)."""
+    refused (the same rule in every cook tool: tools/modelcook/cook/recipe.py). The cook asks this, not load."""
     p = Path(recipe_path)
     out = doc.get("out", default)
     if not isinstance(out, str) or not out:
@@ -103,7 +103,6 @@ def load(path):
         raise RecipeError(f"{p}: {e}") from e
     if doc.get("format") != 1:
         raise RecipeError(f"{p}: format {doc.get('format')!r}, expected 1")
-    out_dir(p, doc)
     try:
         doc = B.add_to(doc, p)  # the animations and bodies of the mod's blocks/*.json
     except B.BlocksError as e:
@@ -153,6 +152,7 @@ def sources_of(doc, base):
 def needs_cook(path):
     p = Path(path)
     doc = load(p)
+    out_dir(p, doc)
     if not own_steps(doc):
         return False
     rep = p.parent / doc.get("out", "cooked") / report_name(doc)
@@ -184,6 +184,7 @@ class Run:
     def __init__(self, path, types, kfc=None):
         self.p = Path(path)
         self.doc = load(self.p)
+        out_dir(self.p, self.doc)
         self.dir = self.p.parent
         self.out = self.doc.get("out", "cooked")
         self.t, self.k = types, kfc

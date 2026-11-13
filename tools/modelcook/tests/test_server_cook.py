@@ -270,11 +270,13 @@ class OutFolder(unittest.TestCase):
             for out, where in (("built", "assets"), (".", "assets"), ("../cooked", "assets"), ("cooked/../src", "assets"), ("cooked-more", "assets"),
                                ("Cooked", "assets"), (str(Path(d) / "elsewhere"), "assets"), ("cooked", "impact"), ("", "assets")):
                 r = self._recipe(d, out, where)
-                with self.assertRaises(R.RecipeError, msg=out) as e:
-                    R.load(r)
-                if out:
-                    self.assertIn("outside the mod's assets/cooked folder", str(e.exception), out)
-                    self.assertIn('"out": "cooked"', str(e.exception))
+                R.load(r)  # the reader takes the recipe's shape wherever the file lies (kiln lint's reader does the same)
+                for cook in (lambda: R.needs_cook(r), lambda: R.run(r, None, None, update_manifest=True)):
+                    with self.assertRaises(R.RecipeError, msg=out) as e:
+                        cook()
+                    if out:
+                        self.assertIn("outside the mod's assets/cooked folder", str(e.exception), out)
+                        self.assertIn('"out": "cooked"', str(e.exception))
 
     def test_the_command_refuses_and_writes_nothing(self):
         import subprocess

@@ -123,7 +123,8 @@ def looks_recipe(mod_dir, mod=None):
 
 
 def out_dir(path, doc, default="cooked"):
-    """Where a recipe's cook writes: its "out", relative to the recipe. It is the mod's assets/cooked folder or a folder in it, or the recipe is refused."""
+    """Where a recipe's cook writes: its "out", relative to the recipe. It is the mod's assets/cooked folder or a folder in it, or the recipe is refused.
+    The cook asks this (run, needs_cook and the command), not load: load reads a recipe's shape wherever the file lies, as kiln lint does."""
     p = Path(path)
     out = doc.get("out", default)
     if not isinstance(out, str) or not out:
@@ -150,7 +151,6 @@ def load(path, given=None):
         raise RecipeError(f"{p}: format {doc.get('format')!r}, expected 1")
     if doc.get("tool", TOOL) not in KNOWN_TOOLS:
         raise RecipeError(f"{p}: tool {doc.get('tool')!r} (known: {', '.join(KNOWN_TOOLS)})")
-    out_dir(p, doc)
     for i, st in enumerate(doc.get("steps", [])):
         tool = tool_of(doc, st)
         if tool not in KNOWN_TOOLS:
@@ -235,6 +235,7 @@ def needs_cook(path, given=None):
     """True when the outputs are missing or the report does not match this recipe (no game access needed)."""
     p = Path(path)
     doc = load(p, given)
+    out_dir(p, doc)
     if not own_steps(doc):
         return False
     rep = p.parent / doc.get("out", "cooked") / report_name(doc)
@@ -364,6 +365,7 @@ def _made_here(path, mod_dir, mod_files):
 def run(path, k, t, exe_sha256=None, update_manifest=False, given=None):
     p = Path(path)
     doc = load(p, given)
+    out_dir(p, doc)
     base_dir = p.parent
     out = doc.get("out", "cooked")
     inputs, in_report = {}, {}

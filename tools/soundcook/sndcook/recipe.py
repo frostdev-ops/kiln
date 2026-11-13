@@ -104,7 +104,7 @@ def mod_dir(recipe_path):
 
 def out_dir(recipe_path, doc, default="cooked"):
     """Where a recipe's cook writes: its "out", relative to the recipe. It is the mod's assets/cooked folder or a folder in it, or the recipe is
-    refused (the same rule in every cook tool: tools/modelcook/cook/recipe.py)."""
+    refused (the same rule in every cook tool: tools/modelcook/cook/recipe.py). The cook asks this, not load."""
     p = Path(recipe_path)
     out = doc.get("out", default)
     if not isinstance(out, str) or not out:
@@ -128,7 +128,6 @@ def load(path):
         raise RecipeError(f"{p}: format {doc.get('format')!r}, expected 1")
     if doc.get("tool", DEFAULT_TOOL) not in KNOWN_TOOLS:
         raise RecipeError(f"{p}: tool {doc.get('tool')!r} (known: {', '.join(KNOWN_TOOLS)})")
-    out_dir(p, doc)
     names = {op: set() for op in OPS}
     for i, st in enumerate(doc.get("steps", [])):
         tl = tool_of(doc, st)
@@ -176,6 +175,7 @@ def needs_cook(path):
     """True when outputs are missing or the report does not match this recipe or its sources (no game access)."""
     p = Path(path)
     doc = load(p)
+    out_dir(p, doc)
     if not own_steps(doc):
         return False
     out = p.parent / doc.get("out", "cooked")
@@ -416,6 +416,7 @@ def _cook_pcm(job, native, cross_check):
 def run(path, game=None, native=None, update_manifest=False, cross_check=False, log=print):
     p = Path(path).resolve()
     doc = load(p)
+    out_dir(p, doc)
     t, tinfo = R.choose_types(game.types if game else None)
     c = _Ctx(p, doc, game, t)
     in_report = _load_inputs(c)

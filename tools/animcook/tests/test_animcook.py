@@ -433,6 +433,7 @@ class RecipeRun(Base):
         for out in ("built", "../cooked", ".", "cooked/../src"):
             self.r.write_text(json.dumps(dict(self.RECIPE, out=out)))
             before = sorted(str(f) for f in self.mod.parent.rglob("*"))
+            R.load(self.r)  # the reader takes the recipe's shape; the cook refuses where it would write
             with self.assertRaises(R.RecipeError, msg=out) as e:
                 R.Run(self.r, TYPES)
             self.assertIn("outside the mod's assets/cooked folder", str(e.exception))

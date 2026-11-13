@@ -54,7 +54,7 @@ def mod_dir(recipe_path):
 
 def out_dir(recipe_path, doc, default="../assets/cooked/impact"):
     """Where a recipe's cook writes: its "out", relative to the recipe. It is the mod's assets/cooked folder or a folder in it, or the recipe is
-    refused (the same rule in every cook tool: tools/modelcook/cook/recipe.py)."""
+    refused (the same rule in every cook tool: tools/modelcook/cook/recipe.py). The cook asks this, not load."""
     p = Path(recipe_path)
     out = doc.get("out", default)
     if not isinstance(out, str) or not out:
@@ -75,7 +75,6 @@ def load(path):
         raise RecipeError(f"{p}: format {doc.get('format')!r}, expected 1")
     if doc.get("tool") != "impact":
         raise RecipeError(f"{p}: tool {doc.get('tool')!r} is not impact")
-    out_dir(p, doc)
     for i, st in enumerate(doc.get("steps", [])):
         if st.get("op") not in OPS:
             raise RecipeError(f"step {i}: op {st.get('op')!r} (known: {', '.join(OPS)})")
@@ -86,7 +85,7 @@ def load(path):
 
 def _paths(p, doc):
     base = p.parent
-    out = (base / doc.get("out", "../assets/cooked/impact")).resolve()
+    out = out_dir(p, doc)  # refused unless it is in the mod's assets/cooked: needs_cook and run both come through here
     man = (base / doc.get("manifest", "../assets/assets.json")).resolve()
     return base, out, man
 
