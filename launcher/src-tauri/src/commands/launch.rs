@@ -145,6 +145,8 @@ static STARTS: std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<St
 
 /// A start that never got its game going is forgotten after this long.
 const FORGET_UNSEEN_MS: i64 = 15 * 60_000;
+/// A start whose launcher step ended with no next one (no launch_play after the cook) is over after this long.
+const STALLED_MS: i64 = 30_000;
 
 pub(crate) fn now_ms() -> i64 {
     kiln_manage::start_progress::unix_ms(std::time::SystemTime::now())
@@ -204,7 +206,10 @@ pub(crate) fn progress_round(dirs: &kiln_manage::paths::DataDirs, g: &kiln_manag
         if side.running && t.asked {
             t.seen = true;
         }
-        if !t.seen && now - t.began > FORGET_UNSEEN_MS {
+        // a Play that ended before Steam was asked (its cook ended and no launch_play came: the window went away or
+        // gave up) is over after a moment; one that never got further at all, after FORGET_UNSEEN_MS
+        let stalled = t.waiting_since().is_some_and(|w| now.saturating_sub(t.began).saturating_sub(w as i64) > STALLED_MS);
+        if stalled || (!t.seen && now - t.began > FORGET_UNSEEN_MS) {
             starts.remove(&g.id);
         }
     }
@@ -212,40 +217,44 @@ pub(crate) fn progress_round(dirs: &kiln_manage::paths::DataDirs, g: &kiln_manag
     drop(starts);
     // a progress.json of another start than this launcher's (Steam's Play while this one waited): its own timeline
     let launcher = launcher.filter(|l| side.progress.as_ref().and_then(|p| sp::parse_ms(&p.started)).is_none_or(|s| s >= l.began));
-    let history = sp::history_of(dirs, &g.id);
-    let kiln = launcher.as_ref().and_then(|l| l.kiln.clone()).or_else(|| runtime_version(g));
+    // the version a start is stored and looked up by is progress.json's `kiln`; the receipt's only finds it before then
+    let receipt = launcher.as_ref().and_then(|l| l.kiln.clone()).or_else(|| runtime_version(g));
     let fingerprint = launcher.as_ref().and_then(|l| l.fingerprint.clone()).or_else(|| {
         let req = LaunchRequest { mode: kiln_manage::launch::LaunchMode::Profile, profile_id: None, skip_backup: true };
         side.progress.as_ref().and_then(|_| kiln_manage::launch::launch_fingerprint(dirs, g, &req).ok())
     });
-    let tl = sp::timeline(&sp::Inputs {
-        launcher: launcher.as_ref(),
-        progress: side.progress.as_ref(),
-        written: side.written,
-        process: side.process,
-        running: side.running,
-        boot: side.boot,
-        now,
-        history: &history,
-        kiln: kiln.as_deref(),
-        fingerprint: fingerprint.as_deref(),
-    })?;
-    if tl.phase == sp::Phase::Ready
-        && let Some(p) = side.progress.as_ref()
-        && !launcher.as_ref().is_some_and(|l| l.kept)
-    {
-        let kiln = kiln.clone().or_else(|| p.kiln.clone()).unwrap_or_default();
-        if let Some(k) = sp::kept_from(&tl, p, &kiln, fingerprint.as_deref().unwrap_or_default(), now, launcher.as_ref()) {
-            match sp::keep(dirs, &g.id, k) {
-                Ok(_) => track(&g.id, |t| t.kept = true),
-                Err(e) => eprintln!("start times: {e}"),
+    let r = {
+        let mut steady = STEADY.lock().unwrap_or_else(|e| e.into_inner());
+        sp::round(dirs, &g.id, launcher.as_ref(), &side, receipt.as_deref(), fingerprint.as_deref(), now, &mut steady)
+    };
+    match &r.kept {
+        Some(sp::Kept::Kept | sp::Kept::Already) => track(&g.id, |t| t.kept = true),
+        Some(sp::Kept::LeftAlone(why)) => {
+            // said once per launcher run: every finished start would say it again
+            static SAID: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+            if !SAID.swap(true, std::sync::atomic::Ordering::SeqCst) {
+                crate::commands::app::launcher_log("start times", why);
             }
+            track(&g.id, |t| t.kept = true);
         }
+        None => {}
     }
+    let tl = r.timeline?;
     if tl.phase == sp::Phase::Ended || (!side.running && launcher.as_ref().is_some_and(|l| l.kept)) {
         forget(&g.id);
     }
     Some(tl)
+}
+
+/// The bar's highest point per start: it never moves back, whoever looks.
+static STEADY: std::sync::LazyLock<std::sync::Mutex<kiln_manage::start_progress::Steady>> = std::sync::LazyLock::new(Default::default);
+
+/// `launch_end`: Play ended before the game's process existed (the start was refused before Steam was asked, or the
+/// window gave it up): the start this launcher was timing is over, and the window shows what it showed before Play.
+#[tauri::command]
+pub async fn launch_end(game_id: String) -> Result<(), Error> {
+    forget(&game_id);
+    Ok(())
 }
 
 /// `launch_progress`: what the start of the game is doing now, as one timeline (`kiln_manage::start_progress::Timeline`:

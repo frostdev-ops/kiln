@@ -361,9 +361,9 @@ fn a_move_by_hard_links_leaves_the_old_copy_untouched_by_later_writes() {
 fn a_move_carries_the_start_times() {
     use kiln_manage::start_progress as sp;
     let fx = Fixture::build("start-times");
-    let start = sp::KeptStart { kiln: "0.2.0-dev.27".into(), fingerprint: "kms1:x".into(), finished: "2026-11-13T17:29:21.675Z".into(),
+    let start = sp::KeptStart { kiln: "0.2.0-dev.27".into(), runtime: None, fingerprint: "kms1:x".into(), finished: "2026-11-13T17:29:21.675Z".into(),
         started: "2026-11-13T17:28:19.975Z".into(), steps: vec![sp::KeptStep { id: "cook".into(), ms: 79_000, total: Some(3), parts: vec![] }] };
-    assert!(sp::keep(&fx.dirs, "client-a", start.clone()).unwrap());
+    assert_eq!(sp::keep(&fx.dirs, "client-a", start.clone()).unwrap(), sp::Kept::Kept);
     let to = fx.base.join("moved-times");
     let r = mv(&fx, &to, &linking(), &MoveOptions::default()).unwrap();
     assert!(r.cleanup.unwrap().done);

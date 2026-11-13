@@ -110,6 +110,7 @@ pub fn run() {
             commands::launch::launch_prestart,
             commands::launch::launch_begin,
             commands::launch::launch_progress,
+            commands::launch::launch_end,
             commands::logs::logs_list,
             commands::logs::logs_read,
             commands::logs::logs_follow,
