@@ -128,7 +128,7 @@ public sealed class ResultTests
                     var result = await Items.Equip(p, default);
                     if (!result.Ok)
                     {
-                        Log.Warn($"Items.Equip refused: {result.Reason}");
+                        Log.Warn("Items.Equip refused: " + result.Reason);
                     }
                     Log.Info("done");
                 }
@@ -226,10 +226,118 @@ public sealed class ResultTests
         var check = await Fix(A, new ResultCodeFix(), source);
         Assert.Contains("var r = await Items.Equip(p, default);", check);
         Assert.Contains("if (!r.Ok)", check);
-        Assert.Contains("Log.Warn($\"Items.Equip refused: {r.Reason}\");", check);
+        Assert.Contains("Log.Warn(\"Items.Equip refused: \" + r.Reason);", check);
         var drop = await Fix(A, new ResultCodeFix(), source, action: 1);
         Assert.Contains("_ = await Items.Equip(p, default);", drop);
         Assert.DoesNotContain("var r", drop);
+    }
+
+    [Fact]
+    public async Task A_local_set_through_a_conversion_or_a_conditional_is_reported()
+    {
+        // Codex review, finding 4
+        var d = await Run(A, """
+            public sealed class M : Mod
+            {
+                public void Run(EntityId p, bool on)
+                {
+                    var r = on ? NoClip.Set(p, true) : NoClip.Set(p, false);
+                    var k = (IKilnResult)NoClip.Set(p, true);
+                    var read = on ? NoClip.Set(p, true) : NoClip.Set(p, false);
+                    Log.Info(read.Message);
+                }
+            }
+            """);
+        Ids(d, "KILN120", "KILN120");
+        Assert.Contains("is stored in 'r' and never read", d[0].GetMessage());
+        Assert.Contains("is stored in 'k' and never read", d[1].GetMessage());
+    }
+
+    [Fact]
+    public async Task A_task_kept_in_a_local_is_only_dropped()
+    {
+        // Codex review, finding 5: `if (!t.Ok)` on a Task does not compile
+        const string source = """
+            public sealed class M : Mod
+            {
+                public void Run(EntityId p)
+                {
+                    var t = Items.Equip(p, default);
+                }
+            }
+            """;
+        Assert.Equal(new[] { "Drop it on purpose (_ =)" }, await Titles(A, new ResultCodeFix(), source));
+    }
+
+    [Fact]
+    public async Task A_result_through_conditional_access_is_only_dropped()
+    {
+        // Codex review, finding 6: result.Ok would throw where f?.Invoke() did nothing
+        const string source = """
+            public sealed class M : Mod
+            {
+                public void Run()
+                {
+                    Func<IKilnResult>? f = null;
+                    f?.Invoke();
+                }
+            }
+            """;
+        Assert.Equal(new[] { "Drop it on purpose (_ =)" }, await Titles(A, new ResultCodeFix(), source));
+    }
+
+    [Fact]
+    public async Task No_drop_where_underscore_names_a_parameter()
+    {
+        // Codex review, finding 7: `_ = ...` would assign the parameter called _
+        const string source = """
+            public sealed class M : Mod
+            {
+                public override void OnLoad()
+                {
+                    Action<EntityId> a = _ => NoClip.Set(_, true);
+                    a(default);
+                }
+            }
+            """;
+        Assert.Empty(await Titles(A, new ResultCodeFix(), source));
+    }
+
+    [Fact]
+    public async Task Fix_names_the_call_as_a_symbol_and_escapes_it()
+    {
+        // Codex review, finding 9: no source text of the call goes into the generated string
+        var d = await Run(A, """
+            public sealed class M : Mod
+            {
+                public async Task Run(bool rain) => await (rain ? Time.SetWeather("rain") : Time.SetWeather("sun"));
+            }
+            """);
+        Ids(d, "KILN120");
+        Assert.Contains("'Time.SetWeather' is thrown away", d[0].GetMessage());
+        var s = await Fix(A, new ResultCodeFix(), """
+            public sealed class M : Mod
+            {
+                public async Task Run(bool rain)
+                {
+                    await (rain ? Time.SetWeather("rain") : Time.SetWeather("sun"));
+                }
+            }
+            """);
+        Assert.Equal("""
+            public sealed class M : Mod
+            {
+                public async Task Run(bool rain)
+                {
+                    var result = await (rain ? Time.SetWeather("rain") : Time.SetWeather("sun"));
+                    if (!result.Ok)
+                    {
+                        Log.Warn("Time.SetWeather refused: " + result.Reason);
+                    }
+                }
+            }
+            """, s);
+        Compile(s!);
     }
 
     [Fact]
@@ -629,6 +737,109 @@ public sealed class CapabilityTests
     }
 
     [Fact]
+    public async Task A_negated_test_kept_in_a_bool_local_is_a_check()
+    {
+        // Codex review, finding 1
+        var d = await Run(A, """
+            public sealed class M : Mod
+            {
+                public void Run(EntityId p)
+                {
+                    bool unavailable = !NoClip.Available;
+                    if (unavailable) return;
+                    _ = NoClip.Set(p, true);
+                }
+                public void Twice(EntityId p)
+                {
+                    bool unavailable = !NoClip.Available;
+                    unavailable = false;
+                    if (unavailable) return;
+                    _ = NoClip.Set(p, true);      // written again: not followed
+                }
+            }
+            """);
+        Ids(d, "KILN121");
+        Assert.Equal(13, d[0].Location.GetLineSpan().StartLinePosition.Line);
+    }
+
+    [Fact]
+    public async Task A_property_of_the_mod_with_a_getter_block_is_a_check()
+    {
+        // Codex review, finding 2
+        var d = await Run(A, """
+            public sealed class M : Mod
+            {
+                static bool CanFly { get { return NoClip.Available; } }
+                static bool Grounded { get { return !NoClip.Available; } }
+                public void Fly(EntityId p) { if (CanFly) _ = NoClip.Set(p, true); }
+                public void Land(EntityId p) { if (Grounded) return; _ = NoClip.Set(p, false); }
+            }
+            """);
+        Ids(d);
+    }
+
+    [Fact]
+    public async Task A_local_function_is_judged_where_it_is_called()
+    {
+        // Codex review, finding 3: a check written before the local function's declaration is not a check before it runs
+        var d = await Run(A, """
+            public sealed class M : Mod
+            {
+                public void Early(EntityId p)
+                {
+                    Fly();
+                    if (!NoClip.Available) return;
+                    void Fly() => _ = NoClip.Set(p, true);
+                }
+                public void Late(EntityId p)
+                {
+                    if (!NoClip.Available) return;
+                    Fly();
+                    void Fly() => _ = NoClip.Set(p, true);
+                }
+            }
+            """);
+        Ids(d, "KILN121");
+        Assert.Equal(6, d[0].Location.GetLineSpan().StartLinePosition.Line);
+    }
+
+    [Fact]
+    public async Task No_wrap_fix_for_a_statement_that_declares_a_variable()
+    {
+        // Codex review, finding 8: h would move into the new block
+        var s = await Fix(A, new CapabilityCodeFix(), """
+            public sealed class M : Mod
+            {
+                public void Run(EntityId p)
+                {
+                    Combat.TryGetHealth(p, out var h);
+                    Log.Info($"{h}");
+                }
+            }
+            """);
+        Assert.Null(s);
+    }
+
+    [Fact]
+    public async Task Fix_writes_the_row_as_an_escaped_literal()
+    {
+        // Codex review, finding 9: the row goes in as a literal SyntaxFactory escapes
+        var s = await Fix(A, new CapabilityCodeFix(), """
+            public static class Lab { [RequiresCapability("lab.\"odd\"\\row")] public static void Open() { } }
+            public sealed class M : Mod
+            {
+                public void Run() => Go();
+                private static void Go()
+                {
+                    Lab.Open();
+                }
+            }
+            """);
+        Assert.Contains("if (Capabilities.Is(\"lab.\\\"odd\\\"\\\\row\"))", s);
+        Compile(s!);
+    }
+
+    [Fact]
     public async Task Rows_the_manifest_requires_are_checked_by_the_loader()
     {
         const string source = """
@@ -641,6 +852,9 @@ public sealed class CapabilityTests
         Ids(d, "KILN121");
         Assert.Contains("kiln.time", d[0].GetMessage());
         d = await Run(A, source, properties: Props(("KilnFeatures", "kiln.time;rules.noclip")));
+        Ids(d);
+        // what Kiln.Analyzers.targets passes: KilnFeatures with commas (an .editorconfig value ends at ';')
+        d = await Run(A, source, properties: Props(("KilnFeaturesList", "kiln.time,rules.noclip"), ("KilnFeatures", "kiln.time")));
         Ids(d);
     }
 

@@ -41,6 +41,9 @@ public sealed class ApiScanSourceTests
                     private const string Row = "svc.thing";
                     private static bool Can(string capability) => Capabilities.Is(capability);
                     public static bool Available => T != null;
+                    private static Table* U => T;
+                    public static bool DelegatedAvailable => U != null;
+                    public static bool LocalAvailable { get { var t = T; return t != null && t->X > 0; } }
                     public static bool ThingAvailable => Available && Can(Row);
                     public static bool DirectAvailable { get { var on = Capabilities.Is("svc.direct"); return on && T is not null; } }
                     /// <summary>Works on this build (capability <c>svc.doc</c>).</summary>
@@ -49,6 +52,9 @@ public sealed class ApiScanSourceTests
                     public static bool FeatureAvailable => false;
                     /// <summary>True when kiln.plain is loaded (it reads kiln.mod.json).</summary>
                     public static bool PlainAvailable => _t == null;
+                    /// <summary>Client: capability <c>svc.local</c>. Server: capability <c>svc.relay</c>.</summary>
+                    public static bool SideAvailable => Side ? Capabilities.Is("svc.relay") : Capabilities.Is("svc.local");
+                    public static bool Side { get; set; }
                     /// <summary>Something else entirely.</summary>
                     public static bool OtherAvailable => _t == null || Capabilities.Is("svc.either");
                     public static bool Ready => Capabilities.Is("svc.ready");
@@ -67,10 +73,14 @@ public sealed class ApiScanSourceTests
                 facts["P:Kiln.Svc." + pd.Identifier.ValueText] = g;
         var rows = ApiScanGuards.Resolve(facts).ToDictionary(r => r.Key.Substring("P:Kiln.Svc.".Length), r => string.Join(",", r.Value.Rows));
         Assert.Equal("kiln.svc", rows["Available"]);              // T != null, T from Services.Get("kiln.svc")
+        Assert.Equal("kiln.svc", rows["DelegatedAvailable"]);     // through U => T
+        Assert.Equal("kiln.svc", rows["LocalAvailable"]);         // through var t = T
         Assert.Equal("kiln.svc,svc.thing", rows["ThingAvailable"]); // a helper around Capabilities.Is, and another guard
-        Assert.Equal("svc.doc", rows["DocAvailable"]);
-        Assert.Equal("svc.feature", rows["FeatureAvailable"]);
-        Assert.Equal("kiln.plain", rows["PlainAvailable"]);        // a service in plain words; not "kiln.mod" of kiln.mod.json
+        // a summary is not code: what it names makes no guard (Codex review, finding 10)
+        Assert.False(rows.ContainsKey("DocAvailable"));
+        Assert.False(rows.ContainsKey("FeatureAvailable"));
+        Assert.False(rows.ContainsKey("PlainAvailable"));
+        Assert.False(rows.ContainsKey("SideAvailable"));           // one row on one side, another on the other: neither always
         Assert.Equal("kiln.svc", rows["DirectAvailable"]);         // T is not null; the local "on" is not followed
         Assert.False(rows.ContainsKey("OtherAvailable"));          // || asks nothing for sure
         Assert.Equal("svc.ready", rows["Ready"]);                  // "...Ready" asks as much

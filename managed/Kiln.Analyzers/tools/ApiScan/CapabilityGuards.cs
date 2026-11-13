@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: MIT
-using System.Text.RegularExpressions;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
@@ -7,13 +6,13 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
 namespace Kiln.Analyzers.Tools;
 
 /// <summary>KILN121's guard table: the public static bool properties named "...Available" or "...Ready" that answer the same question
-/// as <c>Capabilities.Is(row)</c> for a row, so a mod that asks them has asked for the row. A property is a guard for a
-/// row when its getter is (an <c>&amp;&amp;</c> of terms with) <c>Capabilities.Is(row)</c>, a one-line helper that
-/// returns <c>Capabilities.Is(its argument)</c> called with the row, <c>T != null</c> for a native table <c>T</c> that
-/// comes from <c>Services.Get&lt;...&gt;("kiln.x", ...)</c> (the core's <c>kiln.x</c> row says exactly that the table is
-/// here), or another guard; or when its summary names the row as its capability or feature
-/// (<c>(capability &lt;c&gt;kiln.time&lt;/c&gt;)</c>, the services' convention) or names the service in plain words
-/// ("True when kiln.knowledge is loaded").</summary>
+/// as <c>Capabilities.Is(row)</c> for a row, so a mod that asks them has asked for the row. Only the property's own code
+/// counts, and only a term it always asks: its getter is an <c>&amp;&amp;</c> of terms, and a term is
+/// <c>Capabilities.Is(row)</c>, a one-line helper that returns <c>Capabilities.Is(its argument)</c> called with the row,
+/// <c>T != null</c> for a native table <c>T</c> that comes from <c>Services.Get&lt;...&gt;("kiln.x", ...)</c> (which
+/// returns the table exactly when it is there and records the core's <c>kiln.x</c> row available: Services.cs, Get and
+/// Found), or another guard. A summary is not code: what it names makes no guard, and a getter that asks one row on
+/// one side and another on the other (<c>ServerSide ? relay : local</c>) asks neither always.</summary>
 internal static class ApiScanGuards
 {
     internal sealed class Guard
@@ -24,17 +23,8 @@ internal static class ApiScanGuards
         public readonly List<string> Why = new();
     }
 
-    // "capability <c>x</c>", "capabilities <c>x</c>, <c>y</c>", "the capability <see cref="Capability"/>", "feature <c>x</c>"
-    private static readonly Regex Named = new(
-        @"(?:capabilit(?:y|ies)|features?)\b((?:\s*(?:,|and|or)?\s*(?:<c>[A-Za-z0-9._/-]+</c>|<see\s+cref=""[^""]+""\s*/>))+)",
-        RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
-    private static readonly Regex Item = new(@"<c>([A-Za-z0-9._/-]+)</c>|<see\s+cref=""([^""]+)""\s*/>", RegexOptions.CultureInvariant);
-    // a service's own row named in plain words: "True when kiln.knowledge is loaded", "(kiln.content v3 on a build ...)"
-    private static readonly Regex Service = new(@"(?<![\w./-])kiln\.[a-z][a-z0-9_]*(?!\.?\w)", RegexOptions.CultureInvariant);
-    private static readonly Regex Summary = new(@"<summary>(.*?)</summary>", RegexOptions.CultureInvariant | RegexOptions.Singleline);
-
     /// <summary>The guard facts of one property declaration; null when it is no candidate (not static bool "...Available"
-    /// or "...Ready", or no getter) or it names no row in either way.</summary>
+    /// or "...Ready", or no getter) or its getter always asks no row.</summary>
     internal static Guard? Read(SemanticModel model, PropertyDeclarationSyntax pd, CancellationToken ct = default)
     {
         if (model.GetDeclaredSymbol(pd, ct) is not { IsStatic: true, Type.SpecialType: SpecialType.System_Boolean, GetMethod: not null } p ||
@@ -61,28 +51,7 @@ internal static class ApiScanGuards
                 }
             }
         }
-        foreach (var row in DocumentedRows(p, model.Compilation, ct))
-            if (g.Rows.Add(row)) g.Why.Add($"summary: {row}");
         return g.Rows.Count > 0 || g.Via.Count > 0 ? g : null;
-    }
-
-    /// <summary>The rows the property's summary names: as its capability or feature, or a service (<c>kiln.x</c>) in
-    /// plain words.</summary>
-    internal static IEnumerable<string> DocumentedRows(IPropertySymbol p, Compilation compilation, CancellationToken ct = default)
-    {
-        var xml = p.GetDocumentationCommentXml(cancellationToken: ct);
-        if (string.IsNullOrEmpty(xml) || Summary.Match(xml) is not { Success: true } s) yield break;
-        foreach (Match m in Service.Matches(s.Groups[1].Value)) yield return m.Value;
-        foreach (Match m in Named.Matches(s.Groups[1].Value))
-        {
-            foreach (Match item in Item.Matches(m.Groups[1].Value))
-            {
-                if (item.Groups[1].Success) yield return item.Groups[1].Value;
-                else if (DocumentationCommentId.GetFirstSymbolForDeclarationId(item.Groups[2].Value, compilation) is IFieldSymbol
-                         { HasConstantValue: true, ConstantValue: string c })
-                    yield return c;
-            }
-        }
     }
 
     // `x != null`, `null != x`, `x is not null`: x
@@ -94,28 +63,56 @@ internal static class ApiScanGuards
         _ => null,
     };
 
-    /// <summary>The service a native table property or field holds: the name of the one <c>Services.Get</c> call (a
-    /// constant) in its declaration (its getter, or the property that fills the field); null when there is none or
-    /// more than one name.</summary>
+    /// <summary>The service a native table property, field or local holds: the one constant name its declaration asks
+    /// for with <c>Services.Get&lt;T&gt;(name, ...)</c> or <c>Backend.Current.Service(name, ...)</c> (what Services.Get
+    /// calls), also through the other tables, table properties and methods it reads (<c>T => BuildNative.T</c>,
+    /// <c>_table = PlayerAnimNative.Get()</c>, <c>var t = CreaturesNative.T;</c>), up to three steps; null when it asks
+    /// for none or for more than one.</summary>
     internal static string? TableRow(ISymbol table, Compilation compilation, CancellationToken ct = default)
     {
-        if (table is not (IPropertySymbol { IsStatic: true } or IFieldSymbol { IsStatic: true })) return null;
+        // the value tested must be a table itself (a pointer), not something read from one (Attributes' Ids(...) is not null)
+        var type = table switch { IPropertySymbol p => p.Type, IFieldSymbol f => f.Type, ILocalSymbol l => l.Type, IMethodSymbol m => m.ReturnType, _ => null };
+        if (type is not IPointerTypeSymbol) return null;
         var names = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var r in table.DeclaringSyntaxReferences)
+        var seen = new HashSet<ISymbol>(SymbolEqualityComparer.Default);
+        return Collect(table, 0) && names.Count == 1 ? names.First() : null;
+
+        // false: a name that is not a constant (nothing can be said)
+        bool Collect(ISymbol symbol, int depth)
         {
-            var decl = r.GetSyntax(ct);
-            if (decl is VariableDeclaratorSyntax) decl = decl.Parent?.Parent ?? decl;  // a field: its declaration
-            if (!compilation.SyntaxTrees.Contains(decl.SyntaxTree)) continue;
-            var model = compilation.GetSemanticModel(decl.SyntaxTree);
-            foreach (var inv in decl.DescendantNodes().OfType<InvocationExpressionSyntax>())
+            if (depth > 3 || !seen.Add(symbol)) return true;
+            if (symbol is not (IPropertySymbol { IsStatic: true } or IFieldSymbol { IsStatic: true } or IMethodSymbol { IsStatic: true } or ILocalSymbol))
+                return true;
+            foreach (var r in symbol.DeclaringSyntaxReferences)
             {
-                if (model.GetSymbolInfo(inv, ct).Symbol is not IMethodSymbol { Name: "Get", IsGenericMethod: true } m ||
-                    m.ContainingType?.ToDisplayString() != "Kiln.Services" || inv.ArgumentList.Arguments.Count < 1) continue;
-                if (model.GetConstantValue(inv.ArgumentList.Arguments[0].Expression, ct) is { HasValue: true, Value: string name }) names.Add(name);
-                else return null;
+                var decl = r.GetSyntax(ct);
+                if (decl is VariableDeclaratorSyntax && symbol is IFieldSymbol) decl = decl.Parent?.Parent ?? decl;  // a field: its declaration
+                if (!compilation.SyntaxTrees.Contains(decl.SyntaxTree)) continue;
+                var model = compilation.GetSemanticModel(decl.SyntaxTree);
+                foreach (var n in decl.DescendantNodesAndSelf())
+                {
+                    if (n is InvocationExpressionSyntax inv && model.GetSymbolInfo(inv, ct).Symbol is IMethodSymbol m)
+                    {
+                        var asks = m is { Name: "Get", IsGenericMethod: true } && m.ContainingType?.ToDisplayString() == "Kiln.Services" ||
+                                   m.Name == "Service" && m.ContainingType?.Name is "IKilnBackend";
+                        if (asks)
+                        {
+                            if (inv.ArgumentList.Arguments.Count < 1 ||
+                                model.GetConstantValue(inv.ArgumentList.Arguments[0].Expression, ct) is not { HasValue: true, Value: string name })
+                                return false;
+                            names.Add(name);
+                        }
+                        else if (m.IsStatic && SymbolEqualityComparer.Default.Equals(m.ContainingAssembly, compilation.Assembly) &&
+                                 m.ReturnType is IPointerTypeSymbol && !Collect(m.OriginalDefinition, depth + 1))
+                            return false;
+                    }
+                    else if (n is IdentifierNameSyntax id && model.GetSymbolInfo(id, ct).Symbol is IPropertySymbol { IsStatic: true, Type: IPointerTypeSymbol } other &&
+                             SymbolEqualityComparer.Default.Equals(other.ContainingAssembly, compilation.Assembly) && !Collect(other, depth + 1))
+                        return false;
+                }
             }
+            return true;
         }
-        return names.Count == 1 ? names.First() : null;
     }
 
     // `=> e`, `{ get => e; }`, `{ get { return e; } }` (one return; locals before it are fine)

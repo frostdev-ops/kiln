@@ -18,7 +18,9 @@ using static Microsoft.CodeAnalysis.CSharp.SyntaxFactory;
 namespace Kiln.Analyzers;
 
 /// <summary>KILN120: "Check the result" (a local and <c>if (!result.Ok)</c>, with <c>Log.Warn</c> when a Log is in
-/// reach, else an empty block with a comment) and "Drop it on purpose" (<c>_ = ...</c>).</summary>
+/// reach, else an empty block with a comment) and "Drop it on purpose" (<c>_ = ...</c>). Check is offered only where the
+/// analyzer found it sound (a result that cannot be null, not reached through ?., not a task kept in a local); Drop only
+/// where <c>_</c> names nothing (a parameter or local called <c>_</c> would be assigned instead).</summary>
 [ExportCodeFixProvider(LanguageNames.CSharp, Name = nameof(ResultCodeFix)), Shared]
 public sealed class ResultCodeFix : CodeFixProvider
 {
@@ -31,6 +33,7 @@ public sealed class ResultCodeFix : CodeFixProvider
         if (!d.Properties.TryGetValue(ResultAnalyzer.ShapeKey, out var shape) || shape is null) return;
         d.Properties.TryGetValue(ResultAnalyzer.CallKey, out var call);
         call ??= "the call";
+        var checkable = d.Properties.TryGetValue(ResultAnalyzer.CheckKey, out var check) && check == "yes";
         var root = await context.Document.GetSyntaxRootAsync(context.CancellationToken).ConfigureAwait(false);
         var model = await context.Document.GetSemanticModelAsync(context.CancellationToken).ConfigureAwait(false);
         var node = root?.FindNode(d.Location.SourceSpan, getInnermostNodeForTie: true);
@@ -43,17 +46,18 @@ public sealed class ResultCodeFix : CodeFixProvider
             if (decl is null || decl.Declaration.Variables.Count != 1 || decl.Declaration.Variables[0] is not { Initializer.Value: { } init } v || v.Identifier.ValueText != local ||
                 !decl.UsingKeyword.IsKind(SyntaxKind.None) || decl.IsConst)
                 return;
-            if (decl.Parent is BlockSyntax or SwitchSectionSyntax)
+            if (checkable && decl.Parent is BlockSyntax or SwitchSectionSyntax)
                 context.RegisterCodeFix(CodeAction.Create("Check the result", ct =>
                 {
-                    var check = Check(local, call, model, decl.SpanStart);
-                    return Task.FromResult(context.Document.WithSyntaxRoot(root.InsertNodesAfter(decl, new[] { check })));
+                    var test = Check(v.Identifier.WithoutTrivia(), call, model, decl.SpanStart);
+                    return Task.FromResult(context.Document.WithSyntaxRoot(root.InsertNodesAfter(decl, new[] { test })));
                 }, nameof(ResultCodeFix) + "Check"), d);
-            context.RegisterCodeFix(CodeAction.Create("Drop it on purpose (_ =)", ct =>
-            {
-                var drop = ExpressionStatement(Discard(init)).WithTriviaFrom(decl).WithAdditionalAnnotations(Formatter.Annotation);
-                return Task.FromResult(context.Document.WithSyntaxRoot(root.ReplaceNode(decl, drop)));
-            }, nameof(ResultCodeFix) + "Drop"), d);
+            if (DiscardFree(model, decl.SpanStart))
+                context.RegisterCodeFix(CodeAction.Create("Drop it on purpose (_ =)", ct =>
+                {
+                    var drop = ExpressionStatement(Discard(init)).WithTriviaFrom(decl).WithAdditionalAnnotations(Formatter.Annotation);
+                    return Task.FromResult(context.Document.WithSyntaxRoot(root.ReplaceNode(decl, drop)));
+                }, nameof(ResultCodeFix) + "Drop"), d);
             return;
         }
 
@@ -63,28 +67,28 @@ public sealed class ResultCodeFix : CodeFixProvider
         if (stmt is not null && Syntax.EnclosingFunction(stmt) == fn)
         {
             var expr = stmt.Expression;
-            var async = Syntax.IsAsync(fn);
-            if (shape != "task" || async)
+            if (checkable && (shape != "task" || Syntax.IsAsync(fn)))
             {
                 context.RegisterCodeFix(CodeAction.Create("Check the result", ct =>
                 {
-                    var name = FreeName("result", fn, model, stmt.SpanStart);
+                    var name = Identifier(FreeName("result", fn, model, stmt.SpanStart));
                     var value = shape == "task" ? AwaitExpression(expr.WithoutTrivia()) : expr.WithoutTrivia();
                     var declare = LocalDeclarationStatement(VariableDeclaration(IdentifierName("var"),
-                            SingletonSeparatedList(VariableDeclarator(Identifier(name)).WithInitializer(EqualsValueClause(value)))))
+                            SingletonSeparatedList(VariableDeclarator(name).WithInitializer(EqualsValueClause(value)))))
                         .WithLeadingTrivia(stmt.GetLeadingTrivia()).WithAdditionalAnnotations(Formatter.Annotation);
-                    var check = Check(name, call, model, stmt.SpanStart).WithTrailingTrivia(stmt.GetTrailingTrivia());
+                    var test = Check(name, call, model, stmt.SpanStart).WithTrailingTrivia(stmt.GetTrailingTrivia());
                     SyntaxNode newRoot = stmt.Parent is BlockSyntax or SwitchSectionSyntax
-                        ? root.ReplaceNode(stmt, new SyntaxNode[] { declare, check })
-                        : root.ReplaceNode(stmt, Block(declare, check).WithAdditionalAnnotations(Formatter.Annotation));
+                        ? root.ReplaceNode(stmt, new SyntaxNode[] { declare, test })
+                        : root.ReplaceNode(stmt, Block(declare, test).WithAdditionalAnnotations(Formatter.Annotation));
                     return Task.FromResult(context.Document.WithSyntaxRoot(newRoot));
                 }, nameof(ResultCodeFix) + "Check"), d);
             }
-            context.RegisterCodeFix(CodeAction.Create("Drop it on purpose (_ =)", ct =>
-            {
-                var drop = stmt.WithExpression(Discard(expr.WithoutTrivia()).WithTriviaFrom(expr));
-                return Task.FromResult(context.Document.WithSyntaxRoot(root.ReplaceNode(stmt, drop)));
-            }, nameof(ResultCodeFix) + "Drop"), d);
+            if (DiscardFree(model, stmt.SpanStart))
+                context.RegisterCodeFix(CodeAction.Create("Drop it on purpose (_ =)", ct =>
+                {
+                    var drop = stmt.WithExpression(Discard(expr.WithoutTrivia()).WithTriviaFrom(expr));
+                    return Task.FromResult(context.Document.WithSyntaxRoot(root.ReplaceNode(stmt, drop)));
+                }, nameof(ResultCodeFix) + "Drop"), d);
             return;
         }
         var body = fn switch
@@ -92,7 +96,7 @@ public sealed class ResultCodeFix : CodeFixProvider
             AnonymousFunctionExpressionSyntax { ExpressionBody: { } eb } => eb,
             _ => node.FirstAncestorOrSelf<ArrowExpressionClauseSyntax>()?.Expression,
         };
-        if (body is null || !body.Span.Contains(node.Span)) return;
+        if (body is null || !body.Span.Contains(node.Span) || !DiscardFree(model, body.SpanStart)) return;
         context.RegisterCodeFix(CodeAction.Create("Drop it on purpose (_ =)", ct =>
             Task.FromResult(context.Document.WithSyntaxRoot(root.ReplaceNode(body, Discard(body.WithoutTrivia()).WithTriviaFrom(body)))),
             nameof(ResultCodeFix) + "Drop"), d);
@@ -101,16 +105,33 @@ public sealed class ResultCodeFix : CodeFixProvider
     private static AssignmentExpressionSyntax Discard(ExpressionSyntax value) =>
         AssignmentExpression(SyntaxKind.SimpleAssignmentExpression, IdentifierName("_"), value);
 
-    /// <summary><c>if (!name.Ok) { Log.Warn($"call refused: {name.Reason}"); }</c> when <c>Log.Warn</c> binds here (a
-    /// Mod's own Log, or a Logger member of the type), else the block holds a comment.</summary>
-    private static StatementSyntax Check(string name, string call, SemanticModel model, int position)
+    // `_ = x` is a discard only when no parameter, local or member called _ is in reach (`_ => NoClip.Set(_, true)`)
+    private static bool DiscardFree(SemanticModel model, int position) => model.LookupSymbols(position, name: "_").IsEmpty;
+
+    /// <summary><c>if (!name.Ok) { Log.Warn("call refused: " + name.Reason); }</c> when <c>Log.Warn</c> binds here (a
+    /// Mod's own Log, or a Logger member of the type), else the block holds a comment. Built as syntax: the call's name
+    /// goes in as a string literal escaped by SyntaxFactory.</summary>
+    private static StatementSyntax Check(SyntaxToken name, string call, SemanticModel model, int position)
     {
         var log = model.GetSpeculativeSymbolInfo(position, ParseExpression("Log.Warn(\"\")"), SpeculativeBindingOption.BindAsExpression).Symbol
             is IMethodSymbol;
-        var inside = log
-            ? $"    Log.Warn($\"{call} refused: {{{name}.Reason}}\");\n"
-            : $"    // {call} was refused: {name}.Reason says why\n";
-        return ParseStatement($"if (!{name}.Ok)\n{{\n{inside}}}\n").WithAdditionalAnnotations(Formatter.Annotation);
+        ExpressionSyntax Member(string member) => MemberAccessExpression(SyntaxKind.SimpleMemberAccessExpression, IdentifierName(name), IdentifierName(member));
+        BlockSyntax inside;
+        if (log)
+        {
+            var text = BinaryExpression(SyntaxKind.AddExpression,
+                LiteralExpression(SyntaxKind.StringLiteralExpression, Literal(call + " refused: ")), Member("Reason"));
+            inside = Block(ExpressionStatement(InvocationExpression(
+                MemberAccessExpression(SyntaxKind.SimpleMemberAccessExpression, IdentifierName("Log"), IdentifierName("Warn")),
+                ArgumentList(SingletonSeparatedList(Argument(text))))));
+        }
+        else
+        {
+            var line = $"// {call} was refused: {name.ValueText}.Reason says why".Replace("\r", " ").Replace("\n", " ");
+            inside = Block().WithCloseBraceToken(Token(TriviaList(Comment(line), ElasticCarriageReturnLineFeed), SyntaxKind.CloseBraceToken, TriviaList()));
+        }
+        return IfStatement(PrefixUnaryExpression(SyntaxKind.LogicalNotExpression, Member("Ok")), inside)
+            .WithAdditionalAnnotations(Formatter.Annotation);
     }
 
     /// <summary><paramref name="baseName"/>, or with a number, so that it names nothing in reach at
@@ -156,14 +177,20 @@ public sealed class CapabilityCodeFix : CodeFixProvider
         var root = await context.Document.GetSyntaxRootAsync(context.CancellationToken).ConfigureAwait(false);
         var stmt = root?.FindNode(d.Location.SourceSpan, getInnermostNodeForTie: true).FirstAncestorOrSelf<ExpressionStatementSyntax>();
         if (root is null || stmt is null) return;
-        var test = string.Join(" && ", rows.Select(r => $"Capabilities.Is({SymbolDisplay.FormatLiteral(r, quote: true)})"));
-        context.RegisterCodeFix(CodeAction.Create($"Ask {test} first", ct =>
+        var title = string.Join(" && ", rows.Select(r => $"Capabilities.Is({SymbolDisplay.FormatLiteral(r, quote: true)})"));
+        context.RegisterCodeFix(CodeAction.Create($"Ask {title} first", ct =>
         {
-            var condition = ParseExpression(string.Join(" && ", rows.Select(r => $"Kiln.Capabilities.Is({SymbolDisplay.FormatLiteral(r, quote: true)})")));
-            condition = condition.ReplaceNodes(condition.DescendantNodesAndSelf().OfType<MemberAccessExpressionSyntax>()
-                    .Where(m => m.Expression is IdentifierNameSyntax { Identifier.ValueText: "Kiln" }),
-                (_, m) => m.WithAdditionalAnnotations(Simplifier.Annotation));
-            var guarded = IfStatement(condition, Block(stmt.WithoutLeadingTrivia().WithoutTrailingTrivia()))
+            // Kiln.Capabilities.Is("row") && ...: built as syntax, each row a literal escaped by SyntaxFactory
+            ExpressionSyntax? condition = null;
+            foreach (var row in rows)
+            {
+                var type = MemberAccessExpression(SyntaxKind.SimpleMemberAccessExpression, IdentifierName("Kiln"), IdentifierName("Capabilities"))
+                    .WithAdditionalAnnotations(Simplifier.Annotation);
+                var ask = InvocationExpression(MemberAccessExpression(SyntaxKind.SimpleMemberAccessExpression, type, IdentifierName("Is")),
+                    ArgumentList(SingletonSeparatedList(Argument(LiteralExpression(SyntaxKind.StringLiteralExpression, Literal(row))))));
+                condition = condition is null ? ask : BinaryExpression(SyntaxKind.LogicalAndExpression, condition, ask);
+            }
+            var guarded = IfStatement(condition!, Block(stmt.WithoutLeadingTrivia().WithoutTrailingTrivia()))
                 .WithTriviaFrom(stmt).WithAdditionalAnnotations(Formatter.Annotation);
             return Task.FromResult(context.Document.WithSyntaxRoot(root.ReplaceNode(stmt, guarded)));
         }, nameof(CapabilityCodeFix)), d);

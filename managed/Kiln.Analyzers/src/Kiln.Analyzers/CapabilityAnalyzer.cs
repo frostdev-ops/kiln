@@ -57,8 +57,9 @@ public sealed class CapabilityAnalyzer : DiagnosticAnalyzer
         });
     }
 
-    /// <summary>The rows the project's kiln.mod.json requires ("features"), and KilnFeatures when the SDK passes it:
-    /// Kiln does not load the mod when one of them is off.</summary>
+    /// <summary>The rows the project's kiln.mod.json requires ("features"), and KilnFeatures, which the SDK passes as
+    /// KilnFeaturesList (comma-separated: .editorconfig cuts a value at ';'): Kiln does not load the mod when one of them
+    /// is off.</summary>
     private static HashSet<string> Features(AnalyzerOptions options)
     {
         var rows = new HashSet<string>(StringComparer.Ordinal);
@@ -68,7 +69,8 @@ public sealed class CapabilityAnalyzer : DiagnosticAnalyzer
             if (file.GetText()?.ToString() is not { } text || FeaturesKey.Match(text) is not { Success: true } m) continue;
             foreach (Match q in Quoted.Matches(m.Groups[1].Value)) rows.Add(q.Groups[1].Value);
         }
-        if (options.AnalyzerConfigOptionsProvider.GlobalOptions.TryGetValue("build_property.KilnFeatures", out var list))
+        var global = options.AnalyzerConfigOptionsProvider.GlobalOptions;
+        if (global.TryGetValue("build_property.KilnFeaturesList", out var list) || global.TryGetValue("build_property.KilnFeatures", out list))
             foreach (var f in list.Split(new[] { ';', ',' }, StringSplitOptions.RemoveEmptyEntries))
                 if (f.Trim() is { Length: > 0 } t) rows.Add(t);
         return rows;
@@ -167,13 +169,15 @@ public sealed class CapabilityAnalyzer : DiagnosticAnalyzer
                     case SwitchSectionSyntax sec:
                         if (LeavesBefore(sec.Statements, child, row, model, ct)) return true;
                         break;
-                    case LocalFunctionStatementSyntax or AnonymousFunctionExpressionSyntax:
-                        // a local function or lambda marked [RequiresCapability] passes it on; otherwise look further out
-                        // (the code around it ran its checks before the delegate was made: when in doubt, say nothing)
-                        if (model.GetDeclaredSymbol(parent, ct) is { } fn && RowsOf(fn).Contains(row)) return true;
-                        if (parent is AnonymousFunctionExpressionSyntax && model.GetSymbolInfo(parent, ct).Symbol is IMethodSymbol lambda &&
-                            RowsOf(lambda).Contains(row))
-                            return true;
+                    case LocalFunctionStatementSyntax:
+                        // a local function runs where it is called, not where it is written: what precedes its
+                        // declaration says nothing about that. Marked with the row, it passes it on; otherwise its calls
+                        // are judged (CoveredByCallers).
+                        return model.GetDeclaredSymbol(parent, ct) is { } fn && RowsOf(fn).Contains(row);
+                    case AnonymousFunctionExpressionSyntax:
+                        // a lambda marked [RequiresCapability] passes it on; otherwise look further out (the code around
+                        // it ran its checks before the delegate was made: when in doubt, say nothing)
+                        if (model.GetSymbolInfo(parent, ct).Symbol is IMethodSymbol lambda && RowsOf(lambda).Contains(row)) return true;
                         // a callback handed to a member that needs the row (Content.OnReady(_ => ...)): it is only kept,
                         // and so only runs, when that call went through
                         if (parent.Parent is ArgumentSyntax { Parent: ArgumentListSyntax { Parent: { } call } } &&
@@ -279,31 +283,41 @@ public sealed class CapabilityAnalyzer : DiagnosticAnalyzer
                     when eq.Right is LiteralExpressionSyntax r && (r.IsKind(SyntaxKind.TrueLiteralExpression) || r.IsKind(SyntaxKind.FalseLiteralExpression)):
                     return IsTest(eq.Left, row, positive == (r.IsKind(SyntaxKind.TrueLiteralExpression) == eq.IsKind(SyntaxKind.EqualsExpression)), model, ct, depth);
             }
-            return positive && Asks(e, row, model, ct, depth);
+            // a bool local set once, or a bool property of the mod: what it was set from, the same way round
+            // (`bool off = !NoClip.Available; if (off) return;`)
+            if (depth < 2 && Definition(e, model, ct) is { } def)
+                return IsTest(def.Expression, row, positive, def.Model, ct, depth + 1);
+            return positive && Asks(e, row, model, ct);
         }
 
         /// <summary>One term that is true only when the row is on.</summary>
-        private bool Asks(ExpressionSyntax e, string row, SemanticModel model, CancellationToken ct, int depth)
+        private bool Asks(ExpressionSyntax e, string row, SemanticModel model, CancellationToken ct)
         {
             // Capabilities.Get(row).IsAvailable
             if (e is MemberAccessExpressionSyntax { Name.Identifier.ValueText: "IsAvailable", Expression: InvocationExpressionSyntax get } &&
                 IsCapabilitiesCall(get, "Get", row, model, ct))
                 return true;
             if (e is InvocationExpressionSyntax inv) return IsCapabilitiesCall(inv, "Is", row, model, ct);
-            var symbol = model.GetSymbolInfo(e, ct).Symbol;
-            if (symbol is IPropertySymbol prop)
+            return model.GetSymbolInfo(e, ct).Symbol is IPropertySymbol prop && KilnApis.GuardRows(prop).Contains(row);
+        }
+
+        /// <summary>What a bool name stands for: the initializer of a local written only where it is declared, or the
+        /// getter of a property of the mod (<c>=> e</c>, <c>get => e</c>, <c>get { return e; }</c>).</summary>
+        private (ExpressionSyntax Expression, SemanticModel Model)? Definition(ExpressionSyntax e, SemanticModel model, CancellationToken ct)
+        {
+            if (e is not (IdentifierNameSyntax or MemberAccessExpressionSyntax)) return null;
+            switch (model.GetSymbolInfo(e, ct).Symbol)
             {
-                if (KilnApis.GuardRows(prop).Contains(row)) return true;
-                // the mod's own `static bool CanEquip => Capabilities.Is(Equip);` (one level)
-                return depth < 2 && prop.Type.SpecialType == SpecialType.System_Boolean && Source(prop, ct) is { } body &&
-                       IsTest(body.Expression, row, true, body.Model, ct, depth + 1);
+                case IPropertySymbol { Type.SpecialType: SpecialType.System_Boolean } prop:
+                    return Source(prop, ct);
+                case ILocalSymbol { Type.SpecialType: SpecialType.System_Boolean } local
+                    when local.DeclaringSyntaxReferences.Length == 1 &&
+                         local.DeclaringSyntaxReferences[0].GetSyntax(ct) is VariableDeclaratorSyntax { Initializer.Value: { } init } decl &&
+                         decl.SyntaxTree == model.SyntaxTree && !WrittenAgain(local, decl, model, ct):
+                    return (init, model);
+                default:
+                    return null;
             }
-            // var on = Capabilities.Is(row); if (!on) return;   (a bool local written only where it is declared)
-            if (symbol is ILocalSymbol { Type.SpecialType: SpecialType.System_Boolean } local && depth < 2 &&
-                local.DeclaringSyntaxReferences.Length == 1 && local.DeclaringSyntaxReferences[0].GetSyntax(ct) is VariableDeclaratorSyntax { Initializer.Value: { } init } decl &&
-                decl.SyntaxTree == model.SyntaxTree && !WrittenAgain(local, decl, model, ct))
-                return IsTest(init, row, true, model, ct, depth + 1);
-            return false;
         }
 
         private bool IsCapabilitiesCall(InvocationExpressionSyntax inv, string name, string row, SemanticModel model, CancellationToken ct) =>
@@ -333,8 +347,9 @@ public sealed class CapabilityAnalyzer : DiagnosticAnalyzer
             if (p.DeclaringSyntaxReferences.Length != 1 || p.DeclaringSyntaxReferences[0].GetSyntax(ct) is not PropertyDeclarationSyntax pd ||
                 !compilation.SyntaxTrees.Contains(pd.SyntaxTree))
                 return null;
-            var e = pd.ExpressionBody?.Expression ??
-                    pd.AccessorList?.Accessors.FirstOrDefault(a => a.IsKind(SyntaxKind.GetAccessorDeclaration))?.ExpressionBody?.Expression;
+            var get = pd.AccessorList?.Accessors.FirstOrDefault(a => a.IsKind(SyntaxKind.GetAccessorDeclaration));
+            var e = pd.ExpressionBody?.Expression ?? get?.ExpressionBody?.Expression ??
+                    (get?.Body is { Statements.Count: 1 } b && b.Statements[0] is ReturnStatementSyntax { Expression: { } r } ? r : null);
             if (e is null) return null;
 #pragma warning disable RS1030 // the property's own tree
             return (e, compilation.GetSemanticModel(pd.SyntaxTree));
@@ -547,7 +562,7 @@ public sealed class CapabilityAnalyzer : DiagnosticAnalyzer
         // ---------------------------------------------------------------------------------------- code fix -------
 
         /// <summary>The use is the whole of an expression statement (a call, an awaited call, <c>_ = call</c>, a
-        /// property set): the fix can put the statement under <c>if (Capabilities.Is(row))</c>.</summary>
+        /// property set) that declares no variable: the fix can put the statement under <c>if (Capabilities.Is(row))</c>.</summary>
         private static bool Wrappable(SyntaxNode node)
         {
             var e = node as ExpressionSyntax;
@@ -556,7 +571,10 @@ public sealed class CapabilityAnalyzer : DiagnosticAnalyzer
             if (e.Parent is AssignmentExpressionSyntax a && (a.Right == e && a.Left is IdentifierNameSyntax { Identifier.ValueText: "_" } ||
                                                              a.Left == e && a.IsKind(SyntaxKind.SimpleAssignmentExpression)))
                 e = a;
-            return e.Parent is ExpressionStatementSyntax es && es.Expression == e && es.Parent is BlockSyntax or SwitchSectionSyntax;
+            // a variable the statement declares (out var h, a pattern's x) is used after it: inside the new block it is gone
+            return e.Parent is ExpressionStatementSyntax es && es.Expression == e && es.Parent is BlockSyntax or SwitchSectionSyntax &&
+                   !es.DescendantNodes(n => n is not AnonymousFunctionExpressionSyntax)
+                       .Any(n => n is DeclarationExpressionSyntax or SingleVariableDesignationSyntax or ParenthesizedVariableDesignationSyntax);
         }
     }
 }

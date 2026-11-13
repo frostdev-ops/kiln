@@ -14,7 +14,9 @@ public sealed class KilnItems1Mod : Mod
 
     public override void OnLoad()
     {
-        if (!NewContent.Available)
+        // new items are kiln.content's (Content.Available) with its feature content.new; NewContent.Available also asks
+        // that this kiln.content is one that defines items
+        if (!Content.Available || !Capabilities.Is("content.new") || !NewContent.Available)
         {
             Log.Warn("kiln.content cannot add items on this game build; nothing registered");
             return;

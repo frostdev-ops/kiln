@@ -24,6 +24,9 @@ public sealed class ResultAnalyzer : DiagnosticAnalyzer
     public const string CallKey = "call";
     /// <summary>Diagnostic property for "local": the local's name.</summary>
     public const string LocalKey = "local";
+    /// <summary>Diagnostic property: "yes" when "Check the result" makes sound code here: the value is a result (or a
+    /// task of one in a statement) that cannot be null, not reached through ?. and not a task kept in a local.</summary>
+    public const string CheckKey = "check";
 
     public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics => ImmutableArray.Create(Descriptors.ResultDiscarded);
 
@@ -46,31 +49,78 @@ public sealed class ResultAnalyzer : DiagnosticAnalyzer
         var shape = Shape(value, result, out var call);
         if (shape is null || call is null) return;
         var what = shape == "task" ? "is a task nobody awaits or reads" : "is thrown away";
-        Report(ctx, call, shape, what, null);
+        var awaited = value is IAwaitOperation aw ? aw.Operation : value;
+        var check = !Conditional(awaited) && !MayBeNull(shape == "await" ? value.Type : ResultType(value.Type, result));
+        Report(ctx, call, shape, what, null, check);
     }
 
-    // var r = await Items.Equip(...);   and r is never read
+    // var r = await Items.Equip(...);   and r is never read. Also through a conversion and a conditional:
+    // var r = (IKilnResult)NoClip.Set(p, true);   var r = on ? NoClip.Set(p, true) : NoClip.Set(p, false);
     private static void Local(OperationAnalysisContext ctx, INamedTypeSymbol result)
     {
         var decl = (IVariableDeclaratorOperation)ctx.Operation;
         var local = decl.Symbol;
         if (local.Name == "_" || decl.GetVariableInitializer()?.Value is not { } value) return;
-        while (value is IConversionOperation { IsImplicit: true } conv) value = conv.Operand;
-        if (Shape(value, result, out var call) is null || call is null) return;
+        value = Bare(value);
+        IOperation? call = null;
+        string? shape = null;
+        var conditionalAccess = false;
+        var branches = value is IConditionalOperation c ? new[] { c.WhenTrue, c.WhenFalse } : new IOperation?[] { value };
+        foreach (var each in branches)
+        {
+            if (each is null) continue;
+            var branch = Bare(each);
+            if (Shape(branch, result, out var made) is not { } s || made is null) continue;
+            shape ??= s;
+            call ??= made;
+            conditionalAccess |= Conditional(branch is IAwaitOperation aw ? aw.Operation : branch);
+        }
+        if (shape is null || call is null) return;
         if (decl.Syntax is not VariableDeclaratorSyntax declarator) return;
         var body = Syntax.FunctionBody(Syntax.EnclosingFunction(declarator)) ?? declarator.Ancestors().OfType<GlobalStatementSyntax>().FirstOrDefault()?.Parent;
         if (body is null || IsRead(local, body, ctx.Operation.SemanticModel!, ctx.CancellationToken)) return;
-        Report(ctx, call, "local", $"is stored in '{local.Name}' and never read", local.Name);
+        // a task in the local is no result yet (its Ok is not there to read), and a null one has none. The value's type
+        // decides, not the local's: a `var` local is always declared nullable.
+        var check = shape != "task" && !conditionalAccess && !MayBeNull(value.Type) && IsResult(value.Type, result);
+        Report(ctx, call, "local", $"is stored in '{local.Name}' and never read", local.Name, check);
     }
 
-    private static void Report(OperationAnalysisContext ctx, IOperation call, string shape, string what, string? local)
+    private static void Report(OperationAnalysisContext ctx, IOperation call, string shape, string what, string? local, bool check)
     {
-        var member = Member(call);
-        var display = member is null ? call.Syntax.ToString() : Syntax.Display(member);
+        var display = Display(call);
         var props = ImmutableDictionary<string, string?>.Empty.Add(ShapeKey, shape).Add(CallKey, display);
         if (local is not null) props = props.Add(LocalKey, local);
+        if (check) props = props.Add(CheckKey, "yes");
         ctx.ReportDiagnostic(Diagnostic.Create(Descriptors.ResultDiscarded, ReportAt(call.Syntax), props, display, what));
     }
+
+    /// <summary>The call as a symbol names it ("Items.Equip"): the member, or the first call inside an expression
+    /// (<c>rain ? Time.SetWeather("rain") : ...</c>); never source text.</summary>
+    private static string Display(IOperation call)
+    {
+        if (Member(call) is { } member) return Syntax.Display(member);
+        foreach (var op in call.DescendantsAndSelf())
+            if (op is IInvocationOperation inv) return Syntax.Display(inv.TargetMethod);
+        return "the call";
+    }
+
+    // conversions (implicit or written) and parentheses around a value
+    private static IOperation Bare(IOperation op)
+    {
+        while (op is IConversionOperation or IParenthesizedOperation)
+            op = op is IConversionOperation c ? c.Operand : ((IParenthesizedOperation)op).Operand;
+        return op;
+    }
+
+    private static bool Conditional(IOperation op) => Bare(op) is IConditionalAccessOperation;
+
+    private static bool MayBeNull(ITypeSymbol? type) =>
+        type is null || type.NullableAnnotation == NullableAnnotation.Annotated ||
+        type is INamedTypeSymbol { OriginalDefinition.SpecialType: SpecialType.System_Nullable_T };
+
+    // the T of a Task<T> / ValueTask<T>, else the type itself
+    private static ITypeSymbol? ResultType(ITypeSymbol? type, INamedTypeSymbol result) =>
+        IsTaskOf(type, result) ? ((INamedTypeSymbol)type!).TypeArguments[0] : type;
 
     /// <summary>What the value is: "statement" (a result), "await" (an awaited result), "task" (a task of a result); null
     /// for anything else. <paramref name="call"/> is the operation that produced it (an invocation, mostly).</summary>

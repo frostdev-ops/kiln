@@ -43,8 +43,9 @@ Other KILN codes:
   `Sdk/Kiln.Analyzers.targets` adds them to every mod.
 - **In the Kiln repository:** mods that import `managed/Kiln.Sdk/Sdk/*` get the analyzer projects as
   `OutputItemType="Analyzer"` references.
-- The analyzers read these build properties: `KilnServicesList` (the SDK writes `KilnServices` comma-separated
-  there, because `.editorconfig` cuts values at `;`), `KilnAdvanced`, `KilnSide`, `KilnModId`, `KilnApiVersion`.
+- The analyzers read these build properties: `KilnServicesList` and `KilnFeaturesList` (the SDK writes `KilnServices`
+  and `KilnFeatures` comma-separated there, because `.editorconfig` cuts values at `;`), `KilnAdvanced`, `KilnSide`,
+  `KilnModId`, `KilnApiVersion`.
 - They also read the project's own `kiln.mod.json`, which the SDK passes as an AdditionalFile.
 - Projects that do not use Kiln.Sdk get no analyzers and no diagnostics.
 - Turn them off with `<KilnAnalyzers>false</KilnAnalyzers>`.
@@ -84,7 +85,7 @@ Kiln.Testing and every service, then reads their sources with Roslyn (`tools/Api
 - **Services:** the folders under `managed/services/` (22).
 - **Capability guards** (KILN121): the public static bool properties named `...Available` or `...Ready` that answer
   what `Capabilities.Is("row")` answers, with their rows. See [KILN121](#kiln121), "Properties that ask the same
-  question". 57 properties.
+  question". 46 properties.
 
 Run the script after changing Kiln.Api, Kiln.Testing or a service:
 `KILN_OUT=… managed/Kiln.Analyzers/tools/gen-apis.sh`.
@@ -372,7 +373,8 @@ once per service per file.
 - the call is a statement: `NoClip.Set(p, true);`, `await Items.Equip(p, slot);`;
 - it is the body of an expression lambda whose delegate returns nothing: `Context.Scheduler.Post(() => NoClip.Set(p, false))`;
 - a task of a result is a statement and is not awaited: `Items.Equip(p, slot);` ("a task nobody awaits or reads");
-- it goes into a local that is never read: `var r = await Items.Equip(p, slot);`, and nothing reads `r`.
+- it goes into a local that is never read: `var r = await Items.Equip(p, slot);`, and nothing reads `r` (also through a
+  cast or a `?:`: `var r = on ? NoClip.Set(p, true) : NoClip.Set(p, false);`).
 
 The rule goes by the type (it implements `Kiln.IKilnResult`), not by method names: a result type a service takes the
 contract up for later, and a mod's own result type, are covered without a list.
@@ -391,10 +393,13 @@ await Items.Equip(player, from.Slot, EquipmentSlot.Ring1);     // KILN120: the r
 var r = await Time.SetWeather("rain");                          // KILN120 when nothing reads r
 ```
 **Fix.** Two code fixes:
-- "Check the result": a local and `if (!result.Ok) { ... }`. Inside it, `Log.Warn($"Items.Equip refused: {result.Reason}");`
+- "Check the result": a local and `if (!result.Ok) { ... }`. Inside it, `Log.Warn("Items.Equip refused: " + result.Reason);`
   when a `Log` is in reach (a `Mod`'s own, or a `Logger` member of the type), else a comment. For a task it adds the
-  `await`, so it is offered in async code only. For a local it adds the `if` after the declaration.
+  `await`, so it is offered in async code only. For a local it adds the `if` after the declaration. It is not offered
+  where `result.Ok` would not be sound: a result that can be null (reached through `?.`, or of a nullable type), or a
+  task kept in a local (it is no result yet).
 - "Drop it on purpose (_ =)": `_ = ...`. In an expression lambda this is the only fix: `() => _ = NoClip.Set(p, false)`.
+  It is not offered where `_` names a parameter or a local (`_ => NoClip.Set(_, true)`): that would assign it.
 
 <a id="kiln121"></a>
 ## KILN121: Capability not checked before the call
@@ -404,7 +409,8 @@ is called, read, set or constructed, and nothing in reach asks for the row. In r
   (`if (!Capabilities.Is("row")) return;`, or throw, break, continue). A test is `Capabilities.Is("row")` (the same
   string: a literal, a `const`, or a `static readonly` string of the mod set to a constant),
   `Capabilities.Get("row").IsAvailable`, a property that asks the same question (below), a `bool` local set once from
-  one, or a property of the mod that is one (`static bool CanFly => Capabilities.Is(Fly);`); with `!`, `&&`, `||`,
+  one, either way round (`bool off = !NoClip.Available; if (off) return;`), or a `bool` property of the mod that is
+  one (`static bool CanFly => Capabilities.Is(Fly);`, also `get { return ...; }`); with `!`, `&&`, `||`,
   `is true/false` and `== true/false` around it. A test with another condition counts (`if (!on && !NoClip.Available)
   return;` in mods/samples/AdminTools: turning NoClip off never needs the row, and the author knows it);
 - a `try` whose `catch` catches `KilnUnavailableException` or a base of it (`NotSupportedException`, `SystemException`,
@@ -412,9 +418,10 @@ is called, read, set or constructed, and nothing in reach asks for the row. In r
 - the enclosing method, accessor, local function, lambda or type marked `[RequiresCapability("row")]`: the requirement
   is passed on, and its callers are asked instead;
 - a `[KilnTest]` or `[ClientCheck]` method: the test runner reports what it throws as the test's failure;
-- the row in the project's kiln.mod.json `features`: Kiln does not load the mod when it is off.
+- the row in the project's kiln.mod.json `features`, or in `<KilnFeatures>`: Kiln does not load the mod when it is off.
 
-A lambda counts the code around it (the checks ran before the delegate was made), and the call it is handed to: a
+A local function is judged where it is called, never by what is written before its declaration (it runs at its calls,
+not where it stands). A lambda counts the code around it (the checks ran before the delegate was made), and the call it is handed to: a
 callback given to a member that needs the row (`Content.OnReady(_ => Content.Apply(...))`) is only kept when that
 call went through. A use on an object that came from a use of the same row is not reported, the first use is
 (`var wood = Content.Items.Get(...)`, then `wood.MaxStack`; also a `foreach` over it and a pattern on it). An object
@@ -428,14 +435,16 @@ methods. This is the shape of mods/samples/Loadouts: the command catches `KilnUn
 helpers make the calls.
 
 **Properties that ask the same question.** The generated table (`KilnApis.g.cs`, `CapabilityGuards`) lists the public
-static bool properties named `...Available` or `...Ready` whose getter is (an `&&` of terms with)
-`Capabilities.Is("row")`, a one-line helper around it (`Can(Caps.Fuel)`), `T != null` for a native table `T` that comes
-from `Services.Get<...>("kiln.x", ...)` (the core's `kiln.x` row says exactly that the table is here), or another such
-property; or whose summary names the row: `(capability <c>kiln.time</c>)`, `feature <c>content.new</c>`, or the
-service in plain words ("True when kiln.knowledge is loaded"). For example `NoClip.Available` (rules.noclip),
+static bool properties named `...Available` or `...Ready` whose own code always asks the row: the getter is an `&&` of
+terms, and a term is `Capabilities.Is("row")`, a one-line helper around it (`Can(Caps.Fuel)`), `T != null` for the
+native table `T` of service `kiln.x` (it comes from `Services.Get<...>("kiln.x", ...)` or `Backend.Current.Service`,
+also through another table property, a method or a local: `T => BuildNative.T`; that table is there exactly when the
+core's `kiln.x` row is available), or another such property. A summary is not code: what it names makes no guard. A
+getter that asks one row on a server and another on a client (`ServerSide ? relay : local`, `Sound.Available`,
+`Vfx.Available`) always asks neither, so it is no guard. For example `NoClip.Available` (rules.noclip),
 `Time.WeatherChoiceAvailable` (time.weather_choose), `Items.Fuel.Available` (items.fuel), `Content.GameDataAvailable`
-(kiln.gamedata), `Settings.Ready` (kiln.settings). A service makes a property a guard by writing it that way or by
-naming the row in its summary: there is no attribute for it.
+(kiln.gamedata), `Settings.Ready` (kiln.settings). A service makes a property a guard by writing it that way: there is
+no attribute for it.
 
 **Why.** contract.md: such a member throws `KilnUnavailableException` when its row is off (a game build Kiln does not
 know, a game client in its menu, a server without the service, a hook that faulted). Uncaught in `OnLoad`, a command
@@ -448,7 +457,8 @@ private string Fly(CommandContext c) => NoClip.Set(c.Source.Player, true).Messag
 if (!NoClip.Available) throw new CommandException("NoClip is not available on this game build");
 ```
 **Fix.** Ask first, catch, or pass the requirement on. When the use is a whole statement (a call, an awaited call,
-`_ = call`, a property set), the code fix puts the statement under `if (Capabilities.Is("row")) { ... }`.
+`_ = call`, a property set) and declares no variable (an `out var` would move into the new block), the code fix puts
+the statement under `if (Capabilities.Is("row")) { ... }`.
 
 **Limits.** The rule looks at one member at a time (and the private callees above), and when in doubt it says nothing:
 - **A helper that checks is not followed.** `Need("rules.noclip"); NoClip.Set(...)` warns in the method that calls

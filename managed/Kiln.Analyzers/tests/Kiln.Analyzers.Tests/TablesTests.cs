@@ -43,7 +43,8 @@ public sealed class TablesTests
     [InlineData("P:Kiln.Time.Available", "kiln.time")]                     // => T != null, T from Services.Get("kiln.time")
     [InlineData("P:Kiln.Content.GameDataAvailable", "kiln.gamedata")]
     [InlineData("P:Kiln.Items.GearOptionsAvailable", "kiln.items")]        // => Available && ...
-    [InlineData("P:Kiln.NewContent.Available", "content.new")]             // its summary: "feature <c>content.new</c>"
+    [InlineData("P:Kiln.Build.Available", "kiln.build")]                   // => T != null, T => BuildNative.T
+    [InlineData("P:Kiln.Content.Available", "kiln.content")]               // T from Backend.Current.Service("kiln.content")
     [InlineData("P:Kiln.Settings.Ready", "kiln.settings")]                 // => T != null && ...
     public void Capability_guards(string property, string row) =>
         Assert.Contains(KilnApis.CapabilityGuards, g => g.StartsWith(property + "=", StringComparison.Ordinal) && g.Substring(property.Length + 1).Split(',').Contains(row));
@@ -51,6 +52,11 @@ public sealed class TablesTests
     [Theory]
     [InlineData("P:Kiln.Time.Ready")]           // the world's clock, not the service
     [InlineData("P:Kiln.Players.Count")]
+    [InlineData("P:Kiln.Sound.Available")]      // ServerSide ? the relay : the local player: no row on both sides
+    [InlineData("P:Kiln.Vfx.Available")]
+    [InlineData("P:Kiln.ScreenEffects.Available")]
+    [InlineData("P:Kiln.NewContent.Available")] // its summary names content.new; its code does not ask it
+    [InlineData("P:Kiln.Attributes.Available")] // Ids(...) is not null: read from a table, not the table
     public void Not_capability_guards(string property) =>
         Assert.DoesNotContain(KilnApis.CapabilityGuards, g => g.StartsWith(property + "=", StringComparison.Ordinal));
 
