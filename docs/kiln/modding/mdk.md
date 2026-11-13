@@ -143,6 +143,7 @@ like `kiln.example`: `native/services/weather/`, `native/core/abi/services/kiln_
 | `kiln-screen-effect` | Screen effects as blocks: a tint while a status lasts, a flash where a spell lands | both, kiln | Created from the packed SDK and built; what the screen shows needs a client |
 | `kiln-hooks` | Advanced: a detour on a function of the game itself with Kiln.Hooks, which counts calls and runs the original (`KilnAdvanced`) | server, none | Created from the packed SDK and built; not run in a lab (the sample `HookSample` is) |
 | `kiln-shader` | Advanced: a particle effect moved by the mod's own shader hooks (`shaders/swirl.hlsl`, the built `shaders/build/swirl.spv`, `blocks/vfx.json`) | both, mod | Created from the packed SDK and built, the built module arrives in the mod folder unchanged; what it draws needs a client |
+| `kiln-world-program` | Advanced: a program of the mod's own in the game's scheduler (`kiln.programs.json` declares it, `EcsPrograms.Bind` gives it its code on the game's worker threads, the tick thread reads what it counted; `/census`) | server, none | Created from the packed SDK and built, `kiln.programs.json` arrives in the mod folder; run on a test server, where `/census` counted the world's entities with health |
 
 ### Block templates
 The `-blocks` templates and `kiln-npc`, `kiln-cosmetic`, `kiln-building-material` build everything from typed blocks

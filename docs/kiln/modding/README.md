@@ -131,6 +131,6 @@ first). `mods/samples/build.sh` builds the loader samples (`SampleLib`, `SampleC
 Templates: `kiln new --list` shows all 31 with their options. Block templates: `kiln-spell`, `kiln-item-blocks`,
 `kiln-ability-blocks`, `kiln-creature-blocks`, `kiln-world-blocks`, `kiln-npc`, `kiln-quest`, `kiln-body`, `kiln-vfx`,
 `kiln-cosmetic`, `kiln-building-material` and `kiln-screen-effect`. Code templates for one topic each: `kiln-events`,
-`kiln-saved-data`, `kiln-rules`, `kiln-network`, and for the advanced tier `kiln-hooks` and `kiln-shader`. The others: `kiln-mod`, `kiln-test`, `kiln-unit-test`,
+`kiln-saved-data`, `kiln-rules`, `kiln-network`, and for the advanced tier `kiln-hooks`, `kiln-shader` and `kiln-world-program`. The others: `kiln-mod`, `kiln-test`, `kiln-unit-test`,
 `kiln-datapack`, `kiln-items`, `kiln-ability`, `kiln-creature`, `kiln-talents`, `kiln-ui`, `kiln-model`, `kiln-sound`,
 `kiln-native` and `kiln-service` (a service inside the Kiln repository). See [mdk.md](mdk.md).
