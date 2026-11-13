@@ -590,6 +590,10 @@ internal static partial class AffixRuntime
             Pools.Clear();
             NotedStats.Clear();
         }
+        // the same definitions as blocks (one registry): a test's mod ids come back in the next test
+        foreach (var mod in Blocks.AllMods)
+            foreach (var (name, handle) in mod.Handles)
+                if (handle is AffixHandle or AffixPoolHandle) mod.Handles.TryRemove(name, out _);
         _passes = _started_ = _ended = _restarted = _failedEnds = _endTries = 0;
         _noEndNoted = _capNoted = false;
         BlockedNotes = CapNotes = 0;

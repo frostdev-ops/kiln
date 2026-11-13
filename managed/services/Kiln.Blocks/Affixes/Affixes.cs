@@ -24,13 +24,16 @@ public sealed record SyncedAffixes(EntityId Item, ItemId ItemType, EntityId Hold
 /// Affixes: rolled modifiers on one item ("+5 Strength", "+5% Move Speed"), kept with that item and applied to whoever
 /// wears or holds it.
 /// <code>
-/// var bear = Affixes.Define("bear", new AffixBlock { Name = "of the Bear", Stat = Stat.Strength, Tiers = [new AffixTier { Min = 1, Max = 5 }] });
-/// var pool = Affixes.DefinePool("blades", new AffixPoolBlock { Affixes = [new AffixEntry { Affix = "bear" }] });
+/// var bear = Blocks.Define("bear", new AffixBlock { Name = "of the Bear", Stat = Stat.Strength, Tiers = [new AffixTier { Min = 1, Max = 5 }] });
+/// var pool = Blocks.Define("blades", new AffixPoolBlock { Affixes = [new AffixEntry { Affix = "bear" }] });   // or Affixes.DefinePool: the same
 /// AffixResult r = pool.Roll(Items.Held(player));        // this one sword now carries "+3 Strength (of the Bear)"
 /// foreach (var a in Affixes.Of(sword)) Log.Info(a.Text);
 /// </code>
 /// </summary>
 /// <remarks>
+/// <para>Affix kinds and pools are blocks: <see cref="Blocks.Define(string, AffixBlock)"/>, the <c>affixes</c> and
+/// <c>affixPools</c> sections of <c>blocks/*.json</c>, and <see cref="Define"/>, <see cref="DefinePool"/> and
+/// <see cref="Load"/> here are one registration, with one handle and the id <c>"mod:name"</c> whichever route is used.</para>
 /// <para>Where the rolls are kept. An item's affixes are item data (<c>InstanceData</c>, owner <see cref="DataMod"/>, key
 /// <see cref="DataKey"/>): they stay with that one item through moves, saves and restarts, by the rules of
 /// docs/kiln/services/saves.md, and they go to the games of players near the item (its holder, and players within 16 m
@@ -62,20 +65,26 @@ public static class Affixes
 
     // ------------------------------------------------------------------------------------------------ authoring ----
 
-    /// <summary>Defines an affix of the calling mod. Call it in <c>OnLoad</c>; the same name again replaces it.</summary>
-    /// <param name="name">Unique within the mod: lower-case letters, digits, '-' and '_', at most 64.</param>
+    /// <summary>Defines an affix of the calling mod: the same as <see cref="Blocks.Define(string, AffixBlock)"/> (one
+    /// registration, one handle, the id <c>"mod:name"</c>). Call it in <c>OnLoad</c>; the same name again, by either
+    /// route or in a <c>blocks/*.json</c> file, replaces it, as for every block.</summary>
+    /// <param name="name">Unique among the mod's blocks: lower-case letters, digits, '-' and '_', at most 64.</param>
     /// <param name="block">The affix.</param>
-    /// <exception cref="BlockError">The name or a field is wrong: which field and why.</exception>
+    /// <exception cref="BlockError">The name or a field is wrong: which field and why; or the name is another kind of
+    /// block of the mod.</exception>
     /// <exception cref="InvalidOperationException">Not on the tick thread, or not from a mod's code.</exception>
     [TickThreadOnly]
     public static AffixHandle Define(string name, AffixBlock block)
     {
         ArgumentNullException.ThrowIfNull(block);
-        return AffixRuntime.Define(AffixRuntime.CallerMod("Affixes.Define"), name, block);
+        AffixRuntime.CallerMod("Affixes.Define");
+        return AffixRuntime.DefineAffix(name, block);
     }
 
-    /// <summary>Defines a pool of the calling mod: which items roll which affixes. Its affixes must be defined first.</summary>
-    /// <param name="name">Unique within the mod, as an affix's name.</param>
+    /// <summary>Defines a pool of the calling mod, which items roll which affixes: the same as
+    /// <see cref="Blocks.Define(string, AffixPoolBlock)"/>. Its affixes are defined before it in code, or in a
+    /// <c>blocks/*.json</c> file of the mod (compiled when the pool names them).</summary>
+    /// <param name="name">Unique among the mod's blocks, as an affix's name.</param>
     /// <param name="block">The pool.</param>
     /// <exception cref="BlockError">The name or a field is wrong, or it names an affix that is not defined.</exception>
     /// <exception cref="InvalidOperationException">Not on the tick thread, or not from a mod's code.</exception>
@@ -83,11 +92,13 @@ public static class Affixes
     public static AffixPoolHandle DefinePool(string name, AffixPoolBlock block)
     {
         ArgumentNullException.ThrowIfNull(block);
-        return AffixRuntime.DefinePool(AffixRuntime.CallerMod("Affixes.DefinePool"), name, block);
+        AffixRuntime.CallerMod("Affixes.DefinePool");
+        return AffixRuntime.DefinePool(name, block);
     }
 
-    /// <summary>Defines the affixes and pools of a data file, as the calling mod's: the same shapes as the C# records, in
-    /// camel case.
+    /// <summary>Defines the affixes and pools of a data file, as the calling mod's blocks: the same shapes as the C# records,
+    /// in camel case. (A file in the mod's <c>blocks/</c> folder needs no call: its <c>affixes</c> and
+    /// <c>affixPools</c> sections are read as every block file is.)
     /// <code>
     /// { "format": 1,
     ///   "affixes": { "bear": { "name": "of the Bear", "stat": "strength", "tiers": [ { "min": 1, "max": 5 } ] } },
@@ -100,7 +111,8 @@ public static class Affixes
     public static AffixFile Load(string json)
     {
         ArgumentNullException.ThrowIfNull(json);
-        return AffixRuntime.Load(AffixRuntime.CallerMod("Affixes.Load"), json);
+        AffixRuntime.CallerMod("Affixes.Load");
+        return AffixRuntime.Load(json);
     }
 
     /// <summary>A defined affix by <c>"mod:name"</c> (or a name of the calling mod); null when no loaded mod defines it.</summary>

@@ -1,23 +1,27 @@
 // SPDX-License-Identifier: MIT
 // Affixes as blocks (dev.27): what an author writes. An affix is one kind of rolled modifier (its stat, its tiers and
-// ranges); a pool says which items roll which affixes and how many. The rolls of one item are item data (Kiln.Saves'
-// InstanceData), and Kiln applies them while the item is worn or in hand (AffixRuntime.cs). docs/kiln/modding/affixes.md.
+// ranges); a pool says which items roll which affixes and how many. Both are blocks: Blocks.Define, the "affixes" and
+// "affixPools" sections of blocks/*.json, and Affixes.Define/DefinePool/Load are one registration (AffixCompiler.cs).
+// The rolls of one item are item data (Kiln.Saves' InstanceData), and Kiln applies them while the item is worn or in
+// hand (AffixRuntime.cs). docs/kiln/modding/affixes.md.
 using System.Globalization;
 
 namespace Kiln;
 
 /// <summary>
 /// One kind of rolled modifier on an item: "of the Bear, +3 to +8 Strength". Define it once; a roll picks a tier and a
-/// value in the tier's range, and that value is what the one item carries.
+/// value in the tier's range, and that value is what the one item carries. A block: in C#, or in the <c>affixes</c>
+/// section of <c>blocks/*.json</c>.
 /// <code>
-/// var bear = Affixes.Define("bear", new AffixBlock
+/// var bear = Blocks.Define("bear", new AffixBlock
 /// {
 ///     Name = "of the Bear", Stat = Stat.Strength,
 ///     Tiers = [new AffixTier { Min = 1, Max = 3 }, new AffixTier { Min = 4, Max = 8, Weight = 0.25 }],
 /// });
 /// </code>
 /// </summary>
-public sealed record AffixBlock
+[BlockClients(ClientsLevel.None)]
+public sealed record AffixBlock : IBlock
 {
     /// <summary>What players read: "of the Bear", "Fleet". Kept with every roll, so a game without the mod can still show it.</summary>
     public required string Name { get; init; }
@@ -58,9 +62,10 @@ public sealed record AffixTier
 }
 
 /// <summary>
-/// Which items roll which affixes, and how many.
+/// Which items roll which affixes, and how many. A block: in C#, or in the <c>affixPools</c> section of
+/// <c>blocks/*.json</c>; its entries name affixes of the mod's code or data files, in either order.
 /// <code>
-/// var blades = Affixes.DefinePool("blades", new AffixPoolBlock
+/// var blades = Blocks.Define("blades", new AffixPoolBlock
 /// {
 ///     Items = [GameItems.Weapon_T1_1H_SwordEpic_01],
 ///     Affixes = [new AffixEntry { Affix = "bear" }, new AffixEntry { Affix = "fleet", Weight = 2 }, new AffixEntry { Affix = "ember-ward" }],
@@ -68,7 +73,8 @@ public sealed record AffixTier
 /// AffixResult rolled = blades.Roll(sword);   // one of the three, on this one sword
 /// </code>
 /// </summary>
-public sealed record AffixPoolBlock
+[BlockClients(ClientsLevel.None)]
+public sealed record AffixPoolBlock : IBlock
 {
     /// <summary>The item types that roll from this pool: <c>GameItems</c> constants, or items of this mod by their block
     /// name. Null: any item with an item entity of its own (gear, tools).</summary>
@@ -209,53 +215,30 @@ public sealed class AffixesAppliedEvent : KilnEvent
     public IReadOnlyList<ActiveAffix> Now { get; }
 }
 
-/// <summary>What <see cref="Affixes.Define"/> gives back.</summary>
-public sealed class AffixHandle
+/// <summary>What <see cref="Blocks.Define(string, AffixBlock)"/>, <see cref="Affixes.Define"/> and an <c>affixes</c> section
+/// of <c>blocks/*.json</c> give: one object, whichever route defined it (<see cref="Blocks.Find"/> and
+/// <see cref="Affixes.Find"/> return it too). <see cref="BlockHandle.Mod"/>, <see cref="BlockHandle.Name"/> and
+/// <see cref="BlockHandle{T}.Block"/> are the block's.</summary>
+public sealed class AffixHandle : BlockHandle<AffixBlock>
 {
-    internal AffixHandle(string mod, string name, AffixBlock block)
-    {
-        Mod = mod;
-        Name = name;
-        Block = block;
-    }
+    internal AffixHandle(string mod, string name, AffixBlock block) : base(mod, name, BlockIds.Derive(mod, "affix", name), $"{mod}.{name}", block) { }
 
-    /// <summary>The mod that defined it.</summary>
-    public string Mod { get; }
-
-    /// <summary>Its name within the mod.</summary>
-    public string Name { get; }
-
-    /// <summary><c>"mod:name"</c>: what <see cref="RolledAffix.Affix"/> holds.</summary>
-    public string Id => $"{Mod}:{Name}";
-
-    /// <summary>The definition.</summary>
-    public AffixBlock Block { get; }
+    /// <summary><c>"mod:name"</c>: what <see cref="RolledAffix.Affix"/> holds, the same whichever route defined the affix.
+    /// (An affix makes nothing in the game, so the game id <see cref="BlockHandle.Id"/> of other blocks has no use here.)</summary>
+    public new string Id => $"{Mod}:{Name}";
 
     /// <inheritdoc cref="Id"/>
     public override string ToString() => Id;
 }
 
-/// <summary>What <see cref="Affixes.DefinePool"/> gives back: roll it onto an item.</summary>
-public sealed class AffixPoolHandle
+/// <summary>What <see cref="Blocks.Define(string, AffixPoolBlock)"/>, <see cref="Affixes.DefinePool"/> and an
+/// <c>affixPools</c> section of <c>blocks/*.json</c> give: roll it onto an item. One object, whichever route defined it.</summary>
+public sealed class AffixPoolHandle : BlockHandle<AffixPoolBlock>
 {
-    internal AffixPoolHandle(string mod, string name, AffixPoolBlock block)
-    {
-        Mod = mod;
-        Name = name;
-        Block = block;
-    }
+    internal AffixPoolHandle(string mod, string name, AffixPoolBlock block) : base(mod, name, BlockIds.Derive(mod, "affix-pool", name), $"{mod}.{name}", block) { }
 
-    /// <summary>The mod that defined it.</summary>
-    public string Mod { get; }
-
-    /// <summary>Its name within the mod.</summary>
-    public string Name { get; }
-
-    /// <summary><c>"mod:name"</c>.</summary>
-    public string Id => $"{Mod}:{Name}";
-
-    /// <summary>The definition.</summary>
-    public AffixPoolBlock Block { get; }
+    /// <summary><c>"mod:name"</c>, the same whichever route defined the pool.</summary>
+    public new string Id => $"{Mod}:{Name}";
 
     /// <summary>Rolls the pool onto <paramref name="item"/>: <see cref="Affixes.Roll(ItemInstanceRef, AffixPoolHandle, Random?, bool)"/>.</summary>
     [ServerOnly]

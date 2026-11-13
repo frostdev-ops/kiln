@@ -207,6 +207,8 @@ public sealed class RefKindTests
     [Theory]
     [InlineData("new LootTableBlock { Entries = [new LootEntry { Item = \"Iron_Sword\" }] }")]
     [InlineData("new RecipeBlock { Output = \"Iron_Sword\" }")]
+    [InlineData("new AffixBlock { Name = \"Keen\", Stat = Stat.CritChance, Tiers = [new AffixTier { Min = 0.02, Max = 0.05 }] }")]
+    [InlineData("new AffixPoolBlock { Affixes = [new AffixEntry { Affix = \"keen\" }] }")]
     public async Task Non_item_definition_blocks_are_not_recipe_ingredients(string definition)
     {
         var d = await Run(A, Mod($$"""

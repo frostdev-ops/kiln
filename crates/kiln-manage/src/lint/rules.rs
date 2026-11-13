@@ -1808,6 +1808,7 @@ fn blocks(out: &mut Out, m: &LMod, code: &Code, cat: Option<&Catalog>) {
         ("lootTables", "loot table"), ("recipes", "recipe"),
         ("quests", "quest"), ("dialogues", "dialogue"),
         ("windows", "window"), ("hudLines", "HUD line"), ("keyBindings", "key binding"),
+        ("affixes", "affix"), ("affixPools", "affix pool"),
     ];
     let mut known: HashMap<String, (&'static str, String, Span)> = HashMap::new();
     for f in &files {
@@ -1846,6 +1847,8 @@ fn blocks(out: &mut Out, m: &LMod, code: &Code, cat: Option<&Catalog>) {
             "onInteract" => (&["interaction"], "an interaction", &[]),
             "vfx" => (&["vfx"], "a VFX", &[]),
             "screen" => (&["screen effect"], "a screen effect", &[]),
+            // an affix pool's entry
+            "affix" => (&["affix"], "an affix", &[]),
             _ => return None,
         })
     }
@@ -1969,6 +1972,14 @@ fn blocks(out: &mut Out, m: &LMod, code: &Code, cat: Option<&Catalog>) {
             }
             for look in r.get("wornLooks").and_then(Node::as_object).into_iter().flatten() {
                 items(&look.value, "look", &mut item_names);
+            }
+            // the item types an affix pool rolls on
+            for pool in r.get("affixPools").and_then(Node::as_object).into_iter().flatten() {
+                for it in pool.value.get("items").and_then(Node::as_array).into_iter().flatten() {
+                    if let Some(text) = it.as_str() {
+                        item_names.push((text.to_string(), it.span));
+                    }
+                }
             }
         }
         for (name, kinds, what, span) in names {
