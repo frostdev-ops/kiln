@@ -858,6 +858,107 @@ public sealed class InstanceSyncTests : IDisposable
         store.Apply(U(21, 20, 6), out ack);
         Assert.Equal((new SyncAck(0, true), -1), (ack, Count()));
     }
+
+    // ---- dev.27 rehearsal: "walking back in brings it again" (syncnet.py) waited 4 s in vain ----
+
+    public enum GoneAck { BeforeTheReturn, BetweenTheReturnAndThePass, AfterThePass, OnlyAfterTheTimeout }
+
+    /// <summary>The failing run's timing: the game stands 3 m from a chest and holds a Nearby value (10 m) of an item in
+    /// it, walks to 30 m (a pass sends the item "gone"), and is back at 9 m 0.29 s later, before the next pass or the
+    /// acknowledgement of the gone has to be in. However the acknowledgement of the gone is timed, the first pass after
+    /// the return sends the value again, as a plain difference that follows the gone: nothing waits for a timer.</summary>
+    [Theory]
+    [InlineData(GoneAck.BeforeTheReturn)]
+    [InlineData(GoneAck.BetweenTheReturnAndThePass)]
+    [InlineData(GoneAck.AfterThePass)]
+    [InlineData(GoneAck.OnlyAfterTheTimeout)]
+    public void WalkingBackInWithinAPassBringsTheValueAtTheNextPass(GoneAck when)
+    {
+        var ring = _h.World.Give(_chest, 1, Ring);
+        Set(ring, _shown, 7);
+        var game = _link.Connect(1, _hero, new WorldPosition(A.X + 3, A.Y, A.Z));
+        Pass();
+        Assert.Equal(7, Held(game, ring, _shown));
+
+        _link.Positions[_hero.Value] = new WorldPosition(A.X + 30, A.Y, A.Z);   // out of range
+        _clock += 250;
+        Assert.Equal(1, _server.Pass());
+        Assert.Equal(ring.Entity.Id.Value, Assert.Single(game.Updates[^1].Update.Gone));
+        Assert.Null(game.Store.Find(ring.Entity.Id));
+        var held = _link.Acks.ToList();                                // the acknowledgement of the gone is on its way
+        _link.Acks.Clear();
+        if (when == GoneAck.BeforeTheReturn) Deliver(held);
+
+        _clock += 40;                                                  // 0.29 s after it left: back at 9 m
+        _link.Positions[_hero.Value] = new WorldPosition(A.X + 9, A.Y, A.Z);
+        if (when == GoneAck.BetweenTheReturnAndThePass) Deliver(held);
+        _clock += 210;                                                 // the next pass, 250 ms after the one that sent the gone
+        var updates = game.Updates.Count;
+        Assert.Equal(1, _server.Pass());
+        var back = game.Updates[^1].Update;
+        Assert.Equal(updates + 1, game.Updates.Count);
+        Assert.False(back.Reset);                                      // a plain difference, right behind the gone
+        Assert.Equal(game.Updates[^2].Update.Seq, back.Prev);
+        Assert.Equal(7, Held(game, ring, _shown));                     // the game took it: the value is there again
+        var later = _link.Acks.ToList();
+        _link.Acks.Clear();
+        if (when == GoneAck.AfterThePass) Deliver([.. held, .. later]);
+        if (when == GoneAck.OnlyAfterTheTimeout)
+        {
+            // no acknowledgement for ten seconds (a stalled server handles none): the server starts the game over, which
+            // also carries the value; the game ends up with it either way
+            _clock += InstanceSyncServer.AckTimeoutMs;
+            Assert.Equal(1, _server.Pass());
+            Assert.True(game.Updates[^1].Update.Reset);
+            _link.Deliver(_server);
+        }
+        else if (when != GoneAck.AfterThePass) Deliver(later);
+        Assert.Equal(7, Held(game, ring, _shown));
+        for (var i = 0; i < 4; i++) Pass();                            // and then nothing more is owed
+        Assert.Equal(when == GoneAck.OnlyAfterTheTimeout ? 1 : 0, _server.StartOvers);
+        Assert.Equal(7, Held(game, ring, _shown));
+
+        void Deliver(List<(ulong Viewer, SyncAck Ack)> acks)
+        {
+            foreach (var (viewer, ack) in acks) _server.Ack(viewer, ack);
+        }
+    }
+
+    /// <summary>What the failing run's server did: it was back in range 31 ms before an autosave that held the server's
+    /// steps for 9.3 s, so no pass ran. The passes are the only sender: the value goes at the first pass once the server
+    /// steps again, and, if the network lost the update that carried it (kiln.net's retry queue gives up after two
+    /// seconds) with nothing behind it, the acknowledgement timeout starts the game over ten seconds after it was sent.
+    /// That is the bound syncnet.py waits for.</summary>
+    [Fact]
+    public void AfterAStallTheValueGoesAtTheFirstPassAndALostOneAtTheAcknowledgementTimeout()
+    {
+        var ring = _h.World.Give(_chest, 1, Ring);
+        Set(ring, _shown, 7);
+        var game = _link.Connect(1, _hero, new WorldPosition(A.X + 3, A.Y, A.Z));
+        Pass();
+        _link.Positions[_hero.Value] = new WorldPosition(A.X + 30, A.Y, A.Z);
+        Pass();
+        Assert.Null(game.Store.Find(ring.Entity.Id));
+
+        _link.Positions[_hero.Value] = new WorldPosition(A.X + 9, A.Y, A.Z);
+        _clock += 9_336;                                               // no step, so no pass, for 9.3 s
+        Pass();
+        Assert.Equal(7, Held(game, ring, _shown));                     // the first pass after it sends the value
+
+        // the same walk once more, and the network loses the update that brings the value back
+        _link.Positions[_hero.Value] = new WorldPosition(A.X + 30, A.Y, A.Z);
+        Pass();
+        Assert.Null(game.Store.Find(ring.Entity.Id));
+        _link.Positions[_hero.Value] = new WorldPosition(A.X + 9, A.Y, A.Z);
+        _link.Lose = 1;
+        Pass();
+        var sentAt = _clock;
+        Assert.Equal(1, game.Lost);
+        while (Held(game, ring, _shown) is null && _clock - sentAt < 20_000) Pass();
+        Assert.Equal(7, Held(game, ring, _shown));
+        Assert.True(game.Updates[^1].Update.Reset);                    // the start over brought it
+        Assert.InRange(_clock - sentAt, InstanceSyncServer.AckTimeoutMs, InstanceSyncServer.AckTimeoutMs + 250);
+    }
 #endif
 
     // ---- the options ----

@@ -296,7 +296,16 @@ def main():
     t = p3.until(lambda: it[1]["Entity"] not in p3.items)
     s.check("walking out of range takes the copy away (gone)", t is not None and any(it[1]["Entity"] in g for _, _, _, g, _ in p3.updates), p3.updates[-1:])
     p3.view(999, [pos_a[0] + 9, pos_a[1], pos_a[2]])
-    s.check("walking back in brings it again", p3.until(lambda: p3.value(it[1]["Entity"], "seen") is not None) is not None)
+    # The server's passes are its only sender, and they run on its steps: a server that does not step (an autosave on a
+    # loaded machine held one for 9.3 s, 31 ms after the return, in the dev.27 rehearsal) sends nothing. A control round
+    # trip proves it stepped after the view. From then on the value comes at the next pass (0.25 s), or, if the network
+    # lost the update that carried it and nothing follows, at the start over ACK_TIMEOUT after it was sent; plus 2 s for
+    # a loaded lab (InstanceSyncTests.WalkingBackInWithinAPassBringsTheValueAtTheNextPass and ...AfterAStall...).
+    n = len(p3.updates)
+    p3.ctl("caps")
+    t = p3.until(lambda: p3.value(it[1]["Entity"], "seen") is not None, ACK_TIMEOUT + 2.0)
+    s.check(f"walking back in brings it again (at the next pass once the server steps; {ACK_TIMEOUT + 2.0:.0f} s for an update lost on the way)",
+            t is not None, f"after {t and round(t * 1000)} ms, {'in a reset' if any(u[2] for u in p3.updates[n:]) else 'as a difference'}; {p3.items}")
 
     # ---- moves, removals, losses ----
     r = p1.ctl("move", 0)
