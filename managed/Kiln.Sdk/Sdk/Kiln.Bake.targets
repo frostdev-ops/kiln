@@ -5,21 +5,26 @@
     KilnManifest this target runs the mod's OnLoad and first server steps under KilnHarness (no game) with Kiln's recorders on
     (bake/Kiln.Sdk.Bake) and writes what the code defined into the output folder, where the game's start reads it:
       quests/generated/<id>.json     quests, NPCs and dialogues of Quests.Define, DefineNpc and quest blocks (kiln.quests)
-      skills/<id>.generated.json     game-tree nodes of GameTree.Define and talent blocks ("gameTree", kiln.skills)
+      skills/<id>.generated.json     game-tree nodes of GameTree.Define ("gameTree", kiln.skills)
       blocks/generated/<id>.json     VFX and materials of Blocks.Define (kiln.vfx)
-    A file of the project's own at one of these paths is left alone; a file an earlier bake wrote and the code no longer
-    fills is removed. A mod that does not load without the game (blocks that lower onto kiln.assets or kiln.content) is
-    not baked: a line says so. A node's icon outside the mod folder, an error the mod logs while baking, or a bake that
-    cannot run is a warning KILN030. That part is there from the next start, as without the bake. The build never fails for it.
+    A file of the project's own at one of these paths is left alone. A file the bake wrote goes when nothing of the code's is in
+    it any more, when the mod does not load without the game (a build line says so), when the bake is turned off, and from
+    the deployed folder on KilnDeploy. A node's icon outside the mod folder or an error the mod logs while it is baked is a
+    warning KILN030. A bake that fails or does not end within KilnBakeTimeoutSeconds is an error KILN032 (the process is
+    ended); nothing of an earlier bake is left then. Design-time builds (an IDE) never bake.
     Properties:
-      KilnBake        true | false (default true when KilnServices names Quests, Skills, Blocks or Vfx)
-      KilnBakeSteps   server steps after the mod loaded (default 10: its OnLoad, the server's start, its first steps)
+      KilnBake                 true | false (default true when KilnServices names Quests, Skills, Blocks or Vfx)
+      KilnBakeSteps            server steps after the mod loaded (default 10: its OnLoad, the server's start, its first steps)
+      KilnBakeTimeoutSeconds   the whole bake's deadline (default 120)
   -->
   <PropertyGroup>
     <_KilnBakeAuto>false</_KilnBakeAuto>
     <_KilnBakeAuto Condition="$(_KilnServiceList.Contains(';Quests;')) or $(_KilnServiceList.Contains(';Skills;')) or $(_KilnServiceList.Contains(';Blocks;')) or $(_KilnServiceList.Contains(';Vfx;'))">true</_KilnBakeAuto>
     <KilnBake Condition="'$(KilnBake)' == ''">$(_KilnBakeAuto)</KilnBake>
     <KilnBakeSteps Condition="'$(KilnBakeSteps)' == ''">10</KilnBakeSteps>
+    <KilnBakeTimeoutSeconds Condition="'$(KilnBakeTimeoutSeconds)' == ''">120</KilnBakeTimeoutSeconds>
+    <!-- an IDE's design-time build never runs the mod's code -->
+    <_KilnBakeNow Condition="'$(KilnBake)' == 'true' and '$(DesignTimeBuild)' != 'true'">true</_KilnBakeNow>
     <!-- Repository mode: Kiln.Sdk.Bake.csproj copies itself and every service there (a kiln/host layout). Package mode: the
          package's bake/ beside Kiln.Api's kiln/lib, staged per SDK version under obj/. -->
     <_KilnBakeHostDir Condition="'$(KilnRepoMode)' == 'true' and '$(KILN_OUT)' != ''">$([MSBuild]::NormalizeDirectory('$(KILN_OUT)', 'sdk-bake', 'kiln', 'host'))</_KilnBakeHostDir>
@@ -27,16 +32,20 @@
     <_KilnBakeHostDir Condition="'$(KilnRepoMode)' != 'true'">$([MSBuild]::NormalizeDirectory('$(MSBuildProjectDirectory)', '$(BaseIntermediateOutputPath)', 'kilnbake', '$(KilnSdkVersion)', 'kiln', 'host'))</_KilnBakeHostDir>
     <_KilnBakeDotnet Condition="'$(DOTNET_HOST_PATH)' != ''">$(DOTNET_HOST_PATH)</_KilnBakeDotnet>
     <_KilnBakeDotnet Condition="'$(DOTNET_HOST_PATH)' == ''">dotnet</_KilnBakeDotnet>
+    <!-- what the bake left in the output folder (its own bookkeeping: the outputs check, turning it off) and its settings -->
+    <_KilnBakeList>$(IntermediateOutputPath)kiln.bake.files</_KilnBakeList>
+    <_KilnBakeConfig>$(IntermediateOutputPath)kiln.bake.config</_KilnBakeConfig>
+    <_KilnBakeStamp>$(IntermediateOutputPath)kiln.bake.stamp</_KilnBakeStamp>
   </PropertyGroup>
 
-  <ItemGroup Condition="'$(KilnRepoMode)' == 'true' and '$(KilnBake)' == 'true'">
+  <ItemGroup Condition="'$(KilnRepoMode)' == 'true' and '$(_KilnBakeNow)' == 'true'">
     <!-- built first; nothing of it (or of what it references) is the mod's: no reference, no copy, no transitive references -->
     <ProjectReference Include="$(KilnRepoRoot)managed/Kiln.Sdk/bake/Kiln.Sdk.Bake.csproj" ReferenceOutputAssembly="false" Private="false" ExcludeAssets="all" />
   </ItemGroup>
 
   <Target Name="_KilnBakeStage" Condition="'$(KilnRepoMode)' != 'true'">
     <Error Condition="'$(PkgKiln_Api)' == '' or !Exists('$(MSBuildThisFileDirectory)../bake/Kiln.Sdk.Bake.dll')" Code="KILN031"
-           Text="KilnBake: this Kiln.Sdk has no bake/ folder or Kiln.Api was not restored; set KilnBake=false to build without baking" />
+           Text="KilnBake: this Kiln.Sdk has no bake/ folder or Kiln.Api was not restored; set KilnBake=false to build without it" />
     <ItemGroup>
       <_KilnBakeStageFile Include="$(PkgKiln_Api)/kiln/lib/*.dll;$(PkgKiln_Api)/lib/*/Kiln.Api.dll" />
       <_KilnBakeStageFile Include="$(MSBuildThisFileDirectory)../bake/*.dll;$(MSBuildThisFileDirectory)../bake/*.json" />
@@ -44,14 +53,63 @@
     <Copy SourceFiles="@(_KilnBakeStageFile)" DestinationFolder="$(_KilnBakeHostDir)" SkipUnchangedFiles="true" />
   </Target>
 
-  <Target Name="KilnBake" AfterTargets="KilnManifest" DependsOnTargets="_KilnBakeStage" Condition="'$(KilnBake)' == 'true' and '$(KilnManifest)' != 'false'"
-          Inputs="$(TargetPath);$(OutDir)kiln.mod.json;@(None->WithMetadataValue('CopyToOutputDirectory','PreserveNewest'));$(_KilnBakeHostDir)Kiln.Sdk.Bake.dll"
-          Outputs="$(IntermediateOutputPath)kiln.bake.stamp">
-    <Exec Command="&quot;$(_KilnBakeDotnet)&quot; exec &quot;$(_KilnBakeHostDir)Kiln.Sdk.Bake.dll&quot; &quot;$(OutDir.TrimEnd('/').TrimEnd('\'))&quot; --steps $(KilnBakeSteps)"
-          ContinueOnError="true" StandardOutputImportance="high" />
-    <Touch Files="$(IntermediateOutputPath)kiln.bake.stamp" AlwaysCreate="true" />
+  <!-- The settings a bake depends on, rewritten only when they change: a changed step count or timeout bakes again. -->
+  <Target Name="_KilnBakeConfig">
+    <WriteLinesToFile File="$(_KilnBakeConfig)" Overwrite="true" WriteOnlyWhenDifferent="true"
+                      Lines="steps=$(KilnBakeSteps);timeout=$(KilnBakeTimeoutSeconds);sdk=$(KilnSdkVersion);host=$(_KilnBakeHostDir)" />
     <ItemGroup>
-      <FileWrites Include="$(IntermediateOutputPath)kiln.bake.stamp;$(OutDir)quests/generated/$(KilnResolvedModId).json;$(OutDir)skills/$(KilnResolvedModId).generated.json;$(OutDir)blocks/generated/$(KilnResolvedModId).json" />
+      <FileWrites Include="$(_KilnBakeConfig)" />
     </ItemGroup>
+  </Target>
+
+  <!-- A file the last bake left that is gone from the output folder (deleted by hand, a partial clean): bake again. -->
+  <Target Name="_KilnBakeOutputsGone">
+    <ReadLinesFromFile File="$(_KilnBakeList)" Condition="Exists('$(_KilnBakeList)')">
+      <Output TaskParameter="Lines" ItemName="_KilnBakeLast" />
+    </ReadLinesFromFile>
+    <ItemGroup>
+      <_KilnBakeMissing Include="@(_KilnBakeLast)" Condition="!Exists('$(OutDir)%(Identity)')" />
+    </ItemGroup>
+    <Delete Files="$(_KilnBakeStamp)" Condition="'@(_KilnBakeMissing)' != ''" />
+  </Target>
+
+  <Target Name="KilnBake" AfterTargets="KilnManifest" DependsOnTargets="_KilnBakeStage;_KilnBakeConfig;_KilnBakeOutputsGone"
+          Condition="'$(_KilnBakeNow)' == 'true' and '$(KilnManifest)' != 'false'"
+          Inputs="$(TargetPath);$(OutDir)kiln.mod.json;$(_KilnBakeConfig);@(None->WithMetadataValue('CopyToOutputDirectory','PreserveNewest'));$(_KilnBakeHostDir)Kiln.Sdk.Bake.dll"
+          Outputs="$(_KilnBakeStamp)">
+    <Delete Files="$(_KilnBakeStamp)" />
+    <Exec Command="&quot;$(_KilnBakeDotnet)&quot; exec &quot;$(_KilnBakeHostDir)Kiln.Sdk.Bake.dll&quot; &quot;$(OutDir.TrimEnd('/').TrimEnd('\'))&quot; --steps $(KilnBakeSteps) --timeout $(KilnBakeTimeoutSeconds) --list &quot;$(_KilnBakeList)&quot;"
+          Timeout="$([MSBuild]::Add($([MSBuild]::Multiply($(KilnBakeTimeoutSeconds), 1000)), 30000))"
+          ContinueOnError="true" StandardOutputImportance="high">
+      <Output TaskParameter="ExitCode" PropertyName="_KilnBakeExit" />
+    </Exec>
+    <Error Condition="'$(_KilnBakeExit)' != '0'" Code="KILN032"
+           Text="KilnBake: the bake of $(KilnResolvedModId) failed or did not end (exit code $(_KilnBakeExit); the lines above say why). Set KilnBake=false to build without it (docs/kiln/modding/baked.md)" />
+    <Touch Files="$(_KilnBakeStamp)" AlwaysCreate="true" />
+    <ItemGroup>
+      <FileWrites Include="$(_KilnBakeStamp);$(_KilnBakeList);$(OutDir)quests/generated/$(KilnResolvedModId).json;$(OutDir)skills/$(KilnResolvedModId).generated.json;$(OutDir)blocks/generated/$(KilnResolvedModId).json" />
+    </ItemGroup>
+  </Target>
+
+  <!-- Turned off (KilnBake=false): what the last bake left in the output folder goes, so it does not win at start over what
+       the code defines now. The author's own files are not in the list. -->
+  <Target Name="_KilnBakeOff" AfterTargets="KilnManifest" Condition="'$(KilnBake)' != 'true' and '$(DesignTimeBuild)' != 'true' and Exists('$(_KilnBakeList)')">
+    <ReadLinesFromFile File="$(_KilnBakeList)">
+      <Output TaskParameter="Lines" ItemName="_KilnBakeOld" />
+    </ReadLinesFromFile>
+    <Delete Files="@(_KilnBakeOld->'$(OutDir)%(Identity)')" />
+    <Delete Files="$(_KilnBakeList);$(_KilnBakeStamp)" />
+    <Message Importance="high" Condition="'@(_KilnBakeOld)' != ''" Text="KilnBake is off: removed what the last bake wrote: @(_KilnBakeOld)" />
+  </Target>
+
+  <!-- KilnDeploy copies the output folder over the deployed one: a baked file the output folder no longer has must not stay
+       there (the start-up builds would read it). The author's own file at the path is copied again right after. -->
+  <Target Name="_KilnBakeDeployClean" BeforeTargets="KilnDeploy">
+    <PropertyGroup>
+      <_KilnBakeDeployMods Condition="'$(KilnModsDir)' != ''">$(KilnModsDir)</_KilnBakeDeployMods>
+      <_KilnBakeDeployMods Condition="'$(KilnModsDir)' == '' and '$(KilnServer)' != ''">$(KilnServer)/kiln/mods</_KilnBakeDeployMods>
+    </PropertyGroup>
+    <Delete Condition="'$(_KilnBakeDeployMods)' != '' and '$(KilnResolvedModId)' != ''"
+            Files="$(_KilnBakeDeployMods)/$(KilnResolvedModId)/quests/generated/$(KilnResolvedModId).json;$(_KilnBakeDeployMods)/$(KilnResolvedModId)/skills/$(KilnResolvedModId).generated.json;$(_KilnBakeDeployMods)/$(KilnResolvedModId)/blocks/generated/$(KilnResolvedModId).json" />
   </Target>
 </Project>

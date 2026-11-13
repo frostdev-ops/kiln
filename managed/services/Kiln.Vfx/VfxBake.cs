@@ -36,6 +36,40 @@ internal static partial class VfxNative
         }
     }
 
+    /// <summary>"vfx/&lt;name&gt;" and "materials/&lt;name&gt;" of the mod's blocks/generated/&lt;mod&gt;.json when the bake wrote it
+    /// (its comment says so); empty otherwise.</summary>
+    internal static HashSet<string> BakedNames(string modDirectory, string mod)
+    {
+        var names = new HashSet<string>(StringComparer.Ordinal);
+        if (modDirectory.Length == 0) return names;
+        var file = Path.Combine(modDirectory, "blocks", "generated", mod + ".json");
+        try
+        {
+            if (!File.Exists(file) ||
+                JsonNode.Parse(File.ReadAllText(file), documentOptions: new JsonDocumentOptions { CommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true }) is not JsonObject o ||
+                (string?)o["comment"] != BakedComment) return names;
+            foreach (var section in new[] { "vfx", "materials" })
+                if (o[section] is JsonObject blocks)
+                    foreach (var (name, _) in blocks) names.Add($"{section}/{name}");
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or JsonException or InvalidOperationException)
+        {
+        }
+        return names;
+    }
+
+    /// <summary>What to tell the author of a block from code the builder keeps for the next start (status pending): the
+    /// usual "restart", or, when the mod's baked file has a block of that name, that the baked one is what every start
+    /// builds and the mod needs a rebuild. kind: "vfx" or "material".</summary>
+    internal static (string Log, string Toast) PendingNote(string kind, string name, string mod, bool baked) => baked
+        ? ($"{kind} {name} is not what was baked into the mod at build (blocks/generated/{mod}.json): every start builds the baked one, so a restart " +
+           "does not change it; rebuild the mod (or set KilnBake=false when the code defines it from something only known at run time)",
+           $"{mod}: {kind} \"{name}\" differs from the mod's build: rebuild the mod")
+        : (kind == "vfx"
+              ? $"vfx {name} is new to this game: it is kept for the next start, and shows nothing until then"
+              : $"material {name} is new to this game: it is kept for the next start, and a model that names it doesn't draw until then",
+           kind == "vfx" ? $"{mod}: new VFX \"{name}\": restart the game to see it" : $"{mod}: new material \"{name}\": restart the game to see it");
+
     /// <summary>Drops what was recorded for a mod (a bake starts from nothing).</summary>
     internal static void ForgetBaked(string mod)
     {

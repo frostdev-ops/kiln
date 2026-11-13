@@ -77,7 +77,9 @@ internal static class NativeExport
     private static void Write(string mod)
     {
         var doc = Document(mod, out var missing);
-        CompareBaked(mod, doc);
+        var baked = Mods.Get(mod)?.Directory is { Length: > 0 } modDir ? BakedFile(modDir, mod) : null;
+        CompareBaked(mod, doc, baked);
+        doc = ForDataFile(doc, baked);
         var dir = Path.Combine(QuestsInternals.DataOwner.DataDirectory, "native");
         var file = Path.Combine(dir, mod + ".json");
         if (doc is null)
@@ -137,10 +139,27 @@ internal static class NativeExport
         return diffs.Count == 0 ? null : string.Join(", ", diffs.Take(6)) + (diffs.Count > 6 ? $" and {diffs.Count - 6} more" : "");
     }
 
-    // A mod built with the bake ships what its code defined at build: the game built that at this start. Said once per outcome.
-    private static void CompareBaked(string mod, JsonObject? doc)
+    /// <summary>What goes to Kiln's data file next to a baked file: what the code defines that the baked file does not
+    /// have. The start-up build reads the mod's own files first, and for dialogues the last file wins, so leaving the
+    /// baked ids out keeps the baked file ahead for every kind (quests, NPCs, dialogues). Without a baked file: all of
+    /// it, as before. Null: nothing to write.</summary>
+    internal static JsonObject? ForDataFile(JsonObject? doc, JsonObject? baked)
     {
-        if (Mods.Get(mod)?.Directory is not { Length: > 0 } dir || BakedFile(dir, mod) is not { } baked) return;
+        if (doc is null || baked is null) return doc;
+        var copy = (JsonObject)doc.DeepClone();
+        foreach (var section in new[] { "npcs", "quests", "dialogues" })
+        {
+            if (copy[section] is not JsonObject mine || baked[section] is not JsonObject theirs) continue;
+            foreach (var (id, _) in theirs.ToList()) mine.Remove(id);
+            if (mine.Count == 0) copy.Remove(section);
+        }
+        return copy.ContainsKey("npcs") || copy.ContainsKey("quests") || copy.ContainsKey("dialogues") ? copy : null;
+    }
+
+    // A mod built with the bake ships what its code defined at build: the game built that at this start. Said once per outcome.
+    private static void CompareBaked(string mod, JsonObject? doc, JsonObject? baked)
+    {
+        if (baked is null) return;
         var diff = BakedDifference(baked, doc);
         var key = diff ?? "";
         lock (Told)
@@ -151,8 +170,8 @@ internal static class NativeExport
         if (diff is null)
             QuestsInternals.Info($"{mod}: what it defines in code matches quests/generated/{mod}.json, baked into the mod at build: the game's journal has it from the first start");
         else
-            QuestsInternals.Warn($"{mod}: what it defines in code is not what was baked into the mod at build (quests/generated/{mod}.json): {diff}. At start its quests and NPCs win over what Kiln keeps " +
-                                 "from code, so the game's journal shows the baked version (a dialogue shows the code's from the next start); code that defines something else after the build (from settings, other mods or the game) " +
+            QuestsInternals.Warn($"{mod}: what it defines in code is not what was baked into the mod at build (quests/generated/{mod}.json): {diff}. The baked file wins at every start (Kiln keeps " +
+                                 "only what it does not have), so the game shows the baked version; code that defines something else after the build (from settings, other mods or the game) " +
                                  "needs KilnBake=false in the project, and a rebuild brings the file up to date");
     }
 

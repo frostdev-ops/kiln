@@ -60,14 +60,16 @@ public static unsafe partial class GameTree
     }
 
     /// <summary>A node as a mod's file holds it: an icon file in the mod's folder by its path from there ('/'), as kiln.skills
-    /// resolves a mod file's paths; null when it names a file outside the folder (that path is the machine's, not the mod's).</summary>
-    internal static JsonObject? Portable(JsonObject node, string modDirectory)
+    /// resolves a mod file's paths; null when it names a file outside the folder (that path is the machine's, not the mod's).
+    /// A relative path in a definition from code is the kiln folder's (as kiln.skills resolves code definitions), so it is
+    /// resolved against <paramref name="kilnDirectory"/> first.</summary>
+    internal static JsonObject? Portable(JsonObject node, string modDirectory, string kilnDirectory)
     {
         var copy = (JsonObject)node.DeepClone();
         copy.Remove("mod");
-        if (copy["iconFile"]?.GetValue<string>() is not { Length: > 0 } icon || !Path.IsPathRooted(icon)) return copy;
+        if (copy["iconFile"]?.GetValue<string>() is not { Length: > 0 } icon) return copy;
         var root = Path.GetFullPath(modDirectory).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
-        var full = Path.GetFullPath(icon);
+        var full = Path.GetFullPath(Path.IsPathRooted(icon) ? icon : Path.Combine(kilnDirectory, icon));
         if (!full.StartsWith(root, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal)) return null;
         copy["iconFile"] = full[root.Length..].Replace('\\', '/');
         return copy;
@@ -90,7 +92,7 @@ public static unsafe partial class GameTree
                     list.Add(new GameNodeInfo(Guid.Empty, 0, name, id, "code", "error", -1, -1, "a node needs a \"guid\""));
                     continue;
                 }
-                if (Portable(n, dir) is not { } file)
+                if (Portable(n, dir, KilnPaths.Root) is not { } file)
                 {
                     if (!NotBaked.TryGetValue(id, out var p)) NotBaked[id] = p = [];
                     p.Add($"game-tree node {name} ({g}): its iconFile {n["iconFile"]} is outside the mod's folder, so the node is not baked (it is in from the next start)");
@@ -105,8 +107,8 @@ public static unsafe partial class GameTree
     }
 
     /// <summary>Whether a node the code defines at run time is the one baked (the bake recorded <see cref="Portable"/> of the same request).</summary>
-    internal static bool SameAsBaked(JsonObject request, JsonObject baked, string modDirectory) =>
-        Portable(request, modDirectory) is { } now && JsonNode.DeepEquals(now, baked);
+    internal static bool SameAsBaked(JsonObject request, JsonObject baked, string modDirectory, string kilnDirectory) =>
+        Portable(request, modDirectory, kilnDirectory) is { } now && JsonNode.DeepEquals(now, baked);
 
     /// <summary>The nodes of the mod's own skills/&lt;mod&gt;.generated.json when Kiln.Sdk's bake wrote it, by GUID; empty otherwise.</summary>
     internal static Dictionary<string, JsonObject> BakedFile(string modDirectory, string mod)
@@ -159,7 +161,7 @@ public static unsafe partial class GameTree
                 rest.Add(n.DeepClone());
                 continue;
             }
-            var same = SameAsBaked(n, was, dir);
+            var same = SameAsBaked(n, was, dir, KilnPaths.Root);
             Tell(id, g, same
                 ? null
                 : $"game-tree node {n["name"]} ({g}) is not what was baked into the mod at build (skills/{file}): the tree has the baked one, read at start; " +

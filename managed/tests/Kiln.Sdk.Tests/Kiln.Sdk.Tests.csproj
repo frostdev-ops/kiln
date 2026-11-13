@@ -10,6 +10,8 @@
     <NoWarn>$(NoWarn);CS1591</NoWarn>
     <!-- not Kiln.Sdk.*: the tests use the bake's own namespace -->
     <RootNamespace>Kiln.SdkTests</RootNamespace>
+    <!-- the harness as in the game (Kiln.Host runs with invariant globalization) -->
+    <InvariantGlobalization>true</InvariantGlobalization>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
@@ -22,11 +24,24 @@
     <!-- built with the bake step, never referenced: bake-test.txt names its output folder -->
     <KilnBakeMod Include="../../../mods/tests/bake-test/BakeTest.csproj" />
     <ProjectReference Include="@(KilnBakeMod)" ReferenceOutputAssembly="false" />
+    <!-- mods the tests make folders of (a plain library: building it never bakes); bake-fixtures.txt names the assembly -->
+    <KilnBakeFixtures Include="Fixtures/BakeFixtures.csproj" />
+    <ProjectReference Include="@(KilnBakeFixtures)" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Remove="Fixtures/**" />
+    <None Remove="Fixtures/**" />
+    <!-- BakeTargetsTests runs its targets on a stub project -->
+    <None Include="../../Kiln.Sdk/Sdk/Kiln.Bake.targets" Link="Kiln.Bake.targets" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
   <Target Name="WriteBakeModPath" AfterTargets="Build">
     <MSBuild Projects="@(KilnBakeMod)" Targets="GetTargetPath" Properties="Configuration=$(Configuration)">
       <Output TaskParameter="TargetOutputs" ItemName="_KilnBakeModTarget" />
     </MSBuild>
     <WriteLinesToFile File="$(OutDir)bake-test.txt" Lines="@(_KilnBakeModTarget->'%(FullPath)')" Overwrite="true" WriteOnlyWhenDifferent="true" />
+    <MSBuild Projects="@(KilnBakeFixtures)" Targets="GetTargetPath" Properties="Configuration=$(Configuration)">
+      <Output TaskParameter="TargetOutputs" ItemName="_KilnBakeFixturesTarget" />
+    </MSBuild>
+    <WriteLinesToFile File="$(OutDir)bake-fixtures.txt" Lines="@(_KilnBakeFixturesTarget->'%(FullPath)')" Overwrite="true" WriteOnlyWhenDifferent="true" />
   </Target>
 </Project>

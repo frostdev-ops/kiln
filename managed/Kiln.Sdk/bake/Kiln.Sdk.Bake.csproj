@@ -14,6 +14,8 @@
     <IsPackable>false</IsPackable>
     <!-- a newer runtime than the one it was built for runs it too (a mod author's machine) -->
     <RollForward>Major</RollForward>
+    <!-- as Kiln.Host in the game: a mod's code formats numbers and compares strings the same on every build machine -->
+    <InvariantGlobalization>true</InvariantGlobalization>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../../Kiln.TestKit/Kiln.TestKit.csproj" />

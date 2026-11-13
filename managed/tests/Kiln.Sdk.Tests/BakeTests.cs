@@ -89,9 +89,9 @@ public sealed class BakedModTests
         };
         var request = Request(definition);
         var baked = GameTree.BakedFile(ModFolder, "bake-test");
-        Assert.True(GameTree.SameAsBaked(request, baked["7a4e1c2d-5b3f-4e8a-9c6d-0f1e2d3c4b5a"], ModFolder));
+        Assert.True(GameTree.SameAsBaked(request, baked["7a4e1c2d-5b3f-4e8a-9c6d-0f1e2d3c4b5a"], ModFolder, Path.GetTempPath()));
         var changed = Request(new GameNodeDefinition { Guid = definition.Guid, Name = definition.Name, Type = "Attribute", Class = "Mage", Like = definition.Like, From = definition.From, Offset = (170, 40), Cost = 2, Texts = definition.Texts });
-        Assert.False(GameTree.SameAsBaked(changed, baked["7a4e1c2d-5b3f-4e8a-9c6d-0f1e2d3c4b5a"], ModFolder));
+        Assert.False(GameTree.SameAsBaked(changed, baked["7a4e1c2d-5b3f-4e8a-9c6d-0f1e2d3c4b5a"], ModFolder, Path.GetTempPath()));
     }
 
     internal static JsonObject Request(GameNodeDefinition d) =>
@@ -137,14 +137,18 @@ public sealed class BakeUnitTests
     {
         var dir = Path.Combine(Path.GetTempPath(), "kiln-mod-" + Guid.NewGuid().ToString("N"));
         var inside = (JsonObject)JsonNode.Parse($$"""{"guid":"{{Guid.NewGuid()}}","name":"n","iconFile":{{System.Text.Json.JsonSerializer.Serialize(Path.Combine(dir, "icons", "a.png"))}},"mod":"m"}""")!;
-        var portable = GameTree.Portable(inside, dir)!;
+        var portable = GameTree.Portable(inside, dir, Path.GetTempPath())!;
         Assert.Equal("icons/a.png", (string?)portable["iconFile"]);
         Assert.Null(portable["mod"]);
-        Assert.True(GameTree.SameAsBaked(inside, portable, dir));
+        Assert.True(GameTree.SameAsBaked(inside, portable, dir, Path.GetTempPath()));
         var outside = (JsonObject)JsonNode.Parse($$"""{"guid":"{{Guid.NewGuid()}}","name":"n","iconFile":{{System.Text.Json.JsonSerializer.Serialize(Path.Combine(Path.GetTempPath(), "elsewhere.png"))}}}""")!;
-        Assert.Null(GameTree.Portable(outside, dir));
-        var relative = (JsonObject)JsonNode.Parse("""{"guid":"7a4e1c2d-5b3f-4e8a-9c6d-0f1e2d3c4b5a","name":"n","iconFile":"icons/b.png"}""")!;
-        Assert.Equal("icons/b.png", (string?)GameTree.Portable(relative, dir)!["iconFile"]);
+        Assert.Null(GameTree.Portable(outside, dir, Path.GetTempPath()));
+        // a relative path in a definition from code is the kiln folder's (kiln.skills resolves code definitions there)
+        var kiln = Path.GetDirectoryName(dir)!;
+        var relative = (JsonObject)JsonNode.Parse($$"""{"guid":"7a4e1c2d-5b3f-4e8a-9c6d-0f1e2d3c4b5a","name":"n","iconFile":"{{Path.GetFileName(dir)}}/icons/b.png"}""")!;
+        Assert.Equal("icons/b.png", (string?)GameTree.Portable(relative, dir, kiln)!["iconFile"]);
+        var elsewhere = (JsonObject)JsonNode.Parse("""{"guid":"7a4e1c2d-5b3f-4e8a-9c6d-0f1e2d3c4b5a","name":"n","iconFile":"icons/b.png"}""")!;
+        Assert.Null(GameTree.Portable(elsewhere, dir, kiln));  // <kiln>/icons/b.png: not the mod's
     }
 
     [Fact]

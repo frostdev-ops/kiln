@@ -23,19 +23,35 @@ the files into the output folder, so `KilnDeploy` and `KilnPack` ship them.
 
 ```xml
 <PropertyGroup>
-  <KilnBake>false</KilnBake>        <!-- no bake: the next start, as before -->
-  <KilnBakeSteps>30</KilnBakeSteps> <!-- define something in a later step? run longer (default 10) -->
+  <KilnBake>false</KilnBake>                          <!-- no bake: the next start, as before -->
+  <KilnBakeSteps>30</KilnBakeSteps>                   <!-- define something in a later step? run longer (default 10) -->
+  <KilnBakeTimeoutSeconds>300</KilnBakeTimeoutSeconds> <!-- the whole bake's deadline (default 120) -->
 </PropertyGroup>
 ```
 
 - **The mod's own file wins.** If the project ships its own file at one of these paths, the bake leaves it alone and
   says so.
-- **Stale files go.** If a file came from an earlier bake and the code no longer defines anything of that kind, it is
-  removed.
-- **The build never fails for the bake.** A mod that does not load without the game is not baked, and a build line
-  says so (`Kiln.Sdk.Bake: <id>: not baked: ...`). That is a limit of the bake, not a fault of the mod. A node whose icon
-  cannot be baked, an error the mod logs while it is baked, or a bake that cannot run is a warning `KILN030`. Either
-  way, that part comes from the next start, as without the bake.
+- **What the bake wrote never outlives what the code defines.** A file of an earlier bake goes from the output folder
+  in these cases:
+  - the code no longer defines anything of that kind;
+  - the mod does not load without the game (below);
+  - the bake fails;
+  - the bake is turned off (`KilnBake=false`);
+  - the file is named for another mod id (left from a rename).
+
+  `KilnDeploy` also removes the three files from the deployed folder before it copies, so one the output folder no
+  longer has does not stay on the server.
+- **A mod that does not load without the game** is not baked. A build line says so (`Kiln.Sdk.Bake: <id>: not baked:
+  ...`). That is a limit of the bake, not a fault of the mod, and the build goes on.
+- **Warning `KILN030`:** a node whose icon cannot be baked, or an error the mod logs while it is baked.
+- **Error `KILN032`:** a bake that crashes, or does not end within `KilnBakeTimeoutSeconds` (an `OnLoad` that never
+  returns). The bake process is ended, nothing of an earlier bake is left, and the build fails, naming `KilnBake=false`.
+  A thread the mod leaves running does not keep the bake alive: the process ends when the bake is done.
+- **It bakes again** when the mod, its data files, the SDK, `KilnBakeSteps` or `KilnBakeTimeoutSeconds` change, or a
+  file the last bake wrote is gone from the output folder.
+- **An IDE's design-time build never bakes**, so it never runs the mod's code.
+- **The mod's code runs with invariant globalization**, as Kiln.Host does in the game. The files are the same on every
+  build machine, and the same definitions in another order give the same file.
 
 **Why it runs the code.** The other route was attributes read by a source generator. A generator sees only constants. A
 mod computes its definitions: a loop over its own table, names built from strings, a helper library's builders, blocks
@@ -47,13 +63,20 @@ and Kiln compares them with what it shipped:
 
 | Kind | Same as baked | Not the same |
 |---|---|---|
-| Quests | kiln.log: `quests: <id>: what it defines in code matches quests/generated/<id>.json` | warning naming each quest, NPC or dialogue that differs, is new, or is gone. At start, the baked quests and NPCs win over what Kiln keeps from code, so the journal shows the baked version. A dialogue shows the code's version from the next start |
+| Quests | kiln.log: `quests: <id>: what it defines in code matches quests/generated/<id>.json`; Kiln's data file keeps only what the baked file does not have | warning naming each quest, NPC or dialogue that differs, is new, or is gone. The baked quests, NPCs and dialogues win at every start: Kiln's data file leaves out every id the baked file has, so the game shows the baked version |
 | Game-tree nodes | the node is left as kiln.skills read it at boot: in the tree, nothing cached for the next start | warning per node. The tree keeps the baked node, read at start, and the code's version is defined as before (pending, cached). The baked file still wins at every start |
-| VFX, materials | the builder reports the block `registered` (the same definition it built at start) | it is kept in `kiln/data/vfx/pending/<id>/` as before. At start the baked one is read first, and the builder keeps the first of two blocks with one name (kiln.log says so) |
+| VFX, materials | the builder reports the block `registered` (the same definition it built at start) | it is kept in `kiln/data/vfx/pending/<id>/` as before. At start the baked one is read first, and the builder keeps the first of two blocks with one name (kiln.log says so). The warning and the toast say to rebuild the mod, not to restart |
 
 The rule in all three cases: **the baked file is part of the mod and wins at start.** If code defines something else after
 the build, rebuild the mod to bring the file up to date. A mod whose definitions depend on settings, other mods or the
 game's data should set `KilnBake=false`.
+
+kiln.vfx reads a mod's `blocks/generated/*.json` with limits, because anyone with the mod can fill that folder:
+- no link or reparse point, neither the folder nor a file, since it could point outside the mod;
+- at most 16 files, 4 MiB each and 16 MiB in all;
+- JSON nested at most 64 deep.
+
+What it refuses is logged and left out.
 
 ## What is not baked
 - **A mod that does not load without the game.** The harness has no game, and a block that lowers onto kiln.assets or
@@ -61,7 +84,8 @@ game's data should set `KilnBake=false`.
   generated Impact program. The build says `not baked: the mod does not load without the game` and bakes nothing for that mod; set `KilnBake=false`
   to skip the try.
 - **A node whose `IconFile` lies outside the mod's folder.** That path is the build machine's, not the mod's. A path inside
-  the folder is baked relative to it, as kiln.skills reads a mod file's paths.
+  the folder is baked relative to it, as kiln.skills reads a mod file's paths. A relative path in a definition from code
+  is the kiln folder's, as kiln.skills reads code definitions, and is resolved there first.
 - **A client-only mod** (`"side": "client"`): the harness is a server.
 - **A mod whose required dependency is not there**, since the harness loads this mod only. **Definitions made after the
   first steps:** raise `KilnBakeSteps`.
@@ -70,21 +94,32 @@ game's data should set `KilnBake=false`.
   at once.
 
 ## Checked
-- `managed/tests/Kiln.Sdk.Tests` (12 tests):
+- `managed/tests/Kiln.Sdk.Tests` (25 tests):
   - the recorders, the files and their marks, an author's file left alone, a stale file removed, and a mod that does
     not load;
   - `mods/tests/bake-test`, built with the step: its three files, and the same files from a second bake;
   - its quests under KilnHarness, equal to the baked ones;
-  - its node's run-time request, equal to the baked node (and a changed one is not).
-- Lab, `mods/tests/bake-test` on a dedicated server (server 26430253), started with an empty `kiln/data`:
-  - At that first start, the two quests are in the game's journal (`NativeQuests.ShownByGame`) and the node is in the
-    game's tree (`in-tree`, read from `skills/bake-test.generated.json`). `GameTree.Define` left it so.
-  - The quests Kiln.Quests writes at run time equal the baked ones, and kiln.skills keeps nothing for the next start:
-    8 PASS.
-  - With `kiln/config/vfx.json {"sim": true}`, kiln.vfx builds the baked VFX at boot (`built 1 Kiln VFX`). The block
-    is `registered` at the first start, and nothing is kept in `kiln/data/vfx/pending`: 10 PASS.
-  - With the lab's copies of the three files edited to differ from the code: each kind warns (VFX as "new to this
-    game"), the code's versions are kept as before, and at the next start the baked files still win (kiln.vfx: "a
-    block of this name is already defined; the first stays").
-- Not checked: a player's game (a client reads the same files with the same readers), the packed SDK on a machine
-  without the repository beyond one build from the local feed (`managed/Kiln.Sdk/pack.sh`).
+  - a run-time `GameTree.Define` against a fake kiln.skills: the node as baked is not sent again, and a changed one is;
+  - fixture mods in the bake's own process:
+    - a thread `OnLoad` leaves running does not keep the process alive;
+    - an `OnLoad` that never returns ends at the deadline (`KILN032`);
+    - a throwing `OnLoad`, and one that needs kiln.assets, leave nothing of an earlier bake (a renamed id's file
+      included) and keep the author's;
+  - the same file from the same definitions in another order, and on a German build machine;
+  - malformed and other SDKs' files left alone, relative icons, baked dialogues ahead of Kiln's data file, and the
+    "rebuild" note;
+  - the targets on a stub project through `dotnet msbuild`: turned off, deploy, a missing output, changed settings,
+    design-time.
+- Lab, `mods/tests/bake-test` on a dedicated server (server 26430253), started with an empty `kiln/data` and
+  `kiln/config/vfx.json {"sim": true}`:
+  - At that first start, the two quests are in the game's journal (`NativeQuests.ShownByGame`), the node is in the
+    game's tree (`in-tree`, read from `skills/bake-test.generated.json`, and `GameTree.Define` left it so), and the VFX
+    is `registered`.
+  - Kiln keeps nothing for the next start of any kind: 10 PASS.
+  - With the lab's copies of the three files edited to differ from the code, each kind warns, the VFX warning says to
+    rebuild, and Kiln writes no quests data file (every id is the baked file's).
+- A freshly packed SDK (`managed/Kiln.Sdk/pack.sh` into a local feed) and a mod restored from it:
+  - the bake runs from the package (`bake/` beside Kiln.Api's `kiln/lib`), and `KilnDeploy` ships the files;
+  - with the quests taken out of the code, their file goes from the output and the deployed folder;
+  - with `KilnBake=false`, the rest goes too.
+- Not checked: a player's game (a client reads the same files with the same readers).

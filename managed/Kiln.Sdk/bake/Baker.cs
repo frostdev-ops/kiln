@@ -40,6 +40,10 @@ internal static class Baker
     private static readonly JsonSerializerOptions Pretty = new() { WriteIndented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
     private static readonly JsonDocumentOptions Relaxed = new() { CommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true };
 
+    /// <summary>The mod id of a folder's kiln.mod.json; null when it has none.</summary>
+    internal static string? ModIdOf(string folder) =>
+        JsonNode.Parse(File.ReadAllText(Path.Combine(folder, "kiln.mod.json")), documentOptions: Relaxed)?["id"]?.GetValue<string>() is { Length: > 0 } id ? id : null;
+
     /// <summary>The three files, relative to the mod folder.</summary>
     public static string QuestsFile(string mod) => Path.Combine("quests", "generated", mod + ".json");
     public static string SkillsFile(string mod) => Path.Combine("skills", GameTree.BakedFileName(mod));
@@ -57,12 +61,13 @@ internal static class Baker
         if (manifest["entryAssembly"] is null)
         {
             result.Notes.Add("a data-only mod: nothing runs, so nothing is baked");
-            Write(folder, id, null, null, null, result, options);
+            Clean(folder, id, result, options);
             return result;
         }
         if ((string?)manifest["side"] == "client")
         {
             result.Notes.Add("a client-only mod: the bake runs a server, which does not load it; nothing is baked");
+            Clean(folder, id, result, options);
             return result;
         }
 
@@ -92,6 +97,7 @@ internal static class Baker
                 // not a fault of the mod, so a note and not a warning
                 result.Notes.Add($"not baked: the mod does not load without the game ({e.Message}); what its code defines is there from the next " +
                                  "start, as without the bake (docs/kiln/modding/baked.md, \"What is not baked\")");
+                Clean(folder, id, result, options);
                 return result;
             }
             foreach (var line in harness.LogsOf(id).Concat(harness.Logs.Where(l => l.ModId is null && l.Text.Contains(id, StringComparison.Ordinal))))
@@ -100,6 +106,7 @@ internal static class Baker
             {
                 result.Notes.Add($"not baked: the mod does not load without the game ({handle.State.ToString().ToLowerInvariant()}: {handle.Error ?? "no reason given"}); " +
                                  "what its code defines is there from the next start, as without the bake (docs/kiln/modding/baked.md, \"What is not baked\")");
+                Clean(folder, id, result, options);
                 return result;
             }
             quests = QuestsDocument(id);
@@ -113,8 +120,42 @@ internal static class Baker
             VfxNative.Baking = false;
         }
         Write(folder, id, quests, skills, vfx, result, options);
+        RemoveOtherIds(folder, id, result, options);
         return result;
     }
+
+    /// <summary>Nothing baked this time (the mod did not load, a data-only or client-only mod, or the bake failed): what an
+    /// earlier bake wrote goes, so it does not win at start over what the code defines now; the author's files stay.</summary>
+    internal static void Clean(string folder, string id, BakeResult result, BakeOptions options)
+    {
+        Write(folder, id, null, null, null, result, options);
+        RemoveOtherIds(folder, id, result, options);
+    }
+
+    /// <summary>Baked files named for another mod id (left from a rename: the start-up builds read every file there under
+    /// this mod's name) go; the author's files stay.</summary>
+    internal static void RemoveOtherIds(string folder, string id, BakeResult result, BakeOptions options)
+    {
+        foreach (var (dir, pattern, mine) in new[]
+                 {
+                     (Path.Combine(folder, "quests", "generated"), "*.json", QuestsFile(id)),
+                     (Path.Combine(folder, "skills"), "*.generated.json", SkillsFile(id)),
+                     (Path.Combine(folder, "blocks", "generated"), "*.json", VfxFile(id)),
+                 })
+        {
+            if (!Directory.Exists(dir)) continue;
+            foreach (var file in Directory.GetFiles(dir, pattern).Order(StringComparer.Ordinal))
+            {
+                var relative = Path.GetRelativePath(folder, file);
+                if (string.Equals(relative, mine, StringComparison.Ordinal) || !IsBaked(file)) continue;
+                if (!options.DryRun) File.Delete(file);
+                result.Removed.Add(relative.Replace('\\', '/'));
+            }
+        }
+    }
+
+    /// <summary>The files this bake left in the mod folder ('/'), for the build's own bookkeeping (KilnBake's list).</summary>
+    internal static IEnumerable<string> Outputs(BakeResult result) => result.Written.Concat(result.Unchanged).Order(StringComparer.Ordinal);
 
     /// <summary>What Kiln.Quests would write for the game's journal (Native/NativeExport.cs), with the bake's comment.</summary>
     internal static JsonObject? QuestsDocument(string mod)

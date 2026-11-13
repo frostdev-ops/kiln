@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: MIT
-using System.Text.Json.Nodes;
 using Kiln;
 
 namespace BakeTest;
@@ -105,18 +104,12 @@ public sealed class BakeTestMod : Mod
             else Expect(spark.Status == VfxBlockStatus.Registered, $"VFX baked_spark is registered at this start (status {spark.Status})");
         }
 
-        // What the code defines at run time is what was baked: Kiln.Quests writes its own copy within a second; the same document.
+        // What the code defines at run time is what was baked: Kiln.Quests keeps for the next start only what the baked file
+        // does not have (kiln.log says whether it matches), so within a second there is no data file of this mod.
         for (var i = 0; i < 100; i++) await Context.Scheduler.NextTick();
         var data = Path.GetDirectoryName(Context.DataDirectory.TrimEnd('/', '\\')) ?? "";
         var written = Path.Combine(data, "kiln-quests", "native", "bake-test.json");
-        var baked = Path.Combine(dir, "quests", "generated", "bake-test.json");
-        if (File.Exists(written) && File.Exists(baked))
-        {
-            var a = JsonNode.Parse(File.ReadAllText(written))?["quests"];
-            var b = JsonNode.Parse(File.ReadAllText(baked))?["quests"];
-            Expect(JsonNode.DeepEquals(a, b), "the quests the code defines at run time equal the baked ones");
-        }
-        else Expect(false, $"both quest documents exist (run time {File.Exists(written)}, baked {File.Exists(baked)})");
+        Expect(!File.Exists(written) || _questsKeptAtLoad, "Kiln.Quests keeps nothing for the next start: the quests the code defines are the baked ones");
         if (GameTree.Available)
             Expect(!File.Exists(Path.Combine(data, "skills", "defined", "bake-test.json")) || _nodeKeptAtLoad,
                 "kiln.skills keeps nothing for the next start: the node the code defines is the baked one");

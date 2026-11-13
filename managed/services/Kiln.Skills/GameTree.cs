@@ -98,6 +98,13 @@ internal static unsafe class SkillsNative
     private static Table* _t;
     private static bool _looked;
 
+    /// <summary>Tests: a fake kiln.skills table (null: none, as offline). Kiln never calls this.</summary>
+    internal static void UseForTests(Table* table)
+    {
+        _t = table;
+        _looked = true;
+    }
+
     public static Table* T
     {
         get

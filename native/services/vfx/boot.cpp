@@ -22,6 +22,7 @@
 #include "boot.h"
 #include "cook/vfxcook.h"
 #include "core.h"
+#include "generated.h"
 #include "services/kiln_assets.h"
 #include "services/kiln_profile.h"
 
@@ -155,6 +156,62 @@ kvb::TextureCache disk_cache() {
     return c;
 }
 
+// A link, junction or other reparse point: its target may be outside the mod's folder.
+bool is_reparse_point(const fs::path& p) {
+    const DWORD a = GetFileAttributesW(p.c_str());
+    return a != INVALID_FILE_ATTRIBUTES && (a & FILE_ATTRIBUTE_REPARSE_POINT) != 0;
+}
+
+// At most `size` bytes of a file (the size seen before reading it); false when it is not that size any more.
+bool read_exactly(const fs::path& p, uint64_t size, std::string* out) {
+    std::ifstream f(p, std::ios::binary);
+    if (!f) return false;
+    out->resize(static_cast<size_t>(size));
+    f.read(out->data(), static_cast<std::streamsize>(size));
+    return static_cast<uint64_t>(f.gcount()) == size && f.peek() == std::char_traits<char>::eof();
+}
+
+// blocks/generated/*.json: what Kiln.Sdk baked from the mod's code, after its data files and before what Kiln kept from
+// code at an earlier start, so a block of the same name in both is the mod's (the cook keeps the first). Read with the
+// limits of generated.h; what is refused is logged and left out.
+void add_generated(const fs::path& folder, kvb::ModInput* m) {
+    std::error_code ec;
+    if (!fs::exists(folder, ec)) return;
+    if (is_reparse_point(folder)) {
+        KV_W("vfx: %s: blocks/generated is a link or reparse point: not read (it could point outside the mod)", m->id.c_str());
+        return;
+    }
+    std::vector<fs::path> files;
+    for (auto it = fs::directory_iterator(folder, ec); !ec && it != fs::directory_iterator(); it.increment(ec))
+        if (it->path().extension() == L".json") files.push_back(it->path());
+    std::sort(files.begin(), files.end());
+    size_t n = 0;
+    uint64_t total = 0;
+    for (const fs::path& f : files) {
+        const std::string name = to_utf8(f.filename());
+        std::error_code e2;
+        const uint64_t size = fs::file_size(f, e2);
+        if (e2) continue;
+        if (const char* why = kvx_generated::refusal(is_reparse_point(f), n, size, total)) {
+            KV_W("vfx: %s: blocks/generated/%s: not read: %s", m->id.c_str(), name.c_str(), why);
+            if (n >= kvx_generated::kMaxFiles) break;
+            continue;
+        }
+        std::string text;
+        if (!read_exactly(f, size, &text)) {
+            KV_W("vfx: %s: blocks/generated/%s: not read: it changed while it was read", m->id.c_str(), name.c_str());
+            continue;
+        }
+        if (!kvx_generated::depth_ok(text, kvx_generated::kMaxDepth)) {
+            KV_W("vfx: %s: blocks/generated/%s: not read: nested deeper than %d", m->id.c_str(), name.c_str(), kvx_generated::kMaxDepth);
+            continue;
+        }
+        ++n;
+        total += size;
+        m->documents.emplace_back("generated/" + name, std::move(text));
+    }
+}
+
 // One mod's folder -> its input. false: nothing to do here.
 bool read_mod(const std::string& dir, const fs::path& pending_root, kvb::ModInput* m) {
     const fs::path d = to_path(dir);
@@ -180,9 +237,7 @@ bool read_mod(const std::string& dir, const fs::path& pending_root, kvb::ModInpu
         for (const fs::path& f : files) m->documents.emplace_back(std::string(prefix) + "/" + to_utf8(f.filename()), read_text(f));
     };
     add_folder(d / L"blocks", "blocks");
-    // what the mod's code defines, baked into the mod at build by Kiln.Sdk (docs/kiln/modding/baked.md): after its data files, before
-    // what Kiln kept from code at an earlier start, so a block of the same name in both is the mod's (the cook keeps the first)
-    add_folder(d / L"blocks" / L"generated", "generated");
+    add_generated(d / L"blocks" / L"generated", m);
     add_folder(pending_root / to_path(m->id), "pending");
     return !m->documents.empty();
 }

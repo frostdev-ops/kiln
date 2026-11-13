@@ -1,13 +1,15 @@
 // SPDX-License-Identifier: MIT
-// Kiln.Sdk.Bake <mod folder> [--steps N] [--temp DIR] [--dry-run]
+// Kiln.Sdk.Bake <mod folder> [--steps N] [--timeout S] [--list FILE] [--temp DIR] [--dry-run]
 // Writes into the mod folder what its code defines and the game reads only at start (Baker.cs, docs/kiln/modding/baked.md).
-// Lines for MSBuild: a warning is "<folder>/kiln.mod.json: warning KILN030: ...", which Exec turns into a build warning. Exit 0
-// unless the arguments or the folder are wrong (2): a bake that cannot run leaves the mod as a build without the bake would.
+// Lines for MSBuild: "<folder>/kiln.mod.json: warning KILN030: ..." and "... error KILN032: ...", which Exec turns into a
+// build warning or error. Exit codes: 0 done (baked, or a mod that does not load without the game: a note); 1 the bake
+// failed (what an earlier bake wrote is removed); 2 bad arguments; 4 it did not end within --timeout seconds. The process
+// always ends with Environment.Exit: a foreground thread a mod's OnLoad left running cannot keep it (or the build) alive.
 using Kiln.Sdk.Bake;
 
-string? folder = null;
+string? folder = null, temp = null, list = null;
 var steps = 10;
-string? temp = null;
+var timeout = 120;
 var dry = false;
 for (var i = 0; i < args.Length; i++)
 {
@@ -16,6 +18,13 @@ for (var i = 0; i < args.Length; i++)
         case "--steps" when i + 1 < args.Length && int.TryParse(args[i + 1], out var n) && n is > 0 and <= 1000:
             steps = n;
             i++;
+            break;
+        case "--timeout" when i + 1 < args.Length && int.TryParse(args[i + 1], out var t) && t is > 0 and <= 3600:
+            timeout = t;
+            i++;
+            break;
+        case "--list" when i + 1 < args.Length:
+            list = args[++i];
             break;
         case "--temp" when i + 1 < args.Length:
             temp = args[++i];
@@ -27,8 +36,8 @@ for (var i = 0; i < args.Length; i++)
             if (folder is null && !args[i].StartsWith("--", StringComparison.Ordinal)) folder = args[i];
             else
             {
-                Console.Error.WriteLine($"Kiln.Sdk.Bake: unknown argument {args[i]}; usage: Kiln.Sdk.Bake <mod folder> [--steps N] [--temp DIR] [--dry-run]");
-                return 2;
+                Console.Error.WriteLine($"Kiln.Sdk.Bake: unknown argument {args[i]}; usage: Kiln.Sdk.Bake <mod folder> [--steps N] [--timeout S] [--list FILE] [--temp DIR] [--dry-run]");
+                Environment.Exit(2);
             }
             break;
     }
@@ -36,24 +45,60 @@ for (var i = 0; i < args.Length; i++)
 if (folder is null || !File.Exists(Path.Combine(folder, "kiln.mod.json")))
 {
     Console.Error.WriteLine($"Kiln.Sdk.Bake: {(folder is null ? "no mod folder given" : $"{folder} has no kiln.mod.json")}");
-    return 2;
+    Environment.Exit(2);
 }
 var origin = Path.Combine(Path.GetFullPath(folder), "kiln.mod.json");
-BakeResult result;
-try
+Environment.Exit(Bake.Run(folder, origin, new BakeOptions { Steps = steps, TempDirectory = temp, DryRun = dry }, TimeSpan.FromSeconds(timeout), list));
+
+namespace Kiln.Sdk.Bake
 {
-    result = Baker.Run(folder, new BakeOptions { Steps = steps, TempDirectory = temp, DryRun = dry });
+    internal static class Bake
+    {
+        /// <summary>One bake with a deadline; the exit code (see the file's head).</summary>
+        public static int Run(string folder, string origin, BakeOptions options, TimeSpan deadline, string? list)
+        {
+            using var watchdog = new Timer(_ =>
+            {
+                Console.WriteLine($"{origin}: error KILN032: the bake did not end within {deadline.TotalSeconds:0} s (an OnLoad or a step that does not " +
+                                  "return?): stopped. Set KilnBake=false to build without it, or KilnBakeTimeoutSeconds for more time");
+                Console.Out.Flush();
+                Environment.Exit(4);
+            }, null, deadline, Timeout.InfiniteTimeSpan);
+            BakeResult result;
+            try
+            {
+                result = Baker.Run(folder, options);
+            }
+            catch (Exception e)
+            {
+                var removed = new BakeResult();
+                try
+                {
+                    if (Baker.ModIdOf(folder) is { } id) Baker.Clean(Path.GetFullPath(folder), id, removed, options);
+                }
+                catch (Exception e2) when (e2 is IOException or UnauthorizedAccessException or InvalidDataException or System.Text.Json.JsonException)
+                {
+                    // the error below is what counts
+                }
+                Console.WriteLine($"{origin}: error KILN032: the bake failed ({e.GetType().Name}: {e.Message.ReplaceLineEndings(" ")})" +
+                                  (removed.Removed.Count > 0 ? $"; removed what an earlier bake wrote: {string.Join(", ", removed.Removed)}" : "") +
+                                  ". Set KilnBake=false to build without it");
+                return 1;
+            }
+            foreach (var w in result.Warnings) Console.WriteLine($"{origin}: warning KILN030: {result.ModId}: {w.ReplaceLineEndings(" ")}");
+            foreach (var n in result.Notes) Console.WriteLine($"Kiln.Sdk.Bake: {result.ModId}: {n}");
+            var dry = options.DryRun;
+            foreach (var f in result.Written) Console.WriteLine($"Kiln.Sdk.Bake: {result.ModId}: {(dry ? "would write" : "baked")} {f}");
+            foreach (var f in result.Unchanged) Console.WriteLine($"Kiln.Sdk.Bake: {result.ModId}: {f} is up to date");
+            foreach (var f in result.Removed) Console.WriteLine($"Kiln.Sdk.Bake: {result.ModId}: {(dry ? "would remove" : "removed")} {f} (nothing of the code's is in it now)");
+            if (result.Written.Count + result.Unchanged.Count + result.Removed.Count == 0 && result.Warnings.Count == 0 && result.Notes.Count == 0)
+                Console.WriteLine($"Kiln.Sdk.Bake: {result.ModId}: its code defines nothing the game reads only at start");
+            if (list is not null && !dry)
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(list))!);
+                File.WriteAllLines(list, Baker.Outputs(result));
+            }
+            return 0;
+        }
+    }
 }
-catch (Exception e)
-{
-    Console.WriteLine($"{origin}: warning KILN030: the bake did not run ({e.GetType().Name}: {e.Message}): nothing is baked, and what the code defines is there from the next start");
-    return 0;
-}
-foreach (var w in result.Warnings) Console.WriteLine($"{origin}: warning KILN030: {result.ModId}: {w.ReplaceLineEndings(" ")}");
-foreach (var n in result.Notes) Console.WriteLine($"Kiln.Sdk.Bake: {result.ModId}: {n}");
-foreach (var f in result.Written) Console.WriteLine($"Kiln.Sdk.Bake: {result.ModId}: {(dry ? "would write" : "baked")} {f}");
-foreach (var f in result.Unchanged) Console.WriteLine($"Kiln.Sdk.Bake: {result.ModId}: {f} is up to date");
-foreach (var f in result.Removed) Console.WriteLine($"Kiln.Sdk.Bake: {result.ModId}: {(dry ? "would remove" : "removed")} {f} (the code no longer defines any)");
-if (result.Written.Count + result.Unchanged.Count + result.Removed.Count == 0 && result.Warnings.Count == 0 && result.Notes.Count == 0)
-    Console.WriteLine($"Kiln.Sdk.Bake: {result.ModId}: its code defines nothing the game reads only at start");
-return 0;
