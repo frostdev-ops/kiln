@@ -70,7 +70,7 @@ public sealed class EliteVukahMod : Mod
     [Subscribe]
     private void OnElite(CreatureVariantAppliedEvent e)
     {
-        if (e.Variant.Id != VariantId) return;
+        if (e.Variant.Id != VariantId || !Creatures.Available) return;
         _elites++;
         var i = Creatures.Of(e.Entity).Inspect();
         Log.Info($"elite-vukah: elite {e.Entity} ({(e.Natural ? "natural spawn" : "spawned")}): level {i?.Level}, " +

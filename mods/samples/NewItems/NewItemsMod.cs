@@ -38,7 +38,9 @@ public sealed class NewItemsMod : Mod
 
     public override void OnLoad()
     {
-        if (!NewContent.Available)
+        // new items are kiln.content's (Content.Available) with its feature content.new; NewContent.Available also asks
+        // that this kiln.content is one that defines items
+        if (!Content.Available || !Capabilities.Is("content.new") || !NewContent.Available)
         {
             Log.Warn("kiln.content cannot add items on this game build; NewItems does nothing");
             return;
@@ -263,7 +265,7 @@ public sealed class NewItemsMod : Mod
     private async Task GiveKit(Player p)
     {
         var key = p.SteamId != 0 ? p.SteamId.ToString() : p.Name;
-        if (_kits.Contains(key)) return;
+        if (_kits.Contains(key) || !Items.Available) return;
         await Context.Scheduler.NextTick();
         var edge = await Items.Give(p.Entity, new ItemId(NewContent.IdOf(FrostEdge)), 1, options: GiveOptions.Notify);
         var shards = await Items.Give(p.Entity, new ItemId(NewContent.IdOf(FrostShard)), 3, options: GiveOptions.Notify);

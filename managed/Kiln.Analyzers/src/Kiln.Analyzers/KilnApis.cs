@@ -17,6 +17,28 @@ internal static partial class KilnApis
         public static readonly HashSet<string> Advanced = new(KilnApis.Advanced, StringComparer.Ordinal);
         public static readonly HashSet<string> Services = new(KilnApis.Services, StringComparer.OrdinalIgnoreCase);
         public static readonly HashSet<string> Completed = new(CompletedTasks, StringComparer.Ordinal);
+        public static readonly Dictionary<string, string[]> Guards = ParseGuards();
+
+        private static Dictionary<string, string[]> ParseGuards()
+        {
+            var d = new Dictionary<string, string[]>(StringComparer.Ordinal);
+            foreach (var entry in CapabilityGuards)
+            {
+                var eq = entry.IndexOf('=');
+                if (eq > 0) d[entry.Substring(0, eq)] = entry.Substring(eq + 1).Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries);
+            }
+            return d;
+        }
+    }
+
+    /// <summary>The capability rows a Kiln property answers like Capabilities.Is does (NoClip.Available:
+    /// rules.noclip), from the generated CapabilityGuards table; empty for any other symbol.</summary>
+    internal static IReadOnlyList<string> GuardRows(ISymbol symbol)
+    {
+        if (symbol is not IPropertySymbol { IsStatic: true } p || p.ContainingAssembly?.Name.StartsWith("Kiln", StringComparison.Ordinal) != true)
+            return Array.Empty<string>();
+        var id = p.OriginalDefinition.GetDocumentationCommentId();
+        return id is not null && Sets.Guards.TryGetValue(id, out var rows) ? rows : Array.Empty<string>();
     }
 
     /// <summary>Attribute names honoured in addition to the tables (a future Kiln.Api may mark members itself).</summary>

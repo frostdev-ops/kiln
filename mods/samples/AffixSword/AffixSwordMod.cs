@@ -17,6 +17,9 @@ namespace AffixSword;
 public sealed class AffixSwordMod : Mod
 {
     private const string Sword = "Weapon_T1_1H_SwordEpic_01";
+    // Capability rows (the /caps command lists them): rolling and reading affixes, "the item in your hand", and the
+    // server's copies of an item's data in a player's game. Giving the sword is kiln.items' (Items.Available).
+    private const string Rolls = "blocks.affixes", InHand = "items.instances", Sync = "saves.instance_data.sync";
 
     // The affixes and the pool are blocks in blocks/affixes.json, which Kiln reads by itself a few steps after the mod
     // loaded. The same in C#, in OnLoad (Affixes.Define and Affixes.DefinePool are the same calls):
@@ -30,13 +33,14 @@ public sealed class AffixSwordMod : Mod
     {
         Log.Info("affix-sword: the affixes and the pool \"blades\" come from blocks/affixes.json");
         // In a player's game: asking once for the server's copies opens the channel they arrive on.
-        if (Client.IsClient && Capabilities.Is("saves.instance_data.sync")) Affixes.SyncedItems();
+        if (Client.IsClient && Capabilities.Is(Sync)) Affixes.SyncedItems();
     }
 
     [Command("affix-sword", Description = "a sword with one rolled affix, into your backpack")]
     private async Task Give(CommandContext c)
     {
         if (!c.Source.IsPlayer) throw new CommandException("only a player has a backpack");
+        if (!Items.Available || !Capabilities.Is(Rolls)) throw new CommandException(NotHere("kiln.items", Rolls));
         var blades = Blades;
         var given = await Items.Give(c.Source.Player, Sword, 1, options: GiveOptions.Notify | GiveOptions.NoMerge);
         var sword = given.Changes.FirstOrDefault(x => !x.Ref.IsNone).Ref;   // this one sword, not "a sword"
@@ -49,6 +53,7 @@ public sealed class AffixSwordMod : Mod
     private void List(CommandContext c)
     {
         if (!c.Source.IsPlayer) throw new CommandException("only a player has a hand");
+        if (!Capabilities.Is(InHand) || !Capabilities.Is(Rolls)) throw new CommandException(NotHere(InHand, Rolls));
         var held = Items.Held(c.Source.Player);
         if (held.IsNone) throw new CommandException("hold a weapon or a tool");
         var affixes = Affixes.Of(held);
@@ -60,6 +65,7 @@ public sealed class AffixSwordMod : Mod
     private string Reroll(CommandContext c)
     {
         if (!c.Source.IsPlayer) throw new CommandException("only a player has a hand");
+        if (!Capabilities.Is(InHand) || !Capabilities.Is(Rolls)) throw new CommandException(NotHere(InHand, Rolls));
         var held = Items.Held(c.Source.Player);
         if (held.IsNone) throw new CommandException("hold the sword");
         var rolled = Blades.Roll(held, replace: true);
@@ -71,10 +77,14 @@ public sealed class AffixSwordMod : Mod
     [Subscribe]
     private void OnSynced(InstanceDataSyncedEvent e)
     {
-        if (e.Mod != Affixes.DataMod || e.Key != Affixes.DataKey || e.Change != InstanceSyncChange.Set || !e.Item.Own) return;
+        if (e.Mod != Affixes.DataMod || e.Key != Affixes.DataKey || e.Change != InstanceSyncChange.Set || !e.Item.Own || !Capabilities.Is(Sync)) return;
         if (Affixes.Synced(e.Item.Entity) is not { Count: > 0 } affixes) return;
         var text = string.Join(", ", affixes.Select(a => a.Text));
         Log.Info($"affix-sword: the item in slot {e.Item.FlatSlot} carries {text}");
         if (Ui.Available) Hud.Toast(text, ToastKind.Success, 6);
     }
+
+    // A command's answer when a row it needs is off: the first such row, and why.
+    private static string NotHere(params string[] rows) =>
+        rows.FirstOrDefault(row => !Capabilities.Is(row)) is { } off ? $"not on this server ({off} is off: {Capabilities.Why(off)})" : "not on this server right now";
 }

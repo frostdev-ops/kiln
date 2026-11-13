@@ -2,7 +2,8 @@
   <!-- ApiScan: reads Kiln's managed sources (Kiln.Api, Kiln.Testing, managed/services/*) with Roslyn and writes
        src/Kiln.Analyzers/KilnApis.g.cs: the public members that require the tick thread (they reach
        Services.RequireTickThread, Game.AssertTickThread or an `if (!Game.IsTickThread) throw`) and the ones gated on
-       the advanced tier (HooksGate.RequireAdvanced), plus the list of service assemblies. Run: tools/gen-apis.sh. -->
+       the advanced tier (HooksGate.RequireAdvanced), the properties that ask a capability row (CapabilityGuards.cs),
+       plus the list of service assemblies. Run: tools/gen-apis.sh. -->
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <IsPackable>false</IsPackable>

@@ -9,9 +9,10 @@ public sealed class SpellTweaksMod : Mod
 {
     public override void OnLoad()
     {
-        if (!Content.GameDataAvailable)
+        // Content.OnReady needs kiln.content, the pack's data kiln.gamedata: two services, so two questions.
+        if (!Content.Available || !Content.GameDataAvailable)
         {
-            Log.Warn("kiln.gamedata is not available on this build: the pack does nothing");
+            Log.Warn("kiln.content or kiln.gamedata is not available on this build: the pack does nothing");
             return;
         }
         Content.OnReady(_ =>
