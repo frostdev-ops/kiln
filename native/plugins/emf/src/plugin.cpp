@@ -86,6 +86,7 @@ bool is_emf_loader_file(const std::filesystem::path& f) {
 
 void note_chain_lists() {
     for (const auto& [list, base] : {std::pair{P.game / L"dinput8-chain.ini", P.game}, std::pair{P.kiln / L"chain.ini", P.kiln}}) {
+        const bool shared = base == P.game;  // dinput8-chain.ini: the proxy's shared-spec rules (shared_chain_value)
         std::string t;
         if (!read_file(list, &t)) continue;
         size_t i = 0;
@@ -94,10 +95,17 @@ void note_chain_lists() {
             if (j == std::string::npos) j = t.size();
             std::string line = t.substr(i, j - i);
             i = j + 1;
-            while (!line.empty() && (line.back() == '\r' || line.back() == ' ')) line.pop_back();
+            if (shared)
+                for (size_t k = 0; k + 1 < line.size(); ++k)
+                    if ((line[k] == ' ' || line[k] == '\t') && (line[k + 1] == ';' || line[k + 1] == '#')) {
+                        line.resize(k);
+                        break;
+                    }
+            while (!line.empty() && (line.back() == '\r' || line.back() == ' ' || line.back() == '\t')) line.pop_back();
             const size_t eq = line.find('=');
             if (eq != std::string::npos) line = line.substr(eq + 1);
-            while (!line.empty() && line.front() == ' ') line.erase(0, 1);
+            while (!line.empty() && (line.front() == ' ' || line.front() == '\t')) line.erase(0, 1);
+            if (shared && line.size() >= 2 && line.front() == '"' && line.back() == '"') line = line.substr(1, line.size() - 2);
             if (line.empty() || line[0] == ';' || line[0] == '#' || line[0] == '[' || line.rfind("//", 0) == 0) continue;
             if (lower(line).size() < 4 || lower(line).substr(line.size() - 4) != ".dll") continue;
             std::replace(line.begin(), line.end(), '/', '\\');
