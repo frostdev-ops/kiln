@@ -123,6 +123,7 @@ internal static partial class KilnApis
         "M:Kiln.Chat.Diagnostics.LastLine", // Chat.Diagnostics.LastLine(): Services.RequireTickThread
         "M:Kiln.Chat.Say(Kiln.EntityId,System.String,Kiln.EntityId)", // Chat.Say(EntityId, string, EntityId): Services.RequireTickThread
         "M:Kiln.Chat.Tell(Kiln.EntityId,System.String)", // Chat.Tell(EntityId, string): Services.RequireTickThread
+        "M:Kiln.Chat.Tell(Kiln.PlayerRef,System.String)", // Chat.Tell(PlayerRef, string): Services.RequireTickThread
         "M:Kiln.Combat.Damage(Kiln.EntityId,System.Int32,Kiln.EntityId,Kiln.DamageOptions)", // Combat.Damage(EntityId, int, EntityId, DamageOptions?): via Combat.Hit(EntityId, int, EntityId, DamageOptions, bool)
         "M:Kiln.Combat.GetHealth(Kiln.EntityId)", // Combat.GetHealth(EntityId): via Combat.TryGetHealth(EntityId, out Health)
         "M:Kiln.Combat.Heal(Kiln.EntityId,System.Int32)", // Combat.Heal(EntityId, int): Services.RequireTickThread

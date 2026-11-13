@@ -26,7 +26,10 @@ public sealed class SpawnContractTests : ContractTest
     [Fact]
     public void A_call_that_needs_the_service_throws_unavailable_naming_it()
     {
-        AssertUnavailable("kiln.spawn", () => Spawn.Destroy(new EntityId(5000)));
+        var e = AssertUnavailable("kiln.spawn", () => Spawn.Destroy(new EntityId(5000)));
+        // the sentence the member threw before the contract is still in the message, then the row's reason
+        Assert.Contains("kiln.spawn is unavailable on this server", e.Message);
+        Assert.Contains("no Kiln core in this process", e.Message);
         AssertUnavailable("kiln.spawn", () => Spawn.Inspect(new EntityId(5000)));
         AssertUnavailable("kiln.spawn", () => Spawn.Find(Guid.NewGuid()));
         AssertUnavailable("kiln.spawn", () => Spawn.CleanupTracked());

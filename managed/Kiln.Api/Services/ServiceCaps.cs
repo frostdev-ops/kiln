@@ -69,6 +69,14 @@ internal static class ServiceCaps
         Report(name, CapabilityState.Pending, CapabilityReason.Session, waiting);
     }
 
+    /// <summary>Asks the backend for <paramref name="service"/>'s table again, so that <see cref="Services.Get{T}"/>
+    /// records why it is missing under the registry binding of now. For a wrapper that looks its table up once per
+    /// process (a <c>Lazy</c>, a "looked" flag): its row would otherwise be missing after the registry was reset. A
+    /// probe is harmless: it never lowers a service some caller has found.</summary>
+    /// <returns>True when a table of at least <paramref name="minVersion"/> is there.</returns>
+    public static unsafe bool Probe(string service, uint minVersion = 1) =>
+        Services.Get<ServiceHeader>(service, minVersion) != null;
+
     /// <summary>Lowers a row the core reports (a sigdb feature): unavailable, unless the row already says why it is off
     /// (then the core's reason stands).</summary>
     public static void Lower(string name, CapabilityReason reason, string text)
@@ -82,23 +90,27 @@ internal static class ServiceCaps
     public static (CapabilityReason Reason, string Text) Cause(CapabilityReason fallback, string detail, params string[] needs) =>
         FirstOff(needs) is { } off ? (off.Reason, NeedsText(off)) : (fallback, detail);
 
-    /// <summary>The exception a member throws when <paramref name="name"/> is off: it names the capability and carries
-    /// the row's reason (<paramref name="fallback"/> when the row has no text, or says it is available: the member
-    /// found it off before the row followed).</summary>
-    public static KilnUnavailableException Unavailable(string name, string? fallback = null, Exception? inner = null)
+    /// <summary>The exception a member throws when <paramref name="name"/> is off: it names the capability. Its reason
+    /// is <paramref name="detail"/> (what the member said before the contract, kept so that logs read as they did)
+    /// followed by the row's own reason in brackets; the row's reason alone when there is no detail. A row that says
+    /// it is available adds nothing: the member found it off before the row followed.</summary>
+    public static KilnUnavailableException Unavailable(string name, string? detail = null, Exception? inner = null)
     {
         var row = Capabilities.Get(name);
-        var text = row.State != CapabilityState.Available && row.Reason != CapabilityReason.Unknown && row.ReasonText.Length > 0
+        var why = row.State != CapabilityState.Available && row.Reason != CapabilityReason.Unknown && row.ReasonText.Length > 0
             ? row.ReasonText
-            : fallback;
+            : null;
+        var text = string.IsNullOrEmpty(detail) ? why
+            : why is null || detail.Contains(why, StringComparison.Ordinal) ? detail
+            : $"{detail} ({why})";
         return new KilnUnavailableException(name, text, inner);
     }
 
     /// <summary>Throws <see cref="Unavailable"/> for <paramref name="name"/> unless its row is available.</summary>
     /// <exception cref="KilnUnavailableException">The capability is off or pending.</exception>
-    public static void Require(string name, string? fallback = null)
+    public static void Require(string name, string? detail = null)
     {
-        if (!Capabilities.Is(name)) throw Unavailable(name, fallback);
+        if (!Capabilities.Is(name)) throw Unavailable(name, detail);
     }
 
     private static Capability? FirstOff(string[] needs)

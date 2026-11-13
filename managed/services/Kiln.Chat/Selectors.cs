@@ -388,6 +388,7 @@ public static class Selectors
 {
     /// <summary>Entities (players included) matching <paramref name="selector"/>, as seen by <paramref name="source"/>.
     /// Tick thread. Throws <see cref="ArgumentException"/> for a malformed selector or when nothing matched.</summary>
+    [TickThreadOnly]
     public static IReadOnlyList<SelectedEntity> Select(CommandSource source, string selector)
     {
         ArgumentNullException.ThrowIfNull(source);
@@ -399,10 +400,12 @@ public static class Selectors
     }
 
     /// <summary>The entity ids of <see cref="Select"/>.</summary>
+    [TickThreadOnly]
     public static IReadOnlyList<EntityId> Entities(CommandSource source, string selector) =>
         Select(source, selector).Select(e => e.Entity).ToArray();
 
     /// <summary>The players among <see cref="Select"/> (a selector that may match other entities is an error).</summary>
+    [TickThreadOnly]
     public static IReadOnlyList<Player> Players(CommandSource source, string selector)
     {
         if (!EntitySelector.TryParse(selector, out var sel, out var error)) throw new ArgumentException(error, nameof(selector));

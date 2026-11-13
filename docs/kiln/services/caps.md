@@ -125,6 +125,7 @@ refreshed on the service tick. When a service's table is missing, the service lo
 | `settings.live`, `settings.world`, `settings.resend`, `settings.daytime` | sigdb features | core; Kiln.Settings lowers them when kiln.settings is not loaded | the live settings, the world's own values, the resend to players, the day/night clock |
 | `assets.textures` | managed, static | Kiln.Assets | texture overrides (`Assets.OverrideTexture`): kiln.assets is here and this is a game client (`wrong-side` on a server) |
 | `assets.resources`, `assets.content`, `assets.ui_icons` | sigdb features | core; Kiln.Assets lowers them when kiln.assets is not loaded | resources, content blobs, item icons (game client) |
+| `chat.send`, `chat.receive`, `chat.players` | sigdb features | core; Kiln.Chat lowers them when kiln.chat is not loaded | server lines, players' typed lines, the chat's player list |
 
 ## Rules
 - Each owner holds at most one report per name. A reader sees the worst report for the name: unavailable beats

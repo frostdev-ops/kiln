@@ -44,6 +44,15 @@ ChatPlayer? p = Chat.FindPlayer("Ali");             // exact name, else unique p
 ```
 Text is cut to 1024 UTF-8 bytes per line; "\n" splits it into several lines.
 
+The contract (dev.27, [contract.md](../modding/contract.md)): Kiln.Chat is server side (`[ServerOnly]`). Without the
+service the sends throw `KilnUnavailableException` naming `kiln.chat` (a `NotSupportedException`, as before), and
+Kiln.Chat lowers the sigdb features `chat.send`, `chat.receive` and `chat.players`; a send before the game server was
+seen keeps throwing `InvalidOperationException`. `Chat.Tell(PlayerRef, text)` reaches a person only while the session
+the ref was captured in lasts (false otherwise), so a line sent after an `await` never lands with whoever has that
+entity slot now; `(PlayerRef)chatPlayer` gives the person behind a `ChatPlayer`. `CommandResult` implements
+`IKilnResult` (`Reason` is its `Error`). `Chat.Received` is not a second event source: its handlers run first in the
+dispatch that then posts `ChatMessageEvent`, which starts canceled when one of them canceled the line.
+
 ## Hooks and other mods on the same function
 `kiln.chat` hooks the game's `ChatLogAdd` and the server frame's receive loop as links of the [kiln.hooks v2](hooks.md)
 chain. A player's line is the call that comes **from the receive loop**: the hook tells it by `caller()`, the return

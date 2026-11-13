@@ -15,6 +15,7 @@ namespace Kiln;
 /// var id = GuidHash.IdOf(Guid.Parse("1d622bd9-8170-41b1-822e-d3984b386d95")); // 0x43108313, the Bronze Sword's itemId
 /// </code>
 /// </example>
+[AnyThread]
 public static class GuidHash
 {
     /// <summary>FNV-1a-32 of the 16 bytes (EML <c>game.guid.hash</c>). The all-zero GUID gives 0x69691905.</summary>

@@ -23,6 +23,9 @@
     <ProjectReference Include="../../services/Kiln.Client/Kiln.Client.csproj" />
     <ProjectReference Include="../../services/Kiln.Settings/Kiln.Settings.csproj" />
     <ProjectReference Include="../../services/Kiln.Permissions/Kiln.Permissions.csproj" />
+    <ProjectReference Include="../../services/Kiln.Chat/Kiln.Chat.csproj" />
+    <ProjectReference Include="../../services/Kiln.Hooks/Kiln.Hooks.csproj" />
+    <ProjectReference Include="../../services/Kiln.Eml/Kiln.Eml.csproj" />
   </ItemGroup>
   <ItemGroup>
     <!-- The analyzers' tick-thread table, generated from the services' code: the attributes are checked against it. -->

@@ -17,6 +17,9 @@ internal static class Adopted
         typeof(Client),
         typeof(Settings),
         typeof(Permissions),
+        typeof(Chat),
+        typeof(Hooks),
+        typeof(Eml),
     ];
 
     internal static IEnumerable<Assembly> Assemblies => Anchors.Select(t => t.Assembly).Distinct();

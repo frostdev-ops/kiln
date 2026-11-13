@@ -3,6 +3,7 @@ namespace Kiln;
 
 /// <summary>Reads and writes the game process's memory, and applies byte patches (access transformers) that are
 /// restored automatically when the mod unloads. Advanced mods only.</summary>
+[RequiresCapability(HooksCaps.Service)]
 public static unsafe class Memory
 {
     /// <summary>Reads <typeparamref name="T"/> from <paramref name="address"/>. Throws when the memory is
