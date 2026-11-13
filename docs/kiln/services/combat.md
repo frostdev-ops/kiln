@@ -115,7 +115,8 @@ attacks are about it too: they come with the player it hit as `Target` and the c
 guided check in a real game, 13 Nov 2026, got three of those before the player had swung). A handler that wants only
 the hits the creature takes tests `e.Target == creature` (or `e.Part` for a weak spot). Kiln's own hits name the same
 four: `DamageOptions.Source` is the `Source` of the hurt and knockback events `Combat.Damage` posts in the call, as it is
-of the held record (until dev.27 the events in the call named the attacker there). Lab (`mods/tests/event-filter-test`, one
+of the held record (until dev.27 the events in the call named the attacker there). A handler without a filter sees that
+too: a mod that asks `e.Source == player` to find the attacker of a `Combat.Damage` hit should ask `e.Attacker`. Lab (`mods/tests/event-filter-test`, one
 watched doll): `a hit on another creature applies ... and is not held: hits held 0 -> 0`, `a hit on the doll ... is held
 for the watcher: hits held 0 -> 1`, `control: with a handler without a filter the other creature's hit is held too`,
 `a hit the doll deals is held and reported to the doll's handler, Target the other creature`, `a Kiln hit with a source
@@ -125,7 +126,12 @@ character's sword swing on eight watched Vukahs round it and their attacks on it
 source 2550`, `a watched Vukah's own attack names the character as Target and the Vukah as Attacker: target 2550 part
 2550 attacker 2564 source 2564 ... origin Game` (25 PASS). `AsGameHit` sends a Kiln hit through the same hold (it is
 reported like a game hit, not inside the call). Hits on one swing/projectile that the engine would merge (same
-target and impact) are reported once; the decision applies to all of them. Repeat hits of an impact that already hit
+target and impact) are reported once; the decision applies to all of them. An entity filter holds such a group whole:
+when it names any record of a (root target, impact) group, every record of it waits, so a swing on a watched weak spot
+also holds the record the same swing made on the creature's body, and the engine merges them into the strongest as it
+would without a filter (held record by record, the body's record applied alone and the weak spot's was then skipped as
+a repeat: no event, and the smaller damage). The lab cannot aim a swing at a weak spot and Kiln's own hits always have
+the target as their root target, so `native/services/combat/tests/hold_test.cpp` is the proof of this. Repeat hits of an impact that already hit
 the target (which the engine skips) are not reported (`CombatStatus.RepeatHits`). A target in god mode
 (`SetInvulnerable`) is the exception: kiln.combat drops the hit before the game records that the impact touched it, so a
 swing that stays on it is reported again in each step (lab: one sword swing, impact `0x01000002`, four hurt events in
