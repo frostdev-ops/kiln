@@ -1606,3 +1606,296 @@ fn a_players_own_folder_of_a_mod_that_is_off_is_a_safety_note() {
     assert!(a.safety_notes[0].contains("stays as it is") && a.warnings.contains(&a.safety_notes[0]), "{a:?}");
     assert_eq!(serde_json::to_value(&a).unwrap()["safetyNotes"][0], serde_json::json!(a.safety_notes[0]));
 }
+
+// ---- "Let Kiln manage this folder": a player's own ShroudForge folder handed to Kiln (engine_mods::adopt) ----
+
+/// Every file under `dir` with its bytes.
+fn tree(dir: &Path) -> std::collections::BTreeMap<String, Vec<u8>> {
+    fn walk(root: &Path, dir: &Path, out: &mut std::collections::BTreeMap<String, Vec<u8>>) {
+        for e in std::fs::read_dir(dir).unwrap().flatten() {
+            let p = e.path();
+            if p.is_dir() { walk(root, &p, out) } else { out.insert(p.strip_prefix(root).unwrap().to_string_lossy().into_owned(), std::fs::read(&p).unwrap()); }
+        }
+    }
+    let mut out = Default::default();
+    walk(dir, dir, &mut out);
+    out
+}
+
+/// The package HoardersHelper in the Library and in a profile (on), and the player's own copy of it in the game's
+/// mods folder under `folder`. -> (data, game, profile, the Library entry, the player's folder)
+fn own_sf(t: &Path, folder: &str) -> (DataDirs, GameInstall, profile::Profile, LibraryRef, PathBuf) {
+    let dirs = DataDirs::at(t.join("data"));
+    let src = t.join("src/HoardersHelper");
+    sf_package(&src, "HoardersHelper");
+    let r = library::import(&dirs, &[src.clone()], &mut NoProgress).unwrap();
+    let h = refs(&r, ModKind::ShroudForge, "hoardershelper");
+    let game = game_with_z(t);
+    let own = game.path.join("mods").join(folder);
+    kiln_manage::util::copy_tree(&src, &own).unwrap();
+    let mut p = profile::create(&dirs, "own", None).unwrap();
+    p.mods.shroudforge.push(pm(&h, true));
+    let p = profile::save(&dirs, &p).unwrap();
+    (dirs, game, p, h, own)
+}
+
+#[test]
+fn adopting_a_players_own_folder_makes_it_a_placement_and_rewrites_nothing() {
+    let t = tmp("adopt");
+    let (dirs, game, mut p, h, own) = own_sf(&t.0, "hoardershelper");
+    // before: Kiln says the folder is the player's and neither switches nor replaces it
+    let a = profile::activate(&dirs, &p.id, &game).unwrap();
+    assert!(a.warnings.iter().any(|w| w.contains("your own folder")), "{a:?}");
+    assert!(!kiln_manage::shroudforge::read_mod(&own).unwrap().enabled, "the package ships switched off, and Kiln did not switch it");
+    let listed = engine_mods::own_folders(&dirs, &p, &game.path).unwrap();
+    assert_eq!(listed, vec![engine_mods::OwnFolder { kind: ModKind::ShroudForge, id: "hoardershelper".into(), version: "1.0.0".into(), path: own.clone(), rename_to: None, refusal: None }]);
+    let before = tree(&own);
+
+    let done = engine_mods::adopt(&dirs, &p, &game.path, ModKind::ShroudForge, "hoardershelper").unwrap();
+    assert_eq!(done, engine_mods::Adopted { kind: ModKind::ShroudForge, id: "hoardershelper".into(), version: "1.0.0".into(), path: own.clone(), renamed_from: None,
+        already: false, settings_kept: vec![] });
+    // nothing in it was rewritten: only the marker is new
+    let mut after = tree(&own);
+    let marker: engine_mods::Marker = serde_json::from_slice(&after.remove(engine_mods::MARKER).expect("the marker")).unwrap();
+    assert_eq!(marker, engine_mods::Marker { format: 1, kind: ModKind::ShroudForge, id: h.id.clone(), version: h.version.clone(), hash: h.hash.clone() });
+    assert_eq!(after, before);
+    assert!(engine_mods::own_folders(&dirs, &p, &game.path).unwrap().is_empty(), "it is Kiln's now");
+    // a second time: nothing to do, nothing changes
+    let stamp = std::fs::metadata(own.join(engine_mods::MARKER)).unwrap().modified().unwrap();
+    let again = engine_mods::adopt(&dirs, &p, &game.path, ModKind::ShroudForge, "hoardershelper").unwrap();
+    assert!(again.already && again.path == own, "{again:?}");
+    assert_eq!(std::fs::metadata(own.join(engine_mods::MARKER)).unwrap().modified().unwrap(), stamp);
+
+    // the next activation switches it as the profile says, and says nothing about an own folder any more
+    let a = profile::activate(&dirs, &p.id, &game).unwrap();
+    assert!(!a.warnings.iter().any(|w| w.contains("your own folder")) && a.retained.is_empty(), "{a:?}");
+    assert!(kiln_manage::shroudforge::read_mod(&own).unwrap().enabled, "switched on with the profile");
+    p.mods.shroudforge[0].enabled = false;
+    let mut p = profile::save(&dirs, &p).unwrap();
+    profile::activate(&dirs, &p.id, &game).unwrap();
+    assert!(!kiln_manage::shroudforge::read_mod(&own).unwrap().enabled, "and off");
+
+    // it updates it: version 2 of the mod replaces the folder
+    let src = t.0.join("src/HoardersHelper");
+    put(&src, "mod.json", br#"{"id":"HoardersHelper","name":"Package HoardersHelper","version":"2.0.0"}"#);
+    put(&src, "src/mod.lua", b"return { v = 2 }");
+    let r2 = library::import(&dirs, &[src], &mut NoProgress).unwrap();
+    let h2 = refs(&r2, ModKind::ShroudForge, "hoardershelper");
+    assert_eq!(h2.version, "2.0.0");
+    p.mods.shroudforge = vec![pm(&h2, true)];
+    let mut p = profile::save(&dirs, &p).unwrap();
+    profile::activate(&dirs, &p.id, &game).unwrap();
+    assert_eq!(std::fs::read(own.join("src/mod.lua")).unwrap(), b"return { v = 2 }");
+    assert_eq!(engine_mods::marker(&own).unwrap().version, "2.0.0");
+
+    // the mod leaves the profile: its copy is switched off, as every ShroudForge copy Kiln placed
+    p.mods.shroudforge.clear();
+    let p = profile::save(&dirs, &p).unwrap();
+    profile::activate(&dirs, &p.id, &game).unwrap();
+    assert!(own.is_dir() && !kiln_manage::shroudforge::read_mod(&own).unwrap().enabled);
+    // and Kiln taking its mods out of the game removes the folder with them
+    let cleaned = engine_mods::unplace(&dirs, &game.path).unwrap();
+    assert_eq!(cleaned.removed, vec![own.clone()], "{cleaned:?}");
+    assert!(!own.exists());
+}
+
+#[test]
+fn adopting_keeps_the_players_setting_values_and_the_folder_that_holds_them() {
+    let t = tmp("adopt-values");
+    let (dirs, game, mut p, h, own) = own_sf(&t.0, "hoardershelper");
+    let lib = library::path_of(&dirs, &h).unwrap();
+    profile::activate(&dirs, &p.id, &game).unwrap();
+    // the player's own value, set in the launcher, and the package switched on in ShroudForge's own menu (which writes
+    // the file again and adds its default targets)
+    let cfg = t.0.join("config");
+    engine_mods::set_setting(ModKind::ShroudForge, &h.id, "speed", &serde_json::json!(9), Some(&game.path), &cfg, Some(&lib)).unwrap();
+    let ext = own.join("extended.mod.json");
+    let mut doc: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&ext).unwrap()).unwrap();
+    doc["enabled"] = true.into();
+    doc["targets"] = serde_json::json!(["client"]);
+    std::fs::write(&ext, serde_json::to_string_pretty(&doc).unwrap()).unwrap();
+    let before = tree(&own);
+    assert_eq!(engine_mods::own_folders(&dirs, &p, &game.path).unwrap()[0].refusal, None);
+
+    let done = engine_mods::adopt(&dirs, &p, &game.path, ModKind::ShroudForge, "hoardershelper").unwrap();
+    assert_eq!(done.settings_kept, ["speed"], "{done:?}");
+    let mut after = tree(&own);
+    after.remove(engine_mods::MARKER);
+    assert_eq!(after, before, "the values and the switch are as the player left them");
+    // activation keeps the value; an update carries it to the new version
+    profile::activate(&dirs, &p.id, &game).unwrap();
+    assert_eq!(kiln_manage::shroudforge::read_mod(&own).unwrap().settings[0].value, 9);
+    let src = t.0.join("src/HoardersHelper");
+    put(&src, "mod.json", br#"{"id":"HoardersHelper","name":"Package HoardersHelper","version":"2.0.0"}"#);
+    let r2 = library::import(&dirs, &[src], &mut NoProgress).unwrap();
+    p.mods.shroudforge = vec![pm(&refs(&r2, ModKind::ShroudForge, "hoardershelper"), true)];
+    let p = profile::save(&dirs, &p).unwrap();
+    profile::activate(&dirs, &p.id, &game).unwrap();
+    let sf = kiln_manage::shroudforge::read_mod(&own).unwrap();
+    assert_eq!((sf.version.as_str(), &sf.settings[0].value, sf.enabled), ("2.0.0", &serde_json::json!(9), true));
+    // a cleanup does not delete a folder that holds the player's values: it stays, and the result says why
+    let cleaned = engine_mods::unplace(&dirs, &game.path).unwrap();
+    assert!(cleaned.removed.is_empty() && cleaned.retained.len() == 1 && cleaned.retained[0].path == own, "{cleaned:?}");
+    assert!(cleaned.retained[0].reason.contains("ShroudForge settings changed"), "{cleaned:?}");
+    assert_eq!(kiln_manage::shroudforge::read_mod(&own).unwrap().settings[0].value, 9);
+}
+
+#[test]
+fn adopting_a_folder_under_another_name_gives_it_kilns_name() {
+    let t = tmp("adopt-rename");
+    let (dirs, game, p, _h, own) = own_sf(&t.0, "Hoarders Helper");
+    let dst = game.path.join("mods/hoardershelper");
+    let a = profile::activate(&dirs, &p.id, &game).unwrap();
+    assert!(a.warnings.iter().any(|w| w.contains("Hoarders Helper")), "{a:?}");
+    assert_eq!(engine_mods::own_folders(&dirs, &p, &game.path).unwrap(), vec![engine_mods::OwnFolder { kind: ModKind::ShroudForge, id: "hoardershelper".into(),
+        version: "1.0.0".into(), path: own.clone(), rename_to: Some(dst.clone()), refusal: None }]);
+    let before = tree(&own);
+    let done = engine_mods::adopt(&dirs, &p, &game.path, ModKind::ShroudForge, "hoardershelper").unwrap();
+    assert_eq!((done.path.clone(), done.renamed_from.clone()), (dst.clone(), Some(own.clone())));
+    assert!(!own.exists());
+    let mut after = tree(&dst);
+    after.remove(engine_mods::MARKER);
+    assert_eq!(after, before);
+    // one package in the mods folder, Kiln's: activation switches it and places no second copy
+    let a = profile::activate(&dirs, &p.id, &game).unwrap();
+    assert!(!a.warnings.iter().any(|w| w.contains("your own folder")), "{a:?}");
+    assert!(kiln_manage::shroudforge::read_mod(&dst).unwrap().enabled);
+    assert_eq!(std::fs::read_dir(game.path.join("mods")).unwrap().flatten().filter(|e| e.path().is_dir() && !e.file_name().to_string_lossy().starts_with('.')).count(), 1);
+}
+
+#[test]
+fn adopting_is_refused_with_the_first_file_that_differs() {
+    let t = tmp("adopt-refuse");
+    let (dirs, game, p, _h, own) = own_sf(&t.0, "hoardershelper");
+    let pristine = tree(&own);
+    let restore = |own: &Path| {
+        std::fs::remove_dir_all(own).unwrap();
+        for (rel, bytes) in &pristine { put(own, rel, bytes); }
+    };
+    let refused = |what: &str| -> String {
+        let listed = engine_mods::own_folders(&dirs, &p, &game.path).unwrap();
+        let why = listed[0].refusal.clone().unwrap_or_else(|| panic!("{what}: not refused"));
+        let before = tree(&own);
+        let e = engine_mods::adopt(&dirs, &p, &game.path, ModKind::ShroudForge, "hoardershelper").unwrap_err();
+        assert_eq!(e.code, ErrorCode::Refused, "{what}: {e}");
+        assert_eq!(e.message, format!("{}: {why}", own.display()), "{what}: the list and the refusal say the same");
+        assert!(why.starts_with("Kiln cannot take this folder over: "), "{why}");
+        // a difference in the folder comes with the rule; two folders with the package is its own sentence
+        assert_eq!(why.contains("only when every file in it is the file of hoardershelper 1.0.0 in your Library (the values of your settings may differ)"), what != "twin", "{why}");
+        assert_eq!(tree(&own), before, "{what}: nothing written");
+        assert!(!own.join(engine_mods::MARKER).exists() && !game.path.join("kiln/state/library-placements.json").exists(), "{what}");
+        why
+    };
+    // a file of the mod that the player changed
+    put(&own, "src/mod.lua", b"return { mine = true }");
+    assert!(refused("changed").contains("src/mod.lua is not the mod's file (its content differs)"));
+    restore(&own);
+    // a file of the mod that is gone, and one that was added: the first in path order is named
+    std::fs::remove_file(own.join("src/mod.lua")).unwrap();
+    put(&own, "zz-notes.txt", b"mine");
+    assert!(refused("missing").contains("the mod's file src/mod.lua is missing"));
+    restore(&own);
+    put(&own, "notes.txt", b"mine");
+    assert!(refused("added").contains("notes.txt is not one of the mod's files"));
+    restore(&own);
+    put(&own, ".hidden", b"x");
+    assert!(refused("hidden").contains(".hidden is not one of the mod's files"));
+    restore(&own);
+    std::fs::create_dir_all(own.join("extra")).unwrap();
+    assert!(refused("folder").contains("the folder extra is not part of the mod"));
+    restore(&own);
+    // the settings file: another value is fine (see the test above), anything else of a setting is not
+    let ext = own.join("extended.mod.json");
+    std::fs::write(&ext, std::fs::read_to_string(&ext).unwrap().replace("\"max\":10", "\"max\":50")).unwrap();
+    assert!(refused("metadata").contains("extended.mod.json differs from the mod's in more than its switch and your setting values"));
+    restore(&own);
+    std::fs::write(&ext, std::fs::read_to_string(&ext).unwrap().replace("\"launcher\":\"SF\"", "\"launcher\":\"EML\"")).unwrap();
+    assert!(refused("field").contains("extended.mod.json differs from the mod's in more than its switch and your setting values"));
+    restore(&own);
+    std::fs::write(&ext, b"{ not json").unwrap();
+    assert!(refused("broken").contains("Kiln cannot take this folder over"));
+    restore(&own);
+    // a link in the folder, and a link in place of a file of the mod
+    std::os::unix::fs::symlink(t.0.join("src"), own.join("link")).unwrap();
+    assert!(refused("link").contains("symlinks are not allowed"));
+    restore(&own);
+    std::fs::remove_file(own.join("src/mod.lua")).unwrap();
+    std::os::unix::fs::symlink(t.0.join("src/HoardersHelper/src/mod.lua"), own.join("src/mod.lua")).unwrap();
+    assert!(refused("file link").contains("symlinks are not allowed"));
+    restore(&own);
+    // a second folder of the player's with the same package: ShroudForge would drop both
+    kiln_manage::util::copy_tree(&own, &game.path.join("mods/Second Copy")).unwrap();
+    assert!(refused("twin").contains("more than one of your folders holds this mod's package"));
+    std::fs::remove_dir_all(game.path.join("mods/Second Copy")).unwrap();
+    // as shipped again: taken
+    engine_mods::adopt(&dirs, &p, &game.path, ModKind::ShroudForge, "hoardershelper").unwrap();
+}
+
+/// The package is in a folder of another name, and the name Kiln's copies have is taken by another folder of the
+/// player's: Kiln renames nothing over it.
+#[test]
+fn adopting_does_not_rename_over_another_folder_of_the_players() {
+    let t = tmp("adopt-name-taken");
+    let (dirs, game, p, _h, own) = own_sf(&t.0, "Hoarders Helper");
+    let taken = game.path.join("mods/hoardershelper");
+    sf_package(&taken, "SomethingElse");
+    let before = (tree(&own), tree(&taken));
+    let listed = engine_mods::own_folders(&dirs, &p, &game.path).unwrap();
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].path, own, "the folder that holds the package is the one named");
+    let why = listed[0].refusal.clone().unwrap();
+    assert!(why.contains("another folder of yours has that name") && why.contains(&taken.display().to_string()), "{why}");
+    let e = engine_mods::adopt(&dirs, &p, &game.path, ModKind::ShroudForge, "hoardershelper").unwrap_err();
+    assert_eq!((e.code, e.message.as_str()), (ErrorCode::Refused, format!("{}: {why}", own.display()).as_str()));
+    assert_eq!((tree(&own), tree(&taken)), before, "neither folder was touched");
+    // with the other folder out of the way it is taken, under Kiln's name
+    std::fs::rename(&taken, game.path.join("mods/SomethingElse")).unwrap();
+    let done = engine_mods::adopt(&dirs, &p, &game.path, ModKind::ShroudForge, "hoardershelper").unwrap();
+    assert_eq!((done.path, done.renamed_from), (taken, Some(own)));
+}
+
+#[test]
+fn adopting_refuses_links_on_the_way_other_kinds_and_what_is_not_there() {
+    let t = tmp("adopt-roots");
+    let (dirs, game, mut p, h, own) = own_sf(&t.0, "hoardershelper");
+    // only ShroudForge folders, only entries of the profile
+    assert_eq!(engine_mods::adopt(&dirs, &p, &game.path, ModKind::Set, "hoardershelper").unwrap_err().code, ErrorCode::Unsupported);
+    assert_eq!(engine_mods::adopt(&dirs, &p, &game.path, ModKind::ShroudForge, "nope").unwrap_err().code, ErrorCode::NotFound);
+    // the folder itself is a link to the player's files elsewhere
+    let real = t.0.join("elsewhere");
+    std::fs::rename(&own, &real).unwrap();
+    std::os::unix::fs::symlink(&real, &own).unwrap();
+    let e = engine_mods::adopt(&dirs, &p, &game.path, ModKind::ShroudForge, "hoardershelper").unwrap_err();
+    assert_eq!(e.code, ErrorCode::Refused, "{e}");
+    assert!(e.message.contains("symlinks are not allowed"), "{e}");
+    assert!(!real.join(engine_mods::MARKER).exists());
+    std::fs::remove_file(&own).unwrap();
+    // the mods folder is a link
+    let mods = game.path.join("mods");
+    std::fs::remove_dir_all(&mods).unwrap();
+    std::fs::create_dir_all(t.0.join("mods-elsewhere")).unwrap();
+    std::fs::rename(&real, t.0.join("mods-elsewhere/hoardershelper")).unwrap();
+    std::os::unix::fs::symlink(t.0.join("mods-elsewhere"), &mods).unwrap();
+    let e = engine_mods::adopt(&dirs, &p, &game.path, ModKind::ShroudForge, "hoardershelper").unwrap_err();
+    assert!(e.code == ErrorCode::Refused && e.message.contains("symlinks are not allowed"), "{e}");
+    assert!(!t.0.join("mods-elsewhere/hoardershelper").join(engine_mods::MARKER).exists());
+    std::fs::remove_file(&mods).unwrap();
+    std::fs::rename(t.0.join("mods-elsewhere"), &mods).unwrap();
+    // a Library entry that changed on disk is not what the folder is compared with
+    let lib = library::path_of(&dirs, &h).unwrap();
+    put(&lib, "src/mod.lua", b"return { tampered = true }");
+    assert_eq!(engine_mods::adopt(&dirs, &p, &game.path, ModKind::ShroudForge, "hoardershelper").unwrap_err().code, ErrorCode::HashMismatch);
+    put(&lib, "src/mod.lua", b"return {}");
+    // nothing of the player's is there: Kiln's own copy is not "taken over" twice, and no folder is not an error to hide
+    std::fs::remove_dir_all(mods.join("hoardershelper")).unwrap();
+    assert!(engine_mods::own_folders(&dirs, &p, &game.path).unwrap().is_empty());
+    assert_eq!(engine_mods::adopt(&dirs, &p, &game.path, ModKind::ShroudForge, "hoardershelper").unwrap_err().code, ErrorCode::NotFound);
+    profile::activate(&dirs, &p.id, &game).unwrap();
+    assert!(engine_mods::adopt(&dirs, &p, &game.path, ModKind::ShroudForge, "hoardershelper").unwrap().already);
+    // a copy of Kiln's whose files the player changed is not the player's own folder: refused as placing refuses it
+    put(&mods.join("hoardershelper"), "src/mod.lua", b"return { edited = true }");
+    let e = engine_mods::adopt(&dirs, &p, &game.path, ModKind::ShroudForge, "hoardershelper").unwrap_err();
+    assert!(e.code == ErrorCode::Refused && e.message.contains("managed copy changed"), "{e}");
+    assert!(engine_mods::own_folders(&dirs, &p, &game.path).unwrap().is_empty());
+    p.mods.shroudforge.clear();
+}

@@ -124,6 +124,49 @@ When to cook again, from `cook-report.json`:
 A game update that moves or removes an input stops the cook with a clear error: "input … is not in …", or a layout
 mismatch.
 
+### What a cook writes
+
+Players do not run the cook by hand: the launcher cooks a mod before the game starts when it was installed, updated or
+switched on, or when the game was updated ([launcher/app.md](../launcher/app.md), "Cooking mods"). Authors run
+`kiln cook` (and `kiln build` does); a server's operator runs `kiln cook <mod> --game <server folder>`. A game loads
+only the cooked files a cook of that game made: [cooking.md](cooking.md).
+
+A cooked mod is the same mod on every machine: a dedicated server and each player's game cook it from their own game
+files, and outside one folder nothing differs.
+
+- **Everything made from the game goes into `assets/cooked/`**, with the cook's reports and index files
+  (`cook-report*.json`, `clips.json`, `audio.json`, `<name>.model.json`). That folder is never shipped (`kiln pack` and a
+  server's modpack leave it out) and does not count as the mod: the hash a server advertises for a mod and the one a
+  player's game compares it with leave `assets/cooked` out (the mod's identity,
+  [launcher/contracts.md](../launcher/contracts.md) 5.11). A server's cook makes no models and its report names the
+  server's files; neither makes it another mod.
+- **`"out"` is `assets/cooked` or a folder in it.** `"cooked"` in `assets/cook.json`, `"../assets/cooked/impact"` in
+  `impact/cook.json`. Every cook tool refuses another place and says what to change:
+  `"out": "built" is …, outside the mod's assets/cooked folder (…). A cook writes only there …`. The same check
+  (`cookpaths.py`, one text in the four tools) is made for every file before the first one is written: a step's `stem` or
+  `name` with `..` or a `/` in it is refused, the two folders have to be spelled `assets/cooked` in lower case (on
+  Windows `Cooked` would be another folder to the mod's hash), and no folder or file on the way may be a link. The
+  manifest a cook writes is the mod's `assets/assets.json` and no other file.
+- **Outside it a cook writes only what follows from your own files**, the same bytes on every machine, and only when they
+  differ from what is there:
+  - the entries of the cooked files in `assets/assets.json` (`--update-manifest`, which `kiln cook` passes). They name
+    files, GUIDs and types, not bytes, so they are the same on a server (which writes a skipped model's entries as a
+    client's cook does) and after a game update;
+  - the material blocks made from a glTF, `blocks/<stem>.materials.json` (`"materials": "gltf"` and the looks of
+    [cosmetics.md](cosmetics.md); [materials.md](materials.md));
+  - the steps of your sound blocks in `assets/cook.json` ([sounds.md](sounds.md)).
+
+  Cook once before you ship and ship these files (`kiln build` and `kiln pack` cook first): then no cook on any
+  machine changes your mod, and a machine that has not cooked yet has the same mod as one that has. A mod that ships
+  without them still cooks to the same files everywhere, but an uncooked copy of it is another mod than a cooked one.
+- A manifest a hand wrote is left as it is: a cook that finds every entry there does not write the file again.
+
+What happens after a game update: the cooked bytes change (cook again), `assets/assets.json` does not, unless the update
+changes which files a step makes. That is the one case a cook adds entries on a player's machine: a clip taken from one of
+the game's (`"from": "@input"`) carries that clip's root motion and events when the game has them, each a file of its own.
+A server and its players on the same game build get the same entries; across builds they could differ until both are
+updated, as the cooked clips do.
+
 ## Modelling conventions (weapons)
 - **Units and origin.** Metres. The origin is the hand grip: the game places the model's origin in the hand's
   attachment slot (`SlotAttachment HandR`).

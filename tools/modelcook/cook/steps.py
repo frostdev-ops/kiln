@@ -137,6 +137,20 @@ def global_scale_of(k, t, hierarchy):
     return 1.0
 
 
+def model_entries(out_guid, mode, fb, fo):
+    """The kiln.assets entries of a cooked model: its render data blob and its RenderModel, which names the blob. They follow from the step alone
+    (GUID, mode, file names), so a cook that makes no model (a dedicated server's) knows them as a client's cook writes them."""
+    return [{"kind": "blob", "file": fo},
+            {"kind": "resource", "guid": out_guid, "type": "keen::RenderModel", "part": 0, "file": fb,
+             "mode": mode, "patch": [{"offset": RM.RENDER_DATA_OFFSET, "blob": fo}]}]
+
+
+def model_identity(guid, base_guid, mode):
+    """(GUID, mode) of the model a step makes, from its `guid` (None: the base's) and `mode` (None: override when it is the base's GUID, else new)."""
+    out_guid = _norm_guid(guid) if guid else _norm_guid(base_guid)
+    return out_guid, mode or ("override" if base_guid and out_guid == _norm_guid(base_guid) else "new")
+
+
 def model(k, t, gltf_files, base, guid=None, mode=None, name=None, material=None, material_map=None,
           pixel_sizes=None, stem=None, subdir="cooked", target=None, global_scale=None, own_materials=None, attach=None):
     """glTF (one file per LOD, LOD 0 first) -> RenderModel .bin + renderData .blob. `base` is a game model whose materials are the defaults, or None. With `target`
@@ -152,8 +166,7 @@ def model(k, t, gltf_files, base, guid=None, mode=None, name=None, material=None
         base_desc = Decoder(t).decode(th, k.read(base_key))
     elif not guid:
         raise StepError("a model step without a base needs a guid")
-    out_guid = _norm_guid(guid) if guid else base_key.guid
-    mode = mode or ("override" if base_key and out_guid == base_key.guid else "new")
+    out_guid, mode = model_identity(guid, base_key.guid if base_key else None, mode)
     if mode == "override" and not k.has(ResourceKey(out_guid, th, 0)):
         raise StepError(f"mode override: {out_guid} is not a game RenderModel")
     if mode == "new" and k.by_guid(out_guid):
@@ -217,9 +230,7 @@ def model(k, t, gltf_files, base, guid=None, mode=None, name=None, material=None
     report.update({"op": "model", "guid": out_guid, "mode": mode, "base": base_key.guid if base_key else None, "bin": fb, "blob": fo,
                    "bin_size": len(data), "blob_size": len(blob), "content_hash": desc["renderData"]["hash"],
                    "materials": materials, "warnings": warnings})
-    entries = [{"kind": "blob", "file": fo},
-               {"kind": "resource", "guid": out_guid, "type": "keen::RenderModel", "part": 0, "file": fb,
-                "mode": mode, "patch": [{"offset": RM.RENDER_DATA_OFFSET, "blob": fo}]}]
+    entries = model_entries(out_guid, mode, fb, fo)
     files = {fb: data, fo: blob}
     if target is not None:
         side = {"format": 1, "tool": "modelcook", "guid": out_guid, "name": name, "skeleton": target.guid, "joints": desc["skinningMap"], "lods": len(desc["lods"]),

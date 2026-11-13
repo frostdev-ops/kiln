@@ -3,8 +3,11 @@
 // and the dump / status / console surface. Resource and content RE: docs/re/resources.md. Guide:
 // docs/kiln/services/assets.md.
 #include <filesystem>
+#include <optional>
 
 #include "assets.h"
+#include "contained.h"
+#include "cooktrust.h"
 #include "nlohmann/json.hpp"
 #include "services/kiln_profile.h"
 
@@ -174,8 +177,38 @@ bool load_png_file(const fs::path& p, Rgba* out, std::string* why) {
     return png_decode(bytes.data(), bytes.size(), out, why);
 }
 
-// Reads <mod_dir>/assets/assets.json. Each entry: {kind, guid?, type?, part?, file?, hash?, mode?, patch?}.
-KilnResult load_manifest(KilnOwner owner, const std::string& mod_dir, std::string* report) {
+// This game's cook receipts and its "cooked" policy (cooktrust.h), with what could not be read logged once. The store
+// must be <game>/kiln/state/cook-receipts itself: a link there, or at kiln/state, is refused (by name, as Wine shows its
+// Unix links).
+CookTrust read_cook_trust() {
+    const fs::path kiln = widen(api_path(KILN_PATH_KILN)), state = widen(api_path(KILN_PATH_STATE));
+    auto linked = [](const fs::path& p) {
+        const DWORD a = GetFileAttributesW(p.c_str());
+        return a != INVALID_FILE_ATTRIBUTES && (a & FILE_ATTRIBUTE_REPARSE_POINT);
+    };
+    CookTrust t = load_cook_trust(kiln, state, g_client, linked(state) || linked(state / L"cook-receipts"));
+    for (const auto& n : t.notes) LOGW("assets: cook receipts: %s", n.c_str());
+    if (t.policy == CookedPolicy::Any)
+        LOGW("assets: kiln.json \"cooked\": \"any\": cooked files load whoever made them (a setting for development servers; a game "
+             "that keeps the rule loads only what its own cook made)");
+    return t;
+}
+
+// Whether `fp` (a file a manifest names, read through read_contained: physically in `base`) is a cook output of the
+// mod whose assets folder is `base`: below assets/cooked.
+bool in_cooked(const fs::path& base, const fs::path& fp) {
+    return is_cooked_path(narrow(fp.lexically_normal().lexically_relative(base.lexically_normal()).generic_wstring()));
+}
+
+// Reads <mod_dir>/assets/assets.json. Each entry: {kind, guid?, type?, part?, file?, hash?, mode?, patch?}. A file of
+// the mod's assets/cooked loads only when a cook receipt of this game lists its bytes (cooktrust.h); `trust` null: they
+// are read here.
+// The mod folders of this start's load order (load_profile_manifests): whose cooked files no other name may reach.
+std::vector<std::string> g_loaded_dirs;
+std::mutex g_loaded_mu;
+
+KilnResult load_manifest(KilnOwner owner, const std::string& mod_dir, std::string* report, const CookTrust* trust_in = nullptr,
+                         const FileIds* cooked_ids_in = nullptr) {
     const fs::path base = fs::path(widen(mod_dir)) / L"assets";
     const fs::path mf = base / L"assets.json";
     std::error_code ec;
@@ -194,18 +227,82 @@ KilnResult load_manifest(KilnOwner owner, const std::string& mod_dir, std::strin
         *report = "assets.json is not valid JSON";
         return KILN_ERR_INVALID_ARGUMENT;
     }
-    int icons = 0, res = 0, blobs = 0, tex = 0, errs = 0, icons_server = 0;
-    std::string problems;
+    int icons = 0, res = 0, blobs = 0, tex = 0, errs = 0, icons_server = 0, marked_models = 0, not_here = 0, unmade = 0;
+    std::string problems, not_here_names, unmade_names;
+    std::optional<CookTrust> own_trust;
+    auto trust = [&]() -> const CookTrust& {
+        if (trust_in) return *trust_in;
+        if (!own_trust) own_trust = read_cook_trust();
+        return *own_trust;
+    };
+    // a cooked file this game's cook did not make: with "local" not loaded, with "warn" loaded; counted and named (the
+    // first three) either way
+    auto made_here = [&](const fs::path& fp, const std::vector<uint8_t>& bytes) {
+        if (!in_cooked(base, fp)) return true;
+        const CookedVerdict v = cooked_verdict(trust(), bytes.data(), bytes.size());
+        if (v == CookedVerdict::Load) return true;
+        const std::string name = narrow(fp.lexically_normal().lexically_relative(base.lexically_normal()).generic_wstring());
+        int& n = v == CookedVerdict::Refuse ? not_here : unmade;
+        std::string& names = v == CookedVerdict::Refuse ? not_here_names : unmade_names;
+        if (++n <= 3) names += (names.empty() ? "" : ", ") + name;
+        return v == CookedVerdict::LoadUnmade;
+    };
+    // every file is read from the mod's own assets folder: a link or junction there (to another mod's assets/cooked,
+    // to anywhere) lends nothing, nor does another name for a cooked file of any mod of the load order (contained.cpp)
+    std::optional<FileIds> own_ids;
+    const FileIds* cooked_ids = cooked_ids_in;
+    if (!cooked_ids) {
+        own_ids.emplace();
+        std::vector<std::string> dirs;
+        {
+            std::lock_guard lock(g_loaded_mu);
+            dirs = g_loaded_dirs;
+        }
+        dirs.push_back(mod_dir);
+        for (const auto& d : dirs) add_cooked_ids(fs::path(widen(d)), &*own_ids);
+        cooked_ids = &*own_ids;
+    }
+    auto read = [&](const fs::path& fp, std::vector<uint8_t>* out, std::string* w) { return read_contained(base, fp, out, w, cooked_ids); };
     auto fail = [&](const std::string& m) {
         ++errs;
         problems += (problems.empty() ? "" : "; ") + m;
         LOGW("assets: %s: %s", mod_dir.c_str(), m.c_str());
     };
-    for (const json& e : doc.value("entries", json::array())) {
+    const json entries = doc.value("entries", json::array());
+    // What only a game client uses, by what the entry is (a model and its render data): a dedicated server skips it. The manifest is
+    // the same file on a server and in a player's game; a server's cook made no model, and one copied from a PC is not served either.
+    std::vector<bool> clients_only;
+    if (!g_client) {
+        std::vector<ManifestItem> items;
+        for (const json& e : entries) {
+            ManifestItem it;
+            bool ok;
+            if (e.is_object()) {
+                it.kind = e.value("kind", "");
+                it.file = e.value("file", "");
+                it.fixed_hash = it.kind == "blob" && e.contains("hash");
+                if (it.kind == "resource") {
+                    it.type = type_hash(e.value("type", "0x0"), &ok);
+                    for (const json& p : e.value("patch", json::array()))
+                        if (p.is_object()) it.patch_blobs.push_back(p.value("blob", ""));
+                }
+            }
+            items.push_back(std::move(it));
+        }
+        clients_only = client_only_entries(items);
+    }
+    size_t index = 0;
+    for (const json& e : entries) {
+        const size_t i = index++;
         const std::string kind = e.value("kind", "");
         const std::string file = e.value("file", "");
         // "side": "client" (soundcook's sounds and cues): a dedicated server has no sound system: not an error
-        if (!g_client && e.value("side", "") == "client") { ++icons_server; continue; }
+        if (!g_client && e.value("side", "") == "client") {
+            ++icons_server;
+            if (kind == "resource" && clients_only[i]) ++marked_models;
+            continue;
+        }
+        if (!g_client && clients_only[i]) { ++icons_server; continue; }
         fs::path fp;
         if (kind != "blob" || !file.empty()) {  // every kind but a hash-only blob names a file
             if (!safe_path(base, file, &fp, &why)) { fail(kind + ": " + why); continue; }
@@ -214,8 +311,11 @@ KilnResult load_manifest(KilnOwner owner, const std::string& mod_dir, std::strin
             uint8_t g[16];
             if (!parse_guid(e.value("guid", ""), g)) { fail("icon: bad guid"); continue; }
             if (!g_client) { ++icons_server; continue; }  // a dedicated server draws no icons: not an error
+            std::vector<uint8_t> png;
             Rgba img;
-            if (!load_png_file(fp, &img, &why)) { fail("icon " + file + ": " + why); continue; }
+            if (!read(fp, &png, &why)) { fail("icon " + file + ": " + why); continue; }
+            if (!made_here(fp, png)) continue;
+            if (!png_decode(png.data(), png.size(), &img, &why)) { fail("icon " + file + ": " + why); continue; }
             if (icon_for_item(owner, g, img, "icon " + file) == KILN_OK) ++icons; else fail("icon " + file + ": register failed");
         } else if (kind == "texture") {
             uint8_t g[16];
@@ -227,7 +327,8 @@ KilnResult load_manifest(KilnOwner owner, const std::string& mod_dir, std::strin
             k.type = type_hash(e.value("type", "keen::UiTextureResource"), &ok);
             k.part = e.value("part", 0);
             std::vector<uint8_t> png;
-            if (!read_file(fp.wstring(), &png, &why)) { fail("texture " + file + ": " + why); continue; }
+            if (!read(fp, &png, &why)) { fail("texture " + file + ": " + why); continue; }
+            if (!made_here(fp, png)) continue;
             if (g_S.load()) {  // the resource service is up: do it now
                 if (texture_override(owner, &k, png.data(), png.size(), &why) == KILN_OK) ++tex; else fail("texture " + file + ": " + why);
             } else {  // boot: queue until S appears (flushed by flush_pending_textures)
@@ -237,7 +338,8 @@ KilnResult load_manifest(KilnOwner owner, const std::string& mod_dir, std::strin
             }
         } else if (kind == "blob") {
             std::vector<uint8_t> bytes;
-            if (!read_file(fp.wstring(), &bytes, &why)) { fail("blob " + file + ": " + why); continue; }
+            if (!read(fp, &bytes, &why)) { fail("blob " + file + ": " + why); continue; }
+            if (!made_here(fp, bytes)) continue;
             HashK fixed;
             KilnResult r;
             if (e.contains("hash") && parse_hash(e["hash"].get<std::string>(), &fixed)) {
@@ -252,15 +354,24 @@ KilnResult load_manifest(KilnOwner owner, const std::string& mod_dir, std::strin
             bool ok;
             if (!parse_guid(e.value("guid", ""), g)) { fail("resource: bad guid"); continue; }
             std::vector<uint8_t> bytes;
-            if (!read_file(fp.wstring(), &bytes, &why)) { fail("resource " + file + ": " + why); continue; }
-            // patch: write a referenced blob's ContentHash at the given offset
+            if (!read(fp, &bytes, &why)) { fail("resource " + file + ": " + why); continue; }
+            if (!made_here(fp, bytes)) continue;
+            // patch: write a referenced blob's ContentHash at the given offset. Every blob is read and judged before
+            // anything is added: a resource whose blob this game's cook did not make is left out whole.
+            std::vector<std::pair<size_t, std::vector<uint8_t>>> patches;
+            bool blobs_here = true;
             for (const json& p : e.value("patch", json::array())) {
                 const size_t off = p.value("offset", 0);
                 const std::string bf = p.value("blob", "");
                 fs::path bp;
                 if (!safe_path(base, bf, &bp, &why)) { fail("patch blob " + bf + ": " + why); continue; }
                 std::vector<uint8_t> bb;
-                if (!read_file(bp.wstring(), &bb, &why)) { fail("patch blob " + bf + ": " + why); continue; }
+                if (!read(bp, &bb, &why)) { fail("patch blob " + bf + ": " + why); continue; }
+                if (!made_here(bp, bb)) { blobs_here = false; break; }
+                patches.emplace_back(off, std::move(bb));
+            }
+            if (!blobs_here) continue;
+            for (auto& [off, bb] : patches) {
                 HashK h = content_hash_of(bb.data(), bb.size());
                 op_blob_add(owner, bb.data(), bb.size(), nullptr);
                 if (off + 16 <= bytes.size()) std::memcpy(bytes.data() + off, &h, 16);
@@ -292,8 +403,28 @@ KilnResult load_manifest(KilnOwner owner, const std::string& mod_dir, std::strin
     std::snprintf(b, sizeof b, "icons %d%s, textures %d, resources %d, blobs %d, errors %d", icons,
                   icons_server ? (" (" + std::to_string(icons_server) + " entries for clients only, skipped on this server)").c_str() : "", tex, res,
                   blobs, errs);
-    *report = std::string(b) + (problems.empty() ? "" : " (" + problems + ")");
+    *report = std::string(b) + (not_here ? ", " + std::to_string(not_here) + " cooked file" + (not_here == 1 ? "" : "s") + " not made here" : "") +
+              (unmade ? ", " + std::to_string(unmade) + " cooked file" + (unmade == 1 ? "" : "s") + " not made here (loaded)" : "") +
+              (problems.empty() ? "" : " (" + problems + ")");
     LOGI("assets: %s: %s", mod_dir.c_str(), report->c_str());
+    if (unmade)
+        LOGW("assets: %s: %d cooked file%s loaded that %s not cooked on this machine (%s%s). Cook the mod here: the launcher does it before "
+             "the game starts; on a dedicated server run kiln cook <mod folder> --game <server folder>. A later release of Kiln will not "
+             "load cooked files no cook of this game made (kiln.json \"cooked\": \"local\" does so now)",
+             mod_dir.c_str(), unmade, unmade == 1 ? "" : "s", unmade == 1 ? "was" : "were", unmade_names.c_str(), unmade > 3 ? ", ..." : "");
+    if (not_here)
+        LOGW("assets: %s: %d cooked file%s not loaded (%s%s): no cook of this game made %s. Cooked files are made on each PC from its own "
+             "game, never taken from a download or a copy: the launcher cooks the mod before the game starts; on a dedicated server run "
+             "kiln cook <mod folder> --game <server folder>",
+             mod_dir.c_str(), not_here, not_here == 1 ? "" : "s", not_here_names.c_str(), not_here > 3 ? ", ..." : "",
+             not_here == 1 ? "it" : "them");
+    // A model's entry needs no mark (it is skipped by its type). The cook of Kiln 0.2.0-dev.26 wrote the mark into a server's copy of
+    // assets.json, which made that copy another file than the players'. A mod may also ship the mark itself, so this is a note.
+    if (marked_models)
+        LOGI("assets: %s: %d model entr%s in assets/assets.json carr%s a \"side\": \"client\" mark. If a cook of Kiln 0.2.0-dev.26 wrote it on "
+             "this server (the mod ships the file without it), players' games see another mod than this server's: run kiln cook for this mod "
+             "again (it takes that cook's marks out), or put the mod's own assets/assets.json back",
+             mod_dir.c_str(), marked_models, marked_models == 1 ? "y" : "ies", marked_models == 1 ? "ies" : "y");
     return KILN_OK;
 }
 
@@ -396,12 +527,10 @@ void load_profile_manifests() {
     // Every mod folder in the load order: kiln.profile when present, else the legacy kiln/mods drop-ins.
     const KilnProfileApi* prof = static_cast<const KilnProfileApi*>(g_api->service(KilnStr{"kiln.profile", 12}, 1));
     int loaded = 0;
+    std::vector<std::string> order;  // collected first: every mod's cooked files are known before any manifest is read
     auto one = [&](const std::string& dir) {
         std::error_code ec;
-        if (!fs::exists(fs::path(widen(dir)) / L"assets" / L"assets.json", ec)) return;
-        KilnOwner o = g_api->owner_create(KilnStr{dir.c_str(), dir.size()});
-        std::string rep;
-        if (load_manifest(o, dir, &rep) == KILN_OK) ++loaded;
+        if (fs::exists(fs::path(widen(dir)) / L"assets" / L"assets.json", ec)) order.push_back(dir);
     };
     bool used_profile = false;
     bool scan_dropins = true;  // legacy / no profile: scan kiln/mods
@@ -421,6 +550,18 @@ void load_profile_manifests() {
         std::error_code ec;
         for (auto it = fs::directory_iterator(widen(mods), ec); !ec && it != fs::directory_iterator(); it.increment(ec))
             if (it->is_directory(ec) && !fs::exists(it->path() / L".disabled", ec)) one(narrow(it->path().wstring()));
+    }
+    const CookTrust trust = read_cook_trust();  // read once for every mod of the load order
+    FileIds cooked_ids;
+    for (const auto& dir : order) add_cooked_ids(fs::path(widen(dir)), &cooked_ids);
+    {
+        std::lock_guard lock(g_loaded_mu);
+        g_loaded_dirs = order;
+    }
+    for (const auto& dir : order) {
+        KilnOwner o = g_api->owner_create(KilnStr{dir.c_str(), dir.size()});
+        std::string rep;
+        if (load_manifest(o, dir, &rep, &trust, &cooked_ids) == KILN_OK) ++loaded;
     }
     if (loaded) LOGI("assets: loaded assets.json for %d mod(s)", loaded);
 }

@@ -167,7 +167,8 @@ export const useRuntimeChanges = create<RuntimeChanges>((set, get) => ({
 /** Refetches everything about a game (after install, activation, launch). */
 export function invalidateGame(qc: QueryClient, g: GameId) {
   // the game list too: an install's id changes once Kiln is installed (path hash -> receipt id)
-  for (const k of [qk.games, qk.gameStatus(g), qk.launchState(g), qk.runtimeStatus(g), qk.active(g), qk.pending(g), qk.profiles, qk.backups(g)])
+  // (cook_plan: which mods need a cook follows the profile in the game and the game's build)
+  for (const k of [qk.games, qk.gameStatus(g), qk.launchState(g), qk.runtimeStatus(g), qk.active(g), qk.pending(g), qk.profiles, qk.backups(g), ["cook_plan", g]])
     qc.invalidateQueries({ queryKey: k });
 }
 

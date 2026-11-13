@@ -50,7 +50,7 @@ sevenz-rust2 = { version = "0.25", default-features = false, features = ["compre
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Diagnostics_ToolHelp", "Win32_System_Threading",
     "Win32_Security_Cryptography", "Win32_System_Registry", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging",
-    "Win32_Storage_FileSystem", "Win32_Security_Credentials"] }
+    "Win32_Storage_FileSystem", "Win32_Security_Credentials", "Win32_System_JobObjects"] }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

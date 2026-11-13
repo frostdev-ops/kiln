@@ -1,0 +1,1 @@
+a folder with the manifest name

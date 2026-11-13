@@ -18,3 +18,9 @@ g++ -std=c++20 -O1 -g -Wall -Wextra -fsanitize=address,undefined -fno-sanitize-r
   "$here/test_store.cpp" "$here/../store.cpp" "$here/../util.cpp" -o "$out/test_store"
 # Resource bytes are never freed by design (the game keeps pointers into them): no leak check.
 ASAN_OPTIONS=detect_leaks=0 "$out/test_store"
+
+# Which cooked files a game loads (cooktrust.cpp): SHA-256, the cook receipts, kiln.json's "cooked".
+g++ -std=c++20 -O1 -g -Wall -Wextra -fsanitize=address,undefined -fno-sanitize-recover=undefined \
+  -I"$here/.." -I"$here/../../../third_party" \
+  "$here/test_cooktrust.cpp" "$here/../cooktrust.cpp" -o "$out/test_cooktrust"
+"$out/test_cooktrust" "$out/cooktrust-scratch"
