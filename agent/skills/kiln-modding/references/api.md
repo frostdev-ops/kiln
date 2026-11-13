@@ -355,6 +355,10 @@ context, never a place to call tick-thread game services or retain component poi
 `Ui.Menus.Add(MenuLocation.MainMenu|PauseMenu, text, onClick)`, `Ui.Screen(title, ui => { ... }, options)` →
 `Open/Close/Toggle`, `Ui.Crafting.AddTab / AddSubcategory / AddPanel`, `Ui.Screens.Current`, `Hud.Show(id, text)`,
 `Hud.Toast(text)`, `KeyBindings.Register(id, "F8", action, description)`, `UiText.Of(("en", ...), ("de", ...))`.
+Key names: `F8`, `Ctrl+K`, `Shift+Alt+F2`, `Numpad5`, `None`; dev.27+ also the mouse: `Mouse4`, `Mouse5`, `MouseMiddle`,
+`WheelUp`, `WheelDown`, `WheelLeft`, `WheelRight` with modifiers (`Ctrl+WheelUp`, `Shift+Mouse4`; one press per notch, a
+notch has no release). Left and right click cannot be bound (`Parse` throws, `TryParse` is false, as it is for every
+mouse name on a Kiln before dev.27). A taken press is kept from the game (Ctrl+WheelUp does not zoom the camera).
 `Ui.Available` is false on a dedicated server. dev.20+: `WindowBlock`, `HudLineBlock`, `KeyBindingBlock` and the equivalent
 JSON sections bind config and safe `game.*` values without draw code: [blocks.md](blocks.md#ui-as-data).
 dev.20+: `StatusLines.Add(() => cachedText)` / `Set("state", text)` report mod status when asked, including on servers.

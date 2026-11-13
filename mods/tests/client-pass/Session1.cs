@@ -799,4 +799,102 @@ public sealed partial class ClientPassMod
         }
         await c.Verdict();
     }
+
+    // ---- key bindings on the mouse (GitHub issue 29, dev.27): the check binds three chords of its own while it runs ----
+    [ClientCheck("ui.mouse-bindings", "Key bindings on the mouse wheel and the side buttons", Area = "Menus and hooks",
+        Since = Dev27, Tags = [Visual], Needs = ClientCheckNeeds.Hosted, Order = 153)]
+    public async Task UiMouseBindings(CheckContext c)
+    {
+        if (!await NeedPlayer(c)) return;
+        if (!c.Expect(KeyChord.TryParse("Ctrl+WheelUp", out _), "this Kiln knows mouse key names (0.2.0-dev.27 or later)"))
+        {
+            c.Instruct("This Kiln does not know key bindings on the mouse yet (0.2.0-dev.27 adds them). Press fail.");
+            await c.Verdict();
+            return;
+        }
+        KeyBinding Bind(string id, string key)
+        {
+            var b = KeyBindings.Register("client-pass." + id, key, null, $"guided check ui.mouse-bindings: {key}", "Client pass");
+            if (b.Key != b.Default) KeyBindings.Reset(b.Id);  // rebound in the Keys page by an earlier run
+            return b;
+        }
+        var zoomIn = Bind("mouse-ctrl-wheel-up", "Ctrl+WheelUp");
+        var zoomOut = Bind("mouse-ctrl-wheel-down", "Ctrl+WheelDown");
+        var back = Bind("mouse-shift-mouse4", "Shift+Mouse4");
+        c.OnEnd(() =>
+        {
+            if (back.Key != back.Default) KeyBindings.Reset(back.Id);  // step 4 rebinds it
+            zoomIn.Dispose();
+            zoomOut.Dispose();
+            back.Dispose();
+        });
+        int up = 0, down = 0, side = 0;
+        void Count()
+        {
+            up += zoomIn.TakePresses();
+            down += zoomOut.TakePresses();
+            side += back.TakePresses();
+        }
+        string Counts() => $"Kiln has counted: Ctrl+WheelUp {up}, Ctrl+WheelDown {down}, Shift+Mouse4 {side}.";
+
+        // 1) one press per notch and per click
+        const string step1 = "Step 1 of 4. This check binds three keys of its own while it runs: Ctrl+WheelUp, Ctrl+WheelDown " +
+                             "and Shift+Mouse4 (the back button on the side of the mouse). Close this list (Ctrl+Shift+F5) and, " +
+                             "in play: hold Ctrl and turn the wheel up exactly 3 notches, slowly, counting the clicks you feel; " +
+                             "then hold Ctrl and turn it down 3 notches; then hold Shift and press Mouse4 twice. Watch the " +
+                             "camera while you turn the wheel with Ctrl held. ";
+        var shown = "";
+        var done = await c.Until(() =>
+        {
+            Count();
+            var text = step1 + Counts();
+            if (text != shown) c.Instruct(shown = text);
+            return up >= 3 && down >= 3 && side >= 2;
+        }, TimeSpan.FromMinutes(5), "you turned the wheel 3 notches each way with Ctrl and pressed Shift+Mouse4 twice");
+        await c.Delay(TimeSpan.FromSeconds(2));  // a press a notch gave twice would come right after
+        Count();
+        if (done)
+            c.Expect(up == 3 && down == 3 && side == 2, "one press per notch and per click: 3, 3 and 2",
+                $"Ctrl+WheelUp {up}, Ctrl+WheelDown {down}, Shift+Mouse4 {side} (more than you turned: say so in the note)");
+
+        // 2) the wheel without Ctrl is the game's
+        var (up2, down2) = (up, down);
+        var side2 = side;
+        c.Instruct("Step 2 of 4. Now turn the wheel WITHOUT Ctrl, a few notches each way: the camera should zoom in and out " +
+                   "as it always does (the check's bindings must not count it). Then press Shift+Mouse4 once to go on. " + Counts());
+        await c.Until(() =>
+        {
+            Count();
+            return side > side2;
+        }, TimeSpan.FromMinutes(3), "you pressed Shift+Mouse4 to go on");
+        c.Expect(up == up2 && down == down2, "the wheel without Ctrl fired none of the check's bindings",
+            $"Ctrl+WheelUp {up - up2}, Ctrl+WheelDown {down - down2} more");
+
+        // 3) a Kiln screen has the mouse: the wheel scrolls it and fires no binding
+        (up2, down2, side2) = (up, down, side);
+        c.Instruct("Step 3 of 4. Open this list (Ctrl+Shift+F5) and, with the pointer over it, hold Ctrl and turn the wheel " +
+                   "a few notches each way: the list scrolls (when it is longer than its window) and the counts below must " +
+                   "not change. Then close the list and press Shift+Mouse4 to go on. " + Counts());
+        await c.Until(() =>
+        {
+            Count();
+            return side > side2;
+        }, TimeSpan.FromMinutes(3), "you pressed Shift+Mouse4 to go on");
+        c.Expect(up == up2 && down == down2, "Ctrl+wheel over Kiln's list fired no binding",
+            $"Ctrl+WheelUp {up - up2}, Ctrl+WheelDown {down - down2} more");
+
+        // 4) the Keys page shows the names and takes a mouse press as the new key
+        c.Instruct("Step 4 of 4. Open Kiln's menu (Insert), go to Keys and find the group \"Client pass\": its three lines " +
+                   "show Ctrl+WheelUp, Ctrl+WheelDown and Shift+Mouse4. Click the key of the Shift+Mouse4 line, then hold " +
+                   "Alt and turn the wheel down one notch: the line shows Alt+WheelDown. Close the menu (the check puts the " +
+                   "keys back when it ends). " + Counts() + " Three answers, all must be yes to pass: in step 1, did the " +
+                   "counts match the notches you turned and the presses you made, with the camera's zoom NOT moving while " +
+                   "Ctrl was held? In step 2, did the camera zoom as usual? In step 4, did the Keys page show the names " +
+                   "and take Alt+WheelDown? (If Mouse4 does something in your game's controls, say whether it happened " +
+                   "with Shift held: it should not have.)");
+        var altWheelDown = KeyChord.Parse("Alt+WheelDown");
+        await c.Until(() => back.Key == altWheelDown, TimeSpan.FromMinutes(3), "the Keys page took Alt+WheelDown for Shift+Mouse4's line");
+        c.Expect(back.Key == altWheelDown, "the Keys page set the line to Alt+WheelDown", back.Key.ToString());
+        await c.Verdict();
+    }
 }
