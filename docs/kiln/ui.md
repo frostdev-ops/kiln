@@ -420,7 +420,8 @@ gets exactly what it got before (no mouse press, no new code, and it can never t
 and side mouse buttons (`vk` `VK_MBUTTON`, `VK_XBUTTON1`, `VK_XBUTTON2`, a press and a release, `scan` 0) and one press
 per wheel notch (`vk` `KILN_UI_VK_WHEEL_UP` / `DOWN` / `LEFT` / `RIGHT`, 0x100 to 0x103; never a release), with the
 modifiers held then, once each although the window gets each as a raw record and as a message
-(`native/services/ui/mouse_press.h` pairs them: the same input, delta and message time); any other bit is
+(`native/services/ui/mouse_press.h` pairs them: the same input and direction at the closest message time within 50 ms,
+wheel deltas reconciled, so a WM_MOUSEWHEEL that Wine merged from two turns covers both records); any other bit is
 `KILN_ERR_INVALID_ARGUMENT`. A high-resolution wheel's delta that completes no notch comes as `repeat` 1, not a press:
 return true to keep it from the game as you would the notch. Returning true keeps the press from the game: its message,
 and its raw record (whole when it holds only the press; otherwise the game reads it without the taken flags, through

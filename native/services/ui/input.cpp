@@ -25,7 +25,6 @@
 #include <deque>
 #include <memory>
 #include <mutex>
-#include <optional>
 #include <unordered_map>
 #include <vector>
 
@@ -176,27 +175,26 @@ bool on_key(uint32_t vk, uint32_t scan, bool down, bool from_mouse = false) {
     return consumed;
 }
 
+// What waiting twins cover of this input (also after the last mouse subscriber left: their decisions stand).
+mouse::Twins::Follow follow_twin(mouse::Source s, uint32_t kind, int32_t delta, uint32_t time) {
+    if (!g_twins.waiting()) return {};
+    const auto f = g_twins.follow(s, kind, delta, time);
+    if (f.matched && f.apart_ms && !g_twin_time_said) {
+        g_twin_time_said = true;
+        logf(KILN_LOG_INFO, "ui: a mouse input's raw record and window message carried message times %d ms apart; Kiln "
+             "paired them (it pairs within %u ms). If a mouse key binding still counts a press twice, send this line "
+             "(said once)", f.apart_ms, mouse::kTolMs);
+    }
+    return f;
+}
+
 // A middle or side button transition from one source: dispatched once per physical transition, whichever of its raw
 // record and its message comes first (mouse_press.h Twins), to the key subscribers that take mouse presses
 // (KILN_UI_KEYS_MOUSE, keys.cpp). true = keep this press from the game. No such subscriber: nothing happens.
-// The decision of this input's twin, when one waits (also after the last mouse subscriber left: its decision stands).
-std::optional<bool> follow_twin(mouse::Source s, uint32_t kind, int32_t delta, uint32_t time) {
-    if (!g_twins.waiting()) return std::nullopt;
-    int32_t apart_ms = 0;
-    const auto twin = g_twins.follow(s, kind, delta, time, &apart_ms);
-    if (!twin && apart_ms && !g_twin_time_said) {
-        g_twin_time_said = true;
-        logf(KILN_LOG_INFO, "ui: a mouse input came as a raw record or a window message only, or the two carried message "
-             "times %d ms apart; Kiln pairs a record with its message by their time, so if a mouse key binding counts a "
-             "press twice, send this line (said once)", apart_ms);
-    }
-    return twin;
-}
-
 bool mouse_button(mouse::Source s, uint32_t vk, bool down) {
     const uint32_t kind = mouse::button_kind(vk, down);
     const auto time = static_cast<uint32_t>(GetMessageTime());
-    if (const auto twin = follow_twin(s, kind, 0, time)) return *twin;
+    if (const auto twin = follow_twin(s, kind, 0, time); twin.matched) return twin.kept;
     if (!keys_mouse_wanted()) return false;
     const bool kept = on_key(vk, 0, down, true);
     g_twins.lead(s, kind, 0, time, kept);
@@ -212,8 +210,10 @@ bool mouse_wheel(mouse::Source s, int axis, int32_t delta) {
     if (delta == 0) return false;
     const uint32_t kind = mouse::wheel_kind(axis, delta);
     const auto time = static_cast<uint32_t>(GetMessageTime());
-    if (const auto twin = follow_twin(s, kind, delta, time)) return *twin;
-    if (!keys_mouse_wanted()) return false;
+    // twins cover it, wholly or in part (a merged WM_MOUSEWHEEL, a record of two notches): only the rest is new input
+    const auto twin = follow_twin(s, kind, delta, time);
+    if (twin.matched) delta = twin.rest;
+    if (delta == 0 || !keys_mouse_wanted()) return twin.kept;
     const bool cap = capturing();
     if (cap != g_notches_captured) {  // a notch begun in a Kiln screen does not end in play, nor the other way
         g_notches.clear();
@@ -234,7 +234,7 @@ bool mouse_wheel(mouse::Source s, int axis, int32_t delta) {
     }
     for (int i = 0; i < std::min(std::abs(n), mouse::kMaxNotchesPerTurn); ++i) kept = dispatch_key(k, true) || kept;
     g_twins.lead(s, kind, delta, time, kept);
-    return kept;
+    return kept || twin.kept;
 }
 
 // Mouse presses run at all: a key subscriber takes them, or a decision waits for its twin.
