@@ -104,6 +104,16 @@ development server with `"cooked": "any"`, or is cooked again through Kiln.
   your game's `kiln/mods` copies files your cook made, which are this machine's. Deploying to a server copies files
   cooked from your client: the server warns about them (`"warn"`) or does not load them (`"local"`), and `kiln deploy`
   says so, until you run `kiln cook <deployed folder> --game <server>`.
+- **A common mistake: a recipe that only cooks on your PC.** A step names a source file (`"gltf": "local/heavy.gltf"`,
+  a texture, a sound) that is on your machine but not in what you ship: it lies outside the mod folder, in a folder your
+  pack leaves out, or it was never built from your art files. Your own cook finds it, so the mod looks finished. On
+  every other PC the launcher's cook fails when the player presses Play; the other steps may still run first, so it can
+  take a minute or more, and it is tried again at each Play until it ends well. The game starts all the same, without
+  the models or clips of the failed steps. The tool's message names the file (`FileNotFoundError: ... assets/local/heavy.gltf`);
+  when a recipe mixes model and animation steps, look for the first error in the cook's lines, not the last line.
+  Keep every file a recipe names inside the mod (`assets/src/...`), and before a release cook from the zip alone:
+  unpack what `kiln pack` made into an empty folder and run `kiln cook <that folder> --game <your game folder>`. A
+  recipe is complete only when that ends well.
 - A cook that fails in a player's launcher shows the tools' last lines to the player: make your recipe's errors say what
   is missing (a game GUID a game update removed, a glTF the cook refuses).
 

@@ -101,6 +101,7 @@
 | `World.TryWrite` for a change that must be saved | obsolete (`World.WriteRaw`): the game neither saves nor sends it | `World.Write` / `Update` / `WriteField`, the type listed under `"writes"` |
 | Taking a tracked write's call as done | it runs in the next sim step and can answer `Dropped` | read the result; ask again next step |
 | Shipping `assets/cooked` in a mod | no receipt on the player's PC: a warning now, refused in a later release | ship the recipe and the sources; the launcher cooks on Play |
+| A recipe step that names a source file the mod does not ship (a glTF kept outside the mod folder, in a folder the pack leaves out, or only on your PC) | your own cook works, so it looks done; on every other PC the launcher's cook fails at each Play, takes its time again at the next one, and the models or clips of that step are missing | keep every file a recipe names inside the mod (`assets/src/...`); before a release unpack the `kiln pack` zip into an empty folder and run `kiln cook <that folder> --game <game>`: a recipe is complete only when it cooks from the zip alone |
 | Changing a baked definition in code without rebuilding the mod | the baked file wins at every start; kiln.log warns | rebuild (or `KilnBake=false`) |
 | Expecting an affix on an item to act when the item lies in the backpack | affixes act while the item is in hand or worn | equip it; `AffixesAppliedEvent` says what a wearer holds |
 | `NoClip.Set` on a server that did not allow it | refused with a reason | `"allowNoClip": true` in `kiln/config/rules.json`; read the result |
