@@ -165,9 +165,13 @@ pub fn find(game_dir: &Path, profile: Option<&ProfileView>) -> Vec<OwnLoader> {
     let plugin = "kiln/plugins/kiln-shroudforge.dll";
     let runtime = game_dir.join("kiln/plugins/shroudforge/shroudforge-runtime.dll").is_file()
         || game_dir.join(crate::shroudforge::RUNTIME_DLL).is_file();
+    // With drop-ins on, the adapter (native/plugins/shroudforge plugin.cpp `legacy_wanted`) also hosts ShroudForge when
+    // ShroudForge's state file records a startup patch of an earlier start, so that ShroudForge can put the game data
+    // back: then it runs the EML mods of its folder too, and Kiln's copies there need their switch.
     let hosts = profile.is_some_and(|p| p.enabled(ModKind::ShroudForge).next().is_some() || (p.dropins_shroudforge && {
         let dir = crate::shroudforge::mods_dir(game_dir);
         std::fs::read_dir(&dir).into_iter().flatten().flatten().any(|e| crate::shroudforge::is_sf_own_mod(&e.path()))
+            || sf_patched_before(game_dir)
     }));
     if hosts && runtime && game_dir.join(plugin).is_file() {
         let dir = crate::shroudforge::mods_dir(game_dir);
@@ -176,6 +180,23 @@ pub fn find(game_dir: &Path, profile: Option<&ProfileView>) -> Vec<OwnLoader> {
             delivery: Delivery::Placed });
     }
     out
+}
+
+/// ShroudForge's state file (`<paths.state>/state.json`, by default `<game>/shroudforge/state.json`) records a startup
+/// patch (`assets.status` applied, preparing or failed): the adapter's `legacy_wanted` hosts ShroudForge then.
+fn sf_patched_before(game_dir: &Path) -> bool {
+    let default = || game_dir.join("shroudforge/state.json");
+    let file = match crate::shroudforge::read_effect_json(game_dir, &game_dir.join(crate::shroudforge::CONFIG_FILE)) {
+        Ok(config) => match config.as_ref().and_then(|v| v.pointer("/paths/state")) {
+            Some(serde_json::Value::String(p)) if !p.trim().is_empty() =>
+                match crate::shroudforge::resolve_game_folder(game_dir, p.trim()) { Some(d) => d.join("state.json"), None => return false },
+            _ => default(),
+        },
+        Err(_) => default(),
+    };
+    crate::shroudforge::read_effect_json(game_dir, &file).ok().flatten()
+        .and_then(|v| v.pointer("/assets/status").and_then(|s| s.as_str()).map(str::to_owned))
+        .is_some_and(|s| matches!(s.as_str(), "applied" | "preparing" | "failed"))
 }
 
 /// The own loader of a kind that decides where its mods are placed (the first found), if any.
@@ -247,6 +268,15 @@ pub struct OwnLoaderNote {
     pub copied: Vec<String>,
     /// Ids that are not in the loader's folder: they do not load while the own loader runs.
     pub not_copied: Vec<String>,
+    /// EML ids the player's own folder in the loader's folder serves (a folder Kiln did not place, whose mod.json has the
+    /// id): the loader runs that folder, Kiln places no copy and never writes into it (engine_mods::place).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub own: Vec<String>,
+    /// Ids of [`OwnLoaderNote::own`] that ShroudForge has switched off (their folder has no `extended.mod.json`, or its
+    /// `enabled` is not true): ShroudForge does not run them, and activating the profile does not change that; the
+    /// player switches them on in Kiln's menu (Mods, ShroudForge) or in ShroudForge's own Modloader.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub own_off: Vec<String>,
     /// Ids of [`OwnLoaderNote::copied`] that ShroudForge has switched off (EML mods while ShroudForge runs them: their
     /// copy has no `extended.mod.json`, or its `enabled` is not true): ShroudForge does not run them, and activating the
     /// profile again switches them on.
@@ -278,6 +308,21 @@ fn copy_of(root: &Path, kind: ModKind, id: &str) -> Option<PathBuf> {
     std::fs::read_dir(root).into_iter().flatten().flatten().map(|e| e.path()).find(|p| p.is_dir() && is(p))
 }
 
+/// The player's own folder in `root` that serves the EML mod `id`: a folder without Kiln's marker whose mod.json names
+/// the id (as kiln-eml and engine_mods::place find it). Other kinds: none.
+fn own_folder_of(root: &Path, kind: ModKind, id: &str) -> Option<PathBuf> {
+    if kind != ModKind::Eml { return None; }
+    let serves = |dir: &Path| dir.is_dir() && crate::engine_mods::marker(dir).is_none()
+        && std::fs::metadata(dir.join("mod.json")).is_ok_and(|m| m.is_file() && m.len() <= 1024 * 1024)
+        && std::fs::read(dir.join("mod.json")).ok().and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
+            .and_then(|v| v.get("id").and_then(|i| i.as_str()).map(|i| i.eq_ignore_ascii_case(id))) == Some(true);
+    let named = root.join(id);
+    if serves(&named) { return Some(named); }
+    let mut dirs: Vec<PathBuf> = std::fs::read_dir(root).into_iter().flatten().flatten().map(|e| e.path()).collect();
+    dirs.sort();
+    dirs.into_iter().find(|p| serves(p))
+}
+
 fn names(ids: &[String]) -> String {
     match ids.len() {
         0 => String::new(),
@@ -295,6 +340,8 @@ pub fn notes(game_dir: &Path, loaders: &[OwnLoader], profile: Option<&ProfileVie
         let root = l.root(game_dir);
         let ids: Vec<String> = profile.map(|p| p.enabled(kind).map(str::to_owned).collect()).unwrap_or_default();
         let (copied, not_copied): (Vec<String>, Vec<String>) = ids.iter().cloned().partition(|id| has_copy(&root, kind, id));
+        // the player's own folder there serves the rest of them, or nothing does (engine_mods::place copies none over it)
+        let (own, not_copied): (Vec<String>, Vec<String>) = not_copied.into_iter().partition(|id| own_folder_of(&root, kind, id).is_some());
         // ShroudForge runs an EML package of its folder only while the package's switch is on, for this side: when it may
         // run the EML mods (its own loader, or Kiln hosting it, beside EML's proxy file too) from the folder they are in
         let server = game_dir.join(crate::game::SERVER_EXE).is_file();
@@ -316,6 +363,10 @@ pub fn notes(game_dir: &Path, loaders: &[OwnLoader], profile: Option<&ProfileVie
                 None => {}
             }
         }
+        // a player's own folder ShroudForge has off: Kiln never writes into it, so only the player can switch it on
+        let own_off: Vec<String> = own.iter().filter(|_| sf_reads).filter(|id| matches!(
+            own_folder_of(&root, kind, id).and_then(|dir| crate::shroudforge::switched_off(&dir, server)),
+            Some(crate::shroudforge::SfOff::Switch(_)))).cloned().collect();
         let who = loader_name(l);
         let label = short(kind);
         let folder = format!("{}/", l.folder.trim_end_matches('/'));
@@ -330,10 +381,13 @@ pub fn notes(game_dir: &Path, loaders: &[OwnLoader], profile: Option<&ProfileVie
             text.push_str(label);
             text.push_str(" mods");
         } else if not_copied.is_empty() {
-            text.push_str(&match l.delivery {
-                Delivery::Plugin => format!("; Kiln's plugin copies this profile's {n} {label} mod(s) there before it starts"),
-                _ => format!("; Kiln copied this profile's {n} {label} mod(s) into {folder} for it"),
-            });
+            let placed = n - own.len();
+            if placed > 0 {
+                text.push_str(&match l.delivery {
+                    Delivery::Plugin => format!("; Kiln's plugin copies this profile's {placed} {label} mod(s) there before it starts"),
+                    _ => format!("; Kiln copied this profile's {placed} {label} mod(s) into {folder} for it"),
+                });
+            }
         } else {
             match l.delivery {
                 Delivery::Plugin => text.push_str(&format!("; Kiln's plugin copies this profile's {n} {label} mod(s) there before it starts")),
@@ -344,6 +398,11 @@ pub fn notes(game_dir: &Path, loaders: &[OwnLoader], profile: Option<&ProfileVie
                     "; {} of this profile's {n} {label} mod(s) are not in {folder} and do not load while it runs ({}). Activate the profile again to copy them",
                     not_copied.len(), names(&not_copied))),
             }
+        }
+        if !own.is_empty() {
+            let lead = if own.len() == n { format!("; this profile's {n} {label} mod(s)") } else { format!(". {} of this profile's {n} {label} mod(s)", own.len()) };
+            text.push_str(&format!("{lead} run from your own folder(s) in {folder} ({}): Kiln places no copy of its own and never writes into a folder it did not place",
+                names(&own)));
         }
         // On Windows the game imports these names, so the file always runs. A launcher built for Linux manages games
         // that run under Wine or Proton. Without the override the adapter hosts ShroudForge when the profile makes it
@@ -363,6 +422,12 @@ pub fn notes(game_dir: &Path, loaders: &[OwnLoader], profile: Option<&ProfileVie
                 ". ShroudForge has {} of them switched off in ShroudForge's settings and does not run them ({}): activate the profile again to switch them on",
                 off.len(), names(&off)));
         }
+        if !own_off.is_empty() {
+            text.push_str(&format!(
+                ". ShroudForge has your own folder(s) of {} of them switched off and does not run them ({}): activating the profile does not change \
+                that, because Kiln never writes into your own folder. Switch them on in Kiln's in-game menu (Mods, ShroudForge) or in ShroudForge's \
+                own Modloader, then start the game again", own_off.len(), names(&own_off)));
+        }
         if !other_side.is_empty() {
             text.push_str(&format!(". {} of them target the {} only, so ShroudForge does not run them {} ({}); nothing needs doing",
                 other_side.len(), if server { "client" } else { "server" }, if server { "on this server" } else { "in this game" }, names(&other_side)));
@@ -372,7 +437,7 @@ pub fn notes(game_dir: &Path, loaders: &[OwnLoader], profile: Option<&ProfileVie
                 of the mod whose files ShroudForge reads does, or a profile without ShroudForge mods (Kiln then runs them itself)",
                 unreadable.len(), if unreadable.len() == 1 { String::new() } else { format!("{}; ", names(&unreadable)) }, refused.unwrap_or_default()));
         }
-        out.push(OwnLoaderNote { loader: l.clone(), enabled: n as u32, copied, not_copied, off, other_side, unreadable, text });
+        out.push(OwnLoaderNote { loader: l.clone(), enabled: n as u32, copied, not_copied, own, own_off, off, other_side, unreadable, text });
     }
     out
 }
@@ -476,6 +541,79 @@ mod tests {
         assert_eq!(find(&g, Some(&view))[0].via, Via::HostedShroudForge);
         view.dropins_shroudforge = false;
         assert!(find(&g, Some(&view)).is_empty());
+        std::fs::remove_dir_all(g).unwrap();
+    }
+
+    /// kiln-shroudforge's `legacy_wanted` (plugin.cpp) hosts ShroudForge with drop-ins on when its state file records a
+    /// startup patch of an earlier start, also without a ShroudForge package in its folder. The launcher must then give
+    /// Kiln's EML copies ShroudForge's switch, or ShroudForge, which runs them that start, keeps them off.
+    #[test]
+    fn dropins_host_shroudforge_after_an_earlier_startup_patch_as_the_adapter_does() {
+        let g = tmp("sf-patched");
+        std::fs::create_dir_all(g.join("kiln/plugins/shroudforge")).unwrap();
+        std::fs::write(g.join("kiln/plugins/kiln-shroudforge.dll"), b"x").unwrap();
+        std::fs::write(g.join("kiln/plugins/shroudforge/shroudforge-runtime.dll"), b"x").unwrap();
+        std::fs::create_dir_all(g.join("mods/eml-only")).unwrap();
+        std::fs::write(g.join("mods/eml-only/mod.json"), br#"{"id":"e","name":"e","version":"1.0.0"}"#).unwrap();
+        let view = ProfileView { dropins_shroudforge: true, ..ProfileView::default() };
+        assert!(find(&g, Some(&view)).is_empty(), "no ShroudForge package and no earlier patch");
+        std::fs::create_dir_all(g.join("shroudforge")).unwrap();
+        for (status, hosted) in [("applied", true), ("preparing", true), ("failed", true), ("restored", false)] {
+            std::fs::write(g.join("shroudforge/state.json"), format!(r#"{{"assets":{{"status":"{status}"}}}}"#)).unwrap();
+            assert_eq!(find(&g, Some(&view)).first().map(|l| l.via) == Some(Via::HostedShroudForge), hosted, "{status}");
+        }
+        // ShroudForge's own setting for its state folder is followed
+        std::fs::create_dir_all(g.join("shroudforge/config")).unwrap();
+        std::fs::create_dir_all(g.join("sfstate")).unwrap();
+        std::fs::write(g.join(crate::shroudforge::CONFIG_FILE), br#"{"paths":{"state":"sfstate"}}"#).unwrap();
+        std::fs::write(g.join("shroudforge/state.json"), br#"{"assets":{"status":"applied"}}"#).unwrap();
+        assert!(find(&g, Some(&view)).is_empty(), "the configured state folder has no record");
+        std::fs::write(g.join("sfstate/state.json"), br#"{"assets":{"status":"applied"}}"#).unwrap();
+        assert_eq!(find(&g, Some(&view))[0].via, Via::HostedShroudForge);
+        assert!(find(&g, Some(&ProfileView::default())).is_empty(), "drop-ins off: the record alone does not host it");
+        std::fs::remove_dir_all(g).unwrap();
+    }
+
+    /// Player report (Nexus, 13 Nov 2026): "Auto Loot Plus is turned off by ShroudForge". A profile EML mod that the
+    /// player's own folder in ShroudForge's mods folder serves (a hand install, no Kiln marker) is not "not copied":
+    /// activation never copies over it. ShroudForge keeps it off while it has no switch, and only the player can switch
+    /// it on, because Kiln never writes into a folder it did not place.
+    #[test]
+    fn a_players_own_eml_folder_is_named_and_one_shroudforge_has_off_says_where_to_switch_it_on() {
+        let g = tmp("own-eml");
+        std::fs::create_dir_all(g.join("kiln/plugins/shroudforge")).unwrap();
+        std::fs::write(g.join("kiln/plugins/kiln-shroudforge.dll"), b"x").unwrap();
+        std::fs::write(g.join("kiln/plugins/shroudforge/shroudforge-runtime.dll"), b"x").unwrap();
+        let mut view = ProfileView::default();
+        view.mods.push((ModKind::ShroudForge, "sf-unlimited-flight".into(), true));
+        for id in ["kilns", "auto-loot-plus", "missing"] { view.mods.push((ModKind::Eml, id.into(), true)); }
+        let kilns = g.join("mods/kilns");
+        std::fs::create_dir_all(&kilns).unwrap();
+        let m = crate::engine_mods::Marker { format: 1, kind: ModKind::Eml, id: "kilns".into(), version: "1.0.0".into(), hash: "h".into() };
+        crate::util::write_json_atomic(&kilns.join(crate::engine_mods::MARKER), &m).unwrap();
+        std::fs::write(kilns.join("mod.json"), br#"{"id":"kilns","name":"k","version":"1.0.0"}"#).unwrap();
+        std::fs::write(kilns.join("extended.mod.json"), br#"{"schemaVersion":1,"enabled":true,"launcher":"EML"}"#).unwrap();
+        // the hand install, under another folder name, as a legacy EML package (no extended.mod.json)
+        let own = g.join("mods/AutoLootPlus");
+        std::fs::create_dir_all(own.join("src")).unwrap();
+        std::fs::write(own.join("mod.json"), br#"{"id":"auto-loot-plus","name":"Auto Loot Plus","version":"1.1.8","capabilities":["patch"]}"#).unwrap();
+        std::fs::write(own.join("src/mod.lua"), b"return {}").unwrap();
+        let l = find(&g, Some(&view));
+        let n = notes(&g, &l, Some(&view));
+        let e = n.iter().find(|n| n.loader.kind == ModKind::Eml).unwrap();
+        assert_eq!((e.copied.clone(), e.own.clone(), e.not_copied.clone()),
+            (vec!["kilns".to_string()], vec!["auto-loot-plus".to_string()], vec!["missing".to_string()]));
+        assert_eq!(e.own_off, vec!["auto-loot-plus".to_string()]);
+        assert!(e.off.is_empty(), "{e:?}");
+        assert!(e.text.contains("1 of this profile's 3 EML mod(s) are not in mods/ and do not load while it runs (missing)"), "{}", e.text);
+        assert!(e.text.contains("1 of this profile's 3 EML mod(s) run from your own folder(s) in mods/ (auto-loot-plus)"), "{}", e.text);
+        assert!(e.text.contains("Switch them on in Kiln's in-game menu (Mods, ShroudForge) or in ShroudForge's own Modloader"), "{}", e.text);
+        // switched on there (ShroudForge's Modloader writes the file): it runs, and nothing asks for a switch
+        std::fs::write(own.join("extended.mod.json"), br#"{"schemaVersion":1,"enabled":true,"targets":["client","server"],"launcher":"EML","settings":{}}"#).unwrap();
+        let n = notes(&g, &l, Some(&view));
+        let e = n.iter().find(|n| n.loader.kind == ModKind::Eml).unwrap();
+        assert!(e.own_off.is_empty() && e.own == vec!["auto-loot-plus".to_string()], "{e:?}");
+        assert!(!e.text.contains("switched off"), "{}", e.text);
         std::fs::remove_dir_all(g).unwrap();
     }
 

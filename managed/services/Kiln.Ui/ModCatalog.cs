@@ -1000,7 +1000,10 @@ internal static class ModCatalog
             {
                 Engine = "shroudforge", Id = sid ?? name, Name = sname ?? name, Version = sversion ?? "",
                 Folder = sub, Source = "folder", State = on ? state : ModRunState.Disabled, Word = on ? runs ? "unconfirmed" : mode ?? "" : "disabled",
-                Reason = on ? why : "Switched off in ShroudForge's settings.", Help = on ? help : null,
+                // an EML package without ShroudForge's file was never switched on there: say so, it is not a choice the
+                // player made
+                Reason = on ? why : SfFacts(sub) is null ? "An EML mod in ShroudForge's mods folder. ShroudForge keeps it off until its switch is turned on."
+                    : "Switched off in ShroudForge's settings.", Help = on ? help : null,
             });
         }
         // kiln-eml reported its handoff before ShroudForge prepared. A later failure supersedes that prediction.

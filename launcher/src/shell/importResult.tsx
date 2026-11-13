@@ -2,11 +2,13 @@
 // what was not needed. The toast stays one short line; "Details" opens the whole list. kiln_manage::library::ImportReport
 // has `skipped` (a reason, no final period: what happened and, when the player has to do something, what) and `notes`
 // (information: a loader the package carries, which Kiln does not need).
+import { useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
 import { create } from "zustand";
 import * as api from "../api/commands";
 import type { GameInstall, ImportReport, LibraryRef } from "../api/commands";
-import { useProfiles } from "../api/hooks";
-import { Button, EmptyState, Modal, toast } from "../ui";
+import { qk, useProfiles } from "../api/hooks";
+import { Button, Field, Modal, TextInput, toast } from "../ui";
 
 /** A reason or note as a sentence: one final period (the backend writes none). */
 export function sentence(s: string): string {
@@ -124,33 +126,70 @@ export interface PendingProfile {
 
 export const usePickProfile = create<{ pending: PendingProfile | null }>(() => ({ pending: null }));
 
-/** "Which profile?": the launcher's profiles, when the drop could not know. Mounted once in the shell. */
+/** "Which profile?": the launcher's profiles, when the drop could not know, and "New profile…" (an empty one, named
+ *  here, that takes the mods). Mounted once in the shell. */
 export function PickProfile() {
+  const qc = useQueryClient();
   const pending = usePickProfile((s) => s.pending);
   const profiles = useProfiles();
-  const close = () => usePickProfile.setState({ pending: null });
+  const [naming, setNaming] = useState(false);
+  const [name, setName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const close = () => { usePickProfile.setState({ pending: null }); setNaming(false); setName(""); };
   const list = profiles.data ?? [];
-  const pick = async (id: string) => {
-    if (!pending) return;
-    close();
+  /** Adds the drop to profile `id`; the dialog (and the drop it holds) stays until that worked. */
+  const add = async (id: string): Promise<boolean> => {
+    if (!pending) return false;
+    const p = pending;
     try {
-      const r = await api.libraryAddToProfile(pending.game.id, id, pending.entries);
-      pending.onAdded(r, pending.game);
-    } catch (e) { toast.error(e, "Not added"); }
+      const r = await api.libraryAddToProfile(p.game.id, id, p.entries);
+      close();
+      p.onAdded(r, p.game);
+      return true;
+    } catch (e) { toast.error(e, "Not added"); return false; }
+  };
+  const pick = async (id: string) => {
+    if (busy) return;
+    setBusy(true);
+    try { await add(id); } finally { setBusy(false); }
+  };
+  const create = async () => {
+    if (!pending || !name.trim() || busy) return;
+    setBusy(true);
+    try {
+      let made: api.Profile;
+      try { made = await api.profileCreate(name.trim(), null); } catch (e) { toast.error(e, "No profile made"); return; }
+      await qc.invalidateQueries({ queryKey: qk.profiles });
+      if (!(await add(made.id))) {
+        // the profile exists, the mods are in the Library: back to the list, where it is now, to try again
+        setNaming(false);
+        setName("");
+        toast.info(`${made.name} was made, without ${pending.label}`, `${pending.label} is in your Library. Pick ${made.name} here to add it again, or switch it on in the list.`);
+      }
+    } finally { setBusy(false); }
   };
   return (
-    <Modal open={!!pending} onClose={close} title="Add to which profile?" width={440} footer={<Button variant="ghost" onClick={close}>Not now</Button>}>
-      {pending && (
+    <Modal open={!!pending} onClose={close} locked={busy} title="Add to which profile?" width={440}
+      footer={naming
+        ? <><Button variant="ghost" onClick={() => setNaming(false)} disabled={busy}>Back</Button><Button variant="primary" disabled={!name.trim()} loading={busy} onClick={() => void create()}>Make and add</Button></>
+        : <Button variant="ghost" onClick={close}>Not now</Button>}>
+      {pending && (naming ? (
+        <Field label="Name of the new profile" hint={`An empty profile with ${pending.label} in it, on.`} htmlFor="pick-new-profile">
+          <TextInput id="pick-new-profile" data-autofocus value={name} onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") void create(); }} />
+        </Field>
+      ) : (
         <div className="k-stack">
           <span className="k-hint">{pending.label} is in your list, off. It loads once it is on in the profile you play.</span>
-          {profiles.isLoading ? null : list.length ? list.map((p) => (
-            <button key={p.id} type="button" className="k-menu-item" onClick={() => void pick(p.id)}>
+          {profiles.isLoading ? null : list.map((p) => (
+            <button key={p.id} type="button" className="k-menu-item" disabled={busy} onClick={() => void pick(p.id)}>
               <span>{p.name}</span>
               {pending.game && p.active.includes(pending.game.id) && <span className="k-muted"> loaded</span>}
             </button>
-          )) : <EmptyState title="No profiles yet" hint="Settings, Profiles keeps them." />}
+          ))}
+          {!profiles.isLoading && <button type="button" className="k-menu-item" onClick={() => setNaming(true)}>New profile…</button>}
         </div>
-      )}
+      ))}
     </Modal>
   );
 }

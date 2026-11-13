@@ -30,6 +30,20 @@ const queueOf = (id: string): Q => {
   return q;
 };
 
+/** Does the save queue take `fetched` (what the backend returned) as the profile its edits apply to? Not an older copy
+ *  of the one it holds (an optimistic copy never has a newer generation), but always another profile under the same
+ *  id: one deleted and made again (same name, same id) starts at generation 1, and nothing of the deleted one may be
+ *  saved over it (a player's "generation 3 on disk, 29 here", Nexus 2026-11-13). `created` tells them apart. */
+export function adopts(held: Profile | null, fetched: Profile): boolean {
+  return !held || fetched.created !== held.created || fetched.generation >= held.generation;
+}
+
+/** A deleted profile: its save queue goes with it, so a profile made again under its id starts from nothing. */
+export function forgetProfileEdits(id: string): void {
+  const q = queues.get(id);
+  if (q && !q.busy && !q.queue.length) queues.delete(id);
+}
+
 export function useProfileEdit(id: string) {
   const qc = useQueryClient();
   const q = useProfile(id);
@@ -40,7 +54,7 @@ export function useProfileEdit(id: string) {
 
   // adopt what the backend says whenever nothing is queued or in flight (an optimistic copy never has a newer generation)
   useEffect(() => {
-    if (q.data && !st.busy && st.queue.length === 0 && (!st.server || q.data.generation >= st.server.generation)) st.server = q.data;
+    if (q.data && !st.busy && st.queue.length === 0 && adopts(st.server, q.data)) st.server = q.data;
   }, [q.data, st]);
 
   const setBusy = (b: boolean) => { st.busy = b; st.listeners.forEach((f) => f(b)); };
@@ -81,7 +95,7 @@ export function useProfileEdit(id: string) {
 
   /** Applies `edit` (to a copy) and saves it after any edits before it. */
   const update = (edit: Edit) => {
-    if (!st.server) st.server = q.data ?? null;
+    if (q.data && !st.busy && st.queue.length === 0 && adopts(st.server, q.data)) st.server = q.data;
     if (!st.server) return;
     st.queue.push(edit);
     show();

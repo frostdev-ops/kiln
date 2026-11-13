@@ -259,6 +259,18 @@ fn library_id_for(dirs: &DataDirs, kind: ModKind, manifest_id: &str) -> String {
     unreachable!()
 }
 
+/// The Library version of an engine mod whose manifest gives `version` (empty: none).
+pub(crate) fn engine_version(version: &str) -> String {
+    if let Ok(parsed) = crate::semver::SemVersion::parse(version) {
+        parsed.to_string()
+    } else if version.is_empty() {
+        "0.0.0".to_string()
+    } else {
+        // A digit-only slug such as "001" is not a valid SemVer prerelease identifier by itself.
+        crate::library::fallback_version(version)
+    }
+}
+
 /// The importer of every engine kind: the folder (or the lone mod DLL, wrapped into a folder with the manifest its
 /// engine needs) goes into `library/<kind>/<id>/<version>+<hash8>/`. The id is a Kiln id made from the manifest's
 /// ([`library_id_for`]); the manifest's own id stays in the import record (`manifestId`).
@@ -322,14 +334,7 @@ pub fn import_engine_mod(ctx: &mut ImportCtx) -> Result<()> {
     let xhl_folder = (kind == ModKind::Xhl).then(|| manifest_id.clone());
     let id = library_id_for(ctx.dirs, kind, &manifest_id);
     let manifest_id = (manifest_id != id).then_some(manifest_id);
-    let version = if let Ok(parsed) = crate::semver::SemVersion::parse(&version) {
-        parsed.to_string()
-    } else if version.is_empty() {
-        "0.0.0".to_string()
-    } else {
-        // A digit-only slug such as "001" is not a valid SemVer prerelease identifier by itself.
-        crate::library::fallback_version(&version)
-    };
+    let version = engine_version(&version);
     let staging = ctx.dirs.library();
     std::fs::create_dir_all(&staging).map_err(io_at(&staging, "creating"))?;
     let tmp = crate::library::TempDir::new(&staging, "import")?;
@@ -1138,7 +1143,7 @@ fn copy_in_with(roots: Roots, src: &Path, dst: &Path, m: &Marker, kept: &[(Strin
             .ok_or_else(|| Error::invalid("native settings must be under the package's mods folder"))?
     } else { src };
     if crate::hash::dirhash(package)? != m.hash {
-        return Err(Error::new(ErrorCode::HashMismatch, format!("{}: library hash mismatch", package.display())));
+        return Err(crate::library::changed_error(&crate::library::LibraryRef { kind: m.kind, id: m.id.clone(), version: m.version.clone(), hash: m.hash.clone() }, package));
     }
     let source_hash = crate::hash::dirhash(src)?;
     let parent = dst.parent().ok_or_else(|| Error::invalid("no mod parent"))?;
@@ -1604,7 +1609,7 @@ fn own_plan(dirs: &DataDirs, game_dir: &Path, receipts: &[Placement], m: &crate:
         (false, Some(holder)) => holder.clone(),
     };
     if crate::hash::dirhash(&src)? != m.hash {
-        return Err(Error::new(ErrorCode::HashMismatch, format!("{}: library hash mismatch", src.display())));
+        return Err(crate::library::changed_error(&crate::library::LibraryRef { kind, id: m.id.clone(), version: m.version.clone(), hash: m.hash.clone() }, &src));
     }
     let (listed, refusal, kept) = own_differs(game_dir, &src, &own, m)?;
     Ok(Own::Folder(OwnPlan { own, dst, src, want, listed, refusal, kept }))

@@ -374,8 +374,27 @@ static void real_exe(const std::string& exe, const std::string& side, const std:
           "client: another changed byte beside the redirected calls still selects the live scan");
 }
 
+// A hook is a jump out of the image and the NOPs behind it. Greeneye Loader's is the longest: a 12-byte jump and up
+// to 20 NOPs (Find hooks 12 to 18 bytes). One NOP more than that is a change nobody explains: the live scan.
+static void padded_hooks() {
+    const uintptr_t base = 0x140000000, l_text = base + 0x1000, out = 0x7ff600000000;
+    std::vector<uint8_t> file(96);
+    for (size_t i = 0; i < file.size(); ++i) file[i] = static_cast<uint8_t>(0x40 + i % 16);  // no 0x90 among them
+    auto hooked = [&](size_t nops) {
+        std::vector<uint8_t> live = file;
+        live[8] = 0x48, live[9] = 0xB8, live[18] = 0xFF, live[19] = 0xE0;  // mov rax, imm64; jmp rax
+        std::memcpy(&live[10], &out, 8);
+        std::fill(live.begin() + 20, live.begin() + 20 + nops, 0x90);
+        return pe::only_hook_differences(file.data(), live.data(), file.size(), l_text, base, 0x10000);
+    };
+    CHECK(hooked(0) && hooked(6) && hooked(13), "a 12-byte jump with up to 13 NOPs is a hook");
+    CHECK(hooked(20), "a 12-byte jump with 20 NOPs (Greeneye Loader's longest hook) is a hook");
+    CHECK(!hooked(21), "21 NOPs behind a jump are more than any hook writes: the live scan");
+}
+
 int main(int argc, char** argv) {
     synthetic();
+    padded_hooks();
     hostile_pe();
     std::filesystem::path sigdb_dir = std::filesystem::path(__FILE__).parent_path() / "../../../sigdb/symbols";
     for (int i = 1; i + 1 < argc; i += 2) {

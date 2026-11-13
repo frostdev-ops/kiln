@@ -257,6 +257,11 @@ pub fn play_with(dirs: &DataDirs, install: &GameInstall, request: &LaunchRequest
     // written again, or the game would load the mods of the old profile.json
     let activation = if request.mode == LaunchMode::Profile {
         crate::profile::refresh_active(dirs, install).map_err(|e| {
+            // a mod changed in its Library folder says what it is and what to do by itself (library::changed_error):
+            // "the active profile changed" in front of it would name the wrong thing
+            if e.detail.as_ref().is_some_and(|d| d.get("libraryChanged").is_some()) {
+                return e;
+            }
             let msg = format!("the active profile changed and cannot be applied: {}", e.message);
             Error { message: msg, ..e }
         })?

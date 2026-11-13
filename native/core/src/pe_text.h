@@ -288,7 +288,9 @@ inline bool only_hook_differences(const uint8_t* file, const uint8_t* live, size
             }
             if (!width || !outside(target)) continue;
             size_t end = start + width;
-            for (size_t pad = 0; pad < 13 && end < size && live[end] == 0x90; ++pad) ++end;
+            // the NOPs a hook fills the rest of the instructions it replaced with: up to 20, what Greeneye Loader
+            // writes behind its 12-byte jump (a hook of at most 32 bytes); the others stay well below that
+            for (size_t pad = 0; pad < 20 && end < size && live[end] == 0x90; ++pad) ++end;
             if (i < end) { i = end; covered = true; break; }
         }
         if (!covered) return false;

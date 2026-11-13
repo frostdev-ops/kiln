@@ -96,6 +96,40 @@ public sealed partial class ClientPassMod
         "In the save editor, Add item: type a search quickly. Do the letters appear as you type, with the list following " +
         "(the list itself may take as long as before)?");
 
+    [ClientCheck("launcher.add-7z-rar", "Add mods takes a 7z and a rar", Area = "Launcher", Since = Dev27,
+        Tags = [Launcher], Order = 418)]
+    public Task LauncherAdd7zRar(CheckContext c) => Outside(c,
+        "In the launcher's window: press Add mods above the list. Does the file dialog show .7z and .rar files next to " +
+        ".zip and .dll? Pick a mod packed as .7z: it is in the list, on. Then drop a mod packed as .rar on the window (on " +
+        "Windows this needs WinRAR, 7-Zip or the tar.exe Windows has; without one the toast says to extract it first). Did " +
+        "both come in?");
+
+    [ClientCheck("launcher.all-on-off-new-profile", "All on, All off, and a new profile from a drop", Area = "Launcher",
+        Since = Dev27, Tags = [Launcher], Order = 419)]
+    public Task LauncherAllOnOffNewProfile(CheckContext c) => Outside(c,
+        "In the launcher with the game closed: pick one kind in Kind above the list and press \"Shown off (N)\": N mods " +
+        "go off, the others stay as they were; press Undo in the toast: they are back. Then in Settings, Profiles load " +
+        "\"No profile\", drop a mod on the window, press \"Add to a profile\", then \"New profile…\", give a name and press " +
+        "\"Make and add\"; press \"Load it\" in the toast. Is the new profile loaded with the mod on, and did Play start " +
+        "the game with it?");
+
+    [ClientCheck("launcher.library-changed", "A mod edited in its own folder: Changed on disk, and Use the changed files",
+        Area = "Launcher", Since = Dev27, Tags = [Launcher], Order = 427)]
+    public Task LauncherLibraryChanged(CheckContext c) => Outside(c,
+        "With the game closed, an EML mod on in the main list (an XHL mod is a good one): its menu, Open folder; change " +
+        "the \"name\" in its mod.json and save it. Go to Settings and back: its row says \"Changed on disk\" with " +
+        "\"Use the changed files\". In Settings, Profiles, load \"No profile\", then load your profile again: the error " +
+        "names the mod (\"... was changed in its folder\", not \"library hash mismatch\") and offers Use the changed " +
+        "files; press it. Is the profile loaded then, does the list show the new name, and does Play start the game " +
+        "with the mod?");
+
+    [ClientCheck("launcher.profile-again", "A profile deleted and made again under the same name takes a switch",
+        Area = "Launcher", Since = Dev27, Tags = [Launcher], Order = 428)]
+    public Task LauncherProfileAgain(CheckContext c) => Outside(c,
+        "In Settings, Profiles: load another profile, delete your usual one, then Save current as... with the deleted " +
+        "one's name and Load it. On the main screen switch a mod off and on. Does it switch without \"changed meanwhile " +
+        "(generation ... on disk, ... here)\", and does the profile hold only its own mods?");
+
     // ---- a Steam Deck ----
 
     [ClientCheck("deck.no-kiln", "\"No Kiln\" in the launcher on a Steam Deck", Area = "Steam Deck", Since = Dev16,
@@ -172,6 +206,17 @@ public sealed partial class ClientPassMod
         "the server's mods: same mods\". Then, with the server on mods_check=warn and one of its \"side\": \"both\" mods " +
         "missing in your game: one note at the top of the screen names the mod and ends \"Install the same versions in " +
         "the Kiln launcher.\", in at most three rows. Did you stay connected, and did the note show as described?");
+
+    [ClientCheck("launcher.own-eml-folder-under-sf", "The launcher names an EML mod in your own folder that ShroudForge has off",
+        Area = "Launcher", Since = Dev27, Tags = [Visual], Order = 935)]
+    public Task LauncherOwnEmlFolderUnderSf(CheckContext c) => Outside(c,
+        "In a profile with a ShroudForge mod on and Auto Loot Plus on: put Auto Loot Plus by hand into the game's mods " +
+        "folder as well (its mods/auto-loot-plus folder from the mod's zip, without extended.mod.json), press Play and " +
+        "close the game at the main menu. On the Play page, the EML line under the engines says Auto Loot Plus runs from " +
+        "your own folder and that ShroudForge has it switched off, with where to switch it on (Kiln's in-game menu, Mods, " +
+        "ShroudForge, or ShroudForge's own Modloader); it does not say to activate the profile again to copy it. Switch it " +
+        "on in the in-game menu, start the game again and look once more: is the switched-off part gone? Then remove the " +
+        "folder you added. Did the line say this both times?");
 
     [ClientCheck("launcher.linked-home", "An EML mod on a host where /home links to /var/home", Area = "Launcher",
         Since = Dev21, Tags = [OtherHost], Order = 933)]

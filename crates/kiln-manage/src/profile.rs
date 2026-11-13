@@ -757,12 +757,14 @@ pub fn create(dirs: &DataDirs, name: &str, copy_from: Option<&str>) -> Result<Pr
         n += 1;
     }
     let now = now_rfc3339();
+    // `created` tells this profile from a deleted one with the same id (save): to the millisecond
+    let created = created_now();
     let src = copy_from.map(|s| get(dirs, s)).transpose()?;
     let p = Profile {
         format: 1,
         id: id.clone(),
         name: name.to_string(),
-        created: now.clone(),
+        created,
         updated: now,
         generation: 1,
         notes: src.as_ref().map(|s| s.notes.clone()).unwrap_or_default(),
@@ -788,10 +790,26 @@ pub fn create(dirs: &DataDirs, name: &str, copy_from: Option<&str>) -> Result<Pr
     Ok(p)
 }
 
-/// Saves meta.json (generation + 1). Conflict when `profile.generation` is not the stored generation.
+/// `2026-11-13T16:20:53.123Z`: when a profile was made, to the millisecond (RFC 3339 like every other time here).
+fn created_now() -> String {
+    let ms = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.subsec_millis()).unwrap_or(0);
+    let secs = now_rfc3339();
+    format!("{}.{ms:03}Z", secs.trim_end_matches('Z'))
+}
+
+/// Saves meta.json (generation + 1). Conflict when `profile.generation` is not the stored generation, or `created` is not
+/// the stored profile's (it was deleted and made again under its id).
 pub fn save(dirs: &DataDirs, profile: &Profile) -> Result<Profile> {
     check_profile(profile)?;
     let stored = get(dirs, &profile.id)?;
+    // another profile under the same id: the one this save was made from was deleted and made again meanwhile (its
+    // generation may well be the same), so nothing of it is written over the new one
+    if stored.created != profile.created {
+        return Err(Error::new(
+            ErrorCode::Conflict,
+            format!("profile {} was deleted and made again meanwhile; this change was for the deleted one, reload it", profile.id),
+        ));
+    }
     if stored.generation != profile.generation {
         return Err(Error::new(
             ErrorCode::Conflict,
@@ -1340,6 +1358,10 @@ fn sync_copies(dirs: &DataDirs, profile: &Profile, install: &GameInstall, warnin
                 std::fs::create_dir_all(&dst).map_err(io_at(&dst, "creating"))?;
                 std::fs::copy(&src, &target).map_err(io_at(&target, "copying to"))?;
                 if crate::hash::sha256_file(&target)?.0 != m.hash {
+                    if crate::hash::sha256_file(&src).is_ok_and(|(h, _)| h != m.hash) {
+                        // the player changed the Library's DLL: which mod, and the way to take it over
+                        return Err(crate::library::changed_error(&lref(k, m), src.parent().unwrap_or(&src)));
+                    }
                     return Err(Error::new(ErrorCode::HashMismatch, format!("{}: the copy does not match {}", target.display(), m.hash)));
                 }
             } else {
@@ -1364,6 +1386,10 @@ fn sync_copies(dirs: &DataDirs, profile: &Profile, install: &GameInstall, warnin
                 crate::util::copy_tree(&src, &dst)?;
                 let h = crate::hash::of_mod(k, &dst)?;
                 if h != m.hash {
+                    if crate::hash::of_mod(k, &src).is_ok_and(|s| s != m.hash) {
+                        // the player changed the files in the Library folder: which mod, and the way to take it over
+                        return Err(crate::library::changed_error(&lref(k, m), &src));
+                    }
                     return Err(Error::new(ErrorCode::HashMismatch, format!("{}: the copy has {h}, the library entry {}", dst.display(), m.hash)));
                 }
             }

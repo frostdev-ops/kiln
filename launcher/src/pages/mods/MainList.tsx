@@ -5,7 +5,7 @@
 // said something), Load order, Engines and Add mods. It scrolls inside the page.
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { MoreHorizontal } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import * as api from "../../api/commands";
 import type { AddReport, GameInstall, ModKind } from "../../api/commands";
@@ -16,7 +16,9 @@ import { FolderNotesButton } from "../../components/FolderNotes";
 import { ConfigEditor } from "../../components/ConfigEditor";
 import { cookAgain } from "../../shell/cook";
 import { useAddMods } from "../../shell/drop";
-import { filterRows, kindsOf, type ModRow } from "../../shell/mods";
+import { takeOver, USE_CHANGED } from "../../shell/libraryChanged";
+import { MOD_FILE_FILTERS, MOD_FILE_WORDS } from "../../shell/modFiles";
+import { bulkPlan, filterRows, kindsOf, type ModRow } from "../../shell/mods";
 import { notifyAdd } from "../../shell/notices";
 import { removeMod, useRemoveCheck, type RemoveTarget } from "../../shell/removeMod";
 import type { useMods } from "../../shell/useMods";
@@ -27,6 +29,8 @@ import { Badge, Button, ConfirmDanger, FlameToggle, Menu, Modal, Select, WellInp
 const FILTER_FROM = 6;
 
 type Mods = ReturnType<typeof useMods>;
+/** The mounted list (one at a time): what a bulk action's Undo acts through. */
+let liveList: { mods: Mods } | null = null;
 
 export function MainList({ game, mods, running }: { game: GameInstall; mods: Mods; running: boolean }) {
   const qc = useQueryClient();
@@ -50,9 +54,41 @@ export function MainList({ game, mods, running }: { game: GameInstall; mods: Mod
   const loaded = !!mods.profile;
   const check = useRemoveCheck(rm, pid);
 
+  // All on / All off: the rows shown now (the filter narrows them), one save, Undo in the toast
+  const filtered = shown.length !== mods.rows.length;
+  const planOn = bulkPlan(shown, true);
+  const planOff = bulkPlan(shown, false);
+  const bulkTitle = (on: boolean) => {
+    const p = on ? planOn : planOff;
+    if (!loaded) return "Load a profile in Settings to switch mods";
+    const n = p.change.length;
+    const what = n ? `Switches ${on ? "on" : "off"} ${n} mod${n === 1 ? "" : "s"} of the ${shown.length}${filtered ? " the filter shows" : " in the list"}` : `Every mod ${filtered ? "the filter shows" : "in the list"} is ${on ? "on" : "off"} already`;
+    return p.left.length ? `${what}. ${p.left.length} can't be switched: ${[...new Set(p.left.map((l) => l.why))].join("; ")}.` : `${what}.`;
+  };
+  // the toast's Undo runs on the list as it is when pressed (its profile, its save queue), never on this render's copy
+  const here = useRef({ mods });
+  here.current.mods = mods;
+  useEffect(() => {
+    const me = here.current;
+    liveList = me;
+    return () => { if (liveList === me) liveList = null; };
+  }, []);
+  const setAll = (on: boolean) => {
+    const r = mods.setAll(shown, on);
+    if (!r?.undo) return;
+    const { plan, undo } = r;
+    const n = plan.change.length;
+    const left = plan.left.length ? `${plan.left.length} left out: ${[...new Set(plan.left.map((l) => l.why))].join("; ")}.` : undefined;
+    toast.ok(`Switched ${n} mod${n === 1 ? "" : "s"} ${on ? "on" : "off"}`, left, { actions: [{ label: "Undo", onClick: async () => {
+      const res = liveList ? await liveList.mods.undoAll(undo) : { ok: false as const, why: "the mods list is not open" };
+      if (!res.ok) toast.info("Can't undo that", `${res.why[0].toUpperCase()}${res.why.slice(1)}. Switch the mods in the list instead.`);
+      else if (res.kept) toast.info("Undo kept later changes", `${res.kept} mod${res.kept === 1 ? " was" : "s were"} switched since.`);
+    } }] });
+  };
+
   const pick = async () => {
     try {
-      const paths = await pickPaths({ multiple: true, filters: [{ name: "Mods", extensions: ["zip", "dll"] }], title: "Add mods" });
+      const paths = await pickPaths({ multiple: true, filters: MOD_FILE_FILTERS, title: "Add mods" });
       if (paths?.length) await addMods(paths, game);
     } catch (e) { toast.error(e, "Could not open files"); }
   };
@@ -79,6 +115,13 @@ export function MainList({ game, mods, running }: { game: GameInstall; mods: Mod
     }
   };
 
+  /** "Use the changed files" of a mod changed in its Library folder. */
+  const takeChanged = async (r: ModRow) => {
+    if (!r.changed) return;
+    setBusy(r.key);
+    try { await takeOver(qc, r.changed, r.name); } finally { setBusy(null); }
+  };
+
   const menu = (r: ModRow): MenuItem[] => {
     if (r.found) {
       const f = r.found;
@@ -93,6 +136,7 @@ export function MainList({ game, mods, running }: { game: GameInstall; mods: Mod
     const sw: MenuItem[] = loaded && (r.entry || r.lib) ? [{ label: r.on ? "Switch off" : "Switch on", onSelect: () => mods.toggle(r, !r.on) }] : [];
     const folder = versions.find((v) => v.version === cur)?.folder ?? versions[0]?.folder;
     return [
+      ...(r.changed ? [{ label: USE_CHANGED, disabled: running || !!busy, onSelect: () => void takeChanged(r) }] : []),
       ...sw,
       ...(r.kind && r.entry && SETTINGS_KINDS.includes(r.kind) ? [{ label: "Settings", onSelect: () => setSettings({ kind: r.kind!, id: r.id, name: r.name }) }] : []),
       ...(withConfig.has(r.id) ? [{ label: "Configs", onSelect: () => setConfigs(r.id) }] : []),
@@ -119,12 +163,22 @@ export function MainList({ game, mods, running }: { game: GameInstall; mods: Mod
             )}
           </>
         )}
+        {mods.rows.length > 0 && !mods.error && (
+          <>
+            <button type="button" className="k-link" disabled={!loaded || !planOn.change.length} title={bulkTitle(true)} onClick={() => setAll(true)}>
+              {filtered ? "Shown" : "All"} on ({planOn.change.length})
+            </button>
+            <button type="button" className="k-link" disabled={!loaded || !planOff.change.length} title={bulkTitle(false)} onClick={() => setAll(false)}>
+              {filtered ? "Shown" : "All"} off ({planOff.change.length})
+            </button>
+          </>
+        )}
         <span className="k-spacer" />
         <FolderNotesButton gameId={game.id} />
         <Link className="k-link" to="/mods/order">Load order</Link>
         <Link className="k-link" to="/mods/engines">Engines</Link>
         {nexus && <Link className="k-link" to="/catalog">Catalog</Link>}
-        <button type="button" className="k-link" disabled={!api.isTauri()} title={api.isTauri() ? "Zip, folder or DLL of any kind" : "Needs the desktop app: drop a file instead"} onClick={() => void pick()}>Add mods</button>
+        <button type="button" className="k-link" disabled={!api.isTauri()} title={api.isTauri() ? "A zip, 7z, rar or DLL of any kind (a folder: drop it on the window)" : "Needs the desktop app: drop a file instead"} onClick={() => void pick()}>Add mods</button>
       </div>
       {mods.error ? (
         <div className="k-mods-empty" role="alert">
@@ -134,7 +188,7 @@ export function MainList({ game, mods, running }: { game: GameInstall; mods: Mod
       ) : !mods.rows.length ? (
         <div className="k-mods-empty">
           <p>Add your first mod</p>
-          <p className="k-hint">Drop its zip, folder or DLL anywhere on this window: Kiln, native, EMF, EML, ShroudForge, SET and the other loaders' mods all go here.{nexus ? " Or find one in the Catalog." : ""} It is on at the next Play.</p>
+          <p className="k-hint">Drop its {MOD_FILE_WORDS} anywhere on this window: Kiln, native, EMF, EML, ShroudForge, SET and the other loaders' mods all go here.{nexus ? " Or find one in the Catalog." : ""} It is on at the next Play.</p>
         </div>
       ) : (
         <ul className="k-mods-list" aria-label="Mods">
@@ -149,6 +203,12 @@ export function MainList({ game, mods, running }: { game: GameInstall; mods: Mod
                   <span className="k-mod-note">
                     {r.found && <span className="k-mod-where">Game folder</span>}
                     {r.note && <span className={`k-tone-${r.note.tone}`} title={r.note.title}>{r.note.text}</span>}
+                    {r.changed && (
+                      <button type="button" className="k-link" disabled={!!busy || running} onClick={() => void takeChanged(r)}
+                        aria-label={`${USE_CHANGED} of ${r.name}`} title="Kiln takes the files in its folder over as the mod's files, with the name and info they give now">
+                        {busy === r.key ? "Taking over…" : USE_CHANGED}
+                      </button>
+                    )}
                     {r.found?.fix && (
                       <button type="button" className="k-link" disabled={!!busy || !loaded} onClick={() => void fixFound(r)}
                         aria-label={r.found.fix === "dropins" && r.found.kind ? `Load the game-folder ${KIND_SHORT[r.found.kind]} mods` : `Add ${r.name} to my mods`}

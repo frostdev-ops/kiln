@@ -99,3 +99,15 @@ test("the Deck's last boot line counts no partial kind of mods", () => {
   expect(bootLine({ boot, mods: null, native: null, stale: false }).text).toBe("Booted, no errors");
   expect(bootLine({ boot, mods: null, native: null, stale: false, log: { errors: 2, first: [] } }).text).toBe("Booted, 2 errors");
 });
+
+test("a mod changed in its Library folder says so, on or off, with the version the row uses to take over", () => {
+  const changed = lib("eml", "hook", "钩爪拉力2倍", ["2.0.0", "1.0.0"]);
+  changed.versions[1] = { ...changed.versions[1], changed: true };
+  // the profile uses 1.0.0, the changed one
+  const rows = buildRows(inputs({ library: [changed, lib("eml", "other")], profile: profile({ eml: [pm("hook", true, "1.0.0")] }) }));
+  expect(rows.find((r) => r.id === "hook")).toMatchObject({ on: true, note: { text: "Changed on disk", tone: "warn" },
+    changed: { kind: "eml", id: "hook", version: "1.0.0", hash: hash("hook1.0.0") } });
+  expect(rows.find((r) => r.id === "other")).toMatchObject({ changed: null });
+  // not in the profile: the newest version is the one the row shows, unchanged here
+  expect(buildRows(inputs({ library: [changed] }))[0]).toMatchObject({ changed: null, note: null });
+});

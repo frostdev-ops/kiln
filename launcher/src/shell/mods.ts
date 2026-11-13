@@ -3,7 +3,7 @@
 // folder that the launcher did not place (kiln_manage::found). A row is on when its mod is in the loaded profile and
 // enabled; a game-folder row has no switch (only its state and fix). One short note per row, only when there is
 // something to say. Pure: shell/useMods.ts reads the queries and the edits.
-import type { BootState, FoundMod, LibraryEntry, ModKind, Profile, ProfileMod, ResolvePreview, RetainedPlacement } from "../api/commands";
+import type { BootState, FoundMod, LibraryEntry, LibraryRef, ModKind, Profile, ProfileMod, ResolvePreview, RetainedPlacement } from "../api/commands";
 import { MOD_KINDS, NOT_RUNNING_KINDS } from "../api/kinds";
 
 export type NoteTone = "info" | "warn" | "err" | "idle";
@@ -28,6 +28,9 @@ export interface ModRow {
   note: ModNote | null;
   /** On, and it will not run in this game: why, in a few words (the count's exceptions). */
   wontRun: string | null;
+  /** The Library version this row uses (the profile's, else the newest) was changed in its folder since its import:
+   *  the entry to give library_take_over ("Use the changed files"). */
+  changed: LibraryRef | null;
   /** On, a Kiln mod for the server side: it starts with the player's own world. */
   withWorld: boolean;
   /** On, and it stays off in this game (the game's kiln.json turns off mods that start with your world). */
@@ -91,7 +94,7 @@ export function buildRows(x: ModInputs): ModRow[] {
     const on = !!entry?.enabled;
     const row: ModRow = {
       key, kind, id, name: lib?.name ?? id, version: entry?.version ?? lib?.versions[0]?.version ?? null, on, entry, lib, found: null,
-      note: null, wontRun: null, withWorld: false, staysOff: false,
+      note: null, wontRun: null, withWorld: false, staysOff: false, changed: null,
     };
     if (on) {
       const fail = failed.get(key);
@@ -127,6 +130,13 @@ export function buildRows(x: ModInputs): ModRow[] {
       const kept = retained.find((k) => names.includes(k.base));
       if (kept) row.note = { text: "Left in the game folder", tone: "warn", title: kept.r.reason };
     }
+    // its files were changed in its Library folder (a mod.json edited by hand): what Play would refuse, so it comes first
+    const used = entry ? lib?.versions.find((v) => v.hash === entry.hash) : lib?.versions[0];
+    if (used?.changed) {
+      row.changed = { kind, id, version: used.version, hash: used.hash };
+      row.note = { text: "Changed on disk", tone: "warn",
+        title: "Its files were changed in its folder since Kiln imported them. Use the changed files to load them, with the name and info they give now." };
+    }
     rows.push(row);
   };
 
@@ -139,7 +149,7 @@ export function buildRows(x: ModInputs): ModRow[] {
 
   const folder: ModRow[] = x.found.map((f) => ({
     key: `found:${f.path}`, kind: f.kind, id: f.id ?? f.name, name: f.name, version: f.version, on: false, entry: null, lib: null, found: f,
-    note: foundNote(f), wontRun: null, withWorld: false, staysOff: false,
+    note: foundNote(f), wontRun: null, withWorld: false, staysOff: false, changed: null,
   }));
   folder.sort(byName);
   return [...rows, ...folder];
@@ -191,6 +201,63 @@ export function countLine(rows: ModRow[]): { on: number; off: number; text: stri
 /** The kinds present, in ModKind::ALL order (the kind filter is offered when there is more than one). */
 export function kindsOf(rows: ModRow[]): ModKind[] {
   return MOD_KINDS.filter((k) => rows.some((r) => r.kind === k));
+}
+
+/** One entry "All on" or "All off" changes: as it was (null: the profile lacked it) and as it becomes. */
+export interface BulkChange { kind: ModKind; before: ProfileMod | null; after: ProfileMod }
+export interface BulkPlan {
+  /** The rows whose switch changes, as profile changes. */
+  change: BulkChange[];
+  /** Rows a switch could not change either, by name, with why. */
+  left: { name: string; why: string }[];
+}
+
+/** "All on" / "All off" over the rows the list shows: exactly what each row's own switch would do (useMods.toggle),
+ *  for the rows not in that state already. A game-folder mod has no switch; a mod the profile lacks needs a Library
+ *  version to go in. */
+export function bulkPlan(rows: ModRow[], on: boolean): BulkPlan {
+  const plan: BulkPlan = { change: [], left: [] };
+  for (const r of rows) {
+    if (r.found || !r.kind) { plan.left.push({ name: r.name, why: "in the game folder, it has no switch" }); continue; }
+    if (r.on === on) continue;
+    if (r.entry) { plan.change.push({ kind: r.kind, before: r.entry, after: { ...r.entry, enabled: on } }); continue; }
+    const v = r.lib?.versions[0];
+    if (!v) { plan.left.push({ name: r.name, why: "no version of it is in the Library" }); continue; }
+    plan.change.push({ kind: r.kind, before: null, after: { id: r.id, version: v.version, hash: v.hash, enabled: true } });
+  }
+  return plan;
+}
+
+/** Applies the plan to the profile (the queue's newest copy): an entry keeps its version and settings and only
+ *  switches; a new one goes in. */
+export function applyBulk(p: Profile, changes: BulkChange[]): void {
+  for (const c of changes) {
+    const list = p.mods[c.kind] ?? [];
+    const i = list.findIndex((m) => m.id === c.after.id);
+    if (i >= 0) list[i] = { ...list[i], enabled: c.after.enabled };
+    else list.push(c.after);
+    p.mods[c.kind] = list;
+  }
+}
+
+/** "<kind>/<id>": how an Undo names the mods the player touched since the action (ModRow.key's form). */
+export const changeKey = (c: { kind: ModKind; after: { id: string } }) => `${c.kind}/${c.after.id}`;
+
+/** Undo: every entry the plan changed goes back (out again when the profile lacked it), except the ones in `touched`
+ *  (the player switched, re-versioned or removed them since: their final values cannot tell an edit back and forth)
+ *  and any whose entry is not as the plan left it. Returns how many were kept. */
+export function revertBulk(p: Profile, changes: BulkChange[], touched: ReadonlySet<string> = new Set()): number {
+  let kept = 0;
+  for (const c of changes) {
+    const list = p.mods[c.kind] ?? [];
+    const i = list.findIndex((m) => m.id === c.after.id);
+    const m = list[i];
+    if (touched.has(changeKey(c)) || !m || m.enabled !== c.after.enabled || m.version !== c.after.version || m.hash !== c.after.hash) { kept++; continue; }
+    if (c.before) list[i] = { ...m, enabled: c.before.enabled };
+    else list.splice(i, 1);
+    p.mods[c.kind] = list;
+  }
+  return kept;
 }
 
 /** The filter: words in the name or id, and one kind ("" every kind). */

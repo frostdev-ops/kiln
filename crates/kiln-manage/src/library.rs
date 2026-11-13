@@ -46,6 +46,11 @@ pub struct LibraryVersion {
     pub manifest_id: Option<String>,
     /// The manifest as JSON (kiln.mod.json / native.json / EMF mod.json).
     pub manifest: Option<serde_json::Value>,
+    /// Its files were changed in its folder since Kiln imported them (a player edited its manifest): Play refuses it as
+    /// it is until [`take_over`] makes the changed files a Library entry of their own. Looked at cheaply
+    /// ([`changed_on_disk`]).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub changed: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -703,14 +708,23 @@ fn detect_folder_at(dir: &Path, depth: usize, top_name: Option<&str>) -> Detecte
     }
     if items.iter().any(|i| i.kind != DetectKind::Unknown) {
         let n = items.iter().filter(|i| i.kind.importable()).count();
-        let other = items.iter().filter(|i| i.kind != DetectKind::Unknown && !i.kind.importable()).count();
-        let reason = if other == 0 {
-            format!("a folder with {n} importable item(s)")
-        } else if n == 0 {
+        // a loader the package carries that Kiln does not need (it runs that engine's mods itself) is not something
+        // "Kiln can't load yet": Find's zip brings Greeneye Loader's dbgcore.dll, and the mod beside it is all of it
+        let unneeded = |i: &Detected| i.kind == DetectKind::Proxy && i.engine.is_some_and(crate::engines::loader_is_note);
+        let loaders = items.iter().filter(|i| unneeded(i)).count();
+        let other = items.iter().filter(|i| i.kind != DetectKind::Unknown && !i.kind.importable() && !unneeded(i)).count();
+        let reason = if n == 0 {
             // nothing Kiln can add: the first item says what it is and why
             items.iter().find(|i| i.kind != DetectKind::Unknown).map(|i| i.reason.clone()).unwrap_or_default()
         } else {
-            format!("a folder with {n} importable item(s) and {other} Kiln can't load yet")
+            let mut text = format!("a folder with {n} importable item(s)");
+            if other > 0 {
+                text += &format!(" and {other} Kiln can't load yet");
+            }
+            if loaders > 0 {
+                text += &format!("; {loaders} loader(s) in it are not needed");
+            }
+            text
         };
         let mut d = mk(DetectKind::Unknown, None, None, None, reason);
         d.items = items;
@@ -1121,7 +1135,8 @@ pub fn moved(dirs: &DataDirs) -> Vec<MigratedEntry> {
 }
 
 /// A reference by the hash a Kiln entry had before [`migrate_identities`] moved it: the reference it became (followed
-/// through every move); any other reference as it is.
+/// through every move); any other reference as it is. A [`take_over`] is not followed: it changed the contents, and
+/// whoever asked for a hash (a server's list, a modpack) is never handed other contents.
 pub fn moved_to(dirs: &DataDirs, r: &LibraryRef) -> LibraryRef {
     let all = moved(dirs);
     let mut cur = r.clone();
@@ -1132,6 +1147,20 @@ pub fn moved_to(dirs: &DataDirs, r: &LibraryRef) -> LibraryRef {
         }
     }
     cur
+}
+
+/// `<version>+<hash8>.taken-over` next to an entry [`take_over`] could not remove yet (something still read it): the
+/// hash its files were taken over as. It lives and goes with that entry, and counts only while the entry's files are
+/// still exactly those ([`taken_over_leftover`]).
+fn taken_over_path(folder: &Path) -> PathBuf {
+    crate::util::with_suffix(folder, ".taken-over")
+}
+
+/// An entry a take-over left behind: its marker names the hash its files became, and they still are exactly that (a
+/// copy of them is the new entry). Anything else (no marker, files changed or restored since) is an entry like any.
+fn taken_over_leftover(folder: &Path, rec: &ImportRecord) -> bool {
+    let Ok(to) = std::fs::read_to_string(taken_over_path(folder)) else { return false };
+    recorded_hash(folder, rec).is_ok_and(|h| h == to.trim())
 }
 
 /// Kiln entries imported before 0.2.0-dev.27 from a folder that held cook outputs are recorded under the kdh1 of the
@@ -1168,64 +1197,273 @@ pub fn migrate_identities_with(dirs: &DataDirs, find: &mut dyn FnMut(&Path, &str
         if identity == rec.hash || crate::hash::dirhash(&folder).ok().as_deref() != Some(rec.hash.as_str()) {
             continue; // recorded by its identity already, or changed since its import
         }
-        let old = LibraryRef { kind: ModKind::Kiln, id: rec.id.clone(), version: rec.version.clone(), hash: rec.hash.clone() };
-        let to = dirs.library_entry(ModKind::Kiln, &rec.id, &rec.version, &identity)?;
-        // 1. the entry at its identity (the same mod imported without cook outputs may be there already): used only when
-        // its record and its files are that identity, else made again from the entry verified above
-        let there = to.is_dir() && crate::util::read_json::<ImportRecord>(&record_path(&to)).ok().flatten().is_some_and(|r| r.hash == identity)
-            && crate::hash::mod_identity(&to).ok().as_deref() == Some(identity.as_str());
-        if !there {
-            // what is there is replaced below: never under a game or server that may be reading it
-            let at = LibraryRef { hash: identity.clone(), ..old.clone() };
-            if std::fs::symlink_metadata(&to).is_ok() && Guard::read(dirs, &mut *find)?.refuse_while_running(dirs, &at).is_err() {
-                continue;
-            }
-            // nor under a cook of it (a game that loads the Library entry itself cooks in it: the cook has set its last
-            // good files aside there and changes the recipe, which is why it reads as changed right now): held until the
-            // verified copy is in place; a cook that runs now leaves both entries to a later run
-            let _cook = if std::fs::symlink_metadata(&to).is_ok() {
-                match crate::state::lock_cook_folder(&to, std::time::Duration::ZERO, &|| false, "a cook of this Library entry runs") {
-                    Ok(held) => Some(held),
-                    Err(_) => continue,
-                }
-            } else { None };
-            let tmp = TempDir::new(&dirs.library(), "migrate")?;
-            let work = tmp.path().join("m");
-            copy_kiln_mod_tree(&folder, &work)?;
-            if crate::hash::mod_identity(&work)? != identity {
-                return Err(Error::new(ErrorCode::HashMismatch, format!("{}: changed while it was moved to its new hash", folder.display())));
-            }
-            // a half move without its record, or an entry whose files are not its identity
-            if std::fs::symlink_metadata(&to).is_ok() {
-                std::fs::remove_dir_all(&to).map_err(io(&to, "replacing"))?;
-            }
-            std::fs::rename(&work, &to).map_err(io(&to, "moving into the library"))?;
-            crate::util::write_json_atomic(&record_path(&to), &ImportRecord { hash: identity.clone(), ..rec.clone() })?;
+        let entry = MigratedEntry { id: rec.id.clone(), version: rec.version.clone(), from: rec.hash.clone(), to: identity.clone() };
+        if move_entry(dirs, &folder, &rec, ImportRecord { hash: identity.clone(), ..rec.clone() }, Some(entry.clone()), &mut *find)?.is_some() {
+            moved.push(entry);
         }
-        // the move is kept before anything points at the new entry: a reference made before it finds that entry later
-        let entry = MigratedEntry { id: old.id.clone(), version: old.version.clone(), from: old.hash.clone(), to: identity.clone() };
-        let mut all = self::moved(dirs);
-        if !all.contains(&entry) {
-            all.push(entry.clone());
-            crate::util::write_json_atomic(&moved_file(dirs), &all)?;
-        }
-        // 2. the profiles that list the old hash
-        for summary in crate::profile::list(dirs)? {
-            let mut p = crate::profile::get(dirs, &summary.id)?;
-            let mut changed = false;
-            for m in p.mods.list_mut(ModKind::Kiln).iter_mut().filter(|m| m.id == old.id && m.version == old.version && m.hash == old.hash) {
-                m.hash = identity.clone();
-                changed = true;
-            }
-            if changed {
-                crate::profile::save(dirs, &p)?;
+    }
+    // the entries a take-over left behind because something still read them then: gone once nothing does, and only
+    // while their files are still exactly what was taken over (a copy of them is the new entry)
+    for kind in ModKind::ALL {
+        for (folder, rec) in records(dirs, kind) {
+            if taken_over_leftover(&folder, &rec) {
+                let old = LibraryRef { kind: rec.kind, id: rec.id.clone(), version: rec.version.clone(), hash: rec.hash.clone() };
+                let _ = remove_with(dirs, &old, false, &mut *find);
             }
         }
-        // 3. the old entry, unless something still reads it (a running game, a game's profile file naming its path)
-        let _ = remove_with(dirs, &old, false, &mut *find);
-        moved.push(entry);
     }
     Ok(moved)
+}
+
+/// Moves the Library entry at `folder` (recorded as `rec`) to the entry `to_rec` names, the step [`migrate_identities`]
+/// (`migrated`: the move to keep) and [`take_over`] (`None`) share: (1) the entry at `to_rec` is used when its record
+/// and files are that already, else made from a copy of `folder` checked against `to_rec.hash` (never replacing what is
+/// there under a game or server that may read it, nor under a cook of it; a take-over never replaces it at all: that
+/// entry's own files may be a player's edit, and it is refused); (2) a migration's move is kept in `kiln-moved.json`
+/// before anything points at the new entry ([`moved_to`]); (3) every profile that lists the old entry lists the new
+/// one; (4) the old entry goes unless something still reads it (a running game, a game's profile file naming its path)
+/// or, for a take-over, its files changed again since they were copied: then they stay, and the answer says so.
+/// -> None: left for a later run (busy); Some(true): the old folder was kept because it changed again.
+fn move_entry(dirs: &DataDirs, folder: &Path, rec: &ImportRecord, mut to_rec: ImportRecord, migrated: Option<MigratedEntry>,
+              find: &mut dyn FnMut(&Path, &str) -> Result<Option<crate::proc::ProcessInfo>>) -> Result<Option<bool>> {
+    let kind = rec.kind;
+    let old = LibraryRef { kind, id: rec.id.clone(), version: rec.version.clone(), hash: rec.hash.clone() };
+    let new = LibraryRef { kind, id: to_rec.id.clone(), version: to_rec.version.clone(), hash: to_rec.hash.clone() };
+    let to = checked_entry(dirs, &new)?;
+    if to == folder {
+        return Err(Error::new(ErrorCode::Conflict, format!("{}: the changed files would replace their own folder", folder.display())));
+    }
+    // 1. the entry at the new hash (the same mod imported again may be there already): used only when its record and its
+    // files are that hash
+    let there = to.is_dir() && crate::util::read_json::<ImportRecord>(&record_path(&to)).ok().flatten().is_some_and(|r| r.hash == new.hash)
+        && recorded_hash(&to, &to_rec).ok().as_deref() == Some(new.hash.as_str());
+    if !there {
+        if migrated.is_none() && std::fs::symlink_metadata(&to).is_ok() {
+            // another entry is where the changed files would go, and its own files are not those: they may be the
+            // player's edit of that entry, so nothing of it is touched
+            return Err(Error::new(ErrorCode::Conflict, format!(
+                "Another entry of this mod is where the changed files would go ({}), and its own files were changed too: take that one over first (or put its files back), then try again.",
+                to.display())));
+        }
+        // what is there is replaced below: never under a game or server that may be reading it
+        if std::fs::symlink_metadata(&to).is_ok() && Guard::read(dirs, &mut *find)?.refuse_while_running(dirs, &new).is_err() {
+            return Ok(None);
+        }
+        // nor under a cook of it (a game that loads the Library entry itself cooks in it: the cook has set its last
+        // good files aside there and changes the recipe, which is why it reads as changed right now): held until the
+        // verified copy is in place; a cook that runs now leaves both entries to a later run
+        let _cook = if std::fs::symlink_metadata(&to).is_ok() {
+            match crate::state::lock_cook_folder(&to, std::time::Duration::ZERO, &|| false, "a cook of this Library entry runs") {
+                Ok(held) => Some(held),
+                Err(_) => return Ok(None),
+            }
+        } else { None };
+        let tmp = TempDir::new(&dirs.library(), "migrate")?;
+        let work = tmp.path().join("m");
+        // a Kiln mod's cook outputs are left out, as an import leaves them out
+        to_rec.size = if kind == ModKind::Kiln { copy_kiln_mod_tree(folder, &work)?.0 } else { copy_mod_tree(folder, &work)? };
+        if recorded_hash(&work, &to_rec)? != new.hash {
+            return Err(Error::new(ErrorCode::HashMismatch, format!("{}: changed while it was moved to its new hash", folder.display())));
+        }
+        // a half move without its record, or (a migration only) an entry whose files are not its hash
+        if std::fs::symlink_metadata(&to).is_ok() {
+            std::fs::remove_dir_all(&to).map_err(io(&to, "replacing"))?;
+        }
+        if let Some(p) = to.parent() {
+            std::fs::create_dir_all(p).map_err(io(p, "creating"))?;
+        }
+        std::fs::rename(&work, &to).map_err(io(&to, "moving into the library"))?;
+        crate::util::write_json_atomic(&record_path(&to), &to_rec)?;
+    }
+    // 2. a migration's move is kept before anything points at the new entry: a reference made before it finds that entry
+    if let Some(entry) = migrated.clone() {
+        let mut all = self::moved(dirs);
+        if !all.contains(&entry) {
+            all.push(entry);
+            crate::util::write_json_atomic(&moved_file(dirs), &all)?;
+        }
+    }
+    // 3. the profiles that list the old entry
+    for summary in crate::profile::list(dirs)? {
+        let mut p = crate::profile::get(dirs, &summary.id)?;
+        let mut changed = false;
+        for m in p.mods.list_mut(kind).iter_mut().filter(|m| m.id == old.id && m.version == old.version && m.hash == old.hash) {
+            m.version = new.version.clone();
+            m.hash = new.hash.clone();
+            changed = true;
+        }
+        if changed {
+            crate::profile::save(dirs, &p)?;
+        }
+    }
+    // 4. the old entry, unless something still reads it (a running game, a game's profile file naming its path)
+    if migrated.is_some() {
+        let _ = remove_with(dirs, &old, false, &mut *find);
+        return Ok(Some(false));
+    }
+    // a take-over removes the player's folder only while it still holds exactly what was taken: looked at again after
+    // the running check, right before it goes (an editor may have saved once more meanwhile)
+    let guard = Guard::read(dirs, &mut *find)?;
+    if recorded_hash(folder, &to_rec).ok().as_deref() != Some(new.hash.as_str()) {
+        return Ok(Some(true));
+    }
+    let gone = guard.refuse_while_running(dirs, &old).and_then(|()| guard.remove_checked(dirs, &old, folder, &Force::No));
+    if gone.is_err() {
+        // something still reads it: it stays until nothing does (migrate_identities), hidden while it is this copy
+        crate::util::write_atomic(&taken_over_path(folder), new.hash.as_bytes())?;
+    }
+    Ok(Some(false))
+}
+
+/// The record of the changed files in `folder`, the entry `rec` names, read from its manifest again (`hash`: their
+/// hash). Refused when the folder is no longer a mod of its kind Kiln can read, or its manifest names another mod.
+fn record_of_changed(folder: &Path, rec: &ImportRecord, hash: String) -> Result<ImportRecord> {
+    let kind = rec.kind;
+    let shown = rec.name.clone().unwrap_or_else(|| rec.id.clone());
+    let unreadable = |why: &str| Error::new(ErrorCode::Refused, format!(
+        "{shown} was changed in its folder ({}), and Kiln cannot read it as a mod of its kind ({}) any more: {why}. Put its files back as they were, or fix what is named here.",
+        folder.display(), kind.label()));
+    let path = if kind == ModKind::Plugin {
+        plugin_file(folder, rec.file.as_deref().ok_or_else(|| Error::invalid("a library plugin record must name its DLL"))?)?
+    } else { folder.to_path_buf() };
+    let d = detect(&path)?;
+    let readable = ModKind::of_detect(d.kind) == Some(kind) || (kind == ModKind::Ember && crate::engines::ember_library(folder).is_some());
+    if !readable {
+        return Err(unreadable(&d.reason));
+    }
+    // a name or id that only comes from the folder's name (`<version>+<hash8>`) is not the manifest's: the old ones stay
+    let folder_name = file_name(folder);
+    let from_folder = |v: &Option<String>| v.as_deref().is_none_or(|v| v == folder_name || v == id_from_name(&folder_name));
+    let explicit_id = match kind {
+        ModKind::Kiln | ModKind::Native | ModKind::Emf => d.id.clone(),
+        ModKind::Plugin | ModKind::Xhl | ModKind::Ember => None,
+        ModKind::ShroudForge => Some(crate::shroudforge::read_mod(folder).map_err(|e| unreadable(&e.message))?.id),
+        _ => crate::engine_mods::manifest_json(folder).and_then(|m| m.get("id").and_then(|v| v.as_str()).map(str::to_owned)),
+    };
+    let known_id = rec.manifest_id.clone().unwrap_or_else(|| rec.id.clone());
+    if let Some(id) = explicit_id.filter(|id| *id != known_id) {
+        return Err(Error::new(ErrorCode::Refused, format!(
+            "{shown} was changed in its folder ({}), and its manifest now gives the id {id:?} instead of {known_id:?}: to Kiln that is another mod. \
+             Put the old id back to keep it as this mod, or add the folder as a new mod.", folder.display())));
+    }
+    let version = match kind {
+        ModKind::Kiln | ModKind::Native | ModKind::Emf => {
+            let v = d.version.clone().unwrap_or_default();
+            if semverish(&v) { v.trim().to_string() } else { fallback_version(&v) }
+        }
+        ModKind::Plugin => rec.version.clone(),
+        _ if kind.is_engine() && kind != ModKind::Xhl => crate::engine_mods::engine_version(d.version.as_deref().unwrap_or_default()),
+        _ => rec.version.clone(),
+    };
+    let name = match kind {
+        ModKind::ShroudForge => crate::shroudforge::read_mod(folder).ok().map(|m| m.name),
+        ModKind::Plugin | ModKind::Xhl => None,
+        _ => d.name.clone().filter(|_| !from_folder(&d.name)),
+    }.or_else(|| rec.name.clone());
+    let (side, clients) = match kind {
+        ModKind::Kiln => crate::manifest::read_kiln(folder).map(|m| (Some(m.side), Some(m.clients))).map_err(|e| unreadable(&e.message))?,
+        ModKind::Native => crate::manifest::read_native(folder).map(|m| (Some(m.side), Some(m.clients.unwrap_or(Clients::default_for(m.side)))))
+            .map_err(|e| unreadable(&e.message))?,
+        k if k.is_engine() => {
+            let (s, c) = crate::engine_mods::clients_of(k, folder);
+            (Some(s), Some(c))
+        }
+        _ => (rec.side, rec.clients),
+    };
+    Ok(ImportRecord { version, hash, imported: crate::util::now_rfc3339(), name, side, clients, ..rec.clone() })
+}
+
+/// The entry that [`take_over`] made of a changed one.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TakenOver {
+    /// The entry as it was recorded.
+    pub from: LibraryRef,
+    /// The entry its changed files are now (`from` again when they were not changed).
+    pub to: LibraryRef,
+    /// Its name as its manifest gives it now.
+    pub name: String,
+    /// Something the player should know: the folder changed again while it was taken over, so it was kept.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+}
+
+/// Has the entry at `folder` changed since its record was written? Cheap enough for every list: the entry is hashed only
+/// when its manifest (or a plugin's DLL), or the folder itself, is newer than its record, and the answer is remembered
+/// while those stay as they are. An edit of a file deeper in the folder that touches none of them is not seen here;
+/// Play still refuses the entry, with the same way out ([`changed_error`]).
+pub fn changed_on_disk(folder: &Path, rec: &ImportRecord) -> bool {
+    use crate::filecache::FileKey;
+    static SEEN: std::sync::Mutex<Option<std::collections::HashMap<PathBuf, (Vec<Option<FileKey>>, bool)>>> = std::sync::Mutex::new(None);
+    let Some(recorded) = FileKey::of(&record_path(folder)) else { return false };
+    let mut files: Vec<PathBuf> = vec![folder.to_path_buf()];
+    match (rec.kind, rec.file.as_deref()) {
+        (ModKind::Plugin, Some(f)) => files.push(folder.join(f)),
+        _ => files.extend(MOD_MANIFESTS.iter().chain(&["shroudtopia.json", "src/mod.lua"]).map(|m| folder.join(m))),
+    }
+    let keys: Vec<Option<FileKey>> = std::iter::once(Some(recorded)).chain(files.iter().map(|f| FileKey::of(f))).collect();
+    if !keys[1..].iter().flatten().any(|k| k.mtime > recorded.mtime) {
+        return false;
+    }
+    if let Some((k, changed)) = SEEN.lock().ok().and_then(|s| s.as_ref().and_then(|m| m.get(folder).cloned())) && k == keys {
+        return changed;
+    }
+    let changed = recorded_hash(folder, rec).is_ok_and(|h| h != rec.hash);
+    if let Ok(mut s) = SEEN.lock() {
+        s.get_or_insert_with(Default::default).insert(folder.to_path_buf(), (keys, changed));
+    }
+    changed
+}
+
+/// The error of a Library entry whose files are not the ones its record names (Play, activation, a placement): which
+/// mod was changed in its folder, in words, and in `detail.libraryChanged` the entry to give [`take_over`]
+/// ("Use the changed files", then try again).
+pub fn changed_error(r: &LibraryRef, folder: &Path) -> Error {
+    let name = crate::util::read_json::<ImportRecord>(&record_path(folder)).ok().flatten().and_then(|rec| rec.name)
+        .filter(|n| !n.trim().is_empty()).unwrap_or_else(|| r.id.clone());
+    Error::new(ErrorCode::HashMismatch, format!(
+        "{name} was changed in its folder ({}): its files are not the ones Kiln imported, so Kiln does not load it as it is. \
+         Use the changed files (Kiln takes them over as the mod's new files), or put the old files back.", folder.display()))
+        .with_detail(serde_json::json!({ "libraryChanged": r, "name": name, "folder": folder.display().to_string() }))
+}
+
+/// Takes over a Library entry whose files were changed in its folder (a player edited its `mod.json`): the folder must
+/// still be a mod of its kind Kiln can read, with the same id. Its files get their new hash and move to their own entry
+/// (`<version>+<hash8>`, the version its manifest gives now) with a new record (name, version, side read from the
+/// manifest again), every profile that listed the old entry lists the new one, and the move is kept as
+/// [`migrate_identities`] keeps one ([`moved_to`]). Refused (GameRunning) while a game, or a server that may read the
+/// entry, runs; Busy while a cook of it runs. Files that were not changed are taken over as they are (`to == from`).
+/// The player's choice, never made on its own: the launcher offers it ("Use the changed files").
+pub fn take_over(dirs: &DataDirs, r: &LibraryRef) -> Result<TakenOver> {
+    let mut finder = crate::proc::Finder::default();
+    take_over_with(dirs, r, &mut |dir, exe| finder.find(dir, exe))
+}
+
+/// [`take_over`] with the process lookup given (`find(game folder, exe name)`), for tests.
+pub fn take_over_with(dirs: &DataDirs, r: &LibraryRef, find: &mut dyn FnMut(&Path, &str) -> Result<Option<crate::proc::ProcessInfo>>)
+                      -> Result<TakenOver> {
+    let folder = Guard::folder(dirs, r)?;
+    let rec = record(dirs, r)?;
+    let shown = |rec: &ImportRecord| rec.name.clone().filter(|n| !n.trim().is_empty()).unwrap_or_else(|| rec.id.clone());
+    Guard::read(dirs, &mut *find)?.refuse_while_running(dirs, r)?;
+    // a cook of a Kiln mod in its Library folder writes there, and is why it may read as changed right now
+    let _cook = if r.kind == ModKind::Kiln {
+        Some(crate::state::lock_cook_folder(&folder, std::time::Duration::ZERO, &|| false,
+            &format!("Kiln is cooking {} right now: wait until that is done, then try again.", shown(&rec)))?)
+    } else { None };
+    let hash = recorded_hash(&folder, &rec)?;
+    if hash == rec.hash {
+        return Ok(TakenOver { from: r.clone(), to: r.clone(), name: shown(&rec), note: None });
+    }
+    let to_rec = record_of_changed(&folder, &rec, hash)?;
+    let to = LibraryRef { kind: r.kind, id: to_rec.id.clone(), version: to_rec.version.clone(), hash: to_rec.hash.clone() };
+    let name = shown(&to_rec);
+    let Some(kept) = move_entry(dirs, &folder, &rec, to_rec, None, &mut *find)? else {
+        return Err(Error::new(ErrorCode::Busy, format!("{name}: its new Library entry is in use right now (a game, a server or a cook reads it). Try again when it is done.")));
+    };
+    let note = kept.then(|| format!("{name}'s folder changed again while Kiln took it over: the newer files stay in {}, and it reads as changed again. Use the changed files once more to take those too.",
+        folder.display()));
+    Ok(TakenOver { from: r.clone(), to, name, note })
 }
 
 fn source_of(path: &Path, kind: &str) -> ImportSource {
@@ -1547,6 +1785,11 @@ pub fn list(dirs: &DataDirs, kind: Option<ModKind>) -> Result<Vec<LibraryEntry>>
     for k in kinds {
         let mut by_id: std::collections::BTreeMap<String, Vec<(PathBuf, ImportRecord)>> = Default::default();
         for (folder, rec) in records(dirs, k) {
+            // what a take-over left behind while something still read it: a copy of its files is the new entry, and it
+            // goes at the next activation (migrate_identities); not a version to list
+            if taken_over_leftover(&folder, &rec) {
+                continue;
+            }
             by_id.entry(rec.id.clone()).or_default().push((folder, rec));
         }
         for (id, mut versions) in by_id {
@@ -1559,6 +1802,7 @@ pub fn list(dirs: &DataDirs, kind: Option<ModKind>) -> Result<Vec<LibraryEntry>>
                 versions: versions
                     .into_iter()
                     .map(|(folder, r)| LibraryVersion {
+                        changed: changed_on_disk(&folder, &r),
                         manifest: read_manifest_json(k, &folder),
                         manifest_id: r.manifest_id,
                         version: r.version,
@@ -1856,6 +2100,7 @@ impl Guard {
         }
         std::fs::remove_file(record_path(folder)).map_err(io(folder, "removing the record of"))?;
         std::fs::remove_dir_all(folder).map_err(io(folder, "removing"))?;
+        let _ = std::fs::remove_file(taken_over_path(folder));
         if let Some(parent) = folder.parent() {
             let _ = std::fs::remove_dir(parent);
         }
