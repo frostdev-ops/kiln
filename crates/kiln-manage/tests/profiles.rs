@@ -644,6 +644,99 @@ fn a_damaged_entry_at_the_identity_is_replaced_by_the_verified_one_before_the_ol
     assert_eq!(library::path_of(&dirs, &new_ref).unwrap(), at);
 }
 
+/// The damaged entry at the identity is not replaced while a game that may read it runs (a game in Z mode reads the
+/// Library entry itself, and its cook writes there): both entries and the profiles stay as they are, and the move is
+/// made at a later run, once nothing runs.
+#[test]
+fn a_damaged_entry_at_the_identity_is_not_replaced_under_a_running_game() {
+    let t = tmp("legacy-running");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let k = kiln_mod(&t.0, "blades", "1.0.0", "");
+    put(&k, "assets/cooked/clip.bin", b"cooked by the importer, with dev.26");
+    std::fs::remove_file(k.join(".kiln-source.json")).unwrap();
+    let (old, identity) = (hash::dirhash(&k).unwrap(), hash::mod_identity(&k).unwrap());
+    let record = |hash: &str| serde_json::json!({ "format": 1, "kind": "kiln", "id": "blades", "version": "1.0.0", "hash": hash, "imported": "2026-11-12T10:00:00Z", "size": 64 });
+    let legacy = dirs.library_entry(ModKind::Kiln, "blades", "1.0.0", &old).unwrap();
+    kiln_manage::util::copy_tree(&k, &legacy).unwrap();
+    kiln_manage::util::write_json_atomic(&legacy.with_file_name(format!("1.0.0+{}.json", &old[5..13])), &record(&old)).unwrap();
+    let at = dirs.library_entry(ModKind::Kiln, "blades", "1.0.0", &identity).unwrap();
+    kiln_manage::util::copy_tree(&k, &at).unwrap();
+    std::fs::remove_dir_all(at.join("assets/cooked")).unwrap();
+    kiln_manage::util::write_json_atomic(&at.with_file_name(format!("1.0.0+{}.json", &identity[5..13])), &record(&identity)).unwrap();
+    put(&at, "assets/cook.json", br#"{ "format": 1, "steps": [], "blockSounds": ["written by a cook in Z mode"] }"#);
+    put(&at, "assets/cooked/a.bin", b"what the running game loads");
+    let old_ref = LibraryRef { kind: ModKind::Kiln, id: "blades".into(), version: "1.0.0".into(), hash: old.clone() };
+    let mut p = profile::create(&dirs, "p", None).unwrap();
+    p.mods.kiln.push(pm(&old_ref, true));
+    let p = profile::save(&dirs, &p).unwrap();
+    let game = t.0.join("game");
+    put(&game, "enshrouded.exe", b"MZ");
+    std::fs::create_dir_all(game.join("kiln")).unwrap();
+    kiln_manage::game::write_record(&dirs, &install_at(&game, None), None).unwrap();
+    let running_in = |dir: &Path| {
+        let dir = dir.to_path_buf();
+        move |d: &Path, e: &str| Ok((d == dir && e == "enshrouded.exe").then(|| kiln_manage::proc::ProcessInfo { pid: 4242, name: e.into(), exe: None, cmdline: vec![] }))
+    };
+
+    assert!(library::migrate_identities_with(&dirs, &mut running_in(&game)).unwrap().is_empty());
+    assert_eq!(std::fs::read(at.join("assets/cooked/a.bin")).unwrap(), b"what the running game loads", "nothing was removed under the game");
+    assert!(legacy.is_dir());
+    assert_eq!(profile::get(&dirs, &p.id).unwrap().mods.kiln[0].hash, old, "the profile still lists the entry that is there");
+    // the game ended: the next run moves it
+    let moved = library::migrate_identities_with(&dirs, &mut running_in(&t.0.join("elsewhere"))).unwrap();
+    assert_eq!(moved.len(), 1);
+    assert_eq!(hash::mod_identity(&at).unwrap(), identity);
+    assert_eq!(profile::get(&dirs, &p.id).unwrap().mods.kiln[0].hash, identity);
+}
+
+/// Copy mode: a Kiln mod's copy in the game is the folder its cook writes and sets aside. While a cook of it runs (its
+/// folder's lock is held), an activation that would replace the copy (another version) is refused and the copy, with
+/// its cooked files and its set-aside, stays; one that no longer lists the mod keeps the copy and says why. Once the
+/// cook ended, the same activation goes through.
+#[test]
+fn a_copy_that_is_being_cooked_is_neither_replaced_nor_removed() {
+    let t = tmp("copy-cooking");
+    let dirs = DataDirs::at(t.0.join("data"));
+    let v1 = kiln_mod(&t.0, "blades", "1.0.0", "");
+    let r1 = refs(&library::import(&dirs, &[v1], &mut NoProgress).unwrap(), ModKind::Kiln, "blades");
+    std::fs::remove_dir_all(t.0.join("src/blades")).unwrap();
+    let v2 = kiln_mod(&t.0, "blades", "2.0.0", "");
+    let r2 = refs(&library::import(&dirs, &[v2], &mut NoProgress).unwrap(), ModKind::Kiln, "blades");
+    let game = t.0.join("game");
+    put(&game, "enshrouded.exe", b"MZ");
+    std::fs::create_dir_all(game.join("kiln")).unwrap();
+    let inst = install_at(&game, None);
+    let mut p = profile::create(&dirs, "p", None).unwrap();
+    p.mods.kiln = vec![pm(&r1, true)];
+    let mut p = profile::save(&dirs, &p).unwrap();
+    profile::activate(&dirs, &p.id, &inst).unwrap();
+    let copy = game.join("kiln").join(&profile::read_game_profile(&game).unwrap().unwrap().mods.kiln[0].path);
+    assert!(copy.join("kiln.mod.json").is_file(), "{}", copy.display());
+    // a cook of the copy runs: its folder's lock, the cooked files it set aside
+    put(&copy, "assets/.kiln-cooked-prev-0123456789ab/cooked/a.bin", b"the last good cook");
+    let cooking = kiln_manage::state::lock_cook_folder(&copy, std::time::Duration::ZERO, &|| false, "busy").unwrap();
+    p.mods.kiln = vec![pm(&r2, true)];
+    let mut p = profile::save(&dirs, &p).unwrap();
+    let e = profile::activate(&dirs, &p.id, &inst).unwrap_err();
+    assert_eq!(e.code, ErrorCode::Busy, "{e}");
+    assert!(e.message.contains("cooking blades"), "{}", e.message);
+    assert!(std::fs::read_to_string(copy.join("kiln.mod.json")).unwrap().contains("1.0.0"), "the copy is as the cook found it");
+    assert!(copy.join("assets/.kiln-cooked-prev-0123456789ab/cooked/a.bin").is_file(), "its set-aside is there");
+    // a profile without the mod keeps the copy while it is cooked, and says so
+    p.mods.kiln.clear();
+    let p0 = profile::save(&dirs, &p).unwrap();
+    let a = profile::activate(&dirs, &p0.id, &inst).unwrap();
+    assert!(a.warnings.iter().any(|w| w.contains("kept the unused profile copy") && w.contains("Kiln is cooking blades")), "{:?}", a.warnings);
+    assert!(copy.join("assets/.kiln-cooked-prev-0123456789ab/cooked/a.bin").is_file());
+    // the cook ended: the other version replaces the copy
+    drop(cooking);
+    let mut p = p0;
+    p.mods.kiln = vec![pm(&r2, true)];
+    let p = profile::save(&dirs, &p).unwrap();
+    profile::activate(&dirs, &p.id, &inst).unwrap();
+    assert!(std::fs::read_to_string(copy.join("kiln.mod.json")).unwrap().contains("2.0.0"));
+}
+
 /// A cook receipt in `game` for `folder`, as the cook tools write one (tools/modelcook/cook/cookpaths.py `receipt`).
 #[cfg(feature = "cooktools")]
 fn receipt(game: &Path, folder: &Path, files: &[(&str, &[u8])]) {

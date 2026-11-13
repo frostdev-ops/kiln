@@ -203,6 +203,11 @@ fn the_launchers_cook_makes_a_profiles_mods_from_the_game_with_the_tools_this_bu
     kiln_manage::launch::play_with(&dirs, &inst, &kiln_manage::launch::LaunchRequest { mode: kiln_manage::launch::LaunchMode::Profile, profile_id: None, skip_backup: true }, Some(&[]), &opener).unwrap();
     let e = cook::cook_due(&dirs, &inst, Some("fake-sword"), &locate, &mut |_, _, _, _| {}, &|| false).unwrap_err();
     assert_eq!(e.code, ErrorCode::GameRunning, "{e}");
+    // and so is Play's cook (a second launcher, a second press while Steam starts the game): Play goes on without it
+    let e = cook::cook_due(&dirs, &inst, None, &locate, &mut |_, _, _, _| panic!("nothing starts"), &|| false).unwrap_err();
+    assert_eq!(e.code, ErrorCode::GameRunning, "{e}");
+    // the start's two minutes are over (its record goes, as time would make it old)
+    std::fs::remove_file(dirs.installs().join(format!("{}.launch.json", inst.id))).unwrap();
 
     // The profile changed after its activation (kilnctl, another window: a mod switched on that the game's profile file
     // does not name yet). Play's cook writes the profile again first and cooks that mod too, where the start loads it.

@@ -235,11 +235,17 @@ fn quiet(cmd: &mut Command) -> &mut Command {
 
 /// Runs the probe; None when the program does not start or does not answer as a Python does.
 fn probe(program: &Path, root: &Path) -> Option<((u32, u32), Option<String>)> {
+    probe_within(program, root, crate::cook::Limits::LAUNCHER.step.unwrap_or(std::time::Duration::from_secs(120)))
+}
+
+/// [`probe`] within `limit`: run as a cook's short step (`cook::run_step`), so a candidate that hangs is stopped with
+/// every process it started, and is no Python.
+fn probe_within(program: &Path, root: &Path, limit: std::time::Duration) -> Option<((u32, u32), Option<String>)> {
     let mut cmd = crate::hostenv::command(program);
     // -I: the current folder is not on the module path (a mod's folder is where `kiln cook` is usually run)
     cmd.arg("-I").arg("-c").arg(PROBE).arg(root.join("tools/kfc"));
-    let out = quiet(&mut cmd).stdin(std::process::Stdio::null()).output().ok()?;
-    parse_probe(&String::from_utf8_lossy(&out.stdout))
+    let (_, out, _) = crate::cook::run_step(quiet(&mut cmd), Some(limit), &|| false).ok()?;
+    parse_probe(&out)
 }
 
 fn parse_probe(stdout: &str) -> Option<((u32, u32), Option<String>)> {
@@ -576,6 +582,24 @@ mod tests {
         let l = Locate { path: Some(tmp("python-none").into_os_string()), ..Locate::default() };
         assert!(find_python(&l, &root).unwrap_err().message.contains("no python3 was found"));
         let _ = std::fs::remove_dir_all(&cache);
+        let _ = std::fs::remove_dir_all(&bin);
+    }
+
+    /// A candidate that hangs (and what it started) is stopped at the probe's limit, and is no Python: it never holds
+    /// Play for ever.
+    #[cfg(unix)]
+    #[test]
+    fn a_python_that_hangs_is_stopped_at_the_probes_limit() {
+        use std::os::unix::fs::PermissionsExt;
+        let bin = tmp("python-hang");
+        let p = bin.join("python3");
+        std::fs::write(&p, "#!/bin/sh\nsleep 600 &\nsleep 600\n").unwrap();
+        std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let t = std::time::Instant::now();
+        assert_eq!(probe_within(&p, &bin, std::time::Duration::from_secs(1)), None);
+        assert!(t.elapsed() < std::time::Duration::from_secs(30), "{:?}", t.elapsed());
+        std::fs::write(&p, "#!/bin/sh\necho 'kiln-python 3 14 stdlib'\n").unwrap();
+        assert_eq!(probe_within(&p, &bin, std::time::Duration::from_secs(30)), Some(((3, 14), Some("stdlib".into()))));
         let _ = std::fs::remove_dir_all(&bin);
     }
 

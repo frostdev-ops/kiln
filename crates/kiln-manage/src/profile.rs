@@ -1317,11 +1317,19 @@ fn sync_copies(dirs: &DataDirs, profile: &Profile, install: &GameInstall, warnin
                         continue;
                     }
                 }
+                let _cook = match hold_copy(k, &e.path(), &name) {
+                    Ok(held) => held,
+                    Err(why) => {
+                        warnings.push(format!("{}:{name}: kept the unused profile copy at {}: {}", k.as_str(), e.path().display(), why.message));
+                        continue;
+                    }
+                };
                 let _ = std::fs::remove_dir_all(e.path());
             }
         }
         for (m, dst) in wanted {
             let src = crate::library::path_of(dirs, &lref(k, m))?;
+            let mut _cook = None;
             if k == ModKind::Plugin {
                 let file = src.file_name().map(|f| f.to_owned()).unwrap_or_default();
                 let target = dst.join(&file);
@@ -1350,6 +1358,7 @@ fn sync_copies(dirs: &DataDirs, profile: &Profile, install: &GameInstall, warnin
                     if dst.is_dir() && crate::hash::of_mod(k, &dst).is_ok_and(|h| h == m.hash) {
                         continue;
                     }
+                    _cook = hold_copy(k, &dst, &m.id)?;
                     let _ = std::fs::remove_dir_all(&dst);
                 }
                 crate::util::copy_tree(&src, &dst)?;
@@ -1362,6 +1371,17 @@ fn sync_copies(dirs: &DataDirs, profile: &Profile, install: &GameInstall, warnin
         }
     }
     Ok(copied)
+}
+
+/// A Kiln mod's copy in the game is the folder its cook writes (and sets aside, and puts back): it is replaced or
+/// removed only with that cook's lock held ([`crate::state::lock_cook_folder`]), refused (Busy) while a cook of it runs.
+/// None: not a Kiln mod's copy, or not there.
+fn hold_copy(k: ModKind, dst: &Path, id: &str) -> Result<Option<crate::state::HeldLock>> {
+    if k != ModKind::Kiln || std::fs::symlink_metadata(dst).is_err() {
+        return Ok(None);
+    }
+    crate::state::lock_cook_folder(dst, std::time::Duration::ZERO, &|| false,
+        &format!("Kiln is cooking {id} in this game: wait until that is done, then try again.")).map(Some)
 }
 
 /// Copy mode: the game-side config folder (`<game>/kiln/profiles/<pid>/config`, where Kiln writes) back into
