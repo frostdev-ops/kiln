@@ -273,9 +273,11 @@ fn the_launchers_cook_makes_a_profiles_mods_from_the_game_with_the_tools_this_bu
     assert!(cook::plan(&z3).unwrap().iter().all(|j| j.id != "fake-sword"), "its own profile does not load the sword");
     let once = kiln_manage::launch::LaunchRequest { mode: kiln_manage::launch::LaunchMode::Once, profile_id: Some(p.id.clone()), skip_backup: true };
     let held = kiln_manage::state::lock_cook_folder(&shared, std::time::Duration::ZERO, &|| false, "x").unwrap();
+    // a flag an earlier request for once left (Steam never started the game): it would name the file this request writes
+    std::fs::write(z3.path.join("kiln/play-once.ini"), b"mode = profile\r\n").unwrap();
     let e = kiln_manage::launch::play_with(&dirs, &z3, &once, Some(&[]), &opener).unwrap_err();
     assert_eq!(e.code, ErrorCode::Busy, "a start for once waits for the cook of a folder it loads: {e}");
-    assert!(!z3.path.join("kiln/play-once.ini").exists(), "no flag: nothing reads the file of a start that did not happen");
+    assert!(!z3.path.join("kiln/play-once.ini").exists(), "no flag, the older one neither: nothing reads the file of a start that did not happen");
     drop(held);
     std::fs::remove_file(dirs.installs().join(format!("{}.launch.json", z2.id))).unwrap(); // the second game's start is long ago
     kiln_manage::launch::play_with(&dirs, &z3, &once, Some(&[]), &opener).unwrap();

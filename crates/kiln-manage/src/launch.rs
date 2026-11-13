@@ -327,8 +327,11 @@ fn start(dirs: &DataDirs, install: &GameInstall, request: &LaunchRequest, saves:
                 _ => {
                     let pid = request.profile_id.as_deref().ok_or_else(|| Error::invalid("launch mode once needs a profileId"))?;
                     let file = crate::profile::write_once(dirs, pid, install)?;
-                    // before the flag below: without it no start reads that file
-                    _once_folders = hold_folders(install, &file)?;
+                    // before the flag below: without it no start reads that file. A flag an earlier request left would
+                    // now name the file just written: it goes with this refusal
+                    _once_folders = hold_folders(install, &file).inspect_err(|_| {
+                        let _ = crate::playonce::clear(&install.path);
+                    })?;
                     crate::playonce::PlayOnceMode::Profile
                 }
             };
