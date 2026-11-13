@@ -1,0 +1,10 @@
+{
+  "id": "saved-data",
+  "name": "Saved data sample",
+  "version": "0.1.0",
+  "apiVersion": "0.2",
+  "license": "MIT",
+  "entryAssembly": "SavedData.dll",
+  "side": "server",
+  "description": "A guestbook that stays with the world, a visit count for each player, and a label you leave on a chest: /visits, /guestbook, /label, /labels."
+}

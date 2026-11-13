@@ -80,6 +80,10 @@ first). `mods/samples/build.sh` builds the loader samples (`SampleLib`, `SampleC
 | `BigStacks` | a server config (x4 stack sizes, at most 9999) that Kiln clients get through the content sync |
 | `NewItems` | kiln.content's new items and recipes from code and a data pack, plus a perk and a buff of its own (kiln.gamedata clones) |
 | `ItemData` | `InstanceData`: `/notch` cuts a notch into the weapon or tool in your hand and the count stays with that one item through moves, saves and restarts; `/notches` lists them |
+| `SavedData` | The three places a mod keeps what must outlast a restart: a guestbook with the world (`WorldData`), a visit count per player by Steam id (`PlayerData`), a label on the chest next to you (`EntityData`, the chest found with `Nearby`), and a permission node of the mod's own (`Permissions.Register`). `/visits`, `/guestbook`, `/label`, `/labels`. Tested offline in `Kiln.TestKit.Tests` (`SampleModsTests`) |
+| `AdminTools` | This release's player calls, each used as the contract asks: `/strike` warns, then `Players.Kick`, then `Bans.Add` for a day (the capability asked first, the result read), `/pardon`, `/strikes`; `/scout` turns Kiln's NoClip switch (`NoClip.Set`) for an admin and `PlayerNoClipEndedEvent` says why it ended |
+| `CalmBell` | An interaction offer of a mod's own and a game setting changed for a while: `/bell` puts down a barrel with `Offers.SpawnWithOffer`; a player who uses it halves `enemyDamageFactor` for ten minutes through `Settings.TrySet`, and the server's own value is put back, also when the mod unloads |
+| `QuietServer` | `Pacing`: a handler on the server loop's wait that lets an empty dedicated server wait 200 ms between passes instead of 40 ms, and leaves the game's pace alone once a player is online; what a pacing handler may and may not do |
 | `SpellTweaks` | a kiln.gamedata data pack: Fireball I's cost, timing and explosion, and the double jump's stamina cost |
 | `TypedFields` | a sword, a spell and a projectile changed through typed paths from your game's catalog, and a projectile clone; `Refused/`: a wrong string path the analyzer stops |
 | `CreatureTweaks` | a data pack: Vukahs notice players from further away, and a new `Kiln_Elite_Vukah` template that replaces a share of natural spawns |
@@ -117,8 +121,9 @@ first). `mods/samples/build.sh` builds the loader samples (`SampleLib`, `SampleC
 | `MenuButtons` | Kiln.Ui game UI: entries in the main and pause menus opening a screen, a crafting info panel, a subcategory and tab in the crafting menu |
 | `RenderSample` | render events: an FPS counter, a compass and waypoint markers in the world |
 
-Templates: `kiln new --list` shows all 24 with their options. Block templates: `kiln-spell`, `kiln-item-blocks`,
+Templates: `kiln new --list` shows all 31 with their options. Block templates: `kiln-spell`, `kiln-item-blocks`,
 `kiln-ability-blocks`, `kiln-creature-blocks`, `kiln-world-blocks`, `kiln-npc`, `kiln-quest`, `kiln-body`, `kiln-vfx`,
-`kiln-cosmetic` and `kiln-building-material`. The others: `kiln-mod`, `kiln-test`, `kiln-unit-test`, `kiln-datapack`,
-`kiln-items`, `kiln-ability`, `kiln-creature`, `kiln-talents`, `kiln-ui`, `kiln-model`, `kiln-sound`, `kiln-native`
-and `kiln-service` (a service inside the Kiln repository). See [mdk.md](mdk.md).
+`kiln-cosmetic`, `kiln-building-material` and `kiln-screen-effect`. Code templates for one topic each: `kiln-events`,
+`kiln-saved-data`, `kiln-rules`, `kiln-network`, and for the advanced tier `kiln-hooks` and `kiln-shader`. The others: `kiln-mod`, `kiln-test`, `kiln-unit-test`,
+`kiln-datapack`, `kiln-items`, `kiln-ability`, `kiln-creature`, `kiln-talents`, `kiln-ui`, `kiln-model`, `kiln-sound`,
+`kiln-native` and `kiln-service` (a service inside the Kiln repository). See [mdk.md](mdk.md).
