@@ -1465,8 +1465,10 @@ fn used_elsewhere(dirs: &crate::paths::DataDirs, install: &GameInstall, folder: 
         if other.id == install.id || same_folder(&other.path, &install.path) {
             continue;
         }
-        // either file may be the one that game's start read (a file for once that is left over only widens the refusal)
-        let loads = [crate::paths::game::PROFILE, crate::paths::game::PROFILE_ONCE].into_iter()
+        // its profile file, and the file of a start for once when that is how Kiln started it last (a file left over
+        // from an earlier start for once is read by no start)
+        let once = crate::launch::last_launch(dirs, &other).ok().flatten().is_some_and(|l| l.mode == crate::launch::LaunchMode::Once);
+        let loads = [Some(crate::paths::game::PROFILE), once.then_some(crate::paths::game::PROFILE_ONCE)].into_iter().flatten()
             .filter_map(|rel| crate::util::read_json::<crate::profile::ProfileFile>(&other.path.join(rel)).ok().flatten())
             .any(|file| file.format <= 1 && crate::launch::kiln_folders(&other, &file).iter().any(|(_, f)| same_folder(f, folder)));
         if !loads {
