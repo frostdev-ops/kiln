@@ -565,9 +565,9 @@ fn package_chain(dir: &Path, primary: &str, report: &mut ImportReport, label: &s
     for line in crate::chain::lines(&text) {
         let crate::chain::IniLine::Text(section, text) = line else { continue };
         if section.is_some_and(|s| s != "chain" && s != "emf") { continue; }
-        // the proxy's own rules (dinput8.cpp read_dll_list, chain::dll_sections): "key = value" counts by its value,
-        // and a line that names no DLL is no entry
-        let value = text.split_once('=').map_or(text, |(_, v)| v.trim_matches([' ', '\t']));
+        // the proxy's own rules for this file (dinput8.cpp shared_chain_value): a comment after the name is cut,
+        // "key = value" counts by its value, quotes are dropped, and a line that names no DLL is no entry
+        let value = crate::chain::shared_chain_value(text);
         if !value.to_ascii_lowercase().ends_with(".dll") { continue; }
         let rel = value.replace('\\', "/");
         if crate::bundle::safe_rel_path(&rel).is_err() {

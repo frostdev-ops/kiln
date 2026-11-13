@@ -105,7 +105,8 @@ fn chained(game_dir: &Path) -> Vec<(String, PathBuf)> {
     }).collect()
 }
 
-/// `dinput8-chain.ini` `[Chain]` and `[EMF]` entries (relative to the game folder, EMF's rule).
+/// `dinput8-chain.ini` `[Chain]` and `[EMF]` entries and the lines before any section, read as the proxy reads them
+/// (relative to the game folder, EMF's rule; `chain::shared_chain_value`).
 fn emf_chained(game_dir: &Path) -> Vec<(String, PathBuf)> {
     let p = game_dir.join(crate::paths::game::EMF_CHAIN);
     let Ok(bytes) = std::fs::read(&p) else { return Vec::new() };
@@ -113,8 +114,10 @@ fn emf_chained(game_dir: &Path) -> Vec<(String, PathBuf)> {
     let text = crate::chain::decode(&bytes);
     let mut out = Vec::new();
     for line in crate::chain::lines(&text) {
-        let crate::chain::IniLine::Text(Some(section), value) = line else { continue };
-        if section != "chain" && section != "emf" { continue; }
+        let crate::chain::IniLine::Text(section, text) = line else { continue };
+        if section.is_some_and(|s| s != "chain" && s != "emf") { continue; }
+        let value = crate::chain::shared_chain_value(text);
+        if !value.to_ascii_lowercase().ends_with(".dll") { continue; }
         let (path, relative) = crate::chain::game_path(value);
         if !relative || path.split('\\').any(|s| s == "..") { continue; }
         let mut host = game_dir.to_path_buf();
@@ -609,6 +612,14 @@ mod tests {
         std::fs::write(g.join("dinput8-chain.ini"), "[Chain]\nemf\\emf-loader.dll\n..\\x.dll\n").unwrap();
         let emf = of_kind(&find(&g, None), ModKind::Emf).cloned().unwrap();
         assert_eq!((emf.via, emf.folder.as_str()), (Via::EmfChain, "emf/mods"));
+        // the shared spec's forms, as the proxy reads them: a quoted name, a comment after it, a line before any section
+        for ini in ["[Chain]\n\"emf\\emf-loader.dll\"\n", "[EMF]\nemf\\emf-loader.dll ; EMF\n", "emf/emf-loader.dll\t# EMF\n"] {
+            std::fs::write(g.join("dinput8-chain.ini"), ini).unwrap();
+            let emf = of_kind(&find(&g, None), ModKind::Emf).cloned();
+            assert_eq!(emf.map(|e| e.via), Some(Via::EmfChain), "{ini:?}");
+        }
+        std::fs::write(g.join("dinput8-chain.ini"), "[Other]\nemf\\emf-loader.dll\n").unwrap();
+        assert!(of_kind(&find(&g, None), ModKind::Emf).is_none(), "another tool's section is not read");
         std::fs::remove_dir_all(g).unwrap();
     }
 
