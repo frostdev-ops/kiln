@@ -141,6 +141,43 @@ class Blocks(unittest.TestCase):
             with self.assertRaisesRegex(SB.BlocksError, "already has a cue step 'click'"):
                 SB.write(d)
 
+    def test_the_recipe_is_replaced_whole_never_cut_or_written_through_a_link(self):
+        """The recipe is written to a temporary file renamed over it: a cook stopped halfway (or a launcher that died) leaves
+        the old recipe or the new one, never a cut one; a recipe that is a link is refused, and what it points at stays."""
+        with tempfile.TemporaryDirectory() as t:
+            d = mod(t, {"hum": {"clips": ["audio/a.wav"]}}, recipe={"format": 1, "tool": "modelcook", "steps": []})
+            path = d / "assets" / "cook.json"
+            before = path.stat().st_ino
+            SB.write(d)
+            self.assertNotEqual(path.stat().st_ino, before, "a new file took the recipe's name")
+            self.assertEqual([p.name for p in path.parent.iterdir() if p.name.endswith(".cook-tmp")], [])
+            # a stop in the middle of the write: the recipe on disk is still the whole old one
+            (d / "blocks" / "s.json").write_text(json.dumps({"format": 1, "sounds": {"boom": {"clips": ["audio/b.ogg"]}}}))
+            old = path.read_bytes()
+            real = SB.CP.os.replace
+            def stopped(*a):
+                raise KeyboardInterrupt
+            SB.CP.os.replace = stopped
+            try:
+                with self.assertRaises(KeyboardInterrupt):
+                    SB.write(d)
+            finally:
+                SB.CP.os.replace = real
+            self.assertEqual(path.read_bytes(), old)
+            self.assertEqual([p.name for p in path.parent.iterdir() if p.name.endswith(".cook-tmp")], [])
+        with tempfile.TemporaryDirectory() as t:
+            d = mod(t, {"hum": {"clips": ["audio/a.wav"]}})
+            (d / "assets").mkdir()
+            theirs = Path(t) / "theirs.json"
+            theirs.write_text('{"format": 1, "steps": []}')
+            try:
+                (d / "assets" / "cook.json").symlink_to(theirs)
+            except (OSError, NotImplementedError):
+                self.skipTest("no symbolic links here")
+            with self.assertRaises(SB.BlocksError):
+                SB.write(d)
+            self.assertEqual(theirs.read_text(), '{"format": 1, "steps": []}')
+
 
 if __name__ == "__main__":
     unittest.main()

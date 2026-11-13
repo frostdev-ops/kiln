@@ -19,6 +19,8 @@ import re
 import uuid
 from pathlib import Path
 
+from . import cookpaths as CP
+
 BLOCK_NS = uuid.UUID("6f6d2a44-53c1-5c52-9d51-0a3c6e1f2b77")  # Kiln.Blocks' BlockIds
 CUE_COPY = ("volume", "loop", "scene", "pitch", "pitchRandomness", "volumeRandomness", "maxCount", "priority")
 AUDIO = (".wav", ".flac", ".ogg", ".mp3")
@@ -169,6 +171,10 @@ def write(mod_dir, check=False, mod=None):
         out.pop("blockSounds", None)
     changed = json.dumps(out, sort_keys=True) != json.dumps(doc, sort_keys=True) or not path.exists()
     if changed and not check:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(out, indent=2) + "\n")
+        # through a temporary file renamed over it (cookpaths.write): a cook stopped halfway, or a launcher that died, never
+        # leaves the author's recipe cut; the bytes are the ones a text write made (the platform's line ends)
+        try:
+            CP.write(path, (json.dumps(out, indent=2) + "\n").replace("\n", os.linesep).encode())
+        except CP.Refused as e:
+            raise BlocksError(str(e)) from e
     return changed, path, out, list(blocks)
