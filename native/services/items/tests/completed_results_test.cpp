@@ -16,9 +16,10 @@ KilnItemsResult result(uint64_t ticket, uint32_t count = 2) {
 }
 }
 int main() {
-    static_assert(KILN_ITEMS_VERSION == 4 && offsetof(KilnItemsApi, peek_result) == 192 &&
-                      offsetof(KilnItemsApi, read_instances) == 200 && sizeof(KilnItemsApi) == 224,
-                  "peek appended one row without moving the v3 ABI; v4 appends after it");
+    static_assert(KILN_ITEMS_VERSION == 5 && offsetof(KilnItemsApi, peek_result) == 192 &&
+                      offsetof(KilnItemsApi, read_instances) == 200 && offsetof(KilnItemsApi, equip) == 224 &&
+                      sizeof(KilnItemsApi) == 240,
+                  "peek appended one row without moving the v3 ABI; v4 appends after it, v5 (equip) after v4");
     kitems::CompletedResults<KilnItemsResult> queue;
     KilnItemsResult out{};
     check(!queue.peek(1, &out), "uncommitted requests have no result");

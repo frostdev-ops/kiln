@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
-// Mirror of native/core/abi/services/kiln_items.h (kiln.items v4; the v2 functions are in TableV2, the v3 ones in TableV3,
-// the v4 ones in TableV4). Blittable only; field order is the ABI (the native side static_asserts the same sizes and offsets).
+// Mirror of native/core/abi/services/kiln_items.h (kiln.items v5; the v2 functions are in TableV2, the v3 ones in TableV3,
+// the v4 ones in TableV4, the v5 ones in TableV5). Blittable only; field order is the ABI (the native side static_asserts the same sizes and offsets).
 using System.Runtime.InteropServices;
 
 namespace Kiln;
@@ -381,6 +381,72 @@ internal static unsafe class ItemsNative
         public delegate* unmanaged[Cdecl]<Instance*, uint, uint, uint, int> ReadInstances;
         public delegate* unmanaged[Cdecl]<uint, Instance*, uint, uint, uint*, byte*, int> ReadHolder;
         public delegate* unmanaged[Cdecl]<InstancesStatus*, int> GetInstancesStatus;
+    }
+
+    // ---- v5 (0.2.0-dev.27): equipment (KilnItemsEquipRequest, KilnItemsEquipResult, KilnItemsEquipStatus) ----
+    public const uint EquipUnequip = 0x01, EquipDryRun = 0x02;
+    public const byte EquipAny = 0xFF;
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct EquipRequest
+    {
+        public uint Size;
+        public uint Flags;
+        public uint Player;
+        public byte EquipmentSlot;
+        public byte R0, R1, R2;
+        public ulong Slot;
+        public uint Pide;
+        public uint Reserved;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct EquipResult
+    {
+        public uint Size;
+        public int Status;
+        public ulong Ticket;
+        public uint Player;
+        public uint Flags;
+        public byte EquipmentSlot;
+        public byte GameError;
+        public ushort R0;
+        public uint Steps;
+        public uint Item;
+        public uint Pide;
+        public uint Stamp;
+        public uint Replaced;
+        public ulong From;
+        public ulong To;
+        public uint ReplacedPide;
+        public uint ReplacedStamp;
+        public ulong ReplacedTo;
+        public fixed uint Reserved[4];
+        public fixed byte Message[160];
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct EquipStatus
+    {
+        public uint Size;
+        public byte Available;
+        public byte Program;
+        public ushort R0;
+        public uint Pending;
+        public uint R1;
+        public ulong Done;
+        public ulong Refused;
+        public fixed byte Detail[160];
+    }
+
+    /// <summary>The whole v5 table: v4 followed by the equipment functions. Use it only when the header's size says the
+    /// native service has them.</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    public struct TableV5
+    {
+        public TableV4 V4;
+        public delegate* unmanaged[Cdecl]<ulong, EquipRequest*, delegate* unmanaged[Cdecl]<EquipResult*, void*, void>, void*, ulong*, int> Equip;
+        public delegate* unmanaged[Cdecl]<EquipStatus*, int> GetEquipStatus;
     }
 
     public static string Text(byte* p, int max)

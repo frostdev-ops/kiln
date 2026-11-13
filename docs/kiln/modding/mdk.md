@@ -62,6 +62,7 @@ copied); copies NuGet dependencies next to the mod (they load into the mod's own
 | `KilnPackExclude` | `assets/cooked/**` | globs KilnPack leaves out, relative to the mod folder. Cooked files are made from the player's own game, so they never ship |
 | `KilnAnalyzers` | true | false: no KILN1xx analyzers ([analyzers.md](analyzers.md)) |
 | `KilnGameIds` | `Items;Perks;Buffs;Skills;Workshops` | game-id constants generated from the local catalog; `All`, `None` ([catalogs.md](catalogs.md)) |
+| `KilnBake`, `KilnBakeSteps` | true when `KilnServices` names Quests, Skills, Blocks or Vfx; 10 | bake what the code defines (quests, game-tree nodes, VFX, materials) into the mod, so the first start has it ([baked.md](baked.md)); false: no bake |
 | `KilnCatalog`, `KilnCatalogSide` | `$KILN_CATALOG`, else `<data>/catalog`; server for `KilnSide` server, otherwise client | which catalog file `KilnGameIds` reads |
 
 Items: `KilnDependency` (`Version`, `Optional`), `KilnLoadBefore`, `KilnLoadAfter`, `KilnIncompatible` (`Version`).
@@ -81,6 +82,9 @@ service in `KilnServices`; warning `KILN003` (unknown keys, short versions, id d
 
 ### Targets
 - `dotnet build`: the output folder **is** the mod folder (`<Mod>.dll`, `.pdb`, `kiln.mod.json`, NuGet dependencies).
+  `KilnBake` runs the built mod under KilnHarness and writes what its code defines for the game's start into it
+  ([baked.md](baked.md)); a mod that does not load without the game is not baked (a build line says so), other
+  problems are a warning `KILN030`, never an error.
 - `dotnet build -t:KilnDeploy -p:KilnServer=<server>`: copies the mod's files (not Kiln.*, not deps/runtimeconfig
   files) into `<server>/kiln/mods/<id>/`, replacing old dlls/pdbs. With `-p:KilnReload=true` the running server
   reloads it within a second (a mod that was not loaded yet is loaded: `reload` falls back to the folder).

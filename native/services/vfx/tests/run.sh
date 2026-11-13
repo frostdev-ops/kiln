@@ -9,3 +9,6 @@ mkdir -p "$out"
 g++ -std=c++20 -O1 -g -Wall -Wextra -fsanitize=address,undefined -pthread -I"$here/../../../core/abi" \
     "$here/test_core.cpp" "$here/../core.cpp" "$here/../sim.cpp" -o "$out/test_core"
 "$out/test_core" "$@"
+# the limits of a mod's blocks/generated/*.json (generated.h)
+g++ -std=c++20 -O1 -g -Wall -Wextra -fsanitize=address,undefined "$here/test_generated.cpp" -o "$out/test_generated"
+"$out/test_generated"

@@ -107,8 +107,73 @@ time: weather update after the reset: 9 of 9 layers rolled a new phenomenon (2 w
 Clients get the removes through `WeatherSyncRemoveInstanceMessage` and new instances through the normal add path (EMF;
 not observed without a client).
 
+## Choosing the weather (since 0.2.0-dev.27; server 26430253, exe `f0d824be…`; client 26430625) **[refl] [data] [dis] [rt]**
+**The table is game data.** The server's weather is one `keen::WeatherSystemResource` (`2dcf7ad7-3fd8-41e4-870e-bf713f324119`,
+read offline with `tools/kfc decode`): `layers` (BlobArray of `WeatherSystemLayerResource`, 200 B: guid, `restrictMaskIndex`
++0x10, `excludeMaskIndex` +0x11, `phenomenonIndexRange` {start +0x12, count +0x13}, `nothingPhenomenon` +0x18),
+`phenomenons` (BlobArray of `WeatherSystemPhenomenonResource`, 176 B: guid, `debugName` BlobString +0x10, `probability` +0x28,
+`flags` +0x2c, `durationMin` +0x30, `durationMax` +0x38, spawn and despawn fade +0x58/+0x60, `effect` +0xa8 None/Rain/Blizzard),
+mask tables, and state configurations (`stateConfigurations`, `layerStateConfigurations`: Ignore / Reset / SetPhenomenon with
+`layerPhenomenonIndex` and an optional `overrideDuration`; `newWorldStateConfiguration` sets clouds_few on layer 0 for 15
+minutes and resets the others). On this build: layer 0 holds clouds_few, clouds_medium, clouds_overcast, clouds_fluffy (its
+nothing has weight 0: there are always clouds); layers 1, 3, 5, 6, 7 a `rain` each (different region masks), layer 2
+`rain_snow`, layers 4 and 8 nothing at all; `debug_rain`, `debug_blizzard`, `debug_dragon` lie in no layer's range, so the
+roll never picks them. Kiln reads the table from the running resource, never from a list of its own:
+```
+INFO weather table: clouds_few (#0, layer 0), clouds_medium (#1, layer 0), clouds_overcast (#2, layer 0), clouds_fluffy (#3, layer 0), rain (#4, layer 1), rain_snow (#5, layer 2), debug_rain (#6, layer -1), debug_blizzard (#7, layer -1), debug_dragon (#8, layer -1), rain (#9, layer 3), rain (#10, layer 5), rain (#11, layer 6), rain (#12, layer 7)
+```
+
+**The roll** (`WeatherUpdateLayers` `0xa233d0`, called from `WeatherUpdate` `0xa23800` with `(ws, resource, now, params)`,
+`now` = the weather clock = game time): per layer, a previous instance whose despawn time passed is removed; when
+`next <= now`, the previous instance is removed, the current one becomes the previous (it fades out by its own despawn
+time), and the next phenomenon is drawn from the layer's range plus its nothing by `probability` (rain-effect entries
+times the weather-frequency factor `params`), skipping the one that ran; the RNG is two 16-bit multiply-with-carry
+generators at `ws+0xb4`/`+0xb8`. The draw ends in **the start of a phenomenon** `0xa22830` (client `0xaab220`)
+`(ws, resource, now, layer, u8 choice, Optional<Time>* overrideDuration)`: choice is the offset in the range, the range's
+count means nothing; it writes the choice to the layer's `+0x08`, rolls the duration between min and max unless the
+override is set, sets `next = now + duration - despawnFadeTime` (the next roll starts while this one fades), and creates
+the instance (a random place inside the layer's region masks, radius, rotation, drift speed: more RNG) whose handle goes to
+`+0x10`; the game's instance add path tells the clients.
+
+**The game's own way to force one**: `0xa22f50(ws, now, Guid* stateConfiguration)` applies a state configuration; for each
+layer, `SetPhenomenon` removes both instances, sets `next = INT64_MIN`, the choice field to -1, clears the instances, then
+calls the start above with the configuration's choice and override duration; `Reset` removes both instances and sets
+`next` (min, or now + override). `WeatherUpdate` calls it once for `newWorldStateConfiguration` when `ws+0xb0` is set.
+
+**What Kiln does** (`native/services/time/time.cpp`, feature `time.weather_choose`): it hooks `WeatherUpdateLayers` (it already
+hooked `WeatherUpdate` for the reset) and, before the game's roll, runs the requests queued since the last update: a choice
+does exactly what `SetPhenomenon` does for one layer, with the mod's choice and duration (the override); a hold makes
+Kiln do the game's own expiry step for that layer with the held choice whenever `next <= now`, so the game's roll then
+finds nothing due there; a release ends the hold and, with NOW, does `Reset` (the game rolls in the same update). No
+game function is patched; the only writes are the ones the game's own SetPhenomenon and expiry make. Symbols:
+`time/WeatherStartPhenomenon` (captured from the roll's call), `@time.weather_table` (the BlobArray offsets, both strides,
+the range and nothing offsets and the layer's choice field, captured from the start function; the client allocates other
+registers, `client.d/time.json`). The record fields no captured code reads (name, weight, durations, effect, masks) are the
+reflected offsets above, used only while the captured strides equal the reflected sizes.
+
+Lab (`dev27-reach2`, server 26430253, no client; `mods/tests/chat-test` `WeatherTest.cs`, clock held at 20x) **[rt]**:
+```
+time: weather layer 0: started clouds_fluffy (table 3) for the given time; now runs 3 (instance 196612), next roll at game time 3012259960948 ns (clock 3002259960948 ns)
+PASS weather.timed.back: after 30 s of game time the game rolled layer 0 itself: clouds_fluffy -> clouds_few (#0, layer 0) (layer 0: clouds_few, next roll in 142 s)
+time: weather layer 1: started rain (table 4) for its own time, held until released; now runs 4 (instance 327681), next roll at game time 3296842012224 ns (clock 3013593293963 ns)
+time: 1 held weather layer(s) rolled with Kiln's choice at game time 3297593304453 ns
+PASS weather.hold.kept: the game's roll came (283 s left before) and Kiln kept rain: layer 1: rain, next roll in 326 s, held rain (#4, layer 1)
+PASS weather.release: released with now: the game rolled at once and picked none (layer 1) (layer 1: nothing, next roll in 689 s)
+```
+The first run passed the mod's 30 s as the override and `next` came 10 s ahead (clouds_fluffy's despawn fade is 20 s), and
+for clouds_overcast `next == now` (its fade is 30 s): the game rolled again in the same update. Kiln now passes the
+duration plus the chosen phenomenon's `despawnFadeTime` (+0x60), so the layer is rolled `duration` after the start.
+
+**Restart: the chosen weather does not come back.** Kiln left a two-hour `rain_snow` on layer 2 and a hold on layer 1,
+the server autosaved and stopped; after the load layer 2 ran nothing with 373 s to its next roll and layer 1 was not held
+(`weather.persist.timed`, `weather.persist.hold`). The world save has a `weather` chunk (docs/re/characters.md) with
+`save_v0::WeatherSavedLayer` {nextPhenomenon, current and previous instance}; whether the game restores it and then rolls
+anew because the load restarts the game clock in its first cycle (`setTimeOfDay` from `0x7c0f58`, above), or never restores
+it, was not traced **[hyp]**. Either way a mod that wants its weather after a restart sets it again.
+
 ## Open questions
-- Client view of a set and of a weather reset (client checklist).
+- Client view of a set, of a weather reset and of a chosen phenomenon (guided check `time.weather`).
+- Whether the save's `weather` chunk is restored at a load (a chosen phenomenon does not survive a restart, above).
 - `+0x59` (authoritative flag) is not checked; the server has only one Daytime (`ServerGame_create`).
 - kiln.settings also hooks `SendServerInfo` (installed first: service DLLs load in file-name order). The two safetyhook
   inline hooks chain; run together in the lab, both fire: `settings: GameServer instance 00000000ACC7CEC8

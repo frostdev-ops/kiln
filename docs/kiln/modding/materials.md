@@ -28,7 +28,7 @@ var steel = Blocks.Define("frost_steel", new MaterialBlock
 });
 ```
 
-**Use the data file for anything a model names.** The game lists the textures of every material once at start, before mod code runs. So a block in `blocks/*.json` is there at once, and one from C# is kept and is there from the next start: `handle.Status` says which, and a toast tells you. Until then a model that names it doesn't draw.
+**Use the data file for anything a model names.** The game lists the textures of every material once at start, before mod code runs. So a block in `blocks/*.json` is there at once, and one from C# is kept and is there from the next start: `handle.Status` says which, and a toast tells you. A mod built with Kiln.Sdk has its C# materials at the first start too: the build bakes them into `blocks/generated/<mod>.json` ([baked.md](baked.md)). Until then a model that names it doesn't draw.
 
 A mod with a material needs `"clients": "mod"`: every player has to have the textures. `kiln lint` says so (KL211).
 
