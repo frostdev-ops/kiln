@@ -130,6 +130,16 @@ public sealed partial class ClientPassMod
         "one's name and Load it. On the main screen switch a mod off and on. Does it switch without \"changed meanwhile " +
         "(generation ... on disk, ... here)\", and does the profile hold only its own mods?");
 
+    [ClientCheck("launcher.start-progress", "Play shows what the start is doing, and the second start says how long it takes",
+        Area = "Launcher", Since = Dev27, Tags = [Launcher], Order = 429)]
+    public Task LauncherStartProgress(CheckContext c) => Outside(c,
+        "With the game closed, press Play on the main screen and watch the launcher until the game's main menu: a bar, " +
+        "the step it is on (cooking a mod, Steam, Kiln's services with what it works on), and \"First start with these " +
+        "mods on this PC: Kiln is timing it\"; \"Running\" only once the main menu is there. Quit the game, press Play " +
+        "again: now it says \"About ... left\" and counts down. Note the time it said right after Play and time how " +
+        "long it really took to the main menu. Did the first start name its steps and say it is timing them, did the " +
+        "second show a time left, and how close was it (said and real, in seconds)?");
+
     // ---- a Steam Deck ----
 
     [ClientCheck("deck.no-kiln", "\"No Kiln\" in the launcher on a Steam Deck", Area = "Steam Deck", Since = Dev16,
