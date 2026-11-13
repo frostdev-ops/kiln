@@ -4,7 +4,7 @@
 // doing its one fix. The count covers every kind. Saves right away; the game's profile.json follows (applies at the
 // next start while the game runs). Profiles are in the desktop UI's Settings.
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import * as api from "../../api/commands";
 import type { AddReport } from "../../api/commands";
@@ -12,9 +12,10 @@ import { qk, useGame, useGameStatus } from "../../api/hooks";
 import { KIND_SHORT } from "../../api/kinds";
 import { cookAgain } from "../../shell/cook";
 import { useEnsureProfile } from "../../shell/firstRun";
-import type { ModRow } from "../../shell/mods";
+import { bulkPlan, type ModRow } from "../../shell/mods";
 import { notifyAdd } from "../../shell/notices";
-import { removeMod, useRemoveCheck, type RemoveTarget } from "../../shell/removeMod";
+import { NOT_REMOVABLE, removable, removeMany, removeMod, useRemoveCheck, useRemoveMany, withoutRows, type RemoveTarget } from "../../shell/removeMod";
+import { NONE, pick as pickSelected, setSelection, toggle as toggleSelected, useSelection } from "../../shell/selection";
 import { useMods } from "../../shell/useMods";
 import { withDropin } from "../../pages/profiles/dropins";
 import { runTask, toast } from "../../ui";
@@ -66,7 +67,39 @@ export default function Mods() {
     }
   };
 
+  // the selection (shell/selection.ts, the same one the desktop list keeps): L2 selects the focused row, R2 opens what
+  // can be done with the selected ones
+  const gid = game?.id ?? "";
+  const sel = useSelection((st) => st.byGame[gid] ?? NONE);
+  const picked = pickSelected(sel, mods.rows);
+  const [selMenu, setSelMenu] = useState(false);
+  const [removingMany, setRemovingMany] = useState<ModRow[] | null>(null);
+  const many = useRemoveMany(removingMany ?? [], mods.profileId, !!removingMany);
+  const live = useRef(mods);
+  live.current = mods;
+  const switchPicked = (on: boolean) => {
+    const r = mods.setAll(picked, on);
+    setSelMenu(false);
+    if (!r?.undo) return;
+    const { plan, undo } = r;
+    const n = plan.change.length;
+    toast.ok(`Switched ${n} mod${n === 1 ? "" : "s"} ${on ? "on" : "off"}`, plan.left.length ? `${plan.left.length} skipped: ${[...new Set(plan.left.map((l) => l.why))].join("; ")}.` : undefined,
+      { ms: 20_000, actions: [{ label: "Undo", onClick: async () => {
+        const res = await live.current.undoAll(undo);
+        if (!res.ok) toast.info("Can't undo that", `${res.why[0].toUpperCase()}${res.why.slice(1)}.`);
+        else if (res.kept) toast.info("Undo kept later changes", `${res.kept} mod${res.kept === 1 ? " was" : "s were"} switched since.`);
+      } }] });
+  };
+  const selOn = bulkPlan(picked, true);
+  const selOff = bulkPlan(picked, false);
+  const toRemove = picked.filter(removable);
+
   const actions: DeckAction[] = [];
+  if (focus && gid) {
+    const f = focus;
+    actions.push({ button: "lt", label: sel.keys.includes(f.key) ? "Unselect" : "Select", run: () => setSelection(gid, toggleSelected(sel, f.key)) });
+  }
+  if (picked.length) actions.push({ button: "rt", label: `${picked.length} selected`, run: () => setSelMenu(true) });
   if (focus && !focus.found && loaded) actions.push({ button: "x", label: "Remove", run: () => setRemoving({ row: focus, version: null }), disabled: running });
   if (game && focus && !focus.found && focus.kind === "kiln" && focus.on && cookable.has(focus.id)) {
     const r = focus;
@@ -105,15 +138,54 @@ export default function Mods() {
       ) : (
         <div className="deck-list deck-scroll" role="list" aria-label="Mods">
           {mods.rows.map((r) => r.found ? (
-            <Row key={r.key} id={`found-${r.found.path}`} title={r.name} sub={sub(r)} end={word(r)} dim={r.found.state !== "loads"}
+            <Row key={r.key} id={`found-${r.found.path}`} title={sel.keys.includes(r.key) ? `✓ ${r.name}` : r.name} sub={sub(r)} end={word(r)} dim={r.found.state !== "loads"}
               a={r.found.fix === "dropins" && r.found.kind ? `Load ${KIND_SHORT[r.found.kind]} mods` : r.found.fix === "add" ? "Add" : "-"}
               disabled={!r.found.fix || !loaded || !!busy} onFocus={() => setFocus(r)} onClick={() => void fix(r)}
-              aria-label={`${r.name}: in the game folder, ${r.note?.text ?? ""}`} />
+              aria-label={`${r.name}: in the game folder, ${r.note?.text ?? ""}${sel.keys.includes(r.key) ? ", selected" : ""}`} />
           ) : (
-            <Row key={r.key} id={`mod-${r.kind}-${r.id}`} lit={r.on} a={r.on ? "Turn off" : "Turn on"} title={r.name} sub={sub(r)} end={word(r)}
-              disabled={!loaded} onFocus={() => setFocus(r)} onClick={() => mods.toggle(r, !r.on)} aria-label={`${r.name}: ${r.on ? "on" : "off"}`} />
+            <Row key={r.key} id={`mod-${r.kind}-${r.id}`} lit={r.on} a={r.on ? "Turn off" : "Turn on"} title={sel.keys.includes(r.key) ? `✓ ${r.name}` : r.name} sub={sub(r)} end={word(r)}
+              disabled={!loaded} onFocus={() => setFocus(r)} onClick={() => mods.toggle(r, !r.on)} aria-label={`${r.name}: ${r.on ? "on" : "off"}${sel.keys.includes(r.key) ? ", selected" : ""}`} />
           ))}
         </div>
+      )}
+      {selMenu && (
+        <Dialog name="selected" title={`${picked.length} selected`} onClose={() => setSelMenu(false)} backLabel="Close">
+          <div className="deck-list" role="group" aria-label="Selected mods">
+            <Row id="sel-on" title="Switch on" sub={`${selOn.change.length} of ${picked.length}${selOn.left.length ? ` · ${selOn.left.length} skipped: ${selOn.left[0].why}` : ""}`} a="Switch on"
+              disabled={!loaded || !selOn.change.length} onClick={() => switchPicked(true)} />
+            <Row id="sel-off" title="Switch off" sub={`${selOff.change.length} of ${picked.length}${selOff.left.length ? ` · ${selOff.left.length} skipped: ${selOff.left[0].why}` : ""}`} a="Switch off"
+              disabled={!loaded || !selOff.change.length} onClick={() => switchPicked(false)} />
+            <Row id="sel-remove" title="Remove…" sub={running ? "Close the game first" : `${toRemove.length} of ${picked.length}${picked.length > toRemove.length ? ` · ${picked.length - toRemove.length} skipped: ${NOT_REMOVABLE}` : ""}`} a="Remove"
+              disabled={running || !toRemove.length} onClick={() => { setSelMenu(false); setRemovingMany(toRemove); }} />
+            <Row id="sel-clear" title="Clear" sub={`Unselect all ${picked.length}`} a="Clear" onClick={() => { setSelection(gid, NONE); setSelMenu(false); }} />
+          </div>
+        </Dialog>
+      )}
+      {removingMany && (
+        <Dialog name="remove-many" title={`Remove ${removingMany.length} mod${removingMany.length === 1 ? "" : "s"}?`} onClose={() => setRemovingMany(null)} wide
+          buttons={<>
+            <DeckButton onClick={() => setRemovingMany(null)}>Cancel</DeckButton>
+            <DeckButton id="remove-many-confirm" primary disabled={!many.ready || running} onClick={async () => {
+              const rows = removingMany;
+              setRemovingMany(null);
+              setFocus(null);
+              try {
+                const r = await removeMany(qc, rows, many.users, async () => { mods.edit.update((p) => withoutRows(p, rows)); return mods.edit.flush(); });
+                setSelection(gid, NONE);
+                if (!r.left.length) toast.ok(`Removed ${r.removed.length} mod${r.removed.length === 1 ? "" : "s"}`);
+                else toast.info(r.removed.length ? `Removed ${r.removed.length}, ${r.left.length} left` : "Nothing removed",
+                  `${r.left.map((l) => `${l.name}: ${l.why}`).join(" ")} ${r.left.length === 1 ? "It is" : "They are"} out of your list and still in the Library.`, { ms: 0 });
+              } catch (e) { toast.error(e); }
+            }}>Remove {removingMany.length}</DeckButton>
+          </>}>
+          <p className="deck-note">{!many.ready ? "Checking what uses them." : many.error ? `Kiln could not check what else uses some of them (${many.error}).` : "Their files leave the Library."}</p>
+          <ul className="deck-remove-list deck-scroll" aria-label="Mods to remove">
+            {removingMany.map((r) => {
+              const o = many.others.get(r.key) ?? [];
+              return <li key={r.key}>{r.name}{o.length ? <span className="deck-dim"> · {o.join(", ")} {o.length === 1 ? "lists" : "list"} it too</span> : null}</li>;
+            })}
+          </ul>
+        </Dialog>
       )}
       {removing && (
         <Dialog name="remove" title={`Remove ${removing.row.name}?`} onClose={() => setRemoving(null)}

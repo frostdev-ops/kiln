@@ -178,7 +178,24 @@ html[data-covered] .k-app ::-webkit-scrollbar, html[data-covered] [data-deck-scr
 .k-mods-kind { width: auto; height: 32px; font-size: 15px; flex: none; }
 .k-mods-list { list-style: none; margin: 0; padding: 4px 0; flex: 1 1 0; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin;
   scrollbar-color: var(--k-line-strong) transparent; }
-.k-mod { display: grid; grid-template-columns: 36px minmax(0, 1fr) 104px 74px 30px; align-items: center; gap: 0 8px; min-height: 42px; padding: 2px 8px 2px 6px; }
+.k-mod { display: grid; grid-template-columns: 22px 36px minmax(0, 1fr) 104px 74px 30px; align-items: center; gap: 0 8px; min-height: 42px; padding: 2px 8px 2px 4px; }
+/* the selection box: seen on hover and on focus, always once a row is selected (.k-mods.selecting) */
+.k-mod-check { width: 20px; height: 20px; padding: 0; border: 1.6px solid var(--k-text-3); border-radius: 4px; background: transparent; color: var(--k-ink, #1a0f08);
+  display: grid; place-items: center; cursor: pointer; opacity: 0; transition: opacity .12s; }
+.k-mod:hover .k-mod-check, .k-mod:focus-within .k-mod-check, .k-mods.selecting .k-mod-check { opacity: 1; }
+.k-mod-check:focus-visible { outline: 2px solid var(--k-gold-400); outline-offset: 2px; }
+.k-mod-check[aria-checked="true"] { background: var(--k-gold-400); border-color: var(--k-gold-400); }
+.k-mod-check svg { width: 14px; height: 14px; }
+.k-mod.picked { background: rgba(255, 190, 90, .08); }
+/* while rows are selected: their actions, above the list */
+.k-mods-selbar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; padding: 6px 12px 6px 10px; border-bottom: 1px solid var(--k-line);
+  background: rgba(255, 190, 90, .06); }
+.k-mods-selbar .k-link { font-size: 16.5px; white-space: nowrap; }
+.k-mods-selbar-count { font-family: var(--k-font-label); font-weight: 500; color: var(--k-gold-300); white-space: nowrap; }
+.k-mods-selbar .k-hint { font-size: 14.5px; }
+.k-remove-list { max-height: 240px; overflow-y: auto; margin: 8px 0 0; padding: 0 0 0 18px; text-align: left; }
+.k-remove-list li { margin: 2px 0; }
+.k-remove-list .k-muted { font-size: 14.5px; }
 .k-mod:hover { background: rgba(255, 150, 80, .05); }
 .k-mod.first-found { margin-top: 6px; border-top: 1px solid var(--k-line); padding-top: 8px; }
 .k-mod-text { display: flex; flex-direction: column; min-width: 0; gap: 0; }

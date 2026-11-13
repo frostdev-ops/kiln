@@ -104,6 +104,15 @@ public sealed partial class ClientPassMod
         "Windows this needs WinRAR, 7-Zip or the tar.exe Windows has; without one the toast says to extract it first). Did " +
         "both come in?");
 
+    [ClientCheck("launcher.select-many", "Selecting several mods: switch them and remove them at once", Area = "Launcher",
+        Since = Dev27, Tags = [Launcher], Order = 430)]
+    public Task LauncherSelectMany(CheckContext c) => Outside(c,
+        "In the launcher with the game closed: tick the box of one mod in the list, Shift+click another a few rows down: " +
+        "the rows between are selected too and the bar says how many. Press Switch off, then Undo in the toast: they are " +
+        "back as they were. Select three mods you can add again later and press Remove…: one question lists all three; " +
+        "press Remove 3. Are all three gone from the list, and does Play start the game without them? On a Steam Deck: L2 " +
+        "on a mod selects it, R2 shows what to do with the selected ones. Did it all work, and was the question readable?");
+
     [ClientCheck("launcher.all-on-off-new-profile", "All on, All off, and a new profile from a drop", Area = "Launcher",
         Since = Dev27, Tags = [Launcher], Order = 419)]
     public Task LauncherAllOnOffNewProfile(CheckContext c) => Outside(c,

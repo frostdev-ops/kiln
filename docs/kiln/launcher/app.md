@@ -105,6 +105,22 @@ text is about Kiln's own kind it says "Kiln mods".
   `pages/profiles/useProfileEdit.ts`). The Undo runs on the list as it is when pressed
   and says it cannot when another profile is loaded, a save still runs, or the profile changed elsewhere (the
   backend's generation is read first). With no mod at all the list says how to add one. The list scrolls inside the page.
+- **Several mods at once** (`shell/selection.ts`): a box at the start of every row (seen on hover and focus, always
+  once a row is selected); Shift+click selects the run from the last clicked row, Ctrl+A every row shown (the filter and
+  Kind applied: the set All on / All off acts on), Escape none, Space or Enter on a box toggles it (Shift+Space: a
+  range). The selection is kept per game outside the list, so a start's progress bar or another page gives it back; it
+  never holds a row the list does not show: a filter or Kind change lets go of what it hides and the bar says "N not
+  shown any more left the selection". The bar above the list: "N selected", Switch on and Switch off (All on / All off's
+  plan, save and Undo over the selected rows; the titles say what they skip and why), Remove… and Clear. Remove… (off
+  while the game runs; a game-folder mod Kiln did not place is skipped, the title says so): one confirmation naming
+  every mod (a long list scrolls) and, per mod, the other profiles that list it (library_users of every version, read
+  in parallel, the single Remove's wording); with "Type a mod's name to remove it" on, the word is their number. Then
+  one profile save takes them all out of the loaded profile (nothing is removed when it fails), and each version goes
+  with `library_remove` past exactly the users the confirmation showed (not `library_remove_many`, which takes only a
+  force flag); a refusal (a running server that uses it, a locked file) leaves that mod in the Library and out of the
+  list's profile, the others go, and one notice names what was left and why. The Deck: L2 selects or unselects the
+  focused row (its name gets a check), R2 "N selected" opens Switch on, Switch off, Remove… and Clear; Remove asks once
+  with the names (focus on Cancel).
 - **Profiles are a background feature**: one profile is always loaded per game. `useEnsureProfile` calls
   `profile_ensure_default` once per start for a game with Kiln and no loaded profile: "My mods" when there is none at
   all, or the one the launcher remembers for the game (a reinstall of Kiln); a player who chose "No profile" in
