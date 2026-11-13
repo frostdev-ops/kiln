@@ -1761,7 +1761,7 @@ pub fn deactivate_report(dirs: &DataDirs, install: &GameInstall) -> Result<crate
 /// The own loaders installed now and what they mean for the active profile file (checked again on every call: the
 /// player may have added or removed a loader since the activation).
 fn own_loader_notes(install: &GameInstall, file: &ProfileFile) -> Vec<crate::own_loaders::OwnLoaderNote> {
-    let view = crate::own_loaders::ProfileView::of_file(file);
+    let view = crate::own_loaders::ProfileView::of_file(file).with_file_sources(file, &install.path);
     crate::own_loaders::notes(&install.path, &crate::own_loaders::find(&install.path, Some(&view)), Some(&view))
 }
 
