@@ -45,12 +45,15 @@ test("Play cooks a mod that needs it first, and then the game starts", async ({ 
   await play.click();
   await expect.poll(async () => (await calls(page)).filter((c) => c === "launch_play").length, { timeout: 15_000 }).toBe(2);
   expect((await calls(page)).filter((c) => c === "cook_run").length).toBe(2);
-  expect(await page.locator(".k-toast", { hasText: "Cooking" }).count()).toBe(toasts);
+  // no new "Cooking" toast for a cook that cooks nothing (the first Play's toast may still be up at the first count and
+  // gone by now, on a slow first page: so "no more than before", not "the same number")
+  expect(await page.locator(".k-toast", { hasText: "Cooking" }).count()).toBeLessThanOrEqual(toasts);
 });
 
 test("the cook shows its progress as a task: the mod and then each line the tools print", async ({ page }) => {
   await desktop(page);
-  await page.evaluate(() => (window as unknown as Mock).__kilnMock.setCookPace(1500));
+  // each line shows for three seconds: on a loaded machine the tray opened after a 1.5 s line had gone ("Done")
+  await page.evaluate(() => (window as unknown as Mock).__kilnMock.setCookPace(3000));
   await setCook(page, "new-items", { reason: "modChanged" });
   const play = page.locator(".k-door");
   await expect(play).toBeEnabled({ timeout: 10_000 });
@@ -58,7 +61,7 @@ test("the cook shows its progress as a task: the mod and then each line the tool
   await page.locator(".k-tray-btn").click();
   const task = page.getByRole("dialog", { name: "Tasks" }).locator(".k-task", { hasText: "Cook mods" });
   await expect(task.locator(".k-task-msg")).toHaveText("Cooking New Items (1 of 1)", { timeout: 5_000 });
-  await expect(task.locator(".k-task-msg")).toHaveText("New Items: kiln: cooking assets/cook.json (modelcook)", { timeout: 5_000 });
+  await expect(task.locator(".k-task-msg")).toHaveText("New Items: kiln: cooking assets/cook.json (modelcook)", { timeout: 8_000 });
   await expect(task.locator(".k-task-pct")).toBeVisible();
   // and the start follows the cook, not before it ends
   expect((await calls(page)).filter((c) => c === "launch_play")).toEqual([]);

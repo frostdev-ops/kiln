@@ -67,6 +67,35 @@ public sealed partial class ClientPassMod
         "own folder, the game starts and the moves animate. Then use Cook again, press Play and cancel the cook: no " +
         "python.exe is left in the Task Manager. Did the cook work, and did Cancel leave nothing running?");
 
+    [ClientCheck("editor.keeps-changes", "The save editor keeps your changes and asks before it drops them", Area = "Launcher",
+        Since = Dev27, Tags = [Launcher], Order = 409)]
+    public Task EditorKeepsChanges(CheckContext c) => Outside(c,
+        "In the launcher's window on the desktop, with the game closed: open Editor (the newest character opens, with " +
+        "icons). Change an amount, go to Settings and back: it still says Not saved. Press Z (or Discard): it asks " +
+        "\"Discard the changes?\" first. Change an amount again and pick another character from the name: it asks " +
+        "first. Did the change stay, and did it ask both times?");
+
+    [ClientCheck("editor.save-one-backup", "Saving in the save editor makes one backup", Area = "Launcher", Since = Dev27,
+        Tags = [Launcher], Order = 410)]
+    public Task EditorSaveOneBackup(CheckContext c) => Outside(c,
+        "In the save editor with the game closed: change an amount and press Save. It says Saved. Open Backups: exactly " +
+        "one new \"Kiln backup\" is at the top, and the game's own backups are named as the game's. In the game, is the " +
+        "amount what you set? Was there one new backup, not two?");
+
+    [ClientCheck("editor.save-the-game-wrote", "The save editor does not overwrite a save the game wrote meanwhile",
+        Area = "Launcher", Since = Dev27, Tags = [Launcher], Order = 411)]
+    public Task EditorSaveTheGameWrote(CheckContext c) => Outside(c,
+        "Open the save editor and change nothing; play, let the game save, quit: within a few seconds the editor shows the " +
+        "character as the game left it. Then change an amount in the editor, play and let the game save again, quit, and " +
+        "press Save in the editor: it refuses and offers \"Read again\". Did it read by itself the first time and refuse " +
+        "the second time?");
+
+    [ClientCheck("editor.add-item-typing", "Typing in the save editor's Add item search", Area = "Launcher", Since = Dev27,
+        Tags = [Launcher], Order = 412)]
+    public Task EditorAddItemTyping(CheckContext c) => Outside(c,
+        "In the save editor, Add item: type a search quickly. Do the letters appear as you type, with the list following " +
+        "(the list itself may take as long as before)?");
+
     // ---- a Steam Deck ----
 
     [ClientCheck("deck.no-kiln", "\"No Kiln\" in the launcher on a Steam Deck", Area = "Steam Deck", Since = Dev16,
@@ -88,6 +117,33 @@ public sealed partial class ClientPassMod
     public Task DeckCookAgain(CheckContext c) => Outside(c,
         "On a Steam Deck, in the launcher's Mods screen: move to the WeaponMoves mod and press Y (Cook again). The row " +
         "says Cooking while it runs, then a message says \"Weapon Moves cooked\". Did it?");
+
+    [ClientCheck("deck.editor-items", "The save editor on the Steam Deck: items with the controller alone", Area = "Steam Deck",
+        Since = Dev27, Tags = [SteamDeck, Launcher], Order = 923)]
+    public Task DeckEditorItems(CheckContext c) => Outside(c,
+        "On a Steam Deck, the game closed: R1 to Editor. Your character is there and the panel on the right follows the " +
+        "D-pad over the backpack. A on a stack, A on its amount, 2, 0, 0, then Y: it says 200. A on an empty slot, Steam + " +
+        "X: the keyboard types into the search; A on an item, A again: it is added. X saves. In the game, is the stack " +
+        "200 and the added item there? Was anything too small to read or hard to reach?");
+
+    [ClientCheck("deck.editor-skills-knowledge", "The save editor on the Steam Deck: skills and knowledge", Area = "Steam Deck",
+        Since = Dev27, Tags = [SteamDeck, Launcher], Order = 924)]
+    public Task DeckEditorSkillsKnowledge(CheckContext c) => Outside(c,
+        "On a Steam Deck in the Editor tab: L2/R2 to Skills. The camera follows the D-pad, A raises a node and Y lowers " +
+        "it. Then Knowledge: A on \"Above level\", 3, 0, Y: the list is shorter. Did both work with the controller alone?");
+
+    [ClientCheck("deck.editor-backups-quit", "The save editor on the Steam Deck: backups, and Quit names unsaved changes",
+        Area = "Steam Deck", Since = Dev27, Tags = [SteamDeck, Launcher], Order = 925)]
+    public Task DeckEditorBackupsQuit(CheckContext c) => Outside(c,
+        "On a Steam Deck in the Editor tab: Backups, A on one, then Restore: the character is read again. Then change an " +
+        "amount and press Start, Quit: the dialog names the unsaved changes. Did the restore read the character again, " +
+        "and did Quit name the changes?");
+
+    [ClientCheck("deck.tabs-fast", "L1 and R1 pressed fast on the Steam Deck", Area = "Steam Deck", Since = Dev27,
+        Tags = [SteamDeck, Launcher], Order = 926)]
+    public Task DeckTabsFast(CheckContext c) => Outside(c,
+        "On a Steam Deck, from Home: press R1 several times fast, counting. Do you land on the tab you counted to (before " +
+        "0.2.0-dev.27 fast presses were skipped)?");
 
     // ---- another host ----
 
