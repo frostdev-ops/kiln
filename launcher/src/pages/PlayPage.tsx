@@ -131,7 +131,7 @@ function PlayFor({ game, ctl }: { game: GameInstall; ctl: PlayControl }) {
   const kiln = rt?.receipt?.runtime.version ?? boot?.kiln ?? null;
   const on = mods.count.on;
   // a start the runtime ended in safe idle or could not go on with says so, boot.json or not (progress.json's `why`)
-  const runLine = prep && !fresh ? prep.message
+  const runLine = v.label === "No word from Kiln" ? v.detail ?? "" : prep && !fresh ? prep.message
     : v.label === "Kiln stopped" ? `Kiln could not go on: ${ctl.lastTimeline?.why ?? "see kiln.log on the Logs page"}.`
     : v.label === "Safe idle" && !fresh ? `Kiln is in safe idle: ${ctl.lastTimeline?.why ?? "mods stay off"}.` : v.phase === "vanilla" ? "Started without Kiln." : ctl.kilnMissing ? "Running without Kiln: Steam did not load it this start." : !fresh ? "The game is running. No Kiln boot record for this start." : boot?.profile?.mode === "no-mods" ? `Running with Kiln ${boot?.kiln} and no mods.`
     : v.label === "Safe idle" ? `Kiln is in safe idle: ${boot?.safeIdle ?? ctl.lastTimeline?.why ?? "mods stay off"}.` : `Running with Kiln ${kiln ?? ""}${mods.profile ? ` and ${on} mod${on === 1 ? "" : "s"}` : ""}.`;

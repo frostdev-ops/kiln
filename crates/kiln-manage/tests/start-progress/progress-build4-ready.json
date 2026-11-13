@@ -1,0 +1,122 @@
+{
+ "atMs": 58885,
+ "format": 1,
+ "kiln": "0.2.0-dev.27+20261113.f7ca807",
+ "pid": 392,
+ "plan": [
+  "start",
+  "native-early",
+  "early-plugins",
+  "signatures",
+  "services",
+  "plugins",
+  "native",
+  "dotnet",
+  "mods",
+  "content",
+  "game"
+ ],
+ "side": "client",
+ "started": "2026-11-13T18:49:58.932Z",
+ "state": "ready",
+ "steps": [
+  {
+   "id": "start",
+   "label": "Reading Kiln's settings and the profile",
+   "ms": 0,
+   "tookMs": 110
+  },
+  {
+   "id": "native-early",
+   "label": "Waiting for other loaders' code scans",
+   "ms": 110,
+   "tookMs": 628
+  },
+  {
+   "done": 4,
+   "id": "early-plugins",
+   "label": "Running the early plugins",
+   "ms": 738,
+   "parts": [
+    {
+     "label": "ShroudForge",
+     "tookMs": 18392
+    }
+   ],
+   "tookMs": 18457,
+   "total": 4
+  },
+  {
+   "id": "signatures",
+   "label": "Finding the game's functions",
+   "ms": 19195,
+   "tookMs": 302
+  },
+  {
+   "done": 33,
+   "id": "services",
+   "label": "Starting Kiln's services",
+   "ms": 19497,
+   "tookMs": 692,
+   "total": 33
+  },
+  {
+   "done": 29,
+   "id": "plugins",
+   "label": "Getting Kiln's services and plugins ready",
+   "ms": 20189,
+   "parts": [
+    {
+     "label": "kiln-assets: getting ready",
+     "tookMs": 2454
+    },
+    {
+     "label": "kiln-vfx: getting ready",
+     "tookMs": 22163
+    },
+    {
+     "label": "Greeneye: getting ready",
+     "tookMs": 1156
+    }
+   ],
+   "tookMs": 26417,
+   "total": 29
+  },
+  {
+   "id": "native",
+   "label": "Starting native mods",
+   "ms": 46606,
+   "tookMs": 0
+  },
+  {
+   "detail": "Kiln.Host",
+   "id": "dotnet",
+   "label": "Starting .NET",
+   "ms": 46606,
+   "tookMs": 130
+  },
+  {
+   "done": 6,
+   "id": "mods",
+   "label": "Loading the mods",
+   "ms": 46736,
+   "tookMs": 8411,
+   "total": 6
+  },
+  {
+   "done": 212,
+   "id": "content",
+   "label": "Applying the mods' content",
+   "ms": 55147,
+   "tookMs": 1610,
+   "total": 212
+  },
+  {
+   "id": "game",
+   "label": "The game is loading its main menu",
+   "ms": 56757,
+   "tookMs": 2128
+  }
+ ],
+ "why": null
+}

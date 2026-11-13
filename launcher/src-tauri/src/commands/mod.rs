@@ -81,6 +81,7 @@ pub const NAMES: &[&str] = &[
     "launch_prestart",
     "launch_begin",
     "launch_progress",
+    "launch_end",
     "logs_list",
     "logs_read",
     "logs_follow",

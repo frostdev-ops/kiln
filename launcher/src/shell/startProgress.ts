@@ -3,8 +3,21 @@
 // bar says to a screen reader. Shared by the Play page, the top bar's pill, the mouth and the Deck's Home.
 import type { PreStart, StartStep, StartTimeline } from "../api/commands";
 
-/** Phases in which the start is still going: the bar shows. */
-export const ACTIVE = new Set(["launcher", "waiting", "booting", "loading", "quiet"]);
+/** Phases in which the start is still going: the bar shows. `quiet` (no word from Kiln for 60 s) is not one: it is
+ *  said as what it is, without a bar or a countdown (quietText). */
+export const ACTIVE = new Set(["launcher", "waiting", "booting", "loading"]);
+/** Steam was asked this long ago and no game came: the start is over (kiln_manage::start_progress::STEAM_WAIT_MS; the
+ *  browser tests set a shorter one before the page loads, `window.__kilnSteamWaitMs`). */
+export const STEAM_WAIT_MS: number = (globalThis as { __kilnSteamWaitMs?: number }).__kilnSteamWaitMs ?? 5 * 60_000;
+
+/** The sentence of a start Kiln has said nothing about for 60 s (120 s in the early plugins). */
+export function quietText(t: StartTimeline): string {
+  const s = t.running != null ? t.steps[t.running] : null;
+  const secs = Math.round((t.quietMs ?? 0) / 1000);
+  // a client that loads its mods only at the first world waits at `mods` with nothing done: the game is at its menu
+  if (s?.id === "mods" && !s.done) return "The game is waiting at its menu: Kiln loads the mods when the game asks for them (on some PCs only once a world loads).";
+  return `Kiln has said nothing for ${secs} s${s ? ` (last: ${s.label})` : ""}. A step can be slow on a busy PC; if the game does not move, close it and save a support report on the Logs page.`;
+}
 /** The timeline is shown in place of the boot stages (a dev.26 runtime's `legacy` and the end states are not). */
 export const showsProgress = (t: StartTimeline | null | undefined): t is StartTimeline => !!t && ACTIVE.has(t.phase);
 
@@ -69,9 +82,6 @@ export function startWords(t: StartTimeline, fraction: number, prep?: PreStart |
   // the game's process exists, Kiln has not said anything yet (a 0.2.0-dev.26 runtime never does: its boot.json then
   // ends the bar, as it ended "Waiting for Kiln to boot" before)
   if (t.phase === "waiting") line = "Waiting for Kiln to boot";
-  // a client that loads its mods only at the first world waits at `mods` with nothing done: the game is at its menu
-  if (t.phase === "quiet" && running?.id === "mods" && !running.done) line = "The game is waiting at its menu: Kiln loads the mods when the game asks for them (on some PCs only once a world loads)";
-  else if (t.phase === "quiet") line = `${running ? `${running.label}: ` : ""}Kiln has said nothing for ${Math.round((t.quietMs ?? 0) / 1000)} s. A step can be slow on a busy PC; if the game does not move, close it and save a support report on the Logs page`;
   const first = e.leftMs === null;
   let left: string;
   let short: string;

@@ -31,6 +31,8 @@ pub const BASIS: usize = 5;
 pub const QUIET_MS: u64 = 60_000;
 /// The same inside `early-plugins`, where kiln-eml's eml.json is the finer source.
 pub const QUIET_EARLY_MS: u64 = 120_000;
+/// Steam was asked this long ago and no game process came: the start is over.
+pub const STEAM_WAIT_MS: u64 = 5 * 60_000;
 /// A running step that has taken this many times its usual time is "taking longer than usual" (as a fraction: 3/2).
 pub const SLOW: (u64, u64) = (3, 2);
 
@@ -127,10 +129,35 @@ impl Progress {
     }
 }
 
-/// The text of a progress.json: format 1 with a start time it can read, else None (a newer format is not guessed at).
+/// The longest a start or any of its steps can take: a time beyond it is not a time a start took (a file outside the
+/// bounds is not readable).
+pub const MAX_MS: u64 = 24 * 3600 * 1000;
+/// The most things a step can count (`done`, `total`).
+pub const MAX_COUNT: u64 = 10_000_000;
+
+fn in_bounds_ms(v: u64) -> bool {
+    v <= MAX_MS
+}
+
+impl Progress {
+    /// Every time within [`MAX_MS`], every count within [`MAX_COUNT`].
+    pub fn in_bounds(&self) -> bool {
+        in_bounds_ms(self.at_ms)
+            && self.steps.iter().all(|s| {
+                in_bounds_ms(s.ms)
+                    && s.took_ms.is_none_or(in_bounds_ms)
+                    && s.done.is_none_or(|d| d <= MAX_COUNT)
+                    && s.total.is_none_or(|t| t <= MAX_COUNT)
+                    && s.parts.iter().all(|x| in_bounds_ms(x.took_ms))
+            })
+    }
+}
+
+/// The text of a progress.json: format 1 with a start time it can read and every number within its bounds
+/// ([`Progress::in_bounds`]), else None (a newer format is not guessed at).
 pub fn parse_progress(text: &str) -> Option<Progress> {
     let p: Progress = serde_json::from_str(text.trim_start_matches('\u{feff}')).ok()?;
-    (p.format == 1 && parse_ms(&p.started).is_some()).then_some(p)
+    (p.format == 1 && parse_ms(&p.started).is_some() && p.in_bounds()).then_some(p)
 }
 
 /// RFC 3339 UTC with milliseconds -> unix milliseconds.
@@ -194,11 +221,17 @@ pub struct KeptStep {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct KeptStart {
-    /// The Kiln runtime in the game (the install receipt's version, else progress.json's).
+    /// The Kiln runtime that ran: progress.json's `kiln` (with the build stamp). The one identity a start is stored
+    /// and looked up by ([`version_identity`]).
     pub kiln: String,
+    /// The install receipt's version when the start was made: how a start that has not written progress.json yet
+    /// finds the `kiln` of earlier starts with the same runtime ([`version_identity`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runtime: Option<String>,
     /// The kms1 of what the start loaded.
     pub fingerprint: String,
     /// When it reached `ready` (RFC 3339).
+    #[serde(default)]
     pub finished: String,
     /// progress.json's `started`: one start is kept once, whoever keeps it.
     #[serde(default)]
@@ -212,8 +245,21 @@ impl KeptStart {
         self.steps.iter().find(|s| s.id == id)
     }
     pub fn total_ms(&self) -> u64 {
-        self.steps.iter().map(|s| s.ms).sum()
+        self.steps.iter().fold(0u64, |a, s| a.saturating_add(s.ms))
     }
+    fn in_bounds(&self) -> bool {
+        self.steps.iter().all(|s| in_bounds_ms(s.ms) && s.total.is_none_or(|t| t <= MAX_COUNT) && s.parts.iter().all(|p| in_bounds_ms(p.ms)))
+    }
+}
+
+/// The version a start is looked up by: progress.json's `kiln` once the game wrote it; before that, the `kiln` of the
+/// newest kept start made with the same installed runtime (the receipt's version); without one, the receipt's version.
+pub fn version_identity(progress_kiln: Option<&str>, receipt: Option<&str>, history: &[KeptStart]) -> Option<String> {
+    if let Some(k) = progress_kiln {
+        return Some(k.to_string());
+    }
+    let r = receipt?;
+    Some(history.iter().rev().find(|s| s.runtime.as_deref() == Some(r)).map_or_else(|| r.to_string(), |s| s.kiln.clone()))
 }
 
 /// `<data>/state/start-times.json` (format 1): per game install id, its last [`KEEP`] finished starts, oldest first.
@@ -235,11 +281,50 @@ pub fn history_path(dirs: &DataDirs) -> PathBuf {
     dirs.root.join(HISTORY[0]).join(HISTORY[1])
 }
 
-/// The history; empty when there is none, it cannot be read, or it has another format (deleting it loses only the
-/// estimates).
+/// What is in the history's file.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HistoryFile {
+    /// No file yet.
+    Missing,
+    /// A format 1 file within the bounds.
+    Read(StartTimes),
+    /// A file of a newer format (`format` > 1): left alone, no estimates.
+    Newer(u64),
+    /// A file that is not readable as any format (not JSON, no `format`, or format 1 that does not parse or is out of
+    /// bounds): left alone, no estimates; why, in a sentence.
+    Unreadable(String),
+}
+
+/// Reads the history's file: the `format` first, then the format 1 shape. A newer or unreadable file is never taken
+/// for an empty one.
+pub fn read_history_file(dirs: &DataDirs) -> HistoryFile {
+    let path = history_path(dirs);
+    let bytes = match std::fs::read(&path) {
+        Ok(b) => b,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return HistoryFile::Missing,
+        Err(e) => return HistoryFile::Unreadable(format!("{}: {e}", path.display())),
+    };
+    let bytes = bytes.strip_prefix(b"\xef\xbb\xbf").unwrap_or(&bytes);
+    let value: serde_json::Value = match serde_json::from_slice(bytes) {
+        Ok(v) => v,
+        Err(e) => return HistoryFile::Unreadable(format!("{}: {e}", path.display())),
+    };
+    match value.get("format").and_then(serde_json::Value::as_u64) {
+        Some(1) => match serde_json::from_value::<StartTimes>(value) {
+            Ok(h) if h.installs.values().flatten().all(KeptStart::in_bounds) => HistoryFile::Read(h),
+            Ok(_) => HistoryFile::Unreadable(format!("{}: a time beyond a day", path.display())),
+            Err(e) => HistoryFile::Unreadable(format!("{}: {e}", path.display())),
+        },
+        Some(f) if f > 1 => HistoryFile::Newer(f),
+        _ => HistoryFile::Unreadable(format!("{}: no format 1", path.display())),
+    }
+}
+
+/// The history; empty when there is none, or when it is of a newer format or not readable (then it is left as it is:
+/// [`keep`] does not write over it).
 pub fn read_history(dirs: &DataDirs) -> StartTimes {
-    match crate::util::read_json::<StartTimes>(&history_path(dirs)) {
-        Ok(Some(h)) if h.format == 1 => h,
+    match read_history_file(dirs) {
+        HistoryFile::Read(h) => h,
         _ => StartTimes::default(),
     }
 }
@@ -249,22 +334,37 @@ pub fn history_of(dirs: &DataDirs, install_id: &str) -> Vec<KeptStart> {
     read_history(dirs).installs.remove(install_id).unwrap_or_default()
 }
 
+/// What [`keep`] did.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Kept {
+    Kept,
+    /// This start was kept before (the watcher and the window both see `ready`).
+    Already,
+    /// The file is of a newer format or not readable: nothing was written over it (the sentence for the log).
+    LeftAlone(String),
+}
+
 /// Keeps a finished start: under the history's lock (`state/start-times.lock`, two launchers may share the data
 /// folder), once per `started` of the install, the last [`KEEP`] only, written atomically through a temporary file of
-/// its own. A file of another format is left as it is (false). True: kept now.
-pub fn keep(dirs: &DataDirs, install_id: &str, start: KeptStart) -> Result<bool> {
+/// its own. A file of a newer format, or one that is not readable, is left as it is ([`Kept::LeftAlone`]).
+pub fn keep(dirs: &DataDirs, install_id: &str, start: KeptStart) -> Result<Kept> {
     let path = history_path(dirs);
     let _lock = crate::state::lock_file(&path.with_file_name("start-times.lock"), Duration::from_secs(3), &|| false,
         "Another Kiln Launcher is writing the start times.")?;
-    let mut h = match crate::util::read_json::<StartTimes>(&path) {
-        Ok(Some(h)) if h.format != 1 => return Ok(false),
-        Ok(Some(h)) => h,
-        // unreadable: started anew (it only holds estimates)
-        Ok(None) | Err(_) => StartTimes::default(),
+    let mut h = match read_history_file(dirs) {
+        HistoryFile::Missing => StartTimes::default(),
+        HistoryFile::Read(h) => h,
+        HistoryFile::Newer(f) => return Ok(Kept::LeftAlone(format!(
+            "{} is of a newer format ({f}) than this launcher knows: it is left as it is, and this launcher gives no time estimates", path.display()))),
+        HistoryFile::Unreadable(why) => return Ok(Kept::LeftAlone(format!(
+            "the start times are not readable ({why}): the file is left as it is and no time estimates are given; delete it to start them again"))),
     };
+    if !start.in_bounds() {
+        return Ok(Kept::LeftAlone("a start with a time beyond a day is not kept".into()));
+    }
     let list = h.installs.entry(install_id.to_string()).or_default();
     if !start.started.is_empty() && list.iter().any(|s| s.started == start.started) {
-        return Ok(false);
+        return Ok(Kept::Already);
     }
     list.push(start);
     let extra = list.len().saturating_sub(KEEP);
@@ -272,7 +372,7 @@ pub fn keep(dirs: &DataDirs, install_id: &str, start: KeptStart) -> Result<bool>
     let mut text = serde_json::to_string_pretty(&h)?;
     text.push('\n');
     crate::util::write_atomic_exclusive(&path, text.as_bytes())?;
-    Ok(true)
+    Ok(Kept::Kept)
 }
 
 // ---------------------------------------------------------------- the launcher's own steps
@@ -343,6 +443,15 @@ impl LauncherStart {
 
     fn rel(&self, now: i64) -> u64 {
         (now - self.began).max(0) as u64
+    }
+
+    /// When the last of its steps ended, if none runs and Steam was not asked yet (the launcher waits for the next
+    /// step: launch_play after the cook); milliseconds since the start began.
+    pub fn waiting_since(&self) -> Option<u64> {
+        if self.asked || self.running().is_some() {
+            return None;
+        }
+        self.steps.last().map(|s| s.ms.saturating_add(s.took_ms.unwrap_or(0)))
     }
 
     pub fn running(&self) -> Option<&LauncherStep> {
@@ -476,7 +585,7 @@ fn median(mut v: Vec<u64>) -> Option<u64> {
     }
     v.sort_unstable();
     let n = v.len();
-    Some(if n % 2 == 1 { v[n / 2] } else { (v[n / 2 - 1] + v[n / 2]) / 2 })
+    Some(if n % 2 == 1 { v[n / 2] } else { ((v[n / 2 - 1] as u128 + v[n / 2] as u128) / 2) as u64 })
 }
 
 /// A step's usual time (contract section 2): the median over the last up to [`BASIS`] kept starts with the same Kiln
@@ -492,7 +601,7 @@ pub fn usual(history: &[KeptStart], id: &str, total: Option<u64>, keys: &[String
             let v: Vec<u64> = history.iter().rev().filter_map(|r| r.step(id)?.parts.iter().find(|p| &p.key == k).map(|p| p.ms)).take(BASIS).collect();
             starts = starts.max(v.len() as u32);
             match median(v) {
-                Some(m) => sum += m,
+                Some(m) => sum = u64::saturating_add(sum, m),
                 None => all = false,
             }
         }
@@ -508,7 +617,7 @@ pub fn usual(history: &[KeptStart], id: &str, total: Option<u64>, keys: &[String
     }
     let any: Vec<u64> = history.iter().rev().filter_map(|r| r.step(id)).take(BASIS)
         .map(|s| match (total, s.total) {
-            (Some(t), Some(was)) if t > 0 && was > 0 => s.ms.saturating_mul(t) / was,
+            (Some(t), Some(was)) if t > 0 && was > 0 => (s.ms as u128 * t as u128 / was as u128).min(MAX_MS as u128) as u64,
             _ => s.ms,
         }).collect();
     if any.is_empty() {
@@ -575,16 +684,16 @@ pub fn estimate_by(plan: &[String], steps: &[StepNow], now: u64, history: &[Kept
                 let elapsed = now.saturating_sub(s.ms);
                 let by_usual = u.map(|u| running_left(s, u.ms, now, history, id));
                 let by_rate = match (s.done, s.total) {
-                    (Some(d), Some(t)) if d > 0 && elapsed >= 2000 => Some(elapsed.saturating_mul(t.saturating_sub(d)) / d),
+                    (Some(d), Some(t)) if d > 0 && elapsed >= 2000 => Some((elapsed as u128 * t.saturating_sub(d) as u128 / d as u128).min(MAX_MS as u128) as u64),
                     _ => None,
                 };
-                if let Some(u) = u
-                    && u.ms > 0
-                    && elapsed.saturating_mul(SLOW.1) >= u.ms.saturating_mul(SLOW.0)
-                {
+                let is_slow = u.is_some_and(|u| u.ms > 0 && elapsed.saturating_mul(SLOW.1) >= u.ms.saturating_mul(SLOW.0));
+                if is_slow && let Some(u) = u {
                     slow = Some(Slow { id: id.clone(), usual_ms: u.ms });
                 }
                 match (by_usual, by_rate) {
+                    // the slow rule decides first: its share is spent, the time left never grows under "longer than usual"
+                    (Some(a), _) if is_slow => Some(a),
                     (Some(a), Some(_)) if rule == RateRule::SameFirst && u.is_some_and(|u| u.same) => Some(a),
                     (Some(a), Some(b)) => Some(a.max(b)),
                     (a, b) => a.or(b),
@@ -597,14 +706,14 @@ pub fn estimate_by(plan: &[String], steps: &[StepNow], now: u64, history: &[Kept
             None => u.map(|u| u.ms),
         };
         left = match (left, rest) {
-            (Some(a), Some(b)) => Some(a + b),
+            (Some(a), Some(b)) => Some(a.saturating_add(b)),
             _ => None,
         };
     }
     let planned = plan.len() as u32;
     let (fraction, by_time) = match left {
         _ if ready => (1.0, left.is_some()),
-        Some(l) if now + l > 0 => ((now as f64 / (now + l) as f64).min(0.99), true),
+        Some(l) if now.saturating_add(l) > 0 => ((now as f64 / (now as f64 + l as f64)).min(0.99), true),
         Some(_) => (0.0, true),
         None => ((done as f64 / planned.max(1) as f64).min(0.99), false),
     };
@@ -622,7 +731,7 @@ fn running_left(s: &StepNow, usual_ms: u64, now: u64, history: &[KeptStart], id:
         if let Some(each) = each {
             let ended = s.parts.iter().filter(|p| p.ms > 0).count();
             let running = each.get(ended).map_or(0, |u| u.saturating_sub(now.saturating_sub(s.part_ms)));
-            return running + each.iter().skip(ended + 1).sum::<u64>();
+            return each.iter().skip(ended + 1).fold(running, |a, b| a.saturating_add(*b));
         }
     }
     usual_ms.saturating_sub(now.saturating_sub(s.ms))
@@ -690,7 +799,7 @@ pub struct Timeline {
     pub phase: Phase,
     /// `idle` and `failed`: the runtime's sentence.
     pub why: Option<String>,
-    /// The Kiln runtime (progress.json's, else the install's).
+    /// The Kiln runtime's identity ([`version_identity`]).
     pub kiln: Option<String>,
     /// When the start began (Play, else Kiln's boot), RFC 3339 with milliseconds.
     pub started: String,
@@ -722,6 +831,7 @@ pub struct Inputs<'a> {
     pub now: i64,
     /// This install's kept starts, oldest first.
     pub history: &'a [KeptStart],
+    /// The install receipt's runtime version (progress.json's `kiln` wins once there: [`version_identity`]).
     pub kiln: Option<&'a str>,
     pub fingerprint: Option<&'a str>,
 }
@@ -744,8 +854,9 @@ pub fn timeline(i: &Inputs) -> Option<Timeline> {
     }
     let p_started = p.and_then(|p| parse_ms(&p.started));
     let t0 = l.map(|l| l.began).or(p_started)?;
-    let now = (i.now - t0).max(0) as u64;
-    let kiln = p.and_then(|p| p.kiln.clone()).or(i.kiln.map(str::to_string));
+    let now = i.now.saturating_sub(t0).max(0) as u64;
+    // one identity for storing and looking up: progress.json's `kiln` (before it, found through the receipt's version)
+    let kiln = version_identity(p.and_then(|p| p.kiln.as_deref()), i.kiln, i.history);
     // the launcher's steps
     let mut steps: Vec<StepNow> = Vec::new();
     let mut shown: Vec<TimelineStep> = Vec::new();
@@ -757,7 +868,7 @@ pub fn timeline(i: &Inputs) -> Option<Timeline> {
                 // Steam's step ends when the game's process exists (or Kiln's boot began, if that is earlier)
                 let end = [i.process, p_started].into_iter().flatten().min();
                 if let Some(e) = end.filter(|_| i.running || p.is_some()) {
-                    took = Some(((e - t0).max(0) as u64).saturating_sub(s.ms));
+                    took = Some((e.saturating_sub(t0).max(0) as u64).saturating_sub(s.ms));
                 }
             }
             steps.push(StepNow { id: s.id.clone(), ms: s.ms, took_ms: took, done: s.done, total: s.total, keys: s.keys.clone(), parts: s.parts.clone(), part_ms: s.part_ms });
@@ -769,13 +880,13 @@ pub fn timeline(i: &Inputs) -> Option<Timeline> {
     // before progress.json: the last start's runtime steps, else the contract's list (shown as to come, no number)
     let known = match p {
         Some(p) => Some(p.plan.clone()),
-        None => runtime_plan_from(i.history, i.kiln, i.fingerprint),
+        None => runtime_plan_from(i.history, kiln.as_deref(), i.fingerprint),
     };
     let planned_runtime = known.is_some();
     let runtime_plan = known.unwrap_or_else(|| RUNTIME_STEPS.iter().map(|s| s.to_string()).collect());
     plan.extend(runtime_plan.iter().filter(|id| !LAUNCHER_STEPS.contains(&id.as_str())).cloned());
     if let (Some(p), Some(ps)) = (p, p_started) {
-        let base = (ps - t0).max(0) as u64;
+        let base = ps.saturating_sub(t0).max(0) as u64;
         // a launcher step still open when Kiln's boot began ends there
         let base = base.max(steps.iter().map(|s| s.ms).max().unwrap_or(0));
         let n = p.steps.len();
@@ -783,9 +894,10 @@ pub fn timeline(i: &Inputs) -> Option<Timeline> {
             let took = s.took_ms.or_else(|| p.steps.get(k + 1).map(|next| next.ms.saturating_sub(s.ms)))
                 .or_else(|| (k + 1 == n && p.is_final()).then(|| p.at_ms.saturating_sub(s.ms)));
             let parts = s.parts.iter().map(|x| KeptPart { key: x.label.clone(), label: None, ms: x.took_ms }).collect();
-            steps.push(StepNow { id: s.id.clone(), ms: base + s.ms, took_ms: took, done: s.done, total: s.total, keys: Vec::new(), parts, part_ms: base + s.ms });
+            let at = base.saturating_add(s.ms);
+            steps.push(StepNow { id: s.id.clone(), ms: at, took_ms: took, done: s.done, total: s.total, keys: Vec::new(), parts, part_ms: at });
             shown.push(TimelineStep { id: s.id.clone(), label: if s.label.is_empty() { default_label(&s.id).into() } else { s.label.clone() },
-                detail: s.detail.clone(), done: s.done, total: s.total, ms: Some(base + s.ms), took_ms: took, usual_ms: None, state: StepState::Done, launcher: false });
+                detail: s.detail.clone(), done: s.done, total: s.total, ms: Some(at), took_ms: took, usual_ms: None, state: StepState::Done, launcher: false });
             if !plan.contains(&s.id) {
                 plan.push(s.id.clone());
             }
@@ -819,7 +931,7 @@ pub fn timeline(i: &Inputs) -> Option<Timeline> {
         out.push(t);
     }
     let running = out.iter().position(|s| s.state == StepState::Running);
-    let quiet_ms = p.and(i.written).map(|w| (i.now - w).max(0) as u64);
+    let quiet_ms = p.and(i.written).map(|w| i.now.saturating_sub(w).max(0) as u64);
     let in_early = running.is_some_and(|r| out[r].id == "early-plugins");
     let phase = match p {
         Some(p) => match p.state.as_str() {
@@ -832,6 +944,8 @@ pub fn timeline(i: &Inputs) -> Option<Timeline> {
             _ => Phase::Booting,
         },
         None if l.is_some_and(|l| l.seen) && !i.running => Phase::Ended,
+        // Steam was asked and no game came: the start is over (the window goes back to Play)
+        None if !i.running && l.is_some_and(|l| l.asked && l.steps.iter().find(|s| s.id == "steam").is_some_and(|s| now.saturating_sub(s.ms) >= STEAM_WAIT_MS)) => Phase::Ended,
         None if i.running && i.boot => Phase::Legacy,
         None if i.running => Phase::Waiting,
         None => Phase::Launcher,
@@ -850,11 +964,13 @@ pub fn timeline(i: &Inputs) -> Option<Timeline> {
     })
 }
 
-/// The kept form of a start that reached `ready` (None: it did not).
-pub fn kept_from(t: &Timeline, progress: &Progress, kiln: &str, fingerprint: &str, finished: i64, launcher: Option<&LauncherStart>) -> Option<KeptStart> {
+/// The kept form of a start that reached `ready` (None: it did not). It is stored under the timeline's version identity
+/// (progress.json's `kiln`), with the install receipt's version beside it (`receipt`, [`version_identity`]).
+pub fn kept_from(t: &Timeline, progress: &Progress, receipt: Option<&str>, fingerprint: &str, finished: i64, launcher: Option<&LauncherStart>) -> Option<KeptStart> {
     if t.phase != Phase::Ready {
         return None;
     }
+    let kiln = t.kiln.clone().or_else(|| receipt.map(str::to_string)).unwrap_or_default();
     let steps = t.steps.iter().filter(|s| s.ms.is_some()).map(|s| {
         let parts = if s.launcher {
             launcher.and_then(|l| l.steps.iter().find(|x| x.id == s.id)).map(|x| x.parts.iter().filter(|p| p.ms > 0).cloned().collect()).unwrap_or_default()
@@ -864,11 +980,72 @@ pub fn kept_from(t: &Timeline, progress: &Progress, kiln: &str, fingerprint: &st
         };
         KeptStep { id: s.id.clone(), ms: s.took_ms.unwrap_or(0), total: s.total, parts }
     }).collect();
-    Some(KeptStart { kiln: kiln.into(), fingerprint: fingerprint.into(), finished: fmt_ms(finished), started: progress.started.clone(), steps })
+    Some(KeptStart { kiln, runtime: receipt.map(str::to_string), fingerprint: fingerprint.into(), finished: fmt_ms(finished), started: progress.started.clone(), steps })
+}
+
+/// The bar's highest point per start (by `Timeline::started`), kept by the launcher: the bar never moves back between
+/// two looks, whoever looks (the Play page, the pill, the Deck, a second window).
+#[derive(Debug, Default)]
+pub struct Steady {
+    max: BTreeMap<String, f64>,
+}
+
+impl Steady {
+    pub fn apply(&mut self, t: &mut Timeline) {
+        if self.max.len() > 16 && !self.max.contains_key(&t.started) {
+            self.max.clear();
+        }
+        let m = self.max.entry(t.started.clone()).or_insert(0.0);
+        if t.estimate.fraction >= *m {
+            *m = t.estimate.fraction;
+        } else {
+            t.estimate.fraction = *m;
+        }
+    }
+}
+
+/// One look at a game's start as the launcher makes it (`launch_progress`, and the watcher when progress.json changes):
+/// the timeline from this launcher's own steps, the game's side and the history, with the bar kept from moving back,
+/// and the start kept in the history once it reached `ready` (unless `launcher` says it was kept already).
+pub struct Round {
+    pub timeline: Option<Timeline>,
+    /// What keeping the start did, when it reached `ready` now.
+    pub kept: Option<Kept>,
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn round(dirs: &DataDirs, install_id: &str, launcher: Option<&LauncherStart>, side: &GameSide, receipt: Option<&str>, fingerprint: Option<&str>,
+             now: i64, steady: &mut Steady) -> Round {
+    let history = history_of(dirs, install_id);
+    let Some(mut tl) = timeline(&Inputs {
+        launcher,
+        progress: side.progress.as_ref(),
+        written: side.written,
+        process: side.process,
+        running: side.running,
+        boot: side.boot,
+        now,
+        history: &history,
+        kiln: receipt,
+        fingerprint,
+    }) else {
+        return Round { timeline: None, kept: None };
+    };
+    steady.apply(&mut tl);
+    let mut kept = None;
+    if tl.phase == Phase::Ready
+        && let Some(p) = side.progress.as_ref()
+        && !launcher.is_some_and(|l| l.kept)
+        && let Some(k) = kept_from(&tl, p, receipt, fingerprint.unwrap_or_default(), now, launcher)
+    {
+        kept = Some(keep(dirs, install_id, k).unwrap_or_else(|e| Kept::LeftAlone(e.message)));
+    }
+    Round { timeline: Some(tl), kept }
 }
 
 /// Reads what the game's side says for `install` at `now`: progress.json (current or None), its write time, the
 /// process start, whether boot.json is current. The launcher's [`timeline`] call takes these.
+#[derive(Debug, Clone, Default)]
 pub struct GameSide {
     pub progress: Option<Progress>,
     pub written: Option<i64>,

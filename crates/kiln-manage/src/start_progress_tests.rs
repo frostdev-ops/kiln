@@ -188,7 +188,7 @@ impl Owner {
             let (tl, l, p) = self.at(t, history);
             seen.push((t, tl.clone()));
             if tl.phase == Phase::Ready {
-                let kept = kept_from(&tl, p.as_ref().unwrap(), KILN, FP, BASE + t as i64, Some(&l)).expect("kept at ready");
+                let kept = kept_from(&tl, p.as_ref().unwrap(), Some(KILN), self.fp, BASE + t as i64, Some(&l)).expect("kept at ready");
                 return (kept, seen);
             }
             t = (t + 1_000).min(self.end());
@@ -358,7 +358,7 @@ fn a_mods_cook_has_its_own_history_so_the_second_start_says_how_long_it_still_co
 
 #[test]
 fn usual_times_take_the_same_kiln_and_mods_first_then_the_install_scaled_by_total() {
-    let rec = |kiln: &str, fp: &str, ms: u64, total: Option<u64>| KeptStart { kiln: kiln.into(), fingerprint: fp.into(), finished: String::new(),
+    let rec = |kiln: &str, fp: &str, ms: u64, total: Option<u64>| KeptStart { kiln: kiln.into(), runtime: None, fingerprint: fp.into(), finished: String::new(),
         started: String::new(), steps: vec![KeptStep { id: "mods".into(), ms, total, parts: vec![] }] };
     let h = vec![rec("a", "x", 10_000, Some(4)), rec("a", "y", 50_000, Some(20)), rec("a", "x", 14_000, Some(4)), rec("b", "x", 30_000, Some(4))];
     assert_eq!(usual(&h, "mods", Some(4), &[], Some("a"), Some("x")), Some(Usual { ms: 12_000, starts: 2, same: true }), "the median of the two");
@@ -424,7 +424,7 @@ fn silence_idle_failure_an_ended_game_and_a_runtime_without_progress_are_not_pro
     idle.why = Some("the game's code is not the one Kiln knows (build 26430625)".into());
     let tl = timeline(&Inputs { progress: Some(&idle), ..base.clone() }).unwrap();
     assert_eq!((tl.phase, tl.why.as_deref()), (Phase::Idle, idle.why.as_deref()));
-    assert!(kept_from(&tl, &idle, KILN, FP, now, Some(&l)).is_none(), "only a start that reached ready is kept");
+    assert!(kept_from(&tl, &idle, Some(KILN), FP, now, Some(&l)).is_none(), "only a start that reached ready is kept");
     let mut failed = p.clone();
     failed.state = "failed".into();
     failed.why = Some("x".into());
@@ -448,24 +448,17 @@ fn the_history_keeps_ten_starts_per_install_once_each_under_its_lock() {
     for i in 0..12 {
         let mut k = first.clone();
         k.started = format!("2026-11-13T17:{i:02}:00.000Z");
-        assert!(keep(&dirs, "client-a", k).unwrap());
+        assert_eq!(keep(&dirs, "client-a", k).unwrap(), Kept::Kept);
     }
     let mut again = first.clone();
     again.started = "2026-11-13T17:11:00.000Z".into();
-    assert!(!keep(&dirs, "client-a", again).unwrap(), "the same start is kept once (the watcher and the window both see ready)");
-    assert!(keep(&dirs, "client-b", first.clone()).unwrap());
+    assert_eq!(keep(&dirs, "client-a", again).unwrap(), Kept::Already, "the same start is kept once (the watcher and the window both see ready)");
+    assert_eq!(keep(&dirs, "client-b", first.clone()).unwrap(), Kept::Kept);
     let h = read_history(&dirs);
     assert_eq!(h.installs["client-a"].len(), KEEP);
     assert_eq!(h.installs["client-a"][0].started, "2026-11-13T17:02:00.000Z", "the oldest go");
     assert_eq!(history_of(&dirs, "client-b").len(), 1);
     assert!(history_path(&dirs).ends_with("state/start-times.json"));
-    // another format is never overwritten; a broken file only loses the estimates
-    std::fs::write(history_path(&dirs), r#"{"format":2,"installs":{}}"#).unwrap();
-    assert!(!keep(&dirs, "client-a", first.clone()).unwrap());
-    assert!(read_history(&dirs).installs.is_empty());
-    std::fs::write(history_path(&dirs), "not json").unwrap();
-    assert!(keep(&dirs, "client-a", first).unwrap());
-    assert_eq!(history_of(&dirs, "client-a").len(), 1);
     let _ = std::fs::remove_dir_all(&root);
 }
 
@@ -483,4 +476,241 @@ fn the_runtimes_own_example_reads_with_its_plugins_step_running() {
     assert_eq!(tl.steps.iter().filter(|s| s.state == StepState::Done).count(), 5);
     assert_eq!(tl.estimate.steps_planned, 11);
     assert!(tl.estimate.left_ms.is_none(), "no history: no number");
+}
+
+/// Review P1: a history of a newer format, whatever its shape, and a file that is not readable as any format, are left
+/// alone: no estimates, nothing written over them, and the reason to log.
+#[test]
+fn a_newer_or_unreadable_history_is_never_written_over() {
+    let root = std::env::temp_dir().join(format!("kiln-start-times-newer-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    let dirs = DataDirs::at(&root);
+    let (first, _) = Owner::start().play(&[]);
+    std::fs::create_dir_all(root.join("state")).unwrap();
+    for (text, newer) in [
+        (r#"{"format":2,"starts":[{"install":"client-a","what":"another shape"}]}"#, true),
+        (r#"{"format":2,"installs":{}}"#, true),
+        ("not json", false),
+        (r#"{"installs":{}}"#, false),
+        (r#"{"format":1,"installs":{"client-a":[{"kiln":"k","fingerprint":"f","finished":"x","steps":"not a list"}]}}"#, false),
+        (r#"{"format":1,"installs":{"client-a":[{"kiln":"k","fingerprint":"f","finished":"x","steps":[{"id":"cook","ms":18446744073709551615}]}]}}"#, false),
+    ] {
+        std::fs::write(history_path(&dirs), text).unwrap();
+        match read_history_file(&dirs) {
+            HistoryFile::Newer(2) => assert!(newer, "{text}"),
+            HistoryFile::Unreadable(_) => assert!(!newer, "{text}"),
+            other => panic!("{text}: {other:?}"),
+        }
+        assert!(read_history(&dirs).installs.is_empty(), "no estimates from it");
+        let r = keep(&dirs, "client-a", first.clone()).unwrap();
+        assert!(matches!(&r, Kept::LeftAlone(why) if why.contains(if newer { "newer format" } else { "not readable" })), "{text}: {r:?}");
+        assert_eq!(std::fs::read_to_string(history_path(&dirs)).unwrap(), text, "left as it was");
+    }
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// Review P2: numbers the game folder controls are bounded when read (a start does not take longer than a day, a step
+/// counts at most ten million things) and meet each other in checked or saturating arithmetic: a file outside the
+/// bounds is not readable, never a panic.
+#[test]
+fn times_beyond_a_day_are_not_readable_and_nothing_overflows() {
+    let text = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/start-progress/progress-build4-ready.json")).unwrap();
+    assert!(parse_progress(&text).is_some());
+    for (from, to) in [("\"ms\": 46736", "\"ms\": 18446744073709551615"), ("\"tookMs\": 8411", "\"tookMs\": 86400001"),
+                       ("\"atMs\": 58885", "\"atMs\": 18446744073709551615"), ("\"total\": 212", "\"total\": 18446744073709551615")] {
+        assert!(text.contains(from), "{from}");
+        assert!(parse_progress(&text.replace(from, to)).is_none(), "{to}: not readable");
+    }
+    // what is still reachable through the public functions: the even-sized median, the scaling by total, the sums
+    let big = |ms: u64, total: Option<u64>| KeptStart { kiln: "k".into(), runtime: None, fingerprint: "f".into(), finished: String::new(),
+        started: String::new(), steps: vec![KeptStep { id: "mods".into(), ms, total, parts: vec![KeptPart { key: "a".into(), label: None, ms }] }] };
+    let h = [big(u64::MAX, Some(1)), big(u64::MAX, Some(1))];
+    assert_eq!(usual(&h, "mods", None, &[], Some("k"), Some("f")).unwrap().ms, u64::MAX);
+    assert!(usual(&h, "mods", Some(u64::MAX), &[], Some("other"), None).unwrap().ms <= MAX_MS);
+    assert_eq!(usual(&h, "mods", None, &["a".into(), "a".into()], None, None).unwrap().ms, u64::MAX);
+    let steps = [StepNow { id: "mods".into(), ms: u64::MAX, done: Some(1), total: Some(u64::MAX), ..Default::default() }];
+    let plan = ["mods".to_string(), "content".to_string()];
+    let _ = estimate(&plan, &steps, u64::MAX, &h, Some("k"), Some("f"), false);
+    let _ = estimate(&plan, &steps, u64::MAX, &h, Some("other"), None, false);
+}
+
+/// Review P5: a slow step on the other basis (another set of mods: the larger of usual time and pace counts) stops
+/// counting once it is slow: the time left never grows under "taking longer than usual".
+#[test]
+fn a_slow_step_on_the_other_basis_never_makes_the_time_left_grow() {
+    let rec = KeptStart { kiln: "k".into(), runtime: None, fingerprint: "other mods".into(), finished: String::new(), started: String::new(),
+        steps: vec![KeptStep { id: "mods".into(), ms: 10_000, total: Some(10), parts: vec![] }, KeptStep { id: "game".into(), ms: 5_000, total: None, parts: vec![] }] };
+    let plan = ["mods".to_string(), "game".to_string()];
+    let at = |elapsed: u64| {
+        let steps = [StepNow { id: "mods".into(), ms: 0, done: Some(1), total: Some(10), ..Default::default() }];
+        estimate(&plan, &steps, elapsed, std::slice::from_ref(&rec), Some("k"), Some("these mods"), false)
+    };
+    // before it is slow the pace counts (the larger of the two on this basis)
+    assert_eq!(at(10_000).left_ms, Some(90_000 + 5_000));
+    let mut last = u64::MAX;
+    for e in (15_000..40_000).step_by(1_000) {
+        let est = at(e);
+        assert_eq!(est.slow, Some(Slow { id: "mods".into(), usual_ms: 10_000 }), "{e}");
+        let left = est.left_ms.unwrap();
+        assert!(left <= last, "{e}: the time left grew from {last} to {left}");
+        assert_eq!(left, 5_000, "{e}: what the steps after it take");
+        last = left;
+    }
+}
+
+/// Review P4: the bar's fraction never moves back between two looks, also when a step reports its total only once it
+/// begins (its usual time rescaled from 1 to 100): the launcher keeps the highest point per start ([`Steady`]).
+#[test]
+fn the_bar_never_moves_back_between_two_looks() {
+    let rec = KeptStart { kiln: "k".into(), runtime: None, fingerprint: "other".into(), finished: String::new(), started: "s".into(),
+        steps: vec![KeptStep { id: "start".into(), ms: 10_000, total: None, parts: vec![] }, KeptStep { id: "content".into(), ms: 10_000, total: Some(1), parts: vec![] }] };
+    let p = |state_steps: Vec<ProgressStep>, at: u64| Progress { format: 1, pid: 1, kiln: Some("k".into()), side: None, started: "2026-11-13T18:00:00.000Z".into(),
+        at_ms: at, state: "booting".into(), plan: vec!["start".into(), "content".into()], steps: state_steps, why: None };
+    let st = |id: &str, ms: u64, took: Option<u64>, total: Option<u64>| ProgressStep { id: id.into(), label: id.into(), detail: None, done: total.map(|_| 1), total, ms, took_ms: took, parts: vec![] };
+    let t0 = parse_ms("2026-11-13T18:00:00.000Z").unwrap();
+    let look = |pr: &Progress, at: u64, steady: Option<&mut Steady>| {
+        let mut tl = timeline(&Inputs { progress: Some(pr), written: Some(t0 + at as i64), running: true, now: t0 + at as i64, history: std::slice::from_ref(&rec),
+            kiln: Some("k"), fingerprint: Some("mine"), ..Default::default() }).unwrap();
+        if let Some(s) = steady { s.apply(&mut tl); }
+        tl.estimate.fraction
+    };
+    let a = p(vec![st("start", 0, Some(10_000), None)], 10_000);
+    let b = p(vec![st("start", 0, Some(10_000), None), st("content", 10_000, None, Some(100))], 10_000);
+    let (fa, fb) = (look(&a, 10_000, None), look(&b, 10_000, None));
+    assert!(fb < fa, "without the kept maximum it moves back: {fa} then {fb}");
+    let mut steady = Steady::default();
+    let fa = look(&a, 10_000, Some(&mut steady));
+    let fb = look(&b, 10_000, Some(&mut steady));
+    assert_eq!(fb, fa, "kept");
+}
+
+/// Review P3, through the functions the launcher calls (`round`, which reads and keeps the history): the version a
+/// start is stored under is progress.json's `kiln`, and a start before its progress.json finds it through the receipt
+/// (a dev build's receipt says "0.2.0-dev+20261113.f7ca807", its progress.json "0.2.0-dev.27+20261113.f7ca807"); the
+/// second identical start is "same version, same mods" at every look. The start is the owner's build 4 of 13 Nov.
+#[test]
+fn the_second_start_matches_the_first_by_the_runtimes_own_version() {
+    let root = std::env::temp_dir().join(format!("kiln-start-round-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    let dirs = DataDirs::at(&root);
+    let text = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/start-progress/progress-build4-ready.json")).unwrap();
+    let ready = parse_progress(&text).unwrap();
+    let kiln = ready.kiln.clone().unwrap();
+    assert_eq!(kiln, "0.2.0-dev.27+20261113.f7ca807");
+    let receipt = "0.2.0-dev+20261113.f7ca807";
+    let fp = "kms1:owner";
+    let mut steady = Steady::default();
+    // one start: Play, a cook of 104 s (four mods due), the profile, Steam 5 s, then the runtime's steps as the file has them
+    let cook_ms = 104_000;
+    let run = |play: i64, steady: &mut Steady, check: &mut dyn FnMut(u64, &Timeline)| {
+        let keys = vec!["kiln-equipment@a".to_string(), "dummies@b".into(), "can@c".into(), "four@d".into()];
+        let mut l = LauncherStart::new(play, Some(keys.clone()), Some(receipt.into()), Some(fp.into()));
+        let boot_at = cook_ms + 1_000 + 5_000 + 100;
+        let end = boot_at + ready.at_ms;
+        let mut t = 0u64;
+        loop {
+            let now = play + t as i64;
+            let mut lt = l.clone();
+            for (k, key) in keys.iter().enumerate() {
+                if (k as u64) * 26_000 <= t.min(cook_ms) {
+                    lt.cook_event(play + (k as i64) * 26_000, k, 4, key, key, None);
+                }
+            }
+            if t >= cook_ms {
+                lt.cook_done(play + cook_ms as i64);
+                lt.begin("profile", play + cook_ms as i64);
+            }
+            if t >= cook_ms + 1_000 {
+                lt.begin("steam", play + cook_ms as i64 + 1_000);
+                lt.asked = true;
+            }
+            let side = if t >= boot_at {
+                let r = t - boot_at;
+                let mut p = ready.clone();
+                if r < ready.at_ms {
+                    p.state = if ready.steps.iter().any(|s| s.id == "mods" && s.ms <= r) { "loading" } else { "booting" }.into();
+                    p.steps.retain(|s| s.ms <= r);
+                    if let Some(last) = p.steps.last_mut() { last.took_ms = None; last.parts.clear(); }
+                    p.at_ms = r;
+                }
+                p.started = fmt_ms(play + boot_at as i64);
+                GameSide { progress: Some(p), written: Some(now), process: Some(play + boot_at as i64 - 100), running: true, boot: false }
+            } else {
+                GameSide { running: t >= boot_at - 100, process: (t >= boot_at - 100).then_some(play + boot_at as i64 - 100), ..Default::default() }
+            };
+            let r = round(&dirs, "client-steam", Some(&lt), &side, Some(receipt), Some(fp), now, steady);
+            let tl = r.timeline.unwrap();
+            check(t, &tl);
+            if tl.phase == Phase::Ready {
+                assert_eq!(r.kept, Some(Kept::Kept));
+                l.kept = true;
+                return end;
+            }
+            t = (t + 1_000).min(end);
+        }
+    };
+    let play1 = 1_794_595_000_000;
+    run(play1, &mut steady, &mut |_, tl| assert!(tl.phase == Phase::Ready || tl.estimate.left_ms.is_none()));
+    let kept = history_of(&dirs, "client-steam");
+    assert_eq!((kept.len(), kept[0].kiln.as_str(), kept[0].runtime.as_deref()), (1, kiln.as_str(), Some(receipt)), "stored under the runtime's own string");
+    let mut worst = 0i64;
+    let end = 104_000 + 6_100 + ready.at_ms;
+    run(play1 + 3_600_000, &mut steady, &mut |t, tl| {
+        if tl.phase == Phase::Ready { return; }
+        assert_eq!((tl.estimate.starts, tl.estimate.same), (1, true), "{t}: the same version and mods, before and after progress.json");
+        assert_eq!(tl.kiln.as_deref(), Some(kiln.as_str()), "{t}");
+        let e = tl.estimate.left_ms.unwrap() as i64 - (end as i64 - t as i64);
+        if e.abs() > worst.abs() { worst = e; }
+    });
+    assert!(worst.abs() <= 3_000, "within 3 s at every look: {worst}");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// The shared cases (tests/start-progress/estimate-cases.json), which launcher/unit/startProgress.test.ts runs against
+/// the browser mock's copy of the estimate too.
+#[test]
+fn the_shared_estimate_cases() {
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Step { id: String, ms: u64, #[serde(default)] took_ms: Option<u64>, #[serde(default)] done: Option<u64>, #[serde(default)] total: Option<u64>,
+        #[serde(default)] keys: Vec<String>, #[serde(default)] parts: Vec<KeptPart>, #[serde(default)] part_ms: Option<u64> }
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Expect { left_ms: Option<u64>, slow: Option<Slow>, starts: u32, same: bool, steps_done: u32, usual: Vec<Option<u64>> }
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Case { name: String, plan: Vec<String>, history: Option<String>, kiln: String, fingerprint: String, now: u64, ready: bool, steps: Vec<Step>, expect: Expect }
+    #[derive(serde::Deserialize)]
+    struct Cases { histories: BTreeMap<String, Vec<KeptStart>>, cases: Vec<Case> }
+    let text = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/start-progress/estimate-cases.json")).unwrap();
+    let all: Cases = serde_json::from_str(&text).unwrap();
+    assert!(all.cases.len() >= 9);
+    for c in &all.cases {
+        let h = c.history.as_ref().map(|k| all.histories[k].clone()).unwrap_or_default();
+        let steps: Vec<StepNow> = c.steps.iter().map(|s| StepNow { id: s.id.clone(), ms: s.ms, took_ms: s.took_ms, done: s.done, total: s.total,
+            keys: s.keys.clone(), parts: s.parts.clone(), part_ms: s.part_ms.unwrap_or(s.ms) }).collect();
+        let e = estimate(&c.plan, &steps, c.now, &h, Some(&c.kiln), Some(&c.fingerprint), c.ready);
+        let x = &c.expect;
+        assert_eq!((e.left_ms, &e.slow, e.starts, e.same, e.steps_done, &e.usual), (x.left_ms, &x.slow, x.starts, x.same, x.steps_done, &x.usual), "{}", c.name);
+    }
+}
+
+/// Review P6: a Play that ends before the game exists ends the tracked start. A cook that ended (done, failed or
+/// cancelled) with no launch_play after it says how long it has waited (the launcher forgets it after 30 s); Steam asked
+/// and no game within STEAM_WAIT_MS is `ended` (the window goes back to Play).
+#[test]
+fn a_play_that_ends_before_the_game_exists_ends_the_start() {
+    let mut l = LauncherStart::new(BASE, Some(vec!["m@1".into()]), Some(KILN.into()), Some(FP.into()));
+    assert_eq!(l.waiting_since(), None, "the cook runs");
+    l.cook_event(BASE, 0, 1, "m@1", "M", None);
+    l.cook_done(BASE + 4_000);
+    assert_eq!(l.waiting_since(), Some(4_000), "the cook ended (a cancel or an error ends it too): waiting for launch_play");
+    l.begin("profile", BASE + 4_100);
+    assert_eq!(l.waiting_since(), None);
+    l.begin("steam", BASE + 5_000);
+    l.asked = true;
+    assert_eq!(l.waiting_since(), None, "Steam was asked: the Steam wait decides");
+    let at = |t: i64| timeline(&Inputs { launcher: Some(&l), now: BASE + t, ..Default::default() }).unwrap().phase;
+    assert_eq!(at(5_000 + STEAM_WAIT_MS as i64 - 1), Phase::Launcher);
+    assert_eq!(at(5_000 + STEAM_WAIT_MS as i64), Phase::Ended, "no game came");
 }

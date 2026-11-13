@@ -6,10 +6,11 @@
 // Off until a test turns it on (`__kilnMock.scriptStart`): a plain mock start has no progress.json (a 0.2.0-dev.26
 // runtime), as every older spec expects.
 import type { StartEstimate, StartPhase, StartStep, StartTimeline } from "./commands";
+import { STEAM_WAIT_MS } from "../shell/startProgress";
 
 interface Part { key: string; ms: number }
-interface KeptStep { id: string; ms: number; total?: number | null; parts?: Part[] }
-interface KeptStart { kiln: string; fingerprint: string; steps: KeptStep[] }
+export interface KeptStep { id: string; ms: number; total?: number | null; parts?: Part[] }
+export interface KeptStart { kiln: string; fingerprint: string; steps: KeptStep[] }
 interface RStep { id: string; label: string; ms: number; items?: number[]; detail?: string }
 
 export interface StartScript {
@@ -25,6 +26,12 @@ export interface StartScript {
   dev26?: boolean;
   /** Safe idle at this step, with this sentence. */
   idle?: { at: string; why: string };
+  /** The services' detail in place of the owner's (a long one: the line's fit). */
+  servicesDetail?: string;
+  /** Kiln says nothing more once this step began (progress.json not written for 61 s: phase quiet). */
+  quietAt?: string;
+  /** Steam takes the start and no game process ever comes. */
+  noProcess?: boolean;
   /** One step `factor` times as long as in the history. */
   slow?: { id: string; factor: number };
   fingerprint: string;
@@ -78,34 +85,34 @@ function median(v: number[]): number | null {
   return n % 2 ? s[(n - 1) / 2] : Math.floor((s[n / 2 - 1] + s[n / 2]) / 2);
 }
 
-interface StepNow { id: string; ms: number; tookMs: number | null; done?: number | null; total?: number | null; keys: string[]; parts: Part[]; partMs: number }
+export interface StepNow { id: string; ms: number; tookMs: number | null; done?: number | null; total?: number | null; keys: string[]; parts: Part[]; partMs: number }
 interface Usual { ms: number; starts: number; same: boolean }
 
 function partHistory(h: KeptStart[], id: string, key: string): number[] {
   return [...h].reverse().map((r) => r.steps.find((s) => s.id === id)?.parts?.find((p) => p.key === key)?.ms).filter((x): x is number => x !== undefined).slice(0, 5);
 }
 
-function usual(h: KeptStart[], id: string, total: number | null | undefined, keys: string[], fp: string): Usual | null {
+function usual(h: KeptStart[], id: string, total: number | null | undefined, keys: string[], kiln: string, fp: string): Usual | null {
   if (keys.length) {
     const each = keys.map((k) => partHistory(h, id, k));
     if (each.every((v) => v.length)) return { ms: each.reduce((a, v) => a + median(v)!, 0), starts: Math.max(...each.map((v) => v.length)), same: true };
   }
   const rev = [...h].reverse();
-  const same = rev.filter((r) => r.kiln === KILN && r.fingerprint === fp).map((r) => r.steps.find((s) => s.id === id)?.ms).filter((x): x is number => x !== undefined).slice(0, 5);
+  const same = rev.filter((r) => r.kiln === kiln && r.fingerprint === fp).map((r) => r.steps.find((s) => s.id === id)?.ms).filter((x): x is number => x !== undefined).slice(0, 5);
   if (same.length) return { ms: median(same)!, starts: same.length, same: true };
   const any = rev.map((r) => r.steps.find((s) => s.id === id)).filter((s): s is KeptStep => !!s).slice(0, 5)
     .map((s) => (total && s.total ? Math.floor((s.ms * total) / s.total) : s.ms));
   return any.length ? { ms: median(any)!, starts: any.length, same: false } : null;
 }
 
-function estimate(plan: string[], steps: StepNow[], now: number, h: KeptStart[], fp: string, ready: boolean): StartEstimate {
+export function estimate(plan: string[], steps: StepNow[], now: number, h: KeptStart[], kiln: string, fp: string, ready: boolean): StartEstimate {
   const lastBegun = Math.max(-1, ...steps.map((s) => plan.indexOf(s.id)));
   let left: number | null = 0, starts = 0, same = true, done = 0;
   let slow: StartEstimate["slow"] = null;
   const usuals: (number | null)[] = [];
   plan.forEach((id, i) => {
     const s = steps.find((x) => x.id === id);
-    const u = usual(h, id, s?.total, s?.keys ?? [], fp);
+    const u = usual(h, id, s?.total, s?.keys ?? [], kiln, fp);
     if (u) { starts = Math.max(starts, u.starts); same &&= u.same; }
     usuals.push(u?.ms ?? null);
     let rest: number | null;
@@ -121,8 +128,10 @@ function estimate(plan: string[], steps: StepNow[], now: number, h: KeptStart[],
         } else byUsual = Math.max(0, u.ms - elapsed);
       }
       const byRate = s.done && s.total != null && elapsed >= 2000 ? Math.floor((elapsed * Math.max(0, s.total - s.done)) / s.done) : null;
-      if (u && u.ms > 0 && elapsed * 2 >= u.ms * 3) slow = { id, usualMs: u.ms };
-      rest = byUsual !== null && byRate !== null ? (u?.same ? byUsual : Math.max(byUsual, byRate)) : byUsual ?? byRate;
+      const isSlow = !!u && u.ms > 0 && elapsed * 2 >= u.ms * 3;
+      if (isSlow) slow = { id, usualMs: u!.ms };
+      // the slow rule decides first; then the usual time alone on the same basis, else the larger of the two
+      rest = isSlow ? byUsual : byUsual !== null && byRate !== null ? (u?.same ? byUsual : Math.max(byUsual, byRate)) : byUsual ?? byRate;
     } else if (lastBegun > i || ready) { done++; rest = 0; }
     else rest = u?.ms ?? null;
     left = left !== null && rest !== null ? left + rest : null;
@@ -139,6 +148,8 @@ interface Current { began: number; script: StartScript; mode: string; kept: bool
 let script: StartScript | null = null;
 const current: Record<string, Current | undefined> = {};
 const history: Record<string, KeptStart[]> = {};
+/** Starts that ended without a game (Steam took them, no process came): the fake game's entry goes too. */
+export const ended = new Set<string>();
 
 /** Tests: plays `s` at the next Play (null: off, the plain mock start without progress.json). */
 export function setStartScript(s: StartScript | null) { script = s; }
@@ -174,7 +185,13 @@ export function mockProgress(gameId: string, nowMs = Date.now()): StartTimeline 
   if (!c) return null;
   const s = c.script;
   const h = history[gameId] ?? [];
-  const t = Math.max(0, (nowMs - c.began) / s.scale);
+  let t = Math.max(0, (nowMs - c.began) / s.scale);
+  if (s.quietAt) {
+    // Kiln goes silent inside that step: the file stays as it was a moment after the step began
+    let at0 = bootAt(s);
+    for (const r of s.runtime) { if (r.id === s.quietAt) break; at0 += durOf(s, r); }
+    t = Math.min(t, at0 + 1);
+  }
   const steps: StepNow[] = [];
   const shown: StartStep[] = [];
   const plan = [...(c.mode === "profile" ? ["cook"] : []), "profile", "steam"];
@@ -197,7 +214,13 @@ export function mockProgress(gameId: string, nowMs = Date.now()): StartTimeline 
     if (cooking) return finish();
   }
   for (const [id, ms] of [["profile", s.profileMs], ["steam", s.steamMs]] as const) {
-    const took = at + ms <= t ? ms : null;
+    const took = at + ms <= t && !(id === "steam" && s.noProcess) ? ms : null;
+    if (id === "steam" && s.noProcess && (nowMs - c.began) - at * s.scale >= STEAM_WAIT_MS) {
+      // Steam was asked and no game came: the start is over (start_progress STEAM_WAIT_MS)
+      delete current[gameId];
+      ended.add(gameId);
+      return { ...finishShape(), phase: "ended" };
+    }
     steps.push({ id, ms: at, tookMs: took, keys: [], parts: [], partMs: at });
     shown.push({ id, label: LABELS[id], ms: at, tookMs: took, state: "done", launcher: true });
     if (took === null) return finish();
@@ -218,26 +241,31 @@ export function mockProgress(gameId: string, nowMs = Date.now()): StartTimeline 
     const idle = s.idle?.at === r.id;
     const done = items.length ? (ended ? items.length : items.filter((x) => x <= into).length) : null;
     steps.push({ id: r.id, ms: r0, tookMs: ended && !idle ? dur : null, done, total: items.length || null, keys: [], parts: [], partMs: r0 });
-    shown.push({ id: r.id, label: r.label, detail: ended ? null : r.detail ?? null, done, total: items.length || null, ms: r0, tookMs: ended && !idle ? dur : null, state: "done", launcher: false });
+    shown.push({ id: r.id, label: r.label, detail: ended ? null : (r.id === "services" ? s.servicesDetail : undefined) ?? r.detail ?? null, done, total: items.length || null, ms: r0, tookMs: ended && !idle ? dur : null, state: "done", launcher: false });
     if (idle) { state = "idle"; break; }
     if (ended && r.id === s.loadingAfter) state = "loading";
     r0 += dur;
   }
-  if (state !== "idle" && t >= endAt(s)) state = "ready";
+  if (state !== "idle" && t >= endAt(s) && !s.quietAt) state = "ready";
   return finish();
+
+  function finishShape(): StartTimeline {
+    return { phase: "ended", kiln: KILN, started: new Date(c!.began).toISOString(), atMs: Math.round(t), steps: [], running: null, launcher: true,
+      estimate: { leftMs: null, starts: 0, same: false, slow: null, fraction: 0, byTime: false, stepsDone: 0, stepsPlanned: 0, usual: [] } };
+  }
 
   function finish(): StartTimeline {
     const ready = state === "ready";
-    const est = estimate(plan, steps, Math.round(t), h, s.fingerprint, ready);
+    const est = estimate(plan, steps, Math.round(t), h, KILN, s.fingerprint, ready);
     if (plan.every((p) => ["cook", "profile", "steam"].includes(p))) {
       // before the runtime speaks: its plan is the last start's, else unknown (the contract's 11 steps counted, no number)
       const last = h[h.length - 1];
       if (last) {
         plan.push(...last.steps.map((x) => x.id).filter((id) => !["cook", "profile", "steam"].includes(id)));
-        Object.assign(est, estimate(plan, steps, Math.round(t), h, s.fingerprint, false));
+        Object.assign(est, estimate(plan, steps, Math.round(t), h, KILN, s.fingerprint, false));
       } else {
         plan.push(...s.runtime.map((r) => r.id));
-        Object.assign(est, estimate(plan, steps, Math.round(t), h, s.fingerprint, false));
+        Object.assign(est, estimate(plan, steps, Math.round(t), h, KILN, s.fingerprint, false));
         est.leftMs = null; est.byTime = false; est.fraction = Math.min(0.99, est.stepsDone / est.stepsPlanned);
       }
     }
@@ -255,13 +283,15 @@ export function mockProgress(gameId: string, nowMs = Date.now()): StartTimeline 
     let phase: StartPhase = state === "ready" ? "ready" : state === "idle" ? "idle" : state === "loading" ? "loading"
       : t >= bootAt(s) && !s.dev26 ? "booting" : process ? (s.dev26 && t >= bootJsonAt(s) ? "legacy" : "waiting") : "launcher";
     if (s.dev26 && t >= bootJsonAt(s)) phase = "legacy";
+    const silent = !!s.quietAt && steps.some((x) => x.id === s.quietAt) && !ready && state !== "idle";
+    if (silent) phase = "quiet";
     if (ready && !c!.kept) {
       c!.kept = true;
       (history[gameId] ??= []).push({ kiln: KILN, fingerprint: s.fingerprint, steps: steps.map((x) => ({ id: x.id, ms: x.tookMs ?? 0, total: x.total, parts: x.parts.filter((p) => p.ms > 0) })) });
     }
     return {
       phase, why: phase === "idle" ? s.idle?.why ?? null : null, kiln: KILN, started: new Date(c!.began).toISOString(), atMs: Math.round(t),
-      quietMs: t >= bootAt(s) && !s.dev26 ? 0 : null, steps: out, running: running_, estimate: est, launcher: true,
+      quietMs: t >= bootAt(s) && !s.dev26 ? (silent ? 61_000 : 0) : null, steps: out, running: running_, estimate: est, launcher: true,
     };
   }
 }

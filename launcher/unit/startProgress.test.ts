@@ -3,7 +3,8 @@
 import { expect, test } from "bun:test";
 import type { StartStep, StartTimeline } from "../src/api/commands";
 import { aboutText, startWords, stepLine, steadyFraction, tookText } from "../src/shell/startProgress";
-import { clearStartHistory, endAt, mockBegin, mockProgress, ownerScript, setStartScript } from "../src/api/mockProgress";
+import { clearStartHistory, endAt, estimate, mockBegin, mockProgress, ownerScript, setStartScript, type KeptStart, type StepNow } from "../src/api/mockProgress";
+import shared from "../../crates/kiln-manage/tests/start-progress/estimate-cases.json";
 
 test("the time left is rounded as a person says it", () => {
   expect(aboutText(3_900)).toBe("a few seconds");
@@ -76,4 +77,16 @@ test("a slow step says it takes longer than usual and the bar never moves back",
   expect(w.valueText).toBe("79 percent, longer than usual: Starting Kiln's services");
   expect(steadyFraction({ ...tl, estimate: { ...tl.estimate, fraction: 0.5 } })).toBe(0.79);
   expect(steadyFraction({ ...tl, phase: "ready" })).toBe(1);
+});
+
+test("the mock's estimate gives what kiln_manage's gives in every shared case (no drift)", () => {
+  const all = shared as unknown as { histories: Record<string, KeptStart[]>; cases: { name: string; plan: string[]; history: string | null; kiln: string; fingerprint: string;
+    now: number; ready: boolean; steps: (Partial<StepNow> & { id: string; ms: number })[]; expect: Record<string, unknown> }[] };
+  expect(all.cases.length).toBeGreaterThanOrEqual(9);
+  for (const c of all.cases) {
+    const steps: StepNow[] = c.steps.map((s) => ({ tookMs: null, keys: [], parts: [], partMs: s.ms, ...s }));
+    const e = estimate(c.plan, steps, c.now, c.history ? all.histories[c.history] : [], c.kiln, c.fingerprint, c.ready);
+    expect({ name: c.name, leftMs: e.leftMs, slow: e.slow, starts: e.starts, same: e.same, stepsDone: e.stepsDone, usual: e.usual })
+      .toEqual({ name: c.name, ...c.expect });
+  }
 });

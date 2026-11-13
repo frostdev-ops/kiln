@@ -193,3 +193,127 @@ test("the start fits 1024×640 and the Deck's 1280×800", async ({ page }) => {
   await expect(page.getByTestId("deck-state")).toHaveText(/^Running/, { timeout: 30_000 });
   await mock(page).stop();
 });
+
+// ---- the review's window findings (each fails without its fix)
+
+type Calls = { __kilnMock: { calls: () => string[]; setNoProxy: (on: boolean) => void; planCommand: (cmd: string, plan: unknown) => void } };
+const progressCalls = (page: Page) => page.evaluate(() => (window as unknown as Calls).__kilnMock.calls().filter((c) => c === "launch_progress").length);
+
+test("No Kiln wins over the timeline: the proxy never loads, the start says so and gives Play's page back", async ({ page }) => {
+  test.setTimeout(60_000);
+  await open(page);
+  await mock(page).script({ scale: 0.02, dev26: true });
+  await page.evaluate(() => (window as unknown as Calls).__kilnMock.setNoProxy(true));
+  await page.getByRole("button", { name: "Without mods" }).click();
+  await expect(page.locator(".k-head-state")).toHaveText(/^No Kiln/, { timeout: 15_000 });
+  await expect(bar(page)).toHaveCount(0);
+  await expect(page.locator(".k-mods")).toBeVisible();
+  await expect(page.getByText("Running without Kiln: Steam did not load it this start.")).toBeVisible();
+  await page.evaluate(() => (window as unknown as Calls).__kilnMock.setNoProxy(false));
+  await mock(page).stop();
+});
+
+test("Play refused before Steam was asked: the start is over and the page is as before Play", async ({ page }) => {
+  await open(page);
+  await mock(page).script({ scale: 0.02 });
+  await page.evaluate(() => (window as unknown as Calls).__kilnMock.planCommand("launch_play", { delay: 300, error: { code: "refused", message: "The profile could not be checked." } }));
+  await mouth(page).click();
+  await expect(page.locator(".k-toast").filter({ hasText: "The profile could not be checked." })).toBeVisible();
+  await expect(bar(page)).toHaveCount(0);
+  await expect(mouth(page)).toHaveAccessibleName(/^Play /);
+  await expect(page.locator(".k-mods")).toBeVisible();
+});
+
+test("the start keeps being followed while the window is hidden (the game has the display)", async ({ page }) => {
+  test.setTimeout(60_000);
+  await open(page);
+  await mock(page).script({ scale: 0.1 });
+  await mouth(page).click();
+  await expect(bar(page)).toBeVisible();
+  await page.evaluate(() => {
+    Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "hidden" });
+    Object.defineProperty(document, "hidden", { configurable: true, get: () => true });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  const before = await progressCalls(page);
+  await page.waitForTimeout(3500);
+  expect(await progressCalls(page) - before, "polled while hidden").toBeGreaterThanOrEqual(2);
+  await page.evaluate(() => {
+    Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "visible" });
+    Object.defineProperty(document, "hidden", { configurable: true, get: () => false });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  await expect(page.locator(".k-head-state")).toHaveText(/^Running/, { timeout: 30_000 });
+  await mock(page).stop();
+});
+
+test("no word from Kiln for 60 s is its own state: no bar, no countdown, the mods list back", async ({ page }) => {
+  test.setTimeout(60_000);
+  await open(page);
+  await mock(page).script({ scale: 0.02, quietAt: "services" });
+  await mouth(page).click();
+  await expect(page.locator(".k-head-state")).toHaveText(/^No word from Kiln/, { timeout: 20_000 });
+  await expect(bar(page)).toHaveCount(0);
+  await expect(left(page)).toHaveCount(0);
+  await expect(page.locator(".k-mods")).toBeVisible();
+  await expect(page.locator(".k-hero-say").first()).toHaveText(/^Kiln has said nothing for 61 s \(last: Starting Kiln's services\)/);
+  await shot(page, "quiet-play-1280x800");
+  await mock(page).stop();
+});
+
+test("nothing polls every second on an idle launcher, also after Steam took a start and no game came", async ({ page }) => {
+  test.setTimeout(60_000);
+  await page.addInitScript(() => { (window as unknown as { __kilnSteamWaitMs: number }).__kilnSteamWaitMs = 4000; });
+  await open(page);
+  let n = await progressCalls(page);
+  await page.waitForTimeout(3000);
+  expect(await progressCalls(page) - n, "idle: no poll").toBe(0);
+  await mock(page).script({ scale: 0.02, noProcess: true });
+  await mouth(page).click();
+  await expect(bar(page)).toBeVisible();
+  // Steam was asked, no game came: after the wait the start is over on both sides and Play is back
+  await expect(mouth(page)).toHaveAccessibleName(/^Play /, { timeout: 15_000 });
+  await expect(bar(page)).toHaveCount(0);
+  await page.waitForTimeout(1500);
+  n = await progressCalls(page);
+  await page.waitForTimeout(4000);
+  expect(await progressCalls(page) - n, "no poll once the start is given up").toBe(0);
+});
+
+test("a long detail stays inside its line at 1024×640 and on the Deck, and the Deck keeps a focus through the start", async ({ page }) => {
+  test.setTimeout(90_000);
+  const long = `kiln-vfx: building the materials and VFX of kiln-equipment: material ${"thunderhead.copper_wire_".repeat(12)} (57 of 120)`;
+  const inside = async (sel: string) => page.locator(sel).evaluate((e) => e.scrollWidth <= e.clientWidth + 1 && e.getBoundingClientRect().right <= innerWidth);
+  const fits = async () => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1 && document.documentElement.scrollHeight <= innerHeight + 1);
+  await page.setViewportSize({ width: 1024, height: 640 });
+  await open(page);
+  await mock(page).script({ scale: 0.06, servicesDetail: long, quietAt: undefined });
+  await mouth(page).click();
+  await expect(page.locator(".k-start-line")).toContainText("kiln-vfx, building the materials", { timeout: 20_000 });
+  expect(await inside(".k-start-line")).toBe(true);
+  expect(await fits()).toBe(true);
+  const say = await page.locator(".k-start-line").boundingBox();
+  const door = await mouth(page).boundingBox();
+  expect(say && door && say.x + say.width <= door.x + 1).toBeTruthy();
+  await shot(page, "long-detail-play-1024x640");
+  await expect(page.locator(".k-head-state")).toHaveText(/^Running/, { timeout: 30_000 });
+  await mock(page).stop();
+
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto("/?deck=steamdeck#/");
+  await expect(page.locator('[data-deck-screen="home"]')).toBeVisible();
+  const focused = () => page.evaluate(() => (document.activeElement as HTMLElement | null)?.dataset?.deckId ?? null);
+  await expect.poll(focused).toBe("mouth");
+  await mock(page).script({ scale: 0.06, servicesDetail: long });
+  await page.keyboard.press("Enter");
+  const deck = page.getByTestId("deck-start");
+  await expect(deck).toContainText("kiln-vfx, building the materials", { timeout: 20_000 });
+  expect(await inside(".deck-start-line")).toBe(true);
+  expect(await fits()).toBe(true);
+  // the mouth is not a button while the game starts; the focus stays on it (A does nothing) and the D-pad still moves
+  expect(await focused(), "the focus during the start").toBe("mouth");
+  await shot(page, "long-detail-deck-1280x800");
+  await expect(page.getByTestId("deck-state")).toHaveText(/^Running/, { timeout: 30_000 });
+  await expect.poll(focused).toBe("mouth");
+  await mock(page).stop();
+});
