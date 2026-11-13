@@ -20,6 +20,14 @@ Get the launcher from [frostdev.io](https://frostdev.io/kiln/download), [GitHub 
 
 **0.2.0-dev.22:** Nexus Catalog, account sign-in and Mod Manager Download (`nxm://`) are disabled while OAuth approval is pending. Download a mod archive in your browser, then drop it on the launcher or import it through Library. Personal API keys are not a fallback. Many new paths in this release were verified only under Wine (tests and dedicated-server labs), not on Windows or in a real client. Client UI, hooks and chat on the client, custom portraits, taming and joined-multiplayer compatibility still need game checks; API coverage is not a guarantee for every mod combination.
 
+## Community
+
+<p align="center">
+  <a href="https://discord.gg/7pjr8SMTfU"><img src="branding/community/discord-banner.png" alt="Join the Kiln community on Discord" width="830"></a>
+</p>
+
+Get help with mods and servers, share what you make and follow new releases on the [Kiln Discord](https://discord.gg/7pjr8SMTfU).
+
 ## Docs
 - [Wiki](https://frostdev.io/kiln/wiki)
 - [Writing mods](docs/kiln/modding/README.md)
