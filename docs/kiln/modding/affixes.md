@@ -202,7 +202,7 @@ private void OnSynced(InstanceDataSyncedEvent e)
 needs no definitions in the game: a roll carries its affix's name and stat.
 
 **The game's own item tooltip cannot show them yet.** A mod cannot draw into the detail view of an item: the client's
-hook points are mapped (the design in `.out/foundations/instance-data-ui.md` section 3: the detail view's bar at client
+hook points are mapped (the detail view's bar at client
 `0xc1401a`, the slot bar at `0xc05895`, both from static analysis only) but not built, and the layout below the bar,
 where a line of text would go, is not mapped at all. What it would take: one day of reverse engineering of the detail
 view's layout with one client session to confirm it, sigdb patterns for the client, a native mid hook in kiln.ui and a
