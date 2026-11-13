@@ -14,6 +14,8 @@
     <!-- Kiln.Network kicks for Players.Kick and enforces the ban list (it references this library, not the other way) -->
     <InternalsVisibleTo Include="Kiln.Network" />
     <InternalsVisibleTo Include="Kiln.Network.Tests" />
+    <!-- the contract tests: the rows' names and the progression change events -->
+    <InternalsVisibleTo Include="Kiln.Contract.Tests" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../../Kiln.Api/Kiln.Api.csproj" Private="false" />

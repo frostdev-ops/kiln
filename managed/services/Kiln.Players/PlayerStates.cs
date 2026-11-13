@@ -314,6 +314,9 @@ public static unsafe partial class PlayerStates
     private static Native.Table* _table;
     private static bool _looked;
 
+    /// <summary>The table is here (the rows; no lookup after the first).</summary>
+    internal static bool TableHere => T != null;
+
     internal static Native.Table* T
     {
         get

@@ -167,7 +167,7 @@ public sealed class ServiceStartTests
         var bad = new List<string>();
         foreach (var (name, assembly) in kiln.Services)
             if (!LowersOnly.ContainsKey(name))
-            foreach (var cap in IsolatedKiln.RequiredNames(assembly).Distinct())
+            foreach (var cap in IsolatedKiln.RequiredNames(assembly).Distinct().Where(c => !ConformanceTests.RowsOfOthers.ContainsKey(c)))
             {
                 var (state, reason, text) = kiln.Row(cap);
                 if (reason == "Unknown")

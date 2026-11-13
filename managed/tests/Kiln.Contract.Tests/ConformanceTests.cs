@@ -72,6 +72,7 @@ public sealed class ConformanceTests : ContractTest
             foreach (var a in m.GetCustomAttributes<RequiresCapabilityAttribute>(false))
             {
                 if (!Capabilities.ValidName(a.Name)) bad.Add($"{Name(m)}: '{a.Name}' is not a capability name");
+                if (RowsOfOthers.ContainsKey(a.Name)) continue;
                 var row = Capabilities.Get(a.Name);
                 if (row.State == CapabilityState.Available) bad.Add($"{Name(m)}: {a.Name} is available with no game");
                 else if (row.Reason == CapabilityReason.Unknown)
@@ -88,6 +89,16 @@ public sealed class ConformanceTests : ContractTest
     /// clients over a channel) and may be called on any thread in the game client. Neither [TickThreadOnly] nor
     /// [AnyThread] is true for them on both sides, so they carry no thread attribute; the analyzers' table still lists
     /// them, as it reads the code and not the side.</summary>
+    /// <summary>Rows a member names that another part of Kiln reports, not the member's own service: they are not in
+    /// the service's rows. Each is reported in a game from the first tick on.</summary>
+    internal static readonly Dictionary<string, string> RowsOfOthers = new(StringComparer.Ordinal)
+    {
+        ["players.kick"] = "Kiln.Network's PlayerGate, at its start (it holds the kick and the connection records)",
+        ["players.bans"] = "Kiln.Network's PlayerGate, at its start (a ban is enforced as a kick)",
+        ["identity.players"] = "Kiln.Host's Capabilities.Start, following IdentitySources.Players",
+        ["identity.entities"] = "Kiln.Host's Capabilities.Start, following the entity sources",
+    };
+
     internal static readonly Dictionary<string, string> ThreadBySide = new(StringComparer.Ordinal)
     {
         ["Kiln.Sound"] = "the kiln:audio relay",

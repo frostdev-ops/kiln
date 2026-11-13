@@ -41,6 +41,7 @@
     <ProjectReference Include="../../services/Kiln.Abilities/Kiln.Abilities.csproj" />
     <ProjectReference Include="../../services/Kiln.Time/Kiln.Time.csproj" />
     <ProjectReference Include="../../services/Kiln.Items/Kiln.Items.csproj" />
+    <ProjectReference Include="../../services/Kiln.Players/Kiln.Players.csproj" />
   </ItemGroup>
   <ItemGroup>
     <!-- The analyzers' tick-thread table, generated from the services' code: the attributes are checked against it. -->

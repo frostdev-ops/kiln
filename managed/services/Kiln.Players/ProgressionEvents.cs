@@ -58,6 +58,74 @@ public sealed class PlayerSkillsChangedEvent : KilnEvent
     public override string ToString() => $"skill points spent {OldPointsSpent} -> {NewPointsSpent} (entity {Entity})";
 }
 
+/// <summary>
+/// A Kiln progression request (<see cref="Progression.AddExperience"/>, <see cref="Progression.SetExperience"/>,
+/// <see cref="Progression.GiveSkillPoints"/>, and any other that moved them) changed a player's experience or skill
+/// points. Posted on the tick thread when the request completed (two steps after it was submitted, before the caller's
+/// task continues), once per value that changed: <see cref="What"/> is <c>Experience</c> (into the current level) or
+/// <c>SkillPoints</c> (the total). A level or the unlocked nodes keep <see cref="PlayerLevelChangedEvent"/> and
+/// <see cref="PlayerSkillsChangedEvent"/>. A change made while this event is being dispatched (a handler that changes
+/// progression again) is posted at the start of the next step instead, once per player and value (the newest wins), and
+/// only while that player is still the one in the slot. Observe only. Built only while someone subscribes. Since
+/// 0.2.0-dev.27.
+/// </summary>
+[ServerOnly]
+public sealed class PlayerProgressionChangedEvent : KilnEvent, IEntityEvent
+{
+    internal PlayerProgressionChangedEvent(EntityId player, string what, long before, long after, ulong request, string origin)
+    {
+        Player = player;
+        What = what;
+        Before = before;
+        After = after;
+        Request = request;
+        Origin = origin;
+    }
+
+    /// <summary>The player's entity.</summary>
+    public EntityId Player { get; }
+
+    /// <summary><c>Experience</c> or <c>SkillPoints</c>.</summary>
+    public string What { get; }
+
+    /// <summary>The value before.</summary>
+    public long Before { get; }
+
+    /// <summary>The value after.</summary>
+    public long After { get; }
+
+    /// <summary>The Kiln request (<see cref="ProgressionResult.Request"/>).</summary>
+    public ulong Request { get; }
+
+    /// <summary>The id of the mod that made the request ("" when Kiln made it for no mod).</summary>
+    public string Origin { get; }
+
+    /// <summary>Whether the event is about <paramref name="entity"/>.</summary>
+    public bool Involves(EntityId entity) => !entity.IsNone && entity == Player;
+
+    /// <summary>The change and who made it, for a log line.</summary>
+    public override string ToString() =>
+        $"player {Player}: {What} {Before} -> {After} (request {Request}) by {(Origin.Length > 0 ? Origin : "kiln")}";
+}
+
+/// <summary>The change events of Kiln's progression requests (the contract: every write Kiln makes has one).</summary>
+internal static class ProgressionChanges
+{
+    // One key per value of one player changed by one mod: a handler that changes it again waits for the next step.
+    internal static readonly ChangeNotices<PlayerProgressionChangedEvent, (EntityId, string, string)> Notices = new("kiln.progression");
+
+    /// <summary>A request completed: posts what it changed of experience and skill points.</summary>
+    internal static void Completed(ProgressionResult r, string origin)
+    {
+        if (!r.Ok || r.Before is not { } b || r.After is not { } a || !Events.HasSubscribers<PlayerProgressionChangedEvent>()) return;
+        if (b.Experience != a.Experience) Post(r, "Experience", b.Experience, a.Experience, origin);
+        if (b.SkillPointsTotal != a.SkillPointsTotal) Post(r, "SkillPoints", b.SkillPointsTotal, a.SkillPointsTotal, origin);
+    }
+
+    private static void Post(ProgressionResult r, string what, long before, long after, string origin) =>
+        Notices.Post((r.Entity, what, origin), new PlayerProgressionChangedEvent(r.Entity, what, before, after, r.Request, origin), r.Entity);
+}
+
 /// <summary>Reads kiln.progression's event ring on the service tick while someone listens.</summary>
 internal static class ProgressionEventPump
 {
