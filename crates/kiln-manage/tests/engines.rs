@@ -280,7 +280,9 @@ fn creative_mode_is_never_imported_as_plain_dlls() {
     assert_eq!(d.kind, DetectKind::Unknown);
     let kinds: Vec<(DetectKind, Option<Engine>)> = d.items.iter().map(|i| (i.kind, i.engine)).collect();
     assert_eq!(kinds, [(DetectKind::Proxy, Some(Engine::Flame)), (DetectKind::Flame, Some(Engine::Flame))]);
-    assert!(d.reason.contains("1 importable item(s) and 1 Kiln can't load"), "{}", d.reason);
+    // the loader in it is "not needed", never something "Kiln can't load yet" (a player's report: Find's zip with
+    // Greeneye Loader's dbgcore.dll read as if a part of the mod could not be loaded)
+    assert_eq!(d.reason, "a folder with 1 importable item(s); 1 loader(s) in it are not needed");
     let dirs = DataDirs::at(t.0.join("data"));
     let rep = library::import(&dirs, std::slice::from_ref(&src), &mut NoProgress).unwrap();
     assert_eq!(rep.imported.iter().map(|r| (r.kind, r.id.as_str())).collect::<Vec<_>>(), [(kiln_manage::manifest::ModKind::Flame, "creative")], "{rep:?}");

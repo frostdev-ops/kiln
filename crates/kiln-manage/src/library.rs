@@ -708,14 +708,23 @@ fn detect_folder_at(dir: &Path, depth: usize, top_name: Option<&str>) -> Detecte
     }
     if items.iter().any(|i| i.kind != DetectKind::Unknown) {
         let n = items.iter().filter(|i| i.kind.importable()).count();
-        let other = items.iter().filter(|i| i.kind != DetectKind::Unknown && !i.kind.importable()).count();
-        let reason = if other == 0 {
-            format!("a folder with {n} importable item(s)")
-        } else if n == 0 {
+        // a loader the package carries that Kiln does not need (it runs that engine's mods itself) is not something
+        // "Kiln can't load yet": Find's zip brings Greeneye Loader's dbgcore.dll, and the mod beside it is all of it
+        let unneeded = |i: &Detected| i.kind == DetectKind::Proxy && i.engine.is_some_and(crate::engines::loader_is_note);
+        let loaders = items.iter().filter(|i| unneeded(i)).count();
+        let other = items.iter().filter(|i| i.kind != DetectKind::Unknown && !i.kind.importable() && !unneeded(i)).count();
+        let reason = if n == 0 {
             // nothing Kiln can add: the first item says what it is and why
             items.iter().find(|i| i.kind != DetectKind::Unknown).map(|i| i.reason.clone()).unwrap_or_default()
         } else {
-            format!("a folder with {n} importable item(s) and {other} Kiln can't load yet")
+            let mut text = format!("a folder with {n} importable item(s)");
+            if other > 0 {
+                text += &format!(" and {other} Kiln can't load yet");
+            }
+            if loaders > 0 {
+                text += &format!("; {loaders} loader(s) in it are not needed");
+            }
+            text
         };
         let mut d = mk(DetectKind::Unknown, None, None, None, reason);
         d.items = items;
