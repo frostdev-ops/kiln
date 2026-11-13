@@ -34,6 +34,11 @@ const TEMPLATES: &[&str] = &[
     include_str!("../../../templates/kiln-cosmetic/.template.config/template.json"),
     include_str!("../../../templates/kiln-building-material/.template.config/template.json"),
     include_str!("../../../templates/kiln-ability-blocks/.template.config/template.json"),
+    include_str!("../../../templates/kiln-events/.template.config/template.json"),
+    include_str!("../../../templates/kiln-saved-data/.template.config/template.json"),
+    include_str!("../../../templates/kiln-rules/.template.config/template.json"),
+    include_str!("../../../templates/kiln-network/.template.config/template.json"),
+    include_str!("../../../templates/kiln-screen-effect/.template.config/template.json"),
 ];
 
 /// Options every template has that `kiln new` sets itself (or that are internal).
