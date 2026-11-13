@@ -1,0 +1,10 @@
+{
+  "id": "admin-tools",
+  "name": "Admin tools sample",
+  "version": "0.1.0",
+  "apiVersion": "0.2",
+  "license": "MIT",
+  "entryAssembly": "AdminTools.dll",
+  "side": "server",
+  "description": "Three strikes for admins: /strike warns, then kicks, then bans for a day; /pardon takes it back; /scout lets an admin fly through walls to look at a build."
+}

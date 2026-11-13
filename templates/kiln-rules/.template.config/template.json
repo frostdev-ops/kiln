@@ -1,0 +1,90 @@
+{
+  "$schema": "http://json.schemastore.org/template",
+  "author": "Kiln contributors",
+  "classifications": [
+    "Kiln",
+    "Enshrouded",
+    "Mod"
+  ],
+  "identity": "Kiln.Templates.Rules",
+  "groupIdentity": "Kiln.Templates.Rules",
+  "name": "Kiln mod: player rules",
+  "description": "A Kiln mod that changes what players may do with Kiln.Rules: a rule for everyone, a timed rule for one player, NoClip through Kiln's switch.",
+  "shortName": "kiln-rules",
+  "sourceName": "KilnRules1",
+  "preferNameDirectory": true,
+  "tags": {
+    "language": "C#",
+    "type": "project",
+    "kiln.kind": "code"
+  },
+  "forms": {
+    "kebab": {
+      "identifier": "kebabCase"
+    }
+  },
+  "symbols": {
+    "modId": {
+      "type": "parameter",
+      "datatype": "text",
+      "defaultValue": "",
+      "description": "Mod id ([a-z0-9][a-z0-9._-]*); default: the name in kebab-case"
+    },
+    "modIdDefault": {
+      "type": "derived",
+      "valueSource": "name",
+      "valueTransform": "kebab"
+    },
+    "modIdValue": {
+      "type": "generated",
+      "generator": "coalesce",
+      "parameters": {
+        "sourceVariableName": "modId",
+        "fallbackVariableName": "modIdDefault"
+      },
+      "replaces": "kiln-mod-id"
+    },
+    "kilnSdkVersion": {
+      "type": "parameter",
+      "datatype": "text",
+      "defaultValue": "0.2.0",
+      "replaces": "KILN_SDK_VERSION",
+      "description": "Kiln.Sdk version (the MDK this template came with)"
+    },
+    "feed": {
+      "type": "parameter",
+      "datatype": "text",
+      "defaultValue": "",
+      "replaces": "KILN_FEED",
+      "description": "Local NuGet feed holding Kiln.Sdk/Kiln.Api (writes a nuget.config next to the project)"
+    },
+    "hasFeed": {
+      "type": "computed",
+      "value": "(feed != \"\")"
+    },
+    "server": {
+      "type": "parameter",
+      "datatype": "text",
+      "defaultValue": "",
+      "replaces": "KILN_SERVER",
+      "description": "Server folder (with enshrouded_server.exe) for dotnet build -t:KilnDeploy"
+    },
+    "hasServer": {
+      "type": "computed",
+      "value": "(server != \"\")"
+    }
+  },
+  "sources": [
+    {
+      "modifiers": [
+        {
+          "condition": "(!hasFeed)",
+          "exclude": [
+            "nuget.config"
+          ]
+        }
+      ]
+    }
+  ],
+  "postActions": []
+}
