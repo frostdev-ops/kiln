@@ -38,8 +38,9 @@ public sealed class LoadoutsMod : Mod
     private const string Sessions = "identity.players", Entities = "identity.entities";
     private static readonly string[] ToRead = [Gear], ToChange = [Gear, Backpack, Equip, Sessions, Entities];
 
-    public override void OnLoad() =>
-        Log.Info($"loadouts: {(Missing(ToChange) is { } off ? $"not available ({off} is off: {Capabilities.Why(off)})" : "available")}");
+    // Nothing is asked in OnLoad. The rows of services that start with the server's first tick (the identity rows are
+    // two of them) are still pending while mods load, so an answer taken here would be "not available" on a server
+    // where everything works a moment later. Ask where you use a thing, as the commands below do.
 
     [Command("loadout", Description = "save <name>, wear <name>, check <name>, or off <slot>: the gear you wear, kept by kind and put on again")]
     private async Task Loadout(CommandContext c, string action, string? name = null)
