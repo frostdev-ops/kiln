@@ -13,6 +13,7 @@
 #include <windowsx.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cstdio>
 #include <cstring>
 #include <deque>
@@ -544,7 +545,14 @@ void feed_pad(ImGuiIO& io) {
 }  // namespace
 
 void input_hook_xinput() {
-    if (g_xinput_hook) return;
+    // Runs after every library load, on the thread that loaded. Two loads can end at the same moment (they no longer
+    // queue behind the LoadLibraryExW hook's mutex): one thread looks, the others leave it to that one, so the hook is
+    // made once and is not replaced while another thread reads it.
+    static std::atomic<bool> hooked{false};
+    static std::mutex one;
+    if (hooked.load(std::memory_order_acquire)) return;
+    std::unique_lock<std::mutex> lk(one, std::try_to_lock);
+    if (!lk.owns_lock() || hooked.load(std::memory_order_acquire)) return;
     for (const wchar_t* dll : {L"xinput1_4.dll", L"xinput1_3.dll", L"xinput9_1_0.dll"}) {
         HMODULE m = GetModuleHandleW(dll);
         if (!m) continue;
@@ -555,6 +563,7 @@ void input_hook_xinput() {
         std::snprintf(name, sizeof name, "%ls", dll);
         logf(g_xinput_hook ? KILN_LOG_INFO : KILN_LOG_WARN, "ui: gamepad: %s XInputGetState %s", name,
              g_xinput_hook ? "hooked (idle for the game while Kiln has the input)" : "could not be hooked");
+        if (g_xinput_hook) hooked.store(true, std::memory_order_release);  // not hooked: the next load tries again
         return;
     }
 }

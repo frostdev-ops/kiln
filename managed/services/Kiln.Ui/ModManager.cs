@@ -339,17 +339,35 @@ internal sealed class ModManagerPage
         ui.DrawText(UiLayer.Window, x, y, text, GameColors.Gold.WithAlpha(210), 14 * s);
 
     // ---- Mods: engines | mods | details ----
+    /// <summary>The Mods section's columns at their smallest, in UI units: engines, mods, details, and the gap between
+    /// two of them.</summary>
+    internal const float MinEngines = 230, MinMods = 300, MinDetails = 300, ColumnGap = 28;
+
+    /// <summary>The narrowest page, in UI units, that has room for the three columns. On a narrower one the mods
+    /// column's width went below zero and the details covered its search box (GitHub PR 27), so a host keeps the page
+    /// at least this wide: <see cref="ModManagerHost.PageScale"/>; the game page is 1760 units.</summary>
+    internal const float MinContentUnits = MinEngines + MinMods + MinDetails + 2 * ColumnGap;
+
+    /// <summary>The widths of the three columns in a section <paramref name="width"/> pixels wide at scale
+    /// <paramref name="s"/>. The details give way first, down to their smallest, so the mods keep theirs.</summary>
+    internal static (float Left, float Mid, float Right) Columns(float width, float s)
+    {
+        var gap = ColumnGap * s;
+        var left = Math.Clamp(width * 0.21f, MinEngines * s, 360 * s);
+        var right = Math.Clamp(width * 0.37f, 360 * s, 680 * s);
+        var mid = width - left - right - 2 * gap;
+        if (mid < MinMods * s)
+        {
+            right = Math.Max(MinDetails * s, right - (MinMods * s - mid));
+            mid = width - left - right - 2 * gap;
+        }
+        return (left, mid, right);
+    }
+
     private void ModsSection(UiDraw ui, PageRect r, float s)
     {
-        var gap = 28 * s;
-        var left = Math.Clamp(r.Width * 0.21f, 230 * s, 360 * s);
-        var right = Math.Clamp(r.Width * 0.37f, 360 * s, 680 * s);
-        var mid = r.Width - left - right - 2 * gap;
-        if (mid < 300 * s)
-        {
-            right = Math.Max(300 * s, right - (300 * s - mid));
-            mid = r.Width - left - right - 2 * gap;
-        }
+        var gap = ColumnGap * s;
+        var (left, mid, right) = Columns(r.Width, s);
         var leftR = new PageRect(r.X, r.Y, left, r.Height);
         var midR = new PageRect(r.X + left + gap, r.Y, mid, r.Height);
         var rightR = new PageRect(midR.Right + gap, r.Y, right, r.Height);
@@ -713,13 +731,31 @@ internal static class ModManagerHost
     public static readonly ModManagerPage Page = new();
     private static ulong _lastFrame;
 
+    /// <summary>Each side margin is at least this share of the display's width (and at least 48 units).</summary>
+    private const float MarginShare = 0.055f;
+
+    /// <summary>The side margin of the page on a display <paramref name="w"/> pixels wide at scale <paramref name="s"/>.</summary>
+    internal static float Margin(float w, float s) => Math.Max(48 * s, w * MarginShare);
+
+    /// <summary>The page's scale on a display of <paramref name="w"/> x <paramref name="h"/> pixels at UI scale
+    /// <paramref name="uiScale"/>. Like the game's own menus the page grows with the display (1920x1080 = 1), on top of
+    /// the UI scale; but never so far that the content between the margins is narrower than the page's three columns
+    /// (<see cref="ModManagerPage.MinContentUnits"/>). At 300 % Windows scaling on a 3840x2160 display the product is 6,
+    /// which left 544 units for columns that need 886.</summary>
+    internal static float PageScale(float w, float h, float uiScale)
+    {
+        var k = Math.Clamp(Math.Min(h / 1080f, w / 1920f), 0.7f, 3f);
+        var s = (uiScale > 0 ? uiScale : 1) * k;
+        // at this scale a margin is its share of the width (48 units are less), and the content is the rest
+        var fits = w * (1 - 2 * MarginShare) / ModManagerPage.MinContentUnits;
+        return Math.Min(s, Math.Max(0.7f, fits));  // 0.7: the smallest the product gets, so no display goes below it
+    }
+
     public static void Draw(UiDraw ui)
     {
         var w = ui.Width;
         var h = ui.Height;
-        // like the game's own menus the page grows with the display (1920x1080 = 1), on top of the UI scale
-        var k = Math.Clamp(Math.Min(h / 1080f, w / 1920f), 0.7f, 3f);
-        var s = (ui.Scale > 0 ? ui.Scale : 1) * k;
+        var s = PageScale(w, h, ui.Scale);
         ui.PushStyleRaw(UiStyle.Game);
         try
         {
@@ -742,7 +778,7 @@ internal static class ModManagerHost
             _lastFrame = ui.FrameNumber;
             if (ui.BeginWindowNoClose($"Kiln {Game.KilnVersion}###kiln.menu.main", ModManagerChrome.PageFlags(appearing)))
             {
-                var margin = Math.Max(48 * s, w * 0.055f);
+                var margin = Margin(w, s);
                 var top = Math.Max(36 * s, h * 0.055f);
                 var footerH = 64 * s;
                 var cw = ModManagerChrome.ContentWidth(w - 2 * margin, s);  // ultrawide: the extra room stays empty on the right

@@ -69,29 +69,18 @@ std::unordered_map<KilnHandle, std::shared_ptr<CallbackLifetime>> g_retiring_sub
 
 SafetyHookInline g_load_library;
 using LoadLibraryExWFn = HMODULE(WINAPI*)(LPCWSTR, HANDLE, DWORD);
-// Trampoline published once at install, vk.cpp's R.* pattern: SafetyHookInline::call() holds that hook's mutex
-// for the whole original call, which deadlocked the panel loader against a Vulkan/ICD load. The hook is never
-// uninstalled, so the trampoline lives for the process.
+// The original, published before the hook is enabled and called without the hook's mutex (vk.cpp's pattern).
+// SafetyHookInline::call() holds that mutex for the whole original call. A load waits for the loader lock with the
+// mutex held, and the thread that holds the loader lock (a DllMain that loads a library, a graphics driver's does)
+// waits for the mutex in this detour: the game hung at its start in a stack with other engines (GitHub PR 27).
+// The hook is never removed, so the trampoline lives as long as the process.
 std::atomic<LoadLibraryExWFn> g_load_library_original{nullptr};
 
 HMODULE WINAPI hk_load_library_ex_w(LPCWSTR name, HANDLE file, DWORD flags) {
-    const DWORD tid = GetCurrentThreadId();
-    char narrow[260];
-    narrow[0] = '\0';
-    if (name) {
-        WideCharToMultiByte(CP_UTF8, 0, name, -1, narrow, static_cast<int>(sizeof narrow), nullptr, nullptr);
-        narrow[sizeof narrow - 1] = '\0';
-    }
-    logf(KILN_LOG_INFO, "ui: loadlibrary tid=%lu enter name=%s flags=0x%lx", tid, narrow, flags);
-    HMODULE m = nullptr;
-    if (LoadLibraryExWFn orig = g_load_library_original.load(std::memory_order_acquire)) {
-        m = orig(name, file, flags);
-    } else {
-        // install race (hook live, trampoline not yet published): the mutex path is safe here, no load holds it yet
-        m = g_load_library.call<HMODULE>(name, file, flags);
-    }
-    const DWORD err = m ? 0 : GetLastError();
-    logf(KILN_LOG_INFO, "ui: loadlibrary tid=%lu exit name=%s module=%p err=%lu", tid, narrow, static_cast<void*>(m), err);
+    // Nothing runs before the original, and nothing after a load that failed: its caller reads the last error.
+    const LoadLibraryExWFn original = g_load_library_original.load(std::memory_order_acquire);
+    // never null here (published before enable()); the locked call is what this detour did before
+    HMODULE m = original ? original(name, file, flags) : g_load_library.call<HMODULE>(name, file, flags);
     // every load: vulkan-1.dll present and our hooks not in its code (first load, or a reload) -> (re)install
     if (m && GetModuleHandleW(L"vulkan-1.dll")) vk_install();
     if (m) input_hook_xinput();
@@ -226,26 +215,9 @@ bool build_frame(float width, float height, float dpi) {
     f.size = sizeof f;
     f.width = width;
     f.height = height;
-    // The managed standalone page multiplies this scale by the display growth
-    // k = clamp(min(h/1080, w/1920)) (ModManagerHost.Draw) with no clamp of its
-    // own. At 300% OS scaling on a 4K display dpi is 3 and k is 2, so the page
-    // scale hits 6 and the three-column split inverts (middle width negative),
-    // putting the details pane on top of the mods column's search box. Cap the
-    // scale the frame reports so the page scale never exceeds 4: the style dpi
-    // above and the status dpi_scale keep the full value; only the managed
-    // layout's input is bounded. (The complete fix is a clamp on the managed
-    // side; this keeps the native service self-consistent until then.)
-    {
-        const float k = std::clamp(std::min(height / 1080.0f, width / 1920.0f), 0.7f, 3.0f);
-        const float capped = std::min(dpi, 4.0f / k);
-        static bool logged = false;
-        if (!logged && capped < dpi) {
-            logf(KILN_LOG_INFO, "ui: frame dpi scale capped %.2f -> %.2f (display %.0fx%.0f, k %.2f; standalone layout bound)",
-                 dpi, capped, width, height, k);
-            logged = true;
-        }
-        f.dpi_scale = capped;
-    }
+    // the style's scale (apply_style above) and what Ui.Scale gives every mod: one value. A page that grows with the
+    // display on top of it bounds its own scale (ModManagerHost.PageScale), not this one.
+    f.dpi_scale = dpi;
     f.delta_seconds = dt;
     f.menu_open = g_menu_open.load() ? 1 : 0;
     f.capturing = capturing() ? 1 : 0;
@@ -574,7 +546,6 @@ extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api,
     if (api->abi_version != KILN_ABI_VERSION || api->size < offsetof(KilnApi, side)) return KILN_ERR_UNAVAILABLE;
     g_api = api;
     g_owner = owner;
-    logf(KILN_LOG_INFO, "ui: kiln-ui-loadlibrary-fix build r2 (LoadLibraryExW trampoline-direct, hook traced, frame dpi capped)");
     info->id = KilnStr{KILN_UI_SERVICE, sizeof(KILN_UI_SERVICE) - 1};
     info->version = KilnStr{"1", 1};
     uint32_t side = 0;
@@ -611,12 +582,16 @@ extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api,
     } else {
         void* target = reinterpret_cast<void*>(GetProcAddress(GetModuleHandleW(L"kernelbase.dll"), "LoadLibraryExW"));
         if (!target) target = reinterpret_cast<void*>(GetProcAddress(GetModuleHandleW(L"kernel32.dll"), "LoadLibraryExW"));
-        g_load_library = safetyhook::create_inline(target, reinterpret_cast<void*>(&hk_load_library_ex_w));
-        if (!g_load_library) {
+        // Created disabled, the original published, then enabled: another engine's thread loads its plugins while
+        // this runs, and a load that reached the detour before the original was known came back as failed.
+        g_load_library = safetyhook::create_inline(target, reinterpret_cast<void*>(&hk_load_library_ex_w),
+                                                   SafetyHookInline::StartDisabled);
+        if (g_load_library)
+            g_load_library_original.store(g_load_library.original<LoadLibraryExWFn>(), std::memory_order_release);
+        if (!g_load_library || !g_load_library.enable()) {
             logf(KILN_LOG_ERROR, "ui: hooking LoadLibraryExW failed: no overlay");
             return KILN_ERR_UNAVAILABLE;
         }
-        g_load_library_original.store(g_load_library.original<LoadLibraryExWFn>(), std::memory_order_release);
         logf(KILN_LOG_INFO, "ui: waiting for the game to load vulkan-1.dll (LoadLibraryExW hooked)");
     }
     if (game) api->register_service(owner, KilnStr{KILN_UI_TICK_SERVICE, sizeof(KILN_UI_TICK_SERVICE) - 1}, &kTickTable);
