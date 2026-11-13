@@ -38,6 +38,7 @@ internal static class Adopted
         typeof(Saves),
         typeof(Rules),
         typeof(World),
+        typeof(Blocks),
     ];
 
     internal static IEnumerable<Assembly> Assemblies => Anchors.Select(t => t.Assembly).Distinct();

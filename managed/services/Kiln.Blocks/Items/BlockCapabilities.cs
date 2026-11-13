@@ -28,12 +28,13 @@ internal static class BlockCapabilities
     /// <summary>Where the rows go: the capability table (tests set it).</summary>
     internal static Action<string, Row> Report = (name, row) => Capabilities.Report(name, row.State, row.Reason, row.Text);
 
-    private static int _reported;
+    private static long _reported = -1;  // the registry binding they were reported under
 
-    /// <summary>Reports both rows, once per process.</summary>
+    /// <summary>Reports both rows, once per registry binding (again after a reset, as a test kit's next harness has).</summary>
     internal static void Ensure()
     {
-        if (Interlocked.Exchange(ref _reported, 1) != 0) return;
+        var epoch = Capabilities.CurrentBinding.Epoch;
+        if (Interlocked.Exchange(ref _reported, epoch) == epoch) return;
         try
         {
             var gamedata = Content.GameDataAvailable;
@@ -43,7 +44,7 @@ internal static class BlockCapabilities
         catch (Exception e) when (e is InvalidOperationException or ArgumentException or NotSupportedException or DllNotFoundException or EntryPointNotFoundException)
         {
             // no capability table in this process (a tool, a test): the blocks still compile
-            Interlocked.Exchange(ref _reported, 0);
+            Interlocked.Exchange(ref _reported, -1);
         }
     }
 

@@ -134,6 +134,8 @@ public sealed class ServiceStartTests
         ["Kiln.Hooks"] = "kiln.hooks probed again after a registry reset",
         ["Kiln.Example"] = "the template: only the core's kiln.example row",
         ["Kiln.World"] = "world.* lowered when kiln.world is missing, at its first use, with world.tracked_writes",
+        ["Kiln.Blocks"] = "no native table; its rows exist from its first use (an item block's compile, the affix " +
+                          "session), so a manifest's features cannot require them",
         ["Kiln.Saves"] = "starts at its first use: its start subscribes to kiln.saves' pump; saves.* lowered and " +
                          "InstanceData's rows reported then (the core's kiln.saves row says the table is missing from the start)",
     };

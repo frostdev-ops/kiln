@@ -226,6 +226,7 @@ internal static partial class AffixRuntime
     internal static int BlockedNotes, CapNotes;
     private static readonly HashSet<string> NotedStats = new(StringComparer.Ordinal);
     private static (CapabilityState, CapabilityReason, string)? _shownRolls, _shownEffects;
+    private static long _shownEpoch = -1;  // the registry binding the shown rows were reported under
 
     private static string Cfg(string name) => $"0x{BlockIds.Fnv(System.Text.Encoding.UTF8.GetBytes(name)):x8}";
 
@@ -701,6 +702,12 @@ internal static partial class AffixRuntime
     {
         try
         {
+            var epoch = Capabilities.CurrentBinding.Epoch;
+            if (_shownEpoch != epoch)
+            {
+                _shownRolls = _shownEffects = null;  // a new registry binding has neither row
+                _shownEpoch = epoch;
+            }
             var rolls = RollsNow();
             if (_shownRolls != rolls)
             {

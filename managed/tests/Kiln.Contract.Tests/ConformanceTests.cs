@@ -97,6 +97,7 @@ public sealed class ConformanceTests : ContractTest
         ["players.bans"] = "Kiln.Network's PlayerGate, at its start (a ban is enforced as a kick)",
         ["identity.players"] = "Kiln.Host's Capabilities.Start, following IdentitySources.Players",
         ["identity.entities"] = "Kiln.Host's Capabilities.Start, following the entity sources",
+        ["saves.instance_data.sync"] = "Kiln.Saves (InstanceSync), with InstanceData's other rows",
     };
 
     internal static readonly Dictionary<string, string> ThreadBySide = new(StringComparer.Ordinal)

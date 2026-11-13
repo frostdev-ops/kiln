@@ -568,6 +568,7 @@ public static class AiStats
     /// <summary>Casts started by rules.</summary>
     public static long Casts => Interlocked.Read(ref AiRuntime.CastsRun);
     /// <summary>The creatures this one summoned that still live. Tick thread.</summary>
+    [TickThreadOnly]
     public static IReadOnlyList<EntityId> SummonsOf(EntityId summoner)
     {
         Game.AssertTickThread();

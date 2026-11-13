@@ -113,6 +113,14 @@ public sealed class OldCallShapesTests
         }
     }
 
+    /// <summary>Groups that took a new overload which no dev.26 call can meet, and why.</summary>
+    private static readonly Dictionary<string, string> Accepted = new(StringComparer.Ordinal)
+    {
+        // nine overloads in dev.26: `var d = Blocks.Define;` and `Blocks.Define(null)` were ambiguous already; the two
+        // new ones take AffixBlock and AffixPoolBlock, types new in dev.27 (affix-blocks, the owner's decision)
+        ["Kiln.Blocks.Define"] = "the two typed affix overloads of dev.27",
+    };
+
     [Theory]
     [MemberData(nameof(Adopted.Names), MemberType = typeof(Adopted))]
     public void A_method_group_released_in_dev26_gains_no_overload(string service)
@@ -125,7 +133,8 @@ public sealed class OldCallShapesTests
             if (type is null) continue;  // a type forwarded elsewhere (ItemId): its own assembly is checked
             var now = type.GetMethods(BindingFlags.Public | BindingFlags.Static | BindingFlags.Instance | BindingFlags.DeclaredOnly)
                 .Count(m => m.Name == method && !m.IsSpecialName);
-            if (now > shipped) grown.Add($"{typeName}.{method}: {shipped} overload(s) in dev.26, {now} now");
+            if (now > shipped && !Accepted.ContainsKey($"{typeName}.{method}"))
+                grown.Add($"{typeName}.{method}: {shipped} overload(s) in dev.26, {now} now");
         }
         Assert.True(grown.Count == 0, "give the new shape a name of its own: " + string.Join("; ", grown));
     }
