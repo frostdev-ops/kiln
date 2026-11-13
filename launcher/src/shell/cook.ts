@@ -8,6 +8,7 @@ import * as api from "../api/commands";
 import type { CookJob, CookRun, GameId, ModCook } from "../api/commands";
 import { toKilnError } from "../api/commands";
 import { toast, waitTask } from "../ui";
+import { notifyActivation } from "./notices";
 
 /** Why a mod is cooked, as the end of "… because …" (kiln_manage::cook::CookReason::text). */
 export const COOK_REASON: Record<NonNullable<CookJob["reason"]>, string> = {
@@ -15,7 +16,7 @@ export const COOK_REASON: Record<NonNullable<CookJob["reason"]>, string> = {
   modChanged: "the mod changed since its last cook",
   gameChanged: "the game was updated since its last cook",
   lastFailed: "its last cook failed",
-  filesGone: "its cooked files are gone",
+  filesGone: "its cooked files are gone or were changed",
   asked: "you asked",
 };
 
@@ -38,13 +39,15 @@ export function notifyCook(run: CookRun | null | undefined, o: { quietOk?: boole
 }
 
 /** Cooks what needs a cook before the game starts. Resolves when it is done, whatever happened: a cook never stops a
- *  start. `started` is told when a cook really runs (Play says "Cooking"). */
+ *  start. The cook runs always: it applies the active profile first when it changed (kilnctl, another window), so the
+ *  mods it cooks are the ones the start loads, and ends at once when nothing is due. `started` is told when the plan
+ *  shows mods to cook (Play says "Cooking"). */
 export async function cookBeforePlay(gameId: GameId, started?: (jobs: CookJob[]) => void): Promise<CookRun | null> {
   try {
-    const due = (await api.cookPlan(gameId)).filter((j) => j.reason);
-    if (!due.length) return null;
-    started?.(due);
+    const due = (await api.cookPlan(gameId).catch(() => [] as CookJob[])).filter((j) => j.reason);
+    if (due.length) started?.(due);
     const run = await waitTask<CookRun>(await api.cookRun(gameId, null));
+    void notifyActivation(run?.activation);
     notifyCook(run, { quietOk: true });
     return run;
   } catch (e) {
@@ -59,6 +62,7 @@ export async function cookBeforePlay(gameId: GameId, started?: (jobs: CookJob[])
 export async function cookAgain(gameId: GameId, id: string, name: string): Promise<CookRun | null> {
   try {
     const run = await waitTask<CookRun>(await api.cookRun(gameId, id));
+    void notifyActivation(run?.activation);
     notifyCook(run);
     return run;
   } catch (e) {

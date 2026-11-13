@@ -1,10 +1,10 @@
 // Cooking mods from the launcher (docs/kiln/launcher/app.md "Cooking mods"): Play cooks the mods that need it before the
 // game starts, as a task whose lines are the tools'; a mod whose cook fails is named with the tools' own text, the
-// others are cooked and the game starts all the same; "Cook again" in a mod's menu. Browser mock only
-// (src/api/mock.ts: `__kilnMock.setCook(id, { reason, fails })`).
+// others are cooked and the game starts all the same; "Cook again" in a mod's menu, and Y on the Deck's Mods screen.
+// Browser mock only (src/api/mock.ts: `__kilnMock.setCook(id, { reason, fails })`, `setCookPace(ms)`).
 import { expect, test, type Page } from "@playwright/test";
 
-type Mock = { __kilnMock: { setCook: (id: string, cook: unknown) => void; calls: () => string[]; stopGame: () => void; emit: (name: string, payload: unknown) => void } };
+type Mock = { __kilnMock: { setCook: (id: string, cook: unknown) => void; setCookPace: (ms: number) => void; calls: () => string[]; stopGame: () => void; emit: (name: string, payload: unknown) => void } };
 
 async function desktop(page: Page) {
   await page.goto("/#/");
@@ -37,13 +37,32 @@ test("Play cooks a mod that needs it first, and then the game starts", async ({ 
   await expect.poll(async () => (await calls(page)).filter((c) => c === "cook_run" || c === "launch_play"), { timeout: 15_000 }).toEqual(["cook_run", "launch_play"]);
   await expect(page.locator(".k-head-state")).toHaveText(/Starting|Running/, { timeout: 10_000 });
   await expect(page.locator(".k-toast", { hasText: "was not cooked" })).toHaveCount(0);
-  // cooked for this game: the next Play starts no cook
+  // cooked for this game: the next Play's cook (it always runs: it applies a changed profile first) cooks nothing
   expect((await api<{ reason?: string }[]>(page, "cookPlan", "client-steam"))[0].reason ?? null).toBeNull();
   await page.evaluate(() => (window as unknown as Mock).__kilnMock.stopGame());
   await expect(page.locator(".k-head-state")).toHaveText("Stopped");
+  const toasts = await page.locator(".k-toast", { hasText: "Cooking" }).count();
   await play.click();
   await expect.poll(async () => (await calls(page)).filter((c) => c === "launch_play").length, { timeout: 15_000 }).toBe(2);
-  expect((await calls(page)).filter((c) => c === "cook_run").length).toBe(1);
+  expect((await calls(page)).filter((c) => c === "cook_run").length).toBe(2);
+  expect(await page.locator(".k-toast", { hasText: "Cooking" }).count()).toBe(toasts);
+});
+
+test("the cook shows its progress as a task: the mod and then each line the tools print", async ({ page }) => {
+  await desktop(page);
+  await page.evaluate(() => (window as unknown as Mock).__kilnMock.setCookPace(1500));
+  await setCook(page, "new-items", { reason: "modChanged" });
+  const play = page.locator(".k-door");
+  await expect(play).toBeEnabled({ timeout: 10_000 });
+  await play.click();
+  await page.locator(".k-tray-btn").click();
+  const task = page.getByRole("dialog", { name: "Tasks" }).locator(".k-task", { hasText: "Cook mods" });
+  await expect(task.locator(".k-task-msg")).toHaveText("Cooking New Items (1 of 1)", { timeout: 5_000 });
+  await expect(task.locator(".k-task-msg")).toHaveText("New Items: kiln: cooking assets/cook.json (modelcook)", { timeout: 5_000 });
+  await expect(task.locator(".k-task-pct")).toBeVisible();
+  // and the start follows the cook, not before it ends
+  expect((await calls(page)).filter((c) => c === "launch_play")).toEqual([]);
+  await expect.poll(async () => (await calls(page)).filter((c) => c === "launch_play").length, { timeout: 15_000 }).toBe(1);
 });
 
 test("a mod whose cook fails is named with the tools' own text; the others are cooked and the game starts all the same", async ({ page }) => {
@@ -94,14 +113,14 @@ test("Cook again in a mod's menu cooks that mod, and says so or says why not", a
   await expect(notice).toContainText("is not in enshrouded.kfc (game update or wrong side?)");
 });
 
-test("nothing to cook: Play starts no cook", async ({ page }) => {
+test("nothing to cook: the cook ends at once, says nothing, and the game starts", async ({ page }) => {
   await desktop(page);
   const play = page.locator(".k-door");
   await expect(play).toBeEnabled({ timeout: 10_000 });
   await play.click();
   await expect(page.locator(".k-head-state")).toHaveText(/Starting|Running/, { timeout: 10_000 });
-  expect((await calls(page)).filter((c) => c === "cook_run")).toEqual([]);
-  expect((await calls(page)).filter((c) => c === "cook_plan").length).toBeGreaterThan(0);
+  await expect.poll(async () => (await calls(page)).filter((c) => c === "cook_run" || c === "launch_play"), { timeout: 15_000 }).toEqual(["cook_run", "launch_play"]);
+  await expect(page.locator(".k-toast", { hasText: /Cooking|cooked/ })).toHaveCount(0);
 });
 
 // The Deck view (1280×800, the pad): Play cooks first there too, and a mod that could not be cooked comes as the notice
@@ -134,5 +153,40 @@ test.describe("in the Deck view", () => {
     expect(box && box.x >= 0 && box.y >= 0 && box.x + box.width <= 1280 && box.y + box.height <= 800, JSON.stringify(box)).toBeTruthy();
     await pad("b");
     await expect(notice).toHaveCount(0);
+  });
+
+  test("Y on a mod that has something to cook cooks it again, and says so or says why not", async ({ page }) => {
+    const pad = async (button: string) => {
+      const send = (pressed: boolean) => page.evaluate(([b, p]) => (window as unknown as Mock).__kilnMock
+        .emit("kiln://gamepad", { kind: "button", button: b, pressed: p, repeat: false, device: "event9" }), [button, pressed] as const);
+      await send(true);
+      await send(false);
+      await page.waitForTimeout(60);
+    };
+    await page.goto("/?deck=steamdeck#/deck/mods");
+    await setCook(page, "new-items", { reason: null });
+    const mods = page.getByRole("list", { name: "Mods" });
+    await expect(mods.locator('[data-deck-id="mod-kiln-new-items"]')).toBeVisible({ timeout: 10_000 });
+    // a mod with nothing to cook offers no Y
+    await mods.locator('[data-deck-id="mod-kiln-weather-plus"]').focus();
+    await expect(page.locator('.deck-hint[data-hint="y"]')).toHaveCount(0);
+    // a mod with something to cook: Y cooks it, whatever its record says
+    await mods.locator('[data-deck-id="mod-kiln-new-items"]').focus();
+    await expect(page.locator('.deck-hint[data-hint="y"]')).toContainText("Cook again");
+    await pad("y");
+    await expect(page.locator(".deck-toast, .k-toast", { hasText: "New Items cooked" }).first()).toBeVisible({ timeout: 10_000 });
+    expect((await calls(page)).filter((c) => c === "cook_run").length).toBe(1);
+    // the tools refuse: the notice names the mod with their words, on the screen, and B closes it
+    await setCook(page, "new-items", { fails: TOOL_TEXT });
+    await mods.locator('[data-deck-id="mod-kiln-new-items"]').focus();
+    await pad("y");
+    const notice = page.getByRole("dialog").filter({ hasText: "New Items was not cooked" });
+    await expect(notice).toBeVisible({ timeout: 10_000 });
+    await expect(notice).toContainText("is not in enshrouded.kfc (game update or wrong side?)");
+    const box = await notice.boundingBox();
+    expect(box && box.x >= 0 && box.y >= 0 && box.x + box.width <= 1280 && box.y + box.height <= 800, JSON.stringify(box)).toBeTruthy();
+    await pad("b");
+    await expect(notice).toHaveCount(0);
+    expect((await calls(page)).filter((c) => c === "cook_run").length).toBe(2);
   });
 });

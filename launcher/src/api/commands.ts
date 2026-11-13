@@ -1347,7 +1347,8 @@ export const foundScan = (gameId: GameId, profileId: ProfileId) => call<FoundRep
 export const foundAdd = (gameId: GameId, profileId: ProfileId, path: string) => call<TaskId>("found_add", { gameId, profileId, path });
 
 // ---- cooking mods (kiln_manage::cook) ----
-/** Why a mod is cooked before the game starts (cook::needs_cook). */
+/** Why a mod is cooked before the game starts (cook::needs_cook; "filesGone": a file its last cook made is gone or was
+ *  changed, by the cook's receipt in the game). */
 export type CookReason = "notCooked" | "modChanged" | "gameChanged" | "lastFailed" | "filesGone" | "asked";
 /** The last cook of a mod for a game (`<game>/kiln/state/cooked.json`). */
 export interface CookedMod {
@@ -1379,11 +1380,17 @@ export interface ModCook {
   /** Not cooked: the tools' last lines, or the one sentence that says why no tool ran. */
   error?: string | null;
 }
-export interface CookRun { mods: ModCook[] }
+export interface CookRun {
+  mods: ModCook[];
+  /** The active profile written again before the cook (it changed since its activation): its notices, as Play's. */
+  activation?: Activation | null;
+}
 /** The mods of the game's profile with something to cook, each with whether it needs a cook now. Reads only. */
 export const cookPlan = (gameId: GameId) => call<CookJob[]>("cook_plan", { gameId });
-/** A task (result CookRun): cooks the mods that need it, or with `modId` that one mod whatever its record says.
- *  Refuses while the game runs. A mod's failed cook is in the result, never the task's error. */
+/** A task (result CookRun): applies the active profile when it changed, then cooks the mods that need it (each from
+ *  nothing), or with `modId` that one mod whatever its record says. Holds the game's lock (no start meanwhile); its
+ *  Cancel stops the tool that runs. Refuses while the game runs ("Cook again" also right after a start). A mod's
+ *  failed cook is in the result, never the task's error. */
 export const cookRun = (gameId: GameId, modId: string | null = null) => call<TaskId>("cook_run", { gameId, modId });
 
 // library.rs

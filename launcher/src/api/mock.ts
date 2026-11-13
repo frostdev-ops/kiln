@@ -233,6 +233,8 @@ const ownFolderNote = (id: string, path: string, on: boolean) => on
 /** kiln_manage::cook in the fake game: the mods with something to cook (by id), why each is due, and what its tools
  *  say when its cook fails. Tests: `__kilnMock.setCook`. */
 const cookMods = new Map<string, { reason: CookReason | null; fails?: string; last?: CookedMod }>();
+/** How long each line of a cook task shows (tests: `__kilnMock.setCookPace`). */
+let cookStepMs = 120;
 
 /** What the next activation reports it kept in the game folder (tests: `__kilnMock.planActivation`), by whatever path
  *  it runs (profile_activate, the re-apply after profile_save, a reinstall's resume). */
@@ -1044,7 +1046,7 @@ const handlers: Record<string, Handler> = {
         return { id: j.id, name: j.name, reason: j.reason!, ok, ...(ok ? {} : { error: m.fails }) };
       });
       return { mods };
-    }, 120);
+    }, cookStepMs);
   },
   engine_status: (a) => {
     const g = gameOf(S(a.gameId));
@@ -1585,6 +1587,7 @@ if (typeof window !== "undefined") (window as unknown as { __kilnMock?: unknown 
   planActivation: (report: Pick<Activation, "retained" | "keptFiles" | "warnings">) => { activationPlan = report; },
   planAddNotices: (lines: string[]) => { addNotices.push(...lines); },
   setSfOwnFolder: (id: string, own = true) => { if (own) sfOwn.add(id); else sfOwn.delete(id); },
+  setCookPace: (ms: number) => { cookStepMs = ms; },
   setCook: (id: string, cook: { reason?: CookReason | null; fails?: string | null } | null) => {
     if (!cook) { cookMods.delete(id); return; }
     const m = cookMods.get(id) ?? { reason: null };
