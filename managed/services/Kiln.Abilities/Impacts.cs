@@ -142,6 +142,7 @@ public sealed unsafe class ImpactInstance
 
     public ImpactVariable? Find(uint configId) => Variables.FirstOrDefault(v => v.ConfigId == configId && configId != 0);
 
+    [RequiresCapability(AbilitiesCaps.Service)]
     public byte[]? Read(ImpactVariable v)
     {
         var t = AbilitiesNative.Require("ImpactInstance.Read");
@@ -152,6 +153,7 @@ public sealed unsafe class ImpactInstance
         return rc == AbilitiesNative.Ok ? buf : null;
     }
 
+    [RequiresCapability(AbilitiesCaps.Service)]
     public bool Write(ImpactVariable v, ReadOnlySpan<byte> bytes)
     {
         if (bytes.Length != v.Size) throw new ArgumentException($"{v.Name} is {v.Size} bytes, got {bytes.Length}");

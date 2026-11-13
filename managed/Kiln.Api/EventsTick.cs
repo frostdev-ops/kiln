@@ -45,7 +45,8 @@ internal static class ServiceTick
          // service's first use (a service that only lowers the sigdb features of its missing table is not here: the
          // core's kiln.<service> row says so from the start, and every assembly loaded here costs every start)
          ("Kiln.Assets", "Kiln.AssetsStartup"), ("Kiln.Settings", "Kiln.SettingsStartup"),
-         ("Kiln.Gameplay", "Kiln.GameplayStartup"), ("Kiln.Combat", "Kiln.CombatStartup")];
+         ("Kiln.Gameplay", "Kiln.GameplayStartup"), ("Kiln.Combat", "Kiln.CombatStartup"),
+         ("Kiln.Abilities", "Kiln.AbilitiesStartup")];
 
     private static readonly object Lock = new();
     private static Entry[] _entries = [];

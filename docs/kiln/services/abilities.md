@@ -401,3 +401,26 @@ chat) and impactsample.
 5. A Kiln-spawned `Explosion_Player_Spell_Fireball_1` next to an enemy near the player (`/abt near`): damage, burn,
    kill credit to the root player.
 6. impact-asm's ImpactSample: chain_explosion credited to the player, heal_over_time, signal_projectile.
+
+## The contract (dev.27)
+
+Kiln.Abilities follows [the API contract](../modding/contract.md). Server side (`[ServerOnly]` on the buff calls and
+events, as dev.27's buff work set them).
+
+- **Capabilities.** `kiln.abilities` and its sigdb features (`abilities.attributes`, `instances`, `natives`,
+  `programs`, `sequences`), lowered when the service is not loaded; `abilities.buffs` and `abilities.buff_list`. All
+  of them are reported at Kiln.Abilities' start, the first service tick (`AbilitiesStartup`), before a mod calls
+  anything; `abilities.buffs` is refreshed every 25 steps and before each buff call.
+- **Errors.** Without the service a call throws `KilnUnavailableException` naming `kiln.abilities` (a
+  `NotSupportedException`, as before); `PlaySequence` on a build without sequences names `abilities.sequences`.
+  Refusals of the native calls (`Natives.Register`, `Observe`, `Wrap`, config overrides) keep their
+  `InvalidOperationException`.
+- **Results.** `CastResult` implements `IKilnResult` (`BuffRemoveResult` already did).
+- **Threads.** `[TickThreadOnly]` on the calls that touch the world or the game's registries (`RunImpact`,
+  `RunProgram`, `Instance`, `SequenceOf`, `PlaySequence`, `ApplyBuff`, `Cast`, `OnDamage`, `Attributes`,
+  `Programs.Register`/`Refresh`, `Natives.Register`/`Wrap`, `AbilityCast.Impact`/`PlaySequence`); `Available`,
+  `Status`, `IdOf`, `HashOf` are `[AnyThread]`.
+- **Not done in dev.27:** no change event for `ImpactInstance.Write` and `Abilities.Attributes.Add` (writes without a
+  bus event; `CombatChangedEvent` covers the attribute writes of Kiln.Combat's `Attributes`), and `PlaySequence`
+  keeps its `bool`.
+- Tested offline: `managed/tests/Kiln.Contract.Tests/Group8ContractTests.cs` and the conformance rules.

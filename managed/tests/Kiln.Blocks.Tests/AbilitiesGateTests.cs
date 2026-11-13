@@ -34,9 +34,11 @@ public sealed unsafe class AbilitiesGateTests
         });
         As(Coremod, () =>
         {
-            var e = Assert.Throws<NotSupportedException>(() => Abilities.Programs.Register(blob));
+            // dev.27: KilnUnavailableException naming kiln.abilities, still a NotSupportedException
+            var e = Assert.ThrowsAny<NotSupportedException>(() => Abilities.Programs.Register(blob));
             Assert.Contains("kiln.abilities is not available", e.Message);
-            Assert.Throws<NotSupportedException>(() => Abilities.Programs.Register(blob, out _));
+            Assert.Equal("kiln.abilities", Assert.IsType<KilnUnavailableException>(e).Capability);
+            Assert.ThrowsAny<NotSupportedException>(() => Abilities.Programs.Register(blob, out _));
         });
         Assert.Throws<InvalidOperationException>(() => As(null, () => Abilities.Programs.Register(blob)));
     }
@@ -47,11 +49,12 @@ public sealed unsafe class AbilitiesGateTests
         // ApplyBuff registers Kiln's buff program for whichever mod uses buffs: it reaches the native table (here: none),
         // never the gate
         var buff = As(Plain, () => Abilities.ApplyBuff(new EntityId(5), Guid.NewGuid()));
-        var e = Assert.IsType<NotSupportedException>(buff.Exception?.InnerException);
-        Assert.Equal("Abilities.Programs.Register: kiln.abilities is not available on this build", e.Message);
+        var e = Assert.IsAssignableFrom<NotSupportedException>(buff.Exception?.InnerException);
+        Assert.Contains("Abilities.Programs.Register: kiln.abilities is not available on this build", e.Message);
+        Assert.Equal("kiln.abilities", Assert.IsType<KilnUnavailableException>(e).Capability);
         // Kiln.Blocks ships generated programs as assets and asks kiln.abilities to pick them up: open, no gate
-        var refresh = Assert.Throws<NotSupportedException>(() => As(Plain, () => Abilities.Programs.Refresh()));
-        Assert.Equal("Abilities.Programs.Refresh: kiln.abilities is not available on this build", refresh.Message);
+        var refresh = Assert.ThrowsAny<NotSupportedException>(() => As(Plain, () => Abilities.Programs.Refresh()));
+        Assert.Contains("Abilities.Programs.Refresh: kiln.abilities is not available on this build", refresh.Message);
     }
 
     // ---- NativeCall.Bytes, invoked as the core invokes a wrap: WrapDispatch(call, user) on the game's job thread ----

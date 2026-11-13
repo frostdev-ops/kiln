@@ -253,6 +253,8 @@ public static unsafe partial class Abilities
         /// <summary>Registers a managed native "&lt;modid&gt;.<paramref name="name"/>" (hash = FNV-1a-32 of the full
         /// name; ECALL it from a program). The handler runs on the tick thread the step after the call; the program's
         /// ECALL waits one step and then pushes the returned value. Ends when the mod unloads. Tick thread.</summary>
+        [TickThreadOnly]
+        [RequiresCapability(AbilitiesCaps.Service)]
         public static uint Register(string name, int argc, NativeHandler handler)
         {
             ArgumentException.ThrowIfNullOrEmpty(name);
@@ -278,6 +280,7 @@ public static unsafe partial class Abilities
 
         /// <summary>Declares a native from a mod's impact/natives.json before it is registered, so programs that call
         /// it pass the verifier now. Any thread.</summary>
+        [RequiresCapability(AbilitiesCaps.Service)]
         public static void Declare(string fullName, int argc)
         {
             var t = AbilitiesNative.Require("Abilities.Natives.Declare");
@@ -300,6 +303,7 @@ public static unsafe partial class Abilities
 
         /// <summary>Observes a vanilla native: its calls arrive as <see cref="ImpactNativeEvent"/> (applyDamage,
         /// applyBuff and spawnEntity are observed by default). Tick thread.</summary>
+        [RequiresCapability(AbilitiesCaps.Service)]
         public static void Observe(string nameOrHash)
         {
             var t = AbilitiesNative.Require("Abilities.Natives.Observe");
@@ -321,6 +325,8 @@ public static unsafe partial class Abilities
         /// <summary>Wraps a vanilla native: <paramref name="handler"/> runs synchronously on the game's job thread for
         /// every call, before the game's function (see <see cref="NativeCall"/> for the rules). Several handlers run by
         /// <paramref name="priority"/> (highest first). Dispose the handle, or it ends when the mod unloads.</summary>
+        [TickThreadOnly]
+        [RequiresCapability(AbilitiesCaps.Service)]
         public static IDisposable Wrap(string nameOrHash, NativeWrapHandler handler, int priority = 0)
         {
             ArgumentNullException.ThrowIfNull(handler);
@@ -330,6 +336,7 @@ public static unsafe partial class Abilities
 
     /// <summary>Synchronous applyDamage hook (job thread): scale or cancel a program's hit before the game computes it
     /// (armour, crit and resistances still apply after). <see cref="DamageCall.AttackMod"/> changes only this call.</summary>
+    [TickThreadOnly]
     public static IDisposable OnDamage(DamageHandler handler, int priority = 0)
     {
         ArgumentNullException.ThrowIfNull(handler);

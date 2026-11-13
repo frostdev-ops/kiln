@@ -79,6 +79,7 @@ public static partial class Abilities
     /// BuffType's GUID (its id is FNV-1a of it: Abilities.IdOf(buff)); <paramref name="duration"/> null = the buff's
     /// default lifetime. <paramref name="source"/> becomes the impact's root (credit, faction checks). Returns the
     /// short-lived impact entity that applies it (it destroys itself). Tick thread.</summary>
+    [TickThreadOnly]
     public static Task<EntityId> ApplyBuff(EntityId target, Guid buff, TimeSpan? duration = null, EntityId source = default)
     {
         try

@@ -1,11 +1,21 @@
 // SPDX-License-Identifier: MIT
 // Kiln.Abilities in the capability registry (Kiln.Capabilities; native/core/abi/services/kiln_caps.h). The rows are
-// decided once, when the service starts (the first use of Abilities): what kiln.abilities resolved at its init and
+// decided once, when the service starts (AbilitiesStartup at the first service tick, or the first use of Abilities): what kiln.abilities resolved at its init and
 // whether kiln.spawn and kiln.players are here does not change in a process.
 namespace Kiln;
 
 internal static class AbilitiesCaps
 {
+    /// <summary>kiln.abilities' table is here (the core's row).</summary>
+    public const string Service = "kiln.abilities";
+
+    /// <summary>sigdb: action sequences played on an actor (<see cref="Abilities.PlaySequence(EntityId, Guid, SequenceOptions)"/>).</summary>
+    public const string Sequences = "abilities.sequences";
+
+    /// <summary>The sigdb features kiln.abilities serves.</summary>
+    public static readonly string[] Features =
+        ["abilities.attributes", "abilities.instances", "abilities.natives", "abilities.programs", Sequences];
+
     /// <summary>Managed, session: buffs removed (and applied) through the game's natives (<see cref="Abilities.ApplyBuff"/>,
     /// <see cref="Abilities.RemoveBuff(EntityId, Guid)"/>). Needs kiln.abilities with its natives, programs and instance
     /// hooks, and kiln.spawn with spawn components; pending until a server world has set up the game's registries.</summary>
@@ -15,34 +25,30 @@ internal static class AbilitiesCaps
     /// reflection reads (<c>players.reflection</c>).</summary>
     public const string BuffList = "abilities.buff_list";
 
-    private static int _listReported, _started;
-    private static (CapabilityState State, CapabilityReason Reason, string Text)? _buffs;
-    private static IDisposable? _tick;
+    // Reported at the service's start, again under a new registry binding (the test kit's), and every 25 steps (about
+    // once a second): abilities.buffs follows the server world (its registries come with it; a client hosts after its
+    // mods loaded). ServiceCaps writes a row only when it changed.
+    internal static readonly ServiceCapRows Rows = new(Service, Report, everySteps: 25);
 
-    /// <summary>Reports the rows: buff_list once, buffs now and again on the service tick (about once a second) when it
-    /// changes, because its registries come with the server world (a client hosts after its mods loaded). Never throws.</summary>
-    internal static void Ensure()
+    /// <summary>Reports the rows when they were not reported under the current registry binding yet. Never throws.</summary>
+    internal static void Ensure() => Rows.Ensure();
+
+    private static void Report()
     {
-        RefreshBuffs();
-        if (Interlocked.Exchange(ref _started, 1) == 0)
+        try
         {
-            try
-            {
-                _tick = ServiceTick.Add("kiln.abilities capabilities", static (in TickInfo t) =>
-                {
-                    if (t.Step % 25 == 0) RefreshBuffs();
-                });
-            }
-            catch (Exception e) when (e is InvalidOperationException or ArgumentException)
-            {
-                ModLog.Warn($"kiln.abilities: no service tick for {Buffs}: {e.Message}");
-            }
+            // sigdb may have resolved a feature that no service is here to serve
+            if (Status() is null) ServiceCaps.LowerFeatures(Service, Features);
         }
-        if (Interlocked.Exchange(ref _listReported, 1) == 1) return;
+        catch (Exception e) when (e is ArgumentException or InvalidOperationException)
+        {
+            ModLog.Warn($"kiln.abilities: its sigdb features were not lowered: {e.Message}");
+        }
+        RefreshBuffs();
         try
         {
             var (state, reason, text) = DecideList(PlayerStates.Status is { } st ? st.Reflection : null, Row("kiln.playerstate"), Row("players.reflection"));
-            Capabilities.Report(BuffList, state, reason, text);
+            ServiceCaps.Report(BuffList, state, reason, text);
         }
         catch (Exception e) when (e is ArgumentException or InvalidOperationException or TypeInitializationException
                                       or FileNotFoundException or FileLoadException)
@@ -57,9 +63,7 @@ internal static class AbilitiesCaps
         {
             var now = DecideBuffs(Status(), Row("kiln.abilities"), Row("abilities.natives"), Row("abilities.programs"),
                 Row("abilities.instances"), Spawn.Available, Spawn.Available && Spawn.SupportsComponents, Row("kiln.spawn"));
-            if (_buffs == now) return;
-            _buffs = now;
-            Capabilities.Report(Buffs, now.State, now.Reason, now.Text);
+            ServiceCaps.Report(Buffs, now.State, now.Reason, now.Text);
         }
         catch (Exception e) when (e is ArgumentException or InvalidOperationException or TypeInitializationException
                                       or FileNotFoundException or FileLoadException)
@@ -73,6 +77,7 @@ internal static class AbilitiesCaps
     internal static void Require(string name)
     {
         Ensure();
+        if (name == Buffs) RefreshBuffs();  // the world may have come or gone since the last refresh
         var row = Capabilities.Get(name);
         if (row.State == CapabilityState.Available) return;
         throw new KilnUnavailableException(name, row.ReasonText.Length > 0 ? row.ReasonText : null);
@@ -131,4 +136,11 @@ internal static class AbilitiesCaps
                 name is null ? $"kiln.abilities is unavailable: {row.ReasonText}" : $"needs {name}: {row.ReasonText}");
         return (CapabilityState.Unavailable, fallback, name is null || text.Length > 0 ? text : $"needs {name}");
     }
+}
+
+/// <summary>Started by Kiln (ServiceTick.AutoStart) at its first service tick: abilities.buffs and abilities.buff_list
+/// are there before a mod asks for them, not from Kiln.Abilities' first use.</summary>
+internal static class AbilitiesStartup
+{
+    static AbilitiesStartup() => AbilitiesCaps.Ensure();
 }
