@@ -2,7 +2,7 @@
 // and Backups; tabs for Equipment, Inventory, Skills and Knowledge. The session (the saves, the open character, save,
 // discard, restore) is session.js, shared with the Deck screen (../deck/DeckEditor.jsx); this file replaces upstream's
 // in-game frame (src/App.jsx).
-// Keys: Ctrl+S save, Z discard, B backups, Q/E previous/next tab (not while typing).
+// Keys: Ctrl+S save, Z discard (asks first), B backups, Q/E previous/next tab (not while typing).
 import React, { useEffect, useRef, useState } from 'react';
 import { Banner, Button, Modal, Tabs, toast } from '../../ui';
 import { api } from '../src/platform.js';
@@ -36,7 +36,7 @@ export default function EditorApp() {
   const [tab, setTab] = useState('inv');
   const [backups, setBackups] = useState(false);
   const [pick, setPick] = useState(false);
-  // a character to open once the player agrees to drop the changes
+  // what waits for the player to agree to drop the changes: {open: path} (another character) or {discard: true}
   const [ask, setAsk] = useState(null);
   const [, redraw] = useState(0);
   useEffect(() => assinarIdioma(() => redraw((n) => n + 1)), []);
@@ -44,7 +44,7 @@ export default function EditorApp() {
 
   const open = (path) => {
     setPick(false);
-    if (dirty && path !== model?.path) setAsk(path);
+    if (dirty && path !== model?.path) setAsk({ open: path });
     else if (path !== model?.path || !dirty) openSave(path);
   };
   const save = async () => {
@@ -58,7 +58,7 @@ export default function EditorApp() {
       if (e.ctrlKey && e.key.toLowerCase() === 's') { e.preventDefault(); save(); return; }
       if (e.ctrlKey || e.altKey || e.metaKey || e.target.closest?.('input, select, textarea, [role="dialog"]')) return;
       if ((e.key === 'b' || e.key === 'B') && model) setBackups((v) => !v);
-      if ((e.key === 'z' || e.key === 'Z') && dirty) discard();
+      if ((e.key === 'z' || e.key === 'Z') && dirty) setAsk({ discard: true });
       const at = TABS.findIndex((x) => x[0] === tab);
       if (e.key === 'q' || e.key === 'Q') setTab(TABS[(at + TABS.length - 1) % TABS.length][0]);
       if (e.key === 'e' || e.key === 'E') setTab(TABS[(at + 1) % TABS.length][0]);
@@ -83,7 +83,7 @@ export default function EditorApp() {
           <p className="k-page-sub">{sayOf(s)}</p>
         </div>
         <div className="k-page-actions">
-          {dirty && <Button variant="ghost" onClick={discard} title="Z">{t('Descartar')}</Button>}
+          {dirty && <Button variant="ghost" onClick={() => setAsk({ discard: true })} title="Z">{t('Descartar')}</Button>}
           <Button disabled={!model} onClick={() => setBackups(true)} title="B">{t('Backups')}</Button>
           <Button variant="primary" disabled={!ok} loading={saving} onClick={save} title={running ? t('Jogo aberto: feche para salvar') : 'Ctrl+S'}>{t('Salvar')}</Button>
         </div>
@@ -110,7 +110,7 @@ export default function EditorApp() {
       {backups && model && <Backups model={model} dirty={dirty} onClose={() => setBackups(false)} />}
       {ask && (
         <Modal open onClose={() => setAsk(null)} title={t('Descartar as mudanças?')} width={520}
-          footer={<><Button variant="ghost" onClick={() => setAsk(null)}>{t('Cancelar')}</Button><Button variant="danger" onClick={() => { const p = ask; setAsk(null); openSave(p); }}>{t('Descartar e abrir')}</Button></>}>
+          footer={<><Button variant="ghost" onClick={() => setAsk(null)}>{t('Cancelar')}</Button><Button variant="danger" onClick={() => { const a = ask; setAsk(null); if (a.open) openSave(a.open); else discard(); }}>{ask.open ? t('Descartar e abrir') : t('Descartar')}</Button></>}>
           <p>{t('As mudanças em {nome} ainda não foram salvas.', { nome: model?.name ?? '' })}</p>
         </Modal>
       )}

@@ -11,6 +11,11 @@ async function open(page: Page) {
   await expect(page.locator(".k-page-title")).toContainText("Aldric", { timeout: 15000 });
 }
 const say = (page: Page) => page.locator(".ke .k-page-sub");
+/** To Settings, and the editor's page is gone (two hash changes in a row could leave it mounted: it would not have been left). */
+async function leave(page: Page) {
+  await page.goto("/#/settings");
+  await expect(page.locator(".ke")).toHaveCount(0);
+}
 /** The game writes a save file: it gets another mock save's bytes and the time of now. */
 const gameWrote = (page: Page, file: string, from: string) => page.evaluate(([a, b]) =>
   (window as unknown as { __kilnMockEditor: { gameWrote: (f: string, from: string) => Promise<void> } }).__kilnMockEditor.gameWrote(a, b), [file, from] as const);
@@ -25,7 +30,7 @@ test("changes survive leaving the page; another character asks first; Discard dr
   await page.locator('.ke-insp [aria-label="+1"]').first().click();
   await expect(say(page)).toContainText("Changes not saved");
   // to Settings and back: still changed
-  await page.goto("/#/settings");
+  await leave(page);
   await page.goto("/#/editor");
   await expect(say(page)).toContainText("Changes not saved");
   await expect(page.locator(".ke-grid .ke-slot.full").first()).toContainText("121");
@@ -36,8 +41,13 @@ test("changes survive leaving the page; another character asks first; Discard dr
   await expect(ask).toContainText("The changes to Aldric are not saved yet.");
   await ask.getByRole("button", { name: "Cancel" }).click();
   await expect(page.locator(".k-page-title")).toContainText("Aldric");
-  // Discard: back as read
+  // Discard asks too (one key, Z, would otherwise drop everything); then: back as read
   await page.getByRole("button", { name: "Discard" }).click();
+  await expect(ask).toContainText("The changes to Aldric are not saved yet.");
+  await ask.getByRole("button", { name: "Cancel" }).click();
+  await expect(say(page)).toContainText("Changes not saved");
+  await page.keyboard.press("z");
+  await ask.getByRole("button", { name: "Discard", exact: true }).click();
   await expect(say(page)).toContainText("Level 25");
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/desktop-editor.png` });
 });
@@ -107,7 +117,7 @@ test("a save makes one Kiln backup of the save before it", async ({ page }) => {
 test("an open character without changes is read again once the game has written its save", async ({ page }) => {
   await open(page);
   // away from the page, the game writes character0.ksd (the mock gives it Brienne's bytes): back on the page it is read again
-  await page.goto("/#/settings");
+  await leave(page);
   await gameWrote(page, "character0.ksd", "character1.ksd");
   await page.goto("/#/editor");
   await expect(page.locator(".k-page-title")).toContainText("Brienne");
