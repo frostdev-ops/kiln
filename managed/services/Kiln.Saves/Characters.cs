@@ -66,32 +66,50 @@ public static class CharacterData
 
     /// <summary>The object stored under <paramref name="key"/> for the character, created with <c>new T()</c> if there is none.</summary>
     /// <exception cref="InvalidDataException">The stored JSON does not read as <typeparamref name="T"/> (it is kept).</exception>
+    [RequiresCapability("kiln.saves")]
+    [TickThreadOnly]
     public static T Get<T>(CharacterKey character, string key) where T : class, new() =>
         CharacterStore.Get<T>(WorldPrefix, character, key, "CharacterData.Get");
 
     /// <summary><see cref="Get{T}(CharacterKey, string)"/> for a player in game. Throws <see cref="ArgumentException"/> when
     /// the player has no character (no account either).</summary>
+    [RequiresCapability("kiln.saves")]
+    [TickThreadOnly]
     public static T Get<T>(EntityId player, string key) where T : class, new() => Get<T>(CharacterStore.Need(player), key);
 
+    [RequiresCapability("kiln.saves")]
+    [TickThreadOnly]
     public static bool TryGet<T>(CharacterKey character, string key, [NotNullWhen(true)] out T? value) where T : class =>
         CharacterStore.TryGet(WorldPrefix, character, key, "CharacterData.TryGet", out value);
 
+    [RequiresCapability("kiln.saves")]
+    [TickThreadOnly]
     public static void Set<T>(CharacterKey character, string key, T value) where T : class =>
         CharacterStore.Set(WorldPrefix, character, key, value, "CharacterData.Set");
 
+    [RequiresCapability("kiln.saves")]
+    [TickThreadOnly]
     public static bool Remove(CharacterKey character, string key) => CharacterStore.Remove(WorldPrefix, character, key, "CharacterData.Remove");
 
+    [RequiresCapability("kiln.saves")]
+    [TickThreadOnly]
     public static bool Contains(CharacterKey character, string key) => CharacterStore.Contains(WorldPrefix, character, key, "CharacterData.Contains");
 
+    [RequiresCapability("kiln.saves")]
+    [TickThreadOnly]
     public static IReadOnlyList<string> Keys(CharacterKey character) => CharacterStore.KeysOf(WorldPrefix, character, "CharacterData.Keys");
 
     /// <summary>Characters the calling mod has data for in this world.</summary>
+    [RequiresCapability("kiln.saves")]
+    [TickThreadOnly]
     public static IReadOnlyList<CharacterKey> Characters => CharacterStore.Characters(WorldPrefix, "CharacterData.Characters");
 
     /// <summary>Moves the calling mod's <see cref="PlayerData"/> entry to this character, once: only when the character has
     /// no such key yet. The first character that asks gets the old account-wide data; nothing is copied, so the data can't
     /// end up on two characters. <paramref name="playerIds"/>: the ids it may be filed under (a Steam id, an account id).
     /// Returns true when something moved.</summary>
+    [RequiresCapability("kiln.saves")]
+    [TickThreadOnly]
     public static bool MigrateFromPlayerData(CharacterKey character, string key, params ulong[] playerIds) =>
         CharacterStore.Migrate(WorldPrefix, character, key, playerIds, "CharacterData.MigrateFromPlayerData");
 
@@ -108,26 +126,44 @@ public static class CharacterData
     /// <see cref="CharacterData"/>.</remarks>
     public static class Carried
     {
+        [TickThreadOnly]
+        [RequiresCapability("kiln.saves")]
         public static T Get<T>(CharacterKey character, string key) where T : class, new() =>
             CharacterStore.Get<T>(CarriedPrefix, character, key, "CharacterData.Carried.Get");
 
+        [TickThreadOnly]
+        [RequiresCapability("kiln.saves")]
         public static T Get<T>(EntityId player, string key) where T : class, new() => Get<T>(CharacterStore.Need(player), key);
 
+        [TickThreadOnly]
+        [RequiresCapability("kiln.saves")]
         public static bool TryGet<T>(CharacterKey character, string key, [NotNullWhen(true)] out T? value) where T : class =>
             CharacterStore.TryGet(CarriedPrefix, character, key, "CharacterData.Carried.TryGet", out value);
 
+        [TickThreadOnly]
+        [RequiresCapability("kiln.saves")]
         public static void Set<T>(CharacterKey character, string key, T value) where T : class =>
             CharacterStore.Set(CarriedPrefix, character, key, value, "CharacterData.Carried.Set");
 
+        [TickThreadOnly]
+        [RequiresCapability("kiln.saves")]
         public static bool Remove(CharacterKey character, string key) => CharacterStore.Remove(CarriedPrefix, character, key, "CharacterData.Carried.Remove");
 
+        [TickThreadOnly]
+        [RequiresCapability("kiln.saves")]
         public static bool Contains(CharacterKey character, string key) => CharacterStore.Contains(CarriedPrefix, character, key, "CharacterData.Carried.Contains");
 
+        [TickThreadOnly]
+        [RequiresCapability("kiln.saves")]
         public static IReadOnlyList<string> Keys(CharacterKey character) => CharacterStore.KeysOf(CarriedPrefix, character, "CharacterData.Carried.Keys");
 
+        [TickThreadOnly]
+        [RequiresCapability("kiln.saves")]
         public static IReadOnlyList<CharacterKey> Characters => CharacterStore.Characters(CarriedPrefix, "CharacterData.Carried.Characters");
 
         /// <summary>See <see cref="CharacterData.MigrateFromPlayerData"/>.</summary>
+        [TickThreadOnly]
+        [RequiresCapability("kiln.saves")]
         public static bool MigrateFromPlayerData(CharacterKey character, string key, params ulong[] playerIds) =>
             CharacterStore.Migrate(CarriedPrefix, character, key, playerIds, "CharacterData.Carried.MigrateFromPlayerData");
 
@@ -275,7 +311,7 @@ internal static class CharacterStore
 
     private static WorldStore Store(string api)
     {
-        if (!SavesRuntime.Ensure()) throw new NotSupportedException("kiln.saves is unavailable");
+        if (!SavesRuntime.Ensure()) throw SavesCaps.Off(SavesCaps.Service, "kiln.saves is unavailable");
         return SavesRuntime.Store;
     }
 

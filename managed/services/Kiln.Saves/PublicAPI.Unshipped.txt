@@ -52,3 +52,4 @@ override Kiln.SyncedItem.ToString() -> string!
 static Kiln.InstanceData.Synced() -> System.Collections.Generic.IReadOnlyList<Kiln.SyncedItem!>!
 static Kiln.InstanceData.Synced(Kiln.EntityId item) -> Kiln.SyncedItem?
 static Kiln.InstanceData.Synced<T>(Kiln.EntityId item, Kiln.InstanceKey<T!>! key) -> T?
+Kiln.SaveResult.Ok.get -> bool

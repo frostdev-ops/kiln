@@ -20,7 +20,7 @@ internal static class SavesBackups
             throw new ArgumentException("backup names are 1-64 characters of A-Z a-z 0-9 - _ .", nameof(name));
     }
 
-    private static string Dir => SavesNative.GetPath(SavesNative.PathBackups) ?? throw new NotSupportedException("kiln.saves is unavailable");
+    private static string Dir => SavesNative.GetPath(SavesNative.PathBackups) ?? throw SavesCaps.Off(SavesCaps.Service, "kiln.saves is unavailable");
 
     /// <summary>Copies the world file (revision <paramref name="rev"/>, just written) and its sidecar generation. Tick
     /// thread, right after the write: the game cannot start another save before this returns.</summary>
@@ -117,7 +117,7 @@ internal static class SavesBackups
 
     internal static BackupInfo StageRestore(string name)
     {
-        if (!SavesRuntime.Ensure()) throw new NotSupportedException("kiln.saves is unavailable");
+        if (!SavesRuntime.Ensure()) throw SavesCaps.Off(SavesCaps.Service, "kiln.saves is unavailable");
         if (SavesNative.ReadStatus() is { } st && (st.Features & SavesNative.ClientHosted) != 0)
             throw new NotSupportedException("restores are for dedicated servers: a game client's worlds live in its Steam " +
                                             "cloud or local save folder, which Kiln never writes");

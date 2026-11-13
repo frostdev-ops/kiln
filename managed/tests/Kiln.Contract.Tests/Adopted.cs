@@ -35,6 +35,7 @@ internal static class Adopted
         typeof(Items),
         typeof(Players),
         typeof(Network),
+        typeof(Saves),
     ];
 
     internal static IEnumerable<Assembly> Assemblies => Anchors.Select(t => t.Assembly).Distinct();
