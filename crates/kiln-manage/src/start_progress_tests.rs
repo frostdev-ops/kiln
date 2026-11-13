@@ -468,3 +468,19 @@ fn the_history_keeps_ten_starts_per_install_once_each_under_its_lock() {
     assert_eq!(history_of(&dirs, "client-a").len(), 1);
     let _ = std::fs::remove_dir_all(&root);
 }
+
+#[test]
+fn the_runtimes_own_example_reads_with_its_plugins_step_running() {
+    // schema/examples/state-progress.json, as native/core/src/progress_file.h renders it (the runtime stream's fixture)
+    let text = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../schema/examples/state-progress.json")).unwrap();
+    let p = parse_progress(&text).expect("format 1");
+    assert_eq!((p.state.as_str(), p.plan.len(), p.steps.len()), ("booting", 11, 6));
+    let started = parse_ms(&p.started).unwrap();
+    let tl = timeline(&Inputs { progress: Some(&p), written: Some(started + p.at_ms as i64), running: true, now: started + p.at_ms as i64, ..Default::default() }).unwrap();
+    let r = &tl.steps[tl.running.unwrap()];
+    assert_eq!((r.id.as_str(), r.done, r.total), ("plugins", Some(30), Some(42)));
+    assert!(r.detail.as_deref().unwrap().starts_with("kiln-vfx: building the materials"));
+    assert_eq!(tl.steps.iter().filter(|s| s.state == StepState::Done).count(), 5);
+    assert_eq!(tl.estimate.steps_planned, 11);
+    assert!(tl.estimate.left_ms.is_none(), "no history: no number");
+}

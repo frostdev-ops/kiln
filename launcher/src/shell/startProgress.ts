@@ -69,7 +69,9 @@ export function startWords(t: StartTimeline, fraction: number, prep?: PreStart |
   // the game's process exists, Kiln has not said anything yet (a 0.2.0-dev.26 runtime never does: its boot.json then
   // ends the bar, as it ended "Waiting for Kiln to boot" before)
   if (t.phase === "waiting") line = "Waiting for Kiln to boot";
-  if (t.phase === "quiet") line = `${running ? `${running.label}: ` : ""}Kiln has said nothing for ${Math.round((t.quietMs ?? 0) / 1000)} s. A step can be slow on a busy PC; if the game does not move, close it and save a support report on the Logs page`;
+  // a client that loads its mods only at the first world waits at `mods` with nothing done: the game is at its menu
+  if (t.phase === "quiet" && running?.id === "mods" && !running.done) line = "The game is waiting at its menu: Kiln loads the mods when the game asks for them (on some PCs only once a world loads)";
+  else if (t.phase === "quiet") line = `${running ? `${running.label}: ` : ""}Kiln has said nothing for ${Math.round((t.quietMs ?? 0) / 1000)} s. A step can be slow on a busy PC; if the game does not move, close it and save a support report on the Logs page`;
   const first = e.leftMs === null;
   let left: string;
   let short: string;
