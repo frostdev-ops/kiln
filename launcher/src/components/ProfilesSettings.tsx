@@ -13,7 +13,7 @@ import { invalidateGame, qk, showActive, useActiveProfile, useGame, useGameStatu
 import { totalCount } from "../api/kinds";
 import { ProfileSettingsModal } from "../pages/profiles/ProfileLayout";
 import { dropinKinds, setDropins } from "../pages/profiles/dropins";
-import { useProfileEdit } from "../pages/profiles/useProfileEdit";
+import { forgetProfileEdits, useProfileEdit } from "../pages/profiles/useProfileEdit";
 import { notifyActivation } from "../shell/notices";
 import { Button, Card, ConfirmDanger, EmptyState, Field, Menu, Modal, Skeleton, TextInput, errorText, fmtAgo, notifyPlacementCleanup, toast } from "../ui";
 
@@ -96,7 +96,16 @@ export function ProfilesCard() {
       {folders && <FoldersModal id={folders} onClose={() => setFolders(null)} />}
       <ConfirmDanger open={!!del} onClose={() => setDel(null)} title={`Delete ${del?.name ?? ""}?`} message="Its configs go to backups. The mods stay." word={del?.id ?? ""}
         action="Delete" onConfirm={async () => {
-          try { await api.profileDelete(del!.id); toast.ok("Profile deleted"); qc.invalidateQueries({ queryKey: qk.profiles }); }
+          try {
+            const id = del!.id;
+            await api.profileDelete(id);
+            // nothing of it stays: a profile made again under the same name (the same id) starts from its own files
+            forgetProfileEdits(id);
+            qc.removeQueries({ queryKey: qk.profile(id) });
+            qc.removeQueries({ queryKey: ["profile_resolve", id] });
+            toast.ok("Profile deleted");
+            qc.invalidateQueries({ queryKey: qk.profiles });
+          }
           catch (e) { toast.error(e); throw e; }
         }} />
     </Card>

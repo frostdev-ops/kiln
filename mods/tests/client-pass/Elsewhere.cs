@@ -96,6 +96,13 @@ public sealed partial class ClientPassMod
         "In the save editor, Add item: type a search quickly. Do the letters appear as you type, with the list following " +
         "(the list itself may take as long as before)?");
 
+    [ClientCheck("launcher.profile-again", "A profile deleted and made again under the same name takes a switch",
+        Area = "Launcher", Since = Dev27, Tags = [Launcher], Order = 428)]
+    public Task LauncherProfileAgain(CheckContext c) => Outside(c,
+        "In Settings, Profiles: load another profile, delete your usual one, then Save current as... with the deleted " +
+        "one's name and Load it. On the main screen switch a mod off and on. Does it switch without \"changed meanwhile " +
+        "(generation ... on disk, ... here)\", and does the profile hold only its own mods?");
+
     // ---- a Steam Deck ----
 
     [ClientCheck("deck.no-kiln", "\"No Kiln\" in the launcher on a Steam Deck", Area = "Steam Deck", Since = Dev16,
