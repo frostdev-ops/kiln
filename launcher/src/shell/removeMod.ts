@@ -7,6 +7,7 @@ import * as api from "../api/commands";
 import type { LibraryRef, ModKind, Profile, ProfileSummary } from "../api/commands";
 import { useProfiles } from "../api/hooks";
 import type { ModRow } from "./mods";
+import { forgetSelected } from "./selection";
 
 export interface RemoveTarget {
   row: ModRow;
@@ -62,6 +63,7 @@ export async function removeMod(qc: QueryClient, t: RemoveTarget, shown: { ref: 
   }
   try {
     for (const r of refsOf(t)) await api.libraryRemove(r, false, shown?.find((s) => s.ref.version === r.version)?.users ?? []);
+    if (t.version === null) forgetSelected([t.row.key]); // the whole mod is gone: so is its place in a selection
   } finally {
     void qc.invalidateQueries({ queryKey: ["library_list"] });
     void qc.invalidateQueries({ queryKey: ["found_scan"] });
@@ -134,6 +136,7 @@ export async function removeMany(qc: QueryClient, rows: ModRow[], shown: ManyChe
           await api.libraryRemove(ref, false, shown.get(r.key)?.find((s) => s.ref.version === ref.version)?.users ?? []);
         }
         out.removed.push(r.name);
+        forgetSelected([r.key]);
       } catch (e) {
         out.left.push({ name: r.name, why: api.toKilnError(e).message });
       }

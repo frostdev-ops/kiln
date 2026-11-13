@@ -25,12 +25,21 @@ export interface ModalProps {
 const FOCUSABLE = 'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 let covering = 0;
+/** Sent on `window` when a dialog starts to cover the page. */
+export const COVERED = "k-covered";
+const WINDOWS = typeof navigator !== "undefined" && /Windows/i.test(navigator.userAgent);
+
 /** While a dialog covers the page, `<html data-covered>` is set (counted: dialogs can open over dialogs). WebKitGTK
  *  paints the page's thin overlay scrollbars after everything else, so the mods list's scrollbar was drawn across a
  *  confirmation (the owner's report of 13 Nov 2026); theme/base.css hides the page's scrollbars while it is set. */
 export function useCoverPage(open: boolean) {
   useEffect(() => {
     if (!open) return;
+    // a menu left open on the page (ui/Menu.tsx; it lives on the body, outside what base.css covers) closes
+    window.dispatchEvent(new Event(COVERED));
+    // Windows' webview (Chromium) paints in order and its scrollbars take room: hiding them there would only make the
+    // rows under the dialog jump sideways
+    if (WINDOWS) return;
     covering++;
     document.documentElement.setAttribute("data-covered", "");
     return () => {

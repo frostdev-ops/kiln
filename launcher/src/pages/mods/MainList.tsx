@@ -21,7 +21,7 @@ import { MOD_FILE_FILTERS, MOD_FILE_WORDS } from "../../shell/modFiles";
 import { bulkPlan, filterRows, kindsOf, type ModRow } from "../../shell/mods";
 import { notifyAdd } from "../../shell/notices";
 import { NOT_REMOVABLE, removable, removeMany, removeMod, useRemoveCheck, useRemoveMany, withoutRows, type RemoveTarget } from "../../shell/removeMod";
-import { NONE, all as selectAll, keepShown, ownerOf, pick as pickSelected, range as selectRange, setSelection, selectionOf, toggle as toggleSelected, useOwnedSelection } from "../../shell/selection";
+import { NONE, all as selectAll, ownerOf, pick as pickSelected, pruneSelection, range as selectRange, setSelection, toggle as toggleSelected, useOwnedSelection } from "../../shell/selection";
 import type { useMods } from "../../shell/useMods";
 import { withDropin } from "../profiles/dropins";
 import { Badge, Button, ConfirmDanger, FlameToggle, Menu, Modal, Select, WellInput, pickPaths, runTask, toast, type MenuItem } from "../../ui";
@@ -98,11 +98,10 @@ export function MainList({ game, mods, running }: { game: GameInstall; mods: Mod
   const { sel, note: selNote } = useOwnedSelection(game.id, owner);
   const order = shown.map((r) => r.key);
   const orderKey = order.join("\n");
+  const read = !mods.loading && mods.rows.length > 0; // not read yet (or between two reads): nothing is let go
   useEffect(() => {
-    if (mods.loading || !mods.rows.length || owner === null) return; // not read yet: nothing is let go
-    const { sel: kept, dropped } = keepShown(selectionOf(game.id, owner), orderKey ? orderKey.split("\n") : []);
-    if (dropped) setSelection(game.id, owner, kept, kept.keys.length ? `${dropped} not shown any more left the selection` : null);
-  }, [orderKey, mods.loading, mods.rows.length, game.id, owner]);
+    pruneSelection(game.id, owner, orderKey ? orderKey.split("\n") : [], read, true);
+  }, [orderKey, read, game.id, owner]);
   const picked = pickSelected(sel, shown);
   const selecting = picked.length > 0;
   const choose = (key: string, shift: boolean) => setSelection(game.id, owner, shift ? selectRange(sel, key, order) : toggleSelected(sel, key));

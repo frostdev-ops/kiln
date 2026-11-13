@@ -76,6 +76,28 @@ export function dropSelection(game: string) {
   useSelection.setState((st) => { const byGame = { ...st.byGame }; delete byGame[game]; return { byGame }; });
 }
 
+/** Lets go of the selected keys that are not among `keys` any more, once the rows were read (`read`: nothing is let go
+ *  while they load, after a failed read, or while the list is empty, which it also is for a moment between two reads).
+ *  `say`: the bar's line when some left and some stay. Returns how many left. */
+export function pruneSelection(game: string, owner: string | null, keys: string[], read: boolean, say = false): number {
+  if (!read || owner === null) return 0;
+  const { sel, dropped } = keepShown(selectionOf(game, owner), keys);
+  if (dropped) setSelection(game, owner, sel, say && sel.keys.length ? `${dropped} not shown any more left the selection` : null);
+  return dropped;
+}
+
+/** A mod was removed from the Library: its row leaves every game's selection at once, so the same mod added again
+ *  under the same id is not selected (the lists' own clean-up does not run on an empty list). */
+export function forgetSelected(keys: string[]) {
+  const byGame = useSelection.getState().byGame;
+  if (!keys.length || !Object.values(byGame).some((k) => k.sel.keys.some((x) => keys.includes(x)))) return;
+  useSelection.setState((st) => ({
+    byGame: Object.fromEntries(Object.entries(st.byGame).map(([g, k]) => [g, {
+      ...k, sel: { keys: k.sel.keys.filter((x) => !keys.includes(x)), anchor: k.sel.anchor && keys.includes(k.sel.anchor) ? null : k.sel.anchor },
+    }])),
+  }));
+}
+
 /** The selection of `owner` in `game` and its note; another owner's is dropped as soon as the owner is known. */
 export function useOwnedSelection(game: string, owner: string | null): { sel: Selection; note: string | null } {
   const k = useSelection((st) => st.byGame[game]);

@@ -217,6 +217,12 @@ public sealed class RunnerTests
         Assert.Equal(0, CheckScreen.NewCount(older));
         Assert.Single(CheckScreen.Shown(older, true));
         Assert.Equal(3, CheckScreen.Shown(v with { Kiln = null }, true).Count);
+        // a test build names its commit after a plus sign: it is that release, and shows the same checks
+        var stamped = v with { Kiln = "0.2.0-dev.27+20261113.791e8b2" };
+        Assert.Equal(1, CheckScreen.NewCount(stamped));
+        Assert.Equal(["new"], CheckScreen.Shown(stamped, true).Select(i => i.Id));
+        Assert.Equal("0.2.0-dev.27", CheckScreen.Release(stamped.Kiln));
+        Assert.Null(CheckScreen.Release(null));
     }
 
     [Fact]

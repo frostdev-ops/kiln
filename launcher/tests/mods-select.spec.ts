@@ -236,7 +236,12 @@ test("a selection made in one profile is gone once another is loaded; Switch off
   await expect.poll(async () => (await api<{ mods: Mods }>(page, "profileGet", "vanilla-plus")).mods.kiln)
     .toEqual(before.kiln.map((m) => (m.id === "weather-plus" ? { ...m, enabled: false } : m)));
   // back to Ember run: what was selected there before is not there any more either
-  await page.evaluate(async () => (await import("/src/api/commands.ts")).profileActivate("ember-run", "client-steam"));
+  // the switch-off's save is still being applied to the game for a moment, and a second load of a profile is refused
+  // until that is done ("busy"): ask again, as the message says
+  await expect.poll(() => page.evaluate(async () => {
+    try { await (await import("/src/api/commands.ts")).profileActivate("ember-run", "client-steam"); return "ok"; }
+    catch (e) { return (e as { code?: string }).code ?? "error"; }
+  }), { timeout: 10_000 }).toBe("ok");
   await expect(page.locator(".k-hero .k-hero-say")).toHaveText(/mods on/, { timeout: 10_000 });
   await expect(box(page, "Big Stacks")).toBeVisible();
   await expect.poll(() => checked(page)).toEqual([]);
