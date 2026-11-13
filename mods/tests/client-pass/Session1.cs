@@ -842,7 +842,8 @@ public sealed partial class ClientPassMod
                              "and Shift+Mouse4 (the back button on the side of the mouse). Close this list (Ctrl+Shift+F5) and, " +
                              "in play: hold Ctrl and turn the wheel up exactly 3 notches, slowly, counting the clicks you feel; " +
                              "then hold Ctrl and turn it down 3 notches; then hold Shift and press Mouse4 twice. Watch the " +
-                             "camera while you turn the wheel with Ctrl held. ";
+                             "camera while you turn the wheel with Ctrl held, and move the mouse while you turn it: the " +
+                             "camera turns with the mouse as usual, only its zoom must stay. ";
         var shown = "";
         var done = await c.Until(() =>
         {
@@ -872,12 +873,16 @@ public sealed partial class ClientPassMod
 
         // 3) a Kiln screen has the mouse: the wheel scrolls it and fires no binding
         (up2, down2, side2) = (up, down, side);
-        c.Instruct("Step 3 of 4. Open this list (Ctrl+Shift+F5) and, with the pointer over it, hold Ctrl and turn the wheel " +
-                   "a few notches each way: the list scrolls (when it is longer than its window) and the counts below must " +
-                   "not change. Then close the list and press Shift+Mouse4 to go on. " + Counts());
+        const string step3 = "Step 3 of 4. Open this list (Ctrl+Shift+F5) and, with the pointer over it, hold Ctrl and turn the " +
+                             "wheel a few notches each way, and press Shift+Mouse4 once: the list scrolls (when it is longer " +
+                             "than its window) and none of the counts below may change while the list is open; this step " +
+                             "must not end then. Then close the list and press Shift+Mouse4 to go on. ";
+        shown = "";
         await c.Until(() =>
         {
             Count();
+            var text = step3 + Counts();
+            if (text != shown) c.Instruct(shown = text);
             return side > side2;
         }, TimeSpan.FromMinutes(3), "you pressed Shift+Mouse4 to go on");
         c.Expect(up == up2 && down == down2, "Ctrl+wheel over Kiln's list fired no binding",
@@ -887,9 +892,11 @@ public sealed partial class ClientPassMod
         c.Instruct("Step 4 of 4. Open Kiln's menu (Insert), go to Keys and find the group \"Client pass\": its three lines " +
                    "show Ctrl+WheelUp, Ctrl+WheelDown and Shift+Mouse4. Click the key of the Shift+Mouse4 line, then hold " +
                    "Alt and turn the wheel down one notch: the line shows Alt+WheelDown. Close the menu (the check puts the " +
-                   "keys back when it ends). " + Counts() + " Three answers, all must be yes to pass: in step 1, did the " +
+                   "keys back when it ends). " + Counts() + " Four answers, all must be yes to pass: in step 1, did the " +
                    "counts match the notches you turned and the presses you made, with the camera's zoom NOT moving while " +
-                   "Ctrl was held? In step 2, did the camera zoom as usual? In step 4, did the Keys page show the names " +
+                   "Ctrl was held, and the camera still turning smoothly with the mouse as you turned the wheel? In step " +
+                   "2, did the camera zoom as usual? In step 3, did no count change and the step not end while the list " +
+                   "was open? In step 4, did the Keys page show the names " +
                    "and take Alt+WheelDown? (If Mouse4 does something in your game's controls, say whether it happened " +
                    "with Shift held: it should not have.)");
         var altWheelDown = KeyChord.Parse("Alt+WheelDown");

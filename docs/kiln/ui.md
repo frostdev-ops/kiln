@@ -252,11 +252,12 @@ b.OnRelease = …;  b.IsDown;  b.TakePresses();  b.Consume = false;  b.WhileCapt
     `Mouse1`, `Mouse2`, `RightClick`) throws a `FormatException` that says so; `TryParse` answers false.
   - A binding that takes a press keeps it from the game as for a key: `Ctrl+WheelUp` bound by a mod does not also zoom
     the game's camera, and the wheel without Ctrl still does. A press no binding takes reaches the game untouched. A
-    high-resolution wheel's steps are kept from the game once the chord's last notch was taken: the first notch of a
-    chord after a start lets its first steps through (less than one notch). A raw record that also carries another
-    button's press or release reaches the game whole, so nothing stays held.
-  - While a Kiln screen or the Kiln menu has the mouse, the wheel scrolls it and fires no binding, `WhileCapturing` or
-    not. The buttons follow the key rules there.
+    high-resolution wheel's smaller steps are asked as they come (not presses) and kept like the notch they belong to.
+    A raw record that also carries motion or another button's input reaches the game with only the taken press taken
+    out (kiln.ui edits what the game's own `GetRawInputData` import reads); motion and the other buttons stay.
+  - While a Kiln screen or the Kiln menu has the mouse, no mouse binding fires, `WhileCapturing` or not: the wheel
+    scrolls the screen and the buttons are the screen's (a button's release still ends a hold that began in play). The
+    Keys page still takes them as a binding's new key.
   - The wheel without Ctrl or Alt fires only during play or while a Kiln screen is open, like a key that types (the
     game's own screens scroll with it); `OnGameScreens = true` fires it everywhere. The buttons always fire.
   - `KeyChord.VirtualKey`: the buttons keep their Windows virtual keys (`0x04` middle, `0x05` Mouse4, `0x06` Mouse5); the
@@ -417,10 +418,14 @@ gets exactly what it got before (no mouse press, no new code, and it can never t
 (0.2.0-dev.27; check `header.size >= offsetof(KilnUiApi, subscribe_key_ex) + sizeof(void*)`) appends
 `subscribe_key_ex(owner, fn, user, flags, &handle)`: flags 0 is `subscribe_key`; `KILN_UI_KEYS_MOUSE` adds the middle
 and side mouse buttons (`vk` `VK_MBUTTON`, `VK_XBUTTON1`, `VK_XBUTTON2`, a press and a release, `scan` 0) and one press
-per wheel notch (`vk` `KILN_UI_VK_WHEEL_UP` / `DOWN` / `LEFT` / `RIGHT`, 0x100 to 0x103; never a release or a repeat),
-with the modifiers held then, once each although the window gets each as a raw record and as a message
-(`native/services/ui/mouse_press.h` pairs the two); any other bit is `KILN_ERR_INVALID_ARGUMENT`. Returning true keeps
-the press, with its raw record, from the game; only a subscriber that got a press can take it; releases always pass.
+per wheel notch (`vk` `KILN_UI_VK_WHEEL_UP` / `DOWN` / `LEFT` / `RIGHT`, 0x100 to 0x103; never a release), with the
+modifiers held then, once each although the window gets each as a raw record and as a message
+(`native/services/ui/mouse_press.h` pairs them: the same input, delta and message time); any other bit is
+`KILN_ERR_INVALID_ARGUMENT`. A high-resolution wheel's delta that completes no notch comes as `repeat` 1, not a press:
+return true to keep it from the game as you would the notch. Returning true keeps the press from the game: its message,
+and its raw record (whole when it holds only the press; otherwise the game reads it without the taken flags, through
+kiln.ui's hook on the game's `GetRawInputData` import; without that hook such a record reaches the game whole). Only a
+subscriber that got a press can take it; releases always pass.
 While Kiln captures input they come with `captured` 1. Left and right clicks never come. With no `KILN_UI_KEYS_MOUSE`
 subscriber the mouse costs nothing and reaches the game untouched. Kiln.Ui subscribes this way; kiln-emf and kiln-set
 stay on `subscribe_key`. `set_menu_key` takes the buttons, not the wheel; `take_pressed_key` stays keyboard only.

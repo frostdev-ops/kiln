@@ -124,6 +124,9 @@ internal static class MouseKeys
     }
 
     public static bool IsWheel(uint vk) => vk is >= WheelUp and <= WheelRight;
+
+    /// <summary>The middle or a side button (only the mouse gives Kiln.Ui these codes).</summary>
+    public static bool IsButton(uint vk) => vk is Middle or Mouse4 or Mouse5;
 }
 
 /// <summary>One registered key binding (Forge: a KeyMapping).</summary>
@@ -162,8 +165,8 @@ public sealed class KeyBinding : IDisposable
     public bool Consume { get; set; } = true;
 
     /// <summary>Also fire while the Kiln menu is open (default false). Bindings always fire while a mod's own window
-    /// has the input, unless a text field has the keyboard. A binding on the wheel never fires while a Kiln screen has the
-    /// input: the wheel scrolls the screen.</summary>
+    /// has the input, unless a text field has the keyboard. A binding on the mouse (a button or the wheel) never fires
+    /// while a Kiln screen has the input: the wheel scrolls the screen, the buttons are the screen's.</summary>
     public bool WhileCapturing { get; set; }
 
     /// <summary>A key that types something (a letter, digit, punctuation or Space, without Ctrl or Alt) fires only during play or
