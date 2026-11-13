@@ -36,7 +36,8 @@ int main() {
     CHECK(f.all() && f.wants(doll.b) && f.wants(other.b) && f.wants(nothing.b));
     // one watched doll: its hits (also on a weak spot of it, and the hits it deals), nothing else
     const uint32_t one[] = {100};
-    f.set(one, 1);
+    CHECK(f.set(one, 1));                 // another filter than before
+    CHECK(!f.set(one, 1));                // the same again: nothing changed (it is pushed at every added subscription)
     CHECK(!f.all() && f.size() == 1);
     CHECK(f.wants(doll.b));
     CHECK(f.wants(weakspot.b));
@@ -45,10 +46,13 @@ int main() {
     CHECK(!f.wants(nothing.b));
     // duplicates and 0 are dropped; several entities
     const uint32_t many[] = {300, 0, 200, 300};
-    f.set(many, 4);
+    CHECK(f.set(many, 4));
     CHECK(f.size() == 2 && f.wants(other.b) && !f.wants(doll.b));
+    const uint32_t same[] = {200, 300};
+    CHECK(!f.set(same, 2));               // the same entities in another order, without the duplicates
     // back to every hit
-    f.set(nullptr, 0);
+    CHECK(f.set(nullptr, 0));
+    CHECK(!f.set(nullptr, 0));
     CHECK(f.all() && f.wants(other.b));
     // the table grew at its end only: v2's last function, then hold_filter
     CHECK(offsetof(KilnCombatApi, hold_filter) == offsetof(KilnCombatApi, attribute_add) + sizeof(void*));

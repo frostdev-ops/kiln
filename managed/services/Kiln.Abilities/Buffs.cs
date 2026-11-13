@@ -142,6 +142,16 @@ public static partial class Abilities
     // world closes (ServerStoppingEvent comes on the destroying thread on a client: hence the lock)
     private static readonly Dictionary<uint, Removal> Removals = new();
     private static int _closeHooked;
+    private static bool _closed;  // the server world is closing: no step will read a removal's answer (under the Removals lock)
+
+    /// <summary>The server world closed and no step has run since: a removal asked for now would never be answered.</summary>
+    internal static bool RemovalsClosed
+    {
+        get { lock (Removals) return _closed; }
+    }
+
+    internal const string ClosingText = "the server world is closing: the removal was not started";
+
     private static readonly Dictionary<uint, Guid> GuidsById = new();
     private static IDisposable? _removalTick;
     private static ulong _removalStep;
@@ -209,6 +219,10 @@ public static partial class Abilities
         if (target.IsNone) throw new ArgumentException("no target", nameof(target));
         AbilitiesCaps.Require(AbilitiesCaps.Buffs);
         var at = World.Position(target) ?? throw new ArgumentException($"entity {target} is not in the world (no position)", nameof(target));
+        HookWorld();
+        // Asked for while the server world closes (a handler of the stop, a mod's OnUnload): the world is still there
+        // and would take the helper, but no step runs any more to read its answer. A result, not a task that never ends.
+        if (!Admits(RemovalsClosed, Lifecycle.Phase)) return Task.FromResult(new BuffRemoveResult(target, id, false, ClosingText));
         EnsureRemoveProgram();
         EntityId e;
         try
@@ -230,15 +244,25 @@ public static partial class Abilities
             Impact = e, Target = target, Buff = id, Since = _removalStep, Mod = ModContext.CurrentMod,
             Done = new TaskCompletionSource<BuffRemoveResult>(TaskCreationOptions.RunContinuationsAsynchronously),
         };
-        lock (Removals) Removals[e.Value] = r;
-        _removalTick ??= ServiceTick.Add("kiln.abilities removals", static (in TickInfo t) => PollRemovals());
-        HookWorldClose();
-        return r.Done.Task;
+        lock (Removals)
+        {
+            if (!_closed)
+            {
+                Removals[e.Value] = r;
+                return r.Done.Task;
+            }
+        }
+        // the world began to close between the check above and here
+        try { Spawn.Destroy(e); }
+        catch (Exception x) when (x is InvalidOperationException or NotSupportedException or SpawnException) { }
+        return Task.FromResult(new BuffRemoveResult(target, id, false, ClosingText));
     }
 
     // Kiln's own subscription (not the calling mod's, which would end with that mod): when the server world closes, no
     // step polls any more (a client is back in its menu), so the waiting removals end here.
-    private static void HookWorldClose()
+    // The step that polls is set up with it, before anything can fail: it is also what opens removals again in the
+    // next session (a first removal whose helper the game refused used to leave only the closing half behind).
+    private static void HookWorld()
     {
         if (Interlocked.Exchange(ref _closeHooked, 1) == 1) return;
         var outer = ModContext.CurrentMod;
@@ -246,6 +270,7 @@ public static partial class Abilities
         try
         {
             Events.On<ServerStoppingEvent>(_ => CloseRemovals());
+            _removalTick ??= ServiceTick.Add("kiln.abilities removals", static (in TickInfo t) => PollRemovals());
         }
         finally
         {
@@ -253,12 +278,18 @@ public static partial class Abilities
         }
     }
 
+    /// <summary>Whether a removal may start. Not while the world closes: Kiln's own handler of the stop says so
+    /// (<paramref name="closed"/>), and so does the server's phase, which also covers the first removal ever asked for
+    /// from inside a handler of that same stop (Kiln's handler is added too late to be called for it).</summary>
+    internal static bool Admits(bool closed, ServerPhase phase) => !closed && phase != ServerPhase.Stopping;
+
     /// <summary>The server world closes: every waiting removal ends, not removed, with that reason.</summary>
     internal static void CloseRemovals()
     {
         List<Removal> open;
         lock (Removals)
         {
+            _closed = true;
             open = Removals.Values.ToList();
             Removals.Clear();
         }
@@ -287,12 +318,13 @@ public static partial class Abilities
     };
 
     // every step while removals wait: read each program's done flag and answer from its live instance
-    private static unsafe void PollRemovals()
+    internal static unsafe void PollRemovals()
     {
         _removalStep++;
         List<Removal> open;
         lock (Removals)
         {
+            _closed = false;  // a step runs: answers are read again (a new session after a closed one)
             if (Removals.Count == 0) return;
             open = Removals.Values.ToList();
         }

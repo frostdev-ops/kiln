@@ -104,18 +104,17 @@ public static class NoClip
         ModContext.CurrentMod = null;
         try
         {
-            if (own is null) Sets[player] = own = Rules.Apply(player, new PlayerRules { NoClip = true }, label: Label);
+            // the set is held from before it is registered: a failure below takes back exactly this one
+            if (own is null) Rules.Apply(RuleScope.ForPlayer(player), new PlayerRules { NoClip = true }, null, Label, made => Sets[player] = own = made);
             else own.Update(own.Rules);  // asks anew after a death or a teleport
         }
         catch
         {
             // Applying makes the rule set before it resolves, and resolving runs other code (handlers, services). If
-            // that threw, a set may be active that this switch does not hold: nothing could turn it off. Nothing of
-            // the switch stays on after a failure.
+            // that threw, the set is active: nothing of the switch stays on after a failure. Only the switch's own
+            // set goes; another one that a handler made meanwhile, whatever it is called, is not this switch's.
             Sets.Remove(player);
-            own?.Dispose();
-            foreach (var left in RulesRuntime.Sets())
-                if (left.Active && left.Owner == "kiln" && left.Label == Label && left.Scope.Player == player) left.Dispose();
+            Quietly(own);
             throw;
         }
         finally
@@ -138,6 +137,18 @@ public static class NoClip
         }
         Tell(player, "NoClip is on: you fly through terrain and walls. Jump climbs, sneak sinks, sprint is faster. It ends when you die or teleport; /noclip off ends it.");
         return new(true, true, null, $"NoClip on for {name}.");
+    }
+
+    // Ends a rule set during the cleanup after a failure: the failure that is already on its way out is the one to report.
+    private static void Quietly(RuleSet? set)
+    {
+        try
+        {
+            set?.Dispose();
+        }
+        catch (Exception)
+        {
+        }
     }
 
     /// <summary>How NoClip stands for <paramref name="player"/> now. Never throws for a missing capability: without

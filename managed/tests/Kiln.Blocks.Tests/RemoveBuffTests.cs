@@ -129,10 +129,26 @@ public sealed class RemoveBuffTests
     }
 
     [Fact]
-    public void AClosingWorldWithNothingWaitingDoesNothing()
+    public void AClosingWorldTakesNoRemovalsUntilAStepRunsAgain()
     {
+        Assert.False(Abilities.RemovalsClosed);
         Abilities.CloseRemovals();
         Assert.False(Abilities.RemovalsPending);
+        // from here a removal would never be answered (no step reads it): it is refused with a result instead
+        Assert.True(Abilities.RemovalsClosed);
+        Assert.Contains("closing", Abilities.ClosingText);
+        Abilities.PollRemovals();                // the next session's first step
+        Assert.False(Abilities.RemovalsClosed);
+    }
+
+    [Fact]
+    public void NoRemovalStartsWhileTheServerStops()
+    {
+        Assert.True(Abilities.Admits(false, ServerPhase.Running));
+        Assert.True(Abilities.Admits(false, ServerPhase.Starting));
+        Assert.False(Abilities.Admits(true, ServerPhase.Running));    // Kiln's own handler of the stop ran
+        // the first removal ever, asked for inside a handler of the stop: Kiln's handler was added too late to run
+        Assert.False(Abilities.Admits(false, ServerPhase.Stopping));
     }
 
     [Fact]

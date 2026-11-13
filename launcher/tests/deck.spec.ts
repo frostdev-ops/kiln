@@ -498,19 +498,45 @@ test.describe("notices", () => {
     await expect.poll(() => focused(page)).toBe("mouth");
   });
 
-  test("an error folded into the earlier notices goes after six seconds; the folded notices stay", async ({ page }) => {
+  test("an error folded into the earlier notices stays with them until the player closes them", async ({ page }) => {
+    // the error and nine notices come in one go: the error is folded before the bar ever drew it. Nothing is known of
+    // it then (not that it was seen, not that it fits), so it does not go by itself: short or long
     await openDeck(page);
     await page.clock.install();
-    await page.evaluate(async () => {
+    const long = Array.from({ length: 12 }, (_, i) => `piece ${i} of an error nobody has seen yet, with /a/long/path/${i}.`).join(" ");
+    await page.evaluate(async (m) => {
       const { toast } = await import("/src/ui/Toast.tsx");
       toast.error({ code: "io", message: "an old error" });
+      toast.error({ code: "io", message: m }, "Could not read the library");
       for (let i = 0; i < 9; i++) toast.info(`Kept folder ${i}`, `mods/Mod-${i}: may still run`, { ms: 0 });
-    });
+    }, long);
     const notice = page.locator('[data-deck-dialog="notice"]');
     await expect(notice).toContainText("earlier notices");
     await page.clock.fastForward(7000);
     await expect(notice).toContainText("Kept folder 0");
+    await expect(notice).toContainText("an old error");
+    await expect(notice).toContainText("piece 11");
+    // closing the earlier notices closes what is in them
+    await pad(page, "a");
     await expect(notice).not.toContainText("an old error");
+  });
+
+  test("an error that waits behind the two the bar shows gets its six seconds when it is drawn", async ({ page }) => {
+    await openDeck(page);
+    await page.clock.install();
+    await page.evaluate(async () => {
+      const { toast } = await import("/src/ui/Toast.tsx");
+      for (const n of ["first", "second", "third"]) toast.error({ code: "io", message: `${n} error` });
+    });
+    const bar = page.locator(".deck-toasts");
+    await expect(bar).toContainText("second error");
+    await expect(bar).toContainText("third error");
+    await expect(bar).not.toContainText("first error");   // behind the two that are shown
+    await page.clock.fastForward(6500);
+    await expect(bar).toContainText("first error");        // not gone unseen: it is drawn now
+    await expect(bar).not.toContainText("third error");
+    await page.clock.fastForward(6500);
+    await expect(bar).toHaveCount(0);
   });
 
   test("a notice counts as seen when the player closes its dialog, not when it is displayed", async ({ page }) => {

@@ -101,20 +101,38 @@ int main() {
     check(!f::flight_possible() && !f::flown_recently(e, dyn), "world reset forgets flight ownership and restores the fast path");
     // a world that starts while a flight runs in another one (a host's prediction beside its server world)
     set_rule(e, &rule); f::note_flying(e, dyn); f::note_flying(3, dyn);
-    f::world(KILN_WORLD_STARTED, true);
+    f::world(KILN_WORLD_STARTED, KILN_WORLD_PREDICTION, 1, true);
     check(f::flown_recently(e, dyn) && f::flown_recently(3, dyn) && f::flight_possible(),
           "a world that starts leaves the flights of a running world Kiln's");
     dyn[0x59] = flight_math::kBuildingFlying; c.rax = flight_math::kBuildingFlying; set_rule(e, nullptr);
     f::state_body(c);
     check(c.rax == flight_math::kFalling, "and such a flight still ends when its rule goes");
     f::note_flying(e, dyn); f::note_flying(3, dyn);
-    f::world(KILN_WORLD_STOPPING, true);
+    f::world(KILN_WORLD_STOPPING, KILN_WORLD_SERVER, 1, true);
     check(!f::flown_recently(e, dyn) && !f::flown_recently(3, dyn) && !f::flight_possible(), "a world that stops forgets flight ownership");
     // where the core does not see world stops, a start may replace a world nobody saw stop: everything is forgotten
     f::note_flying(e, dyn); f::note_flying(3, dyn);
-    f::world(KILN_WORLD_STARTED, false);
+    f::world(KILN_WORLD_STARTED, KILN_WORLD_PREDICTION, 1, false);
+    check(f::flown_recently(e, dyn) && f::flown_recently(3, dyn),
+          "without seen stops, the first world of its kind still replaces nothing: a host's server flight stays Kiln's when its prediction starts");
+    f::world(KILN_WORLD_STARTED, KILN_WORLD_CLIENT, 2, false);
+    check(f::flown_recently(e, dyn), "the client's own world holds no characters: its start forgets nothing");
+    f::world(KILN_WORLD_STARTED, KILN_WORLD_SERVER, 2, false);
     check(!f::flown_recently(e, dyn) && !f::flown_recently(3, dyn) && !f::flight_possible(),
-          "without seen stops, a world that starts forgets flight ownership (no old flight meets a new character)");
+          "without seen stops, a second world of its kind forgets flight ownership (no old flight meets a new character)");
+    // ...and the prediction world of that same new session, starting after its server world, forgets nothing more
+    f::note_flying(e, dyn); f::note_flying(3, dyn);
+    f::world(KILN_WORLD_STARTED, KILN_WORLD_PREDICTION, 2, false);
+    check(f::flown_recently(e, dyn) && f::flown_recently(3, dyn) && f::flight_possible(),
+          "without seen stops, a host's second prediction world keeps the flights its new server world started");
+    f::world(KILN_WORLD_STARTED, KILN_WORLD_PREDICTION, 3, false);
+    check(!f::flown_recently(e, dyn) && !f::flown_recently(3, dyn),
+          "without seen stops, a prediction world with no server start before it (a joined game after hosting) forgets them");
+    f::note_flying(e, dyn); f::note_flying(3, dyn);
+    f::world(KILN_WORLD_STOPPING, KILN_WORLD_CLIENT, 1, true);
+    check(f::flown_recently(e, dyn) && f::flown_recently(3, dyn), "the client's own world stopping forgets no flight");
+    f::world(KILN_WORLD_STOPPING, KILN_WORLD_PREDICTION, 1, true);
+    check(!f::flown_recently(e, dyn) && !f::flown_recently(3, dyn), "a world with characters stopping forgets them");
     dyn[0x59] = flight_math::kFalling; c.rax = flight_math::kFalling;
 
     KilnApi api{}; api.service = &service; api.feature = &feature;
@@ -134,7 +152,7 @@ int main() {
     check(kiln_rules_noclip::ticks == host_ticks, "a host's client tick does not age it (its server tick does)");
     session = KILN_SESSION_REMOTE; f::refresh();
     check(f::g_local_player != 0, "a joined client caches its local player");
-    f::world(KILN_WORLD_STARTED, true);
+    f::world(KILN_WORLD_STARTED, KILN_WORLD_PREDICTION, 1, true);
     check(f::g_local_player == 0, "a world that starts drops the cached local identity immediately");
     f::refresh(); f::reset();
     check(f::g_local_player == 0, "world reset drops the cached local identity immediately");

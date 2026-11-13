@@ -119,6 +119,24 @@ public sealed class EventFilterTests : KilnTest
     }
 
     [Fact]
+    public void Every_added_subscription_is_pushed_even_when_the_entities_stay_the_same()
+    {
+        // the push is where a service passes on what else a new handler needs (kiln.combat: the kinds of event it wants)
+        var svc = new Service();
+        using var watch = new EntityWatch([typeof(HitLikeEvent)], svc.Push);
+        using var a = Events.On<HitLikeEvent>(_ => { });
+        var after = svc.Pushes.Count;
+        Assert.Empty(svc.Last);
+        using var b = Events.On<HitLikeEvent>(_ => { });             // still "everything": pushed all the same
+        Assert.Equal(after + 1, svc.Pushes.Count);
+        using var c = Events.On<NoEntityEvent>(_ => { });            // another event altogether: pushed too
+        Assert.Equal(after + 2, svc.Pushes.Count);
+        watch.Refresh();                                              // the service's own step pushes nothing new
+        watch.Refresh();
+        Assert.Equal(after + 2, svc.Pushes.Count);
+    }
+
+    [Fact]
     public void A_push_the_service_did_not_take_is_tried_again()
     {
         var svc = new Service { Refuses = true };
