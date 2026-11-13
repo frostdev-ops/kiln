@@ -303,7 +303,8 @@ public static unsafe partial class GameTree
         public static readonly string[] Features = ["skills.functions", "skills.login_guard", "skills.shadow", "skills.tree_load"];
     }
 
-    // Kiln.Skills in the capability registry: reported at the service's first use, fixed from then on.
+    // Kiln.Skills in the capability registry: reported at the service's start (SkillsStartup, the first service tick),
+    // fixed from then on.
     internal static readonly ServiceCapRows Rows = new(Caps.Service, ReportCapabilities);
 
     private static void ReportCapabilities()

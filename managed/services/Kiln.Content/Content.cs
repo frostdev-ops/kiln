@@ -43,7 +43,12 @@ public static unsafe partial class Content
         }
     }
 
-    static Content() => _ = T;
+    // The service's start (ServiceTick.AutoStart runs this at the first service tick): the table, then the rows.
+    static Content()
+    {
+        _ = T;
+        ContentCaps.Rows.Ensure();
+    }
 
     /// <summary>The native service is loaded (capability <c>kiln.content</c>).</summary>
     public static bool Available => T != null;
@@ -52,12 +57,18 @@ public static unsafe partial class Content
     [AnyThread]
     public static bool Ready => Status()?.Ready == true;
 
-    /// <summary>Posts <see cref="ContentChangedEvent"/> for a change made from code. Built only while someone subscribes.</summary>
+    // One key per change of one field (or document) by one mod: a handler that writes again waits for the next step.
+    internal static readonly ChangeNotices<ContentChangedEvent, (ContentChange, ContentKind?, uint, string, string)> Notices =
+        new("kiln.content");
+
+    /// <summary>Posts <see cref="ContentChangedEvent"/> for a change made from code that took. Built only while someone
+    /// subscribes; a write made while one is being dispatched posts at the next step (<see cref="ChangeNotices{TEvent,TKey}"/>).</summary>
     internal static void Changed(ContentChange change, ContentEntry? entry, string path)
     {
         if (!Events.HasSubscribers<ContentChangedEvent>()) return;
-        Events.Post(new ContentChangedEvent(change, entry?.Kind, entry?.Id ?? 0, entry?.Name ?? "", path,
-            ModContext.CurrentMod?.Info.Id ?? ""));
+        var origin = ModContext.CurrentMod?.Info.Id ?? "";
+        Notices.Post((change, entry?.Kind, entry?.Id ?? 0, path, origin),
+            new ContentChangedEvent(change, entry?.Kind, entry?.Id ?? 0, entry?.Name ?? "", path, origin));
     }
 
     /// <summary>Items (<c>keen::ItemInfo</c>): id = ItemId, name = debug name (<c>Material_T1_Wood_Logs</c>).</summary>
@@ -85,7 +96,7 @@ public static unsafe partial class Content
     public static ContentStatus? Status()
     {
         var t = T;
-        if (t == null) return null;
+        if (t == null || t->GetStatus == null) return null;  // no status function: a test's partial table
         ContentNative.Status s = default;
         s.Size = (uint)sizeof(ContentNative.Status);
         if (t->GetStatus(&s) != ContentNative.Ok) return null;
@@ -157,7 +168,8 @@ public static unsafe partial class Content
         }
         if (rc != ContentNative.Ok && rc != ContentNative.InvalidArgument) throw Failure("Content.Apply", rc);
         var report = ParseReport(text, rc == ContentNative.InvalidArgument ? "not a data-pack document (JSON object)" : null);
-        if (rc == ContentNative.Ok) Changed(ContentChange.Applied, null, src);
+        // native says Ok also for a document whose every section was refused: an event only when something changed
+        if (rc == ContentNative.Ok && report.Applied > 0) Changed(ContentChange.Applied, null, src);
         return report;
     }
 

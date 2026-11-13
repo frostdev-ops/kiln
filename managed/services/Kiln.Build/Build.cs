@@ -38,7 +38,9 @@ public static partial class Build
         public static readonly string[] Features = ["build.read", "build.write", "build.persist", "build.items", "build.zones"];
     }
 
-    // Kiln.Build in the capability registry: reported at the service's first use, fixed from then on.
+    // Kiln.Build in the capability registry: reported at the service's first use, fixed from then on. It has no row of
+    // its own (it only lowers its sigdb features when kiln.build is missing, which the core's row says from the start),
+    // so it does not start at the first service tick.
     internal static readonly ServiceCapRows Rows = new(Caps.Service, ReportCapabilities);
 
     private static void ReportCapabilities()

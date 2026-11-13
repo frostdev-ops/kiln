@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Kiln.Creatures in the capability registry (Kiln.Capabilities; docs/kiln/services/caps.md). Reported at the service's
-// first use; kiln.creatures decides what works when it starts, so the rows are fixed from then on.
+// first use; it has no row of its own (it lowers its sigdb features when kiln.creatures is missing, which the core's row
+// says from the start), so it does not start at the first service tick.
 namespace Kiln;
 
 internal static unsafe class CreaturesCaps

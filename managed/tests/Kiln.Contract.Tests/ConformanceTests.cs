@@ -62,6 +62,9 @@ public sealed class ConformanceTests : ContractTest
     [MemberData(nameof(Adopted.Names), MemberType = typeof(Adopted))]
     public void A_required_capability_has_a_valid_name_and_a_row_that_says_why_it_is_off(string service)
     {
+        // No game here: the service's rows (its reporter, run under this test's binding) have to leave a row for every
+        // name it marks a member with, so that Capabilities.Why answers with a reason and not with "no capability of this
+        // name is registered". That the rows are there at the service's start, with no call made, is ServiceStartTests'.
         var assembly = Adopted.Named(service);
         StartRows(assembly);
         var bad = new List<string>();
@@ -69,11 +72,9 @@ public sealed class ConformanceTests : ContractTest
             foreach (var a in m.GetCustomAttributes<RequiresCapabilityAttribute>(false))
             {
                 if (!Capabilities.ValidName(a.Name)) bad.Add($"{Name(m)}: '{a.Name}' is not a capability name");
-                // No game here: the service's start has to leave a row for every name it marks a member with, so that
-                // Capabilities.Why answers with a reason and not with "no capability of this name is registered".
                 var row = Capabilities.Get(a.Name);
                 if (row.State == CapabilityState.Available) bad.Add($"{Name(m)}: {a.Name} is available with no game");
-                else if (row.Reason == CapabilityReason.Unknown) bad.Add($"{Name(m)}: {a.Name} has no row after the service's start");
+                else if (row.Reason == CapabilityReason.Unknown) bad.Add($"{Name(m)}: {a.Name} has no row after the service's rows were reported");
                 else if (row.ReasonText.Length == 0) bad.Add($"{Name(m)}: {a.Name} is off without a reason text");
             }
         Assert.True(bad.Count == 0, string.Join("; ", bad.Distinct()));

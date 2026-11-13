@@ -12,9 +12,11 @@ public static unsafe class Example
     /// <summary>The capability this class answers for: the core's row for the kiln.example table.</summary>
     internal const string Capability = "kiln.example";
 
-    // The service's rows in the capability registry, reported at its first use. kiln.example has only the core's own
-    // row; asking for the table makes Services.Get record why it is missing. A service with rows of its own reports
-    // them in this method (ServiceCaps.Static for a fixed row, ServiceCaps.Session for one that follows the world).
+    // The service's rows in the capability registry. kiln.example has only the core's own row, so they are reported at
+    // the first use; asking for the table makes Services.Get record why it is missing. A service with rows of its own
+    // reports them in this method (ServiceCaps.Static for a fixed row, ServiceCaps.Session for one that follows the
+    // world) and starts at the first service tick: a startup type in ServiceTick.AutoStart whose static constructor
+    // calls Rows.Ensure() (Kiln.Gameplay's GameplayStartup), so a mod sees the rows before it calls the service.
     internal static readonly ServiceCapRows Rows = new(Capability, ReportCapabilities);
 
     static Example() => Rows.Ensure();

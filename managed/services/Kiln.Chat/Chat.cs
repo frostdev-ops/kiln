@@ -283,10 +283,10 @@ public static unsafe partial class Chat
     /// (<c>identity.entities</c>).</exception>
     [TickThreadOnly]
     [RequiresCapability(Caps.Service)]
-    public static bool Tell(PlayerRef player, string text)
+    public static bool TellIfOnline(PlayerRef player, string text)
     {
         Require();
-        Services.RequireTickThread("Chat.Tell");
+        Services.RequireTickThread("Chat.TellIfOnline");
         return player.IsOnline && Tell(player.Entity.Id, text);
     }
 

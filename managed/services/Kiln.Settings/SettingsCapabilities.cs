@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 // Kiln.Settings in the capability registry (Kiln.Capabilities; docs/kiln/services/caps.md). Reported at the service's
-// first use; settings.ready follows the session and is refreshed on the service tick, never in a getter.
+// start (the first service tick: SettingsStartup); settings.ready follows the session and is refreshed on the service tick, never in a getter.
 namespace Kiln;
 
 public static unsafe partial class Settings
@@ -33,4 +33,11 @@ public static unsafe partial class Settings
         ServiceCaps.Session(Caps.Ready, Ready,
             "the live settings are found at the end of the server's first world step", Caps.Service);
     }
+}
+
+/// <summary>Started by Kiln (ServiceTick.AutoStart) at its first service tick: the capability rows are there before a
+/// mod asks for them, not from Kiln.Settings' first use.</summary>
+internal static class SettingsStartup
+{
+    static SettingsStartup() => Settings.Rows.Ensure();
 }

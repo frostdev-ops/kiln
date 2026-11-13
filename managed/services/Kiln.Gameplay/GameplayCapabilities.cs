@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Kiln.Gameplay in the capability registry (Kiln.Capabilities; docs/kiln/services/caps.md). Reported at the service's
-// first use; kiln.gameplay decides its hooks when it starts, so every row is fixed from then on.
+// start (the first service tick, GameplayStartup); kiln.gameplay decides its hooks when it starts, so every row is fixed
+// from then on.
 namespace Kiln;
 
 public static unsafe partial class Gameplay
@@ -42,7 +43,18 @@ public static unsafe partial class Gameplay
         }
         ServiceCaps.Static(Caps.EntityEvents, EntityEventsAvailable, CapabilityReason.Faulted,
             "the entity hooks are off on this build (see kiln.log), or this kiln.gameplay has no entity events", Caps.Service, "gameplay.entities");
-        ServiceCaps.Static(Caps.SpawnReplace, t != null && GameplayNative.SpawnReplace(t) != null, CapabilityReason.ServiceOlder,
-            "this kiln.gameplay has no spawn replacement (update Kiln)", Caps.Service, "gameplay.spawn");
+        // the entry point alone is not enough: native refuses every replacement while the random spawners' hook is off
+        var entry = t != null && GameplayNative.SpawnReplace(t) != null;
+        ServiceCaps.Static(Caps.SpawnReplace, entry && Status is { SpawnHook: true },
+            entry ? CapabilityReason.Faulted : CapabilityReason.ServiceOlder,
+            entry ? "the random spawners' hook is off on this build (see kiln.log)" : "this kiln.gameplay has no spawn replacement (update Kiln)",
+            Caps.Service, "gameplay.spawn");
     }
+}
+
+/// <summary>Started by Kiln (ServiceTick.AutoStart) at its first service tick: the capability rows are there before a
+/// mod asks for them, not from Kiln.Gameplay's first use.</summary>
+internal static class GameplayStartup
+{
+    static GameplayStartup() => Gameplay.Rows.Ensure();
 }

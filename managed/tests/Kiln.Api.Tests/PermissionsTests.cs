@@ -140,10 +140,10 @@ public sealed class PermissionsTests : KilnTest
         Permissions.Register("t.fly", PermissionLevel.Admin);
         // the session entity is stale (slot 3 belongs to someone else by now): the Steam id still decides
         var gus = new PlayerRef(Gus, Guid.NewGuid(), new EntityRef(new EntityId(3), 41));
-        Assert.True(Permissions.Has(gus, "t.fly"));
-        Assert.False(Permissions.Has(new PlayerRef(Steve, Guid.Empty, EntityRef.None), "t.fly"));
-        Assert.Equal(Permissions.Has(PermissionSubject.ForSteamId(Gus), "t.fly"), Permissions.Has(gus, "t.fly"));
-        Assert.Throws<ArgumentException>(() => Permissions.Has(PlayerRef.None, "t.fly"));
+        Assert.True(Permissions.PersonHas(gus, "t.fly"));
+        Assert.False(Permissions.PersonHas(new PlayerRef(Steve, Guid.Empty, EntityRef.None), "t.fly"));
+        Assert.Equal(Permissions.Has(PermissionSubject.ForSteamId(Gus), "t.fly"), Permissions.PersonHas(gus, "t.fly"));
+        Assert.Throws<ArgumentException>(() => Permissions.PersonHas(PlayerRef.None, "t.fly"));
     }
 
     [Fact]

@@ -55,8 +55,8 @@ public sealed class SpawnContractTests : ContractTest
         Assert.Throws<ArgumentException>(() => Spawn.TryEntity(Guid.Empty, Here));
         Assert.Throws<ArgumentException>(() => Spawn.TryItem(ItemId.None, 1, Here));
         Assert.Throws<ArgumentOutOfRangeException>(() => Spawn.TryItem(new ItemId(7), 0, Here));
-        Assert.Throws<ArgumentException>(() => Spawn.Destroy(new EntityRef(new EntityId(3), 1)));  // a player slot
-        Assert.False(Spawn.Destroy(EntityRef.None));
+        Assert.Throws<ArgumentException>(() => Spawn.DestroyIfAlive(new EntityRef(new EntityId(3), 1)));  // a player slot
+        Assert.False(Spawn.DestroyIfAlive(EntityRef.None));
     }
 
     [Fact]
@@ -98,7 +98,7 @@ public sealed class SpawnContractTests : ContractTest
         var entity = Method(typeof(Spawn), "Entity", typeof(string), typeof(WorldPosition), typeof(float), typeof(SpawnOptions));
         AssertHas<TickThreadOnlyAttribute>(entity);
         AssertRequires(entity, "spawn.world");
-        var destroy = Method(typeof(Spawn), "Destroy", typeof(EntityRef));
+        var destroy = Method(typeof(Spawn), "DestroyIfAlive", typeof(EntityRef));
         AssertHas<TickThreadOnlyAttribute>(destroy);
         AssertRequires(destroy, "spawn.destroy");
         AssertRequires(Method(typeof(Spawn), "Inspect", typeof(EntityId)), "kiln.spawn");

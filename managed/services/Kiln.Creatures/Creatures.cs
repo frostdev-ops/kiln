@@ -215,12 +215,17 @@ public static unsafe partial class Creatures
         return t;
     }
 
+    // One key per value of one creature changed by one mod: a handler that writes again waits for the next step.
+    internal static readonly ChangeNotices<CreatureChangedEvent, (EntityId, string, string)> Notices = new("kiln.creatures");
+
     /// <summary>Posts <see cref="CreatureChangedEvent"/> for a change the calling mod made on one creature. Built only
-    /// while someone subscribes.</summary>
+    /// while someone subscribes; a write made while one is being dispatched posts at the next step
+    /// (<see cref="ChangeNotices{TEvent,TKey}"/>).</summary>
     internal static void Changed(EntityId entity, string what)
     {
-        if (Events.HasSubscribers<CreatureChangedEvent>())
-            Events.Post(new CreatureChangedEvent(entity, what, ModContext.CurrentMod?.Info.Id ?? ""));
+        if (!Events.HasSubscribers<CreatureChangedEvent>()) return;
+        var origin = ModContext.CurrentMod?.Info.Id ?? "";
+        Notices.Post((entity, what, origin), new CreatureChangedEvent(entity, what, origin));
     }
 
     // "Unavailable" from a per-creature call stays a plain NotSupportedException: it means "this entity lacks that

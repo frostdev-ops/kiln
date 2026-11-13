@@ -15,7 +15,7 @@ Kiln.SpawnResult.SpawnResult(bool Ok, Kiln.EntityRef Entity, string? Reason, int
 override Kiln.SpawnResult.Equals(object? obj) -> bool
 override Kiln.SpawnResult.GetHashCode() -> int
 override Kiln.SpawnResult.ToString() -> string!
-static Kiln.Spawn.Destroy(Kiln.EntityRef entity) -> bool
+static Kiln.Spawn.DestroyIfAlive(Kiln.EntityRef entity) -> bool
 static Kiln.Spawn.TryEntity(System.Guid template, Kiln.WorldPosition position, float yawDegrees = 0, Kiln.SpawnOptions? options = null) -> Kiln.SpawnResult!
 static Kiln.Spawn.TryEntity(string! template, Kiln.WorldPosition position, float yawDegrees = 0, Kiln.SpawnOptions? options = null) -> Kiln.SpawnResult!
 static Kiln.Spawn.TryItem(Kiln.ItemId item, int amount, Kiln.WorldPosition position, int level = 0, Kiln.SpawnOptions? options = null) -> Kiln.SpawnResult!

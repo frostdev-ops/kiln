@@ -123,7 +123,7 @@ internal static partial class KilnApis
         "M:Kiln.Chat.Diagnostics.LastLine", // Chat.Diagnostics.LastLine(): Services.RequireTickThread
         "M:Kiln.Chat.Say(Kiln.EntityId,System.String,Kiln.EntityId)", // Chat.Say(EntityId, string, EntityId): Services.RequireTickThread
         "M:Kiln.Chat.Tell(Kiln.EntityId,System.String)", // Chat.Tell(EntityId, string): Services.RequireTickThread
-        "M:Kiln.Chat.Tell(Kiln.PlayerRef,System.String)", // Chat.Tell(PlayerRef, string): Services.RequireTickThread
+        "M:Kiln.Chat.TellIfOnline(Kiln.PlayerRef,System.String)", // Chat.TellIfOnline(PlayerRef, string): Services.RequireTickThread
         "M:Kiln.Combat.Damage(Kiln.EntityId,System.Int32,Kiln.EntityId,Kiln.DamageOptions)", // Combat.Damage(EntityId, int, EntityId, DamageOptions?): via Combat.Hit(EntityId, int, EntityId, DamageOptions, bool)
         "M:Kiln.Combat.GetHealth(Kiln.EntityId)", // Combat.GetHealth(EntityId): via Combat.TryGetHealth(EntityId, out Health)
         "M:Kiln.Combat.Heal(Kiln.EntityId,System.Int32)", // Combat.Heal(EntityId, int): Services.RequireTickThread
@@ -552,7 +552,7 @@ internal static partial class KilnApis
         "M:Kiln.Sound.Stop(Kiln.SoundHandle,System.TimeSpan)", // Sound.Stop(SoundHandle, TimeSpan): via AudioRelay.Stop(SoundHandle, TimeSpan)
         "M:Kiln.Spawn.CleanupTracked(System.String,System.String)", // Spawn.CleanupTracked(string?, string?): via Spawn.Require(string)
         "M:Kiln.Spawn.Destroy(Kiln.EntityId)", // Spawn.Destroy(EntityId): via Spawn.Require(string)
-        "M:Kiln.Spawn.Destroy(Kiln.EntityRef)", // Spawn.Destroy(EntityRef): via Spawn.Require(string)
+        "M:Kiln.Spawn.DestroyIfAlive(Kiln.EntityRef)", // Spawn.DestroyIfAlive(EntityRef): via Spawn.Require(string)
         "M:Kiln.Spawn.Entity(System.Guid,Kiln.WorldPosition,System.Single,Kiln.SpawnOptions)", // Spawn.Entity(Guid, WorldPosition, float, SpawnOptions?): via Spawn.Run(Func<EntityId>)
         "M:Kiln.Spawn.Entity(System.String,Kiln.WorldPosition,System.Single,Kiln.SpawnOptions)", // Spawn.Entity(string, WorldPosition, float, SpawnOptions?): via Spawn.Run(Func<EntityId>)
         "M:Kiln.Spawn.Exists(Kiln.EntityId)", // Spawn.Exists(EntityId): via Spawn.Inspect(EntityId)

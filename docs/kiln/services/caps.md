@@ -111,9 +111,13 @@ naming one of them is refused, with the advice to check `Capabilities.Is` at run
 They exist only once their service has started, after the manifests were checked: check `Capabilities.Is` at run time.
 
 ## Rows added in dev.27 (the contract in every service)
-One table for the services that took up the contract in dev.27. A managed row is reported at its service's first use
-(for a service with an autostart: at the first service tick) and again after the registry was reset; a session row is
-refreshed on the service tick. When a service's table is missing, the service lowers the sigdb features it serves, so
+One table for the services that took up the contract in dev.27. A managed row of a service's own is reported at the
+service's start, the first service tick (each service with such a row has a startup type in `ServiceTick.AutoStart`),
+so a mod's `Capabilities.Is` in its first tick sees it without having called the service; again after the registry was
+reset; a session row is refreshed on the service tick. A sigdb feature a service lowers because its table is missing
+is lowered at the service's start where it has one, else at its first use (Kiln.Build, Kiln.Creatures: the core's
+`kiln.<service>` row says the table is missing from the start). A row says "available" exactly when the call it stands for works: one
+that needs a hook says so only while the hook is in. When a service's table is missing, the service lowers the sigdb features it serves, so
 `Capabilities.Why` names the missing service and not a feature that resolved for nobody.
 
 | Row | Kind | Reported by | What it says |
@@ -123,17 +127,17 @@ refreshed on the service tick. When a service's table is missing, the service lo
 | `spawn.create`, `spawn.destroy`, `spawn.entities`, `spawn.templates` | sigdb features | core; Kiln.Spawn lowers them when kiln.spawn is not loaded | creating entities, `Spawn.Destroy`, the entity scan, the game's template list |
 | `settings.ready` | managed, session | Kiln.Settings, every 25 steps | the live game settings were found (`Settings.Ready`): pending until the end of the server's first world step; unavailable without kiln.settings. The members still throw `InvalidOperationException` before that, as they always did |
 | `settings.live`, `settings.world`, `settings.resend`, `settings.daytime` | sigdb features | core; Kiln.Settings lowers them when kiln.settings is not loaded | the live settings, the world's own values, the resend to players, the day/night clock |
-| `assets.textures` | managed, static | Kiln.Assets | texture overrides (`Assets.OverrideTexture`): kiln.assets is here and this is a game client (`wrong-side` on a server) |
-| `assets.resources`, `assets.content`, `assets.ui_icons` | sigdb features | core; Kiln.Assets lowers them when kiln.assets is not loaded | resources, content blobs, item icons (game client) |
+| `assets.textures` | managed, static | Kiln.Assets | texture overrides (`Assets.OverrideTexture`): kiln.assets is here, this is a game client (`wrong-side` on a server), and its resource and content hooks are in (`faulted` with kiln.assets' reason otherwise) |
+| `assets.resources`, `assets.content`, `assets.ui_icons` | sigdb features | core; Kiln.Assets lowers them when kiln.assets is not loaded, and each one whose hooks are off (`faulted`, kiln.assets' `status` reason) | resources, content blobs, item icons (game client) |
 | `chat.send`, `chat.receive`, `chat.players` | sigdb features | core; Kiln.Chat lowers them when kiln.chat is not loaded | server lines, players' typed lines, the chat's player list |
 | `audio.relay` | managed, session | Kiln.Audio, at its start (the first service tick) and every 25 steps | server side: a sound, track or voice line reaches someone (`Sound.Available`, `Voiceover.Available` there): a Kiln client with the `kiln:audio` channel is connected, or this host's own client plays. Pending while nobody listens; unavailable without the channel (`needs kiln.net`); `wrong-side` in a client that only joined |
 | `vfx.relay` | managed, session | Kiln.Vfx, likewise | the same for `Vfx.Available` and the `kiln:vfx` channel |
 | `screen.relay` | managed, session | Kiln.Vfx, likewise | server side: the `kiln:screen` channel is open (`ScreenEffects.Available` there) |
 | `gameplay.entity_events` | managed, static | Kiln.Gameplay | the entity lifecycle events work (`Gameplay.EntityEventsAvailable`): needs kiln.gameplay and `gameplay.entities` |
-| `gameplay.spawn_replace` | managed, static | Kiln.Gameplay | natural spawns can be replaced (`Gameplay.ReplaceNaturalSpawns`): needs kiln.gameplay with the replacement function and `gameplay.spawn` |
+| `gameplay.spawn_replace` | managed, static | Kiln.Gameplay | natural spawns can be replaced (`Gameplay.ReplaceNaturalSpawns`): needs kiln.gameplay with the replacement function, `gameplay.spawn`, and the random spawners' hook in (`faulted` when it is off) |
 | `gameplay.*` (ten), `build.*` (five), `skills.functions`, `skills.login_guard`, `skills.shadow`, `skills.tree_load` | sigdb features | core; Kiln.Gameplay, Kiln.Build and Kiln.Skills lower theirs when their service is not loaded | what kiln.gameplay, kiln.build and kiln.skills serve |
 | `content.references` | managed, static | Kiln.Content | this kiln.content sets references (`ContentEntry.SetRef`, `SetPerks`; table v4) |
-| `content.ready` | managed, session | Kiln.Content, every 25 steps | the registries are loaded and the data packs applied (`Content.Ready`); unavailable without kiln.content |
+| `content.ready` | managed, session | Kiln.Content, at its start and every 25 steps | the registries are loaded and the data packs applied (`Content.Ready`); unavailable without kiln.content |
 | `content.*` (eight, server side), `gamedata.template_clones`, `gamedata.buff_lookup`, `creatures.*` (ten) | sigdb features | core; Kiln.Content and Kiln.Creatures lower theirs when their service is not loaded | what kiln.content, kiln.gamedata and kiln.creatures serve |
 
 ## Rules

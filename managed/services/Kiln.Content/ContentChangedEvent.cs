@@ -10,7 +10,8 @@ public enum ContentChange
     /// <summary>A mod's layer of one field was taken off (<see cref="ContentEntry.Reset"/>).</summary>
     Reset = 2,
 
-    /// <summary>A data-pack document was applied (<see cref="Content.Apply"/>).</summary>
+    /// <summary>A data-pack document was applied and changed at least one field (<see cref="Content.Apply"/>; a
+    /// document whose every section was refused posts nothing).</summary>
     Applied = 3,
 
     /// <summary>Every layer of a mod was taken off (<see cref="Content.Revert"/>).</summary>
@@ -19,8 +20,10 @@ public enum ContentChange
 
 /// <summary>
 /// A mod changed game content through Kiln.Content from code: a value of an entry, a data-pack document applied, or its
-/// layers taken off. Posted on the tick thread right after the change took. Observe only. Built only while someone
-/// subscribes. Content that changes without a call (the data packs of mods' folders at world load and at
+/// layers taken off. Posted on the tick thread right after the change took; a change made while this event is being
+/// dispatched (a handler that writes again) is posted at the start of the next step instead, once per field and mod (the
+/// newest wins), so such a handler cannot loop. A call that changed nothing posts nothing. Observe only. Built only while
+/// someone subscribes. Content that changes without a call (the data packs of mods' folders at world load and at
 /// <see cref="Content.ReloadPacks"/>) is reported by <see cref="ContentReadyEvent"/>, not here. Since 0.2.0-dev.27.
 /// </summary>
 public sealed class ContentChangedEvent : KilnEvent

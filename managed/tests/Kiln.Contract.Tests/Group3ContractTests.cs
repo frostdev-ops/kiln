@@ -21,7 +21,7 @@ public sealed class ChatContractTests : ContractTest
     {
         AssertUnavailable("kiln.chat", () => Chat.Broadcast("hello"));
         AssertUnavailable("kiln.chat", () => Chat.Tell(new EntityId(3), "hello"));
-        AssertUnavailable("kiln.chat", () => Chat.Tell(new PlayerRef(7, Guid.Empty, new EntityRef(new EntityId(3), 4)), "hello"));
+        AssertUnavailable("kiln.chat", () => Chat.TellIfOnline(new PlayerRef(7, Guid.Empty, new EntityRef(new EntityId(3), 4)), "hello"));
         AssertUnavailable("kiln.chat", () => Chat.Say(new EntityId(3), "hello"));
         AssertUnavailable("kiln.chat", () => Chat.Diagnostics.Inject(0, "hello"));
         AssertUnavailable("kiln.chat", () => Chat.Diagnostics.LastLine());
@@ -55,7 +55,7 @@ public sealed class ChatContractTests : ContractTest
         var broadcast = Method(typeof(Chat), "Broadcast", typeof(string));
         AssertHas<TickThreadOnlyAttribute>(broadcast);
         AssertRequires(broadcast, "kiln.chat");
-        var tell = Method(typeof(Chat), "Tell", typeof(PlayerRef), typeof(string));
+        var tell = Method(typeof(Chat), "TellIfOnline", typeof(PlayerRef), typeof(string));
         AssertHas<TickThreadOnlyAttribute>(tell);
         AssertRequires(tell, "kiln.chat");
         AssertHas<AnyThreadAttribute>(Property(typeof(Chat), "Players"));

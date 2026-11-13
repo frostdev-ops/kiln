@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Kiln.Content in the capability registry (Kiln.Capabilities; docs/kiln/services/caps.md). Reported at the service's
-// first use; content.ready follows the session and is refreshed on the service tick, never in a getter.
+// start (the first service tick: Content's static constructor, in ServiceTick.AutoStart); content.ready follows the
+// session and is refreshed on the service tick, never in a getter.
 namespace Kiln;
 
 internal static unsafe class ContentCaps

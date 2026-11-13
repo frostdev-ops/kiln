@@ -150,15 +150,15 @@ public sealed class ClientAndPermissionsContractTests : ContractTest
         const ulong steve = 76561190000000011;
         // a ref of an earlier session: the Steam id decides, the stale session entity is not carried over
         var earlier = new PlayerRef(steve, Guid.NewGuid(), new EntityRef(new EntityId(3), 41));
-        var subject = PermissionSubject.ForPlayer(earlier);
+        var subject = PermissionSubject.ForPerson(earlier);
         Assert.Equal(PermissionSubjectKind.Player, subject.Kind);
         Assert.Equal(steve, subject.SteamId);
         Assert.True(subject.Entity.IsNone);
 
-        Assert.Throws<ArgumentException>(() => PermissionSubject.ForPlayer(PlayerRef.None));
+        Assert.Throws<ArgumentException>(() => PermissionSubject.ForPerson(PlayerRef.None));
 
         // no Steam id and no session entity: a player nobody knows, never somebody else's entity
-        var unknown = PermissionSubject.ForPlayer(new PlayerRef(0, Guid.NewGuid(), EntityRef.None));
+        var unknown = PermissionSubject.ForPerson(new PlayerRef(0, Guid.NewGuid(), EntityRef.None));
         Assert.Equal(PermissionSubjectKind.Player, unknown.Kind);
         Assert.Equal(0ul, unknown.SteamId);
         Assert.True(unknown.Entity.IsNone);

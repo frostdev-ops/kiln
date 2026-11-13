@@ -16,8 +16,9 @@ mod that registered them. Commands register `<mod>.command.<name>` (see `command
 
 Subjects: `PermissionSubject.Console`, `.Remote(name, admin)`, `.ForPlayer(Player)`, `.ForPlayer(EntityId)` (looked up
 through Kiln.Players), `.ForSteamId(id, name, rights, userGroupId)` (offline players, the dashboard), and since dev.27
-`.ForPlayer(PlayerRef)` with `Permissions.Has(PlayerRef, node)`: asked by Steam id, so a ref kept from an earlier
-session never answers for whoever has that entity slot now.
+`.ForPerson(PlayerRef)` with `Permissions.PersonHas(PlayerRef, node)`: asked by Steam id, so a ref kept from an
+earlier session never answers for whoever has that entity slot now. They have names of their own, not overloads of
+`ForPlayer` and `Has`, so code written for dev.26 compiles as it did.
 
 ## kiln/config/permissions.json
 Written with defaults (and comments) the first time Kiln.Permissions is used; re-read within ~1 s when it or

@@ -45,6 +45,7 @@ internal static class ConsoleControl
 
     static ConsoleControl()
     {
+        Chat.Rows.Ensure();  // Kiln.Chat's start (ServiceTick.AutoStart): its capability rows, before a mod asks
         ServiceTick.Add("kiln console", OnTick);
         AdminCommands.Register();  // /kick, /ban, /unban, /bans (dev.27)
     }

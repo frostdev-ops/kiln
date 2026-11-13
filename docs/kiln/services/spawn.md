@@ -78,14 +78,15 @@ a game client while it hosts a world).
   `SpawnResult` (`Ok` false, `Reason`, `Code`) where `Entity` and `Item` throw `SpawnException`; for them an unknown
   template or an invalid request is an `ArgumentException`, by the rule. `Group` has no result shape.
 - **Identity.** `SpawnResult.Entity` is an `EntityRef` (the id and its serial; serial 0 when no entity source could
-  stamp the new entity at once). `Spawn.Destroy(EntityRef)` destroys only the entity the ref was captured from and
-  answers false for a stale one; `Spawn.TryItem` takes an `ItemId`.
+  stamp the new entity at once). `Spawn.DestroyIfAlive(EntityRef)` destroys only the entity the ref was captured from
+  and answers false for a stale one (a name of its own, not an overload of `Destroy`, so `var d = Spawn.Destroy;`
+  compiles as it did in dev.26); `Spawn.TryItem` takes an `ItemId`.
 - **Threads.** The world calls are `[TickThreadOnly]`; `Lookup`, `Template`, `Templates`, `Tracked`, `WorldKey`,
   `WorldRunning`, `SupportsComponents` and `Available` are `[AnyThread]` (the native functions are thread-safe).
 - **Events.** Every write already posts one: `EntitySpawnedEvent`, `EntityDestroyedEvent`.
 
 Tested offline in `managed/tests/Kiln.Contract.Tests/SpawnContractTests.cs` (rows, exceptions, attributes); not run
-on a server in dev.27: `TryEntity`, `TryItem` and `Destroy(EntityRef)` call the same native functions as `Entity`,
+on a server in dev.27: `TryEntity`, `TryItem` and `DestroyIfAlive` call the same native functions as `Entity`,
 `Item` and `Destroy`.
 
 ## Behaviour on a dedicated server (lab-verified, no player connected)

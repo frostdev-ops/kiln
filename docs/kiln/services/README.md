@@ -85,10 +85,15 @@ available is generated from a boot's `capabilities.json`: [../status.generated.m
   `Services.RequireTickThread(api)` for game-state calls.
 - The contract ([../modding/contract.md](../modding/contract.md)), as `Kiln.Example` and `Kiln.Spawn` show it: rows
   for what can be off beyond the table itself (`ServiceCapRows` with `ServiceCaps.Static` / `Session`, reported at the
-  service's first use), `[RequiresCapability]` on the members that throw for one, `[ServerOnly]` / `[ClientOnly]` and
+  service's start when the service has rows of its own: a startup type in `ServiceTick.AutoStart` whose static
+  constructor calls `Rows.Ensure()`, like `GameplayStartup`; a row says "available" exactly when the call works, so a
+  hook that can be off is part of it),
+  `[RequiresCapability]` on the members that throw for one, `[ServerOnly]` / `[ClientOnly]` and
   `[TickThreadOnly]` / `[AnyThread]` on every member that has a side or a thread, the game's refusal as a result
-  record that implements `IKilnResult`, a bus event for every write. `managed/tests/Kiln.Contract.Tests` checks the
-  rules that can be checked by reflection: add the service to `Adopted.cs`.
+  record that implements `IKilnResult`, a bus event for every write that changed something (posted through
+  `ChangeNotices`, so a handler that writes again cannot loop), and a name of its own for a new shape rather than an
+  overload of a released method. `managed/tests/Kiln.Contract.Tests` checks the rules that can be checked by
+  reflection and the service's start on fresh assemblies: add the service to `Adopted.cs`.
 - Async work: return `Task`/`Task<T>` completed on the tick thread. Anything that holds a mod's delegates or
   continuations must be dropped when that mod unloads: get the caller with `ModContext.CurrentMod` and subscribe to its
   `Retiring` event.

@@ -73,7 +73,7 @@ public readonly record struct PermissionSubject
     /// <exception cref="ArgumentException"><paramref name="player"/> is <see cref="PlayerRef.None"/>.</exception>
     /// <exception cref="KilnUnavailableException">The ref has no Steam id and no service can say whether its session
     /// lasts (<c>identity.entities</c>).</exception>
-    public static PermissionSubject ForPlayer(PlayerRef player)
+    public static PermissionSubject ForPerson(PlayerRef player)
     {
         if (player.IsNone) throw new ArgumentException("PlayerRef.None names nobody", nameof(player));
         if (player.SteamId != 0) return ForSteamId(player.SteamId);
@@ -206,10 +206,10 @@ public static class Permissions
     public static bool Has(EntityId player, string node) => Has(PermissionSubject.ForPlayer(player), node);
 
     /// <summary>Whether this person has <paramref name="node"/>, online or not
-    /// (<see cref="PermissionSubject.ForPlayer(PlayerRef)"/>: asked by Steam id, so a ref of an earlier session never
+    /// (<see cref="PermissionSubject.ForPerson(PlayerRef)"/>: asked by Steam id, so a ref of an earlier session never
     /// answers for the player who has that entity slot now). Since 0.2.0-dev.27.</summary>
     /// <exception cref="ArgumentException"><paramref name="player"/> is <see cref="PlayerRef.None"/>, or the node is invalid.</exception>
-    public static bool Has(PlayerRef player, string node) => Has(PermissionSubject.ForPlayer(player), node);
+    public static bool PersonHas(PlayerRef player, string node) => Has(PermissionSubject.ForPerson(player), node);
 
     /// <summary>The decision with the rule that made it (for "/perm check" and the dashboard).</summary>
     [AnyThread]

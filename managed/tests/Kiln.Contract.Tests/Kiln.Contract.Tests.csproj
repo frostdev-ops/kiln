@@ -14,6 +14,8 @@
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
     <PackageReference Include="xunit.v3" Version="3.1.0" />
     <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+    <!-- OldCallShapesTests compiles code written against dev.26 against the services as they are now -->
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.14.0" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../../Kiln.Api/Kiln.Api.csproj" />
@@ -37,5 +39,7 @@
   <ItemGroup>
     <!-- The analyzers' tick-thread table, generated from the services' code: the attributes are checked against it. -->
     <None Include="../../Kiln.Analyzers/src/Kiln.Analyzers/KilnApis.g.cs" Link="KilnApis.g.cs" CopyToOutputDirectory="PreserveNewest" />
+    <!-- The services' released API (dev.26): an old method group must not gain an overload (OldCallShapesTests). -->
+    <None Include="../../services/**/PublicAPI.Shipped.txt" LinkBase="shipped" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

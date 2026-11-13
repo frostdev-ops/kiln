@@ -261,7 +261,9 @@ public readonly unsafe struct CreatureRef
     }
 
     /// <summary>Drops everything the calling mod changed on this creature (values, AI overrides, its attack override, AI
-    /// switch and held target). Returns how many values and AI overrides were dropped.</summary>
+    /// switch and held target). Returns how many values and AI overrides were dropped. Posts
+    /// <see cref="CreatureChangedEvent"/> (<c>Reset</c>) when values or AI overrides were dropped or the AI came back on;
+    /// nothing for a creature that is gone or that the mod had not changed.</summary>
     [TickThreadOnly]
     [RequiresCapability("kiln.creatures")]
     public int Reset()
@@ -274,9 +276,15 @@ public readonly unsafe struct CreatureRef
         t->AiReset(o.Native, Entity.Value, empty, empty, &b);
         t->SetReady(o.Native, Entity.Value, 0);
         t->SetAttackOverride(o.Native, Entity.Value, null);
+        // the switch is the one release whose effect shows on the creature now: read it around the release
+        uint aiBefore = 1, aiAfter = 1;
+        var switchRead = t->AiSwitchGet(Entity.Value, &aiBefore) == CreaturesNative.Ok;
         t->AiSwitch(o.Native, Entity.Value, 1);
+        if (switchRead && t->AiSwitchGet(Entity.Value, &aiAfter) != CreaturesNative.Ok) aiAfter = aiBefore;
         t->TargetPrefer(o.Native, Entity.Value, 0, 0);
-        Creatures.Changed(Entity, "Reset");
+        // an event only for a change: values or AI overrides dropped, or the AI back on (nothing for a creature that is
+        // gone, or one the mod had not changed)
+        if (a + b > 0 || (switchRead && aiBefore == 0 && aiAfter != 0)) Creatures.Changed(Entity, "Reset");
         return (int)(a + b);
     }
 

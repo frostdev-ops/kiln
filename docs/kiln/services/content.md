@@ -689,7 +689,7 @@ Kiln.Content follows [the API contract](../modding/contract.md).
   `content.stack_guard`; `gamedata.template_clones`, `gamedata.buff_lookup`), lowered by Kiln.Content when their
   service is not loaded; `content.references` (managed, static: this kiln.content sets references, table v4) and
   `content.ready` (managed, session: the registries are loaded and the packs applied, `Content.Ready`; refreshed
-  every 25 steps).
+  every 25 steps). Both are reported at Kiln.Content's start, the first service tick, before a mod calls anything.
 - **Errors.** A capability that is off throws `KilnUnavailableException` naming it, where these members threw
   `NotSupportedException` before (it still is one). Each member carries `[RequiresCapability]` with the row it
   needs: `kiln.content`, `kiln.gamedata`, `content.new` (`NewContent`), `content.references` (`SetRef`, `SetPerks`),
@@ -697,10 +697,15 @@ Kiln.Content follows [the API contract](../modding/contract.md).
   `KeyNotFoundException` / `ArgumentException`.
 - **Events.** `ContentChangedEvent` (new) is posted for every change made from code: `ContentEntry.Set`, `SetRef`,
   `SetInputs` / `SetOutputs`, `SetStacks` (`Set`), `ContentEntry.Reset` (`Reset`), `Content.Apply` (`Applied`) and
-  `Content.Revert` (`Reverted`), with the entry, the path and the mod. Data packs that load without a call keep
+  `Content.Revert` (`Reverted`), with the entry, the path and the mod; only when the call changed something (a
+  document whose every section was refused, a `Reset` of a layer the mod did not have and a `Revert` with nothing to
+  put back post nothing). A write made by a handler while the event is being dispatched (a catch-all
+  `Events.On<KilnEvent>` that writes again) is posted at the start of the next step, once per field: such a handler
+  cannot loop ([contract](../modding/contract.md#3-change-events)). Data packs that load without a call keep
   reporting through `ContentReadyEvent`. Not covered yet: `GameDataEntry.Set` and `NewContent.Register` (kiln.gamedata
   has `GameDataEvent` for its own animation events only).
 - **Threads.** `[TickThreadOnly]` on every call that reads or writes a registry (also `RecipeStack.ToString`, which
   looks its item's name up); `Content.Ready` and `Status()` read kiln.content's own bookkeeping on any thread.
-- Tested offline: rows, exceptions, attributes and the event's shape (`Kiln.Contract.Tests`). The event's call sites
-  run only against a real kiln.content; no lab run in dev.27 has watched them.
+- Tested offline: rows, exceptions, attributes, the service's start (`ServiceStartTests`), and the writes with
+  subscribers on a fake kiln.content table (`ChangeEventTests`: a handler that writes again, refused writes, a
+  document that changed nothing). Against a real kiln.content no lab run in dev.27 has watched the event.

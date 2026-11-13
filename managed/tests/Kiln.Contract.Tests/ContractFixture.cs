@@ -6,15 +6,17 @@ using Xunit;
 
 namespace Kiln.Contract.Tests;
 
-/// <summary>A backend with no Kiln core and no native tables: every service is off, as in a tool or a unit test.</summary>
+/// <summary>A backend with no Kiln core and no native tables: every service is off, as in a tool or a unit test. A test
+/// may serve a fake table of its own (<see cref="Tables"/>).</summary>
 internal sealed class OfflineBackend : IKilnBackend
 {
     public readonly List<string> Lines = [];
+    public readonly Dictionary<string, nint> Tables = new(StringComparer.Ordinal);
     public bool TickThread = true;
     public string Version => "test";
     public bool IsTickThread => TickThread;
     public bool HasFeature(string name) => false;
-    public nint Service(string name, uint minVersion) => 0;
+    public nint Service(string name, uint minVersion) => Tables.GetValueOrDefault(name);
 
     public void Log(ulong owner, LogLevel level, string text)
     {
@@ -55,8 +57,10 @@ public abstract class ContractTest : IDisposable
         }
     }
 
-    /// <summary>What a service's start does for its rows: every <see cref="ServiceCapRows"/> the assembly holds reports
-    /// under this test's registry binding.</summary>
+    /// <summary>Reports every <see cref="ServiceCapRows"/> the assembly holds again under this test's registry binding:
+    /// the test process started the services once, under an earlier test's binding. For what the rows say, not for when
+    /// they are there: that a service reports them at its start, with no call made, is proven on fresh copies of the
+    /// assemblies (<see cref="ServiceStartTests"/>).</summary>
     internal static void StartRows(Assembly service)
     {
         foreach (var rows in RowSets(service)) rows.Ensure();

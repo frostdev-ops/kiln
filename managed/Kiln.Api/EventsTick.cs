@@ -32,14 +32,20 @@ internal static class ServiceTick
     }
 
     /// <summary>Assemblies (in kiln/host) whose startup type is started at the first service tick, so their file
-    /// watchers run even when no mod touched them (the console folder lives in Kiln.Chat).</summary>
+    /// watchers run and their capability rows are reported even when no mod touched them (the console folder lives in
+    /// Kiln.Chat; a service's rows: docs/kiln/services/README.md, "Managed rules").</summary>
     internal static readonly (string Assembly, string Type)[] AutoStart =
         [("Kiln.Chat", "Kiln.ConsoleControl"), ("Kiln.Content", "Kiln.Content"),
          ("Kiln.Network", "Kiln.NetworkStartup"), ("Kiln.Ui", "Kiln.UiStartup"), ("Kiln.Skills", "Kiln.SkillsStartup"),
          ("Kiln.Audio", "Kiln.AudioStartup"), ("Kiln.Quests", "Kiln.QuestsStartup"), ("Kiln.Vfx", "Kiln.VfxStartup"),
          ("Kiln.Rules", "Kiln.RulesStartup"), ("Kiln.DevTools", "Kiln.DevToolsStartup"),
          ("Kiln.Spawn", "Kiln.SpawnStartup"), ("Kiln.Items", "Kiln.ItemsStartup"),
-         ("Kiln.Players", "Kiln.PlayersStartup")];
+         ("Kiln.Players", "Kiln.PlayersStartup"),
+         // dev.27: services with capability rows of their own, which must be there from the first tick, not from the
+         // service's first use (a service that only lowers the sigdb features of its missing table is not here: the
+         // core's kiln.<service> row says so from the start, and every assembly loaded here costs every start)
+         ("Kiln.Assets", "Kiln.AssetsStartup"), ("Kiln.Settings", "Kiln.SettingsStartup"),
+         ("Kiln.Gameplay", "Kiln.GameplayStartup")];
 
     private static readonly object Lock = new();
     private static Entry[] _entries = [];
@@ -52,6 +58,12 @@ internal static class ServiceTick
 
     /// <summary>The step of the last run (0 before the first).</summary>
     public static ulong Step => _lastStep;
+
+    /// <summary>Changes when <see cref="Reset"/> dropped every handler (tests): a handler added once and kept adds itself
+    /// again when it sees another value.</summary>
+    internal static int Generation => Volatile.Read(ref _generation);
+
+    private static int _generation;
 
     /// <summary>Whether autostart runs (tests turn it off).</summary>
     internal static bool AutoStartEnabled { get; set; } = true;
@@ -188,6 +200,7 @@ internal static class ServiceTick
             _lastStep = 0;
             _started = false;
             _hostDriven = false;
+            _generation++;
         }
     }
 

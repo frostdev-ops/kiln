@@ -573,11 +573,11 @@ public static unsafe partial class Spawn
     /// supplies entity serials (<c>identity.entities</c>).</exception>
     [TickThreadOnly]
     [RequiresCapability(Caps.Destroy)]
-    public static bool Destroy(EntityRef entity)
+    public static bool DestroyIfAlive(EntityRef entity)
     {
         if (entity.IsNone) return false;
         if (entity.Id.IsPlayer) throw new ArgumentException("players cannot be destroyed", nameof(entity));
-        Require("Spawn.Destroy");
+        Require("Spawn.DestroyIfAlive");
         return entity.IsAlive && Destroy(entity.Id);
     }
 

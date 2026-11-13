@@ -611,10 +611,14 @@ Kiln.Creatures follows [the API contract](../modding/contract.md). Server side o
   `CreatureRef` setters is not in this release.
 - **Events.** `CreatureChangedEvent` (new) is posted for every change a mod makes on a creature: a `CreatureRef`
   value (`Level`, `Faction`, `Scale`, `Home`, resistances, loot, features), `AiEnabled`, `Phase`, the held target, an
-  AI override (`Ai.<Component>.<path>`), `Reset` and `Ai.Reset`. The game's own changes keep `CreatureStateEvent` and
+  AI override (`Ai.<Component>.<path>`), `Reset` and `Ai.Reset` (these two only when something was dropped or the AI
+  came back on: nothing for a creature that is gone or one the mod had not changed). A write made by a handler while
+  the event is being dispatched is posted at the start of the next step, once per value: such a handler cannot loop
+  ([contract](../modding/contract.md#3-change-events)). The game's own changes keep `CreatureStateEvent` and
   `CreatureTargetEvent`. Commands (`Command.Attack`, `Guard`, ...) and `AttackControl` raise nothing of their own:
   the game answers them with state and target changes.
 - **Threads.** `[TickThreadOnly]` on everything that touches a creature; `Creatures.Status` and `Available` are
   `[AnyThread]`.
-- Tested offline: rows, exceptions, attributes and the event's shape (`Kiln.Contract.Tests`). The event's call sites
-  run only against a real kiln.creatures; no lab run in dev.27 has watched them.
+- Tested offline: rows, exceptions, attributes, the service's start (`ServiceStartTests`), and the writes with
+  subscribers on a fake kiln.creatures table (`ChangeEventTests`). Against a real kiln.creatures no lab run in dev.27
+  has watched the event.
