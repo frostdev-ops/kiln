@@ -560,7 +560,6 @@ internal static partial class AffixRuntime
         if (item.IsNone) throw new ArgumentException("no item (ItemInstanceRef.None)", nameof(item));
         var v = value ?? RollValue(def.Block.Tiers[tier - 1], def.Block.Stat, rng);
         CheckValue(v, def.Block.Stat.Whole, nameof(value));
-        if (Math.Abs(v) > Strongest(def.Block)) throw new ArgumentException($"{v} is beyond the strongest value affix {id} rolls ({Strongest(def.Block)}): such a roll would not act", nameof(value));
         var before = Read(item, key);
         if (before.Any(a => a.Affix == id)) return new AffixResult(item, before, $"the item already has {id}");
         if (def.Block.Group is { } g && before.FirstOrDefault(a => FindAffix(a.Affix)?.Block.Group == g) is { } same)

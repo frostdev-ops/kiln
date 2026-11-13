@@ -461,28 +461,32 @@ namespace Kiln
         }
 
         [Fact]
-        public void AStoredValueBeyondWhatItsAffixRollsNeverActs()
+        public void AStoredValueBeyondTheMostAnAffixValueIsNeverActs()
         {
-            // bear rolls 1 to 8: a stored 9, or 1e100 (infinity as the stat program's float), does nothing; -8 to 8 acts
+            // a stored 1e100 (infinity as the stat program's float) or 2e6 does nothing. The tiers are no bound: bear rolls 1 to
+            // 8 and keen up to 0.05, and a stored 9 and 0.5 act as the items show them (a roll made before the tiers changed,
+            // a value Affixes.Set gave)
             var a = Give(3, Sword, worn: true);
             var b = Give(4, Sword, worn: true);
             var c = Give(5, Ring, worn: true);
             StoreRaw(a, """{"Rolls":[{"Id":"sword-mod:bear","Name":"of the Bear","Stat":"strength","Tier":2,"Value":1e100}]}""");
             StoreRaw(b, """{"Rolls":[{"Id":"sword-mod:bear","Name":"of the Bear","Stat":"strength","Tier":2,"Value":9}]}""");
             StoreRaw(c, """{"Rolls":[{"Id":"sword-mod:bear","Name":"of the Bear","Stat":"strength","Tier":2,"Value":8},{"Id":"sword-mod:keen","Name":"Keen","Stat":"crit-chance","Tier":1,"Value":0.5}]}""");
-            // a roll of another stat than bear's now (bear defined again since): bear's tiers say nothing of it, the bound of
-            // every affix value does (1,000,000); 7 acts, 2e6 does not
+            // a roll of another stat than bear's now (bear defined again since): 7 acts, 2e6 does not
             var d = Give(8, Ring, worn: true);
             var e = Give(9, Ring, worn: true);
             StoreRaw(d, """{"Rolls":[{"Id":"sword-mod:bear","Name":"of the Bear","Stat":"max-health","Tier":1,"Value":7}]}""");
             StoreRaw(e, """{"Rolls":[{"Id":"sword-mod:bear","Name":"of the Bear","Stat":"max-health","Tier":1,"Value":2e6}]}""");
             ServerPass();
-            Assert.Equal(8, _game.Sum(_hero, Stat.Strength));
-            Assert.Equal(0, _game.Sum(_hero, Stat.CritChance));                 // keen rolls up to 0.05
+            Assert.Equal(17, _game.Sum(_hero, Stat.Strength));                  // 9 and 8 (bear stacks); the 1e100 is no part of it
+            Assert.Equal(0.5, _game.Sum(_hero, Stat.CritChance));
             Assert.Equal(7, _game.Sum(_hero, Stat.MaxHealth));
-            Assert.Equal(4, AffixRuntime.ItemNotes);
-            // the calls refuse such values where they are given
-            Assert.Throws<ArgumentException>(() => As(() => Affixes.Add(Give(6, Ring, false), "bear", 2, 9)));
+            Assert.Equal(2, AffixRuntime.ItemNotes);                            // the 1e100 and the 2e6, each said once
+            // the calls refuse a value beyond the bound where it is given, and take one no tier rolls: it acts
+            Assert.Throws<ArgumentException>(() => As(() => Affixes.Add(Give(6, Ring, false), "bear", 2, 2e6)));
+            Assert.True(As(() => Affixes.Add(Give(10, Ring, true), "bear", 2, 9)).Ok);
+            ServerPass();
+            Assert.Equal(26, _game.Sum(_hero, Stat.Strength));
             Assert.Throws<ArgumentException>(() => As(() => Affixes.Set(Give(7, Ring, false), [new RolledAffix("other-mod:x", "X", "strength", 1, 2e6)])));
             Assert.Equal("tiers[0]", Assert.Throws<BlockError>(() => Define("huge", new AffixBlock { Name = "Huge", Stat = Stat.Strength, Tiers = [new AffixTier { Min = 1, Max = 2e6 }] })).Field);
         }

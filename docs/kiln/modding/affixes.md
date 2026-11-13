@@ -113,9 +113,10 @@ record on an item). A mod that is not loaded leaves its affixes on their items; 
 Stored rolls are not trusted (a save edited by hand, another version's data): the pass takes what reads as a roll and
 leaves the rest out, saying so once per item in kiln.log, and the item's data is kept exactly as it was. A value that
 is not a list of rolls, a roll that is not an object or has no id, the second roll of one id, and a field of the wrong
-type are left out; at most 8 rolls of one item act, the first ones; a roll's value acts only up to the strongest value
-its affix rolls (for a roll of another stat than the affix's now, up to 1,000,000), so a stored `1e100` does nothing.
-One item's trouble never stops the pass for anybody else.
+type are left out; at most 8 rolls of one item act, the first ones; a roll whose value is beyond 1,000,000 either way
+does not act, so a stored `1e100` does nothing. Within that an item gives what it shows: a value no tier rolls
+(`Affixes.Set`, `Affixes.Add` with a value of your own, a roll made before the affix's tiers were changed) acts as it
+stands. One item's trouble never stops the pass for anybody else.
 
 ## How they act
 
@@ -212,7 +213,7 @@ show in the game's own bars and numbers.
 ## Limits
 
 - 8 affixes on one item; 16 tiers per affix; 256 entries per pool. A value is at most 1,000,000 either way (a tier,
-  `Affixes.Set`, `Affixes.Add`), and `Affixes.Add` refuses one beyond the strongest its affix rolls.
+  `Affixes.Set`, `Affixes.Add`).
 - The pass runs every 10 steps and at once after an affix call: a change of what is worn acts within half a second on a
   dedicated server, not in the same step.
 - If Kiln's managed side stops while the server keeps running, the stat changes it held stay until the server

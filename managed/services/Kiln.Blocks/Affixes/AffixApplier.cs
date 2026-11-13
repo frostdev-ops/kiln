@@ -226,14 +226,10 @@ internal static partial class AffixRuntime
     internal static int BlockedNotes, CapNotes;
 
     /// <summary>Items whose stored rolls the pass could not take as they are (a shape that is not rolls, more than
-    /// <see cref="Affixes.MaxPerItem"/>, a value beyond what its affix rolls, an exception), each said once; and how many
+    /// <see cref="Affixes.MaxPerItem"/>, a value beyond <see cref="MaxValue"/>, an exception), each said once; and how many
     /// lines that made (tests).</summary>
     private static readonly HashSet<string> NotedItemData = new(StringComparer.Ordinal);
     internal static int ItemNotes;
-
-    /// <summary>The strongest value an affix's tiers roll: a stored value of its stat beyond it (a save edited by hand, a bug)
-    /// never acts. A value of the opposite sign within it does (Affixes.Set may give one).</summary>
-    internal static double Strongest(AffixBlock block) => block.Tiers.Max(t => Math.Max(Math.Abs(t.Min), Math.Abs(t.Max)));
 
     // one log line per item and kind of trouble, never one per pass
     private static void NoteItem(ItemInstanceRef item, string kind, string what)
@@ -412,12 +408,12 @@ internal static partial class AffixRuntime
                 foreach (var roll in found.Rolls)
                 {
                     if (FindAffix(roll.Affix) is not { } def || !double.IsFinite(roll.Value)) continue;  // its mod is not loaded: it waits
-                    // beyond what the affix rolls (for the stat it rolls now; a roll of an affix defined again with another stat
-                    // keeps that stat, and the new tiers say nothing of it: then the bound of every affix value) it never acts
-                    var bound = def.Block.Stat.Key == roll.Stat ? Strongest(def.Block) : MaxValue;
-                    if (Math.Abs(roll.Value) > bound)
+                    // beyond the most an affix value is (a save edited by hand, a bug) it never acts. The affix's tiers are no
+                    // bound here: an item gives what it shows, also after its affix was defined again with weaker tiers, and
+                    // Affixes.Set and Add may give a value no tier rolls
+                    if (Math.Abs(roll.Value) > MaxValue)
                     {
-                        NoteItem(item, "value:" + roll.Affix, $"its roll of {roll.Affix} has the value {roll.Value}, beyond the strongest {(bound == MaxValue ? "affix value" : "value the affix rolls")} ({bound}): it does not act");
+                        NoteItem(item, "value:" + roll.Affix, $"its roll of {roll.Affix} has the value {roll.Value}, beyond the most an affix value is ({MaxValue:0}): it does not act");
                         continue;
                     }
                     if (StatOfRoll(roll, def) is not { } stat)
