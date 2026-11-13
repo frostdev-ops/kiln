@@ -41,8 +41,12 @@ older Kiln, cooked before receipts existed, in a folder handed to `Assets.LoadMa
 ```
 
 Whatever the setting, kiln.assets reads a file a manifest names only from the mod's own `assets` folder: a link or
-junction anywhere below it (say `assets/alias` pointing at another mod's `assets/cooked`) makes that entry an error, and
-nothing is read through it, and so does a file that is a cooked file of any mod of the load order under another name.
+junction at the `assets` folder itself or anywhere below it (say `assets/alias` pointing at another mod's
+`assets/cooked`) makes that entry an error, and nothing is read through it, and so does a file that is a cooked file of
+any mod of the load order under another name. The cooked folders are scanned whole for that (no depth limit, no link
+followed); when one cannot be (a folder it cannot list, a file it cannot read, more than 200000 entries), kiln.log names
+it, and a file a manifest names outside its own `assets/cooked` cannot be shown to be no such name: under `"local"` none
+is loaded, under `"warn"` each is named.
 Under Wine a link to a single file is a plain file to every query the game can make, so that last check (by the file's
 identity) is what catches it; a link to a cooked file of a mod that is not loaded is read as the linking mod's own file.
 The Library, Kiln's copies and a server sync never hold links (they are refused on import); only a folder placed by hand
@@ -71,7 +75,9 @@ what it says.
   made is gone or changed (checked against its receipt). Each such mod is cooked from nothing: its `assets/cooked` is
   emptied first and every recipe runs, whatever the recipe's own up-to-date check says (that check reads the mod's files,
   not the game). A failed cook (a missing source, a cancel, a tool that fails) stops neither the other mods nor the start, and
-  the mod keeps the files of its last cook, which are put back: one notice names the mod with the tools' own words.
+  the mod keeps the files of its last cook, which are put back (when even that fails, they stay set aside in the mod's
+  `assets` folder and are put back before its next cook, which does not start until they are): one notice names the
+  mod with the tools' own words.
   "Cook again" in a mod's menu (the Deck: Y on its row) cooks one mod whenever you want. Details:
   [../launcher/app.md](../launcher/app.md), "Cooking mods".
 - **`kiln cook`**, for an author and a server operator: `kiln cook [mod folder] [--game DIR] [--check] [--force]`

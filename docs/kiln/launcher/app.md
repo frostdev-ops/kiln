@@ -172,7 +172,9 @@ them (dev.27, `shell/cook.ts`, `cook_plan` / `cook_run`, `kiln_manage::cook`):
 - **From nothing, and nothing lost.** A mod that needs a cook gets its `assets/cooked` and its receipts set aside and every
   recipe run, also one whose own check calls it up to date (that check reads the mod's files, never the game). When the
   cook ends well what was set aside goes; when it does not (a missing source, a cancel, a tool that fails) the mod gets
-  back the files and receipts of its last cook, and the mod's own files as they were. A mod whose cooked files no
+  back the files and receipts of its last cook, and the mod's own files as they were. The set-aside is on disk: when
+  putting it back fails too, it stays, and the next cook puts it back before anything else (or does not start, and
+  names the folder). A mod whose cooked files no
   receipt lists (an older Kiln's cook) is due too.
 - **What the player sees.** "Cooking <mod>" (or "Cooking N mods"), then the task with "Cooking <mod> (i of n)" and each
   line the tools print, then "Starting" as before. Nothing is said when nothing needs a cook.

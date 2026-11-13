@@ -208,7 +208,7 @@ std::vector<std::string> g_loaded_dirs;
 std::mutex g_loaded_mu;
 
 KilnResult load_manifest(KilnOwner owner, const std::string& mod_dir, std::string* report, const CookTrust* trust_in = nullptr,
-                         const FileIds* cooked_ids_in = nullptr) {
+                         const CookedIds* cooked_ids_in = nullptr) {
     const fs::path base = fs::path(widen(mod_dir)) / L"assets";
     const fs::path mf = base / L"assets.json";
     std::error_code ec;
@@ -249,8 +249,8 @@ KilnResult load_manifest(KilnOwner owner, const std::string& mod_dir, std::strin
     };
     // every file is read from the mod's own assets folder: a link or junction there (to another mod's assets/cooked,
     // to anywhere) lends nothing, nor does another name for a cooked file of any mod of the load order (contained.cpp)
-    std::optional<FileIds> own_ids;
-    const FileIds* cooked_ids = cooked_ids_in;
+    std::optional<CookedIds> own_ids;
+    const CookedIds* cooked_ids = cooked_ids_in;
     if (!cooked_ids) {
         own_ids.emplace();
         std::vector<std::string> dirs;
@@ -260,9 +260,19 @@ KilnResult load_manifest(KilnOwner owner, const std::string& mod_dir, std::strin
         }
         dirs.push_back(mod_dir);
         for (const auto& d : dirs) add_cooked_ids(fs::path(widen(d)), &*own_ids);
+        for (const auto& c : own_ids->cut) LOGW("assets: a cooked folder could not be scanned whole (%s)", c.c_str());
         cooked_ids = &*own_ids;
     }
-    auto read = [&](const fs::path& fp, std::vector<uint8_t>* out, std::string* w) { return read_contained(base, fp, out, w, cooked_ids); };
+    // a file outside its own assets/cooked that a cut scan could not clear: loaded under "warn" and said once (below)
+    int unproven = 0;
+    std::string unproven_names;
+    auto read = [&](const fs::path& fp, std::vector<uint8_t>* out, std::string* w) {
+        bool u = false;
+        if (!read_contained(base, fp, out, w, cooked_ids, trust().policy, &u)) return false;
+        if (u && ++unproven <= 3)
+            unproven_names += (unproven_names.empty() ? "" : ", ") + narrow(fp.lexically_normal().lexically_relative(base.lexically_normal()).generic_wstring());
+        return true;
+    };
     auto fail = [&](const std::string& m) {
         ++errs;
         problems += (problems.empty() ? "" : "; ") + m;
@@ -407,6 +417,10 @@ KilnResult load_manifest(KilnOwner owner, const std::string& mod_dir, std::strin
               (unmade ? ", " + std::to_string(unmade) + " cooked file" + (unmade == 1 ? "" : "s") + " not made here (loaded)" : "") +
               (problems.empty() ? "" : " (" + problems + ")");
     LOGI("assets: %s: %s", mod_dir.c_str(), report->c_str());
+    if (unproven)
+        LOGW("assets: %s: %d file%s loaded that cannot be shown to be no other name for a cooked file (%s%s): a mod's cooked folder could not "
+             "be scanned whole (said above). Under kiln.json \"cooked\": \"local\" they are not loaded",
+             mod_dir.c_str(), unproven, unproven == 1 ? "" : "s", unproven_names.c_str(), unproven > 3 ? ", ..." : "");
     if (unmade)
         LOGW("assets: %s: %d cooked file%s loaded that %s not cooked on this machine (%s%s). Cook the mod here: the launcher does it before "
              "the game starts; on a dedicated server run kiln cook <mod folder> --game <server folder>. A later release of Kiln will not "
@@ -552,8 +566,11 @@ void load_profile_manifests() {
             if (it->is_directory(ec) && !fs::exists(it->path() / L".disabled", ec)) one(narrow(it->path().wstring()));
     }
     const CookTrust trust = read_cook_trust();  // read once for every mod of the load order
-    FileIds cooked_ids;
+    CookedIds cooked_ids;
     for (const auto& dir : order) add_cooked_ids(fs::path(widen(dir)), &cooked_ids);
+    for (const auto& c : cooked_ids.cut)
+        LOGW("assets: a cooked folder could not be scanned whole (%s): a file a manifest names outside its own assets/cooked cannot be shown "
+             "to be no other name for a cooked file, so under \"cooked\": \"local\" none is loaded, and under \"warn\" each is named", c.c_str());
     {
         std::lock_guard lock(g_loaded_mu);
         g_loaded_dirs = order;
