@@ -76,7 +76,7 @@ Root: `$KILN_DATA_DIR`, else the folder the pointer `data-folder.json` in the de
 | Path | What |
 |---|---|
 | `settings.json` | launcher settings (`LauncherSettings`, section 9) |
-| `library/<kind>/<id>/<version>+<hash8>/` | immutable library entries; kind `kiln`, `native`, `plugin`, `emf`, or another engine's (`eml`, `shroudforge`, `set`, `greeneye`, `flame`, `shroudtopia`, `enshwick`, `shroudlink`, `ember`), see 5.1; hash8 = the first 8 hex chars of the folder's kdh1 (of the DLL's sha256 for a plugin, whose folder holds the one DLL) |
+| `library/<kind>/<id>/<version>+<hash8>/` | immutable library entries; kind `kiln`, `native`, `plugin`, `emf`, or another engine's (`eml`, `shroudforge`, `set`, `greeneye`, `flame`, `shroudtopia`, `enshwick`, `shroudlink`, `ember`), see 5.1; hash8 = the first 8 hex chars of the folder's hash: its kdh1, for a Kiln mod its identity (5.11: kdh1 without what a cook left in `assets/cooked`, so an entry cooked in place is still the entry that was imported); of the DLL's sha256 for a plugin, whose folder holds the one DLL |
 | `library/<kind>/<id>/<version>+<hash8>.json` | import record next to the folder: `{format, kind, id, version, hash, imported, source:{type,from}, size, name?, side?, clients?, file?, manifestId?}`. `manifestId` (dev.22): an engine mod whose own manifest id is no Kiln id (`Hoarders Helper`, `antisocialian's tweaks`) is filed under a Kiln id made from it (`hoarders-helper`) and keeps its own id here; the files in the folder are the author's, byte for byte, because the engine plugin reads that manifest and reports its state rows (`kiln/state/<engine>.json`) under it. Rows that carry a `path` match their profile entry by it; the mod manager (`ModCatalog`) also matches a row by the slug of its id. Two manifest ids with one slug get a short hash added to the second one's id |
 | `profiles/<pid>/meta.json` | the profile definition (`kiln_manage::profile::Profile`; dev.21 adds `late`: native mod ids whose dllmain DLLs go to chain.ini `[late]`, left out when empty; dev.22 adds `dropinsEngines: true`: `dropins` names the engine kinds too, profiles.md "Drop-in folders") |
 | `profiles/<pid>/config/` | the profile's mod configs (its `configDir`), with `.schema/`, `native.json` and the player's `compat-rules.json` |
@@ -691,8 +691,13 @@ from `<data>/runtime/`.
 ### 5.8 Modpacks: `kiln-modpack.json`, network.json, handshake properties
 Zip layout: `kiln-modpack.json` + `kiln/<id>/…`, `native/<id>/…`, `emf/<id>/…`, `plugin/<file>.dll`; deterministic.
 `kiln-modpack.json`: `format`, `name`, `version` (free text), `created`, `server{id,name}`, `kiln` (range players
-need), `mods[]` (`{kind, id, version, name, path, hash, clients, side}`; `hash` = the folder's kdh1, a plugin's sha256).
-Contents: the server's mods with `clients: "mod"`. Other engines' mods ride along as `<kind>/<id>/…` (`eml/`,
+need), `mods[]` (`{kind, id, version, name, path, hash, clients, side}`; `hash` = the folder's kdh1, a Kiln mod's
+identity (5.11), a plugin's sha256).
+Contents: the server's mods with `clients: "mod"`. A Kiln mod's cook outputs (`assets/cooked/`) are left out (dev.27): they
+are made from the server's game files, differ on every player's machine, and each player's own cook makes them; the
+mod's hash does not count them, so a pack built from a cooked server folder names the hash the server advertises and a
+player's cooked folder has. `verify` refuses a pack whose Kiln mod carries files under `assets/cooked/` (no hash covers
+them; a pack built by 0.2.0-dev.26 or older from a cooked folder is one: build it again). Other engines' mods ride along as `<kind>/<id>/…` (`eml/`,
 `shroudforge/`, `flame/` …) with their kdh1, taken from each engine's server folder (`engine_mods::server_root`) when
 their `clients` is `mod` (stated in their `mod.json`, else the kind's default: `eml`, `shroudforge`, `flame`). A player's
 install imports them into the library under their kind and lists them in the profile "Server: <name>".
@@ -707,7 +712,8 @@ Server (`kiln/config/network.json`, Kiln.Network) adds:
 `serverId` (default: generated once into `kiln/data/kiln-network/server-id`), `serverName` (default: the
 enshrouded_server.json name), `modpack{url, sha256, name, version}`, `advertise` (default true). REJECT and WELCOME
 gain trailing properties: server id/name, Kiln version, modpack, `required[]` (`{id, version, hash, kind}` of the
-`clients: "mod"` mods; `kind` is absent for `kiln`, else `native` or an engine kind such as `eml` or `flame`: other
+`clients: "mod"` mods; `hash` is the folder's kdh1, for a Kiln mod its identity (5.11), so a mod cooked on the server and
+in a player's game is one mod; `kind` is absent for `kiln`, else `native` or an engine kind such as `eml` or `flame`: other
 engines' mods are advertised so the launcher can tell the player, while the HELLO check covers Kiln mods only), truncated so the frame stays <= 7 KB (`kiln.required.more` = how many were left out); old
 clients still decode them. Property keys (`kiln.server.*`, `kiln.modpack.*`, `kiln.required[.n]`, `.count`, `.more`,
 `.pending`): docs/kiln/network.md "Server modpacks".
@@ -717,6 +723,24 @@ when the server never answers (outcome `vanilla`).
 
 ### 5.9 State files (`<game>/kiln/state/`)
 All written atomically; a file whose `pid` is not a live process is stale.
+- `cooked.json` (dev.27, the launcher: `kiln_manage::cook`): `{format: 1, mods: {<mod id>: {identity, gameBuild, at, ok, files, error?}}}`,
+  the last cook of each mod for this game: the mod's identity and the game's build then (`steam:<build id>`, else
+  `file:<data file>:<size>:<mtime>`), whether it ended well, whether it made files (its receipts list some), and a
+  failed cook's last lines. `cook::needs_cook` reads it; a file that cannot be read means everything is cooked again.
+- `cook-receipts/<key>.json` (dev.27, written by the cook tools when Kiln runs them: `KILN_COOK_RECEIPT=1`,
+  tools/modelcook/cook/cookpaths.py `receipt`): `{format: 1, tool, mod: <mod folder as given>, recipe: <relative to it>,
+  at, files: {"cooked/<file>": <sha256 hex>}}`, one per mod folder, recipe and tool (`key`: 24 hex of the SHA-256 of
+  folder, recipe and tool), replaced by that recipe's next cook. kiln.assets compares each file of a mod's
+  `assets/cooked` with the receipts of this game (by SHA-256, wherever the file is); one no receipt lists is loaded
+  with a warning (`kiln.json` `"cooked": "warn"`, the default), refused (`"local"`) or loaded (`"any"`). A store that is a
+  link, or lies under one, is not read (kiln.assets, `cook::receipts_of`). The launcher checks the folders it cooked
+  against their receipts (`cook::check_receipts`: a listed file gone or changed, or a cooked file no receipt lists,
+  makes the mod due, `filesGone`); `kiln cook` cooks a recipe no receipt of the target game lists.
+- `cook.lock` (dev.27, `state::lock_game`): an empty file a cook of the game holds an exclusive lock on for its whole run,
+  and a start with mods (`launch::play_with`, modes `profile` and `once`) until Steam was asked. A start that finds it
+  held waits 5 seconds, then fails with `busy`; a cook waits 10 seconds. The lock goes with the process. A start in mode
+  `profile` also holds the lock of each Kiln mod folder it loads (`state::lock_cook_folder`, a file per real folder path
+  in the system's temp folder, the one a cook of that folder holds) until Steam was asked.
 - `boot.json` (kiln-core, end of `kiln_boot`, before the game's entry point): `kiln`, `abi`, `pid`, `written`,
   `bootMs`, `side`, `exe{name,sha256,verified}`, `policy`, `hooks`, `safeIdle`, `playOnce{mode, nonce}` (mode `none`,
   `no-mods`, `profile`, `ignored-expired`, `ignored-undeletable`, `ignored-server`, `ignored-invalid`),
@@ -776,6 +800,46 @@ kdh1 of a folder:
 (directory entries ignored, symlink entries refused; `kiln_manage::hash::dirhash_records`).
 Reference: `schema/fixtures/dirhash/dirhash.py` (`--check`); cases and expected hashes in `schema/fixtures/dirhash/`;
 Rust: `kiln_manage::hash::dirhash` (tested against the same fixtures).
+
+**A mod's identity (dev.27)** is the kdh1 of the files that are the mod. kdh1 itself is unchanged; what changed is
+which files count for a Kiln mod:
+- A **Kiln mod** is a folder with a regular file named `kiln.mod.json` directly in it. Its **cook outputs**, the folder
+  `assets/cooked` directly in it with everything below, are not walked: a cook (`kiln cook`) makes them on each machine
+  from that machine's game files, so a dedicated server's differ from a player's (a server makes no models, each cook
+  report names its own paths), and they are never shipped. The identity of a cooked mod is the kdh1 of the same mod
+  without `assets/cooked`.
+- Names are compared as kdh1 writes them (NFC, no case folding): `Assets/Cooked`, a file named `assets/cooked`, a
+  `cooked` folder anywhere else and an `assets/cooked` below another folder all count. A link named `assets/cooked` is
+  refused like any other; links inside the folder are not looked at.
+- Every other folder (a native mod, another loader's mod, a folder without `kiln.mod.json`) has its plain kdh1 as its
+  identity: its files are all its own, whatever they are called.
+- For a zip's entries: when the mod's entries hold `kiln.mod.json` at its top, the entries below `assets/cooked/` do not
+  count (`hash::mod_identity_records`); a modpack does not carry them at all (5.8).
+
+**Cook outputs do not travel.** No hash covers `assets/cooked`, so Kiln never takes a file there from anyone else: the
+Library leaves the folder out when it imports a Kiln mod from a folder or an archive (`library::copy_kiln_mod_tree`;
+the import's `notes` say so), and a modpack that carries one is refused (5.8). What is in `assets/cooked` of a Library
+entry or of a copy of it was made on this PC by a cook. The game itself does not check that: kiln.assets serves what
+the mod's manifest names, and other services read the cook's index files there, so a folder a person copies into the
+game by hand (a drop-in mod, a server's mods folder) runs with whatever `assets/cooked` it holds, as it runs with
+whatever DLL it holds.
+
+**Entries of an older Kiln.** Before dev.27 a Kiln mod imported from a cooked folder was recorded under the kdh1 of
+the whole folder. `library::migrate_identities` (run before an activation and before a server sync) verifies such an
+entry against that hash, copies it to `<version>+<hash8 of its identity>` with its record, makes every profile that
+lists the old hash list the new one, and removes the old entry once nothing uses it. Its files come along as they are.
+An entry whose files changed since its import is left as it is.
+
+Everything that names a Kiln mod by a hash uses its identity: what a server advertises (`required[].hash`), what the
+game compares at a join (`last-server.json` `missing`), a modpack's `mods[].hash`, the library (`<version>+<hash8>`,
+the import record) and a profile's entries, the copy-mode copies under `kiln/profiles/` (a copy the player cooked is
+kept), a server sync, and the mod-set fingerprint of drop-in mods. Before dev.27 these used the plain kdh1, so a cooked
+mod read as changed. The cook keeps its side of the rule: everything it makes from the game goes into `assets/cooked/`
+(a recipe whose `out` is elsewhere is refused), and outside it a cook writes only what follows from the mod's own files,
+the same bytes on every machine, and only when they differ (docs/kiln/modding/models.md, "What a cook writes").
+Reference: `dirhash.py --mod DIR`, `mod_identity`; `expected.json` holds `cases` (kdh1) and `identity` for every case;
+Rust: `hash::mod_identity`, `hash::of_mod(kind, dir)`; C#: `DirHash.ModIdentity` (`managed/tests/Kiln.Network.Tests/DirHashTests.cs`
+runs the same fixtures).
 
 kms1 of a profile: `sha256( for each enabled entry of every kind, sorted by (kind, id) bytewise:
 kind "\0" id "\0" version "\0" hash "\n" )` as `"kms1:" + hex` (`kiln_manage::hash::fingerprint`). A launch whose
@@ -938,8 +1002,8 @@ Section 5.7. Long-running: `runtime_install` etc. return a task id; progress thr
    `kiln://last-server`.
 2. The consent modal: server name/id, missing mods, URL, size, "runs code on your PC". https only unless
    the settings allow http. Nothing downloads before the user says yes.
-3. `modpack_install` (task): download -> zip sha256 (from last-server.json) -> `kiln-modpack.json` -> each mod's kdh1 ->
-   library import -> profile `Server: <name>` (bound server) -> save backup (reason `modpack`) -> activate -> the UI
+3. `modpack_install` (task): download -> zip sha256 (from last-server.json) -> `kiln-modpack.json` -> each mod's hash
+   (kdh1; a Kiln mod's identity) -> library import -> profile `Server: <name>` (bound server) -> save backup (reason `modpack`) -> activate -> the UI
    offers Launch.
 
 ### Server mods
@@ -964,7 +1028,7 @@ files.
 - semver: `parse.json` (`cases[{text, expect{ok, major, minor, patch, pre, build, text}}]`), `ranges.json`
   (`cases[{range, version, satisfies}]`, `invalid[{range, ok:false}]`), `order.json` (`ordered[]`, `equal[[a,b]]`),
   `api.json` (`cases[{api, current, satisfies}]`).
-- INI and kdh1 fixtures: sections 5.2, 5.3, 5.11 (Python references).
+- INI and kdh1 fixtures (kdh1 and a mod's identity): sections 5.2, 5.3, 5.11 (Python references).
 - KAP: `schema/fixtures/kap/handshake.json`.
 
 ## 9. Tauri commands
@@ -1131,12 +1195,16 @@ or emits `kiln://update`; its UI calls none of these commands.
 | engines | `engine_settings_get` | kind: ModKind, id, profileId, gameId: GameId \| null | `EngineSettings {kind, id, format: "extended.mod.json" \| "shroudtopia.json" \| "none", file, schema (JSON Schema; ShroudForge's with x-kiln-* hints), values, note?, ownFolder?}` (valid mod id listed in the profile required; ShroudForge reads the folder ShroudForge reads in the selected game only when this profile is active (Kiln's copy, or the player's own folder that serves the entry, also one under another name holding the same package id: then `ownFolder: true`, dev.26), otherwise library defaults; Shroudtopia reads the profile's effective config, using the game copy for active copy mode; other engine kinds `format: "none"` with a note) |
 | engines | `engine_settings_set` | kind, id, profileId, gameId \| null, key, value: Json | `EngineSettings` (one declared top-level key with schema validation; profile membership required; `game_running` while a game reading these files runs; ShroudForge requires the profile active in the selected game and either Kiln's unchanged placed copy or (dev.26) the player's own folder that serves the entry: there only that value is written, in that folder's `extended.mod.json`, and Kiln never switches, replaces or removes the folder; a copy of Kiln's whose library files changed stays `refused`; `unsupported` for kinds without settings) |
 | engines | `engine_status` | gameId | `EngineStatus[] {kind, plugin, state: Json \| null, file, error?, ownLoader?, effects?, prerequisite?, startupFailed?}`, in `ModKind::ALL` order (the engine plugins' `kiln/state/<engine>.json`, null when not written; invalid, unreadable or symlinked state files report `error`). `ownLoader`: `OwnLoaderNote {kind, engine, file, via, folder, delivery, enabled, copied, notCopied, off?, text}` when the engine's own loader is installed in the game, and what that means for the active profile's mods of the kind (`off`, EML under ShroudForge only, when not empty: ids of `copied` whose copy ShroudForge has switched off, so it does not run them). `effects` (the `shroudforge` row only, always): `SfEffects {file, state: "current"\|"stale"\|"stopped"\|"unavailable"\|"invalid", updatedAt, reason, mods: {id, state, detail}[]}`, ShroudForge's own runtime report (`mods` only while it is current; each `state` is the word ShroudForge or the mod reported, never proof of a gameplay effect). The `xhl` row has `plugin` and `file` empty, `state` null and `prerequisite: {available, text}`: whether XHL-Core was recognized on the game's active proxy or chain paths, a file check, not a runtime report. `startupFailed` (dev.27, `sf_startup::EngineNotes`): ShroudForge's startup pass of the last start failed, `SfStartupNote {error, at?, ownLoader, version?, build?, mods, cure?, text}`, on the `shroudforge` row and, as a pointer, on the `eml` row while ShroudForge runs the EML mods |
+| engines | `engine_own_folders` | profileId, gameId | `OwnFolder[] {kind, id, version, path, renameTo?, refusal?}`: the player's own ShroudForge folders that serve entries of the profile in that game (folders Kiln did not place; `engine_mods::own_folders`), each with whether Kiln can take it over. `refusal` absent: its files are the Library entry's; else the sentence why not, naming the first file that differs. `renameTo`: the folder Kiln's copies of the mod have (`<mods>/<id>`) when the player's is called something else. Empty unless the profile is the one the game uses. Reads only: nothing is written, no lock file is made |
+| engines | `engine_adopt_folder` | kind: ModKind, id, profileId, gameId | `Adopted {kind, id, version, path, renamedFrom?, already?, settingsKept?}`. "Let Kiln manage this folder" (dev.27, `engine_mods::adopt`): the player's own ShroudForge folder that serves the profile entry becomes Kiln's placement (marker, receipt, inventory), as if activation had copied it there. Only on the player's request, never by itself. Refuses: `unsupported` for another kind; `not_found` when the entry is not in the profile or no folder of the player's holds it; `game_running`; `conflict` unless the profile is the one the game uses; `refused` with the folder's path and the first file that differs when its files are not byte for byte the Library entry's (the switch and the setting values in `extended.mod.json` may differ and stay; a link, a file of the player's, a changed setting description or range, or a second folder with the same package are refused), and for a copy of Kiln's own whose files changed; `hash_mismatch` when the Library entry changed on disk. Nothing in the folder is rewritten: it gets the marker file `.kiln-library.json` and, when it had another name, the name `<id>` (`renamedFrom`). `already`: it was Kiln's, nothing changed. `settingsKept`: the settings whose values are the player's. The next activation switches it as the profile says and updates it; the launcher runs `profile_activate` right after, which also refreshes the notes |
 | engines | `eml_backup` | gameId | `EmlBackup[] {file, backup, patched}` (EML's `<exe>.kfc.bak` next to each `.kfc`; `patched`: they differ; read/hash errors and symlinks are refused) |
 | engines | `eml_restore` | gameId | Legacy `string[]` signature; always `refused` for direct restoration (`game_running` takes precedence while running). Disable EML mods and launch updated Kiln for ownership-aware archive-writer restoration; shared backups alone prove no ownership. |
 | compat | `chain_view` | profileId, gameId | `ChainView {entries: ChainViewEntry[], rules: CompatRuleResult[], ruleErrors, session \| null, overlaps: ChainOverlap[], active, current, error}` (the profile's chain entries with their `[late]` state and who set it (`lateBy`: `player`, `profile` or `rule:<id>`; a `[late]` line that a rule wrote into chain.ini, marked `; kiln rule <id>`, is that rule's even when it is another profile's; `gated`: shroudlink's client addon, by its exports, as a [chain] proxy or a profile native: no late switch is offered and `chain_set_late` refuses late for it, only switching it back), the compat rules evaluated over the profile, and the overlaps of the game's last `state/hooks.json` mapped to chain entries and Library items; `session` null: no hooks.json yet) |
 | compat | `chain_set_late` | profileId, gameId, path: string, late: boolean | `ChainView` (a `[profile]` entry changes the profile's late list, saved and re-applied where it is active; a `[chain]` entry changes the game's `chain.ini [late]` for every profile and is refused with `game_running` while the game runs; `not_found` when `path` is not in the profile's chain) |
 | found | `found_scan` | gameId, profileId | `FoundReport {gameId, profileId, kilnInstalled, mods: FoundMod[], loaders: OwnLoader[], unreadable: {path, reason}[], truncated}`; `FoundMod {kind: ModKind \| null, name, id, version, path (relative to the game, '/'), state: "loads"\|"off"\|"inProfile"\|"cannotRun", via?: "kiln"\|"ownLoader", reason, fix?: "dropins"\|"add", profileMod?}`, `OwnLoader {engine, name, kinds, file}` (mods in the game folder Kiln did not put there and whether they load with that profile: profiles.md "Mods in the game folder"; never fails over a missing or unreadable folder) |
 | found | `found_add` | gameId, profileId, path | `TaskId` -> `AddReport` (imports a `found_scan` entry into the Library and adds it to the profile, enabled; through `library_add`'s flow when the profile is active in the game; a refusal is in `import.skipped`; the player's folder stays) |
+| cook | `cook_plan` | gameId | `CookJob[] {id, name, folder, identity, reason?, last?}` (dev.27, `kiln_manage::cook::plan`): the enabled Kiln mods of the profile the game uses that have something to cook (a `*/cook.json`, or blocks), by the folders the game's `kiln/profile.json` names. `reason`: why it needs a cook now (`notCooked`: installed or switched on, never cooked for this game; `modChanged`: its identity changed, it was updated; `gameChanged`: the game's build changed; `lastFailed`; `filesGone`: a file its last cook made is gone or changed, by its receipt), absent when it is cooked. `last`: its record in `kiln/state/cooked.json` (`{identity, gameBuild, at, ok, files, error?}`). Reads only: no tool is started |
+| cook | `cook_run` | gameId, modId: string \| null | `TaskId` -> `CookRun {mods: [{id, name, reason, ok, error?}], activation?}` (dev.27, `kiln_manage::cook::cook_due`): under the game's lock (`kiln/state/cook.lock`: no start and no other cook of the game meanwhile), first writes the active profile again when it changed since its activation (`profile::refresh_active`; `activation`: that activation, for its notices), then cooks the due mods one after the other with the cook tools the launcher carries (`cooktools::locate`: unpacked once under `<data>/cooktools`; Python is the bundle's `python/python.exe` on Windows, the system's `python3` on Linux), each from nothing (its `assets/cooked` and its receipts set aside, every recipe run whatever its own check says, and put back when the cook does not end well; a Library entry another game loads is skipped while that game runs or was just started) into its own `assets/cooked`, and records each in `kiln/state/cooked.json`; the tools write the receipts (`kiln/state/cook-receipts`). With `modId`: that one mod whatever its record says ("Cook again", `reason: "asked"`). Each tool runs within limits (30 min a recipe, 10 min without a line, 2 min a check) and is stopped with every process it started when it passes one; the task's cancel stops it the same way (task `canceled`), and so does the game being started meanwhile (`game_running`). Task progress: "Cooking <name> (i of n)", then each line the tools print (lines cut at 4096 bytes, the error text from the last 256 KiB). A mod's failed cook is in the result (`ok: false`, `error`: the tools' last lines), never the task's error: the others are cooked. When no tool can run (no Python 3.10+, no zstd), every due mod is `ok: false` with the one sentence that says what to install. Refused (`game_running`) while the game runs, and with `modId` in the 2 minutes after a start through the launcher; `busy` when another cook or a start holds the lock for 10 s; `not_found` for a `modId` with nothing to cook |
 
 | data_folder | `data_folder_get` | - | `DataFolder` (answers in every state; with a broken pointer `path` is the default place and `problem` is set; while an unfinished move's partial copy is removed `undoing` is set and `notice` comes after it; `pending`: why a move cannot start now) |
 | data_folder | `data_folder_size` | - | `{bytes, files}` (`data_folder::inventory`: what a move copies) |

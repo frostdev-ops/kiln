@@ -1,0 +1,12 @@
+{
+  "id": "world-writes-test",
+  "name": "tracked world writes lab test",
+  "version": "0.1.0",
+  "apiVersion": "0.2",
+  "entryAssembly": "WorldWritesTest.dll",
+  "side": "server",
+  "description": "PASS/FAIL lines: kiln.world's tracked writes on a dedicated server with no player: a tracked and a raw write of the same component, kept or lost across a restart. Start the lab three times.",
+  // What the code names only as a string. The build adds the types it passes to World.Write<T> and World.Update<T>
+  // (Fuel, ScaleComponent). NoSuchComponentKiln is not a component: the write program must register without it.
+  "writes": ["NetworkFuel", "UsedItem", "ServerToggleState", "NoSuchComponentKiln"]
+}

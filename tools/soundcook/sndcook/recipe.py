@@ -31,6 +31,7 @@ from kfc.archive import Kfc, ResourceKey
 from kfc.refl import TypeDb
 from kfc.util import guid_bytes, guid_text
 
+from . import cookpaths as CP
 from . import pcm as P
 from . import res as R
 from . import validate as V
@@ -93,6 +94,15 @@ def report_name(doc):
     return "cook-report.json" if doc.get("tool", DEFAULT_TOOL) == TOOL else f"cook-report.{TOOL}.json"
 
 
+def out_dir(recipe_path, doc, default="cooked"):
+    """Where a recipe's cook writes: its "out", relative to the recipe. It is the mod's assets/cooked folder or a folder in it, by its spelling and
+    with no link on the way (cookpaths, the same rule in every cook tool), or the recipe is refused. The cook asks this, not load."""
+    try:
+        return CP.out_dir(recipe_path, doc.get("out", default), default)
+    except CP.Refused as e:
+        raise RecipeError(f"{recipe_path}: {e}") from e
+
+
 def load(path):
     p = Path(path)
     try:
@@ -150,6 +160,7 @@ def needs_cook(path):
     """True when outputs are missing or the report does not match this recipe or its sources (no game access)."""
     p = Path(path)
     doc = load(p)
+    out_dir(p, doc)
     if not own_steps(doc):
         return False
     out = p.parent / doc.get("out", "cooked")
@@ -390,6 +401,7 @@ def _cook_pcm(job, native, cross_check):
 def run(path, game=None, native=None, update_manifest=False, cross_check=False, log=print):
     p = Path(path).resolve()
     doc = load(p)
+    out_dir(p, doc)
     t, tinfo = R.choose_types(game.types if game else None)
     c = _Ctx(p, doc, game, t)
     in_report = _load_inputs(c)
@@ -756,10 +768,17 @@ def run(path, game=None, native=None, update_manifest=False, cross_check=False, 
     index_bytes = (json.dumps(index, indent=2) + "\n").encode()
     files[c.out / "audio.json"] = index_bytes
 
-    # 8. write
-    for f, data in files.items():
-        f.parent.mkdir(parents=True, exist_ok=True)
-        f.write_bytes(data)
+    # 8. write. Every file is checked before the first one is written: a name with ".." or a "/" in it, or a link, would lead out of
+    # assets/cooked; the manifest is the mod's assets/assets.json and no other file
+    # (each is written to the path its check returned, never to the one it was given)
+    try:
+        outputs = {CP.cooked(p, f, f"the output {c.rel_recipe(f)}"): data for f, data in files.items()}
+        manifest_file = CP.manifest(p, c.manifest)
+        report_file = CP.cooked(p, c.out / report_name(doc), "the cook's report")
+        for f, data in outputs.items():
+            CP.write(f, data)
+    except CP.Refused as e:
+        raise RecipeError(f"{p}: {e}") from e
 
     # the committed assets.json must name every output exactly as cooked
     man = json.loads(c.manifest.read_text()) if c.manifest.exists() else {"format": 1, "entries": []}
@@ -775,7 +794,7 @@ def run(path, game=None, native=None, update_manifest=False, cross_check=False, 
         drop = mine | {(e.get("kind"), e.get("file")) for e in stale}
         man["entries"] = [x for x in man.get("entries", []) if (x.get("kind"), x.get("file")) not in drop] + entries
         man.setdefault("format", 1)
-        c.manifest.write_text(json.dumps(man, indent=2) + "\n")
+        CP.write(manifest_file, (json.dumps(man, indent=2) + "\n").encode())
         missing, mismatched, stale = [], [], []
 
     step_reports = []
@@ -800,6 +819,12 @@ def run(path, game=None, native=None, update_manifest=False, cross_check=False, 
         "manifest": {"file": c.rel_recipe(c.manifest), "missing": missing, "mismatched": mismatched, "stale": stale},
         "steps": step_reports,
     }
-    (c.out / report_name(doc)).write_text(json.dumps(report, indent=2) + "\n")
-    report["report_file"] = str(c.out / report_name(doc))
+    report_bytes = (json.dumps(report, indent=2) + "\n").encode()
+    try:
+        CP.write(report_file, report_bytes)
+        # what this cook wrote into assets/cooked, recorded in the game it read: what that game's kiln.assets loads (cookpaths.receipt)
+        CP.receipt(game.dir if game else None, p, TOOL, {**outputs, report_file: report_bytes})
+    except (CP.Refused, OSError) as e:
+        raise RecipeError(f"{p}: the cook's report or receipt could not be written: {e}") from e
+    report["report_file"] = str(report_file)
     return report

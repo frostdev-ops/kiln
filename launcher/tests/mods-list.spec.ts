@@ -325,3 +325,103 @@ test("ShroudForge settings in the player's own folder can be edited and say whos
   await sort.dispatchEvent("click");
   await expect(sort).toBeChecked();
 });
+
+// "Let Kiln manage this folder" (dev.27): a ShroudForge folder the player put into the game serves a mod, and Kiln
+// leaves it alone. The Notes dialog lists it with a button; the button asks first and says what changes; after it the
+// folder is Kiln's and the own-folder note is gone. It is never done without the player's click.
+test("the player's own folder can be handed to Kiln from Notes, after a confirmation that says what changes", async ({ page }) => {
+  type Mock = { __kilnMock: { setOwnFolder: (id: string, own: unknown) => void; calls: () => string[] } };
+  const OWN = "/games/Enshrouded/mods/BetterChests";
+  const NOTE = `shroudforge:better-chests: the game uses your own folder ${OWN} for this mod; Kiln leaves it as it is and places no copy of its own.`;
+  await desktop(page);
+  const sw = () => row(page, "Better Chests").getByRole("switch", { name: "Better Chests" });
+  await expect(sw()).toHaveAttribute("aria-checked", "true", { timeout: 10_000 });
+  await page.evaluate((own) => (window as unknown as Mock).__kilnMock.setOwnFolder("better-chests", { path: own, renameTo: "/games/Enshrouded/mods/better-chests" }), OWN);
+  // an activation says the note; nothing was taken over by it
+  await api(page, "profileActivate", "ember-run", "client-steam");
+  const adoptCalls = () => page.evaluate(() => (window as unknown as Mock).__kilnMock.calls().filter((c) => c === "engine_adopt_folder").length);
+  expect(await adoptCalls()).toBe(0);
+  // Notes lists the folder with the button
+  await page.locator(".k-hero").getByRole("button", { name: /^Notes \(\d+\)$/ }).click();
+  const dialog = page.getByRole("dialog", { name: "Notes about your mod folders" });
+  await expect(dialog).toContainText(NOTE);
+  const own = dialog.locator("[data-own-folder-row='shroudforge/better-chests']");
+  await expect(own).toContainText(OWN);
+  await expect(own).toContainText("Kiln neither switches, updates nor removes it.");
+  await own.getByRole("button", { name: "Let Kiln manage this folder" }).click();
+  // the confirmation: what changes, the rename, and that nothing else in the folder is touched now
+  const confirm = page.getByRole("dialog", { name: "Let Kiln manage this folder?" });
+  await expect(confirm).toContainText(OWN);
+  await expect(confirm).toContainText("Kiln will update, switch and remove this folder with the mod from now on.");
+  await expect(confirm).toContainText("It renames the folder to better-chests");
+  await expect(confirm).toContainText("Nothing in the folder is changed now, except one small file Kiln adds");
+  // Cancel does nothing
+  await confirm.getByRole("button", { name: "Cancel" }).click();
+  await expect(confirm).toHaveCount(0);
+  expect(await adoptCalls()).toBe(0);
+  await own.getByRole("button", { name: "Let Kiln manage this folder" }).click();
+  await page.getByRole("dialog", { name: "Let Kiln manage this folder?" }).getByRole("button", { name: "Let Kiln manage it" }).click();
+  await expect(page.locator(".k-toast", { hasText: "Kiln manages this folder now" })).toContainText("/games/Enshrouded/mods/better-chests (it was BetterChests)");
+  expect(await adoptCalls()).toBe(1);
+  // the folder is Kiln's: no row, and the mods were written to the game again, without that note
+  await expect(dialog.locator("[data-own-folder-row]")).toHaveCount(0);
+  await expect(dialog).not.toContainText(NOTE);
+  expect(await api<unknown[]>(page, "engineOwnFolders", "ember-run", "client-steam")).toEqual([]);
+});
+
+test("a folder that is not exactly the mod's is not taken over, and the reason names the file", async ({ page }) => {
+  type Mock = { __kilnMock: { setOwnFolder: (id: string, own: unknown) => void; planCommand: (cmd: string, plan: unknown) => void } };
+  const OWN = "/games/Enshrouded/mods/BetterChests";
+  const WHY = "Kiln cannot take this folder over: src/mod.lua is not the mod's file (its content differs). It takes a folder over only when every file in it is the file of better-chests 0.4.1 in your Library (the values of your settings may differ).";
+  await desktop(page);
+  const sw = () => row(page, "Better Chests").getByRole("switch", { name: "Better Chests" });
+  await expect(sw()).toHaveAttribute("aria-checked", "true", { timeout: 10_000 });
+  await page.evaluate(([own, why]) => (window as unknown as Mock).__kilnMock.setOwnFolder("better-chests", { path: own, refusal: why }), [OWN, WHY]);
+  await api(page, "profileActivate", "ember-run", "client-steam");
+  await page.locator(".k-hero").getByRole("button", { name: /^Notes \(\d+\)$/ }).click();
+  const dialog = page.getByRole("dialog", { name: "Notes about your mod folders" });
+  const own = dialog.locator("[data-own-folder-row='shroudforge/better-chests']");
+  // the reason stands where the button would be
+  await expect(own.locator("[data-own-folder-refusal]")).toHaveText(WHY);
+  await expect(own.getByRole("button", { name: "Let Kiln manage this folder" })).toHaveCount(0);
+  // the folder changed between the list and the click: the backend's refusal is shown as it is, and the row stays
+  await page.evaluate((own) => (window as unknown as Mock).__kilnMock.setOwnFolder("better-chests", { path: own }), OWN);
+  await dialog.getByRole("button", { name: "Done" }).click();
+  await page.locator(".k-hero").getByRole("button", { name: /^Notes \(\d+\)$/ }).click();
+  await expect(own.getByRole("button", { name: "Let Kiln manage this folder" })).toBeVisible();
+  await page.evaluate(([own, why]) => (window as unknown as Mock).__kilnMock.setOwnFolder("better-chests", { path: own, refusal: why }), [OWN, WHY]);
+  await own.getByRole("button", { name: "Let Kiln manage this folder" }).click();
+  await page.getByRole("dialog", { name: "Let Kiln manage this folder?" }).getByRole("button", { name: "Let Kiln manage it" }).click();
+  const refused = page.locator(".k-toast", { hasText: "Kiln did not take the folder over" });
+  await expect(refused).toContainText(`${OWN}: ${WHY}`);
+  await expect(own.locator("[data-own-folder-refusal]")).toHaveText(WHY);
+  expect((await api<{ refusal?: string }[]>(page, "engineOwnFolders", "ember-run", "client-steam"))[0].refusal).toBe(WHY);
+});
+
+test("the mod's settings offer the same button for the player's own folder, and not while the game runs", async ({ page }) => {
+  type Mock = { __kilnMock: { setOwnFolder: (id: string, own: unknown) => void; startOutside: (ago: number) => void; stopGame: () => void } };
+  await desktop(page);
+  await page.evaluate(() => (window as unknown as Mock).__kilnMock.setOwnFolder("better-chests", { path: "/games/Enshrouded/mods/better-chests" }));
+  await expect(row(page, "Better Chests")).toBeVisible({ timeout: 10_000 });
+  await row(page, "Better Chests").getByLabel("More for Better Chests").click();
+  await page.getByRole("menuitem", { name: "Settings", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "Better Chests settings" });
+  await expect(dialog.locator("[data-own-folder]")).toBeVisible();
+  const button = dialog.getByRole("button", { name: "Let Kiln manage this folder" });
+  await expect(button).toBeEnabled();
+  // a running game reads the folder: not now
+  await page.evaluate(() => (window as unknown as Mock).__kilnMock.startOutside(5));
+  await expect(button).toBeDisabled();
+  await expect(button).toHaveAttribute("title", "Close the game first");
+  await page.evaluate(() => (window as unknown as Mock).__kilnMock.stopGame());
+  await expect(button).toBeEnabled();
+  await button.click();
+  const confirm = page.getByRole("dialog", { name: "Let Kiln manage this folder?" });
+  await expect(confirm).toContainText("Kiln will update, switch and remove this folder with the mod from now on.");
+  await expect(confirm).not.toContainText("It renames the folder");
+  await confirm.getByRole("button", { name: "Let Kiln manage it" }).click();
+  await expect(page.locator(".k-toast", { hasText: "Kiln manages this folder now" })).toBeVisible();
+  // Kiln's copy now: the settings no longer say it is the player's folder, and the button is gone
+  await expect(dialog.locator("[data-own-folder]")).toHaveCount(0);
+  await expect(dialog.getByRole("button", { name: "Let Kiln manage this folder" })).toHaveCount(0);
+});

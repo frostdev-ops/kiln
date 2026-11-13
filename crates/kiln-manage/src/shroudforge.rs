@@ -748,6 +748,17 @@ fn render_setting_value(s: &SfSetting, value: &serde_json::Value) -> String {
     }
 }
 
+/// The text [`set_enabled`] leaves in `folder`'s extended.mod.json for that switch, without writing anything: what a
+/// copy Kiln places from this package holds before any setting value changes.
+pub(crate) fn extension_with_switch(folder: &Path, enabled: bool) -> Result<String> {
+    let m = read_mod(folder)?;
+    let text = extension_text(&m)?;
+    if m.extended && m.enabled == enabled && m.repair.is_empty() {
+        return Ok(text);
+    }
+    set_value(&repair_fractions(&text, &m)?, &[PathSeg::Key("enabled".into())], &serde_json::Value::Bool(enabled))
+}
+
 /// Switches a mod on or off (ShroudForge's own switch; a running ShroudForge picks it up live).
 pub fn set_enabled(folder: &Path, enabled: bool) -> Result<SfMod> {
     let m = read_mod(folder)?;

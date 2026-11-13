@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // kdh1, Kiln's directory hash (docs/kiln/launcher/contracts.md 5.11; reference schema/fixtures/dirhash/dirhash.py, the
-// Rust port kiln_manage::hash::dirhash). The server advertises the kdh1 of each mod players need; the launcher checks a
-// modpack's folders against it.
+// Rust port kiln_manage::hash::dirhash). The server advertises the identity of each mod players need (the kdh1 of the
+// files that are the mod: a Kiln mod's cook outputs are left out); the launcher checks a modpack's folders against it.
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
@@ -25,10 +25,24 @@ public static class DirHash
         MatchType = MatchType.Win32,
     };
 
+    /// <summary>The manifest that makes a folder a Kiln mod.</summary>
+    internal const string ModManifest = "kiln.mod.json";
+
+    /// <summary>A Kiln mod's cook outputs, as a kdh1 path: made on each machine from that machine's game, never part of the mod.</summary>
+    internal const string Cooked = "assets/cooked";
+
     /// <summary>kdh1 of <paramref name="root"/>.</summary>
-    public static string Compute(string root)
+    public static string Compute(string root) => Hash(Files(root));
+
+    /// <summary>A mod's identity: the kdh1 of the files that are the mod. For a Kiln mod (a folder with a regular file
+    /// <c>kiln.mod.json</c> directly in it) the folder <c>assets/cooked</c> directly in it is not walked: the cook makes
+    /// what is in it on each machine from that machine's game, so it differs between a server and a player's game.
+    /// Names are compared as kdh1 writes them (no case folding). Any other folder's identity is its kdh1. This is what
+    /// a server advertises for a Kiln mod and what a modpack and the launcher's library record for it.</summary>
+    public static string ModIdentity(string root) => Hash(Files(root, mod: true));
+
+    private static string Hash(List<(byte[] Key, string Path)> files)
     {
-        var files = Files(root);
         using var h = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         foreach (var (key, path) in files)
         {
@@ -50,10 +64,13 @@ public static class DirHash
     }
 
     /// <summary>A cheap fingerprint of the folder's tree (paths, sizes, write times) to know when to hash again.</summary>
-    public static string Signature(string root)
+    public static string Signature(string root) => Signature(root, mod: false);
+
+    /// <summary><see cref="Signature(string)"/> over the files <see cref="ModIdentity"/> counts when <paramref name="mod"/> is set.</summary>
+    internal static string Signature(string root, bool mod)
     {
         var sb = new StringBuilder();
-        foreach (var (key, path) in Files(root))
+        foreach (var (key, path) in Files(root, mod))
         {
             var fi = new FileInfo(path);
             sb.Append(Encoding.UTF8.GetString(key)).Append('\0').Append(fi.Length).Append('\0').Append(fi.LastWriteTimeUtc.Ticks).Append('\n');
@@ -62,14 +79,27 @@ public static class DirHash
     }
 
     /// <summary>The regular files of the tree, sorted by their kdh1 key (relative NFC path, UTF-8).</summary>
-    public static List<(byte[] Key, string Path)> Files(string root)
+    public static List<(byte[] Key, string Path)> Files(string root) => Files(root, mod: false);
+
+    /// <summary>The files kdh1 counts; with <paramref name="mod"/>, the files that are the mod (<see cref="ModIdentity"/>).</summary>
+    internal static List<(byte[] Key, string Path)> Files(string root, bool mod)
     {
         if (!Directory.Exists(root)) throw new DirHashException($"{root}: not a folder");
         var list = new List<(byte[] Key, string Path)>();
         var seen = new HashSet<string>(StringComparer.Ordinal);
-        Walk(root, "", list, seen);
+        Walk(root, "", list, seen, mod && IsKilnMod(root));
         list.Sort((a, b) => a.Key.AsSpan().SequenceCompareTo(b.Key));
         return list;
+    }
+
+    /// <summary>A regular file named <c>kiln.mod.json</c> (exactly: the name as the folder lists it) directly in the folder.</summary>
+    internal static bool IsKilnMod(string root)
+    {
+        foreach (var e in new DirectoryInfo(root).EnumerateFileSystemInfos("*", Options))
+            if (e is FileInfo f && (f.Attributes & (FileAttributes.ReparsePoint | FileAttributes.Device)) == 0 && f.LinkTarget == null &&
+                string.Equals(Nfc(e.Name), ModManifest, StringComparison.Ordinal))
+                return true;
+        return false;
     }
 
     /// <summary>NFC of <paramref name="s"/>, null when it is not valid Unicode. Kiln's host runs with invariant
@@ -123,7 +153,7 @@ public static class DirHash
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, ExactSpelling = true, SetLastError = true)]
     private static extern int NormalizeString(int normForm, string source, int sourceLength, char[]? destination, int destinationLength);
 
-    private static void Walk(string dir, string rel, List<(byte[] Key, string Path)> list, HashSet<string> seen)
+    private static void Walk(string dir, string rel, List<(byte[] Key, string Path)> list, HashSet<string> seen, bool skipCooked)
     {
         foreach (var e in new DirectoryInfo(dir).EnumerateFileSystemInfos("*", Options))
         {
@@ -135,7 +165,8 @@ public static class DirHash
             var path = rel.Length == 0 ? nfc : rel + "/" + nfc;
             if (e is DirectoryInfo d)
             {
-                Walk(d.FullName, path, list, seen);
+                if (skipCooked && string.Equals(path, Cooked, StringComparison.Ordinal)) continue;
+                Walk(d.FullName, path, list, seen, skipCooked);
             }
             else if (e is FileInfo f && (f.Attributes & FileAttributes.Device) == 0)
             {

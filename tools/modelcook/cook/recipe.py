@@ -2,14 +2,16 @@
 """cook.json: how a mod's game-derived assets are made on the player's machine (docs/kiln/modding/models.md).
 
 A mod ships its own sources (glTF, PNG, JSON) and this recipe, never game data. The cook runs locally against the
-installed game. The files it writes go to `out` (default "cooked", gitignored) next to the recipe. The mod's
-committed assets/assets.json names them.
+installed game. The files it writes go to `out` (default "cooked", gitignored) next to the recipe: the mod's
+assets/cooked folder, or a folder in it. A recipe that names another place is refused (out_dir): assets/cooked is what
+a mod never ships and what does not count as the mod (a server's and a player's cook differ there, and nowhere else).
+The mod's committed assets/assets.json names the cooked files.
 
     {
       "format": 1,
       "tool": "modelcook",                  // the default cooker of the steps (absent: modelcook)
       "mod": "my-mod",                      // for ids that follow from names; default: the id in the nearest kiln.mod.json
-      "out": "cooked",                      // relative to this file
+      "out": "cooked",                      // relative to this file; in the mod's assets/cooked
       "game": { "side": "client", "madeOn": "1285601" },   // informational: the build the recipe was written on
       "inputs": {                           // vanilla inputs, by GUID + type (+ part): read from the installed game
         "bronze_model": { "guid": "9c38c7f0-…", "type": "keen::RenderModel" }
@@ -55,8 +57,15 @@ On a dedicated server's files (`enshrouded_server.kfc`) the model steps (and wor
 skipped: a server has no RenderModel, and only a game client draws one (docs/kiln/modding/models.md, "On a dedicated server").
 An input of a type a server's files never hold (CLIENT_ONLY_TYPES) is then not read; any other input still has to be there.
 Everything else runs as on a client: a visual template is served on both sides, and the material blocks a step makes from its
-glTF are blocks every machine reads. With update_manifest, the assets.json entries of a skipped step get "side": "client", so
-kiln.assets on the server skips them without a warning (assets.cpp, load_manifest).
+glTF are blocks every machine reads. The manifest is the same file on both sides: a skipped step's entries are the ones a client's
+cook writes (they follow from the step, steps.model_entries), so a server's cook finds the shipped assets.json complete and leaves
+it alone, and writes the same entries a client would into a manifest that lacks them. kiln.assets on a server skips a model's
+entries by what they are (assets.cpp, load_manifest). The cook of 0.2.0-dev.26 marked them "side": "client" in the server's copy
+instead, which made that copy another file than the players'; a cook with update_manifest takes such a mark out again.
+
+Outside assets/cooked a cook writes only what follows from the mod's own files, the same bytes on every machine, and only when
+they differ: the entries in assets/assets.json (update_manifest) and the material blocks made from a glTF
+(blocks/<stem>.materials.json). A mod that ships them cooked once is not changed by a cook anywhere.
 """
 import json
 import os
@@ -64,7 +73,7 @@ from pathlib import Path
 
 from kfc.archive import ResourceKey
 
-from . import material as MB, steps as S, worn as W
+from . import cookpaths as CP, material as MB, steps as S, worn as W
 
 OPS = ("model", "visual", "worn")
 TOOL = "modelcook"
@@ -77,6 +86,7 @@ SERVER_KFC = "enshrouded_server.kfc"
 CLIENT_ONLY_TYPES = ("keen::RenderModel", "keen::RenderMaterialResource", "keen::RenderTextureResource", "keen::UiTextureResource")
 CLIENT_ONLY_OPS = ("model",)  # a worn look and a placed thing are model steps too
 SKIPPED = "skipped on a dedicated server: only a game client draws it"
+COOKED = ("assets", "cooked")  # where every cook writes, from the mod's folder
 
 
 class RecipeError(Exception):
@@ -110,6 +120,24 @@ def looks_recipe(mod_dir, mod=None):
     if mod:
         doc["mod"] = mod
     return Path(mod_dir) / "assets" / "cook.json", doc
+
+
+def out_dir(path, doc, default="cooked"):
+    """Where a recipe's cook writes: its "out", relative to the recipe. It is the mod's assets/cooked folder or a folder in it, by its spelling and
+    with no link on the way (cookpaths), or the recipe is refused. The cook asks this (run, needs_cook and the command), not load: load reads a
+    recipe's shape wherever the file lies, as kiln lint does."""
+    try:
+        return CP.out_dir(path, doc.get("out", default), default)
+    except CP.Refused as e:
+        raise RecipeError(f"{path}: {e}") from e
+
+
+def _checked(path, check, *a):
+    """A cookpaths check as a RecipeError."""
+    try:
+        return check(path, *a)
+    except CP.Refused as e:
+        raise RecipeError(f"{path}: {e}") from e
 
 
 def _recipe_bytes(path, given=None):
@@ -209,6 +237,7 @@ def needs_cook(path, given=None):
     """True when the outputs are missing or the report does not match this recipe (no game access needed)."""
     p = Path(path)
     doc = load(p, given)
+    out_dir(p, doc)
     if not own_steps(doc):
         return False
     rep = p.parent / doc.get("out", "cooked") / report_name(doc)
@@ -216,6 +245,10 @@ def needs_cook(path, given=None):
         return True
     r = json.loads(rep.read_text())
     if r.get("recipe_sha256") != S.sha256(_recipe_bytes(p, given)) or not r.get("ok"):
+        return True
+    if _legacy_server_report(r):
+        # a server's cook of 0.2.0-dev.26: it marked the models' entries in assets.json, which made the server's copy another mod than the
+        # players'. This cook takes the marks out
         return True
     for src, h in r.get("sources", {}).items():
         f = p.parent / src
@@ -317,6 +350,19 @@ def sources_of(doc, path=None):
     return sorted(out)
 
 
+def _legacy_server_report(r):
+    """Whether a cook report is the evidence that a cook marked the manifest: the report of a server's cook of 0.2.0-dev.26 (a server's report
+    without the "marked" list this version writes), or a later report that found those marks and could not take them out (no update_manifest)."""
+    man = (r or {}).get("manifest") or {}
+    return ((r or {}).get("game") or {}).get("side") == "server" and ("marked" not in man or man.get("legacyMarks") is True)
+
+
+def _is_marked(have, cooked):
+    """Whether a manifest entry is a cooked model entry with nothing but "side": "client" added."""
+    return (cooked is not None and have.get("side") == "client" and "side" not in cooked
+            and (cooked["kind"] == "blob" or cooked.get("type") in CLIENT_ONLY_TYPES) and {k: v for k, v in have.items() if k != "side"} == cooked)
+
+
 def _made_here(path, mod_dir, mod_files):
     """A blocks file this cook just wrote is an output, not a source."""
     try:
@@ -328,12 +374,12 @@ def _made_here(path, mod_dir, mod_files):
 def run(path, k, t, exe_sha256=None, update_manifest=False, given=None):
     p = Path(path)
     doc = load(p, given)
+    out_dir(p, doc)
     base_dir = p.parent
     out = doc.get("out", "cooked")
     inputs, in_report = {}, {}
     foreign = _foreign_inputs(doc)
     server = side_of(k) == "server"
-    skipped_files = set()  # what the steps skipped on a server would have written
     for iid, spec in doc.get("inputs", {}).items():
         if iid in foreign:
             continue  # used only by another tool's steps (e.g. a vanilla sound cue): that tool reads it
@@ -387,10 +433,13 @@ def run(path, k, t, exe_sha256=None, update_manifest=False, given=None):
                 own["blocks"] = {**own["blocks"], **{n: (b, f"blocks/{stem}.materials.json") for n, b in blocks.items()}}
                 mod_files.update(made)
             if server and op in CLIENT_ONLY_OPS:
+                # no model is made here, and its entries in assets.json are still the ones a client's cook writes: the manifest is one file for both sides
                 stem = _stem_of(st)
-                skipped_files.update({f"{out}/{stem}.bin", f"{out}/{stem}.blob"})
-                reports.append({"op": op, "step": i, "name": st.get("name") or stem,
-                                "guid": _model_guid(doc, st, inputs, p) or (inputs[base_id]["guid"] if base_id else None),
+                for ext in ("bin", "blob"):  # the names its entries carry: checked like the files a client's cook writes
+                    _checked(p, CP.cooked, base_dir / f"{out}/{stem}.{ext}", f"the output {out}/{stem}.{ext} of step {i}")
+                guid, mode = S.model_identity(_model_guid(doc, st, inputs, p), inputs[base_id]["guid"] if base_id else None, st.get("mode"))
+                entries.extend(S.model_entries(guid, mode, f"{out}/{stem}.bin", f"{out}/{stem}.blob"))
+                reports.append({"op": op, "step": i, "name": st.get("name") or stem, "guid": guid,
                                 "ok": True, "skipped": SKIPPED, "warnings": from_gltf})
                 continue
             f, e, r = S.model(k, t, gl, inputs[base_id]["guid"] if base_id else None, guid=_model_guid(doc, st, inputs, p),
@@ -406,30 +455,54 @@ def run(path, k, t, exe_sha256=None, update_manifest=False, given=None):
         entries.extend(e)
         reports.append(r)
 
-    (base_dir / out).mkdir(parents=True, exist_ok=True)
-    for rel, data in files.items():
-        (base_dir / rel).write_bytes(data)
+    # Every file this cook writes is checked before the first one is written: a step's stem or name with ".." or a "/" in it, or a link in
+    # the mod's folders, would lead out of assets/cooked. The blocks made from a glTF go to blocks/<stem>.materials.json and nowhere else.
+    # Each is written to the path its check returned (normalised, every component looked at), never to the one it was given.
+    outputs = {_checked(p, CP.cooked, base_dir / rel, f"the output {rel}"): data for rel, data in files.items()}
+    own_files = {}
     for rel, data in mod_files.items():
-        (mod_dir / rel).parent.mkdir(parents=True, exist_ok=True)
-        (mod_dir / rel).write_bytes(data)
+        if Path(rel).parts[:1] == (CP.BLOCKS,):
+            own_files[_checked(p, CP.blocks_file, mod_dir / rel)] = data
+        else:
+            outputs[_checked(p, CP.cooked, mod_dir / rel, f"the output {rel}")] = data
+    mp = _checked(p, CP.manifest, base_dir / "assets.json")
+    report_file = _checked(p, CP.cooked, base_dir / out / report_name(doc), "the cook's report")
+    for f, data in outputs.items():
+        _checked(f, CP.write, data)
+    for f, data in own_files.items():
+        # made from the mod's own glTF, the same bytes on every machine: written only when they differ, so a cook leaves a shipped file alone
+        if not f.is_file() or f.read_bytes() != data:
+            _checked(f, CP.write, data)
 
-    # the committed assets.json must name every output exactly as cooked
-    mp = base_dir / "assets.json"
+    # the committed assets.json must name every output exactly as cooked: a client's outputs on either side
     man = json.loads(mp.read_text()) if mp.exists() else {"format": 1, "entries": []}
     have = {(e.get("kind"), e.get("file")): e for e in man.get("entries", [])}
+    want = {(e["kind"], e["file"]): e for e in entries}
+    # "side": "client" on a model's entry, the entry otherwise as cooked. A server's cook of 0.2.0-dev.26 wrote that mark into its copy of the
+    # file; a mod's author may have written it too. It is taken out only with evidence that a cook wrote it: that cook's report in this folder
+    # (read here, before this run's report replaces it). Without it the mark stays and the entry counts as matching: the file is the mod's.
+    marked = [x for x in man.get("entries", []) if _is_marked(x, want.get((x.get("kind"), x.get("file"))))]
+    try:
+        legacy = bool(marked) and _legacy_server_report(json.loads(report_file.read_text()))
+    except (OSError, ValueError):
+        legacy = False
     missing = [e for e in entries if (e["kind"], e["file"]) not in have]
-    mismatched = [e for e in entries if (e["kind"], e["file"]) in have and have[(e["kind"], e["file"])] != e]
-    # on a server, the entries of a skipped step stay (they are the clients'), marked so that kiln.assets skips them quietly there
-    unmarked = [x for x in man.get("entries", []) if x.get("file") in skipped_files and x.get("side") != "client"
-                and (x.get("kind") == "blob" or x.get("type") in CLIENT_ONLY_TYPES)]
-    if update_manifest and (missing or mismatched or unmarked):
-        for x in unmarked:
-            x["side"] = "client"
+    mismatched = [e for e in entries if (e["kind"], e["file"]) in have and have[(e["kind"], e["file"])] != e and not _is_marked(have[(e["kind"], e["file"])], e)]
+    unmarked = []
+    heal = legacy and update_manifest
+    if update_manifest and (missing or mismatched or heal):
+        if heal:
+            for x in marked:
+                del x["side"]  # in place and nothing else: a file the cook wrote before the mark is the shipped one again, byte for byte
+            unmarked, marked = [x["file"] for x in marked], []
         if missing or mismatched:
-            keep = [x for x in man.get("entries", []) if (x.get("kind"), x.get("file")) not in {(e["kind"], e["file"]) for e in entries}]
-            man["entries"] = keep + entries
-        mp.write_text(json.dumps(man, indent=2) + "\n")
-        missing, mismatched, unmarked = [], [], []
+            # the entries that differ are written as cooked; one that differs only by a mark the mod's author wrote keeps it (it counts
+            # as matching above, and repairing another entry is no reason to take it out)
+            keep = [x for x in man.get("entries", []) if (x.get("kind"), x.get("file")) not in want]
+            authored = {(x.get("kind"), x.get("file")): x for x in marked}
+            man["entries"] = keep + [authored.get((e["kind"], e["file"]), e) for e in entries]
+        _checked(mp, CP.write, (json.dumps(man, indent=2) + "\n").encode())
+        missing, mismatched = [], []
 
     ok = all(r.get("ok") for r in reports) and not missing and not mismatched
     report = {
@@ -438,8 +511,15 @@ def run(path, k, t, exe_sha256=None, update_manifest=False, given=None):
         "inputs": in_report,
         "sources": {src: S.sha256((base_dir / src).read_bytes()) for src in sources_of(doc, p) if not _made_here(base_dir / src, mod_dir, mod_files)},
         "outputs": [{"file": rel, "size": len(d), "sha256": S.sha256(d)} for rel, d in files.items()],
-        "manifest": dict({"missing": missing, "mismatched": mismatched}, **({"clientOnlyUnmarked": [x["file"] for x in unmarked]} if unmarked else {})),
+        "manifest": dict({"missing": missing, "mismatched": mismatched, "marked": [x["file"] for x in marked]}, **({"unmarked": unmarked} if unmarked else {}),
+                         **({"legacyMarks": True} if legacy and marked else {})),
         "steps": reports,
     }
-    (base_dir / out / report_name(doc)).write_text(json.dumps(report, indent=2) + "\n")
+    report_bytes = (json.dumps(report, indent=2) + "\n").encode()
+    _checked(report_file, CP.write, report_bytes)
+    # what this cook wrote into assets/cooked, recorded in the game it read: what that game's kiln.assets loads (cookpaths.receipt)
+    try:
+        CP.receipt(CP.game_dir_of(getattr(k, "path", None)), p, "modelcook.looks" if doc.get("looks") else TOOL, {**outputs, report_file: report_bytes})
+    except (CP.Refused, OSError) as e:
+        raise RecipeError(f"{p}: the cook's receipt (what this game loads of it) could not be written: {e}") from e
     return report

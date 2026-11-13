@@ -35,6 +35,7 @@ Validated by Kiln.Host at load time and by Kiln.Sdk at build time (managed/Kiln.
 | `tests` | boolean or object |  | Kiln.Testing: true = autoRun. |
 | `url` | string |  |  |
 | `version` | string | yes | Semantic version (MAJOR.MINOR.PATCH[-pre][+build]); 1 and 1.2 are read as 1.0.0 and 1.2.0. |
+| `writes` | array of string |  | Component types the mod writes through the game's write tracking (World.Write, World.Update, World.WriteField, World.WriteAt): short names such as Fuel. At most 64 entries, a repeated name counted each time and read once. A value that breaks these rules is not read: the mod still loads (a warning), and each of its tracked writes is refused with what is wrong with the list. kiln.world reads the list when the server starts, because the game fixes a program's access then; a write to a type that is not listed is refused. Kiln.Sdk adds the types the mod's code passes to World.Write<T> and World.Update<T>; list by hand what the code names only as a string. max items 64 |
 
 ## dll
 

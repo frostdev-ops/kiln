@@ -4,7 +4,7 @@
 // a fake game that "runs" after Play. Fixtures are built on schema/examples (the contract examples).
 // Commands without a mock reject with not_implemented, like the wave-0 Rust stubs.
 import type {
-  Activation, AddReport, BundlePart, RunSide, AddedMod, AdminEndpoint, AppInfo, BootJson, BootState, ConfigDocument, ConfigFileInfo, ConfigTarget, CrashReport, ReportFinding, ReportSaved, Detected, Distribution,
+  Activation, AddReport, BundlePart, RunSide, AddedMod, AdminEndpoint, AppInfo, BootJson, BootState, ConfigDocument, CookJob, CookReason, CookedMod, ConfigFileInfo, ConfigTarget, CrashReport, ReportFinding, ReportSaved, Detected, Distribution,
   EditorBackup, FoundMod, FoundReport, GameInstall, GameStatus, ImportReport, InstallReceipt, InstallResult, InstallState, Json, KilnError, LastServer, LaunchRequest, NewerKilnMod,
   LaunchResult, LauncherSettings, RenderInfo, LibraryEntry, LibraryRef, LogFile, LogTarget, ModKind, ModpackInstallRequest, ModpackInstallResult, ModsJson,
   NativeJson, NativePlanEntry, NativeUserState, PreStart, Profile, ProfileChange, ProfileMod, ProfileSummary, ProxyClass, Rejection, RemoveReport, ResolvePreview, RuntimeBundle, SaveBackup, SaveSlot,
@@ -223,6 +223,20 @@ function fingerprint(p: Profile): string {
 /** What the next add result says it did in the profile besides adding (AddReport.notices; tests: `__kilnMock.planAddNotices`). */
 const addNotices: string[] = [];
 
+/** The player's own ShroudForge folders as engine_own_folders lists them (engine_mods::own_folders): where each is, the name Kiln would give
+ *  it, and why Kiln cannot take it over, if so. An activation says its own-folder note for each. Tests:
+ *  `__kilnMock.setOwnFolder`. */
+const ownFolders = new Map<string, { path: string; renameTo?: string; refusal?: string }>();
+/** engine_mods::own_folder's sentence for a ShroudForge entry the player's own folder serves. */
+const ownFolderNote = (id: string, path: string, on: boolean) => on
+  ? `shroudforge:${id}: the game uses your own folder ${path} for this mod; Kiln leaves it as it is and places no copy of its own.`
+  : `shroudforge:${id}: your own folder ${path} stays as it is; Kiln never switches a folder it did not place.`;
+/** kiln_manage::cook in the fake game: the mods with something to cook (by id), why each is due, and what its tools
+ *  say when its cook fails. Tests: `__kilnMock.setCook`. */
+const cookMods = new Map<string, { reason: CookReason | null; fails?: string; last?: CookedMod }>();
+/** How long each line of a cook task shows (tests: `__kilnMock.setCookPace`). */
+let cookStepMs = 120;
+
 /** What the next activation reports it kept in the game folder (tests: `__kilnMock.planActivation`), by whatever path
  *  it runs (profile_activate, the re-apply after profile_save, a reinstall's resume). */
 let activationPlan: Pick<Activation, "retained" | "keptFiles" | "warnings"> | null = null;
@@ -237,11 +251,31 @@ function activate(pid: string, gameId: string): Activation {
     copied: 0, fingerprint: fingerprint(p), activated: now(), ...activationPlan,
   };
   activationPlan = null;
+  // the player's own folders that serve ShroudForge entries: a note each, a safety note for a mod that is off
+  for (const m of p.mods.shroudforge ?? []) {
+    const own = ownFolders.get(m.id);
+    if (!own) continue;
+    const note = ownFolderNote(m.id, own.path, m.enabled);
+    a.warnings = [...(a.warnings ?? []), note];
+    if (!m.enabled) a.safetyNotes = [...(a.safetyNotes ?? []), note];
+  }
   activations[gameId] = a;
   remembered[gameId] = pid;
   return a;
 }
 if (!FRESH) activate("ember-run", "client-steam");
+
+/** cook::plan: the enabled Kiln mods of the profile the game uses that have something to cook. */
+function cookPlan(gameId: string): CookJob[] {
+  const g = gameOf(gameId);
+  const p = profiles.get(activations[gameId]?.profileId ?? "");
+  if (!p) return [];
+  return (p.mods.kiln ?? []).filter((m) => m.enabled && cookMods.has(m.id)).map((m) => {
+    const c = cookMods.get(m.id)!;
+    const name = library.find((e) => e.kind === "kiln" && e.id === m.id)?.name ?? m.id;
+    return { id: m.id, name, folder: `${g.path}/kiln/profiles/${p.id}/kiln/${m.id}`, identity: m.hash, ...(c.reason ? { reason: c.reason } : {}), ...(c.last ? { last: c.last } : {}) };
+  });
+}
 
 function summary(p: Profile): ProfileSummary {
   return {
@@ -966,6 +1000,55 @@ const handlers: Record<string, Handler> = {
     }
     return engineSettings(kind, id, pid);
   },
+  // engine_mods::own_folders / adopt: the player's own ShroudForge folders, and "Let Kiln manage this folder"
+  engine_own_folders: (a) => {
+    const pid = S(a.profileId), p = profiles.get(pid) ?? reject("not_found", `No profile '${pid}'.`);
+    gameOf(S(a.gameId));
+    if (activations[S(a.gameId)]?.profileId !== pid) return [];
+    return (p.mods.shroudforge ?? []).flatMap((m) => {
+      const own = ownFolders.get(m.id);
+      return own ? [{ kind: "shroudforge", id: m.id, version: m.version, path: own.path, ...(own.renameTo ? { renameTo: own.renameTo } : {}), ...(own.refusal ? { refusal: own.refusal } : {}) }] : [];
+    });
+  },
+  engine_adopt_folder: (a) => {
+    const kind = a.kind as ModKind, id = S(a.id), pid = S(a.profileId), gid = S(a.gameId);
+    const p = profiles.get(pid) ?? reject("not_found", `No profile '${pid}'.`);
+    gameOf(gid);
+    if (kind !== "shroudforge") reject("unsupported", `Kiln takes over ShroudForge folders only, not ${kind} folders`);
+    const m = (p.mods.shroudforge ?? []).find((x) => x.id === id) ?? reject("not_found", `shroudforge mod ${id} is not in profile ${pid}`);
+    if (running[gid]) reject("game_running", "Close the game first.");
+    if (activations[gid]?.profileId !== pid) reject("conflict", "Load this profile in the selected game first: Kiln takes a folder over for the profile the game uses.");
+    const own = ownFolders.get(id);
+    if (!own) return { kind, id, version: m.version, path: `${gameOf(gid).path}/mods/${id}`, already: true };
+    if (own.refusal) reject("refused", `${own.path}: ${own.refusal}`);
+    ownFolders.delete(id);
+    sfOwn.delete(id);
+    return { kind, id, version: m.version, path: own.renameTo ?? own.path, ...(own.renameTo ? { renamedFrom: own.path } : {}) };
+  },
+  // kiln_manage::cook: what needs a cook, and the cook as a task whose lines are the tools'
+  cook_plan: (a) => cookPlan(S(a.gameId)),
+  cook_run: (a) => {
+    const gid = S(a.gameId), one = a.modId ? S(a.modId) : null;
+    gameOf(gid);
+    let jobs = cookPlan(gid);
+    if (one) {
+      jobs = jobs.filter((j) => j.id === one).map((j) => ({ ...j, reason: "asked" as CookReason }));
+      if (!jobs.length) reject("not_found", `${one} is not a mod of this game's profile with something to cook`);
+    }
+    const due = jobs.filter((j) => j.reason);
+    const steps = due.flatMap((j, i) => [`Cooking ${j.name} (${i + 1} of ${due.length})`, `${j.name}: kiln: cooking assets/cook.json (modelcook)`]);
+    return startTask("cook_run", one ? `Cook ${one}` : "Cook mods", steps.length ? steps : ["Nothing to cook"], () => {
+      if (running[gid]) reject("game_running", "Close the game first: a cook writes the files the game is using.");
+      const mods = due.map((j) => {
+        const m = cookMods.get(j.id)!;
+        const ok = !m.fails;
+        m.last = { identity: j.identity, gameBuild: "steam:100", at: now(), ok, files: ok, ...(ok ? {} : { error: m.fails }) };
+        m.reason = ok ? null : "lastFailed";
+        return { id: j.id, name: j.name, reason: j.reason!, ok, ...(ok ? {} : { error: m.fails }) };
+      });
+      return { mods };
+    }, cookStepMs);
+  },
   engine_status: (a) => {
     const g = gameOf(S(a.gameId));
     const st = (k: ModKind, file: string, state: Json | null) => ({ kind: k, plugin: `kiln-${k}`, state, file: `${g.path}/kiln/state/${file}` });
@@ -1507,6 +1590,17 @@ if (typeof window !== "undefined") (window as unknown as { __kilnMock?: unknown 
   planActivation: (report: Pick<Activation, "retained" | "keptFiles" | "warnings">) => { activationPlan = report; },
   planAddNotices: (lines: string[]) => { addNotices.push(...lines); },
   setSfOwnFolder: (id: string, own = true) => { if (own) sfOwn.add(id); else sfOwn.delete(id); },
+  setCookPace: (ms: number) => { cookStepMs = ms; },
+  setCook: (id: string, cook: { reason?: CookReason | null; fails?: string | null } | null) => {
+    if (!cook) { cookMods.delete(id); return; }
+    const m = cookMods.get(id) ?? { reason: null };
+    if ("reason" in cook) m.reason = cook.reason ?? null;
+    if ("fails" in cook) m.fails = cook.fails ?? undefined;
+    cookMods.set(id, m);
+  },
+  setOwnFolder: (id: string, own: { path: string; renameTo?: string; refusal?: string } | null) => {
+    if (own) { ownFolders.set(id, own); sfOwn.add(id); } else { ownFolders.delete(id); sfOwn.delete(id); }
+  },
   setGameFileUsers: (users: Record<string, string[]>) => { gameFileUsers = users; },
   failNextInstall: (message: string) => { failNextInstall = message; },
   setModified: (files: string[], gameId = "client-steam") => { if (runtime[gameId]) runtime[gameId] = { ...runtime[gameId], modified: files }; emitGame(gameId, "status"); },

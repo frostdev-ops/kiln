@@ -1170,7 +1170,7 @@ internal static class ModCatalog
     /// for an applied pass the mods it patched with their versions), when it describes this game start. The record
     /// carries no pid. It is this start's in two cases: the pass ended inside this process's lifetime (<c>Fresh</c>), or
     /// kiln-shroudforge's status of this process says ShroudForge's startup preparation succeeded
-    /// (<paramref name="prepared"/>): ShroudForge then either wrote the record just now or found the pass of an earlier
+    /// (<c>prepared</c> in <c>SfAssets</c>): ShroudForge then either wrote the record just now or found the pass of an earlier
     /// start still current for this start's mods and left the record as it was, which is the usual start. A failed pass
     /// counts only when fresh. Anything else (an older record without that word, a time ahead of the clock, a process
     /// whose start is unknown and no word from the adapter) proves nothing about this start.</summary>

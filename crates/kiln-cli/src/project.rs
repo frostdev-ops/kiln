@@ -102,19 +102,6 @@ impl Project {
         let text = std::fs::read_to_string(&p).with_context(|| format!("reading {}", p.display()))?;
         jsonc(&text).with_context(|| format!("parsing {}", p.display()))
     }
-
-    /// The cook recipes of the project: assets/cook.json, impact/cook.json, audio/cook.json (any `*/cook.json`).
-    pub fn recipes(&self) -> Vec<PathBuf> {
-        let mut v: Vec<PathBuf> = std::fs::read_dir(&self.dir)
-            .into_iter()
-            .flatten()
-            .flatten()
-            .map(|e| e.path().join("cook.json"))
-            .filter(|p| p.is_file())
-            .collect();
-        v.sort();
-        v
-    }
 }
 
 /// JSON with `//` and `/* */` comments and trailing commas (kiln.mod.json, native.json, cook.json, content packs).

@@ -2,6 +2,9 @@
 # a BCn encoder subset of bc7enc_rdo (native/third_party/{stb,bc7enc}, MIT/Unlicense).
 kiln_service(assets
     assets.cpp
+    contained.cpp
+    cooktrust.cpp
+    scan.cpp
     hooks.cpp
     store.cpp
     image.cpp

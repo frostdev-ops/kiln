@@ -192,16 +192,62 @@ def coverage_problems(rows: dict, ids: list[str]) -> list[str]:
     return problems
 
 
+def relaxed_json(text: str):
+    """A kiln.mod.json as Kiln reads it: `//` comments and trailing commas are allowed (docs/kiln/modding/manifest.md)."""
+    out, i, n, in_string = [], 0, len(text), False
+    while i < n:
+        c = text[i]
+        if in_string:
+            out.append(c)
+            if c == "\\" and i + 1 < n:
+                out.append(text[i + 1])
+                i += 1
+            elif c == '"':
+                in_string = False
+        elif c == '"':
+            in_string = True
+            out.append(c)
+        elif text.startswith("//", i):
+            while i < n and text[i] != "\n":
+                i += 1
+            continue
+        elif text.startswith("/*", i):
+            end = text.find("*/", i + 2)
+            i = n if end < 0 else end + 2
+            continue
+        elif c in "}]":
+            # a comma before a closing bracket, with only white space between (comments are gone by now), is dropped
+            k = len(out) - 1
+            while k >= 0 and out[k].isspace():
+                k -= 1
+            if k >= 0 and out[k] == ",":
+                del out[k]
+            out.append(c)
+        else:
+            out.append(c)
+        i += 1
+    return json.loads("".join(out))
+
+
 def mod_check_ids(mod: str) -> set[str]:
     """The check ids in the sources of the mod (under mods/) whose kiln.mod.json has this id; empty when none has."""
     for manifest in sorted((PACK.parent.parent).glob("**/kiln.mod.json")):
         try:
-            if json.loads(manifest.read_text("utf-8")).get("id") != mod:
+            if relaxed_json(manifest.read_text("utf-8")).get("id") != mod:
                 continue
         except (ValueError, OSError):
             continue
         return {cid for src in manifest.parent.rglob("*.cs") for cid in CHECK_ID.findall(src.read_text("utf-8"))}
     return set()
+
+
+class RelaxedJsonTests(unittest.TestCase):
+    def test_a_manifest_with_comments_and_a_trailing_comma_is_read(self):
+        text = '{ "id": "a", // why\n "url": "https://example.org/x", /* note */ "writes": ["Fuel", ], }'
+        self.assertEqual(relaxed_json(text), {"id": "a", "url": "https://example.org/x", "writes": ["Fuel"]})
+
+    def test_a_comment_mark_inside_a_string_stays(self):
+        self.assertEqual(relaxed_json('{ "d": "a // b \\" c, }" }'), {"d": 'a // b " c, }'})
 
 
 class CoverageTests(unittest.TestCase):

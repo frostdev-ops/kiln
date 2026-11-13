@@ -59,6 +59,14 @@ public sealed partial class ClientPassMod
         "On Windows, where dev.19 took over nxm:// links from Vortex, with this launcher (Nexus off) installed: press Mod " +
         "Manager Download on a Nexus mod page. Does Vortex open the link, not Kiln?");
 
+    [ClientCheck("windows.cook", "The launcher's own Python cooks a mod on Windows", Area = "Launcher", Since = Dev27,
+        Tags = [Windows, Launcher], Order = 916)]
+    public Task WindowsCook(CheckContext c) => Outside(c,
+        "On Windows, with no Python installed (or without touching the one you have): install the WeaponMoves sample " +
+        "through the launcher and press Play. The launcher cooks it (\"Cooking Weapon Moves\") with the Python in its " +
+        "own folder, the game starts and the moves animate. Then use Cook again, press Play and cancel the cook: no " +
+        "python.exe is left in the Task Manager. Did the cook work, and did Cancel leave nothing running?");
+
     // ---- a Steam Deck ----
 
     [ClientCheck("deck.no-kiln", "\"No Kiln\" in the launcher on a Steam Deck", Area = "Steam Deck", Since = Dev16,
@@ -74,6 +82,12 @@ public sealed partial class ClientPassMod
         "On a Steam Deck in game mode, with the controller only: open a dialog in the launcher and close it with B, move " +
         "focus over every button of the Play page and Settings (focus never gets lost, also on disabled buttons), scroll a " +
         "long text, and hold to uninstall a mod but let go early (it stops). Did each of these work?");
+
+    [ClientCheck("deck.cook-again", "Cook again on the Steam Deck", Area = "Steam Deck", Since = Dev27,
+        Tags = [SteamDeck, Launcher], Order = 929)]
+    public Task DeckCookAgain(CheckContext c) => Outside(c,
+        "On a Steam Deck, in the launcher's Mods screen: move to the WeaponMoves mod and press Y (Cook again). The row " +
+        "says Cooking while it runs, then a message says \"Weapon Moves cooked\". Did it?");
 
     // ---- another host ----
 

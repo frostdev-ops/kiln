@@ -97,7 +97,7 @@ internal static class LastServer
         }
     }
 
-    private sealed record Local(string Kind, string Id, string Folder);
+    internal sealed record Local(string Kind, string Id, string Folder);
 
     /// <summary>This client's mod folders (managed mods from Kiln.Host, native mods from state/native.json).</summary>
     private static List<Local> LocalMods()
@@ -127,8 +127,9 @@ internal static class LastServer
         return list;
     }
 
-    /// <summary>Required ids this client lacks, or has with another kdh1.</summary>
-    private static List<string> Missing(IReadOnlyList<NetRequiredMod> required, List<Local> local)
+    /// <summary>Required ids this client lacks, or has with another hash. A Kiln mod is compared by its identity
+    /// (<see cref="DirHash.ModIdentity"/>): what the cook made on either machine does not count.</summary>
+    internal static List<string> Missing(IReadOnlyList<NetRequiredMod> required, List<Local> local)
     {
         var missing = new List<string>();
         foreach (var r in required)
@@ -141,7 +142,7 @@ internal static class LastServer
             }
             try
             {
-                if (DirHash.Compute(have.Folder) != r.Hash) missing.Add(r.Id);
+                if ((have.Kind == "kiln" ? DirHash.ModIdentity(have.Folder) : DirHash.Compute(have.Folder)) != r.Hash) missing.Add(r.Id);
             }
             catch (Exception)
             {

@@ -15,6 +15,7 @@ public sealed class ModManifest
     private readonly List<(string Id, string Range, bool Optional)> _dependencies = [];
     private readonly List<string> _features = [];
     private readonly List<string> _exports = [];
+    private readonly List<string> _writes = [];
     private readonly Dictionary<string, JsonNode?> _extra = new(StringComparer.Ordinal);
 
     /// <summary>A manifest built in code for a mod loaded by the harness.</summary>
@@ -61,6 +62,15 @@ public sealed class ModManifest
         return this;
     }
 
+    /// <summary>The component types the mod writes through the game's write tracking (<c>"writes"</c>: short names such
+    /// as <c>Fuel</c>): what <see cref="World"/>'s tracked writes are allowed for (<see cref="FakeWorld"/>). A mod built
+    /// with Kiln.Sdk and loaded from its folder or its own kiln.mod.json has the list from its build.</summary>
+    public ModManifest Writes(params string[] components)
+    {
+        _writes.AddRange(components);
+        return this;
+    }
+
     /// <summary>Adds exported assemblies (<c>exports</c>, file names such as <c>MyApi.dll</c>).</summary>
     public ModManifest Exports(params string[] files)
     {
@@ -98,6 +108,7 @@ public sealed class ModManifest
         }
         if (_features.Count > 0) o["features"] = new JsonArray([.. _features.Select(f => (JsonNode)f)]);
         if (_exports.Count > 0) o["exports"] = new JsonArray([.. _exports.Select(f => (JsonNode)f)]);
+        if (_writes.Count > 0) o["writes"] = new JsonArray([.. _writes.Distinct(StringComparer.Ordinal).Select(f => (JsonNode)f)]);
         if (Advanced) o["advanced"] = true;
         foreach (var (key, value) in _extra) o[key] = value?.DeepClone();
         return o.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
