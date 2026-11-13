@@ -173,6 +173,17 @@ public sealed partial class ClientPassMod
         "missing in your game: one note at the top of the screen names the mod and ends \"Install the same versions in " +
         "the Kiln launcher.\", in at most three rows. Did you stay connected, and did the note show as described?");
 
+    [ClientCheck("launcher.own-eml-folder-under-sf", "The launcher names an EML mod in your own folder that ShroudForge has off",
+        Area = "Launcher", Since = Dev27, Tags = [Visual], Order = 935)]
+    public Task LauncherOwnEmlFolderUnderSf(CheckContext c) => Outside(c,
+        "In a profile with a ShroudForge mod on and Auto Loot Plus on: put Auto Loot Plus by hand into the game's mods " +
+        "folder as well (its mods/auto-loot-plus folder from the mod's zip, without extended.mod.json), press Play and " +
+        "close the game at the main menu. On the Play page, the EML line under the engines says Auto Loot Plus runs from " +
+        "your own folder and that ShroudForge has it switched off, with where to switch it on (Kiln's in-game menu, Mods, " +
+        "ShroudForge, or ShroudForge's own Modloader); it does not say to activate the profile again to copy it. Switch it " +
+        "on in the in-game menu, start the game again and look once more: is the switched-off part gone? Then remove the " +
+        "folder you added. Did the line say this both times?");
+
     [ClientCheck("launcher.linked-home", "An EML mod on a host where /home links to /var/home", Area = "Launcher",
         Since = Dev21, Tags = [OtherHost], Order = 933)]
     public Task LauncherLinkedHome(CheckContext c) => Outside(c,
