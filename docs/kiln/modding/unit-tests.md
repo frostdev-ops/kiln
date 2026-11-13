@@ -80,8 +80,8 @@ the test has not.
 returns its `CommandResult` (`Ok`, `Found`, `Denied`, `Error`, the reply lines in `Output`). `RunCommand(source,
 line)` takes any `CommandSource` (`CommandSource.Remote("dashboard", admin: false)`), `RunCommand(player, line)` a
 fake player. Permissions are Kiln.Permissions' real rules: `WritePermissions(json)` writes `permissions.json`,
-`WriteServerConfig(json)` the server's `enshrouded_server.json` (user groups), both read at once. Chat itself is not
-faked: replies come back in the result and reach no chat.
+`WriteServerConfig(json)` the server's `enshrouded_server.json` (user groups), both read at once. The replies come
+back in the result.
 
 **Players.** `kiln.Players.Join("Ada", steamId, rights, isAdmin, position)` gives a `FakePlayer`; it is in game at
 the next step (`Players.All`, `Joined`, `PlayerJoinedEvent`), and `Leave()` takes effect at the next step's scan
@@ -153,7 +153,7 @@ Assert.Equal(2f, kiln.Entities.Get<Ecs.ScaleComponent>(can).uniformScale);
   systems and their hooks (`GameSystems`), the game's event streams (`GameEvents`), teleport (`Teleport.To` answers
   Failed), the game's attribute formulas (a write over the maximum is not clamped), a save of the world's entities,
   and everything behind a component: no program of the game runs, so a `Health` of 0 kills nobody. Spawning,
-  items, combat and the other services have fakes of their own or none (the table below).
+  items, combat and the other services have recording fakes of their own or none (below, and the table).
 
 **Config.** `Config.Register` of every kind writes into the temporary `kiln/config` (`kiln.ConfigDirectory`); a file
 the test edits there reaches the change handlers through the file watcher, so pace the steps in real time
@@ -182,6 +182,37 @@ a mod could log, `All` lists the rows. `Override(name, available)` switches a ga
 service off, for the test; it cannot switch on a service the kit has no fake for, and an override changes the
 answer only: nothing behind a feature is faked. `ClearOverride(name)` drops it.
 
+## Recording fakes (since 0.2.0-dev.27)
+A recording fake is a native table of the kit's under the service's real managed code: what a mod asks is answered
+from a small model of the game and recorded, so the test can read what the mod did, in order and with the step. What
+a fake does not model it answers as the service does when that part is off: the call says unavailable, the
+capability row says offline, never "ok". A test switches a faked row off with `kiln.Capabilities.Override(name,
+false)`; the fake then answers as the native service does without it. The table below has each fake's row.
+
+- **Spawn** (`kiln.Spawned`). `Spawn.Entity`, `TryEntity`, `Group`, `Item` make an entity in the fake world at once
+  (`kiln.Entities`), at the position asked, turned by the yaw, with a `SpawnTime`; `EntitySpawnedEvent` and
+  `EntityDestroyedEvent` are Kiln.Spawn's own. Spawning works from the step the server started (`spawn.world` is
+  pending before, as while a server loads its save). The kit does not know the game's templates: the test says which
+  ones the game has, `kiln.Spawned.AddTemplate("Enemy_Vukah_Melee", TemplateKind.Creature, "Vukah")`, and an unknown
+  one is refused as the game refuses it (`ArgumentException` from `TryEntity`, a `SpawnException` from `Entity`). The
+  generic item pickup is always there. `Destroy`, `Inspect`, `Exists`, `Find`, `FindByName`, `EntityCount`,
+  `Tracked`, `CleanupTracked` and `Refresh` read the fake world, so an entity the test moves or removes with
+  `kiln.Entities` is seen moved or gone. `kiln.Spawned.All` lists what is still there (template, tag, origin,
+  position, item and amount for a drop), `kiln.Spawned.Calls` every spawn, destroy and cleanup with its answer.
+  `EntityData` works on the fake world's entities. Not modelled: extra spawn components (`spawn.components` is
+  offline), what a template does (a creature neither moves nor fights), its level, `DoNotSave`, saving spawned
+  entities with the world.
+
+- **Chat** (`kiln.Chat`, `player.Chat`, `player.Say`). The fake players in game are the chat's players.
+  `ada.Say("hello")` types a line: at the start of the next step it reaches `Chat.Received` handlers,
+  `ChatMessageEvent` and, for a line that starts with `/`, the command as Ada; a line nobody consumed is shown to every
+  player, Ada too, as `Ada: hello`. `Chat.Tell`, `Broadcast`, `Say` and command replies are shown at once, from the
+  step the server started (a send before that says the game server was not seen yet). `ada.Chat` is what Ada's chat
+  showed, in order; `kiln.Chat.Typed` every typed line (`Consumed` when a handler or a command took it),
+  `kiln.Chat.Sent` every server line with the mod that sent it. Not modelled: the game's inbox
+  (`Chat.Diagnostics.LastLine` is unavailable), `"enableTextChat"` (the chat is always on), a chat player's account
+  hash and connection state (0).
+
 ## One test body, two runners
 ```csharp
 public sealed class MeterTests
@@ -204,7 +235,7 @@ mod's log lines of the test go to the test's output.
 
 ## Offline skip rule
 While a `[KilnTest]` body runs, the kit records every service and game feature it answered "unavailable". A test
-that asked for one and whose body passed is reported skipped, with the names: `needs kiln.spawn, which the test kit
+that asked for one and whose body passed is reported skipped, with the names: `needs kiln.settings, which the test kit
 does not fake; the body passed`. A failed body stays failed, and a timed-out body stays a timeout (an xunit failure),
 with the unavailable names added to its message. Merely checking an optional service never hides an unrelated
 regression. To skip on an unavailable capability, let `KilnUnavailableException` reach the runner; catching it and
@@ -212,9 +243,8 @@ then failing another assertion is still a failure. So a test that needs combat i
 A test that skips itself
 (`Assert.Skip("kiln.combat hits are not available")`) keeps its own message.
 
-A test that registers a command asks for `kiln.chat` too (Kiln.Chat subscribes to players' chat lines for it), so it
-is skipped offline though the command registry is real. When the test runs its lines through `Commands.Execute` or
-`kiln.RunCommand`, never through chat, list `kiln.chat` in the suite's `AllowUnavailable`.
+A test that registers a command asks for `kiln.chat` too (Kiln.Chat subscribes to players' chat lines for it); since
+0.2.0-dev.27 the kit fakes `kiln.chat`, so such a test is no longer skipped and needs no `AllowUnavailable`.
 
 Known gap: a service that keeps the answer "no table" in a `Lazy` or `static readonly` asks only once per process,
 so a later test that uses it is not caught. Kiln.Ui's render table is one; Kiln.Network asks for `kiln.net` once, when
@@ -253,7 +283,7 @@ time with them sees almost none pass between steps, and an `await Task.Delay(...
 | Events | real |  | Kiln.Api's event bus: [Subscribe], Events.On, Post, Enqueue, priorities and cancel; a mod's handlers go with its unload |
 | Scheduler and await | real |  | Scheduler.Post from any thread, await Scheduler.NextTick, the mod's synchronization context; Game.IsTickThread is true on the harness's tick thread only, so tick-thread API from a worker throws as in the game |
 | Config (global) | real |  | Config.Register of every kind (common, server, client): files in the temp kiln/config, edits on disk reach the change handlers (file watcher: pace steps in real time), bad files are refused and the values kept |
-| Commands (console) | real |  | Kiln.Chat's command registry: [Command] methods, typed trees, help, permission levels; RunCommand as the console returns the reply lines. Chat itself (kiln.chat) is not faked: players' chat lines never arrive |
+| Commands (console) | real |  | Kiln.Chat's command registry: [Command] methods, typed trees, help, permission levels; RunCommand as the console returns the reply lines; players type command lines in chat through the fake kiln.chat (FakePlayer.Say) |
 | Inter-mod messages | real |  | Mods.Send between loaded mods, delivered at the next step before the receiver's Pre, dropped with an unloaded sender |
 | Locale files | real |  | a mod's locales/<language>.json, the lookup order and fallbacks; KilnHarness.Language switches the game's language (a dedicated server says en-us) |
 | Fault policy | real |  | Kiln.Host's fault policy (5 faults in 60 s of virtual time disable a mod, ModDisabledEvent, a crash report in the temp folder); by default the harness call during which a mod faulted throws |
@@ -261,10 +291,12 @@ time with them sees almost none pass between steps, and an `await Task.Delay(...
 | Game features | unavailable |  | Game.HasFeature is false for every game feature (sigdb) unless the test overrides it; an override changes the answer only, nothing behind the feature is faked |
 | Tests.RunAsync | unavailable |  | Kiln.Testing's Tests.RunAsync from mod code says "Kiln.Host is not running" offline |
 | Players | recording fake | `kiln.players` | Kiln.Players' own code on the kit's kiln.players: KilnHarness.Players.Join/Leave take effect at the next step (Players.All, Find, Joined/Left, PlayerJoinedEvent/PlayerLeftEvent); entity slot + 1, Steam id, admin bit, user-group rights, the test's positions; 16 slots. Unavailable: raw records, the game-log replay, the position probe for non-players, native subscribers |
-| Commands as a player, permissions | real |  | Kiln.Chat's Commands.Execute with a fake player as source (KilnHarness.RunCommand(player, line)) and Kiln.Permissions' real rules on permissions.json and enshrouded_server.json in the temp folder (WritePermissions, WriteServerConfig); @p and player names resolve against the fake players. Replies come back in the result, chat is not faked |
+| Commands as a player, permissions | real |  | Kiln.Chat's Commands.Execute with a fake player as source (KilnHarness.RunCommand(player, line)) and Kiln.Permissions' real rules on permissions.json and enshrouded_server.json in the temp folder (WritePermissions, WriteServerConfig); @p and player names resolve against the fake players. Replies come back in the result and, through the fake kiln.chat, in the player's chat |
 | Saved data (WorldData, PlayerData) | recording fake | `kiln.saves` | Kiln.Saves' store on the kit's kiln.saves: a world id and revision per server folder, the save cycle on the steps (WorldSaving, staged generation, WorldSaved), the game's autosave (30 s virtual), player-left and shutdown saves; a harness on the same folder reads the last save (KilnHarness.Kill: no shutdown save). Unavailable: backups, the world file's path, the snapshot stage, a client's hosted world |
-| EntityData | recording fake | `kiln.saves` | on player entities: stored as PlayerData under the fake player's Steam id. On every other entity unavailable (EntityData.Available is false: it needs kiln.spawn, which is not faked before dev.27's fake world) |
+| EntityData | recording fake | `kiln.saves` | on player entities: stored as PlayerData under the fake player's Steam id; on the fake world's entities (kiln.spawn's fake finds them) kept with the world's mod data |
 | Config (per world) | real |  | Mod.WorldConfig<T>() binds to the harness world's folder (kiln/data/worlds/<id>/config) through Kiln.Saves and differs between world ids |
+| Spawn | recording fake | `kiln.spawn`, `spawn.create`, `spawn.destroy`, `spawn.entities`, `spawn.templates`, `spawn.world`, `spawn.components` | Kiln.Spawn's own code on the kit's kiln.spawn: a spawn (template or item drop) makes an entity in the fake world at once, at its position and yaw with a SpawnTime, from the step the server started (spawn.world pending before); the templates are the ones the test adds (KilnHarness.Spawned.AddTemplate) plus the generic item pickup, an unknown one is refused; Destroy, Inspect, Exists, Find, FindByName, EntityCount, the tracked list, CleanupTracked and Refresh read the fake world; EntitySpawnedEvent and EntityDestroyedEvent are Kiln.Spawn's; KilnHarness.Spawned.Calls records every spawn, destroy and cleanup. Offline: extra spawn components (spawn.components), what a template does, the level, DoNotSave, saving spawned entities and re-finding tracked ones after a restart |
+| Chat | recording fake | `kiln.chat`, `chat.send`, `chat.receive`, `chat.players` | Kiln.Chat's own code on the kit's kiln.chat: the fake players in game are the chat's players; a line a player types (FakePlayer.Say) reaches Chat.Received, ChatMessageEvent and chat commands at the start of the next step, and one nobody consumed is shown to every player; Tell, Broadcast, Say and command replies are shown at once from the step the server started, per player (FakePlayer.Chat, KilnHarness.Chat). Offline: the game's inbox (Chat.Diagnostics.LastLine), enableTextChat, the account hash and connection state of a chat player |
 | kiln.net | unavailable | `kiln.net` | no fake: a true pair is a client hosting its world (a kiln.client fake, a client-side harness, a client tick) and shares one channel registry, so no handshake refusal could be tested; Kiln.Network reports itself unavailable |
 | World: entities and components | recording fake | `kiln.world` | Kiln.World's own code on the kit's kiln.world: KilnHarness.Entities (FakeWorld) makes entities and puts components on them, laid out by Kiln.Game's types (a name they do not know is refused); World.Exists, Has, TryRead, ReadBytes, Find, Query, Position, Transform and WriteRaw read and store them, and no read changes them. Where an entity stands is its CurrentTransform's bytes, as in the game; a fake player's follows the player's position when the world steps, and a player's components go with the player (the next one in the slot starts with none). Unavailable: teleport, world programs (EcsPrograms: there is no scheduler), and everything behind a component (the game's programs do not run: a Health of 0 kills nobody) |
 | World: tracked writes | recording fake | `world.tracked_writes` | World.Write, Update, WriteField and WriteAt with kiln.world's rules, tested at the native service's boundaries (native/services/world/tests/parity.json): the write runs at the next step and answers in it (one step later for a type a fake game program writes, with Kept), 512 a step and the rest later, 4,096 not yet answered at most (refusals included), 1,024 answers a step; a type the mod's manifest does not list under "writes" is refused with the sentence that says what to add (the lists are read at the first step, so a hot-loaded mod's are not; a name Kiln.Game does not know takes none of the 91 places, and without Kiln.Game every name is refused; a mod whose list cannot be read loads and its writes say why); a write carries its entity's generation (SpawnTime) and one for an entity without it is not kept waiting behind a full step; a write whose entity is removed while it waits never runs, also when the id comes back (a player's slot); ComponentWrittenEvent for a change, FakeWorld.Writes records each; WriteInfo from any thread. Not modelled: the game's attribute formulas (no clamp), which types the game saves or replicates (null unless FakeWorld.Track says), a save of the world's entities, a second world (a hosted game's) |
@@ -276,7 +308,6 @@ time with them sees almost none pass between steps, and an `await Task.Delay(...
 | kiln.build | unavailable | `kiln.build` | no fake: the service finds no native table, so its own Available is false and its row says offline |
 | kiln.caps | unavailable | `kiln.caps` | no fake: the service finds no native table, so its own Available is false and its row says offline |
 | kiln.characters | unavailable | `kiln.characters` | no fake: the service finds no native table, so its own Available is false and its row says offline |
-| kiln.chat | unavailable | `kiln.chat` | no fake: the service finds no native table, so its own Available is false and its row says offline |
 | kiln.client | unavailable | `kiln.client` | no fake: the service finds no native table, so its own Available is false and its row says offline |
 | kiln.combat | unavailable | `kiln.combat` | no fake: the service finds no native table, so its own Available is false and its row says offline |
 | kiln.content | unavailable | `kiln.content` | no fake: the service finds no native table, so its own Available is false and its row says offline |
@@ -303,7 +334,6 @@ time with them sees almost none pass between steps, and an `await Task.Delay(...
 | kiln.screen | unavailable | `kiln.screen` | no fake: the service finds no native table, so its own Available is false and its row says offline |
 | kiln.settings | unavailable | `kiln.settings` | no fake: the service finds no native table, so its own Available is false and its row says offline |
 | kiln.skills | unavailable | `kiln.skills` | no fake: the service finds no native table, so its own Available is false and its row says offline |
-| kiln.spawn | unavailable | `kiln.spawn` | no fake: the service finds no native table, so its own Available is false and its row says offline |
 | kiln.steamguard | unavailable | `kiln.steamguard` | no fake: the service finds no native table, so its own Available is false and its row says offline |
 | kiln.surfaces | unavailable | `kiln.surfaces` | no fake: the service finds no native table, so its own Available is false and its row says offline |
 | kiln.time | unavailable | `kiln.time` | no fake: the service finds no native table, so its own Available is false and its row says offline |
@@ -313,8 +343,7 @@ time with them sees almost none pass between steps, and an `await Task.Delay(...
 | kiln.worldtables | unavailable | `kiln.worldtables` | no fake: the service finds no native table, so its own Available is false and its row says offline |
 <!-- coverage:end -->
 
-Planned for dev.27: a fake world laid out by the generated `Kiln.Game` types, and recording fakes for combat,
-spawn, items, time, chat, quests and skills. Hooks, memory, Impact programs, AI and rendering stay unfaked.
+Hooks, memory, Impact programs, AI and rendering stay unfaked.
 
 ## What was checked, and what was not
 Run on Linux (.NET SDK 10.0.113) for dev.26, with every package restored from a feed packed from the tree:

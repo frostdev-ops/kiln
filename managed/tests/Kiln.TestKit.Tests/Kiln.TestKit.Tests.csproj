@@ -36,6 +36,7 @@
     <TkMod Include="mods/TkOrdered/TkOrdered.csproj" />
     <TkMod Include="mods/TkOffline/TkOffline.csproj" />
     <TkMod Include="mods/TkBlock/TkBlock.csproj" />
+    <TkMod Include="mods/TkFakes/TkFakes.csproj" />
     <ProjectReference Include="@(TkMod)" />
     <!-- Kiln.Hooks beside the kit, as in kiln/host: TkOffline reads it (a service that remembers a missing table). -->
     <ProjectReference Include="../../services/Kiln.Hooks/Kiln.Hooks.csproj" />
@@ -48,6 +49,8 @@
     <ProjectReference Include="../../services/Kiln.Items/Kiln.Items.csproj" />
     <ProjectReference Include="../../services/Kiln.World/Kiln.World.csproj" />
     <ProjectReference Include="../../services/Kiln.Time/Kiln.Time.csproj" />
+    <!-- Beside the kit for the samples of SampleFakesTests (CreatureTweaks reads kiln.gamedata through it). -->
+    <ProjectReference Include="../../services/Kiln.Content/Kiln.Content.csproj" />
     <!-- Kiln's sample mods: built folders for LoadFolder; SampleTests also referenced so a suite can name its class. -->
     <TkSample Include="../../../mods/samples/SampleLib/SampleLib.csproj" />
     <TkSample Include="../../../mods/samples/SampleConsumer/SampleConsumer.csproj" />
@@ -59,6 +62,8 @@
     <TkSample Include="../../../mods/samples/QuietServer/QuietServer.csproj" />
     <TkSample Include="../../../mods/samples/Loadouts/Loadouts.csproj" />
     <TkSample Include="../../../mods/samples/SkyControl/SkyControl.csproj" />
+    <!-- Samples that run their real logic on the kit's recording fakes (SampleFakesTests). -->
+    <TkSample Include="../../../mods/samples/CreatureTweaks/CreatureTweaks.csproj" />
     <ProjectReference Include="@(TkSample)" ReferenceOutputAssembly="false" />
     <TkSample Include="../../../mods/samples/SampleTests/SampleTests.csproj" />
     <ProjectReference Include="../../../mods/samples/SampleTests/SampleTests.csproj" />

@@ -144,6 +144,24 @@ public sealed class FakePlayer
     /// false when the player has left (or is leaving) already: a second leave changes nothing.</summary>
     public bool Leave() => _owner.Leave(this);
 
+    /// <summary>What this player's chat showed, in order: server lines mods sent them (<see cref="global::Kiln.Chat.Tell(EntityId, string)"/>,
+    /// <see cref="global::Kiln.Chat.Broadcast"/>, command replies) and the lines players typed that nobody consumed
+    /// (<see cref="KilnHarness.Chat"/> has the details).</summary>
+    public IReadOnlyList<FakeChatLine> Chat => _owner.Harness.ChatFake?.ShownTo(this) ?? [];
+
+    /// <summary>The player types <paramref name="text"/> in chat (a command line starts with <see cref="Commands.Prefix"/>).
+    /// It reaches Kiln.Chat at the start of the next step: <see cref="global::Kiln.Chat.Received"/> handlers,
+    /// <see cref="ChatMessageEvent"/> and, for a command line, the command as this player; a line nobody consumed is shown
+    /// to every player. A player who is not in game by then is nobody the chat knows: the line reaches the handlers with
+    /// no player and is shown to no one.</summary>
+    /// <exception cref="ArgumentException">An empty text.</exception>
+    public void Say(string text)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(text);
+        var chat = _owner.Harness.ChatFake ?? throw new InvalidOperationException("the harness has no chat yet");
+        chat.Queue(Handle, text);
+    }
+
     internal unsafe PlayersAbi.Player Native(uint state)
     {
         var p = new PlayersAbi.Player

@@ -514,4 +514,6 @@ internal sealed unsafe class PlayersFake
     public static string NameOf(PlayersAbi.Player p) => Encoding.UTF8.GetString(p.Name, (int)Math.Min(p.NameLen, PlayersAbi.NameMax - 1));
 
     internal ulong CurrentStep => _harness.CurrentStep;
+
+    internal KilnHarness Harness => _harness;
 }

@@ -73,7 +73,7 @@ public static partial class Coverage
             "change handlers (file watcher: pace steps in real time), bad files are refused and the values kept");
         Row("Commands (console)", CoverageKind.Real,
             "Kiln.Chat's command registry: [Command] methods, typed trees, help, permission levels; RunCommand as the console " +
-            "returns the reply lines. Chat itself (kiln.chat) is not faked: players' chat lines never arrive");
+            "returns the reply lines; players type command lines in chat through the fake kiln.chat (FakePlayer.Say)");
         Row("Inter-mod messages", CoverageKind.Real,
             "Mods.Send between loaded mods, delivered at the next step before the receiver's Pre, dropped with an unloaded sender");
         Row("Locale files", CoverageKind.Real,

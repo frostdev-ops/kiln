@@ -5,15 +5,15 @@ using Assert = Kiln.Testing.Assert;
 
 namespace TkOffline;
 
-/// <summary>Tests that ask for unfaked services (kiln.spawn, and kiln.hooks, which remembers its miss), a game feature
+/// <summary>Tests that ask for unfaked services (kiln.settings, and kiln.hooks, which remembers its miss), a game feature
 /// that is off, and one that ends in KilnUnavailableException; one asks for nothing.</summary>
 public sealed class TkOfflineMod : Mod
 {
     [KilnTest]
-    public void Reads_spawn_and_passes() => Assert.False(Spawn.Available, "no game here");
+    public void Reads_settings_and_passes() => Assert.False(Settings.Available, "no game here");
 
     [KilnTest]
-    public void Reads_spawn_and_fails() => Assert.True(Spawn.Available, "spawn should be there");
+    public void Reads_settings_and_fails() => Assert.True(Settings.Available, "settings should be there");
 
     [KilnTest]
     public void Reads_a_feature() => Assert.False(Game.HasFeature("tk.feature"));
