@@ -652,6 +652,21 @@ Not rules: two guards against a broken game camera, in kiln-rules because it alr
   object's fields. Far from the player for 2 s (inside the world): the same at I.
 - Off on a dedicated server; a game update that moves either place turns that guard off (`client guards: … OFF`).
 
+## The contract (dev.27)
+
+Kiln.Rules follows [the API contract](../modding/contract.md). `Rules`, `Creative` and `CreativeTools` are `[ServerOnly]`.
+
+- **Capabilities.** `kiln.rules` (the core's row) and its sixteen sigdb features (`rules.consume` to `rules.zone`),
+  lowered at Kiln.Rules' start (the first service tick, both sides) when kiln.rules is missing. Nothing in Kiln.Rules
+  throws for a missing table: a rule set is kept and applies where the hooks are, so it has no row of its own.
+- **Results.** `CreativeResult` implements `IKilnResult` (`Reason` is the message when it was refused, null when done).
+- **Threads.** `[TickThreadOnly]` on what checks it: `Rules.Apply`, `Rules.Of`, `Rules.Simulate`, `RuleSet.Update`,
+  `Creative.Set`, `Creative.SetFlight`, `CreativeTools.Give`, `SetTime`, `SetCycle`, `Found`; NoClip's members were
+  marked in their own stream.
+- **Events.** A rule set applied, updated or ended posts `PlayerRulesChangedEvent` when a player's combined rules
+  changed (creative mode is a rule set, so it does too); NoClip ends post `PlayerNoClipEndedEvent`.
+- Tested offline: `managed/tests/Kiln.Contract.Tests/RulesContractTests.cs` and the conformance rules.
+
 ## Limits
 - Kiln never moves a character to a position outside the world (finite, within the 10240 x 2560 x 10240 m world plus a
   512 m margin): a flight that ended outside it leaves the character where it was (logged). The glider hooks never

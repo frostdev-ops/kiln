@@ -11,6 +11,8 @@
   </PropertyGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="Kiln.Rules.Tests" />
+    <!-- the contract tests: the rows' names -->
+    <InternalsVisibleTo Include="Kiln.Contract.Tests" />
     <ProjectReference Include="../../Kiln.Api/Kiln.Api.csproj" Private="false" />
     <ProjectReference Include="../Kiln.Players/Kiln.Players.csproj" Private="false" />
     <ProjectReference Include="../Kiln.Network/Kiln.Network.csproj" Private="false" />
