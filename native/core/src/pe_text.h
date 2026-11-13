@@ -223,10 +223,17 @@ struct CodeView {
 };
 
 // A small byte difference is not proof that a replacement exe is the loaded build. Accept only differences
-// covered by a familiar inline jump to outside the image (plus the hooker's instruction-padding NOPs).
+// covered by a familiar inline jump to outside the image (plus the hooker's instruction-padding NOPs), or by a
+// redirected call: an `E8 rel32` whose opcode is in place, that calls into the image in the file and to outside the
+// image in the live code. ShroudForge's native runtime sends the main menu's two Settings calls to a relay next to
+// the image this way, before Kiln's scan; while the form was unknown, every client start that hosted ShroudForge
+// scanned the live code, the captures of ui/MainMenuEntry disagreed and the main menu had none of Kiln's entries
+// (players' reports of 10 and 13 Nov 2026). `call_lands`, when given, is asked whether the call's new target can be
+// called at all (sigdb: readable memory).
 // Unrecognised patches conservatively select the live scan, even below the 1% budget.
 inline bool only_hook_differences(const uint8_t* file, const uint8_t* live, size_t size,
-                                  uintptr_t live_text, uintptr_t image_base, size_t image_size) {
+                                  uintptr_t live_text, uintptr_t image_base, size_t image_size,
+                                  bool (*call_lands)(uintptr_t) = nullptr) {
     auto outside = [&](uintptr_t a) { return a < image_base || a - image_base >= image_size; };
     for (size_t i = 0; i < size;) {
         if (file[i] == live[i]) { ++i; continue; }
@@ -236,6 +243,20 @@ inline bool only_hook_differences(const uint8_t* file, const uint8_t* live, size
             const size_t left = size - start;
             size_t width = 0;
             uintptr_t target = 0;
+            if (left >= 5 && p[0] == 0xE8 && file[start] == 0xE8 && i - start >= 1 && i - start <= 4) {
+                // a call whose operand alone changed: no padding belongs to it
+                int32_t was, now;
+                std::memcpy(&was, file + start + 1, 4);
+                std::memcpy(&now, p + 1, 4);
+                const uintptr_t next = live_text + start + 5;
+                const uintptr_t to = next + static_cast<intptr_t>(now);
+                if (!outside(next + static_cast<intptr_t>(was)) && outside(to) && (!call_lands || call_lands(to))) {
+                    i = start + 5;
+                    covered = true;
+                    break;
+                }
+                continue;
+            }
             if (left >= 5 && p[0] == 0xE9) {
                 int32_t d;
                 std::memcpy(&d, p + 1, 4);

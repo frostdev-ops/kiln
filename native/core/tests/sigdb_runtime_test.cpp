@@ -280,14 +280,57 @@ static void diff_budget() {
     live[200] ^= 1;
     CHECK(!pe::only_hook_differences(file.data(), live.data(), live.size(), text, base, 0x2000),
           "runtime: an unrelated code byte is not hidden by recognised hooks");
+    live[200] ^= 1;
+    // A redirected call (ShroudForge's native runtime and the main menu's two Settings calls): the opcode stays, the
+    // operand goes from a place in the image to one outside it.
+    auto call = [&](std::array<uint8_t, 1000>& code, size_t off, uintptr_t to) {
+        code[off] = 0xE8;
+        const int32_t d = static_cast<int32_t>(static_cast<int64_t>(to) - static_cast<int64_t>(text + off + 5));
+        std::memcpy(code.data() + off + 1, &d, 4);
+    };
+    const uintptr_t relay = base + 0x40000, in_image = text + 0x300;
+    call(file, 300, in_image); call(live, 300, relay);
+    call(file, 400, in_image); call(live, 400, relay);
+    CHECK(pe::only_hook_differences(file.data(), live.data(), live.size(), text, base, 0x2000),
+          "runtime: calls sent from the image to outside it are another engine's, the disk scan stays");
+    static uintptr_t asked;
+    asked = 0;
+    CHECK(pe::only_hook_differences(file.data(), live.data(), live.size(), text, base, 0x2000,
+                                    [](uintptr_t to) { asked = to; return true; }) && asked == relay,
+          "runtime: the redirected call's target is the one asked about");
+    CHECK(!pe::only_hook_differences(file.data(), live.data(), live.size(), text, base, 0x2000, [](uintptr_t) { return false; }),
+          "runtime: a call redirected to a place that cannot be called is not accepted");
+    call(live, 400, text + 0x380);
+    CHECK(!pe::only_hook_differences(file.data(), live.data(), live.size(), text, base, 0x2000),
+          "runtime: a call moved to another place inside the image is not a hook");
+    call(live, 400, relay);
+    file[400] = 0xCC; live[400] = 0xE8;
+    CHECK(!pe::only_hook_differences(file.data(), live.data(), live.size(), text, base, 0x2000),
+          "runtime: a call written over other bytes is not a redirected call");
+    file[400] = 0xE8;
+    call(file, 400, base + 0x50000);
+    CHECK(!pe::only_hook_differences(file.data(), live.data(), live.size(), text, base, 0x2000),
+          "runtime: bytes after an E8 that were no call into the image are not a redirected call");
+    call(file, 400, in_image);
+    live[399] ^= 1;
+    CHECK(!pe::only_hook_differences(file.data(), live.data(), live.size(), text, base, 0x2000),
+          "runtime: a changed byte before a redirected call is not covered by it");
+    live[399] ^= 1;
+    live[405] ^= 1;
+    CHECK(!pe::only_hook_differences(file.data(), live.data(), live.size(), text, base, 0x2000),
+          "runtime: a changed byte after a redirected call is not covered by it");
+    live[405] ^= 1;
+    call(file, 995, in_image); call(live, 995, relay);
+    CHECK(pe::only_hook_differences(file.data(), live.data(), live.size(), text, base, 0x2000),
+          "runtime: a redirected call in the final five bytes is read to the end and no further");
     sigdb::Pattern p;
     std::string err;
     sigdb::parse_pattern("E8 {back:rel32}", p, err);
-    std::array<uint8_t, 5> call{0xE8};
+    std::array<uint8_t, 5> call5{0xE8};
     const int32_t disp = -12;
-    std::memcpy(call.data() + 1, &disp, 4);
+    std::memcpy(call5.data() + 1, &disp, 4);
     int64_t target = 0;
-    CHECK(sigdb::hole_value_in(p, {call.data(), call.size(), text, true}, text, "back", &target) &&
+    CHECK(sigdb::hole_value_in(p, {call5.data(), call5.size(), text, true}, text, "back", &target) &&
           static_cast<uintptr_t>(target) == text - 7, "runtime: negative rel32 at the section edge uses live address");
 }
 

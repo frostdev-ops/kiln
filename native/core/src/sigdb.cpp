@@ -214,7 +214,8 @@ void init_code() {
         g_code.runs.clear();
         return fallback(b);
     }
-    if (!pe::only_hook_differences(text, img.text, size, live, img.base, img.size)) {
+    if (!pe::only_hook_differences(text, img.text, size, live, img.base, img.size,
+                                   [](uintptr_t to) { return readable(to, 14); })) {
         g_code.runs.clear();
         return fallback("file/live differences are not recognised inline hooks; the exe may have changed on disk");
     }
@@ -442,10 +443,23 @@ public:
             r.live_diff = d;
             // Attribute from the symbol's entry when it is patched there (the usual hook), else from the first
             // differing byte.
-            const uintptr_t at = (name[0] != '@' && first_diff(static_cast<uintptr_t>(r.value), 5))
-                                     ? static_cast<uintptr_t>(r.value)
-                                     : d;
+            uintptr_t at = (name[0] != '@' && first_diff(static_cast<uintptr_t>(r.value), 5))
+                               ? static_cast<uintptr_t>(r.value)
+                               : d;
             r.live_by = patched_by(at);
+            // A redirected call (pe::only_hook_differences): the opcode is in place and the first differing byte is
+            // in its operand, so the bytes there decode as nothing. Record the call itself and say where it goes.
+            if (at == d) {
+                for (uintptr_t back = 1; back <= 4; ++back) {
+                    const uint8_t* f = cv.to_scan(d - back);
+                    if (!f || f[0] != 0xE8 || *reinterpret_cast<const uint8_t*>(d - back) != 0xE8) continue;
+                    const std::string by = patched_by(d - back);
+                    if (by.rfind("jmp to ", 0) != 0) break;
+                    r.live_by = "call redirected to " + by.substr(7);
+                    at = d - back;
+                    break;
+                }
+            }
             if (readable(at, sizeof r.live_bytes)) {
                 std::memcpy(r.live_bytes, reinterpret_cast<const void*>(at), sizeof r.live_bytes);
                 r.live_at = at;
