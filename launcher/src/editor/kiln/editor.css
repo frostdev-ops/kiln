@@ -37,6 +37,8 @@
 .ke-slot.dim { opacity: .5; }
 
 /* ---------------------------------------------------------------- the inspector */
+/* its wrapper only tracks focus (the Deck: B goes back to the slot) */
+.ke-insp-wrap { display: contents; }
 .ke-insp { flex: none; width: 430px; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 16px; padding: 4px 6px 18px 28px; box-shadow: inset 1px 0 0 var(--k-line); }
 .ke-insp-head { display: flex; gap: 16px; align-items: center; }
 .ke-insp-icon { flex: none; display: grid; place-items: center; width: 84px; height: 84px; border-radius: 12px;

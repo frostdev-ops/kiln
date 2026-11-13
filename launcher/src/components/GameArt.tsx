@@ -51,8 +51,9 @@ export function artWork(st: AssetsStatus, kind: ArtKind): string | null {
   return !a.map || a.current === false ? `admin|${a.gameBuild ?? ""}` : null;
 }
 
-/** Mount once (the shell does): runs the game-art work on its own; the task shows in the header's task tray. */
-export function GameArtAuto() {
+/** Mount once (the shell does): runs the game-art work on its own; the task shows in the header's task tray. `only`:
+ *  that kind alone (the Deck's save editor makes the editor's art, never the admin map's). */
+export function GameArtAuto({ only }: { only?: ArtKind } = {}) {
   const qc = useQueryClient();
   const { data: st } = useAssetsStatus();
   const editorTask = useExtractTask(st, "editor");
@@ -62,7 +63,7 @@ export function GameArtAuto() {
   const failed = useRef(new Map<string, number>());
   useEffect(() => {
     if (!st || !api.isTauri() || busy.current || editorTask || adminTask) return;
-    const kind: ArtKind | null = artWork(st, "editor") ? "editor" : artWork(st, "admin") ? "admin" : null;
+    const kind: ArtKind | null = only ? (artWork(st, only) ? only : null) : artWork(st, "editor") ? "editor" : artWork(st, "admin") ? "admin" : null;
     if (!kind) return;
     const sig = artWork(st, kind)!;
     const at = failed.current.get(sig);
@@ -78,6 +79,6 @@ export function GameArtAuto() {
         busy.current = false;
         qc.invalidateQueries({ queryKey: ASSETS_KEY });
       });
-  }, [st, editorTask, adminTask, qc]);
+  }, [st, editorTask, adminTask, qc, only]);
   return null;
 }

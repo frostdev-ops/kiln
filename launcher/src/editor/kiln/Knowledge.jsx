@@ -52,7 +52,7 @@ export default function Knowledge({ model, setModel }) {
   return (
     <div className="ke-know">
       <div className="ke-know-bar">
-        <input className="k-input" style={{ width: 280 }} placeholder={t('Procurar por nome ou id')} value={q} onChange={(e) => setQ(e.target.value)} aria-label={t('Procurar por nome ou id')} />
+        <input className="k-input" style={{ width: 280 }} data-deck-id="know-search" placeholder={t('Procurar por nome ou id')} value={q} onChange={(e) => setQ(e.target.value)} aria-label={t('Procurar por nome ou id')} />
         <label className="k-well compact" style={{ width: 168 }}><span className="k-label">{t('Acima do nível')}</span>
           <input type="number" value={above} placeholder={t('todos')} onChange={(e) => setAbove(e.target.value)} /></label>
         <span className="k-seg" role="radiogroup" aria-label={t('Mostrar')}>
@@ -61,7 +61,7 @@ export default function Knowledge({ model, setModel }) {
           ))}
         </span>
         <span className="k-spacer" />
-        <Button size="s" variant="danger" disabled={!sel.size} onClick={remove}>{sel.size ? t('Remover {n}', { n: sel.size }) : t('Remover')}</Button>
+        <Button size="s" variant="danger" disabled={!sel.size} onClick={remove} data-deck-id="know-remove">{sel.size ? t('Remover {n}', { n: sel.size }) : t('Remover')}</Button>
       </div>
       <div className="ke-know-table" role="table" aria-label={t('Conhecimento')}>
         <div className="ke-know-row head" role="row">
@@ -74,7 +74,7 @@ export default function Knowledge({ model, setModel }) {
         <div className="ke-know-body">
           {shown.map((k) => (
             <label key={k.id} className={'ke-know-row' + (sel.has(k.id) ? ' on' : '')} role="row">
-              <span role="cell"><input type="checkbox" className="k-check" checked={sel.has(k.id)} onChange={() => toggle(k.id)} /></span>
+              <span role="cell"><input type="checkbox" className="k-check" checked={sel.has(k.id)} onChange={() => toggle(k.id)} data-deck-id={`know-${k.id}`} aria-label={k.name ?? t('id {id}', { id: k.id })} /></span>
               <span role="cell" className={`k-sc ke-kind ${k.info?.t ?? 'o'}`}>{t(KIND[k.info?.t ?? 'o'])}</span>
               <span role="cell" className="ke-know-name">
                 {k.name ? <span className="k-ellipsis">{k.name}</span> : <span className="k-mono k-muted">{t('id {id}', { id: k.id })}</span>}

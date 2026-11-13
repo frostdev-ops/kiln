@@ -4,7 +4,7 @@
 //   D-pad / left stick: move focus (focus.ts) · A: click the focused control (hold for a HoldButton) · B: the top
 //   layer's back, else Home · X / Y: the top layer's actions · L1 / R1: tabs · Start: the menu · View: Help ·
 //   right stick: scroll.
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import * as api from "../api/commands";
 import { useAppInfo, useBackendEvents, useNexusEnabled, useSettings } from "../api/hooks";
@@ -29,12 +29,16 @@ import Help from "./screens/Help";
 import Settings from "./screens/Settings";
 import "./deck.css";
 
+// the save editor carries its item data (about 2 MB): loaded on the first visit to its tab, as on the desktop
+const DeckEditor = lazy(() => import("../editor/deck/DeckEditor"));
+
 export const TABS = [
   { to: "/deck", label: "Home" },
   { to: "/deck/mods", label: "Mods" },
   { to: "/deck/add", label: "Add mods" },
   { to: "/deck/catalog", label: "Catalog" },
   { to: "/deck/kiln", label: "Kiln" },
+  { to: "/deck/editor", label: "Editor" },
   { to: "/deck/help", label: "Help" },
   { to: "/deck/settings", label: "Settings" },
 ] as const;
@@ -198,6 +202,7 @@ export default function DeckApp() {
           <Route path="add" element={<AddMods />} />
           <Route path="catalog" element={<NexusRoute home="/deck"><Catalog /></NexusRoute>} />
           <Route path="kiln" element={<Kiln />} />
+          <Route path="editor" element={<Suspense fallback={<p className="deck-note">Opening the save editor…</p>}><DeckEditor /></Suspense>} />
           <Route path="help" element={<Help />} />
           <Route path="settings" element={<Settings />} />
           <Route path="*" element={<Navigate to="/deck" replace />} />
