@@ -119,7 +119,7 @@ public sealed class SampleModsTests
     }
 
     [Fact]
-    public void EngineRoomAnswersWithNoGameAndKeepsItsClaimsStraight()
+    public void EngineRoomSaysWhatIsNotThereWithNoGame()
     {
         using var kiln = new KilnHarness();
         kiln.LoadFolder(TestMods.Folder("EngineRoom"));
@@ -128,12 +128,13 @@ public sealed class SampleModsTests
         kiln.Step();
         Assert.False(kiln.RunCommand(bo, "engine claims").Ok);  // a command for admins
         // with no game there are no systems and no resources: each part says so
-        Assert.Contains("not known on this build", Said(kiln.RunCommand(admin, "engine systems")));
+        Assert.Contains("are not known here", Said(kiln.RunCommand(admin, "engine systems")));
+        Assert.Contains("nothing is watched", Said(kiln.RunCommand(admin, "engine watch")));
         Assert.Contains("not known on this build", Said(kiln.RunCommand(admin, "engine profile")));
         Assert.Contains("not known on this build", Said(kiln.RunCommand(admin, "engine watch stamina")));
         Assert.Contains("cannot be read here", Said(kiln.RunCommand(admin, "engine stack Weapon_T1_1H_SwordEpic_01 5")));
         Assert.Contains("systems [word]", Said(kiln.RunCommand(admin, "engine nonsense")));
-        // claims work without the game: nothing is held, and giving back nothing is no error
+        // the claim list works without the game: nothing is held, and giving back nothing is no error
         Assert.Contains("0 claim(s) in force", Said(kiln.RunCommand(admin, "engine claims")));
         Assert.Contains("0 claim(s) given back", Said(kiln.RunCommand(admin, "engine undo")));
     }

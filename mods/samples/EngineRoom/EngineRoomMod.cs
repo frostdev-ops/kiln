@@ -2,6 +2,7 @@
 // Engine room: the advanced tier in one mod (docs/kiln/modding/typed-fields.md "Any resource", ecs-programs.md "Hooks
 // around game systems"). An admin's look at what the game runs, and one field of the game's data changed with a way back.
 //   /engine systems [word]         the game's systems whose names hold the word, and whether each is on
+//                                  (several words in quotes: /engine systems "fall damage")
 //   /engine profile                starts the game's system profiler; again: stops it and lists the five costliest
 //   /engine watch <system>         counts the runs of one system (a hook around it); /engine watch alone reports and ends
 //   /engine stack <item> <count>   an item's maxStackSize, by the item's debug name, as a claim on a field of its resource
@@ -12,8 +13,9 @@
 //     Available first, and treat a name that is gone as an answer for the admin, not as a crash;
 //   - a change to something shared is a claim. The first mod keeps it, the second gets a result that names the holder
 //     and changes nothing, and everything a mod claimed is given back when it unloads;
-//   - a hook's callbacks run on the game's worker threads, around every run of the system: count with Interlocked and
-//     touch nothing of Kiln there. Commands, like all mod code, run on the tick thread, where a hook is made and ended.
+//   - commands run on the tick thread, and that is where a hook is made and ended. The hook's callbacks do not: they
+//     run on the game's worker threads, once for each slice of the system's update. Count with Interlocked there, and
+//     hand anything that needs the tick thread over with Context.Scheduler.Post.
 using Kiln;
 
 namespace EngineRoom;
@@ -49,8 +51,9 @@ public sealed class EngineRoomMod : Mod
 
     private static string Systems(CommandContext c, string? word)
     {
-        NeedSystems();
+        // The list can be read whenever the game's types are known, also where systems cannot be switched or profiled.
         var found = (word is null ? GameSystems.All : GameSystems.Search(word)).ToList();
+        if (found.Count == 0 && GameSystems.All.Count == 0) return $"the game's systems are not known here ({GameTypes.Status})";
         foreach (var system in found.Take(Shown))
             c.Reply($"  {system.Name}{(system.Enabled ? "" : " (off)")}");
         return found.Count > Shown ? $"{found.Count} systems, the first {Shown} shown: give a word of the name" : $"{found.Count} system(s)";
@@ -63,29 +66,43 @@ public sealed class EngineRoomMod : Mod
         {
             // The claim runs the first action now and keeps the second for the way back: Release below, /engine undo,
             // or the unload of this mod. When another mod holds the name, nothing runs and the result says who.
-            var claim = Overrides.Claim(ProfilerClaim, () => GameSystems.Profile(true), () => GameSystems.Profile(false));
+            OverrideResult claim;
+            try
+            {
+                claim = Overrides.Claim(ProfilerClaim, () => GameSystems.Profile(true), () => GameSystems.Profile(false));
+            }
+            catch (NotSupportedException e)
+            {
+                // The first action threw: the claim is dropped again and nothing is held.
+                throw new CommandException($"the profiler cannot be started: {e.Message}");
+            }
             if (!claim.Ok) return $"the profiler was not started: {claim.Message}";
             _profiling = true;
             return "profiling: /engine profile again for the numbers";
         }
-        Overrides.Release(ProfilerClaim);  // stops the profiler; its numbers stay until it is started again
+        // Giving a claim back runs its way back. If that throws, the claim is gone all the same and the log has the
+        // error, so look at the thing itself before saying it stopped.
+        Overrides.Release(ProfilerClaim);
         _profiling = false;
         foreach (var system in GameSystems.Stats().Take(5))
             c.Reply($"  {system.Name}: {system.Calls} run(s), {system.Milliseconds:0.0} ms on all threads together");
-        return $"the costliest systems of {GameSystems.ProfileSeconds:0.0} s";
+        return GameSystems.Profiling
+            ? "the profiler did not stop (kiln.log says why); the numbers so far are above"
+            : $"the costliest systems of {GameSystems.ProfileSeconds:0.0} s";
     }
 
     private string Watch(string? system)
     {
-        NeedSystems();
         if (system is null)
         {
+            // Ending a hook must always be possible, also when systems can no longer be switched: no question first.
             if (_hook is null) return "nothing is watched: /engine watch <system>";
-            // Ending a hook waits for a callback that is running, then no callback comes any more.
+            // It waits for a callback that is running, then no callback comes any more.
             _hook.Dispose();
             _hook = null;
-            return $"{_watched}: ran {Interlocked.Read(ref _runs)} time(s) in {(DateTime.UtcNow - _since).TotalSeconds:0.0} s";
+            return $"{_watched}: {Interlocked.Read(ref _runs)} slice(s) of it ran in {(DateTime.UtcNow - _since).TotalSeconds:0.0} s";
         }
+        NeedSystems();
         if (_hook is not null) throw new CommandException($"already watching {_watched}: /engine watch ends it");
         if (GameSystems.Find(system) is null) throw new CommandException($"no system named {system}: /engine systems <word> lists them");
         Interlocked.Exchange(ref _runs, 0);
@@ -114,16 +131,20 @@ public sealed class EngineRoomMod : Mod
             var found = ReflectedResources.FindByField(ItemType, "debugName", item);
             if (found.Count != 1) return found.Count == 0 ? $"no item has the debug name {item}" : $"{found.Count} items have the debug name {item}";
             var resource = found[0];
+            // Everything that can fail is done before the write, so "not changed" below is always true.
+            var before = resource["maxStackSize"];
             // A write is a claim on that one field. Conflict (another mod has the field), NotFound and Unavailable are
-            // results: Message is a sentence, and the log has it too.
+            // results: Message is a sentence, and the log has it too. A value that does not fit the field throws and
+            // changes nothing.
             var result = resource.Set("maxStackSize", count);
             if (!result.Ok) return result.Message;
-            return $"{item} stacks to {count} (the game's own value: {resource.Original("maxStackSize")}). The game reads the " +
-                   "change when it next loads the item; a mod that needs it from the start makes it in OnLoad.";
+            return $"{item} stacks to {count} (before: {before}). The game reads the change when it next loads the item; " +
+                   "a mod that needs it from the start makes it in OnLoad.";
         }
-        catch (ArgumentException e)
+        catch (Exception e) when (e is ArgumentException or InvalidOperationException or NotSupportedException or InvalidDataException or KeyNotFoundException)
         {
-            // The type or a field is not what it was (a game update), or the value does not fit the field.
+            // The type or a field is not what it was (a game update), the resource could not be read, or the value
+            // does not fit the field.
             return $"not changed: {e.Message}";
         }
     }
@@ -141,7 +162,7 @@ public sealed class EngineRoomMod : Mod
         // Every claim of this mod, field writes and the profiler alike, in reverse order. The unload does the same.
         var given = Overrides.RestoreAll();
         _profiling = false;
-        return $"{given} claim(s) given back";
+        return $"{given} claim(s) given back" + (GameSystems.Profiling ? "; the profiler did not stop (kiln.log says why)" : "");
     }
 
     private static void NeedSystems()
