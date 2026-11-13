@@ -11,10 +11,12 @@ The pass covers the lines of the status page that wait for a game test: the 18 r
 dev.22 and dev.21 client checklists (11 items each), and two lines new in 0.2.0-dev.26 (the achievement guard, and
 Kiln's unload when the game quits). `mods/tests/client-pass/rows.json` maps each line to its checks.
 
-> **Status.** The pack builds and its mapping is tested offline. **None of its checks has run in a real game yet**, and
-> the check runner itself has run only on dedicated lab servers (see `modding/testing.md`, "Guided checks"). The first
-> pass is also the first test of the pack: a check whose scene does not appear (a creature that is not spawned, an item
-> that is not given) shows a failed assertion; answer fail and say what you saw.
+> **Status.** The pack builds and its mapping is tested offline. The check runner and its list ran in a real game for
+> the first time on 13 Nov 2026 (a hosting game, test builds of 0.2.0-dev.27), which found and fixed two things in the
+> runner (the list did not notice the game entering a world; Run is now first in its row) and one in a check (it used
+> a spawned creature before it had its health). **Most checks have still not run in a real game.** A check whose scene
+> does not appear (a creature that is not spawned, an item that is not given) shows a failed assertion; answer fail and
+> say what you saw. A verdict counts only with its assertions: a pass beside a failed assertion is not a pass.
 
 ## The mods to load
 
@@ -69,7 +71,9 @@ marked swords, swapped by hand, the game closed without the menu, then rejoin.
 | Ctrl+Shift+F7 | fail, then type one line and press Enter (Escape records the fail without a note) |
 | Ctrl+Shift+F8 | skip |
 
-Rebind them in the Kiln menu, Keys. The current instruction stays on the HUD line with the list closed, so you can play
+The list has a switch, "Only the N check(s) new in Kiln <version>": it hides every check that did not come with the
+running version (most of the list), and "Run these N" then runs the shown ones in order. Rebind the keys in the Kiln
+menu, Keys. The current instruction stays on the HUD line with the list closed, so you can play
 the check. "Run" starts one check, "Run all" runs them in order; Stop ends a check without an entry. In the main menu
 nothing runs: checks that ask about the main menu or the launcher are answered once you are in the world.
 

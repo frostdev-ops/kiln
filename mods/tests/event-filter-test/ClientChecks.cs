@@ -19,6 +19,14 @@ public sealed partial class EventFilterTestMod
         var doll = await Spawn.Entity(vukah.Id, Ahead(-2), 180);
         var other = await Spawn.Entity(vukah.Id, Ahead(2), 180);
         c.OnEnd(() => { Spawn.Destroy(doll); Spawn.Destroy(other); });
+        // Spawn.Entity answers a few steps before the creature has its health (the lab part waits 4 steps): the first
+        // run in a real game threw "Combat.SetInvulnerable: no such entity (or it has no health)" here
+        if (!await c.Until(() => Combat.GetHealth(doll) != null && Combat.GetHealth(other) != null, TimeSpan.FromSeconds(10),
+                "both Vukahs are in the world with their health"))
+        {
+            await c.Verdict();
+            return;
+        }
         Combat.SetInvulnerable(doll, true);
         Combat.SetInvulnerable(other, true);
         var seen = new List<EntityHurtEvent>();

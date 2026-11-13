@@ -809,7 +809,7 @@ internal sealed class CheckRunner
             {
                 newest.TryGetValue(c.Key, out var e);
                 return new ViewItem(c.Mod, c.Id, c.Title, c.Area, c.Tags, LedgerCheck.NeedsName(c.Needs), e?.Verdict, e?.Note,
-                    Preview(c, session, sessionProblem, Proof), c.Confirm, c.Cheats);
+                    Preview(c, session, sessionProblem, Proof), c.Confirm, c.Cheats) { Since = c.Since };
             }).ToList();
     }
 
@@ -827,6 +827,7 @@ internal sealed class CheckRunner
             g?.Dropped ?? 0, g?.Passed ?? 0, _warning, problem ?? _message, _queue.Count, Ledger.WriteError ?? (Ledger.MovedAside is { } m ? $"an unreadable ledger was moved to {Path.GetFileName(m)}" : null))
         {
             Changed = _changedCharacter,
+            Kiln = _env.Game.Kiln,
         };
         Volatile.Write(ref _view, view);
     }

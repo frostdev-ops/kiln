@@ -203,6 +203,34 @@ public sealed class RunnerTests
         Assert.Contains("not hosting a world", h.Runner.View.Message);  // said once for the whole list, not per row
     }
 
+    /// <summary>A long list (about 120 checks in the first real pass) hides the dozen a release is about.</summary>
+    [Fact]
+    public void The_list_can_show_only_the_checks_that_came_with_the_running_version()
+    {
+        static ViewItem I(string id, string? since) => new("m", id, id, "Area", [], "any", null, null, null, null, false) { Since = since };
+        var v = RunnerView.Empty with { Kiln = "0.2.0-dev.27", Items = [I("old", "0.2.0-dev.26"), I("new", "0.2.0-dev.27"), I("none", null)] };
+        Assert.Equal(1, CheckScreen.NewCount(v));
+        Assert.Equal(["new"], CheckScreen.Shown(v, true).Select(i => i.Id));
+        Assert.Equal(3, CheckScreen.Shown(v, false).Count);
+        // nothing new in the list, or the version not known: the whole list, whatever the switch says
+        var older = v with { Items = [I("old", "0.2.0-dev.26")] };
+        Assert.Equal(0, CheckScreen.NewCount(older));
+        Assert.Single(CheckScreen.Shown(older, true));
+        Assert.Equal(3, CheckScreen.Shown(v with { Kiln = null }, true).Count);
+    }
+
+    [Fact]
+    public void The_runner_says_which_version_runs_and_which_version_each_check_came_with()
+    {
+        using var h = new Harness();
+        h.Pump();
+        Assert.Equal(h.Env.Game.Kiln, h.Runner.View.Kiln);
+        Assert.NotEmpty(h.Runner.View.Items);
+        Assert.All(h.Runner.View.Items, i =>
+            Assert.Equal(CheckRegistry.All.First(c => c.Mod == i.Mod && c.Id == i.Id && c.Title == i.Title).Since, i.Since));
+        Assert.Contains(h.Runner.View.Items, i => i.Title == "Passes on its assertions" && i.Since == "0.2.0-test");
+    }
+
     [Fact]
     public void A_joined_run_answers_only_its_own_client()
     {

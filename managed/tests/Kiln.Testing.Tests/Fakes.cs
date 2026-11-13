@@ -100,7 +100,7 @@ public sealed class CheckMod : Mod
         DuringBody = null;
     }
 
-    [ClientCheck("t.pass", "Passes on its assertions", Area = "Basics", Order = 1)]
+    [ClientCheck("t.pass", "Passes on its assertions", Area = "Basics", Since = "0.2.0-test", Order = 1)]
     public async Task Pass(CheckContext c)
     {
         c.Instruct("Look at it.");

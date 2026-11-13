@@ -21,6 +21,8 @@ internal sealed class ScreenState
     public bool OpenedForNote;
     public string? ConfirmKey;
     public DateTime ConfirmShown;
+    /// <summary>The list shows only the checks that came with the running Kiln version (the player's choice).</summary>
+    public bool OnlyNew;
 
     /// <summary>A confirmation must be on screen this long before its yes counts (no click goes through by accident).</summary>
     public static readonly TimeSpan ConfirmDelay = TimeSpan.FromSeconds(1.5);
@@ -55,7 +57,14 @@ internal static class CheckScreen
             s.Noting = false;
             ui.TextDisabled("No check is running. Pick one below, or run them all in order.");
             var runnable = v.Session is "hosted" or "joined" or "server";
-            if (runnable && ui.Button("Run all")) act(new UiAction(UiActionKind.RunAll));
+            if (s.OnlyNew && NewCount(v) > 0)
+            {
+                // only what the list shows, in its order: each is queued as if its own Run had been pressed
+                var these = Shown(v, true).Where(i => i.Refusal is null).ToList();
+                if (runnable && these.Count > 0 && ui.Button($"Run these {these.Count}"))
+                    foreach (var i in these) act(new UiAction(UiActionKind.Run, i));
+            }
+            else if (runnable && ui.Button("Run all")) act(new UiAction(UiActionKind.RunAll));
             if (v.Session == "joined")
             {
                 ui.SameLine();
@@ -64,11 +73,13 @@ internal static class CheckScreen
         }
         if (v.Queued > 0) ui.TextDisabled($"{v.Queued} more queued");
         ui.Separator();
+        // a release's pass is about the checks that came with it: one switch hides the rest (most of a long list)
+        if (NewCount(v) is > 0 and var fresh) ui.Checkbox($"Only the {fresh} check(s) new in Kiln {v.Kiln}", ref s.OnlyNew);
 
         if (ui.BeginChild("kiln.checks.list"))
         {
             if (v.Items.Count == 0) ui.TextDisabled(v.Session == "joined" ? "The server lists no checks." : "No loaded mod registered checks.");
-            foreach (var area in v.Items.GroupBy(i => i.Area, StringComparer.OrdinalIgnoreCase))
+            foreach (var area in Shown(v, s.OnlyNew).GroupBy(i => i.Area, StringComparer.OrdinalIgnoreCase))
             {
                 var items = area.ToList();
                 var done = items.Count(i => i.Verdict == "pass");
@@ -103,6 +114,14 @@ internal static class CheckScreen
         }
         ui.EndChild();
     }
+
+    /// <summary>How many of the list's checks came with the running Kiln version (0 when the version is not known).</summary>
+    internal static int NewCount(RunnerView v) => v.Kiln is { Length: > 0 } k ? v.Items.Count(i => i.Since == k) : 0;
+
+    /// <summary>The checks the list shows: all of them, or with <paramref name="onlyNew"/> the ones that came with the
+    /// running Kiln version; all of them again when there is none of those (the switch is not offered then).</summary>
+    internal static IReadOnlyList<ViewItem> Shown(RunnerView v, bool onlyNew) =>
+        onlyNew && NewCount(v) > 0 ? v.Items.Where(i => i.Since == v.Kiln).ToList() : v.Items;
 
     private static void DrawCurrent(UiDraw ui, ViewCurrent c, ScreenState s, Action<UiAction> act, DateTime now)
     {
