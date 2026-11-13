@@ -47,6 +47,9 @@ extern thread_local CallbackLifetime* t_callback;
 extern const KilnApi* g_api;
 extern KilnOwner g_owner;
 void logf(int level, const char* fmt, ...);
+// progress.json (kiln.progress v2 `mark`): the main menu, or a start's first world frame, drew. Once per process; any
+// later call returns at an atomic test. `what` names it for the log line.
+void start_drawn(const char* what);
 uint64_t now_ms();
 
 // ---- state (any thread) ----

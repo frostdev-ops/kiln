@@ -14,6 +14,7 @@
 #include "registry.h"
 #include "services/hooks_internal.h"
 #include "sigdb.h"
+#include "progress_state.h"
 #include "worldinfo.h"
 
 namespace kiln::tick {
@@ -212,8 +213,10 @@ void begin_world(uint32_t kind, uintptr_t world) {
     g_kind_thread[kind].store(GetCurrentThreadId());
     if (kind == KILN_WORLD_SERVER) g_thread.store(GetCurrentThreadId());
     g_generation.fetch_add(1);
-    if (kind == KILN_WORLD_SERVER && session == 1)
+    if (kind == KILN_WORLD_SERVER && session == 1) {
         KLOG_I("tick: first server-world step on thread %lu", GetCurrentThreadId());
+        progress_state::mark(3);  // progress.json: a dedicated server without .NET is ready here (progress_file.h, Mark)
+    }
     KLOG_I("tick: %s world 0x%llx started (session %u, thread %lu%s)", kKindName[kind],
            static_cast<unsigned long long>(world), session, GetCurrentThreadId(),
            old ? "; the previous one stopped without a destroy event" : "");

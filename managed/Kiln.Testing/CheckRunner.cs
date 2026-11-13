@@ -180,8 +180,16 @@ internal sealed class CheckRunner
         if (_run is null) StartNext();
         if (_env.Now - _guardRead > TimeSpan.FromSeconds(1)) ReadGuard();
         if (_changedCharacter is not null && _env.WorldSession != _changedIn) _dirty = true;
+        // the game goes from the main menu into a hosted world (and back) without anything else of the runner's
+        // changing: the list says where it is, and offers Run only in a world
+        if (SessionLabel() != _publishedSession) _dirty = true;
         if (_dirty) Publish();
     }
+
+    /// <summary>What the list calls this session now.</summary>
+    private string SessionLabel() => _env.IsClient ? (_env.Hosting ? "hosted" : "menu") : "server";
+
+    private string _publishedSession = "";
 
     /// <summary>Queues one check (tick thread). Its outcome comes as events.</summary>
     public void Request(StartRequest r)
@@ -812,7 +820,8 @@ internal sealed class CheckRunner
         var (session, problem) = SessionOf(new StartRequest("", "", _env.IsClient ? CheckOrigin.Local : CheckOrigin.Control));
         var items = Items(session, problem);
         var g = _guard;
-        var label = _env.IsClient ? (_env.Hosting ? "hosted" : "menu") : "server";
+        var label = SessionLabel();
+        _publishedSession = label;
         var view = new RunnerView(label, items, _run is { } r ? CurrentOf(r) : null,
             g is { } s ? s.ToString() : _env.Guard is null ? "not there" : "status did not arrive", g?.Protecting ?? false,
             g?.Dropped ?? 0, g?.Passed ?? 0, _warning, problem ?? _message, _queue.Count, Ledger.WriteError ?? (Ledger.MovedAside is { } m ? $"an unreadable ledger was moved to {Path.GetFileName(m)}" : null))

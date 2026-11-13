@@ -103,17 +103,22 @@ public sealed partial class ClientPassMod
     public Task MenuScroll(CheckContext c) => Outside(c,
         "An experiment: Kiln wraps the pause menu in the game's own scroll view once it has more than 3 mods' entries. It " +
         "may end the game once; then send kiln/logs/kiln.log and kiln/state/menu-scroll.off. Setup: modEntries Auto (the " +
-        "default), more than 3 mods' entries in the pause menu (mods/tests/menu-many-test, as for menu.rows-quit; set its " +
-        "Entries to 20 so that they cannot fit), 1920x1080. kiln.log should say " +
-        "\"ui: the pause menu can scroll (experiment)\" at start. 1) Open the pause menu: does it draw, every entry " +
-        "there (the mods' and the game's), and kiln.log say \"ui: the pause menu scrolls: ...\" with sizes? 2) Turn the " +
-        "mouse wheel over it: does the list scroll, and do entries stop at the menu's edges (clipped, not drawn over the " +
-        "title)? 3) With the arrow keys go down to Quit and back up to Resume: does the list follow the highlighted entry? " +
-        "4) The same with a gamepad (d-pad down to Quit, up to Resume). 5) Press Return to Main Menu and come back into " +
-        "the world: does it still work? 6) Set menu-many-test's Entries to 2 (3 or fewer mods' entries in all): is it exactly as " +
-        "before 0.2.0-dev.27 (no scroll view, centred as the game draws it)? Send a screenshot of 1) and 6), and the " +
-        "lines of kiln.log starting with \"ui: the pause menu\". Did it scroll, clip and follow the keys and the pad to " +
-        "Quit and back?");
+        "default), mods/tests/menu-many-test with Entries 20 (more than fit), any resolution (say which). kiln.log should " +
+        "say \"ui: the pause menu can scroll (experiment)\" at start. 1) Open the pause menu: does the list reach from " +
+        "the top of the menu down to near the bottom of the screen (not a third of it), with every entry there, and " +
+        "kiln.log say \"ui: the pause menu scrolls: ...\" with a scroll view almost as tall as the column? 2) The " +
+        "scrollbar at the list's right: does it look like the game's other list scrollbars (a track and a thumb about as " +
+        "long as the visible part of the list), not a plain white bar? 3) Turn the mouse wheel over it: does the list " +
+        "scroll and the thumb move, with entries clipped at the menu's edges? 4) With the arrow keys go down past the last " +
+        "visible entry to Quit, then back up to Resume: does the list follow the highlighted entry each way, so it stays " +
+        "visible? kiln.log says \"ui: the pause menu's scroll view moved: offset ...\" the first times it moves. 5) " +
+        "Scroll with the wheel, then press an arrow key: the view stays where the wheel put it until the highlight moves, " +
+        "then follows it. 6) The same as 4) with a gamepad (d-pad, then the stick), down to Quit and back. 7) Return to " +
+        "Main Menu and back into the world: does it still work? 8) Set menu-many-test's Entries to 2 (3 or fewer mods' " +
+        "entries in all): is it exactly as before 0.2.0-dev.27 (no scroll view, centred as the game draws it)? Send " +
+        "screenshots of 1), 4) at Quit and 8), and every kiln.log line starting with \"ui: the pause menu\" or " +
+        "\"ui: the scrolling pause menu\". Did it fill the column, look like the game's scrollbars, and follow the keys " +
+        "and the pad to Quit and back?");
 
     [ClientCheck("boot.proxy", "The game started with Kiln's proxy", Area = "Menus and hooks", Since = Dev21, Order = 108)]
     public async Task BootProxy(CheckContext c)
@@ -754,6 +759,44 @@ public sealed partial class ClientPassMod
                    "cloud at a random place in its region, so it may be far from you). Within a minute, does the sky turn " +
                    "overcast? If rain reaches you, does it look like the game's own? Did the clouds go away in step 1? When " +
                    "the check ends, the weather goes back to the game.");
+        await c.Verdict();
+    }
+    [ClientCheck("boot.progress-file", "Kiln says what a start is doing, step by step, until the main menu", Area = "Core",
+        Since = Dev27, Tags = [Visual], Order = 152)]
+    public async Task BootProgressFile(CheckContext c)
+    {
+        // kiln/state/progress.json of this start (kiln-core writes it; schema/state-progress.schema.json): it must have
+        // reached ready (the main menu drew with every mod loaded, before this world), with a plan, every step ended,
+        // and the steps' tookMs adding up to atMs.
+        var file = Path.Combine(KilnFolder(), "state", "progress.json");
+        System.Text.Json.Nodes.JsonObject? doc = null;
+        try { doc = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(file)) as System.Text.Json.Nodes.JsonObject; }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.Text.Json.JsonException) { c.Expect(false, "kiln/state/progress.json is readable", e.Message); }
+        if (doc != null)
+        {
+            c.Expect((int?)doc["pid"] == Environment.ProcessId, "the file is this start's", $"pid {doc["pid"]}, this game {Environment.ProcessId}");
+            c.Expect((string?)doc["state"] == "ready", "state ready", $"{doc["state"]} (why: {doc["why"]})");
+            var plan = doc["plan"] as System.Text.Json.Nodes.JsonArray ?? [];
+            var steps = doc["steps"] as System.Text.Json.Nodes.JsonArray ?? [];
+            c.Expect(plan.Count > 0 && plan[0]?.ToString() == "start" && plan[^1]?.ToString() == "game", "a plan from start to game", string.Join(", ", plan));
+            var ids = steps.Select(s => (string?)s?["id"] ?? "").ToList();
+            c.Expect(ids.SequenceEqual(plan.Select(p => p?.ToString() ?? "").Take(ids.Count)), "the steps follow the plan, none left out", string.Join(", ", ids));
+            c.Expect(steps.All(s => s?["tookMs"] != null), "every step ended (tookMs)", string.Join(", ", steps.Where(s => s?["tookMs"] == null).Select(s => (string?)s?["id"])));
+            var sum = steps.Sum(s => (long?)s?["tookMs"] ?? 0);
+            var at = (long?)doc["atMs"] ?? -1;
+            c.Expect(sum == at, "the steps' tookMs add up to atMs", $"sum {sum} ms, atMs {at} ms");
+            var lines = steps.Select(s =>
+            {
+                var parts = (s?["parts"] as System.Text.Json.Nodes.JsonArray ?? []).Select(p => $"{p?["label"]} {(long?)p?["tookMs"] / 1000.0:F1} s");
+                var count = s?["total"] != null ? $" ({s["done"]} of {s["total"]})" : "";
+                var list = string.Join(", ", parts);
+                return $"{(long?)s?["tookMs"] / 1000.0:F1} s  {s?["label"]}{count}{(list.Length > 0 ? " [" + list + "]" : "")}";
+            });
+            c.Instruct($"This start took {at / 1000.0:F1} s from Kiln's first moment to a usable main menu. What Kiln wrote " +
+                       "it did, step by step: " + string.Join("; ", lines) + ". Does that list make sense for what you saw " +
+                       "(the long steps where you waited), and did the launcher's progress bar show the same steps while " +
+                       "the game started?");
+        }
         await c.Verdict();
     }
 }

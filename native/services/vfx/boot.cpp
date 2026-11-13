@@ -20,6 +20,7 @@
 #include <vector>
 
 #include "boot.h"
+#include "services/kiln_progress.h"
 #include "cook/vfxcook.h"
 #include "core.h"
 #include "generated.h"
@@ -79,6 +80,9 @@ std::map<std::pair<std::string, kvb::Guid>, uint64_t> g_reskin_defs;  // what wa
 std::map<std::string, KilnOwner> g_reskin_owners;
 std::atomic<bool> g_reskin_watch{false};
 std::set<kvb::Guid> g_game_materials;  // original KFC keys only: resource_put accepts unknown overrides before binding
+// Every material the boot build built, by mod and block: define_json takes a block of the same definition whose files still have the same
+// bytes from here instead of decoding its textures again (kvb::MaterialRecord). Written once in on_ready, read under g_mu.
+std::map<std::pair<std::string, std::string>, kvb::MaterialRecord> g_material_records;
 kvb::GameCounts g_game;
 std::atomic<bool> g_off{false};           // the late check failed
 std::atomic<bool> g_late_done{true};      // nothing to check until something was built
@@ -666,8 +670,26 @@ void build_on_ready(const KilnApi* api, KilnOwner self) {
         shader_switches(&opt);
         const char* fingerprint = diff.empty() && material_diff.empty() ? "ok" : "changed";
         const std::string fingerprint_detail = diff.empty() ? material_diff : diff;
+        // progress.json: this runs in on_ready, kiln-core's step "plugins"; the detail says which mod's block is built
+        // (kiln.progress v2; nothing with an older core, and kiln-core writes it at most every 250 ms)
+        const auto* progress = static_cast<const KilnProgressApi*>(api->service(KilnStr{KILN_PROGRESS_SERVICE, sizeof(KILN_PROGRESS_SERVICE) - 1}, 1));
+        if (progress && progress->header.size >= offsetof(KilnProgressApi, step) + sizeof(void*) && progress->step)
+            opt.progress = [progress](const std::string& mod, size_t nth, size_t of, const char* kind, const std::string& name, size_t done, size_t total) {
+                const std::string detail = "kiln-vfx: building the materials and VFX of " + mod + (of > 1 ? " (mod " + std::to_string(nth) + " of " + std::to_string(of) + ")" : "") +
+                                           ": " + kind + " " + name + " (" + std::to_string(done + 1) + " of " + std::to_string(total) + ")";
+                progress->step(KilnStr{"plugins", 7}, KilnStr{nullptr, 0}, KilnStr{detail.data(), detail.size()}, 0, 0);
+            };
+        std::vector<kvb::MaterialRecord> records;
+        opt.record_material = [&records](const kvb::MaterialRecord& rec) { records.push_back(rec); };
         const uint64_t t0 = GetTickCount64();
         const kvb::CookResult r = kvb::cook_mods(mods, opt);
+        {
+            std::lock_guard lk(g_mu);
+            for (kvb::MaterialRecord& rec : records) {
+                const auto key = std::make_pair(rec.mod, rec.name);
+                g_material_records[key] = std::move(rec);
+            }
+        }
         for (const std::string& e : r.errors) KV_E("vfx: %s", e.c_str());
         for (const std::string& e : r.refused_mods) KV_E("vfx: %s", e.c_str());
         for (const std::string& w : r.warnings) KV_W("vfx: %s", w.c_str());
@@ -893,7 +915,17 @@ KilnResult build_define_json(KilnOwner owner, KilnStr json, char* report, size_t
             opt.read_file = &read_all;
             opt.cache = disk_cache();
             opt.game_has_blob = game_has_blob;
+            // A material the boot build built from the same definition and the same file bytes is not built again (kvb::MaterialRecord):
+            // the report is the same, without decoding its textures. The copy is taken under g_mu, the cook runs without it.
+            opt.known_material = [copy = kvb::MaterialRecord{}](const std::string& mod, const std::string& name, uint64_t definition) mutable -> const kvb::MaterialRecord* {
+                std::lock_guard lk(g_mu);
+                const auto it = g_material_records.find({mod, name});
+                if (it == g_material_records.end() || it->second.definition != definition) return nullptr;
+                copy = it->second;
+                return &copy;
+            };
             const kvb::CookResult r = kvb::cook_mods({m}, opt);
+            if (r.materials_reused) KV_D("vfx: %s: %u material(s) as the boot build made them (same definition and files)", m.id.c_str(), r.materials_reused);
             result = kvb::report_json(r);
             if (!r.errors.empty() || !r.refused_mods.empty()) rc = KILN_ERR_INVALID_ARGUMENT;
             const fs::path pending = to_path(api_path(KILN_PATH_DATA)) / L"vfx" / L"pending" / to_path(m.id);

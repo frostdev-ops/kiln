@@ -182,6 +182,27 @@ public sealed class RunnerTests
         Assert.Equal("menu", h.Runner.View.Session);
     }
 
+    /// <summary>The first run of the list in a real client (2026-11-13): opened in a hosted world, it still said "main
+    /// menu" and offered no Run button, because the game had gone from the main menu into the world without anything
+    /// else changing.</summary>
+    [Fact]
+    public void The_list_follows_the_game_from_the_main_menu_into_a_hosted_world_and_back()
+    {
+        using var h = new Harness(x => x.Env.Hosting = false);
+        h.Pump();
+        Assert.Equal("menu", h.Runner.View.Session);
+        Assert.Contains("not hosting a world", h.Runner.View.Message);
+        h.Env.Hosting = true;  // the player hosted a world: nothing else happened
+        h.Pump();
+        Assert.Equal("hosted", h.Runner.View.Session);
+        Assert.DoesNotContain("not hosting a world", h.Runner.View.Message ?? "");
+        Assert.Contains(h.Runner.View.Items, i => i.Title == "Passes on its assertions" && i.Refusal is null);
+        h.Env.Hosting = false;  // back to the main menu
+        h.Pump();
+        Assert.Equal("menu", h.Runner.View.Session);
+        Assert.Contains("not hosting a world", h.Runner.View.Message);  // said once for the whole list, not per row
+    }
+
     [Fact]
     public void A_joined_run_answers_only_its_own_client()
     {

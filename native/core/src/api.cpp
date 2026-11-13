@@ -18,6 +18,8 @@
 #include "log.h"
 #include "profile.h"
 #include "progress.h"
+#include "progress_file.h"  // module_name
+#include "progress_state.h"
 #include "registry.h"
 #include "sigdb.h"
 #include "config.h"
@@ -336,11 +338,11 @@ void load_one(const std::filesystem::path& file, const char* kind) {
     g_modules.push_back({name, info, h});
 }
 
-// `which`: 0 every DLL, 1 Kiln's own (kiln-*.dll), 2 the others (drop-ins).
-void load_dir(const std::filesystem::path& dir, const char* kind, int which = 0) {
-    std::error_code ec;
-    if (!std::filesystem::is_directory(dir, ec)) return;
+// The DLLs of `dir` in file-name order. `which`: 0 every DLL, 1 Kiln's own (kiln-*.dll), 2 the others (drop-ins).
+std::vector<std::filesystem::path> list_dlls(const std::filesystem::path& dir, int which = 0) {
     std::vector<std::filesystem::path> files;
+    std::error_code ec;
+    if (!std::filesystem::is_directory(dir, ec)) return files;
     for (auto& e : std::filesystem::directory_iterator(dir, ec)) {
         std::wstring n = e.path().filename().wstring();
         CharLowerBuffW(n.data(), static_cast<DWORD>(n.size()));
@@ -350,7 +352,19 @@ void load_dir(const std::filesystem::path& dir, const char* kind, int which = 0)
         if (which == 0 || (which == 1) == own) files.push_back(e.path());
     }
     std::sort(files.begin(), files.end());
-    for (const auto& file : files) load_one(file, kind);
+    return files;
+}
+
+// load_one with what progress.json says: the module's name as the step's detail (and the count, for services), and a
+// part when it took 500 ms or more.
+void load_reported(const std::filesystem::path& file, const char* kind, const char* step, uint64_t* done, uint64_t total) {
+    const std::string name = progress_file::module_name(u8(file.filename()));
+    if (total) progress_state::step(step, {}, name, *done, total);
+    else progress_state::step(step, {}, name);
+    const double t0 = now_ms();
+    load_one(file, kind);
+    progress_state::part(name + ": starting", static_cast<uint64_t>(now_ms() - t0));
+    ++*done;
 }
 
 void KILN_CALL run_ready(void* p) {
@@ -374,15 +388,23 @@ std::vector<std::string> published_services() {
 // Services (kiln/services/*.dll, Kiln's own), then with kiln.json "plugins" on and not play-once no-mods: Kiln's own
 // plugins (kiln/plugins/kiln-*.dll), the profile's plugin entries, then the plugin drop-ins (the other DLLs in
 // kiln/plugins: LEGACY, or a profile with dropins incl. "plugin"). Every on_ready after all kiln_plugin_main calls.
+// progress.json: step "services" runs while the service DLLs run kiln_plugin_main (count: service DLLs), step "plugins"
+// while the plugins do and then while every module runs on_ready ("Getting Kiln's services and plugins ready", count:
+// modules with an on_ready; kiln-vfx builds the mods' materials and VFX there and says so itself).
 void load_plugins() {
-    load_dir(paths().kiln / L"services", "service");
+    const auto services = list_dlls(paths().kiln / L"services");
+    uint64_t done = 0;
+    for (const auto& file : services) load_reported(file, "service", "services", &done, services.size());
+    progress_state::step("services", {}, {}, done, services.size());
+    progress_state::step("plugins");
     const auto& prof = profile::state();
     if (!config().plugins) {
         KLOG_I("plugins: off (kiln.json \"plugins\": false)");
     } else if (prof.mode == KILN_PROFILE_NO_MODS) {
         KLOG_I("plugins: none this start (play-once no-mods)");
     } else {
-        load_dir(paths().plugins, "plugin", 1);
+        done = 0;
+        for (const auto& file : list_dlls(paths().plugins, 1)) load_reported(file, "plugin", "plugins", &done, 0);
         for (const auto& e : prof.mods[KILN_PROFILE_KIND_PLUGIN]) {
             const std::filesystem::path file = to_wide(e.path);
             if (!e.enabled) {
@@ -390,15 +412,28 @@ void load_plugins() {
                 record("plugin", file, "skipped", "disabled in the profile");
                 continue;
             }
-            load_one(file, "plugin");
+            load_reported(file, "plugin", "plugins", &done, 0);
         }
-        if (profile::dropins(KILN_PROFILE_KIND_PLUGIN)) load_dir(paths().plugins, "plugin", 2);
+        if (profile::dropins(KILN_PROFILE_KIND_PLUGIN))
+            for (const auto& file : list_dlls(paths().plugins, 2)) load_reported(file, "plugin", "plugins", &done, 0);
     }
+    const auto has_ready = [](const LoadedModule& m) {
+        return m.info.size >= offsetof(KilnPluginInfo, on_ready) + sizeof(void*) && m.info.on_ready;
+    };
+    const uint64_t ready_total = static_cast<uint64_t>(std::count_if(g_modules.begin(), g_modules.end(), has_ready));
+    uint64_t ready_done = 0;
+    if (ready_total) progress_state::step("plugins", "Getting Kiln's services and plugins ready", {}, 0, ready_total);
     for (auto& m : g_modules) {
-        if (m.info.size < offsetof(KilnPluginInfo, on_ready) + sizeof(void*) || !m.info.on_ready) continue;
+        if (!has_ready(m)) continue;
+        const std::string name = progress_file::module_name(m.name);
+        progress_state::step("plugins", {}, name, ready_done, ready_total);
+        const double t0 = now_ms();
         unsigned long code = 0;
         if (!guard::task(&run_ready, &m, &code)) KLOG_E("%s: on_ready faulted (0x%08lx)", m.name.c_str(), code);
+        progress_state::part(name + ": getting ready", static_cast<uint64_t>(now_ms() - t0));
+        ++ready_done;
     }
+    if (ready_total) progress_state::step("plugins", {}, {}, ready_done, ready_total);
 }
 
 // ---- on_unload at process exit (kiln_api.h, KilnPluginInfo.on_unload) ----

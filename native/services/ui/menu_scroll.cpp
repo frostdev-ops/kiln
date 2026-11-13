@@ -33,6 +33,7 @@ using ScrollEndFn = void(__fastcall*)(void* layout);
 using ScrollSpeedFn = float(__fastcall*)(void* layout);
 using ScrollSetSpeedFn = void(__fastcall*)(void* layout, float speed);
 using ParamsInitFn = void*(__fastcall*)(void* params);
+using BarInitFn = void*(__fastcall*)(void* bar);
 using FrameStateFn = void*(__fastcall*)(void* node, uint64_t hash, uint32_t size, void* ctor, uint32_t flag);
 using StateIsNewFn = bool(__fastcall*)(void* state);
 using VStackFn = void*(__fastcall*)(void* builder, float spacing);
@@ -47,6 +48,9 @@ struct Fns {
     ScrollSpeedFn speed = nullptr;
     ScrollSetSpeedFn set_speed = nullptr;
     ParamsInitFn params_init = nullptr;
+    BarInitFn bar_init = nullptr;
+    uintptr_t ui_app = 0;                           // the global UiApp pointer's address
+    int64_t ui_config = 0, cfg_a = 0, cfg_b = 0, cfg_c = 0;  // UiApp + ui_config -> the UI config; the scrollbar's parts
     FrameStateFn state = nullptr;
     void* state_nop = nullptr;
     StateIsNewFn state_new = nullptr;
@@ -68,6 +72,10 @@ constexpr uint16_t kColumnAlign = 0x0201;  // what the builder gives the column 
 alignas(16) uint8_t g_layout[0x800];
 alignas(16) uint8_t g_params[0x200];
 alignas(16) uint8_t g_inner[0x80];
+alignas(16) uint8_t g_bar[0x100];
+void* g_state = nullptr;  // this call's 4-byte state block: the scroll offset (a float; ScrollLayoutEnd reads it)
+float g_last_offset = 0.0f;
+int g_offset_lines = 0;   // kiln.log lines about the offset moving (the first few only)
 
 kiln::MidHook2 g_open_hook, g_close_hook;
 std::atomic<bool> g_on{false};
@@ -229,16 +237,30 @@ bool begin_scroll(uint8_t* column) {
         void* node = *reinterpret_cast<void**>(column + (F.column_node - F.column));
         if (!node) return;
         std::memset(g_params, 0, sizeof g_params);
-        F.params_init(g_params);  // the game's defaults: scissor on, auto scrolling on, navigation as the credits have it
+        F.params_init(g_params);  // the game's defaults: scissor on, auto scrolling on
+        // the scrollbar's look from the UI config and the list settings, as the game's own lists set them
+        const uint8_t* app = *reinterpret_cast<uint8_t* const*>(F.ui_app);
+        const uint8_t* cfg = app ? *reinterpret_cast<uint8_t* const*>(app + F.ui_config) : nullptr;
+        if (!cfg) return;
+        std::memset(g_bar, 0, sizeof g_bar);
+        F.bar_init(g_bar);
+        menu_scroll::style_params(g_params, g_bar, cfg, static_cast<size_t>(F.cfg_a), static_cast<size_t>(F.cfg_b),
+                                  static_cast<size_t>(F.cfg_c));
         state = F.state(node, kStateHash, 4, F.state_nop, 1);
         if (state && F.state_new(state)) *static_cast<uint32_t*>(state) = 0;
     });
     if (!before || !state) return false;
+    g_state = state;
     g_nest = {};
     std::memset(g_layout, 0, sizeof g_layout);
     if (!guarded([&] { F.begin(g_layout, 1, state, nullptr, g_params); })) give_up("faulted inside the game's begin");
     g_nest.layout = true;
-    if (!guarded([] { F.set_speed(g_layout, F.speed(g_layout)); })) {
+    // the view takes the column's height: the builder's own spacers are flexible children of the column too
+    // (menu_scroll.h kViewWeight)
+    if (!guarded([] {
+            F.set_speed(g_layout, F.speed(g_layout));
+            if (void* outer = *reinterpret_cast<void**>(g_layout + 8)) F.size(outer, pack(1.0f, menu_scroll::kViewWeight));
+        })) {
         if (!unwind()) give_up("faulted, and so did closing its scroll view");
         return false;
     }
@@ -301,6 +323,18 @@ void on_close(KilnRegisters& r) {
     if (!unwind()) give_up("faulted while closing its scroll view");
     // the crash guard's trial: wrapped builder calls that ran to their close site
     if (g_marker_written && menu_scroll::trial_step(g_trial)) g_clear_marker = true;
+    // the offset (the state block the game's scroll view keeps): said the first few times it moves, so a try shows
+    // whether the view follows the highlight (keys, pad) as well as the wheel
+    if (g_offset_lines < 4 && g_state) {
+        float off = 0.0f;
+        if (guarded([&] { off = *static_cast<const float*>(g_state); }) && std::isfinite(off) &&
+            std::fabs(off - g_last_offset) > 0.5f) {
+            ++g_offset_lines;
+            logf(KILN_LOG_INFO, "ui: the pause menu's scroll view moved: offset %.0f (was %.0f; the wheel, or the view "
+                                "following the highlighted entry)", off, g_last_offset);
+            g_last_offset = off;
+        }
+    }
     // the first frames: what the layout says (once the game laid the scroll view out at least once)
     if (++g_scrolled_frames > 8) return;
     auto* column = reinterpret_cast<uint8_t*>(r.rbp + static_cast<intptr_t>(F.column));
@@ -313,6 +347,13 @@ void on_close(KilnRegisters& r) {
         char why[192];
         std::snprintf(why, sizeof why, "the scroll view's layout is not plausible (column h %.1f, view h %.1f, entries h %.1f)",
                       col[3], outer[3], inner[3]);
+        turn_off(KILN_UI_SCROLL_OFF_FAULTED, why);
+        return;
+    }
+    if (menu_scroll::view_too_short(col[3], outer[3], inner[3])) {
+        char why[192];
+        std::snprintf(why, sizeof why, "the scroll view is much shorter than its column while the entries do not fit "
+                                       "(column h %.0f, view h %.0f, entries h %.0f)", col[3], outer[3], inner[3]);
         turn_off(KILN_UI_SCROLL_OFF_FAULTED, why);
         return;
     }
@@ -356,7 +397,10 @@ bool scroll_install(bool system_menu_hooked) {
     const bool ok = sym("ui/SystemMenuColumnOpened", &open_site) && sym("ui/SystemMenuColumnClosing", &close_site) &&
                     fn("ui/ScrollLayoutBegin", &F.begin) && fn("ui/ScrollLayoutEnd", &F.end) &&
                     fn("ui/ScrollLayoutSpeed", &F.speed) && fn("ui/ScrollLayoutSetSpeed", &F.set_speed) &&
-                    fn("ui/ScrollParamsInit", &F.params_init) && fn("ui/UiFrameState", &F.state) &&
+                    fn("ui/ScrollParamsInit", &F.params_init) && fn("ui/ScrollbarParamsInit", &F.bar_init) &&
+                    sym("ui/UiApp", &F.ui_app) && cst("ui/ui.config", &F.ui_config) &&
+                    cst("ui/cfg.scrollbar_a", &F.cfg_a) && cst("ui/cfg.scrollbar_b", &F.cfg_b) &&
+                    cst("ui/cfg.scrollbar_c", &F.cfg_c) && fn("ui/UiFrameState", &F.state) &&
                     fn("ui/UiStateNop", &F.state_nop) && fn("ui/UiStateIsNew", &F.state_new) &&
                     fn("ui/UiVStack", &F.vstack) && fn("ui/UiFrameEnd", &F.frame_end) && fn("ui/UiNodeAlign", &F.align) &&
                     fn("ui/UiNodeSize", &F.size) && fn("ui/UiNodeRect", &F.rect) && cst("ui/sysmenu.column", &F.column) &&

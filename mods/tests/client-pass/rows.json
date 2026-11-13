@@ -78,6 +78,7 @@
     { "section": "New in 0.2.0-dev.27", "key": "A mod edited in its own Library folder: Changed on disk, and Use the changed files", "checks": ["launcher.library-changed"] },
     { "section": "New in 0.2.0-dev.27", "key": "Auto Doors and Find, installed by hand, run next to Kiln, and Kiln's mods keep loading", "checks": ["foreign.autodoors-find"] },
     { "section": "New in 0.2.0-dev.27", "key": "The pause menu scrolls when mods' entries do not fit (experiment)", "checks": ["menu.scroll"] },
+    { "section": "New in 0.2.0-dev.27", "key": "Kiln says what a start is doing, step by step, until the main menu", "checks": ["boot.progress-file"] },
     { "section": "New in 0.2.0-dev.27", "key": "Play shows what the start is doing, and from the second start the time left", "checks": ["launcher.start-progress"] }
   ]
 }

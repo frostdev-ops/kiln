@@ -461,6 +461,20 @@ struct BuiltMaterialBlock {
     uint64_t definition = 0;
     bool replaces = false;  // built under a game material's GUID, served as an override
 };
+// What one material block was built from and into (kiln-vfx's boot build records it): its definition (the hash of its block's JSON,
+// as BuiltMaterialBlock.definition), every file it read with the hash of that file's bytes, and what the build gave that a report or the
+// budget reads. A later cook of the same mod, block name and definition whose files still have those bytes gets exactly this from
+// material_maps and build_material (they are deterministic in those inputs), so it can take it without decoding a texture.
+struct MaterialRecord {
+    std::string mod, name;
+    uint64_t definition = 0;
+    std::vector<std::pair<std::string, ContentHash>> files;  // the path the block names (relative to the mod's folder) -> its bytes' hash
+    Guid guid;
+    uint8_t render_flags = 0;
+    uint32_t block_flags = 0;
+    uint32_t textures = 0;
+    std::vector<ContentHash> chains;  // each map's encoded chain: the budget counts streamed textures by it
+};
 struct CookOptions {
     GameCounts game;
     Capacity capacity;
@@ -471,6 +485,15 @@ struct CookOptions {
     bool skip_vfx = false, skip_materials = false;          // what the fingerprint turned off
     bool skip_shaders = false;                              // kiln/config/vfx.json "shaders": false: mods' own modules fall back to Kiln's sprite
     std::set<std::string> skip_shader_mods;                 // "skipShaderMods": the same for these mods only
+    // Called before each mod's VFX block or material is built (kiln-vfx's boot: progress.json's detail). mod: its id,
+    // nth/mods: which of the mods, kind: "VFX" or "material", done/total: the blocks of that mod. Empty: nothing.
+    std::function<void(const std::string& mod, size_t nth, size_t mods, const char* kind, const std::string& name, size_t done, size_t total)> progress;
+    // Each material built from its textures, as it was built (the boot build keeps them). Empty: nothing.
+    std::function<void(const MaterialRecord&)> record_material;
+    // A record for this mod, block and definition, or null (define_json asks the boot build's). With one whose every file still has the
+    // recorded bytes, the material is not built again: what it gives is taken from the record, and its textures are not served in the
+    // result (CookResult.materials_reused counts it). Everything else (parsing, warnings, budget, report) runs as for a built one.
+    std::function<const MaterialRecord*(const std::string& mod, const std::string& name, uint64_t definition)> known_material;
 };
 struct CookResult {
     std::vector<ServedBlob> blobs;
@@ -482,6 +505,7 @@ struct CookResult {
     uint32_t mods_with_vfx = 0;
     uint32_t mod_modules = 0;                // mods' own particle modules served
     uint32_t used_vfx = 0, used_meshes = 0, used_sounds = 0, used_curves = 0, used_materials = 0, used_streamed_textures = 0;
+    uint32_t materials_built = 0, materials_reused = 0;  // built from their textures; taken from a MaterialRecord
     uint64_t used_mesh_bytes = 0;
     GameCounts game;
     Capacity capacity;
