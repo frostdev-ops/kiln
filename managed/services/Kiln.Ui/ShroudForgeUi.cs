@@ -570,10 +570,43 @@ internal static class ShroudForgeUi
                 : JsonNode.DeepEquals(a, b);
     }
 
+    /// <summary>What a ShroudForge mod that says "waiting" waits for, in plain words, or null when it does not wait. The
+    /// mod's own words (its effect report, or ShroudForge's reason) are in <see cref="CatalogMod.Reason"/>: a mod that
+    /// changes the world waits for a world this game hosts, SF Unlimited Flight also whenever the player is not gliding,
+    /// so a player who opens the menu between flights always sees it waiting (player report, Nexus, 13 Nov 2026).</summary>
+    internal static string? WaitingFor(CatalogMod m)
+    {
+        if (m.Engine != "shroudforge" || m.Word != "waiting") return null;
+        var why = m.Reason ?? "";
+        bool Has(string t) => why.Contains(t, StringComparison.OrdinalIgnoreCase);
+        if (Has("restart-required"))
+            return "The next game start: ShroudForge loads this mod's changed configuration only when the game starts again.";
+        if (Has("dependency-blocked"))
+            return "A mod it needs: ShroudForge starts it once that mod runs (the reason above names it).";
+        if (Has("write scope") || Has("typed ECS access") || Has("typed engine access") || Has("writable live component context"))
+            return "Write access to the game world. ShroudForge gives it once a world this game hosts is running: your single-player " +
+                   "world, or a co-op world you host. In someone else's world or on a dedicated server it may never come; there the " +
+                   "mod has to run on the host's game or on the server.";
+        if (Has("authoritative world") || Has("waiting for the game world"))
+            return "A world: it starts working once you are in a world this game hosts, not in the main menu.";
+        if (Has("not actively using a glider"))
+            return "You to glide. It changes the glider only while you are gliding, so between flights (and whenever this menu is " +
+                   "open) it says waiting. That is normal: it applies when you take off.";
+        if (Has("Player query is pending") || Has("No live player"))
+            return "Your character in the world.";
+        return "Something the mod needs that is not there yet; its own words are under STATE above. ShroudForge mods that change " +
+               "the world wait for a world this game hosts (your single-player world, or a co-op world you host).";
+    }
+
     /// <summary>The ShroudForge part of a mod's details: its switch, its settings by group, its buttons.</summary>
     public static void Draw(UiDraw ui, CatalogMod m, float s, float k, Action<UiDraw, string, float> label)
     {
         if (m.Folder is not { } folder) return;
+        if (WaitingFor(m) is { } waits)
+        {
+            label(ui, "WHAT IT WAITS FOR", s);
+            using (ui.PushColor(UiColorSlot.Text, GameColors.Text)) ui.TextWrapped(waits);
+        }
         var now = Current(folder, out var error);
         var p = now.Package;
         label(ui, "SWITCH AND SETTINGS", s);

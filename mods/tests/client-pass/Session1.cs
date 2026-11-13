@@ -63,6 +63,15 @@ public sealed partial class ClientPassMod
         "my installed ShroudForge\" in the launcher's Settings, start the game again and look once more (ShroudForge may " +
         "add a row of its own next to it), then switch it off again. Was MODS in the main menu each time?");
 
+    [ClientCheck("menu.sf-waiting-for", "A waiting ShroudForge mod says what it waits for", Area = "Menus and hooks",
+        Since = Dev27, Tags = [Visual], Order = 145)]
+    public Task MenuSfWaitingFor(CheckContext c) => Outside(c,
+        "With SF Unlimited Flight switched on in this profile (its Upward Gliding setting on, the default), in this world " +
+        "you host: stand on the ground, open the pause menu, then Mods, and pick SF Unlimited Flight under ShroudForge. Its " +
+        "state says Waiting, and under WHAT IT WAITS FOR the page says it waits for you to glide (\"You to glide. It changes " +
+        "the glider only while you are gliding...\"). Did the page say what the mod waits for in those plain words, not " +
+        "only Waiting?");
+
     [ClientCheck("menu.kiln-menu", "Kiln's menu opens and draws", Area = "Menus and hooks", Since = Dev21,
         Tags = [Visual], Order = 107)]
     public Task MenuKilnMenu(CheckContext c) => Outside(c,
