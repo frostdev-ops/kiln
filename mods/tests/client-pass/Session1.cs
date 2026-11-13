@@ -69,6 +69,14 @@ public sealed partial class ClientPassMod
         "Open Kiln's menu now (the Kiln entry in the pause menu) and go through two of its pages, then close it. Did it open, " +
         "draw every page without broken text or boxes, and close again with the game still answering?");
 
+    [ClientCheck("menu.config-apply", "A mod's settings keep the applied values, and a slider takes a typed value",
+        Area = "Menus and hooks", Since = Dev27, Tags = [Visual], Order = 144)]
+    public Task MenuConfigApply(CheckContext c) => Outside(c,
+        "Open the pause menu, then Mods, and a mod with settings (or Kiln settings). Change a switch and a slider and " +
+        "press Apply: does the table keep the new values (before 0.2.0-dev.27 it showed the old ones until the page was " +
+        "opened again)? Beside each slider there is a number field: type a value of the range into one. Did the slider " +
+        "follow, and after Apply, closing the menu and opening the page again, is that value still there?");
+
     [ClientCheck("boot.proxy", "The game started with Kiln's proxy", Area = "Menus and hooks", Since = Dev21, Order = 108)]
     public async Task BootProxy(CheckContext c)
     {

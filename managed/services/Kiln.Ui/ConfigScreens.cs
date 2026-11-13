@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: MIT
 // The Kiln menu's config screens (Forge: the config GUI): one page per mod, generated from each config's schema
 // (Kiln.Api's config registry). Numbers with a range get a slider, bools a checkbox, enums a picker, text / durations /
-// lists a text field. Edits are staged on the page and saved with "Apply" (validated and written by ConfigFile.TrySet
-// on the tick thread). Client configs are the player's; a server config is read-only while connected to a server, and
+// lists a text field. A slider has a number field beside it: a value is typed there (a wide range is hard to hit by
+// dragging). Edits are staged on the page and saved with "Apply" (validated and written by ConfigFile.TrySet
+// on the tick thread; until that ran, the page keeps showing what was applied, also while the game is paused and no
+// tick comes). Client configs are the player's; a server config is read-only while connected to a server, and
 // entries that hold the server's value (config sync, [Synced]) are read-only too. docs/kiln/sync.md, docs/kiln/ui.md.
 using System.Collections.Concurrent;
 using System.Globalization;
@@ -15,6 +17,11 @@ internal static class ConfigScreens
     // staged edits (render thread): (config id, path) -> value (bool, int, double, enum name, or text)
     private static readonly Dictionary<(string Id, string Path), object> Staged = new();
     private static readonly Dictionary<(string Id, string Path), string> Errors = new();
+    // edits "Apply" handed to the tick thread that are not saved yet: the page shows them. The entry itself holds the old
+    // value until the tick ran: a frame or two in a running world, as long as the game is paused in the pause menu
+    private static readonly Dictionary<(string Id, string Path), object> Pending = new();
+    // what stands in a slider row's number field while it is no value of the entry (half typed, outside the range)
+    private static readonly Dictionary<(string Id, string Path), string> Typed = new();
     private static readonly ConcurrentQueue<(ConfigFile File, (string Path, object Value)[] Edits)> Commits = new();
     private static int _started;
     private static volatile bool _ticking;
@@ -27,8 +34,26 @@ internal static class ConfigScreens
         {
             _lastTick = DateTime.UtcNow;
             _ticking = true;
-            while (Commits.TryDequeue(out var c)) Commit(c.File, c.Edits);
+            RunCommits();
         });
+    }
+
+    /// <summary>Saves what "Apply" queued (the tick thread; the tests call it as the tick would).</summary>
+    internal static void RunCommits()
+    {
+        while (Commits.TryDequeue(out var c)) Commit(c.File, c.Edits);
+    }
+
+    internal static void ResetForTests()
+    {
+        lock (Lock)
+        {
+            Staged.Clear();
+            Errors.Clear();
+            Pending.Clear();
+            Typed.Clear();
+        }
+        Commits.Clear();
     }
 
     /// <summary>The mod has configs to show.</summary>
@@ -96,8 +121,12 @@ internal static class ConfigScreens
                 }
                 ui.EndTable();
             }
-            int staged;
-            lock (Lock) staged = Staged.Keys.Count(k => k.Id == f.Id);
+            int staged, pending;
+            lock (Lock)
+            {
+                staged = Staged.Keys.Count(k => k.Id == f.Id);
+                pending = Pending.Keys.Count(k => k.Id == f.Id);
+            }
             if (staged > 0)
             {
                 if (ui.Button($"Apply ({staged})")) Apply(f);
@@ -115,6 +144,9 @@ internal static class ConfigScreens
                     if (!e.FromServer && !ConfigSchemaEquals(e.Value, e.Default) && e.Default is not null)
                         Stage(f, e.Path, Display(e, e.Default));
             }
+            // applied, and no tick has come to save it (the main menu, a paused game): the table shows the new values
+            if (staged == 0 && pending > 0 && !TickRunning)
+                ui.TextDisabled(pending == 1 ? "1 change applied (saved when a world runs)" : $"{pending} changes applied (saved when a world runs)");
             ui.Spacing();
         }
     }
@@ -123,12 +155,14 @@ internal static class ConfigScreens
     {
         using var _ = ui.Id(e.Path);
         var key = (f.Id, e.Path);
-        object? staged;
-        string? error;
+        object? staged, pending;
+        string? error, typed;
         lock (Lock)
         {
             Staged.TryGetValue(key, out staged);
+            Pending.TryGetValue(key, out pending);
             Errors.TryGetValue(key, out error);
+            Typed.TryGetValue(key, out typed);
         }
         ui.NextRow();
         ui.NextColumn();
@@ -146,7 +180,7 @@ internal static class ConfigScreens
             ui.NextColumn();
             return;
         }
-        var shown = staged ?? Display(e, e.Value);
+        var shown = staged ?? pending ?? Display(e, e.Value);
         switch (e.Type)
         {
             case "bool":
@@ -159,12 +193,19 @@ internal static class ConfigScreens
             {
                 var i = shown is int v ? v : Convert.ToInt32(shown, CultureInfo.InvariantCulture);
                 if (ui.Slider("##v", ref i, (int)Math.Ceiling(lo), (int)Math.Floor(hi))) Stage(f, e.Path, i);
+                NumberField(ui, f, e, typed, i.ToString(CultureInfo.InvariantCulture));
                 break;
             }
             case "float" when e.Min is { } lo && e.Max is { } hi:
             {
-                var d = (float)(shown is double v ? v : Convert.ToDouble(shown, CultureInfo.InvariantCulture));
-                if (ui.Slider("##v", ref d, (float)lo, (float)hi)) Stage(f, e.Path, Math.Round((double)d, 4));
+                var d = shown is double v ? v : Convert.ToDouble(shown, CultureInfo.InvariantCulture);
+                var s = (float)d;
+                if (ui.Slider("##v", ref s, (float)lo, (float)hi))
+                {
+                    d = Math.Round((double)s, 4);
+                    Stage(f, e.Path, d);
+                }
+                NumberField(ui, f, e, typed, d.ToString("R", CultureInfo.InvariantCulture));
                 break;
             }
             case "enum" when e.Options.Count > 0:
@@ -203,6 +244,55 @@ internal static class ConfigScreens
             if (ui.SmallButton("default")) Stage(f, e.Path, Display(e, e.Default));
             ui.Tooltip($"Default: {Show(e, e.Default)}");
         }
+    }
+
+    /// <summary>The number field beside a slider: the value as text, to type one (a slider over a wide range is hard to
+    /// set by dragging). A text that is a number of the entry's range is staged as it is typed; any other stays in the
+    /// field with the range under it until it is one or the field is left, and the entry's value shows again.</summary>
+    private static void NumberField(UiDraw ui, ConfigFile f, ConfigEntry e, string? typed, string current)
+    {
+        if (!ui.HasLayout) return;  // a kiln.ui that cannot size the field: the slider alone, as before
+        var key = (f.Id, e.Path);
+        ui.SameLine();
+        ui.NextItemWidth(-1);       // the rest of the cell beside the slider
+        var text = typed ?? current;
+        if (ui.InputText("##n", ref text, 32))
+        {
+            if (TryNumber(e, text, out var value))
+            {
+                Stage(f, e.Path, value);
+                lock (Lock) Typed.Remove(key);
+            }
+            else lock (Lock) Typed[key] = text;
+        }
+        else if (typed is not null && !ui.LastItem.Active)
+        {
+            lock (Lock) Typed.Remove(key);
+        }
+        ui.Tooltip("Type the value here.");
+        if (typed is not null)
+            ui.TextDisabled($"a number from {e.Min?.ToString(CultureInfo.InvariantCulture)} to {e.Max?.ToString(CultureInfo.InvariantCulture)}");
+    }
+
+    /// <summary>What a text typed into a slider row's number field means: the value to stage (an int for an "int" entry,
+    /// a double for a "float" one). False while it is no number of the entry's range: half typed, or outside it (the
+    /// config refuses a value outside its range, it does not clamp). A comma counts as the decimal point when the text
+    /// has no point ("2,5").</summary>
+    internal static bool TryNumber(ConfigEntry e, string text, out object value)
+    {
+        value = 0;
+        if (e.Min is not { } lo || e.Max is not { } hi) return false;
+        var t = text.Trim();
+        if (e.Type == "int")
+        {
+            if (!int.TryParse(t, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out var i) || i < lo || i > hi) return false;
+            value = i;
+            return true;
+        }
+        if (!t.Contains('.')) t = t.Replace(',', '.');
+        if (!double.TryParse(t, NumberStyles.Float, CultureInfo.InvariantCulture, out var d) || !double.IsFinite(d) || d < lo || d > hi) return false;
+        value = d;
+        return true;
     }
 
     private static string Describe(ConfigEntry e)
@@ -260,7 +350,7 @@ internal static class ConfigScreens
 
     private static bool ConfigSchemaEquals(object? a, object? b) => ConfigSchema.ValueEquals(a, b);
 
-    private static void Stage(ConfigFile f, string path, object value)
+    internal static void Stage(ConfigFile f, string path, object value)
     {
         lock (Lock)
         {
@@ -275,6 +365,7 @@ internal static class ConfigScreens
         {
             foreach (var k in Staged.Keys.Where(k => k.Id == f.Id).ToList()) Staged.Remove(k);
             foreach (var k in Errors.Keys.Where(k => k.Id == f.Id).ToList()) Errors.Remove(k);
+            foreach (var k in Typed.Keys.Where(k => k.Id == f.Id).ToList()) Typed.Remove(k);
         }
     }
 
@@ -284,7 +375,11 @@ internal static class ConfigScreens
         lock (Lock)
         {
             edits = Staged.Where(kv => kv.Key.Id == f.Id).Select(kv => (kv.Key.Path, kv.Value)).ToArray();
-            foreach (var (p, _) in edits) Staged.Remove((f.Id, p));
+            foreach (var (p, v) in edits)
+            {
+                Staged.Remove((f.Id, p));
+                Pending[(f.Id, p)] = v;  // shown until the tick thread saved it (Commit)
+            }
         }
         if (edits.Length > 0) Commits.Enqueue((f, edits));
     }
@@ -298,16 +393,29 @@ internal static class ConfigScreens
         foreach (var (path, value) in edits)
         {
             var v = value is string s ? s : value;
-            if (f.TrySet(path, v, out var error)) ok++;
-            else
+            bool saved;
+            string error;
+            try { saved = f.TrySet(path, v, out error); }
+            catch (Exception x)
             {
-                failed.Add($"{path}: {error}");
-                lock (Lock)
+                // nothing may leave an applied value on the page for ever: an edit that threw is a refused one
+                saved = false;
+                error = x.Message;
+            }
+            var key = (f.Id, path);
+            lock (Lock)
+            {
+                // from here the entry's own value is what the page shows again (a newer Apply of this entry waits on)
+                if (Pending.TryGetValue(key, out var p) && ReferenceEquals(p, value)) Pending.Remove(key);
+                // refused: back on the page to fix, unless the player has changed the entry again since
+                if (!saved && !Staged.ContainsKey(key))
                 {
-                    Errors[(f.Id, path)] = error;
-                    Staged[(f.Id, path)] = value;  // keep it on the page to fix
+                    Errors[key] = error;
+                    Staged[key] = value;
                 }
             }
+            if (saved) ok++;
+            else failed.Add($"{path}: {error}");
         }
         Backend.Current.Log(0, failed.Count > 0 ? LogLevel.Warn : LogLevel.Info,
             $"ui: config {f.Id}: {ok} change(s) saved from the Kiln menu{(failed.Count > 0 ? "; refused: " + string.Join("; ", failed) : "")}");

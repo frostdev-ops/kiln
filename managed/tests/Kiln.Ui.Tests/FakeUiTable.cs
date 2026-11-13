@@ -41,6 +41,12 @@ internal static unsafe class FakeUiTable
     /// <summary>The next button whose label starts with this is clicked (once).</summary>
     public static string? Click;
     public static int WidgetCalls;
+    /// <summary>Collapsing headers and tables are open, so a page draws its rows (off unless a test turns it on).</summary>
+    public static bool OpenTables;
+    /// <summary>Every slider and checkbox call since the test cleared it: the value the widget was given (a checkbox: 1 or 0).</summary>
+    public static readonly List<double> Values = [];
+    /// <summary>The slider or checkbox call with this index in <see cref="Values"/> changes its value to this (once).</summary>
+    public static (int Index, double Value)? Set;
     private static bool _lastWasField;
 
     public sealed class Backend : IKilnBackend
@@ -130,7 +136,47 @@ internal static unsafe class FakeUiTable
     }
 
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
-    private static byte Checkbox(NativeStr s, byte* v) { WidgetCalls++; _lastWasField = false; return 0; }
+    private static byte Checkbox(NativeStr s, byte* v)
+    {
+        WidgetCalls++;
+        _lastWasField = false;
+        if (Value(*v) is not { } set) return 0;
+        *v = set != 0 ? (byte)1 : (byte)0;
+        return 1;
+    }
+
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static byte SliderFloat(NativeStr s, float* v, float min, float max)
+    {
+        _lastWasField = false;
+        if (Value(*v) is not { } set) return 0;
+        *v = (float)set;
+        return 1;
+    }
+
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static byte SliderInt(NativeStr s, int* v, int min, int max)
+    {
+        _lastWasField = false;
+        if (Value(*v) is not { } set) return 0;
+        *v = (int)set;
+        return 1;
+    }
+
+    // records what a value widget was given; the value a test scripted for this call, if any
+    private static double? Value(double given)
+    {
+        Values.Add(given);
+        if (Set is not { } s || s.Index != Values.Count - 1) return null;
+        Set = null;
+        return s.Value;
+    }
+
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static byte Header(NativeStr s, uint flags) => OpenTables ? (byte)1 : (byte)0;
+
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static byte BeginTable(NativeStr s, int columns, uint flags) => OpenTables ? (byte)1 : (byte)0;
 
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
     private static void GetCursor(UiNative.Cursor* c)
@@ -233,6 +279,10 @@ internal static unsafe class FakeUiTable
         t.Button = &FalseStrFloat2;
         t.SmallButton = &FalseStr;
         t.Checkbox = &Checkbox;
+        t.SliderFloat = &SliderFloat;
+        t.SliderInt = &SliderInt;
+        t.CollapsingHeader = &Header;
+        t.BeginTable = &BeginTable;
         t.InputText = &InputText;
         t.InputMultiline = &InputMultiline;
         t.Dummy = &FloatFloat;
@@ -279,6 +329,9 @@ internal static unsafe class FakeUiTable
         FieldLabel = "##v";
         Click = null;
         WidgetCalls = 0;
+        OpenTables = false;
+        Values.Clear();
+        Set = null;
         _lastWasField = false;
         Fields.Clear();
         lock (Texts) Texts.Clear();
