@@ -54,6 +54,15 @@ public sealed partial class ClientPassMod
         "with their state and reasons, with search and a filter for mods that need attention. Leave it with Back. Did the " +
         "page open with the mods listed, and did leaving bring you back to the main menu?");
 
+    [ClientCheck("menu.mods-with-shroudforge", "MODS is in the main menu while Kiln runs ShroudForge", Area = "Menus and hooks",
+        Since = Dev27, Tags = [Visual], Order = 109)]
+    public Task MenuModsWithShroudForge(CheckContext c) => Outside(c,
+        "With a ShroudForge mod switched on in this profile (the one of frameworks.shroudforge), before you hosted this " +
+        "world: was MODS in the game's main menu, above Settings, and did it open the page? Before 0.2.0-dev.27 the main " +
+        "menu had no MODS entry in such a start. If ShroudForge's own install is in the game folder too: switch on \"Use " +
+        "my installed ShroudForge\" in the launcher's Settings, start the game again and look once more (ShroudForge may " +
+        "add a row of its own next to it), then switch it off again. Was MODS in the main menu each time?");
+
     [ClientCheck("menu.kiln-menu", "Kiln's menu opens and draws", Area = "Menus and hooks", Since = Dev21,
         Tags = [Visual], Order = 107)]
     public Task MenuKilnMenu(CheckContext c) => Outside(c,

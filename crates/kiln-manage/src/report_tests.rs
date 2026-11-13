@@ -363,6 +363,66 @@ fn engine_stood_aside_and_loader_in_folder() {
     assert!(r.summary.contains("dbghelp.dll"));
 }
 
+/// A player's report of 13 Nov 2026 (Steam Deck): Kiln hosted ShroudForge, kiln-eml stood aside for it as designed, and
+/// the summary said "EML's own loader runs in the game" as a problem. No such loader ran. `Fx::healthy`'s boot.json
+/// names pid 412: the two state files are of the last start when they name it too.
+#[test]
+fn eml_aside_for_hosted_shroudforge_is_no_own_loader() {
+    const WHY: &str = "ShroudForge owns startup asset patching and runs EML packages in its mods folder";
+    const BOOT: u32 = 412;
+    let eml = |pid: u32, aside: &str, mods: &str| format!(r#"{{"pid":{pid},"phase":"aside","aside":"{aside}","mods":[{mods}]}}"#);
+    let sf = |pid: u32, mode: &str| format!(r#"{{"pid":{pid},"mode":"{mode}","source":"installed","runtime":"running"}}"#);
+    let on = r#"{"id":"a","state":"own-loader","reason":"runs under ShroudForge (hosted by Kiln): its ShroudForge switch is on"}"#;
+    let f = Fx::healthy("eml-under-sf");
+    f.w("kiln/state/shroudforge.json", sf(BOOT, "hosted").as_bytes());
+    f.w("kiln/state/eml.json", eml(BOOT, WHY, on).as_bytes());
+    let r = build(&f.input());
+    assert!(!ids(&r).contains(&"own-loader"), "{:?}", ids(&r));
+    let n = finding(&r, "eml-under-shroudforge");
+    assert_eq!(n.level, Level::Info);
+    assert!(n.text.starts_with("kiln-eml stood aside at the last start for ShroudForge, which Kiln hosted"), "{}", n.text);
+    assert!(!r.summary.contains("EML's own loader runs in the game"), "{}", r.summary);
+    // a mod ShroudForge has switched off, and one that is not in its folder: these did not run, and that is the finding
+    let off = format!(r#"{on},{{"id":"b","state":"off-in-shroudforge","reason":"x"}},{{"id":"c","state":"not-loaded","reason":"y"}},{{"id":"d","state":"disabled"}}"#);
+    f.w("kiln/state/eml.json", eml(BOOT, WHY, &off).as_bytes());
+    let r = build(&f.input());
+    let n = finding(&r, "eml-under-shroudforge");
+    assert_eq!(n.level, Level::Warning);
+    assert!(n.text.starts_with("2 EML mods of the profile did not run") && n.text.contains(": b, c. "), "{}", n.text);
+    assert!(!ids(&r).contains(&"own-loader"));
+    // EML's own loader in a start where Kiln hosts ShroudForge too: still the own-loader problem
+    f.w("kiln/state/eml.json", eml(BOOT, "dbghelp.dll is loaded", on).as_bytes());
+    assert!(ids(&build(&f.input())).contains(&"own-loader"));
+    // ShroudForge ran by itself: nothing says Kiln hosted it
+    f.w("kiln/state/eml.json", eml(BOOT, WHY, on).as_bytes());
+    f.w("kiln/state/shroudforge.json", sf(BOOT, "self-hosted").as_bytes());
+    let r = build(&f.input());
+    assert!(ids(&r).contains(&"own-loader") && !r.findings.iter().any(|x| x.id == "eml-under-shroudforge"), "{:?}", ids(&r));
+}
+
+/// Review of 6a78171d: two files of one OLDER start said "hosted" and "aside for ShroudForge" while neither plugin ran
+/// in the last start; and a file without a pid stood for any start. Neither proves anything about the last start, so
+/// neither takes the place of the own-loader finding.
+#[test]
+fn state_files_of_another_start_do_not_stand_for_the_last_one() {
+    const WHY: &str = "ShroudForge owns startup asset patching and runs EML packages in its mods folder";
+    let f = Fx::healthy("eml-under-sf-stale");
+    let own_loader = |sf: &str, eml: &str| {
+        f.w("kiln/state/shroudforge.json", sf.as_bytes());
+        f.w("kiln/state/eml.json", eml.as_bytes());
+        let r = build(&f.input());
+        ids(&r).contains(&"own-loader") && !r.findings.iter().any(|x| x.id == "eml-under-shroudforge")
+    };
+    let sf = |pid: &str| format!(r#"{{{pid}"mode":"hosted","source":"bundled"}}"#);
+    let eml = |pid: &str| format!(r#"{{{pid}"phase":"aside","aside":"{WHY}","mods":[]}}"#);
+    assert!(!own_loader(&sf(r#""pid":412,"#), &eml(r#""pid":412,"#)), "the last start's pair is the hosted case");
+    assert!(own_loader(&sf(r#""pid":7,"#), &eml(r#""pid":7,"#)), "an older start's pair");
+    assert!(own_loader(&sf(r#""pid":412,"#), &eml(r#""pid":7,"#)), "kiln-eml's file is older");
+    assert!(own_loader(&sf(r#""pid":7,"#), &eml(r#""pid":412,"#)), "ShroudForge's file is older");
+    assert!(own_loader(&sf(""), &eml(r#""pid":412,"#)), "ShroudForge's file names no pid");
+    assert!(own_loader(&sf(r#""pid":412,"#), &eml("")), "kiln-eml's file names no pid");
+}
+
 /// Nexus report (11 Nov 2026, The Worst Map Mod): a Greeneye mod says what it found and patched only in its own log and
 /// status file in its folder (unlock_map_markers.log, UnlockMapMarkers.status), not in kiln.log. The report carries
 /// them, bounded and redacted, with Greeneye Loader's own loader.log; never the mod's settings.
