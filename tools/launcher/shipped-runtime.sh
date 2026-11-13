@@ -20,3 +20,26 @@ shipped_runtime_resources() {
   echo "shipping runtime: $(basename "$zip") ($(du -h "$zip" | cut -f1))" >&2
   printf '{"%s":"runtime/kiln-runtime.zip"}' "$zip"
 }
+
+# shipped_python_resources [DIR|none] RESOURCES_JSON: prints RESOURCES_JSON with the Python the Windows launcher ships
+# for the cook tools added as python/ (the launcher runs python/python.exe from its resources). Empty: the pinned
+# embeddable package (tools/package/fetch-python.sh). none: unchanged. The package is flat (python.org's embeddable
+# zip has no folders); one with a folder in it is refused rather than shipped in part.
+shipped_python_resources() {
+  local dir=${1:-} resources=$2
+  if [[ $dir == none ]]; then
+    echo "$resources"
+    return
+  fi
+  if [[ -z $dir ]]; then
+    dir=$("$repo/tools/package/fetch-python.sh" --print-root) || return 1
+  fi
+  [[ -f $dir/python.exe ]] || { echo "no python.exe in $dir" >&2; return 1; }
+  dir=$(realpath "$dir")
+  if [[ -n $(find "$dir" -mindepth 1 -type d -print -quit) ]]; then
+    echo "the Python in $dir has folders: only a flat embeddable package is shipped" >&2
+    return 1
+  fi
+  echo "shipping Python: $dir ($(du -sh "$dir" | cut -f1))" >&2
+  python3 -c 'import json, sys; d = json.loads(sys.argv[1]); d[sys.argv[2] + "/*"] = "python/"; print(json.dumps(d))' "$resources" "$dir"
+}

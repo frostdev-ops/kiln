@@ -27,6 +27,7 @@ from pathlib import Path
 
 from .util import guid_bytes, guid_text
 
+_zstandard = None
 try:
     from compression import zstd as _zstd  # Python 3.14+
 except ImportError:  # pragma: no cover
@@ -38,13 +39,90 @@ except ImportError:  # pragma: no cover
 
 MAGIC = b"KFC4"
 
+_ZSTD_UNKNOWN = 0xFFFFFFFFFFFFFFFF      # ZSTD_CONTENTSIZE_UNKNOWN
+_ZSTD_NOT_A_FRAME = 0xFFFFFFFFFFFFFFFE  # ZSTD_CONTENTSIZE_ERROR
+_ZSTD_MAX_OUT = 1 << 30                 # no resource of the game is near this; a broken size field must not allocate more
+_libzstd = None                         # None: not looked for yet; False: looked for, not there
+
+
+def _system_libzstd():
+    """The system's libzstd through ctypes, or False: for a Python older than 3.14 without the zstandard package
+    (most Linux installs have the library itself, because the system's own tools use it)."""
+    global _libzstd
+    if _libzstd is None:
+        _libzstd = False
+        try:
+            import ctypes
+            import ctypes.util
+        except ImportError:  # pragma: no cover
+            return _libzstd
+        found = ctypes.util.find_library("zstd")
+        for name in ([found] if found else []) + ["libzstd.so.1", "libzstd.so", "libzstd.1.dylib", "libzstd.dylib", "libzstd.dll", "zstd.dll"]:
+            try:
+                lib = ctypes.CDLL(name)
+                lib.ZSTD_getFrameContentSize.restype = ctypes.c_ulonglong
+                lib.ZSTD_getFrameContentSize.argtypes = [ctypes.c_char_p, ctypes.c_size_t]
+                lib.ZSTD_decompress.restype = ctypes.c_size_t
+                lib.ZSTD_decompress.argtypes = [ctypes.c_char_p, ctypes.c_size_t, ctypes.c_char_p, ctypes.c_size_t]
+                lib.ZSTD_isError.restype = ctypes.c_uint
+                lib.ZSTD_isError.argtypes = [ctypes.c_size_t]
+                lib.ZSTD_findFrameCompressedSize.restype = ctypes.c_size_t
+                lib.ZSTD_findFrameCompressedSize.argtypes = [ctypes.c_char_p, ctypes.c_size_t]
+            except (OSError, AttributeError):
+                continue
+            _libzstd = lib
+            break
+    return _libzstd
+
+
+def _libzstd_decompress(lib, data, size_hint):
+    """Every frame of `data`, one after the other (the standard library's decompress does the same). A frame that
+    does not say its size gets what is left of the hint, or 64 MiB; all frames together stay under _ZSTD_MAX_OUT."""
+    import ctypes
+    data = bytes(data)
+    parts, total, at = [], 0, 0
+    while at < len(data) or not parts:
+        frame = data[at:]
+        used = lib.ZSTD_findFrameCompressedSize(frame, len(frame))
+        if lib.ZSTD_isError(used) or used == 0:
+            raise RuntimeError("zstd: not a zstd frame" if not parts else "zstd: bytes after the last frame are no frame")
+        frame = frame[:used]
+        size = lib.ZSTD_getFrameContentSize(frame, len(frame))
+        if size == _ZSTD_NOT_A_FRAME:
+            raise RuntimeError("zstd: not a zstd frame")
+        if size == _ZSTD_UNKNOWN:
+            size = max(size_hint - total, 0) or (64 << 20)
+        if total + size > _ZSTD_MAX_OUT:
+            raise RuntimeError(f"zstd: the data says {total + size} bytes, more than any game resource holds")
+        out = ctypes.create_string_buffer(max(size, 1))
+        n = lib.ZSTD_decompress(out, size, frame, len(frame))
+        if lib.ZSTD_isError(n):
+            raise RuntimeError("zstd: the data does not decompress (damaged, or larger than expected)")
+        parts.append(out.raw[:n])
+        total += n
+        at += used
+    return parts[0] if len(parts) == 1 else b"".join(parts)
+
+
+def zstd_backend():
+    """Which zstd decoder this Python has: "stdlib" (3.14+), "zstandard" (the package), "libzstd" (the system's
+    library through ctypes), or None."""
+    if _zstd is not None:
+        return "stdlib"
+    if _zstandard is not None:
+        return "zstandard"
+    return "libzstd" if _system_libzstd() else None
+
 
 def zstd_decompress(data, size_hint=0):
     if _zstd is not None:
         return _zstd.decompress(data)
     if _zstandard is not None:  # pragma: no cover
         return _zstandard.ZstdDecompressor().decompress(data, max_output_size=size_hint or (64 << 20))
-    raise RuntimeError("no zstd decoder: use Python 3.14+ (compression.zstd) or install 'zstandard'")
+    lib = _system_libzstd()
+    if lib:
+        return _libzstd_decompress(lib, data, size_hint)
+    raise RuntimeError("no zstd decoder: use Python 3.14 or newer, or install the 'zstandard' package or the system's zstd library (libzstd)")
 
 
 class ResourceKey(tuple):

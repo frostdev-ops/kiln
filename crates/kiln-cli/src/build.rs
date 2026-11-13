@@ -255,19 +255,6 @@ fn cook_target(arg: Option<&Path>) -> Result<Project> {
     })
 }
 
-/// The tool behind a recipe's "tool" (or the steps' own "tool"s; modelcook dispatches those itself).
-fn tool_cmd(repo: &Path, tool: &str) -> Option<(PathBuf, &'static str)> {
-    let (rel, verb) = match tool {
-        "modelcook" => ("tools/modelcook/modelcook.py", "recipe"),
-        "impact" => ("tools/impact/impact.py", "cook"),
-        "soundcook" => ("tools/soundcook/soundcook.py", "recipe"),
-        "animcook" => ("tools/animcook/animcook.py", "recipe"),
-        _ => return None,
-    };
-    let p = repo.join(rel);
-    p.is_file().then_some((p, verb))
-}
-
 /// Runs (or checks) every recipe of the project. `auto`: called by `kiln build`: silent when nothing is to do, and
 /// a recipe whose tool or game is missing only warns.
 fn cook_project(p: &Project, check: bool, game: Option<&Path>, json: bool, auto: bool) -> Result<Value> {
@@ -281,22 +268,22 @@ fn cook_project(p: &Project, check: bool, game: Option<&Path>, json: bool, auto:
         }
         return Ok(json!({"ok": sound_current, "recipes": results}));
     }
-    let repo = match tools::repo() {
-        Some(r) => r,
-        None if auto => {
-            out::say(json, "kiln: recipes found but no Kiln checkout for the cook tools (KILN_REPO); skipping the cook");
+    // a checkout's tools when there is one, else the copy this kiln carries; and a Python that can run them
+    let cook = match tools::cook_tools() {
+        Ok(t) => t,
+        Err(e) if auto => {
+            out::say(json, format!("kiln: recipes found but the cook tools cannot run ({e}); skipping the cook"));
             return Ok(json!({"ok": true, "recipes": results}));
         }
-        None => return Err(tools::need_repo("kiln cook").unwrap_err()),
+        Err(e) => return Err(e),
     };
-    let py = tools::python()?;
     let game = game.map(Path::to_path_buf).or_else(tools::client_dir);
     let mut all_ok = sound_current;
     for r in recipes {
         let doc = std::fs::read_to_string(&r).ok().and_then(|t| crate::project::jsonc(&t).ok()).unwrap_or(Value::Null);
         let tool = doc["tool"].as_str().unwrap_or("modelcook").to_string();
-        let Some((script, verb)) = tool_cmd(&repo, &tool) else {
-            let msg = format!("{}: no cook tool '{tool}' in {}", r.display(), repo.display());
+        let Some((_, verb)) = cook.script(&tool) else {
+            let msg = format!("{}: no cook tool '{tool}' in {}", r.display(), cook.root.display());
             if auto {
                 out::say(json, format!("kiln: warning: {msg}"));
                 results.push(json!({"recipe": r, "tool": tool, "ok": false, "skipped": msg}));
@@ -304,8 +291,8 @@ fn cook_project(p: &Project, check: bool, game: Option<&Path>, json: bool, auto:
             }
             return Err(CliError::new("tool_missing", msg).into());
         };
-        let mut chk = Command::new(&py);
-        chk.arg(&script).arg(verb).arg(&r).arg("--check");
+        let mut chk = cook.command(&tool).expect("the tool's script was found above");
+        chk.arg(verb).arg(&r).arg("--check");
         chk.stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null());
         let needed = !chk.status().map(|s| s.success()).unwrap_or(false);
         if check {
@@ -321,8 +308,7 @@ fn cook_project(p: &Project, check: bool, game: Option<&Path>, json: bool, auto:
             results.push(json!({"recipe": r, "tool": tool, "ok": true, "cooked": false}));
             continue;
         }
-        let mut cmd = Command::new(&py);
-        cmd.arg(&script);
+        let mut cmd = cook.command(&tool).expect("the tool's script was found above");
         match &game {
             Some(g) => {
                 cmd.arg("--game").arg(g);
@@ -347,7 +333,7 @@ fn cook_project(p: &Project, check: bool, game: Option<&Path>, json: bool, auto:
         results.push(json!({"recipe": r, "tool": tool, "ok": ok, "cooked": true}));
     }
     if looks {
-        let (ok, entry) = cook_looks(p, check, game.as_deref(), json, auto, &repo, &py)?;
+        let (ok, entry) = cook_looks(p, check, game.as_deref(), json, auto, &cook)?;
         all_ok &= ok;
         results.extend(entry);
     }
@@ -369,17 +355,16 @@ fn write_sound_blocks(p: &Project, json: bool, check: bool, auto: bool) -> Resul
     if !has_sound_blocks(p) {
         return Ok(true);
     }
-    let Some(repo) = tools::repo() else {
-        if auto {
-            out::say(json, "kiln: warning: sound blocks need the cook tools (KILN_REPO)");
+    let cook = match tools::cook_tools() {
+        Ok(t) => t,
+        Err(e) if auto => {
+            out::say(json, format!("kiln: warning: sound blocks need the cook tools ({e})"));
             return Ok(false);
         }
-        return Err(tools::need_repo("kiln cook").unwrap_err());
+        Err(e) => return Err(e),
     };
-    let py = tools::python()?;
-    let script = repo.join("tools/soundcook/soundcook.py");
-    let mut cmd = Command::new(&py);
-    cmd.arg(&script).arg("blocks").arg(&p.dir);
+    let mut cmd = cook.script_command("tools/soundcook/soundcook.py");
+    cmd.arg("blocks").arg(&p.dir);
     if check {
         cmd.arg("--check");
     }
@@ -419,10 +404,10 @@ fn wants_looks(p: &Project) -> bool {
 }
 
 /// The looks of blocks/*.json, cooked with no recipe of the mod's own (`modelcook.py looks`). Nothing when there are none.
-fn cook_looks(p: &Project, check: bool, game: Option<&Path>, json: bool, auto: bool, repo: &Path, py: &str) -> Result<(bool, Option<Value>)> {
-    let script = repo.join("tools/modelcook/modelcook.py");
+fn cook_looks(p: &Project, check: bool, game: Option<&Path>, json: bool, auto: bool, cook: &kiln_manage::cooktools::CookTools) -> Result<(bool, Option<Value>)> {
+    let looks = "tools/modelcook/modelcook.py";
     let where_ = p.dir.join("blocks");
-    let probe = Command::new(py).arg(&script).arg("looks").arg(&p.dir).arg("--check").output();
+    let probe = cook.script_command(looks).arg("looks").arg(&p.dir).arg("--check").output();
     let Ok(probe) = probe else { return Ok((true, None)) };
     let said = String::from_utf8_lossy(&probe.stdout);
     if said.contains("no looks") {
@@ -450,8 +435,8 @@ fn cook_looks(p: &Project, check: bool, game: Option<&Path>, json: bool, auto: b
         }
         return Err(CliError::new("not_found", msg).into());
     };
-    let mut cmd = Command::new(py);
-    cmd.arg(&script).arg("--game").arg(game).arg("looks").arg(&p.dir).arg("--update-manifest");
+    let mut cmd = cook.script_command(looks);
+    cmd.arg("--game").arg(game).arg("looks").arg(&p.dir).arg("--update-manifest");
     // a model's GUID follows from the mod's id: a project whose kiln.mod.json is made by the build says it in KilnModId
     if !p.dir.join("kiln.mod.json").is_file() && matches!(p.kind, Kind::Dotnet) {
         let id = p.property("KilnModId")?;

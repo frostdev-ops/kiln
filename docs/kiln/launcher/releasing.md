@@ -327,6 +327,41 @@ cannot be inspected or exceeds the nesting limit (32). Source, Windows and updat
   release.sh runs it for `ubuntu22` for both distributions as separate checks. Rendering is Mesa's llvmpipe, named with `GALLIUM_DRIVER` (with no
   GPU, the Mesa of 2024-01 tries zink, which fails, and its Xvfb and GL clients crash: a container artefact).
 
+## The cook tools and the bundled Python
+
+A mod with a cook recipe is cooked on each machine from that machine's game files, by Python tools
+(`tools/{animcook,impact,kfc,modelcook,soundcook}`). Nothing of them is a separate download:
+
+- **The tools are inside `kiln`, `kiln.exe` and the launcher.** `crates/kiln-manage/build.rs` embeds their sources and
+  data files (no tests, labs, samples or C sources) when the `cooktools` feature is on (`full` has it, and kiln-cli
+  asks for it). At first use they are unpacked into `<data folder>/cooktools/<hash of the copy>/`
+  (`kiln_manage::cooktools`). A release build (`KILN_RELEASE_BUILD=1`) stops when a tool is missing.
+- **soundcook's helper** (`kiln-soundcook`: decoding OGG, MP3 and FLAC, resampling) is embedded the same way, per
+  target, from the folder `KILN_COOK_HELPERS` names. release.sh builds it for Linux in the build container (so it
+  needs the same glibc as the other Linux files) and for Windows with clang-cl and xwin, signs the Windows one when
+  signing is on, and sets the variable for every cargo build. A release build stops without it.
+- **Python on Windows: the launcher brings its own.** `tools/package/fetch-python.sh` holds the pin: python.org's
+  embeddable package for Windows x64, one version, by sha256. release.sh seeds it from `.cache/python-win-x64/` when
+  it is there, else the script downloads it; a file with another hash stops the release and nothing of it is kept.
+  `tools/launcher/build-windows.sh` puts the unpacked package into the bundle as `python/` (`--python DIR|none`
+  overrides; a release build refuses `none`). The launcher runs `python/python.exe` from its own folder: nothing is
+  installed, and a Python the player has is neither used nor changed. Its licence ships in `python/LICENSE.txt` and
+  in THIRD-PARTY-NOTICES.txt.
+- **Python on Linux: the system's `python3`**, 3.10 or newer. Python 3.14 reads the game's zstd archives by itself;
+  an older one uses the system's libzstd through ctypes, or the `zstandard` package. `cooktools::locate` asks a
+  candidate for both before it uses it, and its error says in one sentence what to install.
+- `kiln` on Windows (the SDK's `kiln.exe`, for modders and server operators) has no Python of its own: it takes
+  `KILN_PYTHON`, a `python\python.exe` beside itself, then `python3` or `python` on `PATH`.
+
+**To raise the pinned Python:** take the new version and the SHA-256 of "Windows embeddable package (64-bit)" from that
+release's page on python.org, put both into `tools/package/fetch-python.sh` (`VERSION`, `SHA256`), run the script once
+(it downloads, verifies, unpacks and checks that the package has `_zstd.pyd`: the cook tools need 3.14 or newer here),
+then `python3 -m unittest tools/release/test_cooktools.py`. The release's check "kiln cooks a made-up game with the
+cook tools it carries" runs the Linux `kiln` of the release folder with no checkout.
+
+**Not checked by any test here:** the bundled Python actually cooking on Windows (the release's Wine checks run
+`kiln.exe --version` and the launcher's `--selftest` only).
+
 ## Steps
 One-time setup (frostdev.io):
 1. On the VPS: `sudo mkdir -p /opt/frostdev-downloads/kiln/{updates,downloads}` and give the deploy user write access.

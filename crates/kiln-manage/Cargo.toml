@@ -18,7 +18,8 @@ jsonc = ["dep:jsonc-parser"]            # config, jsonc: value edits that keep c
 saves = ["dep:zstd"]                    # saves::editor: zstd (the save editor's format)
 server = ["dep:toml"]                   # server::instance: kilnctl instance files
 gameart = ["dep:zstd", "dep:bcdec_rs", "dep:image-webp", "dep:png", "dep:flate2"]  # gameart: read the game's KFC4 data, decode BCn, write WebP, read PNG
-full = ["zip", "sevenz", "http", "admin", "jsonc", "saves", "server", "gameart"]
+cooktools = []                          # cooktools: carries the cook tools (build.rs embeds tools/{animcook,impact,kfc,modelcook,soundcook})
+full = ["zip", "sevenz", "http", "admin", "jsonc", "saves", "server", "gameart", "cooktools"]
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
