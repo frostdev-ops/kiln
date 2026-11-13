@@ -8,6 +8,7 @@ import { itemIcon, rarityOf, rarityColor } from '../src/ui.js';
 import { atributosDe, melhoriasDe, temEstatisticas, armaduraDe, danoDe } from '../src/itemstats.js';
 import { t, localeAtual } from '../src/i18n.js';
 import { Meter, RarityPick, Row, Stepper, UpgradePick, categoryWord, rarityWord, tierOf } from './parts.jsx';
+import { aboveStack, amountLimit } from './amounts.js';
 
 const NO_GEM = '0000000000';
 function readSocket(hex) {
@@ -66,10 +67,14 @@ function ItemForm({ entry, onChange, onRemove, onDuplicate }) {
         {entry.maxUpgrades !== undefined && (
           <Row label={t('Raridade')}><RarityPick value={entry.maxUpgrades} onChange={(v) => setUpgrades(Math.min(entry.upgrades ?? 0, v), v)} /></Row>
         )}
+        {/* an amount above the game's stack size is kept where a mod raised stack sizes, which the editor cannot
+            know: it says so instead of refusing (amounts.js). Max is the game's own stack. */}
         {(stack || entry.count !== 1) && (
-          <Row label={t('Quantidade')}>
+          <Row label={t('Quantidade')} note={aboveStack(it?.maxStack, entry.count) && (
+            <span className="ke-note warn">{t('acima da pilha do jogo ({n}): para mundos com um mod que aumenta as pilhas', { n: it.maxStack })}</span>
+          )}>
             <span className="k-row" style={{ gap: 10 }}>
-              <Stepper value={entry.count} min={1} max={Math.max(it?.maxStack || 1, entry.count)} big={10} label={t('Quantidade')} onChange={(v) => set('count', v)} />
+              <Stepper value={entry.count} min={1} max={amountLimit(it?.maxStack, entry.count)} big={10} label={t('Quantidade')} onChange={(v) => set('count', v)} />
               {stack && <button type="button" className="k-link" onClick={() => set('count', it.maxStack)}>{t('Máx')}</button>}
             </span>
           </Row>

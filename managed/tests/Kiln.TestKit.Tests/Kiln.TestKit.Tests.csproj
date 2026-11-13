@@ -68,6 +68,7 @@
     <TkSample Include="../../../mods/samples/QuietServer/QuietServer.csproj" />
     <TkSample Include="../../../mods/samples/Loadouts/Loadouts.csproj" />
     <TkSample Include="../../../mods/samples/SkyControl/SkyControl.csproj" />
+    <TkSample Include="../../../mods/samples/EngineRoom/EngineRoom.csproj" />
     <!-- Samples that run their real logic on the kit's recording fakes (SampleFakesTests). -->
     <TkSample Include="../../../mods/samples/CreatureTweaks/CreatureTweaks.csproj" />
     <TkSample Include="../../../mods/samples/SkillTreeSample/SkillTreeSample.csproj" />

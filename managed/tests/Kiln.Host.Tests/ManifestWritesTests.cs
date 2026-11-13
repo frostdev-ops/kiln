@@ -38,6 +38,7 @@ public class ManifestWritesTests
     [InlineData("null", "not null")]
     [InlineData("[\"Fuel\\n\"]", "'Fuel\\n' is not a component's short name")]
     [InlineData("65 copies", "it lists 65 entries")]
+    [InlineData("[\"\\uD800\"]", "is not a component's short name")]  // half a surrogate pair: the decoder throws on it
     public void A_manifest_that_loaded_before_tracked_writes_still_loads(string writes, string says)
     {
         var value = writes == "65 copies" ? "[" + string.Join(",", Enumerable.Repeat("\"Fuel\"", 65)) + "]" : writes;
@@ -49,6 +50,24 @@ public class ManifestWritesTests
     }
 
     // native/services/world/tests/parity.json: the cases the native reader (writes_test.cpp) is tested on too.
+    [Fact]
+    public void A_manifest_with_a_string_that_is_not_text_is_that_mods_error_not_the_end_of_the_scan()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), $"kiln-host-badtext-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        try
+        {
+            File.WriteAllText(Path.Combine(dir, "kiln.mod.json"), Head.Replace("\"id\": \"a\"", "\"id\": \"a\", \"name\": \"\\uD800\"") + "[] }");
+            var candidate = ModCandidate.Read(dir);
+            Assert.Null(candidate.Manifest);
+            Assert.Contains("not text", candidate.Error);
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
     public static TheoryData<string> ParityCases() => [.. Parity()["manifests"]!.AsArray().Select(c => (string)c!["case"]!)];
 
     [Theory]

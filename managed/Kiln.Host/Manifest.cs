@@ -269,7 +269,18 @@ internal sealed class Manifest
         var names = new List<string>();
         foreach (var e in v.EnumerateArray())
         {
-            var name = e.ValueKind == JsonValueKind.String ? e.GetString()! : null;
+            string? name = null;
+            if (e.ValueKind == JsonValueKind.String)
+            {
+                try
+                {
+                    name = e.GetString();
+                }
+                catch (InvalidOperationException)
+                {
+                    // an escape that is no text (half a surrogate pair, "\uD800"): the parser took it, the decoder does not
+                }
+            }
             if (name is null || !ComponentName.IsMatch(name))
                 return ([], $"'{(name ?? e.GetRawText()).ReplaceLineEndings("\\n")}' is not a component's short name (letters, digits and _, such as Fuel or CurrentTransform)");
             names.Add(name);
