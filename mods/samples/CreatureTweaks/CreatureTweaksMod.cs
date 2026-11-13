@@ -56,7 +56,7 @@ public sealed class CreatureTweaksMod : Mod
         // a player: next to them; the console (kiln/control/console, offline worlds have no chat): next to the local player
         var who = !c.Source.Player.IsNone ? c.Source.Player
             : Kiln.Client.IsClient && Kiln.Client.HasLocalPlayer ? Kiln.Client.LocalPlayer
-            : Players.All.FirstOrDefault()?.Entity ?? EntityId.None;  // a dedicated server's console: the first player
+            : Players.Available ? Players.All.FirstOrDefault()?.Entity ?? EntityId.None : EntityId.None;  // a dedicated server's console: the first player
         if (who.IsNone || World.Position(who) is not { } p) throw new CommandException("no player to spawn it next to");
         // optional offsets in metres: /elitevukah [ally] <dx> <dz> (default 8 m along +x)
         var template = c.Args.FirstOrDefault(a => a.StartsWith("template:", StringComparison.Ordinal))?[9..] ?? "Kiln_Elite_Vukah";
