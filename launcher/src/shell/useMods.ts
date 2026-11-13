@@ -10,7 +10,7 @@ import { qk, useActiveProfile, useGameStatus, useLaunchState, useLibrary, usePro
 import { engineStatusKey } from "../components/EngineStatus";
 import { useFound } from "../pages/profiles/GameFolder";
 import { useProfileEdit } from "../pages/profiles/useProfileEdit";
-import { buildRows, countLine, type ModRow } from "./mods";
+import { applyBulk, buildRows, bulkPlan, countLine, revertBulk, type BulkChange, type BulkPlan, type ModRow } from "./mods";
 import { useRetained } from "./notices";
 
 /** The profile a player gets when they never made one (kiln_manage::quick::DEFAULT_PROFILE). Loaded, the main screen
@@ -62,10 +62,24 @@ export function useMods(game: GameInstall | null) {
   };
   /** Out of the loaded profile (the Library keeps it). */
   const drop = (r: ModRow) => { if (r.kind && r.entry) edit.remove(r.kind, r.id); };
+  /** "All on" / "All off" over `shown`: every switch that would change, as one edit (one save of the profile). */
+  const setAll = (shown: ModRow[], on: boolean): BulkPlan | null => {
+    if (!profile) return null;
+    const plan = bulkPlan(shown, on);
+    if (plan.change.length) edit.update((p) => applyBulk(p, plan.change));
+    return plan;
+  };
+  /** Undoes setAll's changes (one save); returns how many mods were changed since and kept. */
+  const undoAll = (changes: BulkChange[]): number => {
+    if (!profile) return 0;
+    const kept = revertBulk(JSON.parse(JSON.stringify(profile)), changes);
+    edit.update((p) => { revertBulk(p, changes); });
+    return kept;
+  };
 
   const loading = lib.isLoading || active.isLoading || (!!pid && !profile && edit.query.isLoading);
   return {
-    rows, count, profile, profileId: pid, summary, installed, loading, edit, toggle, setVersion, drop,
+    rows, count, profile, profileId: pid, summary, installed, loading, edit, toggle, setVersion, drop, setAll, undoAll,
     error: lib.error ?? edit.query.error ?? null, found, preview,
   };
 }

@@ -193,6 +193,59 @@ export function kindsOf(rows: ModRow[]): ModKind[] {
   return MOD_KINDS.filter((k) => rows.some((r) => r.kind === k));
 }
 
+/** One entry "All on" or "All off" changes: as it was (null: the profile lacked it) and as it becomes. */
+export interface BulkChange { kind: ModKind; before: ProfileMod | null; after: ProfileMod }
+export interface BulkPlan {
+  /** The rows whose switch changes, as profile changes. */
+  change: BulkChange[];
+  /** Rows a switch could not change either, by name, with why. */
+  left: { name: string; why: string }[];
+}
+
+/** "All on" / "All off" over the rows the list shows: exactly what each row's own switch would do (useMods.toggle),
+ *  for the rows not in that state already. A game-folder mod has no switch; a mod the profile lacks needs a Library
+ *  version to go in. */
+export function bulkPlan(rows: ModRow[], on: boolean): BulkPlan {
+  const plan: BulkPlan = { change: [], left: [] };
+  for (const r of rows) {
+    if (r.found || !r.kind) { plan.left.push({ name: r.name, why: "in the game folder, it has no switch" }); continue; }
+    if (r.on === on) continue;
+    if (r.entry) { plan.change.push({ kind: r.kind, before: r.entry, after: { ...r.entry, enabled: on } }); continue; }
+    const v = r.lib?.versions[0];
+    if (!v) { plan.left.push({ name: r.name, why: "no version of it is in the Library" }); continue; }
+    plan.change.push({ kind: r.kind, before: null, after: { id: r.id, version: v.version, hash: v.hash, enabled: true } });
+  }
+  return plan;
+}
+
+/** Applies the plan to the profile (the queue's newest copy): an entry keeps its version and settings and only
+ *  switches; a new one goes in. */
+export function applyBulk(p: Profile, changes: BulkChange[]): void {
+  for (const c of changes) {
+    const list = p.mods[c.kind] ?? [];
+    const i = list.findIndex((m) => m.id === c.after.id);
+    if (i >= 0) list[i] = { ...list[i], enabled: c.after.enabled };
+    else list.push(c.after);
+    p.mods[c.kind] = list;
+  }
+}
+
+/** Undo: every entry the plan changed and nobody changed since goes back (out again when the profile lacked it).
+ *  Returns how many were changed since and kept. */
+export function revertBulk(p: Profile, changes: BulkChange[]): number {
+  let kept = 0;
+  for (const c of changes) {
+    const list = p.mods[c.kind] ?? [];
+    const i = list.findIndex((m) => m.id === c.after.id);
+    const m = list[i];
+    if (!m || m.enabled !== c.after.enabled || m.version !== c.after.version || m.hash !== c.after.hash) { kept++; continue; }
+    if (c.before) list[i] = { ...m, enabled: c.before.enabled };
+    else list.splice(i, 1);
+    p.mods[c.kind] = list;
+  }
+  return kept;
+}
+
 /** The filter: words in the name or id, and one kind ("" every kind). */
 export function filterRows(rows: ModRow[], text: string, kind: ModKind | ""): ModRow[] {
   const q = lower(text.trim());

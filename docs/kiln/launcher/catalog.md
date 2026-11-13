@@ -301,7 +301,9 @@ Windows and Linux/Deck; do not print tokens or authorization codes.
   set with Nexus's new requirements system show.
 - Mods added from files before the catalog existed are not linked to their Nexus page, so they show no update. A
   catalog Add of the same mod links them from then on.
-- Archive formats other than zip (7z, RAR) are refused: Kiln has no decoder for them.
+- A catalog or nxm download must be a zip or a DLL: a 7z or RAR is refused (`nexus/install.rs` checks the file's
+  first bytes, and the manifest check reads only a zip's entries). The same 7z or RAR downloaded by hand and dropped
+  on the launcher is imported (`library::archive_kind`).
 - Text search is local (Nexus's v3 search has no text query): it covers name, summary, author and category of every
   Enshrouded mod, not descriptions.
 - Public OAuth application registration and a real-account run are still pending (the checklist above is for the first one). The v3 manifest format was read tolerantly (a

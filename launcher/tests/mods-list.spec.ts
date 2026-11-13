@@ -89,6 +89,41 @@ test("the list filters by name and by kind", async ({ page }) => {
   await expect(row(page, "FPS Unlock")).toBeVisible();
 });
 
+test("All on and All off act on the rows shown, save the profile once, say what they left out, and Undo puts back what they changed", async ({ page }) => {
+  await desktop(page);
+  await expect(say(page)).toHaveText(/^12 mods on, 15 off\./, { timeout: 10_000 });
+  const bar = page.locator(".k-hero .k-mods-bar");
+  // the whole list: the counts are what would change
+  await expect(bar.getByRole("button", { name: /^All on \(\d+\)$/ })).toBeEnabled();
+  await expect(bar.getByRole("button", { name: /^All off \(\d+\)$/ })).toBeEnabled();
+  // narrowed to one kind: only those
+  await page.getByRole("combobox", { name: "Kind" }).selectOption({ label: "Native" });
+  const before = await profileMods(page);
+  const on = before.native.filter((m) => m.enabled).length;
+  expect(on).toBeGreaterThan(1);
+  const gen = (await api<{ generation: number }>(page, "profileGet", "ember-run")).generation;
+  const off = bar.getByRole("button", { name: `Shown off (${on})` });
+  await expect(off).toHaveAttribute("title", new RegExp(`^Switches off ${on} mods of the 4 the filter shows`));
+  await off.click();
+  const done = page.locator(".k-toast").filter({ hasText: `Switched ${on} mods off` });
+  await expect(done).toBeVisible({ timeout: 5000 });
+  await expect.poll(async () => (await profileMods(page)).native.filter((m) => m.enabled).length).toBe(0);
+  // one save for all of them, and nothing of another kind changed
+  expect((await api<{ generation: number }>(page, "profileGet", "ember-run")).generation).toBe(gen + 1);
+  const after = await profileMods(page);
+  expect({ ...after, native: [] }).toEqual({ ...before, native: [] });
+  expect(after.native.map((m) => m.id)).toEqual(before.native.map((m) => m.id));
+  await expect(bar.getByRole("button", { name: "Shown off (0)" })).toBeDisabled();
+  // Undo: back as it was, in one more save
+  await done.getByRole("button", { name: "Undo" }).click();
+  await expect.poll(async () => (await profileMods(page)).native).toEqual(before.native);
+  expect((await api<{ generation: number }>(page, "profileGet", "ember-run")).generation).toBe(gen + 2);
+  // a game-folder mod has no switch: All on leaves it out and says so
+  await page.getByRole("combobox", { name: "Kind" }).selectOption({ label: "SET" });
+  const setOn = bar.getByRole("button", { name: /^Shown on \(\d+\)$/ });
+  await expect(setOn).toHaveAttribute("title", /can't be switched: in the game folder, it has no switch\.$/);
+});
+
 test("removing a mod is one click with a plain confirmation", async ({ page }) => {
   await desktop(page);
   await row(page, "Night Sky").getByRole("button", { name: "More for Night Sky" }).click({ timeout: 10_000 });

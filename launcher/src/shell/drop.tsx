@@ -9,7 +9,7 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { create } from "zustand";
 import * as api from "../api/commands";
-import type { AddReport, GameInstall, GameStatus, ImportReport, LauncherSettings, ModpackInstallResult } from "../api/commands";
+import type { Activation, AddReport, GameInstall, GameStatus, ImportReport, LauncherSettings, ModpackInstallResult } from "../api/commands";
 import { invalidateGame, qk, useActiveProfile, useGame, useGameStatus, useProfiles, useSettings } from "../api/hooks";
 import { Banner, Button, KeyValue, Modal, Skeleton, Toggle, errorText, runTask, toast } from "../ui";
 import { useInstallPrompt } from "./firstRun";
@@ -80,14 +80,28 @@ export function useAddMods(): (paths: string[], target?: GameInstall) => Promise
     return null;
   };
 
+  /** The picked profile is not the loaded one: "Load it" loads it in this game, so the mods it took are on. */
+  const loadPicked = async (r: AddReport, game: GameInstall) => {
+    if (!r.profileId) return;
+    try {
+      const a = await api.profileActivate(r.profileId, game.id);
+      qc.setQueryData(qk.active(game.id), a);
+      refresh(r.profileId, game.id);
+      toast.ok(`${r.profileName ?? "The profile"} is loaded`, "The main screen's switches show it. Steam's Play button uses it too.");
+      notifyActivation(a);
+    } catch (e) { toast.error(e, `Could not load ${r.profileName ?? "the profile"}`); }
+  };
+
   /** After the player picked a profile for a mod that only reached the Library. */
   const pickedAdd = (r: AddReport, game: GameInstall) => {
     refresh(r.profileId, game.id);
     notifyAdd(r); // what writing the picked profile again kept in the game folder, and what else changed in it
+    const loaded = r.applied || qc.getQueryData<Activation | null>(qk.active(game.id))?.profileId === r.profileId;
+    const load = !loaded && !r.running && r.profileId ? [{ label: "Load it", onClick: () => void loadPicked(r, game) }] : [];
+    const notLoaded = loaded ? undefined : `${r.profileName ?? "It"} is not the loaded profile${load.length ? ": Load it switches them on in this game." : "."}`;
     if (r.added.length) {
-      toast.ok(`Added ${names(r.added)} to ${r.profileName ?? "the profile"}`, r.applied ? undefined : `${r.profileName ?? "It"} is not the loaded profile: load it in Settings, Profiles.`,
-        { actions: [{ label: "Undo", onClick: () => void undo(r, game.id) }] });
-    } else toast.info(`Already in ${r.profileName ?? "the profile"}`);
+      toast.ok(`Added ${names(r.added)} to ${r.profileName ?? "the profile"}`, notLoaded, { actions: [...load, { label: "Undo", onClick: () => void undo(r, game.id) }] });
+    } else toast.info(`Already in ${r.profileName ?? "the profile"}`, notLoaded, { actions: load });
   };
 
   const add = async (paths: string[], game: GameInstall | null) => {
