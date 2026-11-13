@@ -89,6 +89,7 @@ Case-sensitive, 1 to 96 bytes of `[A-Za-z0-9._/-]`:
 ## Rows added in dev.27
 | Row | Kind | Reported by | What it says |
 |---|---|---|---|
+| `rules.noclip` | sigdb feature | core; kiln.rules lowers it at the first world when its hook did not go in: `policy` when character flight's hooks are off (`rules.flight` did not resolve, or the Creative Mode mod runs), `faulted` when the hook could not be installed or the layout is not the expected one | NoClip works on this build and side (`NoClip.Available`, `PlayerRules.NoClip`; [rules.md](rules.md)). Whether one player gets it is still the server's `rules.json` and that player's game: `NoClip.Set` says |
 | `time.weather_choose` | sigdb feature | core; Kiln.Time's members throw `KilnUnavailableException` naming it when its table is older than v2 | the weather table, each layer's phenomenon, choosing one (`Time.WeatherPhenomena`, `Time.Weather`, `Time.SetWeather`, `Time.ReleaseWeather`, `WeatherChangedEvent`); `time.weather` stays the reset (`Time.ResetWeather`) |
 | `items.equip` | sigdb feature | core; Kiln.Items lowers it at its start when its table is older than v5 or kiln.items cannot run equip (no kiln.world, the program refused), and later when the program breaks | equip and unequip through the game's own functions (`Items.Equip`, `Items.Unequip`); a manifest can require it like the other sigdb features |
 
@@ -98,6 +99,18 @@ start, so for a sigdb feature the check sees the sigdb verdict only, not a later
 `Capabilities.Is` at run time as well. The managed rows exist only once their service has started (`blocks.*` only
 after the first item block compiled), and `items.moves` and `saves.instance_data` depend on the session: a manifest
 naming one of them is refused, with the advice to check `Capabilities.Is` at run time.
+
+## Rows added in dev.27
+| Row | Kind | Reported by | What it says |
+|---|---|---|---|
+| `abilities.buffs` | managed, session | Kiln.Abilities, at its first use, at every call that needs it and about once a second | buffs removed (and applied) through the game's natives (`Abilities.RemoveBuff`, `Abilities.ApplyBuff`): needs kiln.abilities with its natives, programs and instance hooks (`abilities.natives`, `abilities.programs`, `abilities.instances`) and a kiln.spawn that takes extra components (`service-older` otherwise). Pending while no server world has set up the game's native and program registries (a client in its menu: mods load there, the world comes later) |
+| `abilities.buff_list` | managed, static | Kiln.Abilities, once, at its first use | an entity's buffs read (`Abilities.BuffsOf`): needs kiln.playerstate (`service-missing` without it) and its reflection reads (`players.reflection`; `faulted` when the service is there and read nothing) |
+| `players.kick` | managed, static | Kiln.Network, at its start (the first service tick) | `Players.Kick`, `Network.Kick`: needs kiln.net, `net.kick`, `net.players` (the game's connection records, which say whose connection one is) and a process that serves clients (`wrong-side` on a client that only joins) |
+| `players.bans` | managed, static | Kiln.Network, with the row above | Kiln's ban list is enforced (`Bans`); the same needs |
+| `combat.hold_filter` | managed, static | Kiln.Combat, when its listener starts | kiln.combat holds only the hits a handler's entity filter lets through (`hold_filter`, appended in dev.27); off: filtered handlers still get only their entities' hits, but every hit waits a step |
+| `players.aim` | managed, static | Kiln.Players, at its start (the first service tick) or the first `AimOf` | `Player.Aim` / `PlayerStates.AimOf`: needs kiln.playerstate with `aim()` (dev.27) and the camera field in the game's reflection |
+
+They exist only once their service has started, after the manifests were checked: check `Capabilities.Is` at run time.
 
 ## Rules
 - Each owner holds at most one report per name. A reader sees the worst report for the name: unavailable beats

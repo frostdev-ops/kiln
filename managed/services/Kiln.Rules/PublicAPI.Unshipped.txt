@@ -1,1 +1,64 @@
 #nullable enable
+const Kiln.NoClip.Capability = "rules.noclip" -> string!
+const Kiln.NoClip.PermissionNode = "kiln.command.noclip" -> string!
+Kiln.NoClip
+Kiln.NoClipEnd
+Kiln.NoClipEnd.Death = 1 -> Kiln.NoClipEnd
+Kiln.NoClipEnd.RuleEnded = 0 -> Kiln.NoClipEnd
+Kiln.NoClipEnd.Teleport = 2 -> Kiln.NoClipEnd
+Kiln.NoClipResult
+Kiln.NoClipResult.<Clone>$() -> Kiln.NoClipResult!
+Kiln.NoClipResult.Deconstruct(out bool Ok, out bool On, out string? Reason, out string! Message) -> void
+Kiln.NoClipResult.Equals(Kiln.NoClipResult? other) -> bool
+Kiln.NoClipResult.Message.get -> string!
+Kiln.NoClipResult.Message.init -> void
+Kiln.NoClipResult.NoClipResult(bool Ok, bool On, string? Reason, string! Message) -> void
+Kiln.NoClipResult.Ok.get -> bool
+Kiln.NoClipResult.Ok.init -> void
+Kiln.NoClipResult.On.get -> bool
+Kiln.NoClipResult.On.init -> void
+Kiln.NoClipResult.Reason.get -> string?
+Kiln.NoClipResult.Reason.init -> void
+Kiln.NoClipState
+Kiln.NoClipState.<Clone>$() -> Kiln.NoClipState!
+Kiln.NoClipState.Active.get -> bool
+Kiln.NoClipState.Active.init -> void
+Kiln.NoClipState.Deconstruct(out Kiln.EntityId Player, out bool On, out bool Active, out ulong StepsSkipped, out Kiln.WorldPosition? LastFree, out bool Restoring) -> void
+Kiln.NoClipState.Equals(Kiln.NoClipState? other) -> bool
+Kiln.NoClipState.LastFree.get -> Kiln.WorldPosition?
+Kiln.NoClipState.LastFree.init -> void
+Kiln.NoClipState.NoClipState(Kiln.EntityId Player, bool On, bool Active, ulong StepsSkipped, Kiln.WorldPosition? LastFree, bool Restoring) -> void
+Kiln.NoClipState.On.get -> bool
+Kiln.NoClipState.On.init -> void
+Kiln.NoClipState.Player.get -> Kiln.EntityId
+Kiln.NoClipState.Player.init -> void
+Kiln.NoClipState.Restoring.get -> bool
+Kiln.NoClipState.Restoring.init -> void
+Kiln.NoClipState.StepsSkipped.get -> ulong
+Kiln.NoClipState.StepsSkipped.init -> void
+Kiln.PlayerNoClipEndedEvent
+Kiln.PlayerNoClipEndedEvent.Player.get -> Kiln.EntityId
+Kiln.PlayerNoClipEndedEvent.Reason.get -> Kiln.NoClipEnd
+Kiln.PlayerNoClipEndedEvent.RestoredTo.get -> Kiln.WorldPosition?
+override Kiln.NoClipResult.Equals(object? obj) -> bool
+override Kiln.NoClipResult.GetHashCode() -> int
+override Kiln.NoClipResult.ToString() -> string!
+override Kiln.NoClipState.Equals(object? obj) -> bool
+override Kiln.NoClipState.GetHashCode() -> int
+override Kiln.NoClipState.ToString() -> string!
+override Kiln.PlayerNoClipEndedEvent.ToString() -> string!
+static Kiln.NoClip.Available.get -> bool
+static Kiln.NoClip.Of(Kiln.EntityId player) -> Kiln.NoClipState!
+static Kiln.NoClip.Set(Kiln.EntityId player, bool on) -> Kiln.NoClipResult!
+static Kiln.NoClipResult.operator !=(Kiln.NoClipResult? left, Kiln.NoClipResult? right) -> bool
+static Kiln.NoClipResult.operator ==(Kiln.NoClipResult? left, Kiln.NoClipResult? right) -> bool
+static Kiln.NoClipState.operator !=(Kiln.NoClipState? left, Kiln.NoClipState? right) -> bool
+static Kiln.NoClipState.operator ==(Kiln.NoClipState? left, Kiln.NoClipState? right) -> bool
+Kiln.EffectiveRules.NoClip.get -> bool
+Kiln.EffectiveRules.NoClip.init -> void
+Kiln.PlayerRules.NoClip.get -> bool?
+Kiln.PlayerRules.NoClip.init -> void
+Kiln.RulesPolicy.AllowNoClip.get -> bool
+Kiln.RulesPolicy.AllowNoClip.set -> void
+Kiln.RulesStatus.NoClip.get -> bool
+Kiln.RulesStatus.NoClip.init -> void

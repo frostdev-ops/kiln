@@ -102,6 +102,7 @@ public static unsafe class Rules
             KeptConsumables = (s.Hooks & RulesNative.HookConsume) != 0, KeptFoodAndPotions = (s.Hooks & RulesNative.HookConsumeBuff) != 0,
             CharacterFlight = (s.Hooks & RulesNative.HookFlight) != 0,
             GlideSteer = (s.Hooks & RulesNative.HookGlideSteer) != 0, GlideSteered = s.GlideSteered,
+            NoClip = (s.Hooks & RulesNative.HookNoClip) != 0,
             MapReveal = (s.Hooks & RulesNative.HookMap) != 0,
             CraftButtons = (s.Hooks & RulesNative.HookCraftUi) != 0,
             CraftsFree = RulesCrafting.Counters.Crafts, ConsumablesKept = RulesCrafting.Counters.Kept,
@@ -138,9 +139,16 @@ public sealed class RuleSet : IDisposable
 
     public bool Active { get; private set; } = true;
 
+    /// <summary>Counts <see cref="Update"/> calls: a request a death or a teleport used up (NoClip) is asked anew by
+    /// the next one.</summary>
+    internal int Version { get; private set; }
+
     internal Action? Detach;
 
-    /// <summary>Changes the rules (same scope, owner and end).</summary>
+    /// <summary>Changes the rules (same scope, owner and end). They count at once: <see cref="Kiln.Rules.Of"/> can be
+    /// read right after, as after <see cref="Kiln.Rules.Apply(RuleScope, PlayerRules, TimeSpan?, string?)"/>. Updating
+    /// a set with the rules it already has asks again for what a death or a teleport used up
+    /// (<see cref="PlayerRules.NoClip"/>).</summary>
     public void Update(PlayerRules rules)
     {
         ArgumentNullException.ThrowIfNull(rules);
@@ -148,7 +156,8 @@ public sealed class RuleSet : IDisposable
         var problems = rules.Problems();
         if (problems.Count > 0) throw new ArgumentException(string.Join("; ", problems), nameof(rules));
         Rules = rules;
-        RulesRuntime.Dirty();
+        Version++;
+        RulesRuntime.Changed(this);
     }
 
     public void Dispose()
@@ -222,6 +231,9 @@ public sealed record RulesStatus(bool Flight, bool Placement, bool Costs, bool M
 
     /// <summary>Glider pitch steps steered so far.</summary>
     public ulong GlideSteered { get; init; }
+
+    /// <summary>NoClip's hook on the character's collision step (NoClip; only ever on with <see cref="CharacterFlight"/>).</summary>
+    public bool NoClip { get; init; }
 
     /// <summary>Game client: the fog of war's discover call (the creative menu's map reveal).</summary>
     public bool MapReveal { get; init; }
@@ -327,8 +339,12 @@ public sealed class RulesPolicy
     [Comment("The character itself may fly for a player (CharacterFlight). Off until the server turns it on: new, and tested on fewer setups than the rest.")]
     public bool AllowCharacterFlight { get; set; }
 
+    [Comment("A player may move through terrain, blocks and props (NoClip, also /noclip). Off until the server turns it on: a tool for admins and for debugging, not for normal play.")]
+    public bool AllowNoClip { get; set; }
+
     internal RulesLimits Limits => new(AllowFlyAnywhere, AllowBuildOutsideBases, AllowIgnoreNoBuildZones, AllowIgnoreEnemiesNearby,
         AllowBuildInShroud, AllowIgnoreBasePermissions, AllowInvulnerable, MinBuildCost, MaxDigDamage, MaxStaminaFloor, MaxHealthFloor,
         MaxManaFloor, AllowWater, AllowFreezeShroudTimer, MaxShroudFloor, AllowUnlimitedGliding, AllowGlideBoost, MaxGlideSpeed,
-        AllowNoFallDamage, AllowFreeCrafting, AllowKeepConsumables, AllowCharacterFlight, AllowGlideSteer, MaxGlideSteerAngle);
+        AllowNoFallDamage, AllowFreeCrafting, AllowKeepConsumables, AllowCharacterFlight, AllowGlideSteer, MaxGlideSteerAngle,
+        AllowNoClip);
 }

@@ -379,13 +379,94 @@ def check_character_flight(side, image, doc, symbols):
                   side + " " + reason + " " + name + " disables flight while keeping consumption and building")
 
 
+def check_noclip(side, image, doc, symbols, constants):
+    names = ["rules.noclip", "rules.flight"]
+    selected = {s for n in names for s in doc["features"][n].get("symbols", [])}
+    selected.add("@rules/FlyGate.entity")  # supplies the shared CurrentEntityId capture
+    pending = list(selected)
+    while pending:
+        for spec in doc["symbols"].get(pending.pop(), {}).get("find", []):
+            dep = spec.get("scope", {}).get("symbol")
+            if dep and dep not in selected:
+                selected.add(dep)
+                pending.append(dep)
+    subset = {"symbols": {n: doc["symbols"][n] for n in selected if n in doc["symbols"]},
+              "constants": {n: doc["constants"][n] for name in names for n in doc["features"][name].get("constants", [])},
+              "features": {n: doc["features"][n] for n in names}}
+    _, _, baseline = Resolver(image, subset).run()
+    check(all(baseline.values()), side + " isolated NoClip and flight patterns resolve")
+    step = symbols["rules/ResolveActorCollider"]["rva"]
+    off = symbols["rules/ResolveActorColliderOff"]["rva"]
+    check(constants["rules/resolve.collider"]["value"] == 0xC0 and constants["rules/resolve.dynloco"]["value"] == 0x90 and
+          constants["rules/collider.enabled"]["value"] == 5 and constants["rules/collider.results_set"]["value"] == 0x50,
+          side + " collision step: the MovementCollider record at +0xc0, DynamicLocomotion's at +0x90, isEnabled at +5, results.m_isSet at +0x50")
+    # The step's own code, as the hook relies on it: rsi is the 6th argument, r15 the MovementCollider, and a 0 in
+    # isEnabled branches to the exit that only clears the results.
+    md = Cs(CS_ARCH_X86, CS_MODE_64)
+    head = list(md.disasm(image.img[step:step + 0x90], step))
+    text = [f"{i.mnemonic} {i.op_str}" for i in head]
+    check("lea rbp, [rsp - 0x5c8]" in text and "mov rsi, qword ptr [rbp + 0x638]" in text,
+          side + " collision step: rsi is loaded from the 6th argument's stack slot (0x5c8 + 8 pushes + 0x30)")
+    at = text.index("cmp byte ptr [r15 + 5], 0")
+    check("mov r15, qword ptr [rdi]" in text[:at] and "lea rdi, [rsi + 0xc0]" in text[:at],
+          side + " collision step: the tested byte is in the MovementCollider record's data")
+    branch = next(i for i in head[at + 1:at + 4] if i.mnemonic == "je")
+    # the compare's flags reach the branch: only moves in between
+    check(all(i.mnemonic == "mov" for i in head[at + 1:head.index(branch)]) and int(branch.op_str, 16) == off and off > step,
+          side + " collision step: isEnabled 0 branches to the captured exit, before anything is traced")
+    # the exit itself: unset the results (marking the component written when a tracker is there), then the epilogue
+    tail = list(md.disasm(image.img[off:off + 59], off))
+    exit_text = [f"{i.mnemonic} {i.op_str}" for i in tail]
+    check(exit_text[0] == "cmp byte ptr [r15 + 0x50], 0" and exit_text[-2] == "mov byte ptr [rax + 0x50], 0" and
+          exit_text[-3] == "mov rax, qword ptr [rdi]" and sum(t.startswith("call ") for t in exit_text) == 1 and
+          not any(t.startswith(("movups", "movaps", "movsd", "movss")) for t in exit_text),
+          side + " the exit only unsets the collision results (one call: mark written); it writes no position")
+    epilogue = int(tail[1].op_str, 16)
+    check(tail[1].mnemonic == "je" and tail[-1].mnemonic == "jmp" and int(tail[-1].op_str, 16) == epilogue and epilogue < off,
+          side + " both of the exit's ways out go to one place")
+    end = [f"{i.mnemonic} {i.op_str}" for i in md.disasm(image.img[epilogue:off], epilogue)]
+    check(end[0] == "add rsp, 0x6c8" and end[-1].strip() == "ret" and all(t.startswith("pop ") for t in end[1:-1]) and len(end) == 10,
+          side + " and that place is the function's epilogue: the frame released, eight pops, ret")
+    for name in ["rules/ResolveActorCollider", "@rules/ResolveActorCollider.dynloco"]:
+        spec = subset["symbols"][name]["find"][0]
+        at, _ = matches(image, symbols, spec)
+        size = parse(spec["pattern"])[2]
+        duplicate = image.text_va + len(image.text) - size
+        if "scope" in spec:
+            duplicate = symbols[spec["scope"]["symbol"]]["rva"] + spec["scope"]["size"] - size
+        for edits, reason in [([(at, b"\x90")], "missing"),
+                              ([(duplicate, image.img[at:at + size])], "ambiguous")]:
+            _, _, features = Resolver(changed(image, edits), subset).run()
+            check(not features["rules.noclip"] and features["rules.flight"],
+                  side + " " + reason + " " + name + " disables NoClip while keeping character flight")
+
+    def only_noclip_off(edits, why):
+        _, _, features = Resolver(changed(image, edits), subset).run()
+        check(not features["rules.noclip"] and features["rules.flight"], side + " " + why + " disables NoClip alone")
+
+    # A changed frame (another argument order or stack size) must not resolve: the 6th argument is part of the pattern.
+    frame = step + bytes(image.img[step:step + 0x60]).index(bytes.fromhex("488bb538060000")) + 3
+    only_noclip_off([(frame, b"\x40")], "a collision step that loads rsi from another argument slot")
+    # The branch must lead to the results-clearing exit: one that goes elsewhere keeps the prefix but not the feature.
+    rel = branch.address + 2
+    only_noclip_off([(rel, (0).to_bytes(4, "little"))], "an isEnabled branch that falls through to the next instruction")
+    elsewhere = (epilogue - (branch.address + 6)) & 0xFFFFFFFF
+    only_noclip_off([(rel, elsewhere.to_bytes(4, "little"))], "an isEnabled branch straight to the epilogue (results left set)")
+    # ... and the exit must be the one fingerprinted: its write and both of its jumps
+    clear = off + bytes(image.img[off:off + 59]).index(bytes.fromhex("c6405000"))
+    only_noclip_off([(clear + 3, b"\x01")], "an exit that sets the results instead of unsetting them")
+    only_noclip_off([(clear + 2, b"\x51")], "an exit that writes another byte of the component")
+    only_noclip_off([(off + 5, b"\x75")], "an exit whose first test is inverted")
+    only_noclip_off([(off + 57, b"\xeb\x00")], "an exit that falls out of the function instead of returning")
+
+
 def run(side, path):
     tree = Tree(ROOT / "sigdb" / "symbols" / (side + ".json"))
     check(not tree.problems, side + " definition tree has no duplicate entries")
     image = Image(path)
     symbols, constants, features = Resolver(image, tree.doc).run()
     rules = {name: ok for name, ok in features.items() if name.startswith("rules.")}
-    required = {"rules." + name for name in ("fly", "zone", "cursor", "shroud", "glide", "glide_view", "glide_stick", "glide_steer", "costs", "dig")}
+    required = {"rules." + name for name in ("fly", "zone", "cursor", "shroud", "glide", "glide_view", "glide_stick", "glide_steer", "costs", "dig", "flight", "noclip")}
     if side == "client":
         required |= {"rules.healthbar_guard", "rules.camera_check"}
     check(required.issubset(rules), side + " defines every expected rules feature")
@@ -397,6 +478,7 @@ def run(side, path):
     check_time_scale(side, image, tree.doc, symbols)
     check_creative(side, image, tree.doc, symbols)
     check_character_flight(side, image, tree.doc, symbols)
+    check_noclip(side, image, tree.doc, symbols, constants)
     check_boundaries(side, image, tree.doc, symbols)
     check_glide_stick(side, image, tree.doc, symbols, constants, features)
     check_glide_steer(side, image, tree.doc, symbols, constants, features)

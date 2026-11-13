@@ -13,6 +13,7 @@ internal static partial class KilnApis
         "M:Kiln.Abilities.Attributes.Get(Kiln.EntityId,Kiln.AbilityResource)", // Abilities.Attributes.Get(EntityId, AbilityResource): Game.AssertTickThread
         "M:Kiln.Abilities.Attributes.Get(Kiln.EntityId,System.String,System.UInt32)", // Abilities.Attributes.Get(EntityId, string, uint): Game.AssertTickThread
         "M:Kiln.Abilities.Attributes.Max(Kiln.EntityId,Kiln.AbilityResource)", // Abilities.Attributes.Max(EntityId, AbilityResource): Game.AssertTickThread
+        "M:Kiln.Abilities.BuffsOf(Kiln.EntityId)", // Abilities.BuffsOf(EntityId): Game.AssertTickThread
         "M:Kiln.Abilities.Cast(Kiln.EntityId,System.String,Kiln.CastOrigin)", // Abilities.Cast(EntityId, string, CastOrigin): via AbilityRegistry.CastNow(EntityId, string, CastOrigin)
         "M:Kiln.Abilities.Instance(System.UInt32)", // Abilities.Instance(uint): Game.AssertTickThread
         "M:Kiln.Abilities.Natives.Register(System.String,System.Int32,Kiln.NativeHandler)", // Abilities.Natives.Register(string, int, NativeHandler): Game.AssertTickThread
@@ -23,6 +24,8 @@ internal static partial class KilnApis
         "M:Kiln.Abilities.Programs.Refresh", // Abilities.Programs.Refresh(): Game.AssertTickThread
         "M:Kiln.Abilities.Programs.Register(System.Byte[])", // Abilities.Programs.Register(byte[]): via Abilities.Programs.RegisterCore(byte[], out bool)
         "M:Kiln.Abilities.Programs.Register(System.Byte[],System.Boolean@)", // Abilities.Programs.Register(byte[], out bool): via Abilities.Programs.RegisterCore(byte[], out bool)
+        "M:Kiln.Abilities.RemoveBuff(Kiln.EntityId,System.Guid)", // Abilities.RemoveBuff(EntityId, Guid): via Abilities.Remove(EntityId, Guid, uint)
+        "M:Kiln.Abilities.RemoveBuff(Kiln.EntityId,System.UInt32)", // Abilities.RemoveBuff(EntityId, uint): via Abilities.Remove(EntityId, Guid, uint)
         "M:Kiln.Abilities.RunImpact(System.Guid,Kiln.WorldPosition,Kiln.ImpactOptions)", // Abilities.RunImpact(Guid, WorldPosition, ImpactOptions?): Game.AssertTickThread
         "M:Kiln.Abilities.RunImpact(System.String,Kiln.WorldPosition,Kiln.ImpactOptions)", // Abilities.RunImpact(string, WorldPosition, ImpactOptions?): via Abilities.RunImpact(Guid, WorldPosition, ImpactOptions?)
         "M:Kiln.Abilities.RunProgram(System.Guid,Kiln.WorldPosition,Kiln.ImpactOptions)", // Abilities.RunProgram(Guid, WorldPosition, ImpactOptions?): Game.AssertTickThread
@@ -58,6 +61,9 @@ internal static partial class KilnApis
         "M:Kiln.Attributes.Set(Kiln.EntityId,System.UInt32,System.Int32)", // Attributes.Set(EntityId, uint, int): via Attributes.Write(string, EntityId, uint, int, bool)
         "M:Kiln.Attributes.TryAdd(Kiln.EntityId,Kiln.GameAttribute,System.Int32,Kiln.AttributeReading@)", // Attributes.TryAdd(EntityId, GameAttribute, int, out AttributeReading): via Attributes.TryWrite(EntityId, GameAttribute, int, bool, out AttributeReading)
         "M:Kiln.Attributes.TrySet(Kiln.EntityId,Kiln.GameAttribute,System.Int32,Kiln.AttributeReading@)", // Attributes.TrySet(EntityId, GameAttribute, int, out AttributeReading): via Attributes.TryWrite(EntityId, GameAttribute, int, bool, out AttributeReading)
+        "M:Kiln.Bans.Add(Kiln.PlayerRef,System.String,System.Nullable{System.TimeSpan})", // Bans.Add(PlayerRef, string, TimeSpan?): Game.AssertTickThread
+        "M:Kiln.Bans.Add(System.UInt64,System.String,System.Nullable{System.TimeSpan})", // Bans.Add(ulong, string, TimeSpan?): Game.AssertTickThread
+        "M:Kiln.Bans.Remove(System.UInt64)", // Bans.Remove(ulong): Game.AssertTickThread
         "M:Kiln.Boss.KilledBy(Kiln.Player)", // Boss.KilledBy(Player): via ProgressFact.Holds(EntityId)
         "M:Kiln.Boss.get_Killed", // Boss.Killed.get: via ProgressFact.Holds(EntityId)
         "M:Kiln.Build.Add(Kiln.BuildShape,System.Byte,Kiln.BuildOptions)", // Build.Add(BuildShape, byte, BuildOptions?): via Build.RunShape(ShapeOp, BuildShape, byte, byte, double, float, int, BuildOptions?)
@@ -331,6 +337,8 @@ internal static partial class KilnApis
         "M:Kiln.Gameplay.WatchTeleports(Kiln.EntityId,System.Boolean)", // Gameplay.WatchTeleports(EntityId, bool): Services.RequireTickThread
         "M:Kiln.Gameplay.WorkshopRecipes(System.UInt32)", // Gameplay.WorkshopRecipes(uint): Services.RequireTickThread
         "M:Kiln.InstanceData.All``1(Kiln.InstanceKey{``0})", // InstanceData.All<T>(InstanceKey<T>): via InstanceData.Use<T>(string, InstanceKey<T>)
+        "M:Kiln.InstanceData.Claim``1(Kiln.ParkedInstance{``0},Kiln.ItemInstanceRef)", // InstanceData.Claim<T>(ParkedInstance<T>, ItemInstanceRef): via InstanceData.Resolve<T>(ParkedInstance<T>, string)
+        "M:Kiln.InstanceData.Discard``1(Kiln.ParkedInstance{``0})", // InstanceData.Discard<T>(ParkedInstance<T>): via InstanceData.Use(string, InstanceKeyInfo)
         "M:Kiln.InstanceData.Key``1(System.String,Kiln.InstanceKeyOptions)", // InstanceData.Key<T>(string, InstanceKeyOptions?): Services.RequireTickThread
         "M:Kiln.InstanceData.Parked``1(Kiln.InstanceKey{``0})", // InstanceData.Parked<T>(InstanceKey<T>): via InstanceData.Use<T>(string, InstanceKey<T>)
         "M:Kiln.ItemInstanceDataExtensions.Get``1(Kiln.ItemInstanceRef,Kiln.InstanceKey{``0})", // ItemInstanceDataExtensions.Get<T>(ItemInstanceRef, InstanceKey<T>): via InstanceData.Use<T>(string, InstanceKey<T>)
@@ -405,6 +413,9 @@ internal static partial class KilnApis
         "M:Kiln.Nearby.Within(System.Collections.Generic.IEnumerable{Kiln.EntityId},Kiln.EntityId,System.Double)", // Nearby.Within(IEnumerable<EntityId>, EntityId, double): via Nearby.Validate(WorldPosition, double)
         "M:Kiln.Nearby.Within(System.Collections.Generic.IEnumerable{Kiln.EntityId},Kiln.WorldPosition,System.Double)", // Nearby.Within(IEnumerable<EntityId>, WorldPosition, double): via Nearby.Filter(IEnumerable<EntityId>, WorldPosition, double, EntityId)
         "M:Kiln.NetChannel.SendNear``1(Kiln.WorldPosition,System.Double,``0,Kiln.NetPeer)", // NetChannel.SendNear<T>(WorldPosition, double, T, NetPeer?): Services.RequireTickThread
+        "M:Kiln.Network.Kick(Kiln.NetPeer,System.String)", // Network.Kick(NetPeer, string): Game.AssertTickThread
+        "M:Kiln.NoClip.Of(Kiln.EntityId)", // NoClip.Of(EntityId): Game.AssertTickThread
+        "M:Kiln.NoClip.Set(Kiln.EntityId,System.Boolean)", // NoClip.Set(EntityId, bool): Game.AssertTickThread
         "M:Kiln.NpcView.InPhase(System.String)", // NpcView.InPhase(string): via CreatureRef.Phase.get
         "M:Kiln.NpcView.get_Health", // NpcView.Health.get: via NpcView.Info.get
         "M:Kiln.NpcView.get_HealthFraction", // NpcView.HealthFraction.get: via NpcView.HealthMax.get
@@ -431,6 +442,7 @@ internal static partial class KilnApis
         "M:Kiln.Permissions.SetGroup(System.String,System.Nullable{System.Boolean},System.Collections.Generic.IEnumerable{System.String})", // Permissions.SetGroup(string, bool?, IEnumerable<string>?): via PermissionStore.Edit(Action<PermissionModel>, string)
         "M:Kiln.Permissions.SetGroupNode(System.String,System.String,System.Nullable{System.Boolean})", // Permissions.SetGroupNode(string, string, bool?): via PermissionStore.Edit(Action<PermissionModel>, string)
         "M:Kiln.Permissions.SetPlayerNode(System.UInt64,System.String,System.Nullable{System.Boolean},System.String)", // Permissions.SetPlayerNode(ulong, string, bool?, string?): via PermissionStore.Edit(Action<PermissionModel>, string)
+        "M:Kiln.Player.get_Aim", // Player.Aim.get: via PlayerStates.AimOf(EntityId)
         "M:Kiln.PlayerData.Contains(System.UInt64,System.String)", // PlayerData.Contains(ulong, string): via PlayerData.Bundle(ulong, string)
         "M:Kiln.PlayerData.Get``1(System.UInt64,System.String)", // PlayerData.Get<T>(ulong, string): via PlayerData.Bundle(ulong, string)
         "M:Kiln.PlayerData.Keys(System.UInt64)", // PlayerData.Keys(ulong): via PlayerData.Bundle(ulong, string)
@@ -442,8 +454,10 @@ internal static partial class KilnApis
         "M:Kiln.PlayerRef.Of(Kiln.EntityId)", // PlayerRef.Of(EntityId): Game.AssertTickThread
         "M:Kiln.PlayerRef.Resolve", // PlayerRef.Resolve(): Game.AssertTickThread
         "M:Kiln.PlayerRef.get_IsOnline", // PlayerRef.IsOnline.get: via EntityRef.IsAlive.get
+        "M:Kiln.PlayerStates.AimOf(Kiln.EntityId)", // PlayerStates.AimOf(EntityId): Game.AssertTickThread
         "M:Kiln.Players.Diagnostics.ProbePosition(Kiln.EntityId)", // Players.Diagnostics.ProbePosition(EntityId): Services.RequireTickThread
         "M:Kiln.Players.Diagnostics.RawSlot(System.Int32)", // Players.Diagnostics.RawSlot(int): Services.RequireTickThread
+        "M:Kiln.Players.Kick(Kiln.PlayerRef,System.String)", // Players.Kick(PlayerRef, string): Game.AssertTickThread
         "M:Kiln.ProgressFact.Holds(Kiln.EntityId)", // ProgressFact.Holds(EntityId): Services.RequireTickThread
         "M:Kiln.ProgressFact.Holds(Kiln.Player)", // ProgressFact.Holds(Player): via ProgressFact.Holds(EntityId)
         "M:Kiln.Progression.Diagnostics.ExperienceForLevel(System.Int32)", // Progression.Diagnostics.ExperienceForLevel(int): Services.RequireTickThread

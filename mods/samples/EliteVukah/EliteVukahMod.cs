@@ -86,6 +86,10 @@ public sealed class EliteVukahMod : Mod
             Tag = "elite-demo", Flags = SpawnFlags.Transient, DespawnOnUnload = false,
         });
         Log.Info($"elite-vukah: demo elite {e} at {at}");
+        // Its hits in the log. The entity filter matters: kiln.combat holds a hit for a step while a handler wants it,
+        // so a handler without one would make every hit in the world wait; with it only the demo elite's do.
+        _registrations.Add(Events.On<EntityHurtEvent>(hit => Log.Info($"elite-vukah: demo elite hit for {hit.Amount} by {hit.Attacker}"),
+            EventFilter.ForEntity(e)));
     }
 
     public override void OnUnload()

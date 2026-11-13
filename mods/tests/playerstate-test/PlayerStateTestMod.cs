@@ -180,6 +180,7 @@ public sealed class PlayerStateTestMod : Mod
             if (!p.IsNone)
             {
                 await TestRead(p);
+                await TestAim(p);
                 await TestStatesAndActions(p);
                 await TestConsume(p);
                 await TestFakeInput(p);
@@ -316,6 +317,74 @@ public sealed class PlayerStateTestMod : Mod
         Check(PlayerStates.InfoOf(unknown) is null && (ushort)unknown == 0x013F, $"a bit the game does not name keeps its raw id: 0x{(ushort)unknown:x4}");
         var bySource = all.GroupBy(i => i.Source).Select(g => $"{g.Key} {g.Count()}");
         Info("states by source: " + string.Join(", ", bySource));
+    }
+
+    // ---- where the player looks (dev.27): PlayerInput.fromClient.camera, written here as a joined client's input would be ----
+    private async Task TestAim(EntityId e)
+    {
+        Check(Capabilities.Is("players.aim"), $"capability: {Capabilities.Why("players.aim")}");
+        Check(PlayerStates.Status is { } st && st.Reflection, "kiln.playerstate is up");
+        var before = PlayerStates.AimOf(e);
+        Check(before is null, $"a player entity no client ever drove has no aim (its camera starts at the origin, unrotated): {before?.ToString() ?? "null"}");
+        if (_world == 0) { Info("aim write skipped: no world pointer"); return; }
+        var pi = Raw.Component(_world, "PlayerInput", e);
+        var t = World.Transform(e);
+        if (pi == 0 || t is null) { Check(false, "the player entity has PlayerInput and a transform"); return; }
+        const int cam = 0x08 + 0x20;  // PlayerInput.fromClient (8) + ClientPlayerInputData.camera (32): keen::ecs::ClientCamera
+        var at = new WorldPosition(t.Value.Position.X - 3, t.Value.Position.Y + 2.25, t.Value.Position.Z + 0.5);
+        // turned 90 degrees about +Y and pitched 20 degrees down: the game's forward (0,0,1) becomes about (+0.94, -0.34, 0)
+        var q = System.Numerics.Quaternion.CreateFromYawPitchRoll(MathF.PI / 2, 20f * MathF.PI / 180f, 0);
+        void Write()
+        {
+            Raw.Set64(pi + cam + 0, (ulong)(long)Math.Round(at.X * 4294967296.0));
+            Raw.Set64(pi + cam + 8, (ulong)(long)Math.Round(at.Y * 4294967296.0));
+            Raw.Set64(pi + cam + 16, (ulong)(long)Math.Round(at.Z * 4294967296.0));
+            Raw.SetF(pi + cam + 24, q.X); Raw.SetF(pi + cam + 28, q.Y); Raw.SetF(pi + cam + 32, q.Z); Raw.SetF(pi + cam + 36, q.W);
+            Raw.SetF(pi + cam + 40, 3.5f);  // distance
+            Raw.SetF(pi + cam + 44, 1.1f);  // fovY
+        }
+        Write();
+        var now = PlayerStates.AimOf(e);
+        Info($"aim right after the write: {now}");
+        var expected = System.Numerics.Vector3.Transform(System.Numerics.Vector3.UnitZ, q);
+        Check(now is not null && now.Origin.DistanceTo(at) < 1e-6 && (now.Direction - expected).Length() < 1e-4 &&
+              Math.Abs(now.Distance - 3.5f) < 1e-6 && Math.Abs(now.FieldOfView - 1.1f) < 1e-6 && now.Source == PlayerStateOrigin.Server,
+            $"PlayerStates.AimOf reads the camera: origin {now?.Origin} (wrote {at}), direction {now?.Direction} (expected {expected}), distance {now?.Distance}, fov {now?.FieldOfView}, yaw {now?.YawDegrees:F1}, pitch {now?.PitchDegrees:F1}");
+        Check(now is not null && Math.Abs(now.YawDegrees - 90) < 0.01 && Math.Abs(now.PitchDegrees + 20) < 0.01,
+            $"yaw 90 and pitch -20 (a look down is negative): {now?.YawDegrees:F2} / {now?.PitchDegrees:F2}");
+        // the game's own rotation of (0,0,1) by the same quaternion (QuatRotate, the call kiln.rules' glider makes)
+        if (Symbols.TryGet("rules/QuatRotate", out var rot))
+        {
+            var game = GameRotate(rot, q);
+            Check(now is not null && (game - now.Direction).Length() < 1e-4,
+                $"the game's QuatRotate(camera, (0,0,1)) gives the same direction: {game} vs {now?.Direction}");
+        }
+        else Info("rules/QuatRotate not in sigdb here: the game's own rotation not compared");
+        await Steps(1);
+        var later = PlayerStates.AimOf(e);
+        Info($"aim one step later (no client behind the entity): {later}");
+        await Steps(10);
+        var later10 = PlayerStates.AimOf(e);
+        Info($"aim 11 steps later: {later10}");
+        // a zero camera (what a client that never sent one leaves): null, not a direction made up from zeros
+        for (var i = 0u; i < 64u; i += 8u) Raw.Set64(pi + (nuint)cam + i, 0);
+        Check(PlayerStates.AimOf(e) is null, "a zero camera reads as null (no camera sent)");
+        Check(PlayerStates.AimOf(EntityId.None) is null, "AimOf(None) is null");
+        var altar = Spawn.FindByName("FlameAltar", max: 1).FirstOrDefault();
+        if (!altar.IsNone) Check(PlayerStates.AimOf(altar) is null, $"an entity without PlayerInput (flame altar {altar}) reads as null");
+        Write();
+        await Steps(1);
+    }
+
+    private static unsafe System.Numerics.Vector3 GameRotate(nuint fn, System.Numerics.Quaternion q)
+    {
+        float* o = stackalloc float[4];
+        float* qq = stackalloc float[4];
+        float* v = stackalloc float[4];
+        qq[0] = q.X; qq[1] = q.Y; qq[2] = q.Z; qq[3] = q.W;
+        v[0] = 0; v[1] = 0; v[2] = 1; v[3] = 0;
+        ((delegate* unmanaged<float*, float*, float*, float*>)fn)(o, qq, v);
+        return new System.Numerics.Vector3(o[0], o[1], o[2]);
     }
 
     // ---- reading ----
@@ -948,4 +1017,5 @@ internal static unsafe class Raw
     public static uint Get32(nuint a) => *(uint*)a;
     public static void Set32(nuint a, uint v) => *(uint*)a = v;
     public static void Set8(nuint a, byte v) => *(byte*)a = v;
+    public static void SetF(nuint a, float v) => *(float*)a = v;
 }

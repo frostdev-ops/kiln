@@ -135,8 +135,20 @@ public sealed partial class WeaponMovesTestMod
         c.Instruct("Take each Held weapon from your bag in hand in turn: the Held Sword, the Held Greataxe, the Held Shield, the Held Daggers and the Held Daggers (left). " +
                    "Pass if each sits in the hand its class is held in (the sword in the right hand, the greataxe in the left, the shield on the left arm, the daggers one in " +
                    "each hand), its crystal turns and its tip sways by itself in a loop, the greataxe's glow (the game's lit axe's) sits 0.6 m up the blade and the others have " +
-                   "none, no staff glow shows on any of them, and in the bag and dropped on the ground each shows its class's own item (these looks name no icon and no dropped " +
-                   "model), not the moving blade.");
+                   "none, no staff glow shows on any of them, in the bag each shows its class's own icon (these looks name no icon), and dropped on the ground each lies as " +
+                   "the rigid blade, the look's own model (since dev.27: no Dropped, so the look's model is its ground model), not as its class's item and not moving.");
+        await c.Verdict();
+    }
+
+    [ClientCheck("blocks.dropped-own-model", "An item with a model of its own lies on the ground as that model", Area = "Blocks", Since = "0.2.0-dev.27",
+        Tags = [ClientCheckTags.Visual], Needs = ClientCheckNeeds.Any, Order = 55)]
+    private async Task Dropped_own_model(CheckContext c)
+    {
+        if (!await Scene(c, G("held-sword"))) { await c.Verdict(); return; }
+        var ground = Content.Items.Get(G("held-sword"))?.GetRef("iconModel");
+        c.Expect(ground == RigidBlade, "the Held Sword's ground model (iconModel) is its look's own rigid blade", $"{ground}");
+        c.Instruct("Drop the Held Sword from your bag onto the ground and look at it there. Pass if it lies as the rigid blade with its crystal (the look's own model, " +
+                   "still), not as the game's starter sword. Pick it up again afterwards.");
         await c.Verdict();
     }
 

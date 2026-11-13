@@ -118,6 +118,10 @@ public sealed class NetPeer
     internal bool Cleared;                // server role: kiln.net sends it Kiln-only entities (withhold_set off)
     internal uint ClearedTemplates;       // ... of the Kiln-only templates there were at its last clear
     internal DateTime? KickAt;
+    internal PendingKick? Kick;   // server role: Players.Kick, a ban or a login refusal on its way (PlayerGate)
+    internal bool LoginSeen;      // server role: PlayerLoginEvent was posted for it (or it was banned)
+    internal int KickFailures;    // server role: the game's kick call failed this often for it
+    internal DateTime? KickRetryAt;  // server role: a failed kick is not tried again by the gate before this
     internal double TokensMsgs, TokensBytes;
     internal DateTime TokensAt = DateTime.UtcNow;
     internal readonly Queue<DateTime> RecentDrops = new();
@@ -397,6 +401,40 @@ public static class Network
 
     /// <summary>Server side: the peer of a player (null when not connected).</summary>
     public static NetPeer? PeerOf(EntityId player) => NetEngine.PeerOfPlayer(player);
+
+    /// <summary>Server side: refuses a connection, also one whose player the game has not made yet (from
+    /// <see cref="NetClientHandshakeEvent"/>, say). A Kiln client gets <paramref name="reason"/> (its overlay shows it) and,
+    /// 1.5 s later, the game's login failure; a vanilla client gets the login failure at once. The task completes when it
+    /// went out (or the connection left on the refusal first); <see cref="PlayerKickedEvent"/> is posted then. For a
+    /// player, <see cref="Players.Kick"/> does the same. Tick thread.</summary>
+    /// <exception cref="ArgumentNullException"><paramref name="peer"/> or <paramref name="reason"/> is null.</exception>
+    /// <exception cref="ArgumentException">The peer is the server link, the hosting player's own game, or gone; or the
+    /// reason is empty or longer than 200 characters.</exception>
+    /// <exception cref="KilnUnavailableException"><c>players.kick</c> is off.</exception>
+    /// <exception cref="InvalidOperationException">Not on the tick thread.</exception>
+    [ServerOnly]
+    [TickThreadOnly]
+    [RequiresCapability("players.kick")]
+    public static Task<KickResult> Kick(NetPeer peer, string reason)
+    {
+        ArgumentNullException.ThrowIfNull(peer);
+        Game.AssertTickThread();
+        PlayerAdmin.CheckReason(reason);
+        if (peer.IsServer) throw new ArgumentException("the server link is not a connection of this server", nameof(peer));
+        if (!peer.IsLab && (peer.Id & 0x7F) == 0) throw new ArgumentException("the hosting player's own game cannot be kicked", nameof(peer));
+        if (peer.State == NetPeerState.Closed) throw new ArgumentException($"peer 0x{peer.Id:x} is gone", nameof(peer));
+        PlayerAdmin.RequireKicker();
+        var pref = PlayerRef.None;
+        try
+        {
+            if (!peer.Player.IsNone && Players.Find(peer.Player) is { SteamId: not 0 } p) pref = new PlayerRef(p.SteamId, Guid.Empty, EntityRef.None);
+        }
+        catch (NotSupportedException)
+        {
+            // kiln.players cannot say who it is: the kick still goes out
+        }
+        return PlayerGate.Refuse(peer, pref, peer.Name, reason, ModContext.CurrentMod?.Info.Id, false);
+    }
 
     /// <summary>The channels open in this process.</summary>
     public static IReadOnlyList<NetChannel> Channels => NetEngine.AllChannels();

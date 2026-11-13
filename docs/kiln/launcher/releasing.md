@@ -281,7 +281,15 @@ cannot be inspected or exceeds the nesting limit (32). Source, Windows and updat
   disk. A shell in it: `tools/release/linux-build/run.sh --mount "$PWD" -- bash`.
 - **The image:** `tools/release/linux-build/Dockerfile`: `ubuntu:22.04` pinned by digest, Tauri's Linux packages
   from the fixed `APT_SNAPSHOT` timestamp ([Ubuntu snapshot service](https://snapshot.ubuntu.com/)),
-  Rust (rustup-init checked by sha256, one pinned toolchain) and bun (checked by sha256), at the host's versions.
+  Rust (rustup-init checked by sha256, one pinned toolchain) and bun (checked by sha256, at the host's version).
+  The image's `RUST_VERSION` is the release's Rust version: release.sh reads it and builds everything the host builds
+  (the Windows files; with `--host-build` the Linux files too) with that same toolchain, by setting
+  `RUSTUP_TOOLCHAIN`. It stops before building anything when the host has no such toolchain or it lacks the
+  `x86_64-pc-windows-msvc` target, and prints the `rustup` command that installs it. On a machine without rustup the
+  distribution's `rustc` must be exactly that version and have that target's standard library (release.sh asks
+  `rustc --print target-libdir` and looks for `libstd` there), or it stops the same way. (rustup's `stable` moved during
+  0.2.0-dev.26's first build and stopped it halfway; a version number cannot move.) `KILN_RELEASE_RUST=<x.y.z>`
+  builds the host's files with another version, for a trial build.
   `tools/release/linux-build/image.sh` prints its tag, `kiln-linux-build:<first 12 hex of the Dockerfile's sha256>`,
   and builds it when missing (a few minutes; release.sh does this itself). Editing the Dockerfile makes a new tag.
   A release records and uses one immutable image ID for all its Linux commands, on `linux/amd64`; old images are
@@ -290,7 +298,9 @@ cannot be inspected or exceeds the nesting limit (32). Source, Windows and updat
     WebKitGTK shipped in the AppImage. `image.sh --rebuild` disables the layer cache but keeps the pinned snapshot;
     it does not fetch newer apt packages. These pins fix the image inputs, not byte-for-byte reproducibility of an
     entire release (Tauri's downloaded bundling tools and persistent caches are separate inputs).
-  - **Raise Rust or bun:** change `RUST_VERSION` (or `RUSTUP_VERSION` + `RUSTUP_SHA256`, from
+  - **Raise Rust or bun:** change `RUST_VERSION` and install that toolchain on the host
+    (`rustup toolchain install <v> --profile minimal --target x86_64-pc-windows-msvc`); for rustup itself
+    `RUSTUP_VERSION` + `RUSTUP_SHA256` (from
     `https://static.rust-lang.org/rustup/archive/<v>/x86_64-unknown-linux-gnu/rustup-init.sha256`), or `BUN_VERSION`
     + `BUN_SHA256` (the release's `SHASUMS256.txt`). **Move the base** (a newer `ubuntu:22.04` build):
     `docker pull ubuntu:22.04 && docker inspect --format '{{index .RepoDigests 0}}' ubuntu:22.04` and put the digest in

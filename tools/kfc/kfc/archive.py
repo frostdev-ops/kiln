@@ -98,7 +98,9 @@ class ContentHash(tuple):
 
 
 class Kfc:
-    def __init__(self, path, chunk_cache=6):
+    def __init__(self, path, chunk_cache=6, stem=None, resources=None):
+        """`path`: the index file, or a folder holding one `*.kfc`. `stem` and `resources` name the other files when
+        the index is not `<stem>.kfc` beside them (see `unpatched`): `<stem>_NNN.dat`, and the resources file."""
         p = Path(path).expanduser()
         if p.is_dir():
             cands = sorted(p.glob("*.kfc"))
@@ -106,7 +108,8 @@ class Kfc:
                 raise FileNotFoundError(f"no .kfc in {p}")
             p = cands[0]
         self.path = p
-        self.stem = p.with_suffix("")
+        self.stem = Path(stem) if stem is not None else p.with_suffix("")
+        self._resources = Path(resources) if resources is not None else Path(str(self.stem) + ".kfc_resources")
         self.b = p.read_bytes()
         if self.b[:4] != MAGIC:
             raise ValueError(f"{p}: magic {self.b[:4]!r}, expected {MAGIC!r}")
@@ -115,6 +118,25 @@ class Kfc:
         self._chunks_cache = OrderedDict()
         self._chunk_cache_max = chunk_cache
         self._dat_files = {}
+
+    @classmethod
+    def unpatched(cls, path, chunk_cache=6):
+        """The game's own archive in a folder whose archive a mod loader patched, or None when it is as the game
+        shipped it. EML rewrites `<name>.kfc` and `<name>.kfc_resources` for its mods and keeps the originals beside
+        them as `<name>.kfc.bak` and `<name>.kfc_resources.bak`; the `.dat` files only grow, so the originals' entries
+        still read. Anything that states a fact about the game's data (a rule that holds for every game material)
+        has to read this one: in the patched archive a mod's resources stand where the game's were."""
+        p = Path(path).expanduser()
+        if p.is_dir():
+            cands = sorted(p.glob("*.kfc"))
+            if not cands:
+                return None
+            p = cands[0]
+        stem = p.with_suffix("")
+        index, resources = Path(str(p) + ".bak"), Path(str(stem) + ".kfc_resources.bak")
+        if not (index.is_file() and resources.is_file()):
+            return None
+        return cls(index, chunk_cache=chunk_cache, stem=stem, resources=resources)
 
     # ---- header ----
     def _loc(self, at):
@@ -203,7 +225,7 @@ class Kfc:
             self._chunks_cache.move_to_end(i)
             return c
         if self._res_file is None:
-            self._res_file = open(str(self.stem) + ".kfc_resources", "rb")
+            self._res_file = open(self._resources, "rb")
         foff, stored, packed, doff, dsize = self.chunks[i]
         self._res_file.seek(foff)
         data = zstd_decompress(self._res_file.read(packed), dsize)

@@ -104,7 +104,14 @@ Backstab, KillingBlow, Healing, ...), `DamageTypes`, `Reaction`, `Origin`, `IsPl
 **Timing cost of hurt/heal handlers.** Game hits are produced and applied inside the same sim step on worker threads,
 where mod code cannot run. While anything subscribes to `EntityHurtEvent` or `EntityHealEvent`, kiln.combat therefore
 holds every entity hit for one step: it applies about 41 ms later than vanilla on a dedicated server (one step on a
-listen server). Without subscribers hits are untouched. `AsGameHit` sends a Kiln hit through the same hold (it is
+listen server). Without subscribers hits are untouched. **With entity filters (dev.27)** only the hits that name a
+watched entity wait: when every hurt, heal and knockback handler subscribed with `Events.On<T>(handler,
+EventFilter.ForEntity(...))`, kiln.combat holds a hit only if its target, root target, source or root source is one of
+the watched entities, and every other hit applies at once, untouched (`hold_filter`, appended to the table; capability
+`combat.hold_filter`; one handler without a filter holds every hit again). Lab (`mods/tests/event-filter-test`, one
+watched doll): `a hit on another creature applies ... and is not held: hits held 0 -> 0`, `a hit on the doll ... is held
+for the watcher: hits held 0 -> 1`, `control: with a handler without a filter the other creature's hit is held too`.
+`AsGameHit` sends a Kiln hit through the same hold (it is
 reported like a game hit, not inside the call). Hits on one swing/projectile that the engine would merge (same
 target and impact) are reported once; the decision applies to all of them. Repeat hits of an impact that already hit
 the target (which the engine skips) are not reported (`CombatStatus.RepeatHits`).

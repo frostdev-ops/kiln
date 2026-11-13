@@ -41,7 +41,7 @@
     { "section": "Client checklist (dev.21)", "key": "Kiln's menu opens and draws; camera, render and in-game UI hooks behave as in dev.20", "checks": ["menu.kiln-menu", "hooks.camera-render-ui"] },
     { "section": "Client checklist (dev.21)", "key": "With kiln-emf's client chat bridge on, Kiln chat commands and EMF mods' chat both work", "checks": ["chat.emf-bridge", "chat.emf-bridge-two"] },
     { "section": "Client checklist (dev.21)", "key": "Item moves and quick stack, combat, abilities, audio, quests, flight and creative rules, saves, time, spawns, NPC factions, VFX and world programs with a player",
-      "checks": ["gameplay.items-quick-stack", "gameplay.combat-abilities", "blocks.sound-block", "quests.npc-sample", "rules.flight-creative", "saves.kept", "time.set", "spawns.vukah", "creatures.ai-feud", "vfx.game-by-name", "world.programs"] },
+      "checks": ["gameplay.items-quick-stack", "gameplay.combat-abilities", "blocks.sound-block", "quests.npc-sample", "rules.flight-creative", "rules.noclip", "rules.noclip-teleport", "saves.kept", "time.set", "spawns.vukah", "creatures.ai-feud", "vfx.game-by-name", "world.programs"] },
     { "section": "Client checklist (dev.21)", "key": "Load after Kiln and ShroudForge on XHL-Core", "checks": ["dll.xhl-late"] },
     { "section": "Client checklist (dev.21)", "key": "While Enshrouded starts with an EML mod active, Remove or Clean up of that version is refused", "checks": ["library.guard-running", "library.guard-closed"] },
     { "section": "Client checklist (dev.21)", "key": "Later EML starts log nothing changed", "checks": ["eml.nothing-changed"] },
@@ -57,6 +57,11 @@
     { "section": "New in 0.2.0-dev.26", "key": "A weapon's own moves: its chain, its heavy and block, when the blow lands",
       "checks": ["weapon-moves-test/blocks.moves-chain", "weapon-moves-test/blocks.moves-hit-timing", "weapon-moves-test/blocks.moves-heavy-block", "weapon-moves-test/blocks.moves-vanilla-unchanged"] },
     { "section": "New in 0.2.0-dev.26", "key": "A held model with moving parts", "checks": ["weapon-moves-test/blocks.held-animated", "weapon-moves-test/blocks.held-animated-two-players"] },
+    { "section": "New in 0.2.0-dev.27", "key": "A mod takes a buff off a player: the icon goes", "checks": ["abilities.remove-buff"] },
+    { "section": "New in 0.2.0-dev.27", "key": "Player.Aim follows the player's camera", "checks": ["players.aim"] },
+    { "section": "New in 0.2.0-dev.27", "key": "Kick and ban a joined player", "checks": ["kick-test/players.kick", "kick-test/players.kick.after", "kick-test/players.ban", "kick-test/players.ban.after"] },
+    { "section": "New in 0.2.0-dev.27", "key": "An item with a model of its own lies on the ground as that model", "checks": ["weapon-moves-test/blocks.dropped-own-model"] },
+    { "section": "New in 0.2.0-dev.27", "key": "Event filters: one watched creature's hits, the others untouched", "checks": ["event-filter-test/events.filter-hits"] },
     { "section": "New in 0.2.0-dev.27", "key": "Equip and unequip by a mod", "checks": ["items.equip", "items.unequip"] },
     { "section": "New in 0.2.0-dev.27", "key": "The weather a mod chose", "checks": ["time.weather"] }
   ]

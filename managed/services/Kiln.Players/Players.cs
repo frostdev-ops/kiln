@@ -101,7 +101,7 @@ public readonly record struct PlayerSlotRaw(
 /// tick thread (e.g. <c>OnLoad</c>); handlers are dropped when your mod unloads. Players already in game when you
 /// subscribe raise no <see cref="Joined"/>: read <see cref="All"/> first.</para>
 /// </remarks>
-public static unsafe class Players
+public static unsafe partial class Players
 {
     // ---- native mirror (kiln_players.h) ----
     [StructLayout(LayoutKind.Sequential)]

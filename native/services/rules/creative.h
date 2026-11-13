@@ -13,9 +13,11 @@ bool rules_of(uint32_t entity, KilnRulesPlayer* out);  // the server world's per
 bool local_rules(KilnRulesPlayer* out);                // the local player's rules (client)
 void log(int level, const char* text);
 // Lock-free hints for hooks that run for every actor: may `entity` have server rules (a player id, or an extra id as
-// set), and published flags (character flight only while at least one snapshot carries it).
+// set), and published flags (character flight and NoClip only while at least one snapshot carries them).
 bool may_have_rules(uint32_t entity);
 uint32_t flags_seen();
+// The index of `entity`'s extra slot (a player character that is not a player: a lab's), or -1. Lock-free.
+int extra_slot(uint32_t entity);
 }  // namespace kiln_rules_bridge
 
 namespace kiln_rules_creative {
@@ -35,13 +37,30 @@ KilnResult KILN_CALL creative_status(KilnRulesCreative* out);
 }  // namespace kiln_rules_creative
 
 namespace kiln_rules_flight {
-void reset();  // world lifecycle: forget local identity and flight ownership before ids/objects can be reused
+void reset();                // forget local identity and flight ownership before ids/objects can be reused
+// A world event (KilnWorldEvent's event, kind and session; whether the core sees world stops): flight.cpp says when
+// flight ownership is forgotten and when only the cached local identity is.
+void world(uint32_t event, uint32_t kind, uint32_t session, bool stops_seen);
 void refresh();
 // Character flight's three hooks (flight.cpp; feature rules.flight), nothing while Creative Mode runs. Returns
 // KILN_RULES_HOOK_FLIGHT or 0 (`off` says why). Called with the creative hooks, at the first world.
 uint32_t install(const KilnApi* api, KilnOwner owner, std::string& off);
 void counters(uint64_t* takeoffs, uint64_t* landings, uint64_t* ends, uint64_t* faults);
+// For noclip.cpp, on a program thread: `dyn` (an entity's DynamicLocomotion) is in a flight Kiln started, and the rules
+// of `ctx`'s entity carry NoClip now (the server world's per-entity rules, or the local player's in a joined client's
+// prediction). Fills `entity`. False while Creative Mode runs and before flight's hooks are installed.
+bool noclip_flight(void* ctx, const uint8_t* dyn, uint32_t* entity);
 }  // namespace kiln_rules_flight
+
+namespace kiln_rules_noclip {
+// NoClip's hook on the character's collision step (noclip.cpp; feature rules.noclip; docs/re/rules.md section 8).
+// Installed only with character flight's hooks (`flight`: they are in): a character without collision that cannot fly
+// falls through the world. Returns KILN_RULES_HOOK_NOCLIP or 0 (`off` says why).
+uint32_t install(const KilnApi* api, KilnOwner owner, bool flight, std::string& off);
+void reset();  // world lifecycle: entity ids start over
+void tick();   // once per tick of the side that simulates (the server's; a joined game's client tick): ages "active"
+KilnResult KILN_CALL state(KilnEntity entity, KilnRulesNoClip* out);
+}  // namespace kiln_rules_noclip
 
 namespace kiln_rules_steer {
 // Glider steering's mid hook (steer.cpp; feature rules.glide_steer). Returns KILN_RULES_HOOK_GLIDE_STEER or 0 (`off`

@@ -569,6 +569,9 @@ public sealed partial class InstancesTestMod
             case "n1": await N1(); break;
             case "d10": await D10(); break;
             case "d11": await D11(); break;
+            case "x1": await X1(); break;  // ClaimChecks.cs (dev.27)
+            case "x2": await X2(); break;
+            case "x3": await X3(); break;
             default: Ready("end"); break;
         }
         Info($"t4 data: phase done; {_aside} set aside and {_waiting} waiting this boot; {InstanceStoreSummary()}");

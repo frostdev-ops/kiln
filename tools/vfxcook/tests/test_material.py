@@ -463,6 +463,9 @@ class WithTheGame(Base):
         from kfc.blobwrite import Encoder
         from kfc.refl import TypeDb
         cls.kfc = Kfc(GAME)
+        # The game's own archive: in a game with EML mods the installed one holds the mods' resources in place of the
+        # game's (a body texture mod replaces four player materials), and those are not the game's data.
+        cls.own = Kfc.unpatched(GAME) or cls.kfc
         cls.types = TypeDb.from_exe(GAME / "enshrouded.exe")
         cls.dec = Decoder(cls.types, max_array=1 << 26)
         cls.enc = Encoder(cls.types)
@@ -479,13 +482,29 @@ class WithTheGame(Base):
         got = json.loads(run("material-roundtrip", f).stdout)
         self.assertEqual(got, {"records": 3458, "identical": 3458, "different": []})
 
-    def test_the_rules_hold_for_every_game_material(self):
+    def problems(self, kfc):
         bad = {}
-        for k in self.keys:
-            problems = checks.check_material(k.guid, self.dec.decode(self.th, self.kfc.read(k)))
+        for k in kfc.resources_of_type(self.th):
+            problems = checks.check_material(k.guid, self.dec.decode(self.th, kfc.read(k)))
             if problems:
                 bad[k.guid] = problems
-        self.assertEqual(bad, {})
+        return bad
+
+    def test_the_rules_hold_for_every_game_material(self):
+        self.maxDiff = None
+        self.assertEqual(self.problems(self.own), {})
+
+    def test_in_a_patched_game_only_a_mods_materials_break_the_rules(self):
+        # The rules describe what the game's own tools write. A material another tool wrote (an EML mod's) may differ
+        # in shape and still load; one of the game's own may not.
+        if self.own is self.kfc:
+            self.skipTest("the installed game's archive is not patched by a mod loader")
+        own = {k.guid: k for k in self.own.resources_of_type(self.th)}
+        installed = {k.guid: k for k in self.kfc.resources_of_type(self.th)}
+        for guid in self.problems(self.kfc):
+            with self.subTest(guid):
+                self.assertTrue(guid not in own or self.kfc.read(installed[guid]) != self.own.read(own[guid]),
+                                "a material that is byte for byte the game's breaks a rule in the installed archive")
 
     def test_what_is_built_decodes_with_the_games_reflection(self):
         c = cook(MatMod(self.tmp, "m", {"x": {"emissive": "#fff", "dissolve": True}}), tmp=self.tmp)
