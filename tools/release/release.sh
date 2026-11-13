@@ -538,13 +538,15 @@ if [[ -n $notes ]]; then cp "$notes" "$out/RELEASE-NOTES.md"; else
       # $prev: the previous v* tag, found (after fetching the tags) for the API gate in 1.
       echo "Changes since ${prev:-the start of the project}:"
       echo
-      git -C "$repo" log --no-merges --format='- %s' ${prev:+"$prev.."}"$full" | head -60
+      git -C "$repo" log --no-merges -n 60 --format='- %s' ${prev:+"$prev.."}"$full"
     fi
   } >"$out/RELEASE-NOTES.md"
 fi
 # the manifest's notes: the first lines of RELEASE-NOTES.md after its title
 short=$work/notes-short.txt
-sed '1{/^# /d}' "$out/RELEASE-NOTES.md" | sed '/./,$!d' | head -12 >"$short"
+# (awk reads the whole file: with `head`, a writer still busy when head leaves dies of SIGPIPE, and pipefail ends the
+# release there; the notes of 0.2.0-dev.27 were long enough for that)
+sed '1{/^# /d}' "$out/RELEASE-NOTES.md" | sed '/./,$!d' | awk 'NR <= 12' >"$short"
 
 # ---------------------------------------------------------------- 8. updater signatures, manifests
 step "updater signatures"

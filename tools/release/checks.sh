@@ -220,7 +220,9 @@ check_template() {
 check_vsix() {
   local v; v=$(ls "$out"/sdk/*.vsix)
   unzip -l "$v"
-  unzip -l "$v" | grep -q 'extension/package.json' && unzip -l "$v" | grep -q 'extension/dist/extension.js'
+  # the listing first: `unzip -l | grep -q` can end unzip with SIGPIPE, which pipefail takes for a failed check
+  local listing; listing=$(unzip -l "$v") || return
+  grep -q 'extension/package.json' <<<"$listing" && grep -q 'extension/dist/extension.js' <<<"$listing"
 }
 
 check_authenticode() {
