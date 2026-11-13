@@ -191,14 +191,16 @@ public sealed class RunnerTests
         using var h = new Harness(x => x.Env.Hosting = false);
         h.Pump();
         Assert.Equal("menu", h.Runner.View.Session);
+        Assert.Contains("not hosting a world", h.Runner.View.Message);
         h.Env.Hosting = true;  // the player hosted a world: nothing else happened
         h.Pump();
         Assert.Equal("hosted", h.Runner.View.Session);
-        Assert.Contains(h.Runner.View.Items, i => i.Id == "t.pass" && i.Refusal is null);
+        Assert.DoesNotContain("not hosting a world", h.Runner.View.Message ?? "");
+        Assert.Contains(h.Runner.View.Items, i => i.Title == "Passes on its assertions" && i.Refusal is null);
         h.Env.Hosting = false;  // back to the main menu
         h.Pump();
         Assert.Equal("menu", h.Runner.View.Session);
-        Assert.Contains(h.Runner.View.Items, i => i.Id == "t.pass" && i.Refusal is not null);
+        Assert.Contains("not hosting a world", h.Runner.View.Message);  // said once for the whole list, not per row
     }
 
     [Fact]
