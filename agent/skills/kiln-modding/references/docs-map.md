@@ -41,7 +41,7 @@ The wiki: https://frostdev.io/kiln/wiki/<page>.
 | Forge concepts | `forge` |
 | What works today | `status` |
 
-dev.26+ (in development; pages in the repository's `docs/kiln/`, not on the wiki yet):
+dev.26+ (pages in the repository's `docs/kiln/`):
 
 | Question | Page |
 |---|---|
@@ -57,6 +57,19 @@ dev.26+ (in development; pages in the repository's `docs/kiln/`, not on the wiki
 | Weapon moves, animated held models, clips reworked at cook time | `modding/item-blocks.md` "Moves"; `modding/animations.md` "Clips reworked" |
 
 dev.26+ samples: ItemData, PlayerStates, WeaponMoves.
+
+dev.27+ (in development; pages in the repository's `docs/kiln/`):
+
+| Question | Page |
+|---|---|
+| Bonuses rolled onto one item (`Affixes`, affix blocks) | `modding/affixes.md` |
+| What Kiln.Sdk bakes into a mod at build, and what not | `modding/baked.md` |
+| Cook recipes, receipts, the `cooked` rule | `modding/cooking.md` |
+| KILN120 (a result nobody reads), KILN121 (a capability nobody asked) | `modding/analyzers.md` |
+| NoClip, buffs taken off, a player's aim, kick and ban, equip, weather, tracked writes | the release notes `release-notes/0.2.0-dev.27.md` name each page |
+| The test kit's fakes (spawn, chat, items, combat, time, world) | `modding/unit-tests.md` |
+
+dev.27+ samples: SavedData, AdminTools, CalmBell, QuietServer, Loadouts, SkyControl, AffixSword, EngineRoom.
 
 Sample mods: Hello, SampleLib, SampleConsumer, SampleTests, BigStacks, NewItems, SpellTweaks, CreatureTweaks, EliteVukah, FireNova,
 ImpactSample, AssetSample, ModelSample, SoundSample, VfxSample, SkillTreeSample, quests-sample, NpcSample, Schematics, MenuButtons, UiSample,

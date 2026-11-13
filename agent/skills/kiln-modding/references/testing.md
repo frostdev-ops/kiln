@@ -87,7 +87,7 @@ public sealed class MyTests
 - Results: kiln.log lines `PASS` / `FAIL` / `SKIP` tagged `[mod:<id>]`, and `kiln/logs/tests/<id>.json`
   (`passed`, `failed`, `skipped`, `results[]` with `outcome`, `message`, `stack`).
 
-## Offline unit tests (Kiln.TestKit, dev.26+, in development)
+## Offline unit tests (Kiln.TestKit, dev.26+)
 Runs a mod under `dotnet test` with no game: Kiln.Host's real loader, a tick thread of its own, console commands, fake
 players and saved data. Needs the dev.26 MDK (package `Kiln.TestKit`, same version as `Kiln.Sdk`). Page:
 `docs/kiln/modding/unit-tests.md`.
@@ -114,7 +114,7 @@ var n = kiln.Run(() => Players.Count);          // Kiln API only through Run/As:
   One harness per process. A blocked test is stopped by the watchdog (Linux tested, Windows not).
 - Offline green is not a server or client check: run `kiln test` on a test server as well.
 
-## Guided client checks (`[ClientCheck]`, dev.26+, in development)
+## Guided client checks (`[ClientCheck]`, dev.26+)
 For what only a player can judge. Nothing of the runner has run in a real client yet. Page: `docs/kiln/modding/testing.md`.
 ```csharp
 public override void OnLoad() => ClientChecks.Register(this);      // Kiln.Testing

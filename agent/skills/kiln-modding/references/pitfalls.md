@@ -61,7 +61,7 @@
 | A native transfer handler that counts or logs every call | dry-run moves call it too (`KILN_TRANSFER_DRY_RUN`) | skip side effects when the flag is set |
 | File or folder names that end in a dot or a space in a mod zip | the launcher refuses the zip: Windows would turn them into other names | rename them |
 
-## dev.26+ additions (in development; not seen by a player)
+## dev.26+ additions (not seen by a player)
 
 | Mistake | Result | Use instead |
 |---|---|---|
@@ -88,3 +88,19 @@
 | A move's `animation` by name on a build without `anim.player_states` | the move keeps its `like` state; the name is reported by block and slot | check the report; a GUID or `0x` id needs no lookup |
 | `blocks.weapon_moves` or `items.*` in a manifest's `features` | refused: the rows appear after manifests are checked | `Capabilities.Is` at run time |
 | Moving Kiln's data folder, then building a native mod | CMake keeps the old SDK path | delete the project's `build` folder once |
+
+## dev.27+ additions (in development; not seen by a player)
+
+| Mistake | Result | Use instead |
+|---|---|---|
+| Not reading a Kiln result (`Items.Equip`, `NoClip.Set`) | KILN120; a refusal goes unnoticed | check `result.Ok`, pass `Reason` on; `_ = ...` to drop it on purpose |
+| A `[RequiresCapability]` member with nothing asking first | KILN121; `KilnUnavailableException` at run time on a build without it | `Capabilities.Is(row)` or the service's guard property in the same method, or `catch (KilnUnavailableException)` |
+| The capability check in a helper of your own | KILN121 still warns: the helper is not followed | check where the call is, catch at the command, or mark the caller `[RequiresCapability]` |
+| `Events.On<T>(handler, default)` | does not compile: the argument can be a priority or a filter | `EventPriority.Normal`, or leave it out |
+| Writing the same value again inside the handler of its change event and expecting a nested event | the event for that write arrives at the start of the next step | read the state after the step, or do the follow-up outside the handler |
+| `World.TryWrite` for a change that must be saved | obsolete (`World.WriteRaw`): the game neither saves nor sends it | `World.Write` / `Update` / `WriteField`, the type listed under `"writes"` |
+| Taking a tracked write's call as done | it runs in the next sim step and can answer `Dropped` | read the result; ask again next step |
+| Shipping `assets/cooked` in a mod | no receipt on the player's PC: a warning now, refused in a later release | ship the recipe and the sources; the launcher cooks on Play |
+| Changing a baked definition in code without rebuilding the mod | the baked file wins at every start; kiln.log warns | rebuild (or `KilnBake=false`) |
+| Expecting an affix on an item to act when the item lies in the backpack | affixes act while the item is in hand or worn | equip it; `AffixesAppliedEvent` says what a wearer holds |
+| `NoClip.Set` on a server that did not allow it | refused with a reason | `"allowNoClip": true` in `kiln/config/rules.json`; read the result |
