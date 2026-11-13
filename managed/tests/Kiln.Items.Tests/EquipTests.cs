@@ -178,6 +178,58 @@ public sealed unsafe class EquipTests
     }
 
     [Fact]
+    public void AChangeIsReportedWhenTheModThatAskedUnloadedFirst()
+    {
+        // the asking mod's retirement drops only its task: the committed change still reaches every subscriber
+        using var kiln = new KilnHarness();
+        var seen = new List<EquipChangedEvent>();
+        var sub = Events.On<EquipChangedEvent>(e => seen.Add(e));
+        try
+        {
+            var gone = new TaskCompletionSource<EquipResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var stays = new TaskCompletionSource<EquipResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+            kiln.Run(() =>
+            {
+                var a = Items.Track(gone, null);
+                Items.RetireWhere(m => m is null);
+                var b = Items.Track(stays, null);
+                Items.Complete(a, Items.ToResult(Native(0, 0, 11)));
+                Items.Complete(b, Items.ToResult(Native(0, 0, 10)));
+                Items.Complete(b, Items.ToResult(Native(0, 0, 10)));  // a second result for one key: nothing more
+            });
+            Assert.Equal(2, seen.Count);
+            Assert.Equal(EquipmentSlot.Ring1, seen[0].Slot);
+            Assert.False(gone.Task.IsCompleted);
+            Assert.True(stays.Task.IsCompletedSuccessfully);
+        }
+        finally
+        {
+            sub.Dispose();
+        }
+    }
+
+    [Fact]
+    public void ARefusalOrADryRunIsNoChange()
+    {
+        using var kiln = new KilnHarness();
+        var seen = 0;
+        var sub = Events.On<EquipChangedEvent>(_ => seen++);
+        try
+        {
+            kiln.Run(() =>
+            {
+                Items.Complete(Items.Track(new TaskCompletionSource<EquipResult>(), null), Items.ToResult(Native(7, 0, 10, "refused")));
+                Items.Complete(Items.Track(new TaskCompletionSource<EquipResult>(), null), Items.ToResult(Native(0, ItemsNative.EquipDryRun, 10)));
+            });
+            Assert.Equal(0, seen);
+        }
+        finally
+        {
+            sub.Dispose();
+        }
+    }
+
+    [Fact]
     public void OffTheTickThreadThrows()
     {
         using var kiln = new KilnHarness();

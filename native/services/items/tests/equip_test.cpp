@@ -113,6 +113,30 @@ int main() {
     check(where_now(before, 2, after, 2, 0x77, 0, 0) == 0 && where_now(before, 2, after, 2, 0, 0, 0) == 0,
           "nothing found: 0");
 
+    // the session, read from the game's record in the Pre of the step a request runs in
+    KilnPlayerSlotRaw now{};
+    now.size = sizeof now;
+    now.handle = 5u | (7u << 6);  // slot 5, generation 7
+    now.state = 3;
+    now.entity = 6;
+    check(slot_of_handle(now.handle) == 5, "the slot is the handle's low 6 bits");
+    check(session_holds(now, 5u | (7u << 6), 6), "the same handle, in game, the same entity: the session holds");
+    check(!session_holds(now, 5u | (6u << 6), 6), "the slot reused by a new connection (another generation): refused");
+    check(!session_holds(now, 0, 6), "no handle captured at the call: refused");
+    check(!session_holds(now, now.handle, 7), "another entity in the record: refused");
+    now.state = 4;
+    check(!session_holds(now, now.handle, 6), "a player whose entity is being removed: refused");
+    now.state = 2;
+    check(!session_holds(now, now.handle, 6), "a connection still logging in: refused");
+
+    // where equip can run: the core's session query, fail closed
+    check(equip_here(KILN_OK, KILN_SESSION_DEDICATED) == EquipHere::Yes && equip_here(KILN_OK, KILN_SESSION_HOST) == EquipHere::Yes,
+          "a dedicated server's or a host's live world runs requests");
+    check(equip_here(KILN_OK, KILN_SESSION_REMOTE) == EquipHere::NoServerWorld && equip_here(KILN_OK, KILN_SESSION_NONE) == EquipHere::NoServerWorld,
+          "a client joined elsewhere, a menu, a stopped world: no server world");
+    check(equip_here(KILN_ERR_UNAVAILABLE, KILN_SESSION_DEDICATED) == EquipHere::Unknown,
+          "a session query that does not answer is not a yes, whatever the state field holds");
+
     std::printf("equip-test: %s\n", failures ? "FAILED" : "all passed");
     return failures ? 1 : 0;
 }

@@ -10,6 +10,7 @@
 
 #include "moves.h"
 #include "services/kiln_items.h"
+#include "services/kiln_players.h"
 
 namespace kitems {
 
@@ -95,6 +96,26 @@ inline uint64_t where_now(const Page* before, size_t n_before, const Page* after
             if (s.count > was) return s.slot;
         }
     return 0;
+}
+
+// The slot of a connection handle (slot | generation << 6).
+inline uint32_t slot_of_handle(uint32_t handle) { return handle & 0x3fu; }
+
+// The session a request was made for still holds: the game's own player record of the handle's slot, read now (not
+// kiln.players' last scan, which may come later in the step), has the same handle (slot and generation), is in game
+// (state 3) and drives the player entity. A new connection in the slot has another generation: its player never gets a
+// change asked for the one before.
+inline bool session_holds(const KilnPlayerSlotRaw& now, uint32_t handle, KilnEntity player) {
+    return handle != 0 && now.handle == handle && now.state == 3 && now.entity == player;
+}
+
+// Where equip can run, from the core's session query: a live server world in this process (a dedicated server's, or the
+// host's). An unanswered query (the core's tick delivery faulted) or no live server world: nothing would complete a
+// request, so it is refused.
+enum class EquipHere { Yes, NoServerWorld, Unknown };
+inline EquipHere equip_here(KilnResult session_rc, uint32_t session_state) {
+    if (session_rc != KILN_OK) return EquipHere::Unknown;
+    return session_state == KILN_SESSION_DEDICATED || session_state == KILN_SESSION_HOST ? EquipHere::Yes : EquipHere::NoServerWorld;
 }
 
 }  // namespace kitems

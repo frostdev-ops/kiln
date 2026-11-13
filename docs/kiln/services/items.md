@@ -323,7 +323,7 @@ if (!on.Ok) Log.Info($"not equipped: {on.Reason}");                          // 
 | `Items.Equip(player, from, slot = null, options = None, itemEntity = default)` → `Task<EquipResult>` | `[ServerOnly][TickThreadOnly]` | the stack in `from` (a slot of the player's own inventories) goes into `slot`, or into the item's own slot; what the slot held comes off as the game swaps it. `itemEntity`: the item entity the slot must still hold |
 | `Items.Unequip(player, slot, options = None)` → `Task<EquipResult>` | `[ServerOnly][TickThreadOnly]` | what the slot holds goes into a free Generic (backpack) slot |
 | `EquipOptions.DryRun` | value | run the game's call and roll it back: the result says what would happen |
-| `EquipChangedEvent` (`Result`, `Player`, `Slot`, `Before`, `After`, `BeforeItem`, `AfterItem`) | `[ServerOnly]`, tick thread | once per committed change of `Equip` / `Unequip`, when its result arrives; also for two instances of one item type; none for a refusal or a dry run |
+| `EquipChangedEvent` (`Result`, `Player`, `Slot`, `Before`, `After`, `BeforeItem`, `AfterItem`) | `[ServerOnly]`, tick thread | once per committed change of `Equip` / `Unequip`, when its result arrives; also for two instances of one item type, and when the mod that asked unloaded before the change completed; none for a refusal or a dry run |
 | `EquipResult` (`IKilnResult`) | value | `Ok`, `Reason`, `Status`, `Player`, `Slot` (for the item's own slot: where it went), `Unequipped`, `Item`, `ItemEntity`, `Ref`, `From`, `To`, `Replaced`, `ReplacedEntity`, `ReplacedRef`, `ReplacedTo`, `Message`, `GameError`, `Steps`, `DryRun` |
 
 The one error rule:
@@ -340,7 +340,9 @@ The one error rule:
 - **capability off** (`KilnUnavailableException("items.equip")`): an older Kiln, a game build without the two functions,
   no kiln.world or kiln.players, no death check on this build (`Actor.currentState` and `StateFlag.Dead` by the game's
   reflection), equip switched off after a fault, or a game client with no server world (its menu, or joined to another
-  machine's world: the row is then unavailable for the session, reason `session`, and comes back when the client hosts).
+  machine's world, or a world that stopped: the row is then unavailable for the session, reason `session`, and comes back
+  when a server world runs here again), or the core's session query that does not answer (its tick delivery faulted:
+  nothing would complete a request, so the row goes off).
 
 How it runs:
 - The game's equip takes the player from the running program's **current entity**, not from an argument, so it can only
@@ -362,8 +364,13 @@ How it runs:
 - A dead player: refused right before the transaction, from the iterated player's `Actor` (a declared read of
   `kiln_items_equip`; the game's own equip has no such check). The C table does the same.
 - The session: a request for a player entity (1..1023) captures the player's session at the call (kiln.players: the
-  connection handle with the slot's generation, and the step the session was first seen in game) and is checked in the
-  Pre of the step it runs in; a request runs only in a step whose Pre checked it.
+  connection handle with the slot's generation) and is checked in the Pre of the step it runs in against the game's own
+  player record of that slot, read then (kiln.players' scan of that step may come later): the same handle, in game, the
+  same entity. A request runs only in a step whose Pre checked it. A build where the records cannot be read refuses
+  such requests (`Refused`); a player who left comes back `NoInventory`.
+- A mod that unloads while its request waits: the request still runs, and its change is reported (`EquipChangedEvent`,
+  Kiln.Saves' followed items); only the mod's task is never completed. kiln.items holds the request under Kiln's own
+  owner, so releasing the mod's owner does not drop the report.
 - The vanity slots take armour of the same body part (the game's table); the four building-material values of the game's
   `EquipmentSlot` are not equipment slots (`SlotSelection.equipment` has 20 entries) and are not offered.
 
@@ -375,7 +382,11 @@ C (v5, header size >= `sizeof(KilnItemsApi)` with `equip`): `equip(owner, KilnIt
 
 Lab: `mods/tests/items-test` (`EquipTest.cs`, on a spawned `1_Player` character; `kiln/data/items-test/equip-only` runs it
 alone): unequip, equip into a named slot, a swap, the item's own slot, a dry run, `PlayerEquipmentChangedEvent` after each,
-and every refusal above leaving the inventory as it was: 30 PASS on server 26430253 (lines in docs/re/items.md section 16).
+and every refusal above leaving the inventory as it was, counts and item entities included; `EquipChangedEvent` once per
+change (two rings of one type, an equip and an unequip of one slot in one step, both run in order) and never for a
+refusal or a dry run; a full queue; a player killed after the call and before the transaction, refused: 41 PASS on server
+26430253 (lines in docs/re/items.md section 16). Not checked in a lab: a slot reused by a new connection (no second client
+there; the host test checks the rule), a remote client, a request queued when the core's tick delivery faults.
 A dry run into the item's own slot cannot name the slot (`Slot` null): the game writes the selection only at its commit.
 What a player sees is the guided checks `items.equip` and `items.unequip` (mods/tests/client-pass, session 1).
 

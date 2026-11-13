@@ -803,12 +803,14 @@ typedef struct KilnItemsApi {
     /* Queues an equip or unequip (see "equipment"). *out_ticket (optional) = its ticket. Refused at once with
      * KILN_ERR_INVALID_ARGUMENT (player 0, a slot that is no equipment slot, ANY with UNEQUIP, an equip without `slot`, an
      * unequip with `slot` or `pide`, bad flags, non-zero reserved fields), KILN_ERR_UNAVAILABLE (feature items.equip off,
-     * no kiln.world or kiln.players, the death check cannot be made, the program refused or broken, or a game client that
-     * joined another machine's world) or KILN_ERR_BUFFER_TOO_SMALL (1024 requests are waiting: a refusal for now). Otherwise
-     * `done` runs once with the result (it may be NULL). cancel(ticket) and cancel_owner(owner) drop the callback. Any
-     * thread. A request for a player entity (1..1023) runs only for the session it was made for: the next player in the
-     * slot gets the same id, so a request whose player left comes back NO_INVENTORY. A dead player is refused (REFUSED)
-     * right before the transaction. */
+     * no kiln.world or kiln.players, the death check cannot be made, the program refused or broken, no live server world
+     * in this process (a game client in its menu or joined to another machine's world, a world that stopped), or the
+     * core's session query does not answer) or KILN_ERR_BUFFER_TOO_SMALL (1024 requests are waiting: a refusal for now).
+     * Otherwise `done` runs once with the result (it may be NULL). cancel(ticket) and cancel_owner(owner) drop the
+     * callback; owner 0 is Kiln's own (no release drops it). Any thread. A request for a player entity (1..1023) runs only
+     * for the session it was made for, checked in the Pre of its step against the game's player record read then: the
+     * next player in the slot gets the same id, so a request whose player left comes back NO_INVENTORY (REFUSED when the
+     * records cannot be read). A dead player is refused (REFUSED) right before the transaction. */
     KilnResult(KILN_CALL* equip)(KilnOwner owner, const KilnItemsEquipRequest* request, KilnItemsEquipDoneFn done,
                                  void* user, uint64_t* out_ticket);
     KilnResult(KILN_CALL* equip_status)(KilnItemsEquipStatus* out); /* any thread */

@@ -104,12 +104,26 @@ bool session_of(KilnEntity e, uint32_t* handle, uint64_t* joined) {
     return true;
 }
 
-// A game client with no server world (its menu, or joined to another machine's world): a request would never run.
-bool no_server_world_here() {
+// Whether a request can run here: a live server world in this process, as the core's session query says now. A game
+// client in its menu or joined to another machine's world, a host that left its world, and a query that does not answer
+// (the core's tick delivery faulted: no Pre would complete a request) all refuse.
+EquipHere here_now() {
     KilnSessionInfo si{};
     si.size = sizeof si;
-    if (items_api()->session(&si) != KILN_OK) return false;
-    return si.side == KILN_SIDE_CLIENT && si.worlds[KILN_WORLD_SERVER] == 0;
+    const KilnResult rc = items_api()->session(&si);
+    return equip_here(rc, si.state);
+}
+
+// The session a request was made for, read now from the game's own player record (tick thread: the Pre). False when
+// the record cannot be read (kiln.players has no records on this build): the request is refused, never run blind.
+bool session_still(KilnEntity player, uint32_t handle, bool* readable) {
+    *readable = false;
+    if (!g_players || handle == 0) return false;
+    KilnPlayerSlotRaw now{};
+    now.size = sizeof now;
+    if (g_players->raw_slot(slot_of_handle(handle), &now) != KILN_OK) return false;
+    *readable = true;
+    return session_holds(now, handle, player);
 }
 
 // Actor.currentState and the Dead flag by the game's own reflection (kiln.types), base classes included. False: the
@@ -571,14 +585,18 @@ void equip_pre(uintptr_t world, uint64_t step) {
                 i = g_pending.erase(i);
                 continue;
             }
-            // the session the request was made for, checked in the Pre of the step its program runs in
+            // the session the request was made for, checked in the Pre of the step its program runs in, against the game's
+            // own record read now: kiln.players' scan of this step may not have run yet (services' Pre run in load order)
             if (i->session) {
-                uint32_t handle = 0;
-                uint64_t joined = 0;
-                if (!session_of(i->r.player, &handle, &joined) || handle != i->handle || joined != i->joined_step) {
+                bool readable = false;
+                if (!session_still(i->r.player, i->handle, &readable)) {
                     KilnItemsEquipResult r = result_of(*i, step);
-                    fail(&r, KILN_ITEMS_NO_INVENTORY, "player %u's session ended (left the game); the id may be another player's now",
-                         i->r.player);
+                    if (readable || i->handle == 0)
+                        fail(&r, KILN_ITEMS_NO_INVENTORY, "player %u's session ended (left the game); the id may be another player's now",
+                             i->r.player);
+                    else
+                        fail(&r, KILN_ITEMS_REFUSED, "player %u's session cannot be read now (no player records on this build): refused",
+                             i->r.player);
                     ended.push_back(r);
                     i = g_pending.erase(i);
                     continue;
@@ -670,7 +688,7 @@ KilnResult equip_submit(KilnOwner owner, const KilnItemsEquipRequest* r, KilnIte
     if (!r || r->size < sizeof(KilnItemsEquipRequest) || !equip_request_valid(*r)) return KILN_ERR_INVALID_ARGUMENT;
     const int state = g_state.load();
     if (!E.equip_ok || !g_w || !g_tx || !g_players || state == KILN_ITEMS_PROGRAM_NONE || state == KILN_ITEMS_PROGRAM_BROKEN ||
-        no_server_world_here())
+        here_now() != EquipHere::Yes)
         return KILN_ERR_UNAVAILABLE;
     Request q{};
     if (slot_player(r->player)) {
@@ -700,8 +718,9 @@ KilnResult equip_status(KilnItemsEquipStatus* out) {
     out->size = sizeof *out;
     const int state = g_state.load();
     out->program = static_cast<uint8_t>(state);
-    const bool remote = no_server_world_here();
-    out->available = E.equip_ok && g_w && g_tx && g_players && !remote &&
+    const EquipHere here = here_now();
+    const bool remote = here == EquipHere::NoServerWorld;
+    out->available = E.equip_ok && g_w && g_tx && g_players && here == EquipHere::Yes &&
                      (state == KILN_ITEMS_PROGRAM_PENDING || state == KILN_ITEMS_PROGRAM_ACTIVE ||
                       state == KILN_ITEMS_PROGRAM_RUNNING);
     out->done = g_changed.load();
@@ -709,8 +728,10 @@ KilnResult equip_status(KilnItemsEquipStatus* out) {
     std::lock_guard lock(g_mu);
     out->pending = static_cast<uint32_t>(g_pending.size());
     std::snprintf(out->detail, sizeof out->detail, "%s",
-                  out->available ? "" : remote ? "no server world in this process (a game client in its menu or joined to another machine's world): equip runs where the world runs"
-                                              : g_detail);
+                  out->available ? ""
+                  : remote       ? "no server world in this process (a game client in its menu or joined to another machine's world, or a world that stopped): equip runs where the world runs"
+                  : here == EquipHere::Unknown ? "the core's session query does not answer (its tick delivery faulted): equip refuses every request"
+                                               : g_detail);
     return KILN_OK;
 }
 

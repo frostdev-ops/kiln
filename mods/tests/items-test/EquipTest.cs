@@ -212,8 +212,42 @@ public sealed partial class ItemsTestMod
         Check(_kilnEquips.Count == 0 && !_equipEvents.Any(e => e.Player.Entity == p),
             $"refusals: no event [{string.Join("; ", _kilnEquips)}] [{string.Join(",", _equipEvents.Select(x => $"{x.Slot}:{x.Before}->{x.Now}"))}]");
         await SameTypeSwap(p);
+        await SameStepPair(p);
         await QueueFull();
         await DeadCheck(p);
+    }
+
+    // Two requests of one player in one step, an equip and the unequip of the same slot, inside one of Kiln.Players' polls:
+    // both run, in order, and Kiln's event reports each change (the poll may see none: logged, not checked).
+    private async Task SameStepPair(EntityId p)
+    {
+        if (!Items.Equipped(p, EquipmentSlot.Ring1).IsNone)
+        {
+            var clear = await Items.Unequip(p, EquipmentSlot.Ring1);
+            Check(clear.Ok, $"same-step pair setup: Ring1 off: {clear}");
+            await Steps(6);
+        }
+        var loose = Items.Read(p)!.Slots.FirstOrDefault(s => (s.Item.Value == RingLight || s.Item.Value == RingShock) && !s.IsEquipped);
+        if (loose is null)
+        {
+            Check(false, $"same-step pair setup: a loose ring ({Gear(p)})");
+            return;
+        }
+        var snap = Gear(p);
+        _kilnEquips.Clear();
+        _equipEvents.Clear();
+        var on = Items.Equip(p, loose.Slot, EquipmentSlot.Ring1);
+        var off = Items.Unequip(p, EquipmentSlot.Ring1);
+        var both = await Task.WhenAll(on, off);
+        await Steps(6);
+        Check(both[0].Ok && both[1].Ok && Items.Equipped(p, EquipmentSlot.Ring1).IsNone,
+            $"same-step pair: equip and unequip of Ring1 in one step both run ({both[0]}; {both[1]})");
+        Check(_kilnEquips.Count == 2 && _kilnEquips[0].Slot == EquipmentSlot.Ring1 && _kilnEquips[0].Before.IsNone && _kilnEquips[0].AfterItem == loose.Item &&
+              _kilnEquips[1].BeforeItem == loose.Item && _kilnEquips[1].After.IsNone,
+            $"same-step pair: two EquipChangedEvents, on then off [{string.Join("; ", _kilnEquips)}]");
+        Check(Gear(p).Split(' ').Select(x => x.Split('=')[^1]).Order().SequenceEqual(snap.Split(' ').Select(x => x.Split('=')[^1]).Order()),
+            $"same-step pair: the same stacks after it ({Gear(p)})");
+        Log.Info($"INFO same-step pair: Kiln.Players' poll posted {_equipEvents.Count(e => e.Player.Entity == p)} PlayerEquipmentChangedEvent(s)");
     }
 
     // Kiln refuses a dead player right before the transaction (the game's equip has no such check). Last, as the character
@@ -221,8 +255,30 @@ public sealed partial class ItemsTestMod
     // game's actor programs write the state again before kiln_items_equip runs).
     private async Task DeadCheck(EntityId p)
     {
-        var hit = await Combat.Kill(p);
+        // Death after the call: a real unequip waits behind 120 dry runs (4 of one player run per step, so about 30 steps),
+        // made while the character lives; it dies meanwhile. The check is at the transaction, so the request is refused.
+        _kilnEquips.Clear();
+        var before = Gear(p);
+        var dries = Enumerable.Range(0, 120).Select(_ => Items.Unequip(p, EquipmentSlot.Ring0, EquipOptions.DryRun)).ToList();
+        var late = Items.Unequip(p, EquipmentSlot.Ring0);
+        var aliveAtCall = !IsDeadNow(p);
+        var kill = Combat.Kill(p);
         var dead = false;
+        var diedFirst = false;
+        for (var i = 0; i < 120 && !late.IsCompleted; i++)
+        {
+            await Steps(1);
+            dead |= IsDeadNow(p);
+            diedFirst |= dead && !late.IsCompleted;
+        }
+        var hit = await kill;
+        var lateResult = await late;
+        await Task.WhenAll(dries);
+        if (aliveAtCall && diedFirst)
+            Check(!lateResult.Ok && lateResult.Status == ItemsStatus.Refused && lateResult.Reason == "the player is dead" && Gear(p) == before && _kilnEquips.Count == 0,
+                $"refused: a player who died after the call, before the transaction: {lateResult} (killed by {hit}); nothing changed, no event");
+        else
+            Log.Info($"INFO death after the call not checked: alive at the call {aliveAtCall}, died before it ran {diedFirst} ({lateResult}; {hit})");
         for (var i = 0; i < 60 && !dead; i++)
         {
             await Steps(1);

@@ -267,11 +267,14 @@ public static unsafe partial class Items
 
     // ---- submit and results ----
 
+    // A change in flight, held by Kiln.Items itself: the native request carries no mod's owner, so it completes and is
+    // reported (EquipChangedEvent, the instance tracker) even when the mod that asked unloads first. Only the asking mod's
+    // task is dropped then (Retired): its continuations are the unloaded mod's code.
     private sealed class PendingEquip(TaskCompletionSource<EquipResult> tcs, ModContext? mod)
     {
         public readonly TaskCompletionSource<EquipResult> Tcs = tcs;
         public readonly ModContext? Mod = mod;
-        public ulong Ticket;
+        public bool Retired;
     }
 
     private static readonly object EquipGate = new();
@@ -288,26 +291,16 @@ public static unsafe partial class Items
         var mod = ModContext.CurrentMod;
         if (mod is { Alive: false }) throw new InvalidOperationException("the mod is unloading");
         var tcs = new TaskCompletionSource<EquipResult>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var p = new PendingEquip(tcs, mod);
-        long key;
-        lock (EquipGate)
-        {
-            key = ++_nextEquip;
-            EquipsInFlight[key] = p;
-            if (mod != null && EquipsWatched.Add(mod)) mod.Retiring += () => RetireEquips(mod);
-        }
+        var key = Track(tcs, mod);
         ulong ticket = 0;
-        var rc = t->Equip(Services.CallerOwner, &r, &OnEquipDone, (void*)key, &ticket);
+        // owner 0: Kiln's own, so releasing the asking mod's owner does not cancel the report of a change already asked for
+        var rc = t->Equip(0, &r, &OnEquipDone, (void*)key, &ticket);
         if (rc != ItemsNative.Ok)
         {
             lock (EquipGate) EquipsInFlight.Remove(key);
             if (SubmitRefusal(rc, player, slot, unequip, from, dry) is { } refused) return Task.FromResult(refused);
             if (rc == ItemsNative.InvalidArgument) throw new ArgumentException($"{api}: kiln.items refused the request's arguments");
             throw new KilnUnavailableException(Caps.Equip, EquipStatusOf(t)?.Detail is { Length: > 0 } d ? d : $"kiln.items refused it (error {rc})");
-        }
-        lock (EquipGate)
-        {
-            if (EquipsInFlight.TryGetValue(key, out var still)) still.Ticket = ticket;
         }
         return tcs.Task;
     }
@@ -319,20 +312,45 @@ public static unsafe partial class Items
             ? EquipResult.Fail(ItemsStatus.Refused, player, slot, unequip, from, "1024 equip requests are waiting: try again in a step", dry)
             : null;
 
-    private static void RetireEquips(ModContext mod)
+    /// <summary>A change in flight, by the key its native request carries.</summary>
+    internal static long Track(TaskCompletionSource<EquipResult> tcs, ModContext? mod)
     {
-        List<ulong> tickets = new();
         lock (EquipGate)
         {
-            EquipsWatched.Remove(mod);
-            foreach (var (k, p) in EquipsInFlight.Where(kv => kv.Value.Mod == mod).ToList())
-            {
-                EquipsInFlight.Remove(k);
-                if (p.Ticket != 0) tickets.Add(p.Ticket);
-            }
+            var key = ++_nextEquip;
+            EquipsInFlight[key] = new PendingEquip(tcs, mod);
+            if (mod != null && EquipsWatched.Add(mod)) mod.Retiring += () => RetireEquips(mod);
+            return key;
         }
-        var t = _table;
-        if (t != null) foreach (var tk in tickets) t->Cancel(tk);
+    }
+
+    // The mod unloads: its requests still run and are still reported; only its tasks are left alone.
+    private static void RetireEquips(ModContext mod)
+    {
+        lock (EquipGate) EquipsWatched.Remove(mod);
+        RetireWhere(m => m == mod);
+    }
+
+    internal static void RetireWhere(Func<ModContext?, bool> which)
+    {
+        lock (EquipGate)
+            foreach (var p in EquipsInFlight.Values)
+                if (which(p.Mod)) p.Retired = true;
+    }
+
+    /// <summary>A native result arrived (tick thread): the tracker and the event hear of every committed change, the
+    /// asking mod's task when it is still loaded.</summary>
+    internal static void Complete(long key, EquipResult result)
+    {
+        PendingEquip? p;
+        lock (EquipGate)
+        {
+            if (!EquipsInFlight.Remove(key, out p)) return;
+        }
+        ItemTracker.OnEquip(result);
+        if (result is { Ok: true, DryRun: false } && Events.HasSubscribers<EquipChangedEvent>())
+            Events.Post(new EquipChangedEvent(result));
+        if (!p.Retired) p.Tcs.TrySetResult(result);
     }
 
     /// <summary>The managed result of a native one (pure: the unit tests build native results by hand).</summary>
@@ -356,16 +374,7 @@ public static unsafe partial class Items
     {
         try
         {
-            PendingEquip? p;
-            lock (EquipGate)
-            {
-                if (!EquipsInFlight.Remove((long)user, out p)) return;
-            }
-            var result = ToResult(*r);
-            ItemTracker.OnEquip(result);
-            if (result is { Ok: true, DryRun: false } && Events.HasSubscribers<EquipChangedEvent>())
-                Events.Post(new EquipChangedEvent(result));
-            p.Tcs.TrySetResult(result);
+            Complete((long)user, ToResult(*r));
         }
         catch
         {
