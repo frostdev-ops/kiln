@@ -782,8 +782,9 @@ typedef struct KilnUiApi {
     KilnResult(KILN_CALL* subscribe_window_input)(KilnOwner owner, KilnUiWindowInputFn fn, void* user, KilnHandle* out);
 
     /* ================================================================================================================
-     * v6 (appended since 0.2.0-dev.27; check header.version >= 6 and header.size >= offsetof(KilnUiApi, menu_scroll)
-     * + sizeof(void*) before calling these).
+     * v6 (appended since 0.2.0-dev.27; check header.version >= 6 and header.size >= offsetof(KilnUiApi, menu_activate)
+     * + sizeof(void*) before calling the first three; menu_scroll came later in the same version: check header.size >=
+     * offsetof(KilnUiApi, menu_scroll) + sizeof(void*) for it).
      * ============================================================================================================== */
 
     /* ---- mods' entries in the game's menus (the menus do not scroll: too many rows push Quit off the screen) ----

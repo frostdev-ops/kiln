@@ -59,8 +59,8 @@ internal static unsafe class GameMenuEntries
     /// <summary>KILN_UI_SCROLL_*: whether the pause menu scrolls in this game (0 when kiln.ui cannot say).</summary>
     internal static uint ScrollStatus()
     {
-        var t = UiNative.T6;
-        return t != null && t->MenuScroll != null ? t->MenuScroll() : 0u;
+        var slot = UiNative.MenuScrollSlot;
+        return slot != null ? slot() : 0u;
     }
 
     internal const uint ScrollOn = 1, ScrollOffCrashed = 2;

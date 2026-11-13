@@ -16,7 +16,7 @@ public sealed unsafe class GameMenuEntriesTests : IDisposable
 {
     private readonly IKilnBackend _previous;
     private readonly UiDraw _ui = new();
-    private UiNative.Table6* _t6;
+    private UiNative.Table6Scroll* _t6;
     private static readonly List<ulong> Activated = [];
     private static readonly List<bool> MenuOpenAtActivation = [];
     private static readonly List<uint> Modes = [];
@@ -66,12 +66,12 @@ public sealed unsafe class GameMenuEntriesTests : IDisposable
     // kiln.ui v6: the fake v4 table with the three new slots, handed out for version 6
     private void InstallV6()
     {
-        _t6 = (UiNative.Table6*)NativeMemory.AllocZeroed((nuint)sizeof(UiNative.Table6));
-        _t6->Base = *FakeUiTable.Table;
-        _t6->Base.Base.Base.Base.Header.Size = (uint)sizeof(UiNative.Table6);
-        _t6->Base.Base.Base.Base.Header.Version = 6;
-        _t6->MenuShown = &Shown;
-        _t6->MenuActivate = &Activate;
+        _t6 = (UiNative.Table6Scroll*)NativeMemory.AllocZeroed((nuint)sizeof(UiNative.Table6Scroll));
+        _t6->Base.Base = *FakeUiTable.Table;
+        _t6->Base.Base.Base.Base.Base.Header.Size = (uint)sizeof(UiNative.Table6Scroll);
+        _t6->Base.Base.Base.Base.Base.Header.Version = 6;
+        _t6->Base.MenuShown = &Shown;
+        _t6->Base.MenuActivate = &Activate;
         FakeUiTable.Other["kiln.ui"] = (nint)_t6;
     }
 
@@ -101,8 +101,9 @@ public sealed unsafe class GameMenuEntriesTests : IDisposable
         Assert.Equal(36, (int)Marshal.OffsetOf<UiNative.MenuEntryInfo>(nameof(UiNative.MenuEntryInfo.Drawn)));
         // menu_shown follows subscribe_window_input, which follows the v4 table
         Assert.Equal(sizeof(UiNative.Table4) + 8, (int)Marshal.OffsetOf<UiNative.Table6>(nameof(UiNative.Table6.MenuShown)));
-        Assert.Equal(sizeof(UiNative.Table4) + 5 * 8, sizeof(UiNative.Table6));
-        Assert.Equal(sizeof(UiNative.Table4) + 4 * 8, (int)Marshal.OffsetOf<UiNative.Table6>(nameof(UiNative.Table6.MenuScroll)));
+        Assert.Equal(sizeof(UiNative.Table4) + 4 * 8, sizeof(UiNative.Table6));  // the first v6 tables end here
+        Assert.Equal(sizeof(UiNative.Table4) + 5 * 8, sizeof(UiNative.Table6Scroll));
+        Assert.Equal(sizeof(UiNative.Table6), (int)Marshal.OffsetOf<UiNative.Table6Scroll>(nameof(UiNative.Table6Scroll.MenuScroll)));
     }
 
     [Fact]
@@ -161,6 +162,20 @@ public sealed unsafe class GameMenuEntriesTests : IDisposable
         _t6->MenuScroll = &ScrollCrashed;
         UiNative.ResetForTests();
         Assert.Equal(GameMenuEntries.ScrollOffCrashed, GameMenuEntries.ScrollStatus());
+    }
+
+    [Fact]
+    public void A_v6_table_without_the_scroll_slot_still_lists_and_applies_the_rule()
+    {
+        // review of 235bcebb: kiln.ui of 781ee730 has v6 without menu_scroll; the managed side must keep its list and rule
+        InstallV6();
+        _t6->MenuScroll = &ScrollCrashed;  // past the old table's end: must not be read
+        _t6->Base.Base.Base.Base.Base.Header.Size = (uint)sizeof(UiNative.Table6);
+        UiNative.ResetForTests();
+        Assert.True(UiNative.T6 != null);
+        Assert.True(UiNative.MenuScrollSlot == null);
+        Assert.Equal(0u, GameMenuEntries.ScrollStatus());
+        Assert.True(GameMenuEntries.Activate(41));
     }
 
     [Fact]

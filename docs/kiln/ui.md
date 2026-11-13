@@ -55,10 +55,13 @@ e.Visible = false;       // hide for now; e.Text = "…" relabels; e.Dispose() r
   the pause menu's column in the game's own scroll view (the one the credits use: mouse wheel, clipping, following the
   keyboard and gamepad focus); with fewer it draws the menu exactly as the game does. Begin and end sit at the
   column's own open and close in the game's builder (`native/services/ui/menu_scroll.h`). A crash guard writes
-  `kiln/state/menu-scroll.trying` before the first scrolled frame of a start and removes it once a scrolled menu was
-  open for 3 seconds and closed; a start that finds it keeps scrolling off (`kiln/state/menu-scroll.off`, naming the
-  Kiln version and game build; another version or build tries once more; delete the file to try again) and tells the
-  player with a toast. kiln.log says when it is on (`ui: the pause menu can scroll`, `ui: the pause menu scrolls: ...`
+  `kiln/state/menu-scroll.trying` before the first scrolled frame of a start and removes it once the scrolled menu has
+  drawn 48 frames in that process (a wrong nesting would have ended the game by then; quitting afterwards is fine); a
+  start that finds it (or cannot read it) keeps scrolling off (`kiln/state/menu-scroll.off`, naming the Kiln version
+  and game build, written before the marker goes; another version or build tries once more; delete the file to try
+  again) and tells the player with a toast. A fault in Kiln's own calls closes what it opened, in order, and turns
+  scrolling off; when even that fails the game ends on purpose with a kiln.log line, rather than a moment later in its
+  own menu code. kiln.log says when it is on (`ui: the pause menu can scroll`, `ui: the pause menu scrolls: ...`
   with the sizes it saw) and when it switched itself off and why. The main menu does not scroll. Kiln's
   own **Mods** entry is always drawn. Every mod's entry of the menu the player can open where they are (the main
   menu, or the pause menu in a world) is listed on the Mods page under **Menu entries**; choosing one there closes the

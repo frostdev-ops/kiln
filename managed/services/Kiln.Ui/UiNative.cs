@@ -244,7 +244,27 @@ internal static unsafe class UiNative
         public delegate* unmanaged[Cdecl]<uint, void> MenuShown;
         public delegate* unmanaged[Cdecl]<MenuEntryInfo*, uint, uint> MenuEntries;
         public delegate* unmanaged[Cdecl]<ulong, int> MenuActivate;
+    }
+
+    /// <summary>The v6 table with its last slot, menu_scroll (added after the first v6 tables: read it only when the
+    /// table's size holds it, <see cref="MenuScrollSlot"/>).</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    public struct Table6Scroll
+    {
+        public Table6 Base;
         public delegate* unmanaged[Cdecl]<uint> MenuScroll;
+    }
+
+    /// <summary>kiln.ui's menu_scroll, or null on a v6 table without it (a mixed install: the rule applies, nothing
+    /// scrolls).</summary>
+    public static delegate* unmanaged[Cdecl]<uint> MenuScrollSlot
+    {
+        get
+        {
+            var t = T6;
+            if (t == null || t->Base.Base.Base.Base.Header.Size < (uint)sizeof(Table6Scroll)) return null;
+            return ((Table6Scroll*)t)->MenuScroll;
+        }
     }
 
     /// <summary>KilnCraftMenuApi (kiln_ui.h): kiln.content's crafting-menu extension point.</summary>

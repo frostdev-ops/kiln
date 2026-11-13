@@ -73,9 +73,10 @@ kiln::MidHook2 g_open_hook, g_close_hook;
 std::atomic<bool> g_on{false};
 std::atomic<uint32_t> g_status{KILN_UI_SCROLL_UNAVAILABLE};
 menu_scroll::Pair g_pair;  // UI thread
-bool g_broken = false;     // a begin faulted: nothing more is called on that layout
+bool g_broken = false;     // a step faulted: no more begins in this process
+menu_scroll::Nest g_nest;  // what the current builder call's begin opened (UI thread)
 bool g_marker_written = false;
-bool g_scrolled_this_frame = false;
+std::atomic<bool> g_clear_marker{false};  // the trial passed: after_frame removes the marker
 uint32_t g_scrolled_frames = 0;
 menu_scroll::Trial g_trial;
 std::wstring g_trying, g_off;  // the marker files
@@ -89,15 +90,20 @@ std::wstring widen(const std::string& s) {
     return w;
 }
 
-bool read_file(const std::wstring& path, std::string& out) {
+// Absent only when the file (or its folder) is not there; any other failure counts as there (menu_scroll::File).
+menu_scroll::File read_file(const std::wstring& path, std::string& out) {
     out.clear();
     HANDLE h = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, 0, nullptr);
-    if (h == INVALID_HANDLE_VALUE) return false;
+    if (h == INVALID_HANDLE_VALUE) {
+        const DWORD e = GetLastError();
+        return e == ERROR_FILE_NOT_FOUND || e == ERROR_PATH_NOT_FOUND ? menu_scroll::File::absent : menu_scroll::File::unreadable;
+    }
     char buf[512];
     DWORD n = 0;
-    if (ReadFile(h, buf, sizeof buf, &n, nullptr)) out.assign(buf, n);
+    const bool ok = ReadFile(h, buf, sizeof buf, &n, nullptr);
+    if (ok) out.assign(buf, n);
     CloseHandle(h);
-    return true;
+    return ok ? menu_scroll::File::read : menu_scroll::File::unreadable;
 }
 
 // Written through to the disk before the call returns: the game may end right after it.
@@ -150,45 +156,77 @@ bool finite_rect(const float r[4]) {
     return true;
 }
 
-// The game's calls that begin the scroll view; false when one faulted (an access violation: the game's own error
-// handling ends the game and cannot be caught).
-bool begin_scroll(uint8_t* column) {
+// Nesting that cannot be restored: the game would fail on its column a moment later anyway (its layout errors are
+// fatal and cannot be caught). End the process now, said in kiln.log; the crash guard's marker is on the disk, so the
+// next start keeps scrolling off.
+[[noreturn]] void give_up(const char* what) {
+    logf(KILN_LOG_ERROR, "ui: the scrolling pause menu %s and the game's menu cannot be put back in order: the game ends "
+                         "now; scrolling stays off on the next start (kiln/state/menu-scroll.off)", what);
+    __fastfail(7);  // FAST_FAIL_FATAL_APP_EXIT
+}
+
+// One of the game's calls, under a guard: false when it faulted (an access violation; the game's own error handling
+// ends the game and cannot be caught here).
+template <typename Fn>
+bool guarded(Fn&& f) {
     __try {
+        f();
+        return true;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+
+// Closes what this call's begin opened, innermost first (menu_scroll::unwind_order). False when a close faulted.
+bool unwind() {
+    menu_scroll::Close order[2];
+    const int n = menu_scroll::unwind_order(g_nest, order);
+    bool ok = true;
+    for (int i = 0; i < n && ok; ++i)
+        ok = order[i] == menu_scroll::Close::inner ? guarded([] { F.frame_end(g_inner); }) : guarded([] { F.end(g_layout); });
+    g_nest = {};
+    return ok;
+}
+
+// The game's calls that begin the scroll view. Before the game's begin a fault leaves nothing open (false: the
+// builder goes on as without Kiln). From the begin on, a fault closes what was opened, in order; a begin or a stack that
+// faulted half way, or a close that faults, cannot be put back in order: give_up.
+bool begin_scroll(uint8_t* column) {
+    void* state = nullptr;
+    const bool before = guarded([&] {
         void* node = *reinterpret_cast<void**>(column + (F.column_node - F.column));
-        if (!node) return false;
+        if (!node) return;
         std::memset(g_params, 0, sizeof g_params);
         F.params_init(g_params);  // the game's defaults: scissor on, auto scrolling on, navigation as the credits have it
-        void* state = F.state(node, kStateHash, 4, F.state_nop, 1);
-        if (!state) return false;
-        if (F.state_new(state)) *static_cast<uint32_t*>(state) = 0;
-        std::memset(g_layout, 0, sizeof g_layout);
-        F.begin(g_layout, 1, state, nullptr, g_params);
-        F.set_speed(g_layout, F.speed(g_layout));
-        std::memset(g_inner, 0, sizeof g_inner);
-        F.vstack(g_inner, 0.0f);  // the column's own kind: a vertical stack without spacing
-        void* inner = *reinterpret_cast<void**>(g_inner + 8);
-        if (inner) {
+        state = F.state(node, kStateHash, 4, F.state_nop, 1);
+        if (state && F.state_new(state)) *static_cast<uint32_t*>(state) = 0;
+    });
+    if (!before || !state) return false;
+    g_nest = {};
+    std::memset(g_layout, 0, sizeof g_layout);
+    if (!guarded([&] { F.begin(g_layout, 1, state, nullptr, g_params); })) give_up("faulted inside the game's begin");
+    g_nest.layout = true;
+    if (!guarded([] { F.set_speed(g_layout, F.speed(g_layout)); })) {
+        if (!unwind()) give_up("faulted, and so did closing its scroll view");
+        return false;
+    }
+    std::memset(g_inner, 0, sizeof g_inner);
+    if (!guarded([] { F.vstack(g_inner, 0.0f); })) give_up("faulted inside the game's stack");  // the column's own kind
+    g_nest.inner = true;
+    const bool set = guarded([] {
+        if (void* inner = *reinterpret_cast<void**>(g_inner + 8)) {
             F.align(inner, &kColumnAlign);
             F.size(inner, pack(1.0f, 0.0f));  // full width, height from the entries
         }
-        return true;
-    } __except (EXCEPTION_EXECUTE_HANDLER) {
+    });
+    if (!set) {
+        if (!unwind()) give_up("faulted, and so did closing what it opened");
         return false;
     }
-}
-
-bool end_scroll() {
-    __try {
-        F.frame_end(g_inner);
-        F.end(g_layout);
-        return true;
-    } __except (EXCEPTION_EXECUTE_HANDLER) {
-        return false;
-    }
+    return true;
 }
 
 void on_open(KilnRegisters& r) {
-    g_scrolled_this_frame = false;
     if (!g_on.load(std::memory_order_relaxed) || g_broken) return;
     const bool want = menu_scroll::wants(game_menu_mode(), game_pause_mods_rows());
     switch (menu_scroll::at_open(g_pair, want)) {
@@ -219,21 +257,18 @@ void on_open(KilnRegisters& r) {
     }
     auto* column = reinterpret_cast<uint8_t*>(r.rbp + static_cast<intptr_t>(F.column));
     if (!begin_scroll(column)) {
-        g_broken = true;  // nothing more on this layout, not even its end
+        // nothing of it is open any more (begin_scroll closed what it had opened): the builder goes on as without Kiln
+        g_broken = true;
         g_pair.open = false;
-        turn_off(KILN_UI_SCROLL_OFF_FAULTED, "beginning the game's scroll view faulted");
-        return;
+        turn_off(KILN_UI_SCROLL_OFF_FAULTED, "beginning the game's scroll view faulted (closed again in order)");
     }
-    g_scrolled_this_frame = true;
 }
 
 void on_close(KilnRegisters& r) {
     if (menu_scroll::at_close(g_pair) != menu_scroll::At::end) return;
-    if (!end_scroll()) {
-        g_broken = true;
-        turn_off(KILN_UI_SCROLL_OFF_FAULTED, "ending the game's scroll view faulted");
-        return;
-    }
+    if (!unwind()) give_up("faulted while closing its scroll view");
+    // the crash guard's trial: wrapped builder calls that ran to their close site
+    if (g_marker_written && menu_scroll::trial_step(g_trial)) g_clear_marker = true;
     // the first frames: what the layout says (once the game laid the scroll view out at least once)
     if (++g_scrolled_frames > 8) return;
     auto* column = reinterpret_cast<uint8_t*>(r.rbp + static_cast<intptr_t>(F.column));
@@ -324,18 +359,20 @@ bool scroll_install(bool system_menu_hooked) {
         if (bi.kiln_version.ptr) kiln.assign(bi.kiln_version.ptr, bi.kiln_version.len);
     }
     std::string trying_text, off_text;
-    const bool trying = read_file(g_trying, trying_text);
-    const bool off = read_file(g_off, off_text);
-    switch (menu_scroll::decide(trying, off ? &off_text : nullptr, kiln, build)) {
+    const menu_scroll::File trying = read_file(g_trying, trying_text);
+    const menu_scroll::File off = read_file(g_off, off_text);
+    switch (menu_scroll::decide(trying, off, off_text, kiln, build)) {
     case menu_scroll::Start::off_after_crash: {
-        // the game ended while an earlier start tried it: keep its version and build as the off record
-        if (!MoveFileExW(g_trying.c_str(), g_off.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
-            write_file(g_off, trying_text);
-            DeleteFileW(g_trying.c_str());
-        }
+        // the game ended while an earlier start tried it: its marker becomes the off record (its version and build);
+        // the marker goes only once the record is on the disk, so the evidence is never lost
+        const bool moved = MoveFileExW(g_trying.c_str(), g_off.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH);
+        const bool written = !moved && trying == menu_scroll::File::read && write_file(g_off, trying_text);
+        if (menu_scroll::may_delete_trying(moved, written)) DeleteFileW(g_trying.c_str());
         g_status = KILN_UI_SCROLL_OFF_CRASHED;
         logf(KILN_LOG_WARN, "ui: the pause menu does not scroll: the game ended while an earlier start tried it, so it "
-                            "stays off with this Kiln version and game build (delete %s to try again)", g_off_u8.c_str());
+                            "stays off with this Kiln version and game build (delete %s to try again%s)",
+             moved || written ? g_off_u8.c_str() : g_trying_u8.c_str(),
+             moved || written ? "" : "; the off record could not be written, the marker stays");
         report(KILN_CAP_UNAVAILABLE, KILN_CAP_REASON_FAULTED, "the game ended while an earlier start tried it (kiln/state/menu-scroll.off)");
         return false;
     }
@@ -346,7 +383,7 @@ bool scroll_install(bool system_menu_hooked) {
         report(KILN_CAP_UNAVAILABLE, KILN_CAP_REASON_FAULTED, "it ended the game before with this Kiln version and game build (kiln/state/menu-scroll.off)");
         return false;
     case menu_scroll::Start::try_it:
-        if (off) DeleteFileW(g_off.c_str());  // another Kiln version or game build: one more try
+        if (off != menu_scroll::File::absent) DeleteFileW(g_off.c_str());  // another Kiln version or game build: one more try
         break;
     }
     g_open_hook.install(g_api, g_owner, open_site, &on_open, "ui/SystemMenuColumnOpened");
@@ -367,16 +404,13 @@ bool scroll_install(bool system_menu_hooked) {
 
 uint32_t scroll_status() { return g_status.load(); }
 bool scroll_on() { return g_on.load(std::memory_order_relaxed); }
+bool scroll_wrapped_now() { return g_pair.open; }
 
-void scroll_after_frame(uint64_t frame) {
-    if (!g_marker_written) return;
-    const bool scrolled = g_scrolled_this_frame;
-    g_scrolled_this_frame = false;
-    if (menu_scroll::trial_step(g_trial, frame, GetTickCount64(), scrolled)) {
-        if (DeleteFileW(g_trying.c_str()) || GetLastError() == ERROR_FILE_NOT_FOUND)
-            logf(KILN_LOG_INFO, "ui: the pause menu scrolled for a few seconds and closed again: its crash guard is "
-                                "cleared for this start");
-    }
+void scroll_after_frame(uint64_t) {
+    if (!g_clear_marker.exchange(false)) return;
+    if (DeleteFileW(g_trying.c_str()) || GetLastError() == ERROR_FILE_NOT_FOUND)
+        logf(KILN_LOG_INFO, "ui: the scrolling pause menu drew %u frames without trouble: its crash guard is cleared",
+             menu_scroll::kTrialFrames);
 }
 
 }  // namespace kui

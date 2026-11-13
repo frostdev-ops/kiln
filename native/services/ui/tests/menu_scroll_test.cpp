@@ -52,6 +52,19 @@ int main() {
               rows::draws_mods(rows::show_auto, 3, false),
           "auto draws every row where the menu scrolls, else the rule few");
 
+    // review of 235bcebb: one decision per builder call. The open site declined (3 mods' rows); a fourth entry is added
+    // before the Settings entry is drawn: the rows drawn follow this call's decision (not wrapped: the rule few, none of
+    // the four), never every entry into an unwrapped menu
+    {
+        Pair p;
+        check(at_open(p, wants(rows::show_auto, 3)) == At::nothing, "three rows: not wrapped");
+        check(!rows::draws_mods(rows::show_auto, 4, p.open), "a fourth row in the same call: the rule few, not all");
+        at_close(p);
+        check(at_open(p, wants(rows::show_auto, 4)) == At::begin && rows::draws_mods(rows::show_auto, 4, p.open),
+              "the next call wraps and draws all four");
+        at_close(p);
+    }
+
     // ---- the crash guard ----
     {
         const std::string m = marker_text("0.2.0-dev.27", "5d9ef2f1");
@@ -60,32 +73,48 @@ int main() {
         check(parse_marker("kiln=a\r\nbuild=b\r\n", r) && r.kiln == "a" && r.build == "b", "CRLF lines read");
         check(!parse_marker("", r) && !parse_marker("kiln=a\n", r) && !parse_marker("kiln=\nbuild=b\n", r),
               "an incomplete marker does not read");
-        check(decide(false, nullptr, "v", "b") == Start::try_it, "no file: try");
-        check(decide(true, nullptr, "v", "b") == Start::off_after_crash, "a trying marker: the game ended while trying");
-        check(decide(true, &m, "0.2.0-dev.27", "5d9ef2f1") == Start::off_after_crash, "trying wins over an off record");
-        check(decide(false, &m, "0.2.0-dev.27", "5d9ef2f1") == Start::off_recorded, "off: same version and build");
-        check(decide(false, &m, "0.2.0-dev.28", "5d9ef2f1") == Start::try_it, "another Kiln version tries again");
-        check(decide(false, &m, "0.2.0-dev.27", "0123") == Start::try_it, "another game build tries again");
+        const std::string none;
+        check(decide(File::absent, File::absent, none, "v", "b") == Start::try_it, "no file: try");
+        check(decide(File::read, File::absent, none, "v", "b") == Start::off_after_crash, "a trying marker: the game ended while trying");
+        check(decide(File::read, File::read, m, "0.2.0-dev.27", "5d9ef2f1") == Start::off_after_crash, "trying wins over an off record");
+        check(decide(File::read, File::read, m, "0.2.0-dev.28", "5d9ef2f1") == Start::off_after_crash,
+              "a trying marker and an old off record (an earlier failed conversion): still off");
+        check(decide(File::absent, File::read, m, "0.2.0-dev.27", "5d9ef2f1") == Start::off_recorded, "off: same version and build");
+        check(decide(File::absent, File::read, m, "0.2.0-dev.28", "5d9ef2f1") == Start::try_it, "another Kiln version tries again");
+        check(decide(File::absent, File::read, m, "0.2.0-dev.27", "0123") == Start::try_it, "another game build tries again");
         const std::string junk = "garbage";
-        check(decide(false, &junk, "v", "b") == Start::off_recorded, "an unreadable off record stays off (never a loop)");
+        check(decide(File::absent, File::read, junk, "v", "b") == Start::off_recorded, "an unparsable off record stays off (never a loop)");
+        // review of 235bcebb: a marker that is there but cannot be read is not "absent"
+        check(decide(File::unreadable, File::absent, none, "v", "b") == Start::off_after_crash, "an unreadable trying marker: off");
+        check(decide(File::absent, File::unreadable, none, "v", "b") == Start::off_recorded, "an unreadable off record: off");
+        // review of 235bcebb: the trying marker goes only once the off record is on the disk
+        check(!may_delete_trying(true, false), "moved: nothing left to delete");
+        check(may_delete_trying(false, true), "written: the trying marker may go");
+        check(!may_delete_trying(false, false), "neither: the trying marker stays (the evidence is kept)");
     }
     {
+        // review of 235bcebb: the trial counts wrapped builder calls that reached their close site, nothing else
         Trial t;
-        check(!trial_step(t, 1, 0, false), "nothing scrolled: no end of trial");
-        uint64_t f = 10, ms = 1000;
-        for (; ms < 4100; ms += 16, ++f) check(!trial_step(t, f, ms, true), "scrolling: the trial goes on");
-        check(t.seen_long, "3 s of scrolled frames seen");
         bool passed = false;
-        uint64_t closed_at = 0;
-        for (uint64_t k = 0; k < 40; ++k)
-            if (trial_step(t, f + k, ms + k * 16, false) && !passed) passed = true, closed_at = k;
-        check(passed && closed_at + 1 == kClosedFrames, "closed for 30 frames after 3 s: the marker goes on the 30th, once");
-        check(!trial_step(t, f + 100, ms + 2000, false), "only once");
-        Trial s;  // a short look: the menu closed after one second, the marker stays
-        for (uint64_t k = 0; k < 60; ++k) trial_step(s, k + 1, 1000 + k * 16, true);
-        bool early = false;
-        for (uint64_t k = 0; k < 100; ++k) early |= trial_step(s, 61 + k, 2000 + k * 16, false);
-        check(!early && !s.done, "a menu closed before 3 s keeps the marker");
+        uint32_t at = 0;
+        for (uint32_t k = 1; k <= 100; ++k)
+            if (trial_step(t)) {
+                check(!passed, "the trial passes once");
+                passed = true, at = k;
+            }
+        check(passed && at == kTrialFrames, "the marker goes on the 48th wrapped frame");
+        check(kTrialFrames >= 24 && kTrialFrames <= 120, "a few dozen frames");
+        Trial s;
+        for (uint32_t k = 1; k < kTrialFrames; ++k) check(!trial_step(s), "fewer wrapped frames keep the marker");
+    }
+    {
+        // review of 235bcebb: after a begin, every way out closes what was opened, innermost first
+        Close out[2];
+        Nest none, layout_only{true, false}, both{true, true};
+        check(unwind_order(none, out) == 0, "nothing begun: nothing to close");
+        check(unwind_order(layout_only, out) == 1 && out[0] == Close::layout, "only the view begun: end it");
+        check(unwind_order(both, out) == 2 && out[0] == Close::inner && out[1] == Close::layout,
+              "view and stack: the stack first, then the view");
     }
 
     // ---- rectangles ----

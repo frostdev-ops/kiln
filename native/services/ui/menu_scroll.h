@@ -14,10 +14,15 @@
 //   stops for the process.
 // - A menu that fits is drawn as it always was: Kiln wraps the column only while the menu has more mods' rows than
 //   the rule of menu_rows.h lets it show (kFew), the case where Quit leaves the screen.
-// - A crash guard: before the first begin in a process a "trying" marker is written; it goes once a scrolled menu was
-//   seen for kTrialMs and then closed. A start that finds it (the game ended while trying) turns it into an "off"
-//   record naming the Kiln version and the game build it happened with: scrolling stays off on every start with that
-//   version and build; another version or build tries once more. Deleting the file tries again.
+// - A crash guard: before the first begin in a process a "trying" marker is written; it goes once the wrapped builder
+//   has run to its close site kTrialFrames times in this process (a wrong nesting is fatal within the first frames;
+//   no wall-clock time, no "then closed": a player who presses Quit afterwards does not count as a crash). A start
+//   that finds it (the game ended while trying) turns it into an "off" record naming the Kiln version and the game
+//   build it happened with: scrolling stays off on every start with that version and build; another version or build
+//   tries once more. Deleting the file tries again. A marker that exists but cannot be read counts as there (off).
+// - After a begin that succeeded, every way out closes what was opened, in order (Nest, unwind_order); when even that
+//   faults, nesting cannot be restored and the process ends on purpose (the marker is on the disk: the next start
+//   stays off) rather than handing the game a column it would fail on.
 #pragma once
 
 #include <cmath>
@@ -63,9 +68,24 @@ constexpr bool wants(uint32_t mode, size_t mods_rows) {
     return (mode == menu_rows::show_always || mode == menu_rows::show_auto) && mods_rows > menu_rows::kFew;
 }
 
+// ---- what a begin opened, and the order to close it in ----
+struct Nest {
+    bool layout = false;  // the game's scroll view was begun
+    bool inner = false;   // Kiln's vertical stack inside it was opened
+};
+
+enum class Close { inner, layout };
+
+// The closes that restore the nesting, innermost first; `n` is how many (0..2).
+constexpr int unwind_order(const Nest& nest, Close out[2]) {
+    int n = 0;
+    if (nest.inner) out[n++] = Close::inner;
+    if (nest.layout) out[n++] = Close::layout;
+    return n;
+}
+
 // ---- the crash guard ----
-inline constexpr uint64_t kTrialMs = 3000;      // a scrolled menu seen this long, then closed: the trial passed
-inline constexpr uint64_t kClosedFrames = 30;   // UI frames without a scrolled menu: it was closed
+inline constexpr uint32_t kTrialFrames = 48;  // wrapped builder calls that reached their close site: the trial passed
 
 struct Record {
     std::string kiln, build;  // Kiln's version, the game exe's sha256
@@ -100,37 +120,39 @@ enum class Start {
     off_recorded,     // an off record of this version and build
 };
 
-// `trying`: the trying marker exists; `off`: the off record's content, or null when there is none (an unreadable off
-// record counts as this version and build: off, never a loop).
-inline Start decide(bool trying, const std::string* off, std::string_view kiln, std::string_view build) {
-    if (trying) return Start::off_after_crash;
-    if (!off) return Start::try_it;
+// What reading a marker file found.
+enum class File {
+    absent,       // not there (file or folder not found)
+    read,         // read; its text is in hand
+    unreadable,   // there, but it could not be read (access denied, a sharing error, ...): counts as there
+};
+
+// `trying`: the trying marker; `off` and `off_text`: the off record (an unreadable or unparsable off record counts as
+// this version and build: off, never a loop).
+inline Start decide(File trying, File off, const std::string& off_text, std::string_view kiln, std::string_view build) {
+    if (trying != File::absent) return Start::off_after_crash;
+    if (off == File::absent) return Start::try_it;
     Record r;
-    if (!parse_marker(*off, r)) return Start::off_recorded;
+    if (off == File::unreadable || !parse_marker(off_text, r)) return Start::off_recorded;
     return r.kiln == kiln && r.build == build ? Start::off_recorded : Start::try_it;
 }
 
-// The trial: called after every UI frame while the marker is written. Returns true once, when the marker may go.
+// Turning the trying marker into the off record: the trying marker goes only once the off record is on the disk (moved
+// there, or written there), so the evidence is never lost; when neither worked both stay as they are (the next start
+// finds the trying marker and stays off again).
+constexpr bool may_delete_trying(bool moved, bool off_written) { return !moved && off_written; }
+
+// The trial: once per wrapped builder call that reached its close site. Returns true once, when the marker may go.
 struct Trial {
-    uint64_t first_ms = 0;     // when a scrolled frame was first seen
-    uint64_t last_frame = 0;   // the last UI frame that scrolled
-    bool seen_long = false;    // scrolled frames covered kTrialMs
+    uint32_t frames = 0;
     bool done = false;
 };
 
-constexpr bool trial_step(Trial& t, uint64_t frame, uint64_t now_ms, bool scrolled) {
+constexpr bool trial_step(Trial& t) {
     if (t.done) return false;
-    if (scrolled) {
-        if (!t.first_ms) t.first_ms = now_ms ? now_ms : 1;
-        t.last_frame = frame;
-        if (now_ms - t.first_ms >= kTrialMs) t.seen_long = true;
-        return false;
-    }
-    if (t.seen_long && t.last_frame && frame >= t.last_frame + kClosedFrames) {
-        t.done = true;
-        return true;
-    }
-    return false;
+    if (++t.frames < kTrialFrames) return false;
+    t.done = true;
+    return true;
 }
 
 // ---- sanity of what the game's layout says (a frame's rectangle, UI units) ----

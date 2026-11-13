@@ -26,6 +26,7 @@
 
 #include "kiln_hook.hpp"
 #include "menu_rows.h"
+#include "menu_scroll.h"
 #include "menu_site.h"
 #include "ui.h"
 
@@ -264,12 +265,18 @@ std::vector<Entry> visible_of(uint32_t menu) {
     return out;
 }
 
-// Can this menu scroll in this process (menu_scroll.cpp: the pause menu only)?
-bool scrolls(uint32_t menu) { return menu == KILN_UI_MENU_PAUSE && scroll_on(); }
-
-// The entries one menu draws: Kiln's own Mods entry always, the mods' as the mode says (menu_rows.h).
+// The entries one menu draws in this builder call: Kiln's own Mods entry always, the mods' as the mode says
+// (menu_rows.h). AUTO draws every one exactly when this call of the pause menu's builder is wrapped in the scroll view
+// (menu_scroll.cpp decided it at the column's open site, before the Settings entry): one decision per builder call,
+// whatever changed in between.
 std::vector<Entry> entries_of(uint32_t menu) {
-    return menu_rows::pick(visible_of(menu), g_shown.load(std::memory_order_relaxed), is_builtin, scrolls(menu));
+    const bool wrapped = menu == KILN_UI_MENU_PAUSE && scroll_wrapped_now();
+    return menu_rows::pick(visible_of(menu), g_shown.load(std::memory_order_relaxed), is_builtin, wrapped);
+}
+
+// For the Mods page's list (any thread): whether the pause menu would be wrapped with these rows.
+bool scrolls(uint32_t menu, uint32_t mode, size_t rows) {
+    return menu == KILN_UI_MENU_PAUSE && scroll_on() && menu_scroll::wants(mode, rows);
 }
 
 void activated(KilnHandle h) {
@@ -685,7 +692,7 @@ uint32_t game_menu_entries(KilnUiMenuEntry* out, uint32_t capacity) {
         o.text_len = e.text ? static_cast<uint32_t>(e.text->size()) : 0;
         o.flags = e.flags;
         o.order = e.order;
-        o.drawn = visible(e) && e.menu < 3 && menu_rows::draws_mods(mode, shown[e.menu], scrolls(e.menu)) ? 1u : 0u;
+        o.drawn = visible(e) && e.menu < 3 && menu_rows::draws_mods(mode, shown[e.menu], scrolls(e.menu, mode, shown[e.menu])) ? 1u : 0u;
     }
     return static_cast<uint32_t>(mods.size());
 }

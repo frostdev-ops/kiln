@@ -126,6 +126,7 @@ size_t game_pause_mods_rows();                                             // vi
 bool scroll_install(bool system_menu_hooked);  // game_install, after the SystemMenuEntry hook
 uint32_t scroll_status();                      // KILN_UI_SCROLL_*
 bool scroll_on();                              // the pause menu can scroll in this process now
+bool scroll_wrapped_now();                     // UI thread: this pause-menu builder call is wrapped (open site to close site)
 void scroll_after_frame(uint64_t frame);       // UI thread, after each UI frame: the crash guard's trial
 bool game_unsubscribe(KilnHandle h);
 void game_status_line(char* out, size_t cap);
