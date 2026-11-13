@@ -11,10 +11,12 @@ API (`docs/modding/lua.md`), with the Kiln service behind it, the nearest Kiln C
 - **tested**: `probe` = the conformance probe (`mods/tests/emf-test/probe`, lab server), `host` = host test
   (`native/plugins/emf/tests/run.sh`), `client` = only a joined player can show it (client checklist in
   [emf.md](emf.md)), `lab-mod` = a shipped EMF mod uses it in the lab check (`tools/emf/lab-check.py`).
-- Counts: **80 full, 13 partial, 42 not yet out of 135.** The v27 prefix has 90 slots (77 full, 13 partial). v28 to
-  v40 append 45: three full (`chat_tell_ex`, `chat_broadcast_ex`, `world_to_screen`) and 42 not yet
+- Counts: **76 full, 17 partial, 42 not yet out of 135.** The v27 prefix has 90 slots (75 full, 15 partial). v28 to
+  v40 append 45: one full (`world_to_screen`), two partial (`chat_tell_ex`, `chat_broadcast_ex`) and 42 not yet
   ([the table below](#v28-to-v40-emf-063-to-068)). Counts are C table slots, not grouped rows or attribute constants.
-  The two attribute slots remain partial because the XP/level ids use the queued progression path below. Full means
+  The two attribute slots remain partial because the XP/level ids use the queued progression path below. The four
+  chat line slots are partial because a plain line (no `EMF_CHAT_SYSTEM`) shows without a speaker's name on Kiln and
+  under the player's own name on EMF (counted as full until 0.2.0-dev.26; the behaviour did not change). Full means
   the implemented contract matches EMF; the evidence column separately names host, server and pending client checks.
 
 API 27 messages use EMF's official `#!emf1` chat wire. Kiln peers can speak to EMF peers without Kiln's own network
@@ -78,7 +80,8 @@ than EMF's minimum is refused untouched, as in EMF.
 | `program_write_other` (16) | `kiln.world` programs v2, declared other-entity writes | `EcsProgramContext.TryWriteOther<T>` | full | host; server probe |
 | `attribute_get`, `attribute_add` (18) | `kiln.combat` health, stamina and mana; v22 ids through `kiln.progression` | `Attributes.Get/Set/Add`, `PlayerProgression` | partial: health/stamina/mana supported; XP/level timing and limits below | probe; host |
 | `damage` (18) | `kiln.combat` hit | `Kiln.Combat` | full | probe |
-| `chat_tell`, `chat_broadcast`, `player_name`, `on_chat` (19) | `kiln.chat` | `Kiln.Chat` | full | probe, lab-mod (herald) |
+| `chat_tell`, `chat_broadcast` (19) | `kiln.chat` server lines | `Chat.Tell`, `Chat.Broadcast` | partial: the line shows as its text alone, without a speaker's name (on EMF under the player's own name, `Ember: Welcome!`) | probe, lab-mod (herald); client (the line on screen) |
+| `player_name`, `on_chat` (19) | `kiln.chat` | `Kiln.Chat` | full | probe, lab-mod (herald) |
 | `request_save` (19) | `kiln.saves` | `Kiln.Saves` | full | probe |
 | `teleport` (20) | `kiln.world` teleport | `Kiln.World` teleport | full | probe |
 | `world_setting_get/_set/_reset/_info`, `on_world_setting_changed` (21) | `kiln.settings` | `Kiln.Settings` | full | probe, lab-mod (server-admin) |
@@ -106,7 +109,7 @@ dedicated server.
 
 | EMF function (since) | On Kiln | Status | Tested |
 |---|---|---|---|
-| `chat_tell_ex`, `chat_broadcast_ex` (30) | `kiln.chat` server lines, which a player's game shows without a speaker's name. `EMF_CHAT_SYSTEM` and flags 0 send the same line (EMF's plain `chat_tell` shows the line under the player's own name; kiln-emf's never did). Other flags are refused. | full | probe; client (the line on screen) |
+| `chat_tell_ex`, `chat_broadcast_ex` (30) | `kiln.chat` server lines, which a player's game shows without a speaker's name: with `EMF_CHAT_SYSTEM` as EMF documents. Other flags are refused. | partial: flags 0 sends the same line without a name (on EMF a plain line shows under the player's own name) | probe; client (the line on screen) |
 | `world_to_screen` (33) | `kiln.render`'s camera: display pixels, false behind the camera or before a frame. False on a dedicated server. | full | host; client |
 | `on_player` (28) | Answer: `false`. No join, leave or death callback comes. | not yet | host, probe |
 | `item_name`, `game_language` (29) | Answer: 0 and an empty buffer ("use the debug name"). | not yet | host, probe |
@@ -151,7 +154,8 @@ Kiln the functions of the last rows below return what EMF's Lua guide documents 
 | `emf.kill`, `emf.health`, `emf.attribute`, `emf.attribute_add`, `emf.damage` | v18 attributes, `damage` | partial: health, stamina and mana supported; XP/level timing and limits as C |
 | `emf.xp_required`, `emf.level_cap`, `emf.set_level` | v22 | full / full / partial (queued level, then XP) |
 | `emf.add_component`, `emf.remove_component` | `change_component` | full |
-| `emf.tell`, `emf.broadcast`, `emf.on_chat`, `emf.request_save` | v19 | full |
+| `emf.tell`, `emf.broadcast` | `chat_tell`, `chat_broadcast` | partial (as C: no speaker's name) |
+| `emf.on_chat`, `emf.request_save` | v19 | full |
 | `emf.teleport` | `teleport` | full |
 | `emf.world_settings.get/set/reset/list`, `emf.on_world_setting_changed` | v21 | full |
 | `emf.wheel`, `emf.wheel_section`, `emf.wheel_group` | `wheel_open` | full; client input/drawing pending |
@@ -159,7 +163,7 @@ Kiln the functions of the last rows below return what EMF's Lua guide documents 
 | `emf.offer`, `emf.spawn_offer`, `emf.offer_remove`, `emf.offered` | v25, `offer_active` | full / partial / full / full |
 | `emf.net.channel(name, def)`, `.send(name, data)`, `.send_to(world, player, name, data)`, `.send_all(world, name, data)`, `.peer(world, player, name)` | v27 `net_channel`, `net_to_server`, `net_to_player`, `net_to_players`, `net_peer` | full implementation; host interop and server probe; joined-client checks pending |
 | `world:is_server`, `:is_client`, `:tick`, `:entities`, `:position`, `:get`, `:template`, `:name`, `:account` | worlds, components, `player_name` | full |
-| `emf.tell`, `emf.broadcast` with options (`system`) (1.22) | `chat_tell_ex`, `chat_broadcast_ex` | full |
+| `emf.tell`, `emf.broadcast` with options (`system`) (1.22) | `chat_tell_ex`, `chat_broadcast_ex` | full with `system`; without it partial, as `emf.tell` |
 | `emf.world_to_screen` | `world_to_screen` | full (client) |
 | `emf.player_data`, `emf.save_player_data` | the Lua host's own files under `emf/config` | full |
 | `emf.on_player_joined`, `emf.on_player_left`, `emf.on_player_died` (1.20) | `on_player` | not yet |

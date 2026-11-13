@@ -96,22 +96,31 @@ def main():
         sh(REPO / "tools/lab/lab.sh", "stop", lab)
         sh(REPO / "tools/lab/lab.sh", "start", lab)
         started = True
+    try:
+        return check()
+    finally:
+        if started:
+            sh(REPO / "tools/lab/lab.sh", "stop", lab)
+
+
+def check():
     ok_probe = wait_for(r"emf-probe done", 300)
     ok_check = wait_for(r"emf-check done", 120)
     results = {}
     status = json.loads((L / "kiln/state/emf.json").read_text())
     mods = {m["id"]: m for m in status["mods"]}
-    if "server-admin" in mods:
+    admin_status = mods.get("server-admin", {}).get("status")
+    if admin_status == "loaded":
         server_admin(results)
+    elif admin_status is not None:
+        results["server-admin"] = (False, f"installed but {admin_status}: {mods['server-admin'].get('reason', '')}")
     mark = LOG.stat().st_size
     commands(["players", "herald.say lab-check line", "sleep.status", "tp.list", "tp.pos #1 100 200 300", "lua.status",
               "qs.list", "raids.status", "loot.status", "champion.where", "emf.mods"])
     tail = LOG.read_text(errors="replace")[mark:]
     log = LOG.read_text(errors="replace")
-    report(results, mods, tail, log, ok_probe, ok_check)
-    if started:
-        sh(REPO / "tools/lab/lab.sh", "stop", lab)
-    return 0 if ok_probe and ok_check and all(r[0] for r in results.values()) else 1
+    faults = report(results, mods, tail, log, ok_probe, ok_check)
+    return 0 if ok_probe and ok_check and not faults and all(r[0] for r in results.values()) else 1
 
 
 def server_admin(results):
@@ -136,8 +145,8 @@ def server_admin(results):
 
 
 def report(results, mods, tail, log, ok_probe, ok_check):
-    """One row per EMF mod of the lab. A check of a mod the lab does not have is left out: a lab with the probes alone
-    (or with a few mods built from EMF's source) is a lab too."""
+    """One row per EMF mod of the lab; returns the mods with a faulted callback. A check of a mod the lab does not
+    have is left out: a lab with the probes alone (or with a few mods built from EMF's source) is a lab too."""
 
     def has(rx, text=log):
         return re.search(rx, text, re.M) is not None
@@ -198,6 +207,7 @@ def report(results, mods, tail, log, ok_probe, ok_check):
         print(f"{mid:14} {st_:9} {('PASS' if ok else 'FAIL') if ok is not None else '-':5}  {ev}{'  [not supported: ' + ', '.join(miss) + ']' if miss else ''}")
     faults = [m["id"] for m in status["mods"] if m.get("faults")]
     print(f"faulted callbacks: {faults or 'none'}; probe {'ran' if ok_probe else 'TIMED OUT'}, check {'ran' if ok_check else 'TIMED OUT'}")
+    return faults
 
 
 sys.exit(main())

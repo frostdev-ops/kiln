@@ -43,13 +43,15 @@ std::vector<std::string> note_rows(std::string_view text, float max_width, size_
                                    const std::function<float(std::string_view)>& width) {
     std::vector<std::string> rows;
     if (max_rows == 0) return rows;
+    // a line break, a tab or any other control character separates words as a space does: the rows are ours to make
+    const auto is_gap = [](char c) { return static_cast<unsigned char>(c) <= ' '; };
     std::string row;
     bool cut = false;
     size_t i = 0;
     while (i < text.size()) {
-        while (i < text.size() && text[i] == ' ') ++i;
+        while (i < text.size() && is_gap(text[i])) ++i;
         size_t j = i;
-        while (j < text.size() && text[j] != ' ') ++j;
+        while (j < text.size() && !is_gap(text[j])) ++j;
         if (j == i) break;
         const std::string_view word = text.substr(i, j - i);
         const std::string joined = row.empty() ? std::string(word) : row + " " + std::string(word);
@@ -65,13 +67,13 @@ std::vector<std::string> note_rows(std::string_view text, float max_width, size_
         i = j;
     }
     if (cut) {
-        // make room for the dots: drop words from the end of the last row until it fits with them (one word stays)
-        while (width(row + " ...") > max_width) {
+        // the last row ends with the dots and still fits: words go from its end until it does, all of them if need be
+        // (the dots alone are the least a cut note shows, even on a screen narrower than they are)
+        while (!row.empty() && width(row + " ...") > max_width) {
             const size_t sp = row.rfind(' ');
-            if (sp == std::string::npos) break;
-            row.resize(sp);
+            row.resize(sp == std::string::npos ? 0 : sp);
         }
-        row += " ...";
+        row = row.empty() ? "..." : row + " ...";
     }
     if (!row.empty()) rows.push_back(std::move(row));
     return rows;

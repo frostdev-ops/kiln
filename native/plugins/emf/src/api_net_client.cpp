@@ -34,8 +34,12 @@ NetAddFn g_add = nullptr;
 std::atomic<bool> g_ready{false};  // the hooks and the send function are in place
 std::atomic<bool> g_active{false};
 std::atomic<uint8_t *> g_system{nullptr}, g_game_client{nullptr};
-// A client world began: the next pump of the same GameClient starts a new session without dropping a held greeting.
-std::atomic<bool> g_new_world{false};
+// After a world stop nothing is pumped for a moment: what the stopped connection's GameClient still flushes, and what
+// its server still sends, is not this adapter's business any more and must not be taken for the next connection (the
+// next GameClient may even have the same address). A server greets a new connection 10 s after it appears at the
+// earliest, so the next connection's greeting never falls into this window.
+constexpr uint64_t kQuietAfterStopMs = 3000;
+std::atomic<uint64_t> g_quiet_until{0};
 std::recursive_mutex g_client_dispatch;
 #ifndef KEMF_NET_CLIENT_TEST
 // Never revoked while the process runs (a game thread may be inside the chain); a RawHook's destructor leaves the link.
@@ -66,15 +70,11 @@ void pump(uint8_t *gc) {
     uint8_t *sys = nullptr;
     if (!seh_copy(&sys, gc + 0xF8, sizeof sys) || !sys)
         return;
-    // A new GameClient is a new connection: nothing of the last one stays. A new client world on the same GameClient
-    // (the game finished loading) is a new session on the same connection: the last server's welcome and lines go, but
-    // a greeting held while the game did not know its own account stays, as in EMF's core.
-    const bool new_connection = g_game_client.exchange(gc) != gc;
-    const bool new_world = g_new_world.exchange(false);
-    if (new_connection)
-        net_client_reset(false);
-    else if (new_world)
-        net_client_reset(true);
+    if (now_ms() < g_quiet_until.load())
+        return; // a world just stopped: see kQuietAfterStopMs (no marked line is taken either: g_system is not set)
+    // A new GameClient is a new connection: nothing of the last one stays.
+    if (g_game_client.exchange(gc) != gc)
+        net_client_reset();
     g_system = sys;
     auto lines = net_client_take(4);
     for (size_t i = 0; i < lines.size(); ++i) {
@@ -144,20 +144,27 @@ void net_client_clear() {
 void net_client_stop() {
     std::lock_guard dispatch(g_client_dispatch);
     g_active = false;
-    g_new_world = false;
     net_client_clear();
 }
-// A client world began. The GameClient the hooks know stays known: the game may have pumped it while it loaded, and a
-// greeting that came then (held, or already answered with a hello) belongs to this same connection.
+// A client world began. When the hooks know a GameClient, the game pumped it while it loaded: this is the same
+// connection, and a new session on it. As in EMF's core, the last welcome and the lines waiting to be sent go, but a
+// greeting held while the game did not know its own account stays. Done here, under the hooks' lock, not at the next
+// pump: a second greeting that arrives between this and the next pump is answered, and a reset after it would throw
+// that answer away. Without a known GameClient the first pump finds a new connection and resets everything.
 void net_client_resume() {
     std::lock_guard dispatch(g_client_dispatch);
-    g_new_world = true;
+    if (g_game_client.load())
+        net_client_new_world();
+    g_quiet_until = 0;
     g_active = g_ready.load();
 }
-// After a world's stop was drained and its state dropped: take marked lines again, so that the next connection's
-// greeting is taken (never shown) while that game still loads, before its client world starts. Only an atomic store:
-// the caller may hold the adapter's lock.
-void net_client_rearm() { g_active = g_ready.load(); }
+// After a world's stop was drained and its state dropped: once the quiet moment is over, the hooks take marked lines
+// again, so that the next connection's greeting is taken (never shown) while that game still loads, before its client
+// world starts. Only atomic stores: the caller holds the adapter's lock.
+void net_client_rearm() {
+    g_quiet_until = now_ms() + kQuietAfterStopMs;
+    g_active = g_ready.load();
+}
 
 #ifndef KEMF_NET_CLIENT_TEST
 bool net_client_install() {

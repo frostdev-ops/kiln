@@ -2,7 +2,7 @@
 
 Kiln loads unmodified mods for **EMF** (Enshrouded Modding Framework, MIT; API versions through EMF 0.6.8 / v40)
 through the plugin `kiln/plugins/kiln-emf.dll`. It supplies an `EmfApi` v40 table built on Kiln's services:
-of 135 C slots, 80 are full, 13 partial, and 42 (functions EMF added between 0.6.3 and 0.6.8) answer "not available on
+of 135 C slots, 76 are full, 17 partial, and 42 (functions EMF added between 0.6.3 and 0.6.8) answer "not available on
 Kiln yet" ([what that means for a mod](#mods-built-for-emf-063-to-068)). API coverage is not a guarantee for every mod
 pairing or player-facing feature. Every function and its evidence: [emf-parity.md](emf-parity.md). You keep your EMF
 DLL mods and EMF's Lua mods; you do not need EMF's own `dinput8.dll` or `emf_core.dll`.
@@ -64,7 +64,7 @@ EMF API v40; the core is v27"), and with EMF's `lua` mod every Lua mod of a curr
 is EMF 0.6.8's and they start.
 
 Kiln does not carry every function EMF added since. Carried: chat lines without a speaker (`chat_tell_ex`,
-`chat_broadcast_ex`) and `world_to_screen`. Not yet: player join/leave/death events, item names and the game's
+`chat_broadcast_ex`; on Kiln every line a mod sends shows without a name, also a plain one) and `world_to_screen`. Not yet: player join/leave/death events, item names and the game's
 language, character names, hit observers and hit rules, buffs, markers, map clicks and map actions, canvases and the
 minimap's parts, `remove_building`, paths, doors, enemy orders and move orders. A mod that calls one of those gets
 EMF's documented "not available" answer, as on a game build EMF does not know: the rest of the mod runs. `kiln.log`
@@ -201,7 +201,8 @@ listed. **No** means it logs `emf: <mod> called <fn>, not supported` once and re
 | `attribute_get`, `attribute_add` | partial | health, stamina and mana through `kiln.combat`; XP/level keep queued progression timing and request limits |
 | `damage` | full | `kiln.combat` hit (light reaction, kill credit) |
 | `teleport` | full | `kiln.world` teleport. `NOTIFY_READY` for players: READY 1 s after MOVED. |
-| `chat_tell`, `chat_broadcast`, `player_name`, `on_chat` | full | `kiln.chat` (30 lines / 10 s per mod) |
+| `chat_tell`, `chat_broadcast` | partial | `kiln.chat` server lines (30 lines / 10 s per mod). They show as their text alone; on EMF a plain line shows under the player's own name. |
+| `player_name`, `on_chat` | full | `kiln.chat` |
 | `register_command`, `register_command_ex`, `command_reply`, `command_sender` | full | players' chat via `kiln.chat` + `emf/commands.txt` |
 | `on_save`, `on_load`, `request_save` | full | `kiln.saves` events / request |
 | `world_setting_get/set/reset/info`, `on_world_setting_changed` | full | `kiln.settings` (short names, minutes; `persist` per world slot) |

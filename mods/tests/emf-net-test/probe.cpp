@@ -23,10 +23,11 @@ void tick(EmfWorld *world, void *) {
     check(!api->net_to_player(world, 7, "emf_net_probe/pick", "x", 1), "no send to an unnegotiated player");
     check(api->net_to_players(world, "emf_net_probe/pick", "x", 1) == 0, "broadcast reaches zero unnegotiated games");
     check(!api->net_to_server("emf_net_probe/pick", nullptr, 1), "null payload with size refused");
-    // the core's own channel (the mod check on join): a mod cannot register in it, send on it or see a peer without one
+    // the core's own channel (the mod check on join) exists and has no peer yet; that a mod cannot send on it to a game
+    // that has it is a host test (native/plugins/emf/tests/net_test.cpp): here nobody is connected
     check(api->net_peer(world, 7, "emf/mods") == 0, "emf/mods: no peer before a game said hello");
     check(!api->net_to_player(world, 7, "emf/mods", "x", 1) && api->net_to_players(world, "emf/mods", "x", 1) == 0,
-          "emf/mods: a mod cannot send on the core's channel");
+          "emf/mods: nothing goes out on the core's channel with nobody connected");
     api->log("emf_net_probe", "EMF v40 lab probe done: %d PASS, %d FAIL", pass, fail);
 }
 } // namespace
@@ -47,7 +48,7 @@ extern "C" __declspec(dllexport) bool emf_mod_load(const EmfApi *table) {
     c.name = "othermod/pick";
     check(!api->net_channel(&c), "another mod's namespace refused");
     c.name = "emf/mods";
-    check(!api->net_channel(&c), "the core's namespace refused");
+    check(!api->net_channel(&c), "the core's namespace refused (a channel belongs to the mod its name starts with)");
     check(!api->net_channel(nullptr), "null channel refused");
     api->on_tick(tick, nullptr);
     return fail == 0;

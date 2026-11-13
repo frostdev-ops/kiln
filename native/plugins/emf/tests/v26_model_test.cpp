@@ -43,7 +43,15 @@ static void test_note_rows() {
     CHECK((note_rows("tiny averyveryverylongwordthatdoesnotfit end", 200, 3, w) ==
            std::vector<std::string>{"tiny", "averyveryverylongwordthatdoesnotfit", "end"}));
     CHECK((note_rows("a b", 200, 0, w).empty()));
-    CHECK((note_rows("one two three", 50, 1, w) == std::vector<std::string>{"one ..."}));
+    // the row with the dots fits too: words go until it does, down to the dots alone
+    CHECK((note_rows("one two three", 80, 1, w) == std::vector<std::string>{"one ..."}));
+    CHECK((note_rows("one two three", 50, 1, w) == std::vector<std::string>{"..."}));
+    CHECK((note_rows("one two three", 10, 1, w) == std::vector<std::string>{"..."}));
+    CHECK((note_rows("one two three four five", 110, 2, w) == std::vector<std::string>{"one two", "three ..."}));
+    // line breaks and tabs are spaces: a note cannot make more rows than it is given
+    CHECK((note_rows("a\nb\r\nc\td", 200, 3, w) == std::vector<std::string>{"a b c d"}));
+    CHECK((note_rows("aaaaaaaaaa\nbbbbbbbbbb\ncccccccccc\ndddddddddd", 120, 3, w) ==
+           std::vector<std::string>{"aaaaaaaaaa", "bbbbbbbbbb", "..."}));
 }
 
 static void test_table() {
