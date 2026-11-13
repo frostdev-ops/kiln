@@ -17,6 +17,7 @@ import { deckMockHandlers } from "../deck/mockDeck";
 import { nexusMockHandlers, NEXUS_MOCK_ENABLED } from "./mockNexus";
 import { chainMockHandlers } from "./mockChain";
 import { dataFolderBlocks, dataFolderMockHandlers, mockDataDir, mockPickFolder } from "./mockDataFolder";
+import { bootJsonAt, clearStartHistory, mockBegin, mockProgress, mockStartEnded, ownerScript, processAt, scriptedStart, setStartScript, type StartScript } from "./mockProgress";
 import bootExample from "../../../schema/examples/state-boot.json";
 import modsExample from "../../../schema/examples/state-mods.json";
 import nativeExample from "../../../schema/examples/state-native.json";
@@ -80,7 +81,11 @@ const kilnProxy: ProxyClass = { kind: "kiln", version: "0.2.0-dev", abi: 2, sha2
 const runtime: Record<string, InstallState> = FRESH ? {} : {
   "client-steam": { installed: true, receipt: baseReceipt, proxy: kilnProxy, modified: [], upgradeAvailable: null },
 };
-const running: Record<string, { pid: number; mode: LaunchRequest["mode"]; nonce: string | null; at: number; profile: string | null } | null> = {};
+const running: Record<string, { pid: number; mode: LaunchRequest["mode"]; nonce: string | null; at: number; profile: string | null;
+  /** A scripted start (mockProgress.ts): the process exists from then, boot.json is written at `bootAt`. */
+  from?: number; bootAt?: number; safeIdle?: string | null } | null> = {};
+/** The fake game's process as the status sees it: a scripted start's exists only once Steam has started it. */
+const live = (gameId: string) => { const r = running[gameId]; return r && (!r.from || Date.now() >= r.from) ? r : null; };
 let pidSeq = 4100;
 /** How long profile_activate takes to answer. */
 const ACTIVATE_MS = 1500;
@@ -454,13 +459,15 @@ function gameOf(id: unknown): GameInstall {
 const launched = new Set<string>();
 
 function bootFor(gameId: string): BootJson | null {
-  const r = running[gameId];
+  const r = live(gameId);
   if (!r && FRESH && !launched.has(gameId)) return null;
   if (r && noProxy) return null;
-  if (!r || Date.now() - r.at < 2500 || r.mode === "vanilla") return r ? null : clone(bootExample as unknown as BootJson);
+  const bootAt = r?.bootAt ?? (r ? r.at + 2500 : 0);
+  if (!r || Date.now() < bootAt || r.mode === "vanilla") return r ? null : clone(bootExample as unknown as BootJson);
   const b = clone(bootExample as unknown as BootJson);
   b.pid = r.pid;
-  b.written = new Date(r.at + 2500).toISOString();
+  b.written = new Date(bootAt).toISOString();
+  if (r.safeIdle) b.safeIdle = r.safeIdle;
   b.playOnce = { mode: r.mode === "once" ? "profile" : r.mode === "no-mods" ? "no-mods" : "none", nonce: r.nonce };
   const p = r.profile ? profiles.get(r.profile) : null;
   b.profile = { ...b.profile, mode: r.mode === "no-mods" ? "no-mods" : r.mode === "once" ? "once" : "active", id: p?.id ?? null, name: p?.name ?? null,
@@ -470,7 +477,7 @@ function bootFor(gameId: string): BootJson | null {
 
 function status(gameId: string): GameStatus {
   const g = gameOf(gameId);
-  const r = running[gameId];
+  const r = live(gameId);
   return {
     id: g.id, running: !!r, pid: r?.pid ?? null, started: r ? new Date(r.at - (noProxy ? 31_000 : 0)).toISOString() : null, steamUpdating: false, runtime: withMissing(runtime[gameId] ?? { installed: false, receipt: null, proxy: null, modified: [], upgradeAvailable: null }, g.kind),
     activeProfile: otherFolder[gameId] ? null : activations[gameId]?.profileId ?? null,
@@ -503,9 +510,21 @@ function launch(gameId: string, req: LaunchRequest): LaunchResult {
   if (!req.skipBackup && req.mode !== "vanilla") backup = makeBackup(gameId, "launch", null, profile);
   running[gameId] = { pid, mode: req.mode, nonce, at: Date.now(), profile };
   launched.add(gameId);
-  setTimeout(() => emitGame(gameId, "started"), 300);
-  setTimeout(() => emitGame(gameId, "boot"), 2600);
-  setTimeout(() => emitGame(gameId, "mods"), 3200);
+  const sc = scriptedStart(gameId);
+  if (sc) {
+    // the scripted start: Steam starts the process when the script says, boot.json comes at the end of Kiln's boot
+    // (a safe idle start: where it stops, with its reason)
+    const at = (ms: number) => sc.began + ms * sc.script.scale;
+    const idle = sc.script.idle;
+    const bootMs = idle ? bootJsonAt({ ...sc.script, runtime: sc.script.runtime.slice(0, sc.script.runtime.findIndex((x) => x.id === idle.at) + 1), loadingAfter: idle.at }) : bootJsonAt(sc.script);
+    Object.assign(running[gameId]!, { from: at(processAt(sc.script)), at: at(processAt(sc.script)), bootAt: at(bootMs), safeIdle: idle?.why ?? null });
+    setTimeout(() => emitGame(gameId, "started"), Math.max(0, at(processAt(sc.script)) - Date.now()) + 50);
+    setTimeout(() => emitGame(gameId, "boot"), Math.max(0, at(bootMs) - Date.now()) + 50);
+  } else {
+    setTimeout(() => emitGame(gameId, "started"), 300);
+    setTimeout(() => emitGame(gameId, "boot"), 2600);
+    setTimeout(() => emitGame(gameId, "mods"), 3200);
+  }
   return { gameId: g.id, mode: req.mode, nonce, backup, uri: "steam://rungameid/1203620", started: now(), ...(act ? { activation: act } : {}) };
 }
 
@@ -520,6 +539,7 @@ export function mockStartOutside(secondsAgo: number, gameId = "client-steam") {
 export function mockStopGame(gameId = "client-steam") {
   if (!running[gameId]) return;
   running[gameId] = null;
+  mockStartEnded(gameId);
   emitGame(gameId, "stopped");
 }
 
@@ -1150,9 +1170,12 @@ const handlers: Record<string, Handler> = {
 
   // launch
   launch_play: (a) => launch(S(a.gameId), a.request as LaunchRequest),
+  // what a start is doing (mockProgress.ts): only a scripted start has a timeline; a plain one is a dev.26 runtime's
+  launch_begin: (a) => { gameOf(S(a.gameId)); mockBegin(S(a.gameId), S(a.mode)); return null; },
+  launch_progress: (a) => mockProgress(S(a.gameId)),
   launch_state: (a): BootState => {
     const boot = bootFor(S(a.gameId));
-    const r = running[S(a.gameId)];
+    const r = live(S(a.gameId));
     // the example's run logged two errors after its boot (a service tick at the menu); a run started here has none
     const log = !boot ? null : r ? { errors: 0, first: [] } : { errors: 2, first: [
       "[E 12:01:20.749] [kiln] kiln service tick 'kiln creature brains' threw (1x): System.InvalidOperationException: wrong thread",
@@ -1163,7 +1186,7 @@ const handlers: Record<string, Handler> = {
 
   // what kiln-eml does before the game's window exists: only on request (tests: `__kilnMock.setPreStart`), so that a plain
   // start still says "Waiting for Kiln to boot."
-  launch_prestart: (a): PreStart | null => (running[S(a.gameId)] ? preStart : null),
+  launch_prestart: (a): PreStart | null => (live(S(a.gameId)) ? preStart : null),
 
   // logs
   logs_list: (a) => {
@@ -1639,6 +1662,10 @@ if (typeof window !== "undefined") (window as unknown as { __kilnMock?: unknown 
   setModified: (files: string[], gameId = "client-steam") => { if (runtime[gameId]) runtime[gameId] = { ...runtime[gameId], modified: files }; emitGame(gameId, "status"); },
   startOutside: mockStartOutside, setServer: mockSetServer, opened: () => [...openedUrls],
   setPreStart: (p: PreStart | null) => { preStart = p; },
+  /** The next Play plays the owner's start of 13 Nov (mockProgress.ts), compressed and changed by `o`; null: off. */
+  scriptStart: (o: Partial<StartScript> | null) => setStartScript(o ? ownerScript(o) : null),
+  /** Forgets the earlier starts: the next one is a first start. */
+  clearStartHistory: (gameId = "client-steam") => clearStartHistory(gameId),
   setNoProxy: (on: boolean, gameId = "client-steam") => { noProxy = on; emitGame(gameId, "status"); },
   setOtherFolderProfile: (o: { id: string; root?: string | null } | null, gameId = "client-steam") => { otherFolder[gameId] = o; emitGame(gameId, "status"); },
   setNewerMods: (mods: NewerKilnMod[], gameId = "client-steam") => { newerMods[gameId] = mods; emitGame(gameId, "status"); },

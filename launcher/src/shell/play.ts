@@ -6,13 +6,14 @@ import { useIsMutating, useMutation, useQueryClient } from "@tanstack/react-quer
 import { useEffect, useState } from "react";
 import { create } from "zustand";
 import * as api from "../api/commands";
-import type { GameInstall, LaunchMode } from "../api/commands";
-import { invalidateGame, useActiveProfile, useGame, useGameStatus, useLaunchState, useProfiles, useRuntimeChanges } from "../api/hooks";
+import type { GameInstall, LaunchMode, StartTimeline } from "../api/commands";
+import { invalidateGame, useActiveProfile, useGame, useGameStatus, useLaunchState, useProfiles, useRuntimeChanges, useStartTimeline } from "../api/hooks";
 import { toast } from "../ui";
 import { cookBeforePlay } from "./cook";
 import { notifyLibraryChanged } from "./libraryChanged";
-import { playState, runStarted, type GameStateView } from "./gameState";
+import { gameState, playState, runStarted, type GameStateView } from "./gameState";
 import { notifyActivation, notifyActivationOf } from "./notices";
+import { showsProgress } from "./startProgress";
 
 // A shared monotonic clock: changing the system clock while a start is pending cannot restart its grace period.
 const epoch = Date.now(), tick = performance.now();
@@ -45,6 +46,11 @@ export interface PlayControl {
    *  process started), or a non-vanilla start of this launcher has no boot.json of this run a minute in. Never for a
    *  vanilla start. The play surfaces show "No Kiln" and the Steam-setting banner instead of "Starting" forever. */
   kilnMissing: boolean;
+  /** What the start is doing (launch_progress) while it runs, from Play to the main menu; null when there is nothing to
+   *  show (a start from Steam with a runtime that writes no progress.json, or the start is over). */
+  timeline: StartTimeline | null;
+  /** The last timeline whatever its phase (idle, failed, ended, legacy: said as what they are). */
+  lastTimeline: StartTimeline | null;
   profileName: string | null;
   play: (mode: LaunchMode, profileId?: string) => void;
 }
@@ -65,13 +71,26 @@ export function usePlayControl(): PlayControl {
   const process = running ? String(s?.pid ?? s?.started ?? "running") : null;
   const sameRun = !memo.process[id] || memo.process[id] === process;
   const now = useNow(running || at !== undefined ? 1000 : 0);
+  const launching = useIsMutating({ mutationKey: ["launch_play"] });
+  const tl = useStartTimeline(id, !!game && (running || launching > 0 || at !== undefined)).data ?? null;
+  const progress = showsProgress(tl) ? tl : null;
   const state = playState(game ? s : null, launchState.data, sameRun ? { at, mode: memo.mode[id], seen: memo.since[id] } : {}, now, !!game && status.isLoading);
-  const { view, kilnMissing } = state;
+  // the runtime says what it does (progress.json): Kiln is loaded, and "Running" waits for the main menu (ready)
+  const spoke = !!tl && ["booting", "loading", "quiet", "ready", "idle", "failed"].includes(tl.phase);
+  const kilnMissing = state.kilnMissing && !spoke;
+  const running_ = progress && running && !s?.steamUpdating;
+  const view: GameStateView = running_ ? { phase: "starting", label: "Starting", tone: "ember", pulse: true, detail: progress.running != null ? progress.steps[progress.running].label : "Waiting for Kiln" }
+    : tl?.phase === "idle" && running && state.view.label !== "Safe idle" ? { phase: "running", label: "Safe idle", tone: "warn", pulse: true, detail: tl.why ?? "Kiln hooked nothing" }
+    : tl?.phase === "failed" && running ? { phase: "running", label: "Kiln stopped", tone: "warn", pulse: true, detail: tl.why ?? "Kiln could not go on" }
+    : state.kilnMissing && spoke ? gameState(game ? s : null, launchState.data, false, now) : state.view;
   const launch = useMutation({
     mutationKey: ["launch_play"],
     // Mods with a cook recipe are cooked first when they need it (a start with mods only). A cook never stops the
     // start: what could not be cooked is said in a notice, and the game starts all the same.
     mutationFn: async (req: api.LaunchRequest) => {
+      // the start is timed from here: its own steps (cook, profile, Steam), then what the game's Kiln says
+      await api.launchBegin(id, req.mode).catch(() => {});
+      void qc.invalidateQueries({ queryKey: ["launch_progress", id] });
       if (req.mode === "profile") await cookBeforePlay(id, (jobs) => toast.info(jobs.length === 1 ? `Cooking ${jobs[0].name}` : `Cooking ${jobs.length} mods`, "Making their models, animations and sounds from your game, then the game starts."));
       return api.launchPlay(id, req);
     },
@@ -105,9 +124,8 @@ export function usePlayControl(): PlayControl {
       });
     }
   }, [id, running, process, sameRun]);
-  const launching = useIsMutating({ mutationKey: ["launch_play"] });
   const since = runStarted(s, now, memo.since[id]);
-  const starting = state.starting || (!running && !s?.steamUpdating && (launching > 0 || (at !== undefined && now - at < 120_000)));
+  const starting = (state.starting && !(spoke && !progress)) || !!running_ || (!running && !s?.steamUpdating && (launching > 0 || (at !== undefined && now - at < 120_000)));
   const activeProfile = profiles.data?.find((p) => p.id === active.data?.profileId) ?? null;
   return {
     game,
@@ -120,6 +138,8 @@ export function usePlayControl(): PlayControl {
     elapsed: running && since ? Math.max(0, Math.round((now - since) / 1000)) : null,
     stuck: kilnMissing || (!!s?.playOncePending && !running && memo.mode[id] !== "vanilla" && at !== undefined && now - at > 120_000),
     kilnMissing,
+    timeline: progress && !s?.steamUpdating ? progress : null,
+    lastTimeline: tl,
     profileName: activeProfile?.name ?? null,
     play: (mode, profileId) => launch.mutate({ mode, profileId: profileId ?? null }),
   };

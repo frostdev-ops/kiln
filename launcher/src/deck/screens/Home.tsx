@@ -13,6 +13,8 @@ import { useGame, useGameStatus, useLaunchState, usePoll, useRuntimeChanges } fr
 import { engineStatusKey } from "../../components/EngineStatus";
 import { errorText } from "../../ui";
 import { clock, usePlayControl } from "../../shell/play";
+import { startWords, steadyFraction } from "../../shell/startProgress";
+import { StartBar } from "../../shell/StartPanel";
 import { detectGames, useDetect, useEnsureProfile, useKilnInstall } from "../../shell/firstRun";
 import { isDefaultProfile, useMods } from "../../shell/useMods";
 import { FindGameDialog, InstallDialog, PlayOnceDialog } from "../dialogs";
@@ -55,10 +57,16 @@ export default function Home() {
   else if (!ctl.installed && !ctl.running && kiln.installing) { word = "Installing"; sub = "Kiln goes into the game folder"; heat = "low"; }
   else if (!ctl.installed && !ctl.running && kiln.shroudforge) { word = "ShroudForge"; sub = "Kiln can take over: switch in the desktop UI"; heat = "unlit"; act = () => nav("/deck/kiln"); }
   else if (!ctl.installed && !ctl.running) { word = "Install"; sub = "Kiln goes into the game folder"; act = () => setOpen("install"); }
+  else if (ctl.timeline) { word = "Starting"; heat = "flare"; }
   else if (ctl.starting) { word = "Starting"; sub = "Waiting for Kiln"; heat = "flare"; }
   else if (ctl.running) { word = ctl.elapsed !== null ? clock(ctl.elapsed) : v.label; sub = v.label; heat = "embers"; }
   else { word = "Play"; if (ctl.canPlay && !kiln.installing) act = () => ctl.play("profile"); }
 
+  // a start that says what it does: the step and the time left under the mouth's word, the bar and the step's line in
+  // the text column
+  const t = ctl.timeline;
+  const tw = t ? startWords(t, steadyFraction(t)) : null;
+  if (tw) sub = tw.first ? tw.stepOf : tw.short;
   // the fire: the mouth stands on Home, at this heat (Fire.tsx)
   deckFire.heat = heat as typeof deckFire.heat;
   useEffect(() => { deckFire.play = true; return () => { deckFire.play = false; deckFire.hot = false; }; }, []);
@@ -87,7 +95,14 @@ export default function Home() {
         <h1 className="deck-name">Enshrouded</h1>
         {count && <p className="deck-line" data-testid="deck-mods"><span className="deck-label">Mods</span> {count}{other && <span data-testid="deck-profile"> · Profile: {other}</span>}</p>}
         <p className="deck-line" data-testid="deck-kiln-state"><Word tone={kilnWord.tone}>{kilnWord.text}</Word></p>
-        {game && <p className="deck-line" data-testid="deck-last-boot"><span className="deck-label">Last boot</span> <Word tone={boot.tone}>{boot.text}</Word></p>}
+        {t && tw && (
+          <div className="deck-start" data-testid="deck-start">
+            <p className="deck-line deck-start-line" role="status">{tw.line}</p>
+            <StartBar t={t} words={tw} className="k-start-bar deck-start-bar" />
+            <p className={"deck-line deck-start-left" + (t.estimate.slow ? " k-tone-warn" : "")}>{tw.left}{tw.basis && <span className="deck-start-basis"> {tw.basis}.</span>}</p>
+          </div>
+        )}
+        {game && !t && <p className="deck-line" data-testid="deck-last-boot"><span className="deck-label">Last boot</span> <Word tone={boot.tone}>{boot.text}</Word></p>}
         {game && sfStartup && (
           <p className="deck-line" data-testid="deck-sf-startup"><span className="deck-label">ShroudForge</span> <Word tone="warn">{sfStartup.mods.length ? "mods did not load" : "startup pass failed"}</Word></p>
         )}

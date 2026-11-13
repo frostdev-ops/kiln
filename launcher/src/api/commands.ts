@@ -739,6 +739,55 @@ export interface PreStart {
   /** The sentence for the launch status ("Preparing the game data for EML mods: 12.3 GiB of 48.6 GiB. ..."). */
   message: string;
 }
+/** One step of a start (`launch_progress`, kiln_manage::start_progress): the launcher's own (`cook`, `profile`,
+ *  `steam`) or the runtime's (kiln/state/progress.json). Times in milliseconds since the start began. */
+export interface StartStep {
+  id: string;
+  label: string;
+  detail?: string | null;
+  done?: number | null;
+  total?: number | null;
+  /** When it began (null: not yet). */
+  ms?: number | null;
+  tookMs?: number | null;
+  /** What it usually takes on this PC (null: no basis yet). */
+  usualMs?: number | null;
+  state: "done" | "running" | "next" | "skipped";
+  launcher: boolean;
+}
+export interface StartEstimate {
+  /** null: a step still to come has no basis (no number is shown; the bar counts steps). */
+  leftMs: number | null;
+  /** How many earlier starts the number comes from. */
+  starts: number;
+  /** From starts with the same Kiln and the same mods. */
+  same: boolean;
+  /** The running step has taken 1.5 times its usual time. */
+  slow: { id: string; usualMs: number } | null;
+  /** 0..1, below 1 until ready. */
+  fraction: number;
+  byTime: boolean;
+  stepsDone: number;
+  stepsPlanned: number;
+  usual: (number | null)[];
+}
+export type StartPhase = "launcher" | "waiting" | "booting" | "loading" | "ready" | "idle" | "failed" | "quiet" | "ended" | "legacy";
+/** What a start is doing, from Play to the main menu (`launch_progress`). */
+export interface StartTimeline {
+  phase: StartPhase;
+  /** idle and failed: the runtime's sentence. */
+  why?: string | null;
+  kiln?: string | null;
+  started: string;
+  atMs: number;
+  /** Milliseconds since progress.json was written (null: none of this start). */
+  quietMs?: number | null;
+  steps: StartStep[];
+  running?: number | null;
+  estimate: StartEstimate;
+  /** The launcher's own steps are in it. */
+  launcher: boolean;
+}
 export interface RequiredMod {
   id: string;
   version: string;
@@ -1479,6 +1528,10 @@ export const configKilnReset = (gameId: GameId, path: string) => call<ConfigDocu
 export const launchPlay = (gameId: GameId, request: LaunchRequest) => oneActivation(gameId, () => call<LaunchResult>("launch_play", { gameId, request }));
 export const launchState = (gameId: GameId) => call<BootState>("launch_state", { gameId });
 export const launchPrestart = (gameId: GameId) => call<PreStart | null>("launch_prestart", { gameId });
+/** Play was pressed (before the cook): the launcher times the start's own steps from now. */
+export const launchBegin = (gameId: GameId, mode: LaunchMode) => call<void>("launch_begin", { gameId, mode });
+/** What the start is doing now (null: nothing to show). */
+export const launchProgress = (gameId: GameId) => call<StartTimeline | null>("launch_progress", { gameId });
 
 // logs.rs
 export const logsList = (target: LogTarget) => call<LogFile[]>("logs_list", { target });
@@ -1766,7 +1819,7 @@ export const COMMANDS = [
   "profile_deactivate", "profile_active", "activation_notices", "notices_unseen", "notices_shown",
   "library_list", "library_detect", "library_import", "library_remove", "library_remove_many", "library_unused", "library_users", "library_lint", "library_take_over",
   "config_list", "config_read", "config_set", "config_write", "config_reset", "config_native_state", "config_native_set",
-  "launch_play", "launch_state", "launch_prestart",
+  "launch_play", "launch_state", "launch_prestart", "launch_begin", "launch_progress",
   "logs_list", "logs_read", "logs_follow", "logs_unfollow", "logs_crash_reports",
   "saves_list", "saves_backups", "saves_backup", "saves_restore", "saves_delete",
   "editor_list_saves", "editor_file_info", "editor_read_file", "editor_zstd_decompress", "editor_zstd_compress",

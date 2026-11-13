@@ -20,6 +20,7 @@ import { NxmListener } from "./catalogInstall";
 import { InstallKilnModal, detectGames, useAutoDetect, useDetect, useInstallPrompt, useKilnInstall } from "./firstRun";
 import { clock, usePlayControl, type PlayControl } from "./play";
 import { Stage, stageInput, type Heat } from "./Stage";
+import { startWords, steadyFraction } from "./startProgress";
 
 const reduced = () => typeof window !== "undefined" && !!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
 
@@ -56,7 +57,11 @@ function Header({ isPlay, ctl }: { isPlay: boolean; ctl: PlayControl }) {
     return () => window.removeEventListener("resize", place);
   }, [active?.to, nexusEnabled]);
   const v = ctl.view;
-  const word = ctl.starting ? "Starting" : v.phase === "running" || v.phase === "vanilla"
+  // a start that says what it does: its step, and the time left (else how far, in percent)
+  const t = ctl.timeline;
+  const tw = t ? startWords(t, steadyFraction(t)) : null;
+  const stepNow = t?.running != null ? t.steps[t.running].label : "Starting";
+  const word = t && tw ? `${tw.first ? `${tw.pct}%` : tw.short} · ${stepNow}` : ctl.starting ? "Starting" : v.phase === "running" || v.phase === "vanilla"
     ? `${v.label}${ctl.elapsed !== null ? ` ${clock(ctl.elapsed)}` : ""}`
     : v.label;
   const tone = ctl.starting ? "ember" : v.phase === "running" ? (v.tone === "warn" ? "warn" : "ember") : v.phase === "vanilla" ? "info" : v.phase === "updating" ? "warn" : "idle";
@@ -79,7 +84,8 @@ function Header({ isPlay, ctl }: { isPlay: boolean; ctl: PlayControl }) {
           <NavLink key={n.to} to={n.to} className={({ isActive }) => "k-head-link" + (isActive ? " on" : "")}>{n.label}</NavLink>
         ))}
         {mock && <span className="k-mock-flag" title={info.data?.mock ? "Browser mock" : `Mock data for: ${fallback.join(", ")}`}>Mock</span>}
-        <span role="status" className={`k-head-state k-tone-${tone}`} style={{ opacity: isPlay ? 0 : 1 }} title={v.detail ?? undefined}>{word}</span>
+        <span role="status" className={`k-head-state k-tone-${tone}${t ? " k-head-start" : ""}`} style={{ opacity: isPlay ? 0 : 1 }}
+          title={tw ? `${tw.line}. ${tw.left}` : v.detail ?? undefined} data-testid="head-state">{word}</span>
       </div>
     </header>
   );
@@ -109,6 +115,9 @@ function Mouth({ isPlay, ctl }: { isPlay: boolean; ctl: PlayControl }) {
     // the main action of a first start: the install's confirm opens right here (ShroudForge's switch is typed, on Runtime)
     word = "Install"; sub = "Kiln goes into the game folder"; heat = "idle"; aria = "Install Kiln";
     act = kiln.shroudforge ? () => nav("/runtime") : () => useInstallPrompt.getState().show();
+  } else if (ctl.timeline) {
+    const tw = startWords(ctl.timeline, steadyFraction(ctl.timeline));
+    word = "Starting"; sub = tw.first ? tw.stepOf : tw.short; heat = "flare"; act = null; aria = `Starting: ${tw.line}. ${tw.left}`;
   } else if (ctl.starting) {
     word = "Starting"; sub = "Waiting for Kiln"; heat = "flare"; act = null; aria = "Starting";
   } else if (ctl.running) {

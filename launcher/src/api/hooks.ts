@@ -114,6 +114,12 @@ export function useLaunchState(g: GameId | null | undefined) {
  *  starting, or runs and Kiln has not booted yet): null when nothing, or the sentence for the launch status. */
 export const usePreStart = (g: GameId | null | undefined, on: boolean) =>
   useQuery({ queryKey: ["launch_prestart", g ?? ""] as const, queryFn: () => api.launchPrestart(g!), enabled: !!g && on, refetchInterval: 1500 });
+/** What the start is doing (`launch_progress`), every second while `on` (a start of this launcher, or the game runs) and
+ *  the answer is not final; a game event refetches it (invalidateGame). Polled at the same pace whether or not the window
+ *  has the focus: the game's window takes it while the player watches the launcher's bar. */
+export const useStartTimeline = (g: GameId | null | undefined, on: boolean) =>
+  useQuery({ queryKey: ["launch_progress", g ?? ""] as const, queryFn: () => api.launchProgress(g!), enabled: !!g && on,
+    refetchInterval: (q) => (q.state.data && ["ready", "idle", "failed", "ended", "legacy"].includes(q.state.data.phase) ? false : 1000) });
 export const useProfiles = () => useQuery({ queryKey: qk.profiles, queryFn: api.profileList });
 export const useProfile = (p: ProfileId | null | undefined) => useQuery({ queryKey: qk.profile(p ?? ""), queryFn: () => api.profileGet(p!), enabled: !!p });
 export const useActiveProfile = (g: GameId | null | undefined) =>
@@ -168,7 +174,7 @@ export const useRuntimeChanges = create<RuntimeChanges>((set, get) => ({
 export function invalidateGame(qc: QueryClient, g: GameId) {
   // the game list too: an install's id changes once Kiln is installed (path hash -> receipt id)
   // (cook_plan: which mods need a cook follows the profile in the game and the game's build)
-  for (const k of [qk.games, qk.gameStatus(g), qk.launchState(g), qk.runtimeStatus(g), qk.active(g), qk.pending(g), qk.profiles, qk.backups(g), ["cook_plan", g]])
+  for (const k of [qk.games, qk.gameStatus(g), qk.launchState(g), qk.runtimeStatus(g), qk.active(g), qk.pending(g), qk.profiles, qk.backups(g), ["cook_plan", g], ["launch_progress", g]])
     qc.invalidateQueries({ queryKey: k });
 }
 

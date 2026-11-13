@@ -766,11 +766,13 @@ pub fn timeline(i: &Inputs) -> Option<Timeline> {
         }
     }
     // the runtime's steps
-    let runtime_plan = match p {
-        Some(p) => p.plan.clone(),
-        None => runtime_plan_from(i.history, i.kiln, i.fingerprint).unwrap_or_default(),
+    // before progress.json: the last start's runtime steps, else the contract's list (shown as to come, no number)
+    let known = match p {
+        Some(p) => Some(p.plan.clone()),
+        None => runtime_plan_from(i.history, i.kiln, i.fingerprint),
     };
-    let planned_runtime = !runtime_plan.is_empty();
+    let planned_runtime = known.is_some();
+    let runtime_plan = known.unwrap_or_else(|| RUNTIME_STEPS.iter().map(|s| s.to_string()).collect());
     plan.extend(runtime_plan.iter().filter(|id| !LAUNCHER_STEPS.contains(&id.as_str())).cloned());
     if let (Some(p), Some(ps)) = (p, p_started) {
         let base = (ps - t0).max(0) as u64;
@@ -791,9 +793,8 @@ pub fn timeline(i: &Inputs) -> Option<Timeline> {
     }
     let ready = p.is_some_and(|p| p.state == "ready");
     let mut est = estimate(&plan, &steps, now, i.history, kiln.as_deref(), i.fingerprint, ready);
-    if !planned_runtime && p.is_none() {
+    if !planned_runtime {
         // nothing tells the runtime's steps yet: the bar counts the contract's list, and there is no number
-        est.steps_planned += RUNTIME_STEPS.len() as u32;
         est.left_ms = None;
         est.by_time = false;
         est.fraction = (est.steps_done as f64 / est.steps_planned.max(1) as f64).min(0.99);

@@ -11,6 +11,7 @@ import { useAppInfo, useBackendEvents, useNexusEnabled, useSettings } from "../a
 import { useTaskFeed, Lockup } from "../ui";
 import { useAutoDetect } from "../shell/firstRun";
 import { clock, usePlayControl } from "../shell/play";
+import { startWords, steadyFraction } from "../shell/startProgress";
 import { QuitDialog } from "./dialogs";
 import { DeckFire, deckFire } from "./Fire";
 import { focusable, focusFirst, move } from "./focus";
@@ -234,7 +235,9 @@ function TopBar({ tab, tabs, goTab }: { tab: number; tabs: readonly Tab[]; goTab
   const style = useGlyphStyle();
   const ctl = usePlayControl();
   const v = ctl.view;
-  const word = ctl.starting ? "Starting" : ctl.running ? `${v.label}${ctl.elapsed !== null ? ` ${clock(ctl.elapsed)}` : ""}` : v.label;
+  // a start that says what it does: "Starting · about 40 s left" ("Starting · 42%" while it is being timed)
+  const tw = ctl.timeline ? startWords(ctl.timeline, steadyFraction(ctl.timeline)) : null;
+  const word = tw ? `Starting · ${tw.first ? `${tw.pct}%` : tw.short}` : ctl.starting ? "Starting" : ctl.running ? `${v.label}${ctl.elapsed !== null ? ` ${clock(ctl.elapsed)}` : ""}` : v.label;
   const tone = ctl.kilnMissing || v.tone === "warn" ? "warn" : ctl.starting || v.phase === "running" ? "ember" : v.phase === "vanilla" ? "info" : "idle";
   // the fire's heat away from Home (Home sets its own)
   deckFire.game = ctl.running && !ctl.starting;

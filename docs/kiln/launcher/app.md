@@ -223,6 +223,46 @@ Not cooked by the launcher: drop-in folders (`kiln/mods`, not in the profile; `k
 local server's mods (a server sync copies a mod without `assets/cooked`; `kiln cook <server>/kiln/mods/<mod> --game
 <server>`, dedicated-servers.md).
 
+## What a start is doing
+From Play to the game's main menu the launcher shows one bar for the whole start, the step it is on, and how long it
+still takes (0.2.0-dev.27; `kiln_manage::start_progress`, commands `launch_begin` and `launch_progress`).
+
+- **The steps.** First the launcher's own: `cook` (the mods that need a cook, one after the other: the mod's name and
+  the tool's current line), `profile` (the active profile checked or written again, the save backup), `steam` (Steam
+  asked to start the game, until the game's process exists). Then the steps Kiln itself reports from inside the game
+  in `<game>/kiln/state/progress.json` (written by kiln-core: Kiln's settings, native mods, the early plugins such as
+  ShroudForge, finding the game's functions, Kiln's services, plugins, native mods, .NET, the mods, their content,
+  and the game's own loading), up to the main menu. A progress.json is shown only when it belongs to the running
+  game (the rule of boot.json: written after the process started).
+- **What the window shows.** On Play, in place of the boot stages and the mod list: the step's line ("Starting Kiln's
+  services: kiln-vfx, building 85 materials (13 of 31)"), the bar, the time left, and every step with what it took,
+  the one running, and what the ones to come usually take. Below 700 px of height only the bar and the line show. In
+  the top bar (on other pages) and under the Play button: the time left (or the percentage) and the step; the Deck's
+  Home shows the line, the bar and the time left. The bar is a `progressbar` whose text is the step and the time
+  left; the line is a `status`. "Running" comes only when the main menu is there, not when Kiln's boot ends. While
+  kiln-eml prepares the game data, its own progress is the line of the early plugins.
+- **Where the time left comes from.** This PC's own earlier starts, in `<data>/state/start-times.json` (the last 10
+  starts per game install that reached the main menu, with every step's time, each mod's cook time keyed by the mod
+  and its identity). A step's usual time is the median of the last up to 5 starts with the same Kiln and the same
+  mods; else of the last up to 5 starts of the game install, scaled by the number of things the step works through. A
+  running step that counts (13 of 31) also has its own pace; with starts of other mods or another Kiln the larger of
+  the two counts. The number is rounded ("about 40 s", to 5 s above 20 s, "a few seconds" below 5 s) and says on hover
+  which starts it comes from.
+- **The first start.** While any step still to come has no earlier start to go by (the first start with these mods
+  on this PC, a mod cooked for the first time), no number is shown: "First start with these mods on this PC: Kiln is
+  timing it", and the bar counts steps (gold) instead of time (ember).
+- **Slower than usual.** A step at 1.5 times its usual time says "taking longer than usual (usually 19 s)", and the
+  time left stays at what the steps after it take until it ends. The bar never moves back, and it is full only at the
+  main menu.
+- **Not progress.** Safe idle (with Kiln's reason), Kiln failing to go on, the game ending, and no word from Kiln for
+  60 s (120 s inside the early plugins) are said as what they are. A game with a Kiln runtime older than
+  0.2.0-dev.27 writes no progress.json: after the launcher's own steps the line says "Waiting for Kiln to boot" until
+  its boot.json, then "Running" as before, and nothing is kept.
+- **The history.** `start-times.json` is written under its own lock (`state/start-times.lock`) whenever a start
+  reaches the main menu (the launcher's watcher keeps it even when no window asks), and goes with the data folder when
+  it moves (on Windows not from the default folder, whose `state` is the system's: the history starts again there).
+  Deleting it loses only the estimates; the next start is timed again.
+
 ## The first run and dropping a mod
 For a player who wants one mod: install the launcher, it finds the game and offers Install Kiln, drop the mod on the
 window, Play. The mod is in the list on Play, switched on.
