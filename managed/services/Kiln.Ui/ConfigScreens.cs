@@ -141,8 +141,11 @@ internal static class ConfigScreens
             else if (ro is null && ui.SmallButton("All to defaults"))
             {
                 foreach (var e in entries)
-                    if (!e.FromServer && !ConfigSchemaEquals(e.Value, e.Default) && e.Default is not null)
-                        Stage(f, e.Path, Display(e, e.Default));
+                {
+                    object? waiting;
+                    lock (Lock) Pending.TryGetValue((f.Id, e.Path), out waiting);
+                    if (!e.FromServer && !IsDefault(e, waiting)) Stage(f, e.Path, Display(e, e.Default));
+                }
             }
             // applied, and no tick has come to save it (the main menu, a paused game): the table shows the new values
             if (staged == 0 && pending > 0 && !TickRunning)
@@ -239,7 +242,7 @@ internal static class ConfigScreens
         }
         if (error is not null) ui.Text(Color.Red, error);
         ui.NextColumn();
-        if (staged is not null || (!ConfigSchemaEquals(e.Value, e.Default) && e.Default is not null))
+        if (staged is not null || !IsDefault(e, pending))
         {
             if (ui.SmallButton("default")) Stage(f, e.Path, Display(e, e.Default));
             ui.Tooltip($"Default: {Show(e, e.Default)}");
@@ -356,6 +359,12 @@ internal static class ConfigScreens
 
     private static bool ConfigSchemaEquals(object? a, object? b) => ConfigSchema.ValueEquals(a, b);
 
+    /// <summary>Whether the row shows the entry's default (an entry without one counts as at its default: there is
+    /// nothing to go back to). <paramref name="pending"/>: the applied value that waits to be saved, which the row shows
+    /// in place of the entry's own.</summary>
+    private static bool IsDefault(ConfigEntry e, object? pending) =>
+        e.Default is null || (pending is null ? ConfigSchemaEquals(e.Value, e.Default) : Equals(pending, Display(e, e.Default)));
+
     internal static void Stage(ConfigFile f, string path, object value)
     {
         lock (Lock)
@@ -413,8 +422,9 @@ internal static class ConfigScreens
             {
                 // from here the entry's own value is what the page shows again (a newer Apply of this entry waits on)
                 if (Pending.TryGetValue(key, out var p) && ReferenceEquals(p, value)) Pending.Remove(key);
-                // refused: back on the page to fix, unless the player has changed the entry again since
-                if (!saved && !Staged.ContainsKey(key))
+                // refused: back on the page to fix, unless the player has changed the entry again since (a newer edit on
+                // the page, or a newer Apply of it that still waits: Pending holds that one now)
+                if (!saved && !Staged.ContainsKey(key) && !Pending.ContainsKey(key))
                 {
                     Errors[key] = error;
                     Staged[key] = value;

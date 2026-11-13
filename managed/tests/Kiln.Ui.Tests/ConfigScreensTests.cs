@@ -130,6 +130,42 @@ public sealed class ConfigScreensTests : IDisposable
     }
 
     [Fact]
+    public void A_refused_Apply_does_not_come_back_over_a_newer_Apply_that_waits()
+    {
+        // no tick between the two: the game is paused
+        ConfigScreens.Stage(_file, "share", 500);        // refused when it is saved
+        FakeUiTable.Click = "Apply";
+        Draw();
+        ConfigScreens.Stage(_file, "share", 40);
+        FakeUiTable.Click = "Apply";
+        Draw();
+        Assert.Equal([1, 40, 1], Draw());
+        ConfigScreens.RunCommits();                     // the tick saves both, in order
+        Assert.Equal(40, _file.Get("share"));
+        Assert.Equal([1, 40, 1], Draw());
+        Assert.False(Says("* share"));                  // the refused 500 is not back on the page
+    }
+
+    [Fact]
+    public void The_default_buttons_see_the_applied_value_that_waits()
+    {
+        FakeUiTable.Set = (1, 50);
+        Draw();
+        FakeUiTable.Click = "Apply";
+        Draw();
+        Assert.Equal([1, 50, 1], Draw());               // applied, not saved: the entry itself still holds its default
+        Assert.True(Says("default"));                   // the row offers its default
+        FakeUiTable.Click = "All to defaults";
+        Draw();
+        Assert.Equal([1, 10, 1], Draw());               // staged back to the default
+        FakeUiTable.Click = "Apply";
+        Draw();
+        ConfigScreens.RunCommits();
+        Assert.Equal(10, _file.Get("share"));
+        Assert.Equal([1, 10, 1], Draw());
+    }
+
+    [Fact]
     public void A_value_is_typed_into_the_number_field_beside_a_slider()
     {
         FakeUiTable.FieldLabel = "##n";
