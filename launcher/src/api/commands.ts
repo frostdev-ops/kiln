@@ -377,6 +377,10 @@ export interface OwnLoaderNote {
   copied: string[];
   /** Ids not in that folder: they do not load while the loader runs. */
   notCopied: string[];
+  /** Ids a folder of the player's own serves (in the loader's folder, not Kiln's copy). */
+  own?: string[];
+  /** Of those, the ones the hosted ShroudForge has switched off: activation does not change them. */
+  ownOff?: string[];
   /** "EML's own loader (dbghelp.dll) is installed: it runs the EML mods in mods/; Kiln copied this profile's 3 EML mod(s) into mods/ for it." */
   text: string;
 }
