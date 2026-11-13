@@ -1,0 +1,10 @@
+{
+  "id": "sky-control",
+  "name": "Sky control sample",
+  "version": "0.1.0",
+  "apiVersion": "0.2",
+  "license": "MIT",
+  "entryAssembly": "SkyControl.dll",
+  "side": "server",
+  "description": "/sky shows the server's weather, /sky rain 10m makes it rain for ten minutes, /sky clear holds a clear sky, /sky release gives the weather back to the game. Shows Kiln's weather calls."
+}

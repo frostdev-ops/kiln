@@ -98,4 +98,20 @@ public sealed class SampleModsTests
         Assert.Contains("offers are not available", Said(kiln.RunCommand(admin, "bell")));
         Assert.Contains("not active", Said(kiln.RunCommand(admin, "quiet")));
     }
+
+    [Fact]
+    public void LoadoutsAndSkyControlSayWhatAServerCannotDo()
+    {
+        using var kiln = new KilnHarness();
+        kiln.LoadFolder(TestMods.Folder("Loadouts"));
+        kiln.LoadFolder(TestMods.Folder("SkyControl"));
+        var admin = kiln.Players.Join("Ada", AdaSteam, PlayerPermissions.KickBan);
+        kiln.Step();
+        // with no game there are no items to read and no weather to choose: each command says so and changes nothing
+        Assert.Contains("only a player", Said(kiln.RunCommand("loadout save town")));
+        Assert.Contains("kiln.items is missing", Said(kiln.RunCommand(admin, "loadout save town")));
+        Assert.Contains("kiln.items is missing", Said(kiln.RunCommand(admin, "loadout off Ring0")));
+        Assert.Contains("time.weather_choose is off", Said(kiln.RunCommand(admin, "sky")));
+        Assert.Contains("time.weather_choose is off", Said(kiln.RunCommand(admin, "sky rain 10m")));
+    }
 }

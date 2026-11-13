@@ -1,0 +1,10 @@
+{
+  "id": "loadouts",
+  "name": "Loadouts sample",
+  "version": "0.1.0",
+  "apiVersion": "0.2",
+  "license": "MIT",
+  "entryAssembly": "Loadouts.dll",
+  "side": "server",
+  "description": "/loadout save <name> remembers what you wear, /loadout wear <name> puts it on again from your backpack. Shows Kiln's equip and unequip calls and how to read their refusals."
+}
