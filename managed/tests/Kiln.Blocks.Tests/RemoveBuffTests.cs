@@ -129,10 +129,16 @@ public sealed class RemoveBuffTests
     }
 
     [Fact]
-    public void AClosingWorldWithNothingWaitingDoesNothing()
+    public void AClosingWorldTakesNoRemovalsUntilAStepRunsAgain()
     {
+        Assert.False(Abilities.RemovalsClosed);
         Abilities.CloseRemovals();
         Assert.False(Abilities.RemovalsPending);
+        // from here a removal would never be answered (no step reads it): it is refused with a result instead
+        Assert.True(Abilities.RemovalsClosed);
+        Assert.Contains("closing", Abilities.ClosingText);
+        Abilities.PollRemovals();                // the next session's first step
+        Assert.False(Abilities.RemovalsClosed);
     }
 
     [Fact]
