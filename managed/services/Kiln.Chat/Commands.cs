@@ -362,6 +362,9 @@ public sealed class CommandContext
 
     /// <summary>Ends the command with an error message: a refusal ("only a player in the world can do this") or a
     /// failure. The source is told, the log line says it, and the result is not ok; a reply alone counts as success.</summary>
+    /// <remarks>It never returns: the mark tells the compiler and Kiln's analyzers (KILN121 takes
+    /// <c>if (!X.Available) c.Fail(...)</c> as the check before what follows).</remarks>
+    [System.Diagnostics.CodeAnalysis.DoesNotReturn]
     public void Fail(string message) => throw new CommandException(message);
 
     /// <summary>A <see cref="CommandException"/> with the usage line appended.</summary>

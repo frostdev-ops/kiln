@@ -39,6 +39,9 @@ public sealed class BakeTestMod : Mod
                 Steps = [new QuestStep { Id = "count", Text = $"Count {count}", Objectives = [new QuestObjective { Kind = QuestObjectiveKind.Custom, Count = count, Progress = _ => 0 }] }],
             }));
 
+        // GameTree.Available is "kiln.skills is there, or this is the build-time bake" (where Define records instead of
+        // registering): exactly where Define works, but a guard with an "or" is not one KILN121 can take as asking.
+#pragma warning disable KILN121
         if (GameTree.Available)
             _nodeReport = GameTree.Define(new GameNodeDefinition
             {
@@ -52,6 +55,7 @@ public sealed class BakeTestMod : Mod
                 Cost = 1,
                 Texts = new Dictionary<string, (string, string, string?)> { ["en"] = ("Cinder", "Baked at build.", null) },
             });
+#pragma warning restore KILN121
 
         _spark = Blocks.Define("baked_spark", new VfxBlock
         {
