@@ -410,7 +410,9 @@ public static class Menus
 
     /// <summary>Adds an entry to the main menu or the pause menu. Lower <paramref name="order"/> first; Kiln's own
     /// "Mods" entry has order 1000. Owned by the calling mod. Returns null when this menu is not available (dedicated
-    /// server, unsupported build).</summary>
+    /// server, unsupported build). The game's menus do not scroll, so by default a menu draws mods' entries only while
+    /// it has at most 3 of them (the player's Kiln setting <c>modEntries</c>: Few, Always, Never); the entry is then
+    /// chosen from Kiln's Mods page ("Menu entries") instead, and <c>OnClick</c> runs the same way.</summary>
     public static MenuEntry? Add(MenuLocation where, UiText text, Action onClick, int order = 0)
     {
         ArgumentNullException.ThrowIfNull(text);
@@ -464,6 +466,14 @@ public static class Menus
         MenuEntry[] mine;
         lock (Lock) mine = Entries.Values.Where(e => ReferenceEquals(e.Owner, mod)).ToArray();
         foreach (var e in mine) Remove(e);
+    }
+
+    /// <summary>The name of the mod that added the entry with this handle; "Kiln" for Kiln's own, null for an entry not
+    /// added through here (a native plugin's).</summary>
+    internal static string? OwnerName(ulong handle)
+    {
+        lock (Lock)
+            return Entries.TryGetValue(handle, out var e) ? e.Owner?.Info.Name ?? "Kiln" : null;
     }
 
     internal static void LanguageChanged()

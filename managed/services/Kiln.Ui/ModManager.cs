@@ -31,11 +31,14 @@ internal enum ModManagerSection
 /// <summary>The left column's selection: every mod, the problems, or one engine.</summary>
 internal readonly record struct EngineFilter(string Kind)
 {
-    public const string AllKind = "*all", AttentionKind = "*attention", SettingsKind = "*settings";
-    public static readonly EngineFilter All = new(AllKind), Attention = new(AttentionKind), Settings = new(SettingsKind);
+    public const string AllKind = "*all", AttentionKind = "*attention", SettingsKind = "*settings", MenusKind = "*menus";
+    public static readonly EngineFilter All = new(AllKind), Attention = new(AttentionKind), Settings = new(SettingsKind),
+        Menus = new(MenusKind);
     public bool IsAll => Kind == AllKind;
     public bool IsAttention => Kind == AttentionKind;
     public bool IsSettings => Kind == SettingsKind;
+    /// <summary>The mods' entries in the game's menus (GameMenuEntries).</summary>
+    public bool IsMenus => Kind == MenusKind;
     public bool IsEngine => !Kind.StartsWith('*');
 }
 
@@ -50,8 +53,9 @@ internal static class ModManagerLogic
 {
     public static string KeyOf(CatalogMod m) => m.Engine + "/" + m.Id;
 
-    /// <summary>The left column: All, Needs attention (only when something failed or is missing), then each engine.</summary>
-    public static IReadOnlyList<EngineRow> EngineRows(CatalogSnapshot s, bool kilnSettings)
+    /// <summary>The left column: All, Needs attention (only when something failed or is missing), then each engine, then
+    /// the mods' entries in the game's menus (when there are any here) and Kiln's settings.</summary>
+    public static IReadOnlyList<EngineRow> EngineRows(CatalogSnapshot s, bool kilnSettings, int menuEntries = 0)
     {
         var rows = new List<EngineRow> { new(EngineFilter.All, "All mods", s.Mods.Count.ToString(), EngineHealth.Ok, null, "##eng.all") };
         var problems = s.Problems;
@@ -59,14 +63,18 @@ internal static class ModManagerLogic
             rows.Add(new(EngineFilter.Attention, "Needs attention", problems.ToString(), EngineHealth.Problem, null, "##eng.attention"));
         foreach (var e in s.Engines)
             rows.Add(new(new EngineFilter(e.Kind), e.Name, e.Count.ToString(), e.Health, e.Note, "##eng." + e.Kind));
+        if (menuEntries > 0)
+            rows.Add(new(EngineFilter.Menus, "Menu entries", menuEntries.ToString(), EngineHealth.Ok,
+                "The entries mods added to the game's menus. Choose one here to do what it does in the menu.", "##eng.menus"));
         if (kilnSettings) rows.Add(new(EngineFilter.Settings, "Kiln settings", "", EngineHealth.Ok, null, "##eng.settings"));
         return rows;
     }
 
     /// <summary>The filter to use when the chosen one is gone (an engine without mods now, attention with no problem left).</summary>
-    public static EngineFilter Valid(CatalogSnapshot s, EngineFilter f, bool kilnSettings)
+    public static EngineFilter Valid(CatalogSnapshot s, EngineFilter f, bool kilnSettings, int menuEntries = 0)
     {
         if (f.IsAll) return f;
+        if (f.IsMenus) return menuEntries > 0 ? f : EngineFilter.All;
         if (f.IsAttention) return s.Problems > 0 ? f : EngineFilter.All;
         if (f.IsSettings) return kilnSettings ? f : EngineFilter.All;
         return s.Engines.Any(e => e.Kind == f.Kind) ? f : EngineFilter.All;
@@ -86,7 +94,7 @@ internal static class ModManagerLogic
     /// row; problems come first under attention.</summary>
     public static IReadOnlyList<ModRow> Rows(CatalogSnapshot s, EngineFilter f, string search)
     {
-        IEnumerable<CatalogMod> mods = f.IsSettings ? [] : s.Mods;
+        IEnumerable<CatalogMod> mods = f.IsSettings || f.IsMenus ? [] : s.Mods;
         if (f.IsAttention) mods = mods.Where(m => m.NeedsAttention);
         else if (f.IsEngine) mods = mods.Where(m => m.Engine == f.Kind);
         var engineShown = f.IsAll || f.IsAttention;
@@ -167,6 +175,11 @@ internal sealed class ModManagerPage
     private EngineFilter _rowsFilter;
     private string _rowsSearch = "\0";
     private bool _rowsSettings;
+    private int _rowsMenus;
+    // the mods' entries in the game's menus that a player can choose here (refreshed every few frames)
+    private IReadOnlyList<GameMenuRow> _menuRows = [];
+    private ulong _menuRowsFrame;
+    internal Func<IReadOnlyList<GameMenuRow>> MenuSource = () => GameMenuEntries.Listed(GameMenuEntries.List(), GameMenuEntries.Here());
     private IReadOnlyList<EngineRow> _engines = [];
     private IReadOnlyList<ModRow> _rows = [];
     private CatalogSnapshot _snap = CatalogSnapshot.Empty;
@@ -194,23 +207,24 @@ internal sealed class ModManagerPage
     internal Func<CatalogSnapshot> Source = () => ModCatalog.Snapshot(TimeSpan.FromSeconds(2));
 
     /// <summary>Recomputes the columns when the snapshot, the filter or the search changed (not every frame).</summary>
-    internal void Update(CatalogSnapshot snap, bool kilnSettings)
+    internal void Update(CatalogSnapshot snap, bool kilnSettings, int menuEntries = 0)
     {
-        var changed = snap.Version != _snapVersion || kilnSettings != _rowsSettings;
+        var changed = snap.Version != _snapVersion || kilnSettings != _rowsSettings || menuEntries != _rowsMenus;
         if (changed)
         {
             _snap = snap;
             _snapVersion = snap.Version;
             _rowsSettings = kilnSettings;
-            _engines = ModManagerLogic.EngineRows(snap, kilnSettings);
+            _rowsMenus = menuEntries;
+            _engines = ModManagerLogic.EngineRows(snap, kilnSettings, menuEntries);
         }
         // before the first list landed nothing is known to be gone: an engine asked for (ShroudForge's F9) stays chosen
-        if (!ReferenceEquals(snap, CatalogSnapshot.Empty)) Filter = ModManagerLogic.Valid(snap, Filter, kilnSettings);
+        if (!ReferenceEquals(snap, CatalogSnapshot.Empty)) Filter = ModManagerLogic.Valid(snap, Filter, kilnSettings, menuEntries);
         if (!changed && Filter == _rowsFilter && Search == _rowsSearch) return;
         _rowsFilter = Filter;
         _rowsSearch = Search;
         _rows = ModManagerLogic.Rows(snap, Filter, Search);
-        if (!Filter.IsSettings) Selected = ModManagerLogic.Select(_rows, Selected);
+        if (!Filter.IsSettings && !Filter.IsMenus) Selected = ModManagerLogic.Select(_rows, Selected);
         if (snap.Mods.Count == 0)
         {
             _emptyTitle = ModCatalog.Loading ? "Reading the mod list..." : "No mods are installed.";
@@ -260,7 +274,13 @@ internal sealed class ModManagerPage
         _k = s / (ui.Scale > 0 ? ui.Scale : 1);
         TakeRequest();
         var kilnSettings = ConfigScreens.HasConfigs("kiln");
-        Update(Source(), kilnSettings);
+        if (_menuRowsFrame == 0 || ui.FrameNumber - _menuRowsFrame >= 15 || ui.FrameNumber < _menuRowsFrame)
+        {
+            try { _menuRows = MenuSource(); }
+            catch (Exception) { _menuRows = []; }
+            _menuRowsFrame = Math.Max(1, ui.FrameNumber);
+        }
+        Update(Source(), kilnSettings, _menuRows.Count);
         if (ui.FrameNumber != _lastFrame + 1) _framesShown = 0;  // opened again (or the first time)
         _lastFrame = ui.FrameNumber;
         _framesShown++;
@@ -375,7 +395,7 @@ internal sealed class ModManagerPage
         {
             // each column on a tile panel (captions inside), its content inset so text never touches the panel's edge
             Panel(ui, leftR, s);
-            if (Filter.IsSettings) Panel(ui, new PageRect(midR.X, midR.Y, rightR.Right - midR.X, midR.Height), s);
+            if (Filter.IsSettings || Filter.IsMenus) Panel(ui, new PageRect(midR.X, midR.Y, rightR.Right - midR.X, midR.Height), s);
             else
             {
                 Panel(ui, midR, s);
@@ -390,6 +410,11 @@ internal sealed class ModManagerPage
         if (Filter.IsSettings)
         {
             SettingsColumns(ui, midR, rightR, s);
+            return;
+        }
+        if (Filter.IsMenus)
+        {
+            MenuEntriesColumns(ui, midR, rightR, s);
             return;
         }
         ModsColumn(ui, midR, s);
@@ -432,9 +457,14 @@ internal sealed class ModManagerPage
             using var c2 = ui.PushColor(UiColorSlot.HeaderActive, GameColors.GoldDeep.WithAlpha(160));
             using var sp = ui.PushVar(UiStyleVar.ItemSpacing, 0, 4 * s);
             var w = ui.Cursor.AvailWidth;
+            var spaced = false;
             foreach (var e in _engines)
             {
-                if (e.Filter.IsSettings) ui.Space(1, 14 * s);
+                if ((e.Filter.IsSettings || e.Filter.IsMenus) && !spaced)
+                {
+                    ui.Space(1, 14 * s);  // Kiln's own rows below the engines
+                    spaced = true;
+                }
                 var chosen = Filter == e.Filter;
                 if (chosen && _framesShown == 1) ui.FocusKeyboardHere();  // the gamepad/keyboard starts on the chosen engine
                 var clicked = ui.Selectable(e.Id, chosen, w, rowH);
@@ -699,6 +729,44 @@ internal sealed class ModManagerPage
         {
             if (ui.BeginChild("kiln.settings", r.Width, r.Bottom - top, UiChildFlags.NavFlattened | UiChildFlags.Padding))
                 ConfigScreens.Draw(ui, "kiln");
+            ui.EndChild();
+        }
+    }
+
+    // The mods' entries in the game's menus, each with a button that does what the entry does there (GameMenuEntries).
+    private void MenuEntriesColumns(UiDraw ui, PageRect mid, PageRect right, float s)
+    {
+        var r = new PageRect(mid.X, mid.Y, right.Right - mid.X, mid.Height);
+        Caption(ui, r.X + 2 * s, r.Y, GameMenuEntries.Here() == MenuLocation.PauseMenu ? "PAUSE MENU ENTRIES" : "MAIN MENU ENTRIES", s);
+        var top = r.Y + 26 * s;
+        Place(ui, r.X, top);
+        using (ui.PushColor(UiColorSlot.ChildBg, Backed ? Color.FromRgba(0x00000000) : GameColors.Tile.WithAlpha(115)))
+        using (ui.PushVar(UiStyleVar.WindowPadding, Backed ? 12 * s : 26 * s, Backed ? 8 * s : 22 * s))
+        {
+            if (ui.BeginChild("kiln.menus", r.Width, r.Bottom - top, UiChildFlags.NavFlattened | UiChildFlags.Padding))
+            {
+                using (ui.PushColor(UiColorSlot.Text, GameColors.Muted))
+                    ui.TextWrapped(GameMenuEntries.Summary(GameMenuEntries.Mode, _menuRows));
+                ui.Space(1, 10 * s);
+                foreach (var row in _menuRows)
+                {
+                    using var id = ui.Id("menu." + row.Handle);
+                    // the button has a fixed label: a mod's text goes beside it as text ("##" in it is ImGui's id syntax)
+                    if (ui.Button("Open", 0, 40 * s))
+                    {
+                        // out of the entry's way first: its action runs after the next game UI frame and may open a Kiln
+                        // view of its own, which a close after it would shut again
+                        Ui.MenuOpen = false;
+                        if (Backed) GamePageHost.Leave();
+                        if (!GameMenuEntries.Activate(row.Handle)) Hud.Toast($"\"{row.Text}\" is not available here now.", ToastKind.Warning);
+                    }
+                    ui.SameLine();
+                    ui.Text(row.Text);
+                    ui.SameLine();
+                    using (ui.PushColor(UiColorSlot.Text, GameColors.Muted))
+                        ui.Text((row.Mod ?? "a Kiln plugin") + (row.Drawn ? "" : "   ·   not in the game's menu now"));
+                }
+            }
             ui.EndChild();
         }
     }

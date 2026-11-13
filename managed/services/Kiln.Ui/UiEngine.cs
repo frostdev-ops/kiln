@@ -109,6 +109,7 @@ internal static unsafe class UiEngine
         Ui.Screens.Start();
         RefusalNotice.Start();
         ShroudForgeMenu.Start();
+        GameMenuEntries.Start();  // Kiln's setting for mods' entries in the game's menus (kiln.ui v6)
         Recount();
         Log(LogLevel.Info, $"Kiln.Ui ready; Kiln menu on {KeyBindings.MenuKey}; game UI {(UiNative.HasGameUi && Ui.Screens.Available ? "on" : "off")}, " +
                            $"crafting menu extension {(UiNative.Craft != null ? "on" : "off")}, " +

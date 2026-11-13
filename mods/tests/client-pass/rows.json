@@ -72,6 +72,7 @@
     { "section": "New in 0.2.0-dev.27", "key": "The save editor keeps changes, refuses to overwrite the game's newer save, makes one backup, and works on the Steam Deck", "checks": ["editor.keeps-changes", "editor.save-one-backup", "editor.save-the-game-wrote", "editor.add-item-typing", "deck.editor-items", "deck.editor-skills-knowledge", "deck.editor-backups-quit", "deck.tabs-fast"] },
     { "section": "New in 0.2.0-dev.27", "key": "Add mods takes 7z and rar; All on and All off; a new profile from a drop", "checks": ["launcher.add-7z-rar", "launcher.all-on-off-new-profile"] },
     { "section": "New in 0.2.0-dev.27", "key": "A waiting ShroudForge mod says what it waits for", "checks": ["menu.sf-waiting-for"] },
-    { "section": "New in 0.2.0-dev.27", "key": "The launcher names an EML mod in your own folder that ShroudForge has off", "checks": ["launcher.own-eml-folder-under-sf"] }
+    { "section": "New in 0.2.0-dev.27", "key": "The launcher names an EML mod in your own folder that ShroudForge has off", "checks": ["launcher.own-eml-folder-under-sf"] },
+    { "section": "New in 0.2.0-dev.27", "key": "Many mods' menu entries no longer push Quit off the screen, and the Mods page reaches them", "checks": ["menu.rows-quit"] }
   ]
 }

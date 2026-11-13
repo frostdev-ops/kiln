@@ -25,6 +25,7 @@
 #include <vector>
 
 #include "kiln_hook.hpp"
+#include "menu_rows.h"
 #include "menu_site.h"
 #include "ui.h"
 
@@ -246,16 +247,26 @@ const char* state_name(uint8_t s) {
     return s < 8 ? names[s] : "?";
 }
 
-// The entries of one menu, in order, visible only (snapshot under the lock).
-std::vector<Entry> entries_of(uint32_t menu) {
+// Which mods' entries the menus draw (menu_rows.h; KILN_UI_MENU_SHOW_*, set by Kiln.Ui from Kiln's setting).
+std::atomic<uint32_t> g_shown{menu_rows::kNativeDefault};  // ALWAYS until Kiln.Ui (which lists them) says otherwise
+
+bool is_builtin(const Entry& e) { return e.handle && (e.handle == g_builtin[0] || e.handle == g_builtin[1]); }
+bool visible(const Entry& e) { return !(e.flags & KILN_UI_ENTRY_HIDDEN) && e.text && !e.text->empty(); }
+bool drawing_order(const Entry& a, const Entry& b) { return a.order != b.order ? a.order < b.order : a.seq < b.seq; }
+
+// The visible entries of one menu, in order (snapshot under the lock).
+std::vector<Entry> visible_of(uint32_t menu) {
     std::vector<Entry> out;
     std::lock_guard lk(g_mu);
     for (const Entry& e : g_entries)
-        if (e.menu == menu && !(e.flags & KILN_UI_ENTRY_HIDDEN) && e.text && !e.text->empty()) out.push_back(e);
-    std::stable_sort(out.begin(), out.end(), [](const Entry& a, const Entry& b) {
-        return a.order != b.order ? a.order < b.order : a.seq < b.seq;
-    });
+        if (e.menu == menu && visible(e)) out.push_back(e);
+    std::stable_sort(out.begin(), out.end(), drawing_order);
     return out;
+}
+
+// The entries one menu draws: Kiln's own Mods entry always, the mods' as the mode says (menu_rows.h).
+std::vector<Entry> entries_of(uint32_t menu) {
+    return menu_rows::pick(visible_of(menu), g_shown.load(std::memory_order_relaxed), is_builtin);
 }
 
 void activated(KilnHandle h) {
@@ -628,6 +639,62 @@ KilnResult game_menu_set(KilnHandle entry, KilnStr text, uint32_t flags) {
             return KILN_OK;
         }
     return KILN_ERR_NOT_FOUND;
+}
+
+void game_menu_shown(uint32_t mode) {
+    const uint32_t m = mode <= menu_rows::show_never ? mode : menu_rows::show_few;
+    if (g_shown.exchange(m) != m)
+        logf(KILN_LOG_INFO, "ui: mods' entries in the game's menus: %s (%u at most per menu in mode few)",
+             m == menu_rows::show_always ? "always" : m == menu_rows::show_never ? "never, only on Kiln's Mods page" : "few",
+             menu_rows::kFew);
+}
+
+uint32_t game_menu_entries(KilnUiMenuEntry* out, uint32_t capacity) {
+    std::vector<Entry> mods;
+    {
+        std::lock_guard lk(g_mu);
+        for (const Entry& e : g_entries)
+            if (!is_builtin(e)) mods.push_back(e);
+    }
+    std::stable_sort(mods.begin(), mods.end(), [](const Entry& a, const Entry& b) {
+        return a.menu != b.menu ? a.menu < b.menu : drawing_order(a, b);
+    });
+    if (!out || capacity == 0 || out[0].size != sizeof(KilnUiMenuEntry)) return static_cast<uint32_t>(mods.size());
+    const uint32_t mode = g_shown.load(std::memory_order_relaxed);
+    size_t shown[3] = {0, 0, 0};  // visible mods' entries per menu
+    for (const Entry& e : mods)
+        if (e.menu < 3 && visible(e)) ++shown[e.menu];
+    for (uint32_t i = 0; i < capacity && i < mods.size(); ++i) {
+        const Entry& e = mods[i];
+        KilnUiMenuEntry& o = out[i];
+        o = KilnUiMenuEntry{};
+        o.size = sizeof(KilnUiMenuEntry);
+        o.menu = e.menu;
+        o.entry = e.handle;
+        o.text = e.text ? e.text->data() : "";
+        o.text_len = e.text ? static_cast<uint32_t>(e.text->size()) : 0;
+        o.flags = e.flags;
+        o.order = e.order;
+        o.drawn = visible(e) && e.menu < 3 && menu_rows::draws_mods(mode, shown[e.menu]) ? 1u : 0u;
+    }
+    return static_cast<uint32_t>(mods.size());
+}
+
+KilnResult game_menu_activate(KilnHandle entry) {
+    uint8_t state = 0;
+    {
+        std::lock_guard lk(g_screen_mu);
+        state = g_screen.ui_state;
+    }
+    {
+        std::lock_guard lk(g_mu);
+        const auto it = std::find_if(g_entries.begin(), g_entries.end(), [&](const Entry& e) { return e.handle == entry; });
+        if (!entry || it == g_entries.end() || is_builtin(*it)) return KILN_ERR_NOT_FOUND;
+        // only what a click could do now: an entry its mod shows, of the menu the player can open in this state
+        if (!menu_rows::can_activate(it->menu, it->flags, state)) return KILN_ERR_UNAVAILABLE;
+    }
+    activated(entry);  // delivered after the next UI frame, as a click in the menu is
+    return KILN_OK;
 }
 
 bool game_unsubscribe(KilnHandle h) {

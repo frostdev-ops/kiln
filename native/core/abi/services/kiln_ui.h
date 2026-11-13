@@ -33,9 +33,10 @@ extern "C" {
 #endif
 
 #define KILN_UI_SERVICE "kiln.ui"
-#define KILN_UI_VERSION 5u /* v2 appends is_item_clicked and the radial wheel (after add_swapchain_usage); v3 appends layout and
+#define KILN_UI_VERSION 6u /* v2 appends is_item_clicked and the radial wheel (after add_swapchain_usage); v3 appends layout and
                               look slots for full-display screens (after wheel_active); v4 appends the main-menu page and
-                              font choice (after set_scroll_here_y); v5 appends subscribe_window_input (after pop_font):
+                              font choice (after set_scroll_here_y); v5 appends subscribe_window_input (after pop_font);
+                              v6 appends menu_shown, menu_entries, menu_activate (after subscribe_window_input):
                               check header.size */
 
 /* Colours are 0xRRGGBBAA. */
@@ -168,6 +169,25 @@ enum {
     KILN_UI_ENTRY_HIDDEN = 1u,
     KILN_UI_ENTRY_ATTENTION = 2u,  /* the game's attention marker (pause menu only) */
 };
+
+/* menu_shown (v6): which mods' entries the game's menus draw; Kiln's own Mods entry is always drawn */
+enum {
+    KILN_UI_MENU_SHOW_FEW = 0,     /* a menu draws its mods' entries while it has only a few, else none (the default) */
+    KILN_UI_MENU_SHOW_ALWAYS = 1,  /* every entry (as before 0.2.0-dev.27) */
+    KILN_UI_MENU_SHOW_NEVER = 2,   /* none: they are reached from Kiln's Mods page */
+};
+
+/* menu_entries (v6): one entry a mod added with menu_add (not Kiln's own Mods entry). */
+typedef struct KilnUiMenuEntry {
+    uint32_t size;     /* set to sizeof(KilnUiMenuEntry) in out[0] before calling menu_entries */
+    uint32_t menu;     /* KILN_UI_MENU_* */
+    KilnHandle entry;  /* for menu_activate */
+    const char* text;  /* the label as last set (UTF-8, not NUL-terminated; valid for the process) */
+    uint32_t text_len;
+    uint32_t flags;    /* KILN_UI_ENTRY_* as last set (HIDDEN: its mod hid it) */
+    int32_t order;
+    uint32_t drawn;    /* 1 when its menu draws it now (visible and shown by menu_shown's mode) */
+} KilnUiMenuEntry;
 
 /* push_style */
 enum {
@@ -750,6 +770,29 @@ typedef struct KilnUiApi {
      *   inside another kiln.ui callback it may return KILN_ERR_WRONG_THREAD instead of waiting; call it again from
      *   elsewhere). Native subscribers unsubscribe before they unload. INVALID_ARGUMENT: no fn. */
     KilnResult(KILN_CALL* subscribe_window_input)(KilnOwner owner, KilnUiWindowInputFn fn, void* user, KilnHandle* out);
+
+    /* ================================================================================================================
+     * v6 (appended since 0.2.0-dev.27; check header.version >= 6 and header.size >= offsetof(KilnUiApi, menu_activate)
+     * + sizeof(void*) before calling these).
+     * ============================================================================================================== */
+
+    /* ---- mods' entries in the game's menus (the menus do not scroll: too many rows push Quit off the screen) ----
+     * menu_shown: KILN_UI_MENU_SHOW_* (Kiln.Ui sets it from Kiln's setting "modEntries" in
+     *   kiln/config/menus-client.json; ALWAYS until a caller sets it: only a caller that lists the entries elsewhere may
+     *   choose FEW or NEVER). FEW: a menu draws its mods' entries while it has at most 3 visible ones, else none of
+     *   them. Kiln's own Mods entry is drawn whatever the mode. Any thread; the next frame follows it. Unknown values
+     *   are FEW.
+     * menu_entries: the entries mods added (menu_add), every menu, in drawing order (menu, then order); copies up to
+     *   `capacity` into out (out[0].size must be sizeof(KilnUiMenuEntry), else nothing is copied) and returns how many
+     *   there are. Any thread.
+     * menu_activate: does what choosing the entry in its menu does: fn(entry, user) runs on the UI thread after the
+     *   next UI frame. Also for an entry its menu does not draw now (menu_shown's mode). KILN_ERR_NOT_FOUND: no such
+     *   entry (or Kiln's own Mods entry, which opens the Kiln menu itself). KILN_ERR_UNAVAILABLE: its mod hid it
+     *   (KILN_UI_ENTRY_HIDDEN), or it is an entry of the other menu (a main-menu entry is chosen in the main menu, a
+     *   pause-menu entry in a world). Any thread. */
+    void(KILN_CALL* menu_shown)(uint32_t mode);
+    uint32_t(KILN_CALL* menu_entries)(KilnUiMenuEntry* out, uint32_t capacity);
+    KilnResult(KILN_CALL* menu_activate)(KilnHandle entry);
 } KilnUiApi;
 
 /* ====================================================================================================================

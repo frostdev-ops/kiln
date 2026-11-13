@@ -468,6 +468,11 @@ KilnResult KILN_CALL t_subscribe_window_input(KilnOwner o, KilnUiWindowInputFn f
     return input_feed_subscribe(o, fn, u, out);
 }
 
+// v6: mods' entries in the game's menus (game.cpp, menu_rows.h)
+void KILN_CALL t_menu_shown(uint32_t mode) { game_menu_shown(mode); }
+uint32_t KILN_CALL t_menu_entries(KilnUiMenuEntry* out, uint32_t capacity) { return game_menu_entries(out, capacity); }
+KilnResult KILN_CALL t_menu_activate(KilnHandle entry) { return game_menu_activate(entry); }
+
 // kiln.ui.tick (for Kiln.Host)
 KilnResult KILN_CALL tt_subscribe(KilnOwner o, KilnUiFrameTickFn fn, void* u, KilnHandle* out) { return game_subscribe_frame_tick(o, fn, u, out); }
 KilnResult KILN_CALL tt_unsubscribe(KilnHandle h) { return game_unsubscribe(h) ? KILN_OK : KILN_ERR_NOT_FOUND; }
@@ -481,9 +486,14 @@ static_assert(offsetof(KilnUiApi, push_font_size) == offsetof(KilnUiApi, wheel_a
               "kiln.ui v3 slots follow wheel_active");
 static_assert(offsetof(KilnUiApi, menu_page) == offsetof(KilnUiApi, set_scroll_here_y) + sizeof(void*),
               "kiln.ui v4 slots follow set_scroll_here_y");
-static_assert(offsetof(KilnUiApi, subscribe_window_input) == offsetof(KilnUiApi, pop_font) + sizeof(void*) &&
-                  sizeof(KilnUiApi) == offsetof(KilnUiApi, subscribe_window_input) + sizeof(void*),
+static_assert(offsetof(KilnUiApi, subscribe_window_input) == offsetof(KilnUiApi, pop_font) + sizeof(void*),
               "kiln.ui v5 appends subscribe_window_input after pop_font");
+static_assert(offsetof(KilnUiApi, menu_shown) == offsetof(KilnUiApi, subscribe_window_input) + sizeof(void*) &&
+                  sizeof(KilnUiApi) == offsetof(KilnUiApi, menu_activate) + sizeof(void*),
+              "kiln.ui v6 appends menu_shown, menu_entries, menu_activate after subscribe_window_input");
+static_assert(sizeof(KilnUiMenuEntry) == 40 && offsetof(KilnUiMenuEntry, entry) == 8 && offsetof(KilnUiMenuEntry, text) == 16 &&
+                  offsetof(KilnUiMenuEntry, drawn) == 36,
+              "KilnUiMenuEntry layout (UiNative.MenuEntryInfo)");
 static_assert(sizeof(KilnUiWindowInput) == 48 && offsetof(KilnUiWindowInput, wparam) == 32 &&
                   offsetof(KilnUiWindowInput, lparam) == 40,
               "KilnUiWindowInput layout");
@@ -520,6 +530,8 @@ const KilnUiApi kTable = {
     &t_menu_page, &t_menu_page_drawn, &t_menu_page_leave, &t_menu_page_host, &t_push_font, &t_pop_font,
     // v5
     &t_subscribe_window_input,
+    // v6
+    &t_menu_shown, &t_menu_entries, &t_menu_activate,
 };
 
 std::string api_path(int kind) {
