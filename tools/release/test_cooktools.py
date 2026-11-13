@@ -101,6 +101,26 @@ class FetchPython(unittest.TestCase):
         self.assertEqual(r.returncode, 1)
         self.assertIn("python.exe", r.stderr)
 
+    def test_an_unpacked_folder_that_is_not_the_package_any_more_fails_the_check_and_is_unpacked_again(self):
+        z, sha = self.package(WHOLE)
+        root = self.cache / "root"
+        for damage in ("missing", "changed", "added"):
+            self.assertEqual(self.run_script(z, sha).returncode, 0)
+            if damage == "missing":
+                (root / "python314.dll").unlink()      # not one of the files the cook tools are checked for by name
+            elif damage == "changed":
+                (root / "python314.dll").write_text("made up: python314.dlL")  # the same length, other bytes
+            else:
+                (root / "sitecustomize.py").write_text("import os")
+            r = self.run_script(z, sha, "--check")
+            self.assertEqual(r.returncode, 1, damage)
+            self.assertIn("not the pinned package any more", r.stderr, damage)
+            r = self.run_script(z, sha)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertEqual(sorted(p.name for p in root.iterdir()), sorted(WHOLE), damage)
+            self.assertEqual((root / "python314.dll").read_text(), "made up: python314.dll", damage)
+            self.assertEqual(self.run_script(z, sha, "--check").returncode, 0, damage)
+
     def test_the_test_overrides_are_refused_in_a_release_build(self):
         z, sha = self.package(WHOLE)
         r = self.run_script(z, sha, release=True)

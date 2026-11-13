@@ -66,7 +66,7 @@ def _dispatch(a, doc, extra):
             print(f"soundcook: steps of tool {tool!r}: no runner known here", file=sys.stderr)
             rc = 1
             continue
-        cmd = [sys.executable, str(script), "--game", str(a.game)] + (["--exe", a.exe] if a.exe else []) + \
+        cmd = [sys.executable] + (["-I"] if sys.flags.isolated else []) + [str(script), "--game", str(a.game)] + (["--exe", a.exe] if a.exe else []) + \
               ["recipe", a.recipe, "--no-dispatch"] + extra
         print(f"soundcook: {tool} steps -> {' '.join(cmd[1:])}", file=sys.stderr)
         rc = subprocess.run(cmd).returncode or rc

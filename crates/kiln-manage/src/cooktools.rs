@@ -13,11 +13,16 @@
 //! library's on 3.14+, the `zstandard` package, or the system's libzstd through ctypes) before it is used; the error
 //! says in one sentence what to install.
 //!
-//! The tools run with `-E` (no `PYTHON*` variables) and through [`crate::hostenv`]: started from the launcher's
-//! AppImage they must not see its `PYTHONHOME` or library path.
+//! The tools run isolated (`-I`: no `PYTHON*` variables, no user site, and neither the current folder nor the
+//! script's folder on the module path, so a `compression.py` lying in a mod's folder is never imported) and through
+//! [`crate::hostenv`]: started from the launcher's AppImage they must not see its `PYTHONHOME` or library path. The
+//! tools that start one another pass the isolation on. The shipped copy's sound helper is named to every tool through
+//! `KILN_SOUNDCOOK` (a modelcook recipe may hold sound steps), with `KILN_SOUNDCOOK_NO_BUILD=1`: nothing is ever
+//! compiled on a player's machine.
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::OnceLock;
 
 use sha2::{Digest, Sha256};
@@ -129,15 +134,26 @@ fn io(what: &str, p: &Path, e: std::io::Error) -> Error {
     Error::new(ErrorCode::Io, format!("{what} {}: {e}", p.display()))
 }
 
+/// Every carried file is there as a plain file (no link) with exactly the carried bytes. The copy is small (about
+/// 100 files, under 3 MB): comparing it whole costs a few milliseconds and means a damaged or altered copy is never run.
 fn whole(dir: &Path) -> bool {
-    let same = |name: &str, data: &[u8]| std::fs::metadata(dir.join(name)).is_ok_and(|m| m.is_file() && m.len() == data.len() as u64);
-    dir.join(".complete").is_file()
+    let same = |name: &str, data: &[u8]| {
+        let p = dir.join(name);
+        std::fs::symlink_metadata(&p).is_ok_and(|m| m.file_type().is_file() && m.len() == data.len() as u64)
+            && std::fs::read(&p).is_ok_and(|have| have == data)
+    };
+    std::fs::symlink_metadata(dir).is_ok_and(|m| m.file_type().is_dir())
+        && dir.join(".complete").is_file()
         && FILES.iter().all(|(n, d)| same(n, d))
         && HELPER.iter().all(|(n, d)| same(&format!("bin/{n}"), d))
 }
 
+static STAGING: AtomicU64 = AtomicU64::new(0);
+
 /// Unpacks the carried copy under `cache` (once: a whole copy that is there is left alone) and returns its root.
-/// A copy that is not whole (an interrupted first run, a file deleted or changed in size) is written again.
+/// A copy that is not whole (an interrupted first run, a file deleted, changed or replaced by a link) is written
+/// again. Writing is one at a time across threads and processes (a lock file beside the copy): the copy is staged in
+/// a folder of its own, checked again under the lock, and moved into place.
 pub fn unpack(cache: &Path) -> Result<PathBuf> {
     if !shipped() {
         return Err(Error::new(
@@ -150,8 +166,20 @@ pub fn unpack(cache: &Path) -> Result<PathBuf> {
         return Ok(dir);
     }
     std::fs::create_dir_all(cache).map_err(|e| io("creating", cache, e))?;
-    let tmp = cache.join(format!("{}.tmp-{}", copy_id(), std::process::id()));
-    let _ = std::fs::remove_dir_all(&tmp);
+    let lock_path = cache.join(format!("{}.lock", copy_id()));
+    let lock = std::fs::OpenOptions::new().create(true).truncate(false).write(true).open(&lock_path).map_err(|e| io("opening", &lock_path, e))?;
+    lock.lock().map_err(|e| io("locking", &lock_path, e))?;  // released when `lock` is dropped, on every way out
+    if whole(&dir) {
+        return Ok(dir);  // another thread or process wrote it while this one waited
+    }
+    // what an interrupted run left behind: nobody else stages under the lock
+    let stale = format!("{}.tmp-", copy_id());
+    for e in std::fs::read_dir(cache).into_iter().flatten().flatten() {
+        if e.file_name().to_string_lossy().starts_with(&stale) {
+            let _ = std::fs::remove_dir_all(e.path());
+        }
+    }
+    let tmp = cache.join(format!("{stale}{}-{}", std::process::id(), STAGING.fetch_add(1, Ordering::Relaxed)));
     let put = |rel: &str, data: &[u8], exec: bool| -> Result<()> {
         let p = tmp.join(rel);
         if let Some(parent) = p.parent() {
@@ -179,17 +207,18 @@ pub fn unpack(cache: &Path) -> Result<PathBuf> {
         let _ = std::fs::remove_dir_all(&tmp);
         return Err(e);
     }
-    // a copy that is there but not whole goes; another process may have put a whole one there meanwhile
-    if dir.exists() && !whole(&dir) {
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-    match std::fs::rename(&tmp, &dir) {
-        Ok(()) => Ok(dir),
-        Err(e) => {
-            let _ = std::fs::remove_dir_all(&tmp);
-            if whole(&dir) { Ok(dir) } else { Err(io("moving the cook tools into", &dir, e)) }
+    // The copy that is there is not whole (checked under the lock): it goes, whatever it is (a folder, a link, a file).
+    if std::fs::symlink_metadata(&dir).is_ok() {
+        if std::fs::remove_dir_all(&dir).is_err() {
+            let _ = std::fs::remove_file(&dir);
         }
     }
+    if let Err(e) = std::fs::rename(&tmp, &dir) {
+        let _ = std::fs::remove_dir_all(&tmp);
+        return Err(io("moving the cook tools into", &dir, e));
+    }
+    drop(lock);
+    Ok(dir)
 }
 
 /// What a candidate Python says about itself: its version and its zstd decoder ("" when it has none).
@@ -207,7 +236,8 @@ fn quiet(cmd: &mut Command) -> &mut Command {
 /// Runs the probe; None when the program does not start or does not answer as a Python does.
 fn probe(program: &Path, root: &Path) -> Option<((u32, u32), Option<String>)> {
     let mut cmd = crate::hostenv::command(program);
-    cmd.arg("-E").arg("-c").arg(PROBE).arg(root.join("tools/kfc"));
+    // -I: the current folder is not on the module path (a mod's folder is where `kiln cook` is usually run)
+    cmd.arg("-I").arg("-c").arg(PROBE).arg(root.join("tools/kfc"));
     let out = quiet(&mut cmd).stdin(std::process::Stdio::null()).output().ok()?;
     parse_probe(&String::from_utf8_lossy(&out.stdout))
 }
@@ -324,27 +354,30 @@ impl CookTools {
         p.is_file().then_some((p, *verb))
     }
 
-    /// `python -E <script>` for a tool, with the host's environment (not the AppImage's) and no console window. The
-    /// caller adds the tool's own arguments (`--game`, the verb, the recipe). The shipped soundcook is told where its
-    /// helper is, or that there is none: it must never try to build one on a player's machine.
+    /// `python -I <script>` for a tool, with the host's environment (not the AppImage's) and no console window. The
+    /// caller adds the tool's own arguments (`--game`, the verb, the recipe).
     pub fn command(&self, tool: &str) -> Option<Command> {
         let (script, _) = self.script(tool)?;
-        let mut cmd = crate::hostenv::command(&self.python.program);
-        cmd.arg("-E").arg(script);
-        if tool == "soundcook" && self.source == Source::Shipped {
-            match &self.sound_helper {
-                Some(h) => cmd.arg("--native").arg(h),
-                None => cmd.arg("--no-native"),
-            };
-        }
-        quiet(&mut cmd);
-        Some(cmd)
+        Some(self.run(&script))
     }
 
-    /// `python -E <root>/<rel>`: a script of the tools that is no recipe tool's entry (modelcook's `looks`).
+    /// `python -I <root>/<rel>`: a script of the tools that is no recipe tool's entry (modelcook's `looks`).
     pub fn script_command(&self, rel: &str) -> Command {
+        self.run(&self.root.join(rel))
+    }
+
+    // Every tool gets the same: any of them may run sound steps (a modelcook recipe dispatches to soundcook). The
+    // shipped copy names its helper, or none, and never builds one: a player's machine compiles nothing.
+    fn run(&self, script: &Path) -> Command {
         let mut cmd = crate::hostenv::command(&self.python.program);
-        cmd.arg("-E").arg(self.root.join(rel));
+        cmd.arg("-I").arg(script);
+        if self.source == Source::Shipped {
+            cmd.env("KILN_SOUNDCOOK_NO_BUILD", "1");
+            match &self.sound_helper {
+                Some(h) => cmd.env("KILN_SOUNDCOOK", h),
+                None => cmd.env_remove("KILN_SOUNDCOOK"),
+            };
+        }
         quiet(&mut cmd);
         cmd
     }
@@ -396,9 +429,79 @@ mod tests {
         let (_, data) = FILES.iter().find(|(n, _)| *n == "tools/modelcook/modelcook.py").unwrap();
         assert_eq!(std::fs::read(root.join("tools/modelcook/modelcook.py")).unwrap(), *data);
         assert!(root.join("tools/kfc/kfc/archive.py").is_file());
-        // nothing is left beside it
-        let left: Vec<_> = std::fs::read_dir(&cache).unwrap().flatten().map(|e| e.file_name()).collect();
-        assert_eq!(left.len(), 1, "{left:?}");
+        // a file changed without changing its length is found too, and so is a link in a file's place
+        let mut altered = data.to_vec();
+        altered[0] ^= 1;
+        std::fs::write(root.join("tools/modelcook/modelcook.py"), &altered).unwrap();
+        assert_eq!(unpack(&cache).unwrap(), root);
+        assert_eq!(std::fs::read(root.join("tools/modelcook/modelcook.py")).unwrap(), *data);
+        #[cfg(unix)]
+        {
+            let elsewhere = cache.join("elsewhere.py");
+            std::fs::write(&elsewhere, data).unwrap();
+            std::fs::remove_file(root.join("tools/modelcook/modelcook.py")).unwrap();
+            std::os::unix::fs::symlink(&elsewhere, root.join("tools/modelcook/modelcook.py")).unwrap();
+            assert_eq!(unpack(&cache).unwrap(), root);
+            assert!(std::fs::symlink_metadata(root.join("tools/modelcook/modelcook.py")).unwrap().file_type().is_file());
+            std::fs::remove_file(&elsewhere).unwrap();
+        }
+        // a staging folder an interrupted run left is cleared by the next repair, and nothing else is left
+        std::fs::create_dir_all(cache.join(format!("{}.tmp-1-0", copy_id())).join("tools")).unwrap();
+        std::fs::remove_file(root.join(".complete")).unwrap();
+        assert_eq!(unpack(&cache).unwrap(), root);
+        let mut left: Vec<String> = std::fs::read_dir(&cache).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect();
+        left.sort();
+        assert_eq!(left, [copy_id().to_string(), format!("{}.lock", copy_id())]);
+        let _ = std::fs::remove_dir_all(&cache);
+    }
+
+    #[test]
+    fn many_at_once_unpack_one_whole_copy() {
+        let cache = tmp("race");
+        let start = std::sync::Arc::new(std::sync::Barrier::new(8));
+        let threads: Vec<_> = (0..8)
+            .map(|_| {
+                let (cache, start) = (cache.clone(), start.clone());
+                std::thread::spawn(move || {
+                    start.wait();
+                    unpack(&cache).unwrap()
+                })
+            })
+            .collect();
+        let roots: Vec<PathBuf> = threads.into_iter().map(|t| t.join().unwrap()).collect();
+        assert!(roots.iter().all(|r| *r == roots[0]));
+        assert!(whole(&roots[0]));
+        let mut left: Vec<String> = std::fs::read_dir(&cache).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect();
+        left.sort();
+        assert_eq!(left, [copy_id().to_string(), format!("{}.lock", copy_id())]);
+        let _ = std::fs::remove_dir_all(&cache);
+    }
+
+    #[test]
+    fn the_tools_run_isolated_and_the_shipped_copy_names_its_helper() {
+        let python = Python { program: PathBuf::from("/usr/bin/python3"), version: (3, 14), zstd: "stdlib".into(), given: false };
+        let cache = tmp("env");
+        let root = unpack(&cache).unwrap();
+        let shipped = CookTools { root: root.clone(), source: Source::Shipped, python: python.clone(), sound_helper: Some(root.join("bin/kiln-soundcook")) };
+        // modelcook too: its recipe may hold sound steps, which it hands to soundcook
+        for cmd in [shipped.command("modelcook").unwrap(), shipped.command("soundcook").unwrap(), shipped.script_command("tools/modelcook/modelcook.py")] {
+            let args: Vec<_> = cmd.get_args().map(|a| a.to_string_lossy().into_owned()).collect();
+            assert_eq!(args[0], "-I", "{args:?}");
+            assert!(!args.iter().any(|a| a == "--native" || a == "--no-native"));
+            let env: std::collections::HashMap<_, _> = cmd.get_envs().map(|(k, v)| (k.to_string_lossy().into_owned(), v.map(|v| v.to_os_string()))).collect();
+            assert_eq!(env.get("KILN_SOUNDCOOK"), Some(&Some(root.join("bin/kiln-soundcook").into_os_string())));
+            assert_eq!(env.get("KILN_SOUNDCOOK_NO_BUILD"), Some(&Some("1".into())));
+        }
+        // no helper in the copy: none is named, an inherited one is dropped, and still nothing may be built
+        let bare = CookTools { sound_helper: None, ..shipped.clone() };
+        let cmd = bare.command("soundcook").unwrap();
+        let env: std::collections::HashMap<_, _> = cmd.get_envs().map(|(k, v)| (k.to_string_lossy().into_owned(), v.map(|v| v.to_os_string()))).collect();
+        assert_eq!(env.get("KILN_SOUNDCOOK"), Some(&None));
+        assert_eq!(env.get("KILN_SOUNDCOOK_NO_BUILD"), Some(&Some("1".into())));
+        // a checkout decides for itself (a developer's helper is found or built there)
+        let checkout = CookTools { source: Source::Checkout, sound_helper: None, ..shipped };
+        let cmd = checkout.command("soundcook").unwrap();
+        assert!(cmd.get_envs().all(|(k, _)| k != "KILN_SOUNDCOOK" && k != "KILN_SOUNDCOOK_NO_BUILD"));
         let _ = std::fs::remove_dir_all(&cache);
     }
 
