@@ -5,19 +5,90 @@ using Xunit;
 
 namespace Kiln.BlockTests;
 
-/// <summary>The game as the apply engine sees it, faked: content readiness, owners, capability rows, the tick thread.</summary>
+/// <summary>The content-ready pass of a mod's blocks as the game runs it, faked (BlockRuntime.Host): a pass and its later check of the
+/// definitions run at once, or when the test says (<see cref="Deferred"/>); a late reference resolves unless the test made it missing; a
+/// rule the test names is refused; definitions answer what the test put there.</summary>
+internal sealed class FakeReadyHost : IReadyHost
+{
+    public bool Deferred;
+    public readonly List<Func<bool>> Passes = [];
+    public readonly List<Action> Later = [];
+    public readonly HashSet<string> Missing = [];
+    public readonly List<(ulong Owner, Guid Program)> Programs = [];
+    public readonly List<ulong> RuleOwners = [];
+    public Func<string, IReadOnlyList<string>> RuleErrors = _ => [];
+    public Func<ulong, Exception?> RuleThrows = _ => null;
+    public readonly List<ContentDefinition> Items = [];
+
+    public void OnReady(Func<bool> run, Func<bool> again)
+    {
+        if (Deferred) Passes.Add(run);
+        else Run(run);
+    }
+
+    public readonly List<Exception> Thrown = [];
+
+    // as BlocksBridge.OnReady: a pass that throws is logged, never thrown into its caller
+    private void Run(Func<bool> pass)
+    {
+        try { pass(); }
+        catch (Exception e) { Thrown.Add(e); }
+    }
+
+    public void After(int steps, Action run)
+    {
+        if (Deferred) Later.Add(run);
+        else run();
+    }
+
+    /// <summary>Content is ready: every pass waiting runs once.</summary>
+    public void RunReady()
+    {
+        var now = Passes.ToList();
+        Passes.Clear();
+        foreach (var p in now) Run(p);
+    }
+
+    /// <summary>150 steps later: the checks of the definitions run.</summary>
+    public void RunLater()
+    {
+        var now = Later.ToList();
+        Later.Clear();
+        foreach (var a in now) a();
+    }
+
+    public bool ModLoaded(string mod) => true;
+    public IReadOnlyList<GameDataDefinition> GameDataDefinitions() => [];
+    public IReadOnlyList<ContentDefinition> ContentDefinitions() => Items;
+    public IReadOnlyList<ContentDefinition> Placeholders() => [];
+    public Guid? ResolveLate(LateRef r) => Missing.Contains(r.Value) ? null : new Guid("0b0b0b0b-0000-4000-8000-00000000beef");
+    public void RegisterProgram(ulong owner, Guid guid, byte[] blob) => Programs.Add((owner, guid));
+    public void ProgramsChanged() { }
+    public IReadOnlyList<string> ApplyRules(ulong owner, string json, string source)
+    {
+        if (RuleThrows(owner) is { } e) throw e;
+        RuleOwners.Add(owner);
+        return RuleErrors(json);
+    }
+    public void CheckBalancing() { }
+}
+
+/// <summary>The game as the apply engine sees it, faked: content readiness, owners, capability rows, the tick thread, the content-ready pass.</summary>
 internal sealed class KindWorld : IDisposable
 {
     public ulong? Generation = 1;
     public readonly List<ulong> Created = [], Revoked = [];
     public readonly HashSet<string> Off = [];
     public readonly CountingSink Sink = new();
+    public readonly FakeReadyHost Ready = new();
     public readonly List<KilnEvent> Events;
     private readonly (Func<ulong?>, Func<string, ulong>, Action<ulong>?, Func<string, bool>, Func<bool>, Func<bool>) _was;
+    private readonly IReadyHost _host = BlockRuntime.Host;
     private ulong _next = 100;
 
     public KindWorld()
     {
+        BlockRuntime.Host = Ready;
         _was = (KindApply.ContentGeneration, KindApply.CreateOwner, KindApply.RevokeOwner, KindApply.CapabilityIs, KindApply.OnTickThread, KindCapabilities.BlocksAvailable);
         Events = KindKit.Fresh();
         KindApply.Reset();
@@ -33,6 +104,7 @@ internal sealed class KindWorld : IDisposable
     public void Dispose()
     {
         (KindApply.ContentGeneration, KindApply.CreateOwner, KindApply.RevokeOwner, KindApply.CapabilityIs, KindApply.OnTickThread, KindCapabilities.BlocksAvailable) = _was;
+        BlockRuntime.Host = _host;
         KindApply.Reset();
         KindCapabilities.Rearm();
         Sink.Dispose();

@@ -27,6 +27,15 @@ public sealed class KindsConsumerTestMod : Mod
         for (var i = 0; i < n; i++) await Context.Scheduler.NextTick();
     }
 
+    /// <summary>Steps until <paramref name="done"/> holds, at most <paramref name="max"/>. A plan with parts at content ready (a lantern's item rules)
+    /// is PendingContent until they are done: one pass and the check of its definitions, about 150 steps after content is ready.</summary>
+    private async Task Until(Func<bool> done, int max = 600)
+    {
+        for (var i = 0; i < max && !done(); i++) await Steps(1);
+    }
+
+    private static bool Waiting(BlockApplyResult r) => r.State == BlockApplyState.PendingContent;
+
     private string PhaseFile
     {
         get
@@ -74,6 +83,7 @@ public sealed class KindsConsumerTestMod : Mod
             var sw = System.Diagnostics.Stopwatch.StartNew();
             while (Content.Status() is not { Ready: true } && sw.Elapsed.TotalSeconds < 240) await Context.Scheduler.NextTick();
             await Steps(60);
+            await Until(() => !Waiting(Blocks.Application(_camp!)) && Blocks.Find("long-night") is { } night && !Waiting(Blocks.Application(night)));
             if (phase.Length == 0) await First();
             else if (phase[0] == "1") await AfterOwnReload(phase);
             else await AfterProviderReload(phase);
@@ -133,7 +143,7 @@ public sealed class KindsConsumerTestMod : Mod
 
         // ---- replay-no-layer ----
         var first = Blocks.Apply(p1);
-        await Steps(3);
+        await Until(() => !Waiting(Blocks.Application(p1)));
         first = Blocks.Application(p1);
         var itemsBefore = Content.Items.Count;
         var changesBefore = _changes;
@@ -193,8 +203,10 @@ public sealed class KindsConsumerTestMod : Mod
         Check(LanternProbe.Compiles == compiles, $"provider-retirement-no-callback: the provider's code did not run after its kinds were taken away ({LanternProbe.Compiles - compiles} call(s))");
         Mods.Send(Provider, "restore");
         await Steps(5);
-        var back = Blocks.Apply(Blocks.Compile("after", new LanternBlock { Name = "After" }));
-        await Steps(3);
+        var afterPlan = Blocks.Compile("after", new LanternBlock { Name = "After" });
+        var back = Blocks.Apply(afterPlan);
+        await Until(() => !Waiting(Blocks.Application(afterPlan)));
+        back = Blocks.Application(afterPlan);
         Check(Blocks.Application(Blocks.Find("after") ?? _camp!).Ok && Blocks.Find("after") != null, $"provider-retirement-no-callback: with the kind registered again a new lantern applies ({back.State} {back.Reason})");
 
         // ---- reload the consumer alone ----

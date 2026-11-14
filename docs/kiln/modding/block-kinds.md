@@ -88,15 +88,28 @@ block only once it is applied. `Blocks.Application(handle)` says where it stands
 
 | State | Meaning |
 |---|---|
-| `PendingContent` | compiled; waits for the game's content to be ready |
-| `Applied` | the initial registration pass completed; see the content-ready limitation below |
+| `PendingContent` | compiled, and waiting: for the game's content to be ready, for a block it names, or (registered already) for its parts at content ready |
+| `Applied` | every block of the plan is registered and its parts at content ready are done |
 | `Refused` | nothing of the plan is registered; `Reason` starts with the cause |
 | `Removed` | it went with its mod |
 
-The initial registration pass uses an owner of the plan's own, and an immediate refusal revokes that owner's registrations.
-`BlockApplicationChangedEvent` is posted once per change. Built-in content-ready work currently runs after publication:
-a late program/reference or rules failure is logged without revoking the plan or changing `Applied`. Until that completion
-path is transactional, `Applied` alone does not prove that a plan needing such work completed successfully.
+A plan registers under an owner of its own, and a refusal revokes that owner's registrations (a definition kiln.content
+cannot take out of a running game, an item or a recipe, is orphaned as when a mod unloads).
+Most plans also have **parts at content ready**: their rules (an item's values and tooltip rows), programs that name the
+game's own values (a status, a template), checks and icons, and kiln.content's answer about their definitions. Such a
+plan stays `PendingContent`, with its reason saying `registered; waiting for its parts at content ready`, until its first
+pass at content ready is done and kiln.content had about 150 steps (6 seconds) to report on its definitions. Only then
+is it `Applied` (and `Blocks.Find` gives it). When one of those parts fails it is `Refused` with the cause
+`ContentReadyFailed` and the first problem (a program names a status the game does not have, a rule the game refused, a
+definition kiln.content could not take; `kiln.log` and `kiln blocks` list every one), and its owner is revoked, as for any
+refused plan. Only when that revoke fails does the reason end with `its registrations could not be taken back (…): they
+stay until the mod unloads`; the unload revokes again. Warnings of its definitions do not refuse it (they are in
+`kiln blocks`). Kiln's own runtime records of a refused plan's blocks (triggers, loot, weapon routes) are not taken
+back before the mod unloads, as for a plan refused while it registered. `BlockApplicationChangedEvent` is posted once per
+change.
+
+What is not covered yet: a content application later in the process (the game reloads its content) replays an applied
+plan's rules, and an error then is only logged; the plan stays `Applied`.
 
 `Blocks.Compile(name, block)` and `Blocks.Apply(plan)` are the two halves of `Define`, for a mod that wants the plan
 (`plan.Products`, `plan.InputHash`) before it is applied. A plan belongs to the mod instance that compiled it: another

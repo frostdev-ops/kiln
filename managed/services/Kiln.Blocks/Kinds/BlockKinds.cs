@@ -141,11 +141,16 @@ public sealed class BlockKindRegisteredEvent : KilnEvent
 /// <summary>Where a block of an external kind stands for its consumer mod.</summary>
 public enum BlockApplyState
 {
-    /// <summary>Compiled, and waiting: for the game's content to be ready, or for a block of another mod it names.</summary>
+    /// <summary>Compiled, and waiting: for the game's content to be ready, for a block of another mod it names, or (registered already)
+    /// for its parts at content ready to be done: its rules, programs that name the game's values, checks and icons, and kiln.content's
+    /// answer about its definitions (a few seconds after content is ready). Nothing of it is published while it waits:
+    /// <see cref="Blocks.Find"/> does not give the block yet.</summary>
     PendingContent,
-    /// <summary>Every block of the plan is registered; <see cref="Blocks.Find"/> gives the block.</summary>
+    /// <summary>Every block of the plan is registered and its parts at content ready are done; <see cref="Blocks.Find"/> gives the block.</summary>
     Applied,
-    /// <summary>Not applied, and nothing of the plan is registered. <see cref="BlockApplyResult.Reason"/> says why.</summary>
+    /// <summary>Not applied, and nothing of the plan is registered: a part at content ready that failed (<c>ContentReadyFailed</c>) takes
+    /// back what the plan had registered. Only when that cannot be done does <see cref="BlockApplyResult.Reason"/> end by saying what stays
+    /// until the mod unloads. <see cref="BlockApplyResult.Reason"/> says why.</summary>
     Refused,
     /// <summary>It was there and went with its mod, or the plan was never submitted.</summary>
     Removed,
@@ -153,8 +158,10 @@ public enum BlockApplyState
 
 /// <summary>A snapshot of where a plan stands. <see cref="Ok"/> only when <see cref="State"/> is
 /// <see cref="BlockApplyState.Applied"/>; otherwise <see cref="Reason"/> starts with one word for the cause
-/// (<c>PendingContent</c>, <c>ProviderRetired</c>, <c>NameAlreadyApplied</c>, <c>DependencyRefused</c>, <c>RequiresOff</c>,
-/// <c>ClientsTooLow</c>, <c>Refused</c>, <c>Removed</c>).</summary>
+/// (<c>PendingContent</c>, <c>ProviderRetired</c>, <c>NameAlreadyApplied</c>, <c>NameTaken</c>, <c>StaleRequest</c>, <c>DependencyRefused</c>,
+/// <c>RequiresOff</c>, <c>ClientsTooLow</c>, <c>Refused</c>, <c>ContentReadyFailed</c>, <c>Removed</c>). <c>ContentReadyFailed</c>: the plan was
+/// registered, and a part at content ready failed (a program names a game value the game does not have, a rule the game refused, a
+/// definition kiln.content could not take); the reason gives the first problem, kiln.log every one.</summary>
 public sealed record BlockApplyResult : IKilnResult
 {
     public bool Ok { get; init; }
