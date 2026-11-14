@@ -8,5 +8,5 @@
   "side": "both",
   "clients": "mod",
   "boot": true,
-  "description": "Mod.OnBoot: a status, an effect, an item, a spell and a game-tree talent that a first start already has, with numbers read from the game's data before the game starts. Needs the boot game-data snapshot."
+  "description": "Mod.OnBoot: a status, an effect, an item, a spell, a game-tree talent and a resource patch that a first start already has, with numbers read from the game's data before the game starts. Needs the boot game-data snapshot."
 }

@@ -6,5 +6,5 @@
   "entryAssembly": "BootCallbackFail.dll",
   "side": "server",
   "clients": "mod",
-  "boot": true
+  "boot": "required"
 }
