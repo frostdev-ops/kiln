@@ -75,6 +75,10 @@ std::string hex(int64_t v) {
 // The exe file's .text (image().file, relocated like the live image) when it is the loaded code, else the live .text.
 struct Code {
     pe::CodeView view;
+    // The exe file's .text (relocated like the live image), retained on both scan paths so a rel32 capture can be
+    // checked against the file even when the live code is scanned. Null when no trustworthy file view exists.
+    const uint8_t* file_text = nullptr;
+    size_t file_size = 0;
     std::string note;             // why this view (kiln.log, report)
     size_t fixups = 0;            // base relocations applied to the file's copy
     size_t live_diff_bytes = 0;   // live .text bytes that differ from the file's, at the time of the check
@@ -260,6 +264,8 @@ void init_code() {
         if (!relocate_guarded(text, size, &ft, img.base, &g_code.fixups))
             return fallback("cannot apply base relocations to the mapped file");
     }
+    g_code.file_text = text;
+    g_code.file_size = size;
     g_code.runs = pe::diff_runs(text, img.text, size, ft.text_rva, &g_code.live_diff_bytes);
     if (g_code.live_diff_bytes > size / 100) {
         char b[96];
@@ -809,6 +815,18 @@ private:
         std::vector<Capture>& caps = captures_[tag];
         caps.clear();
         for (const Hole& h : p.holes) {
+            // A rel32 capture read through a redirected call measures the hook, not the function: the call site's
+            // live operand names a stub or relay outside the image, so the vote disagrees with the pattern (or
+            // with a clean capture) and fails a symbol another engine merely hooked. Skip it; the pattern value
+            // or an unredirected capture stands. No file view, no redirect, or no E8 before the hole: record
+            // exactly as before, so clean stacks resolve byte-identically.
+            if (h.kind == Hole::Rel32 && g_code.file_text && h.offset > 0) {
+                const size_t start = static_cast<size_t>(match - cv.scan) + h.offset - 1;
+                const auto* live = reinterpret_cast<const uint8_t*>(cv.live);
+                if (pe::redirected_call_at(g_code.file_text, live, cv.size, start, cv.live, image().base,
+                                           image().size, call_lands))
+                    continue;
+            }
             int64_t v = 0;
             hole_value(p, match, h.name, &v, cv.delta());
             caps.push_back({h.name, h.kind == Hole::Rel32, v});
