@@ -36,6 +36,18 @@ enshrouded_server.exe / enshrouded.exe
    ([native-mods.md](native-mods.md)), sigdb (12 ms for all symbols), policy decision, hooks (SimStep, log listener),
    in-core services, service DLLs and plugins, native mods `boot` (and `world` armed), .NET (40 ms) and `Kiln.Host`
    (10 ms), then `kiln/state/boot.json`.
+   **The boot phase** (since 0.2.0-dev.28; [modding/onboot.md](modding/onboot.md), [services/boot.md](services/boot.md))
+   sits inside this step. kiln.boot decides once, before the service DLLs load, whether this process has a boot
+   generation (hooks and .NET on, an enabled mod of this side with `"boot"`, `mods.boot` available; on a game client
+   also `mods.boot.client`, held in this build). If it does, the seven collectors (assets, worldtables, content,
+   skills, knowledge, vfx, patches) register in `kiln_plugin_main` or `on_ready` and keep their definitions back
+   instead of loading them there; registration closes once every `on_ready` ran. Inside the .NET start, `Kiln.Host`
+   runs each boot mod's `OnBoot` on a throwaway copy, lowers what it staged, and commits: kiln.boot prepares every
+   collector in that order, leaves out a failed mod and the mods that require it, and publishes one generation. Then,
+   before chain.ini `[late]` DLLs and before the game's entry point, the core checks it: anything but a published
+   generation writes `progress.json` ("failed") and `boot.json` (section `boot`) and ends the process with exit code
+   0x4B01; the game is never entered. Without a boot generation nothing of this runs and every collector loads in
+   `on_ready` as before.
 4. Managed mods load at the first server-world step, on the tick thread (on a client: client/both mods in the menu,
    side "server" mods with each hosted server world; docs/kiln/client.md "Mods and sides").
 

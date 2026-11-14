@@ -107,6 +107,14 @@ Each refusal is a line in kiln.log (`vfx: <id>: blocks/<file>: not read: ...`), 
   kiln.content throws there: statuses, effects, items, spells and talent blocks. A talent block needs kiln.assets for its
   generated Impact program. The build says `not baked: the mod does not load without the game` and bakes nothing for that mod; set `KilnBake=false`
   to skip the try.
+- **`OnBoot` (since 0.2.0-dev.28).** The bake runs `OnLoad` only; it does not call `OnBoot`, and nothing a mod stages
+  there is baked. It does not need to be: on a server with the boot phase, what `OnBoot` stages is in from the first
+  start ([onboot.md](onboot.md)), and those are the very kinds the bake cannot take (statuses, effects, items, spells,
+  talents). Where one identity has several sources, the collectors keep the first of: the mod's data file, its baked or
+  generated file, its `OnBoot` definition, the pending cache of earlier runs. A data file of the same kind and name wins
+  over a staged block, with a warning.
+  <!-- O1 (08-onboot S8, the Baker stage path): when the bake calls OnBoot and writes staged definitions through the
+       same stage path, say so here and in onboot.md; until then this paragraph is what the build does. -->
 - **A node whose `IconFile` lies outside the mod's folder.** That path is the build machine's, not the mod's. A path inside
   the folder is baked relative to it, as kiln.skills reads a mod file's paths. A relative path in a definition from code
   is the kiln folder's, as kiln.skills reads code definitions, and is resolved there first.
