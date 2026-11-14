@@ -106,6 +106,14 @@ public static class Game
     {
         if (!IsTickThread) throw new InvalidOperationException("This must run on the tick thread; use Scheduler.Post.");
     }
+
+    /// <summary>A mod's <see cref="Mod.OnBoot"/> is running on this thread: its boot-author frame is open (Kiln.Host's boot phase,
+    /// <see cref="BootFrame"/>), before the game's first tick.</summary>
+    internal static bool InBoot => BootFrame.Current is { Open: true };
+
+    /// <summary>What a member says when it cannot run in OnBoot.</summary>
+    internal static string NotInBoot(string member) =>
+        $"{member} is not available in OnBoot (it runs before the game's first tick); call it in OnLoad";
 }
 
 /// <summary>Seam between the public API and whatever hosts it (the native core, or a test fake).</summary>
