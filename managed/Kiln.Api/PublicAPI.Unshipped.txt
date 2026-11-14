@@ -31,6 +31,8 @@ Kiln.EcsProgramContext.TryGet<T>(out T value, bool template = false) -> bool
 Kiln.EcsProgramContext.TryGetOther<T>(Kiln.EntityId entity, out T value) -> bool
 Kiln.EcsProgramContext.TrySet<T>(T value) -> bool
 Kiln.EcsProgramContext.TrySetOther<T>(Kiln.EntityId entity, T value) -> bool
+Kiln.Capability.IsHeld.get -> bool
+static Kiln.Capabilities.IsHeld(string! name) -> bool
 Kiln.GameType.ImpactName.get -> string?
 static Kiln.GameTypes.ByImpactName(string! impactName) -> Kiln.GameType?
 static Kiln.GameTypes.FindAllByImpactName(string! impactName) -> System.Collections.Generic.IReadOnlyList<Kiln.GameType!>!
