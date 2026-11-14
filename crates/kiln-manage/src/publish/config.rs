@@ -256,6 +256,24 @@ mod tests {
         assert_eq!(PublishConfig::parse(nexus.as_bytes()).unwrap_err().code, ErrorCode::Unsupported);
     }
 
+    /// The schema file and the reader agree on the example and on the key lists.
+    #[test]
+    fn the_schema_example_reads_and_the_schema_lists_the_same_keys() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../schema");
+        let c = PublishConfig::parse(&std::fs::read(root.join("examples/kiln.publish.json")).unwrap()).unwrap();
+        assert_eq!(c.package_files.len(), 1);
+        let schema: serde_json::Value = serde_json::from_slice(&std::fs::read(root.join("kiln-publish.schema.json")).unwrap()).unwrap();
+        let keys = |v: &serde_json::Value| -> Vec<String> {
+            let mut k: Vec<String> = v["properties"].as_object().unwrap().keys().cloned().collect();
+            k.sort();
+            k
+        };
+        assert_eq!(keys(&schema), ["$schema", "format", "github", "notes", "packageFiles", "provider"]);
+        assert_eq!(keys(&schema["properties"]["github"]), ["commit", "prerelease", "repository", "tag"]);
+        assert_eq!(keys(&schema["properties"]["packageFiles"]["items"]), ["license", "path", "purpose", "sha256"]);
+        assert_eq!(schema["additionalProperties"], false);
+    }
+
     #[test]
     fn grammars() {
         assert!(is_repository("a/b") && is_repository("Example-Org/my.mod_2") && !is_repository("a") && !is_repository("a/b/c") && !is_repository("a/") && !is_repository("a b/c"));
