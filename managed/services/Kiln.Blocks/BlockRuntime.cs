@@ -231,6 +231,8 @@ internal static class BlockRuntime
             var report = BlocksBridge.ApplyAs(mod.Owner, part.ToJsonString(), $"blocks of {mod.Id}");
             foreach (var e in report.Errors) Problem(e);
         }
+        // the kept rules of routed weapons were in that document: a weapon whose applied generation did not come back says so in its status
+        MoveApplications.Replayed(mod, Problem);
         // what kiln.content and kiln.gamedata could not take of a definition: a block's author reads it here, by name. An item's reference
         // to a clone is retried every 2 s: look when that has passed.
         BlocksBridge.After(150, () =>

@@ -129,9 +129,7 @@ public sealed partial class ClientPassMod
     public async Task ClipIdentityOverride(CheckContext c)
     {
         // its fixture (a cooked clip served under a new GUID and, after a restart, under a game GUID) is an optional extension of the package and is
-        // not built: the check asks for skip until a mod with this id exists
-        if (!await Need(c, "clip-override-fixture")) return;
-        c.Instruct("The fixture for this check is not part of this build. Press skip.");
-        await c.Verdict();
+        // not built
+        await c.Skip("its fixture is not built (a cooked clip served under a new id and under a game id)");
     }
 }
