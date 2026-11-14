@@ -347,6 +347,90 @@ impl UreqTransport {
     }
 }
 
+/// A resolver for the timeout test: every name is this one address (a listener the test itself opened).
+#[cfg(all(test, feature = "http"))]
+#[derive(Debug)]
+struct FixedResolver(std::net::SocketAddr);
+
+#[cfg(all(test, feature = "http"))]
+impl ureq::unversioned::resolver::Resolver for FixedResolver {
+    fn resolve(&self, _: &ureq::http::Uri, _: &ureq::config::Config, _: ureq::unversioned::transport::NextTimeout)
+        -> std::result::Result<ureq::unversioned::resolver::ResolvedSocketAddrs, ureq::Error> {
+        let mut v = ureq::unversioned::resolver::ResolvedSocketAddrs::from_fn(|_| "0.0.0.0:1".parse().unwrap());
+        v.push(self.0);
+        Ok(v)
+    }
+}
+
+#[cfg(feature = "http")]
+impl UreqTransport {
+    fn bounded_config(connect: std::time::Duration, response: std::time::Duration) -> ureq::config::Config {
+        ureq::Agent::config_builder()
+            .https_only(true)
+            .http_status_as_error(false)
+            .proxy(None)
+            .max_redirects(0)
+            .max_redirects_will_error(false)
+            .redirect_auth_headers(ureq::config::RedirectAuthHeaders::Never)
+            .timeout_connect(Some(connect))
+            .timeout_recv_response(Some(response))
+            .timeout_per_read(Some(response))
+            // the whole exchange, whatever phase stalls (a TLS handshake that never completes, a body that trickles)
+            .timeout_global(Some(connect + response))
+            .build()
+    }
+
+    /// The same transport as [`UreqTransport::new`] with its own time bounds: `connect` for reaching the host,
+    /// `response` for the answer, and `connect + response` for the whole exchange. For small reads that must not
+    /// hold a check up (the update check: 10 s); uploads keep [`UreqTransport::new`].
+    pub fn with_timeouts(connect: std::time::Duration, response: std::time::Duration) -> UreqTransport {
+        let agent = ureq::Agent::with_parts(
+            Self::bounded_config(connect, response),
+            ureq::unversioned::transport::DefaultConnector::new(),
+            VettingResolver(ureq::unversioned::resolver::DefaultResolver::default()),
+        );
+        UreqTransport { agent }
+    }
+
+    /// [`UreqTransport::with_timeouts`] with every name resolved to one address of the test's own.
+    #[cfg(test)]
+    fn with_timeouts_to(connect: std::time::Duration, response: std::time::Duration, addr: std::net::SocketAddr) -> UreqTransport {
+        let agent = ureq::Agent::with_parts(Self::bounded_config(connect, response), ureq::unversioned::transport::DefaultConnector::new(), FixedResolver(addr));
+        UreqTransport { agent }
+    }
+}
+
+#[cfg(all(test, feature = "http"))]
+mod timeout_tests {
+    use super::*;
+    use std::time::{Duration, Instant};
+
+    /// A server that accepts and never answers: the call fails within its bound instead of hanging. The listener is
+    /// this test's own, on 127.0.0.1; the host name in the URL is never looked up.
+    #[test]
+    fn a_host_that_never_answers_fails_within_the_bound() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let accepted = std::thread::spawn(move || {
+            // keep the connection open and silent until the client gives up
+            let conn = listener.accept().map(|(s, _)| s);
+            std::thread::sleep(Duration::from_secs(4));
+            drop(conn);
+        });
+        let t = UreqTransport::with_timeouts_to(Duration::from_millis(500), Duration::from_millis(700), addr);
+        let url = policy::parse_url("https://never-answers.example/releases?per_page=100").unwrap();
+        let started = Instant::now();
+        let r = t.exchange(WireRequest { method: Method::Get, url, headers: vec![("User-Agent".into(), "kiln-test/0".into())], body: Body::Empty, max_response: 1024 });
+        let took = started.elapsed();
+        let e = r.expect_err("a silent host gave an answer");
+        assert_eq!(e.code, ErrorCode::Network);
+        assert!(!e.message.contains("per_page"), "the error holds the query: {}", e.message);
+        assert!(took >= Duration::from_millis(400), "failed at once ({took:?}): the listener was not reached");
+        assert!(took < Duration::from_millis(3000), "took {took:?}, the bound is 1.2 s");
+        let _ = accepted.join();
+    }
+}
+
 #[cfg(feature = "http")]
 impl Default for UreqTransport {
     fn default() -> Self {

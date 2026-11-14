@@ -45,6 +45,9 @@ pub const PER_PAGE: usize = 100;
 pub const MAX_PAGES: usize = 5;
 /// The bound of one page of the release list.
 pub const MAX_PAGE_BYTES: u64 = 1024 * 1024;
+/// The time bound of a request of an update check: for connecting and for the answer (the real transport is made
+/// with it: `UreqTransport::with_timeouts`).
+pub const REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 /// A check the player started does not ask again about a source answered within this time (as the Nexus catalog).
 pub const MANUAL_TTL_SECS: i64 = 1800;
 

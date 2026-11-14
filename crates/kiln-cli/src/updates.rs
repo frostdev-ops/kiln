@@ -148,7 +148,7 @@ pub fn run(a: UpdatesArgs, json: bool) -> Result<i32> {
     let report = if offline {
         check(&dirs, &NoNetwork, &opts)?
     } else {
-        check(&dirs, &net::UreqTransport::new(), &opts)?
+        check(&dirs, &net::UreqTransport::with_timeouts(github::REQUEST_TIMEOUT, github::REQUEST_TIMEOUT), &opts)?
     };
     if json {
         crate::out::print_json(&document(&report));
