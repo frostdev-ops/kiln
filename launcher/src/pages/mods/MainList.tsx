@@ -20,6 +20,7 @@ import { takeOver, USE_CHANGED } from "../../shell/libraryChanged";
 import { MOD_FILE_FILTERS, MOD_FILE_WORDS } from "../../shell/modFiles";
 import { bulkPlan, filterRows, kindsOf, type ModRow } from "../../shell/mods";
 import { notifyAdd } from "../../shell/notices";
+import { checkNow, noticeable, statusOf, UpdateBadge, UpdateSourceModal, useModUpdates } from "../../shell/modUpdates";
 import { NOT_REMOVABLE, removable, removeMany, removeMod, useRemoveCheck, useRemoveMany, withoutRows, type RemoveTarget } from "../../shell/removeMod";
 import { NONE, all as selectAll, ownerOf, pick as pickSelected, pruneSelection, range as selectRange, setSelection, toggle as toggleSelected, useOwnedSelection } from "../../shell/selection";
 import type { useMods } from "../../shell/useMods";
@@ -46,6 +47,10 @@ export function MainList({ game, mods, running }: { game: GameInstall; mods: Mod
   const [configs, setConfigs] = useState<string | null>(null);
   const [rm, setRm] = useState<RemoveTarget | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  // update notices (shell/modUpdates.tsx): words and a link per mod, shared with the Catalog page
+  const updates = useModUpdates();
+  const [checking, setChecking] = useState(false);
+  const [source, setSource] = useState<{ kind: ModKind; id: string; name: string } | null>(null);
   const pid = mods.profileId;
   const cfg = useQuery({ queryKey: qk.configs({ profile: pid ?? "" }), queryFn: () => api.configList({ profile: pid! }), enabled: !!pid });
   const withConfig = new Set((cfg.data ?? []).map((f) => f.mod).filter(Boolean) as string[]);
@@ -189,6 +194,7 @@ export function MainList({ game, mods, running }: { game: GameInstall; mods: Mod
         onSelect: () => void cookAgain(game.id, r.id, r.name).then(() => qc.invalidateQueries({ queryKey: ["cook_plan"] })) }] : []),
       ...versions.filter((v) => v.version !== cur).map((v) => ({ label: `Use ${v.version}`, disabled: !loaded, onSelect: () => mods.setVersion(r, v.version, v.hash) })),
       ...(folder ? [{ label: "Open folder", onSelect: () => api.appOpenPath(folder).catch((e) => toast.error(e)) }] : []),
+      ...(r.kind && r.lib ? [{ label: "Updates…", onSelect: () => setSource({ kind: r.kind!, id: r.id, name: r.name }) }] : []),
       ...(versions.length > 1 ? versions.filter((v) => v.version !== r.entry?.version).map((v) => ({ label: `Remove ${v.version}`, danger: true, disabled: running, onSelect: () => setRm({ row: r, version: v.version }) })) : []),
       { label: "Remove", danger: true, disabled: running, onSelect: () => setRm({ row: r, version: null }) },
     ];
@@ -219,6 +225,8 @@ export function MainList({ game, mods, running }: { game: GameInstall; mods: Mod
           </>
         )}
         <span className="k-spacer" />
+        {mods.rows.length > 0 && <button type="button" className="k-link" disabled={checking} title="Looks for newer versions of your mods. A notice and a link: nothing is downloaded or installed."
+          onClick={() => { setChecking(true); void checkNow(qc).finally(() => setChecking(false)); }}>{checking ? "Checking…" : "Check for updates"}</button>}
         <FolderNotesButton gameId={game.id} />
         <Link className="k-link" to="/mods/order">Load order</Link>
         <Link className="k-link" to="/mods/engines">Engines</Link>
@@ -260,8 +268,9 @@ export function MainList({ game, mods, running }: { game: GameInstall; mods: Mod
               )}
               <span className="k-mod-text">
                 <span className="k-mod-name" title={r.name !== r.id ? `${r.name} (${r.id})` : r.name}>{r.name}</span>
-                {(r.found || r.note) && (
+                {(r.found || r.note || (r.lib && noticeable(statusOf(updates.data, r.kind, r.id)))) && (
                   <span className="k-mod-note">
+                    {r.lib && <UpdateBadge status={statusOf(updates.data, r.kind, r.id)} />}
                     {r.found && <span className="k-mod-where">Game folder</span>}
                     {r.note && <span className={`k-tone-${r.note.tone}`} title={r.note.title}>{r.note.text}</span>}
                     {r.changed && (
@@ -288,6 +297,7 @@ export function MainList({ game, mods, running }: { game: GameInstall; mods: Mod
           {!shown.length && <li className="k-mods-none">No mod matches that.</li>}
         </ul>
       )}
+      <UpdateSourceModal target={source} onClose={() => setSource(null)} />
       <EngineSettingsModal target={settings} onClose={() => setSettings(null)} profileId={pid ?? ""} gameId={game.id} />
       <Modal open={!!configs} onClose={() => setConfigs(null)} title="Configs" width={960} footer={<Button onClick={() => setConfigs(null)}>Done</Button>}>
         {configs && pid && <ConfigEditor target={{ profile: pid }} initial={configs} />}

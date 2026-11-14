@@ -17,6 +17,10 @@ internal sealed class KindApplication
     public BlockApplyState State = BlockApplyState.PendingContent;
     public string Reason = "PendingContent";
     public ulong Generation, ContentGeneration, Owner;
+    /// <summary>Registered under <see cref="Owner"/> and waiting for its parts at content ready (still PendingContent, nothing published).</summary>
+    public bool Settling;
+    /// <summary>Refused, and its owner could not be revoked: what it registered stays until the mod unloads (said in the reason).</summary>
+    public bool LeftOver;
 
     public BlockApplyResult Result => new()
     {
@@ -172,7 +176,11 @@ internal static class KindApply
         lock (Gate) others = Apps.Where(a => ReferenceEquals(a.Key.Consumer, plan.Consumer.Token) && a.Key.Name != plan.Name && a.Value.State != BlockApplyState.Refused).Sum(a => a.Value.Stage.Bytes);
         if (others + stage.Bytes > MaxConsumerBytes) throw new BlockError($"{plan.KindId} {plan.Name}", null, $"mod {target.Id}'s plans make more than {MaxConsumerBytes >> 20} MiB together");
         var app = new KindApplication { Plan = plan, Target = target, Stage = stage, Handle = handle(stage) };
-        if (before != null) Set(before, BlockApplyState.Removed, "Removed: a later compile replaced the pending or refused request");
+        if (before != null)
+        {
+            TakeBack(before);   // a request that was registered and waiting for its parts at content ready
+            Set(before, BlockApplyState.Removed, "Removed: a later compile replaced the pending or refused request");
+        }
         lock (Gate)
         {
             Apps[key] = app;
@@ -213,7 +221,7 @@ internal static class KindApply
 
     private static KindApplication Pump(KindApplication app)
     {
-        if (app.State == BlockApplyState.PendingContent && OnTickThread()) TryCommit(app);
+        if (app.State == BlockApplyState.PendingContent && !app.Settling && OnTickThread()) TryCommit(app);
         return app;
     }
 
@@ -221,7 +229,7 @@ internal static class KindApply
     internal static void PumpAll()
     {
         KindApplication[] waiting;
-        lock (Gate) waiting = [.. Apps.Values.Where(a => a.State == BlockApplyState.PendingContent)];
+        lock (Gate) waiting = [.. Apps.Values.Where(a => a.State == BlockApplyState.PendingContent && !a.Settling)];
         foreach (var app in waiting) TryCommit(app);
     }
 
@@ -300,10 +308,80 @@ internal static class KindApply
             return;
         }
         tx.Dispose();
-        // every registration was taken: the block exists from here on
+        // every registration was taken
         app.Owner = owner;
         app.ContentGeneration = generation;
+        if (ledger.HookWanted)
+        {
+            // Parts of the plan run at content ready: its rules, programs that name the game's values, checks and icons. The plan stays
+            // PendingContent, with nothing published, until its first pass and the check of its definitions are done: then it is applied, or
+            // refused and taken back (Settled). The ledger is told before it is promoted, as a pass may run at once.
+            app.Settling = true;
+            app.Reason = "PendingContent: registered; waiting for its parts at content ready (rules, programs that name the game's values, checks)";
+            ledger.PlanDefinitions = [.. app.Stage.Blocks.SelectMany(b => b.Low.DefinitionNames)];
+            ledger.Settle = problems => Settled(app, ledger, problems);
+            BlockRuntime.Promote(ledger);
+            return;
+        }
         BlockRuntime.Promote(ledger);
+        Publish(app);
+    }
+
+    /// <summary>The plan's parts at content ready are done (<paramref name="problems"/>: what went wrong, none when nothing did). Applied, or
+    /// refused with the first problem and taken back as any refused plan: its owner is revoked. When that fails, the reason says what stays.</summary>
+    private static void Settled(KindApplication app, ModBlocks ledger, IReadOnlyList<string> problems)
+    {
+        lock (Gate)
+        {
+            if (!app.Settling) return;   // replaced or retired while it waited: taken back there
+            app.Settling = false;
+        }
+        var plan = app.Plan;
+        var label = $"{plan.KindId} {plan.Name}";
+        if (!plan.Consumer.Alive() || app.State != BlockApplyState.PendingContent) return;   // its retirement takes it away
+        var cause = "ContentReadyFailed";
+        if (problems.Count == 0)
+        {
+            if (!app.Target.Handles.TryGetValue(plan.Name, out var other) || ReferenceEquals(other, app.Handle))
+            {
+                Publish(app);
+                return;
+            }
+            cause = "NameTaken";
+            problems = [$"mod {app.Target.Id} defined a block \"{plan.Name}\" while the plan waited for content ready"];
+        }
+        ledger.Revoked = true;   // nothing of it runs again
+        var left = "";
+        if (RevokeOwner is not { } revoke) left = "; this build cannot take its registrations back: they stay until the mod unloads";
+        else
+            try { revoke(app.Owner); }
+            catch (Exception x) when (x is not OutOfMemoryException) { left = $"; its registrations could not be taken back ({x.Message}): they stay until the mod unloads"; }
+        app.LeftOver = left.Length > 0;
+        var more = problems.Count > 1 ? $" (and {problems.Count - 1} more: kiln.log, or kiln blocks)" : "";
+        BlocksBridge.Log(LogLevel.Error, $"blocks: {app.Target.Id}: block {label} was refused at content ready{(left.Length > 0 ? "" : ", and nothing of it stays")}: {problems[0]}{more}{left}");
+        Set(app, BlockApplyState.Refused, $"{cause}: {problems[0]}{more}{left}");
+    }
+
+    /// <summary>A plan that is registered and waiting for its parts at content ready is taken back (replaced, or its mod unloads).</summary>
+    private static void TakeBack(KindApplication app)
+    {
+        lock (Gate)
+        {
+            if (!app.Settling) return;
+            app.Settling = false;
+        }
+        app.Stage.Ledger.Revoked = true;
+        app.Stage.Ledger.Settle = null;
+        try { RevokeOwner?.Invoke(app.Owner); }
+        catch (Exception x) when (x is not OutOfMemoryException) { BlocksBridge.Log(LogLevel.Error, $"blocks: {app.Target.Id}: block {app.Plan.Name}: its owner could not be revoked: {x.Message}"); }
+    }
+
+    /// <summary>Every registration was taken and every part is done: the block exists from here on.</summary>
+    private static void Publish(KindApplication app)
+    {
+        var plan = app.Plan;
+        var label = $"{plan.KindId} {plan.Name}";
+        var ledger = app.Stage.Ledger;
         var json = new JsonObject { ["kind"] = plan.KindId, ["primary"] = app.Stage.Primary.Name, ["inputHash"] = plan.InputHash };
         var products = new JsonObject();
         foreach (var staged in app.Stage.Blocks) products[staged.Name] = staged.Low.Json.DeepClone();
@@ -334,8 +412,9 @@ internal static class KindApply
         }
         foreach (var app in gone)
         {
+            TakeBack(app);   // registered and waiting for its parts at content ready
             app.Stage.Ledger.Revoked = true;
-            if (app.State == BlockApplyState.Applied)
+            if (app.State == BlockApplyState.Applied || app.LeftOver)
             {
                 if (app.Target.Handles.TryGetValue(app.Plan.Name, out var h) && ReferenceEquals(h, app.Handle)) app.Target.Handles.TryRemove(app.Plan.Name, out _);
                 try { RevokeOwner?.Invoke(app.Owner); }

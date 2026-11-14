@@ -190,19 +190,118 @@ public sealed class OwnershipLossTests
         Assert.Equal(writes, world.Writes.Count);
     }
 
+    // ---- Forget leaves a tombstone: the next apply of that id is a first install, not a lost ledger ----
+
+    private static TerrainBook BookOf(MemoryWorld world, string worldId) => world.Books[worldId + "|" + Mod];
+
     [Fact]
-    public void After_Forget_ground_that_still_holds_the_plan_is_refused_too()
+    public void After_Forget_an_apply_over_unchanged_ground_is_a_first_install_and_uses_the_tombstone_up()
+    {
+        var world = new MemoryWorld();
+        var patch = Shape("box");
+        var run = new Checked(world);
+        Assert.Equal(TerrainState.Completed, run.Apply(patch).State);
+        Assert.True(run.Engine.Forget("box"));
+        Assert.True(BookOf(world, "world-a").WasForgotten("box"));
+        // the tombstone is world data: it outlives a save and a restart (a new session over the stored JSON)
+        world.Books["world-a|" + Mod] = System.Text.Json.JsonSerializer.Deserialize<TerrainBook>(System.Text.Json.JsonSerializer.Serialize(BookOf(world, "world-a")))!;
+        var again = new Checked(world);
+        var seen = again.Inspect(patch);
+        Assert.Equal((true, TerrainState.Completed), (seen.Ok, seen.Would));   // Inspect looks and leaves it
+        Assert.True(BookOf(world, "world-a").WasForgotten("box"));
+
+        var r = again.Apply(patch);
+        Assert.Equal((true, TerrainState.Completed, 0L), (r.Ok, r.State, r.ChangedCells));   // the ground held it already
+        Assert.Equal(("box", 1, true, 2), (again.Engine.Applied()[0].Plan, again.Engine.Applied()[0].Version, again.Engine.Applied()[0].Complete, again.Engine.Applied()[0].Blocks));
+        Assert.False(BookOf(world, "world-a").WasForgotten("box"));
+        Assert.Null(BookOf(world, "world-a").Forgotten);
+        // used up: the same plan losing its record now, with no Forget, is a lost ledger again
+        Assert.True(BookOf(world, "world-a").Plans.Remove("box"));
+        Assert.Equal(TerrainState.Refused, new Checked(world).Apply(patch).State);
+    }
+
+    [Fact]
+    public void After_Forget_the_first_install_writes_over_whatever_is_there()
     {
         var world = new MemoryWorld();
         var patch = Shape("box");
         var run = new Checked(world);
         run.Apply(patch);
-        world.Set(64, 96, 64, Voxel.Air);                   // a player's dig, not to be filled in again
+        world.Set(64, 96, 64, Voxel.Air);                   // a player's dig: the plan no longer owns its blocks
         Assert.True(run.Engine.Forget("box"));
         var r = run.Apply(patch);
-        Assert.Equal(TerrainState.Refused, r.State);
-        Assert.Contains("or the plan was forgotten", r.Reason);
-        Assert.Equal(Voxel.Air, world.Get(64, 96, 64));
+        Assert.Equal((TerrainState.Completed, 1L), (r.State, r.ChangedCells));
+        Assert.Equal(Voxel.Of(Ore), world.Get(64, 96, 64));
+    }
+
+    [Fact]
+    public void A_plan_that_was_never_forgotten_is_still_refused_and_a_tombstone_stays_in_its_world_and_mod()
+    {
+        var world = new MemoryWorld();
+        var box = Shape("box");
+        var vein = Shape("vein") with { Region = Two.Offset(new CellPos(32, 0, 0)) };
+        var run = new Checked(world);
+        run.Apply(box);
+        run.Apply(vein);
+        // world b: the same ground and a copy of world a's ledger, as a world copied with its Kiln data
+        world.Books["world-b|" + Mod] = System.Text.Json.JsonSerializer.Deserialize<TerrainBook>(System.Text.Json.JsonSerializer.Serialize(BookOf(world, "world-a")))!;
+
+        Assert.True(run.Engine.Forget("box"));              // world a forgets box on purpose
+        Assert.True(BookOf(world, "world-a").Plans.Remove("vein"));   // and loses vein's record (no Forget)
+        Assert.Equal(TerrainState.Refused, new Checked(world).Apply(vein).State);
+        Assert.Equal(TerrainState.Completed, new Checked(world).Apply(box).State);
+
+        world.WorldId = "world-b";                          // world b loses box's record: world a's tombstone is not its
+        Assert.True(BookOf(world, "world-b").Plans.Remove("box"));
+        Assert.Equal(TerrainState.Refused, new Checked(world).Apply(box).State);
+        // nor is it another mod's: mod-b's apply of an id "box" over this ground is checked like any first install
+        world.WorldId = "world-a";
+        Assert.True(new Checked(world).Engine.Forget("box"));
+        var other = new TerrainEngine(world.For("mod-b"), new TerrainSession(), null).Apply(TerrainPlan.Lower(box), new TerrainApplyOptions(), 32).GetAwaiter().GetResult();
+        Assert.Equal(TerrainState.Refused, other.State);
+        Assert.StartsWith("ownership lost", other.Reason);
+    }
+
+    [Fact]
+    public void Tombstones_are_bounded_validated_and_optional()
+    {
+        var book = new TerrainBook();
+        for (var i = 0; i <= TerrainBook.MaxForgotten; i++)
+        {
+            book.Plans[$"p{i}"] = new TerrainRecord();
+            Assert.True(book.Forget($"p{i}"));
+        }
+        Assert.Equal(TerrainBook.MaxForgotten, book.Forgotten!.Count);
+        Assert.False(book.WasForgotten("p0"));              // the oldest went
+        Assert.True(book.WasForgotten($"p{TerrainBook.MaxForgotten}"));
+        Assert.False(book.Forget("no-such-plan"));
+
+        var world = new MemoryWorld();
+        var patch = Shape("box");
+        new Checked(world).Apply(patch);
+        var json = System.Text.Json.JsonSerializer.Serialize(BookOf(world, "world-a"));
+        Assert.DoesNotContain("\"Forgotten\":{", json);    // none yet
+        var old = System.Text.Json.Nodes.JsonNode.Parse(json)!.AsObject();
+        old.Remove("Forgotten");                            // a ledger written before tombstones
+        var read = System.Text.Json.JsonSerializer.Deserialize<TerrainBook>(old.ToJsonString())!;
+        Assert.Null(read.Forgotten);
+        read.Validate((20480, 20480));
+
+        Action<TerrainBook>[] corrupt =
+        [
+            b => b.Forgotten = new() { ["Not An Id"] = DateTimeOffset.UtcNow },
+            b => b.Forgotten = new() { ["box"] = DateTimeOffset.UtcNow },          // a forgotten plan with a record
+            b => b.Forgotten = Enumerable.Range(0, TerrainBook.MaxForgotten + 1).ToDictionary(i => $"t{i}", _ => DateTimeOffset.UtcNow),
+        ];
+        foreach (var damage in corrupt)
+        {
+            var w = new MemoryWorld();
+            var run = new Checked(w);
+            run.Apply(patch);
+            damage(BookOf(w, "world-a"));
+            Assert.Equal(TerrainState.Refused, run.Apply(patch with { Version = 2 }).State);
+            Assert.False(run.Engine.Forget("box"));
+        }
     }
 
     [Fact]

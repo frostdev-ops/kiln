@@ -9,6 +9,7 @@ using System.Text.Json;
 namespace Kiln;
 
 /// <summary>What a definition call may settle for.</summary>
+[System.Diagnostics.CodeAnalysis.Experimental("KILNX028")]
 public enum DefinitionTiming : uint
 {
     /// <summary>Register in this process, or refuse. Nothing is stored for later.</summary>
@@ -21,9 +22,11 @@ public enum DefinitionTiming : uint
 
 /// <summary>Options of a result-bearing definition call.</summary>
 /// <param name="Timing">What the call may settle for.</param>
+[System.Diagnostics.CodeAnalysis.Experimental("KILNX028")]
 public sealed record DefinitionRegistrationOptions(DefinitionTiming Timing = DefinitionTiming.RequireRegistered);
 
 /// <summary>What became of a definition.</summary>
+[System.Diagnostics.CodeAnalysis.Experimental("KILNX028")]
 public enum DefinitionRegistrationState : uint
 {
     /// <summary>Not registered and not stored.</summary>
@@ -37,6 +40,7 @@ public enum DefinitionRegistrationState : uint
 }
 
 /// <summary>The kinds of definition that register with a result.</summary>
+[System.Diagnostics.CodeAnalysis.Experimental("KILNX028")]
 public enum DefinitionRegistrationKind : uint
 {
     /// <summary>A visual effect resource.</summary>
@@ -48,6 +52,7 @@ public enum DefinitionRegistrationKind : uint
 }
 
 /// <summary>Why a definition was refused, as a value a mod can branch on.</summary>
+[System.Diagnostics.CodeAnalysis.Experimental("KILNX028")]
 public enum DefinitionRefusalCode : uint
 {
     /// <summary>Not refused.</summary>
@@ -96,6 +101,7 @@ public enum DefinitionRefusalCode : uint
 /// <param name="SnapshotRevision">The service revision the answer was committed in
 /// (<see cref="CapacityInfo.Revision"/> of the same service).</param>
 /// <param name="Warnings">Things the author should know that did not stop it.</param>
+[System.Diagnostics.CodeAnalysis.Experimental("KILNX028")]
 public sealed record DefinitionRegistrationResult(bool Ok, string? Reason, DefinitionRefusalCode Code, Guid RegistrationId,
     Guid Definition, DefinitionRegistrationKind Kind, DefinitionRegistrationState State, uint SlotsConsumed,
     ulong SnapshotRevision, IReadOnlyList<string> Warnings) : IKilnResult;
@@ -103,6 +109,7 @@ public sealed record DefinitionRegistrationResult(bool Ok, string? Reason, Defin
 /// <summary>A registration changed: a definition was registered, stored for the next start, refused after it had a
 /// receipt, or a stored one was settled at this start. Posted on the bus by the owning service after the change is
 /// committed. A repeated call that changes nothing posts nothing.</summary>
+[System.Diagnostics.CodeAnalysis.Experimental("KILNX028")]
 public sealed class DefinitionRegistrationChangedEvent : KilnEvent
 {
     internal DefinitionRegistrationChangedEvent(string modId, DefinitionRegistrationResult current,

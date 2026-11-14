@@ -172,7 +172,8 @@ PY
 fi
 # The game data Mod.OnBoot reads (tools/bootsnap, docs/kiln/modding/boot-snapshot.md): made once per game build into
 # kiln/data/boot-gamedata (about a minute and about 200 MB the first time, under a second after), before the server's
-# first start lets EML patch the archive (it reads EML's backup pair after that), and only when a mod in kiln/mods asks
+# first start lets EML patch the archive (it reads EML's backup pair after that), and only when an enabled profile mod
+# or an allowed, unlisted drop-in in kiln/mods asks
 # for the boot phase (--if-needed: "no mod needs the boot snapshot" otherwise, and nothing is touched). A failure is a
 # warning: the server starts without it and kiln.boot says why. KILN_NO_BOOT_SNAPSHOT=1 skips the step altogether.
 if [[ ${KILN_NO_BOOT_SNAPSHOT:-} != 1 ]] && ! python3 -I "$repo/tools/bootsnap/bootsnap.py" make --game "$server" --if-needed; then

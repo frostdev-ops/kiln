@@ -11,6 +11,8 @@ import * as api from "../api/commands";
 import * as nx from "../api/nexus";
 import type { CatalogFilter, CatalogMod, CatalogSort } from "../api/nexus";
 import { offered, useCatalogInstall, useNexusAccount, useReportToast } from "../shell/catalogInstall";
+import { checkModUpdates, openUpdatePage, useModUpdates } from "../shell/modUpdates";
+import { hasUpdate, pageOf } from "../api/updates";
 import { Badge, Banner, Button, EmptyState, KeyValue, Modal, Page, PageHeader, Segmented, Select, Skeleton, WellInput, errorText, fmtAgo, toast, type Tone } from "../ui";
 import "./catalog.css";
 
@@ -39,8 +41,13 @@ export default function CatalogPage() {
   useEffect(() => { const t = setTimeout(() => { setText(typed); setPage(1); }, 250); return () => clearTimeout(t); }, [typed]);
   const query = useMemo(() => ({ text, filter, sort, page, pageSize: PAGE }), [text, filter, sort, page]);
   const list = useQuery({ queryKey: nx.nk.search(query), queryFn: () => nx.nexusSearch(query), retry: false, placeholderData: (p) => p });
-  // the installed mods' newest versions (cached 30 min per file in the backend)
-  const installed = useQuery({ queryKey: nx.nk.installed, queryFn: () => nx.nexusInstalled(true), retry: false, staleTime: 5 * 60_000 });
+  // the mods installed from the catalog (their count and the Installed filter)
+  const installed = useQuery({ queryKey: nx.nk.installed, queryFn: () => nx.nexusInstalled(false), retry: false, staleTime: 5 * 60_000 });
+  // their newest versions come from the shared update check (shell/modUpdates.tsx; Nexus answers are cached 30 min per
+  // file in the backend): Nexus Mods is asked once when the page opens, as before; GitHub sources only show what is
+  // remembered (they are asked by "Check for updates" or the daily check, never by opening this page)
+  const modUpdates = useModUpdates();
+  useEffect(() => { void checkModUpdates(qc, { providers: ["nexus"] }).then(() => qc.invalidateQueries({ queryKey: nx.nk.installed })).catch(() => {}); }, [qc]);
   // the Kiln filter looks at a batch of mods per call: ask again until none waits
   const unchecked = list.data?.unchecked ?? 0;
   useEffect(() => {
@@ -54,11 +61,13 @@ export default function CatalogPage() {
       await nx.nexusSearch({ ...query, refresh: true });
       qc.invalidateQueries({ queryKey: ["nexus_search"] });
       qc.invalidateQueries({ queryKey: nx.nk.installed });
+      void checkModUpdates(qc, { refresh: true, providers: ["nexus"] }).catch(() => {});
     } catch (e) { toast.error(e, "Nexus Mods did not answer"); }
   };
 
   const acc = account.data;
-  const updates = (installed.data ?? []).filter((i) => i.info.updateAvailable && i.info.inLibrary);
+  // the banner: the Nexus Mods mods of the shared result with a newer version or a new upload
+  const updates = (modUpdates.data?.mods ?? []).filter((m) => m.source?.provider === "nexus" && hasUpdate(m));
   const p = list.data;
   const pages = p ? Math.max(1, Math.ceil(p.total / p.pageSize)) : 1;
   const say = list.isLoading ? "Asking Nexus Mods." : list.error ? errorText(list.error)
@@ -80,8 +89,11 @@ export default function CatalogPage() {
       {acc?.error && <Banner tone="warn" title={acc.error.code === "auth_failed" ? "Sign in to Nexus Mods again" : "Nexus Mods could not check your account"} actions={<Button size="s" onClick={() => nav("/settings#nexus")}>Settings</Button>}>{acc.error.message}</Banner>}
       {updates.length > 0 && (
         <Banner tone="warn" title={updates.length === 1 ? `Update ready: ${updates[0].name}` : `${updates.length} updates ready`}
-          actions={<Button size="s" onClick={() => { setFilter("installed"); setPage(1); }}>Show</Button>}>
-          {updates.map((u) => `${u.name} ${u.version} → ${u.info.latestVersion}`).join(" · ")}
+          actions={<>
+            {updates.length === 1 && pageOf(updates[0]) && <Button size="s" variant="ghost" icon={<ExternalLink />} onClick={() => openUpdatePage(updates[0])}>Open page</Button>}
+            <Button size="s" onClick={() => { setFilter("installed"); setPage(1); }}>Show</Button>
+          </>}>
+          {updates.map((u) => `${u.name} ${u.installedVersion} → ${u.candidateVersion ?? "a new upload"}${u.stale ? " (not confirmed lately)" : ""}`).join(" · ")}
         </Banner>
       )}
 

@@ -27,6 +27,18 @@ public sealed class KindsConsumerTestMod : Mod
         for (var i = 0; i < n; i++) await Context.Scheduler.NextTick();
     }
 
+    /// <summary>Steps until <paramref name="done"/> holds, at most <paramref name="max"/>. A plan with parts at content ready (a lantern's item rules)
+    /// is PendingContent until they are done: one pass and the check of its definitions, about 150 steps after content is ready.</summary>
+    private async Task Until(Func<bool> done, int max = 600)
+    {
+        for (var i = 0; i < max && !done(); i++) await Steps(1);
+    }
+
+    private static bool Waiting(BlockApplyResult r) => r.State == BlockApplyState.PendingContent;
+
+    /// <summary>The game's items this mod's blocks made: other test mods of the lab add items of their own meanwhile.</summary>
+    private int OwnItems => Content.Items.Count(i => i.Name.StartsWith(Context.Info.Id + ".", StringComparison.Ordinal));
+
     private string PhaseFile
     {
         get
@@ -74,6 +86,7 @@ public sealed class KindsConsumerTestMod : Mod
             var sw = System.Diagnostics.Stopwatch.StartNew();
             while (Content.Status() is not { Ready: true } && sw.Elapsed.TotalSeconds < 240) await Context.Scheduler.NextTick();
             await Steps(60);
+            await Until(() => !Waiting(Blocks.Application(_camp!)) && Blocks.Find("long-night") is { } night && !Waiting(Blocks.Application(night)));
             if (phase.Length == 0) await First();
             else if (phase[0] == "1") await AfterOwnReload(phase);
             else await AfterProviderReload(phase);
@@ -133,9 +146,10 @@ public sealed class KindsConsumerTestMod : Mod
 
         // ---- replay-no-layer ----
         var first = Blocks.Apply(p1);
-        await Steps(3);
+        await Until(() => !Waiting(Blocks.Application(p1)));
+        await Steps(3);   // its change event arrives on a later tick
         first = Blocks.Application(p1);
-        var itemsBefore = Content.Items.Count;
+        var itemsBefore = OwnItems;
         var changesBefore = _changes;
         var compiles = LanternProbe.Compiles;
         var again = Blocks.Apply(p1);
@@ -143,8 +157,8 @@ public sealed class KindsConsumerTestMod : Mod
         await Steps(3);
         Check(first.Ok && again.Ok && again2.Ok && again.Generation == first.Generation && again2.Generation == first.Generation && again.Guid == first.Guid,
             $"replay-no-layer: the same plan applied again answers the same application (generation {first.Generation}, {again.Generation}, {again2.Generation})");
-        Check(Content.Items.Count == itemsBefore && _changes == changesBefore && LanternProbe.Compiles == compiles,
-            $"replay-no-layer: no new item ({itemsBefore} -> {Content.Items.Count}), no event ({_changes - changesBefore}), no provider call ({LanternProbe.Compiles - compiles})");
+        Check(OwnItems == itemsBefore && _changes == changesBefore && LanternProbe.Compiles == compiles,
+            $"replay-no-layer: no new item ({itemsBefore} -> {OwnItems}), no event ({_changes - changesBefore}), no provider call ({LanternProbe.Compiles - compiles})");
         Check(_changes >= changes, "replay-no-layer: events only for real changes");
 
         // ---- consumer-binding ----
@@ -155,12 +169,12 @@ public sealed class KindsConsumerTestMod : Mod
 
         // ---- refusal-no-publish (a plan refused before it registers: the kind asks for a capability that is off) ----
         var needy = Blocks.Compile("needy", new NeedyBlock { Name = "Never" });
-        itemsBefore = Content.Items.Count;
+        itemsBefore = OwnItems;
         var refused = Blocks.Apply(needy);
         await Steps(3);
         refused = Blocks.Application(needy);
         Check(!refused.Ok && refused.State == BlockApplyState.Refused && refused.Reason.StartsWith("RequiresOff", StringComparison.Ordinal), $"refusal-no-publish: the plan is refused ({refused.State} {refused.Reason})");
-        Check(Blocks.Find("needy") == null && Content.Items.Count == itemsBefore && Content.Items.All(i => !i.Name.Contains("kind-needy", StringComparison.Ordinal)),
+        Check(Blocks.Find("needy") == null && OwnItems == itemsBefore && Content.Items.All(i => !i.Name.Contains("kind-needy", StringComparison.Ordinal)),
             "refusal-no-publish: no block handle, no item, nothing published of the refused plan");
 
         // ---- provider-retirement-no-callback ----
@@ -193,13 +207,15 @@ public sealed class KindsConsumerTestMod : Mod
         Check(LanternProbe.Compiles == compiles, $"provider-retirement-no-callback: the provider's code did not run after its kinds were taken away ({LanternProbe.Compiles - compiles} call(s))");
         Mods.Send(Provider, "restore");
         await Steps(5);
-        var back = Blocks.Apply(Blocks.Compile("after", new LanternBlock { Name = "After" }));
-        await Steps(3);
+        var afterPlan = Blocks.Compile("after", new LanternBlock { Name = "After" });
+        var back = Blocks.Apply(afterPlan);
+        await Until(() => !Waiting(Blocks.Application(afterPlan)));
+        back = Blocks.Application(afterPlan);
         Check(Blocks.Application(Blocks.Find("after") ?? _camp!).Ok && Blocks.Find("after") != null, $"provider-retirement-no-callback: with the kind registered again a new lantern applies ({back.State} {back.Reason})");
 
         // ---- reload the consumer alone ----
         LanternProbe.Left = p1;
-        File.WriteAllLines(PhaseFile, ["1", camp.Guid.ToString(), night.Guid.ToString(), first.Guid.ToString(), _pass.ToString(), _fail.ToString(), Content.Items.Count.ToString()]);
+        File.WriteAllLines(PhaseFile, ["1", camp.Guid.ToString(), night.Guid.ToString(), first.Guid.ToString(), _pass.ToString(), _fail.ToString(), OwnItems.ToString()]);
         Info("reloading this mod alone");
         Mods.Reload(Context.Info.Id, r => { });
     }
@@ -218,7 +234,7 @@ public sealed class KindsConsumerTestMod : Mod
         // what the earlier instance applied with Blocks.Apply went with its owner: probe and after are no blocks, and their
         // definitions are orphaned. kiln.content keeps an orphaned definition listed until the game restarts (an item or a
         // recipe cannot be taken out of a running game's registries), so the counts stay.
-        var items = Content.Items.Count;
+        var items = OwnItems;
         var gone = NewContent.Definitions().Where(d => d.Name.Contains("kind-probe", StringComparison.Ordinal) || d.Name.Contains("kind-after", StringComparison.Ordinal)).ToList();
         Info($"after the reload: {phase[6]} item(s) before, {items} now; of probe and after: {string.Join(", ", gone.Select(d => $"{d.Kind} {d.Name} {d.State}"))}");
         Check(Blocks.Find("probe") == null && Blocks.Find("after") == null && gone.Count >= 2 && gone.All(d => d.State == "orphaned"),
@@ -246,7 +262,7 @@ public sealed class KindsConsumerTestMod : Mod
         Resume(phase);
         var (camp, night) = Lanterns("provider reloaded");
         Check(camp.Guid.ToString() == phase[1] && night.Guid.ToString() == phase[2], "provider-reload: the lanterns have the identities they had before the reload");
-        Check(Content.Items.Count == int.Parse(phase[6]), $"provider-reload: as many items as before it ({phase[6]} -> {Content.Items.Count}): each owner's products went and came once");
+        Check(OwnItems == int.Parse(phase[6]), $"provider-reload: as many items as before it ({phase[6]} -> {OwnItems}): each owner's products went and came once");
         Check(LanternProbe.Compiles == 2, $"provider-reload: the new provider compiled this load's two lanterns and nothing else ({LanternProbe.Compiles})");
         File.Delete(PhaseFile);
         await Steps(1);

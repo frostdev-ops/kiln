@@ -9,6 +9,8 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <IsPackable>false</IsPackable>
+    <!-- its capacity fake uses 17b's groundwork types ([Experimental("KILNX028")]) -->
+    <NoWarn>$(NoWarn);KILNX028</NoWarn>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../Kiln.Api/Kiln.Api.csproj" />

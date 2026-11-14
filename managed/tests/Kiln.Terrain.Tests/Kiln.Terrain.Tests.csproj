@@ -6,6 +6,8 @@
     <RootNamespace>TerrainTests</RootNamespace>
     <IsTestProject>true</IsTestProject>
     <OutputType>Exe</OutputType>
+    <!-- FakeBuildTable.cs: a fake kiln.build native table (function pointers) -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <NoWarn>$(NoWarn);CS1591</NoWarn>
   </PropertyGroup>
   <ItemGroup>

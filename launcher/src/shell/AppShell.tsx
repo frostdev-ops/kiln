@@ -17,6 +17,7 @@ import { NAV_MAIN, NAV_SIDE, navFor } from "./nav";
 import { DropAnywhere, ModpackDropOffer, useAddMods } from "./drop";
 import { ImportDetails, PickProfile } from "./importResult";
 import { NxmListener } from "./catalogInstall";
+import { ModUpdatesWatcher } from "./modUpdates";
 import { InstallKilnModal, detectGames, useAutoDetect, useDetect, useInstallPrompt, useKilnInstall } from "./firstRun";
 import { clock, usePlayControl, type PlayControl } from "./play";
 import { Stage, stageInput, type Heat } from "./Stage";
@@ -200,6 +201,7 @@ export function AppShell() {
       <ImportDetails />
       <PickProfile />
       <NxmListener />
+      <ModUpdatesWatcher />
       <DataFolderNotice />
       <Toaster />
       <Splash done={ready} />

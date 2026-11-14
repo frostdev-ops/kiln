@@ -672,6 +672,90 @@ public sealed class OverlayTests
         }
     }
 
+    // ---- the guarded write: an edit made while the batch is being written ----
+
+    [Fact]
+    public void An_edit_made_inside_the_write_is_never_written_over_and_its_block_is_given_up()
+    {
+        var world = new MemoryWorld();
+        var run = new Run(world);
+        var region = new CellBox(64, 104, 64, 16, 8, 8);    // two blocks of air, one batch at the default budget
+        var patch = Solid("guard", 1, region);
+        var foreign = (X: 66, Y: 106, Z: 66);               // a cell of the first block
+        var edited = false;
+        // another mod's BuildEditingEvent handler: after the overlay read the batch, before kiln.build commits it
+        world.Editing = _ =>
+        {
+            if (edited) return;
+            edited = true;
+            world.Set(foreign.X, foreign.Y, foreign.Z, Voxel.Of(7));
+        };
+        var r = run.Apply(patch);
+
+        var first = new CellBox(64, 104, 64, 8, 8, 8);
+        Assert.Equal((TerrainState.Conflict, false, 512L, 1), (r.State, r.Ok, r.ChangedCells, r.Batches));
+        Assert.Equal(new TerrainConflict(TerrainConflictKind.PlayerEdit, first), Assert.Single(r.Conflicts));
+        for (var z = 64; z < 72; z++)
+        for (var y = 104; y < 112; y++)
+        for (var x = 64; x < 80; x++)
+        {
+            var want = x >= 72 ? Voxel.Of(12) : (x, y, z) == foreign ? Voxel.Of(7) : Voxel.Air;
+            Assert.True(world.Get(x, y, z) == want, $"cell {x},{y},{z} is {world.Get(x, y, z)}, not {want}");
+        }
+        Assert.Equal(2, world.Stale);                       // the batch, then the block on its own
+        var e = Assert.Single(run.Events);                  // one event, for what was written
+        Assert.Equal((region, 512L, true), (e.Box, e.CellsChanged, e.Last));
+        // the ledger gave the block up: the plan owns one block, and neither a rerun nor version 2 touches the other
+        var block = world.Books["world-a|mod-a"].Plans["guard"].Blocks["64,104,64"];
+        Assert.Equal((true, (int)TerrainConflictKind.PlayerEdit), (block.GivenUp, block.Why));
+        Assert.Equal((true, 1, 1), (run.Engine.Applied()[0].Complete, run.Engine.Applied()[0].Blocks, run.Engine.Applied()[0].GivenUp));
+        var writes = world.Writes.Count;
+        Assert.Equal((TerrainState.Conflict, 0), (run.Apply(patch).State, world.Writes.Count - writes));
+        var two = run.Apply(Solid("guard", 2, region, 3));
+        Assert.Equal(TerrainState.Conflict, two.State);
+        Assert.Equal(Voxel.Of(7), world.Get(foreign.X, foreign.Y, foreign.Z));
+        Assert.Equal(Voxel.Air, world.Get(65, 105, 65));
+        Assert.Equal(Voxel.Of(40, 128), world.Get(73, 105, 65));
+
+        // a transient patch leaves the block alone the same way, with nothing to record
+        var other = new MemoryWorld();
+        var once = false;
+        other.Editing = _ => { if (!once) { once = true; other.Set(foreign.X, foreign.Y, foreign.Z, Voxel.Of(7)); } };
+        var t = new Run(other).Apply(Solid("pit", 1, region, keep: TerrainPersistence.Transient));
+        Assert.Equal((TerrainState.Conflict, 512L), (t.State, t.ChangedCells));
+        Assert.Equal((Voxel.Of(7), Voxel.Air, Voxel.Of(12)), (other.Get(foreign.X, foreign.Y, foreign.Z), other.Get(65, 105, 65), other.Get(73, 105, 65)));
+        Assert.Empty(other.Books.Values.SelectMany(b => b.Plans.Keys));
+    }
+
+    [Fact]
+    public void An_editing_handler_that_changes_no_cell_the_batch_writes_does_not_stop_it()
+    {
+        // nothing changed in between: one write a batch, as before the guard
+        var world = new MemoryWorld();
+        var calls = 0;
+        world.Editing = _ => calls++;
+        var r = new Run(world).Apply(Solid("hill", 1, new CellBox(64, 104, 64, 24, 8, 8)), new TerrainApplyOptions { CellsPerTick = 512 });
+        Assert.Equal((TerrainState.Completed, 3, 3, 3, 0), (r.State, r.Batches, world.Writes.Count, calls, world.Stale));
+
+        // added on top: the ground's cells are addressed but not written (already full); a handler digs one of them out.
+        // The guard compares only what the batch writes, so the batch goes on and the dug cell stays dug; the receipt was
+        // the intended "after", so version 2 finds the block changed and leaves it alone.
+        var add = new MemoryWorld();
+        var region = new CellBox(64, 96, 64, 16, 8, 8);     // ground below y 100, air from it
+        TerrainPatch Mound(int version, float height, byte material) =>
+            new("mound", version, region, new TerrainHeightfield([.. Enumerable.Repeat(height, 16 * 8)], 1, TerrainHeightMode.AddOnTop), [new(material)]);
+        var dug = false;
+        add.Editing = _ => { if (!dug) { dug = true; add.Set(66, 97, 66, Voxel.Air); } };
+        var run = new Run(add);
+        var first = run.Apply(Mound(1, 6, 12));             // y 96 to 101: the ground's four cells full already, two added
+        Assert.Equal((TerrainState.Completed, 0), (first.State, add.Stale));
+        Assert.Equal((Voxel.Air, Voxel.Of(12)), (add.Get(66, 97, 66), add.Get(66, 101, 66)));
+        add.Editing = null;
+        var up = run.Apply(Mound(2, 7, 20));                // one cell higher
+        Assert.Equal(new TerrainConflict(TerrainConflictKind.PlayerEdit, new CellBox(64, 96, 64, 8, 8, 8)), Assert.Single(up.Conflicts));
+        Assert.Equal((Voxel.Air, Voxel.Air, Voxel.Of(20)), (add.Get(66, 97, 66), add.Get(66, 102, 66), add.Get(73, 102, 66)));
+    }
+
     // ---- events ----
 
     [Fact]
@@ -781,6 +865,29 @@ public sealed class FacadeTests
         {
             Terrain.Changed -= On;
         }
+    }
+
+    [Fact]
+    public void An_edit_made_inside_the_write_on_the_kits_world_is_left_alone()
+    {
+        using var kiln = new Kiln.TestKit.KilnHarness();
+        kiln.Step(2);
+        var foreign = new CellPos(66, 98, 66);
+        var edited = false;
+        kiln.Terrain.Editing = _ =>
+        {
+            if (edited) return;
+            edited = true;
+            kiln.Terrain.Set(foreign, Voxel.Of(7));
+        };
+        var r = Wait(kiln, () => Terrain.Apply(Vein()));
+        Assert.Equal((TerrainState.Conflict, 512L), (r.State, r.ChangedCells));
+        Assert.Equal(new TerrainConflict(TerrainConflictKind.PlayerEdit, new CellBox(64, 96, 64, 8, 8, 8)), Assert.Single(r.Conflicts));
+        Assert.Equal(Voxel.Of(7), kiln.Terrain.Get(foreign));
+        Assert.Equal(Voxel.Of(1), kiln.Terrain.Get(new CellPos(65, 98, 66)));     // the rest of that block: the ground as it was
+        Assert.Equal(Voxel.Of(12), kiln.Terrain.Get(new CellPos(73, 98, 66)));
+        Assert.Equal(new CellBox(72, 96, 64, 8, 8, 8), Assert.Single(kiln.Terrain.Writes).Box);
+        Assert.Equal((1, 1), (kiln.Run(() => Terrain.Applied)[0].Blocks, kiln.Run(() => Terrain.Applied)[0].GivenUp));
     }
 
     [Fact]

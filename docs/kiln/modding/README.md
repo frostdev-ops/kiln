@@ -42,6 +42,7 @@ generated [../status.generated.md](../status.generated.md); what has no API yet 
 | [lint.md](lint.md) | `kiln lint`: usage, output, JSON dialects, every rule with an example and the fix; [schemas/](schemas/) is the field reference of each format |
 | [vscode.md](vscode.md) | The VS Code extension (tools/vscode): schemas, lint, game ids, build/deploy/reload, Testing view, kiln.log, KAP/1 console, Impact assembly |
 | [cli.md](cli.md) | The `kiln` command: new, build, cook, deploy, run, reload, test, debug, lint, pack, publish, logs, blocks, catalog, vfx, skeleton |
+| [updates.md](updates.md) | Update checks: making a mod checkable (`updates` in the manifest), how the newest release is chosen, the states and reasons of a check, what a check sends |
 | [publishing.md](publishing.md) | `kiln publish`: releasing a packed mod at GitHub (plan, apply, publish), the token, what a published zip may hold |
 | [onboot.md](onboot.md) | `Mod.OnBoot`: statuses, effects, items, spells, talents and resource patches staged before the game starts, so the first start has them; `"boot"` in kiln.mod.json, what fails how, `Mods.BootState` |
 | [boot-snapshot.md](boot-snapshot.md) | The boot snapshot: the game data Kiln reads from the game's files before a start, for mods that change data in `OnBoot`; `kiln boot-snapshot` |

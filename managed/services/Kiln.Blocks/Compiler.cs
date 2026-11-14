@@ -575,6 +575,10 @@ internal sealed class Lowered(ModBlocks mod)
         }
     }
 
+    /// <summary>The names of the game-data clones and new items this block registers (a kind's plan checks them at content ready).</summary>
+    internal IEnumerable<string> DefinitionNames =>
+        _clones.Select(c => c.Def["name"]?.GetValue<string>() ?? "").Concat(_items.Select(d => d.Name)).Where(n => n.Length > 0);
+
     /// <summary>How many bytes of programs this block made (a plan's bound).</summary>
     internal long GeneratedBytes => _programs.Sum(p => (long)p.Blob.Length) + Json.ToJsonString().Length;
 

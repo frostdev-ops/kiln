@@ -143,10 +143,10 @@ void on_spawn_call(KilnRegisters& r) {
 
 void __fastcall on_wear_delta(void* durability, const void* skills, int32_t delta, uint32_t notify_actor, wear::WearEnv* env) {
     if (g.on.load(std::memory_order_acquire)) seen_thread();  // also the calls it only passes on (the torch's burndown runs on workers)
-    Frame* f = &t_frame;
-    const bool ours = f->armed && guarded_delta_before(f, durability, notify_actor, env);
+    Frame active = t_frame;
+    const bool ours = active.armed && guarded_delta_before(&t_frame, durability, notify_actor, env);
     g_delta_hook.original<wear::WearDeltaFn>()(durability, skills, delta, notify_actor, env);
-    if (ours) guarded_delta_after(f, durability);
+    if (ours) guarded_delta_after(&active, durability);
 }
 
 // ---- Ops over the item service's engine ---------------------------------------------------------------------------------

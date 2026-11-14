@@ -30,6 +30,7 @@ the same file). v1 manifests (id, name, version, apiVersion, entryAssembly, entr
   "writes": ["Fuel", "ScaleComponent"], // component types the mod writes through the game's write tracking (see "writes")
   "tests": { "autoRun": true, "timeoutSeconds": 20 },  // Kiln.Testing (testing.md)
   "boot": false,                        // true | "required": Mod.OnBoot runs before the game starts (see "Boot content")
+  "updates": { "provider": "github", "repository": "me/my-mod" },  // where new versions are published (see "updates")
   "kilnBuild": { "version": "0.2.0-dev+20261106.0f0a3f6", "created": "2026-11-06T12:12:16Z" }  // written by the build
 }
 ```
@@ -53,6 +54,53 @@ newer than the player's Kiln; the stamp can:
 
 Order: the semantic version, then `created` when both sides have it, else the day. A runtime or mod built from a tree
 without git has no stamp, and nothing is compared before the load.
+
+## Where new versions are published (`updates`, since 0.2.0-dev.28)
+`updates` tells Kiln where to look for a newer version of the mod. The launcher and `kiln updates check`
+([cli.md](cli.md)) read it and show a notice with a link to the release page. That is all they do with it: nothing is
+downloaded, installed or switched on by a check, and nothing in the game reads the key or makes a request. A mod loads
+the same with or without it.
+
+Two providers. Each takes only its own properties; a property it does not know makes the whole `updates` unreadable.
+
+```jsonc
+// releases of a public GitHub repository
+"updates": {
+  "provider": "github",
+  "repository": "me/my-mod",            // required: owner/repo, not a URL
+  "tagPattern": "v{version}",           // the release tag; {version} exactly once (default v{version})
+  "asset": "my-mod-{version}.zip",      // the zip's file name in a release; {version} at most once (optional)
+  "channel": "stable"                   // stable (default) | prerelease
+}
+// one file of a Nexus Mods page
+"updates": { "provider": "nexus", "gameId": 5811, "modId": 310, "fileChainId": "90310" }
+```
+
+| Property | Rule |
+|---|---|
+| `repository` | Two parts `owner/repo`, each 1 to 100 characters of `A-Z a-z 0-9 _ . -`, neither `.` nor `..`. |
+| `tagPattern` | `{version}` exactly once; before and after it at most 64 characters of `A-Z a-z 0-9 . _ / -`; no `..`, no `//`, no slash at the start or the end. A tag counts only when the whole tag matches and the part at `{version}` is a semantic version (as `version` above; a leading `v` only when the pattern has none before `{version}`). In a repository of several mods give each its own prefix: `mods/my-mod/v{version}`. There are no wildcards. |
+| `asset` | A file name, 1 to 200 characters of `A-Z a-z 0-9 . _ -` once `{version}` is filled in (with the version as the tag spells it); no `..`. Leave it out when your releases carry a `kiln-release.json` (`kiln publish` writes one, [publishing.md](publishing.md)): that file names the zip. |
+| `channel` | `stable`: releases that are not marked pre-release on GitHub and whose version has no pre-release part. `prerelease`: those too. Drafts never count. |
+| `gameId` | 5811 (Enshrouded). |
+| `modId` | The number of the mod's page: `nexusmods.com/enshrouded/mods/<modId>`. |
+| `fileChainId` | The id of the file whose versions are followed: the file itself, which keeps its id from upload to upload, not one version of it. A page's optional file is followed as that file, never replaced by the page's main file. |
+
+What Kiln does when it cannot read `updates` (a rule above is broken, or `provider` is one this Kiln does not know): the
+mod loads, the key is ignored with a warning (`"updates" is not read, so Kiln cannot look for new versions of this mod
+(the mod loads): 'repository' must be owner/repo`), `kiln lint` reports it (KL103, and the schema's finding for the
+property), and `kiln updates check` lists the mod as `unsupported`. Kiln never guesses a source from `url`.
+
+From a project, Kiln.Sdk writes the key from build properties:
+
+| Property | Manifest |
+|---|---|
+| `KilnUpdatesRepository` | `updates.repository` (and `provider` github) |
+| `KilnUpdatesTagPattern`, `KilnUpdatesAsset`, `KilnUpdatesChannel` | `tagPattern`, `asset`, `channel` |
+| `KilnUpdatesNexusModId`, `KilnUpdatesNexusFileChainId` | `modId`, `fileChainId` (and `provider` nexus, `gameId` 5811) |
+| `KilnUpdatesProvider` | `provider`, when both groups are set |
+
+The same key, with the same rules, is read from a native mod's `native.json`.
 
 ## Components the mod writes (`writes`, since 0.2.0-dev.27)
 `World.Write<T>`, `World.Update<T>`, `World.WriteField` and `World.WriteAt` change a component through the game's own

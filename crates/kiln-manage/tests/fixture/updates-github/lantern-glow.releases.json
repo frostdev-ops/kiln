@@ -1,0 +1,264 @@
+[
+  {
+    "id": 9007,
+    "tag_name": "v3.0.0",
+    "target_commitish": "main",
+    "name": "v3.0.0",
+    "draft": true,
+    "prerelease": false,
+    "created_at": "2026-11-12T09:00:00Z",
+    "published_at": null,
+    "html_url": "https://github.com/example-org/lantern-glow/releases/tag/v3.0.0",
+    "url": "https://api.github.com/repos/example-org/lantern-glow/releases/9007",
+    "author": {
+      "login": "example-author",
+      "id": 1
+    },
+    "body": "Not published yet.",
+    "assets": [
+      {
+        "id": 7071,
+        "name": "lantern-glow-3.0.0.zip",
+        "label": null,
+        "content_type": "application/zip",
+        "state": "uploaded",
+        "size": 51000,
+        "browser_download_url": "https://github.com/example-org/lantern-glow/releases/download/v3.0.0/lantern-glow-3.0.0.zip",
+        "url": "https://api.github.com/repos/example-org/lantern-glow/releases/assets/7071",
+        "digest": "sha256:2c87af22da854bbd93a2a23ad0286c75b28e2de6fb75e3e5b6faa3c592b70aca"
+      }
+    ]
+  },
+  {
+    "id": 9006,
+    "tag_name": "v2.0.0-beta.1",
+    "target_commitish": "main",
+    "name": "v2.0.0-beta.1",
+    "draft": false,
+    "prerelease": true,
+    "created_at": "2026-11-10T09:00:00Z",
+    "published_at": "2026-11-10T09:00:00Z",
+    "html_url": "https://github.com/example-org/lantern-glow/releases/tag/v2.0.0-beta.1",
+    "url": "https://api.github.com/repos/example-org/lantern-glow/releases/9006",
+    "author": {
+      "login": "example-author",
+      "id": 1
+    },
+    "body": "Fixes.",
+    "assets": [
+      {
+        "id": 7061,
+        "name": "lantern-glow-2.0.0-beta.1.zip",
+        "label": null,
+        "content_type": "application/zip",
+        "state": "uploaded",
+        "size": 50122,
+        "browser_download_url": "https://github.com/example-org/lantern-glow/releases/download/v2.0.0-beta.1/lantern-glow-2.0.0-beta.1.zip",
+        "url": "https://api.github.com/repos/example-org/lantern-glow/releases/assets/7061",
+        "digest": "sha256:02c158419c66cb3159e8da1bc1004020143fbbdda4129dfa2274171b98aa5d8b"
+      }
+    ]
+  },
+  {
+    "id": 9005,
+    "tag_name": "v1.10.0",
+    "target_commitish": "main",
+    "name": "v1.10.0",
+    "draft": false,
+    "prerelease": false,
+    "created_at": "2026-11-08T09:00:00Z",
+    "published_at": "2026-11-08T09:00:00Z",
+    "html_url": "https://github.com/example-org/lantern-glow/releases/tag/v1.10.0",
+    "url": "https://api.github.com/repos/example-org/lantern-glow/releases/9005",
+    "author": {
+      "login": "example-author",
+      "id": 1
+    },
+    "body": "## What's new\n<script>alert(1)</script> [click](javascript:alert(1))\n\u001b[31mred\u001b[0m and a very long line xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "assets": [
+      {
+        "id": 7051,
+        "name": "lantern-glow-1.10.0.zip",
+        "label": null,
+        "content_type": "application/zip",
+        "state": "uploaded",
+        "size": 48213,
+        "browser_download_url": "https://github.com/example-org/lantern-glow/releases/download/v1.10.0/lantern-glow-1.10.0.zip",
+        "url": "https://api.github.com/repos/example-org/lantern-glow/releases/assets/7051",
+        "digest": "sha256:ad9b19c4df20898a8b46b7793aeb81b779db01fc468b2768e193186a1eee003d"
+      },
+      {
+        "id": 7052,
+        "name": "kiln-release.json",
+        "label": null,
+        "content_type": "application/json",
+        "state": "uploaded",
+        "size": 331,
+        "browser_download_url": "https://github.com/example-org/lantern-glow/releases/download/v1.10.0/kiln-release.json",
+        "url": "https://api.github.com/repos/example-org/lantern-glow/releases/assets/7052",
+        "digest": "sha256:f0bce9e4e766599c351b00f464300d4fb7829a6eb29326eaab6ad0a576b7a577"
+      },
+      {
+        "id": 7053,
+        "name": "lantern-glow-1.10.0.zip.sha256",
+        "label": null,
+        "content_type": "text/plain",
+        "state": "uploaded",
+        "size": 91,
+        "browser_download_url": "https://github.com/example-org/lantern-glow/releases/download/v1.10.0/lantern-glow-1.10.0.zip.sha256",
+        "url": "https://api.github.com/repos/example-org/lantern-glow/releases/assets/7053",
+        "digest": "sha256:eda6151c9835f68ccaf888173666ef1d859a027150ae5fd2a52d766a96525970"
+      }
+    ]
+  },
+  {
+    "id": 9004,
+    "tag_name": "v1.10.0-rc.1",
+    "target_commitish": "main",
+    "name": "v1.10.0-rc.1",
+    "draft": false,
+    "prerelease": false,
+    "created_at": "2026-11-06T09:00:00Z",
+    "published_at": "2026-11-06T09:00:00Z",
+    "html_url": "https://github.com/example-org/lantern-glow/releases/tag/v1.10.0-rc.1",
+    "url": "https://api.github.com/repos/example-org/lantern-glow/releases/9004",
+    "author": {
+      "login": "example-author",
+      "id": 1
+    },
+    "body": "Fixes.",
+    "assets": [
+      {
+        "id": 7041,
+        "name": "lantern-glow-1.10.0-rc.1.zip",
+        "label": null,
+        "content_type": "application/zip",
+        "state": "uploaded",
+        "size": 48100,
+        "browser_download_url": "https://github.com/example-org/lantern-glow/releases/download/v1.10.0-rc.1/lantern-glow-1.10.0-rc.1.zip",
+        "url": "https://api.github.com/repos/example-org/lantern-glow/releases/assets/7041",
+        "digest": "sha256:d4fa80d0be08e08f4a6c027f1956234bbee18b17ad52e3f3f2486e0c65179e04"
+      }
+    ]
+  },
+  {
+    "id": 9003,
+    "tag_name": "v1.9.0",
+    "target_commitish": "main",
+    "name": "v1.9.0",
+    "draft": false,
+    "prerelease": false,
+    "created_at": "2026-10-20T09:00:00Z",
+    "published_at": "2026-10-20T09:00:00Z",
+    "html_url": "https://github.com/example-org/lantern-glow/releases/tag/v1.9.0",
+    "url": "https://api.github.com/repos/example-org/lantern-glow/releases/9003",
+    "author": {
+      "login": "example-author",
+      "id": 1
+    },
+    "body": "Fixes.",
+    "assets": [
+      {
+        "id": 7031,
+        "name": "lantern-glow-1.9.0.zip",
+        "label": null,
+        "content_type": "application/zip",
+        "state": "uploaded",
+        "size": 47002,
+        "browser_download_url": "https://github.com/example-org/lantern-glow/releases/download/v1.9.0/lantern-glow-1.9.0.zip",
+        "url": "https://api.github.com/repos/example-org/lantern-glow/releases/assets/7031",
+        "digest": "sha256:fcd80e2a2152e5bc005e2d25ce959ba5ee9b54ad71909c67ae74844482e3fb30"
+      }
+    ]
+  },
+  {
+    "id": 9002,
+    "tag_name": "nightly",
+    "target_commitish": "main",
+    "name": "nightly",
+    "draft": false,
+    "prerelease": true,
+    "created_at": "2026-10-19T09:00:00Z",
+    "published_at": "2026-10-19T09:00:00Z",
+    "html_url": "https://github.com/example-org/lantern-glow/releases/tag/nightly",
+    "url": "https://api.github.com/repos/example-org/lantern-glow/releases/9002",
+    "author": {
+      "login": "example-author",
+      "id": 1
+    },
+    "body": "Fixes.",
+    "assets": [
+      {
+        "id": 7021,
+        "name": "lantern-glow-nightly.zip",
+        "label": null,
+        "content_type": "application/zip",
+        "state": "uploaded",
+        "size": 47000,
+        "browser_download_url": "https://github.com/example-org/lantern-glow/releases/download/nightly/lantern-glow-nightly.zip",
+        "url": "https://api.github.com/repos/example-org/lantern-glow/releases/assets/7021",
+        "digest": "sha256:9715a195dc6e60e32f86e45a88b4fb66998548161818a627919ca50f2b2c6f96"
+      }
+    ]
+  },
+  {
+    "id": 9001,
+    "tag_name": "v1.2.0-dev.10",
+    "target_commitish": "main",
+    "name": "v1.2.0-dev.10",
+    "draft": false,
+    "prerelease": true,
+    "created_at": "2026-09-02T09:00:00Z",
+    "published_at": "2026-09-02T09:00:00Z",
+    "html_url": "https://github.com/example-org/lantern-glow/releases/tag/v1.2.0-dev.10",
+    "url": "https://api.github.com/repos/example-org/lantern-glow/releases/9001",
+    "author": {
+      "login": "example-author",
+      "id": 1
+    },
+    "body": "Fixes.",
+    "assets": [
+      {
+        "id": 7011,
+        "name": "lantern-glow-1.2.0-dev.10.zip",
+        "label": null,
+        "content_type": "application/zip",
+        "state": "uploaded",
+        "size": 40010,
+        "browser_download_url": "https://github.com/example-org/lantern-glow/releases/download/v1.2.0-dev.10/lantern-glow-1.2.0-dev.10.zip",
+        "url": "https://api.github.com/repos/example-org/lantern-glow/releases/assets/7011",
+        "digest": "sha256:12bf1f773b0c1c95a8f4ca91684e9d597cbcb8abf749dcb7fe78e01fc915ba39"
+      }
+    ]
+  },
+  {
+    "id": 9000,
+    "tag_name": "v1.2.0-dev.9",
+    "target_commitish": "main",
+    "name": "v1.2.0-dev.9",
+    "draft": false,
+    "prerelease": true,
+    "created_at": "2026-09-01T09:00:00Z",
+    "published_at": "2026-09-01T09:00:00Z",
+    "html_url": "https://github.com/example-org/lantern-glow/releases/tag/v1.2.0-dev.9",
+    "url": "https://api.github.com/repos/example-org/lantern-glow/releases/9000",
+    "author": {
+      "login": "example-author",
+      "id": 1
+    },
+    "body": "Fixes.",
+    "assets": [
+      {
+        "id": 7001,
+        "name": "lantern-glow-1.2.0-dev.9.zip",
+        "label": null,
+        "content_type": "application/zip",
+        "state": "uploaded",
+        "size": 40009,
+        "browser_download_url": "https://github.com/example-org/lantern-glow/releases/download/v1.2.0-dev.9/lantern-glow-1.2.0-dev.9.zip",
+        "url": "https://api.github.com/repos/example-org/lantern-glow/releases/assets/7001",
+        "digest": "sha256:cc8aeedb1e96f56d55e2589ec042642c403f21fa47604ba88c3e92110dcdd057"
+      }
+    ]
+  }
+]

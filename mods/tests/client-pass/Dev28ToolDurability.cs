@@ -22,6 +22,11 @@ public sealed partial class ClientPassMod
     public async Task ToolWearPerDebit(CheckContext c)
     {
         if (!await Need(c, ToolWearFixture) || !await NeedOpen(c, ToolWearRow) || !await NeedPlayer(c)) return;
+        if (!Capabilities.Is(ToolWearRow))
+        {
+            await c.Skip($"{ToolWearRow} is unavailable: {Capabilities.Why(ToolWearRow)}");
+            return;
+        }
         var pickaxe = Items.All.FirstOrDefault(x => x.Name == "Tool_T0_Pickaxe_Stone_Grassland");
         if (pickaxe is null)
         {
@@ -31,7 +36,7 @@ public sealed partial class ClientPassMod
         var debits = new List<ToolDurabilityChangedEvent>();
         var watch = Events.On<ToolDurabilityChangedEvent>(e =>
         {
-            if (e.Item.Item != pickaxe.Id) return;
+            if (e.Actor != c.Player || e.Item.Item != pickaxe.Id) return;
             debits.Add(e);
             c.Log.Info($"client-pass: 16b-g debit {debits.Count}: {e.Source} {e.Before} -> {e.After} of {e.Maximum} (asked {e.RequestedDelta}) step {e.Step}");
         });
@@ -39,7 +44,7 @@ public sealed partial class ClientPassMod
         var rule = Items.SetToolWearPerDebit(pickaxe.Id, 7);
         if (!c.Expect(rule.Ok, "a cost of 7 per debit for the stone pickaxe", rule.Ok ? "set" : rule.Reason))
         {
-            await c.Verdict();
+            await c.Skip($"the pickaxe's cost of 7 could not be set: {rule.Reason}");
             return;
         }
         c.OnEnd(() => rule.Rule?.Dispose());

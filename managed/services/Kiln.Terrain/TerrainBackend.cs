@@ -17,8 +17,13 @@ internal interface ITerrainBackend
     Task NextTick();
     Task<bool> Load(CellBox box, TimeSpan timeout);
     bool TryRead(CellBox box, out Voxel[] cells);
-    /// <summary>One write of <paramref name="cells"/> where <paramref name="mask"/> is set.</summary>
-    Task<BuildResult> Write(CellBox box, Voxel[] cells, bool[] mask, bool inBases, bool transient, string label, TimeSpan timeout, bool dryRun = false);
+    /// <summary>One write of <paramref name="cells"/> where <paramref name="mask"/> is set. With
+    /// <paramref name="expected"/> (the cells the overlay read) it is a guarded write: it commits only if the world still
+    /// holds them where <paramref name="mask"/> is set, compared after kiln.build's <see cref="BuildEditingEvent"/>
+    /// handlers and right before the commit; otherwise nothing is written and the refusal is
+    /// <see cref="BuildRefusal.Changed"/>.</summary>
+    Task<BuildResult> Write(CellBox box, Voxel[] cells, bool[] mask, bool inBases, bool transient, string label, TimeSpan timeout, bool dryRun = false,
+        Voxel[]? expected = null);
     /// <summary>The mod's book in this world: a live object, saved with the world. <see cref="Save"/> stores it after a
     /// plan was added or removed.</summary>
     TerrainBook Book();
@@ -41,7 +46,8 @@ internal sealed class BuildTerrainBackend(ModContext mod) : ITerrainBackend
     public Task<bool> Load(CellBox box, TimeSpan timeout) => Build.Load(box, timeout);
     public bool TryRead(CellBox box, out Voxel[] cells) => Build.TryRead(box, out cells);
 
-    public async Task<BuildResult> Write(CellBox box, Voxel[] cells, bool[] mask, bool inBases, bool transient, string label, TimeSpan timeout, bool dryRun = false)
+    public async Task<BuildResult> Write(CellBox box, Voxel[] cells, bool[] mask, bool inBases, bool transient, string label, TimeSpan timeout, bool dryRun = false,
+        Voxel[]? expected = null)
     {
         var flags = BuildFlags.None;
         if (inBases) flags |= BuildFlags.InBases;
@@ -50,7 +56,8 @@ internal sealed class BuildTerrainBackend(ModContext mod) : ITerrainBackend
         // no journal: an overlay is not a session edit to undo, and its cells would sit in the journal twice
         if (!await Build.Load(box, timeout) || !WorldRunning)
             return new BuildResult(0, 0, false, false, box, 0, BuildRefusal.NotLoaded);
-        return Build.Write(box, cells, new BuildOptions { Flags = flags, Journal = false, Label = label, LoadTimeout = timeout }, mask);
+        var options = new BuildOptions { Flags = flags, Journal = false, Label = label, LoadTimeout = timeout };
+        return expected is null ? Build.Write(box, cells, options, mask) : Build.WriteIfUnchanged(box, cells, expected, options, mask);
     }
 
     public TerrainBook Book()
