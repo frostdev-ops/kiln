@@ -15,6 +15,7 @@ inline unsigned long GetCurrentProcessId() { return 4242; }
 #include "../src/sigdb.cpp"
 #include "../src/services/service.cpp"
 #include "../src/gates.cpp"  // kiln_gates.g.h: test-caps.sh generates it from native/core/gates
+#include "../src/config.cpp"
 #include "../src/services/caps.cpp"
 
 #include <cstdarg>
@@ -68,6 +69,7 @@ ImageInfo test_image;
 const ImageInfo& image() { return test_image; }
 double now_ms() { return 0; }
 std::string to_utf8(std::wstring_view w) { return std::string(w.begin(), w.end()); }
+std::wstring to_wide(std::string_view s) { return std::wstring(s.begin(), s.end()); }
 const char* side_name(uint32_t side) { return side == KILN_SIDE_CLIENT ? "client" : "server"; }
 const Paths& paths() { return t_paths; }
 std::string utc_now() { return "2026-11-11T22:40:00Z"; }
@@ -89,6 +91,7 @@ bool write_file_atomic(const std::filesystem::path& file, std::string_view text)
     return true;
 }
 namespace log {
+void set_level(int) {}
 void writef(int level, const char*, const char* fmt, ...) {
     char b[512];
     va_list ap;
@@ -1047,6 +1050,39 @@ void client_gate(const std::filesystem::path& dir) {
     reset();
 }
 
+void client_preview(const std::filesystem::path& dir) {
+    const auto old = t_paths.kiln;
+    t_paths.kiln = dir / "preview-config";
+    std::filesystem::create_directories(t_paths.kiln);
+    const auto read = [&](const char* text) {
+        kiln::g_config = kiln::Config{};
+        kiln::g_doc = nlohmann::json{};
+        write(t_paths.kiln / "kiln.json", text);
+        kiln::load_config();
+        kiln::apply_side(KILN_SIDE_CLIENT);
+        return kiln::config();
+    };
+    CHECK(read(R"({"preview":true})").preview_all && read(R"({"preview":"all"})").preview_all,
+          "preview config: true and all lift every gate");
+    CHECK(read(R"({"preview":["camera.fov",7,"items.fuel"]})").preview ==
+              std::vector<std::string>({"camera.fov", "items.fuel"}),
+          "preview config: a list keeps names and ignores non-strings");
+    CHECK(!read(R"({"preview":true,"client":{"preview":["camera.fov"]}})").preview_all &&
+              kiln::config().preview == std::vector<std::string>({"camera.fov"}) &&
+              !read(R"({"preview":true,"client":{"preview":false}})").preview_all,
+          "preview config: the side list or false replaces top-level true");
+    for (const char* text : {R"({"preview":7})", R"({"preview":"true"})", R"({"preview":{}})",
+                             R"({"preview":true,"client":{"preview":null}})"}) {
+        const auto cfg = read(text);
+        CHECK(!cfg.preview_all && cfg.preview.empty(), "preview config: a wrong type leaves all gates held (%s)", text);
+    }
+    const auto bad = read(R"({"preview":true,"client":{"clr":"bad","preview":false}})");
+    CHECK(!bad.preview_all && bad.preview.empty(),
+          "preview config: an unrelated malformed side key cannot discard preview false");
+    std::filesystem::remove_all(t_paths.kiln);
+    t_paths.kiln = old;
+}
+
 // The unconfigured path is also used after boot's early safe-idle exit. Its first callers may be worker threads.
 void client_gate_threads() {
     namespace gates = kiln::gates;
@@ -1091,6 +1127,7 @@ int main(int argc, char** argv) {
     core_rows(dir);
     client_gate(dir);
     client_gate_threads();
+    client_preview(dir);
     json_file();
     writer();
     writer_retry();
