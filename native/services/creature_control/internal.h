@@ -33,4 +33,7 @@ struct ProgramCounters {
 };
 ProgramCounters program_counters();
 
+// inject.cpp: the native-only test surface, on only with the lab switch kiln/data/kiln.creature_control/inject.
+void inject_init();
+
 }  // namespace kcc

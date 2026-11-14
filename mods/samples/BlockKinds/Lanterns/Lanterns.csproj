@@ -1,0 +1,20 @@
+<Project>
+  <!-- Sample, the provider half: registers the block kind "lanterns:lantern" (docs/kiln/modding/block-kinds.md). Other mods
+       that depend on this one write lanterns in C# and in blocks/*.json; CampLanterns beside it does both. -->
+  <Import Project="../../../../managed/Kiln.Sdk/Sdk/Sdk.props" />
+  <PropertyGroup>
+    <KilnModId>lanterns</KilnModId>
+    <KilnModName>Lanterns (block kind sample, provider)</KilnModName>
+    <Version>0.1.0</Version>
+    <Description>Adds a kind of block: a lantern, compiled to a torch item with a recipe. Defines none itself.</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <KilnServices>Blocks</KilnServices>
+    <!-- Lanterns.Api references Kiln.Blocks; what Kiln.Blocks references is Kiln's and is not copied into a mod -->
+    <DisableTransitiveProjectReferences>true</DisableTransitiveProjectReferences>
+    <KilnExports>Lanterns.Api.dll</KilnExports>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Lanterns.Api/Lanterns.Api.csproj" />
+  </ItemGroup>
+  <Import Project="../../../../managed/Kiln.Sdk/Sdk/Sdk.targets" />
+</Project>

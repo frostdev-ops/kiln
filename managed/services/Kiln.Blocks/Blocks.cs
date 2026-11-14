@@ -43,7 +43,12 @@ public static partial class Blocks
     public static BlockHandle<T> Define<T>(string name, T block) where T : class, IBlock
     {
         ArgumentNullException.ThrowIfNull(block);
+        // Mod.OnBoot stages with BootDefinitions: a live definition there would register before the generation is checked
+        if (BootFrame.Current is { } boot)
+            throw new InvalidOperationException($"PhaseClosed: Blocks.Define is refused inside {boot.ModId}'s OnBoot; stage the block with BootDefinitions.For(boot).Define");
         var mod = CallerMod();
+        // a block of a kind a mod registered (by its own type, not by T): compiled by its provider, applied by Kiln
+        if (!KindRegistry.IsBuiltIn(block.GetType())) return KindDefine.Define(mod, name, block);
         return Compiler.Define(mod, name, block);
     }
 
@@ -185,6 +190,15 @@ internal sealed class ModBlocks(string id, ulong owner)
     /// <summary>Set on the isolated ledger of a kind's plan (Kinds/KindTransaction.cs): the consumer's real ledger, whose blocks
     /// and data files a staged block may name. Null on every ledger a mod's own blocks compile into.</summary>
     public ModBlocks? StagesFor;
+    /// <summary>A plan's ledger whose plan is being committed: only then do its blocks register.</summary>
+    public volatile bool CommitOpen;
+    /// <summary>A plan's ledger that was applied: it is the live ledger of the plan's blocks from then on (its rules and late
+    /// programs run as a mod's do).</summary>
+    public volatile bool Promoted;
+    /// <summary>A plan's ledger whose owner was revoked: nothing of it runs again.</summary>
+    public volatile bool Revoked;
+    /// <summary>The runtime wanted its content-ready pass while the ledger was only staged.</summary>
+    public bool HookWanted;
     /// <summary>The ledger whose data files and cycle check a lookup uses: this one, or the one it stages for.</summary>
     public ModBlocks Authored => StagesFor ?? this;
 

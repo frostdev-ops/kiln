@@ -193,7 +193,8 @@ typedef struct KilnBootApiV1 {
     /* Stages one definition: kind is one of the boot kinds (statuses, effects, items, spells, talents, talentTrees,
      * npcs, creatures, materialTweaks, buildingMaterials, terrainMaterials, blueprints, props, stations, vfx,
      * materials, quests, dialogues, bodies, animations, ais, behaviours, perks, abilities, looks, strengths,
-     * surfaces), key matches ^[a-z][a-z0-9_.-]{0,95}$ without "..", canonical_json is one JSON object of at most
+     * surfaces, resourcePatches), key matches ^[a-z][a-z0-9_.-]{0,95}$ without "..", canonical_json is one JSON object of
+     * at most
      * KILN_BOOT_DEFINITION_MAX bytes. From the host (an owner that is not an author) kind "ir", key "envelope" stages
      * the IR envelope, once. KILN_OK with ok 1: staged (the same bytes again are fine); KILN_OK with ok 0: refused
      * (DuplicateDefinition, PhaseClosed, TooMany), reason says why. KILN_ERR_INVALID_ARGUMENT: a bad kind, key, JSON,
@@ -226,12 +227,23 @@ typedef struct KilnBootApiV1 {
     KilnResult(KILN_CALL* issues)(uint64_t generation, KilnBootIssueV1*, uint32_t capacity, uint32_t stride,
                                   uint32_t* required);
 
-    /* six native collectors register once during bind; no publication callback */
+    /* the native collectors (assets, worldtables, content, skills, knowledge, vfx, patches) register once during bind;
+     * no publication callback */
     KilnResult(KILN_CALL* collector)(KilnOwner, KilnStr collector_id, KilnBootPrepareFnV1, void* user);
 
     /* consumer hooks read through the same atomic committed generation; borrowed until process exit. NULL before the
      * generation is published, for a collector that did not register and in a process without deferred mode. */
     const void*(KILN_CALL* active_plan)(KilnStr collector_id, uint64_t* generation);
+
+    /* Appended (0.2.0-dev.28, resource patches); check header.size before calling. A registered collector reports that
+     * published content of `mod_id` could not be applied after the publication (kind and key name the definition,
+     * reason says why, in words a mod author can act on). Recorded as an issue of code KILN_BOOT_ISSUE_ACTIVATION_FAULT,
+     * phase "activation"; the mod's state and the phase status become ACTIVATION_FAULT; nothing is undone. For a mod
+     * whose boot content is required the start stops here as it does before the entry point: the state files are
+     * written and the process ends with KILN_BOOT_EXIT_CODE (the call does not return). Any thread.
+     * KILN_ERR_UNAVAILABLE: no deferred mode, or nothing is published yet. KILN_ERR_INVALID_ARGUMENT: the caller is not
+     * a registered collector's owner, an unknown mod, an empty reason. */
+    KilnResult(KILN_CALL* activation_fault)(KilnOwner collector, KilnStr mod_id, KilnStr kind, KilnStr key, KilnStr reason);
 } KilnBootApiV1;
 
 #pragma pack(pop)

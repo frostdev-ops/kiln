@@ -124,6 +124,9 @@ public static unsafe partial class CreatureControl
         if (owner != 0) t->ReleaseControl(owner, lease.Value);
     }
 
+    // Kiln's own services: a lease this face tracks ended (its first terminal state), at the service tick (tick thread).
+    internal static event Action<ControlLeaseSnapshot>? LeaseEnded;
+
     private static readonly Dictionary<string, ulong> ServiceOwners = new(StringComparer.Ordinal);
 
     private static ulong ServiceOwner(string service)
@@ -376,6 +379,11 @@ public static unsafe partial class CreatureControl
             }
             if (!Same(before, after) && Events.HasSubscribers<ControlChangedEvent>())
                 Events.Post(new ControlChangedEvent(before, after));
+            if (after.IsTerminal && before is not { IsTerminal: true } && LeaseEnded is { } ended)
+            {
+                try { ended(after); }
+                catch (Exception e) { Backend.Current.Log(0, LogLevel.Warn, $"kiln.creature_control: a lease-end handler threw: {e.Message}"); }
+            }
             Answer(lease, after, now);
         }
     }
@@ -519,4 +527,11 @@ public static unsafe partial class CreatureControl
         new ControlLeaseId(s.Lease), new ControlLeaseId(s.WinningLease), new ControlRequestId(s.RequestId),
         (ControlRole)s.RequestedRole, (ControlRole)s.EffectiveRole, (ControlLeaseState)s.LeaseState, (ControlResultCode)s.Result,
         s.TransitionSequence, s.NoticeSequence, s.ChangedMask, CreatureControlNative.ReasonOf(in s));
+}
+
+/// <summary>Started by Kiln (ServiceTick.AutoStart) at its first service tick: the rows kiln.creature_control and
+/// creature_control say why they are off before a mod asks (with no native service: "not loaded").</summary>
+internal static class CreatureControlStartup
+{
+    static CreatureControlStartup() => CreatureControl.Caps.Rows.Ensure();
 }

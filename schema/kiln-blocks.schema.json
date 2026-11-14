@@ -215,10 +215,60 @@
       }
     },
     "affixes": {"type": "object", "description": "Affix kinds: rolled modifiers on one item (\"+5 Strength\" on this sword), a stat with tiers and the range each rolls in. A pool rolls them onto an item, and Kiln applies them while it is worn or in hand. Server; asks nothing of players' games. Rolled items keep the id \"mod:name\", the same as Affixes.Define gives.", "propertyNames": {"$ref": "#/$defs/affixName"}, "additionalProperties": {"$ref": "#/$defs/affix"}},
-    "affixPools": {"type": "object", "description": "Affix pools: which items roll which affixes, and how many. Code rolls one onto an item (AffixPoolHandle.Roll); its entries name affixes of this mod's code or blocks files, in either order.", "propertyNames": {"$ref": "#/$defs/affixName"}, "additionalProperties": {"$ref": "#/$defs/affixPool"}}
+    "affixPools": {"type": "object", "description": "Affix pools: which items roll which affixes, and how many. Code rolls one onto an item (AffixPoolHandle.Roll); its entries name affixes of this mod's code or blocks files, in either order.", "propertyNames": {"$ref": "#/$defs/affixName"}, "additionalProperties": {"$ref": "#/$defs/affixPool"}},
+    "resourcePatches": {
+      "type": "object",
+      "description": "Fields of the game's own resources, set before the game reads them (a mod with \"boot\": true; docs/kiln/modding/resource-patches.md). Not blocks: kiln.content applies them.",
+      "propertyNames": { "pattern": "^[a-z][a-z0-9_.-]{0,95}$" },
+      "additionalProperties": { "$ref": "#/$defs/resourcePatch" }
+    }
+  },
+  "patternProperties": {
+    "^[a-z0-9][a-z0-9._-]{0,63}:[A-Za-z0-9-]{1,64}$": {
+      "description": "Blocks of a kind another mod registered (Blocks.RegisterKind): \"provider-mod:plural\". The provider mod must be a dependency of this mod. Every block says \"format\": 1; the rest is the kind's own record, checked by the provider's schema when the mod loads. docs/kiln/modding/block-kinds.md",
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["format"],
+        "properties": { "format": { "const": 1 } }
+      }
+    }
   },
   "additionalProperties": false,
   "$defs": {
+    "resourcePatch": {
+      "type": "object",
+      "description": "One resource and the fields to set in it.",
+      "required": ["resource", "type", "set"],
+      "additionalProperties": false,
+      "properties": {
+        "format": { "const": 1 },
+        "resource": { "type": "string", "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$", "description": "The resource's GUID." },
+        "type": { "type": "string", "minLength": 1, "description": "The resource's qualified type name, as keen::BalancingTable." },
+        "part": { "type": "integer", "minimum": 0, "description": "The part index; 0 when left out." },
+        "set": {
+          "type": "object",
+          "minProperties": 1,
+          "description": "Member path to value. A path: members by name, [i] an element of a list, [*] every element.",
+          "additionalProperties": {
+            "anyOf": [
+              { "type": ["number", "boolean", "string"] },
+              { "type": "array", "items": { "type": ["string", "integer"] } },
+              {
+                "type": "object",
+                "minProperties": 1,
+                "additionalProperties": false,
+                "properties": {
+                  "set": { "type": ["number", "boolean", "string"] },
+                  "mul": { "type": "number" }, "add": { "type": "number" }, "min": { "type": "number" }, "max": { "type": "number" },
+                  "raiseOnly": { "type": "boolean" }, "lowerOnly": { "type": "boolean" }
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
     "strength": {
       "type": "object",
       "description": "What it takes to dig a material. Cost per block = health / (the tool's damage for this hardness x the server's mining factor x the class modifier). A field left out stays what it was.",

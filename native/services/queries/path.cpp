@@ -26,14 +26,13 @@ namespace {
 
 constexpr char kPathFeature[] = "queries.path";
 constexpr size_t kQuerySize = 0x110, kResultSize = 0x28;
-// Fields of the game's query this build's tested settings use beside the four sigdb captures (docs/re/queries.md):
-// the target type, the vertical start and target search distances, and the free space, in half metres.
-constexpr size_t kTargetType = 0x36, kStartSearchV = 0xf4, kTargetSearchV = 0xfc, kSpaceH = 0x100, kSpaceV = 0x104;
-
 PathQueue g_queue;
 std::atomic<bool> g_path_on{false};
 uintptr_t g_defaults = 0, g_create = 0, g_result = 0, g_destroy = 0;
 int64_t c_start = 0, c_target = 0, c_iterations = 0, c_moves = 0, c_job_realm = 0;
+// The fields Kiln sets beside those (sigdb captures too; docs/re/queries.md): the target type, the vertical start and
+// target search distances and the free space, in half metres.
+int64_t c_target_type = 0, c_start_search_v = 0, c_target_search_v = 0, c_space_h = 0, c_space_v = 0;
 KilnHandle g_program = 0;
 int32_t s_transform = -1, s_stamp = -1, s_grid = -1;
 uint32_t h_transform = 0, h_stamp = 0;
@@ -122,13 +121,13 @@ void KILN_CALL each(KilnProgramCtx* ctx, uint64_t* iter, KilnEntity, void*) {
                 put<uint32_t>(q, 0, w.params.anchor);
                 std::memcpy(q + c_start, w.params.from, 12);
                 std::memcpy(q + c_target, w.params.to, 12);
-                q[kTargetType] = w.params.fallback ? 2 : 0;  // UseClosestTargetNodeAsFallback
+                q[c_target_type] = w.params.fallback ? 2 : 0;  // UseClosestTargetNodeAsFallback
                 put<uint32_t>(q, c_iterations, w.params.max_iterations);
                 put<uint16_t>(q, c_moves, 1);  // walk only
-                put<uint32_t>(q, kStartSearchV, 4);
-                put<uint32_t>(q, kTargetSearchV, 4);
-                put<uint32_t>(q, kSpaceH, w.params.hspace);
-                put<uint32_t>(q, kSpaceV, w.params.vspace);
+                put<uint32_t>(q, c_start_search_v, 4);
+                put<uint32_t>(q, c_target_search_v, 4);
+                put<uint32_t>(q, c_space_h, w.params.hspace);
+                put<uint32_t>(q, c_space_v, w.params.vspace);
                 uint32_t id = 0;
                 if (!seh_path_create(g_create, cb, &id, q)) {
                     path_off(KILN_CAP_REASON_FAULTED, "GameCallFault", "the game's path query create faulted");
@@ -214,11 +213,15 @@ void path_resolve() {
              !g_defaults || !g_create || !g_result || !g_destroy)
         why = "a path query function is missing";
     else if (!constant("queries/query.start", &c_start) || !constant("queries/query.target", &c_target) || !constant("queries/query.max_iterations", &c_iterations) ||
-             !constant("queries/query.moves", &c_moves) || !constant("queries/job.realm", &c_job_realm))
+             !constant("queries/query.moves", &c_moves) || !constant("queries/job.realm", &c_job_realm) ||
+             !constant("queries/query.target_type", &c_target_type) || !constant("queries/query.start_search_v", &c_start_search_v) ||
+             !constant("queries/query.target_search_v", &c_target_search_v) || !constant("queries/query.space_h", &c_space_h) ||
+             !constant("queries/query.space_v", &c_space_v))
         why = "a path query layout constant is missing";
     else {
         auto inside = [](int64_t at, size_t n) { return at >= 4 && at + static_cast<int64_t>(n) <= static_cast<int64_t>(kQuerySize); };
-        if (!inside(c_start, 12) || !inside(c_target, 12) || !inside(c_iterations, 4) || !inside(c_moves, 2) || c_job_realm < 0 || c_job_realm > 0x1000)
+        if (!inside(c_start, 12) || !inside(c_target, 12) || !inside(c_iterations, 4) || !inside(c_moves, 2) || c_job_realm < 0 || c_job_realm > 0x1000 ||
+            !inside(c_target_type, 1) || !inside(c_start_search_v, 4) || !inside(c_target_search_v, 4) || !inside(c_space_h, 4) || !inside(c_space_v, 4))
             why = "the captured path query layout is not a layout";
     }
     if (why) {

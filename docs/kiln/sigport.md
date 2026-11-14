@@ -58,11 +58,13 @@ does too, so the patterns sigport writes match the same bytes in the game:
   verified-build policy are unchanged. They run on the same results.
 - **Fallback.** sigdb scans the live `.text` as before, and logs a warning, when the file can't be mapped or parsed,
   its `.text` isn't the loaded one (build timestamp, image size, RVA or size differ), or more than 1% of its bytes
-  differ from the live code. What the differing bytes are does not decide it: hooks (a jump out of the image, a
-  redirected call) and bytes another mod changed in place both leave the file as the loaded build. From 2026-11-07 to
-  0.2.0-dev.27 a difference that was no known hook form sent the whole scan to the live code, where that start's
-  hooks hid functions. A client with The Worst Map Mod (four map marker patches made before Kiln's scan) and other
-  loaders' hooks lost 20 symbols and 22 features that way (a player's report of 14 Nov 2026).
+  differ from the live code. Hooks (a jump out of the image, a redirected call) never decide it. Bytes that differ in
+  another way are another mod's in-place patches when the file's sha256 is a verified build record: the file is then
+  the game as shipped, and it is scanned. Without a verified record the file itself may be the changed one, and the
+  live code is scanned. From 2026-11-07 to 0.2.0-dev.27 any difference that was no known hook form sent the whole
+  scan to the live code, where that start's hooks hid functions. A client with The Worst Map Mod (four map marker
+  patches made before Kiln's scan) and other loaders' hooks lost 20 symbols and 22 features that way (a player's
+  report of 14 Nov 2026).
 - **Speed.** Unscoped strategies (each one a scan of all of `.text`) run up front on up to 8 threads. The copy can't
   change under them, even while another engine is still writing its hooks into the live code.
 
@@ -111,7 +113,8 @@ fragment report also lists the functions Kiln hooked (`by: jmp to kiln-core.dll+
 Tests: `native/core/tests/test-sigdisk.sh [--server <exe>] [--client <exe>]` covers parsing, relocations (a test PE
 loaded at another base, including a fixup that straddles the end of `.text`), translation and rel32 captures. With
 the exes, it also hooks every resolved function in a copy and shows that a live scan loses them while the file scan
-keeps them all.
+keeps them all. With `--client` the core's own choice between file and live code runs on the client exe, hooked and
+patched in place, with and without a verified build record.
 
 ## How it works
 ### 1. Function features (`exeinfo.py`, cached per exe sha in `~/.cache/kiln/sigport/`)

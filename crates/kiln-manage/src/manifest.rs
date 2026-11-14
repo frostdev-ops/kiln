@@ -332,8 +332,7 @@ const RESERVED: [&str; 6] = ["kiln", "kiln.api", "game", "enshrouded", "native",
 const KNOWN: [&str; 24] = [
     "$schema", "id", "name", "version", "authors", "author", "description", "license", "url", "apiVersion", "side",
     "clients", "dependencies", "loadBefore", "loadAfter", "incompatible", "features", "entryAssembly", "entryType", "exports",
-    "advanced", "tests", "kilnBuild",
-    "boot",
+    "advanced", "tests", "kilnBuild", "boot",
 ];
 
 fn id_rule(s: &str) -> bool {
