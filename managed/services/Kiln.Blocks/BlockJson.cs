@@ -19,6 +19,16 @@ internal static class BlockJson
         Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase), new Vec3Converter() },
     };
 
+    /// <summary>The strict options every block is read with (Kinds/KindJson.cs clones them per registered kind).</summary>
+    internal static JsonSerializerOptions SharedOptions => Options;
+
+    /// <summary>The record type of every section: what Kiln compiles itself.</summary>
+    internal static IEnumerable<Type> KindTypes()
+    {
+        foreach (var (_, make) in Kinds)
+            yield return make.Method.IsGenericMethod ? make.Method.GetGenericArguments()[0] : make.Method.Name == nameof(MakeVfx) ? typeof(VfxBlock) : typeof(MaterialBlock);
+    }
+
     private static readonly JsonDocumentOptions Doc = new() { CommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true };
 
     // The limits of a mod's own blocks/ folder, as in native/services/vfx/generated.h.
@@ -114,6 +124,16 @@ internal static class BlockJson
                 {
                     if (p.Name is "format" or "comment" or "$schema") continue;
                     var kind = Kinds.FirstOrDefault(k => k.Section == p.Name);
+                    // "provider-mod:plural": a kind another mod registered (Blocks.RegisterKind). Its provider is a dependency, so it loaded first.
+                    if (kind.Make == null && KindRegistry.IsExternalSection(p.Name))
+                    {
+                        if (KindRegistry.FindSection(p.Name) is not { } external)
+                        {
+                            Fail(mod, $"{rel}: \"{p.Name}\" is a block kind of mod {p.Name[..p.Name.IndexOf(':')]}, and no such kind is registered: is that mod in this mod's dependencies, and loaded?");
+                            continue;
+                        }
+                        kind = (p.Name, (m, name, e) => KindDefine.FromJson(m, external, name, e));
+                    }
                     if (kind.Make == null)
                     {
                         Fail(mod, $"{rel}: \"{p.Name}\" is not a kind of block; there are {string.Join(", ", Kinds.Select(k => k.Section))}");
@@ -170,7 +190,7 @@ internal static class BlockJson
                 using var doc = JsonDocument.Parse(text, Doc);
                 if (doc.RootElement.ValueKind != JsonValueKind.Object) continue;
                 foreach (var p in doc.RootElement.EnumerateObject())
-                    if (p.Value.ValueKind == JsonValueKind.Object && Kinds.Any(k => k.Section == p.Name))
+                    if (p.Value.ValueKind == JsonValueKind.Object && (Kinds.Any(k => k.Section == p.Name) || KindRegistry.FindSection(p.Name) != null))
                         foreach (var _ in p.Value.EnumerateObject()) n++;
             }
             catch (Exception e) when (e is JsonException or IOException or UnauthorizedAccessException)

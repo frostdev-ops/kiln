@@ -1,5 +1,17 @@
 #nullable enable
 Kiln.Content
+Kiln.ContentChange
+Kiln.ContentChange.Applied = 3 -> Kiln.ContentChange
+Kiln.ContentChange.Reset = 2 -> Kiln.ContentChange
+Kiln.ContentChange.Reverted = 4 -> Kiln.ContentChange
+Kiln.ContentChange.Set = 1 -> Kiln.ContentChange
+Kiln.ContentChangedEvent
+Kiln.ContentChangedEvent.Change.get -> Kiln.ContentChange
+Kiln.ContentChangedEvent.Id.get -> uint
+Kiln.ContentChangedEvent.Kind.get -> Kiln.ContentKind?
+Kiln.ContentChangedEvent.Name.get -> string!
+Kiln.ContentChangedEvent.Origin.get -> string!
+Kiln.ContentChangedEvent.Path.get -> string!
 Kiln.ContentConflict
 Kiln.ContentConflict.<Clone>$() -> Kiln.ContentConflict!
 Kiln.ContentConflict.ContentConflict(string! Field, string! Winner, string! WinnerValue, string! Loser, string! LoserValue) -> void
@@ -643,6 +655,7 @@ Kiln.TextsStatus.Source.init -> void
 Kiln.TextsStatus.TextsStatus(bool Loaded, string? Source, string? Build, int Count, double Seconds, string! Reason) -> void
 const Kiln.ContentSync.ChannelName = "kiln:content" -> string!
 const Kiln.ContentSync.ChannelVersion = "1" -> string!
+override Kiln.ContentChangedEvent.ToString() -> string!
 override Kiln.ContentConflict.Equals(object? obj) -> bool
 override Kiln.ContentConflict.GetHashCode() -> int
 override Kiln.ContentConflict.ToString() -> string!
