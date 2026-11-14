@@ -372,10 +372,8 @@ void load_boot_definitions(const kiln::boot::Input* boot = nullptr, std::vector<
     if (boot)
         for (const std::string& mod : mod_ids) {
             for (const auto& b : boot->docs("skills", mod)) {
-                if (!b.document.is_object() || !b.document.contains("nodes") || !b.document["nodes"].is_array()) {
-                    SW("mod %s: boot document %s is not {\"nodes\": [...]} (skipped)", mod.c_str(), b.key.c_str());
-                    continue;
-                }
+                if (!b.document.is_object() || !b.document.contains("nodes") || !b.document["nodes"].is_array())
+                    throw kiln::boot::Refusal(mod, "skills", b.key, "kiln.skills: a boot document is not {\"nodes\": [...]}");
                 std::lock_guard lock(g_mu);
                 KilnOwner o = g_mod_owner.count(mod) ? g_mod_owner[mod] : g_api->owner_create(kstr("skills:" + mod));
                 if (!g_mod_owner.count(mod) && made) made->push_back(o);
@@ -1345,7 +1343,12 @@ KilnResult KILN_CALL prepare_boot(void*, const KilnBootPrepareInputV1* in, KilnB
     const kiln::boot::Input input = kiln::boot::parse(in);
     if (!input.ok) return kiln::boot::refuse(out, issue, "", "", "", "kiln.skills: the boot envelope is not JSON");
     auto* plan = new BootPlan;
-    load_boot_definitions(&input, &plan->owners);
+    try {
+        load_boot_definitions(&input, &plan->owners);
+    } catch (const kiln::boot::Refusal& r) {
+        destroy_boot(plan);  // what was read before the refusal goes with it
+        return kiln::boot::refuse(out, issue, r.mod, r.kind, r.key, r.what());
+    }
     size_t n;
     {
         std::lock_guard lock(g_mu);

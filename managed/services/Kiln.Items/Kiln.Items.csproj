@@ -9,6 +9,8 @@
     <NoWarn>$(NoWarn);CS1591</NoWarn>
   </PropertyGroup>
   <ItemGroup>
+    <!-- a block's tool wear rule is set as the block's mod (ToolWearRuntime) -->
+    <InternalsVisibleTo Include="Kiln.Blocks" />
     <InternalsVisibleTo Include="Kiln.Blocks.Tests" />
     <!-- Equip (EquipResult from a native result, the slot mapping, the capability verdict): pure parts tested offline. -->
     <InternalsVisibleTo Include="Kiln.Items.Tests" />

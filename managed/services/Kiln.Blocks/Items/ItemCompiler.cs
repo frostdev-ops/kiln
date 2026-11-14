@@ -559,6 +559,15 @@ internal static partial class Compiler
         Not(t.Durability != null && c.Use != ToolUse.Light, "durability", "only the game's torches burn down over time; the game wears the others by its own rule (the world's durability setting), with no number of the item's own");
         Not(t.BreaksInto != null && !c.Gear && c.Use != ToolUse.Light, "breaksInto", "it has no durability to run out");
         Not(t.Fishing != null && c.Use != ToolUse.Fish, "fishing", "that is for a fishing rod");
+        if (t.WearPerDebit is { } wear)
+        {
+            Not(!c.Gear, "wearPerDebit", "the game debits durability per use only on a tool with a level and enhancement slots (a torch burns down: durability)");
+            if (wear is < 0 or > ToolWearRuntime.MaxCost) throw new BlockError(ctx.Block, "tool.wearPerDebit", $"{wear} is outside 0..{ToolWearRuntime.MaxCost}");
+            // a server's behaviour, not content: nothing of it is in what the block lowers to for players' games. Set once the block is committed, where a server world runs
+            var (blocks, block, item) = (ctx.Mod, ctx.Block, BlockIds.Fnv(d.Guid));
+            d.Low.Json["toolWear"] = new JsonObject { ["perDebit"] = wear };
+            d.Low.AfterCommit(() => ToolWearRuntime.Add(blocks, block, item, wear));
+        }
         if (c.Gear)
         {
             // an axe, a pickaxe, a sieve, a rake: an item entity with a level, a rarity and enhancement slots

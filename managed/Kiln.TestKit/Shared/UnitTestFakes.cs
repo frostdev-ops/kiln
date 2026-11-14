@@ -32,7 +32,11 @@ internal class RecordingBackend : IKilnBackend
     public bool TickThread = true;
     public string Version => "test";
     public bool IsTickThread => TickThread;
-    public bool HasFeature(string name) => false;
+    public bool HasFeature(string name) => Features.Contains(name);
+
+    /// <summary>Game features this backend claims (none unless a test adds them; a fake that serves resources adds
+    /// <c>assets.resources</c>).</summary>
+    public readonly HashSet<string> Features = new(StringComparer.Ordinal);
 
     /// <summary>Native service tables a test provides (a fake kiln.types or kiln.assets).</summary>
     public readonly Dictionary<string, nint> Tables = [];

@@ -316,6 +316,10 @@ pub struct KilnManifest {
     /// The Kiln build the mod was compiled against (`"kilnBuild"`); None when unknown.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub kiln_build: Option<KilnBuild>,
+    /// `"boot": true` or `"boot": "required"`: the mod runs in Mod.OnBoot's definition phase (kiln.boot reads it the
+    /// same way: native/core/src/services/boot_service.cpp manifest_boot); anything else is no boot mod.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub boot: bool,
     /// Non-fatal findings (unknown keys), same texts as Manifest.cs.
     pub warnings: Vec<String>,
 }
@@ -325,10 +329,10 @@ pub const ID_PATTERN: &str = "^[a-z0-9][a-z0-9._-]{0,63}$";
 /// The dependency id that is not a mod: the native core's version.
 pub const KILN_ID: &str = "kiln";
 const RESERVED: [&str; 6] = ["kiln", "kiln.api", "game", "enshrouded", "native", "permissions"];
-const KNOWN: [&str; 23] = [
+const KNOWN: [&str; 24] = [
     "$schema", "id", "name", "version", "authors", "author", "description", "license", "url", "apiVersion", "side",
     "clients", "dependencies", "loadBefore", "loadAfter", "incompatible", "features", "entryAssembly", "entryType", "exports",
-    "advanced", "tests", "kilnBuild",
+    "advanced", "tests", "kilnBuild", "boot",
 ];
 
 fn id_rule(s: &str) -> bool {
@@ -607,6 +611,7 @@ pub fn parse_kiln(text: &str) -> Result<KilnManifest> {
     let incompatible = parse_incompatible(&root, &id)?;
     let features = strings(&root, "features", false)?;
     let tests = parse_tests(&root)?;
+    let boot = root.get("boot").is_some_and(|b| b.as_bool() == Some(true) || b.as_str() == Some("required"));
     Ok(KilnManifest {
         id,
         name,
@@ -630,6 +635,7 @@ pub fn parse_kiln(text: &str) -> Result<KilnManifest> {
         advanced,
         tests,
         kiln_build,
+        boot,
         warnings,
     })
 }

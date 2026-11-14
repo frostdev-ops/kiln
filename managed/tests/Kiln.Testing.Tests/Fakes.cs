@@ -119,6 +119,16 @@ public sealed class CheckMod : Mod
         await c.Verdict();
     }
 
+    [ClientCheck("t.selfskip", "Skips itself", Area = "Skips")]
+    public async Task SelfSkip(CheckContext c)
+    {
+        c.Instruct("Nothing to judge here.");
+        var v = await c.Skip("the capability under test is still held");
+        c.Expect(v == ClientCheckVerdict.Skip, "the verdict is skip");
+        SelfSkipLater = await c.Verdict();
+    }
+    public static ClientCheckVerdict? SelfSkipLater;
+
     [ClientCheck("t.noask", "Returns without asking", Area = "Basics", Order = 3)]
     public Task NoAsk(CheckContext c)
     {

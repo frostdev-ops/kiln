@@ -13,6 +13,77 @@ namespace Kiln.CreatureControlTests;
 
 public sealed unsafe class CreatureControlTests
 {
+    public sealed class EmptyMod : Mod { }
+
+    [Fact]
+    public void AnotherModCannotReleaseATrackedLease()
+    {
+        var (kiln, body) = Start();
+        using var cleanup = kiln;
+        var owner = kiln.Load<EmptyMod>(new ModManifest("control-owner"));
+        var other = kiln.Load<EmptyMod>(new ModManifest("control-other"));
+        var lease = kiln.As(owner, () => CreatureControl.Acquire(body, ControlRole.PetFollow, CreatureControl.NewRequestId()));
+        kiln.Step(3);
+        var denied = kiln.As(other, () => CreatureControl.Release(lease.Lease));
+        Assert.True(denied.IsCompletedSuccessfully);
+        Assert.False(denied.Result.Ok);
+        Assert.Contains("another owner", denied.Result.Reason);
+        Assert.True(kiln.Run(() => CreatureControl.Inspect(lease.Lease))!.CanDrive);
+        var release = kiln.As(owner, () => CreatureControl.Release(lease.Lease));
+        kiln.Step(6);
+        Assert.True(release.Result.Ok);
+    }
+
+    [Fact]
+    public void ARequestReplaysAfterTheImplicitBindingWasReleased()
+    {
+        var (kiln, body) = Start();
+        using var cleanup = kiln;
+        var id = kiln.Run(() => CreatureControl.NewRequestId());
+        var first = kiln.Run(() => CreatureControl.Acquire(body, ControlRole.PetFollow, id));
+        kiln.Step(3);
+        var release = kiln.Run(() => CreatureControl.Release(first.Lease));
+        kiln.Step(6);
+        Assert.True(release.Result.Ok);
+        var replay = kiln.Run(() => CreatureControl.Acquire(body, ControlRole.PetFollow, id));
+        Assert.True(replay.Ok);
+        Assert.Equal(first.Lease, replay.Lease);
+        Assert.Equal(ControlLeaseState.Released, replay.Initial!.State);
+    }
+
+    [Fact]
+    public void FakeLeaseHandlesDoNotAliasAcrossHarnesses()
+    {
+        ControlLeaseId previous;
+        var (first, body) = Start();
+        using (first) previous = Acquire(first, body).Lease;
+        var (second, nextBody) = Start();
+        using (second)
+        {
+            var next = Acquire(second, nextBody);
+            Assert.True(next.Ok, next.Reason);
+            Assert.NotEqual(previous, next.Lease);
+            Assert.Null(second.Run(() => CreatureControl.Inspect(previous)));
+        }
+    }
+
+    [Fact]
+    public void CancelingPendingAfterRemovalStillWaitsForRestore()
+    {
+        var (kiln, body) = Start();
+        using var cleanup = kiln;
+        var lease = Acquire(kiln, body);
+        kiln.Step();  // the removal ran, but the next Pre has not verified it
+        Assert.Equal(ControlLeaseState.Pending, kiln.Run(() => CreatureControl.Inspect(lease.Lease))!.State);
+        var release = kiln.Run(() => CreatureControl.Release(lease.Lease));
+        kiln.Step();
+        Assert.False(release.IsCompleted);
+        kiln.Step(3);
+        Assert.True(release.IsCompletedSuccessfully);
+        Assert.True(release.Result.Ok);
+        Assert.Equal(ControlResultCode.Canceled, release.Result.State!.Result);
+    }
+
     private static (KilnHarness Kiln, EntityRef Body) Start()
     {
         var kiln = new KilnHarness();
@@ -149,8 +220,9 @@ public sealed unsafe class CreatureControlTests
         var old = kiln.Run(() => CreatureControl.Acquire(new EntityRef(other, 0), ControlRole.PetFollow, a));
         Assert.False(old.Ok);
         Assert.Equal(ControlResultCode.ExpiredHandle, old.Initial!.Result);
-        // a body with a lease: Busy; a body that is gone: BodyGone
-        var busy = Acquire(kiln, body);
+        // one lease per role: a second ride on the body is Busy; a body that is gone: BodyGone
+        Assert.True(Acquire(kiln, body, ControlRole.Ridden).Ok);
+        var busy = Acquire(kiln, body, ControlRole.Ridden);
         Assert.False(busy.Ok);
         Assert.StartsWith("Busy", busy.Reason);
         kiln.Entities.Destroy(other);
@@ -181,5 +253,69 @@ public sealed unsafe class CreatureControlTests
         Assert.False(release.Result.Ok);  // a terminal loss is not a release
         Assert.StartsWith("BodyGone", release.Result.Reason);
         Assert.Equal(seen.Count, seen.Select(e => (e.Lease, e.After.State, e.After.Result)).Distinct().Count());  // once per change
+    }
+
+    [Fact]
+    public void ARiddenLeasePreemptsTheBaseLeaseWhichResumesWithANewSequence()
+    {
+        var (kiln, body) = Start();
+        using var _k = kiln;
+        var follow = Acquire(kiln, body);
+        kiln.Step(3);
+        Assert.True(kiln.Run(() => CreatureControl.Inspect(follow.Lease))!.CanDrive);
+        var ride = Acquire(kiln, body, ControlRole.Ridden);
+        Assert.True(ride.Ok, ride.Reason);
+        kiln.Step(2);
+        var f = kiln.Run(() => CreatureControl.Inspect(follow.Lease))!;
+        var r = kiln.Run(() => CreatureControl.Inspect(ride.Lease))!;
+        Assert.Equal((ControlLeaseState.Preempted, false), (f.State, f.CanDrive));
+        Assert.True(r.CanDrive);
+        Assert.Equal(2ul, r.TransitionSequence);
+        Assert.Equal(ControlRole.Ridden, f.EffectiveRole);
+        // the same mod's other base role replaces its Follow at once, kept Preempted under the ride
+        var stay = Acquire(kiln, body, ControlRole.PetStay);
+        Assert.True(stay.Ok, stay.Reason);
+        Assert.Equal(ControlLeaseState.Preempted, stay.Initial!.State);
+        var replaced = kiln.Run(() => CreatureControl.Inspect(follow.Lease))!;
+        Assert.Equal((ControlLeaseState.Released, ControlResultCode.Canceled), (replaced.State, replaced.Result));
+        Assert.StartsWith("Replaced", replaced.Reason);
+        var end = kiln.Run(() => CreatureControl.Release(ride.Lease));
+        kiln.Step(2);
+        Assert.True(end.IsCompletedSuccessfully);
+        var s = kiln.Run(() => CreatureControl.Inspect(stay.Lease))!;
+        Assert.True(s.CanDrive);
+        Assert.Equal(3ul, s.TransitionSequence);
+    }
+
+    [Fact]
+    public void AServiceLeaseThatEndsIsReportedOnceToTheService()
+    {
+        // Kiln.Blocks watches its brains' leases this way: a lease that fails while the brain lives falls back to the AI off
+        var (kiln, body) = Start();
+        using var _k = kiln;
+        var ended = new List<ControlLeaseSnapshot>();
+        void Seen(ControlLeaseSnapshot s) => ended.Add(s);
+        CreatureControl.LeaseEnded += Seen;
+        try
+        {
+            var r = kiln.Run(() => CreatureControl.AcquireAs("kiln.blocks", null, body, ControlRole.PetFollow));
+            Assert.True(r.Ok, r.Reason);
+            kiln.Step(3);
+            Assert.Empty(ended);
+            kiln.Entities.Destroy(body.Id);
+            kiln.Step(4);
+            var one = Assert.Single(ended);
+            Assert.Equal((r.Lease, ControlLeaseState.Failed, ControlResultCode.BodyGone), (one.Lease, one.State, one.Result));
+
+            // a release is an end too, reported with its own result
+            var other = new EntityRef(kiln.Entities.Create(new WorldPosition(20, 0, 20)), 0);
+            var r2 = kiln.Run(() => CreatureControl.AcquireAs("kiln.blocks", null, other, ControlRole.PetFollow));
+            kiln.Step(3);
+            kiln.Run(() => CreatureControl.ReleaseNow(r2.Lease));
+            kiln.Step(6);
+            Assert.Equal(2, ended.Count);
+            Assert.Equal((r2.Lease, ControlLeaseState.Released), (ended[1].Lease, ended[1].State));
+        }
+        finally { CreatureControl.LeaseEnded -= Seen; }
     }
 }

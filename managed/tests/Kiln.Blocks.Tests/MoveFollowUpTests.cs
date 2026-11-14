@@ -106,7 +106,10 @@ public sealed class MoveFollowUpTests : IDisposable
         public readonly List<(string Section, string Entry, JsonObject Rules)> Kept = new();
         public int RefuseDefineAt = -1, Defines;
         public Func<JsonObject, string?>? ApplyError;
+        public Action<JsonObject>? AfterApply;
         public bool SwitchTakesOnlyFirst;
+        public bool FailPutBack;   // a put-back document is refused whole
+        public bool ThrowLinkRead, ThrowSlotRead;
 
         // as the game: once a slot was switched it names the clone that plays there
         public IReadOnlyList<SlotRow>? Slots(string item) => SlotRows?.Select((r, i) => SlotsNow.TryGetValue(i, out var g) ? r with { Sequence = g } : r).ToList();
@@ -127,13 +130,19 @@ public sealed class MoveFollowUpTests : IDisposable
         {
             Applied.Add(doc.DeepClone().AsObject());
             if (ApplyError?.Invoke(doc) is { } error) return [error];
+            if (FailPutBack && source.EndsWith("(put back)", StringComparison.Ordinal)) return ["the store is busy"];
             if (doc["sequences"] is JsonObject seqs)
                 foreach (var (entry, rules) in seqs)
                 {
                     var hash = entry.IndexOf('#');
                     var (clone, sub) = hash > 0 ? (entry[..hash], int.Parse(entry[(hash + 1)..])) : (entry, 0);
                     foreach (var (path, v) in rules!.AsObject())
-                        if (path.EndsWith(".followUp")) LinksNow[(clone, sub, int.Parse(path[(path.IndexOf('#') + 1)..path.IndexOf(']')]))] = ByName[(string)v!];
+                        if (path.EndsWith(".followUp"))
+                        {
+                            var key = (clone, sub, int.Parse(path[(path.IndexOf('#') + 1)..path.IndexOf(']')]));
+                            if (v is JsonObject) LinksNow.Remove(key);
+                            else LinksNow[key] = ByName[(string)v!];
+                        }
                 }
             if (doc["itemdata"] is JsonObject items)
                 foreach (var (_, rules) in items)
@@ -147,11 +156,13 @@ public sealed class MoveFollowUpTests : IDisposable
                         else SlotsNow[i] = ByName[(string)v!];
                     }
                 }
+            AfterApply?.Invoke(doc);
             return [];
         }
 
-        public Guid? Link(string clone, int sub, int k) => LinksNow.TryGetValue((clone, sub, k), out var g) ? g : null;
-        public Guid? Slot(string item, int index) => SlotsNow.TryGetValue(index, out var g) ? g : null;
+        public Guid? Link(string clone, int sub, int k) => ThrowLinkRead ? throw new InvalidOperationException("link read unavailable") : LinksNow.TryGetValue((clone, sub, k), out var g) ? g : null;
+        public Guid? Slot(string item, int index) => ThrowSlotRead ? throw new InvalidOperationException("slot read unavailable") : SlotsNow.TryGetValue(index, out var g) ? g
+            : SlotRows is { } rows && index < rows.Count ? rows[index].Sequence : null;   // not switched: the class's sequence, as the game reads it
         public void Later(ModBlocks mod, Action<Action<string>> next) => Pending.Enqueue(next);
         public void Keep(ModBlocks mod, IReadOnlyList<(string Section, string Entry, JsonObject Rules)> rules) => Kept.AddRange(rules);
         public void Drop(ModBlocks mod, IReadOnlyList<(string Section, string Entry, JsonObject Rules)> rules) => Kept.RemoveAll(r => rules.Any(x => ReferenceEquals(x.Rules, r.Rules)));
@@ -465,6 +476,34 @@ public sealed class MoveFollowUpTests : IDisposable
         Assert.Equal(0ul, Status().AppliedGeneration);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void A_readback_exception_refuses_the_attempt_and_restores_any_switched_slots(bool slot)
+    {
+        Start(Warden());
+        if (slot) _game.ThrowSlotRead = true;
+        else _game.ThrowLinkRead = true;
+        var escaped = Record.Exception(() => _game.Pump());
+        Assert.Null(escaped);
+        Assert.Equal(MoveApplicationState.Refused, Status().State);
+        Assert.Contains(slot ? "slot read unavailable" : "link read unavailable", Status().Reason);
+        Assert.Equal(0ul, Status().AppliedGeneration);
+        Assert.Empty(_game.SlotsNow);
+        Assert.DoesNotContain(_events, e => e.After.Ok);
+    }
+
+    [Fact]
+    public void An_apply_exception_is_a_refusal_with_a_reason()
+    {
+        _game.ApplyError = _ => throw new InvalidOperationException("rules unavailable");
+        Start(Warden());
+        Assert.Null(Record.Exception(() => _game.Pump()));
+        Assert.Equal(MoveApplicationState.Refused, Status().State);
+        Assert.Contains("rules unavailable", Status().Reason);
+        Assert.Empty(_game.SlotsNow);
+    }
+
     [Fact]
     public void A_link_that_does_not_read_back_ends_the_attempt_before_any_slot_changes()
     {
@@ -517,6 +556,94 @@ public sealed class MoveFollowUpTests : IDisposable
         var entry = ((System.Collections.IDictionary)entries)[(Mod, "warden")]!;
         entry.GetType().GetField("Plan")!.SetValue(entry, plan);
         Assert.True(MoveApplications.Retry(Mod, "warden", _ => { }));
+    }
+
+    [Fact]
+    public void A_put_back_that_fails_leaves_mixed_slots_and_the_status_says_so_instead_of_naming_a_generation()
+    {
+        Start(Warden());
+        _game.Pump();
+        var first = Status();
+        Assert.Equal(1ul, first.AppliedGeneration);
+        Assert.True(Compiler.Plans.TryGetValue(Lower(Warden(Route(MoveFollowUpTrigger.Parried, WeaponMoveSlot.Parry))), out var other));
+        Replan(other!);
+        // the switch takes one slot of four and reports nothing; the put-back is refused whole
+        _game.SwitchTakesOnlyFirst = true;
+        _game.FailPutBack = true;
+        var problems = _game.Pump();
+        var now = Status();
+        Assert.Equal((false, MoveApplicationState.Refused, 2ul, 0ul), (now.Ok, now.State, now.RequestedGeneration, now.AppliedGeneration));
+        Assert.Contains("the item's slots are mixed: 1 of 4 play the moves that were refused", now.Reason);
+        Assert.Contains("putting the previous slots back failed: the store is busy", now.Reason);
+        Assert.Contains(problems, p => p.Contains("slots are mixed"));
+        // what the slots play, as read: one clone of the refused generation, three of the first
+        Assert.Equal(4, now.LiveClones.Count);
+        Assert.All(now.LiveClones.Keys, k => Assert.StartsWith("slot/", k));
+        Assert.Equal(3, now.LiveClones.Values.Count(g => first.LiveClones.Values.Contains(g)));
+        Assert.Equal(_game.SlotsNow.Values.Order(), now.LiveClones.Values.Order());
+        // nothing of the old generation is kept for a later content application
+        Assert.Empty(_game.Kept);
+        var ev = _events[^1];
+        Assert.Equal((MoveApplicationState.Applied, MoveApplicationState.Refused, 1ul, 0ul), (ev.Before.State, ev.After.State, ev.Before.AppliedGeneration, ev.After.AppliedGeneration));
+        // the next attempt plans from the class's sequences (the clones in the slots are read as what they were made from) and applies whole
+        (_game.SwitchTakesOnlyFirst, _game.FailPutBack) = (false, false);
+        Assert.True(MoveApplications.Retry(Mod, "warden", _ => { }));
+        Assert.Empty(_game.Pump());
+        Assert.Equal((MoveApplicationState.Applied, 3ul), (Status().State, Status().AppliedGeneration));
+        Assert.Equal(4, Status().LiveClones.Keys.Count(k => !k.StartsWith("slot/")));
+    }
+
+    [Fact]
+    public void A_switch_that_throws_after_changing_slots_is_settled_the_same_way()
+    {
+        Start(Warden());
+        _game.Pending.Dequeue()(_ => { });
+        // the slots' document is taken, then the read-back throws; the put-back is refused
+        _game.ThrowSlotRead = true;
+        _game.FailPutBack = true;
+        _game.Pump();
+        _game.ThrowSlotRead = false;
+        var now = Status();
+        Assert.Equal((MoveApplicationState.Refused, 0ul), (now.State, now.AppliedGeneration));
+        Assert.Contains("slots are mixed", now.Reason);
+        Assert.Contains("could not be read", now.Reason);   // the read still threw when the status was made: it says so rather than guess
+    }
+
+    [Fact]
+    public void A_replay_after_a_content_reload_that_does_not_bring_the_generation_back_updates_the_status()
+    {
+        var (mod, _) = Start(Warden());
+        _game.Pump();
+        var first = Status();
+        var problems = new List<string>();
+        // every replay that finds the generation in place changes nothing
+        MoveApplications.Replayed(mod, problems.Add);
+        Assert.Same(first, Status());
+        Assert.Empty(problems);
+        Assert.Single(_events);
+        // the game loaded its content again and one slot did not take the weapon's rule
+        _game.ContentGeneration = 9;
+        _game.SlotsNow.Remove(0);
+        MoveApplications.Replayed(mod, problems.Add);
+        var now = Status();
+        Assert.Equal((false, MoveApplicationState.Refused, 0ul, 9ul), (now.Ok, now.State, now.AppliedGeneration, now.ContentGeneration));
+        Assert.Contains("After the game's content was applied again", now.Reason);
+        Assert.Contains("slots are mixed", now.Reason);
+        Assert.Single(problems);
+        Assert.Equal(MoveApplicationState.Refused, _events[^1].After.State);
+        Assert.Empty(_game.Kept);
+        // a link that does not come back is seen too
+        // (the next ready pass plans the weapon again, on the same content, and it applies)
+        MoveApplications.Ready(mod, problems.Add);
+        Assert.Empty(_game.Pump());
+        Assert.Equal((MoveApplicationState.Applied, 2ul), (Status().State, Status().AppliedGeneration));
+        var applied = Status();
+        _game.LinksNow.Remove(_game.LinksNow.Keys.First());
+        MoveApplications.Replayed(mod, problems.Add);
+        Assert.Equal(MoveApplicationState.Refused, Status().State);
+        Assert.Contains("does not read back", Status().Reason);
+        Assert.Equal(0ul, Status().AppliedGeneration);
+        Assert.NotSame(applied, Status());
     }
 
     [Fact]
@@ -609,6 +736,47 @@ public sealed class MoveFollowUpTests : IDisposable
         MoveApplications.Forget(Mod);
         Assert.False(MoveApplications.Retry(Mod, "warden", _ => { }) && _game.Pending.Count > 0);
         Assert.Equal(2, _events.Count);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Removing_a_generation_resets_its_live_rules_even_when_the_service_owner_survives(bool reset)
+    {
+        var (mod, _) = Start(Warden());
+        _game.Pump();
+        Assert.NotEmpty(_game.SlotsNow);
+        Assert.NotEmpty(_game.LinksNow);
+        if (reset) mod.Reset();
+        else MoveApplications.Forget(Mod);
+        Assert.Empty(_game.SlotsNow);
+        Assert.Empty(_game.LinksNow);
+        Assert.Equal(MoveApplicationState.Removed, Status().State);
+        // Reset paths remove only this owner's layers in kiln.gamedata; no whole-owner or other-mod revert is needed.
+        var drops = _game.Applied.Skip(2).ToList();
+        Assert.NotEmpty(drops);
+        Assert.All(drops.SelectMany(d => d.Where(p => p.Key != "format").SelectMany(p => p.Value!.AsObject()).SelectMany(p => p.Value!.AsObject())),
+            p => Assert.True((bool)p.Value!["reset"]!));
+    }
+
+    [Theory]
+    [InlineData("sequences")]
+    [InlineData("itemdata")]
+    public void An_inline_content_handler_can_remove_the_weapon_without_the_completion_republishing_it(string section)
+    {
+        Start(Warden());
+        _game.AfterApply = doc =>
+        {
+            if (doc[section] == null) return;
+            _game.AfterApply = null;
+            MoveApplications.Forget(Mod);
+        };
+        _game.Pump();
+        Assert.Equal(MoveApplicationState.Removed, Status().State);
+        Assert.Empty(_game.SlotsNow);
+        Assert.Empty(_game.LinksNow);
+        Assert.Empty(_game.Kept);
+        Assert.DoesNotContain(_events, e => e.After.Ok);
     }
 
     // ---- the query ----

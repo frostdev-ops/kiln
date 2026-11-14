@@ -22,6 +22,17 @@ Broker::Broker(Game* game) : game_(game), leases_(kLeaseSlots), pub_(new Publish
     for (uint32_t i = kLeaseSlots; i-- > 0;) free_slots_.push_back(i);
 }
 
+void Broker::owner_retiring(KilnOwner owner) {
+    if (!owner) return;
+    std::lock_guard lock(owner_mu_);
+    retired_owners_.insert(owner);
+}
+
+bool Broker::owner_gone(KilnOwner owner) const {
+    std::lock_guard lock(owner_mu_);
+    return retired_owners_.contains(owner);
+}
+
 void Broker::log(int32_t level, const char* fmt, ...) {
     char buf[512];
     va_list ap;
@@ -65,6 +76,8 @@ void Broker::set_operational(bool on, const std::string& why) {
 void Broker::set_world(uint64_t epoch, const char* why) {
     const uint64_t was = epoch_.load(std::memory_order_relaxed);
     if (was == epoch) return;
+    // readers (can_drive, root_policy) compare the epoch first: from here on nothing of the old world grants or denies
+    epoch_.store(epoch, std::memory_order_release);
     // Every lease of the old world ends, no body is restored: its fields must never be written into another world.
     uint32_t ended = 0;
     for (uint32_t b = 0; b < bodies_.size(); ++b) {
@@ -78,7 +91,9 @@ void Broker::set_world(uint64_t epoch, const char* why) {
     }
     by_entity_.clear();
     tomb_reserved_ = 0;
-    epoch_.store(epoch, std::memory_order_release);
+    deny_.clear();  // the world's teardown discarded every delayed effect of its roots
+    identity_fault_ = false;
+    counter_ = 0;
     if (was || ended) log(KILN_LOG_INFO, "world epoch %llu -> %llu: %u lease(s) ended (WorldEnded), every binding dropped",
                           static_cast<unsigned long long>(was), static_cast<unsigned long long>(epoch), ended);
 }
@@ -98,12 +113,17 @@ KilnResult Broker::bind(KilnOwner owner, KilnEntity entity, uint32_t baseline_ki
     if (!out || !owner || !entity || retire_on_fatal != 1 ||
         (baseline_kind != KILN_CONTROL_BASELINE_ENEMY && baseline_kind != KILN_CONTROL_BASELINE_EXPLICIT_NO_AI))
         return KILN_ERR_INVALID_ARGUMENT;
+    if (owner_gone(owner)) return KILN_ERR_REVOKED;
     if (!operational_) {
         log(KILN_LOG_DEBUG, "bind %u refused: creature_control is off (%s)", entity, off_why_.c_str());
         return KILN_ERR_UNAVAILABLE;
     }
     const uint64_t ep = epoch();
     if (!ep) return KILN_ERR_UNAVAILABLE;  // no server world runs here (a joined client, the menu)
+    if (identity_fault_) {
+        log(KILN_LOG_WARN, "bind %u refused: the entity counter went down in this world (identity fault)", entity);
+        return KILN_ERR_UNAVAILABLE;
+    }
     if (entity < kFirstBodyId || entity > kLastBodyId) return KILN_ERR_INVALID_ARGUMENT;  // players, reserved, bit 31
     if (const auto it = by_entity_.find(entity); it != by_entity_.end()) {
         Body& b = bodies_[it->second];
@@ -153,8 +173,13 @@ KilnResult Broker::bind(KilnOwner owner, KilnEntity entity, uint32_t baseline_ki
     b.tomb = true;  // pre-reserved: a later quarantine or retirement cannot fail to deny its root
     ++tomb_reserved_;
     by_entity_[entity] = slot;
-    bodies_pub_[slot].latch.store(0, std::memory_order_relaxed);
-    bodies_pub_[slot].generation.store(b.key.body_generation, std::memory_order_release);
+    {
+        std::lock_guard lock(bodies_pub_[slot].mu);
+        bodies_pub_[slot].latch.store(0, std::memory_order_relaxed);
+        bodies_pub_[slot].causes.store(0, std::memory_order_relaxed);
+        bodies_pub_[slot].entity.store(entity, std::memory_order_relaxed);
+        bodies_pub_[slot].generation.store(b.key.body_generation, std::memory_order_release);
+    }
     body_count_.fetch_add(1, std::memory_order_relaxed);
     *out = b.key;
     log(KILN_LOG_INFO, "body %u#%llu bound (%s) by owner %llu", entity, static_cast<unsigned long long>(b.key.body_generation),
@@ -165,10 +190,15 @@ KilnResult Broker::bind(KilnOwner owner, KilnEntity entity, uint32_t baseline_ki
 void Broker::free_body(uint32_t b) {
     Body& body = bodies_[b];
     if (!body.used) return;
+    std::lock_guard lock(bodies_pub_[b].mu);
     if (const auto it = by_entity_.find(body.key.entity); it != by_entity_.end() && it->second == b) by_entity_.erase(it);
-    if (body.tomb && tomb_reserved_) --tomb_reserved_;  // an unbound live body's root is never denied (S6: retired keep it)
+    // an unbound live body's root is never denied: its reservation goes; a quarantined or retired one keeps its entry
+    const bool denied = body.quarantined || body.retired || bodies_pub_[b].latch.load(std::memory_order_acquire) != 0;
+    if (body.tomb && tomb_reserved_ && !denied) --tomb_reserved_;
     bodies_pub_[b].generation.store(0, std::memory_order_release);
     bodies_pub_[b].latch.store(0, std::memory_order_relaxed);
+    bodies_pub_[b].causes.store(0, std::memory_order_relaxed);
+    bodies_pub_[b].entity.store(0, std::memory_order_relaxed);
     body = Body{};
     body_count_.fetch_sub(1, std::memory_order_relaxed);
 }
@@ -196,6 +226,8 @@ KilnResult Broker::release_body(KilnOwner owner, const KilnControlBodyKey& key) 
     Body& body = bodies_[b];
     const auto it = std::find(body.refs.begin(), body.refs.end(), owner);
     if (it == body.refs.end()) return KILN_ERR_NOT_FOUND;
+    // a quarantined live body is retired, never unbound early
+    if (!body.gone && (body.quarantined || bodies_pub_[b].latch.load(std::memory_order_acquire))) return KILN_ERR_INVALID_ARGUMENT;
     for (uint32_t slot : body.leases)
         if (leases_[slot].owner == owner) return KILN_ERR_INVALID_ARGUMENT;  // a nonterminal lease of the owner
     body.refs.erase(it);
@@ -207,6 +239,7 @@ KilnResult Broker::release_body(KilnOwner owner, const KilnControlBodyKey& key) 
 
 KilnResult Broker::next_request(KilnOwner owner, uint64_t* out) {
     if (!owner || !out) return KILN_ERR_INVALID_ARGUMENT;
+    if (owner_gone(owner)) return KILN_ERR_REVOKED;
     OwnerRec& o = owners_[owner];
     const uint64_t last = std::max(o.next, o.high);
     if (last == UINT64_MAX) return KILN_ERR_BUFFER_TOO_SMALL;  // exhausted: never wraps
@@ -245,18 +278,9 @@ KilnResult Broker::notices(KilnOwner owner, KilnControlState* out, uint32_t capa
 // ---------------------------------------------------------------------------------------------------------- leases --
 
 uint32_t Broker::alloc_lease() {
-    if (free_slots_.empty()) {
-        // every slot holds a lease: let the oldest terminal one go early (it then answers ExpiredHandle)
-        uint32_t oldest = kNone;
-        for (uint32_t i = 0; i < kLeaseSlots; ++i) {
-            const Lease& l = leases_[i];
-            if (l.used && (l.state == KILN_CONTROL_RELEASED || l.state == KILN_CONTROL_FAILED) &&
-                (oldest == kNone || l.terminal_ns < leases_[oldest].terminal_ns))
-                oldest = i;
-        }
-        if (oldest == kNone) return kNone;
-        free_lease(oldest);
-    }
+    // Terminal handles and request replays are promised for ten simulation minutes. Refuse admission when the
+    // bounded storage is full; only expire_terminal may reclaim retained slots.
+    if (free_slots_.empty()) return kNone;
     const uint32_t slot = free_slots_.back();
     free_slots_.pop_back();
     return slot;
@@ -291,6 +315,7 @@ uint32_t Broker::changed_mask(const Body& b) const {
     uint32_t m = 0;
     if (b.steering_out) m |= KILN_CONTROL_CHANGED_STEERING;
     if (b.ai_layer) m |= KILN_CONTROL_CHANGED_AI_LAYER;
+    if (b.behavior_removed) m |= KILN_CONTROL_CHANGED_VEHICLE_BEHAVIOR;
     return m;
 }
 
@@ -310,7 +335,11 @@ void Broker::publish(uint32_t slot, bool notify_owner) {
     if (l.body != kNone && bodies_[l.body].used && !terminal) {
         const Body& b = bodies_[l.body];
         s.changed_mask = changed_mask(b);
-        if (b.winner != kNone) {
+        if (bodies_pub_[l.body].latch.load(std::memory_order_acquire)) {
+            s.lease_state = KILN_CONTROL_PREEMPTED;  // the broker's internal policy wins: lease 0, role Quarantine
+            s.result = KILN_CONTROL_RESULT_PREEMPTED;
+            s.effective_role = KILN_CONTROL_ROLE_QUARANTINE;
+        } else if (b.winner != kNone) {
             s.winning_lease = leases_[b.winner].handle;
             s.effective_role = leases_[b.winner].role;
         }
@@ -353,12 +382,43 @@ void Broker::publish_body(uint32_t b, bool notify_owner) {
 KilnResult Broker::query(KilnHandle handle, KilnControlState* out) const {
     if (!handle || !out || out->size < sizeof(KilnControlState)) return KILN_ERR_INVALID_ARGUMENT;
     const PublishedLease& p = pub_[handle & (kLeaseSlots - 1)];
+    uint32_t body = kNone;
+    uint64_t generation = 0;
+    KilnOwner owner = 0;
+    bool found = false;
     {
         std::lock_guard lock(p.mu);
         if (p.handle == handle) {
             *out = p.state;
-            return KILN_OK;
+            body = p.body;
+            generation = p.generation;
+            owner = p.owner;
+            found = true;
         }
+    }
+    if (found) {
+        // a quarantine latched since the last publish (any thread) shows at once: Preempted, effective Quarantine, lease 0
+        const bool live = out->lease_state != KILN_CONTROL_RELEASED && out->lease_state != KILN_CONTROL_FAILED;
+        if (live && owner_gone(owner)) {
+            out->lease_state = KILN_CONTROL_PENDING;
+            out->result = KILN_CONTROL_RESULT_OWNER_UNLOADED;
+            out->winning_lease = 0;
+            out->effective_role = KILN_CONTROL_ROLE_NONE;
+            set_reason(out, "OwnerUnloaded: the owner's lease is being cleaned up");
+        }
+        if (live && body < bodies_pub_.size()) {
+            std::lock_guard lock(bodies_pub_[body].mu);
+            if (const uint32_t cause = bodies_pub_[body].generation.load(std::memory_order_acquire) == generation
+                    ? bodies_pub_[body].latch.load(std::memory_order_acquire) : 0) {
+                out->lease_state = KILN_CONTROL_PREEMPTED;
+                out->result = KILN_CONTROL_RESULT_PREEMPTED;
+                out->effective_role = KILN_CONTROL_ROLE_QUARANTINE;
+                out->winning_lease = 0;
+                if (std::strncmp(out->reason, "Quarantined", 11) != 0)
+                    set_reason(out, "Quarantined: cause " + std::to_string(cause) + "; the body will be retired");
+            }
+        }
+        return KILN_OK;
     }
     KilnControlState s{};
     s.size = sizeof s;
@@ -385,8 +445,9 @@ uint32_t Broker::can_drive(KilnOwner owner, KilnHandle handle, const KilnControl
         body = p.body;
         generation = p.generation;
     }
-    if (body >= bodies_pub_.size() || key.world_epoch != epoch()) return 0;
+    if (body >= bodies_pub_.size() || key.world_epoch != epoch() || owner_gone(owner)) return 0;
     const BodyPublished& bp = bodies_pub_[body];
+    std::lock_guard lock(bp.mu);
     // the fatal latch (quarantine) beats every cached Active state
     if (bp.latch.load(std::memory_order_acquire) != 0) return 0;
     return bp.generation.load(std::memory_order_acquire) == generation ? 1u : 0u;

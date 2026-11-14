@@ -197,6 +197,13 @@ them (dev.27, `shell/cook.ts`, `cook_plan` / `cook_run`, `kiln_manage::cook`):
   else the game's data file), when its last cook failed, or when a file its last cook made is gone or is not the bytes
   that cook made (its receipt in `kiln/state/cook-receipts` says). That rule is one function, `cook::needs_cook`; the
   record it reads is the game's `kiln/state/cooked.json`. A vanilla start and "play once" do not cook.
+- **The game data for OnBoot mods** (dev.28, `kiln_manage::boot_snapshot`, `shell/bootSnapshot.ts`): Play's
+  `cook_run` then makes the snapshot of the game's data that `Mod.OnBoot` reads, when an enabled Kiln mod of the start
+  has `"boot": true` or `"required"` in its kiln.mod.json (a server leaves out client-only mods). Once per game build:
+  about half a minute and about 200 MB the first time, with a progress line; under a second after. Without such a mod
+  the line says "no mod needs the boot snapshot" and nothing runs (a snapshot that is there stays). It never stops the
+  start: when it was not made, one notice says why and the game starts without it
+  ([../modding/boot-snapshot.md](../modding/boot-snapshot.md)).
 - **From nothing, and nothing lost.** A mod that needs a cook gets its `assets/cooked` moved aside (to
   `assets/.kiln-cooked-prev-<hex>/cooked`) and every recipe run, also one whose own check calls it up to date (that check
   reads the mod's files, never the game). The same cook puts it back, with the receipts and the mod's own files it

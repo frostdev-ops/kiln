@@ -61,12 +61,13 @@ internal static unsafe class PathFake
                 return Ok;
             }
             if (!world.Exists(r->Anchor) || world.PositionOf(r->Anchor) is null) return Refuse(QueryPathStatusFake.OwnerGone, "OwnerGone");
-            if (s.Unstamped.Contains(r->Anchor)) return Refuse(QueryPathStatusFake.OwnerIdentityUnavailable, "OwnerIdentityUnavailable");
+            var stamp = world.Bytes(r->Anchor, "SpawnTime");
+            if (s.Unstamped.Contains(r->Anchor) || stamp is not { Length: 8 }) return Refuse(QueryPathStatusFake.OwnerIdentityUnavailable, "OwnerIdentityUnavailable");
             if (s.Open.Count >= GlobalSlots || s.Open.Values.Count(p => p.Owner == owner) >= OwnerSlots) return Refuse(QueryPathStatusFake.QueueFull, "QueueFull");
             var request = new FakePathRequest(new EntityId(r->Anchor), from, to, r->HorizontalSpace, r->VerticalSpace, r->MaxIterations, r->ClosestFallback != 0);
             var token = (ulong)(s.PathRequests.Count + 1);
             s.PathRequests.Add(request);
-            s.Open[token] = new FakePath { Token = token, Owner = owner, Request = request };
+            s.Open[token] = new FakePath { Token = token, Owner = owner, Request = request, Stamp = BitConverter.ToUInt64(stamp) };
             Push(s, owner, new FakePathUpdate(token, Created, Queued, r->Anchor, false, 0, false, NoGameResult, false, 0, "", [], 0));
             a->Ok = 1;
             a->Request = token;
@@ -142,16 +143,20 @@ internal static unsafe class PathFake
         List<(FakePath Path, Func<FakePathRequest, FakePathAnswer>? Script)> due = [];
         lock (s.Lock)
         {
+            var creates = 0;
             foreach (var p in s.Open.Values.Where(p => !p.Terminal).ToList())
             {
                 p.Age++;
-                if (h.EntitiesFake is not { } world || !world.Exists(p.Request.Anchor.Value))
+                if (h.EntitiesFake is not { } world || !world.Exists(p.Request.Anchor.Value) || world.PositionOf(p.Request.Anchor.Value) == null ||
+                    s.Unstamped.Contains(p.Request.Anchor.Value) || world.Bytes(p.Request.Anchor.Value, "SpawnTime") is not { Length: 8 } stamp || BitConverter.ToUInt64(stamp) != p.Stamp)
                 {
                     End(s, p, Cancelled, FakePathAnswer.Ended(QueryPathStatusFake.OwnerGone, "OwnerGone"));
                     continue;
                 }
                 if (p.Stage == Queued)
                 {
+                    if (creates == 8) continue;
+                    creates++;
                     p.Stage = Searching;
                     Push(s, p.Owner, new FakePathUpdate(p.Token, Queued, Searching, p.Request.Anchor.Value, false, 0, false, NoGameResult, false, 0, "", [], (uint)p.Age));
                 }

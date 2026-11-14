@@ -20,6 +20,10 @@ internal sealed class MemoryWorld
     public Func<CellBox, BuildRefusal>? RefuseWrite;
     /// <summary>Called at every NextTick (a test edits the world or cancels between batches).</summary>
     public Action? OnTick;
+    public Action? AfterWrite;
+    public Action? OnLoad;
+    public Exception? BookError;
+    public DataMatch Match = DataMatch.Exact;
 
     public Voxel Get(int x, int y, int z) => Edits.TryGetValue((x, y, z), out var v) ? v : y < GroundY ? Voxel.Of(1) : Voxel.Air;
     public void Set(int x, int y, int z, Voxel v) => Edits[(x, y, z)] = v;
@@ -33,6 +37,7 @@ internal sealed class MemoryWorld
         public string? WorldId => w.WorldId;
         public (int X, int Z)? GridCells => (20480, 20480);
         public string KilnVersion => "test";
+        public DataMatch LoadedData => w.Match;
 
         public Task NextTick()
         {
@@ -41,7 +46,11 @@ internal sealed class MemoryWorld
             return Task.CompletedTask;
         }
 
-        public Task<bool> Load(CellBox box, TimeSpan timeout) => Task.FromResult(w.Loaded);
+        public Task<bool> Load(CellBox box, TimeSpan timeout)
+        {
+            w.OnLoad?.Invoke();
+            return Task.FromResult(w.Loaded);
+        }
 
         public bool TryRead(CellBox box, out Voxel[] cells)
         {
@@ -58,9 +67,9 @@ internal sealed class MemoryWorld
             w.Writes.Add((mod, box, mask.Count(m => m), w.Ticks, transient, dryRun));
             if (!inBases && w.Bases.Any(b => !TerrainPlan.Intersect(b, box).IsEmpty))
                 return Task.FromResult(new BuildResult(0, 0, false, false, box, 0, BuildRefusal.Base));
-            if (dryRun) return Task.FromResult(new BuildResult(0, 0, false, false, box, 0, BuildRefusal.DryRun));
             if (w.RefuseWrite?.Invoke(box) is { } r and not BuildRefusal.None)
                 return Task.FromResult(new BuildResult(0, 0, false, false, box, 0, r));
+            if (dryRun) return Task.FromResult(new BuildResult(0, 0, false, false, box, 0, BuildRefusal.DryRun));
             long changed = 0;
             for (var z = 0; z < box.SizeZ; z++)
             for (var y = 0; y < box.SizeY; y++)
@@ -71,11 +80,13 @@ internal sealed class MemoryWorld
                 if (w.Get(box.X + x, box.Y + y, box.Z + z) != cells[i]) changed++;
                 w.Set(box.X + x, box.Y + y, box.Z + z, cells[i]);
             }
+            w.AfterWrite?.Invoke();
             return Task.FromResult(new BuildResult(changed, 0, true, !transient, box, 0));
         }
 
         public TerrainBook Book()
         {
+            if (w.BookError is { } error) throw error;
             var key = w.WorldId + "|" + mod;
             if (!w.Books.TryGetValue(key, out var b)) w.Books[key] = b = new TerrainBook();
             return b;

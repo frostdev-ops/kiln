@@ -1,0 +1,14 @@
+{
+  "$schema": "../../../../schema/kiln-blocks.schema.json",
+  "format": 1,
+  // The case "shared" (the lab copies this file into blocks/): a member of the material registry that kiln.worldtables'
+  // material tweaks do not write. The game has 1.0 there; worldtables-test's wt-tweaks fixture runs in the same start.
+  "resourcePatches": {
+    "friction": {
+      "format": 1,
+      "resource": "15506ca1-f0b2-8a43-a087-75a7c83d5596",
+      "type": "keen::TerraformingEfficiencyRegistryResource",
+      "set": { "terrainConfigs[0].frictionFactor": 0.375 }
+    }
+  }
+}

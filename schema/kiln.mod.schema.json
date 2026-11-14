@@ -82,6 +82,7 @@
     "entryType": { "type": "string", "description": "Full name of the Kiln.Mod subclass (default: the only public one)." },
     "exports": { "type": "array", "items": { "$ref": "#/$defs/dll" }, "description": "Assemblies dependents compile against; at run time they get these copies (shared types and state)." },
     "advanced": { "type": "boolean", "default": false, "description": "Opt into the advanced tier (raw hooks, symbols, coremod-style patches); exposed as ModInfo.Advanced." },
+    "boot": { "oneOf": [{ "type": "boolean" }, { "const": "required" }], "default": false, "description": "The mod's Mod.OnBoot stages block definitions before the game is entered (docs/kiln/modding/manifest.md). true: a failure of its boot content drops that content; \"required\": it stops the start." },
     "writes": {
       "type": "array",
       "maxItems": 64,

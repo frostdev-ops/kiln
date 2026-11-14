@@ -206,6 +206,18 @@ public sealed unsafe class BlobCatalogTests : KilnTest
     }
 
     [Fact]
+    public void A_missing_service_names_the_catalog_capability()
+    {
+        _service.Dispose();
+        ResetAssets();
+        var mod = NewMod("missing-catalog");
+        var e = Assert.Throws<KilnUnavailableException>(() => As(mod, () => Assets.OpenBlobCatalog()));
+        Assert.Equal(Cap, e.Capability);
+        var read = Assert.Throws<KilnUnavailableException>(() => Assets.ReadBlob(Hash("5-00000001-00000002-00000003")));
+        Assert.Equal("assets.content", read.Capability);
+    }
+
+    [Fact]
     public void The_catalog_row_is_off_when_the_content_hooks_are_off()
     {
         AssetsFake.Unit = null;  // the table answers as kiln.assets with its content hooks off

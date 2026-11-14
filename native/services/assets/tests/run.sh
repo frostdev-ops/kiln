@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Builds and runs kiln.assets' host test: the real store (store.cpp, catalog.cpp, util.cpp) with the game faked at the calls hooks.cpp
 # makes for it, on the pin (KILN_ASSET_PUT_PIN), the player graph's reservation, blob provenance and the content blob catalog
-# (PASS assets.catalog-snapshot). No game, no Wine.
+# (PASS assets.catalog-snapshot), and a native owner the core revokes without revert_owner (PASS assets.revoked-owner-cleanup).
+# No game, no Wine.
 #   native/services/assets/tests/run.sh
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
@@ -14,7 +15,7 @@ printf '#include "services/kiln_assets.h"\n_Static_assert(KILN_ASSET_PUT_PIN == 
   gcc -std=c11 -Wall -Wextra -pedantic -fsyntax-only -I"$here/../../../core/abi" -x c -
 echo "PASS kiln_assets.h compiles as C11"
 
-g++ -std=c++20 -O1 -g -Wall -Wextra -fsanitize=address,undefined -fno-sanitize-recover=undefined \
+g++ -std=c++20 -O1 -g -Wall -Wextra -DKILN_ASSETS_CATALOG_TEST -fsanitize=address,undefined -fno-sanitize-recover=undefined \
   -I"$here/platform" -I"$here/.." -I"$here/../../../core/abi" \
   "$here/test_store.cpp" "$here/../store.cpp" "$here/../catalog.cpp" "$here/../util.cpp" -o "$out/test_store" -pthread
 # Resource bytes are never freed by design (the game keeps pointers into them): no leak check.

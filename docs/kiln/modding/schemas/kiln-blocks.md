@@ -55,6 +55,7 @@ A mod's blocks: spells, weapons, wands, armor, items, stations, statuses, effect
 | `props` | object |  | Things placed that stand there: furniture, banners, lamps. |
 | `quests` | object |  | Quest chains in the game's own journal: steps, objectives, conditions, rewards. Needs "clients": "mod". |
 | `recipes` | object |  | Recipes of their own: one more way to make any item at a station, such as a game item at the game's workbench. |
+| `resourcePatches` | object |  | Fields of the game's own resources, set before the game reads them (a mod with "boot": true; docs/kiln/modding/resource-patches.md). Not blocks: kiln.content applies them. |
 | `rules` | object |  | Rules, for behaviours to name. |
 | `screenEffects` | object |  | Full-screen effects: colour grading, a tint, a vignette, fades and flashes. Drawn by each Kiln client; players' games need nothing for them. |
 | `seats` | object |  | Seats: the game's sitting, comfort of the chair category. |
@@ -1341,6 +1342,18 @@ What it takes to use it. item, count, uses and time are the game's own lock, sho
 | `uses` | boolean |  | The use takes item from the bag, as a lockpick goes. |
 | `when` | [states](#states) |  | Only while the player is in one of these. |
 
+## resourcePatch
+
+One resource and the fields to set in it.
+
+| Key | Type | Required | Notes |
+|---|---|---|---|
+| `format` | `1` |  |  |
+| `part` | integer |  | The part index; 0 when left out. min 0 |
+| `resource` | string | yes | The resource's GUID. |
+| `set` | object | yes | Member path to value. A path: members by name, [i] an element of a list, [*] every element. |
+| `type` | string | yes | The resource's qualified type name, as keen::BalancingTable. min length 1 |
+
 ## rule
 
 On a trigger, every so often, when its conditions hold, do something.
@@ -1647,6 +1660,7 @@ What a tool does: what it is for, and how well. Each class takes the fields it h
 | `power` | integer |  | How hard it bites: an axe's wood damage, a pickaxe's or a sieve's stone damage (the rest scales along), a rake's flattening strength (the game's: 500, 1000). |
 | `range` | number |  | Metres: how far a rake flattens around where it aims (3), how far a grappling hook reaches (13.5). max 32 |
 | `staminaCost` | integer |  | Stamina each use costs; the tooltip follows. Not for a fishing rod or a torch. min 0 |
+| `wearPerDebit` | integer |  | What each of the game's wear debits costs the tool's durability (1: the game's own; 0: it does not wear). Per debit, not per swing. A tool with enhancement slots (an axe, a pickaxe, a sieve). Set where the world runs. Needs items.tool_wear_debit. min 0 max 32767 |
 
 ## trigger
 

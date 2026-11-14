@@ -16,6 +16,7 @@
     <InternalsVisibleTo Include="BlocksAbilitiesTest" />
     <InternalsVisibleTo Include="Kiln.Blocks.Tests" />
     <InternalsVisibleTo Include="FurnitureTest" />
+    <InternalsVisibleTo Include="KindsFaultTest" />
     <ProjectReference Include="../../Kiln.Api/Kiln.Api.csproj" Private="false" />
     <ProjectReference Include="../Kiln.Content/Kiln.Content.csproj" Private="false" />
     <ProjectReference Include="../Kiln.Assets/Kiln.Assets.csproj" Private="false" />
@@ -38,5 +39,6 @@
     <!-- Affixes keep an item's rolls as item data (InstanceData) and read the server's copies in a player's game. -->
     <ProjectReference Include="../Kiln.Saves/Kiln.Saves.csproj" Private="false" />
     <ProjectReference Include="../Kiln.Queries/Kiln.Queries.csproj" Private="false" />
+    <ProjectReference Include="../Kiln.CreatureControl/Kiln.CreatureControl.csproj" Private="false" />
   </ItemGroup>
 </Project>

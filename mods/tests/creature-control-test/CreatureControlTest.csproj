@@ -9,6 +9,7 @@
     <GenerateRuntimeConfigurationFiles>false</GenerateRuntimeConfigurationFiles>
     <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
     <AssemblyName>CreatureControlTest</AssemblyName>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <!-- Calls Kiln's lab members ([Experimental("KILNX001")]: CreatureRef.ForceReady). -->
     <NoWarn>$(NoWarn);KILNX001</NoWarn>
   </PropertyGroup>
@@ -21,6 +22,8 @@
     <ProjectReference Include="../../../managed/services/Kiln.World/Kiln.World.csproj" Private="false" ExcludeAssets="runtime" />
     <ProjectReference Include="../../../managed/services/Kiln.Build/Kiln.Build.csproj" Private="false" ExcludeAssets="runtime" />
     <ProjectReference Include="../../../managed/services/Kiln.Hooks/Kiln.Hooks.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="../../../managed/Kiln.Testing/Kiln.Testing.csproj" Private="false" ExcludeAssets="runtime" />
     <None Include="kiln.mod.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="kiln.programs.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

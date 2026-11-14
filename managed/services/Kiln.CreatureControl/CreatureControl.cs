@@ -87,8 +87,95 @@ public static unsafe partial class CreatureControl
         if (requestId.Value == 0) throw new ArgumentException("request id 0", nameof(requestId));
         var t = Table("CreatureControl.Acquire");
         if (!Capabilities.Is(Caps.Operational)) throw Off(Caps.Operational, "the creature control broker cannot take new leases");
+        return AcquireCore(t, OwnerOfCaller(), ModContext.CurrentMod, body, role, requestId);
+    }
+
+    // Kiln's own services (Kiln.Blocks' brains): a lease under the service's own native owner, for a body the mod `mod`
+    // defined (released when that mod unloads). Tick thread; the caller checked the row creature_control.
+    internal static ControlRequestResult AcquireAs(string service, ModContext? mod, EntityRef body, ControlRole role)
+    {
+        var t = Table("CreatureControl.Acquire");
+        var owner = ServiceOwner(service);
+        ulong id = 0;
+        if (t->NextRequest(owner, &id) != CreatureControlNative.Ok) return Refused("the request ids of this service are used up");
+        return AcquireCore(t, owner, mod, body, role, new ControlRequestId(id));
+    }
+
+    // can_drive, the broker's authority, for a lease this face tracks (any thread): the lease's own owner, key and the
+    // transition sequence it is Active with. False for every lease it does not track.
+    internal static bool CanDriveNow(ControlLeaseId lease)
+    {
+        var t = CreatureControlNative.T;
+        if (t == null || lease.Value == 0) return false;
+        Lease? known;
+        lock (Gate) Tracked.TryGetValue(lease.Value, out known);
+        if (known is null || Query(t, lease.Value) is not { CanDrive: true } now) return false;
+        uint drive = 0;
+        return t->CanDrive(known.Owner, lease.Value, known.Key, now.TransitionSequence, &drive) == CreatureControlNative.Ok && drive == 1;
+    }
+
+    // Releases a lease this face tracks under its own owner, without a task to wait on (tick thread).
+    internal static void ReleaseNow(ControlLeaseId lease)
+    {
+        var t = CreatureControlNative.T;
+        if (t == null || lease.Value == 0 || !Game.IsTickThread) return;
+        ulong owner;
+        lock (Gate) owner = Tracked.TryGetValue(lease.Value, out var known) ? known.Owner : 0;
+        if (owner != 0) t->ReleaseControl(owner, lease.Value);
+    }
+
+    // Kiln's own services: a lease this face tracks ended (its first terminal state), at the service tick (tick thread).
+    internal static event Action<ControlLeaseSnapshot>? LeaseEnded;
+
+    private static readonly Dictionary<string, ulong> ServiceOwners = new(StringComparer.Ordinal);
+
+    private static ulong ServiceOwner(string service)
+    {
+        lock (Gate)
+        {
+            if (ServiceOwners.TryGetValue(service, out var have)) return have;
+            var made = Backend.Current.OwnerCreate(service);
+            if (made == 0) made = OwnerOfCaller();
+            ServiceOwners[service] = made;
+            return made;
+        }
+    }
+
+    private static ControlRequestResult AcquireCore(CreatureControlNative.Table* t, ulong owner, ModContext? mod, EntityRef body,
+        ControlRole role, ControlRequestId requestId)
+    {
+        // The native request payload includes its original body generation. Auto-unbinding after a terminal lease must
+        // not turn a retry of that same request into a new bind/generation and hence RequestConflict.
+        RetainedRequest? replay;
+        lock (Gate)
+        {
+            if (_requestGeneration != ServiceTick.Generation)
+            {
+                Requests.Clear();
+                _requestGeneration = ServiceTick.Generation;
+            }
+            Requests.TryGetValue((owner, requestId.Value), out replay);
+        }
+        if (replay is not null && Query(t, replay.Lease) is null)
+        {
+            lock (Gate) Requests.Remove((owner, requestId.Value));
+            replay = null;
+        }
+        if (replay is not null)
+        {
+            if (replay.Body.Entity != body.Id.Value || replay.Role != role)
+                throw new ArgumentException("RequestConflict: this request id was used for another request", nameof(requestId));
+            var repeat = new CreatureControlNative.Request
+            {
+                Size = (uint)sizeof(CreatureControlNative.Request), Role = (uint)role, Body = replay.Body, RequestId = requestId.Value,
+            };
+            CreatureControlNative.State repeated = default;
+            repeated.Size = (uint)sizeof(CreatureControlNative.State);
+            Check(t->AcquireControl(owner, &repeat, &repeated), "CreatureControl.Acquire");
+            var state = Convert(in repeated);
+            return new ControlRequestResult(repeated.Lease != 0, repeated.Lease == 0 ? state.Reason : null, state.Lease, state);
+        }
         if (body.HasSerial && !StillThere(body)) return Refused($"BodyGone: entity {body} is not the body it was");
-        var owner = OwnerOfCaller();
         CreatureControlNative.BodyKey key;
         var rc = t->BindBody(owner, body.Id.Value, CreatureControlNative.BaselineEnemy, 1, &key);
         switch (rc)
@@ -124,7 +211,8 @@ public static unsafe partial class CreatureControl
             DropBindingIfUnused(owner, key);
             return new ControlRequestResult(false, snapshot!.Reason, default, snapshot);
         }
-        Track(s.Lease, owner, key, ModContext.CurrentMod, mine: true, snapshot!);
+        Track(s.Lease, owner, key, mod, mine: true, snapshot!);
+        lock (Gate) Requests[(owner, requestId.Value)] = new RetainedRequest(key, role, s.Lease);
         return new ControlRequestResult(true, null, new ControlLeaseId(s.Lease), snapshot);
     }
 
@@ -183,8 +271,7 @@ public static unsafe partial class CreatureControl
     {
         if (lease.Value == 0) throw new ArgumentException("lease 0", nameof(lease));
         var t = Table("CreatureControl.Release");
-        ulong owner;
-        lock (Gate) owner = Tracked.TryGetValue(lease.Value, out var known) && known.Owner != 0 ? known.Owner : OwnerOfCaller();
+        var owner = OwnerOfCaller();
         var rc = t->ReleaseControl(owner, lease.Value);
         var now = Query(t, lease.Value);
         if (rc == CreatureControlNative.NotFound)
@@ -229,6 +316,9 @@ public static unsafe partial class CreatureControl
 
     private static readonly object Gate = new();
     private static readonly Dictionary<ulong, Lease> Tracked = [];
+    private sealed record RetainedRequest(CreatureControlNative.BodyKey Body, ControlRole Role, ulong Lease);
+    private static readonly Dictionary<(ulong Owner, ulong Request), RetainedRequest> Requests = [];
+    private static int _requestGeneration = -1, _requestPolls;
     private static readonly Dictionary<(ulong Owner, ulong Epoch, ulong Generation, uint Entity), int> Bindings = [];
     private static readonly HashSet<ModContext> Watched = [];
     private static IDisposable? _tick;
@@ -305,6 +395,15 @@ public static unsafe partial class CreatureControl
         Volatile.Write(ref _simSeconds, _simSeconds + tick.ClockDelta / 60.0);
         var t = CreatureControlNative.T;
         if (t == null) return;
+        // The broker owns retention and expiry (including world-end terminal states); keep no replay payload beyond it.
+        if ((++_requestPolls & 31) == 0)
+        {
+            KeyValuePair<(ulong Owner, ulong Request), RetainedRequest>[] requests;
+            lock (Gate) requests = [.. Requests];
+            foreach (var request in requests)
+                if (Query(t, request.Value.Lease) is null)
+                    lock (Gate) Requests.Remove(request.Key);
+        }
         Lease[] leases;
         lock (Gate)
         {
@@ -323,6 +422,11 @@ public static unsafe partial class CreatureControl
             }
             if (!Same(before, after) && Events.HasSubscribers<ControlChangedEvent>())
                 Events.Post(new ControlChangedEvent(before, after));
+            if (after.IsTerminal && before is not { IsTerminal: true } && LeaseEnded is { } ended)
+            {
+                try { ended(after); }
+                catch (Exception e) { Backend.Current.Log(0, LogLevel.Warn, $"kiln.creature_control: a lease-end handler threw: {e.Message}"); }
+            }
             Answer(lease, after, now);
         }
     }
@@ -466,4 +570,11 @@ public static unsafe partial class CreatureControl
         new ControlLeaseId(s.Lease), new ControlLeaseId(s.WinningLease), new ControlRequestId(s.RequestId),
         (ControlRole)s.RequestedRole, (ControlRole)s.EffectiveRole, (ControlLeaseState)s.LeaseState, (ControlResultCode)s.Result,
         s.TransitionSequence, s.NoticeSequence, s.ChangedMask, CreatureControlNative.ReasonOf(in s));
+}
+
+/// <summary>Started by Kiln (ServiceTick.AutoStart) at its first service tick: the rows kiln.creature_control and
+/// creature_control say why they are off before a mod asks (with no native service: "not loaded").</summary>
+internal static class CreatureControlStartup
+{
+    static CreatureControlStartup() => CreatureControl.Caps.Rows.Ensure();
 }

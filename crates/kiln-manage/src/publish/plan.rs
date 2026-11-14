@@ -125,6 +125,9 @@ impl PublishPlan {
         if p.format != FORMAT {
             return Err(Error::new(ErrorCode::Unsupported, format!("The plan has format {}; this Kiln reads format {FORMAT}.", p.format)));
         }
+        if p.policy_version != policy::POLICY_VERSION {
+            return Err(Error::new(ErrorCode::Unsupported, "This plan was audited under another artifact policy; make a new plan."));
+        }
         if !txdir::is_tx_id(&p.tx_id) {
             return Err(Error::new(ErrorCode::Schema, "The plan's transaction id is not valid."));
         }
@@ -133,6 +136,18 @@ impl PublishPlan {
         // Only the fixed relative names: a plan can never point the engine at another file.
         if files.iter().zip(names).any(|(f, n)| f.path != n || !crate::release_binding::is_sha256_hex(&f.sha256)) {
             return Err(Error::new(ErrorCode::Schema, "The plan names files it may not name."));
+        }
+        let asset = p.asset_name();
+        let upload = |name: &str, file: &str| Operation { kind: "upload-asset".into(), id: format!("asset:{name}"), asset: Some(name.into()), file: Some(file.into()) };
+        let allowed = vec![
+            Operation { kind: "create-draft".into(), id: "draft".into(), asset: None, file: None },
+            upload(&asset, txdir::ARTIFACT),
+            upload(&format!("{asset}.sha256"), txdir::CHECKSUM),
+            upload(crate::release_binding::FILE_NAME, txdir::RELEASE),
+        ];
+        if p.provider != "github" || !super::config::is_repository(&p.destination.repository) || !super::config::is_commit(&p.target_commit)
+            || !crate::release_binding::is_asset_name(&asset) || p.operations != allowed {
+            return Err(Error::new(ErrorCode::Schema, "The plan's destination or ordered draft operations are not valid. Publication is a separate action."));
         }
         if p.compute_digest()? != p.digest {
             return Err(Error::new(ErrorCode::HashMismatch, "The plan was changed after it was made. Make a new plan."));
@@ -200,12 +215,24 @@ fn fill(req: &PlanRequest, config: &PublishConfig, config_bytes: &[u8], tx_id: &
     let notes: Vec<u8> = match &config.notes {
         None => Vec::new(),
         Some(rel) => {
-            let path = req.config.parent().unwrap_or(Path::new(".")).join(rel);
-            let meta = std::fs::metadata(&path).map_err(crate::util::io_at(&path, "reading"))?;
-            if meta.len() > MAX_NOTES_BYTES {
-                return Err(Error::new(ErrorCode::Refused, "The release notes are larger than 1 MiB."));
+            use std::io::Read;
+            let base = req.config.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."));
+            let path = base.join(rel);
+            let project = base.canonicalize().map_err(crate::util::io_at(base, "reading"))?;
+            let source = path.canonicalize().map_err(crate::util::io_at(&path, "reading"))?;
+            if !source.starts_with(&project) {
+                return Err(Error::new(ErrorCode::Refused, "The release notes leave the project through a link. Nothing was sent."));
             }
-            let bytes = std::fs::read(&path).map_err(crate::util::io_at(&path, "reading"))?;
+            let file = std::fs::File::open(&source).map_err(crate::util::io_at(&path, "reading"))?;
+            let meta = file.metadata().map_err(crate::util::io_at(&path, "reading"))?;
+            if !meta.is_file() || meta.len() > MAX_NOTES_BYTES {
+                return Err(Error::new(ErrorCode::Refused, "The release notes must be a regular file no larger than 1 MiB."));
+            }
+            let mut bytes = Vec::new();
+            file.take(MAX_NOTES_BYTES + 1).read_to_end(&mut bytes).map_err(crate::util::io_at(&path, "reading"))?;
+            if bytes.len() as u64 > MAX_NOTES_BYTES {
+                return Err(Error::new(ErrorCode::Refused, "The release notes grew beyond 1 MiB while reading."));
+            }
             let text = String::from_utf8(bytes).map_err(|_| Error::new(ErrorCode::Refused, "The release notes are not UTF-8."))?;
             text.strip_prefix('\u{feff}').unwrap_or(&text).as_bytes().to_vec()
         }
@@ -279,6 +306,7 @@ pub struct Loaded {
 /// project's kiln.publish.json is still there and unchanged.
 pub fn load(data_root: &Path, given: &PublishPlan) -> Result<Loaded> {
     let dir = txdir::dir_of(data_root, &given.tx_id)?;
+    if dir.exists() { txdir::check_directory(&dir)?; }
     let stored = std::fs::read(dir.join(txdir::PLAN)).map_err(|_| Error::not_found("This PC has no transaction for that plan (plans are applied where they were made)."))?;
     let plan = PublishPlan::parse(&stored)?;
     if plan.digest != given.digest || plan != *given {

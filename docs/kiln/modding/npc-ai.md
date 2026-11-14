@@ -126,6 +126,22 @@ an ID or address can be reused; the drain drops stale actions with a debug log. 
 cannot redirect later work onto a replacement. World stops and unload discard pending work. If the lifetime observer is unavailable on a build,
 the queue keeps its previous ID-based behaviour and warns once.
 
+## How a brain moves its body (since 0.2.0-dev.28)
+A creature with a `Brain` ([npc-blocks.md](npc-blocks.md)) is driven through a lease of the creature control broker
+([services/creature-control.md](../services/creature-control.md)): when the creature appears, Kiln.Blocks asks for a
+base lease (`PetFollow`) under its own owner, for the mod that defined the creature. The broker holds the game's AI
+off (its perception with it), waits until the creature's current action has ended, and removes its `SteeringAgent`:
+the game's steering program wrote the creature's movement input after every other writer, so before 0.2.0-dev.28
+`MoveTo` changed nothing and brain creatures stood still. `MoveTo`, `Stop` and `Face` write only while the lease can
+drive: in the step or two before it is granted, and while a higher lease holds the body (a rider), nothing is
+written. When the brain stops (the creature is gone, the brain threw) or its mod unloads, the lease is released and
+the broker gives the body back: its `SteeringAgent` (with its transient fields zeroed) and the game's AI. With
+`creature_control` off, or when the broker refuses the lease or the lease fails before it drives (the body never got
+ready, its action did not end within 5 s), the old behaviour stays: the AI is switched off, a warning is logged once
+(and an info line for each failed lease), and the body does not walk. Because a brain creature's body is leased,
+the broker's two removals apply to it: a body the broker cannot give back as it was is removed from the world, and
+when the broker itself has to stop, every body it holds, brain creatures included, is removed at the next step.
+
 ## Mistakes, refused by name
 `block creature warden, ai.flee.below: 2 is outside 0..1`; `ai.senseFilter: no sense filter "tokens": register it with Blocks.SenseFilter(...)`;
 `behaviour.rules[0].do[0].summon: count 99 is outside 1..16`; `behaviour.rules[1].do[0].cast.onImpact[0]: this place has no target of its own ...`;

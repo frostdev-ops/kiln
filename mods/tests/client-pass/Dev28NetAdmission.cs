@@ -20,7 +20,7 @@ public sealed partial class ClientPassMod
             var file = Path.Combine(Path.GetFullPath(Path.Combine(Context.DataDirectory, "..")), "admission-hold-test", "joins.json");
             return File.Exists(file) ? JsonNode.Parse(File.ReadAllText(file)) as JsonArray ?? [] : [];
         }
-        catch (Exception e) when (e is IOException or System.Text.Json.JsonException)
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.Text.Json.JsonException)
         {
             return [];
         }
@@ -31,6 +31,21 @@ public sealed partial class ClientPassMod
     public async Task AdmissionHoldKiln(CheckContext c)
     {
         if (!await Need(c, "admission-hold-test")) return;
+        if (!await NeedOpen(c, "net.gate.hold_all")) return;
+        var name = Players.All.FirstOrDefault(p => p.Entity == c.Player)?.Name ?? "";
+        var mine = AdmissionJoins().OfType<JsonObject>().Where(j => (string?)j["name"] == name).ToList();
+        var last = mine.LastOrDefault();
+        var peer = Network.Peers.FirstOrDefault(p => p.Player == c.Player);
+        var session = (string?)last?["session"];
+        var refused = mine.LastOrDefault(j => (string?)j["outcome"] == "refused" && (string?)j["session"] == session);
+        if (name.Length == 0 || peer is null || last is null || refused is null || string.IsNullOrEmpty(session) ||
+            (string?)last["peer"] != $"0x{peer.Id:x}" || !DateTime.TryParse((string?)last["utc"], out var recorded) ||
+            recorded.ToUniversalTime() < peer.ConnectedAt)
+        {
+            await c.Skip("Cannot judge admission without this player's recorded held and refused joins. " +
+                         "Join remotely with holdSeconds 30, then 8, and rerun; the hosting player is never held.");
+            return;
+        }
         c.Instruct("The server holds every Kiln client that joins for holdSeconds (kiln/config/admission-hold-test.json on the " +
                    "server, read at each join) before it enters the world. Do this before you continue: 1) set holdSeconds to " +
                    "30 and join: after about 25 s on the loading screen the game should refuse you, with the text \"" +
@@ -38,10 +53,6 @@ public sealed partial class ClientPassMod
                    "the loading screen should take about 8 s longer than usual, then you are in the world as normal. Press " +
                    "continue when you are in (this is where you are now if you did both).");
         await c.Verdict();
-        var name = Players.All.FirstOrDefault(p => p.Entity == c.Player)?.Name ?? "";
-        var mine = AdmissionJoins().OfType<JsonObject>().Where(j => (string?)j["name"] == name).ToList();
-        var last = mine.LastOrDefault();
-        var refused = mine.LastOrDefault(j => (string?)j["outcome"] == "refused");
         c.Expect(last is not null && (string?)last["outcome"] == "let-in" && (double?)last["heldMs"] >= 7000,
             $"the server held this join at least 7 s, then let it in ({last?.ToJsonString() ?? "no join recorded for " + name})");
         c.Expect(refused is not null && (double?)refused["heldMs"] >= 24000,

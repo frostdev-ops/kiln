@@ -121,6 +121,7 @@ internal sealed class FakePath
 {
     public required ulong Token, Owner;
     public required FakePathRequest Request;
+    public ulong Stamp;
     public int Age;
     public uint Stage = 1;       // Queued
     public bool Terminal, Consumed;
@@ -153,17 +154,29 @@ internal sealed unsafe class QueriesFake : IKitFake
             _table = t;
         }
         KitBackend.Instance.RegisterTable(QueriesAbi.Service, (nint)_table);
-        FakeTables.Features([RayFeature, PathFake.Feature]);
+        // The query fake uses the world fake's implemented origin/Find operations, so their feature rows are truthful too.
+        FakeTables.Features(["world.entities", "world.find", PathFake.Feature]);
+        ReportRay(false);
     }
 
-    public void Start(KilnHarness harness) { }
+    internal static void ReportRay(bool scripted)
+    {
+        if (scripted) FakeTables.Features([RayFeature]);
+        else FakeTables.Offline(RayFeature, "voxel rays need a KilnHarness.Queries.Voxels script; there are no voxels offline");
+    }
+
+    public void Start(KilnHarness harness)
+    {
+        var state = KitFakes.State<QueriesFakeState>(harness);
+        lock (state.Lock) ReportRay(state.Voxels != null);
+    }
     public void BeforeStep(KilnHarness harness, ulong step) => PathFake.Step(harness);
-    public void End(KilnHarness harness) { }
+    public void End(KilnHarness harness) => ReportRay(false);
 
     public void AddCoverage(List<CoverageRow> rows) =>
         rows.Add(new CoverageRow("Queries", CoverageKind.RecordingFake, [QueriesAbi.Service, RayFeature, "queries.ground", "queries.line_of_sight", "queries.overlap_origins"],
             "Kiln.Queries' own code on the kit's kiln.queries. A voxel ray answers what the test scripts (KilnHarness.Queries.Voxels; without a script every ray is " +
-            "loaded and clear): there are no voxels offline, so no test here says what the game's ray would hit. The rules around the ray are the service's: bad numbers " +
+            "unavailable): there are no voxels offline, so no test here says what the game's ray would hit. The rules around the ray are the service's: bad numbers " +
             "throw, the budget (KilnHarness.Queries.MaxRaysPerStep, 64) refuses with BudgetExceeded and starts again each step, refusals keep their reasons. " +
             "EntitiesInSphere and EntitiesInBox read the harness's fake world: entity origins, closed shapes, nearest first. " +
             "RequestPath, FindPath, CancelPath and CanReach run on a fake queue with the service's rules (8 open per mod and 32 in all, counting results not yet delivered; " +
@@ -219,6 +232,8 @@ internal sealed unsafe class QueriesFake : IKitFake
             Func<FakeVoxelRay, FakeVoxelAnswer>? script;
             lock (state.Lock)
             {
+                script = state.Voxels;
+                if (script == null) return FakeTables.Unavailable;
                 var step = harness.CurrentStep;
                 if (state.BucketStep != step)
                 {
@@ -228,9 +243,8 @@ internal sealed unsafe class QueriesFake : IKitFake
                 if (state.Calls >= state.MaxRaysPerStep) return Refuse(out_, "BudgetExceeded");
                 state.Calls++;
                 state.Rays.Add(ray);
-                script = state.Voxels;
             }
-            var answer = script?.Invoke(ray) ?? FakeVoxelAnswer.Clear;
+            var answer = script(ray);
             if (answer.Refusal is { } reason) return Refuse(out_, reason);
             out_->Ok = 1;
             if (answer.HitAt is not { } at) return FakeTables.Ok;

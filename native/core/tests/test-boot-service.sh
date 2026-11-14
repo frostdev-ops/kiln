@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: MIT
-# Host tests of kiln.boot (services/boot_service.cpp): deferred mode, staging, the commit protocol with six fake
+# Host tests of kiln.boot (services/boot_service.cpp): deferred mode, staging, the commit protocol with seven fake
 # collectors, the hold path (fake OS-exit adapter) and the buffer rules, with ASan/UBSan:
 #   native/core/tests/test-boot-service.sh
 # Build output and scratch: $KILN_OUT/core-tests (KILN_OUT default native/build).

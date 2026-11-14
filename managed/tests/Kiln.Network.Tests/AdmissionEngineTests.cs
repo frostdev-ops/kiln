@@ -54,6 +54,50 @@ public sealed class AdmissionEngineTests : IDisposable
     private string? LastReject() => _net.Sent.Where(s => s.Peer == P && Wire.TryHeader(s.Frame, out var t) && t == Wire.Type.Reject)
         .Select(s => Wire.DecodeReject(s.Frame).Reason).LastOrDefault();
 
+    [Fact]
+    public void A_player_named_while_held_has_no_entity_until_the_native_gate_opens()
+    {
+        var p = Up();
+        _net.Flags[P] = NetNative.PeerHeld | NetNative.PeerHasPlayer;
+        _net.Entities[P] = 7; // native's player-slot placeholder, before Gameplay Ready creates the entity
+        Hello();
+        Assert.True(p.Player.IsNone);
+        _net.Flags[P] = NetNative.PeerHasPlayer;
+        Hello();
+        Assert.Equal(new EntityId(7), p.Player);
+    }
+
+    [Fact]
+    public void A_refused_peer_cannot_restart_admission_with_another_hello()
+    {
+        var p = Up();
+        p.State = NetPeerState.Vanilla;
+        NetAdmission.DecideVanilla(p, true, "ack missing", DateTime.UtcNow);
+        var kickAt = p.KickAt;
+        Hello();
+        Assert.Equal(NetPeerState.Rejected, p.State);
+        Assert.Equal(kickAt, p.KickAt);
+        Assert.DoesNotContain(_net.Sent, s => Wire.TryHeader(s.Frame, out var t) && t == Wire.Type.Welcome);
+    }
+
+    [Fact]
+    public void A_join_decider_refusal_does_not_publish_a_ready_event()
+    {
+        var ready = 0;
+        using var subscription = Events.On<NetPeerReadyEvent>(_ => ready++);
+        AdmissionHold? hold = null;
+        using var decider = NetAdmission.OnJoin("broken", peer =>
+        {
+            hold = NetAdmission.HoldPeer(peer, "broken", "ack", TimeSpan.FromSeconds(10));
+            throw new InvalidOperationException("boom");
+        });
+        var p = Up();
+        Hello();
+        Assert.Equal(NetPeerState.Rejected, p.State);
+        Assert.Equal(0, ready);
+        Assert.True(hold?.Ended);
+    }
+
     [Theory]
     [InlineData(ModSyncPolicy.Warn)]
     [InlineData(ModSyncPolicy.Off)]

@@ -169,8 +169,7 @@ fn token_cmd(a: &PublishArgs, json: bool) -> Result<i32> {
         out::say(json, "The stored GitHub token was removed.");
     } else {
         // from standard input only: an argument would end up in the shell's history and in the process list
-        let mut line = String::new();
-        std::io::stdin().read_line(&mut line)?;
+        let line = token::read_stdin()?;
         source.store(&line)?;
         out::say(json, format!("The GitHub token is stored in this PC's credential store as {}.", token::STORE_NAME));
     }
