@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: MIT
- * kiln.world v3: the server world's ECS for other services and mods.
+ * kiln.world v4: the server world's ECS for other services and mods.
  *   1. ECS programs: register your own program (system) into the game's scheduler, with declared component,
  *      singleton and event access, and helpers to use inside its update (iterator, command buffer, other entities).
  *   2. Entity access on the tick thread: component lookup by name/hash, transform and position in metres, "all
@@ -7,6 +7,8 @@
  *   3. Teleport: moves an entity the way the game's own fast travel does (the engine's Teleport component).
  *   4. Tracked writes (v3): changes to a component of any entity through the game's own write tracking, so the
  *      game's save and its replication to players see them (write_submit; docs/re/world.md "Tracked writes").
+ *   5. Game programs (v4): the game's own ECS programs of every world, by name, and the threads they run on
+ *      (game_program_*, below).
  * Only kiln.world hooks the game's program registration; everyone else registers programs through this table.
  * Evidence and engine notes: docs/re/world.md. Usage: docs/kiln/services/world.md.
  *
@@ -38,7 +40,7 @@ extern "C" {
 #endif
 
 #define KILN_WORLD_SERVICE "kiln.world"
-#define KILN_WORLD_VERSION 3u
+#define KILN_WORLD_VERSION 4u
 
 /* ======================================================================================= programs ============== */
 
@@ -349,6 +351,66 @@ typedef struct KilnWorldWriteStatus {
     uint64_t updates;    /* updates of the program so far */
 } KilnWorldWriteStatus;
 
+/* ======================================================================================= game programs (v4) ===== */
+/* Since 0.2.0-dev.28 (v4). The game's own ECS programs, per world kind: a directory of each world's program table
+ * (game_program_find, game_program_info) and what decides the threads they run on (game_programs_status).
+ *
+ * World kinds (KILN_WORLD_*): the SERVER world (a dedicated server's, or a host's) and the CLIENT world each have a
+ * program table of their own. PREDICTION has none: it runs the client world's table. Names are unique in a table and
+ * are the key that lasts: an index moves when the game (or a mod) inserts programs, and between game builds.
+ * The directory of a world is read in its first Pre, after the world finalized its programs; until then, and after
+ * the world stopped, game_program_find answers -1.
+ *
+ * Threads: a server world runs its program slices inline on its own thread while no player is in it, and as tasks on
+ * the game's workers once one is (SYSTEM, CHUNKED and PINNED programs stay on the world's thread); the client world
+ * always uses tasks. KilnGameProgramsStatus.players_mask is what the server world's scheduler reads. */
+
+/* KilnGameProgramInfo.flags (Kiln's words, not the engine's) */
+enum {
+    KILN_GAME_PROGRAM_GAME = 0x01u,      /* the game's own program (its descriptor is in the game's image); clear: a
+                                            program Kiln or another mod registered */
+    KILN_GAME_PROGRAM_NO_UPDATE = 0x02u, /* it has no update in this world (a client program in a server world) */
+};
+
+typedef struct KilnGameProgramInfo {
+    uint32_t size;         /* set to sizeof(KilnGameProgramInfo) before calling */
+    uint32_t world_kind;   /* KILN_WORLD_* of the table */
+    int32_t index;         /* position in the world's table, from 0 */
+    uint16_t id;           /* the engine's id (index + 1) */
+    uint16_t reserved;
+    KilnStr name;          /* "fuel_setup"; valid for the life of the process */
+    uint32_t desc_flags;   /* the descriptor's flags (0x1 client program, 0x4 SYSTEM, 0x8 INIT, 0x200 CHUNKED, ...) */
+    uint32_t entry_flags;  /* the table entry's flags: the descriptor's plus engine bits (0x20 skipped, ...) */
+    uint64_t update_rva;   /* the update the table names, relative to the game's image base; 0 when there is none in
+                              this world, or it is outside the game's image (a mod's program) */
+    uint32_t flags;        /* KILN_GAME_PROGRAM_* */
+    uint32_t wraps;        /* wraps active on it in this world now */
+    uint32_t faults;       /* wrap stages of it that faulted since this world started */
+    uint32_t reserved2;
+    uint64_t slices;       /* slices of it that kiln.world's wrap dispatched, since this world started */
+    uint64_t entities;     /* entities in those slices */
+    uint64_t forwarded;    /* slices kiln.world's trampoline let through to the update untouched (a prediction slice
+                              through a client-world wrap, or no stage left) */
+} KilnGameProgramInfo;
+
+typedef struct KilnGameProgramsStatus {
+    uint32_t size;                         /* set to sizeof(KilnGameProgramsStatus) before calling */
+    uint8_t directory[KILN_WORLD_KINDS];   /* 1: the directory of that world kind's table is published */
+    uint8_t threads;                       /* 1: the server world's players mask can be read on this build (sigdb
+                                              feature world.systems; capability systems.threads) */
+    uint32_t programs[KILN_WORLD_KINDS];   /* entries in that kind's table directory */
+    uint32_t game_programs[KILN_WORLD_KINDS];  /* of them, the game's own */
+    uint32_t no_update[KILN_WORLD_KINDS];  /* of the game's own, those with no update in that world */
+    uint16_t players_mask;                 /* the server world's players mask at its last Pre: bit (id - 1) mod 16 per
+                                              live player entity; non-zero = its entity programs run on the workers.
+                                              0xFFFF when not known */
+    uint8_t parallel_forced;               /* 1: the lab switch (lab_parallel) holds bit 15 now */
+    uint8_t parallel_switch;               /* 1: the lab switch is enabled in this process */
+    uint32_t parallel_steps_left;          /* steps until the lab switch lets go by itself */
+    uint32_t wraps_active, wraps_pending;  /* wraps in all worlds */
+    char detail[160];                      /* why something is off, in words, NUL-terminated; "" when all works */
+} KilnGameProgramsStatus;
+
 /* ======================================================================================= the table ============= */
 
 typedef void(KILN_CALL* KilnProgramEventFn)(const void* data, uint32_t size, void* user);
@@ -480,6 +542,22 @@ typedef struct KilnWorldApi {
      * only: KILN_ERR_UNAVAILABLE once the first server world registered its programs, and when tracked writes do
      * not work on this build. KILN_ERR_INVALID_ARGUMENT: no names, over 64, or a name that is not a component's. */
     KilnResult(KILN_CALL* write_declare)(KilnOwner owner, KilnStr who, const KilnStr* names, uint32_t count);
+
+    /* ---- game programs: appended in v4, since 0.2.0-dev.28. Check header.size ---- */
+    /* Index of the program `name` in the table of the live world of `world_kind`, or -1 (no such program, no
+     * directory of that kind yet, PREDICTION). Any thread. */
+    int32_t(KILN_CALL* game_program_find)(uint32_t world_kind, KilnStr name);
+    /* One entry of that directory. KILN_ERR_NOT_FOUND: no such index, or no directory of that kind now;
+     * KILN_ERR_INVALID_ARGUMENT: out is NULL or out->size is too small. Any thread. */
+    KilnResult(KILN_CALL* game_program_info)(uint32_t world_kind, int32_t index, KilnGameProgramInfo* out);
+    /* The directories, the threads report and the wrap counts. Any thread. */
+    KilnResult(KILN_CALL* game_programs_status)(KilnGameProgramsStatus* out);
+    /* Lab only, never a mod API (managed: Kiln.Testing.LabSystems). Forces the server world's parallel program path
+     * as if player 16 were in the world: sets bit 15 of its players mask in its next Pre, and lets go again after
+     * `steps` steps (1..3000), at on = 0, or when the world stops. Off unless kiln/control/systems.parallel
+     * existed when Kiln started (KILN_ERR_UNAVAILABLE), and only on a dedicated server. A bit 15 that a real player 16
+     * set is left alone. Any thread outside a program update; it takes effect in the next Pre. */
+    KilnResult(KILN_CALL* lab_parallel)(uint32_t on, uint32_t steps);
 } KilnWorldApi;
 
 enum {

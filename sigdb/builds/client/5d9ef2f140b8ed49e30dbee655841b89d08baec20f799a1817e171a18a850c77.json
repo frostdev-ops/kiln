@@ -9,9 +9,9 @@
   "verified": true,
   "note": "runtime-verified through Steam (GE-Proton11-11), policy any, core + every service + kiln-emf + probe + ui-test + menubuttons: side client, sigdb 306/306 symbols, 434/434 constants (client.d composed), SimStep + WorldDestroy hooked, boot complete, 0 errors; main menu entries Kiln / ui-test / Mods (the Kiln sample screen opened); hosted a LOCAL world offline (saves: world loaded: slot 0x0002 (world1.ksd)): server world 60 steps/s on the GameServer thread, client and prediction worlds on the main thread, local player 1; ui-test all checks PASS (screens MainMenu/Loading/InGame/PauseMenu/Map/Crafting, menu entries chosen, crafting state), Kiln crafting tabs and subcategories shown, Insert overlay; tick cost as on ce6fdba6 (server step p50 2.5 ms, Kiln Pre 0.037 ms; client 1.2 ms); back to the menu (worlds stopping, shutdown save), clean quit (Shutdown 'Steam'). Not covered: joining a remote server, service write paths on the client. Added in dev.22 from static analysis only (resolved offline with sigdb_check.py, not yet seen running): ui.menu_page, ui.menu_page_sound, ui.error_popup (ui/PreGameCredits, ui/PreGameCreditsRet, ui/UiPlaySound and their constants). Levels (record 2, refreshed offline on 2026-11-11, no client run): lab = the names the boot above resolved, as its record listed them (199 named symbols, 434 constants, 106 features), each resolving to the same value today; every service loaded in that boot, but only ui-test ran, so lab here means loaded with Kiln's checks passing, not that the service test mods ran on the client. static = everything else, resolved offline only: the 186 @ probes (the boot's record did not list probes), the dev.22 ui names above, and every name declared since (the services audio, characters, emf-net, npcai, pacing, progression, quests, render, rules, skills, types and vfx, and new names of combat, creatures, gamedata, items, net, players, time and ui): 158 symbols, 210 constants and 70 features. sigdb now declares 543 symbols (441 defined, 102 captured), 644 constants (595 defined, 49 captured) and 176 features; all of them resolve offline on this exe.",
   "declared": {
-    "symbols": 586,
-    "constants": 670,
-    "features": 183
+    "symbols": 589,
+    "constants": 671,
+    "features": 184
   },
   "features": {
     "abilities.attributes": true,
@@ -195,6 +195,7 @@
     "world.programs": true,
     "world.queue": true,
     "world.read_other": true,
+    "world.systems": true,
     "world.teleport": true,
     "world.write": true
   },
@@ -579,7 +580,10 @@
     "world/RegisterProgram": "0x9e2e40",
     "world/ResolveAccess": "0xa01e90",
     "world/ResolveEvents": "0x98a300",
-    "world/ResolveSingletons": "0x98a660"
+    "world/ResolveSingletons": "0x98a660",
+    "world/RunInitPrograms": "0x9acf40",
+    "world/SliceTaskFn": "0x9eebb0",
+    "world/StepPrograms": "0x9ade50"
   },
   "constants": {
     "abilities/actor.trigger_context": "0x8",
@@ -1248,6 +1252,7 @@
     "world/storage.entities": "0x148",
     "world/storage.entities.cap": "0x158",
     "world/storage.entities.values": "0x188",
+    "world/storage.players_mask": "0x7ddc0a",
     "world/teleport.applied": "0x48",
     "world/teleport.find_ground": "0x49",
     "world/teleport.target_entity": "0x38",
@@ -1811,6 +1816,22 @@
         "creatures.rules": "static",
         "creatures.slots": "lab",
         "creatures.table": "lab"
+      }
+    },
+    "dev28-06a-program-wraps": {
+      "level": "static",
+      "date": "2026-11-13",
+      "evidence": "resolved offline (tools/sigport/build_record.py)",
+      "symbols": {
+        "world/RunInitPrograms": "static",
+        "world/SliceTaskFn": "static",
+        "world/StepPrograms": "static"
+      },
+      "constants": {
+        "world/storage.players_mask": "static"
+      },
+      "features": {
+        "world.systems": "static"
       }
     },
     "emf": {

@@ -190,6 +190,7 @@ bool resolve() {
 }
 
 void KILN_CALL on_pre(const KilnTickInfo* tick, void*) {
+    game_programs_pre(KILN_WORLD_SERVER, tick);
     const uint64_t runs = g_internal_runs.load(std::memory_order_acquire);
     const bool live = runs != g_last_runs;
     g_last_runs = runs;
@@ -299,7 +300,14 @@ const KilnWorldApi kTable = {
     &write_info,
     &write_status,
     &write_declare,
+    &game_program_find,
+    &game_program_info,
+    &game_programs_status,
+    &lab_parallel,
 };
+
+void KILN_CALL on_client_pre(const KilnTickInfo* tick, void*) { game_programs_pre(KILN_WORLD_CLIENT, tick); }
+void KILN_CALL on_world_event(const KilnWorldEvent* event, void*) { game_programs_world_event(event); }
 
 }  // namespace
 }  // namespace kw
@@ -312,8 +320,9 @@ extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api,
     if (info->size >= offsetof(KilnPluginInfo, on_ready) + sizeof(info->on_ready))
         info->on_ready = [](void*) { boot_programs_init(); };
     info->id = KilnStr{KILN_WORLD_SERVICE, sizeof(KILN_WORLD_SERVICE) - 1};
-    info->version = KilnStr{"3", 1};
+    info->version = KilnStr{"4", 1};
     resolve();
+    game_programs_resolve();
     const bool hooked = programs_init();
     if (!hooked) F.programs = F.teleport = false;
     if (hooked) {
@@ -329,6 +338,14 @@ extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api,
         KW_W("no tick subscription: teleport is off");
         F.teleport = false;
     }
+    // The game's own programs: the client world's directory (a game client) and every world's start and stop.
+    if (api->size >= offsetof(KilnApi, session) + sizeof(void*)) {
+        KilnHandle h = 0;
+        if (api->side() == KILN_SIDE_CLIENT)
+            api->subscribe_world_tick(owner, KILN_WORLD_CLIENT, KILN_TICK_PRE, &on_client_pre, nullptr, &h);
+        api->subscribe_world(owner, &on_world_event, nullptr, &h);
+    }
+    game_programs_init();
     KW_I("kiln.world: programs %s, entities %s, find %s, names %s (singletons %s, events %s), queue %s, "
          "write %s, read_other %s, teleport %s, dead check %s, tracked writes %s",
          F.programs ? "on" : "off", F.entities ? "on" : "off", F.find ? "on" : "off", F.names ? "on" : "off",
