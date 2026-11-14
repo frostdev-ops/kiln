@@ -8,12 +8,16 @@
 //! | [`receipt`] | source receipts (`<data>/updates/receipts.json`): what Kiln saw when a mod was installed or imported, the source accepted for a mod, manual mappings, the migration of Nexus install records |
 //! | [`coordinator`] | which source a mod has (manual mapping, then receipt, then manifest), the confirmation a changed source needs, the fan-out to providers, one result set |
 //! | [`github_select`] | which release of a GitHub repository is a mod's newest version and how it compares with the installed one: pure functions, no request |
+//! | [`github`] | the GitHub provider: anonymous reads of a repository's releases, at most one small metadata file per check, never a mod's zip |
+//! | [`cache`] | what checks remember (`<data>/updates/cache.json`): the last answer per source, its validators, waits after failures and request limits |
 //! | [`nexus`] | the Nexus Mods provider: the existing signed-in check of the catalog, unchanged, as statuses |
 //!
 //! The rule every part keeps: a check that did not succeed never reads as "up to date". It is `unknown` with a
 //! reason, or an earlier "update available" kept and marked stale.
 
+pub mod cache;
 pub mod coordinator;
+pub mod github;
 pub mod github_select;
 pub mod nexus;
 pub mod receipt;
