@@ -278,5 +278,12 @@ a held row reads `unavailable`, `policy`, `game test pending: <ids>` until then.
 | `queries.voxel_ray` | sigdb | sigdb; kiln.queries lowers it (faulted) | client: `01-queries.voxel-ray-hosted` | The game's voxel ray: `Queries.RaycastVoxels`. Off for the process after a fault in the ray or a voxel grid that does not match the build's layout |
 | `queries.ground` | managed | Kiln.Queries | client: `01-queries.voxel-ray-hosted` | `Queries.GroundBelow`; needs `queries.voxel_ray` |
 | `queries.line_of_sight` | managed | Kiln.Queries | client: `01-queries.voxel-ray-hosted` | `Queries.VoxelLineOfSight`; needs `queries.voxel_ray` and `kiln.world` |
+| `queries.path` | sigdb | sigdb; kiln.queries lowers it (faulted, program refused) | client: `02-queries.path-hosted` | The game's path search: `Queries.RequestPath`, `FindPath`, `CancelPath` |
+| `queries.reachability` | managed | Kiln.Queries | client: `02-queries.path-hosted` | `Queries.CanReach`; needs `queries.path` |
 | `queries.overlap_origins` | managed | Kiln.Queries | client: `01-queries.voxel-ray-hosted` | `Queries.EntitiesInSphere`, `EntitiesInBox`: entity origins from `kiln.world` |
+| `kiln.terrain` | managed | Kiln.Terrain | - | The library is loaded ([terrain.md](terrain.md)): `Terrain.Inspect` |
+| `terrain.overlays` | managed | Kiln.Terrain | client: `19f-overlay-client` | `Terrain.Apply`, `Forget`, `Applied`; needs `kiln.build`, `build.read`, `build.write`, `build.persist`, `kiln.saves` |
+| `terrain.baked` | managed | Kiln.Terrain | - | Always off in this version: baked terrain regions are not built |
+| `terrain.biomes` | managed | Kiln.Terrain | - | Always off in this version: biome changes are not built |
+| `blocks.move_followups` | managed | Kiln.Blocks, with the item blocks' rows | `16c-b`, `16c-d` | A weapon's moves with `FollowUps`, applied as one generation: `MoveBlock.FollowUps`, `Blocks.MovesStatus`, `WeaponMovesApplicationChangedEvent`. Both sides; the query on any thread, application and events on the tick. Needs kiln.gamedata (sequence clones, their rules, item data); a move that names a state by name also needs `anim.player_states` |
 | `creature_control` | static (lowered when the broker's world program does not run) | kiln.creature_control | not held | the creature control broker takes new leases: its layout guard matched through kiln.types, its world program is registered (kiln.world with `write_other`), kiln.creatures has the AI switch ([creature-control.md](creature-control.md)); the table row `kiln.creature_control` serves queries, waits and releases |

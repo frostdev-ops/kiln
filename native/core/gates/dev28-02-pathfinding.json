@@ -1,0 +1,4 @@
+{ "gates": [
+    { "name": "queries.path", "checks": ["02-queries.path-hosted"], "side": "client" },
+    { "name": "queries.reachability", "checks": ["02-queries.path-hosted"], "side": "client" }
+] }

@@ -10,7 +10,9 @@ namespace ClientPass;
 // from the wave's package table), and "run all" walks the packages in that order.
 //
 // What every dev.28 check does:
-//   - Since = Dev28, Area = the chapter's short name, Needs = the session it wants;
+//   - Since = the release its package ships in (the dossier ships as a release train; dev28-releases.json says which
+//     release each id is played in, and tools/client-checks/plan.py names a check whose Since differs): Dev28 for a
+//     package of dev.28, Dev29 ... Dev33 for a later one. Area = the chapter's short name, Needs = the session;
 //   - Tags say what else it wants: TwoPlayers, VanillaClient, HostTools, Frameworks, Visual, Audio;
 //   - it starts with `if (!await Need(c, "<fixture mod id>")) return;` when it uses a fixture or sample mod, so a
 //     missing mod asks for skip and never passes;
@@ -20,6 +22,11 @@ namespace ClientPass;
 public sealed partial class ClientPassMod
 {
     private const string Dev28 = "0.2.0-dev.28";
+    private const string Dev29 = "0.2.0-dev.29";
+    private const string Dev30 = "0.2.0-dev.30";
+    private const string Dev31 = "0.2.0-dev.31";
+    private const string Dev32 = "0.2.0-dev.32";
+    private const string Dev33 = "0.2.0-dev.33";
 
     /// <summary>Needs a game client without Kiln joined to the server (a second Steam account or a second person;
     /// the body runs on the server and the answers come from that player).</summary>
