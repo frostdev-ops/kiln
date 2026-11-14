@@ -72,6 +72,7 @@ static Kiln.PermissionDecision.operator ==(Kiln.PermissionDecision? left, Kiln.P
 static Kiln.PermissionNode.operator !=(Kiln.PermissionNode? left, Kiln.PermissionNode? right) -> bool
 static Kiln.PermissionNode.operator ==(Kiln.PermissionNode? left, Kiln.PermissionNode? right) -> bool
 static Kiln.PermissionSubject.Console.get -> Kiln.PermissionSubject
+static Kiln.PermissionSubject.ForPerson(Kiln.PlayerRef player) -> Kiln.PermissionSubject
 static Kiln.PermissionSubject.ForPlayer(Kiln.EntityId entity) -> Kiln.PermissionSubject
 static Kiln.PermissionSubject.ForPlayer(Kiln.Player! player) -> Kiln.PermissionSubject
 static Kiln.PermissionSubject.ForSteamId(ulong steamId, string? name = null, Kiln.PlayerPermissions? gameRights = null, uint? userGroupId = null) -> Kiln.PermissionSubject
@@ -89,6 +90,7 @@ static Kiln.Permissions.Has(Kiln.Player! player, string! node) -> bool
 static Kiln.Permissions.IsAdmin(Kiln.PermissionSubject subject) -> bool
 static Kiln.Permissions.MapUserGroup(string! userGroup, System.Collections.Generic.IEnumerable<string!>! groups) -> void
 static Kiln.Permissions.Nodes.get -> System.Collections.Generic.IReadOnlyList<Kiln.PermissionNode!>!
+static Kiln.Permissions.PersonHas(Kiln.PlayerRef player, string! node) -> bool
 static Kiln.Permissions.Register(string! node, Kiln.PermissionLevel defaultLevel = Kiln.PermissionLevel.Admin, string? description = null) -> Kiln.PermissionNode!
 static Kiln.Permissions.Reload() -> void
 static Kiln.Permissions.RemoveGroup(string! group) -> void

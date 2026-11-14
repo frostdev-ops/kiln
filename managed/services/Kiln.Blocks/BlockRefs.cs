@@ -151,3 +151,21 @@ internal sealed class PremadeConverter<T> : JsonConverter<T> where T : class, IP
 
     public override void Write(Utf8JsonWriter w, T v, JsonSerializerOptions o) => w.WriteStringValue(v.Key);
 }
+
+/// <summary>A reference a block kind's record makes to another block, by name: <c>name</c> (the consumer mod's) or
+/// <c>mod:name</c>. <see cref="BlockCompileContext.Resolve{T}"/> gives what it stands for.</summary>
+public readonly record struct BlockRef<T>(string Value) where T : class, IBlock;
+
+/// <summary>What a <see cref="BlockRef{T}"/> stands for: the identity of the block, copied. Not the block.</summary>
+public sealed record ResolvedBlock<T> where T : class, IBlock
+{
+    public required string ModId { get; init; }
+    public required string Name { get; init; }
+    /// <summary>The GUID of what the block became in the game.</summary>
+    public required Guid Guid { get; init; }
+    /// <summary>The game's id of it (FNV-1a of the GUID).</summary>
+    public required uint Id { get; init; }
+    public required string GameName { get; init; }
+    /// <summary>The block's kind: <c>kiln:item</c> for a built-in, <c>provider-mod:kind</c> for an external one.</summary>
+    public required string KindId { get; init; }
+}
