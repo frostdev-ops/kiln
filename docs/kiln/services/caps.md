@@ -263,6 +263,7 @@ a held row reads `unavailable`, `policy`, `game test pending: <ids>` until then.
 | `sig/<symbol>` | sigdb feature | core | - | the symbol has a `sig` descriptor, resolved, and its function's code fits the descriptor on this build (one row per described symbol: `sig/time/SetTimeScale`, `sig/items/GetItemVolume`, ...). Off: the reason names the argument that no longer fits; the symbol itself may still resolve. Check it before a native hook relies on the described signature |
 | `items.volume` | sigdb feature | core | - | `items/GetItemVolume` resolved |
 | `weather.sample` | sigdb feature | core | - | `weather/SampleAt` resolved (captured from its call in `fuel_setup`) |
+| `hooks.owner_cleanup` | sigdb feature | core | - | kiln.hooks has `subscribe_owner_retiring`: a native service is told when an owner it keeps state for is revoked |
 | `kiln.queries` | service | core | - | kiln.queries' table is here ([queries.md](queries.md)) |
 | `queries.voxel_ray` | sigdb | sigdb; kiln.queries lowers it (faulted) | client: `01-queries.voxel-ray-hosted` | The game's voxel ray: `Queries.RaycastVoxels`. Off for the process after a fault in the ray or a voxel grid that does not match the build's layout |
 | `queries.ground` | managed | Kiln.Queries | client: `01-queries.voxel-ray-hosted` | `Queries.GroundBelow`; needs `queries.voxel_ray` |
