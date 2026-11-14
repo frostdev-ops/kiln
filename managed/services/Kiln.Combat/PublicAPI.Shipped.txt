@@ -42,6 +42,13 @@ Kiln.AttributeReading.Value.get -> int
 Kiln.AttributeReading.Value.init -> void
 Kiln.Attributes
 Kiln.Combat
+Kiln.CombatChangedEvent
+Kiln.CombatChangedEvent.After.get -> int
+Kiln.CombatChangedEvent.Before.get -> int
+Kiln.CombatChangedEvent.Entity.get -> Kiln.EntityId
+Kiln.CombatChangedEvent.Involves(Kiln.EntityId entity) -> bool
+Kiln.CombatChangedEvent.Origin.get -> string!
+Kiln.CombatChangedEvent.What.get -> string!
 Kiln.CombatOrigin
 Kiln.CombatOrigin.Game = 0 -> Kiln.CombatOrigin
 Kiln.CombatOrigin.Kiln = 1 -> Kiln.CombatOrigin
@@ -144,6 +151,7 @@ Kiln.EntityDamagedEvent.Flags.get -> Kiln.HitFlags
 Kiln.EntityDamagedEvent.HealthAfter.get -> int
 Kiln.EntityDamagedEvent.HealthBefore.get -> int
 Kiln.EntityDamagedEvent.HealthMax.get -> int
+Kiln.EntityDamagedEvent.Involves(Kiln.EntityId entity) -> bool
 Kiln.EntityDamagedEvent.IsPlayer.get -> bool
 Kiln.EntityDamagedEvent.KillingBlow.get -> bool
 Kiln.EntityDamagedEvent.Origin.get -> Kiln.CombatOrigin
@@ -156,6 +164,7 @@ Kiln.EntityDamagedEvent.Target.get -> Kiln.EntityId
 Kiln.EntityDeathEvent
 Kiln.EntityDeathEvent.Flags.get -> Kiln.HitFlags
 Kiln.EntityDeathEvent.Health.get -> int
+Kiln.EntityDeathEvent.Involves(Kiln.EntityId entity) -> bool
 Kiln.EntityDeathEvent.IsPlayer.get -> bool
 Kiln.EntityDeathEvent.Killer.get -> Kiln.EntityId
 Kiln.EntityDeathEvent.Origin.get -> Kiln.CombatOrigin
@@ -165,6 +174,7 @@ Kiln.EntityDeathEvent.Step.get -> ulong
 Kiln.EntityDeathEvent.Victim.get -> Kiln.EntityId
 Kiln.EntityDropsEvent
 Kiln.EntityDropsEvent.Container.get -> Kiln.EntityId
+Kiln.EntityDropsEvent.Involves(Kiln.EntityId entity) -> bool
 Kiln.EntityDropsEvent.Killer.get -> Kiln.EntityId
 Kiln.EntityDropsEvent.Position.get -> Kiln.WorldPosition
 Kiln.EntityDropsEvent.Step.get -> ulong
@@ -177,6 +187,7 @@ Kiln.EntityFallEvent.Distance.get -> float
 Kiln.EntityFallEvent.Entity.get -> Kiln.EntityId
 Kiln.EntityFallEvent.HealthBefore.get -> int
 Kiln.EntityFallEvent.HealthMax.get -> int
+Kiln.EntityFallEvent.Involves(Kiln.EntityId entity) -> bool
 Kiln.EntityFallEvent.IsPlayer.get -> bool
 Kiln.EntityFallEvent.Lethal.get -> bool
 Kiln.EntityFallEvent.OriginalDamage.get -> int
@@ -192,6 +203,7 @@ Kiln.EntityKnockbackEvent.Direction.get -> System.Numerics.Vector3
 Kiln.EntityKnockbackEvent.Direction.set -> void
 Kiln.EntityKnockbackEvent.Flags.get -> Kiln.HitFlags
 Kiln.EntityKnockbackEvent.ImpactId.get -> uint
+Kiln.EntityKnockbackEvent.Involves(Kiln.EntityId entity) -> bool
 Kiln.EntityKnockbackEvent.IsPlayer.get -> bool
 Kiln.EntityKnockbackEvent.Origin.get -> Kiln.CombatOrigin
 Kiln.EntityKnockbackEvent.OriginalDirection.get -> System.Numerics.Vector3
@@ -275,6 +287,8 @@ Kiln.HitResult.HealthBefore.init -> void
 Kiln.HitResult.HitResult(Kiln.HitState State, Kiln.EntityId Target, int Amount, int HealthBefore, int HealthAfter, bool KillingBlow, int Steps) -> void
 Kiln.HitResult.KillingBlow.get -> bool
 Kiln.HitResult.KillingBlow.init -> void
+Kiln.HitResult.Ok.get -> bool
+Kiln.HitResult.Reason.get -> string?
 Kiln.HitResult.State.get -> Kiln.HitState
 Kiln.HitResult.State.init -> void
 Kiln.HitResult.Steps.get -> int
@@ -295,6 +309,7 @@ Kiln.PendingHitEvent.Flags.get -> Kiln.HitFlags
 Kiln.PendingHitEvent.HealthBefore.get -> int
 Kiln.PendingHitEvent.HealthMax.get -> int
 Kiln.PendingHitEvent.ImpactId.get -> uint
+Kiln.PendingHitEvent.Involves(Kiln.EntityId entity) -> bool
 Kiln.PendingHitEvent.IsPlayer.get -> bool
 Kiln.PendingHitEvent.Origin.get -> Kiln.CombatOrigin
 Kiln.PendingHitEvent.OriginalAmount.get -> int
@@ -308,12 +323,14 @@ Kiln.PendingHitEvent.WeaponCategory.get -> byte
 Kiln.PlayerRespawnEvent
 Kiln.PlayerRespawnEvent.Health.get -> int
 Kiln.PlayerRespawnEvent.HealthMax.get -> int
+Kiln.PlayerRespawnEvent.Involves(Kiln.EntityId entity) -> bool
 Kiln.PlayerRespawnEvent.Player.get -> Kiln.EntityId
 Kiln.PlayerRespawnEvent.Position.get -> Kiln.WorldPosition
 Kiln.PlayerRespawnEvent.Step.get -> ulong
 override Kiln.AttributeIds.GetHashCode() -> int
 override Kiln.AttributeReading.GetHashCode() -> int
 override Kiln.AttributeReading.ToString() -> string!
+override Kiln.CombatChangedEvent.ToString() -> string!
 override Kiln.CombatStatus.Equals(object? obj) -> bool
 override Kiln.CombatStatus.GetHashCode() -> int
 override Kiln.CombatStatus.ToString() -> string!

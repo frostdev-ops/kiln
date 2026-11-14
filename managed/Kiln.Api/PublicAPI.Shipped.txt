@@ -147,8 +147,12 @@ Kiln.EcsProgramContext.Entity.get -> Kiln.EntityId
 Kiln.EcsProgramContext.QueueAdd(Kiln.EntityId entity, string! component, System.ReadOnlySpan<byte> data) -> bool
 Kiln.EcsProgramContext.QueueRemove(Kiln.EntityId entity, string! component) -> bool
 Kiln.EcsProgramContext.ReadEvents(string! name) -> byte[]![]!
+Kiln.EcsProgramContext.TryGet<T>(out T value, bool template = false) -> bool
+Kiln.EcsProgramContext.TryGetOther<T>(Kiln.EntityId entity, out T value) -> bool
 Kiln.EcsProgramContext.TryRead<T>(string! component, out T value, bool template = false) -> bool
 Kiln.EcsProgramContext.TryReadOther<T>(Kiln.EntityId entity, string! component, out T value) -> bool
+Kiln.EcsProgramContext.TrySet<T>(T value) -> bool
+Kiln.EcsProgramContext.TrySetOther<T>(Kiln.EntityId entity, T value) -> bool
 Kiln.EcsProgramContext.TryWrite<T>(string! component, T value) -> bool
 Kiln.EcsProgramContext.TryWriteOther<T>(Kiln.EntityId entity, string! component, T value) -> bool
 Kiln.EcsPrograms
@@ -173,6 +177,13 @@ Kiln.EntityRef.IsAlive.get -> bool
 Kiln.EntityRef.IsNone.get -> bool
 Kiln.EntityRef.Serial.get -> ulong
 Kiln.EntityRef.Serial.init -> void
+Kiln.EventFilter
+Kiln.EventFilter.<Clone>$() -> Kiln.EventFilter!
+Kiln.EventFilter.Entities.get -> System.Collections.Generic.IReadOnlySet<Kiln.EntityId>?
+Kiln.EventFilter.Entities.init -> void
+Kiln.EventFilter.Equals(Kiln.EventFilter? other) -> bool
+Kiln.EventFilter.EventFilter() -> void
+Kiln.EventFilter.Passes(Kiln.KilnEvent! ev) -> bool
 Kiln.EventHandlerInfo
 Kiln.EventHandlerInfo.<Clone>$() -> Kiln.EventHandlerInfo!
 Kiln.EventHandlerInfo.Deconstruct(out string! Event, out string! Owner, out string! Handler, out Kiln.EventPriority Priority, out bool ReceiveCanceled, out Kiln.EventHandlerStats Stats) -> void
@@ -218,6 +229,7 @@ Kiln.EventResult.Deny = 2 -> Kiln.EventResult
 Kiln.EventSubscription
 Kiln.EventSubscription.Active.get -> bool
 Kiln.EventSubscription.Dispose() -> void
+Kiln.EventSubscription.Filter.get -> Kiln.EventFilter?
 Kiln.EventSubscription.Name.get -> string!
 Kiln.EventSubscription.Owner.get -> string!
 Kiln.EventSubscription.Priority.get -> Kiln.EventPriority
@@ -314,6 +326,18 @@ Kiln.GameTypeKind.U64 = 8 -> Kiln.GameTypeKind
 Kiln.GameTypeKind.U8 = 2 -> Kiln.GameTypeKind
 Kiln.GameTypes
 Kiln.GameValueCodec
+Kiln.IEntityEvent
+Kiln.IEntityEvent.Involves(Kiln.EntityId entity) -> bool
+Kiln.IGameAttribute<TSelf, TValue>
+Kiln.IGameAttribute<TSelf, TValue>.ValuesOf(ref TSelf self) -> System.Span<TValue>
+Kiln.IGameComponent<TSelf>
+Kiln.IGameEvent<TSelf>
+Kiln.IGameStruct<TSelf>
+Kiln.IGameStruct<TSelf>.Hash.get -> uint
+Kiln.IGameStruct<TSelf>.Layout.get -> ulong
+Kiln.IGameStruct<TSelf>.Name.get -> string!
+Kiln.IGameStruct<TSelf>.QualifiedName.get -> string!
+Kiln.IGameStruct<TSelf>.Size.get -> int
 Kiln.IKilnResult
 Kiln.IKilnResult.Ok.get -> bool
 Kiln.IKilnResult.Reason.get -> string?
@@ -796,6 +820,9 @@ override Kiln.EntityId.GetHashCode() -> int
 override Kiln.EntityId.ToString() -> string!
 override Kiln.EntityRef.GetHashCode() -> int
 override Kiln.EntityRef.ToString() -> string!
+override Kiln.EventFilter.Equals(object? obj) -> bool
+override Kiln.EventFilter.GetHashCode() -> int
+override Kiln.EventFilter.ToString() -> string!
 override Kiln.EventHandlerInfo.Equals(object? obj) -> bool
 override Kiln.EventHandlerInfo.GetHashCode() -> int
 override Kiln.EventHandlerInfo.ToString() -> string!
@@ -863,6 +890,10 @@ static Kiln.EntityRef.Of(Kiln.EntityId entity) -> Kiln.EntityRef
 static Kiln.EntityRef.implicit operator Kiln.EntityId(Kiln.EntityRef r) -> Kiln.EntityId
 static Kiln.EntityRef.operator !=(Kiln.EntityRef left, Kiln.EntityRef right) -> bool
 static Kiln.EntityRef.operator ==(Kiln.EntityRef left, Kiln.EntityRef right) -> bool
+static Kiln.EventFilter.ForEntities(System.Collections.Generic.IEnumerable<Kiln.EntityId>! entities) -> Kiln.EventFilter!
+static Kiln.EventFilter.ForEntity(Kiln.EntityId entity) -> Kiln.EventFilter!
+static Kiln.EventFilter.operator !=(Kiln.EventFilter? left, Kiln.EventFilter? right) -> bool
+static Kiln.EventFilter.operator ==(Kiln.EventFilter? left, Kiln.EventFilter? right) -> bool
 static Kiln.EventHandlerInfo.operator !=(Kiln.EventHandlerInfo? left, Kiln.EventHandlerInfo? right) -> bool
 static Kiln.EventHandlerInfo.operator ==(Kiln.EventHandlerInfo? left, Kiln.EventHandlerInfo? right) -> bool
 static Kiln.EventHandlerStats.operator !=(Kiln.EventHandlerStats left, Kiln.EventHandlerStats right) -> bool
@@ -875,6 +906,7 @@ static Kiln.Events.Diagnostics.ResetStats() -> void
 static Kiln.Events.Enqueue(Kiln.KilnEvent! ev) -> void
 static Kiln.Events.HasSubscribers(System.Type! type) -> bool
 static Kiln.Events.HasSubscribers<T>() -> bool
+static Kiln.Events.On<T>(System.Action<T!>! handler, Kiln.EventFilter! filter, Kiln.EventPriority priority = Kiln.EventPriority.Normal, bool receiveCanceled = false) -> Kiln.EventSubscription!
 static Kiln.Events.On<T>(System.Action<T!>! handler, Kiln.EventPriority priority = Kiln.EventPriority.Normal, bool receiveCanceled = false) -> Kiln.EventSubscription!
 static Kiln.Events.Post<T>(T! ev) -> T!
 static Kiln.Events.Register(object! target) -> System.Collections.Generic.IReadOnlyList<Kiln.EventSubscription!>!

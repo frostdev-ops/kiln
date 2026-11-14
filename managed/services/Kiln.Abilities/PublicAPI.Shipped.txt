@@ -138,6 +138,17 @@ Kiln.AbilityTargeting
 Kiln.AbilityTargeting.Forward = 1 -> Kiln.AbilityTargeting
 Kiln.AbilityTargeting.NearestEnemy = 2 -> Kiln.AbilityTargeting
 Kiln.AbilityTargeting.Self = 0 -> Kiln.AbilityTargeting
+Kiln.BuffRemoveResult
+Kiln.BuffRemoveResult.<Clone>$() -> Kiln.BuffRemoveResult!
+Kiln.BuffRemoveResult.Buff.get -> uint
+Kiln.BuffRemoveResult.Equals(Kiln.BuffRemoveResult? other) -> bool
+Kiln.BuffRemoveResult.Ok.get -> bool
+Kiln.BuffRemoveResult.Reason.get -> string?
+Kiln.BuffRemoveResult.Target.get -> Kiln.EntityId
+Kiln.BuffRemovedEvent
+Kiln.BuffRemovedEvent.Buff.get -> uint
+Kiln.BuffRemovedEvent.Mod.get -> string?
+Kiln.BuffRemovedEvent.Target.get -> Kiln.EntityId
 Kiln.CastOrigin
 Kiln.CastOrigin.Command = 1 -> Kiln.CastOrigin
 Kiln.CastOrigin.Key = 0 -> Kiln.CastOrigin
@@ -202,6 +213,21 @@ Kiln.DamageSetup.Stone.set -> void
 Kiln.DamageSetup.Total.get -> float
 Kiln.DamageSetup.Wood.get -> float
 Kiln.DamageSetup.Wood.set -> void
+Kiln.EntityBuff
+Kiln.EntityBuff.<Clone>$() -> Kiln.EntityBuff!
+Kiln.EntityBuff.Deconstruct(out uint Id, out string! Slot, out System.TimeSpan? Remaining, out int Level) -> void
+Kiln.EntityBuff.EntityBuff(uint Id, string! Slot, System.TimeSpan? Remaining = null, int Level = 0) -> void
+Kiln.EntityBuff.Equals(Kiln.EntityBuff? other) -> bool
+Kiln.EntityBuff.Id.get -> uint
+Kiln.EntityBuff.Id.init -> void
+Kiln.EntityBuff.Is(System.Guid buff) -> bool
+Kiln.EntityBuff.Is(uint id) -> bool
+Kiln.EntityBuff.Level.get -> int
+Kiln.EntityBuff.Level.init -> void
+Kiln.EntityBuff.Remaining.get -> System.TimeSpan?
+Kiln.EntityBuff.Remaining.init -> void
+Kiln.EntityBuff.Slot.get -> string!
+Kiln.EntityBuff.Slot.init -> void
 Kiln.ImpactBuffEvent
 Kiln.ImpactBuffEvent.Buff.get -> System.Guid
 Kiln.ImpactBuffEvent.Duration.get -> System.TimeSpan
@@ -384,6 +410,14 @@ Kiln.ImpactVariable.Size.init -> void
 Kiln.ImpactVariable.Type.get -> uint
 Kiln.ImpactVariable.Type.init -> void
 Kiln.ImpactVariable.ValueType.get -> Kiln.ImpactValueType
+Kiln.ImpactVariableChangedEvent
+Kiln.ImpactVariableChangedEvent.ImpactId.get -> uint
+Kiln.ImpactVariableChangedEvent.Instance.get -> Kiln.ImpactInstance!
+Kiln.ImpactVariableChangedEvent.Involves(Kiln.EntityId entity) -> bool
+Kiln.ImpactVariableChangedEvent.Origin.get -> string!
+Kiln.ImpactVariableChangedEvent.ProgramId.get -> uint
+Kiln.ImpactVariableChangedEvent.Self.get -> Kiln.EntityId
+Kiln.ImpactVariableChangedEvent.Variable.get -> string!
 Kiln.NativeCall
 Kiln.NativeCall.ArgCount.get -> int
 Kiln.NativeCall.Bytes(int i) -> System.Span<byte>
@@ -468,10 +502,16 @@ override Kiln.AbilitiesStatus.GetHashCode() -> int
 override Kiln.AbilitiesStatus.ToString() -> string!
 override Kiln.AbilityCost.GetHashCode() -> int
 override Kiln.AbilityCost.ToString() -> string!
+override Kiln.BuffRemoveResult.Equals(object? obj) -> bool
+override Kiln.BuffRemoveResult.GetHashCode() -> int
+override Kiln.BuffRemoveResult.ToString() -> string!
 override Kiln.CastResult.Equals(object? obj) -> bool
 override Kiln.CastResult.GetHashCode() -> int
 override Kiln.CastResult.ToString() -> string!
 override Kiln.DamageSetup.GetHashCode() -> int
+override Kiln.EntityBuff.Equals(object? obj) -> bool
+override Kiln.EntityBuff.GetHashCode() -> int
+override Kiln.EntityBuff.ToString() -> string!
 override Kiln.ImpactInstance.ToString() -> string!
 override Kiln.ImpactNativeInfo.Equals(object? obj) -> bool
 override Kiln.ImpactNativeInfo.GetHashCode() -> int
@@ -484,6 +524,7 @@ override Kiln.ImpactRef.ToString() -> string!
 override Kiln.ImpactVariable.Equals(object? obj) -> bool
 override Kiln.ImpactVariable.GetHashCode() -> int
 override Kiln.ImpactVariable.ToString() -> string!
+override Kiln.ImpactVariableChangedEvent.ToString() -> string!
 override Kiln.SequenceOptions.Equals(object? obj) -> bool
 override Kiln.SequenceOptions.GetHashCode() -> int
 override Kiln.SequenceOptions.ToString() -> string!
@@ -493,6 +534,7 @@ static Kiln.Abilities.Attributes.Get(Kiln.EntityId entity, Kiln.AbilityResource 
 static Kiln.Abilities.Attributes.Get(Kiln.EntityId entity, string! component, uint attribute) -> int?
 static Kiln.Abilities.Attributes.Max(Kiln.EntityId entity, Kiln.AbilityResource resource) -> int?
 static Kiln.Abilities.Available.get -> bool
+static Kiln.Abilities.BuffsOf(Kiln.EntityId entity) -> System.Collections.Generic.IReadOnlyList<Kiln.EntityBuff!>!
 static Kiln.Abilities.Cast(Kiln.EntityId caster, string! abilityId, Kiln.CastOrigin origin = Kiln.CastOrigin.Server) -> Kiln.CastResult!
 static Kiln.Abilities.CooldownLeft(Kiln.EntityId caster, string! abilityId) -> System.TimeSpan
 static Kiln.Abilities.HashOf(string! name) -> uint
@@ -518,6 +560,8 @@ static Kiln.Abilities.Programs.Register(byte[]! blob, out bool waiting) -> uint
 static Kiln.Abilities.Programs.Variables(uint id) -> System.Collections.Generic.IReadOnlyList<Kiln.ImpactVariable!>!
 static Kiln.Abilities.Register(Kiln.AbilityDefinition! definition) -> Kiln.AbilityHandle!
 static Kiln.Abilities.Registered.get -> System.Collections.Generic.IReadOnlyList<Kiln.AbilityDefinition!>!
+static Kiln.Abilities.RemoveBuff(Kiln.EntityId target, System.Guid buff) -> System.Threading.Tasks.Task<Kiln.BuffRemoveResult!>!
+static Kiln.Abilities.RemoveBuff(Kiln.EntityId target, uint buffId) -> System.Threading.Tasks.Task<Kiln.BuffRemoveResult!>!
 static Kiln.Abilities.ResetCooldown(Kiln.EntityId caster, string! abilityId) -> void
 static Kiln.Abilities.RunImpact(System.Guid template, Kiln.WorldPosition position, Kiln.ImpactOptions? options = null) -> System.Threading.Tasks.Task<Kiln.EntityId>!
 static Kiln.Abilities.RunImpact(string! template, Kiln.WorldPosition position, Kiln.ImpactOptions? options = null) -> System.Threading.Tasks.Task<Kiln.EntityId>!
@@ -532,6 +576,8 @@ static Kiln.AbilityCost.OfStamina(int n) -> Kiln.AbilityCost
 static Kiln.AbilityCost.operator !=(Kiln.AbilityCost left, Kiln.AbilityCost right) -> bool
 static Kiln.AbilityCost.operator +(Kiln.AbilityCost a, Kiln.AbilityCost b) -> Kiln.AbilityCost
 static Kiln.AbilityCost.operator ==(Kiln.AbilityCost left, Kiln.AbilityCost right) -> bool
+static Kiln.BuffRemoveResult.operator !=(Kiln.BuffRemoveResult? left, Kiln.BuffRemoveResult? right) -> bool
+static Kiln.BuffRemoveResult.operator ==(Kiln.BuffRemoveResult? left, Kiln.BuffRemoveResult? right) -> bool
 static Kiln.CastResult.Refused(string! reason, System.TimeSpan cooldown = default(System.TimeSpan)) -> Kiln.CastResult!
 static Kiln.CastResult.operator !=(Kiln.CastResult? left, Kiln.CastResult? right) -> bool
 static Kiln.CastResult.operator ==(Kiln.CastResult? left, Kiln.CastResult? right) -> bool
@@ -539,6 +585,8 @@ static Kiln.DamageSetup.FireOnly(float f) -> Kiln.DamageSetup
 static Kiln.DamageSetup.IceOnly(float f) -> Kiln.DamageSetup
 static Kiln.DamageSetup.operator !=(Kiln.DamageSetup left, Kiln.DamageSetup right) -> bool
 static Kiln.DamageSetup.operator ==(Kiln.DamageSetup left, Kiln.DamageSetup right) -> bool
+static Kiln.EntityBuff.operator !=(Kiln.EntityBuff? left, Kiln.EntityBuff? right) -> bool
+static Kiln.EntityBuff.operator ==(Kiln.EntityBuff? left, Kiln.EntityBuff? right) -> bool
 static Kiln.ImpactConfigIds.Parse(string! key) -> uint
 static Kiln.ImpactNativeInfo.operator !=(Kiln.ImpactNativeInfo? left, Kiln.ImpactNativeInfo? right) -> bool
 static Kiln.ImpactNativeInfo.operator ==(Kiln.ImpactNativeInfo? left, Kiln.ImpactNativeInfo? right) -> bool
