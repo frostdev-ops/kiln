@@ -170,5 +170,12 @@ cfg["cooked"] = cooked
 json.dump(cfg, open(path, "w"), indent=2)
 PY
 fi
+# The game data Mod.OnBoot reads (tools/bootsnap, docs/kiln/modding/boot-snapshot.md): made once per game build into
+# kiln/data/boot-gamedata (about a minute and about 200 MB the first time, under a second after), before the server's
+# first start lets EML patch the archive (it reads EML's backup pair after that). A failure is a warning: the server
+# starts without it and kiln.boot says why. KILN_NO_BOOT_SNAPSHOT=1 skips the step (a lab that needs no OnBoot data).
+if [[ ${KILN_NO_BOOT_SNAPSHOT:-} != 1 ]] && ! python3 -I "$repo/tools/bootsnap/bootsnap.py" make --game "$server"; then
+  warn "the game data for OnBoot mods was not made (see above): the server starts without it"
+fi
 shown=$(grep -o '"cooked": "[^"]*"' "$k/kiln.json" | cut -d'"' -f4 || true)
 echo "Kiln deployed to $server (policy: $(grep -o '"policy": "[^"]*"' "$k/kiln.json" | cut -d'"' -f4), cooked: ${shown:-warn, the default})"

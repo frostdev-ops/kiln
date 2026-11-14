@@ -14,7 +14,9 @@
 namespace kiln {
 ImageInfo test_image;
 bool test_log_throw = false;
+bool test_verified = true;  // what config.cpp's build_verified answers for the mapped file's sha256
 const ImageInfo& image() { return test_image; }
+bool build_verified(uint32_t, const std::string&, std::string*) { return test_verified; }
 double now_ms() { return 0; }
 std::string to_utf8(std::wstring_view w) { return std::string(w.begin(), w.end()); }
 namespace log {
@@ -46,6 +48,7 @@ struct Loaded {
         img.file = pe.file.data();
         img.file_size = pe.file.size();
         sigdb::g_code = {};
+        kiln::test_verified = true;
     }
 };
 
@@ -104,13 +107,24 @@ static void views_and_holes() {
     }
     {
         Loaded x;
+        // The same byte, but the file's hash is no verified build record: the file itself may be the changed one
+        // (an exe replaced on disk after the game started), so the live code is scanned as before.
+        x.live[0x1050] ^= 1;
+        kiln::test_verified = false;
+        sigdb::init_code();
+        CHECK(!sigdb::g_code.view.disk && sigdb::g_code.in_place.sites == 0 && sigdb::g_code.runs.empty(),
+              "runtime: a byte patched in place with no verified build record selects the live scan");
+    }
+    {
+        Loaded x;
         auto* at = x.live.data() + TestPe::kFunc;
         at[0] = 0xE9;
         const int32_t rel = 0x7FFF0000;
         std::memcpy(at + 1, &rel, 4);
+        kiln::test_verified = false;
         sigdb::init_code();
         CHECK(sigdb::g_code.view.disk && sigdb::g_code.in_place.sites == 0,
-              "runtime: a hook is not counted as an in-place patch");
+              "runtime: a hook is not counted as an in-place patch, and needs no build record to keep the disk scan");
     }
     {
         Loaded x;
@@ -407,6 +421,91 @@ static void in_place_patch(const char* dir) {
     std::filesystem::remove(file);
 }
 
+// The real client exe through the production view selection (a player's report of 14 Nov 2026): every function Kiln
+// resolves is hooked by another engine, and The Worst Map Mod's four places (client build 26430625; on another build
+// four other bytes) are patched in place, all before Kiln's scan.
+static void real_client_in_place(const std::string& exe, const std::filesystem::path& sigdb_dir) {
+    std::ifstream in(exe, std::ios::binary);
+    if (!in) {
+        std::printf("SKIP client view selection: cannot read %s\n", exe.c_str());
+        return;
+    }
+    std::vector<uint8_t> file((std::istreambuf_iterator<char>(in)), {});
+    pe::FileText ft;
+    std::string err;
+    if (!pe::parse_file_text(file.data(), file.size(), ft, err) || ft.file_bytes() < ft.text_vsize ||
+        !ft.relocs64.empty() || !ft.relocs32.empty()) {
+        std::printf("SKIP client view selection: %s\n", err.empty() ? "the exe needs a private copy of .text" : err.c_str());
+        return;
+    }
+    std::vector<uint8_t> live(ft.size_of_image, 0);
+    uint8_t* l_text = live.data() + ft.text_rva;
+    const uint8_t* f_text = file.data() + ft.text_raw;
+    std::memcpy(l_text, f_text, ft.text_vsize);
+    auto& img = kiln::test_image;
+    img = {};
+    img.base = reinterpret_cast<uintptr_t>(live.data());
+    img.size = ft.size_of_image;
+    img.text = l_text;
+    img.text_size = ft.text_vsize;
+    img.timestamp = ft.timestamp;
+    img.side = KILN_SIDE_CLIENT;
+    img.file = file.data();
+    img.file_size = file.size();
+
+    const auto defs = unscoped_defs(sigdb_dir, "client");
+    const pe::CodeView on_file{f_text, ft.text_vsize, reinterpret_cast<uintptr_t>(l_text), true};
+    std::map<std::string, uintptr_t> want;
+    for (const Def& d : defs) {
+        const auto h = sigdb::scan(d.p, on_file.scan, on_file.end(), 2);
+        if (h.size() == 1) want[d.name] = on_file.to_live(h[0]) + d.offset;
+    }
+    for (auto& [name, addr] : want) {
+        auto* at = reinterpret_cast<uint8_t*>(addr);
+        if (at < l_text || at + 5 > l_text + ft.text_vsize) continue;
+        at[0] = 0xE9;
+        const int32_t rel = 0x7FFF0000;
+        std::memcpy(at + 1, &rel, 4);
+    }
+    // Hooks closer than five bytes overwrite each other and read as no hook; count those before the patches.
+    const size_t before = pe::other_differences(f_text, l_text, ft.text_vsize, reinterpret_cast<uintptr_t>(l_text), img.base,
+                                                img.size).sites;
+    size_t patched = 0;
+    for (uint32_t rva : {0x31629du, 0x3168c9u, 0xd33058u, 0xd331eeu})
+        if (rva >= ft.text_rva && rva - ft.text_rva < ft.text_vsize) live[rva] ^= 0x01, ++patched;
+    auto resolved = [&](const pe::CodeView& cv) {
+        size_t n = 0;
+        for (const Def& d : defs) {
+            const auto it = want.find(d.name);
+            if (it == want.end()) continue;
+            const auto h = sigdb::scan(d.p, cv.scan, cv.end(), 2);
+            if (h.size() == 1 && cv.to_live(h[0]) + d.offset == it->second) ++n;
+        }
+        return n;
+    };
+
+    sigdb::g_code = {};
+    kiln::test_verified = true;
+    sigdb::init_code();
+    CHECK(patched == 4 && sigdb::g_code.view.disk && sigdb::g_code.in_place.sites == before + 4,
+          "client: %zu hooked functions and four in-place patches on a verified build keep the disk scan (%zu in-place "
+          "places, %zu of them hooks that overwrite each other)",
+          want.size(), sigdb::g_code.in_place.sites, before);
+    const size_t on_disk = resolved(sigdb::g_code.view);
+    CHECK(!want.empty() && on_disk == want.size(), "client: the selected view resolves all %zu symbols (%zu)", want.size(), on_disk);
+
+    sigdb::g_code = {};
+    kiln::test_verified = false;
+    sigdb::init_code();
+    const size_t on_live = resolved(sigdb::g_code.view);
+    CHECK(!sigdb::g_code.view.disk && on_live < want.size(),
+          "client: the same code with no verified build record is scanned live, where the hooks hide %zu of %zu symbols",
+          want.size() - on_live, want.size());
+    kiln::test_verified = true;
+    sigdb::g_code = {};
+    img = {};
+}
+
 static void hook_guard() {
     struct Hook { bool on = true; int restores = 0; bool enabled() { return on; }
                   bool disable() { ++restores; on = false; return true; } } h;
@@ -538,8 +637,9 @@ static void diff_budget() {
           static_cast<uintptr_t>(target) == text - 7, "runtime: negative rel32 at the section edge uses live address");
 }
 
+// sigdb_runtime_test <scratch folder> [--client <enshrouded.exe>] [--sigdb <sigdb/symbols>]
 int main(int argc, char** argv) {
-    if (argc != 2) return 2;
+    if (argc < 2) return 2;
     views_and_holes();
     pool_and_resolver(argv[1]);
     live_diff_accessors(argv[1]);
@@ -547,5 +647,11 @@ int main(int argc, char** argv) {
     in_place_patch(argv[1]);
     hook_guard();
     diff_budget();
+    std::filesystem::path sigdb_dir = std::filesystem::path(__FILE__).parent_path() / "../../../sigdb/symbols";
+    for (int i = 2; i + 1 < argc; i += 2) {
+        const std::string opt = argv[i];
+        if (opt == "--sigdb") sigdb_dir = argv[i + 1];
+        else if (opt == "--client") real_client_in_place(argv[i + 1], sigdb_dir);
+    }
     return g_fail ? 1 : 0;
 }
