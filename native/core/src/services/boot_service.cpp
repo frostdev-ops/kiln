@@ -41,16 +41,17 @@ namespace {
 
 using nlohmann::json;
 
-constexpr size_t kCollectorCount = 6;
+constexpr size_t kCollectorCount = 7;
 // The fixed prepare order (chapter 08 §4.3 step 4).
-constexpr const char* kCollectors[kCollectorCount] = {"assets", "worldtables", "content", "skills", "knowledge", "vfx"};
+constexpr const char* kCollectors[kCollectorCount] = {"assets", "worldtables", "content", "skills", "knowledge", "vfx",
+                                                       "patches"};  // patches (S10): kiln.content's resource field patches, last
 // The boot kinds (chapter 08 §4.1): the plural block sections a staged definition may use. Closed.
 constexpr const char* kKinds[] = {"statuses",     "effects",          "items",            "spells",     "talents",
                                   "talentTrees",  "npcs",             "creatures",        "materialTweaks",
                                   "buildingMaterials", "terrainMaterials", "blueprints", "props",      "stations",
                                   "vfx",          "materials",        "quests",           "dialogues",  "bodies",
                                   "animations",   "ais",              "behaviours",       "perks",      "abilities",
-                                  "looks",        "strengths",        "surfaces"};
+                                  "looks",        "strengths",        "surfaces",         "resourcePatches"};
 constexpr uint64_t kGeneration = 1;  // one generation per process
 constexpr uint32_t kRoleBits = KILN_BOOT_ROLE_DEDICATED | KILN_BOOT_ROLE_HOSTED | KILN_BOOT_ROLE_CLIENT;
 constexpr size_t kManifestMax = 1u << 20;
@@ -112,6 +113,8 @@ std::atomic<const Root*> g_root{nullptr};
 KilnOwner g_self = 0;     // kiln.boot's own owner, for its capability reports
 uint32_t g_exit_code = 0;  // the code the hold path ended the process with (boot.json)
 void (*g_exit)(uint32_t) = &os_exit;  // the OS-exit adapter (the host test replaces it)
+void (*g_late_hold)(void* user, const std::string& last_line) = nullptr;  // boot.cpp: the state files of a stop after the entry point
+void* g_late_hold_user = nullptr;
 
 // ---- small helpers ----
 template <size_t N>
@@ -870,6 +873,47 @@ const void* KILN_CALL b_active_plan(KilnStr collector_id, uint64_t* generation) 
     return root && i >= 0 ? root->plans[i] : nullptr;
 }
 
+// A consumer could not bind published content of `mod_id` (S10: a resource patch whose resource is not there, an index
+// past its array). The issue is recorded and the mod reads ActivationFault. A mod whose boot content is required stops
+// the start here as an unpublished generation does before the entry point: the state files are written (g_late_hold,
+// boot.cpp) and the process ends with KILN_BOOT_EXIT_CODE. Any thread; nothing is undone.
+KilnResult KILN_CALL b_activation_fault(KilnOwner collector, KilnStr mod_id, KilnStr kind, KilnStr key, KilnStr reason) {
+    const std::string id(sv(mod_id));
+    bool stop = false;
+    std::string last;
+    std::vector<Row> rows;
+    {
+        std::lock_guard lk(g_mutex);
+        if (!g_deferred || g_status == KILN_BOOT_STATUS_COLLECTING || g_status == KILN_BOOT_STATUS_PREPARING) return KILN_ERR_UNAVAILABLE;
+        bool known = false;
+        for (const Collector& c : g_collectors) known |= c.registered && c.owner == collector;
+        const auto it = g_owners.find(id);
+        if (!collector || !known || it == g_owners.end() || !reason.ptr || !reason.len) return KILN_ERR_INVALID_ARGUMENT;
+        Owner& o = it->second;
+        if (o.state == KILN_BOOT_STATE_COMMITTED) o.state = KILN_BOOT_STATE_ACTIVATION_FAULT;
+        if (g_status == KILN_BOOT_STATUS_PUBLISHED) g_status = KILN_BOOT_STATUS_ACTIVATION_FAULT;
+        issue_locked({KILN_BOOT_ISSUE_ACTIVATION_FAULT, id, std::string(sv(kind)), std::string(sv(key)), "activation", std::string(sv(reason))});
+        rows.push_back(phase_row_locked());
+        stop = o.required && !g_exit_code;
+        if (stop) {
+            g_exit_code = KILN_BOOT_EXIT_CODE;
+            char line[96];
+            std::snprintf(line, sizeof line, "boot: the start stops (exit code 0x%04X)", KILN_BOOT_EXIT_CODE);
+            last = std::string(line) + ": " + id + "'s boot content is required and could not be applied: " + std::string(sv(reason)) +
+                   "; state/boot.json lists every boot mod's state and issue";
+        }
+    }
+    send(rows);
+    if (!stop) {
+        KLOG_E("boot: %s: %.*s (the start goes on without it)", id.c_str(), static_cast<int>(reason.len), reason.ptr);
+        return KILN_OK;
+    }
+    KLOG_E("%s", last.c_str());
+    if (g_late_hold) g_late_hold(g_late_hold_user, last);
+    g_exit(KILN_BOOT_EXIT_CODE);
+    return KILN_OK;  // the host test's exit adapter returned
+}
+
 const KilnBootApiV1 kTable = {
     {sizeof(KilnBootApiV1), KILN_BOOT_VERSION},
     &b_status,
@@ -882,6 +926,7 @@ const KilnBootApiV1 kTable = {
     &b_issues,
     &b_collector,
     &b_active_plan,
+    &b_activation_fault,
 };
 
 }  // namespace
@@ -1007,6 +1052,13 @@ bool after_clr(bool clr_started, void (*write_state)(void* user, const std::stri
     if (write_state) write_state(user, last);
     g_exit(KILN_BOOT_EXIT_CODE);
     return false;
+}
+
+// boot.cpp: what writes the state files when a required mod's published content cannot be applied (b_activation_fault).
+void late_hold(void (*write_state)(void* user, const std::string& last_line), void* user) {
+    std::lock_guard lk(g_mutex);
+    g_late_hold = write_state;
+    g_late_hold_user = user;
 }
 
 // boot.json "boot".

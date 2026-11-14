@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 // Host tests of kiln.boot (src/services/boot_service.cpp, abi/services/kiln_boot.h): the deferred-mode decision from
-// the mods' manifests, staging, and the commit protocol with six fake collectors (BOOT-PREPARE-ATOMIC with a failure
+// the mods' manifests, staging, and the commit protocol with seven fake collectors (BOOT-PREPARE-ATOMIC with a failure
 // injected at each collector, the per-mod drop of coordinator ruling 7, contract breaks, warnings), the hold path
 // through a fake OS-exit adapter (never the test runner's own exit), and the buffer rules.
 // Run by test-boot-service.sh (ASan/UBSan): test-boot-service.sh [scratch dir]. Prints one line per case and
@@ -155,7 +155,7 @@ void fake_exit(uint32_t code) { t_exits.push_back(code); }
 std::vector<std::string> t_held;  // write_state's last lines
 void fake_write_state(void*, const std::string& last) { t_held.push_back(last); }
 
-// ---- six fake collectors ----
+// ---- seven fake collectors ----
 enum class Do { Ok, Refuse, RefuseNobody, Error, OkNoPlan, Throw, Warn, OkWithError };
 struct Fake {
     int index = 0;
@@ -165,7 +165,7 @@ struct Fake {
     int calls = 0;
     std::vector<json> seen;  // the IR of each call
 };
-Fake t_fake[6];
+Fake t_fake[7];
 std::vector<std::string> t_events;  // "prepare:<c>", "destroy:<c>:<round>"
 struct Plan {
     int collector, round;
@@ -240,6 +240,7 @@ void reset_boot() {
     }
     g_self = 0;
     g_exit_code = 0;
+    g_late_hold = nullptr;
     g_exit = &fake_exit;
     t_exits.clear();
     t_held.clear();
@@ -247,7 +248,7 @@ void reset_boot() {
     t_revoked.clear();
     t_caps.clear();
     t_log.clear();
-    for (int i = 0; i < 6; ++i) {
+    for (int i = 0; i < 7; ++i) {
         t_fake[i] = Fake{};
         t_fake[i].index = i;
     }
@@ -301,7 +302,7 @@ void deferred_with(const std::vector<std::string>& ids) {
     profile_with(mods);
     server_rows(true);
     kiln::boot_svc::decide(true, "");
-    for (int i = 5; i >= 0; --i)  // registration order is not the prepare order
+    for (int i = 6; i >= 0; --i)  // registration order is not the prepare order
         B.collector(50 + i, ks(kiln::boot_svc::kCollectors[i]), &fake_prepare, &t_fake[i]);
     kiln::boot_svc::bound();
 }
@@ -632,7 +633,7 @@ void publish_case() {
     CHECK(state_of("a") == KILN_BOOT_STATE_COMMITTED && state_of("b") == KILN_BOOT_STATE_COMMITTED);
     // the fixed order, whatever the registration order
     CHECK(events_with("prepare:") == (std::vector<std::string>{"prepare:assets", "prepare:worldtables", "prepare:content",
-                                                               "prepare:skills", "prepare:knowledge", "prepare:vfx"}));
+                                                               "prepare:skills", "prepare:knowledge", "prepare:vfx", "prepare:patches"}));
     CHECK(events_with("destroy:").empty());  // a published plan lives until the process exits
     // what a prepare sees: the generation, nothing excluded, the process owners
     const json& ir = t_fake[2].seen.at(0);
@@ -655,7 +656,7 @@ void publish_case() {
     CHECK(kiln::boot_svc::after_clr(true, &fake_write_state, nullptr) && t_exits.empty() && t_held.empty());
     const json rep = kiln::boot_svc::report();
     CHECK(rep["deferred"] == true && rep["status"] == "published" && rep["published"] == true && rep["exitCode"].is_null());
-    pass_line("BOOT-PUBLISH (six plans in one root, fixed order, generation 1)", f0);
+    pass_line("BOOT-PUBLISH (seven plans in one root, fixed order, generation 1)", f0);
 }
 
 // BOOT-PREPARE-ATOMIC: a required participant's refusal at collector `at` aborts everything.
@@ -716,7 +717,7 @@ void drop_case(int at) {
     std::vector<std::string> expect;
     for (int i = at - 1; i >= 0; --i) expect.push_back("destroy:" + std::string(kiln::boot_svc::kCollectors[i]) + ":1");
     CHECK(events_with("destroy:") == expect);
-    CHECK(events_with("prepare:").size() == static_cast<size_t>(at + 1 + 6));
+    CHECK(events_with("prepare:").size() == static_cast<size_t>(at + 1 + 7));
     CHECK(state_of("opt") == KILN_BOOT_STATE_REJECTED_PREPARE && state_of("dep") == KILN_BOOT_STATE_EXCLUDED_DEPENDENCY &&
           state_of("keep") == KILN_BOOT_STATE_COMMITTED);
     // what round 2 saw: neither dropped mod, in "excluded" so the collectors skip their files too
@@ -823,7 +824,8 @@ void missing_collector_cases() {
     profile_with({{"a", true}, {"b", true}});
     server_rows(true);
     kiln::boot_svc::decide(true, "");
-    for (int i = 0; i < 5; ++i) B.collector(50 + i, ks(kiln::boot_svc::kCollectors[i]), &fake_prepare, &t_fake[i]);
+    for (int i = 0; i < 7; ++i)
+        if (i != 5) B.collector(50 + i, ks(kiln::boot_svc::kCollectors[i]), &fake_prepare, &t_fake[i]);  // all but vfx
     kiln::boot_svc::bound();
     CHECK(shown("mods.boot") && shown("mods.boot")->state == KILN_CAP_UNAVAILABLE &&
           shown("mods.boot")->reason == KILN_CAP_REASON_SERVICE_MISSING);
@@ -835,19 +837,63 @@ void missing_collector_cases() {
           state_of("a") == KILN_BOOT_STATE_COMMITTED);
     uint64_t g = 7;
     CHECK(B.active_plan(ks("vfx"), &g) == nullptr && g == 0 && B.active_plan(ks("assets"), &g) && g == 1);
-    CHECK(events_with("prepare:").size() == 5);  // dropped before anything prepared
+    CHECK(events_with("prepare:").size() == 6);  // dropped before anything prepared
     // the same for a required mod: the start stops
     reset_boot();
     profile_with({{"a", true}, {"b", "required"}});
     server_rows(true);
     kiln::boot_svc::decide(true, "");
-    for (int i = 0; i < 5; ++i) B.collector(50 + i, ks(kiln::boot_svc::kCollectors[i]), &fake_prepare, &t_fake[i]);
+    for (int i = 0; i < 7; ++i)
+        if (i != 5) B.collector(50 + i, ks(kiln::boot_svc::kCollectors[i]), &fake_prepare, &t_fake[i]);  // all but vfx
     kiln::boot_svc::bound();
     run_authors({"a", "b!"});
     c = commit_with(e.dump());
     CHECK(c.status == KILN_BOOT_STATUS_ABORTED && no_plan_published());
     CHECK(!kiln::boot_svc::after_clr(true, &fake_write_state, nullptr) && t_exits == std::vector<uint32_t>{0x4B01u});
     pass_line("BOOT-COLLECTOR-MISSING (mods.boot off, owner dropped or start stopped)", f0);
+}
+
+// S10: a collector reports that published content could not be applied. An optional mod: recorded, the start goes on.
+// A required mod: the late hold writes the state and the process ends with the boot exit code.
+void activation_fault_cases() {
+    t_case = "activation-fault";
+    const int f0 = t_fail;
+    deferred_with({"opt", "req!"});
+    // before anything is published there is nothing to fault
+    CHECK(B.activation_fault(56, ks("opt"), ks("resourcePatches"), ks("xp"), ks("too early")) == KILN_ERR_UNAVAILABLE);
+    run_authors({"opt", "req!"});
+    const auto c = commit_with(envelope({"opt", "req!"}));
+    CHECK(c.status == KILN_BOOT_STATUS_PUBLISHED);
+    CHECK(kiln::boot_svc::after_clr(true, &fake_write_state, nullptr) && t_exits.empty());
+    kiln::boot_svc::late_hold(&fake_write_state, nullptr);
+    // who may report, and about whom
+    CHECK(B.activation_fault(999, ks("opt"), ks("resourcePatches"), ks("xp"), ks("x")) == KILN_ERR_INVALID_ARGUMENT);  // not a collector
+    CHECK(B.activation_fault(0, ks("opt"), ks("resourcePatches"), ks("xp"), ks("x")) == KILN_ERR_INVALID_ARGUMENT);
+    CHECK(B.activation_fault(56, ks("nobody"), ks("resourcePatches"), ks("xp"), ks("x")) == KILN_ERR_INVALID_ARGUMENT);
+    CHECK(B.activation_fault(56, ks("opt"), ks("resourcePatches"), ks("xp"), ks("")) == KILN_ERR_INVALID_ARGUMENT);
+    CHECK(state_of("opt") == KILN_BOOT_STATE_COMMITTED && t_exits.empty());
+    // an optional mod: an issue, its state, the phase status; no exit, and the plans stay published
+    CHECK(B.activation_fault(56, ks("opt"), ks("resourcePatches"), ks("xp"), ks("the resource is not in this game build")) == KILN_OK);
+    CHECK(state_of("opt") == KILN_BOOT_STATE_ACTIVATION_FAULT && state_of("req") == KILN_BOOT_STATE_COMMITTED);
+    KilnBootCommitResultV1 st{};
+    st.size = sizeof st;
+    CHECK(B.status(&st) == KILN_OK && st.status == KILN_BOOT_STATUS_ACTIVATION_FAULT);
+    CHECK(t_exits.empty() && t_held.empty());
+    uint64_t g = 0;
+    CHECK(B.active_plan(ks("assets"), &g) != nullptr && g == 1);
+    json rep = kiln::boot_svc::report();
+    bool named = false;
+    for (const auto& i : rep["issues"])
+        named |= i["code"] == "ActivationFault" && i["mod"] == "opt" && i["kind"] == "resourcePatches" && i["key"] == "xp" && i["phase"] == "activation";
+    CHECK(named && rep["exitCode"].is_null());
+    // a required mod: the state files are written, then the exit, once
+    CHECK(B.activation_fault(56, ks("req"), ks("resourcePatches"), ks("cap"), ks("index 99 is past the array's 20 entries")) == KILN_OK);
+    CHECK(t_exits == std::vector<uint32_t>{0x4B01u} && t_held.size() == 1);
+    CHECK(t_held.size() == 1 && t_held[0].find("req") != std::string::npos && t_held[0].find("index 99") != std::string::npos);
+    CHECK(state_of("req") == KILN_BOOT_STATE_ACTIVATION_FAULT);
+    rep = kiln::boot_svc::report();
+    CHECK(rep["exitCode"] == 0x4B01);
+    pass_line("BOOT-ACTIVATION-FAULT (optional: recorded, start goes on; required: late hold and exit 0x4B01)", f0);
 }
 
 void not_committed_cases() {
@@ -932,14 +978,15 @@ int main(int argc, char** argv) {
     decision_cases();
     staging_cases();
     publish_case();
-    for (int i = 0; i < 6; ++i) atomic_required_case(i);
-    for (int i = 0; i < 6; ++i) atomic_unattributed_case(i);
-    for (int i = 0; i < 6; ++i) drop_case(i);
+    for (int i = 0; i < 7; ++i) atomic_required_case(i);
+    for (int i = 0; i < 7; ++i) atomic_unattributed_case(i);
+    for (int i = 0; i < 7; ++i) drop_case(i);
     dependent_required_case();
     callback_cases();
     contract_cases();
     warning_case();
     missing_collector_cases();
+    activation_fault_cases();
     not_committed_cases();
     buffer_cases();
     reset_boot();
