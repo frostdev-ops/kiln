@@ -323,9 +323,10 @@ public sealed class OverlayTests
         var shrunk = run.Apply(Solid("vein", 3, new CellBox(72, 96, 64, 8, 8, 8), 1));
         Assert.Equal(TerrainState.Completed, shrunk.State);
         Assert.Equal(1, Assert.Single(run.Engine.Applied()).Blocks);
-        // the block version 3 no longer addresses is free: another mod may take it
+        // the block version 3 no longer addresses is free: another mod may take it (with other cells: the very cells version
+        // 2 left there would look like an earlier apply of its own whose ledger was lost, TerrainLoss)
         var other = new Run(world, "mod-b", run.Session);
-        Assert.Equal(TerrainState.Completed, other.Apply(Solid("b", 1, new CellBox(64, 96, 64, 8, 8, 8), 3)).State);
+        Assert.Equal(TerrainState.Completed, other.Apply(Solid("b", 1, new CellBox(64, 96, 64, 8, 8, 8))).State);
     }
 
     [Fact]

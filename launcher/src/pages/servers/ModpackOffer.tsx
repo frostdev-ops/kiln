@@ -9,6 +9,7 @@ import type { GameId, LastServer, ModpackInstallResult } from "../../api/command
 import { qk, useSettings } from "../../api/hooks";
 import { Banner, Button, KeyValue, Modal, Skeleton, Toggle, errorText, fmtBytes, runTask, shortHash, toast } from "../../ui";
 import { notifyActivation, notifyActivationOf } from "../../shell/notices";
+import { cookBeforePlay, cookingNotice } from "../../shell/cook";
 
 export default function ModpackOffer({ gameId, lastServer, open, onClose }: { gameId: GameId; lastServer: LastServer; open: boolean; onClose: () => void }) {
   const qc = useQueryClient();
@@ -43,21 +44,27 @@ export default function ModpackOffer({ gameId, lastServer, open, onClose }: { ga
     qc.invalidateQueries({ queryKey: qk.pending(gameId) });
     onClose();
   };
+  // Launch starts the active profile (the modpack's, activated by the install) as Play does: its cook first (which writes
+  // the active profile again when it changed, then the boot game-data step for OnBoot mods; shell/cook.ts), then the start
   const launch = async () => {
+    setBusy(true);
     try {
+      await cookBeforePlay(gameId, cookingNotice);
       const r = await api.launchPlay(gameId, { mode: "profile", profileId: done?.profile.id });
       notifyActivation(r.activation);
       onClose();
     } catch (e) {
       notifyActivationOf(e);
       toast.error(e, "Launch failed");
+    } finally {
+      setBusy(false);
     }
   };
   const p = preview.data;
   return (
     <Modal open={open} onClose={onClose} locked={busy} width={620} title={done ? "Modpack installed" : `${name} uses mods`}
       footer={done ? (
-        <><Button variant="ghost" onClick={onClose}>Close</Button><Button variant="molten" onClick={launch}>Launch</Button></>
+        <><Button variant="ghost" onClick={onClose} disabled={busy}>Close</Button><Button variant="molten" loading={busy} onClick={launch}>Launch</Button></>
       ) : (
         <><Button variant="ghost" onClick={dismiss} disabled={busy}>Not now</Button>
           <Button icon={<Download size={16} />} variant="primary" disabled={!pack || !agree || !httpOk || !!preview.error} loading={busy} onClick={install}>Download and install</Button></>

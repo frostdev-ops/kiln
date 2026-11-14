@@ -492,6 +492,15 @@ void instances_pre(uintptr_t world, uint64_t step) {
     }
 }
 
+bool instances_capture(uint32_t entity, uint32_t item, uint64_t step, uint32_t* stamp, uint64_t* epoch) {
+    const StampTable::Captured c = g_stamps.capture(entity, item, step);
+    *stamp = c.stamp;
+    *epoch = c.epoch;
+    return c.stamp != 0;
+}
+uint64_t instances_epoch() { return g_stamps.epoch(); }
+uint32_t instances_peek(uint32_t entity) { return g_stamps.peek(entity); }
+
 void instances_world_reset() {
     g_stamps.reset();
     g_where.clear();

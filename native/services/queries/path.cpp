@@ -295,6 +295,10 @@ KilnResult KILN_CALL t_path_submit(KilnOwner owner, const KilnQueryPathRequest* 
     PathParams p;
     if (!owner || !request || request->size < sizeof(KilnQueryPathRequest) || !path_params(*request, &p)) return KILN_ERR_INVALID_ARGUMENT;
     if (!g_api->on_tick_thread()) return KILN_ERR_WRONG_THREAD;
+    // It reads realm 0's voxel grid box and the anchor's components below: not while the world is mid-step inside a
+    // program's update, a wrap stage or a system hook callback (internal.h), where kiln.world would also answer a
+    // present anchor as none.
+    if (in_program()) return out->reason = KQP_STR(kInsideProgram), KILN_ERR_WRONG_THREAD;
     if (!g_path_on.load(std::memory_order_acquire)) return KILN_ERR_UNAVAILABLE;
     if (!g_grid_ok.load(std::memory_order_acquire)) {
         path_off(KILN_CAP_REASON_FAULTED, "ProgramUnavailable", "the shared voxel grid layout was disabled");

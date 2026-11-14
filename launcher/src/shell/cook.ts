@@ -40,6 +40,10 @@ export function notifyCook(run: CookRun | null | undefined, o: { quietOk?: boole
   toast.info(title, `${failed.map(notCookedText).join("\n\n")}\n\n${ok ? `${ok} other mod${ok === 1 ? " was" : "s were"} cooked. ` : ""}The game starts all the same, and a mod that could not be cooked keeps running on the files it has: those of its last cook, or none if it was never cooked here. "Cook again" in the mod's menu tries again.`, { ms: 0 });
 }
 
+/** What a start says when its cook has mods to cook (Play, and a modpack offer's Launch). */
+export const cookingNotice = (jobs: CookJob[]) =>
+  toast.info(jobs.length === 1 ? `Cooking ${jobs[0].name}` : `Cooking ${jobs.length} mods`, "Making their models, animations and sounds from your game, then the game starts.");
+
 /** Cooks what needs a cook before the game starts. Resolves when it is done, whatever happened: a cook never stops a
  *  start. The cook runs always: it applies the active profile first when it changed (kilnctl, another window), so the
  *  mods it cooks are the ones the start loads, and ends at once when nothing is due. `started` is told when the plan

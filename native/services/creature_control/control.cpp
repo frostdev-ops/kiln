@@ -15,6 +15,7 @@
 #include "internal.h"
 #include "services/kiln_caps.h"
 #include "services/kiln_creatures.h"
+#include "services/kiln_hooks.h"
 #include "services/kiln_spawn.h"
 #include "services/kiln_types.h"
 
@@ -164,7 +165,7 @@ void KILN_CALL on_pre(const KilnTickInfo* tick, void*) {
     const uint64_t epoch = current_epoch();
     g_broker->set_world(epoch, "the server world ended");
     // once a server world runs its programs, the broker's program must be in it, or nothing can be moved
-    if (g_ready && epoch && (!g_program_checked.load(std::memory_order_relaxed) || tick->step % 25 == 0)) {
+    if (g_ready && epoch) {
         const uint32_t st = program_state();
         if (st == KILN_PROGRAM_ACTIVE) {
             if (!g_program_checked.exchange(true, std::memory_order_relaxed))
@@ -192,6 +193,10 @@ void KILN_CALL on_world(const KilnWorldEvent* ev, void*) {
     // the destroying thread: only flags here; the next Pre (of the next world) ends the leases. can_drive is false from now.
     if (ev->event == KILN_WORLD_STOPPING) g_stopped.store(ev->session, std::memory_order_release);
     if (ev->event == KILN_WORLD_STARTED) g_program_checked.store(false, std::memory_order_relaxed);
+}
+
+void KILN_CALL on_owner_retiring(KilnOwner owner, void*) {
+    if (g_broker) g_broker->owner_retiring(owner);  // no game calls on the revoking thread
 }
 
 // ---- the table ----
@@ -288,14 +293,16 @@ void KILN_CALL on_ready(void*) {
     h_player = hash("PlayerInput");
     // 3. kiln.creatures: the broker's own AI-off layer
     C = static_cast<const KilnCreaturesApi*>(g_api->service(KilnStr{KILN_CREATURES_SERVICE, sizeof(KILN_CREATURES_SERVICE) - 1}, 1));
-    if (!C || C->header.size < offsetof(KilnCreaturesApi, ai_switch) + sizeof(C->ai_switch) || !C->ai_switch) {
+    if (!C || C->header.size < offsetof(KilnCreaturesApi, ai_switch_get) + sizeof(C->ai_switch_get) ||
+        !C->ai_switch || !C->ai_switch_get) {
         C = nullptr;
         return go_off(KILN_CAP_REASON_SERVICE_MISSING, "needs kiln.creatures with ai_switch");
     }
-    // optional: retiring a body the broker could not restore (kiln.spawn), the entity counter's identity check (sigdb)
+    // Retirement is part of every binding's consent and of withdrawal: do not admit bodies without its implementation.
     S = static_cast<const KilnSpawnApi*>(g_api->service(KilnStr{KILN_SPAWN_SERVICE, sizeof(KILN_SPAWN_SERVICE) - 1}, 1));
     if (S && S->header.size < offsetof(KilnSpawnApi, destroy) + sizeof(S->destroy)) S = nullptr;
-    if (!S) logf(KILN_LOG_WARN, "kiln.spawn is not here: a body the broker cannot restore is quarantined but not destroyed");
+    if (!S || !S->destroy)
+        return go_off(KILN_CAP_REASON_SERVICE_MISSING, "needs kiln.spawn with destroy to retire bodies after a fatal failure");
     int64_t wst = -1, nid = -1;
     if (g_api->constant(KilnStr{"world.storage", 13}, &wst) == KILN_OK && g_api->constant(KilnStr{"items/storage.next_id", 21}, &nid) == KILN_OK &&
         wst >= 0 && nid > 0 && nid < 0x10000 && (nid & 3) == 0) {
@@ -305,6 +312,11 @@ void KILN_CALL on_ready(void*) {
         logf(KILN_LOG_INFO, "the entity counter is not resolved on this build: the identity check (a counter that goes down) is off");
     }
     inject_init();
+    const auto* hooks = static_cast<const KilnHooksApi*>(g_api->service(KilnStr{"kiln.hooks", 10}, 2));
+    KilnHandle observer = 0;
+    if (!hooks || hooks->header.size < offsetof(KilnHooksApi, subscribe_owner_retiring) + sizeof(hooks->subscribe_owner_retiring) ||
+        !hooks->subscribe_owner_retiring || hooks->subscribe_owner_retiring(g_owner, &on_owner_retiring, nullptr, &observer) != KILN_OK)
+        return go_off(KILN_CAP_REASON_SERVICE_MISSING, "needs kiln.hooks with owner retirement notifications");
     // 4. the program
     std::string why;
     if (!program_register(W, &why)) return go_off(KILN_CAP_REASON_FAULTED, why);

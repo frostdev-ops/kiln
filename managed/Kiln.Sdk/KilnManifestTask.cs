@@ -37,6 +37,9 @@ public sealed class KilnManifest : Microsoft.Build.Utilities.Task
     public string Url { get; set; } = "";
     [Required] public string EntryAssembly { get; set; } = "";
     public string EntryType { get; set; } = "";
+    /// <summary><c>true</c> or <c>required</c>: <c>"boot"</c> (the mod has boot content, Mod.OnBoot); empty or <c>false</c>: none.
+    /// Another value is written as it is, so the loader's own parse names it (KILN001).</summary>
+    public string Boot { get; set; } = "";
     public string Advanced { get; set; } = "";
     public string Features { get; set; } = "";
     public string Exports { get; set; } = "";
@@ -233,6 +236,9 @@ public sealed class KilnManifest : Microsoft.Build.Utilities.Task
             if (clients.Length > 0) w.WriteString("clients", clients);
             w.WriteString("entryAssembly", EntryAssembly);
             if (EntryType.Length > 0) w.WriteString("entryType", EntryType);
+            var boot = Boot.Trim();
+            if (boot.Equals("true", StringComparison.OrdinalIgnoreCase)) w.WriteBoolean("boot", true);
+            else if (boot.Length > 0 && !boot.Equals("false", StringComparison.OrdinalIgnoreCase)) w.WriteString("boot", boot.ToLowerInvariant());
             if (Dependencies.Length > 0)
             {
                 w.WriteStartObject("dependencies");

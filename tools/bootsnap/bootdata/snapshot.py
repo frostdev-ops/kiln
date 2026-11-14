@@ -104,6 +104,36 @@ def archive_files(exe):
     return plain, res, "plain"
 
 
+NOT_NEEDED = "no mod needs the boot snapshot"
+
+
+def _jsonc(text):
+    """kiln.mod.json allows // comment lines and trailing commas (as tools/deploy-server.sh reads it)."""
+    import re
+    text = re.sub(r"^\s*//.*$", "", text, flags=re.M)
+    return json.loads(re.sub(r",(\s*[}\]])", r"\1", text))
+
+
+def boot_mods(game, server):
+    """The mods in <game>/kiln/mods (each folder with a kiln.mod.json, not switched off with .disabled) that ask for the
+    boot phase: "boot": true or "required", as kiln.boot reads it; a dedicated server leaves out client-only mods.
+    The deploy step's question (`make --if-needed`): the launcher asks kiln_manage::boot_snapshot::boot_mods, which also
+    reads the game's profile."""
+    root = Path(game) / "kiln" / "mods"
+    out = []
+    for d in sorted(root.iterdir()) if root.is_dir() else []:
+        if not d.is_dir() or (d / ".disabled").exists():
+            continue
+        try:
+            m = _jsonc((d / "kiln.mod.json").read_text(encoding="utf-8-sig"))
+        except (OSError, ValueError):
+            continue
+        boot = m.get("boot") if isinstance(m, dict) else None
+        if (boot is True or boot == "required") and not (server and m.get("side", "server") == "client"):
+            out.append(str(m.get("id", d.name)))
+    return out
+
+
 def empty_kinds(skipped):
     """The kinds written empty because the archive could not give them (their `skipped` line has no name)."""
     return [s["kind"] for s in skipped if not s.get("name") and str(s.get("reason", "")).startswith("kind not read")]
