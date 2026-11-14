@@ -194,6 +194,7 @@ Kiln.CommandResult.Name.get -> string!
 Kiln.CommandResult.Ok.get -> bool
 Kiln.CommandResult.Output.get -> System.Collections.Generic.IReadOnlyList<string!>!
 Kiln.CommandResult.ParseError.get -> bool
+Kiln.CommandResult.Reason.get -> string?
 Kiln.CommandResult.Text.get -> string!
 Kiln.CommandSource
 Kiln.CommandSource.Has(string! node) -> bool
@@ -320,8 +321,10 @@ static Kiln.Chat.ServerPrefix.get -> string!
 static Kiln.Chat.ServerPrefix.set -> void
 static Kiln.Chat.Status.get -> Kiln.ChatStatus
 static Kiln.Chat.Tell(Kiln.EntityId player, string! text) -> bool
+static Kiln.Chat.TellIfOnline(Kiln.PlayerRef player, string! text) -> bool
 static Kiln.ChatLine.operator !=(Kiln.ChatLine left, Kiln.ChatLine right) -> bool
 static Kiln.ChatLine.operator ==(Kiln.ChatLine left, Kiln.ChatLine right) -> bool
+static Kiln.ChatPlayer.explicit operator Kiln.PlayerRef(Kiln.ChatPlayer! player) -> Kiln.PlayerRef
 static Kiln.ChatPlayer.operator !=(Kiln.ChatPlayer? left, Kiln.ChatPlayer? right) -> bool
 static Kiln.ChatPlayer.operator ==(Kiln.ChatPlayer? left, Kiln.ChatPlayer? right) -> bool
 static Kiln.ChatStatus.operator !=(Kiln.ChatStatus left, Kiln.ChatStatus right) -> bool

@@ -16,6 +16,7 @@ internal static class BlocksRows
     {
         if (!ServiceCaps.Probe("kiln.npcai")) ServiceCaps.NoteMissing("kiln.npcai");  // Factions needs it: its row says whether it is here
         BlockCapabilities.Ensure();
+        KindCapabilities.Ensure();
         AffixRuntime.RefreshCapabilities();
     }
 }
