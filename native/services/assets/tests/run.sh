@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Builds and runs kiln.assets' host test: the real store (store.cpp, catalog.cpp, util.cpp) with the game faked at the calls hooks.cpp
 # makes for it, on the pin (KILN_ASSET_PUT_PIN), the player graph's reservation, blob provenance and the content blob catalog
-# (PASS assets.catalog-snapshot). No game, no Wine.
+# (PASS assets.catalog-snapshot), and a native owner the core revokes without revert_owner (PASS assets.revoked-owner-cleanup).
+# No game, no Wine.
 #   native/services/assets/tests/run.sh
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)

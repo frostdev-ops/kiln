@@ -90,6 +90,19 @@ An item's kind follows from what you fill in: `Tool` makes a tool, `Ammo` an arr
 | `Torch` (`torch`) | Held, it lights and burns down | `Durability` (seconds it burns while held, the tooltip's Duration: 600), `BreaksInto` |
 
 `BreaksInto` is what it becomes when its durability runs out, as the game's torch becomes a burnt one: a game item or one of yours. Only a torch burns down over time; the game wears the other tools by its own rule (the world's durability setting), with no number of the item's own, so `Durability` on them is refused.
+
+`WearPerDebit` (`wearPerDebit`, since 0.2.0-dev.28) says what each of the game's wear debits costs the tool instead of
+the game's 1: 0 to 32767, where 0 means it does not wear. It is per debit of the game, not per swing: a swing that hits
+twice is debited twice (two debits at 7 spend 14), and a swing that hits nothing spends nothing. It takes an axe or a
+pickaxe (a tool with an item of its own). A torch (whose `Durability` stays its burn time), a glider, a hook or a rod
+is refused when the block compiles; for a rake or a sieve the game answers when the cost is set (`UnsupportedTool` in
+the mod's block errors when it has no item of its own). The cost is set on the server where the world runs
+(a dedicated server, or the host's own game), once the world is there; a game that joined someone else's server sets
+nothing. On a game client it waits for its guided check (`16b-g`, capability `items.tool_wear_debit`). What it does
+and does not change: [services/items.md](../services/items.md#tool-wear-per-debit-since-020-dev28).
+```csharp
+Blocks.Define("brittle-pick", new ItemBlock { Name = "Brittle Pick", Tool = new ToolBlock { Harvests = Harvest.Stone, Power = 18, WearPerDebit = 7 } });
+```
 ```csharp
 Blocks.Define("garden-rake", new ItemBlock { Name = "Garden Rake", Tool = new ToolBlock { Harvests = ToolClass.Rake, Power = 750, Range = 5 } });
 Blocks.Define("slow-torch", new ItemBlock { Name = "Slow Torch", Tool = new ToolBlock { Harvests = ToolClass.Torch, Durability = 1200, BreaksInto = "ash" } });

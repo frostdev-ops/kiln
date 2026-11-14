@@ -11,6 +11,8 @@
 #include <map>
 #include <string>
 #include <vector>
+#include <thread>
+#include <condition_variable>
 
 #include "../registry.h"
 #include "../snapshot.h"
@@ -37,7 +39,7 @@ struct FakeBody {
     bool other_ai_off = false;
     int zeroed = 0;           // ZeroInput ops applied
     std::vector<int> zero_steps;  // the steps they were applied in
-    bool refuse_remove = false, refuse_add = false, refuse_ai = false;
+    bool refuse_remove = false, refuse_add = false, refuse_ai = false, refuse_snapshot = false;
     int behavior_removals = 0;
 };
 
@@ -67,7 +69,7 @@ public:
     }
     bool steering_bytes(KilnEntity e, std::vector<uint8_t>* out) override {
         auto it = bodies.find(e);
-        if (it == bodies.end() || !it->second.steering) return false;
+        if (it == bodies.end() || !it->second.steering || it->second.refuse_snapshot) return false;
         *out = it->second.steering_bytes;
         return true;
     }
@@ -515,6 +517,190 @@ void test_restore_failed() {
     CHECK(w.broker.root_policy(1, 2000) == 1 && w.broker.bodies() == 0);
 }
 
+// A refused release of our layer must not be reported as a restored, permanently AI-disabled body.
+void test_ai_release_refused() {
+    for (bool combat : {false, true}) {
+        World w;
+        FakeBody& body = w.add(2000);
+        const auto key = w.bind(2000);
+        const auto follow = w.acquire(key);
+        w.step(2);
+        body.refuse_ai = true;
+        KilnHandle ending = follow.lease;
+        if (combat) ending = w.acquire(key, KILN_CONTROL_ROLE_PET_COMBAT).lease;
+        else CHECK(w.broker.release(kOwner, ending) == KILN_OK);
+        w.step(8);
+        CHECK(w.query(ending).lease_state == KILN_CONTROL_PENDING ||
+              w.query(ending).lease_state == KILN_CONTROL_ACTIVE);
+        CHECK(w.broker.can_drive(kOwner, ending, key, 1) == 0);
+        body.refuse_ai = false;
+        w.step(2);
+        CHECK(body.ai_off == 0);
+        CHECK(w.query(ending).lease_state == (combat ? KILN_CONTROL_ACTIVE : KILN_CONTROL_RELEASED));
+    }
+    World fatal;
+    auto& body = fatal.add(2000);
+    const auto lease = fatal.acquire(fatal.bind(2000));
+    fatal.step(2);
+    body.refuse_ai = true;
+    CHECK(fatal.broker.release(kOwner, lease.lease) == KILN_OK);
+    fatal.step(25);
+    CHECK(fatal.game.bodies.count(2000) == 0);
+    CHECK(fatal.query(lease.lease).result == KILN_CONTROL_RESULT_RESTORE_FAILED);
+}
+
+// The removal settles at the end of the first step, before the next Pre can grant Vehicle.
+void test_vehicle_canceled_during_removal() {
+    for (bool refuse_steering : {false, true}) {
+        World w;
+        w.add(2000).refuse_remove = refuse_steering;
+        const auto key = w.bind(2000);
+        const auto vehicle = w.acquire(key, KILN_CONTROL_ROLE_VEHICLE);
+        w.step();
+        CHECK(!w.game.bodies[2000].enemy_ai);
+        CHECK(w.broker.release(kOwner, vehicle.lease) == KILN_OK);
+        w.step(20);
+        CHECK(w.game.bodies.count(2000) == 0);
+        CHECK(w.query(vehicle.lease).lease_state == KILN_CONTROL_FAILED);
+        CHECK(w.broker.root_policy(1, 2000) == 1);
+    }
+}
+
+void test_active_external_steering_conflict() {
+    World w;
+    auto& body = w.add(2000);
+    const auto key = w.bind(2000);
+    const auto follow = w.acquire(key);
+    w.step(2);
+    body.steering = true;  // another controller put steering back while this lease owned direct input
+    w.step();
+    CHECK(w.broker.can_drive(kOwner, follow.lease, key, 1) == 0);
+    CHECK(w.query(follow.lease).lease_state == KILN_CONTROL_FAILED);
+    CHECK(std::strncmp(w.query(follow.lease).reason, "ExternalController", 18) == 0);
+    w.step(2);
+    CHECK(body.steering && body.ai_off == 0);
+    World idle;
+    auto& idle_body = idle.add(2000);
+    const auto idle_key = idle.bind(2000);
+    idle_body.steering = false;  // removed after binding, before the first snapshot
+    const auto pending = idle.acquire(idle_key);
+    idle.step(3);
+    CHECK(idle.query(pending.lease).lease_state == KILN_CONTROL_FAILED);
+    CHECK(std::strncmp(idle.query(pending.lease).reason, "ExternalController", 18) == 0);
+}
+
+void test_snapshot_failure_is_bounded() {
+    World w;
+    auto& body = w.add(2000);
+    body.refuse_snapshot = true;
+    const auto pending = w.acquire(w.bind(2000));
+    w.step(130);
+    CHECK(w.query(pending.lease).lease_state == KILN_CONTROL_FAILED);
+    CHECK(w.query(pending.lease).result == KILN_CONTROL_RESULT_TIMED_OUT);
+    CHECK(body.ai_off == 0 && body.steering);
+}
+
+void test_owner_retirement() {
+    World w;
+    auto& body = w.add(2000);
+    const auto key = w.bind(2000);
+    w.bind(2000, kOther);
+    const auto follow = w.acquire(key);
+    w.step(2);
+    const auto ride = w.acquire(key, KILN_CONTROL_ROLE_RIDDEN, kOther);
+    w.step();
+    w.broker.owner_retiring(kOther);
+    CHECK(w.broker.can_drive(kOther, ride.lease, key, 2) == 0);
+    w.step(2);
+    CHECK(w.query(ride.lease).result == KILN_CONTROL_RESULT_OWNER_UNLOADED);
+    CHECK(w.query(follow.lease).lease_state == KILN_CONTROL_ACTIVE);
+    CHECK(!body.steering && body.ai_off == 1);
+    CHECK(w.broker.release_body(kOther, key) == KILN_ERR_NOT_FOUND);
+    w.broker.owner_retiring(kOwner);
+    w.step(5);
+    CHECK(w.query(follow.lease).result == KILN_CONTROL_RESULT_OWNER_UNLOADED);
+    CHECK(body.steering && body.ai_off == 0);
+    CHECK(w.broker.bodies() == 0);
+    KilnControlBodyKey ignored{};
+    CHECK(w.broker.bind(kOwner, 2000, 0, 1, &ignored) == KILN_ERR_REVOKED);
+    World lost;
+    lost.add(2000);
+    lost.bind(2000);
+    const auto l = lost.acquire(lost.bind(2000));
+    lost.step(2);
+    lost.game.bodies.erase(2000);
+    lost.step();
+    CHECK(lost.query(l.lease).result == KILN_CONTROL_RESULT_BODY_GONE);
+    lost.broker.owner_retiring(kOwner);
+    lost.step();
+    CHECK(lost.broker.bodies() == 0);
+}
+
+void test_terminal_pressure_keeps_retained_leases() {
+    World w;
+    w.add(2000);
+    const auto key = w.bind(2000);
+    const auto first = w.acquire(key);
+    for (uint32_t i = 1; i < kLeaseSlots; ++i) {
+        CHECK(w.acquire(key, i % 2 ? KILN_CONTROL_ROLE_PET_STAY : KILN_CONTROL_ROLE_PET_FOLLOW).lease != 0);
+        if (i % 500 == 0) w.step();
+    }
+    const auto refused = w.acquire(key, KILN_CONTROL_ROLE_PET_FOLLOW);
+    CHECK(refused.lease == 0 && std::strncmp(refused.reason, "Capacity", 8) == 0);
+    CHECK(w.query(first.lease).lease_state == KILN_CONTROL_RELEASED);
+    const auto replay = w.acquire(key, KILN_CONTROL_ROLE_PET_FOLLOW, kOwner, nullptr, first.request_id);
+    CHECK(replay.lease == first.lease);
+}
+
+void test_quarantine_during_body_slot_reuse() {
+    World w;
+    uint64_t generation = 0;
+    std::atomic<bool> stop{false};
+    std::mutex reader_mu;
+    std::condition_variable drained;
+    int reading = 0;
+    std::vector<std::thread> readers;
+    for (int i = 0; i < 5; ++i) readers.emplace_back([&] {
+        while (!stop.load()) {
+            uint64_t g;
+            {
+                std::lock_guard lock(reader_mu);
+                g = generation;
+                if (g) ++reading;
+            }
+            if (g) {
+                w.broker.quarantine(KilnControlBodyKey{1, g, static_cast<KilnEntity>(9999 + g), 0}, KILN_CONTROL_CAUSE_RELEASE);
+                std::lock_guard lock(reader_mu);
+                if (--reading == 0) drained.notify_one();
+            } else std::this_thread::yield();
+        }
+    });
+    bool wrong_body_denied = false;
+    for (uint32_t i = 0; i < 10000 && !wrong_body_denied; ++i) {
+        const KilnEntity a = 10000 + 2 * i, b = a + 1;
+        w.add(a);
+        const auto key = w.bind(a);
+        {
+            std::lock_guard lock(reader_mu);
+            generation = key.body_generation;
+        }
+        w.game.bodies.erase(a);
+        CHECK(w.broker.body_retired(kOwner, key) == KILN_OK);
+        w.add(b);
+        const auto next = w.bind(b);
+        {
+            std::unique_lock lock(reader_mu);
+            generation = 0;
+            drained.wait(lock, [&] { return reading == 0; });
+        }
+        wrong_body_denied = w.broker.root_policy(1, b) != 0;
+        if (!wrong_body_denied) CHECK(w.broker.release_body(kOwner, next) == KILN_OK);
+    }
+    stop.store(true);
+    for (auto& thread : readers) thread.join();
+    CHECK(!wrong_body_denied);  // a stale key can never quarantine the different body that took its slot
+}
+
 void test_one_lease_and_takeover() {
     World w;
     FakeBody& body = w.add(2000);
@@ -879,6 +1065,10 @@ void test_identity_fault() {
     CHECK(w.game.destroyed == 0);  // quarantined, never destroyed by the broker
     KilnControlBodyKey k2{};
     CHECK(w.broker.bind(kOwner, 2001, 0, 1, &k2) == KILN_ERR_UNAVAILABLE);
+    w.broker.withdraw("the program stopped after the counter identity fault");
+    w.step();
+    CHECK(w.game.destroyed == 0);  // withdrawal cannot destroy an id that may now name another entity
+    w.broker.set_operational(true, "test: dependencies recovered");
     w.broker.set_world(2, "test");
     CHECK(!w.broker.identity_fault() && w.broker.bind(kOwner, 2001, 0, 1, &k2) == KILN_OK);
 }
@@ -979,6 +1169,13 @@ int main() {
     test_cancel_pending();
     test_body_lost();
     test_restore_failed();
+    test_ai_release_refused();
+    test_vehicle_canceled_during_removal();
+    test_active_external_steering_conflict();
+    test_snapshot_failure_is_bounded();
+    test_owner_retirement();
+    test_terminal_pressure_keeps_retained_leases();
+    test_quarantine_during_body_slot_reuse();
     test_one_lease_and_takeover();
     test_explicit_no_ai();
     test_world_end();

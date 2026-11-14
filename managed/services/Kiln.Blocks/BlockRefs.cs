@@ -41,7 +41,7 @@ public class BlockHandle<T> : BlockHandle where T : class, IBlock
     /// <summary>The block as defined.</summary>
     public T Block { get; }
 
-    internal override Type BlockType => typeof(T);
+    internal override Type BlockType => Block.GetType();
 }
 
 /// <summary>An effect: inline, from <see cref="Blocks.Define{T}"/>, or by name.</summary>

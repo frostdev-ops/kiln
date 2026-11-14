@@ -181,6 +181,48 @@ public sealed class KindRegistryTests
         Assert.Null(entry.Compile);
     }
 
+    public sealed class CollectibleKind<T> : IBlockKind<T> where T : class, IBlock
+    {
+        public BlockPlan Compile(BlockCompileContext context, T block) => context.Plan("p", [context.Effect("p", new EffectBlock { Heal = 1 })]);
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static WeakReference CompileAndRetireCollectibleRecord()
+    {
+        var assembly = System.Reflection.Emit.AssemblyBuilder.DefineDynamicAssembly(
+            new System.Reflection.AssemblyName("CollectibleBlockKind"), System.Reflection.Emit.AssemblyBuilderAccess.RunAndCollect);
+        var builder = assembly.DefineDynamicModule("main").DefineType("CollectibleBlock", System.Reflection.TypeAttributes.Public | System.Reflection.TypeAttributes.Sealed);
+        builder.AddInterfaceImplementation(typeof(IBlock));
+        builder.DefineDefaultConstructor(System.Reflection.MethodAttributes.Public);
+        var record = builder.CreateType()!;
+        var compiler = Activator.CreateInstance(typeof(CollectibleKind<>).MakeGenericType(record))!;
+        var provider = KindKit.Owner("provider");
+        var register = typeof(KindRegistry).GetMethod("Register", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!.MakeGenericMethod(record);
+        Assert.True(((BlockKindResult)register.Invoke(null, [provider, KindKit.Descriptor(), compiler])!).Ok);
+        var entry = KindRegistry.Find(record)!;
+        KindCompiler.Compile(KindKit.Owner("consumer"), entry, "collectible", (IBlock)Activator.CreateInstance(record)!);
+        KindRegistry.Dispose(entry, provider);
+        return new WeakReference(record);
+    }
+
+    [Fact]
+    public async Task Retiring_a_kind_releases_its_record_type_even_after_the_shared_serializer_was_used()
+    {
+        KindKit.Fresh();
+        BlockJson.Parse<StatusBlock>("""{"name":"Warm","seconds":1}""");
+        var record = CompileAndRetireCollectibleRecord();
+        // The runtime's accessor cache expires after one second and sweeps on the next new metadata request.
+        // Let that temporary cache go before testing whether BlockJson's permanent options still root the provider.
+        await Task.Delay(TimeSpan.FromMilliseconds(1200), TestContext.Current.CancellationToken);
+        JsonSerializer.Serialize(new { KindCacheSweep = true }, KindJson.NewOptions());
+        for (var i = 0; i < 10 && record.IsAlive; i++)
+        {
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+        }
+        Assert.False(record.IsAlive);
+    }
+
     // ---- JSON ---------------------------------------------------------------------------------------------------
 
     private static JsonElement J(string json) => JsonDocument.Parse(json).RootElement;
