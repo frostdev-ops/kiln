@@ -379,17 +379,22 @@ public sealed class QueriesTestMod : Mod
     }
 
     // ---- from inside a world program (kiln.world's in_program, since 0.2.0-dev.28) ----
-    // ray_probe's update runs per entity; while a window is armed it asks for a ray (and once for a path) and records what
-    // came back and on which thread. An exception must not leave the callback (it would disable the program).
+    // ray_probe's update runs per entity, per slice; while a window is armed it asks for a ray (at most 4 times on each
+    // thread, so the slices of every thread are seen) and once for a path, and records what came back and on which
+    // thread. An exception must not leave the callback (it would disable the program).
     private IDisposable? _probeBinding;
     private string? _bindError;
-    private int _probeArmed, _probeCalls, _probePath, _tickThread;
+    private int _probeArmed, _probeWindow, _probePath, _tickThread;
+    [ThreadStatic] private static int t_probeWindow, t_probeCalls;
     private WorldPosition _probeA, _probeB;
     private readonly ConcurrentQueue<(int Thread, bool Tick, string Outcome)> _probe = new();
 
     private void RayProbe(EcsProgramContext context)
     {
-        if (Volatile.Read(ref _probeArmed) == 0 || Interlocked.Increment(ref _probeCalls) > 32) return;
+        if (Volatile.Read(ref _probeArmed) == 0) return;
+        var window = Volatile.Read(ref _probeWindow);
+        if (t_probeWindow != window) (t_probeWindow, t_probeCalls) = (window, 0);
+        if (++t_probeCalls > 4) return;
         var thread = Environment.CurrentManagedThreadId;
         var tick = thread == Volatile.Read(ref _tickThread);
         var entity = context.Entity;
@@ -412,14 +417,15 @@ public sealed class QueriesTestMod : Mod
         catch (Exception e) { return $"{e.GetType().Name}: {e.Message}"; }
     }
 
-    // Arms the probe until it has answers (at most 5 s), then waits two steps for an update that had started.
-    private async Task<List<(int Thread, bool Tick, string Outcome)>> ProbeWindow(bool path)
+    // Arms the probe until it has `want` answers from `threads` threads (at most 5 s), then waits two steps for an update
+    // that had started.
+    private async Task<List<(int Thread, bool Tick, string Outcome)>> ProbeWindow(bool path, int want, int threads)
     {
         while (_probe.TryDequeue(out _)) { }
-        Volatile.Write(ref _probeCalls, 0);
+        Interlocked.Increment(ref _probeWindow);
         Volatile.Write(ref _probePath, path ? 1 : 0);
         Volatile.Write(ref _probeArmed, 1);
-        for (var i = 0; i < 24 * 5 && _probe.Count < 8; i++) await Next();
+        for (var i = 0; i < 24 * 5 && !(_probe.Count >= want && _probe.Select(p => p.Thread).Distinct().Count() >= threads); i++) await Next();
         Volatile.Write(ref _probeArmed, 0);
         await Next();
         await Next();
@@ -437,7 +443,7 @@ public sealed class QueriesTestMod : Mod
 
         // serial (no player): the program runs on the world's thread, which is the tick thread; kiln.queries refuses there
         var path = Capabilities.Is("queries.path");
-        var serial = await ProbeWindow(path);
+        var serial = await ProbeWindow(path, 4, 1);
         var rays = serial.Where(p => !p.Outcome.StartsWith("path ")).ToList();
         var fromTick = await One(() => Queries.RaycastVoxels(_probeA, _probeB));
         Check(rays.Count > 0 && rays.All(p => p.Tick && p.Outcome.Contains(inside)) && fromTick is { Ok: true, Hit: null }, "queries.ray.inside-program",
@@ -453,9 +459,8 @@ public sealed class QueriesTestMod : Mod
         // parallel: the lab switch puts entity programs on the game's workers; the refusal holds there too
         if (!LabSystems.Enabled) { Info("the lab parallel switch is off (no kiln/control/systems.parallel at start): queries.ray.inside-program.worker is not run"); return; }
         var forced = LabSystems.ForceParallel(600);
-        await Next();
-        await Next();
-        var parallel = await ProbeWindow(false);
+        for (var i = 0; i < 8; i++) await Next();
+        var parallel = await ProbeWindow(false, 12, 3);
         var mask = LabSystems.PlayersMask;
         LabSystems.StopParallel();
         var workers = parallel.Where(p => !p.Tick).ToList();
