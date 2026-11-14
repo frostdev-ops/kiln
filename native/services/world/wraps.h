@@ -50,6 +50,7 @@ KilnResult KILN_CALL game_wrap_info(KilnHandle wrap, KilnGameWrapInfo* out);
 KilnResult KILN_CALL game_wraps_release(KilnOwner owner, uint32_t* out_pending);
 KilnResult KILN_CALL game_slice_run_original(KilnGameSlice* slice);
 uint64_t KILN_CALL wrap_original(uintptr_t entry);
+uint32_t KILN_CALL in_program();  // the table's in_program: a Kiln program's update or a wrap stage on this thread
 
 // ---- seh.cpp ----
 bool seh_wrap_stage(KilnWrapStageFn fn, KilnGameSlice* slice, void* user, unsigned long* code);

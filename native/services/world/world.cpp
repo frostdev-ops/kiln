@@ -342,6 +342,7 @@ const KilnWorldApi kTable = {
     &game_wraps_release,
     &game_slice_run_original,
     &wrap_original,
+    &in_program,
 };
 
 void KILN_CALL on_client_pre(const KilnTickInfo* tick, void*) { game_programs_pre(KILN_WORLD_CLIENT, tick); }

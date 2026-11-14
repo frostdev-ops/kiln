@@ -283,6 +283,12 @@ Tick thread (Pre/Post) or inside your program: `component(e, hash, &size)`, `exi
 `entity_count`. `teleport(owner, &req, &id)` from any thread; the callback runs once, on the tick thread in Pre.
 `teleport_cancel(id)` drops the callback. `status(&s)` tells what works.
 
+### Is this thread inside a program? (since 0.2.0-dev.28)
+`in_program()`, appended after `wrap_original` (version stays 4: check `header.size` first), answers 1 while the
+calling thread runs a Kiln world program's update or a wrap stage on a game program's slice, else 0. The world is in
+the middle of its step there, maybe on a worker thread. Any thread, lock-free, no game call. A service whose calls must
+not run mid-step refuses them with `KILN_ERR_WRONG_THREAD` when it answers 1.
+
 ## Tests (lab)
 - `mods/tests/world-test`: waits for the world, checks hashes/find/positions, teleports the first teleportable villager
   3 m and back, a duplicate in flight, FindGround from +3 m, ToEntity next to another villager, and the refusals

@@ -581,6 +581,7 @@ void drop_pool(int pool, bool touch_entries) {
 // ---- service ----
 
 bool game_in_slice() { return t_in_slice; }
+uint32_t KILN_CALL in_program() { return (t_in_program || t_in_slice) ? 1u : 0u; }
 
 void wraps_init() {
     g_by_address.clear();
