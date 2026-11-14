@@ -214,6 +214,10 @@ def main():
     # client's .d set is composed from server.d + client.d overlays like the deploy does (tools/sigport/sides.py).
     from sides import merged  # noqa: E402
     doc = merged(a.definitions)
+    # An entry that holds only a descriptor ("sig", no "find") names a symbol other patterns capture: the core keeps
+    # the descriptor and leaves the name to its captures. Move such descriptors to "sigs" so the resolver sees none.
+    for name in [n for n, d in doc.get("symbols", {}).items() if isinstance(d, dict) and "sig" in d and "find" not in d]:
+        doc.setdefault("sigs", {})[name] = doc["symbols"].pop(name)["sig"]
     syms, consts, feats = Resolver(Image(a.exe), doc).run()
     bad = 0
     for n, r in syms.items():
