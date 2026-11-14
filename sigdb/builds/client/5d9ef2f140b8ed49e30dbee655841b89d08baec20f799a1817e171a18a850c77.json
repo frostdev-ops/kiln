@@ -11,7 +11,7 @@
   "declared": {
     "symbols": 586,
     "constants": 670,
-    "features": 183
+    "features": 184
   },
   "features": {
     "abilities.attributes": true,
@@ -94,6 +94,7 @@
     "items.transfer": true,
     "log.mirror": true,
     "log.write": true,
+    "mods.boot": true,
     "net.client": true,
     "net.client_guard": true,
     "net.client_ready": true,
@@ -1811,6 +1812,16 @@
         "creatures.rules": "static",
         "creatures.slots": "lab",
         "creatures.table": "lab"
+      }
+    },
+    "dev28-08-onboot": {
+      "level": "static",
+      "date": "2026-11-13",
+      "evidence": "resolved offline (tools/sigport/build_record.py)",
+      "symbols": {},
+      "constants": {},
+      "features": {
+        "mods.boot": "static"
       }
     },
     "emf": {

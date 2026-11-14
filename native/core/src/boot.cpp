@@ -43,6 +43,14 @@ void core_rows(bool hooks, bool verified, const std::string& safe_idle);
 void boot_complete();
 }  // namespace kiln::caps
 
+// kiln.boot, Mod.OnBoot's definition phase (services/boot_service.cpp, abi/services/kiln_boot.h).
+namespace kiln::boot_svc {
+void decide(bool hooks, const std::string& safe_idle);
+void bound();
+bool after_clr(bool clr_started, void (*write_state)(void* user, const std::string& last_line), void* user);
+nlohmann::json report();
+}  // namespace kiln::boot_svc
+
 namespace kiln {
 
 // api.cpp: KilnPluginInfo.on_unload at process exit. The sequence is there; its trigger is armed below.
@@ -263,6 +271,7 @@ void write_boot_json(const BootFacts& f) {
     for (const auto& w : foreign::waits())
         waits.push_back({{"module", w.module}, {"end", foreign::wait_end_name(w.end)}, {"ms", w.ms}, {"line", null_if_empty(w.line)}});
     doc["waitedFor"] = waits;
+    doc["boot"] = boot_svc::report();  // Mod.OnBoot's generation (kiln.boot): deferred or not, each mod's state, issues
     for (uint32_t k = 0; k < KILN_PROFILE_KINDS; ++k)
         if (profile::dropins(k)) doc["profile"]["dropins"].push_back(profile::kind_name(k));
     for (uint32_t i = 0; i < profile::kEngineKindCount; ++i)  // other engines' lists, when the profile has them
@@ -420,6 +429,29 @@ const char* game_label(uint32_t side) {
     return side == KILN_SIDE_CLIENT ? "The game is loading its main menu" : "The server is starting its world";
 }
 
+// kiln.log holds `line` (the log thread writes in order and has no flush): waited for, bounded, before the process ends.
+void wait_for_log_line(const std::string& line) {
+    const double until = now_ms() + 1000;
+    std::string text;
+    while (now_ms() < until) {
+        if (read_file(paths().logs / L"kiln.log", &text) && text.find(line) != std::string::npos) return;
+        Sleep(10);
+    }
+}
+
+// boot_svc::after_clr's hold path: the start stops before the game's entry point. What the launcher reads is written
+// first (boot.json with the boot section, capabilities.json, progress.json), then the process ends with the exit code.
+void hold_boot(void* user, const std::string& last_line) {
+    auto& f = *static_cast<BootFacts*>(user);
+    const std::string why = "the boot mods' content was not published, so Kiln stopped the start before the game's "
+                            "entry point (no save loads without it); boot.json \"boot\" says which mod and why";
+    f.errors.push_back(why);
+    write_boot_json(f);
+    caps::boot_complete();
+    progress_state::failed(why);
+    wait_for_log_line(last_line);
+}
+
 void boot() {
     snapshot_entry();  // before anything loads a DLL
     init_paths();
@@ -509,9 +541,13 @@ void boot() {
     gates::configure(side, config().preview_all, config().preview);  // the client gate, minus kiln.json's "preview"
     caps::core_rows(hooks, verified, f.safe_idle);  // before the service DLLs and plugins, which add their own rows
     for (const auto& feature : sigdb::failed_features()) KLOG_W("feature %s unavailable on this build", feature.c_str());
+    // A boot profile (an enabled mod with "boot": true) defers the six collectors' definitions to one generation that
+    // is published after OnBoot: decided here, so the collectors know it in kiln_plugin_main and on_ready.
+    boot_svc::decide(hooks, f.safe_idle);
 
     if (hooks) load_plugins();  // kiln/services/*.dll, then plugins (profile-aware), then on_ready
     else progress_state::step("plugins");
+    if (hooks) boot_svc::bound();  // every on_ready ran: the collectors are registered
     if (hooks) arm_unload();    // on_unload at the process's exit call
     for (const auto& p : plugin_records())
         if (std::string_view(p.status) == "failed") f.errors.push_back("plugin " + p.file + ": " + p.error);
@@ -526,6 +562,10 @@ void boot() {
         f.clr_started = clr::boot(api());
         if (!f.clr_started) f.clr_error = "the .NET host did not start (kiln.log, [clr] lines)";
     }
+    // Kiln.Host ran the boot mods' OnBoot and committed their generation inside clr::boot. In a boot profile anything but
+    // a published generation keeps the entry point held and ends the process (KILN_BOOT_EXIT_CODE): no save loads
+    // without its mods' content. The commit sits before chain.ini [late] DLLs and before the game's entry point.
+    if (!boot_svc::after_clr(f.clr_started, &hold_boot, &f)) return;  // the exit adapter returned (host tests only)
     native_mods::run_late();  // chain DLLs named in kiln/chain.ini [late]: after everything Kiln hosts hooked
     check_entry_patch(f);
     write_boot_json(f);
