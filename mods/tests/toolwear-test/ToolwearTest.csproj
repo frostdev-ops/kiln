@@ -4,7 +4,7 @@
        (kiln.programs.json). PASS / FAIL lines "toolwear-test: ..." in kiln.log, then "toolwear-test: FINISHED".
        How to run, from the worktree root: build this project and b/ (the second rule owner) into $KILN_OUT/mods/
        (-o $KILN_OUT/mods/toolwear-test, -o $KILN_OUT/mods/toolwear-test-b); tools/lab/lab.sh new <lab> <port>;
-       tools/deploy-server.sh <lab dir> --policy any; touch <lab dir>/kiln/control/systems.parallel (the lab parallel
+       tools/deploy-server.sh <lab dir> with the policy "any"; touch <lab dir>/kiln/control/systems.parallel (the lab parallel
        switch, for toolwear-workers-pinned) and <lab dir>/kiln/data/skills/lab-ops (the hotbar selection the projectile
        case uses); start the lab with KILN_PLAYERSTATE_LAB=1 in the environment (the lab use-item helper). -->
   <PropertyGroup>

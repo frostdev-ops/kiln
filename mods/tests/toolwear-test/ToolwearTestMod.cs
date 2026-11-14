@@ -52,6 +52,13 @@ public sealed class ToolwearTestMod : Mod
         Events.On<ToolDurabilityChangedEvent>(e => _changes.Add(e));
         Events.On<ToolWearRuleChangedEvent>(e => _rules.Add(e));
         Context.Messages.On("b-done", m => _b.Add(m.Payload as string ?? ""));
+        if (Mods.Side == ModSide.Client)
+        {
+            // a hosted game: the lab cases spawn actors and wear tools, which is for a dedicated lab; here the mod is the
+            // fixture guided check 16b-g needs (mods/tests/client-pass/Dev28ToolDurability.cs)
+            Log.Info("toolwear-test: on a game client the lab cases do not run; this mod is the fixture of check 16b-g");
+            return;
+        }
         _ = Run();
     }
 
