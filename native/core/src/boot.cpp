@@ -429,27 +429,30 @@ const char* game_label(uint32_t side) {
     return side == KILN_SIDE_CLIENT ? "The game is loading its main menu" : "The server is starting its world";
 }
 
-// kiln.log holds `line` (the log thread writes in order and has no flush): waited for, bounded, before the process ends.
-void wait_for_log_line(const std::string& line) {
+// `file` holds `text`: waited for, bounded, before the process ends. kiln.log's and progress.json's writers are threads
+// of their own with no flush (each writes in order), so their last words are on disk once the text is there.
+void wait_for_file_text(const std::filesystem::path& file, const std::string& text) {
     const double until = now_ms() + 1000;
-    std::string text;
+    std::string got;
     while (now_ms() < until) {
-        if (read_file(paths().logs / L"kiln.log", &text) && text.find(line) != std::string::npos) return;
+        if (read_file(file, &got) && got.find(text) != std::string::npos) return;
         Sleep(10);
     }
 }
 
 // boot_svc::after_clr's hold path: the start stops before the game's entry point. What the launcher reads is written
-// first (boot.json with the boot section, capabilities.json, progress.json), then the process ends with the exit code.
+// first (progress.json "failed", boot.json with the boot section, capabilities.json), then the process ends with the
+// exit code.
 void hold_boot(void* user, const std::string& last_line) {
     auto& f = *static_cast<BootFacts*>(user);
     const std::string why = "the boot mods' content was not published, so Kiln stopped the start before the game's "
                             "entry point (no save loads without it); boot.json \"boot\" says which mod and why";
+    progress_state::failed(why);
     f.errors.push_back(why);
     write_boot_json(f);
     caps::boot_complete();
-    progress_state::failed(why);
-    wait_for_log_line(last_line);
+    wait_for_file_text(paths().state / L"progress.json", "\"failed\"");
+    wait_for_file_text(paths().logs / L"kiln.log", last_line);
 }
 
 void boot() {
