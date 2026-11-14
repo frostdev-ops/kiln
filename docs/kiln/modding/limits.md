@@ -21,6 +21,8 @@ guided game test ([services/caps.md](../services/caps.md#the-client-gate-dev28))
 
 | Row below (or new) | What dev.28 does | Capability | Proof so far |
 |---|---|---|---|
+| Raycasts, line of sight, ground height | Server-side **voxel** rays ([services/queries.md](../services/queries.md)): first terrain or building voxel surface on a segment of at most 256 m, ground below a point, voxel line of sight between two entities. Not a physics ray: props, creatures and colliders are not seen. 64 rays and 500 microseconds per server step for everyone; "not loaded", "outside the grid" and "over budget" are refusals, never "clear". No normal, no cell | `queries.voxel_ray`, `queries.ground`, `queries.line_of_sight` (held on clients) | lab, dedicated server, no player: 1000 of 1000 ground hits, air misses, terrain-wall and building-wall hits, refusals, budget (16 PASS) |
+| Overlap queries | Entities whose **origin** is inside a sphere or an axis-aligned box, nearest first. Not a collider overlap | `queries.overlap_origins` (held on clients) | lab: sphere, box, exclusion, truncation over 1271 entities |
 
 ## No API yet
 

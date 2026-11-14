@@ -262,3 +262,12 @@ a held row reads `unavailable`, `policy`, `game test pending: <ids>` until then.
 | `repl.observe` | sigdb feature, static | core (sigdb); `kiln.repl` lowers it (`faulted`) when its send-step hook fails | — | what the server sends each peer can be read (server, and a hosted world's machine 0) |
 | `repl.client` | sigdb feature (client exe), static | core (sigdb); `kiln.repl` and `Kiln.Replication` lower it (`service-older`) while kiln.repl has no receive side; `wrong-side` on a server | `11-repl.receive-watch` | what this Kiln client receives can be watched |
 | `repl.loopback` | sigdb feature (server exe), static | core (sigdb); `kiln.repl` and `Kiln.Replication` lower it (`policy`) without kiln.json's policy `any` and kiln.net's lab port; `wrong-side` on a client | — | the loopback harness (`ReplicationLab`, lab servers only) answers |
+| `hooks.typed` | sigdb feature | core | - | kiln.hooks has typed links (`detour_typed`, `call_with_frame`, `fingerprint`): a hook or call of a game function with float, stack and struct-return positions |
+| `sig/<symbol>` | sigdb feature | core | - | the symbol has a `sig` descriptor, resolved, and its function's code fits the descriptor on this build (one row per described symbol: `sig/time/SetTimeScale`, `sig/items/GetItemVolume`, ...). Off: the reason names the argument that no longer fits; the symbol itself may still resolve. Check it before a native hook relies on the described signature |
+| `items.volume` | sigdb feature | core | - | `items/GetItemVolume` resolved |
+| `weather.sample` | sigdb feature | core | - | `weather/SampleAt` resolved (captured from its call in `fuel_setup`) |
+| `kiln.queries` | service | core | - | kiln.queries' table is here ([queries.md](queries.md)) |
+| `queries.voxel_ray` | sigdb | sigdb; kiln.queries lowers it (faulted) | client: `01-queries.voxel-ray-hosted` | The game's voxel ray: `Queries.RaycastVoxels`. Off for the process after a fault in the ray or a voxel grid that does not match the build's layout |
+| `queries.ground` | managed | Kiln.Queries | client: `01-queries.voxel-ray-hosted` | `Queries.GroundBelow`; needs `queries.voxel_ray` |
+| `queries.line_of_sight` | managed | Kiln.Queries | client: `01-queries.voxel-ray-hosted` | `Queries.VoxelLineOfSight`; needs `queries.voxel_ray` and `kiln.world` |
+| `queries.overlap_origins` | managed | Kiln.Queries | client: `01-queries.voxel-ray-hosted` | `Queries.EntitiesInSphere`, `EntitiesInBox`: entity origins from `kiln.world` |

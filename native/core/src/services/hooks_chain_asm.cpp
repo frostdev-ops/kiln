@@ -20,6 +20,16 @@
 //                      pushed slots as an allocation, so a walk from a handler continues at the hooked code's [rsp]
 //                      (the game's caller for a mid hook at a function entry).
 //
+//  kiln_hk_typed       entry of a typed link (dev.28). r11 = the Link, set by the link's adapter stub. Builds a
+//                      KilnCallFrame on its own stack (rcx/rdx/r8/r9, xmm0-3, a pointer to the caller's stack
+//                      arguments; the return fields zeroed; the caller's home space is never written), calls
+//                      kiln_hk_typed_dispatch(frame, link), then returns frame.rax in rax and frame.xmm0r in xmm0.
+//                      Entry rsp = 8 mod 16 (a function entry).
+//  kiln_hk_call_frame  (fn, frame, nstack): copies nstack stack arguments from frame.stack above a fresh home space,
+//                      loads the eight argument registers from the frame, calls fn, stores rax and xmm0 back. The
+//                      frame may be unaligned (a caller's own). rbp is the frame pointer of both, so an exception
+//                      thrown by the called function unwinds through them.
+//
 // Syntax: the clang-cl assembler defaults to Intel syntax; the directives are the COFF/SEH ones.
 #include <cstddef>
 
@@ -35,6 +45,15 @@ static_assert(offsetof(KilnRegisters, rsp) == 0x180, "KilnRegisters layout (kiln
 static_assert(offsetof(KilnRegisters, trampoline_rsp) == 0x188, "KilnRegisters layout (kiln_hk_mid)");
 static_assert(offsetof(KilnRegisters, rip) == 0x190, "KilnRegisters layout (kiln_hk_mid)");
 static_assert(sizeof(KilnRegisters) == 0x198, "KilnRegisters layout (kiln_hk_mid)");
+// kiln_hk_typed and kiln_hk_call_frame hard-code these.
+static_assert(offsetof(KilnCallFrame, gpr) == 0x00, "KilnCallFrame layout (kiln_hk_typed)");
+static_assert(offsetof(KilnCallFrame, xmm) == 0x20, "KilnCallFrame layout (kiln_hk_typed)");
+static_assert(offsetof(KilnCallFrame, stack) == 0x60, "KilnCallFrame layout (kiln_hk_typed)");
+static_assert(offsetof(KilnCallFrame, rax) == 0x68, "KilnCallFrame layout (kiln_hk_typed)");
+static_assert(offsetof(KilnCallFrame, xmm0r) == 0x70, "KilnCallFrame layout (kiln_hk_typed)");
+static_assert(offsetof(KilnCallFrame, slot) == 0x80, "KilnCallFrame layout (kiln_hk_typed)");
+static_assert(offsetof(KilnCallFrame, reserved) == 0x88, "KilnCallFrame layout (kiln_hk_typed)");
+static_assert(sizeof(KilnCallFrame) == 0x90, "KilnCallFrame layout (kiln_hk_typed)");
 __asm__(
     ".intel_syntax noprefix\n"
     ".text\n"
@@ -221,5 +240,90 @@ __asm__(
     "  lea rsp, [rsp+8]\n"        // skip the read-only rsp slot
     "  pop rsp\n"                 // trampoline_rsp: &ctx.rip unless the handler moved it
     "  ret\n"                     // continue at [trampoline_rsp] (ctx.rip)
+    ".seh_endproc\n"
+
+    // ---------------------------------------------------------------------------------------------------------------
+    ".globl kiln_hk_typed\n"
+    ".def kiln_hk_typed; .scl 2; .type 32; .endef\n"
+    ".seh_proc kiln_hk_typed\n"
+    "kiln_hk_typed:\n"
+    "  push rbp\n"
+    "  .seh_pushreg rbp\n"
+    "  mov rbp, rsp\n"
+    "  .seh_setframe rbp, 0\n"
+    "  sub rsp, 0xB0\n"            // 0x20 home + 0x90 frame; entry rsp = 8 mod 16 -> rsp and the frame are 16-aligned
+    "  .seh_stackalloc 0xB0\n"
+    "  .seh_endprologue\n"
+    "  mov [rsp+0x20], rcx\n"     // frame.gpr
+    "  mov [rsp+0x28], rdx\n"
+    "  mov [rsp+0x30], r8\n"
+    "  mov [rsp+0x38], r9\n"
+    "  movdqa xmmword ptr [rsp+0x40], xmm0\n"  // frame.xmm
+    "  movdqa xmmword ptr [rsp+0x50], xmm1\n"
+    "  movdqa xmmword ptr [rsp+0x60], xmm2\n"
+    "  movdqa xmmword ptr [rsp+0x70], xmm3\n"
+    "  lea rax, [rbp+0x30]\n"     // frame.stack = entry rsp + 0x28 = (rbp + 8) + 0x28
+    "  mov [rsp+0x80], rax\n"
+    "  xor eax, eax\n"
+    "  mov [rsp+0x88], rax\n"     // frame.rax = 0
+    "  mov [rsp+0x90], rax\n"     // frame.xmm0r = 0
+    "  mov [rsp+0x98], rax\n"
+    "  mov [rsp+0xA0], rax\n"     // frame.slot, frame.reserved: the dispatcher sets them
+    "  mov [rsp+0xA8], rax\n"
+    "  lea rcx, [rsp+0x20]\n"     // frame
+    "  mov rdx, r11\n"            // Link*
+    "  call kiln_hk_typed_dispatch\n"
+    "  mov rax, [rsp+0x88]\n"
+    "  movdqa xmm0, xmmword ptr [rsp+0x90]\n"
+    "  lea rsp, [rbp]\n"
+    "  pop rbp\n"
+    "  ret\n"
+    ".seh_endproc\n"
+
+    // ---------------------------------------------------------------------------------------------------------------
+    ".globl kiln_hk_call_frame\n"
+    ".def kiln_hk_call_frame; .scl 2; .type 32; .endef\n"
+    ".seh_proc kiln_hk_call_frame\n"
+    "kiln_hk_call_frame:\n"
+    "  push rbp\n"
+    "  .seh_pushreg rbp\n"
+    "  push rbx\n"
+    "  .seh_pushreg rbx\n"
+    "  push rsi\n"
+    "  .seh_pushreg rsi\n"
+    "  mov rbp, rsp\n"
+    "  .seh_setframe rbp, 0\n"
+    "  .seh_endprologue\n"
+    "  mov r11, rcx\n"            // fn
+    "  mov rbx, rdx\n"            // frame
+    "  lea rax, [r8*8+0x2F]\n"    // round16(0x20 home + 8 * nstack)
+    "  and rax, -16\n"
+    "  sub rsp, rax\n"            // three pushes from 8 mod 16 -> rsp = 0 mod 16 here and at the call
+    "  xor ecx, ecx\n"
+    "  mov rsi, [rbx+0x60]\n"     // frame.stack (not read when nstack = 0)
+    ".Lkiln_cf_loop:\n"
+    "  cmp rcx, r8\n"
+    "  jae .Lkiln_cf_done\n"
+    "  mov rax, [rsi+rcx*8]\n"
+    "  mov [rsp+rcx*8+0x20], rax\n"
+    "  inc rcx\n"
+    "  jmp .Lkiln_cf_loop\n"
+    ".Lkiln_cf_done:\n"
+    "  mov rcx, [rbx+0x00]\n"
+    "  mov rdx, [rbx+0x08]\n"
+    "  mov r8, [rbx+0x10]\n"
+    "  mov r9, [rbx+0x18]\n"
+    "  movdqu xmm0, xmmword ptr [rbx+0x20]\n"
+    "  movdqu xmm1, xmmword ptr [rbx+0x30]\n"
+    "  movdqu xmm2, xmmword ptr [rbx+0x40]\n"
+    "  movdqu xmm3, xmmword ptr [rbx+0x50]\n"
+    "  call r11\n"
+    "  mov [rbx+0x68], rax\n"     // frame.rax
+    "  movdqu xmmword ptr [rbx+0x70], xmm0\n"  // frame.xmm0r
+    "  lea rsp, [rbp]\n"
+    "  pop rsi\n"
+    "  pop rbx\n"
+    "  pop rbp\n"
+    "  ret\n"
     ".seh_endproc\n"
 );
