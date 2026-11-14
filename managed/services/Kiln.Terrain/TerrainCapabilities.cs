@@ -37,6 +37,7 @@ internal static class TerrainCaps
     /// <summary>Throws <see cref="KilnUnavailableException"/> naming <paramref name="capability"/> unless it is available.</summary>
     public static void Require(string capability)
     {
+        Terrain.CapabilityOverride?.Invoke(capability);
         Rows.Ensure();
         if (Capabilities.Is(capability)) return;
         Report();

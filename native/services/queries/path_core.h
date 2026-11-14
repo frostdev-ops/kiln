@@ -5,6 +5,7 @@
 // and reports back. Pure: sessions, steps and time are the caller's.
 #ifndef KILN_QUERIES_PATH_CORE_H
 #define KILN_QUERIES_PATH_CORE_H
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
@@ -21,6 +22,13 @@ namespace kq {
 inline constexpr uint32_t kPathGlobalSlots = 32, kPathOwnerSlots = 8, kPathCreatesPerUpdate = 8;
 inline constexpr uint64_t kPathDeadlineNs = 10'000'000'000ull, kPathDeadlineSteps = 150;
 inline constexpr double kReachXZ = 1.5, kReachY = 3.0;
+
+// Captures in order: start, target, iterations, moves, job realm, target type, vertical search distances, free space.
+inline bool path_layout_supported(const std::array<int64_t, 10>& fields) {
+    // The normalizer consists of identical instruction blocks. A reordered block still matches the pattern but its
+    // capture would name the wrong field. Accept only the audited layout until a new one has independent evidence.
+    return fields == std::array<int64_t, 10>{0x10, 0x1c, 0x48, 0x54, 0xbb, 0x36, 0xf4, 0xfc, 0x100, 0x104};
+}
 
 struct RawPoint {  // the game's 16-byte point
     float x, y, z;
@@ -259,6 +267,7 @@ public:
             Request& r = *it->second;
             auto next = std::next(it);
             if (r.session == session) {
+                r.world_closed = true;
                 r.game_id = 0;  // the game's record died with its world: never destroyed in another one
                 r.destroy_queued = true;
                 if (!r.terminal) finish(r, KQS_CANCELLED, simple(KQ_WORLD_CLOSED, "WorldClosed"), KILN_QUERY_PATH_NO_GAME_RESULT);
@@ -277,6 +286,7 @@ public:
             Request& r = *it->second;
             auto next = std::next(it);
             r.game_id = 0;
+            r.creating = false;
             r.destroy_queued = true;
             if (!r.terminal) finish(r, KQS_COMPLETED, simple(KQ_REFUSED, reason), KILN_QUERY_PATH_NO_GAME_RESULT);
             release_if_done(requests_.find(r.token));
@@ -321,6 +331,7 @@ public:
         if (r.game_id) w.op = Op::Poll;
         else if (*creates < kPathCreatesPerUpdate) {
             ++*creates;
+            r.creating = true;  // retirement/poll must not erase the record while Create runs without the lock
             w.op = Op::Create;
         }
         return w;
@@ -334,8 +345,13 @@ public:
     void created(uint64_t token, uint32_t id) {
         std::lock_guard lk(m_);
         const auto it = requests_.find(token);
-        if (it == requests_.end() || !id) return;
+        if (it == requests_.end()) return;
         Request& r = *it->second;
+        r.creating = false;
+        if (!id || r.world_closed || dead_) {
+            release_if_done(it);
+            return;
+        }
         r.game_id = id;
         if (r.terminal) return;  // it ended while the call ran: the id is destroyed by the next update
         r.stage = KQS_SEARCHING;
@@ -379,6 +395,7 @@ private:
         uint64_t admitted_step = 0, admitted_ns = 0;
         uint32_t stage = KQS_QUEUED, steps = 0, game_id = 0;
         bool terminal = false, consumed = false, destroy_queued = false, cleanup_only = false;
+        bool creating = false, world_closed = false;
     };
     struct Lease {
         bool retired = false;
@@ -443,7 +460,7 @@ private:
     void release_if_done(std::map<uint64_t, std::shared_ptr<Request>>::iterator it) {
         if (it == requests_.end()) return;
         Request& r = *it->second;
-        if (!r.terminal || !r.consumed || (r.game_id && !r.destroy_queued)) return;
+        if (!r.terminal || !r.consumed || r.creating || (r.game_id && !r.destroy_queued)) return;
         const auto lease = leases_.find(r.owner);
         if (lease != leases_.end() && lease->second.slots) --lease->second.slots;
         requests_.erase(it);

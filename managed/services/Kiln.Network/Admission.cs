@@ -52,11 +52,13 @@ internal sealed class AdmissionHold : IDisposable
     public NetPeer? Peer { get; }
 
     public bool Ended { get; private set; }
+    internal ModContext? Owner { get; } = NetModCalls.Caller;
 
     /// <summary>The holder no longer objects (its proof arrived). Idempotent.</summary>
     public void End()
     {
         if (Ended) return;
+        Services.RequireTickThread("AdmissionHold.End");
         Ended = true;
         NetAdmission.HoldEnded(this, null);
     }
@@ -66,6 +68,7 @@ internal sealed class AdmissionHold : IDisposable
     public void Refuse(string reason)
     {
         if (Ended) return;
+        Services.RequireTickThread("AdmissionHold.Refuse");
         Ended = true;
         NetAdmission.HoldEnded(this, string.IsNullOrWhiteSpace(reason) ? Reason : reason);
     }
@@ -139,18 +142,21 @@ internal static class NetAdmission
 
     private sealed class Protocol(string name, string version, string reason)
     {
+        public readonly ModContext? Owner = NetModCalls.Caller;
         public readonly string Name = name, Version = version;
         public string Reason = reason;
     }
 
     private sealed class Decider(string holder, Func<NetPeer, AdmissionHold?> decide)
     {
+        public readonly ModContext? Owner = NetModCalls.Caller;
         public readonly string Holder = holder;
         public readonly Func<NetPeer, AdmissionHold?> Decide = decide;
     }
 
     private sealed class Condition(string holder, Func<bool> allowed, string reason)
     {
+        public readonly ModContext? Owner = NetModCalls.Caller;
         public readonly string Holder = holder, Reason = reason;
         public readonly Func<bool> Allowed = allowed;
     }
@@ -162,10 +168,49 @@ internal static class NetAdmission
     private static readonly List<Decider> Deciders = new();
     private static readonly List<Condition> Conditions = new();
 
+    static NetAdmission()
+    {
+        NetModCalls.OnRetire(owner =>
+        {
+            AdmissionHold[] holds;
+            lock (Lock)
+            {
+                Protocols.RemoveAll(p => ReferenceEquals(p.Owner, owner));
+                Deciders.RemoveAll(d => ReferenceEquals(d.Owner, owner));
+                Conditions.RemoveAll(c => ReferenceEquals(c.Owner, owner));
+                holds = JoinHolds.Concat(PeerHolds).Where(h => ReferenceEquals(h.Owner, owner)).ToArray();
+            }
+            foreach (var h in holds) h.End();
+            Changed();
+        });
+        var previous = ModContext.CurrentMod;
+        ModContext.CurrentMod = null;
+        try
+        {
+            Events.On<ServerStoppingEvent>(_ =>
+            {
+                _stopping = true;
+                lock (Lock)
+                {
+                    foreach (var h in JoinHolds.Concat(PeerHolds)) h.MarkEnded();
+                    JoinHolds.Clear();
+                    PeerHolds.Clear();
+                    PendingVanilla.Clear();
+                    Released.Clear();
+                    LoggedHolder.Clear();
+                }
+                Changed();
+            });
+            Events.On<ServerStartingEvent>(_ => { _stopping = false; Changed(); });
+        }
+        finally { ModContext.CurrentMod = previous; }
+    }
+
     // the built-in rules as the last pass saw them (status)
     private static bool _modListKnown, _builtInRefuse;
     private static uint _kilnTemplates;
     private static uint _mode = uint.MaxValue;
+    private static bool _stopping;
 
     // ---- the gate: every native gate, release and kick call of Kiln.Network goes through here ----
 
@@ -205,6 +250,7 @@ internal static class NetAdmission
     {
         get
         {
+            if (!ServerRole) return false;
             var caps = Gate.Read().Caps;
             return (caps & NetNative.GateCanHold) != 0 && (caps & GateCanHoldAll) != 0;
         }
@@ -222,6 +268,7 @@ internal static class NetAdmission
         ArgumentException.ThrowIfNullOrWhiteSpace(version);
         if (!ServerRole) return AdmissionResult.Success;
         Services.RequireTickThread("NetAdmission.SetMandatoryProtocol");
+        NetModCalls.Watch(NetModCalls.Caller);
         reason = string.IsNullOrWhiteSpace(reason) ? $"{name} protocol {version} required" : reason;
         lock (Lock)
         {
@@ -252,9 +299,13 @@ internal static class NetAdmission
 
     /// <summary>Connected peers that do not have channel <paramref name="name"/> at <paramref name="version"/>: clients
     /// without Kiln, and Kiln clients whose hello has not named it.</summary>
-    internal static IReadOnlyList<NetPeer> PeersLacking(string name, string version) =>
-        NetEngine.ServerPeers().Where(p => !IsLocalMachine(p) && p.State is not (NetPeerState.Closed or NetPeerState.Rejected) &&
-                                           !(p.Declared.TryGetValue(name, out var v) && v == version)).ToList();
+    internal static IReadOnlyList<NetPeer> PeersLacking(string name, string version)
+    {
+        if (!ServerRole) return [];
+        Services.RequireTickThread("NetAdmission.PeersLacking");
+        return NetEngine.ServerPeers().Where(p => !IsLocalMachine(p) && p.State is not (NetPeerState.Closed or NetPeerState.Rejected) &&
+                                                !(p.Declared.TryGetValue(name, out var v) && v == version)).ToList();
+    }
 
     /// <summary>No peer is let into the world while this hold lives (a held one stays held, a new one waits).</summary>
     /// <exception cref="KilnUnavailableException"><c>net.gate.hold_all</c>: kiln.net cannot hold Kiln clients.</exception>
@@ -276,7 +327,9 @@ internal static class NetAdmission
         ArgumentException.ThrowIfNullOrWhiteSpace(holder);
         ArgumentNullException.ThrowIfNull(decide);
         if (!ServerRole) return Nothing.Instance;
+        Services.RequireTickThread("NetAdmission.OnJoin");
         RequireHoldAll();
+        NetModCalls.Watch(NetModCalls.Caller);
         var d = new Decider(holder, decide);
         lock (Lock) Deciders.Add(d);
         Changed();
@@ -314,6 +367,7 @@ internal static class NetAdmission
         ArgumentNullException.ThrowIfNull(vanillaAllowed);
         if (!ServerRole) return Nothing.Instance;
         Services.RequireTickThread("NetAdmission.Require");
+        NetModCalls.Watch(NetModCalls.Caller);
         var c = new Condition(holder, vanillaAllowed, string.IsNullOrWhiteSpace(reason) ? $"{holder} refuses clients without Kiln" : reason);
         lock (Lock) Conditions.Add(c);
         Changed();
@@ -364,15 +418,8 @@ internal static class NetAdmission
         foreach (var c in ConditionsSnapshot())
         {
             bool allowed;
-            try
-            {
-                allowed = c.Allowed();
-            }
-            catch (Exception e)
-            {
-                NetEngine.Log(LogLevel.Warn, $"admission: {c.Holder}'s vanilla condition threw ({e.Message}): clients without Kiln are refused");
-                allowed = false;
-            }
+            allowed = false;
+            NetModCalls.Invoke(c.Owner, () => allowed = c.Allowed(), $"admission: {c.Holder}'s vanilla condition");
             if (allowed) continue;
             reason = c.Reason;
             return true;
@@ -399,7 +446,7 @@ internal static class NetAdmission
         {
             lock (Lock)
                 if (JoinHolds.Count > 0 || PeerHolds.Count > 0 || Deciders.Count > 0 || Protocols.Count > 0) return true;
-            return NetEngine.ServerPeers().Any(p => p.State == NetPeerState.Rejected && p.KickAt != null);
+            return NetEngine.ServerPeers().Any(p => p.State == NetPeerState.Rejected || p.KickAt != null);
         }
     }
 
@@ -411,12 +458,12 @@ internal static class NetAdmission
         _builtInRefuse = builtInRefuse;
         _kilnTemplates = kilnTemplates;
         var refuse = VanillaRefused(builtInRefuse, out _);
-        var mode = HoldsKilnPeers && CanHoldKilnPeers ? GateHoldAll : VanillaGate.GateMode(modListKnown, refuse, kilnTemplates);
+        var mode = (_stopping || HoldsKilnPeers) && CanHoldKilnPeers ? GateHoldAll : VanillaGate.GateMode(modListKnown, refuse || _stopping, kilnTemplates);
         SetMode(mode);
     }
 
     /// <summary>The gate before the first server pass: hold until the mod list is known.</summary>
-    internal static void Start() => SetMode(NetNative.GateHold);
+    internal static void Start() => UpdateGate(false, _builtInRefuse, _kilnTemplates);
 
     private static void SetMode(uint mode)
     {
@@ -428,13 +475,27 @@ internal static class NetAdmission
     /// <paramref name="refuse"/>, else let in when it was held. One place decides it, with the reason.</summary>
     internal static void DecideVanilla(NetPeer p, bool refuse, string rejectReason, DateTime now)
     {
+        if (_stopping) return;
+        if (IncompleteHandshake(p))
+        {
+            refuse = true;
+            rejectReason = "Your Kiln handshake did not complete before admission timed out. Try again.";
+        }
+        if (VanillaRefused(false, out var mandatoryReason))
+        {
+            refuse = true;
+            rejectReason = mandatoryReason!;
+        }
         var held = p.HeldSince != null;
         if (refuse)
         {
             // A vanilla game frees this frame unread; a Kiln build too old to prove itself shows the reason, so it gets
             // the time REJECT normally gets before the game's own login error.
+            p.State = NetPeerState.Rejected;
             NetEngine.SendReject(p, rejectReason);
             p.KickAt = held ? now.AddSeconds(1.5) : now;
+            NetEngine.KicksPending = true;
+            Changed();
         }
         else if (held)
         {
@@ -470,16 +531,12 @@ internal static class NetAdmission
         lock (Lock) ds = Deciders.ToArray();
         foreach (var d in ds)
         {
-            try
+            if (!NetModCalls.Invoke(d.Owner, () => d.Decide(p), $"admission: {d.Holder}'s join decision"))
             {
-                d.Decide(p);  // a decider holds the peer through HoldPeer; what it returns is that hold
-            }
-            catch (Exception e)
-            {
-                NetEngine.Log(LogLevel.Error, $"admission: {d.Holder}'s join decision for {p.Name} (0x{p.Id:x}) threw: {e.Message}");
                 RefusePeer(p, "The server could not decide your join. Try again.", d.Holder);
                 return;
             }
+            if (p.State is NetPeerState.Rejected or NetPeerState.Closed || p.KickAt != null) return;
         }
     }
 
@@ -498,14 +555,25 @@ internal static class NetAdmission
     /// "hold all" this is the only way a held peer enters the world. Tick thread.</summary>
     internal static void Step(DateTime now)
     {
+        if (_stopping) return;
         Expire(now);
         var holdAll = Gate.Read().Mode == GateHoldAll;
         foreach (var p in NetEngine.ServerPeers())
         {
-            if (p.HeldSince == null || InWorld(p) || p.KickAt != null) continue;
+            if (p.HeldSince == null || InWorld(p) || p.KickAt != null || p.State is NetPeerState.Rejected or NetPeerState.Closed) continue;
             bool pending;
             lock (Lock) pending = PendingVanilla.Contains(p.Id);
             if (!(pending || (holdAll && p.State == NetPeerState.Ready))) continue;
+            if (pending && IncompleteHandshake(p))
+            {
+                RefusePeer(p, "Your Kiln handshake did not complete before admission timed out. Try again.", Me);
+                continue;
+            }
+            if (pending && VanillaRefused(_builtInRefuse, out var reason))
+            {
+                RefusePeer(p, reason ?? VanillaGate.RefusalReason(0), Me);
+                continue;
+            }
             if (MayRelease(p, out var holder))
             {
                 var since = p.HeldSince.Value;
@@ -524,6 +592,9 @@ internal static class NetAdmission
 
     /// <summary>The kick of a refused peer, at its time: the one place Kiln.Network calls kiln.net's kick.</summary>
     internal static int Kick(NetPeer p, uint reason) => Gate.Kick(p.Id, reason);
+
+    private static bool IncompleteHandshake(NetPeer p) =>
+        p.State != NetPeerState.Ready && HoldsKilnPeers && ((NetNative.Info(p.Id)?.Flags ?? 0) & NetNative.PeerProved) != 0;
 
     /// <summary>Whether no hold keeps <paramref name="p"/> out right now (<paramref name="holder"/>: the first that does).</summary>
     internal static bool MayRelease(NetPeer p, out string? holder)
@@ -551,6 +622,7 @@ internal static class NetAdmission
         }
         Services.RequireTickThread(api);
         RequireHoldAll();
+        NetModCalls.Watch(h.Owner);
         return h;
     }
 
@@ -573,7 +645,8 @@ internal static class NetAdmission
         {
             if (h.Peer is { } one) RefusePeer(one, refuse, h.Holder);
             else
-                foreach (var p in NetEngine.ServerPeers().Where(p => p.HeldSince != null && !InWorld(p)))
+                foreach (var p in NetEngine.ServerPeers().Where(p =>
+                             ((NetNative.Info(p.Id)?.Flags ?? 0) & NetNative.PeerHeld) != 0 && !InWorld(p)))
                     RefusePeer(p, refuse, h.Holder);
         }
         else
@@ -592,6 +665,12 @@ internal static class NetAdmission
         NetEngine.SendReject(p, reason);
         p.KickAt = DateTime.UtcNow.AddSeconds(1.5);
         NetEngine.KicksPending = true;
+        lock (Lock)
+        {
+            foreach (var h in PeerHolds.Where(h => ReferenceEquals(h.Peer, p))) h.MarkEnded();
+            PeerHolds.RemoveAll(h => ReferenceEquals(h.Peer, p));
+        }
+        Changed();
     }
 
     /// <summary>Deadlines: a peer hold that passed its own refuses its peer with the holder's reason; a join hold that
@@ -670,13 +749,19 @@ internal static class NetAdmission
         _mode = uint.MaxValue;
         _modListKnown = _builtInRefuse = false;
         _kilnTemplates = 0;
+        _stopping = false;
     }
 
     private sealed class Unregister(Action dispose) : IDisposable
     {
         private Action? _dispose = dispose;
 
-        public void Dispose() => Interlocked.Exchange(ref _dispose, null)?.Invoke();
+        public void Dispose()
+        {
+            if (_dispose is null) return;
+            Services.RequireTickThread("NetAdmission registration.Dispose");
+            Interlocked.Exchange(ref _dispose, null)?.Invoke();
+        }
     }
 
     private sealed class Nothing : IDisposable

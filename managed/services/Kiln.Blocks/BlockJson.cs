@@ -161,7 +161,10 @@ internal static class BlockJson
                     {
                         var (name, value, make, section) = (b.Name, b.Value, kind.Make, p.Name);
                         BlockHandle? done = null;
-                        Func<BlockHandle> compile = () => done ??= CompileOne(mod, section, name, value, make);
+                        // A staging attempt may be rolled back. Its handle must never satisfy a later ordinary data pass.
+                        Func<BlockHandle> compile = () => done ?? (KindTransaction.Current != null
+                            ? CompileOne(mod, section, name, value, make)
+                            : done = CompileOne(mod, section, name, value, make));
                         mod.Pending[name] = compile;
                         entries.Add((rel, p.Name, name, compile));
                     }

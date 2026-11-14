@@ -278,7 +278,7 @@ uint64_t catalog_generation();
 void catalog_changed(CatalogChange why);  // any thread (hooks.cpp: the game's content index became readable)
 std::string catalog_status_json();        // "catalog":{...} for status (the generation and the last change)
 void catalog_release_owner(KilnOwner owner, bool revoked = false);  // closes handles and pending opens; a native revoke is terminal
-bool catalog_start();  // subscribes to native owner revocation before the service table is published
+bool catalog_start();  // subscribes to native owner revocation (catalog handles, store_owner_retired) before the table is published
 KilnResult op_catalog_open(KilnOwner owner, uint32_t mode, KilnHandle* handle, KilnBlobCatalogInfo* info);
 KilnResult op_catalog_read(KilnHandle handle, uint64_t first, KilnBlobCatalogEntry* out, uint32_t entry_size, size_t cap,
                            size_t* written);
@@ -304,6 +304,13 @@ KilnResult op_icon_remove(KilnOwner owner, const uint8_t guid[16]);
 int32_t op_icon_state(const uint8_t guid[16]);
 void op_revert_owner(KilnOwner owner);
 std::string store_status_json();
+// An owner the core revoked (the owner-retiring observer, which must not wait): marks it without waiting. From the mark on
+// its registrations are refused (KILN_ERR_REVOKED); what it had registered is reverted, as revert_owner does, by the next
+// store operation or by a cleanup thread the mark starts, whichever takes g_mu first. Until then its bytes may still be
+// served (a few milliseconds: the thread waits for g_mu and for the hooks' readers to leave the old snapshots).
+void store_owner_retired(KilnOwner owner);
+void store_drain_retired();  // runs that revert now if one is due (may wait: not from a reader or the observer)
+bool store_cleanup_idle();   // no revert due and no cleanup thread running (the host test)
 
 std::string api_path(int kind);
 std::wstring widen(const std::string& s);

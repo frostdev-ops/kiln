@@ -53,6 +53,8 @@
     <ProjectReference Include="../../services/Kiln.Time/Kiln.Time.csproj" />
     <!-- Beside the kit for the samples of SampleFakesTests (CreatureTweaks reads kiln.gamedata through it). -->
     <ProjectReference Include="../../services/Kiln.Content/Kiln.Content.csproj" />
+    <!-- Beside the kit for its kiln.assets (AssetsFakeTests: content blobs and the blob catalog through Kiln.Assets). -->
+    <ProjectReference Include="../../services/Kiln.Assets/Kiln.Assets.csproj" />
     <!-- Beside the kit for the recording fake of kiln.combat (TkFakes uses Kiln.Combat). -->
     <ProjectReference Include="../../services/Kiln.Combat/Kiln.Combat.csproj" />
     <!-- Beside the kit for TkProgress: Kiln.Quests' and Kiln.Skills' engines on the kit's players and saves. -->

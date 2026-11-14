@@ -7,8 +7,8 @@
 // Each list keeps registration order. A dispatch takes the list's immutable snapshot once and calls from it; adding or
 // removing changes the master list under the lock and publishes a new snapshot for the next dispatch, so nothing is
 // ever added or removed under a running callback. A removed provider is flagged dead first: it is not called again,
-// also not by a dispatch that still holds the old snapshot. Retired owners: the registry is pruned whenever the core's
-// owner registry moved (reg::version), before any registration or dispatch.
+// also not by a dispatch that still holds the old snapshot. Retired owners are dropped by the core's retirement
+// notification; pruning when reg::version moves also covers hosts without that notification.
 //
 // Faults. A structured exception in a provider, an invalid edit or KILN_ERR_INTERNAL returned count as one fault; five
 // in a row remove the registration (logged). An accepted edit or a pass-through resets the count; refusals do not
@@ -56,6 +56,7 @@ struct Registry {
 };
 Registry* g_reg = new Registry;  // never destroyed: a game thread may dispatch while the process ends
 std::atomic<uint32_t> g_count[kLists];
+std::atomic<uint64_t> g_revision[kLists];
 std::atomic<uint64_t> g_reg_seen{0};
 
 struct Installs {
@@ -76,6 +77,7 @@ const std::shared_ptr<const ProviderList>& empty_list() {
 void publish_locked(uint32_t list) {
     g_reg->snap[list] = std::make_shared<const ProviderList>(g_reg->all[list]);
     g_count[list].store(static_cast<uint32_t>(g_reg->all[list].size()), std::memory_order_release);
+    g_revision[list].fetch_add(1, std::memory_order_acq_rel);
 }
 
 // Takes `p` out of its list (lock held). False when it was not there.
@@ -135,6 +137,8 @@ KilnResult guarded(const char* what, F&& f) noexcept {
 KilnResult register_in(KilnOwner owner, uint32_t list, uint32_t item, void* fn, void* user, KilnUiRegistration* out) {
     if (!env().client_side || !env().client_side()) return KILN_ERR_UNAVAILABLE;
     if (!env().owner_alive(owner)) return KILN_ERR_REVOKED;
+    if (list == kListLines && (!env().row_available || !env().row_available("kiln.ui")))
+        return KILN_ERR_UNAVAILABLE;  // a missing window backend can appear later; do not latch an install failure
     if (!ensure_installed(list)) return KILN_ERR_UNAVAILABLE;
     return add(owner, list, item, fn, user, out);
 }
@@ -293,6 +297,7 @@ KilnResult add(KilnOwner owner, uint32_t list, uint32_t item, void* fn, void* us
     if (!env().owner_alive(owner)) return KILN_ERR_REVOKED;
     std::string mod = env().owner_name(owner);
     std::lock_guard lk(g_reg->mu);
+    if (!env().owner_alive(owner)) return KILN_ERR_REVOKED;  // retirement may have won before the lock
     uint32_t& held = g_reg->per_mod[mod];
     if (held >= kRegistrationsPerMod) {
         out->ok = 0;
@@ -340,6 +345,23 @@ std::shared_ptr<const ProviderList> providers(uint32_t list) {
 }
 
 bool any(uint32_t list) { return list < kLists && g_count[list].load(std::memory_order_acquire) != 0; }
+uint64_t providers_revision(uint32_t list) { return g_revision[list].load(std::memory_order_acquire); }
+
+bool provider_live(const Provider& p) {
+    return p.live.load(std::memory_order_acquire) && env().owner_alive(p.owner);
+}
+
+void owner_retired(KilnOwner owner) {
+    {
+        std::lock_guard lk(g_reg->mu);
+        for (auto& list : g_reg->all) {
+            const auto snapshot = list;
+            for (const auto& p : snapshot)
+                if (p->owner == owner) drop_locked(p);
+        }
+    }
+    stage_owner_retired(owner);
+}
 
 size_t active(std::string_view mod) {
     std::lock_guard lk(g_reg->mu);
@@ -452,7 +474,7 @@ KilnUiBarValue run_chain(uint32_t kind, const KilnUiItemView& view, const KilnUi
     } depth;
     for (const auto& sp : *list) {
         Provider& p = *sp;
-        if (!p.live.load(std::memory_order_acquire)) continue;
+        if (!provider_live(p)) continue;
         if (p.item != 0 ? view.item != p.item : (kind <= KUI_HELD && view.item == 0)) continue;
         CallState cs;
         cs.magic = kCallMagic;
@@ -477,6 +499,7 @@ KilnUiBarValue run_chain(uint32_t kind, const KilnUiItemView& view, const KilnUi
             CallScope scope(&cs);
             called = env().call_value(reinterpret_cast<KilnUiValueFn>(p.fn), &ctx, &v, &in, &e, p.user, &rc);
         }
+        if (!env().owner_alive(p.owner)) continue;  // retirement also discards its pending edit
         if (!called) {
             fault(p, "faulted");
             continue;
@@ -519,6 +542,7 @@ void reset_for_tests() {  // host tests only: nothing dispatches while it runs
     delete g_reg;
     g_reg = new Registry;
     for (auto& c : g_count) c.store(0);
+    for (auto& v : g_revision) v.store(0);
     g_reg_seen.store(0);
     {
         std::lock_guard lk(installs().mu);

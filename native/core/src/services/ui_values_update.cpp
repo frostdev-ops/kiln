@@ -210,6 +210,7 @@ void publish_stage(uintptr_t play, uint32_t local, const ClientNow& c, const uin
     s.step = c.step;
     s.capture_ms = env().tick_ms ? env().tick_ms() : 0;
     for (const StageSub& sub : *subs) {
+        if (sub.owner && !env().owner_alive(sub.owner)) continue;
         try {
             sub.fn(&s, sub.user);
         } catch (...) {
@@ -398,6 +399,7 @@ KilnResult stage_subscribe(KilnOwner owner, StageFn fn, void* user, KilnHandle* 
     if (!ensure_installed(KUI_HEALTH)) return KILN_ERR_UNAVAILABLE;  // the update hook comes with ui.values.hud
     load_models();  // rows when the inventory layout resolved; vitals only otherwise
     std::lock_guard lk(g_stage.mu);
+    if (owner && !env().owner_alive(owner)) return KILN_ERR_REVOKED;
     const KilnHandle h = kStageTag | g_stage.next++;
     g_stage.list.push_back(StageSub{h, owner, fn, user});
     g_stage.publish();
@@ -413,6 +415,11 @@ KilnResult stage_unsubscribe(KilnHandle h) {
     g_stage.list.erase(it);
     g_stage.publish();
     return KILN_OK;
+}
+
+void stage_owner_retired(KilnOwner owner) {
+    std::lock_guard lk(g_stage.mu);
+    if (std::erase_if(g_stage.list, [&](const StageSub& s) { return s.owner == owner; })) g_stage.publish();
 }
 
 }  // namespace kiln::uivalues

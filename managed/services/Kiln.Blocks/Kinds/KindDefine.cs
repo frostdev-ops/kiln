@@ -27,8 +27,8 @@ internal static class KindDefine
     internal static BlockHandle<T> Define<T>(ModBlocks mod, string name, T block) where T : class, IBlock
     {
         var consumer = KindOwner.Caller() ?? throw new InvalidOperationException("Blocks.Define must be called from mod code");
-        return (BlockHandle<T>)Define(mod, consumer, Blocks.KindOf(block), name, block,
-            (plan, stage) => new BlockHandle<T>(mod.Id, name, stage.Primary.Guid, stage.Primary.GameName, (T)plan.Projection!));
+        return KindApply.HandleAs<T>(Define(mod, consumer, Blocks.KindOf(block), name, block,
+            (plan, stage) => new BlockHandle<T>(mod.Id, name, stage.Primary.Guid, stage.Primary.GameName, (T)plan.Projection!)));
     }
 
     /// <summary>Compiles the block to a plan and submits it. The handle is provisional until the plan is applied:

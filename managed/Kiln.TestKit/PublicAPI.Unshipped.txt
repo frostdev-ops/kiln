@@ -251,3 +251,26 @@ static Kiln.TestKit.BootRun.operator !=(Kiln.TestKit.BootRun? left, Kiln.TestKit
 static Kiln.TestKit.BootRun.operator ==(Kiln.TestKit.BootRun? left, Kiln.TestKit.BootRun? right) -> bool
 static Kiln.TestKit.BootRunDefinition.operator !=(Kiln.TestKit.BootRunDefinition? left, Kiln.TestKit.BootRunDefinition? right) -> bool
 static Kiln.TestKit.BootRunDefinition.operator ==(Kiln.TestKit.BootRunDefinition? left, Kiln.TestKit.BootRunDefinition? right) -> bool
+Kiln.TestKit.FakeBlobRegistration
+Kiln.TestKit.FakeBlobRegistration.FakeBlobRegistration() -> void
+Kiln.TestKit.FakeBlobRegistration.FakeBlobRegistration(string! Hash, ulong Owner, bool Override) -> void
+Kiln.TestKit.FakeBlobRegistration.Hash.get -> string!
+Kiln.TestKit.FakeBlobRegistration.Hash.init -> void
+Kiln.TestKit.FakeBlobRegistration.Owner.get -> ulong
+Kiln.TestKit.FakeBlobRegistration.Owner.init -> void
+Kiln.TestKit.FakeBlobRegistration.Override.get -> bool
+Kiln.TestKit.FakeBlobRegistration.Override.init -> void
+Kiln.TestKit.FakeBlobRegistration.Deconstruct(out string! Hash, out ulong Owner, out bool Override) -> void
+Kiln.TestKit.FakeBlobRegistration.Equals(Kiln.TestKit.FakeBlobRegistration other) -> bool
+Kiln.TestKit.HarnessAssets
+Kiln.TestKit.HarnessAssets.AddGameBlob(byte[]! bytes) -> string!
+Kiln.TestKit.HarnessAssets.CatalogGeneration.get -> ulong
+Kiln.TestKit.HarnessAssets.IndexReady.get -> bool
+Kiln.TestKit.HarnessAssets.IndexReady.set -> void
+Kiln.TestKit.HarnessAssets.Registrations.get -> System.Collections.Generic.IReadOnlyList<Kiln.TestKit.FakeBlobRegistration>!
+Kiln.TestKit.KilnHarness.Assets.get -> Kiln.TestKit.HarnessAssets!
+override Kiln.TestKit.FakeBlobRegistration.GetHashCode() -> int
+static Kiln.TestKit.FakeBlobRegistration.operator !=(Kiln.TestKit.FakeBlobRegistration left, Kiln.TestKit.FakeBlobRegistration right) -> bool
+static Kiln.TestKit.FakeBlobRegistration.operator ==(Kiln.TestKit.FakeBlobRegistration left, Kiln.TestKit.FakeBlobRegistration right) -> bool
+~override Kiln.TestKit.FakeBlobRegistration.Equals(object obj) -> bool
+~override Kiln.TestKit.FakeBlobRegistration.ToString() -> string

@@ -11,6 +11,8 @@
       KilnSide           server (default) | client | both
       KilnClients        what joining players need: none | kiln | mod (default from the side: server none, else mod)
       KilnEntryType      full name of the Mod subclass (default: the only public one)
+      KilnBoot           true | required: the mod has boot content (Mod.OnBoot; "boot" in kiln.mod.json); required: a failure of
+                         it stops the start (default: none)
       KilnAdvanced       true: opt into the advanced tier (hooks, symbols)
       KilnFeatures       ;-list of required Kiln features (Game.HasFeature), e.g. tick;log.mirror
       KilnExports        ;-list of assembly file names other mods compile against (e.g. MyMod.Api.dll)
@@ -145,7 +147,7 @@
     <KilnManifest Source="$(KilnManifestSource)" Output="$(IntermediateOutputPath)kiln.mod.json"
                   Id="$(KilnModId)" Name="$(KilnModName)" Version="$(Version)" ApiVersion="$(KilnApiVersion)" Side="$(KilnSide)" Clients="$(KilnClients)" ClientsFallback="$(_KilnClientsFallback)" AssemblyPath="$(TargetPath)" BlocksDirectory="$(MSBuildProjectDirectory)/blocks"
                   Authors="$(_KilnAuthors)" Description="$(Description)" License="$(PackageLicenseExpression)" Url="$(PackageProjectUrl)"
-                  EntryAssembly="$(TargetFileName)" EntryType="$(KilnEntryType)" Advanced="$(KilnAdvanced)"
+                  EntryAssembly="$(TargetFileName)" EntryType="$(KilnEntryType)" Boot="$(KilnBoot)" Advanced="$(KilnAdvanced)"
                   Features="$(KilnFeatures)" Exports="$(KilnExports)" Dependencies="@(KilnDependency)"
                   LoadBefore="@(KilnLoadBefore)" LoadAfter="@(KilnLoadAfter)" Incompatible="@(KilnIncompatible)"
                   TestsAutoRun="$(KilnTestsAutoRun)" TestTimeoutSeconds="$(KilnTestTimeoutSeconds)"

@@ -144,6 +144,37 @@ public static unsafe partial class CreatureControl
     private static ControlRequestResult AcquireCore(CreatureControlNative.Table* t, ulong owner, ModContext? mod, EntityRef body,
         ControlRole role, ControlRequestId requestId)
     {
+        // The native request payload includes its original body generation. Auto-unbinding after a terminal lease must
+        // not turn a retry of that same request into a new bind/generation and hence RequestConflict.
+        RetainedRequest? replay;
+        lock (Gate)
+        {
+            if (_requestGeneration != ServiceTick.Generation)
+            {
+                Requests.Clear();
+                _requestGeneration = ServiceTick.Generation;
+            }
+            Requests.TryGetValue((owner, requestId.Value), out replay);
+        }
+        if (replay is not null && Query(t, replay.Lease) is null)
+        {
+            lock (Gate) Requests.Remove((owner, requestId.Value));
+            replay = null;
+        }
+        if (replay is not null)
+        {
+            if (replay.Body.Entity != body.Id.Value || replay.Role != role)
+                throw new ArgumentException("RequestConflict: this request id was used for another request", nameof(requestId));
+            var repeat = new CreatureControlNative.Request
+            {
+                Size = (uint)sizeof(CreatureControlNative.Request), Role = (uint)role, Body = replay.Body, RequestId = requestId.Value,
+            };
+            CreatureControlNative.State repeated = default;
+            repeated.Size = (uint)sizeof(CreatureControlNative.State);
+            Check(t->AcquireControl(owner, &repeat, &repeated), "CreatureControl.Acquire");
+            var state = Convert(in repeated);
+            return new ControlRequestResult(repeated.Lease != 0, repeated.Lease == 0 ? state.Reason : null, state.Lease, state);
+        }
         if (body.HasSerial && !StillThere(body)) return Refused($"BodyGone: entity {body} is not the body it was");
         CreatureControlNative.BodyKey key;
         var rc = t->BindBody(owner, body.Id.Value, CreatureControlNative.BaselineEnemy, 1, &key);
@@ -181,6 +212,7 @@ public static unsafe partial class CreatureControl
             return new ControlRequestResult(false, snapshot!.Reason, default, snapshot);
         }
         Track(s.Lease, owner, key, mod, mine: true, snapshot!);
+        lock (Gate) Requests[(owner, requestId.Value)] = new RetainedRequest(key, role, s.Lease);
         return new ControlRequestResult(true, null, new ControlLeaseId(s.Lease), snapshot);
     }
 
@@ -239,8 +271,7 @@ public static unsafe partial class CreatureControl
     {
         if (lease.Value == 0) throw new ArgumentException("lease 0", nameof(lease));
         var t = Table("CreatureControl.Release");
-        ulong owner;
-        lock (Gate) owner = Tracked.TryGetValue(lease.Value, out var known) && known.Owner != 0 ? known.Owner : OwnerOfCaller();
+        var owner = OwnerOfCaller();
         var rc = t->ReleaseControl(owner, lease.Value);
         var now = Query(t, lease.Value);
         if (rc == CreatureControlNative.NotFound)
@@ -285,6 +316,9 @@ public static unsafe partial class CreatureControl
 
     private static readonly object Gate = new();
     private static readonly Dictionary<ulong, Lease> Tracked = [];
+    private sealed record RetainedRequest(CreatureControlNative.BodyKey Body, ControlRole Role, ulong Lease);
+    private static readonly Dictionary<(ulong Owner, ulong Request), RetainedRequest> Requests = [];
+    private static int _requestGeneration = -1, _requestPolls;
     private static readonly Dictionary<(ulong Owner, ulong Epoch, ulong Generation, uint Entity), int> Bindings = [];
     private static readonly HashSet<ModContext> Watched = [];
     private static IDisposable? _tick;
@@ -361,6 +395,15 @@ public static unsafe partial class CreatureControl
         Volatile.Write(ref _simSeconds, _simSeconds + tick.ClockDelta / 60.0);
         var t = CreatureControlNative.T;
         if (t == null) return;
+        // The broker owns retention and expiry (including world-end terminal states); keep no replay payload beyond it.
+        if ((++_requestPolls & 31) == 0)
+        {
+            KeyValuePair<(ulong Owner, ulong Request), RetainedRequest>[] requests;
+            lock (Gate) requests = [.. Requests];
+            foreach (var request in requests)
+                if (Query(t, request.Value.Lease) is null)
+                    lock (Gate) Requests.Remove(request.Key);
+        }
         Lease[] leases;
         lock (Gate)
         {

@@ -110,7 +110,10 @@ KilnResult remove(KilnHandle h);
 // it apply to the next one). Never null.
 std::shared_ptr<const ProviderList> providers(uint32_t list);
 bool any(uint32_t list);              // lock-free: false = nothing registered (the hot path's early out)
+uint64_t providers_revision(uint32_t list);  // changes even when a remove/add leaves the count equal
 size_t active(std::string_view mod);  // registrations the mod holds (tests)
+void owner_retired(KilnOwner owner);  // core owner-retiring notification: flags old dispatch snapshots dead
+bool provider_live(const Provider& p);
 
 // A fault of `p` (SEH, invalid edit, KILN_ERR_INTERNAL): the fifth in a row removes it.
 void fault(Provider& p, const char* what);
@@ -212,6 +215,7 @@ using StageFn = void (*)(const Stage* stage, void* user);
 // revoked. Remove with stage_unsubscribe.
 KilnResult stage_subscribe(KilnOwner owner, StageFn fn, void* user, KilnHandle* out);
 KilnResult stage_unsubscribe(KilnHandle h);
+void stage_owner_retired(KilnOwner owner);
 
 // ---- text (ui_values_text.cpp) ----
 namespace text {

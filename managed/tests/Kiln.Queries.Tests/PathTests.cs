@@ -4,6 +4,8 @@
 using Kiln;
 using Kiln.TestKit;
 using Xunit;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 
 namespace QueriesTests;
 
@@ -15,7 +17,9 @@ public sealed class PathTests
     {
         var kiln = new KilnHarness();
         kiln.Step(2);
-        return (kiln, kiln.Entities.Create(From));
+        var anchor = kiln.Entities.Create(From);
+        kiln.Entities.SetBytes(anchor, "SpawnTime", BitConverter.GetBytes(42ul));
+        return (kiln, anchor);
     }
 
     private static QueryPathResult Wait(KilnHarness kiln, Task<QueryPathResult> task, int steps = 12)
@@ -265,5 +269,252 @@ public sealed class PathTests
         Assert.Equal(40, sizeof(QueriesNative.PathAdmission));
         Assert.Equal(88, sizeof(QueriesNative.PathUpdate));
         Assert.Equal(32, sizeof(QueriesNative.PathPoint));
+    }
+
+    private static int _pollFault;
+
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static unsafe int FaultyPoll(ulong owner, QueriesNative.PathUpdate* update, QueriesNative.PathPoint* points, uint capacity, uint* needed)
+    {
+        *needed = _pollFault == 1 ? 4097u : 0u;
+        update->Before = 99;
+        return _pollFault == 1 ? QueriesNative.BufferTooSmall : _pollFault == 2 ? QueriesNative.Revoked : QueriesNative.Ok;
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    public unsafe void A_bad_or_revoked_native_mailbox_does_not_leave_tasks_waiting(int fault)
+    {
+        var (kiln, anchor) = Started();
+        using var _ = kiln;
+        var tasks = kiln.Run(() => Enumerable.Range(0, 2).Select(_ => Queries.FindPath(new QueryPathRequest(anchor, From, To))).ToArray());
+        var table = QueriesNative.T;
+        var original = table->PathPoll;
+        _pollFault = fault;
+        try
+        {
+            table->PathPoll = &FaultyPoll;
+            kiln.Run(PathPump.Pump);
+            Assert.All(tasks, t => Assert.True(t.IsCompletedSuccessfully, "an accepted task hung after a native mailbox failure"));
+            Assert.All(tasks, t => Assert.Equal(fault == 2 ? QueryPathStatus.OwnerRetired : QueryPathStatus.Refused, t.Result.Status));
+            Assert.Equal(0, kiln.Queries.OpenPaths);
+        }
+        finally { table->PathPoll = original; Capabilities.Reset(); }
+    }
+
+    [Fact]
+    public void A_cached_reachability_answer_still_checks_arguments_thread_and_capability()
+    {
+        var (kiln, anchor) = Started();
+        using var _ = kiln;
+        var request = new QueryPathRequest(anchor, From, new WorldPosition(200, 10, 0));
+        kiln.Run(() => Queries.CanReach(request));
+        Assert.Throws<ArgumentException>(() => { kiln.Run(() => (object)Queries.CanReach(request with { To = new WorldPosition(200.1, 10, 0) })); });
+        Assert.Throws<InvalidOperationException>(() => { var task = Queries.CanReach(request); Assert.NotNull(task); });
+        kiln.Capabilities.Override("queries.path", false, "off after admission");
+        Assert.Equal("queries.reachability", Assert.Throws<KilnUnavailableException>(() => { kiln.Run(() => (object)Queries.CanReach(request)); }).Capability);
+    }
+
+    [Fact]
+    public async Task A_reachability_cancellation_does_not_borrow_another_callers_token()
+    {
+        var (kiln, anchor) = Started();
+        using var _ = kiln;
+        using var cancel = new CancellationTokenSource();
+        var request = new QueryPathRequest(anchor, From, To);
+        var a = kiln.Run(() => Queries.CanReach(request));
+        var b = kiln.Run(() => Queries.CanReach(request, cancel.Token));
+        cancel.Cancel();
+        kiln.Step(8);
+        await Task.WhenAll(a, b).WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.True(a.IsCompletedSuccessfully && b.IsCompletedSuccessfully);
+        Assert.Equal(QueryPathStatus.Found, a.Result.Status);
+        Assert.Equal(QueryPathStatus.Cancelled, b.Result.Status);
+    }
+
+    [Fact]
+    public void A_reentrant_admission_waits_for_a_later_step_to_dispatch()
+    {
+        var (kiln, anchor) = Started();
+        using var _ = kiln;
+        QueryPathTicket? child = null;
+        ulong childStep = 0;
+        var childEvents = new List<ulong>();
+        kiln.Run(() =>
+        {
+            Events.On<PathQueryChangedEvent>(e =>
+            {
+                if (child == null)
+                {
+                    childStep = ServiceTick.Step;
+                    child = Queries.RequestPath(new QueryPathRequest(anchor, From, To));
+                    Queries.CancelPath(child.Request);
+                }
+                else if (e.Request == child.Request) childEvents.Add(ServiceTick.Step);
+            });
+            Queries.RequestPath(new QueryPathRequest(anchor, From, To));
+        });
+        kiln.Step(4);
+        Assert.NotEmpty(childEvents);
+        Assert.All(childEvents, step => Assert.True(step > childStep, "the pump dispatched a reentrant request in its admission step"));
+        Assert.True(child!.Completion.IsCompletedSuccessfully);
+    }
+
+    [Fact]
+    public void A_surviving_mod_gets_a_fresh_private_lease_after_world_close()
+    {
+        var (kiln, anchor) = Started();
+        using var _ = kiln;
+        var mod = HostAccess.CreateContext(new ModInfo("path-lease-test", "Path lease test", "1", ""), Backend.Current.OwnerCreate("path-lease-test"), "");
+        try
+        {
+            kiln.Run(() =>
+            {
+                ModContext.CurrentMod = mod;
+                try
+                {
+                    var firstOwner = PathPump.OwnerOfCaller();
+                    Assert.NotEqual(mod.Owner, firstOwner);
+                    var first = Queries.FindPath(new QueryPathRequest(anchor, From, To));
+                    Events.Post(new ServerStoppingEvent(ServiceTick.Step, "world-stopping"));
+                    Assert.True(first.IsCompletedSuccessfully);
+                    Assert.Equal(QueryPathStatus.WorldClosed, first.Result.Status);
+                    Assert.Equal(0, kiln.Queries.OpenPaths);
+                    Lifecycle.Phase = ServerPhase.Booting;
+                    Assert.NotEqual(firstOwner, PathPump.OwnerOfCaller());
+                }
+                finally { ModContext.CurrentMod = null; }
+            });
+        }
+        finally { kiln.Run(mod.Retire); }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void A_world_close_completes_now_and_notifies_surviving_code_on_the_tick_thread(bool retire)
+    {
+        var (kiln, anchor) = Started();
+        using var _ = kiln;
+        var mod = HostAccess.CreateContext(new ModInfo("path-close-test", "Path close test", "1", ""), Backend.Current.OwnerCreate("path-close-test"), "");
+        var ends = new List<PathQueryChangedEvent>();
+        Task<QueryPathResult>? task = null;
+        try
+        {
+            kiln.Run(() =>
+            {
+                ModContext.CurrentMod = mod;
+                try
+                {
+                    Events.On<PathQueryChangedEvent>(e => { if (e.TerminalStatus != null) ends.Add(e); });
+                    task = Queries.FindPath(new QueryPathRequest(anchor, From, To));
+                }
+                finally { ModContext.CurrentMod = null; }
+            });
+            kiln.Step(); // observe generation and Searching before the stop
+            var nativeSession = 1u; // this fake world's generation
+            kiln.Run(() => Events.Post(new ServerStoppingEvent(ServiceTick.Step, "world-stopping")));
+            Assert.True(task!.IsCompletedSuccessfully);
+            Assert.Equal((QueryPathStatus.WorldClosed, nativeSession), (task.Result.Status, task.Result.Generation));
+            Assert.Empty(ends);
+            if (retire) kiln.Run(mod.Retire);
+            kiln.Step();
+            if (retire) Assert.Empty(ends);
+            else Assert.Equal(QueryPathStatus.WorldClosed, Assert.Single(ends).TerminalStatus);
+        }
+        finally { kiln.Run(mod.Retire); }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void The_path_fake_refuses_malformed_and_overlong_routes_as_results(bool overlong)
+    {
+        var (kiln, anchor) = Started();
+        using var _ = kiln;
+        kiln.Queries.Paths = _ => overlong ? FakePathAnswer.Route(Enumerable.Repeat(From, 4097).ToArray()) : FakePathAnswer.Route(From, new WorldPosition(double.NaN, 10, 0));
+        var result = Wait(kiln, kiln.Run(() => Queries.FindPath(new QueryPathRequest(anchor, From, To))));
+        Assert.Equal(overlong ? QueryPathStatus.Truncated : QueryPathStatus.MalformedResult, result.Status);
+        Assert.False(result.Ok);
+        Assert.Empty(result.Points);
+        Assert.True(kiln.Run(() => Capabilities.Is("queries.path")));
+    }
+
+    [Fact]
+    public void Losing_the_anchors_spawn_marker_also_ends_a_fake_search()
+    {
+        var (kiln, anchor) = Started();
+        using var _ = kiln;
+        var task = kiln.Run(() => Queries.FindPath(new QueryPathRequest(anchor, From, To)));
+        kiln.Step();
+        kiln.Queries.WithoutSpawnTime(anchor);
+        Assert.Equal(QueryPathStatus.OwnerGone, Wait(kiln, task).Status);
+    }
+
+    [Fact]
+    public void Changing_the_anchors_stamp_does_not_transfer_a_fake_search_to_the_replacement()
+    {
+        var (kiln, anchor) = Started();
+        using var _ = kiln;
+        kiln.Entities.SetBytes(anchor, "SpawnTime", BitConverter.GetBytes(42ul));
+        var task = kiln.Run(() => Queries.FindPath(new QueryPathRequest(anchor, From, To)));
+        kiln.Entities.SetBytes(anchor, "SpawnTime", BitConverter.GetBytes(43ul));
+        Assert.Equal(QueryPathStatus.OwnerGone, Wait(kiln, task).Status);
+    }
+
+    [Fact]
+    public void The_fake_starts_at_most_eight_searches_per_step_across_owners()
+    {
+        var (kiln, anchor) = Started();
+        using var _ = kiln;
+        var mods = Enumerable.Range(0, 4).Select(i => HostAccess.CreateContext(new ModInfo("path-budget-" + i, "Path budget", "1", ""), Backend.Current.OwnerCreate("path-budget-" + i), "")).ToArray();
+        var answered = 0;
+        kiln.Queries.PathSteps = 1;
+        kiln.Queries.Paths = r => { answered++; return FakePathAnswer.Route(r.From, r.To); };
+        try
+        {
+            kiln.Run(() =>
+            {
+                try
+                {
+                    foreach (var mod in mods)
+                    {
+                        ModContext.CurrentMod = mod;
+                        for (var i = 0; i < 8; ++i) Assert.True(Queries.RequestPath(new QueryPathRequest(anchor, From, To)).Ok);
+                    }
+                }
+                finally { ModContext.CurrentMod = null; }
+            });
+            kiln.Step();
+            Assert.Equal(8, answered);
+            kiln.Step();
+            Assert.Equal(16, answered);
+        }
+        finally { foreach (var mod in mods) kiln.Run(mod.Retire); }
+    }
+
+    [Fact]
+    public void A_world_close_before_the_first_pump_keeps_the_native_generation()
+    {
+        var (kiln, anchor) = Started();
+        using var _ = kiln;
+        var task = kiln.Run(() => Queries.FindPath(new QueryPathRequest(anchor, From, To)));
+        kiln.Run(() => Events.Post(new ServerStoppingEvent(ServiceTick.Step, "world-stopping")));
+        Assert.True(task.IsCompletedSuccessfully);
+        Assert.Equal((QueryPathStatus.WorldClosed, 1u), (task.Result.Status, task.Result.Generation));
+    }
+
+    [Fact]
+    public void An_already_cancelled_token_wins_before_the_next_engine_step()
+    {
+        var (kiln, anchor) = Started();
+        using var _ = kiln;
+        using var cancel = new CancellationTokenSource();
+        cancel.Cancel();
+        kiln.Queries.PathSteps = 1;
+        var task = kiln.Run(() => Queries.FindPath(new QueryPathRequest(anchor, From, To), cancel.Token));
+        Assert.Equal(QueryPathStatus.Cancelled, Wait(kiln, task).Status);
     }
 }

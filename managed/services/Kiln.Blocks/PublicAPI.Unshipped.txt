@@ -387,3 +387,5 @@ static Kiln.MoveFollowUpBlock.operator !=(Kiln.MoveFollowUpBlock? left, Kiln.Mov
 static Kiln.MoveFollowUpBlock.operator ==(Kiln.MoveFollowUpBlock? left, Kiln.MoveFollowUpBlock? right) -> bool
 [KILNX001]static Kiln.Blocks.LabRefuseMoveClones(int count) -> void
 [KILNX001]static Kiln.Blocks.LabRetryMoves(Kiln.BlockHandle<Kiln.WeaponBlock!>! weapon) -> bool
+Kiln.ToolBlock.WearPerDebit.get -> int?
+Kiln.ToolBlock.WearPerDebit.init -> void

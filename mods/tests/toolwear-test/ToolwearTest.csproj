@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Lab test of 16b-tool-durability (kiln.toolwear): a rule's cost per game debit, from real debits of a real pickaxe:
+       a cloned projectile spawn with isProjectile and HitEvents sent through the declared program "hits"
+       (kiln.programs.json). PASS / FAIL lines "toolwear-test: ..." in kiln.log, then "toolwear-test: FINISHED".
+       How to run, from the worktree root: build this project and b/ (the second rule owner) into $KILN_OUT/mods/
+       (-o $KILN_OUT/mods/toolwear-test, -o $KILN_OUT/mods/toolwear-test-b); tools/lab/lab.sh new <lab> <port>;
+       tools/deploy-server.sh <lab dir> with the policy "any"; touch <lab dir>/kiln/control/systems.parallel (the lab parallel
+       switch, for toolwear-workers-pinned) and <lab dir>/kiln/data/skills/lab-ops (the hotbar selection the projectile
+       case uses); start the lab with KILN_PLAYERSTATE_LAB=1 in the environment (the lab use-item helper). -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+    <GenerateRuntimeConfigurationFiles>false</GenerateRuntimeConfigurationFiles>
+    <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
+    <!-- lab members: Items.LabToolWearCounters, LabSystems, PlayerStates.Diagnostics -->
+    <NoWarn>$(NoWarn);KILNX001;CS0618</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../../managed/Kiln.Api/Kiln.Api.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="../../../managed/Kiln.Testing/Kiln.Testing.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="../../../managed/services/Kiln.Items/Kiln.Items.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="../../../managed/services/Kiln.Spawn/Kiln.Spawn.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="../../../managed/services/Kiln.World/Kiln.World.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="../../../managed/services/Kiln.Content/Kiln.Content.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="../../../managed/services/Kiln.Players/Kiln.Players.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="../../../managed/services/Kiln.Abilities/Kiln.Abilities.csproj" Private="false" ExcludeAssets="runtime" />
+    <ProjectReference Include="../../../managed/services/Kiln.Skills/Kiln.Skills.csproj" Private="false" ExcludeAssets="runtime" />
+    <None Include="kiln.mod.json;kiln.programs.json" CopyToOutputDirectory="PreserveNewest" />
+    <Compile Remove="b/**" />
+    <None Remove="b/**" />
+  </ItemGroup>
+</Project>

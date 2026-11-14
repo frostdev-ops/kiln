@@ -161,7 +161,9 @@ Since 0.2.0-dev.28, in this order (check `header.size`): `external_runner`: 0 wh
 1 when native SET owns the program runner, 2 when the loaded modules could not be read (runner passive);
 `type_impact_name(type, out, cap, required)`: `KILN_ERR_UNAVAILABLE` when `types.impact_names` is off,
 `KILN_ERR_NOT_FOUND` for an unreadable entry, `KILN_OK` with `*required = 0` for an empty one. Type handles are stable
-for the process.
+for the process. `in_system_callback()`: 1 while the calling thread runs a `system_hook` callback (the world is mid-step
+there, maybe on its own thread), else 0; any thread, lock-free. kiln.world's `in_program()` includes it, so kiln.queries
+refuses a ray or a path request from such a callback (`InsideProgram`).
 
 ## How it finds things
 - The type table: a static table in the exe's `.rdata`, found by data alone (the `BlobString` and `uint32` descriptors
