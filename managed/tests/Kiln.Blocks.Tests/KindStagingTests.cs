@@ -176,10 +176,14 @@ internal sealed class CountingSink : Lowered.ILoweredSink, IDisposable
     public CountingSink() => Lowered._sinkOverride = this;
     public void Dispose() => Lowered._sinkOverride = null;
 
+    public Action<string>? OnWrite;
+    private int _seen;
+
     private void Add(string what)
     {
-        if (Writes.Count == FailAt) throw new InvalidOperationException($"refused: {what}");
+        if (_seen++ == FailAt) throw new InvalidOperationException($"refused: {what}");
         Writes.Add(what);
+        OnWrite?.Invoke(what);
     }
 
     public void Program(ulong owner, Guid guid, byte[] blob) => Add($"program {owner} {guid}");

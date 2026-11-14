@@ -44,6 +44,8 @@ public static partial class Blocks
     {
         ArgumentNullException.ThrowIfNull(block);
         var mod = CallerMod();
+        // a block of a kind a mod registered (by its own type, not by T): compiled by its provider, applied by Kiln
+        if (!KindRegistry.IsBuiltIn(block.GetType())) return KindDefine.Define(mod, name, block);
         return Compiler.Define(mod, name, block);
     }
 
@@ -185,6 +187,15 @@ internal sealed class ModBlocks(string id, ulong owner)
     /// <summary>Set on the isolated ledger of a kind's plan (Kinds/KindTransaction.cs): the consumer's real ledger, whose blocks
     /// and data files a staged block may name. Null on every ledger a mod's own blocks compile into.</summary>
     public ModBlocks? StagesFor;
+    /// <summary>A plan's ledger whose plan is being committed: only then do its blocks register.</summary>
+    public volatile bool CommitOpen;
+    /// <summary>A plan's ledger that was applied: it is the live ledger of the plan's blocks from then on (its rules and late
+    /// programs run as a mod's do).</summary>
+    public volatile bool Promoted;
+    /// <summary>A plan's ledger whose owner was revoked: nothing of it runs again.</summary>
+    public volatile bool Revoked;
+    /// <summary>The runtime wanted its content-ready pass while the ledger was only staged.</summary>
+    public bool HookWanted;
     /// <summary>The ledger whose data files and cycle check a lookup uses: this one, or the one it stages for.</summary>
     public ModBlocks Authored => StagesFor ?? this;
 

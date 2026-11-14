@@ -90,6 +90,38 @@ Kiln.AffixesChangedEvent
 Kiln.AffixesChangedEvent.Before.get -> System.Collections.Generic.IReadOnlyList<Kiln.RolledAffix!>!
 Kiln.AffixesChangedEvent.Item.get -> Kiln.ItemInstanceRef
 Kiln.AffixesChangedEvent.Now.get -> System.Collections.Generic.IReadOnlyList<Kiln.RolledAffix!>!
+Kiln.BlockApplicationChangedEvent
+Kiln.BlockApplicationChangedEvent.After.get -> Kiln.BlockApplyResult!
+Kiln.BlockApplicationChangedEvent.Before.get -> Kiln.BlockApplyResult!
+Kiln.BlockApplicationChangedEvent.ModId.get -> string!
+Kiln.BlockApplicationChangedEvent.Name.get -> string!
+Kiln.BlockApplyResult
+Kiln.BlockApplyResult.<Clone>$() -> Kiln.BlockApplyResult!
+Kiln.BlockApplyResult.BlockApplyResult() -> void
+Kiln.BlockApplyResult.ContentGeneration.get -> ulong
+Kiln.BlockApplyResult.ContentGeneration.init -> void
+Kiln.BlockApplyResult.Equals(Kiln.BlockApplyResult? other) -> bool
+Kiln.BlockApplyResult.GameName.get -> string!
+Kiln.BlockApplyResult.GameName.init -> void
+Kiln.BlockApplyResult.Generation.get -> ulong
+Kiln.BlockApplyResult.Generation.init -> void
+Kiln.BlockApplyResult.Guid.get -> System.Guid
+Kiln.BlockApplyResult.Guid.init -> void
+Kiln.BlockApplyResult.Id.get -> uint
+Kiln.BlockApplyResult.Id.init -> void
+Kiln.BlockApplyResult.Ok.get -> bool
+Kiln.BlockApplyResult.Ok.init -> void
+Kiln.BlockApplyResult.Reason.get -> string!
+Kiln.BlockApplyResult.Reason.init -> void
+Kiln.BlockApplyResult.RequestId.get -> ulong
+Kiln.BlockApplyResult.RequestId.init -> void
+Kiln.BlockApplyResult.State.get -> Kiln.BlockApplyState
+Kiln.BlockApplyResult.State.init -> void
+Kiln.BlockApplyState
+Kiln.BlockApplyState.Applied = 1 -> Kiln.BlockApplyState
+Kiln.BlockApplyState.PendingContent = 0 -> Kiln.BlockApplyState
+Kiln.BlockApplyState.Refused = 2 -> Kiln.BlockApplyState
+Kiln.BlockApplyState.Removed = 3 -> Kiln.BlockApplyState
 Kiln.BlockCompileContext
 Kiln.BlockCompileContext.Effect(string! key, Kiln.EffectBlock! block) -> Kiln.BlockProduct!
 Kiln.BlockCompileContext.GuidOf(string! domain, string! localName) -> System.Guid
@@ -237,6 +269,9 @@ override Kiln.AffixResult.ToString() -> string!
 override Kiln.AffixTier.Equals(object? obj) -> bool
 override Kiln.AffixTier.GetHashCode() -> int
 override Kiln.AffixTier.ToString() -> string!
+override Kiln.BlockApplyResult.Equals(object? obj) -> bool
+override Kiln.BlockApplyResult.GetHashCode() -> int
+override Kiln.BlockApplyResult.ToString() -> string!
 override Kiln.BlockKindDescriptor.Equals(object? obj) -> bool
 override Kiln.BlockKindDescriptor.GetHashCode() -> int
 override Kiln.BlockKindDescriptor.ToString() -> string!
@@ -282,10 +317,15 @@ static Kiln.Affixes.Set(Kiln.ItemInstanceRef item, System.Collections.Generic.IR
 static Kiln.Affixes.StatOf(Kiln.EntityId entity, Kiln.Stat! stat) -> System.Threading.Tasks.Task<double?>!
 static Kiln.Affixes.Synced(Kiln.EntityId item) -> System.Collections.Generic.IReadOnlyList<Kiln.RolledAffix!>?
 static Kiln.Affixes.SyncedItems() -> System.Collections.Generic.IReadOnlyList<Kiln.SyncedAffixes!>!
+static Kiln.BlockApplyResult.operator !=(Kiln.BlockApplyResult? left, Kiln.BlockApplyResult? right) -> bool
+static Kiln.BlockApplyResult.operator ==(Kiln.BlockApplyResult? left, Kiln.BlockApplyResult? right) -> bool
 static Kiln.BlockKindDescriptor.operator !=(Kiln.BlockKindDescriptor? left, Kiln.BlockKindDescriptor? right) -> bool
 static Kiln.BlockKindDescriptor.operator ==(Kiln.BlockKindDescriptor? left, Kiln.BlockKindDescriptor? right) -> bool
 static Kiln.BlockKindResult.operator !=(Kiln.BlockKindResult? left, Kiln.BlockKindResult? right) -> bool
 static Kiln.BlockKindResult.operator ==(Kiln.BlockKindResult? left, Kiln.BlockKindResult? right) -> bool
+static Kiln.Blocks.Application(Kiln.BlockHandle! block) -> Kiln.BlockApplyResult!
+static Kiln.Blocks.Application(Kiln.BlockPlan! plan) -> Kiln.BlockApplyResult!
+static Kiln.Blocks.Apply(Kiln.BlockPlan! plan) -> Kiln.BlockApplyResult!
 static Kiln.Blocks.Compile<T>(string! name, T! block) -> Kiln.BlockPlan!
 static Kiln.Blocks.Define(string! name, Kiln.AffixBlock! block) -> Kiln.AffixHandle!
 static Kiln.Blocks.Define(string! name, Kiln.AffixPoolBlock! block) -> Kiln.AffixPoolHandle!
