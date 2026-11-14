@@ -53,7 +53,8 @@ public sealed partial class ClientPassMod
 
 
 class Fixture:
-    def __init__(self, source: str = SOURCE, index: list[dict] | None = None, gates: dict | None = None):
+    def __init__(self, source: str = SOURCE, index: list[dict] | None = None, gates: dict | None = None,
+                 releases: dict | None = None):
         self.dir = tempfile.TemporaryDirectory()
         root = Path(self.dir.name)
         pack = root / "mods" / "tests" / "client-pass"
@@ -62,6 +63,8 @@ class Fixture:
         ids = ["03-c11", "03-c7", "03-c10", "11-join", "12-debug", "13-set"]
         (pack / "dev28-checks.json").write_text(json.dumps(
             {"format": 1, "checks": index if index is not None else [{"id": i, "state": "open"} for i in ids]}))
+        if releases is not None:
+            (pack / "dev28-releases.json").write_text(json.dumps({"format": 1, **releases}))
         gdir = root / "native" / "core" / "gates"
         gdir.mkdir(parents=True)
         for name, doc in (gates or {}).items():
@@ -72,9 +75,10 @@ class Fixture:
         self.dir.cleanup()
 
     def plan(self) -> dict:
-        return plan.build(plan.read_pack(os.path.join(self.root, "mods", "tests", "client-pass")),
-                          plan.read_index(os.path.join(self.root, "mods", "tests", "client-pass", "dev28-checks.json")),
-                          plan.read_gates(os.path.join(self.root, "native", "core", "gates")), "0.2.0-dev.28")
+        pack = os.path.join(self.root, "mods", "tests", "client-pass")
+        return plan.build(plan.read_pack(pack), plan.read_index(os.path.join(pack, "dev28-checks.json")),
+                          plan.read_gates(os.path.join(self.root, "native", "core", "gates")), "0.2.0-dev.28",
+                          plan.read_releases(os.path.join(pack, "dev28-releases.json")))
 
 
 class ReadPack(unittest.TestCase):
@@ -158,6 +162,109 @@ class Problems(unittest.TestCase):
         self.assertIn("gate camera.shake (dev28-03-camera.json) names the check 03-c5", text)
         self.assertIn("gate camera.empty (dev28-03-camera.json) names no check", text)
         self.assertNotIn("camera.fov", text)
+
+
+class Releases(unittest.TestCase):
+    """The dossier ships as a release train: a pass asks only for its own release's checks."""
+    IDS = ("03-c11", "03-c7", "03-c10", "11-join", "12-debug", "13-set")
+
+    def index(self, *more: dict) -> list[dict]:
+        return [{"id": i, "state": "open", "packages": ["03-camera"]} for i in self.IDS] + list(more)
+
+    def test_releases_are_ordered_by_number_not_by_text(self):
+        order = ["0.2.0-dev.9", "0.2.0-dev.28", "0.2.0-dev.29", "0.2.0-dev.100", "0.2.0", "0.3.0-dev.1"]
+        self.assertEqual(sorted(reversed(order), key=plan.release_key), order)
+
+    def test_an_id_of_a_later_release_is_not_missing_and_is_counted(self):
+        index = self.index({"id": "19a-ride", "state": "open", "packages": ["19a-riding"]},
+                           {"id": "19f-outer", "state": "open", "packages": ["03-camera"]},
+                           {"id": "02-path", "state": "open", "packages": ["02-pathfinding"]})
+        p = Fixture(index=index, releases={
+            "packages": {"03-camera": "0.2.0-dev.28", "19a-riding": "0.2.0-dev.33", "02-pathfinding": "0.2.0-dev.28"},
+            "ids": {"19f-outer": "0.2.0-dev.32"}}).plan()
+        self.assertEqual(p["missing"], ["02-path"])      # this release's open id still is
+        self.assertEqual(p["later"], [{"release": "0.2.0-dev.32", "ids": 1}, {"release": "0.2.0-dev.33", "ids": 1}])
+        self.assertEqual(p["index_now"], 7)
+        self.assertEqual(len(p["problems"]), 1)
+        self.assertIn("Played in a later release: 1 in 0.2.0-dev.32, 1 in 0.2.0-dev.33", plan.render(p))
+
+    def test_an_id_of_an_earlier_release_without_a_check_is_still_missing(self):
+        index = self.index({"id": "old-1", "state": "open", "packages": ["00-old"]})
+        p = Fixture(index=index, releases={"packages": {"03-camera": "0.2.0-dev.28", "00-old": "0.2.0-dev.27"}}).plan()
+        self.assertEqual(p["missing"], ["old-1"])
+
+    def test_a_check_says_the_release_the_map_plans_it_for(self):
+        index = self.index()
+        index[3] = {"id": "11-join", "state": "open", "packages": ["11-replication-observe"]}
+        p = Fixture(index=index, releases={
+            "packages": {"03-camera": "0.2.0-dev.28", "11-replication-observe": "0.2.0-dev.31"}}).plan()
+        self.assertEqual(len(p["problems"]), 1)
+        self.assertIn("11-join", p["problems"][0])
+        self.assertIn("says Since = 0.2.0-dev.28, the release map plans it for 0.2.0-dev.31", p["problems"][0])
+        # ... and the other way round: planned for this release, written for another
+        src = SOURCE.replace('private const string Dev27', 'private const string Dev31 = "0.2.0-dev.31";\n    private const string Dev27')
+        src = src.replace('"Replication", Since = Dev28', '"Replication", Since = Dev31')
+        p = Fixture(src, index=self.index(), releases={"packages": {"03-camera": "0.2.0-dev.28"}}).plan()
+        self.assertEqual(len([x for x in p["problems"] if "says Since = 0.2.0-dev.31" in x]), 1)
+
+    def test_an_id_of_a_chapter_with_several_packages_needs_an_owner(self):
+        shared = {"id": "13-x", "state": "settled", "packages": ["13a-set", "13b-shroudforge"]}
+        releases = {"packages": {"03-camera": "0.2.0-dev.28", "13a-set": "0.2.0-dev.30", "13b-shroudforge": "0.2.0-dev.28"}}
+        p = Fixture(index=self.index(shared), releases=releases).plan()
+        self.assertEqual(len(p["problems"]), 1)
+        self.assertIn("names no owner", p["problems"][0])
+        p = Fixture(index=self.index(shared), releases={**releases, "owners": {"13-x": "13a-set"}}).plan()
+        self.assertEqual(p["problems"], [])
+        self.assertEqual(p["later"], [{"release": "0.2.0-dev.30", "ids": 1}])
+        p = Fixture(index=self.index({"id": "20-x", "state": "settled", "packages": ["20-new"]}), releases=releases).plan()
+        self.assertIn("no release for its package 20-new", "\n".join(p["problems"]))
+
+    def test_a_gate_of_a_later_release_waits_and_is_no_problem(self):
+        gates = {"dev28-11.json": {"gates": [{"name": "repl.client", "checks": ["11-watch"], "side": "client"}]},
+                 "dev28-03.json": {"gates": [{"name": "camera.fov", "checks": ["03-c11", "03-c7"]},
+                                             {"name": "camera.both", "checks": ["03-c11", "11-watch"]},
+                                             {"name": "camera.gone", "checks": ["03-nowhere"]}]}}
+        index = self.index({"id": "11-watch", "state": "open", "packages": ["11-replication-observe"]})
+        p = Fixture(index=index, gates=gates, releases={
+            "packages": {"03-camera": "0.2.0-dev.28", "11-replication-observe": "0.2.0-dev.31"}}).plan()
+        rows = {g["name"]: g for g in p["gates"]}
+        self.assertEqual(rows["repl.client"]["later"], "0.2.0-dev.31")
+        self.assertEqual(rows["camera.both"]["later"], "0.2.0-dev.31")   # it opens with its last check
+        self.assertIsNone(rows["camera.fov"]["later"])
+        self.assertEqual(len(p["problems"]), 1)                          # only the id nobody plans
+        self.assertIn("03-nowhere", p["problems"][0])
+        text = plan.render(p)
+        self.assertIn("Held by the client gate, opened by this pass: 2 capability(ies)", text)
+        self.assertIn("Held for a later release (stays off in 0.2.0-dev.28): 2 capability(ies)", text)
+        self.assertIn("  repl.client (client only): 11-watch; 0.2.0-dev.31", text)
+
+    def test_the_release_notes_list_names_what_this_pass_opens(self):
+        gates = {"dev28-03.json": {"gates": [{"name": "camera.fov", "checks": ["03-c11", "03-c7"], "side": "client"},
+                                             {"name": "repl.client", "checks": ["11-watch"]}]}}
+        index = self.index({"id": "11-watch", "state": "open", "packages": ["11-replication-observe"]})
+        f = Fixture(index=index, gates=gates, releases={
+            "packages": {"03-camera": "0.2.0-dev.28", "11-replication-observe": "0.2.0-dev.31"}})
+        text = plan.render_held_md(f.plan())
+        self.assertEqual(text, "- `camera.fov` (on a game client; a dedicated server has it): Final snapshot, with "
+                               "(parentheses) and a \"quote\" (`03-c11`); Stock-mode lock on vanilla (`03-c7`)\n")
+
+    def test_a_broken_release_map_stops_the_read(self):
+        f = Fixture(releases={"packages": ["not", "an", "object"]})
+        with self.assertRaises(plan.PlanError):
+            plan.read_releases(os.path.join(f.root, "mods", "tests", "client-pass", "dev28-releases.json"))
+
+    def test_the_repository_map_places_every_id(self):
+        pack = REPO / "mods" / "tests" / "client-pass"
+        index = plan.read_index(str(pack / "dev28-checks.json"))
+        releases = plan.read_releases(str(pack / "dev28-releases.json"))
+        self.assertTrue(releases["packages"], "the release map is there")
+        for row in index:
+            release, problem = plan.release_of(row, releases, "0.2.0-dev.28")
+            self.assertIsNone(problem, problem)
+            self.assertRegex(release, r"^0\.2\.0-dev\.(2[89]|3[0-3])$")
+        known = {r["id"] for r in index}
+        for key in ("owners", "ids"):
+            self.assertEqual(sorted(set(releases[key]) - known), [], f"\"{key}\" names ids the index does not have")
 
 
 class Main(unittest.TestCase):
