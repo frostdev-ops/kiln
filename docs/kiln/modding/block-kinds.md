@@ -130,3 +130,6 @@ All are off (with the reason) where Kiln has nothing to compile blocks to. A mem
 
 A kind cannot make VFX, materials, NPCs, quests, UI or anything read by the game before mods load, cannot register
 raw game data, cannot run code when content is ready, and cannot be made of blocks of another external kind.
+
+The sample `mods/samples/BlockKinds/` has both halves: `Lanterns` (the provider, with its record in `Lanterns.Api`,
+which it exports) and `CampLanterns` (a consumer in C# and in `blocks/camp.json`).
