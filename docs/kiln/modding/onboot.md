@@ -41,8 +41,8 @@ public override void OnBoot(BootContext boot) { ... }
 - `boot.ModId`, `boot.Generation` (the process's boot generation), `boot.Roles` (where the mod runs: a dedicated
   server in this build) and `boot.GameData` (the game's data, read only, below).
 
-**What you may do:** stage definitions with `BootDefinitions.For(boot)` (Kiln.Blocks), read `boot.GameData`, log,
-read your mod's own files.
+**What you may do:** stage definitions with `BootDefinitions.For(boot)` (Kiln.Blocks), read `boot.GameData`, log
+(`Log`), read your mod's own files (the folder is `Context.Info.Directory`).
 
 **What you may not do:** anything that needs the running game. There is no tick, no world, no player and no live
 registry yet. `Blocks.Define` throws `InvalidOperationException` ("PhaseClosed: ... stage the block with
@@ -91,6 +91,11 @@ one is dropped, with a warning (`ShadowedByFile`) in kiln.log and `state/boot.js
 - It shows the game's own values: not another loader's patches, and not resource patches (they are written later).
 - The format and the producer are in [boot-gamedata.md](boot-gamedata.md).
 
+## Reading your mod's settings
+In this build `Config.Register<T>()` cannot be called in `OnBoot`: it needs the tick thread and throws
+`InvalidOperationException` ("This must run on the tick thread"), and the mod is then left out. Keep values `OnBoot`
+needs in code or in a data file of the mod for now.
+
 ## When a mod fails
 - **`OnBoot` throws**, or a staged definition does not compile: the mod is out. None of its definitions and none of its
   files are in the generation, and every mod that requires it is out too. The server starts without them.
@@ -124,6 +129,9 @@ state and definition count, every issue (mod, kind, key, phase, code, reason) an
   `kiln/kiln.json` lifts the hold, for testing.
 - A server where the phase does not run (safe idle, .NET off) does not load boot mods either. The row `mods.boot.phase`
   says why.
+
+## Testing
+Unit tests of `OnBoot` without a game: the test kit's boot runner, see [unit-tests.md](unit-tests.md).
 
 ## A complete example
 `kiln.mod.json` beside the project, with `"boot": true`:
