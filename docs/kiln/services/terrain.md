@@ -107,11 +107,13 @@ naming it. Anything the game or a rule refuses is `Ok = false` with a reason.
 ### The ledger: ownership, versions and conflicts
 
 For a `Kept` patch the calling mod's world data (`WorldData`, key `kiln.terrain.ledger`) holds one record per plan
-id: version, region, a hash of the patch's content, state (`applying` or `applied`), and for **each 8x8x8 block the
-patch addresses** two fingerprints: the addressed cells before the write and after it (SHA-256 of the cell values,
-first 8 bytes). A block is on the world's 8-cell grid; "addressed" are the block's cells inside the region whose
-palette number is not 0 (for a heightfield: every cell of the region). The record and the cells reach the disk with
-the same world save, as `Build.PlaceOnce`'s do.
+id: version, region, a hash of the patch's content, whether the apply is complete, and for **each 8x8x8 block the
+patch addresses** two fingerprints: the block's cells inside the region before the write and after it (SHA-256 of
+the cell values, first 8 bytes). A block is on the world's 8-cell grid. A patch addresses a cell when its palette
+number is not 0 (a heightfield: every cell of the region; added on top: the cells below the height); a block with
+no addressed cell is not the plan's. The fingerprint covers all of the block's cells inside the region, so an edit
+next to a vein, in the same block and inside the region, also counts as "changed": the rule errs on the side of
+the player. The record and the cells reach the disk with the same world save, as `Build.PlaceOnce`'s do.
 
 | Situation | What happens |
 |---|---|
@@ -120,8 +122,9 @@ the same world save, as `Build.PlaceOnce`'s do.
 | Same id and version, other content | `Refused`: "content changed without a new version" |
 | Lower version than recorded | `Refused`: a downgrade is never applied |
 | Higher version | per block of the old record: the cells still equal its "after" → the block is this plan's and is written; anything else → the block is listed as `PlayerEdit` and left alone, and the plan gives up that block (later versions do not touch it either). Blocks the old version did not address are written as new. The record moves to the new version; the result is `Conflict` when any block was left |
-| Record in state `applying` (a save fell between batches, then a crash) | resumed: a block that equals "after" is done, one that equals "before" is written, anything else is a conflict |
-| A block is addressed by a kept plan of **another mod** known in this session | `Refused`, naming that mod and plan; nothing is written |
+| Record not complete (canceled, stopped, or a save fell between batches before a crash) | resumed: a block that equals "after" is done, one that equals "before" is written, anything else is a conflict |
+| A block is addressed by a kept plan of **another mod** known in this session (applied, or being applied) | `Refused`, naming that mod and plan; nothing is written |
+| The same plan is being applied already | `Refused` |
 | A block lies in a player base and `InBases` is off | that block is listed as `BaseZone` and left alone |
 
 `TerrainConflict(TerrainConflictKind Kind, CellBox Block, string? Owner)`; kinds `PlayerEdit`, `OtherPlan`,
