@@ -21,6 +21,7 @@
 #include "../src/services/ui_values_update.cpp"
 #include "../src/services/ui_values_changes.cpp"
 #include "../src/services/ui_values_slots.cpp"
+#include "../src/services/ui_values_lines.cpp"
 
 using namespace kiln::uivalues;
 
@@ -161,6 +162,15 @@ void install() {
     e.call_changed = [](KilnUiValueChangedFn fn, const KilnUiValueChange* c, void* user) {
         try {
             fn(c, user);
+            return true;
+        } catch (...) {
+            return false;
+        }
+    };
+    e.call_lines = [](KilnUiLinesFn fn, const KilnUiProviderContext* c, const KilnUiItemView* v, KilnUiLineWriter* w,
+                      void* user, KilnResult* rc) {
+        try {
+            *rc = fn(c, v, w, user);
             return true;
         } catch (...) {
             return false;
@@ -2032,6 +2042,212 @@ void slots_holders() {
     CHECK(copy(o, 8).slots[0].holder_serial != own, "holder: a new client session starts new serials");
 }
 
+// ========================================================================== S6: tooltip lines and the details window
+using DetailHookFn = void (*)(void*, uint8_t);
+DetailHookFn g_detail_hook = nullptr;
+int g_lines_points = 1;              // how often the game reaches the merge point in one detail view
+uint8_t* g_nested_record = nullptr;  // a detail view drawn inside the current one
+void game_item_detail(void*, uint8_t) {
+    if (g_nested_record) {
+        uint8_t* inner = g_nested_record;
+        g_nested_record = nullptr;
+        g_detail_hook(inner, 0);
+    }
+    for (int i = 0; i < g_lines_points; ++i) {
+        KilnRegisters r{};
+        if (KilnMidFn fn = mid_at("ui.values/DetailLinesAppend")) fn(&r, nullptr);
+    }
+}
+std::vector<std::string> g_symbol_asks;
+
+struct LinesScript {
+    std::vector<std::string> lines;
+    KilnResult result = KILN_OK;
+    KilnUiTextId foreign = 0;  // appended after the lines
+    bool edit_count = false;   // writes writer->count itself
+    int calls = 0;
+    std::vector<KilnResult> appends;
+    KilnUiItemView view{};
+};
+KilnResult KILN_CALL lines_provider(const KilnUiProviderContext* c, const KilnUiItemView* v, KilnUiLineWriter* w,
+                                    void* user) {
+    auto* s = static_cast<LinesScript*>(user);
+    ++s->calls;
+    s->view = *v;
+    s->appends.clear();
+    for (const auto& l : s->lines) {
+        KilnUiTextId id = 0;
+        c->text->intern(c, KilnStr{l.data(), l.size()}, &id);
+        s->appends.push_back(w->append(w, id));
+    }
+    if (s->foreign) s->appends.push_back(w->append(w, s->foreign));
+    if (s->edit_count) w->count = 16;
+    return s->result;
+}
+std::vector<std::string> lines_of(const KilnUiTooltipDetails& d) {
+    std::vector<std::string> out;
+    for (uint32_t i = 0; i < d.count; ++i) out.emplace_back(d.lines[i].ptr, d.lines[i].len);
+    return out;
+}
+std::vector<std::string> numbered(const char* prefix, int n) {
+    std::vector<std::string> v;
+    for (int i = 1; i <= n; ++i) v.push_back(std::string(prefix) + std::to_string(i));
+    return v;
+}
+
+void prime_lines() {
+    prime_bars();
+    set_installer(kListLines, &kiln::uivalues::install_lines);
+    fake::symbols["ui/ItemDetail"] = 0x140c109f0ull;
+    fake::symbols["ui/DetailLinesAppend"] = 0x140c1216eull;
+    fake::client = ClientNow{77, 7, 300};
+    fake::screen.frame = 1200;
+    g_lines_points = 1;
+    g_nested_record = nullptr;
+    g_symbol_asks.clear();
+    Env& e = env();
+    static bool (*plain)(const char*, uintptr_t*) = nullptr;
+    if (!plain) plain = e.symbol;
+    e.symbol = [](const char* n, uintptr_t* out) {
+        g_symbol_asks.emplace_back(n);
+        return plain(n, out);
+    };
+}
+bool arm_lines() {
+    for (const auto& r : fake::raws)
+        if (r.label == "ui.values/ItemDetail") {
+            g_detail_hook = reinterpret_cast<DetailHookFn>(r.fn);
+            *r.original = reinterpret_cast<void*>(&game_item_detail);
+            return true;
+        }
+    return false;
+}
+KilnHandle add_lines(KilnOwner o, uint32_t item, LinesScript* s) {
+    auto r = reg_record();
+    return T()->tooltip_lines(o, item, &lines_provider, s, &r) == KILN_OK && r.ok ? r.handle : 0;
+}
+KilnUiTooltipDetails read_details(KilnOwner o, uint32_t which) {
+    KilnUiTooltipDetails d{};
+    d.size = sizeof d;
+    T()->tooltip_details(o, which, &d);
+    return d;
+}
+
+void lines_collect() {
+    prime_lines();
+    const KilnOwner a = fake::owner("mod:lines-a"), b = fake::owner("mod:lines-b"), c = fake::owner("mod:lines-c");
+    LinesScript s1, s2, s3, s4;
+    s1.lines = numbered("A", 10);
+    s2.lines = numbered("B", 2);
+    s2.result = KILN_ERR_UNAVAILABLE;  // refuses after staging two
+    s3.lines = numbered("C", 7);       // 10 + 7 = 17: the 17th entry is refused, and with it C's lines
+    s4.lines = {"", "D1"};             // an empty line keeps its place
+    add_lines(a, 0, &s1);
+    add_lines(b, 0, &s2);
+    add_lines(c, 0, &s3);
+    add_lines(c, 0, &s4);
+    CHECK(fake::mids.size() == 1 && fake::raws.size() == 1 && arm_lines(),
+          "install: the merge-point mid and the ItemDetail link, once");
+    fill_view_bytes(g_mem.record, 0x5000, 2, 0xAA, 1, 900, 0, 0);
+    g_lines_points = 2;  // the merge point twice in one view: collected once
+    g_detail_hook(g_mem.record, 0);
+    auto d = read_details(a, 1);
+    auto expect = numbered("A", 10);
+    expect.push_back("");
+    expect.push_back("D1");
+    CHECK(d.ok == 1 && lines_of(d) == expect && s1.calls == 1,
+          "lines: a refused provider and one over the 16 entries lose only their own lines; collected once per "
+          "occurrence (%u lines)",
+          d.count);
+    CHECK(s3.appends.size() == 7 && s3.appends[5] == KILN_OK && s3.appends[6] == KILN_ERR_BUFFER_TOO_SMALL,
+          "lines: the 17th entry of the occurrence is refused (TEXT_BUDGET)");
+    CHECK(d.item == 0xAA && d.inventory_page == 0x5000 && d.client_entity == 900 && d.session == 7 &&
+              d.source_frame == 1201 && d.view_flags == (KUI_DETAIL_COPY | KUI_INVENTORY_SLOT | KUI_CLIENT_ENTITY) &&
+              s1.view.item == 0xAA,
+          "lines: the snapshot names the item, its slot and the frame; providers see the detail copy");
+    bool native = false;
+    for (const auto& n : g_symbol_asks) native |= n == "ui/NativeTextLine" || n == "ui/NativeTextDraw";
+    CHECK(!native && fake::mids.size() == 1, "lines: no native text line or draw is resolved or called");
+    // a foreign token and a writer edited directly are invalid (a fault), not a refusal
+    prime_lines();
+    const KilnOwner f = fake::owner("mod:foreign");
+    KilnUiTextId theirs = 0;
+    text::intern("mod:other", "not mine", &theirs);
+    LinesScript bad1, bad2, good;
+    bad1.lines = {"x"};
+    bad1.foreign = theirs;
+    bad2.lines = {"y"};
+    bad2.edit_count = true;
+    good.lines = {"z"};
+    add_lines(f, 0, &bad1);
+    add_lines(f, 0, &bad2);
+    add_lines(f, 0, &good);
+    arm_lines();
+    fill_view_bytes(g_mem.record, 0x5000, 2, 0xAA, 1, 900, 0, 0);
+    g_detail_hook(g_mem.record, 0);
+    CHECK(lines_of(read_details(f, 1)) == (std::vector<std::string>{"z"}) && faults_of(kListLines) == 1 &&
+              fake::logged("wrote an invalid line") == 2,
+          "lines: a foreign token or a direct edit of the writer drops that provider's lines as a fault");
+    // nested detail views: each collects over its own copy
+    prime_lines();
+    const KilnOwner n = fake::owner("mod:nested");
+    LinesScript ns;
+    ns.lines = {"n"};
+    add_lines(n, 0, &ns);
+    arm_lines();
+    static uint8_t inner[0x180];
+    fill_view_bytes(inner, 0x5000, 5, 0xAB, 1, 901, 0, 0);
+    fill_view_bytes(g_mem.record, 0x5000, 2, 0xAA, 1, 900, 0, 0);
+    g_nested_record = inner;
+    g_detail_hook(g_mem.record, 0);
+    CHECK(ns.calls == 2 && read_details(n, 1).item == 0xAA,
+          "nesting: the inner view collects over its own copy, the outer one over its own after it");
+}
+
+void lines_window() {
+    prime_lines();
+    const KilnOwner o = fake::owner("mod:window");
+    KilnUiTooltipOpen op{};
+    op.size = sizeof op;
+    LinesScript s;
+    s.lines = {"first"};
+    add_lines(o, 0, &s);
+    arm_lines();
+    CHECK(T()->open_tooltip_details(o, &op) == KILN_OK && op.ok == 0 && op.reason == KUI_NO_TOOLTIP,
+          "window: nothing inspected yet -> KUI_NO_TOOLTIP");
+    fill_view_bytes(g_mem.record, 0x5000, 2, 0xAA, 1, 900, 0, 0);
+    g_detail_hook(g_mem.record, 0);
+    CHECK(T()->open_tooltip_details(o, &op) == KILN_OK && op.ok == 1 && op.session == 7 && op.source_frame == 1201 &&
+              read_details(o, 0).open == 1 && lines_of(read_details(o, 0)) == (std::vector<std::string>{"first"}),
+          "window: open freezes the last snapshot");
+    s.lines = {"second"};
+    fake::screen.frame = 1300;
+    g_detail_hook(g_mem.record, 0);
+    CHECK(lines_of(read_details(o, 0)) == (std::vector<std::string>{"first"}) &&
+              lines_of(read_details(o, 1)) == (std::vector<std::string>{"second"}) &&
+              T()->open_tooltip_details(o, &op) == KILN_OK && op.source_frame == 1201,
+          "window: new data does not move the open snapshot; opening again changes nothing");
+    CHECK(T()->refresh_tooltip_details(o, &op) == KILN_OK && op.ok == 1 && op.source_frame == 1301 &&
+              lines_of(read_details(o, 0)) == (std::vector<std::string>{"second"}),
+          "window: refresh takes the newer snapshot of the same item");
+    fill_view_bytes(g_mem.record, 0x5000, 3, 0xAB, 1, 950, 0, 0);
+    g_detail_hook(g_mem.record, 0);
+    CHECK(T()->refresh_tooltip_details(o, &op) == KILN_OK && op.ok == 0 && op.reason == KUI_STALE_FRAME &&
+              read_details(o, 0).item == 0xAA,
+          "window: refresh from another item's snapshot is refused (KUI_STALE_FRAME)");
+    CHECK(T()->close_tooltip_details(o) == KILN_OK && T()->close_tooltip_details(o) == KILN_OK &&
+              read_details(o, 0).open == 0 && read_details(o, 0).reason == KUI_NO_TOOLTIP,
+          "window: close is idempotent");
+    T()->open_tooltip_details(o, &op);
+    fake::client.session = 8;  // the world was left
+    CHECK(read_details(o, 0).open == 0 && read_details(o, 1).ok == 0 && T()->open_tooltip_details(o, &op) == KILN_OK &&
+              op.ok == 0,
+          "window: a session change closes it and forgets the old snapshot");
+    fake::client.session = 7;
+    fake::rows.erase("ui.values.tooltip_lines");
+    CHECK(T()->open_tooltip_details(o, &op) == KILN_ERR_UNAVAILABLE, "window: the row held -> UNAVAILABLE");
+}
+
 }  // namespace
 
 int main() {
@@ -2063,6 +2279,8 @@ int main() {
     slots_basics();
     slots_budget_and_nesting();
     slots_holders();
+    lines_collect();
+    lines_window();
     std::printf(g_fail ? "%d FAILED\n" : "all passed\n", g_fail);
     return g_fail ? 1 : 0;
 }

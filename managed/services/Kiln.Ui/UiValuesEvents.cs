@@ -119,6 +119,12 @@ internal static unsafe class UiValueEvents
             Enqueue(new UiValueProviderChangedEvent(reg.Kind, reg.Item, reg.ModName, change));
     }
 
+    internal static void TooltipPanel(bool open, ulong session, ulong frame, ItemId item, string? reason)
+    {
+        if (Events.HasSubscribers<UiTooltipPanelChangedEvent>())
+            Enqueue(new UiTooltipPanelChangedEvent(open, session, frame, item, reason));
+    }
+
     internal static void ProviderRefused(UiValueBridge.Reg reg, ulong frame, string reason)
     {
         if (Events.HasSubscribers<UiValueProviderRefusedEvent>())

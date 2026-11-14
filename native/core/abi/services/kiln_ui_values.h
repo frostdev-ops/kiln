@@ -160,6 +160,15 @@ typedef struct KilnUiTooltipOpen {
     uint32_t size, ok, reason, reserved;
     uint64_t session, source_frame;
 } KilnUiTooltipOpen;
+/* A detail snapshot of the tooltip lines (tooltip_details): the item, where it was collected, and up to 16 lines. The
+ * line views point at the text store's bytes, valid for the process (never freed). */
+typedef struct KilnUiTooltipDetails {
+    uint32_t size, ok, reason, count;
+    uint64_t session, source_frame, capture_ms;
+    uint32_t item, open; /* open: the details window is open (the snapshot of `which` 0 is its frozen one) */
+    uint32_t inventory_page, slot_index, client_entity, view_flags;
+    KilnStr lines[16];
+} KilnUiTooltipDetails;
 typedef struct KilnUiRect {
     float x, y, width, height;
 } KilnUiRect;
@@ -247,8 +256,17 @@ typedef struct KilnUiValuesApi {
     /* fn(frame, slots, count) once per completed UI frame, on the UI thread after the frame; borrowed for the call. */
     KilnResult(KILN_CALL* subscribe_slots)(KilnOwner, KilnUiSlotsFn, void* user, KilnUiRegistration*);
     KilnResult(KILN_CALL* subscribe_changes)(KilnOwner, KilnUiValueChangedFn, void* user, KilnUiRegistration*);
+    /* Opens the shared details window on the last completed detail snapshot (frozen until refresh or close): KILN_OK
+     * with ok = 0 and KUI_NO_TOOLTIP when there is none in this client session. Idempotent. close: idempotent too.
+     * A world/session change, a provider registry change or an unload closes it. Any thread. */
     KilnResult(KILN_CALL* open_tooltip_details)(KilnOwner, KilnUiTooltipOpen*);
     KilnResult(KILN_CALL* close_tooltip_details)(KilnOwner);
+    /* ---- appended in the first release, read header.size: what Kiln's details window shows ----
+     * tooltip_details: which 0 = the window's frozen snapshot (ok 0, KUI_NO_TOOLTIP while it is closed), 1 = the last
+     * completed one. refresh_tooltip_details: the window's snapshot becomes the last completed one when that is of the
+     * same presentation identity (else ok 0, KUI_STALE_FRAME). Any thread. */
+    KilnResult(KILN_CALL* tooltip_details)(KilnOwner, uint32_t which, KilnUiTooltipDetails*);
+    KilnResult(KILN_CALL* refresh_tooltip_details)(KilnOwner, KilnUiTooltipOpen*);
 } KilnUiValuesApi;
 
 #ifdef __cplusplus

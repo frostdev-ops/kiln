@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 // The native table kiln.ui.values (native/core/abi/services/kiln_ui_values.h): records and slots, as laid out in C.
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
 namespace Kiln;
@@ -121,6 +122,44 @@ internal static unsafe class UiValuesNative
         public uint TransformFlags;
     }
 
+    [StructLayout(LayoutKind.Sequential)]
+    public struct Line
+    {
+        public uint Size, Flags;
+        public ulong Text;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct LineWriter
+    {
+        public uint Size, Capacity, Count, Status;
+        public fixed byte Lines[16 * 16];
+        public void* Reserved;
+        public delegate* unmanaged[Cdecl]<LineWriter*, ulong, int> Append;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct TooltipOpen
+    {
+        public uint Size, Ok, Reason, Reserved;
+        public ulong Session, SourceFrame;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct TooltipDetails
+    {
+        public uint Size, Ok, Reason, Count;
+        public ulong Session, SourceFrame, CaptureMs;
+        public uint Item, Open, InventoryPage, SlotIndex, ClientEntity, ViewFlags;
+        public TooltipLineViews Lines;
+    }
+
+    [InlineArray(16)]
+    public struct TooltipLineViews
+    {
+        private NativeStr _first;
+    }
+
     public const uint ChangeAdded = 0, ChangeUpdated = 1, ChangeRemoved = 2, ChangeEvicted = 3, ChangeReset = 4;
 
     [StructLayout(LayoutKind.Sequential)]
@@ -129,44 +168,37 @@ internal static unsafe class UiValuesNative
         public ServiceHeader Header;
         public delegate* unmanaged[Cdecl]<ulong, uint, uint,
             delegate* unmanaged[Cdecl]<ProviderContext*, ItemView*, BarValue*, BarEdit*, void*, int>, void*, Registration*, int> Subscribe;
-        public void* TooltipLines;  // typed where it is used (UiTooltipDetails.cs)
+        public delegate* unmanaged[Cdecl]<ulong, uint,
+            delegate* unmanaged[Cdecl]<ProviderContext*, ItemView*, LineWriter*, void*, int>, void*, Registration*, int> TooltipLines;
         public delegate* unmanaged[Cdecl]<ulong, int> Unsubscribe;
         public delegate* unmanaged[Cdecl]<ulong, ulong, ulong, SlotsFrame*, VisibleSlot*, uint, uint*, int> CopySlots;
         public delegate* unmanaged[Cdecl]<ulong, delegate* unmanaged[Cdecl]<SlotsFrame*, VisibleSlot*, uint, void*, void>, void*, Registration*, int> SubscribeSlots;
         public delegate* unmanaged[Cdecl]<ulong, delegate* unmanaged[Cdecl]<ValueChange*, void*, void>, void*, Registration*, int> SubscribeChanges;
-        public void* OpenTooltipDetails;
-        public void* CloseTooltipDetails;
+        public delegate* unmanaged[Cdecl]<ulong, TooltipOpen*, int> OpenTooltipDetails;
+        public delegate* unmanaged[Cdecl]<ulong, int> CloseTooltipDetails;
+        // ---- appended in the first release (the table's header.size covers them) ----
+        public delegate* unmanaged[Cdecl]<ulong, uint, TooltipDetails*, int> GetTooltipDetails;
+        public delegate* unmanaged[Cdecl]<ulong, TooltipOpen*, int> RefreshTooltipDetails;
     }
 
     private static Table* _table;
-    private static bool _looked;
     private static readonly object Lock = new();
 
-    /// <summary>The table, or null (a server, a runtime without the service). Looked up once per registry binding.</summary>
+    /// <summary>The table, or null (a server, a runtime without the service). A miss is asked again at the next use, so a
+    /// table published later (or a new registry binding) is found.</summary>
     public static Table* T
     {
         get
         {
             if (_table != null) return _table;
             lock (Lock)
-            {
-                if (_table == null && !_looked)
-                {
-                    _table = Services.Get<Table>(Service, 1);
-                    _looked = _table == null;
-                }
-                return _table;
-            }
+                return _table != null ? _table : (_table = Services.Get<Table>(Service, 1));
         }
     }
 
     internal static void ResetForTests()
     {
-        lock (Lock)
-        {
-            _table = null;
-            _looked = false;
-        }
+        lock (Lock) _table = null;
     }
 
     /// <summary>Text through a provider's context: the native store copies it and returns an id (0 = empty).</summary>

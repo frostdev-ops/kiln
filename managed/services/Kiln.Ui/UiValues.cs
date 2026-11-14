@@ -196,6 +196,7 @@ internal static unsafe class UiValueBridge
         public UiValueKind Kind;
         public ItemId Item;
         public UiBarProvider Provider = null!;
+        public UiTooltipProvider? Lines;
         public ModContext? Mod;
         public string ModName = "kiln";
         public ulong Handle;
@@ -225,9 +226,13 @@ internal static unsafe class UiValueBridge
         return _ownOwner;
     }
 
+    /// <summary>Throws for a row that is off now. A row Kiln.Ui lowered because the table was missing is decided again
+    /// when the table is here now (it would read on if reported again), never refused on an old report.</summary>
     internal static void RequireCapability(string row)
     {
         UiCaps.Rows.Ensure();
+        if (!Capabilities.Is(row) && UiValuesNative.T != null)
+            ServiceCaps.LowerFeatures(UiValuesNative.Service, UiCaps.ValueFeatures);  // found now: withdraws the lowering
         if (!Capabilities.Is(row)) throw new KilnUnavailableException(row, Capabilities.Why(row));
     }
 
@@ -361,7 +366,7 @@ internal static unsafe class UiValueBridge
         }
         catch (Exception e)
         {
-            Fault(reg, $"threw {e.GetType().Name}: {e.Message}", e);
+            FaultOf(reg, $"threw {e.GetType().Name}: {e.Message}", e, DropFaulted);
             return UiValuesNative.Internal;
         }
         finally
@@ -374,19 +379,19 @@ internal static unsafe class UiValueBridge
         }
         if (d is null)
         {
-            Fault(reg, "returned no decision", null);
+            FaultOf(reg, "returned no decision", null, DropFaulted);
             return UiValuesNative.Internal;
         }
         if (!d.Ok)
         {
             edit->Reason = UiValuesNative.ReasonRejected;
-            Refused(reg, ctx.Frame, d.Reason ?? "refused");
+            RefusedOf(reg, ctx.Frame, d.Reason ?? "refused");
             return UiValuesNative.Unavailable;  // a refusal, not a fault
         }
         var invalid = Fill(reg.Kind, d.Edit ?? UiBarEdit.None, c, edit, out var budget);
         if (budget)
         {
-            Refused(reg, ctx.Frame, "text budget");
+            RefusedOf(reg, ctx.Frame, "text budget");
             edit->Flags = 0;
             edit->Reason = UiValuesNative.ReasonTextBudget;
             return UiValuesNative.Unavailable;
@@ -394,7 +399,7 @@ internal static unsafe class UiValueBridge
         if (invalid is not null)
         {
             edit->Flags = 0;
-            Fault(reg, "made an invalid edit: " + invalid, null);
+            FaultOf(reg, "made an invalid edit: " + invalid, null, DropFaulted);
             return UiValuesNative.Internal;
         }
         reg.Faults = 0;
@@ -471,7 +476,11 @@ internal static unsafe class UiValueBridge
         return null;
     }
 
-    private static void Fault(Reg reg, string what, Exception? e)
+    private static void DropFaulted(long id) => Drop(id, UiValueProviderChange.Faulted);
+
+    /// <summary>A fault of a provider (an exception, no decision, an invalid edit): the fifth in a row drops it, as native
+    /// removes it at the same count.</summary>
+    internal static void FaultOf(Reg reg, string what, Exception? e, Action<long> drop)
     {
         reg.Faults++;
         if (reg.Faults == 1)
@@ -480,10 +489,10 @@ internal static unsafe class UiValueBridge
             else if (reg.Mod is not null) reg.Mod.Log.Error($"ui.values {reg.Kind} provider {what}");
             else UiEngine.Log(LogLevel.Error, $"ui.values {reg.Kind} provider {what}");
         }
-        if (reg.Faults >= FaultLimit) Drop(reg.Id, UiValueProviderChange.Faulted);  // native removed it at the same count
+        if (reg.Faults >= FaultLimit) drop(reg.Id);
     }
 
-    private static void Refused(Reg reg, ulong frame, string reason)
+    internal static void RefusedOf(Reg reg, ulong frame, string reason)
     {
         if (reason.Length > 256) reason = reason[..256];
         if (reg.LastRefusal == reason) return;  // deduplicated until the reason changes

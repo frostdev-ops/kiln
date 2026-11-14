@@ -29,6 +29,10 @@ internal static unsafe class FakeUiValues
     public static UiValuesNative.VisibleSlot[] SlotList = [];
     public static readonly List<(ulong Session, ulong Frame, uint Capacity)> Copies = [];
     public static nint SlotsFn;
+    public static nint LinesFn;
+    public static nint LinesUser;
+    public static uint OpenOk;
+    public static int Opens, Closes;
     public static nint SlotsUser;
 
     public static void Install()
@@ -40,6 +44,11 @@ internal static unsafe class FakeUiValues
         Table->Unsubscribe = &Unsubscribe;
         Table->SubscribeChanges = &SubscribeChanges;
         Table->CopySlots = &CopySlots;
+        Table->TooltipLines = &TooltipLines;
+        Table->OpenTooltipDetails = &OpenDetails;
+        Table->CloseTooltipDetails = &CloseDetails;
+        Table->GetTooltipDetails = &GetDetails;
+        Table->RefreshTooltipDetails = &OpenDetails;
         Table->SubscribeSlots = &SubscribeSlots;
         Ops = (UiValuesNative.TextOps*)NativeMemory.AllocZeroed((nuint)sizeof(UiValuesNative.TextOps));
         Ops->Size = (uint)sizeof(UiValuesNative.TextOps);
@@ -110,6 +119,44 @@ internal static unsafe class FakeUiValues
     }
 
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static int TooltipLines(ulong owner, uint item,
+        delegate* unmanaged[Cdecl]<UiValuesNative.ProviderContext*, UiValuesNative.ItemView*, UiValuesNative.LineWriter*, void*, int> fn,
+        void* user, UiValuesNative.Registration* r)
+    {
+        LinesFn = (nint)fn;
+        LinesUser = (nint)user;
+        r->Ok = 1;
+        r->Handle = NextHandle++;
+        return 0;
+    }
+
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static int OpenDetails(ulong owner, UiValuesNative.TooltipOpen* o)
+    {
+        Opens++;
+        o->Ok = OpenOk;
+        o->Reason = OpenOk != 0 ? 0 : UiValuesNative.ReasonNoTooltip;
+        o->Session = 7;
+        o->SourceFrame = 1201;
+        return 0;
+    }
+
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static int CloseDetails(ulong owner)
+    {
+        Closes++;
+        return 0;
+    }
+
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static int GetDetails(ulong owner, uint which, UiValuesNative.TooltipDetails* d)
+    {
+        d->Ok = OpenOk;
+        d->Item = 0xAA;
+        return 0;
+    }
+
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
     private static int SubscribeSlots(ulong owner, delegate* unmanaged[Cdecl]<UiValuesNative.SlotsFrame*, UiValuesNative.VisibleSlot*, uint, void*, void> fn,
         void* user, UiValuesNative.Registration* r)
     {
@@ -149,7 +196,8 @@ internal static unsafe class FakeUiValues
         public bool IsTickThread => true;
         public bool HasFeature(string name) => features.Contains(name);
         public void Log(ulong owner, LogLevel level, string text) { lock (Logs) Logs.Add($"{level}: {text}"); }
-        public nint Service(string name, uint minVersion) => name == UiValuesNative.Service ? (nint)Table : 0;
+        public bool TableHidden;
+        public nint Service(string name, uint minVersion) => name == UiValuesNative.Service && !TableHidden ? (nint)Table : 0;
         public ulong OwnerCreate(string id) => 99;
     }
 }
@@ -173,11 +221,16 @@ public sealed unsafe class UiValuesTests : IDisposable
         UiValueEvents.ResetForTests();
         UiSlotsBridge.ResetForTests();
         UiSlotsBridge.Now = () => 10_000;
+        UiTooltipBridge.ResetForTests();
+        UiTooltipBridge.Viewport = () => (1920, 1080, 1);
+        FakeUiValues.OpenOk = 1;
+        FakeUiValues.Opens = FakeUiValues.Closes = 0;
         Events.Reset();
     }
 
     public void Dispose()
     {
+        UiTooltipBridge.ResetForTests();
         UiSlotsBridge.Now = () => Environment.TickCount64;
         Events.Reset();
         UiValueBridge.ResetForTests();
@@ -197,7 +250,9 @@ public sealed unsafe class UiValuesTests : IDisposable
         Assert.Equal(24, sizeof(UiValuesNative.Registration));
         Assert.Equal(56, sizeof(UiValuesNative.Identity));
         Assert.Equal(200, sizeof(UiValuesNative.ValueChange));
-        Assert.Equal(72, sizeof(UiValuesNative.Table));
+        Assert.Equal(88, sizeof(UiValuesNative.Table));
+        Assert.Equal(320, sizeof(UiValuesNative.TooltipDetails));
+        Assert.Equal(288, sizeof(UiValuesNative.LineWriter));
         Assert.Equal(112, sizeof(UiValuesNative.VisibleSlot));
         Assert.Equal(120, sizeof(UiValuesNative.SlotsFrame));
     }
@@ -222,6 +277,17 @@ public sealed unsafe class UiValuesTests : IDisposable
         Backend.Current = _backend;
         FakeUiValues.SubscribeRc = UiValuesNative.Unavailable;  // the hooks could not go in
         Assert.Equal("ui.values.hud", Assert.Throws<KilnUnavailableException>(() => Ui.Values.Hud(HudValue.Mana, Pass)).Capability);
+    }
+
+    [Fact]
+    public void A_table_published_after_a_miss_is_found_at_the_next_use()
+    {
+        var b = new FakeUiValues.Backend(new HashSet<string>(AllRows)) { TableHidden = true };
+        Backend.Current = b;
+        UiValuesNative.ResetForTests();
+        Assert.Equal("ui.values.detail", Assert.Throws<KilnUnavailableException>(() => Ui.Values.ItemBar(default, Pass)).Capability);
+        b.TableHidden = false;  // published later, under the same registry
+        Assert.True(Ui.Values.ItemBar(default, Pass).Ok);
     }
 
     [Fact]
@@ -526,5 +592,112 @@ public sealed unsafe class UiValuesTests : IDisposable
         Assert.Single(got);  // nothing after Dispose
         Assert.Contains(reg.Handle, FakeUiValues.Unsubscribed);
         Assert.Throws<ArgumentNullException>(() => Ui.Values.SubscribeSlots(null!));
+    }
+
+    // ---- tooltip lines and the details window ----
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static int WriterAppend(UiValuesNative.LineWriter* w, ulong id)
+    {
+        if (w->Count >= w->Capacity)
+        {
+            w->Status = UiValuesNative.ReasonTextBudget;
+            return UiValuesNative.BufferTooSmall;
+        }
+        var lines = (UiValuesNative.Line*)w->Lines;
+        lines[w->Count] = new UiValuesNative.Line { Size = 16, Text = id };
+        w->Count++;
+        return 0;
+    }
+
+    private static (int Rc, List<string> Lines) CallLines(uint capacity = 16)
+    {
+        var fn = (delegate* unmanaged[Cdecl]<UiValuesNative.ProviderContext*, UiValuesNative.ItemView*, UiValuesNative.LineWriter*, void*, int>)FakeUiValues.LinesFn;
+        UiValuesNative.ProviderContext c = default;
+        c.Size = (uint)sizeof(UiValuesNative.ProviderContext);
+        c.Text = FakeUiValues.Ops;
+        UiValuesNative.ItemView v = default;
+        v.Size = (uint)sizeof(UiValuesNative.ItemView);
+        v.Item = 0xAA;
+        UiValuesNative.LineWriter w = default;
+        w.Size = (uint)sizeof(UiValuesNative.LineWriter);
+        w.Capacity = capacity;
+        w.Append = &WriterAppend;
+        var rc = fn(&c, &v, &w, (void*)FakeUiValues.LinesUser);
+        var lines = new List<string>();
+        var l = (UiValuesNative.Line*)w.Lines;
+        for (var i = 0; i < w.Count; i++) lines.Add(FakeUiValues.Texts[l[i].Text]);
+        return (rc, lines);
+    }
+
+    [Fact]
+    public void Tooltip_lines_go_through_the_writer_and_a_refusal_adds_none()
+    {
+        var answer = UiTooltipDecision.With("Water: 3 of 4 charges", UiText.Of(("en", "Fuel"), ("de", "Brennstoff")), "");
+        Ui.Values.TooltipLines(new ItemId(0xAA), (in UiValueContext c, in UiItemView v) => answer);
+        var (rc, lines) = CallLines();
+        Assert.Equal(0, rc);
+        Assert.Equal(["Water: 3 of 4 charges", "Fuel", ""], lines);
+        answer = UiTooltipDecision.Refuse("no data yet");
+        Assert.Equal(UiValuesNative.Unavailable, CallLines().Rc);
+        answer = UiTooltipDecision.With(Enumerable.Range(1, 5).Select(i => (UiText)$"line {i}").ToArray());
+        Assert.Equal(UiValuesNative.Unavailable, CallLines(capacity: 4).Rc);  // the 5th does not fit: all of them go
+        Assert.Throws<ArgumentNullException>(() => Ui.Values.TooltipLines(default, null!));
+    }
+
+    [Fact]
+    public void Open_needs_a_snapshot_and_room_and_close_is_idempotent()
+    {
+        var panels = new List<(bool Open, string? Reason)>();
+        Events.On<UiTooltipPanelChangedEvent>(e => panels.Add((e.Open, e.Reason)));
+        FakeUiValues.OpenOk = 0;
+        var none = Ui.Values.OpenTooltipDetails();
+        Assert.False(none.Ok);
+        Assert.Equal("no tooltip", none.Reason);
+        UiTooltipBridge.Viewport = () => (200, 1080, 1);  // 200 - 64 = 136 pixels wide: below 160
+        var small = Ui.Values.OpenTooltipDetails();
+        Assert.False(small.Ok);
+        Assert.Equal("viewport too small", small.Reason);
+        Assert.Equal(1, FakeUiValues.Opens);  // the small viewport refused before asking native
+        UiTooltipBridge.Viewport = () => (1920, 1080, 1.5f);
+        Assert.Equal((840f, 900f), UiTooltipBridge.Size((1920, 1080, 1.5f)));
+        FakeUiValues.OpenOk = 1;
+        var open = Ui.Values.OpenTooltipDetails();
+        Assert.True(open.Ok);
+        Assert.Equal((7ul, 1201ul), (open.Session, open.SourceFrame));
+        Ui.Values.CloseTooltipDetails();
+        Ui.Values.CloseTooltipDetails();
+        Assert.Equal(2, FakeUiValues.Closes);
+        Events.DrainQueued();
+        Assert.Equal([(false, "viewport too small"), (true, null)], panels);
+        UiTooltipBridge.Viewport = () => null;  // no overlay
+        Assert.Equal("ui.values.tooltip_lines", Assert.Throws<KilnUnavailableException>(() => Ui.Values.OpenTooltipDetails()).Capability);
+    }
+
+    private static float Measure(string s) => new System.Globalization.StringInfo(s).LengthInTextElements * 7f;
+
+    [Fact]
+    public void Wrapping_keeps_every_line_inside_the_pane_and_never_splits_a_text_element()
+    {
+        var english = string.Join(" ", Enumerable.Range(0, 300).Select(i => $"word{i}")) + " LAYOUT-LONG-END";
+        var german = "Größenänderung der Wasserkanne: Füllstandsanzeige für Brennstoffbehälter " +
+                     "Donaudampfschifffahrtsgesellschaftskapitänswitwenrentenauszahlungsstelle ÄÖÜäöüß Ende";
+        var marks = "e\u0301e\u0301e\u0301e\u0301e\u0301e\u0301e\u0301e\u0301e\u0301e\u0301e\u0301e\u0301";
+        marks = System.Text.RegularExpressions.Regex.Unescape(marks);
+        var sixteen = Enumerable.Range(1, 16).Select(i => $"LAYOUT-MULTI-{i:00} {english[..120]}").ToList();
+        foreach (var width in new[] { 70f, 250f, 560f })
+        {
+            var input = new List<string> { english, german, "", marks };
+            input.AddRange(sixteen);
+            var wrapped = UiTooltipWrap.Wrap(input, width, Measure);
+            Assert.All(wrapped, line => Assert.True(Measure(line) <= width || new System.Globalization.StringInfo(line).LengthInTextElements == 1,
+                $"'{line}' is {Measure(line)} wide for {width}"));
+            // nothing lost and nothing reordered (spaces at the breaks aside)
+            Assert.Equal(string.Concat(input.Select(l => l.Replace(" ", ""))), string.Concat(wrapped.Select(l => l.Replace(" ", ""))));
+            Assert.Contains("", wrapped);  // the empty line keeps its place
+            Assert.DoesNotContain(wrapped, l => l.StartsWith('\u0301'));  // a combining mark stays with its letter
+            Assert.Contains(wrapped, l => l.Contains("LAYOUT-LONG-END") || l.EndsWith("END"));
+            var first = wrapped.FindIndex(l => l.Contains("TI-01"));
+            Assert.True(first >= 0 && first < wrapped.FindIndex(l => l.Contains("TI-16")));
+        }
     }
 }

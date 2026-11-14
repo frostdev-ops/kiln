@@ -7,6 +7,7 @@
 //   ui_values_update.cpp   the player-UI update: HUD pairs, the held item, the pre-provider stage (below)
 //   ui_values_changes.cpp  change publication: identities, the 4096-entry cache, Added/Updated/Removed/Evicted/Reset
 //   ui_values_slots.cpp    the drawn slots of each completed UI frame (copy_slots, subscribe_slots)
+//   ui_values_lines.cpp    tooltip lines collected at the item detail view, the details window's snapshots
 //   ui_values_service.cpp  the production environment (owners, kiln.caps, sigdb, kiln.hooks, kiln.client, kiln.ui),
 //                          the SEH guards and the service's registration with the core
 //
@@ -74,6 +75,8 @@ struct Env {
     bool (*call_value)(KilnUiValueFn fn, const KilnUiProviderContext* c, const KilnUiItemView* v,
                        const KilnUiBarValue* in, KilnUiBarEdit* e, void* user, KilnResult* rc) = nullptr;
     bool (*call_changed)(KilnUiValueChangedFn fn, const KilnUiValueChange* c, void* user) = nullptr;
+    bool (*call_lines)(KilnUiLinesFn fn, const KilnUiProviderContext* c, const KilnUiItemView* v, KilnUiLineWriter* w,
+                       void* user, KilnResult* rc) = nullptr;
     bool (*call_slots)(KilnUiSlotsFn fn, const KilnUiSlotsFrame* f, const KilnUiVisibleSlot* s, uint32_t n,
                        void* user) = nullptr;
     // fn(frame) on the UI thread after every completed game UI frame (kiln.ui's subscribe_ui_tick); false = none
@@ -132,6 +135,13 @@ KilnUiBarValue run_chain(uint32_t kind, const KilnUiItemView& view, const KilnUi
                          const ChainStamp& stamp);
 // Validates `e` against the kind's mask and the input; on success applies it to *acc. False = KUI_INVALID_EDIT.
 bool apply_edit(uint32_t kind, const KilnUiBarEdit& e, const std::string& mod, KilnUiBarValue* acc);
+
+// ---- tooltip lines and the details window's snapshots (ui_values_lines.cpp) ----
+KilnResult tooltip_open(KilnOwner owner, KilnUiTooltipOpen* out);
+KilnResult tooltip_close(KilnOwner owner);
+KilnResult tooltip_refresh(KilnOwner owner, KilnUiTooltipOpen* out);
+KilnResult tooltip_details(KilnOwner owner, uint32_t which, KilnUiTooltipDetails* out);
+void lines_reset_for_tests();
 
 // ---- visible slots (ui_values_slots.cpp) ----
 KilnResult slots_copy(KilnOwner owner, uint64_t expected_session, uint64_t expected_frame, KilnUiSlotsFrame* frame,
@@ -229,6 +239,7 @@ void reset_for_tests();
 }  // namespace text
 
 // The text ops a provider's context carries, and the call it may use them in.
+inline constexpr uint32_t kCallMagic = 0x55564331u;  // "UVC1"
 struct CallState {
     uint32_t magic = 0;
     const Provider* provider = nullptr;

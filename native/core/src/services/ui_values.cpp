@@ -29,7 +29,6 @@ namespace {
 
 constexpr KilnHandle kHandleTag = 0x5576ull << 48;  // kiln.ui.values handles ("Uv"): another service's are not found
 constexpr KilnHandle kHandleMask = (1ull << 48) - 1;
-constexpr uint32_t kCallMagic = 0x55564331u;  // "UVC1"
 
 // The capability row of each list (change subscriptions follow the value rows: none of their own).
 const char* const kRows[kLists] = {"ui.values.detail",        "ui.values.slot",   "ui.values.held",
@@ -192,12 +191,22 @@ KilnResult KILN_CALL t_subscribe_changes(KilnOwner owner, KilnUiValueChangedFn f
 
 KilnResult KILN_CALL t_open_tooltip_details(KilnOwner owner, KilnUiTooltipOpen* out) {
     if (owner == 0 || !out || out->size < sizeof(KilnUiTooltipOpen)) return KILN_ERR_INVALID_ARGUMENT;
-    return KILN_ERR_UNAVAILABLE;  // the details window is not built in this version: ui.values.tooltip_lines stays off
+    return guarded("open_tooltip_details", [&] { return tooltip_open(owner, out); });
 }
 
 KilnResult KILN_CALL t_close_tooltip_details(KilnOwner owner) {
     if (owner == 0) return KILN_ERR_INVALID_ARGUMENT;
-    return KILN_ERR_UNAVAILABLE;
+    return guarded("close_tooltip_details", [&] { return tooltip_close(owner); });
+}
+
+KilnResult KILN_CALL t_tooltip_details(KilnOwner owner, uint32_t which, KilnUiTooltipDetails* out) {
+    if (owner == 0 || !out || out->size < sizeof(KilnUiTooltipDetails)) return KILN_ERR_INVALID_ARGUMENT;
+    return guarded("tooltip_details", [&] { return tooltip_details(owner, which, out); });
+}
+
+KilnResult KILN_CALL t_refresh_tooltip_details(KilnOwner owner, KilnUiTooltipOpen* out) {
+    if (owner == 0 || !out || out->size < sizeof(KilnUiTooltipOpen)) return KILN_ERR_INVALID_ARGUMENT;
+    return guarded("refresh_tooltip_details", [&] { return tooltip_refresh(owner, out); });
 }
 
 const KilnUiValuesApi kTable = {
@@ -210,6 +219,8 @@ const KilnUiValuesApi kTable = {
     &t_subscribe_changes,
     &t_open_tooltip_details,
     &t_close_tooltip_details,
+    &t_tooltip_details,
+    &t_refresh_tooltip_details,
 };
 
 // ---- text ops for providers ----
@@ -516,6 +527,7 @@ void reset_for_tests() {  // host tests only: nothing dispatches while it runs
     text::reset_for_tests();
     changes_reset_for_tests();
     slots_reset_for_tests();
+    lines_reset_for_tests();
 }
 
 }  // namespace kiln::uivalues

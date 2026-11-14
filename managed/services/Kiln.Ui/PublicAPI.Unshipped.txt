@@ -119,6 +119,38 @@ Kiln.UiScreenKey.Station.get -> uint
 Kiln.UiScreenKey.Station.init -> void
 Kiln.UiScreenKey.UiScreenKey() -> void
 Kiln.UiScreenKey.UiScreenKey(Kiln.GameUiState State, Kiln.HudScreen Hud, byte Crafting, uint Station) -> void
+Kiln.UiTooltipDecision
+Kiln.UiTooltipDecision.<Clone>$() -> Kiln.UiTooltipDecision!
+Kiln.UiTooltipDecision.Deconstruct(out bool Ok, out string? Reason, out System.Collections.Generic.IReadOnlyList<Kiln.UiText!>! Lines) -> void
+Kiln.UiTooltipDecision.Equals(Kiln.UiTooltipDecision? other) -> bool
+Kiln.UiTooltipDecision.Lines.get -> System.Collections.Generic.IReadOnlyList<Kiln.UiText!>!
+Kiln.UiTooltipDecision.Lines.init -> void
+Kiln.UiTooltipDecision.Ok.get -> bool
+Kiln.UiTooltipDecision.Ok.init -> void
+Kiln.UiTooltipDecision.Reason.get -> string?
+Kiln.UiTooltipDecision.Reason.init -> void
+Kiln.UiTooltipDecision.UiTooltipDecision(bool Ok, string? Reason, System.Collections.Generic.IReadOnlyList<Kiln.UiText!>! Lines) -> void
+Kiln.UiTooltipOpenResult
+Kiln.UiTooltipOpenResult.<Clone>$() -> Kiln.UiTooltipOpenResult!
+Kiln.UiTooltipOpenResult.Deconstruct(out bool Ok, out string? Reason, out ulong Session, out ulong SourceFrame) -> void
+Kiln.UiTooltipOpenResult.Equals(Kiln.UiTooltipOpenResult? other) -> bool
+Kiln.UiTooltipOpenResult.Ok.get -> bool
+Kiln.UiTooltipOpenResult.Ok.init -> void
+Kiln.UiTooltipOpenResult.Reason.get -> string?
+Kiln.UiTooltipOpenResult.Reason.init -> void
+Kiln.UiTooltipOpenResult.Session.get -> ulong
+Kiln.UiTooltipOpenResult.Session.init -> void
+Kiln.UiTooltipOpenResult.SourceFrame.get -> ulong
+Kiln.UiTooltipOpenResult.SourceFrame.init -> void
+Kiln.UiTooltipOpenResult.UiTooltipOpenResult(bool Ok, string? Reason, ulong Session, ulong SourceFrame) -> void
+Kiln.UiTooltipPanelChangedEvent
+Kiln.UiTooltipPanelChangedEvent.Item.get -> Kiln.ItemId
+Kiln.UiTooltipPanelChangedEvent.Open.get -> bool
+Kiln.UiTooltipPanelChangedEvent.Reason.get -> string?
+Kiln.UiTooltipPanelChangedEvent.Session.get -> ulong
+Kiln.UiTooltipPanelChangedEvent.SourceFrame.get -> ulong
+Kiln.UiTooltipPanelChangedEvent.UiTooltipPanelChangedEvent(bool open, ulong session, ulong sourceFrame, Kiln.ItemId item, string? reason) -> void
+Kiln.UiTooltipProvider
 Kiln.UiValueChangeKind
 Kiln.UiValueChangeKind.Added = 0 -> Kiln.UiValueChangeKind
 Kiln.UiValueChangeKind.Evicted = 3 -> Kiln.UiValueChangeKind
@@ -284,6 +316,7 @@ const Kiln.Ui.Values.HeldCapability = "ui.values.held" -> string!
 const Kiln.Ui.Values.HudCapability = "ui.values.hud" -> string!
 const Kiln.Ui.Values.SlotCapability = "ui.values.slot" -> string!
 const Kiln.Ui.Values.SlotsCapability = "ui.slots.inspect" -> string!
+const Kiln.Ui.Values.TooltipCapability = "ui.values.tooltip_lines" -> string!
 override Kiln.UiBarEdit.Equals(object? obj) -> bool
 override Kiln.UiBarEdit.GetHashCode() -> int
 override Kiln.UiBarEdit.ToString() -> string!
@@ -299,6 +332,12 @@ override Kiln.UiProviderDecision.GetHashCode() -> int
 override Kiln.UiProviderDecision.ToString() -> string!
 override Kiln.UiRect.GetHashCode() -> int
 override Kiln.UiScreenKey.GetHashCode() -> int
+override Kiln.UiTooltipDecision.Equals(object? obj) -> bool
+override Kiln.UiTooltipDecision.GetHashCode() -> int
+override Kiln.UiTooltipDecision.ToString() -> string!
+override Kiln.UiTooltipOpenResult.Equals(object? obj) -> bool
+override Kiln.UiTooltipOpenResult.GetHashCode() -> int
+override Kiln.UiTooltipOpenResult.ToString() -> string!
 override Kiln.UiValueContext.GetHashCode() -> int
 override Kiln.UiValueIdentity.GetHashCode() -> int
 override Kiln.VisibleSlot.Equals(object? obj) -> bool
@@ -310,12 +349,15 @@ override Kiln.VisibleSlotsResult.ToString() -> string!
 override Kiln.VisibleSlotsSnapshot.Equals(object? obj) -> bool
 override Kiln.VisibleSlotsSnapshot.GetHashCode() -> int
 override Kiln.VisibleSlotsSnapshot.ToString() -> string!
+static Kiln.Ui.Values.CloseTooltipDetails() -> void
 static Kiln.Ui.Values.HeldBar(Kiln.UiBarProvider! provider) -> Kiln.UiValueRegistration!
 static Kiln.Ui.Values.Hud(Kiln.HudValue vital, Kiln.UiBarProvider! provider) -> Kiln.UiValueRegistration!
 static Kiln.Ui.Values.ItemBar(Kiln.ItemId item, Kiln.UiBarProvider! provider) -> Kiln.UiValueRegistration!
+static Kiln.Ui.Values.OpenTooltipDetails() -> Kiln.UiTooltipOpenResult!
 static Kiln.Ui.Values.SlotBar(Kiln.ItemId item, Kiln.UiBarProvider! provider) -> Kiln.UiValueRegistration!
 static Kiln.Ui.Values.Slots() -> Kiln.VisibleSlotsResult!
 static Kiln.Ui.Values.SubscribeSlots(System.Action<Kiln.VisibleSlotsResult!>! onFrame) -> Kiln.UiValueRegistration!
+static Kiln.Ui.Values.TooltipLines(Kiln.ItemId item, Kiln.UiTooltipProvider! provider) -> Kiln.UiValueRegistration!
 static Kiln.UiBarEdit.operator !=(Kiln.UiBarEdit? left, Kiln.UiBarEdit? right) -> bool
 static Kiln.UiBarEdit.operator ==(Kiln.UiBarEdit? left, Kiln.UiBarEdit? right) -> bool
 static Kiln.UiBarValue.operator !=(Kiln.UiBarValue? left, Kiln.UiBarValue? right) -> bool
@@ -332,6 +374,12 @@ static Kiln.UiRect.operator !=(Kiln.UiRect left, Kiln.UiRect right) -> bool
 static Kiln.UiRect.operator ==(Kiln.UiRect left, Kiln.UiRect right) -> bool
 static Kiln.UiScreenKey.operator !=(Kiln.UiScreenKey left, Kiln.UiScreenKey right) -> bool
 static Kiln.UiScreenKey.operator ==(Kiln.UiScreenKey left, Kiln.UiScreenKey right) -> bool
+static Kiln.UiTooltipDecision.Refuse(string! reason) -> Kiln.UiTooltipDecision!
+static Kiln.UiTooltipDecision.With(params Kiln.UiText![]! lines) -> Kiln.UiTooltipDecision!
+static Kiln.UiTooltipDecision.operator !=(Kiln.UiTooltipDecision? left, Kiln.UiTooltipDecision? right) -> bool
+static Kiln.UiTooltipDecision.operator ==(Kiln.UiTooltipDecision? left, Kiln.UiTooltipDecision? right) -> bool
+static Kiln.UiTooltipOpenResult.operator !=(Kiln.UiTooltipOpenResult? left, Kiln.UiTooltipOpenResult? right) -> bool
+static Kiln.UiTooltipOpenResult.operator ==(Kiln.UiTooltipOpenResult? left, Kiln.UiTooltipOpenResult? right) -> bool
 static Kiln.UiValueContext.operator !=(Kiln.UiValueContext left, Kiln.UiValueContext right) -> bool
 static Kiln.UiValueContext.operator ==(Kiln.UiValueContext left, Kiln.UiValueContext right) -> bool
 static Kiln.UiValueIdentity.operator !=(Kiln.UiValueIdentity left, Kiln.UiValueIdentity right) -> bool
@@ -344,7 +392,9 @@ static Kiln.VisibleSlotsSnapshot.operator !=(Kiln.VisibleSlotsSnapshot? left, Ki
 static Kiln.VisibleSlotsSnapshot.operator ==(Kiln.VisibleSlotsSnapshot? left, Kiln.VisibleSlotsSnapshot? right) -> bool
 static readonly Kiln.UiBarEdit.None -> Kiln.UiBarEdit!
 static readonly Kiln.UiProviderDecision.Pass -> Kiln.UiProviderDecision!
+static readonly Kiln.UiTooltipDecision.None -> Kiln.UiTooltipDecision!
 virtual Kiln.UiBarProvider.Invoke(in Kiln.UiValueContext context, in Kiln.UiItemView item, Kiln.UiBarValue! accumulated) -> Kiln.UiProviderDecision!
+virtual Kiln.UiTooltipProvider.Invoke(in Kiln.UiValueContext context, in Kiln.UiItemView item) -> Kiln.UiTooltipDecision!
 ~override Kiln.UiItemView.Equals(object obj) -> bool
 ~override Kiln.UiItemView.ToString() -> string
 ~override Kiln.UiRect.Equals(object obj) -> bool

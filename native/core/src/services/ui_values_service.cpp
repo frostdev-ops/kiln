@@ -121,6 +121,19 @@ bool call_changed(KilnUiValueChangedFn fn, const KilnUiValueChange* c, void* use
     }
 }
 
+bool call_lines(KilnUiLinesFn fn, const KilnUiProviderContext* c, const KilnUiItemView* v, KilnUiLineWriter* w,
+                void* user, KilnResult* rc) {
+    crash::Capture cap{};
+    unsigned long code = 0;
+    __try {
+        *rc = fn(c, v, w, user);
+        return true;
+    } __except (crash::filter(GetExceptionInformation(), &cap, &code)) {
+        crash::report(cap, "kiln.ui.values lines provider", reinterpret_cast<const void*>(fn));
+        return false;
+    }
+}
+
 bool call_slots(KilnUiSlotsFn fn, const KilnUiSlotsFrame* f, const KilnUiVisibleSlot* s, uint32_t n, void* user) {
     crash::Capture cap{};
     unsigned long code = 0;
@@ -173,6 +186,7 @@ void wire() {
     e.call_value = &call_value;
     e.call_changed = &call_changed;
     e.call_slots = &call_slots;
+    e.call_lines = &call_lines;
     e.subscribe_frames = &subscribe_frames;
     e.log = [](int level, const char* text) { kiln::log::write(level, "kiln", text); };
 }
