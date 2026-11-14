@@ -366,6 +366,19 @@ c->definitions(buf, cap, &len);   /* JSON array: kind, guid, id, name, base, own
 ```
 `define` / `definitions` work from any thread.
 
+### Boot generations (since 0.2.0-dev.28)
+With a boot mod on a dedicated server ([../modding/onboot.md](../modding/onboot.md)) kiln.content runs two of kiln.boot's
+collectors; both prepare before the game's entry point:
+- **`content`** takes the documents Kiln.Blocks lowered from the boot mods' staged definitions: `define` (a new item
+  or recipe, the JSON of `NewContent`) and `clone` (a template, sequence, perk or buff clone). Each is defined under
+  the mod's process owner (`boot:<mod>`) with the GUIDs a runtime `Define` gives, and reaches the game as any
+  definition does (below). A definition it refuses leaves the whole mod out; if the
+  generation is not published, every definition of it is taken out again. kiln.content reads no definition files of
+  its own at boot, so this collector has nothing to prepare without such documents; data packs and pack documents are
+  applied at world load as before.
+- **`patches`**, the last collector, checks the boot mods' resource patches (from `blocks/*.json` and from `OnBoot`)
+  and writes them when the game's resource service comes up ([../modding/resource-patches.md](../modding/resource-patches.md)).
+
 ### Lifecycle
 - **Registration time**: a definition made before the world loads waits; when a world's item and recipe registries
   have loaded (0.3 s after the server world's first step, ~11 s before the save is read) the service inserts every

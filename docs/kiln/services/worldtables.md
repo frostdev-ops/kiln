@@ -46,6 +46,14 @@ reads the game's own bytes once, applies every enabled mod's entries, and serves
 - When the game's resource service comes up (kiln.assets' `when_resources_ready`), on the game's thread and before its first read: resolve names, give
   ids, write the tables, register them as overrides, then run the table writers. Every service's `on_ready` has run by then, on both sides (client log:
   services ready 3 s before the resource service).
+- **With a boot generation** (a boot mod on a dedicated server, [../modding/onboot.md](../modding/onboot.md)): the
+  reading of `on_ready` moves into kiln.boot's prepare, before the game's entry point: the same files and the kept
+  blocks, without the mods the generation left out (a failed boot mod and the mods that require it); if the generation
+  is not published, the read is undone and the start stops anyway. The merge at `when_resources_ready` is unchanged.
+  No boot kind of this build produces world-table blocks (`buildingMaterials`, `terrainMaterials`, `materialTweaks`,
+  `blueprints` and `strengths` answer `NotInBootKinds`), so from `OnBoot` a world-table block still goes through C# and
+  the next start. A resource patch of the same table ([../modding/resource-patches.md](../modding/resource-patches.md))
+  is written at the same `when_resources_ready`, by kiln.content.
 - A block defined from C# arrives after that, when mods load. The game has read its tables by then, so the block is kept in
   `kiln/data/worldtables/pending/<mod>/` and is there from the next start: `TableBlockHandle.Status` says `Pending`, then `Registered`. Once the world
   runs, a kept block the code no longer defines is removed, so it's gone from the next start.

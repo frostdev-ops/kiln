@@ -29,6 +29,7 @@ the same file). v1 manifests (id, name, version, apiVersion, entryAssembly, entr
   "advanced": false,                    // opt into the advanced tier (ModInfo.Advanced)
   "writes": ["Fuel", "ScaleComponent"], // component types the mod writes through the game's write tracking (see "writes")
   "tests": { "autoRun": true, "timeoutSeconds": 20 },  // Kiln.Testing (testing.md)
+  "boot": false,                        // true | "required": Mod.OnBoot runs before the game starts (see "Boot content")
   "kilnBuild": { "version": "0.2.0-dev+20261106.0f0a3f6", "created": "2026-11-06T12:12:16Z" }  // written by the build
 }
 ```
@@ -81,6 +82,23 @@ every enabled server mod when the server starts.
 
 Reserved ids: `kiln` (the core, usable as a dependency), `kiln.api`, `game`, `enshrouded`, `native`
 and `permissions` (they would collide with the config files `<configDir>/native.json` and `permissions.json`).
+
+## Boot content (`boot`, since 0.2.0-dev.28)
+`"boot": true` makes Kiln run the mod's `Mod.OnBoot` once before the game starts, on a copy of the mod that is thrown
+away afterwards; what it stages is in the game from the first start ([onboot.md](onboot.md)). Leave it out (or `false`)
+for a mod without boot content.
+
+- `true`: a failure of the mod's boot content leaves this mod (and the mods that require it) out; the server starts
+  without them.
+- `"required"`: such a failure stops the start before the game's entry point (exit code `0x4B01`, `kiln/state/boot.json`
+  says why).
+- **Restarts.** A boot mod loads only with its boot content in this process. Enabled after the start, left out by a
+  failure, or changed since (Kiln compares a hash of `kiln.mod.json` and the entry assembly with the one the boot phase
+  took): it does not load, and kiln.log says `RestartRequiredBoot: ...`. Restart the server.
+- Dedicated servers only in this build: on a game client a mod with `boot` does not load while `mods.boot.client` is
+  held. A server without the boot phase (safe idle, .NET off) does not load it either.
+- A Kiln.Sdk project has no property for it: keep a `kiln.mod.json` of your own beside the project with the key; the
+  build checks that file and ships it.
 
 ## Clients
 `clients` tells servers and the launcher what a player's game needs to join a server that runs the mod:

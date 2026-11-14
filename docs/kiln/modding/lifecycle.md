@@ -55,6 +55,18 @@ fires ServerStarting + ServerStarted (`Source` = `world-started`); its destructi
 first step and unload after its ServerStopping; client and both mods stay loaded (`Lifecycle.Phase` = `Idle` between
 sessions). See docs/kiln/client.md, "Mods and sides".
 
+## OnBoot, before the game starts (since 0.2.0-dev.28)
+A mod whose `kiln.mod.json` says `"boot": true` (or `"required"`) gets `Mod.OnBoot(BootContext)` first, on a dedicated
+server: once per process, on Kiln's boot thread, before the game's entry point and so long before `OnLoad` and the
+events above. It runs on a **throwaway copy**: Kiln loads the mod's assembly on its own, calls `OnBoot` on a fresh
+instance and unloads it again. The instance that then gets `OnLoad` is a new one; fields and statics set in `OnBoot` are
+gone. What `OnBoot` staged with `BootDefinitions` is in the game by then, and `Mods.BootState(id)` says how it went
+([onboot.md](onboot.md)).
+
+- A **hot reload** of a boot mod runs `OnLoad` only. Its boot content stays as the start committed it; a changed
+  manifest or entry assembly is refused (`RestartRequiredBoot`) until the next start.
+- `BootDefinitionsCommittedEvent` comes after each such load, at Kiln.Blocks' next step.
+
 ## The Mods API (Forge's `ModList`)
 ```csharp
 foreach (var m in Mods.All) Log.Info($"{m.Id} {m.Version} {m.State} {m.Error}");   // loaded first, in load order
@@ -66,7 +78,8 @@ Mods.Side;                                 // Server / Client
 var r = await Mods.ReloadAsync("my-mod");  // also UnloadAsync(id), LoadAsync(folder): run at the next step
 ```
 `ModState`: `Pending`, `Loaded`, `Disabled` (fault policy), `Failed` (with `Error`), `Skipped` (other side,
-`.disabled`), `Unloaded`. `ModInfo` (on `Context.Info` and `ModEntry.Info`) carries the whole manifest: side,
+`.disabled`), `Unloaded`. `Mods.BootState(id)` (any thread) is a boot mod's part in this process's boot generation:
+`BootModState`, its committed definitions and its issues ([onboot.md](onboot.md#afterwards)). `ModInfo` (on `Context.Info` and `ModEntry.Info`) carries the whole manifest: side,
 authors, description, license, url, apiVersion, dependencies, exports, features, `Advanced`.
 
 ## Inter-mod messages (Forge's InterModComms)
