@@ -259,3 +259,7 @@ a held row reads `unavailable`, `policy`, `game test pending: <ids>` until then.
 
 | Row | Kind | Reported by | Held until | What it says |
 |---|---|---|---|---|
+| `blocks.kinds` | managed | Kiln.Blocks | - | A mod can register a block kind (`Blocks.RegisterKind`). Off where blocks have nothing to compile to |
+| `blocks.compile` | managed | Kiln.Blocks | - | A block of a registered kind compiles to a frozen plan (`Blocks.Compile`, `Blocks.Application`) |
+| `blocks.apply` | managed | Kiln.Blocks | - | Plans are applied (`Blocks.Apply`, `Blocks.Define` with a block of an external kind). Needs a Kiln that can revoke a plan's owner |
+| `blocks.apply.item`, `.weapon`, `.spell`, `.status`, `.effect` | managed | Kiln.Blocks | - | A plan whose primary is this built-in block is applied |

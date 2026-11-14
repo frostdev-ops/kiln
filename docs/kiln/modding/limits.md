@@ -21,6 +21,7 @@ guided game test ([services/caps.md](../services/caps.md#the-client-gate-dev28))
 
 | Row below (or new) | What dev.28 does | Capability | Proof so far |
 |---|---|---|---|
+| A public way to add a block kind (new) | Public block kinds v1 ([block-kinds.md](block-kinds.md)): an ordinary managed provider mod as a dependency; a pure compiler to one primary (item, weapon, spell, status, effect) and at most 32 effects; no boot, raw, content-ready or nested external kinds; depth 32, 4096 nodes, 64 KiB per product, 1 MiB per plan; bound to the consumer mod instance; reload to change an applied name | `blocks.kinds`, `blocks.compile`, `blocks.apply`, `blocks.apply.<primary>` | offline tests (registry, compile, staging, apply, a refusal at every registration for each primary) |
 
 ## No API yet
 

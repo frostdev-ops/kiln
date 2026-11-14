@@ -217,6 +217,17 @@
     "affixes": {"type": "object", "description": "Affix kinds: rolled modifiers on one item (\"+5 Strength\" on this sword), a stat with tiers and the range each rolls in. A pool rolls them onto an item, and Kiln applies them while it is worn or in hand. Server; asks nothing of players' games. Rolled items keep the id \"mod:name\", the same as Affixes.Define gives.", "propertyNames": {"$ref": "#/$defs/affixName"}, "additionalProperties": {"$ref": "#/$defs/affix"}},
     "affixPools": {"type": "object", "description": "Affix pools: which items roll which affixes, and how many. Code rolls one onto an item (AffixPoolHandle.Roll); its entries name affixes of this mod's code or blocks files, in either order.", "propertyNames": {"$ref": "#/$defs/affixName"}, "additionalProperties": {"$ref": "#/$defs/affixPool"}}
   },
+  "patternProperties": {
+    "^[a-z0-9][a-z0-9._-]{0,63}:[A-Za-z0-9-]{1,64}$": {
+      "description": "Blocks of a kind another mod registered (Blocks.RegisterKind): \"provider-mod:plural\". The provider mod must be a dependency of this mod. Every block says \"format\": 1; the rest is the kind's own record, checked by the provider's schema when the mod loads. docs/kiln/modding/block-kinds.md",
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["format"],
+        "properties": { "format": { "const": 1 } }
+      }
+    }
+  },
   "additionalProperties": false,
   "$defs": {
     "strength": {

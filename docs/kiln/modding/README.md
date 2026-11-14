@@ -17,6 +17,7 @@ generated [../status.generated.md](../status.generated.md); what has no API yet 
 | [../services/caps.md](../services/caps.md) | Asking what works: `Capabilities.Is/Get/Why/All`, why a capability is off; the manifest's `features` rules (manifest.md, "Asking what works") |
 | [limits.md](limits.md) | What a mod cannot do yet: each gap, what stands in the way, the release it is planned for |
 | [blocks.md](blocks.md) | Building blocks: effects, statuses, spells, abilities, perks, talents, bodies, loot, affixes and UI; what they compile to, client requirements and errors. Start here to make something |
+| [block-kinds.md](block-kinds.md) | A kind of block a mod adds: the provider's record and pure compiler, the consumer's blocks in C# and JSON, plans, application states, limits |
 | [affixes.md](affixes.md) | Affixes: rolled modifiers on one item ("+5 Strength", "+10% Move Speed"), as affix kinds and pools, which are blocks (`Blocks.Define`, `affixes` and `affixPools` in `blocks/*.json`, or `Affixes.Define`); kept with the item, applied while it is worn or in hand, shown in players' games (dev.27) |
 | [inventory.md](inventory.md) | Moving items between inventories keeping their state (a stack, quick stack, move all), container names, transfer rules and events (ported from shroudlink), and why gear data lasts only a session |
 | [item-blocks.md](item-blocks.md) | Items, weapons, wands, armor, stations, loot tables and recipes as blocks: no base items, no GUIDs; a weapon's own moves and held models with moving parts |
