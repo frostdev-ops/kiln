@@ -663,6 +663,13 @@ KilnResult KILN_CALL t_blob_add_ex(KilnOwner o, const void* d, size_t n, KilnCon
 KilnResult KILN_CALL t_blob_over_ex(KilnOwner o, const KilnContentHash* h, const void* d, size_t n, uint32_t origin) {
     return op_blob_override_ex(o, h, d, n, origin);
 }
+KilnResult KILN_CALL t_cat_open(KilnOwner o, uint32_t mode, KilnHandle* h, KilnBlobCatalogInfo* info) {
+    return op_catalog_open(o, mode, h, info);
+}
+KilnResult KILN_CALL t_cat_read(KilnHandle h, uint64_t first, KilnBlobCatalogEntry* out, uint32_t entry_size, size_t cap, size_t* n) {
+    return op_catalog_read(h, first, out, entry_size, cap, n);
+}
+KilnResult KILN_CALL t_cat_close(KilnHandle h) { return op_catalog_close(h); }
 
 const KilnAssetsApi kTable = {
     {sizeof(KilnAssetsApi), KILN_ASSETS_VERSION},
@@ -676,6 +683,7 @@ const KilnAssetsApi kTable = {
     &t_res_new_count,
     &t_when_ready,
     &t_blob_add_ex, &t_blob_over_ex,  // since 0.2.0-dev.28
+    &t_cat_open, &t_cat_read, &t_cat_close,
 };
 
 // ---- control commands: kiln/control/assets.cmd -> assets.result.json (handled by the core's console) ------------

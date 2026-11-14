@@ -138,6 +138,11 @@ struct GameBlob {
 };
 bool game_blob_find(const HashK& h, GameBlob* out);  // the game's content map (needs the resource system)
 std::string game_container_path(uint16_t index);   // UTF-8 path of enshrouded_NNN.dat, "" if unknown
+// The keys of the game's own content index, copied (the catalog, catalog.cpp): the whole key array in one guarded copy,
+// checked against its bucket layout on the copy, the header read again after it. Fetches the index when the game has not
+// asked for it yet (as game_blob_find). `total`: the index's key count, also when it is over `max_keys` (nothing copied).
+enum class GameIndex { ok, not_ready, unreadable, unsupported, too_many };
+GameIndex game_index_keys(std::vector<HashK>* out, size_t max_keys, uint64_t* total, std::string* why);
 uint32_t game_container_count();
 
 // ------------------------------------------------------------------------------------------- store -----------
@@ -272,6 +277,11 @@ enum CatalogChange : uint32_t { kChangeNone = 0, kChangeReady = 1, kChangeRegist
 uint64_t catalog_generation();
 void catalog_changed(CatalogChange why);  // any thread (hooks.cpp: the game's content index became readable)
 std::string catalog_status_json();        // "catalog":{...} for status (the generation and the last change)
+void catalog_release_owner(KilnOwner owner);  // catalog.cpp: closes the owner's catalog handles (op_revert_owner)
+KilnResult op_catalog_open(KilnOwner owner, uint32_t mode, KilnHandle* handle, KilnBlobCatalogInfo* info);
+KilnResult op_catalog_read(KilnHandle handle, uint64_t first, KilnBlobCatalogEntry* out, uint32_t entry_size, size_t cap,
+                           size_t* written);
+KilnResult op_catalog_close(KilnHandle handle);
 
 // Store operations (store.cpp).
 KilnResult op_resource_put(KilnOwner owner, const KilnAssetKey* key, const void* data, size_t len, uint32_t flags);

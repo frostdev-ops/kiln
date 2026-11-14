@@ -732,6 +732,7 @@ int32_t op_icon_state(const uint8_t guid[16]) {
 }
 
 void op_revert_owner(KilnOwner owner) {
+    catalog_release_owner(owner);  // its catalog handles (the catalog's own lock, not g_mu)
     std::lock_guard lock(g_mu);
     bool res = false, blob = false, icon = false;
     auto re = [&](auto& v, auto pred, bool& flag) {

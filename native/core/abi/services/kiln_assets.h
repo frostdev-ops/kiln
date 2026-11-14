@@ -117,6 +117,72 @@ enum {
     KILN_BLOB_ORIGIN_NATIVE_API = 8, /* any other caller: blob_add/blob_override, icons and textures registered by call */
 };
 
+/* ---- the content blob catalog (since 0.2.0-dev.28; capability assets.blob_catalog) ----
+ * An immutable, paged snapshot of every content blob the game serves: the game's own content index and every live
+ * registration (assets.json, managed, native), one entry per distinct hash, with the origins that contribute it and the
+ * registration that is served now. Kiln-owned layouts, not game ones.
+ *
+ * blob_catalog_open(owner, mode, handle, info): builds (or shares) a snapshot of the catalog as it is now.
+ *   mode KILN_BLOB_CATALOG_REQUIRE_COMPLETE: the game's index and the registrations; refused (status NOT_READY, no
+ *     handle) while the game's index cannot be read yet. KILN_BLOB_CATALOG_REGISTRATIONS_ONLY: the registrations only,
+ *     status INCOMPLETE with exactly the REGISTRATIONS_COMPLETE flag (it is not "all game contents").
+ *   info->size must be >= 32 (set it to sizeof(KilnBlobCatalogInfo)); it is filled on every answer but a bad argument.
+ *   Only status COMPLETE or INCOMPLETE returns a handle (KILN_OK). Otherwise *handle = 0 and: NOT_READY and UNAVAILABLE
+ *   return KILN_ERR_UNAVAILABLE, LIMIT_EXCEEDED returns KILN_ERR_BUFFER_TOO_SMALL (never a truncated snapshot).
+ *   KILN_ERR_INVALID_ARGUMENT: owner 0, an unknown mode, a NULL handle or info, info->size < 32.
+ *   Budgets: 1,000,000 entries and 64 MiB per snapshot, 128 MiB for every distinct snapshot handles hold, 64 handles.
+ *   A snapshot never changes; its generation is the catalog's when it was built. Handles that open at the same
+ *   generation and mode share one. owner's handles close when kiln.assets reverts the owner (revoked or revert_owner).
+ * blob_catalog_read(handle, first, out, entry_size, cap, written): copies entries first.. (at most cap of them, each
+ *   entry_size >= 48 bytes apart; bytes past 48 are zeroed) and sets *written. first == total: 0 entries, KILN_OK;
+ *   first > total, entry_size < 48, written NULL, out NULL with cap > 0: KILN_ERR_INVALID_ARGUMENT; an unknown or
+ *   closed handle: KILN_ERR_NOT_FOUND. A copy in flight keeps the snapshot alive past a close.
+ * blob_catalog_close(handle): KILN_ERR_NOT_FOUND when unknown or closed already.
+ * Entries are sorted by (size, hash0, hash1, hash2), unsigned. Any thread. The registrations are copied under the store's
+ * lock (no game call, no IO, no callback while it is held); the game's index is copied once per build through guarded
+ * reads and never borrowed; builds run one at a time. The bytes of a blob: blob_read. */
+enum { KILN_BLOB_CATALOG_REQUIRE_COMPLETE = 0, KILN_BLOB_CATALOG_REGISTRATIONS_ONLY = 1 };
+/* KilnBlobCatalogInfo.status */
+enum {
+    KILN_BLOB_CATALOG_COMPLETE = 0,       /* the game's index and every registration */
+    KILN_BLOB_CATALOG_INCOMPLETE = 1,     /* registrations only (the mode asked for it) */
+    KILN_BLOB_CATALOG_NOT_READY = 2,      /* the game's index cannot be read yet, or was unstable while copied */
+    KILN_BLOB_CATALOG_LIMIT_EXCEEDED = 3, /* a budget would be exceeded; nothing is opened */
+    KILN_BLOB_CATALOG_UNAVAILABLE = 4,    /* the content hooks are off on this build, or the index layout is unsupported */
+};
+/* KilnBlobCatalogInfo.flags */
+enum { KILN_BLOB_CATALOG_GAME_COMPLETE = 1, KILN_BLOB_CATALOG_REGISTRATIONS_COMPLETE = 2 };
+/* KilnBlobCatalogInfo.reason */
+enum {
+    KILN_BLOB_CATALOG_REASON_NONE = 0,
+    KILN_BLOB_CATALOG_REASON_GAME_NOT_READY = 1,    /* the game has not opened its content index yet */
+    KILN_BLOB_CATALOG_REASON_UNREADABLE_MAP = 2,    /* a read of it faulted, or it changed while copied */
+    KILN_BLOB_CATALOG_REASON_ENTRY_BUDGET = 3,      /* more than 1,000,000 entries */
+    KILN_BLOB_CATALOG_REASON_MEMORY_BUDGET = 4,     /* over 64 MiB for it, 128 MiB for all held, or 64 handles open */
+    KILN_BLOB_CATALOG_REASON_UNSUPPORTED_TABLE = 5, /* content hooks off, or the index is not laid out as kiln.assets reads it */
+};
+/* KilnBlobCatalogEntry.flags */
+enum { KILN_BLOB_CATALOG_OVERRIDDEN = 1 }; /* the served bytes are a registration's in place of a game blob */
+
+typedef struct KilnBlobCatalogInfo { /* 32 bytes, align 8 */
+    uint32_t size;       /* the caller's sizeof(KilnBlobCatalogInfo), >= 32 */
+    uint32_t status;     /* KILN_BLOB_CATALOG_COMPLETE ... */
+    uint64_t generation; /* the catalog's generation (moves on every registration, removal, owner revert, readiness) */
+    uint64_t total;      /* entries in the snapshot; 0 without one */
+    uint32_t flags;      /* KILN_BLOB_CATALOG_GAME_COMPLETE | ..._REGISTRATIONS_COMPLETE */
+    uint32_t reason;     /* KILN_BLOB_CATALOG_REASON_* */
+} KilnBlobCatalogInfo;
+
+typedef struct KilnBlobCatalogEntry { /* 48 bytes, align 8 */
+    uint32_t size;               /* 48: the bytes of the entry kiln.assets wrote */
+    uint32_t flags;              /* KILN_BLOB_CATALOG_OVERRIDDEN */
+    KilnContentHash hash;
+    uint32_t origins;            /* KILN_BLOB_ORIGIN_* bits: GAME when the game's index lists it, plus every live registration's */
+    uint32_t selected_origin;    /* exactly one bit: whose bytes are served (GAME: the game's own) */
+    KilnOwner selected_owner;    /* the served registration's owner; 0 for GAME */
+    uint64_t selected_sequence;  /* its sequence; 0 for GAME */
+} KilnBlobCatalogEntry;
+
 typedef struct KilnAssetsApi {
     KilnServiceHeader header; /* { sizeof(KilnAssetsApi), KILN_ASSETS_VERSION } */
 
@@ -210,6 +276,11 @@ typedef struct KilnAssetsApi {
                                        uint32_t api_origin);
     KilnResult(KILN_CALL* blob_override_ex)(KilnOwner owner, const KilnContentHash* hash, const void* data, size_t len,
                                             uint32_t api_origin);
+    /* The content blob catalog (above, before KilnAssetsApi). */
+    KilnResult(KILN_CALL* blob_catalog_open)(KilnOwner owner, uint32_t mode, KilnHandle* handle, KilnBlobCatalogInfo* info);
+    KilnResult(KILN_CALL* blob_catalog_read)(KilnHandle handle, uint64_t first, KilnBlobCatalogEntry* out,
+                                             uint32_t entry_size, size_t cap, size_t* written);
+    KilnResult(KILN_CALL* blob_catalog_close)(KilnHandle handle);
 } KilnAssetsApi;
 
 #ifdef __cplusplus
