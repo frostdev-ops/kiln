@@ -27,6 +27,7 @@
 #include "runtime.h"
 #include "system_hooks.h"
 #include "services/kiln_types.h"
+#include "services/kiln_caps.h"
 #include "../../plugins/set/src/coexist.h"
 
 namespace {
@@ -45,6 +46,9 @@ std::unordered_map<std::string_view, uint64_t> g_by_short;  // unique short name
 std::unordered_map<std::string_view, uint64_t> g_by_short_nods;
 std::unordered_map<uint64_t, uint32_t> g_index_of;
 std::string g_detail;
+// Impact names (since 0.2.0-dev.28): validated once at boot over the immutable image snapshot; read-only afterwards.
+ImpactNames g_impact;
+constexpr const char* kImpactCap = "types.impact_names";
 
 // Systems
 std::vector<System> g_sys;
@@ -299,6 +303,19 @@ const KilnType* KILN_CALL component_type_at(uint32_t i) {
 uint32_t KILN_CALL event_type_count() { return g_tt.event_count; }
 const KilnType* KILN_CALL event_type_at(uint32_t i) {
     return i < g_tt.event_count ? handle(g_im.q(g_tt.events + 8ull * i)) : nullptr;
+}
+// Any thread: g_impact and the image snapshot are fixed once kiln_plugin_main returned.
+KilnResult KILN_CALL type_impact_name(const KilnType* type, char* out, size_t cap, size_t* required) {
+    if (!required || (cap && !out)) return KILN_ERR_INVALID_ARGUMENT;
+    *required = 0;
+    if (!g_impact.ok) return KILN_ERR_UNAVAILABLE;
+    if (!known(type)) return KILN_ERR_NOT_FOUND;
+    std::string_view s;
+    if (impact_name_at(g_im, raw(type), s) == ImpactField::malformed) return KILN_ERR_NOT_FOUND;
+    *required = s.size();
+    if (cap < s.size()) return KILN_ERR_BUFFER_TOO_SMALL;
+    if (!s.empty()) std::memcpy(out, s.data(), s.size());
+    return KILN_OK;
 }
 
 // ---- systems ----
@@ -655,6 +672,7 @@ const KilnTypesApi kTable = {
     {sizeof(KilnTypesApi), KILN_TYPES_VERSION}, &status, &type_count, &type_at, &type_by_hash, &type_by_name, &type_info,
     &type_field, &type_enum, &component_type_count, &component_type_at, &event_type_count, &event_type_at,
     &system_count, &system_info, &system_find, &system_set_enabled, &profile, &event_each, &event_post, &system_release_owner, &system_hook, &system_unhook,
+    &type_impact_name,
 };
 
 bool sym(const char* n, uintptr_t* out) { return g_api->symbol(KilnStr{n, std::strlen(n)}, out) == KILN_OK; }
@@ -662,6 +680,23 @@ bool cst(const char* n, int64_t* out) { return g_api->constant(KilnStr{n, std::s
 bool feat(const char* n) { return g_api->feature(KilnStr{n, std::strlen(n)}); }
 
 void add_detail(const std::string& s) { g_detail += (g_detail.empty() ? "" : "; ") + s; }
+
+// types.impact_names to kiln.caps (in the core, there before any service DLL loads). An older core has no kiln.caps:
+// then the row is missing and Kiln.Api answers the capability off.
+void report_impact_row() {
+    auto* caps = static_cast<const KilnCapsApi*>(g_api->service(KilnStr{KILN_CAPS_SERVICE, sizeof(KILN_CAPS_SERVICE) - 1}, KILN_CAPS_VERSION));
+    if (!caps || caps->header.size < offsetof(KilnCapsApi, report) + sizeof(void*) || !caps->report) return;
+    std::string text;
+    if (g_impact.ok)
+        text = std::to_string(g_impact.valid) + " types, " + std::to_string(g_impact.distinct) + " distinct Impact names, " +
+               std::to_string(g_impact.shared) + " shared by several types";
+    else
+        text = g_impact.why;
+    const KilnResult rc = caps->report(g_owner, KilnStr{kImpactCap, std::strlen(kImpactCap)},
+                                       g_impact.ok ? KILN_CAP_AVAILABLE : KILN_CAP_UNAVAILABLE,
+                                       g_impact.ok ? KILN_CAP_REASON_NONE : KILN_CAP_REASON_SYMBOL_MISSING, ks(text));
+    if (rc != KILN_OK) logf(KILN_LOG_WARN, "types: kiln.caps refused the row %s (%d)", kImpactCap, rc);
+}
 
 }  // namespace
 
@@ -687,6 +722,8 @@ extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api,
     } else {
         index_types();
     }
+    g_impact = index_impact_names(g_im, g_tt);
+    if (!g_impact.ok && g_tt.error.empty()) add_detail(g_impact.why);
     if (!g_tt.component_count) add_detail("the ECS component/event lists were not found");
     g_sys = scan_systems(g_im);
     const size_t n = g_sys.size();
@@ -728,8 +765,13 @@ extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api,
     else add_detail("event streams not found (sigdb types.events)");
     const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
     logf(g_detail.empty() ? KILN_LOG_INFO : KILN_LOG_WARN,
-         "types: %u types (%u components, %u events), %zu systems%s, events %s; %.1f ms%s%s", g_tt.count,
+         "types: %u types (%u components, %u events), %zu systems%s, events %s, impact names %s; %.1f ms%s%s", g_tt.count,
          g_tt.component_count, g_tt.event_count, n, g_systems_ok ? " (runner hooked)" : " (switching off)",
-         g_events_ok ? "on" : "off", ms, g_detail.empty() ? "" : "; ", g_detail.c_str());
-    return api->register_service(owner, KilnStr{KILN_TYPES_SERVICE, sizeof(KILN_TYPES_SERVICE) - 1}, &kTable);
+         g_events_ok ? "on" : "off", g_impact.ok ? "on" : "off", ms, g_detail.empty() ? "" : "; ", g_detail.c_str());
+    if (g_impact.ok)
+        logf(KILN_LOG_INFO, "types: impact names: %u of %u types (%u distinct, %u shared by several types, %u empty, %u malformed)",
+             g_impact.valid, g_tt.count, g_impact.distinct, g_impact.shared, g_impact.empty, g_impact.malformed);
+    const KilnResult registered = api->register_service(owner, KilnStr{KILN_TYPES_SERVICE, sizeof(KILN_TYPES_SERVICE) - 1}, &kTable);
+    if (registered == KILN_OK) report_impact_row();
+    return registered;
 }
