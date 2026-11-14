@@ -425,6 +425,18 @@ bool root_denied(const uint8_t* hit) {
 void __fastcall hk_apply_hit(uint8_t* prop, void* handle, void* ctx, uint8_t* hit) {
     if (root_denied(hit)) {
         if (prop) *prop = 0;
+        // a Kiln request (Combat.Damage) ends Dropped, as at the god-mode seam: the hit never happened
+        uint32_t impact = 0;
+        if (read_u32(hit + HitOffsets::impact_id, &impact) && (impact & 0xFF000000u) == kKilnImpactTag) {
+            std::lock_guard lock(g_mu);  // bookkeeping only: the original is not called on this path
+            if (auto r = g_req_by_impact.find(impact); r != g_req_by_impact.end()) {
+                auto st = g_req_state.find(r->second);
+                if (st != g_req_state.end() && st->second.st.state == KILN_HIT_QUEUED) {
+                    st->second.st.state = KILN_HIT_DROPPED;
+                    st->second.step_done = g_step.load();
+                }
+            }
+        }
         if (c_root_denied.fetch_add(1, std::memory_order_relaxed) == 0) LOGI("a hit of a retired or quarantined root was denied");
         return;
     }
