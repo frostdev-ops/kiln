@@ -259,3 +259,7 @@ a held row reads `unavailable`, `policy`, `game test pending: <ids>` until then.
 
 | Row | Kind | Reported by | Held until | What it says |
 |---|---|---|---|---|
+| `hooks.typed` | sigdb feature | core | - | kiln.hooks has typed links (`detour_typed`, `call_with_frame`, `fingerprint`): a hook or call of a game function with float, stack and struct-return positions |
+| `sig/<symbol>` | sigdb feature | core | - | the symbol has a `sig` descriptor, resolved, and its function's code fits the descriptor on this build (one row per described symbol: `sig/time/SetTimeScale`, `sig/items/GetItemVolume`, ...). Off: the reason names the argument that no longer fits; the symbol itself may still resolve. Check it before a native hook relies on the described signature |
+| `items.volume` | sigdb feature | core | - | `items/GetItemVolume` resolved |
+| `weather.sample` | sigdb feature | core | - | `weather/SampleAt` resolved (captured from its call in `fuel_setup`) |
