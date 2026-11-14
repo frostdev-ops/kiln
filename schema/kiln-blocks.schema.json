@@ -1605,7 +1605,27 @@
         "phases": { "type": "array", "items": { "type": "string" } },
         "pickAttack": { "type": "string" },
         "pickEvery": { "type": "number", "description": "Seconds.", "minimum": 0, "maximum": 60 },
-        "brain": { "type": "string", "description": "A brain registered with Blocks.Brain." }
+        "brain": { "type": "string", "description": "A brain registered with Blocks.Brain." },
+        "perception": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "How the brain sees. Only with a brain. Left out: distance and faction.",
+          "properties": {
+            "occlusion": { "type": "string", "enum": ["distanceAndFaction", "voxels", "DistanceAndFaction", "Voxels"], "description": "voxels: a candidate behind terrain or a building is not seen (Queries.VoxelLineOfSight); one whose line cannot be checked is not seen either." },
+            "fromOffset": { "$ref": "#/$defs/perceptionOffset" },
+            "toOffset": { "$ref": "#/$defs/perceptionOffset" }
+          }
+        }
+      }
+    },
+    "perceptionOffset": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Metres along the world's axes (y up), added to the entity's position. Default 0, 1.5, 0.",
+      "properties": {
+        "x": { "type": "number", "minimum": -32, "maximum": 32 },
+        "y": { "type": "number", "minimum": -32, "maximum": 32 },
+        "z": { "type": "number", "minimum": -32, "maximum": 32 }
       }
     },
     "creatureStats": {

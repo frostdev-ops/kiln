@@ -6,7 +6,7 @@
 #include <cstdarg>
 #include <cstdio>
 
-#include "world_internal.h"
+#include "wraps.h"
 
 namespace kw {
 
@@ -190,6 +190,7 @@ bool resolve() {
 }
 
 void KILN_CALL on_pre(const KilnTickInfo* tick, void*) {
+    game_programs_pre(KILN_WORLD_SERVER, tick);
     const uint64_t runs = g_internal_runs.load(std::memory_order_acquire);
     const bool live = runs != g_last_runs;
     g_last_runs = runs;
@@ -228,14 +229,46 @@ const void* KILN_CALL t_read_other(KilnProgramCtx* c, uint64_t accessor, KilnEnt
     return read_other(c, accessor, e, size);
 }
 uint32_t KILN_CALL t_component_hash(KilnStr name) { return component_hash(sv(name)); }
-const void* KILN_CALL t_component(KilnEntity e, uint32_t hash, uint32_t* size) { return component(e, hash, size); }
-bool KILN_CALL t_exists(KilnEntity e) { return exists(e); }
-KilnResult KILN_CALL t_transform(KilnEntity e, KilnTransform* out) { return transform(e, out); }
-KilnResult KILN_CALL t_position(KilnEntity e, KilnVec3* out) { return position(e, out); }
+// Inside a wrap stage the world is in the middle of its step (maybe on a worker): the tick-thread calls refuse there,
+// also on the world's own thread, where on_tick_thread() alone would let them through.
+const void* KILN_CALL t_component(KilnEntity e, uint32_t hash, uint32_t* size) {
+    if (game_in_slice()) return size ? (*size = 0, nullptr) : nullptr;
+    return component(e, hash, size);
+}
+bool KILN_CALL t_exists(KilnEntity e) { return !game_in_slice() && exists(e); }
+KilnResult KILN_CALL t_transform(KilnEntity e, KilnTransform* out) {
+    return game_in_slice() ? KILN_ERR_WRONG_THREAD : transform(e, out);
+}
+KilnResult KILN_CALL t_position(KilnEntity e, KilnVec3* out) {
+    return game_in_slice() ? KILN_ERR_WRONG_THREAD : position(e, out);
+}
 KilnResult KILN_CALL t_find(uint32_t hash, KilnEntity* out, uint32_t cap, uint32_t* count) {
+    if (game_in_slice()) {
+        if (count) *count = 0;
+        return KILN_ERR_WRONG_THREAD;
+    }
     return find(hash, out, cap, count);
 }
-uint32_t KILN_CALL t_entity_count() { return entity_count(); }
+uint32_t KILN_CALL t_entity_count() { return game_in_slice() ? 0 : entity_count(); }
+KilnResult KILN_CALL t_unregister_program(KilnHandle h) {
+    return game_in_slice() ? KILN_ERR_WRONG_THREAD : unregister_program(h);
+}
+KilnResult KILN_CALL t_bind_program(KilnOwner owner, KilnStr mod, KilnStr key, KilnProgramEachFn each, void* user,
+                                    KilnHandle* out) {
+    if (game_in_slice()) {
+        if (out) *out = 0;
+        return KILN_ERR_WRONG_THREAD;
+    }
+    return bind_program(owner, mod, key, each, user, out);
+}
+KilnResult KILN_CALL t_write_submit(KilnOwner owner, const KilnWorldWriteRequest* request, uint64_t* out_ticket) {
+    if (game_in_slice()) {
+        if (out_ticket) *out_ticket = 0;
+        return KILN_ERR_WRONG_THREAD;
+    }
+    return write_submit(owner, request, out_ticket);
+}
+KilnResult KILN_CALL t_write_cancel(uint64_t ticket) { return game_in_slice() ? KILN_ERR_WRONG_THREAD : write_cancel(ticket); }
 uintptr_t KILN_CALL t_server_world() { return g_world.load(); }
 KilnResult KILN_CALL t_teleport(KilnOwner owner, const KilnTeleportRequest* req, uint64_t* out) {
     return teleport(owner, req, out);
@@ -289,17 +322,30 @@ const KilnWorldApi kTable = {
     &t_teleport_cancel,
     &t_status,
     &write_other,
-    &unregister_program,
-    &bind_program,
+    &t_unregister_program,
+    &t_bind_program,
     &program_capabilities,
     &program_events,
     &program_emit,
-    &write_submit,
-    &write_cancel,
+    &t_write_submit,
+    &t_write_cancel,
     &write_info,
     &write_status,
     &write_declare,
+    &game_program_find,
+    &game_program_info,
+    &game_programs_status,
+    &lab_parallel,
+    &game_program_wrap,
+    &game_program_unwrap,
+    &game_wrap_info,
+    &game_wraps_release,
+    &game_slice_run_original,
+    &wrap_original,
 };
+
+void KILN_CALL on_client_pre(const KilnTickInfo* tick, void*) { game_programs_pre(KILN_WORLD_CLIENT, tick); }
+void KILN_CALL on_world_event(const KilnWorldEvent* event, void*) { game_programs_world_event(event); }
 
 }  // namespace
 }  // namespace kw
@@ -312,8 +358,10 @@ extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api,
     if (info->size >= offsetof(KilnPluginInfo, on_ready) + sizeof(info->on_ready))
         info->on_ready = [](void*) { boot_programs_init(); };
     info->id = KilnStr{KILN_WORLD_SERVICE, sizeof(KILN_WORLD_SERVICE) - 1};
-    info->version = KilnStr{"3", 1};
+    info->version = KilnStr{"4", 1};
     resolve();
+    game_programs_resolve();
+    wraps_init();
     const bool hooked = programs_init();
     if (!hooked) F.programs = F.teleport = false;
     if (hooked) {
@@ -329,6 +377,14 @@ extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api,
         KW_W("no tick subscription: teleport is off");
         F.teleport = false;
     }
+    // The game's own programs: the client world's directory (a game client) and every world's start and stop.
+    if (api->size >= offsetof(KilnApi, session) + sizeof(void*)) {
+        KilnHandle h = 0;
+        if (api->side() == KILN_SIDE_CLIENT)
+            api->subscribe_world_tick(owner, KILN_WORLD_CLIENT, KILN_TICK_PRE, &on_client_pre, nullptr, &h);
+        api->subscribe_world(owner, &on_world_event, nullptr, &h);
+    }
+    game_programs_init();
     KW_I("kiln.world: programs %s, entities %s, find %s, names %s (singletons %s, events %s), queue %s, "
          "write %s, read_other %s, teleport %s, dead check %s, tracked writes %s",
          F.programs ? "on" : "off", F.entities ? "on" : "off", F.find ? "on" : "off", F.names ? "on" : "off",

@@ -298,6 +298,7 @@ const EMBEDDED: &[(&str, &str)] = &[
     ("kiln-vfx.schema.json", include_str!("../../../../schema/kiln-vfx.schema.json")),
     ("kiln-programs.schema.json", include_str!("../../../../schema/kiln-programs.schema.json")),
     ("kiln-release.schema.json", include_str!("../../../../schema/kiln-release.schema.json")),
+    ("kiln-publish.schema.json", include_str!("../../../../schema/kiln-publish.schema.json")),
 ];
 const INDEX: &str = include_str!("../../../../schema/schemas.json");
 

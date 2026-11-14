@@ -213,6 +213,10 @@ internal static partial class KilnApis
         "M:Kiln.CreatureCommands.MoveTo(Kiln.WorldPosition)", // CreatureCommands.MoveTo(WorldPosition): via CreatureRef.Home.set
         "M:Kiln.CreatureCommands.Stay", // CreatureCommands.Stay(): via CreatureRef.Inspect()
         "M:Kiln.CreatureCommands.StopGuarding(Kiln.EntityId)", // CreatureCommands.StopGuarding(EntityId): via CreatureCommands.Send(uint, EntityId, float, uint)
+        "M:Kiln.CreatureControl.Acquire(Kiln.EntityRef,Kiln.ControlRole,Kiln.ControlRequestId)", // CreatureControl.Acquire(EntityRef, ControlRole, ControlRequestId): via CreatureControl.Table(string)
+        "M:Kiln.CreatureControl.NewRequestId", // CreatureControl.NewRequestId(): via CreatureControl.Table(string)
+        "M:Kiln.CreatureControl.Release(Kiln.ControlLeaseId)", // CreatureControl.Release(ControlLeaseId): via CreatureControl.Table(string)
+        "M:Kiln.CreatureControl.WaitActive(Kiln.ControlLeaseId,System.Double)", // CreatureControl.WaitActive(ControlLeaseId, double): via CreatureControl.Table(string)
         "M:Kiln.CreatureRef.FeatureAccess.Disable(Kiln.EnemyFeatures)", // CreatureRef.FeatureAccess.Disable(EnemyFeatures): via CreatureRef.SetRaw(uint, uint, CreaturesNative.Value, string)
         "M:Kiln.CreatureRef.FeatureAccess.Enable(Kiln.EnemyFeatures)", // CreatureRef.FeatureAccess.Enable(EnemyFeatures): via CreatureRef.SetRaw(uint, uint, CreaturesNative.Value, string)
         "M:Kiln.CreatureRef.FeatureAccess.Reset", // CreatureRef.FeatureAccess.Reset(): via CreatureRef.ResetField(uint, uint)
@@ -523,6 +527,11 @@ internal static partial class KilnApis
         "M:Kiln.ReflectedValue.get_Bytes", // ReflectedValue.Bytes.get: via ReflectedValue.Span()
         "M:Kiln.ReflectedValue.get_Item(System.String)", // ReflectedValue.this[string].get: via ReflectedValue.Span()
         "M:Kiln.ReflectedValue.set_Item(System.String,System.Object)", // ReflectedValue.this[string].set: via ReflectedValue.Span()
+        "M:Kiln.ReplicationLab.AddFakePeers(System.Int32)", // ReplicationLab.AddFakePeers(int): Services.RequireTickThread
+        "M:Kiln.ReplicationLab.Decoded(System.Int32,Kiln.EntityId,System.String)", // ReplicationLab.Decoded(int, EntityId, string): Services.RequireTickThread
+        "M:Kiln.ReplicationLab.ForceRelevant(System.Int32,Kiln.EntityId)", // ReplicationLab.ForceRelevant(int, EntityId): Services.RequireTickThread
+        "M:Kiln.ReplicationLab.LoopbackStats", // ReplicationLab.LoopbackStats(): Services.RequireTickThread
+        "M:Kiln.ReplicationLab.RemoveFakePeers", // ReplicationLab.RemoveFakePeers(): Services.RequireTickThread
         "M:Kiln.RuleSet.Update(Kiln.PlayerRules)", // RuleSet.Update(PlayerRules): Game.AssertTickThread
         "M:Kiln.Rules.Apply(Kiln.EntityId,Kiln.PlayerRules,System.Nullable{System.TimeSpan},System.String)", // Rules.Apply(EntityId, PlayerRules, TimeSpan?, string?): via Rules.Apply(RuleScope, PlayerRules, TimeSpan?, string?)
         "M:Kiln.Rules.Apply(Kiln.RuleScope,Kiln.PlayerRules,System.Nullable{System.TimeSpan},System.String)", // Rules.Apply(RuleScope, PlayerRules, TimeSpan?, string?): via Rules.Apply(RuleScope, PlayerRules, TimeSpan?, string?, Action<RuleSet>?)
@@ -633,6 +642,7 @@ internal static partial class KilnApis
         "M:Kiln.World.Query``1", // World.Query<T>(): via World.Query(IEnumerable<string>, IEnumerable<string>?)
         "M:Kiln.World.Query``2", // World.Query<T1, T2>(): via World.Query(IEnumerable<string>, IEnumerable<string>?)
         "M:Kiln.World.ReadBytes(Kiln.EntityId,System.String)", // World.ReadBytes(EntityId, string): via World.Tick(string)
+        "M:Kiln.World.SetTransformScale(Kiln.EntityId,Kiln.Scale3)", // World.SetTransformScale(EntityId, Scale3): via World.WriteAt<T>(EntityId, string, int, T)
         "M:Kiln.World.Transform(Kiln.EntityId)", // World.Transform(EntityId): via World.Tick(string)
         "M:Kiln.World.TryGetPosition(Kiln.EntityId,Kiln.WorldPosition@)", // World.TryGetPosition(EntityId, out WorldPosition): via World.Tick(string)
         "M:Kiln.World.TryRead``1(Kiln.EntityId,System.String,``0@)", // World.TryRead<T>(EntityId, string, out T): via World.Tick(string)
@@ -728,6 +738,7 @@ internal static partial class KilnApis
         "P:Kiln.Content.Available=kiln.content", // T != null: Services.Get("kiln.content")
         "P:Kiln.Content.GameDataAvailable=kiln.gamedata", // GD != null: Services.Get("kiln.gamedata")
         "P:Kiln.Content.StackGuard=kiln.content", // returns false first when the table of kiln.content is null
+        "P:Kiln.CreatureControl.Available=kiln.creature_control", // CreatureControlNative.T != null: Services.Get("kiln.creature_control")
         "P:Kiln.Creatures.Available=kiln.creatures", // CreaturesNative.T != null: Services.Get("kiln.creatures")
         "P:Kiln.EcsPrograms.Available=kiln.world", // Table != null: Services.Get("kiln.world")
         "P:Kiln.EcsPrograms.SupportsOtherWrites=kiln.world", // Table != null: Services.Get("kiln.world")
@@ -785,6 +796,7 @@ internal static partial class KilnApis
         "Client",
         "Combat",
         "Content",
+        "CreatureControl",
         "Creatures",
         "DevTools",
         "Eml",
@@ -798,6 +810,7 @@ internal static partial class KilnApis
         "Players",
         "Queries",
         "Quests",
+        "Replication",
         "Rules",
         "Saves",
         "Settings",
