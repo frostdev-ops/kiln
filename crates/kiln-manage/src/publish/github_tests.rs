@@ -16,6 +16,7 @@ const LIST: &str = "https://api.github.com/repos/example/good-mod/releases?per_p
 const CREATE: &str = "https://api.github.com/repos/example/good-mod/releases";
 const RELEASE: &str = "https://api.github.com/repos/example/good-mod/releases/501";
 const ASSETS: &str = "https://api.github.com/repos/example/good-mod/releases/501/assets?per_page=100";
+const TAG_REF: &str = "https://api.github.com/repos/example/good-mod/git/ref/tags/v1.0.0";
 
 struct Tok;
 impl TokenSource for Tok {
@@ -78,9 +79,11 @@ fn assets(f: &Fx) -> Vec<(String, plan::FrozenFile)> {
 
 /// Scripts the answers of a whole clean apply.
 fn script_clean(f: &Fx, t: &FakeTransport) {
+    t.reply(Method::Get, TAG_REF, Reply::status(404));
     t.reply(Method::Get, LIST, Reply::json(200, "[]"));
     t.reply(Method::Post, CREATE, Reply::json(201, &release_json(f, 501, true, None)));
     for (i, (name, file)) in assets(f).iter().enumerate() {
+        t.reply(Method::Get, RELEASE, Reply::json(200, &release_json(&f, 501, true, None)));
         t.reply(Method::Post, &upload_url(name), Reply::json(201, &asset_json(900 + i as u64, name, file, true)));
     }
 }
@@ -104,7 +107,7 @@ fn check_log(t: &FakeTransport) -> Vec<Recorded> {
         assert!(r.host == API_HOST || r.host == UPLOAD_HOST, "a request went to {}", r.host);
         assert_eq!(r.header("authorization"), Some(format!("Bearer {TOKEN}").as_str()));
         assert!(matches!(r.method, Method::Get | Method::Post | Method::Patch), "{:?}", r.method);
-        assert!(!r.url.contains("/git/") && !r.url.contains("/tags"), "a tag was touched: {}", r.url);
+        assert!(r.method == Method::Get || (!r.url.contains("/git/") && !r.url.contains("/tags")), "a tag was mutated: {}", r.url);
     }
     // a PATCH is only ever the publish of our own release, and says nothing but draft:false
     for r in log.iter().filter(|r| r.method == Method::Patch) {
@@ -160,10 +163,12 @@ fn a_tag_that_has_a_release_or_a_foreign_draft_is_refused_before_anything_is_cre
 fn a_lost_answer_to_the_draft_adopts_the_one_draft_with_our_marker() {
     let f = fx();
     let t = FakeTransport::new();
+    t.reply(Method::Get, TAG_REF, Reply::status(404));
     t.reply(Method::Get, LIST, Reply::json(200, "[]"));
     t.reply(Method::Post, CREATE, Reply::Lost);
     t.reply(Method::Get, LIST, Reply::json(200, &format!("[{}]", release_json(&f, 501, true, None))));
     for (i, (name, file)) in assets(&f).iter().enumerate() {
+        t.reply(Method::Get, RELEASE, Reply::json(200, &release_json(&f, 501, true, None)));
         t.reply(Method::Post, &upload_url(name), Reply::json(201, &asset_json(900 + i as u64, name, file, true)));
     }
     let o = apply(&f, &t);
@@ -173,11 +178,15 @@ fn a_lost_answer_to_the_draft_adopts_the_one_draft_with_our_marker() {
     // the answer was lost and nothing arrived: one more attempt, then the draft exists once
     let f = fx();
     let t = FakeTransport::new();
+    t.reply(Method::Get, TAG_REF, Reply::status(404));
     t.reply(Method::Get, LIST, Reply::json(200, "[]")).reply(Method::Post, CREATE, Reply::Lost);
+    t.reply(Method::Get, TAG_REF, Reply::status(404));
     t.reply(Method::Get, LIST, Reply::json(200, "[]")); // reconcile: not there
+    t.reply(Method::Get, TAG_REF, Reply::status(404));
     t.reply(Method::Get, LIST, Reply::json(200, "[]")); // the second attempt's own look
     t.reply(Method::Post, CREATE, Reply::json(201, &release_json(&f, 501, true, None)));
     for (i, (name, file)) in assets(&f).iter().enumerate() {
+        t.reply(Method::Get, RELEASE, Reply::json(200, &release_json(&f, 501, true, None)));
         t.reply(Method::Post, &upload_url(name), Reply::json(201, &asset_json(900 + i as u64, name, file, true)));
     }
     assert_eq!(apply(&f, &t).state, OutcomeState::DraftReady);
@@ -186,6 +195,7 @@ fn a_lost_answer_to_the_draft_adopts_the_one_draft_with_our_marker() {
     // two drafts with our marker, or a list that cannot be read: a person has to look
     let f = fx();
     let t = FakeTransport::new();
+    t.reply(Method::Get, TAG_REF, Reply::status(404));
     t.reply(Method::Get, LIST, Reply::json(200, "[]")).reply(Method::Post, CREATE, Reply::Lost);
     t.reply(Method::Get, LIST, Reply::json(200, &format!("[{},{}]", release_json(&f, 501, true, None), release_json(&f, 502, true, None))));
     let o = apply(&f, &t);
@@ -197,7 +207,8 @@ fn a_lost_answer_to_the_draft_adopts_the_one_draft_with_our_marker() {
 #[test]
 fn uploads_are_reconciled_by_name_size_and_digest() {
     let script_until_first_upload = |f: &Fx, t: &FakeTransport| {
-        t.reply(Method::Get, LIST, Reply::json(200, "[]"));
+        t.reply(Method::Get, TAG_REF, Reply::status(404));
+    t.reply(Method::Get, LIST, Reply::json(200, "[]"));
         t.reply(Method::Post, CREATE, Reply::json(201, &release_json(f, 501, true, None)));
     };
     // lost answer, the asset is there with our digest: adopted, not uploaded again
@@ -205,9 +216,11 @@ fn uploads_are_reconciled_by_name_size_and_digest() {
     let t = FakeTransport::new();
     script_until_first_upload(&f, &t);
     let all = assets(&f);
+    t.reply(Method::Get, RELEASE, Reply::json(200, &release_json(&f, 501, true, None)));
     t.reply(Method::Post, &upload_url(&all[0].0), Reply::Lost);
     t.reply(Method::Get, ASSETS, Reply::json(200, &format!("[{}]", asset_json(900, &all[0].0, &all[0].1, true))));
     for (i, (name, file)) in all.iter().enumerate().skip(1) {
+        t.reply(Method::Get, RELEASE, Reply::json(200, &release_json(&f, 501, true, None)));
         t.reply(Method::Post, &upload_url(name), Reply::json(201, &asset_json(900 + i as u64, name, file, true)));
     }
     assert_eq!(apply(&f, &t).state, OutcomeState::DraftReady);
@@ -220,6 +233,7 @@ fn uploads_are_reconciled_by_name_size_and_digest() {
         let t = FakeTransport::new();
         script_until_first_upload(&f, &t);
         let name = &assets(&f)[0].0;
+        t.reply(Method::Get, RELEASE, Reply::json(200, &release_json(&f, 501, true, None)));
         t.reply(Method::Post, &upload_url(name), Reply::Lost);
         let listed = match what {
             "size" => asset_json(900, name, &plan::FrozenFile { bytes: f.loaded.plan.files.artifact.bytes + 1, ..f.loaded.plan.files.artifact.clone() }, true),
@@ -251,7 +265,8 @@ fn refusals_say_why_and_change_nothing() {
     for (reply, needle) in cases {
         let f = fx();
         let t = FakeTransport::new();
-        t.reply(Method::Get, LIST, Reply::json(200, "[]"));
+        t.reply(Method::Get, TAG_REF, Reply::status(404));
+    t.reply(Method::Get, LIST, Reply::json(200, "[]"));
         t.reply(Method::Post, CREATE, reply);
         let o = apply(&f, &t);
         assert_eq!(o.state, OutcomeState::Refused, "{needle}");
@@ -263,13 +278,17 @@ fn refusals_say_why_and_change_nothing() {
     // a refusal in the middle keeps the draft and resumes later
     let f = fx();
     let t = FakeTransport::new();
+    t.reply(Method::Get, TAG_REF, Reply::status(404));
     t.reply(Method::Get, LIST, Reply::json(200, "[]"));
     t.reply(Method::Post, CREATE, Reply::json(201, &release_json(&f, 501, true, None)));
     let all = assets(&f);
+    t.reply(Method::Get, RELEASE, Reply::json(200, &release_json(&f, 501, true, None)));
     t.reply(Method::Post, &upload_url(&all[0].0), Reply::json(403, "{}").with_header("Retry-After", "5"));
     let o = apply(&f, &t);
     assert_eq!((o.state, o.confirmed_steps.clone()), (OutcomeState::Partial, vec!["draft".to_string()]));
+    t.reply(Method::Get, ASSETS, Reply::json(200, "[]"));
     for (i, (name, file)) in all.iter().enumerate() {
+        t.reply(Method::Get, RELEASE, Reply::json(200, &release_json(&f, 501, true, None)));
         t.reply(Method::Post, &upload_url(name), Reply::json(201, &asset_json(900 + i as u64, name, file, true)));
     }
     assert_eq!(apply(&f, &t).state, OutcomeState::DraftReady);
@@ -277,6 +296,7 @@ fn refusals_say_why_and_change_nothing() {
     // a server error is not a refusal: the outcome is unknown and is looked up
     let f = fx();
     let t = FakeTransport::new();
+    t.reply(Method::Get, TAG_REF, Reply::status(404));
     t.reply(Method::Get, LIST, Reply::json(200, "[]")).reply(Method::Post, CREATE, Reply::status(502));
     t.reply(Method::Get, LIST, Reply::status(502));
     assert_eq!(apply(&f, &t).state, OutcomeState::ManualReconcile);
@@ -297,8 +317,11 @@ fn publishing_is_separate_checks_the_marker_and_survives_a_lost_answer() {
     assert!(check_log(&t).iter().all(|r| r.method != Method::Patch));
     // still our draft: published; the answer is lost; the lookup says it is public; nothing is sent twice
     t.reply(Method::Get, RELEASE, Reply::json(200, &release_json(&f, 501, true, None)));
+    t.reply(Method::Get, TAG_REF, Reply::status(404));
+    t.reply(Method::Get, RELEASE, Reply::json(200, &release_json(&f, 501, true, None)));
     t.reply(Method::Patch, RELEASE, Reply::Lost);
     t.reply(Method::Get, RELEASE, Reply::json(200, &release_json(&f, 501, false, None)));
+    t.reply(Method::Get, TAG_REF, Reply::status(404));
     let o = publish(&f, &t);
     assert!(o.ok);
     assert_eq!(o.state, OutcomeState::Published);
@@ -315,9 +338,11 @@ fn publishing_is_separate_checks_the_marker_and_survives_a_lost_answer() {
 fn nothing_written_or_reported_holds_the_token_and_the_token_goes_to_github_only() {
     let f = fx();
     let t = FakeTransport::new();
+    t.reply(Method::Get, TAG_REF, Reply::status(404));
     t.reply(Method::Get, LIST, Reply::json(200, "[]"));
     t.reply(Method::Post, CREATE, Reply::json(201, &release_json(&f, 501, true, None)));
     let all = assets(&f);
+    t.reply(Method::Get, RELEASE, Reply::json(200, &release_json(&f, 501, true, None)));
     t.reply(Method::Post, &upload_url(&all[0].0), Reply::Lost);
     t.reply(Method::Get, ASSETS, Reply::json(401, &format!(r#"{{"message": "Bad credentials for {TOKEN}"}}"#)));
     let provider = GithubProvider::new(&t, &Tok, "kiln-test/0");
@@ -362,7 +387,7 @@ fn a_token_from_the_environment_fallback_leaks_nowhere_either() {
     let o = Engine { provider: &provider, events: &mut sink, fault: &no_faults }.apply(&f.loaded).unwrap();
     assert_eq!(o.state, OutcomeState::DraftReady);
     let log = t.requests();
-    assert_eq!(log.len(), 2 + all.len());
+    assert_eq!(log.len(), 3 + 2 * all.len());
     for r in &log {
         assert!(r.host == API_HOST || r.host == UPLOAD_HOST);
         assert_eq!(r.header("authorization"), Some(format!("Bearer {ENV_TOKEN}").as_str()));
@@ -377,4 +402,186 @@ fn a_token_from_the_environment_fallback_leaks_nowhere_either() {
     }
     assert!(!text.contains(ENV_TOKEN) && !text.contains("ghp_") && !text.contains(crate::publish::token::ENV));
     println!("PASS publish.no-credential-leak (environment fallback)");
+}
+
+#[test]
+fn retry_after_cannot_echo_a_credential_into_the_journal_or_events() {
+    use crate::publish::token::{SecretStore, StoredToken};
+    struct Store;
+    impl SecretStore for Store {
+        fn get(&self) -> Result<Option<String>> { Ok(Some(TOKEN.into())) }
+        fn set(&self, _: &str) -> Result<()> { unreachable!() }
+        fn clear(&self) -> Result<()> { unreachable!() }
+    }
+    for source in [StoredToken::new(Some(Box::new(Store)), None), StoredToken::new(None, Some(TOKEN.into()))] {
+        for header in [TOKEN, "https://example.invalid/?sig=SIGNEDSECRET", "60\nterminal output"] {
+            let f = fx();
+            let t = FakeTransport::new();
+            t.reply(Method::Get, TAG_REF, Reply::status(404));
+    t.reply(Method::Get, LIST, Reply::json(200, "[]"));
+            t.reply(Method::Post, CREATE, Reply::json(403, "{}").with_header("Retry-After", header));
+            let provider = GithubProvider::new(&t, &source, "kiln-test/0");
+            let mut events = Vec::new();
+            let mut sink = |p: &Progress| events.push(p.clone());
+            let o = Engine { provider: &provider, events: &mut sink, fault: &no_faults }.apply(&f.loaded).unwrap();
+            assert_eq!(o.state, OutcomeState::Refused);
+            let text = serde_json::to_string(&events).unwrap() + &serde_json::to_string(&o).unwrap()
+                + &std::fs::read_to_string(f.loaded.dir.join(txdir::JOURNAL)).unwrap();
+            for secret in [TOKEN, "SIGNEDSECRET", "terminal output"] {
+                assert!(!text.contains(secret), "provider header escaped into durable output");
+            }
+            check_log(&t);
+        }
+    }
+}
+
+#[test]
+fn an_unreadable_upload_answer_is_reconciled_before_any_retry() {
+    for reply in [Reply::bytes(201, &vec![b'x'; crate::net::DEFAULT_MAX_RESPONSE as usize + 1]),
+        Reply::redirect(307, "https://uploads.github.com/elsewhere")] {
+        let f = fx();
+        let t = FakeTransport::new();
+        t.reply(Method::Get, TAG_REF, Reply::status(404));
+    t.reply(Method::Get, LIST, Reply::json(200, "[]"));
+        t.reply(Method::Post, CREATE, Reply::json(201, &release_json(&f, 501, true, None)));
+        let all = assets(&f);
+        t.reply(Method::Get, RELEASE, Reply::json(200, &release_json(&f, 501, true, None)));
+        t.reply(Method::Post, &upload_url(&all[0].0), reply);
+        t.reply(Method::Get, ASSETS, Reply::json(200, &format!("[{}]", asset_json(900, &all[0].0, &all[0].1, true))));
+        for (i, (name, file)) in all.iter().enumerate().skip(1) {
+            t.reply(Method::Get, RELEASE, Reply::json(200, &release_json(&f, 501, true, None)));
+            t.reply(Method::Post, &upload_url(name), Reply::json(201, &asset_json(900 + i as u64, name, file, true)));
+        }
+        assert_eq!(apply(&f, &t).state, OutcomeState::DraftReady);
+        assert_eq!(check_log(&t).iter().filter(|r| r.url == upload_url(&all[0].0)).count(), 1);
+        assert!(t.unused().is_empty());
+    }
+}
+
+#[test]
+fn a_refused_upload_is_looked_up_before_resume_retries_it() {
+    for status in [403, 409, 422] {
+        let f = fx();
+        let t = FakeTransport::new();
+        t.reply(Method::Get, TAG_REF, Reply::status(404));
+    t.reply(Method::Get, LIST, Reply::json(200, "[]"));
+        t.reply(Method::Post, CREATE, Reply::json(201, &release_json(&f, 501, true, None)));
+        let all = assets(&f);
+        t.reply(Method::Get, RELEASE, Reply::json(200, &release_json(&f, 501, true, None)));
+        t.reply(Method::Post, &upload_url(&all[0].0), Reply::status(status));
+        assert_eq!(apply(&f, &t).state, OutcomeState::Partial);
+        t.reply(Method::Get, ASSETS, Reply::json(200, &format!("[{}]", asset_json(900, &all[0].0, &all[0].1, true))));
+        for (i, (name, file)) in all.iter().enumerate().skip(1) {
+            t.reply(Method::Get, RELEASE, Reply::json(200, &release_json(&f, 501, true, None)));
+            t.reply(Method::Post, &upload_url(name), Reply::json(201, &asset_json(900 + i as u64, name, file, true)));
+        }
+        assert_eq!(apply(&f, &t).state, OutcomeState::DraftReady);
+        assert_eq!(check_log(&t).iter().filter(|r| r.url == upload_url(&all[0].0)).count(), 1);
+    }
+}
+
+#[test]
+fn an_in_place_change_during_upload_cannot_be_confirmed() {
+    struct Changing<'a> { fake: &'a FakeTransport, path: PathBuf }
+    impl Transport for Changing<'_> {
+        fn exchange(&self, req: crate::net::WireRequest) -> Result<Response> {
+            if req.method == Method::Get { return self.fake.exchange(req); }
+            let before = std::fs::read(&self.path).unwrap();
+            let mut changed = before.clone();
+            changed[0] ^= 1;
+            let mut perm = std::fs::metadata(&self.path).unwrap().permissions();
+            #[allow(clippy::permissions_set_readonly_false)]
+            perm.set_readonly(false);
+            std::fs::set_permissions(&self.path, perm).unwrap();
+            std::fs::write(&self.path, changed).unwrap();
+            let result = self.fake.exchange(req);
+            // Even restoring the file before the next preflight must not hide what was streamed.
+            std::fs::write(&self.path, before).unwrap();
+            result
+        }
+    }
+    let f = fx();
+    let t = FakeTransport::new();
+    let all = assets(&f);
+    t.reply(Method::Get, RELEASE, Reply::json(200, &release_json(&f, 501, true, None)));
+    t.reply(Method::Post, &upload_url(&all[0].0), Reply::json(201, &asset_json(900, &all[0].0, &all[0].1, true)));
+    let transport = Changing { fake: &t, path: f.loaded.dir.join(txdir::ARTIFACT) };
+    let provider = GithubProvider::new(&transport, &Tok, "kiln-test/0");
+    let known = std::collections::BTreeMap::from([("draft".into(), RemoteIds::from([("release".into(), "501".into())]))]);
+    let ctx = StepCtx { plan: &f.loaded.plan, op: &f.loaded.plan.operations[1], dir: &f.loaded.dir, known: &known, attempt: "test" };
+    assert!(!matches!(provider.execute(&ctx), StepResult::Confirmed(_)), "changed bytes were accepted as the frozen artifact");
+    check_log(&t);
+}
+
+#[test]
+fn an_existing_tag_at_another_commit_blocks_creation_and_publication() {
+    let wrong = serde_json::json!({"object": {"type": "commit", "sha": "f".repeat(40)}}).to_string();
+    let f = fx();
+    let t = FakeTransport::new();
+    t.reply(Method::Get, LIST, Reply::json(200, "[]"));
+    t.reply(Method::Get, TAG_REF, Reply::json(200, &wrong));
+    let o = apply(&f, &t);
+    assert!(!o.ok);
+    assert!(t.requests().iter().all(|r| r.method == Method::Get), "created a draft against a different commit");
+    check_log(&t);
+
+    let f = fx();
+    let t = FakeTransport::new();
+    script_clean(&f, &t);
+    assert!(apply(&f, &t).ok);
+    t.reply(Method::Get, RELEASE, Reply::json(200, &release_json(&f, 501, true, None)));
+    t.reply(Method::Get, TAG_REF, Reply::json(200, &wrong));
+    let o = publish(&f, &t);
+    assert!(!o.ok);
+    assert!(t.requests().iter().all(|r| r.method != Method::Patch), "published a tag at a different commit");
+    check_log(&t);
+}
+
+#[test]
+fn an_annotated_tag_is_peeled_to_the_pinned_commit() {
+    let f = fx();
+    let t = FakeTransport::new();
+    let sha = "a".repeat(40);
+    t.reply(Method::Get, LIST, Reply::json(200, "[]"));
+    t.reply(Method::Get, TAG_REF, Reply::json(200, &serde_json::json!({"object": {"type": "tag", "sha": sha}}).to_string()));
+    t.reply(Method::Get, &format!("https://api.github.com/repos/example/good-mod/git/tags/{sha}"),
+        Reply::json(200, &serde_json::json!({"object": {"type": "commit", "sha": COMMIT}}).to_string()));
+    t.reply(Method::Post, CREATE, Reply::json(201, &release_json(&f, 501, true, None)));
+    let provider = GithubProvider::new(&t, &Tok, "kiln-test/0");
+    let known = std::collections::BTreeMap::new();
+    let ctx = StepCtx { plan: &f.loaded.plan, op: &f.loaded.plan.operations[0], dir: &f.loaded.dir, known: &known, attempt: "test" };
+    assert!(matches!(provider.execute(&ctx), StepResult::Confirmed(_)));
+    check_log(&t);
+    assert!(t.unused().is_empty());
+}
+
+#[test]
+fn resuming_an_upload_never_adds_assets_to_a_public_or_foreign_release() {
+    for (draft, marker) in [(false, None), (true, Some("foreign marker"))] {
+        let f = fx();
+        let t = FakeTransport::new();
+        t.reply(Method::Get, RELEASE, Reply::json(200, &release_json(&f, 501, draft, marker)));
+        let provider = GithubProvider::new(&t, &Tok, "kiln-test/0");
+        let known = std::collections::BTreeMap::from([("draft".into(), RemoteIds::from([("release".into(), "501".into())]))]);
+        let ctx = StepCtx { plan: &f.loaded.plan, op: &f.loaded.plan.operations[1], dir: &f.loaded.dir, known: &known, attempt: "test" };
+        assert!(matches!(provider.execute(&ctx), StepResult::Refused(_)));
+        assert!(check_log(&t).iter().all(|r| r.method == Method::Get), "an upload escaped onto a non-draft release");
+        assert!(t.unused().is_empty());
+    }
+}
+
+#[test]
+fn an_upload_response_without_an_asset_id_is_not_confirmed() {
+    let f = fx();
+    let t = FakeTransport::new();
+    t.reply(Method::Get, RELEASE, Reply::json(200, &release_json(&f, 501, true, None)));
+    let all = assets(&f);
+    let mut response: Value = serde_json::from_str(&asset_json(900, &all[0].0, &all[0].1, false)).unwrap();
+    response.as_object_mut().unwrap().remove("id");
+    t.reply(Method::Post, &upload_url(&all[0].0), Reply::json(201, &response.to_string()));
+    let provider = GithubProvider::new(&t, &Tok, "kiln-test/0");
+    let known = std::collections::BTreeMap::from([("draft".into(), RemoteIds::from([("release".into(), "501".into())]))]);
+    let ctx = StepCtx { plan: &f.loaded.plan, op: &f.loaded.plan.operations[1], dir: &f.loaded.dir, known: &known, attempt: "test" };
+    assert!(matches!(provider.execute(&ctx), StepResult::Unknown(_)));
+    check_log(&t);
 }

@@ -51,7 +51,8 @@ enum Call {
 
 fn refusal(r: &Response, what: &str) -> Option<String> {
     let rate = r.header("x-ratelimit-remaining") == Some("0") || r.header("retry-after").is_some();
-    let wait = r.header("retry-after").map(|s| format!(" (retry after {s} s)")).unwrap_or_default();
+    // A provider header is untrusted and may echo a credential or a signed URL. Persist only a parsed delay.
+    let wait = r.header("retry-after").and_then(|s| s.parse::<u64>().ok()).map(|s| format!(" (retry after {s} s)")).unwrap_or_default();
     Some(match r.status {
         401 => format!("GitHub did not accept the token (401) while {what}"),
         403 | 429 if rate => format!("GitHub's rate limit stopped {what} ({}){wait}", r.status),
@@ -76,8 +77,9 @@ impl<'a> GithubProvider<'a> {
         };
         let req = req.header("Authorization", &format!("Bearer {token}")).header("Accept", "application/vnd.github+json").header("X-GitHub-Api-Version", API_VERSION);
         match self.client.send(req) {
-            Err(e) if e.code == crate::ErrorCode::Network => Call::Unknown(format!("no answer while {what}")),
-            Err(e) => Call::Refused(e.message),
+            // A bounded-body failure or a refused redirect can occur after a mutation reached GitHub, just like
+            // a network failure. A transport error never proves that a mutation did not happen.
+            Err(_) => Call::Unknown(format!("no usable answer while {what}")),
             Ok(r) if (200..300).contains(&r.status) => Call::Ok(r),
             Ok(r) => match refusal(&r, what) {
                 Some(why) => Call::Refused(why),
@@ -155,6 +157,7 @@ impl<'a> GithubProvider<'a> {
             Reconcile::Conflict(why) => return StepResult::Refused(why),
             Reconcile::Ambiguous(why) => return StepResult::Refused(why),
         }
+        if let Err(why) = self.check_tag(ctx.plan) { return StepResult::Refused(why); }
         let notes = match std::fs::read_to_string(ctx.dir.join(txdir::NOTES)) {
             Ok(n) => n,
             Err(_) => return StepResult::Refused("the frozen notes cannot be read".into()),
@@ -228,22 +231,32 @@ impl<'a> GithubProvider<'a> {
         let (Some(release), Some(name), Some(file)) = (Self::release_id(ctx), ctx.op.asset.as_deref(), Self::planned_file(ctx)) else {
             return StepResult::Refused("the draft release of this transaction is not known".into());
         };
+        // A draft can have been published or edited by hand since the previous step. Resuming must not make an
+        // asset public as a side effect or write into a release whose identity no longer matches the plan.
+        match self.get_release(ctx.plan, &release) {
+            Ok(rel) if Self::is_ours(ctx.plan, &rel) && Self::id_of(&rel).as_deref() == Some(release.as_str())
+                && rel["draft"].as_bool() == Some(true) => {}
+            Ok(_) => return StepResult::Refused("the release is no longer this transaction's draft; no asset was uploaded".into()),
+            Err(_) => return StepResult::Refused("the draft release could not be verified; no asset was uploaded".into()),
+        }
         // The one opened, verified handle is what is streamed: the path is not opened again.
         let handle = match txdir::open_verified(ctx.dir, &file.path, &file.sha256, Some(file.bytes)) {
             Ok(h) => h,
             Err(e) => return StepResult::Refused(e.message),
         };
         let url = format!("https://{UPLOAD_HOST}/repos/{}/releases/{release}/assets?name={name}", ctx.plan.destination.repository);
-        let req = Request::new(Method::Post, url).header("Content-Type", "application/octet-stream").body(Body::File { file: handle, len: file.bytes });
+        let (reader, verified) = txdir::UploadReader::new(handle, file.bytes, &file.sha256);
+        let req = Request::new(Method::Post, url).header("Content-Type", "application/octet-stream").body(Body::Reader { reader: Box::new(reader), len: file.bytes });
         match self.send(req, "uploading an asset") {
             Call::Refused(why) => StepResult::Refused(why),
             Call::Unknown(why) => StepResult::Unknown(why),
+            Call::Ok(_) if !verified.load(std::sync::atomic::Ordering::Acquire) => StepResult::Unknown("the frozen upload was not streamed and verified in full".into()),
             Call::Ok(r) => match serde_json::from_slice::<Value>(&r.body) {
                 Ok(v) if v["name"].as_str() == Some(name) => match Self::judge_asset(&v, file) {
                     Reconcile::Adopt(ids) => StepResult::Confirmed(ids),
                     // No digest in the answer: size and name agree and these bytes were just streamed from the verified
                     // handle, so it is ours.
-                    Reconcile::Ambiguous(_) if v["size"].as_u64() == Some(file.bytes) && v["state"].as_str() == Some("uploaded") => {
+                    Reconcile::Ambiguous(_) if Self::id_of(&v).is_some() && v["size"].as_u64() == Some(file.bytes) && v["state"].as_str() == Some("uploaded") => {
                         StepResult::Confirmed(RemoteIds::from([("asset".into(), Self::id_of(&v).unwrap_or_default())]))
                     }
                     _ => StepResult::Unknown("GitHub's answer to the upload does not match what was sent".into()),
@@ -264,6 +277,33 @@ impl<'a> GithubProvider<'a> {
         }
     }
 
+    /// GitHub ignores target_commitish when the tag already exists. Check the actual ref, peeling annotated tags,
+    /// before creating or publishing a release. Only GETs: an existing tag is never moved.
+    fn check_tag(&self, plan: &PublishPlan) -> std::result::Result<(), String> {
+        let url = self.repo_url(plan, &format!("/git/ref/tags/{}", plan.destination.tag));
+        let mut object = match self.send(Request::get(url), "checking the release tag") {
+            Call::Ok(r) => serde_json::from_slice::<Value>(&r.body).map_err(|_| "GitHub's tag reference could not be read".to_string())?,
+            Call::Refused(why) if why.contains("(404)") => return Ok(()), // GitHub will create the tag at the pinned commit.
+            Call::Refused(why) | Call::Unknown(why) => return Err(why),
+        };
+        for _ in 0..8 {
+            let target = &object["object"];
+            let sha = target["sha"].as_str().filter(|s| super::config::is_commit(s)).ok_or("GitHub's tag target has no valid SHA")?;
+            match target["type"].as_str() {
+                Some("commit") if sha == plan.target_commit => return Ok(()),
+                Some("commit") => return Err("the existing tag points at another commit; Kiln will not move it".into()),
+                Some("tag") => {
+                    object = match self.send(Request::get(self.repo_url(plan, &format!("/git/tags/{sha}"))), "reading an annotated tag") {
+                        Call::Ok(r) => serde_json::from_slice::<Value>(&r.body).map_err(|_| "GitHub's annotated tag could not be read".to_string())?,
+                        Call::Refused(why) | Call::Unknown(why) => return Err(why),
+                    };
+                }
+                _ => return Err("the existing tag does not point at a commit".into()),
+            }
+        }
+        Err("the existing tag has too many nested annotated tags".into())
+    }
+
     /// Draft or public, for the publish step: only ever the release this transaction made.
     fn published_state(&self, ctx: &StepCtx) -> Reconcile {
         let Some(id) = Self::release_id(ctx) else { return Reconcile::Ambiguous("the draft release of this transaction is not known".into()) };
@@ -276,7 +316,10 @@ impl<'a> GithubProvider<'a> {
             return Reconcile::Conflict("the release no longer carries this transaction's marker, tag or commit".into());
         }
         match rel["draft"].as_bool() {
-            Some(false) => Reconcile::Adopt(RemoteIds::from([("release".into(), id)])),
+            Some(false) => match self.check_tag(ctx.plan) {
+                Ok(()) => Reconcile::Adopt(RemoteIds::from([("release".into(), id)])),
+                Err(why) => Reconcile::Conflict(why),
+            },
             Some(true) => Reconcile::NotThere,
             None => Reconcile::Ambiguous("GitHub's answer does not say whether the release is a draft".into()),
         }
@@ -289,6 +332,7 @@ impl<'a> GithubProvider<'a> {
             Reconcile::Adopt(ids) => return StepResult::Confirmed(ids),
             Reconcile::Conflict(why) | Reconcile::Ambiguous(why) => return StepResult::Refused(why),
         }
+        if let Err(why) = self.check_tag(ctx.plan) { return StepResult::Refused(why); }
         let id = Self::release_id(ctx).unwrap_or_default();
         let req = Request::new(Method::Patch, self.repo_url(ctx.plan, &format!("/releases/{id}"))).json(&serde_json::json!({"draft": false}));
         match self.send(req, "publishing the draft") {
