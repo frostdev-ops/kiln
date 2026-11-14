@@ -38,5 +38,6 @@
     <!-- Affixes keep an item's rolls as item data (InstanceData) and read the server's copies in a player's game. -->
     <ProjectReference Include="../Kiln.Saves/Kiln.Saves.csproj" Private="false" />
     <ProjectReference Include="../Kiln.Queries/Kiln.Queries.csproj" Private="false" />
+    <ProjectReference Include="../Kiln.CreatureControl/Kiln.CreatureControl.csproj" Private="false" />
   </ItemGroup>
 </Project>

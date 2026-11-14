@@ -33,18 +33,32 @@
 #include "ray.h"
 #include "seh.h"
 
-namespace {
+#include "internal.h"
 
+namespace kq {
 const KilnApi* g_api = nullptr;
 KilnOwner g_owner = 0;
 const KilnWorldApi* g_world = nullptr;
 const KilnCapsApi* g_caps = nullptr;
+GridLayout g_layout{};
+std::atomic<bool> g_grid_ok{false};
+}  // namespace kq
+
+namespace {
+
+using kq::g_api;
+using kq::g_caps;
+using kq::g_layout;
+using kq::g_owner;
+using kq::g_world;
 
 constexpr char kRayFeature[] = "queries.voxel_ray";
 
 #define KQ_STR(s) KilnStr{s, sizeof(s) - 1}
 
-void logf(int32_t level, const char* fmt, ...) {
+}  // namespace
+
+void kq::logf(int32_t level, const char* fmt, ...) {
     char text[768];
     va_list v;
     va_start(v, fmt);
@@ -53,18 +67,20 @@ void logf(int32_t level, const char* fmt, ...) {
     if (n > 0) g_api->log(g_owner, level, KilnStr{text, static_cast<size_t>(n < static_cast<int>(sizeof text) ? n : static_cast<int>(sizeof text) - 1)});
 }
 
+namespace {
+using kq::logf;
+
 // ---- the ray: what was resolved, and whether it may still be used -------------------------------------------------
 
 uintptr_t g_ray = 0;
-kq::GridLayout g_layout{};
 std::atomic<bool> g_ray_on{false};  // false from the start, or latched off: never back on in this process
 std::string g_ray_start_failure;    // retained until on_ready can report through kiln.caps
 kq::Budget g_budget;                // tick thread
+// world lifecycle. STARTED comes on the tick thread; STOPPING on whichever thread destroys the world.
+std::atomic<uint32_t> g_stopped_session{0};
 bool g_in_ray = false;              // tick thread
 double g_qpc_ns = 0;                // nanoseconds per performance-counter tick
 
-// world lifecycle. STARTED comes on the tick thread; STOPPING on whichever thread destroys the world.
-std::atomic<uint32_t> g_stopped_session{0};
 uint32_t g_grid_session = 0;  // tick thread: the session g_grid was resolved for
 uintptr_t g_grid = 0;
 
@@ -107,13 +123,11 @@ bool resolve_ray(const char** why) {
     return true;
 }
 
-struct Clock {
-    uint32_t session = 0;
-    uint64_t step = 0;
-    bool world = false;
-};
+using kq::Clock;
 
-Clock now() {
+}  // namespace
+
+kq::Clock kq::now() {
     Clock c;
     KilnSessionInfo s{};
     s.size = sizeof s;
@@ -126,13 +140,21 @@ Clock now() {
     return c;
 }
 
+namespace {
+using kq::now;
+}  // namespace
+
 // There is a server world, it is not being destroyed, and its first Pre was published.
-bool world_ready(const Clock& c) { return c.world && c.session != g_stopped_session.load(std::memory_order_acquire) && g_budget.ready(c.session, c.step); }
+bool kq::world_ready(const Clock& c) { return c.world && c.session != g_stopped_session.load(std::memory_order_acquire) && g_budget.ready(c.session, c.step); }
+
+namespace {
+using kq::world_ready;
 
 void KILN_CALL on_world(const KilnWorldEvent* e, void*) {
     if (!e || e->kind != KILN_WORLD_SERVER) return;
     if (e->event == KILN_WORLD_STOPPING) {
         g_stopped_session.store(e->session, std::memory_order_release);
+        kq::path_world_closed(e->session);
         return;
     }
     if (e->event != KILN_WORLD_STARTED) return;
@@ -183,8 +205,8 @@ KilnResult KILN_CALL t_ray_voxels(const KilnQueryRayRequest* req, KilnQueryRayRe
         case kq::GridRead::Ok: break;
         case kq::GridRead::NoGrid: return KQ_REFUSE(out, "WorldNotReady");
         case kq::GridRead::BadRealm: return KILN_ERR_INVALID_ARGUMENT;
-        case kq::GridRead::BadMetadata: ray_off(KILN_CAP_REASON_FAULTED, "the voxel grid's realm table is not what this game build's layout says"); return KILN_ERR_UNAVAILABLE;
-        case kq::GridRead::Fault: ray_off(KILN_CAP_REASON_FAULTED, "reading the voxel grid faulted"); return KILN_ERR_UNAVAILABLE;
+        case kq::GridRead::BadMetadata: kq::g_grid_ok.store(false, std::memory_order_release); ray_off(KILN_CAP_REASON_FAULTED, "the voxel grid's realm table is not what this game build's layout says"); return KILN_ERR_UNAVAILABLE;
+        case kq::GridRead::Fault: kq::g_grid_ok.store(false, std::memory_order_release); ray_off(KILN_CAP_REASON_FAULTED, "reading the voxel grid faulted"); return KILN_ERR_UNAVAILABLE;
     }
     if (!kq::box_contains(box, ray.from) || !kq::box_contains(box, ray.to)) return KQ_REFUSE(out, "OutOfGrid");
 
@@ -284,14 +306,7 @@ KilnResult KILN_CALL t_entities(const KilnQueryEntityRequest* req, KilnEntity* i
     return KILN_OK;
 }
 
-// ---- paths: a later feature fills these ------------------------------------------------------------------------------
-
-KilnResult KILN_CALL t_path_submit(KilnOwner, const KilnQueryPathRequest*, KilnQueryPathAdmission*) { return KILN_ERR_UNAVAILABLE; }
-KilnResult KILN_CALL t_path_cancel(KilnOwner, uint64_t) { return KILN_ERR_UNAVAILABLE; }
-KilnResult KILN_CALL t_path_poll(KilnOwner, KilnQueryPathUpdate*, KilnQueryPathPoint*, uint32_t, uint32_t*) { return KILN_ERR_UNAVAILABLE; }
-KilnResult KILN_CALL t_path_retire(KilnOwner) { return KILN_ERR_UNAVAILABLE; }
-
-const KilnQueriesApi kTable = {{sizeof(KilnQueriesApi), KILN_QUERIES_VERSION}, &t_ray_voxels, &t_entities, &t_path_submit, &t_path_cancel, &t_path_poll, &t_path_retire};
+const KilnQueriesApi kTable = {{sizeof(KilnQueriesApi), KILN_QUERIES_VERSION}, &t_ray_voxels, &t_entities, &kq::t_path_submit, &kq::t_path_cancel, &kq::t_path_poll, &kq::t_path_retire};
 static_assert(sizeof(KilnQueriesApi) == 56, "kiln.queries v1 is 56 bytes");
 
 // ---- start -------------------------------------------------------------------------------------------------------------
@@ -335,6 +350,7 @@ void KILN_CALL on_ready(void*) {
         g_transform_hash = 0;
         logf(KILN_LOG_INFO, "queries: entities() is held until its game test (queries.overlap_origins)");
     }
+    kq::path_ready();
 }
 
 }  // namespace
@@ -361,6 +377,7 @@ extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api,
     if (resolve_ray(&why)) {
         g_ray_start_failure.clear();
         g_ray_on.store(true, std::memory_order_release);
+        kq::g_grid_ok.store(true, std::memory_order_release);
         logf(KILN_LOG_INFO, "queries: voxel ray resolved (realms +0x%llx, count +0x%llx, stride 0x%llx; ray grid origin +0x%llx, shift +0x%llx, counts +0x%llx/+0x%llx)",
              static_cast<unsigned long long>(g_layout.realms), static_cast<unsigned long long>(g_layout.realm_count), static_cast<unsigned long long>(g_layout.realm_stride),
              static_cast<unsigned long long>(g_layout.origin), static_cast<unsigned long long>(g_layout.shift), static_cast<unsigned long long>(g_layout.count_h),
@@ -369,5 +386,6 @@ extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api,
         g_ray_start_failure = why;
         logf(KILN_LOG_WARN, "queries: %s: ray_voxels is unavailable; entities() still works", why);
     }
+    kq::path_resolve();
     return api->register_service(owner, KQ_STR(KILN_QUERIES_SERVICE), &kTable);
 }

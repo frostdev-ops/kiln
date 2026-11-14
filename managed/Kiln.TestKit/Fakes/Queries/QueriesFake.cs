@@ -47,14 +47,51 @@ internal static unsafe class QueriesAbi
     }
 
     [StructLayout(LayoutKind.Sequential)]
+    public struct PathRequest
+    {
+        public uint Size, Anchor;
+        public Vec3 From, To;
+        public double HorizontalSpace, VerticalSpace;
+        public uint MaxIterations, ClosestFallback;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct PathAdmission
+    {
+        public uint Size, Ok;
+        public ulong Request;
+        public uint Status, Reserved;
+        public NativeStr Reason;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct PathUpdate
+    {
+        public uint Size, Before, After, Status;
+        public ulong Request, Sequence;
+        public uint Generation, Anchor;
+        public uint Terminal, Ok, GameResult, ReachesTarget;
+        public uint PointCount, Steps;
+        public double Length;
+        public NativeStr Reason;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct PathPoint
+    {
+        public Vec3 Position;
+        public uint RawMove, Reserved;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
     public struct Table
     {
         public ServiceHeader Header;
         public delegate* unmanaged[Cdecl]<RayRequest*, RayResult*, int> RayVoxels;
         public delegate* unmanaged[Cdecl]<EntityRequest*, uint*, uint, EntityResult*, int> Entities;
-        public delegate* unmanaged[Cdecl]<ulong, void*, void*, int> PathSubmit;
+        public delegate* unmanaged[Cdecl]<ulong, PathRequest*, PathAdmission*, int> PathSubmit;
         public delegate* unmanaged[Cdecl]<ulong, ulong, int> PathCancel;
-        public delegate* unmanaged[Cdecl]<ulong, void*, void*, uint, uint*, int> PathPoll;
+        public delegate* unmanaged[Cdecl]<ulong, PathUpdate*, PathPoint*, uint, uint*, int> PathPoll;
         public delegate* unmanaged[Cdecl]<ulong, int> PathRetire;
     }
 }
@@ -68,7 +105,29 @@ internal sealed class QueriesFakeState
     public readonly List<FakeVoxelRay> Rays = [];
     public ulong BucketStep;
     public int Calls;
+
+    // paths
+    public Func<FakePathRequest, FakePathAnswer>? Paths;
+    public int PathSteps = 3;
+    public readonly List<FakePathRequest> PathRequests = [];
+    public readonly Dictionary<ulong, FakePath> Open = [];
+    public readonly Dictionary<ulong, Queue<FakePathUpdate>> Fifos = [];
+    public readonly HashSet<ulong> Retired = [];
+    public readonly HashSet<uint> Unstamped = [];
+    public ulong Sequence;
 }
+
+internal sealed class FakePath
+{
+    public required ulong Token, Owner;
+    public required FakePathRequest Request;
+    public int Age;
+    public uint Stage = 1;       // Queued
+    public bool Terminal, Consumed;
+}
+
+internal sealed record FakePathUpdate(ulong Token, uint Before, uint After, uint Anchor, bool Terminal, uint Status, bool Ok, uint GameResult, bool Reaches, double Length, string Reason,
+    IReadOnlyList<(WorldPosition Position, byte Move)> Points, uint Steps);
 
 internal sealed unsafe class QueriesFake : IKitFake
 {
@@ -95,7 +154,7 @@ internal sealed unsafe class QueriesFake : IKitFake
         }
         KitBackend.Instance.RegisterTable(QueriesAbi.Service, (nint)_table);
         // The query fake uses the world fake's implemented origin/Find operations, so their feature rows are truthful too.
-        FakeTables.Features(["world.entities", "world.find"]);
+        FakeTables.Features(["world.entities", "world.find", PathFake.Feature]);
         ReportRay(false);
     }
 
@@ -110,7 +169,7 @@ internal sealed unsafe class QueriesFake : IKitFake
         var state = KitFakes.State<QueriesFakeState>(harness);
         lock (state.Lock) ReportRay(state.Voxels != null);
     }
-    public void BeforeStep(KilnHarness harness, ulong step) { }
+    public void BeforeStep(KilnHarness harness, ulong step) => PathFake.Step(harness);
     public void End(KilnHarness harness) => ReportRay(false);
 
     public void AddCoverage(List<CoverageRow> rows) =>
@@ -118,9 +177,12 @@ internal sealed unsafe class QueriesFake : IKitFake
             "Kiln.Queries' own code on the kit's kiln.queries. A voxel ray answers what the test scripts (KilnHarness.Queries.Voxels; without a script every ray is " +
             "unavailable): there are no voxels offline, so no test here says what the game's ray would hit. The rules around the ray are the service's: bad numbers " +
             "throw, the budget (KilnHarness.Queries.MaxRaysPerStep, 64) refuses with BudgetExceeded and starts again each step, refusals keep their reasons. " +
-            "EntitiesInSphere and EntitiesInBox read the harness's fake world: entity origins, closed shapes, nearest first. Paths answer unavailable."));
+            "EntitiesInSphere and EntitiesInBox read the harness's fake world: entity origins, closed shapes, nearest first. " +
+            "RequestPath, FindPath, CancelPath and CanReach run on a fake queue with the service's rules (8 open per mod and 32 in all, counting results not yet delivered; " +
+            "one terminal per request; an anchor that goes ends OwnerGone): a request answers after KilnHarness.Queries.PathSteps steps what the test scripts " +
+            "(KilnHarness.Queries.Paths; without a script a straight walking route to the target). There is no path grid offline."));
 
-    private static NativeStr Str(string text)
+    internal static NativeStr Str(string text)
     {
         lock (Reasons)
         {
@@ -241,16 +303,31 @@ internal sealed unsafe class QueriesFake : IKitFake
         }
     }
 
-    // Paths are not modelled.
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
-    private static int PathSubmit(ulong owner, void* request, void* admission) => FakeTables.Unavailable;
+    private static int PathSubmit(ulong owner, QueriesAbi.PathRequest* request, QueriesAbi.PathAdmission* admission)
+    {
+        try { return PathFake.Submit(owner, request, admission, Str); }
+        catch { return FakeTables.Internal; }
+    }
 
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
-    private static int PathCancel(ulong owner, ulong request) => FakeTables.Unavailable;
+    private static int PathCancel(ulong owner, ulong request)
+    {
+        try { return PathFake.Cancel(owner, request); }
+        catch { return FakeTables.Internal; }
+    }
 
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
-    private static int PathPoll(ulong owner, void* update, void* points, uint capacity, uint* needed) => FakeTables.Unavailable;
+    private static int PathPoll(ulong owner, QueriesAbi.PathUpdate* update, QueriesAbi.PathPoint* points, uint capacity, uint* needed)
+    {
+        try { return PathFake.Poll(owner, update, points, capacity, needed, Str); }
+        catch { return FakeTables.Internal; }
+    }
 
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
-    private static int PathRetire(ulong owner) => FakeTables.Unavailable;
+    private static int PathRetire(ulong owner)
+    {
+        try { return PathFake.Retire(owner); }
+        catch { return FakeTables.Internal; }
+    }
 }

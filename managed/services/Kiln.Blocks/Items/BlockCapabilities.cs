@@ -7,7 +7,7 @@ namespace Kiln;
 
 internal static class BlockCapabilities
 {
-    internal const string WeaponMoves = "blocks.weapon_moves", AnimatedHeld = "blocks.animated_held";
+    internal const string WeaponMoves = "blocks.weapon_moves", AnimatedHeld = "blocks.animated_held", MoveFollowUps = "blocks.move_followups";
 
     /// <summary>A row: its state, reason and text.</summary>
     internal readonly record struct Row(CapabilityState State, CapabilityReason Reason, string? Text);
@@ -16,6 +16,32 @@ internal static class BlockCapabilities
     internal static Row MovesRow(bool gamedata) => gamedata
         ? new Row(CapabilityState.Available, CapabilityReason.None, null)
         : new Row(CapabilityState.Unavailable, CapabilityReason.ServiceMissing, "kiln.gamedata is not loaded: a move is a sequence clone with rules, and the item's slots are item data");
+
+    /// <summary>The follow-ups' row (a weapon's moves applied as one generation), from whether kiln.gamedata is here. Pure. The client gate holds the row
+    /// until its game checks (16c-b, 16c-d) have passed; kiln.caps then answers for it whatever is reported here.</summary>
+    internal static Row FollowUpsRow(bool gamedata) => gamedata
+        ? new Row(CapabilityState.Available, CapabilityReason.None, null)
+        : new Row(CapabilityState.Unavailable, CapabilityReason.ServiceMissing, "kiln.gamedata is not loaded: a routed move is a sequence clone with rules, and the switch is item data");
+
+    /// <summary>Whether the client gate holds a row, and whether kiln.gamedata is here (tests set them).</summary>
+    internal static Func<string, bool> Held = name => Capabilities.IsHeld(name);
+    internal static Func<bool> GameData = () => Content.GameDataAvailable;
+
+    /// <summary>Throws <see cref="KilnUnavailableException"/> naming blocks.move_followups: at a definition when the row is held (a tool or a test with no game
+    /// still compiles the block); at a <paramref name="query"/> also when kiln.gamedata is not here, since nothing can be applied then.</summary>
+    internal static void RequireFollowUps(bool query = false)
+    {
+        Ensure();
+        bool held;
+        try { held = Held(MoveFollowUps); }
+        catch (Exception e) when (e is InvalidOperationException or NotSupportedException or DllNotFoundException or EntryPointNotFoundException) { held = false; }
+        if (held) throw new KilnUnavailableException(MoveFollowUps, "game test pending: 16c-b, 16c-d (\"preview\" in kiln.json lifts it)");
+        if (!query) return;
+        bool gamedata;
+        try { gamedata = GameData(); }
+        catch (Exception e) when (e is InvalidOperationException or NotSupportedException or DllNotFoundException or EntryPointNotFoundException) { gamedata = false; }
+        if (!gamedata) throw new KilnUnavailableException(MoveFollowUps, FollowUpsRow(false).Text);
+    }
 
     /// <summary>The animated held model's row, from whether kiln.gamedata and kiln.assets are here. Pure.</summary>
     internal static Row HeldRow(bool gamedata, bool assets) => (gamedata, assets) switch
@@ -39,6 +65,7 @@ internal static class BlockCapabilities
         {
             var gamedata = Content.GameDataAvailable;
             Report(WeaponMoves, MovesRow(gamedata));
+            Report(MoveFollowUps, FollowUpsRow(gamedata));
             Report(AnimatedHeld, HeldRow(gamedata, Assets.Available));
         }
         catch (Exception e) when (e is InvalidOperationException or ArgumentException or NotSupportedException or DllNotFoundException or EntryPointNotFoundException)

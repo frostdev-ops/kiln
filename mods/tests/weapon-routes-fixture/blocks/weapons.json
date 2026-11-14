@@ -1,0 +1,29 @@
+{
+  // The fixture's blocks in data (docs/kiln/modding/item-blocks.md, "Follow-ups"); its routed sword, route-sword, is in WeaponRoutesFixtureMod.cs.
+  "$schema": "../../../../schema/kiln-blocks.schema.json",
+  "format": 1,
+  "weapons": {
+    // A shield whose block and parry name the game's own guard and parry poses by id: the control for held block, parry timing and
+    // recovery (guided check 16c-d). No follow-ups: it applies the way every weapon's moves did before.
+    "research-shield": {
+      "name": "Research Shield", "class": "shield", "stats": { "block": 0.6 },
+      "moves": { "block": { "animation": "0xeb2a5b2e" }, "parry": { "animation": "0xfeec6023" } }
+    },
+    // Refused as written: both routes select the block's first Primary window.
+    "route-overlap": {
+      "name": "Route Overlap", "class": "sword",
+      "moves": {
+        "primary": { "like": "Attack_Player_1H_Single_LightChain1" },
+        "block": { "followUps": [ { "trigger": "primary", "to": "primary" }, { "trigger": "primary", "occurrence": 0, "to": "primary" } ] }
+      }
+    }
+  },
+  "spells": {
+    // A cheap staff charge with a full-body cast state and its release at 0.9 s (guided check 16c-c): a staff's motion is its spell's cast,
+    // never the staff's weapon moves.
+    "research-cast": {
+      "name": "Research Cast", "cast": { "manaCost": 2, "animation": { "like": "lob", "animation": "0xe1be54c4", "hitAt": 0.9 } },
+      "delivery": { "type": "projectile", "onHit": [ { "damage": { "ice": 1 } } ] }
+    }
+  }
+}
