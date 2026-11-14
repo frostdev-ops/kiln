@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT
 """kiln-bootsnap: the game-data snapshot Mod.OnBoot reads (contract c-08, docs/kiln/modding/boot-gamedata.md).
 
-    bootsnap.py make --game <dir> [--force] [--exe <file>] [--root <dir>] [--json]
+    bootsnap.py make --game <dir> [--force] [--if-needed] [--exe <file>] [--root <dir>] [--json]
     bootsnap.py show --game <dir> [--root <dir>] <query>...      item:<name> template:<name> skill:0x<hex> material:<name>
     bootsnap.py key  --game <dir> [--exe <file>]
 
@@ -10,7 +10,9 @@
 executable's reflection, both as files (the executable is never run), and writes
 <game>/kiln/data/boot-gamedata/<key>/ unless a snapshot of that key is there already. Reuse costs one SHA-256 of the
 executable and one 64 KiB read. --json prints one JSON line with the result (kiln-manage reads it); progress goes to
-stderr. Exit 0 made or reused, 1 refused (the message says why), 2 bad arguments.
+stderr. --if-needed (the deploy step) makes it only when a mod in <game>/kiln/mods asks for the boot phase, else says
+"no mod needs the boot snapshot" (status "skipped") and touches nothing. Exit 0 made, reused or skipped, 1 refused
+(the message says why), 2 bad arguments.
 """
 import argparse
 import json
@@ -59,6 +61,14 @@ def cmd_make(a):
     def progress(kind, done, total):
         print(f"boot-snapshot: {kind} {done}/{total}", file=sys.stderr, flush=True)
 
+    if a.if_needed:
+        exe = snapshot.find_exe(a.game, a.exe)
+        mods = snapshot.boot_mods(a.game, snapshot.side_of(exe) == "server")
+        if not mods:  # nothing runs and nothing is touched (a snapshot that is there stays)
+            r = {"status": "skipped", "reason": snapshot.NOT_NEEDED, "emptyKinds": []}
+            print(json.dumps(r) if a.json else f"boot-snapshot: {snapshot.NOT_NEEDED}")
+            return 0
+        print(f"boot-snapshot: needed by {', '.join(mods)}", file=sys.stderr, flush=True)
     print("boot-snapshot: checking the game data snapshot", file=sys.stderr, flush=True)
     r = snapshot.make(a.game, open_source, exe=a.exe, force=a.force, root=a.root, progress=progress)
     for kind in r.get("emptyKinds", []):  # a snapshot without this kind: every read of it in OnBoot answers "not found"
@@ -119,6 +129,8 @@ def main(argv=None):
         if name == "make":
             s.add_argument("--force", action="store_true", help="rebuild even when the key matches")
             s.add_argument("--json", action="store_true", help="one JSON line with the result on stdout")
+            s.add_argument("--if-needed", action="store_true",
+                           help="only when a mod in <game>/kiln/mods asks for the boot phase (\"boot\": true or \"required\")")
         if name == "show":
             s.add_argument("query", nargs="+")
     a = p.parse_args(argv)
