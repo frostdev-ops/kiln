@@ -209,6 +209,10 @@ typedef struct KilnSig {
  * filled) are the result. After call_original_frame the frame's return fields are the call's result either way.
  * Runs on the calling thread (job threads too) under an SEH guard: a fault disables the link; when the original had
  * already run its result is returned, else the original runs with the arguments as the handler left them. */
+/* detour_typed's refusals (KilnResult values of this service; the generic codes keep their meaning). */
+#define KILN_HOOKS_ERR_SIG_MISMATCH 100 /* the function's code does not fit the descriptor */
+#define KILN_HOOKS_ERR_SIG_UNKNOWN 101  /* the function's code could not be followed far enough to say */
+
 #define KILN_TYPED_CONTINUE ((uintptr_t)0)
 #define KILN_TYPED_SKIP ((uintptr_t)1)
 typedef uintptr_t(KILN_CALL* KilnTypedFn)(KilnCallFrame* frame, void* user);
@@ -312,7 +316,10 @@ typedef struct KilnHooksApi {
      * `sig` says how many positions the call has (stack arguments are forwarded by that count) and is checked against
      * the function's code: when the target is a sigdb symbol with a `sig` block whose fingerprint did not match this
      * build, or the code reads an argument register or stack slot `sig` does not declare (or the reverse), the hook
-     * is refused with KILN_HOOKS_ERR_SIG_MISMATCH and kiln.log names the argument. KILN_ERR_INVALID_ARGUMENT: a malformed `sig`.
+     * is refused with KILN_HOOKS_ERR_SIG_MISMATCH; when the code could not be followed far enough to say (a jump
+     * through a register before an argument is used, or the exe file's code is not in use) with
+     * KILN_HOOKS_ERR_SIG_UNKNOWN, unless the target is a symbol of a mod's fragment whose descriptor says
+     * "abi": "trust". kiln.log and typed_refusal() name the argument. KILN_ERR_INVALID_ARGUMENT: a malformed `sig`.
      *
      * call_original_frame: inside a typed handler, with the handler's own frame: runs the rest of the chain and the
      * real function once with the frame's arguments and stores rax / xmm0 in the frame. KILN_ERR_INVALID_ARGUMENT
@@ -324,13 +331,20 @@ typedef struct KilnHooksApi {
      * the frame (it need not be aligned) and every precondition of `fn` (thread, game state).
      *
      * fingerprint: what the code at `target` does with its arguments, read from the exe file's bytes (never the live,
-     * possibly hooked entry), as JSON: {"result":"ok"|"unknown","reads":[..],"passes":[..],"stack":[..],"ret":".."}.
-     * *len receives the text length without the NUL; buf needs *len + 1 bytes, else KILN_ERR_BUFFER_TOO_SMALL. */
+     * possibly hooked entry), as JSON: {"result":"ok"|"unknown","reads":["rcx","xmm1"],"passes":[..],"indirect":[..],
+     * "stack":["0x28"],"ret":"none"|"rax"|"xmm0"|"callee"|a|b,"insns":n}. *len receives the text length without the
+     * NUL; buf needs *len + 1 bytes (NUL-terminated), else KILN_ERR_BUFFER_TOO_SMALL; buf may be NULL to ask for the
+     * length. KILN_ERR_INVALID_ARGUMENT: `target` is not in the image's code.
+     *
+     * typed_refusal: why the last detour_typed on the calling thread was refused for its descriptor ("descriptor arg
+     * 2 'ecsNow' is rdx, the function reads [rcx, xmm1, r8]"), with the same buffer rules. Empty after a call that
+     * was not refused that way. */
     KilnResult(KILN_CALL* detour_typed)(KilnOwner owner, uintptr_t target, const KilnHookOrder* order,
                                         const KilnSig* sig, KilnTypedFn fn, void* user, KilnHandle* out);
     KilnResult(KILN_CALL* call_original_frame)(KilnCallFrame* frame);
     KilnResult(KILN_CALL* call_with_frame)(uintptr_t fn, KilnCallFrame* frame, uint32_t nstack);
     KilnResult(KILN_CALL* fingerprint)(uintptr_t target, char* json, size_t cap, size_t* len);
+    KilnResult(KILN_CALL* typed_refusal)(char* buf, size_t cap, size_t* len);
 } KilnHooksApi;
 
 #ifdef __cplusplus

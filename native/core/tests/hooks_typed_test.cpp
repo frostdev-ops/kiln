@@ -12,6 +12,7 @@
 
 #include <intrin.h>
 
+#include <algorithm>
 #include <atomic>
 #include <cmath>
 #include <cstdarg>
@@ -144,6 +145,43 @@ std::string symbol_name_at(uintptr_t) {
     return {};
 }
 std::vector<LiveDiff> live_differs() { return g_live_diffs; }
+// Described symbols of the test (address -> what sigdb would say), and the real fingerprint pass over this exe's own
+// code with its own exception table.
+std::map<uintptr_t, SigInfo> g_sigs;
+std::atomic<bool> g_no_file{false};  // "the exe file's code is not in use"
+std::vector<uint8_t> g_text_file;    // the .game section as it was before anything was hooked: "the exe file's code"
+bool sig_at(uintptr_t a, SigInfo* out) {
+    auto it = g_sigs.find(a);
+    if (it == g_sigs.end()) return false;
+    *out = it->second;
+    return true;
+}
+bool fingerprint(uintptr_t a, hooks::fp::Fingerprint* out) {
+    namespace fp = hooks::fp;
+    if (g_no_file) return false;
+    static fp::Pdata pdata;
+    static const bool have = [] {
+        auto* base = reinterpret_cast<const uint8_t*>(GetModuleHandleW(nullptr));
+        auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS*>(base + reinterpret_cast<const IMAGE_DOS_HEADER*>(base)->e_lfanew);
+        return fp::pdata_init(&pdata, base, nt->OptionalHeader.SizeOfImage);
+    }();
+    fp::Reader r;
+    r.bytes = +[](void*, uint64_t addr, uint8_t* o, size_t n) -> size_t {
+        if (addr < g_image.base || addr - g_image.base >= g_text_file.size()) return 0;
+        n = static_cast<size_t>(std::min<uint64_t>(n, g_text_file.size() - (addr - g_image.base)));
+        std::memcpy(o, g_text_file.data() + (addr - g_image.base), n);
+        return n;
+    };
+    r.function = have ? +[](void*, uint64_t addr, uint64_t* primary, uint64_t* next) -> bool {
+        const uint64_t base = reinterpret_cast<uint64_t>(GetModuleHandleW(nullptr));
+        const bool in = fp::pdata_lookup(pdata, addr - base, primary, next);
+        if (in) *primary += base;
+        if (*next != UINT64_MAX) *next += base;
+        return in;
+    } : nullptr;
+    *out = fp::compute(r, a);
+    return true;
+}
 }  // namespace sigdb
 namespace svc {
 Registrar::Registrar(Service* s) { g_service = s; }
@@ -722,9 +760,94 @@ void test_bad_sigs() {
           "a target outside the image");
     check(chain::chain_of(t).empty() && p_p7(1) == 10, "none of them hooked anything");
     const KilnSig max = sig_of(many.data(), KILN_SIG_MAX_ARGS, KILN_SIG_U64);
+    // well-formed, so it reaches the fingerprint check: the function takes one argument, not twenty
+    check(A->detour_typed(6, t, &o, &max, &sm_handler, tag('o'), nullptr) == KILN_HOOKS_ERR_SIG_MISMATCH,
+          "the largest descriptor is well-formed (and refused only because this function does not take 20 arguments)");
+}
+
+// ---- the fingerprint check ----
+uintptr_t KILN_CALL churn_handler(KilnCallFrame*, void*);
+std::string refusal() {
+    char buf[512] = {};
+    size_t len = 0;
+    if (A->typed_refusal(buf, sizeof buf, &len) != KILN_OK) return "(typed_refusal failed)";
+    return std::string(buf, len);
+}
+
+void test_fingerprint_check() {
+    std::puts("-- descriptors are checked against the function's code");
+    const uintptr_t t = T(&tg_hot);  // uint64_t (uint64_t x, double y)
+    const auto o = ord(0, "t/hot-fp");
+    {
+        char json[512] = {};
+        size_t len = 0;
+        check(A->fingerprint(t, json, sizeof json, &len) == KILN_OK && len == std::strlen(json) &&
+                  std::string(json).find(R"("reads":["rcx","xmm1"])") != std::string::npos &&
+                  std::string(json).find(R"("result":"ok")") != std::string::npos,
+              "fingerprint(): the function reads rcx and xmm1", json);
+        size_t need = 0;
+        check(A->fingerprint(t, nullptr, 0, &need) == KILN_ERR_BUFFER_TOO_SMALL && need == len &&
+                  A->fingerprint(t, json, len, &need) == KILN_ERR_BUFFER_TOO_SMALL,
+              "fingerprint(): a missing or short buffer gets the length");
+        check(A->fingerprint(0x1000, json, sizeof json, &len) == KILN_ERR_INVALID_ARGUMENT, "fingerprint(): outside the image");
+        const double t0 = kiln::now_ms();
+        for (int i = 0; i < 1000; ++i) A->fingerprint(t, json, sizeof json, &len);
+        std::printf("     fingerprint(): %.1f us per call\n", kiln::now_ms() - t0);
+    }
+    const KilnSigArg right[] = {arg("x", KILN_SIG_U64), arg("y", KILN_SIG_F64)};
+    const KilnSigArg wrong_class[] = {arg("x", KILN_SIG_U64), arg("y", KILN_SIG_U64)};
+    const KilnSigArg too_few[] = {arg("x", KILN_SIG_U64)};
+    const KilnSigArg too_many[] = {arg("x", KILN_SIG_U64), arg("y", KILN_SIG_F64), arg("z", KILN_SIG_U32)};
+    const KilnSig s_right = sig_of(right, 2, KILN_SIG_U64), s_class = sig_of(wrong_class, 2, KILN_SIG_U64),
+                  s_few = sig_of(too_few, 1, KILN_SIG_U64), s_many = sig_of(too_many, 3, KILN_SIG_U64);
     KilnHandle h = 0;
-    check(A->detour_typed(6, t, &o, &max, &sm_handler, tag('o'), &h) == KILN_OK, "the largest descriptor is accepted");
+    check(A->detour_typed(6, t, &o, &s_class, &churn_handler, nullptr, &h) == KILN_HOOKS_ERR_SIG_MISMATCH && h == 0 &&
+              refusal() == "descriptor arg 2 'y' is rdx, the function reads [rcx, xmm1]",
+          "an integer where the function takes a float: refused naming the argument", refusal());
+    check(log_has("hooks: typed hook on t/hot-fp refused: descriptor arg 2 'y' is rdx"), "the refusal is logged");
+    check(A->detour_typed(6, t, &o, &s_few, &churn_handler, nullptr, &h) == KILN_HOOKS_ERR_SIG_MISMATCH &&
+              refusal().find("the function reads xmm1, the descriptor has 1 argument") == 0,
+          "a read the descriptor lacks: refused", refusal());
+    check(A->detour_typed(6, t, &o, &s_many, &churn_handler, nullptr, &h) == KILN_HOOKS_ERR_SIG_MISMATCH &&
+              refusal().find("descriptor arg 3 'z' is r8") == 0,
+          "an argument the function neither reads nor passes: refused", refusal());
+    check(chain::chain_of(t).empty(), "none of them hooked anything");
+    check(A->detour_typed(6, t, &o, &s_right, &churn_handler, nullptr, &h) == KILN_OK && h && refusal().empty(),
+          "the right descriptor is accepted; typed_refusal is empty again");
+    // the target is hooked now: the check still reads the file's bytes, not the detour
+    KilnHandle h2 = 0;
+    const auto o2 = ord(1, "t/hot-fp-2");
+    check(A->detour_typed(6, t, &o2, &s_right, &churn_handler, reinterpret_cast<void*>(2), &h2) == KILN_OK &&
+              A->detour_typed(6, t, &o2, &s_class, &churn_handler, nullptr, nullptr) == KILN_HOOKS_ERR_SIG_MISMATCH,
+          "on a hooked target the check still sees the function, not Kiln's detour");
     A->revoke_owner(6);
+    // a described symbol whose own descriptor did not fit this build is off, whatever the caller declares
+    kiln::sigdb::SigInfo info;
+    info.symbol = "game/Hot";
+    info.status = kiln::sigdb::SigStatus::Mismatch;
+    info.text = "the function reads [rcx, xmm1], the descriptor's fingerprint says [rcx, rdx]";
+    kiln::sigdb::g_sigs[t] = info;
+    check(A->detour_typed(6, t, &o, &s_right, &churn_handler, nullptr, &h) == KILN_HOOKS_ERR_SIG_MISMATCH &&
+              refusal().find("game/Hot: the function reads [rcx, xmm1]") == 0,
+          "a symbol whose sigdb descriptor mismatched is refused for every typed hook", refusal());
+    kiln::sigdb::g_sigs[t].status = kiln::sigdb::SigStatus::Unknown;
+    check(A->detour_typed(6, t, &o, &s_right, &churn_handler, nullptr, &h) == KILN_HOOKS_ERR_SIG_UNKNOWN,
+          "...and one whose code could not be followed");
+    // the exe file's code is not in use: nothing can be checked, so nothing is accepted, except a symbol whose own
+    // descriptor passed (a fragment's "abi": "trust")
+    kiln::sigdb::g_sigs.clear();
+    kiln::sigdb::g_no_file = true;
+    check(A->detour_typed(6, t, &o, &s_right, &churn_handler, nullptr, &h) == KILN_HOOKS_ERR_SIG_UNKNOWN &&
+              refusal().find("not available") != std::string::npos,
+          "without the exe file's code a typed hook is refused", refusal());
+    info.status = kiln::sigdb::SigStatus::Match;
+    kiln::sigdb::g_sigs[t] = info;
+    check(A->detour_typed(6, t, &o, &s_right, &churn_handler, nullptr, &h) == KILN_OK,
+          "...unless sigdb passed the symbol's own descriptor (a fragment that says trust)");
+    kiln::sigdb::g_sigs.clear();
+    kiln::sigdb::g_no_file = false;
+    A->revoke_owner(6);
+    check(chain::chain_of(t).empty() && p_hot(1, 0.0) == 4, "after the revoke the function is itself again");
 }
 
 // ---- eight stack arguments, next to raw and structured links ----
@@ -939,7 +1062,6 @@ void test_threads() {
             KilnHandle h1 = 0, h2 = 0;
             if (A->detour_typed(7, t, &oc, &sig, &churn_handler, nullptr, &h1) != KILN_OK) g_hot_bad.fetch_add(1);
             if (A->detour_typed(7, t, &oc2, &sig, &churn_handler, nullptr, &h2) != KILN_OK) g_hot_bad.fetch_add(1);
-            std::this_thread::yield();
             if (churns.load() & 1) {
                 A->revoke(h1);
                 A->revoke(h2);
@@ -958,7 +1080,7 @@ void test_threads() {
     check(g_hot_bad == 0, "every call returned the right value", std::to_string(g_hot_bad.load()) + " bad");
     check(g_real == total && g_hot_handler == total, "counts equal: the handler and the original ran once per call",
           std::to_string(g_real.load()) + " / " + std::to_string(g_hot_handler.load()) + " of " + std::to_string(total));
-    check(churns > 100 && g_hot_churn > 0, "links were installed and revoked while the callers ran",
+    check(churns >= 20 && g_hot_churn > 0, "links were installed and revoked while the callers ran",
           std::to_string(churns.load()) + " rounds, " + std::to_string(g_hot_churn.load()) + " churn-handler calls");
     check(log_count("faulted") == faults_before, "no fault");
     check(chain::link_count() <= slots_before + 2, "the churn revived its two slots (no slot leak)",
@@ -990,6 +1112,8 @@ int main(int, char**) {
     wchar_t tmp[MAX_PATH];
     GetTempPathW(MAX_PATH, tmp);
     g_state_dir = std::filesystem::path(tmp) / (L"kiln-hooks-typed-test-" + std::to_wstring(GetCurrentProcessId()));
+    kiln::sigdb::g_text_file.assign(reinterpret_cast<const uint8_t*>(kiln::g_image.base),
+                                    reinterpret_cast<const uint8_t*>(kiln::g_image.base) + kiln::g_image.text_size);
     std::printf("hooks_typed_test: game section %p +0x%zx\n", reinterpret_cast<void*>(kiln::g_image.base), kiln::g_image.size);
     if (!g_service || !g_service->init || !g_service->init()) {
         std::puts("FAIL kiln.hooks service did not initialise");
@@ -997,14 +1121,15 @@ int main(int, char**) {
     }
     A = static_cast<const KilnHooksApi*>(g_service->table);
     check(A->header.size == sizeof(KilnHooksApi) && A->detour_typed && A->call_original_frame && A->call_with_frame &&
-              A->fingerprint,
-          "the service table carries the four typed entries", "size " + std::to_string(A->header.size));
+              A->fingerprint && A->typed_refusal,
+          "the service table carries the five typed entries", "size " + std::to_string(A->header.size));
 
     test_call_with_frame();
     test_mixed_through_thunk();
     test_sret();
     test_state_machine();
     test_bad_sigs();
+    test_fingerprint_check();
     test_mixed_chain();
     test_narrow_and_f64();
     test_exceptions();

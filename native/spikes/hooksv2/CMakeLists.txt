@@ -6,6 +6,7 @@ add_executable(hooks_v2_test
     ../../core/src/services/hooks.cpp
     ../../core/src/services/hooks_chain.cpp
     ../../core/src/services/hooks_chain_asm.cpp
+    ../../core/src/services/hooks_fingerprint.cpp
     ../../core/src/services/hooks_seh.cpp)
 target_include_directories(hooks_v2_test PRIVATE ../../core/abi ../../core/src ../../third_party "${KILN_GENERATED_DIR}")
 target_link_libraries(hooks_v2_test PRIVATE kiln-safetyhook)
@@ -22,6 +23,7 @@ add_executable(hooks_typed_test
     ../../core/src/services/hooks.cpp
     ../../core/src/services/hooks_chain.cpp
     ../../core/src/services/hooks_chain_asm.cpp
+    ../../core/src/services/hooks_fingerprint.cpp
     ../../core/src/services/hooks_seh.cpp)
 target_include_directories(hooks_typed_test PRIVATE ../../core/abi ../../core/src ../../third_party "${KILN_GENERATED_DIR}")
 target_link_libraries(hooks_typed_test PRIVATE kiln-safetyhook)
