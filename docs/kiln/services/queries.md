@@ -144,7 +144,8 @@ the real game ([caps.md](caps.md#the-client-gate-dev28)); a dedicated server is 
 The test kit fakes `kiln.queries` (`KilnHarness.Queries`): a test scripts what a voxel ray answers
 (`kiln.Queries.Voxels = ray => FakeVoxelAnswer.Hit(...)`, `Clear` or `Refused("NotLoaded")`), sets the step's ray
 budget (`MaxRaysPerStep`) and reads the rays that were asked (`Rays`). Overlaps read the harness's fake world. There
-are no voxels offline: a test says what the game would answer, it does not find it out.
+are no voxels offline: a test says what the game would answer, it does not find it out. Without a `Voxels` script the
+ray capability is unavailable; use `ray => FakeVoxelAnswer.Clear` when a test needs a loaded, clear segment.
 
 ## Native table
 

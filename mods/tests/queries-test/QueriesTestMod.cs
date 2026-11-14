@@ -144,26 +144,32 @@ public sealed class QueriesTestMod : Mod
         var box = new CellBox(corner.X, corner.Y, corner.Z, 2, 12, 6);
         var before = Build.Read(box);
         var options = new BuildOptions { Flags = BuildFlags.Transient, Journal = false };
-        var write = Build.Write(box, Enumerable.Repeat(voxel, (int)box.Count).ToArray(), options);
-        if (!(write.Changed && write.Verified))
+        try
         {
-            Check(false, name, $"the wall was not written (changed={write.Changed} verified={write.Verified} cells={write.CellsChanged}): no ray counts");
-            return;
+            var write = Build.Write(box, Enumerable.Repeat(voxel, (int)box.Count).ToArray(), options);
+            if (!(write.Changed && write.Verified))
+            {
+                Check(false, name, $"the wall was not written (changed={write.Changed} verified={write.Verified} cells={write.CellsChanged}): no ray counts");
+                return;
+            }
+            // the ray's cache sees the write some steps later: wait for the first hit
+            await One(() => Queries.RaycastVoxels(a, b), x => x.Hit != null);
+            var r = await Many(() => Queries.RaycastVoxels(a, b), Wanted);
+            var wallX = Build.CornerOf(corner).X;
+            var hitX = r.Last?.Position.X ?? double.NaN;
+            Check(r.Ok == Wanted && r.Hits == Wanted && Math.Abs(hitX - wallX) < 0.05 && r.Last!.Voxel == voxel.Raw, name,
+                $"n={Wanted} ok={r.Ok} hits={r.Hits} refused={r.Refused} reason={r.Reason} hitX={hitX:F4} wallX={wallX:F4} dist={r.Last?.Distance:F4} mat={r.Last?.Material:x8} voxel={r.Last?.Voxel:x4} write={write.CellsChanged}");
+            // from the other side the wall's far face is the first surface
+            var back = await One(() => Queries.RaycastVoxels(b, a));
+            Check(back is { Ok: true, Hit: not null } && back.Hit.Position.X > hitX + 0.5, name + ".reverse", $"ok={back.Ok} reason={back.Reason} hitX={back.Hit?.Position.X:F4} (the wall's far face)");
         }
-        // the ray's cache sees the write some steps later: wait for the first hit
-        await One(() => Queries.RaycastVoxels(a, b), x => x.Hit != null);
-        var r = await Many(() => Queries.RaycastVoxels(a, b), Wanted);
-        var wallX = Build.CornerOf(corner).X;
-        var hitX = r.Last?.Position.X ?? double.NaN;
-        Check(r.Ok == Wanted && r.Hits == Wanted && Math.Abs(hitX - wallX) < 0.05 && r.Last!.Voxel == voxel.Raw, name,
-            $"n={Wanted} ok={r.Ok} hits={r.Hits} refused={r.Refused} reason={r.Reason} hitX={hitX:F4} wallX={wallX:F4} dist={r.Last?.Distance:F4} mat={r.Last?.Material:x8} voxel={r.Last?.Voxel:x4} write={write.CellsChanged}");
-        // from the other side the wall's far face is the first surface
-        var back = await One(() => Queries.RaycastVoxels(b, a));
-        Check(back is { Ok: true, Hit: not null } && back.Hit.Position.X > hitX + 0.5, name + ".reverse", $"ok={back.Ok} reason={back.Reason} hitX={back.Hit?.Position.X:F4} (the wall's far face)");
-        // the wall goes, and the same ray is clear again
-        var undo = Build.Write(box, before, options);
-        var clear = await One(() => Queries.RaycastVoxels(a, b), x => x.Hit == null) is { Ok: true, Hit: null };
-        Check(undo.Verified && clear, name + ".removed", $"restored={undo.CellsChanged} cells verified={undo.Verified} clear={clear}");
+        finally
+        {
+            // Restore even after a partial write, failed verification, or an exception in a ray.
+            var undo = Build.Write(box, before, options);
+            var clear = await One(() => Queries.RaycastVoxels(a, b), x => x.Hit == null) is { Ok: true, Hit: null };
+            Check(undo.Verified && clear, name + ".removed", $"restored={undo.CellsChanged} cells verified={undo.Verified} clear={clear}");
+        }
     }
 
     private async Task Arguments(double ground)

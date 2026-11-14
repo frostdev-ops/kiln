@@ -74,6 +74,7 @@ using kq::logf;
 
 uintptr_t g_ray = 0;
 std::atomic<bool> g_ray_on{false};  // false from the start, or latched off: never back on in this process
+std::string g_ray_start_failure;    // retained until on_ready can report through kiln.caps
 kq::Budget g_budget;                // tick thread
 // world lifecycle. STARTED comes on the tick thread; STOPPING on whichever thread destroys the world.
 std::atomic<uint32_t> g_stopped_session{0};
@@ -83,10 +84,18 @@ double g_qpc_ns = 0;                // nanoseconds per performance-counter tick
 uint32_t g_grid_session = 0;  // tick thread: the session g_grid was resolved for
 uintptr_t g_grid = 0;
 
+void report_ray_off(uint32_t reason, KilnStr why) {
+    if (!g_caps || !g_caps->report) return;
+    // These compositions cannot outlive the ray. Report them here too, so raw capability readers see a fault at once
+    // rather than waiting for the managed library's next periodic refresh (or for someone to call a member).
+    for (const char* name : {kRayFeature, "queries.ground", "queries.line_of_sight"})
+        g_caps->report(g_owner, KilnStr{name, std::strlen(name)}, KILN_CAP_UNAVAILABLE, reason, why);
+}
+
 void ray_off(uint32_t reason, const char* why) {
     if (!g_ray_on.exchange(false)) return;
     logf(KILN_LOG_ERROR, "queries: %s: %s is off for this process", why, kRayFeature);
-    if (g_caps && g_caps->report) g_caps->report(g_owner, KQ_STR(kRayFeature), KILN_CAP_UNAVAILABLE, reason, KilnStr{why, std::strlen(why)});
+    report_ray_off(reason, KilnStr{why, std::strlen(why)});
 }
 
 bool constant(const char* name, int64_t* out) { return g_api->constant(KilnStr{name, std::strlen(name)}, out) == KILN_OK; }
@@ -261,7 +270,7 @@ KilnResult KILN_CALL t_entities(const KilnQueryEntityRequest* req, KilnEntity* i
     shape.radius = req->radius;
     if (!shape.box) shape.half[0] = shape.half[1] = shape.half[2] = 0;
     if (!kq::valid_shape(shape)) return KILN_ERR_INVALID_ARGUMENT;
-    if (!g_world || !g_transform_hash) return KILN_ERR_UNAVAILABLE;
+    if (!g_world || !g_transform_hash || !g_api->feature(KQ_STR("world.entities")) || !g_api->feature(KQ_STR("world.find"))) return KILN_ERR_UNAVAILABLE;
     const Clock c = now();
     if (!world_ready(c)) {
         out->reason = KQ_STR("WorldNotReady");
@@ -277,13 +286,16 @@ KilnResult KILN_CALL t_entities(const KilnQueryEntityRequest* req, KilnEntity* i
             count = 0;
             break;
         }
+        if (rc == KILN_ERR_UNAVAILABLE || rc == KILN_ERR_WRONG_THREAD) return rc;
         if (rc != KILN_ERR_BUFFER_TOO_SMALL || attempt == 3) return KILN_ERR_INTERNAL;
         g_ids.resize(static_cast<size_t>(count) + 1024);
     }
     g_origins.clear();
     for (uint32_t i = 0; i < count; ++i) {
         KilnVec3 p{};
-        if (g_world->position(g_ids[i], &p) != KILN_OK) continue;  // gone, or it never had a place
+        const KilnResult rc = g_world->position(g_ids[i], &p);
+        if (rc == KILN_ERR_NOT_FOUND) continue;  // gone, or it never had a place
+        if (rc != KILN_OK) return rc;           // unavailable is not a successful empty overlap
         g_origins.push_back({g_ids[i], p.x, p.y, p.z});
     }
     const std::vector<uint32_t> inside = kq::origins_inside(g_origins, shape, req->exclude);
@@ -326,6 +338,10 @@ void read_config() {
 void KILN_CALL on_ready(void*) {
     g_world = static_cast<const KilnWorldApi*>(g_api->service(KQ_STR(KILN_WORLD_SERVICE), KILN_WORLD_VERSION));
     g_caps = static_cast<const KilnCapsApi*>(g_api->service(KQ_STR(KILN_CAPS_SERVICE), KILN_CAPS_VERSION));
+    // sigdb can resolve every symbol while the mandatory live byte/layout check fails. The table still serves origins,
+    // but every capability reader must see that its ray is unusable, including callers that never try a ray themselves.
+    if (!g_ray_on.load(std::memory_order_acquire) && !g_ray_start_failure.empty() && g_api->feature(KQ_STR(kRayFeature)))
+        report_ray_off(KILN_CAP_REASON_FAULTED, KilnStr{g_ray_start_failure.data(), g_ray_start_failure.size()});
     if (g_world && g_world->component_hash) g_transform_hash = g_world->component_hash(KQ_STR("CurrentTransform"));
     if (!g_world || !g_transform_hash) logf(KILN_LOG_WARN, "queries: kiln.world is not here: entities() is unavailable");
     // A game client's server world waits for its game test (native/core/gates/dev28-01-world-queries.json). The ray is held
@@ -359,6 +375,7 @@ extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api,
     read_config();
     const char* why = nullptr;
     if (resolve_ray(&why)) {
+        g_ray_start_failure.clear();
         g_ray_on.store(true, std::memory_order_release);
         kq::g_grid_ok.store(true, std::memory_order_release);
         logf(KILN_LOG_INFO, "queries: voxel ray resolved (realms +0x%llx, count +0x%llx, stride 0x%llx; ray grid origin +0x%llx, shift +0x%llx, counts +0x%llx/+0x%llx)",
@@ -366,6 +383,7 @@ extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api,
              static_cast<unsigned long long>(g_layout.origin), static_cast<unsigned long long>(g_layout.shift), static_cast<unsigned long long>(g_layout.count_h),
              static_cast<unsigned long long>(g_layout.count_v));
     } else {
+        g_ray_start_failure = why;
         logf(KILN_LOG_WARN, "queries: %s: ray_voxels is unavailable; entities() still works", why);
     }
     kq::path_resolve();
