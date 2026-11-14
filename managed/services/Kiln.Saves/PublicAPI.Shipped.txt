@@ -186,6 +186,15 @@ Kiln.DataMatch.None = 0 -> Kiln.DataMatch
 Kiln.DataMatch.Older = 3 -> Kiln.DataMatch
 Kiln.DataMatch.Staged = 2 -> Kiln.DataMatch
 Kiln.EntityData
+Kiln.InstanceClaimResult
+Kiln.InstanceClaimResult.<Clone>$() -> Kiln.InstanceClaimResult!
+Kiln.InstanceClaimResult.Equals(Kiln.InstanceClaimResult? other) -> bool
+Kiln.InstanceClaimResult.Item.get -> Kiln.ItemInstanceRef
+Kiln.InstanceClaimResult.Keys.get -> System.Collections.Generic.IReadOnlyList<string!>!
+Kiln.InstanceClaimResult.Mod.get -> string!
+Kiln.InstanceClaimResult.Ok.get -> bool
+Kiln.InstanceClaimResult.Reason.get -> string?
+Kiln.InstanceClaimResult.RecordId.get -> string!
 Kiln.InstanceData
 Kiln.InstanceDataChangedEvent
 Kiln.InstanceDataChangedEvent.Item.get -> Kiln.ItemInstanceRef
@@ -214,30 +223,51 @@ Kiln.InstanceDataRestoredEvent.Item.get -> Kiln.ItemInstanceRef
 Kiln.InstanceDataRestoredEvent.Key.get -> string!
 Kiln.InstanceDataRestoredEvent.Match.get -> Kiln.InstanceMatch
 Kiln.InstanceDataRestoredEvent.Mod.get -> string!
+Kiln.InstanceDataSyncedEvent
+Kiln.InstanceDataSyncedEvent.Change.get -> Kiln.InstanceSyncChange
+Kiln.InstanceDataSyncedEvent.Item.get -> Kiln.SyncedItem!
+Kiln.InstanceDataSyncedEvent.Key.get -> string!
+Kiln.InstanceDataSyncedEvent.Mod.get -> string!
 Kiln.InstanceKey<T>
 Kiln.InstanceKey<T>.Mod.get -> string!
 Kiln.InstanceKey<T>.Name.get -> string!
 Kiln.InstanceKey<T>.Persist.get -> Kiln.Persist
+Kiln.InstanceKey<T>.Sync.get -> Kiln.InstanceSync
 Kiln.InstanceKeyOptions
 Kiln.InstanceKeyOptions.<Clone>$() -> Kiln.InstanceKeyOptions!
 Kiln.InstanceKeyOptions.Equals(Kiln.InstanceKeyOptions? other) -> bool
 Kiln.InstanceKeyOptions.InstanceKeyOptions() -> void
 Kiln.InstanceKeyOptions.Items.get -> System.Collections.Generic.IReadOnlyList<Kiln.ItemId>?
 Kiln.InstanceKeyOptions.Items.init -> void
+Kiln.InstanceKeyOptions.NearbyRadius.get -> double
+Kiln.InstanceKeyOptions.NearbyRadius.init -> void
 Kiln.InstanceKeyOptions.Persist.get -> Kiln.Persist
 Kiln.InstanceKeyOptions.Persist.init -> void
+Kiln.InstanceKeyOptions.Sync.get -> Kiln.InstanceSync
+Kiln.InstanceKeyOptions.Sync.init -> void
 Kiln.InstanceLossReason
 Kiln.InstanceLossReason.Ambiguous = 2 -> Kiln.InstanceLossReason
 Kiln.InstanceLossReason.Capped = 3 -> Kiln.InstanceLossReason
 Kiln.InstanceLossReason.Destroyed = 0 -> Kiln.InstanceLossReason
+Kiln.InstanceLossReason.Discarded = 4 -> Kiln.InstanceLossReason
 Kiln.InstanceLossReason.Unmatched = 1 -> Kiln.InstanceLossReason
 Kiln.InstanceMatch
+Kiln.InstanceMatch.Claimed = 2 -> Kiln.InstanceMatch
 Kiln.InstanceMatch.Exact = 0 -> Kiln.InstanceMatch
 Kiln.InstanceMatch.Moved = 1 -> Kiln.InstanceMatch
 Kiln.InstanceParkReason
 Kiln.InstanceParkReason.HolderAway = 0 -> Kiln.InstanceParkReason
 Kiln.InstanceParkReason.NoCandidate = 2 -> Kiln.InstanceParkReason
 Kiln.InstanceParkReason.PlayerLeft = 1 -> Kiln.InstanceParkReason
+Kiln.InstanceSync
+Kiln.InstanceSync.Holder = 1 -> Kiln.InstanceSync
+Kiln.InstanceSync.Nearby = 2 -> Kiln.InstanceSync
+Kiln.InstanceSync.None = 0 -> Kiln.InstanceSync
+Kiln.InstanceSyncChange
+Kiln.InstanceSyncChange.Gone = 3 -> Kiln.InstanceSyncChange
+Kiln.InstanceSyncChange.Moved = 2 -> Kiln.InstanceSyncChange
+Kiln.InstanceSyncChange.Removed = 1 -> Kiln.InstanceSyncChange
+Kiln.InstanceSyncChange.Set = 0 -> Kiln.InstanceSyncChange
 Kiln.ItemInstanceDataExtensions
 Kiln.ParkedInstance<T>
 Kiln.ParkedInstance<T>.Character.get -> Kiln.CharacterKey
@@ -245,6 +275,7 @@ Kiln.ParkedInstance<T>.FlatSlot.get -> int
 Kiln.ParkedInstance<T>.Holder.get -> string!
 Kiln.ParkedInstance<T>.Item.get -> Kiln.ItemId
 Kiln.ParkedInstance<T>.Reason.get -> string!
+Kiln.ParkedInstance<T>.RecordId.get -> string!
 Kiln.ParkedInstance<T>.SessionsMissed.get -> int
 Kiln.ParkedInstance<T>.State.get -> Kiln.ParkedState
 Kiln.ParkedInstance<T>.Value.get -> T?
@@ -271,6 +302,7 @@ Kiln.SaveResult.Duration.init -> void
 Kiln.SaveResult.Equals(Kiln.SaveResult? other) -> bool
 Kiln.SaveResult.Error.get -> string?
 Kiln.SaveResult.Error.init -> void
+Kiln.SaveResult.Ok.get -> bool
 Kiln.SaveResult.Reason.get -> Kiln.SaveReason
 Kiln.SaveResult.Reason.init -> void
 Kiln.SaveResult.Revision.get -> uint
@@ -318,6 +350,16 @@ Kiln.SaveStatus.WorldId.init -> void
 Kiln.SaveStatus.Written.get -> long
 Kiln.SaveStatus.Written.init -> void
 Kiln.Saves
+Kiln.SyncedItem
+Kiln.SyncedItem.Entity.get -> Kiln.EntityId
+Kiln.SyncedItem.FlatSlot.get -> int
+Kiln.SyncedItem.Has<T>(Kiln.InstanceKey<T!>! key) -> bool
+Kiln.SyncedItem.Holder.get -> Kiln.EntityId
+Kiln.SyncedItem.Item.get -> Kiln.ItemId
+Kiln.SyncedItem.Json(string! mod, string! key) -> string?
+Kiln.SyncedItem.Keys.get -> System.Collections.Generic.IReadOnlyList<(string! Mod, string! Key)>!
+Kiln.SyncedItem.Own.get -> bool
+Kiln.SyncedItem.TryGet<T>(Kiln.InstanceKey<T!>! key, out T? value) -> bool
 Kiln.WorldData
 Kiln.WorldLoadedEvent
 Kiln.WorldLoadedEvent.Data.get -> Kiln.DataMatch
@@ -375,9 +417,13 @@ override Kiln.CharacterSettings.ToString() -> string!
 override Kiln.CharacterSyncStatus.Equals(object? obj) -> bool
 override Kiln.CharacterSyncStatus.GetHashCode() -> int
 override Kiln.CharacterSyncStatus.ToString() -> string!
+override Kiln.InstanceClaimResult.Equals(object? obj) -> bool
+override Kiln.InstanceClaimResult.GetHashCode() -> int
+override Kiln.InstanceClaimResult.ToString() -> string!
 override Kiln.InstanceDataLostEvent.ToString() -> string!
 override Kiln.InstanceDataParkedEvent.ToString() -> string!
 override Kiln.InstanceDataRestoredEvent.ToString() -> string!
+override Kiln.InstanceDataSyncedEvent.ToString() -> string!
 override Kiln.InstanceKey<T>.ToString() -> string!
 override Kiln.InstanceKeyOptions.Equals(object? obj) -> bool
 override Kiln.InstanceKeyOptions.GetHashCode() -> int
@@ -389,6 +435,7 @@ override Kiln.SaveResult.ToString() -> string!
 override Kiln.SaveStatus.Equals(object? obj) -> bool
 override Kiln.SaveStatus.GetHashCode() -> int
 override Kiln.SaveStatus.ToString() -> string!
+override Kiln.SyncedItem.ToString() -> string!
 override Kiln.WorldLoadedEvent.ToString() -> string!
 override Kiln.WorldSavedEvent.ToString() -> string!
 override Kiln.WorldSavingEvent.ToString() -> string!
@@ -450,9 +497,16 @@ static Kiln.EntityData.Remove(Kiln.EntityId entity, string! key) -> bool
 static Kiln.EntityData.Set<T>(Kiln.EntityId entity, string! key, T! value) -> void
 static Kiln.EntityData.TryGet<T>(Kiln.EntityId entity, string! key, out T? value) -> bool
 static Kiln.EntityData.Waiting.get -> int
+static Kiln.InstanceClaimResult.operator !=(Kiln.InstanceClaimResult? left, Kiln.InstanceClaimResult? right) -> bool
+static Kiln.InstanceClaimResult.operator ==(Kiln.InstanceClaimResult? left, Kiln.InstanceClaimResult? right) -> bool
 static Kiln.InstanceData.All<T>(Kiln.InstanceKey<T!>! key) -> System.Collections.Generic.IReadOnlyList<(Kiln.ItemInstanceRef Item, T! Value)>!
+static Kiln.InstanceData.Claim<T>(Kiln.ParkedInstance<T!>! parked, Kiln.ItemInstanceRef item) -> Kiln.InstanceClaimResult!
+static Kiln.InstanceData.Discard<T>(Kiln.ParkedInstance<T!>! parked) -> bool
 static Kiln.InstanceData.Key<T>(string! name, Kiln.InstanceKeyOptions? options = null) -> Kiln.InstanceKey<T!>!
 static Kiln.InstanceData.Parked<T>(Kiln.InstanceKey<T!>! key) -> System.Collections.Generic.IReadOnlyList<Kiln.ParkedInstance<T!>!>!
+static Kiln.InstanceData.Synced() -> System.Collections.Generic.IReadOnlyList<Kiln.SyncedItem!>!
+static Kiln.InstanceData.Synced(Kiln.EntityId item) -> Kiln.SyncedItem?
+static Kiln.InstanceData.Synced<T>(Kiln.EntityId item, Kiln.InstanceKey<T!>! key) -> T?
 static Kiln.InstanceKeyOptions.operator !=(Kiln.InstanceKeyOptions? left, Kiln.InstanceKeyOptions? right) -> bool
 static Kiln.InstanceKeyOptions.operator ==(Kiln.InstanceKeyOptions? left, Kiln.InstanceKeyOptions? right) -> bool
 static Kiln.ItemInstanceDataExtensions.Get<T>(this Kiln.ItemInstanceRef item, Kiln.InstanceKey<T!>! key) -> T!

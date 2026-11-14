@@ -76,6 +76,8 @@ Kiln.BuildResult.Kept.get -> bool
 Kiln.BuildResult.Kept.init -> void
 Kiln.BuildResult.Milliseconds.get -> double
 Kiln.BuildResult.Milliseconds.init -> void
+Kiln.BuildResult.Ok.get -> bool
+Kiln.BuildResult.Reason.get -> string?
 Kiln.BuildResult.Refusal.get -> Kiln.BuildRefusal
 Kiln.BuildResult.Refusal.init -> void
 Kiln.BuildResult.Refused.get -> bool
@@ -246,6 +248,7 @@ Kiln.PasteResult.PropsFailed.get -> int
 Kiln.PasteResult.PropsFailed.init -> void
 Kiln.PasteResult.PropsPlaced.get -> int
 Kiln.PasteResult.PropsPlaced.init -> void
+Kiln.PasteResult.Reason.get -> string?
 Kiln.PlaceOnceRecord
 Kiln.PlaceOnceRecord.At.get -> double[]!
 Kiln.PlaceOnceRecord.At.set -> void
@@ -276,11 +279,13 @@ Kiln.PlaceOnceResult.Deconstruct(out bool Placed, out bool AlreadyPlaced, out Ki
 Kiln.PlaceOnceResult.Equals(Kiln.PlaceOnceResult? other) -> bool
 Kiln.PlaceOnceResult.Error.get -> string?
 Kiln.PlaceOnceResult.Error.init -> void
+Kiln.PlaceOnceResult.Ok.get -> bool
 Kiln.PlaceOnceResult.Paste.get -> Kiln.PasteResult?
 Kiln.PlaceOnceResult.Paste.init -> void
 Kiln.PlaceOnceResult.PlaceOnceResult(bool Placed, bool AlreadyPlaced, Kiln.PlaceOnceRecord? Record, Kiln.PasteResult? Paste, string? Error = null) -> void
 Kiln.PlaceOnceResult.Placed.get -> bool
 Kiln.PlaceOnceResult.Placed.init -> void
+Kiln.PlaceOnceResult.Reason.get -> string?
 Kiln.PlaceOnceResult.Record.get -> Kiln.PlaceOnceRecord?
 Kiln.PlaceOnceResult.Record.init -> void
 Kiln.PlacedProp

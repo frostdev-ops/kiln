@@ -1,4 +1,26 @@
 #nullable enable
+Kiln.BanEntry
+Kiln.BanEntry.<Clone>$() -> Kiln.BanEntry!
+Kiln.BanEntry.AccountId.get -> ulong
+Kiln.BanEntry.AccountId.init -> void
+Kiln.BanEntry.BanEntry(ulong SteamId, ulong AccountId, string! Name, string! Reason, string! By, System.DateTimeOffset Since, System.DateTimeOffset? Until) -> void
+Kiln.BanEntry.By.get -> string!
+Kiln.BanEntry.By.init -> void
+Kiln.BanEntry.Deconstruct(out ulong SteamId, out ulong AccountId, out string! Name, out string! Reason, out string! By, out System.DateTimeOffset Since, out System.DateTimeOffset? Until) -> void
+Kiln.BanEntry.Equals(Kiln.BanEntry? other) -> bool
+Kiln.BanEntry.IsActive(System.DateTimeOffset now) -> bool
+Kiln.BanEntry.Matches(ulong steamId, ulong accountId) -> bool
+Kiln.BanEntry.Name.get -> string!
+Kiln.BanEntry.Name.init -> void
+Kiln.BanEntry.Reason.get -> string!
+Kiln.BanEntry.Reason.init -> void
+Kiln.BanEntry.Since.get -> System.DateTimeOffset
+Kiln.BanEntry.Since.init -> void
+Kiln.BanEntry.SteamId.get -> ulong
+Kiln.BanEntry.SteamId.init -> void
+Kiln.BanEntry.Until.get -> System.DateTimeOffset?
+Kiln.BanEntry.Until.init -> void
+Kiln.Bans
 Kiln.ExperienceSource
 Kiln.ExperienceSource.Combat = 4 -> Kiln.ExperienceSource
 Kiln.ExperienceSource.Exploration = 1 -> Kiln.ExperienceSource
@@ -7,10 +29,18 @@ Kiln.ExperienceSource.Lore = 2 -> Kiln.ExperienceSource
 Kiln.ExperienceSource.Mining = 5 -> Kiln.ExperienceSource
 Kiln.ExperienceSource.None = 0 -> Kiln.ExperienceSource
 Kiln.ExperienceSource.Quest = 3 -> Kiln.ExperienceSource
+Kiln.KickResult
+Kiln.KickResult.<Clone>$() -> Kiln.KickResult!
+Kiln.KickResult.Equals(Kiln.KickResult? other) -> bool
+Kiln.KickResult.Name.get -> string!
+Kiln.KickResult.Ok.get -> bool
+Kiln.KickResult.Player.get -> Kiln.PlayerRef
+Kiln.KickResult.Reason.get -> string?
 Kiln.Player
 Kiln.Player.<Clone>$() -> Kiln.Player!
 Kiln.Player.AccountId.get -> ulong
 Kiln.Player.AccountId.init -> void
+Kiln.Player.Aim.get -> Kiln.PlayerAim?
 Kiln.Player.Buffs.get -> System.Collections.Generic.IReadOnlyList<Kiln.PlayerBuff!>!
 Kiln.Player.Can(Kiln.PlayerPermissions p) -> bool
 Kiln.Player.CharacterId.get -> System.Guid
@@ -125,6 +155,28 @@ Kiln.PlayerActionEvent.Player.get -> Kiln.Player!
 Kiln.PlayerActionEvent.SequenceName.get -> string!
 Kiln.PlayerActionEvent.Step.get -> ulong
 Kiln.PlayerActionEvent.Trigger.get -> Kiln.PlayerStateId
+Kiln.PlayerAim
+Kiln.PlayerAim.<Clone>$() -> Kiln.PlayerAim!
+Kiln.PlayerAim.At(double metres) -> Kiln.WorldPosition
+Kiln.PlayerAim.Deconstruct(out Kiln.WorldPosition Origin, out System.Numerics.Vector3 Direction, out System.Numerics.Quaternion Rotation, out float Distance, out float FieldOfView, out Kiln.PlayerStateOrigin Source) -> void
+Kiln.PlayerAim.Direction.get -> System.Numerics.Vector3
+Kiln.PlayerAim.Direction.init -> void
+Kiln.PlayerAim.Distance.get -> float
+Kiln.PlayerAim.Distance.init -> void
+Kiln.PlayerAim.Equals(Kiln.PlayerAim? other) -> bool
+Kiln.PlayerAim.FieldOfView.get -> float
+Kiln.PlayerAim.FieldOfView.init -> void
+Kiln.PlayerAim.Origin.get -> Kiln.WorldPosition
+Kiln.PlayerAim.Origin.init -> void
+Kiln.PlayerAim.PitchDegrees.get -> float
+Kiln.PlayerAim.PlayerAim(Kiln.WorldPosition Origin, System.Numerics.Vector3 Direction, System.Numerics.Quaternion Rotation, float Distance, float FieldOfView, Kiln.PlayerStateOrigin Source) -> void
+Kiln.PlayerAim.Rotation.get -> System.Numerics.Quaternion
+Kiln.PlayerAim.Rotation.init -> void
+Kiln.PlayerAim.Source.get -> Kiln.PlayerStateOrigin
+Kiln.PlayerAim.Source.init -> void
+Kiln.PlayerAim.YawDegrees.get -> float
+Kiln.PlayerBannedEvent
+Kiln.PlayerBannedEvent.Ban.get -> Kiln.BanEntry!
 Kiln.PlayerBuff
 Kiln.PlayerBuff.<Clone>$() -> Kiln.PlayerBuff!
 Kiln.PlayerBuff.Deconstruct(out uint Id, out string! Slot, out System.TimeSpan? Remaining, out int Level) -> void
@@ -270,6 +322,12 @@ Kiln.PlayerJumpEvent.Count.get -> int
 Kiln.PlayerJumpEvent.IsDoubleJump.get -> bool
 Kiln.PlayerJumpEvent.Player.get -> Kiln.Player!
 Kiln.PlayerJumpEvent.Type.get -> Kiln.PlayerStateId
+Kiln.PlayerKickedEvent
+Kiln.PlayerKickedEvent.Banned.get -> bool
+Kiln.PlayerKickedEvent.By.get -> string?
+Kiln.PlayerKickedEvent.Name.get -> string!
+Kiln.PlayerKickedEvent.Player.get -> Kiln.PlayerRef
+Kiln.PlayerKickedEvent.Reason.get -> string!
 Kiln.PlayerLeftEvent
 Kiln.PlayerLeftEvent.Player.get -> Kiln.Player!
 Kiln.PlayerLeftEvent.Sequence.get -> ulong
@@ -281,6 +339,14 @@ Kiln.PlayerLevelChangedEvent.OldLevel.get -> int
 Kiln.PlayerLevelChangedEvent.Player.get -> Kiln.Player?
 Kiln.PlayerLevelChangedEvent.Request.get -> ulong
 Kiln.PlayerLevelChangedEvent.Step.get -> ulong
+Kiln.PlayerLoginEvent
+Kiln.PlayerLoginEvent.AccountId.get -> ulong
+Kiln.PlayerLoginEvent.Entity.get -> Kiln.EntityId
+Kiln.PlayerLoginEvent.HasKiln.get -> bool
+Kiln.PlayerLoginEvent.Name.get -> string!
+Kiln.PlayerLoginEvent.Reason.get -> string!
+Kiln.PlayerLoginEvent.Reason.set -> void
+Kiln.PlayerLoginEvent.SteamId.get -> ulong
 Kiln.PlayerPermissions
 Kiln.PlayerPermissions.AccessInventories = 2 -> Kiln.PlayerPermissions
 Kiln.PlayerPermissions.EditBase = 4 -> Kiln.PlayerPermissions
@@ -304,6 +370,14 @@ Kiln.PlayerProgression.SetLevel(int level) -> System.Threading.Tasks.Task<Kiln.P
 Kiln.PlayerProgression.SkillPoints.get -> int
 Kiln.PlayerProgression.Unlock(uint node, bool force = false) -> System.Threading.Tasks.Task<Kiln.ProgressionResult!>!
 Kiln.PlayerProgression.UnlockedNodes.get -> System.Collections.Generic.IReadOnlyList<Kiln.UnlockedSkillNode>!
+Kiln.PlayerProgressionChangedEvent
+Kiln.PlayerProgressionChangedEvent.After.get -> long
+Kiln.PlayerProgressionChangedEvent.Before.get -> long
+Kiln.PlayerProgressionChangedEvent.Involves(Kiln.EntityId entity) -> bool
+Kiln.PlayerProgressionChangedEvent.Origin.get -> string!
+Kiln.PlayerProgressionChangedEvent.Player.get -> Kiln.EntityId
+Kiln.PlayerProgressionChangedEvent.Request.get -> ulong
+Kiln.PlayerProgressionChangedEvent.What.get -> string!
 Kiln.PlayerSkillsChangedEvent
 Kiln.PlayerSkillsChangedEvent.Entity.get -> Kiln.EntityId
 Kiln.PlayerSkillsChangedEvent.NewPointsSpent.get -> int
@@ -830,6 +904,9 @@ Kiln.PlayerStateSource.Speed = 10 -> Kiln.PlayerStateSource
 Kiln.PlayerStateSource.Temperature = 21 -> Kiln.PlayerStateSource
 Kiln.PlayerStates
 Kiln.PlayerStates.Diagnostics
+Kiln.PlayerUnbannedEvent
+Kiln.PlayerUnbannedEvent.Ban.get -> Kiln.BanEntry!
+Kiln.PlayerUnbannedEvent.By.get -> string!
 Kiln.Players
 Kiln.Players.Diagnostics
 Kiln.PlayersStatus
@@ -1091,6 +1168,12 @@ const Kiln.Progression.Diagnostics.AttrExperience = 2379078388 -> uint
 const Kiln.Progression.Diagnostics.AttrGranted = 494784770 -> uint
 const Kiln.Progression.Diagnostics.AttrLevel = 1917580648 -> uint
 const Kiln.Progression.Diagnostics.AttrNeeded = 74596194 -> uint
+override Kiln.BanEntry.Equals(object? obj) -> bool
+override Kiln.BanEntry.GetHashCode() -> int
+override Kiln.BanEntry.ToString() -> string!
+override Kiln.KickResult.Equals(object? obj) -> bool
+override Kiln.KickResult.GetHashCode() -> int
+override Kiln.KickResult.ToString() -> string!
 override Kiln.Player.Equals(object? obj) -> bool
 override Kiln.Player.GetHashCode() -> int
 override Kiln.Player.ToString() -> string!
@@ -1098,6 +1181,9 @@ override Kiln.PlayerAction.Equals(object? obj) -> bool
 override Kiln.PlayerAction.GetHashCode() -> int
 override Kiln.PlayerAction.ToString() -> string!
 override Kiln.PlayerActionEvent.ToString() -> string!
+override Kiln.PlayerAim.Equals(object? obj) -> bool
+override Kiln.PlayerAim.GetHashCode() -> int
+override Kiln.PlayerAim.ToString() -> string!
 override Kiln.PlayerBuff.Equals(object? obj) -> bool
 override Kiln.PlayerBuff.GetHashCode() -> int
 override Kiln.PlayerBuff.ToString() -> string!
@@ -1119,6 +1205,7 @@ override Kiln.PlayerJoinedEvent.ToString() -> string!
 override Kiln.PlayerLeftEvent.ToString() -> string!
 override Kiln.PlayerLevelChangedEvent.ToString() -> string!
 override Kiln.PlayerProgression.ToString() -> string!
+override Kiln.PlayerProgressionChangedEvent.ToString() -> string!
 override Kiln.PlayerSkillsChangedEvent.ToString() -> string!
 override Kiln.PlayerSlotRaw.GetHashCode() -> int
 override Kiln.PlayerStateChangedEvent.ToString() -> string!
@@ -1144,11 +1231,22 @@ override Kiln.ProgressionStatus.ToString() -> string!
 override Kiln.SkillNode.GetHashCode() -> int
 override Kiln.SkillNode.ToString() -> string!
 override Kiln.UnlockedSkillNode.GetHashCode() -> int
+static Kiln.BanEntry.operator !=(Kiln.BanEntry? left, Kiln.BanEntry? right) -> bool
+static Kiln.BanEntry.operator ==(Kiln.BanEntry? left, Kiln.BanEntry? right) -> bool
+static Kiln.Bans.Add(Kiln.PlayerRef player, string! reason, System.TimeSpan? duration = null) -> Kiln.BanEntry!
+static Kiln.Bans.Add(ulong steamId, string! reason, System.TimeSpan? duration = null) -> Kiln.BanEntry!
+static Kiln.Bans.All.get -> System.Collections.Generic.IReadOnlyList<Kiln.BanEntry!>!
+static Kiln.Bans.Find(ulong steamOrAccountId) -> Kiln.BanEntry?
+static Kiln.Bans.Remove(ulong steamOrAccountId) -> bool
+static Kiln.KickResult.operator !=(Kiln.KickResult? left, Kiln.KickResult? right) -> bool
+static Kiln.KickResult.operator ==(Kiln.KickResult? left, Kiln.KickResult? right) -> bool
 static Kiln.Player.explicit operator Kiln.PlayerRef(Kiln.Player! player) -> Kiln.PlayerRef
 static Kiln.Player.operator !=(Kiln.Player? left, Kiln.Player? right) -> bool
 static Kiln.Player.operator ==(Kiln.Player? left, Kiln.Player? right) -> bool
 static Kiln.PlayerAction.operator !=(Kiln.PlayerAction? left, Kiln.PlayerAction? right) -> bool
 static Kiln.PlayerAction.operator ==(Kiln.PlayerAction? left, Kiln.PlayerAction? right) -> bool
+static Kiln.PlayerAim.operator !=(Kiln.PlayerAim? left, Kiln.PlayerAim? right) -> bool
+static Kiln.PlayerAim.operator ==(Kiln.PlayerAim? left, Kiln.PlayerAim? right) -> bool
 static Kiln.PlayerBuff.operator !=(Kiln.PlayerBuff? left, Kiln.PlayerBuff? right) -> bool
 static Kiln.PlayerBuff.operator ==(Kiln.PlayerBuff? left, Kiln.PlayerBuff? right) -> bool
 static Kiln.PlayerCharacters.AccountOf(Kiln.Player! p) -> ulong
@@ -1177,6 +1275,7 @@ static Kiln.PlayerStateInfo.operator !=(Kiln.PlayerStateInfo? left, Kiln.PlayerS
 static Kiln.PlayerStateInfo.operator ==(Kiln.PlayerStateInfo? left, Kiln.PlayerStateInfo? right) -> bool
 static Kiln.PlayerStateServiceStatus.operator !=(Kiln.PlayerStateServiceStatus? left, Kiln.PlayerStateServiceStatus? right) -> bool
 static Kiln.PlayerStateServiceStatus.operator ==(Kiln.PlayerStateServiceStatus? left, Kiln.PlayerStateServiceStatus? right) -> bool
+static Kiln.PlayerStates.AimOf(Kiln.EntityId player) -> Kiln.PlayerAim?
 static Kiln.PlayerStates.All.get -> System.Collections.Generic.IReadOnlyList<Kiln.PlayerStateInfo!>!
 static Kiln.PlayerStates.Available.get -> bool
 static Kiln.PlayerStates.BuffsGivenBy(Kiln.PlayerItem item) -> System.Collections.Generic.IReadOnlyList<Kiln.PlayerBuff!>!
@@ -1208,8 +1307,10 @@ static Kiln.Players.Diagnostics.Status.get -> Kiln.PlayersStatus?
 static Kiln.Players.Find(Kiln.EntityId entity) -> Kiln.Player?
 static Kiln.Players.Find(string! name) -> Kiln.Player?
 static Kiln.Players.FindBySteamId(ulong steamId) -> Kiln.Player?
+static Kiln.Players.FindPerson(Kiln.PlayerRef person) -> Kiln.Player?
 static Kiln.Players.IsPlayer(Kiln.EntityId entity) -> bool
 static Kiln.Players.Joined -> System.Action<Kiln.Player!>!
+static Kiln.Players.Kick(Kiln.PlayerRef player, string! reason) -> System.Threading.Tasks.Task<Kiln.KickResult!>!
 static Kiln.Players.Left -> System.Action<Kiln.Player!>!
 static Kiln.Players.PositionOf(Kiln.EntityId entity) -> Kiln.WorldPosition?
 static Kiln.Players.Source.get -> Kiln.PlayerSource

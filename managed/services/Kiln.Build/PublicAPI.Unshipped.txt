@@ -1,6 +1,1 @@
 #nullable enable
-Kiln.BuildResult.Ok.get -> bool
-Kiln.BuildResult.Reason.get -> string?
-Kiln.PasteResult.Reason.get -> string?
-Kiln.PlaceOnceResult.Ok.get -> bool
-Kiln.PlaceOnceResult.Reason.get -> string?
