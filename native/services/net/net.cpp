@@ -181,6 +181,7 @@ std::vector<std::pair<KilnPeer, uint32_t>> g_pending_events;  // server role, de
 std::set<KilnPeer> g_proved;              // peers a frame came from: they have Kiln
 std::map<KilnPeer, uint64_t> g_held;      // peers whose Gameplay Ready waits in the gate, since when
 std::set<KilnPeer> g_let_in;              // Kiln.Network let them in (gate_release)
+std::set<KilnPeer> g_refused;             // terminal until DOWN, even if sending the login failure faults
 std::set<KilnPeer> g_cleared;             // peers Kiln-only entities go out to (withhold_set)
 uint64_t g_next_handle = 1;
 std::map<uint64_t, KilnPeer> g_lab_by_key;
@@ -338,6 +339,7 @@ void note_proof_locked(KilnPeer peer) {
 // Whether `peer`'s Gameplay Ready goes on now; if not, it is held from here on. HOLD holds a peer without proof;
 // HOLD_ALL holds every peer, and only Kiln.Network's release (or a kick, a lower mode, the time limit) ends it.
 bool gate_admit_locked(KilnPeer peer) {
+    if (g_refused.count(peer)) return false;
     const uint32_t mode = g_gate_mode.load(std::memory_order_relaxed);
     const bool proved = g_proved.count(peer) != 0;
     if (mode == KILN_NET_GATE_OFF || g_let_in.count(peer) || (mode == KILN_NET_GATE_HOLD && proved)) return true;
@@ -396,6 +398,7 @@ void gate_pump(uintptr_t gs) {
         const bool off = mode == KILN_NET_GATE_OFF;
         for (auto it = g_held.begin(); it != g_held.end();) {
             const KilnPeer peer = it->first;
+            if (g_refused.count(peer)) { ++it; continue; }
             // under HOLD_ALL proof does not end a hold: Kiln.Network decides each peer
             const char* why = mode != KILN_NET_GATE_HOLD_ALL && g_proved.count(peer) ? "it has Kiln"
                               : g_let_in.count(peer)                               ? "Kiln.Network let it in"
@@ -407,6 +410,7 @@ void gate_pump(uintptr_t gs) {
             } else if (t - it->second > kHoldCapMs) {
                 logf(KILN_LOG_ERROR, "net: peer 0x%x was held for %llu s and Kiln.Network didn't decide: refusing it", peer, static_cast<unsigned long long>(kHoldCapMs / 1000));
                 refuse.push_back(peer);
+                g_refused.insert(peer);
             } else {
                 ++it;
                 continue;
@@ -427,9 +431,7 @@ void gate_pump(uintptr_t gs) {
         if (peer & KILN_NET_PEER_LAB) {
             logf(KILN_LOG_INFO, "net: lab peer 0x%x refused by the gate's time limit", peer);
         } else if (!(g_can_kick && knet::login_failure(gs, peer, 1))) {
-            // nothing else can end the hold: withholding still applies
-            logf(KILN_LOG_ERROR, "net: can't refuse peer 0x%x on this build: letting it in", peer);
-            knet::machine_login(game_login, gs, peer, kLoginGameplayReady);
+            logf(KILN_LOG_ERROR, "net: can't send the login failure to peer 0x%x on this build: it stays blocked", peer);
         }
     }
 }
@@ -764,6 +766,7 @@ void poll_lab(std::vector<Event>& events) {
             g_proved.erase(it->first);
             g_held.erase(it->first);
             g_let_in.erase(it->first);
+            g_refused.erase(it->first);
             g_cleared.erase(it->first);
             if (it->second.bound) forget_slot(it->second.rec.slot);
             it = g_peers.erase(it);
@@ -792,6 +795,7 @@ void refresh_game_peers(std::vector<Event>& events) {
             logf(KILN_LOG_INFO, "net: peer 0x%x down ('%s')", it->first, it->second.rec.name);
             g_held.erase(it->first);
             g_let_in.erase(it->first);
+            g_refused.erase(it->first);
             g_cleared.erase(it->first);
             if (it->second.has_player) forget_slot(it->second.rec.slot);  // the slot's next player starts over
             it = g_peers.erase(it);
@@ -829,6 +833,9 @@ void refresh_game_peers(std::vector<Event>& events) {
     // A proof can come before the peer is in g_peers; it ends with the machine.
     for (auto it = g_proved.begin(); it != g_proved.end();)
         it = ((*it & KILN_NET_PEER_LAB) == 0 && !live.count(*it)) ? g_proved.erase(it) : std::next(it);
+    // A held connection can disappear before Pre reports its UP. Its refusal still ends with that machine.
+    for (auto it = g_refused.begin(); it != g_refused.end();)
+        it = ((*it & KILN_NET_PEER_LAB) == 0 && !live.count(*it)) ? g_refused.erase(it) : std::next(it);
     recompute_withheld_locked();
 }
 
@@ -1171,7 +1178,33 @@ void KILN_CALL on_client_pre(const KilnTickInfo*, void*) {
     client_deliver();
 }
 
+void server_stopped() {
+    std::vector<Event> events;
+    {
+        std::lock_guard<std::mutex> lk(g_mu);
+        for (const auto& [peer, p] : g_peers) events.push_back({peer, KILN_NET_PEER_DOWN});
+        g_peers.clear();
+        g_lab_by_key.clear();
+        g_pending_events.clear();
+        g_inbox.clear();
+        g_inbox_bytes = 0;
+        g_retry.clear();
+        g_proved.clear();
+        g_held.clear();
+        g_let_in.clear();
+        g_refused.clear();
+        g_cleared.clear();
+        for (uint32_t slot = 0; slot < 32; ++slot) forget_slot(slot);
+        recompute_withheld_locked();
+        g_gs.store(0);
+        g_server_seen.store(false);
+    }
+    std::vector<Frame> frames;
+    deliver(events, frames, false);
+}
+
 void KILN_CALL on_world_event(const KilnWorldEvent* ev, void*) {
+    if (ev && ev->event == KILN_WORLD_STOPPING && ev->kind == KILN_WORLD_SERVER) server_stopped();
     if (ev && ev->event == KILN_WORLD_STOPPING && ev->kind == KILN_WORLD_CLIENT) {
         client_set_up(false, 0);
         client_deliver();
@@ -1337,6 +1370,7 @@ KilnResult KILN_CALL t_kick(KilnPeer peer, uint32_t reason) {
         g_proved.erase(peer);
         g_held.erase(peer);
         g_let_in.erase(peer);
+        g_refused.erase(peer);
         g_cleared.erase(peer);
         recompute_withheld_locked();
         g_pending_events.push_back({peer, KILN_NET_PEER_DOWN});
@@ -1348,6 +1382,7 @@ KilnResult KILN_CALL t_kick(KilnPeer peer, uint32_t reason) {
     {
         std::lock_guard<std::mutex> lk(g_mu);
         if (!g_peers.count(peer)) return KILN_ERR_NOT_FOUND;
+        g_refused.insert(peer);
     }
     const bool ok = knet::login_failure(g_gs.load(), peer, static_cast<uint8_t>(reason > 5 ? 5 : reason));
     if (ok) {  // refused: its held Gameplay Ready is never processed. A failed kick stays held until the time limit.
@@ -1405,6 +1440,7 @@ KilnResult KILN_CALL t_gate_info(KilnNetGateInfo* out) {
 KilnResult KILN_CALL t_gate_release(KilnPeer peer) {
     std::lock_guard<std::mutex> lk(g_mu);
     if (!g_held.count(peer)) return KILN_ERR_NOT_FOUND;
+    if (g_refused.count(peer)) return KILN_ERR_UNAVAILABLE;
     g_let_in.insert(peer);
     return KILN_OK;
 }
@@ -1729,7 +1765,6 @@ bool init_client_role() {
     if (g_world_api) {
         KilnHandle h = 0;
         ticks = g_api->subscribe_world_tick(g_owner, KILN_WORLD_CLIENT, KILN_TICK_PRE, &on_client_pre, nullptr, &h) == KILN_OK;
-        g_api->subscribe_world(g_owner, &on_world_event, nullptr, &h);
     }
     logf(KILN_LOG_INFO, "net: client role on: ClientReceive rva 0x%llx, delivery on %s", static_cast<unsigned long long>(recv - g_base),
          ticks ? "the client world's Pre (main thread)" : "the receive hook (main thread)");
@@ -1783,5 +1818,9 @@ extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api,
         }
     }
     if (!g_server_role && !g_client_role) return KILN_ERR_UNAVAILABLE;
+    if (g_world_api) {
+        KilnHandle h = 0;
+        g_api->subscribe_world(g_owner, &on_world_event, nullptr, &h);
+    }
     return api->register_service(owner, KilnStr{KILN_NET_SERVICE, sizeof(KILN_NET_SERVICE) - 1}, &kTable);
 }

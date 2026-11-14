@@ -20,6 +20,7 @@ public sealed class AdmissionTests : IDisposable
         public readonly List<uint> Modes = new();
         public readonly List<uint> Released = new();
         public readonly List<uint> Kicked = new();
+        public int KickResult = NetNative.Ok;
         public int Set(uint mode)
         {
             Mode = mode;
@@ -35,13 +36,14 @@ public sealed class AdmissionTests : IDisposable
         public int Kick(uint peer, uint reason)
         {
             Kicked.Add(peer);
-            return NetNative.Ok;
+            return KickResult;
         }
     }
 
     internal sealed class FakeNet : INetTransport
     {
         public readonly ConcurrentDictionary<uint, uint> Flags = new();
+        public readonly ConcurrentDictionary<uint, uint> Entities = new();
         public readonly ConcurrentQueue<(uint Peer, byte[] Frame)> Sent = new();
         public int Send(uint peer, byte[] frame)
         {
@@ -49,7 +51,8 @@ public sealed class AdmissionTests : IDisposable
             return NetNative.Ok;
         }
         public NetNative.Status Status() => new() { Roles = NetNative.RoleServer, MaxFrame = 1200 };
-        public NetNative.PeerInfo? Info(uint peer) => new NetNative.PeerInfo { Peer = peer, Flags = Flags.GetValueOrDefault(peer) };
+        public NetNative.PeerInfo? Info(uint peer) => new NetNative.PeerInfo
+            { Peer = peer, Flags = Flags.GetValueOrDefault(peer), Entity = Entities.GetValueOrDefault(peer) };
         public int Kick(uint peer, uint reason) => NetNative.Ok;
     }
 
@@ -80,6 +83,187 @@ public sealed class AdmissionTests : IDisposable
     }
 
     private static readonly TimeSpan Ten = TimeSpan.FromSeconds(10);
+
+    [Fact]
+    public void Late_proof_does_not_release_a_pending_vanilla_peer_around_its_join_decider()
+    {
+        var p = Up(A, held: true);
+        p.State = NetPeerState.Vanilla;
+        using var decider = NetAdmission.OnJoin("policy", _ => null);
+        var h = NetAdmission.HoldJoins("menus", "wait", Ten);
+        NetAdmission.DecideVanilla(p, false, "unused", DateTime.UtcNow);
+        _net.Flags[A] |= NetNative.PeerProved;
+        h.End();
+        NetAdmission.Step(DateTime.UtcNow);
+        Assert.Empty(_gate.Released);
+        Assert.Equal(NetPeerState.Rejected, p.State);
+    }
+
+    [Fact]
+    public void Refusing_joins_checks_native_holds_that_arrived_since_the_last_peer_refresh()
+    {
+        var p = Up(A);
+        var h = NetAdmission.HoldJoins("menus", "wait", Ten);
+        _net.Flags[A] = NetNative.PeerHeld; // Gameplay Ready arrived after UP and the last managed refresh
+        Assert.Null(p.HeldSince);
+        h.Refuse("menus failed");
+        Assert.Equal(NetPeerState.Rejected, p.State);
+        Assert.Equal(NetAdmission.GateHoldAll, _gate.Mode);
+    }
+
+    [Fact]
+    public void Server_stop_ends_all_holds_without_releasing_peers_into_the_stopping_world()
+    {
+        var p = Up(A, held: true);
+        var joins = NetAdmission.HoldJoins("menus", "wait", Ten);
+        var peer = NetAdmission.HoldPeer(p, "policy", "ack", Ten);
+        Events.Post(new ServerStoppingEvent(1, "test"));
+        p.State = NetPeerState.Ready;
+        NetAdmission.Step(DateTime.UtcNow);
+        Assert.True(joins.Ended);
+        Assert.True(peer.Ended);
+        Assert.Empty(_gate.Released);
+        Assert.Equal(NetAdmission.GateHoldAll, _gate.Mode);
+    }
+
+    [Fact]
+    public void Starting_the_engine_preserves_requirements_registered_before_autostart()
+    {
+        using var hold = NetAdmission.HoldJoins("early", "wait", Ten);
+        NetAdmission.Start();
+        Assert.Equal(NetAdmission.GateHoldAll, _gate.Mode);
+    }
+
+    [Fact]
+    public void Proof_without_hello_cannot_bypass_an_onjoin_decision_as_vanilla()
+    {
+        var p = Up(A, held: true);
+        _net.Flags[A] |= NetNative.PeerProved;
+        using var decider = NetAdmission.OnJoin("policy", _ => throw new InvalidOperationException("must not be bypassed"));
+        p.State = NetPeerState.Vanilla; // the handshake timer elapsed without HELLO
+        NetAdmission.DecideVanilla(p, false, "unused", DateTime.UtcNow);
+        Assert.Empty(_gate.Released);
+        Assert.Equal(NetPeerState.Rejected, p.State);
+        Assert.Contains(_net.Sent, s => Wire.DecodeReject(s.Frame).Reason.Contains("handshake"));
+    }
+
+    private sealed class OffThreadBackend : IKilnBackend
+    {
+        public string Version => "test";
+        public bool IsTickThread => false;
+        public bool HasFeature(string name) => false;
+        public void Log(ulong owner, LogLevel level, string text) { }
+        public nint Service(string name, uint minVersion) => 0;
+    }
+
+    [Fact]
+    public void Registration_and_disposal_reject_a_non_tick_thread_without_consuming_the_handle()
+    {
+        var h = NetAdmission.HoldJoins("owner", "wait", Ten);
+        var d = NetAdmission.OnJoin("owner", _ => null);
+        var previous = Backend.Current;
+        Backend.Current = new OffThreadBackend();
+        try
+        {
+            Assert.Throws<InvalidOperationException>(() => NetAdmission.OnJoin("worker", _ => null));
+            Assert.Throws<InvalidOperationException>(() => NetAdmission.PeersLacking("kiln:x", "1"));
+            Assert.Throws<InvalidOperationException>(h.End);
+            Assert.False(h.Ended);
+            Assert.Throws<InvalidOperationException>(() => h.Refuse("worker"));
+            Assert.Throws<InvalidOperationException>(d.Dispose);
+        }
+        finally { Backend.Current = previous; }
+        h.End();
+        d.Dispose();
+        Assert.DoesNotContain(NetAdmission.Active, e => e.Kind is AdmissionKind.JoinHold or AdmissionKind.OnJoin);
+    }
+
+    [Fact]
+    public void An_unloaded_owner_loses_its_requirements_and_callbacks_and_ends_its_holds()
+    {
+        var owner = HostAccess.CreateContext(new ModInfo("admission-owner", "owner", "1", Path.GetTempPath()), 993, Path.GetTempPath());
+        var previous = ModContext.CurrentMod;
+        AdmissionHold h;
+        var calls = 0;
+        try
+        {
+            ModContext.CurrentMod = owner;
+            h = NetAdmission.HoldJoins("owner", "wait", Ten);
+            NetAdmission.OnJoin("owner", _ => { calls++; return null; });
+            NetAdmission.Require("owner", () => false, "no remap");
+            Assert.True(NetAdmission.SetMandatoryProtocol("kiln:x", "1", true, "x required").Ok);
+        }
+        finally { ModContext.CurrentMod = previous; }
+        owner.Retire();
+        Assert.True(h.Ended);
+        Assert.DoesNotContain(NetAdmission.Active, e => e.Kind != AdmissionKind.BuiltIn);
+        NetAdmission.Joined(Up(A));
+        Assert.Equal(0, calls);
+    }
+
+    [Fact]
+    public void A_join_callback_runs_as_its_owner_and_its_peer_hold_ends_on_retirement()
+    {
+        var owner = HostAccess.CreateContext(new ModInfo("admission-owner", "owner", "1", Path.GetTempPath()), 994, Path.GetTempPath());
+        var previous = ModContext.CurrentMod;
+        AdmissionHold? h = null;
+        ModContext? seen = null;
+        try
+        {
+            ModContext.CurrentMod = owner;
+            NetAdmission.OnJoin("owner", p => { seen = ModContext.CurrentMod; return h = NetAdmission.HoldPeer(p, "owner", "ack", Ten); });
+        }
+        finally { ModContext.CurrentMod = previous; }
+        NetAdmission.Joined(Up(A, held: true));
+        owner.Retire();
+        Assert.Same(owner, seen);
+        Assert.True(h?.Ended);
+    }
+
+    [Fact]
+    public void Admission_kicks_run_each_step_and_a_failed_kick_stays_held_for_retry()
+    {
+        var p = Up(A, held: true);
+        var h = NetAdmission.HoldPeer(p, "policy", "ack missing", Ten);
+        h.Refuse("ack missing");
+        _gate.KickResult = 3;
+        NetEngine.RunDueKicks(DateTime.UtcNow.AddSeconds(2));
+        Assert.Equal([A], _gate.Kicked);
+        Assert.NotNull(p.KickAt);
+        Assert.True(NetEngine.KicksPending);
+        NetAdmission.UpdateGate(true, false, 0);
+        Assert.Equal(NetAdmission.GateHoldAll, _gate.Mode);
+        _gate.KickResult = NetNative.Ok;
+        NetEngine.RunDueKicks(DateTime.UtcNow.AddSeconds(3));
+        Assert.Equal([A, A], _gate.Kicked);
+        NetAdmission.UpdateGate(true, false, 0);
+        Assert.Equal(NetAdmission.GateHoldAll, _gate.Mode); // until DOWN, even after a successful kick
+    }
+
+    [Fact]
+    public void A_pending_vanilla_peer_rechecks_conditions_before_its_hold_ends()
+    {
+        var p = Up(A, held: true);
+        p.State = NetPeerState.Vanilla;
+        var h = NetAdmission.HoldJoins("menus", "menus", Ten);
+        NetAdmission.DecideVanilla(p, false, "unused", DateTime.UtcNow);
+        using var condition = NetAdmission.Require("remap", () => false, "remap missing");
+        h.End();
+        NetAdmission.Step(DateTime.UtcNow);
+        Assert.Empty(_gate.Released);
+        Assert.Equal(NetPeerState.Rejected, p.State);
+    }
+
+    [Fact]
+    public void A_vanilla_event_cannot_waive_a_mandatory_requirement()
+    {
+        Assert.True(NetAdmission.SetMandatoryProtocol("kiln:x", "1", true, "x required").Ok);
+        var p = Up(A, held: true);
+        NetAdmission.DecideVanilla(p, false, "unused", DateTime.UtcNow);
+        Assert.Empty(_gate.Released);
+        Assert.Equal(NetPeerState.Rejected, p.State);
+        Assert.Contains(_net.Sent, s => Wire.DecodeReject(s.Frame).Reason == "x required");
+    }
 
     [Fact]
     public void With_nothing_registered_the_gate_follows_todays_rule()
@@ -287,6 +471,8 @@ public sealed class AdmissionTests : IDisposable
     public void Without_a_server_role_every_call_answers_ok_and_registers_nothing()
     {
         NetEngine.TestServerRole = false;
+        Assert.False(NetAdmission.CanHoldKilnPeers);
+        Assert.Empty(NetAdmission.PeersLacking("kiln:x", "1"));
         Assert.True(NetAdmission.SetMandatoryProtocol("kiln:x", "1", true, "x").Ok);
         Assert.True(NetAdmission.HoldJoins("x", "x", Ten).Ended);
         NetAdmission.OnJoin("x", _ => null).Dispose();
