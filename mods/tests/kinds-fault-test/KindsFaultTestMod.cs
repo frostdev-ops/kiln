@@ -31,6 +31,19 @@ public sealed class KindsFaultTestMod : Mod
         for (var i = 0; i < n; i++) await Context.Scheduler.NextTick();
     }
 
+    /// <summary>The plan's application once it no longer waits (an item plan's parts at content ready take one pass and the check of its
+    /// definitions, about 150 steps), at most <paramref name="max"/> steps.</summary>
+    private async Task<BlockApplyResult> Settled(BlockPlan plan, int max = 600)
+    {
+        var r = Blocks.Application(plan);
+        for (var i = 0; i < max && r.State == BlockApplyState.PendingContent; i++)
+        {
+            await Steps(1);
+            r = Blocks.Application(plan);
+        }
+        return r;
+    }
+
     public override void OnLoad()
     {
         if (Mods.Side != ModSide.Server) return;
@@ -131,8 +144,9 @@ public sealed class KindsFaultTestMod : Mod
             }
             // how many registrations a clean apply makes
             var count = new FaultSink(real);
-            var clean = ApplyThrough(count, Blocks.Compile($"kf-{primary}-clean", block));
-            await Steps(2);
+            var cleanPlan = Blocks.Compile($"kf-{primary}-clean", block);
+            var clean = ApplyThrough(count, cleanPlan);
+            clean = await Settled(cleanPlan);
             if (!Check(clean.Ok && count.Writes >= 1, $"block kinds: a clean {primary} plan applies ({clean.State} {clean.Reason}, {count.Writes} registration(s))")) continue;
             var name = $"kf-{primary}";
             var allRefused = true;
@@ -150,8 +164,9 @@ public sealed class KindsFaultTestMod : Mod
             }
             Check(allRefused, $"refusal-no-publish {primary}: a refusal at each of {count.Writes} registration(s) leaves the plan Refused and no block{said}");
             // nothing of the refused attempts is left under the name: the same block applies, and is the game's
-            var final = Blocks.Apply(Blocks.Compile(name, block));
-            await Steps(2);
+            var finalPlan = Blocks.Compile(name, block);
+            var final = Blocks.Apply(finalPlan);
+            final = await Settled(finalPlan);
             if (Blocks.Find(name) is { } made) final = Blocks.Application(made);
             Check(final.Ok && Blocks.Find(name) != null, $"refusal-no-publish {primary}: after {count.Writes} refused attempt(s) the same name applies cleanly ({final.State} {final.Reason})");
         }
