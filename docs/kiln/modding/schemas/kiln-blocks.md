@@ -1660,6 +1660,7 @@ What a tool does: what it is for, and how well. Each class takes the fields it h
 | `power` | integer |  | How hard it bites: an axe's wood damage, a pickaxe's or a sieve's stone damage (the rest scales along), a rake's flattening strength (the game's: 500, 1000). |
 | `range` | number |  | Metres: how far a rake flattens around where it aims (3), how far a grappling hook reaches (13.5). max 32 |
 | `staminaCost` | integer |  | Stamina each use costs; the tooltip follows. Not for a fishing rod or a torch. min 0 |
+| `wearPerDebit` | integer |  | What each of the game's wear debits costs the tool's durability (1: the game's own; 0: it does not wear). Per debit, not per swing. A tool with enhancement slots (an axe, a pickaxe, a sieve). Set where the world runs. Needs items.tool_wear_debit. min 0 max 32767 |
 
 ## trigger
 
