@@ -37,6 +37,7 @@
 #include "safetyhook.hpp"  // Context only: mid handlers keep their safetyhook::Context& signature
 #include "services/kiln_assets.h"
 #include "services/kiln_combat.h"
+#include "services/kiln_creature_control.h"
 #include "services/kiln_spawn.h"
 #include "services/kiln_types.h"
 #include "services/kiln_world.h"
@@ -405,7 +406,28 @@ void __fastcall hk_conclusion(void* ctx) {
     if (sys) after_conclusion();
 }
 
+// kiln.creature_control's retired-root deny (19d §4.4, §5.2): a hit whose root is a quarantined or retired controlled
+// body of this world is denied whole, of every kind (entity, terrain, building), before any other policy and before the
+// original: no health change, HitEvent, reaction or aggro. root_policy is a POD call; no lock is held here. Looked up
+// in on_ready; absent (no kiln-creature-control.dll), nothing changes.
+std::atomic<const KilnCreatureControlApi*> g_control{nullptr};
+std::atomic<uint64_t> c_root_denied{0};
+bool root_denied(const uint8_t* hit) {
+    const KilnCreatureControlApi* cc = g_control.load(std::memory_order_acquire);
+    uint32_t root = 0;
+    if (!cc || !read_u32(hit + HitOffsets::root_source, &root) || !root) return false;
+    KilnSessionInfo s{};
+    s.size = sizeof s;
+    if (g_api->session(&s) != KILN_OK || !s.worlds[KILN_WORLD_SERVER]) return false;
+    return cc->root_policy(s.sessions[KILN_WORLD_SERVER], root) != 0;
+}
+
 void __fastcall hk_apply_hit(uint8_t* prop, void* handle, void* ctx, uint8_t* hit) {
+    if (root_denied(hit)) {
+        if (prop) *prop = 0;
+        if (c_root_denied.fetch_add(1, std::memory_order_relaxed) == 0) LOGI("a hit of a retired or quarantined root was denied");
+        return;
+    }
     uint32_t target = 0, impact = 0, flags = 0;
     uint8_t kind = 0xFF;
     int32_t hc = 0;
@@ -1925,6 +1947,10 @@ void KILN_CALL on_ready(void*) {
         g_watch_all = GetFileAttributesW(w.c_str()) != INVALID_FILE_ATTRIBUTES;
         if (g_watch_all) LOGI("lab switch watch-all: RESPAWNED for every revived victim");
     }
+    if (const auto* cc = static_cast<const KilnCreatureControlApi*>(
+            g_api->service(KilnStr{KILN_CREATURE_CONTROL_SERVICE, std::strlen(KILN_CREATURE_CONTROL_SERVICE)}, 1));
+        cc && cc->header.size >= offsetof(KilnCreatureControlApi, root_policy) + sizeof(cc->root_policy) && cc->root_policy)
+        g_control.store(cc, std::memory_order_release);
     g_spawn_api = static_cast<const KilnSpawnApi*>(
         g_api->service(KilnStr{KILN_SPAWN_SERVICE, std::strlen(KILN_SPAWN_SERVICE)}, 1));
     if (g_spawn_api && g_spawn_api->header.size < sizeof(KilnSpawnApi)) g_spawn_api = nullptr;
