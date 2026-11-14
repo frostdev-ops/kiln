@@ -17,6 +17,7 @@ Validated by Kiln.Host at load time and by Kiln.Sdk at build time (managed/Kiln.
 | `apiVersion` | string | yes | Kiln mod API the mod needs. A bare version ("0.2") means that version or any later one with the same major (the API is additive within a major, 0.x included); anything else is a range checked against Kiln.Mods.ApiVersion. |
 | `author` | string |  | Shorthand for a single author. |
 | `authors` | string or array of string |  |  |
+| `boot` | boolean or `"required"` |  | The mod's Mod.OnBoot stages block definitions before the game is entered (docs/kiln/modding/manifest.md). true: a failure of its boot content drops that content; "required": it stops the start. Default `false`. |
 | `clients` | `"none"` \| `"kiln"` \| `"mod"` |  | What a player's game needs to join a server running this mod: none (vanilla clients join), kiln (Kiln on the client; the server sends the mod's definitions), mod (the mod itself, delivered by the server's modpack). Default from side: server -> none, client and both -> mod. |
 | `dependencies` | object or array of object |  | Mods (or "kiln", the core version) this mod needs. Required ones load first and must match; optional ones load first when present and must match when present. |
 | `description` | string |  |  |

@@ -7,8 +7,9 @@ use std::collections::BTreeSet;
 const RULES: &str = include_str!("rules.rs");
 const SCHEMA: &str = include_str!("../../../../schema/kiln-blocks.schema.json");
 
-/// Top-level schema properties that are no section of blocks.
-const NOT_SECTIONS: &[&str] = &["$schema", "format", "comment"];
+/// Top-level schema properties that are no section of blocks. `resourcePatches` (08-onboot S10) is read by kiln.boot's patches
+/// collector, not by Kiln.Blocks, and its names do not share the blocks' name space, so the duplicate-name rule must not see it.
+const NOT_SECTIONS: &[&str] = &["$schema", "format", "comment", "resourcePatches"];
 
 fn schema_sections() -> BTreeSet<String> {
     let v: serde_json::Value = serde_json::from_str(SCHEMA).expect("kiln-blocks.schema.json parses");

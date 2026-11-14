@@ -7,8 +7,8 @@ public enum TerrainPersistence
 {
     /// <summary>Saved with the world and recorded in the ledger: applied once per world.</summary>
     Kept = 0,
-    /// <summary>Not saved and not recorded: the ground is back at the next restart, and the patch may be applied
-    /// again whenever the mod asks.</summary>
+    /// <summary>Does not add a save region or ledger record; may be applied again whenever the mod asks. Cells can
+    /// still be saved inside a base or a chunk kept by another edit. This does not guarantee a reset on restart.</summary>
     Transient = 1,
 }
 
