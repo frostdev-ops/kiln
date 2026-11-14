@@ -13,6 +13,50 @@ them and sends them to every client like a player's own digging, so vanilla clie
 | Test | `mods/tests/terrain-overlay-test` (three boots), `managed/tests/Kiln.Terrain.Tests` |
 | Evidence | `docs/re/build.md` |
 
+## Using it
+
+```csharp
+// a 3 m mound, added on top of the ground, once per world
+var heights = new float[16 * 16];
+for (var z = 0; z < 16; z++)
+for (var x = 0; x < 16; x++)
+    heights[z * 16 + x] = MathF.Max(0, 6f - MathF.Sqrt((x - 7.5f) * (x - 7.5f) + (z - 7.5f) * (z - 7.5f)));
+var corner = Build.CellOf(position);
+var mound = new TerrainPatch("mound", 1, new CellBox(corner.X, corner.Y, corner.Z, 16, 6, 16),
+    new TerrainHeightfield(heights, Fill: 1, Mode: TerrainHeightMode.AddOnTop), [new TerrainPaletteEntry(1)]);
+
+var report = await Terrain.Inspect(mound);          // what would happen; writes nothing
+var result = await Terrain.Apply(mound);            // one batch a tick
+if (!result.Ok) Log.Warn($"mound: {result.State}, {result.Reason}");
+```
+
+Call it from mod code on the tick thread, on the server side (a dedicated server, or the world a player hosts once
+its game test has passed). `Apply` waits for the world to run, so a mod may call it from `OnLoad`. The sample
+`mods/samples/OreVein` does both shapes: a heightfield from C# and a voxel volume from `vein.json`.
+
+## What it cannot do
+- **Take ground away again.** `Forget` and removing the mod leave the cells. A plan that should be reversible keeps
+  what it replaced itself (`Build.Read` before, `Build.Write` after), or uses `Transient`.
+- **A mod's own materials.** A palette names the game's materials only (1 to 116, 128 to 212). Materials a mod adds
+  with Kiln.Blocks get their cell number per world (117 to 127 for terrain, 213 and up for building blocks) and a
+  player without the mod has no look for them, so an overlay refuses those numbers with `ArgumentException`. Such
+  cells can still be written with `Kiln.Build` directly by a mod that requires itself on clients.
+- **See another mod's plan when that mod is not loaded.** The ledger is the owning mod's world data (see "The
+  ledger"). Two mods that are both loaded never write one block; a mod added later can write over the ground of a
+  mod that was removed.
+- **Know about edits before its first apply.** A fresh plan writes over whatever is in its region (outside bases).
+- **Large landscapes.** A region is at most 128 m across and 1,048,576 cells; every block it touches is saved in
+  full (1 KiB before packing) and sent to every player near it like any edit. Baked terrain (replacing the shipped
+  tiles before the world loads) is not built: `terrain.baked` is off.
+- Signed-distance sources, a blend of a heightfield with the ground, props and encounters: not in this version.
+
+## Game tests
+| Check | What it settles | State |
+|---|---|---|
+| `19f-overlay-client` | an overlay on a world a player hosts, and as a joined player sees it: appears, collides, digs, survives a reload | open; holds `terrain.overlays` on clients |
+| `19f-terrain-client`, `19f-derived-companions` | a cooked terrain tile on a real client (the baked route's qualification) | open; no fixture in the client pass yet |
+| `19f-base-exposure`, `19f-outer-tile` | removing a saved block; ground outside the shipped extent | deferred: no qualified primitive |
+
 ## Contract
 
 This section is the contract of the overlay API. The engine facts behind it: a saved edit is a whole 8x8x8 block of
@@ -67,7 +111,7 @@ An unknown `kind`, an unknown property or a wrong length is an `ArgumentExceptio
 | Region, position | inside the voxel grid, Y from 0 to 8191 | reads outside the grid report "ready" and return air |
 | Palette | 1 to 255 entries | a cell's number is a byte |
 | Kept plans per mod and world | 64 | bounds the mod's world data |
-| Cells per tick (`TerrainApplyOptions.CellsPerTick`) | default 32,768; 512 to 262,144 | one batch a tick; measured in the lab test |
+| Cells per tick (`TerrainApplyOptions.CellsPerTick`) | default 32,768; 512 to 262,144 | one batch a tick; a full default batch took 42 ms on a lab server with no player (one measurement, 2026-11-13) |
 | Batch | a box of whole 8-cell blocks, at most `CellsPerTick` cells, edge 8, 16, 32 or 64 | a saved edit is an 8x8x8 block |
 
 Batches run in a fixed order (z, then y, then x), one per tick. The same patch gives the same batches and the same
