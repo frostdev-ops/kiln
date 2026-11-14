@@ -35,6 +35,15 @@ uint64_t g_fake_total = 0;  // > 0: the index's count when it is "too_many"
 std::function<void()> g_index_copy;
 std::function<void()> g_catalog_read_copy;
 void catalog_read_acquired() { if (g_catalog_read_copy) g_catalog_read_copy(); }
+// store.cpp's cleanup thread for revoked owners: held here while g_hold_cleanup is set (to see a store call do the revert)
+std::atomic<bool> g_hold_cleanup{false};
+std::atomic<int> g_cleanup_held{0};
+void cleanup_worker_started() {
+    if (!g_hold_cleanup.load()) return;
+    ++g_cleanup_held;
+    while (g_hold_cleanup.load()) std::this_thread::yield();
+    --g_cleanup_held;
+}
 KilnOwnerRetiringFn g_owner_retiring = nullptr;
 void* g_owner_retiring_user = nullptr;
 KilnResult KILN_CALL observe_owner(KilnOwner, KilnOwnerRetiringFn fn, void* user, KilnHandle* handle) {
@@ -521,6 +530,207 @@ void blob_catalog(KilnOwner manifest, KilnOwner mod, KilnOwner native) {
     if (g_fail == failed_before) std::puts("PASS assets.catalog-snapshot");
 }
 
+// ---- a native owner the core revokes without revert_owner (kiln.hooks' owner-retiring observer) ----------------------------
+bool wait_for(const std::function<bool()>& done, int ms = 10000) {
+    for (int i = 0; i < ms; ++i) {
+        if (done()) return true;
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    return done();
+}
+bool settle() { return wait_for([] { return store_cleanup_idle(); }); }  // the deferred revert done, no cleanup thread left
+void revoke(KilnOwner o) { g_owner_retiring(o, g_owner_retiring_user); }  // what the core's owner_revoke calls
+bool in_content(const HashK& h) {  // the content snapshot the hooks serve from lists the hash
+    ReadGuard g;
+    const ContentSnap* cs = g_content.load();
+    return cs && cs->entries.count(h);
+}
+size_t ledger_count(KilnOwner o) {
+    size_t n = 0;
+    for (const LedgerEntry& e : blob_ledger(nullptr)) n += e.owner == o;
+    return n;
+}
+HashK hk(const KilnContentHash& c) { return HashK{c.size, c.hash0, c.hash1, c.hash2}; }
+// The registrations-only catalog `reader` opens now: every entry.
+std::vector<KilnBlobCatalogEntry> catalog_now(KilnOwner reader) {
+    KilnHandle h = 0;
+    KilnBlobCatalogInfo info = cat_info();
+    if (op_catalog_open(reader, KILN_BLOB_CATALOG_REGISTRATIONS_ONLY, &h, &info) != KILN_OK) return {};
+    auto v = cat_all(h, info.total);
+    op_catalog_close(h);
+    return v;
+}
+bool catalog_names(const std::vector<KilnBlobCatalogEntry>& v, KilnOwner o) {
+    return std::any_of(v.begin(), v.end(), [&](const KilnBlobCatalogEntry& e) { return e.selected_owner == o; });
+}
+
+void owner_revoked_without_revert(KilnOwner other, const Key& game_key, uint32_t game_key_handle, const std::string& game_bytes,
+                                  const Key& icon_key) {
+    const int failed_before = g_fail;
+    catalog_start();  // kiln_plugin_main subscribes the observer
+    check(g_owner_retiring != nullptr && settle(), "the store's cleanup observes native owner revocation");
+    g_fake_index = GameIndex::not_ready;
+
+    // A native owner overrides a game blob another owner overrode first (the later registration is served), adds a blob, overrides a
+    // game resource and registers an icon; the other owner keeps a blob of its own.
+    const KilnOwner gone = 41;
+    const HashK game{8, 0x77, 0x88, 0x99};
+    const KilnContentHash gc = kch(game);
+    KilnContentHash other_own{}, gone_new{};
+    check(op_blob_override(other, &gc, "OTHER!!!", 8) == KILN_OK && op_blob_add(other, "OTHER-OWN-BLOB", 14, &other_own) == KILN_OK,
+          "another owner overrides the game blob and adds one");
+    check(op_blob_override(gone, &gc, "GONE!!!!", 8) == KILN_OK && blob(game) == "GONE!!!!", "the native owner's later override is served");
+    check(op_blob_add(gone, "GONE-NEW-BLOB", 13, &gone_new) == KILN_OK && blob(hk(gone_new)) == "GONE-NEW-BLOB", "it adds a blob");
+    check(put(gone, game_key, "GONE-RES", KILN_ASSET_PUT_OVERRIDE) == KILN_OK && by_handle(game_key_handle) == "GONE-RES",
+          "it overrides a game resource");
+    Rgba img;
+    img.w = img.h = 1;
+    img.px = {9, 8, 7, 6};
+    check(op_icon_register(gone, icon_key.g, img) == KILN_OK && op_icon_state(icon_key.g) == KILN_ICON_PENDING, "it registers an icon");
+    check(ledger_count(gone) == 3 && catalog_names(catalog_now(other), gone), "the ledger and a catalog snapshot list it (3 blobs)");
+    const size_t items_before = items();
+    const uint64_t gen = catalog_generation();
+
+    // The core revokes it while a hook's reader is inside the snapshots: the callback returns at once, the revert waits.
+    std::atomic<bool> holding{false}, release{false}, returned{false};
+    std::thread reader([&] {
+        ReadGuard g;
+        holding = true;
+        while (!release.load()) std::this_thread::yield();
+    });
+    wait_for([&] { return holding.load(); });
+    std::thread revoker([&] {
+        revoke(gone);
+        returned = true;
+    });
+    const bool quick = wait_for([&] { return returned.load(); }, 5000);
+    const bool pending = !store_cleanup_idle();
+    release = true;  // (only now: a store call from here would wait for the cleanup thread, which waits for the reader)
+    reader.join();
+    revoker.join();
+    check(quick, "the owner-retiring callback returns while a reader holds a snapshot (it does not wait)");
+    check(pending, "the revert is still pending while the reader is inside (it runs on the cleanup thread, not in the callback)");
+    check(settle(), "the deferred revert runs with no further store call (the cleanup thread)");
+
+    // After the deferred step.
+    check(blob(game) == "OTHER!!!" && in_content(game), "the other owner's override of the game blob is served again");
+    check(!in_content(hk(gone_new)) && blob(hk(gone_new)) == "<result 2>", "the revoked owner's own blob is not served");
+    check(by_handle(game_key_handle) == "<not served>" && read(game_key) == game_bytes, "the game's own resource bytes are served again");
+    check(op_icon_state(icon_key.g) == KILN_ICON_NONE, "its icon is gone");
+    check(ledger_count(gone) == 0 && items() == items_before - 2, "the ledger lists none of its blobs; its resource and icon texture are gone");
+    check(blob(hk(other_own)) == "OTHER-OWN-BLOB" && ledger_count(other) == 2, "the other owner's blobs are untouched");
+    check(catalog_generation() == gen + 1, "the catalog generation moved once (" + std::to_string(catalog_generation() - gen) + ")");
+    {
+        const auto v = catalog_now(other);
+        const auto* e = cat_find(v, game);
+        check(!catalog_names(v, gone) && !cat_find(v, hk(gone_new)) && e && e->selected_owner == other,
+              "a new catalog snapshot does not list it; the game blob's winner is the other owner");
+    }
+
+    // Admission: nothing it calls registers anything any more.
+    std::puts("-- 13b: registrations of the revoked owner");
+    size_t mark = g_log.size();
+    KilnContentHash x{};
+    check(op_blob_add(gone, "LATE", 4, &x) == KILN_ERR_REVOKED && op_blob_add_ex(gone, "LATE", 4, &x, KILN_BLOB_ORIGIN_MANAGED) == KILN_ERR_REVOKED,
+          "blob_add and blob_add_ex refused with KILN_ERR_REVOKED");
+    check(op_blob_override(gone, &gc, "LATE!!!!", 8) == KILN_ERR_REVOKED &&
+              op_blob_override_ex(gone, &gc, "LATE!!!!", 8, KILN_BLOB_ORIGIN_NATIVE_API) == KILN_ERR_REVOKED,
+          "blob_override and blob_override_ex refused");
+    check(put(gone, game_key, "LATE-RES", KILN_ASSET_PUT_OVERRIDE) == KILN_ERR_REVOKED && op_icon_register(gone, icon_key.g, img) == KILN_ERR_REVOKED,
+          "resource_put and icon_register refused");
+    check(logged(mark, "owner 41 blob", "revoked"), "the refusal is logged with the owner");
+    check(ledger_count(gone) == 0 && items() == items_before - 2 && blob(game) == "OTHER!!!" && catalog_generation() == gen + 1,
+          "nothing added, nothing served, the generation unchanged");
+
+    // revert_owner after the deferred revert, and before a revocation: harmless either way.
+    op_revert_owner(gone);
+    check(catalog_generation() == gen + 1 && blob(game) == "OTHER!!!", "an explicit revert_owner after it is a no-op");
+    revoke(gone);
+    check(settle() && catalog_generation() == gen + 1, "a second revocation notice of the same owner is a no-op");
+    const KilnOwner early = 42;
+    check(op_blob_override(early, &gc, "EARLY!!!", 8) == KILN_OK && blob(game) == "EARLY!!!", "another native owner overrides the game blob");
+    op_revert_owner(early);
+    const uint64_t gen2 = catalog_generation();
+    revoke(early);
+    check(settle() && catalog_generation() == gen2 && blob(game) == "OTHER!!!", "a revert_owner before its revocation: the deferred step finds nothing");
+
+    // With the cleanup thread held: the next store call, and a catalog open, take the revert on themselves.
+    std::puts("-- 13c: the next store call does the revert");
+    const KilnOwner late = 43;
+    KilnContentHash late_new{};
+    KilnHandle kept = 0;  // held open: the next open at the same generation would share its snapshot
+    KilnBlobCatalogInfo kept_info = cat_info();
+    check(op_blob_add(late, "LATE-OWNER-BLOB", 15, &late_new) == KILN_OK &&
+              op_catalog_open(other, KILN_BLOB_CATALOG_REGISTRATIONS_ONLY, &kept, &kept_info) == KILN_OK &&
+              catalog_names(cat_all(kept, kept_info.total), late),
+          "a native owner adds a blob; an open snapshot at this generation lists it");
+    g_hold_cleanup = true;
+    revoke(late);
+    const bool held = wait_for([] { return g_cleanup_held.load() == 1; });
+    check(held && !store_cleanup_idle() && in_content(hk(late_new)), "revoked; the cleanup thread is held; its bytes are still served meanwhile");
+    check(!catalog_names(catalog_now(other), late), "a catalog open after the mark does the revert first: the shared snapshot is not reused");
+    check(!in_content(hk(late_new)) && ledger_count(late) == 0, "and its blob is no longer served");
+    op_catalog_close(kept);
+    g_hold_cleanup = false;
+    check(settle(), "the released cleanup thread finds nothing left");
+    const KilnOwner later = 44;
+    KilnContentHash later_new{};
+    check(op_blob_add(later, "LATER-OWNER-BLOB", 16, &later_new) == KILN_OK, "another native owner adds a blob");
+    g_hold_cleanup = true;
+    revoke(later);
+    wait_for([] { return g_cleanup_held.load() == 1; });
+    const uint64_t gen3 = catalog_generation();
+    check(op_blob_remove(other, &other_own) == KILN_OK && !in_content(hk(later_new)) && catalog_generation() == gen3 + 2,
+          "another owner's store call reverts it first (one generation step for the revert, one for the removal)");
+    g_hold_cleanup = false;
+    check(settle(), "the released cleanup thread finds nothing left");
+
+    // A registration racing the mark: never survives the cleanup.
+    std::puts("-- 13d: registrations racing the revocation");
+    int survivors = 0, raced = 0, accepted_total = 0;
+    for (int round = 0; round < 200; ++round) {
+        const KilnOwner o = 1000 + round;
+        std::vector<HashK> blobs;
+        std::vector<Key> keys;
+        std::atomic<bool> go{false};
+        std::thread writer([&] {
+            while (!go.load()) std::this_thread::yield();
+            for (int i = 0; i < 400; ++i) {  // until refused (bounded: a store that never refuses fails below instead of hanging)
+                const std::string bytes = "RACE-" + std::to_string(round) + "-" + std::to_string(i);
+                if (i % 3 == 2) {
+                    char guid[40];
+                    std::snprintf(guid, sizeof guid, "77777777-0000-0000-%04d-%012d", round, i);
+                    const Key k = key(guid, 0x12345678u);
+                    if (put(o, k, bytes, KILN_ASSET_PUT_NEW) != KILN_OK) return;
+                    keys.push_back(k);
+                } else {
+                    KilnContentHash h{};
+                    if (op_blob_add(o, bytes.data(), bytes.size(), &h) != KILN_OK) return;
+                    blobs.push_back(hk(h));
+                }
+            }
+        });
+        go = true;
+        std::this_thread::sleep_for(std::chrono::microseconds(37 * (round % 11)));
+        revoke(o);
+        writer.join();
+        if (!settle()) {
+            ++survivors;
+            continue;
+        }
+        accepted_total += static_cast<int>(blobs.size() + keys.size());
+        raced += !blobs.empty() || !keys.empty();
+        for (const HashK& h : blobs) survivors += in_content(h) || blob(h) != "<result 2>";
+        for (const Key& k : keys) survivors += read(k) != "<result 2>";
+        survivors += static_cast<int>(ledger_count(o));
+    }
+    check(survivors == 0 && raced > 0, "200 rounds of registrations racing the mark: none survives (" + std::to_string(accepted_total) +
+                                           " accepted before the mark in " + std::to_string(raced) + " rounds, all reverted)");
+    check(blob(game) == "OTHER!!!" && ledger_count(other) == 1, "the other owner's registrations untouched by all of it");
+    op_revert_owner(other);
+    if (g_fail == failed_before) std::puts("PASS assets.revoked-owner-cleanup");
+}
+
 const char* kGraphGuid = "21319e83-5087-4fff-8795-22997843649e";
 const char* kGraphKeyText = "21319e83-5087-4fff-8795-22997843649e:keen::anim_graph::runtime_graph::AnimationGraphResource2_0:0";
 constexpr uint32_t kGraphHandle = 100, kOtherGraphHandle = 101, kItemHandle = 102, kIconHandle = 103;
@@ -716,6 +926,13 @@ int main() {
     // 12. The content blob catalog (0.2.0-dev.28).
     std::puts("-- 12: the content blob catalog");
     blob_catalog(manifest, mod, playeranim);
+
+    // 13. A native owner the core revokes without revert_owner (0.2.0-dev.28): its registrations and served bytes go, deferred.
+    std::puts("-- 13: an owner revoked without revert_owner");
+    const Key spare = key("66666666-7777-8888-9999-aaaaaaaaaaaa", other_type);
+    g_game[spare] = {104, "GAME-SPARE"};
+    owner_revoked_without_revert(40, spare, 104, "GAME-SPARE", key("88888888-9999-aaaa-bbbb-cccccccccccc", KILN_ASSET_TYPE_UI_TEXTURE));
+    settle();
 
     std::printf("%d passed, %d failed\n", g_pass, g_fail);
     return g_fail ? 1 : 0;
