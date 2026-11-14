@@ -411,15 +411,7 @@ static void real_exe(const std::string& exe, const std::string& side, const std:
     } else {
         std::printf("INFO client: not build 26430625 at the four places; the shaped patches are skipped\n");
     }
-    // With those four patches and every function hooked, the file's code still resolves every symbol.
-    for (uint32_t off : offsets) live[off] ^= 0x01;
-    size_t still = 0;
-    for (const Def& d : defs) {
-        if (!on_disk.count(d.name)) continue;
-        const auto hits = sigdb::scan(d.p, disk.scan, disk.end(), 2);
-        if (hits.size() == 1 && disk.to_live(hits[0]) + d.offset == on_disk[d.name]) ++still;
-    }
-    CHECK(still == on_disk.size(), "client: with the four in-place patches the disk scan resolves all %zu symbols", on_disk.size());
+    // The production view selection on this exe, hooked and patched: sigdb_runtime_test (real_client_in_place).
 }
 
 // A hook is a jump out of the image and the NOPs behind it. Greeneye Loader's is the longest: a 12-byte jump and up

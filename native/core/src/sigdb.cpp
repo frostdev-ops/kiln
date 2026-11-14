@@ -11,6 +11,7 @@
 #include <set>
 #include <thread>
 
+#include "config.h"
 #include "image.h"
 #include "log.h"
 #include "nlohmann/json.hpp"
@@ -221,16 +222,26 @@ void init_code() {
         g_code.runs.clear();
         return fallback(b);
     }
-    // The file is the loaded build: its header matched above and at most 1% of the code differs. What differs is what
-    // other mods wrote before this check: hooks, and bytes changed in place (a check skipped, a number raised). Both
-    // are a reason to read the file, where the game's own code still stands. Up to 0.2.0-dev.27 one in-place patch
-    // sent the whole scan to the live code, where the same start's hooks hid functions: a client with The Worst Map
-    // Mod (four map marker patches) and other loaders' hooks lost 20 symbols and 22 features, items.move and
-    // items.transaction among them, so two Kiln mods loaded and did nothing (a player's report of 14 Nov 2026). The
-    // in-place patches are counted and named in kiln.log; a symbol whose own bytes are patched is named by
+    // What differs is what other mods wrote before this check: hooks, and bytes changed in place (a check skipped, a
+    // number raised). Up to 0.2.0-dev.27 one in-place patch sent the whole scan to the live code, where the same
+    // start's hooks hid functions: a client with The Worst Map Mod (four map marker patches) and other loaders' hooks
+    // lost 20 symbols and 22 features, items.move and items.transaction among them, so two Kiln mods loaded and did
+    // nothing (a player's report of 14 Nov 2026).
+    // Whose bytes an in-place difference shows is decided by the file's hash. image().sha256 is taken over this very
+    // mapping; when it is a verified build record, the file is the game as shipped, the header matched above and at
+    // most 1% of the code differs, so the patch is in the live code and the file is what to read. Without a record
+    // the file itself may carry the patch (an exe changed on disk after the game started), and a capture read from
+    // it could name a place the loaded code does not use: the live scan, as before.
+    // The in-place patches are counted and named in kiln.log; a symbol whose own bytes are patched is named by
     // check_live as before.
     g_code.in_place = pe::other_differences(text, img.text, size, live, img.base, img.size, call_lands);
     g_code.text_rva = ft.text_rva;
+    if (g_code.in_place.sites && !build_verified(img.side, img.sha256, nullptr)) {
+        g_code.runs.clear();
+        g_code.in_place = {};
+        return fallback("file/live differences are not recognised inline hooks and the exe file is no verified "
+                        "build; the exe may have changed on disk");
+    }
     g_code.view = {text, size, live, true};
     g_code.note = "the exe file's code";
     g_code.ms = now_ms() - t0;
