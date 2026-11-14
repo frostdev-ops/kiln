@@ -108,7 +108,9 @@ pub fn run(a: RunArgs, json: bool) -> Result<i32> {
     let project = Project::find(None).ok();
     let s = resolve(a.server.as_deref(), project.as_ref())?;
     let log = s.dir.join("kiln/logs/kiln.log");
-    let before = std::fs::metadata(&log).map(|m| m.len()).unwrap_or(0);
+    // Opened before the start: Kiln renames kiln.log to kiln.prev.log at boot and writes a new one, which the follower then
+    // reads from its first line (an offset of the old file, applied to a new file that is already longer, skipped its start).
+    let follower = kiln_manage::logs::Follower::open(&log)?;
     let state = |s: &Server| -> Result<bool> { running(s) };
     if a.status {
         let up = state(&s)?;
@@ -136,7 +138,7 @@ pub fn run(a: RunArgs, json: bool) -> Result<i32> {
     let mut lines = Vec::new();
     let mut loaded = None;
     if a.wait > 0 {
-        let (l, ok) = wait_for_mods(&log, before, Duration::from_secs(a.wait), json)?;
+        let (l, ok) = wait_for_mods(follower, Duration::from_secs(a.wait), json)?;
         lines = l;
         loaded = Some(ok);
     }
@@ -201,12 +203,10 @@ impl kiln_manage::task::Progress for Say {
     }
 }
 
-/// Follows kiln.log from `from` until the loader's summary (`mods: N loaded, ...`) and the world start, or timeout.
-fn wait_for_mods(log: &Path, from: u64, timeout: Duration, json: bool) -> Result<(Vec<String>, bool)> {
-    let mut f = kiln_manage::logs::Follower::open_at(log, from)?;
-    if std::fs::metadata(log).map(|m| m.len() < from).unwrap_or(true) {
-        f = kiln_manage::logs::Follower::open_at(log, 0)?;
-    }
+/// Follows kiln.log (`f`, opened before the server started) until the loader's summary (`mods: N loaded, ...`, at whatever
+/// level: it is a warning when a mod failed) and the world start, or timeout.
+fn wait_for_mods(mut f: kiln_manage::logs::Follower, timeout: Duration, json: bool) -> Result<(Vec<String>, bool)> {
+    let log = f.path().to_path_buf();
     let start = Instant::now();
     let mut keep = Vec::new();
     let (mut summary, mut started) = (false, false);
@@ -232,4 +232,78 @@ fn wait_for_mods(log: &Path, from: u64, timeout: Duration, json: bool) -> Result
     }
     out::say(json, format!("kiln: no mod load summary in {} within {} s", log.display(), timeout.as_secs()));
     Ok((keep, summary))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn line(level: char, message: &str) -> String {
+        format!("[{level} 12:00:00.000] [host] {message}\n")
+    }
+
+    fn scratch(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("kiln-cli-wait-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    // The previous start's log, then this start: Kiln renames kiln.log to kiln.prev.log at boot and writes a new kiln.log.
+    fn old_log(dir: &Path, bytes: usize) -> PathBuf {
+        let log = dir.join("kiln.log");
+        let mut old = String::new();
+        while old.len() < bytes {
+            old.push_str(&line('I', "an earlier start"));
+        }
+        std::fs::write(&log, old).unwrap();
+        log
+    }
+
+    fn new_log(log: &Path, level: char, pad_to: usize) {
+        std::fs::rename(log, log.with_file_name("kiln.prev.log")).unwrap();
+        let mut text = line('I', "Kiln 0.2.0-dev.28 starting (pid 4)");
+        text.push_str(&line(level, "mods: 2 loaded, 1 failed, 0 skipped; load order: a, b"));
+        text.push_str(&line('I', "lifecycle: server started (step 1, game-log)"));
+        while text.len() < pad_to {
+            text.push_str(&line('I', "stats: later lines of this start"));
+        }
+        std::fs::write(log, text).unwrap();
+    }
+
+    #[test]
+    fn the_summary_counts_at_any_level_in_a_log_that_grows() {
+        for level in ['I', 'W'] {
+            let dir = scratch(&format!("grow-{level}"));
+            let log = old_log(&dir, 200);
+            let follower = kiln_manage::logs::Follower::open(&log).unwrap();
+            let mut f = std::fs::OpenOptions::new().append(true).open(&log).unwrap();
+            use std::io::Write;
+            f.write_all(line(level, "mods: 2 loaded, 1 failed, 0 skipped; load order: a, b").as_bytes()).unwrap();
+            f.write_all(line('I', "lifecycle: server started (step 1, game-log)").as_bytes()).unwrap();
+            let (_, ok) = wait_for_mods(follower, Duration::from_secs(3), true).unwrap();
+            assert!(ok, "a [{level}] summary in a growing log");
+        }
+    }
+
+    #[test]
+    fn without_a_summary_the_wait_ends_at_its_timeout_and_says_so() {
+        let dir = scratch("none");
+        let log = old_log(&dir, 100);
+        let follower = kiln_manage::logs::Follower::open(&log).unwrap();
+        let (_, ok) = wait_for_mods(follower, Duration::from_secs(1), true).unwrap();
+        assert!(!ok);
+    }
+
+    #[test]
+    fn the_summary_of_a_new_log_longer_than_the_old_one_is_seen() {
+        for level in ['I', 'W'] {
+            let dir = scratch(&format!("rotate-{level}"));
+            let log = old_log(&dir, 2_000);
+            let follower = kiln_manage::logs::Follower::open(&log).unwrap();  // before the start, as run() opens it
+            new_log(&log, level, 6_000);  // the server ran a while before the wait looked: the new file is longer already
+            let (_, ok) = wait_for_mods(follower, Duration::from_secs(3), true).unwrap();
+            assert!(ok, "a [{level}] summary at the start of a rotated kiln.log");
+        }
+    }
 }

@@ -87,10 +87,12 @@ internal static unsafe class Services
         return text[..n];
     }
 
-    /// <summary>Throws if the calling code is not on the tick thread (game state is single-threaded).</summary>
+    /// <summary>Throws if the calling code is not on the tick thread (game state is single-threaded). In <see cref="Mod.OnBoot"/>
+    /// (before the game's first tick) the message says to call <paramref name="api"/> in OnLoad.</summary>
     public static void RequireTickThread(string api)
     {
-        if (!Backend.Current.IsTickThread) throw new InvalidOperationException($"{api} must be called on the tick thread (use Scheduler.Post)");
+        if (Backend.Current.IsTickThread) return;
+        throw new InvalidOperationException(Game.InBoot ? Game.NotInBoot(api) : $"{api} must be called on the tick thread (use Scheduler.Post)");
     }
 
     /// <summary>Owner id of the mod calling right now (0 outside mod code).</summary>
