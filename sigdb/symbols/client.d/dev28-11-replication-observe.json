@@ -1,0 +1,53 @@
+{
+ "format": 1,
+ "side": "client",
+ "extends": "server.d/dev28-11-replication-observe.json",
+ "comment": "Client exe (5d9ef2f1, Steam 26430625): the send side matches unchanged (hosted worlds: machine 0 is the local client). The lab harness (repl.loopback) runs on dedicated lab servers only and is left out here. repl.client = the receive side a Kiln client watches: the message store, the game's own decode, the client-channel message handler and the destroy (spawn/DestroyEntity, reused).",
+ "symbols": {
+  "repl/ClientStore": {
+   "find": [
+    {
+     "pattern": "48 85 C9 0F 84 ?? ?? ?? ?? 44 88 44 24 18 48 89 54 24 10 55"
+    }
+   ]
+  },
+  "repl/ProcessClientMessage": {
+   "find": [
+    {
+     "pattern": "4C 8B DC 49 89 4B 08 55 56 57 41 54 41 55 41 57 49 8D AB 48"
+    }
+   ]
+  }
+ },
+ "features": {
+  "repl.client": {
+   "symbols": [
+    "repl/ClientStore",
+    "repl/Decode",
+    "repl/StateIndex",
+    "repl/ProcessClientMessage",
+    "spawn/DestroyEntity"
+   ],
+   "constants": []
+  }
+ },
+ "remove": {
+  "symbols": [
+   "repl/Prepare",
+   "repl/RecordSent",
+   "repl/AckProcess",
+   "repl/ResetMachine",
+   "repl/RelevanceDriver",
+   "repl/TemplateState",
+   "@repl.slot_mask",
+   "@repl.ctx"
+  ],
+  "constants": [
+   "repl/world.slot_mask",
+   "repl/ctx.heap"
+  ],
+  "features": [
+   "repl.loopback"
+  ]
+ }
+}

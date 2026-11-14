@@ -949,12 +949,13 @@ internal static unsafe class TypesNative
         public delegate* unmanaged[Cdecl]<ulong, int> SystemUnhook;
     }
 
-    /// <summary>The table since 0.2.0-dev.28: v1 plus type_impact_name (asked for with <c>Services.Get</c>, which checks
-    /// header.size, so an older kiln.types answers null).</summary>
+    /// <summary>The table since 0.2.0-dev.28: v1 plus external_runner (06a) and type_impact_name, in the header's
+    /// order (asked for with <c>Services.Get</c>, which checks header.size, so an older kiln.types answers null).</summary>
     [StructLayout(LayoutKind.Sequential)]
     public struct ImpactTable
     {
         public Table Base;
+        public delegate* unmanaged[Cdecl]<uint> ExternalRunner;
         public delegate* unmanaged[Cdecl]<void*, byte*, nuint, nuint*, int> TypeImpactName;
     }
 }
