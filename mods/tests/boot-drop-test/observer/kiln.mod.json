@@ -1,0 +1,11 @@
+{
+  "id": "boot-drop-observer",
+  "name": "forced boot drop: what each service holds",
+  "version": "0.1.0",
+  "apiVersion": "0.2",
+  "entryAssembly": "BootDropObserver.dll",
+  "side": "server",
+  "clients": "none",
+  "advanced": true,
+  "description": "Chapter 08's forced-drop proof: no boot mod itself; once the world is up it prints, one line each, what the services hold (assets' status, kiln.content's definitions, the game tree, world tables, dialogues, level 2's experience need), for run.sh to compare between starts."
+}

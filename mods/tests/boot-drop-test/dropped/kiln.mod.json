@@ -1,0 +1,12 @@
+{
+  "id": "boot-drop-test",
+  "name": "forced boot drop: the mod that is dropped",
+  "version": "0.1.0",
+  "apiVersion": "0.2",
+  "entryAssembly": "BootDropTest.dll",
+  "side": "server",
+  "clients": "mod",
+  "boot": true,
+  "advanced": true,
+  "description": "Chapter 08's forced-drop proof (review B2/B3): a boot mod with something for every collector of a dedicated server: OnBoot stages a status, an effect, an item, a spell and a game-tree talent (assets, content, skills), blocks/drop.json has a material tweak (worldtables) and a resource patch (patches), quests/drop.json a dialogue (knowledge). run.sh drops it through kiln.json boot.testRefuse."
+}
