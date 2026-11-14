@@ -108,6 +108,35 @@ bool call_value(KilnUiValueFn fn, const KilnUiProviderContext* c, const KilnUiIt
     }
 }
 
+bool call_changed(KilnUiValueChangedFn fn, const KilnUiValueChange* c, void* user) {
+    crash::Capture cap{};
+    unsigned long code = 0;
+    __try {
+        fn(c, user);
+        return true;
+    } __except (crash::filter(GetExceptionInformation(), &cap, &code)) {
+        crash::report(cap, "kiln.ui.values change subscriber", reinterpret_cast<const void*>(fn));
+        return false;
+    }
+}
+
+// kiln.ui's UI tick (after every game UI frame, on the UI thread) drives change publication.
+void (*g_frame_fn)(uint64_t, void*) = nullptr;
+void* g_frame_user = nullptr;
+void KILN_CALL on_ui_tick(const KilnUiScreen* now, void*) {
+    if (g_frame_fn && now) g_frame_fn(now->frame, g_frame_user);
+}
+bool subscribe_frames(void (*fn)(uint64_t, void*), void* user) {
+    KilnUiScreen probe{};
+    if (!screen(&probe)) return false;  // also finds kiln.ui's table
+    const KilnUiApi* ui = g_ui.load(std::memory_order_acquire);
+    if (!ui || ui->header.size < offsetof(KilnUiApi, subscribe_ui_tick) + sizeof(void*) || !g_owner) return false;
+    g_frame_fn = fn;
+    g_frame_user = user;
+    KilnHandle h = 0;
+    return ui->subscribe_ui_tick(g_owner, &on_ui_tick, nullptr, &h) == KILN_OK;
+}
+
 void wire() {
     Env& e = env();
     e.owner_name = [](KilnOwner o) { return reg::owner_name(o); };
@@ -129,6 +158,8 @@ void wire() {
     e.hook_raw = &hook_raw;
     e.hook_mid = &hook_mid;
     e.call_value = &call_value;
+    e.call_changed = &call_changed;
+    e.subscribe_frames = &subscribe_frames;
     e.log = [](int level, const char* text) { kiln::log::write(level, "kiln", text); };
 }
 

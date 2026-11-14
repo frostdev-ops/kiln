@@ -127,6 +127,7 @@ void run_bar(uint32_t kind, uintptr_t bar, uintptr_t view_addr, uint32_t base_fl
     in.maximum = g.maximum;
     const KilnUiBarValue out = run_chain(kind, v, in, st);
     commit(bar, kind, g, out);
+    publish_value(kind, v, out);
 }
 
 void KILN_CALL on_detail(KilnRegisters* r, void*) {

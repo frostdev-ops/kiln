@@ -1,3 +1,5 @@
 #nullable enable
 Kiln.Capability.IsHeld.get -> bool
+Kiln.ClientMainThreadAttribute
+Kiln.ClientMainThreadAttribute.ClientMainThreadAttribute() -> void
 static Kiln.Capabilities.IsHeld(string! name) -> bool

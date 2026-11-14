@@ -20,6 +20,7 @@
 // called for a pair whose game maximum is 0, nor without a local player.
 #include <algorithm>
 #include <cstring>
+#include <memory>
 #include <mutex>
 
 #include "ui_values_internal.h"
@@ -61,13 +62,20 @@ struct StageSub {
     StageFn fn;
     void* user;
 };
+using StageList = std::vector<StageSub>;
+std::atomic<uint32_t> g_stage_count{0};
 struct StageSubs {
     std::mutex mu;
-    std::vector<StageSub> list;
+    StageList list;
+    std::shared_ptr<const StageList> snap = std::make_shared<const StageList>();  // what an update reads
     KilnHandle next = 1;
+    void publish() {  // lock held: a new immutable snapshot for the next update
+        snap = std::make_shared<const StageList>(list);
+        g_stage_count.store(static_cast<uint32_t>(list.size()), std::memory_order_release);
+    }
 };
 StageSubs& g_stage = *new StageSubs;  // never destroyed: the game's thread may still update while the process ends
-std::atomic<uint32_t> g_stage_count{0};
+
 constexpr KilnHandle kStageTag = 0x5573ull << 48;  // "Us": not a registration handle of the public table
 
 bool load_models() {  // the held installer and stage_subscribe both ask; the first that resolves it publishes
@@ -144,18 +152,19 @@ std::atomic<bool> g_held_missing_logged{false}, g_write_failed_logged{false};
 // The stage: original pairs and own inventory rows, for every observer, before any provider.
 void publish_stage(uintptr_t play, uint32_t local, const ClientNow& c, const uint32_t* cur, const uint32_t* max,
                    bool vitals) {
-    std::vector<StageSub> subs;
+    std::shared_ptr<const StageList> subs;
     {
         std::lock_guard lk(g_stage.mu);
-        subs = g_stage.list;
+        subs = g_stage.snap;  // a reference, no copy: the list is rebuilt only when it changes
     }
     const auto dead = [](const StageSub& sub) { return sub.owner != 0 && !env().owner_alive(sub.owner); };
-    if (std::erase_if(subs, dead)) {  // a retired owner's observers go for good
+    if (std::any_of(subs->begin(), subs->end(), dead)) {  // a retired owner's observers go for good
         std::lock_guard lk(g_stage.mu);
         std::erase_if(g_stage.list, dead);
-        g_stage_count.store(static_cast<uint32_t>(g_stage.list.size()), std::memory_order_release);
+        g_stage.publish();
+        subs = g_stage.snap;
     }
-    if (subs.empty()) return;
+    if (subs->empty()) return;
     thread_local std::vector<StageRow>* t_rows = nullptr;  // reused, never freed: no TLS destructor in kiln-core
     if (!t_rows) t_rows = new std::vector<StageRow>;
     std::vector<StageRow>& rows = *t_rows;
@@ -200,7 +209,7 @@ void publish_stage(uintptr_t play, uint32_t local, const ClientNow& c, const uin
     s.session = c.session;
     s.step = c.step;
     s.capture_ms = env().tick_ms ? env().tick_ms() : 0;
-    for (const StageSub& sub : subs) {
+    for (const StageSub& sub : *subs) {
         try {
             sub.fn(&s, sub.user);
         } catch (...) {
@@ -223,6 +232,7 @@ void run_pair(uint32_t kind, uintptr_t play, const KilnUiItemView& view, uint32_
     if (out.maximum != max) ok &= env().write(play + g_upd.max[kind], &out.maximum, sizeof out.maximum);
     if (!ok && !g_write_failed_logged.exchange(true))
         logf(KILN_LOG_ERROR, "ui.values: writing a player-UI pair failed");
+    publish_value(kind, view, out);
 }
 
 void after_update(const Capture& cap, const ClientNow& c) {
@@ -235,6 +245,7 @@ void after_update(const Capture& cap, const ClientNow& c) {
     const uintptr_t play = cap.play;
     uint32_t entity = 0;
     if (!game_read(play + g_upd.local, &entity) || entity != cap.local) return;  // another entity's values by now
+    update_done();
     uint32_t cur[kValueKinds] = {}, max[kValueKinds] = {};
     bool vitals = hud;
     if (hud)
@@ -389,7 +400,7 @@ KilnResult stage_subscribe(KilnOwner owner, StageFn fn, void* user, KilnHandle* 
     std::lock_guard lk(g_stage.mu);
     const KilnHandle h = kStageTag | g_stage.next++;
     g_stage.list.push_back(StageSub{h, owner, fn, user});
-    g_stage_count.store(static_cast<uint32_t>(g_stage.list.size()), std::memory_order_release);
+    g_stage.publish();
     *out = h;
     return KILN_OK;
 }
@@ -400,7 +411,7 @@ KilnResult stage_unsubscribe(KilnHandle h) {
         std::find_if(g_stage.list.begin(), g_stage.list.end(), [&](const StageSub& s) { return s.handle == h; });
     if (it == g_stage.list.end()) return KILN_ERR_NOT_FOUND;
     g_stage.list.erase(it);
-    g_stage_count.store(static_cast<uint32_t>(g_stage.list.size()), std::memory_order_release);
+    g_stage.publish();
     return KILN_OK;
 }
 

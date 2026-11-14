@@ -5,6 +5,7 @@
 //   ui_values_text.cpp     the process-lifetime text store
 //   ui_values_bars.cpp     the item detail bar and the slot bar (mids before the game draws a temporary Bar)
 //   ui_values_update.cpp   the player-UI update: HUD pairs, the held item, the pre-provider stage (below)
+//   ui_values_changes.cpp  change publication: identities, the 4096-entry cache, Added/Updated/Removed/Evicted/Reset
 //   ui_values_service.cpp  the production environment (owners, kiln.caps, sigdb, kiln.hooks, kiln.client, kiln.ui),
 //                          the SEH guards and the service's registration with the core
 //
@@ -70,6 +71,9 @@ struct Env {
     // A provider called under a structured-exception guard: false = it faulted (*rc untouched).
     bool (*call_value)(KilnUiValueFn fn, const KilnUiProviderContext* c, const KilnUiItemView* v,
                        const KilnUiBarValue* in, KilnUiBarEdit* e, void* user, KilnResult* rc) = nullptr;
+    bool (*call_changed)(KilnUiValueChangedFn fn, const KilnUiValueChange* c, void* user) = nullptr;
+    // fn(frame) on the UI thread after every completed game UI frame (kiln.ui's subscribe_ui_tick); false = none
+    bool (*subscribe_frames)(void (*fn)(uint64_t frame, void* user), void* user) = nullptr;
     void (*log)(int level, const char* text) = nullptr;
 };
 Env& env();
@@ -124,6 +128,15 @@ KilnUiBarValue run_chain(uint32_t kind, const KilnUiItemView& view, const KilnUi
                          const ChainStamp& stamp);
 // Validates `e` against the kind's mask and the input; on success applies it to *acc. False = KUI_INVALID_EDIT.
 bool apply_edit(uint32_t kind, const KilnUiBarEdit& e, const std::string& mod, KilnUiBarValue* acc);
+
+// ---- change publication (ui_values_changes.cpp) ----
+bool changes_wanted();  // a change subscriber exists: the chains stage their results
+// The final value of one chain run under its identity (the bars and the update call it after writing).
+void publish_value(uint32_t kind, const KilnUiItemView& view, const KilnUiBarValue& value);
+void update_done();                   // a player-UI update captured the local player (held/HUD absence counts these)
+void changes_reset(uint32_t reason);  // KilnUiResetReason: one Reset at the next frame, the cache cleared
+KilnResult changes_subscribe(KilnOwner owner, KilnUiValueChangedFn fn, void* user, KilnUiRegistration* out);
+void changes_reset_for_tests();
 
 // ---- game memory and sigdb through Env ----
 inline bool sig_constant(const char* name, int64_t* out) { return env().constant && env().constant(name, out); }

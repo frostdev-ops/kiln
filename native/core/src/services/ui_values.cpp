@@ -178,11 +178,12 @@ KilnResult KILN_CALL t_subscribe_slots(KilnOwner owner, KilnUiSlotsFn fn, void* 
                    [&] { return register_in(owner, kListSlots, 0, reinterpret_cast<void*>(fn), user, out); });
 }
 
-KilnResult KILN_CALL t_subscribe_changes(KilnOwner owner, KilnUiValueChangedFn fn, void*, KilnUiRegistration* out) {
+KilnResult KILN_CALL t_subscribe_changes(KilnOwner owner, KilnUiValueChangedFn fn, void* user,
+                                         KilnUiRegistration* out) {
     if (!out || out->size < sizeof(KilnUiRegistration)) return KILN_ERR_INVALID_ARGUMENT;
     clear_registration(out);
     if (owner == 0 || !fn) return KILN_ERR_INVALID_ARGUMENT;
-    return KILN_ERR_UNAVAILABLE;  // change publication is not built in this version
+    return guarded("subscribe_changes", [&] { return changes_subscribe(owner, fn, user, out); });
 }
 
 KilnResult KILN_CALL t_open_tooltip_details(KilnOwner owner, KilnUiTooltipOpen* out) {
@@ -386,6 +387,7 @@ bool ensure_installed(uint32_t list) {
         logf(KILN_LOG_ERROR, "ui.values: %s hooks could not be installed; %s is off for this process", kListNames[list],
              row);
         if (env().row_off) env().row_off(row, "kiln.ui.values could not install its game hooks; kiln.log says why");
+        changes_reset(KUI_RESET_CAPABILITY);
     }
     return ok;
 }
@@ -503,9 +505,12 @@ void reset_for_tests() {  // host tests only: nothing dispatches while it runs
     g_reg = new Registry;
     for (auto& c : g_count) c.store(0);
     g_reg_seen.store(0);
-    std::lock_guard lk(installs().mu);
-    for (auto& s : installs().state) s = 0;
+    {
+        std::lock_guard lk(installs().mu);
+        for (auto& s : installs().state) s = 0;
+    }
     text::reset_for_tests();
+    changes_reset_for_tests();
 }
 
 }  // namespace kiln::uivalues

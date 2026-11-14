@@ -20,5 +20,7 @@
     <ProjectReference Include="../Kiln.Network/Kiln.Network.csproj" Private="false" />
     <!-- the Network tab's sync status (ContentSync) -->
     <ProjectReference Include="../Kiln.Content/Kiln.Content.csproj" Private="false" />
+    <!-- Ui.Values' item views (ItemRarity) -->
+    <ProjectReference Include="../Kiln.Items/Kiln.Items.csproj" Private="false" />
   </ItemGroup>
 </Project>

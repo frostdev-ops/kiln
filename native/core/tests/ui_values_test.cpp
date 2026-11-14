@@ -18,6 +18,7 @@
 #include "../src/services/ui_values_text.cpp"
 #include "../src/services/ui_values_bars.cpp"
 #include "../src/services/ui_values_update.cpp"
+#include "../src/services/ui_values_changes.cpp"
 
 using namespace kiln::uivalues;
 
@@ -65,6 +66,9 @@ std::vector<Mid> mids;
 KilnResult hook_result = KILN_OK;
 std::vector<std::string> logs;
 std::set<uintptr_t> unreadable;  // addresses whose reads fail (a guarded read of unmapped memory)
+bool frames_ok = true;           // kiln.ui hands out its UI tick
+void (*frame_fn)(uint64_t, void*) = nullptr;
+void* frame_user = nullptr;
 size_t writes = 0;
 
 KilnOwner owner(const std::string& name) {
@@ -151,7 +155,24 @@ void install() {
             return false;
         }
     };
+    e.call_changed = [](KilnUiValueChangedFn fn, const KilnUiValueChange* c, void* user) {
+        try {
+            fn(c, user);
+            return true;
+        } catch (...) {
+            return false;
+        }
+    };
+    e.subscribe_frames = [](void (*fn)(uint64_t, void*), void* user) {
+        if (!frames_ok) return false;
+        frame_fn = fn;
+        frame_user = user;
+        return true;
+    };
     e.log = [](int, const char* text) { logs.emplace_back(text); };
+}
+void end_frame(uint64_t frame) {
+    if (frame_fn) frame_fn(frame, frame_user);
 }
 
 bool always_installed(uint32_t) { return true; }
@@ -180,6 +201,9 @@ void reset() {
     logs.clear();
     unreadable.clear();
     writes = 0;
+    frames_ok = true;
+    frame_fn = nullptr;
+    frame_user = nullptr;
     for (uint32_t l = 0; l < kLists; ++l) set_installer(l, &always_installed);
 }
 }  // namespace fake
@@ -1200,7 +1224,7 @@ void prime_update() {
     g_models = false;
     g_update_next = nullptr;
     g_stage.list.clear();
-    g_stage_count = 0;
+    g_stage.publish();
     g_held_missing_logged = false;
     for (uint32_t k = KUI_HELD; k <= KUI_MANA; ++k) set_installer(k, &install_update);
     fake::symbols["ui/PlayerUiUpdate"] = 0x1402b8430ull;
@@ -1506,6 +1530,230 @@ void update_stage() {
     CHECK(log2.calls == 0 && g_stage_count == 0, "stage: a retired owner's observer is dropped");
 }
 
+// ======================================================================================= S4: change publication
+struct Changes {
+    std::vector<KilnUiValueChange> got;
+    std::vector<std::string> labels;
+    int throws = 0;
+};
+void KILN_CALL on_change(const KilnUiValueChange* c, void* user) {
+    auto* ch = static_cast<Changes*>(user);
+    if (ch->throws > 0) {
+        --ch->throws;
+        throw std::runtime_error("subscriber bug");
+    }
+    ch->got.push_back(*c);
+    ch->labels.emplace_back(c->after_label.ptr ? std::string(c->after_label.ptr, c->after_label.len) : "");
+}
+KilnUiItemView slot_view(uint32_t page, uint32_t index, uint32_t item, uint32_t entity, uint64_t session = 1) {
+    KilnUiItemView v{};
+    v.size = sizeof v;
+    v.flags = KUI_INVENTORY_SLOT | (entity ? KUI_CLIENT_ENTITY : 0u);
+    v.local_player = 77;
+    v.inventory_page = page;
+    v.slot_index = index;
+    v.item = item;
+    v.client_entity = entity;
+    v.session = session;
+    v.screen.ui_state = KILN_UI_STATE_PLAY;
+    v.screen.hud_screen = 9;
+    return v;
+}
+size_t count_kind(const Changes& c, uint32_t kind) {
+    size_t n = 0;
+    for (const auto& x : c.got) n += x.change_kind == kind;
+    return n;
+}
+
+void changes_basics() {
+    fake::reset();
+    fake::client.session = 1;
+    const KilnOwner o = fake::owner("mod:changes");
+    add_value(o, KUI_SLOT, 0, &pass, nullptr);  // a value provider: the registry is not empty
+    Changes ch;
+    auto r = reg_record();
+    CHECK(T()->subscribe_changes(0, &on_change, &ch, &r) == KILN_ERR_INVALID_ARGUMENT &&
+              T()->subscribe_changes(o, nullptr, &ch, &r) == KILN_ERR_INVALID_ARGUMENT,
+          "changes: owner 0 or no callback -> INVALID_ARGUMENT");
+    fake::frames_ok = false;
+    CHECK(T()->subscribe_changes(o, &on_change, &ch, &r) == KILN_ERR_UNAVAILABLE && !changes_wanted(),
+          "changes: no game UI frame callback (kiln.ui missing) -> UNAVAILABLE");
+    fake::frames_ok = true;
+    CHECK(T()->subscribe_changes(o, &on_change, &ch, &r) == KILN_OK && r.ok == 1 && changes_wanted() &&
+              active("mod:changes") == 2,
+          "changes: registered, counted in the mod's quota");
+    const auto v = slot_view(0x5000, 1, 0xAA, 900);
+    publish_value(KUI_SLOT, v, game_value(KUI_SLOT, 0.5f, 1, 2));
+    publish_value(KUI_SLOT, v, game_value(KUI_SLOT, 0.25f, 1, 2));  // the last occurrence of the frame wins
+    fake::end_frame(10);
+    CHECK(ch.got.size() == 1 && ch.got[0].change_kind == KUI_ADDED && !ch.got[0].has_before && ch.got[0].has_after &&
+              ch.got[0].after.fraction == 0.25f && ch.got[0].frame == 10 &&
+              ch.got[0].identity.inventory_page == 0x5000 && ch.got[0].identity.slot_index == 1 &&
+              ch.got[0].identity.client_entity == 900 && ch.got[0].identity.hud_screen == 9 &&
+              ch.got[0].identity.local_player == 77,
+          "changes: first value -> Added (no before), the frame's last occurrence, the slot identity");
+    publish_value(KUI_SLOT, v, game_value(KUI_SLOT, 0.25f, 1, 2));
+    fake::end_frame(11);
+    CHECK(ch.got.size() == 1, "changes: the same value again -> nothing");
+    publish_value(KUI_SLOT, v, game_value(KUI_SLOT, 0.75f, 1, 2));
+    fake::end_frame(12);
+    CHECK(ch.got.size() == 2 && ch.got[1].change_kind == KUI_UPDATED && ch.got[1].before.fraction == 0.25f &&
+              ch.got[1].after.fraction == 0.75f,
+          "changes: a different value -> Updated with before and after");
+    fake::end_frame(13);  // absent once
+    CHECK(ch.got.size() == 2, "changes: absent for one completed frame -> still there");
+    fake::end_frame(14);  // absent twice
+    CHECK(ch.got.size() == 3 && ch.got[2].change_kind == KUI_REMOVED && ch.got[2].has_before && !ch.got[2].has_after &&
+              ch.got[2].before.fraction == 0.75f,
+          "changes: absent for two completed frames -> Removed (no after)");
+    // a synthetic detail groups by kind, session, screen and item
+    KilnUiItemView syn{};
+    syn.size = sizeof syn;
+    syn.flags = KUI_DETAIL_COPY | KUI_SYNTHETIC;
+    syn.item = 0xCC;
+    syn.local_player = 77;
+    syn.session = 1;
+    publish_value(KUI_DETAIL, syn, game_value(KUI_DETAIL, 1, 7, 7));
+    fake::end_frame(15);
+    const auto& id = ch.got.back().identity;
+    CHECK(ch.got.back().change_kind == KUI_ADDED && id.synthetic_group == 1 && id.item == 0xCC &&
+              id.local_player == 0 && id.inventory_page == 0 && id.client_entity == 0,
+          "changes: a synthetic detail's identity is its item and screen only (synthetic_group 1)");
+}
+
+void changes_reset_and_hud() {
+    fake::reset();
+    fake::client.session = 1;
+    const KilnOwner o = fake::owner("mod:changes");
+    const KilnHandle provider = add_value(o, KUI_SLOT, 0, &pass, nullptr);
+    Changes ch;
+    auto r = reg_record();
+    T()->subscribe_changes(o, &on_change, &ch, &r);
+    for (uint32_t i = 0; i < 20; ++i)
+        publish_value(KUI_SLOT, slot_view(0x5000, i, 0xAA, 0), game_value(KUI_SLOT, 1, 0, 0));
+    fake::end_frame(1);
+    CHECK(count_kind(ch, KUI_ADDED) == 20, "reset: 20 identities added");
+    ch.got.clear();
+    fake::client.session = 2;  // the world was left and another joined
+    fake::end_frame(2);
+    CHECK(ch.got.size() == 1 && ch.got[0].change_kind == KUI_RESET && ch.got[0].reason == KUI_RESET_WORLD &&
+              ch.got[0].old_session == 1 && ch.got[0].new_session == 2 && !ch.got[0].has_before && !ch.got[0].has_after,
+          "reset: a session change -> one Reset (world, old and new session), not 20 Removed (%zu records)",
+          ch.got.size());
+    fake::end_frame(3);
+    fake::end_frame(4);
+    CHECK(ch.got.size() == 1, "reset: the cleared cache removes nothing later");
+    // the last value provider goes: one Reset (registry)
+    publish_value(KUI_SLOT, slot_view(0x5000, 0, 0xAA, 0, 2), game_value(KUI_SLOT, 1, 0, 0));
+    fake::end_frame(5);
+    T()->unsubscribe(provider);
+    ch.got.clear();
+    fake::end_frame(6);
+    CHECK(ch.got.size() == 1 && ch.got[0].change_kind == KUI_RESET && ch.got[0].reason == KUI_RESET_REGISTRY,
+          "reset: the last value provider removed -> one Reset (registry)");
+
+    // HUD and held values count player-UI updates, not frames, for absence
+    fake::reset();
+    fake::client.session = 1;
+    const KilnOwner h = fake::owner("mod:hud");
+    add_value(h, KUI_HEALTH, 0, &pass, nullptr);
+    Changes hud;
+    r = reg_record();
+    T()->subscribe_changes(h, &on_change, &hud, &r);
+    KilnUiItemView hv{};
+    hv.size = sizeof hv;
+    hv.local_player = 77;
+    hv.session = 1;
+    hv.screen.hud_screen = 4;  // not part of a HUD identity
+    publish_value(KUI_HEALTH, hv, game_value(KUI_HEALTH, 0.5f, 50, 100));
+    update_done();
+    fake::end_frame(1);
+    for (uint64_t f = 2; f < 8; ++f) fake::end_frame(f);  // frames without a player-UI update
+    CHECK(hud.got.size() == 1 && hud.got[0].change_kind == KUI_ADDED && hud.got[0].identity.hud_screen == 0 &&
+              hud.got[0].identity.local_player == 77,
+          "hud: frames without an update remove nothing; the identity is kind, session, local player");
+    update_done();
+    fake::end_frame(8);
+    update_done();
+    fake::end_frame(9);
+    CHECK(hud.got.size() == 2 && hud.got[1].change_kind == KUI_REMOVED, "hud: two updates without it -> Removed");
+}
+
+void changes_eviction_and_faults() {
+    fake::reset();
+    fake::client.session = 1;
+    const KilnOwner o = fake::owner("mod:many");
+    add_value(o, KUI_SLOT, 0, &pass, nullptr);
+    Changes ch;
+    auto r = reg_record();
+    T()->subscribe_changes(o, &on_change, &ch, &r);
+    // 4096 identities (pages 1..4096) staged in frame 1; all but pages 7 and 9 again in frames 2 and 3
+    for (uint32_t p = 1; p <= 4096; ++p)
+        publish_value(KUI_SLOT, slot_view(p, 0, 0xAA, 0), game_value(KUI_SLOT, 1, 0, 0));
+    fake::end_frame(1);
+    for (uint32_t p = 1; p <= 4096; ++p)
+        if (p != 7 && p != 9) publish_value(KUI_SLOT, slot_view(p, 0, 0xAA, 0), game_value(KUI_SLOT, 1, 0, 0));
+    fake::end_frame(2);
+    ch.got.clear();
+    for (uint32_t p = 1; p <= 4096; ++p)
+        if (p != 7 && p != 9) publish_value(KUI_SLOT, slot_view(p, 0, 0xAA, 0), game_value(KUI_SLOT, 1, 0, 0));
+    publish_value(KUI_SLOT, slot_view(5000, 0, 0xAB, 0), game_value(KUI_SLOT, 1, 0, 0));
+    publish_value(KUI_SLOT, slot_view(5001, 0, 0xAB, 0), game_value(KUI_SLOT, 1, 0, 0));
+    fake::end_frame(3);
+    std::vector<uint32_t> evicted;
+    for (const auto& c : ch.got)
+        if (c.change_kind == KUI_EVICTED) evicted.push_back(c.identity.inventory_page);
+    CHECK(evicted == (std::vector<uint32_t>{7, 9}) && count_kind(ch, KUI_ADDED) == 2,
+          "eviction: a full cache evicts the least recently seen, the smaller key first (%zu evicted)", evicted.size());
+    // a subscriber that throws five times in a row is removed
+    Changes bad;
+    bad.throws = 100;
+    r = reg_record();
+    T()->subscribe_changes(o, &on_change, &bad, &r);
+    for (uint64_t f = 4; f < 12; ++f) {
+        publish_value(KUI_SLOT, slot_view(1, 0, 0xAA, 0), game_value(KUI_SLOT, (f % 2) ? 0.5f : 0.25f, 0, 0));
+        fake::end_frame(f);
+    }
+    CHECK(bad.throws == 95 && fake::logged("removed after 5 faults") == 1,
+          "faults: a change subscriber that throws five times in a row is removed (%d calls)", 100 - bad.throws);
+    // labels: the record carries the store's bytes
+    KilnUiTextId id = 0;
+    text::intern("mod:many", "Charges", &id);
+    KilnUiBarValue lv = game_value(KUI_DETAIL, 1, 1, 1);
+    lv.label_is_override = 1;
+    lv.label_id = id;
+    add_value(o, KUI_DETAIL, 0, &pass, nullptr);
+    ch.got.clear();
+    ch.labels.clear();
+    publish_value(KUI_DETAIL, slot_view(0x5000, 3, 0xAA, 0), lv);
+    fake::end_frame(20);
+    std::string label;
+    for (size_t i = 0; i < ch.got.size(); ++i)
+        if (ch.got[i].change_kind == KUI_ADDED && ch.got[i].identity.kind == KUI_DETAIL) label = ch.labels[i];
+    CHECK(label == "Charges", "labels: an Added record carries the label's bytes");
+}
+
+void changes_from_the_bars() {
+    prime_bars();
+    fake::client.session = 3;
+    const KilnOwner o = fake::owner("mod:bars-changes");
+    Script s;
+    s.flags = KUI_FRACTION;
+    s.fraction = 0.25f;
+    add_value(o, KUI_SLOT, 0, &scripted, &s);
+    Changes ch;
+    auto r = reg_record();
+    T()->subscribe_changes(o, &on_change, &ch, &r);
+    fill_bar(1.0f, 0, 0);
+    fill_view_bytes(g_mem.slot_view, 0x5000, 2, 0xBB, 1, 600, 0, 0);
+    draw_slot();
+    draw_slot();
+    fake::end_frame(501);
+    CHECK(ch.got.size() == 1 && ch.got[0].change_kind == KUI_ADDED && ch.got[0].after.fraction == 0.25f &&
+              ch.got[0].identity.client_entity == 600 && ch.got[0].identity.session == 3,
+          "bars: a drawn slot publishes the provider's final value once per frame");
+}
+
 }  // namespace
 
 int main() {
@@ -1530,6 +1778,10 @@ int main() {
     update_recursion();
     update_held();
     update_stage();
+    changes_basics();
+    changes_reset_and_hud();
+    changes_eviction_and_faults();
+    changes_from_the_bars();
     std::printf(g_fail ? "%d FAILED\n" : "all passed\n", g_fail);
     return g_fail ? 1 : 0;
 }

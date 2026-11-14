@@ -1,1 +1,246 @@
 #nullable enable
+Kiln.HudValue
+Kiln.HudValue.Health = 3 -> Kiln.HudValue
+Kiln.HudValue.Mana = 5 -> Kiln.HudValue
+Kiln.HudValue.Stamina = 4 -> Kiln.HudValue
+Kiln.Ui.Values
+Kiln.UiBarEdit
+Kiln.UiBarEdit.<Clone>$() -> Kiln.UiBarEdit!
+Kiln.UiBarEdit.Current.get -> uint?
+Kiln.UiBarEdit.Current.init -> void
+Kiln.UiBarEdit.Deconstruct(out float? Fraction, out uint? Current, out uint? Max, out Kiln.UiLabelEdit? Label) -> void
+Kiln.UiBarEdit.Equals(Kiln.UiBarEdit? other) -> bool
+Kiln.UiBarEdit.Fraction.get -> float?
+Kiln.UiBarEdit.Fraction.init -> void
+Kiln.UiBarEdit.Label.get -> Kiln.UiLabelEdit?
+Kiln.UiBarEdit.Label.init -> void
+Kiln.UiBarEdit.Max.get -> uint?
+Kiln.UiBarEdit.Max.init -> void
+Kiln.UiBarEdit.UiBarEdit(float? Fraction = null, uint? Current = null, uint? Max = null, Kiln.UiLabelEdit? Label = null) -> void
+Kiln.UiBarProvider
+Kiln.UiBarValue
+Kiln.UiBarValue.<Clone>$() -> Kiln.UiBarValue!
+Kiln.UiBarValue.Current.get -> uint
+Kiln.UiBarValue.Current.init -> void
+Kiln.UiBarValue.Deconstruct(out float Fraction, out uint Current, out uint Max, out Kiln.UiText? LabelOverride) -> void
+Kiln.UiBarValue.Equals(Kiln.UiBarValue? other) -> bool
+Kiln.UiBarValue.Fraction.get -> float
+Kiln.UiBarValue.Fraction.init -> void
+Kiln.UiBarValue.LabelOverride.get -> Kiln.UiText?
+Kiln.UiBarValue.LabelOverride.init -> void
+Kiln.UiBarValue.Max.get -> uint
+Kiln.UiBarValue.Max.init -> void
+Kiln.UiBarValue.UiBarValue(float Fraction, uint Current, uint Max, Kiln.UiText? LabelOverride) -> void
+Kiln.UiItemView
+Kiln.UiItemView.ClientEntity.get -> Kiln.EntityId
+Kiln.UiItemView.ClientEntity.init -> void
+Kiln.UiItemView.Count.get -> uint
+Kiln.UiItemView.Count.init -> void
+Kiln.UiItemView.Deconstruct(out uint Flags, out Kiln.EntityId LocalPlayer, out Kiln.EntityId ClientEntity, out Kiln.EntityId ServerEntity, out Kiln.ItemId Item, out Kiln.EntityId InventoryPage, out byte SlotIndex, out uint Fuel, out uint FuelMax, out uint UnitsPerCharge, out uint Durability, out uint DurabilityMax, out uint Count, out uint Level, out Kiln.ItemRarity Rarity, out Kiln.GameScreen Screen) -> void
+Kiln.UiItemView.Durability.get -> uint
+Kiln.UiItemView.Durability.init -> void
+Kiln.UiItemView.DurabilityMax.get -> uint
+Kiln.UiItemView.DurabilityMax.init -> void
+Kiln.UiItemView.Equals(Kiln.UiItemView other) -> bool
+Kiln.UiItemView.Flags.get -> uint
+Kiln.UiItemView.Flags.init -> void
+Kiln.UiItemView.Fuel.get -> uint
+Kiln.UiItemView.Fuel.init -> void
+Kiln.UiItemView.FuelMax.get -> uint
+Kiln.UiItemView.FuelMax.init -> void
+Kiln.UiItemView.InventoryPage.get -> Kiln.EntityId
+Kiln.UiItemView.InventoryPage.init -> void
+Kiln.UiItemView.Item.get -> Kiln.ItemId
+Kiln.UiItemView.Item.init -> void
+Kiln.UiItemView.Level.get -> uint
+Kiln.UiItemView.Level.init -> void
+Kiln.UiItemView.LocalPlayer.get -> Kiln.EntityId
+Kiln.UiItemView.LocalPlayer.init -> void
+Kiln.UiItemView.Rarity.get -> Kiln.ItemRarity
+Kiln.UiItemView.Rarity.init -> void
+Kiln.UiItemView.Screen.get -> Kiln.GameScreen
+Kiln.UiItemView.Screen.init -> void
+Kiln.UiItemView.ServerEntity.get -> Kiln.EntityId
+Kiln.UiItemView.ServerEntity.init -> void
+Kiln.UiItemView.SlotIndex.get -> byte
+Kiln.UiItemView.SlotIndex.init -> void
+Kiln.UiItemView.UiItemView() -> void
+Kiln.UiItemView.UiItemView(uint Flags, Kiln.EntityId LocalPlayer, Kiln.EntityId ClientEntity, Kiln.EntityId ServerEntity, Kiln.ItemId Item, Kiln.EntityId InventoryPage, byte SlotIndex, uint Fuel, uint FuelMax, uint UnitsPerCharge, uint Durability, uint DurabilityMax, uint Count, uint Level, Kiln.ItemRarity Rarity, Kiln.GameScreen Screen) -> void
+Kiln.UiItemView.UnitsPerCharge.get -> uint
+Kiln.UiItemView.UnitsPerCharge.init -> void
+Kiln.UiLabelEdit
+Kiln.UiLabelEdit.<Clone>$() -> Kiln.UiLabelEdit!
+Kiln.UiLabelEdit.Deconstruct(out Kiln.UiLabelMode Mode, out Kiln.UiText? Text) -> void
+Kiln.UiLabelEdit.Equals(Kiln.UiLabelEdit? other) -> bool
+Kiln.UiLabelEdit.Mode.get -> Kiln.UiLabelMode
+Kiln.UiLabelEdit.Mode.init -> void
+Kiln.UiLabelEdit.Text.get -> Kiln.UiText?
+Kiln.UiLabelEdit.Text.init -> void
+Kiln.UiLabelEdit.UiLabelEdit(Kiln.UiLabelMode Mode, Kiln.UiText? Text = null) -> void
+Kiln.UiLabelMode
+Kiln.UiLabelMode.Clear = 2 -> Kiln.UiLabelMode
+Kiln.UiLabelMode.Game = 3 -> Kiln.UiLabelMode
+Kiln.UiLabelMode.Keep = 0 -> Kiln.UiLabelMode
+Kiln.UiLabelMode.Set = 1 -> Kiln.UiLabelMode
+Kiln.UiProviderDecision
+Kiln.UiProviderDecision.<Clone>$() -> Kiln.UiProviderDecision!
+Kiln.UiProviderDecision.Deconstruct(out bool Ok, out string? Reason, out Kiln.UiBarEdit! Edit) -> void
+Kiln.UiProviderDecision.Edit.get -> Kiln.UiBarEdit!
+Kiln.UiProviderDecision.Edit.init -> void
+Kiln.UiProviderDecision.Equals(Kiln.UiProviderDecision? other) -> bool
+Kiln.UiProviderDecision.Ok.get -> bool
+Kiln.UiProviderDecision.Ok.init -> void
+Kiln.UiProviderDecision.Reason.get -> string?
+Kiln.UiProviderDecision.Reason.init -> void
+Kiln.UiProviderDecision.UiProviderDecision(bool Ok, string? Reason, Kiln.UiBarEdit! Edit) -> void
+Kiln.UiScreenKey
+Kiln.UiScreenKey.Crafting.get -> byte
+Kiln.UiScreenKey.Crafting.init -> void
+Kiln.UiScreenKey.Deconstruct(out Kiln.GameUiState State, out Kiln.HudScreen Hud, out byte Crafting, out uint Station) -> void
+Kiln.UiScreenKey.Equals(Kiln.UiScreenKey other) -> bool
+Kiln.UiScreenKey.Hud.get -> Kiln.HudScreen
+Kiln.UiScreenKey.Hud.init -> void
+Kiln.UiScreenKey.State.get -> Kiln.GameUiState
+Kiln.UiScreenKey.State.init -> void
+Kiln.UiScreenKey.Station.get -> uint
+Kiln.UiScreenKey.Station.init -> void
+Kiln.UiScreenKey.UiScreenKey() -> void
+Kiln.UiScreenKey.UiScreenKey(Kiln.GameUiState State, Kiln.HudScreen Hud, byte Crafting, uint Station) -> void
+Kiln.UiValueChangeKind
+Kiln.UiValueChangeKind.Added = 0 -> Kiln.UiValueChangeKind
+Kiln.UiValueChangeKind.Evicted = 3 -> Kiln.UiValueChangeKind
+Kiln.UiValueChangeKind.Removed = 2 -> Kiln.UiValueChangeKind
+Kiln.UiValueChangeKind.Updated = 1 -> Kiln.UiValueChangeKind
+Kiln.UiValueChangedEvent
+Kiln.UiValueChangedEvent.After.get -> Kiln.UiBarValue?
+Kiln.UiValueChangedEvent.Before.get -> Kiln.UiBarValue?
+Kiln.UiValueChangedEvent.ChangeKind.get -> Kiln.UiValueChangeKind
+Kiln.UiValueChangedEvent.Frame.get -> ulong
+Kiln.UiValueChangedEvent.Identity.get -> Kiln.UiValueIdentity
+Kiln.UiValueChangedEvent.UiValueChangedEvent(Kiln.UiValueIdentity identity, Kiln.UiBarValue? before, Kiln.UiBarValue? after, ulong frame, Kiln.UiValueChangeKind changeKind) -> void
+Kiln.UiValueContext
+Kiln.UiValueContext.ClientStep.get -> ulong
+Kiln.UiValueContext.ClientStep.init -> void
+Kiln.UiValueContext.Deconstruct(out Kiln.UiValueKind Kind, out ulong Session, out ulong Frame, out ulong ClientStep) -> void
+Kiln.UiValueContext.Equals(Kiln.UiValueContext other) -> bool
+Kiln.UiValueContext.Frame.get -> ulong
+Kiln.UiValueContext.Frame.init -> void
+Kiln.UiValueContext.Kind.get -> Kiln.UiValueKind
+Kiln.UiValueContext.Kind.init -> void
+Kiln.UiValueContext.Session.get -> ulong
+Kiln.UiValueContext.Session.init -> void
+Kiln.UiValueContext.UiValueContext() -> void
+Kiln.UiValueContext.UiValueContext(Kiln.UiValueKind Kind, ulong Session, ulong Frame, ulong ClientStep) -> void
+Kiln.UiValueIdentity
+Kiln.UiValueIdentity.ClientEntity.get -> Kiln.EntityId
+Kiln.UiValueIdentity.ClientEntity.init -> void
+Kiln.UiValueIdentity.Deconstruct(out Kiln.UiValueKind Kind, out ulong Session, out Kiln.EntityId LocalPlayer, out Kiln.UiScreenKey Screen, out Kiln.EntityId InventoryPage, out byte SlotIndex, out Kiln.EntityId ClientEntity, out Kiln.ItemId Item, out bool SyntheticGroup) -> void
+Kiln.UiValueIdentity.Equals(Kiln.UiValueIdentity other) -> bool
+Kiln.UiValueIdentity.InventoryPage.get -> Kiln.EntityId
+Kiln.UiValueIdentity.InventoryPage.init -> void
+Kiln.UiValueIdentity.Item.get -> Kiln.ItemId
+Kiln.UiValueIdentity.Item.init -> void
+Kiln.UiValueIdentity.Kind.get -> Kiln.UiValueKind
+Kiln.UiValueIdentity.Kind.init -> void
+Kiln.UiValueIdentity.LocalPlayer.get -> Kiln.EntityId
+Kiln.UiValueIdentity.LocalPlayer.init -> void
+Kiln.UiValueIdentity.Screen.get -> Kiln.UiScreenKey
+Kiln.UiValueIdentity.Screen.init -> void
+Kiln.UiValueIdentity.Session.get -> ulong
+Kiln.UiValueIdentity.Session.init -> void
+Kiln.UiValueIdentity.SlotIndex.get -> byte
+Kiln.UiValueIdentity.SlotIndex.init -> void
+Kiln.UiValueIdentity.SyntheticGroup.get -> bool
+Kiln.UiValueIdentity.SyntheticGroup.init -> void
+Kiln.UiValueIdentity.UiValueIdentity() -> void
+Kiln.UiValueIdentity.UiValueIdentity(Kiln.UiValueKind Kind, ulong Session, Kiln.EntityId LocalPlayer, Kiln.UiScreenKey Screen, Kiln.EntityId InventoryPage, byte SlotIndex, Kiln.EntityId ClientEntity, Kiln.ItemId Item, bool SyntheticGroup) -> void
+Kiln.UiValueKind
+Kiln.UiValueKind.Detail = 0 -> Kiln.UiValueKind
+Kiln.UiValueKind.Health = 3 -> Kiln.UiValueKind
+Kiln.UiValueKind.Held = 2 -> Kiln.UiValueKind
+Kiln.UiValueKind.Mana = 5 -> Kiln.UiValueKind
+Kiln.UiValueKind.Slot = 1 -> Kiln.UiValueKind
+Kiln.UiValueKind.Stamina = 4 -> Kiln.UiValueKind
+Kiln.UiValueProviderChange
+Kiln.UiValueProviderChange.Added = 0 -> Kiln.UiValueProviderChange
+Kiln.UiValueProviderChange.Faulted = 2 -> Kiln.UiValueProviderChange
+Kiln.UiValueProviderChange.Removed = 1 -> Kiln.UiValueProviderChange
+Kiln.UiValueProviderChangedEvent
+Kiln.UiValueProviderChangedEvent.Change.get -> Kiln.UiValueProviderChange
+Kiln.UiValueProviderChangedEvent.Item.get -> Kiln.ItemId
+Kiln.UiValueProviderChangedEvent.Kind.get -> Kiln.UiValueKind
+Kiln.UiValueProviderChangedEvent.Mod.get -> string!
+Kiln.UiValueProviderChangedEvent.UiValueProviderChangedEvent(Kiln.UiValueKind kind, Kiln.ItemId item, string! mod, Kiln.UiValueProviderChange change) -> void
+Kiln.UiValueProviderRefusedEvent
+Kiln.UiValueProviderRefusedEvent.Frame.get -> ulong
+Kiln.UiValueProviderRefusedEvent.Kind.get -> Kiln.UiValueKind
+Kiln.UiValueProviderRefusedEvent.Mod.get -> string!
+Kiln.UiValueProviderRefusedEvent.Reason.get -> string!
+Kiln.UiValueProviderRefusedEvent.UiValueProviderRefusedEvent(Kiln.UiValueKind kind, string! mod, ulong frame, string! reason) -> void
+Kiln.UiValueRegistration
+Kiln.UiValueRegistration.Dispose() -> void
+Kiln.UiValueRegistration.Handle.get -> ulong
+Kiln.UiValueRegistration.Ok.get -> bool
+Kiln.UiValueRegistration.Reason.get -> string?
+Kiln.UiValuesResetEvent
+Kiln.UiValuesResetEvent.NewSession.get -> ulong
+Kiln.UiValuesResetEvent.OldSession.get -> ulong
+Kiln.UiValuesResetEvent.Reason.get -> Kiln.UiValuesResetReason
+Kiln.UiValuesResetEvent.UiValuesResetEvent(Kiln.UiValuesResetReason reason, ulong oldSession, ulong newSession) -> void
+Kiln.UiValuesResetReason
+Kiln.UiValuesResetReason.Capability = 1 -> Kiln.UiValuesResetReason
+Kiln.UiValuesResetReason.Registry = 2 -> Kiln.UiValuesResetReason
+Kiln.UiValuesResetReason.World = 0 -> Kiln.UiValuesResetReason
+const Kiln.Ui.Values.DetailCapability = "ui.values.detail" -> string!
+const Kiln.Ui.Values.HeldCapability = "ui.values.held" -> string!
+const Kiln.Ui.Values.HudCapability = "ui.values.hud" -> string!
+const Kiln.Ui.Values.SlotCapability = "ui.values.slot" -> string!
+override Kiln.UiBarEdit.Equals(object? obj) -> bool
+override Kiln.UiBarEdit.GetHashCode() -> int
+override Kiln.UiBarEdit.ToString() -> string!
+override Kiln.UiBarValue.Equals(object? obj) -> bool
+override Kiln.UiBarValue.GetHashCode() -> int
+override Kiln.UiBarValue.ToString() -> string!
+override Kiln.UiItemView.GetHashCode() -> int
+override Kiln.UiLabelEdit.Equals(object? obj) -> bool
+override Kiln.UiLabelEdit.GetHashCode() -> int
+override Kiln.UiLabelEdit.ToString() -> string!
+override Kiln.UiProviderDecision.Equals(object? obj) -> bool
+override Kiln.UiProviderDecision.GetHashCode() -> int
+override Kiln.UiProviderDecision.ToString() -> string!
+override Kiln.UiScreenKey.GetHashCode() -> int
+override Kiln.UiValueContext.GetHashCode() -> int
+override Kiln.UiValueIdentity.GetHashCode() -> int
+static Kiln.Ui.Values.HeldBar(Kiln.UiBarProvider! provider) -> Kiln.UiValueRegistration!
+static Kiln.Ui.Values.Hud(Kiln.HudValue vital, Kiln.UiBarProvider! provider) -> Kiln.UiValueRegistration!
+static Kiln.Ui.Values.ItemBar(Kiln.ItemId item, Kiln.UiBarProvider! provider) -> Kiln.UiValueRegistration!
+static Kiln.Ui.Values.SlotBar(Kiln.ItemId item, Kiln.UiBarProvider! provider) -> Kiln.UiValueRegistration!
+static Kiln.UiBarEdit.operator !=(Kiln.UiBarEdit? left, Kiln.UiBarEdit? right) -> bool
+static Kiln.UiBarEdit.operator ==(Kiln.UiBarEdit? left, Kiln.UiBarEdit? right) -> bool
+static Kiln.UiBarValue.operator !=(Kiln.UiBarValue? left, Kiln.UiBarValue? right) -> bool
+static Kiln.UiBarValue.operator ==(Kiln.UiBarValue? left, Kiln.UiBarValue? right) -> bool
+static Kiln.UiItemView.operator !=(Kiln.UiItemView left, Kiln.UiItemView right) -> bool
+static Kiln.UiItemView.operator ==(Kiln.UiItemView left, Kiln.UiItemView right) -> bool
+static Kiln.UiLabelEdit.operator !=(Kiln.UiLabelEdit? left, Kiln.UiLabelEdit? right) -> bool
+static Kiln.UiLabelEdit.operator ==(Kiln.UiLabelEdit? left, Kiln.UiLabelEdit? right) -> bool
+static Kiln.UiProviderDecision.Refuse(string! reason) -> Kiln.UiProviderDecision!
+static Kiln.UiProviderDecision.Replace(Kiln.UiBarEdit! edit) -> Kiln.UiProviderDecision!
+static Kiln.UiProviderDecision.operator !=(Kiln.UiProviderDecision? left, Kiln.UiProviderDecision? right) -> bool
+static Kiln.UiProviderDecision.operator ==(Kiln.UiProviderDecision? left, Kiln.UiProviderDecision? right) -> bool
+static Kiln.UiScreenKey.operator !=(Kiln.UiScreenKey left, Kiln.UiScreenKey right) -> bool
+static Kiln.UiScreenKey.operator ==(Kiln.UiScreenKey left, Kiln.UiScreenKey right) -> bool
+static Kiln.UiValueContext.operator !=(Kiln.UiValueContext left, Kiln.UiValueContext right) -> bool
+static Kiln.UiValueContext.operator ==(Kiln.UiValueContext left, Kiln.UiValueContext right) -> bool
+static Kiln.UiValueIdentity.operator !=(Kiln.UiValueIdentity left, Kiln.UiValueIdentity right) -> bool
+static Kiln.UiValueIdentity.operator ==(Kiln.UiValueIdentity left, Kiln.UiValueIdentity right) -> bool
+static readonly Kiln.UiBarEdit.None -> Kiln.UiBarEdit!
+static readonly Kiln.UiProviderDecision.Pass -> Kiln.UiProviderDecision!
+virtual Kiln.UiBarProvider.Invoke(in Kiln.UiValueContext context, in Kiln.UiItemView item, Kiln.UiBarValue! accumulated) -> Kiln.UiProviderDecision!
+~override Kiln.UiItemView.Equals(object obj) -> bool
+~override Kiln.UiItemView.ToString() -> string
+~override Kiln.UiScreenKey.Equals(object obj) -> bool
+~override Kiln.UiScreenKey.ToString() -> string
+~override Kiln.UiValueContext.Equals(object obj) -> bool
+~override Kiln.UiValueContext.ToString() -> string
+~override Kiln.UiValueIdentity.Equals(object obj) -> bool
+~override Kiln.UiValueIdentity.ToString() -> string
