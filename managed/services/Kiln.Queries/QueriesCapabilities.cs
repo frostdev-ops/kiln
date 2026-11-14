@@ -18,6 +18,11 @@ internal static unsafe class QueriesCaps
     /// <summary><see cref="Queries.EntitiesInSphere"/> and <see cref="Queries.EntitiesInBox"/>: entity origins from kiln.world.</summary>
     public const string OverlapOrigins = "queries.overlap_origins";
 
+    /// <summary>sigdb: the game's path queries (<see cref="Queries.RequestPath"/>, <see cref="Queries.FindPath"/>).</summary>
+    public const string Path = "queries.path";
+    /// <summary><see cref="Queries.CanReach"/>: the same path search, asked only whether it arrives.</summary>
+    public const string Reachability = "queries.reachability";
+
     private const string World = "kiln.world";
 
     internal static readonly ServiceCapRows Rows = new(Service, Report, everySteps: 25, refreshOnlyWithService: true);
@@ -25,22 +30,31 @@ internal static unsafe class QueriesCaps
     private static void Report()
     {
         var here = QueriesNative.T != null;
-        if (!here) ServiceCaps.LowerFeatures(Service, [VoxelRay]);
+        if (!here) ServiceCaps.LowerFeatures(Service, [VoxelRay, Path]);
         const string missing = "kiln.queries is not loaded";
         // Static's `needs` only explain an off row: whether each need is on is asked here
         ServiceCaps.Static(Ground, here && Capabilities.Is(VoxelRay), CapabilityReason.ServiceMissing, missing, Service, VoxelRay);
         ServiceCaps.Static(LineOfSight, here && Capabilities.Is(VoxelRay) && Capabilities.Is(World), CapabilityReason.ServiceMissing, missing, Service, VoxelRay, World);
+        ServiceCaps.Static(Reachability, here && Capabilities.Is(Path), CapabilityReason.ServiceMissing, missing, Service, Path);
         ServiceCaps.Static(OverlapOrigins, here && Capabilities.Is(World), CapabilityReason.ServiceMissing, missing, Service, World);
     }
 
-    /// <summary>Throws <see cref="KilnUnavailableException"/> naming <paramref name="capability"/> unless it is available.
-    /// A row built on the ray is off the moment the ray's row is, not only at the next refresh.</summary>
+    // What is true now: the table, the member's row, and the row of what it is built on.
+    private static bool OnNow(string capability) =>
+        QueriesNative.T != null && Capabilities.Is(capability) && (capability is not (Ground or LineOfSight) || Capabilities.Is(VoxelRay)) &&
+        (capability != Reachability || Capabilities.Is(Path));
+
+    /// <summary>Throws <see cref="KilnUnavailableException"/> naming <paramref name="capability"/> unless it is available
+    /// now. The composed rows are decided when they are reported, from the table and the ray's row as they were then; a
+    /// row that reads off is decided again here before it refuses, so a report made while kiln.queries' own rows were
+    /// not there yet (a new capability registry, as each test-kit harness has; a service found late) never outlives them.
+    /// A row built on the ray is also off the moment the ray's row is, not only at the next refresh.</summary>
     public static void Require(string capability)
     {
         Rows.Ensure();
-        var on = QueriesNative.T != null && Capabilities.Is(capability) && (capability is not (Ground or LineOfSight) || Capabilities.Is(VoxelRay));
-        if (on) return;
-        if (Capabilities.Is(capability)) Report();   // the row lags what it is built on: say so before the exception reads it
+        if (OnNow(capability)) return;
+        Report();
+        if (OnNow(capability)) return;
         throw ServiceCaps.Unavailable(capability);
     }
 
