@@ -52,6 +52,7 @@ internal static class ServiceNames
         "kiln.types",
         "kiln.ui",
         "kiln.ui.tick",
+        "kiln.ui.values",
         "kiln.vfx",
         "kiln.world",
         "kiln.worldtables",
