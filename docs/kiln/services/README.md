@@ -58,6 +58,7 @@ row above and grows its own page.
 
 | Page | What |
 |---|---|
+| [creature-control.md](creature-control.md) | kiln.creature_control / CreatureControl: the one broker that owns a controlled creature body's AI-off layer and SteeringAgent; leases for pets, mounts, vehicles and NPC brains |
 
 ## Native rules
 - `kiln_plugin_main(api, owner, info)`: check `api->abi_version == KILN_ABI_VERSION`, resolve symbols with

@@ -21,6 +21,7 @@ guided game test ([services/caps.md](../services/caps.md#the-client-gate-dev28))
 
 | Row below (or new) | What dev.28 does | Capability | Proof so far |
 |---|---|---|---|
+| (new) Driving a creature body by its input | `CreatureControl` leases a body: the broker turns its AI off, removes the SteeringAgent that overwrote every input write, and restores both when the last lease ends. This build: one lease per body, the roles PetFollow, PetStay and Ridden; no preemption, quarantine or retired-root table yet | `creature_control` | host tests and the offline fake; lab run of `creature-control-test` (see the package report) |
 
 ## No API yet
 

@@ -259,3 +259,4 @@ a held row reads `unavailable`, `policy`, `game test pending: <ids>` until then.
 
 | Row | Kind | Reported by | Held until | What it says |
 |---|---|---|---|---|
+| `creature_control` | static (lowered when the broker's world program does not run) | kiln.creature_control | not held | the creature control broker takes new leases: its layout guard matched through kiln.types, its world program is registered (kiln.world with `write_other`), kiln.creatures has the AI switch ([creature-control.md](creature-control.md)); the table row `kiln.creature_control` serves queries, waits and releases |
