@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // What a mod's world code looks like to the build: two typed writes of generated components, one of them twice, a
 // write through the mod's own generic helper (the build cannot name its type), a write of the mod's own component
-// struct, and the string-named calls the build leaves to the author.
+// struct, a transform-scale write (CurrentTransform), and the string-named calls the build leaves to the author.
 using Kiln;
 
 namespace WritesMod;
@@ -28,6 +28,9 @@ public static class Calls
     public static Task<WorldWriteResult> Generic<T>(EntityId e, T value) where T : unmanaged, IGameComponent<T> => World.Write(e, value);
 
     public static void Own(EntityId e) => _ = World.Write(e, new Homemade { Value = 1 });
+
+    // 0.2.0-dev.28: a non-generic writer of a fixed component (CurrentTransform)
+    public static void Scale(EntityId e) => _ = World.SetTransformScale(e, Scale3.Uniform(2f));
 
     public static void ByName(EntityId e)
     {

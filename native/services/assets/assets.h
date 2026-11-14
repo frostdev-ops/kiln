@@ -138,6 +138,11 @@ struct GameBlob {
 };
 bool game_blob_find(const HashK& h, GameBlob* out);  // the game's content map (needs the resource system)
 std::string game_container_path(uint16_t index);   // UTF-8 path of enshrouded_NNN.dat, "" if unknown
+// The keys of the game's own content index, copied (the catalog, catalog.cpp): the whole key array in one guarded copy,
+// checked against its bucket layout on the copy, the header read again after it. Fetches the index when the game has not
+// asked for it yet (as game_blob_find). `total`: the index's key count, also when it is over `max_keys` (nothing copied).
+enum class GameIndex { ok, not_ready, unreadable, unsupported, too_many };
+GameIndex game_index_keys(std::vector<HashK>* out, size_t max_keys, uint64_t* total, std::string* why);
 uint32_t game_container_count();
 
 // ------------------------------------------------------------------------------------------- store -----------
@@ -242,6 +247,43 @@ bool format_is_srgb(uint32_t format);
 uint8_t* keep_alloc(size_t n);
 const uint8_t* keep_copy(const void* data, size_t n);
 
+// ---- content blob provenance (since 0.2.0-dev.28; the catalog, catalog.cpp) ----
+// Every blob registration on a thread is tagged with that thread's origin: KILN_BLOB_ORIGIN_NATIVE_API unless an
+// OriginScope says otherwise (load_manifest: MANIFEST; blob_add_ex/override_ex: the caller's).
+class OriginScope {
+public:
+    explicit OriginScope(uint32_t origin);
+    ~OriginScope();
+    OriginScope(const OriginScope&) = delete;
+    OriginScope& operator=(const OriginScope&) = delete;
+
+private:
+    uint32_t prev_;
+};
+uint32_t current_origin();
+// One live blob registration, as the catalog copies it (the store's own record, without the bytes).
+struct LedgerEntry {
+    HashK hash;
+    KilnOwner owner;
+    uint32_t origin;    // one KILN_BLOB_ORIGIN_* bit (never GAME)
+    uint64_t sequence;  // the registration's number (process-wide, from 1; a re-registration takes a new one)
+    bool is_override;
+};
+// Every live registration in the store's order (the order that decides which one is served: the last of a hash wins),
+// copied under the store lock; `generation`: the catalog generation the copy belongs to.
+std::vector<LedgerEntry> blob_ledger(uint64_t* generation);
+// The catalog generation: moves on every blob registration, removal, owner revert and readiness change.
+enum CatalogChange : uint32_t { kChangeNone = 0, kChangeReady = 1, kChangeRegistration = 2, kChangeRemove = 3, kChangeRevoke = 4 };
+uint64_t catalog_generation();
+void catalog_changed(CatalogChange why);  // any thread (hooks.cpp: the game's content index became readable)
+std::string catalog_status_json();        // "catalog":{...} for status (the generation and the last change)
+void catalog_release_owner(KilnOwner owner, bool revoked = false);  // closes handles and pending opens; a native revoke is terminal
+bool catalog_start();  // subscribes to native owner revocation before the service table is published
+KilnResult op_catalog_open(KilnOwner owner, uint32_t mode, KilnHandle* handle, KilnBlobCatalogInfo* info);
+KilnResult op_catalog_read(KilnHandle handle, uint64_t first, KilnBlobCatalogEntry* out, uint32_t entry_size, size_t cap,
+                           size_t* written);
+KilnResult op_catalog_close(KilnHandle handle);
+
 // Store operations (store.cpp).
 KilnResult op_resource_put(KilnOwner owner, const KilnAssetKey* key, const void* data, size_t len, uint32_t flags);
 KilnResult op_resource_remove(KilnOwner owner, const KilnAssetKey* key);
@@ -253,6 +295,8 @@ int32_t op_resource_is_new(const KilnAssetKey* key);
 size_t op_resource_new_count(uint32_t type);
 KilnResult op_blob_add(KilnOwner owner, const void* data, size_t len, KilnContentHash* out);
 KilnResult op_blob_override(KilnOwner owner, const KilnContentHash* hash, const void* data, size_t len);
+KilnResult op_blob_add_ex(KilnOwner owner, const void* data, size_t len, KilnContentHash* out, uint32_t origin);
+KilnResult op_blob_override_ex(KilnOwner owner, const KilnContentHash* hash, const void* data, size_t len, uint32_t origin);
 KilnResult op_blob_remove(KilnOwner owner, const KilnContentHash* hash);
 KilnResult op_blob_read(const KilnContentHash* hash, void* buffer, size_t cap, size_t* out_len);
 KilnResult op_icon_register(KilnOwner owner, const uint8_t guid[16], const Rgba& img);

@@ -27,11 +27,13 @@ configure_file(cmake/kiln_version.h.in "${KILN_GENERATED_DIR}/kiln_version.h" @O
 # core so an install cannot lose it. A bad file stops the build.
 find_program(KILN_PYTHON NAMES python3 python REQUIRED NO_CMAKE_FIND_ROOT_PATH)
 file(GLOB KILN_GATE_FILES CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/core/gates/*.json")
+# A removed input must also rebuild the header; the remaining files may all be older than it.
+file(GENERATE OUTPUT "${KILN_GENERATED_DIR}/kiln_gates.inputs" CONTENT "${KILN_GATE_FILES}\n")
 add_custom_command(
     OUTPUT "${KILN_GENERATED_DIR}/kiln_gates.g.h"
     COMMAND "${KILN_PYTHON}" -I "${CMAKE_SOURCE_DIR}/core/gates/gen.py" "${CMAKE_SOURCE_DIR}/core/gates"
             "${KILN_GENERATED_DIR}/kiln_gates.g.h"
-    DEPENDS ${KILN_GATE_FILES} "${CMAKE_SOURCE_DIR}/core/gates/gen.py"
+    DEPENDS ${KILN_GATE_FILES} "${CMAKE_SOURCE_DIR}/core/gates/gen.py" "${KILN_GENERATED_DIR}/kiln_gates.inputs"
     COMMENT "client gate list -> kiln_gates.g.h"
     VERBATIM)
 

@@ -57,7 +57,12 @@ does too, so the patterns sigport writes match the same bytes in the game:
 - The uniqueness rule (exactly one hit), constant votes, fixed values, features, build records and the
   verified-build policy are unchanged. They run on the same results.
 - **Fallback.** sigdb scans the live `.text` as before, and logs a warning, when the file can't be mapped or parsed,
-  its `.text` isn't the loaded one (RVA or size differ), or more than 1% of its bytes differ from the live code.
+  its `.text` isn't the loaded one (build timestamp, image size, RVA or size differ), or more than 1% of its bytes
+  differ from the live code. What the differing bytes are does not decide it: hooks (a jump out of the image, a
+  redirected call) and bytes another mod changed in place both leave the file as the loaded build. From 2026-11-07 to
+  0.2.0-dev.27 a difference that was no known hook form sent the whole scan to the live code, where that start's
+  hooks hid functions. A client with The Worst Map Mod (four map marker patches made before Kiln's scan) and other
+  loaders' hooks lost 20 symbols and 22 features that way (a player's report of 14 Nov 2026).
 - **Speed.** Unscoped strategies (each one a scan of all of `.text`) run up front on up to 8 threads. The copy can't
   change under them, even while another engine is still writing its hooks into the live code.
 
@@ -81,6 +86,12 @@ follows the live `jmp` (relays and trampolines too) to the module it ends in:
 "bytes changed in place" means a patch, not a jmp. With no other engine, the 14 differing bytes are the proxy's entry
 gate, which touches no symbol.)
 
+Differences that are no hook get a line of their own, with the first eight places:
+
+```
+[kiln] sigdb: 4 places (4 bytes) of the live code are patched in place by another mod, not hooked: rva 0x31629d, 0x3168c9, 0xd33058, 0xd331ee. The scan reads the file's code, so they hide nothing from Kiln
+```
+
 **Boot time** (lab server, interleaved runs of the same lab with only kiln-core.dll swapped): sigdb 653–677 ms on
 the live scan before, 90–93 ms after. Most of the gain comes from the parallel unscoped scans; the file check
 costs 0.8 ms. Kiln's boot (`starting` to `boot complete`) went from 1241–1444 ms to 607–713 ms. Hashing is
@@ -89,7 +100,8 @@ unchanged (60–71 ms), now from the mapped view.
 `sigdb-report.json` carries the same information:
 
 - a top-level `"code"` object: `source` (`disk` or `live`), `note`, `base_relocations_applied`, `live_differs_bytes`,
-  `live_differs_runs` and `live_differs_symbols`;
+  `live_differs_runs`, `live_patched_in_place` (places that are no hook) with `live_patched_in_place_at` (the first
+  eight RVAs) and `live_differs_symbols`;
 - per symbol, `"live": {"differs_at": "<rva>", "by": "jmp to <module>+0x..."}`.
 
 Mod fragments (`kiln.hooks` `LoadSymbols`) resolve the same way at runtime. Kiln's own hooks are armed by then, so a
@@ -174,6 +186,53 @@ updated in the patch when every capture agrees. A fixed constant nothing capture
 1273043 → 1285601 this reproduces the documented shift without being told: +0x1c00 for 15 world-struct fields (the
 program table grew), +0x8 for 6 program-context slice fields. It also found a third family, -0x700000 for the pending
 event buffer (`gameplay/storage.pending` 0xeb9ef0 → 0x7b9ef0, 12 corroborating sites).
+
+## Descriptors of typed hooks (`sig` blocks)
+A symbol can carry a descriptor of its function for kiln.hooks' typed links ([hooks.md](services/hooks.md)): either
+`"sig"` inside the symbol's entry, or under a file's top-level `"sigs"` section (for a symbol another file defines,
+or a name that only a `rel32` hole captures). Structs they name are declared once under `"structs"`.
+
+```json
+"structs": { "OptS32": { "size": 8, "align": 4, "fields": [ { "name": "value", "type": "s32", "offset": 0 },
+                                                             { "name": "has", "type": "u8", "offset": 4 } ] } },
+"sigs": {
+  "time/SetTimeScale": {
+    "conv": "win64", "ret": "void",
+    "args": [ { "name": "daytime", "type": "keen::Daytime*" }, { "name": "scale", "type": "f32" },
+              { "name": "ecsNow", "type": "s64" } ],
+    "abi": { "reads": ["rcx", "xmm1", "r8"], "stack": [], "ret": "callee" },
+    "invoke": "tick"
+  },
+  "items/GetItemVolume": { "sret": "OptS32", "args": [ { "name": "item", "type": "keen::ItemInfo*" } ],
+                           "abi": { "reads": ["rcx", "rdx"], "stack": [], "ret": "rax" }, "invoke": "any" }
+}
+```
+
+- `args` lists the declared parameters only. Types: `s8` to `u64`, `f32`, `f64`, `bool`, `ptr`, `T*` (any pointer),
+  or a struct declared under `structs` (by value: 1, 2, 4 or 8 bytes travel in the register, any other size by
+  reference). A struct returned through a hidden buffer is `"sret": "<Struct>"`, never an argument. At most 20
+  positions (the hidden buffer included). Varargs functions cannot be described.
+- `abi` is the function's fingerprint when the descriptor was written: the argument registers it reads before it
+  writes them (in position order), `passes` (registers it hands on untouched; only needed for a function that just
+  jumps on, like `world/ReadOther`), the stack argument slots it reads (offsets from the entry `rsp`, `"0x28"` is the
+  fifth position) and what was written last before its returns. At load the core computes the fingerprint again from
+  the exe file's bytes and compares: other `reads` or `stack`, a declared position the code neither reads nor passes,
+  or a read the descriptor does not declare turn the feature `sig/<symbol>` off (the symbol itself still resolves)
+  and refuse every typed hook of it; kiln.log names the argument. `ret` is recorded for review and not compared.
+- `invoke`: `none` (hook only), `tick` (may be called on the tick thread) or `any`.
+- `"abi": "trust"` (a mod's own fragment only): accept a function whose code cannot be followed (it jumps through a
+  register before it uses an argument). A mismatch is never trusted.
+
+`sigdb_check.py --fptool <kiln-fptool>` checks every descriptor against an exe with the core's own pass
+(`tools/sigport/fptool/build.sh` builds the tool for the host and prints its path; the exe is read as a file):
+
+```
+  ok  sig time/SetTimeScale: match: 3 arguments (rcx, xmm1, r8), the function reads [rcx, xmm1, r8]  [passes ...; ret callee; 18 insns]
+```
+
+Without `--fptool` it only says whether each described symbol resolves. To write a new descriptor, leave `abi` out,
+run the check, and copy `reads`, `stack` and `ret` from the line it prints. `port.py` does not carry `sig` blocks to
+a new build yet.
 
 ## Benchmarks (`bench.py`)
 | Run | Symbols P / R | Constants P / R |

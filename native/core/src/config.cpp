@@ -85,6 +85,9 @@ void apply_side(uint32_t side) {
     if (!g_doc.is_object() || !g_doc.contains(name) || !g_doc[name].is_object()) return;
     try {
         const auto& sec = g_doc[name];
+        // Apply the gate override even if another side option has the wrong type. In particular, preview:false
+        // must not inherit a top-level preview:true because e.g. clr could not be read.
+        read_preview(sec, name);
         if (sec.contains("policy")) g_config.policy_any = sec.value("policy", "verified-only") == "any";
         g_config.clr = sec.value("clr", g_config.clr);
         g_config.plugins = sec.value("plugins", g_config.plugins);
@@ -93,12 +96,11 @@ void apply_side(uint32_t side) {
             log::set_level(g_config.log_level);
         }
         read_native(sec, name);
-        read_preview(sec, name);
         KLOG_I("config: \"%s\" section: policy=%s clr=%d plugins=%d native.policy=%s", name,
                g_config.policy_any ? "any" : "verified-only", g_config.clr, g_config.plugins,
                native_policy_name(g_config.native_policy));
     } catch (const std::exception& e) {
-        KLOG_E("config: kiln.json \"%s\" section unreadable (%s); top-level values stay", name, e.what());
+        KLOG_E("config: kiln.json \"%s\" section partly unreadable (%s); readable values stay", name, e.what());
     }
 }
 

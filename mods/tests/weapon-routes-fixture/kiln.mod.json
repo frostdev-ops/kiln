@@ -1,0 +1,11 @@
+{
+  "id": "weapon-routes-fixture",
+  "name": "weapon routes lab fixture",
+  "version": "0.1.0",
+  "apiVersion": "0.2",
+  "entryAssembly": "WeaponRoutesFixture.dll",
+  "side": "both",
+  "clients": "mod",
+  "advanced": true,
+  "description": "A sword whose moves have follow-up routes (in code), one whose routes overlap, a shield and a staff charge (in data). mods/tests/weapon-moves-test reads what became of them, makes the sword's first application fail, and unloads this mod; the guided checks 16c-b, 16c-c and 16c-d use it."
+}

@@ -42,6 +42,25 @@ bool call_detour2(KilnDetourFn2 fn, KilnHookCall2* call, void* user, uintptr_t* 
     }
 }
 
+bool call_typed(KilnTypedFn fn, KilnCallFrame* frame, void* user, uintptr_t* out, unsigned long* code,
+                volatile const bool* in_original) {
+    __try {
+        *out = fn(frame, user);
+        return true;
+    } __except (filter(GetExceptionCode(), in_original, code)) {
+        return false;
+    }
+}
+
+bool call_owner_retiring(KilnOwnerRetiringFn fn, KilnOwner retiring, void* user, unsigned long* code) {
+    __try {
+        fn(retiring, user);
+        return true;
+    } __except (*code = GetExceptionCode(), EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+
 bool call_mid(KilnMidFn fn, KilnRegisters* regs, void* user, unsigned long* code) {
     __try {
         fn(regs, user);

@@ -1,0 +1,10 @@
+{
+  "id": "repl-test",
+  "name": "replication lab test",
+  "version": "0.1.0",
+  "apiVersion": "0.2",
+  "entryAssembly": "ReplTest.dll",
+  "side": "server",
+  "advanced": true,
+  "description": "PASS/FAIL lines 'repl-test: ...': kiln.repl's loopback harness on a lab server with no player (4 fake players, a watering can in a chest, 10,000+ NetworkFuel checks of what each fake decoded against the can's live bytes; release). Without policy any or without a lab port it checks that every ReplicationLab member is refused."
+}

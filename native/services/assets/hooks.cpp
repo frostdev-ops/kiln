@@ -284,12 +284,19 @@ bool verify_game_map(const MapView& v, std::string* why) {
     return true;
 }
 
+// The first content index seen: the catalog's readiness (a generation step, kChangeReady), once.
+void note_game_map(const void* game, uintptr_t reader) {
+    if (!game) return;
+    const void* none = nullptr;
+    if (g_game_map.compare_exchange_strong(none, game)) {
+        if (reader) g_reader.store(reader);
+        catalog_changed(kChangeReady);
+    }
+}
+
 const void* __fastcall hk_cmap(uintptr_t reader) {
     const void* game = h_cmap.call<const void*>(reader);
-    if (!g_game_map.load(std::memory_order_relaxed)) {
-        g_game_map.store(game);
-        g_reader.store(reader);
-    }
+    if (!g_game_map.load(std::memory_order_relaxed)) note_game_map(game, reader);
     ReadGuard g;
     const ContentSnap* cs = g_content.load(std::memory_order_acquire);
     if (!cs || cs->entries.empty() || g_container_index == 0xFFFF) return game;
@@ -591,7 +598,8 @@ bool game_blob_find(const HashK& h, GameBlob* out) {
         uintptr_t reader = 0;
         if (S && rd(S + 8, &reader, 8) && reader) {
             m = h_cmap.call<const void*>(reader);
-            g_game_map.store(m);
+            note_game_map(m, 0);
+            m = g_game_map.load();
         }
     }
     MapView v;
@@ -609,6 +617,63 @@ bool game_blob_find(const HashK& h, GameBlob* out) {
         return true;
     }
     return false;
+}
+
+GameIndex game_index_keys(std::vector<HashK>* out, size_t max_keys, uint64_t* total, std::string* why) {
+    out->clear();
+    *total = 0;
+    if (!g_content_on) {
+        *why = "the content hooks are off";
+        return GameIndex::unsupported;
+    }
+    if (!g_game_map.load()) {
+        GameBlob unused;
+        (void)game_blob_find(HashK{}, &unused);  // fetches the index as a blob read would
+    }
+    const void* m = g_game_map.load();
+    if (!m) {
+        *why = "the game has not opened its content index yet";
+        return GameIndex::not_ready;
+    }
+    int32_t before[6], after[6];
+    MapView v;
+    if (!rd(reinterpret_cast<uintptr_t>(m), before, sizeof before) || !view_map(m, &v)) {
+        *why = "the content index header is unreadable";
+        return GameIndex::unreadable;
+    }
+    *total = v.nk;
+    if (v.nk > max_keys) {
+        *why = "the content index lists " + std::to_string(v.nk) + " blobs";
+        return GameIndex::too_many;
+    }
+    // view_map only requires a power-of-two bucket count. A moved/corrupt header must not turn an any-thread
+    // catalog query into an allocation of gigabytes before its guarded reads can refuse the map.
+    if (uint64_t(v.nb) * 8 > (uint64_t(64) << 20)) {
+        *why = "the content index bucket array exceeds 64 MiB";
+        return GameIndex::unsupported;
+    }
+    // copies (the game's memory is read under a guard only), then the layout check on the copies
+    std::vector<uint8_t> buckets(static_cast<size_t>(v.nb) * 8);
+    out->resize(v.nk);
+    if (!rd(reinterpret_cast<uintptr_t>(v.buckets), buckets.data(), buckets.size()) ||
+        !rd(reinterpret_cast<uintptr_t>(v.keys), out->data(), out->size() * sizeof(HashK))) {
+        out->clear();
+        *why = "a read of the content index faulted";
+        return GameIndex::unreadable;
+    }
+    if (!rd(reinterpret_cast<uintptr_t>(m), after, sizeof after) || std::memcmp(before, after, sizeof before) != 0) {
+        out->clear();
+        *why = "the content index changed while it was copied";
+        return GameIndex::unreadable;
+    }
+    MapView copy = v;
+    copy.buckets = buckets.data();
+    copy.keys = reinterpret_cast<const uint8_t*>(out->data());
+    if (!verify_game_map(copy, why)) {
+        out->clear();
+        return GameIndex::unsupported;
+    }
+    return GameIndex::ok;
 }
 
 std::string game_container_path(uint16_t index) { return index < g_game_containers.size() ? g_game_containers[index] : ""; }

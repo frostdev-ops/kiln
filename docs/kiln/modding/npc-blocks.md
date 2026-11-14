@@ -129,6 +129,11 @@ is off for that creature, and with it the game's perception: `NpcControl` sees f
 rule; `Target`, the nearest). `MoveTo`, `Stop`, `Face`, `Attack(name)`, `Pose(state)`, `Effect(...)`; `Creature` for its values. `Tick` runs on the tick
 thread every step. You lose what the game's combat states did; a creature still takes hits and plays its sequences.
 
+`MoveTo` is not pathfinding: each step it turns the creature toward the point and walks straight at it, into a wall if
+one is in the way. For a route around terrain and buildings, ask the game's path search with `Queries.FindPath`
+([queries.md](../services/queries.md#paths)) and give the brain its copied points one after another, each with
+`MoveTo`. A route is a copy from the step the game answered: ask again when the creature stops getting closer.
+
 ```csharp
 sealed class Sentinel : NpcBrain
 {
@@ -140,6 +145,30 @@ sealed class Sentinel : NpcBrain
     }
 }
 ```
+
+**Walls.** By default a brain sees through them: `Seen` is distance and faction. A behaviour can ask for voxel line
+of sight:
+
+```csharp
+Behaviour = Behaviours.None with
+{
+    Brain = () => new Sentinel(),
+    Perception = new NpcPerceptionPolicy { Occlusion = NpcOcclusionMode.Voxels },
+}
+```
+
+```json
+"behaviour": { "brain": "sentinel", "perception": { "occlusion": "voxels", "toOffset": { "x": 0, "y": 0.8, "z": 0 } } }
+```
+
+Then a candidate is seen only when `Queries.VoxelLineOfSight` ([services/queries.md](../services/queries.md)) says
+the line from the creature (`fromOffset`, 1.5 m up by default) to it (`toOffset`) is clear. Terrain and building voxels
+block it; props and other creatures do not. A candidate whose line could not be checked (the area is not loaded, the
+step's shared ray budget is used up, `queries.line_of_sight` is off) is **not seen**: a brain that asked for walls never
+gets wall vision back. `npc.PerceptionStats` counts what happened (`Visible`, `Occluded`, `NotLoaded`,
+`BudgetExceeded`, `CapabilityUnavailableUpdates`, ...) and `LastRefusal` names the latest reason. Many brains with
+`Voxels` share the 64 rays of a step with every other mod. The policy is read when a creature is spawned, and it is an
+error (`behaviour.perception`) on a behaviour without a brain: the game's own AI sees as the game decides.
 
 ## AI
 `Sight`, `SightAngle`, `Aggro`, `Leash` (its home zone's radius), `Faction`, `Moves`, `Fights`, `PickTarget`, and `Tune` for any other field of the game's AI
@@ -218,7 +247,7 @@ with slots. `Was` keeps the ids through a rename.
 |---|---|---|
 | A body or animation with files written in C# | Data files only | A source generator that hands the build the block's cook steps: M |
 | Dodges and the base's other motions on a body of your own | Off (taunt, blocking, call for help, idle turns, sleep, spawn sequence) | Copies onto your states, as hit reactions are: S per kind |
-| `Sight` with line of sight in a brain's own perception | Distance and faction only | A raycast per candidate: S |
+| `Sight` with line of sight in a brain's own perception | Voxels only, on request (`behaviour.perception`, dev.28): terrain and buildings block, props and creatures do not | A collider ray: L |
 | A new FSM state, faction relations, villager routines | Not built | Hooks on `HandleCondition`/`StateDispatch`, the faction leaf, `DecideTask`: M each |
 | Ragdolls | A `Dead` state | Client physics: XL, not planned |
 

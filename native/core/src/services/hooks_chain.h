@@ -31,8 +31,8 @@
 
 namespace kiln::hooks::chain {
 
-enum class Kind : uint8_t { Raw, Structured, V1, Mid };
-const char* kind_name(Kind k);  // "raw" | "structured" | "v1" | "mid"
+enum class Kind : uint8_t { Raw, Structured, V1, Mid, Typed };
+const char* kind_name(Kind k);  // "raw" | "structured" | "v1" | "mid" | "typed"
 
 constexpr size_t kMaxTargets = 512;      // distinct hooked addresses (one caller-table slot each)
 constexpr size_t kMaxLinks = 1u << 16;   // link slots ever taken (stubs are never freed; revivals reuse a slot)
@@ -76,6 +76,13 @@ KilnResult install_v1(KilnOwner owner, uintptr_t target, int32_t priority, KilnD
                       KilnHandle* out);
 KilnResult install_mid(KilnOwner owner, uintptr_t target, const Order& order, KilnMidFn fn, void* user,
                        KilnHandle* out);
+
+// A typed link (dev.28): `fn` gets the call as a KilnCallFrame; `nstack` stack arguments are forwarded to the rest of
+// the chain (the caller derived it from the KilnSig and checked the fingerprint).
+KilnResult install_typed(KilnOwner owner, uintptr_t target, const Order& order, uint32_t nstack, KilnTypedFn fn,
+                         void* user, KilnHandle* out);
+// Inside a typed handler: runs the rest of the chain once. KILN_ERR_INVALID_ARGUMENT when `frame` is not a handler's.
+KilnResult call_original_frame(KilnCallFrame* frame);
 
 uintptr_t call_original2(KilnHookCall2* call);
 uintptr_t call_original_v1(KilnHookCall* call);
@@ -167,8 +174,12 @@ extern "C" {
 void* kiln_hk_alloc_block(void);
 uintptr_t kiln_hk_structured_dispatch(const uintptr_t* regs, const uintptr_t* stack, void* link);
 void kiln_hk_mid_dispatch(void* regs, void* link);
+void kiln_hk_typed_dispatch(KilnCallFrame* frame, void* link);
 // The machine code itself (hooks_chain_asm.cpp).
 void kiln_hk_slow(void);
 void kiln_hk_structured(void);
 void kiln_hk_mid(void);
+void kiln_hk_typed(void);
+// Calls fn with the frame's argument registers and nstack stack arguments; stores rax and xmm0 in the frame.
+void kiln_hk_call_frame(void* fn, KilnCallFrame* frame, uint64_t nstack);
 }

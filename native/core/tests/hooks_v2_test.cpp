@@ -118,6 +118,8 @@ std::string owner_name(KilnOwner o) {
     auto it = g_owner_names.find(o);
     return it == g_owner_names.end() ? "(revoked)" : it->second;
 }
+KilnResult add_owner_retiring(KilnOwner, OwnerRetiringFn, void*, KilnHandle*) { return KILN_ERR_UNAVAILABLE; }
+KilnResult remove_owner_retiring(KilnHandle) { return KILN_ERR_NOT_FOUND; }
 }  // namespace reg
 namespace tick {
 KilnResult subscribe_world(KilnOwner, KilnWorldEventFn, void*, KilnHandle*) { return KILN_ERR_UNAVAILABLE; }
@@ -147,6 +149,8 @@ std::string symbol_name_at(uintptr_t) {
     return {};
 }
 std::vector<LiveDiff> live_differs() { return g_live_diffs; }
+bool sig_at(uintptr_t, SigInfo*) { return false; }
+bool fingerprint(uintptr_t, hooks::fp::Fingerprint*) { return false; }
 }  // namespace sigdb
 namespace svc {
 Registrar::Registrar(Service* s) { g_service = s; }

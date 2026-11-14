@@ -1,0 +1,105 @@
+{
+  "format": 1,
+  "side": "server",
+  "comment": "kiln.queries, the voxel ray (docs/re/queries.md). The game's own first-voxel-surface ray, the per-cell reader whose bounds test gives the realm grid box, the realm table of ecs::VoxelGrid and the ray's minimum-length constant. Entry pattern lead from EMF's signatures (MIT); the bounds, realm-count and minimum anchors were derived from both executables. Every pattern matches the dedicated server and the game client once, so the client uses this file unchanged.",
+  "symbols": {
+    "queries/VoxelRay": {
+      "find": [
+        {
+          "pattern": "48 8B C4 48 89 50 10 55 53 57 41 54 48 8D A8 58 FF FF FF 48 81 EC 88 01 00 00 41 0F 28 08 48 8B F9 F2 0F 10 05 ?? ?? ?? ?? 49 8B D9 0F 29 70 A8 4D 8B E0 41 0F 28 31 0F 29 78 98 0F 28 FE 44 0F 29 40 88"
+        }
+      ]
+    },
+    "@queries/ray.layout": {
+      "find": [
+        {
+          "scope": {
+            "symbol": "queries/VoxelRay",
+            "size": 256
+          },
+          "pattern": "48 69 C8 {queries/realm.stride:d32} 8B 05 ?? ?? ?? ?? 48 03 8A {queries/grid.realms:d32}"
+        }
+      ]
+    },
+    "queries/VoxelCellRead": {
+      "find": [
+        {
+          "pattern": "48 89 5C 24 20 4C 89 44 24 18 55 56 41 54 41 55 41 56 48 83 EC 60 41 0F 28 10 4C 8B F2 48 8B 2A 0F 28 E2 0F 28 DA 48 8B D9 0F C6 DA 55 0F C6 D2 AA"
+        }
+      ]
+    },
+    "@queries/ray_grid.bounds": {
+      "find": [
+        {
+          "scope": {
+            "symbol": "queries/VoxelCellRead",
+            "size": 176
+          },
+          "pattern": "F2 0F 10 4D {queries/ray_grid.origin:d8} F3 0F 5C 55 78 F3 0F 5C E1 F2 0F 11 4C 24 20"
+        },
+        {
+          "scope": {
+            "symbol": "queries/VoxelCellRead",
+            "size": 176
+          },
+          "pattern": "8B 4D {queries/ray_grid.shift:d8} 8B 55 {queries/ray_grid.horizontal_count:d8} F3 44 0F 2C EC 41 D3 FD 44 3B EA 7C ?? 33 F6 89 74 24 38 44 0F B7 E6 44 0F B7 EE EB ?? F3 0F 2C C3 D3 F8 3B 45 {queries/ray_grid.vertical_count:d8} 7C ??"
+        }
+      ]
+    },
+    "@queries/realm_count.layout": {
+      "find": [
+        {
+          "pattern": "48 8B 86 {queries/grid.realm_count:d32} 48 85 C0 0F 84 ?? ?? ?? ?? 41 8B D5 45 8B E5 48 89 94 24 C8 00 00 00 66 0F 1F 44 00 00 4C 8B AE {queries/grid.realms:d32} 33 ED 4C 03 EA 49 39 AD 38 20 00 00"
+        }
+      ]
+    },
+    "@queries/ray.minimum": {
+      "find": [
+        {
+          "scope": {
+            "symbol": "queries/VoxelRay",
+            "size": 384
+          },
+          "pattern": "F3 0F 10 0D {queries/RayMinLength:rel32} 4C 89 B4 24 70 01 00 00 4C 89 BC 24 68 01 00 00 44 0F 29 8C 24 20 01 00 00 0F 2F C8"
+        }
+      ]
+    }
+  },
+  "constants": {
+    "queries/realm.stride": {},
+    "queries/grid.realms": {
+      "min_votes": 2
+    },
+    "queries/grid.realm_count": {},
+    "queries/ray_grid.origin": {},
+    "queries/ray_grid.shift": {},
+    "queries/ray_grid.horizontal_count": {},
+    "queries/ray_grid.vertical_count": {},
+    "queries/ray.min_length_bits": {
+      "value": 507307272
+    }
+  },
+  "features": {
+    "queries.voxel_ray": {
+      "symbols": [
+        "queries/VoxelRay",
+        "@queries/ray.layout",
+        "queries/VoxelCellRead",
+        "@queries/ray_grid.bounds",
+        "@queries/realm_count.layout",
+        "@queries/ray.minimum",
+        "queries/RayMinLength"
+      ],
+      "constants": [
+        "queries/realm.stride",
+        "queries/grid.realms",
+        "queries/grid.realm_count",
+        "queries/ray_grid.origin",
+        "queries/ray_grid.shift",
+        "queries/ray_grid.horizontal_count",
+        "queries/ray_grid.vertical_count",
+        "queries/ray.min_length_bits"
+      ]
+    }
+  }
+}

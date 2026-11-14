@@ -1,4 +1,6 @@
 #nullable enable
+Kiln.BehaviourBlock.Perception.get -> Kiln.NpcPerceptionPolicy!
+Kiln.BehaviourBlock.Perception.init -> void
 Kiln.BlockCompileContext
 Kiln.BlockCompileContext.Effect(string! key, Kiln.EffectBlock! block) -> Kiln.BlockProduct!
 Kiln.BlockCompileContext.GuidOf(string! domain, string! localName) -> System.Guid
@@ -70,6 +72,50 @@ Kiln.BuiltInBlockProductKind.Status = 3 -> Kiln.BuiltInBlockProductKind
 Kiln.BuiltInBlockProductKind.Weapon = 1 -> Kiln.BuiltInBlockProductKind
 Kiln.IBlockKind<T>
 Kiln.IBlockKind<T>.Compile(Kiln.BlockCompileContext! context, T! block) -> Kiln.BlockPlan!
+Kiln.NpcControl.PerceptionPolicy.get -> Kiln.NpcPerceptionPolicy!
+Kiln.NpcControl.PerceptionStats.get -> Kiln.NpcPerceptionStats!
+Kiln.NpcOcclusionMode
+Kiln.NpcOcclusionMode.DistanceAndFaction = 0 -> Kiln.NpcOcclusionMode
+Kiln.NpcOcclusionMode.Voxels = 1 -> Kiln.NpcOcclusionMode
+Kiln.NpcPerceptionPolicy
+Kiln.NpcPerceptionPolicy.<Clone>$() -> Kiln.NpcPerceptionPolicy!
+Kiln.NpcPerceptionPolicy.Equals(Kiln.NpcPerceptionPolicy? other) -> bool
+Kiln.NpcPerceptionPolicy.FromOffset.get -> Kiln.WorldPosition
+Kiln.NpcPerceptionPolicy.FromOffset.init -> void
+Kiln.NpcPerceptionPolicy.NpcPerceptionPolicy() -> void
+Kiln.NpcPerceptionPolicy.Occlusion.get -> Kiln.NpcOcclusionMode
+Kiln.NpcPerceptionPolicy.Occlusion.init -> void
+Kiln.NpcPerceptionPolicy.ToOffset.get -> Kiln.WorldPosition
+Kiln.NpcPerceptionPolicy.ToOffset.init -> void
+Kiln.NpcPerceptionStats
+Kiln.NpcPerceptionStats.<Clone>$() -> Kiln.NpcPerceptionStats!
+Kiln.NpcPerceptionStats.BudgetExceeded.get -> ulong
+Kiln.NpcPerceptionStats.BudgetExceeded.init -> void
+Kiln.NpcPerceptionStats.CapabilityUnavailableUpdates.get -> ulong
+Kiln.NpcPerceptionStats.CapabilityUnavailableUpdates.init -> void
+Kiln.NpcPerceptionStats.Checks.get -> ulong
+Kiln.NpcPerceptionStats.Checks.init -> void
+Kiln.NpcPerceptionStats.Deconstruct(out ulong Updates, out ulong Checks, out ulong Visible, out ulong Occluded, out ulong NotLoaded, out ulong OutOfGrid, out ulong BudgetExceeded, out ulong OutOfRange, out ulong EntityGone, out ulong OtherRefused, out ulong CapabilityUnavailableUpdates, out string? LastRefusal) -> void
+Kiln.NpcPerceptionStats.EntityGone.get -> ulong
+Kiln.NpcPerceptionStats.EntityGone.init -> void
+Kiln.NpcPerceptionStats.Equals(Kiln.NpcPerceptionStats? other) -> bool
+Kiln.NpcPerceptionStats.LastRefusal.get -> string?
+Kiln.NpcPerceptionStats.LastRefusal.init -> void
+Kiln.NpcPerceptionStats.NotLoaded.get -> ulong
+Kiln.NpcPerceptionStats.NotLoaded.init -> void
+Kiln.NpcPerceptionStats.NpcPerceptionStats(ulong Updates, ulong Checks, ulong Visible, ulong Occluded, ulong NotLoaded, ulong OutOfGrid, ulong BudgetExceeded, ulong OutOfRange, ulong EntityGone, ulong OtherRefused, ulong CapabilityUnavailableUpdates, string? LastRefusal) -> void
+Kiln.NpcPerceptionStats.Occluded.get -> ulong
+Kiln.NpcPerceptionStats.Occluded.init -> void
+Kiln.NpcPerceptionStats.OtherRefused.get -> ulong
+Kiln.NpcPerceptionStats.OtherRefused.init -> void
+Kiln.NpcPerceptionStats.OutOfGrid.get -> ulong
+Kiln.NpcPerceptionStats.OutOfGrid.init -> void
+Kiln.NpcPerceptionStats.OutOfRange.get -> ulong
+Kiln.NpcPerceptionStats.OutOfRange.init -> void
+Kiln.NpcPerceptionStats.Updates.get -> ulong
+Kiln.NpcPerceptionStats.Updates.init -> void
+Kiln.NpcPerceptionStats.Visible.get -> ulong
+Kiln.NpcPerceptionStats.Visible.init -> void
 Kiln.ResolvedBlock<T>
 Kiln.ResolvedBlock<T>.GameName.get -> string!
 Kiln.ResolvedBlock<T>.GameName.init -> void
@@ -91,6 +137,12 @@ override Kiln.BlockKindResult.Equals(object? obj) -> bool
 override Kiln.BlockKindResult.GetHashCode() -> int
 override Kiln.BlockKindResult.ToString() -> string!
 override Kiln.BlockRef<T>.GetHashCode() -> int
+override Kiln.NpcPerceptionPolicy.Equals(object? obj) -> bool
+override Kiln.NpcPerceptionPolicy.GetHashCode() -> int
+override Kiln.NpcPerceptionPolicy.ToString() -> string!
+override Kiln.NpcPerceptionStats.Equals(object? obj) -> bool
+override Kiln.NpcPerceptionStats.GetHashCode() -> int
+override Kiln.NpcPerceptionStats.ToString() -> string!
 override Kiln.ResolvedBlock<T>.Equals(object? obj) -> bool
 override Kiln.ResolvedBlock<T>.GetHashCode() -> int
 override Kiln.ResolvedBlock<T>.ToString() -> string!
@@ -100,6 +152,10 @@ static Kiln.BlockKindResult.operator !=(Kiln.BlockKindResult? left, Kiln.BlockKi
 static Kiln.BlockKindResult.operator ==(Kiln.BlockKindResult? left, Kiln.BlockKindResult? right) -> bool
 static Kiln.Blocks.Compile<T>(string! name, T! block) -> Kiln.BlockPlan!
 static Kiln.Blocks.RegisterKind<T>(Kiln.BlockKindDescriptor! descriptor, Kiln.IBlockKind<T!>! compiler) -> Kiln.BlockKindResult!
+static Kiln.NpcPerceptionPolicy.operator !=(Kiln.NpcPerceptionPolicy? left, Kiln.NpcPerceptionPolicy? right) -> bool
+static Kiln.NpcPerceptionPolicy.operator ==(Kiln.NpcPerceptionPolicy? left, Kiln.NpcPerceptionPolicy? right) -> bool
+static Kiln.NpcPerceptionStats.operator !=(Kiln.NpcPerceptionStats? left, Kiln.NpcPerceptionStats? right) -> bool
+static Kiln.NpcPerceptionStats.operator ==(Kiln.NpcPerceptionStats? left, Kiln.NpcPerceptionStats? right) -> bool
 ~Kiln.BlockRef<T>.Equals(Kiln.BlockRef<T> other) -> bool
 ~Kiln.ResolvedBlock<T>.<Clone>$() -> Kiln.ResolvedBlock<T>!
 ~Kiln.ResolvedBlock<T>.Equals(Kiln.ResolvedBlock<T>? other) -> bool
@@ -109,3 +165,77 @@ static Kiln.Blocks.RegisterKind<T>(Kiln.BlockKindDescriptor! descriptor, Kiln.IB
 ~static Kiln.BlockRef<T>.operator ==(Kiln.BlockRef<T> left, Kiln.BlockRef<T> right) -> bool
 ~static Kiln.ResolvedBlock<T>.operator !=(Kiln.ResolvedBlock<T>? left, Kiln.ResolvedBlock<T>? right) -> bool
 ~static Kiln.ResolvedBlock<T>.operator ==(Kiln.ResolvedBlock<T>? left, Kiln.ResolvedBlock<T>? right) -> bool
+Kiln.MoveApplicationResult
+Kiln.MoveApplicationResult.AppliedGeneration.get -> ulong
+Kiln.MoveApplicationResult.AppliedGeneration.init -> void
+Kiln.MoveApplicationResult.<Clone>$() -> Kiln.MoveApplicationResult!
+Kiln.MoveApplicationResult.ContentGeneration.get -> ulong
+Kiln.MoveApplicationResult.ContentGeneration.init -> void
+Kiln.MoveApplicationResult.Equals(Kiln.MoveApplicationResult? other) -> bool
+Kiln.MoveApplicationResult.LiveClones.get -> System.Collections.Generic.IReadOnlyDictionary<string!, System.Guid>!
+Kiln.MoveApplicationResult.LiveClones.init -> void
+Kiln.MoveApplicationResult.MoveApplicationResult() -> void
+Kiln.MoveApplicationResult.Ok.get -> bool
+Kiln.MoveApplicationResult.Ok.init -> void
+Kiln.MoveApplicationResult.Reason.get -> string!
+Kiln.MoveApplicationResult.Reason.init -> void
+Kiln.MoveApplicationResult.RequestedGeneration.get -> ulong
+Kiln.MoveApplicationResult.RequestedGeneration.init -> void
+Kiln.MoveApplicationResult.State.get -> Kiln.MoveApplicationState
+Kiln.MoveApplicationResult.State.init -> void
+Kiln.MoveApplicationState
+Kiln.MoveApplicationState.Applied = 1 -> Kiln.MoveApplicationState
+Kiln.MoveApplicationState.PendingContent = 0 -> Kiln.MoveApplicationState
+Kiln.MoveApplicationState.Refused = 2 -> Kiln.MoveApplicationState
+Kiln.MoveApplicationState.Removed = 3 -> Kiln.MoveApplicationState
+Kiln.MoveBlock.FollowUps.get -> System.Collections.Generic.IReadOnlyList<Kiln.MoveFollowUpBlock!>?
+Kiln.MoveBlock.FollowUps.init -> void
+Kiln.MoveFollowUpBlock
+Kiln.MoveFollowUpBlock.<Clone>$() -> Kiln.MoveFollowUpBlock!
+Kiln.MoveFollowUpBlock.Equals(Kiln.MoveFollowUpBlock? other) -> bool
+Kiln.MoveFollowUpBlock.Link.get -> int
+Kiln.MoveFollowUpBlock.Link.init -> void
+Kiln.MoveFollowUpBlock.MoveFollowUpBlock() -> void
+Kiln.MoveFollowUpBlock.Occurrence.get -> int?
+Kiln.MoveFollowUpBlock.Occurrence.init -> void
+Kiln.MoveFollowUpBlock.SubSequence.get -> int
+Kiln.MoveFollowUpBlock.SubSequence.init -> void
+Kiln.MoveFollowUpBlock.To.get -> Kiln.WeaponMoveSlot
+Kiln.MoveFollowUpBlock.To.init -> void
+Kiln.MoveFollowUpBlock.Trigger.get -> Kiln.MoveFollowUpTrigger
+Kiln.MoveFollowUpBlock.Trigger.init -> void
+Kiln.MoveFollowUpTrigger
+Kiln.MoveFollowUpTrigger.Block = 2 -> Kiln.MoveFollowUpTrigger
+Kiln.MoveFollowUpTrigger.Heavy = 1 -> Kiln.MoveFollowUpTrigger
+Kiln.MoveFollowUpTrigger.Parried = 3 -> Kiln.MoveFollowUpTrigger
+Kiln.MoveFollowUpTrigger.Primary = 0 -> Kiln.MoveFollowUpTrigger
+Kiln.WeaponMovesApplicationChangedEvent
+Kiln.WeaponMovesApplicationChangedEvent.After.get -> Kiln.MoveApplicationResult!
+Kiln.WeaponMovesApplicationChangedEvent.Before.get -> Kiln.MoveApplicationResult!
+Kiln.WeaponMovesApplicationChangedEvent.BlockName.get -> string!
+Kiln.WeaponMovesApplicationChangedEvent.ModId.get -> string!
+Kiln.WeaponMoveSlot
+Kiln.WeaponMoveSlot.Block = 6 -> Kiln.WeaponMoveSlot
+Kiln.WeaponMoveSlot.DodgeAttack = 3 -> Kiln.WeaponMoveSlot
+Kiln.WeaponMoveSlot.Execution = 9 -> Kiln.WeaponMoveSlot
+Kiln.WeaponMoveSlot.Heavy = 1 -> Kiln.WeaponMoveSlot
+Kiln.WeaponMoveSlot.HeavyAir = 2 -> Kiln.WeaponMoveSlot
+Kiln.WeaponMoveSlot.JumpAttack = 4 -> Kiln.WeaponMoveSlot
+Kiln.WeaponMoveSlot.Parry = 7 -> Kiln.WeaponMoveSlot
+Kiln.WeaponMoveSlot.PlungeAttack = 5 -> Kiln.WeaponMoveSlot
+Kiln.WeaponMoveSlot.Primary = 0 -> Kiln.WeaponMoveSlot
+Kiln.WeaponMoveSlot.SneakAttack = 10 -> Kiln.WeaponMoveSlot
+Kiln.WeaponMoveSlot.Special = 8 -> Kiln.WeaponMoveSlot
+override Kiln.MoveApplicationResult.Equals(object? obj) -> bool
+override Kiln.MoveApplicationResult.GetHashCode() -> int
+override Kiln.MoveApplicationResult.ToString() -> string!
+override Kiln.MoveFollowUpBlock.Equals(object? obj) -> bool
+override Kiln.MoveFollowUpBlock.GetHashCode() -> int
+override Kiln.MoveFollowUpBlock.ToString() -> string!
+static Kiln.Blocks.MovesStatus(Kiln.BlockHandle<Kiln.WeaponBlock!>! weapon) -> Kiln.MoveApplicationResult!
+static Kiln.MoveApplicationResult.operator !=(Kiln.MoveApplicationResult? left, Kiln.MoveApplicationResult? right) -> bool
+static Kiln.MoveApplicationResult.operator ==(Kiln.MoveApplicationResult? left, Kiln.MoveApplicationResult? right) -> bool
+static Kiln.MoveFollowUpBlock.operator !=(Kiln.MoveFollowUpBlock? left, Kiln.MoveFollowUpBlock? right) -> bool
+static Kiln.MoveFollowUpBlock.operator ==(Kiln.MoveFollowUpBlock? left, Kiln.MoveFollowUpBlock? right) -> bool
+[KILNX001]static Kiln.Blocks.LabRefuseMoveClones(int count) -> void
+[KILNX001]static Kiln.Blocks.LabRetryMoves(Kiln.BlockHandle<Kiln.WeaponBlock!>! weapon) -> bool
