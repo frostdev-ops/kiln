@@ -231,3 +231,55 @@ fn transaction_ids_are_uuids_and_nothing_else_is_joined_to_the_folder() {
         assert!(!txdir::is_tx_id(bad) && txdir::dir_of(Path::new("/data"), bad).is_err(), "{bad}");
     }
 }
+
+#[test]
+fn an_old_audit_policy_needs_a_new_plan() {
+    let f = fixture();
+    let mut p = plan(&f, false).plan;
+    p.policy_version = policy::POLICY_VERSION - 1;
+    p.digest = p.compute_digest().unwrap();
+    assert_eq!(PublishPlan::parse(p.to_text().unwrap().as_bytes()).unwrap_err().code, ErrorCode::Unsupported);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_transaction_folder_link_or_a_staged_hardlink_is_refused() {
+    let f = fixture();
+    let p = plan(&f, false);
+    let moved = f.root.join("moved-transaction");
+    std::fs::rename(&p.dir, &moved).unwrap();
+    std::os::unix::fs::symlink(&moved, &p.dir).unwrap();
+    assert_eq!(load(&f.data, &p.plan).unwrap_err().code, ErrorCode::HashMismatch);
+    std::fs::remove_file(&p.dir).unwrap();
+    std::fs::rename(&moved, &p.dir).unwrap();
+    let linked = f.root.join("notes-hardlink");
+    std::fs::hard_link(p.dir.join(txdir::NOTES), &linked).unwrap();
+    assert_eq!(load(&f.data, &p.plan).unwrap_err().code, ErrorCode::HashMismatch);
+    std::fs::remove_file(linked).unwrap();
+    assert!(load(&f.data, &p.plan).is_ok());
+}
+
+#[test]
+fn a_self_consistent_plan_cannot_add_publication_to_apply() {
+    let f = fixture();
+    let p = plan(&f, false);
+    let mut edited = p.plan.clone();
+    edited.operations.push(Operation { kind: "publish-draft".into(), id: "publish".into(), asset: None, file: None });
+    edited.digest = edited.compute_digest().unwrap();
+    overwrite(&p.dir.join(txdir::PLAN), edited.to_text().unwrap().as_bytes());
+    assert!(load(&f.data, &edited).is_err(), "apply accepted publication as a planned operation");
+}
+
+#[cfg(unix)]
+#[test]
+fn release_notes_cannot_follow_a_link_outside_the_project() {
+    let f = fixture();
+    let outside = f.root.join("private-notes");
+    std::fs::write(&outside, "private material outside the project").unwrap();
+    let notes = f.config.parent().unwrap().join("docs/notes.md");
+    std::fs::remove_file(&notes).unwrap();
+    std::os::unix::fs::symlink(&outside, &notes).unwrap();
+    let result = create(&PlanRequest { data_root: &f.data, artifact: &f.zip, config: &f.config, provider: "github", detached: false });
+    assert!(result.is_err(), "notes from outside the project were frozen for publication");
+    assert_eq!(std::fs::read_dir(txdir::transactions(&f.data)).unwrap().count(), 0);
+}

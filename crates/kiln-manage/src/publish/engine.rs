@@ -3,9 +3,9 @@
 //!
 //! Per step:
 //! - `confirmed`: nothing to do.
-//! - `planned` or `refused`: rehash every frozen file, write the intent (`intent_durable`, a new attempt id), flush,
+//! - `planned`: rehash every frozen file, write the intent (`intent_durable`, a new attempt id), flush,
 //!   then send.
-//! - `intent_durable` or `outcome_unknown` found in the journal (a crash, a lost answer): the provider is asked what
+//! - `intent_durable`, `outcome_unknown` or `refused` found in the journal: the provider is asked what
 //!   exists first. Ours: adopt it. Provably not there: attempt again. Something else, or not decidable:
 //!   `manual_reconcile`. It is never sent again blindly.
 //! - `manual_reconcile`: stop; only `--resolve-step` moves it.
@@ -84,6 +84,7 @@ pub struct Engine<'a> {
 pub struct TxLock(#[allow(dead_code)] std::fs::File);
 
 pub fn lock(dir: &std::path::Path) -> Result<TxLock> {
+    txdir::check_directory(dir)?;
     let path = dir.join("lock");
     let f = std::fs::OpenOptions::new().create(true).truncate(false).write(true).open(&path).map_err(crate::util::io_at(&path, "locking"))?;
     match f.try_lock() {
@@ -116,7 +117,7 @@ impl Engine<'_> {
             let known = known_ids(j);
             match state {
                 StepState::Confirmed | StepState::ManualReconcile => return Ok(state),
-                StepState::IntentDurable | StepState::OutcomeUnknown => {
+                StepState::IntentDurable | StepState::OutcomeUnknown | StepState::Refused => {
                     // We do not know whether the earlier attempt arrived: ask before anything is sent again.
                     let ctx = StepCtx { plan: &loaded.plan, op, dir: &loaded.dir, known: &known, attempt: &attempt };
                     match self.provider.reconcile(&ctx) {
@@ -137,7 +138,7 @@ impl Engine<'_> {
                         })?,
                     }
                 }
-                StepState::Planned | StepState::Refused => {
+                StepState::Planned => {
                     if attempts_left == 0 {
                         return Ok(state);
                     }
@@ -264,6 +265,7 @@ impl Engine<'_> {
 /// Loads a transaction by its id alone (resume, publish-draft, resolve-step): the plan is the one in its folder.
 pub fn load_by_id(data_root: &std::path::Path, tx_id: &str) -> Result<Loaded> {
     let dir = txdir::dir_of(data_root, tx_id)?;
+    if dir.exists() { txdir::check_directory(&dir)?; }
     let stored = std::fs::read(dir.join(txdir::PLAN)).map_err(|_| Error::not_found("This PC has no such transaction."))?;
     let plan = plan::PublishPlan::parse(&stored)?;
     plan::load(data_root, &plan)
