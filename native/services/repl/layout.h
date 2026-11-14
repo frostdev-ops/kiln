@@ -111,6 +111,12 @@ constexpr uintptr_t kObjSlot = 0x4;    // u8 player slot
 // ---- the GameServer's machine slots (+net/gs.machines, 8 bytes each: u32 peer handle, u8 flags) ----
 constexpr uintptr_t kMachineSlotStride = 8;
 
+// ---- the ECS storage (world + world.storage) ----
+// u16 mask of live player entities (ids 1..1023, bit (id - 1) mod 16): the server world steps its programs in parallel
+// only while it is not 0 (the dossier's chapter 06a §2.4 [static], proposed world/storage.players_mask). The harness
+// only logs it (a fake has no player entity).
+constexpr uintptr_t kStoragePlayersMask = 0x7ddc0a;
+
 // ---- the component registry R = *(world + world.storage) ----
 constexpr uintptr_t kRegDescriptors = 0x08;    // 0x100 bytes per component
 constexpr uintptr_t kRegCount = 0x10;          // u64

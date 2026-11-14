@@ -1,0 +1,59 @@
+#nullable enable
+[KILNX001]Kiln.ReplLabDecoded
+[KILNX001]Kiln.ReplLabDecoded.<Clone>$() -> Kiln.ReplLabDecoded!
+[KILNX001]Kiln.ReplLabDecoded.Bytes.get -> System.ReadOnlyMemory<byte>
+[KILNX001]Kiln.ReplLabDecoded.Bytes.init -> void
+[KILNX001]Kiln.ReplLabDecoded.Deconstruct(out uint Tick, out System.ReadOnlyMemory<byte> Bytes) -> void
+[KILNX001]Kiln.ReplLabDecoded.Equals(Kiln.ReplLabDecoded? other) -> bool
+[KILNX001]Kiln.ReplLabDecoded.ReplLabDecoded(uint Tick, System.ReadOnlyMemory<byte> Bytes) -> void
+[KILNX001]Kiln.ReplLabDecoded.Tick.get -> uint
+[KILNX001]Kiln.ReplLabDecoded.Tick.init -> void
+[KILNX001]Kiln.ReplLoopbackStats
+[KILNX001]Kiln.ReplLoopbackStats.<Clone>$() -> Kiln.ReplLoopbackStats!
+[KILNX001]Kiln.ReplLoopbackStats.Acked.get -> long
+[KILNX001]Kiln.ReplLoopbackStats.Acked.init -> void
+[KILNX001]Kiln.ReplLoopbackStats.ActiveObjects.get -> int
+[KILNX001]Kiln.ReplLoopbackStats.ActiveObjects.init -> void
+[KILNX001]Kiln.ReplLoopbackStats.ComponentsDiffer.get -> long
+[KILNX001]Kiln.ReplLoopbackStats.ComponentsDiffer.init -> void
+[KILNX001]Kiln.ReplLoopbackStats.ComponentsEqual.get -> long
+[KILNX001]Kiln.ReplLoopbackStats.ComponentsEqual.init -> void
+[KILNX001]Kiln.ReplLoopbackStats.CustomDiffer.get -> long
+[KILNX001]Kiln.ReplLoopbackStats.CustomDiffer.init -> void
+[KILNX001]Kiln.ReplLoopbackStats.CustomEqual.get -> long
+[KILNX001]Kiln.ReplLoopbackStats.CustomEqual.init -> void
+[KILNX001]Kiln.ReplLoopbackStats.DecodeFaults.get -> long
+[KILNX001]Kiln.ReplLoopbackStats.DecodeFaults.init -> void
+[KILNX001]Kiln.ReplLoopbackStats.Decoded.get -> long
+[KILNX001]Kiln.ReplLoopbackStats.Decoded.init -> void
+[KILNX001]Kiln.ReplLoopbackStats.Deconstruct(out long Decoded, out long ComponentsEqual, out long ComponentsDiffer, out long CustomDiffer, out long DecodeFaults) -> void
+[KILNX001]Kiln.ReplLoopbackStats.DestroyLists.get -> long
+[KILNX001]Kiln.ReplLoopbackStats.DestroyLists.init -> void
+[KILNX001]Kiln.ReplLoopbackStats.Dropped.get -> long
+[KILNX001]Kiln.ReplLoopbackStats.Dropped.init -> void
+[KILNX001]Kiln.ReplLoopbackStats.Equals(Kiln.ReplLoopbackStats? other) -> bool
+[KILNX001]Kiln.ReplLoopbackStats.Fakes.get -> int
+[KILNX001]Kiln.ReplLoopbackStats.Fakes.init -> void
+[KILNX001]Kiln.ReplLoopbackStats.Messages.get -> long
+[KILNX001]Kiln.ReplLoopbackStats.Messages.init -> void
+[KILNX001]Kiln.ReplLoopbackStats.NoBaseline.get -> long
+[KILNX001]Kiln.ReplLoopbackStats.NoBaseline.init -> void
+[KILNX001]Kiln.ReplLoopbackStats.ReplLoopbackStats(long Decoded, long ComponentsEqual, long ComponentsDiffer, long CustomDiffer, long DecodeFaults) -> void
+[KILNX001]Kiln.ReplLoopbackStats.SlotMask.get -> int
+[KILNX001]Kiln.ReplLoopbackStats.SlotMask.init -> void
+[KILNX001]Kiln.ReplicationLab
+[KILNX001]override Kiln.ReplLabDecoded.Equals(object? obj) -> bool
+[KILNX001]override Kiln.ReplLabDecoded.GetHashCode() -> int
+[KILNX001]override Kiln.ReplLabDecoded.ToString() -> string!
+[KILNX001]override Kiln.ReplLoopbackStats.Equals(object? obj) -> bool
+[KILNX001]override Kiln.ReplLoopbackStats.GetHashCode() -> int
+[KILNX001]override Kiln.ReplLoopbackStats.ToString() -> string!
+[KILNX001]static Kiln.ReplLabDecoded.operator !=(Kiln.ReplLabDecoded? left, Kiln.ReplLabDecoded? right) -> bool
+[KILNX001]static Kiln.ReplLabDecoded.operator ==(Kiln.ReplLabDecoded? left, Kiln.ReplLabDecoded? right) -> bool
+[KILNX001]static Kiln.ReplLoopbackStats.operator !=(Kiln.ReplLoopbackStats? left, Kiln.ReplLoopbackStats? right) -> bool
+[KILNX001]static Kiln.ReplLoopbackStats.operator ==(Kiln.ReplLoopbackStats? left, Kiln.ReplLoopbackStats? right) -> bool
+[KILNX001]static Kiln.ReplicationLab.AddFakePeers(int count) -> System.Collections.Generic.IReadOnlyList<(int Machine, int Slot)>!
+[KILNX001]static Kiln.ReplicationLab.Decoded(int machine, Kiln.EntityId entity, string! component) -> Kiln.ReplLabDecoded?
+[KILNX001]static Kiln.ReplicationLab.ForceRelevant(int machine, Kiln.EntityId entity) -> void
+[KILNX001]static Kiln.ReplicationLab.LoopbackStats() -> Kiln.ReplLoopbackStats!
+[KILNX001]static Kiln.ReplicationLab.RemoveFakePeers() -> void

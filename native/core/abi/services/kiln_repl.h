@@ -107,6 +107,39 @@ typedef struct KilnReplComponentInfo {
     uint32_t flags;                /* KILN_REPL_COMPONENT_* */
 } KilnReplComponentInfo;
 
+/* ---- lab: the loopback harness (KILN_REPL_CAP_LOOPBACK) ----
+ * The game's own replication runs for "fake players" on free machine indices of the server world: the game activates a
+ * replication object per fake, runs relevance, snapshot, writer, delta and send-callback jobs for it on its workers
+ * every frame, and the fake's messages are captured at the send callback instead of a socket. In the next Pre the
+ * server exe's own copy of the client decoder decodes them (against the template's state or the harness's earlier
+ * decoded state, as a client does), each decoded state is compared component by component with the snapshot the
+ * server coded, and the fake acknowledges every message through the game's own ack handler, so baselines advance as
+ * with a real client. Nothing is relevant to a fake by itself (it has no player entity): lab_force_relevant names the
+ * entities. What it does not give: a client world (merge, apply), a player entity, a session (bandwidth, receive).
+ * Every lab function answers KILN_ERR_UNAVAILABLE unless kiln.json's policy is "any" AND kiln.net's lab transport is
+ * open (labPort), and KILN_ERR_WRONG_THREAD off the tick thread. */
+typedef struct KilnReplFake {
+    uint32_t machine;              /* machine index (16, 15, ... the highest free ones) */
+    uint32_t slot;                 /* player slot the game replicates it as (15, 14, ...) */
+} KilnReplFake;
+
+typedef struct KilnReplLoopbackStats { /* since the fakes were added (counters start over at an add from none) */
+    uint32_t size;                 /* set by the caller: sizeof(KilnReplLoopbackStats) */
+    uint32_t fakes;                /* bit per machine: the fakes active now */
+    uint64_t messages;             /* messages captured from the fakes' batches (every type) */
+    uint64_t decoded;              /* entity messages decoded */
+    uint64_t components_equal;     /* generic components equal to the server's snapshot */
+    uint64_t components_differ;    /* generic components that differ, or a decoded component set that differs */
+    uint64_t custom_equal, custom_differ; /* components with the game's own codec (lossy: a difference is expected) */
+    uint64_t decode_faults;        /* the decoder or the template state faulted or returned nothing */
+    uint64_t no_baseline;          /* an update whose baseline the harness did not have (or an unknown template) */
+    uint64_t acked;                /* message seqs acknowledged back */
+    uint64_t dropped;              /* messages or snapshots that did not fit the capture buffers */
+    uint64_t destroy_lists;        /* destroy-list messages captured */
+    uint32_t active_objects;       /* bit per machine: the game's replication object is active now (also real players) */
+    uint32_t slot_mask;            /* the world's mask of player slots being replicated, now */
+} KilnReplLoopbackStats;
+
 typedef struct KilnReplApi {
     KilnServiceHeader header;      /* { sizeof(KilnReplApi), KILN_REPL_VERSION } */
     uint32_t(KILN_CALL* capabilities)(void); /* KILN_REPL_CAP_*; any thread */
@@ -122,6 +155,24 @@ typedef struct KilnReplApi {
     KilnResult(KILN_CALL* component_info)(uint32_t hash, KilnReplComponentInfo* out);
     KilnResult(KILN_CALL* capture)(KilnOwner owner, uint32_t peer, uint32_t seconds, KilnStr path);
 
+    /* ---- lab: the loopback harness; since 0.2.0-dev.28; check header.size ---- */
+    /* Adds `count` (1..16) fakes on the highest free machine indices and free player slots; `out` gets up to `cap` of
+     * them, *added how many. They replicate from the next frame on. KILN_ERR_INVALID_ARGUMENT: a bad count, or fakes are
+     * active already (remove them first); KILN_ERR_NOT_FOUND: not that many free machines or slots; KILN_ERR_UNAVAILABLE:
+     * no server world yet (or no send step seen), or the harness is off. */
+    KilnResult(KILN_CALL* lab_add_fakes)(uint32_t count, KilnReplFake* out, uint32_t cap, uint32_t* added);
+    /* Makes `entity` relevant to fake `machine` on both channels, from the next frame on (at most 64 per fake).
+     * KILN_ERR_INVALID_ARGUMENT: not a fake machine, or entity 0. */
+    KilnResult(KILN_CALL* lab_force_relevant)(uint32_t machine, KilnEntity entity);
+    /* Stops the fakes and lets the game free their replication objects (the world's slot bits go). Their counters stay
+     * for lab_stats. KILN_OK also when there were none. */
+    KilnResult(KILN_CALL* lab_remove_fakes)(void);
+    KilnResult(KILN_CALL* lab_stats)(KilnReplLoopbackStats* out);
+    /* The newest state the harness decoded for `entity` on fake `machine`'s client channel: the bytes of component
+     * `hash` (*len = their count; copied up to `cap`; out may be NULL to ask the size) and that message's tick.
+     * KILN_ERR_NOT_FOUND: nothing decoded for it, or that state has no such component; KILN_ERR_BUFFER_TOO_SMALL. */
+    KilnResult(KILN_CALL* lab_decoded)(uint32_t machine, KilnEntity entity, uint32_t hash, uint8_t* out, uint32_t cap,
+                                       uint32_t* len, uint32_t* tick);
 } KilnReplApi;
 
 #ifdef __cplusplus

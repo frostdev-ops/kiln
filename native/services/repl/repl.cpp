@@ -46,6 +46,18 @@ bool read_mem(uintptr_t address, void* out, size_t n) {
     }
 }
 
+bool state_index(uint8_t* index, const uint8_t* state, uintptr_t registry_address) {
+    std::memset(index, 0, kIndexBytes);  // StateIndex ORs mask bits and leaves absent components alone (§2.7)
+    if (!F.state_index || !state || !registry_address) return false;
+    using StateIndexFn = void (*)(uint8_t* index, const uint8_t* state, uintptr_t registry);
+    __try {
+        reinterpret_cast<StateIndexFn>(F.state_index)(index, state, registry_address);
+        return true;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+
 void describe(uintptr_t where, char* out, size_t cap) {
     HMODULE m = nullptr;
     char path[MAX_PATH] = {};
@@ -93,9 +105,12 @@ MachinePeer g_peers[KILN_REPL_MACHINES];  // tick thread
 
 void snapshot_peers() {
     const uintptr_t gs = g_gs.load(std::memory_order_relaxed);
+    const uint32_t fakes = lab_fake_mask();
     for (uint32_t m = 0; m < KILN_REPL_MACHINES; ++m) {
         MachinePeer p{};
-        if (gs && L.gs_machines >= 0)
+        if ((fakes >> m) & 1)
+            p.peer = lab_peer_of(m, &p.flags);
+        else if (gs && L.gs_machines >= 0)
             p.peer = read<uint32_t>(gs + static_cast<uintptr_t>(L.gs_machines) + m * kMachineSlotStride);
         g_peers[m] = p;
     }
@@ -219,17 +234,23 @@ void KILN_CALL on_pre(const KilnTickInfo*, void*) {
     const uintptr_t was = g_world.exchange(world, std::memory_order_relaxed);
     if (world && (world != was || world != g_registry_world)) read_registry(world);
     flush_guards();
-    if (world) snapshot_peers();
+    if (world) {
+        lab_pre(world);
+        snapshot_peers();
+    }
 }
 
 void KILN_CALL on_world(const KilnWorldEvent* ev, void*) {
     if (!ev || ev->kind != KILN_WORLD_SERVER || ev->event != KILN_WORLD_STOPPING) return;
+    lab_world_stopping();
     g_world.store(0, std::memory_order_relaxed);
     g_gs.store(0, std::memory_order_relaxed);
 }
 
 // ---- the table ----
-uint32_t KILN_CALL t_capabilities() { return g_observe ? KILN_REPL_CAP_OBSERVE : 0u; }
+uint32_t KILN_CALL t_capabilities() {
+    return (g_observe ? KILN_REPL_CAP_OBSERVE : 0u) | (lab_allowed() ? KILN_REPL_CAP_LOOPBACK : 0u);
+}
 
 KilnResult KILN_CALL t_stats_enable(KilnOwner, bool) { return KILN_ERR_UNAVAILABLE; }  // not built yet
 KilnResult KILN_CALL t_peer_stats(KilnReplPeerStats*, uint32_t, uint32_t* count) {
@@ -260,7 +281,14 @@ KilnResult KILN_CALL t_component_info(uint32_t hash, KilnReplComponentInfo* out)
 }
 
 const KilnReplApi kTable = {{sizeof(KilnReplApi), KILN_REPL_VERSION}, &t_capabilities, &t_stats_enable, &t_peer_stats,
-                            &t_watch, &t_remove, &t_component_info, &t_capture};
+                            &t_watch, &t_remove, &t_component_info, &t_capture,
+                            // lab (loopback.cpp)
+                            &lab_add_fakes, &lab_force_relevant, &lab_remove_fakes, &lab_stats, &lab_decoded};
+
+void KILN_CALL on_ready(void*) {
+    if (g_side == KILN_SIDE_SERVER) lab_ready(g_side);
+    logf(KILN_LOG_INFO, "repl: capabilities() = 0x%x", t_capabilities());
+}
 
 // ---- start ----
 bool sym(const char* name, uintptr_t* out) { return g_api->symbol(KilnStr{name, std::strlen(name)}, out) == KILN_OK; }
@@ -349,7 +377,10 @@ extern "C" KILN_EXPORT KilnResult KILN_CALL kiln_plugin_main(const KilnApi* api,
         logf(KILN_LOG_INFO, "repl: client off (a game client's receive side; this is a server)");
     }
 
-    logf(KILN_LOG_INFO, "repl: capabilities() = 0x%x", t_capabilities());
+    // repl.loopback: the lab harness; on_ready decides whether its functions may answer (policy, kiln.net's lab port)
+    if (g_side == KILN_SIDE_SERVER) lab_init();
+    else logf(KILN_LOG_INFO, "repl: loopback off (the harness runs on lab servers)");
+    info->on_ready = &on_ready;
 
     KilnHandle h = 0;
     if (KilnResult rc = api->subscribe_tick(owner, KILN_TICK_PRE, &on_pre, nullptr, &h); rc != KILN_OK) return rc;

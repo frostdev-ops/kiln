@@ -8,6 +8,7 @@
 #include "guard.h"
 #include "kiln_api.h"
 #include "layout.h"
+#include "services/kiln_repl.h"
 
 namespace repl {
 
@@ -82,5 +83,20 @@ void add_guard(Guard* g);
 
 // The peer of machine m as the last Pre saw it (kiln_repl.h "Machines and peers"); flags KILN_REPL_PEER_*.
 uint32_t peer_of(uint32_t machine, uint8_t* flags);
+
+// ---- the loopback harness (loopback.cpp) ----
+bool lab_init();                    // kiln_plugin_main, after the features resolved: what the harness needs
+void lab_ready(uint32_t side);      // on_ready: may the lab functions answer (policy "any" + kiln.net's lab port)
+bool lab_allowed();
+void lab_pre(uintptr_t world);      // tick thread, every Pre: the fakes' last frame decoded, compared, acknowledged
+void lab_world_stopping();          // the server world goes: the fakes and Kiln's states with it
+uint32_t lab_fake_mask();           // bit per machine
+uint32_t lab_peer_of(uint32_t machine, uint8_t* flags);  // a fake's peer (kiln_repl.h "Machines and peers")
+KilnResult KILN_CALL lab_add_fakes(uint32_t count, KilnReplFake* out, uint32_t cap, uint32_t* added);
+KilnResult KILN_CALL lab_force_relevant(uint32_t machine, KilnEntity entity);
+KilnResult KILN_CALL lab_remove_fakes();
+KilnResult KILN_CALL lab_stats(KilnReplLoopbackStats* out);
+KilnResult KILN_CALL lab_decoded(uint32_t machine, KilnEntity entity, uint32_t hash, uint8_t* out, uint32_t cap, uint32_t* len,
+                                 uint32_t* tick);
 
 }  // namespace repl
