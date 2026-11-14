@@ -20,6 +20,7 @@ internal static class ServiceNames
         "kiln.combat",
         "kiln.content",
         "kiln.craftmenu",
+        "kiln.creature_control",
         "kiln.creatures",
         "kiln.eml",
         "kiln.example",

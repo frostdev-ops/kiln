@@ -1,0 +1,14 @@
+{
+  // where this mod is released
+  "format": 1,
+  "provider": "github",
+  "github": {
+    "repository": "example/my-mod",
+    "tag": "v{version}",
+    "commit": "0123456789abcdef0123456789abcdef01234567"
+  },
+  "notes": "docs/release-notes.md",
+  "packageFiles": [
+    { "path": "config/defaults/my-mod.json", "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", "purpose": "default-config" }
+  ]
+}
