@@ -228,21 +228,24 @@ void Broker::enter(uint32_t b, const BodyRead& r, uint32_t want, std::vector<Op>
         body.target = want;
         body.wait_start = now_;
     }
-    // the broker's AI-off layer first: no new decision while the current action ends
+    // the broker's AI-off layer first: no new decision while the current action ends. Without it an Enemy body is never
+    // granted: the entry waits (asking again each Pre) and the 5 s bound fails it.
     if (!body.ai_layer && r.enemy_ai) {
         const KilnResult rc = game_->ai_layer(e, true);
         if (rc == KILN_OK) {
             body.ai_layer = true;
             publish_body(b, true);
-        } else {
-            log(KILN_LOG_WARN, "body %u: the AI-off layer was refused (%d)", e, rc);
+        } else if (body.wait_start == now_) {
+            log(KILN_LOG_WARN, "body %u: the AI-off layer was refused (%d); the lease waits for it", e, rc);
         }
     }
+    const bool ai_off = body.ai_layer || !r.enemy_ai;
     if (body.phase == Phase::Quiesce) {
-        const bool quiet = r.readable && r.ready && !r.dead && !r.action_active && !r.trigger_queued;
+        const bool quiet = ai_off && r.readable && r.ready && !r.dead && !r.action_active && !r.trigger_queued;
         if (!quiet) {
             if (now_ - body.wait_start >= kQuiescenceNs) {
-                const char* why = !r.readable ? "BodyNotReady: the body's Actor could not be read"
+                const char* why = !ai_off     ? "AiLayer: the AI-off layer was refused for 5 s (kiln.creatures ai_switch)"
+                                  : !r.readable ? "BodyNotReady: the body's Actor could not be read"
                                   : r.dead    ? "BodyNotReady: the body is dead"
                                   : !r.ready  ? "BodyNotReady: the body is not ready for gameplay (no player near?) after 5 s"
                                               : "Quiescence: the body's current action did not end within 5 s";
@@ -322,8 +325,11 @@ void Broker::restore(uint32_t b, const BodyRead& r, std::vector<Op>* ops) {
                 if (leases_[slot].releasing)
                     terminate(slot, KILN_CONTROL_FAILED, KILN_CONTROL_RESULT_RESTORE_FAILED,
                               "RestoreFailed: the SteeringAgent did not come back within 0.5 s");
-            if (body.ai_layer && game_->ai_layer(e, false) == KILN_OK) body.ai_layer = false;
-            body.ai_layer = false;
+            if (body.ai_layer) {
+                const KilnResult rc = game_->ai_layer(e, false);
+                if (rc != KILN_OK) log(KILN_LOG_WARN, "body %u: releasing the AI-off layer answered %d", e, rc);
+                body.ai_layer = false;
+            }
             body.have_base = false;
             body.steering.clear();
             body.phase = Phase::Idle;

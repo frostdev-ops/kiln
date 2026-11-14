@@ -36,7 +36,7 @@ struct FakeBody {
     bool other_ai_off = false;
     int zeroed = 0;           // ZeroInput ops applied
     std::vector<int> zero_steps;  // the steps they were applied in
-    bool refuse_remove = false, refuse_add = false;
+    bool refuse_remove = false, refuse_add = false, refuse_ai = false;
 };
 
 class FakeGame final : public Game {
@@ -72,6 +72,7 @@ public:
     KilnResult ai_layer(KilnEntity e, bool off) override {
         auto it = bodies.find(e);
         if (it == bodies.end()) return KILN_ERR_NOT_FOUND;
+        if (it->second.refuse_ai) return KILN_ERR_UNAVAILABLE;
         if (off) it->second.ai_off = 1;
         else it->second.ai_off = 0;
         return KILN_OK;
@@ -407,6 +408,28 @@ void test_quiescence_timeout() {
     CHECK(f2.result == KILN_CONTROL_RESULT_TIMED_OUT && std::strncmp(f2.reason, "BodyNotReady", 12) == 0);
 }
 
+// review B1: an Enemy body is never granted without the broker's AI-off layer
+void test_ai_layer_refused() {
+    World w;
+    FakeBody& body = w.add(2000);
+    body.refuse_ai = true;
+    const KilnControlState p = w.acquire(w.bind(2000));
+    w.step(5 * 25 - 2);
+    CHECK(w.query(p.lease).lease_state == KILN_CONTROL_PENDING);
+    CHECK(body.steering && body.zeroed == 0);  // nothing removed while the AI may still decide
+    body.refuse_ai = false;                    // the layer is asked for again at every Pre
+    w.step(2);
+    CHECK(w.query(p.lease).lease_state == KILN_CONTROL_ACTIVE && body.ai_off == 1);
+    World w2;
+    FakeBody& b2 = w2.add(2000);
+    b2.refuse_ai = true;
+    const KilnControlState p2 = w2.acquire(w2.bind(2000));
+    w2.step(5 * 25 + 2);
+    const KilnControlState f = w2.query(p2.lease);
+    CHECK(f.lease_state == KILN_CONTROL_FAILED && f.result == KILN_CONTROL_RESULT_TIMED_OUT && std::strncmp(f.reason, "AiLayer", 7) == 0);
+    CHECK(b2.steering && b2.zeroed == 0);
+}
+
 void test_transition_timeout() {
     World w;
     FakeBody& body = w.add(2000);
@@ -604,6 +627,7 @@ int main() {
     test_grant_drive_release();
     test_quiescence();
     test_quiescence_timeout();
+    test_ai_layer_refused();
     test_transition_timeout();
     test_cancel_pending();
     test_body_lost();
