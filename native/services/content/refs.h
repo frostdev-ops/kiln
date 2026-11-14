@@ -2,6 +2,7 @@
 // kiln.content: reference fields ("kitbash", refs.cpp). An item's GUID references (model, visual template, icon setup,
 // perks, weapon category, impact entity, program, ...) pointed at resources the game already loaded, validated by type.
 #pragma once
+#include <filesystem>
 #include <functional>
 #include <string>
 #include <vector>
@@ -59,5 +60,6 @@ KilnResult apply_kitbash(KilnOwner owner, uint64_t seq, const Entry& e, const st
                          bool allow_game, const std::string& source, std::vector<std::string>* problems);
 std::vector<uintptr_t> registry_items();
 std::string refs_info_json(const Schema& s, const std::vector<uintptr_t>& items);
+std::vector<std::filesystem::path> mod_folder_list();  // every enabled mod folder, in load order
 
 }  // namespace kc
