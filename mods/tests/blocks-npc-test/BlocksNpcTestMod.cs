@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
-// Lab test of creature and NPC blocks. No player: creatures are forced ready and fight each other. Start it twice: the second run checks that the ids
+// Lab test of creature and NPC blocks. No player: creatures are forced ready and fight each other; a brain's body walks under its
+// kiln.creature_control lease ("brain moves"). Start it twice: the second run checks that the ids
 // stayed and that the NPCs written for the game's start were built. PASS and FAIL lines in kiln.log, then "blocks-npc-test done: N PASS, M FAIL".
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
@@ -107,6 +108,7 @@ public sealed class BlocksNpcTestMod : Mod
             await Section("reactions", Reactions);
             await Section("game body", GameBody);
             await Section("brain", Brain);
+            await Section("brain moves", BrainMoves);
             await Section("npc", Npc);
             await Section("clones", Clones);
         }
@@ -445,6 +447,71 @@ public sealed class BlocksNpcTestMod : Mod
         if (World.Exists(o)) Spawn.Destroy(o);
     }
 
+    // ---- a brain's body walks (19d-creature-control S4) ----
+    // The body is leased from kiln.creature_control: the broker holds the game's AI off and removes the SteeringAgent whose
+    // program overwrote every input write, so MoveTo moves it. Lab only: without a player the game does not simulate a body
+    // where it thinks the terrain is not streamed in; this section detours the two terrain checks of
+    // actor_is_ready_for_gameplay (noclip-test's pattern) so the forced-ready body grounds and walks.
+    internal static int WalkMode;  // 0: StoneMind fights; 1: it walks to WalkGoal; 2: it stands
+    internal static WorldPosition WalkGoal;
+
+    private async Task BrainMoves()
+    {
+        var ready = Symbols.FindAll("48 89 5C 24 08 57 48 83 EC 30 F3 0F 10 15 ?? ?? ?? ?? 0F 57 C0 F3 49 0F 2A 00 48 8B C2 48 8B F9 48 8D 54 24 20 48 8B C8 49 8B D8");
+        foreach (var r in ready) Hooks.Detour(r, _ => 1);  // goes with the mod
+        Info($"brain moves: terrain readiness checks detoured: {ready.Length}");
+        var last = new Dictionary<uint, ControlChangedEvent>();
+        using var sub = Events.On<ControlChangedEvent>(e => last[e.After.Body.Entity.Value] = e);
+        var bases = Build.Bases;
+        var anchor = bases.Count > 0 ? bases[0].Center : new WorldPosition(3685, 835, 1480);
+        var at = anchor with { X = Math.Floor(anchor.X) + 140.25, Z = Math.Floor(anchor.Z) + 20.25 };
+        try { await Build.Load(Build.BoxAround(at, 40, 60, 40)); } catch (Exception e) { Info($"brain moves: loading the terrain: {e.Message}"); }
+        WalkMode = 2;
+        async Task<EntityId> Body(WorldPosition where)
+        {
+            var e = await _brainy!.Spawn(where, 0, new CreatureSpawnOptions { Tag = Me, Flags = SpawnFlags.Transient });
+            Creatures.Of(e).ForceReady();
+            for (var i = 0; i < 250 && World.Has(e, "SteeringAgent"); i++) await Steps(1);
+            for (var i = 0; i < 250 && (Grounded(e) is false); i++) await Steps(1);
+            return e;
+        }
+        var b = await Body(at);
+        _mine.Add(b);
+        var lease = last.TryGetValue(b.Value, out var ev) ? ev.After : null;
+        Check(!World.Has(b, "SteeringAgent") && lease is { CanDrive: true, RequestedRole: ControlRole.PetFollow } && !Creatures.Of(b).AiEnabled,
+            $"brain: the broker took the body (SteeringAgent removed, lease {lease?.Lease.Value} {lease?.State} {lease?.RequestedRole}, AI off, grounded {Grounded(b)})");
+        WalkGoal = PosOf(b) with { X = PosOf(b).X + 30 };
+        WalkMode = 1;
+        var p0 = PosOf(b);
+        await Steps(48);  // 2 s at 24 steps a second
+        var moved = Flat(p0, PosOf(b));
+        Check(moved >= 3, $"brain: MoveTo moved {moved:0.00} m in 2 s");
+        WalkMode = 2;
+        await Steps(15);
+        var p1 = PosOf(b);
+        await Steps(24);
+        var held = Flat(p1, PosOf(b));
+        Check(held < 0.1, $"brain: Stop holds {held:0.000} m (< 0.1 m) in 1 s");
+        Spawn.Destroy(b);
+        _mine.Remove(b);
+        await Steps(4);
+        var lost = last.TryGetValue(b.Value, out var le) ? le.After : null;
+        var now = lost is null ? null : CreatureControl.Inspect(lost.Lease);
+        Check(lost is { State: ControlLeaseState.Failed, Result: ControlResultCode.BodyGone, CanDrive: false } && now is { CanDrive: false },
+            $"brain: body destroyed -> lease {lost?.Result}, no write ({lost?.Reason})");
+        // the unload check: one more body, standing, until the mod unloads (unload blocks-npc-test through kiln/control, then read
+        // the broker's lines for this body: Releasing, restored, Released)
+        var stay = await Body(at with { Z = at.Z + 6 });
+        var sl = last.TryGetValue(stay.Value, out var se) ? se.After : null;
+        Info($"brain moves: unload check: body {stay} lease {sl?.Lease.Value} {sl?.State}; SteeringAgent {World.Has(stay, "SteeringAgent")}, AI {Creatures.Of(stay).AiEnabled}");
+    }
+
+    private static WorldPosition PosOf(EntityId e) => World.Position(e) ?? new WorldPosition(double.NaN, double.NaN, double.NaN);
+
+    private static double Flat(WorldPosition a, WorldPosition b) => Math.Sqrt((a.X - b.X) * (a.X - b.X) + (a.Z - b.Z) * (a.Z - b.Z));
+
+    private static bool? Grounded(EntityId e) => World.ReadBytes(e, "Actor") is { Length: > 0xbf8 + 8 } a ? (BitConverter.ToUInt64(a, 0xbf8) & 1) != 0 : null;
+
     // ---- a friendly NPC ----
 
     private async Task Npc()
@@ -574,6 +641,16 @@ internal sealed class StoneMind : NpcBrain
     public override void Tick(NpcControl npc)
     {
         Interlocked.Increment(ref BlocksNpcTestMod.BrainTicks);
+        if (BlocksNpcTestMod.WalkMode == 1)
+        {
+            npc.MoveTo(BlocksNpcTestMod.WalkGoal);
+            return;
+        }
+        if (BlocksNpcTestMod.WalkMode == 2)
+        {
+            npc.Stop();
+            return;
+        }
         if (npc.Target.IsNone)
         {
             npc.Stop();
