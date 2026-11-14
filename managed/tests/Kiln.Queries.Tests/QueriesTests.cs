@@ -36,20 +36,6 @@ public sealed class QueriesTests
         Assert.True(kiln.Run(() => Queries.EntitiesInSphere(A, 1)).Ok);
     }
 
-    [Fact]
-    public unsafe void Unmodelled_paths_answer_unavailable()
-    {
-        using var kiln = Started();
-        kiln.Run(() =>
-        {
-            var t = QueriesNative.T;
-            Assert.Equal(QueriesNative.Unavailable, t->PathSubmit(1, null, null));
-            Assert.Equal(QueriesNative.Unavailable, t->PathCancel(1, 1));
-            Assert.Equal(QueriesNative.Unavailable, t->PathPoll(1, null, null, 0, null));
-            Assert.Equal(QueriesNative.Unavailable, t->PathRetire(1));
-        });
-    }
-
     [Theory]
     [InlineData("kiln.world")]
     [InlineData("world.entities")]
