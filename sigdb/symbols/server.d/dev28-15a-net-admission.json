@@ -1,0 +1,47 @@
+{
+  "format": 1,
+  "side": "server",
+  "comment": "dev.28 15a: the game's own kick of a machine (docs/re/network.md, 'Ending a machine'). SessionKickMachine(session, machine handle, ban) queues session command 3; the session thread sends the machine the session's kick message and, a second later, removes its online peer the way a timed-out peer is removed (Steam CloseConnection). The game calls it from the GameServer thread for an admin's kick (ban 0) and ban (ban 1), with the session at GameServer+0x10. kiln.net calls it with ban 0, only when the login failure cannot be sent to a refused peer.",
+  "symbols": {
+    "net/SessionKickMachine": {
+      "find": [
+        {
+          "pattern": "48 89 5C 24 08 48 89 7C 24 10 55 48 8D AC 24 A0 FA FF FF 48 81 EC 60 06 00 00 33 C0 89 95 24 05 00 00 33 FF 48 89 44 24 34 89 44 24 3C 48 8D 54 24 20 88 44 24 58 0F 57 C0 F3 0F 7F 44 24 40 48 8D 45 88 48 8B D9 66 0F 6F 05 ?? ?? ?? ?? 48 81 C1 C8 78 00 00"
+        }
+      ]
+    },
+    "@net.session_kick_command": {
+      "comment": "the command it queues: type 3 (kick machine), then the queue's count of commands sent",
+      "find": [
+        {
+          "scope": {"symbol": "net/SessionKickMachine", "size": 256},
+          "pattern": "44 88 85 28 05 00 00"
+        },
+        {
+          "scope": {"symbol": "net/SessionKickMachine", "size": 256},
+          "pattern": "C6 44 24 28 03 0F 11 85 08 05 00 00 E8 ?? ?? ?? ?? F0 FF 83 C0 78 00 00"
+        }
+      ]
+    },
+    "@net.account_kick": {
+      "comment": "the game's own callers (account actions, GameServer thread): kick = ban 0 unless the record's flag bit 0 is set, ban = ban 1; the machine handle is the player record's peer (gs.records + rec.peer)",
+      "find": [
+        {
+          "pattern": "41 F6 86 F0 01 00 00 01 75 ?? 41 8B 96 E4 01 00 00 45 33 C0 49 8B 4F {net/gs.session:d8} E8 {net/SessionKickMachine:rel32}"
+        },
+        {
+          "pattern": "49 8B 4F {net/gs.session:d8} 41 B0 01 41 C6 87 ?? ?? 00 00 01 41 8B 96 E4 01 00 00 E8 {net/SessionKickMachine:rel32}"
+        }
+      ]
+    }
+  },
+  "constants": {
+    "net/gs.session": {"min_votes": 2, "comment": "GameServer -> the session (the same object as the socket set's first word)"}
+  },
+  "features": {
+    "net.disconnect": {
+      "symbols": ["net/SessionKickMachine", "@net.session_kick_command", "@net.account_kick"],
+      "constants": ["net/gs.session"]
+    }
+  }
+}

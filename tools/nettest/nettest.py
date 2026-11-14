@@ -1014,6 +1014,129 @@ class Suite:
         finally:
             self.control(ctl, "gate-admit-clear")
 
+    # ---- a refused peer the login failure cannot reach (docs/kiln/network.md "Admission"): kiln.net's lab switch fails the
+    # login failure; the game's own session kick (net.disconnect) ends the peer, or with the switch at 2 nothing does and it
+    # stays blocked. Lab peers have no game machine: their "session kick" is being forgotten. The game's session kick itself
+    # runs on the server's own machine index, which the session refuses and logs in the game's log.
+    def game_log(self):
+        return os.path.join(self.lab, "logs", "enshrouded_server.log")
+
+    def game_log_mark(self):
+        return os.path.getsize(self.game_log()) if os.path.exists(self.game_log()) else 0
+
+    def game_log_wait(self, mark, text, seconds):
+        end = time.time() + seconds
+        while True:
+            with open(self.game_log(), "rb") as f:
+                f.seek(mark)
+                if text in f.read().decode("utf-8", "replace"):
+                    return True
+            if time.time() >= end:
+                return False
+            time.sleep(0.2)
+
+    def t_admission_fallback(self):
+        if not self.lab:
+            print("SKIP admission_fallback: needs --lab (reads kiln.log and the game's log)", flush=True)
+            return
+        ctl = ready_client(self.port, "kf-ctl", self.verbose)
+        def peer(pid):
+            r = (self.control(ctl, f"gate-admit-peer {pid}") or "").removeprefix("control:")
+            return dict(x.split("=", 1) for x in r.split()) if "=" in r else {}
+        def flags(pid):
+            f = peer(pid).get("flags", "none")
+            return int(f, 16) if f.startswith("0x") else None
+        try:
+            st = self.admit_status(ctl)
+            self.check("admission.kick-fallback-available", int(st.get("caps", "0")) & 16 == 16, str(st))
+
+            # ---- the game's own session kick, on this server (no client): the session thread runs it and refuses a handle
+            # no machine has (0) and the server's own machine (0x80: index 0, generation 1), each with its log line
+            gm = self.game_log_mark()
+            r = self.control(ctl, "gate-admit-sessionkick 0")
+            self.check("admission.session-kick-queued", r == "control:rc=0 queued=1", str(r))
+            self.check("admission.session-kick-reaches-the-session", self.game_log_wait(gm, "[session] Tried to kick out not registered machine with handle 0.", 5), "")
+            gm = self.game_log_mark()
+            r = self.control(ctl, "gate-admit-sessionkick 80")
+            self.check("admission.session-kick-host-refused", r == "control:rc=0 queued=1" and
+                       self.game_log_wait(gm, "[session] Host machine can't be kicked from the session.", 5), str(r))
+            self.check("admission.session-kick-remote-refused", self.control(ctl, "gate-admit-sessionkick 81") == "control:rc=1 queued=0", "")
+            self.check("admission.session-kick-server-alive", self.admit_status(ctl).get("mode") is not None, "")
+
+            # ---- the login failure fails: a refused Kiln client is ended by the fallback, never let in
+            r = self.control(ctl, "gate-admit-kickfail 1")
+            self.check("admission.kick-fail-switch", r == "control:rc=0 disconnect=1", str(r))
+            m = self.log_mark()
+            k, pid = self.kiln_peer("kf-kiln", m)
+            self.control(ctl, f"gate-admit-hold {pid} fallback 2")
+            k.send(LAB_READY)
+            ok = k.wait(lambda: k.reject is not None, 8)
+            self.check("admission.kick-fallback-refused", ok and k.reject[0] == "fallback waits for its acknowledgement", str(k.reject))
+            ended = self.wait_log(m, f"net: lab peer {pid}: the login failure failed (lab switch); ended through the game's own session kick instead", 5)
+            self.check("admission.kick-fallback-disconnects", ended and f"lab peer {pid} kicked" not in self.log_since(m), self.log_since(m)[-400:])
+            time.sleep(0.5)
+            self.check("admission.kick-fallback-gone", peer(pid) == {} and f"kick lab-{int(pid, 16) & 0xFFFF} ({pid}): rc 0" in self.log_since(m),
+                       str(peer(pid)) + " " + self.log_since(m)[-300:])
+            self.check("admission.kick-fallback-never-let-in", f"lab peer {pid} passed the gate" not in self.log_since(m) and
+                       f"peer {pid} goes on" not in self.log_since(m), "")
+
+            # ---- the same for a client without Kiln that a vanilla condition refuses
+            self.control(ctl, "gate-admit-require deny")
+            m2 = self.log_mark()
+            v = self.vanilla_peer("kf-vanilla")
+            vid = self.peer_of(m2)
+            v.send(LAB_READY)
+            refused = self.wait_log(m2, "has no Kiln (vanilla client): refusing", 12)
+            ended = vid is not None and self.wait_log(m2, f"net: lab peer {vid}: the login failure failed (lab switch); ended through the game's own session kick instead", 5)
+            self.check("admission.kick-fallback-vanilla-disconnects", refused and ended, self.log_since(m2)[-400:])
+            self.check("admission.kick-fallback-vanilla-never-let-in", vid is not None and f"lab peer {vid} passed the gate" not in self.log_since(m2) and
+                       f"peer {vid} goes on" not in self.log_since(m2), "")
+
+            # ---- the fallback off too (switch 2): both stay blocked, named, logged once; never let in, also once
+            # Kiln.Network stops holding the gate for them (30 s after kiln.net reported them blocked)
+            r = self.control(ctl, "gate-admit-kickfail 2")
+            self.check("admission.kick-fallback-off-switch", r is not None and r.startswith("control:rc=0"), str(r))
+            m3 = self.log_mark()
+            b, bid = self.kiln_peer("kf-blocked", m3)
+            self.control(ctl, f"gate-admit-hold {bid} blocker 2")
+            b.send(LAB_READY)
+            w = self.vanilla_peer("kf-blocked-vanilla")
+            wid = self.peer_of(m3, 2)
+            w.send(LAB_READY)
+            ok = self.wait_log(m3, f"net: lab peer {bid}: the login failure failed (lab switch), and the session kick fails too (lab switch): it stays connected but blocked", 8)
+            okv = wid is not None and self.wait_log(m3, f"net: lab peer {wid}: the login failure failed (lab switch), and the session kick fails too (lab switch): it stays connected but blocked", 15)
+            self.check("admission.kick-fallback-off-blocked", ok and okv, self.log_since(m3)[-500:])
+            fb, fw = flags(bid), flags(wid) if wid else None
+            self.check("admission.kick-fallback-off-flags", fb is not None and fb & 0xA0 == 0xA0 and fw is not None and fw & 0xA0 == 0xA0,
+                       f"{bid} {fb} {wid} {fw}")
+            status = (self.control(ctl, "gate-admit-status") or "")
+            self.check("admission.kick-fallback-off-named", f"blocked: lab-{int(bid, 16) & 0xFFFF} ({bid}) is refused" in status, status)
+            time.sleep(2)
+            once = self.log_since(m3).count(f"admission: lab-{int(bid, 16) & 0xFFFF} ({bid}) is refused, but this server cannot end its connection")
+            self.check("admission.kick-fallback-off-logged-once", once == 1, f"{once} times")
+            self.check("admission.kick-fallback-off-holds-the-gate", self.admit_status(ctl).get("mode") == "2", str(self.admit_status(ctl)))
+            b.send(LAB_READY)
+            w.send(LAB_READY)
+            for _ in range(34):  # kiln.net reported them blocked at most ~2 s ago; Kiln.Network looks every ~1 s
+                time.sleep(1)
+                b.send(LAB_READY)  # its Gameplay Ready again, and keeps the lab peer alive
+                w.send(LAB_READY)
+                if self.admit_status(ctl).get("mode") != "2":
+                    break
+            mode = self.admit_status(ctl).get("mode")
+            self.check("admission.kick-fallback-off-gate-released", mode in ("0", "1"), str(self.admit_status(ctl)))
+            time.sleep(1.5)
+            b.send(LAB_READY)
+            w.send(LAB_READY)
+            time.sleep(1.5)
+            self.check("admission.kick-fallback-off-never-let-in", f"lab peer {bid} passed the gate" not in self.log_since(m3) and
+                       f"lab peer {wid} passed the gate" not in self.log_since(m3) and f"peer {bid} goes on" not in self.log_since(m3) and
+                       f"peer {wid} goes on" not in self.log_since(m3), self.log_since(m3)[-300:])
+        finally:
+            self.control(ctl, "gate-admit-kickfail 0")
+            self.control(ctl, "gate-admit-require off")
+            self.control(ctl, "gate-admit-clear")
+
     def t_withheld(self):
         """Every way Kiln adds a template shows up, and the check reads real entities (needs a lab with such mods)."""
         ctl = ready_client(self.port, "van-audit", self.verbose)
@@ -1408,14 +1531,25 @@ class NativeAdmissionTests(unittest.TestCase):
     Run with python3 -m unittest tools.nettest.nettest.NativeAdmissionTests.
     """
 
-    def test_gate_holds_and_timeout_never_admits_after_a_failed_refusal(self):
-        source = (Path(__file__).resolve().parents[2] / "native/services/net/net.cpp").read_text()
+    SOURCE = Path(__file__).resolve().parents[2] / "native/services/net/net.cpp"
+
+    @classmethod
+    def harness(cls):
+        """The production gate, kick and ending bodies of net.cpp on stubs of the game and of the rest of kiln.net."""
+        source = cls.SOURCE.read_text()
 
         def function(signature):
             start = source.index(signature)
             return source[start:source.index("\n}", start) + 2]
 
-        harness = r'''
+        def struct(signature):
+            start = source.index(signature)
+            return source[start:source.index("\n};", start) + 3]
+
+        def constant(name):
+            return re.search(r"constexpr \w+ %s = (\d+);" % name, source).group(0)
+
+        harness = r"""
 #include <atomic>
 #include <cstdint>
 #include <map>
@@ -1424,9 +1558,11 @@ class NativeAdmissionTests(unittest.TestCase):
 #include <vector>
 #include <cstdio>
 using KilnPeer = uint32_t;
+using KilnResult = int;
+constexpr int KILN_OK=0, KILN_ERR_INVALID_ARGUMENT=1, KILN_ERR_NOT_FOUND=2, KILN_ERR_UNAVAILABLE=3, KILN_ERR_WRONG_THREAD=4, KILN_ERR_INTERNAL=7;
 constexpr uint32_t KILN_NET_GATE_OFF=0, KILN_NET_GATE_HOLD=1, KILN_NET_GATE_HOLD_ALL=2;
 constexpr uint32_t KILN_NET_PEER_LAB=0x80000000u;
-constexpr int KILN_LOG_INFO=3, KILN_LOG_ERROR=1;
+constexpr int KILN_LOG_INFO=3, KILN_LOG_WARN=2, KILN_LOG_ERROR=1;
 constexpr uint8_t kLoginGameplayReady=2;
 constexpr uint64_t kHoldCapMs=30000;
 std::mutex g_mu;
@@ -1436,8 +1572,11 @@ std::map<KilnPeer, uint64_t> g_held;
 uint64_t clock_ms=0;
 uint64_t now_ms() { return clock_ms; }
 template<class... Args> void logf(int, const char*, Args...) {}
-int admissions=0, refusals=0;
-bool g_can_kick=true;
+int admissions=0, refusals=0, session_kicks=0;
+bool login_failure_works=false, session_kick_works=true;
+bool g_can_kick=true, g_can_disconnect=true, g_server_role=true;
+std::atomic<uint32_t> g_lab_kick_fail{0};
+bool on_server_thread() { return true; }
 namespace knet {
 using MachineLoginFn = void(*)();
 struct MachineSlot { KilnPeer peer=0; uint8_t flags=0; };
@@ -1445,7 +1584,8 @@ struct Record { uint32_t connection=0, peer=0, entity=0, slot=0, state=0; char n
 int read_machine_slots(uintptr_t, MachineSlot*, int) { return 0; }
 int read_records(uintptr_t, Record*, int) { return 0; }
 bool machine_login(MachineLoginFn, uintptr_t, KilnPeer, uint8_t) { ++admissions; return true; }
-bool login_failure(uintptr_t, KilnPeer, uint8_t) { ++refusals; return false; }
+bool login_failure(uintptr_t, KilnPeer, uint8_t) { ++refusals; return login_failure_works; }
+bool session_kick(uintptr_t, uint32_t) { ++session_kicks; return session_kick_works; }
 }
 struct Hook {
     explicit operator bool() const { return true; }
@@ -1461,6 +1601,8 @@ bool g_have_players=false;
 struct Peer {
     KilnPeer id=0;
     uint32_t transport=KILN_NET_TRANSPORT_GAME;
+    uint64_t lab_key=0;
+    bool bound=false;
     uint64_t up_ms=0;
     uint8_t slot_flags=0;
     bool has_player=false;
@@ -1480,15 +1622,30 @@ void recompute_withheld_locked() {}
 void deliver(const std::vector<Event>& events, std::vector<Frame>&, bool) { downs+=events.size(); }
 void client_set_up(bool, uintptr_t) {}
 void client_deliver() {}
-'''
-        harness += function("bool gate_admit_locked(") + "\n" + function("void gate_pump(")
-        harness += "\n" + function("void refresh_game_peers(")
-        if "void server_stopped()" in source:
-            harness += "\n" + function("void server_stopped()")
-        harness += "\n" + function("void KILN_CALL on_world_event(")
-        harness += r'''
-#define CHECK(test, message) do { if (!(test)) { std::fprintf(stderr, "%s\n", message); return 1; } } while(0)
+"""
+        harness += constant("kEndWaitMs") + "\n" + constant("kEndTries") + "\n" + struct("struct Ending {") + "\n"
+        harness += "std::map<KilnPeer, Ending> g_ending;\n"
+        for signature in ("bool gate_admit_locked(", "void forget_lab_locked(", "bool send_login_failure(", "KilnResult end_refused(",
+                          "void gate_pump(", "void refresh_game_peers(", "void server_stopped()", "void KILN_CALL on_world_event(",
+                          "void watch_ending(", "KilnResult KILN_CALL t_kick("):
+            harness += function(signature) + "\n"
+        harness += '#define CHECK(test, message) do { if (!(test)) { std::fprintf(stderr, "%s\\n", message); return 1; } } while(0)\n'
+        return harness
+
+    def run_harness(self, main):
+        with tempfile.TemporaryDirectory() as directory:
+            cpp = Path(directory) / "gate.cpp"
+            binary = Path(directory) / "gate-test"
+            cpp.write_text(self.harness() + main)
+            build = subprocess.run(["c++", "-std=c++17", str(cpp), "-o", str(binary)], capture_output=True, text=True)
+            self.assertEqual(build.returncode, 0, build.stderr)
+            run = subprocess.run([str(binary)], capture_output=True, text=True)
+            self.assertEqual(run.returncode, 0, run.stderr)
+
+    def test_gate_holds_and_timeout_never_admits_after_a_failed_refusal(self):
+        self.run_harness(r"""
 int main() {
+    g_can_disconnect=false;  // nothing ends a refused peer on this build
     g_proved.insert(0x81);
     CHECK(!gate_admit_locked(0x81), "proved peer bypassed hold-all");
     clock_ms=100;
@@ -1522,15 +1679,89 @@ int main() {
     g_gate_mode=KILN_NET_GATE_HOLD_ALL;
     CHECK(!gate_admit_locked(0x81), "new server session inherited an admission exemption");
 }
-'''
-        with tempfile.TemporaryDirectory() as directory:
-            cpp = Path(directory) / "gate.cpp"
-            binary = Path(directory) / "gate-test"
-            cpp.write_text(harness)
-            build = subprocess.run(["c++", "-std=c++17", str(cpp), "-o", str(binary)], capture_output=True, text=True)
-            self.assertEqual(build.returncode, 0, build.stderr)
-            run = subprocess.run([str(binary)], capture_output=True, text=True)
-            self.assertEqual(run.returncode, 0, run.stderr)
+""")
+
+    def test_a_refused_peer_the_login_failure_cannot_reach_is_ended_by_the_session_kick_or_stays_blocked(self):
+        self.run_harness(r"""
+int main() {
+    // kick without the login failure on this build: the session kick ends it; refused for good meanwhile
+    g_can_kick=false;
+    g_peers[0x81]=Peer{0x81};
+    CHECK(!gate_admit_locked(0x81) && g_held.count(0x81), "not held");
+    CHECK(t_kick(0x81, 1)==KILN_OK, "session kick did not answer ok");
+    CHECK(refusals==0 && session_kicks==1, "login failure called without net.kick, or no session kick");
+    CHECK(g_refused.count(0x81) && g_ending.count(0x81) && !g_ending[0x81].blocked && !g_held.count(0x81), "ending state wrong");
+    g_gate_mode=KILN_NET_GATE_OFF;
+    CHECK(!gate_admit_locked(0x81), "a peer being ended entered the world");
+    gate_pump(1);
+    CHECK(admissions==0, "a peer being ended was let in");
+    // another kick while its session kick is under way: no second one
+    clock_ms=1000;
+    CHECK(t_kick(0x81, 1)==KILN_OK && session_kicks==1, "a second session kick inside the wait");
+    // still here after the wait: one more, then blocked, never a third
+    clock_ms=kEndWaitMs+1;
+    watch_ending(1);
+    CHECK(session_kicks==2 && !g_ending[0x81].blocked, "no second try after the wait");
+    clock_ms=2*kEndWaitMs+2;
+    watch_ending(1);
+    CHECK(session_kicks==2 && g_ending[0x81].blocked, "not blocked after the last try");
+    CHECK(t_kick(0x81, 1)==KILN_ERR_INTERNAL && session_kicks==2, "a blocked peer was kicked again");
+    CHECK(!gate_admit_locked(0x81), "a blocked peer entered the world");
+    // gone: everything about it goes
+    std::vector<Event> events;
+    refresh_game_peers(events);
+    CHECK(!g_ending.count(0x81) && !g_refused.count(0x81) && !g_peers.count(0x81), "a peer that left kept its ending state");
+
+    // no session kick on this build either: blocked at once, logged once, never let in
+    g_can_disconnect=false;
+    g_peers[0x82]=Peer{0x82};
+    CHECK(t_kick(0x82, 1)==KILN_ERR_UNAVAILABLE && session_kicks==2, "no net.disconnect but a session kick, or a wrong answer");
+    CHECK(g_refused.count(0x82) && g_ending[0x82].blocked, "not refused and blocked");
+    CHECK(!gate_admit_locked(0x82), "blocked peer entered with the gate off");
+    CHECK(t_kick(0x82, 1)==KILN_ERR_UNAVAILABLE, "second kick of a blocked peer");
+
+    // the login failure faults and so does the session kick
+    g_can_kick=true; g_can_disconnect=true; session_kick_works=false;
+    g_peers[0x83]=Peer{0x83};
+    CHECK(t_kick(0x83, 1)==KILN_ERR_INTERNAL && refusals==1 && session_kicks==3, "fault path wrong");
+    CHECK(g_refused.count(0x83) && g_ending[0x83].blocked, "faulted session kick not blocked");
+
+    // the login failure works: nothing else runs
+    login_failure_works=true; session_kick_works=true;
+    g_peers[0x84]=Peer{0x84};
+    CHECK(t_kick(0x84, 1)==KILN_OK && refusals==2 && session_kicks==3 && !g_ending.count(0x84) && g_refused.count(0x84), "a working kick ran the fallback");
+
+    // the gate's own time limit with no login failure: the session kick ends it too
+    login_failure_works=false;
+    g_gate_mode=KILN_NET_GATE_HOLD_ALL;
+    g_peers[0x85]=Peer{0x85};
+    clock_ms=100*kEndWaitMs;
+    CHECK(!gate_admit_locked(0x85), "not held");
+    clock_ms+=kHoldCapMs+1;
+    gate_pump(1);
+    CHECK(refusals==3 && session_kicks==4 && g_ending.count(0x85) && !g_ending[0x85].blocked && admissions==0, "time limit did not use the session kick");
+
+    // lab peers: the switch fails the login failure; the fallback forgets the peer (DOWN), switch 2 blocks it
+    const KilnPeer lab1=KILN_NET_PEER_LAB|1, lab2=KILN_NET_PEER_LAB|2;
+    g_peers[lab1]=Peer{lab1}; g_peers[lab2]=Peer{lab2};
+    g_lab_kick_fail=1;
+    CHECK(t_kick(lab1, 1)==KILN_OK && !g_peers.count(lab1) && !g_ending.count(lab1) && session_kicks==4, "lab fallback did not forget the peer");
+    CHECK(!g_pending_events.empty() && g_pending_events.back().first==lab1, "lab fallback sent no DOWN");
+    g_lab_kick_fail=2;
+    CHECK(t_kick(lab2, 1)==KILN_ERR_UNAVAILABLE && g_peers.count(lab2) && g_refused.count(lab2) && g_ending[lab2].blocked, "lab switch 2 did not block");
+    CHECK(!gate_admit_locked(lab2), "blocked lab peer entered");
+    g_lab_kick_fail=0;
+    CHECK(t_kick(lab2, 1)==KILN_OK && !g_peers.count(lab2), "lab kick with the switch off");
+    // a game peer under switch 1 takes the fallback even with a working login failure
+    g_lab_kick_fail=1; login_failure_works=true;
+    g_peers[0x86]=Peer{0x86};
+    CHECK(t_kick(0x86, 1)==KILN_OK && refusals==3 && session_kicks==5 && g_ending.count(0x86), "switch 1 did not fail the login failure");
+    // a server stop forgets every ending
+    KilnWorldEvent stop{KILN_WORLD_STOPPING, KILN_WORLD_SERVER};
+    on_world_event(&stop, nullptr);
+    CHECK(g_ending.empty(), "server stop kept ending state");
+}
+""")
 
 
 def main():
@@ -1544,7 +1775,7 @@ def main():
     s = Suite(a.port, a.verbose, a.lab, a.game_templates)
     probe_server(a.port)
     order = ["handshake", "echo", "json", "fragments", "oversize", "garbage", "broadcast", "channel_mismatch", "ping",
-             "rate_limit", "policy", "advert", "missing_mod", "vanilla", "admission", "withheld", "definitions", "hotload", "reload", "netsample", "status"]
+             "rate_limit", "policy", "advert", "missing_mod", "vanilla", "admission", "admission_fallback", "withheld", "definitions", "hotload", "reload", "netsample", "status"]
     only = [x for x in a.only.split(",") if x]
     for name in order:
         if only and name not in only:

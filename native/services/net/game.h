@@ -25,10 +25,12 @@ struct Layout {
     int64_t entity_map_cap = -1, entity_records = -1, rec_parent = -1, rec_template = -1, rec_id = -1;
     int64_t player_state_map = -1;      // a player's replication object -> entity id to state map
     int64_t create_entity = -1, create_parent = -1;  // create reader's frame: rbp + these
+    int64_t gs_session = -1;            // GameServer -> the session (net.disconnect; the socket set's first word too)
 };
 
 struct Functions {
     uintptr_t read = 0, free = 0, alloc = 0, commit = 0, abort = 0, login_result = 0;
+    uintptr_t session_kick = 0;  // SessionKickMachine (net.disconnect)
 };
 
 extern Layout L;
@@ -74,6 +76,11 @@ uint32_t send(uintptr_t session, uintptr_t socket, const uint8_t* data, uint32_t
 
 // The game's login-failure message to machine `peer` (kick). False on fault.
 bool login_failure(uintptr_t gs, uint32_t peer, uint8_t reason);
+
+// The game's own kick of `machine` (SessionKickMachine, ban 0; docs/re/network.md "Ending a machine"), as an admin's kick
+// calls it on the GameServer thread: it queues the session's kick command and returns; the session thread sends the
+// machine its kick message and ends the connection about a second later. False on fault or without the function.
+bool session_kick(uintptr_t gs, uint32_t machine);
 
 // `fn` (the hook's trampoline of the game's machine login) with a login message of `type`. False on fault.
 using MachineLoginFn = void(__fastcall*)(uintptr_t gs, uint32_t peer, const uint8_t* message);

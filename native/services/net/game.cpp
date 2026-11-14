@@ -55,6 +55,9 @@ using FreeFn = void(__fastcall*)(uintptr_t session, uint64_t* handle);
 using AllocFn = AllocRes*(__fastcall*)(AllocRes* out, uintptr_t session, uintptr_t socket, const AllocSpec* spec);
 using CommitFn = void(__fastcall*)(uintptr_t session, uint64_t* handle);
 using LoginResultFn = uint64_t(__fastcall*)(uintptr_t gs, uint32_t peer, uint8_t reason);
+// 0xa02c90 (server f0d824be): builds command 3 {+0x604 machine, +0x608 ban} on its stack and pushes it into the session's
+// command queue (spin-locked ring; it waits only while the ring is full, as for every command the game queues).
+using SessionKickFn = void(__fastcall*)(uintptr_t session, uint32_t machine, uint8_t ban);
 
 bool valid_ptr(uintptr_t p) { return p >= 0x10000 && p < 0x00007FFFFFFFFFFFull; }
 
@@ -210,6 +213,19 @@ bool login_failure(uintptr_t gs, uint32_t peer, uint8_t reason) {
     const auto fn = reinterpret_cast<LoginResultFn>(F.login_result);
     __try {
         fn(gs, peer, reason);
+        return true;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+
+bool session_kick(uintptr_t gs, uint32_t machine) {
+    if (!valid_ptr(gs) || !F.session_kick || L.gs_session < 0) return false;
+    const auto fn = reinterpret_cast<SessionKickFn>(F.session_kick);
+    __try {
+        const uintptr_t session = *reinterpret_cast<const uintptr_t*>(gs + static_cast<uintptr_t>(L.gs_session));
+        if (!valid_ptr(session)) return false;
+        fn(session, machine, 0);  // ban 0: nothing goes on the server's ban list
         return true;
     } __except (EXCEPTION_EXECUTE_HANDLER) {
         return false;
