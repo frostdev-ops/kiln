@@ -22,8 +22,13 @@ internal static class TerrainCaps
     private static void Report()
     {
         ServiceCaps.Report(Library, CapabilityState.Available);
-        var on = true;
-        foreach (var n in Needs) on &= Capabilities.Is(n);
+        // a world put behind the library (the test kit's fake) stands for kiln.build and kiln.saves
+        var on = Terrain.BackendFactory is not null;
+        if (!on)
+        {
+            on = true;
+            foreach (var n in Needs) on &= Capabilities.Is(n);
+        }
         ServiceCaps.Static(Overlays, on, CapabilityReason.ServiceMissing, "kiln.build or kiln.saves is not loaded", Needs);
         ServiceCaps.Report(Baked, CapabilityState.Unavailable, CapabilityReason.Policy, "baked terrain regions are not built in this version");
         ServiceCaps.Report(Biomes, CapabilityState.Unavailable, CapabilityReason.Policy, "biome changes are not built in this version");

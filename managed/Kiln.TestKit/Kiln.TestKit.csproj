@@ -27,6 +27,9 @@
     <ProjectReference Include="../services/Kiln.World/Kiln.World.csproj" />
     <!-- The fakes of kiln.players and kiln.saves (Fakes/): the world and players surface names Kiln.Saves' types. -->
     <ProjectReference Include="../services/Kiln.Saves/Kiln.Saves.csproj" />
+    <!-- The fake world behind Kiln.Terrain (Fakes/Terrain/): its cells are Kiln.Build's Voxel and CellBox. -->
+    <ProjectReference Include="../services/Kiln.Build/Kiln.Build.csproj" />
+    <ProjectReference Include="../services/Kiln.Terrain/Kiln.Terrain.csproj" />
     <!-- Kiln.Saves needs it at run time (CharacterSync's channel); it references it without copying it. -->
     <ProjectReference Include="../services/Kiln.Network/Kiln.Network.csproj" />
   </ItemGroup>
