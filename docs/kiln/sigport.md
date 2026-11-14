@@ -57,7 +57,14 @@ does too, so the patterns sigport writes match the same bytes in the game:
 - The uniqueness rule (exactly one hit), constant votes, fixed values, features, build records and the
   verified-build policy are unchanged. They run on the same results.
 - **Fallback.** sigdb scans the live `.text` as before, and logs a warning, when the file can't be mapped or parsed,
-  its `.text` isn't the loaded one (RVA or size differ), or more than 1% of its bytes differ from the live code.
+  its `.text` isn't the loaded one (build timestamp, image size, RVA or size differ), or more than 1% of its bytes
+  differ from the live code. Hooks (a jump out of the image, a redirected call) never decide it. Bytes that differ in
+  another way are another mod's in-place patches when the file's sha256 is a verified build record: the file is then
+  the game as shipped, and it is scanned. Without a verified record the file itself may be the changed one, and the
+  live code is scanned. From 2026-11-07 to 0.2.0-dev.27 any difference that was no known hook form sent the whole
+  scan to the live code, where that start's hooks hid functions. A client with The Worst Map Mod (four map marker
+  patches made before Kiln's scan) and other loaders' hooks lost 20 symbols and 22 features that way (a player's
+  report of 14 Nov 2026).
 - **Speed.** Unscoped strategies (each one a scan of all of `.text`) run up front on up to 8 threads. The copy can't
   change under them, even while another engine is still writing its hooks into the live code.
 
@@ -81,6 +88,12 @@ follows the live `jmp` (relays and trampolines too) to the module it ends in:
 "bytes changed in place" means a patch, not a jmp. With no other engine, the 14 differing bytes are the proxy's entry
 gate, which touches no symbol.)
 
+Differences that are no hook get a line of their own, with the first eight places:
+
+```
+[kiln] sigdb: 4 places (4 bytes) of the live code are patched in place by another mod, not hooked: rva 0x31629d, 0x3168c9, 0xd33058, 0xd331ee. The scan reads the file's code, so they hide nothing from Kiln
+```
+
 **Boot time** (lab server, interleaved runs of the same lab with only kiln-core.dll swapped): sigdb 653–677 ms on
 the live scan before, 90–93 ms after. Most of the gain comes from the parallel unscoped scans; the file check
 costs 0.8 ms. Kiln's boot (`starting` to `boot complete`) went from 1241–1444 ms to 607–713 ms. Hashing is
@@ -89,7 +102,8 @@ unchanged (60–71 ms), now from the mapped view.
 `sigdb-report.json` carries the same information:
 
 - a top-level `"code"` object: `source` (`disk` or `live`), `note`, `base_relocations_applied`, `live_differs_bytes`,
-  `live_differs_runs` and `live_differs_symbols`;
+  `live_differs_runs`, `live_patched_in_place` (places that are no hook) with `live_patched_in_place_at` (the first
+  eight RVAs) and `live_differs_symbols`;
 - per symbol, `"live": {"differs_at": "<rva>", "by": "jmp to <module>+0x..."}`.
 
 Mod fragments (`kiln.hooks` `LoadSymbols`) resolve the same way at runtime. Kiln's own hooks are armed by then, so a
@@ -99,7 +113,8 @@ fragment report also lists the functions Kiln hooked (`by: jmp to kiln-core.dll+
 Tests: `native/core/tests/test-sigdisk.sh [--server <exe>] [--client <exe>]` covers parsing, relocations (a test PE
 loaded at another base, including a fixup that straddles the end of `.text`), translation and rel32 captures. With
 the exes, it also hooks every resolved function in a copy and shows that a live scan loses them while the file scan
-keeps them all.
+keeps them all. With `--client` the core's own choice between file and live code runs on the client exe, hooked and
+patched in place, with and without a verified build record.
 
 ## How it works
 ### 1. Function features (`exeinfo.py`, cached per exe sha in `~/.cache/kiln/sigport/`)

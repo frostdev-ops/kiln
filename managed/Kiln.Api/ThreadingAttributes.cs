@@ -28,3 +28,9 @@ public sealed class RenderThreadAttribute : Attribute;
 /// <summary>Runs on, or may be called from, a worker thread; never touch game state there.</summary>
 [AttributeUsage(AttributeTargets.All)]
 public sealed class WorkerThreadAttribute : Attribute;
+
+/// <summary>Runs on, or must be called from, the game client's main thread: the thread that runs the game's own UI frame
+/// and steps the client world. Not the render thread of Kiln's overlay (<see cref="RenderThreadAttribute"/>), not the
+/// server tick. Code there reads what was cached on a tick; it never waits, blocks or calls server-world APIs.</summary>
+[AttributeUsage(AttributeTargets.All)]
+public sealed class ClientMainThreadAttribute : Attribute;

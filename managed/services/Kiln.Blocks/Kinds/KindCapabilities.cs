@@ -1,22 +1,37 @@
 // SPDX-License-Identifier: MIT
-// The capability rows of block kinds (docs/kiln/services/caps.md): blocks.kinds (registration) and blocks.compile (pure
-// compile to a frozen plan). Both are managed code only; they are available where blocks have something to compile to
-// (kiln.content, kiln.gamedata and kiln.assets), the same condition as Blocks.Available, and off with that reason where
-// they have not (a tool, the test kit without those services). Kiln.Blocks has no native table, so the rows exist from
-// its first use. The state is decided from what this process has; it does not change while it runs.
+// The capability rows of block kinds (docs/kiln/services/caps.md): blocks.kinds (registration), blocks.compile (pure
+// compile to a frozen plan), blocks.apply (the dispatcher) and blocks.apply.<primary> for each built-in a plan may be made
+// of. All are managed code only; they are available where blocks have something to compile to (kiln.content, kiln.gamedata
+// and kiln.assets, as Blocks.Available), and the apply rows also need a build that can revoke a plan's owner: a plan that
+// is refused part way is taken back whole, or it is not applied at all. Kiln.Blocks has no native table, so the rows exist
+// from its first use. The state is decided from what this process has; it does not change while it runs.
 namespace Kiln;
 
 internal static class KindCapabilities
 {
-    internal const string Kinds = "blocks.kinds", Compile = "blocks.compile";
+    internal const string Kinds = "blocks.kinds", Compile = "blocks.compile", Apply = "blocks.apply";
 
-    /// <summary>The row of both, from whether blocks compile here. Pure.</summary>
+    internal static string ApplyRow(BuiltInBlockProductKind primary) => $"{Apply}.{primary.ToString().ToLowerInvariant()}";
+
+    internal static readonly string[] ApplyRows = [Apply, .. Enum.GetValues<BuiltInBlockProductKind>().Select(ApplyRow)];
+
+    private const string NoBlocks = "kiln.content, kiln.gamedata and kiln.assets are not all loaded: a block kind's plan is made of blocks they register";
+
+    /// <summary>The row of kinds and compile, from whether blocks compile here. Pure.</summary>
     internal static BlockCapabilities.Row RowFor(bool blocks) => blocks
         ? new BlockCapabilities.Row(CapabilityState.Available, CapabilityReason.None, null)
-        : new BlockCapabilities.Row(CapabilityState.Unavailable, CapabilityReason.ServiceMissing, "kiln.content, kiln.gamedata and kiln.assets are not all loaded: a block kind's plan is made of blocks they register");
+        : new BlockCapabilities.Row(CapabilityState.Unavailable, CapabilityReason.ServiceMissing, NoBlocks);
+
+    /// <summary>The apply rows, from whether blocks compile here and whether a plan's owner can be revoked. Pure.</summary>
+    internal static BlockCapabilities.Row ApplyRowFor(bool blocks, bool revoke) => (blocks, revoke) switch
+    {
+        (false, _) => new BlockCapabilities.Row(CapabilityState.Unavailable, CapabilityReason.ServiceMissing, NoBlocks),
+        (_, false) => new BlockCapabilities.Row(CapabilityState.Unavailable, CapabilityReason.ServiceOlder, "this Kiln cannot revoke a plan's owner, so a plan that is refused part way could not be taken back: no plan is applied"),
+        _ => new BlockCapabilities.Row(CapabilityState.Available, CapabilityReason.None, null),
+    };
 
     private static long _reported = -1;
-    private static BlockCapabilities.Row _row = RowFor(false);
+    private static BlockCapabilities.Row _row = RowFor(false), _apply = ApplyRowFor(false, false);
 
     /// <summary>Whether blocks compile here (tests set it).</summary>
     internal static Func<bool> BlocksAvailable = () => Blocks.Available;
@@ -32,10 +47,12 @@ internal static class KindCapabilities
         try { blocks = BlocksAvailable(); }
         catch (Exception e) when (e is InvalidOperationException or NotSupportedException or DllNotFoundException or EntryPointNotFoundException) { blocks = false; }
         var row = _row = RowFor(blocks);
+        var apply = _apply = ApplyRowFor(blocks, KindApply.RevokeOwner != null);
         try
         {
             BlockCapabilities.Report(Kinds, row);
             BlockCapabilities.Report(Compile, row);
+            foreach (var name in ApplyRows) BlockCapabilities.Report(name, apply);
         }
         catch (Exception e) when (e is InvalidOperationException or ArgumentException or NotSupportedException or DllNotFoundException or EntryPointNotFoundException)
         {
@@ -48,8 +65,15 @@ internal static class KindCapabilities
     internal static void Require(string name)
     {
         Ensure();
-        var row = _row;
+        var row = name.StartsWith(Apply, StringComparison.Ordinal) ? _apply : _row;
         if (row.State != CapabilityState.Available) throw new KilnUnavailableException(name, row.Text);
+    }
+
+    /// <summary>The dispatcher's row and the row of the plan's primary.</summary>
+    internal static void RequireApply(BlockPlan plan)
+    {
+        Require(Apply);
+        Require(ApplyRow(plan.Primary.Kind));
     }
 
     /// <summary>For tests: decide again at the next <see cref="Ensure"/>.</summary>

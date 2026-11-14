@@ -17,6 +17,7 @@ generated [../status.generated.md](../status.generated.md); what has no API yet 
 | [../services/caps.md](../services/caps.md) | Asking what works: `Capabilities.Is/Get/Why/All`, why a capability is off; the manifest's `features` rules (manifest.md, "Asking what works") |
 | [limits.md](limits.md) | What a mod cannot do yet: each gap, what stands in the way, the release it is planned for |
 | [blocks.md](blocks.md) | Building blocks: effects, statuses, spells, abilities, perks, talents, bodies, loot, affixes and UI; what they compile to, client requirements and errors. Start here to make something |
+| [block-kinds.md](block-kinds.md) | A kind of block a mod adds: the provider's record and pure compiler, the consumer's blocks in C# and JSON, plans, application states, limits |
 | [affixes.md](affixes.md) | Affixes: rolled modifiers on one item ("+5 Strength", "+10% Move Speed"), as affix kinds and pools, which are blocks (`Blocks.Define`, `affixes` and `affixPools` in `blocks/*.json`, or `Affixes.Define`); kept with the item, applied while it is worn or in hand, shown in players' games (dev.27) |
 | [inventory.md](inventory.md) | Moving items between inventories keeping their state (a stack, quick stack, move all), container names, transfer rules and events (ported from shroudlink), and why gear data lasts only a session |
 | [item-blocks.md](item-blocks.md) | Items, weapons, wands, armor, stations, loot tables and recipes as blocks: no base items, no GUIDs; a weapon's own moves and held models with moving parts |
@@ -42,6 +43,7 @@ generated [../status.generated.md](../status.generated.md); what has no API yet 
 | [vscode.md](vscode.md) | The VS Code extension (tools/vscode): schemas, lint, game ids, build/deploy/reload, Testing view, kiln.log, KAP/1 console, Impact assembly |
 | [cli.md](cli.md) | The `kiln` command: new, build, cook, deploy, run, reload, test, debug, lint, pack, publish, logs, blocks, catalog, vfx, skeleton |
 | [publishing.md](publishing.md) | `kiln publish`: releasing a packed mod at GitHub (plan, apply, publish), the token, what a published zip may hold |
+| [boot-snapshot.md](boot-snapshot.md) | The boot snapshot: the game data Kiln reads from the game's files before a start, for mods that change data in `OnBoot`; `kiln boot-snapshot` |
 | [analyzers.md](analyzers.md) | KILN1xx: compiler warnings about threads, hot reload and the manifest, with code fixes |
 | [catalogs.md](catalogs.md) | The local game-data catalog and the game-id constants |
 | [../services/queries.md](../services/queries.md) | `Kiln.Queries`: what is on a line through the terrain, the ground below a point, voxel line of sight, the entities in a sphere or a box; the ray budget all mods share |
@@ -103,7 +105,7 @@ first). `mods/samples/build.sh` builds the loader samples (`SampleLib`, `SampleC
 | `FireNova` | kiln.abilities: a key ability (G or `/nova`) with mana and cooldown, a ring of the game's Fireball explosions; Fireball damage doubled at night |
 | `ImpactSample` | Impact programs: a heal-over-time buff written from scratch, a Fireball that chains to a second enemy, a managed Kiln native |
 | `SkillTreeSample` | kiln.skills: two nodes in the game's own skill tree and a Kiln talent tree, "Ember Arts", from `skills/sample.json` |
-| `NpcSample` | a friendly NPC (Tobin, a fisher clone with its own name, dialogue and roster entry), a voiced quest in the game's journal, a trade |
+| `NpcSample` | a friendly NPC (Tobin, a fisher clone with its own name, dialogue and roster entry), a voiced quest in the game's journal, a trade; a creature whose brain walks a route from `Queries.FindPath` (`PathWalker.cs`) |
 | `quests-sample` | a quest chain in the game's own UI from one file, `quests/sample.json`: the Warden, his topics and voice, journal, HUD and map markers; one more quest in C# |
 | `FrostboltBlock` | the first blocks: a staff spell, a sword and a status sharing one Frost Burst effect, with VFX of its own; Frostlance as data |
 | `AbilityBlocks` | shared effects, perks, abilities, talent trees and triggers in C# and JSON |
@@ -130,6 +132,7 @@ first). `mods/samples/build.sh` builds the loader samples (`SampleLib`, `SampleC
 | `SoundSample` | tools/soundcook + Kiln.Audio: test tones as UI, positional, looped and streamed sounds, music, a replaced game cue, a voiced line and a narration |
 | `UiSample` | Kiln.Ui from code: an FPS line on the HUD, a window (F8) with widgets, toasts |
 | `MenuButtons` | Kiln.Ui game UI: entries in the main and pause menus opening a screen, a crafting info panel, a subcategory and tab in the crafting menu |
+| `ValueBars` | `Ui.Values` (dev.28): a water container's detail number in charges with a label, its slot bar, the health pair as a percentage, tooltip lines in Kiln's Item details window (F8) |
 | `RenderSample` | render events: an FPS counter, a compass and waypoint markers in the world |
 | `BlobCatalog` | `Assets.OpenBlobCatalog`: `/blobs` counts the content blobs the game serves by where they come from, lists the ones mods registered, and writes the first entries as JSON |
 | `TransformScale` | `World.SetTransformScale`: `/tscale <entity> <x> <y> <z>` draws an entity larger or smaller on each axis (the drawn size only, not collision) |

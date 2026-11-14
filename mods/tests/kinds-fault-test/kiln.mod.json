@@ -1,0 +1,11 @@
+{
+  "id": "kinds-fault-test",
+  "name": "block kinds lab test, refusals part way",
+  "version": "0.1.0",
+  "apiVersion": "0.2",
+  "entryAssembly": "KindsFaultTest.dll",
+  "side": "server",
+  "clients": "kiln",
+  "advanced": true,
+  "description": "PASS/FAIL lines: a plan of a block kind whose registration is refused at every position, for each of the five primaries, leaves no block and no definition behind. A friend assembly of Kiln.Blocks."
+}

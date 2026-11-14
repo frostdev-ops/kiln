@@ -1522,6 +1522,16 @@
    ],
    "state": "open",
    "added": "06a-program-wraps"
+  },
+  {
+   "id": "00-sigdb.in-place-patches",
+   "title": "Kiln's functions are found next to a loader that patched the game first",
+   "chapter": "00",
+   "packages": [
+    "00-integration"
+   ],
+   "state": "open",
+   "added": "coordinator (sigdb fix, 14 Nov)"
   }
  ]
 }

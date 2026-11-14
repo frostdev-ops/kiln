@@ -377,6 +377,7 @@ internal sealed unsafe class HostRuntime : IHostServices, IKilnBackend
     public nint Service(string name, uint minVersion) => NativeCalls.WithUtf8(name, s => (nint)_api->Service(s, minVersion));
     public ulong OwnerCreate(string id) => NativeCalls.WithUtf8(id, s => _api->OwnerCreate(s));
     public void OwnerRevoke(ulong owner) => _api->OwnerRevoke(owner);
+    public bool CanRevokeOwners => true;
 
     // ---- game log mirror (core log thread) ----
     public void EnqueueGameLine(int level, string text)

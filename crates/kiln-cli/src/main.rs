@@ -22,6 +22,7 @@ mod server;
 mod tools;
 mod skeleton;
 mod vfx;
+mod boot_snapshot;
 
 #[cfg(feature = "catalog")]
 mod catalog;
@@ -76,6 +77,8 @@ enum Cmd {
     Vfx(vfx::VfxArgs),
     /// The player's skeleton from your installed game, as a glTF to weight a worn model against, with a body to model around.
     Skeleton(skeleton::SkeletonArgs),
+    /// Make the game-data snapshot Mod.OnBoot reads (items, templates, skill nodes, materials) for a game folder.
+    BootSnapshot(boot_snapshot::BootSnapshotArgs),
 }
 
 #[derive(clap::Args)]
@@ -177,6 +180,7 @@ fn main() {
         Cmd::Catalog(a) => catalog_cmd(a, json),
         Cmd::Vfx(a) => vfx::run(a, json),
         Cmd::Skeleton(a) => skeleton::run(a, json),
+        Cmd::BootSnapshot(a) => boot_snapshot::run(a, json),
     });
     std::process::exit(match r {
         Ok(code) => code,

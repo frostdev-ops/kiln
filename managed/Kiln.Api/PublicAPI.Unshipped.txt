@@ -1,9 +1,8 @@
 #nullable enable
 Kiln.Capability.IsHeld.get -> bool
+Kiln.ClientMainThreadAttribute
+Kiln.ClientMainThreadAttribute.ClientMainThreadAttribute() -> void
 static Kiln.Capabilities.IsHeld(string! name) -> bool
-Kiln.GameType.ImpactName.get -> string?
-static Kiln.GameTypes.ByImpactName(string! impactName) -> Kiln.GameType?
-static Kiln.GameTypes.FindAllByImpactName(string! impactName) -> System.Collections.Generic.IReadOnlyList<Kiln.GameType!>!
 Kiln.CapacityChangedEvent
 Kiln.CapacityChangedEvent.Current.get -> Kiln.CapacityInfo!
 Kiln.CapacityChangedEvent.Previous.get -> Kiln.CapacityInfo!
@@ -160,3 +159,6 @@ static Kiln.DefinitionRegistrationResult.operator !=(Kiln.DefinitionRegistration
 static Kiln.DefinitionRegistrationResult.operator ==(Kiln.DefinitionRegistrationResult? left, Kiln.DefinitionRegistrationResult? right) -> bool
 ~override Kiln.CapacityWorldToken.Equals(object obj) -> bool
 ~override Kiln.CapacityWorldToken.ToString() -> string
+Kiln.GameType.ImpactName.get -> string?
+static Kiln.GameTypes.ByImpactName(string! impactName) -> Kiln.GameType?
+static Kiln.GameTypes.FindAllByImpactName(string! impactName) -> System.Collections.Generic.IReadOnlyList<Kiln.GameType!>!

@@ -609,8 +609,17 @@ internal static class NpcRuntime
     private static void Look(NpcControl ctl)
     {
         ctl.SeenList.Clear();
+        // An unavailable LOS dependency can also make candidate collection unavailable. Count the refused update and
+        // clear the target before touching the world, rather than letting that exception stop the creature's brain.
+        if (ctl.PerceptionPolicy.Occlusion == NpcOcclusionMode.Voxels && SightOff() is { } off)
+        {
+            ctl.Perception.Look(ctl.Entity, default, [], () => off, Queries.VoxelLineOfSight);
+            Normalize(ctl);
+            return;
+        }
         if (!World.TryGetPosition(ctl.Entity, out var at))
         {
+            ctl.Perception.Look(ctl.Entity, default, [], SightOff, Queries.VoxelLineOfSight);
             Normalize(ctl);
             return;
         }
@@ -631,11 +640,17 @@ internal static class NpcRuntime
         Normalize(ctl);
     }
 
-    private static string? SightOff() => Capabilities.Is(NpcPerception.Capability) ? null : Capabilities.Why(NpcPerception.Capability);
+    private static string? SightOff()
+    {
+        // The snapshot of a composed row can predate its inputs. Use the same live decision as a direct LOS call.
+        try { QueriesCaps.Require(NpcPerception.Capability); return null; }
+        catch (KilnUnavailableException) { return Capabilities.Why(NpcPerception.Capability); }
+    }
 
     /// <summary>The target follows what is seen, on every way out of a look: nothing seen leaves no auto-chosen target alive.</summary>
     private static void Normalize(NpcControl ctl)
     {
+        if (ctl.SeenList.Count == 0) { ctl.Target = default; return; }
         if (ctl.Target.IsNone || !World.Exists(ctl.Target) || !ctl.SeenList.Contains(ctl.Target))
             ctl.Target = ctl.SeenList.Count > 0 ? ctl.SeenList[0] : default;
     }

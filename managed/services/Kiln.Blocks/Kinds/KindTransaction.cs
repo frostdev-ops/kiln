@@ -19,14 +19,14 @@ internal sealed class KindTransaction : IDisposable
     /// <summary>What was staged, in the order it was defined (a nested block before the block that holds it).</summary>
     public List<StagedBlock> Staged { get; } = new();
     /// <summary>Set while the owner of the transaction commits it: only then may a staged <see cref="Lowered"/> commit.</summary>
-    public bool Committing { get; private set; }
+    public bool Committing => Stage.CommitOpen;
 
     internal sealed record StagedBlock(string Name, BlockHandle Handle, Lowered Low, string Label);
 
-    private KindTransaction(ModBlocks target)
+    private KindTransaction(ModBlocks target, ModBlocks? stage = null)
     {
         Target = target;
-        Stage = new ModBlocks(target.Id, 0) { StagesFor = target, ManifestClients = target.ManifestClients };
+        Stage = stage ?? new ModBlocks(target.Id, 0) { StagesFor = target, ManifestClients = target.ManifestClients };
     }
 
     public static KindTransaction Begin(ModBlocks target)
@@ -34,6 +34,14 @@ internal sealed class KindTransaction : IDisposable
         if (_current != null) throw new InvalidOperationException("a block kind transaction is already open on this thread");
         if (target.StagesFor != null) throw new InvalidOperationException("a staging ledger cannot be staged for");
         return _current = new KindTransaction(target);
+    }
+
+    /// <summary>Opens the transaction of a ledger that was staged before, to commit it.</summary>
+    public static KindTransaction Resume(ModBlocks target, ModBlocks stage)
+    {
+        if (_current != null) throw new InvalidOperationException("a block kind transaction is already open on this thread");
+        if (!ReferenceEquals(stage.StagesFor, target)) throw new InvalidOperationException("the ledger was not staged for this mod");
+        return _current = new KindTransaction(target, stage);
     }
 
     /// <summary>Compiler.Define inside the transaction: lowered and kept, nothing committed.</summary>
@@ -52,7 +60,7 @@ internal sealed class KindTransaction : IDisposable
     }
 
     /// <summary>The owner of the transaction commits what was staged: from here to <see cref="Dispose"/> a staged <see cref="Lowered.Commit"/> is allowed.</summary>
-    public void BeginCommit() => Committing = true;
+    public void BeginCommit() => Stage.CommitOpen = true;
 
     public void Dispose()
     {

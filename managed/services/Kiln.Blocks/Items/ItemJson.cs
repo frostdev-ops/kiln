@@ -32,9 +32,14 @@ internal sealed class PartRefConverter<T> : JsonConverter<PartRef<T>> where T : 
         return new PartRef<T>(JsonSerializer.Deserialize<T>(ref r, o), null);
     }
 
+    // the premades of T (WeaponClass.Sword, ...): JSON names one by its key, and reading the key gives the premade back
+    private static readonly T[] Premades = typeof(T).GetField("All", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)?.GetValue(null) as T[] ?? [];
+
     public override void Write(Utf8JsonWriter w, PartRef<T> v, JsonSerializerOptions o)
     {
         if (v.Name != null) w.WriteStringValue(v.Name);
+        // a premade written out in full would read back as a copy that is no premade (a weapon's class must be one)
+        else if (v.Inline is IPremade { Key.Length: > 0 } premade && Array.IndexOf(Premades, v.Inline) >= 0) w.WriteStringValue(premade.Key);
         else JsonSerializer.Serialize(w, v.Inline, o);
     }
 }
