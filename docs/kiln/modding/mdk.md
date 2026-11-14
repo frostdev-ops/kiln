@@ -50,6 +50,7 @@ copied); copies NuGet dependencies next to the mod (they load into the mod's own
 | `KilnSide` | server; `both` when `KilnServices` has `Blocks` | `side` |
 | `KilnClients` | from the side: server `none`, otherwise `mod`; with `Blocks` in `KilnServices`, what the blocks need ([blocks.md](blocks.md)) | `clients`: what joining players need (`none`, `kiln`, `mod`; manifest.md) |
 | `KilnEntryType` | | `entryType` |
+| `KilnBoot` | | `boot`: `true` (the mod has boot content: its `Mod.OnBoot` runs before the game's first tick) or `required` (a failure of its boot content stops the start); empty or `false`: none |
 | `KilnAdvanced` | false | `advanced` |
 | `KilnFeatures`, `KilnExports` | | `features`, `exports` (`;` lists) |
 | `KilnTestsAutoRun`, `KilnTestTimeoutSeconds` | | `tests` |

@@ -881,6 +881,7 @@ fn native_as_manifest(n: &NativeManifest) -> KilnManifest {
         tests: None,
         kiln_build: None,
         boot: false,
+        updates: n.updates.clone(),
         warnings: Vec::new(),
     }
 }

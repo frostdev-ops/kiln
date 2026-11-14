@@ -9,7 +9,7 @@ import * as api from "../api/commands";
 import type { GameInstall, LaunchMode, StartTimeline } from "../api/commands";
 import { invalidateGame, useActiveProfile, useGame, useGameStatus, useLaunchState, useProfiles, useRuntimeChanges, useStartTimeline } from "../api/hooks";
 import { toast } from "../ui";
-import { cookBeforePlay } from "./cook";
+import { cookBeforePlay, cookingNotice } from "./cook";
 import { notifyLibraryChanged } from "./libraryChanged";
 import { gameState, playState, runStarted, type GameStateView } from "./gameState";
 import { notifyActivation, notifyActivationOf } from "./notices";
@@ -108,7 +108,7 @@ export function usePlayControl(): PlayControl {
       // the start is timed from here: its own steps (cook, profile, Steam), then what the game's Kiln says
       await api.launchBegin(gameId, req.mode).catch(() => {});
       void qc.invalidateQueries({ queryKey: ["launch_progress", gameId] });
-      if (req.mode === "profile") await cookBeforePlay(gameId, (jobs) => toast.info(jobs.length === 1 ? `Cooking ${jobs[0].name}` : `Cooking ${jobs.length} mods`, "Making their models, animations and sounds from your game, then the game starts."));
+      if (req.mode === "profile") await cookBeforePlay(gameId, cookingNotice);
       return api.launchPlay(gameId, req);
     },
     onSuccess: (r, { gameId }) => {

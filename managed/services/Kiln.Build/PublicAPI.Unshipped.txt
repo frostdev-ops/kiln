@@ -1,1 +1,3 @@
 #nullable enable
+Kiln.BuildRefusal.Changed = 6 -> Kiln.BuildRefusal
+static Kiln.Build.WriteIfUnchanged(Kiln.CellBox box, System.ReadOnlySpan<Kiln.Voxel> cells, System.ReadOnlySpan<Kiln.Voxel> expected, Kiln.BuildOptions? options = null, System.ReadOnlySpan<bool> mask = default(System.ReadOnlySpan<bool>)) -> Kiln.BuildResult!

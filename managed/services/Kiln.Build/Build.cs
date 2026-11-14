@@ -278,6 +278,37 @@ public static partial class Build
         return Write(box, cells, o, mask);
     }
 
+    /// <summary>A compare-and-write: <see cref="Write"/>s <paramref name="cells"/> only if the world still holds
+    /// <paramref name="expected"/> when the edit commits, which is after the <see cref="BuildEditingEvent"/> handlers
+    /// ran. If one compared cell differs (a handler, or anything since the caller read the box, changed it), nothing is
+    /// written and the result is <see cref="BuildRefusal.Changed"/>. Compared are the cells the write would set: where
+    /// <paramref name="mask"/> is true, or every cell without a mask. Since 0.2.0-dev.28.</summary>
+    /// <param name="expected">The cells the caller read (<see cref="Read"/>) and based its edit on; same layout as
+    /// <paramref name="cells"/>.</param>
+    /// <remarks>The compare and the commit are one step: they run in the same call on the tick thread, where no other
+    /// mod's code and no job of the game's world runs between them. The tiles must be loaded (a missing tile is
+    /// <see cref="BuildRefusal.NotLoaded"/>, also with <see cref="BuildFlags.Unloaded"/>). A refusal by the compare
+    /// posts <see cref="BuildEditEvent"/> with its result, as a refusal by the world does.</remarks>
+    /// <exception cref="ArgumentException">The box is empty or too big, or <paramref name="cells"/>,
+    /// <paramref name="expected"/> or <paramref name="mask"/> does not have one value per cell of it.</exception>
+    [TickThreadOnly]
+    [RequiresCapability("kiln.build")]
+    public static BuildResult WriteIfUnchanged(CellBox box, ReadOnlySpan<Voxel> cells, ReadOnlySpan<Voxel> expected, BuildOptions? options = null,
+        ReadOnlySpan<bool> mask = default)
+    {
+        CheckBox(box);
+        if (cells.Length != box.Count) throw new ArgumentException($"{cells.Length} cells for a box of {box.Count}", nameof(cells));
+        if (expected.Length != box.Count) throw new ArgumentException($"{expected.Length} expected cells for a box of {box.Count}", nameof(expected));
+        if (!mask.IsEmpty && mask.Length != box.Count) throw new ArgumentException("mask size", nameof(mask));
+        Ensure("Build.WriteIfUnchanged");
+        var o = options ?? BuildOptions.Default;
+        if (!Editing(BuildEditKind.Write, box, o)) return Canceled(box);
+        var entry = o.Journal ? Journal.Begin(BuildEditKind.Write, o) : null;
+        var r = WriteCore(box, cells, mask, o, entry, expected);
+        Finish(BuildEditKind.Write, box, o, r, entry);
+        return r;
+    }
+
     // ---- shapes ----
 
     /// <summary>Removes terrain and blocks inside the shape (a smooth one-cell edge).</summary>
@@ -386,7 +417,10 @@ public static partial class Build
 
     // ---- internals shared with schematics ----
 
-    internal static unsafe BuildResult WriteCore(CellBox box, ReadOnlySpan<Voxel> cells, ReadOnlySpan<bool> mask, BuildOptions o, JournalEntry? entry)
+    /// <param name="expected">Empty: write. Otherwise <see cref="WriteIfUnchanged"/>'s guard: compared right before the
+    /// commit.</param>
+    internal static unsafe BuildResult WriteCore(CellBox box, ReadOnlySpan<Voxel> cells, ReadOnlySpan<bool> mask, BuildOptions o, JournalEntry? entry,
+        ReadOnlySpan<Voxel> expected = default)
     {
         var t = Require("Build.Write");
         CheckBox(box);
@@ -412,6 +446,13 @@ public static partial class Build
         w.Actor = o.Actor.Value;
         BuildNative.Result r;
         r.Size = (uint)sizeof(BuildNative.Result);
+        // the guard: after the BuildEditingEvent handlers, and nothing that runs a mod's code between it and the commit
+        if (!expected.IsEmpty)
+        {
+            var now = before;
+            if (now is null && !TryRead(box, out now)) return NotLoaded(box);
+            if (!Unchanged(now, expected, mask)) return Stale(box);
+        }
         int rc;
         fixed (Voxel* c = cells)
         fixed (byte* m = maskBytes)
@@ -441,6 +482,17 @@ public static partial class Build
 
     internal static BuildResult NotLoaded(CellBox box) => new(0, 0, false, false, box, 0, BuildRefusal.NotLoaded);
     internal static BuildResult Canceled(CellBox box) => new(0, 0, false, false, box, 0, BuildRefusal.Canceled);
+    internal static BuildResult Stale(CellBox box) => new(0, 0, false, false, box, 0, BuildRefusal.Changed);
+
+    /// <summary><see cref="WriteIfUnchanged"/>'s compare: the world's cells equal <paramref name="expected"/> wherever
+    /// the write sets a cell (where <paramref name="mask"/> is true; every cell without a mask).</summary>
+    internal static bool Unchanged(ReadOnlySpan<Voxel> world, ReadOnlySpan<Voxel> expected, ReadOnlySpan<bool> mask)
+    {
+        if (mask.IsEmpty) return world.SequenceEqual(expected);
+        for (var i = 0; i < world.Length; i++)
+            if (mask[i] && world[i] != expected[i]) return false;
+        return true;
+    }
 
     internal static bool Editing(BuildEditKind kind, CellBox box, BuildOptions o)
     {

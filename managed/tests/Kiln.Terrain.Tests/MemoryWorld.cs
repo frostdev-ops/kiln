@@ -21,6 +21,11 @@ internal sealed class MemoryWorld
     /// <summary>Called at every NextTick (a test edits the world or cancels between batches).</summary>
     public Action? OnTick;
     public Action? AfterWrite;
+    /// <summary>Called inside each write where kiln.build posts BuildEditingEvent: after the overlay read the cells and
+    /// decided, before the guard compares them and the write commits. A test makes another mod's edit here.</summary>
+    public Action<CellBox>? Editing;
+    /// <summary>Writes the guard refused (<see cref="BuildRefusal.Changed"/>).</summary>
+    public int Stale;
     public Action? OnLoad;
     public Exception? BookError;
     public DataMatch Match = DataMatch.Exact;
@@ -62,9 +67,22 @@ internal sealed class MemoryWorld
             return w.Loaded;
         }
 
-        public Task<BuildResult> Write(CellBox box, Voxel[] cells, bool[] mask, bool inBases, bool transient, string label, TimeSpan timeout, bool dryRun = false)
+        public Task<BuildResult> Write(CellBox box, Voxel[] cells, bool[] mask, bool inBases, bool transient, string label, TimeSpan timeout, bool dryRun = false,
+            Voxel[]? expected = null)
         {
             w.Writes.Add((mod, box, mask.Count(m => m), w.Ticks, transient, dryRun));
+            w.Editing?.Invoke(box);
+            // the guard, as Build.WriteIfUnchanged: every masked cell must still be what the overlay read
+            if (expected is not null)
+                for (var z = 0; z < box.SizeZ; z++)
+                for (var y = 0; y < box.SizeY; y++)
+                for (var x = 0; x < box.SizeX; x++)
+                {
+                    var i = box.Index(x, y, z);
+                    if (!mask[i] || w.Get(box.X + x, box.Y + y, box.Z + z) == expected[i]) continue;
+                    w.Stale++;
+                    return Task.FromResult(new BuildResult(0, 0, false, false, box, 0, BuildRefusal.Changed));
+                }
             if (!inBases && w.Bases.Any(b => !TerrainPlan.Intersect(b, box).IsEmpty))
                 return Task.FromResult(new BuildResult(0, 0, false, false, box, 0, BuildRefusal.Base));
             if (w.RefuseWrite?.Invoke(box) is { } r and not BuildRefusal.None)

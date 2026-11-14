@@ -16,6 +16,8 @@ public static unsafe partial class Queries
     /// <exception cref="ArgumentException">Numbers that are no request: not finite, more than <see cref="MaxPathDistance"/>
     /// apart, a space outside 0..16 m, iterations outside 1..65535, no anchor.</exception>
     /// <exception cref="KilnUnavailableException"><c>queries.path</c> is off.</exception>
+    /// <exception cref="InvalidOperationException">Not on the tick thread, or inside a world program's update, a wrap
+    /// stage or a game system hook (the world is mid-step there).</exception>
     [ServerOnly, TickThreadOnly, RequiresCapability("queries.path")]
     public static QueryPathTicket RequestPath(QueryPathRequest request) => Submit(request, QueriesCaps.Path, "Queries.RequestPath");
 
@@ -99,7 +101,7 @@ public static unsafe partial class Queries
         {
             case QueriesNative.Ok: break;
             case QueriesNative.InvalidArgument: throw new ArgumentException($"{api}: kiln.queries refused the request's numbers", nameof(request));
-            case QueriesNative.WrongThread: throw new InvalidOperationException($"{api} must be called on the tick thread (use Scheduler.Post)");
+            case QueriesNative.WrongThread: throw WrongThread(api, admission.Reason);
             case QueriesNative.Revoked: return Refused(QueryPathStatus.OwnerRetired, "OwnerRetired");
             case QueriesNative.Unavailable:
                 // the row reads on and the service says no: no server world runs here right now, or the path half just went off

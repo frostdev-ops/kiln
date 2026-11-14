@@ -72,6 +72,8 @@ function LauncherCard() {
       <Toggle checked={v.modFolderNotes !== false} onChange={(on) => set({ modFolderNotes: on })} label="Show notes about mod folders"
         hint="Folders Kiln left as they are, mod files it kept, your own folders: each note shows once when it is new. Off: only a folder that may still run a mod you switched off. Notes above your mods has them all." />
       <Toggle checked={v.allowHttpModpacks} onChange={(on) => set({ allowHttpModpacks: on })} label="Allow http modpacks" hint="Off: https only." />
+      <Toggle checked={v.modUpdatesDaily === true} onChange={(on) => set({ modUpdatesDaily: on })} label="Check for mod updates once a day"
+        hint="Off: only when you press Check for updates above your mods. A check reads the pages your mods name (GitHub, and Nexus Mods with your sign-in) and shows a notice with a link. It never downloads or installs a mod." />
       <TypeToConfirmToggle />
       <Field label="Extra Steam folders" hint="Libraries Kiln does not find on its own.">
         <div className="k-stack">

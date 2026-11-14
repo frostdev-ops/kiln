@@ -191,4 +191,18 @@ public sealed class ToolWearBlockTests : IDisposable
         Assert.Equal((b.Id, 0x4u, 1), _sets[^1]);    // only the other mod's intent is left to try
         Assert.Equal(4, _sets.Count);
     }
+
+    [Fact]
+    public void Exhausted_rule_capacity_is_a_permanent_block_error()
+    {
+        var mod = NewMod();
+        _answer = () => new ToolWearResult { Reason = "TooManyRules" };
+        ToolWearRuntime.Add(mod, "pick", 0x1234, 7);
+        ToolWearRuntime.Step(1);
+        ToolWearRuntime.Step(26);
+        Assert.Equal("block pick, tool.wearPerDebit: TooManyRules", Assert.Single(mod.Errors));
+        Assert.Single(_sets);
+        Assert.Equal(0, ToolWearRuntime.Waiting);
+        Assert.True(mod.ReportDirty);
+    }
 }

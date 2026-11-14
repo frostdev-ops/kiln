@@ -90,7 +90,7 @@ fn auth_session() -> Result<Option<Arc<Session>>, Error> {
     Ok(Some(session))
 }
 
-fn the_catalog() -> Result<Arc<Catalog>, Error> {
+pub(crate) fn the_catalog() -> Result<Arc<Catalog>, Error> {
     let auth = auth_session()?;
     let mut catalog = CATALOG.lock().unwrap();
     if let Some(catalog) = catalog.as_ref() { return Ok(catalog.clone()); }

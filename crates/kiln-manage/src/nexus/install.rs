@@ -370,7 +370,7 @@ pub fn install(catalog: &Catalog, dirs: &DataDirs, game: &GameInstall, req: &Ins
     };
     let refs: Vec<_> = add.import.imported.iter().chain(add.import.existing.iter()).cloned().collect();
     if !refs.is_empty() {
-        catalog.record_install(InstallRecord {
+        let record = InstallRecord {
             mod_id: req.mod_id.clone(),
             name: name.clone(),
             file_id: version.file.id.clone(),
@@ -381,7 +381,11 @@ pub fn install(catalog: &Catalog, dirs: &DataDirs, game: &GameInstall, req: &Ins
             refs,
             installed: crate::util::now_rfc3339(),
             source: req.source.clone(),
-        })?;
+        };
+        catalog.record_install(record.clone())?;
+        // Update checks: the same facts as a source receipt per library entry. The install stands without it (the
+        // next check makes the receipts from installs.json).
+        let _ = crate::updates::receipt::capture_nexus(dirs, &record);
     }
     drop(mutation);
     progress.report(Some(0.95), "Looking up requirements");

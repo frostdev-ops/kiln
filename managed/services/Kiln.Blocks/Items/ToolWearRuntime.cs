@@ -123,6 +123,7 @@ internal static class ToolWearRuntime
                 lock (i.Mod.Warnings) i.Mod.Warnings.Add(text);
                 BlocksBridge.Log(LogLevel.Warn, $"blocks: {i.Mod.Id}: {text}");
             }
+            else if (r.Reason is not ("NoAuthoritativeWorld" or "PendingContent" or "UnknownItem")) Problem(i, r.Reason);
             // NoAuthoritativeWorld (a host with no world yet), PendingContent, UnknownItem (the item is registered a little later): tried again
         }
     }

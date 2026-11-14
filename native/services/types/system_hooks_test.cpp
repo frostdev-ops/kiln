@@ -64,5 +64,42 @@ int main() {
     check(program_update(wrapped_entry,trampoline,nullptr)==trampoline);  // no kiln.world v4: as before
     check(external_state(false,false)==0 && external_state(true,false)==1 && external_state(true,true)==2 &&
           external_state(false,true)==0);
-    std::printf("system hook lifetime: PASS %d checks (concurrent worlds, original-running retire/rebind, stale handles, 64-slot bound, wrapped-program identity, external runner)\n",checks);
+    // in_system_callback (0.2.0-dev.28): 1 inside a hook callback, through the guard kiln.types uses (enter/leave), 0 on
+    // another thread meanwhile and after, also after a callback that faulted (the guard's __except leaves the same way).
+    {
+        static std::atomic<int> inside{0},other{0};
+        auto marked=[](KilnSystemHookFn fn,void* ctx,void* user,KilnHandle) {
+            const bool previous=enter_system_callback();
+            fn(ctx,user);
+            leave_system_callback(previous);
+            return true;
+        };
+        auto look=[](void*,void*) {
+            if (in_system_callback()==1) ++inside;
+            uint32_t seen=9;
+            std::thread([&] {seen=in_system_callback();}).join();
+            if (seen==0) ++other;
+        };
+        check(in_system_callback()==0);
+        SystemHookCallbacks marks;
+        check(marks.bind(5,15,look,look,nullptr));
+        uint32_t during=9;
+        run_system_update(marks,nullptr,[&](void*) {during=in_system_callback();},marked);
+        check(inside==2 && other==2 && during==0 && in_system_callback()==0); // before and after: 1; the game's update: 0
+        auto faulted=[](KilnSystemHookFn fn,void* ctx,void* user,KilnHandle) {
+            const bool previous=enter_system_callback();
+            fn(ctx,user);                     // a structured exception would leave here: the guard's __except
+            leave_system_callback(previous);  // puts the outer value back exactly as this line does
+            return false;
+        };
+        run_system_update(marks,nullptr,[](void*) {},faulted);
+        check(inside==3 && in_system_callback()==0);
+        const bool outer=enter_system_callback();  // nested: a callback inside a callback keeps the outer 1
+        const bool inner=enter_system_callback();
+        leave_system_callback(inner);
+        check(!outer && inner && in_system_callback()==1);
+        leave_system_callback(outer);
+        check(in_system_callback()==0);
+    }
+    std::printf("system hook lifetime: PASS %d checks (concurrent worlds, original-running retire/rebind, stale handles, 64-slot bound, wrapped-program identity, external runner, in_system_callback)\n",checks);
 }

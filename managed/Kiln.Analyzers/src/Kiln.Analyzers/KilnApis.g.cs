@@ -112,6 +112,7 @@ internal static partial class KilnApis
         "M:Kiln.Build.UndoEntry(System.Int64,System.Nullable{System.TimeSpan})", // Build.UndoEntry(long, TimeSpan?): via Build.Ensure(string)
         "M:Kiln.Build.Write(Kiln.CellBox,System.ReadOnlySpan{Kiln.Voxel},Kiln.BuildOptions,System.ReadOnlySpan{System.Boolean})", // Build.Write(CellBox, ReadOnlySpan<Voxel>, BuildOptions?, ReadOnlySpan<bool>): via Build.Ensure(string)
         "M:Kiln.Build.WriteAsync(Kiln.CellBox,Kiln.Voxel[],Kiln.BuildOptions,System.Boolean[])", // Build.WriteAsync(CellBox, Voxel[], BuildOptions?, bool[]?): via Build.Load(CellBox, TimeSpan?)
+        "M:Kiln.Build.WriteIfUnchanged(Kiln.CellBox,System.ReadOnlySpan{Kiln.Voxel},System.ReadOnlySpan{Kiln.Voxel},Kiln.BuildOptions,System.ReadOnlySpan{System.Boolean})", // Build.WriteIfUnchanged(CellBox, ReadOnlySpan<Voxel>, ReadOnlySpan<Voxel>, BuildOptions?, ReadOnlySpan<bool>): via Build.Ensure(string)
         "M:Kiln.Build.get_Bases", // Build.Bases.get: via Build.Require(string)
         "M:Kiln.Build.get_Grid", // Build.Grid.get: via Build.Require(string)
         "M:Kiln.CharacterData.Carried.Contains(Kiln.CharacterKey,System.String)", // CharacterData.Carried.Contains(CharacterKey, string): via CharacterStore.Contains(string, CharacterKey, string, string)
