@@ -83,5 +83,6 @@ public static partial class Coverage
             "no fake: a true pair is a client hosting its world (a kiln.client fake, a client-side harness, a client tick) and " +
             "shares one channel registry, so no handshake refusal could be tested; Kiln.Network reports itself unavailable",
             "kiln.net");
+        foreach (var fake in KitFakes.All) fake.AddCoverage(rows);  // dev.28 on: Fakes/<Service>/ (IKitFake)
     }
 }

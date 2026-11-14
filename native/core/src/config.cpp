@@ -29,6 +29,25 @@ void read_native(const nlohmann::json& sec, const char* where) {
     else if (p == "never") g_config.native_policy = NativePolicy::Never;
     else KLOG_W("config: %s native.policy '%s' is not always, verified-only or never; ignored", where, p.c_str());
 }
+// "preview": true | "all" | [names]. Present in a section, it replaces what an earlier section said.
+void read_preview(const nlohmann::json& sec, const char* where) {
+    if (!sec.contains("preview")) return;
+    const auto& p = sec["preview"];
+    g_config.preview_all = false;
+    g_config.preview.clear();
+    if (p.is_boolean()) {
+        g_config.preview_all = p.get<bool>();
+    } else if (p.is_string() && p.get<std::string>() == "all") {
+        g_config.preview_all = true;
+    } else if (p.is_array()) {
+        for (const auto& n : p) {
+            if (n.is_string()) g_config.preview.push_back(n.get<std::string>());
+            else KLOG_W("config: %s \"preview\" holds an entry that is not a capability name; ignored", where);
+        }
+    } else {
+        KLOG_W("config: %s \"preview\" is not true, false or a list of capability names; ignored", where);
+    }
+}
 }  // namespace
 
 const Config& config() { return g_config; }
@@ -53,6 +72,7 @@ void load_config() {
         g_config.log_level = parse_level(doc.value("log_level", "info"));
         log::set_level(g_config.log_level);
         read_native(doc, "kiln.json");
+        read_preview(doc, "kiln.json");
         KLOG_I("config: policy=%s clr=%d plugins=%d native.policy=%s", g_config.policy_any ? "any" : "verified-only",
                g_config.clr, g_config.plugins, native_policy_name(g_config.native_policy));
     } catch (const std::exception& e) {
@@ -73,6 +93,7 @@ void apply_side(uint32_t side) {
             log::set_level(g_config.log_level);
         }
         read_native(sec, name);
+        read_preview(sec, name);
         KLOG_I("config: \"%s\" section: policy=%s clr=%d plugins=%d native.policy=%s", name,
                g_config.policy_any ? "any" : "verified-only", g_config.clr, g_config.plugins,
                native_policy_name(g_config.native_policy));
