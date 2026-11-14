@@ -46,6 +46,7 @@ generated [../status.generated.md](../status.generated.md); what has no API yet 
 | [catalogs.md](catalogs.md) | The local game-data catalog and the game-id constants |
 | [../typegen.md](../typegen.md) | Typed reads of the game's ECS components: `Kiln.Ecs` (`TryGet`, `Get`, `Has`, `All`, `Supports`), generated per game build; example in §4.3 |
 | [typed-fields.md](typed-fields.md) | The game's data as typed C# structures, for what blocks don't cover: `GameFields`, `GameEnums`, checked string paths |
+| [resource-patches.md](resource-patches.md) | Change a field of the game's data before the game reads it (the balancing table and the like): `resourcePatches` in a boot mod |
 | [player-states.md](player-states.md) | Every state and action a player can be in: `player.Is(...)`, `PlayerStateChangedEvent`, `PlayerActionEvent`, and what is left out |
 | [../services/steamguard.md](../services/steamguard.md) | The achievement guard (experimental, game client only): keep tests and admin commands from unlocking Steam achievements |
 | [debugging.md](debugging.md) | Breakpoints in a running server: `kiln debug` and netcoredbg |

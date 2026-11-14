@@ -1,4 +1,5 @@
 { "gates": [
     { "name": "mods.boot.client", "checks": ["08-boot.first-start-definitions", "08-loader-order"], "side": "client" },
-    { "name": "mods.boot.vfx", "checks": ["08-boot.first-start-definitions"], "side": "client" }
+    { "name": "mods.boot.vfx", "checks": ["08-boot.first-start-definitions"], "side": "client" },
+    { "name": "mods.boot.resource_patches", "checks": ["08-boot.first-start-definitions"], "side": "client" }
 ] }
