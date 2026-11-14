@@ -60,7 +60,8 @@ internal static class ServiceTick
          ("Kiln.Pets", "Kiln.PetsStartup"),
          ("Kiln.Terrain", "Kiln.TerrainStartup"),
          ("Kiln.ClientOptions", "Kiln.ClientOptionsStartup"),
-         ("Kiln.SlotUi", "Kiln.SlotUiStartup")];
+         ("Kiln.SlotUi", "Kiln.SlotUiStartup"),
+         ("Kiln.World", "Kiln.WorldStartup")];
 
     private static readonly object Lock = new();
     private static Entry[] _entries = [];
