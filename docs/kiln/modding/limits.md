@@ -13,6 +13,15 @@ Proof levels in the "Meanwhile" column: "works in the game" means a real client 
 server" means a dedicated-server lab with no player; "unit tests" means no game ran it. Anything else says what is
 still open.
 
+## Changed by dev.28 (in work)
+0.2.0-dev.28 builds the whole engine dossier: most of the rows below that name dev.28 or dev.29, mounts and pets,
+and terrain overlays. While it is in work, each package lists here what it changes of this page; the tables below are
+rewritten from this list when the release is assembled. "Held" means the capability ships switched off until its
+guided game test ([services/caps.md](../services/caps.md#the-client-gate-dev28)).
+
+| Row below (or new) | What dev.28 does | Capability | Proof so far |
+|---|---|---|---|
+
 ## No API yet
 
 | What | What stands in the way | Meanwhile | Planned |

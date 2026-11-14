@@ -49,10 +49,12 @@ internal static class FakeTables
         KitBackend.Instance.RegisterTable(TimeAbi.Service, TimeTable.Create());
         Features(TimeFake.Features);
         foreach (var row in TimeFake.OfflineRows) Offline(row, "the weather is not modelled by the test kit's fake of kiln.time");
+        // dev.28 on: a fake in Fakes/<Service>/ registers itself (IKitFake, KitFake.cs)
+        foreach (var fake in KitFakes.All) fake.Register();
     }
 
     /// <summary>Game features a fake models: available rows of the kit's, which a test can switch off.</summary>
-    private static void Features(IEnumerable<string> names)
+    internal static void Features(IEnumerable<string> names)
     {
         foreach (var name in names)
             KitBackend.Instance.Capabilities.Report(KitBackend.CapabilityOwner, name, CapState.Available, CapReason.None, "faked by the test kit",
@@ -60,7 +62,7 @@ internal static class FakeTables
     }
 
     /// <summary>A row a fake does not model: unavailable with reason offline (and a test cannot switch it on).</summary>
-    private static void Offline(string name, string text) =>
+    internal static void Offline(string name, string text) =>
         KitBackend.Instance.Capabilities.Report(KitBackend.CapabilityOwner, name, CapState.Unavailable, CapReason.Offline, text, KitBackend.CapabilityOwner);
 
     /// <summary>A session row of a fake in the kit's table: available while <paramref name="on"/>, else pending.</summary>
