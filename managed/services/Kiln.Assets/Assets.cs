@@ -61,6 +61,18 @@ public static unsafe partial class Assets
     private static AssetsNative.Table* T =>
         _table != null ? _table : (_table = Services.Get<AssetsNative.Table>(AssetsNative.Service, AssetsNative.Version));
 
+    // The table with the slots appended in 0.2.0-dev.28 (blob_add_ex, blob_override_ex, the blob catalog), or null on an
+    // older kiln.assets: the v1 table itself when its header.size covers them (no lookup of its own, so it never lowers
+    // kiln.assets' row and follows whatever T is).
+    internal static AssetsNative.TableEx* TEx
+    {
+        get
+        {
+            var t = T;
+            return t != null && t->Header.Size >= (uint)sizeof(AssetsNative.TableEx) ? (AssetsNative.TableEx*)t : null;
+        }
+    }
+
     /// <summary>True when kiln.assets is loaded and its hooks are on (a verified build or policy "any"; capability
     /// <c>kiln.assets</c>).</summary>
     public static bool Available => T != null;
@@ -313,27 +325,37 @@ public static unsafe partial class Assets
         }
     }
 
-    /// <summary>Add a new blob; the returned hash goes into a resource's content reference.</summary>
+    /// <summary>Add a new blob; the returned hash goes into a resource's content reference. kiln.assets records it as a
+    /// managed registration (a kiln.assets older than 0.2.0-dev.28: as a native one).</summary>
     [RequiresCapability(Caps.Content)]
     public static ContentHash AddBlob(byte[] bytes)
     {
         var t = Require();
         var owner = Owner();
         AssetsNative.ContentHash h;
-        fixed (byte* p = bytes) Check(t->BlobAdd(owner, p, (nuint)bytes.Length, &h), "AddBlob", Caps.Content);
+        var ex = TEx;
+        fixed (byte* p = bytes)
+            Check(ex != null && ex->BlobAddEx != null
+                      ? ex->BlobAddEx(owner, p, (nuint)bytes.Length, &h, AssetsNative.OriginManaged)
+                      : t->BlobAdd(owner, p, (nuint)bytes.Length, &h), "AddBlob", Caps.Content);
         var hash = new ContentHash(h.Size, h.H0, h.H1, h.H2);
         RecordBlob(owner, ModContext.CurrentMod!.Info.Id, hash, BlobKind.Added);
         return hash;
     }
 
-    /// <summary>Serve `bytes` instead of the game's blob `hash` (bytes.Length must equal hash.Size).</summary>
+    /// <summary>Serve `bytes` instead of the game's blob `hash` (bytes.Length must equal hash.Size). Recorded as a managed
+    /// registration, as <see cref="AddBlob"/>.</summary>
     [RequiresCapability(Caps.Content)]
     public static void OverrideBlob(ContentHash hash, byte[] bytes)
     {
         var t = Require();
         var owner = Owner();
         var h = new AssetsNative.ContentHash { Size = hash.Size, H0 = hash.H0, H1 = hash.H1, H2 = hash.H2 };
-        fixed (byte* p = bytes) Check(t->BlobOverride(owner, &h, p, (nuint)bytes.Length), "OverrideBlob", Caps.Content);
+        var ex = TEx;
+        fixed (byte* p = bytes)
+            Check(ex != null && ex->BlobOverrideEx != null
+                      ? ex->BlobOverrideEx(owner, &h, p, (nuint)bytes.Length, AssetsNative.OriginManaged)
+                      : t->BlobOverride(owner, &h, p, (nuint)bytes.Length), "OverrideBlob", Caps.Content);
         RecordBlob(owner, ModContext.CurrentMod!.Info.Id, hash, BlobKind.Override);
     }
 

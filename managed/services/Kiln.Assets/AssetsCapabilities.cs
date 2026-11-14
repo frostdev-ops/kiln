@@ -24,6 +24,11 @@ public static unsafe partial class Assets
         /// <summary>Kiln.Assets' own row: texture overrides (<see cref="Assets.OverrideTexture"/>), which kiln.assets
         /// does in the game client only.</summary>
         public const string Textures = "assets.textures";
+
+        /// <summary>Kiln.Assets' own row (0.2.0-dev.28): the content blob catalog (<see cref="Assets.OpenBlobCatalog"/>):
+        /// kiln.assets' table has it and the content hooks are on. Held in a game client by the wave's client gate until
+        /// check <c>13-assets.catalog-client</c> passes.</summary>
+        public const string Catalog = "assets.blob_catalog";
     }
 
     internal static readonly ServiceCapRows Rows = new(Caps.Service, ReportCapabilities);
@@ -40,6 +45,7 @@ public static unsafe partial class Assets
             var (reason, text) = ServiceCaps.Cause(CapabilityReason.ServiceMissing, "kiln.assets is not loaded", Caps.Service);
             foreach (var name in (string[])[Caps.Resources, Caps.Content, Caps.Icons]) ServiceCaps.Lower(name, reason, text);
             ServiceCaps.Static(Caps.Textures, false, CapabilityReason.ServiceMissing, "kiln.assets is not loaded", Caps.Service);
+            ServiceCaps.Static(Caps.Catalog, false, CapabilityReason.ServiceMissing, "kiln.assets is not loaded", Caps.Service);
             return;
         }
         // kiln.assets publishes its table also when its hooks are off (safe idle, or an install that failed): every call
@@ -48,6 +54,13 @@ public static unsafe partial class Assets
         if (!hooks.Resources) ServiceCaps.Lower(Caps.Resources, CapabilityReason.Faulted, Off("the resource hooks", hooks.ResourcesWhy));
         if (!hooks.Content) ServiceCaps.Lower(Caps.Content, CapabilityReason.Faulted, Off("the content hooks", hooks.ContentWhy));
         if (client && !hooks.Icons) ServiceCaps.Lower(Caps.Icons, CapabilityReason.Faulted, Off("the UI icon hooks", hooks.IconsWhy));
+        // the blob catalog: the table's 0.2.0-dev.28 slots, and the content hooks it reads the registrations of
+        var ex = TEx;
+        if (ex == null || ex->BlobCatalogOpen == null || ex->BlobCatalogRead == null || ex->BlobCatalogClose == null)
+            ServiceCaps.Report(Caps.Catalog, CapabilityState.Unavailable, CapabilityReason.ServiceOlder,
+                "kiln.assets is older than 0.2.0-dev.28: it has no blob catalog");
+        else
+            ServiceCaps.Static(Caps.Catalog, hooks.Content, CapabilityReason.Faulted, Off("the content hooks", hooks.ContentWhy), Caps.Service);
         if (!client)
             ServiceCaps.Report(Caps.Textures, CapabilityState.Unavailable, CapabilityReason.WrongSide,
                 "kiln.assets overrides textures in the game client only");
@@ -92,5 +105,9 @@ public static unsafe partial class Assets
 /// mod asks for them, not from Kiln.Assets' first use.</summary>
 internal static class AssetsStartup
 {
-    static AssetsStartup() => Assets.Rows.Ensure();
+    static AssetsStartup()
+    {
+        Assets.Rows.Ensure();
+        Assets.StartCatalogWatch();  // AssetsCatalogChangedEvent
+    }
 }

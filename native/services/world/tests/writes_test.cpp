@@ -28,7 +28,7 @@ static_assert(offsetof(KilnWorldApi, status) == 184 && offsetof(KilnWorldApi, wr
 static_assert(offsetof(KilnWorldApi, program_emit) == 232 && offsetof(KilnWorldApi, write_submit) == 240);
 static_assert(offsetof(KilnWorldApi, write_cancel) == 248 && offsetof(KilnWorldApi, write_info) == 256);
 static_assert(offsetof(KilnWorldApi, write_status) == 264 && offsetof(KilnWorldApi, write_declare) == 272);
-static_assert(sizeof(KilnWorldApi) == 280);
+static_assert(offsetof(KilnWorldApi, game_program_find) == 280);  // v3 ends there; v4 (0.2.0-dev.28) appends
 // The managed mirrors (Kiln.World/WorldWrites.cs) and the test kit's fake are pinned to these.
 static_assert(sizeof(KilnWorldWriteRequest) == 72 && offsetof(KilnWorldWriteRequest, data) == 24);
 static_assert(offsetof(KilnWorldWriteRequest, change) == 32 && offsetof(KilnWorldWriteRequest, mod_id) == 56);
@@ -36,7 +36,7 @@ static_assert(sizeof(KilnWorldWriteResult) == 80 && offsetof(KilnWorldWriteResul
 static_assert(offsetof(KilnWorldWriteResult, before) == 48 && offsetof(KilnWorldWriteResult, reason) == 64);
 static_assert(sizeof(KilnWorldWriteInfo) == 256 && offsetof(KilnWorldWriteInfo, writer_names) == 24);
 static_assert(sizeof(KilnWorldWriteStatus) == 72 && offsetof(KilnWorldWriteStatus, submitted) == 32);
-static_assert(KILN_WORLD_VERSION == 3u && KILN_WORLD_CAP_TRACKED_WRITES == 8u);
+static_assert(KILN_WORLD_VERSION >= 3u && KILN_WORLD_CAP_TRACKED_WRITES == 8u);
 
 using namespace kw;
 
@@ -943,7 +943,8 @@ void abi(const nlohmann::json& fx) {
     };
 #define F(S, f) l.push_back(nlohmann::json::array({#f, offsetof(S, f)}))
     {
-        auto& l = list("KilnWorldApi", sizeof(KilnWorldApi));
+        // the v3 table: its extent is where v4's first member starts (v4 is "KilnWorldApiV4", checked by wraps_test)
+        auto& l = list("KilnWorldApi", offsetof(KilnWorldApi, game_program_find));
         F(KilnWorldApi, header); F(KilnWorldApi, register_program); F(KilnWorldApi, program_slot); F(KilnWorldApi, program_info);
         F(KilnWorldApi, iter_begin); F(KilnWorldApi, iter_next); F(KilnWorldApi, current_entity); F(KilnWorldApi, command_buffer);
         F(KilnWorldApi, queue_push); F(KilnWorldApi, queue_add); F(KilnWorldApi, queue_remove); F(KilnWorldApi, mark_written);

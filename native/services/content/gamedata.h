@@ -231,6 +231,7 @@ void clones_boot();
 void clones_world_ready(uintptr_t world, uint32_t kind);
 void clones_world_reset();
 void clones_tick(uint64_t step);
+uint32_t clones_forget_unbound(KilnOwner owner);  // a boot generation not published (chapter 08): owner's unregistered clones out
 KilnResult clones_define(KilnOwner owner, uint32_t section, const std::string& json, bool pack, const std::string& source,
                          std::string* report);
 std::string clones_json();

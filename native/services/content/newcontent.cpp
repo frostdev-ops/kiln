@@ -4203,6 +4203,43 @@ bool nc_icon_alias(const uint8_t from[16], const uint8_t to[16]) {
     return true;
 }
 
+// A boot generation's prepared definitions that are not published (chapter 08): taken out whole while no world has bound (before the
+// game's entry point nothing has); once one has, they are only set aside as nc_undefine_owner does.
+uint32_t nc_forget_unbound(KilnOwner owner) {
+    uint32_t n = 0;
+    {
+        std::lock_guard lock(store_mutex());
+        bool bound = false;
+        for (const WorldState& ws : g_ws) bound |= ws.world != 0;
+        if (!bound) {
+            std::vector<DefPtr> gone;
+            for (const DefPtr& d : g_defs)
+                if (d->owner == owner) gone.push_back(d);
+            for (const DefPtr& d : gone) {
+                if (auto it = g_index.guid.find(DefIndex::key(d->kind, d->guid)); it != g_index.guid.end() && it->second == d) g_index.guid.erase(it);
+                if (d->kind == KILN_CONTENT_ITEMS)
+                    if (auto it = g_index.guid_text.find(d->guid_s); it != g_index.guid_text.end() && it->second == d) g_index.guid_text.erase(it);
+                if (auto it = g_index.name.find(DefIndex::key(d->kind, lower(d->name))); it != g_index.name.end()) {
+                    std::erase(it->second, d);
+                    if (it->second.empty()) g_index.name.erase(it);
+                }
+                if (auto it = g_index.id.find((uint64_t(d->kind) << 32) | d->id); it != g_index.id.end()) {
+                    std::erase(it->second, d);
+                    if (it->second.empty()) g_index.id.erase(it);
+                }
+            }
+            std::erase_if(g_defs, [&](const DefPtr& d) { return d->owner == owner; });
+            n = static_cast<uint32_t>(gone.size());
+        }
+    }
+    if (n) {
+        g_version.fetch_add(1);
+        LOGI("new content: %u unpublished definition(s) of %s taken out (no world had them)", n, owner_label(owner).c_str());
+        return n;
+    }
+    return nc_undefine_owner(owner);
+}
+
 uint32_t nc_undefine_owner(KilnOwner owner) {
     uint32_t n = 0;
     {

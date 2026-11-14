@@ -1,1 +1,10 @@
 #nullable enable
+[KILNX001]const Kiln.Testing.LabSystems.MaxSteps = 3000 -> int
+[KILNX001]Kiln.Testing.LabSystems
+[KILNX001]static Kiln.Testing.LabSystems.Enabled.get -> bool
+[KILNX001]static Kiln.Testing.LabSystems.Forced.get -> bool
+[KILNX001]static Kiln.Testing.LabSystems.ForceParallel(int steps) -> bool
+[KILNX001]static Kiln.Testing.LabSystems.PlayersMask.get -> ushort?
+[KILNX001]static Kiln.Testing.LabSystems.StepsLeft.get -> int
+[KILNX001]static Kiln.Testing.LabSystems.StopParallel() -> bool
+Kiln.Testing.CheckContext.Skip(string! reason) -> System.Threading.Tasks.Task<Kiln.Testing.ClientCheckVerdict>!

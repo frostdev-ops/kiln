@@ -16,7 +16,149 @@ Kiln.EntityQueryResult.Total.get -> int
 Kiln.EntityQueryResult.Total.init -> void
 Kiln.EntityQueryResult.Truncated.get -> bool
 Kiln.EntityQueryResult.Truncated.init -> void
+Kiln.PathQueryChangedEvent
+Kiln.PathQueryChangedEvent.After.get -> Kiln.QueryPathState
+Kiln.PathQueryChangedEvent.Anchor.get -> Kiln.EntityId
+Kiln.PathQueryChangedEvent.Before.get -> Kiln.QueryPathState
+Kiln.PathQueryChangedEvent.Generation.get -> uint
+Kiln.PathQueryChangedEvent.PathQueryChangedEvent(ulong request, uint generation, Kiln.EntityId anchor, Kiln.QueryPathState before, Kiln.QueryPathState after, Kiln.QueryPathStatus? terminalStatus, string? reason) -> void
+Kiln.PathQueryChangedEvent.Reason.get -> string?
+Kiln.PathQueryChangedEvent.Request.get -> ulong
+Kiln.PathQueryChangedEvent.TerminalStatus.get -> Kiln.QueryPathStatus?
 Kiln.Queries
+Kiln.QueryCancelResult
+Kiln.QueryCancelResult.<Clone>$() -> Kiln.QueryCancelResult!
+Kiln.QueryCancelResult.Deconstruct(out bool Ok, out string? Reason, out ulong Request) -> void
+Kiln.QueryCancelResult.Equals(Kiln.QueryCancelResult? other) -> bool
+Kiln.QueryCancelResult.Ok.get -> bool
+Kiln.QueryCancelResult.Ok.init -> void
+Kiln.QueryCancelResult.QueryCancelResult(bool Ok, string? Reason, ulong Request) -> void
+Kiln.QueryCancelResult.Reason.get -> string?
+Kiln.QueryCancelResult.Reason.init -> void
+Kiln.QueryCancelResult.Request.get -> ulong
+Kiln.QueryCancelResult.Request.init -> void
+Kiln.QueryPathMove
+Kiln.QueryPathMove.Dive = 7 -> Kiln.QueryPathMove
+Kiln.QueryPathMove.Fly = 1 -> Kiln.QueryPathMove
+Kiln.QueryPathMove.FlyThroughWater = 9 -> Kiln.QueryPathMove
+Kiln.QueryPathMove.JumpAcross = 4 -> Kiln.QueryPathMove
+Kiln.QueryPathMove.JumpDown = 3 -> Kiln.QueryPathMove
+Kiln.QueryPathMove.JumpUp = 2 -> Kiln.QueryPathMove
+Kiln.QueryPathMove.OpenDoor = 5 -> Kiln.QueryPathMove
+Kiln.QueryPathMove.Swim = 6 -> Kiln.QueryPathMove
+Kiln.QueryPathMove.Walk = 0 -> Kiln.QueryPathMove
+Kiln.QueryPathMove.WalkUnderWater = 8 -> Kiln.QueryPathMove
+Kiln.QueryPathPoint
+Kiln.QueryPathPoint.<Clone>$() -> Kiln.QueryPathPoint!
+Kiln.QueryPathPoint.Deconstruct(out Kiln.WorldPosition Position, out byte RawMove) -> void
+Kiln.QueryPathPoint.Equals(Kiln.QueryPathPoint? other) -> bool
+Kiln.QueryPathPoint.Move.get -> Kiln.QueryPathMove?
+Kiln.QueryPathPoint.Position.get -> Kiln.WorldPosition
+Kiln.QueryPathPoint.Position.init -> void
+Kiln.QueryPathPoint.QueryPathPoint(Kiln.WorldPosition Position, byte RawMove) -> void
+Kiln.QueryPathPoint.RawMove.get -> byte
+Kiln.QueryPathPoint.RawMove.init -> void
+Kiln.QueryPathRequest
+Kiln.QueryPathRequest.<Clone>$() -> Kiln.QueryPathRequest!
+Kiln.QueryPathRequest.Anchor.get -> Kiln.EntityId
+Kiln.QueryPathRequest.Anchor.init -> void
+Kiln.QueryPathRequest.ClosestFallback.get -> bool
+Kiln.QueryPathRequest.ClosestFallback.init -> void
+Kiln.QueryPathRequest.Deconstruct(out Kiln.EntityId Anchor, out Kiln.WorldPosition From, out Kiln.WorldPosition To) -> void
+Kiln.QueryPathRequest.Equals(Kiln.QueryPathRequest? other) -> bool
+Kiln.QueryPathRequest.From.get -> Kiln.WorldPosition
+Kiln.QueryPathRequest.From.init -> void
+Kiln.QueryPathRequest.HorizontalSpace.get -> double
+Kiln.QueryPathRequest.HorizontalSpace.init -> void
+Kiln.QueryPathRequest.MaxIterations.get -> uint
+Kiln.QueryPathRequest.MaxIterations.init -> void
+Kiln.QueryPathRequest.QueryPathRequest(Kiln.EntityId Anchor, Kiln.WorldPosition From, Kiln.WorldPosition To) -> void
+Kiln.QueryPathRequest.To.get -> Kiln.WorldPosition
+Kiln.QueryPathRequest.To.init -> void
+Kiln.QueryPathRequest.VerticalSpace.get -> double
+Kiln.QueryPathRequest.VerticalSpace.init -> void
+Kiln.QueryPathResult
+Kiln.QueryPathResult.<Clone>$() -> Kiln.QueryPathResult!
+Kiln.QueryPathResult.Deconstruct(out bool Ok, out string? Reason, out ulong Request, out uint Generation, out Kiln.QueryPathStatus Status, out byte? GameResult, out bool ReachesTarget, out System.Collections.Generic.IReadOnlyList<Kiln.QueryPathPoint!>! Points, out double Length, out uint Steps) -> void
+Kiln.QueryPathResult.Equals(Kiln.QueryPathResult? other) -> bool
+Kiln.QueryPathResult.GameResult.get -> byte?
+Kiln.QueryPathResult.GameResult.init -> void
+Kiln.QueryPathResult.Generation.get -> uint
+Kiln.QueryPathResult.Generation.init -> void
+Kiln.QueryPathResult.Length.get -> double
+Kiln.QueryPathResult.Length.init -> void
+Kiln.QueryPathResult.Ok.get -> bool
+Kiln.QueryPathResult.Ok.init -> void
+Kiln.QueryPathResult.Points.get -> System.Collections.Generic.IReadOnlyList<Kiln.QueryPathPoint!>!
+Kiln.QueryPathResult.Points.init -> void
+Kiln.QueryPathResult.QueryPathResult(bool Ok, string? Reason, ulong Request, uint Generation, Kiln.QueryPathStatus Status, byte? GameResult, bool ReachesTarget, System.Collections.Generic.IReadOnlyList<Kiln.QueryPathPoint!>! Points, double Length, uint Steps) -> void
+Kiln.QueryPathResult.ReachesTarget.get -> bool
+Kiln.QueryPathResult.ReachesTarget.init -> void
+Kiln.QueryPathResult.Reason.get -> string?
+Kiln.QueryPathResult.Reason.init -> void
+Kiln.QueryPathResult.Request.get -> ulong
+Kiln.QueryPathResult.Request.init -> void
+Kiln.QueryPathResult.Status.get -> Kiln.QueryPathStatus
+Kiln.QueryPathResult.Status.init -> void
+Kiln.QueryPathResult.Steps.get -> uint
+Kiln.QueryPathResult.Steps.init -> void
+Kiln.QueryPathState
+Kiln.QueryPathState.Cancelled = 4 -> Kiln.QueryPathState
+Kiln.QueryPathState.Completed = 3 -> Kiln.QueryPathState
+Kiln.QueryPathState.Created = 0 -> Kiln.QueryPathState
+Kiln.QueryPathState.Queued = 1 -> Kiln.QueryPathState
+Kiln.QueryPathState.Searching = 2 -> Kiln.QueryPathState
+Kiln.QueryPathState.TimedOut = 5 -> Kiln.QueryPathState
+Kiln.QueryPathStatus
+Kiln.QueryPathStatus.Cancelled = 9 -> Kiln.QueryPathStatus
+Kiln.QueryPathStatus.Found = 1 -> Kiln.QueryPathStatus
+Kiln.QueryPathStatus.IterationLimit = 6 -> Kiln.QueryPathStatus
+Kiln.QueryPathStatus.MalformedResult = 15 -> Kiln.QueryPathStatus
+Kiln.QueryPathStatus.NoPath = 3 -> Kiln.QueryPathStatus
+Kiln.QueryPathStatus.NoStartNode = 4 -> Kiln.QueryPathStatus
+Kiln.QueryPathStatus.NoTargetNode = 5 -> Kiln.QueryPathStatus
+Kiln.QueryPathStatus.NotLoadedOrUnknown = 8 -> Kiln.QueryPathStatus
+Kiln.QueryPathStatus.OutOfGrid = 18 -> Kiln.QueryPathStatus
+Kiln.QueryPathStatus.OutOfMemory = 7 -> Kiln.QueryPathStatus
+Kiln.QueryPathStatus.OwnerGone = 10 -> Kiln.QueryPathStatus
+Kiln.QueryPathStatus.OwnerIdentityUnavailable = 17 -> Kiln.QueryPathStatus
+Kiln.QueryPathStatus.OwnerRetired = 20 -> Kiln.QueryPathStatus
+Kiln.QueryPathStatus.Partial = 2 -> Kiln.QueryPathStatus
+Kiln.QueryPathStatus.Pending = 0 -> Kiln.QueryPathStatus
+Kiln.QueryPathStatus.QueueFull = 16 -> Kiln.QueryPathStatus
+Kiln.QueryPathStatus.Refused = 13 -> Kiln.QueryPathStatus
+Kiln.QueryPathStatus.TimedOut = 11 -> Kiln.QueryPathStatus
+Kiln.QueryPathStatus.Truncated = 12 -> Kiln.QueryPathStatus
+Kiln.QueryPathStatus.UnsupportedTraversal = 14 -> Kiln.QueryPathStatus
+Kiln.QueryPathStatus.WorldClosed = 19 -> Kiln.QueryPathStatus
+Kiln.QueryPathTicket
+Kiln.QueryPathTicket.<Clone>$() -> Kiln.QueryPathTicket!
+Kiln.QueryPathTicket.Completion.get -> System.Threading.Tasks.Task<Kiln.QueryPathResult!>!
+Kiln.QueryPathTicket.Completion.init -> void
+Kiln.QueryPathTicket.Deconstruct(out bool Ok, out string? Reason, out ulong Request, out System.Threading.Tasks.Task<Kiln.QueryPathResult!>! Completion) -> void
+Kiln.QueryPathTicket.Equals(Kiln.QueryPathTicket? other) -> bool
+Kiln.QueryPathTicket.Ok.get -> bool
+Kiln.QueryPathTicket.Ok.init -> void
+Kiln.QueryPathTicket.QueryPathTicket(bool Ok, string? Reason, ulong Request, System.Threading.Tasks.Task<Kiln.QueryPathResult!>! Completion) -> void
+Kiln.QueryPathTicket.Reason.get -> string?
+Kiln.QueryPathTicket.Reason.init -> void
+Kiln.QueryPathTicket.Request.get -> ulong
+Kiln.QueryPathTicket.Request.init -> void
+Kiln.QueryReachabilityResult
+Kiln.QueryReachabilityResult.<Clone>$() -> Kiln.QueryReachabilityResult!
+Kiln.QueryReachabilityResult.Deconstruct(out bool Ok, out string? Reason, out bool Reachable, out Kiln.QueryPathStatus Status, out byte? GameResult) -> void
+Kiln.QueryReachabilityResult.Equals(Kiln.QueryReachabilityResult? other) -> bool
+Kiln.QueryReachabilityResult.GameResult.get -> byte?
+Kiln.QueryReachabilityResult.GameResult.init -> void
+Kiln.QueryReachabilityResult.Ok.get -> bool
+Kiln.QueryReachabilityResult.Ok.init -> void
+Kiln.QueryReachabilityResult.QueryReachabilityResult(bool Ok, string? Reason, bool Reachable, Kiln.QueryPathStatus Status, byte? GameResult) -> void
+Kiln.QueryReachabilityResult.Reachable.get -> bool
+Kiln.QueryReachabilityResult.Reachable.init -> void
+Kiln.QueryReachabilityResult.Reason.get -> string?
+Kiln.QueryReachabilityResult.Reason.init -> void
+Kiln.QueryReachabilityResult.Status.get -> Kiln.QueryPathStatus
+Kiln.QueryReachabilityResult.Status.init -> void
 Kiln.VoxelRayHit
 Kiln.VoxelRayHit.<Clone>$() -> Kiln.VoxelRayHit!
 Kiln.VoxelRayHit.Deconstruct(out Kiln.WorldPosition Position, out double Distance, out uint Material, out ushort Voxel) -> void
@@ -65,10 +207,29 @@ Kiln.VoxelSightResult.Visible.get -> bool
 Kiln.VoxelSightResult.Visible.init -> void
 Kiln.VoxelSightResult.VoxelSightResult(bool Ok, string? Reason, bool Visible, Kiln.VoxelRayHit? Obstruction) -> void
 const Kiln.Queries.MaxEntities = 4096 -> int
+const Kiln.Queries.MaxPathDistance = 200 -> double
 const Kiln.Queries.MaxRayLength = 256 -> double
 override Kiln.EntityQueryResult.Equals(object? obj) -> bool
 override Kiln.EntityQueryResult.GetHashCode() -> int
 override Kiln.EntityQueryResult.ToString() -> string!
+override Kiln.QueryCancelResult.Equals(object? obj) -> bool
+override Kiln.QueryCancelResult.GetHashCode() -> int
+override Kiln.QueryCancelResult.ToString() -> string!
+override Kiln.QueryPathPoint.Equals(object? obj) -> bool
+override Kiln.QueryPathPoint.GetHashCode() -> int
+override Kiln.QueryPathPoint.ToString() -> string!
+override Kiln.QueryPathRequest.Equals(object? obj) -> bool
+override Kiln.QueryPathRequest.GetHashCode() -> int
+override Kiln.QueryPathRequest.ToString() -> string!
+override Kiln.QueryPathResult.Equals(object? obj) -> bool
+override Kiln.QueryPathResult.GetHashCode() -> int
+override Kiln.QueryPathResult.ToString() -> string!
+override Kiln.QueryPathTicket.Equals(object? obj) -> bool
+override Kiln.QueryPathTicket.GetHashCode() -> int
+override Kiln.QueryPathTicket.ToString() -> string!
+override Kiln.QueryReachabilityResult.Equals(object? obj) -> bool
+override Kiln.QueryReachabilityResult.GetHashCode() -> int
+override Kiln.QueryReachabilityResult.ToString() -> string!
 override Kiln.VoxelRayHit.Equals(object? obj) -> bool
 override Kiln.VoxelRayHit.GetHashCode() -> int
 override Kiln.VoxelRayHit.ToString() -> string!
@@ -83,11 +244,27 @@ override Kiln.VoxelSightResult.GetHashCode() -> int
 override Kiln.VoxelSightResult.ToString() -> string!
 static Kiln.EntityQueryResult.operator !=(Kiln.EntityQueryResult? left, Kiln.EntityQueryResult? right) -> bool
 static Kiln.EntityQueryResult.operator ==(Kiln.EntityQueryResult? left, Kiln.EntityQueryResult? right) -> bool
+static Kiln.Queries.CanReach(Kiln.QueryPathRequest! request, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Kiln.QueryReachabilityResult!>!
+static Kiln.Queries.CancelPath(ulong request) -> Kiln.QueryCancelResult!
 static Kiln.Queries.EntitiesInBox(Kiln.WorldPosition center, Kiln.WorldPosition halfExtents, Kiln.EntityId exclude = default(Kiln.EntityId), int max = 4096) -> Kiln.EntityQueryResult!
 static Kiln.Queries.EntitiesInSphere(Kiln.WorldPosition center, double radius, Kiln.EntityId exclude = default(Kiln.EntityId), int max = 4096) -> Kiln.EntityQueryResult!
+static Kiln.Queries.FindPath(Kiln.QueryPathRequest! request, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Kiln.QueryPathResult!>!
 static Kiln.Queries.GroundBelow(Kiln.WorldPosition from, double maxDown = 100, byte realm = 0) -> Kiln.VoxelRayResult!
 static Kiln.Queries.RaycastVoxels(Kiln.WorldPosition from, Kiln.WorldPosition to, byte realm = 0) -> Kiln.VoxelRayResult!
+static Kiln.Queries.RequestPath(Kiln.QueryPathRequest! request) -> Kiln.QueryPathTicket!
 static Kiln.Queries.VoxelLineOfSight(Kiln.EntityId from, Kiln.EntityId to, Kiln.VoxelSightOptions? options = null) -> Kiln.VoxelSightResult!
+static Kiln.QueryCancelResult.operator !=(Kiln.QueryCancelResult? left, Kiln.QueryCancelResult? right) -> bool
+static Kiln.QueryCancelResult.operator ==(Kiln.QueryCancelResult? left, Kiln.QueryCancelResult? right) -> bool
+static Kiln.QueryPathPoint.operator !=(Kiln.QueryPathPoint? left, Kiln.QueryPathPoint? right) -> bool
+static Kiln.QueryPathPoint.operator ==(Kiln.QueryPathPoint? left, Kiln.QueryPathPoint? right) -> bool
+static Kiln.QueryPathRequest.operator !=(Kiln.QueryPathRequest? left, Kiln.QueryPathRequest? right) -> bool
+static Kiln.QueryPathRequest.operator ==(Kiln.QueryPathRequest? left, Kiln.QueryPathRequest? right) -> bool
+static Kiln.QueryPathResult.operator !=(Kiln.QueryPathResult? left, Kiln.QueryPathResult? right) -> bool
+static Kiln.QueryPathResult.operator ==(Kiln.QueryPathResult? left, Kiln.QueryPathResult? right) -> bool
+static Kiln.QueryPathTicket.operator !=(Kiln.QueryPathTicket? left, Kiln.QueryPathTicket? right) -> bool
+static Kiln.QueryPathTicket.operator ==(Kiln.QueryPathTicket? left, Kiln.QueryPathTicket? right) -> bool
+static Kiln.QueryReachabilityResult.operator !=(Kiln.QueryReachabilityResult? left, Kiln.QueryReachabilityResult? right) -> bool
+static Kiln.QueryReachabilityResult.operator ==(Kiln.QueryReachabilityResult? left, Kiln.QueryReachabilityResult? right) -> bool
 static Kiln.VoxelRayHit.operator !=(Kiln.VoxelRayHit? left, Kiln.VoxelRayHit? right) -> bool
 static Kiln.VoxelRayHit.operator ==(Kiln.VoxelRayHit? left, Kiln.VoxelRayHit? right) -> bool
 static Kiln.VoxelRayResult.operator !=(Kiln.VoxelRayResult? left, Kiln.VoxelRayResult? right) -> bool

@@ -351,6 +351,14 @@ KilnResult KILN_CALL h_fingerprint(uintptr_t target, char* json, size_t cap, siz
     });
 }
 
+// ---- owner cleanup (dev.28) ----
+KilnResult KILN_CALL h_subscribe_owner_retiring(KilnOwner observer, KilnOwnerRetiringFn fn, void* user, KilnHandle* out) {
+    KILN_GUARD("subscribe_owner_retiring", KILN_ERR_INTERNAL, return reg::add_owner_retiring(observer, fn, user, out););
+}
+KilnResult KILN_CALL h_unsubscribe_owner_retiring(KilnHandle handle) {
+    KILN_GUARD("unsubscribe_owner_retiring", KILN_ERR_INTERNAL, return reg::remove_owner_retiring(handle););
+}
+
 KilnResult KILN_CALL h_revoke(KilnHandle handle) {
     if (chain::is_link_handle(handle)) KILN_GUARD("revoke", KILN_ERR_INTERNAL, return chain::revoke(handle););
     return h_unpatch(handle);
@@ -519,6 +527,9 @@ const KilnHooksApi kTable = {
     &h_call_with_frame,
     &h_fingerprint,
     &h_typed_refusal,
+    // owner cleanup (dev.28)
+    &h_subscribe_owner_retiring,
+    &h_unsubscribe_owner_retiring,
 };
 
 std::mutex g_ready_mutex;

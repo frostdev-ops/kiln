@@ -18,6 +18,11 @@ internal static unsafe class QueriesCaps
     /// <summary><see cref="Queries.EntitiesInSphere"/> and <see cref="Queries.EntitiesInBox"/>: entity origins from kiln.world.</summary>
     public const string OverlapOrigins = "queries.overlap_origins";
 
+    /// <summary>sigdb: the game's path queries (<see cref="Queries.RequestPath"/>, <see cref="Queries.FindPath"/>).</summary>
+    public const string Path = "queries.path";
+    /// <summary><see cref="Queries.CanReach"/>: the same path search, asked only whether it arrives.</summary>
+    public const string Reachability = "queries.reachability";
+
     private const string World = "kiln.world";
 
     internal static readonly ServiceCapRows Rows = new(Service, Report, everySteps: 25, refreshOnlyWithService: true);
@@ -25,17 +30,19 @@ internal static unsafe class QueriesCaps
     private static void Report()
     {
         var here = QueriesNative.T != null;
-        if (!here) ServiceCaps.LowerFeatures(Service, [VoxelRay]);
+        if (!here) ServiceCaps.LowerFeatures(Service, [VoxelRay, Path]);
         const string missing = "kiln.queries is not loaded";
         // Static's `needs` only explain an off row: whether each need is on is asked here
         ServiceCaps.Static(Ground, here && Capabilities.Is(VoxelRay), CapabilityReason.ServiceMissing, missing, Service, VoxelRay);
         ServiceCaps.Static(LineOfSight, here && Capabilities.Is(VoxelRay) && Capabilities.Is(World), CapabilityReason.ServiceMissing, missing, Service, VoxelRay, World);
+        ServiceCaps.Static(Reachability, here && Capabilities.Is(Path), CapabilityReason.ServiceMissing, missing, Service, Path);
         ServiceCaps.Static(OverlapOrigins, here && Capabilities.Is(World), CapabilityReason.ServiceMissing, missing, Service, World);
     }
 
-    // What is true now: the table, the member's row, and the ray's row for what is built on the ray.
+    // What is true now: the table, the member's row, and the row of what it is built on.
     private static bool OnNow(string capability) =>
-        QueriesNative.T != null && Capabilities.Is(capability) && (capability is not (Ground or LineOfSight) || Capabilities.Is(VoxelRay));
+        QueriesNative.T != null && Capabilities.Is(capability) && (capability is not (Ground or LineOfSight) || Capabilities.Is(VoxelRay)) &&
+        (capability != Reachability || Capabilities.Is(Path));
 
     /// <summary>Throws <see cref="KilnUnavailableException"/> naming <paramref name="capability"/> unless it is available
     /// now. The composed rows are decided when they are reported, from the table and the ray's row as they were then; a

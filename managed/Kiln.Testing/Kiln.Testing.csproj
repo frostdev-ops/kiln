@@ -5,6 +5,8 @@
        guided [ClientCheck] runner by the first mod that calls ClientChecks.Register. -->
   <PropertyGroup>
     <RootNamespace>Kiln.Testing</RootNamespace>
+    <!-- LabSystems reads kiln.world's table (the lab parallel switch) -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <NoWarn>$(NoWarn);CS1591</NoWarn>
     <!-- the runner calls Kiln.SteamGuard, which is experimental until it has run in a real client -->

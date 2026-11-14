@@ -145,4 +145,112 @@ public sealed partial class ClientPassMod
                    "\"queries-brain-test: PASS\". Are all of its lines PASS, and did the creatures stand where the wall is?");
         await c.Verdict();
     }
+
+    // ---- 02-pathfinding (chapter 02): the game's path search in a hosted world. queries.path and queries.reachability are
+    // held on a game client until 02-queries.path-hosted passes (native/core/gates/dev28-02-pathfinding.json). Orders 2100-2199.
+
+    private static async Task<QueryPathResult> QueriesPath(CheckContext c, QueryPathRequest request)
+    {
+        var task = Queries.FindPath(request);
+        for (var i = 0; i < 400 && !task.IsCompleted; i++) await c.Delay(TimeSpan.FromMilliseconds(50));
+        return task.IsCompleted ? task.Result : new QueryPathResult(false, "CheckGaveUp", 0, 0, QueryPathStatus.Pending, null, false, [], 0, 0);
+    }
+
+    [ClientCheck("02-queries.path-hosted", "Paths around a wall, cleaned up, and again after a reload", Area = QueriesArea, Since = Dev28,
+        Tags = [Visual], Needs = ClientCheckNeeds.Hosted, Order = 2100)]
+    public async Task QueriesPathHosted(CheckContext c)
+    {
+        if (!await NeedOpen(c, "queries.path", "queries.reachability")) return;
+        c.Instruct("Host a disposable world and stand on flat, open ground well away from any base, with 10 m of clear ground to " +
+                   "the east. Stand still, then press continue.");
+        await c.Verdict();
+        if (!QueriesPlayerAt(c, out _, out var at)) return;
+        // the anchor: a pickup of the check's own (a player may have no spawn marker)
+        var anchor = await Spawn.Entity("Base_LootPickup_Generic_Gravity", new WorldPosition(at.X + 1, at.Y + 0.5, at.Z));
+        await c.Delay(TimeSpan.FromSeconds(1));
+        if (!World.TryGetPosition(anchor, out var from)) { c.Expect(false, "the anchor pickup has a position"); return; }
+        var to = new WorldPosition(from.X + 8, from.Y, from.Z);
+        try
+        {
+            var open = await QueriesPath(c, new QueryPathRequest(anchor, from, to));
+            c.Log.Info($"client-pass: {c.Id}: open ground: {open.Status} reaches={open.ReachesTarget} points={open.Points.Count} length={open.Length:F2} steps={open.Steps}");
+            c.Expect(open is { Ok: true, ReachesTarget: true }, $"a path over 8 m of open ground is found ({open.Status}, {open.Reason})");
+            if (!open.Ok) return;
+
+            // a wall across the straight line, 1 m thick, 3 m high, 7 m wide: the route goes round it or there is none
+            var corner = Build.CellOf(new WorldPosition(from.X + 4, from.Y - 0.5, from.Z - 3.5));
+            var box = new CellBox(corner.X, corner.Y, corner.Z, 2, 7, 14);
+            var loaded = await Build.Load(box, TimeSpan.FromSeconds(30));
+            c.Expect(loaded, "the voxels around the test wall are loaded");
+            if (!loaded) return;
+            var before = Build.Read(box);
+            var options = new BuildOptions { Flags = BuildFlags.Transient, Journal = false };
+            var write = Build.Write(box, Enumerable.Repeat(Voxel.Of(1), (int)box.Count).ToArray(), options);
+            c.Expect(write.Changed && write.Verified, $"the test wall was written ({write.CellsChanged} cells, refusal {write.Refusal})");
+            if (!(write.Changed && write.Verified)) return;
+            try
+            {
+                await c.Delay(TimeSpan.FromSeconds(2));   // the path grid takes the change in over a few steps
+                var round = await QueriesPath(c, new QueryPathRequest(anchor, from, to));
+                c.Log.Info($"client-pass: {c.Id}: with the wall: {round.Status} reaches={round.ReachesTarget} points={round.Points.Count} length={round.Length:F2}");
+                var through = round.Ok && round.Points.Any(p => Math.Abs(p.Position.X - (from.X + 4.5)) < 0.5 && Math.Abs(p.Position.Z - from.Z) < 3.0 && p.Position.Y < from.Y + 2.5);
+                c.Expect(!through, "no point of the route lies inside the wall");
+                c.Expect(!round.Ok || round.Length > open.Length + 1 || !round.ReachesTarget, $"with the wall the route is longer, ends short, or there is none ({round.Status}, {round.Length:F2} m against {open.Length:F2} m)");
+                c.Instruct("A wall of earth stands 4 m east of you across the line the first path took (it is taken away after this " +
+                           "check). Nothing moved and nothing else changed while the paths were asked for. Is the wall there, and is the " +
+                           "game otherwise as before?");
+                await c.Verdict();
+            }
+            finally
+            {
+                c.Expect(Build.Write(box, before, options).Verified, "the test wall was taken away again");
+            }
+            // every request of this check has ended: eight more are admitted at once (nothing of them is left open)
+            var batch = Enumerable.Range(0, 8).Select(_ => Queries.RequestPath(new QueryPathRequest(anchor, from, new WorldPosition(from.X + 2, from.Y, from.Z)))).ToList();
+            c.Expect(batch.All(t => t.Ok), $"eight requests are admitted after the earlier ones ended ({batch.Count(t => t.Ok)} of 8)");
+            foreach (var t in batch)
+                for (var i = 0; i < 400 && !t.Completion.IsCompleted; i++) await c.Delay(TimeSpan.FromMilliseconds(50));
+            c.Expect(batch.All(t => t.Completion.IsCompleted), "all eight ended");
+            c.Instruct("Now leave to the main menu, host the same world again and run this check a second time. On the second run: " +
+                       "did the first path (open ground) come back found again, with no error in kiln.log about queries.path? " +
+                       "(On the first run answer yes to go on.)");
+            await c.Verdict();
+        }
+        finally
+        {
+            Spawn.Destroy(anchor);
+        }
+    }
+
+    [ClientCheck("02-body-clearance", "What the path's free space means", Area = QueriesArea, Since = Dev28,
+        Needs = ClientCheckNeeds.Hosted, Order = 2101)]
+    public async Task QueriesBodyClearance(CheckContext c)
+    {
+        if (!await NeedOpen(c, "queries.path")) return;
+        c.Instruct("Stand in front of a gap you can measure: a doorway or two walls about 1 m apart and at least 2 m high, with " +
+                   "open ground behind it, the gap straight to the east of you, 3 to 5 m away. Stand still, then press continue. " +
+                   "(This check records numbers for the documentation; it opens no capability.)");
+        await c.Verdict();
+        if (!QueriesPlayerAt(c, out _, out var at)) return;
+        var anchor = await Spawn.Entity("Base_LootPickup_Generic_Gravity", new WorldPosition(at.X + 1, at.Y + 0.5, at.Z));
+        await c.Delay(TimeSpan.FromSeconds(1));
+        try
+        {
+            if (!World.TryGetPosition(anchor, out var from)) { c.Expect(false, "the anchor pickup has a position"); return; }
+            var to = new WorldPosition(from.X + 8, from.Y, from.Z);
+            foreach (var (h, v) in new[] { (0.0, 0.0), (0.5, 2.0), (1.0, 2.0), (1.5, 2.0), (2.0, 2.0), (0.5, 3.0), (0.5, 4.0) })
+            {
+                var r = await QueriesPath(c, new QueryPathRequest(anchor, from, to) { HorizontalSpace = h, VerticalSpace = v });
+                c.Log.Info($"client-pass: {c.Id}: horizontal {h} m, vertical {v} m: {r.Status} reaches={r.ReachesTarget} points={r.Points.Count} length={r.Length:F2}");
+            }
+            c.Instruct("kiln.log now has seven lines, one per free-space setting, each saying whether a path through the gap was " +
+                       "found. Write down the gap's width and height. Does the widest horizontal setting that still goes through " +
+                       "match the gap's width (as a full width, not a radius)? Answer yes or no; either is a result.");
+            await c.Verdict();
+        }
+        finally
+        {
+            Spawn.Destroy(anchor);
+        }
+    }
 }

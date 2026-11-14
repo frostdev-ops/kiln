@@ -1,0 +1,22 @@
+{
+  "id": "vein",
+  "version": 1,
+  "region": {
+    "x": 0,
+    "y": 0,
+    "z": 0,
+    "sizeX": 6,
+    "sizeY": 3,
+    "sizeZ": 6
+  },
+  "palette": [
+    {
+      "material": 12
+    }
+  ],
+  "source": {
+    "kind": "voxelVolume",
+    "cells": "AAEAAAAAAQEAAAAAAQEAAAAAAQEBAAAAAQEBAAAAAQEAAAAAAAEBAAAAAAEAAQAAAAABAQAAAAAAAQEAAAABAQEAAAABAQEAAAAAAQEBAAAAAQEAAAAAAQABAAAAAAEAAAAAAAABAAAAAAEB"
+  },
+  "persistence": "kept"
+}

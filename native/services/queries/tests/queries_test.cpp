@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 // Host tests of kiln.queries' pure parts (run.sh). Each CHECK names what it proves; a failure prints the line and exits 1.
+#include <array>
 #include <cstdio>
 #include <cstdlib>
 #include <map>
@@ -10,6 +11,7 @@
 #include "../config.h"
 #include "../entities.h"
 #include "../grid.h"
+#include "../path_core.h"
 #include "../ray.h"
 
 static int g_checks = 0;
@@ -262,6 +264,274 @@ static void test_entities() {
     CHECK(!valid_shape(box));
 }
 
+
+// ---- paths -----------------------------------------------------------------------------------------------------------
+
+static std::vector<RawPoint> route(std::initializer_list<std::array<float, 3>> pts, uint8_t move = 0) {
+    std::vector<RawPoint> v;
+    for (auto& p : pts) v.push_back(RawPoint{p[0], p[1], p[2], move, {}});
+    return v;
+}
+
+static void test_path_classify() {
+    const double target[3] = {10, 0, 0};
+    // found: walking points, the last within 1.5 m (XZ) and 3 m (Y) of the target; length is along the points
+    auto walk = route({{0, 0, 0}, {5, 0, 0}, {9, 2.9f, 0}});
+    PathOutcome o = classify(1, 3, true, walk, target);
+    CHECK(o.status == KQ_FOUND && o.ok && o.reaches && o.points.size() == 3 && o.length > 9.9 && o.length < 10.0 && std::strlen(o.reason) == 0);
+    // the same route ending elsewhere is partial: ok, and not reaching
+    const double far[3] = {20, 0, 0};
+    o = classify(1, 3, true, walk, far);
+    CHECK(o.status == KQ_PARTIAL && o.ok && !o.reaches && o.points.size() == 3);
+    const double high[3] = {9, 6, 0};  // near in XZ, 3.1 m above
+    CHECK(classify(1, 3, true, walk, high).status == KQ_PARTIAL);
+    // every game result that is no route, by its own word
+    struct Row { uint8_t game; uint32_t status; const char* reason; };
+    for (const Row& r : {Row{0, KQ_UNKNOWN, "NoEngineAnswer"}, Row{2, KQ_NO_PATH, "NoPathFound"}, Row{3, KQ_NO_PATH, "NoFreePath"}, Row{4, KQ_NO_PATH, "NoOccupiedPath"},
+                         Row{5, KQ_NO_START, "NoStartNodeFound"}, Row{6, KQ_NO_TARGET, "NoTargetNodeFound"}, Row{7, KQ_ITERATION_LIMIT, "MaxIterationsReached"},
+                         Row{8, KQ_OUT_OF_MEMORY, "OpenListOutOfMemory"}, Row{9, KQ_OUT_OF_MEMORY, "NodesOutOfMemory"}, Row{10, KQ_UNKNOWN, "UnknownGameResult"},
+                         Row{255, KQ_UNKNOWN, "UnknownGameResult"}}) {
+        o = classify(r.game, 3, true, walk, target);  // points that came with it are not a route
+        CHECK(o.status == r.status && !o.ok && !o.reaches && o.points.empty() && o.length == 0 && std::strcmp(o.reason, r.reason) == 0);
+    }
+    o = classify(1, 0, false, {}, target);
+    CHECK(o.status == KQ_MALFORMED && std::strcmp(o.reason, "EmptyFoundPath") == 0 && !o.ok);
+    o = classify(1, 4097, false, {}, target);
+    CHECK(o.status == KQ_TRUNCATED && std::strcmp(o.reason, "PointLimitExceeded") == 0 && o.points.empty());
+    o = classify(1, 3, false, {}, target);  // the array could not be read
+    CHECK(o.status == KQ_MALFORMED && std::strcmp(o.reason, "MalformedPoints") == 0);
+    auto nan = walk;
+    nan[1].y = std::nanf("");
+    CHECK(classify(1, 3, true, nan, target).status == KQ_MALFORMED);
+    // a move that is not walking is never found, though the route ends on the target; its points stay for diagnosis
+    auto jump = walk;
+    jump[1].move = 2;
+    o = classify(1, 3, true, jump, target);
+    CHECK(o.status == KQ_UNSUPPORTED && !o.ok && !o.reaches && o.length == 0 && o.points.size() == 3 && o.points[1].raw_move == 2);
+    auto odd = walk;
+    odd[2].move = 77;
+    CHECK(classify(1, 3, true, odd, target).status == KQ_UNSUPPORTED);
+    // one point on the target is a route
+    o = classify(1, 1, true, route({{10, 0, 0}}), target);
+    CHECK(o.status == KQ_FOUND && o.length == 0);
+}
+
+static KilnQueryPathRequest request(double x = 3) {
+    KilnQueryPathRequest r{};
+    r.size = sizeof r;
+    r.anchor = 2000;
+    r.from = KilnVec3{0, 0, 0};
+    r.to = KilnVec3{x, 0, 0};
+    r.horizontal_space = 0.5;
+    r.vertical_space = 2;
+    r.max_iterations = 2000;
+    return r;
+}
+
+static void test_path_params() {
+    PathParams p;
+    CHECK(path_params(request(), &p) && p.hspace == 1 && p.vspace == 4 && p.max_iterations == 2000 && !p.fallback && p.anchor == 2000 && p.target[0] == 3);
+    CHECK(path_params(request(0), &p));      // the same point is a request (the game answers a same-start route)
+    CHECK(path_params(request(200), &p));
+    CHECK(!path_params(request(200.5), &p));
+    KilnQueryPathRequest r = request();
+    r.to.y = std::nan("");
+    CHECK(!path_params(r, &p));
+    r = request();
+    r.horizontal_space = -0.1;
+    CHECK(!path_params(r, &p));
+    r.horizontal_space = 16.5;
+    CHECK(!path_params(r, &p));
+    r = request();
+    r.max_iterations = 0;
+    CHECK(!path_params(r, &p));
+    r.max_iterations = 65536;
+    CHECK(!path_params(r, &p));
+    r = request();
+    r.closest_fallback = 2;
+    CHECK(!path_params(r, &p));
+    r = request();
+    r.anchor = 0;
+    CHECK(!path_params(r, &p));
+    r = request();
+    r.closest_fallback = 1;
+    r.horizontal_space = 0.75;  // rounded up to whole half metres
+    CHECK(path_params(r, &p) && p.fallback && p.hspace == 2);
+    CHECK(sizeof(KilnQueryPathRequest) == 80 && sizeof(KilnQueryPathAdmission) == 40 && sizeof(KilnQueryPathUpdate) == 88 && sizeof(KilnQueryPathPoint) == 32 &&
+          sizeof(KilnQueriesApi) == 56);
+}
+
+static PathParams params() {
+    PathParams p;
+    path_params(request(), &p);
+    p.stamp = 42;
+    return p;
+}
+
+static KilnResult take(PathQueue& q, KilnOwner owner, KilnQueryPathUpdate* u, std::vector<KilnQueryPathPoint>* pts = nullptr, uint32_t capacity = 4096) {
+    static KilnQueryPathPoint buffer[4096];
+    uint32_t needed = 0;
+    *u = KilnQueryPathUpdate{};
+    u->size = sizeof *u;
+    const KilnResult rc = q.poll(owner, u, buffer, capacity, &needed);
+    if (rc == KILN_OK && pts) pts->assign(buffer, buffer + u->point_count);
+    return rc;
+}
+
+static void test_path_queue() {
+    const double target[3] = {3, 0, 0};
+    PathQueue q;
+    uint64_t t = 0;
+    KilnQueryPathUpdate u{};
+    const KilnOwner A = 7, B = 8;
+    // admission: a token, and the first update waits
+    CHECK(q.submit(A, params(), 1, 100, 0, &t) == KQ_PENDING && t == 1 && q.open() == 1 && q.queued(A) == 1);
+    CHECK(take(q, A, &u) == KILN_OK && u.before == KQS_CREATED && u.after == KQS_QUEUED && u.status == KQ_PENDING && !u.terminal && u.request == 1 &&
+          u.generation == 1 && u.anchor == 2000 && u.game_result == KILN_QUERY_PATH_NO_GAME_RESULT && u.point_count == 0 && u.sequence == 1);
+    CHECK(take(q, A, &u) == KILN_ERR_NOT_FOUND);
+    CHECK(take(q, B, &u) == KILN_ERR_NOT_FOUND);  // another owner's queue is not this one
+    // the program: create (id 0 = the buffer was full, tried again), then searching, then an answer
+    uint32_t creates = 0;
+    PathQueue::Work w = q.next(1, 1, &creates);
+    CHECK(w.op == PathQueue::Op::Create && w.check_identity && creates == 1);
+    q.created(1, 0);
+    CHECK(q.queued(A) == 0);
+    w = q.next(1, 1, &creates);
+    CHECK(w.op == PathQueue::Op::Create);
+    q.created(1, 55);
+    CHECK(take(q, A, &u) == KILN_OK && u.before == KQS_QUEUED && u.after == KQS_SEARCHING && !u.terminal);
+    w = q.next(1, 1, &creates);
+    CHECK(w.op == PathQueue::Op::Poll && w.game_id == 55);
+    q.answered(1, 1, classify(1, 2, true, route({{0, 0, 0}, {3, 0, 0}}), target));
+    // the terminal waits with its points; a buffer that is too small takes nothing
+    uint32_t needed = 0;
+    KilnQueryPathPoint small[1];
+    u.size = sizeof u;
+    CHECK(q.poll(A, &u, small, 1, &needed) == KILN_ERR_BUFFER_TOO_SMALL && needed == 2 && q.queued(A) == 1);
+    // the game's query is destroyed whether or not anyone polled; the slot stays until both happened
+    w = q.next(1, 1, &creates);
+    CHECK(w.op == PathQueue::Op::Destroy && w.game_id == 55 && !w.check_identity);
+    q.destroyed(1);
+    CHECK(q.open() == 1);
+    std::vector<KilnQueryPathPoint> pts;
+    CHECK(take(q, A, &u, &pts) == KILN_OK && u.terminal && u.ok && u.status == KQ_FOUND && u.after == KQS_COMPLETED && u.before == KQS_SEARCHING && u.game_result == 1 &&
+          u.reaches_target && u.point_count == 2 && pts.size() == 2 && pts[1].position.x == 3 && u.length == 3 && u.reason.len == 0 && u.steps == 3);
+    CHECK(q.open() == 0);
+    // polled first, destroyed later: the same
+    CHECK(q.submit(A, params(), 1, 100, 0, &t) == KQ_PENDING && t == 2);
+    q.next(2, 1, &creates);
+    q.created(2, 56);
+    q.answered(2, 2, classify(2, 0, false, {}, target));
+    while (take(q, A, &u) == KILN_OK && !u.terminal) {}
+    CHECK(u.terminal && !u.ok && u.status == KQ_NO_PATH && u.point_count == 0 && std::string(u.reason.ptr, u.reason.len) == "NoPathFound" && q.open() == 1);
+    CHECK(q.next(2, 1, &creates).op == PathQueue::Op::Destroy);
+    q.destroyed(2);
+    CHECK(q.open() == 0);
+
+    // limits: 8 for one owner, 32 in all, counting results nobody polled yet; a refusal queues nothing
+    PathQueue full;
+    for (int i = 0; i < 8; ++i) CHECK(full.submit(A, params(), 1, 100, 0, &t) == KQ_PENDING);
+    CHECK(full.submit(A, params(), 1, 100, 0, &t) == KQ_QUEUE_FULL && full.queued(A) == 8);
+    for (KilnOwner o = 20; o < 23; ++o)
+        for (int i = 0; i < 8; ++i) CHECK(full.submit(o, params(), 1, 100, 0, &t) == KQ_PENDING);
+    CHECK(full.open() == 32 && full.submit(99, params(), 1, 100, 0, &t) == KQ_QUEUE_FULL);
+    // 8 creates in one update, the rest wait for the next
+    creates = 0;
+    int made = 0;
+    for (uint64_t token : full.tokens(1))
+        if (full.next(token, 1, &creates).op == PathQueue::Op::Create) ++made;
+    CHECK(made == 8 && creates == 8);
+    // a cancelled request frees its slot once its terminal is polled (it never had a game query)
+    CHECK(full.cancel(A, 1) == KILN_OK && full.cancel(A, 1) == KILN_ERR_NOT_FOUND && full.cancel(B, 2) == KILN_ERR_NOT_FOUND && full.cancel(A, 999) == KILN_ERR_NOT_FOUND);
+    CHECK(full.submit(A, params(), 1, 100, 0, &t) == KQ_QUEUE_FULL);  // the terminal is not polled yet
+    int terminals = 0;
+    while (take(full, A, &u) == KILN_OK)
+        if (u.terminal) {
+            ++terminals;
+            CHECK(u.request == 1 && u.status == KQ_CANCELLED && u.after == KQS_CANCELLED && std::string(u.reason.ptr, u.reason.len) == "Cancelled");
+        }
+    CHECK(terminals == 1 && full.open() == 31 && full.submit(A, params(), 1, 100, 0, &t) == KQ_PENDING);
+
+    // the deadline: 10 s and 150 steps, both; one terminal only
+    PathQueue late;
+    CHECK(late.submit(A, params(), 1, 100, 1'000, &t) == KQ_PENDING);
+    late.deadlines(1, 250, 5'000'000'000ull);                      // the steps passed, the time did not
+    late.deadlines(1, 249, 20'000'000'000ull);                     // the time passed, the steps did not
+    CHECK(late.queued(A) == 1);
+    late.deadlines(1, 250, 10'000'001'000ull);
+    late.deadlines(1, 251, 11'000'000'000ull);
+    CHECK(late.queued(A) == 2);
+    take(late, A, &u);
+    CHECK(take(late, A, &u) == KILN_OK && u.terminal && u.status == KQ_TIMED_OUT && u.after == KQS_TIMED_OUT && late.open() == 0);
+    CHECK(late.cancel(A, t) == KILN_ERR_NOT_FOUND);
+
+    // a request that ended while its create was on the way still has its game query destroyed
+    PathQueue race;
+    race.submit(A, params(), 1, 100, 0, &t);
+    creates = 0;
+    race.next(t, 1, &creates);
+    race.cancel(A, t);
+    race.created(t, 77);
+    w = race.next(t, 1, &creates);
+    CHECK(w.op == PathQueue::Op::Destroy && w.game_id == 77);
+    CHECK(race.queued(A) == 2);  // created->queued and the cancel: no "searching" after the end
+    // the anchor went
+    race.submit(A, params(), 1, 100, 0, &t);
+    race.owner_gone(t);
+    race.owner_gone(t);
+    int gone = 0;
+    while (take(race, A, &u) == KILN_OK) gone += u.terminal && u.status == KQ_OWNER_GONE && u.after == KQS_CANCELLED;
+    CHECK(gone == 1);
+
+    // retire: the queue is dropped, later calls are refused, and the game's query is still destroyed
+    PathQueue gone_owner;
+    gone_owner.submit(A, params(), 1, 100, 0, &t);
+    creates = 0;
+    gone_owner.next(t, 1, &creates);
+    gone_owner.created(t, 90);
+    gone_owner.retire(A);
+    gone_owner.retire(A);
+    CHECK(take(gone_owner, A, &u) == KILN_ERR_REVOKED && gone_owner.cancel(A, t) == KILN_ERR_REVOKED && gone_owner.submit(A, params(), 1, 100, 0, &t) == KQ_OWNER_RETIRED);
+    CHECK(gone_owner.open() == 1);
+    w = gone_owner.next(1, 1, &creates);
+    CHECK(w.op == PathQueue::Op::Destroy && w.game_id == 90);
+    gone_owner.destroyed(1);
+    CHECK(gone_owner.open() == 0 && gone_owner.owners().empty());
+
+    // the world closes: what waits ends WorldClosed, a result nobody polled yet becomes WorldClosed, and no game query of
+    // that world is ever destroyed in another
+    PathQueue closing;
+    uint64_t done = 0, pending = 0;
+    closing.submit(A, params(), 1, 100, 0, &done);
+    closing.submit(A, params(), 1, 100, 0, &pending);
+    creates = 0;
+    closing.next(done, 1, &creates);
+    closing.created(done, 5);
+    closing.answered(done, 1, classify(1, 1, true, route({{3, 0, 0}}), target));
+    closing.next(pending, 1, &creates);
+    closing.created(pending, 6);
+    closing.world_closed(1);
+    CHECK(closing.tokens(1).empty() || closing.next(done, 1, &creates).op == PathQueue::Op::None);
+    int closed = 0, found = 0;
+    while (take(closing, A, &u) == KILN_OK)
+        if (u.terminal) {
+            closed += u.status == KQ_WORLD_CLOSED && !u.ok && u.point_count == 0 && u.after == KQS_CANCELLED;
+            found += u.status == KQ_FOUND;
+        }
+    CHECK(closed == 2 && found == 0 && closing.open() == 0);
+    CHECK(take(closing, A, &u) == KILN_ERR_NOT_FOUND);  // polling still works with no world
+    // the next world's requests are its own
+    CHECK(closing.submit(A, params(), 2, 400, 0, &t) == KQ_PENDING && closing.tokens(1).empty() && closing.tokens(2).size() == 1);
+
+    // a fault in the game: everything pending is refused once, and the program gets no more work
+    PathQueue dead;
+    dead.submit(A, params(), 1, 100, 0, &t);
+    dead.fail_all("GameCallFault");
+    CHECK(dead.dead() && dead.tokens(1).empty());
+    take(dead, A, &u);
+    CHECK(take(dead, A, &u) == KILN_OK && u.terminal && u.status == KQ_REFUSED && std::string(u.reason.ptr, u.reason.len) == "GameCallFault" && dead.open() == 0);
+}
+
 int main() {
     test_grid();
     test_ray_numbers();
@@ -269,6 +539,9 @@ int main() {
     test_budget();
     test_config();
     test_entities();
+    test_path_classify();
+    test_path_params();
+    test_path_queue();
     std::printf("queries-test: PASS (%d checks)\n", g_checks);
     return 0;
 }

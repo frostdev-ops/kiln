@@ -59,6 +59,19 @@ public sealed class RunnerTests
     }
 
     [Fact]
+    public void A_check_that_skips_itself_cannot_be_passed()
+    {
+        using var h = new Harness();
+        CheckMod.SelfSkipLater = null;
+        h.Start("t.selfskip");
+        Assert.NotNull(h.Runner.Answer(AnswerKind.Pass));       // the player's pass comes too late: the check has its verdict
+        var e = h.OnDisk().Single(x => x.Id == "t.selfskip");
+        Assert.Equal(("skip", "the capability under test is still held"), (e.Verdict, e.Note));
+        Assert.Equal(ClientCheckVerdict.Skip, CheckMod.SelfSkipLater);
+        Assert.Single(e.Assertions, a => a.Ok && a.What == "the verdict is skip");
+    }
+
+    [Fact]
     public void A_verdict_before_the_body_asks_ends_the_body()
     {
         using var h = new Harness();
@@ -317,7 +330,7 @@ public sealed class RunnerTests
         }
         var list = Do("l", "list");
         Assert.True(list.GetProperty("ok").GetBoolean());
-        Assert.Equal(19, list.GetProperty("data").GetProperty("checks").GetArrayLength());
+        Assert.Equal(20, list.GetProperty("data").GetProperty("checks").GetArrayLength());
         var run = Do("r", "run cct t.pass");
         Assert.True(run.GetProperty("ok").GetBoolean(), run.ToString());
         Assert.Equal("asking", Do("s", "status").GetProperty("data").GetProperty("current").GetProperty("phase").GetString());
