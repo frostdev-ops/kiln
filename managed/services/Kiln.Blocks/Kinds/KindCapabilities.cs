@@ -67,6 +67,10 @@ internal static class KindCapabilities
         Ensure();
         var row = name.StartsWith(Apply, StringComparison.Ordinal) ? _apply : _row;
         if (row.State != CapabilityState.Available) throw new KilnUnavailableException(name, row.Text);
+        // Native policy/fault reports can hold an individual primary even when our managed prerequisites are present.
+        var reported = Capabilities.Get(name);
+        if (reported.State != CapabilityState.Available && reported.Reason != CapabilityReason.Unknown)
+            throw new KilnUnavailableException(name, reported.ReasonText);
     }
 
     /// <summary>The dispatcher's row and the row of the plan's primary.</summary>

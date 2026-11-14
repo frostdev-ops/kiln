@@ -40,6 +40,34 @@ public sealed class KindCompileTests
     }
 
     [Fact]
+    public void Changing_the_primary_changes_the_plan_hash()
+    {
+        KindKit.Fresh();
+        var (entry, kind, _) = KindKit.Lantern();
+        var primary = "a";
+        kind.Body = (c, _) => c.Plan(primary,
+            [c.Effect("a", new EffectBlock { Heal = 1 }), c.Effect("b", new EffectBlock { Heal = 2 })]);
+        var first = Compile(entry, new LanternBlock());
+        primary = "b";
+        var second = Compile(entry, new LanternBlock());
+        Assert.NotEqual(first.InputHash, second.InputHash);
+    }
+
+    [Fact]
+    public void Retirement_during_a_callback_discards_its_result()
+    {
+        KindKit.Fresh();
+        var (entry, kind, provider) = KindKit.Lantern();
+        kind.Body = (c, b) =>
+        {
+            var plan = LanternKind.Default(c, b);
+            KindRegistry.Dispose(entry, provider);
+            return plan;
+        };
+        Assert.Throws<BlockError>(() => Compile(entry, new LanternBlock()));
+    }
+
+    [Fact]
     public void The_provider_compiles_a_copy_and_nothing_it_or_the_author_keeps_changes_the_plan()
     {
         KindKit.Fresh();

@@ -48,5 +48,10 @@ void instances_pre(uintptr_t world, uint64_t step);
 // A server world closed or started: every stamp and the holder map are forgotten.
 void instances_world_reset();
 void instances_status(KilnItemsInstancesStatus* out);
+// kiln.toolwear: an item entity's stamp and the stamp table's epoch as one answer (StampTable::capture), any thread;
+// the epoch now; an entity's stamp without making one (0: none, or gone).
+bool instances_capture(uint32_t entity, uint32_t item, uint64_t step, uint32_t* stamp, uint64_t* epoch);
+uint64_t instances_epoch();
+uint32_t instances_peek(uint32_t entity);
 
 }  // namespace kitems

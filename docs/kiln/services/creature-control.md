@@ -35,6 +35,8 @@ Pets, mounts and vehicles are its clients; none of them touches the AI switch or
 - **Bounds** (simulation time): the body's current action must end within 5 s (else Failed, TimedOut, `Quiescence` or
   `BodyNotReady`); a component change must verify within 0.5 s (else Failed, TimedOut, `Transition`; a failed restore is
   `RestoreFailed`). Terminal leases stay queryable for 10 minutes; after that a handle answers `ExpiredHandle`.
+- A refused release of the broker's AI layer is retried within the restore bound; it never counts as a successful
+  restore. An irreversible Vehicle change followed by cancellation retires the body.
 - A body that is not ready for gameplay (no player near it, a dead body) never becomes Active: `BodyNotReady` after 5 s.
 
 ## Bodies and keys
@@ -98,7 +100,7 @@ the header documents every field and error code. A request id is unique and incr
 `next_request` right before `acquire_control`; the same id and request returns the same lease (also a terminal one), the
 same id with another request is `RequestConflict`, an id at or below one already admitted is `ExpiredRequest`.
 `notices` gives the owner's lease changes in order (1024 per owner; a full queue drops and sets `needs_resync`: query
-every lease you hold). Ceilings: 256 bodies, 1024 open leases, a request queue of 1024 per step, refused before
+every lease you hold). Ceilings: 256 bodies, 1024 open leases, 2048 retained lease slots (open plus terminal), a request queue of 1024 per step, refused before
 anything is allocated.
 
 A native client (the mount service) feeds the body from its own world program: register it after the broker's
@@ -137,7 +139,7 @@ A native client (the mount service) feeds the body from its own world program: r
 | Row | Says |
 |---|---|
 | `kiln.creature_control` | the table is here (the core's row): queries, waits and releases work |
-| `creature_control` | the broker takes new leases: kiln.types matched every field path it reads or writes (below), kiln.world registered its world program and has `write_other`, kiln.creatures has the AI switch; lowered (`faulted`) when the program does not run in a server world |
+| `creature_control` | the broker takes new leases: kiln.types matched every field path it reads or writes (below), kiln.world registered its world program and has `write_other`, kiln.creatures has the AI switch, kiln.spawn can retire bodies and kiln.hooks reports owner retirement; lowered (`faulted`) when the program does not run in a server world |
 
 The layout guard resolves every path through the game's own reflection (`kiln.types`, base classes walked) and compares
 it with the layout the contract was written for: `SteeringAgent` (80 bytes; `queryId` +0, `desiredVelocity` +8,
@@ -151,6 +153,10 @@ footprint paths of `MovementColliderConfig` and `PathWalker` are reported and do
 ## Threads and safety
 - The broker's state changes on the server tick thread only (the table's tick functions and its Pre). `query_control`
   and `can_drive` read published copies under a per-lease lock held for the copy alone, never across a game call.
+  A short per-body lock serializes quarantine key validation with retirement and slot reuse, so an old key cannot
+  quarantine a new body in the same slot. The native owner-retiring observer revokes an unloaded owner's authority
+  immediately; its leases and bindings are cleaned up at the next safe Pre, restoring temporary leases and retiring
+  permanent Vehicle bodies. Program health is checked at every Pre; admission requires kiln.spawn's retirement path.
 - Its world program runs inside the step and does only what the Pre decided: zero a body's input, queue the removal or
   the return of its `SteeringAgent`. The engine applies those at the end of the step; the next Pre checks them.
 - A server world that stops ends every lease (WorldEnded) and drops every binding: nothing is restored into another

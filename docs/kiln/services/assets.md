@@ -112,6 +112,11 @@ public override void OnLoad()
 ```
 - Everything a mod registers is owned by it and reverted when it unloads (`Assets.RemoveIcon/RemoveResource/RemoveBlob`
   do it sooner). Calls may be made from any thread; game lookups are thread-safe reads.
+- Since 0.2.0-dev.28 a native owner the core revokes (a plugin whose `kiln_plugin_main` failed, say) loses its resources,
+  blobs and icons without anyone calling `revert_owner`: from the revocation on its registrations are refused
+  (`KILN_ERR_REVOKED`), and what it had registered is taken off moments later, by kiln.assets' next call or its own
+  cleanup thread (until then the game may still be served its bytes, for a few milliseconds). A `revert_owner` before
+  or after does nothing more.
 - `Assets.Reflect(key)` and `ReflectedResources` read any resource by field path, find resources by a field's value, and change a
   field claim-backed and reversible: [typed-fields.md](../modding/typed-fields.md#any-resource). `ListBlobs` lists what this
   mod supplied through `Assets`; blobs from `assets.json` and the game's own are not listed: the

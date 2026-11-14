@@ -84,8 +84,8 @@ both defaults and one warning in `kiln.log`; the chosen limits are logged at sta
 
 `Queries.RequestPath`, `FindPath` and `CanReach` ask the game's own path search (the one its creatures use) for a
 **walking** route between two points at most 200 m apart. Nothing is moved: the answer is a copy of the route's points
-as they were at the step the game answered. It arrives some server steps later (four to six for a short walk; at most
-10 s and 150 steps, then `TimedOut`).
+as they were at the step the game answered. It arrives some server steps later (four to six observed for a short walk).
+A pending request times out once both 10 seconds and 150 server steps have passed.
 
 ```csharp
 var result = await Queries.FindPath(new QueryPathRequest(anchor, from, to));
@@ -97,7 +97,7 @@ if (result.Ok && result.ReachesTarget) foreach (var p in result.Points) { /* wal
 | `Queries.RequestPath(request)` | `queries.path` | a ticket: `Request` (the id) and `Completion` (the task) |
 | `Queries.FindPath(request, cancellationToken)` | `queries.path` | the task alone; cancelling the token cancels the request |
 | `Queries.CancelPath(request)` | `queries.path` | ends a request of the calling mod as `Cancelled` |
-| `Queries.CanReach(request, cancellationToken)` | `queries.reachability` | the same search, asked only whether it arrives; the same question twice in one step is one search |
+| `Queries.CanReach(request, cancellationToken)` | `queries.reachability` | the same search, asked only whether it arrives; repeated questions without a cancellable token share one search in a step |
 
 **Walking a route.** Nothing here walks for you. `mods/samples/NpcSample/PathWalker.cs` shows the whole loop for a
 creature with a brain ([npc-blocks.md](../modding/npc-blocks.md)): ask `FindPath` with the creature as its own anchor,
@@ -130,7 +130,8 @@ not `Ok` for everything else: "not known" is not "no".
 **Limits.** 8 requests open per mod and 32 in all, counting results that were not delivered yet; the game is asked for
 at most 8 new searches a step. The space a route needs is `HorizontalSpace` and `VerticalSpace`, in metres as the game's
 query takes them (0.5 and 2 by default). `PathQueryChangedEvent` follows each request (`Created -> Queued`,
-`Queued -> Searching`, its end); the event of the end is posted before the task completes.
+`Queued -> Searching`, its end); the event of the end is posted before the task completes. World close completes tasks
+immediately and defers its event to a later tick; retiring code receives no further events.
 
 A route is geometry at one moment: the world may change before a creature has walked it, and `NpcControl.MoveTo` is
 a straight step, not a follower.
@@ -138,7 +139,8 @@ a straight step, not a follower.
 On a game client `queries.path` and `queries.reachability` are held until the guided check `02-queries.path-hosted`.
 
 In unit tests: `kiln.Queries.Paths = request => FakePathAnswer.NoPath;` (or `Route(...)`), `PathSteps`,
-`PathRequests`, `WithoutSpawnTime(entity)`.
+`PathRequests`, `WithoutSpawnTime(entity)`. An anchor made with `kiln.Entities.Create` needs an 8-byte `SpawnTime`
+component (`kiln.Entities.SetBytes(anchor, "SpawnTime", BitConverter.GetBytes(1ul))`), just as the native service requires.
 
 ## What the hit does not say
 

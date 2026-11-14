@@ -41,6 +41,8 @@ internal static unsafe class UiCaps
                 ServiceCaps.LowerOff(name, CapabilityReason.Faulted,
                     "kiln.ui could not hook the game's UI frame (see kiln.log): no game-UI integration");
         if (UiValuesNative.T == null) ServiceCaps.LowerFeatures(UiValuesNative.Service, ValueFeatures);
+        // Collected lines have one production consumer: the overlay's Item details window.
+        ServiceCaps.LowerFeatures(Service, "ui.values.tooltip_lines");
         if (!RenderNative.Available) ServiceCaps.LowerFeatures(Render, "render.camera");
         else if (RenderNative.ReadStatus() is { Camera: 0 })
             ServiceCaps.LowerOff("render.camera", CapabilityReason.Faulted, "kiln.render's camera hook is off (see kiln.log)");

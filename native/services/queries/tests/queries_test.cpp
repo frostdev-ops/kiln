@@ -9,20 +9,7 @@
 
 #include "../queries.cpp"
 
-// queries.cpp serves the path slots from path.cpp (02-pathfinding). The service tests here are about rays, rows and
-// entities; path.cpp's own parts are tested through path_core.h below. Its entry points are stubbed for the link.
-namespace kq {
-void path_resolve() {}
-void path_ready() {}
-void path_world_closed(uint32_t) {}
-KilnResult KILN_CALL t_path_submit(KilnOwner, const KilnQueryPathRequest*, KilnQueryPathAdmission*) { return KILN_ERR_UNAVAILABLE; }
-KilnResult KILN_CALL t_path_cancel(KilnOwner, uint64_t) { return KILN_ERR_UNAVAILABLE; }
-KilnResult KILN_CALL t_path_poll(KilnOwner, KilnQueryPathUpdate*, KilnQueryPathPoint*, uint32_t, uint32_t* needed) {
-    if (needed) *needed = 0;
-    return KILN_ERR_NOT_FOUND;
-}
-KilnResult KILN_CALL t_path_retire(KilnOwner) { return KILN_OK; }
-}  // namespace kq
+// Both production service translation units are linked; only the game-memory and game-call leaves are fake.
 #include "../path_core.h"
 
 static int g_checks = 0;
@@ -284,6 +271,8 @@ static std::string ray_report_text;
 static std::map<std::string, uint32_t> reported_rows;
 static uint32_t ray_report_state = KILN_CAP_AVAILABLE;
 static std::string service_feature_off;
+static bool path_feature_enabled = false;
+static std::map<std::string, int64_t> path_constants;
 static KilnResult find_result = KILN_OK, position_result = KILN_OK;
 static const uintptr_t kMinimum = 0x500000;
 static KilnWorldApi service_world{};
@@ -291,6 +280,10 @@ static KilnCapsApi service_caps{};
 static KilnApi service_api{};
 
 namespace kq {
+bool seh_path_defaults(uintptr_t, void*) { ++game_calls; return false; }
+bool seh_path_create(uintptr_t, void*, uint32_t*, const void*) { ++game_calls; return false; }
+bool seh_path_result(uintptr_t, void*, void*, uint32_t, bool*) { ++game_calls; return false; }
+bool seh_path_destroy(uintptr_t, void*, uint32_t, uint32_t, bool*) { ++game_calls; return false; }
 bool seh_copy(uintptr_t address, void* out, size_t n) { return fake_read(address, out, n); }
 bool seh_ray(uintptr_t fn, void* out, uintptr_t grid, const float* from, const float* to, const uint8_t* options, unsigned long* code) {
     CHECK(fn == 0x600000 && grid == kGrid);
@@ -337,7 +330,7 @@ static void service_start(uint32_t minimum) {
     service_caps.find = [](KilnStr, KilnCapRow*) -> KilnResult { return KILN_ERR_NOT_FOUND; };
     service_caps.report = [](KilnOwner, KilnStr name, uint32_t state, uint32_t reason, KilnStr text) -> KilnResult {
         const std::string row(name.ptr, name.len);
-        CHECK(row == "queries.voxel_ray" || row == "queries.ground" || row == "queries.line_of_sight");
+        CHECK(row == "queries.voxel_ray" || row == "queries.ground" || row == "queries.line_of_sight" || row == "queries.path" || row == "queries.reachability");
         CHECK(reason == KILN_CAP_REASON_FAULTED);
         reported_rows[row] = state;
         if (row == "queries.voxel_ray") {
@@ -356,7 +349,10 @@ static void service_start(uint32_t minimum) {
     service_api.size = sizeof service_api;
     service_api.abi_version = KILN_ABI_VERSION;
     service_api.log = [](KilnOwner, int32_t, KilnStr) {};
-    service_api.feature = [](KilnStr name) { return std::string(name.ptr, name.len) != service_feature_off; };
+    service_api.feature = [](KilnStr name) {
+        const std::string key(name.ptr, name.len);
+        return key != service_feature_off && (key != "queries.path" || path_feature_enabled);
+    };
     service_api.path = [](int32_t, char*, size_t, size_t*) -> KilnResult { return KILN_ERR_UNAVAILABLE; };
     service_api.on_tick_thread = [] { return service_tick; };
     service_api.tick_info = [](KilnTickInfo* out) -> KilnResult { *out = {}; out->step = service_step; return KILN_OK; };
@@ -372,6 +368,10 @@ static void service_start(uint32_t minimum) {
         return KILN_OK;
     };
     service_api.constant = [](KilnStr name, int64_t* out) -> KilnResult {
+        if (const auto it = path_constants.find(std::string(name.ptr, name.len)); it != path_constants.end()) {
+            *out = it->second;
+            return KILN_OK;
+        }
         const std::map<std::string, int64_t> values = {
             {"queries/grid.realms", kLayout.realms}, {"queries/grid.realm_count", kLayout.realm_count},
             {"queries/realm.stride", kLayout.realm_stride}, {"queries/ray_grid.origin", kLayout.origin},
@@ -552,6 +552,16 @@ static KilnQueryPathRequest request(double x = 3) {
 }
 
 static void test_path_params() {
+    const std::array<int64_t, 10> layout{0x10, 0x1c, 0x48, 0x54, 0xbb, 0x36, 0xf4, 0xfc, 0x100, 0x104};
+    CHECK(path_layout_supported(layout));
+    auto reordered = layout;
+    std::swap(reordered[8], reordered[9]);  // identical normalizer blocks can swap while every capture still resolves
+    CHECK(!path_layout_supported(reordered));
+    for (size_t i = 0; i < layout.size(); ++i) {
+        auto moved = layout;
+        ++moved[i];
+        CHECK(!path_layout_supported(moved));
+    }
     PathParams p;
     CHECK(path_params(request(), &p) && p.hspace == 1 && p.vspace == 4 && p.max_iterations == 2000 && !p.fallback && p.anchor == 2000 && p.target[0] == 3);
     CHECK(path_params(request(0), &p));      // the same point is a request (the game answers a same-start route)
@@ -582,6 +592,26 @@ static void test_path_params() {
     CHECK(path_params(r, &p) && p.fallback && p.hspace == 2);
     CHECK(sizeof(KilnQueryPathRequest) == 80 && sizeof(KilnQueryPathAdmission) == 40 && sizeof(KilnQueryPathUpdate) == 88 && sizeof(KilnQueryPathPoint) == 32 &&
           sizeof(KilnQueriesApi) == 56);
+}
+
+static void test_path_layout_refusal() {
+    service_start(kRayMinLengthBits);
+    ++service_step;
+    path_feature_enabled = true;
+    path_constants = {{"queries/query.start", 0x10}, {"queries/query.target", 0x1c}, {"queries/query.max_iterations", 0x48},
+                      {"queries/query.moves", 0x54}, {"queries/job.realm", 0xbb}, {"queries/query.target_type", 0x36},
+                      {"queries/query.start_search_v", 0xf4}, {"queries/query.target_search_v", 0xfc},
+                      {"queries/query.space_h", 0x104}, {"queries/query.space_v", 0x100}}; // reordered, still in bounds
+    path_resolve();
+    path_ready();
+    CHECK(reported_rows.at("queries.path") == KILN_CAP_UNAVAILABLE);
+    CHECK(reported_rows.at("queries.reachability") == KILN_CAP_UNAVAILABLE);
+    auto r = request();
+    KilnQueryPathAdmission a{};
+    a.size = sizeof a;
+    CHECK(t_path_submit(7, &r, &a) == KILN_ERR_UNAVAILABLE && !a.ok && game_calls == 0);
+    path_feature_enabled = false;
+    path_constants.clear();
 }
 
 static PathParams params() {
@@ -662,7 +692,10 @@ static void test_path_queue() {
     creates = 0;
     int made = 0;
     for (uint64_t token : full.tokens(1))
-        if (full.next(token, 1, &creates).op == PathQueue::Op::Create) ++made;
+        if (full.next(token, 1, &creates).op == PathQueue::Op::Create) {
+            ++made;
+            full.created(token, 0);  // this fake update's Create attempts were refused
+        }
     CHECK(made == 8 && creates == 8);
     // a cancelled request frees its slot once its terminal is polled (it never had a game query)
     CHECK(full.cancel(A, 1) == KILN_OK && full.cancel(A, 1) == KILN_ERR_NOT_FOUND && full.cancel(B, 2) == KILN_ERR_NOT_FOUND && full.cancel(A, 999) == KILN_ERR_NOT_FOUND);
@@ -698,6 +731,44 @@ static void test_path_queue() {
     w = race.next(t, 1, &creates);
     CHECK(w.op == PathQueue::Op::Destroy && w.game_id == 77);
     CHECK(race.queued(A) == 2);  // created->queued and the cancel: no "searching" after the end
+    // Retirement can race the unlocked Create call before its id is known. Keep the slot until that call returns.
+    PathQueue retiring_create;
+    retiring_create.submit(A, params(), 1, 100, 0, &t);
+    creates = 0;
+    CHECK(retiring_create.next(t, 1, &creates).op == PathQueue::Op::Create);
+    retiring_create.retire(A);
+    retiring_create.created(t, 78);
+    w = retiring_create.next(t, 1, &creates);
+    CHECK(w.op == PathQueue::Op::Destroy && w.game_id == 78);
+    retiring_create.destroyed(t);
+    CHECK(retiring_create.open() == 0);
+    // A concurrent consumer can take a cancellation terminal during Create too.
+    PathQueue consumed_create;
+    consumed_create.submit(A, params(), 1, 100, 0, &t);
+    creates = 0;
+    consumed_create.next(t, 1, &creates);
+    consumed_create.cancel(A, t);
+    while (take(consumed_create, A, &u) == KILN_OK) {}
+    consumed_create.created(t, 79);
+    w = consumed_create.next(t, 1, &creates);
+    CHECK(w.op == PathQueue::Op::Destroy && w.game_id == 79);
+    consumed_create.destroyed(t);
+    CHECK(consumed_create.open() == 0);
+    PathQueue refused_create;
+    refused_create.submit(A, params(), 1, 100, 0, &t);
+    creates = 0;
+    refused_create.next(t, 1, &creates);
+    refused_create.retire(A);
+    refused_create.created(t, 0);
+    CHECK(refused_create.open() == 0);
+    PathQueue closed_create;
+    closed_create.submit(A, params(), 1, 100, 0, &t);
+    creates = 0;
+    closed_create.next(t, 1, &creates);
+    closed_create.world_closed(1);
+    while (take(closed_create, A, &u) == KILN_OK) {}
+    closed_create.created(t, 80);  // the old-world call returned after its world was closed
+    CHECK(closed_create.open() == 0 && closed_create.tokens(2).empty());
     // the anchor went
     race.submit(A, params(), 1, 100, 0, &t);
     race.owner_gone(t);
@@ -767,6 +838,7 @@ int main() {
     test_entity_dependencies();
     test_path_classify();
     test_path_params();
+    test_path_layout_refusal();
     test_path_queue();
     std::printf("queries-test: PASS (%d checks)\n", g_checks);
     return 0;
