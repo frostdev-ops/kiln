@@ -11,15 +11,22 @@ lies, what it costs, and what a mod sees when it is not there.
 |---|---|---|
 | The Kiln launcher | at Play (and Launch in a server's modpack offer), right after the cook, when an enabled Kiln mod of the start has `"boot": true` or `"required"` in its kiln.mod.json | a progress line ("Game data for OnBoot mods (about 200 MB, once per game build): …"); a notice in one line only when something went wrong. Without such a mod: "no mod needs the boot snapshot", and nothing runs |
 | `kiln boot-snapshot --game <dir> [--force] [--json]` | by hand, whatever the mods say: a server you start yourself, or to make it again | progress on stderr, then one line (or the JSON result) |
-| `tools/deploy-server.sh` | at each deploy into a server folder, when a mod in its `kiln/mods` has `"boot": true` or `"required"` (`KILN_NO_BOOT_SNAPSHOT=1` skips the step) | the tool's lines; "no mod needs the boot snapshot" without such a mod; a warning when it was not made |
+| `tools/deploy-server.sh` | at each deploy into a server folder, when an enabled Kiln mod in its profile or allowed drop-in folders has `"boot": true` or `"required"` (`KILN_NO_BOOT_SNAPSHOT=1` skips the step) | the tool's lines; "no mod needs the boot snapshot" without such a mod; a warning when it was not made |
 
 All three run the same tool (`tools/bootsnap/bootsnap.py`, carried by the launcher and by `kiln`) with Kiln's Python:
 the launcher's own on Windows (python.org's embeddable 3.14, in the launcher's folder), the system's `python3` on Linux
 (3.10 or newer; one older than 3.14 needs the system's zstd library or the `zstandard` package), and for `kiln.exe` on
 Windows `KILN_PYTHON`, a `python\python.exe` beside it, or `python` on `PATH`.
 
-**It never stops a start.** If Python or the tool is missing, if the tool refuses or fails, or if it takes longer than
-10 minutes (the launcher stops it then), the game starts without a snapshot and the launcher says so in one line.
+**The producer does not refuse a start.** If Python or the tool is missing, if the tool refuses or fails, or if it takes
+longer than 10 minutes (the launcher stops it then), the launcher continues without a snapshot and says so in one line.
+An OnBoot mod must still handle unavailable game data: an exception in its callback is subject to the boot phase's
+startup failure policy.
+
+The main Play action runs this step for the active profile, after refreshing that profile and cooking it. **Play once
+with another profile and Launch in the modpack-offer dialog currently bypass this step.** Before either path, run
+`kiln boot-snapshot --game <dir>` once for that game build. Launching through Steam also uses only a snapshot already
+made; it does not run the producer.
 
 ## What it costs
 
@@ -29,8 +36,10 @@ loaders (EML, SET, ShroudForge, Flame, ...) never need it. When no mod needs it,
 is (a later start with an OnBoot mod reuses it).
 
 - **The first start after a game update**: half a minute to a minute (32 to 44 s measured on a busy PC, the client's
-  and a dedicated server's data alike). Every later start: well under a second (one SHA-256 of the game's exe and one
-  64 KiB read).
+  and a dedicated server's data alike). A later start hashes the exe, reads the 64 KiB archive header, and verifies
+  checksums of all eight snapshot files (about 200 MB of reads). Reuse time depends on storage speed; the earlier
+  sub-second measurements predate checksum verification. A damaged snapshot is rebuilt. Older snapshots without
+  producer checksums are rebuilt once, while the reader's format remains 1.
 - **Disk**: about **200 MB** in the game folder (209 MB for game build 1287369: templates 158 MB, items 48 MB). One
   snapshot is kept: the one of the current game build. An older one is deleted only after the new one is written and
   reads back.
@@ -40,9 +49,14 @@ is (a later start with an OnBoot mod reuses it).
 
 `<game folder>/kiln/data/boot-gamedata/<key>/`, where `<key>` names the game build: the first 32 hex digits of the
 SHA-256 of the game exe's SHA-256 and the version string of the game's `.kfc`. kiln.boot computes the same key at boot
-and opens only that folder. The files (`index.json` written last, then one index and one data file per kind) follow
+and opens only that folder. The key hashes the exe's 64 lower-case SHA-256 hex characters, one newline, then the archive
+version bytes, and keeps the first 32 lower-case hex characters. The files (`index.json` written last, alongside one
+index and one data file per kind) follow
 the snapshot contract, format 1, which Kiln's boot service reads; a folder without a readable `index.json` is not a
 snapshot.
+
+The producer refuses symlinks and Windows junctions in the output tree below the selected game folder. Its `--root`
+option must name that same output directory. A concurrent producer refuses immediately; a later start can retry.
 
 ## What it holds
 
@@ -71,6 +85,11 @@ after world load.
   programs. A config only a mod's program names reads as its `0x…` id in the snapshot.
 - **An optional or variant member holding a single number** reads as `null`, as the live reader shows it.
 - **A value larger than 4 MiB** is not stored (a `skipped` line says so).
+- **Decoder budgets** also refuse oversized or malformed inputs before large allocations: 256 MiB executable/image,
+  16 MiB archive directory or resource blob, 8 MiB decompressed chunk, 100,000 entries per kind and 100,000 JSON nodes
+  per value. Each kind's data is limited to 1 GiB and each index to 32 MiB. A value exceeding its walk/byte budget is
+  skipped with a reason; an archive exceeding its input budgets is refused. These bounds can require an update to
+  the producer after a game format change.
 - **A kind the game's archive cannot give** (a type the reflection lacks after a game update) is written empty: every
   read of that kind finds nothing. The launcher, `kiln boot-snapshot` and the deploy step each name such a kind in a
   warning.
