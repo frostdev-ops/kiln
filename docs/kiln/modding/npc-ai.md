@@ -138,7 +138,9 @@ written. When the brain stops (the creature is gone, the brain threw) or its mod
 the broker gives the body back: its `SteeringAgent` (with its transient fields zeroed) and the game's AI. With
 `creature_control` off, or when the broker refuses the lease or the lease fails before it drives (the body never got
 ready, its action did not end within 5 s), the old behaviour stays: the AI is switched off, a warning is logged once
-(and an info line for each failed lease), and the body does not walk.
+(and an info line for each failed lease), and the body does not walk. Because a brain creature's body is leased,
+the broker's two removals apply to it: a body the broker cannot give back as it was is removed from the world, and
+when the broker itself has to stop, every body it holds, brain creatures included, is removed at the next step.
 
 ## Mistakes, refused by name
 `block creature warden, ai.flee.below: 2 is outside 0..1`; `ai.senseFilter: no sense filter "tokens": register it with Blocks.SenseFilter(...)`;
