@@ -38,7 +38,8 @@ public sealed record BootJsonDefinitionResult(bool Ok, string? Reason, string Ki
 
 /// <summary>A mod's boot definitions are in the published generation: once per runtime activation of the mod (a hosted world's new instance
 /// gets it again, with the same <see cref="Generation"/>: nothing was committed again). Delivered on the first service dispatch after the
-/// mod's runtime instance loaded; there may be no world yet.</summary>
+/// mod's runtime instance loaded; there may be no world yet. Every committed boot mod gets it, also one that staged nothing (its files are
+/// in the generation; <see cref="Definitions"/> is empty).</summary>
 [AnyThread]
 public sealed class BootDefinitionsCommittedEvent : KilnEvent
 {

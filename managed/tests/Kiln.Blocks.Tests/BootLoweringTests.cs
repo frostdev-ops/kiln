@@ -35,6 +35,25 @@ public sealed class BootLoweringTests : IDisposable
     private static JsonObject Lower(string request) => JsonNode.Parse(BootLowering.LowerOwner(request))!.AsObject();
 
     [Fact]
+    public void A_committed_mod_that_staged_nothing_still_gets_its_event()
+    {
+        BootGeneration.Record(1, [new BootModReport("files-only", 1, BootModState.Committed, [], [])], new Dictionary<string, IReadOnlyList<BootStaged>>());
+        try
+        {
+            var got = new List<BootDefinitionsCommittedEvent>();
+            using var sub = Events.On<BootDefinitionsCommittedEvent>(got.Add);
+            BootLowering.ActivateNow("files-only");
+            var e = Assert.Single(got);
+            Assert.Equal(("files-only", 1ul), (e.ModId, e.Generation));
+            Assert.Empty(e.Definitions);
+        }
+        finally
+        {
+            BootGeneration.Record(0, [], new Dictionary<string, IReadOnlyList<BootStaged>>());
+        }
+    }
+
+    [Fact]
     public void A_resource_patch_is_staged_as_its_document_and_goes_to_the_patches_collector()
     {
         var f = new BootContext("boot-gallery", 1, BootRoles.DedicatedServer, new UnavailableGameData());
@@ -150,6 +169,30 @@ public sealed class BootLoweringTests : IDisposable
         Assert.Equal("ShadowedByFile", (string?)issue["code"]);
         Assert.Equal("cold", (string?)issue["key"]);
         Assert.DoesNotContain(r["docs"]!["content"]!.AsArray(), d => (string?)d!["document"]!["section"] == "buffs");
+    }
+
+    [Fact]
+    public void A_boot_definition_that_names_another_mods_block_or_a_data_file_block_is_refused_by_name()
+    {
+        var f = new BootContext("boot-gallery", 1, BootRoles.DedicatedServer, new UnavailableGameData());
+        Assert.True(BootDefinitions.For(f).Define("frost-hit", new EffectBlock { Applies = new StatusApply { Status = "other-mod:frost" } }).Ok);
+        var r = Lower(Request(f.Staged));
+        Assert.False(r["ok"]!.GetValue<bool>());
+        Assert.Contains("BootReferenceOutside", (string?)r["reason"]);
+        Assert.Contains("mod other-mod", (string?)r["reason"]);
+
+        // the mod's own data file: "chill" is there, so the staged effect cannot name it
+        Directory.CreateDirectory(Path.Combine(_dir, "blocks"));
+        File.WriteAllText(Path.Combine(_dir, "blocks", "gallery.json"), """{ "statuses": { "chill": { "name": "File Chill", "seconds": 9 } } }""");
+        var g = new BootContext("boot-gallery", 1, BootRoles.DedicatedServer, new UnavailableGameData());
+        Assert.True(BootDefinitions.For(g).Define("chill-hit", new EffectBlock { Applies = new StatusApply { Status = "chill" } }).Ok);
+        r = Lower(Request(g.Staged, _dir));
+        Assert.False(r["ok"]!.GetValue<bool>());
+        Assert.Contains("BootReferenceOutside", (string?)r["reason"]);
+        Assert.Contains("data files", (string?)r["reason"]);
+
+        // staged before it in the same OnBoot: fine (the sample's cold-hit names cold)
+        Assert.True(Lower(Request(Sample()))["ok"]!.GetValue<bool>());
     }
 
     [Fact]

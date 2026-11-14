@@ -67,6 +67,7 @@ internal unsafe struct KilnBootApi
     public delegate* unmanaged[Cdecl]<ulong, KilnBootIssueV1*, uint, uint, uint*, int> Issues;
     public delegate* unmanaged[Cdecl]<ulong, KilnStr, void*, void*, int> Collector;
     public delegate* unmanaged[Cdecl]<KilnStr, ulong*, void*> ActivePlan;
+    public delegate* unmanaged[Cdecl]<ulong, KilnStr, KilnStr, KilnStr, KilnStr, int> ActivationFault;  // a collector's, not Kiln.Host's
 }
 
 /// <summary>The offline game-data view over kiln.boot's read_resource (chapter 08 §4.1): one query per call, the author's frame.</summary>
@@ -74,13 +75,19 @@ internal sealed unsafe class BootGameData(KilnBootApi* table, ulong author) : IR
 {
     internal BootContext? Frame { get; set; }
 
+    /// <summary>The first buffer of a read: most records fit, so one call answers.</summary>
+    internal const int FirstBuffer = 64 * 1024;
+
+    /// <summary>The largest record a read takes (a larger required size is not retried).</summary>
+    internal const uint MaxRecord = 4u << 20;
+
     public BootDataResult Read(string key)
     {
         ArgumentNullException.ThrowIfNull(key);
         if (Frame is { Open: false }) return new BootDataResult(false, "PhaseClosed: the boot-author frame is closed; the game's data is read inside OnBoot only", null);
         if (!Kiln.Capabilities.Is("mods.boot.game_data")) throw new KilnUnavailableException("mods.boot.game_data", Kiln.Capabilities.Why("mods.boot.game_data"));
         var bytes = Encoding.UTF8.GetBytes(key);
-        nuint capacity = 4096;
+        nuint capacity = FirstBuffer;
         while (true)
         {
             var buf = new byte[(int)capacity];
@@ -100,12 +107,12 @@ internal sealed unsafe class BootGameData(KilnBootApi* table, ulong author) : IR
                         root.GetProperty("part").GetInt32(), root.GetProperty("value").Clone());
                     return new BootDataResult(true, null, value);
                 }
-                case 5 when required > capacity && required <= 4u << 20:  // KILN_ERR_BUFFER_TOO_SMALL: again with the room it needs
+                case KilnAbi.ErrBufferTooSmall when required > capacity && required <= MaxRecord:  // again with the room it needs
                     capacity = required;
                     continue;
-                case 2: return new BootDataResult(false, $"NotFound: no record {key} in the game's data", null);
-                case 6: return new BootDataResult(false, "PhaseClosed: the boot-author frame is closed", null);
-                case 1: throw new ArgumentException($"\"{key}\" is not a game-data query (item:, template:, skill:0x..., material:, resource:)", nameof(key));
+                case KilnAbi.ErrNotFound: return new BootDataResult(false, $"NotFound: no record {key} in the game's data", null);
+                case KilnAbi.ErrRevoked: return new BootDataResult(false, "PhaseClosed: the boot-author frame is closed", null);
+                case KilnAbi.ErrInvalidArgument: throw new ArgumentException($"\"{key}\" is not a game-data query (item:, template:, skill:0x..., material:, resource:)", nameof(key));
                 default:
                     if (!Kiln.Capabilities.Is("mods.boot.game_data")) throw new KilnUnavailableException("mods.boot.game_data", Kiln.Capabilities.Why("mods.boot.game_data"));
                     return new BootDataResult(false, $"Unavailable: kiln.boot could not answer {key} (rc {rc}): a type the view cannot decode, or the budget is spent", null);
@@ -238,7 +245,9 @@ internal static unsafe class BootPhase
                 if (!bootOn)
                 {
                     a.State = BootModState.ExcludedCallback;
-                    a.Issues.Add(new BootIssue(id, "", "", "callback", "BootCapOff", $"mods.boot is off: {Kiln.Capabilities.Why("mods.boot")}; its OnBoot does not run"));
+                    var off = $"mods.boot is off: {Kiln.Capabilities.Why("mods.boot")}; its OnBoot does not run";
+                    a.Issues.Add(new BootIssue(id, "", "", "callback", "BootCapOff", off));
+                    Refusal(owner, gen, off);
                     t->FinishOwner(owner, gen, 0);
                     return;
                 }
@@ -252,6 +261,7 @@ internal static unsafe class BootPhase
                     a.State = BootModState.ExcludedCallback;
                     a.Issues.Add(new BootIssue(id, "", "", "callback", "CallbackFailed", why));
                     log(LogLevel.Error, $"boot: {id}: {why}; none of its definitions or files are in the boot generation");
+                    Refusal(owner, gen, why);  // kiln.boot's CallbackFailed issue (boot.json) says the same
                 }
                 else
                 {
@@ -263,6 +273,17 @@ internal static unsafe class BootPhase
             {
                 mods.Host.OwnerRevoke(owner);
             }
+        }
+
+        // Why the author's frame fails, staged before finish_owner: kiln.boot puts it in the frame's CallbackFailed issue.
+        private void Refusal(ulong owner, ulong gen, string why)
+        {
+            var r = new KilnBootStageResultV1 { Size = (uint)sizeof(KilnBootStageResultV1) };
+            byte[] kb = U("ir"), nb = U("refusal"), jb = U(new JsonObject { ["reason"] = why.Length > 1024 ? why[..1024] : why }.ToJsonString());
+            fixed (byte* k = kb)
+            fixed (byte* n = nb)
+            fixed (byte* j = jb)
+                t->Stage(owner, gen, S(k, kb), S(n, nb), S(j, jb), &r);  // an older kiln.boot answers INVALID_ARGUMENT: its generic text stays
         }
 
         private (bool, string?) Stage(ulong owner, ulong gen, string kind, string key, string json)
@@ -416,6 +437,16 @@ internal static unsafe class BootPhase
 internal sealed partial class ModManager
 {
     private readonly Dictionary<string, string> _bootFingerprints = new(StringComparer.Ordinal);
+
+    /// <summary>A committed boot mod's runtime instance loaded: Kiln.Blocks runs its definitions' runtime parts and posts
+    /// BootDefinitionsCommittedEvent, also for a mod that staged nothing (then Kiln.Blocks lowered nothing in this process and
+    /// has not set the hook yet: its type initializer sets it).</summary>
+    internal static void ActivateBoot(string modId)
+    {
+        if (BootGeneration.Activated == null && Type.GetType("Kiln.BootLowering, Kiln.Blocks") is { } lowering)
+            System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(lowering.TypeHandle);
+        BootGeneration.Activated?.Invoke(modId);
+    }
 
     internal IHostServices Host => _host;
 

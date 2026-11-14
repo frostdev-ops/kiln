@@ -529,7 +529,7 @@ internal sealed partial class ModManager : IModsBackend, IDisposable
                 mod.Loaded = true;
                 // a committed boot mod's runtime activation: its definitions' runtime parts and BootDefinitionsCommittedEvent (Kiln.Blocks)
                 if (manifest.Boot != ManifestBoot.None && BootGeneration.Report(manifest.Id) is { State: BootModState.Committed })
-                    BootGeneration.Activated?.Invoke(manifest.Id);
+                    ActivateBoot(manifest.Id);
             }
             else
             {

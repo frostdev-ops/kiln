@@ -77,6 +77,7 @@ internal sealed class BlockContext(ModBlocks mod, string block)
 
     private BlockHandle Lookup(string name, string path)
     {
+        if (Lowered._bootLowering) return BootLowering.Reference(Mod, Block, name, path);  // only what this OnBoot staged before it
         var colon = name.IndexOf(':');
         // a product of a kind's plan names another by "consumer-mod:kind-...": staged with it, not published yet
         if (colon > 0 && Mod.StagesFor != null && name.AsSpan(0, colon).SequenceEqual(Mod.Id))
