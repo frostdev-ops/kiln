@@ -155,6 +155,44 @@ using var sub = Events.On<ComponentWrittenEvent>(e => Log.Info($"{e.Component} o
   is being set up (or none runs) `FactsKnown` is false: the counts are 0 and the flags null, never the previous
   world's.
 
+### Transform scale
+Since 0.2.0-dev.28. `World.SetTransformScale(entity, new Scale3(1.25f, 0.75f, 1.5f))` sets the three scale factors of an
+entity's `CurrentTransform` (X, Y up, Z) through the game's write tracking: one tracked write of 12 bytes
+(`World.WriteAt<Scale3>`) at the place the game's own type table gives (`CurrentTransform.transform.scale`, a
+`keen::float3` at +40 on the server build f0d824be), so position and orientation stay as they are. It is the C#
+equivalent of ShroudForge's scale setter. Sample: `mods/samples/TransformScale` (`/tscale`).
+```csharp
+if (!Capabilities.Is(World.TransformScaleCapability)) return;       // "world.transform_scale"
+EntityScaleResult r = await World.SetTransformScale(prop, new Scale3(1.25f, 0.75f, 1.5f));
+if (!r.Ok) Log.Warn(r.Reason);                                       // NotDeclared, NoComponent, Dropped, ...
+Log.Info($"{r.Before} -> {r.Now}, kept {r.Kept}, save {r.SaveTracked}");
+Events.On<EntityScaleChangedEvent>(e => Log.Info(e.ToString()));
+```
+| Member | Side, threads | Answers |
+|---|---|---|
+| `World.SetTransformScale(entity, scale)` | server world; tick thread | `Task<EntityScaleResult>`: `Entity`, `Before`, `Requested`, `Now`, `Kept`, `WorldWriteStatus`, `Reason`, `SaveTracked`, `ReplicationTracked`, `Ok`, `Changed` |
+| `Scale3(X, Y, Z)` | any | three sequential float32 (12 bytes); `One`, `Uniform(f)`, `IsValid`; JSON `{"x":…,"y":…,"z":…}` ([schema](../../../schema/scale3.schema.json)) |
+| `EntityScaleChangedEvent` | tick thread | a committed write that changed the vector: `Entity`, `Before`, `Now`, `ModId`, `Result` |
+
+- **What it is not.** The rendered transform only: colliders, attachments and `ScaleComponent` keep their size, and
+  nothing is promised about physics. A creature's uniform size is `CreatureRef.Scale` (unchanged). What a player sees,
+  and what a vanilla player sees, is check `13-world.transform-scale` of the guided game test; until it has run the docs
+  claim the tracked write and its readback only.
+- **The place of the scale** is read from the game's type table when Kiln.World starts (its first use): `transform`, then
+  `scale`, of one of two shapes (a struct of three float32 at 0, 4, 8, or a static array of three float32), 12 bytes,
+  inside the component, 4-aligned. Any other shape turns `world.transform_scale` off with what was found; nothing is
+  written at an assumed offset. kiln.types must be running.
+- **Declare it.** The mod lists `CurrentTransform` under `"writes"`; Kiln.Sdk adds it from a `SetTransformScale` call at
+  build time. Without it the answer is `NotDeclared` (`Ok = false`), never a raw write.
+- **Arguments.** Each factor finite and above 0; `EntityId.None` or another value throws `ArgumentException` and sends
+  nothing. ShroudForge's own Lua setter, hosted unchanged, keeps its broader rule.
+- **The answer** is the tracked write's: `Before` and `Now` are the 12 bytes the write read and left in the step it ran
+  (null on a refusal), `Kept` is the readback one step later where the game writes the type too, `SaveTracked` and
+  `ReplicationTracked` are the game's own per-type bits from the same answer. Whether a save and restart bring the scale
+  back is recorded by the lab's `world-writes-test` (boot 2 logs it), not promised.
+- **Capabilities:** `world.transform_scale` (Kiln.World's row: the layout) and `world.tracked_writes`; either off throws
+  `KilnUnavailableException` naming it.
+
 ### Entity sets
 `World.Query(with…)` and `World.Query(with, without)` give an `EntitySet`: the entities that have every component of
 one list and none of the other, read at that moment (`Query<T>()`, `Query<T1, T2>()` take generated types). A set is a

@@ -5,10 +5,12 @@
 // The pack does not reference Kiln.Assets (ClientPass.csproj is not this package's file), so the catalog is reached through
 // the shared Kiln.Assets assembly the host has loaded, by name: the same calls a mod makes.
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text.Json;
 using Kiln;
 using Kiln.Testing;
+using static Kiln.Testing.ClientCheckTags;
 
 namespace ClientPass;
 
@@ -118,6 +120,57 @@ public sealed partial class ClientPassMod
         c.Instruct("Nothing to look at: the assertions compared Kiln's catalog in this game with the game's own index. Did the game " +
                    "run on normally while the check ran (no stutter longer than a second, no texture that went wrong)? For the " +
                    "joined half, join a Kiln server with this profile and run assets-test there (its log has PASS assets.full-catalog).");
+        await c.Verdict();
+    }
+
+    [ClientCheck("13-world.transform-scale", "Rendered scale versus collision and save", Area = Dev2813bArea, Since = Dev28,
+        Tags = [Visual], Needs = ClientCheckNeeds.Hosted, Order = 3801)]
+    public async Task WorldTransformScale(CheckContext c)
+    {
+        if (!await NeedPlayer(c)) return;
+        // the pack writes CurrentTransform only when its kiln.mod.json lists it under "writes" (routed with this package)
+        if (World.WriteInfo("CurrentTransform") is { CanWrite: false } info)
+        {
+            c.Instruct($"This check writes CurrentTransform, which the client-pass mod cannot yet ({info.Reason}). Press skip now.");
+            await c.Verdict();
+            return;
+        }
+        if (!c.Expect(Capabilities.Is(World.TransformScaleCapability), "world.transform_scale is available", Capabilities.Why(World.TransformScaleCapability)))
+        {
+            await c.Verdict();
+            return;
+        }
+        c.Instruct("Place a wooden chest (or any chest) on open ground two or three metres in front of you, step back so you see " +
+                   "all of it, and press continue.");
+        await c.Verdict();
+        var me = World.Position(c.Player);
+        var prop = me is null ? EntityId.None
+            : World.Find("UsedItem").Where(e => World.Position(e) is { } p && p.DistanceTo(me.Value) < 8)
+                .OrderBy(e => World.Position(e)!.Value.DistanceTo(me.Value)).FirstOrDefault();
+        if (!c.Expect(!prop.IsNone, "a chest within 8 m")) { await c.Verdict(); return; }
+        // where the scale is, read through the public reflection API (the service finds it the same way)
+        var ct = GameTypes.Find("keen::ecs::CurrentTransform");
+        var at = ct?.Field("transform") is { } tf && tf.Type.Resolved.Field("scale") is { } sf ? tf.Offset + sf.Offset : 40;
+        var before = World.ReadBytes(prop, "CurrentTransform") ?? [];
+        var asked = new Scale3(1.25f, 0.75f, 1.5f);
+        var r = await World.SetTransformScale(prop, asked);
+        await c.Ticks(1);
+        var after = World.ReadBytes(prop, "CurrentTransform") ?? [];
+        var changed = Enumerable.Range(0, Math.Min(before.Length, after.Length)).Where(i => before[i] != after[i]).ToArray();
+        c.Expect(r is { Ok: true, WorldWriteStatus: WorldWriteStatus.Written } && r.Now == asked, "the scale was written", r.ToString());
+        c.Expect(changed.Length > 0 && changed.All(i => i >= at && i < at + 12), $"only the 12 scale bytes (+{at}) changed", string.Join(",", changed));
+        c.Instruct("The chest is now drawn 1.25 times as wide (X), 0.75 times as tall and 1.5 times as deep. 1) Is it drawn at that " +
+                   "size, in place, without flicker? 2) Walk into it and jump on it: does its collision follow the new size or the " +
+                   "old one (say which; Kiln does not promise collision)? 3) Open it: does it still open? Answer in the note.");
+        await c.Verdict();
+        var original = before.Length >= at + 12 ? MemoryMarshal.Read<Scale3>(before.AsSpan(at)) : Scale3.One;
+        var back = await World.SetTransformScale(prop, original.IsValid ? original : Scale3.One);
+        await c.Ticks(1);
+        c.Expect(back.Ok && (World.ReadBytes(prop, "CurrentTransform") ?? []).AsSpan().SequenceEqual(before), "restored: every byte as before", back.ToString());
+        c.Instruct("The chest is back at its size. Is it drawn as before? Then set it once more with the transform-scale sample " +
+                   "(/tscale <id> 1.25 0.75 1.5; the id is in kiln.log), save, quit to the menu, load the world again and say whether " +
+                   $"the chest came back scaled (chest {prop}). A vanilla viewer (a second player without Kiln), if you have one: what " +
+                   "does that player see?");
         await c.Verdict();
     }
 }
