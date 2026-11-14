@@ -259,3 +259,5 @@ a held row reads `unavailable`, `policy`, `game test pending: <ids>` until then.
 
 | Row | Kind | Reported by | Held until | What it says |
 |---|---|---|---|---|
+| `types.impact_names` | service row | kiln.types at its start | not held | the Impact-name field of the game's type table validated on this build: `GameType.ImpactName`, `GameTypes.ByImpactName`, `FindAllByImpactName` ([types.md](types.md#impact-names-since-020-dev28)); off with the counts that failed, or missing with a kiln.types older than 0.2.0-dev.28 |
+| `assets.blob_catalog` | managed row | Kiln.Assets at its start | game client: `13-assets.catalog-client` | the content blob catalog (`Assets.OpenBlobCatalog`, [assets.md](assets.md#the-content-blob-catalog)): kiln.assets' table has it and the content hooks are on; `service-older` with an older kiln.assets |

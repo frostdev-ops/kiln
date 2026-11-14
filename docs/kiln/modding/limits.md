@@ -21,6 +21,8 @@ guided game test ([services/caps.md](../services/caps.md#the-client-gate-dev28))
 
 | Row below (or new) | What dev.28 does | Capability | Proof so far |
 |---|---|---|---|
+| new: a type by its Impact name (ShroudForge's `get_by_impact_name`) | `GameType.ImpactName`, `GameTypes.ByImpactName`, `FindAllByImpactName`; a `keen::ds::` mirror shares its runtime type's name, so most ECS names are ambiguous for the single lookup | `types.impact_names` | host test over both exes; works on a test server (`PASS types.impact-names`) |
+| new: every content blob the game serves (ShroudForge's file-content listing, EML's `get_all_contents` in C#) | `Assets.OpenBlobCatalog`: the game's content index and every registration, with origins and the served winner, paged from an immutable snapshot; `Assets.ReadBlob` | `assets.blob_catalog` (held in a game client) | host and unit tests; works on a test server (`PASS assets.full-catalog`); game client: check `13-assets.catalog-client` |
 
 ## No API yet
 
