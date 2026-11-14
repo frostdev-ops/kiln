@@ -9,6 +9,7 @@ gamedata_walk.cpp node_json / leaf_json / leaf_of, depth 12), not produced by th
 import hashlib
 import json
 import os
+import shutil
 import signal
 import struct
 import subprocess
@@ -606,10 +607,21 @@ class SnapshotTests(unittest.TestCase):
             (work / f"test.{n}").rename(g / f"enshrouded_server.{n}")
         r = self.make()
         d = Path(r["path"])
+        self.assertEqual(r["archive"], "backup")
         self.assertEqual(snapshot.read_value(d, "items", "Material_T1_Wood_Logs")[1], EXPECTED_ITEM, "the game's own item")
+        # an older EML kept the header alone: the backup header with the live resources (EML reads it so too)
+        patched = (g / "enshrouded_server.kfc_resources").read_bytes()
+        (g / "enshrouded_server.kfc_resources").unlink()
+        (g / "enshrouded_server.kfc_resources.bak").rename(g / "enshrouded_server.kfc_resources")
+        r = self.make(force=True)
+        self.assertEqual(r["archive"], "backup header")
+        self.assertEqual(snapshot.read_value(Path(r["path"]), "items", "Material_T1_Wood_Logs")[1], EXPECTED_ITEM)
+        # after a game update the backup is of the old build and the live pair is the game's new one: the live pair is read
+        (g / "enshrouded_server.kfc_resources").write_bytes(patched)
         set_version(g / "enshrouded_server.kfc.bak", b"0|^/test|2026-11-01")
-        with self.assertRaisesRegex(snapshot.SnapshotError, "another game build"):
-            self.make(force=True)
+        r = self.make(force=True)
+        self.assertEqual(r["archive"], "plain (the backup is of another game build)")
+        self.assertNotEqual(snapshot.read_value(Path(r["path"]), "items", "Material_T1_Wood_Logs")[1], EXPECTED_ITEM, "the live item")
 
     def test_values_over_the_bound_are_skipped(self):
         self.assertEqual(snapshot.VALUE_MAX, 4 * 1024 * 1024 - 256)
@@ -624,6 +636,57 @@ class SnapshotTests(unittest.TestCase):
         items = json.loads((Path(r["path"]) / "items.index.json").read_text())
         self.assertNotIn("Material_T1_Wood_Logs", items["entries"])
         self.assertEqual(idx["counts"]["skills"], 2, "small values are kept")
+
+    def test_a_kind_that_cannot_be_read_is_named(self):
+        res = [r for r in resources() if r[1] != fnv("keen::SkillTreeResource")]
+        shutil.rmtree(self.game)
+        self.game = make_game(Path(self.tmp.name) / "game", res)
+        r = self.make()
+        self.assertEqual((r["status"], r["emptyKinds"]), ("made", ["skills"]))
+        idx = json.loads((Path(r["path"]) / "index.json").read_text())
+        self.assertEqual(idx["counts"]["skills"], 0)
+        self.assertIn({"kind": "skills", "name": "", "reason": "kind not read: the archive has no keen::SkillTreeResource"}, idx["skipped"])
+        self.assertEqual(self.make()["emptyKinds"], ["skills"], "a reuse says it too")
+
+    def test_the_archive_is_closed_before_the_rename(self):
+        seen, real = [], os.rename
+        made = []
+
+        def factory(exe):
+            src = source_for(exe)
+            made.append(src)
+            return src
+
+        def rename(a, b):
+            seen.append(made[0].kfc._res_file is None or made[0].kfc._res_file.closed)
+            return real(a, b)
+        snapshot.os.rename = rename
+        try:
+            snapshot.make(self.game, factory)
+        finally:
+            snapshot.os.rename = real
+        self.assertEqual(seen, [True], "the resource file is closed when the directory is renamed")
+
+    def test_older_keys_stay_until_the_new_one_reads_back(self):
+        self.make()
+        old = self.key()
+        set_version(self.game / "enshrouded_server.kfc", b"2|^/test|2026-11-05")
+
+        def boom(kind, tmp):
+            raise RuntimeError("stop")
+        with self.assertRaises(RuntimeError):
+            self.make(after_kind=boom)
+        self.assertTrue(snapshot.valid(self.root / old, old), "a failed run removes nothing")
+        real = snapshot.valid
+        snapshot.valid = lambda path, key: False if Path(path).name == key and key != old else real(path, key)
+        try:
+            with self.assertRaisesRegex(snapshot.SnapshotError, "does not read back"):
+                self.make()
+        finally:
+            snapshot.valid = real
+        self.assertTrue(real(self.root / old, old), "a new snapshot that does not read back removes nothing")
+        self.assertEqual(self.make()["status"], "made")
+        self.assertEqual([p.name for p in self.root.iterdir()], [self.key()])
 
     def test_client_side_and_no_exe(self):
         c = make_game(Path(self.tmp.name) / "client", name="enshrouded")

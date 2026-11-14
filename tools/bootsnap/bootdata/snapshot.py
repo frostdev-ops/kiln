@@ -82,6 +82,33 @@ def root_of(game):
     return Path(game) / "kiln" / "data" / "boot-gamedata"
 
 
+def archive_files(exe):
+    """The files that hold the game's data as it shipped: (index, resources, which).
+
+    EML (gpl/kiln-eml) backs the pair up before its first patch (`create_backup`: `.kfc_resources.bak`, then `.kfc.bak`,
+    then a seal) and patches only after that, so a patched pair always has a backup beside it. Older EML kept the
+    header alone (`.kfc.bak` and the live `.kfc_resources`, whose prefix it checked). After a game update Steam puts
+    the new vanilla pair in place while the backup is still of the old build (EML replaces it at its next start): a
+    backup whose version string is not the live one is not the game's data any more, and the live pair is."""
+    plain = exe.with_suffix(".kfc")
+    res = Path(str(exe.with_suffix("")) + ".kfc_resources")
+    bak, bak_res = Path(str(plain) + ".bak"), Path(str(res) + ".bak")
+    if bak.is_file():
+        try:
+            same = kfc_version(bak) == kfc_version(plain)
+        except (OSError, SnapshotError):
+            same = False
+        if same:
+            return (bak, bak_res, "backup") if bak_res.is_file() else (bak, res, "backup header")
+        return plain, res, "plain (the backup is of another game build)"
+    return plain, res, "plain"
+
+
+def empty_kinds(skipped):
+    """The kinds written empty because the archive could not give them (their `skipped` line has no name)."""
+    return [s["kind"] for s in skipped if not s.get("name") and str(s.get("reason", "")).startswith("kind not read")]
+
+
 # ---- reading a snapshot back (reuse, `show`) ------------------------------------------------------------------------
 def valid(path, key):
     """A snapshot kiln.boot would read: index.json readable, format 1, its key the directory's and `key`, all eight kind
@@ -202,26 +229,24 @@ def write_kind(src, kind, out_dir, skipped, progress=None):
 
 
 def make(game, src_factory, exe=None, force=False, root=None, progress=None, after_kind=None):
-    """Makes (or reuses) the snapshot of the game in `game`. `src_factory(archive_dir_info)` builds the kinds.Source once
-    a build is needed. Returns a summary dict: status "reused" | "made", key, path, counts, seconds."""
+    """Makes (or reuses) the snapshot of the game in `game`. `src_factory(exe)` builds the kinds.Source once a build is
+    needed (it reads archive_files(exe)). Returns a summary dict: status "reused" | "made", key, path, emptyKinds,
+    seconds; a made one also counts, skipped, archive (which files were read) and bytes (its size on disk). Snapshots
+    of other keys are removed only after this key's is in place and reads back."""
     t0 = time.time()
     exe = find_exe(game, exe)
     plain = exe.with_suffix(".kfc")
     if not plain.is_file():
         raise SnapshotError(f"no {plain.name} beside {exe.name}")
-    version = kfc_version(plain)
-    bak = Path(str(plain) + ".bak")
-    if bak.is_file() and Path(str(exe.with_suffix("")) + ".kfc_resources.bak").is_file():
-        if kfc_version(bak) != version:
-            raise SnapshotError(f"{bak.name} is of another game build than {plain.name} ({kfc_version(bak).decode('utf-8', 'replace')} "
-                                f"against {version.decode('utf-8', 'replace')}): a stale backup of another loader")
+    version = kfc_version(plain)  # kiln.boot reads the live header: the key follows it
     exe_sha = file_sha256(exe)
     key = snapshot_key(exe_sha, version)
     root = Path(root) if root else root_of(game)
     final = root / key
     if not force and valid(final, key):
-        tidy(root, key)
-        return {"status": "reused", "key": key, "path": str(final), "seconds": round(time.time() - t0, 3)}
+        tidy(root, key)  # older keys go only once this one is known good
+        return {"status": "reused", "key": key, "path": str(final), "emptyKinds": _empty_kinds_of(final),
+                "seconds": round(time.time() - t0, 3)}
     root.mkdir(parents=True, exist_ok=True)
     tmp = root / f"{key}.tmp-{os.getpid()}"
     if tmp.exists():
@@ -253,8 +278,12 @@ def make(game, src_factory, exe=None, force=False, root=None, progress=None, aft
         except OSError:
             if valid(final, key):  # another producer finished the same key first: its snapshot stands
                 shutil.rmtree(tmp, ignore_errors=True)
-                return {"status": "reused", "key": key, "path": str(final), "seconds": round(time.time() - t0, 3)}
+                return {"status": "reused", "key": key, "path": str(final), "emptyKinds": _empty_kinds_of(final),
+                        "seconds": round(time.time() - t0, 3)}
             raise
+        if not valid(final, key):
+            shutil.rmtree(final, ignore_errors=True)
+            raise SnapshotError(f"{final}: the snapshot just written does not read back; older snapshots are kept")
         if old is not None:
             shutil.rmtree(old, ignore_errors=True)
     except BaseException:
@@ -262,6 +291,18 @@ def make(game, src_factory, exe=None, force=False, root=None, progress=None, aft
             src.close()
         shutil.rmtree(tmp, ignore_errors=True)
         raise
-    tidy(root, key)
+    tidy(root, key)  # written, renamed and read back: now the older keys go
     return {"status": "made", "key": key, "path": str(final), "counts": counts, "skipped": len(skipped),
+            "emptyKinds": empty_kinds(skipped), "archive": archive_files(exe)[2], "bytes": _size_of(final),
             "seconds": round(time.time() - t0, 3)}
+
+
+def _empty_kinds_of(path):
+    try:
+        return empty_kinds(json.loads((Path(path) / "index.json").read_text(encoding="utf-8")).get("skipped", []))
+    except (OSError, ValueError):
+        return []
+
+
+def _size_of(path):
+    return sum(p.stat().st_size for p in Path(path).iterdir() if p.is_file())

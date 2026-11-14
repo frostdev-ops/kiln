@@ -6,7 +6,7 @@
     bootsnap.py show --game <dir> [--root <dir>] <query>...      item:<name> template:<name> skill:0x<hex> material:<name>
     bootsnap.py key  --game <dir> [--exe <file>]
 
-`make` reads the game's own archive (the `.kfc.bak` pair another loader kept aside, else the plain pair) and the game
+`make` reads the game's own archive (snapshot.archive_files: the backup another loader kept aside, else the live pair) and the game
 executable's reflection, both as files (the executable is never run), and writes
 <game>/kiln/data/boot-gamedata/<key>/ unless a snapshot of that key is there already. Reuse costs one SHA-256 of the
 executable and one 64 KiB read. --json prints one JSON line with the result (kiln-manage reads it); progress goes to
@@ -28,11 +28,26 @@ from kfc.archive import Kfc  # noqa: E402
 QUERY_KINDS = {"item": "items", "template": "templates", "skill": "skills", "material": "materials"}
 
 
+def reflection(exe):
+    """The executable's reflection (refl.extract, about 2 s). A dump tools/kfc cached for this exact executable under
+    $KILN_OUT/types/<sha16>.json is read instead when there is one (developers and tests, as the cook tools do); this
+    tool never writes one."""
+    import hashlib
+    import os
+    out = os.environ.get("KILN_OUT")
+    if out:
+        cached = Path(out) / "types" / f"{hashlib.sha256(Path(exe).read_bytes()).hexdigest()[:16]}.json"
+        if cached.is_file():
+            return json.loads(cached.read_text())
+    return refl.extract(str(exe))
+
+
 def open_source(exe, extract=None):
     """The archive as the game shipped it (the `.bak` pair when another loader patched it), the type graph of `exe` (its
     reflection, read from the file), the config vocabulary of its impact programs. `extract`: tests give a type dump."""
-    kfc = Kfc.unpatched(exe.with_suffix(".kfc")) or Kfc(exe.with_suffix(".kfc"))
-    graph = live.Graph((extract or refl.extract)(str(exe)))
+    index, resources, _which = snapshot.archive_files(exe)
+    kfc = Kfc(index, stem=exe.with_suffix(""), resources=resources)
+    graph = live.Graph((extract or reflection)(str(exe)))
     configs = live.ConfigNames()
     for key in kfc.resources_of_type(kinds.fnv1a32("keen::ImpactProgram")):
         configs.add_program(graph, kfc.read(key))
@@ -46,14 +61,17 @@ def cmd_make(a):
 
     print("boot-snapshot: checking the game data snapshot", file=sys.stderr, flush=True)
     r = snapshot.make(a.game, open_source, exe=a.exe, force=a.force, root=a.root, progress=progress)
+    for kind in r.get("emptyKinds", []):  # a snapshot without this kind: every read of it in OnBoot answers "not found"
+        print(f"boot-snapshot: warning: the game's {kind} could not be read: the snapshot holds none, and an OnBoot "
+              f"read of {kind[:-1]}: finds nothing", file=sys.stderr, flush=True)
     if a.json:
         print(json.dumps(r))
     elif r["status"] == "reused":
         print(f"boot-snapshot: {r['path']} is current ({r['seconds']} s)")
     else:
         c = r["counts"]
-        print(f"boot-snapshot: wrote {r['path']} in {r['seconds']} s: {c['items']} items, {c['templates']} templates, "
-              f"{c['skills']} skills, {c['materials']} materials ({r['skipped']} skipped)")
+        print(f"boot-snapshot: wrote {r['path']} ({r['bytes'] / 1e6:.0f} MB, from the {r['archive']} archive) in {r['seconds']} s: "
+              f"{c['items']} items, {c['templates']} templates, {c['skills']} skills, {c['materials']} materials ({r['skipped']} skipped)")
     return 0
 
 
